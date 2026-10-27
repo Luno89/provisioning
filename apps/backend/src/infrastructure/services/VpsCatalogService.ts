@@ -46,7 +46,7 @@ export class VpsCatalogService {
         userCreds = { [provider]: { token: decryptValue(enc, this.masterKey) } };
       } catch { /* ignored */ }
     }
-    const env = resolveCloudCredentials(provider, userCreds).env;
+    const env = resolveCloudCredentials(provider, userCreds, user?.isAdmin === true).env;
     return env.HCLOUD_TOKEN ?? env.DIGITALOCEAN_TOKEN;
   }
 

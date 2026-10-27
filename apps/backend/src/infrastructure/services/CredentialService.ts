@@ -326,7 +326,7 @@ export class CredentialService {
     ];
 
     return providers.map(({ key, label }) => {
-      const resolved = resolveCloudCredentials(key, user?.credentials ? this.decryptAll(user.credentials, key) : undefined);
+      const resolved = resolveCloudCredentials(key, user?.credentials ? this.decryptAll(user.credentials, key) : undefined, user?.isAdmin === true);
 
       if (resolved.mode === 'mock') {
         return { provider: key, label, configured: false };
@@ -413,7 +413,7 @@ export class CredentialService {
   async resolveCredentials(userId: string, provider: string): Promise<ResolvedCredentials> {
     const user = await this.db.accounts.getUserById(userId);
     const decrypted = user?.credentials ? this.decryptAll(user.credentials, provider) : undefined;
-    return resolveCloudCredentials(provider, decrypted);
+    return resolveCloudCredentials(provider, decrypted, user?.isAdmin === true);
   }
 
   private decryptAll(credentials: CloudCredentials, provider: string): CloudCredentials {

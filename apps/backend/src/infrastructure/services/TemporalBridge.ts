@@ -713,8 +713,10 @@ export class TemporalBridge {
 
   private async resolveHetznerToken(userId?: string): Promise<string | undefined> {
     let userCreds: any
+    let asOperator = !userId
     if (userId) {
       const user = await this.db.accounts.getUserById(userId)
+      asOperator = user?.isAdmin === true
       const enc = (user?.credentials as any)?.hetzner?.token
       if (enc) {
         try {
@@ -722,13 +724,15 @@ export class TemporalBridge {
         } catch { /* ignored */ }
       }
     }
-    return resolveCloudCredentials('hetzner', userCreds).env.HCLOUD_TOKEN
+    return resolveCloudCredentials('hetzner', userCreds, asOperator).env.HCLOUD_TOKEN
   }
 
   private async resolveDoToken(userId?: string): Promise<string | undefined> {
     let userCreds: any
+    let asOperator = !userId
     if (userId) {
       const user = await this.db.accounts.getUserById(userId)
+      asOperator = user?.isAdmin === true
       const enc = (user?.credentials as any)?.do?.token
       if (enc) {
         try {
@@ -736,7 +740,7 @@ export class TemporalBridge {
         } catch { /* ignored */ }
       }
     }
-    return resolveCloudCredentials('do', userCreds).env.DIGITALOCEAN_TOKEN
+    return resolveCloudCredentials('do', userCreds, asOperator).env.DIGITALOCEAN_TOKEN
   }
 
   async provision(

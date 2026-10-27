@@ -156,8 +156,10 @@ export async function startAppDeploy(deps: AppDeployDeps, config: any, userId?: 
 
     if (!dep.vllmHfToken && !dep.tabbyHfToken && (dep.appType === 'vllm' || config.appType === 'vllm' || dep.appType === 'tabbyapi' || config.appType === 'tabbyapi')) {
       let userCreds;
+      let asOperator = !userId;
       if (userId) {
         const user = await deps.db.accounts.getUserById(userId);
+        asOperator = user?.isAdmin === true;
         const encryptedToken = user?.credentials?.huggingface?.hfToken;
         if (encryptedToken) {
           try {
@@ -165,7 +167,7 @@ export async function startAppDeploy(deps: AppDeployDeps, config: any, userId?: 
           } catch { /* ignored */ }
         }
       }
-      const resolved = resolveCloudCredentials('huggingface', userCreds);
+      const resolved = resolveCloudCredentials('huggingface', userCreds, asOperator);
       if (resolved.env.HF_TOKEN) {
         if (dep.appType === 'tabbyapi') {
           dep.tabbyHfToken = resolved.env.HF_TOKEN;

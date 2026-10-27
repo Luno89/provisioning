@@ -8,11 +8,12 @@ export interface ResolvedCredentials {
 export function resolveCloudCredentials(
   provider: string,
   userCreds: CloudCredentials | undefined,
+  asOperator = true,
 ): ResolvedCredentials {
   const fromUser = resolveFromUser(provider, userCreds);
   if (fromUser) return { mode: 'user', env: fromUser };
 
-  const fromEnv = resolveFromEnv(provider);
+  const fromEnv = asOperator ? resolveFromEnv(provider) : null;
   if (fromEnv) return { mode: 'env', env: fromEnv };
 
   return { mode: 'mock', env: {} };
