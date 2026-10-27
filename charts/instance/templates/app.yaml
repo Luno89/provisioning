@@ -58,6 +58,8 @@ spec:
           ports:
             - name: http
               containerPort: 3001
+            - name: machine-gateway
+              containerPort: 7234
           readinessProbe:
             httpGet:
               path: /api/auth/sign-in
@@ -137,6 +139,22 @@ spec:
       {{- if .Values.backend.nodePort }}
       nodePort: {{ .Values.backend.nodePort }}
       {{- end }}
+{{- if .Values.mesh.address }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "instance.name" . }}-machine-gateway
+  labels: {{- include "instance.labels" . | nindent 4 }}
+spec:
+  type: NodePort
+  selector: {{- include "instance.selector" (dict "root" . "component" "backend") | nindent 4 }}
+  ports:
+    - name: machine-gateway
+      port: 7234
+      targetPort: machine-gateway
+      nodePort: {{ .Values.machineGateway.nodePort }}
+{{- end }}
 {{- if .Values.routing.domain }}
 ---
 apiVersion: v1

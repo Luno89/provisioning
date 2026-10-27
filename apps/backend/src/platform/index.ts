@@ -2,7 +2,7 @@ export { CLI_CEILING } from './lib/activity-liveness.js';
 export { arrivedOverHttps, cookieNamed, e2eProblem, generateOTP, hashPassword, SESSION_COOKIE, SESSION_SECONDS, sessionEnded, sessionToken, signJWT, signsEveryoneIn, verifyJWT, verifyPassword } from './lib/auth.js';
 export type { AreaStore } from './lib/collection.js';
 export { CommandFailedError } from './lib/command-error.js';
-export { decryptValue, encryptValue, keyId, maskSecret } from './lib/crypto.js';
+export { decryptValue, encryptValue, keyId, maskSecret, ringOf } from './lib/crypto.js';
 export type { Keyring, SecretKey } from './lib/crypto.js';
 export { CSP_REPORT_PATH, cspHeader, cspModeFrom, violationLine } from './lib/csp.js';
 export { createDatabase, sharedPayloadBlobs } from './lib/db-interface.js';

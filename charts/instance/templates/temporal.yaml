@@ -77,10 +77,6 @@ metadata:
   labels: {{- include "instance.labels" . | nindent 4 }}
 spec:
   replicas: 1
-  {{- if .Values.mesh.address }}
-  strategy:
-    type: Recreate
-  {{- end }}
   selector:
     matchLabels: {{- include "instance.selector" (dict "root" . "component" "temporal") | nindent 6 }}
   template:
@@ -95,10 +91,6 @@ spec:
           {{- include "instance.resources" (dict "root" . "component" "temporal") | nindent 10 }}
           ports:
             - containerPort: 7233
-              {{- if .Values.mesh.address }}
-              hostIP: {{ .Values.mesh.address | quote }}
-              hostPort: 7233
-              {{- end }}
           env:
             - name: DB
               value: postgres12

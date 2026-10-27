@@ -24,6 +24,9 @@ mesh:
 backend:
   nodePort: null
 
+machineGateway:
+  nodePort: 30322
+
 routing:
   name: ""
   domain: ""

@@ -1,6 +1,8 @@
 import { blobFromWire, blobIdsFrom, type BlobReach, type Keyring, type StoredBlob } from '@koala/engine-core/payloads';
 
-export type RingAnswer = { ring: Keyring } | { error: string };
+export interface MachineTemporal { address: string; namespace: string }
+
+export type RingAnswer = { ring: Keyring; temporal?: MachineTemporal | undefined } | { error: string };
 export type PutAnswer = { ok: true } | { ok: false; error: string };
 export type GetAnswer = { found: Record<string, string> } | { error: string };
 
@@ -10,9 +12,9 @@ export interface MachinePayloads {
   get(raw: unknown): Promise<GetAnswer>;
 }
 
-export function machinePayloads(options: { ring: Keyring | undefined; blobs: BlobReach }): MachinePayloads {
+export function machinePayloads(options: { ring: Keyring | undefined; blobs: BlobReach; temporal?: MachineTemporal | undefined }): MachinePayloads {
   return {
-    ring: () => (options.ring ? { ring: options.ring } : { error: 'this Koala runs no work on machines' }),
+    ring: () => (options.ring ? { ring: options.ring, ...(options.temporal ? { temporal: options.temporal } : {}) } : { error: 'this Koala runs no work on machines' }),
     async put(raw) {
       const listed = (raw as { blobs?: unknown } | null)?.blobs;
       if (!Array.isArray(listed) || listed.length === 0) return { ok: false, error: 'no payloads were sent' };

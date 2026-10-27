@@ -7,6 +7,7 @@ import { loadKeys } from '../apps/backend/src/platform/lib/keys.js';
 import { ACP_STUB, chatsOnTheMachine } from './lib/machine-chat.js';
 import { createDisposableVm, type DisposableVm } from './lib/disposable-vm.js';
 
+const GATEWAY_PORT = 30322;
 const REPO = resolve(new URL('.', import.meta.url).pathname, '..');
 dotenv.config({ path: join(REPO, 'apps/backend/.env') });
 
@@ -106,15 +107,16 @@ async function main(): Promise<void> {
   instanceMeshIp = await meshIp(instanceVm);
   console.log(`  the instance is ${instanceMeshIp} on the mesh`);
   const envOf = JSON.parse(await inVm(instanceVm, 'sudo k3s kubectl -n nowrinkles get configmap instance-env -o jsonpath="{.data}"')) as Record<string, string>;
-  assert.equal(envOf.MACHINE_TEMPORAL_ADDRESS, `${instanceMeshIp}:7233`);
+  assert.equal(envOf.MACHINE_TEMPORAL_ADDRESS, `${instanceMeshIp}:${GATEWAY_PORT}`);
   assert.equal(envOf.MESH_LOGIN_SERVER, MESH);
 
-  step('its Temporal answers on its mesh address and nowhere else');
+  step('its Temporal answers only inside the instance; machines reach it through the gateway on the mesh');
   const ownAddress = (await inVm(instanceVm, 'hostname -I')).trim().split(/\s+/)[0]!;
   assert.match(ownAddress, /^10\.0\.2\.\d+$/, `the instance's own address is ${ownAddress}`);
-  assert.equal(await reaches(instanceVm, instanceMeshIp, 7233), true, 'Temporal does not answer on the instance\'s mesh address');
+  assert.equal(await reaches(instanceVm, instanceMeshIp, 7233), false, 'Temporal answers on the instance\'s mesh address');
   assert.equal(await reaches(instanceVm, ownAddress, 7233), false, `Temporal answers on ${ownAddress}, the instance's own network`);
-  console.log(`  answers on ${instanceMeshIp}:7233, not on ${ownAddress}:7233`);
+  assert.equal(await reaches(instanceVm, instanceMeshIp, GATEWAY_PORT), true, 'the machine gateway does not answer on the instance\'s mesh address');
+  console.log(`  Temporal answers on neither ${instanceMeshIp}:7233 nor ${ownAddress}:7233; the gateway answers on ${instanceMeshIp}:${GATEWAY_PORT}`);
 
   step('the owner signs in to the instance');
   const go = await fetch(`${ROOT_FOR_HOST}/api/identity/go`, { headers: { Cookie: `session=${session}` }, redirect: 'manual' });
@@ -138,7 +140,8 @@ async function main(): Promise<void> {
   assert.match(installed, /on the private network as 100\./);
   const machineMeshIp = await meshIp(machineVm);
   const settings = JSON.parse(await inVm(machineVm, 'cat ~/.config/koala/machine.json')) as { temporalAddress: string; deviceId: string };
-  assert.equal(settings.temporalAddress, `${instanceMeshIp}:7233`, 'the machine was not told to reach Temporal over the mesh');
+  assert.equal(settings.temporalAddress, `${instanceMeshIp}:${GATEWAY_PORT}`, 'the machine was not told to reach the gateway over the mesh');
+  assert.equal(await reaches(machineVm, instanceMeshIp, 7233), false, 'the machine reaches the instance\'s Temporal itself');
 
   step('the machine shows on the instance, and its worker reaches the instance\'s Temporal over the mesh');
   const machine = await until('the machine connecting to the instance', 5, async () => {
@@ -148,7 +151,7 @@ async function main(): Promise<void> {
   });
   const log = await until('the machine\'s worker polling', 3, async () => {
     const text = await inVm(machineVm, 'journalctl --user -u koala-machine --no-pager');
-    return text.includes(`engine worker polling device-${machine.id} at ${instanceMeshIp}:7233`) ? text : undefined;
+    return text.includes(`engine worker polling device-${machine.id} at ${instanceMeshIp}:${GATEWAY_PORT}`) ? text : undefined;
   });
   assert.ok(log);
   const pollers = await until('the instance\'s Temporal seeing the machine\'s worker', 3, async () => {
@@ -156,7 +159,7 @@ async function main(): Promise<void> {
     const described = await inVm(instanceVm, `sudo k3s kubectl -n nowrinkles exec ${pod} -- tctl --address localhost:7233 taskqueue describe --taskqueue device-${machine.id} --taskqueuetype activity`);
     return described.includes(`mesh-mach-${STAMP}`) ? described : undefined;
   });
-  console.log(`  ${machineMeshIp} polls device-${machine.id} on ${instanceMeshIp}:7233; the instance's Temporal lists it:\n    ${pollers.trim().split('\n').join('\n    ')}`);
+  console.log(`  ${machineMeshIp} polls device-${machine.id} through the gateway on ${instanceMeshIp}:${GATEWAY_PORT}; the instance's Temporal lists it:\n    ${pollers.trim().split('\n').join('\n    ')}`);
 
   step('a chat on the machine\'s agent runs there, through the instance\'s Temporal over the mesh, with the instance\'s payload key');
   const said = await chatsOnTheMachine(async (method, path, body) => {

@@ -16,7 +16,7 @@ import { ADAPTER_CHOICES, setUpAgents, type AdapterChoice } from './agent-setup.
 import { askOnTerminal } from './terminal-ask.js';
 import { ExternalAgentSessions } from './external-agents.js';
 import { LocalMcpServer } from './local-mcp.js';
-import { payloadRingOver, remoteBlobs } from './remote-blobs.js';
+import { engineSettingsOver, remoteBlobs } from './remote-blobs.js';
 import { DeviceWorkerHost } from './device-worker-host.js';
 import { startTelemetry } from '@koala/engine-core/telemetry-sdk';
 import { socketSink } from './telemetry-sink.js';
@@ -52,27 +52,26 @@ function watchAgents(socket: Socket, config: MachineConfig, sessions: ExternalAg
 }
 
 function followEngineWorker(socket: Socket, config: MachineConfig, sessions: ExternalAgentSessions): DeviceWorkerHost | undefined {
-  if (!config.deviceId || !config.temporalAddress) {
-    if (config.deviceId || config.temporalAddress) {
-      console.warn('[koala-local-agent] engine worker not started — it needs both a device id and a Temporal address.');
-    }
-    return undefined;
-  }
-  const { deviceId, temporalAddress } = config;
-  const host = new DeviceWorkerHost(async (ring) => {
+  if (!config.deviceId) return undefined;
+  const { deviceId } = config;
+  const host = new DeviceWorkerHost(async (settings) => {
+    const address = settings.temporal?.address ?? config.temporalAddress;
+    const namespace = settings.temporal?.namespace ?? config.temporalNamespace;
+    if (!address) throw new Error('Koala named no Temporal for this machine to take work from');
     const { startDeviceWorker } = await import('./engine-worker.js');
     return startDeviceWorker({
       rootDir: config.rootDir,
       deviceId,
       externalAgents: sessions,
       git: createMachineGit({ rootDir: config.rootDir, backendUrl: config.backendUrl, token: config.token }),
-      address: temporalAddress,
-      payloads: { ring, blobs: remoteBlobs(socket) },
-      ...(config.temporalNamespace ? { namespace: config.temporalNamespace } : {}),
-      onReady: (queue) => console.log(`[koala-local-agent] engine worker polling ${queue} at ${temporalAddress}`),
+      address,
+      token: config.token,
+      payloads: { ring: settings.ring, blobs: remoteBlobs(socket) },
+      ...(namespace ? { namespace } : {}),
+      onReady: (queue) => console.log(`[koala-local-agent] engine worker polling ${queue} at ${address}`),
     });
   });
-  socket.on('connect', () => { void host.connected(() => payloadRingOver(socket)); });
+  socket.on('connect', () => { void host.connected(() => engineSettingsOver(socket)); });
   return host;
 }
 

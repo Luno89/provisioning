@@ -18,7 +18,7 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const LOOPBACK = `#!/bin/sh
 sysctl -qw net.ipv4.conf.all.route_localnet=1
-for port in 3001 7233; do
+for port in 3001 7234; do
   iptables -t nat -C OUTPUT -o lo -d 127.0.0.1 -p tcp --dport $port -j DNAT --to-destination 10.0.2.2:$port 2>/dev/null || \\
     iptables -t nat -A OUTPUT -o lo -d 127.0.0.1 -p tcp --dport $port -j DNAT --to-destination 10.0.2.2:$port
 done

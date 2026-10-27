@@ -18,7 +18,7 @@ data:
   MESH_LOGIN_SERVER: {{ .Values.mesh.loginServer | quote }}
   {{- end }}
   {{- if .Values.mesh.address }}
-  MACHINE_TEMPORAL_ADDRESS: {{ printf "%s:7233" .Values.mesh.address | quote }}
+  MACHINE_TEMPORAL_ADDRESS: {{ printf "%s:%v" .Values.mesh.address .Values.machineGateway.nodePort | quote }}
   {{- end }}
   {{- if .Values.routing.domain }}
   INGRESS_DOMAIN: {{ .Values.routing.domain | quote }}

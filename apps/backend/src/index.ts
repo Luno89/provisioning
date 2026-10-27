@@ -164,13 +164,15 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   const core = projectsCore({ db, io, env: process.env, dataKey: keys.data, gitea: giteaService, infra: infraService, infisical: infisicalService, kubeconfig: '/tmp/kubeconfig-provisioning-lunorica' });
   const { projectRepoService, channels, itemChats, notices, postNotice, projectSecrets } = core;
   const headscaleService = new HeadscaleService(keys.data, process.env.HEADSCALE_URL || 'http://localhost:8080', process.env.HEADSCALE_API_KEY);
+  const MACHINE_GATEWAY_PORT = Number(process.env.MACHINE_GATEWAY_PORT || 7234);
+  const machineTemporal = { address: process.env.MACHINE_TEMPORAL_ADDRESS || `localhost:${MACHINE_GATEWAY_PORT}`, namespace: process.env.TEMPORAL_NAMESPACE || 'default' };
   const machineService = new MachineService({
     store: db.machines,
     dataKey: keys.data,
     settings: {
       url: PUBLIC_URL,
-      temporalAddress: process.env.MACHINE_TEMPORAL_ADDRESS || (process.env.TEMPORAL_CONNECTION_ADDRESS || 'localhost:7233').replace(/^https?:\/\//, ''),
-      temporalNamespace: process.env.TEMPORAL_NAMESPACE || 'default',
+      temporalAddress: machineTemporal.address,
+      temporalNamespace: machineTemporal.namespace,
       meshLoginServer: process.env.MESH_LOGIN_SERVER,
     },
     devices: { status: localAgentStatus, tell: tellDevice, ask: askDevice },
@@ -294,7 +296,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     res.type(metrics.contentType).send(await metrics.text());
   }));
 
-  wireSockets({ io, db, role, env: process.env, payloadKey: keys.payload, dataKey: keys.data, auth, machines: machineService, clusters: clusterService, apps: appService, infra: infraService, telemetry: machineTelemetry({ sink: () => telemetrySink }) });
+  wireSockets({ io, db, role, env: process.env, payloadKey: keys.payload, dataKey: keys.data, auth, machines: machineService, clusters: clusterService, apps: appService, infra: infraService, telemetry: machineTelemetry({ sink: () => telemetrySink }), machineTemporal });
 
   app.use('/api/auth', authRouter({
     db, authService, auth, sessionKey: keys.session, publicUrl: PUBLIC_URL, appUrl: APP_URL, accounts: holdsAccounts(role), hub: role.role === 'hub',
@@ -346,7 +348,17 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   const sweepArtifacts = () => artifactStore.artifacts.sweep().catch((err: Error) => console.warn(`[artifacts] the sweep failed: ${err.message}`));
   setInterval(sweepArtifacts, 24 * 60 * 60 * 1000).unref();
   void sweepArtifacts();
-  wireMachines({ tenant, db, dataKey: keys.data, publicUrl: PUBLIC_URL, repoRoot: path.join(__dirname, '../../..'), machines: machineService, headscale: headscaleService, projectRepos: projectRepoService });
+  wireMachines({
+    tenant, db, dataKey: keys.data, publicUrl: PUBLIC_URL, repoRoot: path.join(__dirname, '../../..'), machines: machineService, headscale: headscaleService, projectRepos: projectRepoService,
+    ...(servesTenants(role) ? {
+      gateway: {
+        port: MACHINE_GATEWAY_PORT,
+        host: process.env.MACHINE_GATEWAY_HOST || '0.0.0.0',
+        upstream: (process.env.TEMPORAL_CONNECTION_ADDRESS || 'localhost:7233').replace(/^https?:\/\//, ''),
+        namespace: process.env.TEMPORAL_NAMESPACE || 'default',
+      },
+    } : {}),
+  });
   wireAccounts({ app, role, env: process.env, db, temporalBridge, hubPeople: hub.hubPeople, requireAdmin, clearSession: auth.clearSession });
   tenant.use('/api/models', modelsRouter({ modelService, db, credentialService, machines: machineService, rateLimits: getModelRateLimiterSnapshot }));
 

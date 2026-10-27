@@ -1,10 +1,11 @@
 import fs from 'fs/promises';
 import path from 'path';
 import type express from 'express';
-import { type Database, type SecretKey, asyncRoute } from '../../platform/index.js';
+import { type Database, type SecretKey, asyncRoute, ringOf } from '../../platform/index.js';
 import { findDeviceByToken } from '../lib/local-agent-registry.js';
 import { MachineBundle } from '../services/MachineBundle.js';
 import { MachineGitService } from '../services/MachineGitService.js';
+import { MachineTemporalGateway } from '../services/MachineTemporalGateway.js';
 import { type HeadscaleService, meshRouter } from '../../infrastructure/index.js';
 import type { MachineService } from '../services/MachineService.js';
 import type { ProjectRepoService } from '../../projects/index.js';
@@ -22,6 +23,7 @@ export interface MachinesWiringDeps {
   machines: MachineService;
   headscale: HeadscaleService;
   projectRepos: ProjectRepoService;
+  gateway?: { port: number; host: string; upstream: string; namespace: string } | undefined;
 }
 
 export function wireMachines(deps: MachinesWiringDeps): void {
@@ -33,6 +35,21 @@ export function wireMachines(deps: MachinesWiringDeps): void {
     deviceFor: async (token) => findDeviceByToken(await db.machines.getLocalAgentDevices(), token, deps.dataKey),
     remote: (ownerId, repo) => deps.projectRepos.gitRemote(ownerId, repo),
   });
+  if (deps.gateway) {
+    const { port, host, upstream, namespace } = deps.gateway;
+    const ring = ringOf(deps.dataKey);
+    const gateway = new MachineTemporalGateway({
+      upstream,
+      namespace,
+      keys: () => [ring.current, ...(ring.previous ?? [])],
+      deviceOf: async (token) => findDeviceByToken(await db.machines.getLocalAgentDevices(), token, deps.dataKey),
+      log: (line) => console.log(line),
+    });
+    gateway.listen(port, host).then(
+      (listening) => console.log(`[machine-gateway] machines reach Temporal through ${host}:${listening}`),
+      (err: Error) => console.error(`[machine-gateway] could not listen on ${host}:${port}: ${err.message}`),
+    );
+  }
   tenant.use('/api/machines', machinesRouter({ machines: deps.machines, bundle: () => bundle.path(), git }));
   tenant.get('/machine.sh', asyncRoute(async (_req, res) => {
     const installer = await fs.readFile(path.join(deps.repoRoot, 'scripts/machine/machine.sh'), 'utf8');

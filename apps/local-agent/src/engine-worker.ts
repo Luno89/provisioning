@@ -102,6 +102,7 @@ export function createDeviceActivities(options: DeviceActivitiesOptions) {
 
 export interface DeviceWorkerOptions extends DeviceActivitiesOptions {
   address: string;
+  token: string;
   payloads: { ring: Keyring; blobs: BlobReach };
   namespace?: string | undefined;
   onReady?: ((queue: string) => void) | undefined;
@@ -110,7 +111,7 @@ export interface DeviceWorkerOptions extends DeviceActivitiesOptions {
 export const deviceQueue = (deviceId: string): string => `device-${deviceId}`;
 
 export async function startDeviceWorker(options: DeviceWorkerOptions): Promise<Worker> {
-  const connection = await NativeConnection.connect({ address: options.address });
+  const connection = await NativeConnection.connect({ address: options.address, metadata: { authorization: `Bearer ${options.token}` } });
   const taskQueue = deviceQueue(options.deviceId);
 
   const worker = await Worker.create({

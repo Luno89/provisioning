@@ -1,5 +1,4 @@
-import type { Keyring } from '@koala/engine-core/payloads';
-import { ringFingerprint } from './remote-blobs.js';
+import { settingsFingerprint, type EngineSettings } from './remote-blobs.js';
 
 export interface RunningWorker {
   run(): Promise<void>;
@@ -17,7 +16,7 @@ export class DeviceWorkerHost {
   private queue: Promise<void> = Promise.resolve();
 
   constructor(
-    private readonly start: (ring: Keyring) => Promise<RunningWorker>,
+    private readonly start: (settings: EngineSettings) => Promise<RunningWorker>,
     private readonly log: (line: string) => void = (line) => console.log(`[koala-local-agent] ${line}`),
   ) {}
 
@@ -25,8 +24,8 @@ export class DeviceWorkerHost {
     return this.current?.fingerprint;
   }
 
-  connected(ringOf: () => Promise<Keyring>): Promise<void> {
-    this.queue = this.queue.then(() => this.follow(ringOf)).catch((err: Error) => this.log(`the engine worker could not start: ${err.message}`));
+  connected(settingsOf: () => Promise<EngineSettings>): Promise<void> {
+    this.queue = this.queue.then(() => this.follow(settingsOf)).catch((err: Error) => this.log(`the engine worker could not start: ${err.message}`));
     return this.queue;
   }
 
@@ -35,13 +34,13 @@ export class DeviceWorkerHost {
     await this.retire();
   }
 
-  private async follow(ringOf: () => Promise<Keyring>): Promise<void> {
-    const ring = await ringOf();
-    const fingerprint = ringFingerprint(ring);
+  private async follow(settingsOf: () => Promise<EngineSettings>): Promise<void> {
+    const settings = await settingsOf();
+    const fingerprint = settingsFingerprint(settings);
     if (this.current?.fingerprint === fingerprint) return;
-    if (this.current) this.log('Koala\'s payload key changed, so the engine worker starts again with it');
+    if (this.current) this.log('Koala\'s payload key or the way to its Temporal changed, so the engine worker starts again with it');
     await this.retire();
-    const worker = await this.start(ring);
+    const worker = await this.start(settings);
     const current: Current = {
       fingerprint,
       worker,

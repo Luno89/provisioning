@@ -33,12 +33,24 @@ export function remoteBlobs(socket: AskingSocket): BlobReach {
   };
 }
 
-export async function payloadRingOver(socket: AskingSocket): Promise<Keyring> {
-  const answer = await askOver<{ ring?: Keyring; error?: string }>(socket, 'machine:payloads', {});
+export interface EngineSettings {
+  ring: Keyring;
+  temporal?: { address: string; namespace: string } | undefined;
+}
+
+export async function engineSettingsOver(socket: AskingSocket): Promise<EngineSettings> {
+  const answer = await askOver<{ ring?: Keyring; temporal?: { address?: unknown; namespace?: unknown }; error?: string }>(socket, 'machine:payloads', {});
   if (!answer?.ring?.current) throw new Error(answer?.error ?? 'Koala sent no payload key');
-  return answer.ring;
+  const { address, namespace } = answer.temporal ?? {};
+  return {
+    ring: answer.ring,
+    ...(typeof address === 'string' && address && typeof namespace === 'string' && namespace ? { temporal: { address, namespace } } : {}),
+  };
 }
 
 export const ringFingerprint = (ring: Keyring): string => [ring.current, ...(ring.previous ?? [])].map(keyId).join(',');
+
+export const settingsFingerprint = (settings: EngineSettings): string =>
+  `${ringFingerprint(settings.ring)}|${settings.temporal ? `${settings.temporal.address}/${settings.temporal.namespace}` : ''}`;
 
 

@@ -280,8 +280,15 @@ for the device's token and settings (kept in `~/.config/koala/machine.json`, mod
 when `MESH_LOGIN_SERVER` is set, installs the machine agent (`GET /api/machines/agent.tgz`: `apps/local-agent` bundled by
 `scripts/bundle-machine.mjs`, with its runtime packages installed by npm on the machine, protobufjs 8 among them so Temporal's packages share one copy
 and an offloaded payload can be read) and starts it as a user
-service (systemd `--user`, launchd). The device worker reaches Temporal at `MACHINE_TEMPORAL_ADDRESS` (default the
-backend's own). Each time it connects the agent looks for coding agents (`agent-discovery.ts`: Gemini CLI, Antigravity,
+service (systemd `--user`, launchd). The device worker reaches Temporal only through the **machine gateway**
+(`MachineTemporalGateway`, rules in `machines/lib/temporal-gateway.ts`, port `MACHINE_GATEWAY_PORT`, 7234; on an instance
+the node port 30322 on its mesh address, Temporal itself no longer published), at `MACHINE_TEMPORAL_ADDRESS` (default
+`localhost:7234`), which the backend also hands the agent on every connect with the payload ring, so a machine added before
+moves over. The agent signs the connection with its device token; the gateway serves only the calls an activity worker makes
+(probed in `~/.claude/plans/machine-gateway.md`: start, polling its own `device-<id>` queue, heartbeats, answers, shutdown),
+seals each task token it hands out to that machine (an HMAC under the data key, checked and stripped on every heartbeat and
+answer, at the protobuf wire level so no field of Temporal's is dropped) and refuses everything else, so a machine never lists,
+reads, signals, starts or answers anyone else's work. Each time it connects the agent looks for coding agents (`agent-discovery.ts`: Gemini CLI, Antigravity,
 Claude Code and Codex through their ACP adapters, Goose, and any the person added by hand on My Machines), confirms each
 by an ACP `initialize`, and reports them (`agents:found`); only confirmed ones run. A CLI whose adapter is missing shows
 with Install adapter, which asks the machine to install it (`agent-install.ts`) as the ACP registry lists it now

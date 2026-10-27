@@ -55,7 +55,7 @@ import { ExternalAgentSessions, TOOLS_LINE, WAIT_FOR } from '../../../local-agen
 import { LocalMcpServer } from '../../../local-agent/src/local-mcp.js';
 import type { AgentScript } from '../../../local-agent/src/acp-script-agent.js';
 import { EXTERNAL_AGENT_CHAT, EXTERNAL_AGENT_TASK } from '../extensions/external-agents/procedures.js';
-import { payloadRingOver, remoteBlobs, type AskingSocket } from '../../../local-agent/src/remote-blobs.js';
+import { engineSettingsOver, remoteBlobs, type AskingSocket } from '../../../local-agent/src/remote-blobs.js';
 import { machinePayloads } from '../machines/lib/machine-payloads.js';
 import {
   DEFAULT_STREAM_TASK_QUEUE,
@@ -1821,7 +1821,7 @@ describe('an external agent working on someone\'s machine', () => {
         return true;
       },
     };
-    const onMachine = buildDataConverter(await payloadRingOver(socket), remoteBlobs(socket));
+    const onMachine = buildDataConverter((await engineSettingsOver(socket)).ring, remoteBlobs(socket));
     const pasted = `Read this checksum list: ${randomBytes(200_000).toString('hex')}`;
 
     const result = await runWorkflow({

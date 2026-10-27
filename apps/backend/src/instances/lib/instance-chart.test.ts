@@ -72,15 +72,16 @@ describe('the instance chart', () => {
     expect(find(docs, 'ConfigMap', 'luno-env').data!.TEMPORAL_CONNECTION_ADDRESS).toBe('luno-temporal:7233');
   });
 
-  it('offers its Temporal to the owner\'s machines on its mesh address only, and tells the app where that is', () => {
+  it('keeps its Temporal inside the cluster, and offers the owner\'s machines only the gateway, on a node port they reach over the mesh', () => {
     const meshed = render(['mesh.address=100.64.0.7', 'mesh.loginServer=https://mesh.example.com']);
-    const temporal = find(meshed, 'Deployment', 'luno-temporal');
-    expect(temporal.spec.strategy).toEqual({ type: 'Recreate' });
-    expect(temporal.spec.template.spec.containers[0].ports).toEqual([{ containerPort: 7233, hostIP: '100.64.0.7', hostPort: 7233 }]);
-    expect(find(meshed, 'ConfigMap', 'luno-env').data).toMatchObject({ MACHINE_TEMPORAL_ADDRESS: '100.64.0.7:7233', MESH_LOGIN_SERVER: 'https://mesh.example.com' });
+    expect(find(meshed, 'Deployment', 'luno-temporal').spec.template.spec.containers[0].ports).toEqual([{ containerPort: 7233 }]);
+    const gateway = find(meshed, 'Service', 'luno-machine-gateway');
+    expect([gateway.spec.type, gateway.spec.ports]).toEqual(['NodePort', [{ name: 'machine-gateway', port: 7234, targetPort: 'machine-gateway', nodePort: 30322 }]]);
+    expect(find(meshed, 'Deployment', 'luno-backend').spec.template.spec.containers[0].ports).toContainEqual({ name: 'machine-gateway', containerPort: 7234 });
+    expect(find(meshed, 'ConfigMap', 'luno-env').data).toMatchObject({ MACHINE_TEMPORAL_ADDRESS: '100.64.0.7:30322', MESH_LOGIN_SERVER: 'https://mesh.example.com' });
 
     const alone = render();
-    expect(find(alone, 'Deployment', 'luno-temporal').spec.template.spec.containers[0].ports).toEqual([{ containerPort: 7233 }]);
+    expect(alone.some((doc) => doc.kind === 'Service' && doc.metadata.name === 'luno-machine-gateway')).toBe(false);
     expect(find(alone, 'ConfigMap', 'luno-env').data!.MACHINE_TEMPORAL_ADDRESS).toBeUndefined();
   });
 

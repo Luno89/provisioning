@@ -28,6 +28,7 @@ export interface SocketsWiringDeps {
   apps: AppService;
   infra: InfrastructureService;
   telemetry: MachineTelemetry;
+  machineTemporal?: { address: string; namespace: string } | undefined;
 }
 
 export function wireSockets(deps: SocketsWiringDeps): void {
@@ -49,7 +50,7 @@ export function wireSockets(deps: SocketsWiringDeps): void {
   });
 
   const agentNamespace = io.of('/agent');
-  const forMachines = machinePayloads({ ring: servesTenants(role) ? payloadKey : undefined, blobs: sharedPayloadBlobs() });
+  const forMachines = machinePayloads({ ring: servesTenants(role) ? payloadKey : undefined, blobs: sharedPayloadBlobs(), ...(deps.machineTemporal ? { temporal: deps.machineTemporal } : {}) });
   agentNamespace.use(async (socket, next) => {
     const token = socket.handshake.auth?.token as string | undefined;
     if (!token) return next(new Error('Missing device token'));

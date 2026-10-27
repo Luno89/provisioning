@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { randomUUID } from 'node:crypto';
-import { askOver, payloadRingOver, remoteBlobs, ringFingerprint, type AskingSocket } from './remote-blobs.js';
+import { askOver, engineSettingsOver, remoteBlobs, ringFingerprint, type AskingSocket } from './remote-blobs.js';
 
 const socketAnswering = (answer: (event: string, payload: unknown) => unknown, connected = true) => {
   const sent: { event: string; payload: unknown }[] = [];
@@ -41,10 +41,12 @@ describe('payloads a machine keeps with its instance', () => {
     await expect(remoteBlobs(socket).put([{ id: randomUUID(), data: Buffer.from('x'), storedAt: new Date() }])).rejects.toThrow('a payload was not in the shape Koala stores');
   });
 
-  it('takes the payload keyring Koala hands it, and refuses to go on without one', async () => {
+  it('takes the payload keyring and the way to Temporal Koala hands it, and refuses to go on without a keyring', async () => {
     const ring = { current: 'c'.repeat(64), previous: ['p'.repeat(64)] };
-    expect(await payloadRingOver(socketAnswering(() => ({ ring })).socket)).toEqual(ring);
-    await expect(payloadRingOver(socketAnswering(() => ({ error: 'this Koala runs no work on machines' })).socket)).rejects.toThrow('this Koala runs no work on machines');
+    expect(await engineSettingsOver(socketAnswering(() => ({ ring })).socket)).toEqual({ ring });
+    expect(await engineSettingsOver(socketAnswering(() => ({ ring, temporal: { address: '100.64.0.7:7234', namespace: 'default' } })).socket)).toEqual({ ring, temporal: { address: '100.64.0.7:7234', namespace: 'default' } });
+    expect(await engineSettingsOver(socketAnswering(() => ({ ring, temporal: { address: 7 } })).socket)).toEqual({ ring });
+    await expect(engineSettingsOver(socketAnswering(() => ({ error: 'this Koala runs no work on machines' })).socket)).rejects.toThrow('this Koala runs no work on machines');
     expect(ringFingerprint(ring)).not.toBe(ringFingerprint({ current: 'c'.repeat(64) }));
   });
 
