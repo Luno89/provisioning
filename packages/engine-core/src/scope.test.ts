@@ -28,4 +28,11 @@ describe('scopedPath', () => {
   it('allows the scope root itself', () => {
     expect(scopedPath({ path: 'apps/web' }, '.')).toBe('apps/web');
   });
+
+  it('refuses a scope that is itself outside the working directory, absolute or climbing', () => {
+    expect(() => scopedPath({ path: '/etc' }, 'passwd')).toThrow(/is not a folder inside the working directory/);
+    expect(() => scopedPath({ path: '../..' }, 'x')).toThrow(ScopeError);
+    expect(() => scopedPath({ worktree: 'a/../../outside' }, 'x')).toThrow(ScopeError);
+    expect(scopedPath({ path: 'a/../b' }, 'x')).toBe('b/x');
+  });
 });

@@ -320,7 +320,8 @@ collection has to say how it is removed**.
 
 My Machines → Add a machine gives `curl -fsSL <koala>/machine.sh | sh -s -- <code>` (`scripts/machine/machine.sh`, served
 with the backend's `PUBLIC_URL`; the code is single-use and lasts an hour, `MachineService.createJoinCode`). Run as the
-person, it needs Node 20+, asks which folder Koala may work in, trades the code at the public `POST /api/machines/join`
+person, it needs Node 20+, asks which folder Koala may work in (never `/`, their home or a folder above it; the agent refuses
+one too, `folderProblem`, and every scope a run names stays inside it, absolute or climbing ones refused by `scopedPath`), trades the code at the public `POST /api/machines/join`
 for the device's token and settings (kept in `~/.config/koala/machine.json`, mode 600, never printed), joins the mesh
 when `MESH_LOGIN_SERVER` is set, installs the machine agent (`GET /api/machines/agent.tgz`: `apps/local-agent` bundled by
 `scripts/bundle-machine.mjs`, with its runtime packages installed by npm on the machine, protobufjs 8 among them so Temporal's packages share one copy

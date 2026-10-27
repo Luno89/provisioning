@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach } from 'vitest';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { configFile, loadMachineConfig, machineConfigFrom } from './machine-config.js';
+import { configFile, folderProblem, loadMachineConfig, machineConfigFrom } from './machine-config.js';
 
 let dir: string | undefined;
 afterEach(async () => { if (dir) await rm(dir, { recursive: true, force: true }); dir = undefined; });
@@ -34,5 +34,16 @@ describe('where a machine finds its settings', () => {
     await writeFile(file, JSON.stringify({ backendUrl: 'http://k', token: 't', rootDir: dir }));
     expect(await loadMachineConfig({ KOALA_MACHINE_CONFIG: file }, '/')).toEqual({ backendUrl: 'http://k', token: 't', rootDir: dir });
     await expect(loadMachineConfig({ KOALA_MACHINE_CONFIG: path.join(dir, 'none.json') }, '/')).rejects.toThrow('no Koala to connect to');
+  });
+});
+
+describe('the folder Koala works in on a machine', () => {
+  it('is never the whole machine, the person\'s home or anything above it', () => {
+    expect(folderProblem('/', '/home/sam')).toMatch(/never \/,/);
+    expect(folderProblem('/home/sam', '/home/sam')).toMatch(/never \/home\/sam, which holds everything else/);
+    expect(folderProblem('/home', '/home/sam')).toMatch(/pick a folder inside it, like \/home\/sam\/koala/);
+    expect(folderProblem('/home/sam/koala', '/home/sam')).toBeUndefined();
+    expect(folderProblem('/srv/koala-work', '/home/sam')).toBeUndefined();
+    expect(folderProblem('/home/samuel', '/home/sam')).toBeUndefined();
   });
 });

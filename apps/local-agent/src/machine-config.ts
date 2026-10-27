@@ -2,6 +2,15 @@ import { readFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
+export function folderProblem(folder: string, home: string): string | undefined {
+  const resolved = path.resolve(folder);
+  const homeDir = path.resolve(home);
+  if (resolved === path.parse(resolved).root || resolved === homeDir || homeDir.startsWith(`${resolved}${path.sep}`)) {
+    return `Koala works in a folder of its own, never ${resolved}, which holds everything else on this machine: pick a folder inside it, like ${path.join(homeDir, 'koala')}`;
+  }
+  return undefined;
+}
+
 export interface MachineConfig {
   backendUrl: string;
   token: string;
@@ -24,10 +33,13 @@ export function machineConfigFrom(env: NodeJS.ProcessEnv, saved: Record<string, 
   const deviceId = text(env.KOALA_DEVICE_ID) ?? text(saved.deviceId);
   const temporalAddress = text(env.KOALA_TEMPORAL_ADDRESS) ?? text(saved.temporalAddress);
   const temporalNamespace = text(env.KOALA_TEMPORAL_NAMESPACE) ?? text(saved.temporalNamespace);
+  const rootDir = path.resolve(text(env.KOALA_ROOT_DIR) ?? text(saved.rootDir) ?? cwd);
+  const tooWide = folderProblem(rootDir, os.homedir());
+  if (tooWide) throw new Error(tooWide);
   return {
     backendUrl,
     token,
-    rootDir: path.resolve(text(env.KOALA_ROOT_DIR) ?? text(saved.rootDir) ?? cwd),
+    rootDir,
     ...(deviceId ? { deviceId } : {}),
     ...(temporalAddress ? { temporalAddress } : {}),
     ...(temporalNamespace ? { temporalNamespace } : {}),

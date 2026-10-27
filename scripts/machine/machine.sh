@@ -62,6 +62,9 @@ fi
 case "$FOLDER" in "~"*) FOLDER="$HOME${FOLDER#\~}" ;; esac
 mkdir -p "$FOLDER"
 FOLDER=$(cd "$FOLDER" && pwd)
+HOME_DIR=$(cd "$HOME" && pwd)
+case "$HOME_DIR/" in "$FOLDER"/*) die "Koala works in a folder of its own, never $FOLDER, which holds everything else on this machine: pick a folder inside it, like $HOME_DIR/koala" ;; esac
+[ "$FOLDER" = "/" ] && die "Koala works in a folder of its own, never /: pick a folder inside your home, like $HOME_DIR/koala"
 ok "Koala works in $FOLDER, and nowhere else"
 
 say "Joining ${KOALA_URL}"

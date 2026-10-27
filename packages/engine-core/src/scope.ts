@@ -16,6 +16,9 @@ export function scopeRoot(scope?: EnvironmentScope): string {
 
 export function scopedPath(scope: EnvironmentScope | undefined, requested: string): string {
   const root = scopeRoot(scope);
+  if (root && (path.posix.isAbsolute(root) || path.posix.normalize(root).split('/')[0] === '..')) {
+    throw new ScopeError(`"${root}" is not a folder inside the working directory`);
+  }
   const cleaned = requested.replace(/^\/+/, '');
 
   if (!root) {
