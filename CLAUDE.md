@@ -479,7 +479,23 @@ that `HubSyncService` on the owner's instance carries out as the owner once the 
 (`HubInstanceWork`), and settles done or refused; the board shows what waits and why. Posting in a chat
 (`POST .../conversations/:id/messages`) syncs down like any message, named by the member's email (`authorName` on
 messages the viewer did not write, in both UIs); Koala answers owners and clients on the owner's instance (an
-`ask-koala` request starting the turn), collaborators from their own instance in step 3. The owner's instance sends a
+`ask-koala` request starting the turn), collaborators from their own instance in step 3.
+
+**Koala acts for the member who asked** (security audit D3, plan `~/.claude/plans/acting-for.md`). A member's ask
+(anyone but the instance's owner) starts a run with `actingFor` (the member, their role, the shared project and its hub id) on
+its ticket and launch, which every child run keeps. The run is pinned to that project; Koala is told who is asking
+(`memberAsking`); the member may ask only about their own note (`noteAt` checks the author). Every tool call goes through
+`memberCallProblem` in `engine/lib/acting-for.ts` in the tool runtime, which fails closed: a tool `MEMBER_REACH` does not list is
+refused, a `project` tool is refused when an argument names a project, tree, feature, story or task outside the shared project
+(`memberScopeOf`), and a refusal names nothing outside it; `resolve-tools` offers only what will be allowed, hand-offs and MCP
+tools included (an MCP server is a tool, owner 2026-10-26). Every member reaches everything in the project and nothing outside
+it (owner 2026-10-26: "we can pare it down later"); `acting-for.test.ts` fails on a shipped tool nobody classified. A
+member's run never goes to the owner's machine: a machine picked for the chat gives way to the owner's default, a default on a
+machine is refused in plain words (`MEMBERS_OFF_MACHINES`), and a child that would run on one fails. Chat auto mode and per-chat
+allowances do not apply to it (agent and tree auto mode do), and an ask names who asked. Recall gives only the project's
+memories and nothing is saved from the turn. The memory keeper, concluding a conversation people other than the owner talked
+in (`heardOthers`), runs `keptTo` that project: project memories only, nothing replaced or forgotten, nothing proposed
+(`keptToProblem`), and such a conversation with no project is not remembered. `mechanics-member-asks` proves it. The owner's instance sends a
 **status** (`PUT .../status`: releases, builds, tree runs) every 15 s or when the project moved. **Files**: the hub
 relays the owner's MinIO (`FileScope` `{kind: 'hub'}`): every member sees and adds every file, reads only the procedures a run of the
 project used (`procedureRanIn` over that run's turn log), and only owners and
@@ -676,6 +692,10 @@ Plan: `~/.claude/plans/testing-levels.md`.
   records every request, so a check can assert `modelSaw`. A request no rule answers fails the run with what was asked.
 - **Driven through the API, as the space** (`CHECKS_API_URL`, default the local backend), answering questions and
   approvals as they come, then reading what the run left: the turn log, `/documents`, tasks, run effort.
+- **Shared projects**: `world.shared.members` shares the world's project on the hub under a group of its own and invites a hidden
+  account for each role (`memberSpaceId`), which joins through the real routes; `world.apart` is a second project never shared.
+  The stage `memberAsks` posts in the shared channel with Ask Koala as that member and follows the turn the owner's instance
+  starts. The project is taken back when the check ends and the members are removed before the space.
 - **Flows**: `then` adds stages after the first run — `chat` (optionally `killAfterChars` to kill it mid-turn),
   `approvePlan`, `runTree`, `waitQuiet`, `deleteTree`, `deleteProject` — each with its own expectations, including
   plumbing ones: `modelSaw`, `compacted`, `summaryKept`, `interrupted`, `turnLog`, `leaves`, `repository`,
