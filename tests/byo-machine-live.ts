@@ -179,11 +179,11 @@ async function main(): Promise<void> {
   run('docker', ['tag', IMAGE, '127.0.0.1:5000/nowrinkles/app:upgrade-ok']);
   run('docker', ['push', '-q', '127.0.0.1:5000/nowrinkles/app:upgrade-ok']);
   await startRoot('upgrade-ok');
-  await inVm(vm, `setsid sh -c 'while true; do printf "%s %s\\n" "$(date -u +%H:%M:%S.%N | cut -c1-12)" "$(curl -s -o /dev/null -m 5 -w "%{http_code} %{time_total}" http://127.0.0.1:30320/api/auth/sign-in)"; sleep 0.5; done' > /tmp/inside.log 2>&1 < /dev/null &`);
+  await inVm(vm, `setsid sh -c 'while true; do printf "%s %s\\n" "$(date -u +%H:%M:%S.%N | cut -c1-12)" "$(curl -s -o /dev/null -m 5 -w "%{http_code} %{time_total}" http://127.0.0.1:30320/api/auth/sign-in)"; sleep 0.5; done' > /tmp/inside.log 2>&1 < /dev/null & echo $! > /tmp/inside.pid`);
   const duringGood = watchAvailability();
   await upgradeOnce('upgrade-to-ok', 'complete');
   const good = duringGood();
-  await inVm(vm, "pkill -f 'while true; do printf' || true");
+  await inVm(vm, 'kill "$(cat /tmp/inside.pid)"');
   console.log(`  answered ${good.checks - good.misses.length} of ${good.checks} checks while upgrading`);
   if (good.misses.length > 0) {
     const inside = (await inVm(vm, 'cat /tmp/inside.log')).trim().split('\n');
