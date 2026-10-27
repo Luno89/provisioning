@@ -3,7 +3,7 @@ import {
   renderApp, specSecrets, visibleAppSpecs, resolveBindings, bindingFiles, bindingProjection, bindingSecretName,
   type ProjectedBinding, InfrastructureService, BuilderService, StorageAdapter, hasCloudCredentials,
   isMockCloudProvider, isSelfManagedCluster, buildAppEnv, TABBYAPI_DEFAULT_MAX_SEQ_LEN, planHostMemory,
-  parseQuantity, type HostMemoryPlan, deploymentIdFor, isValidImageTag, InfisicalService, sharedClusterProxy,
+  parseQuantity, type HostMemoryPlan, deploymentIdFor, isValidImageTag, InfisicalService, sharedClusterProxy, gitappPullSecretArgs,
 } from '../infrastructure/index.js';
 import { readBindingCredentials, GiteaService, sanitiseNamespaceName, syncProjectSecrets } from '../projects/index.js';
 import { createDatabase, type Database, loadKeys } from '../platform/index.js';
@@ -480,12 +480,7 @@ export async function DeployAppActivity(
     const gitea = new GiteaService(infra, loadKeys(process.env).data, '/tmp/kubeconfig-provisioning-lunorica');
     const registryHost = await gitea.getRegistryHost();
     const pull = await gitea.registryLogin();
-    const secretYaml = await infra.runKubectl(
-      ['create', 'secret', 'docker-registry', 'gitea-registry', '-n', namespace,
-        `--docker-server=${registryHost}`, `--docker-username=${pull.username}`, `--docker-password=${pull.password}`,
-        '--dry-run=client', '-o', 'yaml'],
-      kubeconfigPath,
-    );
+    const secretYaml = await infra.runKubectl(gitappPullSecretArgs(namespace, registryHost, pull), kubeconfigPath);
     await infra.applyManifest(String(secretYaml), kubeconfigPath);
 
     const secretDb = createDatabase();

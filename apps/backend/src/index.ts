@@ -18,7 +18,7 @@ import {
   CSP_REPORT_PATH, cspHeader, cspModeFrom, violationLine, crossSiteRefusal, foreignOrigin, ourOrigins, MetricsService, RATE_LIMITS, ruleFor,
   getTemporalClient, resolveOwnersWith, PayloadStorageService, createAuth, keepTrying, mongoTarget, asyncRoute,
   ownsProject, createDatabase, sharedPayloadBlobs, type Database, migrateLegacyOwnership, decryptValue, loadKeys,
-  roleFromEnv, servesTenants, holdsAccounts, MailService, emailWayFrom, telemetrySettings, e2eProblem, firstAdminSetup, drainThenStop, podPlaceFrom,
+  roleFromEnv, servesTenants, holdsAccounts, MailService, emailWayFrom, telemetrySettings, e2eProblem, firstAdminSetup, drainThenStop, podPlaceFrom, runOnce,
 } from './platform/index.js';
 import { startTelemetry } from '@koala/engine-core/telemetry-sdk';
 import { rateLimit } from 'express-rate-limit';
@@ -43,7 +43,7 @@ import { modelsRouter, ModelService, endpointRulesFromEnv } from './models/index
 import {
   InfrastructureService, ClusterService, AppService, RegistryService, GitModuleService, BuilderService,
   AppExposureService, VpsCatalogService, WorkerService, sharedClusterProxy, CredentialService, InfisicalService,
-  HeadscaleService,
+  HeadscaleService, BUILD_TOKENS_MIGRATION, cleanUpBuildTokens, gitappPullSecretArgs,
 } from './infrastructure/index.js';
 import { TemporalBridge } from './infrastructure/services/TemporalBridge.js';
 import net from 'net';
@@ -414,6 +414,25 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   });
 
   if (process.env.NODE_ENV !== 'test' && servesTenants(role)) {
+    const systemKubeconfig = '/tmp/kubeconfig-provisioning-lunorica';
+    runOnce(db.platform, BUILD_TOKENS_MIGRATION, new Date().toISOString(), () => cleanUpBuildTokens({
+      deployments: () => db.infrastructure.getDeployments(),
+      clusters: () => db.infrastructure.getClusters(),
+      kubeconfigOf: (cluster) => clusterService.getKubeconfigPath(cluster),
+      writePullSecret: async (namespace, kubeconfig) => {
+        const secret = await infraService.runKubectl(gitappPullSecretArgs(namespace, await giteaService.getRegistryHost(), await giteaService.registryLogin()), kubeconfig);
+        await infraService.applyManifest(String(secret), kubeconfig);
+      },
+      runningBuilds: async () => {
+        const jobs = JSON.parse(String(await infraService.runKubectl(['get', 'jobs', '-n', 'pipeline-builds', '-o', 'json'], systemKubeconfig))) as { items?: { status?: { active?: number } }[] };
+        return (jobs.items ?? []).filter((job) => (job.status?.active ?? 0) > 0).length;
+      },
+      buildTokens: () => giteaService.buildTokenNames(),
+      revoke: (name) => giteaService.revokeToken(name),
+    })).then(
+      (result) => { if (Object.keys(result).length) console.log(`[tokens] old build tokens: ${Object.entries(result).map(([key, n]) => `${key}=${n}`).join(' ')}`); },
+      (err: Error) => console.warn(`[tokens] the old build tokens wait for the next start: ${err.message}`),
+    );
     appExposureService.syncExposedApps().catch((e) => {
       const err = e instanceof Error ? e.message : String(e);
       console.error(`Failed to sync exposed apps to nginx: ${err}`);

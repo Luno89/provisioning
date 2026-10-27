@@ -263,13 +263,29 @@ export class GiteaService {
     return { name: tokenName, token: body.sha1 };
   }
 
+  async buildTokenNames(): Promise<string[]> {
+    const baseUrl = await this.resolveBaseUrl();
+    const password = await this.readAdminPassword();
+    const names: string[] = [];
+    for (let page = 1; ; page += 1) {
+      const res = await fetch(`${baseUrl}/api/v1/users/${ADMIN_USERNAME}/tokens?limit=50&page=${page}`, {
+        headers: { Authorization: `Basic ${Buffer.from(`${ADMIN_USERNAME}:${password}`).toString('base64')}` },
+      });
+      if (!res.ok) throw new Error(`Gitea would not list the build tokens: HTTP ${res.status}`);
+      const tokens = await res.json() as { name: string }[];
+      names.push(...tokens.map((token) => token.name).filter((name) => name.startsWith('build-')));
+      if (tokens.length < 50) return names;
+    }
+  }
+
   async revokeToken(tokenName: string): Promise<void> {
     const baseUrl = await this.resolveBaseUrl();
     const password = await this.readAdminPassword();
-    await fetch(`${baseUrl}/api/v1/users/${ADMIN_USERNAME}/tokens/${tokenName}`, {
+    const res = await fetch(`${baseUrl}/api/v1/users/${ADMIN_USERNAME}/tokens/${encodeURIComponent(tokenName)}`, {
       method: 'DELETE',
       headers: { Authorization: `Basic ${Buffer.from(`${ADMIN_USERNAME}:${password}`).toString('base64')}` },
     });
+    if (!res.ok && res.status !== 404) throw new Error(`Gitea would not revoke the token ${tokenName}: HTTP ${res.status}`);
   }
 
   get internalBaseUrl(): string {

@@ -246,7 +246,10 @@ shipped check's patterns are compiled under it by `linear-patterns.test.ts`.
 (`registryLogin`, the secret `gitea-registry`), a pipeline build revokes its token when it ends, and a workspace image build's
 secret names its token (`koala.dev/push-token`), which is revoked once its job has finished or is gone, whichever process sees
 it (`releaseFinishedTokens` in `engine-host/sandboxes/image-builder.ts`: when a build is seen to end, when its image is ready,
-and before every new build).
+and before every new build). The tokens left from before are revoked once per instance after the backend starts (`build-tokens-revoked`,
+`cleanUpBuildTokens`, through the migrations ledger): every git-built app's pull secret is rewritten to the read-only login
+first (`gitappPullSecretArgs`, the same secret a deploy writes), and it waits for a later start, revoking nothing, while a build
+runs in `pipeline-builds` or an app's cluster cannot be reached.
 
 The public-path allow-list lives in `platform/middleware/auth.ts`, **not** in `accounts/routes/auth.ts` — a router
 that could exempt itself is a router that can quietly stop being protected, so adding a route that
