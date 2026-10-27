@@ -50,6 +50,9 @@ SERVICE_ARGS=(--set service.http.type=NodePort --set service.http.nodePort=31737
 if [ "${POOL:-}" = true ]; then
   SERVICE_ARGS=(--set service.http.type=ClusterIP --set service.ssh.type=ClusterIP
     --set-string gitea.config.server.ROOT_URL=http://gitea-http.gitea.svc.cluster.local:3000/)
+elif [ -n "${POD_NAMESPACE:-}" ]; then
+  SERVICE_ARGS=(--set service.http.type=NodePort --set service.http.nodePort=31737 --set service.ssh.type=ClusterIP
+    --set-string gitea.config.server.ROOT_URL=http://gitea-http.gitea.svc.cluster.local:3000/)
 fi
 
 echo "  ▶  Ensuring Gitea is installed (helm upgrade --install is a cheap no-op when nothing changed)..."

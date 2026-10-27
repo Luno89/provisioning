@@ -116,7 +116,7 @@ if "$KUBECTL" --context "$CONTEXT" get validatingwebhookconfiguration "$WEBHOOK"
 fi
 
 SERVICE_ARGS=(--set infisical.service.type=NodePort --set infisical.service.nodePort=31738)
-[ "${POOL:-}" = true ] && SERVICE_ARGS=(--set infisical.service.type=ClusterIP)
+{ [ "${POOL:-}" = true ] || [ -n "${POD_NAMESPACE:-}" ]; } && SERVICE_ARGS=(--set infisical.service.type=ClusterIP)
 
 echo "  ▶  Deploying Infisical Standalone (helm upgrade --install is a cheap no-op when nothing changed)..."
 # No --wait: the chart's post-install hook job (ingress-nginx admission webhook patch) hangs

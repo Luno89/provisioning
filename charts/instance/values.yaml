@@ -49,6 +49,9 @@ temporal:
 
 hostDocker: true
 
+registry:
+  pullHost: 127.0.0.1:31737
+
 pool:
   enabled: false
   registryPullHost: ""

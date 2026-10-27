@@ -232,7 +232,12 @@ enforced by k3s's network policy controller; a pool vcluster copies it to the ho
 a release slot or a build on the same cluster cannot; sandboxes were already shut in by their own `default-deny`. An instance's
 SearXNG and Crawl4AI are ClusterIP only and answer only its own namespace (`scripts/instance/platform-services.sh`, run with
 `POD_NAMESPACE` by the setup job; `scripts/dev.sh` runs it without, leaving the dev box's NodePorts). `test:instance-live` knocks
-on each from another namespace and from the instance's.
+on each from another namespace and from the instance's. **On the owner's machine nothing of the instance answers on its network
+address**: `install.sh` writes `/etc/rancher/k3s/config.yaml.d/koala-node-ports.yaml`, so every NodePort on that k3s answers only on
+127.0.0.1 and the mesh (`nodeport-addresses`; the person's own NodePorts too), Infisical, SearXNG, Crawl4AI and Gitea's SSH are
+ClusterIP, and the instance reaches Gitea and Infisical in the cluster, pushing images there and pulling them through
+`127.0.0.1:31737` (`registry.pullHost`), as the pool does. The VM suites reach the instance through an SSH tunnel to the VM's
+loopback (`loopback` in `createDisposableVm`); `test:byo-live` checks the backend and Gitea answer there and not on the VM's address.
 
 The public-path allow-list lives in `platform/middleware/auth.ts`, **not** in `accounts/routes/auth.ts` — a router
 that could exempt itself is a router that can quietly stop being protected, so adding a route that

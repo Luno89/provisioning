@@ -12,7 +12,7 @@
  * Requires `qemu-kvm`, `cloud-utils` (cloud-localds), and `genisoimage` to be installed, and
  * /dev/kvm to be accessible — fails fast with a clear message otherwise.
  */
-import { execFile } from 'child_process';
+import { execFile, spawn, type ChildProcess } from 'child_process';
 import { promisify } from 'util';
 import fs from 'fs/promises';
 import fssync from 'fs';
@@ -106,6 +106,7 @@ export interface DisposableVmOptions {
   cpus?: number;
   diskGB?: number;
   forwards?: Array<{ host: number; guest: number }>;
+  loopback?: Array<{ host: number; guest: number }>;
   reboots?: boolean;
   network?: string;
   lan?: LanSocket & { address: string; nameservers?: string[] };
@@ -206,7 +207,9 @@ export async function createDisposableVm(name: string, options: DisposableVmOpti
     '-pidfile', pidPath,
   ]);
 
+  const tunnels: ChildProcess[] = [];
   const destroy = async () => {
+    for (const tunnel of tunnels) tunnel.kill('SIGTERM');
     try {
       const pid = (await fs.readFile(pidPath, 'utf8')).trim();
       if (pid) process.kill(Number(pid), 'SIGKILL');
@@ -242,6 +245,16 @@ export async function createDisposableVm(name: string, options: DisposableVmOpti
     throw new Error(`${name} did not become SSH-reachable within 5 minutes — see ${serialLogPath} for boot console output`);
   }
   console.log(`  ✅ ${name} is up and SSH-reachable`);
+  for (const forward of options.loopback ?? []) {
+    tunnels.push(spawn('ssh', [
+      '-i', keyPath, '-p', String(sshPort), '-N',
+      '-o', 'StrictHostKeyChecking=no', '-o', 'UserKnownHostsFile=/dev/null', '-o', 'BatchMode=yes',
+      '-o', 'ExitOnForwardFailure=yes', '-o', 'ServerAliveInterval=15',
+      '-L', `127.0.0.1:${forward.host}:127.0.0.1:${forward.guest}`,
+      'ubuntu@127.0.0.1',
+    ], { stdio: 'ignore' }));
+    console.log(`  ↔ 127.0.0.1:${forward.host} reaches ${name}'s own 127.0.0.1:${forward.guest}`);
+  }
 
   return {
     host: '127.0.0.1',

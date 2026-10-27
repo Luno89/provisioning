@@ -115,16 +115,21 @@ ok "on the mesh as ${MESH_IP}"
 report joined "On the mesh as ${MESH_IP}"
 
 say "Trusting your root's image registry"
-mkdir -p /etc/rancher/k3s
+mkdir -p /etc/rancher/k3s/config.yaml.d
 cat > /etc/rancher/k3s/registries.yaml <<REGISTRIES
 mirrors:
   "${INSTANCE_REGISTRY}":
     endpoint:
       - "http://${INSTANCE_REGISTRY}"
 REGISTRIES
+cat > /etc/rancher/k3s/config.yaml.d/koala-node-ports.yaml <<NODEPORTS
+kube-proxy-arg+:
+  - nodeport-addresses=127.0.0.1/32,100.64.0.0/10
+NODEPORTS
 systemctl restart k3s
 until kubectl get nodes 2>/dev/null | grep -q ' Ready'; do sleep 2; done
 ok "k3s pulls from ${INSTANCE_REGISTRY}"
+ok "k3s answers on its node ports only on this machine and the mesh, never on your network"
 
 say "Installing your instance (this takes a while the first time)"
 if [ -n "${INSTANCE_DOMAIN:-}" ] && [ -n "${INSTANCE_NAME:-}" ]; then

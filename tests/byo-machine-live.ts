@@ -81,7 +81,7 @@ async function main(): Promise<void> {
   const asOwner = (path: string, init: RequestInit = {}) => fetch(`${ROOT_FOR_HOST}${path}`, { ...init, headers: { 'content-type': 'application/json', Cookie: `session=${session}`, ...(init.headers ?? {}) } });
 
   step('a disposable VM plays the user\'s own machine');
-  vm = await createDisposableVm('byo-live', { memoryMB: 12288, cpus: 4, diskGB: 60, forwards: [{ host: INSTANCE_PORT, guest: 30320 }] });
+  vm = await createDisposableVm('byo-live', { memoryMB: 12288, cpus: 4, diskGB: 60, loopback: [{ host: INSTANCE_PORT, guest: 30320 }] });
 
   step('the owner asks root for a join command, and runs it on the machine');
   const joinCommand = await (await asOwner('/api/instances/join-tokens', { method: 'POST', body: '{}' })).json() as { token: string; command: string };
@@ -129,6 +129,22 @@ async function main(): Promise<void> {
   });
   console.log(`  ${traces.map((trace) => `${trace.node}${trace.exit ? `→${trace.exit}` : ''}`).join(' · ')}`);
   assert.equal(traces.find((trace) => trace.node === 'done')?.finish?.outcome, 'ok', 'the run did not finish ok');
+
+  step('the machine answers on its node ports only on itself and the mesh, never on its network address, and Infisical has none');
+  const nic = (await inVm(vm, "ip -4 route get 1.1.1.1 | awk '{for (i = 1; i < NF; i++) if ($i == \"src\") print $(i + 1)}'")).trim();
+  assert.match(nic, /^\d+\.\d+\.\d+\.\d+$/, `the VM's network address could not be read: ${nic}`);
+  const answer = async (host: string, port: number) => (await inVm(vm!, `curl -s -o /dev/null -w '%{http_code}' --max-time 5 http://${host}:${port}/ || true`)).trim();
+  const ports = { backend: 30320, gitea: 31737 };
+  for (const [what, port] of Object.entries(ports)) {
+    const here = await answer('127.0.0.1', port);
+    const there = await answer(nic, port);
+    console.log(`  ${what} :${port} on 127.0.0.1 ${here}, on ${nic} ${there}`);
+    assert.notEqual(here, '000', `the ${what} did not answer on the machine itself`);
+    assert.equal(there, '000', `the ${what} answered on the machine's network address`);
+  }
+  for (const [namespace, service] of [['infisical', 'infisical-infisical-standalone-infisical'], ['searxng', 'searxng'], ['crawl4ai', 'crawl4ai']]) {
+    assert.equal((await inVm(vm, `sudo k3s kubectl -n ${namespace} get service ${service} -o jsonpath='{.spec.type}'`)).trim(), 'ClusterIP', `${service} is published on the machine`);
+  }
 
   step('the instance checks root for the version it should run, and reports in');
   await inVm(vm, 'sudo k3s kubectl -n nowrinkles create job --from=cronjob/instance-self-upgrade self-upgrade-now && sudo k3s kubectl -n nowrinkles wait --for=condition=complete job/self-upgrade-now --timeout=300s');

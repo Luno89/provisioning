@@ -195,6 +195,16 @@ describe('the instance chart', () => {
     expect(find(render(), 'ConfigMap', 'luno-env').data).not.toHaveProperty('POOL');
   });
 
+  it('on the owner\'s machine, reaches Gitea and Infisical inside the cluster and pulls what Koala builds through the machine\'s loopback only', () => {
+    expect(find(render(), 'ConfigMap', 'luno-env').data).toMatchObject({
+      GITEA_URL: 'http://gitea-http.gitea.svc.cluster.local:3000',
+      INFISICAL_URL: 'http://infisical-infisical-standalone-infisical.infisical.svc.cluster.local:8080',
+      REGISTRY_PULL_HOST: '127.0.0.1:31737',
+      KOALA_REGISTRY: '127.0.0.1:31737',
+      KOALA_REGISTRY_PUSH: 'gitea-http.gitea.svc.cluster.local:3000',
+    });
+  });
+
   it('gives each component the memory and CPU it is given, and none when it is given none', () => {
     const docs = render(['resources.backend.limits.memory=1Gi', 'resources.mongo.requests.memory=300Mi', 'resources.temporalDb.limits.memory=256Mi', 'resources.temporal.requests.cpu=100m']);
     expect(find(docs, 'Deployment', 'luno-backend').spec.template.spec.containers[0].resources).toEqual({ limits: { memory: '1Gi' } });
