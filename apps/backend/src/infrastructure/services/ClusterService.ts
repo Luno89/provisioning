@@ -315,7 +315,7 @@ export class ClusterService extends BaseService {
       const existing = dbClusters.find(
         c => c.name === k3dName || this.getPhysicalClusterName(c) === k3dName
       );
-      if (existing) continue;
+      if (existing || k3dName === SYSTEM_CLUSTER_ID) continue;
 
       const kubeconfigPath = `/tmp/kubeconfig-${k3dName}`;
       let kubeconfigContent: string;

@@ -209,6 +209,7 @@ export function clustersRouter(deps: ClustersRouterDeps): Router {
   });
 
   router.post('/discover', async (req, res) => {
+    if (!userOf(req).isAdmin) return res.status(403).json({ error: 'Only an admin adopts the clusters on this host' });
     try {
       const discovered = await clusterService.discoverClusters(userOf(req).id);
       res.json({ clusters: discovered });

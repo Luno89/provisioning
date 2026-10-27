@@ -18,6 +18,7 @@ const services = () => ({
       (id === 'c1' && userId === TEST_USER.id ? cluster() : undefined)),
     getGpuStatus: vi.fn(async () => ({ gpus: 0 })),
     getKubeconfigPath: vi.fn(async () => '/tmp/kubeconfig'),
+    discoverClusters: vi.fn(async () => []),
   },
   appService: { discoverDeployments: vi.fn(async () => []) },
   clusterProxyService: {
@@ -170,5 +171,17 @@ describe('when the cluster cannot be reached', () => {
     await expect(axios.get(h.url('/api/clusters/c1/gpu-status'), { timeout: 3000 })).rejects.toMatchObject({
       response: { status: 500, data: { error: 'dial tcp: i/o timeout' } },
     });
+  });
+});
+
+describe('adopting the clusters left on the host', () => {
+  it('is an admin\'s to do', async () => {
+    const { h, svc } = await mount();
+    expect((await axios.post(h.url('/api/clusters/discover'), {}, { validateStatus: () => true })).status).toBe(403);
+    expect(svc.clusterService.discoverClusters).not.toHaveBeenCalled();
+    await h.close();
+    const admin = await mount(services(), { ...TEST_USER, isAdmin: true } as typeof TEST_USER);
+    expect((await axios.post(admin.h.url('/api/clusters/discover'), {})).status).toBe(200);
+    expect(admin.svc.clusterService.discoverClusters).toHaveBeenCalledWith(TEST_USER.id);
   });
 });
