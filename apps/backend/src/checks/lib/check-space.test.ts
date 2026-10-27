@@ -37,3 +37,14 @@ describe('a check space', () => {
     expect(copied.map((memory) => [memory.id, memory.status, memory.tool])).toEqual([['space-1-n1', 'active', 'start_task'], ['space-1-n3', 'active', 'start_task']]);
   });
 });
+
+describe('a member of a check\'s shared project', () => {
+  it('is an account apart from the space, down to its Gitea user', async () => {
+    const { memberSpaceId } = await import('./check-space.js');
+    const { giteaUsernameFor } = await import('../../projects/lib/projects.js');
+    const space = 'space-f82adfe9-f99f-4688-a7a5-e528a9ed4e74';
+    const members = ['owner', 'collaborator', 'client'].map((role) => memberSpaceId(space, role));
+    expect(members[2]).toBe('space-client-f82adfe9-f99f-4688-a7a5-e528a9ed4e74');
+    expect(new Set([space, ...members].map(giteaUsernameFor)).size).toBe(4);
+  });
+});
