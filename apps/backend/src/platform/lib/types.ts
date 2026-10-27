@@ -207,7 +207,8 @@ export interface LocalAgentDeviceMetadata {
   id: string;
   ownerId: string;
   name: string;
-  tokenEnc: string;
+  tokenHash?: string | undefined;
+  tokenEnc?: string | undefined;
   rootDir: string;
   createdAt: string;
   lastSeenAt?: string;

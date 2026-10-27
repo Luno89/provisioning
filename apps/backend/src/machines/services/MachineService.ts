@@ -1,8 +1,8 @@
 import crypto from 'crypto';
 import { v4 as uuidv4 } from 'uuid';
 import path from 'path';
-import { encryptValue, type SecretKey, type LocalAgentDeviceMetadata, type ProjectMetadata } from '../../platform/index.js';
-import { findDeviceByToken } from '../lib/local-agent-registry.js';
+import { type SecretKey, type LocalAgentDeviceMetadata, type ProjectMetadata } from '../../platform/index.js';
+import { deviceTokenHash, findDeviceByToken } from '../lib/local-agent-registry.js';
 import type { MachineChoice } from '@koala/agent-engine/procedure';
 import {
   MACHINE_CODE_TTL_SECONDS, hashMachineCode, machineAgentsFrom, machineChoiceProblem, machineCommand, manualAgentsOf, manualAgentsProblem, newMachineCode,
@@ -124,14 +124,14 @@ export class MachineService {
     const token = crypto.randomBytes(32).toString('base64url');
     const name = text(machine.hostname, 80) ?? 'machine';
     const os = text(machine.os, 80);
-    const { os: _formerOs, ...kept } = replaced ?? { os: undefined };
+    const { os: _formerOs, tokenEnc: _formerToken, ...kept } = replaced ?? { os: undefined, tokenEnc: undefined };
     await this.deps.store.saveLocalAgentDevice({
       ...kept,
       id,
       ownerId: found.ownerId,
       name,
       rootDir,
-      tokenEnc: encryptValue(token, this.deps.dataKey),
+      tokenHash: deviceTokenHash(token),
       createdAt: replaced?.createdAt ?? this.now().toISOString(),
       ...(os ? { os } : {}),
     });

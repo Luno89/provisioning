@@ -1,10 +1,10 @@
+import { createHash } from 'node:crypto';
 import { describe, it, expect, afterAll } from 'vitest';
 import type { Socket } from 'socket.io';
 import { localAgentsRouter } from './local-agents.js';
 import { machinesRouter } from './machines.js';
 import { mountRouter, type Harness, TEST_USER } from '../../platform/routes/test-harness.js';
 import type { Database } from '../../platform/lib/db-interface.js';
-import { decryptValue } from '../../platform/lib/crypto.js';
 import { askDevice, localAgentStatus, registerDevice, tellDevice, unregisterDevice } from '../lib/local-agent-registry.js';
 import { ProjectRepoService } from '../../projects/services/ProjectRepoService.js';
 import { MachineService } from '../services/MachineService.js';
@@ -78,8 +78,9 @@ describe('adding a machine with the command from My Machines', () => {
 
     const device = (await harness.db.machines.getLocalAgentDevices()).find((candidate) => candidate.id === env.KOALA_DEVICE_ID)!;
     expect(device).toMatchObject({ ownerId: TEST_USER.id, name: 'laptop', rootDir: '/home/me/koala', os: 'Linux x86_64' });
-    expect(device.tokenEnc).not.toBe(env.KOALA_DEVICE_TOKEN);
-    expect(decryptValue(device.tokenEnc, DATA_KEY)).toBe(env.KOALA_DEVICE_TOKEN);
+    expect(device.tokenEnc).toBeUndefined();
+    expect(device.tokenHash).toBe(createHash('sha256').update(env.KOALA_DEVICE_TOKEN!).digest('hex'));
+    expect(JSON.stringify(device)).not.toContain(env.KOALA_DEVICE_TOKEN);
     const project = (await harness.db.projects.getProjects()).find((candidate) => candidate.executionTarget?.kind === 'local-device' && candidate.executionTarget.deviceId === device.id);
     expect(project?.name).toBe('laptop - koala');
 
@@ -101,7 +102,7 @@ describe('adding a machine with the command from My Machines', () => {
     const devices = (await harness.db.machines.getLocalAgentDevices()).filter((device) => device.name === 'desk');
     expect(devices).toHaveLength(1);
     expect(devices[0]).toMatchObject({ rootDir: '/home/me/work', createdAt: before.createdAt, manualAgents: [{ id: 'pi', command: 'pi', args: ['--rpc'] }] });
-    expect(decryptValue(devices[0]!.tokenEnc, DATA_KEY)).toBe(again.env.KOALA_DEVICE_TOKEN);
+    expect(devices[0]!.tokenHash).toBe(createHash('sha256').update(again.env.KOALA_DEVICE_TOKEN!).digest('hex'));
     expect(again.env.KOALA_DEVICE_TOKEN).not.toBe(first.env.KOALA_DEVICE_TOKEN);
     expect((await harness.db.projects.getProjects()).length).toBe(projects);
 

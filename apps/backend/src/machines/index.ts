@@ -1,4 +1,4 @@
-export { askDevice, deleteFileOnDevice, listDirOnDevice, localAgentStatus, readFileOnDevice, tellDevice, writeFileOnDevice } from './lib/local-agent-registry.js';
+export { askDevice, deleteFileOnDevice, hashDeviceTokens, listDirOnDevice, localAgentStatus, readFileOnDevice, tellDevice, writeFileOnDevice } from './lib/local-agent-registry.js';
 export { accountDefaultOf, MACHINE_DEFAULT_NEEDS_MODEL } from './lib/machine-runs.js';
 export type { AccountDefault } from './lib/machine-runs.js';
 export { machineTelemetry } from './lib/machine-telemetry.js';

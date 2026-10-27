@@ -1,7 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import { MongoClient } from 'mongodb';
 import { describe, it, expect, inject } from 'vitest';
-import { looksEncrypted } from '../platform/lib/crypto.js';
+import { encryptValue, looksEncrypted } from '../platform/lib/crypto.js';
+import { loadKeys } from '../platform/lib/keys.js';
+import { findDeviceByToken } from '../machines/lib/local-agent-registry.js';
 import { MongoDB } from '../platform/lib/mongo-db.js';
 import { testDatabase } from '../platform/lib/test-database.js';
 import { seedAll } from './seed-all.js';
@@ -10,8 +12,8 @@ describe('seed-all', () => {
   it('fills every catalogue the platform expects to find in the database', async () => {
     const db = await testDatabase();
 
-    const { removedBuiltInProcedures, removedBuiltInPersonas, agentToolListsMoved, toolGrantsWritten, builtInCopiesDropped, agentServerListsMoved, servingToolsMoved, mcpToolKindsMoved, treeVersionsStamped, toolsNamingNeeds, serversNamingNeeds, dependenciesMade, releasesMarkedTold, deploymentSecretsSealed, inviteCodesHashed, clientFilesForgotten, ...counts } = await seedAll(db);
-    expect([agentServerListsMoved, servingToolsMoved, mcpToolKindsMoved, treeVersionsStamped, toolsNamingNeeds, serversNamingNeeds, dependenciesMade, releasesMarkedTold, deploymentSecretsSealed, inviteCodesHashed, clientFilesForgotten]).toEqual([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+    const { removedBuiltInProcedures, removedBuiltInPersonas, agentToolListsMoved, toolGrantsWritten, builtInCopiesDropped, agentServerListsMoved, servingToolsMoved, mcpToolKindsMoved, treeVersionsStamped, toolsNamingNeeds, serversNamingNeeds, dependenciesMade, releasesMarkedTold, deploymentSecretsSealed, inviteCodesHashed, clientFilesForgotten, deviceTokensHashed, ...counts } = await seedAll(db);
+    expect([agentServerListsMoved, servingToolsMoved, mcpToolKindsMoved, treeVersionsStamped, toolsNamingNeeds, serversNamingNeeds, dependenciesMade, releasesMarkedTold, deploymentSecretsSealed, inviteCodesHashed, clientFilesForgotten, deviceTokensHashed]).toEqual([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
     expect(removedBuiltInProcedures).toBe(0);
     expect(removedBuiltInPersonas).toBe(0);
     expect(agentToolListsMoved).toBe(0);
@@ -20,6 +22,20 @@ describe('seed-all', () => {
     for (const [name, n] of Object.entries(counts)) {
       expect(n, `${name} seeded nothing`).toBeGreaterThan(0);
     }
+  });
+
+  it('keeps only a hash of every machine\'s token, and the machine is still found by its token', async () => {
+    const db = await testDatabase();
+    const key = loadKeys(process.env).data;
+    await db.machines.saveLocalAgentDevice({ id: 'desk', ownerId: 'ann', name: 'desk', rootDir: '/home/ann/koala', createdAt: '2026-01-01T00:00:00.000Z', tokenEnc: encryptValue('the-desk-token', key) });
+
+    expect(await seedAll(db)).toMatchObject({ deviceTokensHashed: 1 });
+    expect(await seedAll(db)).toMatchObject({ deviceTokensHashed: 0 });
+    const [stored] = await db.machines.getLocalAgentDevices();
+    expect(stored).not.toHaveProperty('tokenEnc');
+    expect(stored?.tokenHash).toMatch(/^[0-9a-f]{64}$/);
+    expect(findDeviceByToken([stored!], 'the-desk-token', key)?.id).toBe('desk');
+    expect(findDeviceByToken([stored!], 'a-guess', key)).toBeUndefined();
   });
 
   it('keeps only a hash of every invite code already stored, and gives an unused one two weeks from now', async () => {

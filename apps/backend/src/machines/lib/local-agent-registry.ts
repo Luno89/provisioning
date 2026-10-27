@@ -19,18 +19,36 @@ function tokensEqual(a: string, b: string): boolean {
   return bufA.length === bufB.length && crypto.timingSafeEqual(bufA, bufB);
 }
 
+export const deviceTokenHash = (token: string): string => crypto.createHash('sha256').update(token).digest('hex');
+
 export function findDeviceByToken(
   candidates: readonly LocalAgentDeviceMetadata[],
   presentedToken: string,
   masterKey: SecretKey,
 ): LocalAgentDeviceMetadata | undefined {
+  const presented = deviceTokenHash(presentedToken);
   return candidates.find((d) => {
+    if (d.tokenHash) return tokensEqual(d.tokenHash, presented);
     try {
-      return tokensEqual(decryptValue(d.tokenEnc, masterKey), presentedToken);
+      return Boolean(d.tokenEnc) && tokensEqual(decryptValue(d.tokenEnc!, masterKey), presentedToken);
     } catch {
       return false;
     }
   });
+}
+
+export async function hashDeviceTokens(
+  store: { getLocalAgentDevices(): Promise<LocalAgentDeviceMetadata[]>; saveLocalAgentDevice(device: LocalAgentDeviceMetadata): Promise<void> },
+  masterKey: SecretKey,
+): Promise<number> {
+  let hashed = 0;
+  for (const device of await store.getLocalAgentDevices()) {
+    if (device.tokenHash || !device.tokenEnc) continue;
+    const { tokenEnc, ...rest } = device;
+    await store.saveLocalAgentDevice({ ...rest, tokenHash: deviceTokenHash(decryptValue(tokenEnc, masterKey)) });
+    hashed += 1;
+  }
+  return hashed;
 }
 
 export function registerDevice(

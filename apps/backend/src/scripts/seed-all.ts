@@ -3,13 +3,14 @@
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import dotenv from 'dotenv';
-import { createDatabase, type Database, inviteExpiry, runOnce, type MigrationLedger } from '../platform/index.js';
+import { createDatabase, type Database, inviteExpiry, loadKeys, runOnce, type MigrationLedger } from '../platform/index.js';
 import { seedBindingTypes, seedAppSpecs, seedConstructBackedTypes, seedClusterProviders } from '../infrastructure/index.js';
 import { seedTreeTypes, stampTreeVersions } from '../projects/index.js';
 import {
   seedWorkspaceImages, retireStoredBuiltInProcedures, retireStoredBuiltInPersonas, seedEngineTools,
   migrateAgentTools, migrateMcpServers, migrateToDependencies,
 } from '../engine/index.js';
+import { hashDeviceTokens } from '../machines/index.js';
 import { SHIPPED_DEPENDENCIES } from '../extensions/workspace-dependencies.js';
 import { seededGrants, seededPersonas } from '../extensions/seeds.js';
 
@@ -26,6 +27,7 @@ export async function seedAll(db: Database) {
   counts.deploymentSecretsSealed = (await runOnce(ledger, 'deployment-secrets-sealed', now, async () => ({ sealed: await db.infrastructure.sealDeploymentSecrets() }))).sealed ?? 0;
   counts.inviteCodesHashed = (await runOnce(ledger, 'invite-codes-hashed', now, async () => ({ hashed: await db.accounts.hashInviteCodes(inviteExpiry(new Date(now))) }))).hashed ?? 0;
   counts.clientFilesForgotten = (await runOnce(ledger, 'client-files-forgotten', now, async () => ({ forgotten: await db.projects.forgetClientFiles() }))).forgotten ?? 0;
+  counts.deviceTokensHashed = (await runOnce(ledger, 'device-tokens-hashed', now, async () => ({ hashed: await hashDeviceTokens(db.machines, loadKeys(process.env).data) }))).hashed ?? 0;
   counts.appSpecs = await seedAppSpecs(db.infrastructure);
   counts.constructBackedTypes = await seedConstructBackedTypes(db.infrastructure);
   counts.clusterProviders = await seedClusterProviders(db.infrastructure);
