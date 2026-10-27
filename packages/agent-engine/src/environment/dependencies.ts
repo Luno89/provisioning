@@ -28,6 +28,17 @@ export const LANGUAGE_IDS: string[] = LANGUAGE_DEPENDENCIES.map((dependency) => 
 
 export const MANAGER_NEEDS: Readonly<Partial<Record<Install['via'], string>>> = { pip: 'python', npm: 'node' };
 
+export type PackageManager = Exclude<Install['via'], 'script' | 'base'>;
+
+const PACKAGE_NAMES: Record<PackageManager, RegExp> = {
+  dnf: /^[A-Za-z0-9][A-Za-z0-9.+_~-]*(?:[=:][A-Za-z0-9.+_~:-]+)?$/,
+  apt: /^[A-Za-z0-9][A-Za-z0-9.+_~-]*(?:[=:][A-Za-z0-9.+_~:-]+)?$/,
+  pip: /^[A-Za-z0-9][A-Za-z0-9._-]*(?:\[[A-Za-z0-9._-]+(?:,[A-Za-z0-9._-]+)*\])?(?:(?:==|>=|<=|~=|!=|>|<)[A-Za-z0-9.*+!_-]+(?:,(?:==|>=|<=|~=|!=|>|<)[A-Za-z0-9.*+!_-]+)*)?$/,
+  npm: /^(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*(?:@[A-Za-z0-9.^~*_-]+)?$/,
+};
+
+export const isPackageName = (manager: PackageManager, name: string): boolean => PACKAGE_NAMES[manager].test(name);
+
 export function dependencyProblems(dependency: Partial<WorkspaceDependency>): string[] {
   const problems: string[] = [];
   const name = dependency.name ?? '';
@@ -38,6 +49,7 @@ export function dependencyProblems(dependency: Partial<WorkspaceDependency>): st
   for (const install of [...(dependency.install ?? []), ...(dependency.onDebian ?? [])]) {
     if (install.via === 'base') problems.push(`${name} cannot install "nothing"; a base image that already has it says so itself`);
     else if (install.via === 'script' ? !install.run.trim() : install.packages.length === 0) problems.push(`${name} has an install that installs nothing`);
+    else if (install.via !== 'script') for (const listed of install.packages) if (!isPackageName(install.via, listed)) problems.push(`"${listed}" is not a ${install.via} package name: no addresses, paths or shell characters`);
   }
   for (const need of dependency.needs ?? []) if (need === name) problems.push(`${name} cannot need itself`);
   return problems;

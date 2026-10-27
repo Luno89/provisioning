@@ -165,6 +165,8 @@ export {
   MANAGER_NEEDS,
   DEPENDENCY_NAME,
   dependencyProblems,
+  isPackageName,
+  type PackageManager as InstallPackageManager,
   resolveNeeds,
   UnknownDependencyError,
   DependencyCycleError,

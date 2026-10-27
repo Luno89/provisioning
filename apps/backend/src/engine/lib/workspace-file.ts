@@ -1,4 +1,4 @@
-import { DEPENDENCY_NAME, LANGUAGE_IDS, type Contribution } from '@koala/agent-engine';
+import { DEPENDENCY_NAME, LANGUAGE_IDS, isPackageName, type Contribution } from '@koala/agent-engine';
 
 export const WORKSPACE_FILE = '.koala/workspace.json';
 export const FROM_PROJECT = 'project';
@@ -19,7 +19,6 @@ export type ReadWorkspaceFile =
   | { problems: string[] };
 
 const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
-const PACKAGE = /^[A-Za-z0-9@][A-Za-z0-9@._+:/=<>~^-]*$/;
 const SECRET_LIKE = /(PASSWORD|PASSWD|SECRET|TOKEN|API_?KEY|PRIVATE_?KEY|CREDENTIAL)/i;
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -43,7 +42,7 @@ export function workspaceFileProblems(value: unknown): string[] {
           problems.push(`packages.${manager} has to be a list of package names`);
           continue;
         }
-        for (const name of listed as string[]) if (!PACKAGE.test(name)) problems.push(`"${name}" in packages.${manager} is not a package name`);
+        for (const name of listed as string[]) if (!isPackageName(manager as PackageManager, name)) problems.push(`"${name}" in packages.${manager} is not a package name`);
       }
     }
   }

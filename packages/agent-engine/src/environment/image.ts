@@ -1,7 +1,7 @@
 import { createHash } from 'crypto';
 import { environmentFor, type AgentDefinition } from '../agent/agent.js';
 import type { Install, ToolDefinition } from '../tools/catalogue.js';
-import { DependencyCycleError, LANGUAGE_DEPENDENCIES, LANGUAGE_IDS, MANAGER_NEEDS, UnknownDependencyError, resolveNeeds, type Need, type WorkspaceDependency } from './dependencies.js';
+import { DependencyCycleError, LANGUAGE_DEPENDENCIES, LANGUAGE_IDS, MANAGER_NEEDS, UnknownDependencyError, isPackageName, resolveNeeds, type Need, type PackageManager, type WorkspaceDependency } from './dependencies.js';
 
 export interface ImagePlan {
   base: string;
@@ -176,13 +176,20 @@ export function planImage(input: {
 
 export const APT_NAMES: Readonly<Record<string, string>> = { 'go-toolset': 'golang-go' };
 
-const onApt = (packages: readonly string[]): string => packages.map((name) => APT_NAMES[name] ?? name).join(' ');
+const quoted = (value: string): string => `'${value.replace(/'/g, `'\\''`)}'`;
 
-const RUN_FOR: Record<Exclude<Install['via'], 'script' | 'base'>, (packages: string[]) => string> = {
-  dnf: (packages) => `if command -v microdnf >/dev/null 2>&1; then microdnf install -y ${packages.join(' ')} && microdnf clean all; elif command -v dnf >/dev/null 2>&1; then dnf install -y ${packages.join(' ')} && dnf clean all; else apt-get update && apt-get install -y --no-install-recommends ${onApt(packages)} && rm -rf /var/lib/apt/lists/*; fi`,
-  apt: (packages) => `apt-get update && apt-get install -y --no-install-recommends ${packages.join(' ')} && rm -rf /var/lib/apt/lists/*`,
-  pip: (packages) => `PIP_BREAK_SYSTEM_PACKAGES=1 python3 -m pip install --no-cache-dir ${packages.join(' ')}`,
-  npm: (packages) => `npm install -g ${packages.join(' ')}`,
+const named = (manager: PackageManager, packages: readonly string[]): string => packages.map((name) => {
+  if (!isPackageName(manager, name)) throw new Error(`"${name}" is not a ${manager} package name, so it is never put in a build`);
+  return quoted(name);
+}).join(' ');
+
+const onApt = (packages: readonly string[]): string => named('apt', packages.map((name) => APT_NAMES[name] ?? name));
+
+const RUN_FOR: Record<PackageManager, (packages: string[]) => string> = {
+  dnf: (packages) => `if command -v microdnf >/dev/null 2>&1; then microdnf install -y ${named('dnf', packages)} && microdnf clean all; elif command -v dnf >/dev/null 2>&1; then dnf install -y ${named('dnf', packages)} && dnf clean all; else apt-get update && apt-get install -y --no-install-recommends ${onApt(packages)} && rm -rf /var/lib/apt/lists/*; fi`,
+  apt: (packages) => `apt-get update && apt-get install -y --no-install-recommends ${named('apt', packages)} && rm -rf /var/lib/apt/lists/*`,
+  pip: (packages) => `PIP_BREAK_SYSTEM_PACKAGES=1 python3 -m pip install --no-cache-dir ${named('pip', packages)}`,
+  npm: (packages) => `npm install -g ${named('npm', packages)}`,
 };
 
 export function renderDockerfile(plan: ImagePlan): string {
@@ -197,8 +204,6 @@ export function renderDockerfile(plan: ImagePlan): string {
   if (plan.proves?.length) lines.push(`RUN ${proofScript(plan.proves)}`);
   return `${lines.join('\n')}\n`;
 }
-
-const quoted = (value: string): string => `'${value.replace(/'/g, `'\\''`)}'`;
 
 export function proofScript(proves: readonly DependencyProof[]): string {
   const checks = proves.flatMap((proof) => [
