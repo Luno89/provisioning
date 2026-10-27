@@ -274,6 +274,10 @@ export function ownNamespacesFrom(store: {
     .map((entry) => entry.namespace || sanitiseNamespaceName(entry.name)));
 }
 
+export function treeTypeReachProblem(type: { egress?: unknown }, ownNamespaces: ReadonlySet<string>): string | undefined {
+  return egressReachProblem(type.egress, ownNamespaces);
+}
+
 export function treeExtrasFrom(
   store: {
     getTrees(): Promise<{ id: string; ownerId?: string | undefined; type?: string | undefined }[]>;
@@ -286,7 +290,7 @@ export function treeExtrasFrom(
     const tree = (await store.getTrees()).find((entry) => entry.id === treeId && entry.ownerId === ownerId);
     const type = await resolveTreeType(store, ownerId, tree?.type);
     if (!type) return undefined;
-    const refused = type.egress?.length ? egressReachProblem(type.egress, await ownNamespaces(ownerId)) : undefined;
+    const refused = type.egress?.length ? treeTypeReachProblem(type, await ownNamespaces(ownerId)) : undefined;
     if (refused) throw new Error(`the tree type ${type.id} opens a network rule its workspace may not have: ${refused}`);
     const ports = (rule: { ports?: number[] | undefined }) => (rule.ports?.length ? { ports: [...rule.ports] } : {});
     const own = (type.egress ?? []).flatMap((rule): TreeWorkspaceExtras['egress'] => (rule.cidr
