@@ -1,8 +1,9 @@
 import fs from 'fs/promises';
+import { ApplicationFailure } from '@temporalio/common';
 
 import {
   InfrastructureService, hasCloudCredentials, isMockCloudProvider, isSelfManagedCluster, type DestroyAppArgs,
-  namespaceOf,
+  namespaceOf, platformNamespaceProblem, PLATFORM_NAMESPACES,
 } from '../infrastructure/index.js';
 import { reachCluster } from './cluster-access.js';
 import { ODOO_PROJECT_APP } from '../releases/index.js';
@@ -20,6 +21,8 @@ export async function DestroyAppActivity(
 ): Promise<DestroyAppResult> {
   const infra = new InfrastructureService();
   const namespace = namespaceOf(args);
+  const platform = platformNamespaceProblem(namespace, PLATFORM_NAMESPACES);
+  if (platform) throw ApplicationFailure.nonRetryable(platform);
 
   const isMock = isMockCloudProvider(args.provider, hasCloudCredentials);
   const physicalName = isMock ? `mock-${args.provider}-${args.clusterName}` : args.clusterName;

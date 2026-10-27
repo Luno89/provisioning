@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { namespaceOf, newAppNamespace, sameOwner } from './app-namespace.js';
+import { namespaceOf, newAppNamespace, sameOwner, deployRequestFrom, MADE_BY_KOALA_APP_TYPES, platformNamespaceProblem } from './app-namespace.js';
+import { ODOO_PROJECT_APP } from '../../releases/lib/odoo-release.js';
 
 describe('an app\'s namespace', () => {
   it('is the stored one, or the sanitized name for an app deployed before namespaces were stored', () => {
@@ -28,5 +29,25 @@ describe('an app\'s namespace', () => {
     expect(sameOwner({ ownerId: 'ann' }, 'bob')).toBe(false);
     expect(sameOwner({}, undefined)).toBe(true);
     expect(sameOwner({ ownerId: 'ann' }, undefined)).toBe(false);
+  });
+});
+
+describe('a deploy someone asks for', () => {
+  it('never names its own namespace or id, since destroying it would delete what those name', () => {
+    expect(deployRequestFrom({ name: 'shop', appType: 'odoo', clusterId: 'c1', namespace: 'gitea', id: 'someone-elses' })).toEqual({ request: { name: 'shop', appType: 'odoo', clusterId: 'c1' } });
+  });
+
+  it('is never an app Koala makes from a project', () => {
+    expect(deployRequestFrom({ name: 'x', appType: 'odoo-project' })).toEqual({ problem: 'a odoo-project app is made by Koala from its project, never deployed by hand' });
+    expect(deployRequestFrom({ name: 'x', appType: 'gitapp' })).toMatchObject({ problem: expect.stringContaining('gitapp') });
+    expect(MADE_BY_KOALA_APP_TYPES.has(ODOO_PROJECT_APP)).toBe(true);
+  });
+});
+
+describe('destroying an app', () => {
+  it('never deletes a namespace of the platform\'s, whatever its record says', () => {
+    const platform = new Set(['gitea', 'monitoring']);
+    for (const namespace of ['gitea', 'monitoring', 'default', 'kube-system']) expect(platformNamespaceProblem(namespace, platform)).toMatch(/platform's own namespace/);
+    expect(platformNamespaceProblem('shop-1a2b3c', platform)).toBeUndefined();
   });
 });

@@ -3,6 +3,7 @@ import type { Server as SocketServer } from 'socket.io';
 import { asyncRoute, type Database } from '../../platform/index.js';
 import { CapacityError } from '../lib/cluster-capacity.js';
 import { APP_SETTINGS_SCHEMAS, NO_WEB_UI_APP_TYPES } from '../lib/app-schemas.js';
+import { deployRequestFrom } from '../lib/app-namespace.js';
 import { validateAppSettings } from '../lib/app-settings-schema.js';
 import { parseQuantity, planHostMemory } from '../lib/host-memory-plan.js';
 import { TABBYAPI_DEFAULT_MAX_SEQ_LEN } from '../lib/app-env.js';
@@ -44,9 +45,11 @@ export function deploymentsRouter(deps: DeploymentsRouterDeps): Router {
   router.post('/', async (req, res) => {
     try {
       const user = userOf(req);
-      const targetCluster = await clusterService.getById(req.body.clusterId, user.id);
+      const asked = deployRequestFrom(req.body);
+      if ('problem' in asked) return res.status(400).json({ error: asked.problem });
+      const targetCluster = await clusterService.getById(String(asked.request.clusterId ?? ''), user.id);
       if (!targetCluster) return res.status(404).json({ error: 'Cluster not found' });
-      const info = await temporalBridge.deployApp(req.body, user?.id);
+      const info = await temporalBridge.deployApp(asked.request, user?.id);
       res.status(202).json({
         message: 'Deployment started',
         deploymentName: req.body.name,

@@ -1,7 +1,7 @@
 export { destroyAppArgs, destroyAppWorkflowId } from './lib/app-destroy.js';
 export type { DestroyAppArgs } from './lib/app-destroy.js';
 export { buildAppEnv, TABBYAPI_DEFAULT_MAX_SEQ_LEN } from './lib/app-env.js';
-export { namespaceOf } from './lib/app-namespace.js';
+export { namespaceOf, platformNamespaceProblem } from './lib/app-namespace.js';
 export { explainSpecProblems, validateSpec } from './lib/app-spec-validate.js';
 export { renderApp, seedAppSpecs, seedConstructBackedTypes, specSecrets, visibleAppSpecs } from './lib/app-spec.js';
 export type { AppSpec } from './lib/app-spec.js';
@@ -10,6 +10,7 @@ export type { ResolvedBinding } from './lib/binding-resolve.js';
 export { seedBindingTypes } from './lib/binding-type-seeds.js';
 export { capacityFromNodes } from './lib/cluster-capacity.js';
 export type { ClusterCapacity } from './lib/cluster-capacity.js';
+export { PLATFORM_NAMESPACES } from './lib/cluster-workloads.js';
 export { seedClusterProviders } from './lib/cluster-providers.js';
 export { isMockCloudProvider, isSelfManagedCluster } from './lib/cluster-topology.js';
 export { hasCloudCredentials } from './lib/credential-resolver.js';
