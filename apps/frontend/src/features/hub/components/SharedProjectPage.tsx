@@ -38,6 +38,7 @@ export default function SharedProjectPage({ id, me, onLeft, embedded = false }: 
   if (view.isError) return <p className="p-6 text-[12px] text-red-300">{errorMessage(view.error)}</p>
   const { project, can } = view.data
   const owner = can.includes('invite')
+  const sharer = project.origin ? project.createdBy : undefined
   const failure = invite.error ?? takeBack.error ?? changeRole.error ?? remove.error ?? deleteProject.error
 
   return (
@@ -59,12 +60,14 @@ export default function SharedProjectPage({ id, me, onLeft, embedded = false }: 
           {(view.data.members ?? []).map((member) => (
             <li key={member.personId} className="flex flex-wrap items-center gap-2 px-3 py-2 text-[12px]">
               <span className="min-w-0 flex-1 truncate text-slate-200">{member.email}{member.personId === me ? <span className="text-slate-500"> (you)</span> : null}</span>
-              {owner ? (
+              {member.personId === sharer ? (
+                <span className="text-slate-400" title="It syncs from their instance, so they stay an owner until they take it back">{ROLE_SAID[member.role].title} · shared it</span>
+              ) : owner ? (
                 <select aria-label={`What ${member.email} may do`} value={member.role} disabled={changeRole.isPending} onChange={(event) => changeRole.mutate({ personId: member.personId, role: event.target.value as HubRole })} className={field}>
                   {HUB_ROLES.map((choice) => <option key={choice} value={choice}>{ROLE_SAID[choice].title}</option>)}
                 </select>
               ) : <span className="text-slate-400">{ROLE_SAID[member.role].title}</span>}
-              {owner && member.personId !== me && (
+              {owner && member.personId !== me && member.personId !== sharer && (
                 <button type="button" aria-label={`Remove ${member.email}`} onClick={() => remove.mutate(member.personId)} className="rounded p-1 text-slate-500 hover:text-red-300"><UserMinus size={13} /></button>
               )}
             </li>
@@ -103,7 +106,9 @@ export default function SharedProjectPage({ id, me, onLeft, embedded = false }: 
       {failure && <p role="alert" className="text-[12px] text-red-300">{errorMessage(failure)}</p>}
 
       <section className="border-t border-[var(--bark-800)] pt-3">
-        {leaving
+        {me === sharer
+          ? <p className="text-[12px] text-slate-500">You shared this project from your instance; take it back there, in the project's Settings → People, to stop sharing it.</p>
+          : leaving
           ? (
             <div className="flex items-center gap-2 text-[12px]">
               <span className="text-slate-300">Leave {project.name}? You will need a new invite to come back.</span>

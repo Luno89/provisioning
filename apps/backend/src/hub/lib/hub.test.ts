@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { can, inviteProblem, leavingProblem, projectDatabase, roleChangeProblem, sameEmail, sharedProjectProblem, type HubMember } from './hub.js';
+import { can, inviteProblem, leavingProblem, projectDatabase, roleChangeProblem, sameEmail, sharedProjectProblem, sharerOf, type HubMember } from './hub.js';
 
 const member = (personId: string, role: HubMember['role'], email = `${personId}@example.com`): HubMember => ({ personId, email, role, joinedAt: 't' });
 
@@ -29,6 +29,18 @@ describe('the people on a shared project', () => {
     expect(roleChangeProblem(people, 'zed', 'client')).toBe('that person is not on this project');
     expect(leavingProblem(people, 'ann')).toMatch(/last owner cannot leave/);
     expect(leavingProblem(people, 'bo')).toBeUndefined();
+  });
+
+  it('keeps whoever shared the project from their instance an owner and on it, since it syncs only from there', () => {
+    const owners = [...people, member('cy', 'owner')];
+    expect(sharerOf({ createdBy: 'ann', origin: { instanceId: 'i', projectId: 'p' } })).toBe('ann');
+    expect(sharerOf({ createdBy: 'ann' })).toBeUndefined();
+    expect(roleChangeProblem(owners, 'ann', 'collaborator', 'ann')).toMatch(/ann@example.com shared this project from their instance.*stay an owner/);
+    expect(roleChangeProblem(owners, 'cy', 'collaborator', 'ann')).toBeUndefined();
+    expect(leavingProblem(owners, 'ann', 'ann', 'cy')).toMatch(/cannot be removed; they take it back/);
+    expect(leavingProblem(owners, 'ann', 'ann')).toMatch(/take it back there/);
+    expect(leavingProblem(owners, 'ann')).toBeUndefined();
+    expect(leavingProblem(owners, 'cy', 'ann', 'ann')).toBeUndefined();
   });
 
   it('matches an invite to an address however it is written', () => {

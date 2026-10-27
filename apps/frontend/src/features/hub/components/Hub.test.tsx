@@ -78,6 +78,22 @@ describe('a shared project\'s people', () => {
     await waitFor(() => expect(left).toHaveBeenCalled())
   })
 
+  it('keeps whoever shared it from their instance an owner, with no way for another owner to change or remove them', async () => {
+    const shared = { ...asOwner, project: { ...shop, origin: { instanceId: 'i-ann', projectId: 'x' } }, members: [...asOwner.members!, { personId: 'bo', email: 'bo@example.com', role: 'owner' as const, joinedAt: 't' }] }
+    api.getSharedProject.mockResolvedValue(shared)
+    const { unmount } = wrap(<SharedProjectPage id="p1" me="bo" />)
+    expect(await screen.findByText('Owner · shared it')).toBeTruthy()
+    expect(screen.queryByLabelText('What ann@example.com may do')).toBeNull()
+    expect(screen.queryByLabelText('Remove ann@example.com')).toBeNull()
+    expect(screen.getByLabelText('What cy@example.com may do')).toBeTruthy()
+    expect(screen.getByText('Leave this project')).toBeTruthy()
+    unmount()
+
+    wrap(<SharedProjectPage id="p1" me="ann" />)
+    expect(await screen.findByText(/take it back there, in the project's Settings → People/)).toBeTruthy()
+    expect(screen.queryByText('Leave this project')).toBeNull()
+  })
+
   it('shows a client the people and nothing to invite, change or delete with', async () => {
     api.getSharedProject.mockResolvedValue({ project: shop, role: 'client', can: ['see-project', 'see-people', 'pin-and-comment', 'ask-koala'], members: asOwner.members! })
     wrap(<SharedProjectPage id="p1" me="cy" />)

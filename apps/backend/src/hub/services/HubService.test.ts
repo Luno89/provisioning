@@ -149,6 +149,12 @@ describe('a shared project and its people', () => {
     expect(await hub.receive({ kind: 'instance', personId: 'eve', instanceId: 'i-ann' }, id, [])).toMatchObject({ status: 404 });
     expect(await hub.receive(fromAnn, id, [{ kind: 'secrets', id: 'x', deleted: true }])).toMatchObject({ status: 400 });
     expect(await store.project(id).records('leaves')).toHaveLength(1);
+
+    expect(await hub.changeRole('bo', id, 'ann', 'collaborator')).toMatchObject({ ok: false, status: 400 });
+    expect(await hub.remove('bo', id, 'ann')).toMatchObject({ ok: false, status: 400 });
+    expect(await hub.remove('ann', id, 'ann')).toMatchObject({ ok: false, status: 400 });
+    expect(valueOf(await hub.receive(fromAnn, id, [{ kind: 'leaves', id: 'l3', patch: { set: { title: 'Still syncing' } } }]))).toEqual({ through: 5 });
+    expect(valueOf(await hub.changeRole('ann', id, 'bo', 'collaborator')).members?.find((member) => member.personId === 'bo')?.role).toBe('collaborator');
   });
 
   it('is shared only from an instance, with a repository on the hub, and is taken back only by that instance, which deletes everything of it', async () => {

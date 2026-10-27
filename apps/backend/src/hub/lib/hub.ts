@@ -75,17 +75,23 @@ export function inviteProblem(input: { email: unknown; role: unknown }, members:
   return undefined;
 }
 
-export function roleChangeProblem(members: readonly HubMember[], personId: string, role: unknown): string | undefined {
+export const sharerOf = (project: Pick<SharedProject, 'createdBy' | 'origin'>): string | undefined => (project.origin ? project.createdBy : undefined);
+
+const SYNCS_FROM_THEM = 'shared this project from their instance, the only place it syncs from';
+
+export function roleChangeProblem(members: readonly HubMember[], personId: string, role: unknown, sharer?: string): string | undefined {
   if (!isHubRole(role)) return `a member is an ${HUB_ROLES.join(', a ')}`;
   const member = members.find((entry) => entry.personId === personId);
   if (!member) return 'that person is not on this project';
+  if (personId === sharer && role !== 'owner') return `${member.email} ${SYNCS_FROM_THEM}, so they stay an owner until they take it back`;
   if (member.role === 'owner' && role !== 'owner' && members.filter((entry) => entry.role === 'owner').length === 1) return 'a project always keeps one owner; make someone else an owner first';
   return undefined;
 }
 
-export function leavingProblem(members: readonly HubMember[], personId: string): string | undefined {
+export function leavingProblem(members: readonly HubMember[], personId: string, sharer?: string, by: string = personId): string | undefined {
   const member = members.find((entry) => entry.personId === personId);
   if (!member) return 'that person is not on this project';
+  if (personId === sharer) return by === personId ? 'you shared this project from your instance; take it back there to stop sharing it' : `${member.email} ${SYNCS_FROM_THEM}, so they cannot be removed; they take it back to stop sharing it`;
   if (member.role === 'owner' && members.filter((entry) => entry.role === 'owner').length === 1) return 'the last owner cannot leave; make someone else an owner first';
   return undefined;
 }

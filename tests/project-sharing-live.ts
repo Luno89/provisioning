@@ -157,6 +157,11 @@ async function main(): Promise<void> {
       }, 15);
       assert.equal(board.role, 'owner');
       assert.ok(board.can.includes('approve-changes'));
+      const ownerId = (await owner!.get('/auth/me')).data.id as string;
+      const leaving = await owner!.delete(`/hub/projects/${hubId}/members/${ownerId}`);
+      assert.equal(leaving.status, 400, JSON.stringify(leaving.data));
+      assert.match(String(leaving.data.error), /shared this project from your instance; take it back there/);
+      console.log('    the owner who shared it cannot leave it on the hub; they take it back from their instance');
     });
 
     await stage('a client is invited, signs up with the invite, accepts, and sees the whole board the owner sees', async () => {

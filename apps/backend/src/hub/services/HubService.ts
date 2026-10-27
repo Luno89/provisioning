@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import {
-  can, inviteProblem, INVITE_TOKEN, leavingAll, leavingProblem, roleChangeProblem, sameEmail, SHARED_PROJECT_ID, sharedProjectProblem,
+  can, inviteProblem, INVITE_TOKEN, leavingAll, leavingProblem, roleChangeProblem, sameEmail, sharerOf, SHARED_PROJECT_ID, sharedProjectProblem,
   type HubAction, type HubInvite, type HubMember, type HubRole, type SharedProject,
 } from '../lib/hub.js';
 import type { HubStore, SharedProjectStore } from '../lib/hub-store.js';
@@ -410,7 +410,7 @@ export class HubService {
     const access = await this.access(personId, projectId);
     if (!access) return NOT_FOUND;
     if (!can(access.member.role, 'change-roles')) return refuse('Only an owner can change what people may do.');
-    const problem = roleChangeProblem(access.members, memberId, role);
+    const problem = roleChangeProblem(access.members, memberId, role, sharerOf(access.project));
     if (problem) return wrong(problem);
     const member = access.members.find((entry) => entry.personId === memberId)!;
     await access.store.saveMember({ ...member, role: role as HubRole });
@@ -496,7 +496,7 @@ export class HubService {
     const access = await this.access(personId, projectId);
     if (!access) return NOT_FOUND;
     if (memberId !== personId && !can(access.member.role, 'remove-people')) return refuse('Only an owner can remove people.');
-    const problem = leavingProblem(access.members, memberId);
+    const problem = leavingProblem(access.members, memberId, sharerOf(access.project), personId);
     if (problem) return wrong(memberId === personId ? problem : problem.replace('the last owner cannot leave', 'the last owner cannot be removed'));
     await access.store.deleteMember(memberId);
     await this.deps.store.removeMembership(memberId, projectId);
