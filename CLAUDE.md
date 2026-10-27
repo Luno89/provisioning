@@ -417,7 +417,8 @@ shared projects: a registry database (`HUB_DATABASE`, default `koala_hub`: `shar
 `shared_invites` token → project, `shared_people`, `shared_handoffs`) and **one database per project** (`hub_<id>`, its
 `members` and `invites`; `hub/lib/hub-store.ts`, `hub/lib/hub-mongo.ts`). `HubService` reads the person's membership from the
 project's own database before anything, and answers 404 to anyone not on it. Roles (`can` in `hub/lib/hub.ts`): **owner**
-(everything; several allowed, the last cannot leave or be demoted), **collaborator** (works stories, approves, moves and
+(everything; several allowed, the last cannot leave or be demoted, and whoever shared it from their instance stays one and on it,
+`sharerOf`, since it syncs only from there: they take it back to stop sharing), **collaborator** (works stories, approves, moves and
 removes files), **client** (pins, comments, asks Koala; its changes wait for an owner's or collaborator's approval). Every
 member sees everything in the project, the code and every file included (owner, 2026-10-26: "we can pare it down later").
 `/api/hub/*`: projects (made from a project's
@@ -480,7 +481,8 @@ that `HubSyncService` on the owner's instance carries out as the owner once the 
 messages the viewer did not write, in both UIs); Koala answers owners and clients on the owner's instance (an
 `ask-koala` request starting the turn), collaborators from their own instance in step 3. The owner's instance sends a
 **status** (`PUT .../status`: releases, builds, tree runs) every 15 s or when the project moved. **Files**: the hub
-relays the owner's MinIO (`FileScope` `{kind: 'hub'}`): every member sees and adds every file, and only owners and
+relays the owner's MinIO (`FileScope` `{kind: 'hub'}`): every member sees and adds every file, reads only the procedures a run of the
+project used (`procedureRanIn` over that run's turn log), and only owners and
 collaborators move, remove or replace one (`change-files`, `relayProblem`; a client's upload onto a name already taken is refused). The hub's repository is read-only to every member
 (`GET .../repository`, `.../repository/file`). Where root has no hub,
 Share says so. `npm run test:project-sharing-live` proves it combined.
@@ -1572,8 +1574,10 @@ Plan: `~/.claude/plans/file-uploads.md`. **Where you drop decides.** A project's
   right pane, a dialog elsewhere). A person's own files (chat attachments outside projects) and their links are under Settings → Files.
 - **Share links**: a file shared for a day, a week or a month (`fileShares`, `files/lib/file-shares.ts`) is served by Koala at
   `/api/share/<token>` with no session (`/share/` in the guard's public prefixes), streamed from MinIO, so MinIO is never exposed.
-  Revoked from Settings → Files; expired ones are removed when opened; a project's go with it. Every person's file is served with
-  `nosniff`, and anything that could run script (HTML, SVG, XML, JS) under a sandboxing CSP (`files/lib/file-serving.ts`).
+  Revoked from Settings → Files; expired ones are removed when opened; a project's go with it. Every person's file and every artifact is served
+  with `nosniff` and a sandboxing CSP, and shown in the page only when it is an image (never SVG), video, audio, plain text, CSV,
+  Markdown, JSON or a PDF (which alone goes without the sandbox, which its viewer refuses); anything else downloads, whatever type
+  its uploader gave it (`files/lib/file-serving.ts`).
 - **A story's page** takes both: **Code for this story** goes to the story's checkout (`StoryDropService`, recorded as `drops` on
   the story): committed on its own branch `drop/<story>/<id>` from `main`, merged into the story's worktree at once when it
   exists (`applyDrop`, `git merge --autostash`, so the worker's uncommitted changes stay), otherwise brought into the tree's
