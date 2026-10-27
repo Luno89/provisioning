@@ -20,6 +20,7 @@ describe('/api/artifacts', () => {
         stored = (await artifacts.put(TEST_USER.id, 'run-1', [
           { name: 'signs-in/test-failed-1.png', bytes: Buffer.from('png-bytes') },
           { name: 'signs-in/trace.zip', bytes: Buffer.from('zip') },
+          { name: 'signs-in/drawn.svg', bytes: Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>') },
         ])).stored;
         await artifacts.put('someone-else', 'run-2', [{ name: 'theirs.png', bytes: Buffer.from('x') }]);
         return artifactsRouter({ artifacts, hasMinio: async () => false });
@@ -33,18 +34,26 @@ describe('/api/artifacts', () => {
     const res = await get(harness.url(`/api/artifacts/${named('test-failed-1.png').id}`));
     expect(res.status).toBe(200);
     expect(res.headers['content-type']).toBe('image/png');
-    expect(res.headers['content-disposition']).toBe('inline; filename="test-failed-1.png"');
+    expect(res.headers['content-disposition']).toBe("inline; filename*=UTF-8''test-failed-1.png");
+    expect(res.headers['x-content-type-options']).toBe('nosniff');
     expect(Buffer.from(res.data).toString()).toBe('png-bytes');
   });
 
   it('downloads a trace rather than opening it', async () => {
     const res = await get(harness.url(`/api/artifacts/${named('trace.zip').id}`));
-    expect(res.headers['content-disposition']).toBe('attachment; filename="trace.zip"');
+    expect(res.headers['content-disposition']).toBe("attachment; filename*=UTF-8''trace.zip");
+  });
+
+  it('never opens a file it has no safe type for, and lets it run none', async () => {
+    const res = await get(harness.url(`/api/artifacts/${named('drawn.svg').id}`));
+    expect(res.headers['content-type']).toBe('application/octet-stream');
+    expect(res.headers['content-disposition']).toBe("attachment; filename*=UTF-8''drawn.svg");
+    expect(res.headers['content-security-policy']).toMatch(/sandbox$/);
   });
 
   it('lists a run\'s artifacts and says whether the person has MinIO', async () => {
     const listed = await axios.get(harness.url('/api/artifacts/runs/run-1'));
-    expect(listed.data.artifacts.map((a: StoredArtifact) => a.name).sort()).toEqual(['signs-in/test-failed-1.png', 'signs-in/trace.zip']);
+    expect(listed.data.artifacts.map((a: StoredArtifact) => a.name).sort()).toEqual(['signs-in/drawn.svg', 'signs-in/test-failed-1.png', 'signs-in/trace.zip']);
     expect((await axios.get(harness.url('/api/artifacts/storage'))).data).toEqual({ minio: false });
   });
 

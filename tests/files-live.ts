@@ -109,6 +109,25 @@ async function exercise(scope: string, label: string): Promise<void> {
   assert.equal((await api!.delete(`/files/shares/${(share.data as { id: string }).id}`)).status, 200);
   assert.equal((await axios.get(link, { proxy: false, validateStatus: () => true })).status, 404);
   console.log('  a link to the PDF opened with no session at all, gave its bytes, and stopped working once revoked');
+
+  const shown = await api!.get(`/files/${scope}/content`, { params: { path: 'archive/docs/brief.pdf', inline: '1' } });
+  assert.match(String(shown.headers['content-disposition']), /^inline;/, 'the PDF was not shown in the page');
+  assert.equal(shown.headers['content-security-policy'], undefined, 'the PDF was sandboxed, which its viewer refuses');
+  const svg = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"><script>parent.alert(document.cookie)</script></svg>');
+  for (const [path, type] of [['drawn.svg', 'image/svg+xml'], ['feed.rss', 'application/rss+xml'], ['page.txt', 'text/html']] as const) {
+    assert.equal((await put(scope, path, svg, type)).status, 201);
+    const opened = await api!.get(`/files/${scope}/content`, { params: { path, inline: '1' } });
+    assert.match(String(opened.headers['content-disposition']), /^attachment;/, `${path} as ${type} was shown in the page`);
+    assert.match(String(opened.headers['content-security-policy']), /sandbox$/, `${path} as ${type} may run script`);
+    assert.equal(opened.headers['x-content-type-options'], 'nosniff');
+  }
+  const svgShare = await api!.post(`/files/${scope}/shares`, { path: 'drawn.svg', days: 1 });
+  const svgLink = await axios.get(`${BASE}/share/${(svgShare.data as { id: string }).id}`, { proxy: false, validateStatus: () => true });
+  assert.match(String(svgLink.headers['content-disposition']), /^attachment;/, 'a shared SVG opened in the page');
+  assert.match(String(svgLink.headers['content-security-policy']), /sandbox$/, 'a shared SVG may run script');
+  assert.equal((await api!.delete(`/files/shares/${(svgShare.data as { id: string }).id}`)).status, 200);
+  for (const path of ['drawn.svg', 'feed.rss', 'page.txt']) assert.equal((await api!.delete(`/files/${scope}/content`, { params: { path } })).status, 200);
+  console.log('  the PDF shows in the page; an SVG, an RSS feed and a file calling itself HTML only download, sandboxed, a share link of one too');
 }
 
 async function main(): Promise<void> {

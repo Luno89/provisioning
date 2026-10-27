@@ -1,13 +1,16 @@
 export const UNTRUSTED_FILE_POLICY = "default-src 'none'; img-src 'self' data:; media-src 'self'; style-src 'unsafe-inline'; sandbox";
 
-const ACTIVE = /^(text\/html|application\/xhtml\+xml|image\/svg\+xml|text\/xml|application\/xml|text\/javascript|application\/javascript|application\/ecmascript)\b/i;
+const SHOWN_INLINE = /^(image\/(png|jpeg|gif|webp|avif|bmp)|video\/[a-z0-9.-]+|audio\/[a-z0-9.-]+|text\/(plain|csv|markdown)|application\/(json|pdf))$/;
+
+const baseType = (contentType: string): string => (contentType.split(';')[0] ?? '').trim().toLowerCase();
 
 export function servingHeaders(contentType: string, name: string, inline: boolean): Record<string, string> {
-  const active = ACTIVE.test(contentType) || /\.(html?|xhtml|svg|xml|js|mjs)$/i.test(name);
+  const type = baseType(contentType);
+  const shown = inline && SHOWN_INLINE.test(type);
   return {
     'Content-Type': contentType,
-    'Content-Disposition': `${inline ? 'inline' : 'attachment'}; filename*=UTF-8''${encodeURIComponent(name)}`,
+    'Content-Disposition': `${shown ? 'inline' : 'attachment'}; filename*=UTF-8''${encodeURIComponent(name)}`,
     'X-Content-Type-Options': 'nosniff',
-    ...(active ? { 'Content-Security-Policy': UNTRUSTED_FILE_POLICY } : {}),
+    ...(shown && type === 'application/pdf' ? {} : { 'Content-Security-Policy': UNTRUSTED_FILE_POLICY }),
   };
 }
