@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
@@ -48,6 +49,9 @@ const networkName = (leafId: string): string => `koala-leaf-net-${leafId}`;
 
 const leafContainerIps = new Map<string, string>();
 let proxyReady: Promise<void> | undefined;
+let controlToken = '';
+
+const controlHeaders = (): Record<string, string> => ({ authorization: `Bearer ${controlToken}` });
 
 /** Test-only: this module otherwise intentionally caches proxy-readiness for the agent's whole lifetime. */
 export function __resetForTests(): void {
@@ -69,8 +73,8 @@ async function containerIpOnNetwork(name: string, network: string): Promise<stri
 async function ensureProxyContainer(): Promise<void> {
   if (!proxyReady) {
     proxyReady = (async () => {
-      const running = await runDocker(['inspect', '-f', '{{.State.Running}}', PROXY_CONTAINER_NAME]);
-      if (running.exitCode === 0 && running.stdout.trim() === 'true') return;
+      await runDocker(['rm', '-f', PROXY_CONTAINER_NAME]);
+      controlToken = crypto.randomBytes(32).toString('hex');
 
       const { hostDir, scriptPath } = resolveAgentMount();
       const started = await runDocker([
@@ -80,6 +84,7 @@ async function ensureProxyContainer(): Promise<void> {
         '-w', '/agent',
         '-e', `PROXY_PORT=${PROXY_PORT}`,
         '-e', `CONTROL_PORT=${CONTROL_PORT}`,
+        '-e', `CONTROL_TOKEN=${controlToken}`,
         'node:20-alpine',
         'node_modules/.bin/tsx', scriptPath,
       ]);
@@ -89,7 +94,7 @@ async function ensureProxyContainer(): Promise<void> {
 
       for (;;) {
         try {
-          const res = await fetch(`http://127.0.0.1:${CONTROL_PORT}/allowlist/probe`, { method: 'DELETE' });
+          const res = await fetch(`http://127.0.0.1:${CONTROL_PORT}/allowlist/probe`, { method: 'DELETE', headers: controlHeaders() });
           if (res.ok) return;
         } catch {
           const still = await runDocker(['inspect', '-f', '{{.State.Running}}', PROXY_CONTAINER_NAME]);
@@ -105,13 +110,13 @@ async function ensureProxyContainer(): Promise<void> {
 async function setProxyAllowlist(containerIp: string, rules: EgressRule[]): Promise<void> {
   await fetch(`http://127.0.0.1:${CONTROL_PORT}/allowlist`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', ...controlHeaders() },
     body: JSON.stringify({ containerIp, rules }),
   });
 }
 
 async function clearProxyAllowlist(containerIp: string): Promise<void> {
-  await fetch(`http://127.0.0.1:${CONTROL_PORT}/allowlist/${encodeURIComponent(containerIp)}`, { method: 'DELETE' })
+  await fetch(`http://127.0.0.1:${CONTROL_PORT}/allowlist/${encodeURIComponent(containerIp)}`, { method: 'DELETE', headers: controlHeaders() })
     .catch(() => undefined);
 }
 

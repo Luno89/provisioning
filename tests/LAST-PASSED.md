@@ -13,6 +13,7 @@ Written by `tests/lib/run-live.ts`, which every `npm run test:*-live` and `test:
 | `hub-live` | 2026-10-27 22:29 | 2026-10-24 18:21 |
 | `infra-integration` | 2026-10-24 14:25 | 2026-10-24 14:12 |
 | `instance-live` | 2026-10-27 16:46 | 2026-10-27 16:37 |
+| `machine-container-live` | 2026-10-27 22:45 | — |
 | `machine-live` | 2026-10-27 15:34 | — |
 | `mail-live` | 2026-10-26 14:08 | — |
 | `mesh-live` | 2026-10-27 17:35 | 2026-10-27 17:07 |

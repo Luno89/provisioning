@@ -66,5 +66,8 @@
   "app-sign-in-live": {
     "failed": "2026-10-27T22:22:10.816Z",
     "passed": "2026-10-27T22:24:58.492Z"
+  },
+  "machine-container-live": {
+    "passed": "2026-10-27T22:45:28.370Z"
   }
 }

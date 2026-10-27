@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import http from 'http';
 import net from 'net';
 
@@ -31,7 +32,8 @@ export class EgressProxy {
   private controlServer: http.Server;
 
   /** `connectUpstream` is injectable so tests can exercise the allow/deny path without a real network call. */
-  constructor(private connectUpstream: UpstreamConnector = net.connect) {
+  constructor(private readonly controlToken: string, private connectUpstream: UpstreamConnector = net.connect) {
+    if (controlToken.length < 32) throw new Error('the egress proxy needs a control token of at least 32 characters');
     this.proxyServer = http.createServer((_req, res) => {
       res.writeHead(405);
       res.end('This proxy only handles CONNECT.');
@@ -65,6 +67,10 @@ export class EgressProxy {
       req.on('data', (chunk) => { body += chunk; });
       req.on('end', () => {
         try {
+          if (!this.controlling(req.headers.authorization)) {
+            res.writeHead(401); res.end('this proxy takes changes only from the agent that started it');
+            return;
+          }
           if (req.method === 'POST' && req.url === '/allowlist') {
             const { containerIp, rules } = JSON.parse(body) as { containerIp: string; rules: EgressRule[] };
             this.setAllowlist(containerIp, rules);
@@ -82,6 +88,12 @@ export class EgressProxy {
         }
       });
     });
+  }
+
+  private controlling(header: string | undefined): boolean {
+    const given = Buffer.from((header ?? '').replace(/^Bearer\s+/i, ''));
+    const wanted = Buffer.from(this.controlToken);
+    return given.length === wanted.length && crypto.timingSafeEqual(given, wanted);
   }
 
   setAllowlist(containerIp: string, rules: readonly EgressRule[]): void {
@@ -114,7 +126,7 @@ const isMain = process.argv[1]?.endsWith('egress-proxy.ts') || process.argv[1]?.
 if (isMain) {
   const proxyPort = Number(process.env.PROXY_PORT ?? 38080);
   const controlPort = Number(process.env.CONTROL_PORT ?? 38081);
-  const proxy = new EgressProxy();
+  const proxy = new EgressProxy(process.env.CONTROL_TOKEN ?? '');
   proxy.listen(proxyPort, controlPort).then(() => {
     console.log(`[egress-proxy] listening — proxy :${proxyPort}, control (loopback only) :${controlPort}`);
   });

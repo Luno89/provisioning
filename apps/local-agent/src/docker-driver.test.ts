@@ -27,6 +27,7 @@ beforeEach(() => {
 /** Wires up the exact sequence createContainer() drives, for a proxy that is not already running. */
 function mockHappyPathCreate(proxyIp = '172.20.0.2', workspaceIp = '172.20.0.3') {
   runDockerMock.mockImplementation(async (args: string[]) => {
+    if (args[0] === 'rm' && args[1] === '-f' && args[2] === 'koala-egress-proxy') return ok();
     if (args[0] === 'inspect' && args[2] === '{{.State.Running}}') return fail(); // proxy not running yet
     if (args[0] === 'run' && args.includes('koala-egress-proxy')) return ok();
     if (args[0] === 'network' && args[1] === 'create') return ok();
@@ -94,24 +95,27 @@ describe('createContainer', () => {
     );
   });
 
-  it('does not start a second proxy container when one is already running', async () => {
-    runDockerMock.mockImplementation(async (args: string[]) => {
-      if (args[0] === 'inspect' && args[2] === '{{.State.Running}}') return ok('true');
-      if (args[0] === 'network' && args[1] === 'create') return ok();
-      if (args[0] === 'network' && args[1] === 'connect') return ok();
-      if (args[0] === 'inspect' && args[1] === 'koala-egress-proxy') return ok('172.20.0.2');
-      if (args[0] === 'run' && args.includes('koala-leaf-leaf-1')) return ok();
-      if (args[0] === 'inspect' && args[1] === 'koala-leaf-leaf-1') return ok('172.20.0.3');
-      throw new Error(`unexpected docker call: ${args.join(' ')}`);
-    });
+  it('starts its own proxy once, with a control token only it holds, and replaces one it did not start', async () => {
+    mockHappyPathCreate();
 
     await createContainer({ leafId: 'leaf-1', image: 'x', rootDir: '/x' });
+    await createContainer({ leafId: 'leaf-1', image: 'x', rootDir: '/x' });
 
-    expect(runDockerMock.mock.calls.some((c) => argsOf(c)[0] === 'run' && argsOf(c).includes('koala-egress-proxy'))).toBe(false);
+    const calls = runDockerMock.mock.calls.map((c) => argsOf(c));
+    expect(calls.filter((args) => args[0] === 'rm' && args.includes('koala-egress-proxy'))).toHaveLength(1);
+    const started = calls.filter((args) => args[0] === 'run' && args.includes('koala-egress-proxy'));
+    expect(started).toHaveLength(1);
+    const token = started[0]!.find((arg) => arg.startsWith('CONTROL_TOKEN='))!.slice('CONTROL_TOKEN='.length);
+    expect(token).toMatch(/^[0-9a-f]{64}$/);
+    const told = vi.mocked(fetch).mock.calls.map(([, init]) => (init as RequestInit | undefined)?.headers as Record<string, string> | undefined);
+    expect(told.length).toBeGreaterThan(0);
+    for (const headers of told) expect(headers?.authorization).toBe(`Bearer ${token}`);
   });
 
   it('rejects with the real docker stderr when the workspace container fails to start', async () => {
     runDockerMock.mockImplementation(async (args: string[]) => {
+      if (args[0] === 'rm' && args[1] === '-f' && args[2] === 'koala-egress-proxy') return ok();
+      if (args[0] === 'run' && args.includes('koala-egress-proxy')) return ok();
       if (args[0] === 'inspect' && args[2] === '{{.State.Running}}') return ok('true');
       if (args[0] === 'network' && args[1] === 'create') return ok();
       if (args[0] === 'network' && args[1] === 'connect') return ok();
@@ -139,7 +143,7 @@ describe('destroyContainer', () => {
     expect(calls[0]).toEqual(['stop', 'koala-leaf-leaf-1']);
     expect(calls.some((a) => a[0] === 'network' && a[1] === 'disconnect' && a.includes('koala-leaf-net-leaf-1'))).toBe(true);
     expect(calls.some((a) => a[0] === 'network' && a[1] === 'rm' && a[2] === 'koala-leaf-net-leaf-1')).toBe(true);
-    expect(fetch).toHaveBeenCalledWith('http://127.0.0.1:38081/allowlist/172.20.0.9', { method: 'DELETE' });
+    expect(fetch).toHaveBeenCalledWith('http://127.0.0.1:38081/allowlist/172.20.0.9', { method: 'DELETE', headers: { authorization: expect.stringMatching(/^Bearer [0-9a-f]{64}$/) } });
   });
 
   it('never throws, even when every docker call fails', async () => {

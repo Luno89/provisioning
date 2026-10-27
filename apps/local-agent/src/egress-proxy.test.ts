@@ -30,6 +30,8 @@ function sendConnect(socket: net.Socket, targetHostPort: string): Promise<string
   });
 }
 
+const TOKEN = 't'.repeat(64);
+
 describe('EgressProxy', () => {
   let proxy: EgressProxy;
   let proxyPort: number;
@@ -46,7 +48,7 @@ describe('EgressProxy', () => {
     });
 
     upstreamCalls = [];
-    proxy = new EgressProxy((port, host, onConnect) => {
+    proxy = new EgressProxy(TOKEN, (port, host, onConnect) => {
       upstreamCalls.push({ port, host });
       return net.connect(fakeUpstreamPort, '127.0.0.1', onConnect);
     });
@@ -108,17 +110,17 @@ describe('EgressProxy control API', () => {
   let controlPort: number;
 
   beforeEach(async () => {
-    proxy = new EgressProxy();
+    proxy = new EgressProxy(TOKEN);
     controlPort = await freePort();
     await proxy.listen(await freePort(), controlPort);
   });
 
   afterEach(async () => { await proxy.close(); });
 
-  function request(method: string, path: string, body?: unknown): Promise<number> {
+  function request(method: string, path: string, body?: unknown, token: string | null = TOKEN): Promise<number> {
     return new Promise((resolve, reject) => {
       const req = http.request(
-        { host: '127.0.0.1', port: controlPort, path, method, headers: { 'content-type': 'application/json' } },
+        { host: '127.0.0.1', port: controlPort, path, method, headers: { 'content-type': 'application/json', ...(token !== null ? { authorization: `Bearer ${token}` } : {}) } },
         (res) => { res.on('data', () => undefined); res.on('end', () => resolve(res.statusCode ?? 0)); },
       );
       req.on('error', reject);
@@ -130,6 +132,13 @@ describe('EgressProxy control API', () => {
   it('POST /allowlist sets an allowlist a subsequent CONNECT can use', async () => {
     const status = await request('POST', '/allowlist', { containerIp: '10.0.0.5', rules: [{ host: 'x.com' }] });
     expect(status).toBe(200);
+  });
+
+  it('takes no change from anyone but the agent that started it, so a workspace on its network cannot open its own way out', async () => {
+    expect(await request('POST', '/allowlist', { containerIp: '10.0.0.5', rules: [{ host: 'evil.example' }] }, null)).toBe(401);
+    expect(await request('POST', '/allowlist', { containerIp: '10.0.0.5', rules: [{ host: 'evil.example' }] }, 'w'.repeat(64))).toBe(401);
+    expect(await request('DELETE', '/allowlist/10.0.0.5', undefined, 'short')).toBe(401);
+    expect(() => new EgressProxy('')).toThrow(/control token/);
   });
 
   it('DELETE /allowlist/:ip clears it', async () => {
