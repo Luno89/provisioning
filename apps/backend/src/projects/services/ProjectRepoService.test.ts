@@ -40,6 +40,8 @@ describe('making a project with a repository', () => {
       gitea: {
         createUserAccount: async (username: string) => ({ username, password: 'pw' }),
         getRepo: async (owner: string, name: string) => { if (!repos.has(`${owner}/${name}`)) throw new Error('not found'); return {}; },
+        findRepo: async (owner: string, name: string) => (repos.has(`${owner}/${name}`) ? { owner, name } : null),
+        addRepo: (path: string) => { repos.add(path); },
         createRepoForUser: async (owner: string, name: string) => { calls.push(`repo ${owner}/${name}`); repos.add(`${owner}/${name}`); return {}; },
         replaceWebhook: async (owner: string, name: string, url: string) => { calls.push(`hook ${owner}/${name} ${url}`); if (options.failWebhook) throw new Error('Gitea is down'); },
         seedTemplate: async (owner: string, name: string, files: { path: string }[]) => { calls.push(`seed ${owner}/${name} ${files.map((file) => file.path).join(',')}`); return []; },
@@ -75,12 +77,16 @@ describe('making a project with a repository', () => {
     expect(await db.projects.getProjects()).toHaveLength(1);
   });
 
-  it('builds from a repository someone already has, without making one', async () => {
-    const { calls, gitea } = fakeGitea({ repos: ['acme/shop'] });
+  it('builds from a repository the person already has, without making one, and never from anyone else\'s', async () => {
+    const { calls, gitea } = fakeGitea({ repos: ['acme/shop', 'gitea_admin/shop'] });
     const { repos } = await made(gitea);
-    const project = await repos.createProject('u1', { name: 'Shop', repo: 'shop', existingOwner: 'acme', autoDeployOnBuild: false, targetClusterId: 'k3d-mine' });
-    expect(calls).toEqual([expect.stringMatching(/^hook acme\/shop /)]);
-    expect(project).toMatchObject({ giteaOwner: 'acme', targetClusterId: 'k3d-mine', autoDeployOnBuild: false });
+    const { username } = await repos.ensureAccountFor('u1');
+    await expect(repos.createProject('u1', { name: 'Shop', repo: 'shop', existing: true, autoDeployOnBuild: false })).rejects.toThrow('You have no repository called "shop" to use; make it here instead.');
+    expect(calls).toEqual([]);
+    gitea.addRepo(`${username}/shop`);
+    const project = await repos.createProject('u1', { id: 'p2', name: 'Shop', repo: 'shop', existing: true, autoDeployOnBuild: false, targetClusterId: 'k3d-mine' });
+    expect(calls).toEqual([`hook ${username}/shop http://10.0.0.5:3001/webhooks/gitea/p2`]);
+    expect(project).toMatchObject({ giteaOwner: username, targetClusterId: 'k3d-mine', autoDeployOnBuild: false });
   });
 
   it('refuses a second project on the same repository name, and one with nowhere to send pushes', async () => {

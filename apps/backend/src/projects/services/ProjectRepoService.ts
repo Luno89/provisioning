@@ -13,7 +13,7 @@ export interface NewProject {
   id?: string | undefined;
   name: string;
   repo: string;
-  existingOwner?: string | undefined;
+  existing?: boolean | undefined;
   language?: string | undefined;
   targetClusterId?: string | undefined;
   autoDeployOnBuild: boolean;
@@ -111,13 +111,14 @@ export class ProjectRepoService {
     if (existing && existing.ownerId !== ownerId) throw new Error(`project ${id} belongs to someone else`);
     if (existing?.webhookSecretEnc && (!input.starter?.length)) return existing;
 
-    const creating = input.existingOwner === undefined;
+    const creating = !input.existing;
     let project = existing;
     if (!project) {
       await this.underLimit(ownerId);
       const mine = (await this.db.projects.getProjects()).filter((p) => p.ownerId === ownerId);
       if (mine.some((p) => p.giteaRepo === repo)) throw new Error(`You already have a project whose repository is called "${repo}".`);
-      const giteaOwner = creating ? (await this.ensureAccount(ownerId)).username : input.existingOwner!;
+      const giteaOwner = (await this.ensureAccount(ownerId)).username;
+      if (!creating && !(await this.gitea.findRepo(giteaOwner, repo))) throw new Error(`You have no repository called "${repo}" to use; make it here instead.`);
       project = await this.db.projects.saveProjectInfo({
         id,
         name: input.name.trim() || repo,
@@ -137,8 +138,6 @@ export class ProjectRepoService {
     if (creating) {
       const there = await this.gitea.getRepo(owner, repo).then(() => true, () => false);
       if (!there) await this.gitea.createRepoForUser(owner, repo, { private: true, ...(input.description ? { description: input.description } : {}) });
-    } else {
-      await this.gitea.getRepo(owner, repo);
     }
 
     if (!project.webhookSecretEnc) {

@@ -63,7 +63,7 @@ export function projectsRouter(deps: Record<string, any>): Router {
   router.post('/', async (req, res) => {
     try {
       const {
-        name, giteaOwner, giteaRepo, createRepo, targetClusterId, autoDeployOnBuild, language: language_,
+        name, giteaRepo, createRepo, targetClusterId, autoDeployOnBuild, language: language_,
         executionTargetDeviceId, executionTargetPath, executionApproval, executionTargetEgress,
       } = req.body;
       if (!name) return res.status(400).json({ error: 'name is required' });
@@ -109,7 +109,7 @@ export function projectsRouter(deps: Record<string, any>): Router {
         ? await projectRepoService.createProject(userOf(req).id, {
           name,
           repo: giteaRepo,
-          ...(createRepo ? {} : { existingOwner: giteaOwner || giteaService.adminUsername }),
+          ...(createRepo ? {} : { existing: true }),
           ...(language ? { language } : {}),
           ...(targetClusterId ? { targetClusterId } : {}),
           autoDeployOnBuild: autoDeployOnBuild === true,
