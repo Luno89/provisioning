@@ -6,15 +6,15 @@ import { stillRoutedTo, type EndpointSlices, type PodPlace } from '../lib/drain.
 const ACCOUNT = '/var/run/secrets/kubernetes.io/serviceaccount';
 const LOOK_AGAIN_MS = 500;
 
-export interface Closable {
-  close(): unknown;
+export interface Reconnectable {
+  disconnectSockets(close: boolean): unknown;
 }
 
 export interface DrainDeps {
   place: PodPlace | undefined;
   slices?: ((namespace: string) => Promise<EndpointSlices>) | undefined;
   server: Server;
-  sockets: Closable;
+  sockets: Reconnectable;
   log: (line: string) => void;
 }
 
@@ -39,7 +39,7 @@ export async function drainThenStop(deps: DrainDeps): Promise<void> {
       const routed = await slices(deps.place.namespace).then(
         (found) => stillRoutedTo(found, deps.place!.ip),
         (err: Error) => {
-          deps.log(`[drain] the endpoints could not be read, so the backend stops now: ${err.message}`);
+          deps.log(`[drain] the endpoints could not be read, so the backend drains now: ${err.message}`);
           return false;
         },
       );
@@ -47,11 +47,13 @@ export async function drainThenStop(deps: DrainDeps): Promise<void> {
       await new Promise((done) => setTimeout(done, LOOK_AGAIN_MS));
     }
   }
-  deps.log('[drain] taking no new connections; finishing what is in flight');
-  const closed = new Promise<void>((done) => deps.server.once('close', () => done()));
-  deps.sockets.close();
-  if (deps.server.listening) deps.server.close();
-  deps.server.closeIdleConnections();
-  await closed;
-  deps.log('[drain] everything in flight has finished');
+  deps.log('[drain] answering what still comes with Connection: close, until no connection is left');
+  deps.server.prependListener('request', (_request, answer) => answer.setHeader('Connection', 'close'));
+  deps.sockets.disconnectSockets(true);
+  while (await openConnections(deps.server) > 0) await new Promise((done) => setTimeout(done, LOOK_AGAIN_MS));
+  if (deps.server.listening) await new Promise<void>((done) => deps.server.close(() => done()));
+  deps.log('[drain] no connection is left');
 }
+
+const openConnections = (server: Server): Promise<number> =>
+  new Promise((done) => server.getConnections((err, count) => done(err ? 0 : count)));

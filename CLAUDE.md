@@ -1604,9 +1604,11 @@ instance, without passing its gates first (owner, 2026-10-23: "all those checks 
   People shows each instance's version and how it updates. Release channels (rc, LTS) are a later conversation.
   **An upgrade drops no request** (owner 2026-10-27: drain on events): told to stop in its pod (`POD_IP`, `POD_NAMESPACE` from the
   chart), the backend keeps serving until no EndpointSlice in its namespace lists its pod ready (`stillRoutedTo` in
-  `platform/lib/drain.ts`, read with its service account), then closes socket.io, takes no new connection, lets every request in
-  flight finish and exits (`drainThenStop`); the pod's grace is a week (`backend.terminationGraceSeconds`) so Kubernetes never cuts
-  that short, and the edge's pre-stop waits until the backend stops listening. Off a cluster it stops at once, as before.
+  `platform/lib/drain.ts`, read with its service account), then answers everything with `Connection: close`, tells socket.io
+  clients to reconnect, and exits once no connection is left (`drainThenStop`), never closing a connection a client may be reusing
+  (that race lost a request through byo-live's tunnel); the pod's grace is a week (`backend.terminationGraceSeconds`) so
+  Kubernetes never cuts that short, and the edge's pre-stop waits until the backend stops listening. Off a cluster it stops at
+  once, as before.
 - Left out of the gates: the Playwright suite (its setup recreates Temporal with its volumes and stops a k3d server,
   so it cannot run beside the dev stack), `dev-split` and `openrouter-connect` (they need `npm run dev:split`), the
   machine suites that need this computer's machine agent, and those that wait on the memory keeper or a model's own
