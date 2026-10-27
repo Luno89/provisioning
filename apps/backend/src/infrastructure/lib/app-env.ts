@@ -62,6 +62,7 @@ export interface AppEnvArgs {
   nextcloudAdminPassword?: string | undefined;
   nextcloudDbPassword?: string | undefined;
   nextcloudDbRootPassword?: string | undefined;
+  hermesDashboardPassword?: string | undefined;
   minioStorage?: string | undefined;
   qdrantApiKey?: string | undefined;
   qdrantStorage?: string | undefined;
@@ -124,6 +125,13 @@ export function resolveNextcloudDefaults(dep: DeploymentMetadata): DeploymentMet
     nextcloudAdminPassword: dep.nextcloudAdminPassword || randomBytes(24).toString('hex'),
     nextcloudDbPassword: dep.nextcloudDbPassword || randomBytes(24).toString('hex'),
     nextcloudDbRootPassword: dep.nextcloudDbRootPassword || randomBytes(24).toString('hex'),
+  });
+}
+
+export function resolveHermesDefaults(dep: DeploymentMetadata): DeploymentMetadata {
+  if (dep.appType !== 'hermes') return dep;
+  return Object.assign({}, dep, {
+    hermesDashboardPassword: dep.hermesDashboardPassword || randomBytes(24).toString('hex'),
   });
 }
 
@@ -258,6 +266,7 @@ export function buildAppEnv(a: AppEnvArgs): Record<string, string> {
     NEXTCLOUD_ADMIN_PASSWORD: a.nextcloudAdminPassword || '',
     NEXTCLOUD_DB_PASSWORD: a.nextcloudDbPassword || '',
     NEXTCLOUD_DB_ROOT_PASSWORD: a.nextcloudDbRootPassword || '',
+    HERMES_DASHBOARD_PASSWORD: a.hermesDashboardPassword || '',
     MINIO_STORAGE: a.minioStorage || '',
     QDRANT_API_KEY: a.qdrantApiKey || '',
     QDRANT_STORAGE: a.qdrantStorage || '',

@@ -15,6 +15,7 @@ vi.mock('../../api/deployments', async (importOriginal) => ({
   useAvailableModules: vi.fn(() => ({ data: [], isLoading: false })),
   useResourcePlan: vi.fn(() => ({ data: undefined })),
   useInitialLogs: vi.fn(() => ({ data: undefined })),
+  getAppSignIn: vi.fn(async () => [{ describe: 'The Hermes dashboard', login: 'admin', password: 'made-for-this-app' }]),
 }));
 vi.mock('../../../models/api', async (importOriginal) => ({
   ...(await importOriginal<typeof modelsApi>()),
@@ -102,5 +103,22 @@ describe('a failed deployment', () => {
   it('does not fetch it for a healthy one on the same tab', () => {
     setup(deployment({ status: 'running' }), 'general');
     expect(useInitialLogs).toHaveBeenCalledWith(expect.anything(), false);
+  });
+});
+
+describe('an app\'s sign-in', () => {
+  it('is shown on asking for an app Koala made one for, read fresh from the backend', async () => {
+    const { user } = setup(deployment({ id: 'h1', name: 'hermes', appType: 'hermes' }));
+    expect(screen.queryByText('made-for-this-app')).toBeNull();
+    await user.click(screen.getByText('Show sign-in'));
+    expect(await screen.findByText('made-for-this-app')).toBeDefined();
+    expect(screen.getByText('The Hermes dashboard')).toBeDefined();
+    expect(screen.getByText('admin')).toBeDefined();
+    expect(vi.mocked(deploymentsApi.getAppSignIn)).toHaveBeenCalledWith('h1');
+  });
+
+  it('is not offered for an app with no sign-in Koala made', () => {
+    setup();
+    expect(screen.queryByText('Show sign-in')).toBeNull();
   });
 });

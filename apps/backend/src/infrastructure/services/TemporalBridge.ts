@@ -43,7 +43,7 @@ import { executeResizeDiskWorkflow } from '../../workflows/ResizeDiskWorkflow.js
 import { executeSyncConfigWorkflow } from '../../workflows/SyncConfigWorkflow.js'
 import { executePipelineRunWorkflow } from '../../workflows/PipelineRunWorkflow.js'
 import { resolveVllmDefaults, resolveTabbyDefaults, resolveCrawl4aiDefaults, resolveSearxngDefaults,
-  resolveMinioDefaults, resolveNextcloudDefaults, resolveQdrantDefaults, resolveQuickwitDefaults } from '../lib/app-env.js'
+  resolveHermesDefaults, resolveMinioDefaults, resolveNextcloudDefaults, resolveQdrantDefaults, resolveQuickwitDefaults } from '../lib/app-env.js'
 import { resolveAppSettingsDefaults } from '../lib/app-schemas.js'
 import type { Server as SocketServer } from 'socket.io'
 
@@ -1007,6 +1007,7 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
     dep = resolveCrawl4aiDefaults(dep)
     dep = resolveSearxngDefaults(dep)
     dep = resolveNextcloudDefaults(resolveMinioDefaults(dep))
+    dep = resolveHermesDefaults(dep)
     dep = resolveQdrantDefaults(dep)
     dep = resolveQuickwitDefaults(dep, deployments)
     dep = resolveAppSettingsDefaults(dep)
@@ -1074,6 +1075,7 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
       nextcloudAdminPassword: dep.nextcloudAdminPassword,
       nextcloudDbPassword: dep.nextcloudDbPassword,
       nextcloudDbRootPassword: dep.nextcloudDbRootPassword,
+      hermesDashboardPassword: dep.hermesDashboardPassword,
       minioStorage: dep.minioStorage,
       qdrantApiKey: dep.qdrantApiKey,
       qdrantStorage: dep.qdrantStorage,

@@ -120,6 +120,7 @@ export interface DeploymentMetadata {
   minioRootUser?: string;
   minioRootPassword?: string;
   nextcloudAdminPassword?: string;
+  hermesDashboardPassword?: string;
   nextcloudDbPassword?: string;
   nextcloudDbRootPassword?: string;
   minioStorage?: string;

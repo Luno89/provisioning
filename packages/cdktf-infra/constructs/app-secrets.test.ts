@@ -28,4 +28,8 @@ describe("an app's secrets", () => {
       expect(stored?.data?.[keys[0]!]).toBe(value);
     });
   }
+
+  it("Hermes never deploys with a default dashboard password", () => {
+    expect(() => synth((scope) => new HermesAgentApp(scope, "app", {}))).toThrow(/Hermes needs a dashboard password/);
+  });
 });

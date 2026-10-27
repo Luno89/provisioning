@@ -647,6 +647,12 @@ admin removal and the move on two VMs (`POOL_LIVE_ENDING=delete` ends with an ad
 **An app's secrets never sit in its Deployment**: a construct puts a token, key or password in a Secret it makes and the
 container reads it with `secretKeyRef` (`secretEnv` in `packages/cdktf-infra/lib/app-secret.ts`; vLLM, TabbyAPI, Open WebUI,
 Hermes), since `inspect_resources` reads a Deployment and never a Secret. `constructs/app-secrets.test.ts` synthesizes each.
+**An app's sign-in is generated and shown only on asking** (owner, 2026-10-27): Hermes' dashboard password is made per deploy
+(`resolveHermesDefaults`, sealed on the deployment as `hermesDashboardPassword`; the construct refuses to deploy without one, so
+no app shares a default), like Nextcloud's and MinIO's; Palworld's live in the Secret its deploy makes. The app's page offers
+**Show sign-in** for those apps (`AppSignInReveal`, the same reveal as a project's, `shared/components/SignInReveal.tsx`), which reads
+`GET /api/deployments/:id/sign-in` (the owner's only, never cached; `appSignIns` in `infrastructure/lib/app-sign-in.ts`). Nothing
+else the deployments router sends carries a sealed field (`withoutDeploymentSecrets` on every response); the browser only writes them.
 
 **Every cluster that runs apps has monitoring.** Before an app is deployed, `ensureClusterMonitoring`
 (`activities/cluster-monitoring.ts`, rule in `monitoring/lib/cluster-monitoring.ts`) asks the cluster whether it serves

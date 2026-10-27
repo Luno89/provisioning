@@ -6,6 +6,7 @@ import { StorageAdapter } from './StorageAdapter.js';
 import { isSelfManagedCluster } from '../lib/cluster-topology.js';
 import { sanitizeNamespace, llmAppSpec, specFromTag, inClusterBaseUrl } from '../../models/index.js';
 import { namespaceOf } from '../lib/app-namespace.js';
+import { appSignIns, PALWORLD_SECRET, secretValues, type AppSignIn } from '../lib/app-sign-in.js';
 import { v4 as uuidv4 } from 'uuid';
 import { appTypeFromName } from '../lib/app-spec.js';
 import { Server as SocketServer } from 'socket.io';
@@ -443,6 +444,17 @@ export class AppService extends BaseService {
         this.logger.error(`Failed to list pods: ${err.message}`);
         return { pods: [], namespace: 'default' };
     }
+  }
+
+  async signIns(id: string, userId: string): Promise<AppSignIn[] | undefined> {
+    const dep = await this.getById(id, userId);
+    if (!dep) return undefined;
+    if (dep.appType !== 'palworld') return appSignIns(dep);
+    const cluster = await this.clusters.getById(dep.clusterId, userId);
+    if (!cluster) return [];
+    const kubeconfigPath = await this.clusters.getKubeconfigPath(cluster);
+    const raw = await this.infra.runKubectl(['get', 'secret', PALWORLD_SECRET, '-n', namespaceOf(dep), '-o', 'jsonpath={.data}', '--ignore-not-found'], kubeconfigPath);
+    return appSignIns(dep, secretValues(raw));
   }
 
   async getHelmStatus(id: string, userId: string) {

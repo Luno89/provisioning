@@ -9,11 +9,21 @@ export const deploymentKeys = {
   pods: (id?: string) => ['pods', id] as const,
   helm: (id?: string) => ['helm', id] as const,
   diagnostics: (id?: string) => ['diagnostics', id] as const,
+  signIn: (id: string) => ['app-sign-in', id] as const,
   modules: (appType?: string) => ['modules', appType] as const,
   resourcePlan: (id?: string) => ['resource-plan', id] as const,
   logs: (type?: string, id?: string) => ['logs', type, id] as const,
   catalogue: () => [...deploymentKeys.all, 'catalogue'] as const,
 }
+
+export interface AppSignIn {
+  describe: string
+  login?: string
+  password: string
+}
+
+export const getAppSignIn = (id: string): Promise<AppSignIn[]> =>
+  api.get<{ signIns: AppSignIn[] }>(`/deployments/${id}/sign-in`).then((r) => r.data.signIns)
 
 export const listDeployments = (): Promise<Deployment[]> =>
   api.get<Deployment[]>('/deployments').then((r) => r.data)

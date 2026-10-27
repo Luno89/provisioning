@@ -31,6 +31,7 @@ export class HermesAgentApp extends Construct {
     const storageSize = config.storage || "5Gi";
     const serviceType = config.serviceType || defaultServiceType();
 
+    if (!config.dashboardAuthPassword) throw new Error("Hermes needs a dashboard password: Koala generates one for every deploy, and there is no default");
     const ns = new Namespace(this, "ns", {
       metadata: {
         name: namespaceName,
@@ -59,7 +60,7 @@ export class HermesAgentApp extends Construct {
       { name: "HERMES_DASHBOARD_PORT", value: "9119" },
       { name: "HERMES_DASHBOARD_BASIC_AUTH_USERNAME", value: config.dashboardAuthUsername || "admin" },
       ...secretEnv(this, ns.metadata.name, "hermes-secrets", {
-        HERMES_DASHBOARD_BASIC_AUTH_PASSWORD: config.dashboardAuthPassword || "hermes123",
+        HERMES_DASHBOARD_BASIC_AUTH_PASSWORD: config.dashboardAuthPassword,
         OPENAI_API_KEY: config.openaiApiKey || "not-needed",
       }),
     ];

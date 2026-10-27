@@ -89,6 +89,7 @@ export interface DeployAppArgs {
   nextcloudAdminPassword?: string | undefined;
   nextcloudDbPassword?: string | undefined;
   nextcloudDbRootPassword?: string | undefined;
+  hermesDashboardPassword?: string | undefined;
   minioStorage?: string | undefined;
   qdrantApiKey?: string | undefined;
   qdrantStorage?: string | undefined;
@@ -448,6 +449,7 @@ export async function DeployAppActivity(
     nextcloudAdminPassword: args.nextcloudAdminPassword,
     nextcloudDbPassword: args.nextcloudDbPassword,
     nextcloudDbRootPassword: args.nextcloudDbRootPassword,
+    hermesDashboardPassword: args.hermesDashboardPassword,
     minioStorage: args.minioStorage,
     qdrantApiKey: args.qdrantApiKey,
     qdrantStorage: args.qdrantStorage,

@@ -4,6 +4,7 @@ import { asyncRoute, type Database } from '../../platform/index.js';
 import { CapacityError } from '../lib/cluster-capacity.js';
 import { APP_SETTINGS_SCHEMAS, NO_WEB_UI_APP_TYPES } from '../lib/app-schemas.js';
 import { deployRequestFrom } from '../lib/app-namespace.js';
+import { withoutDeploymentSecrets } from '../lib/deployment-secrets.js';
 import { validateAppSettings } from '../lib/app-settings-schema.js';
 import { parseQuantity, planHostMemory } from '../lib/host-memory-plan.js';
 import { TABBYAPI_DEFAULT_MAX_SEQ_LEN } from '../lib/app-env.js';
@@ -32,6 +33,11 @@ const userOf = (req: Request): { id: string; email: string; isAdmin?: boolean } 
 export function deploymentsRouter(deps: DeploymentsRouterDeps): Router {
   const { appService, clusterService, appExposureService, infraService, temporalBridge, db, io } = deps;
   const router = Router();
+  router.use((_req, res, next) => {
+    const send = res.json.bind(res);
+    res.json = (body?: unknown) => send(withoutDeploymentSecrets(body));
+    next();
+  });
 
   router.get('/', asyncRoute(async (req, res) => res.json(await appService.getAll(userOf(req).id, io))));
 
@@ -90,6 +96,11 @@ export function deploymentsRouter(deps: DeploymentsRouterDeps): Router {
     }
   });
 
+  router.get('/:id/sign-in', asyncRoute(async (req, res) => {
+    const signIns = await appService.signIns(idOf(req), userOf(req).id);
+    if (!signIns) return res.status(404).json({ error: 'Deployment not found' });
+    return res.set('Cache-Control', 'no-store').json({ signIns });
+  }));
   router.get('/:id/helm', asyncRoute(async (req, res) => res.json({ content: await appService.getHelmStatus(idOf(req), userOf(req).id) })));
   router.get('/:id/diagnostics', asyncRoute(async (req, res) => res.json({ content: await appService.getDiagnostics(idOf(req), userOf(req).id) })));
   router.get('/:id/pods', async (req, res) => {

@@ -10,6 +10,7 @@ export const DEPLOYMENT_SECRET_FIELDS = [
   'nextcloudAdminPassword',
   'nextcloudDbPassword',
   'nextcloudDbRootPassword',
+  'hermesDashboardPassword',
   'qdrantApiKey',
   'quickwitS3SecretKey',
   'webuiWebSearchApiKey',
@@ -41,3 +42,11 @@ export const hasPlainSecret = (record: Readonly<Record<string, unknown>>): boole
     const value = record[field];
     return typeof value === 'string' && value !== '' && !looksEncrypted(value);
   });
+
+const SEALED = new Set<string>(DEPLOYMENT_SECRET_FIELDS);
+
+export function withoutDeploymentSecrets(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(withoutDeploymentSecrets);
+  if (!value || typeof value !== 'object' || Object.getPrototypeOf(value) !== Object.prototype) return value;
+  return Object.fromEntries(Object.entries(value).filter(([key]) => !SEALED.has(key)).map(([key, inner]) => [key, withoutDeploymentSecrets(inner)]));
+}

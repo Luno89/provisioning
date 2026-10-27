@@ -1,5 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { Activity, AlertTriangle, Box, Check, Cpu, Database, ExternalLink, FileText, Gauge, HardDrive, Layers, Loader2, Puzzle, RefreshCw, Server, Settings, Shield, Terminal, Trash2, X, Zap } from 'lucide-react';
+import { AppSignInReveal } from './AppSignInReveal';
+import { signsIn } from '../../lib/app-sign-in';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../../../api/client';
 import {
@@ -175,6 +177,9 @@ export default function AppDashboard({
               <FileText className="text-blue-500" />
               {showLogModal.type === 'app' ? `${currentDeployment?.name || 'Application'} Dashboard` : 'Execution Tracing'}
             </h3>
+            {showLogModal.type === 'app' && currentDeployment && signsIn(currentDeployment.appType) && (
+              <div className="flex flex-wrap items-start gap-2"><AppSignInReveal deploymentId={currentDeployment.id} /></div>
+            )}
             <div className="flex gap-4 border-b border-slate-700">
               {showLogModal.type === 'app' ? (
                 <>

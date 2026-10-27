@@ -295,6 +295,7 @@ class AppStack extends TerraformStack {
       } else if (appType === 'hermes') {
         new HermesAgentApp(this, "hermes-app", {
           namespace: deploymentName,
+          ...(process.env.HERMES_DASHBOARD_PASSWORD ? { dashboardAuthPassword: process.env.HERMES_DASHBOARD_PASSWORD } : {}),
           ...(webRepo ? { webRepo } : {}),
           ...(webTag ? { webTag } : {}),
           ...(process.env.OPENAI_API_BASE_URL ? { openaiApiBaseUrl: process.env.OPENAI_API_BASE_URL } : {}),

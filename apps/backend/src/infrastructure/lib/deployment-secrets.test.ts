@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { looksEncrypted, type SecretKey } from '../../platform/lib/crypto.js';
-import { DEPLOYMENT_SECRET_FIELDS, hasPlainSecret, sealDeployment, unsealDeployment } from './deployment-secrets.js';
+import { DEPLOYMENT_SECRET_FIELDS, hasPlainSecret, sealDeployment, unsealDeployment, withoutDeploymentSecrets } from './deployment-secrets.js';
 
 const key = 'a-test-key-that-is-at-least-thirty-two-characters' as unknown as SecretKey;
 
@@ -34,8 +34,15 @@ describe('a deployment\'s secrets at rest', () => {
 
   it('covers every password, token and key a deployment carries', () => {
     expect([...DEPLOYMENT_SECRET_FIELDS].sort()).toEqual([
-      'crawl4aiApiToken', 'minioRootPassword', 'nextcloudAdminPassword', 'nextcloudDbPassword', 'nextcloudDbRootPassword',
+      'crawl4aiApiToken', 'hermesDashboardPassword', 'minioRootPassword', 'nextcloudAdminPassword', 'nextcloudDbPassword', 'nextcloudDbRootPassword',
       'qdrantApiKey', 'quickwitS3SecretKey', 'searxngSecretKey', 'tabbyHfToken', 'vllmHfToken', 'webuiWebSearchApiKey',
     ]);
+  });
+
+  it('are left out of whatever a route sends, however deep, and nothing else is', () => {
+    const sent = { deployment: { id: 'd1', name: 'cloud', nextcloudAdminPassword: 'n', minioRootPassword: 'm' }, list: [{ id: 'd2', vllmHfToken: 'hf' }], when: 'now' };
+    expect(withoutDeploymentSecrets(sent)).toEqual({ deployment: { id: 'd1', name: 'cloud' }, list: [{ id: 'd2' }], when: 'now' });
+    expect(withoutDeploymentSecrets('plain')).toBe('plain');
+    expect(withoutDeploymentSecrets(null)).toBeNull();
   });
 });

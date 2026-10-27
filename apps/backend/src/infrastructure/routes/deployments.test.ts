@@ -19,6 +19,7 @@ const services = () => ({
     getDiagnostics: vi.fn(async () => 'all good'),
     listPods: vi.fn(async () => [{ metadata: { name: 'p1' } }]),
     updateModules: vi.fn(async () => ({ ok: true })),
+    signIns: vi.fn(async (id: string): Promise<unknown> => (id === 'd1' ? [{ describe: 'The Hermes dashboard', login: 'admin', password: 'generated-for-d1' }] : undefined)),
   },
   clusterService: { getById: vi.fn(async () => ({ id: 'c1', name: 'dev' })) },
   appExposureService: { expose: vi.fn(async () => ({ url: 'https://x' })), unexpose: vi.fn(async () => undefined) },
@@ -153,5 +154,28 @@ describe('POST / when the deploy is refused', () => {
 
     expect(res.status).toBe(503);
     expect(res.data.error).toMatch(/Temporal app deploy unavailable: connection refused/);
+  });
+});
+
+describe('an app\'s sign-in', () => {
+  it('is shown to its owner on asking, never cached', async () => {
+    const { h, svc } = await mount();
+    const res = await axios.get(h.url('/api/deployments/d1/sign-in'));
+    expect(res.headers['cache-control']).toBe('no-store');
+    expect(res.data).toEqual({ signIns: [{ describe: 'The Hermes dashboard', login: 'admin', password: 'generated-for-d1' }] });
+    expect(svc.appService.signIns).toHaveBeenCalledWith('d1', TEST_USER.id);
+    expect((await axios.get(h.url('/api/deployments/elsewhere/sign-in'), { validateStatus: () => true })).status).toBe(404);
+  });
+
+  it('never rides along in a listing, or in anything else the deployments send', async () => {
+    const svc = services();
+    const sealed = { nextcloudAdminPassword: 'nc-admin', minioRootPassword: 'minio-root', vllmHfToken: 'hf_x', hermesDashboardPassword: 'hermes-x' };
+    svc.appService.getAll.mockResolvedValue([deployment({ appType: 'nextcloud', ...sealed })] as never);
+    svc.appService.updateModules.mockResolvedValue({ deployment: deployment(sealed) } as never);
+    const { h } = await mount(svc);
+    const listed = await axios.get(h.url('/api/deployments'));
+    expect(listed.data[0]).toMatchObject({ id: 'd1', appType: 'nextcloud' });
+    const changed = await axios.patch(h.url('/api/deployments/d1/modules'), { modules: [] });
+    for (const body of [listed.data, changed.data]) for (const value of Object.values(sealed)) expect(JSON.stringify(body)).not.toContain(value);
   });
 });

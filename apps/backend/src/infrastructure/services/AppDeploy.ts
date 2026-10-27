@@ -11,7 +11,7 @@ import {
 import { CapacityError, checkCapacity, requestedGpuCount } from '../lib/cluster-capacity.js';
 import { executeDeployAppWorkflow } from '../../workflows/AppDeployWorkflow.js';
 import { resolveVllmDefaults, resolveTabbyDefaults, resolveCrawl4aiDefaults, resolveSearxngDefaults,
-  resolveMinioDefaults, resolveNextcloudDefaults, resolveQdrantDefaults, resolveQuickwitDefaults } from '../lib/app-env.js';
+  resolveHermesDefaults, resolveMinioDefaults, resolveNextcloudDefaults, resolveQdrantDefaults, resolveQuickwitDefaults } from '../lib/app-env.js';
 import { resolveAppSettingsDefaults } from '../lib/app-schemas.js';
 import { resolveTabbyCacheHostPath, resolveVllmCacheHostPath } from '../../models/index.js';
 
@@ -127,6 +127,7 @@ export async function startAppDeploy(deps: AppDeployDeps, config: any, userId?: 
       dep = resolveCrawl4aiDefaults(dep as DeploymentMetadata)
       dep = resolveSearxngDefaults(dep as DeploymentMetadata)
       dep = resolveNextcloudDefaults(resolveMinioDefaults(dep as DeploymentMetadata))
+      dep = resolveHermesDefaults(dep as DeploymentMetadata)
       dep = resolveQdrantDefaults(dep as DeploymentMetadata)
       dep = resolveQuickwitDefaults(dep as DeploymentMetadata, await deps.db.infrastructure.getDeployments())
       dep = resolveAppSettingsDefaults(dep as DeploymentMetadata)
@@ -247,6 +248,7 @@ export async function startAppDeploy(deps: AppDeployDeps, config: any, userId?: 
       nextcloudAdminPassword: dep.nextcloudAdminPassword,
       nextcloudDbPassword: dep.nextcloudDbPassword,
       nextcloudDbRootPassword: dep.nextcloudDbRootPassword,
+      hermesDashboardPassword: dep.hermesDashboardPassword,
       minioStorage: dep.minioStorage,
       qdrantApiKey: dep.qdrantApiKey,
       qdrantStorage: dep.qdrantStorage,
