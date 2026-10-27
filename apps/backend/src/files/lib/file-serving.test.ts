@@ -31,4 +31,15 @@ describe('serving a person\'s file', () => {
   it('downloads anything asked for as a download', () => {
     expect(servingHeaders('image/png', 'a b.png', false)['Content-Disposition']).toBe("attachment; filename*=UTF-8''a%20b.png");
   });
+
+  it('sends only the type it judged, never what the uploader wrote, so a type that names two cannot become a page', () => {
+    for (const raw of ['application/pdf;x=1,text/html', 'application/pdf, text/html', 'image/png\r\nX-Injected: 1', 'nonsense', '']) {
+      const headers = servingHeaders(raw, 'f', true);
+      expect(headers['Content-Type'], raw).not.toMatch(/html|,|\r|\n|X-Injected/i);
+    }
+    expect(servingHeaders('application/pdf;x=1,text/html', 'f.pdf', true)).toMatchObject({ 'Content-Type': 'application/pdf', 'Content-Disposition': "inline; filename*=UTF-8''f.pdf" });
+    expect(servingHeaders('application/pdf, text/html', 'f.pdf', true)).toMatchObject({ 'Content-Type': 'application/octet-stream', 'Content-Security-Policy': UNTRUSTED_FILE_POLICY });
+    expect(servingHeaders('Text/Plain; charset=latin1', 'f.txt', true)['Content-Type']).toBe('text/plain; charset=utf-8');
+    expect(servingHeaders('text/html;charset=utf-8,image/png', 'f', true)).toMatchObject({ 'Content-Type': 'text/html; charset=utf-8', 'Content-Security-Policy': UNTRUSTED_FILE_POLICY, 'Content-Disposition': "attachment; filename*=UTF-8''f" });
+  });
 });
