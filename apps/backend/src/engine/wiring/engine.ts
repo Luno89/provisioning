@@ -6,6 +6,7 @@ import type { PersonaRecord } from '@koala/agent-engine';
 import {
   type Database, type SecretKey, servesTenants, type RoleConfig, signJWT, startedFor, getTemporalClient,
   keepTrying, grovedTree, treeNotices, postedNotice, ownedBy,
+  publicAddressProblem,
 } from '../../platform/index.js';
 import { accountDefaultOf, type MachineService } from '../../machines/index.js';
 import { PROCEDURE_CHANGE_AGENT } from '../lib/agent-usage.js';
@@ -288,7 +289,7 @@ export async function wireEngine(deps: EngineWiringDeps): Promise<EngineWiring> 
       list: (ownerId) => db.engine.getMcpServers(ownerId),
       get: async (ownerId, id) => (await db.engine.getMcpServers(ownerId)).find((server) => server.id === id),
       save: (server) => db.engine.saveMcpServer(server),
-      hostedUrl: hostedMcpUrl({ deployments: () => db.infrastructure.getDeployments(), probeUrl: resolveMcpProbeUrl }),
+      hostedUrl: hostedMcpUrl({ deployments: () => db.infrastructure.getDeployments(), probeUrl: resolveMcpProbeUrl, urlProblem: publicAddressProblem }),
     },
     publishedWorkspaces: { get: (ownerId: string, treeId: string) => db.engine.getPublishedWorkspace(ownerId, treeId), save: (workspace) => db.engine.savePublishedWorkspace(workspace) },
     readRepoFile: async (ownerId: string, repo: string, path: string, ref: string) => (await projectRepos.readDocument(ownerId, repo, path, ref))?.content,

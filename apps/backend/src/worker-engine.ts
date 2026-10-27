@@ -319,7 +319,7 @@ async function buildActivities() {
       list: (ownerId) => db.engine.getMcpServers(ownerId),
       get: async (ownerId, id) => (await db.engine.getMcpServers(ownerId)).find((server) => server.id === id),
       save: (server) => db.engine.saveMcpServer(server),
-      hostedUrl: hostedMcpUrl({ deployments: () => db.infrastructure.getDeployments(), probeUrl: resolveMcpProbeUrl }),
+      hostedUrl: hostedMcpUrl({ deployments: () => db.infrastructure.getDeployments(), probeUrl: resolveMcpProbeUrl, urlProblem: publicAddressProblem }),
     },
     ...(web ? { web } : {}),
     kubeconfig: process.env.KUBECONFIG_PATH,
