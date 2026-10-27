@@ -31,24 +31,22 @@ check_temporal() {
   return 1
 }
 
+bash "${ROOT}/scripts/temporal-keys.sh"
+
+echo "  ▶  Starting Temporal server (a no-op when it already runs as configured)..."
+$DOCKER_COMPOSE -f "$COMPOSE_FILE" up -d
+
+echo "  ▶  Waiting for Temporal to be healthy on port ${TEMPORAL_PORT}..."
+MAX_RETRIES=60
+RETRY=0
+until check_temporal || [ $RETRY -ge $MAX_RETRIES ]; do
+  sleep 2
+  RETRY=$((RETRY + 1))
+done
+
 if check_temporal; then
-  echo "  ▶  Temporal server already running on port ${TEMPORAL_PORT} — skipping startup"
+  echo "  ▶  Temporal server is ready"
 else
-  echo "  ▶  Starting Temporal server..."
-  $DOCKER_COMPOSE -f "$COMPOSE_FILE" up -d
-
-  echo "  ▶  Waiting for Temporal to be healthy on port ${TEMPORAL_PORT}..."
-  MAX_RETRIES=30
-  RETRY=0
-  until check_temporal || [ $RETRY -ge $MAX_RETRIES ]; do
-    sleep 2
-    RETRY=$((RETRY + 1))
-  done
-
-  if check_temporal; then
-    echo "  ▶  Temporal server is ready"
-  else
-    echo "  ❌  Temporal server failed to start within $((MAX_RETRIES * 2))s"
-    exit 1
-  fi
+  echo "  ❌  Temporal server failed to start within $((MAX_RETRIES * 2))s"
+  exit 1
 fi

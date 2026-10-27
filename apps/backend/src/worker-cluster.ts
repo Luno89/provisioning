@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import dotenv from 'dotenv';
-import { Worker, NativeConnection, Runtime } from '@temporalio/worker';
+import { Worker, Runtime } from '@temporalio/worker';
 import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs/promises';
@@ -13,7 +13,7 @@ import { SyncConfigActivity } from './activities/SyncConfigActivity.js';
 import { DownloadModelActivity } from './activities/DownloadModelActivity.js';
 import { VerifyGpuRuntimeActivity } from './activities/VerifyGpuRuntimeActivity.js';
 import { RunPipelineActivity } from './activities/RunPipelineActivity.js';
-import { createWorkerLogger, buildDataConverter, sharedPayloadBlobs, loadKeys, roleFromEnv, SYSTEM_KUBECONFIG, telemetrySettings } from './platform/index.js';
+import { createWorkerLogger, buildDataConverter, connectTemporalWorker, sharedPayloadBlobs, loadKeys, roleFromEnv, SYSTEM_KUBECONFIG, telemetrySettings } from './platform/index.js';
 import { healthPort, serveHealth, InfrastructureService, sharedClusterProxy } from './infrastructure/index.js';
 import { heartbeatWhileRunning } from '@koala/engine-core';
 import { traceActivities } from '@koala/engine-core/telemetry';
@@ -68,7 +68,7 @@ async function main() {
   let worker;
   while (true) {
     try {
-      const connection = await NativeConnection.connect({ address });
+      const connection = await connectTemporalWorker(address, 'koala-worker-cluster');
       const dataConverter = buildDataConverter(loadKeys(process.env).payload, sharedPayloadBlobs());
       worker = await Worker.create({
         connection,

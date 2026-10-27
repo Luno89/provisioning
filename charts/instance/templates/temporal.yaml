@@ -85,6 +85,39 @@ spec:
         {{- include "instance.labels" . | nindent 8 }}
         {{- include "instance.selector" (dict "root" . "component" "temporal") | nindent 8 }}
     spec:
+      initContainers:
+        - name: temporal-jwks
+          image: {{ include "instance.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: [temporal-keys, /keys/temporal-jwks.json]
+          {{- include "instance.resources" (dict "root" . "component" "temporalJwks") | nindent 10 }}
+          env:
+            - name: TEMPORAL_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "instance.name" . }}-keys
+                  key: TEMPORAL_KEY
+          volumeMounts:
+            - name: temporal-keys
+              mountPath: /keys
+        - name: temporal-keys
+          image: {{ .Values.temporal.keysImage }}
+          restartPolicy: Always
+          command: [httpd, -f, -p, "7280", -h, /srv]
+          {{- include "instance.resources" (dict "root" . "component" "temporalKeys") | nindent 10 }}
+          startupProbe:
+            httpGet:
+              path: /.well-known/temporal-jwks.json
+              port: 7280
+            periodSeconds: 1
+            failureThreshold: 600
+          volumeMounts:
+            - name: temporal-keys
+              mountPath: /srv/.well-known
+              readOnly: true
+      volumes:
+        - name: temporal-keys
+          emptyDir: {}
       containers:
         - name: temporal
           image: {{ .Values.temporal.image }}
@@ -107,6 +140,20 @@ spec:
               value: {{ include "instance.name" . }}-temporal-db
             - name: BIND_ON_IP
               value: 0.0.0.0
+            - name: SERVICES
+              value: frontend:internal-frontend:history:matching:worker
+            - name: USE_INTERNAL_FRONTEND
+              value: "true"
+            - name: TEMPORAL_ADDRESS
+              value: 127.0.0.1:7236
+            - name: TEMPORAL_AUTH_AUTHORIZER
+              value: default
+            - name: TEMPORAL_AUTH_CLAIM_MAPPER
+              value: default
+            - name: TEMPORAL_JWT_KEY_SOURCE1
+              value: http://127.0.0.1:7280/.well-known/temporal-jwks.json
+            - name: TEMPORAL_JWT_KEY_REFRESH
+              value: 30s
             - name: TEMPORAL_BROADCAST_ADDRESS
               valueFrom:
                 fieldRef:

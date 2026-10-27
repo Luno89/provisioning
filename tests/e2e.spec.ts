@@ -223,7 +223,11 @@ http {
   // TEST 0: Verify Temporal service health
   test('should verify Temporal service health', async () => {
     const { Connection } = await import('@temporalio/client');
-    const connection = await Connection.connect();
+    const dotenv = await import('dotenv');
+    dotenv.config({ path: 'apps/backend/.env', quiet: true });
+    const { loadKeys } = await import('../apps/backend/src/platform/lib/keys.js');
+    const { temporalApiKey, temporalNamespaceFrom } = await import('../apps/backend/src/platform/lib/temporal-auth.js');
+    const connection = await Connection.connect({ tls: false, apiKey: temporalApiKey(loadKeys(process.env).temporal, { subject: 'koala-e2e', namespace: temporalNamespaceFrom(process.env), role: 'read' }) });
     expect(connection).toBeDefined();
     const status = await connection.workflowService.getSystemInfo({});
     expect(status).toBeDefined();

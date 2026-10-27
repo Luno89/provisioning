@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import dotenv from 'dotenv';
-import { Worker, NativeConnection, Runtime } from '@temporalio/worker';
+import { Worker, Runtime } from '@temporalio/worker';
 import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
 
@@ -10,7 +10,7 @@ import { RootRemovalInstanceActivity, RootRemovalMeshActivity, RootRemovalRecord
 import { PoolMoveStartActivity, PoolMoveStopActivity, PoolMoveSwitchActivity } from './activities/PoolActivities.js';
 import { PoolChartActivity, PoolFailedActivity, PoolHostActivity, PoolProxyActivity, PoolReadyActivity, PoolRemoveActivity, PoolTrialNextActivity, PoolTrialStepActivity, PoolVclusterActivity } from './activities/PoolActivities.js';
 import { CrawlBatchActivity, NextBatchActivity, SeedFrontierActivity, DiscardFrontierActivity, PurgeCorpusActivity, SearchCorpusActivity, NewIngestIdActivity } from './activities/CrawlActivity.js';
-import { createWorkerLogger, buildDataConverter, sharedPayloadBlobs, loadKeys, SYSTEM_KUBECONFIG, telemetrySettings } from './platform/index.js';
+import { createWorkerLogger, buildDataConverter, connectTemporalWorker, sharedPayloadBlobs, loadKeys, SYSTEM_KUBECONFIG, telemetrySettings } from './platform/index.js';
 import { healthPort, serveHealth, sharedClusterProxy } from './infrastructure/index.js';
 import { collectorSink } from './monitoring/index.js';
 import { heartbeatWhileRunning } from '@koala/engine-core';
@@ -45,7 +45,7 @@ async function main() {
   let worker;
   while (true) {
     try {
-      const connection = await NativeConnection.connect({ address });
+      const connection = await connectTemporalWorker(address, 'koala-worker-host');
       const dataConverter = buildDataConverter(loadKeys(process.env).payload, sharedPayloadBlobs());
       worker = await Worker.create({
         connection,

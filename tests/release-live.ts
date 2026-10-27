@@ -366,13 +366,13 @@ async function main(): Promise<void> {
   step(`root: update.sh ${candidateTag} refuses while a workflow runs on root's Temporal, then updates`);
   const temporal = (await sh(root, "sudo docker ps --filter label=com.docker.compose.service=temporal --format '{{.Names}}'")).trim().split('\n')[0]!;
   assert.ok(temporal, 'root has no Temporal container');
-  await sh(root, `sudo docker exec ${temporal} temporal workflow start --address temporal:7233 --task-queue release-live-in-flight --type ReleaseRehearsalInFlight --workflow-id release-live-in-flight >/dev/null`);
+  await sh(root, `sudo docker exec ${temporal} sh -c 'for address in 127.0.0.1:7236 temporal:7233; do temporal workflow start --address $address --task-queue release-live-in-flight --type ReleaseRehearsalInFlight --workflow-id release-live-in-flight >/dev/null && exit 0; done; exit 1'`);
   const refused = await inVm(root, `sudo bash ${UPDATE_SH} ${candidate}`);
   assert.notEqual(refused.code, 0, 'update.sh went ahead with a workflow in flight');
   assert.ok(refused.out.includes(inFlightRefusal(1)), `update.sh did not refuse with the expected words:\n${refused.out.slice(-800)}`);
   assert.equal(await rootHead(), previous, 'the refused update moved root');
   note(`refused: ${inFlightRefusal(1)}`);
-  await sh(root, `sudo docker exec ${temporal} temporal workflow terminate --address temporal:7233 --workflow-id release-live-in-flight --reason rehearsal >/dev/null`);
+  await sh(root, `sudo docker exec ${temporal} sh -c 'for address in 127.0.0.1:7236 temporal:7233; do temporal workflow terminate --address $address --workflow-id release-live-in-flight --reason rehearsal >/dev/null && exit 0; done; exit 1'`);
   const unsigned = await inVm(root, `sudo bash ${UPDATE_SH} ${UNSIGNED_REF}`);
   assert.notEqual(unsigned.code, 0, `update.sh moved root onto ${UNSIGNED_REF}, which nobody signed`);
   assert.ok(unsigned.out.includes(unsignedRefusal(UNSIGNED_REF, SIGNERS)), `update.sh did not refuse ${UNSIGNED_REF} with the expected words:\n${unsigned.out.slice(-800)}`);

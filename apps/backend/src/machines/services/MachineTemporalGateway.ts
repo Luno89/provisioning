@@ -4,6 +4,7 @@ import { frame, gatewayCallOf, gatewayDecision, handedWorkflowOf, sealedPollAnsw
 
 export interface MachineTemporalGatewayDeps {
   upstream: string;
+  upstreamKey: () => string;
   namespace: string;
   keys: () => readonly string[];
   deviceOf: (token: string) => Promise<{ id: string } | undefined>;
@@ -95,7 +96,7 @@ export class MachineTemporalGateway {
         return refuse(stream, GRPC.permissionDenied, decision.refused);
       }
 
-      const forwarded: http2.OutgoingHttpHeaders = { ':method': 'POST', ':path': path };
+      const forwarded: http2.OutgoingHttpHeaders = { ':method': 'POST', ':path': path, authorization: `Bearer ${this.deps.upstreamKey()}` };
       for (const name of FORWARDED) if (headers[name] !== undefined) forwarded[name] = headers[name];
       const up = this.upstream().request(forwarded);
       stream.on('close', () => { if (!up.closed) up.close(http2.constants.NGHTTP2_CANCEL); });

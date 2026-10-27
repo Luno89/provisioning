@@ -17,6 +17,7 @@ import helmet from 'helmet';
 import {
   CSP_REPORT_PATH, cspHeader, cspModeFrom, violationLine, crossSiteRefusal, foreignOrigin, ourOrigins, MetricsService, RATE_LIMITS, ruleFor,
   getTemporalClient, resolveOwnersWith, PayloadStorageService, createAuth, keepTrying, mongoTarget, asyncRoute,
+  TEMPORAL_JWKS_PATH, temporalKeysRouter, temporalNamespaceFrom,
   ownsProject, createDatabase, sharedPayloadBlobs, type Database, migrateLegacyOwnership, decryptValue, loadKeys,
   roleFromEnv, servesTenants, holdsAccounts, MailService, emailWayFrom, telemetrySettings, e2eProblem, firstAdminSetup, drainThenStop, podPlaceFrom, runOnce,
 } from './platform/index.js';
@@ -165,7 +166,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   const { projectRepoService, channels, itemChats, notices, postNotice, projectSecrets } = core;
   const headscaleService = new HeadscaleService(keys.data, process.env.HEADSCALE_URL || 'http://localhost:8080', process.env.HEADSCALE_API_KEY);
   const MACHINE_GATEWAY_PORT = Number(process.env.MACHINE_GATEWAY_PORT || 7234);
-  const machineTemporal = { address: process.env.MACHINE_TEMPORAL_ADDRESS || `localhost:${MACHINE_GATEWAY_PORT}`, namespace: process.env.TEMPORAL_NAMESPACE || 'default' };
+  const machineTemporal = { address: process.env.MACHINE_TEMPORAL_ADDRESS || `localhost:${MACHINE_GATEWAY_PORT}`, namespace: temporalNamespaceFrom(process.env) };
   const machineService = new MachineService({
     store: db.machines,
     dataKey: keys.data,
@@ -255,6 +256,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   app.use(express.json({ limit: '20mb' }));
   app.use(metrics.middleware());
   app.use(helmet({ contentSecurityPolicy: false, crossOriginEmbedderPolicy: false, hsts: process.env.NODE_ENV === 'production' }));
+  app.use(TEMPORAL_JWKS_PATH, temporalKeysRouter({ temporalKey: keys.temporal }));
   const csp = cspHeader(cspModeFrom(process.env));
   if (csp) app.use((_req, res, next) => { res.setHeader(csp.name, csp.value); next(); });
   app.post(CSP_REPORT_PATH, express.json({ type: ['application/csp-report', 'application/reports+json', 'application/json'], limit: '64kb' }), (req, res) => {
@@ -355,7 +357,8 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
         port: MACHINE_GATEWAY_PORT,
         host: process.env.MACHINE_GATEWAY_HOST || '0.0.0.0',
         upstream: (process.env.TEMPORAL_CONNECTION_ADDRESS || 'localhost:7233').replace(/^https?:\/\//, ''),
-        namespace: process.env.TEMPORAL_NAMESPACE || 'default',
+        namespace: temporalNamespaceFrom(process.env),
+        temporalKey: keys.temporal,
       },
     } : {}),
   });

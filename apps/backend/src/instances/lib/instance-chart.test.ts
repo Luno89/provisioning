@@ -56,7 +56,7 @@ describe('the instance chart', () => {
       ROLE: 'instance', INSTANCE_ID: 'inst-u1', INSTANCE_OWNER_ID: 'u1', ROOT_URL: 'https://app.example.com', ROOT_PUBLIC_KEYS: 'PEM', NODE_ENV: 'production',
     });
     const keys = find(docs, 'Secret', 'luno-keys');
-    expect(Object.keys(keys.data ?? {}).sort()).toEqual(['DATA_KEY', 'EGRESS_KEY', 'MONGO_ROOT_PASSWORD', 'PAYLOAD_KEY', 'SESSION_KEY', 'TEMPORAL_DB_PASSWORD']);
+    expect(Object.keys(keys.data ?? {}).sort()).toEqual(['DATA_KEY', 'EGRESS_KEY', 'MONGO_ROOT_PASSWORD', 'PAYLOAD_KEY', 'SESSION_KEY', 'TEMPORAL_DB_PASSWORD', 'TEMPORAL_KEY']);
     expect(Buffer.from(keys.data!.DATA_KEY!, 'base64').toString().length).toBeGreaterThanOrEqual(32);
     expect(keys.metadata.annotations?.['helm.sh/resource-policy']).toBe('keep');
     expect(Object.keys(keys.data ?? {})).not.toContain('ROOT_IDENTITY_KEY');
@@ -85,16 +85,40 @@ describe('the instance chart', () => {
     expect(find(alone, 'ConfigMap', 'luno-env').data!.MACHINE_TEMPORAL_ADDRESS).toBeUndefined();
   });
 
+  it('runs Temporal with its JWT authorizer, its keys served beside it before it starts, and its unchecked internal frontend only inside its pod', () => {
+    const docs = render();
+    const pod = find(docs, 'Deployment', 'luno-temporal').spec.template.spec;
+    const env = Object.fromEntries(pod.containers[0].env.filter((entry: { value?: string }) => entry.value !== undefined).map((entry: { name: string; value: string }) => [entry.name, entry.value]));
+    expect(env).toMatchObject({
+      SERVICES: 'frontend:internal-frontend:history:matching:worker',
+      USE_INTERNAL_FRONTEND: 'true',
+      TEMPORAL_ADDRESS: '127.0.0.1:7236',
+      TEMPORAL_AUTH_AUTHORIZER: 'default',
+      TEMPORAL_AUTH_CLAIM_MAPPER: 'default',
+      TEMPORAL_JWT_KEY_SOURCE1: 'http://127.0.0.1:7280/.well-known/temporal-jwks.json',
+    });
+    const [writer, server] = pod.initContainers;
+    expect(writer).toMatchObject({ name: 'temporal-jwks', image: 'nowrinkles/app:dev', args: ['temporal-keys', '/keys/temporal-jwks.json'] });
+    expect(writer.env).toEqual([{ name: 'TEMPORAL_KEY', valueFrom: { secretKeyRef: { name: 'luno-keys', key: 'TEMPORAL_KEY' } } }]);
+    expect(server).toMatchObject({ name: 'temporal-keys', restartPolicy: 'Always', startupProbe: { httpGet: { path: '/.well-known/temporal-jwks.json', port: 7280 } } });
+    expect(find(docs, 'Secret', 'luno-keys').data).toHaveProperty('TEMPORAL_KEY');
+    expect(find(docs, 'Service', 'luno-temporal').spec.ports.map((port: { port: number }) => port.port)).toEqual([7233]);
+  });
+
   it('lets only its own pods reach its Temporal, Temporal\'s database and Mongo, never a sandbox or an app beside them', () => {
     const docs = render();
     const policy = find(docs, 'NetworkPolicy', 'luno-stores');
     expect(policy.spec.policyTypes).toEqual(['Ingress']);
     expect(policy.spec.podSelector.matchExpressions).toEqual([
       { key: 'app.kubernetes.io/instance', operator: 'In', values: ['luno'] },
-      { key: 'app.kubernetes.io/component', operator: 'In', values: ['temporal', 'temporal-db', 'mongo'] },
+      { key: 'app.kubernetes.io/component', operator: 'In', values: ['temporal-db', 'mongo'] },
     ]);
     const ownPods = { 'app.kubernetes.io/part-of': 'nowrinkles-instance', 'app.kubernetes.io/instance': 'luno' };
     expect(policy.spec.ingress).toEqual([{ from: [{ podSelector: { matchLabels: ownPods } }] }]);
+    const temporal = find(docs, 'NetworkPolicy', 'luno-temporal');
+    expect(temporal.spec.policyTypes).toEqual(['Ingress']);
+    expect(temporal.spec.podSelector.matchLabels).toEqual({ 'app.kubernetes.io/instance': 'luno', 'app.kubernetes.io/component': 'temporal' });
+    expect(temporal.spec.ingress).toEqual([{ from: [{ podSelector: { matchLabels: ownPods } }], ports: [{ port: 7233, protocol: 'TCP' }] }]);
     const pods = docs.flatMap((doc) => [doc.spec?.template?.metadata?.labels, doc.spec?.jobTemplate?.spec?.template?.metadata?.labels]).filter(Boolean);
     expect(pods.length).toBeGreaterThan(8);
     for (const labels of pods) expect(labels).toMatchObject(ownPods);

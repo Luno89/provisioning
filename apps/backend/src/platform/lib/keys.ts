@@ -6,6 +6,7 @@ export interface PlatformKeys {
   data: Keyring;
   payload: Keyring;
   egress: string;
+  temporal: string;
 }
 
 export const KEY_NAMES = {
@@ -13,6 +14,7 @@ export const KEY_NAMES = {
   data: 'DATA_KEY',
   payload: 'PAYLOAD_KEY',
   egress: 'EGRESS_KEY',
+  temporal: 'TEMPORAL_KEY',
 } as const;
 
 export type KeyPurpose = keyof typeof KEY_NAMES;
@@ -51,5 +53,5 @@ export function loadKeys(env: Readonly<Record<string, string | undefined>>): Pla
     return previous.length > 0 ? { current, previous } : { current };
   };
 
-  return { session: ring('session'), data: ring('data'), payload: ring('payload'), egress: key('egress') };
+  return { session: ring('session'), data: ring('data'), payload: ring('payload'), egress: key('egress'), temporal: key('temporal') };
 }

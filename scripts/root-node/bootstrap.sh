@@ -191,14 +191,14 @@ step "Hardening the host"
 LAB="$LAB" bash "$REPO_DIR/scripts/root-node/harden-host.sh" --fresh
 
 # ── 4. Secrets ─────────────────────────────────────────────────────────────────────────────────
-# The four platform keys are generated ONCE. DATA_KEY encrypts every stored credential, so losing or
+# The five platform keys are generated ONCE. DATA_KEY encrypts every stored credential, so losing or
 # regenerating it on a host that already has data makes them permanently undecryptable — copy the
 # keys from the old host when migrating. A key that is already set is never touched.
 step "Configuring environment"
 ENV_FILE="$REPO_DIR/apps/backend/.env"
 [ -f "$ENV_FILE" ] || install -m 600 /dev/null "$ENV_FILE"
 grep -q '^NODE_ENV=' "$ENV_FILE" || echo "NODE_ENV=production" >> "$ENV_FILE"
-for KEY_NAME in SESSION_KEY DATA_KEY PAYLOAD_KEY EGRESS_KEY; do
+for KEY_NAME in SESSION_KEY DATA_KEY PAYLOAD_KEY EGRESS_KEY TEMPORAL_KEY; do
   if grep -qE "^${KEY_NAME}=.{32,}$" "$ENV_FILE"; then
     ok "${KEY_NAME} kept"
   else
@@ -292,6 +292,7 @@ REPO_DIR="$REPO_DIR" bash scripts/root-node/units.sh
 # ── 7. Services ────────────────────────────────────────────────────────────────────────────────
 step "Starting services"
 docker compose -f docker-compose.mongo.yml up -d
+bash scripts/temporal-keys.sh
 docker compose -f docker-compose.temporal.yml up -d
 docker compose -f docker-compose.headscale.yml up -d
 docker compose -f docker-compose.caddy.yml up -d --build

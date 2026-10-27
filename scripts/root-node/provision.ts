@@ -275,6 +275,7 @@ This bills hourly. Re-run with --yes to proceed.`);
       `DATA_KEY=${keys.data.current}`,
       `PAYLOAD_KEY=${keys.payload.current}`,
       `EGRESS_KEY=${keys.egress}`,
+      `TEMPORAL_KEY=${keys.temporal}`,
       ...(process.env.JWT_SECRET ? [`JWT_SECRET=${process.env.JWT_SECRET}`] : []),
       'NODE_ENV=production',
     ];

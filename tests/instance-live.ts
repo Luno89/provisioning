@@ -161,6 +161,42 @@ Promise.all(${JSON.stringify(only)}.map(at)).then((found) => console.log('KNOCKE
   }
   for (const namespace of ['default', 'nowrinkles']) kubectl(['-n', namespace, 'delete', 'pod', 'knocker', '--wait=false']);
 
+  step('the instance\'s own pods reach its Temporal only with a token signed by the instance\'s key, and never its internal frontend');
+  const temporalPod = kubectl(['-n', 'nowrinkles', 'get', 'pod', '-l', 'app.kubernetes.io/component=temporal', '-o', 'jsonpath={.items[0].status.podIP}']).trim();
+  const probe = `import net from 'node:net';
+import { Client, Connection } from '@temporalio/client';
+import { temporalToken } from './src/platform/lib/temporal-auth.ts';
+const address = (process.env.TEMPORAL_CONNECTION_ADDRESS ?? '').replace(/^https?:\\/\\//, '');
+const grant = { subject: 'instance-live', namespace: 'default', role: 'read' };
+const listed = async (apiKey) => {
+  try {
+    const connection = await Connection.connect({ address, tls: false, connectTimeout: '10s', ...(apiKey ? { apiKey } : {}) });
+    for await (const _ of new Client({ connection }).workflow.list()) break;
+    return 'allowed';
+  } catch { return 'refused'; }
+};
+const reached = (host, port) => new Promise((done) => {
+  const socket = net.connect(port, host);
+  const quiet = setTimeout(() => { socket.destroy(); done('no answer'); }, 5000);
+  socket.on('connect', () => { clearTimeout(quiet); socket.destroy(); done('reached'); });
+  socket.on('error', (err) => { clearTimeout(quiet); done(err.code); });
+});
+const found = {
+  unsigned: await listed(),
+  otherKey: await listed(temporalToken('another-instance-key-'.padEnd(64, 'x'), grant)),
+  signed: await listed(temporalToken(process.env.TEMPORAL_KEY, grant)),
+  internalFrontend: await reached(${JSON.stringify(temporalPod)}, 7236),
+};
+console.log('TEMPORAL ' + JSON.stringify(found));
+process.exit(0);`;
+  const said = execFileSync(bin('kubectl'), ['-n', 'nowrinkles', 'exec', '-i', 'deploy/live-backend', '--', 'sh', '-c', 'cd /app/apps/backend && cat > temporal-probe.mts && npx tsx temporal-probe.mts; status=$?; rm -f temporal-probe.mts; exit $status'], { input: probe, encoding: 'utf8', env: { ...process.env, KUBECONFIG } });
+  const temporalAnswers = JSON.parse(said.split('TEMPORAL ')[1]!.split('\n')[0]!) as Record<string, string>;
+  console.log(`  from the instance's backend pod: ${Object.entries(temporalAnswers).map(([what, answer]) => `${what} ${answer}`).join(' · ')}`);
+  assert.equal(temporalAnswers.signed, 'allowed', 'Temporal refused a token signed by the instance\'s own key');
+  assert.equal(temporalAnswers.unsigned, 'refused', 'Temporal answered a call that carried no token');
+  assert.equal(temporalAnswers.otherKey, 'refused', 'Temporal answered a token signed by another key');
+  assert.notEqual(temporalAnswers.internalFrontend, 'reached', 'another pod reached Temporal\'s internal frontend, which checks nothing');
+
   step('deleting an account is root\'s: the instance removes none and points there, and a person on root removes their own, their instance let go of with it');
   const place = await (await http('/api/auth/account-removal')).json() as { url: string | null };
   assert.equal(place.url, `${ROOT_URL}/#/remove-account`, 'the instance does not send people to root to delete their account');

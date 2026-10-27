@@ -1,7 +1,7 @@
 import fs from 'fs/promises';
 import path from 'path';
 import type express from 'express';
-import { type Database, type SecretKey, asyncRoute, ringOf, sharedPayloadBlobs } from '../../platform/index.js';
+import { type Database, type SecretKey, asyncRoute, ringOf, sharedPayloadBlobs, temporalApiKey } from '../../platform/index.js';
 import { findDeviceByToken } from '../lib/local-agent-registry.js';
 import { MachineBundle } from '../services/MachineBundle.js';
 import { MachineGitService } from '../services/MachineGitService.js';
@@ -23,7 +23,7 @@ export interface MachinesWiringDeps {
   machines: MachineService;
   headscale: HeadscaleService;
   projectRepos: ProjectRepoService;
-  gateway?: { port: number; host: string; upstream: string; namespace: string } | undefined;
+  gateway?: { port: number; host: string; upstream: string; namespace: string; temporalKey: string } | undefined;
 }
 
 export function wireMachines(deps: MachinesWiringDeps): void {
@@ -36,10 +36,11 @@ export function wireMachines(deps: MachinesWiringDeps): void {
     remote: (ownerId, repo) => deps.projectRepos.gitRemote(ownerId, repo),
   });
   if (deps.gateway) {
-    const { port, host, upstream, namespace } = deps.gateway;
+    const { port, host, upstream, namespace, temporalKey } = deps.gateway;
     const ring = ringOf(deps.dataKey);
     const gateway = new MachineTemporalGateway({
       upstream,
+      upstreamKey: temporalApiKey(temporalKey, { subject: 'koala-machine-gateway', namespace, role: 'write' }),
       namespace,
       keys: () => [ring.current, ...(ring.previous ?? [])],
       deviceOf: async (token) => findDeviceByToken(await db.machines.getLocalAgentDevices(), token, deps.dataKey),

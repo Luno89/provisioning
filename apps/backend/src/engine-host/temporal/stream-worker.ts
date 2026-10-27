@@ -1,4 +1,4 @@
-import { Worker, NativeConnection } from '@temporalio/worker';
+import { Worker } from '@temporalio/worker';
 import { createEventBus, type EngineEvent, type EventBus } from '@koala/agent-engine';
 import { createStreamActivities, type StreamServices } from './activities.js';
 import { DEFAULT_STREAM_TASK_QUEUE } from './contracts.js';
@@ -6,6 +6,7 @@ import { buildDataConverter } from '../../platform/lib/temporal-codec.js';
 import { sharedPayloadBlobs } from '../../platform/lib/db-interface.js';
 import type { SecretKey } from '../../platform/index.js';
 import { loadKeys } from '../../platform/lib/keys.js';
+import { connectTemporalWorker } from '../../platform/lib/temporal-connection.js';
 import { TurnLogWriter, type TurnLogEntry } from '../../engine/index.js';
 import { heartbeatWhileRunning } from '@koala/engine-core';
 import { traceActivities } from '@koala/engine-core/telemetry';
@@ -50,9 +51,7 @@ export function createTurnLogBus(options: Pick<StreamWorkerOptions, 'io' | 'turn
 }
 
 export async function startStreamWorker(options: StreamWorkerOptions): Promise<Worker> {
-  const connection = await NativeConnection.connect({
-    address: options.address ?? process.env.TEMPORAL_CONNECTION_ADDRESS ?? 'localhost:7233',
-  });
+  const connection = await connectTemporalWorker(options.address ?? process.env.TEMPORAL_CONNECTION_ADDRESS ?? 'localhost:7233', 'koala-stream-worker');
 
   const bus = createTurnLogBus(options);
   const dataConverter = buildDataConverter(options.encryptionKey ?? loadKeys(process.env).payload, sharedPayloadBlobs());

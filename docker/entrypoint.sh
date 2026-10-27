@@ -42,5 +42,6 @@ case "${1:-backend}" in
   move-data) exec npx tsx src/scripts/move-import.ts data ;;
   move-restore) exec npx tsx src/scripts/move-import.ts restore ;;
   self-upgrade) exec bash /app/scripts/instance/self-upgrade.sh ;;
+  temporal-keys) exec npx tsx src/scripts/temporal-keys.ts "${2:-/keys/temporal-jwks.json}" ;;
   *) exec "$@" ;;
 esac

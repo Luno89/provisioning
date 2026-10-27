@@ -7,12 +7,14 @@ const full = {
   DATA_KEY: 'd'.repeat(64),
   PAYLOAD_KEY: 'p'.repeat(64),
   EGRESS_KEY: 'e'.repeat(64),
+  TEMPORAL_KEY: 't'.repeat(64),
 };
 
 describe('the platform keys', () => {
-  it('refuses to run in production without all four, and names the missing ones', () => {
+  it('refuses to run in production without all five, and names the missing ones', () => {
     expect(() => loadKeys({ NODE_ENV: 'production', JWT_SECRET: 'x'.repeat(64) })).toThrow(MissingKeysError);
     expect(() => loadKeys({ NODE_ENV: 'production', ...full, EGRESS_KEY: 'too-short' })).toThrow(/EGRESS_KEY is not set, or shorter than 32/);
+    expect(() => loadKeys({ NODE_ENV: 'production', ...full, TEMPORAL_KEY: undefined })).toThrow(/TEMPORAL_KEY is not set/);
     expect(loadKeys({ NODE_ENV: 'production', ...full }).data.current).toBe(full.DATA_KEY);
   });
 
@@ -24,10 +26,10 @@ describe('the platform keys', () => {
 
   it('gives each purpose its own key, even when dev derives them all from one secret', () => {
     const keys = loadKeys({ JWT_SECRET: 'one-dev-secret' });
-    const all = [keys.session.current, keys.data.current, keys.payload.current, keys.egress];
-    expect(new Set(all).size).toBe(4);
+    const all = [keys.session.current, keys.data.current, keys.payload.current, keys.egress, keys.temporal];
+    expect(new Set(all).size).toBe(5);
     expect(all).not.toContain('one-dev-secret');
-    expect(Object.keys(KEY_NAMES)).toHaveLength(4);
+    expect(Object.keys(KEY_NAMES)).toHaveLength(5);
   });
 
   it('still opens what the old single secret wrote, and what a derived key wrote before real keys were set', () => {

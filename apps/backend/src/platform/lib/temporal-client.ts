@@ -5,6 +5,7 @@ import { buildDataConverter } from './temporal-codec.js'
 import { OWNER_ATTRIBUTE, UnownedWorkflowError, ownerIn, startedFor } from './workflow-owner.js'
 import { sharedPayloadBlobs } from './db-interface.js'
 import { loadKeys } from './keys.js'
+import { temporalApiKey, temporalNamespaceFrom, temporalToken } from './temporal-auth.js'
 
 const serverUrl = process.env.TEMPORAL_CONNECTION_ADDRESS || 'http://localhost:7233'
 
@@ -47,12 +48,13 @@ export const requireOwner: WorkflowClientInterceptor = {
   },
 }
 
-export async function registerOwnerAttribute(connection: Connection, namespace: string): Promise<void> {
+export async function registerOwnerAttribute(connection: Connection, namespace: string, adminKey?: string): Promise<void> {
+  const add = () => connection.operatorService.addSearchAttributes({
+    namespace,
+    searchAttributes: { [OWNER_ATTRIBUTE.name]: protos.temporal.api.enums.v1.IndexedValueType.INDEXED_VALUE_TYPE_KEYWORD },
+  })
   try {
-    await connection.operatorService.addSearchAttributes({
-      namespace,
-      searchAttributes: { [OWNER_ATTRIBUTE.name]: protos.temporal.api.enums.v1.IndexedValueType.INDEXED_VALUE_TYPE_KEYWORD },
-    })
+    await (adminKey ? connection.withApiKey(adminKey, add) : add())
   } catch (err) {
     if (!/already exists|AlreadyExists/i.test(String((err as Error)?.message ?? err))) throw err
   }
@@ -61,10 +63,15 @@ export async function registerOwnerAttribute(connection: Connection, namespace: 
 export async function getTemporalClient(options?: TemporalClientOptions): Promise<Client> {
   if (shared) return shared
   const address = options?.address ?? process.env.TEMPORAL_CONNECTION_ADDRESS ?? serverUrl
-  const namespace = options?.namespace ?? 'default'
-  const connection = await Connection.connect({ address: toConnectionAddress(address) })
-  await registerOwnerAttribute(connection, namespace)
-  const dataConverter = buildDataConverter(loadKeys(process.env).payload, sharedPayloadBlobs())
+  const namespace = options?.namespace ?? temporalNamespaceFrom(process.env)
+  const keys = loadKeys(process.env)
+  const connection = await Connection.connect({
+    address: toConnectionAddress(address),
+    tls: false,
+    apiKey: temporalApiKey(keys.temporal, { subject: 'koala-backend', namespace, role: 'write' }),
+  })
+  await registerOwnerAttribute(connection, namespace, temporalToken(keys.temporal, { subject: 'koala-backend', namespace, role: 'admin' }))
+  const dataConverter = buildDataConverter(keys.payload, sharedPayloadBlobs())
   shared = new Client({
     connection,
     namespace,

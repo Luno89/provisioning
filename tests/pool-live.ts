@@ -108,7 +108,7 @@ async function teardown(): Promise<void> {
   for (const name of Object.values(CONTAINERS)) try { run('docker', ['rm', '-f', name]); } catch { /* not running */ }
   if (instanceId) {
     for (const workflow of ['pool-instance', 'pool-trial', 'pool-remove']) {
-      try { run('docker', ['exec', 'provisioning-temporal-1', 'temporal', 'workflow', 'terminate', '--address', 'provisioning-temporal-1:7233', '--workflow-id', `${workflow}-${instanceId}`, '--reason', 'pool-live teardown']); } catch { /* not running */ }
+      try { run('docker', ['exec', 'provisioning-temporal-1', 'temporal', 'workflow', 'terminate', '--address', '127.0.0.1:7236', '--workflow-id', `${workflow}-${instanceId}`, '--reason', 'pool-live teardown']); } catch { /* not running */ }
     }
     try { run('npm', ['run', 'instances', '--silent', '-w', 'apps/backend', '--', 'remove', instanceId]); } catch { /* fine */ }
   }

@@ -44,6 +44,7 @@ fi
 
 echo "  🧹 Resetting local Temporal server to clear stale workflows..."
 $DOCKER_COMPOSE -f "$ROOT/docker-compose.temporal.yml" down -v >/dev/null 2>&1 || true
+bash "$ROOT/scripts/temporal-keys.sh" >/dev/null
 $DOCKER_COMPOSE -f "$ROOT/docker-compose.temporal.yml" up -d >/dev/null 2>&1 || true
 echo "  ⏳ Waiting for Temporal server to become healthy..."
 for i in {1..30}; do

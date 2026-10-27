@@ -93,6 +93,19 @@ trap 'rm -f "$BINDINGS" "$VERIFY"' EXIT
 cp "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/cdktf-bindings.sh" "$BINDINGS" || die "cdktf-bindings.sh must sit beside update.sh"
 cp "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/verify-release.sh" "$VERIFY" || die "verify-release.sh must sit beside update.sh"
 
+ensure_platform_keys() {
+  for KEY_NAME in SESSION_KEY DATA_KEY PAYLOAD_KEY EGRESS_KEY TEMPORAL_KEY; do
+    grep -qE "^${KEY_NAME}=.{32,}$" "$BACKEND_ENV" || { echo "${KEY_NAME}=$(openssl rand -hex 32)" >> "$BACKEND_ENV"; ok "${KEY_NAME} generated"; }
+  done
+}
+
+update_temporal() {
+  if [ -f scripts/temporal-keys.sh ]; then
+    bash scripts/temporal-keys.sh || return 1
+  fi
+  docker compose -f docker-compose.temporal.yml up -d --wait
+}
+
 install_dependencies() {
   npm ci --ignore-scripts --silent && node scripts/fix-dnd-kit-hoisting.js
 }
@@ -116,7 +129,7 @@ TEMPORAL="$(docker ps --filter label=com.docker.compose.service=temporal --forma
 if [ -z "$TEMPORAL" ]; then
   warn "No Temporal container is running, so nothing can be in flight"
 else
-  LISTED="$(docker exec "$TEMPORAL" temporal workflow list --address temporal:7233 --query 'ExecutionStatus="Running"' 2>&1)" || die "Could not list the workflows in flight: ${LISTED}"
+  LISTED="$(docker exec "$TEMPORAL" temporal workflow list --address 127.0.0.1:7236 --query 'ExecutionStatus="Running"' 2>&1 || docker exec "$TEMPORAL" temporal workflow list --address temporal:7233 --query 'ExecutionStatus="Running"' 2>&1)" || die "Could not list the workflows in flight: ${LISTED}"
   RUNNING="$(printf '%s\n' "$LISTED" | grep -c ' Running ' || true)"
   if [ "$RUNNING" -gt 0 ]; then
     if [ "$FORCE" -eq 1 ]; then
@@ -330,6 +343,11 @@ while ! said="$(docker exec nowrinkles-caddy caddy reload --config /etc/caddy/Ca
   esac
 done
 
+step "Updating Temporal"
+ensure_platform_keys
+update_temporal || die "Temporal did not come back with this release's settings. Check: docker compose -f docker-compose.temporal.yml logs"
+ok "Temporal answers only what this release's processes sign"
+
 step "Restarting ${SERVICE}"
 systemctl restart "$SERVICE"
 
@@ -359,6 +377,7 @@ else
   install_dependencies && npm run build --silent
   install_units
   docker compose -f docker-compose.caddy.yml up -d --build
+  update_temporal || warn "Temporal did not come back with the previous release's settings. Check: docker compose -f docker-compose.temporal.yml logs"
   [ -n "$PREVIOUS_TAG" ] && set_backend_env INSTANCE_IMAGE_TAG "$PREVIOUS_TAG"
   [ -n "$PREVIOUS_DIGEST" ] && set_backend_env INSTANCE_IMAGE_DIGEST "$PREVIOUS_DIGEST"
   systemctl restart "$SERVICE"

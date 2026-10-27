@@ -54,7 +54,7 @@ echo "  ▶  deploying worker to cluster '${CLUSTER_NAME}'..."
 # `create --dry-run | apply` rather than plain create, so re-running this script after rotating a
 # key updates the Secret instead of failing with AlreadyExists.
 SECRET_ARGS=()
-for KEY_NAME in SESSION_KEY DATA_KEY PAYLOAD_KEY EGRESS_KEY JWT_SECRET; do
+for KEY_NAME in SESSION_KEY DATA_KEY PAYLOAD_KEY EGRESS_KEY TEMPORAL_KEY JWT_SECRET; do
   VALUE="$(grep -E "^${KEY_NAME}=" "${ROOT}/apps/backend/.env" 2>/dev/null | head -1 | cut -d= -f2-)"
   [ -n "$VALUE" ] && SECRET_ARGS+=(--from-literal="${KEY_NAME}=${VALUE}")
 done

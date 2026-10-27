@@ -158,7 +158,7 @@ async function main(): Promise<void> {
   assert.ok(log);
   const pollers = await until('the instance\'s Temporal seeing the machine\'s worker', 3, async () => {
     const pod = (await inVm(instanceVm, 'sudo k3s kubectl -n nowrinkles get pod -l app.kubernetes.io/component=temporal -o jsonpath="{.items[0].metadata.name}"')).trim();
-    const described = await inVm(instanceVm, `sudo k3s kubectl -n nowrinkles exec ${pod} -- tctl --address localhost:7233 taskqueue describe --taskqueue device-${machine.id} --taskqueuetype activity`);
+    const described = await inVm(instanceVm, `sudo k3s kubectl -n nowrinkles exec ${pod} -- tctl --address localhost:7236 taskqueue describe --taskqueue device-${machine.id} --taskqueuetype activity`);
     return described.includes(`mesh-mach-${STAMP}`) ? described : undefined;
   });
   console.log(`  ${machineMeshIp} polls device-${machine.id} through the gateway on ${instanceMeshIp}:${GATEWAY_PORT}; the instance's Temporal lists it:\n    ${pollers.trim().split('\n').join('\n    ')}`);

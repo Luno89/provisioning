@@ -13,13 +13,13 @@ import {
   TreeHomeService, webhookAddress, type GroveRunLauncher,
 } from './projects/index.js';
 import {
-  stopIfRunning, createDatabase, sharedPayloadBlobs, createWorkerLogger, buildDataConverter, failureReason,
+  stopIfRunning, createDatabase, sharedPayloadBlobs, createWorkerLogger, buildDataConverter, connectTemporalWorker, failureReason,
   signJWT, clusterOwnership, roleFromEnv, getTemporalClient, resolveOwnersWith, loadKeys, startedFor, carryingTrace, SYSTEM_KUBECONFIG, telemetrySettings,
   publicAddressProblem,
 } from './platform/index.js';
 import { createWorkspaceRepoResolver, treeOfWorkspace } from './engine-host/sandboxes/workspace-repos.js';
 import dotenv from 'dotenv';
-import { Worker, NativeConnection, Runtime } from '@temporalio/worker';
+import { Worker, Runtime } from '@temporalio/worker';
 import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
 
@@ -547,7 +547,7 @@ async function main() {
 
   for (;;) {
     try {
-      const connection = await NativeConnection.connect({ address });
+      const connection = await connectTemporalWorker(address, 'koala-worker-engine');
       const dataConverter = buildDataConverter(keys.payload, sharedPayloadBlobs());
 
       const worker = await Worker.create({

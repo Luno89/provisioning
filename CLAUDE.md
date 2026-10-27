@@ -232,7 +232,27 @@ enforced by k3s's network policy controller; a pool vcluster copies it to the ho
 a release slot or a build on the same cluster cannot; sandboxes were already shut in by their own `default-deny`. An instance's
 SearXNG and Crawl4AI are ClusterIP only and answer only its own namespace (`scripts/instance/platform-services.sh`, run with
 `POD_NAMESPACE` by the setup job; `scripts/dev.sh` runs it without, leaving the dev box's NodePorts). `test:instance-live` knocks
-on each from another namespace and from the instance's. **On the owner's machine nothing of the instance answers on its network
+on each from another namespace and from the instance's. **Temporal answers only what Koala's own processes sign** (W7, owner 2026-10-27; Temporal Cloud's model, the stock server, no
+fork): every Temporal runs its default JWT authorizer and claim mapper, and each process connects with an ES256 token it signs
+itself from `TEMPORAL_KEY` (`platform/lib/temporal-auth.ts`: `temporalToken`, renewed by `temporalApiKey` 20 minutes before its hour
+is up), granting one role on one namespace: `write` for the backend's client, the three workers, the stream worker
+(`connectTemporalWorker`) and the machine gateway's upstream (which sends its own token, never the machine's), and an `admin`
+token only for registering `KoalaOwner`. Temporal's stock authorizer compares roles as numbers, so its `worker` permission
+allows nothing a worker needs; nothing narrower than a namespace exists, which is why machines go through the gateway. The SDK
+turns TLS on by itself when given a key, so every connection says `tls: false` (Temporal serves plain gRPC here, on loopback or
+inside the instance's pod network). Temporal reads the public key (`temporalJwks`, also served at
+`/.well-known/temporal-jwks.json`) from a file beside it, never from the backend, so it has it from its first moment: on an
+instance an init container (`temporal-keys` in the entrypoint, `src/scripts/temporal-keys.ts`) writes it and a native busybox
+sidecar serves it before Temporal starts (`charts/instance/templates/temporal.yaml`); under compose `scripts/temporal-keys.sh`
+writes `apps/backend/data/temporal-keys/temporal-jwks.json` (`ensure-temporal.sh`, `bootstrap.sh`, `update.sh`, which also adds a
+missing `TEMPORAL_KEY` and puts Temporal back as it was on a rollback) and the `temporal-keys` service serves it. Temporal's own
+setup and the operator CLI use its internal frontend (`127.0.0.1:7236`, `USE_INTERNAL_FRONTEND`, `SERVICES` naming
+`internal-frontend`), which checks nothing, so only Temporal's own pod reaches it: the instance's `<release>-temporal`
+NetworkPolicy lets its pods in on 7233 alone (`docker exec <temporal> temporal ... --address 127.0.0.1:7236` on root and a dev
+box). A worker Temporal refuses (its keys missing) fails and stays failed; keys served beside Temporal make that a
+misconfiguration, and creating a worker is retried by every worker. `test:instance-live` proves an unsigned call and another
+key's token refused, the instance's own token answered and the internal frontend closed from the backend's pod.
+**On the owner's machine nothing of the instance answers on its network
 address**: `install.sh` writes `/etc/rancher/k3s/config.yaml.d/koala-node-ports.yaml`, so every NodePort on that k3s answers only on
 127.0.0.1 and the mesh (`nodeport-addresses`; the person's own NodePorts too), Infisical, SearXNG, Crawl4AI and Gitea's SSH are
 ClusterIP, and the instance reaches Gitea and Infisical in the cluster, pushing images there and pulling them through
@@ -311,7 +331,7 @@ the node port 30322 on its mesh address, Temporal itself no longer published), a
 moves over. The agent signs the connection with its device token; the gateway serves only the calls an activity worker makes
 (probed in `~/.claude/plans/machine-gateway.md`: start, polling its own `device-<id>` queue, heartbeats, answers, shutdown),
 seals each task token it hands out to that machine (an HMAC under the data key, checked and stripped on every heartbeat and
-answer, at the protobuf wire level so no field of Temporal's is dropped) and refuses everything else, so a machine never lists,
+answer, at the protobuf wire level so no field of Temporal's is dropped) and refuses everything else, and calls Temporal with the gateway's own signed token, so a machine never lists,
 reads, signals, starts or answers anyone else's work. Each time it connects the agent looks for coding agents (`agent-discovery.ts`: Gemini CLI, Antigravity,
 Claude Code and Codex through their ACP adapters, Goose, and any the person added by hand on My Machines), confirms each
 by an ACP `initialize`, and reports them (`agents:found`); only confirmed ones run. A CLI whose adapter is missing shows
@@ -970,13 +990,14 @@ service, Koala: model calls, Koala: Temporal).
 
 ## Platform keys
 
-Four keys, one per purpose, loaded once by `platform/lib/keys.ts`'s `loadKeys(process.env)`:
+Five keys, one per purpose, loaded once by `platform/lib/keys.ts`'s `loadKeys(process.env)`:
 - `SESSION_KEY` signs session cookies;
 - `DATA_KEY` encrypts every stored secret (`crypto.ts`);
 - `PAYLOAD_KEY` encrypts Temporal payloads;
-- `EGRESS_KEY` derives the egress proxy's passwords.
+- `EGRESS_KEY` derives the egress proxy's passwords;
+- `TEMPORAL_KEY` derives the P-256 key that signs every process's token to Temporal (below).
 
-Production refuses to start without all four. Dev derives any missing one from `JWT_SECRET`, so
+Production refuses to start without all five. Dev derives any missing one from `JWT_SECRET`, so
 nothing needs setting up. Never pass a raw env var where a key is wanted: take it from `loadKeys`.
 
 Ciphertext carries the id of the key that wrote it (`v2:<keyId>:…`). Each keyring holds the current

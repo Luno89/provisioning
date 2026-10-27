@@ -46,6 +46,7 @@ mongo:
 
 temporal:
   image: temporalio/auto-setup:1.24.2
+  keysImage: busybox:1.37
   postgresImage: postgres:12-alpine
 
 hostDocker: true

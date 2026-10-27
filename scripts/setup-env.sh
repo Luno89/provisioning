@@ -26,8 +26,8 @@ cp "$EXAMPLE_FILE" "$ENV_FILE"
 # directory as root — keep the file owned by the current user.
 chown "$(id -u):$(id -g)" "$ENV_FILE"
 
-echo "▶ Generating the four platform keys..."
-for NAME in SESSION_KEY DATA_KEY PAYLOAD_KEY EGRESS_KEY; do
+echo "▶ Generating the five platform keys..."
+for NAME in SESSION_KEY DATA_KEY PAYLOAD_KEY EGRESS_KEY TEMPORAL_KEY; do
     VALUE=$(node -e "console.log(require('crypto').randomBytes(32).toString('hex'))")
     if [[ "$OSTYPE" == "darwin"* ]]; then
         sed -i '' "s/^${NAME}=generate$/${NAME}=${VALUE}/" "$ENV_FILE"
@@ -37,7 +37,7 @@ for NAME in SESSION_KEY DATA_KEY PAYLOAD_KEY EGRESS_KEY; do
 done
 
 echo "✔ Environment file successfully created at: apps/backend/.env"
-echo "✔ SESSION_KEY, DATA_KEY, PAYLOAD_KEY and EGRESS_KEY generated."
+echo "✔ SESSION_KEY, DATA_KEY, PAYLOAD_KEY, EGRESS_KEY and TEMPORAL_KEY generated."
 echo ""
 echo "Note: The platform is fully operational in mock/warning modes for
 Twilio 2FA, Google/GitHub Social Logins, and all cloud providers.
