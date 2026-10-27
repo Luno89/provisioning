@@ -101,7 +101,9 @@ async function main(): Promise<void> {
 
   step('the owner\'s instance is installed on a machine of theirs, and joins the mesh');
   const instanceVm = await boot(`mesh-inst-${STAMP}`, { memoryMB: 12288, cpus: 4, diskGB: 60, loopback: [{ host: INSTANCE_PORT, guest: 30320 }] });
-  const joinToken = await (await asOwner('/api/instances/join-tokens', { method: 'POST', body: '{}' })).json() as { token: string };
+  const joining = await asOwner('/api/instances/join-tokens', { method: 'POST', body: JSON.stringify({ name: `mesh${STAMP}` }) });
+  assert.equal(joining.status, 200, `root did not give a join command: ${await joining.clone().text()}`);
+  const joinToken = await joining.json() as { token: string };
   instanceId = (await (await asOwner('/api/instances/mine')).json() as { instance: { id: string } }).instance.id;
   await inVm(instanceVm, `curl -fsSL ${ROOT_FOR_GUEST}/install.sh | sudo sh -s -- ${joinToken.token} --yes --url ${INSTANCE_URL}`, true);
   instanceMeshIp = await meshIp(instanceVm);

@@ -84,7 +84,9 @@ async function main(): Promise<void> {
   vm = await createDisposableVm('byo-live', { memoryMB: 12288, cpus: 4, diskGB: 60, loopback: [{ host: INSTANCE_PORT, guest: 30320 }] });
 
   step('the owner asks root for a join command, and runs it on the machine');
-  const joinCommand = await (await asOwner('/api/instances/join-tokens', { method: 'POST', body: '{}' })).json() as { token: string; command: string };
+  const joining = await asOwner('/api/instances/join-tokens', { method: 'POST', body: JSON.stringify({ name: `byo${Date.now().toString(36)}` }) });
+  assert.equal(joining.status, 200, `root did not give a join command: ${await joining.clone().text()}`);
+  const joinCommand = await joining.json() as { token: string; command: string };
   assert.match(joinCommand.command, /\| sudo sh -s -- /);
   instanceId = (await (await asOwner('/api/instances/mine')).json() as { instance: { id: string } }).instance.id;
   await inVm(vm, `curl -fsSL ${ROOT_FOR_GUEST}/install.sh | sudo sh -s -- ${joinCommand.token} --yes --url ${INSTANCE_URL}`, true);

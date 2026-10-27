@@ -125,31 +125,41 @@ async function main(): Promise<void> {
     ['live.nowrinkles.svc', 80], ['searxng.searxng.svc', 8080], ['crawl4ai.crawl4ai.svc', 11235],
     ['live-temporal.nowrinkles.svc', 7233], ['live-temporal-db.nowrinkles.svc', 5432], ['live-mongo.nowrinkles.svc', 27017],
   ] as const;
-  const knock = `const net = require('net');
+  const knock = (only: readonly (typeof targets)[number][]) => `const net = require('net');
 const at = ([host, port]) => new Promise((done) => {
   const socket = net.connect(port, host);
   const quiet = setTimeout(() => { socket.destroy(); done('no answer'); }, 5000);
   socket.on('connect', () => { clearTimeout(quiet); socket.destroy(); done('reached'); });
   socket.on('error', (err) => { clearTimeout(quiet); done(err.code); });
 });
-Promise.all(${JSON.stringify(targets)}.map(at)).then((found) => console.log('KNOCKED ' + JSON.stringify(found)));`;
-  const knockFrom = (namespace: string): Record<string, string> => {
-    const out = run(bin('kubectl'), ['run', 'beside', '--namespace', namespace, '--rm', '-i', '--restart=Never', `--image=${IMAGE}`, '--image-pull-policy=Never', '--command', '--', 'node', '-e', knock], { KUBECONFIG });
+Promise.all(${JSON.stringify(only)}.map(at)).then((found) => console.log('KNOCKED ' + JSON.stringify(found)));`;
+  const kubectl = (args: string[]) => run(bin('kubectl'), args, { KUBECONFIG });
+  for (const namespace of ['default', 'nowrinkles']) {
+    kubectl(['run', 'knocker', '--namespace', namespace, '--restart=Never', `--image=${IMAGE}`, '--image-pull-policy=Never', '--command', '--', 'sleep', 'infinity']);
+  }
+  for (const namespace of ['default', 'nowrinkles']) kubectl(['-n', namespace, 'wait', '--for=condition=Ready', 'pod/knocker', '--timeout=720h']);
+  const knockFrom = (namespace: string, only: readonly (typeof targets)[number][] = targets): Record<string, string> => {
+    const out = kubectl(['-n', namespace, 'exec', 'knocker', '--', 'node', '-e', knock(only)]);
     const found = JSON.parse(out.split('KNOCKED ')[1]!.split('\n')[0]!) as string[];
-    const answers = Object.fromEntries(targets.map(([host, port], index) => [`${host.split('.')[0]}:${port}`, found[index]!]));
+    return Object.fromEntries(only.map(([host, port], index) => [`${host.split('.')[0]}:${port}`, found[index]!]));
+  };
+  await until('the network policies knowing the pods started for this check', 10, async () =>
+    (knockFrom('nowrinkles', [targets[1]])['searxng:8080'] === 'reached' ? true : undefined));
+  const shown = (namespace: string, answers: Record<string, string>) => {
     console.log(`  from ${namespace}: ${Object.entries(answers).map(([target, answer]) => `${target} ${answer}`).join(' · ')}`);
     return answers;
   };
   const stores = ['live-temporal:7233', 'live-temporal-db:5432', 'live-mongo:27017'];
-  const elsewhere = knockFrom('default');
+  const elsewhere = shown('default', knockFrom('default'));
   assert.equal(elsewhere['live:80'], 'reached', 'a pod in another namespace could not reach the instance\'s backend, so the cluster\'s network proves nothing here');
   for (const closed of [...stores, 'searxng:8080', 'crawl4ai:11235']) assert.notEqual(elsewhere[closed], 'reached', `a pod in another namespace reached ${closed}`);
-  const inside = knockFrom('nowrinkles');
+  const inside = shown('nowrinkles', knockFrom('nowrinkles'));
   for (const open of ['live:80', 'searxng:8080', 'crawl4ai:11235']) assert.equal(inside[open], 'reached', `a pod in the instance\'s namespace could not reach ${open}`);
   for (const closed of stores) assert.notEqual(inside[closed], 'reached', `a pod in the instance\'s namespace that is not the instance\'s own reached ${closed}`);
   for (const service of ['searxng', 'crawl4ai']) {
-    assert.equal(run(bin('kubectl'), ['-n', service, 'get', 'service', service, '-o', 'jsonpath={.spec.type}'], { KUBECONFIG }), 'ClusterIP', `${service} is published on the machine's interfaces`);
+    assert.equal(kubectl(['-n', service, 'get', 'service', service, '-o', 'jsonpath={.spec.type}']), 'ClusterIP', `${service} is published on the machine's interfaces`);
   }
+  for (const namespace of ['default', 'nowrinkles']) kubectl(['-n', namespace, 'delete', 'pod', 'knocker', '--wait=false']);
 
   step('deleting an account is root\'s: the instance removes none and points there, and a person on root removes their own, their instance let go of with it');
   const place = await (await http('/api/auth/account-removal')).json() as { url: string | null };
