@@ -13,6 +13,9 @@ export { BlobStorageDriver, COMPRESS_ABOVE_BYTES, CompressionCodec, OFFLOAD_ABOV
 export const ORPHAN_AFTER_MS = 7 * 24 * 60 * 60 * 1000;
 
 export interface PayloadBlobs extends BlobReach {
+  handTo(workflowId: string, deviceId: string): Promise<void>;
+  putFrom(deviceId: string, blobs: readonly StoredBlob[]): Promise<void>;
+  getHanded(deviceId: string, ids: readonly string[]): Promise<Map<string, Uint8Array>>;
   workflowsStoredBefore(cutoff: Date): Promise<string[]>;
   release(workflowId: string): Promise<number>;
   releaseOrphansBefore(cutoff: Date): Promise<number>;
@@ -20,10 +23,12 @@ export interface PayloadBlobs extends BlobReach {
 
 export function inMemoryPayloadBlobs(): PayloadBlobs & { readonly stored: Map<string, StoredBlob> } {
   const stored = new Map<string, StoredBlob>();
+  const handed = new Map<string, Set<string>>();
+  const handOne = (id: string, deviceId: string) => handed.set(id, new Set([...(handed.get(id) ?? []), deviceId]));
   const releaseWhere = (match: (blob: StoredBlob) => boolean): number => {
     let released = 0;
     for (const [id, blob] of stored) {
-      if (match(blob)) { stored.delete(id); released += 1; }
+      if (match(blob)) { stored.delete(id); handed.delete(id); released += 1; }
     }
     return released;
   };
@@ -35,6 +40,23 @@ export function inMemoryPayloadBlobs(): PayloadBlobs & { readonly stored: Map<st
       for (const id of ids) {
         const blob = stored.get(id);
         if (blob) found.set(id, blob.data);
+      }
+      return found;
+    },
+    async handTo(workflowId, deviceId) {
+      for (const [id, blob] of stored) if (blob.workflowId === workflowId) handOne(id, deviceId);
+    },
+    async putFrom(deviceId, blobs) {
+      for (const blob of blobs) {
+        stored.set(blob.id, { ...blob, data: Buffer.from(blob.data) });
+        handOne(blob.id, deviceId);
+      }
+    },
+    async getHanded(deviceId, ids) {
+      const found = new Map<string, Uint8Array>();
+      for (const id of ids) {
+        const blob = stored.get(id);
+        if (blob && handed.get(id)?.has(deviceId)) found.set(id, blob.data);
       }
       return found;
     },

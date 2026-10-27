@@ -307,7 +307,9 @@ so on every connect the agent asks for the payload keyring over its socket (`mac
 served; `machines/lib/machine-payloads.ts`), holds it in memory only, and starts its device worker with the same converter as
 every platform worker (`buildDataConverter` in `@koala/engine-core/payloads`, one codec shared by the backend and the
 machine). Payloads over 128 KB go through the backend over that socket (`payloads:put`/`payloads:get`, `remote-blobs.ts`),
-since a machine never reaches Mongo. A new keyring restarts the worker (`DeviceWorkerHost`). Without this nothing sent to
+since a machine never reaches Mongo, and a machine is given only those of a workflow the gateway handed it a task of, and
+those it stored itself (`handedTo` on each chunk, stamped by `handTo` as the gateway hands the task; `getHanded`, `putFrom`,
+which never adds to a payload already stored). A new keyring restarts the worker (`DeviceWorkerHost`). Without this nothing sent to
 `device-<id>` could be read; `machine-live` and `mesh-live` now run a two-turn chat on the machine to prove it.
 
 **Picking an agent on a machine.** Every model picker except Checks has a "My machines" section:

@@ -1816,7 +1816,8 @@ describe('an external agent working on someone\'s machine', () => {
       off: () => undefined,
       emit(event, payload, ack) {
         asked.push(event);
-        const answer = event === 'machine:payloads' ? Promise.resolve(instance.ring()) : event === 'payloads:put' ? instance.put(payload) : instance.get(payload);
+        const handedEverything = async () => { for (const blob of blobs.stored.values()) if (blob.workflowId) await blobs.handTo(blob.workflowId, 'desk'); };
+        const answer = event === 'machine:payloads' ? Promise.resolve(instance.ring()) : event === 'payloads:put' ? instance.put('desk', payload) : handedEverything().then(() => instance.get('desk', payload));
         void answer.then((value) => (ack as (answer: unknown) => void)(value));
         return true;
       },

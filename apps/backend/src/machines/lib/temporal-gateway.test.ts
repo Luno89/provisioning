@@ -1,7 +1,7 @@
 import zlib from 'node:zlib';
 import { describe, expect, it } from 'vitest';
 import { temporal } from '@temporalio/proto';
-import { frame, gatewayCallOf, gatewayDecision, sealedPollAnswer, unframe, unsealToken, withBytesField, wireFields } from './temporal-gateway.js';
+import { frame, gatewayCallOf, gatewayDecision, handedWorkflowOf, sealedPollAnswer, unframe, unsealToken, withBytesField, wireFields } from './temporal-gateway.js';
 
 const ws = temporal.api.workflowservice.v1;
 const bytes = (encoded: { finish(): Uint8Array }): Buffer => Buffer.from(encoded.finish());
@@ -46,6 +46,13 @@ describe('what a machine may ask Temporal', () => {
     expect(gatewayDecision('RecordActivityTaskHeartbeat', complete(handedToken), { ...machine, deviceId: 'd2' })).toEqual({ refused: 'a machine answers only for the tasks it was handed' });
     expect(gatewayDecision('RespondActivityTaskFailed', complete(handedToken), { ...machine, keys: ['another-key'] })).toMatchObject({ refused: expect.any(String) });
     expect(gatewayDecision('RespondActivityTaskCanceled', complete(handedToken), { ...machine, keys: ['another-key', 'the-key'] })).toMatchObject({ forward: expect.any(Buffer) });
+  });
+
+  it('reads which workflow a task it hands out belongs to, and none from an empty poll', () => {
+    const answer = bytes(ws.PollActivityTaskQueueResponse.encode({ taskToken: Buffer.from('t'), workflowExecution: { workflowId: 'run-7', runId: 'r' }, activityId: '1' }));
+    expect(handedWorkflowOf(answer)).toBe('run-7');
+    expect(handedWorkflowOf(Buffer.alloc(0))).toBeUndefined();
+    expect(handedWorkflowOf(bytes(ws.PollActivityTaskQueueResponse.encode({ workflowExecution: { workflowId: 'run-7' } })))).toBeUndefined();
   });
 
   it('leaves an empty poll, and every field it does not touch, exactly as Temporal sent it', () => {

@@ -1,7 +1,7 @@
 import fs from 'fs/promises';
 import path from 'path';
 import type express from 'express';
-import { type Database, type SecretKey, asyncRoute, ringOf } from '../../platform/index.js';
+import { type Database, type SecretKey, asyncRoute, ringOf, sharedPayloadBlobs } from '../../platform/index.js';
 import { findDeviceByToken } from '../lib/local-agent-registry.js';
 import { MachineBundle } from '../services/MachineBundle.js';
 import { MachineGitService } from '../services/MachineGitService.js';
@@ -43,6 +43,7 @@ export function wireMachines(deps: MachinesWiringDeps): void {
       namespace,
       keys: () => [ring.current, ...(ring.previous ?? [])],
       deviceOf: async (token) => findDeviceByToken(await db.machines.getLocalAgentDevices(), token, deps.dataKey),
+      handed: (workflowId, deviceId) => sharedPayloadBlobs().handTo(workflowId, deviceId),
       log: (line) => console.log(line),
     });
     gateway.listen(port, host).then(

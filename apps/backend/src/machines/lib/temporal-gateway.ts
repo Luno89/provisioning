@@ -34,6 +34,8 @@ const NAMESPACE_FIELD: Record<GatewayCall, number | undefined> = {
 const TASK_TOKEN_FIELD = 1;
 const TASK_QUEUE_FIELD = 2;
 const TASK_QUEUE_NAME_FIELD = 1;
+const WORKFLOW_EXECUTION_FIELD = 4;
+const WORKFLOW_ID_FIELD = 1;
 
 export const deviceQueueOf = (deviceId: string): string => `device-${deviceId}`;
 
@@ -146,6 +148,14 @@ export function unsealToken(sealed: Buffer, deviceId: string, keys: readonly str
   const token = sealed.subarray(0, sealed.length - MAC_LENGTH - SEAL.length);
   const mac = sealed.subarray(sealed.length - MAC_LENGTH - SEAL.length, sealed.length - SEAL.length);
   return keys.some((key) => crypto.timingSafeEqual(mac, macOf(key, deviceId, token))) ? token : undefined;
+}
+
+export function handedWorkflowOf(answer: Buffer): string | undefined {
+  const token = bytesField(answer, TASK_TOKEN_FIELD);
+  if (!token || token.length === 0) return undefined;
+  const execution = bytesField(answer, WORKFLOW_EXECUTION_FIELD);
+  const workflowId = execution ? bytesField(execution, WORKFLOW_ID_FIELD)?.toString('utf8') : undefined;
+  return workflowId || undefined;
 }
 
 export const sealedPollAnswer = (message: Buffer, deviceId: string, key: string): Buffer => {

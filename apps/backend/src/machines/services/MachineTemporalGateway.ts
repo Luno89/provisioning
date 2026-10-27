@@ -1,12 +1,13 @@
 import crypto from 'node:crypto';
 import http2 from 'node:http2';
-import { frame, gatewayCallOf, gatewayDecision, sealedPollAnswer, unframe } from '../lib/temporal-gateway.js';
+import { frame, gatewayCallOf, gatewayDecision, handedWorkflowOf, sealedPollAnswer, unframe } from '../lib/temporal-gateway.js';
 
 export interface MachineTemporalGatewayDeps {
   upstream: string;
   namespace: string;
   keys: () => readonly string[];
   deviceOf: (token: string) => Promise<{ id: string } | undefined>;
+  handed: (workflowId: string, deviceId: string) => Promise<void>;
   log?: ((line: string) => void) | undefined;
 }
 
@@ -112,9 +113,10 @@ export class MachineTemporalGateway {
       });
       if (stream.closed) return;
       const status = header(trailers['grpc-status']) ?? header(response['grpc-status']);
-      const sealed = call === 'PollActivityTaskQueue' && status === String(GRPC.ok) && body.length > 0
-        ? frame(sealedPollAnswer(unframe(body, header(response['grpc-encoding'])), deviceId, keys[0]!))
-        : body;
+      const task = call === 'PollActivityTaskQueue' && status === String(GRPC.ok) && body.length > 0 ? unframe(body, header(response['grpc-encoding'])) : undefined;
+      const workflowId = task ? handedWorkflowOf(task) : undefined;
+      if (workflowId) await this.deps.handed(workflowId, deviceId);
+      const sealed = task ? frame(sealedPollAnswer(task, deviceId, keys[0]!)) : body;
       const own = (from: http2.IncomingHttpHeaders) => Object.fromEntries(Object.entries(from).filter(([name]) => !name.startsWith(':')));
       const statusOf = (from: http2.IncomingHttpHeaders) => Object.fromEntries(Object.entries(own(from)).filter(([name]) => STATUS_FIELDS.has(name)));
       const rest = Object.fromEntries(Object.entries(own(response)).filter(([name]) => !STATUS_FIELDS.has(name)));

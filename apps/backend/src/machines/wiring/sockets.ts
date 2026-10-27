@@ -75,8 +75,8 @@ export function wireSockets(deps: SocketsWiringDeps): void {
       deps.machines.manualAgents(device.id).then(ack, () => ack([]));
     });
     socket.on('machine:payloads', (_request: unknown, ack: (answer: RingAnswer) => void) => ack(forMachines.ring()));
-    socket.on('payloads:put', (request: unknown, ack: (answer: PutAnswer) => void) => { void forMachines.put(request).then(ack); });
-    socket.on('payloads:get', (request: unknown, ack: (answer: GetAnswer) => void) => { void forMachines.get(request).then(ack); });
+    socket.on('payloads:put', (request: unknown, ack: (answer: PutAnswer) => void) => { void forMachines.put(device.id, request).then(ack); });
+    socket.on('payloads:get', (request: unknown, ack: (answer: GetAnswer) => void) => { void forMachines.get(device.id, request).then(ack); });
     socket.on('telemetry:export', (request: unknown, ack: (answer: TelemetryAnswer) => void) => { void deps.telemetry.relay(request).then(ack); });
   });
 

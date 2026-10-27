@@ -1,4 +1,4 @@
-import { Binary, MongoClient, type Collection } from 'mongodb';
+import { Binary, MongoClient, type Collection, type Filter } from 'mongodb';
 import { mongoTarget } from './mongo-db.js';
 import type { PayloadBlobs, StoredBlob } from './payload-storage.js';
 
@@ -9,6 +9,7 @@ interface ChunkDoc {
   blobId: string;
   index: number;
   workflowId?: string;
+  handedTo?: string[];
   storedAt: Date;
   data: Binary;
 }
@@ -29,7 +30,7 @@ export function mongoPayloadBlobs(env: Readonly<Record<string, string | undefine
     return ready;
   };
 
-  const toChunks = (blob: StoredBlob): ChunkDoc[] => {
+  const toChunks = (blob: StoredBlob, handedTo?: string): ChunkDoc[] => {
     const docs: ChunkDoc[] = [];
     for (let offset = 0, index = 0; offset < blob.data.length || index === 0; offset += CHUNK_BYTES, index += 1) {
       docs.push({
@@ -37,6 +38,7 @@ export function mongoPayloadBlobs(env: Readonly<Record<string, string | undefine
         blobId: blob.id,
         index,
         ...(blob.workflowId ? { workflowId: blob.workflowId } : {}),
+        ...(handedTo ? { handedTo: [handedTo] } : {}),
         storedAt: blob.storedAt,
         data: new Binary(blob.data.subarray(offset, offset + CHUNK_BYTES)),
       });
@@ -44,20 +46,30 @@ export function mongoPayloadBlobs(env: Readonly<Record<string, string | undefine
     return docs;
   };
 
+  const read = async (filter: Filter<ChunkDoc>, ids: readonly string[]): Promise<Map<string, Uint8Array>> => {
+    const found = new Map<string, Uint8Array>();
+    if (ids.length === 0) return found;
+    const docs = await (await chunks()).find(filter).sort({ blobId: 1, index: 1 }).toArray();
+    const parts = new Map<string, Buffer[]>();
+    for (const doc of docs) parts.set(doc.blobId, [...(parts.get(doc.blobId) ?? []), Buffer.from(doc.data.buffer)]);
+    for (const [id, buffers] of parts) found.set(id, Buffer.concat(buffers));
+    return found;
+  };
+
   return {
     async put(blobs) {
-      const docs = blobs.flatMap(toChunks);
+      const docs = blobs.flatMap((blob) => toChunks(blob));
       if (docs.length > 0) await (await chunks()).insertMany(docs, { ordered: false });
     },
-    async get(ids) {
-      const found = new Map<string, Uint8Array>();
-      if (ids.length === 0) return found;
-      const docs = await (await chunks()).find({ blobId: { $in: [...ids] } }).sort({ blobId: 1, index: 1 }).toArray();
-      const parts = new Map<string, Buffer[]>();
-      for (const doc of docs) parts.set(doc.blobId, [...(parts.get(doc.blobId) ?? []), Buffer.from(doc.data.buffer)]);
-      for (const [id, buffers] of parts) found.set(id, Buffer.concat(buffers));
-      return found;
+    async get(ids) { return read({ blobId: { $in: [...ids] } }, ids); },
+    async handTo(workflowId, deviceId) {
+      await (await chunks()).updateMany({ workflowId }, { $addToSet: { handedTo: deviceId } });
     },
+    async putFrom(deviceId, blobs) {
+      const docs = blobs.flatMap((blob) => toChunks(blob, deviceId));
+      if (docs.length > 0) await (await chunks()).insertMany(docs, { ordered: true });
+    },
+    async getHanded(deviceId, ids) { return read({ blobId: { $in: [...ids] }, handedTo: deviceId }, ids); },
     async workflowsStoredBefore(cutoff) {
       const ids = await (await chunks()).distinct('workflowId', { workflowId: { $exists: true }, storedAt: { $lt: cutoff } });
       return ids.filter((id): id is string => typeof id === 'string');
