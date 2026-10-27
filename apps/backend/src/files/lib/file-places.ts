@@ -47,9 +47,22 @@ export function fileServersOf(deployments: readonly ServerCandidate[], ownerId: 
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
+export const PERSONAL_FOLDER = 'personal';
+
 export function folderFor(name: string): string {
   const slug = name.toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60);
+  if (slug === PERSONAL_FOLDER) return `${PERSONAL_FOLDER}-project`;
   return slug || 'files';
+}
+
+export function sharedFolder(
+  place: Pick<FilePlace, 'deploymentId' | 'folder'>,
+  others: readonly { name: string; files?: Pick<FilePlace, 'deploymentId' | 'folder'> | undefined }[],
+  personalServer: string | undefined,
+): string | undefined {
+  if (place.folder === PERSONAL_FOLDER && place.deploymentId === personalServer) return 'the person\'s own files';
+  const other = others.find((project) => project.files?.deploymentId === place.deploymentId && project.files.folder === place.folder);
+  return other ? `the project ${other.name}` : undefined;
 }
 
 export type CleanPath = { ok: true; path: string } | { ok: false; why: string };

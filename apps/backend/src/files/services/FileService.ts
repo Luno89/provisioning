@@ -1,11 +1,10 @@
 import { randomBytes } from 'node:crypto';
 import type { Readable } from 'node:stream';
 import type { DeploymentMetadata, ProjectMetadata } from '../../platform/index.js';
-import { fileServersOf, folderFor, type FileEntry, type FilePlace, type FileServer, type FileSettings } from '../lib/file-places.js';
+import { fileServersOf, folderFor, PERSONAL_FOLDER, sharedFolder, type FileEntry, type FilePlace, type FileServer, type FileSettings } from '../lib/file-places.js';
 import type { Download, FileStore } from './FileStores.js';
 import { shareExpires, shareLive, SHARE_TOKEN, type FileShare, type ShareDays } from '../lib/file-shares.js';
 
-export const PERSONAL_FOLDER = 'personal';
 export const FILES_APP_NAME = 'koala-files';
 
 export interface FileServiceDeps {
@@ -207,10 +206,12 @@ export class FileService {
     return found.ok ? { ok: true, value: { ...found.value, name: share.name } } : gone;
   }
 
-  async removeProjectFiles(ownerId: string, project: ProjectMetadata): Promise<'removed' | 'none' | 'unreachable'> {
+  async removeProjectFiles(ownerId: string, project: ProjectMetadata): Promise<'removed' | 'none' | 'unreachable' | 'shared'> {
     if (!project.files) return 'none';
     const state = await this.placeOf(ownerId, { kind: 'project', project });
     if (state.state !== 'ready') return 'unreachable';
+    const others = (await this.deps.store.projects.getProjects()).filter((other) => other.id !== project.id && other.ownerId === ownerId);
+    if (sharedFolder(state.place, others, (await this.servers(ownerId)).defaultId)) return 'shared';
     await (await this.deps.open(ownerId, state.place)).removeAll();
     return 'removed';
   }

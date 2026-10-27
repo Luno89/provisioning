@@ -27,7 +27,7 @@ export interface ProjectRemoved {
   workspaces: number;
   secrets: { workspace: boolean; readers: number };
   repositories: string[];
-  files: 'removed' | 'unreachable' | 'none';
+  files: 'removed' | 'unreachable' | 'none' | 'shared';
   records: Record<string, number>;
 }
 

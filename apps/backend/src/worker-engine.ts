@@ -496,6 +496,7 @@ async function buildActivities() {
       secrets: infisical,
       artifacts: artifactStore.artifacts,
       files: {
+        personalServer: async (ownerId) => (await db.files.getFileSettings(ownerId))?.deploymentId,
         removeAll: async (ownerId, place) => {
           try {
             await (await fileStores.open(ownerId, place)).removeAll();

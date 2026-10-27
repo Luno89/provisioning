@@ -64,12 +64,25 @@ describe('the steps that delete a project', () => {
 
   it('deletes its files on its file server, and does nothing for a project that never kept any', async () => {
     const removed: string[] = [];
-    const files = { removeAll: async (ownerId: string, place: { folder: string }) => { removed.push(`${ownerId}:${place.folder}`); return 'removed' as const; } };
+    const files = { removeAll: async (ownerId: string, place: { folder: string }) => { removed.push(`${ownerId}:${place.folder}`); return 'removed' as const; }, personalServer: async () => 'm1' };
     await db.projects.saveProjectInfo({ id: 'p1', files: { kind: 'minio', deploymentId: 'm1', folder: 'shop' } } as never);
     const steps = createProjectRemovalActivities({ ...deps(), files });
     expect(await steps.RemoveProjectFilesActivity({ projectId: 'p1' })).toBe('removed');
     expect(await steps.RemoveProjectFilesActivity({ projectId: 'p2' })).toBe('none');
     expect(removed).toEqual(['bo:shop']);
+  });
+
+  it('keeps a folder another of the person\'s projects or their own files also use, rather than delete what is not the project\'s', async () => {
+    const removed: string[] = [];
+    const files = { removeAll: async (ownerId: string, place: { folder: string }) => { removed.push(`${ownerId}:${place.folder}`); return 'removed' as const; }, personalServer: async () => 'm1' };
+    const steps = createProjectRemovalActivities({ ...deps(), files });
+    await db.projects.saveProjectInfo({ id: 'p1', files: { kind: 'minio', deploymentId: 'm1', folder: 'shop' } } as never);
+    await db.projects.saveProjectInfo({ id: 'p2', files: { kind: 'minio', deploymentId: 'm1', folder: 'shop' } } as never);
+    expect(await steps.RemoveProjectFilesActivity({ projectId: 'p1' })).toBe('shared');
+    await db.projects.saveProjectInfo({ id: 'p1', files: { kind: 'minio', deploymentId: 'm1', folder: 'personal' } } as never);
+    await db.projects.saveProjectInfo({ id: 'p2', files: { kind: 'minio', deploymentId: 'm1', folder: 'books' } } as never);
+    expect(await steps.RemoveProjectFilesActivity({ projectId: 'p1' })).toBe('shared');
+    expect(removed).toEqual([]);
   });
 
     it('deletes its records, unlinks what only mentions it, and leaves the other project whole', async () => {

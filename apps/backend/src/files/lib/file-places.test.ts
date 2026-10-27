@@ -44,4 +44,10 @@ describe('paths in a project\'s files', () => {
     expect(matchesSearch('docs/a.pdf', '  ')).toBe(false);
     expect([isFolderMark('.keep'), isFolderMark('a/.keep'), isFolderMark('a/keep')]).toEqual([true, true, false]);
   });
+
+  it('never names a project\'s folder as the person\'s own files', () => {
+    expect(folderFor('Personal')).toBe('personal-project');
+    expect(folderFor(' personal ')).toBe('personal-project');
+    expect(folderFor('Personal Site')).toBe('personal-site');
+  });
 });
