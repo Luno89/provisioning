@@ -55,7 +55,7 @@ export async function PoolHostActivity(): Promise<void> {
   if (!classes.split('\n').includes(`runtimeclass.node.k8s.io/${RUNTIME_CLASS}`)) {
     throw ApplicationFailure.nonRetryable('the pool\'s node has no gVisor runtime yet: run scripts/root-node/gvisor.sh on it first', 'NoGvisor');
   }
-  await infra.applyManifest(yaml([...admissionManifests(), {
+  await infra.applyManifest(yaml([...admissionManifests(pool.image.repository), {
     apiVersion: 'v1', kind: 'Namespace', metadata: { name: ADMISSION_CHECK_NAMESPACE, labels: { [POOL_LABEL]: 'true', 'pod-security.kubernetes.io/enforce': 'baseline' } },
   }]), pool.kubeconfig);
   for (;;) {
@@ -118,7 +118,7 @@ export async function PoolVclusterActivity(args: { instanceId: string }): Promis
     const name = instance.name!;
     const namespace = poolNamespace(name);
     await save({ status: 'installing', detail: 'Making your space on Koala\'s servers' });
-    await infra.applyManifest(yaml([namespaceManifest(name, instance.ownerId), backendAccessManifest(name)]), pool.kubeconfig);
+    await infra.applyManifest(yaml([namespaceManifest(name, instance.ownerId, instance.pool!.ports.registry), backendAccessManifest(name)]), pool.kubeconfig);
     await infra.applyManifest(yaml([probeIngressPolicy(name, { hostNamespace: namespace })]), pool.kubeconfig);
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'pool-'));
     try {

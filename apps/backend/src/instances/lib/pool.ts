@@ -1,4 +1,5 @@
 export const POOL_LABEL = 'koala.dev/pool';
+export const REGISTRY_PORT_LABEL = 'koala.dev/registry-port';
 export const OWNER_LABEL = 'koala.dev/owner';
 export const RUNTIME_CLASS = 'gvisor';
 export const VCLUSTER_CHART_VERSION = '0.37.2';
@@ -38,7 +39,7 @@ export function freePorts(used: readonly PoolPorts[]): PoolPorts | undefined {
   return undefined;
 }
 
-export function namespaceManifest(name: string, ownerId: string): Record<string, unknown> {
+export function namespaceManifest(name: string, ownerId: string, registryPort: number): Record<string, unknown> {
   return {
     apiVersion: 'v1',
     kind: 'Namespace',
@@ -47,6 +48,7 @@ export function namespaceManifest(name: string, ownerId: string): Record<string,
       labels: {
         [POOL_LABEL]: 'true',
         [OWNER_LABEL]: ownerId,
+        [REGISTRY_PORT_LABEL]: String(registryPort),
         'pod-security.kubernetes.io/enforce': 'baseline',
         'pod-security.kubernetes.io/enforce-version': 'latest',
       },
@@ -66,7 +68,7 @@ export function backendAccessManifest(name: string): Record<string, unknown> {
   };
 }
 
-export function admissionManifests(): Record<string, unknown>[] {
+export function admissionManifests(platformImage: string): Record<string, unknown>[] {
   return [
     {
       apiVersion: 'admissionregistration.k8s.io/v1',
@@ -76,11 +78,22 @@ export function admissionManifests(): Record<string, unknown>[] {
         failurePolicy: 'Fail',
         matchConstraints: {
           namespaceSelector: { matchLabels: { [POOL_LABEL]: 'true' } },
-          resourceRules: [{ apiGroups: [''], apiVersions: ['v1'], operations: ['CREATE', 'UPDATE'], resources: ['pods'] }],
+          resourceRules: [{ apiGroups: [''], apiVersions: ['v1'], operations: ['CREATE', 'UPDATE'], resources: ['pods', 'pods/ephemeralcontainers'] }],
         },
+        variables: [{
+          name: 'images',
+          expression: 'object.spec.containers.map(c, c.image)'
+            + ' + (has(object.spec.initContainers) ? object.spec.initContainers.map(c, c.image) : [])'
+            + ' + (has(object.spec.ephemeralContainers) ? object.spec.ephemeralContainers.map(c, c.image) : [])',
+        }],
         validations: [{
           expression: `has(object.spec.runtimeClassName) && object.spec.runtimeClassName == '${RUNTIME_CLASS}'`,
           message: 'a pod in a pool instance runs under gVisor',
+        }, {
+          expression: `variables.images.all(image, !(${LOOPBACK_PREFIXES.map((prefix) => `image.startsWith('${prefix}')`).join(' || ')})`
+            + ` || image.startsWith('${platformImage}:') || image.startsWith('${platformImage}@')`
+            + ` || ('${REGISTRY_PORT_LABEL}' in namespaceObject.metadata.labels && image.startsWith('127.0.0.1:' + namespaceObject.metadata.labels['${REGISTRY_PORT_LABEL}'] + '/')))`,
+          message: 'a pod in a pool instance pulls from this node\'s loopback only through its own instance\'s registry',
         }],
       },
     },
@@ -94,6 +107,26 @@ export function admissionManifests(): Record<string, unknown>[] {
 }
 
 export const vclusterAddress = (name: string): string => `${name}.${poolNamespace(name)}.svc`;
+
+const LOOPBACK_PREFIXES = ['127.', 'localhost', '[::1]', '0.0.0.0', '[::]'] as const;
+const INTERNAL_RANGES = ['10.0.0.0/8', '100.64.0.0/10', '127.0.0.0/8', '169.254.0.0/16', '172.16.0.0/12', '192.168.0.0/16'] as const;
+const MAIL_PORTS = [25, 465, 587] as const;
+
+export function publicEgressRule(): Record<string, unknown> {
+  const tcp: { port: number; endPort: number; protocol: 'TCP' }[] = [];
+  let from = 1;
+  for (const blocked of MAIL_PORTS) {
+    if (blocked > from) tcp.push({ port: from, endPort: blocked - 1, protocol: 'TCP' });
+    from = blocked + 1;
+  }
+  tcp.push({ port: from, endPort: 65535, protocol: 'TCP' });
+  return {
+    to: [{ ipBlock: { cidr: '0.0.0.0/0', except: [...INTERNAL_RANGES] } }],
+    ports: [...tcp, { port: 1, endPort: 65535, protocol: 'UDP' }],
+  };
+}
+
+const capped = (wanted: number, slot: number): number => Math.min(wanted, slot);
 
 export function vclusterValues(name: string, slot: PoolSlot): Record<string, unknown> {
   return {
@@ -120,10 +153,11 @@ export function vclusterValues(name: string, slot: PoolSlot): Record<string, unk
       },
       limitRange: {
         enabled: true,
-        default: { memory: '1Gi', cpu: '2', 'ephemeral-storage': '8Gi' },
+        default: { memory: `${capped(1024, slot.memoryMiB)}Mi`, cpu: `${capped(2, slot.cpu)}`, 'ephemeral-storage': `${capped(8, slot.storageGiB)}Gi` },
         defaultRequest: { memory: '64Mi', cpu: '20m', 'ephemeral-storage': '128Mi' },
+        max: { memory: `${slot.memoryMiB}Mi`, cpu: `${slot.cpu}`, 'ephemeral-storage': `${slot.storageGiB}Gi` },
       },
-      networkPolicy: { enabled: true },
+      networkPolicy: { enabled: true, workload: { publicEgress: { enabled: false }, egress: [publicEgressRule()] } },
     },
   };
 }
@@ -268,6 +302,8 @@ export const COMPONENT_RESOURCES: Record<string, unknown> = {
   mongo: { requests: { memory: '256Mi', cpu: '50m' }, limits: { memory: '1Gi' } },
   temporal: { requests: { memory: '192Mi', cpu: '50m' }, limits: { memory: '768Mi' } },
   temporalDb: { requests: { memory: '128Mi', cpu: '20m' }, limits: { memory: '512Mi' } },
+  temporalJwks: { requests: { memory: '128Mi', cpu: '20m' }, limits: { memory: '512Mi' } },
+  temporalKeys: { requests: { memory: '8Mi', cpu: '5m' }, limits: { memory: '32Mi' } },
 };
 
 export interface PoolPolicy {

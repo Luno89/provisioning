@@ -585,9 +585,12 @@ address), `POOL_KUBECONFIG` and `INGRESS_DOMAIN` set (`poolSettingsFrom` in `ins
 worker, `POOL_TASK_QUEUE`):
 - readies the node: RuntimeClass `gvisor` (`scripts/root-node/gvisor.sh`, pinned gVisor), the `koala-pool-gvisor`
   ValidatingAdmissionPolicy refusing any pod in a `koala.dev/pool=true` namespace not on gVisor (proved to refuse before
-  use), and `pool-proxy`, a hostNetwork Caddy in `kube-system` whose ConfigMap root writes;
-- makes a namespace `pool-<name>` (PodSecurity baseline) and a vcluster in it (chart 0.37.2) whose control plane and every
-  synced pod run under gVisor, with root's quota and limit range and no node ports;
+  use) or naming an image on the node's loopback other than its own instance's registry port or the platform's own image (an image
+  another instance pulled stays cached on the node, so naming it would run it without that instance's credentials), and `pool-proxy`, a hostNetwork Caddy in `kube-system` whose ConfigMap root writes;
+- makes a namespace `pool-<name>` (PodSecurity baseline, labelled with its registry's port) and a vcluster in it (chart 0.37.2)
+  whose control plane and every synced pod run under gVisor, with root's quota and a limit range whose maximum is the slot, no node
+  ports, and egress only to the public internet (`publicEgressRule`: never a private, mesh or link-local address, so no cloud
+  metadata, and never ports 25, 465 or 587);
 - gives the instance three ports (`freePorts`): its backend and edge on the node's mesh address, its Gitea registry on the
   node's 127.0.0.1, which containerd pulls over plain HTTP with nothing configured;
 - installs the instance chart in pool mode (`pool.enabled`: no Docker, cluster-only Gitea, Infisical, searxng and crawl4ai,

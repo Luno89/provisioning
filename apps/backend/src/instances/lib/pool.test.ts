@@ -24,8 +24,8 @@ describe('the pool on a node', () => {
     expect(all).toHaveLength(Math.floor((LAST_PORT - FIRST_PORT + 1) / 3));
   });
 
-  it('marks an instance\'s namespace as the pool\'s and its owner\'s, holding it to baseline pod security', () => {
-    expect(namespaceManifest('alice', 'u1')).toEqual({
+  it('marks an instance\'s namespace as the pool\'s and its owner\'s, with its registry\'s port, holding it to baseline pod security', () => {
+    expect(namespaceManifest('alice', 'u1', 35002)).toEqual({
       apiVersion: 'v1',
       kind: 'Namespace',
       metadata: {
@@ -33,6 +33,7 @@ describe('the pool on a node', () => {
         labels: {
           'koala.dev/pool': 'true',
           'koala.dev/owner': 'u1',
+          'koala.dev/registry-port': '35002',
           'pod-security.kubernetes.io/enforce': 'baseline',
           'pod-security.kubernetes.io/enforce-version': 'latest',
         },
@@ -41,11 +42,21 @@ describe('the pool on a node', () => {
   });
 
   it('refuses any pod in a pool namespace that does not run under gVisor, whoever asks', () => {
-    const [policy, binding] = admissionManifests() as [any, any];
+    const [policy, binding] = admissionManifests('127.0.0.1:5000/nowrinkles/app') as [any, any];
     expect(policy.spec.matchConstraints.namespaceSelector).toEqual({ matchLabels: { 'koala.dev/pool': 'true' } });
+    expect(policy.spec.matchConstraints.resourceRules[0].resources).toEqual(['pods', 'pods/ephemeralcontainers']);
     expect(policy.spec.failurePolicy).toBe('Fail');
     expect(policy.spec.validations[0].expression).toBe("has(object.spec.runtimeClassName) && object.spec.runtimeClassName == 'gvisor'");
     expect(binding.spec).toEqual({ policyName: 'koala-pool-gvisor', validationActions: ['Deny'] });
+  });
+
+  it('lets a pool pod pull from the node\'s loopback only through its own instance\'s registry, or the platform\'s own image', () => {
+    const [policy] = admissionManifests('127.0.0.1:5000/nowrinkles/app') as [any];
+    const rule = policy.spec.validations[1].expression as string;
+    expect(rule).toContain("image.startsWith('127.0.0.1:' + namespaceObject.metadata.labels['koala.dev/registry-port'] + '/')");
+    expect(rule).toContain("image.startsWith('127.0.0.1:5000/nowrinkles/app:') || image.startsWith('127.0.0.1:5000/nowrinkles/app@')");
+    for (const prefix of ['127.', 'localhost', '[::1]', '0.0.0.0', '[::]']) expect(rule).toContain(`image.startsWith('${prefix}')`);
+    expect(policy.spec.variables[0].expression).toContain('ephemeralContainers');
   });
 
   it('runs a vcluster\'s control plane and every pod it syncs under gVisor, within its slot, with no node ports, its network policies enforced on the host', () => {
@@ -59,6 +70,29 @@ describe('the pool on a node', () => {
     expect(values.policies.resourceQuota.quota).toMatchObject({ 'limits.memory': null, 'limits.cpu': null, 'limits.ephemeral-storage': null });
     expect(values.policies.networkPolicy.enabled).toBe(true);
     expect(values.sync.toHost.networkPolicies.enabled).toBe(true);
+    expect(values.policies.limitRange.max).toEqual({ memory: '6144Mi', cpu: '2', 'ephemeral-storage': `${SLOT.storageGiB}Gi` });
+  });
+
+  it('lets a pool instance\'s pods out to the public internet only, never to cloud metadata, a private or mesh address, or a mail port', () => {
+    const values = vclusterValues('alice', SLOT) as any;
+    const workload = values.policies.networkPolicy.workload;
+    expect(workload.publicEgress).toEqual({ enabled: false });
+    expect(workload.egress).toEqual([{
+      to: [{ ipBlock: { cidr: '0.0.0.0/0', except: ['10.0.0.0/8', '100.64.0.0/10', '127.0.0.0/8', '169.254.0.0/16', '172.16.0.0/12', '192.168.0.0/16'] } }],
+      ports: [
+        { port: 1, endPort: 24, protocol: 'TCP' },
+        { port: 26, endPort: 464, protocol: 'TCP' },
+        { port: 466, endPort: 586, protocol: 'TCP' },
+        { port: 588, endPort: 65535, protocol: 'TCP' },
+        { port: 1, endPort: 65535, protocol: 'UDP' },
+      ],
+    }]);
+  });
+
+  it('keeps every container\'s default within a small slot', () => {
+    const values = vclusterValues('tiny', { memoryMiB: 512, cpu: 1, storageGiB: 4 }) as any;
+    expect(values.policies.limitRange.default).toEqual({ memory: '512Mi', cpu: '1', 'ephemeral-storage': '4Gi' });
+    expect(values.policies.limitRange.max).toEqual({ memory: '512Mi', cpu: '1', 'ephemeral-storage': '4Gi' });
   });
 });
 
