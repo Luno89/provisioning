@@ -281,10 +281,9 @@ else
 fi
 ufw allow 80/tcp >/dev/null
 ufw allow 443/tcp >/dev/null
-ufw allow from 10.42.0.0/16 to any >/dev/null
-ufw allow from 10.43.0.0/16 to any >/dev/null
+for port in 6443 9100 10250; do ufw allow proto tcp from 10.42.0.0/16 to any port "$port" >/dev/null; done
 ufw --force enable >/dev/null
-ok "ufw: only 22, 80 and 443 are reachable from outside; the management cluster's pods and services reach this host"
+ok "ufw: only 22, 80 and 443 are reachable from outside; the management cluster's pods reach this host only on the Kubernetes API, the kubelet and the node's metrics"
 
 step "Making the backend's account and folders"
 REPO_DIR="$REPO_DIR" bash scripts/root-node/units.sh

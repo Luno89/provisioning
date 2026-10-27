@@ -137,3 +137,9 @@ CONF
   systemctl reload ssh
 fi
 ok "SSH: keys only, no root login, only ${ADMIN} (host key $(ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub | awk '{print $2}'); write it down)"
+
+if command -v ufw >/dev/null 2>&1 && ufw status | grep -q '^Status: active'; then
+  for range in 10.42.0.0/16 10.43.0.0/16; do ufw delete allow from "$range" to any >/dev/null 2>&1 || true; done
+  for port in 6443 9100 10250; do ufw allow proto tcp from 10.42.0.0/16 to any port "$port" >/dev/null; done
+  ok "ufw: the cluster's pods reach this host only on the Kubernetes API, the kubelet and the node's metrics"
+fi

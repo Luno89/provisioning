@@ -455,7 +455,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
 
   if (process.env.NODE_ENV !== 'test' || process.env.IS_E2E === 'true') {
     const hostTunnelPort = process.env.IS_E2E === 'true' ? 8001 : 8000;
-    if (servesTenants(role)) startHostTunnel(hostTunnelPort);
+    if (servesTenants(role) && process.env.NODE_ENV !== 'production') startHostTunnel(hostTunnelPort);
     httpServer.on('error', (err: any) => {
       if (err.code === 'EADDRINUSE') {
         console.error(`❌ Port ${port} is already in use by another process. Run 'npm run clean-dev' or free port ${port}.`);

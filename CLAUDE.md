@@ -1026,6 +1026,11 @@ hot-reload, so bouncing only the backend would leave them on the old release sil
 A restart mid-provision is safe (Temporal holds the workflow state, so activities resume) but costs
 one retry attempt, so the script refuses while work is in flight unless given `--force`.
 
+**The firewall.** ufw lets in 22 (or only over the mesh), 80 and 443, and root's own k3s pods (a pool on root's node included)
+reach the host only on the Kubernetes API, the kubelet and node metrics (6443, 10250, 9100; `bootstrap.sh`, and `harden-host.sh`
+narrows an older root's blanket rule on update), so no pod reaches the backend's :3001 around Caddy, where it could claim any
+address in `X-Forwarded-For`. The host tunnel on :8000 (the dev box's nginx router) never starts in production.
+
 **Snapshots are not rollback.** `update.sh` takes a Hetzner snapshot when a token is available, but
 restoring one rolls the whole disk back — including Mongo, Temporal and Headscale, so every cluster
 a tenant created since would vanish. It is disaster recovery for a broken machine, never "undo that
