@@ -127,6 +127,20 @@ describe('an instance\'s name and addresses', () => {
     expect(routeChanges).toBe(before + 1);
   });
 
+  it('takes a mesh address only when one of the owner\'s own machines on the mesh has it, keeping the one it had while the mesh cannot be asked', async () => {
+    const devices: Record<string, string[]> = { u1: ['100.64.0.9'], u2: ['100.64.0.50'] };
+    const checked = new InstanceService(db, settings, { ...mesh, listUserDevices: async (ownerId: string) => [{ ipAddresses: devices[ownerId] ?? [] }] }, () => now);
+    const made = await checked.createJoinToken('u1', 'luno');
+    if (!made.ok) throw new Error(made.error);
+    const joined = await checked.join(made.value.token, 'm');
+    if (!joined.ok) throw new Error(joined.error);
+    const { instanceId, credential } = joined.value;
+    expect(await checked.report(instanceId, credential, { status: 'joined', meshIp: '100.64.0.50' })).toEqual({ ok: false, status: 400, error: '100.64.0.50 is not one of this instance\'s owner\'s machines on the mesh' });
+    expect(await checked.report(instanceId, credential, { status: 'joined', meshIp: '100.64.0.9' })).toMatchObject({ ok: true, value: { meshIp: '100.64.0.9' } });
+    const down = new InstanceService(db, settings, { ...mesh, listUserDevices: async () => { throw new Error('headscale is down'); } }, () => now);
+    expect(await down.report(instanceId, credential, { status: 'ready', meshIp: '100.64.0.10' })).toMatchObject({ ok: true, value: { status: 'ready', meshIp: '100.64.0.9' } });
+  });
+
   it('turns nested addresses on as issuing, only for the instance itself', async () => {
     const joined = await service.join((await tokenFor('u1')).token, 'm');
     if (!joined.ok) throw new Error(joined.error);

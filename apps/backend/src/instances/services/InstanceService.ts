@@ -92,7 +92,7 @@ export class InstanceService {
   constructor(
     private readonly store: Store,
     private readonly settings: InstanceSettings,
-    private readonly mesh: { createPreAuthKey(ownerId: string, opts?: { reusable?: boolean; expirySeconds?: number }): Promise<{ key: string }> } | undefined,
+    private readonly mesh: { createPreAuthKey(ownerId: string, opts?: { reusable?: boolean; expirySeconds?: number }): Promise<{ key: string }>; listUserDevices?(ownerId: string): Promise<{ ipAddresses: string[] }[]> } | undefined,
     private readonly now: () => Date = () => new Date(),
     private readonly routesChanged: () => void = () => {},
     private readonly poolWorkflows: PoolWorkflows | undefined = undefined,
@@ -384,12 +384,23 @@ export class InstanceService {
     return { ok: true, value: { name: instance.name, instanceId: instance.id } };
   }
 
+  private async meshIpOwned(ownerId: string, meshIp: string): Promise<'yes' | 'no' | 'unknown'> {
+    if (!this.mesh?.listUserDevices) return 'yes';
+    const theirs = await this.mesh.listUserDevices(ownerId).catch(() => undefined);
+    if (!theirs) return 'unknown';
+    return theirs.some((device) => device.ipAddresses.includes(meshIp)) ? 'yes' : 'no';
+  }
+
   private async reportMove(instance: InstanceRecord, report: { status?: unknown; detail?: unknown; url?: unknown; meshIp?: unknown; moved?: unknown }): Promise<Outcome<InstanceRecord>> {
     const move = instance.move!;
     if (move.state === 'switching') return { ok: true, value: instance };
     const detail = typeof report.detail === 'string' ? report.detail.slice(0, 500) : move.detail;
     const target = { ...move.target };
-    if (typeof report.meshIp === 'string' && !routeProblem({ name: 'x', meshIp: report.meshIp, nested: false })) target.meshIp = report.meshIp;
+    if (typeof report.meshIp === 'string' && !routeProblem({ name: 'x', meshIp: report.meshIp, nested: false })) {
+      const owned = await this.meshIpOwned(instance.ownerId, report.meshIp);
+      if (owned === 'no') return { ok: false, status: 400, error: `${report.meshIp} is not one of this instance's owner's machines on the mesh` };
+      if (owned === 'yes') target.meshIp = report.meshIp;
+    }
     if (typeof report.url === 'string') {
       try {
         target.url = new URL(report.url).origin;
@@ -486,7 +497,9 @@ export class InstanceService {
     let meshIp = instance.meshIp;
     if (report.meshIp !== undefined) {
       if (typeof report.meshIp !== 'string' || routeProblem({ name: 'x', meshIp: report.meshIp, nested: false })) return { ok: false, status: 400, error: 'meshIp is the instance\'s address on the mesh' };
-      meshIp = report.meshIp;
+      const owned = report.meshIp === instance.meshIp ? 'yes' : await this.meshIpOwned(instance.ownerId, report.meshIp);
+      if (owned === 'no') return { ok: false, status: 400, error: `${report.meshIp} is not one of this instance's owner's machines on the mesh` };
+      if (owned === 'yes') meshIp = report.meshIp;
     }
     if (report.imageTag !== undefined && (typeof report.imageTag !== 'string' || !/^[A-Za-z0-9._-]{1,128}$/.test(report.imageTag))) return { ok: false, status: 400, error: 'imageTag is the image tag the instance runs' };
     const running = report.status === 'ready' && typeof report.imageTag === 'string' ? report.imageTag : instance.running;
