@@ -213,6 +213,16 @@ OpenTelemetry to the collector on the system cluster (**Koala's own telemetry**,
 trace id in `x-trace-id`. **Startup migrations run once**: `scripts/seed-all.ts` runs each by name through `platform/lib/migrations.ts` and records
 it in `migrations`; the shipped seeds (tree types, tools, providers) still upsert on every boot.
 
+**Nobody reaches another person's things in combined mode either** (security audit W5): a project builds only from the
+person's own existing repository and deploys only to the system cluster or their own (`targetClusterProblem`); only a run's
+owner answers, approves or cancels it; a conversation is saved only over its own owner's; a deploy request names no namespace
+or id and is never a `gitapp` or `odoo-project` (`deployRequestFrom`), and destroying an app never deletes a platform namespace
+(`platformNamespaceProblem`); a model cache is a folder name (`cacheFolderProblem`); a pod's logs come only from the app's own
+namespace (`podLogTarget`); a build's log only to its project's owner; a remote host's kubeconfig is rebuilt from its server,
+authority and sign-in (`cleanKubeconfig`); the dashboard proxy signs in as the platform's Gitea and Infisical only on the
+system cluster (`signsInAsPlatform`); the operator's cloud credentials from the environment are used only for an admin; and
+backups, the host's nginx config, binding type changes and adopting the host's k3d clusters are an admin's.
+
 The public-path allow-list lives in `platform/middleware/auth.ts`, **not** in `accounts/routes/auth.ts` — a router
 that could exempt itself is a router that can quietly stop being protected, so adding a route that
 must work signed-out means editing the guard too. `requireAuth` and the Socket.IO handshake share
