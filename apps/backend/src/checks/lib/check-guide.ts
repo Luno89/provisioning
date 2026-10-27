@@ -42,6 +42,8 @@ export const WORLD_FIELDS: Record<keyof ScenarioWorld, Entry> = {
   mcpServers: { means: 'MCP servers the space has in its catalogue, captured before the run starts; an agent holds one through its "servers", and its tools are offered as <name>__<tool>', example: '[{"name": "echoes", "summary": "Says back what it is told", "runs": {"where": "workspace", "needs": ["echoes-server"], "start": "echoes-server", "port": 8931}}]' },
   dependencies: { means: 'workspace dependencies the space has besides the person\'s own: a name, what it installs and the programs it puts on the PATH; servers, tools and the workspace file name them in needs', example: '[{"name": "echoes-server", "summary": "The echoes server", "provides": ["echoes-server"], "needs": ["node"], "install": [{"via": "npm", "packages": ["echoes-server"]}]}]' },
   project: { means: 'a project made before the first run; the conversation is bound to it', example: '{ "name": "check project" }' },
+  apart: { means: 'a second project of the space\'s, made before the first run and never shared: {{world.apartId}} and {{world.apartName}}', example: '{ "name": "kept apart" }' },
+  shared: { means: 'the world\'s project shared on the hub under a group of its own, with a hidden account for each role listed invited and joined; they go before the space does', example: '{ "members": ["client"] }' },
   apps: { means: 'apps deployed on the system cluster before the first run, as the space, and destroyed with it; {{world.apps.<name>}} is each one\'s id. Deploying takes a minute or two, so a check with apps stays off the bench', example: '[{ "name": "books", "appType": "audiobookshelf" }]' },
   treeTypes: { means: 'settings laid over tree types for this check only, by id', example: '{ "odoo-addons": { "env": [{ "name": "SHOP", "value": "demo" }] } }' },
 };
@@ -51,6 +53,7 @@ export const EXPECTATIONS: Record<keyof ScenarioExpectations, Entry> = {
   toolsCalled: { means: 'tools it calls at least once', example: '["start_task", "mark_done"]' },
   toolsNotCalled: { means: 'tools it never calls', example: '["delete_file"]' },
   toolsSucceeded: { means: 'tools it calls, and that work at least once', example: '["propose_plan"]' },
+  toolsRefused: { means: 'tools it calls that are refused every time', example: '["save_memory"]' },
   toolsInOrder: { means: 'tools it calls in this order, others in between allowed', example: '["start_task", "mark_done"]' },
   tasks: { means: 'the board afterwards, by task id', example: '[{ "id": "write-greeting", "status": "done" }]' },
   within: { means: 'budget it stays under', example: '{ "rounds": 8, "toolCalls": 20 }' },
@@ -95,6 +98,7 @@ export const ARG_CHECKS: Record<'is' | 'contains' | 'matches' | 'nonEmpty', Entr
 export const STAGE_ACTIONS: Record<ActionKey, Entry> = {
   chat: { means: 'send another message, optionally to another agent; killAfterChars kills the turn once that much streamed; in: "channel" sends it in the project\'s channel, in: { "story": title } or { "feature": title } in that story\'s or feature\'s own chat', example: '{ "chat": { "message": "And the second one?" } }' },
   post: { means: 'post a plain message in the project\'s channel: it starts no turn', example: '{ "post": { "message": "The shop opens at 9.", "in": "channel" } }' },
+  memberAsks: { means: 'a member of the shared project posts in its channel on the hub with Ask Koala; the turn the owner\'s instance starts for them is the stage\'s run', example: '{ "memberAsks": { "as": "client", "message": "What can you reach?" } }' },
   approvePlan: { means: 'approve the plan the run proposed', example: '{ "approvePlan": true }' },
   applyAction: { means: 'apply the newest card waiting in the check\'s own conversation — deploying, adding an app or an MCP server — as the person would', example: '{ "applyAction": true }' },
   runTree: { means: 'grow the approved tree until it settles', example: '{ "runTree": true }' },

@@ -7,13 +7,13 @@ import { type McpServerRecord, type ProcedureSource, type ExtensionSettings, typ
 import type { RunEffort } from '@koala/agent-engine/procedure';
 import type { Scenario } from '../eval/level2/scenario.js';
 import { scoreScenario, type Check, type ObservedBrowserTests, type Observed, type ObservedFlow, type ObservedHandOff, type StoredProcedure, type ToolCallLog } from '../eval/level2/score.js';
-import type { ChatPlace, FlowAction, ScenarioExpectations } from '../eval/level2/scenario.js';
+import type { ChatPlace, FlowAction, ScenarioExpectations, SharedMemberRole } from '../eval/level2/scenario.js';
 import type { ScenarioResult } from '../eval/level2/results.js';
 import { newTask, type Task } from '../engine-host/tools/tasks.js';
 import type { MemoryItem } from '../memory/index.js';
 import { type UserMetadata, encryptValue, type SecretKey, type ModelEndpointMetadata } from '../platform/index.js';
 import {
-  type BenchSettings, reowned, scriptedEndpointId, spacePersonas, spacePractices, spaceServers, spaceUser,
+  type BenchSettings, memberSpaceId, reowned, scriptedEndpointId, sharedGroupFor, spacePersonas, spacePractices, spaceServers, spaceUser,
   worldServerId, type PromptChange, STEP_NODE, stepProcedure, stepProcedureId, TURN_CALL_KIND, TURN_PROCEDURE_ID,
   turnProcedure, type TurnReply,
 } from '../checks/index.js';
@@ -223,6 +223,10 @@ export function createCheckRunActivities(deps: CheckRunDeps): CheckRunActivities
       const stamp = now();
       await store.accounts.saveUser(spaceUser(spaceId, { person, checkRunId, scenarioId: scenario.id, ...(scenario.script ? { script: scenario.script } : {}) }, stamp));
       await store.checks.saveBenchSettings(spaceId, { enabled: false, idleMinutes: 15, fullEveryHours: 24 });
+      for (const role of scenario.world?.shared?.members ?? []) {
+        const memberId = memberSpaceId(spaceId, role);
+        if (!(await store.accounts.getUserById(memberId))) await store.accounts.saveUser(spaceUser(memberId, { person, checkRunId, scenarioId: scenario.id }, stamp));
+      }
       if (scenario.script) {
         await store.models.saveModelEndpoint({
           id: scriptedEndpointId(spaceId),
@@ -353,6 +357,30 @@ export function createCheckRunActivities(deps: CheckRunDeps): CheckRunActivities
         const project = made.data as { id: string; name: string; giteaOwner: string; giteaRepo: string };
         Object.assign(world, { projectId: project.id, projectName: project.name, projectRepo: `${project.giteaOwner}/${project.giteaRepo}` });
       }
+      if (scenario.world?.apart) {
+        const made = await http.post('/projects', { name: `${scenario.world.apart.name}-${spaceId.slice(-8)}`, giteaRepo: `${scenario.world.apart.name}-${spaceId.slice(-8)}`, createRepo: true }, { validateStatus: () => true });
+        if (made.status >= 300) return { result: failedResult(scenario, '', `the check's second project could not be made: ${(made.data as { error?: string }).error ?? made.status}`, startedAt), runIds: [] };
+        Object.assign(world, { apartId: (made.data as { id: string }).id, apartName: (made.data as { name: string }).name });
+      }
+      const members: Partial<Record<SharedMemberRole, AxiosInstance>> = {};
+      if (scenario.world?.shared) {
+        if (typeof world.projectId !== 'string') return { result: failedResult(scenario, '', 'the check shares its project, and has none: give the world a project', startedAt), runIds: [] };
+        const shared = await http.post(`/project-sharing/${world.projectId}`, { group: sharedGroupFor(spaceId) }, { validateStatus: () => true });
+        if (shared.status >= 300) return { result: failedResult(scenario, '', `the check's project could not be shared: ${(shared.data as { error?: string }).error ?? shared.status}`, startedAt), runIds: [] };
+        const hubProjectId = (shared.data as { shared: { hubProjectId: string } }).shared.hubProjectId;
+        Object.assign(world, { hubProjectId });
+        for (const role of scenario.world.shared.members) {
+          const member = await store.accounts.getUserById(memberSpaceId(spaceId, role));
+          if (!member) return { result: failedResult(scenario, '', `the check's ${role} is gone`, startedAt), runIds: [] };
+          const invited = await http.post(`/hub/projects/${hubProjectId}/invites`, { email: member.email, role }, { validateStatus: () => true });
+          if (invited.status >= 300) return { result: failedResult(scenario, '', `the check's ${role} could not be invited: ${(invited.data as { error?: string }).error ?? invited.status}`, startedAt), runIds: [] };
+          const token = new URL(String((invited.data as { link: string }).link).replace('/#/', '/')).searchParams.get('project') ?? '';
+          const as = deps.api({ id: member.id, email: member.email });
+          const accepted = await as.post(`/hub/invitations/${encodeURIComponent(token)}/accept`, {}, { validateStatus: () => true });
+          if (accepted.status >= 300) return { result: failedResult(scenario, '', `the check's ${role} could not join: ${(accepted.data as { error?: string }).error ?? accepted.status}`, startedAt), runIds: [] };
+          members[role] = as;
+        }
+      }
       const worldApps: Record<string, string> = {};
       const worldNamespaces: Record<string, string> = {};
       for (const app of scenario.world?.apps ?? []) {
@@ -427,8 +455,10 @@ export function createCheckRunActivities(deps: CheckRunDeps): CheckRunActivities
         }, { validateStatus: () => true });
         if (started.status >= 300) throw new Error(`the run would not start: ${(started.data as { error?: string } | undefined)?.error ?? `HTTP ${started.status}`}`);
         const runId = (started.data as { runId: string }).runId;
+        return follow(runId, conversationId, action.killAfterChars);
+      };
+      const follow = async (runId: string, conversationId: string, killAfterChars?: number | undefined) => {
         runIds.add(runId);
-
         const events: LoggedEvent[] = [];
         const seqs: number[] = [];
         const answered = new Set<string>();
@@ -459,7 +489,7 @@ export function createCheckRunActivities(deps: CheckRunDeps): CheckRunActivities
           }
           if (events.some((event) => event.type === 'run.finished' && event.runId === runId)) break;
           const said = events.filter((event) => event.type === 'content' && event.runId === runId).reduce((total, event) => total + (event.delta ?? '').length, 0);
-          if (action.killAfterChars !== undefined && said > action.killAfterChars) {
+          if (killAfterChars !== undefined && said > killAfterChars) {
             await deps.terminate(runId, 'the check killed this run mid-turn, as a dying worker would');
             await sleep(2_000);
             break;
@@ -479,6 +509,29 @@ export function createCheckRunActivities(deps: CheckRunDeps): CheckRunActivities
         }
         const logged = events.filter((event) => event.type === 'content' && event.runId === runId).map((event) => event.delta ?? '').join('');
         return { runId, events, seqs, root, answer: saved || logged, logged, saved: saved ?? '', interrupted };
+      };
+
+      const memberAsk = async (action: { as: SharedMemberRole; message: string }) => {
+        const member = members[action.as];
+        const hubProjectId = world.hubProjectId;
+        if (!member || typeof hubProjectId !== 'string') throw new Error(`the check has no ${action.as} on a shared project: list them in the world's shared members`);
+        const channel = await channelId();
+        const content = fill(action.message);
+        const posted = await member.post(`/hub/projects/${hubProjectId}/conversations/${channel}/messages`, { content, askKoala: true }, { validateStatus: () => true });
+        if (posted.status >= 300) throw new Error(`the ${action.as}'s message was refused: ${(posted.data as { error?: string }).error ?? posted.status}`);
+        const requestId = (posted.data as { asked?: { id: string } }).asked?.id;
+        if (!requestId) throw new Error(`the ${action.as}'s message did not ask Koala`);
+        const memberId = memberSpaceId(spaceId, action.as);
+        for (;;) {
+          await stopIfCancelled();
+          const read = (await http.get(`/conversations/${channel}`)).data as { messages: { role: string; content: string; runId?: string; author?: { kind: string; id?: string } }[] };
+          const runId = read.messages.find((message) => message.role === 'user' && message.author?.kind === 'person' && message.author.id === memberId && message.content === content && message.runId)?.runId;
+          if (runId) return follow(runId, channel);
+          const board = (await member.get(`/hub/projects/${hubProjectId}/board`)).data as { requests?: { id: string; state: string; why?: string }[] };
+          const settled = board.requests?.find((request) => request.id === requestId);
+          if (settled?.state === 'refused') throw new Error(`the owner's instance refused the ${action.as}'s ask: ${settled.why ?? 'it gave no reason'}`);
+          await wait();
+        }
       };
 
       const treeId = () => {
@@ -894,17 +947,17 @@ export function createCheckRunActivities(deps: CheckRunDeps): CheckRunActivities
 
       for (const [index, stage] of stages.entries()) {
         const label = stages.length > 1 ? `${stage.name}: ` : '';
-        const expect = stage.expect ?? {};
+        const expect = fill(stage.expect ?? {});
         try {
           const requestsBefore = scenario.script ? ((await http.get('/checks/model-requests')).data as { requests: unknown[] }).requests.length : 0;
           let observed: Observed;
           let ran: Awaited<ReturnType<typeof chat>> | undefined;
-          if ('chat' in stage.do) {
-            ran = await chat(stage.do.chat, index === 0);
+          if ('chat' in stage.do || 'memberAsks' in stage.do) {
+            ran = 'chat' in stage.do ? await chat(stage.do.chat, index === 0) : await memberAsk(stage.do.memberAsks);
             tasks = (await http.get('/engine/tasks')).data as Task[];
             const wanted = (expect.files ?? []).map((file) => file.path);
             const foundFiles: Record<string, string | null> = {};
-            const agent = stage.do.chat.agent ?? scenario.agent;
+            const agent = 'chat' in stage.do ? stage.do.chat.agent ?? scenario.agent : scenario.agent;
             for (const path of wanted) foundFiles[path] = await readFile(conversationWorkspaceRunId(conversationId), [`${agent}/${ran.runId}/${path}`, path]);
             let effort: RunEffort | undefined;
             for (let tries = 0; tries < 20 && !effort; tries += 1) {
@@ -953,6 +1006,11 @@ export function createCheckRunActivities(deps: CheckRunDeps): CheckRunActivities
           checks.push({ what: `${label}runs to the end`, passed: false, detail: (err as Error).message });
           break;
         }
+      }
+
+      if (typeof world.hubProjectId === 'string' && typeof world.projectId === 'string') {
+        const back = await http.delete(`/project-sharing/${world.projectId}`, { data: { confirm: world.projectName }, validateStatus: () => true });
+        if (back.status >= 300 && back.status !== 404) checks.push({ what: 'its shared project is taken back', passed: false, detail: (back.data as { error?: string }).error ?? `HTTP ${back.status}` });
       }
 
       const firstRun = first ?? { runId: '', outcome: 'failed', reason: stopped, answer: '', calls: [], counters: { rounds: 0, toolCalls: 0, totalTokens: 0 }, procedure: { id: scenario.procedure.id, version: '' } };

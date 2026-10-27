@@ -9,6 +9,7 @@ import type { PromptChange } from '../checks/index.js';
 import type { ToolDefinition } from '@koala/agent-engine';
 import { RemoveAccountWorkflow } from './RemoveAccountWorkflow.js';
 import { combineAttempts } from '../checks/lib/check-attempts.js';
+import { memberSpaceId } from '../checks/lib/check-space.js';
 import { ownerIn, startedFor } from '../platform/lib/workflow-owner.js';
 import { LIVE_ACTIVITY } from '../platform/lib/activity-liveness.js';
 
@@ -93,10 +94,15 @@ export async function CheckRunWorkflow(input: CheckRunInput): Promise<CheckRunOu
     }
   };
 
-  const gone = async (spaceId: string): Promise<Check> => {
+  const gone = async (spaceId: string, scenario: Scenario): Promise<Check> => {
     const left = await CancellationScope.nonCancellable(async () => {
-      await executeChild(RemoveAccountWorkflow, { workflowId: removeAccountWorkflowId(spaceId), args: [{ ownerId: spaceId, keepRunsFor: input.person }], ...startedFor(ownerIn(workflowInfo().typedSearchAttributes) ?? input.person) });
-      return space.CheckSpaceGoneActivity({ spaceId });
+      const removed = [...(scenario.world?.shared?.members ?? []).map((role) => memberSpaceId(spaceId, role)), spaceId];
+      const leftovers: string[] = [];
+      for (const accountId of removed) {
+        await executeChild(RemoveAccountWorkflow, { workflowId: removeAccountWorkflowId(accountId), args: [{ ownerId: accountId, keepRunsFor: input.person }], ...startedFor(ownerIn(workflowInfo().typedSearchAttributes) ?? input.person) });
+        leftovers.push(...await space.CheckSpaceGoneActivity({ spaceId: accountId }));
+      }
+      return leftovers;
     });
     return { what: 'its space leaves nothing behind', passed: left.length === 0, detail: left.length === 0 ? 'no records, workspaces or Gitea user are left' : `left behind: ${left.join(', ')}` };
   };
@@ -117,12 +123,12 @@ export async function CheckRunWorkflow(input: CheckRunInput): Promise<CheckRunOu
         result = await attempt(scenario, spaceId, spaceId !== sharedSpace);
       } finally {
         if (shared) sharedSpace = spaceId;
-        else spaces.push(await gone(spaceId));
+        else spaces.push(await gone(spaceId, scenario));
       }
       if (cancelled && result.error === 'the check was cancelled') break;
       attempts.push(result);
     }
-    if (sharedSpace) spaces.push(await gone(sharedSpace));
+    if (sharedSpace) spaces.push(await gone(sharedSpace, scenario));
     if (attempts.length === 0) break;
     const combined = repeats === 1 ? attempts[0]! : combineAttempts(attempts, scenario.passAt ?? repeats);
     const leaks = spaces.filter((check) => !check.passed);

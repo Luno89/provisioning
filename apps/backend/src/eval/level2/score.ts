@@ -126,6 +126,13 @@ export async function scoreScenario(expect: ScenarioExpectations, observed: Obse
         : tries.length === 0 ? `it never called ${name}` : `${tries.length} call${tries.length === 1 ? '' : 's'} to ${name}, none worked; the last said: ${tries.at(-1)!.digest.slice(0, 160)}`);
   }
 
+  for (const name of expect.toolsRefused ?? []) {
+    const tries = observed.calls.filter((call) => call.name === name);
+    const refused = tries.length > 0 && tries.every((call) => !call.ok);
+    add(`calls ${name} and is refused`, refused,
+      tries.length === 0 ? `it never called ${name}` : refused ? `refused: ${tries[0]!.digest.slice(0, 200)}` : `${name} ran: ${tries.find((call) => call.ok)!.digest.slice(0, 160)}`);
+  }
+
   for (const name of expect.toolsNotCalled ?? []) {
     add(`never calls ${name}`, !called.includes(name), called.includes(name) ? `it called ${name}` : `it did not call ${name}`);
   }

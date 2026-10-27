@@ -39,9 +39,13 @@ export interface ScenarioWorld {
   mcpServers?: WorldServer[] | undefined;
   dependencies?: WorkspaceDependency[] | undefined;
   project?: { name: string } | undefined;
+  apart?: { name: string } | undefined;
+  shared?: { members: SharedMemberRole[] } | undefined;
   apps?: Array<{ name: string; appType: string }> | undefined;
   treeTypes?: Record<string, Record<string, unknown>> | undefined;
 }
+
+export type SharedMemberRole = 'owner' | 'collaborator' | 'client';
 
 export type WorldServer = Pick<McpServerRecord, 'name' | 'runs' | 'summary' | 'offer' | 'omit' | 'notes' | 'dependsOn' | 'tools'>;
 
@@ -76,6 +80,7 @@ export interface ScenarioExpectations extends FlowExpectations {
   toolsCalled?: string[] | undefined;
   toolsNotCalled?: string[] | undefined;
   toolsSucceeded?: string[] | undefined;
+  toolsRefused?: string[] | undefined;
   toolsInOrder?: string[] | undefined;
   tasks?: { id: string; status: TaskStatus }[] | undefined;
   within?: { rounds?: number | undefined; toolCalls?: number | undefined; totalTokens?: number | undefined } | undefined;
@@ -130,6 +135,7 @@ export type ChatPlace = 'channel' | { story: string } | { feature: string };
 export type FlowAction =
   | { chat: { message: string; agent?: string | undefined; inputs?: Record<string, unknown> | undefined; killAfterChars?: number | undefined; in?: ChatPlace | undefined } }
   | { post: { message: string; in: 'channel' } }
+  | { memberAsks: { as: SharedMemberRole; message: string } }
   | { approvePlan: true | { in: Exclude<ChatPlace, 'channel'> } }
   | { applyAction: true }
   | { runTree: true }
@@ -177,7 +183,7 @@ export interface Scenario {
 const ID = /^[a-z0-9][a-z0-9-]*$/;
 export const MAX_REPEATS = 25;
 const TURN_EXPECTATIONS: readonly (keyof ScenarioExpectations)[] = ['chooses', 'modelSaw'];
-const ACTIONS = ['chat', 'post', 'approvePlan', 'applyAction', 'runTree', 'waitQuiet', 'settleTree', 'editWorkspace', 'dropOnStory', 'waitWorkspace', 'deleteTree', 'deleteProject', 'waitRelease', 'waitBuild', 'cutOver', 'browse', 'removeRelease'];
+const ACTIONS = ['chat', 'post', 'memberAsks', 'approvePlan', 'applyAction', 'runTree', 'waitQuiet', 'settleTree', 'editWorkspace', 'dropOnStory', 'waitWorkspace', 'deleteTree', 'deleteProject', 'waitRelease', 'waitBuild', 'cutOver', 'browse', 'removeRelease'];
 const RELEASE_ACTIONS = ['waitRelease', 'waitBuild', 'cutOver', 'browse', 'removeRelease'];
 const RELEASE_STATES: ReleaseState[] = ['preparing', 'preview', 'cutting-over', 'live', 'discarded', 'failed', 'superseded'];
 const TEST_STATUSES: BrowserTestStatus[] = ['passed', 'failed', 'flaky', 'skipped'];
@@ -397,6 +403,15 @@ export function scenarioProblems(
       if (new Set(names).size !== names.length) problems.push('the world\'s apps need different names');
     }
   }
+  const shared = scenario.world?.shared as { members?: unknown } | undefined;
+  if (shared !== undefined) {
+    const roles = shared.members;
+    if (!scenario.world?.project) problems.push('a check shares the project its world declares, and this one declares none');
+    if (!Array.isArray(roles) || roles.length === 0 || roles.some((role) => !['owner', 'collaborator', 'client'].includes(String(role))) || new Set(roles).size !== roles.length) problems.push('the world\'s shared members are a list of different roles: owner, collaborator, client');
+  }
+  if (scenario.world?.apart !== undefined && (typeof scenario.world.apart.name !== 'string' || !/^[a-z]+(-[a-z0-9]+)*$/.test(scenario.world.apart.name))) {
+    problems.push('the world\'s second project needs a name of lower-case words joined by dashes');
+  }
   const stages = Array.isArray(scenario.then) ? scenario.then : [];
   const approvedAt = stages.findIndex((stage) => stage?.do && typeof stage.do === 'object' && 'approvePlan' in stage.do);
   const hasProject = (index: number) => scenario.world?.project !== undefined || (approvedAt >= 0 && index >= approvedAt);
@@ -425,6 +440,11 @@ export function scenarioProblems(
     const post = (action?.post ?? undefined) as { message?: unknown; in?: unknown } | undefined;
     if (kinds[0] === 'post' && (typeof post?.message !== 'string' || !post.message.trim() || post.in !== 'channel')) problems.push(`${where} posts a message in the channel`);
     if (kinds[0] === 'chat' && (typeof chat?.message !== 'string' || !chat.message.trim())) problems.push(`${where} has to say what is asked`);
+    const asking = action?.memberAsks as { as?: unknown; message?: unknown } | undefined;
+    if (kinds[0] === 'memberAsks') {
+      if (typeof asking?.message !== 'string' || !asking.message.trim()) problems.push(`${where} has to say what the member asks`);
+      if (!Array.isArray(shared?.members) || !shared.members.includes(asking?.as)) problems.push(`${where} is asked by a ${String(asking?.as)}, whom the world's shared members do not list`);
+    }
     if (kinds[0] === 'chat' && chat?.agent !== undefined && (typeof chat.agent !== 'string' || !known.agents.has(chat.agent))) problems.push(`${where} talks to "${String(chat.agent)}", which is not an agent`);
     const dropping = action?.dropOnStory as { story?: unknown; files?: unknown; whenRunning?: unknown } | undefined;
     if (kinds[0] === 'dropOnStory') {

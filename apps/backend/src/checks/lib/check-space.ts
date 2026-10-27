@@ -81,3 +81,7 @@ export function spaceServers(servers: readonly McpServerRecord[], space: string)
       return { ...rest, ownerId: space };
     });
 }
+
+export const memberSpaceId = (spaceId: string, role: string): string => `${spaceId}-${role}`;
+
+export const sharedGroupFor = (spaceId: string): string => `chk${spaceId.toLowerCase().replace(/[^a-z0-9]/g, '').slice(-12)}`;
