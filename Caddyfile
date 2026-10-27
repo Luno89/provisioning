@@ -52,6 +52,8 @@ http://127.0.0.1:2019 {
 # long-lived connections and speak the noise protocol over /ts2021; Cloudflare's proxy terminates
 # TLS and would both interfere with those and replace the certificate clients validate.
 {$MESH_DOMAIN:mesh.nowrinkles.dev} {
+	@headscaleApi path /api /api/*
+	respond @headscaleApi 404
 	reverse_proxy 127.0.0.1:8080 {
 		transport http {
 			read_timeout 0
