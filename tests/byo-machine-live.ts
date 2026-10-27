@@ -179,10 +179,19 @@ async function main(): Promise<void> {
   run('docker', ['tag', IMAGE, '127.0.0.1:5000/nowrinkles/app:upgrade-ok']);
   run('docker', ['push', '-q', '127.0.0.1:5000/nowrinkles/app:upgrade-ok']);
   await startRoot('upgrade-ok');
+  await inVm(vm, `setsid sh -c 'while true; do printf "%s %s\\n" "$(date -u +%H:%M:%S.%N | cut -c1-12)" "$(curl -s -o /dev/null -m 5 -w "%{http_code} %{time_total}" http://127.0.0.1:30320/api/auth/sign-in)"; sleep 0.5; done' > /tmp/inside.log 2>&1 < /dev/null &`);
   const duringGood = watchAvailability();
   await upgradeOnce('upgrade-to-ok', 'complete');
   const good = duringGood();
+  await inVm(vm, "pkill -f 'while true; do printf' || true");
   console.log(`  answered ${good.checks - good.misses.length} of ${good.checks} checks while upgrading`);
+  if (good.misses.length > 0) {
+    const inside = (await inVm(vm, 'cat /tmp/inside.log')).trim().split('\n');
+    const odd = inside.filter((line) => { const [, code, seconds] = line.split(' '); return code !== '200' || Number(seconds) > 1; });
+    console.log(`  from inside the machine, every half second: ${inside.length} asked, ${odd.length} slow or failed:\n    ${odd.join('\n    ')}`);
+    console.log(`  what Kubernetes did:\n    ${(await kubectl('get events --sort-by=.lastTimestamp -o custom-columns=AT:.lastTimestamp,OBJECT:.involvedObject.name,REASON:.reason,MESSAGE:.message')).trim().split('\n').slice(-40).join('\n    ')}`);
+    console.log(`  the new backend's start:\n    ${(await kubectl('logs deploy/instance-backend -c backend --timestamps')).trim().split('\n').slice(0, 40).join('\n    ')}`);
+  }
   assert.deepEqual(good.misses, [], 'the instance stopped answering during a good upgrade');
   expect(await reported(), { status: 'ready', detail: 'Upgraded to upgrade-ok' });
   assert.match(await backendImage(), /:upgrade-ok$/, 'the backend is not running the new release');
