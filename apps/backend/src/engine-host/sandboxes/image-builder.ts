@@ -77,8 +77,18 @@ export interface ImageBuilderOptions {
   pollMs?: number | undefined;
   published?: ((reference: string) => Promise<boolean>) | undefined;
   account?: (() => Promise<RegistryAccount>) | undefined;
-  pushToken?: (() => Promise<{ username: string; password: string }>) | undefined;
+  pushToken?: (() => Promise<PushToken>) | undefined;
+  revokePushToken?: ((name: string) => Promise<void>) | undefined;
 }
+
+export interface PushToken {
+  username: string;
+  password: string;
+  name?: string | undefined;
+}
+
+export const PUSH_TOKEN_ANNOTATION = 'koala.dev/push-token';
+const REGISTRY_SECRET_SUFFIX = '-registry';
 
 export type ImageState = 'ready' | 'building' | 'failed' | 'unbuilt';
 
@@ -122,6 +132,7 @@ function buildManifests(input: {
   reference: string;
   hosts: RegistryHosts;
   dockerConfigJson?: string | undefined;
+  pushToken?: string | undefined;
 }): Record<string, unknown>[] {
   const name = jobName(input.plan);
   const dockerfile = renderDockerfile(input.plan);
@@ -131,7 +142,12 @@ function buildManifests(input: {
     ...(login ? [{
       apiVersion: 'v1',
       kind: 'Secret',
-      metadata: { name: `${name}-registry`, namespace: input.namespace },
+      metadata: {
+        name: `${name}${REGISTRY_SECRET_SUFFIX}`,
+        namespace: input.namespace,
+        labels: { 'koala.dev/image': input.plan.fingerprint },
+        ...(input.pushToken ? { annotations: { [PUSH_TOKEN_ANNOTATION]: input.pushToken } } : {}),
+      },
       type: 'kubernetes.io/dockerconfigjson',
       stringData: { '.dockerconfigjson': input.dockerConfigJson },
     }] : []),
@@ -183,7 +199,7 @@ function buildManifests(input: {
               ...(login ? [{
                 name: 'registry',
                 secret: {
-                  secretName: `${name}-registry`,
+                  secretName: `${name}${REGISTRY_SECRET_SUFFIX}`,
                   items: [{ key: '.dockerconfigjson', path: 'config.json' }],
                 },
               }] : []),
@@ -237,12 +253,34 @@ export function createImageBuilder(options: ImageBuilderOptions): ImageBuilder {
 
   const exists = async (plan: ImagePlan): Promise<boolean> => published(await target(plan));
 
+  const releaseFinishedTokens = async (): Promise<void> => {
+    if (!options.revokePushToken) return;
+    const secrets = await run(['get', 'secrets', '-n', namespace, '-l', 'koala.dev/image', '-o', 'json'], undefined, undefined)
+      .catch(() => ({ stdout: '', stderr: '', exitCode: 1 }));
+    if (secrets.exitCode !== 0) return;
+    const items = (JSON.parse(secrets.stdout || '{}') as { items?: { metadata: { name: string; annotations?: Record<string, string> } }[] }).items ?? [];
+    for (const secret of items) {
+      const token = secret.metadata.annotations?.[PUSH_TOKEN_ANNOTATION];
+      if (!token || !secret.metadata.name.endsWith(REGISTRY_SECRET_SUFFIX)) continue;
+      const job = secret.metadata.name.slice(0, -REGISTRY_SECRET_SUFFIX.length);
+      const read = await run(['get', 'job', job, '-n', namespace, '-o', 'jsonpath={.status.active}|{.status.succeeded}|{.status.failed}'], undefined, undefined)
+        .catch(() => ({ stdout: '', stderr: '', exitCode: 1 }));
+      const gone = read.exitCode !== 0 && /not ?found/i.test(`${read.stderr}${read.stdout}`);
+      const counts = read.exitCode === 0 ? countsIn(read.stdout) : undefined;
+      if (!gone && !(counts && !counts.active && (counts.succeeded || counts.failed))) continue;
+      await options.revokePushToken(token);
+      await run(['delete', 'secret', secret.metadata.name, '-n', namespace, '--ignore-not-found'], undefined, undefined).catch(() => undefined);
+    }
+  };
+
   const apply = async (plan: ImagePlan, reference: string): Promise<void> => {
-    const push = await (options.pushToken ?? options.account)?.();
+    await releaseFinishedTokens().catch(() => undefined);
+    const push = options.pushToken ? await options.pushToken() : await options.account?.();
     const registryHosts = await hosts();
     const config = push ? dockerConfigJson(registryHosts, push) : undefined;
+    const pushToken = push && 'name' in push ? push.name : undefined;
     const manifests = buildManifests({
-      plan, namespace, reference, hosts: registryHosts, ...(config ? { dockerConfigJson: config } : {}),
+      plan, namespace, reference, hosts: registryHosts, ...(config ? { dockerConfigJson: config } : {}), ...(pushToken ? { pushToken } : {}),
     });
     const doc = manifests.map((manifest) => JSON.stringify(manifest)).join('\n---\n');
     const applied = await run(['apply', '-f', '-'], doc);
@@ -287,6 +325,7 @@ export function createImageBuilder(options: ImageBuilderOptions): ImageBuilder {
     if (read.exitCode !== 0) return { state: 'unbuilt', reference };
 
     const { active, succeeded, failed } = countsIn(read.stdout);
+    if (!active && (succeeded || failed)) await releaseFinishedTokens().catch(() => undefined);
     if (failed) return { state: 'failed', reference, detail: await whyItFailed(plan) };
     if (active) {
       const stuck = await stuckBecause(plan);
@@ -301,7 +340,10 @@ export function createImageBuilder(options: ImageBuilderOptions): ImageBuilder {
     if (!needsBuilding(plan)) return { state: 'ready', reference: plan.base };
 
     const reference = await target(plan);
-    if (await exists(plan).catch(() => false)) return { state: 'ready', reference };
+    if (await exists(plan).catch(() => false)) {
+      await releaseFinishedTokens().catch(() => undefined);
+      return { state: 'ready', reference };
+    }
 
     return jobStanding(plan, reference);
   };
@@ -336,6 +378,7 @@ export function createImageBuilder(options: ImageBuilderOptions): ImageBuilder {
 
           if (state.state === 'ready') {
             measure('ok');
+            await releaseFinishedTokens().catch(() => undefined);
             return reference;
           }
           if (state.state === 'failed') {

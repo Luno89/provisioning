@@ -318,10 +318,11 @@ export async function wireEngine(deps: EngineWiringDeps): Promise<EngineWiring> 
       owner: gitea.adminUsername,
       ...(await gitea.getAdminCredentials()),
     }),
-    registryPushToken: async () => ({
-      username: gitea.adminUsername,
-      password: (await gitea.createDeployToken()).token,
-    }),
+    registryPushToken: async () => {
+      const token = await gitea.createDeployToken();
+      return { username: gitea.adminUsername, password: token.token, name: token.name };
+    },
+    revokeRegistryPushToken: (name: string) => gitea.revokeToken(name),
     registryLogin: () => gitea.registryLogin(),
     efforts: { save: (effort) => db.engine.saveRunEffort(effort), list: (ownerId, procedureId, modelKey) => db.engine.getRunEffort(ownerId, procedureId, modelKey) },
   });

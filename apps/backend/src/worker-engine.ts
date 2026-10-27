@@ -326,7 +326,11 @@ async function buildActivities() {
     registryHost: process.env.KOALA_REGISTRY,
     pushRegistryHost: process.env.KOALA_REGISTRY_PUSH,
     registryAccount: async () => ({ owner: gitea.adminUsername, ...(await gitea.getAdminCredentials()) }),
-    registryPushToken: async () => ({ username: gitea.adminUsername, password: (await gitea.createDeployToken()).token }),
+    registryPushToken: async () => {
+      const token = await gitea.createDeployToken();
+      return { username: gitea.adminUsername, password: token.token, name: token.name };
+    },
+    revokeRegistryPushToken: (name: string) => gitea.revokeToken(name),
     registryLogin: () => gitea.registryLogin(),
     onLeak: (runId, ageMs) => {
       logger.warn(`[engine] sandbox for ${runId} was still up ${Math.round(ageMs / 60_000)}m after it started, though its run has ended — tearing it down`);

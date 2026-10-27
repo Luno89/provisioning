@@ -242,6 +242,11 @@ loopback (`loopback` in `createDisposableVm`); `test:byo-live` checks the backen
 check's `contentPattern`, a check script's `asked`/`system`/`said` and a turn check's `matches`. It finishes in time linear in what it
 reads, so a pattern cannot freeze the engine worker; lookarounds and backreferences are refused as not a pattern Koala runs, and every
 shipped check's patterns are compiled under it by `linear-patterns.test.ts`.
+**No Gitea token outlives what it was made for**: a git-built app's namespace pulls with the bot's read-only package login
+(`registryLogin`, the secret `gitea-registry`), a pipeline build revokes its token when it ends, and a workspace image build's
+secret names its token (`koala.dev/push-token`), which is revoked once its job has finished or is gone, whichever process sees
+it (`releaseFinishedTokens` in `engine-host/sandboxes/image-builder.ts`: when a build is seen to end, when its image is ready,
+and before every new build).
 
 The public-path allow-list lives in `platform/middleware/auth.ts`, **not** in `accounts/routes/auth.ts` — a router
 that could exempt itself is a router that can quietly stop being protected, so adding a route that

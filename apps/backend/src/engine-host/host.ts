@@ -18,7 +18,7 @@ import { createWorkspaceDocuments, type DocumentRepos } from './sandboxes/worksp
 import { createMachineWork, type MachineWork } from './sandboxes/machine-work.js';
 import { createStoryDropWork, type StoryDropWork } from './sandboxes/story-drop-work.js';
 import { defaultRepoResolver, repoForWorkspace, treeWorkspaceRunId, type WorkspaceRepoResolver } from './sandboxes/workspace-repos.js';
-import { createImageBuilder, discoverRegistry, type ImageBuilder, type RegistryAccount } from './sandboxes/image-builder.js';
+import { createImageBuilder, discoverRegistry, type ImageBuilder, type PushToken, type RegistryAccount } from './sandboxes/image-builder.js';
 import { createEnvironmentResolver, type EnvironmentResolver } from './sandboxes/environments.js';
 import { createTreeWorkspaces, LANDING_BASE, type TreeWorkspaces } from './sandboxes/tree-workspaces.js';
 import { createConversationWorkspaces, type ConversationWorkspaces } from './sandboxes/conversation-workspaces.js';
@@ -130,7 +130,8 @@ export interface EngineHostOptions {
   registryHost?: string | undefined;
   pushRegistryHost?: string | undefined;
   registryAccount?: (() => Promise<RegistryAccount>) | undefined;
-  registryPushToken?: (() => Promise<{ username: string; password: string }>) | undefined;
+  registryPushToken?: (() => Promise<PushToken>) | undefined;
+  revokeRegistryPushToken?: ((name: string) => Promise<void>) | undefined;
   registryLogin?: RegistryLoginSource | undefined;
   onSandbox?: ((driver: EnvironmentDriver, ticket: RunTicket) => Promise<void>) | undefined;
   onLeak?: ((runId: string, ageMs: number) => void) | undefined;
@@ -239,6 +240,7 @@ export function createEngineHost(options: EngineHostOptions): EngineHost {
     ...(options.pushRegistryHost ? { pushRegistry: options.pushRegistryHost } : {}),
     ...(options.registryAccount ? { account: options.registryAccount } : {}),
     ...(options.registryPushToken ? { pushToken: options.registryPushToken } : {}),
+    ...(options.revokeRegistryPushToken ? { revokePushToken: options.revokeRegistryPushToken } : {}),
   });
 
   const treeWorkspacesFor: { current?: TreeWorkspaces | undefined } = {};

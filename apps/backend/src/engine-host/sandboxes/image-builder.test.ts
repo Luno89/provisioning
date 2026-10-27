@@ -299,3 +299,75 @@ describe('saying why a build failed', () => {
     expect(lastComplaint('   ')).toBeUndefined();
   });
 });
+
+describe('the token a workspace build pushes with', () => {
+  function cluster() {
+    const secrets = new Map<string, { name: string; labels?: Record<string, string>; annotations?: Record<string, string> }>();
+    const jobs = new Map<string, string>();
+    const run: KubeRunner = vi.fn(async (args, input) => {
+      const ok = (stdout = ''): KubeResult => ({ stdout, stderr: '', exitCode: 0 });
+      if (args[0] === 'apply') {
+        for (const doc of (input ?? '').split('\n---\n').map((text: string) => JSON.parse(text) as { kind: string; metadata: { name: string; labels?: Record<string, string>; annotations?: Record<string, string> } })) {
+          if (doc.kind === 'Secret') secrets.set(doc.metadata.name, doc.metadata);
+          if (doc.kind === 'Job') jobs.set(doc.metadata.name, '1||');
+        }
+        return ok();
+      }
+      if (args[0] === 'get' && args[1] === 'secrets') return ok(JSON.stringify({ items: [...secrets.values()].map((metadata) => ({ metadata })) }));
+      if (args[0] === 'get' && args[1] === 'job') {
+        const status = jobs.get(args[2]!);
+        return status === undefined ? { stdout: '', stderr: `Error from server (NotFound): jobs.batch "${args[2]}" not found`, exitCode: 1 } : ok(status);
+      }
+      if (args[0] === 'delete' && args[1] === 'secret') { secrets.delete(args[2]!); return ok(); }
+      return ok();
+    });
+    return { run, secrets, jobs };
+  }
+
+  const tokens = () => {
+    let minted = 0;
+    const revoked: string[] = [];
+    return {
+      revoked,
+      pushToken: async () => { minted += 1; return { username: 'koala', password: `secret-${minted}`, name: `build-${minted}` }; },
+      revokePushToken: async (name: string) => { revoked.push(name); },
+    };
+  };
+
+  it('is revoked once the build has finished and its image is there, whichever process sees it, and never while it runs', async () => {
+    const { run, secrets, jobs } = cluster();
+    const minting = tokens();
+    let published = false;
+    const build = createImageBuilder({ run, registry: REGISTRY, published: async () => published, pushToken: minting.pushToken, revokePushToken: minting.revokePushToken });
+
+    await build.start(CUSTOM);
+    const [secret] = [...secrets.values()];
+    expect(secret?.annotations).toEqual({ 'koala.dev/push-token': 'build-1' });
+    expect((await build.standing(CUSTOM)).state).toBe('building');
+    expect(minting.revoked).toEqual([]);
+
+    jobs.set([...jobs.keys()][0]!, '|1|');
+    published = true;
+    const elsewhere = createImageBuilder({ run, registry: REGISTRY, published: async () => published, pushToken: minting.pushToken, revokePushToken: minting.revokePushToken });
+    expect((await elsewhere.standing(CUSTOM)).state).toBe('ready');
+    expect(minting.revoked).toEqual(['build-1']);
+    expect(secrets.size).toBe(0);
+  });
+
+  it('is revoked for a failed build, and for one whose job is gone, before the next build mints its own', async () => {
+    const { run, secrets, jobs } = cluster();
+    const minting = tokens();
+    const build = createImageBuilder({ run, registry: REGISTRY, published: async () => false, pushToken: minting.pushToken, revokePushToken: minting.revokePushToken });
+
+    await build.start(CUSTOM);
+    jobs.set([...jobs.keys()][0]!, '||1');
+    expect((await build.standing(CUSTOM)).state).toBe('failed');
+    expect(minting.revoked).toEqual(['build-1']);
+
+    secrets.set('ws-build-gone-registry', { name: 'ws-build-gone-registry', labels: { 'koala.dev/image': 'gone' }, annotations: { 'koala.dev/push-token': 'build-0' } });
+    const other = planImage({ tools: [{ ...needsPsql, name: 'other', needs: ['python'] }] });
+    await build.start(other);
+    expect(minting.revoked).toEqual(['build-1', 'build-0']);
+    expect([...secrets.values()].map((entry) => entry.annotations?.['koala.dev/push-token'])).toEqual(['build-2']);
+  });
+});

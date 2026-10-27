@@ -479,10 +479,10 @@ export async function DeployAppActivity(
   if (args.appType === 'gitapp') {
     const gitea = new GiteaService(infra, loadKeys(process.env).data, '/tmp/kubeconfig-provisioning-lunorica');
     const registryHost = await gitea.getRegistryHost();
-    const deployToken = await gitea.createDeployToken();
+    const pull = await gitea.registryLogin();
     const secretYaml = await infra.runKubectl(
       ['create', 'secret', 'docker-registry', 'gitea-registry', '-n', namespace,
-        `--docker-server=${registryHost}`, `--docker-username=${gitea.adminUsername}`, `--docker-password=${deployToken.token}`,
+        `--docker-server=${registryHost}`, `--docker-username=${pull.username}`, `--docker-password=${pull.password}`,
         '--dry-run=client', '-o', 'yaml'],
       kubeconfigPath,
     );
