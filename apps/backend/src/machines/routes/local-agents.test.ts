@@ -68,12 +68,9 @@ describe('adding a machine with the command from My Machines', () => {
     expect(command).toBe(`curl -fsSL ${URL_OF_KOALA}/machine.sh | sh -s -- ${code}`);
     expect(Date.parse(expiresAt)).toBeGreaterThan(Date.now());
 
-    const joined = await post('/api/machines/join?format=env', { code, hostname: 'laptop', rootDir: '/home/me/koala', os: 'Linux x86_64' });
+    const joined = await post('/api/machines/join', { code, hostname: 'laptop', rootDir: '/home/me/koala', os: 'Linux x86_64' });
     expect(joined.status).toBe(200);
-    const env = Object.fromEntries((await joined.text()).trim().split('\n').map((line) => {
-      const [name, ...rest] = line.split('=');
-      return [name, rest.join('=').replace(/^'|'$/g, '')];
-    }));
+    const { env } = await joined.json() as { env: Record<string, string> };
     expect(env).toMatchObject({ KOALA_BACKEND_URL: URL_OF_KOALA, KOALA_ROOT_DIR: '/home/me/koala', KOALA_TEMPORAL_ADDRESS: 'localhost:7233', KOALA_TEMPORAL_NAMESPACE: 'default', MESH_LOGIN_SERVER: '', MESH_AUTH_KEY: '' });
 
     const device = (await harness.db.machines.getLocalAgentDevices()).find((candidate) => candidate.id === env.KOALA_DEVICE_ID)!;

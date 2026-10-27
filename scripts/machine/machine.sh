@@ -68,19 +68,28 @@ case "$HOME_DIR/" in "$FOLDER"/*) die "Koala works in a folder of its own, never
 ok "Koala works in $FOLDER, and nowhere else"
 
 say "Joining ${KOALA_URL}"
-JOIN_ENV=$(mktemp)
-trap 'rm -f "$JOIN_ENV"' EXIT
+JOINED=$(mktemp)
+MESH_KEY_FILE=$(mktemp)
+trap 'rm -f "$JOINED" "$MESH_KEY_FILE"' EXIT
 HOST=$(hostname 2>/dev/null || uname -n)
 CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/koala/machine.json"
 REPLACES=""
 [ -f "$CONFIG" ] && REPLACES=$(node -e 'try { process.stdout.write(String(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).token || "")) } catch {}' "$CONFIG")
 OS="$(uname -s) $(uname -m)"
 HTTP_CODE=$(printf '%s' "{\"code\":\"$(json "$CODE")\",\"hostname\":\"$(json "$HOST")\",\"rootDir\":\"$(json "$FOLDER")\",\"os\":\"$(json "$OS")\",\"replaces\":\"$(json "$REPLACES")\"}" \
-  | curl -sS -o "$JOIN_ENV" -w '%{http_code}' -X POST -H 'Content-Type: application/json' --data-binary @- \
-  "${KOALA_URL}/api/machines/join?format=env")
-[ "$HTTP_CODE" = 200 ] || die "Koala refused this machine (${HTTP_CODE}): $(cat "$JOIN_ENV")"
-. "$JOIN_ENV"
-rm -f "$JOIN_ENV"
+  | curl -sS -o "$JOINED" -w '%{http_code}' -X POST -H 'Content-Type: application/json' --data-binary @- \
+  "${KOALA_URL}/api/machines/join")
+[ "$HTTP_CODE" = 200 ] || die "Koala refused this machine (${HTTP_CODE}): $(cat "$JOINED")"
+joined() { node -e 'const v = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).env?.[process.argv[2]]; process.stdout.write(typeof v === "string" ? v : "")' "$JOINED" "$1"; }
+KOALA_BACKEND_URL=$(joined KOALA_BACKEND_URL)
+KOALA_DEVICE_ID=$(joined KOALA_DEVICE_ID)
+KOALA_DEVICE_TOKEN=$(joined KOALA_DEVICE_TOKEN)
+KOALA_ROOT_DIR=$(joined KOALA_ROOT_DIR)
+KOALA_TEMPORAL_ADDRESS=$(joined KOALA_TEMPORAL_ADDRESS)
+KOALA_TEMPORAL_NAMESPACE=$(joined KOALA_TEMPORAL_NAMESPACE)
+MESH_LOGIN_SERVER=$(joined MESH_LOGIN_SERVER)
+joined MESH_AUTH_KEY > "$MESH_KEY_FILE"
+rm -f "$JOINED"
 ok "this machine is ${HOST} on your account"
 
 if [ -n "${MESH_LOGIN_SERVER:-}" ]; then
@@ -89,7 +98,8 @@ if [ -n "${MESH_LOGIN_SERVER:-}" ]; then
     ask "Tailscale isn't installed. Koala reaches this machine through it, privately. Install it?" || die "stopped: this machine needs the private network to take work"
     curl -fsSL https://tailscale.com/install.sh | sh
   fi
-  sudo tailscale up --login-server="$MESH_LOGIN_SERVER" --authkey="$MESH_AUTH_KEY" --accept-dns=false
+  sudo tailscale up --login-server="$MESH_LOGIN_SERVER" --auth-key="file:$MESH_KEY_FILE" --accept-dns=false
+  rm -f "$MESH_KEY_FILE"
   ok "on the private network as $(tailscale ip -4 | head -n1)"
 fi
 

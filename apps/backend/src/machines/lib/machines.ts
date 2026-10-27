@@ -114,11 +114,7 @@ export function manualAgentsOf(raw: unknown): ManualMachineAgent[] {
   }));
 }
 
-const quoted = (value: string): string => `'${value.replace(/'/g, `'\\''`)}'`;
 
-export function joinEnv(values: Record<string, string>): string {
-  return `${Object.entries(values).map(([name, value]) => `${name}=${quoted(value)}`).join('\n')}\n`;
-}
 
 export interface ChosenMachine {
   name: string;

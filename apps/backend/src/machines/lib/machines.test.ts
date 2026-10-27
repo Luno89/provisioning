@@ -1,14 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { execFileSync } from 'child_process';
-import { joinEnv, machineAgentsFrom, machineChoiceProblem, manualAgentsOf, manualAgentsProblem } from './machines.js';
-
-describe('the settings a machine is handed', () => {
-  it('reads back exactly in a shell, whatever the values hold', () => {
-    const values = { KOALA_ROOT_DIR: "/home/o'brien/my koala", KOALA_DEVICE_TOKEN: 'abc$HOME`x`', EMPTY: '' };
-    const read = execFileSync('sh', ['-c', `${joinEnv(values)}printf '%s|%s|%s' "$KOALA_ROOT_DIR" "$KOALA_DEVICE_TOKEN" "$EMPTY"`]).toString();
-    expect(read).toBe("/home/o'brien/my koala|abc$HOME`x`|");
-  });
-});
+import { machineAgentsFrom, machineChoiceProblem, manualAgentsOf, manualAgentsProblem } from './machines.js';
 
 describe('what a machine reports about its agents', () => {
   it('keeps well-formed agents, trims what is long, and drops the rest', () => {
