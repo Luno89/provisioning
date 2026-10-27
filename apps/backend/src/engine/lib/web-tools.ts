@@ -11,6 +11,8 @@ export interface WebToolsConfig {
   crawl4aiUrl?: string | undefined;
   crawl4aiToken?: string | undefined;
   fetchImpl?: typeof fetch;
+  pageFetch?: typeof fetch;
+  pageCheck?: ((url: string) => Promise<string | undefined>) | undefined;
 }
 
 export interface SearchOutcome {
@@ -190,11 +192,13 @@ export function createWebTools(config: WebToolsConfig = {}): WebTools {
 
     async readPage(url: string, signal?: AbortSignal): Promise<PageOutcome> {
       if (!/^https?:\/\//i.test(url)) return { ok: false, text: 'Only http and https URLs can be fetched.' };
+      const refused = await config.pageCheck?.(url);
+      if (refused) return { ok: false, declined: true, text: `Koala fetches only pages on the open internet, and not this one: ${refused}.` };
       if (scrape) {
         const markdown = await scrape(url, signal);
         if (markdown) return { ok: true, text: markdown };
       }
-      return stripTags(doFetch, url, signal);
+      return stripTags(config.pageFetch ?? doFetch, url, signal);
     },
 
     async fetchPage(url: string, signal?: AbortSignal): Promise<string> {

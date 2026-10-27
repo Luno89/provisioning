@@ -55,3 +55,4 @@ export { BaseService } from './services/BaseService.js';
 export { MailError, MailService } from './services/MailService.js';
 export { MetricsService } from './services/MetricsService.js';
 export { PayloadStorageService } from './services/PayloadStorageService.js';
+export { NotPublicError, publicAddressProblem, publicFetch } from './services/public-fetch.js';

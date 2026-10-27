@@ -194,3 +194,14 @@ describe('sources', () => {
       .toEqual({ search: 'searxng', fetch: 'crawl4ai' });
   });
 });
+
+describe('reading a page for a run', () => {
+  it('asks whether the page is on the open internet before anything fetches it, crawl4ai included', async () => {
+    const calls: string[] = [];
+    const fetchImpl = (async (input: string | URL | Request) => { calls.push(String(input)); return new Response('<p>page</p>'); }) as typeof fetch;
+    const tools = createWebTools({ fetchImpl, pageFetch: fetchImpl, crawl4aiUrl: 'http://crawl4ai:11235', crawl4aiToken: 't', pageCheck: async (url) => (url.includes('169.254') ? '169.254.169.254 is a private, loopback, mesh or reserved address' : undefined) });
+    expect(await tools.readPage('http://169.254.169.254/latest/meta-data/')).toEqual({ ok: false, declined: true, text: 'Koala fetches only pages on the open internet, and not this one: 169.254.169.254 is a private, loopback, mesh or reserved address.' });
+    expect(calls).toEqual([]);
+    expect((await tools.readPage('https://example.com/')).ok).toBe(true);
+  });
+});

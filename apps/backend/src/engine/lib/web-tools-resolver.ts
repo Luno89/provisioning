@@ -15,6 +15,8 @@ export interface WebToolsDeps {
   serviceUrl: (clusterId: string, serviceKey: string, kubeconfigPath: string, target: ProxyTarget) => Promise<string>;
   kubeconfigFor: (clusterId: string) => Promise<string | undefined>;
   env?: NodeJS.ProcessEnv;
+  pageFetch?: typeof fetch;
+  pageCheck?: ((url: string) => Promise<string | undefined>) | undefined;
 }
 
 export function webToolsDepsFrom(
@@ -81,6 +83,8 @@ export async function resolveWebTools(deps: WebToolsDeps, ownerId?: string): Pro
     || undefined;
 
   const tools = createWebTools({
+    ...(deps.pageFetch ? { pageFetch: deps.pageFetch } : {}),
+    ...(deps.pageCheck ? { pageCheck: deps.pageCheck } : {}),
     ...(searxngUrl ? { searxngUrl } : {}),
     ...(crawl4aiUrl && crawl4aiToken ? { crawl4aiUrl, crawl4aiToken } : {}),
   });
