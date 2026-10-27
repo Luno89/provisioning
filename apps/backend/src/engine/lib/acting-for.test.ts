@@ -22,7 +22,7 @@ describe('what Koala may do for a member of a shared project', () => {
   });
 
   it('holds back everything outside the project: clusters, checks, procedures, memory, other agents\' runs', () => {
-    for (const tool of ['list_infrastructure', 'get_logs', 'write_check', 'save_procedure', 'save_memory', 'search_memories', 'read_run', 'propose_deploy_app', 'fetch_web_page', 'list_tree_types']) {
+    for (const tool of ['list_infrastructure', 'get_logs', 'write_check', 'save_procedure', 'save_memory', 'search_memories', 'read_run', 'propose_deploy_app', 'list_tree_types']) {
       expect(memberCallProblem(tool, {}, scope, client), tool).toBe(`Koala is answering cy@example.com, a client on this shared project, so it may not use ${tool}, which reaches beyond the project.`);
       expect(offeredToMember(tool), tool).toBe(false);
     }

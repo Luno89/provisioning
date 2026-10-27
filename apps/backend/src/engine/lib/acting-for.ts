@@ -50,9 +50,9 @@ export const MEMBER_REACH: Readonly<Record<string, MemberReach>> = {
   run_command: 'project',
 
   search_web: 'anywhere',
+  fetch_web_page: 'anywhere',
   record_verdict: 'anywhere',
 
-  fetch_web_page: 'denied',
   describe_tree_type: 'denied',
   list_tree_types: 'denied',
   app_health: 'denied',
