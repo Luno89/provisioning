@@ -249,7 +249,8 @@ it (`releaseFinishedTokens` in `engine-host/sandboxes/image-builder.ts`: when a 
 and before every new build). The tokens left from before are revoked once per instance after the backend starts (`build-tokens-revoked`,
 `cleanUpBuildTokens`, through the migrations ledger): every git-built app's pull secret is rewritten to the read-only login
 first (`gitappPullSecretArgs`, the same secret a deploy writes), and it waits for a later start, revoking nothing, while a build
-runs in `pipeline-builds` or an app's cluster cannot be reached.
+runs in `pipeline-builds` or an app's cluster cannot be found (through `ClusterService.getByIdUnscoped`, which knows the system
+cluster the stored records leave out) or reached.
 
 The public-path allow-list lives in `platform/middleware/auth.ts`, **not** in `accounts/routes/auth.ts` — a router
 that could exempt itself is a router that can quietly stop being protected, so adding a route that

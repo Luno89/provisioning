@@ -12,7 +12,7 @@ function world(over: Partial<BuildTokenCleanupDeps> = {}) {
   const revoked: string[] = [];
   const deps: BuildTokenCleanupDeps = {
     deployments: async () => [app('shop', 'gitapp'), app('books', 'audiobookshelf'), app('api', 'gitapp', 'mine'), app('old', 'gitapp', 'system', { status: 'destroying' })],
-    clusters: async () => [cluster('system'), cluster('mine')],
+    clusterOf: async (id) => [cluster('system'), cluster('mine')].find((entry) => entry.id === id),
     kubeconfigOf: async (entry) => `/tmp/kubeconfig-${entry.id}`,
     writePullSecret: async (namespace, kubeconfig) => { written.push(`${namespace}@${kubeconfig}`); },
     runningBuilds: async () => 0,
@@ -47,9 +47,9 @@ describe('the build tokens Koala never revoked', () => {
 
   });
 
-  it('pass over an app whose cluster Koala no longer has, since nothing pulls for it', async () => {
-    const orphaned = world({ clusters: async () => [cluster('system')] });
-    expect(await cleanUpBuildTokens(orphaned.deps)).toEqual({ pullSecretsRewritten: 1, buildTokensRevoked: 2 });
-    expect(orphaned.written).toEqual(['shop-abc123@/tmp/kubeconfig-system']);
+  it('wait, revoking nothing, for an app whose cluster Koala cannot find, rather than leave it pulling with a revoked token', async () => {
+    const orphaned = world({ clusterOf: async (id) => (id === 'system' ? cluster('system') : undefined) });
+    await expect(cleanUpBuildTokens(orphaned.deps)).rejects.toThrow('the pull secret of api (Koala knows no cluster mine) could not be rewritten, and it may use one');
+    expect(orphaned.revoked).toEqual([]);
   });
 });

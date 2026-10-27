@@ -5,7 +5,7 @@ export const BUILD_TOKENS_MIGRATION = 'build-tokens-revoked';
 
 export interface BuildTokenCleanupDeps {
   deployments(): Promise<DeploymentMetadata[]>;
-  clusters(): Promise<ClusterMetadata[]>;
+  clusterOf(id: string): Promise<ClusterMetadata | undefined>;
   kubeconfigOf(cluster: ClusterMetadata): Promise<string>;
   writePullSecret(namespace: string, kubeconfig: string): Promise<void>;
   runningBuilds(): Promise<number>;
@@ -19,16 +19,13 @@ export async function cleanUpBuildTokens(deps: BuildTokenCleanupDeps): Promise<R
   const running = await deps.runningBuilds();
   if (running > 0) throw new BuildTokensWait(`${running} build${running === 1 ? ' is' : 's are'} running and may hold one`);
 
-  const clusters = await deps.clusters();
   const apps = (await deps.deployments()).filter((deployment) => deployment.appType === 'gitapp' && deployment.status !== 'destroying');
   const unreachable: string[] = [];
-  let rewritten = 0;
   for (const app of apps) {
-    const cluster = clusters.find((entry) => entry.id === app.clusterId);
-    if (!cluster) continue;
     try {
+      const cluster = await deps.clusterOf(app.clusterId);
+      if (!cluster) throw new Error(`Koala knows no cluster ${app.clusterId}`);
       await deps.writePullSecret(namespaceOf(app), await deps.kubeconfigOf(cluster));
-      rewritten += 1;
     } catch (err) {
       unreachable.push(`${app.name} (${(err as Error).message})`);
     }
@@ -37,5 +34,5 @@ export async function cleanUpBuildTokens(deps: BuildTokenCleanupDeps): Promise<R
 
   const tokens = await deps.buildTokens();
   for (const name of tokens) await deps.revoke(name);
-  return { pullSecretsRewritten: rewritten, buildTokensRevoked: tokens.length };
+  return { pullSecretsRewritten: apps.length, buildTokensRevoked: tokens.length };
 }

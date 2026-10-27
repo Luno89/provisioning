@@ -417,7 +417,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     const systemKubeconfig = '/tmp/kubeconfig-provisioning-lunorica';
     runOnce(db.platform, BUILD_TOKENS_MIGRATION, new Date().toISOString(), () => cleanUpBuildTokens({
       deployments: () => db.infrastructure.getDeployments(),
-      clusters: () => db.infrastructure.getClusters(),
+      clusterOf: (id) => clusterService.getByIdUnscoped(id),
       kubeconfigOf: (cluster) => clusterService.getKubeconfigPath(cluster),
       writePullSecret: async (namespace, kubeconfig) => {
         const secret = await infraService.runKubectl(gitappPullSecretArgs(namespace, await giteaService.getRegistryHost(), await giteaService.registryLogin()), kubeconfig);
