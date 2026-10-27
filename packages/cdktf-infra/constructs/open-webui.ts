@@ -1,5 +1,6 @@
 import { Construct } from "constructs";
 import { Namespace } from "../.gen/providers/kubernetes/namespace/index.js";
+import { secretEnv, type SecretEnvEntry } from "../lib/app-secret.js";
 import { Deployment } from "../.gen/providers/kubernetes/deployment/index.js";
 import { Service } from "../.gen/providers/kubernetes/service/index.js";
 import { PersistentVolumeClaim } from "../.gen/providers/kubernetes/persistent-volume-claim/index.js";
@@ -61,7 +62,7 @@ export class OpenWebUiApp extends Construct {
       waitUntilBound: false,
     });
 
-    const env: { name: string; value: string }[] = [
+    const env: ({ name: string; value: string } | SecretEnvEntry)[] = [
       // Open WebUI's Ollama integration is on by default and probes for a local Ollama server
       // on every page load if left enabled — pointless and noisy when the only backend is an
       // OpenAI-API-compatible one (vLLM).
@@ -69,7 +70,7 @@ export class OpenWebUiApp extends Construct {
       { name: "ENABLE_OPENAI_API", value: "true" },
       // vLLM's OpenAI-compatible server doesn't check the API key, but Open WebUI's client
       // refuses to make requests with a completely empty one — any non-empty placeholder works.
-      { name: "OPENAI_API_KEY", value: config.openaiApiKey || "not-needed" },
+      ...secretEnv(this, ns.metadata.name, "open-webui-secrets", { OPENAI_API_KEY: config.openaiApiKey || "not-needed" }),
     ];
     if (config.openaiApiBaseUrl) {
       env.push({ name: "OPENAI_API_BASE_URL", value: config.openaiApiBaseUrl });

@@ -1,5 +1,6 @@
 import { Construct } from "constructs";
 import { Namespace } from "../.gen/providers/kubernetes/namespace/index.js";
+import { secretEnv, type SecretEnvEntry } from "../lib/app-secret.js";
 import { Deployment } from "../.gen/providers/kubernetes/deployment/index.js";
 import { Service } from "../.gen/providers/kubernetes/service/index.js";
 import { PersistentVolumeClaim } from "../.gen/providers/kubernetes/persistent-volume-claim/index.js";
@@ -52,13 +53,15 @@ export class HermesAgentApp extends Construct {
       waitUntilBound: false,
     });
 
-    const env: { name: string; value: string }[] = [
+    const env: ({ name: string; value: string } | SecretEnvEntry)[] = [
       { name: "HERMES_DASHBOARD", value: "true" },
       { name: "HERMES_DASHBOARD_HOST", value: "0.0.0.0" },
       { name: "HERMES_DASHBOARD_PORT", value: "9119" },
       { name: "HERMES_DASHBOARD_BASIC_AUTH_USERNAME", value: config.dashboardAuthUsername || "admin" },
-      { name: "HERMES_DASHBOARD_BASIC_AUTH_PASSWORD", value: config.dashboardAuthPassword || "hermes123" },
-      { name: "OPENAI_API_KEY", value: config.openaiApiKey || "not-needed" },
+      ...secretEnv(this, ns.metadata.name, "hermes-secrets", {
+        HERMES_DASHBOARD_BASIC_AUTH_PASSWORD: config.dashboardAuthPassword || "hermes123",
+        OPENAI_API_KEY: config.openaiApiKey || "not-needed",
+      }),
     ];
 
     if (config.openaiApiBaseUrl) {

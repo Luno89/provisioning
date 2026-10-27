@@ -3,7 +3,7 @@ import { Construct } from "constructs";
 import { Namespace } from "../.gen/providers/kubernetes/namespace/index.js";
 import { Deployment } from "../.gen/providers/kubernetes/deployment/index.js";
 import { Service } from "../.gen/providers/kubernetes/service/index.js";
-import { Secret } from "../.gen/providers/kubernetes/secret/index.js";
+import { secretEnv } from "../lib/app-secret.js";
 import { Manifest } from "../.gen/providers/kubernetes/manifest/index.js";
 import { createAppIngress } from "../lib/app-ingress.js";
 import { createAppProbe } from "../lib/app-probe.js";
@@ -91,17 +91,7 @@ export class VllmApp extends Construct {
       },
     });
 
-    if (hfToken) {
-      new Secret(this, "hf-token-secret", {
-        metadata: {
-          name: "hf-token-secret",
-          namespace: ns.metadata.name,
-        },
-        data: {
-          token: hfToken,
-        },
-      });
-    }
+    const tokenEnv = secretEnv(this, ns.metadata.name, "hf-token-secret", { HF_TOKEN: hfToken, HUGGING_FACE_HUB_TOKEN: hfToken });
 
     const sanitizedName = namespaceName.toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
 
@@ -123,14 +113,7 @@ export class VllmApp extends Construct {
           name: "VLLM_TARGET_DEVICE",
           value: device,
         },
-        {
-          name: "HF_TOKEN",
-          value: hfToken,
-        },
-        {
-          name: "HUGGING_FACE_HUB_TOKEN",
-          value: hfToken,
-        },
+        ...tokenEnv,
       ],
       port: [
         {

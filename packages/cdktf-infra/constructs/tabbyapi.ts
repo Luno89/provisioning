@@ -1,5 +1,6 @@
 import { Construct } from "constructs";
 import { Namespace } from "../.gen/providers/kubernetes/namespace/index.js";
+import { secretEnv, type SecretEnvEntry } from "../lib/app-secret.js";
 import { Deployment } from "../.gen/providers/kubernetes/deployment/index.js";
 import { Service } from "../.gen/providers/kubernetes/service/index.js";
 import { createAppIngress } from "../lib/app-ingress.js";
@@ -140,7 +141,7 @@ export class TabbyApiApp extends Construct {
 
     const sanitizedName = namespaceName.toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
 
-    const envVars: { name: string; value: string }[] = [
+    const envVars: ({ name: string; value: string } | SecretEnvEntry)[] = [
       { name: "TABBY_NETWORK_HOST", value: "0.0.0.0" },
       { name: "TABBY_NETWORK_PORT", value: "5000" },
       // Upstream defaults disable_auth to false (an admin/api key is required and
@@ -171,7 +172,7 @@ export class TabbyApiApp extends Construct {
       // inlineModelLoading) wouldn't auto-inherit them unless the load request passes them
       // explicitly.
       ...(config.toolFormat ? [{ name: "TABBY_MODEL_TOOL_FORMAT", value: config.toolFormat }] : []),
-      ...(hfToken ? [{ name: "HF_TOKEN", value: hfToken }, { name: "HUGGING_FACE_HUB_TOKEN", value: hfToken }] : []),
+      ...secretEnv(this, ns.metadata.name, "hf-token-secret", { HF_TOKEN: hfToken, HUGGING_FACE_HUB_TOKEN: hfToken }),
     ];
 
     // extraEnv passthrough for the ~30 other config.yml fields not worth a dedicated UI field

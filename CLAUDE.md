@@ -644,6 +644,10 @@ mesh address, no pool), removes the pool copy and frees its ports. A failure rep
 thaws the pool copy and stops it again if it was stopped. `npm run test:pool-live` proves the pool, its monitoring, root's
 admin removal and the move on two VMs (`POOL_LIVE_ENDING=delete` ends with an admin's Delete instead of the move).
 
+**An app's secrets never sit in its Deployment**: a construct puts a token, key or password in a Secret it makes and the
+container reads it with `secretKeyRef` (`secretEnv` in `packages/cdktf-infra/lib/app-secret.ts`; vLLM, TabbyAPI, Open WebUI,
+Hermes), since `inspect_resources` reads a Deployment and never a Secret. `constructs/app-secrets.test.ts` synthesizes each.
+
 **Every cluster that runs apps has monitoring.** Before an app is deployed, `ensureClusterMonitoring`
 (`activities/cluster-monitoring.ts`, rule in `monitoring/lib/cluster-monitoring.ts`) asks the cluster whether it serves
 `probes.monitoring.coreos.com` and has blackbox-exporter. It applies whatever is missing: the cluster stack (`ENV=remote`,
