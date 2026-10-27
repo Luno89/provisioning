@@ -314,7 +314,12 @@ export class MongoEngineStore implements EngineStore {
     const doc = toDoc(conversation);
     const id = doc._id;
     const { _id, ...rest } = doc;
-    await this.conversations.replaceOne({ _id: id }, rest, { upsert: true });
+    try {
+      await this.conversations.replaceOne({ _id: id, ownerId: conversation.ownerId }, rest, { upsert: true });
+    } catch (err) {
+      if ((err as { code?: number }).code === 11000) throw new Error('You have no conversation with that id.');
+      throw err;
+    }
   }
 
   async deleteConversation(id: string): Promise<void> {

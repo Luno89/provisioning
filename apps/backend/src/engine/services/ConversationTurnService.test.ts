@@ -63,3 +63,16 @@ describe('a conversation turn on the server', () => {
     expect(current()!.messages.at(-1)).toMatchObject({ role: 'assistant', content: '', interruptedReason: 'the run could not start: Temporal is down' });
   });
 });
+
+describe('a turn opened on someone else\'s conversation', () => {
+  it('is refused, and their conversation is left as it was', async () => {
+    const { testDatabase } = await import('../../platform/lib/test-database.js');
+    const db = await testDatabase();
+    const theirs: Conversation = { id: 'c-theirs', ownerId: 'bo', title: 'Private', messages: [{ role: 'user', content: 'my secret plans', at }], createdAt: at, updatedAt: at };
+    await db.engine.saveConversation(theirs);
+    const service = new ConversationTurnService({ store: db.engine, log: db.engine, running: async () => true, now: () => at });
+    await expect(service.open({ ownerId: 'eve', conversationId: 'c-theirs', runId: 'r1', message: 'overwrite it' })).rejects.toThrow('You have no conversation with that id.');
+    expect(await db.engine.getConversation('bo', 'c-theirs')).toMatchObject({ ownerId: 'bo', messages: [{ content: 'my secret plans' }] });
+    expect(await db.engine.getConversation('eve', 'c-theirs')).toBeUndefined();
+  });
+});
