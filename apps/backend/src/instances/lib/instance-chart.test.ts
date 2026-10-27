@@ -111,6 +111,7 @@ describe('the instance chart', () => {
       const job = find(docs, 'Job', `luno-${step}`);
       expect(job.metadata.annotations?.['helm.sh/hook']).toBe('post-install,post-upgrade');
       expect(job.spec.template.spec.containers[0].args).toEqual([step]);
+      expect(job.spec.template.spec.containers[0].env).toContainEqual({ name: 'POD_NAMESPACE', valueFrom: { fieldRef: { fieldPath: 'metadata.namespace' } } });
     }
   });
 

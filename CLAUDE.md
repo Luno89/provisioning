@@ -229,7 +229,10 @@ server's URL go through them. Root takes an instance's mesh address only from it
 `/api` is not served on the mesh's public name.
 **Only an instance's own pods reach its Temporal, Temporal's database and Mongo** (W7, `charts/instance/templates/networkpolicy.yaml`,
 enforced by k3s's network policy controller; a pool vcluster copies it to the host, `sync.toHost.networkPolicies`), so an app,
-a release slot or a build on the same cluster cannot; sandboxes were already shut in by their own `default-deny`.
+a release slot or a build on the same cluster cannot; sandboxes were already shut in by their own `default-deny`. An instance's
+SearXNG and Crawl4AI are ClusterIP only and answer only its own namespace (`scripts/instance/platform-services.sh`, run with
+`POD_NAMESPACE` by the setup job; `scripts/dev.sh` runs it without, leaving the dev box's NodePorts). `test:instance-live` knocks
+on each from another namespace and from the instance's.
 
 The public-path allow-list lives in `platform/middleware/auth.ts`, **not** in `accounts/routes/auth.ts` — a router
 that could exempt itself is a router that can quietly stop being protected, so adding a route that

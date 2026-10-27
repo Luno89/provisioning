@@ -15,17 +15,33 @@ EGRESS_CONFIG="$(sha256sum "${ROOT}/k8s/koala-egress/egress-proxy.yaml" | cut -c
 "$KUBECTL" --context "$CONTEXT" -n koala-egress patch deployment egress-proxy --type merge \
   -p "{\"spec\":{\"template\":{\"metadata\":{\"annotations\":{\"koala.dev/egress-config\":\"${EGRESS_CONFIG}\"}}}}}" >/dev/null \
   || echo "  ⚠️  The egress proxy was not restarted onto its new rules — run: kubectl -n koala-egress rollout restart deploy/egress-proxy"
-apply_services() {
-  if [ "${POOL:-}" = true ]; then
-    for manifest in "$1"/*.yaml; do echo ---; cat "$manifest"; done | sed -e 's/type: NodePort/type: ClusterIP/' -e '/nodePort:/d' | "$KUBECTL" --context "$CONTEXT" apply -f -
-  else
-    "$KUBECTL" --context "$CONTEXT" apply -f "$1"
+services() {
+  if [ -z "${POD_NAMESPACE:-}" ]; then
+    for manifest in "$1"/*.yaml; do echo ---; cat "$manifest"; done
+    return
   fi
+  for manifest in "$1"/*.yaml; do echo ---; cat "$manifest"; done | sed -e 's/type: NodePort/type: ClusterIP/' -e '/nodePort:/d'
+  cat <<POLICY
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: koala-only
+  namespace: $2
+spec:
+  podSelector: {}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ${POD_NAMESPACE}
+POLICY
 }
 
-apply_services "${ROOT}/k8s/searxng/" \
+services "${ROOT}/k8s/searxng" searxng | "$KUBECTL" --context "$CONTEXT" apply -f - \
   || echo "  ⚠️  SearXNG apply failed — web_search will fall back to DuckDuckGo"
-apply_services "${ROOT}/k8s/crawl4ai/" \
+services "${ROOT}/k8s/crawl4ai" crawl4ai | "$KUBECTL" --context "$CONTEXT" apply -f - \
   || echo "  ⚠️  Crawl4AI apply failed — fetch_web_page will fall back to raw HTML stripping"
 
 bash "${ROOT}/scripts/ensure-gitea.sh"
