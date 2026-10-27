@@ -65,6 +65,17 @@ describe('a pattern a file must match', () => {
     expect(outcome?.passed).toBe(false);
     expect(outcome?.says).toMatch(/not a regular expression/);
   });
+
+  it('answers a pattern that would never come back from a backtracking engine, and refuses a lookahead, saying which patterns run', async () => {
+    const started = Date.now();
+    const [stuck] = await runTaskChecks(environment(quiet, { 'long.txt': `${'a'.repeat(50_000)}!` }), { contentPath: 'long.txt', contentPattern: '^(a+)+$' });
+    expect(stuck?.passed).toBe(false);
+    expect(Date.now() - started).toBeLessThan(5_000);
+
+    const [ahead] = await runTaskChecks(environment(quiet, files), { contentPath: 'notes.md', contentPattern: 'second(?! line)' });
+    expect(ahead?.passed).toBe(false);
+    expect(ahead?.says).toMatch(/not a regular expression Koala runs \(RE2: no lookarounds or backreferences\)/);
+  });
 });
 
 describe('a command a task says must hold', () => {

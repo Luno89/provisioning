@@ -178,7 +178,8 @@ describe('what a turn check may expect the model to choose', () => {
 
   it('refuses argument checks on a turn that should call nothing, and a broken pattern', () => {
     expect(turnChoiceProblems({ tool: null, args: [{ arg: 'x', nonEmpty: true }] }, [])).toEqual(['a turn that chooses no tool has no arguments to check']);
-    expect(turnChoiceProblems({ tool: 'save_procedure', args: [{ arg: 'source', matches: '(' }] }, [writeProcedure])).toEqual(['"(" is not a valid pattern']);
+    expect(turnChoiceProblems({ tool: 'save_procedure', args: [{ arg: 'source', matches: '(' }] }, [writeProcedure])).toEqual(['"(" is not a valid pattern (RE2: no lookarounds or backreferences)']);
+    expect(turnChoiceProblems({ tool: 'save_procedure', args: [{ arg: 'source', matches: '(\\w)\\1' }] }, [writeProcedure])).toEqual(['"(\\w)\\1" is not a valid pattern (RE2: no lookarounds or backreferences)']);
   });
 
   it('says what it checks in a line', () => {

@@ -1,3 +1,4 @@
+import { linearPattern, PATTERN_DIALECT } from '../../platform/lib/linear-patterns.js';
 import type { TaskChecks } from '../../projects/index.js';
 import { browserTestsMissing } from './browser-tests.js';
 import { E2E_REPORT, E2E_RUNNER_MISSING, e2eCommand, e2eSummary, e2eTarget, printedTail, readE2EReport, type E2ERequest } from './e2e.js';
@@ -47,11 +48,11 @@ async function contentMatches(environment: CheckEnvironment, path: string, patte
 
   let matches: boolean;
   try {
-    matches = new RegExp(pattern, 'm').test(content);
+    matches = linearPattern(pattern, { multiline: true }).test(content);
   } catch (err) {
     // A pattern that is not a regular expression is a plan's mistake, and it is not the work's fault —
     // but it cannot pass either, so it fails saying what is wrong with the pattern.
-    return { check, passed: false, says: `the pattern is not a regular expression: ${(err as Error).message}` };
+    return { check, passed: false, says: `the pattern is not a regular expression Koala runs (${PATTERN_DIALECT}): ${(err as Error).message}` };
   }
 
   return { check, passed: matches, says: matches ? 'the pattern is in it' : 'the pattern is not in it' };

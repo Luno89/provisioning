@@ -238,6 +238,10 @@ address**: `install.sh` writes `/etc/rancher/k3s/config.yaml.d/koala-node-ports.
 ClusterIP, and the instance reaches Gitea and Infisical in the cluster, pushing images there and pulling them through
 `127.0.0.1:31737` (`registry.pullHost`), as the pool does. The VM suites reach the instance through an SSH tunnel to the VM's
 loopback (`loopback` in `createDisposableVm`); `test:byo-live` checks the backend and Gitea answer there and not on the VM's address.
+**A pattern a model, the memory keeper or a person writes runs on RE2** (`platform/lib/linear-patterns.ts`, `re2js` pinned): a task
+check's `contentPattern`, a check script's `asked`/`system`/`said` and a turn check's `matches`. It finishes in time linear in what it
+reads, so a pattern cannot freeze the engine worker; lookarounds and backreferences are refused as not a pattern Koala runs, and every
+shipped check's patterns are compiled under it by `linear-patterns.test.ts`.
 
 The public-path allow-list lives in `platform/middleware/auth.ts`, **not** in `accounts/routes/auth.ts` — a router
 that could exempt itself is a router that can quietly stop being protected, so adding a route that

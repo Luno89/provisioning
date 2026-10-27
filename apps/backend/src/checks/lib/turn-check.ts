@@ -1,3 +1,4 @@
+import { linearPattern, PATTERN_DIALECT } from '../../platform/lib/linear-patterns.js';
 import type { ToolDefinition } from '@koala/agent-engine';
 import type { GroupDefinition, NodeCatalogue, Procedure } from '@koala/agent-engine/procedure';
 import { procedureBuilder } from '@koala/agent-engine/procedure-builder';
@@ -82,9 +83,9 @@ export function turnChoiceProblems(choice: unknown, tools: readonly ToolDefiniti
     else if (tool && !(check.arg in (tool.parameters.properties ?? {}))) problems.push(`${where}${tool.name} has no argument called "${check.arg}"`);
     else if ('matches' in check) {
       try {
-        new RegExp(check.matches);
+        linearPattern(check.matches);
       } catch {
-        problems.push(`${where}"${check.matches}" is not a valid pattern`);
+        problems.push(`${where}"${check.matches}" is not a valid pattern (${PATTERN_DIALECT})`);
       }
     }
   }
@@ -103,7 +104,7 @@ function argComplaint(check: ArgCheck, value: unknown): string | undefined {
     return `sent "${check.arg}" as ${clip(text, 60)}, wanted ${check.is}`;
   }
   if ('contains' in check) return text.includes(check.contains) ? undefined : `"${check.arg}" does not contain ${JSON.stringify(check.contains)}: ${clip(text, 80)}`;
-  if ('matches' in check) return new RegExp(check.matches).test(text) ? undefined : `"${check.arg}" does not match /${check.matches}/: ${clip(text, 80)}`;
+  if ('matches' in check) return linearPattern(check.matches).test(text) ? undefined : `"${check.arg}" does not match /${check.matches}/: ${clip(text, 80)}`;
   return text.trim() ? undefined : `sent "${check.arg}" empty`;
 }
 

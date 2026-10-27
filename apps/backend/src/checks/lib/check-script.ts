@@ -1,3 +1,5 @@
+import { firstMatch, linearPattern, PATTERN_DIALECT, type LinearPattern } from '../../platform/lib/linear-patterns.js';
+
 export interface ScriptedRequestRecord {
   ownerId: string;
   at: string;
@@ -76,7 +78,7 @@ export const thisTurn = (request: ScriptRequest): ScriptMessage[] =>
 
 const calledIn = (messages: readonly ScriptMessage[]): string[] => messages.flatMap((message) => (message.tool_calls ?? []).map((call) => call.function.name));
 
-const regex = (pattern: string): RegExp => new RegExp(pattern, 's');
+const regex = (pattern: string): LinearPattern => linearPattern(pattern, { dotAll: true });
 
 function lookupsIn(value: unknown, found: string[] = []): string[] {
   if (typeof value === 'string') for (const match of value.matchAll(LOOKUP)) found.push(match[1]!);
@@ -104,7 +106,7 @@ export function scriptProblems(script: unknown, knownTools: ReadonlySet<string>)
       try {
         regex(pattern);
       } catch (err) {
-        problems.push(`${where}: ${key} is not a regular expression: ${(err as Error).message}`);
+        problems.push(`${where}: ${key} is not a regular expression Koala runs (${PATTERN_DIALECT}): ${(err as Error).message}`);
       }
     }
     for (const key of ['offered', 'called', 'notCalled'] as const) {
@@ -121,8 +123,8 @@ export function scriptProblems(script: unknown, knownTools: ReadonlySet<string>)
 }
 
 interface Matched {
-  asked: RegExpMatchArray | null;
-  said: RegExpMatchArray | null;
+  asked: (string | undefined)[] | null;
+  said: (string | undefined)[] | null;
 }
 
 function matches(rule: ScriptRule, request: ScriptRequest): Matched | undefined {
@@ -134,10 +136,10 @@ function matches(rule: ScriptRule, request: ScriptRequest): Matched | undefined 
   const asked = request.messages.filter((message) => message.role === 'user').at(-1)?.content ?? '';
   const system = request.messages.filter((message) => message.role === 'system').map(textOf).join('\n');
   const said = request.messages.map(textOf).join('\n');
-  const askedMatch = when.asked === undefined ? null : asked.match(regex(when.asked));
+  const askedMatch = when.asked === undefined ? null : firstMatch(regex(when.asked), asked);
   if (when.asked !== undefined && !askedMatch) return undefined;
   if (when.system !== undefined && !regex(when.system).test(system)) return undefined;
-  const saidMatch = when.said === undefined ? null : said.match(regex(when.said));
+  const saidMatch = when.said === undefined ? null : firstMatch(regex(when.said), said);
   if (when.said !== undefined && !saidMatch) return undefined;
   return { asked: askedMatch, said: saidMatch };
 }

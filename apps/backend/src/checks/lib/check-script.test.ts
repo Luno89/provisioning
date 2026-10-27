@@ -58,12 +58,14 @@ describe('a check script', () => {
       { when: { offered: ['fly'], asked: '(' }, reply: {} },
       { when: { mood: 'x' }, reply: { call: [{ tool: 'teleport', arguments: {} }], say: '{{weather}}' } },
     ] }, TOOLS)).toEqual([
-      'rule 1: asked is not a regular expression: Invalid regular expression: /(/s: Unterminated group',
+      'rule 1: asked is not a regular expression Koala runs (RE2: no lookarounds or backreferences): error parsing regexp: missing closing ): `(?s)(`',
       'rule 1: fly is not a tool',
       'rule 1 has to say something or call a tool',
       'rule 2: "mood" is not something a rule can match on',
       'rule 2 calls teleport, which is not a tool',
       'rule 2 looks up {{weather}}, which is not one of asked, said, directory, mentioned, result, world',
     ]);
+    expect(scriptProblems({ rules: [{ when: { said: 'again(?!.*failed)' }, reply: { say: 'ok' } }] }, TOOLS))
+      .toEqual(['rule 1: said is not a regular expression Koala runs (RE2: no lookarounds or backreferences): error parsing regexp: invalid or unsupported Perl syntax: `(?!`']);
   });
 });

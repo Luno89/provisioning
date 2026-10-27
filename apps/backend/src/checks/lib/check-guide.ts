@@ -91,7 +91,7 @@ export const EXPECTATIONS: Record<keyof ScenarioExpectations, Entry> = {
 export const ARG_CHECKS: Record<'is' | 'contains' | 'matches' | 'nonEmpty', Entry> = {
   is: { means: 'the argument is exactly this', example: '{ "arg": "taskId", "is": "t-42" }' },
   contains: { means: 'the argument has this text in it', example: '{ "arg": "path", "contains": "notes/todo.md" }' },
-  matches: { means: 'the argument matches this regular expression', example: '{ "arg": "source", "matches": "\\"finish\\"" }' },
+  matches: { means: 'the argument matches this regular expression (RE2: no lookarounds or backreferences)', example: '{ "arg": "source", "matches": "\\"finish\\"" }' },
   nonEmpty: { means: 'the argument is sent and not empty', example: '{ "arg": "query", "nonEmpty": true }' },
 };
 
@@ -127,9 +127,9 @@ export const SCRIPT_WHEN: Record<keyof ScriptWhen, Entry> = {
   offered: { means: 'these tools are offered to the model' },
   called: { means: 'these tools were already called this turn' },
   notCalled: { means: 'these tools were not called yet this turn' },
-  asked: { means: 'the latest user message matches this regular expression' },
-  system: { means: 'the system prompt matches this regular expression' },
-  said: { means: 'the latest tool result matches this regular expression' },
+  asked: { means: 'the latest user message matches this regular expression (RE2: no lookarounds or backreferences)' },
+  system: { means: 'the system prompt matches this regular expression (RE2: no lookarounds or backreferences)' },
+  said: { means: 'the latest tool result matches this regular expression (RE2: no lookarounds or backreferences)' },
 };
 
 export const SCRIPT_REPLY: Record<keyof ScriptReply, Entry> = {
