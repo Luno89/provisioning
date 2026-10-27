@@ -10,6 +10,10 @@ export interface BindingTypesRouterDeps {
 
 const idOf = (req: Request): string => String(req.params.id ?? '').trim();
 
+const isAdmin = (req: Request): boolean => Boolean((req as unknown as { user?: { isAdmin?: boolean } }).user?.isAdmin);
+
+const EVERYONES = 'Binding types are used by everyone\'s deploys on this platform, so only an admin changes them';
+
 export function validateBindingType(candidate: unknown): string | null {
   if (!candidate || typeof candidate !== 'object') return 'Binding type must be an object';
   const c = candidate as Partial<BindingTypeRecord>;
@@ -42,6 +46,7 @@ export function bindingTypesRouter(
   }));
 
   router.put('/:id', asyncRoute(async (req, res) => {
+    if (!isAdmin(req)) return res.status(403).json({ error: EVERYONES });
     const id = idOf(req);
     const candidate: BindingTypeRecord = {
       ...(req.body ?? {}),
@@ -56,6 +61,7 @@ export function bindingTypesRouter(
   }));
 
   router.delete('/:id', asyncRoute(async (req, res) => {
+    if (!isAdmin(req)) return res.status(403).json({ error: EVERYONES });
     const id = idOf(req);
     if (!id) return res.status(400).json({ error: 'id required' });
     await db.deleteBindingType(id);
