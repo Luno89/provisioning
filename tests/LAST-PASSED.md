@@ -15,5 +15,5 @@ Written by `tests/lib/run-live.ts`, which every `npm run test:*-live` and `test:
 | `project-sharing-live` | 2026-10-26 23:57 | 2026-10-22 13:53 |
 | `release-live` | 2026-10-26 18:43 | 2026-10-26 18:13 |
 | `routes-live` | 2026-10-26 23:56 | 2026-10-24 05:15 |
-| `routing-live` | 2026-10-26 23:52 | 2026-10-22 20:20 |
+| `routing-live` | 2026-10-27 01:22 | 2026-10-22 20:20 |
 | `telemetry-live` | 2026-10-26 23:58 | — |
