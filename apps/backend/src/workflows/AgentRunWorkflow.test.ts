@@ -166,7 +166,7 @@ function activities(options: {
       EngineToolAllowedActivity: vi.fn(async (_args: { ownerId: string; conversationId: string; tool: string }) => false),
       EngineAutoModeActivity: vi.fn(async (_args: { ownerId: string; agentSlug: string; conversationId?: string; workspaceRunId?: string }) => false),
       EngineNodeActivity: createNodeRunner(hostNodes, undefined),
-      EngineResolveAgentActivity: vi.fn(createEngineActivities({ registry } as never).EngineResolveAgentActivity),
+      EngineResolveAgentActivity: vi.fn(createEngineActivities({ registry, machineProblem: theOwnersMachines } as never).EngineResolveAgentActivity),
       EngineToolActivity: vi.fn(async (args: ToolCallArgs) => ({ ok: true, digest: `ran ${args.name}`, content: `output of ${args.name}` })),
       EngineRecordTracesActivity: vi.fn(async (_args: RecordTracesArgs) => undefined),
       EngineMachineNameActivity: vi.fn(createEngineActivities({ machineName: async (_ownerId: string, deviceId: string) => (deviceId === 'desk' ? 'Desk' : undefined) } as never).EngineMachineNameActivity),
@@ -291,6 +291,8 @@ const delegating = (agent: string, inputs = '{"question":"why"}'): Procedure => 
 
 const callsATool = (id: string, name: string, args: string): Scripted =>
   ({ finishReason: 'tool_calls', toolCalls: [{ id, name, arguments: args }] });
+
+const theOwnersMachines = async (ownerId: string): Promise<string | undefined> => (ownerId === 'user-1' ? undefined : 'that machine is not one of yours any more');
 
 describe('AgentRunWorkflow', () => {
   it('runs a procedure to its answer, recording every node and publishing progress', async () => {
@@ -1879,6 +1881,7 @@ describe('an external agent working on someone\'s machine', () => {
       const acts = activities({ script: [{ content: 'because it was' }] });
       acts.engine.EngineResolveAgentActivity = vi.fn(createEngineActivities({
         registry: createAgentRegistry(),
+        machineProblem: theOwnersMachines,
         treeModel: async (_owner: string, turnId: string, slug: string) => (turnId === runId && slug === 'research' ? tree : undefined),
       } as never).EngineResolveAgentActivity);
 

@@ -18,7 +18,7 @@ const record = (name: string, runs: ServerRuns, tools: McpTool[]): McpServerReco
   id: name, ownerId: 'u1', name, runs, createdAt: 't0', updatedAt: 't0', captured: { tools, at: 't1', fingerprint: runsFingerprint(runs) },
 });
 const CATALOGUE = [
-  { ...record('gitea', HOSTED, [{ name: 'list_repos', annotations: { readOnlyHint: true } }, { name: 'create_issue' }]), tools: { list_repos: { kind: 'read-only' } } },
+  { ...record('gitea', HOSTED, [{ name: 'list_repos', annotations: { readOnlyHint: true } }, { name: 'create_issue' }]), tools: { list_repos: { kind: 'read-only' as const } } },
   record('echoes', WORKSPACE, [{ name: 'echo', description: 'Echo' }]),
 ];
 

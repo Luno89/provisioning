@@ -50,6 +50,7 @@ import { runCancelledVia, runEndedVia } from './engine-host/temporal/run-cancell
 import { createKubeRunner } from './engine-host/sandboxes/kube.js';
 
 import { createEventBus } from '@koala/agent-engine';
+import type { MachineChoice } from '@koala/agent-engine/procedure';
 import {
   createEngineActivities,
   createEffortTracker,
@@ -348,6 +349,10 @@ async function buildActivities() {
       .map((device) => ({ id: device.id, name: device.name, online: false, agents: device.agents ?? [] })),
     groups: platformGroups,
   });
+  const machineProblem = async (ownerId: string, choice: MachineChoice): Promise<string | undefined> => {
+    const device = (await db.machines.getLocalAgentDevices()).find((one) => one.id === choice.deviceId && one.ownerId === ownerId);
+    return machineChoiceProblem(device ? { name: device.name, online: false, agents: device.agents ?? [] } : undefined, choice.agent, { waitsToConnect: true, model: choice.model });
+  };
   const runStarter = createRunStarter({
     registry,
     workflows: () => ({
@@ -359,10 +364,7 @@ async function buildActivities() {
     }),
     binding: conversationBinding(db),
     closing: async (ownerId: string) => ((await db.accounts.getUserById(ownerId))?.removal ? 'it is being removed' : undefined),
-    machines: async (ownerId, choice) => {
-      const device = (await db.machines.getLocalAgentDevices()).find((one) => one.id === choice.deviceId && one.ownerId === ownerId);
-      return machineChoiceProblem(device ? { name: device.name, online: false, agents: device.agents ?? [] } : undefined, choice.agent, { waitsToConnect: true, model: choice.model });
-    },
+    machines: machineProblem,
   });
   builders.service = new WorkspaceBuildService({ runs: runStarter, trees: () => db.projects.getTrees(), hidden: (ownerId: string) => extensions.hidden(ownerId) });
   growers.launcher = createGroveLauncher({
@@ -408,6 +410,7 @@ async function buildActivities() {
     conversationAgent: async (ownerId, conversationId) => (await db.engine.getConversation(ownerId, conversationId))?.agentSlug,
     allowedTools: async (ownerId, conversationId) => (await db.engine.getConversation(ownerId, conversationId))?.allowedTools ?? [],
     autoMode: (args) => autoMode.unasked({ ...args, treeId: args.workspaceRunId ? treeOfWorkspace(args.workspaceRunId) : undefined }),
+    machineProblem,
     treeModel: async (ownerId, turnId, agentSlug) => {
       const treeId = treeOfGroveRun(turnId);
       return treeId ? treeModels.modelFor(ownerId, treeId, agentSlug) : undefined;

@@ -10,7 +10,7 @@ import {
   type EventBus,
 } from '@koala/agent-engine';
 import { UNRESOLVED_MODEL, type EffortTracker, type RunLimits, type RunLimitsArgs } from '../registries/effort.js';
-import { machineChoiceId, type RunEffort } from '@koala/agent-engine/procedure';
+import { machineChoiceId, type MachineChoice, type RunEffort } from '@koala/agent-engine/procedure';
 import {
   type NodeCatalogue,
   type NodeImplementation,
@@ -87,6 +87,7 @@ export interface EngineServices extends StreamServices {
   allowedTools?: ((ownerId: string, conversationId: string) => Promise<readonly string[]>) | undefined;
   autoMode?: ((args: AutoModeArgs) => Promise<boolean>) | undefined;
   treeModel?: ((ownerId: string, turnId: string, agentSlug: string) => Promise<{ modelId?: string | undefined } | undefined>) | undefined;
+  machineProblem?: ((ownerId: string, choice: MachineChoice) => Promise<string | undefined>) | undefined;
   /** the grove's tree stores (read-only use by the partition activity) */
   grove?: GroveStores | undefined;
   treeWorkspaces?: TreeWorkspaces | undefined;
@@ -232,6 +233,10 @@ export function createEngineActivities(services: EngineServices): EngineActiviti
         ? await services.registry.runnable(args.ownerId, args.agentSlug)
         : asked;
       if (!runnable) return { found: false, callableAgents: [] };
+      if (runnable.machine) {
+        const problem = services.machineProblem ? await services.machineProblem(args.ownerId, runnable.machine) : 'this worker cannot reach people\'s machines';
+        if (problem) throw ApplicationFailure.nonRetryable(`This run cannot go to that machine: ${problem}.`, 'MachineUnavailable');
+      }
 
       const callable = await services.registry.callable(args.ownerId, args.agentSlug);
 

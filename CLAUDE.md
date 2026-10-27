@@ -360,7 +360,9 @@ which never adds to a payload already stored). A new keyring restarts the worker
 **Picking an agent on a machine.** Every model picker except Checks has a "My machines" section:
 one row per ready agent per machine, `machine:<deviceId>:<agent>` (`machine-choice.ts`). A run picked that way runs the
 `external-agent-chat` procedure (chat) or `external-agent-task`, on that machine (`machineRunFor`, refused with
-`MACHINE_UNAVAILABLE` when the machine is gone, offline or its agent is not ready). An agent whose "Runs on" (Studio) is a
+`MACHINE_UNAVAILABLE` when the machine is gone, offline or its agent is not ready). A run under another run is held to the same
+check when its agent is resolved (`machineProblem` in `EngineResolveAgentActivity`): a machine that is not the run's owner's fails
+it, so a check's space, which owns no machine, never drives the person's own. An agent whose "Runs on" (Studio) is a
 machine always runs there. A chat's own model reaches as far as the person says in the model drawer (`modelReach` on
 the conversation, sent with each run, carried on the ticket): **this chat and the agents it hands work to** (the default)
 hands it down the runs it starts, a machine only to an agent whose procedure branches at Where It Runs (`handedDown` in
