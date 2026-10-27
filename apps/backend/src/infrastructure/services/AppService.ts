@@ -87,7 +87,7 @@ export class AppService extends BaseService {
             changed = true;
             this.logger.info(`Detected deployment ${dep.name} namespace ${ns} deleted outside the system. Syncing...`);
             if (io) {
-              io.emit('resource-destroyed', { id: dep.id, type: 'deployment', name: dep.name, outOfBand: true });
+              io.to(`user:${dep.ownerId}`).emit('resource-destroyed', { id: dep.id, type: 'deployment', name: dep.name, outOfBand: true });
             }
           }
         }
@@ -543,7 +543,7 @@ export class AppService extends BaseService {
         } catch { /* ignored */ }
 
         await this.db.infrastructure.deleteDeployment(id);
-        if (io) io.emit('resource-destroyed', { id, type: 'deployment', name: dep.name });
+        if (io) io.to(`user:${dep.ownerId}`).emit('resource-destroyed', { id, type: 'deployment', name: dep.name });
       } catch (err: any) {
         this.logger.error(`App destruction failed: ${err.message}`);
         await this.db.infrastructure.saveDeployment({ ...dep, status: 'failed' });
@@ -578,7 +578,7 @@ export class AppService extends BaseService {
 
         if (io) {
           io.to(id).emit('log', '\n--- DEPLOYMENT ABORTED AND CLEANED UP ---\n');
-          io.emit('resource-destroyed', { id, type: 'deployment', name: dep.name });
+          io.to(`user:${dep.ownerId}`).emit('resource-destroyed', { id, type: 'deployment', name: dep.name });
           io.emit('deployment:updated');
         }
       } catch (err: any) {

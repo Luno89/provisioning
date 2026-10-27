@@ -236,7 +236,7 @@ export class ClusterService extends BaseService {
           changed = true;
           this.logger.info(`Detected local cluster ${physicalName} deleted outside the system. Syncing...`);
           if (io) {
-            io.emit('resource-destroyed', { id: cluster.id, type: 'cluster', name: cluster.name, outOfBand: true });
+            io.to(`user:${cluster.ownerId}`).emit('resource-destroyed', { id: cluster.id, type: 'cluster', name: cluster.name, outOfBand: true });
           }
 
           try {
@@ -548,7 +548,7 @@ export class ClusterService extends BaseService {
           } catch { /* ignored */ }
           const clusters = await this.db.infrastructure.getClusters();
           await this.db.infrastructure.saveClusterList(clusters.filter((c: any) => c.id !== id));
-          if (io) io.emit('resource-destroyed', { id, type: 'cluster', name: cluster.name });
+          if (io) io.to(`user:${cluster.ownerId}`).emit('resource-destroyed', { id, type: 'cluster', name: cluster.name });
           return;
         }
 
@@ -572,7 +572,7 @@ export class ClusterService extends BaseService {
 
         const clusters = await this.db.infrastructure.getClusters();
         await this.db.infrastructure.saveClusterList(clusters.filter((c: any) => c.id !== id));
-        if (io) io.emit('resource-destroyed', { id, type: 'cluster', name: cluster.name });
+        if (io) io.to(`user:${cluster.ownerId}`).emit('resource-destroyed', { id, type: 'cluster', name: cluster.name });
       } catch (err: any) {
         this.logger.error(`Destruction failed: ${err.message}`);
         await this.db.infrastructure.saveCluster({ ...cluster, status: 'failed' });
@@ -617,7 +617,7 @@ export class ClusterService extends BaseService {
 
         if (io) {
           io.to(id).emit('log', '\n--- CLUSTER PROVISIONING ABORTED AND CLEANED UP ---\n');
-          io.emit('resource-destroyed', { id, type: 'cluster', name: cluster.name });
+          io.to(`user:${cluster.ownerId}`).emit('resource-destroyed', { id, type: 'cluster', name: cluster.name });
           io.emit('cluster:updated');
         }
       } catch (err: any) {
