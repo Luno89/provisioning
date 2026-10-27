@@ -133,3 +133,48 @@ describe('a run sent to an agent on the person\'s machine', () => {
     expect(runs).toHaveLength(0);
   });
 });
+
+describe('a run Koala does for a member of a shared project', () => {
+  const member = { personId: 'cy', email: 'cy@example.com', role: 'client', projectId: 'p1', hubProjectId: 'h1' };
+  const started = () => {
+    const runs: { args: unknown[] }[] = [];
+    return { runs, start: async (_type: string, options: { args: unknown[] }) => { runs.push(options); return { workflowId: 'x' }; } };
+  };
+
+  it('carries who it is for into the run, pinned to their project, names them to Koala and asks about only their own note', async () => {
+    const { runs, start } = started();
+    const t = turns();
+    const binding = vi.fn(async () => ({ chat: 'someone is asking' }));
+    const starter = createRunStarter({ registry: createAgentRegistry(), workflows: () => ({ start }), newRunId: () => 'run-1', turns: t, binding });
+    await starter.start({ ownerId: 'ann', actingFor: member, agentSlug: 'koala', message: 'make it green', conversationId: 'channel-p1', asks: 'at-1', inputs: { projectId: 'p2' } });
+    const input = runs[0]!.args[0] as ProcedureRunInput;
+    expect(input.ticket).toMatchObject({ ownerId: 'ann', actingFor: member, projectId: 'p1' });
+    expect(input.projectId).toBe('p1');
+    expect(input.inputs.projectId).toBeUndefined();
+    expect(binding).toHaveBeenCalledWith('ann', 'channel-p1', member);
+    expect(t.open).toHaveBeenCalledWith(expect.objectContaining({ asks: 'at-1', askedBy: 'cy' }));
+  });
+
+  it('never goes to the owner\'s machine: a machine picked for the chat gives way to the owner\'s default, and a default on a machine is refused', async () => {
+    const { runs, start } = started();
+    const machines = vi.fn(async () => undefined);
+    const plain = createRunStarter({ registry: createAgentRegistry({ accountDefault: async () => ({ modelId: 'ep.qwen' }) }), workflows: () => ({ start }), machines });
+    await plain.start({ ownerId: 'ann', actingFor: member, agentSlug: 'koala', message: 'hi', conversationId: 'c1', modelId: 'machine:d1:antigravity' });
+    expect((runs[0]!.args[0] as ProcedureRunInput).ticket.modelId).toBeUndefined();
+    expect((runs[0]!.args[0] as ProcedureRunInput).procedure.id).not.toBe('external-agent-chat');
+    expect(machines).not.toHaveBeenCalled();
+
+    const onMachine = createRunStarter({ registry: createAgentRegistry({ accountDefault: async () => ({ modelId: 'machine:d1:claude-code' }) }), workflows: () => ({ start }), machines });
+    await expect(onMachine.start({ ownerId: 'ann', actingFor: member, agentSlug: 'koala', message: 'hi', conversationId: 'c1' })).rejects.toThrow(/never on the owner's machine/);
+    expect(runs).toHaveLength(1);
+    await onMachine.start({ ownerId: 'ann', agentSlug: 'koala', message: 'hi', conversationId: 'c1' });
+    expect((runs[1]!.args[0] as ProcedureRunInput).ticket.modelId).toBe('machine:d1:claude-code');
+  });
+
+  it('keeps the memory keeper to a project when others talked, and never acts for anyone then', async () => {
+    const { runs, start } = started();
+    await createRunStarter({ registry: createAgentRegistry(), workflows: () => ({ start }) }).start({ ownerId: 'ann', keptTo: 'p1', agentSlug: 'memory-keeper', message: 'keep it' });
+    expect((runs[0]!.args[0] as ProcedureRunInput).ticket).toMatchObject({ keptTo: 'p1', projectId: 'p1' });
+    expect((runs[0]!.args[0] as ProcedureRunInput).ticket.actingFor).toBeUndefined();
+  });
+});

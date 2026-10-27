@@ -4,6 +4,7 @@ import { relayProblem, RELAY_OPS, type HubRequest, type HubStatus, type Plain, t
 import { cleanPath, type FileEntry, type FileScope, type FilesOutcome } from '../../files/index.js';
 import { treeOfGroveRun } from '../../engine-host/temporal/contracts.js';
 import { procedureRanIn, type TurnLogEntry } from '../../engine/index.js';
+import type { ActingFor } from '@koala/agent-engine/procedure';
 import { can, type HubRole } from '../lib/hub.js';
 import type { Database, ProjectMetadata } from '../../platform/index.js';
 
@@ -42,7 +43,7 @@ export interface HubInstanceWorkDeps {
     orderStories(ownerId: string, branchId: string, leafIds: string[]): Promise<Done>;
     orderFeatures(ownerId: string, treeId: string, branchIds: string[]): Promise<Done>;
     decideTask(ownerId: string, taskId: string, status: 'accepted' | 'dropped'): Promise<Done>;
-    askKoala(ownerId: string, conversation: SyncedDoc, note: { at: string; content: string }): Promise<Done>;
+    askKoala(ownerId: string, conversation: SyncedDoc, note: { at: string; content: string }, actingFor?: ActingFor | undefined): Promise<Done>;
     openChat(ownerId: string, item: { kind: 'story'; leafId: string } | { kind: 'feature'; branchId: string }): Promise<Done>;
   };
   live: {
@@ -126,7 +127,8 @@ export class HubInstanceWork {
       case 'ask-koala': {
         const conversation = scope.conversations.find((doc) => doc.id === input.conversationId);
         if (!conversation) return outside;
-        return this.deps.act.askKoala(link.ownerId, conversation, { at: str(input.at), content: str(input.content) });
+        const actingFor = request.by.personId === link.ownerId ? undefined : { ...request.by, projectId: link.projectId, hubProjectId: link.hubProjectId };
+        return this.deps.act.askKoala(link.ownerId, conversation, { at: str(input.at), content: str(input.content) }, actingFor);
       }
     }
   }

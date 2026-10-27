@@ -29,7 +29,9 @@ export function createMemoryNodes(services: HostNodeServices): NodeImplementatio
   return [
     valueImplementation('recall-memory', async ({ node, inputs, run }) => {
       const model = (inputs.binding as { model?: unknown } | undefined)?.model;
-      const all = await services.memories.list(run.launch.ownerId);
+      const member = run.launch.actingFor;
+      const all = (await services.memories.list(run.launch.ownerId))
+        .filter((memory) => !member || (memory.scope === 'project' && memory.projectId === member.projectId));
       const { kept, dropped } = selectForContext(all.filter(inScope(node.settings.scope)), run.launch.projectId, {
         maxChars: typeof node.settings.maxChars === 'number' ? node.settings.maxChars : DEFAULT_MEMORY_CHARS,
         agent: run.identity.agentId,
@@ -42,6 +44,7 @@ export function createMemoryNodes(services: HostNodeServices): NodeImplementatio
     stepImplementation('save-memory', async ({ node, inputs, run }) => {
       const text = String(inputs.text ?? '').trim();
       if (!text) return { exit: 'refused', outputs: { memory: { reason: 'there was nothing to remember' } } };
+      if (run.launch.actingFor) return { exit: 'refused', outputs: { memory: { reason: `nothing is remembered from work done for ${run.launch.actingFor.email}, a member of a shared project` } } };
 
       const wiredTitle = typeof inputs.title === 'string' ? inputs.title.trim() : '';
       const title = wiredTitle || text.split('\n')[0]!.slice(0, 60);

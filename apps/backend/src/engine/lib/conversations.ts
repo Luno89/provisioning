@@ -93,13 +93,14 @@ export class NoNoteToAskError extends Error {
   }
 }
 
-export const noteAt = (conversation: Pick<Conversation, 'messages'> | undefined, at: string, content: string): number =>
-  conversation?.messages.findIndex((message) => message.role === 'user' && !message.runId && message.at === at && message.content === content) ?? -1;
+export const noteAt = (conversation: Pick<Conversation, 'messages'> | undefined, at: string, content: string, by?: string): number =>
+  conversation?.messages.findIndex((message) => message.role === 'user' && !message.runId && message.at === at && message.content === content
+    && (by === undefined || (message.author?.kind === 'person' && message.author.id === by))) ?? -1;
 
-export function openTurn(existing: Conversation | undefined, turn: { ownerId: string; conversationId: string; runId: string; message: string; now: string; asks?: string | undefined; attachments?: MessageAttachment[] | undefined }): Conversation {
+export function openTurn(existing: Conversation | undefined, turn: { ownerId: string; conversationId: string; runId: string; message: string; now: string; asks?: string | undefined; askedBy?: string | undefined; attachments?: MessageAttachment[] | undefined }): Conversation {
   const base: Conversation = existing ?? { id: turn.conversationId, ownerId: turn.ownerId, title: titleFrom(turn.message), messages: [], createdAt: turn.now, updatedAt: turn.now };
   if (base.messages.some((message) => message.runId === turn.runId)) return base;
-  const note = turn.asks ? noteAt(base, turn.asks, turn.message) : -1;
+  const note = turn.asks ? noteAt(base, turn.asks, turn.message, turn.askedBy) : -1;
   if (turn.asks && note === -1) throw new NoNoteToAskError(turn.asks);
   const messages = note === -1
     ? [...base.messages, { role: 'user' as const, author: { kind: 'person' as const, id: turn.ownerId }, content: turn.message, at: turn.now, runId: turn.runId, ...(turn.attachments?.length ? { attachments: turn.attachments } : {}) }]

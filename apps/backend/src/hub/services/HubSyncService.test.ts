@@ -162,7 +162,7 @@ describe('members working a shared project from the hub', () => {
         orderStories: async (...args) => { did.push(['orderStories', ...args]); return ok; },
         orderFeatures: async (...args) => { did.push(['orderFeatures', ...args]); return ok; },
         decideTask: async (...args) => { did.push(['decideTask', ...args]); return ok; },
-        askKoala: async (ownerId, conversation, note) => { did.push(['askKoala', ownerId, conversation.id, note]); return ok; },
+        askKoala: async (ownerId, conversation, note, actingFor) => { did.push(['askKoala', ownerId, conversation.id, note, actingFor]); return ok; },
         openChat: async (...args) => { did.push(['openChat', ...args]); return ok; },
       },
       live: {
@@ -202,7 +202,7 @@ describe('members working a shared project from the hub', () => {
     await sync.once();
     const message = (await db.engine.getConversation('ann', 'channel-p1'))!.messages.find((entry) => entry.content === 'can the button be green?');
     expect(message?.author).toEqual({ kind: 'person', id: 'cy' });
-    expect(did).toEqual([['askKoala', 'ann', 'channel-p1', { at: posted.value.message.at, content: 'can the button be green?' }]]);
+    expect(did).toEqual([['askKoala', 'ann', 'channel-p1', { at: posted.value.message.at, content: 'can the button be green?' }, { personId: 'cy', email: 'cy@example.com', role: 'client', projectId: 'p1', hubProjectId: hubId }]]);
     expect((await db.hub.getHubLinks())[0]!.members?.map((member) => member.email).sort()).toEqual(['ann@example.com', 'bo@example.com', 'cy@example.com']);
     const board = await hub.boardView('cy', hubId);
     expect(board.ok && board.value.requests.map((request) => request.state)).toEqual(['done']);

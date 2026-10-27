@@ -4,6 +4,7 @@ import type { AgentRegistry } from '../registries/registry.js';
 import type { ServerTools } from './server-tools.js';
 import { isMcpToolName } from '../../engine/lib/mcp-tools.js';
 import { placeArtifacts, treeOfWorkspace } from '../sandboxes/workspace-repos.js';
+import { keptToProblem, memberCallProblem, type MemberScope } from '../../engine/lib/acting-for.js';
 
 export type { ToolHandler } from '@koala/engine-core';
 export type { ToolRuntime } from '../temporal/contracts.js';
@@ -21,7 +22,17 @@ export interface ToolRuntimeOptions {
   handlers?: Record<string, ToolHandler> | undefined;
   digestChars?: number | undefined;
   serverTools?: ServerTools | undefined;
+  memberScope?: ((ownerId: string, projectId: string) => Promise<MemberScope>) | undefined;
 }
+
+const argumentsOf = (text: string): Record<string, unknown> => {
+  try {
+    const parsed: unknown = JSON.parse(text || '{}');
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {};
+  } catch {
+    return {};
+  }
+};
 
 const placed = (outcome: ToolOutcome, args: ToolCallArgs): ToolCallOutcome => {
   const { artifacts, ...rest } = outcome;
@@ -34,6 +45,16 @@ export function createToolRuntime(options: ToolRuntimeOptions): ToolRuntime {
     async run(args: ToolCallArgs, attempt = 1, signal?: AbortSignal): Promise<ToolCallOutcome> {
       const agent = await options.registry.agent(args.ticket.ownerId, args.ticket.agentSlug);
       if (!agent) return placed(refuse(`There is no agent called "${args.ticket.agentSlug}".`), args);
+      const member = args.ticket.actingFor;
+      if (member) {
+        if (!options.memberScope) return placed(refuse(`Koala is answering ${member.email}, a member of a shared project, and this server cannot tell what that project holds, so ${args.name} was not run.`), args);
+        const problem = memberCallProblem(args.name, argumentsOf(args.arguments), await options.memberScope(args.ticket.ownerId, member.projectId), member, isMcpToolName(args.name));
+        if (problem) return placed(refuse(problem), args);
+      }
+      if (args.ticket.keptTo) {
+        const problem = keptToProblem(args.name, argumentsOf(args.arguments));
+        if (problem) return placed(refuse(problem), args);
+      }
 
       const driver = await options.environments?.forRun({
         ticket: args.ticket,

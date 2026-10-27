@@ -3,6 +3,8 @@ import { treeOutline } from '../projects/lib/tree-outline.js';
 import { featureOutline, storyOutline } from '../projects/lib/item-outline.js';
 import { projectOutline } from '../projects/lib/project-outline.js';
 import { chatFraming, SOMEONE } from '../engine/lib/conversations.js';
+import { memberAsking } from '../engine/lib/acting-for.js';
+import type { ActingFor } from '@koala/agent-engine/procedure';
 
 type BindingSources = Pick<Database, 'engine' | 'projects' | 'releases' | 'accounts'>;
 
@@ -55,11 +57,11 @@ export function conversationBinding(db: BindingSources) {
     return undefined;
   };
 
-  return async (ownerId: string, conversationId: string): Promise<Record<string, string> | undefined> => {
+  return async (ownerId: string, conversationId: string, asker?: Pick<ActingFor, 'email' | 'role'>): Promise<Record<string, string> | undefined> => {
     const conversation = await db.engine.getConversation(ownerId, conversationId);
     const subject = await subjectOf(ownerId, conversation);
     if (!subject || !conversation?.kind) return subject;
-    const who = (await db.accounts.getUserById(ownerId))?.email ?? SOMEONE;
+    const who = asker ? memberAsking(asker) : (await db.accounts.getUserById(ownerId))?.email ?? SOMEONE;
     const chat = chatFraming({ kind: conversation.kind, item: conversation.leafId ? 'story' : conversation.branchId ? 'feature' : undefined }, who);
     return chat ? { chat, ...subject } : subject;
   };

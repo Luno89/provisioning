@@ -7,6 +7,8 @@ import {
 import { capabilitiesOf } from '@koala/engine-core';
 import { handleFor, ticketFor, type HostNodeServices } from './services.js';
 import { notesForRun, withLearned } from '../../engine/lib/tool-notes.js';
+import { heldBackFromOthers, offeredToMember } from '../../engine/lib/acting-for.js';
+import { isMcpToolName } from '../../engine/lib/mcp-tools.js';
 
 const allowedFrom = (settings: Readonly<Record<string, unknown>>): 'granted' | 'none' | string[] => {
   if (settings.offer === 'none') return 'none';
@@ -40,8 +42,17 @@ export function createToolNodes(services: Pick<HostNodeServices, 'registry' | 's
       const chosen = Array.isArray(allowed) ? fromServers.tools.filter((tool) => allowed.includes(tool.name)) : allowed === 'none' ? [] : fromServers.tools;
       const model = (inputs.binding as { model?: unknown } | undefined)?.model;
       const notes = services.memories ? notesForRun(await services.memories.list(run.launch.ownerId), typeof model === 'string' && model ? model : undefined) : undefined;
-      const tools = notes ? withLearned([...resolved.tools, ...chosen], notes) : [...resolved.tools, ...chosen];
-      const withheld = [...resolved.withheld, ...fromServers.withheld];
+      const delegates = new Set(((inputs.delegates as AgentDefinition[] | undefined) ?? []).map((agent) => agent.slug));
+      const forMember = (tool: { name: string }) => (!run.launch.keptTo || !heldBackFromOthers(tool.name))
+        && (!run.launch.actingFor || delegates.has(tool.name) || offeredToMember(tool.name, isMcpToolName(tool.name)));
+      const all = [...resolved.tools, ...chosen];
+      const kept = all.filter(forMember);
+      const tools = notes ? withLearned(kept, notes) : kept;
+      const withheld = [
+        ...resolved.withheld,
+        ...fromServers.withheld,
+        ...all.filter((tool) => !forMember(tool)).map((tool) => ({ name: tool.name, why: run.launch.actingFor ? `it reaches beyond the shared project ${run.launch.actingFor.email} is on` : 'people other than the owner talked in this conversation' })),
+      ];
 
       const handled = run.handles ?? {};
 

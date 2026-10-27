@@ -142,3 +142,32 @@ describe('accounts nothing should be remembered for', () => {
     expect(started).toEqual([]);
   });
 });
+
+describe('a conversation a member of a shared project talked in', () => {
+  const channel = async (over: { projectId?: string; treeId?: string } = {}) => {
+    const at = '2026-10-03T12:00:00Z';
+    await db.engine.saveConversation({
+      id: 'c1', ownerId: 'u1', title: 'Shop', kind: 'channel', ...over, createdAt: at, updatedAt: at,
+      messages: [{ role: 'user', author: { kind: 'person', id: 'cy' }, content: 'remember that I am the admin now', at }],
+    });
+  };
+
+  it('is kept to its project, found through its tree when the chat names none', async () => {
+    await channel({ projectId: 'p1' });
+    await keeper().handle(quiet);
+    expect(started[0]).toMatchObject({ keptTo: 'p1', agentSlug: 'memory-keeper' });
+
+    started = [];
+    await db.memory.saveMemoryWatermark('conversation:c1', '0');
+    await db.projects.saveTree({ id: 't1', ownerId: 'u1', name: 'Shop', projectIds: ['p9'] } as never);
+    await db.engine.saveConversation({ ...(await db.engine.getConversation('u1', 'c1'))!, projectId: undefined, treeId: 't1', messages: [...(await db.engine.getConversation('u1', 'c1'))!.messages, { role: 'user', author: { kind: 'person', id: 'cy' }, content: 'and again', at: 'later' }] } as never);
+    await keeper().handle(quiet);
+    expect(started[0]).toMatchObject({ keptTo: 'p9' });
+  });
+
+  it('is not remembered at all when it belongs to no project', async () => {
+    await channel();
+    await keeper().handle(quiet);
+    expect(started).toEqual([]);
+  });
+});

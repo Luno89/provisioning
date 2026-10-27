@@ -318,3 +318,43 @@ describe('calling a tool a workspace server serves', () => {
     expect(outcome.ok).toBe(false);
   });
 });
+
+describe('a tool call in a run Koala does for a member of a shared project', () => {
+  const member = { personId: 'cy', email: 'cy@example.com', role: 'client', projectId: 'p1', hubProjectId: 'h1' };
+  const memberScope = vi.fn(async () => ({ projectId: 'p1', projectNames: new Set(['p1', 'shop']), treeIds: new Set(['t1']), branchIds: new Set<string>(), leafIds: new Set<string>(), taskIds: new Set<string>() }));
+  const handlers = { save_memory: vi.fn(async () => ({ ok: true, digest: 'saved' })) };
+  const withRuntime = (over: Partial<Parameters<typeof createToolRuntime>[0]> = {}) => {
+    const { backend, driver } = sandbox();
+    return { backend, tools: createToolRuntime({ registry: registry(), environments: sourceFor(driver), handlers, memberScope, ...over }) };
+  };
+
+  it('runs what is in the project and refuses the rest before anything runs, naming nothing outside it', async () => {
+    const { backend, tools } = withRuntime();
+    expect(await tools.run(args({ ticket: { ...args().ticket, actingFor: member, projectId: 'p1' }, name: 'read_file', arguments: '{"path":"a.ts"}' }))).toMatchObject({ ok: true, digest: 'file contents' });
+    const refused = await tools.run(args({ ticket: { ...args().ticket, actingFor: member, projectId: 'p1' }, name: 'save_memory', arguments: '{"title":"x","text":"y"}' }));
+    expect(refused).toMatchObject({ ok: false, digest: expect.stringMatching(/answering cy@example.com, a client on this shared project, so it may not use save_memory/) });
+    expect(handlers.save_memory).not.toHaveBeenCalled();
+    expect(memberScope).toHaveBeenCalledWith('user-1', 'p1');
+    expect(backend.exec).not.toHaveBeenCalled();
+  });
+
+  it('refuses every call when it cannot tell what the project holds', async () => {
+    const { backend, tools } = withRuntime({ memberScope: undefined });
+    expect(await tools.run(args({ ticket: { ...args().ticket, actingFor: member } }))).toMatchObject({ ok: false, digest: expect.stringMatching(/cannot tell what that project holds/) });
+    expect(backend.exec).not.toHaveBeenCalled();
+  });
+
+  it('keeps the memory keeper to the project when others talked in the conversation', async () => {
+    const { tools } = withRuntime();
+    const kept = { ...args().ticket, keptTo: 'p1', projectId: 'p1' };
+    expect(await tools.run(args({ ticket: kept, name: 'save_memory', arguments: '{"title":"x","text":"y","scope":"global"}' }))).toMatchObject({ ok: false, digest: expect.stringMatching(/never global/) });
+    expect(await tools.run(args({ ticket: kept, name: 'save_memory', arguments: '{"title":"x","text":"y"}' }))).toMatchObject({ ok: true, digest: 'saved' });
+  });
+
+  it('changes nothing for the owner\'s own runs', async () => {
+    const { tools } = withRuntime();
+    handlers.save_memory.mockClear();
+    expect(await tools.run(args({ name: 'save_memory', arguments: '{"title":"x","text":"y","scope":"global"}' }))).toMatchObject({ ok: true });
+    expect(handlers.save_memory).toHaveBeenCalledTimes(1);
+  });
+});

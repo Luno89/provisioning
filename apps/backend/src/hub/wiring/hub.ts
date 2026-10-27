@@ -170,10 +170,11 @@ export function hubInstanceWork(deps: HubWorkDeps): HubInstanceWork {
       orderFeatures: async (ownerId, treeId, branchIds) => asDone(await deps.order.orderFeatures(ownerId, treeId, branchIds)),
       decideTask: async (ownerId, taskId, status) => ((await decideTask({ list: (owner) => db.projects.getTasks(owner), save: (task) => db.projects.saveTask(task) }, deps.accepted, ownerId, taskId, status)) ? { ok: true } : { ok: false, why: 'There is no such task.' }),
       openChat: async (ownerId, item) => ((await deps.itemChats.ensure(ownerId, item)) ? { ok: true } : { ok: false, why: `There is no such ${item.kind}.` }),
-      askKoala: async (ownerId, conversation, note) => {
+      askKoala: async (ownerId, conversation, note, actingFor) => {
         try {
           await deps.runs.start({
             ownerId,
+            ...(actingFor ? { actingFor } : {}),
             agentSlug: typeof conversation.agentSlug === 'string' ? conversation.agentSlug : 'koala',
             message: note.content,
             inputs: { conversationId: conversation.id },

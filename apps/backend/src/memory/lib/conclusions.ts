@@ -13,6 +13,7 @@ export interface Conclusion {
   about?: string | undefined;
   projectId?: string | undefined;
   treeId?: string | undefined;
+  heardOthers?: boolean | undefined;
 }
 
 export interface KeeperSettings {
@@ -68,6 +69,7 @@ export function conversationConclusion(
     about: `the conversation "${conversation.title || 'untitled'}"`,
     ...(conversation.projectId ? { projectId: conversation.projectId } : {}),
     ...(conversation.treeId ? { treeId: conversation.treeId } : {}),
+    ...(fresh.some((message) => message.author?.kind === 'person' && message.author.id !== conversation.ownerId) ? { heardOthers: true } : {}),
     message: [
       `A conversation with the person has reached a conclusion${settled ? ' (something was decided in it)' : ' (it has gone quiet)'}. `
         + 'Remember what in it will still matter in later conversations: what the person prefers, what they decided, '

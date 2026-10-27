@@ -77,3 +77,24 @@ describe('a person\'s message with files attached', () => {
     expect(personMessage('bo', '  ', 't')).toEqual({ problem: 'the message is empty' });
   });
 });
+
+describe('asking Koala about a note already posted', () => {
+  const channel = {
+    id: 'channel-p1', ownerId: 'ann', title: 'Shop', createdAt: 't', updatedAt: 't',
+    messages: [
+      { role: 'user' as const, author: { kind: 'person' as const, id: 'ann' }, content: 'ship it friday', at: 'at-ann' },
+      { role: 'user' as const, author: { kind: 'person' as const, id: 'cy' }, content: 'make it green', at: 'at-cy' },
+    ],
+  };
+  const turn = (asks: string, message: string, askedBy?: string) => ({ ownerId: 'ann', conversationId: 'channel-p1', runId: 'run-1', message, now: 'now', asks, ...(askedBy ? { askedBy } : {}) });
+
+  it('answers a member only about their own note, never one in someone else\'s name', () => {
+    expect(openTurn(channel, turn('at-cy', 'make it green', 'cy')).messages[1]).toMatchObject({ runId: 'run-1', author: { id: 'cy' } });
+    expect(() => openTurn(channel, turn('at-ann', 'ship it friday', 'cy'))).toThrow(/no posted message from at-ann/);
+  });
+
+  it('lets the owner ask about any note, as before', () => {
+    expect(openTurn(channel, turn('at-cy', 'make it green')).messages[1]).toMatchObject({ runId: 'run-1' });
+    expect(openTurn(channel, turn('at-ann', 'ship it friday')).messages[0]).toMatchObject({ runId: 'run-1' });
+  });
+});
