@@ -119,6 +119,22 @@ async function main(): Promise<void> {
   assert.equal(traces.find((trace) => trace.node === 'done')?.finish?.outcome, 'ok', 'the run did not finish ok');
   assert.equal(traces.find((trace) => trace.node === 'stamp')?.outputs?.host, 'workspace', 'the code did not run in a sandbox pod');
 
+  step('only the instance\'s own pods reach its Temporal, Temporal\'s database and Mongo: a pod in another namespace, where an app would run, reaches the backend and none of them');
+  const targets = [['live.nowrinkles.svc', 80], ['live-temporal.nowrinkles.svc', 7233], ['live-temporal-db.nowrinkles.svc', 5432], ['live-mongo.nowrinkles.svc', 27017]] as const;
+  const knock = `const net = require('net');
+const at = ([host, port]) => new Promise((done) => {
+  const socket = net.connect(port, host);
+  const quiet = setTimeout(() => { socket.destroy(); done('no answer'); }, 5000);
+  socket.on('connect', () => { clearTimeout(quiet); socket.destroy(); done('reached'); });
+  socket.on('error', (err) => { clearTimeout(quiet); done(err.code); });
+});
+Promise.all(${JSON.stringify(targets)}.map(at)).then((found) => console.log('KNOCKED ' + JSON.stringify(found)));`;
+  const knocked = run(bin('kubectl'), ['run', 'beside', '--namespace', 'default', '--rm', '-i', '--restart=Never', `--image=${IMAGE}`, '--image-pull-policy=Never', '--command', '--', 'node', '-e', knock], { KUBECONFIG });
+  const found = JSON.parse(knocked.split('KNOCKED ')[1]!.split('\n')[0]!) as string[];
+  console.log(`  ${targets.map(([host, port], index) => `${host}:${port} ${found[index]}`).join(' · ')}`);
+  assert.equal(found[0], 'reached', 'a pod in another namespace could not reach the instance\'s backend, so the cluster\'s network says nothing here');
+  assert.deepEqual(found.slice(1).filter((answer) => answer === 'reached'), [], 'a pod in another namespace reached one of the instance\'s stores');
+
   step('deleting an account is root\'s: the instance removes none and points there, and a person on root removes their own, their instance let go of with it');
   const place = await (await http('/api/auth/account-removal')).json() as { url: string | null };
   assert.equal(place.url, `${ROOT_URL}/#/remove-account`, 'the instance does not send people to root to delete their account');

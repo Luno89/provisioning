@@ -98,7 +98,7 @@ export const vclusterAddress = (name: string): string => `${name}.${poolNamespac
 export function vclusterValues(name: string, slot: PoolSlot): Record<string, unknown> {
   return {
     controlPlane: { statefulSet: { runtimeClassName: RUNTIME_CLASS }, proxy: { extraSANs: [vclusterAddress(name)] } },
-    sync: { toHost: { pods: { runtimeClassName: RUNTIME_CLASS } } },
+    sync: { toHost: { pods: { runtimeClassName: RUNTIME_CLASS }, networkPolicies: { enabled: true } } },
     policies: {
       resourceQuota: {
         enabled: true,

@@ -48,7 +48,7 @@ describe('the pool on a node', () => {
     expect(binding.spec).toEqual({ policyName: 'koala-pool-gvisor', validationActions: ['Deny'] });
   });
 
-  it('runs a vcluster\'s control plane and every pod it syncs under gVisor, within its slot, with no node ports', () => {
+  it('runs a vcluster\'s control plane and every pod it syncs under gVisor, within its slot, with no node ports, its network policies enforced on the host', () => {
     const values = vclusterValues('alice', SLOT) as any;
     expect(values.controlPlane.statefulSet.runtimeClassName).toBe('gvisor');
     expect(values.controlPlane.proxy.extraSANs).toEqual(['alice.pool-alice.svc']);
@@ -58,6 +58,7 @@ describe('the pool on a node', () => {
     });
     expect(values.policies.resourceQuota.quota).toMatchObject({ 'limits.memory': null, 'limits.cpu': null, 'limits.ephemeral-storage': null });
     expect(values.policies.networkPolicy.enabled).toBe(true);
+    expect(values.sync.toHost.networkPolicies.enabled).toBe(true);
   });
 });
 

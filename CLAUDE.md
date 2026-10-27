@@ -227,6 +227,9 @@ backups, the host's nginx config, binding type changes and adopting the host's k
 every redirect; fetch_web_page, a crawl's start, a model endpoint's host (the person's own mesh node excepted) and a hosted MCP
 server's URL go through them. Root takes an instance's mesh address only from its owner's Headscale nodes, and Headscale's
 `/api` is not served on the mesh's public name.
+**Only an instance's own pods reach its Temporal, Temporal's database and Mongo** (W7, `charts/instance/templates/networkpolicy.yaml`,
+enforced by k3s's network policy controller; a pool vcluster copies it to the host, `sync.toHost.networkPolicies`), so an app,
+a release slot or a build on the same cluster cannot; sandboxes were already shut in by their own `default-deny`.
 
 The public-path allow-list lives in `platform/middleware/auth.ts`, **not** in `accounts/routes/auth.ts` — a router
 that could exempt itself is a router that can quietly stop being protected, so adding a route that

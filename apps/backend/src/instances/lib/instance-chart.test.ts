@@ -85,6 +85,25 @@ describe('the instance chart', () => {
     expect(find(alone, 'ConfigMap', 'luno-env').data!.MACHINE_TEMPORAL_ADDRESS).toBeUndefined();
   });
 
+  it('lets only its own pods reach its Temporal, Temporal\'s database and Mongo, never a sandbox or an app beside them', () => {
+    const docs = render();
+    const policy = find(docs, 'NetworkPolicy', 'luno-stores');
+    expect(policy.spec.policyTypes).toEqual(['Ingress']);
+    expect(policy.spec.podSelector.matchExpressions).toEqual([
+      { key: 'app.kubernetes.io/instance', operator: 'In', values: ['luno'] },
+      { key: 'app.kubernetes.io/component', operator: 'In', values: ['temporal', 'temporal-db', 'mongo'] },
+    ]);
+    const ownPods = { 'app.kubernetes.io/part-of': 'nowrinkles-instance', 'app.kubernetes.io/instance': 'luno' };
+    expect(policy.spec.ingress).toEqual([{ from: [{ podSelector: { matchLabels: ownPods } }] }]);
+    const pods = docs.flatMap((doc) => [doc.spec?.template?.metadata?.labels, doc.spec?.jobTemplate?.spec?.template?.metadata?.labels]).filter(Boolean);
+    expect(pods.length).toBeGreaterThan(8);
+    for (const labels of pods) expect(labels).toMatchObject(ownPods);
+    for (const component of ['temporal', 'temporal-db', 'mongo']) {
+      const store = docs.find((doc) => doc.spec?.template?.metadata?.labels?.['app.kubernetes.io/component'] === component);
+      expect(store?.spec.template.spec.hostNetwork).toBeUndefined();
+    }
+  });
+
   it('owns the cluster it is installed in, and sets up its services there after install and every upgrade', () => {
     const docs = render();
     expect(find(docs, 'ClusterRoleBinding', 'luno-nowrinkles-owns-cluster').roleRef?.name).toBe('cluster-admin');
