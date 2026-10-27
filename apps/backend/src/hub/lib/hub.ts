@@ -106,7 +106,9 @@ export function sharedProjectProblem(input: { name: unknown }): string | undefin
   return undefined;
 }
 
-export const hubInstancePart = (instanceId: string, personId: string, email: string): string => `instance/${instanceId}/${personId}/${email.trim().toLowerCase()}`;
+export const signedPart = (kind: string, ...fields: string[]): string => [kind, ...fields.map(encodeURIComponent)].join('/');
+
+export const hubInstancePart = (instanceId: string, personId: string, email: string): string => signedPart('instance', instanceId, personId, email.trim().toLowerCase());
 
 export interface HubAccess {
   token: string;

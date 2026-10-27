@@ -152,6 +152,11 @@ describe('/api/hub-instance, on the hub', () => {
     await expect(someoneElse.push(link, [])).rejects.toThrow(/401/);
     await expect(new RemoteHub(accessFor('eve', 'eve@example.com')).pull(link, 0)).rejects.toThrow(/404/);
 
+    const crafted = await accessFor('eve', 'ann/eve@example.com').access();
+    await expect(new RemoteHub({ access: async () => crafted }).pull(link, 0)).rejects.toThrow(/404/);
+    const resplit = new RemoteHub({ access: async () => ({ ...crafted, instanceId: 'inst-ann/eve', personId: 'ann', email: 'eve@example.com' }) });
+    await expect(resplit.pull(link, 0)).rejects.toThrow(/401/);
+
     await remote.unshare('ann', shared.hubProjectId);
     expect(await hub.mine('ann')).toEqual([]);
     await remote.unshare('ann', shared.hubProjectId);

@@ -1,4 +1,4 @@
-import { HUB_AUDIENCE } from '../lib/hub.js';
+import { HUB_AUDIENCE, signedPart } from '../lib/hub.js';
 import { issueMoveToken, type IdentityKeyPair } from '../../instances/index.js';
 import type { HubService } from './HubService.js';
 
@@ -7,7 +7,7 @@ export interface HubPeople {
   letGo(personId: string): Promise<void>;
 }
 
-export const hubPersonPart = (personId: string, what: 'leaving' | 'let-go'): string => `people/${personId}/${what}`;
+export const hubPersonPart = (personId: string, what: 'leaving' | 'let-go'): string => signedPart('people', personId, what);
 
 export function localHubPeople(hub: HubService): HubPeople {
   return {
