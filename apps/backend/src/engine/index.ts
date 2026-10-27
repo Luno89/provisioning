@@ -29,7 +29,7 @@ export { modelsOf } from './lib/run-traces.js';
 export type { ModelThinkingProfile } from './lib/thinking-classifier.js';
 export { migrateAgentTools } from './lib/tool-grant-migration.js';
 export { checksForNote, isToolNote, noteSubject } from './lib/tool-notes.js';
-export { ASK_MARKS, runsUnder, unansweredAsks } from './lib/turn-log.js';
+export { ASK_MARKS, procedureRanIn, runsUnder, unansweredAsks } from './lib/turn-log.js';
 export type { RunMark, TurnLogEntry, WaitingAsk } from './lib/turn-log.js';
 export { corpusEndpointsWith, liveDeployment, webToolsDepsFrom } from './lib/web-tools-resolver.js';
 export type { CorpusEndpoints } from './lib/web-tools-resolver.js';

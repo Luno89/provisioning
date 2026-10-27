@@ -3,6 +3,7 @@ import { inScope, scopeOf, type HubLink, type ShareScope, type SyncedDoc } from 
 import { relayProblem, RELAY_OPS, type HubRequest, type HubStatus, type Plain, type RelayOp } from '../lib/hub-board.js';
 import { cleanPath, type FileEntry, type FileScope, type FilesOutcome } from '../../files/index.js';
 import { treeOfGroveRun } from '../../engine-host/temporal/contracts.js';
+import { procedureRanIn, type TurnLogEntry } from '../../engine/index.js';
 import { can, type HubRole } from '../lib/hub.js';
 import type { Database, ProjectMetadata } from '../../platform/index.js';
 
@@ -46,6 +47,7 @@ export interface HubInstanceWorkDeps {
   };
   live: {
     turns(ownerId: string, turnId: string, after: number, under: string | undefined): Promise<unknown>;
+    turnLog(ownerId: string, turnId: string): Promise<Pick<TurnLogEntry, 'events'>[]>;
     procedure(ownerId: string, id: string): Promise<unknown | undefined>;
     extensions(ownerId: string): Promise<unknown>;
   };
@@ -147,8 +149,12 @@ export class HubInstanceWork {
         return json(200, await this.deps.live.turns(owner, turnId, Number.isInteger(after) && after >= 0 ? after : 0, typeof call.args.under === 'string' ? call.args.under : undefined));
       }
       case 'procedure': {
-        const found = await this.deps.live.procedure(owner, str(call.args.id));
-        return found === undefined ? refused(404, 'There is no procedure with that id') : json(200, found);
+        const turnId = str(call.args.turnId);
+        const treeId = treeOfGroveRun(turnId);
+        if (!treeId || !scope.treeIds.has(treeId)) return refused(404, 'That run is not part of this project.');
+        const id = str(call.args.id);
+        const found = procedureRanIn(await this.deps.live.turnLog(owner, turnId), id) ? await this.deps.live.procedure(owner, id) : undefined;
+        return found === undefined ? refused(404, 'No run of this project used a procedure with that id') : json(200, found);
       }
       case 'extensions':
         return json(200, await this.deps.live.extensions(owner));

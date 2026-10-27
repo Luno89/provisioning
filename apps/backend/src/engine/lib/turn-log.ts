@@ -68,6 +68,9 @@ export function replyFromLog(entries: readonly TurnLogEntry[], turnId: string): 
   return { content, reasoning, toolCalls: [...calls.values()] };
 }
 
+export const procedureRanIn = (entries: readonly Pick<TurnLogEntry, 'events'>[], procedureId: string): boolean =>
+  entries.some((entry) => entry.events.some((event) => event.type === 'run.started' && (event as { loopId?: string }).loopId === procedureId));
+
 export function runsUnder<T extends Pick<TurnLogEntry, 'seq' | 'events'>>(entries: readonly T[], rootRunId: string): { entries: T[]; through: number } {
   const ids = new Set([rootRunId]);
   let grew = true;

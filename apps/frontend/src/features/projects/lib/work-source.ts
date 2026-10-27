@@ -47,7 +47,7 @@ export interface WorkSource {
   listProjectRuns(projectId: string): Promise<PipelineRun[]>
   getTreeRun(treeId: string): Promise<TreeRunStatus>
   readRunsUnder(turnId: string, after: number, under: string): Promise<{ entries: TurnLogEntry[]; through: number }>
-  getProcedure(id: string): Promise<{ procedure: Procedure; mine: boolean }>
+  getProcedure(id: string, turnId: string): Promise<{ procedure: Procedure; mine: boolean }>
   listExtensions(): Promise<ExtensionSummary[]>
   orderStories(branchId: string, leafIds: readonly string[]): Promise<void>
   orderFeatures(treeId: string, branchIds: readonly string[]): Promise<void>

@@ -165,7 +165,12 @@ describe('members working a shared project from the hub', () => {
         askKoala: async (ownerId, conversation, note) => { did.push(['askKoala', ownerId, conversation.id, note]); return ok; },
         openChat: async (...args) => { did.push(['openChat', ...args]); return ok; },
       },
-      live: { turns: async () => ({ entries: [] }), procedure: async () => undefined, extensions: async () => [] },
+      live: {
+        turns: async () => ({ entries: [] }),
+        turnLog: async (_owner, turnId) => (turnId === 'grove-run-t1~1' ? [{ events: [{ type: 'run.started', runId: 'r1', agentId: 'grove', loopId: 'grove-run' } as never] }] : []),
+        procedure: async (_owner, id) => ({ procedure: { id }, mine: false }),
+        extensions: async () => [],
+      },
       files: {
         list: async (_owner, _scope, dir) => ({ ok: true, value: Object.keys(files).filter((path) => (dir ? path.startsWith(`${dir}/`) : true)).map((path) => (dir ? { name: path.split('/').pop()!, path, type: 'file' as const } : { name: path.split('/')[0]!, path: path.split('/')[0]!, type: 'dir' as const })) }),
         search: async () => ({ ok: true, value: [] }),
@@ -265,6 +270,11 @@ describe('members working a shared project from the hub', () => {
     expect(uploaded.ok && uploaded.value.kind === 'json' && uploaded.value.status).toBe(200);
     const feed = await hub.relay(cy, hubId, 'turns', { turnId: 'grove-run-t1~1' });
     expect(feed.ok && feed.value.kind === 'json' && feed.value.status).toBe(200);
+    const statusOf = async (args: Record<string, string>) => { const got = await hub.relay(cy, hubId, 'procedure', args); return got.ok && got.value.kind === 'json' ? got.value.status : got; };
+    expect(await statusOf({ id: 'grove-run', turnId: 'grove-run-t1~1' })).toBe(200);
+    expect(await statusOf({ id: 'my-private-procedure', turnId: 'grove-run-t1~1' })).toBe(404);
+    expect(await statusOf({ id: 'grove-run', turnId: 'grove-run-other~1' })).toBe(404);
+    expect(await statusOf({ id: 'grove-run' })).toBe(404);
     sync.stop();
     relay.stop();
   });

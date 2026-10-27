@@ -16,7 +16,7 @@ import { keyedBy, useWorkSource } from '../../lib/work-source'
 
 const OUTCOME_TONE: Record<string, string> = { ok: 'text-emerald-300 bg-emerald-500/10' }
 
-export function StoryRun({ run, events }: { run: RunInstance; events: readonly EngineEvent[] }) {
+export function StoryRun({ run, turnId, events }: { run: RunInstance; turnId: string; events: readonly EngineEvent[] }) {
   const runs = useWorkSource().can('run-work')
   return (
     <section className="space-y-2" data-testid="story-run">
@@ -35,15 +35,15 @@ export function StoryRun({ run, events }: { run: RunInstance; events: readonly E
         {runs && <StopRun run={run} />}
       </div>
       {runs && <RunControls run={run} inTree />}
-      {run.loopId && <RunProcedure procedureId={run.loopId} current={run.finished ? undefined : run.currentNode} events={events} />}
+      {run.loopId && <RunProcedure procedureId={run.loopId} turnId={turnId} current={run.finished ? undefined : run.currentNode} events={events} />}
       <Rounds events={events} live={!run.finished} />
     </section>
   )
 }
 
-function RunProcedure({ procedureId, current, events }: { procedureId: string; current: string | undefined; events: readonly EngineEvent[] }) {
+function RunProcedure({ procedureId, turnId, current, events }: { procedureId: string; turnId: string; current: string | undefined; events: readonly EngineEvent[] }) {
   const source = useWorkSource()
-  const stored = useQuery({ queryKey: keyedBy(source, procedureKeys.one(procedureId)), queryFn: () => source.getProcedure(procedureId), retry: false })
+  const stored = useQuery({ queryKey: keyedBy(source, procedureKeys.one(procedureId)), queryFn: () => source.getProcedure(procedureId, turnId), retry: false })
   const context = useQuery({ queryKey: keyedBy(source, engineKeys.extensions()), queryFn: async () => canvasContextFor(await source.listExtensions()), staleTime: Infinity })
   const [chosen, setChosen] = useState<string[]>([])
   const [follow, setFollow] = useState(true)

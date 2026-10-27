@@ -102,7 +102,7 @@ function Feed({ turnId, rootRunId, asOf, live }: { turnId: string; rootRunId: st
           ))}
         </div>
       )}
-      <StoryRun run={chosen} events={events.grouped[chosen.key] ?? []} />
+      <StoryRun run={chosen} turnId={turnId} events={events.grouped[chosen.key] ?? []} />
     </div>
   )
 }

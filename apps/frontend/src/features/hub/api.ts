@@ -84,8 +84,8 @@ export const sendHubRequest = (id: string, kind: HubRequestKind, input: Record<s
 export const readHubRunsUnder = (id: string, turnId: string, after: number, under: string): Promise<{ entries: TurnLogEntry[]; through: number }> =>
   api.get<{ entries: TurnLogEntry[]; through: number }>(`${project(id)}/live/turns/${encodeURIComponent(turnId)}`, { params: { after, under } }).then((r) => r.data)
 
-export const getHubProcedure = <T>(id: string, procedureId: string): Promise<T> =>
-  api.get<T>(`${project(id)}/live/procedures/${encodeURIComponent(procedureId)}`).then((r) => r.data)
+export const getHubProcedure = <T>(id: string, procedureId: string, turnId: string): Promise<T> =>
+  api.get<T>(`${project(id)}/live/procedures/${encodeURIComponent(procedureId)}`, { params: { turn: turnId } }).then((r) => r.data)
 
 export const listHubExtensions = <T>(id: string): Promise<T> =>
   api.get<T>(`${project(id)}/live/extensions`).then((r) => r.data)
