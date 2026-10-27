@@ -1,4 +1,5 @@
 import ReactMarkdown from 'react-markdown';
+import { imageHost, shownImage } from '../lib/markdown-images';
 import remarkGfm from 'remark-gfm';
 import { Terminal } from 'lucide-react';
 import { ChatParser } from './chat-parser.js';
@@ -111,11 +112,21 @@ export default function ChatMessageRenderer({
                 {c}
               </a>
             ),
-            img: ({ src, alt }) => (
-              <a href={typeof src === 'string' ? src : undefined} target="_blank" rel="noreferrer noopener">
-                <img src={typeof src === 'string' ? src : undefined} alt={alt ?? ''} loading="lazy" className="my-2 max-w-full max-h-80 rounded-lg border border-slate-700/60" />
-              </a>
-            ),
+            img: ({ src, alt }) => {
+              const address = typeof src === 'string' ? src : undefined;
+              if (!shownImage(address, window.location.origin)) {
+                return (
+                  <a href={address} target="_blank" rel="noreferrer noopener" className="text-sky-400 hover:text-sky-300 hover:underline break-words" title="An image from elsewhere, not loaded; open it yourself">
+                    {alt || 'image'} ({imageHost(address ?? '', window.location.origin)})
+                  </a>
+                );
+              }
+              return (
+                <a href={address} target="_blank" rel="noreferrer noopener">
+                  <img src={address} alt={alt ?? ''} loading="lazy" className="my-2 max-w-full max-h-80 rounded-lg border border-slate-700/60" />
+                </a>
+              );
+            },
             hr: () => <hr className="my-4 border-slate-700/60" />,
           }}
         >

