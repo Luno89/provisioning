@@ -119,6 +119,20 @@ async function main(): Promise<void> {
       assert.equal(ingress.status, 400, `/ingress/verify answered ${ingress.status}`);
       const metrics = await anonymous.get('/api/metrics');
       assert.equal(metrics.status, 401, `/api/metrics answered ${metrics.status}`);
+      const keys = await anonymous.get('/.well-known/temporal-jwks.json');
+      assert.equal(keys.status, 200, `Temporal's public key answered ${keys.status}`);
+      assert.deepEqual(Object.keys((keys.data as { keys: Record<string, unknown>[] }).keys[0] ?? {}).sort(), ['alg', 'crv', 'kid', 'kty', 'use', 'x', 'y']);
+    });
+
+    await stage('a browser\'s CSP reports are taken, and an address sending endless ones is turned away', async () => {
+      const anonymous = client();
+      const report = JSON.stringify({ 'csp-report': { 'document-uri': 'http://localhost/', 'violated-directive': 'script-src', 'blocked-uri': 'inline' } });
+      let answered = 0;
+      for (let sent = 0; sent < 200; sent += 1) {
+        answered = (await anonymous.post('/csp-report', report, { headers: { 'Content-Type': 'application/csp-report' } })).status;
+        if (answered === 429) break;
+      }
+      assert.equal(answered, 429, 'two hundred CSP reports from one address were all taken');
     });
 
     await stage('a throwaway account signs up with an admin\'s invite', async () => {

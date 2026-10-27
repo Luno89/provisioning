@@ -40,6 +40,8 @@ export const RATE_LIMITS: readonly RateLimitRule[] = [
   },
 ];
 
+export const CSP_REPORT_LIMIT = { windowMs: 15 * MINUTES, max: 120 } as const;
+
 const asRouted = (path: string): string => path.toLowerCase().replace(/\/{2,}/g, '/').replace(/(.)\/+$/, '$1');
 
 export const ruleFor = (path: string): RateLimitRule | undefined => {

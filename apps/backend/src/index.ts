@@ -15,7 +15,7 @@ import { Server as SocketServer } from 'socket.io';
 import { authRouter, AuthService } from './accounts/index.js';
 import helmet from 'helmet';
 import {
-  CSP_REPORT_PATH, cspHeader, cspModeFrom, violationLine, crossSiteRefusal, foreignOrigin, ourOrigins, MetricsService, RATE_LIMITS, ruleFor,
+  CSP_REPORT_LIMIT, CSP_REPORT_PATH, cspHeader, cspModeFrom, violationLine, crossSiteRefusal, foreignOrigin, ourOrigins, MetricsService, RATE_LIMITS, ruleFor,
   getTemporalClient, resolveOwnersWith, PayloadStorageService, createAuth, keepTrying, mongoTarget, asyncRoute,
   TEMPORAL_JWKS_PATH, temporalKeysRouter, temporalNamespaceFrom,
   ownsProject, createDatabase, sharedPayloadBlobs, type Database, migrateLegacyOwnership, decryptValue, loadKeys,
@@ -259,7 +259,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   app.use(TEMPORAL_JWKS_PATH, temporalKeysRouter({ temporalKey: keys.temporal }));
   const csp = cspHeader(cspModeFrom(process.env));
   if (csp) app.use((_req, res, next) => { res.setHeader(csp.name, csp.value); next(); });
-  app.post(CSP_REPORT_PATH, express.json({ type: ['application/csp-report', 'application/reports+json', 'application/json'], limit: '64kb' }), (req, res) => {
+  app.post(CSP_REPORT_PATH, rateLimit({ windowMs: CSP_REPORT_LIMIT.windowMs, limit: CSP_REPORT_LIMIT.max, standardHeaders: 'draft-8', legacyHeaders: false, message: '' }), express.json({ type: ['application/csp-report', 'application/reports+json', 'application/json'], limit: '64kb' }), (req, res) => {
     const line = violationLine(req.body);
     if (line) console.warn(`[csp] ${line}`);
     res.status(204).end();
