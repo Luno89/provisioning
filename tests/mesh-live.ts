@@ -180,7 +180,9 @@ async function main(): Promise<void> {
   const otherMeshIp = await meshIp(otherVm);
   console.log(`  the other person's machine is ${otherMeshIp}`);
   const matrix: Array<[string, DisposableVm, string, number, boolean]> = [
-    ['the owner\'s machine → the owner\'s Temporal', machineVm, instanceMeshIp, 7233, true],
+    ['the owner\'s machine → the owner\'s machine gateway', machineVm, instanceMeshIp, GATEWAY_PORT, true],
+    ['the owner\'s machine → the owner\'s Temporal itself', machineVm, instanceMeshIp, 7233, false],
+    ['someone else → the owner\'s machine gateway', otherVm, instanceMeshIp, GATEWAY_PORT, false],
     ['someone else → the owner\'s Temporal', otherVm, instanceMeshIp, 7233, false],
     ['someone else → the owner\'s instance', otherVm, instanceMeshIp, 22, false],
     ['someone else → the owner\'s machine', otherVm, machineMeshIp, 22, false],
