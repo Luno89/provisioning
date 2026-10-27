@@ -159,6 +159,12 @@ export function withKind(declared: McpToolAnnotations | undefined, kind: McpTool
   return { ...declared, readOnlyHint: false, destructiveHint: kind === 'destructive' };
 }
 
+export function toolAnnotations(server: Pick<McpServerRecord, 'runs' | 'tools'>, tool: Pick<McpTool, 'name' | 'annotations'>): McpToolAnnotations | undefined {
+  const kind = server.tools?.[tool.name]?.kind;
+  if (kind || server.runs.where !== 'hosted') return withKind(tool.annotations, kind);
+  return withKind(tool.annotations, 'destructive');
+}
+
 export function kindOfTool(annotations: McpToolAnnotations | undefined): McpToolKind {
   if (annotations?.readOnlyHint === true) return 'read-only';
   return annotations?.destructiveHint === false ? 'safe-write' : 'destructive';

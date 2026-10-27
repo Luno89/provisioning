@@ -692,7 +692,8 @@ their own, so a server and a tool may share a name; `persona.servers` resolved l
 server. A held workspace server's install joins the agent's image and the tree workspace (`heldWorkspaceServers` in the
 composer, each line `server:<name>`). Runs never list a server: `ServerTools` (`engine-host/tools/server-tools.ts`)
 offers each held (or chat-enabled, hosted) server's captured tools as `<server>__<tool>`, filtered by `offer`/`omit`,
-each tool's effect from the server's hints or the person's `kind`, grouped in the prompt under the server with its
+each tool's effect from the person's `kind`, else a workspace server's own hints, while a hosted server's tools are destructive
+until the person says otherwise (`toolAnnotations`: a server elsewhere could call anything read-only to skip the ask), grouped in the prompt under the server with its
 instructions, the person's notes and what it depends on, and each tool's note as its guidance; calls go to
 `WorkspaceServers` (started in the run's pod on first use, one `curl` per request) or to the hosted address. A check's
 world can carry `mcpServers` (captured before the run) and give an agent `servers`; `mechanics-workspace-server` proves

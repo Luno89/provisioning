@@ -33,10 +33,10 @@ describe('/api/mcp', () => {
 
   afterEach(() => harness.close());
 
-  it('lists the person\'s captured hosted servers with their tools and what each does', async () => {
+  it('lists the person\'s captured hosted servers with their tools and what each does, a server\'s own word only beside what the person said', async () => {
     const res = await axios.get(harness.url('/api/mcp/servers'));
     expect(res.data).toEqual([{ name: 'gitea', tools: [
-      { name: 'list_repos', readOnly: true, kind: 'read-only', declared: 'read-only' },
+      { name: 'list_repos', readOnly: false, kind: 'destructive', declared: 'read-only' },
       { name: 'create_issue', readOnly: false, kind: 'safe-write', declared: 'destructive' },
     ] }]);
   });

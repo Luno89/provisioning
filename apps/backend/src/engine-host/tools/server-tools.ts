@@ -1,7 +1,7 @@
 import { exceedsCeiling, type ToolContract, type ToolEffect, type ToolHandler, type ToolOutcome, type WithheldTool } from '@koala/engine-core';
 import type { McpTool } from '../../engine/index.js';
 import { contractFor } from '../../engine/lib/mcp-tools.js';
-import { offers, serverPath, serverState, usable, withKind, type McpServerRecord, type ServerRuns } from '../../engine/lib/mcp-servers.js';
+import { offers, serverPath, serverState, toolAnnotations, usable, type McpServerRecord, type ServerRuns } from '../../engine/lib/mcp-servers.js';
 import type { EnvironmentHandleRef, RunTicket } from '../temporal/contracts.js';
 import type { WorkspaceServers } from './workspace-servers.js';
 
@@ -43,7 +43,7 @@ export function notUsableWhy(server: McpServerRecord): string {
 
 function contractOf(server: McpServerRecord, tool: McpTool): ToolContract {
   const said = server.tools?.[tool.name];
-  const annotations = withKind(tool.annotations, said?.kind);
+  const annotations = toolAnnotations(server, tool);
   const { description, ...contract } = contractFor(server.name, { ...tool, ...(annotations ? { annotations } : {}) });
   return {
     ...contract,

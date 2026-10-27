@@ -117,8 +117,8 @@ describe('building what does', () => {
 
     const applied = calls.find((call) => call.args[0] === 'apply')?.input ?? '';
     expect(applied).toContain('ConfigMap');
-    expect(applied).toContain('microdnf install -y go-toolset');
-    expect(applied).toContain('dnf install -y go-toolset');
+    expect(applied).toContain("microdnf install -y 'go-toolset'");
+    expect(applied).toContain("dnf install -y 'go-toolset'");
     expect(applied).toContain('--context=dir:///workspace');
   });
 

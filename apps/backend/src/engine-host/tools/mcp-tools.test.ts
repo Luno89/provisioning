@@ -12,6 +12,7 @@ import { SHIPPED_DEPENDENCIES } from '../../extensions/workspace-dependencies.js
 const HOSTED: ServerRuns = { where: 'hosted', url: 'http://x/mcp' };
 const GITEA: McpServerRecord = {
   id: 'd1', ownerId: 'u1', name: 'gitea', runs: HOSTED, createdAt: 't0', updatedAt: 't0',
+  tools: { list_repos: { kind: 'read-only' } },
   captured: {
     tools: [
       { name: 'list_repos', description: 'List repositories', annotations: { readOnlyHint: true, idempotentHint: true } },
@@ -75,6 +76,13 @@ describe('MCP tools for a run', () => {
     expect((await call('gitea__list_repos', undefined, 1, agent)(tools)).ok).toBe(true);
     const write = await call('gitea__create_issue', undefined, 1, agent)(tools);
     expect(write.ok).toBe(false);
+  });
+
+  it('takes nothing a hosted server says about its own tools as read-only until the person says so', async () => {
+    const agent = persona({ slug: 'research', maxEffect: 'read', servers: ['gitea'] });
+    const unmarked: McpServerRecord = { ...GITEA, tools: {} };
+    const tools = runtime(agent, world([], [unmarked]));
+    expect((await call('gitea__list_repos', undefined, 1, agent)(tools)).ok).toBe(false);
   });
 
   it('does not repeat a tool the server never declared safe to repeat', async () => {

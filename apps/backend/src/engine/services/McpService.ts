@@ -1,6 +1,6 @@
 import type { McpRequest } from '@koala/harness-types';
 import type { Conversation } from '../lib/conversations.js';
-import { kindOfTool, offers, usable, withKind, type McpServerRecord, type McpToolKind } from '../lib/mcp-servers.js';
+import { kindOfTool, offers, toolAnnotations, usable, type McpServerRecord, type McpToolKind } from '../lib/mcp-servers.js';
 
 export interface McpStore {
   getConversation(ownerId: string, id: string): Promise<Conversation | undefined>;
@@ -42,7 +42,7 @@ export class McpService {
     return (await this.deps.catalogue(ownerId)).filter(switchable).map((server) => ({
       name: server.name,
       tools: server.captured!.tools.filter((tool) => offers(server, tool.name)).map((tool) => {
-        const kind = kindOfTool(withKind(tool.annotations, server.tools?.[tool.name]?.kind));
+        const kind = kindOfTool(toolAnnotations(server, tool));
         return {
           name: tool.name,
           ...(tool.description ? { description: tool.description } : {}),
