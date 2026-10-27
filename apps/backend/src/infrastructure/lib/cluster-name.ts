@@ -1,7 +1,12 @@
 
 export const CLUSTER_NAME_MAX_LENGTH = 40;
 
-const RESERVED_NAMES = new Set(['provisioning-lunorica']);
+export const SYSTEM_CLUSTER_ID = 'provisioning-lunorica';
+
+const RESERVED_NAMES = new Set([SYSTEM_CLUSTER_ID]);
+
+export const signsInAsPlatform = (serviceKey: string, clusterId: string): boolean =>
+  serviceKey === 'grafana' || ((serviceKey === 'gitea' || serviceKey === 'infisical') && clusterId === SYSTEM_CLUSTER_ID);
 
 const VALID = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/;
 

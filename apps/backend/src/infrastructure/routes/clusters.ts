@@ -1,7 +1,7 @@
 import { Router, type Request } from 'express';
 import type { Server as SocketServer } from 'socket.io';
 import { asyncRoute, decryptValue, type SecretKey, type ClusterOwnership } from '../../platform/index.js';
-import { validateClusterName } from '../lib/cluster-name.js';
+import { signsInAsPlatform, validateClusterName } from '../lib/cluster-name.js';
 import { generateSshKeypair } from '../lib/ssh-keypair.js';
 import type { ClusterService } from '../services/ClusterService.js';
 import type { AppService } from '../services/AppService.js';
@@ -66,16 +66,18 @@ export function clustersRouter(deps: ClustersRouterDeps): Router {
         const targetUrl = await clusterProxyService.ensurePortForward(clusterId, serviceKey, kubeconfigPath);
 
         if (serviceKey === 'gitea' || serviceKey === 'grafana' || serviceKey === 'infisical') {
-          try {
-            const credentials = serviceKey === 'gitea'
-              ? await giteaService.getAdminCredentials()
-              : serviceKey === 'grafana'
-                ? await getGrafanaAdminCredentials(kubeconfigPath)
-                : await infisicalService.getAdminCredentials();
-            const cookies = await clusterProxyService.getAutoLoginCookies(serviceKey, targetUrl, credentials);
-            for (const cookie of cookies) res.append('Set-Cookie', cookie);
-          } catch (err: any) {
-            console.warn(`[proxy] Auto-login failed for ${serviceKey}: ${err.message} — falling back to manual login`);
+          if (signsInAsPlatform(serviceKey, cluster.id)) {
+            try {
+              const credentials = serviceKey === 'gitea'
+                ? await giteaService.getAdminCredentials()
+                : serviceKey === 'grafana'
+                  ? await getGrafanaAdminCredentials(kubeconfigPath)
+                  : await infisicalService.getAdminCredentials();
+              const cookies = await clusterProxyService.getAutoLoginCookies(serviceKey, targetUrl, credentials);
+              for (const cookie of cookies) res.append('Set-Cookie', cookie);
+            } catch (err: any) {
+              console.warn(`[proxy] Auto-login failed for ${serviceKey}: ${err.message} — falling back to manual login`);
+            }
           }
           return res.redirect(302, targetUrl);
         }

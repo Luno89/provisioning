@@ -58,3 +58,14 @@ describe('suggestClusterName', () => {
     }
   });
 });
+
+describe('signing in to a cluster\'s dashboards for the person', () => {
+  it('uses the platform\'s own Gitea and Infisical sign-in only on the system cluster, where they run', async () => {
+    const { signsInAsPlatform, SYSTEM_CLUSTER_ID } = await import('./cluster-name.js');
+    expect(signsInAsPlatform('gitea', SYSTEM_CLUSTER_ID)).toBe(true);
+    expect(signsInAsPlatform('infisical', SYSTEM_CLUSTER_ID)).toBe(true);
+    expect(signsInAsPlatform('gitea', 'my-own-cluster')).toBe(false);
+    expect(signsInAsPlatform('infisical', 'my-own-cluster')).toBe(false);
+    expect(signsInAsPlatform('grafana', 'my-own-cluster')).toBe(true);
+  });
+});
