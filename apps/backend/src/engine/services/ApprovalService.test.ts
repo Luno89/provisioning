@@ -13,7 +13,9 @@ beforeEach(async () => {
   await db.engine.appendTurnLog({ turnId: 'run-1', ownerId: 'bo', seq: 1, at: 'now', events: [{ type: 'run.started', runId: 'run-1-check-writer-1' } as never] });
 });
 
-const service = () => new ApprovalService({ store: db.engine, runs: { approve } });
+const answer = vi.fn(async () => undefined);
+const cancel = vi.fn(async () => undefined);
+const service = () => new ApprovalService({ store: db.engine, runs: { approve, answer, cancel } });
 
 describe('approving a tool call', () => {
   it('lets only the run\'s owner approve it, for the run itself or one it handed work to', async () => {
@@ -39,7 +41,7 @@ describe('approving a tool call', () => {
     await db.engine.appendTurnLog({ turnId: 'grove-run-t1~abc', ownerId: 'bo', seq: 1, at: 'now', events: [{ type: 'run.started', runId: 'grove-run-t1~abc-grove-leaf-1-executor-1', agentId: 'executor' } as never] });
     const setAgent = vi.fn(async () => ({ ok: true as const }));
     const setTree = vi.fn(async () => ({ ok: true as const }));
-    const withAuto = new ApprovalService({ store: db.engine, runs: { approve }, autoMode: { setAgent, setTree }, treeOfRun: (turnId) => /^grove-run-([^~]+)~/.exec(turnId)?.[1] });
+    const withAuto = new ApprovalService({ store: db.engine, runs: { approve, answer, cancel }, autoMode: { setAgent, setTree }, treeOfRun: (turnId) => /^grove-run-([^~]+)~/.exec(turnId)?.[1] });
     const run = 'grove-run-t1~abc-grove-leaf-1-executor-1';
 
     expect(await withAuto.approve('bo', run, { callId: 'x', allowed: true, auto: 'agent' })).toBe('sent');
@@ -52,5 +54,19 @@ describe('approving a tool call', () => {
     expect(await withAuto.approve('bo', run, { callId: 'w', allowed: false, auto: 'agent' })).toBe('sent');
     expect(setAgent).toHaveBeenCalledTimes(1);
     expect(approve).toHaveBeenCalledTimes(3);
+  });
+});
+
+describe('answering or stopping a run', () => {
+  it('reaches only the run\'s owner\'s runs, the ones it handed work to included', async () => {
+    expect(await service().answer('bo', 'run-1-check-writer-1', 'decide', 'Cut over')).toBe('sent');
+    expect(answer).toHaveBeenCalledWith('run-1-check-writer-1', 'decide', 'Cut over');
+    expect(await service().cancel('bo', 'run-1')).toBe('sent');
+    expect(cancel).toHaveBeenCalledWith('run-1');
+    answer.mockClear();
+    cancel.mockClear();
+    expect(await service().answer('eve', 'run-1', 'decide', 'Cut over')).toBe('not-yours');
+    expect(await service().cancel('eve', 'run-1')).toBe('not-yours');
+    expect([answer.mock.calls.length, cancel.mock.calls.length]).toEqual([0, 0]);
   });
 });

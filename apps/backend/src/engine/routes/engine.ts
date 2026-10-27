@@ -41,7 +41,7 @@ export interface WorkspaceImageAccess {
 export interface EngineRouterDeps {
   runs: RunStarter;
   projects?: ((ownerId: string) => Promise<{ id: string; name: string }[]>) | undefined;
-  approvals: Pick<ApprovalService, 'approve'>;
+  approvals: Pick<ApprovalService, 'approve' | 'answer' | 'cancel'>;
   registry: AgentRegistry;
   traces?: TraceAccess | undefined;
   tasks?: TaskAccess | undefined;
@@ -234,7 +234,7 @@ export function engineRouter(deps: EngineRouterDeps): Router {
     if (typeof nodeId !== 'string') return res.status(400).json({ error: 'nodeId is required' });
 
     try {
-      await deps.runs.answer(String(req.params.runId), nodeId, value);
+      if (await deps.approvals.answer(userOf(req).id, String(req.params.runId), nodeId, value) === 'not-yours') return res.status(404).json({ error: 'You have no run with that id' });
       return res.json({ ok: true });
     } catch (err) {
       return fail(res, err);
@@ -261,7 +261,7 @@ export function engineRouter(deps: EngineRouterDeps): Router {
 
   router.post('/runs/:runId/cancel', asyncRoute(async (req: Request, res: Response) => {
     try {
-      await deps.runs.cancel(String(req.params.runId));
+      if (await deps.approvals.cancel(userOf(req).id, String(req.params.runId)) === 'not-yours') return res.status(404).json({ error: 'You have no run with that id' });
       return res.json({ ok: true });
     } catch (err) {
       return fail(res, err);

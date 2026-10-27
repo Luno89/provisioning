@@ -15,7 +15,7 @@ export class ApprovalService {
       runOrigin(ownerId: string, runId: string): Promise<{ agentId?: string | undefined; turnId: string } | undefined>;
       allowToolInConversation(ownerId: string, conversationId: string, tool: string): Promise<boolean>;
     };
-    runs: { approve(runId: string, callId: string, allowed: boolean, forRun?: boolean): Promise<void> };
+    runs: { approve(runId: string, callId: string, allowed: boolean, forRun?: boolean): Promise<void>; answer(runId: string, nodeId: string, value: unknown): Promise<void>; cancel(runId: string): Promise<void> };
     autoMode?: {
       setAgent(ownerId: string, agentSlug: string, body: unknown): Promise<{ ok: true } | { ok: false; error: string }>;
       setTree(ownerId: string, treeId: string, body: unknown): Promise<{ ok: true } | { ok: false; error: string }>;
@@ -33,6 +33,18 @@ export class ApprovalService {
       if (switched) return { refused: switched };
     }
     await this.deps.runs.approve(runId, request.callId, request.allowed, request.forRun === true);
+    return 'sent';
+  }
+
+  async answer(ownerId: string, runId: string, nodeId: string, value: unknown): Promise<'sent' | 'not-yours'> {
+    if (!(await this.deps.store.ownsRun(ownerId, runId))) return 'not-yours';
+    await this.deps.runs.answer(runId, nodeId, value);
+    return 'sent';
+  }
+
+  async cancel(ownerId: string, runId: string): Promise<'sent' | 'not-yours'> {
+    if (!(await this.deps.store.ownsRun(ownerId, runId))) return 'not-yours';
+    await this.deps.runs.cancel(runId);
     return 'sent';
   }
 
