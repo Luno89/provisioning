@@ -7,6 +7,14 @@ import {
 } from './workspace-image-seeds.js';
 import { publicIpBlock } from '../../infrastructure/lib/egress-rules.js';
 
+export const CLUSTER_DNS_EGRESS = {
+  to: [{
+    namespaceSelector: { matchLabels: { 'kubernetes.io/metadata.name': 'kube-system' } },
+    podSelector: { matchLabels: { 'k8s-app': 'kube-dns' } },
+  }],
+  ports: [{ protocol: 'UDP', port: 53 }, { protocol: 'TCP', port: 53 }],
+};
+
 export type { WorkspaceLanguage, EgressRule } from './workspace-image-seeds.js';
 export { DEFAULT_WORKSPACE_LANGUAGE, WORKSPACE_MOUNT, EGRESS_PROXY_HOST, EGRESS_PROXY_EGRESS };
 
@@ -97,9 +105,7 @@ export function buildWorkspaceManifests(
         policyTypes: ['Ingress', 'Egress'],
         ingress: [],
         egress: [
-          {
-            ports: [{ protocol: 'UDP', port: 53 }, { protocol: 'TCP', port: 53 }],
-          },
+          CLUSTER_DNS_EGRESS,
           ...(spec.egress ?? []).map((rule) => ({
             to: [
               rule.cidr === undefined

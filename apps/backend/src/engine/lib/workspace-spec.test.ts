@@ -74,11 +74,14 @@ describe('the network policy', () => {
     expect(find('NetworkPolicy').spec.ingress).toEqual([]);
   });
 
-  it('allows DNS and nothing else by default', () => {
+  it('allows DNS to the cluster\'s own resolver and nothing else by default, so port 53 is no way out', () => {
     const egress = find('NetworkPolicy').spec.egress;
     expect(egress).toHaveLength(1);
     expect(egress[0].ports.map((p: any) => p.port)).toEqual([53, 53]);
-    expect(egress[0].to).toBeUndefined();
+    expect(egress[0].to).toEqual([{
+      namespaceSelector: { matchLabels: { 'kubernetes.io/metadata.name': 'kube-system' } },
+      podSelector: { matchLabels: { 'k8s-app': 'kube-dns' } },
+    }]);
   });
 
   it('covers every pod in the namespace, not just the one we create', () => {

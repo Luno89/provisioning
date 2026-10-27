@@ -86,3 +86,14 @@ describe('a workspace pulling a Koala-built image', () => {
     expect((manifests.find((manifest) => manifest.kind === 'Pod') as { spec: Record<string, unknown> }).spec.imagePullSecrets).toBeUndefined();
   });
 });
+
+describe('a run\'s sandbox network', () => {
+  it('reaches DNS only at the cluster\'s own resolver, so port 53 is no way out', () => {
+    const policy = buildManifests(workspace()).find((manifest) => manifest.kind === 'NetworkPolicy') as { spec: { egress: { to?: unknown; ports?: unknown }[] } };
+    expect(policy.spec.egress[0]).toEqual({
+      to: [{ namespaceSelector: { matchLabels: { 'kubernetes.io/metadata.name': 'kube-system' } }, podSelector: { matchLabels: { 'k8s-app': 'kube-dns' } } }],
+      ports: [{ protocol: 'UDP', port: 53 }, { protocol: 'TCP', port: 53 }],
+    });
+    expect(policy.spec.egress.every((rule) => rule.to !== undefined)).toBe(true);
+  });
+});

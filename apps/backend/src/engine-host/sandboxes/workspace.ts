@@ -1,5 +1,6 @@
 import { BYPASS_ENV, type EgressMode } from '@koala/agent-engine';
 import { WORKSPACE_STAMP, workspaceStamp } from '../../engine/lib/published-workspace.js';
+import { CLUSTER_DNS_EGRESS } from '../../engine/lib/workspace-spec.js';
 import { POD_PULL_SECRETS, REGISTRY_PULL_SECRET, registryPullSecret, type RegistryLogin } from '../../instances/lib/registry-pull.js';
 import { publicIpBlock } from '../../infrastructure/lib/egress-rules.js';
 
@@ -175,7 +176,7 @@ export function buildManifests(workspace: RunWorkspace, pull?: RegistryLogin | u
         policyTypes: ['Ingress', 'Egress'],
         ingress: [],
         egress: [
-          { ports: [{ protocol: 'UDP', port: 53 }, { protocol: 'TCP', port: 53 }] },
+          CLUSTER_DNS_EGRESS,
           ...workspace.egress.map((rule) => ({
             to: [
               rule.cidr === undefined
