@@ -1,6 +1,6 @@
 import { Readable } from 'node:stream';
-import { gunzipSync } from 'node:zlib';
-import { pushCommands } from '../lib/git-pack.js';
+import { createGunzip } from 'node:zlib';
+import { pushCommands, type PushCommands } from '../lib/git-pack.js';
 import { mayPushRef } from '../lib/machine-branches.js';
 
 export const GIT_ROUTES = ['info/refs', 'git-upload-pack', 'git-receive-pack'] as const;
@@ -30,10 +30,26 @@ export interface MachineGitDeps {
 const SERVICES = new Set(['git-upload-pack', 'git-receive-pack']);
 const PASSED = ['content-type', 'cache-control', 'expires', 'pragma'];
 
-async function read(body: Readable): Promise<Buffer> {
-  const chunks: Buffer[] = [];
-  for await (const chunk of body) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as string));
-  return Buffer.concat(chunks);
+export const PUSH_COMMANDS_AT_MOST = 1024 * 1024;
+
+const bytes = (chunk: unknown): Buffer => (Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as string));
+
+async function* rest(head: Buffer, iterator: AsyncIterator<unknown>): AsyncGenerator<Buffer> {
+  if (head.length) yield head;
+  for (let next = await iterator.next(); !next.done; next = await iterator.next()) yield bytes(next.value);
+}
+
+async function pushOf(body: Readable): Promise<{ commands: PushCommands; forward: AsyncGenerator<Buffer> }> {
+  const iterator = body[Symbol.asyncIterator]();
+  let head = Buffer.alloc(0);
+  for (;;) {
+    const commands = pushCommands(head);
+    if (commands.ok || !commands.incomplete) return { commands, forward: rest(head, iterator) };
+    if (head.length > PUSH_COMMANDS_AT_MOST) return { commands: { ok: false, why: 'the push\'s commands run longer than any push git sends' }, forward: rest(Buffer.alloc(0), iterator) };
+    const next = await iterator.next();
+    if (next.done) return { commands, forward: rest(head, iterator) };
+    head = Buffer.concat([head, bytes(next.value)]);
+  }
 }
 
 export class MachineGitService {
@@ -48,15 +64,18 @@ export class MachineGitService {
     const remote = await this.deps.remote(device.ownerId, ask.repo);
     if (!remote) return { status: 404, text: `there is no repository ${ask.repo} of yours` };
 
-    let body: Buffer | undefined;
+    let body: AsyncIterable<Buffer> | undefined;
     if (ask.route !== 'info/refs') {
-      body = ask.body ? await read(ask.body) : Buffer.alloc(0);
-      if (ask.contentEncoding === 'gzip') body = gunzipSync(body);
+      const raw = ask.body ?? Readable.from([]);
+      const plain = ask.contentEncoding === 'gzip' ? raw.pipe(createGunzip()) : raw;
       if (ask.route === 'git-receive-pack') {
-        const commands = pushCommands(body);
-        if (!commands.ok) return { status: 400, text: commands.why };
-        const refused = commands.updates.find((update) => !mayPushRef(device.id, update.ref));
+        const push = await pushOf(plain);
+        if (!push.commands.ok) return { status: 400, text: push.commands.why };
+        const refused = push.commands.updates.find((update) => !mayPushRef(device.id, update.ref));
         if (refused) return { status: 403, text: `a machine may push only its own work branches, not ${refused.ref}` };
+        body = push.forward;
+      } else {
+        body = rest(Buffer.alloc(0), plain[Symbol.asyncIterator]());
       }
     }
 
@@ -68,8 +87,8 @@ export class MachineGitService {
         ...(ask.contentType ? { 'Content-Type': ask.contentType } : {}),
         ...(ask.gitProtocol ? { 'Git-Protocol': ask.gitProtocol } : {}),
       },
-      ...(body ? { body } : {}),
-    });
+      ...(body ? { body: Readable.toWeb(Readable.from(body)) as unknown as ReadableStream, duplex: 'half' } : {}),
+    } as RequestInit);
     const headers: Record<string, string> = {};
     for (const name of PASSED) {
       const value = answered.headers.get(name);

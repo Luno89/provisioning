@@ -9,13 +9,17 @@ const A = 'a'.repeat(40);
 const pushTo = (ref: string): Buffer => Buffer.from(`${pkt(`${ZERO} ${A} ${ref}\0report-status\n`)}0000PACK`);
 
 const setUp = () => {
-  const fetchImpl = vi.fn(async (_url: string | URL | Request, _init?: RequestInit) => new Response('answered', { status: 200, headers: { 'content-type': 'application/x-git-receive-pack-result', 'x-gitea': 'hidden' } }));
+  const sent: Buffer[] = [];
+  const fetchImpl = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+    if (init?.body instanceof ReadableStream) sent.push(Buffer.concat(await Readable.fromWeb(init.body as never).toArray()));
+    return new Response('answered', { status: 200, headers: { 'content-type': 'application/x-git-receive-pack-result', 'x-gitea': 'hidden' } });
+  });
   const service = new MachineGitService({
     deviceFor: async (token) => (token === 'device-token' ? { id: 'desk', ownerId: 'u1' } : undefined),
     remote: async (ownerId, repo) => (ownerId === 'u1' && repo === 'tree-t1' ? { url: 'http://gitea/koala-u1/tree-t1.git', authorization: 'Basic secret' } : undefined),
     fetchImpl: fetchImpl as unknown as typeof fetch,
   });
-  return { service, fetchImpl };
+  return { service, fetchImpl, sent };
 };
 
 const ask = (over: Partial<GitAsk>): GitAsk => ({
@@ -39,10 +43,11 @@ describe('git for a person\'s machine, through Koala', () => {
   });
 
   it('pushes only to the machine\'s own work branches, reading a gzipped push too', async () => {
-    const { service, fetchImpl } = setUp();
+    const { service, fetchImpl, sent } = setUp();
     const own = await service.serve(ask({ route: 'git-receive-pack', service: undefined, contentEncoding: 'gzip', body: Readable.from([gzipSync(pushTo('refs/heads/machine/desk/run-1'))]) }));
     expect(own.status).toBe(200);
-    expect(fetchImpl).toHaveBeenCalledWith('http://gitea/koala-u1/tree-t1.git/git-receive-pack', expect.objectContaining({ method: 'POST', body: pushTo('refs/heads/machine/desk/run-1') }));
+    expect(fetchImpl).toHaveBeenCalledWith('http://gitea/koala-u1/tree-t1.git/git-receive-pack', expect.objectContaining({ method: 'POST' }));
+    expect(sent[0]).toEqual(pushTo('refs/heads/machine/desk/run-1'));
 
     for (const ref of ['refs/heads/main', 'refs/heads/leaf/l1', 'refs/heads/machine/other/run-1']) {
       const refused = await service.serve(ask({ route: 'git-receive-pack', service: undefined, body: Readable.from([pushTo(ref)]) }));
@@ -57,6 +62,24 @@ describe('git for a person\'s machine, through Koala', () => {
     expect(await service.serve(ask({ token: 'stolen' }))).toEqual({ status: 401, text: 'this machine is not one Koala knows' });
     expect(await service.serve(ask({ repo: 'someone-else' }))).toEqual({ status: 404, text: 'there is no repository someone-else of yours' });
     expect(await service.serve(ask({ service: 'git-upload-archive' }))).toEqual({ status: 400, text: 'only fetching and pushing are served here' });
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it('streams a push through, reading only its commands, however its bytes arrive and however large its pack', async () => {
+    const { service, sent } = setUp();
+    const pack = Buffer.alloc(8 * 1024 * 1024, 7);
+    const whole = Buffer.concat([pushTo('refs/heads/machine/desk/run-2'), pack]);
+    const trickled = [whole.subarray(0, 3), whole.subarray(3, 20), whole.subarray(20, 70), whole.subarray(70)];
+    const answer = await service.serve(ask({ route: 'git-receive-pack', service: undefined, body: Readable.from(trickled) }));
+    expect(answer.status).toBe(200);
+    expect(sent[0]!.equals(whole)).toBe(true);
+  });
+
+  it('refuses a push whose commands run on past anything git sends, without reading the rest', async () => {
+    const { service, fetchImpl } = setUp();
+    const endless = (async function* () { for (;;) yield Buffer.from(pkt(`${ZERO} ${A} refs/heads/machine/desk/${'x'.repeat(200)}\n`)); })();
+    const answer = await service.serve(ask({ route: 'git-receive-pack', service: undefined, body: Readable.from(endless) }));
+    expect(answer).toEqual({ status: 400, text: 'the push\'s commands run longer than any push git sends' });
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 });

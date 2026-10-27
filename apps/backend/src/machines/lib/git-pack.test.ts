@@ -16,7 +16,7 @@ describe('reading what a push changes', () => {
     expect(pushCommands(body)).toEqual({ ok: true, updates: [
       { old: ZERO, next: A, ref: 'refs/heads/machine/dev-1/run-1' },
       { old: A, next: ZERO, ref: 'refs/heads/old' },
-    ] });
+    ], end: body.indexOf('PACK') });
   });
 
   it('refuses a body that is not git\'s push commands', () => {
