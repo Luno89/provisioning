@@ -18,7 +18,7 @@ import {
   CSP_REPORT_PATH, cspHeader, cspModeFrom, violationLine, crossSiteRefusal, foreignOrigin, ourOrigins, MetricsService, RATE_LIMITS, ruleFor,
   getTemporalClient, resolveOwnersWith, PayloadStorageService, createAuth, keepTrying, mongoTarget, asyncRoute,
   ownsProject, createDatabase, sharedPayloadBlobs, type Database, migrateLegacyOwnership, decryptValue, loadKeys,
-  roleFromEnv, servesTenants, holdsAccounts, MailService, emailWayFrom, telemetrySettings, e2eProblem, firstAdminSetup,
+  roleFromEnv, servesTenants, holdsAccounts, MailService, emailWayFrom, telemetrySettings, e2eProblem, firstAdminSetup, drainThenStop, podPlaceFrom,
 } from './platform/index.js';
 import { startTelemetry } from '@koala/engine-core/telemetry-sdk';
 import { rateLimit } from 'express-rate-limit';
@@ -445,7 +445,16 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     httpServer.listen(port, () => console.log(`🚀 Provisioning Server Active on http://localhost:${port}`));
   }
 
-  const shutdown = () => { clusterProxyService.stopAll(); process.exit(0); };
+  const place = podPlaceFrom(process.env);
+  let stopping = false;
+  const shutdown = () => {
+    if (stopping) return;
+    stopping = true;
+    clusterProxyService.stopAll();
+    if (!place) process.exit(0);
+    drainThenStop({ place, server: httpServer, sockets: io, log: (line) => console.log(line) })
+      .then(() => process.exit(0), (err: Error) => { console.error(`[drain] ${err.message}`); process.exit(1); });
+  };
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);
 

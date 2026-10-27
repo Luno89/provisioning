@@ -23,6 +23,7 @@ mesh:
 
 backend:
   nodePort: null
+  terminationGraceSeconds: 604800
 
 machineGateway:
   nodePort: 30322

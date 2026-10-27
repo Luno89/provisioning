@@ -158,6 +158,19 @@ describe('the instance chart', () => {
     }
   });
 
+  it('lets the backend drain on its own when it is replaced: it knows its pod, Kubernetes waits for it, and the edge stops after it', () => {
+    const docs = render(['routing.domain=koala.dev', 'routing.name=luno', 'edge.nodePort=30321']);
+    const pod = find(docs, 'Deployment', 'luno-backend').spec.template.spec;
+    expect(pod.terminationGracePeriodSeconds).toBe(604800);
+    const [backend, edge] = pod.containers;
+    expect(backend.env).toEqual(expect.arrayContaining([
+      { name: 'POD_IP', valueFrom: { fieldRef: { fieldPath: 'status.podIP' } } },
+      { name: 'POD_NAMESPACE', valueFrom: { fieldRef: { fieldPath: 'metadata.namespace' } } },
+    ]));
+    expect(edge.lifecycle.preStop.exec.command.join(' ')).toContain('until ! wget -q -O /dev/null http://127.0.0.1:3001/api/auth/sign-in');
+    expect(find(docs, 'Deployment', 'luno-worker-engine').spec.template.spec.terminationGracePeriodSeconds).toBeUndefined();
+  });
+
   it('refuses to render without knowing whose instance it is', () => {
     expect(() => execFileSync(HELM, ['template', 'x', CHART], { encoding: 'utf8', stdio: 'pipe' })).toThrow(/instance.id is required/);
   });
