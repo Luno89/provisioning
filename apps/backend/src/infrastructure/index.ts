@@ -21,6 +21,7 @@ export { parseQuantity, planHostMemory } from './lib/host-memory-plan.js';
 export type { HostMemoryPlan } from './lib/host-memory-plan.js';
 export { downloadHfFiles, getHfModelFiles, getHfModelSize } from './lib/huggingface.js';
 export type { DownloadProgress } from './lib/huggingface.js';
+export { cleanKubeconfig } from './lib/kubeconfig-clean.js';
 export { isValidImageTag } from './lib/registry-tags.js';
 export type { RunningRecords } from './lib/running.js';
 export { bindingProjection, bindingSecretName } from './lib/service-binding.js';
