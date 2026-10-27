@@ -41,7 +41,7 @@ const runOf = (list: EngineEvent[]) => applyInstanceEvents([], list)[0]!
 
 describe('a run on a story\'s page', () => {
   it('draws its procedure read-only, inside the group of the step it is on, with that step lit', async () => {
-    await render(<StoryRun run={runOf(events)} events={events} />)
+    await render(<StoryRun run={runOf(events)} turnId="grove-run-t1~1" events={events} />)
 
     const canvas = screen.getByTestId('canvas')
     expect(canvas.dataset.editable).toBe('false')
@@ -50,7 +50,7 @@ describe('a run on a story\'s page', () => {
   })
 
   it('lets the person look elsewhere, and go back to following it', async () => {
-    await render(<StoryRun run={runOf(events)} events={events} />)
+    await render(<StoryRun run={runOf(events)} turnId="grove-run-t1~1" events={events} />)
 
     fireEvent.click(screen.getByRole('button', { name: '← out of turn' }))
     expect(screen.getByTestId('canvas').textContent).toContain('at [] {"claim":"done","turn":"running"}')
@@ -61,7 +61,7 @@ describe('a run on a story\'s page', () => {
   })
 
   it('shows each round with its thinking open, the command it ran and what came back, and asks the person when it waits on them', async () => {
-    await render(<StoryRun run={runOf(events)} events={events} />)
+    await render(<StoryRun run={runOf(events)} turnId="grove-run-t1~1" events={events} />)
 
     const round = screen.getByTestId('story-run-round')
     expect(round.querySelector('details')!.hasAttribute('open')).toBe(true)
@@ -76,7 +76,7 @@ describe('a run on a story\'s page', () => {
 
   it('stops lighting a step once the run has ended', async () => {
     const ended: EngineEvent[] = [...events.slice(0, 8), { type: 'run.finished', runId: 'exec-2', at: 't9', outcome: 'ok' }]
-    await render(<StoryRun run={runOf(ended)} events={ended} />)
+    await render(<StoryRun run={runOf(ended)} turnId="grove-run-t1~1" events={ended} />)
 
     expect(screen.getByTestId('canvas').textContent).toContain('at [] {"claim":"done"}')
     expect(screen.queryByRole('button', { name: /Stop/ })).not.toBeInTheDocument()
