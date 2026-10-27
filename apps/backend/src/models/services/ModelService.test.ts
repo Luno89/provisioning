@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { ModelService } from './ModelService.js';
 import { testDatabase } from '../../platform/lib/test-database.js';
 import type { MongoDB } from '../../platform/lib/mongo-db.js';
@@ -126,5 +126,20 @@ describe('a check space borrowing its person\'s models', () => {
     const resolved = await models.resolveBaseUrl('space-1');
     expect(resolved.provider.id).toBe('openrouter-2');
     expect(resolved.source).toBe('global');
+  });
+});
+
+describe('an endpoint named by a host', () => {
+  it('is refused when the name resolves to this machine or the private network, as an address would be', async () => {
+    const dns = (await import('node:dns/promises')).default;
+    const lookup = vi.spyOn(dns, 'lookup').mockImplementation((async (host: string) => (host === '127.0.0.1.nip.io' ? [{ address: '127.0.0.1', family: 4 }] : [{ address: '93.184.216.34', family: 4 }])) as never);
+    try {
+      const sneaky = await build([{ id: 'sneaky', ownerId: 'u1', name: 'Sneaky', baseUrl: 'http://127.0.0.1.nip.io:3001/api', model: 'm', createdAt: 't' }], { defaultModelId: 'sneaky' });
+      await expect(sneaky.resolveBaseUrl('u1')).rejects.toThrow('Endpoint "Sneaky" is no longer allowed: 127.0.0.1.nip.io resolves to 127.0.0.1 is a private, loopback, mesh or reserved address');
+      const honest = await build([{ id: 'honest', ownerId: 'u1', name: 'Honest', baseUrl: 'https://models.example.com/v1', model: 'm', createdAt: 't' }], { defaultModelId: 'honest' });
+      expect((await honest.resolveBaseUrl('u1')).baseUrl).toBe('https://models.example.com/v1');
+    } finally {
+      lookup.mockRestore();
+    }
   });
 });

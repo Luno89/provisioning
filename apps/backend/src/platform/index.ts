@@ -32,6 +32,7 @@ export type { ClusterOwnership } from './lib/ownership.js';
 export { holdsAccounts, roleFromEnv, servesHub, servesTenants, signsInThroughRoot } from './lib/platform-role.js';
 export type { RoleConfig } from './lib/platform-role.js';
 export { writePrivate } from './lib/private-file.js';
+export { addressProblem } from './lib/public-address.js';
 export { K3S_TRAEFIK_CONFIG, k3sConfigState, ourTraefikArgs, servicesLabelled, traefikOf } from './lib/request-metrics.js';
 export type { HelmRelease } from './lib/request-metrics.js';
 export { crossSiteRefusal, foreignOrigin, ourOrigins } from './lib/same-site.js';

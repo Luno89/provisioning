@@ -1,4 +1,5 @@
-import { BaseService, type Database, decryptValue, type SecretKey } from '../../platform/index.js';
+import dns from 'node:dns/promises';
+import { addressProblem, BaseService, type Database, decryptValue, type SecretKey } from '../../platform/index.js';
 import type { AppService, ClusterService, ClusterProxyService, HeadscaleService } from '../../infrastructure/index.js';
 import { listProviders, routeProvider, type ModelProvider, type EndpointSource } from '../lib/model-registry.js';
 import { checkEndpointUrl, isMeshAddress, type EndpointRules } from '../lib/endpoint-url-safety.js';
@@ -117,6 +118,13 @@ export class ModelService extends BaseService {
 
     if (check.literalIp && isMeshAddress(check.literalIp)) {
       await this.assertOwnsMeshAddress(userId, check.literalIp);
+    }
+    if (!scripted && !check.literalIp && check.hostname) {
+      const addresses = await dns.lookup(check.hostname, { all: true }).catch(() => []);
+      for (const { address } of addresses) {
+        if (isMeshAddress(address)) await this.assertOwnsMeshAddress(userId, address);
+        else if (addressProblem(address)) throw new Error(`Endpoint "${provider.name}" is no longer allowed: ${check.hostname} resolves to ${addressProblem(address)}`);
+      }
     }
 
     const endpoints = await this.db.models.getModelEndpoints();
