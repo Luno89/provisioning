@@ -4,6 +4,7 @@ import { ChevronDown, ExternalLink, Globe, Monitor } from 'lucide-react'
 import { getProjectApp, openProjectApp, projectAppKeys, type ExposureMode } from '../api/project-app.js'
 import { releaseKeys } from '../api/releases.js'
 import { errorMessage } from '../../../api/client.js'
+import { safeHref } from '../../../shared/lib/safe-href'
 
 const hostOf = (address: string): string => {
   try {
@@ -22,7 +23,7 @@ export function OpenApp({ projectId, which = 'app' }: { projectId: string; which
     onSuccess: (opened, { mode, tab }) => {
       qc.setQueryData(projectAppKeys.of(projectId), opened)
       void qc.invalidateQueries({ queryKey: releaseKeys.list(projectId) })
-      const address = opened[mode][which]
+      const address = safeHref(opened[mode][which])
       if (tab && address) tab.location.href = address
       else tab?.close()
     },
@@ -34,7 +35,7 @@ export function OpenApp({ projectId, which = 'app' }: { projectId: string; which
 
   const choose = (mode: ExposureMode) => {
     setMenu(false)
-    const known = current[mode][which]
+    const known = safeHref(current[mode][which])
     if (known) {
       window.open(known, '_blank', 'noopener,noreferrer')
       return

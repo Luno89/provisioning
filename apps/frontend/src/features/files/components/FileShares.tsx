@@ -14,7 +14,7 @@ export default function FileShares() {
     <ul className="space-y-1" data-testid="file-shares">
       {shares.data.map((share) => (
         <li key={share.id} className="flex items-center gap-2 text-xs text-slate-300">
-          <a href={shareUrl(share.id, window.location.origin)} target="_blank" rel="noreferrer" className="flex min-w-0 items-center gap-1 truncate text-sky-300 hover:underline" title={share.path}>
+          <a href={shareUrl(share.token, window.location.origin)} target="_blank" rel="noreferrer" className="flex min-w-0 items-center gap-1 truncate text-sky-300 hover:underline" title={share.path}>
             <ExternalLink size={11} className="shrink-0" /> {share.name}
           </a>
           <span className="shrink-0 text-slate-500">{expiresText(share.expiresAt, now)}</span>

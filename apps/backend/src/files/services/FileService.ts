@@ -1,4 +1,4 @@
-import { randomBytes } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import type { Readable } from 'node:stream';
 import type { DeploymentMetadata, ProjectMetadata } from '../../platform/index.js';
 import { fileServersOf, folderFor, PERSONAL_FOLDER, sharedFolder, type FileEntry, type FilePlace, type FileServer, type FileSettings } from '../lib/file-places.js';
@@ -16,6 +16,7 @@ export interface FileServiceDeps {
       getFileSettings(ownerId: string): Promise<FileSettings | undefined>;
       getFileShares(ownerId: string): Promise<FileShare[]>;
       getFileShare(id: string): Promise<FileShare | undefined>;
+      getFileShareByToken(token: string): Promise<FileShare | undefined>;
       saveFileShare(share: FileShare): Promise<void>;
       deleteFileShare(id: string): Promise<void>;
       saveFileSettings(settings: FileSettings): Promise<void>;
@@ -167,7 +168,8 @@ export class FileService {
     found.value.stream.destroy();
     const now = this.now();
     const share: FileShare = {
-      id: randomBytes(24).toString('base64url'),
+      id: randomUUID(),
+      token: randomBytes(24).toString('base64url'),
       ownerId,
       ...(scope.kind === 'project' ? { projectId: scope.project.id } : {}),
       path,
@@ -195,7 +197,7 @@ export class FileService {
   async shared(token: string): Promise<FilesOutcome<Download & { name: string }>> {
     const gone = { ok: false as const, status: 404 as const, why: 'This link does not exist, or it has expired.' };
     if (!SHARE_TOKEN.test(token)) return gone;
-    const share = await this.deps.store.files.getFileShare(token);
+    const share = await this.deps.store.files.getFileShareByToken(token);
     if (!share) return gone;
     if (!shareLive(share, this.now())) {
       await this.deps.store.files.deleteFileShare(share.id);

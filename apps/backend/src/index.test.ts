@@ -11,7 +11,12 @@ const at = (text: string): number => {
 
 describe('the order routes are mounted in bootstrap', () => {
   it('reads the Gitea webhook from the raw body before the JSON parser is mounted', () => {
-    expect(at("tenant.post('/webhooks/gitea/:projectId', express.raw(")).toBeLessThan(at("app.use(express.json("));
+    expect(at("tenant.post('/webhooks/gitea/:projectId', express.raw(")).toBeLessThan(at('app.use((req, res, next) => jsonParsers['));
+  });
+
+  it('reads no JSON body before the guard has said who sent it', () => {
+    expect(at('app.use((req, res, next) => jsonParsers[')).toBeGreaterThan(at("app.use('/api', auth.requireAuth);"));
+    expect(bootstrap.match(/app\.use\(express\.json\(/g)).toBeNull();
   });
 
   it('puts the rate limits and the move gate before the guard, and the guard before every API router', () => {

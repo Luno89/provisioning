@@ -113,19 +113,19 @@ describe('/api/files', () => {
     expect((await axios.get(harness.url('/api/files/projects/p1/search?q=brief'))).data).toEqual([{ name: 'brief.pdf', path: 'docs/brief.pdf', type: 'file' }]);
 
     expect((await axios.post(harness.url('/api/files/projects/p1/shares'), { path: 'docs/brief.pdf', days: 3 }, { validateStatus: () => true })).status).toBe(400);
-    const made = (await axios.post(harness.url('/api/files/projects/p1/shares'), { path: 'docs/brief.pdf', days: 7 })).data as { id: string; name: string };
-    const page = (await axios.post(harness.url('/api/files/projects/p1/shares'), { path: 'page.html', days: 1 })).data as { id: string };
+    const made = (await axios.post(harness.url('/api/files/projects/p1/shares'), { path: 'docs/brief.pdf', days: 7 })).data as { id: string; token: string; name: string };
+    const page = (await axios.post(harness.url('/api/files/projects/p1/shares'), { path: 'page.html', days: 1 })).data as { id: string; token: string };
     expect(((await axios.get(harness.url('/api/files/shares'))).data as { id: string }[]).map((share) => share.id).sort()).toEqual([made.id, page.id].sort());
 
     const publicSite = await mountRouter({ prefix: '/api/share', user: { ...TEST_USER, id: 'a-stranger', email: 'stranger@example.com' }, router: async () => shareRouter({ files: shared! }) });
     try {
-      const opened = await axios.get(publicSite.url(`/api/share/${made.id}`), { responseType: 'arraybuffer' });
+      const opened = await axios.get(publicSite.url(`/api/share/${made.token}`), { responseType: 'arraybuffer' });
       expect(Buffer.from(opened.data)).toEqual(Buffer.from('%PDF'));
       expect(opened.headers['content-disposition']).toBe("inline; filename*=UTF-8''brief.pdf");
       expect(opened.headers['content-security-policy']).toBeUndefined();
-      expect((await axios.get(publicSite.url(`/api/share/${page.id}`))).headers['content-security-policy']).toContain('sandbox');
+      expect((await axios.get(publicSite.url(`/api/share/${page.token}`))).headers['content-security-policy']).toContain('sandbox');
       expect((await axios.delete(harness.url(`/api/files/shares/${made.id}`))).status).toBe(200);
-      expect((await axios.get(publicSite.url(`/api/share/${made.id}`), { validateStatus: () => true })).status).toBe(404);
+      expect((await axios.get(publicSite.url(`/api/share/${made.token}`), { validateStatus: () => true })).status).toBe(404);
     } finally {
       await publicSite.close();
     }

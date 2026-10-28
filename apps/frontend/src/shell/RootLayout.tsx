@@ -34,6 +34,7 @@ import { listDeployments, deploymentKeys, deployApp as deployAppApi, destroyReso
 import { listProviders, credentialKeys } from '../features/infrastructure';
 import { getNginxConfig, saveNginxConfig, nginxKeys } from '../features/infrastructure';
 import { useGroveChanges } from '../features/projects';
+import { safeHref } from '../shared/lib/safe-href';
 
 const TOAST_TONE: Record<ToastKind, { border: string; icon: string }> = {
   destroyed: { border: 'border-green-500', icon: 'text-green-500' },
@@ -111,7 +112,8 @@ export function RootLayout() {
   const signInUrl = useQuery({ queryKey: ['auth', 'sign-in'], queryFn: signInElsewhere, enabled: !authLoading && !user, staleTime: Infinity });
   const placement = useQuery({ queryKey: identityKeys.mine(), queryFn: getMyInstance, enabled: Boolean(user) && !user?.onHub, staleTime: Infinity });
   useEffect(() => {
-    if (!user && signInUrl.data && !joinPage) window.location.assign(signInUrl.data);
+    const signIn = safeHref(signInUrl.data);
+    if (!user && signIn && !joinPage) window.location.assign(signIn);
   }, [user, signInUrl.data, joinPage]);
   useEffect(() => {
     const pending = user && !joinPage ? pendingJoin() : undefined;

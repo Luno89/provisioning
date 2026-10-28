@@ -198,12 +198,15 @@ signs nobody in under `NODE_ENV=production`, which refuses to start with it.
 **Limits and headers.** Sign-in, sign-up, 2FA, handoffs, invites, joins and share links are rate limited per address
 (`platform/lib/http-limits.ts`, mounted on `/api` before the guard; sign-in and joining count only **failed** requests
 against the address, since a guess fails and a person succeeds, so a run of live suites signing up throwaway accounts
-never trips it, while every opening of a share link counts), an account is locked for fifteen minutes after ten wrong
+never trips it, while every opening of a share link counts), **a request's JSON is read only after the guard** has said who sent it:
+20 MB for someone signed in and for the scripted model and the hub's instances, which check their own keys, 256 KB for anyone else
+(`jsonLimitFor`, `index.test.ts` guards the order), an account is locked for fifteen minutes after ten wrong
 passwords (`lockedUntil`), every response carries `helmet`'s headers, and the proxy is trusted in production. **The SPA's
 content security policy** (`platform/lib/csp.ts`: same-origin scripts, sockets and frames, inline styles allowed, blob workers and
 media, nothing framed from elsewhere) is enforced in production (`CSP=report` sends it as `Content-Security-Policy-Report-Only`
 instead, `CSP=off|report|enforce` sets it anywhere); the browser's reports land on `POST /csp-report` and are logged as one
-line each. **Nothing next door can act as you** (W3/D1, owner 2026-10-25): people's instances and apps are under a registered
+line each. **A link the server sent is opened only through `safeHref`** (`frontend/src/shared/lib/safe-href.ts`: http(s), a path or a
+hash, never `javascript:` or `data:`), an app's, a preview's, an artifact's and a sign-in redirect alike. **Nothing next door can act as you** (W3/D1, owner 2026-10-25): people's instances and apps are under a registered
 domain of their own (`INGRESS_DOMAIN`, `nowrinkles.app`), never root's (`bootstrap.sh` refuses one sharing root's outside a lab);
 over https the session and OAuth state cookies are `__Host-` cookies (`cookieNamed`), which no other host can set, and the plain
 name is not read there (an instance decides by how the request arrived, `securedFor`); and a write to `/api` or a socket
@@ -1716,7 +1719,9 @@ Plan: `~/.claude/plans/file-uploads.md`. **Where you drop decides.** A project's
   right pane, a dialog elsewhere). A person's own files (chat attachments outside projects) and their links are under Settings → Files.
 - **Share links**: a file shared for a day, a week or a month (`fileShares`, `files/lib/file-shares.ts`) is served by Koala at
   `/api/share/<token>` with no session, and only the file it was made for (its MinIO ETag, kept as `etag` on the share; a file put
-  at that path later is never served by it, and a link from before is tied to the file it opens first) (`/share/` in the guard's public prefixes), streamed from MinIO, so MinIO is never exposed.
+  at that path later is never served by it, and a link from before is tied to the file it opens first; the token is stored only as
+its SHA-256, `tokenHash`, by which a link is found, and sealed with `DATA_KEY` so Settings can show it again, the share's id being its
+own, and the startup migration `share-tokens-sealed` moved the links stored under their token) (`/share/` in the guard's public prefixes), streamed from MinIO, so MinIO is never exposed.
   Revoked from Settings → Files; expired ones are removed when opened; a project's go with it. Every person's file and every artifact is served
   with `nosniff` and a sandboxing CSP, and shown in the page only when it is an image (never SVG), video, audio, plain text, CSV,
   Markdown, JSON or a PDF (which alone goes without the sandbox, which its viewer refuses); anything else downloads, whatever type

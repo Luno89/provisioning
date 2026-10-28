@@ -102,7 +102,7 @@ async function exercise(scope: string, label: string): Promise<void> {
 
   const share = await api!.post(`/files/${scope}/shares`, { path: 'archive/docs/brief.pdf', days: 1 });
   assert.equal(share.status, 201, JSON.stringify(share.data));
-  const link = `${BASE}/share/${(share.data as { id: string }).id}`;
+  const link = `${BASE}/share/${(share.data as { token: string }).token}`;
   const stranger = await axios.get(link, { proxy: false, responseType: 'arraybuffer', validateStatus: () => true });
   assert.equal(stranger.status, 200, 'the link did not open signed out');
   assert.equal(sha(Buffer.from(stranger.data as ArrayBuffer)), sha(pdf));
@@ -122,12 +122,12 @@ async function exercise(scope: string, label: string): Promise<void> {
     assert.equal(opened.headers['x-content-type-options'], 'nosniff');
   }
   const svgShare = await api!.post(`/files/${scope}/shares`, { path: 'drawn.svg', days: 1 });
-  const svgLink = await axios.get(`${BASE}/share/${(svgShare.data as { id: string }).id}`, { proxy: false, validateStatus: () => true });
+  const svgLink = await axios.get(`${BASE}/share/${(svgShare.data as { token: string }).token}`, { proxy: false, validateStatus: () => true });
   assert.match(String(svgLink.headers['content-disposition']), /^attachment;/, 'a shared SVG opened in the page');
   assert.match(String(svgLink.headers['content-security-policy']), /sandbox$/, 'a shared SVG may run script');
   assert.equal((await api!.delete(`/files/shares/${(svgShare.data as { id: string }).id}`)).status, 200);
   const tied = await api!.post(`/files/${scope}/shares`, { path: 'page.txt', days: 1 });
-  const tiedLink = `${BASE}/share/${(tied.data as { id: string }).id}`;
+  const tiedLink = `${BASE}/share/${(tied.data as { token: string }).token}`;
   assert.equal((await axios.get(tiedLink, { proxy: false, validateStatus: () => true })).status, 200, 'a fresh link did not open');
   assert.equal((await put(scope, 'page.txt', Buffer.from('another file, put at the same name later'), 'text/plain')).status, 201);
   assert.equal((await axios.get(tiedLink, { proxy: false, validateStatus: () => true })).status, 404, 'a link served a file put at its path after it was made');

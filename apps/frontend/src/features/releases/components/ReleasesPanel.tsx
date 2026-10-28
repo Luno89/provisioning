@@ -9,6 +9,7 @@ import { ReleaseChanges } from './ReleaseChanges'
 import { ReleaseFiles } from './ReleaseFiles'
 import { releaseKind, type ReleaseKind } from '../lib/release-kind'
 import { OpenApp } from './OpenApp'
+import { safeHref } from '../../../shared/lib/safe-href'
 
 const STATE: Record<ReleaseState, { label: string; tone: string }> = {
   queued: { label: 'waiting its turn', tone: 'text-slate-300 bg-slate-500/10 border-slate-600/40' },
@@ -43,7 +44,7 @@ export function Decision({ projectId, release, preview }: { projectId: string; r
       <ReleaseFiles projectId={projectId} releaseId={release.id} />
       <div className="flex flex-wrap items-center gap-2">
         {preview
-          ? <a href={preview} target="_blank" rel="noreferrer" className="flex items-center gap-1 rounded border border-amber-500/40 px-2 py-1 text-[11px] text-amber-200 hover:bg-amber-500/10"><ExternalLink size={11} /> Open preview</a>
+          ? <a href={safeHref(preview)} target="_blank" rel="noreferrer" className="flex items-center gap-1 rounded border border-amber-500/40 px-2 py-1 text-[11px] text-amber-200 hover:bg-amber-500/10"><ExternalLink size={11} /> Open preview</a>
           : <OpenApp projectId={projectId} which="preview" />}
         {!confirming ? (
           <>
@@ -167,7 +168,7 @@ export function ReleasesPanel({ projectId }: { projectId: string }) {
     <div className="space-y-2">
       <h4 className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-slate-500">
         <Layers size={11} /> Releases
-        {data?.addresses.live && <a href={data.addresses.live} target="_blank" rel="noreferrer" className="ml-auto flex items-center gap-1 normal-case tracking-normal text-emerald-300 hover:underline"><ExternalLink size={10} /> Open live</a>}
+        {data?.addresses.live && <a href={safeHref(data.addresses.live)} target="_blank" rel="noreferrer" className="ml-auto flex items-center gap-1 normal-case tracking-normal text-emerald-300 hover:underline"><ExternalLink size={10} /> Open live</a>}
       </h4>
       <ul className="space-y-2">
         {releases.map((release) => (

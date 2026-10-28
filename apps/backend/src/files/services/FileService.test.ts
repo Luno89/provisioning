@@ -41,6 +41,7 @@ function setUp(deployments: DeploymentMetadata[], settings?: FileSettings) {
         saveFileSettings: async (next) => { saved.set(next.ownerId, next); },
         getFileShares: async (ownerId) => [...shares.values()].filter((share) => share.ownerId === ownerId),
         getFileShare: async (id) => shares.get(id),
+        getFileShareByToken: async (token) => [...shares.values()].find((share) => share.token === token),
         saveFileShare: async (share) => { shares.set(share.id, share); },
         deleteFileShare: async (id) => { shares.delete(id); },
       },
@@ -119,15 +120,17 @@ describe('where a project\'s files go', () => {
     const made = await world.files.share('u1', scope, 'a.pdf', 1);
     if (!made.ok) throw new Error(made.why);
     expect(made.value).toMatchObject({ ownerId: 'u1', projectId: 'p1', path: 'a.pdf', name: 'a.pdf', expiresAt: '2026-10-22T10:00:00.000Z' });
-    expect(made.value.id).toMatch(/^[A-Za-z0-9_-]{32}$/);
-    const served = await world.files.shared(made.value.id);
+    expect(made.value.token).toMatch(/^[A-Za-z0-9_-]{32}$/);
+    expect(made.value.id).not.toBe(made.value.token);
+    expect(await world.files.shared(made.value.id)).toMatchObject({ ok: false, status: 404 });
+    const served = await world.files.shared(made.value.token);
     expect(served).toMatchObject({ ok: true, value: { name: 'a.pdf', contentType: 'application/pdf' } });
     expect((await world.files.shares('u1')).map((share) => share.id)).toEqual([made.value.id]);
     expect(await world.files.shares('u2')).toEqual([]);
     expect(await world.files.unshare('u2', made.value.id)).toMatchObject({ ok: false, status: 404 });
 
     clock.now = '2026-10-22T10:00:01.000Z';
-    expect(await world.files.shared(made.value.id)).toMatchObject({ ok: false, status: 404 });
+    expect(await world.files.shared(made.value.token)).toMatchObject({ ok: false, status: 404 });
     expect(world.shares.size).toBe(0);
     expect(await world.files.shared('../../etc/passwd')).toMatchObject({ ok: false, status: 404 });
   });
@@ -140,9 +143,9 @@ describe('where a project\'s files go', () => {
     const made = await world.files.share('u1', scope, 'a.pdf', 7);
     if (!made.ok) throw new Error(made.why);
     expect(made.value.etag).toMatch(/^[0-9a-f]{32}$/);
-    expect(await world.files.shared(made.value.id)).toMatchObject({ ok: true });
+    expect(await world.files.shared(made.value.token)).toMatchObject({ ok: true });
     world.kept.set('a.pdf', Buffer.from('%PDF a different file put at the same name'));
-    expect(await world.files.shared(made.value.id)).toMatchObject({ ok: false, status: 404, why: expect.stringMatching(/replaced or removed/) });
+    expect(await world.files.shared(made.value.token)).toMatchObject({ ok: false, status: 404, why: expect.stringMatching(/replaced or removed/) });
   });
 
   it('ties a link made before links were tied to the file it opens first', async () => {
@@ -153,9 +156,9 @@ describe('where a project\'s files go', () => {
     if (!made.ok) throw new Error(made.why);
     const { etag: _etag, ...before } = made.value;
     world.shares.set(made.value.id, before);
-    expect(await world.files.shared(made.value.id)).toMatchObject({ ok: true });
+    expect(await world.files.shared(made.value.token)).toMatchObject({ ok: true });
     expect(world.shares.get(made.value.id)?.etag).toMatch(/^[0-9a-f]{32}$/);
     world.kept.set('a.pdf', Buffer.from('replaced'));
-    expect(await world.files.shared(made.value.id)).toMatchObject({ ok: false, status: 404 });
+    expect(await world.files.shared(made.value.token)).toMatchObject({ ok: false, status: 404 });
   });
 });

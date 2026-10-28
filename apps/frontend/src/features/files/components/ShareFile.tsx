@@ -11,7 +11,7 @@ export default function ShareFile({ scope, path }: { scope: FileScope; path: str
   const share = useShareFile(scope)
   const [days, setDays] = useState<ShareDays>(7)
   const [copied, setCopied] = useState(false)
-  const url = share.data ? shareUrl(share.data.id, window.location.origin) : undefined
+  const url = share.data ? shareUrl(share.data.token, window.location.origin) : undefined
 
   return (
     <div className="space-y-1.5 text-[12px]" data-testid="share-file">

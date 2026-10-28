@@ -25,6 +25,7 @@ export async function seedAll(db: Database) {
   counts.treeVersionsStamped = (await runOnce(ledger, 'tree-versions', now, async () => ({ stamped: await stampTreeVersions(db.projects) }))).stamped ?? 0;
   counts.releasesMarkedTold = (await runOnce(ledger, 'release-told-at', now, async () => ({ marked: await db.releases.markOdooReleasesTold() }))).marked ?? 0;
   counts.deploymentSecretsSealed = (await runOnce(ledger, 'deployment-secrets-sealed', now, async () => ({ sealed: await db.infrastructure.sealDeploymentSecrets() }))).sealed ?? 0;
+  counts.shareTokensSealed = (await runOnce(ledger, 'share-tokens-sealed', now, async () => ({ sealed: await db.files.sealShareTokens() }))).sealed ?? 0;
   counts.inviteCodesHashed = (await runOnce(ledger, 'invite-codes-hashed', now, async () => ({ hashed: await db.accounts.hashInviteCodes(inviteExpiry(new Date(now))) }))).hashed ?? 0;
   counts.clientFilesForgotten = (await runOnce(ledger, 'client-files-forgotten', now, async () => ({ forgotten: await db.projects.forgetClientFiles() }))).forgotten ?? 0;
   counts.deviceTokensHashed = (await runOnce(ledger, 'device-tokens-hashed', now, async () => ({ hashed: await hashDeviceTokens(db.machines, loadKeys(process.env).data) }))).hashed ?? 0;

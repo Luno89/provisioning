@@ -1,5 +1,8 @@
+import { createHash } from 'node:crypto';
+
 export interface FileShare {
   id: string;
+  token: string;
   ownerId: string;
   projectId?: string | undefined;
   path: string;
@@ -21,3 +24,5 @@ export const shareExpires = (now: string, days: ShareDays): string => new Date(D
 export const shareLive = (share: Pick<FileShare, 'expiresAt'>, now: string): boolean => Date.parse(share.expiresAt) > Date.parse(now);
 
 export const SHARE_TOKEN = /^[A-Za-z0-9_-]{32}$/;
+
+export const shareTokenHash = (token: string): string => createHash('sha256').update(token).digest('hex');

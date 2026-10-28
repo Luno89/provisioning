@@ -45,6 +45,7 @@ export type FileScope = { kind: 'project'; projectId: string } | { kind: 'hub'; 
 
 export interface FileShare {
   id: string
+  token: string
   ownerId: string
   projectId?: string
   path: string

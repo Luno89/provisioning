@@ -19,6 +19,7 @@ import { AppHealth } from '../../../monitoring';
 import { ClusterHealth } from '../../../monitoring';
 import { NO_WEB_UI_APP_TYPES } from '../../lib/app-ui';
 import { getSupportedVolumes, getFallbackSize, getVolumeDescription } from '../../lib/app-volumes';
+import { safeHref } from '../../../../shared/lib/safe-href';
 
 export type LogTab = 'general' | 'health' | 'provision' | 'helm' | 'app' | 'diagnostics' | 'modules' | 'storage';
 
@@ -849,7 +850,7 @@ export default function AppDashboard({
                                 <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
                                 Public Access URL
                               </div>
-                              <a href={currentDeployment.publicExposureUrl + (currentDeployment.exposurePath || '')} target="_blank" rel="noreferrer" className="group flex items-center gap-1.5 text-lg font-bold text-blue-400 hover:text-blue-300 transition-colors">
+                              <a href={safeHref(currentDeployment.publicExposureUrl + (currentDeployment.exposurePath || ''))} target="_blank" rel="noreferrer" className="group flex items-center gap-1.5 text-lg font-bold text-blue-400 hover:text-blue-300 transition-colors">
                                 <span>{currentDeployment.publicExposureUrl}{currentDeployment.exposurePath || ''}</span>
                                 <ExternalLink size={16} className="opacity-70 group-hover:opacity-100 transition-opacity" />
                               </a>
@@ -864,7 +865,7 @@ export default function AppDashboard({
                                 <div className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
                                 Local Access URL
                               </div>
-                              <a href={currentDeployment.localExposureUrl + (currentDeployment.exposurePath || '')} target="_blank" rel="noreferrer" className="group flex items-center gap-1.5 text-lg font-bold text-blue-400 hover:text-blue-300 transition-colors">
+                              <a href={safeHref(currentDeployment.localExposureUrl + (currentDeployment.exposurePath || ''))} target="_blank" rel="noreferrer" className="group flex items-center gap-1.5 text-lg font-bold text-blue-400 hover:text-blue-300 transition-colors">
                                 <span>{currentDeployment.localExposureUrl}{currentDeployment.exposurePath || ''}</span>
                                 <ExternalLink size={16} className="opacity-70 group-hover:opacity-100 transition-opacity" />
                               </a>

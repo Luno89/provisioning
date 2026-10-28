@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { afterFailure, lockedSaid, lockedUntil, LOCKOUT, ruleFor } from './http-limits.js';
+import { afterFailure, jsonLimitFor, lockedSaid, lockedUntil, LOCKOUT, ruleFor } from './http-limits.js';
 
 describe('which public paths are rate limited', () => {
   it('limits sign-in, joining and share links, and nothing signed-in', () => {
@@ -35,5 +35,20 @@ describe('locking an account after repeated failed sign-ins', () => {
     expect(lockedSaid(until!, start + 21_000)).toBe('Too many failed sign-ins for this account; try again in 15 minutes.');
     expect(lockedUntil(attempts, start + 20_000 + LOCKOUT.forMs + 1)).toBeUndefined();
     expect(afterFailure(attempts, start + LOCKOUT.windowMs + 30_000).failures).toEqual([start + LOCKOUT.windowMs + 30_000]);
+  });
+});
+
+describe('how much JSON a request may send', () => {
+  it('lets someone signed in send a large body, and anyone else only a small one', () => {
+    expect(jsonLimitFor('/api/conversations/c1', true)).toBe('signedIn');
+    expect(jsonLimitFor('/api/auth/login', false)).toBe('signedOut');
+    expect(jsonLimitFor('/api/instances/mail', false)).toBe('signedOut');
+    expect(jsonLimitFor('/ingress/verify', false)).toBe('signedOut');
+  });
+
+  it('lets the scripted model and the hub\'s instances, which check their own keys, send a large body', () => {
+    expect(jsonLimitFor('/api/checks/scripted/s1/v1/chat/completions', false)).toBe('signedIn');
+    expect(jsonLimitFor('/api/hub-instance/projects/p1/sync', false)).toBe('signedIn');
+    expect(jsonLimitFor('/api/hub-root/people/u1', false)).toBe('signedOut');
   });
 });

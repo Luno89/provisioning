@@ -6,6 +6,7 @@ import { errorMessage } from '../../../api/client'
 import { LLM_PROVIDERS } from '../../infrastructure'
 import { openRouterNoticeFrom, withoutOpenRouterNotice } from '../lib/openrouter-notice'
 import { DefaultModelPicker } from './DefaultModelPicker'
+import { safeHref } from '../../../shared/lib/safe-href'
 
 const LLM_KEYS = ['credentials', 'llm'] as const
 
@@ -38,7 +39,7 @@ function ProviderCard({ provider, status }: { provider: (typeof LLM_PROVIDERS)[n
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5 text-[13px] font-semibold text-slate-100">
             {provider.label}
-            {provider.docsUrl && <a href={provider.docsUrl} target="_blank" rel="noreferrer" className="text-slate-500 hover:text-slate-300" aria-label={`Get a ${provider.label} key`}><ExternalLink size={12} /></a>}
+            {provider.docsUrl && <a href={safeHref(provider.docsUrl)} target="_blank" rel="noreferrer" className="text-slate-500 hover:text-slate-300" aria-label={`Get a ${provider.label} key`}><ExternalLink size={12} /></a>}
           </div>
           <div className={`text-[11px] ${connected ? 'text-emerald-300' : 'text-slate-500'}`}>{connected ? `${models} model${models === 1 ? '' : 's'} connected` : 'Not connected'}</div>
         </div>

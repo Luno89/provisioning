@@ -10,6 +10,14 @@ export interface RateLimitRule {
 
 const MINUTES = 60_000;
 
+export const JSON_LIMITS = { signedIn: '20mb', signedOut: '256kb' } as const;
+
+const LARGE_WITHOUT_A_SESSION = ['/api/checks/scripted/', '/api/hub-instance/'];
+
+export function jsonLimitFor(path: string, signedIn: boolean): keyof typeof JSON_LIMITS {
+  return signedIn || LARGE_WITHOUT_A_SESSION.some((prefix) => path.startsWith(prefix)) ? 'signedIn' : 'signedOut';
+}
+
 export const RATE_LIMITS: readonly RateLimitRule[] = [
   {
     name: 'sign-in',

@@ -3,6 +3,7 @@ import { Loader2 } from 'lucide-react'
 import { exchangeHandoff, signInElsewhere, type SessionUser } from '../../platform'
 import { errorMessage } from '../../../api/client'
 import { safeNext } from '../../hub'
+import { safeHref } from '../../../shared/lib/safe-href'
 
 export interface HandoffPageProps {
   token: string | null
@@ -27,7 +28,7 @@ export default function HandoffPage({ token, next, onSignedIn }: HandoffPageProp
   }, [token, next, onSignedIn])
 
   const again = async () => {
-    const url = await signInElsewhere()
+    const url = safeHref(await signInElsewhere())
     if (url) window.location.assign(url)
   }
 

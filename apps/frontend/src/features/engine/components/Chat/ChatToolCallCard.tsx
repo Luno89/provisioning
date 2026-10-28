@@ -3,6 +3,7 @@ import { Terminal, CheckCircle2, XCircle, Loader2, ChevronDown, ChevronRight, Fi
 import type { Artifact, ChildSteps } from '@koala/agent-engine/procedure';
 import { childView, type ChildRunView } from '../../lib/chat-unified-reducer.js';
 import { toolTrail } from '../../lib/tool-trail';
+import { safeHref } from '../../../../shared/lib/safe-href';
 
 export type FileArtifact = Extract<Artifact, { kind: 'file' }>;
 
@@ -73,7 +74,7 @@ function ArtifactList({ artifacts, onOpenDocument }: { artifacts: Artifact[]; on
             </button>
           ) : (
             <a
-              href={artifact.url}
+              href={safeHref(artifact.url)}
               target="_blank"
               rel="noreferrer"
               className="flex items-center gap-1.5 text-[11.5px] text-sky-300 hover:underline truncate"

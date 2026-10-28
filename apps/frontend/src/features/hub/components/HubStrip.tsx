@@ -3,6 +3,7 @@ import { projectStatus } from '../../projects'
 import { waitingLine } from '../../projects'
 import type { HubBoardView } from '../types'
 import { hubPlaceOf } from '../lib/hub-chat'
+import { safeHref } from '../../../shared/lib/safe-href'
 
 const KIND_SAID: Record<string, string> = {
   'approve-plan': 'Approving a plan',
@@ -21,8 +22,8 @@ export default function HubStrip({ view, me }: { view: HubBoardView; me: string 
   const working = workingOn(view.board.leaves)
   const place = hubPlaceOf(view)
   const mine = view.requests.filter((request) => request.by.personId === me && request.state !== 'done')
-  const live = status?.addresses?.live
-  const preview = status?.addresses?.preview
+  const live = safeHref(status?.addresses?.live)
+  const preview = safeHref(status?.addresses?.preview)
 
   return (
     <div className="space-y-1 rounded-lg border border-[var(--bark-700)] bg-[var(--bark-900)] px-3 py-2 text-[12px] text-slate-300" data-testid="hub-strip">

@@ -1,8 +1,10 @@
+import { randomUUID } from 'node:crypto';
 import { type AreaStore, fromDoc, toDoc } from '../platform/lib/collection.js';
+import { decryptValue, encryptValue, type SecretKey } from '../platform/lib/crypto.js';
 import type { ArtifactChunk, StoredArtifact } from './lib/artifacts.js';
 import type { Collection, Db } from 'mongodb';
 import type { FileSettings } from './lib/file-places.js';
-import type { FileShare } from './lib/file-shares.js';
+import { shareTokenHash, type FileShare } from './lib/file-shares.js';
 
 export interface FilesStore extends AreaStore {
   saveArtifact(artifact: StoredArtifact): Promise<void>;
@@ -16,12 +18,23 @@ export interface FilesStore extends AreaStore {
   saveFileSettings(settings: FileSettings): Promise<void>;
   getFileShares(ownerId: string): Promise<FileShare[]>;
   getFileShare(id: string): Promise<FileShare | undefined>;
+  getFileShareByToken(token: string): Promise<FileShare | undefined>;
   saveFileShare(share: FileShare): Promise<void>;
   deleteFileShare(id: string): Promise<void>;
+  sealShareTokens(): Promise<number>;
 }
 
 export class MongoFilesStore implements FilesStore {
-  constructor(private readonly db: () => Db) {}
+  constructor(private readonly db: () => Db, private readonly dataKey: SecretKey) {}
+
+  private get shares(): Collection {
+    return this.db().collection('fileShares');
+  }
+
+  private shareFrom(doc: Record<string, unknown>): FileShare {
+    const { _id, tokenHash: _hash, token, ...rest } = doc;
+    return { ...(rest as Omit<FileShare, 'id' | 'token'>), id: String(_id), token: decryptValue(String(token), this.dataKey) };
+  }
 
   private get artifactChunks(): Collection {
     return this.db().collection('artifactChunks');
@@ -35,6 +48,7 @@ export class MongoFilesStore implements FilesStore {
     await this.artifacts.createIndex({ ownerId: 1, runId: 1 });
     await this.artifacts.createIndex({ expiresAt: 1 });
     await this.artifactChunks.createIndex({ artifactId: 1, n: 1 });
+    await this.shares.createIndex({ tokenHash: 1 }, { unique: true, partialFilterExpression: { tokenHash: { $exists: true } } });
   }
 
   async saveArtifact(artifact: StoredArtifact): Promise<void> {
@@ -70,24 +84,37 @@ export class MongoFilesStore implements FilesStore {
   }
 
   async getFileShares(ownerId: string): Promise<FileShare[]> {
-    const docs = await this.db().collection('fileShares').find({ ownerId }).sort({ createdAt: -1 }).toArray();
-    return docs.map(({ _id, ...rest }) => ({ ...(rest as Omit<FileShare, 'id'>), id: String(_id) }));
+    const docs = await this.shares.find({ ownerId, tokenHash: { $exists: true } }).sort({ createdAt: -1 }).toArray();
+    return docs.map((doc) => this.shareFrom(doc));
   }
 
   async getFileShare(id: string): Promise<FileShare | undefined> {
-    const doc = await this.db().collection('fileShares').findOne({ _id: id as never });
-    if (!doc) return undefined;
-    const { _id, ...rest } = doc;
-    return { ...(rest as Omit<FileShare, 'id'>), id: String(_id) };
+    const doc = await this.shares.findOne({ _id: id as never, tokenHash: { $exists: true } });
+    return doc ? this.shareFrom(doc) : undefined;
+  }
+
+  async getFileShareByToken(token: string): Promise<FileShare | undefined> {
+    const doc = await this.shares.findOne({ tokenHash: shareTokenHash(token) });
+    return doc ? this.shareFrom(doc) : undefined;
   }
 
   async saveFileShare(share: FileShare): Promise<void> {
-    const { id, ...rest } = share;
-    await this.db().collection('fileShares').replaceOne({ _id: id as never }, rest, { upsert: true });
+    const { id, token, ...rest } = share;
+    await this.shares.replaceOne({ _id: id as never }, { ...rest, tokenHash: shareTokenHash(token), token: encryptValue(token, this.dataKey) }, { upsert: true });
   }
 
   async deleteFileShare(id: string): Promise<void> {
-    await this.db().collection('fileShares').deleteOne({ _id: id as never });
+    await this.shares.deleteOne({ _id: id as never });
+  }
+
+  async sealShareTokens(): Promise<number> {
+    const plain = await this.shares.find({ tokenHash: { $exists: false } }).toArray();
+    for (const { _id, ...rest } of plain) {
+      const token = String(_id);
+      await this.shares.insertOne({ _id: randomUUID() as never, ...rest, tokenHash: shareTokenHash(token), token: encryptValue(token, this.dataKey) });
+      await this.shares.deleteOne({ _id });
+    }
+    return plain.length;
   }
 
   async getFileSettings(ownerId: string): Promise<FileSettings | undefined> {

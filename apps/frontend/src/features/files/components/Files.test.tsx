@@ -196,7 +196,7 @@ describe('browsing a project\'s files', () => {
 
   it('opens a file in a preview it can be shared from', async () => {
     vi.mocked(filesApi.listStoredFiles).mockResolvedValue([{ name: 'brief.md', path: 'brief.md', type: 'file', size: 20 }, { name: 'logo.png', path: 'logo.png', type: 'file', size: 9 }])
-    vi.mocked(filesApi.shareStoredFile).mockResolvedValue({ id: 'a'.repeat(32), ownerId: 'u1', path: 'brief.md', name: 'brief.md', createdAt: 't', expiresAt: 't' })
+    vi.mocked(filesApi.shareStoredFile).mockResolvedValue({ id: 'share-2', token: 'a'.repeat(32), ownerId: 'u1', path: 'brief.md', name: 'brief.md', createdAt: 't', expiresAt: 't' })
     show(<StoredFiles scope={scope} />)
     fireEvent.click(await screen.findByRole('button', { name: 'Open brief.md' }))
     expect(await screen.findByText('the brief, in words')).toBeInTheDocument()
@@ -211,12 +211,13 @@ describe('browsing a project\'s files', () => {
 })
 
 describe('the person\'s shared links', () => {
-  it('lists each with how long it has left, and revokes one', async () => {
-    vi.mocked(filesApi.listFileShares).mockResolvedValue([{ id: 'b'.repeat(32), ownerId: 'u1', path: 'docs/a.pdf', name: 'a.pdf', createdAt: 't', expiresAt: new Date(Date.now() + 3 * 86_400_000).toISOString() }])
+  it('lists each with how long it has left, opening by its token, and revokes one by its id', async () => {
+    vi.mocked(filesApi.listFileShares).mockResolvedValue([{ id: 'share-1', token: 'b'.repeat(32), ownerId: 'u1', path: 'docs/a.pdf', name: 'a.pdf', createdAt: 't', expiresAt: new Date(Date.now() + 3 * 86_400_000).toISOString() }])
     show(<FileShares />)
     expect(await screen.findByText('3 days left')).toBeInTheDocument()
+    expect(screen.getByTitle('docs/a.pdf').getAttribute('href')).toContain(`/share/${'b'.repeat(32)}`)
     fireEvent.click(screen.getByRole('button', { name: 'Stop sharing a.pdf' }))
-    await waitFor(() => expect(filesApi.revokeFileShare).toHaveBeenCalledWith('b'.repeat(32)))
+    await waitFor(() => expect(filesApi.revokeFileShare).toHaveBeenCalledWith('share-1'))
   })
 })
 

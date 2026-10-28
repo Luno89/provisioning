@@ -6,6 +6,7 @@ import { Section, StateBadge } from '../../monitoring'
 import { useShellContext } from '../hooks/shell-context'
 import { QuietButton } from './Parts'
 import { appRows, bytes, healthHash, percent, rate, seconds, useInfrastructure } from '../shared'
+import { safeHref } from '../../../shared/lib/safe-href'
 
 export function AppsSection() {
   const ctx = useShellContext()
@@ -51,10 +52,10 @@ export function AppsSection() {
                     </div>
                     <div className="text-[11px] text-slate-500">{clusterName(app.clusterId)} · {app.strategy || 'helm'}</div>
                     {app.status === 'running' && app.url && !NO_WEB_UI_APP_TYPES.has(app.appType || '') && (
-                      <a href={app.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[11px] text-blue-300 hover:underline">Open <ExternalLink size={10} /></a>
+                      <a href={safeHref(app.url)} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[11px] text-blue-300 hover:underline">Open <ExternalLink size={10} /></a>
                     )}
                     {app.isExposed && app.exposureUrl && (
-                      <a href={app.exposureUrl + (app.exposurePath || '')} target="_blank" rel="noreferrer" className="ml-2 inline-flex items-center gap-1 text-[11px] text-emerald-300 hover:underline">
+                      <a href={safeHref(app.exposureUrl + (app.exposurePath || ''))} target="_blank" rel="noreferrer" className="ml-2 inline-flex items-center gap-1 text-[11px] text-emerald-300 hover:underline">
                         {app.exposureUrl}{app.exposurePath || ''} <ExternalLink size={10} />
                       </a>
                     )}

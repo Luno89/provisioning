@@ -15,7 +15,7 @@ import { Server as SocketServer } from 'socket.io';
 import { authRouter, AuthService } from './accounts/index.js';
 import helmet from 'helmet';
 import {
-  CSP_REPORT_LIMIT, CSP_REPORT_PATH, cspHeader, cspModeFrom, violationLine, crossSiteRefusal, foreignOrigin, ourOrigins, MetricsService, RATE_LIMITS, ruleFor,
+  CSP_REPORT_LIMIT, CSP_REPORT_PATH, cspHeader, cspModeFrom, violationLine, crossSiteRefusal, foreignOrigin, ourOrigins, MetricsService, JSON_LIMITS, jsonLimitFor, RATE_LIMITS, ruleFor,
   getTemporalClient, resolveOwnersWith, PayloadStorageService, createAuth, keepTrying, mongoTarget, asyncRoute,
   TEMPORAL_JWKS_PATH, temporalCa, temporalKeysRouter, temporalNamespaceFrom,
   ownsProject, createDatabase, sharedPayloadBlobs, type Database, migrateLegacyOwnership, decryptValue, loadKeys,
@@ -253,7 +253,6 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     }
   });
 
-  app.use(express.json({ limit: '20mb' }));
   app.use(metrics.middleware());
   app.use(helmet({ contentSecurityPolicy: false, crossOriginEmbedderPolicy: false, hsts: process.env.NODE_ENV === 'production' }));
   app.use(TEMPORAL_JWKS_PATH, temporalKeysRouter({ temporalKey: keys.temporal }));
@@ -293,6 +292,8 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   });
 
   app.use('/api', auth.requireAuth);
+  const jsonParsers = { signedIn: express.json({ limit: JSON_LIMITS.signedIn }), signedOut: express.json({ limit: JSON_LIMITS.signedOut }) };
+  app.use((req, res, next) => jsonParsers[jsonLimitFor(req.path, Boolean((req as { user?: unknown }).user))](req, res, next));
   app.get('/api/metrics', asyncRoute(async (req, res) => {
     if (!metrics.allowed(req.headers.authorization)) return res.status(401).json({ error: 'metrics are read with the METRICS_TOKEN' });
     res.type(metrics.contentType).send(await metrics.text());

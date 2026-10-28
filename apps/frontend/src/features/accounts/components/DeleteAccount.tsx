@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { errorMessage } from '../../../api/client'
 import { useShellStore } from '../../platform'
 import { confirmMatches, dangerButton, dangerPanel, emailField, quietButton, refusalBlockers, useAccountRemovalPlace, useRemovalPreview, useRemoveMyAccount } from '../shared'
+import { safeHref } from '../../../shared/lib/safe-href'
 
 function RemovedOnRoot() {
   const place = useAccountRemovalPlace(true)
@@ -12,7 +13,7 @@ function RemovedOnRoot() {
         Your account is kept by Koala, where you sign in, and this instance is part of it. Deleting it there removes the account and lets go of this instance; you are told exactly what goes before anything does.
       </p>
       {place.isError && <div className="text-sm text-red-300">{errorMessage(place.error)}</div>}
-      {place.data && <a href={place.data} className={`${quietButton} inline-block`}>Delete my account on Koala…</a>}
+      {place.data && <a href={safeHref(place.data)} className={`${quietButton} inline-block`}>Delete my account on Koala…</a>}
     </div>
   )
 }

@@ -7,6 +7,7 @@ import {
 import { errorMessage } from '../../../api/client';
 import type { ValidationResult } from '../types/credentials';
 import { PROVIDERS, PROVIDER_CAPABILITY } from '../lib/credential-providers';
+import { safeHref } from '../../../shared/lib/safe-href';
 
 export default function CloudAccounts() {
   const qc = useQueryClient();
@@ -128,7 +129,7 @@ export default function CloudAccounts() {
                       <div className="flex items-center gap-2">
                         <h3 className="font-bold text-white text-lg">{provider.label}</h3>
                         <a
-                          href={provider.docsUrl}
+                          href={safeHref(provider.docsUrl)}
                           target="_blank"
                           rel="noreferrer"
                           className="text-slate-500 hover:text-slate-300 transition-colors"
@@ -226,7 +227,7 @@ export default function CloudAccounts() {
                             </label>
                             {field.sensitive && (
                               <a
-                                href={provider.docsUrl}
+                                href={safeHref(provider.docsUrl)}
                                 target="_blank"
                                 rel="noreferrer"
                                 className="text-[11px] text-blue-400 hover:underline flex items-center gap-1"

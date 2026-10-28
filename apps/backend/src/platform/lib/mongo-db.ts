@@ -54,7 +54,7 @@ export class MongoDB implements Database {
     this.hub = new MongoHubStore(() => this.db!);
     this.projects = markingHubWrites(new MongoProjectsStore(() => this.db!), this.hub);
     this.releases = new MongoReleasesStore(() => this.db!);
-    this.files = new MongoFilesStore(() => this.db!);
+    this.files = new MongoFilesStore(() => this.db!, loadKeys(this.env).data);
     this.machines = new MongoMachinesStore(() => this.db!);
     this.monitoring = new MongoMonitoringStore(() => this.db!);
     this.models = new MongoModelsStore(() => this.db!);

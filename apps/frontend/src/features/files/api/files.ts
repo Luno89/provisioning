@@ -70,7 +70,7 @@ export const listFileShares = (): Promise<FileShare[]> =>
 export const revokeFileShare = (id: string): Promise<{ id: string }> =>
   api.delete<{ id: string }>(`/files/shares/${encodeURIComponent(id)}`).then((r) => r.data)
 
-export const shareUrl = (id: string, origin: string): string => new URL(`${API_BASE}/share/${encodeURIComponent(id)}`, origin).toString()
+export const shareUrl = (token: string, origin: string): string => new URL(`${API_BASE}/share/${encodeURIComponent(token)}`, origin).toString()
 
 export const readStoredText = (scope: FileScope, path: string): Promise<string> =>
   api.get<string>(`${base(scope)}/content`, { params: { path, inline: '1' }, responseType: 'text', transformResponse: (raw: unknown) => raw }).then((r) => String(r.data))
