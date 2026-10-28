@@ -22,7 +22,7 @@ import type {
   StepResult,
   ValueResult,
 } from '@koala/agent-engine/procedure';
-import type { Principal } from '../../platform/lib/permissions.js';
+import type { Principal } from '../../platform/index.js';
 import type { SamplingConfig } from '@koala/harness-types';
 
 export interface RunTicket {

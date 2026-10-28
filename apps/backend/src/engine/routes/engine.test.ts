@@ -163,7 +163,7 @@ describe('engine routes', () => {
 
     const [, options] = workflows.start.mock.calls[0] as [string, { args: [Record<string, unknown>] }];
     expect(options.args[0]).toEqual({
-      ticket: { runId: 'run-fixed', depth: 0, ownerId: 'test-user', agentSlug: 'koala', trigger: 'user' },
+      ticket: { runId: 'run-fixed', depth: 0, ownerId: 'test-user', principal: { kind: 'person', id: 'test-user', claims: [{ role: 'person' }] }, agentSlug: 'koala', trigger: 'user' },
       procedure: INTERACTIVE_CHAT_V4,
       inputs: { message: 'hello there' },
     });

@@ -1,4 +1,4 @@
-import { asPerson, type Principal } from '../../platform/lib/permissions.js';
+import { asPerson, type Principal } from '../../platform/index.js';
 import type { ReleaseSettings } from '../../releases/index.js';
 import type { ActionProposal } from '../lib/action-proposals.js';
 import { DECIDABLE } from '../lib/action-proposals.js';

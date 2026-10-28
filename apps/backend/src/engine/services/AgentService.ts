@@ -1,6 +1,6 @@
 import { accessOf, grantProblem } from '../lib/tool-access.js';
 import { isMcpToolName } from '../lib/mcp-tools.js';
-import type { Principal } from '../../platform/lib/permissions.js';
+import type { Principal } from '../../platform/index.js';
 import { capabilitiesOf, effectiveTools, type ToolContract } from '@koala/engine-core';
 import {
   environmentFor,
