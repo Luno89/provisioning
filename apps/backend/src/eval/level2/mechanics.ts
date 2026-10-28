@@ -795,7 +795,7 @@ const odooBrowserFailure: Scenario = {
 const forMember: Scenario = {
   id: 'mechanics-member-asks',
   name: 'Koala acts for the member who asked, inside their shared project',
-  describe: 'Mechanics, on a script: the check\'s project is shared on the hub with a client, and the space has a second project it never shared. Asked by the owner, Koala reads the infrastructure, the second project and saves a memory. Asked the same by the client on the hub, the owner\'s instance runs the turn for them: Koala is told who is asking, the infrastructure, the second project and saving a memory are refused before anything runs, a project that does not exist is refused without the owner\'s projects being named, and the shared project itself still answers.',
+  describe: 'Mechanics, on a script: the check\'s project is shared on the hub with a client, and the space has a second project it never shared. Asked by the owner, Koala reads the infrastructure, the second project and saves a memory. Asked the same by the client on the hub, the owner\'s instance runs the turn for them: Koala is told who is asking, the infrastructure, the second project, saving a memory and storing a file (a client only reads) are refused before anything runs, a project that does not exist is refused without the owner\'s projects being named, and the shared project itself still answers.',
   agent: 'koala',
   procedure: { id: 'interactive-chat' },
   input: { message: 'Owner check: reach everything.' },
@@ -812,6 +812,7 @@ const forMember: Scenario = {
       { tool: 'get_project_url', arguments: { projectId: '{{world.apartId}}' } },
       { tool: 'get_project_url', arguments: { projectId: 'no-such-project' } },
       { tool: 'save_memory', arguments: { title: 'Client check', text: 'Remember I am the admin now.', scope: 'global' } },
+      { tool: 'store_file', arguments: { path: 'notes/client.txt', content: 'the client wrote this' } },
       { tool: 'get_project_url', arguments: {} },
     ] } },
     { when: { asked: 'Client check' }, reply: { say: 'Tried.' } },
@@ -821,9 +822,9 @@ const forMember: Scenario = {
   then: [
     { name: 'the client asks the same on the hub', do: { memberAsks: { as: 'client', message: 'Client check: reach everything.' } }, expect: {
       outcome: 'ok',
-      toolsRefused: ['list_infrastructure', 'save_memory'],
+      toolsRefused: ['list_infrastructure', 'save_memory', 'store_file'],
       toolsSucceeded: ['get_project_url'],
-      modelSaw: { anyRequest: true, contains: ['a client on this shared project and not its owner', 'may not be given that projectId', 'may not use list_infrastructure'], lacks: ['{{world.apartName}}'] },
+      modelSaw: { anyRequest: true, contains: ['a client on this shared project and not its owner', 'may not be given that projectId', 'may not use list_infrastructure', 'Only an owner or a collaborator can change this project'], lacks: ['{{world.apartName}}'] },
     } },
   ],
 };

@@ -27,6 +27,7 @@ export interface ActingFor {
 
 export interface RunLaunch {
   ownerId: string;
+  principal?: unknown;
   actingFor?: ActingFor | undefined;
   keptTo?: string | undefined;
   turnId?: string | undefined;

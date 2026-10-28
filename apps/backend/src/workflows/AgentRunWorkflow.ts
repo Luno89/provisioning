@@ -578,7 +578,7 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
 
     async approve({ nodeId, call, environment, on }) {
       if (approvedForRun) return true;
-      if (patched(AUTO_MODE)) {
+      if (patched(AUTO_MODE) && !ticket.actingFor) {
         const workspaceRunId = environment?.kind === 'sandbox' ? environment.workspace.runId : undefined;
         if (await EngineAutoModeActivity({
           ownerId: ticket.ownerId,

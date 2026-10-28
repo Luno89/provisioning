@@ -44,6 +44,7 @@ export { seedWorkspaceImages } from './lib/workspace-image-seeds.js';
 export type { WorkspaceImageSpec } from './lib/workspace-image-seeds.js';
 export { egressForBindings } from './lib/workspace-spec.js';
 export type { WorkspaceLanguage } from './lib/workspace-spec.js';
+export type { ProjectResolver, ProjectWorld } from './lib/project-resolver.js';
 export type { AgentChangeService } from './services/AgentChangeService.js';
 export { AutoModeService } from './services/AutoModeService.js';
 export { ConversationNoticeService } from './services/ConversationNoticeService.js';

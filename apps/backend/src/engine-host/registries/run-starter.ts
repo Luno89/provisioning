@@ -6,6 +6,7 @@ import type { SamplingConfig } from '@koala/harness-types';
 import type { AgentRegistry } from './registry.js';
 import { machineChoice, machineChoiceId, type MachineChoice } from '@koala/agent-engine/procedure';
 import type { ProcedureRunInput, RunTicket } from '../temporal/contracts.js';
+import { asPerson, memberPrincipal, type Principal } from '../../platform/lib/permissions.js';
 import type { ActingFor } from '@koala/agent-engine/procedure';
 
 export interface WorkflowStarter {
@@ -83,6 +84,7 @@ export { UnknownAgentError };
 
 export interface RunStarterOptions {
   registry: AgentRegistry;
+  principal?: ((ownerId: string) => Promise<Principal>) | undefined;
   workflows: () => WorkflowStarter | undefined;
   taskQueue?: string | undefined;
   newRunId?: (() => string) | undefined;
@@ -130,10 +132,14 @@ export function createRunStarter(options: RunStarterOptions) {
 
       const runId = request.runId ?? newRunId();
 
+      const principal = request.actingFor
+        ? memberPrincipal(request.actingFor.personId, request.actingFor.projectId, request.actingFor.role)
+        : await options.principal?.(request.ownerId) ?? asPerson(request.ownerId);
       const ticket: RunTicket = {
         runId,
         depth: 0,
         ownerId: request.ownerId,
+        principal,
         ...(request.actingFor ? { actingFor: request.actingFor, projectId: request.actingFor.projectId } : {}),
         ...(request.keptTo && !request.actingFor ? { keptTo: request.keptTo, projectId: request.keptTo } : {}),
         agentSlug: request.agentSlug,

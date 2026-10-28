@@ -22,6 +22,7 @@ import type {
   StepResult,
   ValueResult,
 } from '@koala/agent-engine/procedure';
+import type { Principal } from '../../platform/lib/permissions.js';
 import type { SamplingConfig } from '@koala/harness-types';
 
 export interface RunTicket {
@@ -31,6 +32,7 @@ export interface RunTicket {
   turnId?: string | undefined;
   depth: number;
   ownerId: string;
+  principal?: Principal | undefined;
   actingFor?: ActingFor | undefined;
   keptTo?: string | undefined;
   agentSlug: string;
@@ -275,6 +277,7 @@ export const ticketFor = (run: Pick<RunContext, 'identity' | 'launch'>): RunTick
   ...(run.identity.parentCallId ? { parentCallId: run.identity.parentCallId } : {}),
   depth: run.identity.depth,
   ownerId: run.launch.ownerId,
+  ...(run.launch.principal ? { principal: run.launch.principal as Principal } : {}),
   ...(run.launch.actingFor ? { actingFor: run.launch.actingFor } : {}),
   ...(run.launch.keptTo ? { keptTo: run.launch.keptTo } : {}),
   ...(run.launch.turnId && run.launch.turnId !== run.identity.runId ? { turnId: run.launch.turnId } : {}),
@@ -291,6 +294,7 @@ export const turnOf = (ticket: Pick<RunTicket, 'runId' | 'turnId'>): string => t
 
 export const launchFor = (ticket: RunTicket, projectId?: string): RunLaunch => ({
   ownerId: ticket.ownerId,
+  ...(ticket.principal ? { principal: ticket.principal } : {}),
   ...(ticket.actingFor ? { actingFor: ticket.actingFor } : {}),
   ...(ticket.keptTo ? { keptTo: ticket.keptTo } : {}),
   turnId: turnOf(ticket),

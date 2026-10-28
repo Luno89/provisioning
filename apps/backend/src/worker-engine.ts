@@ -354,6 +354,7 @@ async function buildActivities() {
     return machineChoiceProblem(device ? { name: device.name, online: false, agents: device.agents ?? [] } : undefined, choice.agent, { waitsToConnect: true, model: choice.model });
   };
   const runStarter = createRunStarter({
+    principal: async (ownerId) => principalOf((await db.accounts.getUserById(ownerId)) ?? { id: ownerId }, claimSettingsFrom(engineRole)),
     registry,
     workflows: () => ({
       start: async (type, options) => {

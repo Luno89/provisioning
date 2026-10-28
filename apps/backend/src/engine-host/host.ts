@@ -44,7 +44,7 @@ import { createCodeRunner } from './nodes/code-runner.js';
 import { createWorkspaceServers } from './tools/workspace-servers.js';
 import { parkingFor, type Parking, type PublishedWorkspace } from '../engine/lib/published-workspace.js';
 import { WORKSPACE_FILE, pendingChanges, type WorkspaceFile } from '../engine/lib/workspace-file.js';
-import { memberScopeOf } from '../engine/lib/acting-for.js';
+import { projectResolver } from '../engine/lib/project-resolver.js';
 import { groveAgentOf, resolveTreeType } from '../projects/lib/tree-types.js';
 import { agentsReachable } from '../extensions/grove/operations/handlers.js';
 import { createWorkspaceImages, type WorkspaceImages } from './sandboxes/warm-images.js';
@@ -491,14 +491,15 @@ export function createEngineHost(options: EngineHostOptions): EngineHost {
     hosted: { call: hostedCaller(options.mcpServers.hostedUrl) },
     workspace: createWorkspaceServers({ environments: { forRun: (request) => environments.forRun(request) } }),
   }) : undefined;
-  const memberScope = stores.projectRecords && (async (ownerId: string, projectId: string) => {
-    const owned = <T extends { ownerId?: string | undefined }>(list: T[]) => list.filter((entry) => entry.ownerId === ownerId);
-    const [projects, trees, branches, leaves, tasks] = await Promise.all([
-      stores.projectRecords!(), stores.grove.trees.list(), stores.grove.branches.list(), stores.grove.leaves.list(), stores.tasks.list(ownerId),
-    ]);
-    return memberScopeOf(projectId, { projects: owned(projects), trees: owned(trees), branches: owned(branches), leaves: owned(leaves), tasks: owned(tasks) });
+  const resources = stores.projectRecords && projectResolver({
+    projects: stores.projectRecords,
+    trees: () => stores.grove.trees.list(),
+    branches: () => stores.grove.branches.list(),
+    leaves: () => stores.grove.leaves.list(),
+    tasks: (ownerId) => stores.tasks.list(ownerId),
+    conversation: (ownerId, id) => stores.conversations.get(ownerId, id),
   });
-  const tools = createToolRuntime({ registry, environments, handlers, ...(serverTools ? { serverTools } : {}), ...(memberScope ? { memberScope } : {}) });
+  const tools = createToolRuntime({ registry, environments, handlers, ...(serverTools ? { serverTools } : {}), ...(resources ? { resources } : {}) });
 
   const efforts = options.efforts
     ? createEffortTracker({ models: options.models, registry, store: options.efforts })

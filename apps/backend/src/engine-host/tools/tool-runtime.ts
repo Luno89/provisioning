@@ -4,7 +4,10 @@ import type { AgentRegistry } from '../registries/registry.js';
 import type { ServerTools } from './server-tools.js';
 import { isMcpToolName } from '../../engine/lib/mcp-tools.js';
 import { placeArtifacts, treeOfWorkspace } from '../sandboxes/workspace-repos.js';
-import { keptToProblem, memberCallProblem, type MemberScope } from '../../engine/lib/acting-for.js';
+import { keptToProblem } from '../../engine/lib/acting-for.js';
+import { accessOf, accessProblem, projectRefsIn, type ProjectResolution } from '../../engine/lib/tool-access.js';
+import type { ProjectResolver } from '../../engine/index.js';
+import { asPerson, memberPrincipal } from '../../platform/lib/permissions.js';
 
 export type { ToolHandler } from '@koala/engine-core';
 export type { ToolRuntime } from '../temporal/contracts.js';
@@ -22,7 +25,7 @@ export interface ToolRuntimeOptions {
   handlers?: Record<string, ToolHandler> | undefined;
   digestChars?: number | undefined;
   serverTools?: ServerTools | undefined;
-  memberScope?: ((ownerId: string, projectId: string) => Promise<MemberScope>) | undefined;
+  resources?: ProjectResolver | undefined;
 }
 
 const argumentsOf = (text: string): Record<string, unknown> => {
@@ -45,12 +48,6 @@ export function createToolRuntime(options: ToolRuntimeOptions): ToolRuntime {
     async run(args: ToolCallArgs, attempt = 1, signal?: AbortSignal): Promise<ToolCallOutcome> {
       const agent = await options.registry.agent(args.ticket.ownerId, args.ticket.agentSlug);
       if (!agent) return placed(refuse(`There is no agent called "${args.ticket.agentSlug}".`), args);
-      const member = args.ticket.actingFor;
-      if (member) {
-        if (!options.memberScope) return placed(refuse(`Koala is answering ${member.email}, a member of a shared project, and this server cannot tell what that project holds, so ${args.name} was not run.`), args);
-        const problem = memberCallProblem(args.name, argumentsOf(args.arguments), await options.memberScope(args.ticket.ownerId, member.projectId), member, isMcpToolName(args.name));
-        if (problem) return placed(refuse(problem), args);
-      }
       if (args.ticket.keptTo) {
         const problem = keptToProblem(args.name, argumentsOf(args.arguments));
         if (problem) return placed(refuse(problem), args);
@@ -65,6 +62,21 @@ export function createToolRuntime(options: ToolRuntimeOptions): ToolRuntime {
         ? await options.serverTools.forRun({ ticket: args.ticket, environment: args.environment, held: agent.servers ?? [], ceiling: agent.maxEffect })
         : undefined;
       const catalogue = [...registered, ...(served?.tools ?? [])];
+      const parsed = argumentsOf(args.arguments);
+      const scope = {
+        ...(args.ticket.projectId ? { projectId: args.ticket.projectId } : {}),
+        ...(args.environment?.workspace && treeOfWorkspace(args.environment.workspace.runId) ? { treeId: treeOfWorkspace(args.environment.workspace.runId) } : {}),
+        ...(args.ticket.conversationId ? { conversationId: args.ticket.conversationId } : {}),
+      };
+      const access = accessOf(args.name, catalogue.find((tool) => tool.name === args.name), isMcpToolName(args.name));
+      const refs = projectRefsIn(parsed);
+      const resolved: ProjectResolution = access.on === 'project'
+        ? options.resources
+          ? await options.resources.project(args.ticket.ownerId, refs, scope)
+          : args.ticket.actingFor ? { outside: Object.keys(refs)[0] ?? 'project' } : {}
+        : {};
+      const problem = accessProblem(args.name, access, args.ticket.principal ?? (args.ticket.actingFor ? memberPrincipal(args.ticket.actingFor.personId, args.ticket.actingFor.projectId, args.ticket.actingFor.role) : asPerson(args.ticket.ownerId)), args.ticket.ownerId, parsed, resolved, args.ticket.actingFor);
+      if (problem) return placed(refuse(problem), args);
       if (attempt > 1 && catalogue.find((tool) => tool.name === args.name)?.idempotent !== true) {
         return placed(refuse(`${args.name} may already have run once before this call failed, and running it again is not safe, so it was not repeated. Check what it did before calling it again.`), args);
       }

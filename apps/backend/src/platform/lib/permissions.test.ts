@@ -71,7 +71,7 @@ describe('the permissions table', () => {
     for (const resource of owned) {
       for (const action of Object.keys(PERMISSIONS[resource.kind]) as never[]) {
         expect(allowed(someone, action, resource), `${resource.kind} ${action}`).toBe(true);
-        expect(authorize(person('other'), action, resource), `${resource.kind} ${action}`).toMatchObject({ allowed: false, status: 404 });
+        expect(authorize(person('other'), action, resource), `${resource.kind} ${action}`).toMatchObject({ allowed: false, status: resource.kind === 'project' && action !== 'see' ? 403 : 404 });
         expect(allowed(operator, action, resource), `${resource.kind} ${action}`).toBe(false);
       }
     }

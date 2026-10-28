@@ -6,7 +6,7 @@ import type { PersonaRecord } from '@koala/agent-engine';
 import {
   type Database, type SecretKey, servesTenants, type RoleConfig, signJWT, startedFor, getTemporalClient,
   keepTrying, grovedTree, treeNotices, postedNotice, ownedBy,
-  publicAddressProblem,
+  publicAddressProblem, principalOf, claimSettingsFrom, roleFromEnv,
 } from '../../platform/index.js';
 import { accountDefaultOf, type MachineService } from '../../machines/index.js';
 import { PROCEDURE_CHANGE_AGENT } from '../lib/agent-usage.js';
@@ -146,6 +146,7 @@ export function engineCore(deps: EngineCoreDeps): EngineCore {
   });
   const engineRuns = createRunStarter({
     registry: engineRegistry,
+    principal: async (ownerId) => principalOf((await db.accounts.getUserById(ownerId)) ?? { id: ownerId }, claimSettingsFrom(roleFromEnv(deps.env))),
     turns: conversationTurns,
     ...(Number(env.ENGINE_CONTINUE_AFTER_EVENTS) > 0 ? { continueAfterEvents: Number(env.ENGINE_CONTINUE_AFTER_EVENTS) } : {}),
     workflows: () => (temporalBridge.isReady()

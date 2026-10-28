@@ -71,7 +71,7 @@ export interface Actions {
   'system-cluster': 'see' | 'deploy-to' | 'see-everything' | 'change' | 'delete';
   cluster: 'see' | 'deploy-to' | 'see-everything' | 'change' | 'delete';
   deployment: 'see' | 'change';
-  project: 'see' | 'change';
+  project: 'see' | 'propose' | 'change' | 'see-secrets';
   'shared-project': SharedAction;
   record: 'see' | 'change';
   workflow: 'see' | 'cancel';
@@ -86,7 +86,7 @@ export type Resource =
   | { kind: 'system-cluster'; id: string }
   | { kind: 'cluster'; id: string; ownerId?: string | undefined }
   | { kind: 'deployment'; ownerId?: string | undefined }
-  | { kind: 'project'; ownerId?: string | undefined }
+  | { kind: 'project'; id?: string | undefined; ownerId?: string | undefined }
   | { kind: 'shared-project'; id: string }
   | { kind: 'record'; noun: string; ownerId?: string | undefined }
   | { kind: 'workflow'; owner?: string | undefined };
@@ -139,8 +139,10 @@ export const PERMISSIONS: { readonly [K in ResourceKind]: { readonly [A in Actio
     change: OWN('Deployment not found'),
   },
   project: {
-    see: OWN('Project not found'),
-    change: OWN('Project not found'),
+    see: { who: ['owner', { shared: EVERY_MEMBER }], hidden: true, said: 'Project not found' },
+    propose: { who: ['owner', { shared: WORKERS }], hidden: false, said: 'Only an owner or a collaborator can propose changes to this project.' },
+    change: { who: ['owner', { shared: WORKERS }], hidden: false, said: 'Only an owner or a collaborator can change this project.' },
+    'see-secrets': { who: ['owner', { shared: OWNERS }], hidden: false, said: 'Only an owner can see this project\'s secrets.' },
   },
   'shared-project': {
     'see-project': SHARED(EVERY_MEMBER, 'That shared project does not exist, or you are not on it.'),
@@ -193,8 +195,9 @@ function satisfies(principal: Principal, who: Who, resource: Resource): boolean 
     const owner = ownerOf(resource);
     return owner !== undefined && owner !== '' && owner === principal.id;
   }
-  if (resource.kind !== 'shared-project') return false;
-  const role = sharedRoleOf(principal, resource.id);
+  const project = resource.kind === 'shared-project' || resource.kind === 'project' ? resource.id : undefined;
+  if (project === undefined) return false;
+  const role = sharedRoleOf(principal, project);
   return role !== undefined && who.shared.includes(role);
 }
 
@@ -219,3 +222,6 @@ export const sharedActionsOf = (principal: Principal, project: string): SharedAc
 
 export const rolePrincipal = (id: string, project: string, as: SharedRole): Principal =>
   ({ kind: 'person', id, claims: [{ role: 'person' }, { role: 'shared', project, as }] });
+
+export const memberPrincipal = (personId: string, project: string, role: string): Principal =>
+  (SHARED_ROLES as readonly string[]).includes(role) ? rolePrincipal(personId, project, role as SharedRole) : asPerson(personId);
