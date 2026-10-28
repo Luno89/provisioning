@@ -1591,7 +1591,8 @@ Plan: `~/.claude/plans/release-pipeline.md`. Nothing reaches `main` on GitHub, a
 instance, without passing its gates first (owner, 2026-10-23: "all those checks need to run before it gets to main"):
 - **`npm run ship`** (`tests/ship.ts`, with `MECHANICS_ADMIN` set) is how `main` is pushed. It runs on `main` in the
   checkout the dev stack runs from (it checks the backend on :3001 has its working directory there, and that nothing is
-  uncommitted), then **G1** (typecheck, the unit suites, lint) and **G2** (`SHIP_STEPS` in `tests/lib/gates.ts`: routes,
+  uncommitted, that gitleaks finds no secret in what it carries, and that osv-scanner finds no known vulnerability in what Koala
+  runs: production packages in `package-lock.json`, the ones with no fix yet kept in `osv-scanner.toml` with why), then **G1** (typecheck, the unit suites, lint) and **G2** (`SHIP_STEPS` in `tests/lib/gates.ts`: routes,
   account removal, hub, project sharing, telemetry, app names, files, the Odoo release and every mechanics check, each
   through its npm script against the dev stack), failing at the first that fails. Every mechanics check has to pass
   (`CHECKS_LIVE_ALL_PASS`), three check runs side by side (`CHECKS_LIVE_TOGETHER`, each check already in a space of its own): on its own `test:checks-live` only proves the check runner, since checks on a model vary. After each step it checks the checkout

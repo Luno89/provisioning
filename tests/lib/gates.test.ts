@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { changedBesidesLedger, HOTFIX_STEPS, ignoredRefusal, leaksRefusal, NO_COMMIT, nextVersion, pushedRange, onlyLedger, pushRefusal, RELEASE_SIGNERS, RELEASE_STEPS, SHIP_STEPS, signingKeyProblem, TAG_SIGNATURE, tagMessage, unsignedTagRefusal } from './gates.js';
+import { changedBesidesLedger, HOTFIX_STEPS, productionVulnerabilities, vulnerableRefusal, ignoredRefusal, leaksRefusal, NO_COMMIT, nextVersion, pushedRange, onlyLedger, pushRefusal, RELEASE_SIGNERS, RELEASE_STEPS, SHIP_STEPS, signingKeyProblem, TAG_SIGNATURE, tagMessage, unsignedTagRefusal } from './gates.js';
 
 const shipped = { at: '2026-10-24T01:00:00.000Z', steps: [] };
 const released = (version: string) => ({ ...shipped, version, previous: 'v2026.10.23' });
@@ -119,5 +119,23 @@ describe('the key a release is signed with', () => {
   it('is what the Release workflow checks the tag against', () => {
     const workflow = readFileSync(new URL('../../.github/workflows/release.yml', import.meta.url), 'utf8');
     expect(workflow).toContain(`gpg.ssh.allowedSignersFile=${RELEASE_SIGNERS} verify-tag`);
+  });
+});
+
+describe('known vulnerabilities before ship', () => {
+  const report = { results: [{ packages: [
+    { package: { name: 'axios', version: '1.18.1' }, vulnerabilities: [{ id: 'GHSA-aaaa' }] },
+    { package: { name: 'vite', version: '8.0.16' }, dependency_groups: ['dev'], vulnerabilities: [{ id: 'GHSA-bbbb' }] },
+    { package: { name: 'clean', version: '1.0.0' }, vulnerabilities: [] },
+  ] }] };
+
+  it('counts what Koala runs, never a tool only its development uses', () => {
+    expect(productionVulnerabilities(report)).toEqual([{ id: 'GHSA-aaaa', name: 'axios', version: '1.18.1' }]);
+    expect(productionVulnerabilities({})).toEqual([]);
+  });
+
+  it('refuses to ship with one, naming it and how to settle it', () => {
+    expect(vulnerableRefusal([])).toBeUndefined();
+    expect(vulnerableRefusal(productionVulnerabilities(report))).toMatch(/axios@1\.18\.1: https:\/\/osv\.dev\/GHSA-aaaa[\s\S]*osv-scanner\.toml/);
   });
 });

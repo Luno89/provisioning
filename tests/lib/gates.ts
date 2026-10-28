@@ -83,6 +83,21 @@ export const pushedRange = (remoteSha: string | undefined, localSha: string): st
 export const leaksRefusal = (findings: string | undefined): string | undefined =>
   findings ? `Gitleaks finds what looks like a secret in the commits it carries (values redacted):\n${findings}\nTake it out of those commits, or, when it is a test's made-up value, add the finding's fingerprint to .gitleaksignore.` : undefined;
 
+export interface Vulnerability {
+  id: string;
+  name: string;
+  version: string;
+}
+
+export const productionVulnerabilities = (report: unknown): Vulnerability[] =>
+  ((report as { results?: { packages?: { package: { name: string; version: string }; dependency_groups?: string[]; vulnerabilities?: { id: string }[] }[] }[] } | undefined)?.results ?? [])
+    .flatMap((result) => result.packages ?? [])
+    .filter((found) => !(found.dependency_groups ?? []).includes('dev'))
+    .flatMap((found) => (found.vulnerabilities ?? []).map((vulnerability) => ({ id: vulnerability.id, name: found.package.name, version: found.package.version })));
+
+export const vulnerableRefusal = (found: readonly Vulnerability[]): string | undefined =>
+  found.length ? `osv-scanner finds a known vulnerability in what Koala runs:\n${found.map((one) => `  ${one.name}@${one.version}: https://osv.dev/${one.id}`).join('\n')}\nUpdate the package, or, when no fixed version exists yet, add the id to osv-scanner.toml with why it stays.` : undefined;
+
 export const TAG_SIGNATURE = /^(Shipped and released|Hotfix released) from /m;
 
 export const RELEASE_SIGNERS = 'scripts/root-node/release-signers';

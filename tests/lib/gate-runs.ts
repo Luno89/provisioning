@@ -2,7 +2,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { changedBesidesLedger, LEDGER_FILES, onlyLedger, RELEASE_SIGNERS, type GateRecord, type GateStep, type PushedGates, type StepPassed } from './gates.js';
+import { changedBesidesLedger, LEDGER_FILES, onlyLedger, RELEASE_SIGNERS, type GateRecord, type GateStep, type PushedGates, type StepPassed, productionVulnerabilities, type Vulnerability } from './gates.js';
 import { imageTagOf } from './release-lab.js';
 
 const gitOut = (repo: string, args: string[]): string =>
@@ -42,6 +42,13 @@ export function leaksIn(repo: string, range: string): string | undefined {
   if (scan.status === 0) return undefined;
   if (scan.status === 3) return scan.stdout.trim();
   throw new Error(`gitleaks could not scan ${range}: ${scan.stderr.trim()}`);
+}
+
+export function vulnerabilitiesIn(repo: string): Vulnerability[] {
+  const tool = ciTool(repo, 'osv-scanner');
+  const scan = spawnSync(tool, ['scan', 'source', '--lockfile=package-lock.json', '--config=osv-scanner.toml', '--format=json'], { cwd: repo, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+  if (scan.status !== 0 && scan.status !== 1) throw new Error(`osv-scanner could not scan package-lock.json: ${scan.stderr.trim()}`);
+  return productionVulnerabilities(JSON.parse(scan.stdout));
 }
 
 const VERIFY_RELEASE = new URL('../../scripts/root-node/verify-release.sh', import.meta.url).pathname;
