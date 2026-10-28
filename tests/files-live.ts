@@ -133,7 +133,7 @@ async function exercise(scope: string, label: string): Promise<void> {
   assert.equal((await axios.get(tiedLink, { proxy: false, validateStatus: () => true })).status, 404, 'a link served a file put at its path after it was made');
   assert.equal((await api!.delete(`/files/shares/${(tied.data as { id: string }).id}`)).status, 200);
   for (const path of ['drawn.svg', 'feed.rss', 'page.txt']) assert.equal((await api!.delete(`/files/${scope}/content`, { params: { path } })).status, 200);
-  console.log('  the PDF shows in the page, its policy letting only Koala's own page frame it; an SVG, an RSS feed and a file calling itself HTML only download, sandboxed, a share link of one too; a link opens nothing once its file is replaced');
+  console.log('  the PDF shows in the page, its policy framed only by Koala itself; an SVG, an RSS feed and a file calling itself HTML only download, sandboxed, a share link of one too; a link opens nothing once its file is replaced');
 }
 
 async function main(): Promise<void> {
