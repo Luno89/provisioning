@@ -15,7 +15,7 @@ dotenv.config({ path: join(REPO, 'apps/backend/.env') });
 
 const OWNER = process.env.POOL_LIVE_OWNER ?? process.env.INSTANCE_LIVE_OWNER ?? process.env.GROVE_LIVE_OWNER;
 const IMAGE = process.env.POOL_LIVE_IMAGE ?? 'nowrinkles/app:dev';
-const TAG = IMAGE.split(':')[1] ?? 'dev';
+const TAG = 'pool-live';
 const ROOT_DOMAIN = 'koala.localhost';
 const DOMAIN = 'people.localhost';
 const ROOT_PORT = 3241;

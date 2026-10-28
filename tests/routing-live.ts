@@ -22,6 +22,7 @@ const TLS_PORT = 8443;
 const RELAY_PORT = 18080;
 const BRIDGE = '172.17.0.1';
 const IMAGE = 'nowrinkles/app:dev';
+const TAG = 'routing-live';
 const CADDY_IMAGE = 'nowrinkles/caddy:2.10.2';
 const TAILSCALE_IMAGE = 'tailscale/tailscale:v1.88.2';
 const SOCAT_IMAGE = 'alpine/socat:1.8.0.3';
@@ -118,8 +119,8 @@ async function main(): Promise<void> {
   for (const folder of [caddyAdmin, caddyLog]) mkdirSync(folder, { recursive: true });
 
   step('root\'s registry holds the current image, and root\'s Caddy is built');
-  run('docker', ['tag', IMAGE, `127.0.0.1:5000/${IMAGE}`]);
-  run('docker', ['push', '-q', `127.0.0.1:5000/${IMAGE}`]);
+  run('docker', ['tag', IMAGE, `127.0.0.1:5000/nowrinkles/app:${TAG}`]);
+  run('docker', ['push', '-q', `127.0.0.1:5000/nowrinkles/app:${TAG}`]);
   run('docker', ['build', '-q', '-t', CADDY_IMAGE, 'docker/caddy']);
 
   step('root joins its mesh as the platform, and its Caddy listens there with a local certificate authority');
@@ -155,7 +156,7 @@ async function main(): Promise<void> {
     '-v', `${caddyAdmin}:/run/koala-caddy`, '-v', `${caddyLog}:/var/log/koala-caddy:ro`,
     '-v', `${join(REPO, 'Caddyfile')}:/etc/koala/Caddyfile:ro`, '-e', 'CADDY_CONFIG=/etc/koala/Caddyfile',
     '-e', 'CADDY_ADMIN_SOCKET=/run/koala-caddy/admin.sock', '-e', 'CADDY_LOG=/var/log/koala-caddy/caddy.log', '-e', `CADDY_TLS_ADDRESS=127.0.0.1:${TLS_PORT}`,
-    '-e', 'MESH_LOGIN_SERVER=http://10.0.2.2:8080', '-e', 'INSTANCE_REGISTRY=10.0.2.2:5001', '-e', 'INSTANCE_IMAGE_TAG=dev', '-e', `MAIL_SMTP_URL=smtp://127.0.0.1:${MAILPIT_SMTP}`, IMAGE, 'backend']);
+    '-e', 'MESH_LOGIN_SERVER=http://10.0.2.2:8080', '-e', 'INSTANCE_REGISTRY=10.0.2.2:5001', '-e', `INSTANCE_IMAGE_TAG=${TAG}`, '-e', `MAIL_SMTP_URL=smtp://127.0.0.1:${MAILPIT_SMTP}`, IMAGE, 'backend']);
   await until('root answering', async () => ((await fetch(`${ROOT_FOR_HOST}/api/identity/keys`)).ok ? true : undefined));
   const session = signJWT({ userId: OWNER, email: 'live' }, loadKeys(process.env).session, 3600);
   const asOwner = (path: string, init: RequestInit = {}) => fetch(`${ROOT_FOR_HOST}${path}`, { ...init, headers: { 'content-type': 'application/json', Cookie: `session=${session}`, ...(init.headers ?? {}) } });

@@ -17,6 +17,7 @@ const ROOT_FOR_HOST = `http://localhost:${ROOT_PORT}`;
 const ROOT_FOR_GUEST = `http://10.0.2.2:${ROOT_PORT}`;
 const INSTANCE_URL = `http://127.0.0.1:${INSTANCE_PORT}`;
 const IMAGE = 'nowrinkles/app:dev';
+const TAG = 'byo-live';
 
 const run = (cmd: string, args: string[]) => execFileSync(cmd, args, { cwd: REPO, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
 const step = (message: string) => console.log(`\n▶ ${message}`);
@@ -73,11 +74,11 @@ async function main(): Promise<void> {
   assert.ok(OWNER, 'set INSTANCE_LIVE_OWNER (or GROVE_LIVE_OWNER) to the user who will own the instance');
 
   step('root\'s registry holds the current image');
-  run('docker', ['tag', IMAGE, `127.0.0.1:5000/${IMAGE}`]);
-  run('docker', ['push', '-q', `127.0.0.1:5000/${IMAGE}`]);
+  run('docker', ['tag', IMAGE, `127.0.0.1:5000/nowrinkles/app:${TAG}`]);
+  run('docker', ['push', '-q', `127.0.0.1:5000/nowrinkles/app:${TAG}`]);
 
   step('root starts, as the user\'s machine will see it');
-  await startRoot('dev');
+  await startRoot(TAG);
   const session = signJWT({ userId: OWNER, email: 'live' }, loadKeys(process.env).session, 3600);
   const asOwner = (path: string, init: RequestInit = {}) => fetch(`${ROOT_FOR_HOST}${path}`, { ...init, headers: { 'content-type': 'application/json', Cookie: `session=${session}`, ...(init.headers ?? {}) } });
 

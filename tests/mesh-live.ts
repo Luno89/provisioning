@@ -21,6 +21,7 @@ const ROOT_FOR_GUEST = `http://10.0.2.2:${ROOT_PORT}`;
 const INSTANCE_URL = `http://127.0.0.1:${INSTANCE_PORT}`;
 const MESH = 'http://10.0.2.2:8080';
 const IMAGE = 'nowrinkles/app:dev';
+const TAG = 'mesh-live';
 const ROOT_CONTAINER = 'nw-mesh-root';
 const OTHER_USER = `mesh-live-other-${STAMP}`;
 const SECRET_FILES = ['.gitea-admin-password', '.gitea-admin-token', '.headscale-api-key', '.infisical-admin-password', '.infisical-machine-identity', '.infisical-encryption-key', '.infisical-postgres-password', '.infisical-redis-password'];
@@ -87,15 +88,15 @@ async function main(): Promise<void> {
 
   step('the image holds this code, and root\'s registry has it');
   run('docker', ['build', '-q', '-t', IMAGE, '.']);
-  run('docker', ['tag', IMAGE, `127.0.0.1:5000/${IMAGE}`]);
-  run('docker', ['push', '-q', `127.0.0.1:5000/${IMAGE}`]);
+  run('docker', ['tag', IMAGE, `127.0.0.1:5000/nowrinkles/app:${TAG}`]);
+  run('docker', ['push', '-q', `127.0.0.1:5000/nowrinkles/app:${TAG}`]);
 
   step('root starts, with the mesh at its address on this computer');
   try { run('docker', ['rm', '-f', ROOT_CONTAINER]); } catch { /* not running */ }
   run('docker', ['run', '-d', '--name', ROOT_CONTAINER, '--network', 'host', '--env-file', 'apps/backend/.env', ...devTemporalCa(),
     ...SECRET_FILES.flatMap((file) => ['-v', `${join(REPO, 'apps/backend/data', file)}:/app/apps/backend/data/${file}:ro`]),
     '-e', 'ROLE=root', '-e', `PORT=${ROOT_PORT}`, '-e', `PUBLIC_URL=${ROOT_FOR_GUEST}`,
-    '-e', `MESH_LOGIN_SERVER=${MESH}`, '-e', 'INSTANCE_REGISTRY=10.0.2.2:5001', '-e', 'INSTANCE_IMAGE_TAG=dev', IMAGE, 'backend']);
+    '-e', `MESH_LOGIN_SERVER=${MESH}`, '-e', 'INSTANCE_REGISTRY=10.0.2.2:5001', '-e', `INSTANCE_IMAGE_TAG=${TAG}`, IMAGE, 'backend']);
   await until('root answering', 3, async () => ((await fetch(`${ROOT_FOR_HOST}/api/identity/keys`)).ok ? true : undefined));
   const session = signJWT({ userId: OWNER, email: 'live' }, loadKeys(process.env).session, 4 * 3600);
   const asOwner = (path: string, init: RequestInit = {}) => fetch(`${ROOT_FOR_HOST}${path}`, { ...init, headers: { 'content-type': 'application/json', Cookie: `session=${session}`, ...(init.headers ?? {}) } });
