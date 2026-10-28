@@ -27,6 +27,7 @@ export const RELEASE_STEPS: GateStep[] = [
   { name: 'addresses through root\'s Caddy', script: 'test:routing-live' },
   { name: 'a pool trial and its move', script: 'test:pool-live' },
   { name: 'what was made in a live Odoo brought into git', script: 'test:odoo-customizations-live' },
+  { name: 'a root restored from its backup on a fresh host', script: 'test:restore-live' },
   { name: 'the release rehearsal', script: 'test:release-live' },
 ];
 

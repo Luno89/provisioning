@@ -139,3 +139,40 @@ UNIT
 systemctl daemon-reload
 systemctl enable nowrinkles.service nowrinkles-workers.service >/dev/null 2>&1
 ok "nowrinkles.service runs the backend as koala, sandboxed; nowrinkles-workers.service runs the workers as root and restarts with it"
+
+backup_timer() {
+  local name="$1" when="$2" mode="$3"
+  cat > "/etc/systemd/system/${name}.service" <<UNIT
+[Unit]
+Description=Koala root: ${mode} the encrypted off-box backup
+After=docker.service network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+Environment=REPO_DIR=${REPO_DIR}
+ExecStart=/bin/bash ${REPO_DIR}/scripts/root-node/backup.sh ${mode}
+UNIT
+  cat > "/etc/systemd/system/${name}.timer" <<UNIT
+[Unit]
+Description=Koala root: ${mode} the backup on a schedule
+
+[Timer]
+OnCalendar=${when}
+Persistent=true
+RandomizedDelaySec=15min
+
+[Install]
+WantedBy=timers.target
+UNIT
+}
+backup_timer koala-backup '*-*-* 03:30:00' backup
+backup_timer koala-backup-check 'Sun *-*-* 05:00:00' check
+systemctl daemon-reload
+if grep -qE '^BACKUP_REPOSITORY=.+' "${REPO_DIR}/apps/backend/.env" 2>/dev/null; then
+  systemctl enable --now koala-backup.timer koala-backup-check.timer >/dev/null 2>&1
+  ok "backups run nightly at 03:30 and are checked every Sunday (koala-backup.timer, koala-backup-check.timer)"
+else
+  systemctl disable --now koala-backup.timer koala-backup-check.timer >/dev/null 2>&1 || true
+  warn "backups are off: set BACKUP_REPOSITORY, BACKUP_PASSWORD, AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY in ${REPO_DIR}/apps/backend/.env, then run units.sh again"
+fi

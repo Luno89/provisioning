@@ -61,6 +61,7 @@
     "test:checks-live": "cd apps/backend && tsx ../../tests/lib/run-live.ts checks-live",
     "test:odoo-release-live": "cd apps/backend && tsx ../../tests/lib/run-live.ts odoo-release-live",
     "test:odoo-customizations-live": "cd apps/backend && tsx ../../tests/lib/run-live.ts odoo-customizations-live",
+    "test:restore-live": "cd apps/backend && tsx ../../tests/lib/run-live.ts restore-live",
     "test:odoo-import-live": "cd apps/backend && tsx ../../tests/lib/run-live.ts odoo-import-live",
     "test:tree-to-release-live": "cd apps/backend && tsx ../../tests/lib/run-live.ts tree-to-release-live",
     "test:extensions-live": "cd apps/backend && tsx ../../tests/lib/run-live.ts extensions-live",

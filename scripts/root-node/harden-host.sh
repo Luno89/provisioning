@@ -46,7 +46,7 @@ CONF
 sysctl --system >/dev/null
 ok "kernel: no redirects or source routing, loose reverse-path checks, kernel pointers and dmesg hidden, ptrace limited"
 
-for pkg in unattended-upgrades needrestart; do
+for pkg in unattended-upgrades needrestart restic; do
   dpkg -s "$pkg" &>/dev/null || DEBIAN_FRONTEND=noninteractive apt-get install -y "$pkg" >/dev/null
 done
 REBOOT=true
