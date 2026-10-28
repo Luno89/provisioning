@@ -78,3 +78,38 @@ export const lockedSaid = (until: number, now: number): string => {
   const minutes = Math.max(1, Math.ceil((until - now) / MINUTES));
   return `Too many failed sign-ins for this account; try again in ${minutes} ${minutes === 1 ? 'minute' : 'minutes'}.`;
 };
+
+export const attemptsKeyFor = (account: string, device: { account: string; id: string } | undefined): string =>
+  device && device.account === account ? `device:${device.id}` : `account:${account}`;
+
+export class SignInAttemptLog {
+  private readonly held = new Map<string, SignInAttempts>();
+  private prunedAt = 0;
+
+  constructor(private readonly rule = LOCKOUT, private readonly pruneEveryMs = MINUTES) {}
+
+  get size(): number {
+    return this.held.size;
+  }
+
+  lockedUntil(key: string, now: number): number | undefined {
+    return lockedUntil(this.held.get(key), now, this.rule);
+  }
+
+  failed(key: string, now: number): void {
+    if (now - this.prunedAt >= this.pruneEveryMs) this.prune(now);
+    this.held.set(key, afterFailure(this.held.get(key), now, this.rule));
+  }
+
+  succeeded(key: string): void {
+    this.held.delete(key);
+  }
+
+  prune(now: number): void {
+    this.prunedAt = now;
+    const kept = Math.max(this.rule.windowMs, this.rule.forMs);
+    for (const [key, attempts] of this.held) {
+      if (attempts.failures.every((at) => now - at >= kept)) this.held.delete(key);
+    }
+  }
+}

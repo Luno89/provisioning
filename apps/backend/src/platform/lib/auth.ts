@@ -98,6 +98,26 @@ export const SESSION_COOKIE = 'session';
 
 export const cookieNamed = (name: string, secure: boolean): string => (secure ? `__Host-${name}` : name);
 
+export const DEVICE_COOKIE = 'device';
+
+export const DEVICE_SECONDS = 365 * 24 * 60 * 60;
+
+export interface SignedInDevice {
+  account: string;
+  id: string;
+}
+
+export const deviceToken = (account: string, key: SecretKey, id: string = crypto.randomUUID()): string =>
+  signJWT({ deviceFor: account.trim().toLowerCase(), device: id }, key, DEVICE_SECONDS);
+
+export function deviceOf(token: string | undefined, key: SecretKey): SignedInDevice | undefined {
+  if (!token) return undefined;
+  const decoded = verifyJWT(token, key);
+  return decoded && typeof decoded.deviceFor === 'string' && typeof decoded.device === 'string' && decoded.device
+    ? { account: decoded.deviceFor, id: decoded.device }
+    : undefined;
+}
+
 export const arrivedOverHttps = (forwardedProto: string | string[] | undefined, encrypted: boolean): boolean =>
   encrypted || String(forwardedProto ?? '').split(',')[0]?.trim() === 'https';
 

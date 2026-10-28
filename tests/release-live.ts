@@ -92,7 +92,10 @@ function https(host: string, path: string, init: { method?: string; body?: unkno
   const headers: Record<string, string> = {};
   for (const line of lines) {
     const at = line.indexOf(':');
-    if (at > 0) headers[line.slice(0, at).trim().toLowerCase()] = line.slice(at + 1).trim();
+    if (at <= 0) continue;
+    const name = line.slice(0, at).trim().toLowerCase();
+    if (name === 'set-cookie' && headers[name] !== undefined) continue;
+    headers[name] = line.slice(at + 1).trim();
   }
   return { status: Number((statusLine ?? '').split(' ')[1]), body: blocks.join('\n\n'), headers };
 }

@@ -1,6 +1,6 @@
 import { Router, type Request, type Response } from 'express';
 import {
-  afterFailure, lockedSaid, lockedUntil, type SignInAttempts, signJWT, verifyJWT, hashPassword, verifyPassword, type Auth,
+  attemptsKeyFor, DEVICE_COOKIE, DEVICE_SECONDS, deviceOf, deviceToken, lockedSaid, SignInAttemptLog, signJWT, verifyJWT, hashPassword, verifyPassword, type Auth,
   carriedByOAuthState, cookieNamed, newOAuthState, OAUTH_STATE_COOKIE, OAUTH_STATE_SECONDS, sessionToken,
   type Database, type SecretKey,
 } from '../../platform/index.js';
@@ -27,6 +27,13 @@ export function authRouter(deps: AuthRouterDeps): Router {
   const { db, authService, sessionKey, publicUrl, appUrl } = deps;
   const { setSessionCookie, clearSession, checkAndConsumeInvite, sessionCookieOptions, getCookie } = deps.auth;
   const stateCookie = cookieNamed(OAUTH_STATE_COOKIE, sessionCookieOptions.secure);
+  const deviceCookie = cookieNamed(DEVICE_COOKIE, sessionCookieOptions.secure);
+  const knownDevice = (req: Request) => deviceOf(getCookie(req, deviceCookie), sessionKey);
+  const rememberDevice = (req: Request, res: Response, email: string) => {
+    const account = email.trim().toLowerCase();
+    const known = knownDevice(req);
+    res.cookie(deviceCookie, deviceToken(account, sessionKey, known?.account === account ? known.id : undefined), { ...sessionCookieOptions, maxAge: DEVICE_SECONDS * 1000 });
+  };
   const startOAuth = (res: Response, invite: string): string => {
     const { state, cookie } = newOAuthState(invite, sessionKey);
     res.cookie(stateCookie, cookie, { ...sessionCookieOptions, maxAge: OAUTH_STATE_SECONDS * 1000 });
@@ -77,7 +84,8 @@ export function authRouter(deps: AuthRouterDeps): Router {
     }
   });
 
-  const attempts = new Map<string, SignInAttempts>();
+  const attempts = new SignInAttemptLog();
+  setInterval(() => attempts.prune(Date.now()), 15 * 60_000).unref();
   accountRoutes.post('/login', async (req, res) => {
     try {
       const { email, password } = req.body;
@@ -85,18 +93,19 @@ export function authRouter(deps: AuthRouterDeps): Router {
         return res.status(400).json({ error: 'Email and password are required' });
       }
       const account = String(email).trim().toLowerCase();
+      const counted = attemptsKeyFor(account, knownDevice(req));
       const now = Date.now();
-      const locked = lockedUntil(attempts.get(account), now);
+      const locked = attempts.lockedUntil(counted, now);
       if (locked !== undefined) return res.status(429).json({ error: lockedSaid(locked, now) });
       const failed = () => {
-        attempts.set(account, afterFailure(attempts.get(account), now));
+        attempts.failed(counted, now);
         return res.status(401).json({ error: 'Invalid email or password' });
       };
       const user = await db.accounts.getUserByEmail(email);
       if (!user || !user.passwordHash) return failed();
       const match = await verifyPassword(password, user.passwordHash);
       if (!match) return failed();
-      attempts.delete(account);
+      attempts.succeeded(counted);
 
       if (user.removal) {
         return res.status(403).json({ error: 'This account is being removed' });
@@ -109,6 +118,7 @@ export function authRouter(deps: AuthRouterDeps): Router {
 
       const token = sessionToken(user, sessionKey);
       setSessionCookie(res, token);
+      rememberDevice(req, res, user.email);
       res.json({
         success: true,
         user: {
@@ -145,6 +155,7 @@ export function authRouter(deps: AuthRouterDeps): Router {
 
       const token = sessionToken(user, sessionKey);
       setSessionCookie(res, token);
+      rememberDevice(req, res, user.email);
       res.json({
         success: true,
         user: {

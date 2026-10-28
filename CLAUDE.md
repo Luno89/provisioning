@@ -206,7 +206,9 @@ never trips it, while every opening of a share link counts), **a request's JSON 
 root while responses come back (time to their headers) no slower than twice their long-run average and shrinks when they slow past
 it, Netflix's gradient limit, between 10 and 200; loopback, private and mesh addresses (the host's own processes, pods, machines) are
 not limited, nor an instance's relay long-poll, `index.test.ts` guards its place, an account is locked for fifteen minutes after ten wrong
-passwords (`lockedUntil`), every response carries `helmet`'s headers, and the proxy is trusted in production. **The SPA's
+passwords (`lockedUntil`) to every browser but one it signed in on before: a full sign-in leaves a signed `device` cookie naming the account
+(`deviceToken`), and that browser's failures are counted on their own (`attemptsKeyFor`, `SignInAttemptLog`, pruned as failures age out), so
+nobody can lock a person out of their own browser by guessing, every response carries `helmet`'s headers, and the proxy is trusted in production. **The SPA's
 content security policy** (`platform/lib/csp.ts`: same-origin scripts, sockets and frames, inline styles allowed, blob workers and
 media, nothing framed from elsewhere) is enforced in production (`CSP=report` sends it as `Content-Security-Policy-Report-Only`
 instead, `CSP=off|report|enforce` sets it anywhere); the browser's reports land on `POST /csp-report` and are logged as one

@@ -7,6 +7,7 @@ import { testDatabase } from '../../platform/lib/test-database.js';
 import type { Database } from '../../platform/lib/db-interface.js';
 import { AuthService } from '../services/AuthService.js';
 import { inviteCodeHash } from '../../platform/lib/invite-codes.js';
+import { deviceToken } from '../../platform/lib/auth.js';
 
 const JWT_SECRET = 'test-secret';
 const SETUP_CODE = 'the-setup-code';
@@ -72,6 +73,22 @@ describe('auth router', () => {
     expect(locked.status).toBe(429);
     expect(((await locked.json()) as { error: string }).error).toMatch(/try again in 15 minutes/);
     expect((await fetch(ctx.url('/api/auth/login'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'other@example.com', password: 'x' }) })).status).toBe(401);
+  });
+
+  it('lets a browser that signed in before through while the account is locked to everyone else, and keeps locking a guesser on their own browser', async () => {
+    const { login } = await registerAndLogin('known@example.com', 'hunter2hunter2');
+    const device = login.headers.getSetCookie().map((line) => line.split(';')[0]!).find((pair) => pair.startsWith('device='))!;
+    expect(device).toBeDefined();
+    const attempt = (password: string, cookie?: string) => fetch(ctx.url('/api/auth/login'), { method: 'POST', headers: { 'content-type': 'application/json', ...(cookie ? { cookie } : {}) }, body: JSON.stringify({ email: 'known@example.com', password }) });
+    for (let n = 0; n < 10; n += 1) expect((await attempt('wrong')).status).toBe(401);
+    expect((await attempt('hunter2hunter2')).status).toBe(429);
+    const known = await attempt('hunter2hunter2', device);
+    expect(known.status).toBe(200);
+    expect(known.headers.getSetCookie().find((line) => line.startsWith('device='))!.split(';')[0]).toBeDefined();
+    expect((await attempt('hunter2hunter2', `device=${deviceToken('other@example.com', JWT_SECRET)}`)).status).toBe(429);
+    expect((await attempt('hunter2hunter2', `device=${deviceToken('known@example.com', 'another-key')}`)).status).toBe(429);
+    for (let n = 0; n < 10; n += 1) expect((await attempt('wrong', device)).status).toBe(401);
+    expect((await attempt('hunter2hunter2', device)).status).toBe(429);
   });
 
   it('registers, logs in and returns the caller from the minted cookie', async () => {

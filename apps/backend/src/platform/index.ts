@@ -1,5 +1,5 @@
 export { CLI_CEILING } from './lib/activity-liveness.js';
-export { arrivedOverHttps, cookieNamed, e2eProblem, generateOTP, hashPassword, SESSION_COOKIE, SESSION_SECONDS, sessionEnded, sessionToken, signJWT, signsEveryoneIn, verifyJWT, verifyPassword } from './lib/auth.js';
+export { arrivedOverHttps, cookieNamed, DEVICE_COOKIE, deviceOf, deviceToken, DEVICE_SECONDS, e2eProblem, generateOTP, hashPassword, SESSION_COOKIE, SESSION_SECONDS, sessionEnded, sessionToken, signJWT, signsEveryoneIn, verifyJWT, verifyPassword } from './lib/auth.js';
 export type { AreaStore } from './lib/collection.js';
 export { CommandFailedError } from './lib/command-error.js';
 export { decryptValue, encryptValue, keyId, maskSecret, ringOf } from './lib/crypto.js';
@@ -13,7 +13,7 @@ export { firstAdminSetup } from './lib/first-admin.js';
 export { followsLinks, frontierRow } from './lib/frontier.js';
 export type { FrontierClaim, FrontierUrl } from './lib/frontier.js';
 export { unpromptedGit } from './lib/git-env.js';
-export { afterFailure, CSP_REPORT_LIMIT, JSON_LIMITS, jsonLimitFor, lockedSaid, lockedUntil, RATE_LIMITS, ruleFor } from './lib/http-limits.js';
+export { afterFailure, attemptsKeyFor, CSP_REPORT_LIMIT, JSON_LIMITS, jsonLimitFor, lockedSaid, lockedUntil, RATE_LIMITS, ruleFor, SignInAttemptLog } from './lib/http-limits.js';
 export type { SignInAttempts } from './lib/http-limits.js';
 export { INVITE_DAYS, inviteCodeHash, inviteExpired, inviteExpiry, inviteView, newInviteCode } from './lib/invite-codes.js';
 export type { InviteView } from './lib/invite-codes.js';
