@@ -101,4 +101,15 @@ export default defineConfig([
     plugins: { boundaries },
     rules: { 'boundaries/areas': 'error' },
   },
+  {
+    files: ['src/**/*.ts'],
+    ignores: ['**/*.test.ts', 'src/platform/lib/permissions.ts', 'src/*/store.ts'],
+    languageOptions: { parser: tseslint.parser },
+    rules: {
+      'no-restricted-syntax': ['error',
+        { selector: "MemberExpression[property.name='isAdmin']", message: 'who may do what is decided by authorize in platform/lib/permissions.ts, from the claims claimsOf gives; never read isAdmin' },
+        { selector: "CallExpression[callee.name='can']", message: 'a shared project\'s roles are decided by authorize in platform/lib/permissions.ts' },
+      ],
+    },
+  },
 ])
