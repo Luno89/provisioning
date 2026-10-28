@@ -1,4 +1,4 @@
-import { roleFromEnv, servesTenants, type Database } from '../../platform/index.js';
+import { claimSettingsFrom, principalOf, roleFromEnv, servesTenants, type Database } from '../../platform/index.js';
 import { ActionService } from '../services/ActionService.js';
 import {
   EgressService, EgressProxyService, AccessService, type TemporalBridge, type InfrastructureService,
@@ -36,6 +36,7 @@ export interface ActionsWiringDeps {
 
 export function wireActions(deps: ActionsWiringDeps): void {
   const { tenant, db, env, agentsHolder } = deps;
+  const viewerOf = async (ownerId: string) => principalOf((await db.accounts.getUserById(ownerId)) ?? { id: ownerId }, claimSettingsFrom(roleFromEnv(env)));
   tenant.use('/api/secret-requests', secretRequestsRouter({ secrets: new SecretRequestService({ store: db.projects, vault: deps.infisical }) }));
   tenant.use('/api/actions', actionsRouter({ actions: new ActionService({
     store: db,
@@ -43,8 +44,8 @@ export function wireActions(deps: ActionsWiringDeps): void {
     releases: deps.releaseSettings,
     treeModels: deps.treeModels,
     alerts: {
-      add: (ownerId, deploymentId, spec, conversationId) => deps.monitoring.addRule({ id: ownerId }, deploymentId, spec, conversationId),
-      remove: (ownerId, ruleId) => deps.monitoring.removeRule({ id: ownerId }, ruleId),
+      add: async (ownerId, deploymentId, spec, conversationId) => deps.monitoring.addRule(await viewerOf(ownerId), deploymentId, spec, conversationId),
+      remove: async (ownerId, ruleId) => deps.monitoring.removeRule(await viewerOf(ownerId), ruleId),
     },
     servers: { add: (ownerId, input) => deps.mcpCatalogue.add(ownerId, input), list: (ownerId) => db.engine.getMcpServers(ownerId) },
     dependencies: deps.workspaceDependencies,

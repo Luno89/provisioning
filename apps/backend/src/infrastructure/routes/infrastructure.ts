@@ -1,5 +1,5 @@
 import { Router, type Request } from 'express';
-import { asyncRoute } from '../../platform/index.js';
+import { asyncRoute, principalFrom } from '../../platform/index.js';
 import type { Viewer } from '../../monitoring/index.js';
 import { idsToClear, type InfrastructureViewService } from '../services/InfrastructureViewService.js';
 
@@ -7,10 +7,7 @@ export interface InfrastructureRouterDeps {
   infrastructure: Pick<InfrastructureViewService, 'overview' | 'cluster' | 'clearFailures'>;
 }
 
-const viewerOf = (req: Request): Viewer => {
-  const user = (req as Request & { user: { id: string; isAdmin?: boolean } }).user;
-  return { id: user.id, isAdmin: Boolean(user.isAdmin) };
-};
+const viewerOf = (req: Request): Viewer => principalFrom(req);
 
 export function infrastructureRouter({ infrastructure }: InfrastructureRouterDeps): Router {
   const router = Router();

@@ -3,10 +3,10 @@ import { randomUUID } from 'node:crypto';
 import type { Client } from '@temporalio/client';
 import { deploymentIdFor } from '../lib/deployment-id.js';
 import { newAppNamespace, sameOwner } from '../lib/app-namespace.js';
-import { resolveCloudCredentials } from '../lib/credential-resolver.js';
+import { resolveCloudCredentials, usesOperatorCredentials } from '../lib/credential-resolver.js';
 import {
   decryptValue, type SecretKey, type Database, type ClusterMetadata, type DeploymentMetadata,
-  type PipelineRunMetadata, type ProjectMetadata, PLATFORM_OWNER, startedFor,
+  type PipelineRunMetadata, type ProjectMetadata, type ClaimSettings, PLATFORM_OWNER, startedFor,
 } from '../../platform/index.js';
 import { CapacityError, checkCapacity, requestedGpuCount } from '../lib/cluster-capacity.js';
 import { executeDeployAppWorkflow } from '../../workflows/AppDeployWorkflow.js';
@@ -23,6 +23,7 @@ export interface AppDeployDeps {
   masterKey: SecretKey;
   clusterById: (id: string) => Promise<ClusterMetadata | undefined>;
   logDir: string;
+  claims: ClaimSettings;
 }
 
 export interface StartedDeploy {
@@ -160,7 +161,7 @@ export async function startAppDeploy(deps: AppDeployDeps, config: any, userId?: 
       let asOperator = !userId;
       if (userId) {
         const user = await deps.db.accounts.getUserById(userId);
-        asOperator = user?.isAdmin === true;
+        asOperator = usesOperatorCredentials(user, deps.claims);
         const encryptedToken = user?.credentials?.huggingface?.hfToken;
         if (encryptedToken) {
           try {

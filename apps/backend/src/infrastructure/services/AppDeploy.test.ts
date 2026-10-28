@@ -20,6 +20,7 @@ async function deps(): Promise<{ deps: AppDeployDeps; started: { workflowId: str
       masterKey: 'test-key-that-is-at-least-32-characters-long' as never,
       clusterById: async (id) => (id === CLUSTER.id ? CLUSTER : undefined),
       logDir: '/tmp',
+      claims: { role: 'combined' },
     },
     started,
   };

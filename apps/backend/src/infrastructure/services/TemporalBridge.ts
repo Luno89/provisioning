@@ -3,7 +3,7 @@ import { isCommitSha, type BuildPlan } from '../../releases/index.js'
 import {
   stopIfRunning, getTemporalClient, pollWorkflowRun, decryptValue, encryptValue, type SecretKey, type Database,
   type ClusterMetadata, type ClusterProgress, type DeploymentMetadata, type ProjectMetadata,
-  type PipelineRunMetadata, PLATFORM_OWNER, ownerIn, startedFor,
+  type PipelineRunMetadata, type ClaimSettings, PLATFORM_OWNER, ownerIn, startedFor,
 } from '../../platform/index.js'
 import {
   looksLikeMcp, namespaceOfDeployment, cachedProbes, reconcileRun, reconcileMissingWorkflow, LIVE_RUN_STATUSES,
@@ -27,7 +27,7 @@ export type GroveRunStatus =
   | { state: 'failed'; startedAt: string; closedAt?: string; reason: string; turnId?: string | undefined }
 import { deploymentForProject } from '../../projects/index.js'
 import { destroyAppArgs, destroyAppWorkflowId } from '../lib/app-destroy.js'
-import { resolveCloudCredentials } from '../lib/credential-resolver.js'
+import { COMBINED_CLAIMS, resolveCloudCredentials, usesOperatorCredentials } from '../lib/credential-resolver.js'
 import { generateSshKeypair } from '../lib/ssh-keypair.js'
 import { consolidateMemories, type ConsolidationReport, indexMemories, similarTo } from '../../memory/index.js'
 import { sharedClusterProxy } from './ClusterProxyService.js'
@@ -219,6 +219,7 @@ export class TemporalBridge {
     masterKey?: SecretKey,
     clusterService?: ClusterService,
     headscale?: { createPreAuthKey(userId: string, opts?: { reusable?: boolean; expirySeconds?: number }): Promise<{ key: string }> },
+    private readonly claims: ClaimSettings = COMBINED_CLAIMS,
   ) {
     this.db = db
     this.io = io
@@ -716,7 +717,7 @@ export class TemporalBridge {
     let asOperator = !userId
     if (userId) {
       const user = await this.db.accounts.getUserById(userId)
-      asOperator = user?.isAdmin === true
+      asOperator = usesOperatorCredentials(user, this.claims)
       const enc = (user?.credentials as any)?.hetzner?.token
       if (enc) {
         try {
@@ -732,7 +733,7 @@ export class TemporalBridge {
     let asOperator = !userId
     if (userId) {
       const user = await this.db.accounts.getUserById(userId)
-      asOperator = user?.isAdmin === true
+      asOperator = usesOperatorCredentials(user, this.claims)
       const enc = (user?.credentials as any)?.do?.token
       if (enc) {
         try {
@@ -914,7 +915,7 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
   }
 
   appDeployDeps(): AppDeployDeps {
-    return { db: this.db, client: () => this.client, masterKey: this.masterKey, clusterById: (id) => this.getClusterById(id), logDir: LOG_DIR }
+    return { db: this.db, client: () => this.client, masterKey: this.masterKey, clusterById: (id) => this.getClusterById(id), logDir: LOG_DIR, claims: this.claims }
   }
 
   async destroyApp(deploymentId: string): Promise<WorkflowDeal> {

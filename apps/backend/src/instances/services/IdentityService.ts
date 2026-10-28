@@ -88,7 +88,6 @@ export class IdentityService {
       id: check.claims.sub,
       email: check.claims.email,
       emailVerified: true,
-      isAdmin: !hub,
     } as never);
     return { ok: true, user: { id: check.claims.sub, email: check.claims.email } };
   }

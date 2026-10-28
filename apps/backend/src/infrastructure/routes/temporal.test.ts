@@ -24,7 +24,8 @@ function harness(options: { user?: typeof TEST_USER; instanceOwner?: string; can
   };
   const mounted = mountRouter({
     prefix: '/api/temporal',
-    router: () => temporalRouter({ temporalBridge, ...(options.instanceOwner ? { instanceOwner: options.instanceOwner } : {}) }),
+    ...(options.instanceOwner ? { claims: { role: 'instance' as const, instanceOwnerId: options.instanceOwner } } : {}),
+    router: () => temporalRouter({ temporalBridge }),
     user: options.user ?? TEST_USER,
   });
   return { asked, mounted };

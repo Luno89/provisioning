@@ -50,7 +50,7 @@ export function instancesRouter(deps: {
   mail?: Pick<MailService, 'toOwner'> | undefined;
   poolMonitoring?: PoolMonitoringService | undefined;
   moveRelay?: MoveRelay | undefined;
-  requireAdmin?: RequestHandler | undefined;
+  operatorOnly?: RequestHandler | undefined;
   hubAccess?: ((instanceId: string, ownerId: string) => Promise<HubAccess | undefined>) | undefined;
 }): Router {
   const router = Router();
@@ -75,7 +75,7 @@ export function instancesRouter(deps: {
     return res.status(202).json(outcome.value);
   }));
 
-  const admin: RequestHandler = deps.requireAdmin ?? ((_req: Request, res: Response, _next: NextFunction) => { res.status(403).json({ error: 'Admin only' }); });
+  const admin: RequestHandler = deps.operatorOnly ?? ((_req: Request, res: Response, _next: NextFunction) => { res.status(403).json({ error: 'Admin only' }); });
 
   router.get('/pool/admin', admin, asyncRoute(async (_req: Request, res: Response) => {
     const outcome = await deps.instances.poolAdmin();

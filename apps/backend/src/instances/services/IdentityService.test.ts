@@ -4,6 +4,7 @@ import type { MongoDB } from '../../platform/lib/mongo-db.js';
 import { IdentityService } from './IdentityService.js';
 import { generateIdentityKey, identityKeysFrom, issueHandoff, publicKeyPem, trustedKeys } from '../lib/identity-token.js';
 import type { RoleConfig } from '../../platform/lib/platform-role.js';
+import { holds, principalOf } from '../../platform/lib/permissions.js';
 
 const signing = identityKeysFrom(generateIdentityKey());
 const N = 'nonce-held-by-this-browser-00001';
@@ -35,7 +36,8 @@ describe('signing in at root and landing on your own instance', () => {
 
     const instance = new IdentityService(instanceRole(), instanceDb, () => now + 3);
     expect(await instance.acceptHandoff(token, N)).toEqual({ ok: true, user: { id: 'u1', email: 'u1@example.com' } });
-    expect(await instanceDb.accounts.getUserById('u1')).toMatchObject({ email: 'u1@example.com', isAdmin: true, emailVerified: true });
+    expect(await instanceDb.accounts.getUserById('u1')).toMatchObject({ email: 'u1@example.com', emailVerified: true });
+    expect(holds(principalOf((await instanceDb.accounts.getUserById('u1'))!, { role: 'instance', instanceOwnerId: 'u1' }), 'operator')).toBe(true);
   });
 
   it('refuses the same token twice', async () => {
@@ -122,7 +124,8 @@ describe('signing in at root and landing on the hub', () => {
 
     const hub = new IdentityService(hubRole, instanceDb, () => now);
     expect(await hub.acceptHandoff(token, N)).toEqual({ ok: true, user: { id: 'u7', email: 'cy@example.com' } });
-    expect(await instanceDb.accounts.getUserById('u7')).toMatchObject({ email: 'cy@example.com', isAdmin: false });
+    expect(await instanceDb.accounts.getUserById('u7')).toMatchObject({ email: 'cy@example.com' });
+    expect(holds(principalOf((await instanceDb.accounts.getUserById('u7'))!, { role: 'hub' }), 'operator')).toBe(false);
     expect(await hub.acceptHandoff(token, N)).toMatchObject({ ok: false, status: 409 });
     expect(hub.signInUrl()).toBe('https://app.example.com/api/identity/go?to=hub');
     expect(hub.handoffStartUrl(N, '/hub/join/abc')).toBe(`https://app.example.com/api/identity/go?to=hub&nonce=${N}&next=%2Fhub%2Fjoin%2Fabc`);

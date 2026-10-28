@@ -1,5 +1,5 @@
 import { Router, type Request } from 'express';
-import { asyncRoute, mayTouch, seesEverything, withinQuery, workflowScope, type WorkflowViewer } from '../../platform/index.js';
+import { asyncRoute, mayTouch, principalFrom, seesEverything, withinQuery, workflowScope } from '../../platform/index.js';
 
 interface WorkflowRow {
   workflowId: string;
@@ -17,21 +17,17 @@ export interface TemporalRouterDeps {
     getWorkflowHistory(workflowId: string): Promise<unknown[] | null>;
     cancelWorkflow(workflowId: string): Promise<'cancelled' | 'not-running' | 'unreachable'>;
   };
-  instanceOwner?: string | undefined;
 }
-
-const viewerOf = (req: Request): WorkflowViewer =>
-  (req as unknown as { user: WorkflowViewer }).user;
 
 const askedScope = (req: Request): string | undefined => (typeof req.query.scope === 'string' ? req.query.scope : undefined);
 
 export function temporalRouter(deps: TemporalRouterDeps): Router {
-  const { temporalBridge, instanceOwner } = deps;
+  const { temporalBridge } = deps;
   const router = Router();
 
   const visible = async (req: Request, workflowId: string): Promise<WorkflowRow | null> => {
     const workflow = await temporalBridge.describeWorkflow(workflowId);
-    return workflow && mayTouch(viewerOf(req), workflow.owner, instanceOwner) ? workflow : null;
+    return workflow && mayTouch(principalFrom(req), workflow.owner) ? workflow : null;
   };
 
   router.get('/status', asyncRoute(async (_req, res) => {
@@ -49,15 +45,15 @@ export function temporalRouter(deps: TemporalRouterDeps): Router {
   }));
 
   router.get('/workflows', asyncRoute(async (req, res) => {
-    const viewer = viewerOf(req);
-    const scope = workflowScope(viewer, askedScope(req), instanceOwner);
+    const viewer = principalFrom(req);
+    const scope = workflowScope(viewer, askedScope(req));
     const pageSize = parseInt(req.query.pageSize as string, 10) || 50;
     const workflows = await temporalBridge.listWorkflows(scope.query, pageSize);
-    res.json({ workflows, all: scope.all, canSeeAll: seesEverything(viewer, instanceOwner) });
+    res.json({ workflows, all: scope.all, canSeeAll: seesEverything(viewer) });
   }));
 
   router.get('/workflows/count', asyncRoute(async (req, res) => {
-    const scope = workflowScope(viewerOf(req), askedScope(req), instanceOwner).query;
+    const scope = workflowScope(principalFrom(req), askedScope(req)).query;
     const count = (status?: string) => temporalBridge.countWorkflows(withinQuery(scope, status) ?? '');
     const [total, running, completed, failed, timedOut] = await Promise.all([
       count(),

@@ -4,9 +4,10 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ACCOUNT_DATA, memoryWatermarkKeys, ownedWorkflowIds, refuseRemoval, removalBlockers, type RemovalWorld } from './account-removal.js';
 import { EVAL_COLLECTIONS } from '../../checks/lib/eval-run.js';
+import { asPerson, principalOf } from '../../platform/lib/permissions.js';
 
 const world = (over: Partial<RemovalWorld> = {}): RemovalWorld => ({
-  users: [{ id: 'ana', email: 'ana@example.com', isAdmin: true }, { id: 'bo', email: 'bo@example.com' }],
+  users: [{ id: 'ana', email: 'ana@example.com', operator: true }, { id: 'bo', email: 'bo@example.com', operator: false }],
   clusters: [],
   deployments: [],
   ...over,
@@ -25,25 +26,25 @@ describe('what stops an account being removed', () => {
   });
 
   it('lets an admin go when another admin remains, and anyone with nothing standing', () => {
-    expect(removalBlockers('ana', world({ users: [{ id: 'ana', email: 'a', isAdmin: true }, { id: 'cy', email: 'c', isAdmin: true }] }))).toEqual([]);
+    expect(removalBlockers('ana', world({ users: [{ id: 'ana', email: 'a', operator: true }, { id: 'cy', email: 'c', operator: true }] }))).toEqual([]);
     expect(removalBlockers('bo', world())).toEqual([]);
   });
 });
 
 describe('who may remove an account', () => {
   it('lets a person remove their own account once they type its email', () => {
-    expect(refuseRemoval({ ownerId: 'bo', requestedBy: 'bo', confirm: ' BO@example.com ' }, world())).toBeUndefined();
-    expect(refuseRemoval({ ownerId: 'bo', requestedBy: 'bo', confirm: 'bo' }, world())).toEqual({ status: 400, error: 'Type the account\'s email, bo@example.com, to confirm' });
+    expect(refuseRemoval({ ownerId: 'bo', requestedBy: 'bo', confirm: ' BO@example.com ' }, { ...world(), requester: asPerson('bo') })).toBeUndefined();
+    expect(refuseRemoval({ ownerId: 'bo', requestedBy: 'bo', confirm: 'bo' }, { ...world(), requester: asPerson('bo') })).toEqual({ status: 400, error: 'Type the account\'s email, bo@example.com, to confirm' });
   });
 
   it('lets only an admin remove someone else\'s, and says when there is no such account', () => {
-    expect(refuseRemoval({ ownerId: 'ana', requestedBy: 'bo', confirm: 'ana@example.com' }, { ...world(), requester: { id: 'bo' } })).toMatchObject({ status: 403 });
-    expect(refuseRemoval({ ownerId: 'bo', requestedBy: 'ana', confirm: 'bo@example.com' }, { ...world(), requester: { id: 'ana', isAdmin: true } })).toBeUndefined();
-    expect(refuseRemoval({ ownerId: 'nobody', requestedBy: 'ana', confirm: 'x' }, world())).toMatchObject({ status: 404 });
+    expect(refuseRemoval({ ownerId: 'ana', requestedBy: 'bo', confirm: 'ana@example.com' }, { ...world(), requester: asPerson('bo') })).toMatchObject({ status: 403 });
+    expect(refuseRemoval({ ownerId: 'bo', requestedBy: 'ana', confirm: 'bo@example.com' }, { ...world(), requester: principalOf({ id: 'ana', isAdmin: true }, { role: 'combined' }) })).toBeUndefined();
+    expect(refuseRemoval({ ownerId: 'nobody', requestedBy: 'ana', confirm: 'x' }, { ...world(), requester: asPerson('ana') })).toMatchObject({ status: 404 });
   });
 
   it('carries the blockers with a refusal', () => {
-    expect(refuseRemoval({ ownerId: 'bo', requestedBy: 'bo', confirm: 'bo@example.com' }, world({ deployments: [{ id: 'd', name: 'wp', ownerId: 'bo' }] })))
+    expect(refuseRemoval({ ownerId: 'bo', requestedBy: 'bo', confirm: 'bo@example.com' }, { ...world({ deployments: [{ id: 'd', name: 'wp', ownerId: 'bo' }] }), requester: asPerson('bo') }))
       .toEqual({ status: 409, error: 'The account cannot be removed yet', blockers: ['the app "wp" is still deployed; remove it first'] });
   });
 });

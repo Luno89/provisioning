@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { ClusterMetadata, DeploymentMetadata, Database } from '../../platform/index.js';
+import { allowed, asPerson, clusterResource, type ClusterMetadata, type DeploymentMetadata, type Database, type Principal } from '../../platform/index.js';
 import { visibleAlerts, type AlertRuleRecord, type PromAlert, type VisibleAlert } from '../lib/monitoring-alerts.js';
 import type { AlertEpisode } from '../lib/monitoring-records.js';
 import { namespaceOf } from '../../infrastructure/index.js';
@@ -13,7 +13,7 @@ export type AlertChange = 'fired' | 'resolved';
 export interface AlertWatchDeps {
   monitoring: Pick<MonitoringService, 'allClusters' | 'reach' | 'applyHistory' | 'applyRequestMetrics' | 'syncPoolProbes'>;
   store: Pick<Database, 'infrastructure' | 'monitoring'>;
-  systemOwners(): Promise<string[]>;
+  people(): Promise<Principal[]>;
   tell(episode: AlertEpisode, change: AlertChange, context: { app?: DeploymentMetadata | undefined; rule?: AlertRuleRecord | undefined }): Promise<void>;
   log?: (message: string) => void;
   now?: () => Date;
@@ -55,7 +55,8 @@ export class AlertWatchService {
     const clusters = await this.deps.monitoring.allClusters();
     const apps = (await this.deps.store.infrastructure.getDeployments()).filter((dep) => dep.status !== 'destroying');
     const rules = await this.deps.store.monitoring.getAlertRules();
-    const systemOwners = await this.deps.systemOwners();
+    const people = await this.deps.people();
+    const viewerOf = (id: string): Principal => people.find((person) => person.id === id) ?? asPerson(id);
     for (const cluster of clusters) {
       const reached = await this.deps.monitoring.reach(cluster);
       if (!reached.metrics) continue;
@@ -66,9 +67,9 @@ export class AlertWatchService {
       const onCluster = apps.filter((dep) => dep.clusterId === cluster.id);
       const owners = new Set<string>([
         ...onCluster.map((dep) => dep.ownerId).filter((id): id is string => Boolean(id)),
-        ...(cluster.isSystem ? systemOwners : cluster.ownerId ? [cluster.ownerId] : []),
+        ...people.filter((person) => allowed(person, 'see-everything', clusterResource(cluster))).map((person) => person.id),
       ]);
-      for (const owner of owners) await this.settle(owner, cluster, alerts, onCluster, rules, systemOwners);
+      for (const owner of owners) await this.settle(viewerOf(owner), cluster, alerts, onCluster, rules);
     }
   }
 
@@ -83,12 +84,13 @@ export class AlertWatchService {
     else if (typeof counting === 'object') this.deps.log?.(`[alerts] ${cluster.name}: ${counting.problem}`);
   }
 
-  private async settle(owner: string, cluster: ClusterMetadata, alerts: PromAlert[], onCluster: DeploymentMetadata[], rules: AlertRuleRecord[], systemOwners: string[]): Promise<void> {
-    const mine = onCluster.filter((dep) => dep.ownerId === owner);
+  private async settle(viewer: Principal, cluster: ClusterMetadata, alerts: PromAlert[], onCluster: DeploymentMetadata[], rules: AlertRuleRecord[]): Promise<void> {
+    const owner = viewer.id;
+    const mine = onCluster.filter((dep) => allowed(viewer, 'see', { kind: 'deployment', ownerId: dep.ownerId }));
     const visible = visibleAlerts(alerts, {
       appsByNamespace: new Map(mine.map((dep) => [namespaceOf(dep), { deploymentId: dep.id, name: dep.name }])),
       ownRules: new Set(rules.filter((rule) => rule.ownerId === owner).map((rule) => rule.id)),
-      ownsCluster: cluster.isSystem ? systemOwners.includes(owner) : cluster.ownerId === owner,
+      ownsCluster: allowed(viewer, 'see-everything', clusterResource(cluster)),
     });
     const open = (await this.deps.store.monitoring.getAlertEpisodes(owner)).filter((episode) => episode.clusterId === cluster.id && !episode.resolvedAt);
     const at = this.now().toISOString();

@@ -1,4 +1,4 @@
-import { decryptValue, encryptValue, type SecretKey, hubConflictNotice, type Database } from '../../platform/index.js';
+import { decryptValue, encryptValue, type SecretKey, hubConflictNotice, type Database, allowed, asPerson } from '../../platform/index.js';
 import { inScope, scopeOf, type HubLink, type SyncedDoc, type SyncedKind } from '../../hub/lib/hub-sync.js';
 import { primaryProjectId } from '../lib/trees.js';
 import { nameProblem, suggestedGroup, appLabel, flatHost, labelOfFlat } from '../../instances/index.js';
@@ -70,7 +70,7 @@ export class ProjectSharingService {
   }
 
   private async project(ownerId: string, projectId: string) {
-    return (await this.deps.store.projects.getProjects()).find((entry) => entry.id === projectId && entry.ownerId === ownerId);
+    return (await this.deps.store.projects.getProjects()).find((entry) => entry.id === projectId && allowed(asPerson(ownerId), 'change', { kind: 'project', ownerId: entry.ownerId }));
   }
 
   private async scoped(ownerId: string, projectId: string) {

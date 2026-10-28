@@ -12,8 +12,8 @@ export interface TreeTypesRouterDeps {
 
 const idOf = (req: Request): string => String(req.params.id ?? '');
 
-const userOf = (req: Request): { id: string; email: string; isAdmin?: boolean } =>
-  (req as unknown as { user: { id: string; email: string; isAdmin?: boolean } }).user;
+const userOf = (req: Request): { id: string; email: string } =>
+  (req as unknown as { user: { id: string; email: string } }).user;
 
 export function treeTypesRouter(deps: TreeTypesRouterDeps): Router {
   const { db } = deps;

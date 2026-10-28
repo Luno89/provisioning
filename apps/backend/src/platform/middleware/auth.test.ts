@@ -113,21 +113,21 @@ describe('requireAdmin', () => {
 
   it('refuses a signed-in non-admin with 403, not 401', async () => {
     const c = fakeCall();
-    (c.req as unknown as { user: unknown }).user = { id: 'u1', isAdmin: false };
-    auth.requireAdmin(c.req, c.res, c.next);
+    (c.req as unknown as { principal: unknown }).principal = auth.principalFor({ id: 'u1', isAdmin: false });
+    auth.requireOperator('administer')(c.req, c.res, c.next);
     expect(c.result().statusCode).toBe(403);
   });
 
   it('refuses when there is no user at all', async () => {
     const c = fakeCall();
-    auth.requireAdmin(c.req, c.res, c.next);
+    auth.requireOperator('administer')(c.req, c.res, c.next);
     expect(c.result().statusCode).toBe(403);
   });
 
   it('admits an admin', async () => {
     const c = fakeCall();
-    (c.req as unknown as { user: unknown }).user = { id: 'u1', isAdmin: true };
-    auth.requireAdmin(c.req, c.res, c.next);
+    (c.req as unknown as { principal: unknown }).principal = auth.principalFor({ id: 'u1', isAdmin: true });
+    auth.requireOperator('administer')(c.req, c.res, c.next);
     expect(c.result().nexted).toBe(true);
   });
 });

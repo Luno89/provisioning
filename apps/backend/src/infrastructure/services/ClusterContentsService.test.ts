@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { ClusterMetadata, DeploymentMetadata } from '../../platform/lib/types.js';
 import { ClusterContentsService, nodesFrom } from './ClusterContentsService.js';
+import { asPerson } from '../../platform/lib/permissions.js';
 import { metricsOf, type PrometheusClient, type Viewer } from '../../monitoring/services/MonitoringService.js';
 
 const NOW = new Date('2026-10-17T12:00:00Z');
@@ -42,7 +43,7 @@ function setUp(owns: (viewer: Viewer, cluster: ClusterMetadata) => boolean) {
 describe('what is on a cluster', () => {
   it('shows its owner every workload, with the platform services, Helm releases and nodes', async () => {
     const { service } = setUp(() => true);
-    const contents = await service.contents({ id: 'admin' }, 'sys');
+    const contents = await service.contents(asPerson('admin'), 'sys');
     expect(contents.workloads.map((workload) => [workload.group, workload.name, workload.state])).toEqual([
       ['apps', 'theirs-0', 'down'], ['apps', 'shop', 'ok'], ['platform', 'kube-prometheus-stack-grafana', 'ok'],
     ]);
@@ -55,7 +56,7 @@ describe('what is on a cluster', () => {
 
   it('shows anyone else only their own, and no services, releases or nodes', async () => {
     const { service } = setUp(() => false);
-    const contents = await service.contents({ id: 'me' }, 'sys');
+    const contents = await service.contents(asPerson('me'), 'sys');
     expect(contents.workloads.map((workload) => workload.name)).toEqual(['shop']);
     expect(contents.services).toBeUndefined();
     expect(contents.nodes).toBeUndefined();
@@ -64,16 +65,16 @@ describe('what is on a cluster', () => {
 
   it('reads a cluster once while the read is fresh, and lists what is broken across clusters', async () => {
     const { service, calls } = setUp(() => true);
-    await service.contents({ id: 'admin' }, 'sys');
-    await service.contents({ id: 'admin' }, 'sys');
+    await service.contents(asPerson('admin'), 'sys');
+    await service.contents(asPerson('admin'), 'sys');
     expect(calls.filter((call) => call.startsWith('get pods'))).toHaveLength(1);
-    const broken = await service.broken({ id: 'admin' });
+    const broken = await service.broken(asPerson('admin'));
     expect(broken.map((workload) => [workload.clusterId, workload.name])).toEqual([['sys', 'theirs-0'], ['c1', 'theirs-0']]);
   });
 
   it('refuses a cluster the person cannot see', async () => {
     const { service } = setUp(() => true);
-    await expect(service.contents({ id: 'me' }, 'nope')).rejects.toMatchObject({ status: 404 });
+    await expect(service.contents(asPerson('me'), 'nope')).rejects.toMatchObject({ status: 404 });
   });
 
   it('reads nodes without GPUs too', () => {

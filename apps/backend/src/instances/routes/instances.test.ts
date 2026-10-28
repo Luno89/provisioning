@@ -1,5 +1,7 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import axios from 'axios';
+import type { NextFunction, Request, Response } from 'express';
+import { allowed, type Principal } from '../../platform/lib/permissions.js';
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -41,7 +43,7 @@ describe('trying Koala on its own servers', () => {
           pool: { slots: 1, trialDays: 14 },
         }, undefined, () => new Date('2026-10-20T00:00:00Z'), () => {}, { start: async (instanceId) => { started.push(instanceId); }, trialChanged: async () => {}, remove: async () => {} }),
         chart: async () => '',
-        requireAdmin: (req, res, next) => ((req as unknown as { user?: { isAdmin?: boolean } }).user?.isAdmin ? next() : res.status(403).json({ error: 'Admin only' })),
+        operatorOnly: (req: Request, res: Response, next: NextFunction) => (allowed((req as unknown as { principal: Principal }).principal, 'manage-accounts', { kind: 'install' }) ? next() : res.status(403).json({ error: 'Admin only' })),
       }),
     });
     const call = (method: 'get' | 'post', path: string, data?: unknown) => axios.request({ method, url: harness!.url(path), data, validateStatus: () => true });
@@ -65,7 +67,7 @@ describe('trying Koala on its own servers', () => {
           pool: { slots: 1, trialDays: 14 },
         }, undefined, () => new Date('2026-10-20T00:00:00Z'), () => {}, { start: async () => {}, trialChanged: async () => {}, remove: async () => {} }),
         chart: async () => '',
-        requireAdmin: (req, res, next) => ((req as unknown as { user?: { isAdmin?: boolean } }).user?.isAdmin ? next() : res.status(403).json({ error: 'Admin only' })),
+        operatorOnly: (req: Request, res: Response, next: NextFunction) => (allowed((req as unknown as { principal: Principal }).principal, 'manage-accounts', { kind: 'install' }) ? next() : res.status(403).json({ error: 'Admin only' })),
       }),
     });
     const call = (method: 'get' | 'put', path: string, data?: unknown) => axios.request({ method, url: harness!.url(path), data, validateStatus: () => true });
@@ -98,7 +100,7 @@ describe('a pool instance asking root about its own apps', () => {
             pool: { slots: 1, trialDays: 14 },
           }, undefined),
           chart: async () => '',
-          requireAdmin: (_req, res) => { res.status(403).end(); },
+          operatorOnly: (_req: Request, res: Response) => { res.status(403).end(); },
           poolMonitoring: new PoolMonitoringService({
             kubectl: async (args) => {
               raw.push(args.join(' '));
@@ -179,7 +181,7 @@ describe('the new machine reading a moving instance through root', () => {
         if (!joined.ok) throw new Error(joined.error);
         moveCredential = joined.value.credential;
         return instancesRouter({
-          instances, chart: async () => '', requireAdmin: (_req, res) => { res.status(403).end(); },
+          instances, chart: async () => '', operatorOnly: (_req: Request, res: Response) => { res.status(403).end(); },
           moveRelay: { open: async (source: { name: string }, part: string) => {
             opened.push(`${source.name}/${part}`);
             const { Readable } = await import('node:stream');

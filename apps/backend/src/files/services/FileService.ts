@@ -1,6 +1,6 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import type { Readable } from 'node:stream';
-import type { DeploymentMetadata, ProjectMetadata } from '../../platform/index.js';
+import { type DeploymentMetadata, type ProjectMetadata, allowed, asPerson } from '../../platform/index.js';
 import { fileServersOf, folderFor, PERSONAL_FOLDER, sharedFolder, type FileEntry, type FilePlace, type FileServer, type FileSettings } from '../lib/file-places.js';
 import type { Download, FileStore } from './FileStores.js';
 import { shareExpires, shareLive, SHARE_TOKEN, type FileShare, type ShareDays } from '../lib/file-shares.js';
@@ -189,7 +189,7 @@ export class FileService {
 
   async unshare(ownerId: string, id: string): Promise<FilesOutcome<{ id: string }>> {
     const share = await this.deps.store.files.getFileShare(id);
-    if (!share || share.ownerId !== ownerId) return { ok: false, status: 404, why: 'There is no such link.' };
+    if (!share || !allowed(asPerson(ownerId), 'change', { kind: 'record', noun: 'share link', ownerId: share.ownerId })) return { ok: false, status: 404, why: 'There is no such link.' };
     await this.deps.store.files.deleteFileShare(id);
     return { ok: true, value: { id } };
   }

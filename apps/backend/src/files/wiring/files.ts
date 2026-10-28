@@ -1,4 +1,5 @@
 import type { Database, ProjectMetadata } from '../../platform/index.js';
+import { type Principal } from '../../platform/index.js';
 import { DEFAULT_TARGET_CLUSTER, type GiteaService, type ProjectRepoService } from '../../projects/index.js';
 import { writeFileOnDevice } from '../../machines/index.js';
 import { FileStores } from '../services/FileStores.js';
@@ -18,7 +19,7 @@ export interface FilesWiringDeps {
   temporalBridge: Pick<TemporalBridge, 'deployApp'>;
   projectRepos: ProjectRepoService;
   gitea: GiteaService;
-  getOwnedProject: (id: string, user: { id: string; email: string; isAdmin?: boolean }) => Promise<ProjectMetadata | undefined>;
+  getOwnedProject: (id: string, principal: Principal) => Promise<ProjectMetadata | undefined>;
 }
 
 export interface FilesWiring {

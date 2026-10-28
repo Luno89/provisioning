@@ -98,7 +98,7 @@ export interface InstancesWiringDeps {
   db: Database;
   mail: MailService;
   identity: IdentityService;
-  auth: Pick<ReturnType<typeof createAuth>, 'requireAdmin' | 'userFromSessionCookie' | 'securedFor' | 'setSessionCookie' | 'getCookie' | 'sessionCookieOptions'>;
+  auth: Pick<ReturnType<typeof createAuth>, 'requireOperator' | 'principalFor' | 'userFromSessionCookie' | 'securedFor' | 'setSessionCookie' | 'getCookie' | 'sessionCookieOptions'>;
   sessionKey: SecretKey;
   publicUrl: string;
   repoRoot: string;
@@ -225,7 +225,7 @@ export async function wireInstances(deps: InstancesWiringDeps): Promise<Instance
       return { token: issueMoveToken(role.signing!, HUB_AUDIENCE, hubInstancePart(instanceId, ownerId, owner.email)), hubUrl: role.hubLink!.url, personId: ownerId, email: owner.email, instanceId };
     }
     : undefined;
-  app.use('/api/instances', instancesRouter({ instances: instanceService, mailLimit: new InstanceMailLimit(), chart: () => instanceChart.path(), chartOf: (imageTag) => releaseCatalogue.chartFile(imageTag), mail: deps.mail, requireAdmin: deps.auth.requireAdmin, poolMonitoring, moveRelay, hubAccess }));
+  app.use('/api/instances', instancesRouter({ instances: instanceService, mailLimit: new InstanceMailLimit(), chart: () => instanceChart.path(), chartOf: (imageTag) => releaseCatalogue.chartFile(imageTag), mail: deps.mail, operatorOnly: deps.auth.requireOperator('manage-accounts'), poolMonitoring, moveRelay, hubAccess }));
   const installer = (await fs.readFile(path.join(deps.repoRoot, 'scripts/instance/install.sh'), 'utf8')).replace('__ROOT_URL__', publicUrl);
   app.get('/install.sh', (_req, res) => res.type('text/x-shellscript').send(installer));
   app.get('/install/setup-gpu.sh', (_req, res) => res.type('text/x-shellscript').sendFile(path.join(deps.repoRoot, 'scripts/setup-gpu.sh')));

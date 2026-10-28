@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import type { ActionProposal } from '../../engine/lib/action-proposals.js';
 import { createMonitoringTools, type MonitoringReading } from './handlers.js';
 import { APP_HEALTH, MONITORING_OVERVIEW, PROPOSE_ALERT } from './catalogue.js';
+import { asPerson } from '../../platform/lib/permissions.js';
 
 const caller = { ownerId: 'me', conversationId: 'conv-1', runId: 'run-1' };
 let saved: ActionProposal[];
@@ -18,7 +19,7 @@ const reading: MonitoringReading = {
     },
   },
   rules: async () => [{ id: 'r1', summary: 'Books: down', deploymentId: 'books' }],
-  viewer: async (ownerId) => ({ id: ownerId }),
+  viewer: async (ownerId) => asPerson(ownerId),
 };
 
 const tools = (withReading = true) => createMonitoringTools({

@@ -1,22 +1,19 @@
 import { Router, type Request, type Response } from 'express';
-import { asyncRoute, type ProjectMetadata } from '../../platform/index.js';
+import { asyncRoute, type ProjectMetadata, principalFrom, type Principal } from '../../platform/index.js';
 import type { Conversation } from '../../engine/index.js';
 import type { ProjectChannelService } from '../services/ProjectChannelService.js';
-
-const userOf = (req: Request): { id: string; email: string; isAdmin?: boolean } =>
-  (req as unknown as { user: { id: string; email: string; isAdmin?: boolean } }).user;
 
 export interface ProjectChannelRouterDeps {
   channels: Pick<ProjectChannelService, 'ensure'>;
   conversations: (ownerId: string) => Promise<Conversation[]>;
-  getOwnedProject: (id: string, user: { id: string; email: string; isAdmin?: boolean }) => Promise<ProjectMetadata | undefined | null>;
+  getOwnedProject: (id: string, principal: Principal) => Promise<ProjectMetadata | undefined | null>;
 }
 
 export function projectChannelRouter(deps: ProjectChannelRouterDeps): Router {
   const router = Router();
 
   router.get('/:id/channel', asyncRoute(async (req: Request, res: Response) => {
-    const project = await deps.getOwnedProject(String(req.params.id), userOf(req));
+    const project = await deps.getOwnedProject(String(req.params.id), principalFrom(req));
     if (!project) return res.status(404).json({ error: 'Project not found' });
     const channel = await deps.channels.ensure(project);
     if (!channel) return res.status(409).json({ error: 'The project has no owner, so it has no channel' });

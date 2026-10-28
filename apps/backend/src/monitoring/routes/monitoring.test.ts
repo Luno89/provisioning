@@ -3,7 +3,6 @@ import axios from 'axios';
 import { mountRouter, TEST_USER, type Harness } from '../../platform/routes/test-harness.js';
 import { monitoringRouter } from './monitoring.js';
 import { MonitoringService } from '../services/MonitoringService.js';
-import { clusterOwnership } from '../../platform/lib/ownership.js';
 import type { ClusterMetadata } from '../../platform/lib/types.js';
 
 const system = { id: 'provisioning-lunorica', name: 'provisioning-lunorica', provider: 'k3d', status: 'healthy', isSystem: true } as ClusterMetadata;
@@ -15,11 +14,11 @@ beforeEach(async () => {
   ranges = [];
   harness = await mountRouter({
     prefix: '/api/monitoring',
+    claims: { role: 'instance', instanceOwnerId: TEST_USER.id },
     router: (db) => monitoringRouter({
       monitoring: new MonitoringService({
         store: db,
         systemCluster: async () => system,
-        ownsCluster: clusterOwnership(TEST_USER.id),
         prometheus: async () => ({
           query: async () => [{ metric: {}, value: 1 }],
           range: async (_query, start, end) => { ranges.push(`${end - start}`); return []; },

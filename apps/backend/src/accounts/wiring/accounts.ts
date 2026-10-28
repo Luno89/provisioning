@@ -1,5 +1,5 @@
 import type express from 'express';
-import { type Database, type RoleConfig, getTemporalClient, holdsAccounts, servesTenants } from '../../platform/index.js';
+import { claimSettingsFrom, type Database, type RoleConfig, getTemporalClient, holdsAccounts, principalOf, servesTenants, type UserMetadata } from '../../platform/index.js';
 import type { HubPeople, Mounts } from '../../hub/index.js';
 import type { TemporalBridge } from '../../infrastructure/index.js';
 import { AccountRemovalService, temporalRemovalWorkflows } from '../services/AccountRemovalService.js';
@@ -16,16 +16,18 @@ export interface AccountsWiringDeps {
   db: Database;
   temporalBridge: Pick<TemporalBridge, 'client'>;
   hubPeople: HubPeople | undefined;
-  requireAdmin: express.RequestHandler;
+  operatorOnly: express.RequestHandler;
   clearSession: (res: express.Response) => void;
 }
 
 export function wireAccounts(deps: AccountsWiringDeps): { peopleRemoval: AccountRemovalService | undefined } {
   const { app, role, env, db } = deps;
+  const principalFor = (user: Pick<UserMetadata, 'id' | 'isAdmin'>) => principalOf(user, claimSettingsFrom(role));
   const accountRemoval = servesTenants(role) ? new AccountRemovalService({
     store: db,
     workflows: temporalRemovalWorkflows(() => deps.temporalBridge.client, env.TEMPORAL_ENGINE_TASK_QUEUE || DEFAULT_ENGINE_TASK_QUEUE),
     hub: deps.hubPeople,
+    principalFor,
   }) : undefined;
   const rootRemoval = holdsAccounts(role) && !servesTenants(role) ? new AccountRemovalService({
     store: db,
@@ -35,9 +37,10 @@ export function wireAccounts(deps: AccountsWiringDeps): { peopleRemoval: Account
     instances: () => db.instances.getInstances(),
     releases: () => db.instances.getReleases(),
     hub: deps.hubPeople,
+    principalFor,
   }) : undefined;
   const peopleRemoval = rootRemoval ?? accountRemoval;
   if (holdsAccounts(role) && peopleRemoval) app.use('/api/account', accountRouter({ removal: peopleRemoval, clearSession: deps.clearSession }));
-  if (holdsAccounts(role)) app.use('/api/admin', adminRouter({ db, requireAdmin: deps.requireAdmin, inviteLimits: new ProjectInviteLimitsService({ store: db.accounts }), ...(peopleRemoval ? { removal: peopleRemoval } : {}) }));
+  if (holdsAccounts(role)) app.use('/api/admin', adminRouter({ db, operatorOnly: deps.operatorOnly, inviteLimits: new ProjectInviteLimitsService({ store: db.accounts, principalFor }), ...(peopleRemoval ? { removal: peopleRemoval } : {}) }));
   return { peopleRemoval };
 }

@@ -1,4 +1,4 @@
-import { BaseService, type ClusterMetadata, type Database, encryptValue, type SecretKey, writePrivate } from '../../platform/index.js';
+import { allowed, authorize, BaseService, clusterResource, type Actions, type ClusterMetadata, type Database, encryptValue, type Principal, type SecretKey, writePrivate } from '../../platform/index.js';
 import { InfrastructureService } from './InfrastructureService.js';
 import { hasCloudCredentials } from '../lib/credential-resolver.js';
 import { isMockCloudProvider } from '../lib/cluster-topology.js';
@@ -263,9 +263,9 @@ export class ClusterService extends BaseService {
     return [systemCluster, ...cleanClusters];
   }
 
-  async getAll(userId: string, io?: SocketServer) {
+  async getAll(principal: Principal, io?: SocketServer) {
     const all = await this.reconcileAllClusters(io);
-    return all.filter((c) => c.ownerId === userId || c.isSystem);
+    return all.filter((c) => allowed(principal, 'see', clusterResource(c)));
   }
 
   private async recoverStuckCluster(
@@ -363,10 +363,9 @@ export class ClusterService extends BaseService {
     return clusters.find((c: any) => c.id === id);
   }
 
-  async getById(id: string, userId: string) {
+  async getById(id: string, principal: Principal, action: Actions['cluster'] = 'see') {
     const cluster = await this.getByIdUnscoped(id);
-    if (cluster && !cluster.isSystem && cluster.ownerId !== userId) return undefined;
-    return cluster;
+    return cluster && allowed(principal, action, clusterResource(cluster)) ? cluster : undefined;
   }
 
   async provision(name: string, provider: ClusterMetadata['provider'], userId: string, io?: SocketServer) {
@@ -528,10 +527,16 @@ export class ClusterService extends BaseService {
     return metadata;
   }
 
-  async delete(id: string, userId: string, io?: SocketServer) {
-    if (id === SYSTEM_CLUSTER_ID) throw new Error('The system management cluster cannot be destroyed');
-    const cluster = await this.getById(id, userId);
+  private async deletable(id: string, principal: Principal): Promise<ClusterMetadata> {
+    const cluster = await this.getByIdUnscoped(id);
     if (!cluster) throw new Error('Cluster not found');
+    const decision = authorize(principal, 'delete', clusterResource(cluster));
+    if (!decision.allowed) throw new Error(decision.error);
+    return cluster;
+  }
+
+  async delete(id: string, principal: Principal, io?: SocketServer) {
+    const cluster = await this.deletable(id, principal);
 
     const logFile = this.infra.getLogPath(`${cluster.name}-destroy`);
     await this.db.infrastructure.saveCluster({ ...cluster, status: 'destroying', lastLogPath: logFile });
@@ -580,10 +585,8 @@ export class ClusterService extends BaseService {
     })().catch((err: any) => this.logger.error(`Unhandled error during cluster destruction: ${err.message}`));
   }
 
-  async abort(id: string, userId: string, io?: SocketServer) {
-    if (id === SYSTEM_CLUSTER_ID) throw new Error('The system management cluster cannot be aborted');
-    const cluster = await this.getById(id, userId);
-    if (!cluster) throw new Error('Cluster not found');
+  async abort(id: string, principal: Principal, io?: SocketServer) {
+    const cluster = await this.deletable(id, principal);
 
     const logFile = this.infra.getLogPath(`${cluster.name}-abort`);
     await this.db.infrastructure.saveCluster({ ...cluster, status: 'destroying', lastLogPath: logFile });
@@ -629,9 +632,9 @@ export class ClusterService extends BaseService {
     })().catch((err: any) => this.logger.error(`Unhandled error during cluster abort: ${err.message}`));
   }
 
-  async listAllPods(id: string, userId: string) {
+  async listAllPods(id: string, principal: Principal) {
     try {
-        const cluster = await this.getById(id, userId);
+        const cluster = await this.getById(id, principal, 'see-everything');
         if (!cluster) throw new Error('Cluster not found');
         const physicalName = this.getPhysicalClusterName(cluster);
         const context = (cluster.provider === 'k3d' || this.isMockCloud(cluster)) ? `k3d-${physicalName}` : undefined;
@@ -647,9 +650,9 @@ export class ClusterService extends BaseService {
     }
   }
 
-  async getGpuStatus(id: string, userId: string) {
+  async getGpuStatus(id: string, principal: Principal) {
     try {
-      const cluster = await this.getById(id, userId);
+      const cluster = await this.getById(id, principal, 'see-everything');
       if (!cluster) throw new Error('Cluster not found');
 
       const kubeconfigPath = await this.getOwnKubeconfigPath(cluster);
@@ -664,7 +667,7 @@ export class ClusterService extends BaseService {
 
       let pods: any[] = [];
       try {
-        pods = await this.listAllPods(id, userId);
+        pods = await this.listAllPods(id, principal);
       } catch (err: any) {
         this.logger.warn(`Failed to fetch pods for GPU status on cluster ${id}: ${err.message}`);
       }

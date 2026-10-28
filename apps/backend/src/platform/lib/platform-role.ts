@@ -93,6 +93,9 @@ export function roleFromEnv(env: Readonly<Record<string, string | undefined>>): 
     : { role, signing, trusted: trustedKeys([publicKeyPem(signing.publicKey)]) };
 }
 
+export const claimSettingsFrom = (config: RoleConfig): { role: PlatformRole; instanceOwnerId?: string | undefined } =>
+  ({ role: config.role, ...(config.instance ? { instanceOwnerId: config.instance.ownerId } : {}) });
+
 export const servesTenants = (config: RoleConfig): boolean => config.role !== 'root' && config.role !== 'hub';
 export const holdsAccounts = (config: RoleConfig): boolean => config.role !== 'instance' && config.role !== 'hub';
 export const servesHub = (config: RoleConfig): boolean => config.role === 'combined' || config.role === 'hub';

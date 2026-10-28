@@ -1,6 +1,6 @@
 import type express from 'express';
 import {
-  type Database, type SecretKey, holdsAccounts, servesHub, servesTenants, type RoleConfig, mongoTarget,
+  type Database, type SecretKey, claimSettingsFrom, holdsAccounts, principalOf, servesHub, servesTenants, type RoleConfig, mongoTarget,
   type ProjectMetadata, type MailService,
 } from '../../platform/index.js';
 import { memoryHubStore } from '../lib/hub-store.js';
@@ -53,7 +53,7 @@ export interface HubWiring {
 
 export async function wireHub(deps: HubWiringDeps): Promise<HubWiring> {
   const { role, env, app, tenant, db } = deps;
-  const projectInvites = holdsAccounts(role) ? new ProjectInviteService({ invites: db.accounts, people: db.accounts, limits: () => db.accounts.getInviteLimits(), mail: deps.mail, rootUrl: deps.publicUrl }) : undefined;
+  const projectInvites = holdsAccounts(role) ? new ProjectInviteService({ invites: db.accounts, people: db.accounts, principalFor: (user) => principalOf(user, claimSettingsFrom(role)), limits: () => db.accounts.getInviteLimits(), mail: deps.mail, rootUrl: deps.publicUrl }) : undefined;
   if (projectInvites) app.use('/api/hub-link', hubLinkRouter({ invites: projectInvites, credentialHash: role.hubLink?.credentialHash, hash: hashCredential }));
 
   let hubService: HubService | undefined;

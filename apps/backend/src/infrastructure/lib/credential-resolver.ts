@@ -1,4 +1,10 @@
 import type { CloudCredentials } from '../../platform/index.js';
+import { allowed, principalOf, type ClaimSettings } from '../../platform/lib/permissions.js';
+
+export const COMBINED_CLAIMS: ClaimSettings = { role: 'combined' };
+
+export const usesOperatorCredentials = (user: { id: string; isAdmin?: boolean | undefined } | undefined, claims: ClaimSettings): boolean =>
+  user !== undefined && allowed(principalOf(user, claims), 'use-operator-credentials', { kind: 'install' });
 
 export interface ResolvedCredentials {
   mode: 'user' | 'env' | 'mock';

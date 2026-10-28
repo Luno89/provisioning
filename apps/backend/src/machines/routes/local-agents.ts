@@ -2,8 +2,8 @@ import { Router, type Request, type Response } from 'express';
 import { asyncRoute } from '../../platform/index.js';
 import type { MachineService } from '../services/MachineService.js';
 
-const userOf = (req: Request): { id: string; email: string; isAdmin?: boolean } =>
-  (req as unknown as { user: { id: string; email: string; isAdmin?: boolean } }).user;
+const userOf = (req: Request): { id: string; email: string } =>
+  (req as unknown as { user: { id: string; email: string } }).user;
 
 const param = (req: Request, name: string): string => String(req.params[name] ?? '');
 

@@ -10,6 +10,7 @@ import { ROOT_REMOVAL_STEPS, ROOT_REMOVAL_WORKFLOW } from '../lib/account-remova
 import { HubService } from '../../hub/services/HubService.js';
 import { localHubPeople, type HubPeople } from '../../hub/services/HubPeople.js';
 import { memoryHubStore } from '../../hub/lib/hub-store.js';
+import { allowed, principalOf, type Principal } from '../../platform/lib/permissions.js';
 
 const ADMIN = { id: 'ana', email: 'ana@example.com', isAdmin: true };
 const PERSON = { ...TEST_USER };
@@ -29,8 +30,10 @@ const seedPeople = async (db: Database) => {
   await db.accounts.saveUser({ id: PERSON.id, email: PERSON.email, twoFactorEnabled: false, emailVerified: true, createdAt: 'then' });
 };
 
-const requireAdmin = (req: Request, res: Response, next: NextFunction) =>
-  ((req as unknown as { user?: { isAdmin?: boolean } }).user?.isAdmin ? next() : res.status(403).json({ error: 'Admin only' }));
+const operatorOnly = (req: Request, res: Response, next: NextFunction) =>
+  (allowed((req as unknown as { principal: Principal }).principal, 'manage-accounts', { kind: 'install' }) ? next() : res.status(403).json({ error: 'Admin only' }));
+
+const principalFor = (user: { id: string; isAdmin?: boolean | undefined }) => principalOf(user, { role: 'combined' });
 
 const mount = async (prefix: '/api/account' | '/api/admin', hub?: HubPeople) => {
   harness = await mountRouter({
@@ -38,10 +41,10 @@ const mount = async (prefix: '/api/account' | '/api/admin', hub?: HubPeople) => 
     user: PERSON,
     router: async (db) => {
       await seedPeople(db);
-      const removal = new AccountRemovalService({ store: db, workflows, now: () => 'now', hub });
+      const removal = new AccountRemovalService({ store: db, workflows, now: () => 'now', hub, principalFor });
       return prefix === '/api/account'
         ? accountRouter({ removal, clearSession: (res) => { cleared += 1; res.clearCookie('session'); } })
-        : adminRouter({ db, requireAdmin, removal });
+        : adminRouter({ db, operatorOnly, removal });
     },
   });
 };
@@ -137,8 +140,9 @@ describe('an admin on root', () => {
           steps: ROOT_REMOVAL_STEPS,
           instances: () => db.instances.getInstances(),
           now: () => 'now',
+          principalFor,
         });
-        return adminRouter({ db, requireAdmin, removal });
+        return adminRouter({ db, operatorOnly, removal });
       },
     });
     const listed = (await call('get', '/api/admin/people')).data.people as Array<{ id: string; instance?: unknown }>;
@@ -169,6 +173,7 @@ describe('a person removing their own account on root', () => {
           steps: ROOT_REMOVAL_STEPS,
           instances: () => db.instances.getInstances(),
           now: () => 'now',
+          principalFor,
         });
         return accountRouter({ removal, clearSession: () => { cleared += 1; } });
       },

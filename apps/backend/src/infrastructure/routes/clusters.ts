@@ -1,6 +1,6 @@
 import { Router, type Request } from 'express';
 import type { Server as SocketServer } from 'socket.io';
-import { asyncRoute, decryptValue, type SecretKey, type ClusterOwnership } from '../../platform/index.js';
+import { asyncRoute, authorize, clusterResource, decryptValue, principalFrom, type SecretKey } from '../../platform/index.js';
 import { signsInAsPlatform, validateClusterName } from '../lib/cluster-name.js';
 import { generateSshKeypair } from '../lib/ssh-keypair.js';
 import type { ClusterService } from '../services/ClusterService.js';
@@ -23,13 +23,12 @@ export interface ClustersRouterDeps {
   db: Pick<InfrastructureStore, 'getClusters' | 'saveClusterList'>;
   io: SocketServer;
   dataKey: SecretKey;
-  ownsCluster: ClusterOwnership;
 }
 
 const idOf = (req: Request): string => String(req.params.id ?? '');
 
-const userOf = (req: Request): { id: string; email: string; isAdmin?: boolean } =>
-  (req as unknown as { user: { id: string; email: string; isAdmin?: boolean } }).user;
+const userOf = (req: Request): { id: string; email: string } =>
+  (req as unknown as { user: { id: string; email: string } }).user;
 
 export function clustersRouter(deps: ClustersRouterDeps): Router {
   const {
@@ -49,11 +48,7 @@ export function clustersRouter(deps: ClustersRouterDeps): Router {
     return { username: 'admin', password: Buffer.from(raw.trim(), 'base64').toString('utf8') };
   }
 
-  async function ownedCluster(req: Request) {
-    const viewer = userOf(req);
-    const cluster = await clusterService.getById(idOf(req), viewer.id);
-    return cluster && deps.ownsCluster(viewer, cluster) ? cluster : undefined;
-  }
+  const ownedCluster = (req: Request) => clusterService.getById(idOf(req), principalFrom(req), 'see-everything');
 
   for (const serviceKey of PROXY_SERVICES) {
     router.get(`/:id/proxy/${serviceKey}`, async (req, res) => {
@@ -90,7 +85,7 @@ export function clustersRouter(deps: ClustersRouterDeps): Router {
     });
   }
 
-  router.get('/', asyncRoute(async (req, res) => res.json(await clusterService.getAll(userOf(req).id, io))));
+  router.get('/', asyncRoute(async (req, res) => res.json(await clusterService.getAll(principalFrom(req), io))));
 
   router.post('/', async (req, res) => {
     try {
@@ -156,7 +151,7 @@ export function clustersRouter(deps: ClustersRouterDeps): Router {
   router.post('/:id/start', async (req, res) => {
     try {
       const userId = userOf(req).id;
-      const cluster = await clusterService.getById(idOf(req), userId);
+      const cluster = await clusterService.getById(idOf(req), principalFrom(req), 'change');
       if (!cluster) return res.status(404).json({ error: 'Cluster not found' });
       if (cluster.status !== 'awaiting-key') {
         return res.status(409).json({ error: `Cluster "${cluster.name}" is ${cluster.status}, not awaiting a key.` });
@@ -182,15 +177,14 @@ export function clustersRouter(deps: ClustersRouterDeps): Router {
   });
 
   router.delete('/:id', async (req, res) => {
-    if (idOf(req) === 'provisioning-lunorica') {
-      return res.status(403).json({ error: 'The system management cluster cannot be destroyed' });
-    }
+    const cluster = await clusterService.getById(idOf(req), principalFrom(req));
+    if (!cluster) return res.status(404).json({ error: 'Cluster not found' });
+    const decision = authorize(principalFrom(req), 'delete', clusterResource(cluster));
+    if (!decision.allowed) return res.status(decision.status).json({ error: decision.error });
     try {
-      const cluster = await clusterService.getById(idOf(req), userOf(req).id);
-      if (!cluster) return res.status(404).json({ error: 'Cluster not found' });
       clusterProxyService.stopForCluster(idOf(req));
       if (cluster.status === 'provisioning') {
-        await clusterService.abort(idOf(req), userOf(req).id, io);
+        await clusterService.abort(idOf(req), principalFrom(req), io);
         return res.json({ success: true, message: 'Cluster provisioning aborted' });
       }
       const info = await temporalBridge.destroyCluster(idOf(req));
@@ -202,7 +196,7 @@ export function clustersRouter(deps: ClustersRouterDeps): Router {
       });
     } catch (err: any) {
       try {
-        await clusterService.abort(idOf(req), userOf(req).id, io);
+        await clusterService.abort(idOf(req), principalFrom(req), io);
         res.json({ success: true, message: 'Cluster deleted' });
       } catch (fallbackErr: any) {
         res.status(503).json({ error: `Cluster destruction unavailable: ${err.message}` });
@@ -211,7 +205,8 @@ export function clustersRouter(deps: ClustersRouterDeps): Router {
   });
 
   router.post('/discover', async (req, res) => {
-    if (!userOf(req).isAdmin) return res.status(403).json({ error: 'Only an admin adopts the clusters on this host' });
+    const decision = authorize(principalFrom(req), 'administer', { kind: 'install' });
+    if (!decision.allowed) return res.status(decision.status).json({ error: decision.error });
     try {
       const discovered = await clusterService.discoverClusters(userOf(req).id);
       res.json({ clusters: discovered });
@@ -221,8 +216,9 @@ export function clustersRouter(deps: ClustersRouterDeps): Router {
   });
 
   router.post('/:id/discover-deployments', async (req, res) => {
+    if (!(await ownedCluster(req))) return res.status(404).json({ error: 'Cluster not found' });
     try {
-      const discovered = await appService.discoverDeployments(idOf(req), userOf(req).id);
+      const discovered = await appService.discoverDeployments(idOf(req), principalFrom(req));
       res.json({ deployments: discovered });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -231,7 +227,7 @@ export function clustersRouter(deps: ClustersRouterDeps): Router {
 
   router.get('/:id/gpu-status', asyncRoute(async (req, res) => {
     if (!(await ownedCluster(req))) return res.status(404).json({ error: 'Cluster not found' });
-    return res.json(await clusterService.getGpuStatus(idOf(req), userOf(req).id));
+    return res.json(await clusterService.getGpuStatus(idOf(req), principalFrom(req)));
   }));
 
   return router;

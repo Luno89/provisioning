@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import VpsCatalog from './VpsCatalog';
+import { useShellStore } from '../../platform';
 import * as vpsApi from '../api/vps-catalog';
 
 vi.mock('../api/vps-catalog', async (importOriginal) => ({
@@ -197,5 +198,20 @@ describe('OVH prices for a subsidiary', () => {
       message: 'OVH_SUBSIDIARY=NZ is not an OVHcloud subsidiary; known ones are ASIA, AU, CA',
     }]);
     await waitFor(() => expect(screen.getByText(/OVH_SUBSIDIARY=NZ/)).toBeDefined());
+  });
+});
+
+describe('VpsCatalog refreshing prices', () => {
+  beforeEach(() => { vi.clearAllMocks(); });
+
+  it('offers Refresh prices only to the operator, since it clears every person\'s cache', async () => {
+    useShellStore.setState({ user: { id: 'u', email: 'u@example.com', isAdmin: false } as never });
+    const { unmount } = renderWith([cpuOnly]);
+    await waitFor(() => expect(screen.getByText('g6-standard-2')).toBeInTheDocument());
+    expect(screen.queryByText('Refresh prices')).toBeNull();
+    unmount();
+    useShellStore.setState({ user: { id: 'op', email: 'op@example.com', isAdmin: true } as never });
+    renderWith([cpuOnly]);
+    expect(await screen.findByText('Refresh prices')).toBeInTheDocument();
   });
 });

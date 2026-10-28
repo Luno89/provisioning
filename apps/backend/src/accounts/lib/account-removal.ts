@@ -1,4 +1,5 @@
 import type { ClusterMetadata, DeploymentMetadata, UserMetadata } from '../../platform/index.js';
+import { authorize, type Principal } from '../../platform/lib/permissions.js';
 import { adoptionWorkflowId, benchIdleId, concludeWorkspaceId, conversationConclusionId, groveRunWorkflowId } from '../../platform/lib/workflow-ids.js';
 import { conversationWatermarkKey, memoryRunId } from '../../memory/lib/conclusions.js';
 import { releaseRunWorkflowId } from '../../releases/lib/release-run.js';
@@ -21,7 +22,7 @@ export interface RemovalRequest {
 }
 
 export interface RemovalWorld {
-  users: readonly Pick<UserMetadata, 'id' | 'email' | 'isAdmin'>[];
+  users: readonly (Pick<UserMetadata, 'id' | 'email'> & { operator: boolean })[];
   clusters: readonly Pick<ClusterMetadata, 'id' | 'name' | 'status' | 'ownerId'>[];
   deployments: readonly Pick<DeploymentMetadata, 'id' | 'name' | 'ownerId'>[];
 }
@@ -37,7 +38,7 @@ const GONE: ClusterMetadata['status'][] = ['destroyed'];
 export function removalBlockers(ownerId: string, world: RemovalWorld): string[] {
   const target = world.users.find((user) => user.id === ownerId);
   const blockers: string[] = [];
-  if (target?.isAdmin && !world.users.some((user) => user.id !== ownerId && user.isAdmin)) {
+  if (target?.operator && !world.users.some((user) => user.id !== ownerId && user.operator)) {
     blockers.push('this is the only admin account; make someone else an admin first');
   }
   for (const cluster of world.clusters.filter((entry) => entry.ownerId === ownerId && !GONE.includes(entry.status))) {
@@ -49,10 +50,11 @@ export function removalBlockers(ownerId: string, world: RemovalWorld): string[] 
   return blockers;
 }
 
-export function refuseRemoval(request: RemovalRequest, world: RemovalWorld & { requester?: Pick<UserMetadata, 'id' | 'isAdmin'> | undefined }): RemovalRefusal | undefined {
+export function refuseRemoval(request: RemovalRequest, world: RemovalWorld & { requester: Principal }): RemovalRefusal | undefined {
   const target = world.users.find((user) => user.id === request.ownerId);
   if (!target) return { status: 404, error: 'There is no such account' };
-  if (request.requestedBy !== request.ownerId && !world.requester?.isAdmin) return { status: 403, error: 'Only an admin can remove someone else\'s account' };
+  const removing = authorize(world.requester, 'remove', { kind: 'account', id: request.ownerId });
+  if (!removing.allowed) return { status: 403, error: removing.error };
   if (request.confirm.trim().toLowerCase() !== target.email.toLowerCase()) return { status: 400, error: `Type the account's email, ${target.email}, to confirm` };
   const blockers = removalBlockers(request.ownerId, world);
   if (blockers.length > 0) return { status: 409, error: 'The account cannot be removed yet', blockers };

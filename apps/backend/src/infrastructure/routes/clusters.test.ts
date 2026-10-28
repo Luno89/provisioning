@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach, vi } from 'vitest';
 import axios from 'axios';
 import { clustersRouter } from './clusters.js';
 import { mountRouter, TEST_USER, type Harness } from '../../platform/routes/test-harness.js';
-import { clusterOwnership } from '../../platform/lib/ownership.js';
+import { allowed, clusterResource, type Principal } from '../../platform/lib/permissions.js';
 
 let h: Harness | undefined;
 afterEach(async () => { await h?.close(); h = undefined; vi.restoreAllMocks(); });
@@ -14,8 +14,10 @@ const cluster = (over: Record<string, unknown> = {}) => ({
 const services = () => ({
   clusterService: {
     getAll: vi.fn(async () => [cluster()]),
-    getById: vi.fn(async (id: string, userId: string) =>
-      (id === 'c1' && userId === TEST_USER.id ? cluster() : undefined)),
+    getById: vi.fn(async (id: string, principal: Principal, action: 'see' | 'see-everything' | 'change' | 'delete' | 'deploy-to' = 'see') => {
+      const found = id === 'c1' ? cluster() : undefined;
+      return found && allowed(principal, action, clusterResource(found)) ? found : undefined;
+    }),
     getGpuStatus: vi.fn(async () => ({ gpus: 0 })),
     getKubeconfigPath: vi.fn(async () => '/tmp/kubeconfig'),
     discoverClusters: vi.fn(async () => []),
@@ -37,7 +39,8 @@ const mount = async (svc = services(), user: typeof TEST_USER | null = TEST_USER
   h = await mountRouter({
     prefix: '/api/clusters',
     user,
-    router: () => clustersRouter({ ...svc, dataKey: 'test-secret', ownsCluster: clusterOwnership(instanceOwner) } as never),
+    claims: instanceOwner ? { role: 'instance', instanceOwnerId: instanceOwner } : { role: 'combined' },
+    router: () => clustersRouter({ ...svc, dataKey: 'test-secret' } as never),
   });
   return { h: h!, svc };
 };
@@ -47,7 +50,7 @@ describe('listing clusters', () => {
     const { h, svc } = await mount();
     const res = await axios.get(h.url('/api/clusters'));
     expect(res.status).toBe(200);
-    expect(svc.clusterService.getAll).toHaveBeenCalledWith(TEST_USER.id, expect.anything());
+    expect(svc.clusterService.getAll).toHaveBeenCalledWith(expect.objectContaining({ id: TEST_USER.id }), expect.anything());
   });
 
   it('refuses an unauthenticated caller', async () => {
@@ -78,7 +81,7 @@ describe('reading one cluster', () => {
     const { h, svc } = await mount();
     h.setUser({ id: 'someone-else', email: 'other@example.com', isAdmin: false });
     await axios.get(h.url('/api/clusters/c1/gpu-status')).catch(() => undefined);
-    expect(svc.clusterService.getById).toHaveBeenCalledWith('c1', 'someone-else');
+    expect(svc.clusterService.getById).toHaveBeenCalledWith('c1', expect.objectContaining({ id: 'someone-else' }), 'see-everything');
   });
 });
 
@@ -114,7 +117,7 @@ describe('what only whoever owns a cluster may open', () => {
   const system = cluster({ id: 'provisioning-lunorica', isSystem: true, ownerId: undefined });
   const onSystem = () => {
     const svc = services();
-    svc.clusterService.getById.mockImplementation(async (id: string) => (id === system.id ? system : undefined) as never);
+    svc.clusterService.getById.mockImplementation(async (id: string, principal: Principal, action = 'see') => (id === system.id && allowed(principal, action, clusterResource(system)) ? system : undefined) as never);
     return svc;
   };
   const someone = { id: 'someone', email: 'someone@example.com', isAdmin: false };
@@ -153,6 +156,27 @@ describe('what only whoever owns a cluster may open', () => {
       await h.close();
     }
     h = undefined;
+  });
+
+  it('lets only the operator make records of the system cluster\'s apps, and nobody delete it', async () => {
+    const { h, svc } = await mount(onSystem(), someone);
+    const discover = await axios.post(h.url(`/api/clusters/${system.id}/discover-deployments`)).catch((e) => e);
+    expect([discover.response?.status, discover.response?.data]).toEqual([404, { error: 'Cluster not found' }]);
+    expect(svc.appService.discoverDeployments).not.toHaveBeenCalled();
+    const deleted = await axios.delete(h.url(`/api/clusters/${system.id}`)).catch((e) => e);
+    expect([deleted.response?.status, deleted.response?.data]).toEqual([403, { error: 'The system cluster cannot be deleted' }]);
+    await h.close();
+    const asOperator = await mount(onSystem(), admin);
+    expect((await axios.post(asOperator.h.url(`/api/clusters/${system.id}/discover-deployments`))).status).toBe(200);
+    const operatorDeletes = await axios.delete(asOperator.h.url(`/api/clusters/${system.id}`)).catch((e) => e);
+    expect(operatorDeletes.response?.status).toBe(403);
+  });
+
+  it('lets only the operator adopt the host\'s clusters', async () => {
+    const { h, svc } = await mount(services(), someone);
+    const refused = await axios.post(h.url('/api/clusters/discover')).catch((e) => e);
+    expect([refused.response?.status, refused.response?.data]).toEqual([403, { error: 'Only the operator of this server can do that.' }]);
+    expect(svc.clusterService.discoverClusters).not.toHaveBeenCalled();
   });
 
   it('opens a cluster of the caller\'s own', async () => {

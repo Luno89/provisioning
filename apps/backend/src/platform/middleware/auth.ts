@@ -7,6 +7,7 @@ import type { Database } from '../lib/db-interface.js';
 import type { InviteMetadata, UserMetadata } from '../lib/types.js';
 import type { SecretKey } from '../lib/crypto.js';
 import { signsInThroughRoot, type PlatformRole } from '../lib/platform-role.js';
+import { authorize, principalOf, type Actions, type Principal, type Resource } from '../lib/permissions.js';
 
 export function parseCookie(cookieHeader: string | undefined, name: string): string | undefined {
   if (!cookieHeader) return undefined;
@@ -23,7 +24,21 @@ export interface AuthDeps {
   sessionKey: SecretKey;
   publicUrl: string;
   role?: PlatformRole | undefined;
+  instanceOwnerId?: string | undefined;
   setupCode?: string | undefined;
+}
+
+export const requireAllowed = <R extends Resource>(action: Actions[R['kind']], resource: R): express.RequestHandler => (req, res, next) => {
+  const principal = (req as { principal?: Principal }).principal;
+  const decision = principal ? authorize(principal, action, resource) : undefined;
+  if (!decision?.allowed) return res.status(decision && !decision.allowed ? decision.status : 401).json({ error: decision && !decision.allowed ? decision.error : 'Sign in first' });
+  next();
+};
+
+export function principalFrom(req: express.Request): Principal {
+  const principal = (req as { principal?: Principal }).principal;
+  if (!principal) throw new Error(`${req.method} ${req.path} reached a route that needs a signed-in person without one`);
+  return principal;
 }
 
 export interface Auth {
@@ -31,7 +46,8 @@ export interface Auth {
   userFromSessionCookie: (cookieHeader: string | undefined, secure: boolean) => Promise<UserMetadata | undefined>;
   securedFor: (arrived: { headers: IncomingHttpHeaders; secure: boolean }) => boolean;
   requireAuth: express.RequestHandler;
-  requireAdmin: express.RequestHandler;
+  requireOperator: (action: Actions['install']) => express.RequestHandler;
+  principalFor: (user: Pick<UserMetadata, 'id' | 'isAdmin'>) => Principal;
   setSessionCookie: (res: express.Response, token: string, req?: express.Request) => void;
   clearSession: (res: express.Response) => void;
   sessionCookieOptions: { httpOnly: boolean; secure: boolean; sameSite: 'lax' };
@@ -47,7 +63,8 @@ export interface Auth {
 
 export const PUBLIC_PREFIXES = ['/checks/scripted/', '/machines/git/', '/share/'];
 
-export function createAuth({ db, sessionKey, publicUrl, role = 'combined', setupCode }: AuthDeps): Auth {
+export function createAuth({ db, sessionKey, publicUrl, role = 'combined', instanceOwnerId, setupCode }: AuthDeps): Auth {
+  const principalFor = (user: Pick<UserMetadata, 'id' | 'isAdmin'>): Principal => principalOf(user, { role, instanceOwnerId });
   const getCookie = (req: express.Request, name: string) => parseCookie(req.headers.cookie, name);
 
   const sessionCookieOptions = {
@@ -117,6 +134,7 @@ export function createAuth({ db, sessionKey, publicUrl, role = 'combined', setup
         createdAt: new Date().toISOString(),
       };
       (req as any).user = mockUser;
+      (req as any).principal = principalFor(mockUser);
       return next();
     }
 
@@ -129,13 +147,14 @@ export function createAuth({ db, sessionKey, publicUrl, role = 'combined', setup
       return res.status(401).json({ error: 'Unauthorized: Session invalid or expired' });
     }
     (req as any).user = user;
+    (req as any).principal = principalFor(user);
     next();
   };
 
-  const requireAdmin: express.RequestHandler = (req, res, next) => {
-    if (!(req as any).user?.isAdmin) {
-      return res.status(403).json({ error: 'Admin access required' });
-    }
+  const requireOperator = (action: Actions['install']): express.RequestHandler => (req, res, next) => {
+    const principal = (req as { principal?: Principal }).principal;
+    const decision = principal ? authorize(principal, action, { kind: 'install' }) : undefined;
+    if (!decision?.allowed) return res.status(403).json({ error: decision && !decision.allowed ? decision.error : 'Sign in first' });
     next();
   };
 
@@ -179,7 +198,7 @@ export function createAuth({ db, sessionKey, publicUrl, role = 'combined', setup
   }
 
   return {
-    getCookie, userFromSessionCookie, securedFor, requireAuth, requireAdmin,
+    getCookie, userFromSessionCookie, securedFor, requireAuth, requireOperator, principalFor,
     setSessionCookie, clearSession, sessionCookieOptions, checkAndConsumeInvite, inviteProblem, claimHeldInvite,
   };
 }

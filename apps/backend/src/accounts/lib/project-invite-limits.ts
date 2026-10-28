@@ -23,12 +23,12 @@ export function accountsMadeBy(invites: readonly InviteMetadata[], inviterId: st
 
 export function projectInviteRefusal(
   invites: readonly InviteMetadata[],
-  inviter: { id: string; isAdmin?: boolean | undefined; inviteAccounts?: number | undefined },
+  inviter: { id: string; operator: boolean; inviteAccounts?: number | undefined },
   limits: InviteLimits,
   makesAccount: boolean,
   now: Date,
 ): string | undefined {
-  if (inviter.isAdmin) return undefined;
+  if (inviter.operator) return undefined;
   const sent = invites.filter((invite) => invite.createdBy === inviter.id && invite.project && now.getTime() - Date.parse(invite.createdAt) < HOUR_MS)
     .map((invite) => Date.parse(invite.createdAt)).sort((a, b) => a - b);
   if (sent.length >= limits.perHour) {

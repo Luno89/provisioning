@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import { type Database, type ProjectMetadata, encryptValue, decryptValue, type SecretKey } from '../../platform/index.js';
+import { type Database, type ProjectMetadata, encryptValue, decryptValue, type SecretKey, allowed, asPerson } from '../../platform/index.js';
 import type { GiteaService, RepoFileEntry } from './GiteaService.js';
 import { DEFAULT_TARGET_CLUSTER } from '../lib/project-shipping.js';
 import {
@@ -119,7 +119,7 @@ export class ProjectRepoService {
     const id = input.id ?? crypto.randomUUID();
     const repo = sanitiseRepoName(input.repo);
     const existing = (await this.db.projects.getProjects()).find((p) => p.id === id);
-    if (existing && existing.ownerId !== ownerId) throw new Error(`project ${id} belongs to someone else`);
+    if (existing && !allowed(asPerson(ownerId), 'change', { kind: 'project', ownerId: existing.ownerId })) throw new Error(`project ${id} belongs to someone else`);
     if (existing?.webhookSecretEnc && (!input.starter?.length)) return existing;
 
     const creating = !input.existing;
@@ -216,7 +216,7 @@ export class ProjectRepoService {
     ownerId: string,
     project: ProjectMetadata,
   ): Promise<{ cloneUrl: string; tokenName: string; username: string }> {
-    if (project.ownerId !== ownerId) {
+    if (!allowed(asPerson(ownerId), 'change', { kind: 'project', ownerId: project.ownerId })) {
       throw new Error('That project belongs to someone else.');
     }
 

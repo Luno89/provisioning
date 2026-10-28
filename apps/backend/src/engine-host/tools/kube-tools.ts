@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { ToolHandler, ToolOutcome } from '@koala/engine-core';
 import type { AccessRequest } from '@koala/harness-types';
-import type { ClusterMetadata, DeploymentMetadata } from '../../platform/index.js';
+import { allowed, authorize, clusterResource, type ClusterMetadata, type DeploymentMetadata, type Principal } from '../../platform/index.js';
 import {
   LOG_TAIL, PLATFORM_NAMESPACES, eventsCommand, findDeployment, logsCommand, namespaceOfName, namespacesProblem, planRead, trimOutput,
   type OwnedDeployment,
@@ -11,7 +11,7 @@ export interface KubeAccess {
   clusters(ownerId: string): Promise<ClusterMetadata[]>;
   deployments(): Promise<DeploymentMetadata[]>;
   kubectl(cluster: ClusterMetadata, argv: string[]): Promise<string>;
-  isAdmin(ownerId: string): Promise<boolean>;
+  principal(ownerId: string): Promise<Principal>;
   openNamespaces(ownerId: string, conversationId: string): Promise<string[]>;
   accessRequests: {
     list(ownerId: string, conversationId: string): Promise<AccessRequest[]>;
@@ -142,6 +142,7 @@ export function createKubeTools(options: { access: KubeAccess; now?: (() => stri
         const { clusters } = await world(caller.ownerId);
         cluster = clusterNamed(clusters, wantedCluster);
         if (!cluster) return refuse(`you have no cluster called "${wantedCluster}" — yours are: ${clusters.map((entry) => entry.name).join(', ') || 'none'}`);
+        if (!allowed(await access.principal(caller.ownerId), 'see-everything', clusterResource(cluster))) return refuse(`only whoever runs ${cluster.name} reads all of it; name one of your deployments there instead`);
       } else {
         return refuse('name the deployment to look inside, or the cluster for nodes, volumes and namespaces');
       }
@@ -159,7 +160,8 @@ export function createKubeTools(options: { access: KubeAccess; now?: (() => stri
     async request_cluster_access({ parsed, caller }): Promise<ToolOutcome> {
       if (!caller.ownerId) return refuse('this run has no owner to ask for');
       if (!caller.conversationId) return refuse('platform namespaces open for a conversation, and this run is part of none');
-      if (!(await access.isAdmin(caller.ownerId))) return refuse('only an administrator can open the platform\'s own namespaces; your own deployments are readable already');
+      const opening = authorize(await access.principal(caller.ownerId), 'open-platform-namespaces', { kind: 'install' });
+      if (!opening.allowed) return refuse(`${opening.error} Your own deployments are readable already.`);
       const raw = parsed.namespaces;
       const namespaces = [...new Set((Array.isArray(raw) ? raw : typeof raw === 'string' ? raw.split(',') : []).map((entry) => String(entry).trim()).filter(Boolean))];
       const problem = namespacesProblem(namespaces);
@@ -196,6 +198,7 @@ export function createKubeTools(options: { access: KubeAccess; now?: (() => stri
       const wanted = asString(parsed, 'cluster');
       const cluster = wanted ? clusterNamed(clusters, wanted) : clusters.find((entry) => entry.isSystem) ?? clusters[0];
       if (!cluster) return refuse(wanted ? `you have no cluster called "${wanted}"` : 'there are no clusters to measure');
+      if (!allowed(await access.principal(caller.ownerId), 'see-everything', clusterResource(cluster))) return refuse(`only whoever runs ${cluster.name} sees its nodes; name one of your deployments there to see its own usage`);
       const [usage, nodes] = await Promise.all([read(cluster, ['top', 'nodes']), read(cluster, ['get', 'nodes', '-o', 'wide'])]);
       return answer(`capacity of ${cluster.name}`, [
         `Node usage on ${cluster.name}:`,

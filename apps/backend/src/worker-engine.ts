@@ -14,7 +14,7 @@ import {
 } from './projects/index.js';
 import {
   stopIfRunning, createDatabase, sharedPayloadBlobs, createWorkerLogger, buildDataConverter, connectTemporalWorker, failureReason,
-  signJWT, clusterOwnership, roleFromEnv, getTemporalClient, resolveOwnersWith, loadKeys, startedFor, carryingTrace, SYSTEM_KUBECONFIG, telemetrySettings,
+  signJWT, principalOf, claimSettingsFrom, roleFromEnv, getTemporalClient, resolveOwnersWith, loadKeys, startedFor, carryingTrace, SYSTEM_KUBECONFIG, telemetrySettings,
   publicAddressProblem,
 } from './platform/index.js';
 import { createWorkspaceRepoResolver, treeOfWorkspace } from './engine-host/sandboxes/workspace-repos.js';
@@ -176,7 +176,6 @@ async function buildActivities() {
   const monitoring = new MonitoringService({
     store: db,
     systemCluster: () => clusterService.getSystemClusterEntry(),
-    ownsCluster: clusterOwnership(engineRole.instance?.ownerId),
     pool: (cluster) => (cluster.isSystem ? onPool : undefined),
     prometheus: async (cluster) => prometheusAt(await sharedClusterProxy().serviceUrl(cluster.id, 'prometheus', await clusterService.getKubeconfigPath(cluster))),
     kubectl: async (cluster, args) => String(await kubeInfra.runKubectl(args, await clusterService.getKubeconfigPath(cluster))),
@@ -197,7 +196,7 @@ async function buildActivities() {
     monitoring: {
       monitoring,
       rules: (ownerId) => db.monitoring.getAlertRules(ownerId),
-      viewer: async (ownerId) => ({ id: ownerId, isAdmin: Boolean((await db.accounts.getUserById(ownerId))?.isAdmin) }),
+      viewer: async (ownerId) => principalOf((await db.accounts.getUserById(ownerId)) ?? { id: ownerId }, claimSettingsFrom(engineRole)),
     },
     treeModels: {
       describe: (ownerId, treeId) => treeModels.describe(ownerId, treeId),
@@ -220,6 +219,7 @@ async function buildActivities() {
             masterKey: keys.data,
             clusterById: async (id) => (id === DEFAULT_TARGET_CLUSTER ? clusterService.getSystemClusterEntry() : (await db.infrastructure.getClusters()).find((cluster) => cluster.id === id)),
             logDir: LOG_DIR,
+            claims: claimSettingsFrom(engineRole),
           }, project, run);
           return { workflowId: started.workflowId };
         },
@@ -309,7 +309,7 @@ async function buildActivities() {
       ],
       deployments: () => db.infrastructure.getDeployments(),
       kubectl: async (cluster, argv) => String(await kubeInfra.runKubectl(argv, await clusterService.getKubeconfigPath(cluster))),
-      isAdmin: async (ownerId) => (await db.accounts.getUserById(ownerId))?.isAdmin === true,
+      principal: async (ownerId) => principalOf((await db.accounts.getUserById(ownerId)) ?? { id: ownerId }, claimSettingsFrom(engineRole)),
       openNamespaces: async (ownerId, conversationId) => (await db.engine.getConversation(ownerId, conversationId))?.platformNamespaces ?? [],
       accessRequests: {
         list: (ownerId, conversationId) => db.infrastructure.getAccessRequests(ownerId, conversationId),

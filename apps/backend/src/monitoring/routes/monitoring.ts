@@ -1,5 +1,5 @@
 import { Router, type Request } from 'express';
-import { asyncRoute } from '../../platform/index.js';
+import { asyncRoute, principalFrom } from '../../platform/index.js';
 import { isRange, type Range } from '../lib/monitoring-questions.js';
 import { type MonitoringService, type Viewer } from '../services/MonitoringService.js';
 
@@ -7,10 +7,7 @@ export interface MonitoringRouterDeps {
   monitoring: MonitoringService;
 }
 
-const viewerOf = (req: Request): Viewer => {
-  const user = (req as Request & { user: { id: string; isAdmin?: boolean } }).user;
-  return { id: user.id, isAdmin: Boolean(user.isAdmin) };
-};
+const viewerOf = (req: Request): Viewer => principalFrom(req);
 
 const idOf = (req: Request): string => String(req.params.id ?? '');
 

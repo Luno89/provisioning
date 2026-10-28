@@ -1,8 +1,5 @@
 import type { Server as SocketServer } from 'socket.io';
-import {
-  type Database, type SecretKey, type ProjectMetadata, secretNotice, getTemporalClient, roleFromEnv,
-  servesTenants,
-} from '../../platform/index.js';
+import { type Database, type SecretKey, type ProjectMetadata, secretNotice, getTemporalClient, roleFromEnv, servesTenants, type Principal } from '../../platform/index.js';
 import { groveAgentOf, resolveTreeType, renderStarterFiles, versionVars } from '../lib/tree-types.js';
 import { PROJECT_REMOVAL_PROGRESS_QUERY, type ProjectRemovalStep } from '../lib/project-removal.js';
 import { ProjectRepoService } from '../services/ProjectRepoService.js';
@@ -135,7 +132,7 @@ export interface ProjectsWiringDeps {
   workspaceRepos: ReturnType<typeof createWorkspaceRepoResolver>;
   concluded: (ownerId: string, conversationId: string | undefined) => void;
   sharing: () => Pick<ProjectSharingService, 'shared' | 'takeBackForDeletion'> | undefined;
-  getOwnedProject: (id: string, user: { id: string; email: string; isAdmin?: boolean }) => Promise<ProjectMetadata | undefined>;
+  getOwnedProject: (id: string, principal: Principal) => Promise<ProjectMetadata | undefined>;
 }
 
 export interface ProjectsWiring {

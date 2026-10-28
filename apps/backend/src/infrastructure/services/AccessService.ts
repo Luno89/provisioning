@@ -1,6 +1,7 @@
 import type { AccessRequest } from '@koala/harness-types';
 import type { Conversation } from '../../engine/index.js';
 import { namespacesProblem } from '../lib/kube-diagnostics.js';
+import { authorize, type Principal } from '../../platform/index.js';
 
 export interface AccessStore {
   infrastructure: {
@@ -36,8 +37,9 @@ export class AccessService {
     return { opened: request };
   }
 
-  async grant(user: { id: string; isAdmin?: boolean | undefined }, id: string): Promise<AccessDecision> {
-    if (!user.isAdmin) return { ok: false, status: 403, error: 'Only an administrator can open the platform\'s namespaces.' };
+  async grant(user: Principal, id: string): Promise<AccessDecision> {
+    const decision = authorize(user, 'open-platform-namespaces', { kind: 'install' });
+    if (!decision.allowed) return { ok: false, status: decision.status, error: decision.error };
     const found = await this.open(user.id, id);
     if (!('opened' in found)) return found;
     const request = found.opened;

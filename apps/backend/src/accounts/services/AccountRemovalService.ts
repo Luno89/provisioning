@@ -1,4 +1,4 @@
-import { type ClusterMetadata, type DeploymentMetadata, startedFor } from '../../platform/index.js';
+import { type ClusterMetadata, type DeploymentMetadata, holds, type Principal, startedFor, type UserMetadata } from '../../platform/index.js';
 import type { InstanceRecord, InstanceRelease, InstanceStatus } from '../../instances/index.js';
 import type { Client } from '@temporalio/client';
 import type { AccountsStore } from '../store.js';
@@ -74,6 +74,7 @@ export interface AccountRemovalDeps {
   instances?: (() => Promise<InstanceRecord[]>) | undefined;
   releases?: (() => Promise<InstanceRelease[]>) | undefined;
   hub?: HubPeople | undefined;
+  principalFor(user: Pick<UserMetadata, 'id' | 'isAdmin'>): Principal;
   now?: () => string;
 }
 
@@ -117,7 +118,11 @@ export class AccountRemovalService {
 
   private async world() {
     const [users, clusters, deployments] = await Promise.all([this.deps.store.accounts.getUsers(), this.deps.store.infrastructure.getClusters(), this.deps.store.infrastructure.getDeployments()]);
-    return { users, clusters, deployments };
+    return { users: users.map((user) => ({ ...user, operator: this.operator(user) })), clusters, deployments };
+  }
+
+  private operator(user: Pick<UserMetadata, 'id' | 'isAdmin'>): boolean {
+    return holds(this.deps.principalFor(user), 'operator');
   }
 
   async preview(ownerId: string): Promise<{ email: string; blockers: string[]; instance?: PersonInstance } | undefined> {
@@ -129,9 +134,8 @@ export class AccountRemovalService {
     return { email: user.email, blockers, ...(instance ? { instance: instanceOf(instance) } : {}) };
   }
 
-  async remove(request: RemovalRequest): Promise<{ ok: true; state: RemovalWorkflowState } | { ok: false; refusal: RemovalRefusal }> {
+  async remove(request: RemovalRequest, requester: Principal): Promise<{ ok: true; state: RemovalWorkflowState } | { ok: false; refusal: RemovalRefusal }> {
     const world = await this.world();
-    const requester = world.users.find((entry) => entry.id === request.requestedBy);
     const target = world.users.find((entry) => entry.id === request.ownerId);
     const refusal = refuseRemoval(request, { ...world, requester });
     if (refusal) return { ok: false, refusal };
@@ -159,7 +163,7 @@ export class AccountRemovalService {
       return {
         id: user.id,
         email: user.email,
-        isAdmin: user.isAdmin === true,
+        isAdmin: this.operator(user),
         createdAt: user.createdAt,
         ...(instance ? { instance: instanceOf(instance, releases) } : {}),
         ...(user.removal ? { removal: { ...user.removal, state: await this.deps.workflows.state(removeAccountWorkflowId(user.id)), ...(steps ? { steps } : {}) } } : {}),

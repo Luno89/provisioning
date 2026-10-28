@@ -1,6 +1,6 @@
 import { Router, type Request } from 'express';
 import type { Server as SocketServer } from 'socket.io';
-import { asyncRoute, type Database } from '../../platform/index.js';
+import { asyncRoute, principalFrom, type Database } from '../../platform/index.js';
 import { CapacityError } from '../lib/cluster-capacity.js';
 import { APP_SETTINGS_SCHEMAS, NO_WEB_UI_APP_TYPES } from '../lib/app-schemas.js';
 import { deployRequestFrom } from '../lib/app-namespace.js';
@@ -27,8 +27,8 @@ export interface DeploymentsRouterDeps {
 
 const idOf = (req: Request): string => String(req.params.id ?? '');
 
-const userOf = (req: Request): { id: string; email: string; isAdmin?: boolean } =>
-  (req as unknown as { user: { id: string; email: string; isAdmin?: boolean } }).user;
+const userOf = (req: Request): { id: string; email: string } =>
+  (req as unknown as { user: { id: string; email: string } }).user;
 
 export function deploymentsRouter(deps: DeploymentsRouterDeps): Router {
   const { appService, clusterService, appExposureService, infraService, temporalBridge, db, io } = deps;
@@ -53,7 +53,7 @@ export function deploymentsRouter(deps: DeploymentsRouterDeps): Router {
       const user = userOf(req);
       const asked = deployRequestFrom(req.body);
       if ('problem' in asked) return res.status(400).json({ error: asked.problem });
-      const targetCluster = await clusterService.getById(String(asked.request.clusterId ?? ''), user.id);
+      const targetCluster = await clusterService.getById(String(asked.request.clusterId ?? ''), principalFrom(req), 'deploy-to');
       if (!targetCluster) return res.status(404).json({ error: 'Cluster not found' });
       const info = await temporalBridge.deployApp(asked.request, user?.id);
       res.status(202).json({
@@ -160,8 +160,7 @@ export function deploymentsRouter(deps: DeploymentsRouterDeps): Router {
   });
 
   router.get('/:id/resource-plan', async (req, res) => {
-    const user = userOf(req);
-    const dep = (await db.infrastructure.getDeployments()).find((d) => d.id === idOf(req) && d.ownerId === user.id);
+    const dep = await appService.getById(idOf(req), userOf(req).id);
     if (!dep) return res.status(404).json({ error: 'Deployment not found' });
     if (dep.appType !== 'tabbyapi') return res.json({ applicable: false });
 

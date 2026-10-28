@@ -1,5 +1,5 @@
 import { Router, type Request } from 'express';
-import { asyncRoute } from '../../platform/index.js';
+import { allowed, asyncRoute, principalFrom } from '../../platform/index.js';
 import type { BindingTypeRecord } from '../lib/service-binding.js';
 import { seedBindingTypes } from '../lib/binding-type-seeds.js';
 import type { InfrastructureStore } from '../store.js';
@@ -10,7 +10,7 @@ export interface BindingTypesRouterDeps {
 
 const idOf = (req: Request): string => String(req.params.id ?? '').trim();
 
-const isAdmin = (req: Request): boolean => Boolean((req as unknown as { user?: { isAdmin?: boolean } }).user?.isAdmin);
+const isOperator = (req: Request): boolean => allowed(principalFrom(req), 'administer', { kind: 'install' });
 
 const EVERYONES = 'Binding types are used by everyone\'s deploys on this platform, so only an admin changes them';
 
@@ -46,7 +46,7 @@ export function bindingTypesRouter(
   }));
 
   router.put('/:id', asyncRoute(async (req, res) => {
-    if (!isAdmin(req)) return res.status(403).json({ error: EVERYONES });
+    if (!isOperator(req)) return res.status(403).json({ error: EVERYONES });
     const id = idOf(req);
     const candidate: BindingTypeRecord = {
       ...(req.body ?? {}),
@@ -61,7 +61,7 @@ export function bindingTypesRouter(
   }));
 
   router.delete('/:id', asyncRoute(async (req, res) => {
-    if (!isAdmin(req)) return res.status(403).json({ error: EVERYONES });
+    if (!isOperator(req)) return res.status(403).json({ error: EVERYONES });
     const id = idOf(req);
     if (!id) return res.status(400).json({ error: 'id required' });
     await db.deleteBindingType(id);

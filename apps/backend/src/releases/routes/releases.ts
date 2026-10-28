@@ -1,14 +1,14 @@
 import { Router, type Request, type Response } from 'express';
-import { asyncRoute, type ProjectMetadata } from '../../platform/index.js';
+import { asyncRoute, type ProjectMetadata, principalFrom, type Principal } from '../../platform/index.js';
 import type { OdooReleaseService } from '../services/OdooReleaseService.js';
 import type { SignIn } from '../../projects/index.js';
 
-const userOf = (req: Request): { id: string; email: string; isAdmin?: boolean } =>
-  (req as unknown as { user: { id: string; email: string; isAdmin?: boolean } }).user;
+const userOf = (req: Request): { id: string; email: string } =>
+  (req as unknown as { user: { id: string; email: string } }).user;
 
 export interface ReleasesRouterDeps {
   releases: Pick<OdooReleaseService, 'list' | 'decide' | 'retest' | 'addresses' | 'rollBackOffer' | 'rollBack' | 'releaseAgain' | 'files'>;
-  getOwnedProject: (id: string, user: { id: string; email: string; isAdmin?: boolean }) => Promise<ProjectMetadata | undefined | null>;
+  getOwnedProject: (id: string, principal: Principal) => Promise<ProjectMetadata | undefined | null>;
   signIns: (project: ProjectMetadata) => Promise<SignIn[]>;
 }
 
@@ -16,7 +16,7 @@ export function releasesRouter(deps: ReleasesRouterDeps): Router {
   const router = Router();
 
   const owned = async (req: Request, res: Response) => {
-    const project = await deps.getOwnedProject(String(req.params.id), userOf(req));
+    const project = await deps.getOwnedProject(String(req.params.id), principalFrom(req));
     if (!project) {
       res.status(404).json({ error: 'Project not found' });
       return undefined;

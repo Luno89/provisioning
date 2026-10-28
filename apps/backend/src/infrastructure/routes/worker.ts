@@ -1,10 +1,10 @@
 import { Router } from 'express';
 
 export function workerRouter(deps: Record<string, any>): Router {
-  const { workerService } = deps;
+  const { workerService, operatorOnly } = deps;
   const router = Router();
 
-  router.post('/', async (req, res) => {
+  router.post('/', operatorOnly, async (req, res) => {
     try {
       const { clusterId, context } = req.body || {};
       if (!clusterId) return res.status(400).json({ error: 'clusterId is required' });
@@ -21,7 +21,7 @@ export function workerRouter(deps: Record<string, any>): Router {
     }
   });
 
-  router.delete('/', async (req, res) => {
+  router.delete('/', operatorOnly, async (req, res) => {
     try {
       console.log('[Worker] Worker stopped');
       res.status(200).json({ message: 'Worker stopped' });

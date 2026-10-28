@@ -1,20 +1,17 @@
 import { Router, type Request, type Response } from 'express';
-import { asyncRoute, type ProjectMetadata } from '../../platform/index.js';
+import { asyncRoute, type ProjectMetadata, principalFrom, type Principal } from '../../platform/index.js';
 import type { ProjectAppService } from '../services/ProjectAppService.js';
-
-const userOf = (req: Request): { id: string; email: string; isAdmin?: boolean } =>
-  (req as unknown as { user: { id: string; email: string; isAdmin?: boolean } }).user;
 
 export interface ProjectAppRouterDeps {
   apps: Pick<ProjectAppService, 'app' | 'open'>;
-  getOwnedProject: (id: string, user: { id: string; email: string; isAdmin?: boolean }) => Promise<ProjectMetadata | undefined | null>;
+  getOwnedProject: (id: string, principal: Principal) => Promise<ProjectMetadata | undefined | null>;
 }
 
 export function projectAppRouter(deps: ProjectAppRouterDeps): Router {
   const router = Router();
 
   const owned = async (req: Request, res: Response) => {
-    const project = await deps.getOwnedProject(String(req.params.id), userOf(req));
+    const project = await deps.getOwnedProject(String(req.params.id), principalFrom(req));
     if (!project) res.status(404).json({ error: 'Project not found' });
     return project ?? undefined;
   };

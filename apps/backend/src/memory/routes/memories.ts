@@ -1,5 +1,5 @@
 import { Router, type Request } from 'express';
-import { asyncRoute, type Database } from '../../platform/index.js';
+import { asyncRoute, type Database, requireAllowed } from '../../platform/index.js';
 import { v4 as uuidv4 } from 'uuid';
 import { unreachableMemory, type MemoryItem } from '../lib/memory-store.js';
 import type { TemporalBridge } from '../../infrastructure/index.js';
@@ -10,8 +10,8 @@ const idOf = (req: Request): string => String(req.params.id ?? '');
 const modelIn = (value: unknown): string | undefined =>
   typeof value === 'string' && value.trim() ? value.trim() : undefined;
 
-const userOf = (req: Request): { id: string; email: string; isAdmin?: boolean } =>
-  (req as unknown as { user: { id: string; email: string; isAdmin?: boolean } }).user;
+const userOf = (req: Request): { id: string; email: string } =>
+  (req as unknown as { user: { id: string; email: string } }).user;
 
 export interface MemoriesRouterDeps {
   db: Database;
@@ -28,7 +28,7 @@ export function memoriesRouter(deps: MemoriesRouterDeps): Router {
     res.json(memories.filter((memory) => !isToolNote(memory)));
   }));
 
-  router.get('/consolidation', asyncRoute(async (_req, res) => {
+  router.get('/consolidation', requireAllowed('administer', { kind: 'install' }), asyncRoute(async (_req, res) => {
     res.json(temporalBridge.lastConsolidation ?? null);
   }));
 

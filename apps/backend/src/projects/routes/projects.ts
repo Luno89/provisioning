@@ -1,16 +1,16 @@
 import { Router, type Request } from 'express';
-import { asyncRoute, ownsProject } from '../../platform/index.js';
+import { allowed, asyncRoute, principalFrom } from '../../platform/index.js';
 import { isWorkspaceLanguage, WorkspaceImageService } from '../../engine/index.js';
 import { v4 as uuidv4 } from 'uuid';
 import { rollupProjectStatus, deploymentForProject } from '../lib/project-status.js';
-import { targetClusterProblem } from '../lib/project-shipping.js';
+import { namesTargetCluster, targetClusterProblem } from '../lib/project-shipping.js';
 import { validateLocalEgressRules } from '../../infrastructure/index.js';
 import type { ProjectRemovalService } from '../services/ProjectRemovalService.js';
 
 const idOf = (req: Request): string => String(req.params.id ?? '');
 
-const userOf = (req: Request): { id: string; email: string; isAdmin?: boolean } =>
-  (req as unknown as { user: { id: string; email: string; isAdmin?: boolean } }).user;
+const userOf = (req: Request): { id: string; email: string } =>
+  (req as unknown as { user: { id: string; email: string } }).user;
 
 const claimedByAnotherProject = (
   projects: any[], deviceId: string, path: string | undefined, excludeProjectId?: string,
@@ -23,13 +23,15 @@ const claimedByAnotherProject = (
 export function projectsRouter(deps: Record<string, any>): Router {
   const {
     db, projectRepoService, temporalBridge, getOwnedProject,
-    giteaService, channels,
+    giteaService, channels, clusterService,
   } = deps;
+  const ownDevice = async (req: Request, deviceId: unknown) => (await db.machines.getLocalAgentDevices())
+    .find((d: any) => d.id === deviceId && allowed(principalFrom(req), 'see', { kind: 'record', noun: 'machine', ownerId: d.ownerId }));
   const router = Router();
 
   router.get('/', async (req, res) => {
     const projects = await db.projects.getProjects();
-    const mine = projects.filter((p: any) => ownsProject(p, userOf(req)));
+    const mine = projects.filter((p: any) => allowed(principalFrom(req), 'see', { kind: 'project', ownerId: p.ownerId }));
     const [runs, deployments] = await Promise.all([db.releases.getPipelineRuns(), db.infrastructure.getDeployments()]);
     res.json(mine.map((p: any) => ({
       ...p,
@@ -38,7 +40,7 @@ export function projectsRouter(deps: Record<string, any>): Router {
   });
 
   router.get('/:id/runs', async (req, res) => {
-    const project = await getOwnedProject(req.params.id, userOf(req));
+    const project = await getOwnedProject(req.params.id, principalFrom(req));
     if (!project) {
       return res.status(404).json({ error: 'Project not found' });
     }
@@ -68,7 +70,8 @@ export function projectsRouter(deps: Record<string, any>): Router {
         executionTargetDeviceId, executionTargetPath, executionApproval, executionTargetEgress,
       } = req.body;
       if (!name) return res.status(400).json({ error: 'name is required' });
-      const clusterProblem = targetClusterProblem(targetClusterId, await db.infrastructure.getClusters(), userOf(req).id);
+      const deployable = namesTargetCluster(targetClusterId) && Boolean(await clusterService.getById(targetClusterId, principalFrom(req), 'deploy-to'));
+      const clusterProblem = targetClusterProblem(targetClusterId, deployable);
       if (clusterProblem) return res.status(400).json({ error: clusterProblem });
       const wantsRepo = Boolean(giteaRepo);
       if (!wantsRepo && !executionTargetDeviceId) {
@@ -81,8 +84,7 @@ export function projectsRouter(deps: Record<string, any>): Router {
 
       let executionTarget: { kind: 'k8s' } | { kind: 'local-device'; deviceId: string; path?: string; egress?: any[] } | undefined;
       if (executionTargetDeviceId) {
-        const owned = (await db.machines.getLocalAgentDevices())
-          .find((d: any) => d.id === executionTargetDeviceId && d.ownerId === userOf(req).id);
+        const owned = await ownDevice(req, executionTargetDeviceId);
         if (!owned) return res.status(400).json({ error: 'Unknown local execution device' });
 
         if (claimedByAnotherProject(await db.projects.getProjects(), executionTargetDeviceId, path)) {
@@ -137,7 +139,7 @@ export function projectsRouter(deps: Record<string, any>): Router {
   });
 
   router.patch('/:id', asyncRoute(async (req, res) => {
-    const project = await getOwnedProject(idOf(req), userOf(req));
+    const project = await getOwnedProject(idOf(req), principalFrom(req));
     if (!project) return res.status(404).json({ error: 'Project not found' });
 
     const { executionTargetDeviceId, executionTargetPath, executionApproval, executionTargetEgress } = req.body ?? {};
@@ -145,8 +147,7 @@ export function projectsRouter(deps: Record<string, any>): Router {
 
     if (executionTargetDeviceId !== undefined) {
       if (executionTargetDeviceId) {
-        const owned = (await db.machines.getLocalAgentDevices())
-          .find((d: any) => d.id === executionTargetDeviceId && d.ownerId === userOf(req).id);
+        const owned = await ownDevice(req, executionTargetDeviceId);
         if (!owned) return res.status(400).json({ error: 'Unknown local execution device' });
 
         const path = typeof executionTargetPath === 'string' && executionTargetPath.trim()
@@ -184,7 +185,7 @@ export function projectsRouter(deps: Record<string, any>): Router {
   router.post('/:id/runs/:runId/promote', async (req, res) => {
     try {
       const user = userOf(req);
-      const project = await getOwnedProject(req.params.id, user);
+      const project = await getOwnedProject(req.params.id, principalFrom(req));
       if (!project) return res.status(404).json({ error: 'Project not found' });
       const runs = await db.releases.getPipelineRuns();
       const run = runs.find((r: any) => r.id === req.params.runId && r.projectId === project.id);

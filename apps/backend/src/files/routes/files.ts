@@ -1,5 +1,5 @@
 import { Router, type Request, type Response } from 'express';
-import { asyncRoute, type ProjectMetadata } from '../../platform/index.js';
+import { asyncRoute, type ProjectMetadata, principalFrom, type Principal } from '../../platform/index.js';
 import { cleanPath } from '../lib/file-places.js';
 import type { FileScope, FileService, FilesOutcome } from '../services/FileService.js';
 import { isShareDays, SHARE_DAYS } from '../lib/file-shares.js';
@@ -9,10 +9,10 @@ export const FILE_TYPE_HEADER = 'x-file-type';
 
 export interface FilesRouterDeps {
   files: FileService;
-  getOwnedProject: (id: string, user: { id: string; email: string; isAdmin?: boolean }) => Promise<ProjectMetadata | undefined>;
+  getOwnedProject: (id: string, principal: Principal) => Promise<ProjectMetadata | undefined>;
 }
 
-const userOf = (req: Request) => (req as unknown as { user: { id: string; email: string; isAdmin?: boolean } }).user;
+const userOf = (req: Request) => (req as unknown as { user: { id: string; email: string } }).user;
 
 const answer = <T>(res: Response, outcome: FilesOutcome<T>, status = 200) => (
   outcome.ok ? res.status(status).json(outcome.value) : res.status(outcome.status).json({ error: outcome.why })
@@ -24,7 +24,7 @@ export function filesRouter(deps: FilesRouterDeps): Router {
   const scopeOf = async (req: Request, res: Response, scope = req.params.scope): Promise<FileScope | undefined> => {
     if (scope === 'mine') return { kind: 'mine' };
     if (scope !== 'projects') { res.status(404).json({ error: 'Not found' }); return undefined; }
-    const project = await deps.getOwnedProject(String(req.params.id ?? ''), userOf(req));
+    const project = await deps.getOwnedProject(String(req.params.id ?? ''), principalFrom(req));
     if (!project) { res.status(404).json({ error: 'Project not found' }); return undefined; }
     return { kind: 'project', project };
   };
@@ -61,14 +61,14 @@ export function filesRouter(deps: FilesRouterDeps): Router {
   }));
 
   router.put('/projects/:id/place', asyncRoute(async (req, res) => {
-    const project = await deps.getOwnedProject(String(req.params.id ?? ''), userOf(req));
+    const project = await deps.getOwnedProject(String(req.params.id ?? ''), principalFrom(req));
     if (!project) return res.status(404).json({ error: 'Project not found' });
     if (typeof req.body?.deploymentId !== 'string') return res.status(400).json({ error: 'deploymentId must name a file server.' });
     answer(res, await deps.files.choose(userOf(req).id, project, req.body.deploymentId));
   }));
 
   router.post('/projects/:id/minio', asyncRoute(async (req, res) => {
-    const project = await deps.getOwnedProject(String(req.params.id ?? ''), userOf(req));
+    const project = await deps.getOwnedProject(String(req.params.id ?? ''), principalFrom(req));
     if (!project) return res.status(404).json({ error: 'Project not found' });
     answer(res, await deps.files.startMinio(userOf(req).id, project), 202);
   }));

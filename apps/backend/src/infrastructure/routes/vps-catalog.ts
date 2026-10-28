@@ -1,10 +1,10 @@
 import { Router, type Request } from 'express';
 
-const userOf = (req: Request): { id: string; email: string; isAdmin?: boolean } =>
-  (req as unknown as { user: { id: string; email: string; isAdmin?: boolean } }).user;
+const userOf = (req: Request): { id: string; email: string } =>
+  (req as unknown as { user: { id: string; email: string } }).user;
 
 export function vpsCatalogRouter(deps: Record<string, any>): Router {
-  const { vpsCatalogService } = deps;
+  const { vpsCatalogService, operatorOnly } = deps;
   const router = Router();
 
   router.get('/', async (req, res) => {
@@ -36,7 +36,7 @@ export function vpsCatalogRouter(deps: Record<string, any>): Router {
     }
   });
 
-  router.post('/refresh', async (_req, res) => {
+  router.post('/refresh', operatorOnly, async (_req, res) => {
     vpsCatalogService.clearCache();
     res.json({ ok: true });
   });

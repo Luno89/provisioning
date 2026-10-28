@@ -10,11 +10,18 @@ describe('/api/memories', () => {
   beforeEach(async () => {
     harness = await mountRouter({
       prefix: '/api/memories',
-      router: (db) => memoriesRouter({ db, temporalBridge: {} as TemporalBridge }),
+      router: (db) => memoriesRouter({ db, temporalBridge: { lastConsolidation: { live: 3 } } as unknown as TemporalBridge }),
     });
   });
 
   afterEach(() => harness.close());
+
+  it('shows the last consolidation, which covers everyone\'s memories, only to the operator', async () => {
+    const refused = await axios.get(harness.url('/api/memories/consolidation'), { validateStatus: () => true });
+    expect([refused.status, refused.data]).toEqual([403, { error: 'Only the operator of this server can do that.' }]);
+    harness.setUser({ ...TEST_USER, isAdmin: true });
+    expect((await axios.get(harness.url('/api/memories/consolidation'))).data).toEqual({ live: 3 });
+  });
 
   it('keeps a memory for one model when the person says which, and lets them make it hold for every model again', async () => {
     const made = await axios.post(harness.url('/api/memories'), { category: 'lessons_learned', title: 'Arguments', text: 'Send objects.', scope: 'global', model: ' qwen/q ' });

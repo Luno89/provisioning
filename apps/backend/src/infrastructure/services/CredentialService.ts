@@ -2,7 +2,8 @@ import {
   type Database, type CloudCredentials, type CloudProvider, encryptValue, decryptValue, maskSecret,
   type SecretKey,
 } from '../../platform/index.js';
-import { resolveCloudCredentials, type ResolvedCredentials } from '../lib/credential-resolver.js';
+import { COMBINED_CLAIMS, resolveCloudCredentials, usesOperatorCredentials, type ResolvedCredentials } from '../lib/credential-resolver.js';
+import type { ClaimSettings } from '../../platform/index.js';
 
 async function readJson(res: Response): Promise<Record<string, any>> {
   return (await res.json()) as Record<string, any>;
@@ -56,6 +57,7 @@ export class CredentialService {
   constructor(
     private readonly db: Database,
     private readonly masterKey: SecretKey,
+    private readonly claims: ClaimSettings = COMBINED_CLAIMS,
   ) {}
 
   async validateCredentials(
@@ -326,7 +328,7 @@ export class CredentialService {
     ];
 
     return providers.map(({ key, label }) => {
-      const resolved = resolveCloudCredentials(key, user?.credentials ? this.decryptAll(user.credentials, key) : undefined, user?.isAdmin === true);
+      const resolved = resolveCloudCredentials(key, user?.credentials ? this.decryptAll(user.credentials, key) : undefined, usesOperatorCredentials(user, this.claims));
 
       if (resolved.mode === 'mock') {
         return { provider: key, label, configured: false };
@@ -413,7 +415,7 @@ export class CredentialService {
   async resolveCredentials(userId: string, provider: string): Promise<ResolvedCredentials> {
     const user = await this.db.accounts.getUserById(userId);
     const decrypted = user?.credentials ? this.decryptAll(user.credentials, provider) : undefined;
-    return resolveCloudCredentials(provider, decrypted, user?.isAdmin === true);
+    return resolveCloudCredentials(provider, decrypted, usesOperatorCredentials(user, this.claims));
   }
 
   private decryptAll(credentials: CloudCredentials, provider: string): CloudCredentials {

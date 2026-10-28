@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { testDatabase } from '../../platform/lib/test-database.js';
-import { clusterOwnership } from '../../platform/lib/ownership.js';
+import { asPerson, principalOf } from '../../platform/lib/permissions.js';
 import type { MongoDB } from '../../platform/lib/mongo-db.js';
 import type { ClusterMetadata, DeploymentMetadata } from '../../platform/lib/types.js';
 import { appQuery, appWindowQuery, clusterQuery, koalaQuery, koalaServicesQuery, type AppSubject } from '../lib/monitoring-questions.js';
@@ -9,8 +9,8 @@ import { MonitoringService, type MonitoringDeps, type PrometheusClient, type Sam
 import { AlertWatchService } from './AlertWatchService.js';
 
 const NOW = new Date('2026-10-17T12:00:00Z');
-const ME = { id: 'me' };
-const SOMEONE = { id: 'someone' };
+const ME = principalOf({ id: 'me' }, { role: 'instance', instanceOwnerId: 'me' });
+const SOMEONE = asPerson('someone');
 
 const system: ClusterMetadata = { id: 'provisioning-lunorica', name: 'provisioning-lunorica', provider: 'k3d', status: 'healthy', isSystem: true } as ClusterMetadata;
 const remote: ClusterMetadata = { id: 'c-remote', name: 'shop-box', provider: 'remote', status: 'healthy', ownerId: 'me' } as ClusterMetadata;
@@ -70,7 +70,6 @@ beforeEach(async () => {
   deps = (): MonitoringDeps => ({
     store: db,
     systemCluster: async () => system,
-    ownsCluster: clusterOwnership('me'),
     prometheus: async (cluster) => {
       if (cluster.id === system.id) return prom;
       if (remoteProm) return remoteProm;
@@ -222,7 +221,7 @@ describe('watching alerts', () => {
   const watcher = () => new AlertWatchService({
     monitoring,
     store: db,
-    systemOwners: async () => ['me'],
+    people: async () => [ME],
     tell: async (episode, change) => { told.push(`${episode.ownerId} ${change} ${episode.summary}`); },
     now: () => NOW,
     newId: () => `ep-${told.length}`,

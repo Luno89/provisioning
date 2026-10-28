@@ -39,6 +39,7 @@ describe('deploying a project\'s build', () => {
       masterKey: 'k',
       clusterById: async (id) => (id === 'cluster-1' ? { id, name: 'dev', provider: 'k3d' } as ClusterMetadata : undefined),
       logDir: '/tmp',
+      claims: { role: 'combined' },
     };
   });
 

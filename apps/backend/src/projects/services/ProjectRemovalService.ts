@@ -1,4 +1,4 @@
-import type { ProjectMetadata } from '../../platform/index.js';
+import { type ProjectMetadata, allowed, asPerson } from '../../platform/index.js';
 import {
   REMOVE_PROJECT_WORKFLOW,
   projectRemovalPreview,
@@ -47,7 +47,7 @@ export class ProjectRemovalService {
 
   private async owned(ownerId: string, projectId: string): Promise<LoadedProjectScope | undefined> {
     const loaded = await loadProjectScope(this.deps.store, projectId);
-    return loaded && loaded.project.ownerId === ownerId ? loaded : undefined;
+    return loaded && allowed(asPerson(ownerId), 'change', { kind: 'project', ownerId: loaded.project.ownerId }) ? loaded : undefined;
   }
 
   async preview(ownerId: string, projectId: string): Promise<(ProjectRemovalPreview & { state: ProjectRemovalState }) | undefined> {

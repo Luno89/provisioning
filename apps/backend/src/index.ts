@@ -18,7 +18,7 @@ import {
   CSP_REPORT_LIMIT, CSP_REPORT_PATH, cspHeader, cspModeFrom, violationLine, crossSiteRefusal, foreignOrigin, ourOrigins, MetricsService, JSON_LIMITS, jsonLimitFor, RATE_LIMITS, ruleFor,
   getTemporalClient, resolveOwnersWith, PayloadStorageService, createAuth, inFlightLimit, keepTrying, mongoTarget, asyncRoute,
   TEMPORAL_JWKS_PATH, temporalCa, temporalKeysRouter, temporalNamespaceFrom,
-  ownsProject, createDatabase, sharedPayloadBlobs, type Database, migrateLegacyOwnership, decryptValue, loadKeys,
+  authorize, claimSettingsFrom, type Principal, createDatabase, sharedPayloadBlobs, type Database, migrateLegacyOwnership, ownUnownedProjects, decryptValue, loadKeys,
   roleFromEnv, servesTenants, holdsAccounts, MailService, emailWayFrom, telemetrySettings, e2eProblem, firstAdminSetup, drainThenStop, podPlaceFrom, runOnce,
 } from './platform/index.js';
 import { startTelemetry } from '@koala/engine-core/telemetry-sdk';
@@ -114,13 +114,15 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   const db = createDatabase();
   await db.init();
   resolveOwnersWith(async (owner) => (await db.accounts.getUserById(owner))?.space?.person ?? owner);
-  await migrateLegacyOwnership(db);
+  const role = roleFromEnv(process.env);
+  const claimSettings = claimSettingsFrom(role);
+  await migrateLegacyOwnership(db, claimSettings);
+  await runOnce(db.platform, 'projects-owned', new Date().toISOString(), () => ownUnownedProjects(db, claimSettings));
   await seedAll(db);
 
   const e2e = e2eProblem(process.env);
   if (e2e) throw new Error(e2e);
   const keys = loadKeys(process.env);
-  const role = roleFromEnv(process.env);
   const metrics = new MetricsService({ token: process.env.METRICS_TOKEN?.trim() || undefined, role: role.role });
   const mail = new MailService({
     way: emailWayFrom(process.env, role),
@@ -190,7 +192,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     );
   }
 
-  const temporalBridge = new TemporalBridge(db, io, keys.data, clusterService, headscaleService);
+  const temporalBridge = new TemporalBridge(db, io, keys.data, clusterService, headscaleService, claimSettings);
   clusterService.setTemporalBridge(temporalBridge);
   appService.setTemporalBridge(temporalBridge);
   if (servesTenants(role)) {
@@ -278,13 +280,13 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     if (refused) return res.status(403).json({ error: `Refused: ${refused}` });
     next();
   });
-  const credentialService = new CredentialService(db, keys.data);
-  const vpsCatalogService = new VpsCatalogService(db, keys.data);
+  const credentialService = new CredentialService(db, keys.data, claimSettings);
+  const vpsCatalogService = new VpsCatalogService(db, keys.data, undefined, claimSettings);
 
   const setup = holdsAccounts(role) ? firstAdminSetup(process.env, (await db.accounts.getUsers()).length === 0) : undefined;
   if (setup?.say) console.log(`🔑 ${setup.say}`);
-  const auth = createAuth({ db, sessionKey: keys.session, publicUrl: PUBLIC_URL, role: role.role, setupCode: setup?.code });
-  const { requireAdmin } = auth;
+  const auth = createAuth({ db, sessionKey: keys.session, publicUrl: PUBLIC_URL, role: role.role, instanceOwnerId: claimSettings.instanceOwnerId, setupCode: setup?.code });
+  const { requireOperator } = auth;
 
   let runningNow: (() => Promise<string[] | 'unknown'>) | undefined;
   await wireMoveExport({
@@ -325,21 +327,19 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     repoRoot: path.join(__dirname, '../../..'), dataDir: path.join(__dirname, '../data'), headscale: headscaleService, infra: infraService,
     side: instanceSide, syncExposedApps: () => appExposureService.syncExposedApps(),
   });
-  const systemOwners = async (): Promise<string[]> => (role.instance
-    ? [role.instance.ownerId]
-    : (await db.accounts.getUsers()).filter((user) => user.isAdmin).map((user) => user.id));
-  const { monitoring } = wireMonitoring({ tenant, db, role, env: process.env, io, clusters: clusterService, infra: infraService, proxy: clusterProxyService, notices, notifications, mail, systemOwners });
+  const people = async () => (await db.accounts.getUsers()).filter((user) => !user.space).map((user) => auth.principalFor(user));
+  const { monitoring } = wireMonitoring({ tenant, db, role, env: process.env, io, clusters: clusterService, infra: infraService, proxy: clusterProxyService, notices, notifications, mail, people });
   const workerService = new WorkerService();
   wireInfrastructure({
-    tenant, requireAdmin, db, io, dataKey: keys.data, sessionKey: keys.session, publicUrl: PUBLIC_URL, appUrl: APP_URL, repoRoot: path.join(__dirname, '../../..'),
+    tenant, operatorOnly: requireOperator('administer'), db, io, dataKey: keys.data, sessionKey: keys.session, publicUrl: PUBLIC_URL, appUrl: APP_URL, repoRoot: path.join(__dirname, '../../..'),
     credentials: credentialService, clusters: clusterService, apps: appService, proxy: clusterProxyService, infra: infraService,
-    temporalBridge, gitea: giteaService, infisical: infisicalService, exposure: appExposureService, instanceOwner: role.instance?.ownerId,
+    temporalBridge, gitea: giteaService, infisical: infisicalService, exposure: appExposureService,
     nginxConfPath: path.join(__dirname, '../data/nginx/nginx.conf'), vpsCatalog: vpsCatalogService, worker: workerService, registry: registryService, gitModules: gitModuleService,
   });
 
-  const getOwnedProject = async (id: string, user: any): Promise<any | undefined> => {
+  const getOwnedProject = async (id: string, principal: Principal): Promise<any | undefined> => {
     const project = (await db.projects.getProjects()).find((p: any) => p.id === id);
-    return project && ownsProject(project, user) ? project : undefined;
+    return project && authorize(principal, 'see', { kind: 'project', ownerId: project.ownerId }).allowed ? project : undefined;
   };
 
   const files = wireFiles({ tenant, db, reach: artifactStore.reach, temporalBridge, projectRepos: projectRepoService, gitea: giteaService, getOwnedProject });
@@ -366,12 +366,12 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
       },
     } : {}),
   });
-  wireAccounts({ app, role, env: process.env, db, temporalBridge, hubPeople: hub.hubPeople, requireAdmin, clearSession: auth.clearSession });
+  wireAccounts({ app, role, env: process.env, db, temporalBridge, hubPeople: hub.hubPeople, operatorOnly: requireOperator('manage-accounts'), clearSession: auth.clearSession });
   tenant.use('/api/models', modelsRouter({ modelService, db, credentialService, machines: machineService, rateLimits: getModelRateLimiterSnapshot }));
 
   const { evalHost, level2Service, procedureService, mcpCatalogue } = await wireEngine({
     tenant, db, io, env: process.env, role, sessionKey: keys.session, dataKey: keys.data, core: engine, temporalBridge, models: modelService, gitea: giteaService,
-    artifacts: artifactStore, projectRepos: projectRepoService, customizations, releaseSettings, treeModels: () => treeModels, requireAdmin,
+    artifacts: artifactStore, projectRepos: projectRepoService, customizations, releaseSettings, treeModels: () => treeModels, operatorOnly: requireOperator('administer'),
   });
   if (evalHost.storyDrops) files.setStoryDrops(storyDropsFor({ db, projectRepos: projectRepoService, gitea: giteaService, work: evalHost.storyDrops }));
   if (servesTenants(role)) void db.accounts.getUsers().then((users) => odooReleases.recover(users.map((user) => user.id))).catch(() => undefined);

@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import axios from 'axios';
 import { projectsRouter } from './projects.js';
 import { mountRouter, type Harness, TEST_USER } from '../../platform/routes/test-harness.js';
-import { ownsProject } from '../../platform/lib/ownership.js';
+import { allowed, clusterResource, type Principal } from '../../platform/lib/permissions.js';
 import type { Database } from '../../platform/lib/db-interface.js';
 import { ProjectRepoService } from '../services/ProjectRepoService.js';
 import { DEFAULT_TARGET_CLUSTER } from '../lib/project-shipping.js';
@@ -29,9 +29,9 @@ async function mountWithGitea(gitea: { getCommit: (...args: any[]) => Promise<an
     router: (db: Database) => projectsRouter({
       db,
       giteaService: gitea,
-      getOwnedProject: async (id: string, user: any) => {
+      getOwnedProject: async (id: string, principal: Principal) => {
         const p = (await db.projects.getProjects()).find((x: any) => x.id === id);
-        return p && ownsProject(p, user) ? p : undefined;
+        return p && allowed(principal, 'see', { kind: 'project', ownerId: p.ownerId }) ? p : undefined;
       },
     }),
   });
@@ -51,9 +51,15 @@ async function mountForCreate(): Promise<Harness> {
         replaceWebhook: async () => undefined,
         seedTemplate: async () => [],
       } as never, 'a'.repeat(64) as never, async (id) => `http://10.0.0.5:3001/webhooks/gitea/${id}`),
-      getOwnedProject: async (id: string, user: any) => {
+      clusterService: {
+        getById: async (id: string, principal: Principal, action: 'deploy-to') => {
+          const found = id === 'provisioning-lunorica' ? { id, isSystem: true } : (await db.infrastructure.getClusters()).find((entry) => entry.id === id);
+          return found && allowed(principal, action, clusterResource(found)) ? found : undefined;
+        },
+      },
+      getOwnedProject: async (id: string, principal: Principal) => {
         const p = (await db.projects.getProjects()).find((x: any) => x.id === id);
-        return p && ownsProject(p, user) ? p : undefined;
+        return p && allowed(principal, 'see', { kind: 'project', ownerId: p.ownerId }) ? p : undefined;
       },
     }),
   });

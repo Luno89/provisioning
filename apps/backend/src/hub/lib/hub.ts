@@ -1,29 +1,10 @@
-export type HubRole = 'owner' | 'collaborator' | 'client';
+import { SHARED_ROLES, type SharedAction, type SharedRole } from '../../platform/lib/permissions.js';
 
-export const HUB_ROLES: readonly HubRole[] = ['owner', 'collaborator', 'client'];
+export type HubRole = SharedRole;
 
-export type HubAction =
-  | 'see-project'
-  | 'see-people'
-  | 'invite'
-  | 'change-roles'
-  | 'remove-people'
-  | 'change-files'
-  | 'approve-changes'
-  | 'work-stories'
-  | 'release'
-  | 'see-secrets'
-  | 'change-settings'
-  | 'pin-and-comment'
-  | 'ask-koala';
+export const HUB_ROLES: readonly HubRole[] = SHARED_ROLES;
 
-const CAN: Record<HubRole, readonly HubAction[]> = {
-  owner: ['see-project', 'see-people', 'invite', 'change-roles', 'remove-people', 'change-files', 'approve-changes', 'work-stories', 'release', 'see-secrets', 'change-settings', 'pin-and-comment', 'ask-koala'],
-  collaborator: ['see-project', 'see-people', 'change-files', 'approve-changes', 'work-stories', 'pin-and-comment', 'ask-koala'],
-  client: ['see-project', 'see-people', 'pin-and-comment', 'ask-koala'],
-};
-
-export const can = (role: HubRole | undefined, action: HubAction): boolean => Boolean(role && CAN[role].includes(action));
+export type HubAction = SharedAction;
 
 export const isHubRole = (value: unknown): value is HubRole => HUB_ROLES.includes(value as HubRole);
 

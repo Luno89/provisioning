@@ -4,6 +4,7 @@ import {
   type VpsOffer, type CatalogResult,
 } from '../api/vps-catalog';
 import { errorMessage } from '../../../api/client';
+import { useShellStore } from '../../platform';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { RefreshCw, Loader2, AlertTriangle, Check, Server, Info, ArrowUp, ArrowDown } from 'lucide-react';
 
@@ -47,6 +48,7 @@ export default function VpsCatalog({ onDeploy, embedded = false, chooseLabel = '
     staleTime: 5 * 60 * 1000,
   });
 
+  const operator = useShellStore((s) => s.user?.isAdmin === true);
   const refresh = useMutation({
     mutationFn: () => refreshVpsCatalog(),
     onSuccess: () => refetch(),
@@ -166,7 +168,7 @@ export default function VpsCatalog({ onDeploy, embedded = false, chooseLabel = '
             Hourly billing
           </label>
           <div className="flex-1" />
-          <button
+          {operator && <button
             onClick={() => refresh.mutate()}
             disabled={refresh.isPending || isFetching}
             className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold flex items-center gap-2 disabled:opacity-50"
@@ -174,7 +176,7 @@ export default function VpsCatalog({ onDeploy, embedded = false, chooseLabel = '
           >
             {refresh.isPending || isFetching ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />}
             Refresh prices
-          </button>
+          </button>}
         </div>
       </div>
 

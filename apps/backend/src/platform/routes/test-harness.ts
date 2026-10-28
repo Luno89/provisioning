@@ -4,6 +4,7 @@ import axios from 'axios';
 import { testDatabase } from '../lib/test-database.js';
 import type { Database } from '../lib/db-interface.js';
 import { errorResponder } from '../middleware/async-route.js';
+import { principalOf, type ClaimSettings } from '../lib/permissions.js';
 
 export const TEST_USER = { id: 'test-user', email: 'test@example.com', isAdmin: false };
 
@@ -11,6 +12,7 @@ export interface HarnessOptions {
   router: (db: Database) => Router | Promise<Router>;
   prefix: string;
   user?: typeof TEST_USER | null;
+  claims?: ClaimSettings | undefined;
 }
 
 export interface Harness {
@@ -32,6 +34,7 @@ export async function mountRouter(opts: HarnessOptions): Promise<Harness> {
   app.use((req: Request, res: Response, next: NextFunction) => {
     if (!current) return res.status(401).json({ error: 'Session missing' });
     (req as unknown as { user: typeof TEST_USER }).user = current;
+    (req as unknown as { principal: ReturnType<typeof principalOf> }).principal = principalOf(current, opts.claims ?? { role: 'combined' });
     next();
   });
 

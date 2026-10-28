@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { testDatabase } from '../../platform/lib/test-database.js';
 import { AppService } from './AppService.js';
+import { asPerson } from '../../platform/lib/permissions.js';
 
 const at = 'then';
 
@@ -39,7 +40,7 @@ describe('listing apps against the cluster', () => {
   it('does not discover again a release it already tracks under a namespace of its own name', async () => {
     const { db, apps } = await serviceOn(['shop-1a2b3c', 'stray']);
     await db.infrastructure.saveDeploymentInfo({ id: 'odoo-p1', name: 'Shop', namespace: 'shop-1a2b3c', clusterId: 'c1', strategy: 'helm', appType: 'odoo-project', ownerId: 'bo', status: 'running', createdAt: at });
-    const found = await apps.discoverDeployments('c1', 'bo');
+    const found = await apps.discoverDeployments('c1', asPerson('bo'));
     expect(found.map((app) => app.name)).toEqual(['stray']);
   });
 });

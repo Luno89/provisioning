@@ -4,7 +4,7 @@ import crypto from 'crypto';
 import type { Socket } from 'socket.io';
 import { projectFilesRouter } from './project-files.js';
 import { mountRouter, type Harness, TEST_USER } from '../../platform/routes/test-harness.js';
-import { ownsProject } from '../../platform/lib/ownership.js';
+import { allowed, type Principal } from '../../platform/lib/permissions.js';
 import { GiteaConflictError } from '../../projects/services/GiteaService.js';
 import { RepositoryDropService } from '../services/RepositoryDropService.js';
 import { DROP_TYPE, dropBody } from '../lib/drops.js';
@@ -51,9 +51,9 @@ async function mount(gitea: Record<string, unknown>, opts: { seedProject?: boole
           writeOnDevice: vi.fn(),
         }),
         storyDrops: { drop: (gitea.storyDrop as (...given: unknown[]) => Promise<unknown>) ?? vi.fn() },
-        getOwnedProject: async (id: string, user: any) => {
+        getOwnedProject: async (id: string, principal: Principal) => {
           const p = (await db.projects.getProjects()).find((x: any) => x.id === id);
-          return p && ownsProject(p, user) ? p : undefined;
+          return p && allowed(principal, 'see', { kind: 'project', ownerId: p.ownerId }) ? p : undefined;
         },
       });
     },
@@ -80,9 +80,9 @@ async function mountForDevice(): Promise<Harness> {
       return projectFilesRouter({
         projectRepoService,
         giteaService: {},
-        getOwnedProject: async (id: string, user: any) => {
+        getOwnedProject: async (id: string, principal: Principal) => {
           const p = (await db.projects.getProjects()).find((x: any) => x.id === id);
-          return p && ownsProject(p, user) ? p : undefined;
+          return p && allowed(principal, 'see', { kind: 'project', ownerId: p.ownerId }) ? p : undefined;
         },
       });
     },

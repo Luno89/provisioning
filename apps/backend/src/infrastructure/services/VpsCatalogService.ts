@@ -1,5 +1,6 @@
 import { type Database, decryptValue, type SecretKey } from '../../platform/index.js';
-import { resolveCloudCredentials } from '../lib/credential-resolver.js';
+import { COMBINED_CLAIMS, resolveCloudCredentials, usesOperatorCredentials } from '../lib/credential-resolver.js';
+import type { ClaimSettings } from '../../platform/index.js';
 import { ADAPTERS } from '../lib/vps-catalog/adapters.js';
 import { NATURAL_SORT_DIR, offerHasGpu } from '../lib/vps-catalog/types.js';
 import type {
@@ -28,6 +29,7 @@ export class VpsCatalogService {
     private readonly db: Database,
     private readonly masterKey: SecretKey,
     private readonly adapters: readonly VpsCatalogAdapter[] = ADAPTERS,
+    private readonly claims: ClaimSettings = COMBINED_CLAIMS,
   ) {}
 
   private cacheKey(provider: string, token?: string): string {
@@ -46,7 +48,7 @@ export class VpsCatalogService {
         userCreds = { [provider]: { token: decryptValue(enc, this.masterKey) } };
       } catch { /* ignored */ }
     }
-    const env = resolveCloudCredentials(provider, userCreds, user?.isAdmin === true).env;
+    const env = resolveCloudCredentials(provider, userCreds, usesOperatorCredentials(user, this.claims)).env;
     return env.HCLOUD_TOKEN ?? env.DIGITALOCEAN_TOKEN;
   }
 

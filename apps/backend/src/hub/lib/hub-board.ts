@@ -1,4 +1,5 @@
-import { can, type HubRole } from './hub.js';
+import { allowed, authorize, type Decision, type Principal, type SharedAction } from '../../platform/lib/permissions.js';
+import type { HubRole } from './hub.js';
 import type { SyncedDoc } from './hub-sync.js';
 
 export type Plain = Record<string, unknown>;
@@ -50,7 +51,7 @@ export interface HubRequest {
   settledAt?: string | undefined;
 }
 
-export const koalaAnswersOnOwners = (role: HubRole): boolean => role === 'owner' || role === 'client';
+export const koalaAnswers = (member: Principal, project: string): boolean => allowed(member, 'ask-koala', { kind: 'shared-project', id: project });
 
 const text = (value: unknown): value is string => typeof value === 'string' && value.trim().length > 0;
 const ids = (value: unknown): value is string[] => Array.isArray(value) && value.length > 0 && value.every(text);
@@ -59,25 +60,26 @@ export type RequestProblem = { status: 400 | 403; why: string };
 
 export const isRequestKind = (value: unknown): value is HubRequestKind => HUB_REQUEST_KINDS.includes(value as HubRequestKind);
 
-export function requestProblem(kind: unknown, input: Plain, role: HubRole, board: Pick<HubBoard, 'branches' | 'leaves' | 'tasks' | 'planProposals' | 'trees'> & { conversations: SyncedDoc[] }): RequestProblem | undefined {
+export function requestProblem(kind: unknown, input: Plain, member: Principal, project: string, board: Pick<HubBoard, 'branches' | 'leaves' | 'tasks' | 'planProposals' | 'trees'> & { conversations: SyncedDoc[] }): RequestProblem | undefined {
   const bad = (why: string): RequestProblem => ({ status: 400, why });
   const refused = (why: string): RequestProblem => ({ status: 403, why });
   if (!isRequestKind(kind)) return bad(`a request is one of ${HUB_REQUEST_KINDS.join(', ')}`);
   const has = (list: readonly SyncedDoc[], id: unknown) => typeof id === 'string' && list.some((doc) => doc.id === id);
+  const may = (action: SharedAction): Decision => authorize(member, action, { kind: 'shared-project', id: project });
   if (kind === 'open-chat') {
-    if (!can(role, 'pin-and-comment')) return refused('you cannot talk on this project');
+    if (!may('pin-and-comment').allowed) return refused('you cannot talk on this project');
     if (input.item === 'story') return has(board.leaves, input.id) ? undefined : bad('that story is not part of this project');
     if (input.item === 'feature') return has(board.branches, input.id) ? undefined : bad('that feature is not part of this project');
     return bad('a chat is about a story or a feature');
   }
   if (kind === 'ask-koala') {
-    if (!can(role, 'ask-koala')) return refused('you cannot ask Koala on this project');
-    if (!koalaAnswersOnOwners(role)) return refused('Koala answers a collaborator from their own instance, once it is linked to this project');
+    const asking = may('ask-koala');
+    if (!asking.allowed) return refused(asking.error);
     if (!has(board.conversations, input.conversationId)) return bad('that chat is not part of this project');
     if (!text(input.at) || typeof input.content !== 'string') return bad('name the message Koala should answer');
     return undefined;
   }
-  if (!can(role, 'approve-changes')) return refused('only an owner or a collaborator can change the work');
+  if (!may(kind === 'approve-plan' || kind === 'reject-plan' ? 'approve-changes' : 'work-stories').allowed) return refused('only an owner or a collaborator can change the work');
   switch (kind) {
     case 'approve-plan':
     case 'reject-plan':
@@ -117,7 +119,7 @@ export type RelayOp = typeof RELAY_OPS[number];
 
 const CHANGING_FILES: ReadonlySet<RelayOp> = new Set(['files.move', 'files.remove']);
 
-export function relayProblem(op: RelayOp, role: HubRole): string | undefined {
-  if (CHANGING_FILES.has(op) && !can(role, 'change-files')) return 'only an owner or a collaborator can move or remove files';
+export function relayProblem(op: RelayOp, member: Principal, project: string): string | undefined {
+  if (CHANGING_FILES.has(op) && !allowed(member, 'change-files', { kind: 'shared-project', id: project })) return 'only an owner or a collaborator can move or remove files';
   return undefined;
 }

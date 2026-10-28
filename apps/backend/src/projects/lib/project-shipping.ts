@@ -26,7 +26,9 @@ export function isShippable(project: Pick<ProjectMetadata, 'webhookSecretEnc' | 
 
 export const DEFAULT_TARGET_CLUSTER = 'provisioning-lunorica';
 
-export function targetClusterProblem(asked: unknown, clusters: readonly { id: string; ownerId?: string | undefined }[], ownerId: string): string | undefined {
-  if (asked === undefined || asked === null || asked === '' || asked === DEFAULT_TARGET_CLUSTER) return undefined;
-  return clusters.some((cluster) => cluster.id === asked && cluster.ownerId === ownerId) ? undefined : 'Deploy to the system cluster or one of your own clusters.';
+export const namesTargetCluster = (asked: unknown): asked is string => typeof asked === 'string' && asked !== '';
+
+export function targetClusterProblem(asked: unknown, deployable: boolean): string | undefined {
+  if (asked === undefined || asked === null || asked === '') return undefined;
+  return namesTargetCluster(asked) && deployable ? undefined : 'Deploy to the system cluster or one of your own clusters.';
 }

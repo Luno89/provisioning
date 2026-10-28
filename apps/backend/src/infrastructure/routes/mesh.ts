@@ -1,7 +1,7 @@
 import { Router, type Request } from 'express';
 
-const userOf = (req: Request): { id: string; email: string; isAdmin?: boolean } =>
-  (req as unknown as { user: { id: string; email: string; isAdmin?: boolean } }).user;
+const userOf = (req: Request): { id: string; email: string } =>
+  (req as unknown as { user: { id: string; email: string } }).user;
 
 export function meshRouter(deps: Record<string, any>): Router {
   const { headscaleService } = deps;

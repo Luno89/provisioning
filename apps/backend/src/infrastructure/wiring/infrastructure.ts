@@ -1,6 +1,6 @@
 import { Router, type RequestHandler } from 'express';
 import type { Server as SocketServer } from 'socket.io';
-import { type Database, type SecretKey, clusterOwnership } from '../../platform/index.js';
+import { type Database, type SecretKey } from '../../platform/index.js';
 import type { sharedClusterProxy } from '../services/ClusterProxyService.js';
 import type { AppExposureService } from '../services/AppExposureService.js';
 import type { AppService } from '../services/AppService.js';
@@ -33,7 +33,7 @@ import type { Mounts } from '../../hub/index.js';
 
 export interface InfrastructureWiringDeps {
   tenant: Mounts;
-  requireAdmin: RequestHandler;
+  operatorOnly: RequestHandler;
   db: Database;
   io: SocketServer;
   dataKey: SecretKey;
@@ -50,7 +50,6 @@ export interface InfrastructureWiringDeps {
   gitea: GiteaService;
   infisical: InfisicalService;
   exposure: AppExposureService;
-  instanceOwner: string | undefined;
   nginxConfPath: string;
   vpsCatalog: VpsCatalogService;
   worker: WorkerService;
@@ -58,27 +57,26 @@ export interface InfrastructureWiringDeps {
   gitModules: GitModuleService;
 }
 
-const adminOnly = (requireAdmin: RequestHandler, router: Router): Router => Router().use(requireAdmin, router);
+const adminOnly = (operatorOnly: RequestHandler, router: Router): Router => Router().use(operatorOnly, router);
 
 export function wireInfrastructure(deps: InfrastructureWiringDeps): void {
   const { tenant, db, io } = deps;
   tenant.use('/api/credentials', llmCredentialsRouter({ db, dataKey: deps.dataKey, credentialService: deps.credentials, publicUrl: deps.publicUrl, appUrl: deps.appUrl }));
   tenant.use('/api/credentials', credentialsRouter({ credentialService: deps.credentials, publicUrl: deps.publicUrl, appUrl: deps.appUrl, sessionKey: deps.sessionKey }));
-  tenant.use('/api/backup', adminOnly(deps.requireAdmin, backupRouter({ repoRoot: deps.repoRoot })));
+  tenant.use('/api/backup', adminOnly(deps.operatorOnly, backupRouter({ repoRoot: deps.repoRoot })));
   tenant.use('/api/clusters', clustersRouter({
     clusterService: deps.clusters, appService: deps.apps, clusterProxyService: deps.proxy, infraService: deps.infra,
     temporalBridge: deps.temporalBridge, db: db.infrastructure, io, giteaService: deps.gitea, infisicalService: deps.infisical, dataKey: deps.dataKey,
-    ownsCluster: clusterOwnership(deps.instanceOwner),
   }));
   tenant.use('/api/deployments', deploymentsRouter({
     appService: deps.apps, clusterService: deps.clusters, appExposureService: deps.exposure, infraService: deps.infra, temporalBridge: deps.temporalBridge, db, io,
   }));
   tenant.use('/api/pending-approvals', pendingApprovalsRouter({ db }));
   tenant.use('/api/cluster-providers', clusterProvidersRouter({ db }));
-  tenant.use('/api/vps-catalog', vpsCatalogRouter({ vpsCatalogService: deps.vpsCatalog }));
-  tenant.use('/api/temporal', temporalRouter({ temporalBridge: deps.temporalBridge, instanceOwner: deps.instanceOwner }));
-  tenant.use('/api/worker', workerRouter({ workerService: deps.worker }));
-  tenant.use('/api/nginx', adminOnly(deps.requireAdmin, nginxRouter({ infraService: deps.infra, nginxConfPath: deps.nginxConfPath })));
+  tenant.use('/api/vps-catalog', vpsCatalogRouter({ vpsCatalogService: deps.vpsCatalog, operatorOnly: deps.operatorOnly }));
+  tenant.use('/api/temporal', temporalRouter({ temporalBridge: deps.temporalBridge }));
+  tenant.use('/api/worker', workerRouter({ workerService: deps.worker, operatorOnly: deps.operatorOnly }));
+  tenant.use('/api/nginx', adminOnly(deps.operatorOnly, nginxRouter({ infraService: deps.infra, nginxConfPath: deps.nginxConfPath })));
   tenant.use('/api/logs', logsRouter({ db, clusterService: deps.clusters, appService: deps.apps }));
   tenant.use('/api/registry', registryRouter({ registryService: deps.registry }));
   tenant.use('/api/modules', modulesRouter({ gitModuleService: deps.gitModules }));

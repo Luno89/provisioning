@@ -1,5 +1,5 @@
 import {
-  type ClusterOwnership, type ClusterMetadata, type DeploymentMetadata, type Database, K3S_TRAEFIK_CONFIG,
+  allowed, clusterResource, type Principal, type ClusterMetadata, type DeploymentMetadata, type Database, K3S_TRAEFIK_CONFIG,
   k3sConfigState, ourTraefikArgs, servicesLabelled, traefikOf, type HelmRelease,
 } from '../../platform/index.js';
 import { randomUUID } from 'node:crypto';
@@ -88,17 +88,13 @@ export function prometheusAt(base: string, fetchImpl: typeof fetch = fetch): Pro
   };
 }
 
-export interface Viewer {
-  id: string;
-  isAdmin?: boolean | undefined;
-}
+export type Viewer = Principal;
 
 export type MonitoringSources = Pick<Database, 'infrastructure' | 'releases' | 'monitoring'>;
 
 export interface MonitoringDeps {
   store: MonitoringSources;
   systemCluster(): Promise<ClusterMetadata | undefined>;
-  ownsCluster: ClusterOwnership;
   prometheus(cluster: ClusterMetadata): Promise<PrometheusClient>;
   pool?(cluster: ClusterMetadata): PoolMonitor | undefined;
   kubectl(cluster: ClusterMetadata, args: string[]): Promise<string>;
@@ -224,18 +220,18 @@ export class MonitoringService {
     this.newId = deps.newId ?? randomUUID;
   }
 
-  ownsCluster(viewer: Viewer, cluster: ClusterMetadata): boolean {
-    return this.deps.ownsCluster(viewer, cluster);
+  ownsCluster(viewer: Viewer, cluster: Pick<ClusterMetadata, 'id' | 'ownerId' | 'isSystem'>): boolean {
+    return allowed(viewer, 'see-everything', clusterResource(cluster));
   }
 
   async clustersOf(viewer: Viewer): Promise<ClusterMetadata[]> {
     const system = await this.deps.systemCluster();
-    const own = (await this.deps.store.infrastructure.getClusters()).filter((cluster) => cluster.ownerId === viewer.id && cluster.status !== 'destroying');
+    const own = (await this.deps.store.infrastructure.getClusters()).filter((cluster) => cluster.status !== 'destroying' && allowed(viewer, 'see', clusterResource(cluster)));
     return [...(system ? [system] : []), ...own];
   }
 
   async appsOf(viewer: Viewer): Promise<DeploymentMetadata[]> {
-    return (await this.deps.store.infrastructure.getDeployments()).filter((dep) => dep.ownerId === viewer.id && dep.status !== 'destroying');
+    return (await this.deps.store.infrastructure.getDeployments()).filter((dep) => dep.status !== 'destroying' && allowed(viewer, 'see', { kind: 'deployment', ownerId: dep.ownerId }));
   }
 
   async allClusters(): Promise<ClusterMetadata[]> {
@@ -415,7 +411,7 @@ export class MonitoringService {
       return { row, rows, firing: firing.map((alert) => ({ ...alert, clusterId: cluster.id })) };
     }));
     const appRows = worstFirst(per.flatMap((entry) => entry.rows));
-    const clusterRows = worstFirst(per.map((entry) => entry.row).filter((row) => row.apps > 0 || !row.isSystem || this.deps.ownsCluster(viewer, { isSystem: true })));
+    const clusterRows = worstFirst(per.map((entry) => entry.row).filter((row) => row.apps > 0 || !row.isSystem || allowed(viewer, 'see-everything', { kind: 'system-cluster', id: row.id })));
     const attention = worstFirst([
       ...clusterRows.filter((row) => row.state !== 'ok').map((row) => ({ subject: { kind: 'cluster' as const, id: row.id, name: row.name }, state: row.state, reasons: row.reasons, name: row.name })),
       ...appRows.filter((row) => row.state !== 'ok').map((row) => ({ subject: { kind: 'app' as const, id: row.id, name: row.name }, state: row.state, reasons: row.reasons, name: row.name })),

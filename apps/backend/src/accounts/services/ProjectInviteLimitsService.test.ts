@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { testDatabase } from '../../platform/lib/test-database.js';
 import { ProjectInviteLimitsService } from './ProjectInviteLimitsService.js';
+import { principalOf } from '../../platform/lib/permissions.js';
 
 const now = new Date('2026-10-26T12:00:00.000Z');
 
@@ -13,7 +14,7 @@ async function setUp() {
   ]) await db.accounts.saveUser({ twoFactorEnabled: false, createdAt: 't', ...user } as never);
   await db.accounts.saveInvite({ id: 'i1', createdBy: 'ann', createdAt: '2026-10-26T11:00:00.000Z', expiresAt: '2026-11-09T11:00:00.000Z', email: 'cy@example.com', project: { name: 'Shop', role: 'client', join: 'j' }, makesAccount: true });
   await db.accounts.saveInvite({ id: 'i2', createdBy: 'ann', createdAt: '2026-10-26T11:00:00.000Z', expiresAt: '2026-11-09T11:00:00.000Z', email: 'bo@example.com', project: { name: 'Shop', role: 'client', join: 'k' }, makesAccount: false });
-  return { db, service: new ProjectInviteLimitsService({ store: db.accounts, now: () => now }) };
+  return { db, service: new ProjectInviteLimitsService({ store: db.accounts, principalFor: (user) => principalOf(user, { role: 'combined' }), now: () => now }) };
 }
 
 describe('how many people a person\'s project invites may bring to Koala', () => {

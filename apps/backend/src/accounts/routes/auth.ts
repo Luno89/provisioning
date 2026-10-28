@@ -2,7 +2,7 @@ import { Router, type Request, type Response } from 'express';
 import {
   attemptsKeyFor, DEVICE_COOKIE, DEVICE_SECONDS, deviceOf, deviceToken, lockedSaid, SignInAttemptLog, signJWT, verifyJWT, hashPassword, verifyPassword, type Auth,
   carriedByOAuthState, cookieNamed, generateOTP, inviteCodeHash, newOAuthState, OAUTH_STATE_COOKIE, OAUTH_STATE_SECONDS, sessionToken,
-  type Database, type SecretKey,
+  type Database, type SecretKey, holds, principalFrom,
 } from '../../platform/index.js';
 import axios from 'axios';
 import { v4 as uuidv4 } from 'uuid';
@@ -207,7 +207,7 @@ export function authRouter(deps: AuthRouterDeps): Router {
           id: user.id,
           email: user.email,
           twoFactorEnabled: user.twoFactorEnabled,
-          isAdmin: user.isAdmin === true,
+          isAdmin: holds(deps.auth.principalFor(user), 'operator'),
         },
       });
     } catch (err: any) {
@@ -244,7 +244,7 @@ export function authRouter(deps: AuthRouterDeps): Router {
           id: user.id,
           email: user.email,
           twoFactorEnabled: user.twoFactorEnabled,
-          isAdmin: user.isAdmin === true,
+          isAdmin: holds(deps.auth.principalFor(user), 'operator'),
         },
       });
     } catch (err: any) {
@@ -270,7 +270,7 @@ export function authRouter(deps: AuthRouterDeps): Router {
       twoFactorPreferredMethod: user.twoFactorPreferredMethod,
       emailVerified: user.emailVerified,
       createdAt: user.createdAt,
-      isAdmin: user.isAdmin === true,
+      isAdmin: holds(principalFrom(req), 'operator'),
       holdsAccounts: deps.accounts !== false,
       ...(deps.hub ? { onHub: true } : {}),
     });

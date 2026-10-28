@@ -1,25 +1,25 @@
 import { Router, type Request } from 'express';
 import crypto from 'crypto';
-import { asyncRoute, inviteCodeHash, inviteExpiry, inviteView, newInviteCode, type InviteMetadata } from '../../platform/index.js';
+import { asyncRoute, inviteCodeHash, inviteExpiry, inviteView, newInviteCode, principalFrom, type InviteMetadata } from '../../platform/index.js';
 import type { AccountRemovalService } from '../services/AccountRemovalService.js';
 import type { ProjectInviteLimitsService } from '../services/ProjectInviteLimitsService.js';
 import { FIRST_ADMIN_INVITE } from '../store.js';
 
 const idOf = (req: Request): string => String(req.params.id ?? '');
 
-const userOf = (req: Request): { id: string; email: string; isAdmin?: boolean } =>
-  (req as unknown as { user: { id: string; email: string; isAdmin?: boolean } }).user;
+const userOf = (req: Request): { id: string; email: string } =>
+  (req as unknown as { user: { id: string; email: string } }).user;
 
 export function adminRouter(deps: Record<string, any>): Router {
-  const { db, requireAdmin } = deps;
+  const { db, operatorOnly } = deps;
   const router = Router();
 
-  router.get('/invites', requireAdmin, async (_req, res) => {
+  router.get('/invites', operatorOnly, async (_req, res) => {
     const now = new Date();
     res.json((await db.accounts.getInvites() as InviteMetadata[]).filter((invite) => !invite.project && invite.id !== FIRST_ADMIN_INVITE).map((invite) => inviteView(invite, now)));
   });
 
-  router.post('/invites', requireAdmin, async (req, res) => {
+  router.post('/invites', operatorOnly, async (req, res) => {
     const now = new Date();
     const code = newInviteCode();
     const invite: InviteMetadata = {
@@ -37,29 +37,29 @@ export function adminRouter(deps: Record<string, any>): Router {
   const answered = <T>(res: import('express').Response, outcome: { ok: true; value: T } | { ok: false; status: number; why: string }) =>
     (outcome.ok ? res.json(outcome.value) : res.status(outcome.status).json({ error: outcome.why }));
 
-  router.get('/project-invites', requireAdmin, asyncRoute(async (_req, res) => res.json(await inviteLimits.overview())));
-  router.put('/project-invites', requireAdmin, asyncRoute(async (req, res) => answered(res, await inviteLimits.setLimits({ accounts: req.body?.accounts, perHour: req.body?.perHour }))));
-  router.put('/people/:id/project-invites', requireAdmin, asyncRoute(async (req, res) => answered(res, await inviteLimits.setOwn(idOf(req), req.body?.accounts))));
+  router.get('/project-invites', operatorOnly, asyncRoute(async (_req, res) => res.json(await inviteLimits.overview())));
+  router.put('/project-invites', operatorOnly, asyncRoute(async (req, res) => answered(res, await inviteLimits.setLimits({ accounts: req.body?.accounts, perHour: req.body?.perHour }))));
+  router.put('/people/:id/project-invites', operatorOnly, asyncRoute(async (req, res) => answered(res, await inviteLimits.setOwn(idOf(req), req.body?.accounts))));
 
   const removal = deps.removal as AccountRemovalService | undefined;
   const ELSEWHERE = 'Accounts cannot be removed here';
 
-  router.get('/people', requireAdmin, asyncRoute(async (_req, res) => {
+  router.get('/people', operatorOnly, asyncRoute(async (_req, res) => {
     if (!removal) return res.status(404).json({ error: ELSEWHERE });
     return res.json({ people: await removal.people() });
   }));
 
-  router.get('/people/:id/removal', requireAdmin, asyncRoute(async (req, res) => {
+  router.get('/people/:id/removal', operatorOnly, asyncRoute(async (req, res) => {
     if (!removal) return res.status(404).json({ error: ELSEWHERE });
     const preview = await removal.preview(idOf(req));
     if (!preview) return res.status(404).json({ error: 'There is no such account' });
     return res.json(preview);
   }));
 
-  router.delete('/people/:id', requireAdmin, asyncRoute(async (req, res) => {
+  router.delete('/people/:id', operatorOnly, asyncRoute(async (req, res) => {
     if (!removal) return res.status(404).json({ error: ELSEWHERE });
     const confirm = typeof req.body?.confirm === 'string' ? req.body.confirm : '';
-    const outcome = await removal.remove({ ownerId: idOf(req), requestedBy: userOf(req).id, confirm });
+    const outcome = await removal.remove({ ownerId: idOf(req), requestedBy: userOf(req).id, confirm }, principalFrom(req));
     if (!outcome.ok) return res.status(outcome.refusal.status).json(outcome.refusal);
     return res.status(202).json({ state: outcome.state });
   }));

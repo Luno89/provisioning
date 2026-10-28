@@ -246,7 +246,7 @@ export interface EngineWiringDeps {
   customizations: Releases['customizations'];
   releaseSettings: Releases['releaseSettings'];
   treeModels: () => Pick<TreeModelsService, 'describe' | 'problem'>;
-  requireAdmin: RequestHandler;
+  operatorOnly: RequestHandler;
 }
 
 export interface EngineWiring {
@@ -457,7 +457,7 @@ export async function wireEngine(deps: EngineWiringDeps): Promise<EngineWiring> 
     projects: async (ownerId) => (await db.projects.getProjects()).filter((project) => project.ownerId === ownerId).map((project) => ({ id: project.id, name: project.name })),
     approvals: new ApprovalService({ store: db.engine, runs: engineRuns, autoMode: autoModeService, treeOfRun: treeOfGroveRun }),
     registry: engineRegistry,
-    admin: deps.requireAdmin,
+    admin: deps.operatorOnly,
     extensions,
     images: {
       standing: (ownerId?: string) => evalHost.workspaceImages.standing(ownerId),

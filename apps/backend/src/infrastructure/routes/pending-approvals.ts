@@ -1,8 +1,8 @@
 import { Router, type Request } from 'express';
 import type { Database } from '../../platform/index.js';
 
-const userOf = (req: Request): { id: string; email: string; isAdmin?: boolean } =>
-  (req as unknown as { user: { id: string; email: string; isAdmin?: boolean } }).user;
+const userOf = (req: Request): { id: string; email: string } =>
+  (req as unknown as { user: { id: string; email: string } }).user;
 
 export function pendingApprovalsRouter(deps: { db: Database }): Router {
   const { db } = deps;

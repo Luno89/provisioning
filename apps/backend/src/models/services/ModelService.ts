@@ -1,5 +1,5 @@
 import dns from 'node:dns/promises';
-import { addressProblem, BaseService, type Database, decryptValue, type SecretKey } from '../../platform/index.js';
+import { addressProblem, asPerson, BaseService, type Database, decryptValue, type SecretKey } from '../../platform/index.js';
 import type { AppService, ClusterService, ClusterProxyService, HeadscaleService } from '../../infrastructure/index.js';
 import { listProviders, routeProvider, type ModelProvider, type EndpointSource } from '../lib/model-registry.js';
 import { checkEndpointUrl, isMeshAddress, type EndpointRules } from '../lib/endpoint-url-safety.js';
@@ -143,7 +143,7 @@ export class ModelService extends BaseService {
       throw new Error(`Model ${provider.name} is missing its cluster location — it may need redeploying`);
     }
 
-    const cluster = await this.clusters.getById(clusterId, userId);
+    const cluster = await this.clusters.getById(clusterId, asPerson(userId));
     if (!cluster) throw new Error(`Cluster for model ${provider.name} not found`);
     const kubeconfigPath = await this.clusters.getKubeconfigPath(cluster);
 

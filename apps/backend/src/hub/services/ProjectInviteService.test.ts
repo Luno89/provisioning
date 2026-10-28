@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { ProjectInviteService } from './ProjectInviteService.js';
 import type { InviteMetadata } from '../../platform/lib/types.js';
 import { inviteCodeHash } from '../../platform/lib/invite-codes.js';
+import { principalOf } from '../../platform/lib/permissions.js';
 
 function setUp(mail: 'works' | 'off' | 'fails', over: { limits?: { accounts?: number; perHour?: number }; people?: Record<string, { isAdmin?: boolean; inviteAccounts?: number }>; accounts?: string[]; now?: () => string } = {}) {
   const invites: InviteMetadata[] = [];
@@ -10,6 +11,7 @@ function setUp(mail: 'works' | 'off' | 'fails', over: { limits?: { accounts?: nu
   const service = new ProjectInviteService({
     invites: { getInviteByCode: async (code) => invites.find((invite) => invite.codeHash === inviteCodeHash(code)), saveInvite: async (invite) => { invites.push(invite); }, getInvites: async () => invites },
     people: { getUserById: async (id) => (people[id] ? { id, ...people[id] } : undefined), getUserByEmail: async (email) => ((over.accounts ?? []).includes(email) ? { email } : undefined) },
+    principalFor: (user) => principalOf(user, { role: 'combined' }),
     limits: async () => over.limits,
     mail: { available: () => (mail === 'off' ? { ok: false as const, why: 'MAIL_SMTP_URL is not set' } : { ok: true as const }), toAddress },
     rootUrl: 'http://koala.localhost:5175/',

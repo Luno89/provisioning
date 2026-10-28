@@ -1,4 +1,4 @@
-import type { InviteMetadata, UserMetadata } from '../../platform/index.js';
+import { holds, type InviteMetadata, type Principal, type UserMetadata } from '../../platform/index.js';
 import { accountsMadeBy, DEFAULT_INVITE_LIMITS, limitsProblem, type InviteLimits } from '../lib/project-invite-limits.js';
 
 export interface ProjectInviteLimitsStore {
@@ -20,7 +20,7 @@ export interface ProjectInvitePerson {
 export type LimitsOutcome<T> = { ok: true; value: T } | { ok: false; status: 400 | 404; why: string };
 
 export class ProjectInviteLimitsService {
-  constructor(private readonly deps: { store: ProjectInviteLimitsStore; now?: (() => Date) | undefined }) {}
+  constructor(private readonly deps: { store: ProjectInviteLimitsStore; principalFor(user: Pick<UserMetadata, 'id' | 'isAdmin'>): Principal; now?: (() => Date) | undefined }) {}
 
   async limits(): Promise<InviteLimits> {
     return { ...DEFAULT_INVITE_LIMITS, ...(await this.deps.store.getInviteLimits()) };
@@ -29,7 +29,7 @@ export class ProjectInviteLimitsService {
   async overview(): Promise<InviteLimits & { people: ProjectInvitePerson[] }> {
     const [limits, users, invites] = await Promise.all([this.limits(), this.deps.store.getUsers(), this.deps.store.getInvites()]);
     const now = this.deps.now?.() ?? new Date();
-    const people = users.filter((user) => !user.space && !user.isAdmin).map((user) => ({
+    const people = users.filter((user) => !user.space && !holds(this.deps.principalFor(user), 'operator')).map((user) => ({
       id: user.id,
       email: user.email,
       made: accountsMadeBy(invites, user.id, now),

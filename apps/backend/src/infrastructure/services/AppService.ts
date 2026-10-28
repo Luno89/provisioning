@@ -1,4 +1,4 @@
-import { BaseService, type Database, type DeploymentMetadata } from '../../platform/index.js';
+import { allowed, asPerson, BaseService, type Database, type DeploymentMetadata, type Principal } from '../../platform/index.js';
 import { InfrastructureService } from './InfrastructureService.js';
 import { ClusterService } from './ClusterService.js';
 import { BuilderService } from './BuilderService.js';
@@ -35,8 +35,7 @@ export class AppService extends BaseService {
   async getById(id: string, userId: string) {
     const deployments = await this.db.infrastructure.getDeployments();
     const dep = deployments.find((d: any) => d.id === id);
-    if (dep && dep.ownerId !== userId) return undefined;
-    return dep;
+    return dep && allowed(asPerson(userId), 'see', { kind: 'deployment', ownerId: dep.ownerId }) ? dep : undefined;
   }
 
   async getAll(userId: string, io?: SocketServer) {
@@ -104,8 +103,8 @@ export class AppService extends BaseService {
     return cleanDeployments.filter((d) => d.ownerId === userId);
   }
 
-  async discoverDeployments(clusterId: string, userId: string): Promise<DeploymentMetadata[]> {
-    const cluster = await this.clusters.getById(clusterId, userId);
+  async discoverDeployments(clusterId: string, principal: Principal): Promise<DeploymentMetadata[]> {
+    const cluster = await this.clusters.getById(clusterId, principal, 'see-everything');
     if (!cluster) throw new Error('Cluster not found');
 
     const kubeconfigPath = await this.clusters.getKubeconfigPath(cluster);
@@ -191,7 +190,7 @@ export class AppService extends BaseService {
     if (appType === 'odoo') {
       strategy = 'native';
     }
-    const cluster = await this.clusters.getById(clusterId, userId);
+    const cluster = await this.clusters.getById(clusterId, asPerson(userId), 'deploy-to');
     if (!cluster) throw new Error('Cluster not found');
 
     const id = uuidv4();
@@ -364,7 +363,7 @@ export class AppService extends BaseService {
     const updatedMetadata = { ...dep, modules, status: 'deploying' as const };
     await this.db.infrastructure.saveDeployment(updatedMetadata);
 
-    const cluster = await this.clusters.getById(dep.clusterId, userId);
+    const cluster = await this.clusters.getById(dep.clusterId, asPerson(userId));
     const sanitizedName = namespaceOf(dep);
     const logFile = this.infra.getLogPath(`${dep.name}-update-modules`);
 
@@ -427,7 +426,7 @@ export class AppService extends BaseService {
     try {
         const dep = (await this.getAll(userId)).find((d: any) => d.id === id);
         if (!dep) throw new Error('Deployment not found');
-        const cluster = await this.clusters.getById(dep.clusterId, userId);
+        const cluster = await this.clusters.getById(dep.clusterId, asPerson(userId));
         if (!cluster) throw new Error('Cluster not found');
 
         const namespace = namespaceOf(dep);
@@ -450,7 +449,7 @@ export class AppService extends BaseService {
     const dep = await this.getById(id, userId);
     if (!dep) return undefined;
     if (dep.appType !== 'palworld') return appSignIns(dep);
-    const cluster = await this.clusters.getById(dep.clusterId, userId);
+    const cluster = await this.clusters.getById(dep.clusterId, asPerson(userId));
     if (!cluster) return [];
     const kubeconfigPath = await this.clusters.getKubeconfigPath(cluster);
     const raw = await this.infra.runKubectl(['get', 'secret', PALWORLD_SECRET, '-n', namespaceOf(dep), '-o', 'jsonpath={.data}', '--ignore-not-found'], kubeconfigPath);
@@ -463,7 +462,7 @@ export class AppService extends BaseService {
         if (!dep) throw new Error('Deployment not found');
         if (dep.strategy === 'native') return 'Native deployments do not use Helm. Use Diagnostics or Pod Inspector for status.';
 
-        const cluster = await this.clusters.getById(dep.clusterId, userId);
+        const cluster = await this.clusters.getById(dep.clusterId, asPerson(userId));
         if (!cluster) throw new Error('Cluster not found');
 
         const namespace = namespaceOf(dep);
@@ -486,7 +485,7 @@ export class AppService extends BaseService {
     try {
         const dep = (await this.getAll(userId)).find((d: any) => d.id === id);
         if (!dep) throw new Error('Deployment not found');
-        const cluster = await this.clusters.getById(dep.clusterId, userId);
+        const cluster = await this.clusters.getById(dep.clusterId, asPerson(userId));
         if (!cluster) throw new Error('Cluster not found');
 
         const namespace = namespaceOf(dep);
@@ -515,7 +514,7 @@ export class AppService extends BaseService {
   async delete(id: string, userId: string, io?: SocketServer) {
     const dep = (await this.getAll(userId)).find((d: any) => d.id === id);
     if (!dep) throw new Error('Deployment not found');
-    const cluster = await this.clusters.getById(dep.clusterId, userId);
+    const cluster = await this.clusters.getById(dep.clusterId, asPerson(userId));
     
     const logFile = this.infra.getLogPath(`${dep.name}-destroy`);
     await this.db.infrastructure.saveDeployment({ ...dep, status: 'destroying', lastLogPath: logFile });
@@ -564,7 +563,7 @@ export class AppService extends BaseService {
           await this.temporalBridge.terminateWorkflow(dep.temporalWorkflowId, 'User aborted deployment');
         }
 
-        const cluster = await this.clusters.getById(dep.clusterId, userId);
+        const cluster = await this.clusters.getById(dep.clusterId, asPerson(userId));
         if (cluster) {
           const kubeconfigPath = await this.clusters.getKubeconfigPath(cluster);
           try {
@@ -596,7 +595,7 @@ export class AppService extends BaseService {
     const updatedMetadata = { ...dep, storage: { ...dep.storage, ...storage }, status: 'deploying' as const };
     await this.db.infrastructure.saveDeployment(updatedMetadata);
 
-    const cluster = await this.clusters.getById(dep.clusterId, userId);
+    const cluster = await this.clusters.getById(dep.clusterId, asPerson(userId));
     const sanitizedName = namespaceOf(dep);
     const logFile = this.infra.getLogPath(`${dep.name}-resize-disk`);
 

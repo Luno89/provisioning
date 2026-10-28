@@ -5,8 +5,8 @@ import { cleanPath, type FileEntry, type FileScope, type FilesOutcome } from '..
 import { treeOfGroveRun } from '../../engine-host/temporal/contracts.js';
 import { procedureRanIn, type TurnLogEntry } from '../../engine/index.js';
 import type { ActingFor } from '@koala/agent-engine/procedure';
-import { can, type HubRole } from '../lib/hub.js';
-import type { Database, ProjectMetadata } from '../../platform/index.js';
+import type { HubRole } from '../lib/hub.js';
+import { allowed, asPerson, withSharedRole, type Database, type ProjectMetadata } from '../../platform/index.js';
 
 export type Done = { ok: true } | { ok: false; why: string };
 
@@ -135,7 +135,8 @@ export class HubInstanceWork {
 
   async handle(link: HubLink, call: InstanceCall): Promise<InstanceAnswer> {
     if (!RELAY_OPS.includes(call.op)) return refused(400, `${call.op} is not something the hub may ask`);
-    const problem = relayProblem(call.op, call.as.role);
+    const member = withSharedRole(asPerson(call.as.personId), link.hubProjectId, call.as.role);
+    const problem = relayProblem(call.op, member, link.hubProjectId);
     if (problem) return refused(403, problem);
     const project = await this.project(link);
     if (!project) return refused(404, 'The shared project is no longer on its owner\'s instance.');
@@ -196,7 +197,7 @@ export class HubInstanceWork {
       case 'files.upload': {
         const at = path('path');
         if (at === undefined || !call.upload) return refused(400, 'say where the file goes, and send it');
-        if (!can(call.as.role, 'change-files') && await this.exists(owner, scope, at)) return refused(409, 'A file already has that name, and only an owner or a collaborator can replace it; choose another name.');
+        if (!allowed(withSharedRole(asPerson(call.as.personId), link.hubProjectId, call.as.role), 'change-files', { kind: 'shared-project', id: link.hubProjectId }) && await this.exists(owner, scope, at)) return refused(409, 'A file already has that name, and only an owner or a collaborator can replace it; choose another name.');
         const body = await call.upload.open();
         return fromFiles(await this.deps.files.upload(owner, scope, at, body, call.upload.size, call.upload.type));
       }

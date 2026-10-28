@@ -1,10 +1,10 @@
 import { Router, type Request, type Response } from 'express';
-import { asyncRoute, type ProjectMetadata } from '../../platform/index.js';
+import { asyncRoute, type ProjectMetadata, principalFrom, type Principal } from '../../platform/index.js';
 import type { ClientImportService, ImportOutcome } from '../services/ClientImportService.js';
 
 export interface ClientImportRouterDeps {
   imports: Pick<ClientImportService, 'view' | 'upload' | 'startFresh'>;
-  getOwnedProject(id: string, user: { id: string }): Promise<ProjectMetadata | undefined>;
+  getOwnedProject(id: string, principal: Principal): Promise<ProjectMetadata | undefined>;
 }
 
 const userOf = (req: Request): { id: string } => (req as unknown as { user: { id: string } }).user;
@@ -16,13 +16,13 @@ export function clientImportRouter(deps: ClientImportRouterDeps): Router {
   const router = Router();
 
   router.get('/:id/import', asyncRoute(async (req, res) => {
-    const project = await deps.getOwnedProject(String(req.params.id), userOf(req));
+    const project = await deps.getOwnedProject(String(req.params.id), principalFrom(req));
     if (!project) return res.status(404).json({ error: 'You have no project with that id' });
     return answer(res, await deps.imports.view(project.ownerId ?? userOf(req).id, project.id));
   }));
 
   router.put('/:id/import', asyncRoute(async (req, res) => {
-    const project = await deps.getOwnedProject(String(req.params.id), userOf(req));
+    const project = await deps.getOwnedProject(String(req.params.id), principalFrom(req));
     if (!project) {
       req.resume();
       return res.status(404).json({ error: 'You have no project with that id' });
@@ -33,7 +33,7 @@ export function clientImportRouter(deps: ClientImportRouterDeps): Router {
   }));
 
   router.delete('/:id/import', asyncRoute(async (req, res) => {
-    const project = await deps.getOwnedProject(String(req.params.id), userOf(req));
+    const project = await deps.getOwnedProject(String(req.params.id), principalFrom(req));
     if (!project) return res.status(404).json({ error: 'You have no project with that id' });
     return answer(res, await deps.imports.startFresh(project.ownerId ?? userOf(req).id, project.id));
   }));

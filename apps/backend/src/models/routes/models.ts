@@ -6,8 +6,8 @@ import {
   getExl3ModelCollection, getHfModelBranches,
 } from '../../infrastructure/lib/huggingface.js';
 
-const userOf = (req: Request): { id: string; email: string; isAdmin?: boolean } =>
-  (req as unknown as { user: { id: string; email: string; isAdmin?: boolean } }).user;
+const userOf = (req: Request): { id: string; email: string } =>
+  (req as unknown as { user: { id: string; email: string } }).user;
 
 export function modelsRouter(deps: Record<string, any>): Router {
   const { modelService, db, credentialService } = deps;

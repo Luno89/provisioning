@@ -1,7 +1,7 @@
 import { Router, type Request } from 'express';
 import crypto from 'crypto';
 import path from 'path';
-import { asyncRoute } from '../../platform/index.js';
+import { asyncRoute, principalFrom } from '../../platform/index.js';
 import { isSafeRepoDir, isSafeRepoFilePath } from '../lib/project-file-paths.js';
 import { DROP_TYPE } from '../lib/drops.js';
 import { withReceivedDrop } from '../services/drop-receiver.js';
@@ -10,8 +10,8 @@ import { listDirOnDevice, readFileOnDevice, writeFileOnDevice, deleteFileOnDevic
 
 const idOf = (req: Request): string => String(req.params.id ?? '');
 
-const userOf = (req: Request): { id: string; email: string; isAdmin?: boolean } =>
-  (req as unknown as { user: { id: string; email: string; isAdmin?: boolean } }).user;
+const userOf = (req: Request): { id: string; email: string } =>
+  (req as unknown as { user: { id: string; email: string } }).user;
 
 const queryString = (req: Request, key: string): string | undefined => {
   const v = req.query[key];
@@ -40,7 +40,7 @@ export function projectFilesRouter(deps: Record<string, any>): Router {
 
   router.post('/:id/files/drop', asyncRoute(async (req, res) => {
     if (!req.is(DROP_TYPE)) return res.status(415).json({ error: `Send a drop as ${DROP_TYPE}.` });
-    const project = await getOwnedProject(idOf(req), userOf(req));
+    const project = await getOwnedProject(idOf(req), principalFrom(req));
     if (!project) return res.status(404).json({ error: 'Project not found' });
     await withReceivedDrop(req, async (read) => {
       if (!read.ok) return res.status(400).json({ error: read.why });
@@ -62,7 +62,7 @@ export function projectFilesRouter(deps: Record<string, any>): Router {
   }));
 
   router.get('/:id/files', asyncRoute(async (req, res) => {
-    const project = await getOwnedProject(idOf(req), userOf(req));
+    const project = await getOwnedProject(idOf(req), principalFrom(req));
     if (!project) return res.status(404).json({ error: 'Project not found' });
 
     const dirPath = queryString(req, 'path') ?? '';
@@ -79,7 +79,7 @@ export function projectFilesRouter(deps: Record<string, any>): Router {
   }));
 
   router.get('/:id/files/content', asyncRoute(async (req, res) => {
-    const project = await getOwnedProject(idOf(req), userOf(req));
+    const project = await getOwnedProject(idOf(req), principalFrom(req));
     if (!project) return res.status(404).json({ error: 'Project not found' });
 
     const filePath = queryString(req, 'path') ?? '';
@@ -98,7 +98,7 @@ export function projectFilesRouter(deps: Record<string, any>): Router {
   }));
 
   router.put('/:id/files/content', asyncRoute(async (req, res) => {
-    const project = await getOwnedProject(idOf(req), userOf(req));
+    const project = await getOwnedProject(idOf(req), principalFrom(req));
     if (!project) return res.status(404).json({ error: 'Project not found' });
 
     const { path: filePath, content, sha } = req.body ?? {};
@@ -137,7 +137,7 @@ export function projectFilesRouter(deps: Record<string, any>): Router {
   }));
 
   router.delete('/:id/files/content', asyncRoute(async (req, res) => {
-    const project = await getOwnedProject(idOf(req), userOf(req));
+    const project = await getOwnedProject(idOf(req), principalFrom(req));
     if (!project) return res.status(404).json({ error: 'Project not found' });
 
     const filePath = queryString(req, 'path') ?? '';

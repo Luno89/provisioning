@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { createKubeTools, type KubeAccess } from './kube-tools.js';
 import type { ClusterMetadata, DeploymentMetadata } from '../../platform/lib/types.js';
 import type { AccessRequest } from '@koala/harness-types';
+import { principalOf } from '../../platform/lib/permissions.js';
 
 const CLUSTERS: ClusterMetadata[] = [
   { id: 'provisioning-lunorica', name: 'provisioning-lunorica', provider: 'k3d', status: 'healthy', isSystem: true, capacity: { cpuCores: 16, ramGb: 64 } },
@@ -19,7 +20,7 @@ function tools(open: string[] = []) {
     clusters: async () => CLUSTERS,
     deployments: async () => DEPLOYMENTS,
     kubectl: vi.fn(async (cluster: ClusterMetadata, argv: string[]) => { ran.push({ cluster: cluster.name, argv }); return `${argv[0]} output`; }),
-    isAdmin: async (ownerId: string) => ownerId === 'u1',
+    principal: async (ownerId: string) => principalOf({ id: ownerId, isAdmin: ownerId === 'u1' }, { role: 'combined' }),
     openNamespaces: async () => open,
     accessRequests: { list: async () => requests, save: async (request: AccessRequest) => { requests.push(request); } },
   };
@@ -70,6 +71,16 @@ describe('cluster diagnostics', () => {
     await call('cluster_capacity', { deployment: 'Billing' });
     expect(ran.map((entry) => entry.argv.join(' '))).toEqual(['top nodes', 'get nodes -o wide', 'top pods -n billing']);
   });
+
+  it('reads all of the system cluster only for its operator, and anyone\'s own app on it for them', async () => {
+    const { call, ran } = tools();
+    expect((await call('inspect_resources', { verb: 'get', resource: 'nodes', cluster: 'provisioning-lunorica' }, 'u2')).digest).toBe('only whoever runs provisioning-lunorica reads all of it; name one of your deployments there instead');
+    expect((await call('inspect_resources', { verb: 'get', resource: 'namespaces', cluster: 'provisioning-lunorica' }, 'u2')).ok).toBe(false);
+    expect((await call('cluster_capacity', {}, 'u2')).ok).toBe(false);
+    expect((await call('inspect_resources', { verb: 'get', resource: 'pods', deployment: 'Theirs' }, 'u2')).ok).toBe(true);
+    expect(ran.map((entry) => entry.argv.join(' '))).toEqual(['get pods -n theirs']);
+    expect((await call('inspect_resources', { verb: 'get', resource: 'nodes', cluster: 'provisioning-lunorica' }, 'u1')).ok).toBe(true);
+  });
 });
 
 describe('platform namespaces', () => {
@@ -92,7 +103,7 @@ describe('platform namespaces', () => {
 
   it('are asked for only by an admin, never include infisical, and are asked once', async () => {
     const { call, requests } = tools();
-    expect((await call('request_cluster_access', { namespaces: ['monitoring'], why: 'check prometheus' }, 'u2')).digest).toContain('only an administrator');
+    expect((await call('request_cluster_access', { namespaces: ['monitoring'], why: 'check prometheus' }, 'u2')).digest).toContain('Only the operator of this server');
     expect((await call('request_cluster_access', { namespaces: ['infisical'], why: 'x' })).digest).toContain('never opens');
     expect((await call('request_cluster_access', { namespaces: ['billing'], why: 'x' })).digest).toContain('not a platform namespace');
     await call('request_cluster_access', { namespaces: ['monitoring'], why: 'check prometheus' });

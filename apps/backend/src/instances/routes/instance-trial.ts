@@ -1,5 +1,12 @@
 import { Router, type Request, type Response } from 'express';
-import { asyncRoute } from '../../platform/index.js';
+import { asyncRoute, authorize, principalFrom } from '../../platform/index.js';
+
+const notOwner = (req: Request, res: Response): boolean => {
+  const decision = authorize(principalFrom(req), 'change', { kind: 'instance-settings' });
+  if (decision.allowed) return false;
+  res.status(decision.status).json({ error: decision.error });
+  return true;
+};
 import { RootRefused, type InstanceTrial } from '../services/InstanceTrial.js';
 
 type Trial = Pick<InstanceTrial, 'read' | 'startMove' | 'moveState' | 'stopMove'>;
@@ -19,13 +26,15 @@ export function instanceTrialRouter(deps: { trial: Trial | undefined }): Router 
     return deps.trial.moveState().then((move) => res.json({ move }), (err) => refused(res, err));
   }));
 
-  router.post('/move', asyncRoute(async (_req: Request, res: Response) => {
+  router.post('/move', asyncRoute(async (req: Request, res: Response) => {
     if (!deps.trial) return res.status(404).json({ error: 'only an instance on Koala\'s servers moves' });
+    if (notOwner(req, res)) return;
     return deps.trial.startMove().then((started) => res.json(started), (err) => refused(res, err));
   }));
 
-  router.delete('/move', asyncRoute(async (_req: Request, res: Response) => {
+  router.delete('/move', asyncRoute(async (req: Request, res: Response) => {
     if (!deps.trial) return res.status(404).json({ error: 'nothing is moving' });
+    if (notOwner(req, res)) return;
     return deps.trial.stopMove().then(() => res.json({ stopping: true }), (err) => refused(res, err));
   }));
 

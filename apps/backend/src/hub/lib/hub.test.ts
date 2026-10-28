@@ -1,14 +1,17 @@
 import { describe, expect, it } from 'vitest';
-import { can, inviteProblem, leavingProblem, projectDatabase, roleChangeProblem, sameEmail, sharedProjectProblem, sharerOf, type HubMember } from './hub.js';
+import { inviteProblem, leavingProblem, projectDatabase, roleChangeProblem, sameEmail, sharedProjectProblem, sharerOf, type HubMember } from './hub.js';
+import { allowed, asPerson, withSharedRole } from '../../platform/lib/permissions.js';
 
 const member = (personId: string, role: HubMember['role'], email = `${personId}@example.com`): HubMember => ({ personId, email, role, joinedAt: 't' });
 
 describe('what each role on a shared project may do', () => {
+  const may = (role: HubMember['role'], action: string) => allowed(withSharedRole(asPerson('p'), 'sp', role), action as never, { kind: 'shared-project', id: 'sp' });
+
   it('lets an owner do everything, a collaborator work, approve and change files, and a client look, pin and ask', () => {
-    expect(['invite', 'release', 'see-secrets', 'change-files'].map((action) => can('owner', action as never))).toEqual([true, true, true, true]);
-    expect(['approve-changes', 'work-stories', 'change-files', 'invite', 'release', 'see-secrets'].map((action) => can('collaborator', action as never))).toEqual([true, true, true, false, false, false]);
-    expect(['see-project', 'pin-and-comment', 'ask-koala', 'change-files', 'approve-changes', 'work-stories', 'change-settings'].map((action) => can('client', action as never))).toEqual([true, true, true, false, false, false, false]);
-    expect(can(undefined, 'see-project')).toBe(false);
+    expect(['invite', 'release', 'see-secrets', 'change-files'].map((action) => may('owner', action))).toEqual([true, true, true, true]);
+    expect(['approve-changes', 'work-stories', 'change-files', 'invite', 'release', 'see-secrets'].map((action) => may('collaborator', action))).toEqual([true, true, true, false, false, false]);
+    expect(['see-project', 'pin-and-comment', 'ask-koala', 'change-files', 'approve-changes', 'work-stories', 'change-settings'].map((action) => may('client', action))).toEqual([true, true, true, false, false, false, false]);
+    expect(allowed(asPerson('p'), 'see-project', { kind: 'shared-project', id: 'sp' })).toBe(false);
   });
 });
 

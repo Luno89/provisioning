@@ -1,5 +1,5 @@
 import type { Server as SocketServer } from 'socket.io';
-import { type Database, type MailService, type RoleConfig, servesTenants, clusterOwnership } from '../../platform/index.js';
+import { type Database, type MailService, type RoleConfig, servesTenants } from '../../platform/index.js';
 import type { sharedClusterProxy, ClusterService, InfrastructureService } from '../../infrastructure/index.js';
 import type { ConversationNoticeService } from '../../engine/index.js';
 import type { NotificationService } from '../services/NotificationService.js';
@@ -23,7 +23,7 @@ export interface MonitoringWiringDeps {
   notices: ConversationNoticeService;
   notifications: NotificationService;
   mail: MailService;
-  systemOwners: ConstructorParameters<typeof AlertWatchService>[0]['systemOwners'];
+  people: ConstructorParameters<typeof AlertWatchService>[0]['people'];
 }
 
 export function wireMonitoring(deps: MonitoringWiringDeps): { monitoring: MonitoringService } {
@@ -33,7 +33,6 @@ export function wireMonitoring(deps: MonitoringWiringDeps): { monitoring: Monito
   const monitoring = new MonitoringService({
     store: db,
     systemCluster: () => clusters.getSystemClusterEntry(),
-    ownsCluster: clusterOwnership(role.instance?.ownerId),
     pool: (cluster) => (cluster.isSystem ? onPool : undefined),
     prometheus: async (cluster) => prometheusAt(await deps.proxy.serviceUrl(cluster.id, 'prometheus', await clusters.getKubeconfigPath(cluster))),
     kubectl: async (cluster, args) => String(await infra.runKubectl(args, await clusters.getKubeconfigPath(cluster))),
@@ -46,7 +45,7 @@ export function wireMonitoring(deps: MonitoringWiringDeps): { monitoring: Monito
     new AlertWatchService({
       monitoring,
       store: db,
-      systemOwners: deps.systemOwners,
+      people: deps.people,
       tell: async (episode, change, { app, rule }) => {
         deps.io.to(`user:${episode.ownerId}`).emit('monitoring-alert', { change, episode });
         const where = alertWhere(app?.gitappProjectId, rule?.conversationId);

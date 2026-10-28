@@ -1,4 +1,5 @@
 import { defineSearchAttributeKey, SearchAttributeType, type SearchAttributePair, type TypedSearchAttributes } from '@temporalio/common';
+import { allowed, holds, type Principal } from './permissions.js';
 
 export const OWNER_ATTRIBUTE = defineSearchAttributeKey('KoalaOwner', SearchAttributeType.KEYWORD);
 export const PLATFORM_OWNER = 'platform';
@@ -29,22 +30,15 @@ export class UnownedWorkflowError extends Error {
   }
 }
 
-export interface WorkflowViewer {
-  id: string;
-  isAdmin?: boolean | undefined;
-}
+export const seesEverything = (principal: Principal): boolean => allowed(principal, 'see-all-work', { kind: 'install' });
 
-export const seesEverything = (viewer: WorkflowViewer, instanceOwner: string | undefined): boolean =>
-  viewer.isAdmin === true || (instanceOwner !== undefined && viewer.id === instanceOwner);
+export const startsWithEverything = (principal: Principal): boolean => holds(principal, 'instance-owner');
 
-export const startsWithEverything = (viewer: WorkflowViewer, instanceOwner: string | undefined): boolean =>
-  instanceOwner !== undefined && viewer.id === instanceOwner;
+export const mayTouch = (principal: Principal, owner: string | undefined): boolean =>
+  allowed(principal, 'cancel', { kind: 'workflow', owner });
 
-export const mayTouch = (viewer: WorkflowViewer, owner: string | undefined, instanceOwner: string | undefined): boolean =>
-  seesEverything(viewer, instanceOwner) || (owner !== undefined && owner === viewer.id);
-
-export function workflowScope(viewer: WorkflowViewer, asked: string | undefined, instanceOwner: string | undefined): { all: boolean; query: string | undefined } {
-  const everything = seesEverything(viewer, instanceOwner);
-  const all = everything && (asked === 'all' || (asked === undefined && startsWithEverything(viewer, instanceOwner)));
-  return { all, query: all ? undefined : ownedQuery(viewer.id) };
+export function workflowScope(principal: Principal, asked: string | undefined): { all: boolean; query: string | undefined } {
+  const everything = seesEverything(principal);
+  const all = everything && (asked === 'all' || (asked === undefined && startsWithEverything(principal)));
+  return { all, query: all ? undefined : ownedQuery(principal.id) };
 }

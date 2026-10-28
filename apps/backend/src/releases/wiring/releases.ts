@@ -1,5 +1,5 @@
 import type { Server as SocketServer } from 'socket.io';
-import { type ClusterMetadata, type Database, type ProjectMetadata, awaitedNotice, releaseNotice } from '../../platform/index.js';
+import { type ClusterMetadata, type Database, type ProjectMetadata, awaitedNotice, releaseNotice, type Principal } from '../../platform/index.js';
 import {
   treeTypeOfProject, ODOO_TREE_TYPE, deploymentForProject, type projectSecretsFor, type ProjectChannelService,
   type ProjectRepoService, type GiteaService,
@@ -49,7 +49,7 @@ export interface ReleasesWiringDeps {
   registry: ReturnType<typeof createStoredAgentRegistry>;
   exposure: AppExposureService;
   channels: ProjectChannelService;
-  getOwnedProject: (id: string, user: unknown) => Promise<ProjectMetadata | undefined>;
+  getOwnedProject: (id: string, principal: Principal) => Promise<ProjectMetadata | undefined>;
 }
 
 export interface ReleasesWiring {

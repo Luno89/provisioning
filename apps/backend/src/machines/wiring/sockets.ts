@@ -4,7 +4,7 @@ import { spawn } from 'child_process';
 import type { Server as SocketServer } from 'socket.io';
 import {
   sharedPayloadBlobs, type Database, type Keyring, type SecretKey, type UserMetadata, servesTenants,
-  type RoleConfig, ownsProject, type createAuth, signsEveryoneIn,
+  type RoleConfig, allowed, type Principal, type createAuth, signsEveryoneIn,
 } from '../../platform/index.js';
 import { findDeviceByToken, registerDevice, unregisterDevice } from '../lib/local-agent-registry.js';
 import { machinePayloads, type GetAnswer, type PutAnswer, type RingAnswer } from '../lib/machine-payloads.js';
@@ -22,7 +22,7 @@ export interface SocketsWiringDeps {
   env: NodeJS.ProcessEnv;
   payloadKey: Keyring;
   dataKey: SecretKey;
-  auth: Pick<ReturnType<typeof createAuth>, 'userFromSessionCookie' | 'securedFor'>;
+  auth: Pick<ReturnType<typeof createAuth>, 'userFromSessionCookie' | 'securedFor' | 'principalFor'>;
   machines: Pick<MachineService, 'recordAgents' | 'manualAgents' | 'recordMeshIp'>;
   clusters: ClusterService;
   apps: AppService;
@@ -83,16 +83,19 @@ export function wireSockets(deps: SocketsWiringDeps): void {
     socket.on('telemetry:export', (request: unknown, ack: (answer: TelemetryAnswer) => void) => { void deps.telemetry.relay(request).then(ack); });
   });
 
+  const principalOfSocket = (user: UserMetadata | undefined): Principal | undefined => (user ? deps.auth.principalFor(user) : undefined);
+
   async function authorizeRoom(user: UserMetadata | undefined, id: string): Promise<any | undefined> {
-    if (!user) return undefined;
-    const cluster = await clusters.getById(id, user.id);
+    const principal = principalOfSocket(user);
+    if (!principal) return undefined;
+    const cluster = await clusters.getById(id, principal, 'see-everything');
     if (cluster) return cluster;
-    const deployment = await apps.getById(id, user.id);
+    const deployment = await apps.getById(id, principal.id);
     if (deployment) return deployment;
     const run = (await db.releases.getPipelineRuns()).find((r: any) => r.id === id);
     if (run) {
       const project = (await db.projects.getProjects()).find((p: any) => p.id === run.projectId);
-      const owned = ownsProject(project, user);
+      const owned = project !== undefined && allowed(principal, 'see', { kind: 'project', ownerId: project.ownerId });
       if (owned && run.logFile) return { ...run, lastLogPath: run.logFile };
     }
     return undefined;
@@ -163,9 +166,7 @@ export function wireSockets(deps: SocketsWiringDeps): void {
         socket.emit('room-denied', { id: resourceId });
         return;
       }
-      const cluster = dep.clusterId === 'provisioning-lunorica'
-        ? await clusters.getSystemClusterEntry()
-        : await clusters.getById(dep.clusterId, user.id);
+      const cluster = await clusters.getById(dep.clusterId, deps.auth.principalFor(user));
       if (!cluster) {
         socket.emit('room-denied', { id: resourceId });
         return;
