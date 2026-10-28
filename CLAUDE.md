@@ -1704,7 +1704,8 @@ Plan: `~/.claude/plans/file-uploads.md`. **Where you drop decides.** A project's
   onto a folder, rename, and open a file to preview it (images, PDF, video, audio, text; `StoredFilePreview`, in the Files page's
   right pane, a dialog elsewhere). A person's own files (chat attachments outside projects) and their links are under Settings → Files.
 - **Share links**: a file shared for a day, a week or a month (`fileShares`, `files/lib/file-shares.ts`) is served by Koala at
-  `/api/share/<token>` with no session (`/share/` in the guard's public prefixes), streamed from MinIO, so MinIO is never exposed.
+  `/api/share/<token>` with no session, and only the file it was made for (its MinIO ETag, kept as `etag` on the share; a file put
+  at that path later is never served by it, and a link from before is tied to the file it opens first) (`/share/` in the guard's public prefixes), streamed from MinIO, so MinIO is never exposed.
   Revoked from Settings → Files; expired ones are removed when opened; a project's go with it. Every person's file and every artifact is served
   with `nosniff` and a sandboxing CSP, and shown in the page only when it is an image (never SVG), video, audio, plain text, CSV,
   Markdown, JSON or a PDF (which alone goes without the sandbox, which its viewer refuses); anything else downloads, whatever type

@@ -126,8 +126,14 @@ async function exercise(scope: string, label: string): Promise<void> {
   assert.match(String(svgLink.headers['content-disposition']), /^attachment;/, 'a shared SVG opened in the page');
   assert.match(String(svgLink.headers['content-security-policy']), /sandbox$/, 'a shared SVG may run script');
   assert.equal((await api!.delete(`/files/shares/${(svgShare.data as { id: string }).id}`)).status, 200);
+  const tied = await api!.post(`/files/${scope}/shares`, { path: 'page.txt', days: 1 });
+  const tiedLink = `${BASE}/share/${(tied.data as { id: string }).id}`;
+  assert.equal((await axios.get(tiedLink, { proxy: false, validateStatus: () => true })).status, 200, 'a fresh link did not open');
+  assert.equal((await put(scope, 'page.txt', Buffer.from('another file, put at the same name later'), 'text/plain')).status, 201);
+  assert.equal((await axios.get(tiedLink, { proxy: false, validateStatus: () => true })).status, 404, 'a link served a file put at its path after it was made');
+  assert.equal((await api!.delete(`/files/shares/${(tied.data as { id: string }).id}`)).status, 200);
   for (const path of ['drawn.svg', 'feed.rss', 'page.txt']) assert.equal((await api!.delete(`/files/${scope}/content`, { params: { path } })).status, 200);
-  console.log('  the PDF shows in the page; an SVG, an RSS feed and a file calling itself HTML only download, sandboxed, a share link of one too');
+  console.log('  the PDF shows in the page; an SVG, an RSS feed and a file calling itself HTML only download, sandboxed, a share link of one too; a link opens nothing once its file is replaced');
 }
 
 async function main(): Promise<void> {

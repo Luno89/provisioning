@@ -8,6 +8,7 @@ export interface Download {
   stream: Readable;
   size?: number | undefined;
   contentType: string;
+  etag?: string | undefined;
 }
 
 export interface FileStore {
@@ -101,7 +102,7 @@ export function minioStore(client: MinioLike, folder: string): FileStore {
       const stat = await client.statObject(FILES_BUCKET, key(path)).catch(() => undefined);
       if (!stat) return undefined;
       const stream = await client.getObject(FILES_BUCKET, key(path));
-      return { stream: stream as Readable, size: stat.size, contentType: String(stat.metaData?.['content-type'] ?? 'application/octet-stream') };
+      return { stream: stream as Readable, size: stat.size, contentType: String(stat.metaData?.['content-type'] ?? 'application/octet-stream'), ...(stat.etag ? { etag: stat.etag } : {}) };
     },
     async upload(path, body, size, contentType) {
       await bucket();

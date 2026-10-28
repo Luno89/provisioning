@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
 import { Readable } from 'node:stream';
 import { FileService } from './FileService.js';
@@ -20,7 +21,7 @@ function setUp(deployments: DeploymentMetadata[], settings?: FileSettings) {
     list: vi.fn(async () => [{ name: 'a.pdf', path: 'a.pdf', type: 'file' as const }]),
     search: vi.fn(async () => [{ name: 'a.pdf', path: 'a.pdf', type: 'file' as const }]),
     makeFolder: vi.fn(async () => undefined),
-    download: vi.fn(async (path: string) => (kept.has(path) ? { stream: Readable.from([kept.get(path)!]), size: kept.get(path)!.length, contentType: 'application/pdf' } : undefined)),
+    download: vi.fn(async (path: string) => (kept.has(path) ? { stream: Readable.from([kept.get(path)!]), size: kept.get(path)!.length, contentType: 'application/pdf', etag: createHash('md5').update(kept.get(path)!).digest('hex') } : undefined)),
     upload: vi.fn(async () => undefined),
     remove: vi.fn(async () => undefined),
     move: vi.fn(async () => undefined),
@@ -53,7 +54,7 @@ function setUp(deployments: DeploymentMetadata[], settings?: FileSettings) {
     defaultCluster: 'system',
     now: () => clock.now,
   });
-  return { files, projects, store, opened, deployMinio, shares, project: () => projects.get('p1')! };
+  return { files, projects, store, opened, deployMinio, shares, kept, project: () => projects.get('p1')! };
 }
 
 describe('where a project\'s files go', () => {
@@ -130,5 +131,31 @@ describe('where a project\'s files go', () => {
     expect(world.shares.size).toBe(0);
     expect(await world.files.shared('../../etc/passwd')).toMatchObject({ ok: false, status: 404 });
   });
-});
 
+  it('opens the file a link was made for and nothing else, so a file put at that path later is never served by it', async () => {
+    clock.now = '2026-10-21T10:00:00.000Z';
+    const world = setUp([deployment({})]);
+    await world.files.choose('u1', world.project(), 'm1');
+    const scope = { kind: 'project' as const, project: world.project() };
+    const made = await world.files.share('u1', scope, 'a.pdf', 7);
+    if (!made.ok) throw new Error(made.why);
+    expect(made.value.etag).toMatch(/^[0-9a-f]{32}$/);
+    expect(await world.files.shared(made.value.id)).toMatchObject({ ok: true });
+    world.kept.set('a.pdf', Buffer.from('%PDF a different file put at the same name'));
+    expect(await world.files.shared(made.value.id)).toMatchObject({ ok: false, status: 404, why: expect.stringMatching(/replaced or removed/) });
+  });
+
+  it('ties a link made before links were tied to the file it opens first', async () => {
+    clock.now = '2026-10-21T10:00:00.000Z';
+    const world = setUp([deployment({})]);
+    await world.files.choose('u1', world.project(), 'm1');
+    const made = await world.files.share('u1', { kind: 'project', project: world.project() }, 'a.pdf', 7);
+    if (!made.ok) throw new Error(made.why);
+    const { etag: _etag, ...before } = made.value;
+    world.shares.set(made.value.id, before);
+    expect(await world.files.shared(made.value.id)).toMatchObject({ ok: true });
+    expect(world.shares.get(made.value.id)?.etag).toMatch(/^[0-9a-f]{32}$/);
+    world.kept.set('a.pdf', Buffer.from('replaced'));
+    expect(await world.files.shared(made.value.id)).toMatchObject({ ok: false, status: 404 });
+  });
+});

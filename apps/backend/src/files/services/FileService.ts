@@ -171,6 +171,7 @@ export class FileService {
       ownerId,
       ...(scope.kind === 'project' ? { projectId: scope.project.id } : {}),
       path,
+      ...(found.value.etag ? { etag: found.value.etag } : {}),
       name: path.split('/').pop() ?? path,
       createdAt: now,
       expiresAt: shareExpires(now, days),
@@ -203,7 +204,13 @@ export class FileService {
     const project = share.projectId ? (await this.deps.store.projects.getProjects()).find((entry) => entry.id === share.projectId && entry.ownerId === share.ownerId) : undefined;
     if (share.projectId && !project) return gone;
     const found = await this.download(share.ownerId, project ? { kind: 'project', project } : { kind: 'mine' }, share.path);
-    return found.ok ? { ok: true, value: { ...found.value, name: share.name } } : gone;
+    if (!found.ok) return gone;
+    if (share.etag && found.value.etag !== share.etag) {
+      found.value.stream.destroy();
+      return { ok: false, status: 404, why: 'The file this link was made for has been replaced or removed, so the link opens nothing.' };
+    }
+    if (!share.etag && found.value.etag) await this.deps.store.files.saveFileShare({ ...share, etag: found.value.etag });
+    return { ok: true, value: { ...found.value, name: share.name } };
   }
 
   async removeProjectFiles(ownerId: string, project: ProjectMetadata): Promise<'removed' | 'none' | 'unreachable' | 'shared'> {

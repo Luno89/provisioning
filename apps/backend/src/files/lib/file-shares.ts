@@ -3,6 +3,7 @@ export interface FileShare {
   ownerId: string;
   projectId?: string | undefined;
   path: string;
+  etag?: string | undefined;
   name: string;
   createdAt: string;
   expiresAt: string;
