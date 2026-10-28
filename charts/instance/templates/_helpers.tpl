@@ -28,3 +28,14 @@ resources: {{- toYaml . | nindent 2 }}
 {{- end -}}
 
 {{- define "instance.hostDocker" -}}{{ if and .Values.hostDocker (not .Values.pool.enabled) }}true{{ end }}{{- end -}}
+
+{{- define "instance.temporalKeys" -}}
+name: temporal-keys
+image: {{ .Values.temporal.keysImage }}
+command: [httpd, -f, -p, "7280", -h, /srv]
+{{- include "instance.resources" (dict "root" . "component" "temporalKeys") }}
+volumeMounts:
+  - name: temporal-keys
+    mountPath: /srv/.well-known
+    readOnly: true
+{{- end -}}

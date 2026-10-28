@@ -100,25 +100,23 @@ spec:
           volumeMounts:
             - name: temporal-keys
               mountPath: /keys
-        - name: temporal-keys
-          image: {{ .Values.temporal.keysImage }}
+        {{- if semverCompare ">=1.29-0" .Capabilities.KubeVersion.Version }}
+        - {{- include "instance.temporalKeys" . | nindent 10 }}
           restartPolicy: Always
-          command: [httpd, -f, -p, "7280", -h, /srv]
-          {{- include "instance.resources" (dict "root" . "component" "temporalKeys") | nindent 10 }}
           startupProbe:
             httpGet:
               path: /.well-known/temporal-jwks.json
               port: 7280
             periodSeconds: 1
             failureThreshold: 600
-          volumeMounts:
-            - name: temporal-keys
-              mountPath: /srv/.well-known
-              readOnly: true
+        {{- end }}
       volumes:
         - name: temporal-keys
           emptyDir: {}
       containers:
+        {{- if not (semverCompare ">=1.29-0" .Capabilities.KubeVersion.Version) }}
+        - {{- include "instance.temporalKeys" . | nindent 10 }}
+        {{- end }}
         - name: temporal
           image: {{ .Values.temporal.image }}
           {{- include "instance.resources" (dict "root" . "component" "temporal") | nindent 10 }}

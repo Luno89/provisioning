@@ -17,8 +17,8 @@ interface Doc {
   roleRef?: { name: string };
 }
 
-function render(extra: string[] = []): Doc[] {
-  const out = execFileSync(HELM, ['template', 'luno', CHART, '--namespace', 'nowrinkles', ...[...required, ...extra].flatMap((value) => ['--set', value])], { encoding: 'utf8' });
+function render(extra: string[] = [], kubeVersion = '1.31.0'): Doc[] {
+  const out = execFileSync(HELM, ['template', 'luno', CHART, '--namespace', 'nowrinkles', '--kube-version', kubeVersion, ...[...required, ...extra].flatMap((value) => ['--set', value])], { encoding: 'utf8' });
   return parseAllDocuments(out).map((doc) => doc.toJSON()).filter(Boolean);
 }
 
@@ -103,6 +103,13 @@ describe('the instance chart', () => {
     expect(server).toMatchObject({ name: 'temporal-keys', restartPolicy: 'Always', startupProbe: { httpGet: { path: '/.well-known/temporal-jwks.json', port: 7280 } } });
     expect(find(docs, 'Secret', 'luno-keys').data).toHaveProperty('TEMPORAL_KEY');
     expect(find(docs, 'Service', 'luno-temporal').spec.ports.map((port: { port: number }) => port.port)).toEqual([7233]);
+  });
+
+  it('serves Temporal\'s keys beside it as an ordinary container on a cluster too old for native sidecars', () => {
+    const pod = find(render([], '1.28.8'), 'Deployment', 'luno-temporal').spec.template.spec;
+    expect(pod.initContainers.map((container: { name: string }) => container.name)).toEqual(['temporal-jwks']);
+    expect(pod.containers.map((container: { name: string }) => container.name)).toEqual(['temporal-keys', 'temporal']);
+    expect(pod.containers[0].restartPolicy).toBeUndefined();
   });
 
   it('lets only its own pods reach its Temporal, Temporal\'s database and Mongo, never a sandbox or an app beside them', () => {
