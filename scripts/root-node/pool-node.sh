@@ -62,8 +62,14 @@ REGISTRIES=/etc/rancher/k3s/registries.yaml
 if [ -f "$REGISTRIES" ] && grep -q "\"$REGISTRY\"" "$REGISTRIES"; then
   ok "k3s pulls from $REGISTRY"
 else
-  [ -f "$REGISTRIES" ] && grep -q '^mirrors:' "$REGISTRIES" && die "$REGISTRIES has mirrors of its own; add $REGISTRY to it by hand"
-  printf 'mirrors:\n  "%s":\n    endpoint:\n      - "http://%s"\n' "$REGISTRY" "$REGISTRY" >> "$REGISTRIES"
+  ENTRY_FILE="$(mktemp)"
+  printf '  "%s":\n    endpoint:\n      - "http://%s"\n' "$REGISTRY" "$REGISTRY" > "$ENTRY_FILE"
+  if [ -f "$REGISTRIES" ] && grep -q '^mirrors:' "$REGISTRIES"; then
+    sed -i "/^mirrors:/r ${ENTRY_FILE}" "$REGISTRIES"
+  else
+    { echo 'mirrors:'; cat "$ENTRY_FILE"; } >> "$REGISTRIES"
+  fi
+  rm -f "$ENTRY_FILE"
   CHANGED=1
   ok "k3s pulls from $REGISTRY"
 fi

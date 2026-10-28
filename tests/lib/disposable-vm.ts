@@ -20,6 +20,7 @@ import path from 'path';
 import net from 'net';
 import { calculateRequiredVmMemoryMB } from './memory-budget.js';
 import { lanNicArgument, macFor, netplanFor, type LanSocket } from './vm-network.js';
+import { ensureImageCaches, registriesYamlForVm } from './image-cache.js';
 import { randomBytes } from 'crypto';
 
 const execFileAsync = promisify(execFile);
@@ -115,6 +116,7 @@ export interface DisposableVmOptions {
 export async function createDisposableVm(name: string, options: DisposableVmOptions = {}): Promise<DisposableVm> {
   await checkPrereqs();
   const baseImage = await ensureBaseImage();
+  await ensureImageCaches();
 
   await fs.mkdir(WORK_DIR, { recursive: true });
   const workDir = await fs.mkdtemp(path.join(WORK_DIR, `disposable-vm-${name}-`));
@@ -152,8 +154,11 @@ export async function createDisposableVm(name: string, options: DisposableVmOpti
     'ssh_pwauth: false',
     'package_update: false',
     'package_upgrade: false',
+    'write_files:',
+    '  - path: /etc/rancher/k3s/registries.yaml',
+    '    content: |',
+    ...registriesYamlForVm().split('\n').map((line) => `      ${line}`),
     ...(options.network ? [
-      'write_files:',
       '  - path: /etc/systemd/resolved.conf.d/public.conf',
       '    content: |',
       '      [Resolve]',

@@ -269,7 +269,10 @@ key's token refused, the instance's own token answered and the internal frontend
 address**: `install.sh` writes `/etc/rancher/k3s/config.yaml.d/koala-node-ports.yaml`, so every NodePort on that k3s answers only on
 127.0.0.1 and the mesh (`nodeport-addresses`; the person's own NodePorts too), Infisical, SearXNG, Crawl4AI and Gitea's SSH are
 ClusterIP, and the instance reaches Gitea and Infisical in the cluster, pushing images there and pulling them through
-`127.0.0.1:31737` (`registry.pullHost`), as the pool does. The VM suites reach the instance through an SSH tunnel to the VM's
+`127.0.0.1:31737` (`registry.pullHost`), as the pool does. Every test VM pulls Docker Hub, GHCR, Quay, registry.k8s.io and GCR images through pull-through caches on this computer
+(`tests/lib/image-cache.ts`: `registry:2` containers `koala-image-cache-*` on 127.0.0.1:5101–5105, started by `createDisposableVm`,
+which writes them into the VM's `registries.yaml` before k3s is installed; `install.sh` and `pool-node.sh` add root's registry to a
+`registries.yaml` that already has mirrors rather than replacing it), so only the first run downloads them. The VM suites reach the instance through an SSH tunnel to the VM's
 loopback (`loopback` in `createDisposableVm`); `test:byo-live` checks the backend and Gitea answer there and not on the VM's address.
 **A pattern a model, the memory keeper or a person writes runs on RE2** (`platform/lib/linear-patterns.ts`, `re2js` pinned): a task
 check's `contentPattern`, a check script's `asked`/`system`/`said` and a turn check's `matches`. It finishes in time linear in what it

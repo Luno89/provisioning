@@ -116,12 +116,19 @@ report joined "On the mesh as ${MESH_IP}"
 
 say "Trusting your root's image registry"
 mkdir -p /etc/rancher/k3s/config.yaml.d
-cat > /etc/rancher/k3s/registries.yaml <<REGISTRIES
-mirrors:
-  "${INSTANCE_REGISTRY}":
-    endpoint:
-      - "http://${INSTANCE_REGISTRY}"
-REGISTRIES
+REGISTRIES=/etc/rancher/k3s/registries.yaml
+if [ -f "$REGISTRIES" ] && grep -q "\"${INSTANCE_REGISTRY}\":" "$REGISTRIES"; then
+  :
+else
+  ENTRY_FILE="$(mktemp)"
+  printf '  "%s":\n    endpoint:\n      - "http://%s"\n' "$INSTANCE_REGISTRY" "$INSTANCE_REGISTRY" > "$ENTRY_FILE"
+  if [ -f "$REGISTRIES" ] && grep -q '^mirrors:' "$REGISTRIES"; then
+    sed -i "/^mirrors:/r ${ENTRY_FILE}" "$REGISTRIES"
+  else
+    { echo 'mirrors:'; cat "$ENTRY_FILE"; } >> "$REGISTRIES"
+  fi
+  rm -f "$ENTRY_FILE"
+fi
 cat > /etc/rancher/k3s/config.yaml.d/koala-node-ports.yaml <<NODEPORTS
 kube-proxy-arg+:
   - nodeport-addresses=127.0.0.1/32,100.64.0.0/10
