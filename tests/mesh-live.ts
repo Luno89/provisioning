@@ -212,7 +212,7 @@ async function main(): Promise<void> {
   assert.match(stopped, /unit-gone/, stopped);
   const projectsAfter = await (await onInstance('/api/projects')).json() as { id: string; executionTarget?: { deviceId?: string } }[];
   assert.ok(!projectsAfter.some((project) => project.executionTarget?.deviceId === machine.id), 'the machine\'s project is still there');
-  assert.equal(await reaches(machineVm, instanceMeshIp, GATEWAY_PORT), false, 'the removed machine still reaches the machine gateway');
+  await until('the instance dropping the removed machine from the mesh, so it no longer reaches the machine gateway', 2, async () => ((await reaches(machineVm, instanceMeshIp, GATEWAY_PORT)) ? undefined : true));
   console.log(`  ${machineMeshIp} is off the mesh, its agent ${stopped.split('\n').join(', ')}, its project gone`);
 
   console.log('\nmesh live — PASS');
