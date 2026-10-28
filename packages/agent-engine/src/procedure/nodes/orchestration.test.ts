@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { createOrchestrationNodes, REFUSED_CALL, RUN_IN_WORKSPACE, type OrchestrationPorts } from './orchestration.js';
+import { callNeedsAsking, createOrchestrationNodes, REFUSED_CALL, RUN_IN_WORKSPACE, type OrchestrationPorts } from './orchestration.js';
 import { approveToolCalls, callTool, runToolCalls } from './tools.js';
 import { askMachineAgent, delegate, externalAgent, fanOut, waitForPerson, whereItRuns } from './control.js';
 import type { BuiltInNode, NodeImplementation } from '../implementation.js';
@@ -718,5 +718,21 @@ describe('an agent on a machine working on a workspace', () => {
     });
     expect(runExternal).toHaveBeenCalledWith(expect.objectContaining({ brief: 'work: wrote label.txt\nexpected: label.txt says Axial Concepts' }));
     expect(runExternal.mock.calls[0]).not.toHaveProperty('0.context');
+  });
+});
+
+describe('whether a call is asked about, the same rule for a model\'s call and run_in_workspace', () => {
+  const offered = [{ name: 'run_command', binding: 'environment' as const }, { name: 'delete_file', binding: 'environment' as const, destructive: true }, { name: 'store_file', binding: 'platform' as const, destructive: true }];
+  const sandbox = { kind: 'sandbox' } as never;
+  const machine = { kind: 'machine' } as never;
+  it('asks for every call on a machine, for a destructive call elsewhere, and never for an environment tool inside a sandbox that runs unasked', () => {
+    expect(callNeedsAsking('run_command', { ask: 'on-a-machine', offered, environment: machine, sandboxCallsUnasked: true })).toBe(true);
+    expect(callNeedsAsking('run_command', { ask: 'on-a-machine', offered, environment: sandbox, sandboxCallsUnasked: true })).toBe(false);
+    expect(callNeedsAsking('run_command', { ask: 'on-a-machine', offered, environment: sandbox, sandboxCallsUnasked: false })).toBe(false);
+    expect(callNeedsAsking('delete_file', { ask: 'on-a-machine', offered, environment: sandbox, sandboxCallsUnasked: true })).toBe(false);
+    expect(callNeedsAsking('delete_file', { ask: 'on-a-machine', offered, environment: sandbox, sandboxCallsUnasked: false })).toBe(true);
+    expect(callNeedsAsking('store_file', { ask: 'on-a-machine', offered, environment: sandbox, sandboxCallsUnasked: true })).toBe(true);
+    expect(callNeedsAsking('run_command', { ask: 'always', offered, environment: sandbox, sandboxCallsUnasked: true })).toBe(true);
+    expect(callNeedsAsking('store_file', { ask: 'never', offered, environment: machine, sandboxCallsUnasked: false })).toBe(false);
   });
 });

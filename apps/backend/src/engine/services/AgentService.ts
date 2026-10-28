@@ -1,3 +1,6 @@
+import { accessOf, grantProblem } from '../lib/tool-access.js';
+import { isMcpToolName } from '../lib/mcp-tools.js';
+import type { Principal } from '../../platform/lib/permissions.js';
 import { capabilitiesOf, effectiveTools, type ToolContract } from '@koala/engine-core';
 import {
   environmentFor,
@@ -250,7 +253,7 @@ export class AgentService {
     return this.started(ownerId, after.find((one) => one.slug === slug) ?? agent, tools, servers);
   }
 
-  async save(ownerId: string, input: unknown): Promise<SaveAgentOutcome> {
+  async save(ownerId: string, input: unknown, granter?: Principal | undefined): Promise<SaveAgentOutcome> {
     const [tools, procedures, { agents }, servers] = await Promise.all([
       this.options.tools(ownerId),
       this.options.procedures(ownerId),
@@ -266,8 +269,15 @@ export class AgentService {
       servers: servers.map((server) => server.name),
     });
     if (problems.length > 0) return { saved: false, problems };
-
     const wanted: Persona = { ...(input as Persona), ownerId };
+    if (granter) {
+      const refused = (wanted.tools ?? []).flatMap((name) => {
+        const problem = grantProblem(name, accessOf(name, tools.find((tool) => tool.name === name), isMcpToolName(name)), granter, ownerId);
+        return problem ? [problem] : [];
+      });
+      if (refused.length > 0) return { saved: false, problems: refused };
+    }
+
     const builtIn = (await this.options.agents.agents(ownerId, { withHidden: true })).find((one) => one.slug === wanted.slug && one.ownerId === undefined);
     if (builtIn && sameSeededRow({ ...toRecord(builtIn), ownerId: undefined }, { ...toRecord(wanted), ownerId: undefined })) {
       await this.options.records.remove(ownerId, wanted.slug);

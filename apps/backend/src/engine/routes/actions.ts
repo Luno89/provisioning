@@ -1,5 +1,5 @@
 import { Router, type Request, type Response } from 'express';
-import { asyncRoute } from '../../platform/index.js';
+import { asyncRoute, principalFrom } from '../../platform/index.js';
 import type { ActionDecision, ActionService } from '../services/ActionService.js';
 
 export interface ActionsRouterDeps {
@@ -21,7 +21,7 @@ export function actionsRouter(deps: ActionsRouterDeps): Router {
   }));
 
   router.post('/:id/apply', asyncRoute(async (req, res) => {
-    answer(res, await deps.actions.apply(userOf(req).id, String(req.params.id ?? '')));
+    answer(res, await deps.actions.apply(userOf(req).id, String(req.params.id ?? ''), principalFrom(req)));
   }));
 
   router.get('/:id/progress', asyncRoute(async (req, res) => {

@@ -324,9 +324,20 @@ its owner or the operator; a shared project's thirteen actions are each role's e
 permission** is a row in `PERMISSIONS` and a call to `authorize` where the action happens; `permissions.test.ts` checks every row allowed
 and refused. The backend lint refuses `.isAdmin` reads and `can(` anywhere but `permissions.ts` and the stores, and
 `permissions-reach.test.ts` fails on a route that decides on its own. Asking before a tool call, auto mode and "Allow for this run" are a
-separate layer: they decide whether a person is asked about an allowed call, never whether it is allowed. Still to come (steps 2–6): tools
-declaring what they need and checked through `authorize` at call time, run grants, root as an OpenID Connect provider, and the frontend's
-`can`.
+separate layer: they decide whether a person is asked about an allowed call, never whether it is allowed. **Tools go through the same function** (step 2, 2026-10-28): `engine/lib/tool-access.ts` declares what every shipped tool reaches
+(`TOOL_ACCESS`: nothing, the install, the person's own records, a deployment, a cluster, or a project at `see`, `propose`, `change` or
+`see-secrets`, with the project found from the call's `projectId`/`project`/`treeId`/`branchId`/`leafId`/`leafIds`/`taskId` or the run's own
+project, tree or chat by `engine/lib/project-resolver.ts`; an MCP tool reaches the project, `see` when it reads; a person's own tool is theirs
+alone), and `tool-access.test.ts` fails on a shipped tool with no declaration. A run's ticket carries its starter's **principal** (the owner's
+claims, or for a hub member's ask `memberPrincipal` from their role; children copy it), the tool runtime asks `authorize` with it before any
+handler runs and `resolve-tools` offers only what it could allow (`offerable`), so a client's ask reads and answers while a collaborator
+changes; a refusal to a member names nothing outside the project. The member allow-list (`MEMBER_REACH`) is gone. A hub member reaches an
+MCP server only when its owner **attached it to the project** (`projects` on the server, a project's Settings → MCP servers, the Studio's
+"Used by projects"; a workspace server is reached in the project's workspace without attaching), at their role's level (a hosted server's tools
+are changes until the person marks one read-only). Agent and tree auto mode never apply to member work. Granting a tool an agent
+you could not use yourself is refused (`grantProblem`), applying a deploy card checks the cluster again with the person's principal, and
+`run_in_workspace` asks through the same rule as any call (`callNeedsAsking`). Still to come (steps 3–6): run grants ended on revocation,
+root as an OpenID Connect provider, and the frontend's `can`.
 
 The public-path allow-list lives in `platform/middleware/auth.ts`, **not** in `accounts/routes/auth.ts` — a router
 that could exempt itself is a router that can quietly stop being protected, so adding a route that

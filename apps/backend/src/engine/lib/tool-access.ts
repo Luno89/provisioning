@@ -183,3 +183,10 @@ export function offerable(access: ToolAccess, principal: Principal, ownerId: str
 
 export const withheldWhy = (asker: Pick<ActingFor, 'email'> | undefined): string =>
   asker ? `it reaches beyond the shared project ${asker.email} is on` : 'it reaches beyond what this run may do';
+
+export function grantProblem(tool: string, access: ToolAccess, granter: Principal, ownerId: string): string | undefined {
+  if (offerable(access, granter, ownerId)) return undefined;
+  const target = resourceFor(access, ownerId, {}, {});
+  const said = target && !('outside' in target) ? authorize(granter, target.action as never, target.resource) : undefined;
+  return `you cannot give an agent ${tool}, which you could not use yourself${said && !said.allowed ? `: ${said.error}` : ''}`;
+}

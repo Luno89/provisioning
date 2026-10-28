@@ -148,6 +148,23 @@ export interface OrchestrationPorts {
 }
 
 export const REFUSED_CALL = 'you did not approve that call, so it did not run';
+
+export interface AskingContext {
+  ask: string;
+  offered: readonly Pick<ToolSet[number], 'name' | 'destructive' | 'binding'>[];
+  environment: EnvironmentValue | undefined;
+  sandboxCallsUnasked: boolean;
+}
+
+const RUN_COMMAND_SHAPE = { name: 'run_command', binding: 'environment' as const };
+
+export function callNeedsAsking(name: string, context: AskingContext): boolean {
+  if (context.ask === 'never') return false;
+  if (context.ask === 'always') return true;
+  const tool = context.offered.find((entry) => entry.name === name);
+  if (context.environment?.kind === 'sandbox' && context.sandboxCallsUnasked && tool?.binding === 'environment') return false;
+  return context.environment?.kind === 'machine' || tool?.destructive === true;
+}
 /** Shown on a saved tool call that never got a result — the run ended before it could run. */
 export const NOT_RUN_CALL = 'it did not run — the run ended before it got a result';
 
@@ -262,16 +279,7 @@ export function createOrchestrationNodes(ports: OrchestrationPorts): NodeImpleme
       const environment = inputs.environment as EnvironmentValue | undefined;
       const ask = textOf(node.settings, 'ask', 'on-a-machine');
       const offered = (inputs.offered as ToolSet | undefined) ?? [];
-      const destructive = new Set(offered.filter((tool) => tool.destructive === true).map((tool) => tool.name));
-      const inSandbox = environment?.kind === 'sandbox' && ports.sandboxCallsUnasked?.() === true
-        ? new Set(offered.filter((tool) => tool.binding === 'environment').map((tool) => tool.name))
-        : new Set<string>();
-      const needsAsking = (call: ToolCallRequest): boolean => {
-        if (ask === 'never') return false;
-        if (ask === 'always') return true;
-        if (inSandbox.has(call.name)) return false;
-        return environment?.kind === 'machine' || destructive.has(call.name);
-      };
+      const needsAsking = (call: ToolCallRequest): boolean => callNeedsAsking(call.name, { ask, offered, environment, sandboxCallsUnasked: ports.sandboxCallsUnasked?.() === true });
 
       if (!reply.toolCalls.some(needsAsking)) {
         return { exit: 'approved', outputs: { approved: reply, refused: [] } };
@@ -496,6 +504,13 @@ export function createOrchestrationNodes(ports: OrchestrationPorts): NodeImpleme
       const callTool = async (asked: { callId: string; name: string; arguments: string }): Promise<ServedCallAnswer> => {
         if (asked.name === RUN_IN_WORKSPACE && workspace && persona) {
           const command: ToolCallRequest = { id: asked.callId, name: 'run_command', arguments: asked.arguments };
+          if (callNeedsAsking('run_command', { ask: 'on-a-machine', offered: [RUN_COMMAND_SHAPE], environment: workspace, sandboxCallsUnasked: ports.sandboxCallsUnasked?.() === true })) {
+            run.emit({ type: 'tool.called', nodeId: node.id, callId: command.id, name: command.name, args: command.arguments } as never);
+            if (!(await ports.approve({ nodeId: node.id, call: command, environment: workspace, run }))) {
+              run.emit({ type: 'tool.result', nodeId: node.id, callId: command.id, ok: false, digest: REFUSED_CALL } as never);
+              return { ok: false, content: REFUSED_CALL };
+            }
+          }
           const runsCommands = { ...persona, tools: [...new Set([...(persona.tools ?? []), 'run_command'])] };
           const { outcome } = await runOne(request, command, runsCommands, workspace);
           return answerOf(outcome);

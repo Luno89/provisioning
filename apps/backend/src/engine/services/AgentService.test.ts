@@ -1,3 +1,4 @@
+import { asPerson } from '../../platform/lib/permissions.js';
 import { describe, it, expect, vi } from 'vitest';
 import { type Persona } from '@koala/agent-engine';
 import { testDatabase } from '../../platform/lib/test-database.js';
@@ -345,5 +346,15 @@ describe('how an agent is used', () => {
     expect(listed.find((one) => one.slug === 'memory-keeper')?.usedBy).toContainEqual(expect.objectContaining({ kind: 'platform' }));
     expect(listed.find((one) => one.slug === 'grove')?.usedBy).toContainEqual({ kind: 'tree-type', by: 'Default' });
     expect(listed.find((one) => one.slug === 'research')?.usedBy).toContainEqual({ kind: 'hand-off', by: 'koala' });
+  });
+});
+
+describe('what a person may give their agents', () => {
+  it('refuses a tool the granter could not use, and lets the operator give it', async () => {
+    const { agents } = await service();
+    const refused = await agents.save('user-1', agent({ tools: ['read_file', 'request_cluster_access'] }), asPerson('user-1'));
+    expect(refused).toEqual({ saved: false, problems: ['you cannot give an agent request_cluster_access, which you could not use yourself: Only the operator of this server can open the platform\'s own namespaces.'] });
+    const given = await agents.save('user-1', agent({ tools: ['read_file', 'request_cluster_access'] }), { kind: 'person', id: 'user-1', claims: [{ role: 'person' }, { role: 'operator' }] });
+    expect(given).toMatchObject({ saved: true });
   });
 });

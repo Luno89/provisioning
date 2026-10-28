@@ -1,3 +1,4 @@
+import { asPerson, type Principal } from '../../platform/lib/permissions.js';
 import type { ReleaseSettings } from '../../releases/index.js';
 import type { ActionProposal } from '../lib/action-proposals.js';
 import { DECIDABLE } from '../lib/action-proposals.js';
@@ -48,6 +49,7 @@ export class ActionService {
   constructor(private readonly deps: {
     store: ActionStore;
     deployer: ActionDeployer;
+    clusters?: { getById(id: string, principal: Principal, action: 'deploy-to'): Promise<unknown> } | undefined;
     servers?: ActionServers | undefined;
     dependencies?: Pick<import('./WorkspaceDependencyService.js').WorkspaceDependencyService, 'save'> | undefined;
     agents?: ActionAgents | undefined;
@@ -73,14 +75,14 @@ export class ActionService {
     return { found: proposal };
   }
 
-  async apply(ownerId: string, id: string): Promise<ActionDecision> {
+  async apply(ownerId: string, id: string, principal?: Principal | undefined): Promise<ActionDecision> {
     const checked = await this.decidable(ownerId, id);
     if (!('found' in checked)) return checked;
     const proposal = checked.found;
 
     await this.deps.store.engine.saveActionProposal({ ...proposal, status: 'applying', updatedAt: this.now() });
     try {
-      const { result, started } = await this.execute(ownerId, proposal);
+      const { result, started } = await this.execute(ownerId, proposal, principal);
       const applied: ActionProposal = { ...proposal, status: 'applied', result, ...(started ? { started } : {}), updatedAt: this.now() };
       delete applied.reason;
       await this.deps.store.engine.saveActionProposal(applied);
@@ -154,15 +156,16 @@ export class ActionService {
     return { result, started: { server: { id: server.id, name: server.name, added: !spec.server }, ...(building.length ? { images: building } : {}) } };
   }
 
-  private async execute(ownerId: string, proposal: ActionProposal): Promise<Executed> {
+  private async execute(ownerId: string, proposal: ActionProposal, principal?: Principal | undefined): Promise<Executed> {
     if (proposal.kind === 'add_mcp_server') return this.addServer(ownerId, proposal.id, JSON.parse(proposal.params.spec ?? '{}') as ServerProposal);
-    return { result: await this.carryOut(ownerId, proposal) };
+    return { result: await this.carryOut(ownerId, proposal, principal) };
   }
 
-  private async carryOut(ownerId: string, proposal: ActionProposal): Promise<string> {
+  private async carryOut(ownerId: string, proposal: ActionProposal, principal?: Principal | undefined): Promise<string> {
     const { params } = proposal;
     switch (proposal.kind) {
       case 'deploy_app': {
+        if (this.deps.clusters && !(await this.deps.clusters.getById(params.clusterId ?? '', principal ?? asPerson(ownerId), 'deploy-to'))) throw new Error('that cluster is not one you can deploy to');
         const deal = await this.deps.deployer.deployApp({
           appType: params.appType, name: params.name, clusterId: params.clusterId, strategy: params.strategy ?? 'native',
         }, ownerId);

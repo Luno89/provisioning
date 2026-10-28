@@ -302,3 +302,25 @@ describe('a card setting an alert', () => {
     expect((await post(harness.url('/api/actions/a2/apply'))).data).toMatchObject({ status: 'failed', reason: 'the threshold for "memory" is in % of its limit, between 10 and 100' });
   });
 });
+
+describe('applying a deploy card checks its cluster again', () => {
+  let harness: Harness;
+  const deployApp = vi.fn(async () => ({ id: 'wf-1', resourceId: 'd1', event: 'app-deploy' }));
+  const getById = vi.fn(async (id: string) => (id === 'c1' ? { id: 'c1' } : undefined));
+
+  beforeEach(async () => {
+    harness = await mountRouter({ prefix: '/api/actions', router: (db) => actionsRouter({ actions: new ActionService({ store: db, deployer: { deployApp, promoteProjectBuild: vi.fn() } as never, clusters: { getById } }) }) });
+  });
+
+  afterEach(() => harness.close());
+
+  it('deploys to a cluster the person may deploy to, and fails the card for one they may not', async () => {
+    await harness.db.engine.saveActionProposal(proposal({ id: 'a1', params: { appType: 'odoo', name: 'shop', clusterId: 'c1' } }));
+    expect((await post(harness.url('/api/actions/a1/apply'))).data.status).toBe('applied');
+    expect(getById).toHaveBeenCalledWith('c1', expect.objectContaining({ id: TEST_USER.id }), 'deploy-to');
+    expect(deployApp).toHaveBeenCalledTimes(1);
+    await harness.db.engine.saveActionProposal(proposal({ id: 'a2', params: { appType: 'odoo', name: 'shop', clusterId: 'c9' } }));
+    expect((await post(harness.url('/api/actions/a2/apply'))).data).toMatchObject({ status: 'failed', reason: 'that cluster is not one you can deploy to' });
+    expect(deployApp).toHaveBeenCalledTimes(1);
+  });
+});

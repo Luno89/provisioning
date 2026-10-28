@@ -1,4 +1,4 @@
-import { claimSettingsFrom, principalOf, roleFromEnv, servesTenants, type Database } from '../../platform/index.js';
+import { claimSettingsFrom, principalOf, roleFromEnv, servesTenants, type Database, type Principal } from '../../platform/index.js';
 import { ActionService } from '../services/ActionService.js';
 import {
   EgressService, EgressProxyService, AccessService, type TemporalBridge, type InfrastructureService,
@@ -32,6 +32,7 @@ export interface ActionsWiringDeps {
   concluded: (ownerId: string, conversationId: string | undefined) => void;
   infra: InfrastructureService;
   infisical: InfisicalService;
+  clusters: { getById(id: string, principal: Principal, action: 'deploy-to'): Promise<unknown> };
 }
 
 export function wireActions(deps: ActionsWiringDeps): void {
@@ -41,6 +42,7 @@ export function wireActions(deps: ActionsWiringDeps): void {
   tenant.use('/api/actions', actionsRouter({ actions: new ActionService({
     store: db,
     deployer: deps.temporalBridge,
+    clusters: deps.clusters,
     releases: deps.releaseSettings,
     treeModels: deps.treeModels,
     alerts: {

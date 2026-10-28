@@ -417,7 +417,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
 
   wireActions({
     tenant, db, env: process.env, egressKey: keys.egress, kubeconfig: '/tmp/kubeconfig-provisioning-lunorica', temporalBridge, monitoring, releaseSettings,
-    treeModels, mcpCatalogue, workspaceDependencies, agentDirectory, agentsHolder, concluded, infra: infraService, infisical: infisicalService,
+    treeModels, mcpCatalogue, workspaceDependencies, agentDirectory, agentsHolder, concluded, infra: infraService, infisical: infisicalService, clusters: clusterService,
   });
 
   if (process.env.NODE_ENV !== 'test' && servesTenants(role)) {

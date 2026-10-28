@@ -1,6 +1,6 @@
 import { Router, type Request, type Response } from 'express';
 import { LANGUAGE_IDS } from '@koala/agent-engine';
-import { asyncRoute } from '../../platform/index.js';
+import { asyncRoute, principalFrom } from '../../platform/index.js';
 import type { AgentService } from '../services/AgentService.js';
 
 export interface AgentsRouterDeps {
@@ -31,7 +31,7 @@ export function agentsRouter(deps: AgentsRouterDeps): Router {
     const slug = String(req.params.slug);
     if (req.body?.slug !== slug) return res.status(400).json({ error: `the agent in the body is not called "${slug}"` });
 
-    const outcome = await deps.agents.save(userOf(req).id, req.body);
+    const outcome = await deps.agents.save(userOf(req).id, req.body, principalFrom(req));
     if (!outcome.saved) return res.status(400).json({ error: 'The agent does not hold together', problems: outcome.problems });
     return res.json({ agent: outcome.agent });
   }));
