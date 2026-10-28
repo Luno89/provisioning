@@ -15,6 +15,7 @@ import { mainHeads } from '../apps/backend/src/hub/services/HubRepoSync.js';
 import { GiteaService } from '../apps/backend/src/projects/services/GiteaService.js';
 import { InfrastructureService } from '../apps/backend/src/infrastructure/services/InfrastructureService.js';
 import { fetchSide, handOff, sessionFrom } from './lib/handoff.js';
+import { signUp as signUpWithCode } from './lib/sign-up.js';
 
 const ROOT = process.env.HUB_LIVE_ROOT ?? 'http://localhost:3001';
 const HUB = process.env.HUB_LIVE_HUB ?? ROOT;
@@ -46,8 +47,8 @@ const stamp = Date.now().toString(36);
 const person = (name: string): Person => ({ name, email: `hub-live-${name}-${stamp}@nowrinkles.test`, password: crypto.randomBytes(18).toString('base64url') });
 
 async function signUp(who: Person, code: string): Promise<void> {
-  const registered = await client(ROOT).post('/auth/register', { email: who.email, password: who.password, inviteCode: code });
-  assert.equal(registered.status, 200, `${who.name} could not sign up: ${JSON.stringify(registered.data)}`);
+  const registered = await signUpWithCode(`${ROOT}/api`, { email: who.email, password: who.password, inviteCode: code });
+  assert.equal(registered.status, 200, `${who.name} could not sign up: ${registered.error}`);
   const login = await client(ROOT).post('/auth/login', { email: who.email, password: who.password });
   const cookie = sessionOf(login.headers);
   assert.ok(login.status === 200 && cookie, `${who.name} could not sign in: ${JSON.stringify(login.data)}`);

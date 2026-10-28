@@ -16,6 +16,7 @@ import { createHash } from 'node:crypto';
 import { promisify } from 'util';
 import { createDisposableVm } from './lib/disposable-vm.js';
 import { InfrastructureService } from '../apps/backend/src/infrastructure/services/InfrastructureService.js';
+import { signUp } from './lib/sign-up.js';
 
 const execFileAsync = promisify(execFile);
 const BASE = (process.env.BACKEND_URL || 'http://localhost:3001').replace(/\/$/, '');
@@ -69,11 +70,8 @@ async function mintInvite(adminCookie: string): Promise<string> {
 }
 
 async function registerAndLogin(email: string, password: string, inviteCode: string): Promise<string> {
-  const reg = await fetch(`${BASE}/api/auth/register`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, password, inviteCode }),
-  });
-  if (!reg.ok) throw new Error(`Registration failed: HTTP ${reg.status} ${await reg.text()}`);
+  const reg = await signUp(`${BASE}/api`, { email, password, inviteCode });
+  if (reg.status !== 200) throw new Error(`Registration failed: HTTP ${reg.status} ${reg.error ?? ''}`);
 
   const login = await fetch(`${BASE}/api/auth/login`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },

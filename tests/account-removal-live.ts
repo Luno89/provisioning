@@ -15,6 +15,7 @@ import { createKubeRunner } from '../apps/backend/src/engine-host/sandboxes/kube
 import { labelValue } from '../apps/backend/src/engine-host/sandboxes/workspace.js';
 import { GiteaService } from '../apps/backend/src/projects/services/GiteaService.js';
 import { InfrastructureService } from '../apps/backend/src/infrastructure/services/InfrastructureService.js';
+import { signUp } from './lib/sign-up.js';
 
 const BASE = process.env.ACCOUNT_REMOVAL_LIVE_URL ?? 'http://localhost:3001/api';
 const ADMIN = process.env.MECHANICS_ADMIN ?? process.env.GROVE_LIVE_OWNER;
@@ -64,8 +65,8 @@ async function main(): Promise<void> {
   try {
     const http = await stage('a new account is invited and registered', async () => {
       const invite = (await adminHttp.post('/admin/invites')).data as { code: string };
-      const registered = await axios.post(`${BASE}/auth/register`, { email, password, inviteCode: invite.code }, { proxy: false, validateStatus: () => true });
-      assert.equal(registered.status, 200, JSON.stringify(registered.data));
+      const registered = await signUp(BASE, { email, password, inviteCode: invite.code });
+      assert.equal(registered.status, 200, registered.error);
       ownerId = (await db.accounts.getUserByEmail(email))!.id;
       return as(session({ id: ownerId, email }));
     });

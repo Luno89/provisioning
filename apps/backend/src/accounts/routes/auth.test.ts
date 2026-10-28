@@ -128,16 +128,101 @@ describe('auth router', () => {
     expect(first?.isAdmin).toBe(true);
   });
 
+  const post = (path: string, body: unknown, cookie?: string) => fetch(ctx.url(path), {
+    method: 'POST', headers: { 'content-type': 'application/json', ...(cookie ? { cookie } : {}) }, body: JSON.stringify(body),
+  });
+  const signUpWith = async (email: string, inviteCode: string) => {
+    const answer = await post('/api/auth/register', { email, password: 'hunter2hunter2', inviteCode });
+    return { status: answer.status, body: await answer.json() as { verify?: string; devCode?: string; error?: string } };
+  };
+
+  it('keeps a sign-up pending until the emailed code is entered, spending the invite and signing in only then', async () => {
+    await registerAndLogin('first@example.com', 'hunter2hunter2');
+    await db.accounts.saveInvite({ id: 'inv-code', codeHash: inviteCodeHash('CODE'), createdBy: 'first', createdAt: new Date().toISOString() });
+    const started = await signUpWith('Pending@Example.com', 'CODE');
+    expect(started.status).toBe(200);
+    expect(started.body.verify).toEqual(expect.any(String));
+    expect(started.body.devCode).toMatch(/^\d{6}$/);
+    expect(await db.accounts.getUserByEmail('pending@example.com')).toBeUndefined();
+    expect((await db.accounts.getInviteByCode('CODE'))?.usedBy).toBeUndefined();
+    const pending = await db.accounts.getPendingSignUp(started.body.verify!);
+    expect(JSON.stringify(pending)).not.toContain(started.body.devCode);
+    expect(JSON.stringify(pending)).not.toContain('"CODE"');
+
+    const done = await post('/api/auth/register/verify', { id: started.body.verify, code: started.body.devCode });
+    expect(done.status).toBe(200);
+    const session = done.headers.getSetCookie().map((line) => line.split(';')[0]!).find((pair) => pair.startsWith('session='))!;
+    expect(done.headers.getSetCookie().some((line) => line.startsWith('device='))).toBe(true);
+    expect((await (await fetch(ctx.url('/api/auth/me'), { headers: { cookie: session } })).json() as { email: string }).email).toBe('pending@example.com');
+    const user = await db.accounts.getUserByEmail('pending@example.com');
+    expect(user?.emailVerified).toBe(true);
+    expect(user?.isAdmin).toBeUndefined();
+    expect((await db.accounts.getInviteByCode('CODE'))?.usedBy).toBe(user?.id);
+    expect(await db.accounts.getPendingSignUp(started.body.verify!)).toBeUndefined();
+    expect((await post('/api/auth/register/verify', { id: started.body.verify, code: started.body.devCode })).status).toBe(410);
+  });
+
+  it('ends a sign-up after five wrong codes, and refuses an expired one', async () => {
+    await registerAndLogin('first@example.com', 'hunter2hunter2');
+    await db.accounts.saveInvite({ id: 'inv-guess', codeHash: inviteCodeHash('GUESS'), createdBy: 'first', createdAt: new Date().toISOString() });
+    const started = await signUpWith('guess@example.com', 'GUESS');
+    const wrong = started.body.devCode === '000000' ? '111111' : '000000';
+    expect((await post('/api/auth/register/verify', { id: started.body.verify, code: 'abc' })).status).toBe(400);
+    for (let n = 0; n < 4; n += 1) expect((await post('/api/auth/register/verify', { id: started.body.verify, code: wrong })).status).toBe(401);
+    expect((await post('/api/auth/register/verify', { id: started.body.verify, code: wrong })).status).toBe(410);
+    expect((await post('/api/auth/register/verify', { id: started.body.verify, code: started.body.devCode })).status).toBe(410);
+    expect(await db.accounts.getUserByEmail('guess@example.com')).toBeUndefined();
+
+    const late = await signUpWith('late@example.com', 'GUESS');
+    const pending = (await db.accounts.getPendingSignUp(late.body.verify!))!;
+    await db.accounts.savePendingSignUp({ ...pending, expiresAt: new Date(Date.now() - 1000) });
+    expect((await post('/api/auth/register/verify', { id: late.body.verify, code: late.body.devCode })).status).toBe(410);
+  });
+
+  it('sends a new code that replaces the last, a few times at most', async () => {
+    await registerAndLogin('first@example.com', 'hunter2hunter2');
+    await db.accounts.saveInvite({ id: 'inv-again', codeHash: inviteCodeHash('AGAIN'), createdBy: 'first', createdAt: new Date().toISOString() });
+    const started = await signUpWith('again@example.com', 'AGAIN');
+    const resent = await (await post('/api/auth/register/resend', { id: started.body.verify })).json() as { verify: string; devCode: string };
+    expect(resent.verify).toBe(started.body.verify);
+    if (resent.devCode !== started.body.devCode) expect((await post('/api/auth/register/verify', { id: started.body.verify, code: started.body.devCode })).status).toBe(401);
+    for (let n = 0; n < 3; n += 1) expect((await post('/api/auth/register/resend', { id: started.body.verify })).status).toBe(200);
+    expect((await post('/api/auth/register/resend', { id: started.body.verify })).status).toBe(429);
+    expect((await post('/api/auth/register/resend', { id: 'no-such-sign-up' })).status).toBe(410);
+  });
+
+  it('refuses a malformed email, and an email taken while the sign-up waited', async () => {
+    await registerAndLogin('first@example.com', 'hunter2hunter2');
+    await db.accounts.saveInvite({ id: 'inv-taken', codeHash: inviteCodeHash('TAKEN'), createdBy: 'first', createdAt: new Date().toISOString() });
+    for (const email of ['no-at-sign', 'two@@example.com', 'a@nodot', 'sp ace@example.com', 'a@example..com', `${'a'.repeat(250)}@example.com`]) {
+      const refused = await signUpWith(email, 'TAKEN');
+      expect(refused.status, email).toBe(400);
+      expect(refused.body.error).toBe('That is not an email address; check it and try again');
+    }
+    expect((await signUpWith('first@example.com', 'TAKEN')).status).toBe(400);
+    const started = await signUpWith('taken@example.com', 'TAKEN');
+    await db.accounts.saveUser({ id: 'u-taken', email: 'taken@example.com', twoFactorEnabled: false, emailVerified: true, createdAt: new Date().toISOString() });
+    const done = await post('/api/auth/register/verify', { id: started.body.verify, code: started.body.devCode });
+    expect(done.status).toBe(400);
+    expect((await db.accounts.getInviteByCode('TAKEN'))?.usedBy).toBeUndefined();
+  });
+
+  it('keeps the first admin signing up at once with the setup code, its address not yet confirmed', async () => {
+    const first = await post('/api/auth/register', { email: 'owner@example.com', password: 'hunter2hunter2', inviteCode: SETUP_CODE });
+    expect(first.status).toBe(200);
+    expect(((await first.json()) as { verify?: string }).verify).toBeUndefined();
+    const owner = await db.accounts.getUserByEmail('owner@example.com');
+    expect(owner?.isAdmin).toBe(true);
+    expect(owner?.emailVerified).toBe(false);
+  });
+
   it('consumes an invite exactly once', async () => {
     await registerAndLogin('first@example.com', 'hunter2hunter2');
     await db.accounts.saveInvite({ id: 'inv-letmein', codeHash: inviteCodeHash('LETMEIN'), createdBy: 'first', createdAt: new Date().toISOString() });
 
-    const ok = await fetch(ctx.url('/api/auth/register'), {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ email: 'second@example.com', password: 'hunter2hunter2', inviteCode: 'LETMEIN' }),
-    });
+    const ok = await signUpWith('second@example.com', 'LETMEIN');
     expect(ok.status).toBe(200);
+    expect((await post('/api/auth/register/verify', { id: ok.body.verify, code: ok.body.devCode })).status).toBe(200);
     expect((await db.accounts.getUserByEmail('second@example.com'))?.isAdmin).toBeUndefined();
 
     const reuse = await fetch(ctx.url('/api/auth/register'), {
@@ -160,11 +245,11 @@ describe('auth router', () => {
   it('lets only one of two sign-ups at the same moment use an invite', async () => {
     await registerAndLogin('first@example.com', 'hunter2hunter2');
     await db.accounts.saveInvite({ id: 'inv-once', codeHash: inviteCodeHash('ONCE'), createdBy: 'first', createdAt: new Date().toISOString() });
-    const signUp = (email: string) => fetch(ctx.url('/api/auth/register'), {
-      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email, password: 'hunter2hunter2', inviteCode: 'ONCE' }),
-    });
-    const both = await Promise.all([signUp('a@example.com'), signUp('b@example.com'), signUp('c@example.com')]);
-    expect(both.map((response) => response.status).sort()).toEqual([200, 403, 403]);
+    const started = await Promise.all(['a@example.com', 'b@example.com', 'c@example.com'].map((email) => signUpWith(email, 'ONCE')));
+    expect(started.map((answer) => answer.status)).toEqual([200, 200, 200]);
+    const done = await Promise.all(started.map((answer) => post('/api/auth/register/verify', { id: answer.body.verify, code: answer.body.devCode })));
+    expect(done.map((response) => response.status).sort()).toEqual([200, 403, 403]);
+    expect((await db.accounts.getUsers()).filter((user) => !user.isAdmin)).toHaveLength(1);
   });
 
   it('asks for a code against a signed challenge, ends it after five wrong codes, and never takes the challenge as a session', async () => {
@@ -244,7 +329,10 @@ describe('auth router', () => {
         const cookie = (started.headers.get('set-cookie') ?? '').split(';')[0]!;
         return fetch(ctx.url(`${back.pathname}${back.search}`), { redirect: 'manual', headers: { cookie } });
       };
-      const user = (await db.accounts.getUserByEmail('mock-github-user@example.com'))!;
+      const unconfirmed = await viaGithub();
+      expect(decodeURIComponent(unconfirmed.headers.get('location')!)).toContain('that address was never confirmed, so GitHub cannot join it');
+      expect((await db.accounts.getUserByEmail('mock-github-user@example.com'))?.githubId).toBeUndefined();
+      const user = { ...(await db.accounts.getUserByEmail('mock-github-user@example.com'))!, emailVerified: true };
       await db.accounts.saveUser({ ...user, twoFactorEnabled: true });
       vi.spyOn(ctx.authService, 'send2FACode').mockResolvedValue(undefined);
       const asked = await viaGithub();

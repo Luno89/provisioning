@@ -3,6 +3,7 @@ import { timingSafeEqual } from 'node:crypto';
 import https from 'https';
 import { v4 as uuidv4 } from 'uuid';
 import { providerMatch, type ProviderPerson } from '../lib/provider-sign-in.js';
+import { signUpCodeMail } from '../lib/sign-up.js';
 
 interface Challenge {
   code: string;
@@ -109,6 +110,19 @@ export class AuthService extends BaseService {
     }
     const sending = this.options.mail?.available();
     return sending?.ok ? undefined : `sign-in codes by email need this server to send email, and ${sending ? (sending as { why: string }).why : 'it sends none'}`;
+  }
+
+  async sendSignUpCode(email: string, code: string): Promise<{ kind: 'sent' } | { kind: 'shown'; code: string } | { kind: 'refused'; why: string }> {
+    const sending = this.options.mail?.available();
+    if (this.options.mail && sending?.ok) {
+      await this.options.mail.toAddress(email, signUpCodeMail(code));
+      return { kind: 'sent' };
+    }
+    if (this.options.production) {
+      return { kind: 'refused', why: `This server cannot send email yet (${sending && !sending.ok ? sending.why : 'it sends none'}), so it cannot confirm your address; ask whoever runs it` };
+    }
+    this.logger.warn(`[DEVELOPER SIGN-UP CODE] for ${email}, since ${sending && !sending.ok ? sending.why : 'this server sends no email'}: ${code}`);
+    return { kind: 'shown', code };
   }
 
   async send2FACode(user: UserMetadata, code: string): Promise<void> {

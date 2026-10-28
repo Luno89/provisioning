@@ -10,6 +10,7 @@ import { loadKeys } from '../apps/backend/src/platform/lib/keys.js';
 import { signJWT } from '../apps/backend/src/platform/lib/auth.js';
 import { devTemporalCa } from './lib/dev-temporal.js';
 import { fetchSide, handOff, type Side } from './lib/handoff.js';
+import { signUp } from './lib/sign-up.js';
 
 const REPO = resolve(new URL('.', import.meta.url).pathname, '..');
 dotenv.config({ path: join(REPO, 'apps/backend/.env') });
@@ -33,7 +34,10 @@ const SOCAT_IMAGE = 'alpine/socat:1.8.0.3';
 const GVISOR_TARBALL = join(REPO, 'tests/.vm-cache/gvisor-20261005.0/gvisor.tar.zstd');
 const NAME = `pl${Date.now().toString(36)}`;
 const QUEUE = `pool-live-${NAME}`;
-const CONTAINERS = { root: 'nw-pool-root', worker: 'nw-pool-worker', caddy: 'nw-pool-caddy', mesh: 'nw-pool-ts', relay: 'nw-pool-relay' };
+const CONTAINERS = { root: 'nw-pool-root', worker: 'nw-pool-worker', caddy: 'nw-pool-caddy', mesh: 'nw-pool-ts', relay: 'nw-pool-relay', mailbox: 'nw-pool-mailbox' };
+const MAILPIT_IMAGE = 'axllent/mailpit:v1.21.0';
+const MAILPIT_SMTP = 11026;
+const MAILPIT_API = 18027;
 const SECRET_FILES = ['.gitea-admin-password', '.gitea-admin-token', '.headscale-api-key', '.infisical-admin-password', '.infisical-machine-identity', '.infisical-encryption-key', '.infisical-postgres-password', '.infisical-redis-password'];
 
 const run = (cmd: string, args: string[]) => execFileSync(cmd, args, { cwd: REPO, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 64 * 1024 * 1024 });
@@ -151,6 +155,7 @@ async function main(): Promise<void> {
 
   step('root joins its mesh as the platform, and its Caddy listens there with a local certificate authority');
   for (const name of Object.values(CONTAINERS)) try { run('docker', ['rm', '-f', name]); } catch { /* not running */ }
+  run('docker', ['run', '-d', '--name', CONTAINERS.mailbox, '-p', `127.0.0.1:${MAILPIT_SMTP}:1025`, '-p', `127.0.0.1:${MAILPIT_API}:8025`, MAILPIT_IMAGE]);
   run('docker', ['run', '-d', '--name', CONTAINERS.relay, '--network', 'host', SOCAT_IMAGE, `TCP-LISTEN:${RELAY_PORT},bind=${BRIDGE},fork,reuseaddr`, 'TCP:127.0.0.1:8080']);
   run('docker', ['run', '-d', '--name', CONTAINERS.mesh, '--cap-add', 'NET_ADMIN', '--device', '/dev/net/tun', '-p', `127.0.0.1:${TLS_PORT}:443`,
     '-e', `TS_AUTHKEY=${meshKey('tag:platform')}`, '-e', `TS_EXTRA_ARGS=--login-server=http://${BRIDGE}:${RELAY_PORT} --accept-dns=false`,
@@ -189,7 +194,7 @@ async function main(): Promise<void> {
   const rootEnv = ['--network', 'host', '--env-file', 'apps/backend/.env', ...devTemporalCa(),
     ...SECRET_FILES.flatMap((file) => ['-v', `${join(REPO, 'apps/backend/data', file)}:/app/apps/backend/data/${file}:ro`]),
     '-e', 'ROLE=root', '-e', `PUBLIC_URL=${ROOT_FOR_GUEST}`, '-e', `INGRESS_DOMAIN=${DOMAIN}`, '-e', `APP_DOMAIN=app.${ROOT_DOMAIN}`, '-e', `MESH_DOMAIN=mesh.${ROOT_DOMAIN}`,
-    '-e', `MESH_LOGIN_SERVER=http://${HOST_FOR_GUEST}:8080`, '-e', `INSTANCE_REGISTRY=${HOST_FOR_GUEST}:5001`, '-e', `INSTANCE_IMAGE_TAG=${TAG}`, ...poolEnv];
+    '-e', `MESH_LOGIN_SERVER=http://${HOST_FOR_GUEST}:8080`, '-e', `INSTANCE_REGISTRY=${HOST_FOR_GUEST}:5001`, '-e', `INSTANCE_IMAGE_TAG=${TAG}`, '-e', `MAIL_SMTP_URL=smtp://127.0.0.1:${MAILPIT_SMTP}`, ...poolEnv];
   run('docker', ['run', '-d', '--name', CONTAINERS.root, ...rootEnv, '--group-add', String(statSync('/var/run/docker.sock').gid), '-v', `${caddyDir}:/app/apps/backend/data/caddy`,
     '-v', '/var/run/docker.sock:/var/run/docker.sock', '-e', `PORT=${ROOT_PORT}`,
     '-v', `${caddyAdmin}:/run/koala-caddy`, '-v', `${caddyLog}:/var/log/koala-caddy:ro`,
@@ -481,11 +486,9 @@ async function main(): Promise<void> {
   step('an admin on root removes a throwaway account: its instance on its own machine is let go of, and the account goes');
   const invite = await (await asOwner('/api/admin/invites', { method: 'POST', body: '{}' })).json() as { code: string };
   const email = `pool-live-${NAME}@example.com`;
-  const registered = await fetch(`${ROOT_FOR_HOST}/api/auth/register`, {
-    method: 'POST', headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ email, password: randomBytes(18).toString('base64url'), inviteCode: invite.code }),
-  });
-  assert.equal(registered.status, 200, await registered.clone().text());
+  const registered = await signUp(`${ROOT_FOR_HOST}/api`, { email, password: randomBytes(18).toString('base64url'), inviteCode: invite.code }, { mailpitApi: `http://127.0.0.1:${MAILPIT_API}` });
+  assert.equal(registered.status, 200, registered.error);
+  console.log('  it signed up with the code root emailed it');
   const people = async () => (await (await asOwner('/api/admin/people')).json() as { people: Array<{ id: string; email: string; instance?: { where: string; name?: string } }> }).people;
   const throwaway = (await people()).find((person) => person.email === email);
   assert.ok(throwaway, 'root\'s admin page does not list the new account');
@@ -503,11 +506,8 @@ async function main(): Promise<void> {
   throwawayId = undefined;
   const second = await (await asOwner('/api/admin/invites', { method: 'POST', body: '{}' })).json() as { code: string };
   const secondEmail = `pool-live-${NAME}-c@example.com`;
-  const secondRegistered = await fetch(`${ROOT_FOR_HOST}/api/auth/register`, {
-    method: 'POST', headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ email: secondEmail, password: randomBytes(18).toString('base64url'), inviteCode: second.code }),
-  });
-  assert.equal(secondRegistered.status, 200, await secondRegistered.clone().text());
+  const secondRegistered = await signUp(`${ROOT_FOR_HOST}/api`, { email: secondEmail, password: randomBytes(18).toString('base64url'), inviteCode: second.code }, { mailpitApi: `http://127.0.0.1:${MAILPIT_API}` });
+  assert.equal(secondRegistered.status, 200, secondRegistered.error);
   const secondId = (await people()).find((person) => person.email === secondEmail)?.id;
   assert.ok(secondId, 'root\'s admin page does not list the second account');
   throwawayId = secondId;

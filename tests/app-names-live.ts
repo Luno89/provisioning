@@ -9,6 +9,7 @@ import axios, { type AxiosInstance } from 'axios';
 import { createDatabase } from '../apps/backend/src/platform/lib/db-interface.js';
 import { signJWT } from '../apps/backend/src/platform/lib/auth.js';
 import { loadKeys } from '../apps/backend/src/platform/lib/keys.js';
+import { signUp } from './lib/sign-up.js';
 
 const run = promisify(execFile);
 const ROOT = process.env.APP_NAMES_LIVE_ROOT ?? 'http://localhost:3001';
@@ -94,8 +95,8 @@ async function main(): Promise<void> {
   try {
     await stage('a second owner signs up with the admin\'s invite', async () => {
       const invite = (await adminHttp.post('/api/admin/invites')).data as { code: string };
-      const registered = await client().post('/api/auth/register', { email, password, inviteCode: invite.code });
-      assert.equal(registered.status, 200, JSON.stringify(registered.data));
+      const registered = await signUp(`${ROOT}/api`, { email, password, inviteCode: invite.code });
+      assert.equal(registered.status, 200, registered.error);
       const login = await client().post('/api/auth/login', { email, password });
       const cookie = sessionOf(login.headers);
       assert.ok(login.status === 200 && cookie, JSON.stringify(login.data));

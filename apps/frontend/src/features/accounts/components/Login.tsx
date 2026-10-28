@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Mail, Lock, LogIn, UserPlus, Github, Chrome, ShieldAlert, ArrowRight, ShieldCheck, Phone } from 'lucide-react';
-import { API_BASE } from '../../../api/client';
-import { login, verifyTwoFactor, type LoginResult, type SessionUser } from '../../platform';
+import { API_BASE, errorMessage } from '../../../api/client';
+import { login, resendSignUpCode, verifySignUp, verifyTwoFactor, type LoginResult, type SessionUser } from '../../platform';
 
 interface LoginProps {
   onSuccess: (user: SessionUser) => void;
@@ -17,6 +17,10 @@ export default function Login({ onSuccess, invite }: LoginProps) {
   const [twoFactorRequired, setTwoFactorRequired] = useState(false);
   const [challenge, setChallenge] = useState('');
   const [otpCode, setOtpCode] = useState('');
+
+  const [signUpId, setSignUpId] = useState('');
+  const [signUpCode, setSignUpCode] = useState('');
+  const [devCode, setDevCode] = useState('');
   
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -54,7 +58,12 @@ export default function Login({ onSuccess, invite }: LoginProps) {
         { register: isRegister },
       );
 
-      if (isRegister) {
+      if (isRegister && data.verify) {
+        setSignUpId(data.verify);
+        setDevCode(data.devCode ?? '');
+        setSignUpCode('');
+        setPassword('');
+      } else if (isRegister) {
         setMessage('Registration successful! Please sign in.');
         setIsRegister(false);
         setPassword('');
@@ -66,8 +75,41 @@ export default function Login({ onSuccess, invite }: LoginProps) {
           onSuccess(data.user);
         }
       }
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err: unknown) {
+      setError(errorMessage(err));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSignUpVerify = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    setMessage('');
+    setLoading(true);
+    try {
+      const data = await verifySignUp({ id: signUpId, code: signUpCode });
+      if (data.user) onSuccess(data.user);
+    } catch (err: unknown) {
+      setError(errorMessage(err));
+      if ((err as { response?: { status?: number } }).response?.status === 410) setSignUpId('');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSignUpResend = async () => {
+    setError('');
+    setMessage('');
+    setLoading(true);
+    try {
+      const sent = await resendSignUpCode(signUpId);
+      setDevCode(sent.devCode ?? '');
+      setSignUpCode('');
+      setMessage(`We sent a new code to ${email}.`);
+    } catch (err: unknown) {
+      setError(errorMessage(err));
+      if ((err as { response?: { status?: number } }).response?.status === 410) setSignUpId('');
     } finally {
       setLoading(false);
     }
@@ -124,7 +166,73 @@ export default function Login({ onSuccess, invite }: LoginProps) {
           </div>
         )}
 
-        {twoFactorRequired ? (
+        {signUpId ? (
+          <form onSubmit={handleSignUpVerify} className="space-y-6">
+            <div className="text-center mb-4">
+              <h3 className="text-lg font-bold text-white">Confirm your email</h3>
+              <p className="text-xs text-[#8c94a6] mt-1">
+                We sent a six-digit code to {email}. Enter it to finish signing up.
+              </p>
+              {devCode && (
+                <p className="text-xs text-amber-300 mt-2">This server sends no email, so here is the code: {devCode}</p>
+              )}
+            </div>
+
+            <div>
+              <label htmlFor="sign-up-code" className="block text-xs font-semibold text-[#8c94a6] uppercase tracking-wider mb-2">
+                Code from the email
+              </label>
+              <div className="relative">
+                <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                  <Mail className="h-5 w-5 text-gray-500" />
+                </div>
+                <input
+                  id="sign-up-code"
+                  type="text"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  required
+                  placeholder="123456"
+                  maxLength={6}
+                  value={signUpCode}
+                  onChange={(e) => setSignUpCode(e.target.value.replace(/\D/g, ''))}
+                  className="block w-full pl-12 pr-4 py-3.5 bg-[#1f2430]/50 border border-white/5 rounded-2xl text-white placeholder-gray-500 focus:outline-none focus:border-violet-500 transition-colors"
+                />
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              disabled={loading || signUpCode.length !== 6}
+              className="w-full flex items-center justify-center gap-2 py-3.5 px-4 bg-gradient-to-r from-violet-600 to-cyan-500 hover:from-violet-500 hover:to-cyan-400 text-white font-bold rounded-2xl transition-all shadow-lg shadow-violet-600/20 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {loading ? 'Checking...' : 'Verify'}
+              <ArrowRight className="w-4 h-4" />
+            </button>
+
+            <div className="flex justify-between text-xs">
+              <button
+                type="button"
+                onClick={handleSignUpResend}
+                disabled={loading}
+                className="text-[#8c94a6] hover:text-white transition-colors cursor-pointer disabled:opacity-50"
+              >
+                Send a new code
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setSignUpId('');
+                  setError('');
+                  setMessage('');
+                }}
+                className="text-[#8c94a6] hover:text-white transition-colors cursor-pointer"
+              >
+                Start again
+              </button>
+            </div>
+          </form>
+        ) : twoFactorRequired ? (
           <form onSubmit={handle2FAVerify} className="space-y-6">
             <div className="text-center mb-4">
               <h3 className="text-lg font-bold text-white">Two-Factor Authentication</h3>

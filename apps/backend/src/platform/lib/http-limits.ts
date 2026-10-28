@@ -21,7 +21,7 @@ export function jsonLimitFor(path: string, signedIn: boolean): keyof typeof JSON
 export const RATE_LIMITS: readonly RateLimitRule[] = [
   {
     name: 'sign-in',
-    paths: ['/auth/login', '/auth/register', '/auth/2fa/verify', '/auth/handoff', '/auth/sign-in'],
+    paths: ['/auth/login', '/auth/register', '/auth/register/verify', '/auth/register/resend', '/auth/2fa/verify', '/auth/handoff', '/auth/sign-in'],
     prefixes: [],
     windowMs: 15 * MINUTES,
     max: 30,

@@ -1,10 +1,10 @@
 import express from 'express';
 import type { IncomingHttpHeaders } from 'node:http';
 import { arrivedOverHttps, cookieNamed, SESSION_COOKIE, sessionEnded, signsEveryoneIn, verifyJWT } from '../lib/auth.js';
-import { inviteExpired } from '../lib/invite-codes.js';
+import { inviteCodeHash, inviteExpired } from '../lib/invite-codes.js';
 import { setupCodeProblem } from '../lib/first-admin.js';
 import type { Database } from '../lib/db-interface.js';
-import type { UserMetadata } from '../lib/types.js';
+import type { InviteMetadata, UserMetadata } from '../lib/types.js';
 import type { SecretKey } from '../lib/crypto.js';
 import { signsInThroughRoot, type PlatformRole } from '../lib/platform-role.js';
 
@@ -41,6 +41,8 @@ export interface Auth {
     isFirstUser: boolean,
     email?: string,
   ) => Promise<string | null>;
+  inviteProblem: (code: string | undefined, isFirstUser: boolean, email: string) => Promise<string | null>;
+  claimHeldInvite: (codeHash: string, newUserId: string, email: string) => Promise<string | null>;
 }
 
 export const PUBLIC_PREFIXES = ['/checks/scripted/', '/machines/git/', '/share/'];
@@ -72,6 +74,8 @@ export function createAuth({ db, sessionKey, publicUrl, role = 'combined', setup
         '/hub-link/invitation',
         '/auth/login',
         '/auth/register',
+        '/auth/register/verify',
+        '/auth/register/resend',
         '/auth/2fa/verify',
         '/auth/github',
         '/auth/google',
@@ -144,6 +148,26 @@ export function createAuth({ db, sessionKey, publicUrl, role = 'combined', setup
     res.clearCookie(cookieNamed(SESSION_COOKIE, false), { ...sessionCookieOptions, secure: false });
   };
 
+  const inviteRefusal = (invite: InviteMetadata | undefined, email: string | undefined): string | null => {
+    if (!invite) return 'Invalid invite code';
+    if (invite.usedBy) return 'This invite code has already been used';
+    if (inviteExpired(invite, new Date())) return 'This invite has expired; ask whoever sent it for a new one';
+    if (invite.email && (!email || invite.email.trim().toLowerCase() !== email.trim().toLowerCase())) return `This invite is for ${invite.email}; sign up with that address`;
+    return null;
+  };
+
+  async function inviteProblem(code: string | undefined, isFirstUser: boolean, email: string): Promise<string | null> {
+    if (isFirstUser) return setupCodeProblem(setupCode, code) ?? null;
+    if (!code) return 'An invite code is required to create an account';
+    return inviteRefusal(await db.accounts.getInviteByCode(code), email);
+  }
+
+  async function claimHeldInvite(codeHash: string, newUserId: string, email: string): Promise<string | null> {
+    const refused = inviteRefusal(await db.accounts.getInviteByHash(codeHash), email);
+    if (refused) return refused;
+    return await db.accounts.claimInviteByHash(codeHash, newUserId, new Date().toISOString()) ? null : 'This invite code has already been used';
+  }
+
   async function checkAndConsumeInvite(code: string | undefined, newUserId: string, isFirstUser: boolean, email?: string): Promise<string | null> {
     if (isFirstUser) {
       const refused = setupCodeProblem(setupCode, code);
@@ -151,17 +175,11 @@ export function createAuth({ db, sessionKey, publicUrl, role = 'combined', setup
       return await db.accounts.claimFirstAdmin(newUserId, new Date().toISOString()) ? null : 'Someone has just become the first account here; ask them for an invite';
     }
     if (!code) return 'An invite code is required to create an account';
-    const invite = await db.accounts.getInviteByCode(code);
-    if (!invite) return 'Invalid invite code';
-    if (invite.usedBy) return 'This invite code has already been used';
-    if (inviteExpired(invite, new Date())) return 'This invite has expired; ask whoever sent it for a new one';
-    if (invite.email && (!email || invite.email.trim().toLowerCase() !== email.trim().toLowerCase())) return `This invite is for ${invite.email}; sign up with that address`;
-    if (!await db.accounts.claimInvite(code, newUserId, new Date().toISOString())) return 'This invite code has already been used';
-    return null;
+    return claimHeldInvite(inviteCodeHash(code), newUserId, email ?? '');
   }
 
   return {
     getCookie, userFromSessionCookie, securedFor, requireAuth, requireAdmin,
-    setSessionCookie, clearSession, sessionCookieOptions, checkAndConsumeInvite,
+    setSessionCookie, clearSession, sessionCookieOptions, checkAndConsumeInvite, inviteProblem, claimHeldInvite,
   };
 }

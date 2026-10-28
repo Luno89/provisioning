@@ -1,7 +1,7 @@
 import { Router, type Request, type Response } from 'express';
 import {
   attemptsKeyFor, DEVICE_COOKIE, DEVICE_SECONDS, deviceOf, deviceToken, lockedSaid, SignInAttemptLog, signJWT, verifyJWT, hashPassword, verifyPassword, type Auth,
-  carriedByOAuthState, cookieNamed, newOAuthState, OAUTH_STATE_COOKIE, OAUTH_STATE_SECONDS, sessionToken,
+  carriedByOAuthState, cookieNamed, generateOTP, inviteCodeHash, newOAuthState, OAUTH_STATE_COOKIE, OAUTH_STATE_SECONDS, sessionToken,
   type Database, type SecretKey,
 } from '../../platform/index.js';
 import axios from 'axios';
@@ -9,6 +9,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { mockOAuthAllowed } from '../lib/oauth-gate.js';
 import type { AuthService } from '../services/AuthService.js';
 import { githubPrimaryEmail, type ProviderPerson } from '../lib/provider-sign-in.js';
+import { emailProblem, normalEmail, sameSignUpCode, SIGN_UP_WRONG_CODES, signUpCodeHash, signUpExpiry, signUpLive } from '../lib/sign-up.js';
 
 export interface AuthRouterDeps {
   db: Database;
@@ -25,7 +26,7 @@ export function authRouter(deps: AuthRouterDeps): Router {
   const router = Router();
   const accountRoutes = deps.accounts === false ? Router() : router;
   const { db, authService, sessionKey, publicUrl, appUrl } = deps;
-  const { setSessionCookie, clearSession, checkAndConsumeInvite, sessionCookieOptions, getCookie } = deps.auth;
+  const { setSessionCookie, clearSession, checkAndConsumeInvite, inviteProblem, claimHeldInvite, sessionCookieOptions, getCookie } = deps.auth;
   const stateCookie = cookieNamed(OAUTH_STATE_COOKIE, sessionCookieOptions.secure);
   const deviceCookie = cookieNamed(DEVICE_COOKIE, sessionCookieOptions.secure);
   const knownDevice = (req: Request) => deviceOf(getCookie(req, deviceCookie), sessionKey);
@@ -50,35 +51,116 @@ export function authRouter(deps: AuthRouterDeps): Router {
 
   accountRoutes.post('/register', async (req, res) => {
     try {
-      let { email, password, inviteCode } = req.body;
-      if (!email || !password) {
+      const { password, inviteCode } = req.body;
+      const email = normalEmail(req.body.email);
+      if (!email || typeof password !== 'string' || !password) {
         return res.status(400).json({ error: 'Email and password are required' });
       }
-      email = email.trim().toLowerCase();
-      const existing = await db.accounts.getUserByEmail(email);
-      if (existing) {
+      const malformed = emailProblem(email);
+      if (malformed) return res.status(400).json({ error: malformed });
+      if (await db.accounts.getUserByEmail(email)) {
         return res.status(400).json({ error: 'User already exists' });
       }
 
       const isFirstUser = (await db.accounts.getUsers()).length === 0;
-      const userId = uuidv4();
-      const inviteError = await checkAndConsumeInvite(inviteCode, userId, isFirstUser, email);
-      if (inviteError) {
-        return res.status(403).json({ error: inviteError });
+      const code = typeof inviteCode === 'string' ? inviteCode : undefined;
+      if (isFirstUser) {
+        const userId = uuidv4();
+        const inviteError = await checkAndConsumeInvite(code, userId, true, email);
+        if (inviteError) return res.status(403).json({ error: inviteError });
+        await db.accounts.saveUser({
+          id: userId,
+          email,
+          passwordHash: await hashPassword(password),
+          twoFactorEnabled: false,
+          emailVerified: false,
+          createdAt: new Date().toISOString(),
+          isAdmin: true,
+        });
+        return res.json({ success: true, message: 'User registered successfully' });
       }
 
-      const passHash = await hashPassword(password);
+      const inviteError = await inviteProblem(code, false, email);
+      if (inviteError) return res.status(403).json({ error: inviteError });
+
+      const id = uuidv4();
+      const sentCode = generateOTP();
+      const sending = await authService.sendSignUpCode(email, sentCode);
+      if (sending.kind === 'refused') return res.status(503).json({ error: sending.why });
+      await db.accounts.savePendingSignUp({
+        id,
+        email,
+        passwordHash: await hashPassword(password),
+        inviteHash: inviteCodeHash(code!),
+        codeHash: signUpCodeHash(id, sentCode),
+        wrong: 0,
+        sent: 1,
+        expiresAt: signUpExpiry(new Date()),
+      });
+      res.json({ verify: id, ...(sending.kind === 'shown' ? { devCode: sending.code } : {}) });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  const pendingFor = async (id: unknown) => {
+    if (typeof id !== 'string' || !id) return undefined;
+    const pending = await db.accounts.getPendingSignUp(id);
+    return signUpLive(pending, new Date()) ? pending : undefined;
+  };
+  const SIGN_UP_GONE = 'This sign-up has ended; sign up again';
+
+  accountRoutes.post('/register/verify', async (req, res) => {
+    try {
+      const { id, code } = req.body;
+      if (typeof code !== 'string' || !/^\s*\d{6}\s*$/.test(code)) {
+        return res.status(400).json({ error: 'Enter the six digits from the email' });
+      }
+      const pending = await pendingFor(id);
+      if (!pending) return res.status(410).json({ error: SIGN_UP_GONE });
+      if (!sameSignUpCode(pending, code)) {
+        const wrong = await db.accounts.wrongSignUpCode(pending.id);
+        if (wrong >= SIGN_UP_WRONG_CODES) {
+          await db.accounts.deletePendingSignUp(pending.id);
+          return res.status(410).json({ error: 'That code was wrong too many times; sign up again' });
+        }
+        return res.status(401).json({ error: 'That code is not the one we sent; check the email and try again' });
+      }
+      if (!await db.accounts.deletePendingSignUp(pending.id)) return res.status(410).json({ error: SIGN_UP_GONE });
+      if (await db.accounts.getUserByEmail(pending.email)) {
+        return res.status(400).json({ error: 'User already exists' });
+      }
+      const userId = uuidv4();
+      const inviteError = await claimHeldInvite(pending.inviteHash, userId, pending.email);
+      if (inviteError) return res.status(403).json({ error: inviteError });
       const user = {
         id: userId,
-        email,
-        passwordHash: passHash,
+        email: pending.email,
+        passwordHash: pending.passwordHash,
         twoFactorEnabled: false,
         emailVerified: true,
         createdAt: new Date().toISOString(),
-        ...(isFirstUser ? { isAdmin: true } : {}),
       };
       await db.accounts.saveUser(user);
-      res.json({ success: true, message: 'User registered successfully' });
+      setSessionCookie(res, sessionToken(user, sessionKey));
+      rememberDevice(req, res, user.email);
+      res.json({ success: true, user: { id: user.id, email: user.email, twoFactorEnabled: false, isAdmin: false } });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  accountRoutes.post('/register/resend', async (req, res) => {
+    try {
+      const pending = await pendingFor(req.body.id);
+      if (!pending) return res.status(410).json({ error: SIGN_UP_GONE });
+      const sentCode = generateOTP();
+      if (!await db.accounts.newSignUpCode(pending.id, signUpCodeHash(pending.id, sentCode), signUpExpiry(new Date()))) {
+        return res.status(429).json({ error: 'We have sent this sign-up enough codes; sign up again' });
+      }
+      const sending = await authService.sendSignUpCode(pending.email, sentCode);
+      if (sending.kind === 'refused') return res.status(503).json({ error: sending.why });
+      res.json({ verify: pending.id, ...(sending.kind === 'shown' ? { devCode: sending.code } : {}) });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }

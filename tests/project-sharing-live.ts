@@ -13,6 +13,7 @@ import { HUB_DATABASE_PREFIX } from '../apps/backend/src/hub/lib/hub.js';
 import { HUB_REPO, hubOrgOf } from '../apps/backend/src/hub/services/HubRepos.js';
 import { GiteaService } from '../apps/backend/src/projects/services/GiteaService.js';
 import { InfrastructureService } from '../apps/backend/src/infrastructure/services/InfrastructureService.js';
+import { signUp } from './lib/sign-up.js';
 
 const BASE = process.env.SHARING_LIVE_URL ?? 'http://localhost:3001';
 const ADMIN = process.env.MECHANICS_ADMIN ?? process.env.GROVE_LIVE_OWNER;
@@ -68,7 +69,8 @@ async function main(): Promise<void> {
   try {
     const project = await stage('an owner signs up and has a project with a repository and a channel someone has talked in', async () => {
       const invite = (await adminHttp.post('/admin/invites')).data as { code: string };
-      assert.equal((await client().post('/auth/register', { email, password, inviteCode: invite.code })).status, 200);
+      const registered = await signUp(`${BASE}/api`, { email, password, inviteCode: invite.code });
+      assert.equal(registered.status, 200, registered.error);
       const login = await client().post('/auth/login', { email, password });
       owner = client(sessionOf(login.headers));
       ownerId = (await owner.get('/auth/me')).data.id as string;
@@ -171,7 +173,8 @@ async function main(): Promise<void> {
       const code = link.searchParams.get('code');
       const token = link.searchParams.get('project');
       assert.ok(code && token, sent.data.link);
-      assert.equal((await client().post('/auth/register', { email: memberEmail, password, inviteCode: code })).status, 200);
+      const joined = await signUp(`${BASE}/api`, { email: memberEmail, password, inviteCode: code });
+      assert.equal(joined.status, 200, joined.error);
       const login = await client().post('/auth/login', { email: memberEmail, password });
       member = client(sessionOf(login.headers));
       memberId = (await member.get('/auth/me')).data.id as string;

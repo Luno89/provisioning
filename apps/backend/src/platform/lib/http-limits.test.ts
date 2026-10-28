@@ -17,6 +17,8 @@ describe('which public paths are rate limited', () => {
 
   it('counts only failed sign-ins, sign-ups and joins against an address, since a guess fails and a person succeeds, while every opening of a share link counts', () => {
     expect(ruleFor('/auth/register')?.countsOnlyFailures).toBe(true);
+    expect(ruleFor('/auth/register/verify')?.name).toBe('sign-in');
+    expect(ruleFor('/auth/register/resend')?.name).toBe('sign-in');
     expect(ruleFor('/auth/login')?.countsOnlyFailures).toBe(true);
     expect(ruleFor('/machines/join')?.countsOnlyFailures).toBe(true);
     expect(ruleFor('/share/tok')?.countsOnlyFailures).toBe(false);

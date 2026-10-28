@@ -36,7 +36,14 @@ export interface LoginResult {
   user?: SessionUser
   twoFactorRequired?: boolean
   challenge?: string
+  verify?: string
+  devCode?: string
   error?: string
+}
+
+export interface SignUpCode {
+  verify: string
+  devCode?: string
 }
 
 export const login = (
@@ -46,6 +53,12 @@ export const login = (
   api
     .post<LoginResult>(opts.register ? '/auth/register' : '/auth/login', credentials)
     .then((r) => r.data)
+
+export const verifySignUp = (body: { id: string; code: string }): Promise<LoginResult> =>
+  api.post<LoginResult>('/auth/register/verify', body).then((r) => r.data)
+
+export const resendSignUpCode = (id: string): Promise<SignUpCode> =>
+  api.post<SignUpCode>('/auth/register/resend', { id }).then((r) => r.data)
 
 export const verifyTwoFactor = (body: { challenge: string; code: string }): Promise<LoginResult> =>
   api.post<LoginResult>('/auth/2fa/verify', body).then((r) => r.data)

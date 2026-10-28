@@ -21,6 +21,7 @@ export function providerMatch(person: ProviderPerson, byId: UserMetadata | undef
   if (!byEmail) return { kind: 'new' };
   const linked = byEmail[person.field];
   if (linked && linked !== person.id) return { kind: 'refused', why: `${person.email} is linked to another ${person.provider} account` };
+  if (!linked && !byEmail.emailVerified) return { kind: 'refused', why: `An account here has ${person.email}, but that address was never confirmed, so ${person.provider} cannot join it; sign in with its password` };
   return { kind: 'existing', user: byEmail, link: !linked };
 }
 

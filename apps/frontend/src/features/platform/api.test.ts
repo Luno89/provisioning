@@ -9,7 +9,7 @@ vi.mock('../../api/client', () => ({
 }));
 
 import { api } from '../../api/client';
-import { getMe, logout, login, verifyTwoFactor } from './api';
+import { getMe, logout, login, resendSignUpCode, verifySignUp, verifyTwoFactor } from './api';
 
 const mocked = vi.mocked(api);
 
@@ -66,6 +66,18 @@ describe('login', () => {
       password: 'pw',
       inviteCode: 'INVITE',
     });
+  });
+});
+
+describe('confirming a sign-up', () => {
+  it('posts the pending sign-up and its code, and asks for a new code by the sign-up alone', async () => {
+    const user = { id: 'u1', email: 'a@b.c' };
+    mocked.post.mockResolvedValueOnce({ data: { user } });
+    await expect(verifySignUp({ id: 'p1', code: '123456' })).resolves.toEqual({ user });
+    expect(mocked.post).toHaveBeenCalledWith('/auth/register/verify', { id: 'p1', code: '123456' });
+    mocked.post.mockResolvedValueOnce({ data: { verify: 'p1' } });
+    await expect(resendSignUpCode('p1')).resolves.toEqual({ verify: 'p1' });
+    expect(mocked.post).toHaveBeenCalledWith('/auth/register/resend', { id: 'p1' });
   });
 });
 

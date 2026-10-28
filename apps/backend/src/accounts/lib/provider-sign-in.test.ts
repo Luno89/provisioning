@@ -15,6 +15,11 @@ describe('signing in with Google or GitHub', () => {
     expect(providerMatch(github({ verified: false }), undefined, ann())).toEqual({ kind: 'refused', why: 'GitHub does not say ann@example.com is verified; verify it there, or sign in with your password' });
   });
 
+  it('never joins a provider to an account whose address was never confirmed, though one already joined still signs in', () => {
+    expect(providerMatch(github(), undefined, ann({ emailVerified: false }))).toEqual({ kind: 'refused', why: 'An account here has ann@example.com, but that address was never confirmed, so GitHub cannot join it; sign in with its password' });
+    expect(providerMatch(github(), undefined, ann({ emailVerified: false, githubId: '42' }))).toEqual({ kind: 'existing', user: ann({ emailVerified: false, githubId: '42' }), link: false });
+  });
+
   it('refuses an email whose account is linked to another account at that provider', () => {
     expect(providerMatch(github(), undefined, ann({ githubId: '7' }))).toEqual({ kind: 'refused', why: 'ann@example.com is linked to another GitHub account' });
   });

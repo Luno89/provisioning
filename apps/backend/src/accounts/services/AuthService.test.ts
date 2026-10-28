@@ -89,6 +89,31 @@ describe('AuthService', () => {
     expect(new AuthService(dbMock).sendingProblem('email')).toBeUndefined();
   });
 
+  it('emails a sign-up code where the server sends email, and logs nothing of it', async () => {
+    const toAddress = vi.fn(async () => undefined);
+    const authService = new AuthService(dbMock, { mail: { available: () => ({ ok: true as const }), toAddress }, production: true });
+    const warn = vi.spyOn(authService['logger'], 'warn');
+    expect(await authService.sendSignUpCode('new@example.com', '135790')).toEqual({ kind: 'sent' });
+    expect(toAddress).toHaveBeenCalledWith('new@example.com', expect.objectContaining({ subject: 'Your Koala sign-up code', text: expect.stringContaining('135790') }));
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it('refuses a sign-up in production when no email can be sent, never logging or handing back its code', async () => {
+    const authService = new AuthService(dbMock, { mail: { available: () => ({ ok: false as const, why: 'MAIL_SMTP_URL is not set' }), toAddress: vi.fn() }, production: true });
+    const warn = vi.spyOn(authService['logger'], 'warn');
+    const answer = await authService.sendSignUpCode('new@example.com', '135790');
+    expect(answer).toEqual({ kind: 'refused', why: 'This server cannot send email yet (MAIL_SMTP_URL is not set), so it cannot confirm your address; ask whoever runs it' });
+    expect(JSON.stringify(answer)).not.toContain('135790');
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it('shows a sign-up code to the developer outside production when no email can be sent', async () => {
+    const authService = new AuthService(dbMock);
+    const warn = vi.spyOn(authService['logger'], 'warn');
+    expect(await authService.sendSignUpCode('new@example.com', '135790')).toEqual({ kind: 'shown', code: '135790' });
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('new@example.com'));
+  });
+
   it('ends a challenge after five wrong codes, so the right one no longer works', () => {
     const authService = new AuthService(dbMock);
     const code = authService.create2FAChallenge('user-6');

@@ -185,6 +185,15 @@ All `/api/*` routes require a session (JWT in a `session` cookie) via `requireAu
 there is no account; production without one lets nobody sign up) in the invite field, and is claimed by inserting one
 record (`claimFirstAdmin`), so only one can be first. Every later sign-up needs an invite: 128 bits, shown once when made and
 stored only as `codeHash`, working for `INVITE_DAYS` (14), claimed in one conditional update (`platform/lib/invite-codes.ts`).
+**A sign-up confirms its email before it is an account** (security audit W2, owner 2026-10-28): `/auth/register` checks the address
+(`emailProblem`) and the invite without spending it, emails a six-digit code and keeps a pending sign-up (`pendingSignUps`: the
+password's hash, the invite's hash, the code's hash, gone after 30 minutes by a TTL index; `accounts/lib/sign-up.ts`), answering
+`{ verify }`; `/auth/register/verify` spends the invite, makes the account with `emailVerified: true` and signs it in, five wrong codes
+ending the sign-up, and `/auth/register/resend` sends a new code, five codes at most. Where no email can be sent, production refuses
+the sign-up and anywhere else the code is logged and handed back as `devCode`, which the live suites use (`tests/lib/sign-up.ts`; the
+VM suites' roots send it to a test mailbox and read it there). The first account, made with the setup code, still signs up at once
+(the setup code proves the operator, and root's mail may not deliver on day one) and is kept `emailVerified: false`. Google or
+GitHub joins an existing account by its email only when that account's address was confirmed (`providerMatch`).
 Every session is signed by `sessionToken` with when it began; `sessionsEndedAt` on the user refuses older ones (Settings →
 Signed in elsewhere, `POST /api/auth/sessions/end-others`, and any two-factor change), and a token without an expiry is
 refused. 2FA answers a login with a signed five-minute challenge (`twoFactorFor`, never a session), ends a challenge after

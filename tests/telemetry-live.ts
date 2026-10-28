@@ -12,6 +12,7 @@ import { loadKeys } from '../apps/backend/src/platform/lib/keys.js';
 import { TRACE_ID_HEADER } from '../apps/backend/src/platform/services/MetricsService.js';
 import { TURN_PROCEDURE_ID } from '../apps/backend/src/checks/lib/turn-check.js';
 import { forgetWhatRunsLeft } from './lib/forget-test-runs.js';
+import { signUp } from './lib/sign-up.js';
 
 const run = promisify(execFile);
 const ROOT = process.env.TELEMETRY_LIVE_ROOT ?? 'http://localhost:3001';
@@ -116,8 +117,8 @@ async function main(): Promise<void> {
 
     await stage('a throwaway account signs up with an admin\'s invite', async () => {
       const invite = (await adminHttp.post('/api/admin/invites')).data as { code: string };
-      const registered = await client().post('/api/auth/register', { email, password, inviteCode: invite.code });
-      assert.equal(registered.status, 200, JSON.stringify(registered.data));
+      const registered = await signUp(`${ROOT}/api`, { email, password, inviteCode: invite.code });
+      assert.equal(registered.status, 200, registered.error);
       const login = await client().post('/api/auth/login', { email, password });
       const cookie = sessionOf(login.headers);
       assert.ok(login.status === 200 && cookie, JSON.stringify(login.data));

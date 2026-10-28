@@ -3,6 +3,7 @@ import { type AreaStore, fromDoc, toDoc } from '../platform/lib/collection.js';
 import type { Collection, Db } from 'mongodb';
 import type { InviteMetadata, UserMetadata } from '../platform/index.js';
 import type { InviteLimits } from './lib/project-invite-limits.js';
+import { SIGN_UP_CODES_SENT, type PendingSignUp } from './lib/sign-up.js';
 import { inviteCodeHash } from '../platform/lib/invite-codes.js';
 
 export const FIRST_ADMIN_INVITE = 'first-admin';
@@ -21,6 +22,13 @@ export interface AccountsStore extends AreaStore {
   getInvites(): Promise<InviteMetadata[]>;
   getInviteByCode(code: string): Promise<InviteMetadata | undefined>;
   claimInvite(code: string, usedBy: string, usedAt: string): Promise<boolean>;
+  getInviteByHash(codeHash: string): Promise<InviteMetadata | undefined>;
+  claimInviteByHash(codeHash: string, usedBy: string, usedAt: string): Promise<boolean>;
+  savePendingSignUp(pending: PendingSignUp): Promise<void>;
+  getPendingSignUp(id: string): Promise<PendingSignUp | undefined>;
+  wrongSignUpCode(id: string): Promise<number>;
+  newSignUpCode(id: string, codeHash: string, expiresAt: Date): Promise<boolean>;
+  deletePendingSignUp(id: string): Promise<boolean>;
   hashInviteCodes(expiresAt: string): Promise<number>;
   claimFirstAdmin(userId: string, at: string): Promise<boolean>;
   saveInvite(invite: InviteMetadata): Promise<void>;
@@ -43,6 +51,10 @@ export class MongoAccountsStore implements AccountsStore {
     return this.db().collection('invites');
   }
 
+  private get pendingSignUps(): Collection {
+    return this.db().collection('pendingSignUps');
+  }
+
   private get pipelineRuns(): Collection {
     return this.db().collection('pipelineRuns');
   }
@@ -58,20 +70,55 @@ export class MongoAccountsStore implements AccountsStore {
   async ensureIndexes(): Promise<void> {
     await this.users.createIndex({ email: 1 }, { unique: true });
     await this.invites.createIndex({ codeHash: 1 });
+    await this.pendingSignUps.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
   }
 
   async getInvites(): Promise<InviteMetadata[]> {
     return (await this.invites.find({}).toArray()).map(doc => fromDoc<InviteMetadata>(doc));
   }
 
-  async getInviteByCode(code: string): Promise<InviteMetadata | undefined> {
-    const doc = await this.invites.findOne({ codeHash: inviteCodeHash(code) });
+  getInviteByCode(code: string): Promise<InviteMetadata | undefined> {
+    return this.getInviteByHash(inviteCodeHash(code));
+  }
+
+  async getInviteByHash(codeHash: string): Promise<InviteMetadata | undefined> {
+    const doc = await this.invites.findOne({ codeHash });
     return doc ? fromDoc<InviteMetadata>(doc) : undefined;
   }
 
-  async claimInvite(code: string, usedBy: string, usedAt: string): Promise<boolean> {
-    const claimed = await this.invites.updateOne({ codeHash: inviteCodeHash(code), usedBy: { $exists: false } }, { $set: { usedBy, usedAt } });
+  claimInvite(code: string, usedBy: string, usedAt: string): Promise<boolean> {
+    return this.claimInviteByHash(inviteCodeHash(code), usedBy, usedAt);
+  }
+
+  async claimInviteByHash(codeHash: string, usedBy: string, usedAt: string): Promise<boolean> {
+    const claimed = await this.invites.updateOne({ codeHash, usedBy: { $exists: false } }, { $set: { usedBy, usedAt } });
     return claimed.modifiedCount === 1;
+  }
+
+  async savePendingSignUp(pending: PendingSignUp): Promise<void> {
+    const { id, ...rest } = pending;
+    await this.pendingSignUps.replaceOne({ _id: id as never }, rest, { upsert: true });
+  }
+
+  async getPendingSignUp(id: string): Promise<PendingSignUp | undefined> {
+    const doc = await this.pendingSignUps.findOne({ _id: id as never });
+    if (!doc) return undefined;
+    const { _id, ...rest } = doc;
+    return { id: String(_id), ...rest } as PendingSignUp;
+  }
+
+  async wrongSignUpCode(id: string): Promise<number> {
+    const doc = await this.pendingSignUps.findOneAndUpdate({ _id: id as never }, { $inc: { wrong: 1 } }, { returnDocument: 'after' });
+    return typeof doc?.wrong === 'number' ? doc.wrong : Number.POSITIVE_INFINITY;
+  }
+
+  async newSignUpCode(id: string, codeHash: string, expiresAt: Date): Promise<boolean> {
+    const sent = await this.pendingSignUps.updateOne({ _id: id as never, sent: { $lt: SIGN_UP_CODES_SENT } }, { $set: { codeHash, expiresAt }, $inc: { sent: 1 } });
+    return sent.modifiedCount === 1;
+  }
+
+  async deletePendingSignUp(id: string): Promise<boolean> {
+    return (await this.pendingSignUps.deleteOne({ _id: id as never })).deletedCount === 1;
   }
 
   async claimFirstAdmin(userId: string, at: string): Promise<boolean> {

@@ -21,6 +21,10 @@ const INSTANCE_PORT = 3212;
 const ROOT_URL = `http://localhost:${ROOT_PORT}`;
 const INSTANCE_URL = `http://127.0.0.1:${INSTANCE_PORT}`;
 const IMAGE = 'nowrinkles/app:dev';
+const MAILBOX = 'nw-live-mailbox';
+const MAILPIT_IMAGE = 'axllent/mailpit:v1.21.0';
+const MAILPIT_SMTP = 11027;
+const MAILPIT_API = 18028;
 const bin = (name: string) => join(REPO, 'bin', name);
 const work = mkdtempSync(join(tmpdir(), 'instance-live-'));
 const KUBECONFIG = join(work, 'kubeconfig');
@@ -46,6 +50,7 @@ function teardown(): void {
     return;
   }
   try { run('docker', ['rm', '-f', 'nw-live-root']); } catch { /* not running */ }
+  try { run('docker', ['rm', '-f', MAILBOX]); } catch { /* not running */ }
   try { run(bin('k3d'), ['cluster', 'delete', CLUSTER]); } catch { /* not created */ }
   try { run('npm', ['run', 'instances', '--silent', '-w', 'apps/backend', '--', 'remove', 'inst-live']); } catch { /* not registered */ }
 }
@@ -60,7 +65,10 @@ async function main(): Promise<void> {
   run(bin('k3d'), ['image', 'import', IMAGE, '-c', CLUSTER]);
 
   step('root starts, and publishes its public key');
-  run('docker', ['run', '-d', '--name', 'nw-live-root', '--network', 'host', '--env-file', 'apps/backend/.env', ...devTemporalCa(), '-e', 'ROLE=root', '-e', `PORT=${ROOT_PORT}`, IMAGE, 'backend']);
+  try { run('docker', ['rm', '-f', MAILBOX]); } catch { /* not running */ }
+  run('docker', ['run', '-d', '--name', MAILBOX, '-p', `127.0.0.1:${MAILPIT_SMTP}:1025`, '-p', `127.0.0.1:${MAILPIT_API}:8025`, MAILPIT_IMAGE]);
+  run('docker', ['run', '-d', '--name', 'nw-live-root', '--network', 'host', '--env-file', 'apps/backend/.env', ...devTemporalCa(), '-e', 'ROLE=root', '-e', `PORT=${ROOT_PORT}`,
+    '-e', `MAIL_SMTP_URL=smtp://127.0.0.1:${MAILPIT_SMTP}`, '-e', 'MAIL_FROM=koala@instance-live.test', IMAGE, 'backend']);
   const keys = await until('root answering', 3, async () => {
     const response = await fetch(`${ROOT_URL}/api/identity/keys`);
     return response.ok ? (await response.json() as { keys: { publicKey: string }[] }).keys : undefined;
@@ -166,6 +174,7 @@ Promise.all(${JSON.stringify(only)}.map(at)).then((found) => console.log('KNOCKE
 import { readFileSync } from 'node:fs';
 import { Client, Connection } from '@temporalio/client';
 import { temporalToken } from './src/platform/lib/temporal-auth.ts';
+import { signUp } from './lib/sign-up.js';
 const address = (process.env.TEMPORAL_CONNECTION_ADDRESS ?? '').replace(/^https?:\\/\\//, '');
 const grant = { subject: 'instance-live', namespace: 'default', role: 'read' };
 const listed = async (apiKey) => {
@@ -212,11 +221,9 @@ process.exit(0);`;
   const asOwner = (path: string, init: RequestInit = {}) => fetch(`${ROOT_URL}${path}`, { ...init, headers: { 'content-type': 'application/json', Cookie: `session=${rootSession}`, ...(init.headers ?? {}) } });
   const invite = await (await asOwner('/api/admin/invites', { method: 'POST', body: '{}' })).json() as { code: string };
   const email = `instance-live-${randomBytes(4).toString('hex')}@example.com`;
-  const registered = await fetch(`${ROOT_URL}/api/auth/register`, {
-    method: 'POST', headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ email, password: randomBytes(18).toString('base64url'), inviteCode: invite.code }),
-  });
-  assert.equal(registered.status, 200, await registered.clone().text());
+  const registered = await signUp(`${ROOT_URL}/api`, { email, password: randomBytes(18).toString('base64url'), inviteCode: invite.code }, { mailpitApi: `http://127.0.0.1:${MAILPIT_API}` });
+  assert.equal(registered.status, 200, registered.error);
+  console.log('  a throwaway account signed up on root with the code root emailed it');
   const people = async () => (await (await asOwner('/api/admin/people')).json() as { people: Array<{ id: string; email: string }> }).people;
   const leaving = (await people()).find((person) => person.email === email);
   assert.ok(leaving, 'root does not list the new account');

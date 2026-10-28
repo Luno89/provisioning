@@ -37,7 +37,11 @@ async function main() {
     inviteCode,
   });
 
-  let cookie = regRes.headers['set-cookie']?.[0];
+  const pending = regRes.data as { verify?: string; devCode?: string };
+  const signedUp = pending.verify && pending.devCode
+    ? await http.post('/api/auth/register/verify', { id: pending.verify, code: pending.devCode })
+    : regRes;
+  let cookie = signedUp.headers['set-cookie']?.find((line: string) => line.startsWith('session='));
   if (!cookie) {
     const loginRes = await http.post('/api/auth/login', { email: testEmail, password: testPassword });
     cookie = loginRes.headers['set-cookie']?.[0];
