@@ -1,3 +1,4 @@
+import { lostCreateRace } from '../lib/apply-races.js';
 import { spawn, ChildProcess, exec } from 'child_process';
 import path from 'path';
 import fs from 'fs/promises';
@@ -140,7 +141,7 @@ export class InfrastructureService {
     return stdout;
   }
 
-  async applyManifest(manifest: string, kubeconfig?: string): Promise<string> {
+  async applyManifest(manifest: string, kubeconfig?: string, attempt = 1): Promise<string> {
     const match = kubeconfig?.match(/\/tmp\/kubeconfig-(.+)$/);
     const containerName = match ? `k3d-${match[1] ?? 'unknown'}-server-0` : undefined;
     const inContainer = containerName ? await this.dockerContainerExists(containerName) : false;
@@ -154,7 +155,11 @@ export class InfrastructureService {
       child.stdout.on('data', (chunk) => { out += chunk; });
       child.stderr.on('data', (chunk) => { err += chunk; });
       child.on('error', reject);
-      child.on('close', (code) => (code === 0 ? resolve(out) : reject(new Error(`kubectl apply failed: ${err.trim() || `exit ${code}`}`))));
+      child.on('close', (code) => {
+        if (code === 0) return resolve(out);
+        if (attempt === 1 && lostCreateRace(err)) return this.applyManifest(manifest, kubeconfig, 2).then(resolve, reject);
+        reject(new Error(`kubectl apply failed: ${err.trim() || `exit ${code}`}`));
+      });
       child.stdin.end(manifest);
     });
   }
