@@ -5,7 +5,7 @@ import { localAgentsRouter } from './local-agents.js';
 import { machinesRouter } from './machines.js';
 import { mountRouter, type Harness, TEST_USER } from '../../platform/routes/test-harness.js';
 import type { Database } from '../../platform/lib/db-interface.js';
-import { askDevice, dropDevice, localAgentStatus, registerDevice, tellDevice, unregisterDevice } from '../lib/local-agent-registry.js';
+import { askDevice, dropDevice, findDeviceByToken, localAgentStatus, matchDeviceToken, registerDevice, tellDevice, unregisterDevice } from '../lib/local-agent-registry.js';
 import { ProjectRepoService } from '../../projects/services/ProjectRepoService.js';
 import { MachineService } from '../services/MachineService.js';
 import type { GiteaService } from '../../projects/services/GiteaService.js';
@@ -15,8 +15,9 @@ const URL_OF_KOALA = 'https://koala.example';
 
 let service: MachineService | undefined;
 const meshRemoved: { ownerId: string; meshIp: string }[] = [];
-const machinesOf = (db: Database, mesh?: string) => {
+const machinesOf = (db: Database, mesh?: string, now?: () => Date) => {
   service = new MachineService({
+    ...(now ? { now } : {}),
     store: db.machines,
     dataKey: DATA_KEY,
     settings: { url: URL_OF_KOALA, temporalAddress: 'localhost:7233', temporalNamespace: 'default', meshLoginServer: mesh },
@@ -34,7 +35,7 @@ const harness: Harness = await mountRouter({
     const router = Router();
     const machines = machinesOf(db);
     router.use('/mesh/local-agents', localAgentsRouter({ machines }));
-    router.use('/machines', machinesRouter({ machines, bundle: async () => { throw new Error('not in this test'); } }));
+    router.use('/machines', machinesRouter({ machines, bundle: { path: async () => { throw new Error('not in this test'); }, sha256: async () => 'a'.repeat(64) } }));
     return router;
   },
 });
@@ -216,5 +217,66 @@ describe('a machine\'s agents on My Machines', () => {
     expect(projects).not.toContain('proj-of-gone');
     expect(projects).toContain('proj-kept');
     expect((await harness.db.projects.getTrees()).find((tree) => tree.id === 'tree-on-gone')?.projectIds).toEqual(['proj-kept']);
+  });
+});
+
+describe('a device token rotates before it expires', () => {
+  const DAY = 24 * 60 * 60 * 1000;
+  const devices = () => harness.db.machines.getLocalAgentDevices();
+  const codeOf = async () => ((await (await post('/api/mesh/local-agents/join-code', {})).json()) as { code: string }).code;
+
+  it('is given ninety days when the machine joins, and a next token in its last thirty, which replaces it once taken', async () => {
+    const joined = await (await post('/api/machines/join', { code: await codeOf(), hostname: 'rotating', rootDir: '/home/me/rotating' })).json() as { deviceId: string; env: Record<string, string> };
+    expect(joined.env.KOALA_AGENT_SHA256).toBe('a'.repeat(64));
+    const fresh = (await devices()).find((d) => d.id === joined.deviceId)!;
+    expect(Date.parse(fresh.expiresAt!) - Date.parse(fresh.issuedAt!)).toBe(90 * DAY);
+
+    const later = new Date(Date.parse(fresh.expiresAt!) - 20 * DAY);
+    const machines = machinesOf(harness.db, undefined, () => later);
+    const retired: string[] = [];
+    machines.onTokenRetired((hash) => retired.push(hash));
+    const next = await machines.rotationFor(joined.deviceId, 'current');
+    expect(next).toBeDefined();
+    const rotating = (await devices()).find((d) => d.id === joined.deviceId)!;
+    expect(rotating.nextTokenHash).toBe(createHash('sha256').update(next!).digest('hex'));
+    expect(findDeviceByToken([rotating], joined.env.KOALA_DEVICE_TOKEN!, DATA_KEY, later)?.id).toBe(joined.deviceId);
+    expect(findDeviceByToken([rotating], next!, DATA_KEY, later)?.id).toBe(joined.deviceId);
+    expect(await machines.rotationFor(joined.deviceId, 'current')).toBeUndefined();
+
+    await machines.tokenTaken(joined.deviceId);
+    const promoted = (await devices()).find((d) => d.id === joined.deviceId)!;
+    expect(promoted.nextTokenHash).toBeUndefined();
+    expect(retired).toEqual([fresh.tokenHash]);
+    expect(findDeviceByToken([promoted], joined.env.KOALA_DEVICE_TOKEN!, DATA_KEY, later)).toBeUndefined();
+    expect(findDeviceByToken([promoted], next!, DATA_KEY, later)?.id).toBe(joined.deviceId);
+    expect(Date.parse(promoted.expiresAt!) - later.getTime()).toBe(90 * DAY);
+
+    const expired = new Date(Date.parse(promoted.expiresAt!) + 1);
+    expect(findDeviceByToken([promoted], next!, DATA_KEY, expired)).toBeUndefined();
+    expect(matchDeviceToken([promoted], next!, DATA_KEY, expired)).toMatchObject({ via: 'current', expired: true });
+    expect((await machinesOf(harness.db, undefined, () => expired).list(TEST_USER.id)).find((m) => m.id === joined.deviceId)?.tokenExpired).toBe(true);
+    expect((await machines.list(TEST_USER.id)).find((m) => m.id === joined.deviceId)?.tokenExpired).toBe(false);
+  });
+
+  it('an agent that kept the next token before Koala heard so is promoted when it connects with it', async () => {
+    const machines = machinesOf(harness.db);
+    const joined = await machines.join(await codeOf(), { hostname: 'box', rootDir: '/srv/koala' });
+    const id = joined.ok ? joined.value.deviceId : '';
+    const device = (await devices()).find((d) => d.id === id)!;
+    await harness.db.machines.saveLocalAgentDevice({ ...device, nextTokenHash: 'n'.repeat(64), nextIssuedAt: device.issuedAt, nextExpiresAt: device.expiresAt });
+    expect(await machines.rotationFor(id, 'next')).toBeUndefined();
+    const after = (await devices()).find((d) => d.id === id)!;
+    expect(after.tokenHash).toBe('n'.repeat(64));
+    expect(after.nextTokenHash).toBeUndefined();
+  });
+
+  it('running the command again replaces a machine whose token has expired, rather than adding a second', async () => {
+    const machines = machinesOf(harness.db, undefined, () => new Date('2020-01-01T00:00:00Z'));
+    const joined = await machines.join(await codeOf(), { hostname: 'old', rootDir: '/srv/old' });
+    const token = joined.ok ? joined.value.env.KOALA_DEVICE_TOKEN! : '';
+    const id = joined.ok ? joined.value.deviceId : '';
+    expect(findDeviceByToken(await devices(), token, DATA_KEY)).toBeUndefined();
+    const again = await machinesOf(harness.db).join(await codeOf(), { hostname: 'old', rootDir: '/srv/old', replaces: token });
+    expect(again.ok && again.value.deviceId).toBe(id);
   });
 });

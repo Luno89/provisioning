@@ -1,4 +1,5 @@
 import { execFile } from 'child_process';
+import { readFile } from 'fs/promises';
 import path from 'path';
 import { promisify } from 'util';
 
@@ -19,5 +20,10 @@ export class MachineBundle {
         });
     }
     return this.building;
+  }
+
+  async sha256(): Promise<string> {
+    const tarball = await this.path();
+    return (await readFile(`${tarball}.sha256`, 'utf8')).trim().split(/\s+/)[0]!;
   }
 }

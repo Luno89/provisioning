@@ -5,7 +5,12 @@ import { GIT_ROUTES, type GitRoute, type MachineGitService } from '../services/M
 
 const bearer = (header: string | undefined): string | undefined => header?.match(/^Bearer\s+(.+)$/i)?.[1]?.trim();
 
-export function machinesRouter(deps: { machines: Pick<MachineService, 'join'>; bundle: () => Promise<string>; git?: Pick<MachineGitService, 'serve'> | undefined }): Router {
+export interface AgentBundle {
+  path(): Promise<string>;
+  sha256(): Promise<string>;
+}
+
+export function machinesRouter(deps: { machines: Pick<MachineService, 'join'>; bundle: AgentBundle; git?: Pick<MachineGitService, 'serve'> | undefined }): Router {
   const router = Router();
 
   router.all(/^\/git\/([^/]+)\.git\/(info\/refs|git-upload-pack|git-receive-pack)$/, asyncRoute(async (req: Request, res: Response) => {
@@ -36,11 +41,15 @@ export function machinesRouter(deps: { machines: Pick<MachineService, 'join'>; b
     const body = (req.body ?? {}) as { code?: unknown; hostname?: unknown; rootDir?: unknown; os?: unknown; replaces?: unknown };
     const outcome = await deps.machines.join(body.code, { hostname: body.hostname, rootDir: body.rootDir, os: body.os, replaces: body.replaces });
     if (!outcome.ok) return res.status(outcome.status).type('text/plain').send(outcome.error);
-    res.json(outcome.value);
+    res.json({ ...outcome.value, env: { ...outcome.value.env, KOALA_AGENT_SHA256: await deps.bundle.sha256() } });
   }));
 
   router.get('/agent.tgz', asyncRoute(async (_req: Request, res: Response) => {
-    res.type('application/gzip').sendFile(await deps.bundle());
+    res.type('application/gzip').sendFile(await deps.bundle.path());
+  }));
+
+  router.get('/agent.tgz.sha256', asyncRoute(async (_req: Request, res: Response) => {
+    res.type('text/plain').send(`${await deps.bundle.sha256()}  machine-agent.tgz\n`);
   }));
 
   return router;

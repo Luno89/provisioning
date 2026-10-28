@@ -48,12 +48,13 @@ export function wireMachines(deps: MachinesWiringDeps): void {
       handed: (workflowId, deviceId) => sharedPayloadBlobs().handTo(workflowId, deviceId),
       log: (line) => console.log(line),
     });
+    deps.machines.onTokenRetired((tokenHash) => gateway.forget(tokenHash));
     gateway.listen(port, host).then(
       (listening) => console.log(`[machine-gateway] machines reach Temporal through ${host}:${listening}`),
       (err: Error) => console.error(`[machine-gateway] could not listen on ${host}:${port}: ${err.message}`),
     );
   }
-  tenant.use('/api/machines', machinesRouter({ machines: deps.machines, bundle: () => bundle.path(), git }));
+  tenant.use('/api/machines', machinesRouter({ machines: deps.machines, bundle, git }));
   tenant.get('/machine.sh', asyncRoute(async (_req, res) => {
     const installer = await fs.readFile(path.join(deps.repoRoot, 'scripts/machine/machine.sh'), 'utf8');
     res.type('text/x-shellscript').send(installer.replaceAll('__KOALA_URL__', deps.publicUrl));

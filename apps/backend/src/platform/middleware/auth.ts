@@ -118,6 +118,7 @@ export function createAuth({ db, sessionKey, publicUrl, role = 'combined', insta
       ...(signsInThroughRoot(role) ? ['/auth/handoff', '/auth/handoff/start', '/auth/sign-in'] : []),
       '/machines/join',
       '/machines/agent.tgz',
+      '/machines/agent.tgz.sha256',
       '/metrics',
     ];
     const publicPrefixes = role === 'instance' ? [...PUBLIC_PREFIXES, '/move/'] : role === 'hub' ? [...PUBLIC_PREFIXES, '/hub-root/', '/hub-instance/'] : [...PUBLIC_PREFIXES, '/instances/monitoring/', '/instances/move/parts/', '/instances/groups/', '/instances/chart/'];

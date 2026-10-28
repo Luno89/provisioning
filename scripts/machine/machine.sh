@@ -87,6 +87,7 @@ KOALA_DEVICE_TOKEN=$(joined KOALA_DEVICE_TOKEN)
 KOALA_ROOT_DIR=$(joined KOALA_ROOT_DIR)
 KOALA_TEMPORAL_ADDRESS=$(joined KOALA_TEMPORAL_ADDRESS)
 KOALA_TEMPORAL_NAMESPACE=$(joined KOALA_TEMPORAL_NAMESPACE)
+KOALA_AGENT_SHA256=$(joined KOALA_AGENT_SHA256)
 MESH_LOGIN_SERVER=$(joined MESH_LOGIN_SERVER)
 joined MESH_AUTH_KEY > "$MESH_KEY_FILE"
 rm -f "$JOINED"
@@ -108,8 +109,14 @@ DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/koala/machine"
 NEXT_DIR="$DATA_DIR.next"
 rm -rf "$NEXT_DIR"
 mkdir -p "$NEXT_DIR"
-curl -fsSL "${KOALA_URL}/api/machines/agent.tgz" | tar -xzf - -C "$NEXT_DIR"
-(cd "$NEXT_DIR" && npm install --omit=dev --no-audit --no-fund --loglevel=error >/dev/null)
+BUNDLE=$(mktemp)
+curl -fsSL "${KOALA_URL}/api/machines/agent.tgz" -o "$BUNDLE"
+[ -n "$KOALA_AGENT_SHA256" ] || { rm -f "$BUNDLE"; die "Koala did not say what the machine agent's checksum should be; nothing was installed"; }
+if have sha256sum; then GOT=$(sha256sum "$BUNDLE" | cut -d' ' -f1); else GOT=$(shasum -a 256 "$BUNDLE" | cut -d' ' -f1); fi
+[ "$GOT" = "$KOALA_AGENT_SHA256" ] || { rm -f "$BUNDLE"; die "the machine agent Koala sent is not the one it built (its sha256 differs); nothing was installed"; }
+tar -xzf "$BUNDLE" -C "$NEXT_DIR"
+rm -f "$BUNDLE"
+(cd "$NEXT_DIR" && npm ci --omit=dev --ignore-scripts --no-audit --no-fund --loglevel=error >/dev/null)
 rm -rf "$DATA_DIR"
 mv "$NEXT_DIR" "$DATA_DIR"
 ok "installed in $DATA_DIR"

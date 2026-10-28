@@ -1,7 +1,8 @@
 import { build } from 'esbuild';
 import { execFile } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
-import { mkdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
@@ -49,6 +50,10 @@ await writeFile(path.join(staging, 'package.json'), `${JSON.stringify({
   engines: { node: '>=20' },
   dependencies: Object.fromEntries(RUNTIME.map((name) => [name, versionOf(name)])),
 }, null, 2)}\n`);
+const run = promisify(execFile);
+await run('npm', ['install', '--package-lock-only', '--ignore-scripts', '--no-audit', '--no-fund', '--loglevel=error'], { cwd: staging });
 const tarball = path.join(out, 'machine-agent.tgz');
-await promisify(execFile)('tar', ['-czf', tarball, '-C', staging, '.']);
+await run('tar', ['--sort=name', '--mtime=@0', '--owner=0', '--group=0', '--numeric-owner', '-czf', tarball, '-C', staging, '.']);
+const sha256 = createHash('sha256').update(await readFile(tarball)).digest('hex');
+await writeFile(`${tarball}.sha256`, `${sha256}  machine-agent.tgz\n`);
 console.log(tarball);

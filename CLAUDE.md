@@ -389,10 +389,18 @@ with the backend's `PUBLIC_URL`; the code is single-use and lasts an hour, `Mach
 person, it needs Node 20+, asks which folder Koala may work in (never `/`, their home or a folder above it; the agent refuses
 one too, `folderProblem`, and every scope a run names stays inside it, absolute or climbing ones refused by `scopedPath`), trades the code at the public `POST /api/machines/join`
 for the device's token and settings (kept in `~/.config/koala/machine.json`, mode 600, never printed; Koala keeps only its SHA-256,
-`tokenHash`, and the startup migration `device-tokens-hashed` turned the encrypted ones from before into hashes), joins the mesh
+`tokenHash`, and the startup migration `device-tokens-hashed` turned the encrypted ones from before into hashes). **A device token
+lives 90 days** (`machines/lib/device-tokens.ts`; `device-token-lifetimes` dated the ones from before): in its last 30 days the backend
+mints the next one on connect and sends it over the authenticated socket (`machine:token`), the agent writes it to machine.json
+(atomically, mode 600), moves its worker's and git's credential onto it and acknowledges, and only then is the old one retired;
+until then both are taken, on the socket, the git proxy and the gateway alike, so an agent that crashed mid-rotation reconnects with
+whichever it kept. An expired token is refused everywhere with "its token expired while it was offline; run the command from My
+Machines again", which My Machines shows; running the command again still replaces that machine. It joins the mesh
 when `MESH_LOGIN_SERVER` is set, installs the machine agent (`GET /api/machines/agent.tgz`: `apps/local-agent` bundled by
-`scripts/bundle-machine.mjs`, with its runtime packages installed by npm on the machine, protobufjs 8 among them so Temporal's packages share one copy
-and an offloaded payload can be read) and starts it as a user
+`apps/local-agent/scripts/bundle-machine.mjs` with a `package-lock.json` for its runtime packages, which `npm ci --omit=dev
+--ignore-scripts` installs on the machine, protobufjs 8 among them so Temporal's packages share one copy and an offloaded payload can
+be read; the join reply carries the bundle's sha256, also served at `agent.tgz.sha256`, and the script refuses a download that differs)
+and starts it as a user
 service (systemd `--user`, launchd). The device worker reaches Temporal only through the **machine gateway**
 (`MachineTemporalGateway`, rules in `machines/lib/temporal-gateway.ts`, port `MACHINE_GATEWAY_PORT`, 7234; on an instance
 the node port 30322 on its mesh address, Temporal itself no longer published), at `MACHINE_TEMPORAL_ADDRESS` (default
