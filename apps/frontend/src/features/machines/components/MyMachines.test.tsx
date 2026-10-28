@@ -41,6 +41,20 @@ describe('My Machines', () => {
     expect(screen.getByText(/It works once, until/)).toBeDefined();
   });
 
+  it('removes a machine only once the person confirms, saying what goes and what stays', async () => {
+    vi.mocked(localAgentsApi.deleteLocalAgentDevice).mockResolvedValue({ ok: true } as never);
+    renderPanel([machine()]);
+    fireEvent.click(await screen.findByTitle('Remove this machine'));
+    expect(localAgentsApi.deleteLocalAgentDevice).not.toHaveBeenCalled();
+    expect(screen.getByText(/leaves the private network/)).toBeDefined();
+    expect(screen.getByText(/Files in \/x stay on the machine/)).toBeDefined();
+    fireEvent.click(screen.getByRole('button', { name: 'Keep' }));
+    expect(screen.queryByTestId('confirm-delete')).toBeNull();
+    fireEvent.click(screen.getByTitle('Remove this machine'));
+    fireEvent.click(screen.getByRole('button', { name: 'Remove machine' }));
+    await waitFor(() => expect(localAgentsApi.deleteLocalAgentDevice).toHaveBeenCalledWith('dev-1'));
+  });
+
   it('shows the coding agents each machine found, and installs an adapter one needs', async () => {
     vi.mocked(localAgentsApi.installMachineAdapter).mockResolvedValue({ ok: true, output: 'added 1 package' });
     renderPanel([machine({

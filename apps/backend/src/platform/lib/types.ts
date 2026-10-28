@@ -210,6 +210,7 @@ export interface LocalAgentDeviceMetadata {
   tokenHash?: string | undefined;
   tokenEnc?: string | undefined;
   rootDir: string;
+  meshIp?: string | undefined;
   createdAt: string;
   lastSeenAt?: string;
   os?: string | undefined;

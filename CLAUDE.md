@@ -352,6 +352,13 @@ the service (`agent.mjs agents`, `agent-setup.ts`): it lists what it found and a
 each missing adapter; `--adapters all|none` answers for every one (`--yes` means all), and with no terminal it installs
 nothing. Running the command again on a machine already
 added replaces that machine (the script sends the old token from `machine.json`, on stdin) instead of adding a second.
+**Removing a machine** (My Machines, confirmed) deletes its record, so its token stops working, then closes its socket after
+telling the agent `machine:removed`: the agent deletes `machine.json` and its service file and disables its own service
+(`machine-removal.ts`). It takes the machine's node off the mesh by the address the agent reports on connect (`machine:mesh`,
+`meshIp` on the device): Headscale directly, or on an instance root's `DELETE /api/instances/machine-node`, which takes only
+the instance owner's nodes and never the instance itself. The project the machine was added with (`appType: 'local'` on that
+device) is deleted, unlinked from any tree. A machine offline when removed keeps its token file and is refused when it next
+connects.
 
 **A machine's worker reads its instance's payloads like any other worker.** The machine is inside its owner's instance,
 so on every connect the agent asks for the payload keyring over its socket (`machine:payloads`, only where tenants are

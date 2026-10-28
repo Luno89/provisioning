@@ -133,3 +133,10 @@ export function machineChoiceProblem(machine: ChosenMachine | undefined, agent: 
   if (!machine.online && !opts.waitsToConnect) return `${machine.name} is not connected, so ${found.title} cannot answer`;
   return undefined;
 }
+
+export function meshAddress(raw: unknown): string | undefined {
+  if (typeof raw !== 'string') return undefined;
+  const parts = raw.trim().split('.').map(Number);
+  if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) return undefined;
+  return parts[0] === 100 && parts[1]! >= 64 && parts[1]! <= 127 ? parts.join('.') : undefined;
+}

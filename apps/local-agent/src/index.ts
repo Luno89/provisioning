@@ -18,6 +18,7 @@ import { ExternalAgentSessions } from './external-agents.js';
 import { LocalMcpServer } from './local-mcp.js';
 import { engineSettingsOver, remoteBlobs } from './remote-blobs.js';
 import { DeviceWorkerHost } from './device-worker-host.js';
+import { forgetThisMachine, meshIp } from './machine-removal.js';
 import { startTelemetry } from '@koala/engine-core/telemetry-sdk';
 import { socketSink } from './telemetry-sink.js';
 
@@ -100,6 +101,14 @@ async function main() {
 
   socket.on('connect', () => {
     console.log(`[koala-local-agent] connected to ${backendUrl} — root: ${rootDir}, containers: ${containerMode ? 'on' : 'off'}`);
+    void meshIp().then((ip) => { if (ip) socket.emit('machine:mesh', { ip }); });
+  });
+
+  socket.on('machine:removed', () => {
+    socket.io.opts.reconnection = false;
+    void sessions.closeAll()
+      .finally(() => forgetThisMachine((line) => console.log(`[koala-local-agent] ${line}`)))
+      .finally(() => process.exit(0));
   });
 
   socket.on('disconnect', (reason) => {

@@ -5,6 +5,7 @@ import {
 } from '../api';
 import { errorMessage } from '../../../api/client';
 import MachineAgents from './MachineAgents';
+import ConfirmDelete from '../../../shared/components/ConfirmDelete';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Loader2, Copy, Check, Trash2, Circle, Terminal, ShieldCheck, ShieldAlert,
@@ -14,6 +15,7 @@ export default function MyMachines() {
   const qc = useQueryClient();
   const [machineCode, setMachineCode] = useState<MachineJoinCode | null>(null);
   const [agentCopied, setAgentCopied] = useState(false);
+  const [removing, setRemoving] = useState<string | null>(null);
 
   const { data: localAgents } = useQuery<LocalAgentDevice[]>({
     queryKey: localAgentKeys.list(),
@@ -28,7 +30,7 @@ export default function MyMachines() {
 
   const revokeAgent = useMutation({
     mutationFn: (id: string) => deleteLocalAgentDevice(id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: localAgentKeys.list() }),
+    onSuccess: () => { setRemoving(null); return qc.invalidateQueries({ queryKey: localAgentKeys.list() }); },
   });
 
   const copyAgentCommand = () => {
@@ -125,14 +127,25 @@ export default function MyMachines() {
                   </div>
                 </div>
                 <button
-                  onClick={() => revokeAgent.mutate(d.id)}
+                  onClick={() => setRemoving(d.id)}
                   disabled={revokeAgent.isPending}
                   className="text-slate-600 hover:text-red-400 transition-colors"
-                  title="Revoke this machine's access"
+                  title="Remove this machine"
                 >
                   <Trash2 size={15} />
                 </button>
               </div>
+              {removing === d.id && (
+                <div className="mt-3">
+                  <ConfirmDelete
+                    prompt={`Remove ${d.name}? Its token stops working, it leaves the private network, the agent on it stops and deletes its token, and the project it was added with goes. Files in ${d.rootDir} stay on the machine.`}
+                    confirmLabel="Remove machine"
+                    pending={revokeAgent.isPending}
+                    onConfirm={() => revokeAgent.mutate(d.id)}
+                    onCancel={() => setRemoving(null)}
+                  />
+                </div>
+              )}
               <MachineAgents device={d} />
             </div>
           ))}

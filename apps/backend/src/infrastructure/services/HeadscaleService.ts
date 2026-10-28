@@ -152,6 +152,11 @@ export class HeadscaleService {
     return { devices: nodes.length, user: true };
   }
 
+  async removeNode(platformUserId: string, meshIp: string): Promise<void> {
+    const node = (await this.listUserDevices(platformUserId)).find((device) => device.ipAddresses.includes(meshIp));
+    if (node) await this.revokeDevice(node.id);
+  }
+
   async revokeDevice(nodeId: string): Promise<void> {
     const res = await this.apiFetch(`/api/v1/node/${nodeId}`, { method: 'DELETE' });
     if (!res.ok) {

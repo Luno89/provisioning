@@ -96,6 +96,17 @@ export class ProjectRepoService {
     return project;
   }
 
+  async removeFor(ownerId: string, deviceId: string): Promise<void> {
+    const made = (await this.db.projects.getProjects()).filter((project) => project.ownerId === ownerId && project.appType === 'local' && project.executionTarget?.kind === 'local-device' && project.executionTarget.deviceId === deviceId);
+    if (!made.length) return;
+    const ids = new Set(made.map((project) => project.id));
+    for (const tree of await this.db.projects.getTrees()) {
+      if (!tree.projectIds?.some((id) => ids.has(id))) continue;
+      await this.db.projects.saveTree({ ...tree, projectIds: tree.projectIds.filter((id) => !ids.has(id)), updatedAt: new Date().toISOString() });
+    }
+    for (const project of made) await this.db.projects.removeProjectRecords(project.id);
+  }
+
   private async underLimit(ownerId: string): Promise<void> {
     const mine = (await this.db.projects.getProjects()).filter((p) => p.ownerId === ownerId);
     if (mine.length >= MAX_PROJECTS_PER_USER) {

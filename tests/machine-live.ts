@@ -157,9 +157,23 @@ async function main(): Promise<void> {
     const said = await chatsOnTheMachine(api, rejoined.id);
     console.log(said.map((line) => `    ${line}`).join('\n'));
 
+    console.log('[8] removing it on My Machines stops its agent, deletes its token, its service and the project it was added with');
+    const project = (await db.projects.getProjects()).find((candidate) => candidate.executionTarget?.kind === 'local-device' && candidate.executionTarget.deviceId === rejoined.id);
+    assert.ok(project, 'the machine was added without a project');
+    assert.equal((await http.delete(`/mesh/local-agents/${rejoined.id}`)).status, 200);
+    const stopped = await until('the agent stopping', 2, async () => {
+      const state = (await ssh(vm!, 'systemctl --user is-active koala-machine; test -e ~/.config/koala/machine.json && echo token-kept || echo token-gone; test -e ~/.config/systemd/user/koala-machine.service && echo unit-kept || echo unit-gone').catch((err: { stdout?: string }) => err.stdout ?? '')).trim();
+      return /^(inactive|failed|unknown)/.test(state) ? state : undefined;
+    });
+    assert.match(stopped, /token-gone/, stopped);
+    assert.match(stopped, /unit-gone/, stopped);
+    assert.equal((await db.projects.getProjects()).some((candidate) => candidate.id === project.id), false, 'its project is still there');
+    assert.equal(await mine(), undefined, 'it is still listed');
+    console.log(`    ${stopped.split('\n').join(', ')}; its project and listing gone`);
+
     console.log('machine live — PASS');
   } finally {
-    console.log('[8] removing the machine, its project and the VM');
+    console.log('[9] removing anything left, and the VM');
     const found = await mine().catch(() => undefined);
     if (found) {
       const removed = await http.delete(`/mesh/local-agents/${found.id}`);

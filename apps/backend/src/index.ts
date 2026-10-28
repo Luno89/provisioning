@@ -37,7 +37,7 @@ import { wireSockets } from './machines/wiring/sockets.js';
 import { workFailuresFor, wireRunning } from './infrastructure/wiring/running.js';
 import { wireActions } from './engine/wiring/actions.js';
 import { PRUNE_FIRST_DELAY_MS, PRUNE_INTERVAL_MS } from './engine-host/sandboxes/prune-images.js';
-import { askDevice, localAgentStatus, tellDevice, MachineService, machineTelemetry } from './machines/index.js';
+import { askDevice, dropDevice, localAgentStatus, tellDevice, MachineService, machineTelemetry } from './machines/index.js';
 import { RootMeshKeys, IdentityService } from './instances/index.js';
 import { modelsRouter, ModelService, endpointRulesFromEnv } from './models/index.js';
 
@@ -176,7 +176,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
       temporalNamespace: machineTemporal.namespace,
       meshLoginServer: process.env.MESH_LOGIN_SERVER,
     },
-    devices: { status: localAgentStatus, tell: tellDevice, ask: askDevice },
+    devices: { status: localAgentStatus, tell: tellDevice, ask: askDevice, drop: dropDevice },
     projects: projectRepoService,
     mesh: role.instance
       ? new RootMeshKeys({ rootUrl: role.instance.rootUrl, instanceId: role.instance.id, credential: process.env.INSTANCE_CREDENTIAL ?? '' })

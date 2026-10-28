@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { machineAgentsFrom, machineChoiceProblem, manualAgentsOf, manualAgentsProblem } from './machines.js';
+import { meshAddress, machineAgentsFrom, machineChoiceProblem, manualAgentsOf, manualAgentsProblem } from './machines.js';
 
 describe('what a machine reports about its agents', () => {
   it('keeps well-formed agents, trims what is long, and drops the rest', () => {
@@ -53,5 +53,17 @@ describe('picking an agent on a machine', () => {
     expect(machineChoiceProblem(withModels, 'antigravity', { model: 'g38f' })).toBeUndefined();
     expect(machineChoiceProblem(withModels, 'antigravity', { model: 'g9' })).toBe('Antigravity on desk no longer offers the model g9 (it offers Gemini 3.8 Flash); pick another in the model list');
     expect(machineChoiceProblem({ ...machine, online: false }, 'antigravity', { waitsToConnect: true })).toBeUndefined();
+  });
+});
+
+describe('a machine\'s mesh address', () => {
+  it('takes only an address in the mesh\'s range', () => {
+    expect(meshAddress(' 100.64.0.9 ')).toBe('100.64.0.9');
+    expect(meshAddress('100.127.255.1')).toBe('100.127.255.1');
+    expect(meshAddress('100.128.0.1')).toBeUndefined();
+    expect(meshAddress('10.0.0.1')).toBeUndefined();
+    expect(meshAddress('100.64.0')).toBeUndefined();
+    expect(meshAddress('100.64.0.256')).toBeUndefined();
+    expect(meshAddress(42)).toBeUndefined();
   });
 });

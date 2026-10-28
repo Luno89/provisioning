@@ -12,7 +12,8 @@ const settings = {
   domain: 'koala.dev',
   siteNames: ['app', 'mesh'],
 };
-const mesh = { createPreAuthKey: async (ownerId: string) => ({ key: `pre-${ownerId}` }) };
+const removedNodes: { ownerId: string; meshIp: string }[] = [];
+const mesh = { createPreAuthKey: async (ownerId: string) => ({ key: `pre-${ownerId}` }), removeNode: async (ownerId: string, meshIp: string) => { removedNodes.push({ ownerId, meshIp }); } };
 
 let db: MongoDB;
 let now: Date;
@@ -77,6 +78,22 @@ describe('bringing a user\'s own machine in as their instance', () => {
     expect(await service.machineKey(joined.value.instanceId, joined.value.credential)).toEqual({ ok: true, value: { preAuthKey: 'pre-u1', meshLoginServer: 'https://mesh.example.com' } });
     expect(await service.machineKey(joined.value.instanceId, 'guess')).toMatchObject({ ok: false, status: 401 });
     expect(await new InstanceService(db, { ...settings, meshLoginServer: undefined }, mesh, () => now).machineKey(joined.value.instanceId, joined.value.credential)).toMatchObject({ ok: false, status: 503 });
+  });
+
+  it('takes a machine of the instance\'s owner off the mesh when the instance asks, never the instance itself', async () => {
+    removedNodes.length = 0;
+    const { token } = await tokenFor('u1');
+    const joined = await service.join(token, 'm');
+    if (!joined.ok) throw new Error(joined.error);
+    const { instanceId, credential } = joined.value;
+    expect(await service.removeMachineNode(instanceId, credential, '100.64.0.7')).toEqual({ ok: true, value: { removed: '100.64.0.7' } });
+    expect(removedNodes).toEqual([{ ownerId: 'u1', meshIp: '100.64.0.7' }]);
+    expect(await service.removeMachineNode(instanceId, 'guess', '100.64.0.8')).toMatchObject({ ok: false, status: 401 });
+    expect(await service.removeMachineNode(instanceId, credential, '192.168.1.4')).toMatchObject({ ok: false, status: 400 });
+    expect(await service.removeMachineNode(instanceId, credential, 'not an address')).toMatchObject({ ok: false, status: 400 });
+    await db.instances.saveInstance({ ...(await db.instances.getInstances()).find((entry) => entry.id === instanceId)!, meshIp: '100.64.0.2' });
+    expect(await service.removeMachineNode(instanceId, credential, '100.64.0.2')).toMatchObject({ ok: false, status: 400 });
+    expect(removedNodes).toHaveLength(1);
   });
 
   it('records what the machine reports, and where the instance answers', async () => {

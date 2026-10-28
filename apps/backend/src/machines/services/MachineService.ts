@@ -5,6 +5,7 @@ import { type SecretKey, type LocalAgentDeviceMetadata, type ProjectMetadata } f
 import { deviceTokenHash, findDeviceByToken } from '../lib/local-agent-registry.js';
 import type { MachineChoice } from '@koala/agent-engine/procedure';
 import {
+  meshAddress,
   MACHINE_CODE_TTL_SECONDS, hashMachineCode, machineAgentsFrom, machineChoiceProblem, machineCommand, manualAgentsOf, manualAgentsProblem, newMachineCode,
   type MachineAgent, type ManualMachineAgent,
 } from '../lib/machines.js';
@@ -23,6 +24,7 @@ export interface MachineDevices {
   status(deviceId: string): { online: boolean; connectedAt?: string | undefined; containerMode?: boolean | undefined };
   tell(deviceId: string, event: string): boolean;
   ask<T>(deviceId: string, ownerId: string, event: string, payload: unknown): Promise<T>;
+  drop(deviceId: string): void;
 }
 
 export interface MachineDeps {
@@ -30,8 +32,14 @@ export interface MachineDeps {
   dataKey: SecretKey;
   settings: MachineSettings;
   devices: MachineDevices;
-  projects: { register(ownerId: string, name: string, opts: { executionTarget?: ProjectMetadata['executionTarget'] }): Promise<ProjectMetadata> };
-  mesh?: { createPreAuthKey(ownerId: string, opts?: { reusable?: boolean; expirySeconds?: number }): Promise<{ key: string }> } | undefined;
+  projects: {
+    register(ownerId: string, name: string, opts: { executionTarget?: ProjectMetadata['executionTarget'] }): Promise<ProjectMetadata>;
+    removeFor?(ownerId: string, deviceId: string): Promise<void>;
+  };
+  mesh?: {
+    createPreAuthKey(ownerId: string, opts?: { reusable?: boolean; expirySeconds?: number }): Promise<{ key: string }>;
+    removeNode?(ownerId: string, meshIp: string): Promise<void>;
+  } | undefined;
   now?: (() => Date) | undefined;
 }
 
@@ -194,6 +202,19 @@ export class MachineService {
     const device = await this.owned(ownerId, deviceId);
     if (!device) return false;
     await this.deps.store.deleteLocalAgentDevice(device.id);
+    this.deps.devices.drop(device.id);
+    if (device.meshIp && this.deps.mesh?.removeNode) {
+      await this.deps.mesh.removeNode(ownerId, device.meshIp).catch((err: Error) => console.warn(`[machines] ${device.name} is removed, but its mesh node ${device.meshIp} could not be: ${err.message}`));
+    }
+    await this.deps.projects.removeFor?.(ownerId, device.id).catch((err: Error) => console.warn(`[machines] ${device.name} is removed, but its project could not be: ${err.message}`));
     return true;
+  }
+
+  async recordMeshIp(deviceId: string, raw: unknown): Promise<void> {
+    const meshIp = meshAddress(raw);
+    if (!meshIp) return;
+    const device = (await this.deps.store.getLocalAgentDevices()).find((candidate) => candidate.id === deviceId);
+    if (!device || device.meshIp === meshIp) return;
+    await this.deps.store.saveLocalAgentDevice({ ...device, meshIp });
   }
 }

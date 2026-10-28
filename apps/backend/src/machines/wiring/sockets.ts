@@ -23,7 +23,7 @@ export interface SocketsWiringDeps {
   payloadKey: Keyring;
   dataKey: SecretKey;
   auth: Pick<ReturnType<typeof createAuth>, 'userFromSessionCookie' | 'securedFor'>;
-  machines: Pick<MachineService, 'recordAgents' | 'manualAgents'>;
+  machines: Pick<MachineService, 'recordAgents' | 'manualAgents' | 'recordMeshIp'>;
   clusters: ClusterService;
   apps: AppService;
   infra: InfrastructureService;
@@ -70,6 +70,9 @@ export function wireSockets(deps: SocketsWiringDeps): void {
     socket.on('disconnect', () => unregisterDevice(device.id, socket));
     socket.on('agents:found', (report: { agents?: unknown } | undefined) => {
       deps.machines.recordAgents(device.id, report?.agents).catch((err: Error) => console.warn(`[machines] ${device.id}: its agents could not be recorded: ${err.message}`));
+    });
+    socket.on('machine:mesh', (report: { ip?: unknown } | undefined) => {
+      deps.machines.recordMeshIp(device.id, report?.ip).catch((err: Error) => console.warn(`[machines] ${device.id}: its mesh address could not be recorded: ${err.message}`));
     });
     socket.on('agents:manual', (_request: unknown, ack: (agents: unknown) => void) => {
       deps.machines.manualAgents(device.id).then(ack, () => ack([]));

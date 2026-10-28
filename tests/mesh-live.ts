@@ -194,6 +194,26 @@ async function main(): Promise<void> {
     assert.equal(got, wanted, `${what} was ${got ? 'reached' : 'blocked'}`);
   }
 
+  step('removing the machine on the instance takes it off the mesh through root, stops its agent and deletes its token and project');
+  const projectsBefore = await (await onInstance('/api/projects')).json() as { id: string; executionTarget?: { deviceId?: string } }[];
+  assert.ok(projectsBefore.some((project) => project.executionTarget?.deviceId === machine.id), 'the machine was added without a project');
+  const removed = await onInstance(`/api/mesh/local-agents/${machine.id}`, { method: 'DELETE' });
+  assert.equal(removed.status, 200, await removed.clone().text());
+  await until('the machine\'s node leaving the mesh', 2, async () => {
+    const nodes = JSON.parse(headscale('nodes', 'list', '-o', 'json')) as Array<{ ip_addresses?: string[] }>;
+    return nodes.some((entry) => entry.ip_addresses?.includes(machineMeshIp)) ? undefined : true;
+  });
+  const stopped = await until('the machine\'s agent stopping', 2, async () => {
+    const state = (await inVm(machineVm, 'systemctl --user is-active koala-machine; test -e ~/.config/koala/machine.json && echo token-kept || echo token-gone; test -e ~/.config/systemd/user/koala-machine.service && echo unit-kept || echo unit-gone')).trim();
+    return /^(inactive|failed|unknown)/.test(state) ? state : undefined;
+  });
+  assert.match(stopped, /token-gone/, stopped);
+  assert.match(stopped, /unit-gone/, stopped);
+  const projectsAfter = await (await onInstance('/api/projects')).json() as { id: string; executionTarget?: { deviceId?: string } }[];
+  assert.ok(!projectsAfter.some((project) => project.executionTarget?.deviceId === machine.id), 'the machine\'s project is still there');
+  assert.equal(await reaches(machineVm, instanceMeshIp, GATEWAY_PORT), false, 'the removed machine still reaches the machine gateway');
+  console.log(`  ${machineMeshIp} is off the mesh, its agent ${stopped.split('\n').join(', ')}, its project gone`);
+
   console.log('\nmesh live — PASS');
 }
 

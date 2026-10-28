@@ -5,7 +5,7 @@ import { localAgentsRouter } from './local-agents.js';
 import { machinesRouter } from './machines.js';
 import { mountRouter, type Harness, TEST_USER } from '../../platform/routes/test-harness.js';
 import type { Database } from '../../platform/lib/db-interface.js';
-import { askDevice, localAgentStatus, registerDevice, tellDevice, unregisterDevice } from '../lib/local-agent-registry.js';
+import { askDevice, dropDevice, localAgentStatus, registerDevice, tellDevice, unregisterDevice } from '../lib/local-agent-registry.js';
 import { ProjectRepoService } from '../../projects/services/ProjectRepoService.js';
 import { MachineService } from '../services/MachineService.js';
 import type { GiteaService } from '../../projects/services/GiteaService.js';
@@ -14,14 +14,15 @@ const DATA_KEY = 'test-secret';
 const URL_OF_KOALA = 'https://koala.example';
 
 let service: MachineService | undefined;
+const meshRemoved: { ownerId: string; meshIp: string }[] = [];
 const machinesOf = (db: Database, mesh?: string) => {
   service = new MachineService({
     store: db.machines,
     dataKey: DATA_KEY,
     settings: { url: URL_OF_KOALA, temporalAddress: 'localhost:7233', temporalNamespace: 'default', meshLoginServer: mesh },
-    devices: { status: localAgentStatus, tell: tellDevice, ask: askDevice },
+    devices: { status: localAgentStatus, tell: tellDevice, ask: askDevice, drop: dropDevice },
     projects: new ProjectRepoService(db, {} as GiteaService, DATA_KEY),
-    mesh: { createPreAuthKey: async (ownerId) => ({ key: `preauth-for-${ownerId}` }) },
+    mesh: { createPreAuthKey: async (ownerId) => ({ key: `preauth-for-${ownerId}` }), removeNode: async (ownerId, meshIp) => { meshRemoved.push({ ownerId, meshIp }); } },
   });
   return service;
 };
@@ -42,12 +43,14 @@ afterAll(async () => { await harness.close(); });
 
 const post = (path: string, body: unknown) => fetch(harness.url(path), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
 
-interface FakeDevice { socket: Socket; emitted: { event: string; payload: unknown }[] }
+interface FakeDevice { socket: Socket; emitted: { event: string; payload: unknown }[]; disconnected: () => boolean }
 
 const connect = (id: string, answers: Record<string, unknown> = {}): FakeDevice => {
   const emitted: FakeDevice['emitted'] = [];
+  let disconnected = false;
   const socket = {
     connected: true,
+    disconnect: () => { disconnected = true; return socket; },
     once: () => socket,
     off: () => socket,
     emit: (event: string, payload: unknown, ack?: (answer: unknown) => void) => {
@@ -57,7 +60,7 @@ const connect = (id: string, answers: Record<string, unknown> = {}): FakeDevice 
     },
   } as unknown as Socket;
   registerDevice(id, TEST_USER.id, '/x', socket, false);
-  return { socket, emitted };
+  return { socket, emitted, disconnected: () => disconnected };
 };
 
 describe('adding a machine with the command from My Machines', () => {
@@ -191,5 +194,27 @@ describe('a machine\'s agents on My Machines', () => {
     const left = (await harness.db.machines.getLocalAgentDevices()).map((device) => device.id);
     expect(left).not.toContain('dev-delete-me');
     expect(left).toContain('dev-not-mine');
+  });
+
+  it('removing a machine closes its connection, tells it to forget its token, takes it off the mesh and deletes the project it was added with', async () => {
+    await harness.db.machines.saveLocalAgentDevice({ id: 'dev-gone', ownerId: TEST_USER.id, name: 'Gone', rootDir: '/x', tokenEnc: 'irrelevant', createdAt: '2026-01-01T00:00:00Z' });
+    await harness.db.projects.saveProject({ id: 'proj-of-gone', name: 'Gone - x', ownerId: TEST_USER.id, appType: 'local', executionTarget: { kind: 'local-device', deviceId: 'dev-gone' }, createdAt: '2026-01-01T00:00:00Z' });
+    await harness.db.projects.saveProject({ id: 'proj-kept', name: 'Kept', ownerId: TEST_USER.id, appType: 'local', executionTarget: { kind: 'local-device', deviceId: 'dev-other' }, createdAt: '2026-01-01T00:00:00Z' });
+    await harness.db.projects.saveTree({ id: 'tree-on-gone', ownerId: TEST_USER.id, name: 't', projectIds: ['proj-of-gone', 'proj-kept'], createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z' } as never);
+    const device = connect('dev-gone');
+    await service!.recordMeshIp('dev-gone', '100.64.0.9');
+    await service!.recordMeshIp('dev-gone', '10.0.0.1');
+    expect((await harness.db.machines.getLocalAgentDevices()).find((entry) => entry.id === 'dev-gone')?.meshIp).toBe('100.64.0.9');
+
+    expect((await fetch(harness.url('/api/mesh/local-agents/dev-gone'), { method: 'DELETE' })).status).toBe(200);
+
+    expect(device.emitted.map((entry) => entry.event)).toContain('machine:removed');
+    expect(device.disconnected()).toBe(true);
+    expect(localAgentStatus('dev-gone').online).toBe(false);
+    expect(meshRemoved).toEqual([{ ownerId: TEST_USER.id, meshIp: '100.64.0.9' }]);
+    const projects = (await harness.db.projects.getProjects()).map((project) => project.id);
+    expect(projects).not.toContain('proj-of-gone');
+    expect(projects).toContain('proj-kept');
+    expect((await harness.db.projects.getTrees()).find((tree) => tree.id === 'tree-on-gone')?.projectIds).toEqual(['proj-kept']);
   });
 });

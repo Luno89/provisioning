@@ -1,3 +1,4 @@
+import { meshAddress } from '../../machines/index.js';
 import crypto from 'crypto';
 import type { Database } from '../../platform/index.js';
 import { INSTANCE_STATUSES, type InstanceAddresses, type InstanceGroup, type InstanceRecord, type InstanceStatus } from '../lib/instances.js';
@@ -92,7 +93,7 @@ export class InstanceService {
   constructor(
     private readonly store: Store,
     private readonly settings: InstanceSettings,
-    private readonly mesh: { createPreAuthKey(ownerId: string, opts?: { reusable?: boolean; expirySeconds?: number }): Promise<{ key: string }>; listUserDevices?(ownerId: string): Promise<{ ipAddresses: string[] }[]> } | undefined,
+    private readonly mesh: { createPreAuthKey(ownerId: string, opts?: { reusable?: boolean; expirySeconds?: number }): Promise<{ key: string }>; listUserDevices?(ownerId: string): Promise<{ ipAddresses: string[] }[]>; removeNode?(ownerId: string, meshIp: string): Promise<void> } | undefined,
     private readonly now: () => Date = () => new Date(),
     private readonly routesChanged: () => void = () => {},
     private readonly poolWorkflows: PoolWorkflows | undefined = undefined,
@@ -475,6 +476,17 @@ export class InstanceService {
     if (!this.mesh || !this.settings.meshLoginServer) return { ok: false, status: 503, error: 'this root has no mesh configured (MESH_LOGIN_SERVER), so no machine can join it' };
     const { key } = await this.mesh.createPreAuthKey(instance.ownerId, { reusable: false, expirySeconds: JOIN_TOKEN_TTL_SECONDS });
     return { ok: true, value: { preAuthKey: key, meshLoginServer: this.settings.meshLoginServer } };
+  }
+
+  async removeMachineNode(instanceId: unknown, credential: unknown, raw: unknown): Promise<Outcome<{ removed: string }>> {
+    const instance = await this.authenticated(instanceId, credential);
+    if (!instance) return { ok: false, status: 401, error: 'unknown instance or credential' };
+    const meshIp = meshAddress(raw);
+    if (!meshIp) return { ok: false, status: 400, error: 'name the machine by its mesh address' };
+    if (meshIp === instance.meshIp) return { ok: false, status: 400, error: 'that is the instance itself, not one of its machines' };
+    if (!this.mesh?.removeNode) return { ok: false, status: 503, error: 'this root has no mesh configured (MESH_LOGIN_SERVER)' };
+    await this.mesh.removeNode(instance.ownerId, meshIp);
+    return { ok: true, value: { removed: meshIp } };
   }
 
   async report(instanceId: unknown, credential: unknown, report: { status?: unknown; detail?: unknown; url?: unknown; meshIp?: unknown; moved?: unknown; imageTag?: unknown }): Promise<Outcome<InstanceRecord>> {
