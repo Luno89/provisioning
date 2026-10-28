@@ -98,7 +98,7 @@ docker start "$HEADSCALE" >/dev/null
 ok "Headscale's database and noise key restored"
 
 printf 'password: %s\n' "$FRESH_MONGO_PASSWORD" | docker exec -i "$MONGO" sh -c 'cat > /tmp/koala-restore.yaml && chmod 600 /tmp/koala-restore.yaml'
-docker exec -i "$MONGO" sh -c 'mongorestore --quiet --config /tmp/koala-restore.yaml --username admin --authenticationDatabase admin --drop --archive --gzip; code=$?; rm -f /tmp/koala-restore.yaml; exit $code' < "$FROM/mongo.archive.gz"
+docker exec -i "$MONGO" sh -c 'mongorestore --quiet --config /tmp/koala-restore.yaml --username admin --authenticationDatabase admin --drop --archive --gzip --nsExclude "admin.*" --nsExclude "config.*" --nsExclude "local.*"; code=$?; rm -f /tmp/koala-restore.yaml; exit $code' < "$FROM/mongo.archive.gz"
 ok "Mongo restored"
 
 docker stop "$TEMPORAL" >/dev/null

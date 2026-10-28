@@ -115,10 +115,11 @@ async function standUpRoot(label: string, commit: string): Promise<Root> {
 
 const headscale = (root: Root, args: string) => sh(root.vm, `sudo docker exec provisioning-headscale headscale ${args}`);
 const nodeNames = async (root: Root) => (JSON.parse(await headscale(root, 'nodes list -o json')) as { given_name?: string; name?: string }[]).map((node) => node.given_name ?? node.name ?? '');
-const workflowCount = async (root: Root) => {
-  const temporal = (await sh(root.vm, "sudo docker ps --filter label=com.docker.compose.service=temporal --format '{{.Names}}'")).trim();
-  return (JSON.parse(await sh(root.vm, `sudo docker exec ${temporal} temporal workflow list --address 127.0.0.1:7236 -o json`)) as unknown[]).length;
+const temporal = async (root: Root, args: string) => {
+  const name = (await sh(root.vm, "sudo docker ps --filter label=com.docker.compose.service=temporal --format '{{.Names}}'")).trim();
+  return sh(root.vm, `sudo docker exec ${name} temporal ${args} --address 127.0.0.1:7236`);
 };
+const WORKFLOW = `restore-live-${STAMP}`;
 
 async function teardown(): Promise<void> {
   for (const root of roots) await root.vm.destroy().catch(() => undefined);
@@ -161,8 +162,8 @@ async function main(): Promise<void> {
   ].join(' '));
   await until('the probe node on the first root\'s mesh', async () => ((await nodeNames(first)).includes(PROBE) ? true : undefined));
   const firstMeshIp = (await sh(first.vm, 'tailscale ip -4')).trim().split('\n')[0]!;
-  const firstWorkflows = await workflowCount(first);
-  note(`${EMAIL} is its admin, ${INSTANCE_ID} is their instance, ${PROBE} is on its mesh beside root at ${firstMeshIp}, and Temporal has ${firstWorkflows} workflows`);
+  await temporal(first, `workflow start --type RestoreLiveProbe --task-queue restore-live --workflow-id ${WORKFLOW} --search-attribute 'KoalaOwner="platform"'`);
+  note(`${EMAIL} is its admin, ${INSTANCE_ID} is their instance, ${PROBE} is on its mesh beside root at ${firstMeshIp}, and Temporal holds workflow ${WORKFLOW}`);
 
   step('the first root backs up: units.sh turns the nightly timer on once a repository is set, and backup.sh sends one encrypted snapshot');
   await sh(first.vm, `sudo bash -c 'for pair in ${backupEnv}; do echo "$pair" >> ${REPO_DIR}/apps/backend/.env; done'`);
@@ -194,10 +195,10 @@ async function main(): Promise<void> {
   assert.ok((await nodeNames(second)).includes(PROBE), 'the restored Headscale does not know the probe node');
   const secondMeshIp = (await sh(second.vm, 'tailscale ip -4')).trim().split('\n')[0]!;
   assert.equal(secondMeshIp, firstMeshIp, 'the restored root is not the old root on its mesh');
-  const secondWorkflows = await workflowCount(second);
-  assert.ok(secondWorkflows >= firstWorkflows, `Temporal lost history: ${firstWorkflows} before, ${secondWorkflows} after`);
+  const described = JSON.parse(await temporal(second, `workflow describe --workflow-id ${WORKFLOW} -o json`)) as { workflowExecutionInfo?: { type?: { name?: string } } };
+  assert.equal(described.workflowExecutionInfo?.type?.name, 'RestoreLiveProbe', 'the restored Temporal does not hold the workflow started before the backup');
   assert.equal((await sh(second.vm, 'systemctl is-active nowrinkles.service')).trim(), 'active');
-  note(`signed in with the old password and the old session, ${INSTANCE_ID} listed, ${PROBE} on the mesh, root at ${secondMeshIp} again, ${secondWorkflows} workflows`);
+  note(`signed in with the old password and the old session, ${INSTANCE_ID} listed, ${PROBE} on the mesh, root at ${secondMeshIp} again, ${WORKFLOW} in Temporal`);
 
   console.log('\nrestore live — PASS');
 }

@@ -50,7 +50,7 @@ restart_headscale() { docker start "$HEADSCALE" >/dev/null 2>&1 || true; }
 trap restart_headscale EXIT
 
 printf 'password: %s\n' "$MONGO_ROOT_PASSWORD" | docker exec -i "$MONGO" sh -c 'cat > /tmp/koala-backup.yaml && chmod 600 /tmp/koala-backup.yaml'
-docker exec "$MONGO" sh -c 'mongodump --quiet --config /tmp/koala-backup.yaml --username admin --authenticationDatabase admin --archive --gzip --nsExclude "admin.*" --nsExclude "config.*" --nsExclude "local.*"; code=$?; rm -f /tmp/koala-backup.yaml; exit $code' > "$STAGE/mongo.archive.gz"
+docker exec "$MONGO" sh -c 'mongodump --quiet --config /tmp/koala-backup.yaml --username admin --authenticationDatabase admin --archive --gzip; code=$?; rm -f /tmp/koala-backup.yaml; exit $code' > "$STAGE/mongo.archive.gz"
 ok "Mongo dumped ($(du -h "$STAGE/mongo.archive.gz" | cut -f1))"
 
 for db in temporal temporal_visibility; do
