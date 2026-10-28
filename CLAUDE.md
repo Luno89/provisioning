@@ -301,6 +301,29 @@ first (`gitappPullSecretArgs`, the same secret a deploy writes), and it waits fo
 runs in `pipeline-builds` or an app's cluster cannot be found (through `ClusterService.getByIdUnscoped`, which knows the system
 cluster the stored records leave out) or reached.
 
+**Who may do what is decided in one place** (`~/.claude/plans/claims-authorization.md`, step 1 built 2026-10-28). `platform/lib/permissions.ts`
+holds a **permissions table** (resource kind × action → who may, and whether a refusal hides the record as a 404 or says why as a
+403) and `authorize(principal, action, resource)`, which every route, socket handler, service and tool call asks; `allowed` is its
+boolean. A **principal** is a person with **claims**, each a role on a scope: `person`; `operator` of this install (from `isAdmin` on root
+and combined; on an instance from `INSTANCE_OWNER_ID`, never from a stamped flag, which the handoff no longer writes); `instance-owner`;
+and `shared` with a role (`owner`, `collaborator`, `client`) on one shared project, which the hub puts on from its membership
+(`withSharedRole`). `requireAuth` puts the principal on each request (`principalFrom(req)`); `requireOperator(action)` and
+`requireAllowed(action, resource)` are the middlewares; a service that has only an owner id uses `asPerson(id)`. A resource carries what
+the row needs from the record the route already loaded (`ownerId`, `isSystem`, the shared project's id), so a check costs no read; a
+cluster becomes one with `clusterResource`. The rows: the install's `administer`, `manage-accounts`, `see-all-work`,
+`use-operator-credentials` and `open-platform-namespaces` are the operator's; an instance's settings its owner's; an account is removed by
+itself or the operator; **the system cluster** is seen and deployed to by any person and seen whole (every namespace and node, its
+provisioning log, discover, the dashboard proxies, GPUs, its history and alerts) only by the operator, and deleted by nobody; every other
+cluster, deployment, project and record is its owner's alone, operator included, and one with no owner is nobody's (the startup
+migration `projects-owned` and `migrateLegacyOwnership` give such records to the first operator once); a workflow is seen and cancelled by
+its owner or the operator; a shared project's thirteen actions are each role's exactly, `ask-koala` an owner's or a client's. **Adding a
+permission** is a row in `PERMISSIONS` and a call to `authorize` where the action happens; `permissions.test.ts` checks every row allowed
+and refused. The backend lint refuses `.isAdmin` reads and `can(` anywhere but `permissions.ts` and the stores, and
+`permissions-reach.test.ts` fails on a route that decides on its own. Asking before a tool call, auto mode and "Allow for this run" are a
+separate layer: they decide whether a person is asked about an allowed call, never whether it is allowed. Still to come (steps 2–6): tools
+declaring what they need and checked through `authorize` at call time, run grants, root as an OpenID Connect provider, and the frontend's
+`can`.
+
 The public-path allow-list lives in `platform/middleware/auth.ts`, **not** in `accounts/routes/auth.ts` — a router
 that could exempt itself is a router that can quietly stop being protected, so adding a route that
 must work signed-out means editing the guard too. `requireAuth` and the Socket.IO handshake share
@@ -911,8 +934,8 @@ failed jobs; finished jobs left out; memory and CPU from Prometheus when it answ
 Koala's work (sandboxes, release slots, builds; a namespace a check's space left is marked so), the platform, and
 anything put there another way; then the platform services (`infrastructure/lib/platform-services.ts`, with Open dashboard and how each signs you in), nodes,
 GPUs and Helm releases. Whoever owns the cluster sees all of it; anyone else sees only their own namespaces (their apps,
-`koala.dev/owner`), and no services, nodes or releases. Reads are cached per cluster for 20 s. The same rule (`clusterOwnership` in
-`platform/lib/ownership.ts`, which monitoring uses too) guards the dashboard proxies (`/api/clusters/:id/proxy/<service>`, which sign
+`koala.dev/owner`), and no services, nodes or releases. Reads are cached per cluster for 20 s. The same rule (the system cluster's `see-everything` row in
+`platform/lib/permissions.ts`, which monitoring uses too) guards the dashboard proxies (`/api/clusters/:id/proxy/<service>`, which sign
 in as admin) and `/api/clusters/:id/gpu-status`: anyone but the owner gets the 404 an unknown cluster gets, and Open in Grafana shows only to the owner.
 
 **Failed work** (`WorkFailureService`, `workFailures`): a top-level run that ends `failed` (from `run-ended`, never a
