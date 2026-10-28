@@ -79,6 +79,7 @@ npm run test:practices-live       # a correction → a practice on trial → the
 npm run test:changes-live         # a prompt change compared on the bench and accepted; a procedure request handed to the agent builder, ~30 min
 npm run test:account-removal-live # a fresh account with a project, its repository and a conversation removes itself through DELETE /api/account → its session and sign-in are refused at once → an admin sees it go → nothing of it is left in any collection, Gitea or Kubernetes, ~1 min
 npm run test:odoo-release-live     # a throwaway project on the system cluster: its push builds and releases into slot a, a new module is prepared in slot b and previewed, cut over and rolled back, then deleting the project takes the live app, its namespace and its release workflow with it, ~26 min
+npm run test:odoo-customizations-live # the same run, plus what was made in the live app brought into git by a story on your model and kept by the next release; in the release gate, not ship, ~30 min
 npm run test:tree-to-release-live  # new trees made through the API: an Odoo tree gets its own project and its starter goes live in slot a, an API tree gets one and is built and deployed, a paper tree gets none; ~10 min, removes everything
 npm run test:checks-live          # a Level 2 run on the check runner (CHECKS_LIVE_SCENARIOS picks which; default seven model scenarios on your model): each in a fresh hidden space, driven through the API → every run opens for you afterwards → no space is left behind
 npm run test:instance-live        # k3d cluster + root container + charts/instance → sign in through root → sandboxed run → the instance removes no account and points at root, where a throwaway account removes itself and its instance is let go of, ~10 min, cleans up
@@ -1690,7 +1691,7 @@ instance, without passing its gates first (owner, 2026-10-23: "all those checks 
 - **`npm run release [vYYYY.MM.DD[-n]]`** (`tests/release.ts`) makes a release from a shipped commit `origin/main` has: it
   builds the image from that commit (`buildAppImage` in `tests/lib/gate-runs.ts`, also `nowrinkles/app:dev` for the VM
   suites), runs **G3** and **G4** (`RELEASE_STEPS`: mail, infra and remote integration, instance, machine, byo, mesh,
-  routing, pool, then `test:release-live` from the previous tag), about three hours, then **signs** the tag with the
+  routing, pool, the Odoo customisations, then `test:release-live` from the previous tag), about three hours, then **signs** the tag with the
   release key (an SSH ed25519 key, `~/.ssh/koala-release` or `KOALA_RELEASE_KEY`, whose public half must be in
   `scripts/root-node/release-signers`, checked before the suites start), pushes it with the ledger, waits for the GitHub
   release and checks the image with `scripts/root-node/verify-release.sh image`, the check root makes, so the first
