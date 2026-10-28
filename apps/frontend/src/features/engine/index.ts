@@ -22,6 +22,7 @@ export { ApprovalBox, StopRun, default as RunControls } from './components/Engin
 export { default as ImageContents } from './components/ImageContents'
 export { default as NeedsPicker } from './components/NeedsPicker'
 export { PendingApprovals } from './components/PendingApprovals'
+export { default as ProjectMcpServers } from './components/ProjectMcpServers'
 export { default as AgentExplorer } from './components/Studio/AgentExplorer'
 export { default as DependencyExplorer } from './components/Studio/DependencyExplorer'
 export { FileHeader, default as Explorer } from './components/Studio/Explorer'

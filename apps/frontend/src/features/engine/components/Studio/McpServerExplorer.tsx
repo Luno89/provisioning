@@ -239,6 +239,14 @@ function Overview({ server }: { server: McpServer }) {
         {grant.error && <p className="text-xs text-rose-300">{errorMessage(grant.error)}</p>}
       </Section>
 
+      <Section title="Used by projects">
+        {placeOf(server.runs) === 'workspace'
+          ? <p className="text-sm text-slate-400">It runs inside a project's workspace, so the people on any shared project reach it there, at their role's level.</p>
+          : (server.projectsNamed ?? []).length
+            ? <p className="text-sm text-slate-300">{(server.projectsNamed ?? []).map((project) => project.name).join(', ')}. The people on these shared projects reach its tools at their role's level; attach or detach it in a project's Settings.</p>
+            : <p className="text-sm text-slate-400">No project. Only you reach it; attach it in a project's Settings to let the people on that shared project use it.</p>}
+      </Section>
+
       <ul className="divide-y divide-[var(--bark-800)] rounded-md border border-[var(--bark-700)]">
         {FILES.map((entry) => (
           <li key={entry.id}>

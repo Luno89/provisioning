@@ -1,7 +1,8 @@
 import { exceedsCeiling, type ToolContract, type ToolEffect, type ToolHandler, type ToolOutcome, type WithheldTool } from '@koala/engine-core';
 import type { McpTool } from '../../engine/index.js';
 import { contractFor } from '../../engine/lib/mcp-tools.js';
-import { offers, serverPath, serverState, toolAnnotations, usable, type McpServerRecord, type ServerRuns } from '../../engine/lib/mcp-servers.js';
+import { offers, serverPath, serverState, servesProject, toolAnnotations, usable, type McpServerRecord, type ServerRuns } from '../../engine/lib/mcp-servers.js';
+import { allowed, asPerson, memberPrincipal, type Principal } from '../../platform/lib/permissions.js';
 import type { EnvironmentHandleRef, RunTicket } from '../temporal/contracts.js';
 import type { WorkspaceServers } from './workspace-servers.js';
 
@@ -69,6 +70,8 @@ export function createServerTools(deps: ServerToolDeps): ServerTools {
       if (wanted.length === 0) return { tools: [], withheld: [], handlers: {} };
 
       const catalogue = await deps.catalogue(ticket.ownerId);
+      const member = ticket.actingFor;
+      const principal: Principal = ticket.principal ?? (member ? memberPrincipal(member.personId, member.projectId, member.role) : asPerson(ticket.ownerId));
       const tools: ToolContract[] = [];
       const withheld: WithheldTool[] = [];
       const handlers: Record<string, ToolHandler> = {};
@@ -87,10 +90,18 @@ export function createServerTools(deps: ServerToolDeps): ServerTools {
           withheld.push({ name, why: 'it runs in a workspace, and this run has none' });
           continue;
         }
+        if (member && !servesProject(server, member.projectId)) {
+          withheld.push({ name, why: `it is not attached to the shared project ${member.email} is on` });
+          continue;
+        }
         for (const tool of server.captured!.tools.filter((entry) => offers(server, entry.name))) {
           const contract = contractOf(server, tool);
           if (exceedsCeiling(contract, ceiling)) {
             withheld.push({ name: contract.name, why: 'this agent may not do what that tool does' });
+            continue;
+          }
+          if (member && !allowed(principal, contract.effect === 'read' ? 'see' : 'change', { kind: 'project', id: member.projectId, ownerId: ticket.ownerId })) {
+            withheld.push({ name: contract.name, why: `a ${member.role} on this shared project may not do what it does` });
             continue;
           }
           tools.push(contract);

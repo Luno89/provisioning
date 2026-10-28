@@ -32,6 +32,10 @@ vi.mock('../../../releases/api/release-settings', async (orig) => ({
 vi.mock('../../../releases/components/LiveCustomizations', () => ({ LiveCustomizations: () => <div>live customizations</div> }))
 vi.mock('../../../releases/hooks/useClientImport', () => ({ useClientImport: () => ({ data: { open: true } }) }))
 vi.mock('../../../releases/components/ClientImport', () => ({ ClientImport: () => <div>client import</div> }))
+vi.mock('../../../engine/api/mcp', async (orig) => ({
+  ...(await orig<typeof import('../../../engine/api/mcp')>()),
+  getMcpCatalogue: vi.fn(async () => ({ servers: [], templates: [] })),
+}))
 vi.mock('../../../models/api', async (orig) => ({
   ...(await orig<typeof modelsApi>()),
   listModels: vi.fn(async () => [{ id: 'tabby', name: 'Tabby', source: 'deployment', kind: 'tabbyapi', model: 'Qwen3.8-27B' }]),

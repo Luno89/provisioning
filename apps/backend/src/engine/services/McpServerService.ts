@@ -26,6 +26,7 @@ export interface McpServerDeps {
   grants?: ServerFollowers | undefined;
   notes?: ServerFollowers | undefined;
   dependencies?: ((ownerId: string) => Promise<readonly WorkspaceDependency[]>) | undefined;
+  projects?: ((ownerId: string) => Promise<readonly { id: string; name: string }[]>) | undefined;
   now?: (() => Date) | undefined;
   newId?: (() => string) | undefined;
 }
@@ -37,6 +38,7 @@ export interface ServerFollowers {
 
 export interface McpServerView extends McpServerRecord {
   status: ServerState;
+  projectsNamed?: { id: string; name: string }[] | undefined;
 }
 
 export interface McpCatalogue {
@@ -53,6 +55,7 @@ export type McpServerInput = {
   notes?: unknown;
   dependsOn?: unknown;
   tools?: unknown;
+  projects?: unknown;
 };
 
 export type McpServerOutcome =
@@ -82,8 +85,11 @@ export class McpServerService {
     return settled;
   }
 
-  private view(server: McpServerRecord): McpServerView {
-    return { ...server, status: serverState(server) };
+  private async view(server: McpServerRecord): Promise<McpServerView> {
+    const attached = server.projects ?? [];
+    const own = attached.length ? await this.deps.projects?.(server.ownerId) ?? [] : [];
+    const named = attached.flatMap((id) => { const project = own.find((entry) => entry.id === id); return project ? [{ id, name: project.name }] : []; });
+    return { ...server, status: serverState(server), ...(named.length ? { projectsNamed: named } : {}) };
   }
 
   private async capture(server: McpServerRecord): Promise<McpServerRecord> {
@@ -154,14 +160,14 @@ export class McpServerService {
     const servers = [...stored, ...(await this.hostedFromDeployments(ownerId, stored))].sort((a, b) => a.name.localeCompare(b.name));
     const fromTemplate = new Set(servers.flatMap((server) => (server.from && 'template' in server.from ? [server.from.template] : [])));
     return {
-      servers: servers.map((server) => this.view(server)),
+      servers: await Promise.all(servers.map((server) => this.view(server))),
       templates: this.deps.templates().map((template) => ({ ...template, added: fromTemplate.has(template.id) })),
     };
   }
 
   async get(ownerId: string, id: string): Promise<McpServerView | undefined> {
     const found = (await this.deps.store.list(ownerId)).find((server) => server.id === id);
-    return found ? this.view(await this.settled(found)) : undefined;
+    return found ? await this.view(await this.settled(found)) : undefined;
   }
 
   private shaped(input: McpServerInput, base: Partial<McpServerRecord>): Omit<McpServerRecord, 'id' | 'ownerId' | 'createdAt' | 'updatedAt'> {
@@ -177,6 +183,7 @@ export class McpServerService {
       ...pick('notes', text(input.notes)),
       ...pick('dependsOn', text(input.dependsOn)),
       ...pick('tools', input.tools),
+      ...pick('projects', input.projects),
       ...(base.captured ? { captured: base.captured } : {}),
       ...(base.failed ? { failed: base.failed } : {}),
       ...(base.capturing ? { capturing: base.capturing } : {}),
@@ -200,16 +207,17 @@ export class McpServerService {
         ...(given('offer') ? { offer: input.offer } : { offer: template.offer, omit: given('omit') ? input.omit : template.omit }),
         notes: given('notes') ? input.notes : template.notes,
         ...(given('dependsOn') ? { dependsOn: input.dependsOn } : {}),
+        ...(given('projects') ? { projects: input.projects } : {}),
       };
       from = { template: template.id };
     }
     const shaped = this.shaped(seed, {});
-    const problems = [...serverProblems(shaped, existing), ...await this.needsProblems(ownerId, shaped.runs)];
+    const problems = [...serverProblems(shaped, existing), ...await this.needsProblems(ownerId, shaped.runs), ...await this.projectsProblems(ownerId, shaped.projects)];
     if (problems.length > 0) return { ok: false, status: problems.some((problem) => problem.startsWith('you already have')) ? 409 : 400, error: problems.join('; ') };
     const stamp = this.now().toISOString();
     const server: McpServerRecord = { ...shaped, id: this.deps.newId?.() ?? randomUUID(), ownerId, ...(from ? { from } : {}), createdAt: stamp, updatedAt: stamp };
     await this.deps.store.save(server);
-    return { ok: true, server: this.view(await this.capture(server)) };
+    return { ok: true, server: await this.view(await this.capture(server)) };
   }
 
   async save(ownerId: string, id: string, input: McpServerInput): Promise<McpServerOutcome> {
@@ -217,7 +225,7 @@ export class McpServerService {
     const current = existing.find((server) => server.id === id);
     if (!current) return { ok: false, status: 404, error: 'Server not found' };
     const shaped = this.shaped(input, current);
-    const problems = [...serverProblems(shaped, existing, id), ...await this.needsProblems(ownerId, shaped.runs)];
+    const problems = [...serverProblems(shaped, existing, id), ...await this.needsProblems(ownerId, shaped.runs), ...await this.projectsProblems(ownerId, shaped.projects)];
     if (problems.length > 0) return { ok: false, status: problems.some((problem) => problem.startsWith('you already have')) ? 409 : 400, error: problems.join('; ') };
     const saved: McpServerRecord = { ...shaped, id, ownerId, createdAt: current.createdAt, updatedAt: this.now().toISOString() };
     await this.deps.store.save(saved);
@@ -226,7 +234,15 @@ export class McpServerService {
       await this.deps.notes?.renameServer(ownerId, current.name, saved.name);
     }
     const changed = runsFingerprint(saved.runs) !== runsFingerprint(current.runs);
-    return { ok: true, server: this.view(changed ? await this.capture(saved) : saved) };
+    return { ok: true, server: await this.view(changed ? await this.capture(saved) : saved) };
+  }
+
+  private async projectsProblems(ownerId: string, projects: unknown): Promise<string[]> {
+    if (projects === undefined) return [];
+    if (!Array.isArray(projects) || !projects.every((id) => typeof id === 'string' && id)) return ['projects has to be a list of project ids'];
+    const own = new Set((await this.deps.projects?.(ownerId) ?? []).map((project) => project.id));
+    const unknown = projects.filter((id: string) => !own.has(id));
+    return unknown.length ? [`${unknown.length === 1 ? 'that project is' : 'those projects are'} not one of yours`] : [];
   }
 
   private async needsProblems(ownerId: string, runs: McpServerRecord['runs']): Promise<string[]> {
@@ -241,7 +257,7 @@ export class McpServerService {
     if (!current) return { ok: false, status: 404, error: 'Server not found' };
     const settled = await this.settled(current);
     if (settled.capturing) return { ok: false, status: 409, error: `${settled.name} is being captured already` };
-    return { ok: true, server: this.view(await this.capture(settled)) };
+    return { ok: true, server: await this.view(await this.capture(settled)) };
   }
 
   async remove(ownerId: string, id: string): Promise<{ ok: true } | { ok: false; status: 404 | 409; error: string }> {

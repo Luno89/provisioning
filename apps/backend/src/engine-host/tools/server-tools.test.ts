@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { rolePrincipal } from '../../platform/lib/permissions.js';
 import { createServerTools } from './server-tools.js';
 import { runsFingerprint, type McpServerRecord, type ServerRuns } from '../../engine/lib/mcp-servers.js';
 import type { RunTicket } from '../temporal/contracts.js';
@@ -85,5 +86,23 @@ describe('the tools of the MCP servers a run holds', () => {
     const { tools } = source([server('docs', HOSTED)], ['docs']);
     expect((await tools.forRun({ ticket, held: [] })).tools.map((tool) => tool.name)).toContain('docs__browser_snapshot');
     expect((await source([server('docs', HOSTED)], ['docs']).tools.forRun({ ticket: { ...ticket, conversationId: undefined }, held: [] })).tools).toEqual([]);
+  });
+
+  it('offers a member of a shared project only the servers attached to it or running in its workspace, and only what their role may do', async () => {
+    const { tools } = source([
+      server('docs', HOSTED, { projects: ['p1'], tools: { browser_snapshot: { kind: 'read-only' } } }),
+      server('notion', HOSTED),
+      server('playwright', WORKSPACE),
+    ]);
+    const member = { personId: 'cy', email: 'cy@example.com', role: 'client', projectId: 'p1', hubProjectId: 'h1' };
+    const asClient = { ...ticket, actingFor: member, principal: rolePrincipal('cy', 'p1', 'client') };
+    const offered = await tools.forRun({ ticket: asClient, environment: sandbox, held: ['docs', 'notion', 'playwright'] });
+    expect(offered.tools.map((tool) => tool.name).sort()).toEqual(['docs__browser_snapshot', 'playwright__browser_snapshot']);
+    expect(offered.withheld).toEqual(expect.arrayContaining([
+      { name: 'notion', why: 'it is not attached to the shared project cy@example.com is on' },
+      { name: 'docs__browser_click', why: 'a client on this shared project may not do what it does' },
+    ]));
+    const asCollaborator = { ...asClient, actingFor: { ...member, role: 'collaborator' }, principal: rolePrincipal('cy', 'p1', 'collaborator') };
+    expect((await tools.forRun({ ticket: asCollaborator, environment: sandbox, held: ['docs'] })).tools.map((tool) => tool.name).sort()).toEqual(['docs__browser_click', 'docs__browser_snapshot', 'docs__browser_take_screenshot']);
   });
 });

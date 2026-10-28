@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import Reading from '../Reading'
-import { AutoModeSwitch } from '../../../engine'
+import { AutoModeSwitch, ProjectMcpServers } from '../../../engine'
 import { useTreeAutoMode } from '../../../engine'
 import { useProjectWork } from '../../hooks/useProjectWork'
 import { useRouteSync } from '../../hooks/useRouteSync'
@@ -73,6 +73,11 @@ export default function ProjectSettings({ treeId, projectId, onDeleted }: {
         {project && (
           <Section title="People">
             <ShareProject project={{ id: project.id, name: project.name }} />
+          </Section>
+        )}
+        {project && (
+          <Section title="MCP servers">
+            <ProjectMcpServers projectId={project.id} />
           </Section>
         )}
         {project && (

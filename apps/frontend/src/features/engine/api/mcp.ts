@@ -54,6 +54,8 @@ export interface McpServer {
   failed?: { at: string; why: string }
   capturing?: { runId: string; at: string }
   from?: { template: string } | { projectId: string }
+  projects?: string[]
+  projectsNamed?: { id: string; name: string }[]
   status: McpServerState
   createdAt: string
   updatedAt: string
@@ -81,6 +83,7 @@ export interface McpServerChange {
   omit?: string[] | null
   notes?: string | null
   dependsOn?: string | null
+  projects?: string[]
 }
 
 export const mcpKeys = {

@@ -559,6 +559,7 @@ export async function wireEngine(deps: EngineWiringDeps): Promise<EngineWiring> 
     dependencies: dependenciesOf,
     store: { list: (ownerId) => db.engine.getMcpServers(ownerId), save: (server) => db.engine.saveMcpServer(server), remove: (ownerId, id) => db.engine.deleteMcpServer(ownerId, id) },
     templates: () => MCP_SERVER_TEMPLATES,
+    projects: async (ownerId) => (await db.projects.getProjects()).filter((project) => project.ownerId === ownerId),
     runs: engineRuns,
     finished: async (runId) => db.engine.findRunEffort(runId),
     deployments: () => db.infrastructure.getDeployments(),

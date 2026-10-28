@@ -5,7 +5,7 @@ import { MCP_SERVER_TEMPLATES } from '../../extensions/mcp/templates.js';
 import type { DeploymentMetadata } from '../../platform/lib/types.js';
 import type { StartRunRequest } from '../../engine-host/registries/run-starter.js';
 
-function world(over: { deployments?: Partial<DeploymentMetadata>[]; startFails?: string; finished?: Record<string, { outcome: string; reason?: string }> } = {}) {
+function world(over: { deployments?: Partial<DeploymentMetadata>[]; startFails?: string; finished?: Record<string, { outcome: string; reason?: string }>; projects?: { id: string; name: string }[] } = {}) {
   const records = new Map<string, McpServerRecord>();
   const grants: string[] = [];
   const started: StartRunRequest[] = [];
@@ -23,6 +23,7 @@ function world(over: { deployments?: Partial<DeploymentMetadata>[]; startFails?:
     finished: async (runId) => over.finished?.[runId],
     deployments: async () => deployments,
     names: async () => ({ treeName: 'Weather API' }),
+    projects: async () => over.projects ?? [],
     grants: { renameServer: async (_ownerId, from, to) => { grants.push(`${from}->${to}`); return 1; }, forgetServer: async (_ownerId, name) => { grants.push(`-${name}`); return 1; } },
     now: () => new Date((clock += 1000)),
     newId: () => `s${(ids += 1)}`,
@@ -31,6 +32,16 @@ function world(over: { deployments?: Partial<DeploymentMetadata>[]; startFails?:
 }
 
 describe('the MCP server catalogue', () => {
+  it('attaches a server to the person\'s own projects, named in its view, and to no one else\'s', async () => {
+    const { service } = world({ projects: [{ id: 'p1', name: 'Shop' }] });
+    const added = await service.add('u1', { template: 'playwright', projects: ['p1'] });
+    expect(added).toMatchObject({ ok: true, server: { projects: ['p1'], projectsNamed: [{ id: 'p1', name: 'Shop' }] } });
+    expect(await service.save('u1', 's1', { projects: ['p1', 'p9'] })).toMatchObject({ ok: false, status: 400, error: 'that project is not one of yours' });
+    expect(await service.save('u1', 's1', { projects: 'p1' })).toMatchObject({ ok: false, status: 400, error: 'projects has to be a list of project ids' });
+    expect(await service.save('u1', 's1', { projects: [] })).toMatchObject({ ok: true, server: { projects: [] } });
+    expect((await service.get('u1', 's1'))?.projectsNamed).toBeUndefined();
+  });
+
   it('adds a known server as a copy the person can change, and starts capturing it', async () => {
     const { service, records, started } = world();
     const added = await service.add('u1', { template: 'playwright' });

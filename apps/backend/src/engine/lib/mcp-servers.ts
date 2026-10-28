@@ -40,6 +40,7 @@ export interface McpServerRecord {
   failed?: { at: string; why: string; fingerprint: string } | undefined;
   capturing?: { runId: string; at: string } | undefined;
   from?: { template: string } | { projectId: string } | undefined;
+  projects?: string[] | undefined;
   createdAt: string;
   updatedAt: string;
 }
@@ -178,3 +179,6 @@ export function serverNameFrom(slug: string, taken: ReadonlySet<string>): string
 
 export const deploymentOf = (server: Pick<McpServerRecord, 'runs'>): string | undefined =>
   (server.runs.where === 'hosted' && 'deploymentId' in server.runs ? server.runs.deploymentId : undefined);
+
+export const servesProject = (server: Pick<McpServerRecord, 'projects' | 'runs'>, projectId: string): boolean =>
+  server.runs.where === 'workspace' || (server.projects ?? []).includes(projectId);
