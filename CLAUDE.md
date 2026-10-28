@@ -1703,9 +1703,13 @@ instance, without passing its gates first (owner, 2026-10-23: "all those checks 
 
 Plan: `~/.claude/plans/file-uploads.md`. **Where you drop decides.** A project's Files page shows two roots:
 - **Repository**: code dropped there, or on a folder in it, is committed in one commit as the person (`POST /api/projects/:id/files/drop`,
-  body typed `application/vnd.koala.drop+json` so the 20 MB JSON parser leaves it alone, `RepositoryDropService` →
-  `GiteaService.commitDrop`, bytes intact). A project whose files live on the person's machine gets them written there byte for
-  byte (`sandbox:writeFile` with `encoding: 'base64'`).
+  `RepositoryDropService` → `GiteaService.commitDropFromDisk`, bytes intact). The drop is streamed, never held in memory: the browser
+  sends the files as they are (`application/vnd.koala.drop`, `projects/lib/drop-body.ts`: a line of settings, then each file's
+  path and size followed by its bytes), the backend reads it as it arrives (`DropReader` in `files/lib/drops.ts`), writing each
+  file to a folder of its own on disk that is removed however the drop ends (`withReceivedDrop`), and commits from there with git
+  (a shallow fetch of the branch, the files hashed in from disk, one commit pushed; a file onto a folder, or a race, is refused).
+  There is no size limit. A project whose files live on the person's machine gets them written there byte for
+  byte from that folder, one file at a time (`sandbox:writeFile` with `encoding: 'base64'`, a whole file per message).
 - **Files**: everything else, on the person's own **MinIO** (owner, 2026-10-21: MinIO only; Nextcloud stays a deployable app,
   not a file server). `FileService`, `FileStores`, `files/lib/file-places.ts`, `/api/files/...`: the project's MinIO and its folder
   (`files` on the project, a folder named once from the project and kept), else the person's default (Settings → Files,

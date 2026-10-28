@@ -8,8 +8,8 @@ export interface StoryDropDeps {
   leaves: { list(): Promise<Leaf[]>; save(leaf: Leaf): Promise<void> };
   treeOfLeaf: (leaf: Leaf) => Promise<{ id: string; projectIds?: readonly string[] | undefined } | undefined>;
   account: (ownerId: string) => Promise<{ username: string }>;
-  credential: (ownerId: string) => Promise<{ token: string }>;
-  commit: (token: string, owner: string, repo: string, files: readonly { path: string; bytes: Buffer }[], message: string, branch: string, newBranch: string) => Promise<{ commit: string }>;
+  credential: (ownerId: string) => Promise<{ token: string; username: string }>;
+  commit: (credential: { token: string; username: string }, owner: string, repo: string, files: readonly DroppedFile[], message: string, branch: string, newBranch: string) => Promise<{ commit: string }>;
   work: StoryDropWork;
   now?: (() => string) | undefined;
   newId?: (() => string) | undefined;
@@ -34,8 +34,8 @@ export class StoryDropService {
 
     const id = this.deps.newId?.() ?? `${Date.now().toString(36)}${randomBytes(3).toString('hex')}`;
     const branch = dropBranchName(leafId, id);
-    const [{ username }, { token }] = await Promise.all([this.deps.account(ownerId), this.deps.credential(ownerId)]);
-    await this.deps.commit(token, username, repo, files, dropMessage(files, said), 'main', branch);
+    const [{ username }, credential] = await Promise.all([this.deps.account(ownerId), this.deps.credential(ownerId)]);
+    await this.deps.commit(credential, username, repo, files, dropMessage(files, said), 'main', branch);
 
     let arrival;
     try {

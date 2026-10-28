@@ -4,7 +4,7 @@ import type { Leaf } from '../../projects/lib/leaves.js';
 import type { DropArrival } from '../../engine-host/sandboxes/story-drop-work.js';
 
 const leaf = { id: 'l1', ownerId: 'u1', branchId: 'b1', title: 'Portal', status: 'running' } as Leaf;
-const files = [{ path: 'public/logo.svg', bytes: Buffer.from('<svg/>') }];
+const files = [{ path: 'public/logo.svg', source: '/tmp/koala-drop-x/0', size: 6 }];
 
 function setUp(arrival: DropArrival | Error) {
   const saved: Leaf[] = [];
@@ -13,7 +13,7 @@ function setUp(arrival: DropArrival | Error) {
     leaves: { list: async () => [leaf], save: async (next) => { saved.push(next); } },
     treeOfLeaf: async () => ({ id: 't1', projectIds: ['p1'] }),
     account: async () => ({ username: 'koala-u1' }),
-    credential: async () => ({ token: 'their-token' }),
+    credential: async () => ({ token: 'their-token', username: 'koala-u1' }),
     commit: vi.fn(async () => ({ commit: 'c1' })),
     work: {
       repoOf: async () => 'portal',
@@ -30,7 +30,7 @@ describe('code dropped on a story', () => {
   it('is committed as the person on a branch of its own from main, merged into the story\'s checkout, and that branch removed', async () => {
     const { drops, deps, saved, forgot } = setUp({ state: 'merged' });
     const outcome = await drops.drop('u1', 'p1', 'l1', files);
-    expect(deps.commit).toHaveBeenCalledWith('their-token', 'koala-u1', 'portal', files, 'Add public/logo.svg', 'main', 'drop/l1/d1');
+    expect(deps.commit).toHaveBeenCalledWith({ token: 'their-token', username: 'koala-u1' }, 'koala-u1', 'portal', files, 'Add public/logo.svg', 'main', 'drop/l1/d1');
     expect(deps.work.arrive).toHaveBeenCalledWith({ ownerId: 'u1', treeId: 't1', leafId: 'l1', branch: 'drop/l1/d1', message: 'Merge what was dropped on the story: Add public/logo.svg' });
     expect(outcome).toEqual({ ok: true, drop: { id: 'd1', branch: 'drop/l1/d1', paths: ['public/logo.svg'], at: 'now', by: 'u1', state: 'merged', mergedAt: 'now' }, said: 'public/logo.svg merged into the story\'s checkout' });
     expect(saved[0]?.drops).toEqual([outcome.ok && outcome.drop]);

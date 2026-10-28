@@ -7,7 +7,10 @@ import { mountRouter, type Harness, TEST_USER } from '../../platform/routes/test
 import { ownsProject } from '../../platform/lib/ownership.js';
 import { GiteaConflictError } from '../../projects/services/GiteaService.js';
 import { RepositoryDropService } from '../services/RepositoryDropService.js';
-import { DROP_TYPE } from '../lib/drops.js';
+import { DROP_TYPE, dropBody } from '../lib/drops.js';
+import { readFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
+import { Readable } from 'node:stream';
 import { registerDevice } from '../../machines/lib/local-agent-registry.js';
 import type { Database } from '../../platform/lib/db-interface.js';
 
@@ -44,7 +47,7 @@ async function mount(gitea: Record<string, unknown>, opts: { seedProject?: boole
         giteaService: gitea,
         drops: new RepositoryDropService({
           credential: projectRepoService.editorCredential,
-          commit: (...args) => (gitea.commitDrop as (...given: unknown[]) => Promise<{ commit: string }>)(...args),
+          commit: (...args) => (gitea.commitDropFromDisk as (...given: unknown[]) => Promise<{ commit: string }>)(...args),
           writeOnDevice: vi.fn(),
         }),
         storyDrops: { drop: (gitea.storyDrop as (...given: unknown[]) => Promise<unknown>) ?? vi.fn() },
@@ -266,35 +269,46 @@ describe('a project scoped to a local machine', () => {
 });
 
 describe('POST /:id/files/drop', () => {
-  const sent = (body: unknown) => ({ headers: { 'Content-Type': DROP_TYPE }, validateStatus: () => true, data: body });
-
-  it('commits what was dropped, under the folder it was dropped on, bytes intact', async () => {
-    const commitDrop = vi.fn(async () => ({ commit: 'c1' }));
-    const harness = await mount({ commitDrop });
-    const png = Buffer.from([0x89, 0x50, 0x00, 0xff]);
-    const res = await axios.post(harness.url('/api/projects/proj-1/files/drop'), JSON.stringify({ dir: 'public', files: [{ path: 'logo.png', content: png.toString('base64') }], ref: 'story-1' }), sent(undefined));
-    expect(res.status).toBe(201);
-    expect(res.data).toEqual({ ok: true, paths: ['public/logo.png'], commit: 'c1' });
-    expect(commitDrop).toHaveBeenCalledWith('tok-1', 'acme', 'demo', [{ path: 'public/logo.png', bytes: png }], 'Add public/logo.png', 'story-1');
+  const sent = { headers: { 'Content-Type': DROP_TYPE }, validateStatus: () => true };
+  const received = (into: { path: string; bytes: Buffer; source: string }[]) => vi.fn(async (_auth: unknown, _owner: string, _repo: string, files: { path: string; source: string }[]) => {
+    for (const file of files) into.push({ path: file.path, source: file.source, bytes: await readFile(file.source) });
+    return { commit: 'c1' };
   });
 
-  it('refuses a file that would land outside the repository, and a drop into someone else\'s project', async () => {
-    const harness = await mount({ commitDrop: vi.fn() });
-    const outside = await axios.post(harness.url('/api/projects/proj-1/files/drop'), JSON.stringify({ files: [{ path: '../x', content: '' }] }), sent(undefined));
+  it('commits what was dropped, under the folder it was dropped on, streamed in pieces with its bytes intact', async () => {
+    const got: { path: string; bytes: Buffer; source: string }[] = [];
+    const commitDropFromDisk = received(got);
+    const harness = await mount({ commitDropFromDisk });
+    const png = Buffer.from(Array.from({ length: 200_000 }, (_, index) => (index * 13) % 256));
+    const body = dropBody({ dir: 'public', ref: 'story-1' }, [{ path: 'logo.png', bytes: png }]);
+    const pieces = Readable.from(Array.from({ length: Math.ceil(body.length / 1000) }, (_, index) => body.subarray(index * 1000, (index + 1) * 1000)));
+    const res = await axios.post(harness.url('/api/projects/proj-1/files/drop'), pieces, sent);
+    expect(res.status).toBe(201);
+    expect(res.data).toEqual({ ok: true, paths: ['public/logo.png'], commit: 'c1' });
+    expect(commitDropFromDisk).toHaveBeenCalledWith({ token: 'tok-1', username: 'acme' }, 'acme', 'demo', [expect.objectContaining({ path: 'public/logo.png', size: png.length })], 'Add public/logo.png', 'story-1');
+    expect(got.map((file) => [file.path, file.bytes])).toEqual([['public/logo.png', png]]);
+    await vi.waitFor(() => expect(existsSync(got[0]!.source)).toBe(false));
+  });
+
+  it('refuses a file that would land outside the repository, a drop into someone else\'s project, and a drop sent as anything else', async () => {
+    const harness = await mount({ commitDropFromDisk: vi.fn() });
+    const outside = await axios.post(harness.url('/api/projects/proj-1/files/drop'), dropBody({}, [{ path: '../x', bytes: Buffer.from('x') }]), sent);
     expect(outside.status).toBe(400);
-    const missing = await axios.post(harness.url('/api/projects/nope/files/drop'), JSON.stringify({ files: [{ path: 'x', content: '' }] }), sent(undefined));
+    expect(outside.data).toEqual({ error: '../x would land outside the repository' });
+    const missing = await axios.post(harness.url('/api/projects/nope/files/drop'), dropBody({}, [{ path: 'x', bytes: Buffer.from('x') }]), sent);
     expect(missing.status).toBe(404);
+    const json = await axios.post(harness.url('/api/projects/proj-1/files/drop'), { files: [] }, { validateStatus: () => true });
+    expect(json.status).toBe(415);
   });
 
   it('hands code dropped on a story to the story, and says what became of it', async () => {
     const storyDrop = vi.fn(async () => ({ ok: true, drop: { id: 'd1', state: 'merged' }, said: 'logo.svg merged into the story\'s checkout' }));
-    const commitDrop = vi.fn();
-    const harness = await mount({ commitDrop, storyDrop });
-    const res = await axios.post(harness.url('/api/projects/proj-1/files/drop'), JSON.stringify({ leafId: 'l1', files: [{ path: 'logo.svg', content: Buffer.from('<svg/>').toString('base64') }] }), sent(undefined));
+    const commitDropFromDisk = vi.fn();
+    const harness = await mount({ commitDropFromDisk, storyDrop });
+    const res = await axios.post(harness.url('/api/projects/proj-1/files/drop'), dropBody({ leafId: 'l1' }, [{ path: 'logo.svg', bytes: Buffer.from('<svg/>') }]), sent);
     expect(res.status).toBe(201);
     expect(res.data).toMatchObject({ said: 'logo.svg merged into the story\'s checkout' });
-    expect(storyDrop).toHaveBeenCalledWith(TEST_USER.id, 'proj-1', 'l1', [{ path: 'logo.svg', bytes: Buffer.from('<svg/>') }], undefined);
-    expect(commitDrop).not.toHaveBeenCalled();
+    expect(storyDrop).toHaveBeenCalledWith(TEST_USER.id, 'proj-1', 'l1', [expect.objectContaining({ path: 'logo.svg', size: 6 })], undefined);
+    expect(commitDropFromDisk).not.toHaveBeenCalled();
   });
 });
-

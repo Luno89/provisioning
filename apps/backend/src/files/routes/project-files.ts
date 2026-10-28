@@ -1,9 +1,10 @@
-import express, { Router, type Request } from 'express';
+import { Router, type Request } from 'express';
 import crypto from 'crypto';
 import path from 'path';
 import { asyncRoute } from '../../platform/index.js';
 import { isSafeRepoDir, isSafeRepoFilePath } from '../lib/project-file-paths.js';
-import { DROP_TYPE, readDrop } from '../lib/drops.js';
+import { DROP_TYPE } from '../lib/drops.js';
+import { withReceivedDrop } from '../services/drop-receiver.js';
 import { GiteaConflictError } from '../../projects/index.js';
 import { listDirOnDevice, readFileOnDevice, writeFileOnDevice, deleteFileOnDevice } from '../../machines/index.js';
 
@@ -37,25 +38,27 @@ export function projectFilesRouter(deps: Record<string, any>): Router {
   const { projectRepoService, giteaService, getOwnedProject, drops, storyDrops } = deps;
   const router = Router();
 
-  router.post('/:id/files/drop', express.json({ type: DROP_TYPE, limit: '1gb' }), asyncRoute(async (req, res) => {
+  router.post('/:id/files/drop', asyncRoute(async (req, res) => {
+    if (!req.is(DROP_TYPE)) return res.status(415).json({ error: `Send a drop as ${DROP_TYPE}.` });
     const project = await getOwnedProject(idOf(req), userOf(req));
     if (!project) return res.status(404).json({ error: 'Project not found' });
-    const read = readDrop(req.body);
-    if (!read.ok) return res.status(400).json({ error: read.why });
-    const { ref, message, leafId } = req.body as { ref?: unknown; message?: unknown; leafId?: unknown };
-    if (typeof leafId === 'string' && leafId) {
-      const outcome = await storyDrops.drop(userOf(req).id, project.id, leafId, read.files, typeof message === 'string' ? message : undefined);
-      if (!outcome.ok) return res.status(outcome.status).json({ error: outcome.why });
-      return res.status(201).json(outcome);
-    }
-    try {
-      const outcome = await drops.drop(project, read.files, { ref: typeof ref === 'string' && ref ? ref : undefined, message: typeof message === 'string' ? message : undefined });
-      if (!outcome.ok) return res.status(409).json({ error: outcome.why });
-      res.status(201).json(outcome);
-    } catch (err) {
-      if (err instanceof GiteaConflictError) return res.status(409).json({ error: err.message });
-      throw err;
-    }
+    await withReceivedDrop(req, async (read) => {
+      if (!read.ok) return res.status(400).json({ error: read.why });
+      const { ref, message, leafId } = read.settings;
+      if (leafId) {
+        const outcome = await storyDrops.drop(userOf(req).id, project.id, leafId, read.files, message);
+        if (!outcome.ok) return res.status(outcome.status).json({ error: outcome.why });
+        return res.status(201).json(outcome);
+      }
+      try {
+        const outcome = await drops.drop(project, read.files, { ref, message });
+        if (!outcome.ok) return res.status(409).json({ error: outcome.why });
+        return res.status(201).json(outcome);
+      } catch (err) {
+        if (err instanceof GiteaConflictError) return res.status(409).json({ error: err.message });
+        throw err;
+      }
+    });
   }));
 
   router.get('/:id/files', asyncRoute(async (req, res) => {

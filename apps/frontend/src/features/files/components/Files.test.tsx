@@ -37,7 +37,7 @@ vi.mock('../api/files', async (orig) => ({
 
 vi.mock('../../projects/api/project-files', async (orig) => ({
   ...(await orig<typeof projectFilesApi>()),
-  dropIntoRepository: vi.fn(async (_id: string, body: { files: { path: string }[] }) => ({ ok: true, paths: body.files.map((file) => file.path), commit: 'c1' })),
+  dropIntoRepository: vi.fn(async (_id: string, _settings: unknown, files: readonly { path: string }[]) => ({ ok: true, paths: files.map((file) => file.path), commit: 'c1' })),
 }))
 
 const minio = { kind: 'minio' as const, deploymentId: 'm1', name: 'minio', clusterId: 'c1' }
@@ -226,7 +226,7 @@ describe('code dropped on the repository', () => {
     show(<RepositoryFiles projectId="p1" branch="leaf/l1">{() => <span>tree</span>}</RepositoryFiles>)
     const code = new File([new Uint8Array([0, 255])], 'logo.png')
     await act(async () => { dropOn(screen.getByTestId('drop-target'), [code]) })
-    await waitFor(() => expect(projectFilesApi.dropIntoRepository).toHaveBeenCalledWith('p1', { dir: '', files: [{ path: 'logo.png', content: 'AP8=' }], ref: 'leaf/l1' }, expect.any(Function)))
+    await waitFor(() => expect(projectFilesApi.dropIntoRepository).toHaveBeenCalledWith('p1', { dir: '', ref: 'leaf/l1' }, [{ path: 'logo.png', file: code }], expect.any(Function)))
     expect(await screen.findByText('Committed logo.png to the branch leaf/l1.')).toBeInTheDocument()
   })
 })
@@ -237,7 +237,7 @@ describe('code dropped on a story', () => {
     show(<RepositoryFiles projectId="p1" leafId="l1" title="Code for this story">{() => null}</RepositoryFiles>)
     const code = new File(['<svg/>'], 'logo.svg')
     await act(async () => { dropOn(screen.getByTestId('drop-target'), [code]) })
-    await waitFor(() => expect(projectFilesApi.dropIntoRepository).toHaveBeenCalledWith('p1', { dir: '', files: [{ path: 'logo.svg', content: 'PHN2Zy8+' }], leafId: 'l1' }, expect.any(Function)))
+    await waitFor(() => expect(projectFilesApi.dropIntoRepository).toHaveBeenCalledWith('p1', { dir: '', leafId: 'l1' }, [{ path: 'logo.svg', file: code }], expect.any(Function)))
     expect(await screen.findByTestId('drop-outcome')).toHaveTextContent('logo.svg could not be merged into the story\'s checkout')
     expect(screen.getByTestId('drop-target')).toHaveAttribute('aria-label', 'Drop code to merge into this story\'s checkout')
   })

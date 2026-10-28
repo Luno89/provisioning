@@ -10,10 +10,10 @@ import { loadKeys } from '../apps/backend/src/platform/lib/keys.js';
 import { getTemporalClient } from '../apps/backend/src/platform/lib/temporal-client.js';
 import { workflowOfRun } from '../apps/backend/src/engine-host/temporal/contracts.js';
 import { forgetWhatRunsLeft } from './lib/forget-test-runs.js';
+import { DROP_TYPE, dropBody } from '../apps/backend/src/files/lib/drops.js';
 
 const BASE = process.env.FILES_LIVE_URL ?? 'http://localhost:3001/api';
 const STAMP = Date.now().toString(36);
-const DROP_TYPE = 'application/vnd.koala.drop+json';
 const TOKEN = `KOALA-FILES-LIVE-${STAMP.toUpperCase()}`;
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const step = (message: string) => console.log(`\n▶ ${message}`);
@@ -162,7 +162,7 @@ async function main(): Promise<void> {
   step('code dropped on a project\'s repository is committed in one commit, its bytes whole');
   const shop = await newProject(`files-live-${STAMP}`);
   const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0xff, 0xfe]);
-  const dropped = await api.post(`/projects/${shop.id}/files/drop`, JSON.stringify({ dir: 'public', files: [{ path: 'logo.png', content: png.toString('base64') }, { path: 'notes.md', content: Buffer.from('# Notes\n').toString('base64') }] }), { headers: { 'Content-Type': DROP_TYPE } });
+  const dropped = await api.post(`/projects/${shop.id}/files/drop`, dropBody({ dir: 'public' }, [{ path: 'logo.png', bytes: png }, { path: 'notes.md', bytes: Buffer.from('# Notes\n') }]), { headers: { 'Content-Type': DROP_TYPE } });
   assert.equal(dropped.status, 201, JSON.stringify(dropped.data));
   assert.deepEqual((dropped.data as { paths: string[] }).paths, ['public/logo.png', 'public/notes.md']);
   const tree = ((await api.get(`/projects/${shop.id}/files`, { params: { path: 'public' } })).data as { entries: { name: string; size?: number }[] }).entries;

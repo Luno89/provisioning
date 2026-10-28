@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { attachmentPath, base64Of, droppedFiles, joinPath, pickedFiles, sentAttachment, sizeText } from './file-drop'
+import { attachmentPath, droppedFiles, joinPath, pickedFiles, sentAttachment, sizeText } from './file-drop'
 
 const file = (name: string, text = name) => new File([text], name)
 
@@ -21,10 +21,6 @@ describe('what was dropped', () => {
     const found = await droppedFiles({ items: [] as never, files: [file('a.txt')] as never })
     expect(found.map((one) => one.path)).toEqual(['a.txt'])
     expect(pickedFiles([file('b.txt')]).map((one) => one.path)).toEqual(['b.txt'])
-  })
-
-  it('sends a file\'s bytes exactly', async () => {
-    expect(await base64Of(new Blob([new Uint8Array([0, 255, 128])]))).toBe('AP+A')
   })
 })
 

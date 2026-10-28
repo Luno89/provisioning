@@ -7,7 +7,7 @@ import {
 } from './api/files'
 import { dropIntoRepository, projectFileKeys } from '../projects'
 import { groveKeys } from '../projects'
-import { base64Of, joinPath, type PickedFile } from './lib/file-drop'
+import { joinPath, type PickedFile } from './lib/file-drop'
 import type { FileScope, PlaceState, ShareDays } from './types'
 
 export const STARTING_POLL_MS = 3000
@@ -122,10 +122,8 @@ export function useRepositoryDrop(projectId: string, ref?: string | undefined, l
   const client = useQueryClient()
   const [share, setShare] = useState<number | undefined>()
   const drop = useMutation({
-    mutationFn: async ({ dir, picked }: { dir: string; picked: PickedFile[] }) => {
-      const files = await Promise.all(picked.map(async (one) => ({ path: one.path, content: await base64Of(one.file) })))
-      return dropIntoRepository(projectId, { dir, files, ...(ref ? { ref } : {}), ...(leafId ? { leafId } : {}) }, setShare)
-    },
+    mutationFn: ({ dir, picked }: { dir: string; picked: PickedFile[] }) =>
+      dropIntoRepository(projectId, { dir, ...(ref ? { ref } : {}), ...(leafId ? { leafId } : {}) }, picked, setShare),
     onSettled: () => {
       setShare(undefined)
       void client.invalidateQueries({ queryKey: ['project-files', projectId] })

@@ -42,13 +42,6 @@ export async function droppedFiles(transfer: Pick<DataTransfer, 'items' | 'files
 export const pickedFiles = (files: FileList | readonly File[] | null): PickedFile[] =>
   Array.from(files ?? []).map((file) => ({ path: (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name, file }))
 
-export async function base64Of(blob: Blob): Promise<string> {
-  const bytes = new Uint8Array(await blob.arrayBuffer())
-  let text = ''
-  for (let at = 0; at < bytes.length; at += 0x8000) text += String.fromCharCode(...bytes.subarray(at, at + 0x8000))
-  return btoa(text)
-}
-
 export const joinPath = (...parts: string[]): string => parts.map((part) => part.replace(/^\/+|\/+$/g, '')).filter(Boolean).join('/')
 
 export function attachmentPath(inProject: boolean, name: string, now: Date): string {

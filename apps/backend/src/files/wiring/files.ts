@@ -42,7 +42,7 @@ export function wireFiles(deps: FilesWiringDeps): FilesWiring {
   });
   const repositoryDrops = new RepositoryDropService({
     credential: (ownerId) => projectRepos.editorCredential(ownerId),
-    commit: (token, owner, repo, files, message, branch) => gitea.commitDrop(token, owner, repo, files, message, branch),
+    commit: (credential, owner, repo, files, message, branch) => gitea.commitDropFromDisk(credential, owner, repo, files, message, branch),
     writeOnDevice: (deviceId, ownerId, leafId, target, bytes) => writeFileOnDevice(deviceId, ownerId, leafId, target, bytes),
   });
   let storyDrops: StoryDropService | undefined;
@@ -71,7 +71,7 @@ export function storyDropsFor(deps: { db: Database; projectRepos: ProjectRepoSer
     },
     account: (ownerId) => deps.projectRepos.ensureAccountFor(ownerId),
     credential: (ownerId) => deps.projectRepos.editorCredential(ownerId),
-    commit: (token, owner, repo, files, message, branch, newBranch) => deps.gitea.commitDrop(token, owner, repo, files, message, branch, newBranch),
+    commit: (credential, owner, repo, files, message, branch, newBranch) => deps.gitea.commitDropFromDisk(credential, owner, repo, files, message, branch, newBranch),
     work: deps.work,
   });
 }

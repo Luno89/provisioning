@@ -1,6 +1,6 @@
 export { readFailureArtifacts, readWhole } from './lib/artifacts.js';
 export type { KeepArtifacts, WorkspaceExec } from './lib/artifacts.js';
-export { DROP_TYPE } from './lib/drops.js';
+export { DROP_TYPE, dropBody } from './lib/drops.js';
 export { cleanPath, sharedFolder } from './lib/file-places.js';
 export type { FileEntry, FilePlace } from './lib/file-places.js';
 export { servingHeaders } from './lib/file-serving.js';

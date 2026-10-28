@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import { execFile } from 'child_process';
+import { execFile, spawn } from 'child_process';
 import os from 'os';
 import path from 'path';
 import fs from 'fs/promises';
@@ -8,8 +8,27 @@ import { encryptValue, decryptValue, unpromptedGit, type SecretKey } from '../..
 import type { InfrastructureService } from '../../infrastructure/index.js';
 import { registryHosts, type RegistryHosts, type RegistryLogin } from '../../instances/index.js';
 import { privatePatches, type GiteaListedUser } from '../lib/gitea-visibility.js';
+import { blockedDropPath, dropPathQueries } from '../lib/drop-paths.js';
 
 const run = promisify(execFile);
+
+function gitWithInput(args: string[], env: NodeJS.ProcessEnv, input: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const child = spawn('git', args, { env });
+    const out: Buffer[] = [];
+    const err: Buffer[] = [];
+    child.stdout.on('data', (chunk: Buffer) => out.push(chunk));
+    child.stderr.on('data', (chunk: Buffer) => err.push(chunk));
+    child.on('error', reject);
+    child.on('close', (code) => {
+      const stderr = Buffer.concat(err).toString();
+      if (code === 0) resolve(Buffer.concat(out).toString());
+      else reject(Object.assign(new Error(`git ${args.find((arg) => !arg.startsWith('-') && !arg.startsWith('/')) ?? ''} exited ${code}`), { stderr }));
+    });
+    child.stdin.on('error', () => undefined);
+    child.stdin.end(input);
+  });
+}
 
 const NAMESPACE = 'gitea';
 const ADMIN_USERNAME = 'provisioning-bot';
@@ -522,6 +541,7 @@ export class GiteaService {
     try {
       return await work(path.join(scratch, 'repo.git'), url, env);
     } catch (err) {
+      if (err instanceof GiteaConflictError) throw err;
       const detail = ((err as { stderr?: string }).stderr || (err as Error).message).replaceAll(auth.token, '***').trim();
       throw new Error(`${what} ${owner}/${name} failed: ${detail}`);
     } finally {
@@ -751,33 +771,53 @@ export class GiteaService {
     return { sha: body.content.sha };
   }
 
-  async commitDrop(
-    token: string,
+  private async authorOf(username: string): Promise<{ name: string; email: string }> {
+    const res = await this.apiFetch(`/api/v1/users/${encodeURIComponent(username)}`);
+    if (!res.ok) throw new Error(`Could not look up the user ${username}: HTTP ${res.status}`);
+    const user = await res.json() as { full_name?: string; email?: string };
+    return { name: user.full_name || username, email: user.email || `${username}@noreply.localhost` };
+  }
+
+  async commitDropFromDisk(
+    auth: { username: string; token: string },
     owner: string,
     name: string,
-    files: readonly { path: string; bytes: Buffer }[],
+    files: readonly { path: string; source: string }[],
     message: string,
     branch?: string,
     newBranch?: string,
   ): Promise<{ commit: string }> {
-    const repo = `/api/v1/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`;
-    const ref = branch ? `?ref=${encodeURIComponent(branch)}` : '';
-    const operations = await Promise.all(files.map(async (file) => {
-      const found = await this.tokenFetch(token, `${repo}/contents/${file.path}${ref}`);
-      if (!found.ok && found.status !== 404) throw new Error(`Could not read "${file.path}" in "${owner}/${name}": HTTP ${found.status} ${(await found.text()).slice(0, 200)}`);
-      const current = found.ok ? await found.json() as { sha?: string; type?: string } | unknown[] : undefined;
-      if (Array.isArray(current) || (current && current.type && current.type !== 'file')) throw new GiteaConflictError(`"${file.path}" is a folder in "${owner}/${name}", so a file cannot go there.`);
-      const sha = (current as { sha?: string } | undefined)?.sha;
-      return { operation: sha ? 'update' : 'create', path: file.path, content: file.bytes.toString('base64'), ...(sha ? { sha } : {}) };
-    }));
-    const res = await this.tokenFetch(token, `${repo}/contents`, {
-      method: 'POST',
-      body: JSON.stringify({ message, files: operations, ...(branch ? { branch } : {}), ...(newBranch ? { new_branch: newBranch } : {}) }),
+    const author = await this.authorOf(auth.username);
+    return this.withBareRepo(auth, owner, name, 'Committing to', async (repo, url, env) => {
+      await run('git', ['init', '--quiet', repo], { env });
+      const git = (...args: string[]) => run('git', ['-C', repo, ...args], { env, maxBuffer: 256 * 1024 * 1024 });
+      const head = branch ? undefined : /^ref: refs\/heads\/(\S+)\tHEAD$/m.exec((await git('ls-remote', '--symref', url, 'HEAD')).stdout)?.[1];
+      const base = branch ?? head ?? 'main';
+      const listed = (await git('ls-remote', '--heads', url, `refs/heads/${base}`)).stdout.trim();
+      if (branch && !listed) throw new Error(`there is no branch ${branch}`);
+      let parent: string | undefined;
+      if (listed) {
+        await git('fetch', '--quiet', '--depth', '1', '--no-tags', url, `refs/heads/${base}`);
+        parent = (await git('rev-parse', 'FETCH_HEAD')).stdout.trim();
+        await git('read-tree', parent);
+        const blocked = blockedDropPath(files.map((file) => file.path), await gitWithInput(['-C', repo, 'cat-file', '--batch-check'], env, dropPathQueries(parent, files.map((file) => file.path))));
+        if (blocked) throw new GiteaConflictError(`"${blocked.path}" is a ${blocked.is} in "${owner}/${name}", so ${blocked.is === 'folder' ? 'a file cannot go there' : `"${blocked.dropped}" cannot go under it`}.`);
+      }
+      const shas = (await gitWithInput(['-C', repo, 'hash-object', '-w', '--no-filters', '--stdin-paths'], env, files.map((file) => `${file.source}\n`).join(''))).trim().split('\n');
+      await gitWithInput(['-C', repo, 'update-index', '--add', '-z', '--index-info'], env, files.map((file, index) => `100644 ${shas[index]}\t${file.path}\0`).join(''));
+      const tree = (await git('write-tree')).stdout.trim();
+      const commit = (await run('git', ['-C', repo, 'commit-tree', tree, ...(parent ? ['-p', parent] : []), '-m', message], {
+        env: { ...env, GIT_AUTHOR_NAME: author.name, GIT_AUTHOR_EMAIL: author.email, GIT_COMMITTER_NAME: author.name, GIT_COMMITTER_EMAIL: author.email },
+      })).stdout.trim();
+      try {
+        await git('push', '--quiet', url, `${commit}:refs/heads/${newBranch ?? base}`);
+      } catch (err) {
+        const said = String((err as { stderr?: string }).stderr ?? '');
+        if (/\[rejected\]|non-fast-forward|fetch first|already exists/.test(said)) throw new GiteaConflictError('Something in this drop changed while it was being committed; drop it again.');
+        throw err;
+      }
+      return { commit };
     });
-    if (res.status === 409 || res.status === 422) throw new GiteaConflictError(`Something in this drop changed while it was being committed; drop it again. (${(await res.text()).slice(0, 160)})`);
-    if (!res.ok) throw new Error(`Could not commit ${files.length} file${files.length === 1 ? '' : 's'} to "${owner}/${name}": HTTP ${res.status} ${(await res.text()).slice(0, 200)}`);
-    const body = await res.json() as { commit?: { sha?: string } };
-    return { commit: body.commit?.sha ?? '' };
   }
 
   async deleteFile(

@@ -1,5 +1,5 @@
 import { Context } from '@temporalio/activity';
-import { DROP_TYPE } from '../files/index.js';
+import { DROP_TYPE, dropBody } from '../files/index.js';
 import type { AxiosInstance } from 'axios';
 import { v4 as uuidv4 } from 'uuid';
 import { grantChanges, type GrantKind, type ToolDefinition, type ToolGrant, type WorkspaceDependency } from '@koala/agent-engine';
@@ -723,8 +723,8 @@ export function createCheckRunActivities(deps: CheckRunDeps): CheckRunActivities
           const tree = ((await http.get('/trees')).data as { id: string; projectIds?: string[] }[]).find((entry) => entry.id === branch?.treeId);
           const projectId = tree?.projectIds?.[0];
           if (!projectId) return { outcome: 'failed', reason: `"${asked.story}" is in no project, so code cannot be dropped on it` };
-          const files = Object.entries(asked.files).map(([path, content]) => ({ path, content: Buffer.from(content).toString('base64') }));
-          const dropped = await http.post(`/projects/${projectId}/files/drop`, JSON.stringify({ leafId: leaf.id, files }), { headers: { 'Content-Type': DROP_TYPE }, validateStatus: () => true });
+          const files = Object.entries(asked.files).map(([path, content]) => ({ path, bytes: Buffer.from(content) }));
+          const dropped = await http.post(`/projects/${projectId}/files/drop`, dropBody({ leafId: leaf.id }, files), { headers: { 'Content-Type': DROP_TYPE }, validateStatus: () => true });
           if (dropped.status >= 300) return { outcome: 'failed', reason: `the drop was refused: ${(dropped.data as { error?: string }).error ?? dropped.status}` };
           return { outcome: 'ok' };
         }
