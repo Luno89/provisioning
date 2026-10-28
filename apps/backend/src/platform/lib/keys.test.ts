@@ -18,6 +18,11 @@ describe('the platform keys', () => {
     expect(loadKeys({ NODE_ENV: 'production', ...full }).data.current).toBe(full.DATA_KEY);
   });
 
+  it('lets a process that needs one key, such as Temporal\'s key server, run in production given only that one', () => {
+    expect(loadKeys({ NODE_ENV: 'production', TEMPORAL_KEY: full.TEMPORAL_KEY }, ['temporal']).temporal).toBe(full.TEMPORAL_KEY);
+    expect(() => loadKeys({ NODE_ENV: 'production', DATA_KEY: full.DATA_KEY }, ['temporal'])).toThrow(/^TEMPORAL_KEY is not set/);
+  });
+
   it('never falls back to the key written in the source when in production', () => {
     const keys = loadKeys({ NODE_ENV: 'production', ...full });
     expect(keys.data.previous).toBeUndefined();

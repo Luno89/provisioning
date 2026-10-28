@@ -34,7 +34,7 @@ export const generateKey = (): string => crypto.randomBytes(32).toString('hex');
 const derive = (root: string, purpose: KeyPurpose): string =>
   Buffer.from(crypto.hkdfSync('sha256', root, 'nowrinkles-platform-keys', purpose, 32)).toString('hex');
 
-export function loadKeys(env: Readonly<Record<string, string | undefined>>): PlatformKeys {
+export function loadKeys(env: Readonly<Record<string, string | undefined>>, needed: readonly KeyPurpose[] = Object.keys(KEY_NAMES) as KeyPurpose[]): PlatformKeys {
   const production = env.NODE_ENV === 'production';
   const legacy = env.JWT_SECRET?.trim() || undefined;
   const given = (purpose: KeyPurpose): string | undefined => {
@@ -42,7 +42,7 @@ export function loadKeys(env: Readonly<Record<string, string | undefined>>): Pla
     return value && value.length >= MIN_LENGTH ? value : undefined;
   };
 
-  const missing = (Object.keys(KEY_NAMES) as KeyPurpose[]).filter((purpose) => !given(purpose));
+  const missing = needed.filter((purpose) => !given(purpose));
   if (production && missing.length > 0) throw new MissingKeysError(missing.map((purpose) => KEY_NAMES[purpose]));
 
   const old = legacy ?? (production ? undefined : DEV_SECRET);

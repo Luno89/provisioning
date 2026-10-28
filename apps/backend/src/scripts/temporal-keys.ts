@@ -5,7 +5,7 @@ import dotenv from 'dotenv';
 import { loadKeys, temporalJwks } from '../platform/index.js';
 
 dotenv.config({ path: resolve(fileURLToPath(new URL('.', import.meta.url)), '../../.env'), quiet: true });
-const jwks = `${JSON.stringify(temporalJwks(loadKeys(process.env).temporal))}\n`;
+const jwks = `${JSON.stringify(temporalJwks(loadKeys(process.env, ['temporal']).temporal))}\n`;
 const target = process.argv[2];
 if (target) {
   mkdirSync(dirname(target), { recursive: true });
