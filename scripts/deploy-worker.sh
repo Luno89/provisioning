@@ -65,6 +65,11 @@ SECRET_ARGS+=(--from-literal="MONGO_URI=$(printf '%s' "$MONGO_URI_FROM_ENV" | se
   --dry-run=client -o yaml --context "k3d-${CLUSTER_NAME}" \
   | "$KUBECTL" apply -f - --context "k3d-${CLUSTER_NAME}" >/dev/null
 echo "  ▶  worker keys synced (${#SECRET_ARGS[@]} from apps/backend/.env)"
+bash "${ROOT}/scripts/temporal-keys.sh" >/dev/null
+"$KUBECTL" create secret generic provisioning-worker-temporal-ca --from-file=ca.crt="${ROOT}/apps/backend/data/temporal-tls/ca.crt" \
+  --dry-run=client -o yaml --context "k3d-${CLUSTER_NAME}" \
+  | "$KUBECTL" apply -f - --context "k3d-${CLUSTER_NAME}" >/dev/null
+echo "  ▶  the worker trusts Temporal's certificate"
 "$KUBECTL" apply -f "${ROOT}/k8s/worker-deployment.yaml" --context "k3d-${CLUSTER_NAME}"
 
 # Best-effort: the PodMonitor CRD only exists once the Prometheus Operator (part of the cluster's

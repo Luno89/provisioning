@@ -5,6 +5,7 @@ import { frame, gatewayCallOf, gatewayDecision, handedWorkflowOf, sealedPollAnsw
 export interface MachineTemporalGatewayDeps {
   upstream: string;
   upstreamKey: () => string;
+  upstreamCa?: Buffer | undefined;
   namespace: string;
   keys: () => readonly string[];
   deviceOf: (token: string) => Promise<{ id: string } | undefined>;
@@ -64,7 +65,9 @@ export class MachineTemporalGateway {
 
   private upstream(): http2.ClientHttp2Session {
     if (!this.session || this.session.closed || this.session.destroyed) {
-      const session = http2.connect(`http://${this.deps.upstream}`);
+      const session = this.deps.upstreamCa
+        ? http2.connect(`https://${this.deps.upstream}`, { ca: this.deps.upstreamCa })
+        : http2.connect(`http://${this.deps.upstream}`);
       session.on('error', (err) => this.deps.log?.(`[machine-gateway] Temporal connection: ${err.message}`));
       this.session = session;
     }

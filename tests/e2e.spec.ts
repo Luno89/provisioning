@@ -227,7 +227,8 @@ http {
     dotenv.config({ path: 'apps/backend/.env', quiet: true });
     const { loadKeys } = await import('../apps/backend/src/platform/lib/keys.js');
     const { temporalApiKey, temporalNamespaceFrom } = await import('../apps/backend/src/platform/lib/temporal-auth.js');
-    const connection = await Connection.connect({ tls: false, apiKey: temporalApiKey(loadKeys(process.env).temporal, { subject: 'koala-e2e', namespace: temporalNamespaceFrom(process.env), role: 'read' }) });
+    const { temporalTls } = await import('../apps/backend/src/platform/lib/temporal-tls.js');
+    const connection = await Connection.connect({ tls: temporalTls(process.env), apiKey: temporalApiKey(loadKeys(process.env).temporal, { subject: 'koala-e2e', namespace: temporalNamespaceFrom(process.env), role: 'read' }) });
     expect(connection).toBeDefined();
     const status = await connection.workflowService.getSystemInfo({});
     expect(status).toBeDefined();

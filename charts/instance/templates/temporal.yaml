@@ -113,6 +113,15 @@ spec:
       volumes:
         - name: temporal-keys
           emptyDir: {}
+        - name: temporal-tls
+          secret:
+            secretName: {{ include "instance.name" . }}-temporal-tls
+            defaultMode: 0444
+            items:
+              - key: tls.crt
+                path: tls.crt
+              - key: tls.key
+                path: tls.key
       containers:
         {{- if not (semverCompare ">=1.29-0" .Capabilities.KubeVersion.Version) }}
         - {{- include "instance.temporalKeys" . | nindent 10 }}
@@ -152,10 +161,18 @@ spec:
               value: http://127.0.0.1:7280/.well-known/temporal-jwks.json
             - name: TEMPORAL_JWT_KEY_REFRESH
               value: 30s
+            - name: TEMPORAL_TLS_FRONTEND_CERT
+              value: /etc/temporal/tls/tls.crt
+            - name: TEMPORAL_TLS_FRONTEND_KEY
+              value: /etc/temporal/tls/tls.key
             - name: TEMPORAL_BROADCAST_ADDRESS
               valueFrom:
                 fieldRef:
                   fieldPath: status.podIP
+          volumeMounts:
+            - name: temporal-tls
+              mountPath: /etc/temporal/tls
+              readOnly: true
           readinessProbe:
             tcpSocket:
               port: 7233

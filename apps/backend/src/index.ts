@@ -17,7 +17,7 @@ import helmet from 'helmet';
 import {
   CSP_REPORT_LIMIT, CSP_REPORT_PATH, cspHeader, cspModeFrom, violationLine, crossSiteRefusal, foreignOrigin, ourOrigins, MetricsService, RATE_LIMITS, ruleFor,
   getTemporalClient, resolveOwnersWith, PayloadStorageService, createAuth, keepTrying, mongoTarget, asyncRoute,
-  TEMPORAL_JWKS_PATH, temporalKeysRouter, temporalNamespaceFrom,
+  TEMPORAL_JWKS_PATH, temporalCa, temporalKeysRouter, temporalNamespaceFrom,
   ownsProject, createDatabase, sharedPayloadBlobs, type Database, migrateLegacyOwnership, decryptValue, loadKeys,
   roleFromEnv, servesTenants, holdsAccounts, MailService, emailWayFrom, telemetrySettings, e2eProblem, firstAdminSetup, drainThenStop, podPlaceFrom, runOnce,
 } from './platform/index.js';
@@ -359,6 +359,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
         upstream: (process.env.TEMPORAL_CONNECTION_ADDRESS || 'localhost:7233').replace(/^https?:\/\//, ''),
         namespace: temporalNamespaceFrom(process.env),
         temporalKey: keys.temporal,
+        temporalCa: temporalCa(process.env),
       },
     } : {}),
   });

@@ -28,6 +28,8 @@ spec:
               value: "cluster-ops-queue"
             - name: IN_CLUSTER
               value: "true"
+            - name: TEMPORAL_TLS_CA
+              value: /etc/koala/temporal-tls/ca.crt
           envFrom:
             - secretRef:
                 name: provisioning-worker-secrets
@@ -38,7 +40,13 @@ spec:
           volumeMounts:
             - name: docker-socket
               mountPath: /var/run/docker.sock
+            - name: temporal-ca
+              mountPath: /etc/koala/temporal-tls
+              readOnly: true
       volumes:
+        - name: temporal-ca
+          secret:
+            secretName: provisioning-worker-temporal-ca
         - name: docker-socket
           hostPath:
             path: /var/run/docker.sock

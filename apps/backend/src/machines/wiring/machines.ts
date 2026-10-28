@@ -23,7 +23,7 @@ export interface MachinesWiringDeps {
   machines: MachineService;
   headscale: HeadscaleService;
   projectRepos: ProjectRepoService;
-  gateway?: { port: number; host: string; upstream: string; namespace: string; temporalKey: string } | undefined;
+  gateway?: { port: number; host: string; upstream: string; namespace: string; temporalKey: string; temporalCa?: Buffer | undefined } | undefined;
 }
 
 export function wireMachines(deps: MachinesWiringDeps): void {
@@ -36,11 +36,12 @@ export function wireMachines(deps: MachinesWiringDeps): void {
     remote: (ownerId, repo) => deps.projectRepos.gitRemote(ownerId, repo),
   });
   if (deps.gateway) {
-    const { port, host, upstream, namespace, temporalKey } = deps.gateway;
+    const { port, host, upstream, namespace, temporalKey, temporalCa } = deps.gateway;
     const ring = ringOf(deps.dataKey);
     const gateway = new MachineTemporalGateway({
       upstream,
       upstreamKey: temporalApiKey(temporalKey, { subject: 'koala-machine-gateway', namespace, role: 'write' }),
+      upstreamCa: temporalCa,
       namespace,
       keys: () => [ring.current, ...(ring.previous ?? [])],
       deviceOf: async (token) => findDeviceByToken(await db.machines.getLocalAgentDevices(), token, deps.dataKey),

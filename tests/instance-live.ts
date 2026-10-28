@@ -161,16 +161,17 @@ Promise.all(${JSON.stringify(only)}.map(at)).then((found) => console.log('KNOCKE
   }
   for (const namespace of ['default', 'nowrinkles']) kubectl(['-n', namespace, 'delete', 'pod', 'knocker', '--wait=false']);
 
-  step('the instance\'s own pods reach its Temporal only with a token signed by the instance\'s key, and never its internal frontend');
+  step('the instance\'s own pods reach its Temporal only over TLS, with a token signed by the instance\'s key, and never its internal frontend');
   const temporalPod = kubectl(['-n', 'nowrinkles', 'get', 'pod', '-l', 'app.kubernetes.io/component=temporal', '-o', 'jsonpath={.items[0].status.podIP}']).trim();
   const probe = `import net from 'node:net';
+import { readFileSync } from 'node:fs';
 import { Client, Connection } from '@temporalio/client';
 import { temporalToken } from './src/platform/lib/temporal-auth.ts';
 const address = (process.env.TEMPORAL_CONNECTION_ADDRESS ?? '').replace(/^https?:\\/\\//, '');
 const grant = { subject: 'instance-live', namespace: 'default', role: 'read' };
 const listed = async (apiKey) => {
   try {
-    const connection = await Connection.connect({ address, tls: false, connectTimeout: '10s', ...(apiKey ? { apiKey } : {}) });
+    const connection = await Connection.connect({ address, tls: { serverRootCACertificate: readFileSync(process.env.TEMPORAL_TLS_CA ?? '') }, connectTimeout: '10s', ...(apiKey ? { apiKey } : {}) });
     for await (const _ of new Client({ connection }).workflow.list()) break;
     return 'allowed';
   } catch { return 'refused'; }
@@ -186,6 +187,13 @@ const found = {
   otherKey: await listed(temporalToken('another-instance-key-'.padEnd(64, 'x'), grant)),
   signed: await listed(temporalToken(process.env.TEMPORAL_KEY, grant)),
   internalFrontend: await reached(${JSON.stringify(temporalPod)}, 7236),
+  plainText: await (async () => {
+    try {
+      const connection = await Connection.connect({ address, tls: false, connectTimeout: '10s', apiKey: temporalToken(process.env.TEMPORAL_KEY, grant) });
+      for await (const _ of new Client({ connection }).workflow.list()) break;
+      return 'allowed';
+    } catch { return 'refused'; }
+  })(),
 };
 console.log('TEMPORAL ' + JSON.stringify(found));
 process.exit(0);`;
@@ -196,6 +204,7 @@ process.exit(0);`;
   assert.equal(temporalAnswers.unsigned, 'refused', 'Temporal answered a call that carried no token');
   assert.equal(temporalAnswers.otherKey, 'refused', 'Temporal answered a token signed by another key');
   assert.notEqual(temporalAnswers.internalFrontend, 'reached', 'another pod reached Temporal\'s internal frontend, which checks nothing');
+  assert.equal(temporalAnswers.plainText, 'refused', 'Temporal answered a connection without TLS');
 
   step('deleting an account is root\'s: the instance removes none and points there, and a person on root removes their own, their instance let go of with it');
   const place = await (await http('/api/auth/account-removal')).json() as { url: string | null };

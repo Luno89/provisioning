@@ -93,6 +93,9 @@ spec:
           volumeMounts:
             - name: data
               mountPath: /app/apps/backend/data
+            - name: temporal-ca
+              mountPath: /etc/koala/temporal-tls
+              readOnly: true
             {{- if and (eq $process "backend") $.Values.routing.domain }}
             - name: edge-config
               mountPath: /etc/edge
@@ -126,6 +129,12 @@ spec:
         - name: data
           persistentVolumeClaim:
             claimName: {{ include "instance.name" $ }}-data
+        - name: temporal-ca
+          secret:
+            secretName: {{ include "instance.name" $ }}-temporal-tls
+            items:
+              - key: ca.crt
+                path: ca.crt
         {{- if and (eq $process "backend") $.Values.routing.domain }}
         - name: edge-config
           configMap:

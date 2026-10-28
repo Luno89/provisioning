@@ -105,6 +105,22 @@ describe('the instance chart', () => {
     expect(find(docs, 'Service', 'luno-temporal').spec.ports.map((port: { port: number }) => port.port)).toEqual([7233]);
   });
 
+  it('speaks TLS to Temporal: a certificate for its service names, its key only in Temporal\'s pod, the CA in every process', () => {
+    const docs = render();
+    const secret = find(docs, 'Secret', 'luno-temporal-tls');
+    expect(Object.keys(secret.data ?? {}).sort()).toEqual(['ca.crt', 'tls.crt', 'tls.key']);
+    expect(secret.metadata.annotations).toMatchObject({ 'helm.sh/resource-policy': 'keep' });
+    const temporal = find(docs, 'Deployment', 'luno-temporal').spec.template.spec;
+    const server = temporal.containers.find((container: { name: string }) => container.name === 'temporal');
+    expect(server.env).toEqual(expect.arrayContaining([{ name: 'TEMPORAL_TLS_FRONTEND_CERT', value: '/etc/temporal/tls/tls.crt' }, { name: 'TEMPORAL_TLS_FRONTEND_KEY', value: '/etc/temporal/tls/tls.key' }]));
+    expect(temporal.volumes.find((volume: { name: string }) => volume.name === 'temporal-tls').secret.items.map((item: { key: string }) => item.key)).toEqual(['tls.crt', 'tls.key']);
+    for (const process of ['backend', 'worker-engine', 'worker-cluster', 'worker-host']) {
+      const pod = find(docs, 'Deployment', `luno-${process}`).spec.template.spec;
+      expect(pod.volumes.find((volume: { name: string }) => volume.name === 'temporal-ca').secret.items).toEqual([{ key: 'ca.crt', path: 'ca.crt' }]);
+    }
+    expect(find(docs, 'ConfigMap', 'luno-env').data).toMatchObject({ TEMPORAL_TLS_CA: '/etc/koala/temporal-tls/ca.crt' });
+  });
+
   it('serves Temporal\'s keys beside it as an ordinary container on a cluster too old for native sidecars', () => {
     const pod = find(render([], '1.28.8'), 'Deployment', 'luno-temporal').spec.template.spec;
     expect(pod.initContainers.map((container: { name: string }) => container.name)).toEqual(['temporal-jwks']);

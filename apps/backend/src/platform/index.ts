@@ -45,6 +45,7 @@ export { TEMPORAL_JWKS_PATH, temporalApiKey, temporalJwks, temporalNamespaceFrom
 export { getTemporalClient, pollWorkflowRun, resolveOwnersWith } from './lib/temporal-client.js';
 export { buildDataConverter } from './lib/temporal-codec.js';
 export { connectTemporalWorker } from './lib/temporal-connection.js';
+export { temporalCa, temporalTls } from './lib/temporal-tls.js';
 export { failureReason } from './lib/temporal-failure.js';
 export { isCloudProvider } from './lib/types.js';
 export type { CloudCredentials, CloudProvider, ClusterMetadata, ClusterProgress, DeploymentMetadata, InviteMetadata, LocalAgentDeviceMetadata, LocalEgressRule, ModelEndpointMetadata, PartialInfo, PendingApprovalMetadata, PipelineRunMetadata, ProjectMetadata, UserMetadata } from './lib/types.js';

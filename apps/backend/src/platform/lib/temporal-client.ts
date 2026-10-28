@@ -6,6 +6,7 @@ import { OWNER_ATTRIBUTE, UnownedWorkflowError, ownerIn, startedFor } from './wo
 import { sharedPayloadBlobs } from './db-interface.js'
 import { loadKeys } from './keys.js'
 import { temporalApiKey, temporalNamespaceFrom, temporalToken } from './temporal-auth.js'
+import { temporalTls } from './temporal-tls.js'
 
 const serverUrl = process.env.TEMPORAL_CONNECTION_ADDRESS || 'http://localhost:7233'
 
@@ -67,7 +68,7 @@ export async function getTemporalClient(options?: TemporalClientOptions): Promis
   const keys = loadKeys(process.env)
   const connection = await Connection.connect({
     address: toConnectionAddress(address),
-    tls: false,
+    tls: temporalTls(process.env),
     apiKey: temporalApiKey(keys.temporal, { subject: 'koala-backend', namespace, role: 'write' }),
   })
   await registerOwnerAttribute(connection, namespace, temporalToken(keys.temporal, { subject: 'koala-backend', namespace, role: 'admin' }))

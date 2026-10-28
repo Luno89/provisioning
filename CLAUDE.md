@@ -240,9 +240,12 @@ itself from `TEMPORAL_KEY` (`platform/lib/temporal-auth.ts`: `temporalToken`, re
 is up), granting one role on one namespace: `write` for the backend's client, the three workers, the stream worker
 (`connectTemporalWorker`) and the machine gateway's upstream (which sends its own token, never the machine's), and an `admin`
 token only for registering `KoalaOwner`. Temporal's stock authorizer compares roles as numbers, so its `worker` permission
-allows nothing a worker needs; nothing narrower than a namespace exists, which is why machines go through the gateway. The SDK
-turns TLS on by itself when given a key, so every connection says `tls: false` (Temporal serves plain gRPC here, on loopback or
-inside the instance's pod network). Temporal reads the public key (`temporalJwks`, also served at
+allows nothing a worker needs; nothing narrower than a namespace exists, which is why machines go through the gateway. Every
+connection to Temporal is TLS (owner, 2026-10-27), to a certificate signed by a CA of the install's own: `scripts/temporal-keys.sh`
+makes it once under `apps/backend/data/temporal-tls/` (the CA's key thrown away after signing, the server's key readable only by
+Temporal's uid 1000), the chart generates it into `<release>-temporal-tls` with `genCA`/`genSignedCert` for its service names and
+keeps it across upgrades; processes trust it through `temporalTls` (`TEMPORAL_TLS_CA`, by default that folder's `ca.crt`), and the
+machine gateway's upstream too. Payloads were already sealed by the codec; TLS also hides tokens and workflow names on the wire. Temporal reads the public key (`temporalJwks`, also served at
 `/.well-known/temporal-jwks.json`) from a file beside it, never from the backend, so it has it from its first moment: on an
 instance an init container (`temporal-keys` in the entrypoint, `src/scripts/temporal-keys.ts`) writes it and a native busybox
 sidecar serves it before Temporal starts (`charts/instance/templates/temporal.yaml`); under compose `scripts/temporal-keys.sh`

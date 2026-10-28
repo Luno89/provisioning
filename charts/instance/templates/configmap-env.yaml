@@ -14,6 +14,7 @@ data:
   ROOT_PUBLIC_KEYS: {{ .Values.instance.rootPublicKeys | quote }}
   PUBLIC_URL: {{ .Values.publicUrl | default "http://localhost:3001" | quote }}
   TEMPORAL_CONNECTION_ADDRESS: {{ include "instance.name" . }}-temporal:7233
+  TEMPORAL_TLS_CA: /etc/koala/temporal-tls/ca.crt
   {{- if .Values.mesh.loginServer }}
   MESH_LOGIN_SERVER: {{ .Values.mesh.loginServer | quote }}
   {{- end }}

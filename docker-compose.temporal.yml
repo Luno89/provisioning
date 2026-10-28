@@ -53,8 +53,11 @@ services:
       - TEMPORAL_AUTH_CLAIM_MAPPER=default
       - TEMPORAL_JWT_KEY_SOURCE1=http://temporal-keys:7280/.well-known/temporal-jwks.json
       - TEMPORAL_JWT_KEY_REFRESH=30s
+      - TEMPORAL_TLS_FRONTEND_CERT=/etc/temporal/tls/server.crt
+      - TEMPORAL_TLS_FRONTEND_KEY=/etc/temporal/tls/server.key
     volumes:
       - tf-data:/home/temporal/temporal
+      - ./apps/backend/data/temporal-tls:/etc/temporal/tls:ro
     healthcheck:
       test: ["CMD-SHELL", "temporal operator cluster health --address 127.0.0.1:7236 || exit 1"]
       interval: 10s
