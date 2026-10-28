@@ -9,7 +9,7 @@ Written by `tests/lib/run-live.ts`, which every `npm run test:*-live` and `test:
 | `app-sign-in-live` | 2026-10-27 22:24 | 2026-10-27 22:22 |
 | `byo-machine-live` | 2026-10-28 02:57 | 2026-10-28 02:25 |
 | `checks-live` | 2026-10-28 12:01 | 2026-10-26 18:01 |
-| `files-live` | 2026-10-28 11:15 | — |
+| `files-live` | 2026-10-28 16:26 | 2026-10-28 16:23 |
 | `hub-live` | 2026-10-28 11:10 | 2026-10-24 18:21 |
 | `infra-integration` | 2026-10-24 14:25 | 2026-10-24 14:12 |
 | `instance-live` | 2026-10-28 01:06 | 2026-10-28 01:00 |
@@ -19,8 +19,9 @@ Written by `tests/lib/run-live.ts`, which every `npm run test:*-live` and `test:
 | `mail-live` | 2026-10-26 14:08 | — |
 | `mesh-live` | 2026-10-28 03:11 | 2026-10-28 02:39 |
 | `odoo-release-live` | 2026-10-28 11:42 | 2026-10-28 03:15 |
+| `pool-live` | — | 2026-10-28 17:11 |
 | `project-sharing-live` | 2026-10-28 11:11 | 2026-10-22 13:53 |
 | `release-live` | 2026-10-26 18:43 | 2026-10-26 18:13 |
 | `routes-live` | 2026-10-28 11:10 | 2026-10-24 05:15 |
-| `routing-live` | 2026-10-27 01:22 | 2026-10-22 20:20 |
+| `routing-live` | 2026-10-28 17:05 | 2026-10-22 20:20 |
 | `telemetry-live` | 2026-10-28 11:11 | — |
