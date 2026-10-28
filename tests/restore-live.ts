@@ -171,10 +171,9 @@ async function main(): Promise<void> {
   assert.equal((await sh(first.vm, 'systemctl is-enabled koala-backup.timer koala-backup-check.timer')).trim(), 'enabled\nenabled');
   const backedUp = await sh(first.vm, `sudo REPO_DIR=${REPO_DIR} bash ${REPO_DIR}/scripts/root-node/backup.sh`, true);
   assert.match(backedUp, /backed up to .* snapshot [0-9a-f]{8}/);
-  await sh(first.vm, `sudo REPO_DIR=${REPO_DIR} bash ${REPO_DIR}/scripts/root-node/backup.sh check`, true);
-  const stored = run('docker', ['exec', MINIO, 'sh', '-c', 'find /data/koala-backup -type f | wc -l']).trim();
-  assert.ok(Number(stored) > 0, 'nothing reached the object store');
-  note(`${stored} files in the bucket; the snapshot is checked whole`);
+  const checked = await sh(first.vm, `sudo REPO_DIR=${REPO_DIR} bash ${REPO_DIR}/scripts/root-node/backup.sh check`, true);
+  assert.match(checked, /no errors were found/, 'restic found the repository damaged');
+  note('restic read the snapshot back from the object store and found it whole');
 
   step('the second root, bootstrapped fresh, restores that snapshot with restore.sh');
   const restored = Date.now();
