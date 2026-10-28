@@ -6,6 +6,7 @@ import { signJWT } from '../apps/backend/src/platform/lib/auth.js';
 import { loadKeys } from '../apps/backend/src/platform/lib/keys.js';
 import { ACP_STUB, chatsOnTheMachine } from './lib/machine-chat.js';
 import { createDisposableVm, type DisposableVm } from './lib/disposable-vm.js';
+import { devTemporalCa } from './lib/dev-temporal.js';
 
 const GATEWAY_PORT = 30322;
 const REPO = resolve(new URL('.', import.meta.url).pathname, '..');
@@ -91,7 +92,7 @@ async function main(): Promise<void> {
 
   step('root starts, with the mesh at its address on this computer');
   try { run('docker', ['rm', '-f', ROOT_CONTAINER]); } catch { /* not running */ }
-  run('docker', ['run', '-d', '--name', ROOT_CONTAINER, '--network', 'host', '--env-file', 'apps/backend/.env',
+  run('docker', ['run', '-d', '--name', ROOT_CONTAINER, '--network', 'host', '--env-file', 'apps/backend/.env', ...devTemporalCa(),
     ...SECRET_FILES.flatMap((file) => ['-v', `${join(REPO, 'apps/backend/data', file)}:/app/apps/backend/data/${file}:ro`]),
     '-e', 'ROLE=root', '-e', `PORT=${ROOT_PORT}`, '-e', `PUBLIC_URL=${ROOT_FOR_GUEST}`,
     '-e', `MESH_LOGIN_SERVER=${MESH}`, '-e', 'INSTANCE_REGISTRY=10.0.2.2:5001', '-e', 'INSTANCE_IMAGE_TAG=dev', IMAGE, 'backend']);

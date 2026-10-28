@@ -7,6 +7,7 @@ import { join, resolve } from 'node:path';
 import dotenv from 'dotenv';
 import { loadKeys } from '../apps/backend/src/platform/lib/keys.js';
 import { signJWT } from '../apps/backend/src/platform/lib/auth.js';
+import { devTemporalCa } from './lib/dev-temporal.js';
 
 const REPO = resolve(new URL('.', import.meta.url).pathname, '..');
 dotenv.config({ path: join(REPO, 'apps/backend/.env') });
@@ -58,7 +59,7 @@ async function main(): Promise<void> {
   run(bin('k3d'), ['image', 'import', IMAGE, '-c', CLUSTER]);
 
   step('root starts, and publishes its public key');
-  run('docker', ['run', '-d', '--name', 'nw-live-root', '--network', 'host', '--env-file', 'apps/backend/.env', '-e', 'ROLE=root', '-e', `PORT=${ROOT_PORT}`, IMAGE, 'backend']);
+  run('docker', ['run', '-d', '--name', 'nw-live-root', '--network', 'host', '--env-file', 'apps/backend/.env', ...devTemporalCa(), '-e', 'ROLE=root', '-e', `PORT=${ROOT_PORT}`, IMAGE, 'backend']);
   const keys = await until('root answering', 3, async () => {
     const response = await fetch(`${ROOT_URL}/api/identity/keys`);
     return response.ok ? (await response.json() as { keys: { publicKey: string }[] }).keys : undefined;

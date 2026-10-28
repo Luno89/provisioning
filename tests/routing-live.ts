@@ -7,6 +7,7 @@ import dotenv from 'dotenv';
 import { createDisposableVm, type DisposableVm } from './lib/disposable-vm.js';
 import { loadKeys } from '../apps/backend/src/platform/lib/keys.js';
 import { signJWT } from '../apps/backend/src/platform/lib/auth.js';
+import { devTemporalCa } from './lib/dev-temporal.js';
 
 const REPO = resolve(new URL('.', import.meta.url).pathname, '..');
 dotenv.config({ path: join(REPO, 'apps/backend/.env') });
@@ -146,7 +147,7 @@ async function main(): Promise<void> {
 
   step('root starts with the domain, writing its routes where Caddy reads them, and sending email to a test mailbox');
   run('docker', ['run', '-d', '--name', CONTAINERS.mailbox, '-p', `127.0.0.1:${MAILPIT_SMTP}:1025`, '-p', `127.0.0.1:${MAILPIT_API}:8025`, MAILPIT_IMAGE]);
-  run('docker', ['run', '-d', '--name', CONTAINERS.root, '--network', 'host', '--env-file', 'apps/backend/.env', '--group-add', String(statSync('/var/run/docker.sock').gid),
+  run('docker', ['run', '-d', '--name', CONTAINERS.root, '--network', 'host', '--env-file', 'apps/backend/.env', ...devTemporalCa(), '--group-add', String(statSync('/var/run/docker.sock').gid),
     ...SECRET_FILES.flatMap((file) => ['-v', `${join(REPO, 'apps/backend/data', file)}:/app/apps/backend/data/${file}:ro`]),
     '-v', '/var/run/docker.sock:/var/run/docker.sock', '-v', `${caddyDir}:/app/apps/backend/data/caddy`,
     '-e', 'ROLE=root', '-e', `PORT=${ROOT_PORT}`, '-e', `PUBLIC_URL=${ROOT_FOR_GUEST}`,
