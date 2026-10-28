@@ -56,6 +56,7 @@ export type { WorkflowViewer } from './lib/workflow-owner.js';
 export { asyncRoute } from './middleware/async-route.js';
 export { createAuth, parseCookie } from './middleware/auth.js';
 export type { Auth } from './middleware/auth.js';
+export { inFlightLimit } from './middleware/in-flight.js';
 export { temporalKeysRouter } from './routes/temporal-keys.js';
 export { BaseService } from './services/BaseService.js';
 export { drainThenStop } from './services/drain.js';

@@ -200,7 +200,12 @@ signs nobody in under `NODE_ENV=production`, which refuses to start with it.
 against the address, since a guess fails and a person succeeds, so a run of live suites signing up throwaway accounts
 never trips it, while every opening of a share link counts), **a request's JSON is read only after the guard** has said who sent it:
 20 MB for someone signed in and for the scripted model and the hub's instances, which check their own keys, 256 KB for anyone else
-(`jsonLimitFor`, `index.test.ts` guards the order), an account is locked for fifteen minutes after ten wrong
+(`jsonLimitFor`, `index.test.ts` guards the order), **an address on the open internet may have only so many requests open at once**
+(owner 2026-10-28, in place of an idle timeout, which would be a deadline; `inFlightLimit` mounted first, rules in
+`platform/lib/in-flight-limits.ts`): past the cap it gets a 429 and nothing is cut off; the cap starts at 50, grows by its square
+root while responses come back (time to their headers) no slower than twice their long-run average and shrinks when they slow past
+it, Netflix's gradient limit, between 10 and 200; loopback, private and mesh addresses (the host's own processes, pods, machines) are
+not limited, nor an instance's relay long-poll, `index.test.ts` guards its place, an account is locked for fifteen minutes after ten wrong
 passwords (`lockedUntil`), every response carries `helmet`'s headers, and the proxy is trusted in production. **The SPA's
 content security policy** (`platform/lib/csp.ts`: same-origin scripts, sockets and frames, inline styles allowed, blob workers and
 media, nothing framed from elsewhere) is enforced in production (`CSP=report` sends it as `Content-Security-Policy-Report-Only`

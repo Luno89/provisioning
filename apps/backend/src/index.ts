@@ -16,7 +16,7 @@ import { authRouter, AuthService } from './accounts/index.js';
 import helmet from 'helmet';
 import {
   CSP_REPORT_LIMIT, CSP_REPORT_PATH, cspHeader, cspModeFrom, violationLine, crossSiteRefusal, foreignOrigin, ourOrigins, MetricsService, JSON_LIMITS, jsonLimitFor, RATE_LIMITS, ruleFor,
-  getTemporalClient, resolveOwnersWith, PayloadStorageService, createAuth, keepTrying, mongoTarget, asyncRoute,
+  getTemporalClient, resolveOwnersWith, PayloadStorageService, createAuth, inFlightLimit, keepTrying, mongoTarget, asyncRoute,
   TEMPORAL_JWKS_PATH, temporalCa, temporalKeysRouter, temporalNamespaceFrom,
   ownsProject, createDatabase, sharedPayloadBlobs, type Database, migrateLegacyOwnership, decryptValue, loadKeys,
   roleFromEnv, servesTenants, holdsAccounts, MailService, emailWayFrom, telemetrySettings, e2eProblem, firstAdminSetup, drainThenStop, podPlaceFrom, runOnce,
@@ -211,6 +211,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
 
   const authService = new AuthService(db, { mail, production: process.env.NODE_ENV === 'production' });
   app.set('trust proxy', process.env.NODE_ENV === 'production' ? 1 : false);
+  app.use(inFlightLimit());
   app.use(cors({
     origin: (origin, callback) => callback(null, originAllowed(origin)),
     credentials: true,

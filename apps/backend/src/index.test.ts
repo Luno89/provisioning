@@ -10,6 +10,14 @@ const at = (text: string): number => {
 };
 
 describe('the order routes are mounted in bootstrap', () => {
+  it('counts each address\'s open requests before anything else answers, once the proxy is trusted', () => {
+    const limit = at('app.use(inFlightLimit());');
+    expect(limit).toBeGreaterThan(at("app.set('trust proxy',"));
+    expect(limit).toBeLessThan(at("tenant.post('/webhooks/gitea/:projectId'"));
+    expect(limit).toBeLessThan(at('app.use(metrics.middleware());'));
+    expect(limit).toBeLessThan(at("app.use('/api', ...RATE_LIMITS.map("));
+  });
+
   it('reads the Gitea webhook from the raw body before the JSON parser is mounted', () => {
     expect(at("tenant.post('/webhooks/gitea/:projectId', express.raw(")).toBeLessThan(at('app.use((req, res, next) => jsonParsers['));
   });
