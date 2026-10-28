@@ -12,7 +12,13 @@ export const IMAGE_CACHES = [
 ] as const;
 
 const REGISTRY_IMAGE = 'registry:2';
-const HOST_FROM_VM = '10.0.2.2';
+
+export function hostFromVm(network = '10.0.2.0/24'): string {
+  const [base] = network.split('/');
+  const parts = (base ?? '').split('.');
+  if (parts.length !== 4) throw new Error(`not an IPv4 network: ${network}`);
+  return [...parts.slice(0, 3), '2'].join('.');
+}
 
 const containerOf = (registry: string) => `koala-image-cache-${registry.replace(/\./g, '-')}`;
 
@@ -43,10 +49,10 @@ export async function ensureImageCaches(): Promise<void> {
   }
 }
 
-export function registriesYamlForVm(): string {
+export function registriesYamlForVm(host: string): string {
   return ['mirrors:', ...IMAGE_CACHES.flatMap((cache) => [
     `  "${cache.registry}":`,
     '    endpoint:',
-    `      - "http://${HOST_FROM_VM}:${cache.port}"`,
+    `      - "http://${host}:${cache.port}"`,
   ])].join('\n');
 }
