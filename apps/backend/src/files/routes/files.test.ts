@@ -122,7 +122,7 @@ describe('/api/files', () => {
       const opened = await axios.get(publicSite.url(`/api/share/${made.token}`), { responseType: 'arraybuffer' });
       expect(Buffer.from(opened.data)).toEqual(Buffer.from('%PDF'));
       expect(opened.headers['content-disposition']).toBe("inline; filename*=UTF-8''brief.pdf");
-      expect(opened.headers['content-security-policy']).toBeUndefined();
+      expect(opened.headers['content-security-policy']).toBe("frame-ancestors 'self'");
       expect((await axios.get(publicSite.url(`/api/share/${page.token}`))).headers['content-security-policy']).toContain('sandbox');
       expect((await axios.delete(harness.url(`/api/files/shares/${made.id}`))).status).toBe(200);
       expect((await axios.get(publicSite.url(`/api/share/${made.token}`), { validateStatus: () => true })).status).toBe(404);
