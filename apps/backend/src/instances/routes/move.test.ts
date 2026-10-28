@@ -31,12 +31,18 @@ beforeEach(async () => {
   dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'move-'));
   running = [];
   spawned = [];
-  const move = new MoveExport({
-    instanceId: 'inst-bo', trusted: trustedKeys([publicKeyPem(root.publicKey)]), dataDir,
-    mongo: { uri: 'mongodb://unused', dbName: 'provisioning' }, env: KEYS, running: async () => running, spawn: fakeSpawn,
+  harness = await mountRouter({
+    prefix: '/api/move', user: TEST_USER,
+    router: async (db) => {
+      const move = new MoveExport({
+        instanceId: 'inst-bo', trusted: trustedKeys([publicKeyPem(root.publicKey)]), dataDir,
+        mongo: { uri: 'mongodb://unused', dbName: 'provisioning' }, env: KEYS, running: async () => running, spawn: fakeSpawn,
+        claim: (jti, expiresAt) => db.instances.claimHandoff(jti, expiresAt),
+      });
+      await move.load();
+      return moveRouter({ move });
+    },
   });
-  await move.load();
-  harness = await mountRouter({ prefix: '/api/move', user: TEST_USER, router: () => moveRouter({ move }) });
 });
 
 afterEach(async () => {
@@ -44,7 +50,7 @@ afterEach(async () => {
   fs.rmSync(dataDir, { recursive: true, force: true });
 });
 
-const get = (part: string, token: string) => axios.get(harness.url(`/api/move/parts/${part}?token=${encodeURIComponent(token)}`), { validateStatus: () => true, responseType: 'text' });
+const get = (part: string, token: string) => axios.get(harness.url(`/api/move/parts/${part}`), { headers: { 'x-koala-move-token': token }, validateStatus: () => true, responseType: 'text' });
 
 describe('a pool instance handing itself over', () => {
   it('hands each part only to root\'s token for that part, and stops taking work from the first', async () => {
@@ -68,6 +74,15 @@ describe('a pool instance handing itself over', () => {
     expect(spawned.at(-1)?.slice(0, 7)).toEqual(['kubectl', 'exec', '-n', 'gitea', 'deploy/gitea', '-c', 'gitea']);
   });
 
+  it('takes each of root\'s tokens once, and never from the address', async () => {
+    const token = issueMoveToken(root, 'inst-bo', 'keys');
+    expect((await axios.get(harness.url(`/api/move/parts/keys?token=${encodeURIComponent(token)}`), { validateStatus: () => true })).status).toBe(401);
+    expect((await get('keys', token)).status).toBe(200);
+    const again = await get('keys', token);
+    expect(again.status).toBe(409);
+    expect(again.data).toMatch(/already answered/);
+  });
+
   it('refuses to start while work runs, saying what', async () => {
     running = ['Koala chat: plan the shop'];
     const refused = await get('keys', issueMoveToken(root, 'inst-bo', 'keys'));
@@ -85,7 +100,7 @@ describe('a pool instance handing itself over', () => {
 
   it('takes work again when root says the move stopped', async () => {
     await get('keys', issueMoveToken(root, 'inst-bo', 'keys'));
-    const thawed = await axios.post(harness.url(`/api/move/thaw?token=${encodeURIComponent(issueMoveToken(root, 'inst-bo', 'thaw'))}`), {}, { validateStatus: () => true });
+    const thawed = await axios.post(harness.url('/api/move/thaw'), {}, { headers: { 'x-koala-move-token': issueMoveToken(root, 'inst-bo', 'thaw') }, validateStatus: () => true });
     expect(thawed.data).toEqual({ thawed: true });
     expect(fs.existsSync(path.join(dataDir, MOVING_FILE))).toBe(false);
   });

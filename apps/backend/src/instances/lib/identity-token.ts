@@ -123,7 +123,10 @@ export interface MoveClaims {
   part: string;
   iat: number;
   exp: number;
+  jti: string;
 }
+
+export const MOVE_TOKEN_HEADER = 'x-koala-move-token';
 
 export type MoveCheck =
   | { ok: true; claims: MoveClaims }
@@ -131,7 +134,7 @@ export type MoveCheck =
 
 export function issueMoveToken(keys: IdentityKeyPair, instanceId: string, part: string, now: number = Math.floor(Date.now() / 1000)): string {
   const header = { alg: ALG, typ: MOVE_TYP, kid: keys.kid };
-  const claims: MoveClaims = { aud: instanceId, part, iat: now, exp: now + MOVE_TOKEN_TTL_SECONDS };
+  const claims: MoveClaims = { aud: instanceId, part, iat: now, exp: now + MOVE_TOKEN_TTL_SECONDS, jti: crypto.randomUUID() };
   const signed = `${b64(JSON.stringify(header))}.${b64(JSON.stringify(claims))}`;
   return `${signed}.${b64(crypto.sign(null, Buffer.from(signed), keys.privateKey))}`;
 }
@@ -158,9 +161,24 @@ export function checkMoveToken(
   const key = trusted.get(header.kid);
   if (!key) return { ok: false, reason: 'unknown-key' };
   if (!crypto.verify(null, Buffer.from(`${head}.${body}`), key, fromB64(signature))) return { ok: false, reason: 'bad-signature' };
-  if (typeof claims.aud !== 'string' || typeof claims.part !== 'string' || typeof claims.iat !== 'number' || typeof claims.exp !== 'number') return { ok: false, reason: 'malformed' };
+  if (typeof claims.aud !== 'string' || typeof claims.part !== 'string' || typeof claims.iat !== 'number' || typeof claims.exp !== 'number' || typeof claims.jti !== 'string' || !claims.jti) return { ok: false, reason: 'malformed' };
   if (claims.aud !== instanceId || claims.part !== part) return { ok: false, reason: 'wrong-audience' };
   if (claims.exp <= now) return { ok: false, reason: 'expired' };
   if (claims.iat > now + 30) return { ok: false, reason: 'not-yet-valid' };
   return { ok: true, claims: claims as MoveClaims };
+}
+
+export type UsedTokenClaim = (jti: string, expiresAt: string) => Promise<boolean>;
+
+export async function moveTokenOnce(
+  token: string,
+  trusted: ReadonlyMap<string, crypto.KeyObject>,
+  audience: string,
+  part: string,
+  claim: UsedTokenClaim,
+  now: number = Math.floor(Date.now() / 1000),
+): Promise<MoveCheck | { ok: false; reason: 'used' }> {
+  const checked = checkMoveToken(token, trusted, audience, part, now);
+  if (!checked.ok) return checked;
+  return await claim(checked.claims.jti, new Date(checked.claims.exp * 1000).toISOString()) ? checked : { ok: false, reason: 'used' };
 }

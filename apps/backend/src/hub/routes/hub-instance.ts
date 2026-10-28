@@ -2,7 +2,7 @@ import type crypto from 'node:crypto';
 import { Router, type Request, type Response } from 'express';
 import { asyncRoute } from '../../platform/index.js';
 import { HUB_AUDIENCE, hubInstancePart } from '../lib/hub.js';
-import { checkMoveToken } from '../../instances/index.js';
+import { moveTokenOnce, type UsedTokenClaim } from '../../instances/index.js';
 import type { HubOutcome, HubService, SyncOrigin } from '../services/HubService.js';
 
 const header = (req: Request, name: string): string => String(req.headers[name] ?? '');
@@ -15,18 +15,18 @@ export type InstanceHub = Pick<HubService, 'share' | 'unshare' | 'receive' | 'ch
 
 import { RELAY_NAME_HEADER, RELAY_STATUS_HEADER, RELAY_TYPE_HEADER } from '../lib/hub-board.js';
 
-export function hubInstanceRouter(deps: { hub: InstanceHub; trusted: ReadonlyMap<string, crypto.KeyObject> }): Router {
+export function hubInstanceRouter(deps: { hub: InstanceHub; trusted: ReadonlyMap<string, crypto.KeyObject>; claim: UsedTokenClaim }): Router {
   const router = Router();
-  const originOf = (req: Request): SyncOrigin | undefined => {
+  const originOf = async (req: Request): Promise<SyncOrigin | undefined> => {
     const instanceId = header(req, 'x-koala-instance');
     const personId = header(req, 'x-koala-person');
     const email = header(req, 'x-koala-email');
     const token = header(req, 'authorization').replace(/^Bearer\s+/i, '');
     if (!instanceId || !personId || !email) return undefined;
-    return checkMoveToken(token, deps.trusted, HUB_AUDIENCE, hubInstancePart(instanceId, personId, email)).ok ? { kind: 'instance', instanceId, personId, email } : undefined;
+    return (await moveTokenOnce(token, deps.trusted, HUB_AUDIENCE, hubInstancePart(instanceId, personId, email), deps.claim)).ok ? { kind: 'instance', instanceId, personId, email } : undefined;
   };
   const withOrigin = (work: (origin: SyncOrigin, req: Request, res: Response) => Promise<unknown>) => asyncRoute(async (req, res) => {
-    const origin = originOf(req);
+    const origin = await originOf(req);
     if (!origin) return res.status(401).json({ error: 'only an instance root vouches for reaches this' });
     await work(origin, req, res);
   });

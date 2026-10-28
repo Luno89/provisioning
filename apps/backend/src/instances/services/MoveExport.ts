@@ -7,7 +7,7 @@ import { spawn as spawnProcess, type ChildProcess } from 'child_process';
 import { PassThrough, type Readable } from 'stream';
 import { MongoClient } from 'mongodb';
 import { exportLines } from '../lib/mongo-move.js';
-import { checkMoveToken } from '../lib/identity-token.js';
+import { moveTokenOnce, type UsedTokenClaim } from '../lib/identity-token.js';
 import { GITEA_DATA, MOVED_POSTGRES, PG_DUMP, keysEnv, type MovePart } from '../lib/instance-move.js';
 import {
   COPIED_KINDS, REPLICAS_ANNOTATION, SCALED_KINDS, copied, isMovedNamespace, volumesOf,
@@ -23,6 +23,7 @@ export interface MoveExportDeps {
   mongo: { uri: string; dbName: string };
   env: NodeJS.ProcessEnv;
   running: () => Promise<string[] | 'unknown'>;
+  claim: UsedTokenClaim;
   spawn?: typeof spawnProcess;
   now?: () => number;
 }
@@ -46,9 +47,10 @@ export class MoveExport {
     return this.frozen;
   }
 
-  check(token: unknown, part: string): MoveRefusal | undefined {
-    const checked = checkMoveToken(typeof token === 'string' ? token : '', this.deps.trusted, this.deps.instanceId, part, this.deps.now ? Math.floor(this.deps.now() / 1000) : undefined);
-    return checked.ok ? undefined : { status: 401, error: `root did not ask for this (${checked.reason})` };
+  async check(token: unknown, part: string): Promise<MoveRefusal | undefined> {
+    const checked = await moveTokenOnce(typeof token === 'string' ? token : '', this.deps.trusted, this.deps.instanceId, part, this.deps.claim, this.deps.now ? Math.floor(this.deps.now() / 1000) : undefined);
+    if (checked.ok) return undefined;
+    return checked.reason === 'used' ? { status: 409, error: 'root\'s request for this was already answered; ask again' } : { status: 401, error: `root did not ask for this (${checked.reason})` };
   }
 
   async freeze(): Promise<MoveRefusal | undefined> {

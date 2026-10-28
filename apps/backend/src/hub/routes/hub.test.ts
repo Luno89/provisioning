@@ -103,7 +103,7 @@ describe('/api/hub-root, on the hub', () => {
     const tokens: string[] = [];
     const hub = new HubService({ store, invites: { send: async (request) => { tokens.push(request.join); return { link: 'l', emailed: false }; } } });
     const forgotten: string[] = [];
-    const site = await mountRouter({ prefix: '/api/hub-root', router: async () => hubRootRouter({ hub, trusted: trustedKeys([publicKeyPem(root.publicKey)]), forget: async (id) => { forgotten.push(id); } }) });
+    const site = await mountRouter({ prefix: '/api/hub-root', router: async (db) => hubRootRouter({ hub, trusted: trustedKeys([publicKeyPem(root.publicKey)]), forget: async (id) => { forgotten.push(id); }, claim: (jti, expiresAt) => db.instances.claimHandoff(jti, expiresAt) }) });
     harnesses.push(site);
     const ann = { id: 'ann', email: 'ann@example.com' };
     const shop = await hub.create(ann, { name: 'Shop' });
@@ -118,6 +118,9 @@ describe('/api/hub-root, on the hub', () => {
       expect((await axios.delete(site.url('/api/hub-root/people/bo'), { ...ask, headers: { authorization: `Bearer ${token}` } })).status).toBe(401);
     }
     expect(await people.blockers('bo')).toEqual([]);
+    const once = issueMoveToken(root, 'hub', hubPersonPart('bo', 'leaving'));
+    expect((await axios.get(site.url('/api/hub-root/people/bo'), { ...ask, headers: { authorization: `Bearer ${once}` } })).status).toBe(200);
+    expect((await axios.get(site.url('/api/hub-root/people/bo'), { ...ask, headers: { authorization: `Bearer ${once}` } })).status).toBe(401);
     await people.letGo('bo');
     expect([forgotten, await hub.mine('bo')]).toEqual([['bo'], []]);
   });
@@ -132,7 +135,7 @@ describe('/api/hub-instance, on the hub', () => {
     const root = identityKeysFrom(generateIdentityKey());
     const store = memoryHubStore();
     const hub = new HubService({ store, invites: { send: async () => ({ link: 'l', emailed: false }) } });
-    const site = await mountRouter({ prefix: '/api/hub-instance', router: async () => hubInstanceRouter({ hub, trusted: trustedKeys([publicKeyPem(root.publicKey)]) }) });
+    const site = await mountRouter({ prefix: '/api/hub-instance', router: async (db) => hubInstanceRouter({ hub, trusted: trustedKeys([publicKeyPem(root.publicKey)]), claim: (jti, expiresAt) => db.instances.claimHandoff(jti, expiresAt) }) });
     harnesses.push(site);
     const accessFor = (person: string, email: string, signer = root) => ({
       access: async () => ({ token: issueMoveToken(signer, HUB_AUDIENCE, hubInstancePart('inst-ann', person, email)), hubUrl: site.url(''), personId: person, email, instanceId: 'inst-ann' }),
@@ -151,6 +154,11 @@ describe('/api/hub-instance, on the hub', () => {
     const someoneElse = new RemoteHub({ access: async () => ({ ...(await accessFor('eve', 'eve@example.com').access()), personId: 'ann' }) });
     await expect(someoneElse.push(link, [])).rejects.toThrow(/401/);
     await expect(new RemoteHub(accessFor('eve', 'eve@example.com')).pull(link, 0)).rejects.toThrow(/404/);
+
+    const reused = await accessFor('ann', 'ann@example.com').access();
+    const replaying = new RemoteHub({ access: async () => reused });
+    expect((await replaying.pull(link, 0)).changes).toHaveLength(1);
+    await expect(replaying.pull(link, 0)).rejects.toThrow(/401/);
 
     const crafted = await accessFor('eve', 'ann/eve@example.com').access();
     await expect(new RemoteHub({ access: async () => crafted }).pull(link, 0)).rejects.toThrow(/404/);
@@ -174,7 +182,7 @@ describe('relaying a member\'s file to and from the owner\'s instance over HTTP'
     const root = identityKeysFrom(generateIdentityKey());
     const relay = new HubRelay(Date.now, 60_000);
     const hub = new HubService({ store: memoryHubStore(), invites: { send: async () => ({ link: 'l', emailed: false }) }, relay });
-    const forInstance = await mountRouter({ prefix: '/api/hub-instance', router: async () => hubInstanceRouter({ hub, trusted: trustedKeys([publicKeyPem(root.publicKey)]) }) });
+    const forInstance = await mountRouter({ prefix: '/api/hub-instance', router: async (db) => hubInstanceRouter({ hub, trusted: trustedKeys([publicKeyPem(root.publicKey)]), claim: (jti, expiresAt) => db.instances.claimHandoff(jti, expiresAt) }) });
     const forAnn = await mountRouter({ prefix: '/api/hub', user: { ...TEST_USER, id: 'ann', email: 'ann@example.com' }, router: async () => hubRouter({ hub }) });
     harnesses.push(forInstance, forAnn);
     const remote = new RemoteHub({ access: async () => ({ token: issueMoveToken(root, HUB_AUDIENCE, hubInstancePart('inst-ann', 'ann', 'ann@example.com')), hubUrl: forInstance.url(''), personId: 'ann', email: 'ann@example.com', instanceId: 'inst-ann' }) });

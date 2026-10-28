@@ -1,10 +1,11 @@
 import { Router, type Request, type Response } from 'express';
 import { asyncRoute } from '../../platform/index.js';
 import { isMovePart } from '../lib/instance-move.js';
+import { MOVE_TOKEN_HEADER } from '../lib/identity-token.js';
 import { volumeOfPart } from '../lib/app-move.js';
 import type { MoveExport } from '../services/MoveExport.js';
 
-const tokenOf = (req: Request): unknown => req.query.token;
+const tokenOf = (req: Request): unknown => req.headers[MOVE_TOKEN_HEADER];
 
 export function moveRouter(deps: { move: MoveExport; log?: (message: string) => void }): Router {
   const router = Router();
@@ -13,7 +14,7 @@ export function moveRouter(deps: { move: MoveExport; log?: (message: string) => 
     const part = String(req.params.part ?? '');
     const volume = volumeOfPart(part);
     if (!isMovePart(part) && !volume) return res.status(404).json({ error: 'that is not a part of an instance' });
-    const refused = deps.move.check(tokenOf(req), part) ?? await deps.move.freeze();
+    const refused = await deps.move.check(tokenOf(req), part) ?? await deps.move.freeze();
     if (refused) return res.status(refused.status).json({ error: refused.error });
     let opened;
     try {
@@ -32,7 +33,7 @@ export function moveRouter(deps: { move: MoveExport; log?: (message: string) => 
   }));
 
   router.post('/thaw', asyncRoute(async (req: Request, res: Response) => {
-    const refused = deps.move.check(tokenOf(req), 'thaw');
+    const refused = await deps.move.check(tokenOf(req), 'thaw');
     if (refused) return res.status(refused.status).json({ error: refused.error });
     await deps.move.thaw();
     return res.json({ thawed: true });

@@ -290,6 +290,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   await wireMoveExport({
     role, env: process.env, app, dataDir: path.join(__dirname, '../data'), mongo: mongoTarget(process.env),
     running: async () => (runningNow ? runningNow() : 'unknown'),
+    claim: (jti, expiresAt) => db.instances.claimHandoff(jti, expiresAt),
   });
 
   app.use('/api', auth.requireAuth);

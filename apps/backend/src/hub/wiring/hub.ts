@@ -66,8 +66,8 @@ export async function wireHub(deps: HubWiringDeps): Promise<HubWiring> {
     if (!sender) throw new Error('a hub needs root to send its invites');
     hubService = new HubService({ store: hubStore, invites: sender, repos: giteaHubRepos(deps.gitea), relay: new HubRelay() });
     app.use('/api/hub', hubRouter({ hub: hubService }));
-    if (role.role === 'hub' && role.trusted) app.use('/api/hub-instance', hubInstanceRouter({ hub: hubService, trusted: role.trusted }));
-    if (role.role === 'hub' && role.trusted) app.use('/api/hub-root', hubRootRouter({ hub: hubService, trusted: role.trusted, forget: (id) => db.accounts.deleteUser(id) }));
+    if (role.role === 'hub' && role.trusted) app.use('/api/hub-instance', hubInstanceRouter({ hub: hubService, trusted: role.trusted, claim: (jti, expiresAt) => db.instances.claimHandoff(jti, expiresAt) }));
+    if (role.role === 'hub' && role.trusted) app.use('/api/hub-root', hubRootRouter({ hub: hubService, trusted: role.trusted, forget: (id) => db.accounts.deleteUser(id), claim: (jti, expiresAt) => db.instances.claimHandoff(jti, expiresAt) }));
   }
 
   const remoteHub = role.instance && env.INSTANCE_CREDENTIAL

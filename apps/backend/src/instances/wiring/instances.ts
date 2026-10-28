@@ -6,7 +6,7 @@ import {
   getTemporalClient, type mongoTarget, type MailService, type createAuth,
 } from '../../platform/index.js';
 import { poolSettingsFrom } from '../lib/pool.js';
-import { issueMoveToken } from '../lib/identity-token.js';
+import { issueMoveToken, type UsedTokenClaim } from '../lib/identity-token.js';
 import { MOVE_FINISHED, MOVE_STOPPED, answersWhileMoving, poolMoveWorkflowId } from '../lib/instance-move.js';
 import { poolRemoveWorkflowId, poolTrialWorkflowId, TRIAL_CHANGED } from '../lib/pool-trial.js';
 import { HUB_AUDIENCE, hubInstancePart, type Mounts } from '../../hub/index.js';
@@ -66,6 +66,7 @@ export interface MoveExportDeps {
   dataDir: string;
   mongo: ReturnType<typeof mongoTarget>;
   running: () => Promise<string[] | 'unknown'>;
+  claim: UsedTokenClaim;
 }
 
 export async function wireMoveExport(deps: MoveExportDeps): Promise<MoveExport | undefined> {
@@ -78,6 +79,7 @@ export async function wireMoveExport(deps: MoveExportDeps): Promise<MoveExport |
     mongo: deps.mongo,
     env,
     running: deps.running,
+    claim: deps.claim,
   });
   await moveExport.load();
   const frozen: express.RequestHandler = (req, res, next) => (moveExport.isFrozen() && !answersWhileMoving(req.path)

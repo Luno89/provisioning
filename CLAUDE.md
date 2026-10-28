@@ -546,7 +546,7 @@ frontend is only Shared projects (`HubShell`, `onHub` on `/api/auth/me`). An ins
 (`hub` on `/api/auth/sign-in`). `dev:split` runs the hub as a third process at `http://hub.localhost:5176` (API :3003).
 **Removing an account lets the person go from the hub first** (`HubPeople`: in process when combined, otherwise root's
 signed requests to the hub's `/api/hub-root/people/:id`, a token for audience `hub` and that person and step,
-`issueMoveToken`). It is refused while they are the only owner of a shared project someone else is on (`leavingAll` in
+`issueMoveToken`, each taken once). It is refused while they are the only owner of a shared project someone else is on (`leavingAll` in
 `hub/lib/hub.ts`, listed among the removal's blockers); a project only they are on is deleted; from every other one they are
 taken off, with the invites they sent; the hub forgets its copy of them. Not yet: the board, channel and repository on the
 hub (step 2's member screens), members working stories (3), the View tab (4).
@@ -556,7 +556,7 @@ People, which first lists what goes (the board, the channel and story and featur
 repository) and what stays (other chats, secrets, builds and releases, the app; `ProjectSharingService`,
 `/api/project-sharing/:id`). Sharing makes the hub's copy (`HubService.share`, only from an instance: in process when
 combined, else `/api/hub-instance/*` with a token root signs for the instance and its owner, `POST /api/instances/hub-token`,
-`RemoteHub`) and a repository in the project's own Gitea organisation (`shared-<id>/project`, a bot with write access whose
+`RemoteHub`, a new one for every request and each taken once, `moveTokenOnce`) and a repository in the project's own Gitea organisation (`shared-<id>/project`, a bot with write access whose
 token only the owner's instance holds; `HubRepos`). **The sharer names a group** when sharing (one per shared project, the
 instance-name rules through `nameProblem`, suggested from the project's name by `suggestedGroup`, checked as typed at
 `GET /api/project-sharing/:id/group-check`), and the project's apps are addressed `<app>-<group>.<domain>` instead of under
@@ -675,7 +675,8 @@ jobs `move-data` (the data folder) → `platform-services` (with the moved secre
 `instances/lib/mongo-move.ts`, Gitea's and Infisical's Postgres through `PG_RESTORE` into a fresh schema, Gitea's data volume
 through a helper pod) → `seed`. Every part comes through root (`/api/instances/move/parts/:part`, the move credential):
 root's `MoveRelay` reaches the pool instance's backend through the pool node's API server with a token it signs for that
-instance and part (`issueMoveToken`), never storing anything. The pool instance (`MoveExport`, `/api/move/*`) checks the
+instance and part (`issueMoveToken`), sent in `x-koala-move-token` (never the address) and taken once (`moveTokenOnce`: its `jti` goes in
+the used-token record a handoff's does), never storing anything. The pool instance (`MoveExport`, `/api/move/*`) checks the
 token, refuses while work runs, and stops taking work (every other route answers 503, `.moving` in its data folder) until
 root thaws it. The installer then turns `move` off and reports `ready` with `moved`; root switches the record (credential,
 mesh address, no pool), removes the pool copy and frees its ports. A failure reported by the machine, or Stop the move,
