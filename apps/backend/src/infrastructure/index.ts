@@ -5,6 +5,7 @@ export { namespaceOf, platformNamespaceProblem, podLogTarget } from './lib/app-n
 export { explainSpecProblems, validateSpec } from './lib/app-spec-validate.js';
 export { renderApp, seedAppSpecs, seedConstructBackedTypes, specSecrets, visibleAppSpecs } from './lib/app-spec.js';
 export type { AppSpec } from './lib/app-spec.js';
+export { minioStorageFor, specStorageFor } from './lib/app-storage.js';
 export { bindingFiles, resolveBindings } from './lib/binding-resolve.js';
 export type { ResolvedBinding } from './lib/binding-resolve.js';
 export { seedBindingTypes } from './lib/binding-type-seeds.js';

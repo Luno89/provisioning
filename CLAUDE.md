@@ -1715,7 +1715,9 @@ Plan: `~/.claude/plans/file-uploads.md`. **Where you drop decides.** A project's
   (`files` on the project, a folder named once from the project and kept), else the person's default (Settings → Files,
   `fileSettings`), else none. Files live in the bucket `koala-files` under the folder; an empty folder is a `.keep` the listing
   hides. Uploads and downloads stream (`X-File-Type` carries the type; the body is always octet-stream so nothing parses it); no
-  size limit. With no server, a drop waits on the page and Files offers **Start MinIO for this project** (one click, on the
+  size limit and no quota on a person's own machine, where the disk is theirs (owner, 2026-10-28). On Koala's servers (the pool)
+  a MinIO keeps 10 GB, the volume it is given there whatever was asked (`POOL_MINIO_STORAGE`, `infrastructure/lib/app-storage.ts`,
+  in both the stored spec's and the construct's deploy); a volume is never shrunk, so one made before keeps its size. With no server, a drop waits on the page and Files offers **Start MinIO for this project** (one click, on the
   project's cluster, `koala-files[-n]`); it goes through once the server runs.
 - **Koala's own file browser** (`features/files/components/StoredFiles.tsx`, rules in `files/lib/file-browser.ts`): upload, new folder, search by
   name across the project (`/search`), sort by name, size or date, select several to move or remove, drag a file or the selection

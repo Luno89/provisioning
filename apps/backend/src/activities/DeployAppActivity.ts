@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import {
-  renderApp, specSecrets, visibleAppSpecs, resolveBindings, bindingFiles, bindingProjection, bindingSecretName,
+  renderApp, specSecrets, minioStorageFor, specStorageFor, visibleAppSpecs, resolveBindings, bindingFiles, bindingProjection, bindingSecretName,
   type ProjectedBinding, InfrastructureService, BuilderService, StorageAdapter, hasCloudCredentials,
   isMockCloudProvider, isSelfManagedCluster, buildAppEnv, TABBYAPI_DEFAULT_MAX_SEQ_LEN, planHostMemory,
   parseQuantity, type HostMemoryPlan, deploymentIdFor, isValidImageTag, InfisicalService, sharedClusterProxy, gitappPullSecretArgs,
@@ -322,11 +322,13 @@ export async function DeployAppActivity(
         minioRootUser: args.minioRootUser,
         minioRootPassword: args.minioRootPassword,
       }, (kind) => (kind === 'username' ? 'koala' : randomBytes(24).toString('hex')));
+      const storage = specStorageFor(args.appType, placedOnPool(process.env, physicalName), args);
       renderedSpec = renderApp(stored.spec, {
         id: deploymentId,
         namespace: namespace,
         serviceType: appServiceType(placedOnPool(process.env, physicalName), isSelfManagedCluster(args.provider, isMock)),
         secrets,
+        ...(storage ? { storage } : {}),
       });
       console.log(`[DeployAppActivity] ${args.appType} deploying from a stored spec, not a construct`);
     }
@@ -450,7 +452,7 @@ export async function DeployAppActivity(
     nextcloudDbPassword: args.nextcloudDbPassword,
     nextcloudDbRootPassword: args.nextcloudDbRootPassword,
     hermesDashboardPassword: args.hermesDashboardPassword,
-    minioStorage: args.minioStorage,
+    minioStorage: minioStorageFor(placedOnPool(process.env, physicalName), args.minioStorage),
     qdrantApiKey: args.qdrantApiKey,
     qdrantStorage: args.qdrantStorage,
     qdrantMemoryLimit: args.qdrantMemoryLimit,
