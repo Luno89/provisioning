@@ -125,6 +125,9 @@ export default function MyMachines() {
                     {d.os && ` · ${d.os}`}
                     {!d.online && d.lastSeenAt && ` · last seen ${new Date(d.lastSeenAt).toLocaleString()}`}
                   </div>
+                  {!d.online && d.tokenExpired && (
+                    <div className="text-[11px] text-amber-400 mt-1">Its token expired while it was offline; run the command from My Machines again.</div>
+                  )}
                 </div>
                 <button
                   onClick={() => setRemoving(d.id)}

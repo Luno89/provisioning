@@ -3,6 +3,7 @@ import { settingsFingerprint, type EngineSettings } from './remote-blobs.js';
 export interface RunningWorker {
   run(): Promise<void>;
   shutdown(): void;
+  setToken?(token: string): Promise<void>;
 }
 
 interface Current {
@@ -44,6 +45,10 @@ export class DeviceWorkerHost {
 
   get fingerprint(): string | undefined {
     return this.current?.fingerprint;
+  }
+
+  async setToken(token: string): Promise<void> {
+    await this.current?.worker.setToken?.(token);
   }
 
   connected(settingsOf: () => Promise<EngineSettings>): Promise<void> {

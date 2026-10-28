@@ -1,8 +1,8 @@
-import crypto from 'crypto';
 import { v4 as uuidv4 } from 'uuid';
 import path from 'path';
 import { type SecretKey, type LocalAgentDeviceMetadata, type ProjectMetadata } from '../../platform/index.js';
-import { deviceTokenHash, findDeviceByToken } from '../lib/local-agent-registry.js';
+import { matchDeviceToken } from '../lib/local-agent-registry.js';
+import { deviceTokenHash, newDeviceToken, promotedNext, rotationDue, tokenExpired, tokenLifetime, withNextToken, type TokenVia } from '../lib/device-tokens.js';
 import type { MachineChoice } from '@koala/agent-engine/procedure';
 import {
   meshAddress,
@@ -53,6 +53,7 @@ export interface MachineView {
   createdAt: string;
   lastSeenAt?: string | undefined;
   online: boolean;
+  tokenExpired: boolean;
   connectedAt?: string | undefined;
   containerMode?: boolean | undefined;
   agents: MachineAgent[];
@@ -71,7 +72,13 @@ const text = (value: unknown, limit: number): string | undefined =>
   typeof value === 'string' && value.trim() ? value.trim().slice(0, limit) : undefined;
 
 export class MachineService {
+  private readonly retiredListeners: ((tokenHash: string) => void)[] = [];
+
   constructor(private readonly deps: MachineDeps) {}
+
+  onTokenRetired(listener: (tokenHash: string) => void): void {
+    this.retiredListeners.push(listener);
+  }
 
   private now(): Date {
     return (this.deps.now ?? (() => new Date()))();
@@ -91,6 +98,7 @@ export class MachineService {
       createdAt: device.createdAt,
       ...(device.lastSeenAt ? { lastSeenAt: device.lastSeenAt } : {}),
       online: status.online,
+      tokenExpired: tokenExpired(device, this.now()),
       ...(status.connectedAt ? { connectedAt: status.connectedAt } : {}),
       ...(status.containerMode !== undefined ? { containerMode: status.containerMode } : {}),
       agents: device.agents ?? [],
@@ -126,13 +134,13 @@ export class MachineService {
     if (!found || found.expiresAt <= this.now().toISOString()) return { ok: false, status: 401, error: 'that command has expired or was already used: make a new one on My Machines' };
 
     const replaced = typeof machine.replaces === 'string' && machine.replaces
-      ? findDeviceByToken((await this.deps.store.getLocalAgentDevices()).filter((device) => device.ownerId === found.ownerId), machine.replaces, this.deps.dataKey)
+      ? matchDeviceToken((await this.deps.store.getLocalAgentDevices()).filter((device) => device.ownerId === found.ownerId), machine.replaces, this.deps.dataKey)?.device
       : undefined;
     const id = replaced?.id ?? uuidv4();
-    const token = crypto.randomBytes(32).toString('base64url');
+    const token = newDeviceToken();
     const name = text(machine.hostname, 80) ?? 'machine';
     const os = text(machine.os, 80);
-    const { os: _formerOs, tokenEnc: _formerToken, ...kept } = replaced ?? { os: undefined, tokenEnc: undefined };
+    const { os: _formerOs, tokenEnc: _formerToken, nextTokenHash: _next, nextIssuedAt: _nextIssued, nextExpiresAt: _nextExpires, ...kept } = replaced ?? { os: undefined, tokenEnc: undefined, nextTokenHash: undefined, nextIssuedAt: undefined, nextExpiresAt: undefined };
     await this.deps.store.saveLocalAgentDevice({
       ...kept,
       id,
@@ -140,6 +148,7 @@ export class MachineService {
       name,
       rootDir,
       tokenHash: deviceTokenHash(token),
+      ...tokenLifetime(this.now()),
       createdAt: replaced?.createdAt ?? this.now().toISOString(),
       ...(os ? { os } : {}),
     });
@@ -164,6 +173,30 @@ export class MachineService {
         },
       },
     };
+  }
+
+  async rotationFor(deviceId: string, via: TokenVia): Promise<string | undefined> {
+    const device = (await this.deps.store.getLocalAgentDevices()).find((candidate) => candidate.id === deviceId);
+    if (!device) return undefined;
+    if (via === 'next') {
+      await this.promote(device);
+      return undefined;
+    }
+    if (!rotationDue(device, this.now())) return undefined;
+    const token = newDeviceToken();
+    await this.deps.store.saveLocalAgentDevice(withNextToken(device, deviceTokenHash(token), this.now()));
+    return token;
+  }
+
+  async tokenTaken(deviceId: string): Promise<void> {
+    const device = (await this.deps.store.getLocalAgentDevices()).find((candidate) => candidate.id === deviceId);
+    if (device?.nextTokenHash) await this.promote(device);
+  }
+
+  private async promote(device: LocalAgentDeviceMetadata): Promise<void> {
+    const retired = device.tokenHash;
+    await this.deps.store.saveLocalAgentDevice(promotedNext(device));
+    if (retired) for (const listener of this.retiredListeners) listener(retired);
   }
 
   async recordAgents(deviceId: string, raw: unknown): Promise<void> {

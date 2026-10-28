@@ -39,6 +39,7 @@ export interface LocalAgentDevice {
   os?: string
   createdAt: string
   lastSeenAt?: string
+  tokenExpired?: boolean
   online: boolean
   connectedAt?: string
   containerMode?: boolean

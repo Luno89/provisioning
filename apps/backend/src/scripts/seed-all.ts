@@ -10,7 +10,7 @@ import {
   seedWorkspaceImages, retireStoredBuiltInProcedures, retireStoredBuiltInPersonas, seedEngineTools,
   migrateAgentTools, migrateMcpServers, migrateToDependencies,
 } from '../engine/index.js';
-import { hashDeviceTokens } from '../machines/index.js';
+import { giveDeviceTokenLifetimes, hashDeviceTokens } from '../machines/index.js';
 import { SHIPPED_DEPENDENCIES } from '../extensions/workspace-dependencies.js';
 import { seededGrants, seededPersonas } from '../extensions/seeds.js';
 
@@ -29,6 +29,7 @@ export async function seedAll(db: Database) {
   counts.inviteCodesHashed = (await runOnce(ledger, 'invite-codes-hashed', now, async () => ({ hashed: await db.accounts.hashInviteCodes(inviteExpiry(new Date(now))) }))).hashed ?? 0;
   counts.clientFilesForgotten = (await runOnce(ledger, 'client-files-forgotten', now, async () => ({ forgotten: await db.projects.forgetClientFiles() }))).forgotten ?? 0;
   counts.deviceTokensHashed = (await runOnce(ledger, 'device-tokens-hashed', now, async () => ({ hashed: await hashDeviceTokens(db.machines, loadKeys(process.env).data) }))).hashed ?? 0;
+  counts.deviceTokenLifetimes = (await runOnce(ledger, 'device-token-lifetimes', now, async () => ({ given: await giveDeviceTokenLifetimes(db.machines, new Date(now)) }))).given ?? 0;
   counts.appSpecs = await seedAppSpecs(db.infrastructure);
   counts.constructBackedTypes = await seedConstructBackedTypes(db.infrastructure);
   counts.clusterProviders = await seedClusterProviders(db.infrastructure);

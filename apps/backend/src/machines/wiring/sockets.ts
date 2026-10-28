@@ -6,7 +6,9 @@ import {
   sharedPayloadBlobs, type Database, type Keyring, type SecretKey, type UserMetadata, servesTenants,
   type RoleConfig, allowed, type Principal, type createAuth, signsEveryoneIn,
 } from '../../platform/index.js';
-import { findDeviceByToken, registerDevice, unregisterDevice } from '../lib/local-agent-registry.js';
+import { matchDeviceToken, registerDevice, unregisterDevice } from '../lib/local-agent-registry.js';
+import { TOKEN_EXPIRED_SAID, type TokenVia } from '../lib/device-tokens.js';
+import { rotateDeviceToken } from '../lib/device-rotation.js';
 import { machinePayloads, type GetAnswer, type PutAnswer, type RingAnswer } from '../lib/machine-payloads.js';
 import type { MachineTelemetry, TelemetryAnswer } from '../lib/machine-telemetry.js';
 import { userRoom } from '../../engine-host/temporal/stream-worker.js';
@@ -23,7 +25,7 @@ export interface SocketsWiringDeps {
   payloadKey: Keyring;
   dataKey: SecretKey;
   auth: Pick<ReturnType<typeof createAuth>, 'userFromSessionCookie' | 'securedFor' | 'principalFor'>;
-  machines: Pick<MachineService, 'recordAgents' | 'manualAgents' | 'recordMeshIp'>;
+  machines: Pick<MachineService, 'recordAgents' | 'manualAgents' | 'recordMeshIp' | 'rotationFor' | 'tokenTaken'>;
   clusters: ClusterService;
   apps: AppService;
   infra: InfrastructureService;
@@ -54,9 +56,11 @@ export function wireSockets(deps: SocketsWiringDeps): void {
   agentNamespace.use(async (socket, next) => {
     const token = socket.handshake.auth?.token as string | undefined;
     if (!token) return next(new Error('Missing device token'));
-    const device = findDeviceByToken(await db.machines.getLocalAgentDevices(), token, dataKey);
-    if (!device) return next(new Error('Unauthorized'));
-    socket.data.device = device;
+    const match = matchDeviceToken(await db.machines.getLocalAgentDevices(), token, dataKey);
+    if (!match) return next(new Error('Unauthorized'));
+    if (match.expired) return next(new Error(TOKEN_EXPIRED_SAID));
+    socket.data.device = match.device;
+    socket.data.via = match.via;
     next();
   });
   agentNamespace.on('connection', (socket) => {
@@ -67,6 +71,8 @@ export function wireSockets(deps: SocketsWiringDeps): void {
       const current = devices.find((d) => d.id === device.id);
       if (current) db.machines.saveLocalAgentDevice({ ...current, lastSeenAt: new Date().toISOString() }).catch(() => undefined);
     }).catch(() => undefined);
+    void rotateDeviceToken(socket, device.id, socket.data.via as TokenVia, deps.machines)
+      .catch((err: Error) => console.warn(`[machines] ${device.id}: its token could not be rotated: ${err.message}`));
     socket.on('disconnect', () => unregisterDevice(device.id, socket));
     socket.on('agents:found', (report: { agents?: unknown } | undefined) => {
       deps.machines.recordAgents(device.id, report?.agents).catch((err: Error) => console.warn(`[machines] ${device.id}: its agents could not be recorded: ${err.message}`));

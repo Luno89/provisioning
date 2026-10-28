@@ -110,7 +110,11 @@ export interface DeviceWorkerOptions extends DeviceActivitiesOptions {
 
 export const deviceQueue = (deviceId: string): string => `device-${deviceId}`;
 
-export async function startDeviceWorker(options: DeviceWorkerOptions): Promise<Worker> {
+export interface DeviceWorker extends Worker {
+  setToken(token: string): Promise<void>;
+}
+
+export async function startDeviceWorker(options: DeviceWorkerOptions): Promise<DeviceWorker> {
   const connection = await NativeConnection.connect({ address: options.address, metadata: { authorization: `Bearer ${options.token}` } });
   const taskQueue = deviceQueue(options.deviceId);
 
@@ -124,5 +128,5 @@ export async function startDeviceWorker(options: DeviceWorkerOptions): Promise<W
   });
 
   options.onReady?.(taskQueue);
-  return worker;
+  return Object.assign(worker, { setToken: (token: string) => connection.setMetadata({ authorization: `Bearer ${token}` }) });
 }

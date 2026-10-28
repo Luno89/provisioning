@@ -8,7 +8,8 @@ import {
   dockerAvailable, createContainer, destroyContainer, execInContainer, readFileInContainer,
   writeFileInContainer, type EgressRule,
 } from './docker-driver.js';
-import { loadMachineConfig, type MachineConfig } from './machine-config.js';
+import { configFile, loadMachineConfig, type MachineConfig } from './machine-config.js';
+import { saveDeviceToken, tokenAnswer } from './machine-token.js';
 import { KNOWN_AGENTS, discoverAgents, manualAgentsFrom, systemDeps, type FoundAgent, type ManualAgent } from './agent-discovery.js';
 import { probeAcp } from './acp-session.js';
 import { installAgent } from './agent-install.js';
@@ -64,7 +65,7 @@ function followEngineWorker(socket: Socket, config: MachineConfig, sessions: Ext
       rootDir: config.rootDir,
       deviceId,
       externalAgents: sessions,
-      git: createMachineGit({ rootDir: config.rootDir, backendUrl: config.backendUrl, token: config.token }),
+      git: createMachineGit({ rootDir: config.rootDir, backendUrl: config.backendUrl, token: () => config.token }),
       address,
       token: config.token,
       payloads: { ring: settings.ring, blobs: remoteBlobs(socket) },
@@ -97,7 +98,23 @@ async function main() {
     process.once(signal, () => { void sessions.closeAll().finally(() => process.exit(0)); });
   }
   watchAgents(socket, config, sessions);
-  followEngineWorker(socket, config, sessions);
+  const worker = followEngineWorker(socket, config, sessions);
+
+  socket.on('machine:token', ({ token: next }: { token?: unknown }, ack: (answer: { taken: boolean }) => void) => {
+    if (typeof next !== 'string' || !next) return ack(tokenAnswer(false));
+    saveDeviceToken(configFile(), next)
+      .then(async () => {
+        config.token = next;
+        socket.auth = { ...(socket.auth as Record<string, unknown>), token: next };
+        await worker?.setToken(next);
+        console.log('[koala-local-agent] this machine took a new token from Koala');
+        ack(tokenAnswer(true));
+      })
+      .catch((err: Error) => {
+        console.warn(`[koala-local-agent] a new token could not be kept: ${err.message}`);
+        ack(tokenAnswer(false));
+      });
+  });
 
   socket.on('connect', () => {
     console.log(`[koala-local-agent] connected to ${backendUrl} — root: ${rootDir}, containers: ${containerMode ? 'on' : 'off'}`);

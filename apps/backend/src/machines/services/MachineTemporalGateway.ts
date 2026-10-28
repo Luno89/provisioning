@@ -74,6 +74,10 @@ export class MachineTemporalGateway {
     return this.session;
   }
 
+  forget(tokenHash: string): void {
+    this.seen.delete(tokenHash);
+  }
+
   private async deviceFor(token: string): Promise<string | undefined> {
     const key = crypto.createHash('sha256').update(token).digest('hex');
     const known = this.seen.get(key);

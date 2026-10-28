@@ -1,6 +1,6 @@
-import crypto from 'crypto';
 import type { Socket } from 'socket.io';
 import { decryptValue, type SecretKey } from '../../platform/lib/crypto.js';
+import { deviceTokenHash, hashesEqual, viaOf, withLifetime, type TokenVia } from './device-tokens.js';
 import type { LocalAgentDeviceMetadata, LocalEgressRule } from '../../platform/index.js';
 
 interface DeviceConnection {
@@ -13,28 +13,42 @@ interface DeviceConnection {
 
 const devices = new Map<string, DeviceConnection>();
 
-function tokensEqual(a: string, b: string): boolean {
-  const bufA = Buffer.from(a);
-  const bufB = Buffer.from(b);
-  return bufA.length === bufB.length && crypto.timingSafeEqual(bufA, bufB);
+export { deviceTokenHash } from './device-tokens.js';
+
+export interface TokenMatch {
+  device: LocalAgentDeviceMetadata;
+  via: TokenVia;
+  expired: boolean;
 }
 
-export const deviceTokenHash = (token: string): string => crypto.createHash('sha256').update(token).digest('hex');
+export function matchDeviceToken(
+  candidates: readonly LocalAgentDeviceMetadata[],
+  presentedToken: string,
+  masterKey: SecretKey,
+  now: Date = new Date(),
+): TokenMatch | undefined {
+  const presented = deviceTokenHash(presentedToken);
+  for (const device of candidates) {
+    const found = viaOf(device, presented, now);
+    if (found) return { device, ...found };
+    if (device.tokenHash || !device.tokenEnc) continue;
+    try {
+      if (hashesEqual(decryptValue(device.tokenEnc, masterKey), presentedToken)) return { device, via: 'current', expired: false };
+    } catch {
+      continue;
+    }
+  }
+  return undefined;
+}
 
 export function findDeviceByToken(
   candidates: readonly LocalAgentDeviceMetadata[],
   presentedToken: string,
   masterKey: SecretKey,
+  now: Date = new Date(),
 ): LocalAgentDeviceMetadata | undefined {
-  const presented = deviceTokenHash(presentedToken);
-  return candidates.find((d) => {
-    if (d.tokenHash) return tokensEqual(d.tokenHash, presented);
-    try {
-      return Boolean(d.tokenEnc) && tokensEqual(decryptValue(d.tokenEnc!, masterKey), presentedToken);
-    } catch {
-      return false;
-    }
-  });
+  const match = matchDeviceToken(candidates, presentedToken, masterKey, now);
+  return match && !match.expired ? match.device : undefined;
 }
 
 export async function hashDeviceTokens(
@@ -49,6 +63,20 @@ export async function hashDeviceTokens(
     hashed += 1;
   }
   return hashed;
+}
+
+export async function giveDeviceTokenLifetimes(
+  store: { getLocalAgentDevices(): Promise<LocalAgentDeviceMetadata[]>; saveLocalAgentDevice(device: LocalAgentDeviceMetadata): Promise<void> },
+  now: Date,
+): Promise<number> {
+  let given = 0;
+  for (const device of await store.getLocalAgentDevices()) {
+    const dated = withLifetime(device, now);
+    if (dated === device) continue;
+    await store.saveLocalAgentDevice(dated);
+    given += 1;
+  }
+  return given;
 }
 
 export function registerDevice(
