@@ -13,6 +13,7 @@ export { firstAdminSetup } from './lib/first-admin.js';
 export { followsLinks, frontierRow } from './lib/frontier.js';
 export type { FrontierClaim, FrontierUrl } from './lib/frontier.js';
 export { unpromptedGit } from './lib/git-env.js';
+export { HANDOFF_NONCE_COOKIE, HANDOFF_NONCE_SECONDS, handoffNonceShaped, heldHandoffNonce, newHandoffNonce, sameHandoffNonce } from './lib/handoff-nonce.js';
 export { afterFailure, attemptsKeyFor, CSP_REPORT_LIMIT, JSON_LIMITS, jsonLimitFor, lockedSaid, lockedUntil, RATE_LIMITS, ruleFor, SignInAttemptLog } from './lib/http-limits.js';
 export type { SignInAttempts } from './lib/http-limits.js';
 export { INVITE_DAYS, inviteCodeHash, inviteExpired, inviteExpiry, inviteView, newInviteCode } from './lib/invite-codes.js';

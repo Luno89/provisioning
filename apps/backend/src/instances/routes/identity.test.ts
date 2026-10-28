@@ -32,7 +32,7 @@ describe('root\'s identity routes', () => {
     await identity!.register({ id: 'inst-test', ownerId: TEST_USER.id, url: 'https://test.example.com' });
 
     expect((await axios.get(h.url('/api/identity/instance'))).data).toEqual({ instance: { id: 'inst-test', url: 'https://test.example.com' }, servesTenants: false });
-    const go = await axios.get(h.url('/api/identity/go'), signedIn);
+    const go = await axios.get(h.url(`/api/identity/go?nonce=${'n'.repeat(32)}`), signedIn);
     expect(go.status).toBe(302);
     expect(go.headers.location).toMatch(/^https:\/\/test\.example\.com\/#\/handoff\?token=/);
     expect(go.headers['cache-control']).toBe('no-store');
@@ -54,9 +54,24 @@ describe('an instance\'s sign-in exchange', () => {
     expect((await axios.get(h.url('/api/auth/sign-in'))).data).toEqual({ url: 'https://app.example.com/api/identity/go', hub: 'https://app.example.com/api/identity/go?to=hub' });
     expect((await axios.get(h.url('/api/auth/account-removal'))).data).toEqual({ url: 'https://app.example.com/#/remove-account' });
 
-    const token = issueHandoff(signing, { userId: 'u1', email: 'u1@example.com' }, 'inst-u1');
-    const first = await axios.post(h.url('/api/auth/handoff'), { token }, { ...quiet, headers: { 'X-Forwarded-Proto': 'https' } });
+    const overHttps = { ...quiet, headers: { 'X-Forwarded-Proto': 'https' } };
+    const started = await axios.get(h.url('/api/auth/handoff/start'), overHttps);
+    expect(started.status).toBe(302);
+    const nonce = new URL(String(started.headers.location)).searchParams.get('nonce')!;
+    expect(String(started.headers.location)).toBe(`https://app.example.com/api/identity/go?nonce=${nonce}`);
+    const held = String(started.headers['set-cookie']?.[0]);
+    expect(held).toMatch(/^__Host-handoff_nonce=.*HttpOnly/);
+    const withNonce = { ...quiet, headers: { 'X-Forwarded-Proto': 'https', Cookie: held.split(';')[0]! } };
+
+    const token = issueHandoff(signing, { userId: 'u1', email: 'u1@example.com' }, 'inst-u1', undefined, nonce);
+    expect((await axios.post(h.url('/api/auth/handoff'), { token }, overHttps)).status).toBe(401);
+    const unbound = await axios.post(h.url('/api/auth/handoff'), { token: issueHandoff(signing, { userId: 'u1', email: 'u1@example.com' }, 'inst-u1') }, withNonce);
+    expect([unbound.status, unbound.data.restart]).toEqual([401, true]);
+    const someoneElses = issueHandoff(signing, { userId: 'u1', email: 'u1@example.com' }, 'inst-u1', undefined, 'x'.repeat(32));
+    expect((await axios.post(h.url('/api/auth/handoff'), { token: someoneElses }, withNonce)).status).toBe(401);
+    const first = await axios.post(h.url('/api/auth/handoff'), { token }, withNonce);
     expect(first.status).toBe(200);
+    expect(first.headers['set-cookie']?.some((line) => /^__Host-handoff_nonce=;/.test(line))).toBe(true);
     const cookie = String(first.headers['set-cookie']?.[0]);
     expect(cookie).toMatch(/^__Host-session=/);
     expect(cookie).toMatch(/HttpOnly/);
@@ -65,7 +80,7 @@ describe('an instance\'s sign-in exchange', () => {
     expect(cookie).not.toMatch(/Domain=/i);
     expect(verifyJWT(cookie.split(';')[0]!.slice('__Host-session='.length), sessionKey)).toMatchObject({ userId: 'u1' });
 
-    expect((await axios.post(h.url('/api/auth/handoff'), { token }, quiet)).status).toBe(409);
+    expect((await axios.post(h.url('/api/auth/handoff'), { token }, withNonce)).status).toBe(409);
     expect((await axios.post(h.url('/api/auth/handoff'), {}, quiet)).status).toBe(400);
     await h.close();
   });

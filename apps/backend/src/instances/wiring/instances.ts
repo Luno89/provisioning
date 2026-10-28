@@ -96,7 +96,7 @@ export interface InstancesWiringDeps {
   db: Database;
   mail: MailService;
   identity: IdentityService;
-  auth: Pick<ReturnType<typeof createAuth>, 'requireAdmin' | 'userFromSessionCookie' | 'securedFor' | 'setSessionCookie'>;
+  auth: Pick<ReturnType<typeof createAuth>, 'requireAdmin' | 'userFromSessionCookie' | 'securedFor' | 'setSessionCookie' | 'getCookie' | 'sessionCookieOptions'>;
   sessionKey: SecretKey;
   publicUrl: string;
   repoRoot: string;

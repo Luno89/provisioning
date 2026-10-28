@@ -6,6 +6,7 @@ import { createDisposableVm, type DisposableVm } from './lib/disposable-vm.js';
 import { loadKeys } from '../apps/backend/src/platform/lib/keys.js';
 import { signJWT } from '../apps/backend/src/platform/lib/auth.js';
 import { devTemporalCa } from './lib/dev-temporal.js';
+import { fetchSide, handOff } from './lib/handoff.js';
 
 const REPO = resolve(new URL('.', import.meta.url).pathname, '..');
 dotenv.config({ path: join(REPO, 'apps/backend/.env') });
@@ -99,12 +100,9 @@ async function main(): Promise<void> {
   assert.equal(mine.url, INSTANCE_URL);
 
   step('the owner signs in at root and lands on the instance on their machine');
-  const go = await fetch(`${ROOT_FOR_HOST}/api/identity/go`, { headers: { Cookie: `session=${session}` }, redirect: 'manual' });
-  assert.equal(go.status, 302);
-  const token = decodeURIComponent((go.headers.get('location') ?? '').split('token=')[1] ?? '');
-  const exchange = await fetch(`${INSTANCE_URL}/api/auth/handoff`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ token }) });
-  assert.equal(exchange.status, 200, `the instance refused the token: ${await exchange.text()}`);
-  const cookie = (exchange.headers.get('set-cookie') ?? '').split(';')[0]!;
+  const { exchange } = await handOff(fetchSide(ROOT_FOR_HOST, `session=${session}`), fetchSide(INSTANCE_URL));
+  assert.equal(exchange.status, 200, `the instance refused the token: ${exchange.body}`);
+  const cookie = (exchange.setCookies[0] ?? '').split(';')[0]!;
   const http = (path: string, init: RequestInit = {}) => fetch(`${INSTANCE_URL}${path}`, { ...init, headers: { 'content-type': 'application/json', Cookie: cookie, ...(init.headers ?? {}) } });
 
   step('an agent runs code in a sandbox on the user\'s machine');

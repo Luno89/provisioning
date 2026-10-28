@@ -7,6 +7,7 @@ import { loadKeys } from '../apps/backend/src/platform/lib/keys.js';
 import { ACP_STUB, chatsOnTheMachine } from './lib/machine-chat.js';
 import { createDisposableVm, type DisposableVm } from './lib/disposable-vm.js';
 import { devTemporalCa } from './lib/dev-temporal.js';
+import { fetchSide, handOff } from './lib/handoff.js';
 
 const GATEWAY_PORT = 30322;
 const REPO = resolve(new URL('.', import.meta.url).pathname, '..');
@@ -123,11 +124,9 @@ async function main(): Promise<void> {
   console.log(`  Temporal answers on neither ${instanceMeshIp}:7233 nor ${ownAddress}:7233; the gateway answers on ${instanceMeshIp}:${GATEWAY_PORT}`);
 
   step('the owner signs in to the instance');
-  const go = await fetch(`${ROOT_FOR_HOST}/api/identity/go`, { headers: { Cookie: `session=${session}` }, redirect: 'manual' });
-  const token = decodeURIComponent((go.headers.get('location') ?? '').split('token=')[1] ?? '');
-  const exchange = await fetch(`${INSTANCE_URL}/api/auth/handoff`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ token }) });
-  assert.equal(exchange.status, 200, `the instance refused the token: ${await exchange.text()}`);
-  const cookie = (exchange.headers.get('set-cookie') ?? '').split(';')[0]!;
+  const { exchange } = await handOff(fetchSide(ROOT_FOR_HOST, `session=${session}`), fetchSide(INSTANCE_URL));
+  assert.equal(exchange.status, 200, `the instance refused the token: ${exchange.body}`);
+  const cookie = (exchange.setCookies[0] ?? '').split(';')[0]!;
   const onInstance = (path: string, init: RequestInit = {}) => fetch(`${INSTANCE_URL}${path}`, { ...init, headers: { 'content-type': 'application/json', Cookie: cookie, ...(init.headers ?? {}) } });
 
   step('a machine of the owner\'s runs the command from the instance\'s My Machines, and joins the mesh with it');

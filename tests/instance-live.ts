@@ -8,6 +8,7 @@ import dotenv from 'dotenv';
 import { loadKeys } from '../apps/backend/src/platform/lib/keys.js';
 import { signJWT } from '../apps/backend/src/platform/lib/auth.js';
 import { devTemporalCa } from './lib/dev-temporal.js';
+import { fetchSide, handOff } from './lib/handoff.js';
 
 const REPO = resolve(new URL('.', import.meta.url).pathname, '..');
 dotenv.config({ path: join(REPO, 'apps/backend/.env') });
@@ -76,17 +77,14 @@ async function main(): Promise<void> {
 
   step('the owner signs in at root and is handed to their instance');
   const rootSession = signJWT({ userId: OWNER, email: 'live' }, loadKeys(process.env).session, 300);
-  const go = await fetch(`${ROOT_URL}/api/identity/go`, { headers: { Cookie: `session=${rootSession}` }, redirect: 'manual' });
-  assert.equal(go.status, 302, 'root did not hand the owner to their instance');
-  const location = go.headers.get('location') ?? '';
+  const atInstance = fetchSide(INSTANCE_URL);
+  const { exchange, location, token, nonceCookie } = await handOff(fetchSide(ROOT_URL, `session=${rootSession}`), atInstance);
   assert.ok(location.startsWith(`${INSTANCE_URL}/#/handoff?token=`), `root sent the owner to ${location}`);
-  const token = decodeURIComponent(location.split('token=')[1]!);
-
-  const exchange = await fetch(`${INSTANCE_URL}/api/auth/handoff`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ token }) });
-  assert.equal(exchange.status, 200, `the instance refused the token: ${await exchange.text()}`);
-  const instanceSession = (exchange.headers.get('set-cookie') ?? '').split(';')[0]!;
-  const replay = await fetch(`${INSTANCE_URL}/api/auth/handoff`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ token }) });
-  assert.equal(replay.status, 409, 'the instance accepted the same token twice');
+  assert.ok(nonceCookie, 'the instance took a token bound to no browser');
+  assert.equal(exchange.status, 200, `the instance refused the token: ${exchange.body}`);
+  const instanceSession = (exchange.setCookies[0] ?? '').split(';')[0]!;
+  assert.equal((await atInstance('/api/auth/handoff', { method: 'POST', body: { token }, cookie: nonceCookie })).status, 409, 'the instance accepted the same token twice');
+  assert.equal((await atInstance('/api/auth/handoff', { method: 'POST', body: { token } })).status, 401, 'the instance took a token in a browser that did not start the sign-in');
   const http = (path: string, init: RequestInit = {}) => fetch(`${INSTANCE_URL}${path}`, { ...init, headers: { 'content-type': 'application/json', Cookie: instanceSession, ...(init.headers ?? {}) } });
 
   step('an agent runs code in a sandbox inside the instance\'s cluster');

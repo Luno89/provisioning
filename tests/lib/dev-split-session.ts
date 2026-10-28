@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { readEnvFile } from '../../apps/backend/src/instances/lib/dev-split.js';
+import { fetchSide, handOff, sessionFrom, type Handoff } from './handoff.js';
 
 const ENV_DIR = fileURLToPath(new URL('../../apps/backend/data/dev-split/', import.meta.url));
 
@@ -38,15 +39,7 @@ export async function signInAtRoot(rootUrl: string): Promise<string> {
   return callback.cookie;
 }
 
-export async function handoffToken(rootUrl: string, atRoot: string): Promise<{ token: string; origin: string }> {
-  const go = await call(`${rootUrl}/api/identity/go`, { cookie: atRoot });
-  assert.equal(go.status, 302);
-  const handoff = new URL(go.location!);
-  const token = new URLSearchParams(handoff.hash.split('?')[1] ?? '').get('token');
-  assert.ok(token, `no token in ${go.location}`);
-  return { token, origin: handoff.origin };
-}
-
-export async function signInAtInstance(instanceUrl: string, token: string): Promise<Answer> {
-  return call(`${instanceUrl}/api/auth/handoff`, { method: 'POST', body: JSON.stringify({ token }) });
+export async function signInAtInstance(rootUrl: string, atRoot: string, instanceUrl: string): Promise<Handoff & { session: string | undefined }> {
+  const handed = await handOff(fetchSide(rootUrl, atRoot), fetchSide(instanceUrl));
+  return { ...handed, session: sessionFrom(handed.exchange.setCookies) };
 }

@@ -1,4 +1,4 @@
-export { accountRemovalPlace, exchangeHandoff, getMe, login, logout, signInElsewhere, verifyTwoFactor } from './api'
+export { accountRemovalPlace, exchangeHandoff, getMe, handoffRestarts, handoffStartUrl, login, logout, signInElsewhere, verifyTwoFactor } from './api'
 export type { LoginResult, SessionUser } from './api'
 export { formatHash, parseHash, shouldReplace } from './lib/route'
 export { releaseNotice, toastOf } from './lib/toast'

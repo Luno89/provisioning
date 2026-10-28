@@ -11,6 +11,7 @@ export interface HandoffClaims {
   iat: number;
   exp: number;
   jti: string;
+  nonce?: string;
 }
 
 export interface IdentityKeyPair {
@@ -57,6 +58,7 @@ export function issueHandoff(
   who: { userId: string; email: string },
   audience: string,
   now: number = Math.floor(Date.now() / 1000),
+  nonce?: string,
 ): string {
   const header = { alg: ALG, typ: TYP, kid: keys.kid };
   const claims: HandoffClaims = {
@@ -66,6 +68,7 @@ export function issueHandoff(
     iat: now,
     exp: now + HANDOFF_TTL_SECONDS,
     jti: crypto.randomUUID(),
+    ...(nonce ? { nonce } : {}),
   };
   const signed = `${b64(JSON.stringify(header))}.${b64(JSON.stringify(claims))}`;
   return `${signed}.${b64(crypto.sign(null, Buffer.from(signed), keys.privateKey))}`;

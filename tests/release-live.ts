@@ -7,6 +7,7 @@ import { join, resolve } from 'node:path';
 import { createDisposableVm, findFreePort, type DisposableVm } from './lib/disposable-vm.js';
 import { buildAppImage } from './lib/gate-runs.js';
 import { endsWith, failedUpgradeReports, imageTagOf, inFlightRefusal, unsignedRefusal, labDnsmasq, labHostsLine, noted, revisionRunning, upgradeReports, type Report } from './lib/release-lab.js';
+import { handOff, type Side } from './lib/handoff.js';
 
 const REPO = resolve(new URL('.', import.meta.url).pathname, '..');
 const PREVIOUS_REF = process.env.RELEASE_LIVE_PREVIOUS ?? 'v2026.10.23';
@@ -80,6 +81,11 @@ let work = '';
 let root: DisposableVm | undefined;
 let instance: DisposableVm | undefined;
 let previousTag = '';
+
+const httpsSide = (host: string): Side => (path, init = {}) => {
+  const answer = https(host, path, init);
+  return { status: answer.status, location: answer.headers.location ?? '', setCookies: answer.headers['set-cookie'] ? [answer.headers['set-cookie']] : [], body: answer.body };
+};
 
 function https(host: string, path: string, init: { method?: string; body?: unknown; cookie?: string } = {}): Answer {
   const args = ['-sS', '-D', '-', '--resolve', `${host}:${TLS_PORT}:127.0.0.1`, '--cacert', join(work, 'ca.crt'), '-X', init.method ?? 'GET'];
@@ -255,16 +261,14 @@ async function main(): Promise<void> {
   const registry = (await sh(instance, `sudo kubectl -n ${NAMESPACE} get deploy instance-backend -o jsonpath='{.spec.template.spec.containers[0].image}'`)).trim().replace(/:[^:/]+$/, '');
   note(`the instance pulls ${registry} over the mesh`);
 
-  const handoff = (): string => {
-    const go = asOwner('/api/identity/go');
-    assert.equal(go.status, 302, `root did not hand the owner over: ${go.status} ${go.body}`);
-    const location = go.headers.location ?? '';
+  const handoff = async (): Promise<string> => {
+    const atRoot: Side = (path, init = {}) => httpsSide(`app.${DOMAIN}`)(path, { ...init, cookie: rootCookie });
+    const { exchange, location } = await handOff(atRoot, httpsSide(instanceHost));
     assert.ok(location.startsWith(`https://${instanceHost}/`), `root sent the owner to ${location}`);
-    const exchange = https(instanceHost, '/api/auth/handoff', { method: 'POST', body: { token: decodeURIComponent(location.split('token=')[1] ?? '') } });
     assert.equal(exchange.status, 200, `the instance refused the token: ${exchange.body}`);
-    return (exchange.headers['set-cookie'] ?? '').split(';')[0]!;
+    return (exchange.setCookies[0] ?? '').split(';')[0]!;
   };
-  let cookie = handoff();
+  let cookie = await handoff();
   const onInstance = (path: string, init: { method?: string; body?: unknown } = {}) => https(instanceHost, path, { ...init, cookie });
   note('signing in at root lands on the instance');
 
@@ -432,7 +436,7 @@ async function main(): Promise<void> {
   assert.ok(upgraded.ended.includes('Complete'), `the upgrade job did not complete: ${upgraded.ended}`);
   assert.ok(endsWith(upgraded.trail, upgradeReports(previousTag, candidateTag)), 'root did not hear installing then ready');
   await allOn(candidateTag);
-  cookie = handoff();
+  cookie = await handoff();
   await appAnswers();
   repositoryWorks(`upgraded to ${candidateTag}`);
   await sandboxedRun('release-live-upgraded');
@@ -476,7 +480,7 @@ async function main(): Promise<void> {
   await allOn(candidateTag);
   assert.equal(https(instanceHost, '/api/auth/sign-in').status, 200, 'the instance stopped answering at its address after the failed upgrade');
   assert.deepEqual({ status: mine().status, detail: mine().detail }, { status: 'failed', detail: `The upgrade to ${nothing} failed, so it was rolled back to ${candidateTag}` });
-  cookie = handoff();
+  cookie = await handoff();
   await appAnswers();
   note(`after the failed upgrade: root shows it failed and rolled back, and sign-in through root, the handoff and the app's address still work`);
   const helmHistory = await helm('history instance');
@@ -507,7 +511,7 @@ async function main(): Promise<void> {
   assert.ok(rolledBack.ended.includes('Complete'), `the check-in after the rollback did not complete: ${rolledBack.ended}`);
   assert.deepEqual(rolledBack.trail[rolledBack.trail.length - 1], { status: 'ready', detail: `Running ${previousTag}` });
   await allOn(previousTag);
-  cookie = handoff();
+  cookie = await handoff();
   await appAnswers();
   repositoryWorks(`rolled back to ${previousTag}`);
   await sandboxedRun('release-live-rolled-back');

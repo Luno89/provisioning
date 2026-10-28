@@ -9,6 +9,7 @@ import { createDisposableVm, type DisposableVm } from './lib/disposable-vm.js';
 import { loadKeys } from '../apps/backend/src/platform/lib/keys.js';
 import { signJWT } from '../apps/backend/src/platform/lib/auth.js';
 import { devTemporalCa } from './lib/dev-temporal.js';
+import { fetchSide, handOff, type Side } from './lib/handoff.js';
 
 const REPO = resolve(new URL('.', import.meta.url).pathname, '..');
 dotenv.config({ path: join(REPO, 'apps/backend/.env') });
@@ -79,6 +80,11 @@ const ENDING = process.env.POOL_LIVE_ENDING === 'delete' ? 'delete' : 'move';
 
 interface Answer { status: number; body: string; headers: Record<string, string> }
 
+const httpsSide = (host: string): Side => (path, init = {}) => {
+  const answer = https(host, path, init);
+  return { status: answer.status, location: answer.headers.location ?? '', setCookies: answer.headers['set-cookie'] ? [answer.headers['set-cookie']] : [], body: answer.body };
+};
+
 function https(host: string, path: string, init: { method?: string; body?: unknown; cookie?: string } = {}): Answer {
   const args = ['-sS', '-D', '-', '--resolve', `${host}:${TLS_PORT}:127.0.0.1`, '--cacert', join(work, 'ca.crt'), '-X', init.method ?? 'GET'];
   if (init.body !== undefined) args.push('-H', 'content-type: application/json', '--data', JSON.stringify(init.body));
@@ -90,7 +96,10 @@ function https(host: string, path: string, init: { method?: string; body?: unkno
   const headers: Record<string, string> = {};
   for (const line of lines) {
     const at = line.indexOf(':');
-    if (at > 0) headers[line.slice(0, at).trim().toLowerCase()] = line.slice(at + 1).trim();
+    if (at <= 0) continue;
+    const name = line.slice(0, at).trim().toLowerCase();
+    if (name === 'set-cookie' && headers[name] !== undefined) continue;
+    headers[name] = line.slice(at + 1).trim();
   }
   return { status: Number((statusLine ?? '').split(' ')[1]), body: blocks.join('\n\n'), headers };
 }
@@ -225,14 +234,10 @@ async function main(): Promise<void> {
   await until('the instance through Caddy', async () => (https(`${NAME}.${DOMAIN}`, '/api/auth/sign-in').status === 200 ? true : undefined));
 
   step('signing in at root lands on the pool instance');
-  const go = await fetch(`${ROOT_FOR_HOST}/api/identity/go`, { headers: { Cookie: `session=${session}` }, redirect: 'manual' });
-  assert.equal(go.status, 302);
-  const location = go.headers.get('location') ?? '';
+  const { exchange, location } = await handOff(fetchSide(ROOT_FOR_HOST, `session=${session}`), httpsSide(`${NAME}.${DOMAIN}`));
   assert.ok(location.startsWith(`https://${NAME}.${DOMAIN}/`), `root sent the owner to ${location}`);
-  const token = decodeURIComponent(location.split('token=')[1] ?? '');
-  const exchange = https(`${NAME}.${DOMAIN}`, '/api/auth/handoff', { method: 'POST', body: { token } });
   assert.equal(exchange.status, 200, `the instance refused the token: ${exchange.body}`);
-  const cookie = (exchange.headers['set-cookie'] ?? '').split(';')[0]!;
+  const cookie = (exchange.setCookies[0] ?? '').split(';')[0]!;
   const onInstance = (path: string, init: { method?: string; body?: unknown } = {}) => https(`${NAME}.${DOMAIN}`, path, { ...init, cookie });
   assert.equal(onInstance('/api/auth/me').status, 200);
 
@@ -445,11 +450,9 @@ async function main(): Promise<void> {
 
     step('the owner signs in at root and lands on the new machine, with their work there');
     await until('the instance through Caddy on its new machine', async () => (https(`${NAME}.${DOMAIN}`, '/api/auth/sign-in').status === 200 ? true : undefined));
-    const goAgain = await fetch(`${ROOT_FOR_HOST}/api/identity/go`, { headers: { Cookie: `session=${session}` }, redirect: 'manual' });
-    const againToken = decodeURIComponent((goAgain.headers.get('location') ?? '').split('token=')[1] ?? '');
-    const againExchange = https(`${NAME}.${DOMAIN}`, '/api/auth/handoff', { method: 'POST', body: { token: againToken } });
+    const { exchange: againExchange } = await handOff(fetchSide(ROOT_FOR_HOST, `session=${session}`), httpsSide(`${NAME}.${DOMAIN}`));
     assert.equal(againExchange.status, 200, `the moved instance refused the owner: ${againExchange.body}`);
-    const movedCookie = (againExchange.headers['set-cookie'] ?? '').split(';')[0]!;
+    const movedCookie = (againExchange.setCookies[0] ?? '').split(';')[0]!;
     const onMoved = (path: string, init: { method?: string; body?: unknown } = {}) => https(`${NAME}.${DOMAIN}`, path, { ...init, cookie: movedCookie });
     assert.equal(onMoved('/api/procedures/pool-live').status, 200, 'the procedure made on Koala\'s servers is not on the new machine');
     const file = onMoved(`/api/projects/${project.id}/files/content?path=${encodeURIComponent(movedFile)}`);

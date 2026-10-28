@@ -489,7 +489,13 @@ the app treats it as the E2E port and signs everyone in. The env each process ge
 Sign-in on an instance: the instance sends you to root's `/api/identity/go`, which issues a 60-second,
 single-use token for your instance and redirects to `<instance>/#/handoff?token=…`. The instance
 checks the signature, audience, expiry and owner, records the token id so it cannot be reused, and
-sets its own session. Register an instance with `npm run instances -w apps/backend -- add <id> <owner> <url>`.
+sets its own session. **The token is taken only in the browser that started the sign-in** (security audit W2, login CSRF):
+the instance's or hub's `GET /api/auth/handoff/start` sets a signed ten-minute `handoff_nonce` cookie (`__Host-` over https) and
+sends the browser to root's `/api/identity/go?nonce=…`, root puts the nonce in the token (`issueHandoff`), and the handoff is refused
+unless the token's nonce matches the cookie (`platform/lib/handoff-nonce.ts`). A token root issued without a nonce (root's own "Open
+my instance", the hub link, a join) is answered `restart`, and the handoff page goes through the start once
+(`handoffRestarts`), so an instance on an older release than root, which takes tokens without one, still signs in.
+`tests/lib/handoff.ts` (`handOff`) is that browser for every suite that signs in through root. Register an instance with `npm run instances -w apps/backend -- add <id> <owner> <url>`.
 
 **Addresses (per-user instances step 6).** A person picks a name when their instance is made (`instances/lib/instance-names.ts`:
 3–20 lowercase letters and digits, no dashes, some reserved; unique on root, fixed afterwards, asked on root's "Use my own

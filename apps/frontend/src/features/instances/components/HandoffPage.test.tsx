@@ -30,6 +30,17 @@ describe('landing on an instance from root', () => {
     expect(screen.getByRole('button', { name: 'Sign in again' })).toBeInTheDocument()
   })
 
+  it('starts the sign-in here when the instance asks, carrying where the person was going', async () => {
+    vi.mocked(exchangeHandoff).mockImplementation(async () => { throw Object.assign(new Error('Request failed'), { response: { status: 401, data: { error: 'this sign-in has to start here first', restart: true } } }) })
+    const assign = vi.fn()
+    vi.stubGlobal('location', { ...window.location, assign })
+    render(<HandoffPage token="unbound" next="/hub/join/abc" onSignedIn={vi.fn()} />)
+
+    await waitFor(() => expect(assign).toHaveBeenCalledWith(expect.stringMatching(/\/auth\/handoff\/start\?next=%2Fhub%2Fjoin%2Fabc$/)))
+    expect(screen.queryByText('this sign-in has to start here first')).not.toBeInTheDocument()
+    vi.unstubAllGlobals()
+  })
+
   it('does not try anything without a token', () => {
     render(<HandoffPage token={null} onSignedIn={vi.fn()} />)
     expect(screen.getByText('There is no sign-in token in this link.')).toBeInTheDocument()

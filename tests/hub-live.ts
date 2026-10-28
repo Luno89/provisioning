@@ -14,6 +14,7 @@ import { HUB_REPO, hubOrgOf } from '../apps/backend/src/hub/services/HubRepos.js
 import { mainHeads } from '../apps/backend/src/hub/services/HubRepoSync.js';
 import { GiteaService } from '../apps/backend/src/projects/services/GiteaService.js';
 import { InfrastructureService } from '../apps/backend/src/infrastructure/services/InfrastructureService.js';
+import { fetchSide, handOff, sessionFrom } from './lib/handoff.js';
 
 const ROOT = process.env.HUB_LIVE_ROOT ?? 'http://localhost:3001';
 const HUB = process.env.HUB_LIVE_HUB ?? ROOT;
@@ -52,19 +53,16 @@ async function signUp(who: Person, code: string): Promise<void> {
   assert.ok(login.status === 200 && cookie, `${who.name} could not sign in: ${JSON.stringify(login.data)}`);
   who.root = client(ROOT, cookie);
   who.id = (await who.root.get('/auth/me')).data.id as string;
-  who.hub = HUB === ROOT ? who.root : await toHub(who.root);
+  who.hub = HUB === ROOT ? who.root : await toHub(cookie);
 }
 
-async function toHub(atRoot: AxiosInstance): Promise<AxiosInstance> {
-  const go = await atRoot.get('/identity/go', { params: { to: 'hub', next: '/shared' } });
-  assert.equal(go.status, 302, JSON.stringify(go.data));
-  const sent = new URL(String(go.headers.location));
+async function toHub(rootCookie: string): Promise<AxiosInstance> {
+  const { exchange, location } = await handOff(fetchSide(ROOT, rootCookie), fetchSide(HUB), '/api/identity/go?to=hub&next=%2Fshared');
+  const sent = new URL(location);
   assert.equal(sent.origin, new URL(HUB).origin);
-  const query = new URLSearchParams(sent.hash.split('?')[1] ?? '');
-  assert.equal(query.get('next'), '/shared');
-  const handoff = await client(HUB).post('/auth/handoff', { token: query.get('token') });
-  const cookie = sessionOf(handoff.headers);
-  assert.ok(handoff.status === 200 && cookie, `the hub did not take root's token: ${JSON.stringify(handoff.data)}`);
+  assert.equal(new URLSearchParams(sent.hash.split('?')[1] ?? '').get('next'), '/shared');
+  const cookie = sessionFrom(exchange.setCookies);
+  assert.ok(exchange.status === 200 && cookie, `the hub did not take root's token: ${exchange.body}`);
   return client(HUB, cookie);
 }
 

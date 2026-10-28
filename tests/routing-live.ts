@@ -8,6 +8,7 @@ import { createDisposableVm, type DisposableVm } from './lib/disposable-vm.js';
 import { loadKeys } from '../apps/backend/src/platform/lib/keys.js';
 import { signJWT } from '../apps/backend/src/platform/lib/auth.js';
 import { devTemporalCa } from './lib/dev-temporal.js';
+import { fetchSide, handOff, type Side } from './lib/handoff.js';
 
 const REPO = resolve(new URL('.', import.meta.url).pathname, '..');
 dotenv.config({ path: join(REPO, 'apps/backend/.env') });
@@ -70,6 +71,11 @@ let instanceId: string | undefined;
 
 interface Answer { status: number; body: string; headers: Record<string, string> }
 
+const httpsSide = (host: string): Side => (path, init = {}) => {
+  const answer = https(host, path, init);
+  return { status: answer.status, location: answer.headers.location ?? '', setCookies: answer.headers['set-cookie'] ? [answer.headers['set-cookie']] : [], body: answer.body };
+};
+
 function https(host: string, path: string, init: { method?: string; body?: unknown; cookie?: string } = {}): Answer {
   const args = ['-sS', '-D', '-', '--resolve', `${host}:${TLS_PORT}:127.0.0.1`, '--cacert', join(work, 'ca.crt'), '-X', init.method ?? 'GET'];
   if (init.body !== undefined) args.push('-H', 'content-type: application/json', '--data', JSON.stringify(init.body));
@@ -81,7 +87,10 @@ function https(host: string, path: string, init: { method?: string; body?: unkno
   const headers: Record<string, string> = {};
   for (const line of lines) {
     const at = line.indexOf(':');
-    if (at > 0) headers[line.slice(0, at).trim().toLowerCase()] = line.slice(at + 1).trim();
+    if (at <= 0) continue;
+    const name = line.slice(0, at).trim().toLowerCase();
+    if (name === 'set-cookie' && headers[name] !== undefined) continue;
+    headers[name] = line.slice(at + 1).trim();
   }
   return { status: Number((statusLine ?? '').split(' ')[1]), body: blocks.join('\n\n'), headers };
 }
@@ -190,15 +199,12 @@ async function main(): Promise<void> {
   console.log(`  ${signInPage.status} from the instance`);
 
   step('signing in at root lands on the instance at its own address');
-  const go = await fetch(`${ROOT_FOR_HOST}/api/identity/go`, { headers: { Cookie: `session=${session}` }, redirect: 'manual' });
-  assert.equal(go.status, 302);
-  const location = go.headers.get('location') ?? '';
+  const { exchange, location, nonceCookie } = await handOff(fetchSide(ROOT_FOR_HOST, `session=${session}`), httpsSide(`${NAME}.${DOMAIN}`));
   assert.ok(location.startsWith(`https://${NAME}.${DOMAIN}/`), `root sent the owner to ${location}`);
-  const token = decodeURIComponent(location.split('token=')[1] ?? '');
-  const exchange = https(`${NAME}.${DOMAIN}`, '/api/auth/handoff', { method: 'POST', body: { token } });
+  assert.ok(nonceCookie?.startsWith('__Host-handoff_nonce='), `the sign-in was not bound to this browser with a __Host- cookie: ${nonceCookie}`);
   assert.equal(exchange.status, 200, `the instance refused the token: ${exchange.body}`);
-  const cookie = (exchange.headers['set-cookie'] ?? '').split(';')[0]!;
-  const attributes = (exchange.headers['set-cookie'] ?? '').split(';').map((part) => part.trim().toLowerCase());
+  const cookie = (exchange.setCookies[0] ?? '').split(';')[0]!;
+  const attributes = (exchange.setCookies[0] ?? '').split(';').map((part) => part.trim().toLowerCase());
   assert.ok(cookie.startsWith('__Host-session='), `over https the instance sets a __Host- cookie, not ${cookie.split('=')[0]}`);
   assert.ok(attributes.includes('secure') && attributes.includes('path=/') && !attributes.some((part) => part.startsWith('domain=')), `the session cookie is Secure, for / and no Domain: ${attributes.join('; ')}`);
   assert.equal(https(`${NAME}.${DOMAIN}`, '/api/auth/me', { cookie: cookie.replace('__Host-session=', 'session=') }).status, 401, 'a plain session cookie, which a site next door could plant, is not read over https');

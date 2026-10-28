@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { call, devSplitEnv, handoffToken, signInAtInstance, signInAtRoot } from './lib/dev-split-session.js';
+import { call, devSplitEnv, signInAtInstance, signInAtRoot } from './lib/dev-split-session.js';
 
 const step = (message: string) => console.log(`\n▶ ${message}`);
 
@@ -33,14 +33,15 @@ async function main(): Promise<void> {
   }
 
   step('root hands you to your instance with a one-time token, and the instance signs you in');
-  const { token, origin } = await handoffToken(rootUrl, atRoot);
-  assert.equal(origin, instanceUrl);
-  const signedIn = await signInAtInstance(instanceUrl, token);
-  assert.equal(signedIn.status, 200, JSON.stringify(signedIn.body));
-  assert.ok(signedIn.cookie, 'the instance set no session');
-  const atInstance = signedIn.cookie;
-  assert.equal((await call(`${instanceUrl}/api/auth/handoff`, { method: 'POST', body: JSON.stringify({ token }) })).status, 409, 'the same token signed in twice');
-  console.log('  signed in on the instance; the token does not work a second time');
+  const signedIn = await signInAtInstance(rootUrl, atRoot, instanceUrl);
+  assert.equal(new URL(signedIn.location).origin, instanceUrl);
+  assert.equal(signedIn.exchange.status, 200, signedIn.exchange.body);
+  assert.ok(signedIn.session, 'the instance set no session');
+  assert.ok(signedIn.nonceCookie, 'the instance took a token root bound to no browser');
+  const atInstance = signedIn.session;
+  assert.equal((await call(`${instanceUrl}/api/auth/handoff`, { method: 'POST', body: JSON.stringify({ token: signedIn.token }), cookie: signedIn.nonceCookie })).status, 409, 'the same token signed in twice');
+  assert.equal((await call(`${instanceUrl}/api/auth/handoff`, { method: 'POST', body: JSON.stringify({ token: signedIn.token }) })).status, 401, 'a browser that did not start the sign-in was let in');
+  console.log('  signed in on the instance, only in the browser that started it; the token does not work a second time');
 
   step('your work is on the instance');
   const conversations = await call(`${instanceUrl}/api/conversations`, { cookie: atInstance });

@@ -1,4 +1,4 @@
-import { api } from '../../api/client'
+import { api, API_BASE } from '../../api/client'
 
 export interface SessionUser {
   id: string
@@ -58,3 +58,9 @@ export const accountRemovalPlace = (): Promise<string | null> =>
 
 export const exchangeHandoff = (token: string): Promise<SessionUser> =>
   api.post<{ user: SessionUser }>('/auth/handoff', { token }).then((r) => r.data.user)
+
+export const handoffRestarts = (err: unknown): boolean =>
+  (err as { response?: { data?: { restart?: unknown } } } | undefined)?.response?.data?.restart === true
+
+export const handoffStartUrl = (next?: string | null): string =>
+  `${API_BASE}/auth/handoff/start${next ? `?next=${encodeURIComponent(next)}` : ''}`

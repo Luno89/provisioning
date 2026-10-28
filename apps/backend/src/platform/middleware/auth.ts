@@ -94,7 +94,7 @@ export function createAuth({ db, sessionKey, publicUrl, role = 'combined', setup
         '/instances/monitoring',
         '/instances/move/self',
       ]),
-      ...(signsInThroughRoot(role) ? ['/auth/handoff', '/auth/sign-in'] : []),
+      ...(signsInThroughRoot(role) ? ['/auth/handoff', '/auth/handoff/start', '/auth/sign-in'] : []),
       '/machines/join',
       '/machines/agent.tgz',
       '/metrics',

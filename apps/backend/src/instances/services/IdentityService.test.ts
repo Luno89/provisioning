@@ -6,6 +6,7 @@ import { generateIdentityKey, identityKeysFrom, issueHandoff, publicKeyPem, trus
 import type { RoleConfig } from '../../platform/lib/platform-role.js';
 
 const signing = identityKeysFrom(generateIdentityKey());
+const N = 'nonce-held-by-this-browser-00001';
 const rootRole: RoleConfig = { role: 'root', signing };
 const instanceRole = (ownerId = 'u1', id = 'inst-u1'): RoleConfig => ({
   role: 'instance',
@@ -28,35 +29,35 @@ describe('signing in at root and landing on your own instance', () => {
     const root = new IdentityService(rootRole, rootDb, () => now);
     expect(await root.register({ id: 'inst-u1', ownerId: 'u1', url: 'https://u1.example.com/' })).toMatchObject({ ok: true });
 
-    const url = await root.handoffUrl({ id: 'u1', email: 'u1@example.com' });
+    const url = await root.handoffUrl({ id: 'u1', email: 'u1@example.com' }, undefined, N);
     expect(url).toMatch(/^https:\/\/u1\.example\.com\/#\/handoff\?token=/);
     const token = decodeURIComponent(url!.split('token=')[1]!);
 
     const instance = new IdentityService(instanceRole(), instanceDb, () => now + 3);
-    expect(await instance.acceptHandoff(token)).toEqual({ ok: true, user: { id: 'u1', email: 'u1@example.com' } });
+    expect(await instance.acceptHandoff(token, N)).toEqual({ ok: true, user: { id: 'u1', email: 'u1@example.com' } });
     expect(await instanceDb.accounts.getUserById('u1')).toMatchObject({ email: 'u1@example.com', isAdmin: true, emailVerified: true });
   });
 
   it('refuses the same token twice', async () => {
     const instance = new IdentityService(instanceRole(), instanceDb, () => now);
-    const token = issueHandoff(signing, { userId: 'u1', email: 'u1@example.com' }, 'inst-u1', now);
+    const token = issueHandoff(signing, { userId: 'u1', email: 'u1@example.com' }, 'inst-u1', now, N);
 
-    expect((await instance.acceptHandoff(token)).ok).toBe(true);
-    expect(await instance.acceptHandoff(token)).toMatchObject({ ok: false, status: 409, error: expect.stringMatching(/already been used/) });
+    expect((await instance.acceptHandoff(token, N)).ok).toBe(true);
+    expect(await instance.acceptHandoff(token, N)).toMatchObject({ ok: false, status: 409, error: expect.stringMatching(/already been used/) });
   });
 
   it('lets no one in but its owner, even with a token root really signed', async () => {
     const instance = new IdentityService(instanceRole('u1'), instanceDb, () => now);
-    const forSomeoneElse = issueHandoff(signing, { userId: 'u2', email: 'u2@example.com' }, 'inst-u1', now);
+    const forSomeoneElse = issueHandoff(signing, { userId: 'u2', email: 'u2@example.com' }, 'inst-u1', now, N);
 
-    expect(await instance.acceptHandoff(forSomeoneElse)).toMatchObject({ ok: false, status: 403 });
+    expect(await instance.acceptHandoff(forSomeoneElse, N)).toMatchObject({ ok: false, status: 403 });
     expect(await instanceDb.accounts.getUserById('u2')).toBeUndefined();
   });
 
   it('refuses a token meant for another instance, or one that has expired', async () => {
     const instance = new IdentityService(instanceRole(), instanceDb, () => now + 61);
-    expect(await instance.acceptHandoff(issueHandoff(signing, { userId: 'u1', email: 'e' }, 'inst-other', now))).toMatchObject({ status: 401, error: expect.stringMatching(/different instance/) });
-    expect(await instance.acceptHandoff(issueHandoff(signing, { userId: 'u1', email: 'e' }, 'inst-u1', now))).toMatchObject({ status: 401, error: expect.stringMatching(/expired/) });
+    expect(await instance.acceptHandoff(issueHandoff(signing, { userId: 'u1', email: 'e' }, 'inst-other', now, N), N)).toMatchObject({ status: 401, error: expect.stringMatching(/different instance/) });
+    expect(await instance.acceptHandoff(issueHandoff(signing, { userId: 'u1', email: 'e' }, 'inst-u1', now, N), N)).toMatchObject({ status: 401, error: expect.stringMatching(/expired/) });
   });
 
   it('issues nothing for a user with no instance, and takes no tokens when it is not an instance', async () => {
@@ -68,11 +69,11 @@ describe('signing in at root and landing on your own instance', () => {
   it('sends no one to an instance that is still being set up', async () => {
     const root = new IdentityService(rootRole, rootDb, () => now);
     await rootDb.instances.saveInstance({ id: 'inst-u1', ownerId: 'u1', url: '', createdAt: 'x', updatedAt: 'x', status: 'waiting' });
-    expect(await root.handoffUrl({ id: 'u1', email: 'e' })).toBeUndefined();
+    expect(await root.handoffUrl({ id: 'u1', email: 'e' }, undefined, N)).toBeUndefined();
     await rootDb.instances.saveInstance({ id: 'inst-u1', ownerId: 'u1', url: 'http://100.64.0.7:30320', createdAt: 'x', updatedAt: 'x', status: 'installing' });
-    expect(await root.handoffUrl({ id: 'u1', email: 'e' })).toBeUndefined();
+    expect(await root.handoffUrl({ id: 'u1', email: 'e' }, undefined, N)).toBeUndefined();
     await rootDb.instances.saveInstance({ id: 'inst-u1', ownerId: 'u1', url: 'http://100.64.0.7:30320', createdAt: 'x', updatedAt: 'x', status: 'ready' });
-    expect(await root.handoffUrl({ id: 'u1', email: 'e' })).toMatch(/^http:\/\/100\.64\.0\.7:30320\/#\/handoff/);
+    expect(await root.handoffUrl({ id: 'u1', email: 'e' }, undefined, N)).toMatch(/^http:\/\/100\.64\.0\.7:30320\/#\/handoff/);
   });
 
   it('keeps sending its owner to an instance while it upgrades itself and after it rolls a failed upgrade back', async () => {
@@ -81,10 +82,24 @@ describe('signing in at root and landing on your own instance', () => {
     const stored = (await rootDb.instances.getInstances('u1'))[0]!;
     expect(stored.servedAt).toBe('2026-10-23T01:00:00.000Z');
     await rootDb.instances.saveInstance({ ...stored, status: 'installing', detail: 'Upgrading from a to b', updatedAt: '2026-10-24T01:00:00.000Z' });
-    expect(await root.handoffUrl({ id: 'u1', email: 'e' })).toMatch(/^http:\/\/100\.64\.0\.7:30320\/#\/handoff/);
+    expect(await root.handoffUrl({ id: 'u1', email: 'e' }, undefined, N)).toMatch(/^http:\/\/100\.64\.0\.7:30320\/#\/handoff/);
     await rootDb.instances.saveInstance({ ...stored, status: 'failed', detail: 'The upgrade to b failed, so it was rolled back to a', updatedAt: '2026-10-24T02:00:00.000Z' });
-    expect(await root.handoffUrl({ id: 'u1', email: 'e' })).toMatch(/^http:\/\/100\.64\.0\.7:30320\/#\/handoff/);
+    expect(await root.handoffUrl({ id: 'u1', email: 'e' }, undefined, N)).toMatch(/^http:\/\/100\.64\.0\.7:30320\/#\/handoff/);
     expect((await rootDb.instances.getInstances('u1'))[0]!.servedAt).toBe('2026-10-23T01:00:00.000Z');
+  });
+
+  it('takes a token only in the browser holding its nonce, and asks for the sign-in to start here when root bound it to none', async () => {
+    const root = new IdentityService(rootRole, rootDb, () => now);
+    await root.register({ id: 'inst-u1', ownerId: 'u1', url: 'https://u1.example.com/' });
+    const tokenOf = async (nonce?: string) => decodeURIComponent((await root.handoffUrl({ id: 'u1', email: 'u1@example.com' }, undefined, nonce))!.split('token=')[1]!);
+    const instance = new IdentityService(instanceRole(), instanceDb, () => now);
+    expect(instance.handoffStartUrl(N)).toBe(`https://app.example.com/api/identity/go?nonce=${N}`);
+    expect(await instance.acceptHandoff(await tokenOf(), N)).toEqual({ ok: false, status: 401, error: 'this sign-in has to start here first', restart: true });
+    expect(await instance.acceptHandoff(await tokenOf('short'), N)).toMatchObject({ ok: false, restart: true });
+    const token = await tokenOf(N);
+    expect(await instance.acceptHandoff(token)).toMatchObject({ ok: false, status: 401, error: expect.stringMatching(/did not start in this browser/) });
+    expect(await instance.acceptHandoff(token, 'another-browser-holds-this-nonce')).toMatchObject({ ok: false, status: 401 });
+    expect((await instance.acceptHandoff(token, N)).ok).toBe(true);
   });
 
   it('registers one instance per user, at an origin', async () => {
@@ -101,22 +116,24 @@ describe('signing in at root and landing on the hub', () => {
 
   it('hands anyone root signs in to the hub, where they are a person and not an admin, and carries where they were going', async () => {
     const root = new IdentityService(linkedRoot, rootDb, () => now);
-    const url = await root.handoffUrl({ id: 'u7', email: 'cy@example.com' }, { hub: true, next: '/hub/join/abc' });
+    const url = await root.handoffUrl({ id: 'u7', email: 'cy@example.com' }, { hub: true, next: '/hub/join/abc' }, N);
     expect(url).toMatch(/^https:\/\/hub\.example\.com\/#\/handoff\?token=[^&]+&next=%2Fhub%2Fjoin%2Fabc$/);
     const token = decodeURIComponent(/token=([^&]+)/.exec(url!)![1]!);
 
     const hub = new IdentityService(hubRole, instanceDb, () => now);
-    expect(await hub.acceptHandoff(token)).toEqual({ ok: true, user: { id: 'u7', email: 'cy@example.com' } });
+    expect(await hub.acceptHandoff(token, N)).toEqual({ ok: true, user: { id: 'u7', email: 'cy@example.com' } });
     expect(await instanceDb.accounts.getUserById('u7')).toMatchObject({ email: 'cy@example.com', isAdmin: false });
-    expect(await hub.acceptHandoff(token)).toMatchObject({ ok: false, status: 409 });
+    expect(await hub.acceptHandoff(token, N)).toMatchObject({ ok: false, status: 409 });
     expect(hub.signInUrl()).toBe('https://app.example.com/api/identity/go?to=hub');
+    expect(hub.handoffStartUrl(N, '/hub/join/abc')).toBe(`https://app.example.com/api/identity/go?to=hub&nonce=${N}&next=%2Fhub%2Fjoin%2Fabc`);
+    expect(hub.handoffStartUrl(N, '//evil.example.com')).toBe(`https://app.example.com/api/identity/go?to=hub&nonce=${N}`);
   });
 
   it('refuses a token root signed for an instance, sends nowhere a path that leaves the hub, and has no hub to send to without one', async () => {
     const hub = new IdentityService(hubRole, instanceDb, () => now);
-    expect(await hub.acceptHandoff(issueHandoff(signing, { userId: 'u1', email: 'a@example.com' }, 'inst-u1', now))).toMatchObject({ ok: false, status: 401 });
+    expect(await hub.acceptHandoff(issueHandoff(signing, { userId: 'u1', email: 'a@example.com' }, 'inst-u1', now, N), N)).toMatchObject({ ok: false, status: 401 });
     const root = new IdentityService(linkedRoot, rootDb, () => now);
-    expect(await root.handoffUrl({ id: 'u7', email: 'cy@example.com' }, { hub: true, next: '//evil.example.com' })).not.toContain('next=');
+    expect(await root.handoffUrl({ id: 'u7', email: 'cy@example.com' }, { hub: true, next: '//evil.example.com' }, N)).not.toContain('next=');
     expect(await new IdentityService(rootRole, rootDb, () => now).handoffUrl({ id: 'u7', email: 'cy@example.com' }, { hub: true })).toBeUndefined();
   });
 });

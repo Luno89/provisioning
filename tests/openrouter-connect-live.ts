@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { call, devSplitEnv, handoffToken, signInAtInstance, signInAtRoot } from './lib/dev-split-session.js';
+import { call, devSplitEnv, signInAtInstance, signInAtRoot } from './lib/dev-split-session.js';
 
 const step = (message: string) => console.log(`\n▶ ${message}`);
 
@@ -10,10 +10,9 @@ async function main(): Promise<void> {
   const instanceUrl = instance.PUBLIC_URL!;
 
   step('signed in on the instance through root');
-  const { token } = await handoffToken(root.PUBLIC_URL!, await signInAtRoot(root.PUBLIC_URL!));
-  const signedIn = await signInAtInstance(instanceUrl, token);
-  assert.equal(signedIn.status, 200, JSON.stringify(signedIn.body));
-  const session = signedIn.cookie!;
+  const signedIn = await signInAtInstance(root.PUBLIC_URL!, await signInAtRoot(root.PUBLIC_URL!), instanceUrl);
+  assert.equal(signedIn.exchange.status, 200, signedIn.exchange.body);
+  const session = signedIn.session!;
   const openRouterNow = async () => ((await call(`${instanceUrl}/api/credentials/llm`, { cookie: session })).body as { providers: Provider[] }).providers.find((one) => one.provider === 'openrouter')!;
   const before = await openRouterNow();
   console.log(`  OpenRouter now: ${before.modelCount} models, ${before.hasKey ? 'with' : 'without'} a key`);

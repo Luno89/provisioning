@@ -1,4 +1,4 @@
-import type { Database, RoleConfig } from '../../platform/index.js';
+import { handoffNonceShaped, sameHandoffNonce, type Database, type RoleConfig } from '../../platform/index.js';
 import { checkHandoff, issueHandoff, publicKeyPem, type HandoffCheck } from '../lib/identity-token.js';
 import { inService, instanceProblem, type InstanceRecord } from '../lib/instances.js';
 import { HUB_AUDIENCE } from '../../hub/lib/hub.js';
@@ -7,7 +7,7 @@ type Store = Pick<Database, 'instances' | 'accounts'>;
 
 export type HandoffOutcome =
   | { ok: true; user: { id: string; email: string } }
-  | { ok: false; status: 400 | 401 | 403 | 409; error: string };
+  | { ok: false; status: 400 | 401 | 403 | 409; error: string; restart?: true };
 
 const REFUSALS: Record<Exclude<HandoffCheck, { ok: true }>['reason'], string> = {
   malformed: 'that is not a sign-in token',
@@ -33,18 +33,25 @@ export class IdentityService {
     return (await this.store.instances.getInstances(ownerId)).find((instance) => instance.url && inService(instance));
   }
 
-  async handoffUrl(user: { id: string; email: string }, to?: { hub: true; next?: string | undefined }): Promise<string | undefined> {
+  async handoffUrl(user: { id: string; email: string }, to?: { hub: true; next?: string | undefined }, nonce?: unknown): Promise<string | undefined> {
     if (!this.role.signing) return undefined;
+    const bound = handoffNonceShaped(nonce) ? nonce : undefined;
     if (to?.hub) {
       if (!this.role.hubLink) return undefined;
-      const token = issueHandoff(this.role.signing, { userId: user.id, email: user.email }, HUB_AUDIENCE, this.now());
+      const token = issueHandoff(this.role.signing, { userId: user.id, email: user.email }, HUB_AUDIENCE, this.now(), bound);
       const next = to.next && /^\/[^/\\]/.test(to.next) ? `&next=${encodeURIComponent(to.next)}` : '';
       return `${this.role.hubLink.url}/#/handoff?token=${encodeURIComponent(token)}${next}`;
     }
     const instance = await this.instanceOf(user.id);
     if (!instance) return undefined;
-    const token = issueHandoff(this.role.signing, { userId: user.id, email: user.email }, instance.id, this.now());
+    const token = issueHandoff(this.role.signing, { userId: user.id, email: user.email }, instance.id, this.now(), bound);
     return `${instance.url.replace(/\/+$/, '')}/#/handoff?token=${encodeURIComponent(token)}`;
+  }
+
+  handoffStartUrl(nonce: string, next?: unknown): string | undefined {
+    const going = typeof next === 'string' && /^\/[^/\\]/.test(next) ? `&next=${encodeURIComponent(next)}` : '';
+    if (this.role.hub) return `${this.role.hub.rootUrl}/api/identity/go?to=hub&nonce=${nonce}${going}`;
+    return this.role.instance ? `${this.role.instance.rootUrl}/api/identity/go?nonce=${nonce}` : undefined;
   }
 
   signInUrl(): string | undefined {
@@ -60,7 +67,7 @@ export class IdentityService {
     return this.role.instance ? `${this.role.instance.rootUrl}/#/remove-account` : undefined;
   }
 
-  async acceptHandoff(token: unknown): Promise<HandoffOutcome> {
+  async acceptHandoff(token: unknown, heldNonce?: string): Promise<HandoffOutcome> {
     const instance = this.role.instance;
     const hub = this.role.role === 'hub';
     if ((!instance && !hub) || !this.role.trusted) return { ok: false, status: 400, error: 'this server is not an instance, so it takes no sign-in tokens' };
@@ -69,6 +76,8 @@ export class IdentityService {
     const check = checkHandoff(token, this.role.trusted, hub ? HUB_AUDIENCE : instance!.id, this.now());
     if (!check.ok) return { ok: false, status: 401, error: REFUSALS[check.reason] };
     if (!hub && check.claims.sub !== instance!.ownerId) return { ok: false, status: 403, error: 'this instance belongs to someone else' };
+    if (check.claims.nonce === undefined) return { ok: false, status: 401, error: 'this sign-in has to start here first', restart: true };
+    if (!sameHandoffNonce(heldNonce, check.claims.nonce)) return { ok: false, status: 401, error: 'that sign-in did not start in this browser — sign in again from here' };
     if (!await this.store.instances.claimHandoff(check.claims.jti, new Date(check.claims.exp * 1000).toISOString())) {
       return { ok: false, status: 409, error: 'that sign-in token has already been used — sign in again' };
     }

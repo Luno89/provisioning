@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Loader2 } from 'lucide-react'
-import { exchangeHandoff, signInElsewhere, type SessionUser } from '../../platform'
+import { exchangeHandoff, handoffRestarts, handoffStartUrl, signInElsewhere, type SessionUser } from '../../platform'
 import { errorMessage } from '../../../api/client'
 import { safeNext } from '../../hub'
 import { safeHref } from '../../../shared/lib/safe-href'
@@ -23,7 +23,11 @@ export default function HandoffPage({ token, next, onSignedIn }: HandoffPageProp
         window.history.replaceState(null, '', `#${safeNext(next) ?? (user.onHub ? '/shared' : '/chat')}`)
         onSignedIn(user)
       })
-      .catch((err: unknown) => { if (!cancelled) setFailure(errorMessage(err)) })
+      .catch((err: unknown) => {
+        if (cancelled) return
+        if (handoffRestarts(err)) window.location.assign(handoffStartUrl(safeNext(next)))
+        else setFailure(errorMessage(err))
+      })
     return () => { cancelled = true }
   }, [token, next, onSignedIn])
 
