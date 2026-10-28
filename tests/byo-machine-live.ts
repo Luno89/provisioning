@@ -157,7 +157,7 @@ async function main(): Promise<void> {
   await inVm(vm, 'sudo k3s kubectl -n nowrinkles create job --from=cronjob/instance-self-upgrade self-upgrade-now && sudo k3s kubectl -n nowrinkles wait --for=condition=complete job/self-upgrade-now --timeout=300s');
   const after = (await (await asOwner('/api/instances/mine')).json() as { instance: { status: string; detail?: string } }).instance;
   assert.equal(after.status, 'ready');
-  assert.equal(after.detail, 'Running dev');
+  assert.equal(after.detail, `Running ${TAG}`);
 
   const kubectl = (args: string) => inVm(vm!, `sudo k3s kubectl -n nowrinkles ${args}`);
   const backendImage = async () => (await kubectl("get deploy instance-backend -o jsonpath='{.spec.template.spec.containers[0].image}'")).trim();
