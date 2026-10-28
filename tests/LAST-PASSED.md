@@ -4,13 +4,13 @@ Written by `tests/lib/run-live.ts`, which every `npm run test:*-live` and `test:
 
 | Script | Last passed | Last failed |
 |---|---|---|
-| `account-removal-live` | 2026-10-28 03:20 | 2026-10-24 05:47 |
-| `app-names-live` | 2026-10-28 03:24 | 2026-10-22 21:33 |
+| `account-removal-live` | 2026-10-28 11:10 | 2026-10-24 05:47 |
+| `app-names-live` | 2026-10-28 11:13 | 2026-10-22 21:33 |
 | `app-sign-in-live` | 2026-10-27 22:24 | 2026-10-27 22:22 |
 | `byo-machine-live` | 2026-10-28 02:57 | 2026-10-28 02:25 |
-| `checks-live` | 2026-10-28 04:10 | 2026-10-26 18:01 |
-| `files-live` | 2026-10-28 03:26 | — |
-| `hub-live` | 2026-10-28 03:20 | 2026-10-24 18:21 |
+| `checks-live` | 2026-10-28 12:01 | 2026-10-26 18:01 |
+| `files-live` | 2026-10-28 11:15 | — |
+| `hub-live` | 2026-10-28 11:10 | 2026-10-24 18:21 |
 | `infra-integration` | 2026-10-24 14:25 | 2026-10-24 14:12 |
 | `instance-live` | 2026-10-28 01:06 | 2026-10-28 01:00 |
 | `machine-chat-live` | 2026-10-28 02:48 | — |
@@ -18,9 +18,9 @@ Written by `tests/lib/run-live.ts`, which every `npm run test:*-live` and `test:
 | `machine-live` | 2026-10-28 02:04 | 2026-10-28 02:02 |
 | `mail-live` | 2026-10-26 14:08 | — |
 | `mesh-live` | 2026-10-28 03:11 | 2026-10-28 02:39 |
-| `odoo-release-live` | 2026-10-28 03:50 | 2026-10-28 03:15 |
-| `project-sharing-live` | 2026-10-28 03:21 | 2026-10-22 13:53 |
+| `odoo-release-live` | 2026-10-28 11:42 | 2026-10-28 03:15 |
+| `project-sharing-live` | 2026-10-28 11:11 | 2026-10-22 13:53 |
 | `release-live` | 2026-10-26 18:43 | 2026-10-26 18:13 |
-| `routes-live` | 2026-10-28 03:20 | 2026-10-24 05:15 |
+| `routes-live` | 2026-10-28 11:10 | 2026-10-24 05:15 |
 | `routing-live` | 2026-10-27 01:22 | 2026-10-22 20:20 |
-| `telemetry-live` | 2026-10-28 03:22 | — |
+| `telemetry-live` | 2026-10-28 11:11 | — |
