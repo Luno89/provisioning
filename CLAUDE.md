@@ -673,7 +673,9 @@ Share says so. `npm run test:project-sharing-live` proves it combined.
 
 **Trial instances on Koala's servers (the pool, per-user instances step 5c; plan `~/.claude/plans/pool-instances.md`).**
 Someone with no machine of their own can try Koala on a **pool node**: root's own k3s (`bootstrap.sh` sets it up) or a server of
-its own (`scripts/root-node/pool-node.sh`: k3s, the mesh as `tag:pool`, root's registry, gVisor). Root offers it on the "no
+its own (`scripts/root-node/pool-node.sh`: k3s, the mesh as `tag:pool`, root's registry, gVisor, and the narrow `koala-backend` account of
+`k8s/root-backend/account.yaml`, which root's backend reaches it with from `/etc/koala/pool-backend-kubeconfig` while only the workers hold the admin
+`POOL_KUBECONFIG`). Root offers it on the "no
 instance yet" page while a slot is free (`POOL_SLOTS`, from the node's memory) and only with `POOL_ADDRESS` (the node's mesh
 address), `POOL_KUBECONFIG` and `INGRESS_DOMAIN` set (`poolSettingsFrom` in `instances/lib/pool.ts`). `PoolInstanceWorkflow` (host
 worker, `POOL_TASK_QUEUE`):

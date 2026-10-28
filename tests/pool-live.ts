@@ -179,29 +179,36 @@ async function main(): Promise<void> {
   step('a disposable VM becomes a pool node through scripts/root-node/pool-node.sh: k3s, the mesh as tag:pool, root\'s registry, gVisor');
   vm = await createDisposableVm('pool-live', { memoryMB: 16384, cpus: 6, diskGB: 80, network: GUEST_NETWORK });
   toVm(vm, [join(REPO, 'scripts/root-node/pool-node.sh'), join(REPO, 'scripts/root-node/gvisor.sh'), GVISOR_TARBALL], '/tmp/');
+  toVm(vm, [join(REPO, 'k8s/root-backend/account.yaml')], '/tmp/koala-backend-account.yaml');
   await inVm(vm, 'which zstd >/dev/null || sudo apt-get install -y -qq zstd >/dev/null');
   await inVm(vm, `sudo sh /tmp/pool-node.sh --login-server http://${HOST_FOR_GUEST}:8080 --authkey ${meshKey('tag:pool')} --registry ${HOST_FOR_GUEST}:5001 --gvisor-tarball /tmp/gvisor.tar.zstd --yes`, true);
   const poolIp = (await inVm(vm, 'tailscale ip -4')).trim().split('\n')[0]!;
   const kubeconfig = (await inVm(vm, 'sudo cat /etc/rancher/k3s/k3s.yaml')).replace('server: https://127.0.0.1:6443', `server: https://127.0.0.1:${vm.k3sApiPort}`);
   const kubeconfigPath = join(work, 'pool-kubeconfig.yaml');
   writeFileSync(kubeconfigPath, kubeconfig, { mode: 0o600 });
+  const backendKubeconfig = (await inVm(vm, 'sudo cat /root/pool-backend-kubeconfig.yaml')).replace(`server: https://${poolIp}:6443`, `server: https://127.0.0.1:${vm.k3sApiPort}`);
+  assert.match(backendKubeconfig, /user: koala-backend/, 'pool-node.sh wrote no narrow account for root\'s backend');
+  const backendKubeconfigPath = join(work, 'pool-backend-kubeconfig.yaml');
+  writeFileSync(backendKubeconfigPath, backendKubeconfig, { mode: 0o600 });
   const pool = (args: string[]) => run(join(REPO, 'bin/kubectl'), ['--kubeconfig', kubeconfigPath, ...args]);
-  console.log(`  the pool node is ${poolIp} on the mesh`);
+  const asBackend = (args: string[]) => run(join(REPO, 'bin/kubectl'), ['--kubeconfig', backendKubeconfigPath, ...args]).trim();
+  assert.equal(asBackend(['auth', 'can-i', 'create', 'namespaces']), 'no', 'root\'s backend could make namespaces on the pool node');
+  assert.equal(asBackend(['auth', 'can-i', 'get', 'secrets', '-A']), 'no', 'root\'s backend could read the pool node\'s secrets');
+  console.log(`  the pool node is ${poolIp} on the mesh; root's backend reaches it as koala-backend, which may neither make namespaces nor read secrets`);
 
   step('root starts with the pool on that node, and its host worker takes the pool\'s work');
   const poolEnv = ['-e', `POOL_ADDRESS=${poolIp}`, '-e', 'POOL_SLOTS=1', '-e', 'POOL_KUBECONFIG=/pool/kubeconfig.yaml',
-    '-e', `POOL_IMAGE=${HOST_FOR_GUEST}:5001/nowrinkles/app`, '-e', `POOL_IMAGE_TAG=${TAG}`, '-e', 'POOL_SLOT_MEMORY_MIB=10240', '-e', 'POOL_TRIAL_DAYS=14',
-    '-v', `${kubeconfigPath}:/pool/kubeconfig.yaml:ro`];
+    '-e', `POOL_IMAGE=${HOST_FOR_GUEST}:5001/nowrinkles/app`, '-e', `POOL_IMAGE_TAG=${TAG}`, '-e', 'POOL_SLOT_MEMORY_MIB=10240', '-e', 'POOL_TRIAL_DAYS=14'];
   const rootEnv = ['--network', 'host', '--env-file', 'apps/backend/.env', ...ROOT.env, ...devTemporalCa(),
     ...SECRET_FILES.flatMap((file) => ['-v', `${join(REPO, 'apps/backend/data', file)}:/app/apps/backend/data/${file}:ro`]),
     '-e', 'ROLE=root', '-e', `PUBLIC_URL=${ROOT_FOR_GUEST}`, '-e', `INGRESS_DOMAIN=${DOMAIN}`, '-e', `APP_DOMAIN=app.${ROOT_DOMAIN}`, '-e', `MESH_DOMAIN=mesh.${ROOT_DOMAIN}`,
     '-e', `MESH_LOGIN_SERVER=http://${HOST_FOR_GUEST}:8080`, '-e', `INSTANCE_REGISTRY=${HOST_FOR_GUEST}:5001`, '-e', `INSTANCE_IMAGE_TAG=${TAG}`, '-e', `MAIL_SMTP_URL=smtp://127.0.0.1:${MAILPIT_SMTP}`, ...poolEnv];
-  run('docker', ['run', '-d', '--name', CONTAINERS.root, ...rootEnv, '--group-add', String(statSync('/var/run/docker.sock').gid), '-v', `${caddyDir}:/app/apps/backend/data/caddy`,
+  run('docker', ['run', '-d', '--name', CONTAINERS.root, ...rootEnv, '-v', `${backendKubeconfigPath}:/pool/kubeconfig.yaml:ro`, '--group-add', String(statSync('/var/run/docker.sock').gid), '-v', `${caddyDir}:/app/apps/backend/data/caddy`,
     '-v', '/var/run/docker.sock:/var/run/docker.sock', '-e', `PORT=${ROOT_PORT}`,
     '-v', `${caddyAdmin}:/run/koala-caddy`, '-v', `${caddyLog}:/var/log/koala-caddy:ro`,
     '-v', `${join(REPO, 'Caddyfile')}:/etc/koala/Caddyfile:ro`, '-e', 'CADDY_CONFIG=/etc/koala/Caddyfile',
     '-e', 'CADDY_ADMIN_SOCKET=/run/koala-caddy/admin.sock', '-e', 'CADDY_LOG=/var/log/koala-caddy/caddy.log', '-e', `CADDY_TLS_ADDRESS=127.0.0.1:${TLS_PORT}`, IMAGE, 'backend']);
-  run('docker', ['run', '-d', '--name', CONTAINERS.worker, ...rootEnv, ...workerEnv(ROOT), IMAGE, 'worker-host']);
+  run('docker', ['run', '-d', '--name', CONTAINERS.worker, ...rootEnv, '-v', `${kubeconfigPath}:/pool/kubeconfig.yaml:ro`, ...workerEnv(ROOT), IMAGE, 'worker-host']);
   await until('root answering', async () => ((await fetch(`${ROOT_FOR_HOST}/api/identity/keys`)).ok ? true : undefined));
   const owner = await firstAdmin(ROOT_FOR_HOST, ROOT);
   ownerId = owner.id;

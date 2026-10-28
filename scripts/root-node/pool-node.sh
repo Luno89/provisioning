@@ -8,6 +8,8 @@ TARBALL=""
 YES=0
 HERE="$(cd "$(dirname "$0")" && pwd)"
 KUBECONFIG_OUT=/root/pool-kubeconfig.yaml
+BACKEND_OUT=/root/pool-backend-kubeconfig.yaml
+ACCOUNT="$HERE/koala-backend-account.yaml"
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -26,6 +28,7 @@ ok() { printf '  \033[32m✓\033[0m %s\n' "$1"; }
 die() { printf '  \033[31m✗\033[0m %s\n' "$1" >&2; exit 1; }
 
 [ "$(id -u)" = 0 ] || die "run this as root"
+[ -s "$ACCOUNT" ] || die "copy k8s/root-backend/account.yaml from the checkout to $ACCOUNT first: it is the narrow account root's backend reaches this node with"
 [ -n "$LOGIN_SERVER" ] && [ -n "$AUTHKEY" ] && [ -n "$REGISTRY" ] || die "usage: pool-node.sh --login-server <headscale url> --authkey <tag:pool key> --registry <root registry host:port> [--gvisor-tarball <file>] [--yes]"
 
 say "k3s"
@@ -82,7 +85,39 @@ set --
 [ "$YES" = 1 ] && set -- "$@" --yes
 sh "$HERE/gvisor.sh" "$@"
 
+say "Root's backend's own account"
+k3s kubectl apply -f "$ACCOUNT" >/dev/null
+TOKEN=""
+for _ in $(seq 1 60); do
+  TOKEN="$(k3s kubectl -n kube-system get secret koala-backend-token -o jsonpath='{.data.token}' 2>/dev/null | base64 -d 2>/dev/null || true)"
+  [ -n "$TOKEN" ] && break
+  sleep 1
+done
+[ -n "$TOKEN" ] || die "the node gave the koala-backend account no token"
+CA="$(k3s kubectl config view --raw -o jsonpath='{.clusters[0].cluster.certificate-authority-data}')"
+( umask 077; cat > "$BACKEND_OUT" <<CONF
+apiVersion: v1
+kind: Config
+clusters:
+  - name: pool
+    cluster:
+      server: https://$MESH_IP:6443
+      certificate-authority-data: $CA
+users:
+  - name: koala-backend
+    user:
+      token: $TOKEN
+contexts:
+  - name: koala-backend
+    context:
+      cluster: pool
+      user: koala-backend
+current-context: koala-backend
+CONF
+)
+ok "koala-backend may read the pool's Prometheus and, in each trial's namespace, what the workers bind it to"
+
 say "For root"
 sed "s|server: https://127.0.0.1:6443|server: https://$MESH_IP:6443|" /etc/rancher/k3s/k3s.yaml > "$KUBECONFIG_OUT"
 chmod 600 "$KUBECONFIG_OUT"
-ok "copy $KUBECONFIG_OUT to root as POOL_KUBECONFIG, and set POOL_ADDRESS=$MESH_IP"
+ok "copy $KUBECONFIG_OUT to root as POOL_KUBECONFIG (the workers' only), $BACKEND_OUT to root's /etc/koala/pool-backend-kubeconfig (the backend's), and set POOL_ADDRESS=$MESH_IP"
