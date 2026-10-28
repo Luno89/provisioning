@@ -1735,7 +1735,7 @@ its SHA-256, `tokenHash`, by which a link is found, and sealed with `DATA_KEY` s
 own, and the startup migration `share-tokens-sealed` moved the links stored under their token) (`/share/` in the guard's public prefixes), streamed from MinIO, so MinIO is never exposed.
   Revoked from Settings → Files; expired ones are removed when opened; a project's go with it. Every person's file and every artifact is served
   with `nosniff` and a sandboxing CSP, and shown in the page only when it is an image (never SVG), video, audio, plain text, CSV,
-  Markdown, JSON or a PDF (which alone goes without the sandbox, which its viewer refuses); anything else downloads, whatever type
+  Markdown, JSON or a PDF (which alone goes without the sandbox, which its viewer refuses, its policy only `frame-ancestors 'self'`, so the page's own policy never stops Koala's preview framing it); anything else downloads, whatever type
   its uploader gave it, and the type sent is the one Koala judged, never the uploader's string (`servedType` in `files/lib/file-serving.ts`).
 - **A story's page** takes both: **Code for this story** goes to the story's checkout (`StoryDropService`, recorded as `drops` on
   the story): committed on its own branch `drop/<story>/<id>` from `main`, merged into the story's worktree at once when it

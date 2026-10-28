@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { servingHeaders, UNTRUSTED_FILE_POLICY } from './file-serving.js';
+import { servingHeaders, SHOWN_PDF_POLICY, UNTRUSTED_FILE_POLICY } from './file-serving.js';
 
 describe('serving a person\'s file', () => {
   it('never shows a file that could run script, whatever it calls itself, and lets it run none', () => {
@@ -24,7 +24,7 @@ describe('serving a person\'s file', () => {
   });
 
   it('shows a PDF without the sandbox, which the browser\'s viewer refuses', () => {
-    expect(servingHeaders('application/pdf', 'brief.pdf', true)).toEqual({ 'Content-Type': 'application/pdf', 'Content-Disposition': "inline; filename*=UTF-8''brief.pdf", 'X-Content-Type-Options': 'nosniff' });
+    expect(servingHeaders('application/pdf', 'brief.pdf', true)).toEqual({ 'Content-Type': 'application/pdf', 'Content-Disposition': "inline; filename*=UTF-8''brief.pdf", 'X-Content-Type-Options': 'nosniff', 'Content-Security-Policy': SHOWN_PDF_POLICY });
     expect(servingHeaders('application/pdf', 'brief.pdf', false)['Content-Security-Policy']).toBe(UNTRUSTED_FILE_POLICY);
   });
 

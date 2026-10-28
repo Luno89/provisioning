@@ -1,5 +1,7 @@
 export const UNTRUSTED_FILE_POLICY = "default-src 'none'; img-src 'self' data:; media-src 'self'; style-src 'unsafe-inline'; sandbox";
 
+export const SHOWN_PDF_POLICY = "frame-ancestors 'self'";
+
 const SHOWN_INLINE = /^(image\/(png|jpeg|gif|webp|avif|bmp)|video\/[a-z0-9.-]+|audio\/[a-z0-9.-]+|text\/(plain|csv|markdown)|application\/(json|pdf))$/;
 
 const MEDIA_TYPE = /^[a-z0-9][a-z0-9!#$&^_.+-]*\/[a-z0-9][a-z0-9!#$&^_.+-]*$/;
@@ -18,6 +20,6 @@ export function servingHeaders(contentType: string, name: string, inline: boolea
     'Content-Type': served,
     'Content-Disposition': `${shown ? 'inline' : 'attachment'}; filename*=UTF-8''${encodeURIComponent(name)}`,
     'X-Content-Type-Options': 'nosniff',
-    ...(shown && type === 'application/pdf' ? {} : { 'Content-Security-Policy': UNTRUSTED_FILE_POLICY }),
+    'Content-Security-Policy': shown && type === 'application/pdf' ? SHOWN_PDF_POLICY : UNTRUSTED_FILE_POLICY,
   };
 }

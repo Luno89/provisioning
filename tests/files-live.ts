@@ -112,7 +112,7 @@ async function exercise(scope: string, label: string): Promise<void> {
 
   const shown = await api!.get(`/files/${scope}/content`, { params: { path: 'archive/docs/brief.pdf', inline: '1' } });
   assert.match(String(shown.headers['content-disposition']), /^inline;/, 'the PDF was not shown in the page');
-  assert.equal(shown.headers['content-security-policy'], undefined, 'the PDF was sandboxed, which its viewer refuses');
+  assert.equal(shown.headers['content-security-policy'], "frame-ancestors 'self'", `the PDF's policy would stop the page showing it, or sandbox it, which its viewer refuses: ${String(shown.headers['content-security-policy'])}`);
   const svg = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"><script>parent.alert(document.cookie)</script></svg>');
   for (const [path, type] of [['drawn.svg', 'image/svg+xml'], ['feed.rss', 'application/rss+xml'], ['page.txt', 'text/html']] as const) {
     assert.equal((await put(scope, path, svg, type)).status, 201);
@@ -133,7 +133,7 @@ async function exercise(scope: string, label: string): Promise<void> {
   assert.equal((await axios.get(tiedLink, { proxy: false, validateStatus: () => true })).status, 404, 'a link served a file put at its path after it was made');
   assert.equal((await api!.delete(`/files/shares/${(tied.data as { id: string }).id}`)).status, 200);
   for (const path of ['drawn.svg', 'feed.rss', 'page.txt']) assert.equal((await api!.delete(`/files/${scope}/content`, { params: { path } })).status, 200);
-  console.log('  the PDF shows in the page; an SVG, an RSS feed and a file calling itself HTML only download, sandboxed, a share link of one too; a link opens nothing once its file is replaced');
+  console.log('  the PDF shows in the page, its policy letting only Koala's own page frame it; an SVG, an RSS feed and a file calling itself HTML only download, sandboxed, a share link of one too; a link opens nothing once its file is replaced');
 }
 
 async function main(): Promise<void> {
