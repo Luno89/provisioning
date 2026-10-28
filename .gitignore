@@ -57,6 +57,7 @@ cdktf.out/
 # re-downloaded on demand if missing — see tests/lib/disposable-vm.ts)
 /tests/.vm-cache/
 /tests/.vm-work/
+/tests/.vm-logs/
 
 # rclone remotes/passwords (contains the crypt password if not using the OS keyring)
 /rclone.conf

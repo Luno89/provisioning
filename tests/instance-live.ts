@@ -9,11 +9,13 @@ import { loadKeys } from '../apps/backend/src/platform/lib/keys.js';
 import { signJWT } from '../apps/backend/src/platform/lib/auth.js';
 import { devTemporalCa } from './lib/dev-temporal.js';
 import { fetchSide, handOff } from './lib/handoff.js';
+import { signUp } from './lib/sign-up.js';
+import { dropSuiteDatabase, firstAdmin, forgetMeshUser, suiteRoot, workerEnv } from './lib/suite-root.js';
 
 const REPO = resolve(new URL('.', import.meta.url).pathname, '..');
 dotenv.config({ path: join(REPO, 'apps/backend/.env') });
 
-const OWNER = process.env.INSTANCE_LIVE_OWNER ?? process.env.GROVE_LIVE_OWNER;
+const ROOT = suiteRoot('instance-live', 9471);
 const KEEP = process.argv.includes('--keep');
 const CLUSTER = 'inst-live';
 const ROOT_PORT = 3211;
@@ -22,6 +24,8 @@ const ROOT_URL = `http://localhost:${ROOT_PORT}`;
 const INSTANCE_URL = `http://127.0.0.1:${INSTANCE_PORT}`;
 const IMAGE = 'nowrinkles/app:dev';
 const MAILBOX = 'nw-live-mailbox';
+const WORKER = 'nw-live-worker';
+const SECRET_FILES = ['.gitea-admin-password', '.gitea-admin-token', '.headscale-api-key', '.infisical-admin-password', '.infisical-machine-identity', '.infisical-encryption-key', '.infisical-postgres-password', '.infisical-redis-password'];
 const MAILPIT_IMAGE = 'axllent/mailpit:v1.21.0';
 const MAILPIT_SMTP = 11027;
 const MAILPIT_API = 18028;
@@ -44,19 +48,17 @@ async function until<T>(what: string, minutes: number, probe: () => Promise<T | 
   }
 }
 
-function teardown(): void {
+async function teardown(): Promise<void> {
   if (KEEP) {
-    console.log(`\nkept: ${INSTANCE_URL} (cluster ${CLUSTER}, root container nw-live-root)`);
+    console.log(`\nkept: ${INSTANCE_URL} (cluster ${CLUSTER}, root container nw-live-root, database ${ROOT.database})`);
     return;
   }
-  try { run('docker', ['rm', '-f', 'nw-live-root']); } catch { /* not running */ }
-  try { run('docker', ['rm', '-f', MAILBOX]); } catch { /* not running */ }
+  for (const name of ['nw-live-root', WORKER, MAILBOX]) try { run('docker', ['rm', '-f', name]); } catch { /* not running */ }
   try { run(bin('k3d'), ['cluster', 'delete', CLUSTER]); } catch { /* not created */ }
-  try { run('npm', ['run', 'instances', '--silent', '-w', 'apps/backend', '--', 'remove', 'inst-live']); } catch { /* not registered */ }
+  await dropSuiteDatabase(ROOT).catch(() => undefined);
 }
 
 async function main(): Promise<void> {
-  assert.ok(OWNER, 'set INSTANCE_LIVE_OWNER (or GROVE_LIVE_OWNER) to the user who will own the instance');
   run('docker', ['image', 'inspect', IMAGE]);
 
   step(`a fresh cluster, ${CLUSTER}, stands in for the owner's own k3s`);
@@ -67,24 +69,29 @@ async function main(): Promise<void> {
   step('root starts, and publishes its public key');
   try { run('docker', ['rm', '-f', MAILBOX]); } catch { /* not running */ }
   run('docker', ['run', '-d', '--name', MAILBOX, '-p', `127.0.0.1:${MAILPIT_SMTP}:1025`, '-p', `127.0.0.1:${MAILPIT_API}:8025`, MAILPIT_IMAGE]);
-  run('docker', ['run', '-d', '--name', 'nw-live-root', '--network', 'host', '--env-file', 'apps/backend/.env', ...devTemporalCa(), '-e', 'ROLE=root', '-e', `PORT=${ROOT_PORT}`,
+  run('docker', ['run', '-d', '--name', 'nw-live-root', '--network', 'host', '--env-file', 'apps/backend/.env', ...ROOT.env, ...devTemporalCa(), '-e', 'ROLE=root', '-e', `PORT=${ROOT_PORT}`,
     '-e', `MAIL_SMTP_URL=smtp://127.0.0.1:${MAILPIT_SMTP}`, '-e', 'MAIL_FROM=koala@instance-live.test', IMAGE, 'backend']);
+  run('docker', ['run', '-d', '--name', WORKER, '--network', 'host', '--env-file', 'apps/backend/.env', ...ROOT.env, ...devTemporalCa(),
+    ...SECRET_FILES.flatMap((file) => ['-v', `${join(REPO, 'apps/backend/data', file)}:/app/apps/backend/data/${file}:ro`]), ...workerEnv(ROOT), IMAGE, 'worker-host']);
   const keys = await until('root answering', 3, async () => {
     const response = await fetch(`${ROOT_URL}/api/identity/keys`);
     return response.ok ? (await response.json() as { keys: { publicKey: string }[] }).keys : undefined;
   });
   const publicKeyFile = join(work, 'root.pub');
   writeFileSync(publicKeyFile, keys[0]!.publicKey);
+  const owner = await firstAdmin(ROOT_URL, ROOT);
+  const OWNER = owner.id;
+  const instances = (args: string[]) => run('npm', ['run', 'instances', '--silent', '-w', 'apps/backend', '--', ...args], { MONGO_URI: ROOT.mongoUri });
 
   step('the chart installs the instance, and its setup jobs install the services it uses');
   run(bin('helm'), ['install', 'live', 'charts/instance', '--namespace', 'nowrinkles', '--create-namespace',
     '--set', 'instance.id=inst-live', '--set', `instance.ownerId=${OWNER}`, '--set', `instance.rootUrl=${ROOT_URL}`,
     '--set-file', `instance.rootPublicKeys=${publicKeyFile}`, '--set', `publicUrl=${INSTANCE_URL}`,
     '--set', 'backend.nodePort=30320', '--set', 'hostDocker=false', '--timeout', '30m'], { KUBECONFIG });
-  run('npm', ['run', 'instances', '--silent', '-w', 'apps/backend', '--', 'add', 'inst-live', OWNER, INSTANCE_URL]);
+  instances(['add', 'inst-live', OWNER, INSTANCE_URL]);
 
   step('the owner signs in at root and is handed to their instance');
-  const rootSession = signJWT({ userId: OWNER, email: 'live' }, loadKeys(process.env).session, 300);
+  const rootSession = signJWT({ userId: OWNER, email: owner.email }, loadKeys(process.env).session, 300);
   const atInstance = fetchSide(INSTANCE_URL);
   const { exchange, location, token, nonceCookie } = await handOff(fetchSide(ROOT_URL, `session=${rootSession}`), atInstance);
   assert.ok(location.startsWith(`${INSTANCE_URL}/#/handoff?token=`), `root sent the owner to ${location}`);
@@ -174,7 +181,6 @@ Promise.all(${JSON.stringify(only)}.map(at)).then((found) => console.log('KNOCKE
 import { readFileSync } from 'node:fs';
 import { Client, Connection } from '@temporalio/client';
 import { temporalToken } from './src/platform/lib/temporal-auth.ts';
-import { signUp } from './lib/sign-up.js';
 const address = (process.env.TEMPORAL_CONNECTION_ADDRESS ?? '').replace(/^https?:\\/\\//, '');
 const grant = { subject: 'instance-live', namespace: 'default', role: 'read' };
 const listed = async (apiKey) => {
@@ -228,7 +234,7 @@ process.exit(0);`;
   const leaving = (await people()).find((person) => person.email === email);
   assert.ok(leaving, 'root does not list the new account');
   const theirInstance = `inst-live-${leaving.id.slice(0, 8)}`;
-  run('npm', ['run', 'instances', '--silent', '-w', 'apps/backend', '--', 'add', theirInstance, leaving.id, 'http://127.0.0.1:9']);
+  instances(['add', theirInstance, leaving.id, 'http://127.0.0.1:9']);
   const theirs = signJWT({ userId: leaving.id, email }, loadKeys(process.env).session, 300);
   const asLeaving = (path: string, init: RequestInit = {}) => fetch(`${ROOT_URL}${path}`, { ...init, headers: { 'content-type': 'application/json', Cookie: `session=${theirs}`, ...(init.headers ?? {}) } });
   const preview = await (await asLeaving('/api/account/removal')).json() as { email: string; blockers: string[]; instance?: { where: string } };
@@ -241,7 +247,7 @@ process.exit(0);`;
   assert.match(removed.headers.get('set-cookie') ?? '', /session=;/, 'root did not sign them out');
   assert.equal((await asLeaving('/api/auth/me')).status, 401, 'the removed account is still signed in');
   await until('the account gone from root', 5, async () => ((await people()).some((person) => person.id === leaving.id) ? undefined : true));
-  await until('their instance let go of', 2, async () => (run('npm', ['run', 'instances', '--silent', '-w', 'apps/backend', '--', 'list']).includes(theirInstance) ? undefined : true));
+  await until('their instance let go of', 2, async () => (instances(['list']).includes(theirInstance) ? undefined : true));
   console.log('  the instance points at root; the account removed itself there, signed out at once, its instance let go of');
 
   const users = run(bin('kubectl'), ['-n', 'nowrinkles', 'exec', 'live-mongo-0', '--', 'sh', '-c', 'mongosh -u admin -p "$MONGO_INITDB_ROOT_PASSWORD" --authenticationDatabase admin provisioning --quiet --eval "db.users.countDocuments()"'], { KUBECONFIG }).trim();
@@ -250,5 +256,5 @@ process.exit(0);`;
 }
 
 main()
-  .then(() => { teardown(); process.exit(0); })
-  .catch((err) => { console.error(err); teardown(); process.exit(1); });
+  .then(async () => { await teardown(); process.exit(0); })
+  .catch(async (err) => { console.error(err); await teardown(); process.exit(1); });

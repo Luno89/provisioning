@@ -9,11 +9,13 @@ import { loadKeys } from '../apps/backend/src/platform/lib/keys.js';
 import { signJWT } from '../apps/backend/src/platform/lib/auth.js';
 import { devTemporalCa } from './lib/dev-temporal.js';
 import { fetchSide, handOff, type Side } from './lib/handoff.js';
+import { dropSuiteDatabase, firstAdmin, forgetMeshUser, suiteRoot, workerEnv } from './lib/suite-root.js';
 
 const REPO = resolve(new URL('.', import.meta.url).pathname, '..');
 dotenv.config({ path: join(REPO, 'apps/backend/.env') });
 
-const OWNER = process.env.ROUTING_LIVE_OWNER ?? process.env.INSTANCE_LIVE_OWNER ?? process.env.GROVE_LIVE_OWNER;
+const ROOT = suiteRoot('routing-live', 9473);
+let ownerId: string | undefined;
 const ROOT_DOMAIN = 'koala.localhost';
 const DOMAIN = 'people.localhost';
 const ROOT_PORT = 3231;
@@ -31,7 +33,7 @@ const MAILPIT_IMAGE = 'axllent/mailpit:v1.21.0';
 const MAILPIT_SMTP = 11025;
 const MAILPIT_API = 18026;
 const NAME = `rt${Date.now().toString(36)}`;
-const CONTAINERS = { root: 'nw-route-root', caddy: 'nw-route-caddy', mesh: 'nw-route-ts', relay: 'nw-route-relay', mailbox: 'nw-route-mailbox' };
+const CONTAINERS = { root: 'nw-route-root', worker: 'nw-route-worker', caddy: 'nw-route-caddy', mesh: 'nw-route-ts', relay: 'nw-route-relay', mailbox: 'nw-route-mailbox' };
 const SECRET_FILES = ['.gitea-admin-password', '.gitea-admin-token', '.headscale-api-key', '.infisical-admin-password', '.infisical-machine-identity', '.infisical-encryption-key', '.infisical-postgres-password', '.infisical-redis-password'];
 
 const run = (cmd: string, args: string[]) => execFileSync(cmd, args, { cwd: REPO, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
@@ -107,19 +109,19 @@ function platformKey(): string {
 
 async function teardown(): Promise<void> {
   for (const name of Object.values(CONTAINERS)) try { run('docker', ['rm', '-f', name]); } catch { /* not running */ }
-  if (instanceId) try { run('npm', ['run', 'instances', '--silent', '-w', 'apps/backend', '--', 'remove', instanceId]); } catch { /* fine */ }
   try {
     const nodes = JSON.parse(run('docker', ['exec', 'provisioning-headscale', 'headscale', 'nodes', 'list', '-o', 'json'])) as Array<{ id: number; given_name?: string; name?: string }>;
     for (const node of nodes.filter((entry) => /^(inst-|nw-route-root)/.test(entry.given_name ?? entry.name ?? ''))) {
       run('docker', ['exec', 'provisioning-headscale', 'headscale', 'nodes', 'delete', '-i', String(node.id), '--force']);
     }
   } catch { /* nothing joined */ }
+  if (ownerId) forgetMeshUser(ownerId);
+  await dropSuiteDatabase(ROOT).catch(() => undefined);
   await vm?.destroy();
   if (work) rmSync(work, { recursive: true, force: true });
 }
 
 async function main(): Promise<void> {
-  assert.ok(OWNER, 'set ROUTING_LIVE_OWNER (or INSTANCE_LIVE_OWNER) to the user who will own the instance');
   work = mkdtempSync(join(tmpdir(), 'routing-live-'));
   const caddyDir = join(work, 'caddy');
   for (const folder of ['apps', 'instances', 'instance-sites']) mkdirSync(join(caddyDir, folder), { recursive: true });
@@ -157,7 +159,7 @@ async function main(): Promise<void> {
 
   step('root starts with the domain, writing its routes where Caddy reads them, and sending email to a test mailbox');
   run('docker', ['run', '-d', '--name', CONTAINERS.mailbox, '-p', `127.0.0.1:${MAILPIT_SMTP}:1025`, '-p', `127.0.0.1:${MAILPIT_API}:8025`, MAILPIT_IMAGE]);
-  run('docker', ['run', '-d', '--name', CONTAINERS.root, '--network', 'host', '--env-file', 'apps/backend/.env', ...devTemporalCa(), '--group-add', String(statSync('/var/run/docker.sock').gid),
+  run('docker', ['run', '-d', '--name', CONTAINERS.root, '--network', 'host', '--env-file', 'apps/backend/.env', ...ROOT.env, ...devTemporalCa(), '--group-add', String(statSync('/var/run/docker.sock').gid),
     ...SECRET_FILES.flatMap((file) => ['-v', `${join(REPO, 'apps/backend/data', file)}:/app/apps/backend/data/${file}:ro`]),
     '-v', '/var/run/docker.sock:/var/run/docker.sock', '-v', `${caddyDir}:/app/apps/backend/data/caddy`,
     '-e', 'ROLE=root', '-e', `PORT=${ROOT_PORT}`, '-e', `PUBLIC_URL=${ROOT_FOR_GUEST}`,
@@ -167,7 +169,11 @@ async function main(): Promise<void> {
     '-e', 'CADDY_ADMIN_SOCKET=/run/koala-caddy/admin.sock', '-e', 'CADDY_LOG=/var/log/koala-caddy/caddy.log', '-e', `CADDY_TLS_ADDRESS=127.0.0.1:${TLS_PORT}`,
     '-e', 'MESH_LOGIN_SERVER=http://10.0.2.2:8080', '-e', 'INSTANCE_REGISTRY=10.0.2.2:5001', '-e', `INSTANCE_IMAGE_TAG=${TAG}`, '-e', `MAIL_SMTP_URL=smtp://127.0.0.1:${MAILPIT_SMTP}`, IMAGE, 'backend']);
   await until('root answering', async () => ((await fetch(`${ROOT_FOR_HOST}/api/identity/keys`)).ok ? true : undefined));
-  const session = signJWT({ userId: OWNER, email: 'live' }, loadKeys(process.env).session, 3600);
+  run('docker', ['run', '-d', '--name', CONTAINERS.worker, '--network', 'host', '--env-file', 'apps/backend/.env', ...ROOT.env, ...devTemporalCa(),
+    ...SECRET_FILES.flatMap((file) => ['-v', `${join(REPO, 'apps/backend/data', file)}:/app/apps/backend/data/${file}:ro`]), ...workerEnv(ROOT), IMAGE, 'worker-host']);
+  const owner = await firstAdmin(ROOT_FOR_HOST, ROOT);
+  ownerId = owner.id;
+  const session = signJWT({ userId: owner.id, email: owner.email }, loadKeys(process.env).session, 3600);
   const asOwner = (path: string, init: RequestInit = {}) => fetch(`${ROOT_FOR_HOST}${path}`, { ...init, headers: { 'content-type': 'application/json', Cookie: `session=${session}`, ...(init.headers ?? {}) } });
 
   step(`the owner picks a name: a dashed one and one the platform keeps are refused, "${NAME}" is taken`);

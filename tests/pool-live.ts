@@ -10,12 +10,14 @@ import { loadKeys } from '../apps/backend/src/platform/lib/keys.js';
 import { signJWT } from '../apps/backend/src/platform/lib/auth.js';
 import { devTemporalCa } from './lib/dev-temporal.js';
 import { fetchSide, handOff, type Side } from './lib/handoff.js';
+import { dropSuiteDatabase, firstAdmin, forgetMeshUser, suiteRoot, workerEnv } from './lib/suite-root.js';
 import { signUp } from './lib/sign-up.js';
 
 const REPO = resolve(new URL('.', import.meta.url).pathname, '..');
 dotenv.config({ path: join(REPO, 'apps/backend/.env') });
 
-const OWNER = process.env.POOL_LIVE_OWNER ?? process.env.INSTANCE_LIVE_OWNER ?? process.env.GROVE_LIVE_OWNER;
+const ROOT = suiteRoot('pool-live', 9475);
+let ownerId: string | undefined;
 const IMAGE = process.env.POOL_LIVE_IMAGE ?? 'nowrinkles/app:dev';
 const TAG = 'pool-live';
 const ROOT_DOMAIN = 'koala.localhost';
@@ -33,7 +35,6 @@ const TAILSCALE_IMAGE = 'tailscale/tailscale:v1.88.2';
 const SOCAT_IMAGE = 'alpine/socat:1.8.0.3';
 const GVISOR_TARBALL = join(REPO, 'tests/.vm-cache/gvisor-20261005.0/gvisor.tar.zstd');
 const NAME = `pl${Date.now().toString(36)}`;
-const QUEUE = `pool-live-${NAME}`;
 const CONTAINERS = { root: 'nw-pool-root', worker: 'nw-pool-worker', caddy: 'nw-pool-caddy', mesh: 'nw-pool-ts', relay: 'nw-pool-relay', mailbox: 'nw-pool-mailbox' };
 const MAILPIT_IMAGE = 'axllent/mailpit:v1.21.0';
 const MAILPIT_SMTP = 11026;
@@ -124,7 +125,6 @@ async function teardown(): Promise<void> {
     for (const workflow of ['pool-instance', 'pool-trial', 'pool-remove']) {
       try { run('docker', ['exec', 'provisioning-temporal-1', 'temporal', 'workflow', 'terminate', '--address', '127.0.0.1:7236', '--workflow-id', `${workflow}-${instanceId}`, '--reason', 'pool-live teardown']); } catch { /* not running */ }
     }
-    try { run('npm', ['run', 'instances', '--silent', '-w', 'apps/backend', '--', 'remove', instanceId]); } catch { /* fine */ }
   }
   try {
     const nodes = JSON.parse(run('docker', ['exec', 'provisioning-headscale', 'headscale', 'nodes', 'list', '-o', 'json'])) as Array<{ id: number; given_name?: string; name?: string }>;
@@ -133,13 +133,14 @@ async function teardown(): Promise<void> {
       run('docker', ['exec', 'provisioning-headscale', 'headscale', 'nodes', 'delete', '-i', String(node.id), '--force']);
     }
   } catch { /* nothing joined */ }
+  if (ownerId) forgetMeshUser(ownerId);
+  await dropSuiteDatabase(ROOT).catch(() => undefined);
   await vm?.destroy();
   await target?.destroy();
   if (work) rmSync(work, { recursive: true, force: true });
 }
 
 async function main(): Promise<void> {
-  assert.ok(OWNER, 'set POOL_LIVE_OWNER (or INSTANCE_LIVE_OWNER) to the user who will try the pool');
   assert.ok(existsSync(GVISOR_TARBALL), `the pinned gVisor release is cached at ${GVISOR_TARBALL}`);
   work = mkdtempSync(join(tmpdir(), 'pool-live-'));
   const caddyDir = join(work, 'caddy');
@@ -188,10 +189,10 @@ async function main(): Promise<void> {
   console.log(`  the pool node is ${poolIp} on the mesh`);
 
   step('root starts with the pool on that node, and its host worker takes the pool\'s work');
-  const poolEnv = ['-e', `POOL_ADDRESS=${poolIp}`, '-e', 'POOL_SLOTS=1', '-e', 'POOL_KUBECONFIG=/pool/kubeconfig.yaml', '-e', `POOL_TASK_QUEUE=${QUEUE}`,
+  const poolEnv = ['-e', `POOL_ADDRESS=${poolIp}`, '-e', 'POOL_SLOTS=1', '-e', 'POOL_KUBECONFIG=/pool/kubeconfig.yaml',
     '-e', `POOL_IMAGE=${HOST_FOR_GUEST}:5001/nowrinkles/app`, '-e', `POOL_IMAGE_TAG=${TAG}`, '-e', 'POOL_SLOT_MEMORY_MIB=10240', '-e', 'POOL_TRIAL_DAYS=14',
     '-v', `${kubeconfigPath}:/pool/kubeconfig.yaml:ro`];
-  const rootEnv = ['--network', 'host', '--env-file', 'apps/backend/.env', ...devTemporalCa(),
+  const rootEnv = ['--network', 'host', '--env-file', 'apps/backend/.env', ...ROOT.env, ...devTemporalCa(),
     ...SECRET_FILES.flatMap((file) => ['-v', `${join(REPO, 'apps/backend/data', file)}:/app/apps/backend/data/${file}:ro`]),
     '-e', 'ROLE=root', '-e', `PUBLIC_URL=${ROOT_FOR_GUEST}`, '-e', `INGRESS_DOMAIN=${DOMAIN}`, '-e', `APP_DOMAIN=app.${ROOT_DOMAIN}`, '-e', `MESH_DOMAIN=mesh.${ROOT_DOMAIN}`,
     '-e', `MESH_LOGIN_SERVER=http://${HOST_FOR_GUEST}:8080`, '-e', `INSTANCE_REGISTRY=${HOST_FOR_GUEST}:5001`, '-e', `INSTANCE_IMAGE_TAG=${TAG}`, '-e', `MAIL_SMTP_URL=smtp://127.0.0.1:${MAILPIT_SMTP}`, ...poolEnv];
@@ -200,9 +201,11 @@ async function main(): Promise<void> {
     '-v', `${caddyAdmin}:/run/koala-caddy`, '-v', `${caddyLog}:/var/log/koala-caddy:ro`,
     '-v', `${join(REPO, 'Caddyfile')}:/etc/koala/Caddyfile:ro`, '-e', 'CADDY_CONFIG=/etc/koala/Caddyfile',
     '-e', 'CADDY_ADMIN_SOCKET=/run/koala-caddy/admin.sock', '-e', 'CADDY_LOG=/var/log/koala-caddy/caddy.log', '-e', `CADDY_TLS_ADDRESS=127.0.0.1:${TLS_PORT}`, IMAGE, 'backend']);
-  run('docker', ['run', '-d', '--name', CONTAINERS.worker, ...rootEnv, '-e', `TEMPORAL_TASK_QUEUE=${QUEUE}`, '-e', 'HEALTH_PORT=0', '-e', 'TEMPORAL_METRICS_PORT=9475', IMAGE, 'worker-host']);
+  run('docker', ['run', '-d', '--name', CONTAINERS.worker, ...rootEnv, ...workerEnv(ROOT), IMAGE, 'worker-host']);
   await until('root answering', async () => ((await fetch(`${ROOT_FOR_HOST}/api/identity/keys`)).ok ? true : undefined));
-  const session = signJWT({ userId: OWNER, email: 'live' }, loadKeys(process.env).session, 3600);
+  const owner = await firstAdmin(ROOT_FOR_HOST, ROOT);
+  ownerId = owner.id;
+  const session = signJWT({ userId: owner.id, email: owner.email }, loadKeys(process.env).session, 3600);
   const asOwner = (path: string, init: RequestInit = {}) => fetch(`${ROOT_FOR_HOST}${path}`, { ...init, headers: { 'content-type': 'application/json', Cookie: `session=${session}`, ...(init.headers ?? {}) } });
 
   step(`the owner is offered a trial on Koala's servers, and starts one named "${NAME}"`);

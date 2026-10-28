@@ -8,15 +8,17 @@ import { ACP_STUB, chatsOnTheMachine } from './lib/machine-chat.js';
 import { createDisposableVm, type DisposableVm } from './lib/disposable-vm.js';
 import { devTemporalCa } from './lib/dev-temporal.js';
 import { fetchSide, handOff } from './lib/handoff.js';
+import { dropSuiteDatabase, firstAdmin, forgetMeshUser, suiteRoot, workerEnv } from './lib/suite-root.js';
 
 const GATEWAY_PORT = 30322;
 const REPO = resolve(new URL('.', import.meta.url).pathname, '..');
 dotenv.config({ path: join(REPO, 'apps/backend/.env') });
 
-const OWNER = process.env.MESH_LIVE_OWNER ?? process.env.CHECKS_LIVE_OWNER;
+const ROOT = suiteRoot('mesh-live', 9474);
+let ownerId: string | undefined;
 const STAMP = Date.now().toString(36);
-const ROOT_PORT = 3231;
-const INSTANCE_PORT = 3232;
+const ROOT_PORT = 3251;
+const INSTANCE_PORT = 3252;
 const ROOT_FOR_HOST = `http://localhost:${ROOT_PORT}`;
 const ROOT_FOR_GUEST = `http://10.0.2.2:${ROOT_PORT}`;
 const INSTANCE_URL = `http://127.0.0.1:${INSTANCE_PORT}`;
@@ -24,6 +26,7 @@ const MESH = 'http://10.0.2.2:8080';
 const IMAGE = 'nowrinkles/app:dev';
 const TAG = 'mesh-live';
 const ROOT_CONTAINER = 'nw-mesh-root';
+const WORKER_CONTAINER = 'nw-mesh-worker';
 const OTHER_USER = `mesh-live-other-${STAMP}`;
 const SECRET_FILES = ['.gitea-admin-password', '.gitea-admin-token', '.headscale-api-key', '.infisical-admin-password', '.infisical-machine-identity', '.infisical-encryption-key', '.infisical-postgres-password', '.infisical-redis-password'];
 
@@ -68,8 +71,7 @@ const boot = async (name: string, options: Parameters<typeof createDisposableVm>
 };
 
 async function teardown(): Promise<void> {
-  try { run('docker', ['rm', '-f', ROOT_CONTAINER]); } catch { /* not running */ }
-  if (instanceId) try { run('npm', ['run', 'instances', '--silent', '-w', 'apps/backend', '--', 'remove', instanceId]); } catch { /* fine */ }
+  for (const name of [ROOT_CONTAINER, WORKER_CONTAINER]) try { run('docker', ['rm', '-f', name]); } catch { /* not running */ }
   try {
     const nodes = JSON.parse(headscale('nodes', 'list', '-o', 'json')) as Array<{ id: number; given_name?: string; name?: string; ip_addresses?: string[] }>;
     const ours = (node: { given_name?: string; name?: string; ip_addresses?: string[] }) =>
@@ -81,25 +83,28 @@ async function teardown(): Promise<void> {
     const other = users.find((user) => user.name === OTHER_USER);
     if (other) headscale('users', 'destroy', '--identifier', String(other.id), '--force');
   } catch { /* never made */ }
+  if (ownerId) forgetMeshUser(ownerId);
+  await dropSuiteDatabase(ROOT).catch(() => undefined);
   for (const vm of vms) await vm.destroy();
 }
 
 async function main(): Promise<void> {
-  assert.ok(OWNER, 'set MESH_LIVE_OWNER (or CHECKS_LIVE_OWNER) to the person whose instance and machine these are');
-
-  step('the image holds this code, and root\'s registry has it');
-  run('docker', ['build', '-q', '-t', IMAGE, '.']);
+  step('root\'s registry holds the image');
   run('docker', ['tag', IMAGE, `127.0.0.1:5000/nowrinkles/app:${TAG}`]);
   run('docker', ['push', '-q', `127.0.0.1:5000/nowrinkles/app:${TAG}`]);
 
   step('root starts, with the mesh at its address on this computer');
-  try { run('docker', ['rm', '-f', ROOT_CONTAINER]); } catch { /* not running */ }
-  run('docker', ['run', '-d', '--name', ROOT_CONTAINER, '--network', 'host', '--env-file', 'apps/backend/.env', ...devTemporalCa(),
+  for (const name of [ROOT_CONTAINER, WORKER_CONTAINER]) try { run('docker', ['rm', '-f', name]); } catch { /* not running */ }
+  run('docker', ['run', '-d', '--name', ROOT_CONTAINER, '--network', 'host', '--env-file', 'apps/backend/.env', ...ROOT.env, ...devTemporalCa(),
     ...SECRET_FILES.flatMap((file) => ['-v', `${join(REPO, 'apps/backend/data', file)}:/app/apps/backend/data/${file}:ro`]),
     '-e', 'ROLE=root', '-e', `PORT=${ROOT_PORT}`, '-e', `PUBLIC_URL=${ROOT_FOR_GUEST}`,
     '-e', `MESH_LOGIN_SERVER=${MESH}`, '-e', 'INSTANCE_REGISTRY=10.0.2.2:5001', '-e', `INSTANCE_IMAGE_TAG=${TAG}`, IMAGE, 'backend']);
   await until('root answering', 3, async () => ((await fetch(`${ROOT_FOR_HOST}/api/identity/keys`)).ok ? true : undefined));
-  const session = signJWT({ userId: OWNER, email: 'live' }, loadKeys(process.env).session, 4 * 3600);
+  run('docker', ['run', '-d', '--name', WORKER_CONTAINER, '--network', 'host', '--env-file', 'apps/backend/.env', ...ROOT.env, ...devTemporalCa(),
+    ...SECRET_FILES.flatMap((file) => ['-v', `${join(REPO, 'apps/backend/data', file)}:/app/apps/backend/data/${file}:ro`]), ...workerEnv(ROOT), IMAGE, 'worker-host']);
+  const owner = await firstAdmin(ROOT_FOR_HOST, ROOT);
+  ownerId = owner.id;
+  const session = signJWT({ userId: owner.id, email: owner.email }, loadKeys(process.env).session, 4 * 3600);
   const asOwner = (path: string, init: RequestInit = {}) => fetch(`${ROOT_FOR_HOST}${path}`, { ...init, headers: { 'content-type': 'application/json', Cookie: `session=${session}`, ...(init.headers ?? {}) } });
 
   step('the owner\'s instance is installed on a machine of theirs, and joins the mesh');

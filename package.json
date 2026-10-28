@@ -23,6 +23,7 @@
     "test:alive": "bash scripts/alive.sh",
     "ship": "tsx tests/ship.ts",
     "release": "tsx tests/release.ts",
+    "test:vm-live": "tsx tests/lib/vm-rounds.ts",
     "test:workflows": "bash scripts/workflows-local.sh",
     "test:worker": "tsx tests/worker-isolated.ts",
     "typecheck": "npm run typecheck:context-engine && npm run typecheck:backend && npm run typecheck:frontend && npm run typecheck:infra && npm run typecheck:local-agent && npm run typecheck:agent-engine",

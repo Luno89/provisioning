@@ -7,11 +7,13 @@ import { loadKeys } from '../apps/backend/src/platform/lib/keys.js';
 import { signJWT } from '../apps/backend/src/platform/lib/auth.js';
 import { devTemporalCa } from './lib/dev-temporal.js';
 import { fetchSide, handOff } from './lib/handoff.js';
+import { dropSuiteDatabase, firstAdmin, forgetMeshUser, suiteRoot, workerEnv } from './lib/suite-root.js';
 
 const REPO = resolve(new URL('.', import.meta.url).pathname, '..');
 dotenv.config({ path: join(REPO, 'apps/backend/.env') });
 
-const OWNER = process.env.INSTANCE_LIVE_OWNER ?? process.env.GROVE_LIVE_OWNER;
+const ROOT = suiteRoot('byo-live', 9472);
+let ownerId: string | undefined;
 const ROOT_PORT = 3221;
 const INSTANCE_PORT = 3222;
 const ROOT_FOR_HOST = `http://localhost:${ROOT_PORT}`;
@@ -50,7 +52,7 @@ let vm: DisposableVm | undefined;
 
 async function startRoot(releaseTag: string): Promise<void> {
   try { run('docker', ['rm', '-f', 'nw-byo-root']); } catch { /* not running */ }
-  run('docker', ['run', '-d', '--name', 'nw-byo-root', '--network', 'host', '--env-file', 'apps/backend/.env', ...devTemporalCa(),
+  run('docker', ['run', '-d', '--name', 'nw-byo-root', '--network', 'host', '--env-file', 'apps/backend/.env', ...ROOT.env, ...devTemporalCa(),
     ...SECRET_FILES.flatMap((file) => ['-v', `${join(REPO, 'apps/backend/data', file)}:/app/apps/backend/data/${file}:ro`]),
     '-e', 'ROLE=root', '-e', `PORT=${ROOT_PORT}`, '-e', `PUBLIC_URL=${ROOT_FOR_GUEST}`,
     '-e', 'MESH_LOGIN_SERVER=http://10.0.2.2:8080', '-e', 'INSTANCE_REGISTRY=10.0.2.2:5001', '-e', `INSTANCE_IMAGE_TAG=${releaseTag}`, IMAGE, 'backend']);
@@ -60,27 +62,30 @@ let instanceId: string | undefined;
 const SECRET_FILES = ['.gitea-admin-password', '.gitea-admin-token', '.headscale-api-key', '.infisical-admin-password', '.infisical-machine-identity', '.infisical-encryption-key', '.infisical-postgres-password', '.infisical-redis-password'];
 
 async function teardown(): Promise<void> {
-  try { run('docker', ['rm', '-f', 'nw-byo-root']); } catch { /* not running */ }
-  if (instanceId) try { run('npm', ['run', 'instances', '--silent', '-w', 'apps/backend', '--', 'remove', instanceId]); } catch { /* fine */ }
+  for (const name of ['nw-byo-root', 'nw-byo-worker']) try { run('docker', ['rm', '-f', name]); } catch { /* not running */ }
   try {
     const nodes = JSON.parse(run('docker', ['exec', 'provisioning-headscale', 'headscale', 'nodes', 'list', '-o', 'json'])) as Array<{ id: number; given_name?: string; name?: string }>;
     for (const node of nodes.filter((entry) => (entry.given_name ?? entry.name ?? '').startsWith('inst-'))) {
       run('docker', ['exec', 'provisioning-headscale', 'headscale', 'nodes', 'delete', '-i', String(node.id), '--force']);
     }
   } catch { /* nothing joined */ }
+  if (ownerId) forgetMeshUser(ownerId);
+  await dropSuiteDatabase(ROOT).catch(() => undefined);
   await vm?.destroy();
 }
 
 async function main(): Promise<void> {
-  assert.ok(OWNER, 'set INSTANCE_LIVE_OWNER (or GROVE_LIVE_OWNER) to the user who will own the instance');
-
   step('root\'s registry holds the current image');
   run('docker', ['tag', IMAGE, `127.0.0.1:5000/nowrinkles/app:${TAG}`]);
   run('docker', ['push', '-q', `127.0.0.1:5000/nowrinkles/app:${TAG}`]);
 
   step('root starts, as the user\'s machine will see it');
   await startRoot(TAG);
-  const session = signJWT({ userId: OWNER, email: 'live' }, loadKeys(process.env).session, 3600);
+  run('docker', ['run', '-d', '--name', 'nw-byo-worker', '--network', 'host', '--env-file', 'apps/backend/.env', ...ROOT.env, ...devTemporalCa(),
+    ...SECRET_FILES.flatMap((file) => ['-v', `${join(REPO, 'apps/backend/data', file)}:/app/apps/backend/data/${file}:ro`]), ...workerEnv(ROOT), IMAGE, 'worker-host']);
+  const owner = await firstAdmin(ROOT_FOR_HOST, ROOT);
+  ownerId = owner.id;
+  const session = signJWT({ userId: owner.id, email: owner.email }, loadKeys(process.env).session, 3600);
   const asOwner = (path: string, init: RequestInit = {}) => fetch(`${ROOT_FOR_HOST}${path}`, { ...init, headers: { 'content-type': 'application/json', Cookie: `session=${session}`, ...(init.headers ?? {}) } });
 
   step('a disposable VM plays the user\'s own machine');
