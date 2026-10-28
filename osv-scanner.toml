@@ -69,3 +69,33 @@ reason = "stream-json: pulled in by minio 8.0.7 (unused listing paths); no fixed
 [[IgnoredVulns]]
 id = "GHSA-mjw6-4jj6-33hc"
 reason = "stream-json: pulled in by minio 8.0.7 (unused listing paths); no fixed minio yet"
+
+[[IgnoredVulns]]
+id = "GHSA-gg6h-894w-4m9c"
+ignoreUntil = 2026-11-12T00:00:00Z
+reason = "re2js 2.8.6: quadratic time in lookbehind matching; Koala refuses every lookaround before a pattern reaches re2js (linear-patterns.ts). 2.8.7 published 2026-10-28, taken once two weeks old"
+
+[[IgnoredVulns]]
+id = "GHSA-7rv5-mrxv-xcr9"
+ignoreUntil = 2026-11-12T00:00:00Z
+reason = "seroval 1.6.7, through @tanstack/router-core: its serialisation is for server-side rendering, which Koala's SPA does not do, so no attacker data is deserialised. 1.6.11 published 2026-10-28, taken once two weeks old"
+
+[[IgnoredVulns]]
+id = "GHSA-97r2-qh9m-474h"
+ignoreUntil = 2026-11-12T00:00:00Z
+reason = "seroval 1.6.7, through @tanstack/router-core: its serialisation is for server-side rendering, which Koala's SPA does not do, so no attacker data is deserialised. 1.6.11 published 2026-10-28, taken once two weeks old"
+
+[[IgnoredVulns]]
+id = "GHSA-9wx9-5pv9-3349"
+ignoreUntil = 2026-11-12T00:00:00Z
+reason = "seroval 1.6.7, through @tanstack/router-core: its serialisation is for server-side rendering, which Koala's SPA does not do, so no attacker data is deserialised. 1.6.11 published 2026-10-28, taken once two weeks old"
+
+[[IgnoredVulns]]
+id = "GHSA-f86p-h4j2-7qgj"
+ignoreUntil = 2026-11-12T00:00:00Z
+reason = "seroval 1.6.7, through @tanstack/router-core: its serialisation is for server-side rendering, which Koala's SPA does not do, so no attacker data is deserialised. 1.6.11 published 2026-10-28, taken once two weeks old"
+
+[[IgnoredVulns]]
+id = "GHSA-wp97-x4hv-qvhp"
+ignoreUntil = 2026-11-12T00:00:00Z
+reason = "seroval 1.6.7, through @tanstack/router-core: its serialisation is for server-side rendering, which Koala's SPA does not do, so no attacker data is deserialised. 1.6.11 published 2026-10-28, taken once two weeks old"
