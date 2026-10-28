@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { DeviceWorkerHost, type RunningWorker } from './device-worker-host.js';
+import { DeviceWorkerHost, RETRY_MOST_MS, retryDelay, type After, type RunningWorker } from './device-worker-host.js';
 
 const fakeWorker = () => {
   let finish: () => void = () => {};
@@ -58,5 +58,44 @@ describe('the machine\'s engine worker follows the payload key it is given', () 
     await host.connected(async () => ({ ring, temporal: { address: '100.64.0.7:7234', namespace: 'default' } }));
     await host.connected(async () => ({ ring, temporal: { address: '100.64.0.7:7234', namespace: 'default' } }));
     expect(started).toEqual([{ address: '100.64.0.7:7233' }, { address: '100.64.0.7:7234' }]);
+  });
+
+  it('keeps trying, waiting longer each time, when Temporal or the gateway refuses it, and starts over once a worker has run a while', async () => {
+    const pending: { ms: number; then: () => void }[] = [];
+    const after: After = (ms, then) => { const entry = { ms, then }; pending.push(entry); return () => { pending.splice(pending.indexOf(entry), 1); }; };
+    let now = 0;
+    let refuse = true;
+    const started: ReturnType<typeof fakeWorker>[] = [];
+    const host = new DeviceWorkerHost(async () => {
+      if (refuse) throw new Error('Failed to call GetSystemInfo: transport error');
+      const worker = fakeWorker();
+      started.push(worker);
+      return worker;
+    }, () => {}, after, () => now);
+    const settings = async () => ({ ring: { current: 'a'.repeat(64) } });
+    const fire = async () => { const next = pending.shift()!; next.then(); await new Promise((resolve) => setImmediate(resolve)); return next.ms; };
+
+    await host.connected(settings);
+    expect(pending.map((entry) => entry.ms)).toEqual([5_000]);
+    expect(await fire()).toBe(5_000);
+    expect(pending.map((entry) => entry.ms)).toEqual([10_000]);
+    refuse = false;
+    await fire();
+    expect(started).toHaveLength(1);
+    expect(pending).toHaveLength(0);
+
+    now += 120_000;
+    started[0]!.end();
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(pending.map((entry) => entry.ms)).toEqual([5_000]);
+    await fire();
+    expect(started).toHaveLength(2);
+
+    await host.stop();
+    expect(pending).toHaveLength(0);
+  });
+
+  it('never waits more than a minute between tries', () => {
+    expect([1, 2, 3, 4, 5, 6, 40].map(retryDelay)).toEqual([5_000, 10_000, 20_000, 40_000, RETRY_MOST_MS, RETRY_MOST_MS, RETRY_MOST_MS]);
   });
 });
