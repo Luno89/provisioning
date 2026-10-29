@@ -6,6 +6,7 @@ import McpRequestCard from './McpRequestCard.js';
 import SecretRequestCard from './SecretRequestCard.js';
 import ChatApprovalCard from './ChatApprovalCard.js';
 import type { StoryAddress } from './ChatNotice.js';
+import { useCan } from '../../../platform';
 import type { ChatCard, ToolApproval } from './chat-cards.js';
 import type { ChatCardSources } from '../../hooks/useChatCards.js';
 import type { ApprovalDecision } from '../../hooks/useConversationTurn.js';
@@ -20,6 +21,7 @@ export interface ChatCardBodyProps {
 
 export function ChatCardBody({ card, from, onOpenTree, onOpenStory, onApproval }: ChatCardBodyProps) {
   const { plans, access, egress, actions, mcp, secrets } = from;
+  const can = useCan();
   switch (card.kind) {
     case 'plan':
       return (
@@ -33,7 +35,7 @@ export function ChatCardBody({ card, from, onOpenTree, onOpenStory, onApproval }
         />
       );
     case 'access':
-      return <AccessRequestCard request={card.item} busy={access.busy} error={access.error} onGrant={() => access.grant(card.id)} onDismiss={() => access.dismiss(card.id)} />;
+      return <AccessRequestCard request={card.item} busy={access.busy} error={access.error} mayGrant={can('open-platform-namespaces')} onGrant={() => access.grant(card.id)} onDismiss={() => access.dismiss(card.id)} />;
     case 'egress':
       return <EgressRequestCard request={card.item} busy={egress.busy} error={egress.error} onAllow={() => egress.allow(card.id)} onDismiss={() => egress.dismiss(card.id)} />;
     case 'action':

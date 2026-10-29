@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { errorMessage } from '../../../api/client'
+import { useCan } from '../../platform'
 import { getHubConversation, hubKeys, postHubMessage, sendHubRequest } from '../api'
 import { channelAsksKoala, goesToKoala, rememberChannelAsks } from '../../projects'
 import type { HubBoardView, HubChat as HubChatRecord } from '../types'
@@ -31,6 +32,7 @@ function useOpenedChat(projectId: string, chat: BoardChat, found: HubChatRecord 
 
 export default function HubChat({ projectId, chat, view, hub, me }: { projectId: string; chat: BoardChat; view: HubBoardView; hub: HubPlace; me: string }) {
   const client = useQueryClient()
+  const can = useCan()
   const found = chatFor(view, chat)
   const opening = useOpenedChat(projectId, chat, found)
   const conversationId = found?.id
@@ -49,7 +51,7 @@ export default function HubChat({ projectId, chat, view, hub, me }: { projectId:
     if (conversationId) setAsking(channelAsksKoala(conversationId))
   }
   const [notAsked, setNotAsked] = useState<string | undefined>(undefined)
-  const decides = view.can.includes('approve-changes')
+  const decides = can('approve-changes', view)
 
   const post = useMutation({
     mutationFn: (content: string) => postHubMessage(projectId, conversationId!, {

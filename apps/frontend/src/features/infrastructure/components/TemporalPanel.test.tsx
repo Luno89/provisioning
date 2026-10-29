@@ -19,11 +19,12 @@ const COUNTS = { total: 2, running: 1, completed: 1, failed: 0, timedOut: 0 };
 const renderPanel = (
   workflows: temporalApi.WorkflowSummary[],
   status: temporalApi.TemporalStatus = { connected: true, serverVersion: '1.25.0' },
-  access: { canSeeAll?: boolean } = {},
+  access: { seesAll?: boolean } = {},
 ) => {
+  if (access.seesAll) useShellStore.setState({ user: { ...(useShellStore.getState().user ?? { id: 'op', email: 'op@example.com' }), permissions: { 'see-all-work': true } } as never });
   vi.mocked(temporalApi.getTemporalStatus).mockResolvedValue(status);
   vi.mocked(temporalApi.getWorkflowCount).mockResolvedValue(COUNTS);
-  vi.mocked(temporalApi.listWorkflows).mockImplementation(async (_size, scope) => ({ workflows, all: scope === 'all', canSeeAll: access.canSeeAll === true }));
+  vi.mocked(temporalApi.listWorkflows).mockImplementation(async (_size, scope) => ({ workflows, all: scope === 'all' }));
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
@@ -33,7 +34,7 @@ const renderPanel = (
 };
 
 describe('TemporalPanel', () => {
-  beforeEach(() => { vi.clearAllMocks(); });
+  beforeEach(() => { vi.clearAllMocks(); useShellStore.setState({ user: null }); });
 
   it('lists the workflows it was given', async () => {
     renderPanel([
@@ -61,7 +62,7 @@ describe('TemporalPanel', () => {
   });
 
   it('offers someone who may see everything a switch between their own and everything, and asks for each', async () => {
-    renderPanel([{ workflowId: 'w1', status: 'RUNNING', owner: 'a' }], undefined, { canSeeAll: true });
+    renderPanel([{ workflowId: 'w1', status: 'RUNNING', owner: 'a' }], undefined, { seesAll: true });
     fireEvent.click(await screen.findByRole('button', { name: 'Everything' }));
     await waitFor(() => expect(temporalApi.listWorkflows).toHaveBeenCalledWith(50, 'all'));
     expect(temporalApi.getWorkflowCount).toHaveBeenCalledWith('all');
@@ -76,7 +77,7 @@ describe('TemporalPanel', () => {
 
   describe('cancelling a running workflow', () => {
     const running = (owner: string) => ({ workflowId: 'run-1', type: 'AgentRunWorkflow', status: 'RUNNING', runId: 'r1', taskQueue: 'engine', owner });
-    const open = async (owner: string, access: { canSeeAll?: boolean } = {}) => {
+    const open = async (owner: string, access: { seesAll?: boolean } = {}) => {
       vi.mocked(temporalApi.getWorkflow).mockResolvedValue(running(owner));
       renderPanel([running(owner)], undefined, access);
       fireEvent.click(await screen.findByText('run-1'));
@@ -106,8 +107,8 @@ describe('TemporalPanel', () => {
     });
 
     it('lets someone who may see everything cancel another\'s, and nobody else', async () => {
-      useShellStore.setState({ user: { id: 'ada', email: 'ada@example.com', isAdmin: true } as never });
-      await open('platform', { canSeeAll: true });
+      useShellStore.setState({ user: { id: 'ada', email: 'ada@example.com' } as never });
+      await open('platform', { seesAll: true });
       expect(await screen.findByText('the platform')).toBeDefined();
       expect(await screen.findByRole('button', { name: /Cancel workflow/ })).toBeDefined();
     });

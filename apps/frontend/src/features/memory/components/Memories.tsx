@@ -9,7 +9,7 @@ import {
   approveMemory, promoteMemory, deleteMemory, memoryKeys,
 } from '../api';
 import { listModels, providerKeys, useDefaultModel } from '../../models';
-import { useShellStore } from '../../platform';
+import { useCan } from '../../platform';
 import { ANY_MODEL, EVERY_MODEL, matchesModel, modelChoices, modelLine } from '../lib/memory-models';
 
 const card = 'bg-[var(--bark-800)] border border-[var(--bark-600)] rounded-xl';
@@ -76,7 +76,7 @@ export default function Memories({ sharedWith }: { sharedWith?: string[] | undef
   const { data: defaultModel } = useDefaultModel();
   const models = modelChoices(memories ?? [], providers ?? [], defaultModel?.defaultModelId);
 
-  const operator = useShellStore((s) => s.user?.isAdmin === true);
+  const operator = useCan()('administer');
   const { data: consolidation } = useQuery<ConsolidationReport | null>({
     queryKey: memoryKeys.consolidation(),
     queryFn: getConsolidation,

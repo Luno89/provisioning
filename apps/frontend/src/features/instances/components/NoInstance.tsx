@@ -2,11 +2,11 @@ import { useEffect, useState } from 'react'
 import { Check, Cloud, Copy, HardDrive, Loader2, LogOut, RotateCcw } from 'lucide-react'
 import { useCreateJoinCommand, useInstanceReady, useMySetup, useNameCheck, usePoolOffer, useStartMyMove, useStartPoolInstance, useStopMyMove, type InstanceStatus, type MySetup } from '../api/instances'
 import { errorMessage } from '../../../api/client'
+import { useCan } from '../../platform'
 import { MovePanel } from './MovePanel'
 
 export interface NoInstanceProps {
   hasInstance: boolean
-  isAdmin?: boolean
   onLogout: () => void
 }
 
@@ -80,7 +80,8 @@ function PoolProgress({ setup, retrying, onRetry }: { setup: MySetup; retrying: 
   )
 }
 
-export default function NoInstance({ hasInstance, isAdmin = false, onLogout }: NoInstanceProps) {
+export default function NoInstance({ hasInstance, onLogout }: NoInstanceProps) {
+  const operator = useCan()('manage-accounts')
   const [copied, setCopied] = useState(false)
   const create = useCreateJoinCommand()
   const offer = usePoolOffer()
@@ -206,7 +207,7 @@ export default function NoInstance({ hasInstance, isAdmin = false, onLogout }: N
         )}
         <div className="flex items-center gap-4">
           <button type="button" onClick={onLogout} className="inline-flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-200"><LogOut size={12} /> Sign out</button>
-          {isAdmin && <a href="#/admin" className="text-xs text-slate-400 hover:text-slate-200">Admin</a>}
+          {operator && <a href="#/admin" className="text-xs text-slate-400 hover:text-slate-200">Admin</a>}
           <a href="#/remove-account" className="text-xs text-slate-500 hover:text-slate-300">Delete my account</a>
         </div>
       </div>

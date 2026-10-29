@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Check, Copy, Loader2, Mail, UserMinus, Users } from 'lucide-react'
 import { errorMessage } from '../../../api/client'
+import { useCan } from '../../platform'
 import { HUB_ROLES, type HubRole, type InviteSent } from '../types'
 import { youAre } from '../lib/hub-chat'
 import { ROLE_SAID, usePeopleChanges, useSharedProject } from '../shared'
@@ -33,11 +34,11 @@ export default function SharedProjectPage({ id, me, onLeft, embedded = false }: 
   const [role, setRole] = useState<HubRole>('client')
   const [leaving, setLeaving] = useState(false)
   const [typed, setTyped] = useState('')
+  const can = useCan()
 
   if (view.isPending) return <p className="p-6 text-[12px] text-slate-500"><Loader2 size={12} className="inline animate-spin" /> Opening the project…</p>
   if (view.isError) return <p className="p-6 text-[12px] text-red-300">{errorMessage(view.error)}</p>
-  const { project, can } = view.data
-  const owner = can.includes('invite')
+  const { project } = view.data
   const sharer = project.origin ? project.createdBy : undefined
   const failure = invite.error ?? takeBack.error ?? changeRole.error ?? remove.error ?? deleteProject.error
 
@@ -62,12 +63,12 @@ export default function SharedProjectPage({ id, me, onLeft, embedded = false }: 
               <span className="min-w-0 flex-1 truncate text-slate-200">{member.email}{member.personId === me ? <span className="text-slate-500"> (you)</span> : null}</span>
               {member.personId === sharer ? (
                 <span className="text-slate-400" title="It syncs from their instance, so they stay an owner until they take it back">{ROLE_SAID[member.role].title} · shared it</span>
-              ) : owner ? (
+              ) : can('change-roles', view.data) ? (
                 <select aria-label={`What ${member.email} may do`} value={member.role} disabled={changeRole.isPending} onChange={(event) => changeRole.mutate({ personId: member.personId, role: event.target.value as HubRole })} className={field}>
                   {HUB_ROLES.map((choice) => <option key={choice} value={choice}>{ROLE_SAID[choice].title}</option>)}
                 </select>
               ) : <span className="text-slate-400">{ROLE_SAID[member.role].title}</span>}
-              {owner && member.personId !== me && member.personId !== sharer && (
+              {can('remove-people', view.data) && member.personId !== me && member.personId !== sharer && (
                 <button type="button" aria-label={`Remove ${member.email}`} onClick={() => remove.mutate(member.personId)} className="rounded p-1 text-slate-500 hover:text-red-300"><UserMinus size={13} /></button>
               )}
             </li>
@@ -75,7 +76,7 @@ export default function SharedProjectPage({ id, me, onLeft, embedded = false }: 
         </ul>
       </section>
 
-      {owner && (
+      {can('invite', view.data) && (
         <section className="space-y-2">
           <h2 className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Invite someone</h2>
           <form
@@ -119,7 +120,7 @@ export default function SharedProjectPage({ id, me, onLeft, embedded = false }: 
           : <button type="button" onClick={() => setLeaving(true)} className="text-[12px] text-slate-500 underline hover:text-slate-300">Leave this project</button>}
       </section>
 
-      {can.includes('change-settings') && (
+      {can('change-settings', view.data) && (
         <section className="space-y-1.5 rounded-md border border-red-900/60 p-3">
           <h2 className="text-[11px] font-semibold uppercase tracking-wider text-red-300">Delete this shared project</h2>
           <p className="text-[12px] text-slate-400">Everyone loses it, and invites not yet taken stop working. Type {project.name} to delete it.</p>

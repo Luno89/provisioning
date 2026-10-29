@@ -3,6 +3,7 @@ import { BellOff, Loader2 } from 'lucide-react'
 import type { AlertEpisode, AlertRule, FiringAlert, HealthState, HistoryState, Range } from '../api/monitoring'
 import { RANGES } from '../api/monitoring'
 import { errorMessage } from '../../../api/client'
+import { useCan } from '../../platform'
 import { ago } from '../../projects'
 import { RANGE_LABELS, STATE_LOOK, useRemoveRule, useSetHistory } from '../shared'
 
@@ -60,6 +61,7 @@ export function HistorySetting({ clusterId, history }: { clusterId: string; hist
 }
 
 function OwnHistorySetting({ clusterId, history }: { clusterId: string; history: HistoryState }) {
+  const can = useCan()
   const [days, setDays] = useState(String(history.days))
   const save = useSetHistory(clusterId)
   const wanted = Number(days)
@@ -73,7 +75,7 @@ function OwnHistorySetting({ clusterId, history }: { clusterId: string; history:
         {!history.applied && history.kept !== history.days && ` ${history.days} days are wanted and are being applied.`}
       </p>
       {history.problem && <p className="text-[11px] text-rose-300">It could not be applied: {history.problem}</p>}
-      {history.canChange ? (
+      {can('change', history) ? (
         <form className="flex items-center gap-2" onSubmit={(event) => { event.preventDefault(); if (valid) save.mutate(wanted) }}>
           <label className="flex items-center gap-1.5 text-slate-300">
             <input

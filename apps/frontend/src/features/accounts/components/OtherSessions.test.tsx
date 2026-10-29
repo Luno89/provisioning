@@ -12,7 +12,7 @@ const show = () => render(<QueryClientProvider client={new QueryClient()}><Other
 describe('signing out everywhere else', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    useShellStore.setState({ user: { id: 'u1', email: 'a@b.c', holdsAccounts: true } as never })
+    useShellStore.setState({ user: { id: 'u1', email: 'a@b.c', permissions: { 'manage-own-account': true } } as never })
   })
 
   it('ends every other session when asked, and says so', async () => {
@@ -24,7 +24,7 @@ describe('signing out everywhere else', () => {
   })
 
   it('is not offered on an instance, whose sessions come from root', () => {
-    useShellStore.setState({ user: { id: 'u1', email: 'a@b.c', holdsAccounts: false } as never })
+    useShellStore.setState({ user: { id: 'u1', email: 'a@b.c', permissions: { 'manage-own-account': false } } as never })
     show()
     expect(screen.queryByRole('button', { name: 'Sign out everywhere else' })).toBeNull()
   })

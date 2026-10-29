@@ -26,7 +26,7 @@ export interface PersonInstance {
 export interface PersonEntry {
   id: string
   email: string
-  isAdmin: boolean
+  operator: boolean
   createdAt: string
   instance?: PersonInstance
   removal?: { startedAt: string; requestedBy: string; state: RemovalState; steps?: RemovalStep[] }

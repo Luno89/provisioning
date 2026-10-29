@@ -84,7 +84,7 @@ export interface ClusterContents {
   readAt: string
   reachable: boolean
   problem?: string
-  ownsCluster: boolean
+  can: 'see-everything'[]
   workloads: Workload[]
   finishedJobs: number
   measured: boolean

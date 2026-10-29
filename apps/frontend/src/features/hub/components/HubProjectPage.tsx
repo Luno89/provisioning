@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Loader2, Users } from 'lucide-react'
 import { errorMessage } from '../../../api/client'
+import { useCan } from '../../platform'
 import { getHubBoard, hubKeys } from '../api'
 import type { HubBoardView } from '../types'
 import { StoredFiles } from '../../files'
@@ -40,10 +41,11 @@ function BoardTab({ view, me }: { view: HubBoardView; me: string }) {
 }
 
 function FilesTab({ view }: { view: HubBoardView }) {
+  const can = useCan()
   return (
     <div className="mx-auto max-w-5xl space-y-5 p-1">
       <HubRepository projectId={view.project.id} />
-      <StoredFiles scope={{ kind: 'hub', projectId: view.project.id }} rearranges={view.can.includes('change-files')} />
+      <StoredFiles scope={{ kind: 'hub', projectId: view.project.id }} rearranges={can('change-files', view)} />
     </div>
   )
 }

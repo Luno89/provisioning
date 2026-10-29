@@ -4,7 +4,7 @@ import {
   type VpsOffer, type CatalogResult,
 } from '../api/vps-catalog';
 import { errorMessage } from '../../../api/client';
-import { useShellStore } from '../../platform';
+import { useCan } from '../../platform';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { RefreshCw, Loader2, AlertTriangle, Check, Server, Info, ArrowUp, ArrowDown } from 'lucide-react';
 
@@ -48,7 +48,7 @@ export default function VpsCatalog({ onDeploy, embedded = false, chooseLabel = '
     staleTime: 5 * 60 * 1000,
   });
 
-  const operator = useShellStore((s) => s.user?.isAdmin === true);
+  const operator = useCan()('administer');
   const refresh = useMutation({
     mutationFn: () => refreshVpsCatalog(),
     onSuccess: () => refetch(),

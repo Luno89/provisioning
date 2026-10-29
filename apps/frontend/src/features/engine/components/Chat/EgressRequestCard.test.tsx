@@ -15,11 +15,19 @@ describe('EgressRequestCard', () => {
 })
 
 describe('AccessRequestCard', () => {
-  it('names the namespaces and grants', () => {
+  const asked = { id: 'a', ownerId: 'u', conversationId: 'c', namespaces: ['monitoring', 'gitea'], why: 'prometheus', status: 'requested' as const, createdAt: 'x', updatedAt: 'x' }
+
+  it('names the namespaces and grants, for whoever may open them', () => {
     const onGrant = vi.fn()
-    render(<AccessRequestCard request={{ id: 'a', ownerId: 'u', conversationId: 'c', namespaces: ['monitoring', 'gitea'], why: 'prometheus', status: 'requested', createdAt: 'x', updatedAt: 'x' }} busy={false} onGrant={onGrant} onDismiss={() => {}} />)
+    render(<AccessRequestCard request={asked} busy={false} mayGrant onGrant={onGrant} onDismiss={() => {}} />)
     expect(screen.getByText('monitoring, gitea')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Open them' }))
     expect(onGrant).toHaveBeenCalled()
+  })
+
+  it('offers no grant to anyone else, who may still dismiss it', () => {
+    render(<AccessRequestCard request={asked} busy={false} mayGrant={false} onGrant={() => {}} onDismiss={() => {}} />)
+    expect(screen.queryByRole('button', { name: 'Open them' })).toBeNull()
+    expect(screen.getByRole('button', { name: 'Dismiss' })).toBeInTheDocument()
   })
 })

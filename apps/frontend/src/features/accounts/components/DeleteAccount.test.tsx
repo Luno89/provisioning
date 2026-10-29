@@ -25,7 +25,7 @@ const renderSection = () => {
 describe('deleting your own account', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    useShellStore.getState().setUser({ id: 'bo', email: 'bo@example.com' } as never)
+    useShellStore.getState().setUser({ id: 'bo', email: 'bo@example.com', permissions: { 'manage-own-account': true } } as never)
   })
 
   it('removes the account only once the email is typed, then signs out', async () => {
@@ -58,7 +58,7 @@ describe('deleting your own account', () => {
 describe('deleting your account from inside an instance', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    useShellStore.getState().setUser({ id: 'bo', email: 'bo@example.com', holdsAccounts: false } as never)
+    useShellStore.getState().setUser({ id: 'bo', email: 'bo@example.com', permissions: { 'manage-own-account': false } } as never)
   })
 
   it('removes nothing here and sends you to Koala, where the account is kept', async () => {
