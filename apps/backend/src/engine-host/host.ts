@@ -156,6 +156,7 @@ export interface EngineHostOptions {
   documents?: DocumentRepos | undefined;
   repoFor?: WorkspaceRepoResolver | undefined;
   runGrants?: RunGrantChecks | undefined;
+  poisoning?: Pick<import('./tools/poisoning-watch.js').PoisoningWatch, 'beforeCall' | 'afterCall'> | undefined;
 }
 
 export interface RunGrantChecks {
@@ -506,7 +507,7 @@ export function createEngineHost(options: EngineHostOptions): EngineHost {
     tasks: (ownerId) => stores.tasks.list(ownerId),
     conversation: (ownerId, id) => stores.conversations.get(ownerId, id),
   });
-  const tools = createToolRuntime({ registry, environments, handlers, ...(serverTools ? { serverTools } : {}), ...(resources ? { resources } : {}), ...(options.runGrants ? { grants: options.runGrants } : {}) });
+  const tools = createToolRuntime({ registry, environments, handlers, ...(serverTools ? { serverTools } : {}), ...(resources ? { resources } : {}), ...(options.runGrants ? { grants: options.runGrants } : {}), ...(options.poisoning ? { watch: options.poisoning } : {}) });
 
   const efforts = options.efforts
     ? createEffortTracker({ models: options.models, registry, store: options.efforts })

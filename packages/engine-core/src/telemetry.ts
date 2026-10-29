@@ -44,6 +44,7 @@ export interface KoalaMetrics {
   hubChangesSent: Counter;
   mailSent: Counter;
   telemetryRelayed: Counter;
+  poisoningSignals: Counter;
 }
 
 const seconds = (meter: Meter, name: string, description: string): Histogram =>
@@ -70,6 +71,7 @@ export function instrumentsOn(meter: Meter): KoalaMetrics {
     hubChangesSent: meter.createCounter('koala_hub_changes_sent', { description: 'Changes sent to the hub' }),
     mailSent: meter.createCounter('koala_mail_sent', { description: 'Emails sent, by way and outcome' }),
     telemetryRelayed: meter.createCounter('koala_telemetry_relayed', { description: 'Telemetry batches relayed from machines, by signal and outcome' }),
+    poisoningSignals: meter.createCounter('koala_poisoning_signals', { description: 'Signs of context or memory poisoning found in runs, by kind and severity' }),
   };
 }
 

@@ -5,7 +5,8 @@ import type { ServerTools } from './server-tools.js';
 import { isMcpToolName } from '../../engine/lib/mcp-tools.js';
 import { placeArtifacts, treeOfWorkspace } from '../sandboxes/workspace-repos.js';
 import { keptToProblem } from '../../engine/lib/acting-for.js';
-import { accessOf, accessProblem, projectRefsIn, type ProjectResolution } from '../../engine/lib/tool-access.js';
+import { accessOf, accessProblem, projectRefsIn, sourceOf, type ProjectResolution } from '../../engine/lib/tool-access.js';
+import type { PoisoningWatch } from './poisoning-watch.js';
 import type { ProjectResolver } from '../../engine/index.js';
 import { asPerson, memberPrincipal } from '../../platform/lib/permissions.js';
 import { withoutHidden } from '../../engine/lib/hidden-text.js';
@@ -28,6 +29,7 @@ export interface ToolRuntimeOptions {
   serverTools?: ServerTools | undefined;
   resources?: ProjectResolver | undefined;
   grants?: { callProblem(grantId: string | undefined, tool: string, projectId: string | undefined): Promise<string | undefined> } | undefined;
+  watch?: Pick<PoisoningWatch, 'beforeCall' | 'afterCall'> | undefined;
 }
 
 const argumentsOf = (text: string): Record<string, unknown> => {
@@ -61,6 +63,8 @@ export function createToolRuntime(options: ToolRuntimeOptions): ToolRuntime {
     async run(args: ToolCallArgs, attempt = 1, signal?: AbortSignal): Promise<ToolCallOutcome> {
       const agent = await options.registry.agent(args.ticket.ownerId, args.ticket.agentSlug);
       if (!agent) return placed(refuse(`There is no agent called "${args.ticket.agentSlug}".`), args);
+      const mcp = isMcpToolName(args.name);
+      await options.watch?.beforeCall(args, argumentsOf(args.arguments), mcp);
       if (args.ticket.keptTo) {
         const problem = keptToProblem(args.name, argumentsOf(args.arguments));
         if (problem) return placed(refuse(problem), args);
@@ -116,7 +120,9 @@ export function createToolRuntime(options: ToolRuntimeOptions): ToolRuntime {
         ...(options.digestChars === undefined ? {} : { digestChars: options.digestChars }),
         ...(signal ? { signal } : {}),
       });
-      return placed(shownToTheModel(outcome).outcome, args);
+      const shown = shownToTheModel(outcome);
+      if (shown.outcome.ok) await options.watch?.afterCall(args, parsed, sourceOf(args.name, mcp), shown.outcome, shown.removed);
+      return placed(shown.outcome, args);
     },
   };
 }

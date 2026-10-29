@@ -15,7 +15,7 @@ import {
 import {
   stopIfRunning, createDatabase, sharedPayloadBlobs, createWorkerLogger, buildDataConverter, connectTemporalWorker, failureReason,
   signJWT, principalOf, claimSettingsFrom, roleFromEnv, getTemporalClient, resolveOwnersWith, loadKeys, startedFor, carryingTrace, SYSTEM_KUBECONFIG, telemetrySettings, AccessRevocations,
-  publicAddressProblem,
+  publicAddressProblem, encryptValue,
 } from './platform/index.js';
 import { rootSignInFor } from './instances/wiring/sign-in.js';
 import { createWorkspaceRepoResolver, treeOfWorkspace } from './engine-host/sandboxes/workspace-repos.js';
@@ -56,6 +56,7 @@ import {
   createEngineActivities,
   createEffortTracker,
   createEngineHost,
+  PoisoningWatch,
   storesFromDatabase,
   DEFAULT_ENGINE_TASK_QUEUE,
   type Task,
@@ -187,7 +188,16 @@ async function buildActivities() {
   });
   const engineFiles = new FileService({ store: db, open: (ownerId, place) => fileStores.open(ownerId, place), defaultCluster: DEFAULT_TARGET_CLUSTER });
   const runGrants = new RunGrantService({ store: db.engine });
+  const poisoning = new PoisoningWatch({
+    store: db.engine,
+    personText: async (ownerId, conversationId) => (conversationId
+      ? ((await db.engine.getConversation(ownerId, conversationId))?.messages ?? []).filter((message) => message.role === 'user').map((message) => message.content).join('\n')
+      : ''),
+    seal: (text) => encryptValue(text, keys.data),
+    log: (message) => logger.warn(message),
+  });
   const host = createEngineHost({
+    poisoning,
     runGrants: {
       callProblem: (grantId, tool, projectId) => runGrants.callProblem(grantId, tool, projectId),
       keepHandover: (ownerId, runId, handover) => runGrants.keepHandover(ownerId, runId, handover),

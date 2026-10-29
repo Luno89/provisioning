@@ -47,3 +47,4 @@ export * from './host.js';
 
 export type { EndpointResolver } from './registries/endpoints.js';
 export { UnknownAgentError } from './registries/endpoints.js';
+export { PoisoningWatch, readsKeyOf, type PoisoningWatchDeps } from './tools/poisoning-watch.js';

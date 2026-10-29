@@ -16,6 +16,7 @@ import type { PublishedWorkspace } from './lib/published-workspace.js';
 import type { RunEffort } from '@koala/agent-engine/procedure';
 import { type StoredNodeTrace, runTraceKey } from './lib/run-traces.js';
 import type { Handover, RunEnded, RunGrant } from './lib/run-grants.js';
+import { PRINTS_KEPT, READS_KEPT_DAYS, type PoisoningSignal, type ReadsPart, type RunReads, type SignalState } from './lib/poisoning.js';
 import type { WorkspaceImageSpec } from './lib/workspace-image-seeds.js';
 
 export interface EngineStore extends AreaStore {
@@ -97,6 +98,15 @@ export interface EngineStore extends AreaStore {
   saveRunEnded(ending: RunEnding): Promise<void>;
   saveRunHandover(ownerId: string, runId: string, handover: Handover): Promise<void>;
   getRunEndings(ownerId: string, runIds: readonly string[]): Promise<RunEnding[]>;
+  openRunReads(key: string, ownerId: string, runId: string, fpKey: string, at: string): Promise<RunReads>;
+  addRunReads(key: string, part: ReadsPart, at: string): Promise<void>;
+  getRunReadsOfRuns(runIds: readonly string[]): Promise<RunReads[]>;
+  savePoisoningSignal(signal: PoisoningSignal): Promise<boolean>;
+  getPoisoningSignals(ownerId: string, filter?: { state?: SignalState | undefined; runIds?: readonly string[] | undefined }): Promise<PoisoningSignal[]>;
+  getPoisoningSignal(ownerId: string, id: string): Promise<PoisoningSignal | undefined>;
+  setPoisoningSignalState(ownerId: string, id: string, state: SignalState, because?: string | undefined): Promise<boolean>;
+  getUntoldPoisoningSignals(): Promise<PoisoningSignal[]>;
+  markPoisoningSignalTold(id: string, at: string): Promise<void>;
 }
 
 export interface RunEnding {
@@ -190,6 +200,14 @@ export class MongoEngineStore implements EngineStore {
     return this.db().collection('runEndings');
   }
 
+  private get runReads(): Collection {
+    return this.db().collection('runReads');
+  }
+
+  private get poisoningSignals(): Collection {
+    return this.db().collection('poisoningSignals');
+  }
+
   private get runTraces(): Collection {
     return this.db().collection('engineRunTraces');
   }
@@ -211,6 +229,10 @@ export class MongoEngineStore implements EngineStore {
   }
 
   async ensureIndexes(): Promise<void> {
+    await this.runReads.createIndex({ runs: 1 });
+    await this.runReads.createIndex({ lastReadAt: 1 }, { expireAfterSeconds: READS_KEPT_DAYS * 24 * 60 * 60 });
+    await this.poisoningSignals.createIndex({ ownerId: 1, state: 1, at: -1 });
+    await this.poisoningSignals.createIndex({ toldAt: 1, severity: 1 });
     await this.runTraces.createIndex({ ownerId: 1, runId: 1, sequence: 1 });
     await this.turnLogs.createIndex({ turnId: 1, seq: 1 }, { unique: true });
     await this.turnLogs.createIndex({ at: 1 }, { expireAfterSeconds: TURN_LOG_RETENTION_SECONDS });
@@ -242,6 +264,64 @@ export class MongoEngineStore implements EngineStore {
 
   async getLiveRunGrants(personId: string): Promise<RunGrant[]> {
     return (await this.runGrants.find({ personId, state: 'live' }).toArray()).map((doc) => fromDoc<RunGrant>(doc));
+  }
+
+  async openRunReads(key: string, ownerId: string, runId: string, fpKey: string, at: string): Promise<RunReads> {
+    const doc = await this.runReads.findOneAndUpdate(
+      { _id: key as never },
+      { $setOnInsert: { ownerId, fpKey, classes: [], private: [], outside: [], hosts: [] }, $addToSet: { runs: runId }, $set: { lastReadAt: at } },
+      { upsert: true, returnDocument: 'after' },
+    );
+    const { _id, ...rest } = doc as Record<string, unknown>;
+    return { key: String(_id), ...rest } as RunReads;
+  }
+
+  async addRunReads(key: string, part: ReadsPart, at: string): Promise<void> {
+    if (!part.classes.length && !part.private.length && !part.outside.length && !part.hosts.length && !part.readRuns?.length) return;
+    await this.runReads.updateOne({ _id: key as never }, {
+      $addToSet: { classes: { $each: part.classes }, hosts: { $each: part.hosts }, readRuns: { $each: part.readRuns ?? [] } },
+      $push: { private: { $each: part.private, $slice: -PRINTS_KEPT }, outside: { $each: part.outside, $slice: -PRINTS_KEPT } },
+      $set: { lastReadAt: at },
+    } as never);
+  }
+
+  async getRunReadsOfRuns(runIds: readonly string[]): Promise<RunReads[]> {
+    if (!runIds.length) return [];
+    return (await this.runReads.find({ runs: { $in: [...runIds] } }).toArray()).map((doc) => {
+      const { _id, ...rest } = doc as Record<string, unknown>;
+      return { key: String(_id), ...rest } as RunReads;
+    });
+  }
+
+  async savePoisoningSignal(signal: PoisoningSignal): Promise<boolean> {
+    const { id, ...rest } = signal;
+    const result = await this.poisoningSignals.updateOne({ _id: id as never }, { $setOnInsert: rest }, { upsert: true });
+    return result.upsertedCount > 0;
+  }
+
+  async getPoisoningSignals(ownerId: string, filter: { state?: SignalState | undefined; runIds?: readonly string[] | undefined } = {}): Promise<PoisoningSignal[]> {
+    const query: Record<string, unknown> = { ownerId };
+    if (filter.state) query.state = filter.state;
+    if (filter.runIds) query.runId = { $in: [...filter.runIds] };
+    return (await this.poisoningSignals.find(query).sort({ at: -1 }).toArray()).map((doc) => fromDoc<PoisoningSignal>(doc));
+  }
+
+  async getPoisoningSignal(ownerId: string, id: string): Promise<PoisoningSignal | undefined> {
+    const doc = await this.poisoningSignals.findOne({ _id: id as never, ownerId });
+    return doc ? fromDoc<PoisoningSignal>(doc) : undefined;
+  }
+
+  async setPoisoningSignalState(ownerId: string, id: string, state: SignalState, because?: string | undefined): Promise<boolean> {
+    const result = await this.poisoningSignals.updateOne({ _id: id as never, ownerId }, { $set: { state, ...(because ? { dismissedBecause: because } : {}) } });
+    return result.matchedCount > 0;
+  }
+
+  async getUntoldPoisoningSignals(): Promise<PoisoningSignal[]> {
+    return (await this.poisoningSignals.find({ toldAt: { $exists: false } }).sort({ at: 1 }).toArray()).map((doc) => fromDoc<PoisoningSignal>(doc));
+  }
+
+  async markPoisoningSignalTold(id: string, at: string): Promise<void> {
+    await this.poisoningSignals.updateOne({ _id: id as never }, { $set: { toldAt: at } });
   }
 
   async saveRunEnded(ending: RunEnding): Promise<void> {
@@ -430,6 +510,7 @@ export class MongoEngineStore implements EngineStore {
       this.runEffort.updateMany({ ownerId: from, ...runs }, { $set: { ownerId: to } }),
       this.runEndings.updateMany({ ownerId: from, ...runs }, { $set: { ownerId: to } }),
       this.runGrants.updateMany({ ownerId: from, ...runs }, { $set: { ownerId: to } }),
+      this.poisoningSignals.updateMany({ ownerId: from, ...runs }, { $set: { ownerId: to } }),
       this.reownArtifacts(from, to, runIds),
     ]);
     return moved.reduce((total, result) => total + result.modifiedCount, 0);
