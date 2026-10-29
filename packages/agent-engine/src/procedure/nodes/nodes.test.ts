@@ -34,6 +34,9 @@ import { defaultSettings, settingsProblems } from '../settings-schema.js';
 import { replyExit, toWireMessages, type ChatMessage, type ModelBinding, type ModelReply, type ToolResult } from '../values.js';
 import { describeAsks, describeAvailable, describeEnvironment, describeWithheld } from '../../runtime/context.js';
 import { createRunState } from '../../runtime/run.js';
+import { canaryFor } from '../canary.js';
+
+const escapeRegex = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 import { SEEDED_AGENTS } from '../../agent/seeds.js';
 
 
@@ -215,8 +218,19 @@ describe('context nodes', () => {
       inputs: { environment: { kind: 'machine', deviceId: 'd', deviceName: 'desk', path: '/home/me', egressMode: 'declared' } },
     });
 
-    expect(none.outputs.text).toBe(describeEnvironment({ kind: 'none', egress: false }));
-    expect(machine.outputs.text).toBe(describeEnvironment({ kind: 'machine', deviceName: 'desk', root: '/home/me', egressMode: 'declared' }));
+    expect(none.outputs.text).toMatch(new RegExp(`^${escapeRegex(describeEnvironment({ kind: 'none', egress: false }))}\n\nRUN REFERENCE\n\nkoala-canary-[0-9a-f]{32} is this run's own reference`));
+    expect(machine.outputs.text).toMatch(new RegExp(`^${escapeRegex(describeEnvironment({ kind: 'machine', deviceName: 'desk', root: '/home/me', egressMode: 'declared' }))}\n\nRUN REFERENCE`));
+  });
+
+  it('gives a run family one canary, from its grant, and never the same one to another family', async () => {
+    const identity = { runId: 'r', depth: 0, agentId: 'a', loopId: 'p', loopVersion: '1', trigger: 'user' as const };
+    const first = await invoke(describeEnvironmentNode, { run: { launch: { ownerId: 'o', grantId: 'grant-1' } } });
+    const child = await invoke(describeEnvironmentNode, { run: { launch: { ownerId: 'o', grantId: 'grant-1' }, identity: { ...identity, runId: 'child-run', depth: 1 } } });
+    const other = await invoke(describeEnvironmentNode, { run: { launch: { ownerId: 'o', grantId: 'grant-2' } } });
+    const canary = (text: string) => /koala-canary-[0-9a-f]{32}/.exec(text)?.[0];
+    expect(canary(first.outputs.text as string)).toBe(canaryFor('grant-1'));
+    expect(canary(child.outputs.text as string)).toBe(canaryFor('grant-1'));
+    expect(canary(other.outputs.text as string)).not.toBe(canaryFor('grant-1'));
   });
 
   it('describes tools as available, withheld and asks, and says nothing when there is nothing', async () => {

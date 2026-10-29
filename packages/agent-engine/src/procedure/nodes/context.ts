@@ -32,6 +32,7 @@ import {
 } from '../values.js';
 import { DEFAULT_CONTEXT_MARGIN } from './model.js';
 import { collapse, numberOf, textOf, textsOf } from './read.js';
+import { canaryFor, canaryKey, canaryLine } from '../canary.js';
 
 export const NO_ENVIRONMENT: EnvironmentValue = { kind: 'none', egress: false };
 
@@ -159,7 +160,8 @@ export const describeEnvironmentNode: BuiltInNode = {
   implementation: valueImplementation('describe-environment', ({ inputs, run }) => {
     const environment = resolvedEnvironment(inputs.environment as EnvironmentValue | undefined);
     const where = describeEnvironment(environment, (inputs.delegates as AgentDefinition[] | undefined) ?? [], { agent: run.identity.agentId, runId: run.identity.runId });
-    return { outputs: { text: typeof inputs.machine === 'string' && inputs.machine ? joinSections([describeOnMachine(environment), where]) : where } };
+    const canary = canaryLine(canaryFor(canaryKey(run.launch, run.identity.runId)));
+    return { outputs: { text: typeof inputs.machine === 'string' && inputs.machine ? joinSections([describeOnMachine(environment), where, canary]) : joinSections([where, canary]) } };
   }),
 };
 
