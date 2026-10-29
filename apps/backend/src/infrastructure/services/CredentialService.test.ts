@@ -4,6 +4,7 @@ import { decryptValue } from '../../platform/lib/crypto.js';
 import { testDatabase } from '../../platform/lib/test-database.js';
 import type { MongoDB } from '../../platform/lib/mongo-db.js';
 import type { UserMetadata } from '../../platform/lib/types.js';
+import { FAKE_OVH_KEYS, fakeOvh } from './fake-ovh.js';
 
 const TEST_KEY = 'test-master-key-for-credential-tests';
 
@@ -105,7 +106,7 @@ describe('CredentialService', () => {
       expect(statuses.map((s) => s.provider).sort()).toEqual(
         [
           'aws', 'azure', 'do', 'gcp', 'github', 'hetzner', 'huggingface',
-          'vultr', 'linode', 'scaleway', 'hostinger', 'contabo', 'cloudflare',
+          'vultr', 'linode', 'scaleway', 'hostinger', 'contabo', 'ovh', 'cloudflare',
           'artificialanalysis',
         ].sort(),
       );
@@ -201,6 +202,27 @@ describe('CredentialService', () => {
     it('returns null for unconfigured provider', async () => {
       const result = await service.getCredentials('user-1', 'gcp');
       expect(result).toBeNull();
+    });
+  });
+
+  describe('OVHcloud keys', () => {
+    it('signs in with them, names the account, and refuses keys of another subsidiary or missing parts', async () => {
+      const ovh = fakeOvh();
+      const withOvh = new CredentialService(db, TEST_KEY, undefined, ovh.fetch);
+      await expect(withOvh.validateCredentials('ovh', { ...FAKE_OVH_KEYS, subsidiary: 'au' })).resolves.toEqual({ valid: true, message: 'Signed in to OVHcloud as ab12345-ovh (AU, AUD).' });
+      expect(ovh.state.calls).toEqual(['GET /me']);
+      await expect(withOvh.validateCredentials('ovh', { ...FAKE_OVH_KEYS, subsidiary: 'FR' })).resolves.toMatchObject({ valid: false, message: expect.stringMatching(/belong to an OVHcloud AU account/) });
+      await expect(withOvh.validateCredentials('ovh', { ...FAKE_OVH_KEYS, subsidiary: 'XX' })).resolves.toMatchObject({ valid: false, message: expect.stringMatching(/not an OVHcloud subsidiary/) });
+      await expect(withOvh.validateCredentials('ovh', { applicationKey: 'AK-test', subsidiary: 'AU' })).resolves.toMatchObject({ valid: false });
+      await expect(withOvh.validateCredentials('ovh', { ...FAKE_OVH_KEYS, applicationSecret: 'wrong', subsidiary: 'AU' })).resolves.toMatchObject({ valid: false, message: expect.stringMatching(/Invalid signature/) });
+    });
+
+    it('keeps the three keys sealed and the subsidiary plain', async () => {
+      await service.saveCredentials('user-1', 'ovh', { ...FAKE_OVH_KEYS, subsidiary: 'AU' });
+      const shown = await service.getCredentials('user-1', 'ovh');
+      expect(shown?.subsidiary).toBe('AU');
+      expect(shown?.applicationSecret).toContain('****');
+      expect((await service.resolveCredentials('user-1', 'ovh')).env).toEqual({ OVH_APPLICATION_KEY: 'AK-test', OVH_APPLICATION_SECRET: 'AS-test', OVH_CONSUMER_KEY: 'CK-test', OVH_SUBSIDIARY: 'AU' });
     });
   });
 });
