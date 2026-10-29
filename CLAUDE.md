@@ -348,7 +348,7 @@ you could not use yourself is refused (`grantProblem`), applying a deploy card c
 
 **Every run works with a grant, ended with the run or on revocation** (step 3, 2026-10-29; `engine/lib/run-grants.ts`,
 `RunGrantService`). The run starter issues each top-level run a grant (`runGrants`, `grantId` on the ticket and launch, so children copy it):
-its starter's claims as they were, narrowed to the run's project (a member's ask, a kept-to run, a tree run, a chat bound to a project),
+its starter's claims as they were, narrowed to the run's project only where access stops there (a member's ask, a kept-to run, a tree run; never an owner's chat because it is bound to a project),
 `startedBy` `person` (a chat turn, a tree run, an ask on the hub) or `platform`. The tool runtime asks it before every call
 (`callProblem`: a revoked grant refuses all but `leave_handover_note`, an ended one everything, a call on another project is refused; a
 settled grant is cached, a live one read once a call). It ends when the run ends (the `run-ended` event, which also records how every run
