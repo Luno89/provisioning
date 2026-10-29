@@ -73,7 +73,10 @@ export async function handOff(root: Side, target: Side, first = '/api/identity/g
   assert.equal(go.status, 302, `root did not send the person on: ${go.status} ${go.body}`);
   if (/\/#\/handoff\?token=/.test(go.location)) return legacyHandOff(root, target, go);
 
-  const startAt = new URL(go.location);
+  return followSignIn(root, target, new URL(go.location), go.location);
+}
+
+export async function followSignIn(root: Side, target: Side, startAt: URL, location = startAt.href): Promise<Handoff> {
   const targetJar: Jar = new Map();
   const rootJar: Jar = new Map();
   const started = await target(pathOf(startAt));
@@ -85,7 +88,7 @@ export async function handOff(root: Side, target: Side, first = '/api/identity/g
   for (let hops = 0; hops < 8; hops += 1) {
     if (next.origin === startAt.origin) {
       const exchange = await target(pathOf(next), { cookie: sent(targetJar) });
-      return { exchange, location: go.location, callback: pathOf(next), startCookie };
+      return { exchange, location, callback: pathOf(next), startCookie };
     }
     assert.equal(next.origin, rootOrigin, `the sign-in went somewhere else: ${next.href}`);
     const hop = await root(pathOf(next), { cookie: sent(rootJar) });
