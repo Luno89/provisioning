@@ -1,5 +1,5 @@
-import { Cloud, FileText, Plus, Shield, Trash2 } from 'lucide-react'
-import { useShellStore } from '../../platform'
+import { Cloud, FileText, Plus, Server, Shield, Trash2 } from 'lucide-react'
+import { formatHash, useCan, useShellStore } from '../../platform'
 import { Bar, Section, StateBadge } from '../../monitoring'
 import { useShellContext } from '../hooks/shell-context'
 import { QuietButton } from './Parts'
@@ -9,6 +9,7 @@ export function ClustersSection() {
   const ctx = useShellContext()
   const view = useInfrastructure()
   const setConfirmDestroy = useShellStore((s) => s.setConfirmDestroy)
+  const can = useCan()
   if (!ctx) return null
   const cards = clusterCards(ctx.clusters, view.data?.monitoring.clusters ?? [])
 
@@ -17,9 +18,16 @@ export function ClustersSection() {
       id="infrastructure-clusters"
       title={`Clusters · ${cards.length}`}
       right={(
-        <button type="button" onClick={() => ctx.setShowClusterModal(true)} className="flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-blue-500">
-          <Plus size={14} /> Provision a cluster
-        </button>
+        <div className="flex items-center gap-2">
+          {can('administer') && (
+            <a href={formatHash('host-koala')} className="flex items-center gap-1.5 rounded-md border border-[var(--bark-600)] px-3 py-1.5 text-[12px] text-slate-200 hover:bg-[var(--bark-700)]">
+              <Server size={14} /> Host Koala on a server
+            </a>
+          )}
+          <button type="button" onClick={() => ctx.setShowClusterModal(true)} className="flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-blue-500">
+            <Plus size={14} /> Provision a cluster
+          </button>
+        </div>
       )}
     >
       <p className="text-[11px] text-slate-500">Open one to see everything on it.</p>

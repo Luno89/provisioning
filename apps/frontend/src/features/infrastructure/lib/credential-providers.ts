@@ -153,6 +153,19 @@ export const PROVIDERS: ProviderMeta[] = [
       { key: 'apiPassword', label: 'API Password', sensitive: true, placeholder: 'Set under API → Details (not your login password)' },
     ],
   },
+  {
+    key: 'ovh',
+    label: 'OVHcloud',
+    color: '#123F6D',
+    icon: '◈',
+    docsUrl: 'https://ca.api.ovh.com/createToken/',
+    fields: [
+      { key: 'applicationKey', label: 'Application key', sensitive: true, placeholder: 'From createToken on your region\'s API (eu.api.ovh.com, ca.api.ovh.com or api.us.ovhcloud.com)' },
+      { key: 'applicationSecret', label: 'Application secret', sensitive: true, placeholder: 'Shown once, beside the application key' },
+      { key: 'consumerKey', label: 'Consumer key', sensitive: true, placeholder: 'Rules: GET /*, POST /order/*, DELETE /order/*, POST /vps/*, POST /me/order/*' },
+      { key: 'subsidiary', label: 'Account subsidiary', sensitive: false, placeholder: 'AU, CA, FR, GB, US…' },
+    ],
+  },
 ];
 
 export const CLUSTER_CAPABLE_PROVIDERS = ['hetzner'] as const;
@@ -213,4 +226,5 @@ export const PROVIDER_CAPABILITY: Record<string, string> = {
   do: 'Adds DigitalOcean plan prices to the VPS Catalog.',
   hostinger: 'Adds Hostinger plans to the VPS Catalog once the adapter is verified against a real token.',
   contabo: 'Management access only — Contabo publishes no pricing API, so its plans cannot appear in the VPS Catalog.',
+  ovh: 'Lets Koala buy a server for its root from Infrastructure → Clusters → Host Koala on a server. Your OVHcloud account needs a default payment method; nothing is bought until you confirm the price.',
 };
