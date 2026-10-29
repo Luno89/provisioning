@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { execFileSync, spawn } from 'node:child_process';
+import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -191,7 +191,11 @@ async function main(): Promise<void> {
   const backendKubeconfigPath = join(work, 'pool-backend-kubeconfig.yaml');
   writeFileSync(backendKubeconfigPath, backendKubeconfig, { mode: 0o600 });
   const pool = (args: string[]) => run(join(REPO, 'bin/kubectl'), ['--kubeconfig', kubeconfigPath, ...args]);
-  const asBackend = (args: string[]) => run(join(REPO, 'bin/kubectl'), ['--kubeconfig', backendKubeconfigPath, ...args]).trim();
+  const asBackend = (args: string[]) => {
+    const asked = spawnSync(join(REPO, 'bin/kubectl'), ['--kubeconfig', backendKubeconfigPath, ...args], { cwd: REPO, encoding: 'utf8' });
+    if (asked.status !== 0 && asked.status !== 1) throw new Error(`kubectl ${args.join(' ')} ended with ${asked.status}: ${asked.stderr.trim()}`);
+    return asked.stdout.trim();
+  };
   assert.equal(asBackend(['auth', 'can-i', 'create', 'namespaces']), 'no', 'root\'s backend could make namespaces on the pool node');
   assert.equal(asBackend(['auth', 'can-i', 'get', 'secrets', '-A']), 'no', 'root\'s backend could read the pool node\'s secrets');
   console.log(`  the pool node is ${poolIp} on the mesh; root's backend reaches it as koala-backend, which may neither make namespaces nor read secrets`);
