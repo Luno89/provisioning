@@ -3,6 +3,7 @@ import { createWriteStream, mkdirSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildAppImage } from './gate-runs.js';
+import { roundsOf } from './gates.js';
 
 export interface VmSuite {
   script: string;
@@ -18,26 +19,7 @@ export const VM_SUITES: readonly VmSuite[] = [
   { script: 'instance-live', memoryMB: 2048 },
 ];
 
-export function roundsFor(suites: readonly VmSuite[], availableMB: number): VmSuite[][] {
-  const waiting = [...suites].sort((a, b) => b.memoryMB - a.memoryMB);
-  const rounds: VmSuite[][] = [];
-  while (waiting.length) {
-    const round: VmSuite[] = [];
-    let left = availableMB;
-    for (let i = 0; i < waiting.length;) {
-      const suite = waiting[i]!;
-      if (suite.memoryMB <= left || round.length === 0) {
-        round.push(suite);
-        left -= suite.memoryMB;
-        waiting.splice(i, 1);
-      } else {
-        i += 1;
-      }
-    }
-    rounds.push(round);
-  }
-  return rounds;
-}
+export const roundsFor = (suites: readonly VmSuite[], availableMB: number): VmSuite[][] => roundsOf(suites, availableMB);
 
 export function availableMemoryMB(meminfo = readFileSync('/proc/meminfo', 'utf8')): number {
   const kb = /MemAvailable:\s+(\d+) kB/.exec(meminfo)?.[1];

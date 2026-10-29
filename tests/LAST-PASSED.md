@@ -18,11 +18,13 @@ Written by `tests/lib/run-live.ts`, which every `npm run test:*-live` and `test:
 | `machine-live` | 2026-10-29 14:33 | 2026-10-28 02:02 |
 | `mail-live` | 2026-10-29 14:22 | — |
 | `mesh-live` | 2026-10-29 15:10 | 2026-10-28 02:39 |
+| `odoo-customizations-live` | — | 2026-10-29 15:22 |
 | `odoo-release-live` | 2026-10-29 05:39 | 2026-10-28 19:41 |
-| `pool-live` | 2026-10-28 19:59 | 2026-10-29 15:21 |
+| `pool-live` | 2026-10-29 15:59 | 2026-10-29 15:21 |
 | `project-sharing-live` | 2026-10-29 05:21 | 2026-10-22 13:53 |
 | `release-live` | 2026-10-26 18:43 | 2026-10-26 18:13 |
 | `remote-host-integration` | 2026-10-29 15:00 | 2026-10-29 05:04 |
+| `restore-live` | 2026-10-29 16:11 | — |
 | `routes-live` | 2026-10-29 05:21 | 2026-10-24 05:15 |
 | `routing-live` | 2026-10-29 15:19 | 2026-10-22 20:20 |
 | `telemetry-live` | 2026-10-29 05:22 | — |

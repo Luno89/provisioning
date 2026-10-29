@@ -77,10 +77,16 @@
   },
   "pool-live": {
     "failed": "2026-10-29T15:21:19.361Z",
-    "passed": "2026-10-28T19:59:16.545Z"
+    "passed": "2026-10-29T15:59:40.603Z"
   },
   "remote-host-integration": {
     "failed": "2026-10-29T05:04:42.568Z",
     "passed": "2026-10-29T15:00:38.572Z"
+  },
+  "odoo-customizations-live": {
+    "failed": "2026-10-29T15:22:26.872Z"
+  },
+  "restore-live": {
+    "passed": "2026-10-29T16:11:17.883Z"
   }
 }
