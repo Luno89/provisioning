@@ -12,6 +12,15 @@ export interface InfrastructureOverview {
   running: number;
   runningProblem?: string | undefined;
   failures: WorkFailure[];
+  root?: RootReach | undefined;
+}
+
+export interface RootReach {
+  rootUrl: string;
+  reachable: boolean;
+  down: boolean;
+  unreachableSince?: string | undefined;
+  lastSeenAt?: string | undefined;
 }
 
 export interface InfrastructureViewDeps {
@@ -19,6 +28,7 @@ export interface InfrastructureViewDeps {
   contents: { broken(viewer: Viewer): Promise<BrokenWorkload[]>; contents(viewer: Viewer, clusterId: string): Promise<ClusterContents> };
   running: { view(ownerId: string): Promise<RunningOutcome<RunningView>> };
   failures: { shown(ownerId: string): Promise<WorkFailure[]>; clear(ownerId: string, ids: readonly string[] | 'all'): Promise<number> };
+  root?: (() => RootReach | undefined) | undefined;
 }
 
 export const waitingOnPerson = (items: readonly RunningItem[]): RunningItem[] =>
@@ -52,6 +62,7 @@ export class InfrastructureViewService {
       running: running.ok ? running.value.items.length : 0,
       ...(running.ok ? {} : { runningProblem: running.error }),
       failures,
+      ...(this.deps.root?.() ? { root: this.deps.root()! } : {}),
     };
   }
 

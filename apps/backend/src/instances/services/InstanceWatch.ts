@@ -1,5 +1,6 @@
 import type { InstancesStore } from '../store.js';
 import type { InstanceRecord } from '../lib/instances.js';
+import { PendingProbes } from './PendingProbes.js';
 import {
   WATCH_EVERY_MS, instanceReachMail, nextReach, probeUrl, tellsOperator, tellsOwner, watched, type InstanceWatchRecord,
 } from '../lib/instance-watch.js';
@@ -25,9 +26,7 @@ export const answersHttp = (fetchImpl: typeof fetch = globalThis.fetch) => async
 };
 
 export class InstanceWatch {
-  private readonly pending = new Set<string>();
-  private readonly answers = new Map<string, boolean>();
-  private readonly probed = new Set<string>();
+  private readonly probes = new PendingProbes();
   private timer: NodeJS.Timeout | undefined;
   private passing = false;
 
@@ -57,22 +56,13 @@ export class InstanceWatch {
       const [instances, watches] = await Promise.all([this.deps.store.getInstances(), this.deps.store.getWatches()]);
       const watchOf = new Map(watches.map((watch) => [watch.instanceId, watch]));
       for (const instance of instances.filter(watched)) {
-        if (this.probed.has(instance.id)) await this.judge(instance, watchOf.get(instance.id), this.answers.get(instance.id) === true, now);
-        this.ask(instance);
+        const answered = this.probes.answered(instance.id);
+        if (answered !== undefined) await this.judge(instance, watchOf.get(instance.id), answered, now);
+        this.probes.ask(instance.id, () => this.deps.probe(probeUrl(instance.meshIp!)));
       }
     } finally {
       this.passing = false;
     }
-  }
-
-  private ask(instance: InstanceRecord): void {
-    if (this.pending.has(instance.id)) return;
-    this.pending.add(instance.id);
-    this.answers.delete(instance.id);
-    this.probed.add(instance.id);
-    this.deps.probe(probeUrl(instance.meshIp!))
-      .then((answered) => { this.answers.set(instance.id, answered); }, () => { this.answers.set(instance.id, false); })
-      .finally(() => { this.pending.delete(instance.id); });
   }
 
   private async judge(instance: InstanceRecord, watch: InstanceWatchRecord | undefined, answered: boolean, now: Date): Promise<void> {

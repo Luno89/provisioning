@@ -142,6 +142,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   const registryService = new RegistryService(db);
   const gitModuleService = new GitModuleService(db);
   const instanceSide = new InstanceSide(role, process.env);
+  instanceSide.watchRoot((ownerId, message) => push.toPerson(ownerId, message));
   const appExposureService = new AppExposureService(db, infraService, clusterService, io, {
     edge: instanceSide.edge,
     groupOf: async (dep) => (dep.gitappProjectId ? (await db.hub.getHubLinks()).find((link) => link.projectId === dep.gitappProjectId)?.group : undefined),
@@ -403,7 +404,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   });
   const { running } = wireRunning({
     tenant, db, role, temporalBridge, monitoring, workFailures, records: runningRecords, checks: level2Service, trees: groveRuns, runs: engineRuns,
-    bench, keeper: memoryKeeper, infra: infraService, clusters: clusterService,
+    bench, keeper: memoryKeeper, infra: infraService, clusters: clusterService, root: () => instanceSide.rootReach(),
   });
   runningNow = async () => {
     const view = await running.view(role.instance?.ownerId ?? '');

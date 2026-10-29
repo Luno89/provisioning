@@ -23,6 +23,9 @@ import { MoveRelay, kubeconfigFile } from '../services/MoveRelay.js';
 import { PoolMonitoringService } from '../services/PoolMonitoringService.js';
 import { InstanceMailLimit } from '../services/InstanceMailLimit.js';
 import { InstanceWatch, answersHttp } from '../services/InstanceWatch.js';
+import { InstanceWatchSetting } from '../services/InstanceWatchSetting.js';
+import { RootWatch, type RootReachView } from '../services/RootWatch.js';
+import { instanceWatchRouter } from '../routes/instance-watch.js';
 import { unreachableAfterMs } from '../lib/instance-watch.js';
 import type { InstanceEdge, HeadscaleService, InfrastructureService } from '../../infrastructure/index.js';
 import { identityRouter } from '../routes/identity.js';
@@ -39,6 +42,7 @@ const POOL_KUBECONFIG = '/tmp/kubeconfig-provisioning-lunorica';
 export class InstanceSide {
   readonly edge: InstanceEdge | undefined;
   private addresses: InstanceAddresses | undefined;
+  private rootWatch: RootWatch | undefined;
 
   constructor(private readonly role: RoleConfig, private readonly env: NodeJS.ProcessEnv) {
     const name = env.INSTANCE_NAME;
@@ -58,6 +62,22 @@ export class InstanceSide {
 
   current(): InstanceAddresses | undefined {
     return this.addresses;
+  }
+
+  watchRoot(tell: (ownerId: string, message: { title: string; body: string; path: string; tag: string }) => Promise<unknown>): void {
+    if (!this.role.instance || this.rootWatch) return;
+    this.rootWatch = new RootWatch({
+      rootUrl: this.role.instance.rootUrl,
+      ownerId: this.role.instance.ownerId,
+      probe: answersHttp(),
+      tell,
+      afterMs: unreachableAfterMs(this.env),
+    });
+    this.rootWatch.start();
+  }
+
+  rootReach(): RootReachView | undefined {
+    return this.rootWatch?.view();
   }
 }
 
@@ -125,6 +145,11 @@ export async function wireInstances(deps: InstancesWiringDeps): Promise<Instance
   if (signsInThroughRoot(role.role)) app.use('/api/auth', handoffRouter({ identity, auth: deps.auth, sessionKey: deps.sessionKey }));
 
   tenant.use('/api/instance-addresses', instanceAddressesRouter({ addresses: () => deps.side.current() }));
+  tenant.use('/api/instance-watch', instanceWatchRouter({
+    setting: role.instance && env.INSTANCE_CREDENTIAL
+      ? new InstanceWatchSetting({ rootUrl: role.instance.rootUrl, instanceId: role.instance.id, credential: env.INSTANCE_CREDENTIAL })
+      : undefined,
+  }));
   tenant.use('/api/instance-trial', instanceTrialRouter({
     trial: role.instance && env.INSTANCE_CREDENTIAL
       ? new InstanceTrial({ rootUrl: role.instance.rootUrl, instanceId: role.instance.id, credential: env.INSTANCE_CREDENTIAL })
