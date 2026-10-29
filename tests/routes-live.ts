@@ -84,6 +84,7 @@ const SIGNED_IN: Probe[] = [
   { path: '/api/release-settings/options' },
   { path: '/api/running' },
   { path: '/api/secret-requests' },
+  { path: '/api/server-orders' },
   { path: '/api/share/no-such-token' },
   { path: '/api/temporal/status' },
   { path: '/api/trees' },

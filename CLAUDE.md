@@ -56,7 +56,7 @@ npm run test:infrastructure-live   # Infrastructure reads the system cluster →
 npm run test:dev-split-live        # against a running `npm run dev:split`: the instance starts a signed-out person's sign-in through root's OpenID provider → root's Google sign-in (the dev mock) → root knows the instance and serves none of its routes → the code signs you into the instance, and not twice → your work is there and the instance makes no accounts → root takes the instance's service token and refuses a wrong credential → signing out everywhere at root ends the instance's session at once, ~10 s
 npm run test:hub-live              # against the running dev stack (combined): an admin's invite signs up an owner, who makes two shared projects and invites a collaborator and a client to one and someone else to the other → root shows each invite signed out and signs up only the address invited → the outsider reaches nothing of the first project by id, guess or another's invite → each role can do only what it may → roles change, an invite is taken back, people are removed and leave, the last owner cannot → the owner's removal refused while they alone own a project someone else is on, the outsider's removal taking them off it → one project deleted by name and the owner's removal deleting the other, their databases gone, ~1 min
 npm run test:project-sharing-live  # against the running dev stack (combined): a throwaway project with a repository and a channel someone talked in → the group check refuses a dashed and a reserved name and suggests one from the project's name, sharing without a group is refused → the preview says what goes and stays, nothing is on the hub → shared under its group, which the preview and the hub's project carry, and a second project is refused that group → the channel arrives with its history and a new message follows → a commit on the owner's main reaches the hub's and one pushed to the hub's reaches the owner's → taken back by its name: the hub's database and repository are gone, everything stays on the instance → the group is free again and the second project is shared under it and taken back; the account removes itself, ~30 s
-npm run test:routes-live           # against the running dev stack: signed out, the guard answers before any router, the webhook and /ingress/verify before the guard and /api/metrics wants its token → a throwaway account signs up with an admin's invite → one request to each of the 58 mounted routers answers with the router's own response, never Express's "Cannot GET"; the account removes itself, ~5 s
+npm run test:routes-live           # against the running dev stack: signed out, the guard answers before any router, the webhook and /ingress/verify before the guard and /api/metrics wants its token → a throwaway account signs up with an admin's invite → one request to each of the 59 mounted routers answers with the router's own response, never Express's "Cannot GET"; the account removes itself, ~5 s
 npm run test:app-names-live        # against the running dev stack: two owners each deploy an app called shop on the system cluster → both run, each in a namespace of its own (`<name>-<six of its id>`), each owner sees only theirs → a redeploy by the same owner goes to the same app, not a second one; destroys both and removes the second account, ~5 min
 npm run test:machine-container-live  # this computer's Docker: a workspace container starts the way a machine in container mode starts one → from inside it, changing the egress proxy's allowlist is refused with no token and a guessed one → it reaches only the host its allowlist names; removes the container and the proxy, ~1 min
 npm run test:app-sign-in-live         # against the running dev stack: a Hermes deploys on the system cluster with a password Koala made for it → Show sign-in gives its owner the login, never cached, and the listing carries no password → its Deployment holds only a secretKeyRef → the dashboard lets that password in and refuses admin/hermes123 and none; destroys it, ~5 min
@@ -1207,6 +1207,23 @@ rotation is still running.
 
 `scripts/root-node/bootstrap.sh` stands up a fresh VPS; `scripts/root-node/update.sh` deploys a new
 version onto it. Both are idempotent and both refuse loudly rather than half-succeeding.
+
+**Buying root's server from the UI** (plan `~/.claude/plans/project-to-vps.md` step 1, OVHcloud VPS): on a combined box the
+operator opens Infrastructure → Clusters → **Host Koala on a server** (`/#/host-koala`, `HostKoala.tsx`, `/api/server-orders`,
+operator only, mounted only on `combined`). It needs OVHcloud keys under Cloud providers (provider `ovh`: application key, secret
+and consumer key sealed, the subsidiary plain, checked with `GET /me`; the keys need `GET /*`, `POST /order/*`, `DELETE /order/*`,
+`POST /vps/*`, `POST /me/order/*`) and the stored Cloudflare token, which must see both domains. **Price it** builds a real cart
+(`ServerOrderService.priceCart`: the plan for one month, `vps_datacenter` and `vps_os` Ubuntu 24.04, every mandatory option read
+from the cart's own options) and shows OVHcloud's own checkout total, lines and contracts; nothing is bought. **Buy** is the only
+path to `POST /order/cart/{id}/checkout` (auto-paid with the account's default payment method) and refuses unless the total the
+person confirmed equals the quote and OVHcloud still asks it. `RootNodeWorkflow` (host worker, no deadline) then follows the order
+(OVHcloud's identity check on a first order shows as waiting, for days if need be), reinstalls the VPS with Ubuntu 24.04 and a key
+made for that purchase (sealed on the order, shown to the operator on asking), waits for SSH, points `app.` and `mesh.` and
+`*.<people's domain>` at it through Cloudflare (DNS only, never rewriting a record it did not make), waits for a signed release,
+and runs `bootstrap.sh` over SSH with the token on stdin, then starts root and publishes the image; its output lands in the
+order's log with the token and the setup code hidden, and the setup code is shown once. Cancelling before **Buy** deletes the
+cart; after it, Koala stops following and says the server must be terminated in OVHcloud's control panel. `npm run ovh:quote --
+--plan <code> --datacenter <code>` prices a plan with the stored keys and deletes the cart, never buying (`quoteAndDiscard`).
 
 Updates build and typecheck **before** restarting, so a broken commit never interrupts the running
 version, and roll back to the previous commit automatically if the health check fails. The restart
