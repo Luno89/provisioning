@@ -196,6 +196,38 @@
         {
           "file": "Dockerfile",
           "pattern": "ARG KUBECTL_VERSION=(v[0-9.]+)"
+        },
+        {
+          "file": "scripts/setup.sh",
+          "pattern": "KUBECTL_VERSION=(v[0-9.]+)"
+        }
+      ],
+      "sha256s": {
+        "linux-amd64": "1e9045ec32bea85da43de85f0065358529ea7c7a152eca78154fba5b58c27d82",
+        "linux-arm64": "c957eb8c4bea27a3bb35b269edd9082e27f027f7b76b20b5bf4afebc726c6d3e",
+        "darwin-amd64": "ce6c5e55cd17559e87e4fb5e73ebbbc2511bcf2b695d7a40c1b1461a9817d4b3",
+        "darwin-arm64": "4408c85c83fd3a31adaa555bdf3c7a6c81f74b19449a9060ba31ab91926f023d"
+      },
+      "shaUses": [
+        {
+          "file": "scripts/setup.sh",
+          "pattern": "KUBECTL_SHA256_LINUX_AMD64=([0-9a-f]{64})",
+          "arch": "linux-amd64"
+        },
+        {
+          "file": "scripts/setup.sh",
+          "pattern": "KUBECTL_SHA256_LINUX_ARM64=([0-9a-f]{64})",
+          "arch": "linux-arm64"
+        },
+        {
+          "file": "scripts/setup.sh",
+          "pattern": "KUBECTL_SHA256_DARWIN_AMD64=([0-9a-f]{64})",
+          "arch": "darwin-amd64"
+        },
+        {
+          "file": "scripts/setup.sh",
+          "pattern": "KUBECTL_SHA256_DARWIN_ARM64=([0-9a-f]{64})",
+          "arch": "darwin-arm64"
         }
       ]
     },
@@ -910,6 +942,51 @@
     },
     {
       "kind": "binary",
+      "name": "rclone",
+      "version": "v1.75.2",
+      "source": "https://downloads.rclone.org/v1.75.2/",
+      "github": "rclone/rclone",
+      "osv": {
+        "ecosystem": "Go",
+        "name": "github.com/rclone/rclone"
+      },
+      "sha256s": {
+        "linux-amd64": "349ac8fba6ff65d6247043f1750cdcb518ec5d500ef91463a10d37c0ccdf3702",
+        "linux-arm64": "7e1e8d69654941b7b7df84ee74c5f7fb09cce7d5496947fb7bf16b55ff427d10",
+        "darwin-amd64": "574e1f31cf1c464e5fb0325cb66fcbdeaf1efa1802bd9b17f13c256fd74b6561",
+        "darwin-arm64": "610ab7d48615135dfc60b763858b11a426a0d3d1160c1bb76fb0ae6011b02edd"
+      },
+      "uses": [
+        {
+          "file": "scripts/setup.sh",
+          "pattern": "RCLONE_VERSION=(v[0-9.]+)"
+        }
+      ],
+      "shaUses": [
+        {
+          "file": "scripts/setup.sh",
+          "pattern": "RCLONE_SHA256_LINUX_AMD64=([0-9a-f]{64})",
+          "arch": "linux-amd64"
+        },
+        {
+          "file": "scripts/setup.sh",
+          "pattern": "RCLONE_SHA256_LINUX_ARM64=([0-9a-f]{64})",
+          "arch": "linux-arm64"
+        },
+        {
+          "file": "scripts/setup.sh",
+          "pattern": "RCLONE_SHA256_DARWIN_AMD64=([0-9a-f]{64})",
+          "arch": "darwin-amd64"
+        },
+        {
+          "file": "scripts/setup.sh",
+          "pattern": "RCLONE_SHA256_DARWIN_ARM64=([0-9a-f]{64})",
+          "arch": "darwin-arm64"
+        }
+      ]
+    },
+    {
+      "kind": "binary",
       "name": "tailscale",
       "version": "1.104.1",
       "source": "https://pkgs.tailscale.com/stable/tailscale_1.104.1_amd64.tgz",
@@ -1015,20 +1092,6 @@
       "how": "helm upgrade --install with no --version",
       "usedIn": [
         "scripts/ensure-infisical.sh"
-      ]
-    },
-    {
-      "name": "kubectl",
-      "how": "the version dl.k8s.io calls stable today",
-      "usedIn": [
-        "scripts/setup.sh"
-      ]
-    },
-    {
-      "name": "rclone",
-      "how": "rclone-current",
-      "usedIn": [
-        "scripts/setup.sh"
       ]
     },
     {

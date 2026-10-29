@@ -80,6 +80,29 @@ if [ "$OS" != "linux" ] && [ "$OS" != "darwin" ]; then
     exit 1
 fi
 
+KUBECTL_VERSION=v1.36.2
+KUBECTL_SHA256_LINUX_AMD64=1e9045ec32bea85da43de85f0065358529ea7c7a152eca78154fba5b58c27d82
+KUBECTL_SHA256_LINUX_ARM64=c957eb8c4bea27a3bb35b269edd9082e27f027f7b76b20b5bf4afebc726c6d3e
+KUBECTL_SHA256_DARWIN_AMD64=ce6c5e55cd17559e87e4fb5e73ebbbc2511bcf2b695d7a40c1b1461a9817d4b3
+KUBECTL_SHA256_DARWIN_ARM64=4408c85c83fd3a31adaa555bdf3c7a6c81f74b19449a9060ba31ab91926f023d
+RCLONE_VERSION=v1.75.2
+RCLONE_SHA256_LINUX_AMD64=349ac8fba6ff65d6247043f1750cdcb518ec5d500ef91463a10d37c0ccdf3702
+RCLONE_SHA256_LINUX_ARM64=7e1e8d69654941b7b7df84ee74c5f7fb09cce7d5496947fb7bf16b55ff427d10
+RCLONE_SHA256_DARWIN_AMD64=574e1f31cf1c464e5fb0325cb66fcbdeaf1efa1802bd9b17f13c256fd74b6561
+RCLONE_SHA256_DARWIN_ARM64=610ab7d48615135dfc60b763858b11a426a0d3d1160c1bb76fb0ae6011b02edd
+PLATFORM_KEY="$(echo "${OS}_${ARCH}" | tr '[:lower:]' '[:upper:]')"
+
+fetch_checked() {
+    local url="$1" sha="$2" out="$3" got
+    curl -fsSL "$url" -o "$out"
+    if command -v sha256sum &>/dev/null; then got="$(sha256sum "$out" | cut -d' ' -f1)"; else got="$(shasum -a 256 "$out" | cut -d' ' -f1)"; fi
+    if [ "$got" != "$sha" ]; then
+        rm -f "$out"
+        echo "❌ ${url} is not the file Koala pins (its sha256 differs); nothing was installed"
+        exit 1
+    fi
+}
+
 # Verify existing binaries are runnable for this platform, delete if invalid
 for tool in terraform k3d helm kubectl docker-compose rclone; do
     if [ -f "bin/$tool" ]; then
@@ -142,7 +165,8 @@ fi
 # kubectl
 if [ ! -f "bin/kubectl" ]; then
     echo "📥 Downloading kubectl..."
-    curl -fsSL "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/${OS}/${ARCH}/kubectl" -o bin/kubectl
+    KUBECTL_SHA="KUBECTL_SHA256_${PLATFORM_KEY}"
+    fetch_checked "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/${OS}/${ARCH}/kubectl" "${!KUBECTL_SHA}" bin/kubectl
     chmod +x bin/kubectl
 fi
 
@@ -162,7 +186,8 @@ if [ ! -f "bin/rclone" ]; then
     # rclone's own release naming predates the "darwin" convention other tools here use.
     RCLONE_OS="$OS"
     if [ "$OS" = "darwin" ]; then RCLONE_OS="osx"; fi
-    curl -fsSL "https://downloads.rclone.org/rclone-current-${RCLONE_OS}-${ARCH}.zip" -o rclone.zip
+    RCLONE_SHA="RCLONE_SHA256_${PLATFORM_KEY}"
+    fetch_checked "https://downloads.rclone.org/${RCLONE_VERSION}/rclone-${RCLONE_VERSION}-${RCLONE_OS}-${ARCH}.zip" "${!RCLONE_SHA}" rclone.zip
     unzip -oq rclone.zip -d rclone-tmp
     mv rclone-tmp/rclone-*/rclone bin/rclone
     chmod +x bin/rclone
