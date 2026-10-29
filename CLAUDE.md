@@ -1114,6 +1114,9 @@ Notifications → "Notify this device" subscribes the browser (`/api/notificatio
 configured, and sends straight to the browser's push service, so an instance needs no root to push. What is pushed: alerts the
 person chose to hear about (the same choice as email), a run asking before a call (the tool's name only, never its arguments), a
 release waiting for Cut over, and root not answering. A device the push service says is gone (404, 410) is forgotten.
+`monitoring/routes/push-delivery.test.ts` proves a push end to end in ship's unit step: the real route and `PushService` send
+through web-push over TLS to a local push service, whose request carries a VAPID JWT that verifies against the instance's key and
+a body the device's key decrypts to the notice.
 
 ## What runs (Infrastructure → Running)
 
