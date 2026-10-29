@@ -11,6 +11,7 @@ import { NginxRoute, ProjectsRoute, VpsCatalogRoute } from './ShellRoutes';
 import { ChatPage } from '../features/engine';
 import { TemporalPanel } from '../features/infrastructure';
 import { InfrastructureView } from '../features/infrastructure';
+import { HostKoala } from '../features/infrastructure';
 import { MonitoringDetailRedirect } from '../features/infrastructure';
 import { CloudAccounts } from '../features/infrastructure';
 import { MyMachines } from '../features/machines';
@@ -345,6 +346,12 @@ export const vpsCatalogRoute = createRoute({
   component: VpsCatalogRoute,
 });
 
+export const hostKoalaRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/host-koala',
+  component: HostKoala,
+});
+
 export const settingsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/settings',
@@ -458,6 +465,7 @@ export const routeTree = rootRoute.addChildren([
   studioModelsRoute,
   oldProcedureRedirect,
   vpsCatalogRoute,
+  hostKoalaRoute,
   settingsRoute,
   groveRedirect,
   treesRedirect,

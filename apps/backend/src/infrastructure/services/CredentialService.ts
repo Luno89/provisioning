@@ -3,6 +3,10 @@ import {
   type SecretKey,
 } from '../../platform/index.js';
 import { COMBINED_CLAIMS, resolveCloudCredentials, usesOperatorCredentials, type ResolvedCredentials } from '../lib/credential-resolver.js';
+import { OVH_SUBSIDIARIES } from '../lib/vps-catalog/adapters.js';
+import { credentialsFromEnv, dnsProviderNamed, DNS_PROVIDERS, isDnsProviderName, plainFieldsOf, secretFieldsOf } from '../lib/dns-providers.js';
+import { DnsProviders } from './dns/DnsProviders.js';
+import { OvhClient, type FetchLike } from './OvhClient.js';
 import type { ClaimSettings } from '../../platform/index.js';
 
 async function readJson(res: Response): Promise<Record<string, any>> {
@@ -15,16 +19,17 @@ const SENSITIVE_FIELDS: Record<string, string[]> = {
   azure: ['clientId', 'clientSecret'],
   do: ['token'],
   hetzner: ['token'],
-  cloudflare: ['token'],
   vultr: ['token'],
   linode: ['token'],
   scaleway: ['secretKey'],
   hostinger: ['token'],
   contabo: ['clientId', 'clientSecret', 'apiPassword'],
+  ovh: ['applicationKey', 'applicationSecret', 'consumerKey'],
   huggingface: ['hfToken'],
   artificialanalysis: ['apiKey'],
   github: ['token'],
   googledrive: ['refreshToken', 'backupPassword'],
+  ...Object.fromEntries(DNS_PROVIDERS.map((provider) => [provider.name, secretFieldsOf(provider)])),
 };
 
 const PLAINTEXT_FIELDS: Record<string, string[]> = {
@@ -33,16 +38,17 @@ const PLAINTEXT_FIELDS: Record<string, string[]> = {
   azure: ['subscriptionId', 'tenantId'],
   do: [],
   hetzner: [],
-  cloudflare: ['zone'],
   vultr: [],
   linode: [],
   scaleway: ['accessKey', 'projectId'],
   hostinger: [],
   contabo: ['apiUser'],
+  ovh: ['subsidiary'],
   huggingface: ['defaultModel'],
   artificialanalysis: [],
   github: ['username'],
   googledrive: ['email'],
+  ...Object.fromEntries(DNS_PROVIDERS.map((provider) => [provider.name, plainFieldsOf(provider)])),
 };
 
 export interface ProviderStatus {
@@ -58,6 +64,8 @@ export class CredentialService {
     private readonly db: Database,
     private readonly masterKey: SecretKey,
     private readonly claims: ClaimSettings = COMBINED_CLAIMS,
+    private readonly fetchImpl: FetchLike = fetch,
+    private readonly dns: DnsProviders = new DnsProviders(fetchImpl),
   ) {}
 
   async validateCredentials(
@@ -65,6 +73,8 @@ export class CredentialService {
     creds: Record<string, string>,
   ): Promise<{ valid: boolean; message: string; details?: any }> {
     try {
+      if (isDnsProviderName(provider)) return await this.dns.validate(provider, creds);
+
       if (provider === 'huggingface') {
         const token = creds.hfToken || creds.token;
         if (!token) return { valid: false, message: 'Hugging Face Access Token is required.' };
@@ -156,47 +166,6 @@ export class CredentialService {
         };
       }
 
-      if (provider === 'cloudflare') {
-        const token = String(creds.token ?? '').trim();
-        if (!token) return { valid: false, message: 'Cloudflare API Token is required.' };
-        if (/\s/.test(token)) {
-          return { valid: false, message: 'The token contains a space or line break — it looks like more than just the token was pasted.' };
-        }
-
-        const res = await fetch('https://api.cloudflare.com/client/v4/zones', {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        const data = await readJson(res);
-
-        if (!res.ok || data?.success !== true) {
-          const detail = data?.errors?.[0]?.error_chain?.[0]?.message
-            ?? data?.errors?.[0]?.message
-            ?? `HTTP ${res.status}`;
-          const hint = /Authorization header/i.test(String(detail))
-            ? ' Make sure this is a scoped API token (Zone → DNS → Edit), not the Global API Key.'
-            : '';
-          return { valid: false, message: `Cloudflare rejected the token: ${detail}.${hint}` };
-        }
-
-        const zones: string[] = (data?.result ?? []).map((z: any) => z?.name).filter(Boolean);
-        if (zones.length === 0) {
-          return { valid: false, message: 'The token authenticates but can see no zones — check it is scoped to a zone, not just an account.' };
-        }
-
-        const wanted = String(creds.zone ?? '').trim();
-        if (wanted && !zones.includes(wanted)) {
-          return {
-            valid: false,
-            message: `Token is valid but cannot see "${wanted}". It has access to: ${zones.slice(0, 5).join(', ')}.`,
-          };
-        }
-
-        return {
-          valid: true,
-          message: `Can manage ${zones.length} zone${zones.length === 1 ? '' : 's'}: ${zones.slice(0, 5).join(', ')}${zones.length > 5 ? '…' : ''}.`,
-        };
-      }
-
       if (provider === 'vultr') {
         if (!creds.token) return { valid: false, message: 'Vultr Personal Access Token is required.' };
         const res = await fetch('https://api.vultr.com/v2/account', {
@@ -238,6 +207,26 @@ export class CredentialService {
         });
         if (!res.ok) return { valid: false, message: `Invalid token or unauthorized (HTTP ${res.status}).` };
         return { valid: true, message: 'Authenticated against the Hostinger API.' };
+      }
+
+      if (provider === 'ovh') {
+        const { applicationKey, applicationSecret, consumerKey } = creds;
+        const subsidiary = String(creds.subsidiary ?? '').trim().toUpperCase();
+        if (!applicationKey || !applicationSecret || !consumerKey || !subsidiary) {
+          return { valid: false, message: 'OVHcloud needs the application key, application secret, consumer key and your account\'s subsidiary (for example AU, FR or CA).' };
+        }
+        if (!OVH_SUBSIDIARIES.includes(subsidiary)) {
+          return { valid: false, message: `${subsidiary} is not an OVHcloud subsidiary; known ones are ${OVH_SUBSIDIARIES.join(', ')}.` };
+        }
+        try {
+          const me = await new OvhClient({ applicationKey, applicationSecret, consumerKey, subsidiary }, this.fetchImpl).get<{ nichandle?: string; ovhSubsidiary?: string; currency?: { code?: string } }>('/me');
+          if (me.ovhSubsidiary && me.ovhSubsidiary !== subsidiary) {
+            return { valid: false, message: `These keys belong to an OVHcloud ${me.ovhSubsidiary} account, not ${subsidiary}; set the subsidiary to ${me.ovhSubsidiary}.` };
+          }
+          return { valid: true, message: `Signed in to OVHcloud as ${me.nichandle ?? 'your account'} (${subsidiary}${me.currency?.code ? `, ${me.currency.code}` : ''}).` };
+        } catch (error) {
+          return { valid: false, message: (error as Error).message };
+        }
       }
 
       if (provider === 'contabo') {
@@ -319,12 +308,13 @@ export class CredentialService {
       { key: 'azure', label: 'Microsoft Azure' },
       { key: 'do', label: 'DigitalOcean' },
       { key: 'hetzner', label: 'Hetzner Cloud' },
-      { key: 'cloudflare', label: 'Cloudflare DNS' },
       { key: 'vultr', label: 'Vultr' },
       { key: 'linode', label: 'Linode / Akamai' },
       { key: 'scaleway', label: 'Scaleway' },
       { key: 'hostinger', label: 'Hostinger' },
       { key: 'contabo', label: 'Contabo' },
+      { key: 'ovh', label: 'OVHcloud' },
+      ...DNS_PROVIDERS.map((provider) => ({ key: provider.name as CloudProvider, label: provider.label })),
     ];
 
     return providers.map(({ key, label }) => {
@@ -410,6 +400,12 @@ export class CredentialService {
       delete (user.credentials as any)[provider];
       await this.db.accounts.saveUser(user);
     }
+  }
+
+  async dnsCredentialsOf(userId: string, provider: string): Promise<Record<string, string> | undefined> {
+    if (!isDnsProviderName(provider)) return undefined;
+    const resolved = await this.resolveCredentials(userId, provider);
+    return resolved.mode === 'mock' ? undefined : credentialsFromEnv(dnsProviderNamed(provider), resolved.env);
   }
 
   async resolveCredentials(userId: string, provider: string): Promise<ResolvedCredentials> {

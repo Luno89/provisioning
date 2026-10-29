@@ -10,6 +10,7 @@ import { extendedTrial } from '../lib/pool-trial.js';
 import { moveProblem, type MoveStateName } from '../lib/instance-move.js';
 import { DEFAULT_UPDATES, findRelease, pickProblem, pinned, updateTarget, updatesView, type InstanceRelease, type UpdatesView } from '../lib/instance-updates.js';
 import type { Reach } from '../lib/instance-watch.js';
+import { commandSafeCode } from '../../platform/index.js';
 
 export const JOIN_TOKEN_TTL_SECONDS = 3600;
 
@@ -142,7 +143,7 @@ export class InstanceService {
     if (current?.pool && current.status !== 'failed') return { ok: false, status: 400, error: 'your instance runs on Koala\'s servers; moving it to your own machine keeps your work, and starting afresh there would not' };
     const named = await this.nameFor(ownerId, requestedName);
     if (!named.ok) return { ok: false, status: 400, error: named.error };
-    const token = crypto.randomBytes(24).toString('base64url');
+    const token = commandSafeCode(24);
     const expiresAt = new Date(this.now().getTime() + JOIN_TOKEN_TTL_SECONDS * 1000).toISOString();
     const instanceId = instanceIdFor(ownerId);
     await this.store.instances.saveJoinToken({ hash: hashCredential(token), ownerId, instanceId, expiresAt });
@@ -354,7 +355,7 @@ export class InstanceService {
     const problem = moveProblem(instance);
     if (problem) return { ok: false, status: 409, error: problem };
     if (!this.poolWorkflows?.move) return { ok: false, status: 503, error: 'this root cannot move instances' };
-    const token = crypto.randomBytes(24).toString('base64url');
+    const token = commandSafeCode(24);
     const expiresAt = new Date(this.now().getTime() + JOIN_TOKEN_TTL_SECONDS * 1000).toISOString();
     await this.store.instances.saveJoinToken({ hash: hashCredential(token), ownerId, instanceId: instance.id, expiresAt, move: true });
     const live = instance.move && instance.move.state !== 'failed';

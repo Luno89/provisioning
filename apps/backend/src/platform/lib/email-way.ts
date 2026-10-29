@@ -15,6 +15,6 @@ export function emailWayFrom(env: Readonly<Record<string, string | undefined>>, 
   }
   const url = env.MAIL_SMTP_URL?.trim();
   if (!url) return { kind: 'none', why: 'email is not set up on this platform (MAIL_SMTP_URL is unset)' };
-  const domain = env.INGRESS_DOMAIN?.trim() || 'localhost';
+  const domain = env.DOMAIN?.trim() || 'localhost';
   return { kind: 'smtp', url, from: env.MAIL_FROM?.trim() || mailFrom(domain) };
 }

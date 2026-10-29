@@ -21,3 +21,11 @@ export interface BackupResult {
   success: boolean
   output: string
 }
+
+export interface DnsProviderInfo {
+  name: string
+  label: string
+  docsUrl: string
+  setup: string
+  fields: { key: string; label: string; secret: boolean; placeholder: string; optional: boolean }[]
+}

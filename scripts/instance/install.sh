@@ -17,6 +17,7 @@ while [ $# -gt 0 ]; do
     --yes) YES=1 ;;
     --url) PUBLIC_URL_OVERRIDE="$2"; shift ;;
     --root) ROOT_URL="$2"; shift ;;
+    --) ;;
     -*) echo "unknown option $1" >&2; exit 2 ;;
     *) TOKEN="$1" ;;
   esac

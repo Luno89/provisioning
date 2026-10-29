@@ -1,6 +1,6 @@
 import { api } from '../../../api/client'
 import type {
-  ProviderStatus, GoogleDriveStatus, ValidationResult, BackupResult,
+  ProviderStatus, GoogleDriveStatus, ValidationResult, BackupResult, DnsProviderInfo,
 } from '../types/credentials'
 
 export const credentialKeys = {
@@ -8,7 +8,11 @@ export const credentialKeys = {
   list: () => [...credentialKeys.all, 'list'] as const,
   one: (provider: string) => [...credentialKeys.all, provider] as const,
   llm: () => [...credentialKeys.all, 'llm'] as const,
+  dns: () => [...credentialKeys.all, 'dns-providers'] as const,
 }
+
+export const listDnsProviders = (): Promise<DnsProviderInfo[]> =>
+  api.get<DnsProviderInfo[]>('/dns-providers').then((r) => r.data)
 
 export const listProviders = (): Promise<ProviderStatus[]> =>
   api.get<{ providers: ProviderStatus[] }>('/credentials').then((r) => r.data.providers)

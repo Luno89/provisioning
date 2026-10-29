@@ -18,7 +18,7 @@ export { unpromptedGit } from './lib/git-env.js';
 export { handoffNonceShaped } from './lib/handoff-nonce.js';
 export { afterFailure, attemptsKeyFor, CSP_REPORT_LIMIT, JSON_LIMITS, jsonLimitFor, lockedSaid, lockedUntil, RATE_LIMITS, ruleFor, SignInAttemptLog } from './lib/http-limits.js';
 export type { SignInAttempts } from './lib/http-limits.js';
-export { INVITE_DAYS, inviteCodeHash, inviteExpired, inviteExpiry, inviteView, newInviteCode } from './lib/invite-codes.js';
+export { commandSafeCode, INVITE_DAYS, inviteCodeHash, inviteExpired, inviteExpiry, inviteView, newInviteCode } from './lib/invite-codes.js';
 export type { InviteView } from './lib/invite-codes.js';
 export { keepTrying } from './lib/keep-trying.js';
 export { reencrypt } from './lib/key-rotation.js';

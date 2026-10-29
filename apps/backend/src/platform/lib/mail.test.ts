@@ -36,8 +36,8 @@ describe('a message an instance asks root to send', () => {
 });
 
 describe('how a backend sends email', () => {
-  it('sends through SMTP when it is set up, from the platform\'s domain', () => {
-    expect(emailWayFrom({ MAIL_SMTP_URL: 'smtp://127.0.0.1:2525', INGRESS_DOMAIN: 'koala.dev' }, { role: 'root' })).toEqual({ kind: 'smtp', url: 'smtp://127.0.0.1:2525', from: 'Koala <alerts@koala.dev>' });
+  it('sends through SMTP when it is set up, from root\'s own domain, never the people\'s', () => {
+    expect(emailWayFrom({ MAIL_SMTP_URL: 'smtp://127.0.0.1:2525', DOMAIN: 'koala.dev', INGRESS_DOMAIN: 'koala.app' }, { role: 'root' })).toEqual({ kind: 'smtp', url: 'smtp://127.0.0.1:2525', from: 'Koala <alerts@koala.dev>' });
   });
 
   it('says why it cannot when nothing is set up', () => {

@@ -68,6 +68,7 @@ export function closureOf(lock, roots, from = '') {
 function pinPurl(component) {
   if (component.kind === 'npm') return `pkg:npm/${purlName(component.name)}@${component.version}`;
   if (component.kind === 'action') return `pkg:github/${component.name}@${component.version}`;
+  if (component.kind === 'go') return `pkg:golang/${component.name}@${component.version}`;
   if (component.kind === 'image') {
     const [namespace, name] = component.name.includes('/') ? component.name.split('/') : ['library', component.name];
     return `pkg:docker/${namespace}/${name}@${component.version}`;

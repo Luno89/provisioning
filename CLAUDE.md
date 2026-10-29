@@ -56,7 +56,7 @@ npm run test:infrastructure-live   # Infrastructure reads the system cluster →
 npm run test:dev-split-live        # against a running `npm run dev:split`: the instance starts a signed-out person's sign-in through root's OpenID provider → root's Google sign-in (the dev mock) → root knows the instance and serves none of its routes → the code signs you into the instance, and not twice → your work is there and the instance makes no accounts → root takes the instance's service token and refuses a wrong credential → signing out everywhere at root ends the instance's session at once, ~10 s
 npm run test:hub-live              # against the running dev stack (combined): an admin's invite signs up an owner, who makes two shared projects and invites a collaborator and a client to one and someone else to the other → root shows each invite signed out and signs up only the address invited → the outsider reaches nothing of the first project by id, guess or another's invite → each role can do only what it may → roles change, an invite is taken back, people are removed and leave, the last owner cannot → the owner's removal refused while they alone own a project someone else is on, the outsider's removal taking them off it → one project deleted by name and the owner's removal deleting the other, their databases gone, ~1 min
 npm run test:project-sharing-live  # against the running dev stack (combined): a throwaway project with a repository and a channel someone talked in → the group check refuses a dashed and a reserved name and suggests one from the project's name, sharing without a group is refused → the preview says what goes and stays, nothing is on the hub → shared under its group, which the preview and the hub's project carry, and a second project is refused that group → the channel arrives with its history and a new message follows → a commit on the owner's main reaches the hub's and one pushed to the hub's reaches the owner's → taken back by its name: the hub's database and repository are gone, everything stays on the instance → the group is free again and the second project is shared under it and taken back; the account removes itself, ~30 s
-npm run test:routes-live           # against the running dev stack: signed out, the guard answers before any router, the webhook and /ingress/verify before the guard and /api/metrics wants its token → a throwaway account signs up with an admin's invite → one request to each of the 58 mounted routers answers with the router's own response, never Express's "Cannot GET"; the account removes itself, ~5 s
+npm run test:routes-live           # against the running dev stack: signed out, the guard answers before any router, the webhook and /ingress/verify before the guard and /api/metrics wants its token → a throwaway account signs up with an admin's invite → one request to each of the 59 mounted routers answers with the router's own response, never Express's "Cannot GET"; the account removes itself, ~5 s
 npm run test:app-names-live        # against the running dev stack: two owners each deploy an app called shop on the system cluster → both run, each in a namespace of its own (`<name>-<six of its id>`), each owner sees only theirs → a redeploy by the same owner goes to the same app, not a second one; destroys both and removes the second account, ~5 min
 npm run test:machine-container-live  # this computer's Docker: a workspace container starts the way a machine in container mode starts one → from inside it, changing the egress proxy's allowlist is refused with no token and a guessed one → it reaches only the host its allowlist names; removes the container and the proxy, ~1 min
 npm run test:app-sign-in-live         # against the running dev stack: a Hermes deploys on the system cluster with a password Koala made for it → Show sign-in gives its owner the login, never cached, and the listing carries no password → its Deployment holds only a secretKeyRef → the dashboard lets that password in and refuses admin/hermes123 and none; destroys it, ~5 min
@@ -601,8 +601,8 @@ self-upgrade never takes a person's addresses or sign-in away) from its record (
 the instance's own k3s is reached through that cluster's Traefik by service name). Root also routes `<app>-<group>.<domain>`
 to the edge of the instance holding that group (`groups` on the instance record, one `@apps_<group>` matcher each in
 `instanceRouteFiles`; a shared project's apps are addressed under its group, below). Root's Caddyfile holds one `*.<INGRESS_DOMAIN>`
-site (root's own `app.` and `mesh.` are under `DOMAIN`, a different registered domain) with every instance's matchers (anything else is a 404) under a wildcard certificate over Cloudflare DNS-01
-(`docker/caddy`, `CLOUDFLARE_API_TOKEN` in root's compose env only), or Caddy's local authority with `ROOT_TLS=internal`.
+site (root's own `app.` and `mesh.` are under `DOMAIN`, a different registered domain) with every instance's matchers (anything else is a 404) under a wildcard certificate over DNS-01 at
+the people's domain's DNS provider (**DNS providers**, below), or Caddy's local authority with `CERTIFICATES=internal`.
 A person can switch to nested addresses (instance Settings → Addresses, `PUT /api/instance-addresses` → root's
 `PUT /api/instances/addresses`): root adds a `*.<name>.<domain>` site with its own certificate and probes it until it is
 served (`issuing` → `ready`, with Caddy's reason while it is not, a rate limit included); only then does the instance show
@@ -1069,12 +1069,12 @@ listening on `127.0.0.1:2525`, trusting only loopback):
 - It signs as `<domain>` with selector `koala`; the key is kept in a volume.
 - `MAIL_RELAYHOST` sends through a smarthost instead, for a host that blocks port 25.
 
-`bootstrap.sh` sets `MAIL_SMTP_URL=smtp://127.0.0.1:2525`. `scripts/root-node/mail-dns.ts` (rules in `platform/lib/mail-dns.ts`)
-makes the A, SPF, DKIM and DMARC records through Cloudflare. It never rewrites a record the person made, and says what is
-left to do by hand: PTR, and their own SPF. `update.sh` keeps the container current.
+`bootstrap.sh` sets `MAIL_SMTP_URL=smtp://127.0.0.1:2525`. `scripts/root-node/mail-dns.ts` (records in `infrastructure/lib/mail-dns.ts`)
+makes the A, SPF, DKIM and DMARC records on root's own domain through that zone's DNS provider (`DOMAIN_DNS`). It never rewrites a
+record the person made, and says what is left to do by hand: PTR, and their own SPF. `update.sh` keeps the container current.
 
 **Who sends** (`emailWayFrom` in `platform/lib/email-way.ts`, `MailService`):
-- **Root or combined:** Nodemailer to `MAIL_SMTP_URL`, from `MAIL_FROM` or `alerts@<INGRESS_DOMAIN>`.
+- **Root or combined:** Nodemailer to `MAIL_SMTP_URL`, from `MAIL_FROM` or `alerts@<DOMAIN>`: root's own domain, the one the mail container signs (DKIM) and whose zone holds the mail records; the people's domain is only for their addresses.
 - **An instance** never sends itself. It posts to root's `POST /api/instances/mail` with its credential, and root sends
   only to the instance owner's address. Subjects are one line. Root sends 60 an hour per instance (`InstanceMailLimit`,
   `instances/lib/instance-mail-limit.ts`), then holds the rest back (429) and emails the owner once that it is; the alerts
@@ -1208,6 +1208,24 @@ rotation is still running.
 `scripts/root-node/bootstrap.sh` stands up a fresh VPS; `scripts/root-node/update.sh` deploys a new
 version onto it. Both are idempotent and both refuse loudly rather than half-succeeding.
 
+**Buying root's server from the UI** (plan `~/.claude/plans/project-to-vps.md` step 1, OVHcloud VPS): on a combined box the
+operator opens Infrastructure → Clusters → **Host Koala on a server** (`/#/host-koala`, `HostKoala.tsx`, `/api/server-orders`,
+operator only, mounted only on `combined`). It needs OVHcloud keys under Cloud providers (provider `ovh`: application key, secret
+and consumer key sealed, the subsidiary plain, checked with `GET /me`; the keys need `GET /*`, `POST /order/*`, `DELETE /order/*`,
+`POST /vps/*`, `POST /me/order/*`) and stored credentials for each domain's DNS provider, found from its nameservers (or chosen
+on the page) and kept on the order (`dns`), which must reach both zones. **Price it** builds a real cart
+(`ServerOrderService.priceCart`: the plan for one month, `vps_datacenter` and `vps_os` Ubuntu 24.04, every mandatory option read
+from the cart's own options) and shows OVHcloud's own checkout total, lines and contracts; nothing is bought. **Buy** is the only
+path to `POST /order/cart/{id}/checkout` (auto-paid with the account's default payment method) and refuses unless the total the
+person confirmed equals the quote and OVHcloud still asks it. `RootNodeWorkflow` (host worker, no deadline) then follows the order
+(OVHcloud's identity check on a first order shows as waiting, for days if need be), reinstalls the VPS with Ubuntu 24.04 and a key
+made for that purchase (sealed on the order, shown to the operator on asking), waits for SSH, points `app.` and `mesh.` and
+`*.<people's domain>` at it through each zone's provider (DNS only, never rewriting a record it did not make), waits for a signed
+release, and runs `bootstrap.sh` over SSH with each zone's provider and its credentials on stdin, then starts root and publishes the image; its output lands in the
+order's log with the credentials and the setup code hidden, and the setup code is shown once. Cancelling before **Buy** deletes the
+cart; after it, Koala stops following and says the server must be terminated in OVHcloud's control panel. `npm run ovh:quote --
+--plan <code> --datacenter <code>` prices a plan with the stored keys and deletes the cart, never buying (`quoteAndDiscard`).
+
 Updates build and typecheck **before** restarting, so a broken commit never interrupts the running
 version, and roll back to the previous commit automatically if the health check fails. The restart
 goes through the systemd unit so the **workers restart too** — they run plain `tsx` and do not
@@ -1231,18 +1249,44 @@ restoring one rolls the whole disk back — including Mongo, Temporal and Headsc
 a tenant created since would vanish. It is disaster recovery for a broken machine, never "undo that
 deploy". Rollback is git-based for exactly this reason.
 
-**Lab mode.** `ROOT_TLS=internal bash scripts/root-node/bootstrap.sh` makes a root with no public DNS, for the release
+**Lab mode.** `CERTIFICATES=internal bash scripts/root-node/bootstrap.sh` (an older root's `ROOT_TLS=internal` means the same) makes a root with no public DNS, for the release
 rehearsal: the app and mesh names are checked against this host's own resolver (they must point at this machine; the
 wildcard is the tester's to resolve), Caddy signs with its own certificate authority, which the host then trusts
-(`/usr/local/share/ca-certificates/koala-lab.crt`), no Cloudflare token is needed, the mail records are printed rather than
+(`/usr/local/share/ca-certificates/koala-lab.crt`), no DNS provider or its credentials are needed, the mail records are printed rather than
 published, and `PUBLIC_URL` may be given (the rehearsal gives `http://app.<domain>:3001`, since the pods of an instance trust
 only public authorities). The lab's domain must be one Caddy keeps to its own authority without being told, since the app and
 mesh sites take automatic certificates: the rehearsal uses `koala.internal`, never a name under `.localhost`, which curl resolves
 to the asking machine itself whatever DNS says, so an instance's self-upgrade check-in could never reach root. With
-`ROOT_TLS=cloudflare`, the default, nothing changes. `update.sh` also finds Temporal by its
+`CERTIFICATES=acme`, the default, certificates come from Let's Encrypt over the people's domain's DNS provider. `update.sh` also finds Temporal by its
 compose label (the dev container name never existed on a root node, so the in-flight check never refused), publishes the image
 when run again on the commit it is on (a fresh root's first publish), skips a build its registry already holds, waits for the
 backend until it answers or its unit dies, and puts `INSTANCE_IMAGE_TAG` back when it rolls root back.
+
+## DNS providers
+
+Root's domain (`DOMAIN`: `app.`, `mesh.`, the mail records) and the people's domain (`INGRESS_DOMAIN`: the `*.` wildcard and
+each person's nested `*.<name>.`) may each be served by a different DNS provider. **Every provider is one description and one
+client** (owner, 2026-10-29: Porkbun beside Cloudflare, nothing hardcoded to either):
+- `infrastructure/lib/dns-providers.ts` describes each (`DNS_PROVIDERS`: label, the nameserver suffixes that identify it, its
+  credential fields with the env names they travel as, its Caddy module and the `dns` directive Caddy's tls block takes) and holds the
+  pure rules: `providerForNameservers`, `rootDnsSettingsFrom`, `caddyTlsSnippet`, `caddyDnsEnv`, `caddyModules`.
+- `infrastructure/services/dns/<provider>.ts` is its HTTP client (`DnsProvider`: `validate`, `zone` → `all`/`list`/`create`/`update`/`remove`
+  by record id), registered in `DNS_PROVIDER_CLIENTS` beside `DnsProviders` (the service: `describe`, `detect` by nameservers, `plan`, `apply`).
+- What records a zone should hold is one pure plan (`zonePlan` in `infrastructure/lib/dns-plan.ts`: create, keep, replace by id, or
+  refuse to rewrite a record Koala did not make); mail's records (`mailRecords`), root's `app.`/`mesh.`/wildcard (`rootDnsRecords`)
+  are wanted records on it, and a provider only carries out the plan.
+- Credentials are stored like any cloud provider's (`CredentialService`, sealed fields from the description, validated by the client,
+  `dnsCredentialsOf`), and Settings → Cloud providers lists every provider from `GET /api/dns-providers`.
+- On root, `CERTIFICATES` (`acme` or `internal`) is apart from each zone's provider (`DOMAIN_DNS`, `INGRESS_DNS`, found from the zone's
+  nameservers when unset; an older root's `ROOT_TLS=cloudflare` means acme with Cloudflare for both). `scripts/root-node/dns.ts setup`
+  (bootstrap, update, restore) checks the credentials, writes root's `.env`, Caddy's tls snippet (`/etc/koala/caddy-tls/koala.caddy`) and
+  the credentials Caddy needs (`/etc/koala/caddy-dns.env`, root-only, never in the data folder the backend's user owns).
+- Caddy is built with every provider's module, listed in `docker/caddy/modules.txt`, generated from the pins file
+  (`tsx scripts/root-node/dns.ts caddy-modules`; a test fails when they differ).
+- **Adding a provider** is its description, its client, one line in `DNS_PROVIDER_CLIENTS`, its Caddy module pinned (`kind: go`) and
+  `modules.txt` regenerated, and a fake in `services/dns/fake-dns.ts`: the contract suite (`dns-providers.contract.test.ts`) runs
+  against every registered provider. Porkbun answers only for a domain with **API Access** turned on in its dashboard.
+- `npm run dns:check -- <zone> …` finds who serves each zone and lists its records with the stored credentials, changing nothing.
 
 ## Headscale mesh
 
@@ -1827,7 +1871,7 @@ instance, without passing its gates first (owner, 2026-10-23: "all those checks 
   a lab refuses any other ref. It never builds an image outside a lab: `verify-release.sh image` pulls the Release
   workflow's image (`PUBLISHED_IMAGE`, by commit) and checks with cosign (pinned, `/usr/local/bin/cosign`) that
   release.yml at that tag built it from that commit, then pushes that digest into root's registry and records it
-  (`INSTANCE_IMAGE_DIGEST`). Root's dependencies install with `npm ci --ignore-scripts`. A lab (`ROOT_TLS=internal`)
+  (`INSTANCE_IMAGE_DIGEST`). Root's dependencies install with `npm ci --ignore-scripts`. A lab (`CERTIFICATES=internal`)
   takes any ref, builds when nothing is published, and checks a tag's signature when it has signers; the rehearsal signs
   its tags with a throwaway key and proves an unsigned one refused.
 - **Each instance's updates are its owner's** (owner, 2026-10-24; rules in `instances/lib/instance-updates.ts`). Root keeps

@@ -15,6 +15,7 @@ while [ $# -gt 0 ]; do
     --no-service) SERVICE=0 ;;
     --adapters) ADAPTERS="$2"; shift ;;
     --url) KOALA_URL="$2"; shift ;;
+    --) ;;
     -*) echo "unknown option $1" >&2; exit 2 ;;
     *) CODE="$1" ;;
   esac

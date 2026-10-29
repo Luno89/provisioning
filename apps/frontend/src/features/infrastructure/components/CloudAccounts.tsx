@@ -2,17 +2,19 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Cloud, Check, Trash2, Loader2, AlertTriangle, Key, ExternalLink } from 'lucide-react';
 import {
-  credentialKeys, listProviders, saveCredentials, deleteCredentials, validateCredentials,
+  credentialKeys, listDnsProviders, listProviders, saveCredentials, deleteCredentials, validateCredentials,
 } from '../api/credentials';
 import { errorMessage } from '../../../api/client';
 import type { ValidationResult } from '../types/credentials';
-import { PROVIDERS, PROVIDER_CAPABILITY } from '../lib/credential-providers';
+import { PROVIDERS, PROVIDER_CAPABILITY, withDnsProviders } from '../lib/credential-providers';
 import { safeHref } from '../../../shared/lib/safe-href';
 
 export default function CloudAccounts() {
   const qc = useQueryClient();
 
   const providersQuery = useQuery({ queryKey: credentialKeys.list(), queryFn: listProviders });
+  const dnsQuery = useQuery({ queryKey: credentialKeys.dns(), queryFn: listDnsProviders, staleTime: Infinity });
+  const providers = withDnsProviders(PROVIDERS, dnsQuery.data ?? []);
 
   const statuses = providersQuery.data ?? [];
   const loading = providersQuery.isPending;
@@ -94,7 +96,7 @@ export default function CloudAccounts() {
       </header>
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 max-w-4xl">
-        {PROVIDERS.map((provider) => {
+        {providers.map((provider) => {
           const status = statuses.find((s) => s.provider === provider.key);
           const isConfigured = status?.configured ?? false;
           const isExpanded = expandedProvider === provider.key;
@@ -166,9 +168,9 @@ export default function CloudAccounts() {
                   )}
                 </div>
 
-                {PROVIDER_CAPABILITY[provider.key] && !isExpanded && (
+                {(provider.capability ?? PROVIDER_CAPABILITY[provider.key]) && !isExpanded && (
                   <p className="text-[11px] text-slate-500 leading-relaxed mb-3">
-                    {PROVIDER_CAPABILITY[provider.key]}
+                    {provider.capability ?? PROVIDER_CAPABILITY[provider.key]}
                   </p>
                 )}
 

@@ -1,3 +1,4 @@
+import { DNS_PROVIDER_NAMES, type DnsProviderName } from '../../infrastructure/lib/dns-providers.js';
 import type { MachineAgent, ManualMachineAgent } from '../../machines/index.js';
 export type PartialInfo<T> = { [K in keyof T]?: T[K] | undefined };
 
@@ -377,11 +378,6 @@ export interface HetznerCredentials {
   token: string;
 }
 
-export interface CloudflareCredentials {
-  token?: string;
-  zone?: string;
-}
-
 export interface VultrCredentials {
   token: string;
 }
@@ -398,6 +394,13 @@ export interface ScalewayCredentials {
 
 export interface HostingerCredentials {
   token: string;
+}
+
+export interface OvhCredentials {
+  applicationKey: string;
+  applicationSecret: string;
+  consumerKey: string;
+  subsidiary: string;
 }
 
 export interface ContaboCredentials {
@@ -428,18 +431,20 @@ export interface GoogleDriveCredentials {
   email?: string;
 }
 
-export interface CloudCredentials {
+export type DnsCredentialRecords = { [K in DnsProviderName]?: Record<string, string> };
+
+export interface CloudCredentials extends DnsCredentialRecords {
   aws?: AwsCredentials;
   gcp?: GcpCredentials;
   azure?: AzureCredentials;
   do?: DoCredentials;
   hetzner?: HetznerCredentials;
-  cloudflare?: CloudflareCredentials;
   vultr?: VultrCredentials;
   linode?: LinodeCredentials;
   scaleway?: ScalewayCredentials;
   hostinger?: HostingerCredentials;
   contabo?: ContaboCredentials;
+  ovh?: OvhCredentials;
   huggingface?: HuggingFaceCredentials;
   artificialanalysis?: ArtificialAnalysisCredentials;
   github?: GitHubCredentials;
@@ -448,8 +453,8 @@ export interface CloudCredentials {
 
 export const CLOUD_PROVIDERS = [
   'aws', 'gcp', 'azure', 'do', 'hetzner',
-  'vultr', 'linode', 'scaleway', 'hostinger', 'contabo',
-  'cloudflare',
+  'vultr', 'linode', 'scaleway', 'hostinger', 'contabo', 'ovh',
+  ...DNS_PROVIDER_NAMES,
   'huggingface', 'artificialanalysis', 'github', 'googledrive',
 ] as const;
 

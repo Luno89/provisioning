@@ -1,4 +1,5 @@
 import type { CloudCredentials } from '../../platform/index.js';
+import { credentialEnvOf, credentialsFromEnv, dnsProviderNamed, isDnsProviderName } from './dns-providers.js';
 import { allowed, principalOf, type ClaimedUser, type ClaimSettings } from '../../platform/lib/permissions.js';
 
 export const COMBINED_CLAIMS: ClaimSettings = { role: 'combined' };
@@ -37,6 +38,7 @@ function resolveFromUser(
   creds: CloudCredentials | undefined,
 ): Record<string, string> | null {
   if (!creds) return null;
+  if (isDnsProviderName(provider)) return credentialEnvOf(dnsProviderNamed(provider), creds[provider]) ?? null;
 
   switch (provider) {
     case 'aws': {
@@ -79,11 +81,6 @@ function resolveFromUser(
       if (!hz?.token) return null;
       return { HCLOUD_TOKEN: hz.token };
     }
-    case 'cloudflare': {
-      const cf = creds.cloudflare;
-      if (!cf?.token) return null;
-      return { CLOUDFLARE_API_TOKEN: cf.token, ...(cf.zone ? { CLOUDFLARE_ZONE: cf.zone } : {}) };
-    }
     case 'vultr': {
       const v = creds.vultr;
       if (!v?.token) return null;
@@ -106,6 +103,11 @@ function resolveFromUser(
       const h = creds.hostinger;
       if (!h?.token) return null;
       return { HOSTINGER_API_TOKEN: h.token };
+    }
+    case 'ovh': {
+      const o = creds.ovh;
+      if (!o?.applicationKey || !o?.applicationSecret || !o?.consumerKey) return null;
+      return { OVH_APPLICATION_KEY: o.applicationKey, OVH_APPLICATION_SECRET: o.applicationSecret, OVH_CONSUMER_KEY: o.consumerKey, OVH_SUBSIDIARY: o.subsidiary || 'FR' };
     }
     case 'contabo': {
       const c = creds.contabo;
@@ -133,6 +135,11 @@ function resolveFromUser(
 }
 
 function resolveFromEnv(provider: string): Record<string, string> | null {
+  if (isDnsProviderName(provider)) {
+    const described = dnsProviderNamed(provider);
+    const fields = credentialsFromEnv(described, process.env);
+    return fields ? credentialEnvOf(described, fields) ?? null : null;
+  }
   switch (provider) {
     case 'aws': {
       const keyId = process.env.AWS_ACCESS_KEY_ID;
@@ -178,11 +185,6 @@ function resolveFromEnv(provider: string): Record<string, string> | null {
       if (!token) return null;
       return { HCLOUD_TOKEN: token };
     }
-    case 'cloudflare': {
-      const token = process.env.CLOUDFLARE_API_TOKEN || process.env.CF_API_TOKEN;
-      if (!token) return null;
-      return { CLOUDFLARE_API_TOKEN: token, ...(process.env.CLOUDFLARE_ZONE ? { CLOUDFLARE_ZONE: process.env.CLOUDFLARE_ZONE } : {}) };
-    }
     case 'vultr': {
       const token = process.env.VULTR_API_KEY;
       return token ? { VULTR_API_KEY: token } : null;
@@ -202,6 +204,13 @@ function resolveFromEnv(provider: string): Record<string, string> | null {
     case 'hostinger': {
       const token = process.env.HOSTINGER_API_TOKEN;
       return token ? { HOSTINGER_API_TOKEN: token } : null;
+    }
+    case 'ovh': {
+      const key = process.env.OVH_APPLICATION_KEY;
+      const secret = process.env.OVH_APPLICATION_SECRET;
+      const consumer = process.env.OVH_CONSUMER_KEY;
+      if (!key || !secret || !consumer) return null;
+      return { OVH_APPLICATION_KEY: key, OVH_APPLICATION_SECRET: secret, OVH_CONSUMER_KEY: consumer, OVH_SUBSIDIARY: process.env.OVH_SUBSIDIARY || 'FR' };
     }
     case 'contabo': {
       const id = process.env.CNTB_CLIENT_ID;
