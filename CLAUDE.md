@@ -1795,7 +1795,7 @@ instance, without passing its gates first (owner, 2026-10-23: "all those checks 
 - **`npm run release [vYYYY.MM.DD[-n]]`** (`tests/release.ts`) makes a release from a shipped commit `origin/main` has: it
   builds the image from that commit (`buildAppImage` in `tests/lib/gate-runs.ts`, also `nowrinkles/app:dev` for the VM
   suites), runs **G3** and **G4** (`RELEASE_STEPS`: mail, infra and remote integration, instance, machine, byo, mesh,
-  routing, pool, the Odoo customisations, the restore drill, then `test:release-live` from the previous tag) in rounds packed by free memory (`roundsOf`; a step marked `alone` runs by itself), carrying on past a failure and keeping each step that passed for the commit (`checked` on its gate record, kept for a ledger commit on top), so a second attempt runs only what failed, then **signs** the tag. `npm run release:check` does the same on any commit without tagging, so every step is known to pass before a release is tried with the
+  routing, pool, the Odoo customisations, the restore drill, then `test:release-live` from the previous tag) in rounds packed by free memory (`roundsOf`; a step marked `alone` runs by itself), carrying on past a failure and keeping each step that passed for the commit (`checked` on its gate record, kept for a ledger commit on top), so a second attempt runs only what failed, then **signs** the tag. `npm run release:check` does the same on any commit without tagging, so every step is known to pass before a release is tried. A previous release a hardened root cannot run (`UNHOSTABLE_RELEASES` in `tests/lib/release-lab.ts`, so far only v2026.10.23, whose Temporal health check dials the Docker gateway) is not rehearsed: the candidate's parent commit stands in for it as `v2099.12.29`, root bootstraps on it, and the same updates, refusals, instance upgrade and rollbacks run between it and the candidate with the
   release key (an SSH ed25519 key, `~/.ssh/koala-release` or `KOALA_RELEASE_KEY`, whose public half must be in
   `scripts/root-node/release-signers`, checked before the suites start), pushes it with the ledger, waits for the GitHub
   release and checks the image with `scripts/root-node/verify-release.sh image`, the check root makes, so the first
@@ -1839,7 +1839,12 @@ instance, without passing its gates first (owner, 2026-10-23: "all those checks 
   record has `updates` (`auto`, on by default, or a `picked` release), `running` (the image tag its check-in reports) and
   `previous`; `GET /api/instances/release` answers per instance (`updateTarget`): on auto, root's release when it is newer
   than what the instance runs, never older; off, what was picked. A person may pick any newer release or the one it ran
-  just before (`pickProblem`). The instance's Settings → Updates (`InstanceUpdates`, `/api/instance-updates` →
+  just before (`pickProblem`). **A rollback withdraws what root rolled back from** (owner, 2026-10-29): when root boots on a release older than one it
+  served (`ReleaseCatalogue.recordCurrent`, ranked as the catalogue ranks), every newer one gets `withdrawn` (`withdrawnBy`), and a
+  later move onto one clears it. A withdrawn release is never offered or pickable; an instance on auto that runs one follows root
+  down, even when the `running` root recorded is stale; one that picked it keeps it, its Settings → Updates says it was withdrawn and
+  offers root's release, and root emails its owner once per withdrawal (`WithdrawalNotices`, `releaseWithdrawalNotices`). People
+  marks it. The instance's Settings → Updates (`InstanceUpdates`, `/api/instance-updates` →
   root's `/api/instances/updates` with its credential) switches auto and picks, and a change that moves it starts the
   check-in at once (`kubectl create job --from=cronjob/<release>-self-upgrade`, never beside one already running). Root's
   People shows each instance's version and how it updates. Release channels (rc, LTS) are a later conversation.

@@ -37,3 +37,13 @@ export const inFlightRefusal = (running: number): string =>
 export function revisionRunning(history: Array<{ revision: number; values: { image?: { tag?: string } } }>, tag: string): number | undefined {
   return [...history].reverse().find((entry) => entry.values.image?.tag === tag)?.revision;
 }
+
+export interface UnhostableRelease { tag: string; why: string }
+
+export const UNHOSTABLE_RELEASES: readonly UnhostableRelease[] = [
+  { tag: 'v2026.10.23', why: 'its Temporal health check dials the Docker gateway, which a hardened root no longer publishes on' },
+];
+
+export const unhostable = (tag: string): UnhostableRelease | undefined => UNHOSTABLE_RELEASES.find((release) => release.tag === tag);
+
+export const STAND_IN_REF = 'v2099.12.29';

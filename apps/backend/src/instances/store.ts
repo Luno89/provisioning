@@ -2,7 +2,7 @@ import type { AreaStore } from '../platform/index.js';
 import type { Collection, Db } from 'mongodb';
 import { stampServed, type InstanceRecord, type JoinToken } from './lib/instances.js';
 import type { PoolPolicy } from './lib/pool.js';
-import type { InstanceRelease } from './lib/instance-updates.js';
+import type { InstanceRelease, Withdrawal } from './lib/instance-updates.js';
 import type { SignInKey } from './lib/oidc.js';
 import type { ClientSession, LogoutDelivery, SessionRevocation } from './lib/sign-in-state.js';
 import type { InstanceWatchRecord, Reach } from './lib/instance-watch.js';
@@ -48,6 +48,9 @@ export interface InstancesStore extends AreaStore {
   saveDependencyFindings(findings: readonly DependencyFinding[]): Promise<void>;
   getDependencyCheck(): Promise<DependencyCheck | undefined>;
   saveDependencyCheck(check: DependencyCheck): Promise<void>;
+  withdrawRelease(imageTag: string, withdrawal: Withdrawal | undefined): Promise<void>;
+  withdrawalTold(key: string): Promise<boolean>;
+  recordWithdrawalTold(key: string, ownerId: string, at: string): Promise<void>;
 }
 
 const asStored = (doc: Record<string, unknown> | null): Record<string, unknown> | undefined =>
@@ -177,6 +180,18 @@ export class MongoInstancesStore implements InstancesStore {
   async getReleases(): Promise<InstanceRelease[]> {
     const docs = await this.releases.find({}).toArray();
     return docs.map(({ _id, ...rest }) => ({ imageTag: _id as unknown as string, ...rest }) as InstanceRelease);
+  }
+
+  async withdrawalTold(key: string): Promise<boolean> {
+    return (await this.db().collection('releaseWithdrawalNotices').countDocuments({ _id: key as never }, { limit: 1 })) > 0;
+  }
+
+  async recordWithdrawalTold(key: string, ownerId: string, at: string): Promise<void> {
+    await this.db().collection('releaseWithdrawalNotices').updateOne({ _id: key as never }, { $setOnInsert: { ownerId, at } }, { upsert: true });
+  }
+
+  async withdrawRelease(imageTag: string, withdrawal: Withdrawal | undefined): Promise<void> {
+    await this.releases.updateOne({ _id: imageTag as never }, withdrawal ? { $set: { withdrawn: withdrawal } } : { $unset: { withdrawn: '' } });
   }
 
   async recordRelease(release: InstanceRelease): Promise<InstanceRelease> {

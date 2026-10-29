@@ -88,6 +88,7 @@ export interface PersonInstance {
   url: string;
   trialEndsAt?: string | undefined;
   version?: string | undefined;
+  versionWithdrawn?: boolean | undefined;
   autoUpdates?: boolean | undefined;
   unreachableSince?: string | undefined;
 }
@@ -109,6 +110,7 @@ const instanceOf = (instance: InstanceRecord, releases: readonly InstanceRelease
   url: instance.url,
   ...(instance.pool ? { trialEndsAt: instance.pool.trialEndsAt } : {}),
   ...(instance.running ? { version: releases.find((release) => release.imageTag === instance.running)?.version ?? instance.running } : {}),
+  ...(releases.some((release) => release.imageTag === instance.running && release.withdrawn) ? { versionWithdrawn: true } : {}),
   ...(instance.status === 'waiting' ? {} : { autoUpdates: instance.updates?.auto ?? true }),
   ...(watch?.reach?.toldDown && !watch.reach.reachable ? { unreachableSince: watch.reach.unreachableSince } : {}),
 });

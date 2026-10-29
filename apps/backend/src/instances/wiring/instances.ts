@@ -21,6 +21,7 @@ import { InstanceChart, releaseInventory } from '../services/InstanceChart.js';
 import { ReleaseCatalogue } from '../services/ReleaseCatalogue.js';
 import { DependencyWatch } from '../services/DependencyWatch.js';
 import { DEPENDENCY_WATCH_ID } from '../lib/dependency-findings.js';
+import { WithdrawalNotices } from '../services/WithdrawalNotices.js';
 import { MoveExport } from '../services/MoveExport.js';
 import { MoveRelay, kubeconfigFile } from '../services/MoveRelay.js';
 import { PoolMonitoringService } from '../services/PoolMonitoringService.js';
@@ -196,7 +197,10 @@ export async function wireInstances(deps: InstancesWiringDeps): Promise<Instance
     chart: () => instanceChart.path(),
     inventory: (release, out) => releaseInventory(deps.repoRoot, release, out),
   });
-  releaseCatalogue.recordCurrent().catch((err: Error) => console.error(`[releases] could not record the release root runs: ${err.message}`));
+  const withdrawalNotices = new WithdrawalNotices(db.instances, deps.mail, env.INSTANCE_IMAGE_TAG || 'dev');
+  releaseCatalogue.recordCurrent()
+    .then(() => withdrawalNotices.tell())
+    .catch((err: Error) => console.error(`[releases] could not record the release root runs: ${err.message}`));
   const routingDomain = env.INGRESS_DOMAIN || undefined;
   const instanceRoutes = routingDomain
     ? new InstanceRoutes(db.instances, routingDomain, path.join(deps.dataDir, 'caddy'), (env.CADDY_ADMIN_SOCKET
