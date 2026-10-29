@@ -20,6 +20,7 @@ export default defineConfig({
       proxy: {
         '/api': toBackend,
         '/socket.io': { ...toBackend, ws: true },
+        '/oidc': toBackend,
         '/machine.sh': toBackend,
         '/install.sh': toBackend,
       },

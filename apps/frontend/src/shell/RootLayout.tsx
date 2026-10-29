@@ -20,9 +20,8 @@ import { errorMessage } from '../api/client';
 import { releaseKeys, type OdooRelease } from '../features/releases';
 import { useShellStore, startHistorySync } from '../features/platform';
 import { reconnectSocket, useSocketEvent } from '../features/platform';
-import { getMe, logout, signInElsewhere } from '../features/platform';
+import { getMe, logout, resumePathFrom, signInElsewhere } from '../features/platform';
 import { getMyInstance, identityKeys, INSTANCE_GO_URL } from '../features/instances';
-import { HandoffPage } from '../features/instances';
 import { NoInstance } from '../features/instances';
 import { RootAdmin } from '../features/instances';
 import { RemoveAccountPage } from '../features/accounts';
@@ -107,10 +106,13 @@ export function RootLayout() {
   };
 
   const searched = new URLSearchParams(location.searchStr ?? '');
-  const handoffToken = searched.get('token');
   const joinPage = location.pathname === '/join';
   const signInUrl = useQuery({ queryKey: ['auth', 'sign-in'], queryFn: signInElsewhere, enabled: !authLoading && !user, staleTime: Infinity });
   const placement = useQuery({ queryKey: identityKeys.mine(), queryFn: getMyInstance, enabled: Boolean(user) && !user?.onHub, staleTime: Infinity });
+  useEffect(() => {
+    const resume = user ? resumePathFrom(window.location.search) : undefined;
+    if (resume) window.location.assign(resume);
+  }, [user]);
   useEffect(() => {
     const signIn = safeHref(signInUrl.data);
     if (!user && signIn && !joinPage) window.location.assign(signIn);
@@ -255,10 +257,6 @@ export function RootLayout() {
     setShowLogModal({ type, id });
     setLogTab(type === 'app' ? 'general' : 'provision');
   };
-
-  if (location.pathname === '/handoff') {
-    return <HandoffPage token={handoffToken} next={searched.get('next')} onSignedIn={setUser} />;
-  }
 
   if (joinPage && !authLoading && !(user && placement.isPending)) {
     return (

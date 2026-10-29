@@ -1,6 +1,5 @@
 export { INSTANCE_GO_URL, getMyInstance, identityKeys } from './api/identity'
 export { getInstanceAddresses, instanceAddressKeys, setNestedAddresses } from './api/instance-addresses'
-export { default as HandoffPage } from './components/HandoffPage'
 export { InstanceMove, MovingPage } from './components/InstanceMove'
 export { InstanceUpdates } from './components/InstanceUpdates'
 export { default as NoInstance } from './components/NoInstance'

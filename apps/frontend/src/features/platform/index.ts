@@ -1,5 +1,6 @@
-export { accountRemovalPlace, exchangeHandoff, getMe, handoffRestarts, handoffStartUrl, login, logout, resendSignUpCode, signInElsewhere, verifySignUp, verifyTwoFactor } from './api'
+export { accountRemovalPlace, getMe, login, logout, resendSignUpCode, signInElsewhere, verifySignUp, verifyTwoFactor } from './api'
 export type { LoginResult, SessionUser, SignUpCode } from './api'
+export { resumePathFrom } from './lib/resume'
 export { formatHash, parseHash, shouldReplace } from './lib/route'
 export { releaseNotice, toastOf } from './lib/toast'
 export type { ToastKind } from './lib/toast'
