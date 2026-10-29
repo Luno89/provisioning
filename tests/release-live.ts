@@ -27,6 +27,8 @@ const NAME = `rl${STAMP}`;
 const EMAIL = `release-live-${STAMP}@example.com`;
 const PASSWORD = randomBytes(18).toString('base64url');
 const CANDIDATE_REF = 'v2099.12.31';
+const LYNIS_FLOOR = 54;
+const LYNIS_GROUPS = 'accounting authentication boot_services file_integrity file_permissions firewalls kernel kernel_hardening logging malware networking ports_packages scheduling shells ssh storage time tooling';
 const UNSIGNED_REF = 'v2099.12.30';
 const SIGNERS = '/etc/koala/release-signers';
 const MANIFESTS = 'application/vnd.oci.image.index.v1+json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.docker.distribution.manifest.v2+json';
@@ -202,6 +204,10 @@ async function main(): Promise<void> {
     assert.ok(hardened.includes(line), `root's hardening is missing ${JSON.stringify(line)}:\n${hardened}`);
   }
   note('root keeps its hardening: no redirects, kernel pointers and dmesg hidden, SSH by key for ubuntu only, Docker without new privileges and with rotating logs, daily security updates, a private kubeconfig and a kept journal');
+  await sh(root, `sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq lynis >/dev/null && sudo lynis audit system --quiet --no-colors --tests-from-group "${LYNIS_GROUPS}" >/dev/null 2>&1; true`);
+  const lynis = Number((await sh(root, "sudo grep '^hardening_index=' /var/log/lynis-report.dat | cut -d= -f2")).trim());
+  assert.ok(lynis >= LYNIS_FLOOR, `Lynis scores root's hardening ${lynis}, below the floor of ${LYNIS_FLOOR}: sudo lynis show details on the lab root, or /var/log/lynis-report.dat`);
+  note(`Lynis scores root's hardening ${lynis} (the release needs at least ${LYNIS_FLOOR})`);
 
   step(`root's registry is given the ${PREVIOUS_REF} image, and release-watch.sh, as npm run release runs it over SSH, moves root onto ${PREVIOUS_REF} with the real update.sh`);
   const saved = spawn('docker', ['save', `${IMAGE_REPO}:${previousTag}`], { stdio: ['ignore', 'pipe', 'inherit'] });

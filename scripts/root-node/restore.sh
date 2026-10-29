@@ -72,6 +72,8 @@ put MONGO_URI "$FRESH_MONGO_URI" "$ENV_FILE"
 for key in "${OURS[@]}"; do [ -n "${KEEP[$key]}" ] && put "$key" "${KEEP[$key]}" "$ENV_FILE"; done
 find "$DATA_DIR" -mindepth 1 -maxdepth 1 ! -name logs -exec rm -rf {} +
 cp -a "$RESTORED$DATA_DIR/." "$DATA_DIR/"
+REPO_DIR="$REPO_DIR" bash "$REPO_DIR/scripts/root-node/units.sh" >/dev/null
+bash "$REPO_DIR/scripts/temporal-keys.sh" >/dev/null
 ok "env and data restored, keeping this host's own Mongo password, collector address and trial slots"
 
 docker stop "$CADDY" >/dev/null
@@ -128,7 +130,6 @@ else
   warn "the backup holds no mesh identity for this host; run bootstrap.sh again to join the mesh as a new node"
 fi
 
-REPO_DIR="$REPO_DIR" bash "$REPO_DIR/scripts/root-node/units.sh" >/dev/null
 systemctl start nowrinkles.service nowrinkles-workers.service
 rm -rf "$RESTORED"
 ok "Koala started on what snapshot ${SNAPSHOT} held"
