@@ -21,6 +21,7 @@ export interface PersonInstance {
   trialEndsAt?: string
   version?: string
   autoUpdates?: boolean
+  unreachableSince?: string
 }
 
 export interface PersonEntry {

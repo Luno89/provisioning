@@ -16,7 +16,8 @@ export function instanceLine(instance: PersonInstance): string {
   const trial = instance.trialEndsAt ? `, trial ends ${day(instance.trialEndsAt)}` : ''
   const version = instance.version ? ` ${instance.version}` : ''
   const updates = instance.autoUpdates === undefined ? '' : instance.autoUpdates ? ', updates automatically' : ', updates by hand'
-  return `${instance.name ?? 'Instance'} ${where}: ${INSTANCE_STATE[instance.status]}${version}${trial}${updates}`
+  const reach = instance.unreachableSince ? `, not answering since ${day(instance.unreachableSince)}` : ''
+  return `${instance.name ?? 'Instance'} ${where}: ${INSTANCE_STATE[instance.status]}${version}${reach}${trial}${updates}`
 }
 
 export function yoursGoes(instance: PersonInstance | undefined): string[] {

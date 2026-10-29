@@ -135,6 +135,18 @@ export interface InfrastructureOverview {
   running: number
   runningProblem?: string
   failures: WorkFailure[]
+  root?: RootReach
+}
+
+/**
+ * ── DUPLICATED, KNOWINGLY ── `RootReach` in apps/backend/src/infrastructure/services/InfrastructureViewService.ts is the authority.
+ */
+export interface RootReach {
+  rootUrl: string
+  reachable: boolean
+  down: boolean
+  unreachableSince?: string
+  lastSeenAt?: string
 }
 
 export const infrastructureKeys = {

@@ -1,7 +1,7 @@
 import { api, API_BASE } from '../../../api/client'
 
 export interface MyInstance {
-  instance: { id: string; url: string } | null
+  instance: { id: string; url: string; unreachableSince?: string } | null
   servesTenants: boolean
 }
 

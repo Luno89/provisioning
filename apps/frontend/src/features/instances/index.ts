@@ -3,6 +3,7 @@ export { getInstanceAddresses, instanceAddressKeys, setNestedAddresses } from '.
 export { default as HandoffPage } from './components/HandoffPage'
 export { InstanceMove, MovingPage } from './components/InstanceMove'
 export { InstanceUpdates } from './components/InstanceUpdates'
+export { InstanceWatch } from './components/InstanceWatch'
 export { default as NoInstance } from './components/NoInstance'
 export { default as RootAdmin } from './components/RootAdmin'
 export { default as TrialBanner } from './components/TrialBanner'

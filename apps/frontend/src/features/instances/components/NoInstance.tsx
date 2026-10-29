@@ -3,9 +3,13 @@ import { Check, Cloud, Copy, HardDrive, Loader2, LogOut, RotateCcw } from 'lucid
 import { useCreateJoinCommand, useInstanceReady, useMySetup, useNameCheck, usePoolOffer, useStartMyMove, useStartPoolInstance, useStopMyMove, type InstanceStatus, type MySetup } from '../api/instances'
 import { errorMessage } from '../../../api/client'
 import { MovePanel } from './MovePanel'
+import { UnreachableSwitch } from './InstanceWatch'
+import { useSetMyWatch } from '../api/instance-watch'
+import { INSTANCE_GO_URL } from '../api/identity'
 
 export interface NoInstanceProps {
   hasInstance: boolean
+  unreachableSince?: string | undefined
   isAdmin?: boolean
   onLogout: () => void
 }
@@ -80,7 +84,29 @@ function PoolProgress({ setup, retrying, onRetry }: { setup: MySetup; retrying: 
   )
 }
 
-export default function NoInstance({ hasInstance, isAdmin = false, onLogout }: NoInstanceProps) {
+function InstanceDown({ since }: { since: string }) {
+  const setup = useMySetup(true)
+  const change = useSetMyWatch()
+  const ready = useInstanceReady()
+  const watch = setup.data?.watch
+  const back = watch?.reach?.reachable === true
+  useEffect(() => {
+    if (back) ready()
+  }, [back, ready])
+  return (
+    <div className="space-y-3" data-testid="instance-down">
+      <p className="text-sm font-semibold">Your instance is not answering</p>
+      <p className="text-xs leading-relaxed text-slate-400">
+        Root has not reached it since {new Date(since).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}.
+        If it runs on your own machine, that machine may be off, asleep or offline; once it answers, signing in here takes you straight to it again.
+      </p>
+      <a href={INSTANCE_GO_URL} className="inline-block text-xs font-semibold text-sky-300 hover:text-sky-200">Try to open it anyway</a>
+      {watch && <UnreachableSwitch view={watch} saving={change.isPending} error={change.error} onChange={(on) => change.mutate(on)} />}
+    </div>
+  )
+}
+
+export default function NoInstance({ hasInstance, unreachableSince, isAdmin = false, onLogout }: NoInstanceProps) {
   const [copied, setCopied] = useState(false)
   const create = useCreateJoinCommand()
   const offer = usePoolOffer()
@@ -110,7 +136,9 @@ export default function NoInstance({ hasInstance, isAdmin = false, onLogout }: N
   return (
     <div className="flex min-h-screen items-center justify-center bg-[var(--bark-900)] p-6 text-slate-100">
       <div className="w-full max-w-xl space-y-4 rounded-2xl border border-[var(--bark-700)] bg-[var(--bark-800)] p-8">
-        {hasInstance ? (
+        {hasInstance && unreachableSince ? (
+          <InstanceDown since={unreachableSince} />
+        ) : hasInstance ? (
           <p className="flex items-center justify-center gap-2 text-sm text-slate-300"><Loader2 size={16} className="animate-spin" /> Taking you to your instance…</p>
         ) : (
           <>

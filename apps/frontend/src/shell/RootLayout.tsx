@@ -122,7 +122,7 @@ export function RootLayout() {
   const adminPage = (location.pathname === '/pool' || location.pathname === '/admin') && Boolean(user?.isAdmin);
   const removalPage = location.pathname === '/remove-account';
   useEffect(() => {
-    if (placement.data && !placement.data.servesTenants && placement.data.instance && !adminPage && !removalPage && !joinPage) window.location.assign(INSTANCE_GO_URL);
+    if (placement.data && !placement.data.servesTenants && placement.data.instance && !placement.data.instance.unreachableSince && !adminPage && !removalPage && !joinPage) window.location.assign(INSTANCE_GO_URL);
   }, [placement.data, adminPage, removalPage, joinPage]);
 
   const { data: clusters = [] } = useQuery({ queryKey: clusterKeys.list(), queryFn: listClusters, refetchInterval: 3000 });
@@ -306,7 +306,7 @@ export function RootLayout() {
   }
 
   if (placement.data && !placement.data.servesTenants) {
-    return <NoInstance hasInstance={Boolean(placement.data.instance)} isAdmin={user.isAdmin === true} onLogout={handleLogout} />;
+    return <NoInstance hasInstance={Boolean(placement.data.instance)} unreachableSince={placement.data.instance?.unreachableSince} isAdmin={user.isAdmin === true} onLogout={handleLogout} />;
   }
 
   const isFullBleed = ['/chat', '/projects', '/studio/agents', '/studio/tools', '/studio/mcp-servers', '/studio/dependencies', '/studio/procedures', '/studio/tree-types'].some((prefix) => location.pathname.startsWith(prefix));

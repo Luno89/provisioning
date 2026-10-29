@@ -1,4 +1,5 @@
-import { getNotifications, notificationKeys, sendTestEmail, setEmailChoice, type EmailChoice, type NotificationView } from '../monitoring'
+import { addPushDevice, getNotifications, getPush, notificationKeys, pushKeys, removePushDevice, sendTestEmail, sendTestPush, setEmailChoice, type EmailChoice, type NotificationView } from '../monitoring'
+import { abilitiesOf, pushSupport, subscribeThisDevice, thisDeviceEndpoint, unsubscribeThisDevice } from './lib/this-device'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { accountKeys, endOtherSessions, getPersonRemoval, getProjectInviteLimits, getRemovalPreview, listInvites, listPeople, mintInvite, removeMyAccount, removePerson, setOwnInviteAccounts, setProjectInviteLimits } from './api'
 import { getInstanceAddresses, instanceAddressKeys, setNestedAddresses } from '../instances'
@@ -103,6 +104,45 @@ export function useSetEmailChoice() {
 
 export function useSendTestEmail() {
   return useMutation({ mutationFn: () => sendTestEmail() })
+}
+
+export const thisDeviceSupport = () => pushSupport(abilitiesOf())
+
+export function usePushDevices() {
+  return useQuery({ queryKey: pushKeys.mine(), queryFn: getPush, retry: false })
+}
+
+export function useThisDeviceEndpoint() {
+  return useQuery({ queryKey: [...pushKeys.mine(), 'this-device'], queryFn: async () => (await thisDeviceEndpoint()) ?? null })
+}
+
+export function useNotifyThisDevice() {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: async (publicKey: string) => addPushDevice(await subscribeThisDevice(publicKey)),
+    onSuccess: (view) => {
+      client.setQueryData(pushKeys.mine(), view)
+      void client.invalidateQueries({ queryKey: [...pushKeys.mine(), 'this-device'] })
+    },
+  })
+}
+
+export function useForgetPushDevice() {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ id, thisDevice }: { id: string; thisDevice: boolean }) => {
+      if (thisDevice) await unsubscribeThisDevice()
+      return removePushDevice(id)
+    },
+    onSuccess: (view) => {
+      client.setQueryData(pushKeys.mine(), view)
+      void client.invalidateQueries({ queryKey: [...pushKeys.mine(), 'this-device'] })
+    },
+  })
+}
+
+export function useSendTestPush() {
+  return useMutation({ mutationFn: () => sendTestPush() })
 }
 
 export function useEndOtherSessions(onEnded: () => void) {
