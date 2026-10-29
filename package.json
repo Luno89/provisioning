@@ -8,7 +8,6 @@
     "setup": "bash scripts/setup.sh",
     "build": "npm run build -w apps/frontend",
     "start": "concurrently --kill-others \"npm run start -w apps/backend\" \"npm run start:worker -w apps/backend\" \"npm run start:worker:cluster -w apps/backend\" \"npm run start:worker:engine -w apps/backend\"",
-    "provision:root-node": "tsx scripts/root-node/provision.ts",
     "dev": "bash scripts/dev.sh",
     "dev:split": "bash scripts/dev.sh --split",
     "dev:infisical": "bash scripts/ensure-infisical.sh",
