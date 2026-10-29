@@ -1150,6 +1150,48 @@
           "pattern": "OPERATOR_CHART=(v[0-9.]+)"
         }
       ]
+    },
+    {
+      "kind": "binary",
+      "name": "containerd.io",
+      "version": "2.4.1-2",
+      "where": "root, from Docker's signed apt repository",
+      "source": "https://download.docker.com/linux/ubuntu",
+      "github": "containerd/containerd",
+      "uses": [
+        {
+          "file": "scripts/root-node/bootstrap.sh",
+          "pattern": "CONTAINERD_PACKAGE=([0-9.]+-[0-9]+)"
+        }
+      ]
+    },
+    {
+      "kind": "binary",
+      "name": "docker-buildx-plugin",
+      "version": "0.38.0-1",
+      "where": "root, from Docker's signed apt repository",
+      "source": "https://download.docker.com/linux/ubuntu",
+      "github": "docker/buildx",
+      "uses": [
+        {
+          "file": "scripts/root-node/bootstrap.sh",
+          "pattern": "BUILDX_PACKAGE=([0-9.]+-[0-9]+)"
+        }
+      ]
+    },
+    {
+      "kind": "binary",
+      "name": "docker-compose-plugin",
+      "version": "5.6.0-1",
+      "where": "root, from Docker's signed apt repository",
+      "source": "https://download.docker.com/linux/ubuntu",
+      "github": "docker/compose",
+      "uses": [
+        {
+          "file": "scripts/root-node/bootstrap.sh",
+          "pattern": "COMPOSE_PACKAGE=([0-9.]+-[0-9]+)"
+        }
+      ]
     }
   ],
   "unpinned": []

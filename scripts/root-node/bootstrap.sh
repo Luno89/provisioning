@@ -33,6 +33,9 @@ TAILSCALE_FINGERPRINT=2596A99EAAB33821893C0A79458CA832957F5868
 NODE_MAJOR=22
 DOCKER_VERSION=29.9.0
 TAILSCALE_VERSION=1.104.1
+CONTAINERD_PACKAGE=2.4.1-2
+BUILDX_PACKAGE=0.38.0-1
+COMPOSE_PACKAGE=5.6.0-1
 
 GREEN='\033[0;32m'; YELLOW='\033[1;33m'; RED='\033[0;31m'; NC='\033[0m'
 ok()   { echo -e "  ${GREEN}✅${NC} $1"; }
@@ -134,7 +137,9 @@ apt_source tailscale "https://pkgs.tailscale.com/stable/ubuntu/${VERSION_CODENAM
 apt-get update -qq
 if ! command -v docker &>/dev/null; then
   DOCKER_PACKAGE="5:${DOCKER_VERSION}-1~ubuntu.${VERSION_ID}~${VERSION_CODENAME}"
-  apt-get install -y "docker-ce=${DOCKER_PACKAGE}" "docker-ce-cli=${DOCKER_PACKAGE}" containerd.io docker-buildx-plugin docker-compose-plugin >/dev/null
+  UBUNTU_SUFFIX="~ubuntu.${VERSION_ID}~${VERSION_CODENAME}"
+  apt-get install -y "docker-ce=${DOCKER_PACKAGE}" "docker-ce-cli=${DOCKER_PACKAGE}" "containerd.io=${CONTAINERD_PACKAGE}${UBUNTU_SUFFIX}" \
+    "docker-buildx-plugin=${BUILDX_PACKAGE}${UBUNTU_SUFFIX}" "docker-compose-plugin=${COMPOSE_PACKAGE}${UBUNTU_SUFFIX}" >/dev/null
   ok "Docker installed from Docker's signed repository"
 else
   ok "Docker already present"
