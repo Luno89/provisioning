@@ -11,6 +11,12 @@ const nameAt = (path) => path.slice(path.lastIndexOf('node_modules/') + 'node_mo
 
 const property = (name, value) => ({ name, value: String(value) });
 
+const hashesOf = (component) => [
+  ...(component.sha256 ? [{ alg: 'SHA-256', content: component.sha256 }] : []),
+  ...(component.sha512 ? [{ alg: 'SHA-512', content: component.sha512 }] : []),
+  ...Object.values(component.sha256s ?? {}).map((content) => ({ alg: 'SHA-256', content })),
+];
+
 function npmComponent(name, version, group, dev) {
   const purl = `pkg:npm/${purlName(name)}@${version}`;
   return {
@@ -84,7 +90,7 @@ export function pinComponents(pins) {
       name: component.name,
       version: component.version,
       purl,
-      ...(component.sha256 || component.sha512 ? { hashes: [component.sha256 ? { alg: 'SHA-256', content: component.sha256 } : { alg: 'SHA-512', content: component.sha512 }] } : {}),
+      ...(hashesOf(component).length ? { hashes: hashesOf(component) } : {}),
       properties: [
         property('koala:kind', component.kind),
         property('koala:source', component.source),
