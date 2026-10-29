@@ -275,7 +275,7 @@ async function main(): Promise<void> {
 
   const kubectl = (args: string) => sh(instance!, `sudo kubectl -n ${NAMESPACE} ${args}`);
   const helm = (args: string) => sh(instance!, `sudo helm -n ${NAMESPACE} --kubeconfig /etc/rancher/k3s/k3s.yaml ${args}`);
-  const registry = (await sh(instance, `sudo kubectl -n ${NAMESPACE} get deploy instance-backend -o jsonpath='{.spec.template.spec.containers[0].image}'`)).trim().replace(/:[^:/]+$/, '');
+  const registry = (await sh(instance, `sudo kubectl -n ${NAMESPACE} get deploy instance-backend -o jsonpath='{.spec.template.spec.containers[0].image}'`)).trim().replace(/@sha256:[0-9a-f]+$/, '').replace(/:[^:/]+$/, '');
   note(`the instance pulls ${registry} over the mesh`);
 
   const handoff = async (): Promise<string> => {
@@ -376,7 +376,7 @@ async function main(): Promise<void> {
   const deploymentImages = async () => Object.fromEntries((await kubectl(`get deploy -o jsonpath='{range .items[*]}{.metadata.name}={.spec.template.spec.containers[0].image}{"\\n"}{end}'`)).trim().split('\n').map((line) => line.split('=') as [string, string]));
   const allOn = async (tag: string) => {
     const images = await deploymentImages();
-    for (const process of ['backend', 'worker-engine', 'worker-cluster', 'worker-host']) assert.equal(images[`instance-${process}`], `${registry}:${tag}`, `instance-${process} is not on ${tag}`);
+    for (const process of ['backend', 'worker-engine', 'worker-cluster', 'worker-host']) assert.equal(images[`instance-${process}`]?.replace(/@sha256:[0-9a-f]+$/, ''), `${registry}:${tag}`, `instance-${process} is not on ${tag}`);
     await until(`every deployment ready on ${tag}`, async () => {
       const ready = (await kubectl(`get deploy -o jsonpath='{range .items[*]}{.metadata.name}={.status.readyReplicas}{"\\n"}{end}'`)).trim().split('\n');
       return ready.filter((line) => line.startsWith('instance-')).every((line) => line.endsWith('=1')) ? true : undefined;
