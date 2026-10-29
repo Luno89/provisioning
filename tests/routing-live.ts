@@ -33,6 +33,7 @@ const SOCAT_IMAGE = 'alpine/socat:1.8.0.3';
 const MAILPIT_IMAGE = 'axllent/mailpit:v1.21.0';
 const MAILPIT_SMTP = 11025;
 const MAILPIT_API = 18026;
+const WATCH_MINUTES = 1;
 const NAME = `rt${Date.now().toString(36)}`;
 const CONTAINERS = { root: 'nw-route-root', worker: 'nw-route-worker', caddy: 'nw-route-caddy', mesh: 'nw-route-ts', relay: 'nw-route-relay', mailbox: 'nw-route-mailbox' };
 const SECRET_FILES = ['.gitea-admin-password', '.gitea-admin-token', '.headscale-api-key', '.infisical-admin-password', '.infisical-machine-identity', '.infisical-encryption-key', '.infisical-postgres-password', '.infisical-redis-password'];
@@ -171,7 +172,7 @@ async function main(): Promise<void> {
     '-v', `${caddyAdmin}:/run/koala-caddy`, '-v', `${caddyLog}:/var/log/koala-caddy:ro`,
     '-v', `${join(REPO, 'Caddyfile')}:/etc/koala/Caddyfile:ro`, '-e', 'CADDY_CONFIG=/etc/koala/Caddyfile',
     '-e', 'CADDY_ADMIN_SOCKET=/run/koala-caddy/admin.sock', '-e', 'CADDY_LOG=/var/log/koala-caddy/caddy.log', '-e', `CADDY_TLS_ADDRESS=127.0.0.1:${TLS_PORT}`,
-    '-e', 'MESH_LOGIN_SERVER=http://10.0.2.2:8080', '-e', 'INSTANCE_REGISTRY=10.0.2.2:5001', '-e', `INSTANCE_IMAGE_TAG=${TAG}`, '-e', `MAIL_SMTP_URL=smtp://127.0.0.1:${MAILPIT_SMTP}`, IMAGE, 'backend']);
+    '-e', 'MESH_LOGIN_SERVER=http://10.0.2.2:8080', '-e', 'INSTANCE_REGISTRY=10.0.2.2:5001', '-e', `INSTANCE_IMAGE_TAG=${TAG}`, '-e', `MAIL_SMTP_URL=smtp://127.0.0.1:${MAILPIT_SMTP}`, '-e', `WATCH_UNREACHABLE_MINUTES=${WATCH_MINUTES}`, IMAGE, 'backend']);
   await until('root answering', async () => ((await fetch(`${ROOT_FOR_HOST}/api/identity/keys`)).ok ? true : undefined));
   run('docker', ['run', '-d', '--name', CONTAINERS.worker, '--network', 'host', '--env-file', 'apps/backend/.env', ...ROOT.env, ...devTemporalCa(),
     ...SECRET_FILES.flatMap((file) => ['-v', `${join(REPO, 'apps/backend/data', file)}:/app/apps/backend/data/${file}:ro`]), ...workerEnv(ROOT), IMAGE, 'worker-host']);
@@ -304,6 +305,47 @@ async function main(): Promise<void> {
   });
   assert.ok(nested.status < 400);
   assert.ok(https(`books-${NAME}.${DOMAIN}`, '/').status < 400, 'the flat address still answers');
+
+  step('root tells the owner when their instance stops answering, and once when it answers again');
+  const mailTo = async (subject: RegExp) => until(`an email "${subject.source}" at the test mailbox`, async () => {
+    const listed = await (await fetch(`http://127.0.0.1:${MAILPIT_API}/api/v1/messages`)).json() as { messages: Array<{ Subject: string; To: Array<{ Address: string }> }> };
+    return listed.messages.find((message) => subject.test(message.Subject));
+  });
+  const backend = 'sudo kubectl -n nowrinkles';
+  await inVm(vm, `${backend} set env deployment/instance-backend WATCH_UNREACHABLE_MINUTES=${WATCH_MINUTES} && ${backend} rollout status deployment/instance-backend`);
+  await until('the instance through Caddy after its threshold changed', async () => (https(`${NAME}.${DOMAIN}`, '/api/auth/sign-in').status === 200 ? true : undefined));
+  await inVm(vm, `${backend} scale deployment/instance-backend --replicas=0`);
+  const down = await mailTo(new RegExp(`Your instance ${NAME} .* has not answered for \\d+ minutes`));
+  assert.equal(down.To[0]?.Address, address, 'root told someone other than the owner');
+  const downSince = await until('root\'s page saying the instance is not answering', async () => {
+    const answer = await (await asOwner('/api/identity/instance')).json() as { instance?: { unreachableSince?: string } | null };
+    return answer.instance?.unreachableSince;
+  });
+  console.log(`  ${down.Subject}; root's page says not answering since ${downSince}`);
+  await inVm(vm, `${backend} scale deployment/instance-backend --replicas=1 && ${backend} rollout status deployment/instance-backend`);
+  const back = await mailTo(new RegExp(`Your instance ${NAME} .* answers again`));
+  assert.equal(back.To[0]?.Address, address);
+  await until('root\'s page no longer saying it is down', async () => {
+    const answer = await (await asOwner('/api/identity/instance')).json() as { instance?: { unreachableSince?: string } | null };
+    return answer.instance && !answer.instance.unreachableSince ? true : undefined;
+  });
+  console.log(`  ${back.Subject}`);
+
+  step('the instance shows root not answering under Needs attention, and clears it when root answers again');
+  await until('the instance through Caddy before root stops', async () => (onInstance('/api/auth/me').status === 200 ? true : undefined));
+  run('docker', ['stop', CONTAINERS.root]);
+  const rootDown = await until('the instance to call root down', async () => {
+    const overview = json<{ root?: { down: boolean; unreachableSince?: string } }>(onInstance('/api/infrastructure'));
+    return overview.root?.down ? overview.root : undefined;
+  });
+  console.log(`  root not answering since ${rootDown.unreachableSince}`);
+  run('docker', ['start', CONTAINERS.root]);
+  await until('root answering again', async () => ((await fetch(`${ROOT_FOR_HOST}/api/identity/keys`).catch(() => undefined))?.ok ? true : undefined));
+  await until('the instance to clear root down', async () => {
+    const overview = json<{ root?: { down: boolean } }>(onInstance('/api/infrastructure'));
+    return overview.root && !overview.root.down ? true : undefined;
+  });
+  console.log('  cleared once root answers again');
 
   step('signing out everywhere at root ends the session on the instance at once');
   assert.equal(https(`${NAME}.${DOMAIN}`, '/api/auth/me', { cookie }).status, 200, 'the instance session no longer worked before the sign-out');
