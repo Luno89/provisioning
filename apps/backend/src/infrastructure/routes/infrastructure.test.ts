@@ -33,7 +33,7 @@ async function app() {
     monitoring: { overview: async () => monitoring, koala: async () => koala },
     contents: {
       broken: async () => [broken('shop-web', { kind: 'app', id: 'd1', name: 'Shop', mine: true }), broken('mystery', { kind: 'other' })],
-      contents: async (_viewer, id) => ({ clusterId: id, readAt: 'now', reachable: true, ownsCluster: true, workloads: [], finishedJobs: 0, measured: true }),
+      contents: async (_viewer, id) => ({ clusterId: id, readAt: 'now', reachable: true, can: ['see-everything'], workloads: [], finishedJobs: 0, measured: true }),
     },
     running: {
       view: async () => ({ ok: true, value: {

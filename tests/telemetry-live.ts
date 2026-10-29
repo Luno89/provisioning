@@ -97,7 +97,7 @@ async function main(): Promise<void> {
   const db = createDatabase();
   await db.init();
   const admin = await db.accounts.getUserById(ADMIN);
-  assert.ok(admin?.isAdmin, `${ADMIN} is not an admin`);
+  assert.ok(admin?.roles?.includes('operator'), `${ADMIN} is not an admin`);
   const adminHttp = client(`session=${signJWT({ userId: admin.id, email: admin.email }, loadKeys(process.env).session, 4 * 3600)}`);
   const email = `telemetry-live-${Date.now().toString(36)}@nowrinkles.test`;
   const password = crypto.randomBytes(18).toString('base64url');

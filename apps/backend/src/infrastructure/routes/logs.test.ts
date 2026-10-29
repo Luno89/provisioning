@@ -33,7 +33,7 @@ describe('/api/logs/cluster', () => {
     const clusterService = { getById: async (id: string, principal: Principal, action: 'see-everything') => (id === system.id && allowed(principal, action, clusterResource(system)) ? system : undefined) };
     const harness = await mountRouter({ prefix: '/api/logs', router: async (db) => logsRouter({ db, clusterService, appService: { getAll: async () => [] } }) });
     expect((await axios.get(harness.url(`/api/logs/cluster/${system.id}`))).data).toEqual({ content: 'Initializing...' });
-    harness.setUser({ ...TEST_USER, isAdmin: true });
+    harness.setUser({ ...TEST_USER, roles: ['operator' as const] });
     expect((await axios.get(harness.url(`/api/logs/cluster/${system.id}`))).data).toEqual({ content: 'k3s installed' });
     await harness.close();
     await fs.rm(dir, { recursive: true });

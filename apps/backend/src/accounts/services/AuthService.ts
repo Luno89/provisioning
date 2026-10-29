@@ -85,7 +85,7 @@ export class AuthService extends BaseService {
         twoFactorEnabled: false,
         emailVerified: true,
         createdAt: new Date().toISOString(),
-        ...(isFirstUser ? { isAdmin: true } : {}),
+        ...(isFirstUser ? { roles: ['operator'] } : {}),
       } as UserMetadata;
       await this.db.accounts.saveUser(user);
     } else {

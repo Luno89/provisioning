@@ -17,12 +17,14 @@ export interface ClusterNode {
   gpus?: number | undefined;
 }
 
+export type ClusterContentsAction = 'see-everything';
+
 export interface ClusterContents {
   clusterId: string;
   readAt: string;
   reachable: boolean;
   problem?: string | undefined;
-  ownsCluster: boolean;
+  can: ClusterContentsAction[];
   workloads: Workload[];
   finishedJobs: number;
   measured: boolean;
@@ -143,7 +145,8 @@ export class ClusterContentsService {
 
   private async contentsOf(viewer: Viewer, cluster: ClusterMetadata): Promise<ClusterContents> {
     const ownsCluster = this.deps.monitoring.ownsCluster(viewer, cluster);
-    const empty = { clusterId: cluster.id, ownsCluster, workloads: [], finishedJobs: 0, measured: false };
+    const can: ClusterContentsAction[] = ownsCluster ? ['see-everything'] : [];
+    const empty = { clusterId: cluster.id, can, workloads: [], finishedJobs: 0, measured: false };
     if (cluster.status !== 'healthy') return { ...empty, readAt: this.now().toISOString(), reachable: false, problem: `it is ${cluster.status}` };
     let raw: Raw;
     try {
@@ -156,7 +159,7 @@ export class ClusterContentsService {
       clusterId: cluster.id,
       readAt: raw.readAt,
       reachable: true,
-      ownsCluster,
+      can,
       workloads,
       finishedJobs,
       measured,

@@ -56,7 +56,7 @@ async function loginAsExistingAdmin(): Promise<string> {
   const res = await fetch(callbackUrl, { redirect: 'manual' });
   const cookie = extractCookie(res);
   const me = await fetch(`${BASE}/api/auth/me`, { headers: { Cookie: cookie } }).then((r) => r.json());
-  if (!me.isAdmin) {
+  if (!me.permissions?.['manage-accounts']) {
     throw new Error('The mock-OAuth admin account is not actually admin — cannot mint an invite for the test user. Was migrateLegacyOwnership run?');
   }
   return cookie;

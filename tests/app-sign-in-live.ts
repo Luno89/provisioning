@@ -64,7 +64,7 @@ async function main(): Promise<void> {
   await db.init();
   const admin = await db.accounts.getUserById(ADMIN);
   await db.close();
-  assert.ok(admin?.isAdmin, `${ADMIN} is not an admin`);
+  assert.ok(admin?.roles?.includes('operator'), `${ADMIN} is not an admin`);
   const api = client(`session=${signJWT({ userId: admin.id, email: admin.email }, loadKeys(process.env).session, 3600)}`);
   let id: string | undefined;
   let forward: ReturnType<typeof spawn> | undefined;

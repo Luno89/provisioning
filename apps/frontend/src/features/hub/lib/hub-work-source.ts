@@ -3,6 +3,7 @@ import { getHubBoard, getHubProcedure, hubKeys, listHubExtensions, listHubRunEnd
 import type { HubBoardView, HubRequestKind } from '../types'
 import type { WorkSource } from '../../projects'
 import { withOrder } from '../../projects'
+import { canOn } from '../../platform'
 
 export const HUB_BOARD_EVERY_MS = 3_000
 
@@ -28,8 +29,8 @@ export function hubWorkSource(client: QueryClient, view: HubBoardView): WorkSour
     await sendHubRequest(id, kind, input)
     await client.invalidateQueries({ queryKey: hubKeys.board(id) })
   }
-  const changes = view.can.includes('approve-changes')
-  const rearranges = view.can.includes('change-files')
+  const changes = canOn(view, 'approve-changes')
+  const rearranges = canOn(view, 'change-files')
   const owner = view.members.find((member) => member.personId === view.project.createdBy)
   return {
     key: ['hub', id],

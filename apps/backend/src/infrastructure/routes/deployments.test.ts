@@ -60,7 +60,7 @@ describe('listing deployments', () => {
 
   it('never reads on behalf of a different tenant', async () => {
     const { h, svc } = await mount();
-    h.setUser({ id: 'someone-else', email: 'other@example.com', isAdmin: false });
+    h.setUser({ id: 'someone-else', email: 'other@example.com' });
     await axios.get(h.url('/api/deployments/d1/helm')).catch(() => undefined);
     expect(svc.appService.getHelmStatus).toHaveBeenCalledWith('d1', 'someone-else');
   });

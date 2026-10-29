@@ -107,7 +107,8 @@ export default defineConfig([
     languageOptions: { parser: tseslint.parser },
     rules: {
       'no-restricted-syntax': ['error',
-        { selector: "MemberExpression[property.name='isAdmin']", message: 'who may do what is decided by authorize in platform/lib/permissions.ts, from the claims claimsOf gives; never read isAdmin' },
+        { selector: "MemberExpression[property.name='isAdmin']", message: 'who may do what is decided by authorize in platform/lib/permissions.ts, from the claims claimsOf gives; there is no isAdmin' },
+        { selector: "MemberExpression[property.name='roles']", message: 'a person\'s stored roles become claims in claimsOf (platform/lib/permissions.ts) and are read nowhere else; ask authorize' },
         { selector: "CallExpression[callee.name='can']", message: 'a shared project\'s roles are decided by authorize in platform/lib/permissions.ts' },
       ],
     },

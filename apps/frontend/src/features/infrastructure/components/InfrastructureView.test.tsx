@@ -19,7 +19,7 @@ vi.mock('../../monitoring/api/monitoring', async (orig) => ({
   getAlerts: vi.fn(),
   getAppHealth: vi.fn(),
   getClusterHealth: vi.fn(),
-  setHistoryDays: vi.fn(async (_id: string, days: number) => ({ days, applied: false, canChange: true })),
+  setHistoryDays: vi.fn(async (_id: string, days: number) => ({ days, applied: false, can: ['change'] as 'change'[] })),
   removeAlertRule: vi.fn(async () => undefined),
 }))
 vi.mock('../api/infrastructure', async (orig) => ({
@@ -74,7 +74,7 @@ const show = () => render(
 const cluster: ClusterRow = {
   id: 'provisioning-lunorica', name: 'provisioning-lunorica', state: 'warning', reasons: ['the disk is 95% full'],
   numbers: { nodes: 1, cpuShare: 0.3, memoryShare: 0.5, diskShare: 0.95 },
-  history: { days: 10, kept: 10, applied: true, canChange: true }, apps: 2, isSystem: true,
+  history: { days: 10, kept: 10, applied: true, can: ['change'] as 'change'[] }, apps: 2, isSystem: true,
 }
 
 const monitoring: Overview = {
@@ -107,7 +107,7 @@ const overview: InfrastructureOverview = {
 }
 
 const contents: ClusterContents = {
-  clusterId: cluster.id, readAt: 'now', reachable: true, ownsCluster: true, finishedJobs: 3, measured: true,
+  clusterId: cluster.id, readAt: 'now', reachable: true, can: ['see-everything'] as 'see-everything'[], finishedJobs: 3, measured: true,
   workloads: [
     { namespace: 'shop', kind: 'Deployment', name: 'shop-odoo', group: 'apps', about: { kind: 'app', id: 'shop', name: 'Shop', mine: true }, pods: { total: 1, ready: 1 }, state: 'ok', reasons: [], restarts: 0, memoryBytes: 512 * 1024 ** 2, cpuCores: 0.12 },
     { namespace: 'koala-run-tree-t1', kind: 'Pod', name: 'workspace', group: 'koala', about: { kind: 'tree', id: 't1', mine: true }, pods: { total: 1, ready: 1 }, state: 'ok', reasons: [], restarts: 0 },
@@ -132,7 +132,7 @@ const appView: AppHealthView = {
   firing: [],
   episodes: [{ id: 'e1', clusterId: cluster.id, key: 'k', name: 'AppProbeDown', summary: 'Books is not answering', about: { kind: 'app', deploymentId: 'books' }, startedAt: new Date(Date.now() - 3_600_000).toISOString(), resolvedAt: new Date().toISOString() }],
   rules: [{ id: 'r1', deploymentId: 'books', clusterId: cluster.id, appName: 'Books', summary: 'Books: Books has not answered for 5 minutes', spec: { kind: 'down', threshold: 0, forMinutes: 5 }, createdAt: 'then' }],
-  history: { days: 10, kept: 10, applied: true, canChange: true },
+  history: { days: 10, kept: 10, applied: true, can: ['change'] as 'change'[] },
 }
 
 describe('the Infrastructure page', () => {
@@ -141,7 +141,7 @@ describe('the Infrastructure page', () => {
     delete params.tab
     delete params.kind
     delete params.id
-    useShellStore.setState({ confirmDestroy: null })
+    useShellStore.setState({ confirmDestroy: null, user: null })
     vi.mocked(infrastructureApi.getInfrastructure).mockResolvedValue(overview)
     vi.mocked(infrastructureApi.getClusterContents).mockResolvedValue(contents)
     vi.mocked(monitoringApi.getOverview).mockResolvedValue(monitoring)
@@ -240,7 +240,17 @@ describe('the Infrastructure page', () => {
     expect(shell.setShowClusterModal).toHaveBeenCalledWith(true)
   })
 
+  it('links the local router only for whoever may administer this server', async () => {
+    useShellStore.setState({ user: { id: 'u', email: 'u@example.com', permissions: { administer: false } } as never })
+    params.kind = 'cluster'
+    params.id = cluster.id
+    show()
+    expect(await screen.findAllByTestId('platform-service')).not.toHaveLength(0)
+    expect(screen.queryByRole('link', { name: 'Local router (Nginx)' })).toBeNull()
+  })
+
   it('shows everything on a cluster: workloads by whose they are, platform services, nodes, GPUs and Helm releases', async () => {
+    useShellStore.setState({ user: { id: 'op', email: 'op@example.com', permissions: { administer: true } } as never })
     params.kind = 'cluster'
     params.id = cluster.id
     show()
@@ -274,7 +284,7 @@ describe('the Infrastructure page', () => {
     params.kind = 'cluster'
     params.id = cluster.id
     const { services: _services, nodes: _nodes, releases: _releases, ...theirs } = contents
-    vi.mocked(infrastructureApi.getClusterContents).mockResolvedValue({ ...theirs, ownsCluster: false, workloads: contents.workloads.slice(0, 1) })
+    vi.mocked(infrastructureApi.getClusterContents).mockResolvedValue({ ...theirs, can: [] as 'see-everything'[], workloads: contents.workloads.slice(0, 1) })
     show()
     expect(await screen.findByTestId('workload-group-apps')).toBeInTheDocument()
     expect(screen.queryByTestId('platform-service')).toBeNull()
@@ -320,14 +330,14 @@ describe('the Infrastructure page', () => {
     await waitFor(() => expect(monitoringApi.setHistoryDays).toHaveBeenCalledWith(cluster.id, 30))
     unmount()
 
-    vi.mocked(monitoringApi.getClusterHealth).mockResolvedValue({ cluster: { ...cluster, history: { ...cluster.history, canChange: false } }, lines: [], range: '24h', series: [], firing: [], episodes: [], apps: [] })
+    vi.mocked(monitoringApi.getClusterHealth).mockResolvedValue({ cluster: { ...cluster, history: { ...cluster.history, can: [] as 'change'[] } }, lines: [], range: '24h', series: [], firing: [], episodes: [], apps: [] })
     show()
     expect(await screen.findByText('Only whoever owns this cluster can change it.')).toBeInTheDocument()
     expect(screen.queryByRole('spinbutton')).toBeNull()
   })
 
   it('offers Grafana only to whoever owns the cluster, on the cluster and on an app on it', async () => {
-    const notOwned = { ...cluster.history, canChange: false }
+    const notOwned = { ...cluster.history, can: [] as 'change'[] }
     params.kind = 'cluster'
     params.id = cluster.id
     vi.mocked(monitoringApi.getClusterHealth).mockResolvedValue({ cluster: { ...cluster, history: notOwned }, lines: [], range: '24h', series: [], firing: [], episodes: [], apps: [] })
@@ -345,7 +355,7 @@ describe('the Infrastructure page', () => {
   })
 
   it('on Koala\'s servers, says root keeps the history and offers no Grafana, for the cluster and its apps', async () => {
-    const byKoala = { days: 10, kept: 10, applied: true, canChange: false, byKoala: true }
+    const byKoala = { days: 10, kept: 10, applied: true, can: [] as 'change'[], byKoala: true }
     params.kind = 'cluster'
     params.id = cluster.id
     vi.mocked(monitoringApi.getClusterHealth).mockResolvedValue({ cluster: { ...cluster, history: byKoala }, lines: [], range: '24h', series: [], firing: [], episodes: [], apps: [] })

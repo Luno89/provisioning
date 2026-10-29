@@ -205,12 +205,12 @@ describe('VpsCatalog refreshing prices', () => {
   beforeEach(() => { vi.clearAllMocks(); });
 
   it('offers Refresh prices only to the operator, since it clears every person\'s cache', async () => {
-    useShellStore.setState({ user: { id: 'u', email: 'u@example.com', isAdmin: false } as never });
+    useShellStore.setState({ user: { id: 'u', email: 'u@example.com', permissions: { administer: false } } as never });
     const { unmount } = renderWith([cpuOnly]);
     await waitFor(() => expect(screen.getByText('g6-standard-2')).toBeInTheDocument());
     expect(screen.queryByText('Refresh prices')).toBeNull();
     unmount();
-    useShellStore.setState({ user: { id: 'op', email: 'op@example.com', isAdmin: true } as never });
+    useShellStore.setState({ user: { id: 'op', email: 'op@example.com', permissions: { administer: true } } as never });
     renderWith([cpuOnly]);
     expect(await screen.findByText('Refresh prices')).toBeInTheDocument();
   });

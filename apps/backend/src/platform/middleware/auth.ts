@@ -47,7 +47,7 @@ export interface Auth {
   securedFor: (arrived: { headers: IncomingHttpHeaders; secure: boolean }) => boolean;
   requireAuth: express.RequestHandler;
   requireOperator: (action: Actions['install']) => express.RequestHandler;
-  principalFor: (user: Pick<UserMetadata, 'id' | 'isAdmin'>) => Principal;
+  principalFor: (user: Pick<UserMetadata, 'id' | 'roles'>) => Principal;
   setSessionCookie: (res: express.Response, token: string, req?: express.Request) => void;
   clearSession: (res: express.Response) => void;
   sessionCookieOptions: { httpOnly: boolean; secure: boolean; sameSite: 'lax' };
@@ -64,7 +64,7 @@ export interface Auth {
 export const PUBLIC_PREFIXES = ['/checks/scripted/', '/machines/git/', '/share/'];
 
 export function createAuth({ db, sessionKey, publicUrl, role = 'combined', instanceOwnerId, setupCode }: AuthDeps): Auth {
-  const principalFor = (user: Pick<UserMetadata, 'id' | 'isAdmin'>): Principal => principalOf(user, { role, instanceOwnerId });
+  const principalFor = (user: Pick<UserMetadata, 'id' | 'roles'>): Principal => principalOf(user, { role, instanceOwnerId });
   const getCookie = (req: express.Request, name: string) => parseCookie(req.headers.cookie, name);
 
   const sessionCookieOptions = {

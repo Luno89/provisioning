@@ -122,7 +122,7 @@ describe('reading and writing one provider', () => {
 
   it('never lets one tenant read another', async () => {
     const { h, svc } = await mount();
-    h.setUser({ id: 'someone-else', email: 'other@example.com', isAdmin: false });
+    h.setUser({ id: 'someone-else', email: 'other@example.com' });
     await axios.get(h.url('/api/credentials/aws'));
     expect(svc.getCredentials).toHaveBeenCalledWith('someone-else', 'aws');
   });

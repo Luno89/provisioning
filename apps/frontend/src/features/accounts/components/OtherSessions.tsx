@@ -1,12 +1,12 @@
 import { errorMessage } from '../../../api/client'
-import { useShellStore } from '../../platform'
+import { useCan, useShellStore } from '../../platform'
 import { dangerPanel, quietButton, useEndOtherSessions } from '../shared'
 
 export function OtherSessions() {
-  const holdsAccounts = useShellStore((s) => s.user?.holdsAccounts !== false)
+  const managesAccount = useCan()('manage-own-account')
   const pushNotification = useShellStore((s) => s.pushNotification)
   const end = useEndOtherSessions(() => pushNotification({ type: 'info', message: 'Every other browser and device signed in as you is signed out.' }))
-  if (!holdsAccounts) return null
+  if (!managesAccount) return null
   return (
     <div className={dangerPanel}>
       <div className="flex items-center justify-between mb-1">

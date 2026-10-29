@@ -12,7 +12,7 @@ import { localHubPeople, type HubPeople } from '../../hub/services/HubPeople.js'
 import { memoryHubStore } from '../../hub/lib/hub-store.js';
 import { allowed, principalOf, type Principal } from '../../platform/lib/permissions.js';
 
-const ADMIN = { id: 'ana', email: 'ana@example.com', isAdmin: true };
+const ADMIN = { id: 'ana', email: 'ana@example.com', roles: ['operator' as const] };
 const PERSON = { ...TEST_USER };
 
 let started: string[];
@@ -26,14 +26,14 @@ const workflows: AccountRemovalWorkflows = {
 };
 
 const seedPeople = async (db: Database) => {
-  await db.accounts.saveUser({ id: ADMIN.id, email: ADMIN.email, isAdmin: true, twoFactorEnabled: false, emailVerified: true, createdAt: 'then' });
+  await db.accounts.saveUser({ id: ADMIN.id, email: ADMIN.email, roles: ['operator' as const], twoFactorEnabled: false, emailVerified: true, createdAt: 'then' });
   await db.accounts.saveUser({ id: PERSON.id, email: PERSON.email, twoFactorEnabled: false, emailVerified: true, createdAt: 'then' });
 };
 
 const operatorOnly = (req: Request, res: Response, next: NextFunction) =>
   (allowed((req as unknown as { principal: Principal }).principal, 'manage-accounts', { kind: 'install' }) ? next() : res.status(403).json({ error: 'Admin only' }));
 
-const principalFor = (user: { id: string; isAdmin?: boolean | undefined }) => principalOf(user, { role: 'combined' });
+const principalFor = (user: { id: string; roles?: ('operator')[] | undefined }) => principalOf(user, { role: 'combined' });
 
 const mount = async (prefix: '/api/account' | '/api/admin', hub?: HubPeople) => {
   harness = await mountRouter({

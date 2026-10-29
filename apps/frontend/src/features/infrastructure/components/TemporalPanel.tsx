@@ -4,7 +4,7 @@ import {
   type WorkflowScope, type WorkflowSummary,
 } from '../api/temporal';
 import { errorMessage } from '../../../api/client';
-import { useShellStore } from '../../platform';
+import { useCan, useShellStore } from '../../platform';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Activity, CheckCircle, XCircle, Timer, Loader2, ChevronDown, ChevronUp, Server, Hash, Play, Ban } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
@@ -138,7 +138,7 @@ export default function TemporalPanel() {
   });
 
   const workflows: WorkflowSummary[] = workflowsData?.workflows ?? [];
-  const canSeeAll = workflowsData?.canSeeAll === true;
+  const canSeeAll = useCan()('see-all-work');
   const showing: WorkflowScope = scope ?? (workflowsData?.all ? 'all' : 'mine');
 
   const summaryCards = [

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { errorMessage } from '../../../api/client'
-import { useShellStore } from '../../platform'
+import { useCan, useShellStore } from '../../platform'
 import { confirmMatches, dangerButton, dangerPanel, emailField, quietButton, refusalBlockers, useAccountRemovalPlace, useRemovalPreview, useRemoveMyAccount } from '../shared'
 import { safeHref } from '../../../shared/lib/safe-href'
 
@@ -19,8 +19,7 @@ function RemovedOnRoot() {
 }
 
 export function DeleteAccount() {
-  const holdsAccounts = useShellStore((s) => s.user?.holdsAccounts !== false)
-  return holdsAccounts ? <DeleteHere /> : <RemovedOnRoot />
+  return useCan()('manage-own-account') ? <DeleteHere /> : <RemovedOnRoot />
 }
 
 function DeleteHere() {

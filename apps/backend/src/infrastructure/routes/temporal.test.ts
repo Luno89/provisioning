@@ -59,7 +59,7 @@ describe('the Temporal page shows each person their own workflows', () => {
     const listed = await axios.get(h.url('/api/temporal/workflows'), { params: { scope: 'all' } });
     await axios.get(h.url('/api/temporal/workflows/count'), { params: { scope: 'all' } });
 
-    expect(listed.data).toMatchObject({ all: false, canSeeAll: false });
+    expect(listed.data).toMatchObject({ all: false});
     expect(asked.list).toEqual(['KoalaOwner = "test-user"']);
     expect(asked.counts).toContain('(KoalaOwner = "test-user") AND (ExecutionStatus="Running")');
     expect(asked.counts).toContain('KoalaOwner = "test-user"');
@@ -67,9 +67,9 @@ describe('the Temporal page shows each person their own workflows', () => {
   });
 
   it('gives an admin the whole namespace only when they switch to it', async () => {
-    const { asked, mounted } = harness({ user: { ...TEST_USER, isAdmin: true } });
+    const { asked, mounted } = harness({ user: { ...TEST_USER, roles: ['operator' as const] } });
     const h = await mounted;
-    expect((await axios.get(h.url('/api/temporal/workflows'))).data).toMatchObject({ all: false, canSeeAll: true });
+    expect((await axios.get(h.url('/api/temporal/workflows'))).data).toMatchObject({ all: false});
     expect((await axios.get(h.url('/api/temporal/workflows'), { params: { scope: 'all' } })).data).toMatchObject({ all: true });
     expect(asked.list).toEqual(['KoalaOwner = "test-user"', undefined]);
     await h.close();
@@ -78,7 +78,7 @@ describe('the Temporal page shows each person their own workflows', () => {
   it('shows the owner of an instance everything on it', async () => {
     const { asked, mounted } = harness({ instanceOwner: TEST_USER.id });
     const h = await mounted;
-    expect((await axios.get(h.url('/api/temporal/workflows'))).data).toMatchObject({ all: true, canSeeAll: true });
+    expect((await axios.get(h.url('/api/temporal/workflows'))).data).toMatchObject({ all: true});
     expect(asked.list).toEqual([undefined]);
     await h.close();
   });
@@ -106,7 +106,7 @@ describe('cancelling a workflow from the Temporal page', () => {
   });
 
   it('lets an admin cancel anyone\'s, platform work included', async () => {
-    const { asked, mounted } = harness({ user: { ...TEST_USER, isAdmin: true } });
+    const { asked, mounted } = harness({ user: { ...TEST_USER, roles: ['operator' as const] } });
     const h = await mounted;
     expect((await axios.post(h.url('/api/temporal/workflows/bench-idle-space-1/cancel'), {}, quiet)).status).toBe(202);
     expect(asked.cancelled).toEqual(['bench-idle-space-1']);

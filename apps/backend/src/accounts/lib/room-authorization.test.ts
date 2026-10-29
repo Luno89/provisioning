@@ -16,13 +16,13 @@ describe('cluster room visibility', () => {
     const system = clusterResource({ id: 'provisioning-lunorica', isSystem: true });
     expect(allowed(alice, 'see', system)).toBe(true);
     expect(allowed(alice, 'see-everything', system)).toBe(false);
-    expect(allowed(principalOf({ id: 'user-admin', isAdmin: true }, { role: 'combined' }), 'see-everything', system)).toBe(true);
+    expect(allowed(principalOf({ id: 'user-admin', roles: ['operator' as const] }, { role: 'combined' }), 'see-everything', system)).toBe(true);
   });
 });
 
 describe('project ownership', () => {
-  const alice = principalOf({ id: 'user-alice', isAdmin: false }, { role: 'combined' });
-  const admin = principalOf({ id: 'user-admin', isAdmin: true }, { role: 'combined' });
+  const alice = principalOf({ id: 'user-alice' }, { role: 'combined' });
+  const admin = principalOf({ id: 'user-admin', roles: ['operator' as const] }, { role: 'combined' });
   const project = (ownerId?: string) => ({ kind: 'project' as const, ownerId });
 
   it('lets an owner in', () => {

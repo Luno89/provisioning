@@ -153,7 +153,7 @@ describe('an app\'s health', () => {
     expect(view.series).toEqual([{ chart: 'up', points: [[1, 1], [2, 1]] }]);
     expect(view.markers).toEqual([{ at: '2026-10-17T11:00:00Z', label: 'deployed abcdef12' }]);
     expect(view.lines[0]).toBe('Books is healthy.');
-    expect(view.history).toMatchObject({ days: 10, kept: 10, applied: false, canChange: true });
+    expect(view.history).toMatchObject({ days: 10, kept: 10, applied: false, can: ['change'] });
   });
 
   it('is refused for someone else\'s app', async () => {
@@ -341,7 +341,7 @@ describe('a cluster on Koala\'s servers', () => {
 
   it('keeps the history Koala\'s servers keep, which the person cannot change', async () => {
     const view = await monitoring.clusterHealth(ME, system.id, '1h');
-    expect(view.cluster.history).toEqual({ days: 10, kept: 10, applied: true, canChange: false, byKoala: true });
+    expect(view.cluster.history).toEqual({ days: 10, kept: 10, applied: true, can: [], byKoala: true });
     await expect(monitoring.setHistory(ME, system.id, 20)).rejects.toThrow('Koala\'s servers keep this history');
     expect(await monitoring.applyHistory(system)).toBe(false);
   });

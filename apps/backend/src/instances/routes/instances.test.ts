@@ -73,7 +73,7 @@ describe('trying Koala on its own servers', () => {
     const call = (method: 'get' | 'put', path: string, data?: unknown) => axios.request({ method, url: harness!.url(path), data, validateStatus: () => true });
     expect((await call('get', '/api/instances/pool/admin')).status).toBe(403);
     expect((await call('put', '/api/instances/pool/admin/trial-days', { days: 30 })).status).toBe(403);
-    harness.setUser({ ...TEST_USER, isAdmin: true } as typeof TEST_USER);
+    harness.setUser({ ...TEST_USER, roles: ['operator' as const] } as typeof TEST_USER);
     expect((await call('put', '/api/instances/pool/admin/trial-days', { days: 30 })).data).toMatchObject({ trialDays: 30 });
     expect((await call('get', '/api/instances/pool/admin')).data).toMatchObject({ slots: 1, trialDays: 30, defaultTrialDays: 14, instances: [] });
   });

@@ -17,7 +17,6 @@ export type WorkflowScope = 'mine' | 'all'
 export interface WorkflowList {
   workflows: WorkflowSummary[]
   all: boolean
-  canSeeAll: boolean
 }
 
 export interface WorkflowCounts {
@@ -47,7 +46,7 @@ export const getTemporalStatus = (): Promise<TemporalStatus> =>
 
 export const listWorkflows = (pageSize = 50, scope?: WorkflowScope): Promise<WorkflowList> =>
   api.get<Partial<WorkflowList>>('/temporal/workflows', { params: { pageSize, ...(scope ? { scope } : {}) } })
-    .then((r) => ({ workflows: r.data.workflows ?? [], all: r.data.all === true, canSeeAll: r.data.canSeeAll === true }))
+    .then((r) => ({ workflows: r.data.workflows ?? [], all: r.data.all === true }))
 
 export const getWorkflowCount = (scope?: WorkflowScope): Promise<WorkflowCounts> =>
   api.get<WorkflowCounts>('/temporal/workflows/count', { params: scope ? { scope } : {} }).then((r) => r.data)

@@ -10,6 +10,7 @@ export const FIRST_ADMIN_INVITE = 'first-admin';
 
 export interface AccountsStore extends AreaStore {
   getUsers(): Promise<UserMetadata[]>;
+  grantOperatorToAdmins(): Promise<number>;
   accountIds(ownerId: string): Promise<AccountIds>;
   removeAccountRecords(ownerId: string, related: AccountRelated): Promise<Record<string, number>>;
   accountLeftovers(ownerId: string): Promise<Record<string, number>>;
@@ -206,6 +207,12 @@ export class MongoAccountsStore implements AccountsStore {
     for (const name of ACCOUNT_DATA.byId) await count(name, { _id: ownerId });
     await count(ACCOUNT_DATA.last, { _id: ownerId });
     return removed;
+  }
+
+  async grantOperatorToAdmins(): Promise<number> {
+    const moved = await this.users.updateMany({ isAdmin: true }, { $addToSet: { roles: 'operator' }, $unset: { isAdmin: '' } });
+    await this.users.updateMany({ isAdmin: { $exists: true } }, { $unset: { isAdmin: '' } });
+    return moved.modifiedCount;
   }
 
   async getUsers(): Promise<UserMetadata[]> {

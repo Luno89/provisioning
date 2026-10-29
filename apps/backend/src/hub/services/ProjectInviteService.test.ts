@@ -4,10 +4,10 @@ import type { InviteMetadata } from '../../platform/lib/types.js';
 import { inviteCodeHash } from '../../platform/lib/invite-codes.js';
 import { principalOf } from '../../platform/lib/permissions.js';
 
-function setUp(mail: 'works' | 'off' | 'fails', over: { limits?: { accounts?: number; perHour?: number }; people?: Record<string, { isAdmin?: boolean; inviteAccounts?: number }>; accounts?: string[]; now?: () => string } = {}) {
+function setUp(mail: 'works' | 'off' | 'fails', over: { limits?: { accounts?: number; perHour?: number }; people?: Record<string, { roles?: ('operator')[]; inviteAccounts?: number }>; accounts?: string[]; now?: () => string } = {}) {
   const invites: InviteMetadata[] = [];
   const toAddress = vi.fn(async () => { if (mail === 'fails') throw new Error('the mail server refused it'); });
-  const people = { ann: {}, ...(over.people ?? {}) } as Record<string, { isAdmin?: boolean; inviteAccounts?: number }>;
+  const people = { ann: {}, ...(over.people ?? {}) } as Record<string, { roles?: ('operator')[]; inviteAccounts?: number }>;
   const service = new ProjectInviteService({
     invites: { getInviteByCode: async (code) => invites.find((invite) => invite.codeHash === inviteCodeHash(code)), saveInvite: async (invite) => { invites.push(invite); }, getInvites: async () => invites },
     people: { getUserById: async (id) => (people[id] ? { id, ...people[id] } : undefined), getUserByEmail: async (email) => ((over.accounts ?? []).includes(email) ? { email } : undefined) },
@@ -62,7 +62,7 @@ describe('inviting someone to a project, on root', () => {
     const own = setUp('off', { limits: { accounts: 0 }, people: { ann: { inviteAccounts: 1 } } });
     expect(await own.service.send(asked)).toMatchObject({ emailed: false });
     expect(await own.service.send({ ...asked, email: 'z@example.com' })).toMatchObject({ refused: expect.stringMatching(/as many as you may \(1\)/) });
-    const admin = setUp('off', { limits: { accounts: 0, perHour: 1 }, people: { ann: { isAdmin: true } } });
+    const admin = setUp('off', { limits: { accounts: 0, perHour: 1 }, people: { ann: { roles: ['operator' as const] } } });
     for (const email of ['a@example.com', 'b@example.com']) expect(await admin.service.send({ ...asked, email })).toMatchObject({ emailed: false });
   });
 

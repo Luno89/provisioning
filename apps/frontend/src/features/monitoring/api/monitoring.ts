@@ -45,7 +45,7 @@ export interface HistoryState {
   kept?: number
   applied: boolean
   problem?: string
-  canChange: boolean
+  can: 'change'[]
   byKoala?: boolean
 }
 

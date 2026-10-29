@@ -114,7 +114,7 @@ const ACCOUNT_FIELDS = ['id', 'email', 'passwordHash', 'githubId', 'googleId', '
 
 export function accountOf(user: UserMetadata): UserMetadata {
   const kept = Object.fromEntries(ACCOUNT_FIELDS.filter((field) => user[field] !== undefined).map((field) => [field, user[field]]));
-  return { ...kept, isAdmin: true } as UserMetadata;
+  return { ...kept, roles: ['operator'] } as UserMetadata;
 }
 
 export function envFileText(values: Readonly<Record<string, string>>): string {

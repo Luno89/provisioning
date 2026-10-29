@@ -3,12 +3,14 @@ import { ExternalLink, Loader2 } from 'lucide-react'
 import type { Range } from '../api/monitoring'
 import { clusterDashboardUrl } from '../../infrastructure'
 import { errorMessage } from '../../../api/client'
+import { useCan } from '../../platform'
 import { Chart } from './Chart'
 import { EpisodeList, FiringList, RangePicker, RuleList, Section, StateBadge } from './Parts'
 import { CHARTS, windowOf, bytes, healthHash, sectionHash, percent, rate, seconds, useAppHealth } from '../shared'
 
 export function AppHealth({ deploymentId, standalone = false, actions }: { deploymentId: string; standalone?: boolean; actions?: ReactNode }) {
   const [range, setRange] = useState<Range>('24h')
+  const can = useCan()
   const health = useAppHealth(deploymentId, range)
 
   if (health.isPending) return <div className="flex items-center gap-2 p-4 text-[12px] text-slate-400"><Loader2 size={14} className="animate-spin" /> Reading its monitoring…</div>
@@ -31,7 +33,7 @@ export function AppHealth({ deploymentId, standalone = false, actions }: { deplo
         <div className="flex flex-wrap items-center gap-2">
           {actions}
           <RangePicker range={range} onPick={setRange} />
-          {!history.byKoala && history.canChange && (
+          {!history.byKoala && can('change', history) && (
             <a href={clusterDashboardUrl(app.clusterId, 'grafana')} target="_blank" rel="noreferrer" className="flex items-center gap-1 rounded border border-[var(--bark-600)] px-2 py-0.5 text-[11px] text-slate-300 hover:bg-[var(--bark-700)]">
               Open in Grafana <ExternalLink size={11} />
             </a>

@@ -19,7 +19,7 @@ describe('/api/memories', () => {
   it('shows the last consolidation, which covers everyone\'s memories, only to the operator', async () => {
     const refused = await axios.get(harness.url('/api/memories/consolidation'), { validateStatus: () => true });
     expect([refused.status, refused.data]).toEqual([403, { error: 'Only the operator of this server can do that.' }]);
-    harness.setUser({ ...TEST_USER, isAdmin: true });
+    harness.setUser({ ...TEST_USER, roles: ['operator' as const] });
     expect((await axios.get(harness.url('/api/memories/consolidation'))).data).toEqual({ live: 3 });
   });
 

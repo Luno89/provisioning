@@ -104,12 +104,14 @@ export interface MonitoringDeps {
   newId?: () => string;
 }
 
+export type HistoryAction = 'change';
+
 export interface HistoryState {
   days: number;
   kept?: number | undefined;
   applied: boolean;
   problem?: string | undefined;
-  canChange: boolean;
+  can: HistoryAction[];
   byKoala?: boolean | undefined;
 }
 
@@ -273,16 +275,16 @@ export class MonitoringService {
     const pool = this.deps.pool?.(cluster);
     if (pool) {
       const kept = await pool.history().catch(() => undefined);
-      return { days: kept?.days ?? DEFAULT_HISTORY_DAYS, kept: kept?.kept, applied: true, canChange: false, byKoala: true };
+      return { days: kept?.days ?? DEFAULT_HISTORY_DAYS, kept: kept?.kept, applied: true, can: [], byKoala: true };
     }
-    const canChange = viewer ? this.ownsCluster(viewer, cluster) : false;
-    if (reached && reached.state !== 'ok') return { days, applied: false, canChange, ...(setting?.problem ? { problem: setting.problem } : {}) };
+    const can: HistoryAction[] = viewer && this.ownsCluster(viewer, cluster) ? ['change'] : [];
+    if (reached && reached.state !== 'ok') return { days, applied: false, can, ...(setting?.problem ? { problem: setting.problem } : {}) };
     const now = await this.prometheusResource(cluster).catch(() => undefined);
     return {
       days,
       kept: keptDays(now?.retention),
       applied: now ? historyApplied(now, days) : false,
-      canChange,
+      can,
       ...(setting?.problem ? { problem: setting.problem } : {}),
     };
   }

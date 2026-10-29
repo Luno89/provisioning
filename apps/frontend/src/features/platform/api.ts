@@ -1,10 +1,10 @@
 import { api, API_BASE } from '../../api/client'
+import type { SessionPermissions } from './lib/permissions'
 
 export interface SessionUser {
   id: string
   email: string
-  isAdmin?: boolean
-  holdsAccounts?: boolean
+  permissions?: SessionPermissions
   onHub?: boolean
   twoFactorEnabled?: boolean
   twoFactorPhone?: string

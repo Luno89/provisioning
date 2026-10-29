@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { api, errorMessage } from '../api/client';
-import { useShellStore, type AppUser } from '../features/platform';
+import { useCan, useShellStore, type AppUser } from '../features/platform';
 import { DeleteAccount } from '../features/accounts';
 import { People } from '../features/accounts';
 import { Invites } from '../features/accounts';
@@ -14,6 +14,7 @@ import { GoogleDriveCard } from '../features/infrastructure';
 export default function SettingsView() {
   const user = useShellStore((s) => s.user);
   const setUser = useShellStore((s) => s.setUser);
+  const can = useCan();
   const [error, setError] = useState<string | null>(null);
 
   const update2FASettings = async (
@@ -112,15 +113,15 @@ export default function SettingsView() {
       </div>
 
       <OtherSessions />
-      <InstanceAddresses />
-      <InstanceUpdates />
-      <InstanceMove />
+      {can('change-instance-settings') && <InstanceAddresses />}
+      {can('change-instance-settings') && <InstanceUpdates />}
+      {can('change-instance-settings') && <InstanceMove />}
       <Notifications />
       <DefaultFileServer />
       <GoogleDriveCard />
 
-      {user.isAdmin && user.holdsAccounts !== false && <People />}
-      {user.isAdmin && user.holdsAccounts !== false && <Invites />}
+      {can('manage-accounts') && <People />}
+      {can('manage-accounts') && <Invites />}
 
       <DeleteAccount />
     </div>

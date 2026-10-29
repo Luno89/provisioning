@@ -21,9 +21,9 @@ describe('the people an admin can remove', () => {
 
   it('lists everyone, with how a removal under way or stopped is going', async () => {
     vi.mocked(accountApi.listPeople).mockResolvedValue([
-      { id: 'ana', email: 'ana@example.com', isAdmin: true, createdAt: '2026-10-01T00:00:00.000Z' },
-      { id: 'bo', email: 'bo@example.com', isAdmin: false, createdAt: '2026-10-01T00:00:00.000Z', removal: { startedAt: 'now', requestedBy: 'ana', state: { state: 'running', done: ['workflows', 'apps'] } } },
-      { id: 'cy', email: 'cy@example.com', isAdmin: false, createdAt: '2026-10-01T00:00:00.000Z', removal: { startedAt: 'now', requestedBy: 'ana', state: { state: 'failed', reason: 'Gitea would not delete the user' } } },
+      { id: 'ana', email: 'ana@example.com', operator: true, createdAt: '2026-10-01T00:00:00.000Z' },
+      { id: 'bo', email: 'bo@example.com', operator: false, createdAt: '2026-10-01T00:00:00.000Z', removal: { startedAt: 'now', requestedBy: 'ana', state: { state: 'running', done: ['workflows', 'apps'] } } },
+      { id: 'cy', email: 'cy@example.com', operator: false, createdAt: '2026-10-01T00:00:00.000Z', removal: { startedAt: 'now', requestedBy: 'ana', state: { state: 'failed', reason: 'Gitea would not delete the user' } } },
     ])
     renderSection()
 
@@ -35,7 +35,7 @@ describe('the people an admin can remove', () => {
   })
 
   it('removes someone once their email is typed', async () => {
-    vi.mocked(accountApi.listPeople).mockResolvedValue([{ id: 'bo', email: 'bo@example.com', isAdmin: false, createdAt: '2026-10-01T00:00:00.000Z' }])
+    vi.mocked(accountApi.listPeople).mockResolvedValue([{ id: 'bo', email: 'bo@example.com', operator: false, createdAt: '2026-10-01T00:00:00.000Z' }])
     vi.mocked(accountApi.getPersonRemoval).mockResolvedValue({ email: 'bo@example.com', blockers: [] })
     vi.mocked(accountApi.removePerson).mockResolvedValue({ state: 'running', done: [] })
     renderSection()

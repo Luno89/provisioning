@@ -14,7 +14,7 @@ describe('/api/binding-types', () => {
     expect((await axios.delete(person.url('/api/binding-types/postgres'), ask)).status).toBe(403);
     await person.close();
 
-    const admin = await mountRouter({ prefix: '/api/binding-types', user: { ...TEST_USER, isAdmin: true } as typeof TEST_USER, router: async (db) => bindingTypesRouter({ db: db.infrastructure }) });
+    const admin = await mountRouter({ prefix: '/api/binding-types', user: { ...TEST_USER, roles: ['operator' as const] } as typeof TEST_USER, router: async (db) => bindingTypesRouter({ db: db.infrastructure }) });
     expect((await axios.put(admin.url('/api/binding-types/mydb'), postgres, ask)).status).toBe(200);
     expect((await axios.delete(admin.url('/api/binding-types/mydb'), ask)).status).toBeLessThan(300);
     await admin.close();

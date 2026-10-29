@@ -164,7 +164,7 @@ describe('conversation chat-owned picks', () => {
     });
     expect(emptyRes.status).toBe(400);
 
-    const foreign = { id: 'someone-else', email: 'other@example.com', isAdmin: false };
+    const foreign = { id: 'someone-else', email: 'other@example.com' };
     harness.setUser(foreign);
     const foreignRes = await fetch(harness.url(`/api/conversations/${created.id}`), {
       method: 'PATCH',

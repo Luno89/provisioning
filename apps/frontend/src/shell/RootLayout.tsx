@@ -18,7 +18,7 @@ import { PendingKeyModal } from '../features/infrastructure';
 import { NginxWizard } from '../features/infrastructure';
 import { errorMessage } from '../api/client';
 import { releaseKeys, type OdooRelease } from '../features/releases';
-import { useShellStore, startHistorySync } from '../features/platform';
+import { useCan, useShellStore, startHistorySync } from '../features/platform';
 import { reconnectSocket, useSocketEvent } from '../features/platform';
 import { getMe, logout, signInElsewhere } from '../features/platform';
 import { getMyInstance, identityKeys, INSTANCE_GO_URL } from '../features/instances';
@@ -51,6 +51,7 @@ export function RootLayout() {
   const navigate = useNavigate();
 
   const user = useShellStore((s) => s.user);
+  const can = useCan();
   const setUser = useShellStore((s) => s.setUser);
   const authLoading = useShellStore((s) => s.authLoading);
   const setAuthLoading = useShellStore((s) => s.setAuthLoading);
@@ -119,7 +120,7 @@ export function RootLayout() {
     const pending = user && !joinPage ? pendingJoin() : undefined;
     if (pending) void navigate({ to: '/join', search: pending });
   }, [user, joinPage, navigate]);
-  const adminPage = (location.pathname === '/pool' || location.pathname === '/admin') && Boolean(user?.isAdmin);
+  const adminPage = (location.pathname === '/pool' || location.pathname === '/admin') && can('manage-accounts');
   const removalPage = location.pathname === '/remove-account';
   useEffect(() => {
     if (placement.data && !placement.data.servesTenants && placement.data.instance && !adminPage && !removalPage && !joinPage) window.location.assign(INSTANCE_GO_URL);
@@ -306,7 +307,7 @@ export function RootLayout() {
   }
 
   if (placement.data && !placement.data.servesTenants) {
-    return <NoInstance hasInstance={Boolean(placement.data.instance)} isAdmin={user.isAdmin === true} onLogout={handleLogout} />;
+    return <NoInstance hasInstance={Boolean(placement.data.instance)} onLogout={handleLogout} />;
   }
 
   const isFullBleed = ['/chat', '/projects', '/studio/agents', '/studio/tools', '/studio/mcp-servers', '/studio/dependencies', '/studio/procedures', '/studio/tree-types'].some((prefix) => location.pathname.startsWith(prefix));

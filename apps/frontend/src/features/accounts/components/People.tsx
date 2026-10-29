@@ -52,7 +52,7 @@ export function People() {
           <div key={person.id} className="bg-slate-900/40 p-4 rounded-2xl border border-white/5">
             <div className="flex items-center justify-between gap-3">
               <div className="min-w-0">
-                <div className="text-sm font-bold text-white truncate">{person.email}{person.isAdmin && <span className="ml-2 text-[10px] uppercase text-blue-300">admin</span>}</div>
+                <div className="text-sm font-bold text-white truncate">{person.email}{person.operator && <span className="ml-2 text-[10px] uppercase text-blue-300">admin</span>}</div>
                 <div className="text-xs text-slate-400 mt-0.5">
                   {person.removal ? removalText(person.removal.state, person.removal.steps) : `Joined ${new Date(person.createdAt).toLocaleDateString()}`}
                 </div>

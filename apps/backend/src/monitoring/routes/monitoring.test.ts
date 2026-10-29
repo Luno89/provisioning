@@ -39,7 +39,7 @@ describe('/api/monitoring', () => {
   it('gives the overview', async () => {
     const { data } = await axios.get(harness.url('/api/monitoring'));
     expect(data.apps.map((app: { name: string }) => app.name)).toEqual(['Books']);
-    expect(data.clusters[0].history).toMatchObject({ days: 10, canChange: true });
+    expect(data.clusters[0].history).toMatchObject({ days: 10, can: ['change'] });
   });
 
   it('gives an app\'s health over the range asked, 24 hours otherwise', async () => {

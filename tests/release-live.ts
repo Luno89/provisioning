@@ -236,8 +236,8 @@ async function main(): Promise<void> {
   const rootCookie = (signedIn.headers['set-cookie'] ?? '').split(';')[0]!;
   assert.match(rootCookie, /^session=/, 'root set no session');
   const asOwner = (path: string, init: { method?: string; body?: unknown } = {}) => https(`app.${DOMAIN}`, path, { ...init, cookie: rootCookie });
-  const me = json<{ user?: { isAdmin?: boolean }; isAdmin?: boolean }>(asOwner('/api/auth/me'));
-  assert.ok(me.user?.isAdmin ?? me.isAdmin, 'the first account is not the admin');
+  const me = json<{ permissions?: { 'manage-accounts'?: boolean }; isAdmin?: boolean }>(asOwner('/api/auth/me'));
+  assert.ok(me.permissions?.['manage-accounts'] ?? me.isAdmin, 'the first account is not the admin');
 
   step(`an instance: a second VM on the lab network runs root's install command at ${PREVIOUS_REF}`);
   const joined = asOwner('/api/instances/join-tokens', { method: 'POST', body: { name: NAME } });

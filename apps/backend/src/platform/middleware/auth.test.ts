@@ -113,7 +113,7 @@ describe('requireAdmin', () => {
 
   it('refuses a signed-in non-admin with 403, not 401', async () => {
     const c = fakeCall();
-    (c.req as unknown as { principal: unknown }).principal = auth.principalFor({ id: 'u1', isAdmin: false });
+    (c.req as unknown as { principal: unknown }).principal = auth.principalFor({ id: 'u1' });
     auth.requireOperator('administer')(c.req, c.res, c.next);
     expect(c.result().statusCode).toBe(403);
   });
@@ -126,7 +126,7 @@ describe('requireAdmin', () => {
 
   it('admits an admin', async () => {
     const c = fakeCall();
-    (c.req as unknown as { principal: unknown }).principal = auth.principalFor({ id: 'u1', isAdmin: true });
+    (c.req as unknown as { principal: unknown }).principal = auth.principalFor({ id: 'u1', roles: ['operator' as const] });
     auth.requireOperator('administer')(c.req, c.res, c.next);
     expect(c.result().nexted).toBe(true);
   });

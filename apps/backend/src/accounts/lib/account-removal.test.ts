@@ -39,7 +39,7 @@ describe('who may remove an account', () => {
 
   it('lets only an admin remove someone else\'s, and says when there is no such account', () => {
     expect(refuseRemoval({ ownerId: 'ana', requestedBy: 'bo', confirm: 'ana@example.com' }, { ...world(), requester: asPerson('bo') })).toMatchObject({ status: 403 });
-    expect(refuseRemoval({ ownerId: 'bo', requestedBy: 'ana', confirm: 'bo@example.com' }, { ...world(), requester: principalOf({ id: 'ana', isAdmin: true }, { role: 'combined' }) })).toBeUndefined();
+    expect(refuseRemoval({ ownerId: 'bo', requestedBy: 'ana', confirm: 'bo@example.com' }, { ...world(), requester: principalOf({ id: 'ana', roles: ['operator' as const] }, { role: 'combined' }) })).toBeUndefined();
     expect(refuseRemoval({ ownerId: 'nobody', requestedBy: 'ana', confirm: 'x' }, { ...world(), requester: asPerson('ana') })).toMatchObject({ status: 404 });
   });
 

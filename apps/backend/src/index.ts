@@ -18,7 +18,7 @@ import {
   CSP_REPORT_LIMIT, CSP_REPORT_PATH, cspHeader, cspModeFrom, violationLine, crossSiteRefusal, foreignOrigin, ourOrigins, MetricsService, JSON_LIMITS, jsonLimitFor, RATE_LIMITS, ruleFor,
   getTemporalClient, resolveOwnersWith, PayloadStorageService, createAuth, inFlightLimit, keepTrying, mongoTarget, asyncRoute,
   TEMPORAL_JWKS_PATH, temporalCa, temporalKeysRouter, temporalNamespaceFrom,
-  authorize, claimSettingsFrom, type Principal, createDatabase, sharedPayloadBlobs, type Database, migrateLegacyOwnership, ownUnownedProjects, decryptValue, loadKeys,
+  authorize, claimSettingsFrom, type Principal, createDatabase, sharedPayloadBlobs, type Database, migrateLegacyOwnership, operatorsFromAdmins, ownUnownedProjects, decryptValue, loadKeys,
   AccessRevocations, type AccessRevoked, roleFromEnv, servesTenants, holdsAccounts, MailService, emailWayFrom, telemetrySettings, e2eProblem, firstAdminSetup, drainThenStop, podPlaceFrom, runOnce,
 } from './platform/index.js';
 import { startTelemetry } from '@koala/engine-core/telemetry-sdk';
@@ -116,6 +116,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   resolveOwnersWith(async (owner) => (await db.accounts.getUserById(owner))?.space?.person ?? owner);
   const role = roleFromEnv(process.env);
   const claimSettings = claimSettingsFrom(role);
+  await operatorsFromAdmins(db, new Date().toISOString());
   await migrateLegacyOwnership(db, claimSettings);
   await runOnce(db.platform, 'projects-owned', new Date().toISOString(), () => ownUnownedProjects(db, claimSettings));
   await seedAll(db);

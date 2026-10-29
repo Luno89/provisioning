@@ -3,7 +3,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import dotenv from 'dotenv';
-import { createDatabase, mongoTarget, roleFromEnv } from '../platform/index.js';
+import { createDatabase, mongoTarget, operatorsFromAdmins, roleFromEnv } from '../platform/index.js';
 import {
   DEV_SPLIT, devSplitOwner, devSplitPlan, envFileText, readEnvFile, withDatabase, publicKeyPem, hashCredential,
   instanceIdFor,
@@ -17,6 +17,7 @@ async function main(): Promise<void> {
   const name = process.env.DEV_INSTANCE_NAME?.trim() || DEV_SPLIT.defaultName;
   const instanceDb = createDatabase();
   await instanceDb.init();
+  await operatorsFromAdmins(instanceDb, new Date().toISOString());
   const owner = devSplitOwner(await instanceDb.accounts.getUsers(), process.env.DEV_INSTANCE_OWNER?.trim() || undefined);
   await instanceDb.close?.();
 

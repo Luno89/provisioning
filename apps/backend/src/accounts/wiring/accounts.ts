@@ -23,7 +23,7 @@ export interface AccountsWiringDeps {
 
 export function wireAccounts(deps: AccountsWiringDeps): { peopleRemoval: AccountRemovalService | undefined } {
   const { app, role, env, db } = deps;
-  const principalFor = (user: Pick<UserMetadata, 'id' | 'isAdmin'>) => principalOf(user, claimSettingsFrom(role));
+  const principalFor = (user: Pick<UserMetadata, 'id' | 'roles'>) => principalOf(user, claimSettingsFrom(role));
   const accountRemoval = servesTenants(role) ? new AccountRemovalService({
     store: db,
     workflows: temporalRemovalWorkflows(() => deps.temporalBridge.client, env.TEMPORAL_ENGINE_TASK_QUEUE || DEFAULT_ENGINE_TASK_QUEUE),

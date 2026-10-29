@@ -160,4 +160,13 @@ export default defineConfig([
     files: LEGACY_TESTS,
     rules: { '@typescript-eslint/no-explicit-any': 'off' },
   },
+  {
+    files: ['src/**/*.{ts,tsx}'],
+    ignores: ['src/**/*.test.{ts,tsx}'],
+    rules: {
+      'no-restricted-syntax': ['error',
+        { selector: "MemberExpression[property.name=/^(isAdmin|holdsAccounts)$/]", message: 'what the session may do comes from useCan (features/platform), which the server works out with authorize; there is no isAdmin or holdsAccounts' },
+      ],
+    },
+  },
 ])
