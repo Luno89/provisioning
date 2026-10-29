@@ -310,8 +310,9 @@ cluster the stored records leave out) or reached.
 **Who may do what is decided in one place** (`~/.claude/plans/claims-authorization.md`, step 1 built 2026-10-28). `platform/lib/permissions.ts`
 holds a **permissions table** (resource kind × action → who may, and whether a refusal hides the record as a 404 or says why as a
 403) and `authorize(principal, action, resource)`, which every route, socket handler, service and tool call asks; `allowed` is its
-boolean. A **principal** is a person with **claims**, each a role on a scope: `person`; `operator` of this install (from `isAdmin` on root
-and combined; on an instance from `INSTANCE_OWNER_ID`, never from a stamped flag, which the handoff no longer writes); `instance-owner`;
+boolean. A **principal** is a person with **claims**, each a role on a scope: `person`; `operator` of this install (from the account's stored
+`roles: ['operator']` on root and combined, read only by `claimsOf`; on an instance from `INSTANCE_OWNER_ID`, never from a stored role;
+the first account and the setup code write it, and the startup migration `operators-from-admins` moved every old `isAdmin` onto it); `instance-owner`;
 and `shared` with a role (`owner`, `collaborator`, `client`) on one shared project, which the hub puts on from its membership
 (`withSharedRole`). `requireAuth` puts the principal on each request (`principalFrom(req)`); `requireOperator(action)` and
 `requireAllowed(action, resource)` are the middlewares; a service that has only an owner id uses `asPerson(id)`. A resource carries what
@@ -324,8 +325,12 @@ cluster, deployment, project and record is its owner's alone, operator included,
 migration `projects-owned` and `migrateLegacyOwnership` give such records to the first operator once); a workflow is seen and cancelled by
 its owner or the operator; a shared project's thirteen actions are each role's exactly, `ask-koala` an owner's or a client's. **Adding a
 permission** is a row in `PERMISSIONS` and a call to `authorize` where the action happens; `permissions.test.ts` checks every row allowed
-and refused. The backend lint refuses `.isAdmin` reads and `can(` anywhere but `permissions.ts` and the stores, and
-`permissions-reach.test.ts` fails on a route that decides on its own. Asking before a tool call, auto mode and "Allow for this run" are a
+and refused. The backend lint refuses `.roles` and `.isAdmin` reads and `can(` anywhere but `permissions.ts` and the stores, and
+`permissions-reach.test.ts` fails on a route that decides on its own. **The browser asks the same answers** (step 6, 2026-10-29): sign-in and
+`/api/auth/me` send the `claims` and `permissions` (`sessionPermissions`: `administer`, `manage-accounts`, `see-all-work`,
+`open-platform-namespaces`, `change-instance-settings`, `manage-own-account`, each from `authorize`), a record that may be acted on
+carries its own `can` list (a shared project's, cluster contents', a cluster's history), and every gate in the frontend is
+`useCan()(action)` or `useCan()(action, record)` from `features/platform`; the frontend lint refuses `.isAdmin` and `.holdsAccounts`. Asking before a tool call, auto mode and "Allow for this run" are a
 separate layer: they decide whether a person is asked about an allowed call, never whether it is allowed. **Tools go through the same function** (step 2, 2026-10-28): `engine/lib/tool-access.ts` declares what every shipped tool reaches
 (`TOOL_ACCESS`: nothing, the install, the person's own records, a deployment, a cluster, or a project at `see`, `propose`, `change` or
 `see-secrets`, with the project found from the call's `projectId`/`project`/`treeId`/`branchId`/`leafId`/`leafIds`/`taskId` or the run's own
@@ -723,7 +728,7 @@ seeded from `POOL_TRIAL_DAYS`, each person's trial end, which moving ahead warns
 Delete, typing the name, `PoolRemoveWorkflow`). Removing an account on root runs `RootAccountRemovalWorkflow` (host worker):
 a pool instance is deleted, its mesh user and nodes removed, its records removed; what is on a person's own machine stays
 theirs. An instance mounts no `/api/admin`, and its Settings shows People and Invites only where accounts are held
-(`holdsAccounts` on `/api/auth/me`).
+(`manage-accounts` on `/api/auth/me`).
 **Moving to their own machine** (plan `~/.claude/plans/pool-instances.md`, design A). The person starts it on root's page
 (also for a stopped trial, which is started again only for the move) or in the instance's Settings
 (`/api/instance-trial/move` → root's `/api/instances/move/self`). Root gives the install command with a single-use move
