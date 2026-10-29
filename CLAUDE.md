@@ -80,6 +80,7 @@ npm run test:changes-live         # a prompt change compared on the bench and ac
 npm run test:account-removal-live # a fresh account with a project, its repository and a conversation removes itself through DELETE /api/account → its session and sign-in are refused at once → an admin sees it go → nothing of it is left in any collection, Gitea or Kubernetes, ~1 min
 npm run test:odoo-release-live     # a throwaway project on the system cluster: its push builds and releases into slot a, a new module is prepared in slot b and previewed, cut over and rolled back, then deleting the project takes the live app, its namespace and its release workflow with it, ~26 min
 npm run test:odoo-customizations-live # the same run, plus what was made in the live app brought into git by a story on your model and kept by the next release; in the release gate, not ship, ~30 min
+npm run test:restore-live          # two lab roots on VMs: the first backs up to a MinIO standing in for object storage, the second is bootstrapped fresh and restore.sh makes it the first again (owner, session, instance, Headscale node, mesh address, Temporal history), ~15 min
 npm run test:tree-to-release-live  # new trees made through the API: an Odoo tree gets its own project and its starter goes live in slot a, an API tree gets one and is built and deployed, a paper tree gets none; ~10 min, removes everything
 npm run test:checks-live          # a Level 2 run on the check runner (CHECKS_LIVE_SCENARIOS picks which; default seven model scenarios on your model): each in a fresh hidden space, driven through the API → every run opens for you afterwards → no space is left behind
 npm run test:instance-live        # k3d cluster + root container + charts/instance → sign in through root → sandboxed run → the instance removes no account and points at root, where a throwaway account removes itself and its instance is let go of, ~10 min, cleans up
@@ -1138,6 +1139,11 @@ one retry attempt, so the script refuses while work is in flight unless given `-
 reach the host only on the Kubernetes API, the kubelet and node metrics (6443, 10250, 9100; `bootstrap.sh`, and `harden-host.sh`
 narrows an older root's blanket rule on update), so no pod reaches the backend's :3001 around Caddy, where it could claim any
 address in `X-Forwarded-For`. The host tunnel on :8000 (the dev box's nginx router) never starts in production.
+
+**Backups** (`scripts/root-node/backup.sh`, nightly through `koala-backup.timer` once `BACKUP_REPOSITORY` is set): restic, encrypted, of
+Mongo, Temporal's Postgres, Headscale, Caddy's data, the DKIM key, both env files, `apps/backend/data/` and tailscaled's state.
+`restore.sh <snapshot|latest>` goes onto a freshly bootstrapped root and makes it the old one, mesh identity included; then publish the
+instance image again. Pool trials' own volumes are not in it.
 
 **Snapshots are not rollback.** `update.sh` takes a Hetzner snapshot when a token is available, but
 restoring one rolls the whole disk back — including Mongo, Temporal and Headscale, so every cluster
