@@ -7,16 +7,11 @@ import { promisify } from 'node:util';
 import { releaseFromTag, type InstanceRelease } from '../lib/instance-updates.js';
 import type { InstancesStore } from '../store.js';
 import type { ReleaseSource } from './InstanceService.js';
+import { inventoryFileFor } from './release-files.js';
 
 const run = promisify(execFile);
 const IMAGE_TAG = /^[A-Za-z0-9._-]{1,128}$/;
 const DIGEST = /^sha256:[0-9a-f]{64}$/;
-
-export function inventoryFileFor(chartsDir: string, imageTag: string): string | undefined {
-  if (!IMAGE_TAG.test(imageTag)) return undefined;
-  const file = join(chartsDir, `${imageTag}.sbom.json`);
-  return existsSync(file) ? file : undefined;
-}
 
 export interface ReleaseCatalogueSettings {
   repoRoot: string;
