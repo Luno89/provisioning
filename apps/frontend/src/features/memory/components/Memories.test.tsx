@@ -42,6 +42,25 @@ beforeEach(() => {
   vi.mocked(listMemories).mockResolvedValue([memory('m1', 'Quote arguments', 'qwen/q'), memory('m2', 'Old habit', 'old/m'), memory('m3', 'Repo layout')])
 })
 
+describe('memories by where they were learned', () => {
+  it('shows where each was learned and filters by outside text or a host', async () => {
+    vi.mocked(listMemories).mockResolvedValue([
+      { ...memory('w1', 'Diagnose fast'), provenance: { experimentId: 'r1', sources: { classes: ['web'], hosts: ['attacker.example'], runs: ['r1'] } } },
+      { ...memory('r1', 'Repo layout'), provenance: { experimentId: 'r2', sources: { classes: ['repo'], hosts: [], runs: ['r2'] } } },
+      memory('t1', 'Told by the person'),
+    ])
+    show()
+    expect(await screen.findByText('learned while reading the web (attacker.example)')).toBeInTheDocument()
+    await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Where it was learned' }), 'Learned from attacker.example')
+    expect(screen.getByText('Diagnose fast')).toBeInTheDocument()
+    expect(screen.queryByText('Repo layout')).not.toBeInTheDocument()
+    expect(screen.queryByText('Told by the person')).not.toBeInTheDocument()
+    await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Where it was learned' }), 'Learned from outside text')
+    expect(screen.getByText('Diagnose fast')).toBeInTheDocument()
+    expect(screen.queryByText('Repo layout')).not.toBeInTheDocument()
+  })
+})
+
 describe('memories by model', () => {
   it('marks a memory kept for one model and shows what a model recalls', async () => {
     show()

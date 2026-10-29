@@ -12,7 +12,7 @@ import { canvasContextFor } from '../../../engine'
 import { procedureKeys } from '../../../engine'
 import { engineKeys } from '../../../engine'
 import { RunControls, StopRun } from '../../../engine'
-import { RunEnded, endingOf } from '../../../engine'
+import { RunEnded, RunSignals, endingOf } from '../../../engine'
 import { keyedBy, useWorkSource } from '../../lib/work-source'
 
 const OUTCOME_TONE: Record<string, string> = { ok: 'text-emerald-300 bg-emerald-500/10' }
@@ -29,6 +29,7 @@ export function StoryRun({ run, turnId, events }: { run: RunInstance; turnId: st
   return (
     <section className="space-y-2" data-testid="story-run">
       <RunEnded ending={endingOf(endings.data, run.runId)} />
+      <RunSignals runId={run.runId} />
       <div className="flex flex-wrap items-center gap-2 text-[11px]">
         <span className="font-mono rounded bg-[var(--bark-800)] px-2 py-0.5 text-slate-300">{run.agentId ?? 'run'} · {run.loopId ?? 'procedure'}</span>
         {run.currentNode && !run.finished && (

@@ -11,6 +11,7 @@ import {
 import { listModels, providerKeys, useDefaultModel } from '../../models';
 import { useCan } from '../../platform';
 import { ANY_MODEL, EVERY_MODEL, matchesModel, modelChoices, modelLine } from '../lib/memory-models';
+import { ANY_SOURCE, fromOutside, matchesSource, sourceChoices, sourcesLine, type MemorySources } from '../lib/memory-sources';
 
 const card = 'bg-[var(--bark-800)] border border-[var(--bark-600)] rounded-xl';
 
@@ -30,6 +31,7 @@ interface MemoryItem {
     experimentId?: string;
     taskId?: string;
     toolId?: string;
+    sources?: MemorySources;
   };
   createdAt: string;
   updatedAt: string;
@@ -66,6 +68,7 @@ export default function Memories({ sharedWith }: { sharedWith?: string[] | undef
   const [text, setText] = useState('');
   const [model, setModel] = useState('');
   const [modelFilter, setModelFilter] = useState<string>(ANY_MODEL);
+  const [sourceFilter, setSourceFilter] = useState<string>(ANY_SOURCE);
 
   const { data: memories, isLoading } = useQuery<MemoryItem[]>({
     queryKey: memoryKeys.list(),
@@ -132,7 +135,8 @@ export default function Memories({ sharedWith }: { sharedWith?: string[] | undef
   const pendingList = (memories ?? []).filter((m) => m.status === 'pending_review' && !m.invalidAt);
   const retiredList = (memories ?? []).filter((m) => m.invalidAt);
 
-  const activeList = (memories ?? []).filter((m) => matchesModel(m, modelFilter)).filter((m) => {
+  const sources = sourceChoices(memories ?? []);
+  const activeList = (memories ?? []).filter((m) => matchesModel(m, modelFilter)).filter((m) => matchesSource(m, sourceFilter)).filter((m) => {
     if (filter === 'retired') return Boolean(m.invalidAt);
     if (m.invalidAt) return false;
     if (filter === 'pending') return m.status === 'pending_review';
@@ -186,6 +190,17 @@ export default function Memories({ sharedWith }: { sharedWith?: string[] | undef
             {tab.label}
           </button>
         ))}
+        {sources.length > 0 && (
+          <select
+            aria-label="Where it was learned"
+            value={sourceFilter}
+            onChange={(e) => setSourceFilter(e.target.value)}
+            className={`${models.length > 0 ? '' : 'ml-auto '}bg-[var(--bark-900)] border border-[var(--bark-600)] rounded px-2 py-1 text-[11px] text-slate-300`}
+          >
+            <option value={ANY_SOURCE}>Learned anywhere</option>
+            {sources.map((choice) => <option key={choice.value} value={choice.value}>{choice.label}</option>)}
+          </select>
+        )}
         {models.length > 0 && (
           <select
             aria-label="Which model"
@@ -435,6 +450,11 @@ export default function Memories({ sharedWith }: { sharedWith?: string[] | undef
                       {m.model && (
                         <span className="text-[10px] px-2 py-0.5 rounded border bg-sky-950/60 text-sky-300 border-sky-800">
                           {modelLine(m.model)}
+                        </span>
+                      )}
+                      {sourcesLine(m) && (
+                        <span data-testid="memory-sources" className={`text-[10px] px-2 py-0.5 rounded border ${fromOutside(m) ? 'bg-amber-950/60 text-amber-300 border-amber-800' : 'bg-[var(--bark-900)] text-slate-400 border-[var(--bark-600)]'}`}>
+                          {sourcesLine(m)}
                         </span>
                       )}
                       {m.recommendedScope && m.recommendedScope !== m.scope && (

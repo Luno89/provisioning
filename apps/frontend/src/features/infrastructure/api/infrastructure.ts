@@ -1,3 +1,4 @@
+import type { SignalView } from '../../engine'
 import { api } from '../../../api/client'
 import type { HealthState, Overview } from '../../monitoring'
 import type { RunningItem, RunningKind } from './running'
@@ -137,6 +138,7 @@ export interface InfrastructureOverview {
   runningProblem?: string
   failures: WorkFailure[]
   root?: RootReach
+  signals: SignalView[]
 }
 
 /**

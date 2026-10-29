@@ -21,7 +21,7 @@ const koala: KoalaView = {
 const overview = (over: Partial<KoalaView>): InfrastructureOverview => ({
   monitoring: { attention: [], apps: [], clusters: [], firing: [], checkedAt: koala.checkedAt },
   koala: { ...koala, ...over },
-  workloads: [], waiting: [], running: 0, failures: [],
+  workloads: [], waiting: [], running: 0, failures: [], signals: [],
 })
 
 const show = () => render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><KoalaSection /></QueryClientProvider>)

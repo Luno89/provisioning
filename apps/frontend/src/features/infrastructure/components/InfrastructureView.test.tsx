@@ -5,6 +5,7 @@ import * as monitoringApi from '../../monitoring/api/monitoring'
 import * as infrastructureApi from '../api/infrastructure'
 import * as runningApi from '../api/running'
 import * as clustersApi from '../api/clusters'
+import * as poisoningApi from '../../engine/api/poisoning'
 import type { AppHealthView, ClusterRow, Overview } from '../../monitoring/api/monitoring'
 import type { ClusterContents, InfrastructureOverview } from '../api/infrastructure'
 import { ShellContextInstance, type ShellContext } from '../hooks/shell-context'
@@ -31,6 +32,11 @@ vi.mock('../api/infrastructure', async (orig) => ({
 vi.mock('../api/running', async (orig) => ({
   ...(await orig<typeof runningApi>()),
   getRunning: vi.fn(async () => ({ items: [{ workflowId: 'run-1', kind: 'chat', title: 'Koala answering', since: new Date().toISOString(), opens: { kind: 'chat', id: 'c1' }, cancel: { via: 'run' } }], bench: { paused: true }, keeper: { paused: false, held: 0 } })),
+}))
+vi.mock('../../engine/api/poisoning', async (orig) => ({
+  ...(await orig<typeof import('../../engine/api/poisoning')>()),
+  dismissSignal: vi.fn(async () => ({})),
+  retireFromSignal: vi.fn(async () => ({ retired: 2, signal: {} })),
 }))
 vi.mock('../api/clusters', async (orig) => ({
   ...(await orig<typeof clustersApi>()),
@@ -104,6 +110,7 @@ const overview: InfrastructureOverview = {
     { id: 'run:r1', workflowId: 'r1', kind: 'tree', title: 'Tree run: Shop', opens: { kind: 'tree', id: 't1' }, reason: 'the executor could not start its sandbox', failedAt: new Date(Date.now() - 3_600_000).toISOString() },
     { id: 'run:r2', workflowId: 'r2', kind: 'memory-keeper', title: 'The memory keeper, reading Labels', opens: { kind: 'temporal', id: 'r2' }, reason: 'the model did not answer', failedAt: new Date(Date.now() - 7_200_000).toISOString() },
   ],
+  signals: [],
 }
 
 const contents: ClusterContents = {
@@ -202,6 +209,21 @@ describe('the Infrastructure page', () => {
     const failure = await screen.findByTestId('attention-failure')
     expect(failure).toHaveTextContent('its access was revoked: they signed out everywhere')
     expect(within(failure).getByTestId('failure-handover')).toHaveTextContent('Drafted the reply; it was not sent.')
+  })
+
+  it('lists what Koala noticed first, and retires what a run left, everything from its host, or dismisses it', async () => {
+    vi.mocked(infrastructureApi.getInfrastructure).mockResolvedValue({ ...overview, signals: [{ id: 'sig1', kind: 'private-out', severity: 'high', state: 'open', at: new Date().toISOString(), runId: 'run-7', tool: 'fetch_web_page', said: 'fetch_web_page sent out 40 characters this run read from logs, to attacker.example', matched: 'database_url=postgres://app:secret', host: 'attacker.example' }] })
+    show()
+    const attention = await screen.findByRole('list', { name: 'Needs attention' })
+    const signal = within(attention).getByTestId('poisoning-signal')
+    expect(signal).toHaveTextContent('Private text left in a call')
+    expect(signal).toHaveTextContent('sent out 40 characters this run read from logs, to attacker.example')
+    expect(attention.firstElementChild).toBe(signal)
+    fireEvent.click(within(signal).getByRole('button', { name: 'Retire everything from attacker.example' }))
+    await waitFor(() => expect(poisoningApi.retireFromSignal).toHaveBeenCalledWith('sig1', 'source'))
+    expect(await within(signal).findByText('Retired 2 memories.')).toBeInTheDocument()
+    fireEvent.click(within(signal).getByRole('button', { name: 'Dismiss' }))
+    await waitFor(() => expect(poisoningApi.dismissSignal).toHaveBeenCalledWith('sig1'))
   })
 
   it('clears one failure, or all of them', async () => {

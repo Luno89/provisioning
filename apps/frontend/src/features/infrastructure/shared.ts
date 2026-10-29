@@ -22,6 +22,11 @@ export const isSection = (value: string | undefined): value is SectionId => SECT
 
 export const sectionAnchor = (section: SectionId): string => `infrastructure-${section}`
 
+export function useRefreshInfrastructure(): () => void {
+  const queries = useQueryClient()
+  return () => { void queries.invalidateQueries({ queryKey: infrastructureKeys.overview() }) }
+}
+
 export function useInfrastructure() {
   return useQuery({ queryKey: infrastructureKeys.overview(), queryFn: getInfrastructure, refetchInterval: INFRASTRUCTURE_POLL_MS })
 }

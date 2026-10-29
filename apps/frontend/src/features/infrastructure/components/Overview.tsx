@@ -1,4 +1,5 @@
 import { useEffect } from 'react'
+import { SignalRow } from '../../engine'
 import { CheckCircle2, Hand, Loader2, XCircle } from 'lucide-react'
 import { errorMessage } from '../../../api/client'
 import { ago } from '../../projects'
@@ -12,7 +13,7 @@ import { ModelTrafficSection } from './ModelTrafficSection'
 import { OwnHardwareSection } from './OwnHardwareSection'
 import { QuietButton, WorkloadBadge } from './Parts'
 import RunningSection from './RunningSection'
-import { aboutLink, healthHash, sectionAnchor, useClearFailures, useInfrastructure, waitingText, type SectionId } from '../shared'
+import { aboutLink, healthHash, sectionAnchor, useClearFailures, useInfrastructure, useRefreshInfrastructure, waitingText, type SectionId } from '../shared'
 
 const OVERVIEW_TOP = 'infrastructure-top'
 
@@ -21,13 +22,14 @@ const row = 'flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border borde
 function NeedsAttention() {
   const view = useInfrastructure()
   const clear = useClearFailures()
+  const refresh = useRefreshInfrastructure()
 
   if (view.isPending) return <Section title="Needs attention"><div className="flex items-center gap-2 text-[12px] text-slate-400"><Loader2 size={14} className="animate-spin" /> Reading every cluster and what runs…</div></Section>
   if (view.isError) return <Section title="Needs attention"><p className="text-[12px] text-rose-300">{errorMessage(view.error)}</p></Section>
 
-  const { monitoring, workloads, waiting, failures, runningProblem, root } = view.data
+  const { monitoring, workloads, waiting, failures, runningProblem, root, signals = [] } = view.data
   const rootDown = root?.down === true
-  const nothing = !rootDown && !waiting.length && !monitoring.attention.length && !workloads.length && !failures.length && !monitoring.firing.length
+  const nothing = !rootDown && !signals.length && !waiting.length && !monitoring.attention.length && !workloads.length && !failures.length && !monitoring.firing.length
 
   return (
     <Section title="Needs attention" right={<span className="text-[11px] text-slate-500">checked {ago(monitoring.checkedAt)}</span>}>
@@ -44,6 +46,9 @@ function NeedsAttention() {
               </span>
             </li>
           )}
+          {signals.map((signal) => (
+            <SignalRow key={signal.id} signal={signal} className={row} onChanged={refresh} />
+          ))}
           {waiting.map((item) => (
             <li key={item.workflowId}>
               <a href={hashFor(item.opens)} className={`${row} hover:bg-[var(--bark-800)]`}>
