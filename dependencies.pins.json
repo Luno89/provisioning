@@ -917,76 +917,6 @@
     },
     {
       "kind": "binary",
-      "name": "docker",
-      "version": "29.9.0",
-      "source": "https://download.docker.com (Docker's signed repositories)",
-      "github": "moby/moby",
-      "osv": {
-        "ecosystem": "Go",
-        "name": "github.com/docker/docker"
-      },
-      "uses": [
-        {
-          "file": "scripts/instance/install.sh",
-          "pattern": "DOCKER_VERSION=([0-9.]+)"
-        },
-        {
-          "file": "scripts/setup-root.sh",
-          "pattern": "DOCKER_VERSION=([0-9.]+)"
-        },
-        {
-          "file": "scripts/root-node/bootstrap.sh",
-          "pattern": "DOCKER_VERSION=([0-9.]+)"
-        }
-      ]
-    },
-    {
-      "kind": "binary",
-      "name": "rclone",
-      "version": "v1.75.2",
-      "source": "https://downloads.rclone.org/v1.75.2/",
-      "github": "rclone/rclone",
-      "osv": {
-        "ecosystem": "Go",
-        "name": "github.com/rclone/rclone"
-      },
-      "sha256s": {
-        "linux-amd64": "349ac8fba6ff65d6247043f1750cdcb518ec5d500ef91463a10d37c0ccdf3702",
-        "linux-arm64": "7e1e8d69654941b7b7df84ee74c5f7fb09cce7d5496947fb7bf16b55ff427d10",
-        "darwin-amd64": "574e1f31cf1c464e5fb0325cb66fcbdeaf1efa1802bd9b17f13c256fd74b6561",
-        "darwin-arm64": "610ab7d48615135dfc60b763858b11a426a0d3d1160c1bb76fb0ae6011b02edd"
-      },
-      "uses": [
-        {
-          "file": "scripts/setup.sh",
-          "pattern": "RCLONE_VERSION=(v[0-9.]+)"
-        }
-      ],
-      "shaUses": [
-        {
-          "file": "scripts/setup.sh",
-          "pattern": "RCLONE_SHA256_LINUX_AMD64=([0-9a-f]{64})",
-          "arch": "linux-amd64"
-        },
-        {
-          "file": "scripts/setup.sh",
-          "pattern": "RCLONE_SHA256_LINUX_ARM64=([0-9a-f]{64})",
-          "arch": "linux-arm64"
-        },
-        {
-          "file": "scripts/setup.sh",
-          "pattern": "RCLONE_SHA256_DARWIN_AMD64=([0-9a-f]{64})",
-          "arch": "darwin-amd64"
-        },
-        {
-          "file": "scripts/setup.sh",
-          "pattern": "RCLONE_SHA256_DARWIN_ARM64=([0-9a-f]{64})",
-          "arch": "darwin-arm64"
-        }
-      ]
-    },
-    {
-      "kind": "binary",
       "name": "tailscale",
       "version": "1.104.1",
       "source": "https://pkgs.tailscale.com/stable/tailscale_1.104.1_amd64.tgz",
@@ -1052,6 +982,31 @@
     },
     {
       "kind": "binary",
+      "name": "docker",
+      "version": "29.9.0",
+      "source": "https://download.docker.com (Docker's signed repositories)",
+      "github": "moby/moby",
+      "osv": {
+        "ecosystem": "Go",
+        "name": "github.com/docker/docker"
+      },
+      "uses": [
+        {
+          "file": "scripts/instance/install.sh",
+          "pattern": "DOCKER_VERSION=([0-9.]+)"
+        },
+        {
+          "file": "scripts/setup-root.sh",
+          "pattern": "DOCKER_VERSION=([0-9.]+)"
+        },
+        {
+          "file": "scripts/root-node/bootstrap.sh",
+          "pattern": "DOCKER_VERSION=([0-9.]+)"
+        }
+      ]
+    },
+    {
+      "kind": "binary",
       "name": "docker-install",
       "version": "ada7a567e59b3935bd601bb21e422da50e80e376",
       "source": "https://raw.githubusercontent.com/docker/docker-install/ada7a567e59b3935bd601bb21e422da50e80e376/install.sh",
@@ -1075,6 +1030,51 @@
         {
           "file": "scripts/setup-root.sh",
           "pattern": "DOCKER_INSTALL_SHA256=([0-9a-f]{64})"
+        }
+      ]
+    },
+    {
+      "kind": "binary",
+      "name": "rclone",
+      "version": "v1.75.2",
+      "source": "https://downloads.rclone.org/v1.75.2/",
+      "github": "rclone/rclone",
+      "osv": {
+        "ecosystem": "Go",
+        "name": "github.com/rclone/rclone"
+      },
+      "sha256s": {
+        "linux-amd64": "349ac8fba6ff65d6247043f1750cdcb518ec5d500ef91463a10d37c0ccdf3702",
+        "linux-arm64": "7e1e8d69654941b7b7df84ee74c5f7fb09cce7d5496947fb7bf16b55ff427d10",
+        "darwin-amd64": "574e1f31cf1c464e5fb0325cb66fcbdeaf1efa1802bd9b17f13c256fd74b6561",
+        "darwin-arm64": "610ab7d48615135dfc60b763858b11a426a0d3d1160c1bb76fb0ae6011b02edd"
+      },
+      "uses": [
+        {
+          "file": "scripts/setup.sh",
+          "pattern": "RCLONE_VERSION=(v[0-9.]+)"
+        }
+      ],
+      "shaUses": [
+        {
+          "file": "scripts/setup.sh",
+          "pattern": "RCLONE_SHA256_LINUX_AMD64=([0-9a-f]{64})",
+          "arch": "linux-amd64"
+        },
+        {
+          "file": "scripts/setup.sh",
+          "pattern": "RCLONE_SHA256_LINUX_ARM64=([0-9a-f]{64})",
+          "arch": "linux-arm64"
+        },
+        {
+          "file": "scripts/setup.sh",
+          "pattern": "RCLONE_SHA256_DARWIN_AMD64=([0-9a-f]{64})",
+          "arch": "darwin-amd64"
+        },
+        {
+          "file": "scripts/setup.sh",
+          "pattern": "RCLONE_SHA256_DARWIN_ARM64=([0-9a-f]{64})",
+          "arch": "darwin-arm64"
         }
       ]
     },
@@ -1110,22 +1110,47 @@
           "arch": "linux-arm64"
         }
       ]
-    }
-  ],
-  "unpinned": [
+    },
     {
-      "name": "gitea chart",
-      "how": "helm upgrade --install with no --version",
-      "usedIn": [
-        "scripts/ensure-gitea.sh"
+      "kind": "chart",
+      "name": "gitea",
+      "version": "12.7.0",
+      "source": "https://dl.gitea.com/charts/",
+      "github": "go-gitea/helm-gitea",
+      "uses": [
+        {
+          "file": "scripts/ensure-gitea.sh",
+          "pattern": "GITEA_CHART=([0-9.]+)"
+        }
       ]
     },
     {
-      "name": "infisical-standalone chart",
-      "how": "helm upgrade --install with no --version",
-      "usedIn": [
-        "scripts/ensure-infisical.sh"
+      "kind": "chart",
+      "name": "infisical-standalone",
+      "version": "1.11.1",
+      "source": "https://dl.cloudsmith.io/public/infisical/helm-charts/helm/charts/",
+      "github": "Infisical/infisical",
+      "uses": [
+        {
+          "file": "scripts/ensure-infisical.sh",
+          "pattern": "STANDALONE_CHART=([0-9.]+)"
+        }
+      ]
+    },
+    {
+      "kind": "chart",
+      "name": "secrets-operator",
+      "version": "v0.11.15",
+      "where": "the management cluster's Infisical",
+      "source": "https://dl.cloudsmith.io/public/infisical/helm-charts/helm/charts/",
+      "github": "Infisical/infisical",
+      "uses": [
+        {
+          "file": "scripts/ensure-infisical.sh",
+          "pattern": "OPERATOR_CHART=(v[0-9.]+)"
+        }
       ]
     }
-  ]
+  ],
+  "unpinned": []
 }
