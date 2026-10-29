@@ -79,7 +79,7 @@ async function sh(vm: DisposableVm, command: string, stream = false): Promise<st
 }
 
 interface Answer { status: number; body: string; headers: Record<string, string> }
-interface UpdatesSeen { auto: boolean; picked?: string; running?: string; target: string; checking?: string; releases: { imageTag: string; current: boolean; choosable: boolean }[] }
+interface UpdatesSeen { auto: boolean; picked?: string; running?: string; target: string; checking?: string; releases: { imageTag: string; current: boolean; choosable: boolean; withdrawn?: { at: string; by: string } }[] }
 
 let work = '';
 let root: DisposableVm | undefined;
@@ -534,6 +534,9 @@ async function main(): Promise<void> {
   assert.deepEqual(rolledBack.trail[rolledBack.trail.length - 1], { status: 'ready', detail: `Running ${previousTag}` });
   await allOn(previousTag);
   cookie = await handoff();
+  const pulled = updatesNow().releases.find((row) => row.imageTag === candidateTag);
+  assert.ok(pulled?.withdrawn && !pulled.choosable, `root did not withdraw ${candidateTag} when it rolled back: ${JSON.stringify(pulled)}`);
+  note(`root withdrew ${candidateTag} (${pulled.withdrawn.by}), so the instance on automatic updates followed it down and is not offered it`);
   await appAnswers();
   repositoryWorks(`rolled back to ${previousTag}`);
   await sandboxedRun('release-live-rolled-back');
