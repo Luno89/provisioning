@@ -2,7 +2,7 @@ import path from 'path';
 import fs from 'fs/promises';
 import type express from 'express';
 import {
-  type Database, type SecretKey, holdsAccounts, servesTenants, signsInThroughRoot, type RoleConfig, startedFor,
+  type Database, type SecretKey, allowed, holdsAccounts, servesTenants, signsInThroughRoot, type RoleConfig, startedFor,
   getTemporalClient, type mongoTarget, type MailService, type createAuth,
 } from '../../platform/index.js';
 import { poolSettingsFrom } from '../lib/pool.js';
@@ -22,6 +22,11 @@ import { MoveExport } from '../services/MoveExport.js';
 import { MoveRelay, kubeconfigFile } from '../services/MoveRelay.js';
 import { PoolMonitoringService } from '../services/PoolMonitoringService.js';
 import { InstanceMailLimit } from '../services/InstanceMailLimit.js';
+import { InstanceWatch, answersHttp } from '../services/InstanceWatch.js';
+import { InstanceWatchSetting } from '../services/InstanceWatchSetting.js';
+import { RootWatch, type RootReachView } from '../services/RootWatch.js';
+import { instanceWatchRouter } from '../routes/instance-watch.js';
+import { unreachableAfterMs } from '../lib/instance-watch.js';
 import type { InstanceEdge, HeadscaleService, InfrastructureService } from '../../infrastructure/index.js';
 import { identityRouter } from '../routes/identity.js';
 import { signInRouter } from '../routes/sign-in.js';
@@ -41,6 +46,7 @@ const POOL_KUBECONFIG = '/tmp/kubeconfig-provisioning-lunorica';
 export class InstanceSide {
   readonly edge: InstanceEdge | undefined;
   private addresses: InstanceAddresses | undefined;
+  private rootWatch: RootWatch | undefined;
 
   constructor(private readonly role: RoleConfig, private readonly env: NodeJS.ProcessEnv, private readonly rootToken: (() => Promise<string>) | undefined) {
     const name = env.INSTANCE_NAME;
@@ -60,6 +66,22 @@ export class InstanceSide {
 
   current(): InstanceAddresses | undefined {
     return this.addresses;
+  }
+
+  watchRoot(tell: (ownerId: string, message: { title: string; body: string; path: string; tag: string }) => Promise<unknown>): void {
+    if (!this.role.instance || this.rootWatch) return;
+    this.rootWatch = new RootWatch({
+      rootUrl: this.role.instance.rootUrl,
+      ownerId: this.role.instance.ownerId,
+      probe: answersHttp(),
+      tell,
+      afterMs: unreachableAfterMs(this.env),
+    });
+    this.rootWatch.start();
+  }
+
+  rootReach(): RootReachView | undefined {
+    return this.rootWatch?.view();
   }
 }
 
@@ -125,7 +147,7 @@ export async function wireInstances(deps: InstancesWiringDeps): Promise<Instance
   deps.side.follow(deps.syncExposedApps);
 
   if (holdsAccounts(role)) {
-    app.use('/api/identity', identityRouter({ identity, servesTenants: servesTenants(role), signedIn: (req) => deps.auth.userFromSessionCookie(req.headers.cookie, deps.auth.securedFor(req)) }));
+    app.use('/api/identity', identityRouter({ identity, servesTenants: servesTenants(role), signedIn: (req) => deps.auth.userFromSessionCookie(req.headers.cookie, deps.auth.securedFor(req)), reachOf: async (instanceId) => (await db.instances.getWatch(instanceId))?.reach }));
   }
   if (deps.provider) {
     const provider = deps.provider;
@@ -140,6 +162,11 @@ export async function wireInstances(deps: InstancesWiringDeps): Promise<Instance
   }
 
   tenant.use('/api/instance-addresses', instanceAddressesRouter({ addresses: () => deps.side.current() }));
+  tenant.use('/api/instance-watch', instanceWatchRouter({
+    setting: role.instance && env.INSTANCE_CREDENTIAL
+      ? new InstanceWatchSetting({ rootUrl: role.instance.rootUrl, instanceId: role.instance.id, credential: env.INSTANCE_CREDENTIAL })
+      : undefined,
+  }));
   tenant.use('/api/instance-trial', instanceTrialRouter({
     trial: role.instance && deps.rootToken
       ? new InstanceTrial({ rootUrl: role.instance.rootUrl, instanceId: role.instance.id, token: deps.rootToken })
@@ -227,6 +254,18 @@ export async function wireInstances(deps: InstancesWiringDeps): Promise<Instance
     },
   });
   instanceRoutes?.start();
+  if (role.role === 'root') {
+    new InstanceWatch({
+      store: db.instances,
+      probe: answersHttp(),
+      tellOwner: (ownerId, message) => deps.mail.toOwner(ownerId, message),
+      tellOperators: async (message) => {
+        const operators = (await db.accounts.getUsers()).filter((user) => !user.space && allowed(deps.auth.principalFor(user), 'administer', { kind: 'install' }));
+        for (const operator of operators) await deps.mail.toOwner(operator.id, message);
+      },
+      afterMs: unreachableAfterMs(env),
+    }).start();
+  }
 
   const poolMonitoring = 'off' in pool ? undefined : new PoolMonitoringService({
     kubectl: async (args) => String(await deps.infra.runKubectl(args, pool.kubeconfig)),

@@ -9,6 +9,7 @@ import { freePorts, poolNamespace, trialDaysProblem, type PoolPolicy } from '../
 import { extendedTrial } from '../lib/pool-trial.js';
 import { moveProblem, type MoveStateName } from '../lib/instance-move.js';
 import { DEFAULT_UPDATES, findRelease, pickProblem, pinned, updateTarget, updatesView, type InstanceRelease, type UpdatesView } from '../lib/instance-updates.js';
+import type { Reach } from '../lib/instance-watch.js';
 
 export const JOIN_TOKEN_TTL_SECONDS = 3600;
 
@@ -21,6 +22,12 @@ export interface PoolWorkflows {
   move?(instanceId: string, ownerId: string): Promise<void>;
   moveFinished?(instanceId: string): Promise<void>;
   moveStopped?(instanceId: string, reason: string): Promise<void>;
+}
+
+export interface WatchView {
+  notifyWhenUnreachable: boolean;
+  alwaysTold: boolean;
+  reach?: Reach | undefined;
 }
 
 export interface MoveView {
@@ -536,7 +543,7 @@ export class InstanceService {
     return { ok: true, value: saved };
   }
 
-  async mine(ownerId: string): Promise<{ id: string; status: InstanceStatus; detail?: string | undefined; url: string; name?: string | undefined; trialEndsAt?: string | undefined; move?: MoveView | undefined } | null> {
+  async mine(ownerId: string): Promise<{ id: string; status: InstanceStatus; detail?: string | undefined; url: string; name?: string | undefined; trialEndsAt?: string | undefined; move?: MoveView | undefined; watch: WatchView } | null> {
     const instance = (await this.store.instances.getInstances(ownerId))[0];
     if (!instance) return null;
     const move = await this.moveOf(ownerId);
@@ -544,6 +551,7 @@ export class InstanceService {
       id: instance.id, status: instance.status ?? (instance.url ? 'ready' : 'waiting'), detail: instance.detail, url: instance.url, name: instance.name,
       ...(instance.pool ? { trialEndsAt: instance.pool.trialEndsAt } : {}),
       ...(move ? { move } : {}),
+      watch: await this.watchViewOf(instance),
     };
   }
 
@@ -565,6 +573,40 @@ export class InstanceService {
     const instance = await this.authenticated(instanceId, credential);
     if (!instance) return { ok: false, status: 401, error: 'unknown instance or credential' };
     return { ok: true, value: instance.pool ? { trialEndsAt: instance.pool.trialEndsAt } : {} };
+  }
+
+  private async watchViewOf(instance: InstanceRecord): Promise<WatchView> {
+    const watch = await this.store.instances.getWatch(instance.id);
+    return {
+      notifyWhenUnreachable: watch?.notifyWhenUnreachable !== false,
+      alwaysTold: Boolean(instance.pool),
+      ...(watch?.reach ? { reach: watch.reach } : {}),
+    };
+  }
+
+  private async setNotify(instance: InstanceRecord, raw: unknown): Promise<Outcome<WatchView>> {
+    if (typeof raw !== 'boolean') return { ok: false, status: 400, error: 'send notifyWhenUnreachable as true or false' };
+    if (instance.pool && !raw) return { ok: false, status: 409, error: 'an instance on Koala\'s servers always tells its owner when it cannot be reached' };
+    await this.store.instances.saveNotifyWhenUnreachable(instance, raw);
+    return { ok: true, value: await this.watchViewOf(instance) };
+  }
+
+  async watchAs(instanceId: unknown, credential: unknown): Promise<Outcome<WatchView>> {
+    const instance = await this.authenticated(instanceId, credential);
+    if (!instance) return { ok: false, status: 401, error: 'unknown instance or credential' };
+    return { ok: true, value: await this.watchViewOf(instance) };
+  }
+
+  async setWatchAs(instanceId: unknown, credential: unknown, raw: unknown): Promise<Outcome<WatchView>> {
+    const instance = await this.authenticated(instanceId, credential);
+    if (!instance) return { ok: false, status: 401, error: 'unknown instance or credential' };
+    return this.setNotify(instance, raw);
+  }
+
+  async setWatchOf(ownerId: string, raw: unknown): Promise<Outcome<WatchView>> {
+    const instance = (await this.store.instances.getInstances(ownerId))[0];
+    if (!instance) return { ok: false, status: 404, error: 'you have no instance' };
+    return this.setNotify(instance, raw);
   }
 
   async addresses(instanceId: unknown, credential: unknown): Promise<Outcome<InstanceAddresses & { name: string; domain: string }>> {

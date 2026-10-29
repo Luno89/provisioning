@@ -161,6 +161,15 @@ describe('the Infrastructure page', () => {
     expect(screen.queryByRole('navigation', { name: 'Infrastructure' })).toBeNull()
   })
 
+  it('puts root not answering first among what needs attention, on an instance that cannot reach it', async () => {
+    vi.mocked(infrastructureApi.getInfrastructure).mockResolvedValue({ ...overview, root: { rootUrl: 'https://app.koala.dev', reachable: false, down: true, unreachableSince: '2026-10-29T10:00:00.000Z' } })
+    show()
+    const item = await screen.findByTestId('attention-root')
+    expect(item).toHaveTextContent('Root not answering')
+    expect(item).toHaveTextContent('https://app.koala.dev')
+    expect(item).toHaveTextContent(/everything here keeps running/)
+  })
+
   it('scrolls to the section an old address names', async () => {
     const scrolled = vi.fn()
     HTMLElement.prototype.scrollIntoView = scrolled

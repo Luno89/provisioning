@@ -5,7 +5,7 @@ import { DeleteAccount } from '../features/accounts';
 import { People } from '../features/accounts';
 import { Invites } from '../features/accounts';
 import { InstanceAddresses } from '../features/accounts';
-import { InstanceMove, InstanceUpdates } from '../features/instances';
+import { InstanceMove, InstanceUpdates, InstanceWatch } from '../features/instances';
 import { Notifications } from '../features/accounts';
 import { OtherSessions } from '../features/accounts';
 import { DefaultFileServer } from '../features/files'
@@ -117,6 +117,7 @@ export default function SettingsView() {
       {can('change-instance-settings') && <InstanceUpdates />}
       {can('change-instance-settings') && <InstanceMove />}
       <Notifications />
+      <InstanceWatch />
       <DefaultFileServer />
       <GoogleDriveCard />
 

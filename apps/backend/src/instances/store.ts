@@ -5,6 +5,7 @@ import type { PoolPolicy } from './lib/pool.js';
 import type { InstanceRelease } from './lib/instance-updates.js';
 import type { SignInKey } from './lib/oidc.js';
 import type { ClientSession, LogoutDelivery, SessionRevocation } from './lib/sign-in-state.js';
+import type { InstanceWatchRecord, Reach } from './lib/instance-watch.js';
 
 export interface InstancesStore extends AreaStore {
   claimHandoff(jti: string, expiresAt: string): Promise<boolean>;
@@ -37,6 +38,11 @@ export interface InstancesStore extends AreaStore {
   dropClientSessionsOf(subject: string): Promise<void>;
   recordRevocation(revocation: SessionRevocation): Promise<void>;
   getRevocations(): Promise<SessionRevocation[]>;
+  getWatches(): Promise<InstanceWatchRecord[]>;
+  getWatch(instanceId: string): Promise<InstanceWatchRecord | undefined>;
+  saveReach(instance: { id: string; ownerId: string }, reach: Reach): Promise<void>;
+  saveNotifyWhenUnreachable(instance: { id: string; ownerId: string }, on: boolean): Promise<void>;
+  deleteWatch(instanceId: string): Promise<void>;
 }
 
 const asStored = (doc: Record<string, unknown> | null): Record<string, unknown> | undefined =>
@@ -122,6 +128,34 @@ export class MongoInstancesStore implements InstancesStore {
 
   async deleteInstance(id: string): Promise<void> {
     await this.instanceRegistry.deleteOne({ _id: id as never });
+    await this.deleteWatch(id);
+  }
+
+  private get watches(): Collection {
+    return this.db().collection('instanceWatches');
+  }
+
+  async getWatches(): Promise<InstanceWatchRecord[]> {
+    return (await this.watches.find({}).toArray()).map(({ _id, ownerId: _owner, ...rest }) => ({ instanceId: String(_id), ...rest }) as InstanceWatchRecord);
+  }
+
+  async getWatch(instanceId: string): Promise<InstanceWatchRecord | undefined> {
+    const doc = await this.watches.findOne({ _id: instanceId as never });
+    if (!doc) return undefined;
+    const { _id, ownerId: _owner, ...rest } = doc;
+    return { instanceId, ...rest } as InstanceWatchRecord;
+  }
+
+  async saveReach(instance: { id: string; ownerId: string }, reach: Reach): Promise<void> {
+    await this.watches.updateOne({ _id: instance.id as never }, { $set: { reach, ownerId: instance.ownerId } }, { upsert: true });
+  }
+
+  async saveNotifyWhenUnreachable(instance: { id: string; ownerId: string }, on: boolean): Promise<void> {
+    await this.watches.updateOne({ _id: instance.id as never }, { $set: { notifyWhenUnreachable: on, ownerId: instance.ownerId } }, { upsert: true });
+  }
+
+  async deleteWatch(instanceId: string): Promise<void> {
+    await this.watches.deleteOne({ _id: instanceId as never });
   }
 
   async getPoolPolicy(): Promise<PoolPolicy | undefined> {

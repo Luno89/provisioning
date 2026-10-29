@@ -25,8 +25,9 @@ function NeedsAttention() {
   if (view.isPending) return <Section title="Needs attention"><div className="flex items-center gap-2 text-[12px] text-slate-400"><Loader2 size={14} className="animate-spin" /> Reading every cluster and what runs…</div></Section>
   if (view.isError) return <Section title="Needs attention"><p className="text-[12px] text-rose-300">{errorMessage(view.error)}</p></Section>
 
-  const { monitoring, workloads, waiting, failures, runningProblem } = view.data
-  const nothing = !waiting.length && !monitoring.attention.length && !workloads.length && !failures.length && !monitoring.firing.length
+  const { monitoring, workloads, waiting, failures, runningProblem, root } = view.data
+  const rootDown = root?.down === true
+  const nothing = !rootDown && !waiting.length && !monitoring.attention.length && !workloads.length && !failures.length && !monitoring.firing.length
 
   return (
     <Section title="Needs attention" right={<span className="text-[11px] text-slate-500">checked {ago(monitoring.checkedAt)}</span>}>
@@ -34,6 +35,15 @@ function NeedsAttention() {
         <p className="flex items-center gap-2 text-[12px] text-emerald-300"><CheckCircle2 size={14} /> {runningProblem ? 'Everything is healthy.' : 'Everything is healthy, and nothing waits on you.'}</p>
       ) : (
         <ul className="space-y-1.5" aria-label="Needs attention">
+          {rootDown && root && (
+            <li className={row} data-testid="attention-root">
+              <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-rose-300"><XCircle size={11} /> Root not answering</span>
+              <span className="font-semibold text-slate-100">{root.rootUrl}</span>
+              <span className="text-slate-400">
+                Your instance has not reached Koala's root{root.unreachableSince ? ` since ${new Date(root.unreachableSince).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}` : ''}. Signing in through root and your addresses may not work; everything here keeps running.
+              </span>
+            </li>
+          )}
           {waiting.map((item) => (
             <li key={item.workflowId}>
               <a href={hashFor(item.opens)} className={`${row} hover:bg-[var(--bark-800)]`}>

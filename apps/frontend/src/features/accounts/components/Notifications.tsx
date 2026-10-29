@@ -2,6 +2,7 @@ import { Loader2 } from 'lucide-react'
 import { errorMessage } from '../../../api/client'
 import type { EmailChoice } from '../../monitoring'
 import { dangerPanel, quietButton, useNotifications, useSendTestEmail, useSetEmailChoice } from '../shared'
+import { PushDevices } from './PushDevices'
 
 const CHOICES: Array<{ value: EmailChoice; label: string; explain: string }> = [
   { value: 'all', label: 'Every alert', explain: 'When any alert fires and when it resolves.' },
@@ -50,6 +51,7 @@ export function Notifications() {
           {test.isError && <span className="text-xs text-rose-300">{errorMessage(test.error)}</span>}
         </div>
       )}
+      <PushDevices />
     </div>
   )
 }

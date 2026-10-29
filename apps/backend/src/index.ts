@@ -53,7 +53,7 @@ import { spawn } from 'child_process';
 import { GiteaService } from './projects/index.js';
 
 import { seedAll } from './scripts/seed-all.js';
-import { collectorSink, NotificationService } from './monitoring/index.js';
+import { collectorSink, NotificationService, PushService, vapidKeysFrom, vapidSubject, webPushSend } from './monitoring/index.js';
 import { artifactsRouter, createArtifactService } from './files/index.js';
 
 dotenv.config();
@@ -136,7 +136,9 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     emailOf: async (ownerId) => (await db.accounts.getUserById(ownerId))?.email,
     rootToken,
   });
-  const notifications = new NotificationService({ store: db.monitoring, mail, publicUrl: PUBLIC_URL, log: (message) => console.warn(message) });
+  const vapid = vapidKeysFrom(typeof keys.data === 'string' ? keys.data : keys.data.current);
+  const push = new PushService({ store: db.monitoring, vapid, send: webPushSend(vapid, vapidSubject(process.env.MAIL_FROM, PUBLIC_URL)), log: (message) => console.warn(message) });
+  const notifications = new NotificationService({ store: db.monitoring, mail, push, publicUrl: PUBLIC_URL, log: (message) => console.warn(message) });
   const tenant: express.Router = servesTenants(role) ? (app as unknown as express.Router) : express.Router();
   const identity = new IdentityService(role, db);
   console.log(`🧭 Running as ${role.role}${role.instance ? ` (instance ${role.instance.id}, owned by ${role.instance.ownerId})` : ''}`);
@@ -148,6 +150,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   const registryService = new RegistryService(db);
   const gitModuleService = new GitModuleService(db);
   const instanceSide = new InstanceSide(role, process.env, rootToken);
+  instanceSide.watchRoot((ownerId, message) => push.toPerson(ownerId, message));
   const appExposureService = new AppExposureService(db, infraService, clusterService, io, {
     edge: instanceSide.edge,
     groupOf: async (dep) => (dep.gitappProjectId ? (await db.hub.getHubLinks()).find((link) => link.projectId === dep.gitappProjectId)?.group : undefined),
@@ -172,7 +175,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     undefined,
     clusterProxyService,
   );
-  const core = projectsCore({ db, io, env: process.env, dataKey: keys.data, gitea: giteaService, infra: infraService, infisical: infisicalService, kubeconfig: '/tmp/kubeconfig-provisioning-lunorica' });
+  const core = projectsCore({ db, push, io, env: process.env, dataKey: keys.data, gitea: giteaService, infra: infraService, infisical: infisicalService, kubeconfig: '/tmp/kubeconfig-provisioning-lunorica' });
   const { projectRepoService, channels, itemChats, notices, postNotice, projectSecrets } = core;
   const headscaleService = new HeadscaleService(keys.data, process.env.HEADSCALE_URL || 'http://localhost:8080', process.env.HEADSCALE_API_KEY);
   const MACHINE_GATEWAY_PORT = Number(process.env.MACHINE_GATEWAY_PORT || 7234);
@@ -217,7 +220,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   } = engine;
   const workFailures = workFailuresFor({ db, temporalBridge, metrics, records: runningRecords });
 
-  startEngineStream({ role, io, db, payloadKey: keys.payload, core: engine, models: modelService, notices, postNotice, workFailures });
+  startEngineStream({ role, push, io, db, payloadKey: keys.payload, core: engine, models: modelService, notices, postNotice, workFailures });
 
   const authService = new AuthService(db, { mail, production: process.env.NODE_ENV === 'production' });
   app.set('trust proxy', process.env.NODE_ENV === 'production' ? 1 : false);
@@ -339,7 +342,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     side: instanceSide, syncExposedApps: () => appExposureService.syncExposedApps(), provider: rootProvider, signIn: rootSignIn, rootToken,
   });
   const people = async () => (await db.accounts.getUsers()).filter((user) => !user.space).map((user) => auth.principalFor(user));
-  const { monitoring } = wireMonitoring({ tenant, db, role, env: process.env, io, clusters: clusterService, infra: infraService, proxy: clusterProxyService, notices, notifications, mail, people, rootToken });
+  const { monitoring } = wireMonitoring({ tenant, db, role, env: process.env, io, clusters: clusterService, infra: infraService, proxy: clusterProxyService, notices, notifications, push, mail, people, rootToken });
   const workerService = new WorkerService();
   wireInfrastructure({
     tenant, operatorOnly: requireOperator('administer'), db, io, dataKey: keys.data, sessionKey: keys.session, publicUrl: PUBLIC_URL, appUrl: APP_URL, repoRoot: path.join(__dirname, '../../..'),
@@ -412,7 +415,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   });
   const { running } = wireRunning({
     tenant, db, role, temporalBridge, monitoring, workFailures, records: runningRecords, checks: level2Service, trees: groveRuns, runs: engineRuns,
-    bench, keeper: memoryKeeper, infra: infraService, clusters: clusterService,
+    bench, keeper: memoryKeeper, infra: infraService, clusters: clusterService, root: () => instanceSide.rootReach(),
   });
   runningNow = async () => {
     const view = await running.view(role.instance?.ownerId ?? '');

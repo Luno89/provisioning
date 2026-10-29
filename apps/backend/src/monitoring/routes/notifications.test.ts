@@ -6,6 +6,8 @@ import { InstanceMailLimit } from '../../instances/services/InstanceMailLimit.js
 import { instancesRouter } from '../../instances/routes/instances.js';
 import { MailService } from '../../platform/services/MailService.js';
 import { NotificationService } from '../services/NotificationService.js';
+import { PushService } from '../services/PushService.js';
+import { vapidKeysFrom } from '../lib/web-push.js';
 import type { InstanceService } from '../../instances/services/InstanceService.js';
 
 let harness: Harness;
@@ -83,5 +85,38 @@ describe('root sending for an instance', () => {
     expect(sent).toHaveLength(61);
     now = Date.parse('2026-10-26T13:00:00.500Z');
     expect((await axios.post(harness.url('/api/instances/mail'), { subject: 'Alert 62', text: 'y' }, as('cred'))).data).toEqual({ sent: true });
+  });
+});
+
+describe('/api/notifications/push', () => {
+  let pushed: string[];
+  const mount = async (withPush = true) => {
+    pushed = [];
+    harness = await mountRouter({ prefix: '/api/notifications', router: (db) => {
+      const mail = mailWith({ kind: 'none', why: 'no mail here' });
+      const push = new PushService({ store: db.monitoring, vapid: vapidKeysFrom('v'.repeat(64)), send: async (subscription) => { pushed.push(subscription.endpoint); } });
+      return notificationsRouter({ notifications: new NotificationService({ store: db.monitoring, mail, push }), mail, ...(withPush ? { push } : {}) });
+    } });
+  };
+  const subscription = { endpoint: 'https://push.example/send/1', keys: { p256dh: 'p256', auth: 'auth' } };
+
+  it('switches this device on and off, lists it, and sends it a test', async () => {
+    await mount();
+    const first = (await axios.get(harness.url('/api/notifications/push'))).data as { publicKey: string; devices: unknown[] };
+    expect(first.publicKey).toBe(vapidKeysFrom('v'.repeat(64)).publicKey);
+    expect(first.devices).toEqual([]);
+    await expect(axios.post(harness.url('/api/notifications/push/test'))).rejects.toMatchObject({ response: { status: 409 } });
+    const added = (await axios.post(harness.url('/api/notifications/push'), { subscription }, { headers: { 'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) Version/18.0 Safari/605.1.15' } })).data as { devices: Array<{ id: string; label: string }> };
+    expect(added.devices).toEqual([expect.objectContaining({ label: 'Safari on Mac' })]);
+    expect((await axios.post(harness.url('/api/notifications/push/test'))).data).toEqual({ sent: 1 });
+    expect(pushed).toEqual([subscription.endpoint]);
+    await expect(axios.post(harness.url('/api/notifications/push'), { subscription: { endpoint: 'http://plain' } })).rejects.toMatchObject({ response: { status: 400 } });
+    expect((await axios.delete(harness.url(`/api/notifications/push/${added.devices[0]!.id}`))).data.devices).toEqual([]);
+    await expect(axios.delete(harness.url('/api/notifications/push/nope'))).rejects.toMatchObject({ response: { status: 404 } });
+  });
+
+  it('says so where the server sends no push', async () => {
+    await mount(false);
+    await expect(axios.get(harness.url('/api/notifications/push'))).rejects.toMatchObject({ response: { status: 404 } });
   });
 });

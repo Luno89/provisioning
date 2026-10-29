@@ -73,6 +73,7 @@ export interface StreamServices {
   conclude?: ((event: LifecycleEvent) => Promise<void>) | undefined;
   benchIdle?: ((ownerId: string) => Promise<BenchIdleOutcome>) | undefined;
   post?: ((ownerId: string, notice: Readonly<Record<string, unknown>>) => Promise<void>) | undefined;
+  asking?: ((ownerId: string, tool: string) => Promise<void>) | undefined;
   groveChanged?: ((ownerId: string) => void) | undefined;
 }
 
@@ -419,10 +420,13 @@ export function createStreamActivities(services: StreamServices): StreamActiviti
   return {
     async EnginePublishActivity(args: PublishArgs): Promise<void> {
       for (const event of args.events) services.bus.emit({ ...event, ...(args.ownerId ? { ownerId: args.ownerId } : {}), ...(args.turnId ? { turnId: args.turnId } : {}) } as never);
-      if (!args.ownerId || !services.post) return;
+      if (!args.ownerId) return;
       for (const event of args.events) {
-        const posted = (event as { type: string; post?: Readonly<Record<string, unknown>> }).post;
-        if (event.type === 'notice' && posted) await services.post(args.ownerId, posted);
+        const { post: posted, callId, tool } = event as { type: string; post?: Readonly<Record<string, unknown>>; callId?: unknown; tool?: unknown };
+        if (event.type === 'notice' && posted && services.post) await services.post(args.ownerId, posted);
+        if (event.type === 'notice' && typeof callId === 'string' && typeof tool === 'string' && services.asking) {
+          await services.asking(args.ownerId, tool).catch(() => undefined);
+        }
       }
     },
 

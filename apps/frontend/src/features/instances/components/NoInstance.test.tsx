@@ -104,3 +104,23 @@ describe('trying Koala on its own servers', () => {
     expect(screen.getByText('Your trial has ended')).toBeInTheDocument()
   })
 })
+
+describe('root\'s page when the owner\'s instance is not answering', () => {
+  it('says so instead of sending them on, offers to try anyway, and switches the emails', async () => {
+    vi.clearAllMocks()
+    vi.mocked(api.get).mockImplementation(async (url: string) => {
+      if (url === '/instances/mine') return { data: { instance: { id: 'inst-1', status: 'ready', url: 'https://luno.koala.dev', name: 'luno', watch: { notifyWhenUnreachable: true, alwaysTold: false, reach: { reachable: false, unreachableSince: '2026-10-29T10:00:00.000Z', toldDown: true } } } } }
+      if (url === '/instances/pool') return { data: { available: false, reason: 'this root has no pool' } }
+      return { data: { ok: false } }
+    })
+    const put = vi.fn(async () => ({ data: { notifyWhenUnreachable: false, alwaysTold: false } }))
+    ;(api as unknown as { put: typeof put }).put = put
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(<QueryClientProvider client={client}><NoInstance hasInstance unreachableSince="2026-10-29T10:00:00.000Z" onLogout={() => {}} /></QueryClientProvider>)
+    expect(await screen.findByText('Your instance is not answering')).toBeInTheDocument()
+    expect(screen.queryByText(/Taking you to your instance/)).toBeNull()
+    expect(screen.getByRole('link', { name: 'Try to open it anyway' })).toHaveAttribute('href', expect.stringMatching(/\/identity\/go$/))
+    fireEvent.click(await screen.findByRole('checkbox', { name: /Email me when my instance stops answering/ }))
+    await waitFor(() => expect(put).toHaveBeenCalledWith('/instances/mine/watch', { notifyWhenUnreachable: false }))
+  })
+})

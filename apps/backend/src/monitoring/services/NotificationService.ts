@@ -4,6 +4,8 @@ import {
 } from '../../platform/index.js';
 import type { AlertEpisode } from '../lib/monitoring-records.js';
 import type { MonitoringStore } from '../store.js';
+import { alertPush } from '../lib/web-push.js';
+import type { PushService } from './PushService.js';
 
 export interface NotificationView {
   email: EmailChoice;
@@ -14,6 +16,7 @@ export class NotificationService {
   constructor(private readonly deps: {
     store: Pick<MonitoringStore, 'getNotificationSettings' | 'saveNotificationSettings'>;
     mail: Pick<MailService, 'available' | 'toOwner'>;
+    push?: Pick<PushService, 'toPerson'> | undefined;
     publicUrl?: string | undefined;
     now?: () => string;
     log?: (message: string) => void;
@@ -35,8 +38,13 @@ export class NotificationService {
   }
 
   async alert(episode: AlertEpisode, change: 'fired' | 'resolved'): Promise<boolean> {
+    const wanted = emailWanted(await this.choiceOf(episode.ownerId), episode);
+    if (wanted && this.deps.push) {
+      await this.deps.push.toPerson(episode.ownerId, alertPush(episode, change))
+        .catch((err: Error) => this.deps.log?.(`[alerts] could not push to ${episode.ownerId}: ${err.message}`));
+    }
     if (!this.deps.mail.available().ok) return false;
-    if (!emailWanted(await this.choiceOf(episode.ownerId), episode)) return false;
+    if (!wanted) return false;
     await this.deps.mail.toOwner(episode.ownerId, alertMail(episode, change, this.deps.publicUrl));
     return true;
   }

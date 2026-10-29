@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../../../api/client'
 import { identityKeys } from './identity'
+import type { WatchView } from './instance-watch'
 
 export type InstanceStatus = 'waiting' | 'joined' | 'installing' | 'ready' | 'failed' | 'paused'
 
@@ -22,6 +23,7 @@ export interface MySetup {
   name?: string
   trialEndsAt?: string
   move?: MoveView
+  watch?: WatchView
 }
 
 export interface MoveCommand {

@@ -103,7 +103,7 @@ describe('bringing a user\'s own machine in as their instance', () => {
     const { instanceId, credential } = joined.value;
 
     expect(await service.report(instanceId, credential, { status: 'ready', detail: 'Installed', url: 'http://100.64.0.7:30320/' })).toMatchObject({ ok: true });
-    expect(await service.mine('u1')).toEqual({ id: instanceId, status: 'ready', detail: 'Installed', url: 'http://100.64.0.7:30320', name: 'luno' });
+    expect(await service.mine('u1')).toEqual({ id: instanceId, status: 'ready', detail: 'Installed', url: 'http://100.64.0.7:30320', name: 'luno', watch: { notifyWhenUnreachable: true, alwaysTold: false } });
     expect(await service.report(instanceId, credential, { status: 'exploded' })).toMatchObject({ ok: false, status: 400 });
     expect(await service.report(instanceId, credential, { status: 'ready', url: 'javascript:alert(1)' })).toMatchObject({ ok: false, status: 400 });
   });
@@ -500,5 +500,32 @@ describe('which release an instance runs', () => {
     expect(await service.setUpdates(id, credential, { auto: true, version: 'v2026.10.25' })).toMatchObject({ ok: false, status: 400 });
     expect(await service.setUpdates(id, credential, { version: 'v2027.01.01' })).toMatchObject({ ok: false, status: 409, error: 'there is no release v2027.01.01' });
     expect(await service.updates(id, 'guess')).toMatchObject({ ok: false, status: 401 });
+  });
+});
+
+describe('whether root tells an owner their instance cannot be reached', () => {
+  it('is on by default for an own machine, switched by the instance with its credential or by the owner on root', async () => {
+    const { token } = await tokenFor('u1');
+    const joined = await service.join(token, 'desk');
+    if (!joined.ok) throw new Error(joined.error);
+    const { instanceId, credential } = joined.value;
+    expect(await service.watchAs(instanceId, credential)).toEqual({ ok: true, value: { notifyWhenUnreachable: true, alwaysTold: false } });
+    expect(await service.watchAs(instanceId, 'wrong')).toMatchObject({ ok: false, status: 401 });
+    expect(await service.setWatchAs(instanceId, credential, 'no')).toMatchObject({ ok: false, status: 400 });
+    expect(await service.setWatchAs(instanceId, credential, false)).toEqual({ ok: true, value: { notifyWhenUnreachable: false, alwaysTold: false } });
+    expect((await service.mine('u1'))?.watch).toEqual({ notifyWhenUnreachable: false, alwaysTold: false });
+    expect(await service.setWatchOf('u1', true)).toMatchObject({ ok: true, value: { notifyWhenUnreachable: true } });
+    expect(await service.setWatchOf('nobody', true)).toMatchObject({ ok: false, status: 404 });
+    await db.instances.saveReach({ id: instanceId, ownerId: 'u1' }, { reachable: false, unreachableSince: now.toISOString(), toldDown: true });
+    expect((await service.mine('u1'))?.watch.reach).toEqual({ reachable: false, unreachableSince: now.toISOString(), toldDown: true });
+    await db.instances.deleteInstance(instanceId);
+    expect(await db.instances.getWatch(instanceId)).toBeUndefined();
+  });
+
+  it('always tells about a trial on Koala\'s servers, and refuses switching it off', async () => {
+    const pool = new InstanceService(db, { ...settings, pool: { slots: 2, trialDays: 14 } }, mesh, () => now, () => {}, { start: async () => undefined, trialChanged: async () => undefined, remove: async () => undefined });
+    expect(await pool.createPoolInstance('u2', 'trial')).toMatchObject({ ok: true });
+    expect((await pool.mine('u2'))?.watch).toEqual({ notifyWhenUnreachable: true, alwaysTold: true });
+    expect(await pool.setWatchOf('u2', false)).toMatchObject({ ok: false, status: 409 });
   });
 });

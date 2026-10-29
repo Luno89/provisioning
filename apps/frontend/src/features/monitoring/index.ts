@@ -1,6 +1,6 @@
 export type { AppRow, ClusterRow, HealthState, Overview } from './api/monitoring'
-export { getNotifications, notificationKeys, sendTestEmail, setEmailChoice } from './api/notifications'
-export type { EmailChoice, NotificationView } from './api/notifications'
+export { addPushDevice, getNotifications, getPush, notificationKeys, pushKeys, removePushDevice, sendTestEmail, sendTestPush, setEmailChoice } from './api/notifications'
+export type { EmailChoice, NotificationView, PushDevice, PushView } from './api/notifications'
 export { AppHealth } from './components/AppHealth'
 export { ClusterHealth } from './components/ClusterHealth'
 export { Bar, EpisodeList, FiringList, RuleList, Section, StateBadge } from './components/Parts'

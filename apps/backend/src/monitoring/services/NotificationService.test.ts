@@ -67,3 +67,16 @@ describe('an instance\'s email', () => {
     await expect(mail.toOwner('o', { subject: 's', text: 't' })).rejects.toThrow('root did not send it (401): unknown instance or credential');
   });
 });
+
+describe('pushing alerts', () => {
+  it('pushes what the person chose to hear about to their devices, with or without email', async () => {
+    const pushed: Array<{ ownerId: string; title: string }> = [];
+    const mail = new MailService({ way: { kind: 'none', why: 'no mail' }, emailOf: async () => undefined });
+    const notifications = new NotificationService({ store: db.monitoring, mail, push: { toPerson: async (ownerId, message) => { pushed.push({ ownerId, title: message.title }); return 1; } } });
+    expect(await notifications.alert(episode, 'fired')).toBe(false);
+    expect(pushed).toEqual([{ ownerId: 'o', title: 'Alert: NodeMemoryHighUtilization' }]);
+    await notifications.set('o', 'off');
+    await notifications.alert(episode, 'resolved');
+    expect(pushed).toHaveLength(1);
+  });
+});

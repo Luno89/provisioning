@@ -2,7 +2,7 @@ import axios from 'axios';
 import { afterEach, describe, expect, it } from 'vitest';
 import { infrastructureRouter } from './infrastructure.js';
 import { mountRouter, type Harness } from '../../platform/routes/test-harness.js';
-import { InfrastructureViewService } from '../services/InfrastructureViewService.js';
+import { InfrastructureViewService, type RootReach } from '../services/InfrastructureViewService.js';
 import type { BrokenWorkload } from '../services/ClusterContentsService.js';
 import type { KoalaView, Overview } from '../../monitoring/services/MonitoringService.js';
 import type { WorkFailure } from '../lib/work-failures.js';
@@ -27,7 +27,7 @@ const failure: WorkFailure = { id: 'run:r1', ownerId: 'u1', workflowId: 'r1', ki
 let harness: Harness;
 afterEach(async () => { await harness.close(); });
 
-async function app() {
+async function app(root?: () => RootReach | undefined) {
   const cleared: Array<readonly string[] | 'all'> = [];
   const infrastructure = new InfrastructureViewService({
     monitoring: { overview: async () => monitoring, koala: async () => koala },
@@ -45,6 +45,7 @@ async function app() {
       } }),
     },
     failures: { shown: async () => [failure], clear: async (_owner, ids) => { cleared.push(ids); return ids === 'all' ? 3 : ids.length; } },
+    root,
   });
   harness = await mountRouter({ prefix: '/api/infrastructure', router: () => infrastructureRouter({ infrastructure }) });
   return { cleared };
@@ -60,6 +61,14 @@ describe('/api/infrastructure', () => {
     expect(res.data.failures).toEqual([failure]);
     expect(res.data.monitoring.attention).toHaveLength(1);
     expect(res.data.koala).toEqual(koala);
+  });
+
+  it('says when the instance cannot reach root, and says nothing where it is not an instance', async () => {
+    await app(() => ({ rootUrl: 'https://app.koala.dev', reachable: false, down: true, unreachableSince: '2026-10-29T10:00:00.000Z' }));
+    expect((await axios.get(harness.url('/api/infrastructure'))).data.root).toEqual({ rootUrl: 'https://app.koala.dev', reachable: false, down: true, unreachableSince: '2026-10-29T10:00:00.000Z' });
+    await harness.close();
+    await app();
+    expect((await axios.get(harness.url('/api/infrastructure'))).data.root).toBeUndefined();
   });
 
   it('reads one cluster', async () => {

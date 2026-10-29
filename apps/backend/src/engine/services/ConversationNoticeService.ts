@@ -7,6 +7,7 @@ export interface ConversationNoticeDeps {
   told: (ownerId: string, conversationId: string) => void;
   channelOf?: ((ownerId: string, projectId: string) => Promise<string | undefined>) | undefined;
   itemChatOf?: ((ownerId: string, item: ChatItem) => Promise<string | undefined>) | undefined;
+  pushed?: ((ownerId: string, notice: ConversationNotice) => Promise<void>) | undefined;
   now?: (() => string) | undefined;
 }
 
@@ -18,7 +19,9 @@ export class ConversationNoticeService {
     const itemChat = notice.refs.leafId ? await this.deps.itemChatOf?.(ownerId, { kind: 'story', leafId: notice.refs.leafId }) : undefined;
     const posted = itemChat ? await this.deliver(ownerId, [itemChat], notice) : [];
     const told = itemChat ? { key: `${notice.key}:line`, kind: notice.kind, text: notice.line ?? notice.text, refs: notice.refs, actions: ['open-story' as const] } : notice;
-    return [...posted, ...await this.deliver(ownerId, await this.audience(ownerId, scope), told)];
+    const delivered = [...posted, ...await this.deliver(ownerId, await this.audience(ownerId, scope), told)];
+    if (delivered.length > 0 && this.deps.pushed) await this.deps.pushed(ownerId, notice).catch(() => undefined);
+    return delivered;
   }
 
   async postTo(ownerId: string, conversationId: string, notice: ConversationNotice): Promise<string[]> {

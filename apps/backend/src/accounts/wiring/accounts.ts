@@ -38,6 +38,7 @@ export function wireAccounts(deps: AccountsWiringDeps): { peopleRemoval: Account
     steps: ROOT_REMOVAL_STEPS,
     instances: () => db.instances.getInstances(),
     releases: () => db.instances.getReleases(),
+    watches: () => db.instances.getWatches(),
     hub: deps.hubPeople,
     principalFor,
     revocations: deps.revocations,

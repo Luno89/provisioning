@@ -9,6 +9,7 @@ export { drained, GITEA_DATA, MOVE_STEP_WORDS, MOVED_POSTGRES, PG_RESTORE } from
 export type { MovePart } from './lib/instance-move.js';
 export { nameProblem, suggestedGroup } from './lib/instance-names.js';
 export type { InstanceRelease } from './lib/instance-updates.js';
+export type { InstanceWatchRecord } from './lib/instance-watch.js';
 export type { InstanceRecord, InstanceStatus } from './lib/instances.js';
 export { importLines } from './lib/mongo-move.js';
 export { publicJwkShaped } from './lib/oidc.js';

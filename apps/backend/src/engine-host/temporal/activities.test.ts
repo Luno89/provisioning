@@ -180,6 +180,25 @@ describe('the remaining engine activities', () => {
 
     expect(posted).toEqual([{ ownerId: 'user-1', notice: { key: 'k', kind: 'workspace-ready' } }]);
   });
+
+  it('tells the run\'s owner when a run asks before a call, naming only the tool', async () => {
+    const { services: svc } = services();
+    const asked: Array<{ ownerId: string; tool: string }> = [];
+    const activities = createEngineActivities({ ...svc, asking: async (ownerId, tool) => { asked.push({ ownerId, tool }); } });
+
+    await activities.EnginePublishActivity({
+      ownerId: 'user-1',
+      events: [
+        { type: 'notice', runId: 'run-1', at: 'now', level: 'warn', nodeId: 'approve', callId: 'c1', tool: 'delete_file', message: 'koala wants to run delete_file on this run: {"path":"secret.txt"}' },
+        { type: 'notice', runId: 'run-1', at: 'now', level: 'info', message: 'just a note' },
+      ] as never,
+    });
+    await activities.EnginePublishActivity({
+      events: [{ type: 'notice', runId: 'run-2', at: 'now', level: 'warn', callId: 'c2', tool: 'run_command', message: 'no owner' }] as never,
+    });
+
+    expect(asked).toEqual([{ ownerId: 'user-1', tool: 'delete_file' }]);
+  });
 });
 
 describe('running a node as an activity', () => {

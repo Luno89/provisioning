@@ -1,6 +1,7 @@
 import { Router, type Request, type Response } from 'express';
 import { asyncRoute } from '../../platform/index.js';
 import type { IdentityService } from '../services/IdentityService.js';
+import { isDown, type Reach } from '../lib/instance-watch.js';
 
 const userOf = (req: Request): { id: string; email: string } =>
   (req as unknown as { user: { id: string; email: string } }).user;
@@ -9,6 +10,7 @@ export function identityRouter(deps: {
   identity: Pick<IdentityService, 'publicKeys' | 'instanceOf' | 'goUrl'>;
   servesTenants: boolean;
   signedIn: (req: Request) => Promise<{ id: string; email: string } | undefined>;
+  reachOf?: ((instanceId: string) => Promise<Reach | undefined>) | undefined;
 }): Router {
   const router = Router();
 
@@ -18,7 +20,11 @@ export function identityRouter(deps: {
 
   router.get('/instance', asyncRoute(async (req: Request, res: Response) => {
     const instance = await deps.identity.instanceOf(userOf(req).id);
-    res.json({ instance: instance ? { id: instance.id, url: instance.url } : null, servesTenants: deps.servesTenants });
+    const reach = instance && deps.reachOf ? await deps.reachOf(instance.id) : undefined;
+    res.json({
+      instance: instance ? { id: instance.id, url: instance.url, ...(isDown(reach) ? { unreachableSince: reach!.unreachableSince } : {}) } : null,
+      servesTenants: deps.servesTenants,
+    });
   }));
 
   router.get('/go', asyncRoute(async (req: Request, res: Response) => {
