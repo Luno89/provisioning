@@ -21,7 +21,7 @@ describe('what only the operator of this server does', () => {
     harness = await mountRouter({ prefix: '/api/vps-catalog', router: () => vpsCatalogRouter({ vpsCatalogService, operatorOnly }) });
     expect((await axios.post(harness.url('/api/vps-catalog/refresh'), {}, { validateStatus: () => true })).status).toBe(403);
     expect(vpsCatalogService.clearCache).not.toHaveBeenCalled();
-    harness.setUser({ ...TEST_USER, isAdmin: true });
+    harness.setUser({ ...TEST_USER, roles: ['operator' as const] });
     expect((await axios.post(harness.url('/api/vps-catalog/refresh'))).data).toEqual({ ok: true });
     expect(vpsCatalogService.clearCache).toHaveBeenCalledTimes(1);
   });
@@ -32,7 +32,7 @@ describe('what only the operator of this server does', () => {
     expect((await axios.post(harness.url('/api/worker'), { clusterId: 'c' }, { validateStatus: () => true })).status).toBe(403);
     expect((await axios.delete(harness.url('/api/worker'), { validateStatus: () => true })).status).toBe(403);
     expect((await axios.get(harness.url('/api/worker'))).data).toMatchObject({ running: true });
-    harness.setUser({ ...TEST_USER, isAdmin: true });
+    harness.setUser({ ...TEST_USER, roles: ['operator' as const] });
     expect((await axios.post(harness.url('/api/worker'), { clusterId: 'c' })).status).toBe(202);
   });
 });

@@ -7,7 +7,7 @@ import { testDatabase } from '../../platform/lib/test-database.js';
 import type { Database } from '../../platform/lib/db-interface.js';
 import { AuthService } from '../services/AuthService.js';
 import { inviteCodeHash } from '../../platform/lib/invite-codes.js';
-import { deviceToken } from '../../platform/lib/auth.js';
+import { deviceToken, sessionToken } from '../../platform/lib/auth.js';
 
 const JWT_SECRET = 'test-secret';
 const SETUP_CODE = 'the-setup-code';
@@ -101,6 +101,24 @@ describe('auth router', () => {
     expect((await me.json() as { email: string }).email).toBe('first@example.com');
   });
 
+  it('tells the first account what the operator may do, from authorize, and a later one only what a person may', async () => {
+    const { login, session } = await registerAndLogin('first@example.com', 'hunter2hunter2');
+    const signedIn = (await login.json() as { user: { claims: unknown; permissions: Record<string, boolean>; isAdmin?: unknown } }).user;
+    const me = await (await fetch(ctx.url('/api/auth/me'), { headers: { cookie: session } })).json() as { claims: unknown; permissions: Record<string, boolean>; isAdmin?: unknown; holdsAccounts?: unknown };
+    expect(me.claims).toEqual([{ role: 'person' }, { role: 'operator' }]);
+    expect(me.permissions).toEqual({
+      administer: true, 'manage-accounts': true, 'see-all-work': true, 'open-platform-namespaces': true, 'change-instance-settings': false, 'manage-own-account': true,
+    });
+    expect(signedIn.permissions).toEqual(me.permissions);
+    expect('isAdmin' in me || 'holdsAccounts' in me || 'isAdmin' in signedIn).toBe(false);
+
+    await db.accounts.saveUser({ id: 'plain', email: 'plain@example.com', twoFactorEnabled: false, emailVerified: true, createdAt: '2026-01-01' });
+    const plain = await fetch(ctx.url('/api/auth/me'), { headers: { cookie: `session=${sessionToken({ id: 'plain', email: 'plain@example.com' }, JWT_SECRET)}` } });
+    expect((await plain.json() as { permissions: Record<string, boolean> }).permissions).toEqual({
+      administer: false, 'manage-accounts': false, 'see-all-work': false, 'open-platform-namespaces': false, 'change-instance-settings': false, 'manage-own-account': true,
+    });
+  });
+
   it('makes only a sign-up with the setup code the first account, and only one of two at once', async () => {
     const signUp = (email: string, inviteCode?: string) => fetch(ctx.url('/api/auth/register'), {
       method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email, password: 'hunter2hunter2', ...(inviteCode ? { inviteCode } : {}) }),
@@ -111,7 +129,7 @@ describe('auth router', () => {
     expect((await signUp('guess@example.com', 'the-setup-cod')).status).toBe(403);
     const both = await Promise.all([signUp('a@example.com', SETUP_CODE), signUp('b@example.com', SETUP_CODE)]);
     expect(both.map((response) => response.status).sort()).toEqual([200, 403]);
-    expect((await db.accounts.getUsers()).filter((user) => user.isAdmin)).toHaveLength(1);
+    expect((await db.accounts.getUsers()).filter((user) => user.roles?.includes('operator'))).toHaveLength(1);
   });
 
   it('makes the first user an admin and nobody after them', async () => {
@@ -125,7 +143,7 @@ describe('auth router', () => {
     expect((await second.json() as { error: string }).error).toMatch(/invite code is required/i);
 
     const first = await db.accounts.getUserByEmail('first@example.com');
-    expect(first?.isAdmin).toBe(true);
+    expect(first?.roles).toEqual(['operator']);
   });
 
   const post = (path: string, body: unknown, cookie?: string) => fetch(ctx.url(path), {
@@ -156,7 +174,7 @@ describe('auth router', () => {
     expect((await (await fetch(ctx.url('/api/auth/me'), { headers: { cookie: session } })).json() as { email: string }).email).toBe('pending@example.com');
     const user = await db.accounts.getUserByEmail('pending@example.com');
     expect(user?.emailVerified).toBe(true);
-    expect(user?.isAdmin).toBeUndefined();
+    expect(user?.roles).toBeUndefined();
     expect((await db.accounts.getInviteByCode('CODE'))?.usedBy).toBe(user?.id);
     expect(await db.accounts.getPendingSignUp(started.body.verify!)).toBeUndefined();
     expect((await post('/api/auth/register/verify', { id: started.body.verify, code: started.body.devCode })).status).toBe(410);
@@ -212,7 +230,7 @@ describe('auth router', () => {
     expect(first.status).toBe(200);
     expect(((await first.json()) as { verify?: string }).verify).toBeUndefined();
     const owner = await db.accounts.getUserByEmail('owner@example.com');
-    expect(owner?.isAdmin).toBe(true);
+    expect(owner?.roles).toEqual(['operator']);
     expect(owner?.emailVerified).toBe(false);
   });
 
@@ -223,7 +241,7 @@ describe('auth router', () => {
     const ok = await signUpWith('second@example.com', 'LETMEIN');
     expect(ok.status).toBe(200);
     expect((await post('/api/auth/register/verify', { id: ok.body.verify, code: ok.body.devCode })).status).toBe(200);
-    expect((await db.accounts.getUserByEmail('second@example.com'))?.isAdmin).toBeUndefined();
+    expect((await db.accounts.getUserByEmail('second@example.com'))?.roles).toBeUndefined();
 
     const reuse = await fetch(ctx.url('/api/auth/register'), {
       method: 'POST',
@@ -249,7 +267,7 @@ describe('auth router', () => {
     expect(started.map((answer) => answer.status)).toEqual([200, 200, 200]);
     const done = await Promise.all(started.map((answer) => post('/api/auth/register/verify', { id: answer.body.verify, code: answer.body.devCode })));
     expect(done.map((response) => response.status).sort()).toEqual([200, 403, 403]);
-    expect((await db.accounts.getUsers()).filter((user) => !user.isAdmin)).toHaveLength(1);
+    expect((await db.accounts.getUsers()).filter((user) => !user.roles?.includes('operator'))).toHaveLength(1);
   });
 
   it('asks for a code against a signed challenge, ends it after five wrong codes, and never takes the challenge as a session', async () => {

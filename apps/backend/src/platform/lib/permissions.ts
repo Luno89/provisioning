@@ -1,4 +1,5 @@
 import type { PlatformRole } from './platform-role.js';
+import type { PlatformGrant } from './types.js';
 
 export type SharedRole = 'owner' | 'collaborator' | 'client';
 
@@ -21,17 +22,19 @@ export interface ClaimSettings {
   instanceOwnerId?: string | undefined;
 }
 
-export function claimsOf(user: { id: string; isAdmin?: boolean | undefined }, settings: ClaimSettings): Claim[] {
+export interface ClaimedUser { id: string; roles?: readonly PlatformGrant[] | undefined }
+
+export function claimsOf(user: ClaimedUser, settings: ClaimSettings): Claim[] {
   const claims: Claim[] = [{ role: 'person' }];
   if (settings.role === 'instance') {
     if (settings.instanceOwnerId !== undefined && user.id === settings.instanceOwnerId) claims.push({ role: 'operator' }, { role: 'instance-owner' });
-  } else if (settings.role !== 'hub' && user.isAdmin === true) {
+  } else if (settings.role !== 'hub' && (user.roles ?? []).includes('operator')) {
     claims.push({ role: 'operator' });
   }
   return claims;
 }
 
-export const principalOf = (user: { id: string; isAdmin?: boolean | undefined }, settings: ClaimSettings): Principal =>
+export const principalOf = (user: ClaimedUser, settings: ClaimSettings): Principal =>
   ({ kind: 'person', id: user.id, claims: claimsOf(user, settings) });
 
 export const asPerson = (id: string): Principal => ({ kind: 'person', id, claims: [{ role: 'person' }] });
@@ -225,3 +228,33 @@ export const rolePrincipal = (id: string, project: string, as: SharedRole): Prin
 
 export const memberPrincipal = (personId: string, project: string, role: string): Principal =>
   (SHARED_ROLES as readonly string[]).includes(role) ? rolePrincipal(personId, project, role as SharedRole) : asPerson(personId);
+
+export const SESSION_PERMISSIONS = ['administer', 'manage-accounts', 'see-all-work', 'open-platform-namespaces', 'change-instance-settings', 'manage-own-account'] as const;
+
+export type SessionPermission = typeof SESSION_PERMISSIONS[number];
+
+export interface SessionPlace {
+  holdsAccounts: boolean;
+}
+
+export function sessionPermissions(principal: Principal, place: SessionPlace): Record<SessionPermission, boolean> {
+  const install = { kind: 'install' } as const;
+  return {
+    administer: allowed(principal, 'administer', install),
+    'manage-accounts': place.holdsAccounts && allowed(principal, 'manage-accounts', install),
+    'see-all-work': allowed(principal, 'see-all-work', install),
+    'open-platform-namespaces': allowed(principal, 'open-platform-namespaces', install),
+    'change-instance-settings': allowed(principal, 'change', { kind: 'instance-settings' }),
+    'manage-own-account': place.holdsAccounts && allowed(principal, 'remove', { kind: 'account', id: principal.id }),
+  };
+}
+
+export interface SessionView {
+  id: string;
+  email: string;
+  claims: readonly Claim[];
+  permissions: Record<SessionPermission, boolean>;
+}
+
+export const sessionView = (user: { id: string; email: string }, principal: Principal, place: SessionPlace): SessionView =>
+  ({ id: user.id, email: user.email, claims: principal.claims, permissions: sessionPermissions(principal, place) });

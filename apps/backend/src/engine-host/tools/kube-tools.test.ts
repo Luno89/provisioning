@@ -20,7 +20,7 @@ function tools(open: string[] = []) {
     clusters: async () => CLUSTERS,
     deployments: async () => DEPLOYMENTS,
     kubectl: vi.fn(async (cluster: ClusterMetadata, argv: string[]) => { ran.push({ cluster: cluster.name, argv }); return `${argv[0]} output`; }),
-    principal: async (ownerId: string) => principalOf({ id: ownerId, isAdmin: ownerId === 'u1' }, { role: 'combined' }),
+    principal: async (ownerId: string) => principalOf({ id: ownerId, roles: ownerId === 'u1' ? ['operator' as const] : [] }, { role: 'combined' }),
     openNamespaces: async () => open,
     accessRequests: { list: async () => requests, save: async (request: AccessRequest) => { requests.push(request); } },
   };

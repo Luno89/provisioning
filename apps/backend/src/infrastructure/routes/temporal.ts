@@ -1,5 +1,5 @@
 import { Router, type Request } from 'express';
-import { asyncRoute, mayTouch, principalFrom, seesEverything, withinQuery, workflowScope } from '../../platform/index.js';
+import { asyncRoute, mayTouch, principalFrom, withinQuery, workflowScope } from '../../platform/index.js';
 
 interface WorkflowRow {
   workflowId: string;
@@ -49,7 +49,7 @@ export function temporalRouter(deps: TemporalRouterDeps): Router {
     const scope = workflowScope(viewer, askedScope(req));
     const pageSize = parseInt(req.query.pageSize as string, 10) || 50;
     const workflows = await temporalBridge.listWorkflows(scope.query, pageSize);
-    res.json({ workflows, all: scope.all, canSeeAll: seesEverything(viewer) });
+    res.json({ workflows, all: scope.all });
   }));
 
   router.get('/workflows/count', asyncRoute(async (req, res) => {

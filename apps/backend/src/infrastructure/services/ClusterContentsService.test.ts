@@ -44,6 +44,7 @@ describe('what is on a cluster', () => {
   it('shows its owner every workload, with the platform services, Helm releases and nodes', async () => {
     const { service } = setUp(() => true);
     const contents = await service.contents(asPerson('admin'), 'sys');
+    expect(contents.can).toEqual(['see-everything']);
     expect(contents.workloads.map((workload) => [workload.group, workload.name, workload.state])).toEqual([
       ['apps', 'theirs-0', 'down'], ['apps', 'shop', 'ok'], ['platform', 'kube-prometheus-stack-grafana', 'ok'],
     ]);
@@ -57,6 +58,7 @@ describe('what is on a cluster', () => {
   it('shows anyone else only their own, and no services, releases or nodes', async () => {
     const { service } = setUp(() => false);
     const contents = await service.contents(asPerson('me'), 'sys');
+    expect(contents.can).toEqual([]);
     expect(contents.workloads.map((workload) => workload.name)).toEqual(['shop']);
     expect(contents.services).toBeUndefined();
     expect(contents.nodes).toBeUndefined();

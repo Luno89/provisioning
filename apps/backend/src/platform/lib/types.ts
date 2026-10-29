@@ -459,6 +459,8 @@ export function isCloudProvider(value: unknown): value is CloudProvider {
   return typeof value === 'string' && (CLOUD_PROVIDERS as readonly string[]).includes(value);
 }
 
+export type PlatformGrant = 'operator';
+
 export interface UserMetadata {
   sessionsEndedAt?: string | undefined;
   id: string;
@@ -473,7 +475,7 @@ export interface UserMetadata {
   emailVerified: boolean;
   createdAt: string;
   credentials?: CloudCredentials;
-  isAdmin?: boolean;
+  roles?: PlatformGrant[] | undefined;
   inviteAccounts?: number | undefined;
   extractionModelId?: string;
   /** The account's default engine: what a pack naming no endpoint of its own runs on. */

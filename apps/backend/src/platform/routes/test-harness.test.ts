@@ -32,7 +32,7 @@ describe('the router test harness', () => {
 
   it('can change tenant mid-test, which is how cross-tenant reads get checked', async () => {
     h = await mountRouter({ prefix: '/api/probe', router: () => probeRouter() });
-    h.setUser({ id: 'someone-else', email: 'other@example.com', isAdmin: false });
+    h.setUser({ id: 'someone-else', email: 'other@example.com' });
     expect((await axios.get(h.url('/api/probe/me'))).data.id).toBe('someone-else');
   });
 

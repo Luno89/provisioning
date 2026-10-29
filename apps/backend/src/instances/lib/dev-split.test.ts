@@ -4,7 +4,7 @@ import type { UserMetadata } from '../../platform/lib/types.js';
 
 const owner: UserMetadata = {
   id: 'u-1', email: 'me@example.com', googleId: 'g-1', twoFactorEnabled: false, emailVerified: true, createdAt: '2026-09-01T00:00:00Z',
-  isAdmin: true, defaultModelId: 'tabby', credentials: { aws: { accessKeyId: 'secret' } } as never,
+  roles: ['operator' as const], defaultModelId: 'tabby', credentials: { aws: { accessKeyId: 'secret' } } as never,
 };
 
 const plan = (name = 'dev', existing?: Parameters<typeof devSplitPlan>[0]['existing']) => devSplitPlan({
@@ -36,7 +36,7 @@ describe('root and an instance on one machine', () => {
   });
 
   it('copies only the account to root, never the person\'s cloud credentials or model settings', () => {
-    expect(plan().rootUser).toEqual({ id: 'u-1', email: 'me@example.com', googleId: 'g-1', twoFactorEnabled: false, emailVerified: true, createdAt: '2026-09-01T00:00:00Z', isAdmin: true });
+    expect(plan().rootUser).toEqual({ id: 'u-1', email: 'me@example.com', googleId: 'g-1', twoFactorEnabled: false, emailVerified: true, createdAt: '2026-09-01T00:00:00Z', roles: ['operator' as const] });
     expect(accountOf(owner)).not.toHaveProperty('credentials');
   });
 
@@ -46,7 +46,7 @@ describe('root and an instance on one machine', () => {
   });
 
   it('owns the dev instance by the first admin, or the one named, and never a check\'s space', () => {
-    const space = { ...owner, id: 's', isAdmin: true, createdAt: '2020-01-01', space: { person: 'u-1', checkRunId: 'c', scenarioId: 's' } };
+    const space = { ...owner, id: 's', roles: ['operator' as const], createdAt: '2020-01-01', space: { person: 'u-1', checkRunId: 'c', scenarioId: 's' } };
     const later = { ...owner, id: 'u-2', email: 'two@example.com', createdAt: '2026-10-01' };
     expect(devSplitOwner([later, space, owner]).id).toBe('u-1');
     expect(devSplitOwner([later, owner], 'two@example.com').id).toBe('u-2');

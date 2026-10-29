@@ -1,4 +1,5 @@
 import type { Database } from './db-interface.js';
+import { runOnce } from './migrations.js';
 import { holds, principalOf, type ClaimSettings } from './permissions.js';
 import type { UserMetadata } from './types.js';
 
@@ -11,7 +12,7 @@ async function firstOperator(db: Database, claims: ClaimSettings): Promise<UserM
   if (operator || !holdsAccounts(claims)) return operator;
   const oldest = byAge[0];
   if (!oldest) return undefined;
-  await db.accounts.saveUser({ ...oldest, isAdmin: true });
+  await db.accounts.saveUser({ ...oldest, roles: ['operator'] });
   console.log(`[migrate-ownership] No operator existed — made ${oldest.email} (oldest account) the operator`);
   return oldest;
 }
@@ -48,3 +49,6 @@ export async function ownUnownedProjects(db: Database, claims: ClaimSettings): P
   console.log(`[migrate-ownership] Gave ${unowned.length} project(s) with no owner to the operator ${operator.email}`);
   return { owned: unowned.length };
 }
+
+export const operatorsFromAdmins = (db: Pick<Database, 'accounts' | 'platform'>, now: string): Promise<Record<string, number>> =>
+  runOnce(db.platform, 'operators-from-admins', now, async () => ({ granted: await db.accounts.grantOperatorToAdmins() }));

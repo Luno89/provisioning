@@ -74,7 +74,7 @@ export interface AccountRemovalDeps {
   instances?: (() => Promise<InstanceRecord[]>) | undefined;
   releases?: (() => Promise<InstanceRelease[]>) | undefined;
   hub?: HubPeople | undefined;
-  principalFor(user: Pick<UserMetadata, 'id' | 'isAdmin'>): Principal;
+  principalFor(user: Pick<UserMetadata, 'id' | 'roles'>): Principal;
   now?: () => string;
 }
 
@@ -92,7 +92,7 @@ export interface PersonInstance {
 export interface PersonEntry {
   id: string;
   email: string;
-  isAdmin: boolean;
+  operator: boolean;
   createdAt: string;
   instance?: PersonInstance | undefined;
   removal?: { startedAt: string; requestedBy: string; state: RemovalWorkflowState; steps?: readonly RemovalStep[] | undefined } | undefined;
@@ -121,7 +121,7 @@ export class AccountRemovalService {
     return { users: users.map((user) => ({ ...user, operator: this.operator(user) })), clusters, deployments };
   }
 
-  private operator(user: Pick<UserMetadata, 'id' | 'isAdmin'>): boolean {
+  private operator(user: Pick<UserMetadata, 'id' | 'roles'>): boolean {
     return holds(this.deps.principalFor(user), 'operator');
   }
 
@@ -163,7 +163,7 @@ export class AccountRemovalService {
       return {
         id: user.id,
         email: user.email,
-        isAdmin: this.operator(user),
+        operator: this.operator(user),
         createdAt: user.createdAt,
         ...(instance ? { instance: instanceOf(instance, releases) } : {}),
         ...(user.removal ? { removal: { ...user.removal, state: await this.deps.workflows.state(removeAccountWorkflowId(user.id)), ...(steps ? { steps } : {}) } } : {}),

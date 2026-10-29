@@ -5,20 +5,23 @@ import { testDatabase } from '../lib/test-database.js';
 import type { Database } from '../lib/db-interface.js';
 import { errorResponder } from '../middleware/async-route.js';
 import { principalOf, type ClaimSettings } from '../lib/permissions.js';
+import type { PlatformGrant } from '../lib/types.js';
 
-export const TEST_USER = { id: 'test-user', email: 'test@example.com', isAdmin: false };
+export interface HarnessUser { id: string; email: string; roles?: PlatformGrant[] | undefined }
+
+export const TEST_USER: HarnessUser = { id: 'test-user', email: 'test@example.com' };
 
 export interface HarnessOptions {
   router: (db: Database) => Router | Promise<Router>;
   prefix: string;
-  user?: typeof TEST_USER | null;
+  user?: HarnessUser | null;
   claims?: ClaimSettings | undefined;
 }
 
 export interface Harness {
   url: (path: string) => string;
   db: Database;
-  setUser: (user: typeof TEST_USER | null) => void;
+  setUser: (user: HarnessUser | null) => void;
   close: () => Promise<void>;
 }
 
@@ -26,14 +29,14 @@ export async function mountRouter(opts: HarnessOptions): Promise<Harness> {
   axios.defaults.proxy = false;
   const db = await testDatabase();
 
-  let current: typeof TEST_USER | null = opts.user === undefined ? TEST_USER : opts.user;
+  let current: HarnessUser | null = opts.user === undefined ? TEST_USER : opts.user;
 
   const app = express();
   app.use(express.json({ limit: '20mb' }));
 
   app.use((req: Request, res: Response, next: NextFunction) => {
     if (!current) return res.status(401).json({ error: 'Session missing' });
-    (req as unknown as { user: typeof TEST_USER }).user = current;
+    (req as unknown as { user: HarnessUser }).user = current;
     (req as unknown as { principal: ReturnType<typeof principalOf> }).principal = principalOf(current, opts.claims ?? { role: 'combined' });
     next();
   });

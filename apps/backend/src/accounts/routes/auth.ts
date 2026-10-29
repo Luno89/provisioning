@@ -2,7 +2,7 @@ import { Router, type Request, type Response } from 'express';
 import {
   attemptsKeyFor, DEVICE_COOKIE, DEVICE_SECONDS, deviceOf, deviceToken, lockedSaid, SignInAttemptLog, signJWT, verifyJWT, hashPassword, verifyPassword, type Auth,
   carriedByOAuthState, cookieNamed, generateOTP, inviteCodeHash, newOAuthState, OAUTH_STATE_COOKIE, OAUTH_STATE_SECONDS, sessionToken,
-  type Database, type SecretKey, holds, principalFrom,
+  type Database, type SecretKey, principalFrom, sessionView, type Principal,
 } from '../../platform/index.js';
 import axios from 'axios';
 import { v4 as uuidv4 } from 'uuid';
@@ -35,6 +35,12 @@ export function authRouter(deps: AuthRouterDeps): Router {
     const known = knownDevice(req);
     res.cookie(deviceCookie, deviceToken(account, sessionKey, known?.account === account ? known.id : undefined), { ...sessionCookieOptions, maxAge: DEVICE_SECONDS * 1000 });
   };
+  const place = { holdsAccounts: deps.accounts !== false };
+  const signedIn = (user: { id: string; email: string; twoFactorEnabled?: boolean | undefined }, principal: Principal) => ({
+    ...sessionView(user, principal, place),
+    twoFactorEnabled: user.twoFactorEnabled === true,
+    ...(deps.hub ? { onHub: true } : {}),
+  });
   const startOAuth = (res: Response, invite: string): string => {
     const { state, cookie } = newOAuthState(invite, sessionKey);
     res.cookie(stateCookie, cookie, { ...sessionCookieOptions, maxAge: OAUTH_STATE_SECONDS * 1000 });
@@ -75,7 +81,7 @@ export function authRouter(deps: AuthRouterDeps): Router {
           twoFactorEnabled: false,
           emailVerified: false,
           createdAt: new Date().toISOString(),
-          isAdmin: true,
+          roles: ['operator'],
         });
         return res.json({ success: true, message: 'User registered successfully' });
       }
@@ -144,7 +150,7 @@ export function authRouter(deps: AuthRouterDeps): Router {
       await db.accounts.saveUser(user);
       setSessionCookie(res, sessionToken(user, sessionKey));
       rememberDevice(req, res, user.email);
-      res.json({ success: true, user: { id: user.id, email: user.email, twoFactorEnabled: false, isAdmin: false } });
+      res.json({ success: true, user: signedIn(user, deps.auth.principalFor(user)) });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
@@ -203,12 +209,7 @@ export function authRouter(deps: AuthRouterDeps): Router {
       rememberDevice(req, res, user.email);
       res.json({
         success: true,
-        user: {
-          id: user.id,
-          email: user.email,
-          twoFactorEnabled: user.twoFactorEnabled,
-          isAdmin: holds(deps.auth.principalFor(user), 'operator'),
-        },
+        user: signedIn(user, deps.auth.principalFor(user)),
       });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -240,12 +241,7 @@ export function authRouter(deps: AuthRouterDeps): Router {
       rememberDevice(req, res, user.email);
       res.json({
         success: true,
-        user: {
-          id: user.id,
-          email: user.email,
-          twoFactorEnabled: user.twoFactorEnabled,
-          isAdmin: holds(deps.auth.principalFor(user), 'operator'),
-        },
+        user: signedIn(user, deps.auth.principalFor(user)),
       });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -263,16 +259,11 @@ export function authRouter(deps: AuthRouterDeps): Router {
       return res.status(401).json({ error: 'Not authenticated' });
     }
     res.json({
-      id: user.id,
-      email: user.email,
-      twoFactorEnabled: user.twoFactorEnabled,
+      ...signedIn(user, principalFrom(req)),
       twoFactorPhone: user.twoFactorPhone,
       twoFactorPreferredMethod: user.twoFactorPreferredMethod,
       emailVerified: user.emailVerified,
       createdAt: user.createdAt,
-      isAdmin: holds(principalFrom(req), 'operator'),
-      holdsAccounts: deps.accounts !== false,
-      ...(deps.hub ? { onHub: true } : {}),
     });
   });
 

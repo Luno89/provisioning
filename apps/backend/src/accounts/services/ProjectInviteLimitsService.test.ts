@@ -9,7 +9,7 @@ async function setUp() {
   const db = await testDatabase();
   for (const user of [
     { id: 'ann', email: 'ann@example.com' },
-    { id: 'root-admin', email: 'admin@example.com', isAdmin: true },
+    { id: 'root-admin', email: 'admin@example.com', roles: ['operator' as const] },
     { id: 'space-1', email: 'space-1@checks', space: { person: 'ann', checkRunId: 'c', scenarioId: 's', models: 'borrowed' as const, world: {} } },
   ]) await db.accounts.saveUser({ twoFactorEnabled: false, createdAt: 't', ...user } as never);
   await db.accounts.saveInvite({ id: 'i1', createdBy: 'ann', createdAt: '2026-10-26T11:00:00.000Z', expiresAt: '2026-11-09T11:00:00.000Z', email: 'cy@example.com', project: { name: 'Shop', role: 'client', join: 'j' }, makesAccount: true });

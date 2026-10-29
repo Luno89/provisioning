@@ -20,7 +20,7 @@ export interface ProjectInvitePerson {
 export type LimitsOutcome<T> = { ok: true; value: T } | { ok: false; status: 400 | 404; why: string };
 
 export class ProjectInviteLimitsService {
-  constructor(private readonly deps: { store: ProjectInviteLimitsStore; principalFor(user: Pick<UserMetadata, 'id' | 'isAdmin'>): Principal; now?: (() => Date) | undefined }) {}
+  constructor(private readonly deps: { store: ProjectInviteLimitsStore; principalFor(user: Pick<UserMetadata, 'id' | 'roles'>): Principal; now?: (() => Date) | undefined }) {}
 
   async limits(): Promise<InviteLimits> {
     return { ...DEFAULT_INVITE_LIMITS, ...(await this.deps.store.getInviteLimits()) };

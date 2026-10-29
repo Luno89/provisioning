@@ -17,9 +17,13 @@ function sources(dir: string): string[] {
 describe('who may do what is decided in one place', () => {
   const files = sources(SRC).map((path) => ({ path: relative(SRC, path), text: readFileSync(path, 'utf8') }));
 
-  it('reads isAdmin nowhere but the claims it gives, and the stores that keep it', () => {
-    const readers = files.filter(({ path, text }) => !DECIDES.has(path) && !path.endsWith('/store.ts') && /\?*\.isAdmin\b/.test(text)).map(({ path }) => path);
+  it('reads a person\'s stored roles nowhere but the claims they give, and the stores that keep them', () => {
+    const readers = files.filter(({ path, text }) => !DECIDES.has(path) && !path.endsWith('/store.ts') && /\?*\.roles\b/.test(text)).map(({ path }) => path);
     expect(readers).toEqual([]);
+  });
+
+  it('keeps no isAdmin anywhere, now that being the operator is a role', () => {
+    expect(files.filter(({ path, text }) => !path.endsWith('/store.ts') && /\bisAdmin\b/.test(text)).map(({ path }) => path)).toEqual([]);
   });
 
   it('leaves no route deciding on its own', () => {

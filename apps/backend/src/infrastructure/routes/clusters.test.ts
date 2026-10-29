@@ -79,7 +79,7 @@ describe('reading one cluster', () => {
 
   it('passes the calling user down to every lookup', async () => {
     const { h, svc } = await mount();
-    h.setUser({ id: 'someone-else', email: 'other@example.com', isAdmin: false });
+    h.setUser({ id: 'someone-else', email: 'other@example.com' });
     await axios.get(h.url('/api/clusters/c1/gpu-status')).catch(() => undefined);
     expect(svc.clusterService.getById).toHaveBeenCalledWith('c1', expect.objectContaining({ id: 'someone-else' }), 'see-everything');
   });
@@ -120,8 +120,8 @@ describe('what only whoever owns a cluster may open', () => {
     svc.clusterService.getById.mockImplementation(async (id: string, principal: Principal, action = 'see') => (id === system.id && allowed(principal, action, clusterResource(system)) ? system : undefined) as never);
     return svc;
   };
-  const someone = { id: 'someone', email: 'someone@example.com', isAdmin: false };
-  const admin = { id: 'an-admin', email: 'admin@example.com', isAdmin: true };
+  const someone = { id: 'someone', email: 'someone@example.com' };
+  const admin = { id: 'an-admin', email: 'admin@example.com', roles: ['operator' as const] };
 
   it('answers someone who only sees the system cluster exactly as for an unknown one, and opens nothing', async () => {
     const { h, svc } = await mount(onSystem(), someone);
@@ -204,7 +204,7 @@ describe('adopting the clusters left on the host', () => {
     expect((await axios.post(h.url('/api/clusters/discover'), {}, { validateStatus: () => true })).status).toBe(403);
     expect(svc.clusterService.discoverClusters).not.toHaveBeenCalled();
     await h.close();
-    const admin = await mount(services(), { ...TEST_USER, isAdmin: true } as typeof TEST_USER);
+    const admin = await mount(services(), { ...TEST_USER, roles: ['operator' as const] } as typeof TEST_USER);
     expect((await axios.post(admin.h.url('/api/clusters/discover'), {})).status).toBe(200);
     expect(admin.svc.clusterService.discoverClusters).toHaveBeenCalledWith(TEST_USER.id);
   });

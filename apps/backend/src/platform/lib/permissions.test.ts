@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   PERMISSIONS, SHARED_ROLES, allowed, authorize, claimsOf, clusterResource, principalOf, sharedActionsOf, withSharedRole,
-  type Principal, type Resource, type SharedAction, type SharedRole,
+  type Principal, type Resource, type SharedAction, type SharedRole, sessionPermissions,
 } from './permissions.js';
 
 const person = (id: string, extra: Principal['claims'] = []): Principal => ({ kind: 'person', id, claims: [{ role: 'person' }, ...extra] });
@@ -10,22 +10,22 @@ const instanceOwner = person('owner', [{ role: 'operator' }, { role: 'instance-o
 const someone = person('someone');
 
 describe('claimsOf', () => {
-  it('gives the operator claim from isAdmin on root and combined, never on the hub', () => {
-    expect(claimsOf({ id: 'a', isAdmin: true }, { role: 'root' })).toEqual([{ role: 'person' }, { role: 'operator' }]);
-    expect(claimsOf({ id: 'a', isAdmin: true }, { role: 'combined' })).toEqual([{ role: 'person' }, { role: 'operator' }]);
-    expect(claimsOf({ id: 'a', isAdmin: true }, { role: 'hub' })).toEqual([{ role: 'person' }]);
+  it('gives the operator claim from the operator role on root and combined, never on the hub', () => {
+    expect(claimsOf({ id: 'a', roles: ['operator' as const] }, { role: 'root' })).toEqual([{ role: 'person' }, { role: 'operator' }]);
+    expect(claimsOf({ id: 'a', roles: ['operator' as const] }, { role: 'combined' })).toEqual([{ role: 'person' }, { role: 'operator' }]);
+    expect(claimsOf({ id: 'a', roles: ['operator' as const] }, { role: 'hub' })).toEqual([{ role: 'person' }]);
     expect(claimsOf({ id: 'a' }, { role: 'combined' })).toEqual([{ role: 'person' }]);
   });
 
-  it('makes the instance owner the operator of their instance by its owner id, whatever isAdmin says', () => {
-    expect(claimsOf({ id: 'owner', isAdmin: false }, { role: 'instance', instanceOwnerId: 'owner' }))
+  it('makes the instance owner the operator of their instance by its owner id, whatever role is stored', () => {
+    expect(claimsOf({ id: 'owner' }, { role: 'instance', instanceOwnerId: 'owner' }))
       .toEqual([{ role: 'person' }, { role: 'operator' }, { role: 'instance-owner' }]);
-    expect(claimsOf({ id: 'other', isAdmin: true }, { role: 'instance', instanceOwnerId: 'owner' })).toEqual([{ role: 'person' }]);
-    expect(claimsOf({ id: 'owner', isAdmin: true }, { role: 'instance' })).toEqual([{ role: 'person' }]);
+    expect(claimsOf({ id: 'other', roles: ['operator' as const] }, { role: 'instance', instanceOwnerId: 'owner' })).toEqual([{ role: 'person' }]);
+    expect(claimsOf({ id: 'owner', roles: ['operator' as const] }, { role: 'instance' })).toEqual([{ role: 'person' }]);
   });
 
   it('builds a principal with them', () => {
-    expect(principalOf({ id: 'a', isAdmin: true }, { role: 'root' })).toEqual({ kind: 'person', id: 'a', claims: [{ role: 'person' }, { role: 'operator' }] });
+    expect(principalOf({ id: 'a', roles: ['operator' as const] }, { role: 'root' })).toEqual({ kind: 'person', id: 'a', claims: [{ role: 'person' }, { role: 'operator' }] });
   });
 });
 
@@ -114,5 +114,27 @@ describe('the permissions table', () => {
   it('refuses a shared action with the table\'s sentence', () => {
     expect(authorize(withSharedRole(someone, 'p1', 'client'), 'invite', { kind: 'shared-project', id: 'p1' }))
       .toEqual({ allowed: false, status: 403, error: 'Only an owner can invite people to this project.' });
+  });
+});
+
+describe('what the session says a person may do', () => {
+  const on = (role: 'root' | 'combined' | 'instance' | 'hub', roles: ('operator')[] = []) =>
+    principalOf({ id: 'me', roles }, { role, instanceOwnerId: role === 'instance' ? 'me' : undefined });
+
+  it('gives an instance\'s owner its settings and the operator\'s powers there, but no accounts to manage', () => {
+    expect(sessionPermissions(on('instance'), { holdsAccounts: false })).toEqual({
+      administer: true, 'manage-accounts': false, 'see-all-work': true, 'open-platform-namespaces': true, 'change-instance-settings': true, 'manage-own-account': false,
+    });
+  });
+
+  it('lets root\'s operator manage accounts and anyone remove their own account where accounts are held', () => {
+    expect(sessionPermissions(on('root', ['operator']), { holdsAccounts: true })['manage-accounts']).toBe(true);
+    expect(sessionPermissions(on('root'), { holdsAccounts: true })).toEqual({
+      administer: false, 'manage-accounts': false, 'see-all-work': false, 'open-platform-namespaces': false, 'change-instance-settings': false, 'manage-own-account': true,
+    });
+  });
+
+  it('gives nobody on the hub an operator\'s power, whatever role is stored', () => {
+    expect(Object.values(sessionPermissions(on('hub', ['operator']), { holdsAccounts: false })).some(Boolean)).toBe(false);
   });
 });

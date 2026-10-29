@@ -24,7 +24,7 @@ describe('/api/cluster-access', () => {
   });
 
   it('opens exactly the asked namespaces for that conversation when an administrator grants it', async () => {
-    harness.setUser({ ...TEST_USER, isAdmin: true });
+    harness.setUser({ ...TEST_USER, roles: ['operator' as const] });
     const res = await post(harness.url('/api/cluster-access/q1/grant'));
     expect(res.data.status).toBe('granted');
     expect((await harness.db.engine.getConversation(TEST_USER.id, 'c1'))?.platformNamespaces).toEqual(['monitoring']);
@@ -32,7 +32,7 @@ describe('/api/cluster-access', () => {
   });
 
   it('never opens the vault, even if a request for it was stored', async () => {
-    harness.setUser({ ...TEST_USER, isAdmin: true });
+    harness.setUser({ ...TEST_USER, roles: ['operator' as const] });
     await harness.db.infrastructure.saveAccessRequest({ id: 'q2', ownerId: TEST_USER.id, conversationId: 'c1', namespaces: ['infisical'], why: 'x', status: 'requested', createdAt: 'x', updatedAt: 'x' });
     expect((await post(harness.url('/api/cluster-access/q2/grant'))).status).toBe(409);
   });

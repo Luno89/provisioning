@@ -5,8 +5,8 @@ import { DEFAULT_INVITE_LIMITS, projectInviteRefusal, type InviteLimits } from '
 
 export interface ProjectInviteDeps {
   invites: { getInviteByCode(code: string): Promise<InviteMetadata | undefined>; saveInvite(invite: InviteMetadata): Promise<void>; getInvites(): Promise<InviteMetadata[]> };
-  people: { getUserById(id: string): Promise<Pick<UserMetadata, 'id' | 'isAdmin' | 'inviteAccounts'> | undefined>; getUserByEmail(email: string): Promise<unknown> };
-  principalFor(user: Pick<UserMetadata, 'id' | 'isAdmin'>): Principal;
+  people: { getUserById(id: string): Promise<Pick<UserMetadata, 'id' | 'roles' | 'inviteAccounts'> | undefined>; getUserByEmail(email: string): Promise<unknown> };
+  principalFor(user: Pick<UserMetadata, 'id' | 'roles'>): Principal;
   limits: () => Promise<Partial<InviteLimits> | undefined>;
   mail?: { available(): { ok: true } | { ok: false; why: string }; toAddress(to: string, message: MailMessage): Promise<void> } | undefined;
   rootUrl: string;
