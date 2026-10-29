@@ -6,12 +6,12 @@ import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
+import { RUNTIME } from './machine-runtime.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const app = path.resolve(here, '..');
 const out = path.resolve(process.argv[2] ?? path.join(app, 'dist'));
 const staging = path.join(out, 'machine');
-const RUNTIME = ['@temporalio/worker', '@temporalio/activity', '@temporalio/common', 'protobufjs', '@agentclientprotocol/sdk', 'socket.io-client'];
 
 const require = createRequire(path.join(app, 'package.json'));
 const versionOf = (name) => {

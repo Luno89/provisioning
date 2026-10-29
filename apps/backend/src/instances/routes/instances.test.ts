@@ -250,3 +250,49 @@ describe('an instance\'s updates on root', () => {
     expect((await call('put', '/api/instances/updates', { auto: 'yes' })).status).toBe(400);
   });
 });
+
+describe('Koala\'s dependencies on root', () => {
+  let harness: Harness | undefined;
+  afterEach(async () => { await harness?.close(); });
+
+  const watch = {
+    view: async () => ({ findings: [], check: { checkedAt: '2026-10-29T00:00:00.000Z', releases: [], components: [], problems: [] } }),
+    check: async () => ({ findings: [] }),
+    forRelease: async (imageTag: string) => ({ release: imageTag === 'new222' ? 'v2026.10.25' : imageTag, findings: [{ component: { name: 'seroval', version: '1.6.7', kind: 'npm' as const }, advisory: { id: 'GHSA-x' }, state: 'due' as const, fix: '1.6.8', fixedBy: 'v2026.10.29' }] }),
+  };
+
+  const mount = async (operator: boolean) => mountRouter({
+    prefix: '/api/instances',
+    user: { ...TEST_USER, ...(operator ? { roles: ['operator'] } : {}) },
+    router: async (db) => {
+      await db.instances.saveInstance({ id: 'inst-1', ownerId: 'u1', name: 'alice', status: 'ready', url: '', createdAt: 'then', updatedAt: 'then', credentialHash: hashCredential('secret'), running: 'new222' });
+      return instancesRouter({
+        instances: new InstanceService(db, { rootUrl: 'https://app.koala.dev', rootPublicKeys: () => ['PEM'], registry: 'r', imageTag: 'new222' }, undefined),
+        chart: async () => '',
+        administers: (req: Request, res: Response, next: NextFunction) => (allowed((req as unknown as { principal: Principal }).principal, 'administer', { kind: 'install' }) ? next() : res.status(403).json({ error: 'Only the operator of this server can do that.' })),
+        dependencies: watch,
+      });
+    },
+  });
+
+  it('shows the findings and runs the check only for the operator', async () => {
+    harness = await mount(false);
+    expect((await axios.get(harness.url('/api/instances/dependencies'), { validateStatus: () => true })).status).toBe(403);
+    expect((await axios.post(harness.url('/api/instances/dependencies/check'), {}, { validateStatus: () => true })).status).toBe(403);
+    await harness.close();
+    harness = await mount(true);
+    const seen = await axios.get(harness.url('/api/instances/dependencies'), { validateStatus: () => true });
+    expect(seen.status).toBe(200);
+    expect(seen.headers['cache-control']).toBe('no-store');
+    expect(seen.data.check.checkedAt).toBe('2026-10-29T00:00:00.000Z');
+    expect((await axios.post(harness.url('/api/instances/dependencies/check'), {}, { validateStatus: () => true })).status).toBe(200);
+  });
+
+  it('tells an instance, by its credential, what the release it runs carries and what fixes it', async () => {
+    harness = await mount(false);
+    const ask = (credential: string) => axios.get(harness!.url('/api/instances/release-findings'), { headers: { 'x-instance-id': 'inst-1', authorization: `Bearer ${credential}` }, validateStatus: () => true });
+    const answer = await ask('secret');
+    expect(answer.data).toMatchObject({ release: 'v2026.10.25', findings: [{ advisory: { id: 'GHSA-x' }, fixedBy: 'v2026.10.29' }] });
+    expect((await ask('wrong')).status).toBe(401);
+  });
+});

@@ -3,8 +3,9 @@ import fs from 'fs/promises';
 import type express from 'express';
 import {
   type Database, type SecretKey, allowed, holdsAccounts, servesTenants, signsInThroughRoot, type RoleConfig, startedFor,
-  getTemporalClient, type mongoTarget, type MailService, type createAuth,
+  getTemporalClient, type mongoTarget, type MailService, type createAuth, claimSettingsFrom, operatorsAmong, PLATFORM_OWNER, publicFetch,
 } from '../../platform/index.js';
+import { WorkflowExecutionAlreadyStartedError } from '@temporalio/common';
 import { poolSettingsFrom } from '../lib/pool.js';
 import { issueMoveToken, type UsedTokenClaim } from '../lib/identity-token.js';
 import { MOVE_FINISHED, MOVE_STOPPED, answersWhileMoving, poolMoveWorkflowId } from '../lib/instance-move.js';
@@ -16,8 +17,10 @@ import { InstanceRoutes, dockerCaddy, socketCaddy } from '../services/InstanceRo
 import { InstanceAddresses, adminEdge } from '../services/InstanceAddresses.js';
 import { InstanceTrial } from '../services/InstanceTrial.js';
 import { InstanceUpdates } from '../services/InstanceUpdates.js';
-import { InstanceChart } from '../services/InstanceChart.js';
+import { InstanceChart, releaseInventory } from '../services/InstanceChart.js';
 import { ReleaseCatalogue } from '../services/ReleaseCatalogue.js';
+import { DependencyWatch } from '../services/DependencyWatch.js';
+import { DEPENDENCY_WATCH_ID } from '../lib/dependency-findings.js';
 import { MoveExport } from '../services/MoveExport.js';
 import { MoveRelay, kubeconfigFile } from '../services/MoveRelay.js';
 import { PoolMonitoringService } from '../services/PoolMonitoringService.js';
@@ -163,8 +166,8 @@ export async function wireInstances(deps: InstancesWiringDeps): Promise<Instance
 
   tenant.use('/api/instance-addresses', instanceAddressesRouter({ addresses: () => deps.side.current() }));
   tenant.use('/api/instance-watch', instanceWatchRouter({
-    setting: role.instance && env.INSTANCE_CREDENTIAL
-      ? new InstanceWatchSetting({ rootUrl: role.instance.rootUrl, instanceId: role.instance.id, credential: env.INSTANCE_CREDENTIAL })
+    setting: role.instance && deps.rootToken
+      ? new InstanceWatchSetting({ rootUrl: role.instance.rootUrl, instanceId: role.instance.id, token: deps.rootToken })
       : undefined,
   }));
   tenant.use('/api/instance-trial', instanceTrialRouter({
@@ -191,6 +194,7 @@ export async function wireInstances(deps: InstancesWiringDeps): Promise<Instance
     imageTag: env.INSTANCE_IMAGE_TAG || 'dev',
     imageDigest: env.INSTANCE_IMAGE_DIGEST,
     chart: () => instanceChart.path(),
+    inventory: (release, out) => releaseInventory(deps.repoRoot, release, out),
   });
   releaseCatalogue.recordCurrent().catch((err: Error) => console.error(`[releases] could not record the release root runs: ${err.message}`));
   const routingDomain = env.INGRESS_DOMAIN || undefined;
@@ -203,6 +207,36 @@ export async function wireInstances(deps: InstancesWiringDeps): Promise<Instance
     .filter((site): site is string => Boolean(site && routingDomain && site.endsWith(`.${routingDomain}`)))
     .map((site) => site.slice(0, -(routingDomain!.length + 1)));
   const poolTaskQueue = env.POOL_TASK_QUEUE || 'host-ops-queue';
+  const dependencyWatch = new DependencyWatch({
+    store: db.instances,
+    inventoryOf: async (tag) => {
+      const file = releaseCatalogue.inventoryFile(tag);
+      if (!file) return undefined;
+      try {
+        return JSON.parse(await fs.readFile(file, 'utf8')) as unknown;
+      } catch {
+        return undefined;
+      }
+    },
+    currentRelease: env.INSTANCE_IMAGE_TAG || 'dev',
+    fetchImpl: publicFetch,
+    tell: async (message) => {
+      for (const operator of operatorsAmong(await db.accounts.getUsers(), claimSettingsFrom(role))) {
+        await deps.mail.toOwner(operator.id, message).catch((error: Error) => console.warn(`[dependencies] could not email ${operator.id} "${message.subject}": ${error.message}`));
+      }
+    },
+    rootUrl: publicUrl,
+  });
+  (async () => {
+    await (await getTemporalClient()).workflow.start('DependencyWatchWorkflow', {
+      workflowId: DEPENDENCY_WATCH_ID,
+      taskQueue: poolTaskQueue,
+      args: [],
+      ...startedFor(PLATFORM_OWNER),
+    });
+  })().catch((error: Error) => {
+    if (!(error instanceof WorkflowExecutionAlreadyStartedError)) console.warn(`[dependencies] the daily check did not start: ${error.message}`);
+  });
   const pool = poolSettingsFrom(env, POOL_KUBECONFIG);
   const instanceService = new InstanceService(db, {
     rootUrl: publicUrl,
@@ -282,7 +316,7 @@ export async function wireInstances(deps: InstancesWiringDeps): Promise<Instance
       return { token: issueMoveToken(role.signing!, HUB_AUDIENCE, hubInstancePart(instanceId, ownerId, owner.email)), hubUrl: role.hubLink!.url, personId: ownerId, email: owner.email, instanceId };
     }
     : undefined;
-  app.use('/api/instances', instancesRouter({ instances: instanceService, mailLimit: new InstanceMailLimit(), chart: () => instanceChart.path(), chartOf: (imageTag) => releaseCatalogue.chartFile(imageTag), mail: deps.mail, operatorOnly: deps.auth.requireOperator('manage-accounts'), poolMonitoring, moveRelay, hubAccess }));
+  app.use('/api/instances', instancesRouter({ instances: instanceService, mailLimit: new InstanceMailLimit(), chart: () => instanceChart.path(), chartOf: (imageTag) => releaseCatalogue.chartFile(imageTag), mail: deps.mail, operatorOnly: deps.auth.requireOperator('manage-accounts'), administers: deps.auth.requireOperator('administer'), dependencies: dependencyWatch, poolMonitoring, moveRelay, hubAccess }));
   const installer = (await fs.readFile(path.join(deps.repoRoot, 'scripts/instance/install.sh'), 'utf8')).replace('__ROOT_URL__', publicUrl);
   app.get('/install.sh', (_req, res) => res.type('text/x-shellscript').send(installer));
   app.get('/install/setup-gpu.sh', (_req, res) => res.type('text/x-shellscript').sendFile(path.join(deps.repoRoot, 'scripts/setup-gpu.sh')));

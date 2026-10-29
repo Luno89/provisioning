@@ -88,6 +88,9 @@ jobs:
           helm package charts/instance --app-version "${VERSION}" --destination dist
           mv dist/instance-*.tgz "dist/instance-${VERSION}.tgz"
 
+      - name: The release's inventory
+        run: node scripts/deps-inventory.mjs --release "${VERSION}" --out "dist/sbom-${VERSION}.cdx.json"
+
       - name: The release on GitHub
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -100,11 +103,11 @@ jobs:
             echo
             echo "Image: \`${IMAGE}:${VERSION}\` (\`${IMAGE}@${digest}\`)"
             echo
-            echo "Chart: \`instance-${VERSION}.tgz\`, below."
+            echo "Chart: \`instance-${VERSION}.tgz\`, and what it is made of: \`sbom-${VERSION}.cdx.json\` (CycloneDX), below."
           } > notes.md
           if [ -n "${ACT:-}" ]; then
-            echo "under act, nothing is released; it would post dist/instance-${VERSION}.tgz ($(du -h "dist/instance-${VERSION}.tgz" | cut -f1)) with these notes:"
+            echo "under act, nothing is released; it would post dist/instance-${VERSION}.tgz ($(du -h "dist/instance-${VERSION}.tgz" | cut -f1)) and dist/sbom-${VERSION}.cdx.json ($(du -h "dist/sbom-${VERSION}.cdx.json" | cut -f1)) with these notes:"
             cat notes.md
             exit 0
           fi
-          gh release create "${VERSION}" "dist/instance-${VERSION}.tgz" --title "${VERSION}" --notes-file notes.md --verify-tag
+          gh release create "${VERSION}" "dist/instance-${VERSION}.tgz" "dist/sbom-${VERSION}.cdx.json" --title "${VERSION}" --notes-file notes.md --verify-tag

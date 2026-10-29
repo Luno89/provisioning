@@ -1,6 +1,7 @@
 import { isAxiosError } from 'axios'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../../../api/client'
+import type { ReleaseFindings } from './dependencies'
 
 /**
  * ── DUPLICATED, KNOWINGLY ── `UpdatesView` in apps/backend/src/instances/lib/instance-updates.ts and `UpdatesAnswer` in
@@ -30,6 +31,7 @@ export interface UpdatesView {
 
 export const instanceUpdateKeys = {
   mine: () => ['instance-updates'] as const,
+  findings: () => ['instance-updates', 'findings'] as const,
 }
 
 export const getInstanceUpdates = (): Promise<UpdatesView | null> =>
@@ -55,4 +57,14 @@ export function useChangeInstanceUpdates() {
     mutationFn: changeInstanceUpdates,
     onSuccess: (view) => { client.setQueryData(instanceUpdateKeys.mine(), view) },
   })
+}
+
+export const getReleaseFindings = (): Promise<ReleaseFindings | null> =>
+  api.get<ReleaseFindings>('/instance-updates/findings').then((r) => r.data).catch((err: unknown) => {
+    if (isAxiosError(err) && err.response?.status === 404) return null
+    throw err
+  })
+
+export function useReleaseFindings() {
+  return useQuery({ queryKey: instanceUpdateKeys.findings(), queryFn: getReleaseFindings })
 }

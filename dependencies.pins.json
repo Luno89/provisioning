@@ -1,0 +1,920 @@
+{
+  "components": [
+    {
+      "kind": "binary",
+      "name": "act",
+      "version": "0.2.89",
+      "sha256": "0191d6f1f3b716b5c55820032605d05fc3c1cdbf581ebeff655019e5dd1524c0",
+      "source": "https://github.com/nektos/act/releases/download/v0.2.89/act_Linux_x86_64.tar.gz",
+      "fetch": "member:act",
+      "ciTool": true,
+      "usedIn": [
+        "scripts/ci-tools.sh"
+      ],
+      "github": "nektos/act"
+    },
+    {
+      "kind": "binary",
+      "name": "actionlint",
+      "version": "1.7.12",
+      "sha256": "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8",
+      "source": "https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz",
+      "fetch": "member:actionlint",
+      "ciTool": true,
+      "usedIn": [
+        "scripts/ci-tools.sh"
+      ],
+      "github": "rhysd/actionlint"
+    },
+    {
+      "kind": "binary",
+      "name": "gitleaks",
+      "version": "8.30.1",
+      "sha256": "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb",
+      "source": "https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz",
+      "fetch": "member:gitleaks",
+      "ciTool": true,
+      "usedIn": [
+        "scripts/ci-tools.sh"
+      ],
+      "github": "gitleaks/gitleaks"
+    },
+    {
+      "kind": "binary",
+      "name": "trufflehog",
+      "version": "3.99.2",
+      "sha256": "3c7b0d1dc4278294269bfdd7594bca8bb28c78da0a4a06ad202ded37b48deca4",
+      "source": "https://github.com/trufflesecurity/trufflehog/releases/download/v3.99.2/trufflehog_3.99.2_linux_amd64.tar.gz",
+      "fetch": "member:trufflehog",
+      "ciTool": true,
+      "usedIn": [
+        "scripts/ci-tools.sh"
+      ],
+      "github": "trufflesecurity/trufflehog"
+    },
+    {
+      "kind": "binary",
+      "name": "opengrep",
+      "version": "1.30.2",
+      "sha256": "a66aa3278457f02b287b985a45b6762aebcaba5000f2689245fd1ed86d1456c7",
+      "source": "https://github.com/opengrep/opengrep/releases/download/v1.30.2/opengrep_manylinux_x86",
+      "fetch": "binary",
+      "ciTool": true,
+      "usedIn": [
+        "scripts/ci-tools.sh"
+      ],
+      "github": "opengrep/opengrep"
+    },
+    {
+      "kind": "binary",
+      "name": "osv-scanner",
+      "version": "2.6.0",
+      "sha256": "ca69b3d3cd08f889a49dc0a383122f71cc528b83803671df5fd874d97485b108",
+      "source": "https://github.com/google/osv-scanner/releases/download/v2.6.0/osv-scanner_linux_amd64",
+      "fetch": "binary",
+      "ciTool": true,
+      "usedIn": [
+        "scripts/ci-tools.sh"
+      ],
+      "github": "google/osv-scanner"
+    },
+    {
+      "kind": "binary",
+      "name": "trivy",
+      "version": "0.75.0",
+      "sha256": "c6e65abddb348e25f10549df887045629cf28cc72453cd1c63acb717316b3f3f",
+      "source": "https://github.com/aquasecurity/trivy/releases/download/v0.75.0/trivy_0.75.0_Linux-64bit.tar.gz",
+      "fetch": "member:trivy",
+      "ciTool": true,
+      "usedIn": [
+        "scripts/ci-tools.sh"
+      ],
+      "github": "aquasecurity/trivy"
+    },
+    {
+      "kind": "binary",
+      "name": "zizmor",
+      "version": "1.30.1",
+      "sha256": "e65324f4430c2717591937edcec90ccbefaf14c174f8ec9415e03ca875b46e1a",
+      "source": "https://github.com/zizmorcore/zizmor/releases/download/v1.30.1/zizmor-x86_64-unknown-linux-gnu.tar.gz",
+      "fetch": "member:zizmor",
+      "ciTool": true,
+      "usedIn": [
+        "scripts/ci-tools.sh"
+      ],
+      "github": "zizmorcore/zizmor"
+    },
+    {
+      "kind": "binary",
+      "name": "kubescape",
+      "version": "4.0.15",
+      "sha256": "6c9fd51bcdcd1093d19383ef20e1c58c2bf83c9026073f8dcc786680ed2a0093",
+      "source": "https://github.com/kubescape/kubescape/releases/download/v4.0.15/kubescape_4.0.15_linux_amd64.tar.gz",
+      "fetch": "member:kubescape",
+      "ciTool": true,
+      "usedIn": [
+        "scripts/ci-tools.sh"
+      ],
+      "github": "kubescape/kubescape"
+    },
+    {
+      "kind": "binary",
+      "name": "nuclei",
+      "version": "3.11.1",
+      "sha256": "ea63d4ae232808cd7c6bc00d0142428e231fab59dae01042246097d195835ab6",
+      "source": "https://github.com/projectdiscovery/nuclei/releases/download/v3.11.1/nuclei_3.11.1_linux_amd64.zip",
+      "fetch": "zip:nuclei",
+      "ciTool": true,
+      "usedIn": [
+        "scripts/ci-tools.sh"
+      ],
+      "github": "projectdiscovery/nuclei"
+    },
+    {
+      "kind": "binary",
+      "name": "lynis",
+      "version": "3.1.7",
+      "sha256": "b5314a07fd85fa3ffc7da57b508f0108ec3280d84e4af823f805d95cbbc2428c",
+      "source": "https://downloads.cisofy.com/lynis/lynis-3.1.7.tar.gz",
+      "fetch": "tree:lynis/lynis",
+      "ciTool": true,
+      "usedIn": [
+        "scripts/ci-tools.sh",
+        "tests/release-live.ts"
+      ]
+    },
+    {
+      "kind": "binary",
+      "name": "cosign",
+      "version": "3.1.3",
+      "sha256": "4629c757b7618056f8ddd7e2625ae9fdd94c0372a65049520bc7d9df9efc7f71",
+      "source": "https://github.com/sigstore/cosign/releases/download/v3.1.3/cosign-linux-amd64",
+      "fetch": "binary",
+      "ciTool": true,
+      "usedIn": [
+        "scripts/ci-tools.sh",
+        "scripts/root-node/bootstrap.sh"
+      ],
+      "github": "sigstore/cosign",
+      "uses": [
+        {
+          "file": "scripts/root-node/bootstrap.sh",
+          "pattern": "COSIGN_VERSION=([0-9.]+)"
+        }
+      ],
+      "shaUses": [
+        {
+          "file": "scripts/root-node/bootstrap.sh",
+          "pattern": "COSIGN_SHA256=([0-9a-f]{64})"
+        }
+      ]
+    },
+    {
+      "kind": "binary",
+      "name": "codeql",
+      "version": "2.27.2",
+      "sha256": "f002864be6dd8d5d7bdb123aaf7291ec8e291012bd9f70b6d2362f730db52aeb",
+      "source": "https://github.com/github/codeql-action/releases/download/codeql-bundle-v2.27.2/codeql-bundle-linux64.tar.gz",
+      "fetch": "tree:codeql/codeql",
+      "ciTool": true,
+      "usedIn": [
+        "scripts/ci-tools.sh"
+      ],
+      "github": "github/codeql-action"
+    },
+    {
+      "kind": "binary",
+      "name": "kubectl",
+      "version": "v1.36.2",
+      "source": "https://dl.k8s.io/release/v1.36.2/bin/linux/amd64/kubectl",
+      "github": "kubernetes/kubernetes",
+      "osv": {
+        "ecosystem": "Go",
+        "name": "k8s.io/kubernetes"
+      },
+      "uses": [
+        {
+          "file": "Dockerfile",
+          "pattern": "ARG KUBECTL_VERSION=(v[0-9.]+)"
+        }
+      ]
+    },
+    {
+      "kind": "binary",
+      "name": "helm",
+      "version": "v3.15.1",
+      "source": "https://get.helm.sh/helm-v3.15.1-linux-amd64.tar.gz",
+      "github": "helm/helm",
+      "osv": {
+        "ecosystem": "Go",
+        "name": "helm.sh/helm/v3"
+      },
+      "uses": [
+        {
+          "file": "Dockerfile",
+          "pattern": "ARG HELM_VERSION=(v[0-9.]+)"
+        },
+        {
+          "file": "scripts/setup.sh",
+          "pattern": "helm-(v[0-9.]+)-"
+        },
+        {
+          "file": "apps/backend/src/extensions/odoo/workspace-base.ts",
+          "pattern": "HELM_VERSION = '(v[0-9.]+)'"
+        },
+        {
+          "file": ".github/workflows/release.yml",
+          "pattern": "version: (v[0-9.]+)"
+        }
+      ]
+    },
+    {
+      "kind": "binary",
+      "name": "k3d",
+      "version": "v5.6.3",
+      "source": "https://github.com/k3d-io/k3d/releases/download/v5.6.3/k3d-linux-amd64",
+      "github": "k3d-io/k3d",
+      "osv": {
+        "ecosystem": "Go",
+        "name": "github.com/k3d-io/k3d/v5"
+      },
+      "uses": [
+        {
+          "file": "Dockerfile",
+          "pattern": "ARG K3D_VERSION=(v[0-9.]+)"
+        },
+        {
+          "file": "scripts/setup.sh",
+          "pattern": "k3d/releases/download/(v[0-9.]+)/"
+        }
+      ]
+    },
+    {
+      "kind": "binary",
+      "name": "terraform",
+      "version": "1.9.0",
+      "source": "https://releases.hashicorp.com/terraform/1.9.0/terraform_1.9.0_linux_amd64.zip",
+      "github": "hashicorp/terraform",
+      "osv": {
+        "ecosystem": "Go",
+        "name": "github.com/hashicorp/terraform"
+      },
+      "uses": [
+        {
+          "file": "Dockerfile",
+          "pattern": "ARG TERRAFORM_VERSION=([0-9.]+)"
+        },
+        {
+          "file": "scripts/setup.sh",
+          "pattern": "terraform/([0-9.]+)/terraform_"
+        }
+      ]
+    },
+    {
+      "kind": "binary",
+      "name": "docker-compose",
+      "version": "v2.29.1",
+      "source": "https://github.com/docker/compose/releases/download/v2.29.1/docker-compose-linux-x86_64",
+      "github": "docker/compose",
+      "osv": {
+        "ecosystem": "Go",
+        "name": "github.com/docker/compose/v2"
+      },
+      "uses": [
+        {
+          "file": "scripts/setup.sh",
+          "pattern": "docker/compose/releases/download/(v[0-9.]+)/"
+        }
+      ]
+    },
+    {
+      "kind": "binary",
+      "name": "k3s",
+      "version": "v1.36.4+k3s1",
+      "source": "https://raw.githubusercontent.com/k3s-io/k3s/v1.36.4%2Bk3s1/install.sh",
+      "sha256": "46177d4c99440b4c0311b67233823a8e8a2fc09693f6c89af1a7161e152fbfad",
+      "github": "k3s-io/k3s",
+      "osv": {
+        "ecosystem": "Go",
+        "name": "github.com/k3s-io/k3s"
+      },
+      "uses": [
+        {
+          "file": "scripts/cluster.sh",
+          "pattern": "K3S_VERSION=\"(v[0-9.]+\\+k3s[0-9]+)\""
+        }
+      ],
+      "shaUses": [
+        {
+          "file": "scripts/cluster.sh",
+          "pattern": "K3S_INSTALLER_SHA256=([0-9a-f]{64})"
+        }
+      ]
+    },
+    {
+      "kind": "binary",
+      "name": "gvisor",
+      "version": "20261005.0",
+      "source": "https://storage.googleapis.com/gvisor/releases/release/20261005.0/x86_64/gvisor.tar.zstd",
+      "sha512": "27fed731b432d6a39d908956623fd273979fda66b3ccf4b9c12413ea417c516e18a9dc3cced403fb28efe495d64dce4251f51cf8c4d9f4a72f9833bd96b6bb35",
+      "github": "google/gvisor",
+      "uses": [
+        {
+          "file": "scripts/root-node/gvisor.sh",
+          "pattern": "RELEASE=\"([0-9.]+)\""
+        }
+      ],
+      "shaUses": [
+        {
+          "file": "scripts/root-node/gvisor.sh",
+          "pattern": "SHA512=\"([0-9a-f]{128})\""
+        }
+      ]
+    },
+    {
+      "kind": "binary",
+      "name": "node",
+      "version": "v22.23.3",
+      "source": "https://nodejs.org/dist/v22.23.3/node-v22.23.3-linux-x64.tar.xz",
+      "github": "nodejs/node",
+      "uses": [
+        {
+          "file": "apps/backend/src/extensions/odoo/workspace-base.ts",
+          "pattern": "NODE_VERSION = '(v[0-9.]+)'"
+        }
+      ]
+    },
+    {
+      "kind": "npm",
+      "name": "playwright",
+      "version": "1.48.2",
+      "source": "https://www.npmjs.com/package/playwright",
+      "osv": {
+        "ecosystem": "npm",
+        "name": "playwright"
+      },
+      "uses": [
+        {
+          "file": "apps/backend/src/engine/lib/e2e.ts",
+          "pattern": "PLAYWRIGHT_VERSION = '([0-9.]+)'"
+        }
+      ]
+    },
+    {
+      "kind": "npm",
+      "name": "@playwright/mcp",
+      "version": "0.0.83",
+      "source": "https://www.npmjs.com/package/@playwright/mcp",
+      "osv": {
+        "ecosystem": "npm",
+        "name": "@playwright/mcp"
+      },
+      "uses": [
+        {
+          "file": "apps/backend/src/extensions/workspace-dependencies.ts",
+          "pattern": "PLAYWRIGHT_MCP_VERSION = '([0-9.]+)'"
+        }
+      ]
+    },
+    {
+      "kind": "image",
+      "name": "node",
+      "version": "22-bookworm-slim",
+      "floating": true,
+      "source": "docker.io/library/node:22-bookworm-slim",
+      "uses": [
+        {
+          "file": "Dockerfile",
+          "pattern": "^FROM node:([0-9a-z.-]+) AS"
+        }
+      ]
+    },
+    {
+      "kind": "image",
+      "name": "caddy",
+      "version": "2.10.2",
+      "source": "docker.io/library/caddy:2.10.2-alpine",
+      "github": "caddyserver/caddy",
+      "osv": {
+        "ecosystem": "Go",
+        "name": "github.com/caddyserver/caddy/v2"
+      },
+      "uses": [
+        {
+          "file": "docker/caddy/Dockerfile",
+          "pattern": "^FROM caddy:([0-9.]+)-"
+        },
+        {
+          "file": "charts/instance/values.yaml",
+          "pattern": "image: caddy:([0-9.]+)-alpine"
+        },
+        {
+          "file": "docker-compose.caddy.yml",
+          "pattern": "nowrinkles/caddy:([0-9.]+)"
+        }
+      ]
+    },
+    {
+      "kind": "image",
+      "name": "alpine",
+      "version": "3.20",
+      "source": "docker.io/library/alpine:3.20",
+      "uses": [
+        {
+          "file": "docker/mail/Dockerfile",
+          "pattern": "^FROM alpine:([0-9.]+)"
+        }
+      ]
+    },
+    {
+      "kind": "image",
+      "name": "headscale/headscale",
+      "version": "v0.29.2",
+      "source": "docker.io/headscale/headscale:v0.29.2",
+      "github": "juanfont/headscale",
+      "osv": {
+        "ecosystem": "Go",
+        "name": "github.com/juanfont/headscale"
+      },
+      "uses": [
+        {
+          "file": "docker-compose.headscale.yml",
+          "pattern": "headscale/headscale:(v[0-9.]+)"
+        }
+      ]
+    },
+    {
+      "kind": "image",
+      "name": "mongo",
+      "version": "7",
+      "floating": true,
+      "source": "docker.io/library/mongo:7",
+      "uses": [
+        {
+          "file": "docker-compose.mongo.yml",
+          "pattern": "image: mongo:([0-9.]+)"
+        },
+        {
+          "file": "charts/instance/values.yaml",
+          "pattern": "image: mongo:([0-9.]+)"
+        }
+      ]
+    },
+    {
+      "kind": "image",
+      "name": "otel/opentelemetry-collector-contrib",
+      "version": "0.163.2",
+      "source": "docker.io/otel/opentelemetry-collector-contrib:0.163.2",
+      "github": "open-telemetry/opentelemetry-collector-releases",
+      "uses": [
+        {
+          "file": "docker-compose.otel.yml",
+          "pattern": "opentelemetry-collector-contrib:([0-9.]+)"
+        }
+      ]
+    },
+    {
+      "kind": "image",
+      "name": "axllent/mailpit",
+      "version": "v1.21.0",
+      "source": "docker.io/axllent/mailpit:v1.21.0",
+      "github": "axllent/mailpit",
+      "uses": [
+        {
+          "file": "docker-compose.mailpit.yml",
+          "pattern": "axllent/mailpit:(v[0-9.]+)"
+        }
+      ]
+    },
+    {
+      "kind": "image",
+      "name": "registry",
+      "version": "2",
+      "floating": true,
+      "source": "docker.io/library/registry:2",
+      "uses": [
+        {
+          "file": "docker-compose.registry.yml",
+          "pattern": "image: registry:([0-9.]+)"
+        }
+      ]
+    },
+    {
+      "kind": "image",
+      "name": "postgres",
+      "version": "12-alpine",
+      "source": "docker.io/library/postgres:12-alpine",
+      "uses": [
+        {
+          "file": "docker-compose.temporal.yml",
+          "pattern": "image: postgres:([0-9a-z.-]+)"
+        },
+        {
+          "file": "charts/instance/values.yaml",
+          "pattern": "postgresImage: postgres:([0-9a-z.-]+)"
+        }
+      ]
+    },
+    {
+      "kind": "image",
+      "name": "busybox",
+      "version": "1.37",
+      "source": "docker.io/library/busybox:1.37",
+      "uses": [
+        {
+          "file": "docker-compose.temporal.yml",
+          "pattern": "image: busybox:([0-9.]+)"
+        },
+        {
+          "file": "charts/instance/values.yaml",
+          "pattern": "keysImage: busybox:([0-9.]+)"
+        }
+      ]
+    },
+    {
+      "kind": "image",
+      "name": "temporalio/auto-setup",
+      "version": "1.29.3",
+      "where": "root and the dev box",
+      "source": "docker.io/temporalio/auto-setup:1.29.3",
+      "github": "temporalio/temporal",
+      "osv": {
+        "ecosystem": "Go",
+        "name": "go.temporal.io/server"
+      },
+      "uses": [
+        {
+          "file": "docker-compose.temporal.yml",
+          "pattern": "temporalio/auto-setup:([0-9.]+)"
+        }
+      ]
+    },
+    {
+      "kind": "image",
+      "name": "temporalio/auto-setup",
+      "version": "1.24.2",
+      "where": "an instance",
+      "source": "docker.io/temporalio/auto-setup:1.24.2",
+      "github": "temporalio/temporal",
+      "osv": {
+        "ecosystem": "Go",
+        "name": "go.temporal.io/server"
+      },
+      "uses": [
+        {
+          "file": "charts/instance/values.yaml",
+          "pattern": "temporalio/auto-setup:([0-9.]+)"
+        }
+      ]
+    },
+    {
+      "kind": "chart",
+      "name": "kube-prometheus-stack",
+      "version": "88.6.2",
+      "where": "every cluster that runs apps",
+      "source": "https://prometheus-community.github.io/helm-charts",
+      "github": "prometheus-community/helm-charts",
+      "uses": [
+        {
+          "file": "packages/cdktf-infra/constructs/monitoring.ts",
+          "pattern": "version: \"([0-9.]+)\""
+        },
+        {
+          "file": "packages/cdktf-infra/constructs/prometheus.ts",
+          "pattern": "version: \"([0-9.]+)\""
+        }
+      ]
+    },
+    {
+      "kind": "chart",
+      "name": "kube-prometheus-stack",
+      "version": "91.7.0",
+      "where": "a pool node",
+      "source": "https://prometheus-community.github.io/helm-charts",
+      "github": "prometheus-community/helm-charts",
+      "uses": [
+        {
+          "file": "apps/backend/src/monitoring/lib/pool-monitoring.ts",
+          "pattern": "chart: 'kube-prometheus-stack', version: '([0-9.]+)'"
+        }
+      ]
+    },
+    {
+      "kind": "chart",
+      "name": "prometheus-blackbox-exporter",
+      "version": "11.18.0",
+      "where": "every cluster that runs apps",
+      "source": "https://prometheus-community.github.io/helm-charts",
+      "github": "prometheus-community/helm-charts",
+      "uses": [
+        {
+          "file": "packages/cdktf-infra/constructs/blackbox-exporter.ts",
+          "pattern": "version: \"([0-9.]+)\""
+        }
+      ]
+    },
+    {
+      "kind": "chart",
+      "name": "prometheus-blackbox-exporter",
+      "version": "11.19.1",
+      "where": "a pool node",
+      "source": "https://prometheus-community.github.io/helm-charts",
+      "github": "prometheus-community/helm-charts",
+      "uses": [
+        {
+          "file": "apps/backend/src/monitoring/lib/pool-monitoring.ts",
+          "pattern": "chart: 'prometheus-blackbox-exporter', version: '([0-9.]+)'"
+        }
+      ]
+    },
+    {
+      "kind": "chart",
+      "name": "prometheus-operator-crds",
+      "version": "32.0.1",
+      "source": "https://prometheus-community.github.io/helm-charts",
+      "github": "prometheus-community/helm-charts",
+      "uses": [
+        {
+          "file": "packages/cdktf-infra/constructs/operator-crds.ts",
+          "pattern": "OPERATOR_CRDS_VERSION = \"([0-9.]+)\""
+        }
+      ]
+    },
+    {
+      "kind": "chart",
+      "name": "loki",
+      "version": "7.3.0",
+      "source": "https://grafana.github.io/helm-charts",
+      "github": "grafana/helm-charts",
+      "uses": [
+        {
+          "file": "packages/cdktf-infra/constructs/logging.ts",
+          "pattern": "chart: \"loki\",\\s*version: \"([0-9.]+)\""
+        }
+      ]
+    },
+    {
+      "kind": "chart",
+      "name": "promtail",
+      "version": "6.17.1",
+      "source": "https://grafana.github.io/helm-charts",
+      "github": "grafana/helm-charts",
+      "uses": [
+        {
+          "file": "packages/cdktf-infra/constructs/logging.ts",
+          "pattern": "chart: \"promtail\",\\s*version: \"([0-9.]+)\""
+        }
+      ]
+    },
+    {
+      "kind": "chart",
+      "name": "traefik",
+      "version": "41.4.0",
+      "source": "https://traefik.github.io/charts",
+      "github": "traefik/traefik-helm-chart",
+      "uses": [
+        {
+          "file": "packages/cdktf-infra/constructs/ingress.ts",
+          "pattern": "version: \"([0-9.]+)\""
+        },
+        {
+          "file": "packages/cdktf-infra/constructs/traefik.ts",
+          "pattern": "version: \"([0-9.]+)\""
+        }
+      ]
+    },
+    {
+      "kind": "chart",
+      "name": "tempo",
+      "version": "1.24.4",
+      "source": "https://grafana.github.io/helm-charts",
+      "github": "grafana/helm-charts",
+      "uses": [
+        {
+          "file": "packages/cdktf-infra/constructs/telemetry.ts",
+          "pattern": "TEMPO_CHART_VERSION = \"([0-9.]+)\""
+        }
+      ]
+    },
+    {
+      "kind": "chart",
+      "name": "opentelemetry-collector",
+      "version": "0.177.0",
+      "source": "https://open-telemetry.github.io/opentelemetry-helm-charts",
+      "github": "open-telemetry/opentelemetry-helm-charts",
+      "uses": [
+        {
+          "file": "packages/cdktf-infra/constructs/telemetry.ts",
+          "pattern": "COLLECTOR_CHART_VERSION = \"([0-9.]+)\""
+        }
+      ]
+    },
+    {
+      "kind": "chart",
+      "name": "vcluster",
+      "version": "0.37.2",
+      "source": "https://charts.loft.sh",
+      "github": "loft-sh/vcluster",
+      "osv": {
+        "ecosystem": "Go",
+        "name": "github.com/loft-sh/vcluster"
+      },
+      "uses": [
+        {
+          "file": "apps/backend/src/instances/lib/pool.ts",
+          "pattern": "VCLUSTER_CHART_VERSION = '([0-9.]+)'"
+        }
+      ]
+    },
+    {
+      "kind": "chart",
+      "name": "secrets-operator",
+      "version": "v0.11.10",
+      "source": "https://dl.cloudsmith.io/public/infisical/helm-charts/helm/charts/",
+      "github": "Infisical/infisical",
+      "uses": [
+        {
+          "file": "apps/backend/src/projects/services/ProjectSecretSync.ts",
+          "pattern": "OPERATOR_VERSION = '(v[0-9.]+)'"
+        }
+      ]
+    },
+    {
+      "kind": "action",
+      "name": "actions/checkout",
+      "version": "v4.4.0",
+      "commit": "11d5960a326750d5838078e36cf38b85af677262",
+      "source": "https://github.com/actions/checkout",
+      "github": "actions/checkout",
+      "osv": {
+        "ecosystem": "GitHub Actions",
+        "name": "actions/checkout"
+      },
+      "uses": [
+        {
+          "file": ".github/workflows/release.yml",
+          "pattern": "actions/checkout@[0-9a-f]{40} # (v[0-9.]+)"
+        }
+      ]
+    },
+    {
+      "kind": "action",
+      "name": "docker/setup-buildx-action",
+      "version": "v3.12.0",
+      "commit": "8d2750c68a42422c14e847fe6c8ac0403b4cbd6f",
+      "source": "https://github.com/docker/setup-buildx-action",
+      "github": "docker/setup-buildx-action",
+      "osv": {
+        "ecosystem": "GitHub Actions",
+        "name": "docker/setup-buildx-action"
+      },
+      "uses": [
+        {
+          "file": ".github/workflows/release.yml",
+          "pattern": "docker/setup\\-buildx\\-action@[0-9a-f]{40} # (v[0-9.]+)"
+        }
+      ]
+    },
+    {
+      "kind": "action",
+      "name": "docker/login-action",
+      "version": "v3.7.0",
+      "commit": "c94ce9fb468520275223c153574b00df6fe4bcc9",
+      "source": "https://github.com/docker/login-action",
+      "github": "docker/login-action",
+      "osv": {
+        "ecosystem": "GitHub Actions",
+        "name": "docker/login-action"
+      },
+      "uses": [
+        {
+          "file": ".github/workflows/release.yml",
+          "pattern": "docker/login\\-action@[0-9a-f]{40} # (v[0-9.]+)"
+        }
+      ]
+    },
+    {
+      "kind": "action",
+      "name": "docker/build-push-action",
+      "version": "v6.19.2",
+      "commit": "10e90e3645eae34f1e60eeb005ba3a3d33f178e8",
+      "source": "https://github.com/docker/build-push-action",
+      "github": "docker/build-push-action",
+      "osv": {
+        "ecosystem": "GitHub Actions",
+        "name": "docker/build-push-action"
+      },
+      "uses": [
+        {
+          "file": ".github/workflows/release.yml",
+          "pattern": "docker/build\\-push\\-action@[0-9a-f]{40} # (v[0-9.]+)"
+        }
+      ]
+    },
+    {
+      "kind": "action",
+      "name": "actions/attest-build-provenance",
+      "version": "v3.2.0",
+      "commit": "96278af6caaf10aea03fd8d33a09a777ca52d62f",
+      "source": "https://github.com/actions/attest-build-provenance",
+      "github": "actions/attest-build-provenance",
+      "osv": {
+        "ecosystem": "GitHub Actions",
+        "name": "actions/attest-build-provenance"
+      },
+      "uses": [
+        {
+          "file": ".github/workflows/release.yml",
+          "pattern": "actions/attest\\-build\\-provenance@[0-9a-f]{40} # (v[0-9.]+)"
+        }
+      ]
+    },
+    {
+      "kind": "action",
+      "name": "azure/setup-helm",
+      "version": "v4.3.1",
+      "commit": "1a275c3b69536ee54be43f2070a358922e12c8d4",
+      "source": "https://github.com/azure/setup-helm",
+      "github": "azure/setup-helm",
+      "osv": {
+        "ecosystem": "GitHub Actions",
+        "name": "azure/setup-helm"
+      },
+      "uses": [
+        {
+          "file": ".github/workflows/release.yml",
+          "pattern": "azure/setup\\-helm@[0-9a-f]{40} # (v[0-9.]+)"
+        }
+      ]
+    }
+  ],
+  "unpinned": [
+    {
+      "name": "tailscale",
+      "how": "curl -fsSL https://tailscale.com/install.sh | sh",
+      "usedIn": [
+        "scripts/instance/install.sh",
+        "scripts/machine/machine.sh",
+        "scripts/root-node/pool-node.sh"
+      ]
+    },
+    {
+      "name": "docker",
+      "how": "curl -fsSL https://get.docker.com | sh",
+      "usedIn": [
+        "scripts/instance/install.sh",
+        "scripts/setup-root.sh"
+      ]
+    },
+    {
+      "name": "k3s",
+      "how": "curl -sfL https://get.k3s.io | sh -",
+      "usedIn": [
+        "scripts/instance/install.sh",
+        "scripts/root-node/pool-node.sh"
+      ]
+    },
+    {
+      "name": "helm",
+      "how": "get-helm-3 from helm's main branch",
+      "usedIn": [
+        "scripts/instance/install.sh"
+      ]
+    },
+    {
+      "name": "gitea chart",
+      "how": "helm upgrade --install with no --version",
+      "usedIn": [
+        "scripts/ensure-gitea.sh"
+      ]
+    },
+    {
+      "name": "infisical-standalone chart",
+      "how": "helm upgrade --install with no --version",
+      "usedIn": [
+        "scripts/ensure-infisical.sh"
+      ]
+    },
+    {
+      "name": "kubectl",
+      "how": "the version dl.k8s.io calls stable today",
+      "usedIn": [
+        "scripts/setup.sh"
+      ]
+    },
+    {
+      "name": "rclone",
+      "how": "rclone-current",
+      "usedIn": [
+        "scripts/setup.sh"
+      ]
+    },
+    {
+      "name": "restic",
+      "how": "Ubuntu's signed apt repository, whatever version it carries",
+      "usedIn": [
+        "scripts/root-node/harden-host.sh"
+      ]
+    }
+  ]
+}

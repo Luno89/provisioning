@@ -1,4 +1,5 @@
 import type { UpdatesView } from '../lib/instance-updates.js';
+import type { ReleaseFindings } from './DependencyWatch.js';
 
 export interface InstanceUpdatesSettings {
   rootUrl: string;
@@ -46,6 +47,15 @@ export class InstanceUpdates {
     const name = `${cronJob}-${this.now().getTime().toString(36)}`;
     await this.kubectl(['create', 'job', `--from=cronjob/${cronJob}`, name, '-n', namespace]);
     return name;
+  }
+
+  async findings(): Promise<ReleaseFindings | { findings: [] }> {
+    const response = await this.fetchImpl(`${this.settings.rootUrl}/api/instances/release-findings`, {
+      headers: { 'x-instance-id': this.settings.instanceId, authorization: `Bearer ${await this.settings.token()}` },
+    });
+    const answer = await response.json().catch(() => ({})) as (ReleaseFindings | { findings: [] }) & { error?: unknown };
+    if (!response.ok) throw new UpdatesRefused(response.status, typeof answer.error === 'string' ? answer.error : `root answered ${response.status} about this instance's release`);
+    return answer;
   }
 
   async view(): Promise<UpdatesAnswer> {

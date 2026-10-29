@@ -9,14 +9,14 @@ export interface InstanceWatchView {
 
 export class InstanceWatchSetting {
   constructor(
-    private readonly settings: { rootUrl: string; instanceId: string; credential: string },
+    private readonly settings: { rootUrl: string; instanceId: string; token: () => Promise<string> },
     private readonly fetchImpl: typeof fetch = globalThis.fetch,
   ) {}
 
   private async root(method: 'GET' | 'PUT', body?: unknown): Promise<InstanceWatchView> {
     const response = await this.fetchImpl(`${this.settings.rootUrl}/api/instances/watch`, {
       method,
-      headers: { 'x-instance-id': this.settings.instanceId, authorization: `Bearer ${this.settings.credential}`, ...(body ? { 'content-type': 'application/json' } : {}) },
+      headers: { 'x-instance-id': this.settings.instanceId, authorization: `Bearer ${await this.settings.token()}`, ...(body ? { 'content-type': 'application/json' } : {}) },
       ...(body ? { body: JSON.stringify(body) } : {}),
     });
     const answer = await response.json().catch(() => ({})) as InstanceWatchView & { error?: unknown };

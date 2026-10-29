@@ -1,6 +1,7 @@
 import { Loader2 } from 'lucide-react'
 import { errorMessage } from '../../../api/client'
-import { useChangeInstanceUpdates, useInstanceUpdates, type ReleaseRow, type UpdatesView } from '../api/instance-updates'
+import { useChangeInstanceUpdates, useInstanceUpdates, useReleaseFindings, type ReleaseRow, type UpdatesView } from '../api/instance-updates'
+import { releaseSummary, sortedFindings, STATE_LABEL } from '../lib/dependency-view'
 
 const versionOf = (view: UpdatesView, imageTag: string | undefined): string | undefined =>
   imageTag ? view.releases.find((row) => row.imageTag === imageTag)?.version ?? imageTag : undefined
@@ -31,6 +32,27 @@ function Release({ row, view, moving, onMove }: { row: ReleaseRow; view: Updates
         </details>
       )}
     </li>
+  )
+}
+
+function ReleaseAdvisories() {
+  const answer = useReleaseFindings().data
+  const findings = sortedFindings(answer?.findings ?? [])
+  const summary = releaseSummary(answer?.release, findings)
+  if (!summary) return null
+  return (
+    <details className="mt-3 rounded-xl border border-amber-500/20 bg-amber-500/5 px-3 py-2" data-testid="release-advisories">
+      <summary className="cursor-pointer text-xs text-amber-200">{summary}</summary>
+      <ul className="mt-2 space-y-1 text-xs text-slate-300">
+        {findings.map((finding) => (
+          <li key={`${finding.component.name}@${finding.component.version}|${finding.advisory.id}`}>
+            <span className="font-mono">{finding.component.name}@{finding.component.version}</span>: {finding.advisory.id}
+            {finding.advisory.severity ? ` (${finding.advisory.severity})` : ''} · {STATE_LABEL[finding.state]}
+            {finding.fixedBy ? ` · fixed in ${finding.fixedBy}` : ''}
+          </li>
+        ))}
+      </ul>
+    </details>
   )
 }
 
@@ -75,6 +97,7 @@ export function InstanceUpdates() {
           </span>
         </span>
       </label>
+      <ReleaseAdvisories />
       {view.releases.length > 0 && (
         <ul className="mt-3 space-y-2">
           {view.releases.map((row) => (

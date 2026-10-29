@@ -6,6 +6,7 @@ import type { InstanceRelease } from './lib/instance-updates.js';
 import type { SignInKey } from './lib/oidc.js';
 import type { ClientSession, LogoutDelivery, SessionRevocation } from './lib/sign-in-state.js';
 import type { InstanceWatchRecord, Reach } from './lib/instance-watch.js';
+import type { DependencyCheck, DependencyFinding } from './lib/dependency-findings.js';
 
 export interface InstancesStore extends AreaStore {
   claimHandoff(jti: string, expiresAt: string): Promise<boolean>;
@@ -43,6 +44,10 @@ export interface InstancesStore extends AreaStore {
   saveReach(instance: { id: string; ownerId: string }, reach: Reach): Promise<void>;
   saveNotifyWhenUnreachable(instance: { id: string; ownerId: string }, on: boolean): Promise<void>;
   deleteWatch(instanceId: string): Promise<void>;
+  getDependencyFindings(): Promise<DependencyFinding[]>;
+  saveDependencyFindings(findings: readonly DependencyFinding[]): Promise<void>;
+  getDependencyCheck(): Promise<DependencyCheck | undefined>;
+  saveDependencyCheck(check: DependencyCheck): Promise<void>;
 }
 
 const asStored = (doc: Record<string, unknown> | null): Record<string, unknown> | undefined =>
@@ -292,6 +297,29 @@ export class MongoInstancesStore implements InstancesStore {
   async getRevocations(): Promise<SessionRevocation[]> {
     const docs = await this.sessionRevocations.find({}).toArray();
     return docs.map((doc) => ({ subject: String(doc._id), before: String(doc.before) }));
+  }
+
+  async getDependencyFindings(): Promise<DependencyFinding[]> {
+    const docs = await this.db().collection('dependencyFindings').find({}).toArray();
+    return docs.map(({ _id, ...rest }) => ({ key: _id as unknown as string, ...rest }) as DependencyFinding);
+  }
+
+  async saveDependencyFindings(findings: readonly DependencyFinding[]): Promise<void> {
+    const collection = this.db().collection('dependencyFindings');
+    const keys = findings.map((finding) => finding.key);
+    await collection.deleteMany({ _id: { $nin: keys as never[] } });
+    for (const { key, ...rest } of findings) await collection.replaceOne({ _id: key as never }, rest, { upsert: true });
+  }
+
+  async getDependencyCheck(): Promise<DependencyCheck | undefined> {
+    const doc = await this.db().collection('dependencyChecks').findOne({ _id: 'latest' as never });
+    if (!doc) return undefined;
+    const { _id, ...rest } = doc;
+    return rest as unknown as DependencyCheck;
+  }
+
+  async saveDependencyCheck(check: DependencyCheck): Promise<void> {
+    await this.db().collection('dependencyChecks').replaceOne({ _id: 'latest' as never }, { ...check }, { upsert: true });
   }
 }
 

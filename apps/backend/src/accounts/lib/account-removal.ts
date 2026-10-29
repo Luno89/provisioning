@@ -108,7 +108,7 @@ export const ACCOUNT_DATA = {
   byId: ['autoModeSettings', 'benchSettings', 'benchStates', 'extensionSettings', 'giteaAccounts', 'keeperSettings', 'notificationSettings', 'fileSettings'],
   related: { memoryWatermarks: 'the keys of its conversations', crawl_frontier: 'its ingests', pipelineRuns: 'its projects', hubSnapshots: 'its projects', oidcArtifacts: 'its sign-in grants, sessions and tokens at root' },
   last: 'users',
-  shared: ['clusterProviders', 'hubDirty', 'hubSignIn', 'identityHandoffs', 'instanceReleases', 'inviteLimits', 'invites', 'logoutDeliveries', 'migrations', 'model_thinking_profiles', 'pendingSignUps', 'poolSettings', 'sessionRevocations', 'temporal_payload_chunks'],
+  shared: ['clusterProviders', 'dependencyChecks', 'dependencyFindings', 'hubDirty', 'hubSignIn', 'identityHandoffs', 'instanceReleases', 'inviteLimits', 'invites', 'logoutDeliveries', 'migrations', 'model_thinking_profiles', 'pendingSignUps', 'poolSettings', 'sessionRevocations', 'temporal_payload_chunks'],
 } as const;
 
 export interface AccountIds {

@@ -17,7 +17,7 @@ describe('whether root emails the instance\'s owner when it cannot be reached', 
       if (init?.method === 'PUT') on = (JSON.parse(String(init.body)) as { notifyWhenUnreachable: boolean }).notifyWhenUnreachable;
       return new Response(JSON.stringify({ notifyWhenUnreachable: on, alwaysTold: false }), { status: 200 });
     }) as typeof fetch;
-    const setting = new InstanceWatchSetting({ rootUrl: 'https://app.koala.dev', instanceId: 'inst-a', credential: 'cred' }, fetchImpl);
+    const setting = new InstanceWatchSetting({ rootUrl: 'https://app.koala.dev', instanceId: 'inst-a', token: async () => 'cred' }, fetchImpl);
     harness = await mountRouter({ prefix: '/api/instance-watch', claims: { role: 'instance', instanceOwnerId: TEST_USER.id }, router: () => instanceWatchRouter({ setting }) });
     expect((await axios.get(harness.url('/api/instance-watch'))).data).toEqual({ notifyWhenUnreachable: true, alwaysTold: false });
     expect((await axios.put(harness.url('/api/instance-watch'), { notifyWhenUnreachable: false })).data).toEqual({ notifyWhenUnreachable: false, alwaysTold: false });

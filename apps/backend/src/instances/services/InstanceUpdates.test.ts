@@ -47,4 +47,12 @@ describe('an instance\'s updates, kept on root', () => {
     const { updates } = rig({ status: 409, body: { error: 'v1 is older than what this instance runs' } });
     await expect(updates.set({ version: 'v1' })).rejects.toEqual(new UpdatesRefused(409, 'v1 is older than what this instance runs'));
   });
+
+  it('asks root, as itself, what the release it runs carries', async () => {
+    const answer = { release: 'v2026.10.25', findings: [{ component: { name: 'seroval', version: '1.6.7', kind: 'npm' }, advisory: { id: 'GHSA-x' }, state: 'due', fix: '1.6.8', fixedBy: 'v2026.10.29' }] };
+    const { updates, calls } = rig({ body: answer });
+    expect(await updates.findings()).toEqual(answer);
+    expect(calls[0]).toMatchObject({ url: 'https://root/api/instances/release-findings', headers: { 'x-instance-id': 'inst-1', authorization: 'Bearer secret' } });
+    await expect(rig({ status: 401, body: { error: 'unknown instance or credential' } }).updates.findings()).rejects.toBeInstanceOf(UpdatesRefused);
+  });
 });
