@@ -55,4 +55,16 @@ describe('an instance\'s updates in Settings', () => {
     await waitFor(() => expect(api.get).toHaveBeenCalled())
     expect(container).toBeEmptyDOMElement()
   })
+
+  it('says which advisories the release it runs carries, and which newer release fixes them', async () => {
+    vi.mocked(api.get).mockImplementation(async (url: string) => (url === '/instance-updates/findings'
+      ? { data: { release: 'v2026.10.25', findings: [
+        { component: { name: 'seroval', version: '1.6.7', kind: 'npm' }, advisory: { id: 'GHSA-x', severity: 'high' }, state: 'due', fix: '1.6.8', fixedBy: 'v2026.10.26' },
+      ] } }
+      : { data: { auto: false, picked: 'b2', running: 'b2', previous: 'a1', current: 'c3', target: 'b2', releases } }))
+    show()
+    const advisories = await screen.findByTestId('release-advisories')
+    expect(advisories).toHaveTextContent('Your release, v2026.10.25, has 1 known advisory; v2026.10.26 fixes it.')
+    expect(advisories).toHaveTextContent('seroval@1.6.7: GHSA-x (high) · Update due · fixed in v2026.10.26')
+  })
 })

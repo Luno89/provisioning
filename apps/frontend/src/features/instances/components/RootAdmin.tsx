@@ -4,8 +4,9 @@ import { People } from '../../accounts'
 import { Invites } from '../../accounts'
 import { ProjectInvites } from '../../accounts'
 import { PoolSection } from './PoolSection'
+import { DependenciesSection } from './DependenciesSection'
 
-export default function RootAdmin({ section, onLogout }: { section?: 'pool' | undefined; onLogout: () => void }) {
+export default function RootAdmin({ section, onLogout }: { section?: 'pool' | 'dependencies' | undefined; onLogout: () => void }) {
   useEffect(() => {
     if (section) document.getElementById(section)?.scrollIntoView()
   }, [section])
@@ -18,6 +19,7 @@ export default function RootAdmin({ section, onLogout }: { section?: 'pool' | un
           <nav className="flex items-center gap-4 text-xs text-slate-400" aria-label="Sections">
             <a href="#/admin" className="hover:text-slate-200">People</a>
             <a href="#/pool" className="hover:text-slate-200">Koala's servers</a>
+            <a href="#/dependencies" className="hover:text-slate-200">Dependencies</a>
             <button type="button" onClick={onLogout} className="inline-flex items-center gap-1.5 hover:text-slate-200"><LogOut size={12} /> Sign out</button>
           </nav>
         </div>
@@ -25,6 +27,7 @@ export default function RootAdmin({ section, onLogout }: { section?: 'pool' | un
         <Invites />
         <ProjectInvites />
         <PoolSection />
+        <DependenciesSection />
       </div>
     </div>
   )

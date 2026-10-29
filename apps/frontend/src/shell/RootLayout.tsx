@@ -119,7 +119,7 @@ export function RootLayout() {
     const pending = user && !joinPage ? pendingJoin() : undefined;
     if (pending) void navigate({ to: '/join', search: pending });
   }, [user, joinPage, navigate]);
-  const adminPage = (location.pathname === '/pool' || location.pathname === '/admin') && Boolean(user?.isAdmin);
+  const adminPage = (location.pathname === '/pool' || location.pathname === '/admin' || location.pathname === '/dependencies') && Boolean(user?.isAdmin);
   const removalPage = location.pathname === '/remove-account';
   useEffect(() => {
     if (placement.data && !placement.data.servesTenants && placement.data.instance && !adminPage && !removalPage && !joinPage) window.location.assign(INSTANCE_GO_URL);
@@ -302,7 +302,7 @@ export function RootLayout() {
   }
 
   if (placement.data && !placement.data.servesTenants && adminPage) {
-    return <RootAdmin section={location.pathname === '/pool' ? 'pool' : undefined} onLogout={handleLogout} />;
+    return <RootAdmin section={location.pathname === '/pool' ? 'pool' : location.pathname === '/dependencies' ? 'dependencies' : undefined} onLogout={handleLogout} />;
   }
 
   if (placement.data && !placement.data.servesTenants) {
