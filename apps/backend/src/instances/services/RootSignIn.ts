@@ -258,15 +258,15 @@ export class RootSignIn {
     return { ok: true };
   }
 
-  private serviceToken: { value: string; until: number } | undefined;
+  private held: { value: string; until: number } | undefined;
 
-  async serviceHeaders(): Promise<Record<string, string>> {
+  async serviceToken(): Promise<string> {
     await this.announced;
     const now = this.now();
-    if (!this.serviceToken || this.serviceToken.until <= now) {
+    if (!this.held || this.held.until <= now) {
       const granted = await client.clientCredentialsGrant(await this.config(), { scope: SERVICE_SCOPE });
-      this.serviceToken = { value: granted.access_token, until: now + Math.max(30, (granted.expires_in ?? 60) - 30) * 1000 };
+      this.held = { value: granted.access_token, until: now + Math.max(30, (granted.expires_in ?? 60) - 30) * 1000 };
     }
-    return { authorization: `Bearer ${this.serviceToken.value}` };
+    return this.held.value;
   }
 }

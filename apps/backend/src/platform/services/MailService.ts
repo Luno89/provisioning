@@ -9,6 +9,7 @@ export type { EmailWay };
 export interface MailDeps {
   way: EmailWay;
   emailOf(ownerId: string): Promise<string | undefined>;
+  rootToken?: (() => Promise<string>) | undefined;
   fetchImpl?: typeof fetch;
   transport?: (url: string) => { sendMail(message: { from: string; to: string; subject: string; text: string }): Promise<unknown> };
 }
@@ -53,7 +54,7 @@ export class MailService {
       return this.counted('root', async () => {
         const response = await (this.deps.fetchImpl ?? fetch)(`${way.rootUrl}/api/instances/mail`, {
           method: 'POST',
-          headers: { 'content-type': 'application/json', 'x-instance-id': way.instanceId, authorization: `Bearer ${way.credential}` },
+          headers: { 'content-type': 'application/json', 'x-instance-id': way.instanceId, authorization: `Bearer ${this.deps.rootToken ? await this.deps.rootToken() : way.credential}` },
           body: JSON.stringify(message),
         });
         if (!response.ok) {

@@ -181,12 +181,11 @@ describe('signing in on an instance through root\'s OpenID provider', () => {
 
   it('gives the instance a short-lived service token root takes in place of its long-lived credential', async () => {
     signIn.keepAnnouncing(() => undefined);
-    const headers = await signIn.serviceHeaders();
-    const token = headers.authorization!.replace('Bearer ', '');
+    const token = await signIn.serviceToken();
     expect(await provider.serviceCaller(token)).toEqual({ clientId: 'inst-u1', kind: 'instance' });
     expect(await rootService.ownerOf('inst-u1', token)).toEqual({ ok: true, value: { ownerId: 'u1' } });
     expect(await rootService.ownerOf('inst-other', token)).toMatchObject({ ok: false });
     expect(await rootService.ownerOf('inst-u1', 'not-a-token')).toMatchObject({ ok: false, status: 401 });
-    expect(await signIn.serviceHeaders()).toEqual(headers);
+    expect(await signIn.serviceToken()).toBe(token);
   });
 });

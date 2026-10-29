@@ -42,7 +42,7 @@ export class InstanceSide {
   readonly edge: InstanceEdge | undefined;
   private addresses: InstanceAddresses | undefined;
 
-  constructor(private readonly role: RoleConfig, private readonly env: NodeJS.ProcessEnv) {
+  constructor(private readonly role: RoleConfig, private readonly env: NodeJS.ProcessEnv, private readonly rootToken: (() => Promise<string>) | undefined) {
     const name = env.INSTANCE_NAME;
     this.edge = role.instance && name && env.EDGE_ADMIN_URL && env.EDGE_CADDYFILE
       ? adminEdge(name, env.EDGE_ADMIN_URL, env.EDGE_CADDYFILE, () => this.addresses)
@@ -50,9 +50,9 @@ export class InstanceSide {
   }
 
   follow(republish: () => Promise<void>): void {
-    if (!this.edge || !this.role.instance) return;
+    if (!this.edge || !this.role.instance || !this.rootToken) return;
     this.addresses = new InstanceAddresses(
-      { rootUrl: this.role.instance.rootUrl, instanceId: this.role.instance.id, credential: this.env.INSTANCE_CREDENTIAL ?? '', name: this.edge.name },
+      { rootUrl: this.role.instance.rootUrl, instanceId: this.role.instance.id, token: this.rootToken, name: this.edge.name },
       republish,
     );
     this.addresses.refresh().catch((err: Error) => console.warn(`[addresses] ${err.message}`));
@@ -113,6 +113,7 @@ export interface InstancesWiringDeps {
   syncExposedApps: () => Promise<void>;
   provider?: RootProvider | undefined;
   signIn?: RootSignIn | undefined;
+  rootToken?: (() => Promise<string>) | undefined;
 }
 
 export interface InstancesWiring {
@@ -140,15 +141,15 @@ export async function wireInstances(deps: InstancesWiringDeps): Promise<Instance
 
   tenant.use('/api/instance-addresses', instanceAddressesRouter({ addresses: () => deps.side.current() }));
   tenant.use('/api/instance-trial', instanceTrialRouter({
-    trial: role.instance && env.INSTANCE_CREDENTIAL
-      ? new InstanceTrial({ rootUrl: role.instance.rootUrl, instanceId: role.instance.id, credential: env.INSTANCE_CREDENTIAL })
+    trial: role.instance && deps.rootToken
+      ? new InstanceTrial({ rootUrl: role.instance.rootUrl, instanceId: role.instance.id, token: deps.rootToken })
       : undefined,
   }));
 
   tenant.use('/api/instance-updates', instanceUpdatesRouter({
-    updates: role.instance && env.INSTANCE_CREDENTIAL
+    updates: role.instance && deps.rootToken
       ? new InstanceUpdates(
-        { rootUrl: role.instance.rootUrl, instanceId: role.instance.id, credential: env.INSTANCE_CREDENTIAL, cronJob: env.SELF_UPGRADE_CRONJOB, namespace: env.INSTANCE_NAMESPACE },
+        { rootUrl: role.instance.rootUrl, instanceId: role.instance.id, token: deps.rootToken, cronJob: env.SELF_UPGRADE_CRONJOB, namespace: env.INSTANCE_NAMESPACE },
         async (args) => String(await deps.infra.runKubectl(args)),
       )
       : undefined,

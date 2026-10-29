@@ -24,11 +24,12 @@ export interface MonitoringWiringDeps {
   notifications: NotificationService;
   mail: MailService;
   people: ConstructorParameters<typeof AlertWatchService>[0]['people'];
+  rootToken?: (() => Promise<string>) | undefined;
 }
 
 export function wireMonitoring(deps: MonitoringWiringDeps): { monitoring: MonitoringService } {
   const { tenant, db, role, clusters, infra, notices, notifications } = deps;
-  const placeOnPool = poolMonitorFrom(deps.env);
+  const placeOnPool = poolMonitorFrom(deps.env, deps.rootToken);
   const onPool = placeOnPool ? poolMonitor(placeOnPool) : undefined;
   const monitoring = new MonitoringService({
     store: db,

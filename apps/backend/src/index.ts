@@ -124,10 +124,16 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   const e2e = e2eProblem(process.env);
   if (e2e) throw new Error(e2e);
   const keys = loadKeys(process.env);
+  const revocations = new AccessRevocations();
+  const rootProvider = rootProviderFor({ role, publicUrl: PUBLIC_URL, keys, db, proxied: process.env.NODE_ENV === 'production' });
+  if (rootProvider) revocations.on((event) => rootProvider.revoke(event));
+  const rootSignIn = rootSignInFor({ role, env: process.env, keys, db, revocations, publicUrl: PUBLIC_URL });
+  const rootToken = rootSignIn ? () => rootSignIn.serviceToken() : undefined;
   const metrics = new MetricsService({ token: process.env.METRICS_TOKEN?.trim() || undefined, role: role.role });
   const mail = new MailService({
     way: emailWayFrom(process.env, role),
     emailOf: async (ownerId) => (await db.accounts.getUserById(ownerId))?.email,
+    rootToken,
   });
   const notifications = new NotificationService({ store: db.monitoring, mail, publicUrl: PUBLIC_URL, log: (message) => console.warn(message) });
   const tenant: express.Router = servesTenants(role) ? (app as unknown as express.Router) : express.Router();
@@ -140,7 +146,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   const appService = new AppService(db, infraService, clusterService, builderService);
   const registryService = new RegistryService(db);
   const gitModuleService = new GitModuleService(db);
-  const instanceSide = new InstanceSide(role, process.env);
+  const instanceSide = new InstanceSide(role, process.env, rootToken);
   const appExposureService = new AppExposureService(db, infraService, clusterService, io, {
     edge: instanceSide.edge,
     groupOf: async (dep) => (dep.gitappProjectId ? (await db.hub.getHubLinks()).find((link) => link.projectId === dep.gitappProjectId)?.group : undefined),
@@ -182,7 +188,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     devices: { status: localAgentStatus, tell: tellDevice, ask: askDevice, drop: dropDevice },
     projects: projectRepoService,
     mesh: role.instance
-      ? new RootMeshKeys({ rootUrl: role.instance.rootUrl, instanceId: role.instance.id, credential: process.env.INSTANCE_CREDENTIAL ?? '' })
+      ? new RootMeshKeys({ rootUrl: role.instance.rootUrl, instanceId: role.instance.id, token: rootToken ?? (async () => '') })
       : headscaleService,
   });
   const modelService = new ModelService(db, appService, clusterService, clusterProxyService, headscaleService, keys.data, endpointRulesFromEnv(process.env));
@@ -286,10 +292,6 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
 
   const setup = holdsAccounts(role) ? firstAdminSetup(process.env, (await db.accounts.getUsers()).length === 0) : undefined;
   if (setup?.say) console.log(`🔑 ${setup.say}`);
-  const revocations = new AccessRevocations();
-  const rootProvider = rootProviderFor({ role, publicUrl: PUBLIC_URL, keys, db, proxied: process.env.NODE_ENV === 'production' });
-  if (rootProvider) revocations.on((event) => rootProvider.revoke(event));
-  const rootSignIn = rootSignInFor({ role, env: process.env, keys, db, revocations, publicUrl: PUBLIC_URL });
   const auth = createAuth({ db, sessionKey: keys.session, publicUrl: PUBLIC_URL, role: role.role, instanceOwnerId: claimSettings.instanceOwnerId, setupCode: setup?.code, clientSessions: rootSignIn });
   const { requireOperator } = auth;
 
@@ -318,6 +320,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     notify: (ownerId, scope, notice) => notices.post(ownerId, scope, notice),
     republish: () => appExposureService.syncExposedApps(),
     serviceCaller: rootProvider ? (token) => rootProvider.serviceCaller(token) : undefined,
+    rootToken,
   });
 
   tenant.get('/ingress/verify', async (req, res) => {
@@ -331,10 +334,10 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   await wireInstances({
     role, env: process.env, app, tenant, db, mail, identity, auth, sessionKey: keys.session, publicUrl: PUBLIC_URL,
     repoRoot: path.join(__dirname, '../../..'), dataDir: path.join(__dirname, '../data'), headscale: headscaleService, infra: infraService,
-    side: instanceSide, syncExposedApps: () => appExposureService.syncExposedApps(), provider: rootProvider, signIn: rootSignIn,
+    side: instanceSide, syncExposedApps: () => appExposureService.syncExposedApps(), provider: rootProvider, signIn: rootSignIn, rootToken,
   });
   const people = async () => (await db.accounts.getUsers()).filter((user) => !user.space).map((user) => auth.principalFor(user));
-  const { monitoring } = wireMonitoring({ tenant, db, role, env: process.env, io, clusters: clusterService, infra: infraService, proxy: clusterProxyService, notices, notifications, mail, people });
+  const { monitoring } = wireMonitoring({ tenant, db, role, env: process.env, io, clusters: clusterService, infra: infraService, proxy: clusterProxyService, notices, notifications, mail, people, rootToken });
   const workerService = new WorkerService();
   wireInfrastructure({
     tenant, operatorOnly: requireOperator('administer'), db, io, dataKey: keys.data, sessionKey: keys.session, publicUrl: PUBLIC_URL, appUrl: APP_URL, repoRoot: path.join(__dirname, '../../..'),

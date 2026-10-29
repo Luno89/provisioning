@@ -42,6 +42,7 @@ export interface HubWiringDeps {
   republish: () => Promise<void>;
   syncEveryMs?: number | undefined;
   serviceCaller?: ((token: string) => Promise<{ clientId: string; kind: 'instance' | 'hub' } | undefined>) | undefined;
+  rootToken?: (() => Promise<string>) | undefined;
 }
 
 export interface HubWiring {
@@ -63,7 +64,7 @@ export async function wireHub(deps: HubWiringDeps): Promise<HubWiring> {
       ? memoryHubStore()
       : mongoHubStore(mongoTarget(env).uri, env.HUB_DATABASE?.trim() || 'koala_hub');
     await hubStore.init();
-    const sender = role.hub ? new HubRootClient(role.hub) : projectInvites;
+    const sender = role.hub && deps.rootToken ? new HubRootClient({ rootUrl: role.hub.rootUrl, token: deps.rootToken }) : projectInvites;
     if (!sender) throw new Error('a hub needs root to send its invites');
     hubService = new HubService({ store: hubStore, invites: sender, repos: giteaHubRepos(deps.gitea), relay: new HubRelay() });
     app.use('/api/hub', hubRouter({ hub: hubService }));
@@ -71,13 +72,14 @@ export async function wireHub(deps: HubWiringDeps): Promise<HubWiring> {
     if (role.role === 'hub' && role.trusted) app.use('/api/hub-root', hubRootRouter({ hub: hubService, trusted: role.trusted, forget: (id) => db.accounts.deleteUser(id), claim: (jti, expiresAt) => db.instances.claimHandoff(jti, expiresAt) }));
   }
 
-  const remoteHub = role.instance && env.INSTANCE_CREDENTIAL
-    ? new RemoteHub(new RootHubAccess({ rootUrl: role.instance.rootUrl, instanceId: role.instance.id, credential: env.INSTANCE_CREDENTIAL }))
+  const rootToken = deps.rootToken;
+  const remoteHub = role.instance && rootToken
+    ? new RemoteHub(new RootHubAccess({ rootUrl: role.instance.rootUrl, instanceId: role.instance.id, token: rootToken }))
     : undefined;
   const reach = servesTenants(role) && hubService
     ? { instanceId: 'combined', transport: localHubSync(hubService, 'combined'), sharing: localHubSharing(hubService, 'combined'), groups: localProjectGroups(db) }
-    : servesTenants(role) && remoteHub && role.instance && env.INSTANCE_CREDENTIAL
-      ? { instanceId: role.instance.id, transport: remoteHub, sharing: remoteHub, groups: new InstanceGroups({ rootUrl: role.instance.rootUrl, instanceId: role.instance.id, credential: env.INSTANCE_CREDENTIAL }) }
+    : servesTenants(role) && remoteHub && role.instance && rootToken
+      ? { instanceId: role.instance.id, transport: remoteHub, sharing: remoteHub, groups: new InstanceGroups({ rootUrl: role.instance.rootUrl, instanceId: role.instance.id, token: rootToken }) }
       : undefined;
 
   let work: HubInstanceWork | undefined;

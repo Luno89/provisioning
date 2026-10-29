@@ -3,7 +3,7 @@ import type { UpdatesView } from '../lib/instance-updates.js';
 export interface InstanceUpdatesSettings {
   rootUrl: string;
   instanceId: string;
-  credential: string;
+  token: () => Promise<string>;
   cronJob?: string | undefined;
   namespace?: string | undefined;
 }
@@ -23,7 +23,7 @@ export class InstanceUpdates {
   private async call(method: 'GET' | 'PUT', body?: unknown): Promise<UpdatesView> {
     const response = await this.fetchImpl(`${this.settings.rootUrl}/api/instances/updates`, {
       method,
-      headers: { 'content-type': 'application/json', 'x-instance-id': this.settings.instanceId, authorization: `Bearer ${this.settings.credential}` },
+      headers: { 'content-type': 'application/json', 'x-instance-id': this.settings.instanceId, authorization: `Bearer ${await this.settings.token()}` },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     });
     const answer = await response.json().catch(() => ({})) as UpdatesView & { error?: unknown };

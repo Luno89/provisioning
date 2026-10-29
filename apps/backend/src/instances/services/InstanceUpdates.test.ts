@@ -7,7 +7,7 @@ const rig = (answer: { status?: number; body: unknown }, jobs: { name: string; a
   const calls: { url: string; method: string; body?: string; headers: Record<string, string> }[] = [];
   const kubectl: string[][] = [];
   const updates = new InstanceUpdates(
-    { rootUrl: 'https://root', instanceId: 'inst-1', credential: 'secret', cronJob: 'instance-self-upgrade', namespace: 'koala' },
+    { rootUrl: 'https://root', instanceId: 'inst-1', token: async () => 'secret', cronJob: 'instance-self-upgrade', namespace: 'koala' },
     async (args) => {
       kubectl.push(args);
       return args[0] === 'get' ? JSON.stringify({ items: jobs.map((job) => ({ metadata: { name: job.name }, status: { active: job.active ?? 0 } })) }) : '';

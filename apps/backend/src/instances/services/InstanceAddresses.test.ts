@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { InstanceAddresses } from './InstanceAddresses.js';
 
-const settings = { rootUrl: 'https://root', instanceId: 'inst-1', credential: 'secret', name: 'luno' };
+const settings = { rootUrl: 'https://root', instanceId: 'inst-1', token: async () => 'secret', name: 'luno' };
 
 function rootAnswering(views: object[]) {
   const asked: Array<{ method: string; body?: string | undefined; headers: Record<string, string> }> = [];

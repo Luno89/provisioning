@@ -6,15 +6,14 @@ import type { PoolMonitor, Sample } from './MonitoringService.js';
 export interface PoolMonitorSettings {
   rootUrl: string;
   instanceId: string;
-  credential: string;
+  token: () => Promise<string>;
 }
 
-export function poolMonitorFrom(env: NodeJS.ProcessEnv): PoolMonitorSettings | undefined {
+export function poolMonitorFrom(env: NodeJS.ProcessEnv, token: (() => Promise<string>) | undefined): PoolMonitorSettings | undefined {
   if (env.POOL !== 'true') return undefined;
   const rootUrl = env.ROOT_URL?.trim();
   const instanceId = env.INSTANCE_ID?.trim();
-  const credential = env.INSTANCE_CREDENTIAL?.trim();
-  return rootUrl && instanceId && credential ? { rootUrl: rootUrl.replace(/\/$/, ''), instanceId, credential } : undefined;
+  return rootUrl && instanceId && token ? { rootUrl: rootUrl.replace(/\/$/, ''), instanceId, token } : undefined;
 }
 
 export function poolMonitor(settings: PoolMonitorSettings, fetchImpl: typeof fetch = globalThis.fetch): PoolMonitor {
@@ -23,7 +22,7 @@ export function poolMonitor(settings: PoolMonitorSettings, fetchImpl: typeof fet
       method,
       headers: {
         'x-instance-id': settings.instanceId,
-        authorization: `Bearer ${settings.credential}`,
+        authorization: `Bearer ${await settings.token()}`,
         ...(body === undefined ? {} : { 'content-type': 'application/json' }),
       },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),

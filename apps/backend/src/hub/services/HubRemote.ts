@@ -7,12 +7,12 @@ import type { InstanceCall } from './HubInstanceWork.js';
 import { RELAY_NAME_HEADER, RELAY_STATUS_HEADER, RELAY_TYPE_HEADER } from '../lib/hub-board.js';
 
 export class RootHubAccess {
-  constructor(private readonly settings: { rootUrl: string; instanceId: string; credential: string }, private readonly fetchImpl: typeof fetch = fetch) {}
+  constructor(private readonly settings: { rootUrl: string; instanceId: string; token: () => Promise<string> }, private readonly fetchImpl: typeof fetch = fetch) {}
 
   async access(): Promise<HubAccess> {
     const response = await this.fetchImpl(`${this.settings.rootUrl}/api/instances/hub-token`, {
       method: 'POST',
-      headers: { 'x-instance-id': this.settings.instanceId, authorization: `Bearer ${this.settings.credential}` },
+      headers: { 'x-instance-id': this.settings.instanceId, authorization: `Bearer ${await this.settings.token()}` },
     });
     const answer = await response.json().catch(() => ({})) as HubAccess & { error?: string };
     if (!response.ok || !answer.token) throw new Error(`root gave no way to the hub (${response.status}): ${answer.error ?? 'no reason given'}`);

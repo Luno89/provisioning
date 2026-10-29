@@ -1,12 +1,12 @@
 import type { InviteSender } from './HubService.js';
 
 export class HubRootClient implements InviteSender {
-  constructor(private readonly root: { rootUrl: string; credential: string }, private readonly fetchImpl: typeof fetch = fetch) {}
+  constructor(private readonly root: { rootUrl: string; token: () => Promise<string> }, private readonly fetchImpl: typeof fetch = fetch) {}
 
   async send(request: Parameters<InviteSender['send']>[0]): ReturnType<InviteSender['send']> {
     const response = await this.fetchImpl(`${this.root.rootUrl}/api/hub-link/invite`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', authorization: `Bearer ${this.root.credential}` },
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${await this.root.token()}` },
       body: JSON.stringify(request),
     });
     const answer = await response.json().catch(() => ({})) as { link?: string; emailed?: boolean; why?: string; error?: string };

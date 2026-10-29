@@ -14,9 +14,10 @@ import {
 } from './projects/index.js';
 import {
   stopIfRunning, createDatabase, sharedPayloadBlobs, createWorkerLogger, buildDataConverter, connectTemporalWorker, failureReason,
-  signJWT, principalOf, claimSettingsFrom, roleFromEnv, getTemporalClient, resolveOwnersWith, loadKeys, startedFor, carryingTrace, SYSTEM_KUBECONFIG, telemetrySettings,
+  signJWT, principalOf, claimSettingsFrom, roleFromEnv, getTemporalClient, resolveOwnersWith, loadKeys, startedFor, carryingTrace, SYSTEM_KUBECONFIG, telemetrySettings, AccessRevocations,
   publicAddressProblem,
 } from './platform/index.js';
+import { rootSignInFor } from './instances/wiring/sign-in.js';
 import { createWorkspaceRepoResolver, treeOfWorkspace } from './engine-host/sandboxes/workspace-repos.js';
 import dotenv from 'dotenv';
 import { Worker, Runtime } from '@temporalio/worker';
@@ -171,7 +172,9 @@ async function buildActivities() {
     treeTypeOf: async (project) => (await treeTypeOfProject(db.projects, project))?.id ?? ODOO_TREE_TYPE,
   });
   const engineRole = roleFromEnv(process.env);
-  const placeOnPool = poolMonitorFrom(process.env);
+  const rootSignIn = rootSignInFor({ role: engineRole, env: process.env, keys, db, revocations: new AccessRevocations(), publicUrl: process.env.PUBLIC_URL ?? '' });
+  rootSignIn?.keepAnnouncing((message) => console.warn(`[sign-in] ${message}`));
+  const placeOnPool = poolMonitorFrom(process.env, rootSignIn ? () => rootSignIn.serviceToken() : undefined);
   const onPool = placeOnPool ? poolMonitor(placeOnPool) : undefined;
   const monitoring = new MonitoringService({
     store: db,
