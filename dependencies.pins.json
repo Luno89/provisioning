@@ -196,6 +196,38 @@
         {
           "file": "Dockerfile",
           "pattern": "ARG KUBECTL_VERSION=(v[0-9.]+)"
+        },
+        {
+          "file": "scripts/setup.sh",
+          "pattern": "KUBECTL_VERSION=(v[0-9.]+)"
+        }
+      ],
+      "sha256s": {
+        "linux-amd64": "1e9045ec32bea85da43de85f0065358529ea7c7a152eca78154fba5b58c27d82",
+        "linux-arm64": "c957eb8c4bea27a3bb35b269edd9082e27f027f7b76b20b5bf4afebc726c6d3e",
+        "darwin-amd64": "ce6c5e55cd17559e87e4fb5e73ebbbc2511bcf2b695d7a40c1b1461a9817d4b3",
+        "darwin-arm64": "4408c85c83fd3a31adaa555bdf3c7a6c81f74b19449a9060ba31ab91926f023d"
+      },
+      "shaUses": [
+        {
+          "file": "scripts/setup.sh",
+          "pattern": "KUBECTL_SHA256_LINUX_AMD64=([0-9a-f]{64})",
+          "arch": "linux-amd64"
+        },
+        {
+          "file": "scripts/setup.sh",
+          "pattern": "KUBECTL_SHA256_LINUX_ARM64=([0-9a-f]{64})",
+          "arch": "linux-arm64"
+        },
+        {
+          "file": "scripts/setup.sh",
+          "pattern": "KUBECTL_SHA256_DARWIN_AMD64=([0-9a-f]{64})",
+          "arch": "darwin-amd64"
+        },
+        {
+          "file": "scripts/setup.sh",
+          "pattern": "KUBECTL_SHA256_DARWIN_ARM64=([0-9a-f]{64})",
+          "arch": "darwin-arm64"
         }
       ]
     },
@@ -225,6 +257,48 @@
         {
           "file": ".github/workflows/release.yml",
           "pattern": "version: (v[0-9.]+)"
+        },
+        {
+          "file": "scripts/instance/install.sh",
+          "pattern": "HELM_VERSION=(v[0-9.]+)"
+        }
+      ],
+      "sha256s": {
+        "linux-amd64": "7b20e7791c04ea71e7fe0cbe11f1a8be4a55a692898b57d9db28f3b0c1d52f11",
+        "linux-arm64": "b4c5519b18f01dd2441f5e09497913dc1da1a1eec209033ae792a8d45b9e0e86",
+        "darwin-amd64": "5fdc60e090d183113f9fa0ae9dd9d12f0c1462b9ded286370f84e340f84bd676",
+        "darwin-arm64": "4b04ede5ab9bb226c9b198c94ce12818f0b0e302193defd66970b45fc341f6e7"
+      },
+      "shaUses": [
+        {
+          "file": "scripts/instance/install.sh",
+          "pattern": "HELM_SHA256_AMD64=([0-9a-f]{64})",
+          "arch": "linux-amd64"
+        },
+        {
+          "file": "scripts/instance/install.sh",
+          "pattern": "HELM_SHA256_ARM64=([0-9a-f]{64})",
+          "arch": "linux-arm64"
+        },
+        {
+          "file": "scripts/setup.sh",
+          "pattern": "HELM_SHA256_LINUX_AMD64=([0-9a-f]{64})",
+          "arch": "linux-amd64"
+        },
+        {
+          "file": "scripts/setup.sh",
+          "pattern": "HELM_SHA256_LINUX_ARM64=([0-9a-f]{64})",
+          "arch": "linux-arm64"
+        },
+        {
+          "file": "scripts/setup.sh",
+          "pattern": "HELM_SHA256_DARWIN_AMD64=([0-9a-f]{64})",
+          "arch": "darwin-amd64"
+        },
+        {
+          "file": "scripts/setup.sh",
+          "pattern": "HELM_SHA256_DARWIN_ARM64=([0-9a-f]{64})",
+          "arch": "darwin-arm64"
         }
       ]
     },
@@ -247,6 +321,34 @@
           "file": "scripts/setup.sh",
           "pattern": "k3d/releases/download/(v[0-9.]+)/"
         }
+      ],
+      "sha256s": {
+        "linux-amd64": "69f434b5a326eddafff6062a1b439d1c7a78a1ee93a91a9f79872cf8e516327d",
+        "linux-arm64": "5d2e556e26681474a4aa09b40e2e9880084e0caf63a049b045cb22cc3188de68",
+        "darwin-amd64": "c377952a095af4a1683411b2d3ccee53affdcdb7763d2dfca9714a9ebb978f8c",
+        "darwin-arm64": "c8b824684153488a4234214e2f7264035e66bf73d2d68828ce026cb9c59bfc23"
+      },
+      "shaUses": [
+        {
+          "file": "scripts/setup.sh",
+          "pattern": "K3D_SHA256_LINUX_AMD64=([0-9a-f]{64})",
+          "arch": "linux-amd64"
+        },
+        {
+          "file": "scripts/setup.sh",
+          "pattern": "K3D_SHA256_LINUX_ARM64=([0-9a-f]{64})",
+          "arch": "linux-arm64"
+        },
+        {
+          "file": "scripts/setup.sh",
+          "pattern": "K3D_SHA256_DARWIN_AMD64=([0-9a-f]{64})",
+          "arch": "darwin-amd64"
+        },
+        {
+          "file": "scripts/setup.sh",
+          "pattern": "K3D_SHA256_DARWIN_ARM64=([0-9a-f]{64})",
+          "arch": "darwin-arm64"
+        }
       ]
     },
     {
@@ -268,6 +370,34 @@
           "file": "scripts/setup.sh",
           "pattern": "terraform/([0-9.]+)/terraform_"
         }
+      ],
+      "sha256s": {
+        "linux-amd64": "ab1358e73a81096bbe04201ef403a32e0765c5f6e360692d170d32d0889a4871",
+        "linux-arm64": "f5c0a49b482c008a6afd2248c08ca919e599c1154a850ff94809f4a85c86eb3b",
+        "darwin-amd64": "b69196c831d6315b6e79178c96a66365d724cf4b922ad4a9763cd970aeeecd45",
+        "darwin-arm64": "b7701c42a9b69524cfe79f0928d48ec4d648bc5e08794df12e8b41b56a0a395c"
+      },
+      "shaUses": [
+        {
+          "file": "scripts/setup.sh",
+          "pattern": "TERRAFORM_SHA256_LINUX_AMD64=([0-9a-f]{64})",
+          "arch": "linux-amd64"
+        },
+        {
+          "file": "scripts/setup.sh",
+          "pattern": "TERRAFORM_SHA256_LINUX_ARM64=([0-9a-f]{64})",
+          "arch": "linux-arm64"
+        },
+        {
+          "file": "scripts/setup.sh",
+          "pattern": "TERRAFORM_SHA256_DARWIN_AMD64=([0-9a-f]{64})",
+          "arch": "darwin-amd64"
+        },
+        {
+          "file": "scripts/setup.sh",
+          "pattern": "TERRAFORM_SHA256_DARWIN_ARM64=([0-9a-f]{64})",
+          "arch": "darwin-arm64"
+        }
       ]
     },
     {
@@ -284,6 +414,34 @@
         {
           "file": "scripts/setup.sh",
           "pattern": "docker/compose/releases/download/(v[0-9.]+)/"
+        }
+      ],
+      "sha256s": {
+        "linux-amd64": "5ea89dd65d33912a83737d8a4bf070d5de534a32b8493a21fbefc924484786a9",
+        "linux-arm64": "7f0023ba726b90347e4ebc1d94ec5970390b8bddb86402c0429f163dca70d745",
+        "darwin-amd64": "170acf9a5754ec244904fb63494c50249ba4aea22d84c1fad9a9eeadc8c87c66",
+        "darwin-arm64": "b4a5b264ecddeeced9c14116e1b726c6529f286bea0a14325fb6436a4b35d7ec"
+      },
+      "shaUses": [
+        {
+          "file": "scripts/setup.sh",
+          "pattern": "COMPOSE_SHA256_LINUX_AMD64=([0-9a-f]{64})",
+          "arch": "linux-amd64"
+        },
+        {
+          "file": "scripts/setup.sh",
+          "pattern": "COMPOSE_SHA256_LINUX_ARM64=([0-9a-f]{64})",
+          "arch": "linux-arm64"
+        },
+        {
+          "file": "scripts/setup.sh",
+          "pattern": "COMPOSE_SHA256_DARWIN_AMD64=([0-9a-f]{64})",
+          "arch": "darwin-amd64"
+        },
+        {
+          "file": "scripts/setup.sh",
+          "pattern": "COMPOSE_SHA256_DARWIN_ARM64=([0-9a-f]{64})",
+          "arch": "darwin-arm64"
         }
       ]
     },
@@ -302,11 +460,27 @@
         {
           "file": "scripts/cluster.sh",
           "pattern": "K3S_VERSION=\"(v[0-9.]+\\+k3s[0-9]+)\""
+        },
+        {
+          "file": "scripts/instance/install.sh",
+          "pattern": "K3S_VERSION=\"(v[0-9.]+\\+k3s[0-9]+)\""
+        },
+        {
+          "file": "scripts/root-node/pool-node.sh",
+          "pattern": "K3S_VERSION=\"(v[0-9.]+\\+k3s[0-9]+)\""
         }
       ],
       "shaUses": [
         {
           "file": "scripts/cluster.sh",
+          "pattern": "K3S_INSTALLER_SHA256=([0-9a-f]{64})"
+        },
+        {
+          "file": "scripts/instance/install.sh",
+          "pattern": "K3S_INSTALLER_SHA256=([0-9a-f]{64})"
+        },
+        {
+          "file": "scripts/root-node/pool-node.sh",
           "pattern": "K3S_INSTALLER_SHA256=([0-9a-f]{64})"
         }
       ]
@@ -848,6 +1022,284 @@
       ]
     },
     {
+      "kind": "binary",
+      "name": "tailscale",
+      "version": "1.104.1",
+      "source": "https://pkgs.tailscale.com/stable/tailscale_1.104.1_amd64.tgz",
+      "github": "tailscale/tailscale",
+      "osv": {
+        "ecosystem": "Go",
+        "name": "tailscale.com"
+      },
+      "sha256s": {
+        "linux-amd64": "108d1d96ecf410d305571e173516f27038f870919a9b89c914a167c6d33a4528",
+        "linux-arm64": "f60294374967f3dfd8cf57bbbd474d6cfce32d123e3a8ddeab82a87940daa806"
+      },
+      "uses": [
+        {
+          "file": "scripts/instance/install.sh",
+          "pattern": "TAILSCALE_VERSION=([0-9.]+)"
+        },
+        {
+          "file": "scripts/machine/machine.sh",
+          "pattern": "TAILSCALE_VERSION=([0-9.]+)"
+        },
+        {
+          "file": "scripts/root-node/pool-node.sh",
+          "pattern": "TAILSCALE_VERSION=([0-9.]+)"
+        },
+        {
+          "file": "scripts/root-node/bootstrap.sh",
+          "pattern": "TAILSCALE_VERSION=([0-9.]+)"
+        }
+      ],
+      "shaUses": [
+        {
+          "file": "scripts/instance/install.sh",
+          "pattern": "TAILSCALE_SHA256_AMD64=([0-9a-f]{64})",
+          "arch": "linux-amd64"
+        },
+        {
+          "file": "scripts/instance/install.sh",
+          "pattern": "TAILSCALE_SHA256_ARM64=([0-9a-f]{64})",
+          "arch": "linux-arm64"
+        },
+        {
+          "file": "scripts/machine/machine.sh",
+          "pattern": "TAILSCALE_SHA256_AMD64=([0-9a-f]{64})",
+          "arch": "linux-amd64"
+        },
+        {
+          "file": "scripts/machine/machine.sh",
+          "pattern": "TAILSCALE_SHA256_ARM64=([0-9a-f]{64})",
+          "arch": "linux-arm64"
+        },
+        {
+          "file": "scripts/root-node/pool-node.sh",
+          "pattern": "TAILSCALE_SHA256_AMD64=([0-9a-f]{64})",
+          "arch": "linux-amd64"
+        },
+        {
+          "file": "scripts/root-node/pool-node.sh",
+          "pattern": "TAILSCALE_SHA256_ARM64=([0-9a-f]{64})",
+          "arch": "linux-arm64"
+        }
+      ]
+    },
+    {
+      "kind": "binary",
+      "name": "docker",
+      "version": "29.9.0",
+      "source": "https://download.docker.com (Docker's signed repositories)",
+      "github": "moby/moby",
+      "osv": {
+        "ecosystem": "Go",
+        "name": "github.com/docker/docker"
+      },
+      "uses": [
+        {
+          "file": "scripts/instance/install.sh",
+          "pattern": "DOCKER_VERSION=([0-9.]+)"
+        },
+        {
+          "file": "scripts/setup-root.sh",
+          "pattern": "DOCKER_VERSION=([0-9.]+)"
+        },
+        {
+          "file": "scripts/root-node/bootstrap.sh",
+          "pattern": "DOCKER_VERSION=([0-9.]+)"
+        }
+      ]
+    },
+    {
+      "kind": "binary",
+      "name": "docker-install",
+      "version": "ada7a567e59b3935bd601bb21e422da50e80e376",
+      "source": "https://raw.githubusercontent.com/docker/docker-install/ada7a567e59b3935bd601bb21e422da50e80e376/install.sh",
+      "sha256": "2b102d809152ea157a59f171319f489d971273b2d26dd7e9a6d1d737ce89289d",
+      "github": "docker/docker-install",
+      "uses": [
+        {
+          "file": "scripts/instance/install.sh",
+          "pattern": "DOCKER_INSTALL_COMMIT=([0-9a-f]{40})"
+        },
+        {
+          "file": "scripts/setup-root.sh",
+          "pattern": "DOCKER_INSTALL_COMMIT=([0-9a-f]{40})"
+        }
+      ],
+      "shaUses": [
+        {
+          "file": "scripts/instance/install.sh",
+          "pattern": "DOCKER_INSTALL_SHA256=([0-9a-f]{64})"
+        },
+        {
+          "file": "scripts/setup-root.sh",
+          "pattern": "DOCKER_INSTALL_SHA256=([0-9a-f]{64})"
+        }
+      ]
+    },
+    {
+      "kind": "binary",
+      "name": "rclone",
+      "version": "v1.75.2",
+      "source": "https://downloads.rclone.org/v1.75.2/",
+      "github": "rclone/rclone",
+      "osv": {
+        "ecosystem": "Go",
+        "name": "github.com/rclone/rclone"
+      },
+      "sha256s": {
+        "linux-amd64": "349ac8fba6ff65d6247043f1750cdcb518ec5d500ef91463a10d37c0ccdf3702",
+        "linux-arm64": "7e1e8d69654941b7b7df84ee74c5f7fb09cce7d5496947fb7bf16b55ff427d10",
+        "darwin-amd64": "574e1f31cf1c464e5fb0325cb66fcbdeaf1efa1802bd9b17f13c256fd74b6561",
+        "darwin-arm64": "610ab7d48615135dfc60b763858b11a426a0d3d1160c1bb76fb0ae6011b02edd"
+      },
+      "uses": [
+        {
+          "file": "scripts/setup.sh",
+          "pattern": "RCLONE_VERSION=(v[0-9.]+)"
+        }
+      ],
+      "shaUses": [
+        {
+          "file": "scripts/setup.sh",
+          "pattern": "RCLONE_SHA256_LINUX_AMD64=([0-9a-f]{64})",
+          "arch": "linux-amd64"
+        },
+        {
+          "file": "scripts/setup.sh",
+          "pattern": "RCLONE_SHA256_LINUX_ARM64=([0-9a-f]{64})",
+          "arch": "linux-arm64"
+        },
+        {
+          "file": "scripts/setup.sh",
+          "pattern": "RCLONE_SHA256_DARWIN_AMD64=([0-9a-f]{64})",
+          "arch": "darwin-amd64"
+        },
+        {
+          "file": "scripts/setup.sh",
+          "pattern": "RCLONE_SHA256_DARWIN_ARM64=([0-9a-f]{64})",
+          "arch": "darwin-arm64"
+        }
+      ]
+    },
+    {
+      "kind": "binary",
+      "name": "restic",
+      "version": "0.19.1",
+      "source": "https://github.com/restic/restic/releases/download/v0.19.1/",
+      "github": "restic/restic",
+      "osv": {
+        "ecosystem": "Go",
+        "name": "github.com/restic/restic"
+      },
+      "sha256s": {
+        "linux-amd64": "f415415624dcc452f2a02b8c33641791a8c6d6d3b65bbb3543fcf9a25151585c",
+        "linux-arm64": "a5f64aaab53d51e311fa3829124c5b703f2d14cf187d8640b6be3b2b49376465"
+      },
+      "uses": [
+        {
+          "file": "scripts/root-node/harden-host.sh",
+          "pattern": "RESTIC_VERSION=([0-9.]+)"
+        }
+      ],
+      "shaUses": [
+        {
+          "file": "scripts/root-node/harden-host.sh",
+          "pattern": "RESTIC_SHA256_AMD64=([0-9a-f]{64})",
+          "arch": "linux-amd64"
+        },
+        {
+          "file": "scripts/root-node/harden-host.sh",
+          "pattern": "RESTIC_SHA256_ARM64=([0-9a-f]{64})",
+          "arch": "linux-arm64"
+        }
+      ]
+    },
+    {
+      "kind": "chart",
+      "name": "gitea",
+      "version": "12.7.0",
+      "source": "https://dl.gitea.com/charts/",
+      "github": "go-gitea/helm-gitea",
+      "uses": [
+        {
+          "file": "scripts/ensure-gitea.sh",
+          "pattern": "GITEA_CHART=([0-9.]+)"
+        }
+      ]
+    },
+    {
+      "kind": "chart",
+      "name": "infisical-standalone",
+      "version": "1.11.1",
+      "source": "https://dl.cloudsmith.io/public/infisical/helm-charts/helm/charts/",
+      "github": "Infisical/infisical",
+      "uses": [
+        {
+          "file": "scripts/ensure-infisical.sh",
+          "pattern": "STANDALONE_CHART=([0-9.]+)"
+        }
+      ]
+    },
+    {
+      "kind": "chart",
+      "name": "secrets-operator",
+      "version": "v0.11.15",
+      "where": "the management cluster's Infisical",
+      "source": "https://dl.cloudsmith.io/public/infisical/helm-charts/helm/charts/",
+      "github": "Infisical/infisical",
+      "uses": [
+        {
+          "file": "scripts/ensure-infisical.sh",
+          "pattern": "OPERATOR_CHART=(v[0-9.]+)"
+        }
+      ]
+    },
+    {
+      "kind": "binary",
+      "name": "containerd.io",
+      "version": "2.4.1-2",
+      "where": "root, from Docker's signed apt repository",
+      "source": "https://download.docker.com/linux/ubuntu",
+      "github": "containerd/containerd",
+      "uses": [
+        {
+          "file": "scripts/root-node/bootstrap.sh",
+          "pattern": "CONTAINERD_PACKAGE=([0-9.]+-[0-9]+)"
+        }
+      ]
+    },
+    {
+      "kind": "binary",
+      "name": "docker-buildx-plugin",
+      "version": "0.38.0-1",
+      "where": "root, from Docker's signed apt repository",
+      "source": "https://download.docker.com/linux/ubuntu",
+      "github": "docker/buildx",
+      "uses": [
+        {
+          "file": "scripts/root-node/bootstrap.sh",
+          "pattern": "BUILDX_PACKAGE=([0-9.]+-[0-9]+)"
+        }
+      ]
+    },
+    {
+      "kind": "binary",
+      "name": "docker-compose-plugin",
+      "version": "5.6.0-1",
+      "where": "root, from Docker's signed apt repository",
+      "source": "https://download.docker.com/linux/ubuntu",
+      "github": "docker/compose",
+      "uses": [
+        {
+          "file": "scripts/root-node/bootstrap.sh",
+          "pattern": "COMPOSE_PACKAGE=([0-9.]+-[0-9]+)"
+        }
+      ]
+    },
+    {
       "kind": "go",
       "name": "github.com/caddy-dns/cloudflare",
       "version": "v0.2.1",
@@ -880,73 +1332,5 @@
       ]
     }
   ],
-  "unpinned": [
-    {
-      "name": "tailscale",
-      "how": "curl -fsSL https://tailscale.com/install.sh | sh",
-      "usedIn": [
-        "scripts/instance/install.sh",
-        "scripts/machine/machine.sh",
-        "scripts/root-node/pool-node.sh"
-      ]
-    },
-    {
-      "name": "docker",
-      "how": "curl -fsSL https://get.docker.com | sh",
-      "usedIn": [
-        "scripts/instance/install.sh",
-        "scripts/setup-root.sh"
-      ]
-    },
-    {
-      "name": "k3s",
-      "how": "curl -sfL https://get.k3s.io | sh -",
-      "usedIn": [
-        "scripts/instance/install.sh",
-        "scripts/root-node/pool-node.sh"
-      ]
-    },
-    {
-      "name": "helm",
-      "how": "get-helm-3 from helm's main branch",
-      "usedIn": [
-        "scripts/instance/install.sh"
-      ]
-    },
-    {
-      "name": "gitea chart",
-      "how": "helm upgrade --install with no --version",
-      "usedIn": [
-        "scripts/ensure-gitea.sh"
-      ]
-    },
-    {
-      "name": "infisical-standalone chart",
-      "how": "helm upgrade --install with no --version",
-      "usedIn": [
-        "scripts/ensure-infisical.sh"
-      ]
-    },
-    {
-      "name": "kubectl",
-      "how": "the version dl.k8s.io calls stable today",
-      "usedIn": [
-        "scripts/setup.sh"
-      ]
-    },
-    {
-      "name": "rclone",
-      "how": "rclone-current",
-      "usedIn": [
-        "scripts/setup.sh"
-      ]
-    },
-    {
-      "name": "restic",
-      "how": "Ubuntu's signed apt repository, whatever version it carries",
-      "usedIn": [
-        "scripts/root-node/harden-host.sh"
-      ]
-    }
-  ]
+  "unpinned": []
 }

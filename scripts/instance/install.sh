@@ -11,6 +11,17 @@ NODE_PORT=30320
 EDGE_PORT=30321
 KUBECONFIG=/etc/rancher/k3s/k3s.yaml
 export KUBECONFIG
+K3S_VERSION="v1.36.4+k3s1"
+K3S_INSTALLER_SHA256=46177d4c99440b4c0311b67233823a8e8a2fc09693f6c89af1a7161e152fbfad
+HELM_VERSION=v3.15.1
+HELM_SHA256_AMD64=7b20e7791c04ea71e7fe0cbe11f1a8be4a55a692898b57d9db28f3b0c1d52f11
+HELM_SHA256_ARM64=b4c5519b18f01dd2441f5e09497913dc1da1a1eec209033ae792a8d45b9e0e86
+TAILSCALE_VERSION=1.104.1
+TAILSCALE_SHA256_AMD64=108d1d96ecf410d305571e173516f27038f870919a9b89c914a167c6d33a4528
+TAILSCALE_SHA256_ARM64=f60294374967f3dfd8cf57bbbd474d6cfce32d123e3a8ddeab82a87940daa806
+DOCKER_VERSION=29.9.0
+DOCKER_INSTALL_COMMIT=ada7a567e59b3935bd601bb21e422da50e80e376
+DOCKER_INSTALL_SHA256=2b102d809152ea157a59f171319f489d971273b2d26dd7e9a6d1d737ce89289d
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -35,6 +46,106 @@ ask() {
   case "$answer" in y|Y|yes|YES) return 0 ;; *) return 1 ;; esac
 }
 
+arch_of() {
+  case "$(uname -m)" in
+    x86_64|amd64) echo amd64 ;;
+    aarch64|arm64) echo arm64 ;;
+    *) die "this machine is $(uname -m); an instance runs on amd64 or arm64" ;;
+  esac
+}
+
+fetch_checked() {
+  curl -fsSL "$1" -o "$3" || die "could not download $1"
+  printf '%s  %s\n' "$2" "$3" | sha256sum -c --quiet - >/dev/null 2>&1 || { rm -f "$3"; die "the download from $1 is not the one Koala pins (its sha256 differs); nothing was installed"; }
+}
+
+install_docker() {
+  installer="$(mktemp)"
+  fetch_checked "https://raw.githubusercontent.com/docker/docker-install/${DOCKER_INSTALL_COMMIT}/install.sh" "$DOCKER_INSTALL_SHA256" "$installer"
+  VERSION="$DOCKER_VERSION" sh "$installer"
+  rm -f "$installer"
+}
+
+install_k3s() {
+  installer="$(mktemp)"
+  fetch_checked "https://raw.githubusercontent.com/k3s-io/k3s/$(printf '%s' "$K3S_VERSION" | sed 's/+/%2B/')/install.sh" "$K3S_INSTALLER_SHA256" "$installer"
+  INSTALL_K3S_VERSION="$K3S_VERSION" sh "$installer"
+  rm -f "$installer"
+}
+
+install_helm() {
+  arch="$(arch_of)"
+  if [ "$arch" = amd64 ]; then sha="$HELM_SHA256_AMD64"; else sha="$HELM_SHA256_ARM64"; fi
+  work="$(mktemp -d)"
+  fetch_checked "https://get.helm.sh/helm-${HELM_VERSION}-linux-${arch}.tar.gz" "$sha" "$work/helm.tar.gz"
+  tar -xzf "$work/helm.tar.gz" -C "$work"
+  install -m 755 "$work/linux-${arch}/helm" /usr/local/bin/helm
+  rm -rf "$work"
+}
+
+install_tailscale() {
+  arch="$(arch_of)"
+  if [ "$arch" = amd64 ]; then sha="$TAILSCALE_SHA256_AMD64"; else sha="$TAILSCALE_SHA256_ARM64"; fi
+  work="$(mktemp -d)"
+  fetch_checked "https://pkgs.tailscale.com/stable/tailscale_${TAILSCALE_VERSION}_${arch}.tgz" "$sha" "$work/tailscale.tgz"
+  tar -xzf "$work/tailscale.tgz" -C "$work"
+  from="$work/tailscale_${TAILSCALE_VERSION}_${arch}"
+  install -m 755 "$from/tailscale" /usr/bin/tailscale
+  install -m 755 "$from/tailscaled" /usr/sbin/tailscaled
+  install -m 644 "$from/systemd/tailscaled.service" /etc/systemd/system/tailscaled.service
+  [ -f /etc/default/tailscaled ] || install -m 644 "$from/systemd/tailscaled.defaults" /etc/default/tailscaled
+  rm -rf "$work"
+  systemctl daemon-reload
+  systemctl enable --now tailscaled >/dev/null 2>&1
+}
+
+read_joined() {
+  while IFS= read -r line || [ -n "$line" ]; do
+    [ -n "$line" ] || continue
+    key="${line%%=*}"
+    raw="${line#*=}"
+    case "$raw" in
+      "'"*"'") ;;
+      *) die "root's join reply has a line this installer cannot read; nothing was installed" ;;
+    esac
+    value="$(printf '%s' "$raw" | sed -e "s/^'//" -e "s/'\$//" -e "s/'\\\\''/'/g")"
+    case "$key" in
+      INSTANCE_ID) INSTANCE_ID="$value" ;;
+      INSTANCE_OWNER_ID) INSTANCE_OWNER_ID="$value" ;;
+      ROOT_URL) ROOT_URL="$value" ;;
+      ROOT_PUBLIC_KEYS_B64) ROOT_PUBLIC_KEYS_B64="$value" ;;
+      MESH_LOGIN_SERVER) MESH_LOGIN_SERVER="$value" ;;
+      MESH_PREAUTH_KEY) MESH_PREAUTH_KEY="$value" ;;
+      INSTANCE_REGISTRY) INSTANCE_REGISTRY="$value" ;;
+      INSTANCE_IMAGE) INSTANCE_IMAGE="$value" ;;
+      INSTANCE_IMAGE_TAG) INSTANCE_IMAGE_TAG="$value" ;;
+      INSTANCE_IMAGE_DIGEST) INSTANCE_IMAGE_DIGEST="$value" ;;
+      INSTANCE_CHART_URL) INSTANCE_CHART_URL="$value" ;;
+      INSTANCE_CHART_SHA256) INSTANCE_CHART_SHA256="$value" ;;
+      INSTANCE_CREDENTIAL) INSTANCE_CREDENTIAL="$value" ;;
+      INSTANCE_NAME) INSTANCE_NAME="$value" ;;
+      INSTANCE_DOMAIN) INSTANCE_DOMAIN="$value" ;;
+      INSTANCE_MOVE) INSTANCE_MOVE="$value" ;;
+    esac
+  done < "$1"
+  for required in INSTANCE_ID INSTANCE_OWNER_ID ROOT_URL ROOT_PUBLIC_KEYS_B64 MESH_LOGIN_SERVER MESH_PREAUTH_KEY INSTANCE_REGISTRY INSTANCE_IMAGE INSTANCE_IMAGE_TAG INSTANCE_CHART_URL INSTANCE_CREDENTIAL; do
+    case "$required" in
+      INSTANCE_ID) given="${INSTANCE_ID:-}" ;;
+      INSTANCE_OWNER_ID) given="${INSTANCE_OWNER_ID:-}" ;;
+      ROOT_URL) given="${ROOT_URL:-}" ;;
+      ROOT_PUBLIC_KEYS_B64) given="${ROOT_PUBLIC_KEYS_B64:-}" ;;
+      MESH_LOGIN_SERVER) given="${MESH_LOGIN_SERVER:-}" ;;
+      MESH_PREAUTH_KEY) given="${MESH_PREAUTH_KEY:-}" ;;
+      INSTANCE_REGISTRY) given="${INSTANCE_REGISTRY:-}" ;;
+      INSTANCE_IMAGE) given="${INSTANCE_IMAGE:-}" ;;
+      INSTANCE_IMAGE_TAG) given="${INSTANCE_IMAGE_TAG:-}" ;;
+      INSTANCE_CHART_URL) given="${INSTANCE_CHART_URL:-}" ;;
+      INSTANCE_CREDENTIAL) given="${INSTANCE_CREDENTIAL:-}" ;;
+    esac
+    [ -n "$given" ] || die "root's join reply has no ${required}; nothing was installed"
+  done
+}
+
 [ -n "$TOKEN" ] || die "usage: curl -fsSL ${ROOT_URL}/install.sh | sudo sh -s -- <join token>"
 [ "$(id -u)" = 0 ] || die "run this as root: pipe it into 'sudo sh -s -- <token>'"
 [ "$(uname -s)" = Linux ] || die "an instance runs on Linux"
@@ -46,14 +157,14 @@ trap 'rm -f "$JOIN_ENV"' EXIT
 HTTP_CODE="$(curl -sS -o "$JOIN_ENV" -w '%{http_code}' -X POST -H 'Content-Type: application/json' \
   -d "{\"token\":\"${TOKEN}\",\"machine\":\"$(hostname)\"}" "${ROOT_URL}/api/instances/join?format=env")"
 [ "$HTTP_CODE" = 200 ] || die "root refused the join (${HTTP_CODE}): $(cat "$JOIN_ENV")"
-. "$JOIN_ENV"
+read_joined "$JOIN_ENV"
 ok "this machine will be instance ${INSTANCE_ID}"
 
 report() {
   curl -fsS -X POST -H 'Content-Type: application/json' -H "X-Instance-Id: ${INSTANCE_ID}" -H "Authorization: Bearer ${INSTANCE_CREDENTIAL}" \
     -d "{\"status\":\"$1\",\"detail\":\"$2\"$( [ -n "${3:-}" ] && printf ',"url":"%s"' "$3" )$( [ -n "${MESH_IP:-}" ] && printf ',"meshIp":"%s"' "$MESH_IP" )$( [ -n "${4:-}" ] && printf ',"moved":true' )$( [ "$1" = ready ] && [ -n "${INSTANCE_IMAGE_TAG:-}" ] && printf ',"imageTag":"%s"' "$INSTANCE_IMAGE_TAG" )}" "${ROOT_URL}/api/instances/status" >/dev/null 2>&1 || true
 }
-trap 'status=$?; rm -f "$JOIN_ENV"; [ $status -ne 0 ] && report failed "The install command stopped on this machine; run it again to retry"' EXIT
+trap 'status=$?; rm -f "$JOIN_ENV" "${MESH_KEY_FILE:-}"; [ $status -ne 0 ] && report failed "The install command stopped on this machine; run it again to retry"' EXIT
 
 say "Checking this machine"
 MEM_MB=$(awk '/MemTotal/ { print int($2 / 1024) }' /proc/meminfo)
@@ -69,9 +180,9 @@ if have docker; then
   ok "Docker is installed"
   HOST_DOCKER=true
 elif ask "Docker isn't installed. It lets this instance create local test clusters. Install it?"; then
-  curl -fsSL https://get.docker.com | sh
+  install_docker
   HOST_DOCKER=true
-  ok "Docker installed"
+  ok "Docker $DOCKER_VERSION installed"
 else
   ok "carrying on without Docker — local test clusters will not be available"
 fi
@@ -80,24 +191,24 @@ if have k3s; then
   ok "k3s is installed"
 else
   ask "k3s isn't installed. The instance runs in it. Install k3s?" || die "stopped; an instance needs k3s"
-  curl -sfL https://get.k3s.io | sh -
-  ok "k3s installed"
+  install_k3s
+  ok "k3s $K3S_VERSION installed"
 fi
 
 if have helm; then
   ok "helm is installed"
 else
   ask "helm isn't installed. It installs the instance. Install helm?" || die "stopped; an instance is installed with helm"
-  curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
-  ok "helm installed"
+  install_helm
+  ok "helm $HELM_VERSION installed"
 fi
 
 if have tailscale; then
   ok "Tailscale is installed"
 else
   ask "Tailscale isn't installed. It joins this machine to your private mesh. Install it?" || die "stopped; an instance is reached over the mesh"
-  curl -fsSL https://tailscale.com/install.sh | sh
-  ok "Tailscale installed"
+  install_tailscale
+  ok "Tailscale $TAILSCALE_VERSION installed"
 fi
 
 if lspci 2>/dev/null | grep -qi nvidia && ! have nvidia-smi; then
@@ -110,7 +221,12 @@ if lspci 2>/dev/null | grep -qi nvidia && ! have nvidia-smi; then
 fi
 
 say "Joining the mesh"
-tailscale up --login-server "$MESH_LOGIN_SERVER" --authkey "$MESH_PREAUTH_KEY" --hostname "$INSTANCE_ID" --accept-dns=false
+MESH_KEY_FILE="$(mktemp)"
+chmod 600 "$MESH_KEY_FILE"
+printf '%s' "$MESH_PREAUTH_KEY" > "$MESH_KEY_FILE"
+MESH_PREAUTH_KEY=""
+tailscale up --login-server "$MESH_LOGIN_SERVER" --auth-key="file:$MESH_KEY_FILE" --hostname "$INSTANCE_ID" --accept-dns=false
+rm -f "$MESH_KEY_FILE"
 MESH_IP="$(tailscale ip -4 | head -n1)"
 ok "on the mesh as ${MESH_IP}"
 report joined "On the mesh as ${MESH_IP}"

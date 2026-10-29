@@ -15,7 +15,7 @@ ok()  { echo -e "  ${GREEN}✅${NC} $1"; }
 die() { echo -e "  ${RED}❌${NC} $1" >&2; exit 1; }
 
 [ "$(id -u)" -eq 0 ] || die "Run as root: this reads every store root keeps."
-command -v restic >/dev/null || die "restic is not installed; bootstrap.sh installs it from Ubuntu's signed repository"
+command -v restic >/dev/null || die "restic is not installed; bootstrap.sh and update.sh install the pinned release through harden-host.sh"
 
 setting() { [ -f "$ENV_FILE" ] && grep "^$1=" "$ENV_FILE" | tail -1 | cut -d= -f2- || true; }
 from_env() { local name="$1" value="${!1:-}"; [ -n "$value" ] && echo "$value" || setting "$name"; }

@@ -2,13 +2,14 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { ciToolLine, ciTools } from '../../scripts/pin.mjs';
 
-interface Use { file: string; pattern: string }
+interface Use { file: string; pattern: string; arch?: string }
 interface Component {
   kind: string;
   name: string;
   version: string;
   sha256?: string;
   sha512?: string;
+  sha256s?: Record<string, string>;
   ciTool?: boolean;
   uses?: Use[];
   shaUses?: Use[];
@@ -28,6 +29,7 @@ describe('the pins file', () => {
       expect(component.version, component.name).toMatch(/\S/);
       if (component.sha256) expect(component.sha256, component.name).toMatch(/^[0-9a-f]{64}$/);
       if (component.sha512) expect(component.sha512, component.name).toMatch(/^[0-9a-f]{128}$/);
+      for (const [arch, sha] of Object.entries(component.sha256s ?? {})) expect(sha, `${component.name} ${arch}`).toMatch(/^[0-9a-f]{64}$/);
     }
   });
 
@@ -39,7 +41,9 @@ describe('the pins file', () => {
         expect(new Set(versions), `${component.name} in ${use.file}`).toEqual(new Set([component.version]));
       }
       for (const use of component.shaUses ?? []) {
-        expect(new Set(found(use)), `${component.name}'s checksum in ${use.file}`).toEqual(new Set([component.sha256 ?? component.sha512]));
+        const wanted = use.arch ? component.sha256s?.[use.arch] : component.sha256 ?? component.sha512;
+        expect(wanted, `${component.name}'s ${use.arch ?? ''} checksum in the pins file`).toBeDefined();
+        expect(new Set(found(use)), `${component.name}'s ${use.arch ?? ''} checksum in ${use.file}`).toEqual(new Set([wanted]));
       }
     }
   });

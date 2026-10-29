@@ -30,10 +30,19 @@ if [ "$DETECTED_OS" != "Linux" ]; then
   exit 0
 fi
 
+DOCKER_VERSION=29.9.0
+DOCKER_INSTALL_COMMIT=ada7a567e59b3935bd601bb21e422da50e80e376
+DOCKER_INSTALL_SHA256=2b102d809152ea157a59f171319f489d971273b2d26dd7e9a6d1d737ce89289d
+
 # 1. Docker CE
 if ! command -v docker &>/dev/null; then
   echo "🐧 Installing Docker CE..."
-  curl -fsSL https://get.docker.com | sh
+  DOCKER_INSTALLER="$(mktemp)"
+  curl -fsSL "https://raw.githubusercontent.com/docker/docker-install/${DOCKER_INSTALL_COMMIT}/install.sh" -o "$DOCKER_INSTALLER"
+  echo "${DOCKER_INSTALL_SHA256}  ${DOCKER_INSTALLER}" | sha256sum -c --quiet - \
+    || { rm -f "$DOCKER_INSTALLER"; echo "❌ Docker's install script is not the one Koala pins (its sha256 differs); nothing was installed"; exit 1; }
+  VERSION="$DOCKER_VERSION" sh "$DOCKER_INSTALLER"
+  rm -f "$DOCKER_INSTALLER"
 fi
 if command -v systemctl &>/dev/null; then
   systemctl start docker || true

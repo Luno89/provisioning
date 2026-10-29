@@ -7,6 +7,9 @@ YES=0
 FOLDER=""
 SERVICE=1
 ADAPTERS=""
+TAILSCALE_VERSION=1.104.1
+TAILSCALE_SHA256_AMD64=108d1d96ecf410d305571e173516f27038f870919a9b89c914a167c6d33a4528
+TAILSCALE_SHA256_ARM64=f60294374967f3dfd8cf57bbbd474d6cfce32d123e3a8ddeab82a87940daa806
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -41,6 +44,30 @@ case "$ADAPTERS" in
 esac
 [ -n "$CODE" ] || die "usage: curl -fsSL ${KOALA_URL}/machine.sh | sh -s -- <code from My Machines>"
 [ "$(id -u)" != 0 ] || die "run this as yourself, not root: the agents it finds are yours"
+sha256_of() {
+  if have sha256sum; then sha256sum "$1" | cut -d' ' -f1; else shasum -a 256 "$1" | cut -d' ' -f1; fi
+}
+
+install_tailscale() {
+  case "$(uname -m)" in
+    x86_64|amd64) arch=amd64; sha="$TAILSCALE_SHA256_AMD64" ;;
+    aarch64|arm64) arch=arm64; sha="$TAILSCALE_SHA256_ARM64" ;;
+    *) die "this machine is $(uname -m); install Tailscale from https://tailscale.com/download, then run this again" ;;
+  esac
+  work="$(mktemp -d)"
+  curl -fsSL "https://pkgs.tailscale.com/stable/tailscale_${TAILSCALE_VERSION}_${arch}.tgz" -o "$work/tailscale.tgz" || die "could not download Tailscale"
+  [ "$(sha256_of "$work/tailscale.tgz")" = "$sha" ] || { rm -rf "$work"; die "the Tailscale download is not the one Koala pins (its sha256 differs); nothing was installed"; }
+  tar -xzf "$work/tailscale.tgz" -C "$work"
+  from="$work/tailscale_${TAILSCALE_VERSION}_${arch}"
+  sudo install -m 755 "$from/tailscale" /usr/bin/tailscale
+  sudo install -m 755 "$from/tailscaled" /usr/sbin/tailscaled
+  sudo install -m 644 "$from/systemd/tailscaled.service" /etc/systemd/system/tailscaled.service
+  [ -f /etc/default/tailscaled ] || sudo install -m 644 "$from/systemd/tailscaled.defaults" /etc/default/tailscaled
+  rm -rf "$work"
+  sudo systemctl daemon-reload
+  sudo systemctl enable --now tailscaled >/dev/null 2>&1
+}
+
 have curl || die "curl is needed"
 have tar || die "tar is needed"
 
@@ -97,8 +124,10 @@ ok "this machine is ${HOST} on your account"
 if [ -n "${MESH_LOGIN_SERVER:-}" ]; then
   say "Joining your private network"
   if ! have tailscale; then
+    [ "$(uname -s)" = Linux ] || die "install Tailscale from https://tailscale.com/download, then run this again: Koala reaches this machine through it, privately"
     ask "Tailscale isn't installed. Koala reaches this machine through it, privately. Install it?" || die "stopped: this machine needs the private network to take work"
-    curl -fsSL https://tailscale.com/install.sh | sh
+    install_tailscale
+    ok "Tailscale $TAILSCALE_VERSION installed"
   fi
   sudo tailscale up --login-server="$MESH_LOGIN_SERVER" --auth-key="file:$MESH_KEY_FILE" --accept-dns=false
   rm -f "$MESH_KEY_FILE"
@@ -113,7 +142,7 @@ mkdir -p "$NEXT_DIR"
 BUNDLE=$(mktemp)
 curl -fsSL "${KOALA_URL}/api/machines/agent.tgz" -o "$BUNDLE"
 [ -n "$KOALA_AGENT_SHA256" ] || { rm -f "$BUNDLE"; die "Koala did not say what the machine agent's checksum should be; nothing was installed"; }
-if have sha256sum; then GOT=$(sha256sum "$BUNDLE" | cut -d' ' -f1); else GOT=$(shasum -a 256 "$BUNDLE" | cut -d' ' -f1); fi
+GOT=$(sha256_of "$BUNDLE")
 [ "$GOT" = "$KOALA_AGENT_SHA256" ] || { rm -f "$BUNDLE"; die "the machine agent Koala sent is not the one it built (its sha256 differs); nothing was installed"; }
 tar -xzf "$BUNDLE" -C "$NEXT_DIR"
 rm -f "$BUNDLE"

@@ -4,6 +4,9 @@ set -euo pipefail
 FRESH=0
 [ "${1:-}" = "--fresh" ] && FRESH=1
 LAB="${LAB:-0}"
+RESTIC_VERSION=0.19.1
+RESTIC_SHA256_AMD64=f415415624dcc452f2a02b8c33641791a8c6d6d3b65bbb3543fcf9a25151585c
+RESTIC_SHA256_ARM64=a5f64aaab53d51e311fa3829124c5b703f2d14cf187d8640b6be3b2b49376465
 
 GREEN='\033[0;32m'; YELLOW='\033[1;33m'; RED='\033[0;31m'; NC='\033[0m'
 ok()   { echo -e "  ${GREEN}✅${NC} $1"; }
@@ -46,9 +49,24 @@ CONF
 sysctl --system >/dev/null
 ok "kernel: no redirects or source routing, loose reverse-path checks, kernel pointers and dmesg hidden, ptrace limited"
 
-for pkg in unattended-upgrades needrestart restic; do
+for pkg in unattended-upgrades needrestart bzip2; do
   dpkg -s "$pkg" &>/dev/null || DEBIAN_FRONTEND=noninteractive apt-get install -y "$pkg" >/dev/null
 done
+if [ "$(restic version 2>/dev/null | awk '{print $2}')" != "$RESTIC_VERSION" ]; then
+  case "$(uname -m)" in
+    x86_64) RESTIC_ARCH=amd64; RESTIC_SHA256="$RESTIC_SHA256_AMD64" ;;
+    aarch64) RESTIC_ARCH=arm64; RESTIC_SHA256="$RESTIC_SHA256_ARM64" ;;
+    *) die "restic is pinned for amd64 and arm64, and this host is $(uname -m)" ;;
+  esac
+  RESTIC_DOWNLOAD="$(mktemp)"
+  curl -fsSL "https://github.com/restic/restic/releases/download/v${RESTIC_VERSION}/restic_${RESTIC_VERSION}_linux_${RESTIC_ARCH}.bz2" -o "$RESTIC_DOWNLOAD"
+  echo "${RESTIC_SHA256}  ${RESTIC_DOWNLOAD}" | sha256sum -c --quiet - || { rm -f "$RESTIC_DOWNLOAD"; die "restic's download is not the one Koala pins (its sha256 differs)"; }
+  bunzip2 -c "$RESTIC_DOWNLOAD" > /usr/local/bin/restic
+  chmod 755 /usr/local/bin/restic
+  rm -f "$RESTIC_DOWNLOAD"
+  dpkg -s restic &>/dev/null && DEBIAN_FRONTEND=noninteractive apt-get remove -y restic >/dev/null
+fi
+ok "restic $RESTIC_VERSION, from its release with a pinned checksum"
 REBOOT=true
 [ "$LAB" -eq 1 ] && REBOOT=false
 write_if_changed /etc/apt/apt.conf.d/20auto-upgrades <<'CONF' || true

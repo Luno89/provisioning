@@ -55,6 +55,7 @@ elif [ -n "${POD_NAMESPACE:-}" ]; then
     --set-string gitea.config.server.ROOT_URL=http://gitea-http.gitea.svc.cluster.local:3000/)
 fi
 
+GITEA_CHART=12.7.0
 echo "  ▶  Ensuring Gitea is installed (helm upgrade --install is a cheap no-op when nothing changed)..."
 "$HELM" repo add gitea-charts https://dl.gitea.com/charts/ >/dev/null 2>&1 || true
 "$HELM" repo update gitea-charts >/dev/null 2>&1
@@ -64,7 +65,7 @@ echo "  ▶  Ensuring Gitea is installed (helm upgrade --install is a cheap no-o
 # here. Standalone `postgresql` (single pod) gives Gitea a real Postgres instance via the
 # chart's own bundled subchart; disabling valkey-cluster with nothing to replace it just lets
 # Gitea fall back to its own built-in in-memory cache/queue, which is fine at replicaCount: 1.
-"$HELM" upgrade --install "$RELEASE" gitea-charts/gitea \
+"$HELM" upgrade --install "$RELEASE" gitea-charts/gitea --version "$GITEA_CHART" \
   --kube-context "$CONTEXT" \
   -n "$NAMESPACE" --create-namespace \
   --set gitea.admin.username=provisioning-bot \
