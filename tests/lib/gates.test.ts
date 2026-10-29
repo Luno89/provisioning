@@ -75,6 +75,12 @@ describe('the gates', () => {
     const defined = Object.keys((JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8')) as { scripts: Record<string, string> }).scripts);
     expect(scripts.filter((script) => !defined.includes(script))).toEqual([]);
   });
+
+  it('prove sign-in across separate processes before main, not only at release', () => {
+    const shipped = SHIP_STEPS.map((step) => step.script);
+    expect(shipped).toContain('test:dev-split-live');
+    expect(shipped).toContain('test:openrouter-connect-live');
+  });
 });
 
 describe('a hotfix', () => {
