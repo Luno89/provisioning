@@ -2,6 +2,7 @@ import type { ModelReach } from '@koala/harness-types'
 import type { Artifact, ChildSteps, GroupDefinition, HostOperation, NodeTrace } from '@koala/agent-engine/procedure'
 import { api } from '../../../api/client'
 import type { SentAttachment } from '../../files'
+import type { RunEnding } from '../lib/run-endings'
 
 export interface AgentInputSchema {
   type?: string
@@ -76,6 +77,7 @@ export interface EngineTask {
 export const engineKeys = {
   agents: () => ['engine', 'agents'] as const,
   traces: (runId: string) => ['engine', 'traces', runId] as const,
+  endings: (runIds: readonly string[]) => ['engine', 'endings', ...runIds] as const,
   tasks: () => ['engine', 'tasks'] as const,
   extensions: () => ['engine', 'extensions'] as const,
 }
@@ -192,6 +194,11 @@ export async function startRun(input: {
 export async function listRunTraces(runId: string): Promise<NodeTrace[]> {
   const { data } = await api.get<{ traces: NodeTrace[] }>(`/engine/runs/${encodeURIComponent(runId)}/traces`)
   return data.traces
+}
+
+export async function listRunEndings(runIds: readonly string[]): Promise<RunEnding[]> {
+  const { data } = await api.get<{ endings: RunEnding[] }>('/engine/runs/endings', { params: { ids: runIds.join(',') } })
+  return data.endings
 }
 
 export async function answerRun(runId: string, nodeId: string, value: unknown): Promise<void> {

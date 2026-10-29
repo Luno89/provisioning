@@ -82,4 +82,19 @@ describe('a run on a story\'s page', () => {
     expect(screen.queryByRole('button', { name: /Stop/ })).not.toBeInTheDocument()
     expect(screen.getByText('ok')).toBeTruthy()
   })
+
+  it('says a run ended because its access was revoked, with the handover note it left, read through the board\'s own source', async () => {
+    const listRunEndings = vi.fn(async (_turnId: string, runIds: readonly string[]) => runIds.map((runId) => ({
+      runId,
+      ended: { how: 'revoked' as const, revokedBecause: 'signed-out-everywhere' as const, at: 't9' },
+      handover: { note: 'The delivery slip spec still fails on the Save button.', path: 'handover/exec-2.md' },
+    })))
+    const revoked: EngineEvent[] = [...events.slice(0, 8), { type: 'run.finished', runId: 'exec-2', at: 't9', outcome: 'interrupted', reason: 'its access was revoked because they signed out everywhere' }]
+    plainRender(<QueryClientProvider client={new QueryClient()}><WorkSourceContext.Provider value={{ ...(source as object), listRunEndings } as never}><StoryRun run={runOf(revoked)} turnId="grove-run-t1~1" events={revoked} /></WorkSourceContext.Provider></QueryClientProvider>)
+
+    expect((await screen.findByTestId('run-ended')).textContent).toContain('Ended because the access it worked with was revoked: they signed out everywhere')
+    expect(screen.getByTestId('handover-note').textContent).toBe('The delivery slip spec still fails on the Save button.')
+    expect(screen.getByTestId('run-ended').textContent).toContain('also in handover/exec-2.md')
+    expect(listRunEndings).toHaveBeenCalledWith('grove-run-t1~1', ['exec-2'])
+  })
 })

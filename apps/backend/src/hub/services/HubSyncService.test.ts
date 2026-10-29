@@ -169,6 +169,7 @@ describe('members working a shared project from the hub', () => {
         turns: async () => ({ entries: [] }),
         turnLog: async (_owner, turnId) => (turnId === 'grove-run-t1~1' ? [{ events: [{ type: 'run.started', runId: 'r1', agentId: 'grove', loopId: 'grove-run' } as never] }] : []),
         procedure: async (_owner, id) => ({ procedure: { id }, mine: false }),
+        endings: async (_owner, runIds) => ({ endings: runIds.map((runId) => ({ runId, ended: { how: 'revoked', revokedBecause: 'signed-out-everywhere', at: 'now' } })) }),
         extensions: async () => [],
       },
       files: {
@@ -275,6 +276,13 @@ describe('members working a shared project from the hub', () => {
     expect(await statusOf({ id: 'my-private-procedure', turnId: 'grove-run-t1~1' })).toBe(404);
     expect(await statusOf({ id: 'grove-run', turnId: 'grove-run-other~1' })).toBe(404);
     expect(await statusOf({ id: 'grove-run' })).toBe(404);
+    const endings = await hub.relay(cy, hubId, 'endings', { turnId: 'grove-run-t1~1', ids: ['grove-run-t1~1', 'grove-run-t1~1-executor-1', 'run-of-another-project'] } as never);
+    expect(endings.ok && endings.value.kind === 'json' && endings.value.body).toEqual({ endings: [
+      { runId: 'grove-run-t1~1', ended: { how: 'revoked', revokedBecause: 'signed-out-everywhere', at: 'now' } },
+      { runId: 'grove-run-t1~1-executor-1', ended: { how: 'revoked', revokedBecause: 'signed-out-everywhere', at: 'now' } },
+    ] });
+    const elsewhere = await hub.relay(cy, hubId, 'endings', { turnId: 'grove-run-other~1', ids: ['grove-run-other~1'] } as never);
+    expect(elsewhere.ok && elsewhere.value.kind === 'json' && elsewhere.value.status).toBe(404);
     sync.stop();
     relay.stop();
   });

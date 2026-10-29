@@ -114,7 +114,7 @@ export const requestInput = (kind: HubRequestKind, body: Plain): Plain => {
   return pick(body, fields[kind]);
 };
 
-export const RELAY_OPS = ['turns', 'procedure', 'extensions', 'files.list', 'files.search', 'files.read', 'files.upload', 'files.folder', 'files.move', 'files.remove'] as const;
+export const RELAY_OPS = ['turns', 'procedure', 'endings', 'extensions', 'files.list', 'files.search', 'files.read', 'files.upload', 'files.folder', 'files.move', 'files.remove'] as const;
 export type RelayOp = typeof RELAY_OPS[number];
 
 const CHANGING_FILES: ReadonlySet<RelayOp> = new Set(['files.move', 'files.remove']);

@@ -1,4 +1,4 @@
-import { AlertTriangle, BellRing, Boxes, CheckCircle2, Eye, GitMerge, Hourglass, KeyRound, Leaf, TreeDeciduous } from 'lucide-react';
+import { AlertTriangle, BellRing, Boxes, CheckCircle2, Eye, GitMerge, Hourglass, KeyRound, Leaf, ShieldOff, TreeDeciduous } from 'lucide-react';
 import type { ConversationNotice, NoticeKind } from '../../api/chat-pack.js';
 import { OpenApp } from '../../../releases';
 import { formatHash } from '../../../platform';
@@ -17,6 +17,7 @@ const LOOK: Record<NoticeKind, { icon: typeof Eye; tone: string }> = {
   'client-database-awaited': { icon: Hourglass, tone: 'text-amber-300' },
   'alert-firing': { icon: BellRing, tone: 'text-rose-300' },
   'alert-resolved': { icon: CheckCircle2, tone: 'text-emerald-300' },
+  'run-revoked': { icon: ShieldOff, tone: 'text-amber-300' },
 };
 
 const timeOf = (at: string | undefined): string => {

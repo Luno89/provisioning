@@ -187,6 +187,14 @@ describe('the Infrastructure page', () => {
     expect(screen.getByRole('list', { name: 'Firing alerts' })).toHaveTextContent('Shop is not answering')
   })
 
+  it('shows the handover note a run left when its access was revoked, beneath why it ended', async () => {
+    vi.mocked(infrastructureApi.getInfrastructure).mockResolvedValue({ ...overview, failures: [{ id: 'run:r9', workflowId: 'r9', kind: 'chat', title: 'Koala answering', opens: { kind: 'chat', id: 'c1' }, reason: 'its access was revoked: they signed out everywhere', failedAt: new Date().toISOString(), handover: 'Drafted the reply; it was not sent.' }] })
+    show()
+    const failure = await screen.findByTestId('attention-failure')
+    expect(failure).toHaveTextContent('its access was revoked: they signed out everywhere')
+    expect(within(failure).getByTestId('failure-handover')).toHaveTextContent('Drafted the reply; it was not sent.')
+  })
+
   it('clears one failure, or all of them', async () => {
     show()
     fireEvent.click(await screen.findByRole('button', { name: 'Clear Tree run: Shop' }))

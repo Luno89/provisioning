@@ -1,5 +1,5 @@
 import type { QueryClient } from '@tanstack/react-query'
-import { getHubBoard, getHubProcedure, hubKeys, listHubExtensions, readHubRunsUnder, sendHubRequest } from '../api'
+import { getHubBoard, getHubProcedure, hubKeys, listHubExtensions, listHubRunEndings, readHubRunsUnder, sendHubRequest } from '../api'
 import type { HubBoardView, HubRequestKind } from '../types'
 import type { WorkSource } from '../../projects'
 import { withOrder } from '../../projects'
@@ -63,6 +63,7 @@ export function hubWorkSource(client: QueryClient, view: HubBoardView): WorkSour
     getTreeRun: async (treeId) => (await board()).board.status?.treeRuns[treeId] ?? { state: 'none' },
     readRunsUnder: (turnId, after, under) => readHubRunsUnder(id, turnId, after, under),
     getProcedure: (procedureId, turnId) => getHubProcedure(id, procedureId, turnId),
+    listRunEndings: (turnId, runIds) => listHubRunEndings(id, turnId, runIds),
     listExtensions: () => listHubExtensions(id),
     orderStories: (branchId, leafIds) => ask('order-stories', { branchId, leafIds: [...leafIds] }),
     orderFeatures: (treeId, branchIds) => ask('order-features', { treeId, branchIds: [...branchIds] }),

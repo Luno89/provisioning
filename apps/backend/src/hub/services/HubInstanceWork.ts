@@ -50,6 +50,7 @@ export interface HubInstanceWorkDeps {
     turns(ownerId: string, turnId: string, after: number, under: string | undefined): Promise<unknown>;
     turnLog(ownerId: string, turnId: string): Promise<Pick<TurnLogEntry, 'events'>[]>;
     procedure(ownerId: string, id: string): Promise<unknown | undefined>;
+    endings(ownerId: string, runIds: readonly string[]): Promise<unknown>;
     extensions(ownerId: string): Promise<unknown>;
   };
   files: InstanceFiles;
@@ -158,6 +159,13 @@ export class HubInstanceWork {
         const id = str(call.args.id);
         const found = procedureRanIn(await this.deps.live.turnLog(owner, turnId), id) ? await this.deps.live.procedure(owner, id) : undefined;
         return found === undefined ? refused(404, 'No run of this project used a procedure with that id') : json(200, found);
+      }
+      case 'endings': {
+        const turnId = str(call.args.turnId);
+        const treeId = treeOfGroveRun(turnId);
+        if (!treeId || !scope.treeIds.has(treeId)) return refused(404, 'That run is not part of this project.');
+        const ids = (Array.isArray(call.args.ids) ? call.args.ids : []).filter((id): id is string => typeof id === 'string' && (id === turnId || id.startsWith(`${turnId}-`)));
+        return json(200, await this.deps.live.endings(owner, ids));
       }
       case 'extensions':
         return json(200, await this.deps.live.extensions(owner));

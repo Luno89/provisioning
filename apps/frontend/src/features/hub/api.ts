@@ -1,7 +1,7 @@
 import { api } from '../../api/client'
 import type { GroupCheck, HubBoardView, HubPosted, HubRequest, HubRequestKind, HubRole, Invitation, InviteSent, RootInvitation, SharedProject, SharedProjectView, SharingPreview } from './types'
 import type { ChatConversation } from '../engine'
-import type { TurnLogEntry } from '../engine'
+import type { RunEnding, TurnLogEntry } from '../engine'
 
 export const hubKeys = {
   all: ['hub'] as const,
@@ -86,6 +86,9 @@ export const readHubRunsUnder = (id: string, turnId: string, after: number, unde
 
 export const getHubProcedure = <T>(id: string, procedureId: string, turnId: string): Promise<T> =>
   api.get<T>(`${project(id)}/live/procedures/${encodeURIComponent(procedureId)}`, { params: { turn: turnId } }).then((r) => r.data)
+
+export const listHubRunEndings = (id: string, turnId: string, runIds: readonly string[]): Promise<RunEnding[]> =>
+  api.get<{ endings: RunEnding[] }>(`${project(id)}/live/endings`, { params: { turn: turnId, ids: runIds.join(',') } }).then((r) => r.data.endings)
 
 export const listHubExtensions = <T>(id: string): Promise<T> =>
   api.get<T>(`${project(id)}/live/extensions`).then((r) => r.data)

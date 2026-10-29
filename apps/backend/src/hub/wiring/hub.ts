@@ -198,6 +198,7 @@ export function hubInstanceWork(deps: HubWorkDeps): HubInstanceWork {
       },
       turnLog: (ownerId, turnId) => db.engine.getTurnLog(ownerId, turnId, 0),
       procedure: async (ownerId, id) => (await deps.procedures.get(ownerId, id)) ?? undefined,
+      endings: async (ownerId, runIds) => ({ endings: (await db.engine.getRunEndings(ownerId, runIds)).map(({ ownerId: _ownerId, ...ending }) => ending) }),
       extensions: async (ownerId) => (await deps.extensions.list(ownerId)).map(extensionSummary),
     },
     files: deps.files,

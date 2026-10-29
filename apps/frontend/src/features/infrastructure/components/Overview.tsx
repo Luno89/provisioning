@@ -71,6 +71,12 @@ function NeedsAttention() {
               <a href={hashFor(failure.opens)} className="font-semibold text-slate-100 hover:underline">{failure.title}</a>
               <span className="flex-1 text-slate-400">{failure.reason}</span>
               <QuietButton onClick={() => clear.mutate([failure.id])} disabled={clear.isPending} label={`Clear ${failure.title}`}>Clear</QuietButton>
+              {failure.handover && (
+                <details className="basis-full text-[11px]" data-testid="failure-handover">
+                  <summary className="cursor-pointer text-slate-400">Handover note, written after its access was revoked</summary>
+                  <p className="mt-1 whitespace-pre-wrap text-slate-300">{failure.handover}</p>
+                </details>
+              )}
             </li>
           ))}
         </ul>

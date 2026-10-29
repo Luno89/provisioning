@@ -2,7 +2,7 @@ import { createContext, useContext } from 'react'
 import type { QueryKey } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
 import { listBranches, listLeaves, listTrees, getTreeRun, orderFeatures, orderStories, type TreeRunStatus } from '../api/grove'
-import { acceptTask, dropTask, listExtensions, listTasks, type EngineTask, type ExtensionSummary } from '../../engine'
+import { acceptTask, dropTask, listExtensions, listRunEndings, listTasks, type EngineTask, type ExtensionSummary, type RunEnding } from '../../engine'
 import { listReleases, type ReleaseList } from '../../releases'
 import { listProjectRuns, listProjects } from '../api/projects'
 import { readRunsUnder } from '../../engine'
@@ -48,6 +48,7 @@ export interface WorkSource {
   getTreeRun(treeId: string): Promise<TreeRunStatus>
   readRunsUnder(turnId: string, after: number, under: string): Promise<{ entries: TurnLogEntry[]; through: number }>
   getProcedure(id: string, turnId: string): Promise<{ procedure: Procedure; mine: boolean }>
+  listRunEndings(turnId: string, runIds: readonly string[]): Promise<RunEnding[]>
   listExtensions(): Promise<ExtensionSummary[]>
   orderStories(branchId: string, leafIds: readonly string[]): Promise<void>
   orderFeatures(treeId: string, branchIds: readonly string[]): Promise<void>
@@ -71,6 +72,7 @@ export const localWorkSource: WorkSource = {
   getTreeRun,
   readRunsUnder,
   getProcedure,
+  listRunEndings: (_turnId, runIds) => listRunEndings(runIds),
   listExtensions,
   orderStories,
   orderFeatures,

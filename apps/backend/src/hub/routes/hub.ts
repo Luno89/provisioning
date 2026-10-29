@@ -85,6 +85,7 @@ export function hubRouter(deps: { hub: HubService }): Router {
 
   router.get('/projects/:id/live/turns/:turnId', asyncRoute(async (req, res) => relayed(req, res, 'turns', { turnId: param(req, 'turnId'), after: Number(query(req, 'after') ?? 0), ...(query(req, 'under') ? { under: query(req, 'under') } : {}) })));
   router.get('/projects/:id/live/procedures/:procedureId', asyncRoute(async (req, res) => relayed(req, res, 'procedure', { id: param(req, 'procedureId'), turnId: query(req, 'turn') ?? '' })));
+  router.get('/projects/:id/live/endings', asyncRoute(async (req, res) => relayed(req, res, 'endings', { turnId: query(req, 'turn') ?? '', ids: (query(req, 'ids') ?? '').split(',').filter(Boolean) })));
   router.get('/projects/:id/live/extensions', asyncRoute(async (req, res) => relayed(req, res, 'extensions', {})));
 
   const pathIn = (req: Request, res: Response, key: string, allowRoot = false): string | undefined => {

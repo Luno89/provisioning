@@ -1,10 +1,15 @@
 import { Brain, Loader2, Wrench } from 'lucide-react'
 import type { EngineRunState } from '../../lib/engine-run-state'
 import RunControls, { StopRun } from './RunControls'
+import RunEnded from './RunEnded'
+import { useRunEndings } from '../../hooks/useRunEndings'
+import { endingOf } from '../../lib/run-endings'
 
 export default function RunCard({ run }: { run: EngineRunState }) {
+  const endings = useRunEndings(run.finished ? [run.runId] : [])
   return (
     <section className="border border-[var(--bark-800)] rounded-lg bg-[var(--bark-900)]/40 p-4 space-y-3 shadow-sm">
+      <RunEnded ending={endingOf(endings.data, run.runId)} />
       <div className="flex items-center gap-2 flex-wrap">
         <span className="font-mono text-xs text-slate-400">{run.runId}</span>
         {run.agentId && (

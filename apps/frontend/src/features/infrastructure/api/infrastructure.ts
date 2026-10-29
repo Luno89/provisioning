@@ -101,6 +101,7 @@ export interface WorkFailure {
   opens: RunningItem['opens']
   reason: string
   failedAt: string
+  handover?: string
 }
 
 export interface KoalaNumbers {
