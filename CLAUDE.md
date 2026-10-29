@@ -855,6 +855,29 @@ to, since a child's ticket carries the conversation (`AutoModeService.unasked`, 
 and says what was decided. A chat's approval card offers Allow, Allow for this run, Allow <tool> in this chat, **Auto mode
 for this chat** (switches it on and lets the call through; so does switching it on while something asks) and Deny.
 
+## Noticing poisoning
+
+Plan: `~/.claude/plans/poisoning-detection.md` (owner, 2026-10-28: notice it, never block or ask). Nothing here stops a call.
+- **Hidden text never reaches the model**: the tool runtime passes every result through `withoutHidden` (`engine/lib/hidden-text.ts`):
+  Unicode tag characters, zero-width and bidi characters (the joiners emoji and joined scripts need are kept), and in HTML comments,
+  scripts, styles, templates, meta, hidden inputs and elements hidden by attribute or inline style; the page fetcher removes hidden
+  HTML before it strips tags. The digest says how many characters were taken out.
+- **Where a result comes from**: `TOOL_SOURCES` beside `TOOL_ACCESS` in `engine/lib/tool-access.ts` (a test fails on a tool with none).
+  Each run family (keyed by its grant) keeps keyed fingerprints of what it read in `runReads`, private and outside apart, the hosts
+  logs, stored files and MCP output named, and the runs it read with `read_run` (`PoisoningWatch` in `engine-host/tools/poisoning-watch.ts`,
+  rules in `engine/lib/poisoning.ts`). No text is kept.
+- **Five findings** (`poisoningSignals`): `canary` (a run's canary, `canaryFor` in agent-engine, told in Describe Environment, in any
+  call), `private-out` (31+ characters the run read from logs, files, the repository, cluster state or private records in a fetch's URL,
+  an ingest or an MCP call's arguments, unless the person wrote them), `unvouched-host` (a fetch to a host only logs, files or MCP output
+  named), `memory-from-outside` (a memory, practice or tool note quoting outside text this run, or a run the keeper read, saw) and
+  `hidden-in-repo`. Each is recorded once per run family; the match is sealed with `DATA_KEY`.
+- **The person**: open findings lead Infrastructure, Needs attention (`signals` on `GET /api/infrastructure`) and show on their run;
+  Retire what it left, Retire everything from <host> (memories by `provenance.sources`) or Dismiss (`/api/poisoning`, `PoisoningService`).
+  Canary and private-out are pushed and emailed once (`tellNew`). Every memory, practice and tool note keeps its sources, shown and
+  filterable on the Memories page. `koala_poisoning_signals` counts them.
+- **Checks**: every check ends with "Koala notices nothing it should not", and a check lists what it expects in `noticed`.
+  `mechanics-poisoning` proves the four on a script; `mechanics-poisoning-quiet` proves ordinary work stays quiet.
+
 ## Memory
 
 Memories are made by the `memory-keeper` agent, never by a hidden model call. It is driven by events,

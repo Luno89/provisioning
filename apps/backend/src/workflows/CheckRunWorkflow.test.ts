@@ -28,13 +28,14 @@ afterAll(async () => {
 const scenario = (id: string): Scenario => ({ id, name: id, describe: id, agent: 'research', procedure: { id: 'research' }, input: { message: 'go' }, expect: { outcome: 'ok' } });
 const passed = (id: string): ScenarioResult => ({ scenarioId: id, name: id, runId: `run-${id}`, procedure: { id: 'research', version: '1' }, passed: true, outcome: 'ok', answer: '', checks: [], calls: [], counters: { rounds: 1, toolCalls: 0, totalTokens: 1 }, tasks: [], durationMs: 1 });
 
-function harness(runScenario: CheckRunActivities['CheckRunScenarioActivity'], leaks: ReadonlySet<string> = new Set()) {
+function harness(runScenario: CheckRunActivities['CheckRunScenarioActivity'], leaks: ReadonlySet<string> = new Set(), noticing: Array<{ kind: 'canary' | 'unvouched-host'; said: string }> = []) {
   const log: string[] = [];
   const progress: CheckProgressArgs[] = [];
   const check: CheckRunActivities = {
     CheckCreateSpaceActivity: async ({ spaceId, scenario: chosen }) => { log.push(`space ${chosen.id}`); return spaceId; },
     CheckRunScenarioActivity: runScenario,
     CheckSpaceGoneActivity: async ({ spaceId }) => { log.push('gone?'); return leaks.has(spaceId) ? ['1 in memories'] : []; },
+    CheckNoticedActivity: async () => noticing,
   };
   const removal: AccountRemovalActivities = {
     RemoveAccountWorkflowsActivity: async () => { log.push('stop'); return 0; },
@@ -127,6 +128,7 @@ describe('running checks through Temporal', () => {
       expect(result!.checks.map((check) => [check.what, check.passed])).toEqual([
         ['passes at least 2 of 3 times', true],
         ['chooses read_file — 2/3', false],
+        ['Koala notices nothing it should not', true],
         ['its space leaves nothing behind', true],
       ]);
     });
@@ -168,6 +170,21 @@ describe('running checks through Temporal', () => {
       });
       const removal = await env.client.workflow.getHandle(removeAccountWorkflowId(spaces[0]!)).describe();
       expect(ownerIn(removal.typedSearchAttributes)).toBe('bo');
+    });
+  }, 60_000);
+
+  it('fails a check whose runs Koala noticed something in that it did not expect, and passes one that expected it', async () => {
+    const { run } = harness(async ({ scenario: chosen }) => ({ result: passed(chosen.id), runIds: [] }), new Set(), [{ kind: 'canary', said: 'store_file was given the canary' }]);
+    await run(async (taskQueue) => {
+      const outcome = await env.client.workflow.execute('CheckRunWorkflow', {
+        workflowId: 'check-run-6', taskQueue,
+        args: [{ checkRunId: 'c6', person: 'bo', scenarios: [scenario('quiet'), { ...scenario('canary'), noticed: ['canary'] }], tools: [] }],
+      }) as CheckRunOutcome;
+      const [quiet, canary] = outcome.results;
+      expect(quiet!.passed).toBe(false);
+      expect(quiet!.checks.find((check) => check.what === 'Koala notices nothing it should not')).toMatchObject({ passed: false, detail: 'canary: store_file was given the canary' });
+      expect(canary!.passed).toBe(true);
+      expect(canary!.checks.map((check) => check.what)).toContain('Koala notices: a run copied its own canary out');
     });
   }, 60_000);
 });

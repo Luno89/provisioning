@@ -26,6 +26,7 @@ export const SCENARIO_FIELDS: Record<Authored, Entry> = {
   turn: { means: 'true: check one model turn instead of a whole run (see Turn checks); its procedure is `turn-check`' },
   repeats: { means: 'how many times to run it, 1 to 25 (default 1); real models vary, so repeat a check of behaviour to measure how reliable it is', example: '5' },
   passAt: { means: 'how many of its repeats have to pass (default all of them)', example: '4' },
+  noticed: { means: 'what Koala should notice as possible poisoning in the check\'s runs (canary, private-out, memory-from-outside, unvouched-host, hidden-in-repo); every check fails when Koala notices anything not listed', example: '["canary"]' },
   onBench: { means: 'false keeps it off the bench, so it runs only when the person starts it (default true); for a check that holds the model or a cluster for a long time', example: 'false' },
   expect: { means: 'what has to be true once the run ends (see Expectations)' },
   then: { means: 'stages after the first run, each with its own expectations (see Flows)' },

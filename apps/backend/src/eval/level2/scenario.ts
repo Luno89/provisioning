@@ -8,6 +8,8 @@ import { SEPARATOR, slugify } from '../../engine/lib/mcp-tools.js';
 import { serverProblems, type McpServerRecord } from '../../engine/lib/mcp-servers.js';
 import type { TaskStatus } from '../../engine-host/tools/tasks.js';
 import type { ReleaseState } from '../../releases/index.js';
+import { noticedProblem } from '../../checks/lib/check-noticed.js';
+import type { SignalKind } from '../../engine/lib/signal-kinds.js';
 
 export interface WorldTask {
   id: string;
@@ -174,6 +176,7 @@ export interface Scenario {
   turn?: boolean | undefined;
   repeats?: number | undefined;
   passAt?: number | undefined;
+  noticed?: SignalKind[] | undefined;
   onBench?: boolean | undefined;
   expect: ScenarioExpectations;
   then?: FlowStage[] | undefined;
@@ -352,6 +355,8 @@ export function scenarioProblems(
   if (scenario.expect?.chooses !== undefined && scenario.turn !== true) problems.push('only a turn check can expect what the model chooses — set turn to true');
   if (scenario.repeats !== undefined && (!Number.isInteger(scenario.repeats) || scenario.repeats < 1 || scenario.repeats > MAX_REPEATS)) problems.push(`repeats has to be a whole number from 1 to ${MAX_REPEATS}`);
   if (scenario.onBench !== undefined && typeof scenario.onBench !== 'boolean') problems.push('onBench has to be true or false');
+  const noticed = noticedProblem(scenario.noticed);
+  if (noticed) problems.push(noticed);
   if (scenario.passAt !== undefined && (!Number.isInteger(scenario.passAt) || scenario.passAt < 1 || scenario.passAt > (scenario.repeats ?? 1))) problems.push(`passAt has to be a whole number from 1 to its repeats (${scenario.repeats ?? 1})`);
   if (!scenario.input || typeof scenario.input.message !== 'string' || !scenario.input.message.trim()) problems.push('the scenario has to say what the run is asked to do');
 

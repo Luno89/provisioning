@@ -24,6 +24,7 @@ import { randomBytes } from 'node:crypto';
 import { seededGrants, seededPersonas } from '../extensions/seeds.js';
 import { platformCatalogue, platformGroups } from '../extensions/installed.js';
 import type { ReleaseE2E, Slot } from '../releases/index.js';
+import type { Noticed } from '../checks/lib/check-noticed.js';
 
 export interface CheckSpaceArgs {
   spaceId: string;
@@ -50,6 +51,7 @@ interface ToolRecord { ownerId?: string | undefined }
 
 export interface CheckRunStore {
   engine: {
+    getPoisoningSignals(ownerId: string): Promise<Array<{ kind: Noticed['kind']; said: string }>>;
     getWorkspaceDependencies(ownerId: string): Promise<WorkspaceDependency[]>;
     getWorkspaceImages(ownerId?: string): Promise<WorkspaceImageSpec[]>;
     saveWorkspaceDependency(dependency: WorkspaceDependency & { ownerId: string }): Promise<void>;
@@ -129,6 +131,7 @@ export interface CheckRunActivities {
   CheckCreateSpaceActivity(args: CheckSpaceArgs): Promise<string>;
   CheckRunScenarioActivity(args: CheckScenarioArgs): Promise<CheckScenarioOutcome>;
   CheckSpaceGoneActivity(args: { spaceId: string }): Promise<string[]>;
+  CheckNoticedActivity(args: { spaceIds: string[] }): Promise<Noticed[]>;
 }
 
 interface LoggedEvent {
@@ -1048,6 +1051,11 @@ export function createCheckRunActivities(deps: CheckRunDeps): CheckRunActivities
         },
         runIds: [...runIds],
       };
+    },
+
+    async CheckNoticedActivity({ spaceIds }) {
+      const found = await Promise.all(spaceIds.map((spaceId) => deps.store.engine.getPoisoningSignals(spaceId)));
+      return found.flat().map((signal) => ({ kind: signal.kind, said: signal.said }));
     },
 
     async CheckSpaceGoneActivity({ spaceId }) {

@@ -1,11 +1,9 @@
 import { createHmac } from 'node:crypto';
 import type { SourceClass } from './tool-access.js';
 
-export type SignalKind = 'private-out' | 'unvouched-host' | 'canary' | 'memory-from-outside' | 'hidden-in-repo';
-export type SignalSeverity = 'certain' | 'high' | 'medium' | 'low';
-export type SignalState = 'open' | 'dismissed' | 'resolved';
+import { KIND_TITLES, SIGNAL_KINDS, type SignalKind, type SignalSeverity, type SignalState } from './signal-kinds.js';
 
-export const SIGNAL_KINDS: readonly SignalKind[] = ['canary', 'private-out', 'memory-from-outside', 'unvouched-host', 'hidden-in-repo'];
+export { KIND_TITLES, SIGNAL_KINDS, type SignalKind, type SignalSeverity, type SignalState };
 
 export const SEVERITY_OF: Readonly<Record<SignalKind, SignalSeverity>> = {
   canary: 'certain',
@@ -274,14 +272,6 @@ export interface SignalView {
 export type RetireScope = 'run' | 'source';
 
 export const retireScopeFrom = (value: unknown): RetireScope | undefined => (value === 'run' || value === 'source' ? value : undefined);
-
-export const KIND_TITLES: Readonly<Record<SignalKind, string>> = {
-  canary: 'A run copied its own canary out',
-  'private-out': 'Private text left in a call',
-  'memory-from-outside': 'A memory quotes outside text',
-  'unvouched-host': 'A call went to a host only outside text named',
-  'hidden-in-repo': 'Hidden characters in repository text',
-};
 
 export function tellingOf(signal: Pick<PoisoningSignal, 'kind' | 'said' | 'runId' | 'conversationId'>): { subject: string; text: string; path: string } {
   const path = signal.conversationId ? `/chat/${signal.conversationId}` : `/infrastructure`;

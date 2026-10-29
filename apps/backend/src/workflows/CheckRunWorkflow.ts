@@ -1,4 +1,4 @@
-import { CancellationScope, defineSignal, executeChild, isCancellation, proxyActivities, setHandler, uuid4, workflowInfo } from '@temporalio/workflow';
+import { CancellationScope, defineSignal, executeChild, isCancellation, patched, proxyActivities, setHandler, uuid4, workflowInfo } from '@temporalio/workflow';
 import { DESTROY_RETRY } from '../platform/lib/activity-retry.js';
 import { removeAccountWorkflowId } from '../accounts/lib/account-removal.js';
 import type { CheckProgressArgs, CheckRunActivities, CheckScenarioArgs } from '../activities/CheckRunActivities.js';
@@ -10,10 +10,11 @@ import type { ToolDefinition } from '@koala/agent-engine';
 import { RemoveAccountWorkflow } from './RemoveAccountWorkflow.js';
 import { combineAttempts } from '../checks/lib/check-attempts.js';
 import { memberSpaceId } from '../checks/lib/check-space.js';
+import { NOTICED_PATCH, noticedChecks, type Noticed } from '../checks/lib/check-noticed.js';
 import { ownerIn, startedFor } from '../platform/lib/workflow-owner.js';
 import { LIVE_ACTIVITY } from '../platform/lib/activity-liveness.js';
 
-const space = proxyActivities<Pick<CheckRunActivities, 'CheckCreateSpaceActivity' | 'CheckSpaceGoneActivity'>>({
+const space = proxyActivities<Pick<CheckRunActivities, 'CheckCreateSpaceActivity' | 'CheckSpaceGoneActivity' | 'CheckNoticedActivity'>>({
   retry: DESTROY_RETRY,
   ...LIVE_ACTIVITY,
 });
@@ -94,9 +95,11 @@ export async function CheckRunWorkflow(input: CheckRunInput): Promise<CheckRunOu
     }
   };
 
+  const noticed: Noticed[] = [];
   const gone = async (spaceId: string, scenario: Scenario): Promise<Check> => {
     const left = await CancellationScope.nonCancellable(async () => {
       const removed = [...(scenario.world?.shared?.members ?? []).map((role) => memberSpaceId(spaceId, role)), spaceId];
+      if (patched(NOTICED_PATCH)) noticed.push(...await space.CheckNoticedActivity({ spaceIds: removed }));
       const leftovers: string[] = [];
       for (const accountId of removed) {
         await executeChild(RemoveAccountWorkflow, { workflowId: removeAccountWorkflowId(accountId), args: [{ ownerId: accountId, keepRunsFor: input.person }], ...startedFor(ownerIn(workflowInfo().typedSearchAttributes) ?? input.person) });
@@ -112,6 +115,7 @@ export async function CheckRunWorkflow(input: CheckRunInput): Promise<CheckRunOu
     if (cancelled) break;
     await progress.CheckProgressActivity({ ownerId: input.person, checkRunId: input.checkRunId, running: scenario.id });
     const repeats = scenario.repeats ?? 1;
+    noticed.length = 0;
     const shared = scenario.turn === true;
     const attempts: ScenarioResult[] = [];
     const spaces: Check[] = [];
@@ -137,7 +141,8 @@ export async function CheckRunWorkflow(input: CheckRunInput): Promise<CheckRunOu
       passed: leaks.length === 0,
       detail: leaks.length === 0 ? `none of its ${spaces.length} spaces left anything` : leaks.map((check) => check.detail).join('; '),
     };
-    const result = { ...combined, checks: [...combined.checks, left], passed: combined.passed && left.passed };
+    const watched = patched(NOTICED_PATCH) ? noticedChecks(scenario.noticed ?? [], noticed) : [];
+    const result = { ...combined, checks: [...combined.checks, ...watched, left], passed: combined.passed && left.passed && watched.every((check) => check.passed) };
     results.push(result);
     await progress.CheckProgressActivity({ ownerId: input.person, checkRunId: input.checkRunId, result });
   }
