@@ -33,3 +33,7 @@ export class InstanceChart {
     return this.packaged;
   }
 }
+
+export async function releaseInventory(repoRoot: string, release: string, out: string): Promise<void> {
+  await run(process.execPath, [resolve(repoRoot, 'scripts/deps-inventory.mjs'), '--release', release, '--out', out], { cwd: repoRoot });
+}

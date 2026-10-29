@@ -23,6 +23,7 @@ const commit = (name: string) => {
 };
 
 beforeEach(async () => {
+  inventoried = [];
   db = await testDatabase();
   const root = mkdtempSync(join(tmpdir(), 'release-catalogue-'));
   repo = join(root, 'repo');
@@ -33,7 +34,8 @@ beforeEach(async () => {
   commit('one');
 });
 
-const catalogue = (imageTag: string, at: string, imageDigest?: string) => new ReleaseCatalogue(db.instances, { repoRoot: repo, chartsDir, imageTag, imageDigest, chart: async () => chart }, () => new Date(at));
+const catalogue = (imageTag: string, at: string, imageDigest?: string) => new ReleaseCatalogue(db.instances, { repoRoot: repo, chartsDir, imageTag, imageDigest, chart: async () => chart, inventory: async (release, out) => { inventoried.push({ release, out }); writeFileSync(out, JSON.stringify({ bomFormat: 'CycloneDX', metadata: { component: { version: release } } })); } }, () => new Date(at));
+let inventoried: { release: string; out: string }[] = [];
 const chartSha256 = createHash('sha256').update('the chart').digest('hex');
 
 describe('the releases root has run', () => {
@@ -49,6 +51,10 @@ describe('the releases root has run', () => {
     expect(readFileSync(again.chartFile(one)!, 'utf8')).toBe('the chart');
     expect(again.hasChart('bbbbbbbbbbbb')).toBe(false);
     expect(again.chartFile('../../etc/passwd')).toBeUndefined();
+    expect(inventoried.map((entry) => entry.release)).toEqual(['v2026.10.25', 'v2026.10.25']);
+    expect(JSON.parse(readFileSync(again.inventoryFile(one)!, 'utf8')).metadata.component.version).toBe('v2026.10.25');
+    expect(again.inventoryFile('bbbbbbbbbbbb')).toBeUndefined();
+    expect(again.inventoryFile('../../etc/passwd')).toBeUndefined();
   });
 
   it('records a build no tag names under its image tag, and lists every release', async () => {

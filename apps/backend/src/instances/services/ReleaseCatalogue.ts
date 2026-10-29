@@ -18,6 +18,7 @@ export interface ReleaseCatalogueSettings {
   imageTag: string;
   imageDigest?: string | undefined;
   chart: () => Promise<string>;
+  inventory: (release: string, out: string) => Promise<void>;
 }
 
 export class ReleaseCatalogue implements ReleaseSource {
@@ -54,6 +55,7 @@ export class ReleaseCatalogue implements ReleaseSource {
       const kept = join(this.settings.chartsDir, `${imageTag}.tgz`);
       await copyFile(await this.settings.chart(), kept);
       chartSha256 = createHash('sha256').update(await readFile(kept)).digest('hex');
+      await this.settings.inventory(tag ?? imageTag, join(this.settings.chartsDir, `${imageTag}.sbom.json`));
     }
     return this.store.recordRelease({
       ...releaseFromTag(imageTag, tag, message, this.now().toISOString()),
@@ -70,6 +72,12 @@ export class ReleaseCatalogue implements ReleaseSource {
   chartFile(imageTag: string): string | undefined {
     if (!IMAGE_TAG.test(imageTag)) return undefined;
     const file = join(this.settings.chartsDir, `${imageTag}.tgz`);
+    return existsSync(file) ? file : undefined;
+  }
+
+  inventoryFile(imageTag: string): string | undefined {
+    if (!IMAGE_TAG.test(imageTag)) return undefined;
+    const file = join(this.settings.chartsDir, `${imageTag}.sbom.json`);
     return existsSync(file) ? file : undefined;
   }
 

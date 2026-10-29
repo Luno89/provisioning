@@ -16,7 +16,7 @@ import { InstanceRoutes, dockerCaddy, socketCaddy } from '../services/InstanceRo
 import { InstanceAddresses, adminEdge } from '../services/InstanceAddresses.js';
 import { InstanceTrial } from '../services/InstanceTrial.js';
 import { InstanceUpdates } from '../services/InstanceUpdates.js';
-import { InstanceChart } from '../services/InstanceChart.js';
+import { InstanceChart, releaseInventory } from '../services/InstanceChart.js';
 import { ReleaseCatalogue } from '../services/ReleaseCatalogue.js';
 import { MoveExport } from '../services/MoveExport.js';
 import { MoveRelay, kubeconfigFile } from '../services/MoveRelay.js';
@@ -147,6 +147,7 @@ export async function wireInstances(deps: InstancesWiringDeps): Promise<Instance
     imageTag: env.INSTANCE_IMAGE_TAG || 'dev',
     imageDigest: env.INSTANCE_IMAGE_DIGEST,
     chart: () => instanceChart.path(),
+    inventory: (release, out) => releaseInventory(deps.repoRoot, release, out),
   });
   releaseCatalogue.recordCurrent().catch((err: Error) => console.error(`[releases] could not record the release root runs: ${err.message}`));
   const routingDomain = env.INGRESS_DOMAIN || undefined;
