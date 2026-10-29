@@ -31,6 +31,8 @@ export type { MigrationLedger } from './lib/migrations.js';
 export { mongoTarget } from './lib/mongo-db.js';
 export { awaitedNotice, grovedTree, hubConflictNotice, postedNotice, releaseNotice, secretNotice, treeNotices } from './lib/notices.js';
 export { carriedByOAuthState, newOAuthState, OAUTH_STATE_COOKIE, OAUTH_STATE_SECONDS } from './lib/oauth-state.js';
+export { advisoryFor, batches, idsFromBatch, OSV_API, OSV_BATCH, queryKey, queryOf } from './lib/osv.js';
+export type { OsvAdvisory, OsvQuery, Severity } from './lib/osv.js';
 export { ownedBy, withBuiltIns } from './lib/ownership.js';
 export { allowed, asPerson, authorize, claimsOf, clusterResource, holds, memberPrincipal, PERMISSIONS, principalOf, rolePrincipal, SHARED_ROLES, sharedActionsOf, sharedRoleOf, withSharedRole } from './lib/permissions.js';
 export type { Actions, Claim, ClaimSettings, Decision, Principal, Resource, SharedAction, SharedRole } from './lib/permissions.js';
@@ -42,6 +44,8 @@ export { K3S_TRAEFIK_CONFIG, k3sConfigState, ourTraefikArgs, servicesLabelled, t
 export type { HelmRelease } from './lib/request-metrics.js';
 export { crossSiteRefusal, foreignOrigin, ourOrigins } from './lib/same-site.js';
 export type { OurOrigins } from './lib/same-site.js';
+export { checkedByOsv, inventoryComponents, osvVersion } from './lib/sbom.js';
+export type { ComponentKind, InventoryComponent } from './lib/sbom.js';
 export { sameSeededRow } from './lib/seed-diff.js';
 export { stopIfRunning } from './lib/stop-workflow.js';
 export { carryingTrace, SYSTEM_KUBECONFIG, telemetrySettings } from './lib/telemetry.js';
