@@ -1,7 +1,7 @@
 import { handoffNonceShaped, type Database, type RoleConfig } from '../../platform/index.js';
 import { issueHandoff, publicKeyPem } from '../lib/identity-token.js';
 import { inService, instanceProblem, type InstanceRecord } from '../lib/instances.js';
-import { handoffServedFor, START_PATH } from '../lib/oidc.js';
+import { handoffServedFor, START_PATH, startsSignInItself } from '../lib/oidc.js';
 import { HUB_AUDIENCE } from '../../hub/lib/hub.js';
 
 type Store = Pick<Database, 'instances' | 'accounts'>;
@@ -11,7 +11,16 @@ export class IdentityService {
     private readonly role: RoleConfig,
     private readonly store: Store,
     private readonly now: () => number = () => Math.floor(Date.now() / 1000),
+    private readonly signInAnswer: (url: string) => Promise<unknown> = async (url) => (await fetch(`${url}/api/auth/sign-in`)).json(),
   ) {}
+
+  private async startsSignIn(url: string): Promise<boolean | undefined> {
+    try {
+      return startsSignInItself(await this.signInAnswer(url));
+    } catch {
+      return undefined;
+    }
+  }
 
   publicKeys(): { kid: string; publicKey: string }[] {
     return this.role.signing ? [{ kid: this.role.signing.kid, publicKey: publicKeyPem(this.role.signing.publicKey) }] : [];
@@ -34,7 +43,7 @@ export class IdentityService {
     const instance = await this.instanceOf(user.id);
     if (!instance) return undefined;
     const base = instance.url.replace(/\/+$/, '');
-    if (!handoffServedFor(instance)) return `${base}${START_PATH}`;
+    if (!handoffServedFor(instance, instance.signIn ? await this.startsSignIn(base) : undefined)) return `${base}${START_PATH}`;
     const token = issueHandoff(this.role.signing, { userId: user.id, email: user.email }, instance.id, this.now(), bound);
     return `${base}/#/handoff?token=${encodeURIComponent(token)}`;
   }

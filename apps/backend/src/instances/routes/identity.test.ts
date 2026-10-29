@@ -14,7 +14,7 @@ describe('root\'s identity routes', () => {
     const h = await mountRouter({
       prefix: '/api/identity',
       router: (db) => {
-        identity = new IdentityService({ role: 'root', signing }, db);
+        identity = new IdentityService({ role: 'root', signing }, db, undefined, async () => ({ url: '/api/auth/oidc/start' }));
         return identityRouter({ identity, servesTenants: false, signedIn: async (req) => (req.headers.cookie?.includes('session=ok') ? TEST_USER : undefined) });
       },
     });

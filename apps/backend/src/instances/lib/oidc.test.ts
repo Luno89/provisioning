@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { generateIdentityKey, identityKeysFrom } from './identity-token.js';
 import {
   BACKCHANNEL_PATH, CALLBACK_PATH, claimsFor, claimsShaped, clientKeysFrom, clientMetadata, handoffServedFor, hubClient, instanceClient,
-  logoutClaims, LOGOUT_EVENT, publicJwkOf, publicJwkShaped, safeNextPath, signInRefusal,
+  logoutClaims, LOGOUT_EVENT, publicJwkOf, publicJwkShaped, safeNextPath, signInRefusal, startsSignInItself,
 } from './oidc.js';
 
 const keys = identityKeysFrom(generateIdentityKey());
@@ -51,9 +51,13 @@ describe('an instance or the hub as root\'s client', () => {
     expect(hubClient('https://hub.example.com', { jwk, since: 'x' })).toMatchObject({ clientId: 'hub', kind: 'hub' });
   });
 
-  it('keeps root\'s old handoff for an instance until that instance names its sign-in key', () => {
-    expect(handoffServedFor({})).toBe(true);
-    expect(handoffServedFor({ signIn: { jwk, since: 'x' } })).toBe(false);
+  it('keeps root\'s old handoff for an instance until it names its sign-in key, and again once it has gone back to a release that cannot start one', () => {
+    expect(handoffServedFor({}, undefined)).toBe(true);
+    expect(handoffServedFor({ signIn: { jwk, since: 'x' } }, true)).toBe(false);
+    expect(handoffServedFor({ signIn: { jwk, since: 'x' } }, undefined)).toBe(false);
+    expect(handoffServedFor({ signIn: { jwk, since: 'x' } }, false)).toBe(true);
+    expect(startsSignInItself({ url: '/api/auth/oidc/start' })).toBe(true);
+    expect(startsSignInItself({ url: 'https://app.example.com/api/identity/go' })).toBe(false);
   });
 
   it('takes a named key only when its kid is its own thumbprint, and derives the same key from the same session key', () => {

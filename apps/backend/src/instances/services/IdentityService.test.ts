@@ -9,6 +9,8 @@ import type { RoleConfig } from '../../platform/lib/platform-role.js';
 const signing = identityKeysFrom(generateIdentityKey());
 const N = 'nonce-held-by-this-browser-00001';
 const rootRole: RoleConfig = { role: 'root', signing };
+const startsItself = async () => ({ url: '/api/auth/oidc/start' });
+const onAnOlderRelease = async () => ({ url: 'https://app.example.com/api/identity/go' });
 const announced = { jwk: { kty: 'OKP' as const, crv: 'Ed25519' as const, x: 'x', kid: 'k' }, since: '2026-10-29T00:00:00.000Z' };
 
 const claimsIn = (url: string): Record<string, unknown> => {
@@ -28,7 +30,7 @@ beforeEach(async () => {
 
 describe('signing in at root and landing on your own instance', () => {
   it('hands an instance on an older release root\'s token, bound to the nonce it set, until it names its sign-in key', async () => {
-    const root = new IdentityService(rootRole, rootDb, () => now);
+    const root = new IdentityService(rootRole, rootDb, () => now, startsItself);
     expect(await root.register({ id: 'inst-u1', ownerId: 'u1', url: 'https://u1.example.com/' })).toMatchObject({ ok: true });
 
     const url = await root.goUrl({ id: 'u1', email: 'u1@example.com' }, undefined, N);
@@ -37,6 +39,9 @@ describe('signing in at root and landing on your own instance', () => {
 
     await rootDb.instances.saveSignInKey('inst-u1', announced);
     expect(await root.goUrl({ id: 'u1', email: 'u1@example.com' }, undefined, N)).toBe('https://u1.example.com/api/auth/oidc/start');
+
+    const rolledBack = new IdentityService(rootRole, rootDb, () => now, onAnOlderRelease);
+    expect(await rolledBack.goUrl({ id: 'u1', email: 'u1@example.com' }, undefined, N)).toMatch(/^https:\/\/u1\.example\.com\/#\/handoff\?token=/);
   });
 
   it('issues nothing for a user with no instance', async () => {
@@ -55,7 +60,7 @@ describe('signing in at root and landing on your own instance', () => {
   });
 
   it('keeps sending its owner to an instance while it upgrades itself and after it rolls a failed upgrade back', async () => {
-    const root = new IdentityService(rootRole, rootDb, () => now);
+    const root = new IdentityService(rootRole, rootDb, () => now, startsItself);
     await rootDb.instances.saveInstance({ id: 'inst-u1', ownerId: 'u1', url: 'http://100.64.0.7:30320', createdAt: 'x', updatedAt: '2026-10-23T01:00:00.000Z', status: 'ready', signIn: announced });
     const stored = (await rootDb.instances.getInstances('u1'))[0]!;
     expect(stored.servedAt).toBe('2026-10-23T01:00:00.000Z');
