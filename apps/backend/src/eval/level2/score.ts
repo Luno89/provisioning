@@ -34,6 +34,7 @@ export interface ObservedFlow {
   compacted?: boolean | undefined;
   summary?: { through: number } | undefined;
   kept?: { interrupted: boolean; chars: number; loggedChars: number; prefix: boolean } | undefined;
+  ended?: { how?: string | undefined; handover?: string | undefined; failed?: string | undefined } | undefined;
   turnLog?: { contiguous: boolean; savedMatches: boolean; entries: number } | undefined;
   leaves?: { title: string; status: string; verified: boolean; landed?: string | undefined; findings?: string | undefined; retried?: number | undefined; artifacts?: { name: string; opens: boolean; contentType?: string | undefined; size?: number | undefined }[] | undefined; drops?: string[] | undefined }[] | undefined;
   mergeTasks?: number | undefined;
@@ -242,6 +243,14 @@ export async function scoreScenario(expect: ScenarioExpectations, observed: Obse
     add(expect.interrupted ? 'keeps what the dead turn had said, marked interrupted' : 'saves the turn as finished', good,
       !kept ? 'the conversation kept no reply for this turn'
         : `it kept ${kept.chars} characters${kept.interrupted ? ', marked interrupted' : ''}; the turn log held ${kept.loggedChars}${kept.prefix ? '' : ', and the kept reply is not what the log held'}`);
+  }
+  if (expect.ended) {
+    const ended = flow.ended;
+    add(`the run ends ${expect.ended.how}`, ended?.how === expect.ended.how, ended?.how ? `it ended ${ended.how}` : 'no ending was recorded for it');
+    if (expect.ended.handover !== undefined) {
+      add(expect.ended.handover ? 'it leaves a handover note' : 'it leaves no handover note', Boolean(ended?.handover) === expect.ended.handover,
+        ended?.handover ? `its note: ${ended.handover}` : ended?.failed ? `it left none: ${ended.failed}` : 'it left none');
+    }
   }
   if (expect.turnLog?.complete) {
     const log = flow.turnLog;

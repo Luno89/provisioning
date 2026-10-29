@@ -65,6 +65,7 @@ export const EXPECTATIONS: Record<keyof ScenarioExpectations, Entry> = {
   compacted: { means: 'plumbing: the conversation was summarised to fit the window' },
   summaryKept: { means: 'plumbing: the summary was saved and used on the next turn' },
   interrupted: { means: 'plumbing: a turn killed mid-reply was kept as interrupted' },
+  ended: { means: 'plumbing: how the stage\'s run ended (finished, failed, stopped or revoked) and whether it left a handover note', example: '{ "ended": { "how": "revoked", "handover": true } }' },
   turnLog: { means: 'plumbing: every event the run streamed is in the turn log', example: '{ "complete": true }' },
   leaves: { means: 'plumbing: how a tree\'s leaves ended — verified count, how each landed, merge tasks, what a leaf\'s findings say, and how many browser files a failed check left that open, and how often a leaf was retried after failing', example: '{ "verified": 2, "landed": { "p1": "merged" }, "mergeTasks": 0, "findings": { "p1": ["FAILED — browser test"] }, "artifacts": { "p1": 1 }, "retried": { "p1": 0 } }' },
   repository: { means: 'plumbing: files on main of the tree\'s or conversation\'s repository', example: '{ "of": "tree", "files": [{ "path": "greet.js" }] }' },
@@ -96,7 +97,7 @@ export const ARG_CHECKS: Record<'is' | 'contains' | 'matches' | 'nonEmpty', Entr
 };
 
 export const STAGE_ACTIONS: Record<ActionKey, Entry> = {
-  chat: { means: 'send another message, optionally to another agent; killAfterChars kills the turn once that much streamed; in: "channel" sends it in the project\'s channel, in: { "story": title } or { "feature": title } in that story\'s or feature\'s own chat', example: '{ "chat": { "message": "And the second one?" } }' },
+  chat: { means: 'send another message, optionally to another agent; killAfterChars kills the turn once that much streamed; revokeAfterChars signs the space out everywhere once that much streamed, revoking the run\'s access; in: "channel" sends it in the project\'s channel, in: { "story": title } or { "feature": title } in that story\'s or feature\'s own chat', example: '{ "chat": { "message": "And the second one?" } }' },
   post: { means: 'post a plain message in the project\'s channel: it starts no turn', example: '{ "post": { "message": "The shop opens at 9.", "in": "channel" } }' },
   memberAsks: { means: 'a member of the shared project posts in its channel on the hub with Ask Koala; the turn the owner\'s instance starts for them is the stage\'s run', example: '{ "memberAsks": { "as": "client", "message": "What can you reach?" } }' },
   approvePlan: { means: 'approve the plan the run proposed', example: '{ "approvePlan": true }' },

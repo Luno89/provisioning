@@ -441,7 +441,7 @@ export function createCheckRunActivities(deps: CheckRunDeps): CheckRunActivities
         if (opened.status >= 300) throw new Error(`the ${kind}'s chat could not be opened: ${(opened.data as { error?: string }).error ?? opened.status}`);
         return (opened.data as { id: string }).id;
       };
-      const chat = async (action: { message: string; agent?: string | undefined; inputs?: Record<string, unknown> | undefined; killAfterChars?: number | undefined; in?: ChatPlace | undefined }, first: boolean) => {
+      const chat = async (action: { message: string; agent?: string | undefined; inputs?: Record<string, unknown> | undefined; killAfterChars?: number | undefined; revokeAfterChars?: number | undefined; in?: ChatPlace | undefined }, first: boolean) => {
         const agent = action.agent ?? scenario.agent;
         const conversationId = action.in === 'channel' ? await channelId() : action.in ? await itemChatId(action.in) : talkingIn;
         const started = await http.post('/engine/runs', {
@@ -455,9 +455,10 @@ export function createCheckRunActivities(deps: CheckRunDeps): CheckRunActivities
         }, { validateStatus: () => true });
         if (started.status >= 300) throw new Error(`the run would not start: ${(started.data as { error?: string } | undefined)?.error ?? `HTTP ${started.status}`}`);
         const runId = (started.data as { runId: string }).runId;
-        return follow(runId, conversationId, action.killAfterChars);
+        return follow(runId, conversationId, action.killAfterChars, action.revokeAfterChars);
       };
-      const follow = async (runId: string, conversationId: string, killAfterChars?: number | undefined) => {
+      const follow = async (runId: string, conversationId: string, killAfterChars?: number | undefined, revokeAfterChars?: number | undefined) => {
+        let revoked = false;
         runIds.add(runId);
         const events: LoggedEvent[] = [];
         const seqs: number[] = [];
@@ -489,6 +490,11 @@ export function createCheckRunActivities(deps: CheckRunDeps): CheckRunActivities
           }
           if (events.some((event) => event.type === 'run.finished' && event.runId === runId)) break;
           const said = events.filter((event) => event.type === 'content' && event.runId === runId).reduce((total, event) => total + (event.delta ?? '').length, 0);
+          if (revokeAfterChars !== undefined && !revoked && said > revokeAfterChars) {
+            revoked = true;
+            const signedOut = await http.post('/auth/sessions/end-others', {}, { validateStatus: () => true });
+            if (signedOut.status >= 300) throw new Error(`signing the space out everywhere was refused: ${(signedOut.data as { error?: string }).error ?? signedOut.status}`);
+          }
           if (killAfterChars !== undefined && said > killAfterChars) {
             await deps.terminate(runId, 'the check killed this run mid-turn, as a dying worker would');
             await sleep(2_000);
@@ -822,6 +828,13 @@ export function createCheckRunActivities(deps: CheckRunDeps): CheckRunActivities
           const full = ((await http.get(`/turns/${ran.runId}`, { params: { after: 0 } })).data as { entries: { events: LoggedEvent[] }[] }).entries.flatMap((entry) => entry.events);
           const logged = full.filter((event) => event.type === 'content' && event.runId === ran.runId).map((event) => event.delta ?? '').join('');
           flow.kept = { interrupted: ran.interrupted, chars: ran.saved.length, loggedChars: logged.length, prefix: logged.startsWith(ran.saved) };
+        }
+        if (expect.ended && ran) {
+          for (let tries = 0; tries < 20 && !flow.ended?.how; tries += 1) {
+            const [ending] = ((await http.get('/engine/runs/endings', { params: { ids: ran.runId } })).data as { endings: { ended?: { how: string }; handover?: { note?: string; failed?: string } }[] }).endings;
+            if (ending?.ended) flow.ended = { how: ending.ended.how, ...(ending.handover?.note ? { handover: ending.handover.note } : {}), ...(ending.handover?.failed ? { failed: ending.handover.failed } : {}) };
+            else await wait();
+          }
         }
         if (expect.turnLog && ran) {
           const full = ((await http.get(`/turns/${ran.runId}`, { params: { after: 0 } })).data as { entries: { seq: number; events: LoggedEvent[] }[] }).entries;

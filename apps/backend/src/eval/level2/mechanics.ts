@@ -362,6 +362,30 @@ const logged: Scenario = {
   ],
 };
 
+const revokedRun: Scenario = {
+  id: 'mechanics-run-revoked',
+  name: 'A run whose access is revoked mid-turn stops and leaves a handover note',
+  describe: 'Mechanics, on a script: while a turn streams, the person signs out everywhere through the real route; the run\'s grant is revoked, it stops, its one last turn calls leave_handover_note, and the run records that it ended revoked, with the note.',
+  agent: 'koala',
+  procedure: { id: 'interactive-chat' },
+  input: { message: 'Say hello.' },
+  script: { rules: [
+    { when: { offered: ['leave_handover_note'], notCalled: ['leave_handover_note'] }, reply: { call: [{ tool: 'leave_handover_note', arguments: { note: 'Counted to about forty; the rest is still to count.' } }] } },
+    { when: { offered: ['leave_handover_note'] }, reply: { say: 'Left the note.' } },
+    { when: { asked: 'Count slowly' }, reply: { say: COUNT, paceMs: 200 } },
+    { when: { asked: 'Say hello' }, reply: { say: 'Hello.' } },
+    NOTHING,
+  ] },
+  expect: { outcome: 'ok', ended: { how: 'finished' } },
+  then: [
+    {
+      name: 'signing out everywhere mid-turn',
+      do: { chat: { message: 'Count slowly from one to two hundred, one number per line.', revokeAfterChars: 40 } },
+      expect: { ended: { how: 'revoked', handover: true }, modelSaw: { contains: ['leave_handover_note', 'they signed out everywhere'] } },
+    },
+  ],
+};
+
 const perModel: Scenario = {
   id: 'mechanics-memory-per-model',
   name: 'A memory kept for one model reaches only that model',
@@ -829,4 +853,4 @@ const forMember: Scenario = {
   ],
 };
 
-export const MECHANICS_CHECKS = (): Scenario[] => [forMember, judged, circling, longCommand, unaskedInSandbox, servedInWorkspace, proposedServer, proposedRelease, treeModel, monitored, researched, compacted(), logged, perModel, toolNotes, landed, workspaceChange, workspaceNeeds, deletedProject, itemChats, storyDrop, odooModule, odooBrowserFailure];
+export const MECHANICS_CHECKS = (): Scenario[] => [forMember, judged, circling, longCommand, unaskedInSandbox, servedInWorkspace, proposedServer, proposedRelease, treeModel, monitored, researched, compacted(), logged, revokedRun, perModel, toolNotes, landed, workspaceChange, workspaceNeeds, deletedProject, itemChats, storyDrop, odooModule, odooBrowserFailure];

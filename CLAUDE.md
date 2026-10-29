@@ -341,6 +341,22 @@ you could not use yourself is refused (`grantProblem`), applying a deploy card c
 `run_in_workspace` asks through the same rule as any call (`callNeedsAsking`). Still to come (steps 3–6): run grants ended on revocation,
 root as an OpenID Connect provider, and the frontend's `can`.
 
+**Every run works with a grant, ended with the run or on revocation** (step 3, 2026-10-29; `engine/lib/run-grants.ts`,
+`RunGrantService`). The run starter issues each top-level run a grant (`runGrants`, `grantId` on the ticket and launch, so children copy it):
+its starter's claims as they were, narrowed to the run's project (a member's ask, a kept-to run, a tree run, a chat bound to a project),
+`startedBy` `person` (a chat turn, a tree run, an ask on the hub) or `platform`. The tool runtime asks it before every call
+(`callProblem`: a revoked grant refuses all but `leave_handover_note`, an ended one everything, a call on another project is refused; a
+settled grant is cached, a live one read once a call). It ends when the run ends (the `run-ended` event, which also records how every run
+ended in `runEndings`: finished, failed with its reason, stopped by whom, revoked and why). **Revocation** goes through platform's
+`AccessRevocations` (`revoked({ personId, because, sharedProjectId? })`), called by "sign out everywhere", a 2FA change, an account's
+removal starting and a hub member's removal; the engine core listens and revokes that person's live grants (what they started; every one
+on account removal; only that shared project's on a hub removal) and signals each run `revokeRun`. The run then refuses every call, stops,
+and gets one last model turn (`EngineHandoverActivity`, behind the `run-grants` patch) offering only `leave_handover_note`, which keeps the
+note with the run and writes `handover/<run>.md` in its workspace, marked as written after access was revoked; a model that cannot answer
+leaves none and the run says so. How a run ended shows on the run card, Watch it work (relayed to hub members, `endings`), a story's card
+on the board and failed work, and a revoked run posts `run-revoked` in its project's channel (or its chat). `mechanics-run-revoked`
+proves it through the real sign-out route.
+
 The public-path allow-list lives in `platform/middleware/auth.ts`, **not** in `accounts/routes/auth.ts` — a router
 that could exempt itself is a router that can quietly stop being protected, so adding a route that
 must work signed-out means editing the guard too. `requireAuth` and the Socket.IO handshake share

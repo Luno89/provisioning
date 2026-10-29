@@ -108,6 +108,7 @@ export interface FlowExpectations {
   compacted?: boolean | undefined;
   summaryKept?: boolean | undefined;
   interrupted?: boolean | undefined;
+  ended?: { how: 'finished' | 'failed' | 'stopped' | 'revoked'; handover?: boolean | undefined } | undefined;
   turnLog?: { complete: boolean } | undefined;
   leaves?: { verified?: number | undefined; landed?: Record<string, 'merged' | 'nothing'> | undefined; mergeTasks?: number | undefined; findings?: Record<string, string[]> | undefined; artifacts?: Record<string, number> | undefined; retried?: Record<string, number> | undefined; drops?: Record<string, ('waiting' | 'merged' | 'conflict')[]> | undefined } | undefined;
   repository?: { of: 'tree' | 'conversation'; files: ExpectedFile[] } | undefined;
@@ -133,7 +134,7 @@ export interface FlowExpectations {
 export type ChatPlace = 'channel' | { story: string } | { feature: string };
 
 export type FlowAction =
-  | { chat: { message: string; agent?: string | undefined; inputs?: Record<string, unknown> | undefined; killAfterChars?: number | undefined; in?: ChatPlace | undefined } }
+  | { chat: { message: string; agent?: string | undefined; inputs?: Record<string, unknown> | undefined; killAfterChars?: number | undefined; revokeAfterChars?: number | undefined; in?: ChatPlace | undefined } }
   | { post: { message: string; in: 'channel' } }
   | { memberAsks: { as: SharedMemberRole; message: string } }
   | { approvePlan: true | { in: Exclude<ChatPlace, 'channel'> } }
