@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import { commandSafeCode } from '../../platform/lib/invite-codes.js';
 
 export const MACHINE_CODE_TTL_SECONDS = 3600;
 
@@ -35,7 +36,7 @@ export interface ManualMachineAgent {
 
 export const hashMachineCode = (code: string): string => crypto.createHash('sha256').update(code).digest('hex');
 
-export const newMachineCode = (): string => crypto.randomBytes(24).toString('base64url');
+export const newMachineCode = (): string => commandSafeCode(24);
 
 export const machineCommand = (url: string, code: string): string => `curl -fsSL ${url}/machine.sh | sh -s -- ${code}`;
 

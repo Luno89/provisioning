@@ -16,3 +16,6 @@ export type InviteView = Omit<InviteMetadata, 'code' | 'codeHash'> & { expired: 
 
 export const inviteView = ({ code: _code, codeHash: _hash, ...invite }: InviteMetadata, now: Date): InviteView =>
   ({ ...invite, expired: !invite.usedBy && inviteExpired(invite, now) });
+
+export const commandSafeCode = (bytes: number, random: (size: number) => Buffer = randomBytes): string =>
+  random(bytes).toString('base64url').replace(/^-/, '_');
