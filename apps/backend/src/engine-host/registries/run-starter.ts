@@ -142,7 +142,7 @@ export function createRunStarter(options: RunStarterOptions) {
       const bound = request.conversationId && options.binding
         ? await options.binding(request.ownerId, request.conversationId, request.actingFor)
         : undefined;
-      const grantProject = request.actingFor?.projectId ?? request.keptTo ?? request.projectId ?? bound?.projectId;
+      const grantProject = request.actingFor?.projectId ?? request.keptTo ?? request.projectId;
       const grant = await options.grants?.issue({
         ownerId: request.ownerId,
         runId,

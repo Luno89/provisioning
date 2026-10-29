@@ -171,6 +171,19 @@ describe('a run Koala does for a member of a shared project', () => {
     expect((runs[1]!.args[0] as ProcedureRunInput).ticket.modelId).toBe('machine:d1:claude-code');
   });
 
+  it('narrows the grant to a project only where access stops there: a member\'s ask, the keeper kept to one, a tree\'s run; never the owner\'s chat because it is bound to one', async () => {
+    const { start } = started();
+    const issued: { projectId?: string | undefined }[] = [];
+    const grants = { issue: vi.fn(async (request: { projectId?: string | undefined }) => { issued.push(request); return { id: `g${issued.length}` }; }) };
+    const binding = vi.fn(async () => ({ projectId: 'p1', chat: 'the project channel' }));
+    const starter = createRunStarter({ registry: createAgentRegistry(), workflows: () => ({ start }), turns: turns(), binding, grants: grants as never });
+    await starter.start({ ownerId: 'ann', agentSlug: 'koala', message: 'and the other project?', conversationId: 'channel-p1', startedBy: 'person' });
+    await starter.start({ ownerId: 'ann', actingFor: member, agentSlug: 'koala', message: 'hi', conversationId: 'channel-p1' });
+    await starter.start({ ownerId: 'ann', keptTo: 'p1', agentSlug: 'memory-keeper', message: 'keep it' });
+    await starter.start({ ownerId: 'ann', agentSlug: 'koala', message: 'Grow the tree.', projectId: 'p1', startedBy: 'person' });
+    expect(issued.map((request) => request.projectId)).toEqual([undefined, 'p1', 'p1', 'p1']);
+  });
+
   it('keeps the memory keeper to a project when others talked, and never acts for anyone then', async () => {
     const { runs, start } = started();
     await createRunStarter({ registry: createAgentRegistry(), workflows: () => ({ start }) }).start({ ownerId: 'ann', keptTo: 'p1', agentSlug: 'memory-keeper', message: 'keep it' });
