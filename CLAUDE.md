@@ -1828,8 +1828,8 @@ instance, without passing its gates first (owner, 2026-10-23: "all those checks 
   `-- --no-push` stops before the push.
 - **What Koala is made of** (plan `~/.claude/plans/dependency-monitor.md`). Every binary, image, chart and action Koala downloads is
   in `dependencies.pins.json` with its version, checksum and the files that name it; `scripts/ci-tools.sh` reads its tools from it
-  (`scripts/pin.mjs`), and `tests/lib/pins.test.ts` fails when a file names a version or checksum the pins file does not. What is
-  still installed unpinned (`curl | sh` installers, charts without `--version`) is listed there with where. `npm run deps:inventory`
+  (`scripts/pin.mjs`), and `tests/lib/pins.test.ts` fails when a file names a version or checksum the pins file does not. Its
+  `unpinned` list is empty: no `curl | sh` is left, and every installer checks a sha256 before it runs. `npm run deps:inventory`
   (`scripts/deps-inventory.mjs`, node only) writes a CycloneDX inventory: npm from the lockfile (development-only marked), the machine
   agent's packages as Node resolves them, and every pinned or unpinned component; the Release workflow attaches it to each release
   as `sbom-<version>.cdx.json`, and root keeps one per release it runs beside its chart (`ReleaseCatalogue`, `<image tag>.sbom.json`).
