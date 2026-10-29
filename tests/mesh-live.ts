@@ -7,7 +7,7 @@ import { loadKeys } from '../apps/backend/src/platform/lib/keys.js';
 import { ACP_STUB, chatsOnTheMachine } from './lib/machine-chat.js';
 import { createDisposableVm, type DisposableVm } from './lib/disposable-vm.js';
 import { devTemporalCa } from './lib/dev-temporal.js';
-import { fetchSide, handOff } from './lib/handoff.js';
+import { fetchSide, handOff, sessionFrom, signedInLanding } from './lib/handoff.js';
 import { dropSuiteDatabase, firstAdmin, forgetMeshUser, suiteRoot, workerEnv } from './lib/suite-root.js';
 
 const GATEWAY_PORT = 30322;
@@ -130,8 +130,8 @@ async function main(): Promise<void> {
 
   step('the owner signs in to the instance');
   const { exchange } = await handOff(fetchSide(ROOT_FOR_HOST, `session=${session}`), fetchSide(INSTANCE_URL));
-  assert.equal(exchange.status, 200, `the instance refused the token: ${exchange.body}`);
-  const cookie = (exchange.setCookies[0] ?? '').split(';')[0]!;
+  assert.ok(signedInLanding(exchange), `the instance did not sign the owner in: ${exchange.status} ${exchange.body.slice(0, 300)}`);
+  const cookie = (sessionFrom(exchange.setCookies) ?? '');
   const onInstance = (path: string, init: RequestInit = {}) => fetch(`${INSTANCE_URL}${path}`, { ...init, headers: { 'content-type': 'application/json', Cookie: cookie, ...(init.headers ?? {}) } });
 
   step('a machine of the owner\'s runs the command from the instance\'s My Machines, and joins the mesh with it');

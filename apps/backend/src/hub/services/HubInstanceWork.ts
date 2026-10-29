@@ -6,7 +6,7 @@ import { treeOfGroveRun } from '../../engine-host/temporal/contracts.js';
 import { procedureRanIn, type TurnLogEntry } from '../../engine/index.js';
 import type { ActingFor } from '@koala/agent-engine/procedure';
 import type { HubRole } from '../lib/hub.js';
-import { allowed, asPerson, withSharedRole, type Database, type ProjectMetadata } from '../../platform/index.js';
+import { allowed, asPerson, withSharedRole, type AccessRevoked, type Database, type ProjectMetadata } from '../../platform/index.js';
 
 export type Done = { ok: true } | { ok: false; why: string };
 
@@ -45,6 +45,7 @@ export interface HubInstanceWorkDeps {
     decideTask(ownerId: string, taskId: string, status: 'accepted' | 'dropped'): Promise<Done>;
     askKoala(ownerId: string, conversation: SyncedDoc, note: { at: string; content: string }, actingFor?: ActingFor | undefined): Promise<Done>;
     openChat(ownerId: string, item: { kind: 'story'; leafId: string } | { kind: 'feature'; branchId: string }): Promise<Done>;
+    memberRemoved(revoked: AccessRevoked): Promise<void>;
   };
   live: {
     turns(ownerId: string, turnId: string, after: number, under: string | undefined): Promise<unknown>;
@@ -124,6 +125,12 @@ export class HubInstanceWork {
         if (input.item === 'story') return scope.leafIds.has(id) ? this.deps.act.openChat(link.ownerId, { kind: 'story', leafId: id }) : outside;
         if (input.item === 'feature') return scope.branchIds.has(id) ? this.deps.act.openChat(link.ownerId, { kind: 'feature', branchId: id }) : outside;
         return outside;
+      }
+      case 'member-removed': {
+        const personId = str(input.personId);
+        if (!personId || personId === link.ownerId) return { ok: false, why: 'A removal names a member other than the owner.' };
+        await this.deps.act.memberRemoved({ personId, because: 'removed-from-shared-project', at: request.at, sharedProjectId: link.hubProjectId });
+        return { ok: true };
       }
       case 'ask-koala': {
         const conversation = scope.conversations.find((doc) => doc.id === input.conversationId);

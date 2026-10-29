@@ -1,3 +1,4 @@
+import { publicJwkShaped } from '../lib/oidc.js';
 import { meshAddress } from '../../machines/index.js';
 import crypto from 'crypto';
 import type { Database } from '../../platform/index.js';
@@ -50,6 +51,7 @@ export interface InstanceSettings {
   siteNames?: readonly string[] | undefined;
   pool?: { slots: number; trialDays: number } | { off: string } | undefined;
   releases?: ReleaseSource | undefined;
+  serviceCaller?: ((token: string) => Promise<{ clientId: string; kind: 'instance' | 'hub' } | undefined>) | undefined;
 }
 
 export interface ReleaseSource {
@@ -316,7 +318,20 @@ export class InstanceService {
   private async authenticated(instanceId: unknown, credential: unknown): Promise<InstanceRecord | undefined> {
     if (typeof instanceId !== 'string' || typeof credential !== 'string' || !credential) return undefined;
     const instance = (await this.store.instances.getInstances()).find((entry) => entry.id === instanceId);
-    return instance?.credentialHash && sameHash(instance.credentialHash, hashCredential(credential)) ? instance : undefined;
+    if (!instance) return undefined;
+    if (instance.credentialHash && sameHash(instance.credentialHash, hashCredential(credential))) return instance;
+    const caller = await this.settings.serviceCaller?.(credential);
+    return caller?.kind === 'instance' && caller.clientId === instance.id ? instance : undefined;
+  }
+
+  async announceSignIn(instanceId: unknown, credential: unknown, jwk: unknown): Promise<Outcome<{ since: string }>> {
+    if (typeof instanceId !== 'string' || typeof credential !== 'string' || !credential) return { ok: false, status: 401, error: 'this instance is not known here' };
+    const instance = (await this.store.instances.getInstances()).find((entry) => entry.id === instanceId);
+    if (!instance?.credentialHash || !sameHash(instance.credentialHash, hashCredential(credential))) return { ok: false, status: 401, error: 'this instance is not known here' };
+    if (!publicJwkShaped(jwk)) return { ok: false, status: 400, error: 'send the instance\'s sign-in key as an Ed25519 public JWK with its kid' };
+    const since = instance.signIn?.jwk.kid === jwk.kid ? instance.signIn.since : this.now().toISOString();
+    await this.store.instances.saveSignInKey(instance.id, { jwk: { kty: 'OKP', crv: 'Ed25519', x: jwk.x, kid: jwk.kid }, since });
+    return { ok: true, value: { since } };
   }
 
   private async mover(instanceId: unknown, credential: unknown): Promise<InstanceRecord | undefined> {

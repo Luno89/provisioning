@@ -3,6 +3,8 @@ import type { Collection, Db } from 'mongodb';
 import { stampServed, type InstanceRecord, type JoinToken } from './lib/instances.js';
 import type { PoolPolicy } from './lib/pool.js';
 import type { InstanceRelease } from './lib/instance-updates.js';
+import type { SignInKey } from './lib/oidc.js';
+import type { ClientSession, LogoutDelivery, SessionRevocation } from './lib/sign-in-state.js';
 
 export interface InstancesStore extends AreaStore {
   claimHandoff(jti: string, expiresAt: string): Promise<boolean>;
@@ -15,7 +17,30 @@ export interface InstancesStore extends AreaStore {
   savePoolPolicy(policy: PoolPolicy): Promise<void>;
   getReleases(): Promise<InstanceRelease[]>;
   recordRelease(release: InstanceRelease): Promise<InstanceRelease>;
+  saveSignInKey(instanceId: string, key: SignInKey): Promise<boolean>;
+  getHubSignInKey(): Promise<SignInKey | undefined>;
+  saveHubSignInKey(key: SignInKey): Promise<void>;
+  oidcUpsert(model: string, id: string, payload: Record<string, unknown>, expiresIn?: number): Promise<void>;
+  oidcFind(model: string, id: string): Promise<Record<string, unknown> | undefined>;
+  oidcFindBy(model: string, field: 'uid' | 'userCode', value: string): Promise<Record<string, unknown> | undefined>;
+  oidcConsume(model: string, id: string): Promise<void>;
+  oidcDestroy(model: string, id: string): Promise<void>;
+  oidcRevokeGrant(grantId: string): Promise<void>;
+  oidcForgetAccount(accountId: string): Promise<string[]>;
+  enqueueLogout(delivery: LogoutDelivery): Promise<void>;
+  pendingLogouts(): Promise<LogoutDelivery[]>;
+  logoutDelivered(id: string): Promise<void>;
+  logoutFailed(id: string, error: string, at: string): Promise<void>;
+  saveClientSession(session: ClientSession): Promise<void>;
+  getClientSession(sid: string): Promise<ClientSession | undefined>;
+  dropClientSession(sid: string): Promise<void>;
+  dropClientSessionsOf(subject: string): Promise<void>;
+  recordRevocation(revocation: SessionRevocation): Promise<void>;
+  getRevocations(): Promise<SessionRevocation[]>;
 }
+
+const asStored = (doc: Record<string, unknown> | null): Record<string, unknown> | undefined =>
+  doc && typeof doc.payload === 'string' ? JSON.parse(doc.payload) as Record<string, unknown> : undefined;
 
 export class MongoInstancesStore implements InstancesStore {
   constructor(private readonly db: () => Db) {}
@@ -36,11 +61,34 @@ export class MongoInstancesStore implements InstancesStore {
     return this.db().collection('instanceReleases');
   }
 
+  private get oidcArtifacts(): Collection {
+    return this.db().collection('oidcArtifacts');
+  }
+
+  private get logoutDeliveries(): Collection {
+    return this.db().collection('logoutDeliveries');
+  }
+
+  private get clientSessions(): Collection {
+    return this.db().collection('clientSessions');
+  }
+
+  private get sessionRevocations(): Collection {
+    return this.db().collection('sessionRevocations');
+  }
+
   async ensureIndexes(): Promise<void> {
     await this.handoffs.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
     await this.instanceRegistry.createIndex({ ownerId: 1 });
     await this.instanceRegistry.createIndex({ name: 1 }, { unique: true, partialFilterExpression: { name: { $type: 'string' } } });
     await this.joinTokens.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
+    await this.oidcArtifacts.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
+    await this.oidcArtifacts.createIndex({ grantId: 1 });
+    await this.oidcArtifacts.createIndex({ accountId: 1 });
+    await this.oidcArtifacts.createIndex({ model: 1, uid: 1 });
+    await this.oidcArtifacts.createIndex({ model: 1, userCode: 1 });
+    await this.clientSessions.createIndex({ ownerId: 1 });
+    await this.clientSessions.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
   }
 
   async claimHandoff(jti: string, expiresAt: string): Promise<boolean> {
@@ -103,4 +151,113 @@ export class MongoInstancesStore implements InstancesStore {
     const { _id, ...stored } = doc as Record<string, unknown>;
     return { imageTag, ...stored } as InstanceRelease;
   }
+
+  async saveSignInKey(instanceId: string, key: SignInKey): Promise<boolean> {
+    const updated = await this.instanceRegistry.updateOne({ _id: instanceId as never }, { $set: { signIn: key } });
+    return updated.matchedCount > 0;
+  }
+
+  async getHubSignInKey(): Promise<SignInKey | undefined> {
+    const doc = await this.db().collection('hubSignIn').findOne({ _id: 'hub' as never });
+    return doc ? { jwk: doc.jwk, since: doc.since } as SignInKey : undefined;
+  }
+
+  async saveHubSignInKey(key: SignInKey): Promise<void> {
+    await this.db().collection('hubSignIn').replaceOne({ _id: 'hub' as never }, { ...key }, { upsert: true });
+  }
+
+  async oidcUpsert(model: string, id: string, payload: Record<string, unknown>, expiresIn?: number): Promise<void> {
+    const indexed = {
+      model,
+      payload: JSON.stringify(payload),
+      ...(typeof payload.grantId === 'string' ? { grantId: payload.grantId } : {}),
+      ...(typeof payload.uid === 'string' ? { uid: payload.uid } : {}),
+      ...(typeof payload.userCode === 'string' ? { userCode: payload.userCode } : {}),
+      ...(typeof payload.accountId === 'string' ? { accountId: payload.accountId } : {}),
+      ...(typeof expiresIn === 'number' ? { expiresAt: new Date(Date.now() + expiresIn * 1000) } : {}),
+    };
+    await this.oidcArtifacts.replaceOne({ _id: `${model}:${id}` as never }, indexed, { upsert: true });
+  }
+
+  async oidcFind(model: string, id: string): Promise<Record<string, unknown> | undefined> {
+    return asStored(await this.oidcArtifacts.findOne({ _id: `${model}:${id}` as never }));
+  }
+
+  async oidcFindBy(model: string, field: 'uid' | 'userCode', value: string): Promise<Record<string, unknown> | undefined> {
+    return asStored(await this.oidcArtifacts.findOne({ model, [field]: value }));
+  }
+
+  async oidcConsume(model: string, id: string): Promise<void> {
+    const found = await this.oidcFind(model, id);
+    if (!found) return;
+    await this.oidcArtifacts.updateOne({ _id: `${model}:${id}` as never }, { $set: { payload: JSON.stringify({ ...found, consumed: Math.floor(Date.now() / 1000) }) } });
+  }
+
+  async oidcDestroy(model: string, id: string): Promise<void> {
+    await this.oidcArtifacts.deleteOne({ _id: `${model}:${id}` as never });
+  }
+
+  async oidcRevokeGrant(grantId: string): Promise<void> {
+    await this.oidcArtifacts.deleteMany({ grantId });
+    await this.oidcArtifacts.deleteOne({ _id: `Grant:${grantId}` as never });
+  }
+
+  async oidcForgetAccount(accountId: string): Promise<string[]> {
+    const grants = await this.oidcArtifacts.find({ model: 'Grant', accountId }).toArray();
+    const grantIds = grants.map((grant) => String(grant._id).slice('Grant:'.length));
+    const clientIds = grants.map((grant) => asStored(grant)?.clientId).filter((id): id is string => typeof id === 'string');
+    await this.oidcArtifacts.deleteMany({ $or: [{ accountId }, { grantId: { $in: grantIds } }] });
+    return [...new Set(clientIds)];
+  }
+
+  async enqueueLogout(delivery: LogoutDelivery): Promise<void> {
+    await this.logoutDeliveries.replaceOne({ _id: delivery.id as never }, { ...delivery }, { upsert: true });
+  }
+
+  async pendingLogouts(): Promise<LogoutDelivery[]> {
+    const docs = await this.logoutDeliveries.find({}).sort({ revokedAt: 1 }).toArray();
+    return docs.map(({ _id, ...rest }) => ({ id: String(_id), ...rest }) as LogoutDelivery);
+  }
+
+  async logoutDelivered(id: string): Promise<void> {
+    await this.logoutDeliveries.deleteOne({ _id: id as never });
+  }
+
+  async logoutFailed(id: string, error: string, at: string): Promise<void> {
+    await this.logoutDeliveries.updateOne({ _id: id as never }, { $set: { lastError: error, lastTriedAt: at }, $inc: { attempts: 1 } });
+  }
+
+  async saveClientSession(session: ClientSession): Promise<void> {
+    const { id, ...rest } = session;
+    await this.clientSessions.replaceOne({ _id: id as never }, { ...rest, expiresAt: new Date(session.expiresAt) }, { upsert: true });
+  }
+
+  async getClientSession(sid: string): Promise<ClientSession | undefined> {
+    const doc = await this.clientSessions.findOne({ _id: sid as never });
+    if (!doc) return undefined;
+    const { _id, expiresAt, ...rest } = doc;
+    return { id: String(_id), ...rest, expiresAt: (expiresAt as Date).toISOString() } as ClientSession;
+  }
+
+  async dropClientSession(sid: string): Promise<void> {
+    await this.clientSessions.deleteOne({ _id: sid as never });
+  }
+
+  async dropClientSessionsOf(subject: string): Promise<void> {
+    await this.clientSessions.deleteMany({ ownerId: subject });
+  }
+
+  async recordRevocation(revocation: SessionRevocation): Promise<void> {
+    await this.sessionRevocations.updateOne(
+      { _id: revocation.subject as never },
+      [{ $set: { before: { $cond: [{ $gt: ['$before', revocation.before] }, '$before', revocation.before] } } }],
+      { upsert: true },
+    );
+  }
+
+  async getRevocations(): Promise<SessionRevocation[]> {
+    const docs = await this.sessionRevocations.find({}).toArray();
+    return docs.map((doc) => ({ subject: String(doc._id), before: String(doc.before) }));
+  }
 }
+

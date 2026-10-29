@@ -20,7 +20,7 @@ describe('an instance asking root for the groups of its shared projects', () => 
       { status: 200, body: { projectId: 'p1', name: 'globex' } },
       { status: 200, body: { released: true } },
     ]);
-    const groups = new InstanceGroups({ rootUrl: 'https://root', instanceId: 'inst-1', credential: 'secret' }, fetchImpl);
+    const groups = new InstanceGroups({ rootUrl: 'https://root', instanceId: 'inst-1', token: async () => 'secret' }, fetchImpl);
     expect(await groups.check('acme')).toBe('"acme" is taken');
     expect(await groups.check('globex')).toBeNull();
     await expect(groups.claim('p1', 'acme')).rejects.toThrow('"acme" is taken');

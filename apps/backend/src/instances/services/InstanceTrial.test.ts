@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { InstanceTrial } from './InstanceTrial.js';
 
-const settings = { rootUrl: 'https://app.koala.dev', instanceId: 'inst-1', credential: 'cred' };
+const settings = { rootUrl: 'https://app.koala.dev', instanceId: 'inst-1', token: async () => 'cred' };
 
 describe('an instance asking root about its trial', () => {
   it('asks with its credential, and asks again only after a while', async () => {

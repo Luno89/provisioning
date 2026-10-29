@@ -9,7 +9,7 @@ import { createDisposableVm, type DisposableVm } from './lib/disposable-vm.js';
 import { loadKeys } from '../apps/backend/src/platform/lib/keys.js';
 import { signJWT } from '../apps/backend/src/platform/lib/auth.js';
 import { devTemporalCa } from './lib/dev-temporal.js';
-import { fetchSide, handOff, type Side } from './lib/handoff.js';
+import { fetchSide, handOff, sessionFrom, type Side, signedInLanding } from './lib/handoff.js';
 import { dropSuiteDatabase, firstAdmin, forgetMeshUser, suiteRoot, workerEnv } from './lib/suite-root.js';
 import { signUp } from './lib/sign-up.js';
 
@@ -83,11 +83,11 @@ let throwawayId: string | undefined;
 let target: DisposableVm | undefined;
 const ENDING = process.env.POOL_LIVE_ENDING === 'delete' ? 'delete' : 'move';
 
-interface Answer { status: number; body: string; headers: Record<string, string> }
+interface Answer { status: number; body: string; headers: Record<string, string>; cookies: string[] }
 
 const httpsSide = (host: string): Side => (path, init = {}) => {
   const answer = https(host, path, init);
-  return { status: answer.status, location: answer.headers.location ?? '', setCookies: answer.headers['set-cookie'] ? [answer.headers['set-cookie']] : [], body: answer.body };
+  return { status: answer.status, location: answer.headers.location ?? '', setCookies: answer.cookies, body: answer.body };
 };
 
 function https(host: string, path: string, init: { method?: string; body?: unknown; cookie?: string } = {}): Answer {
@@ -99,14 +99,16 @@ function https(host: string, path: string, init: { method?: string; body?: unkno
   const head = blocks.shift() ?? '';
   const [statusLine, ...lines] = head.split(/\r?\n/);
   const headers: Record<string, string> = {};
+  const cookies: string[] = [];
   for (const line of lines) {
     const at = line.indexOf(':');
     if (at <= 0) continue;
     const name = line.slice(0, at).trim().toLowerCase();
+    if (name === 'set-cookie') cookies.push(line.slice(at + 1).trim());
     if (name === 'set-cookie' && headers[name] !== undefined) continue;
     headers[name] = line.slice(at + 1).trim();
   }
-  return { status: Number((statusLine ?? '').split(' ')[1]), body: blocks.join('\n\n'), headers };
+  return { status: Number((statusLine ?? '').split(' ')[1]), body: blocks.join('\n\n'), headers, cookies };
 }
 
 function meshKey(tag: 'tag:platform' | 'tag:pool'): string {
@@ -251,8 +253,8 @@ async function main(): Promise<void> {
   step('signing in at root lands on the pool instance');
   const { exchange, location } = await handOff(fetchSide(ROOT_FOR_HOST, `session=${session}`), httpsSide(`${NAME}.${DOMAIN}`));
   assert.ok(location.startsWith(`https://${NAME}.${DOMAIN}/`), `root sent the owner to ${location}`);
-  assert.equal(exchange.status, 200, `the instance refused the token: ${exchange.body}`);
-  const cookie = (exchange.setCookies[0] ?? '').split(';')[0]!;
+  assert.ok(signedInLanding(exchange), `the instance did not sign the owner in: ${exchange.status} ${exchange.body.slice(0, 300)}`);
+  const cookie = (sessionFrom(exchange.setCookies) ?? '');
   const onInstance = (path: string, init: { method?: string; body?: unknown } = {}) => https(`${NAME}.${DOMAIN}`, path, { ...init, cookie });
   assert.equal(onInstance('/api/auth/me').status, 200);
 
@@ -466,8 +468,8 @@ async function main(): Promise<void> {
     step('the owner signs in at root and lands on the new machine, with their work there');
     await until('the instance through Caddy on its new machine', async () => (https(`${NAME}.${DOMAIN}`, '/api/auth/sign-in').status === 200 ? true : undefined));
     const { exchange: againExchange } = await handOff(fetchSide(ROOT_FOR_HOST, `session=${session}`), httpsSide(`${NAME}.${DOMAIN}`));
-    assert.equal(againExchange.status, 200, `the moved instance refused the owner: ${againExchange.body}`);
-    const movedCookie = (againExchange.setCookies[0] ?? '').split(';')[0]!;
+    assert.ok(signedInLanding(againExchange), `the moved instance did not sign the owner in: ${againExchange.status} ${againExchange.body.slice(0, 300)}`);
+    const movedCookie = (sessionFrom(againExchange.setCookies) ?? '');
     const onMoved = (path: string, init: { method?: string; body?: unknown } = {}) => https(`${NAME}.${DOMAIN}`, path, { ...init, cookie: movedCookie });
     assert.equal(onMoved('/api/procedures/pool-live').status, 200, 'the procedure made on Koala\'s servers is not on the new machine');
     const file = onMoved(`/api/projects/${project.id}/files/content?path=${encodeURIComponent(movedFile)}`);

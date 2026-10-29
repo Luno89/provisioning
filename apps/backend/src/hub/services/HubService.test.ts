@@ -196,3 +196,33 @@ describe('an invite root will not send', () => {
     expect(valueOf(await hub.view('ann', id)).invites).toEqual([]);
   });
 });
+
+describe('taking someone off a shared project ends what Koala was doing for them', () => {
+  async function withMember(hub: HubService, tokenOf: (call: number) => string): Promise<string> {
+    const id = valueOf(await hub.create(ann, { name: 'Shop' })).project.id;
+    await hub.invite(ann, id, { email: 'bo@example.com', role: 'collaborator' });
+    await hub.accept(bo, tokenOf(0));
+    return id;
+  }
+
+  it('revokes their access at once where the hub shares the owner\'s process', async () => {
+    const store = memoryHubStore();
+    const send = vi.fn(async (request: { join: string }) => ({ link: `http://root/#/join?project=${request.join}`, emailed: true }));
+    const revoked = vi.fn(async () => undefined);
+    const hub = new HubService({ store, invites: { send }, now: () => '2026-10-29T00:00:00.000Z', revocations: { revoked } });
+    const id = await withMember(hub, (call) => (send.mock.calls[call]![0] as { join: string }).join);
+
+    expect(valueOf(await hub.remove('ann', id, 'bo'))).toEqual({ removed: 'bo' });
+    expect(revoked).toHaveBeenCalledWith({ personId: 'bo', because: 'removed-from-shared-project', at: '2026-10-29T00:00:00.000Z', sharedProjectId: id });
+  });
+
+  it('leaves the owner\'s instance a removal to carry out when the hub runs on its own, kept off the members\' board', async () => {
+    const { hub, store, tokenOf } = setUp();
+    const id = await withMember(hub, tokenOf);
+
+    expect(valueOf(await hub.remove('ann', id, 'bo'))).toEqual({ removed: 'bo' });
+    const waiting = await store.project(id).requests();
+    expect(waiting).toEqual([expect.objectContaining({ kind: 'member-removed', input: { personId: 'bo' }, by: expect.objectContaining({ personId: 'ann' }), state: 'waiting' })]);
+    expect(valueOf(await hub.boardView('ann', id)).requests).toEqual([]);
+  });
+});

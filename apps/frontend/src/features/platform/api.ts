@@ -1,4 +1,4 @@
-import { api, API_BASE } from '../../api/client'
+import { api } from '../../api/client'
 import type { SessionPermissions } from './lib/permissions'
 
 export interface SessionUser {
@@ -69,11 +69,3 @@ export const signInElsewhere = (): Promise<string | null> =>
 export const accountRemovalPlace = (): Promise<string | null> =>
   api.get<{ url: string | null }>('/auth/account-removal').then((r) => r.data.url)
 
-export const exchangeHandoff = (token: string): Promise<SessionUser> =>
-  api.post<{ user: SessionUser }>('/auth/handoff', { token }).then((r) => r.data.user)
-
-export const handoffRestarts = (err: unknown): boolean =>
-  (err as { response?: { data?: { restart?: unknown } } } | undefined)?.response?.data?.restart === true
-
-export const handoffStartUrl = (next?: string | null): string =>
-  `${API_BASE}/auth/handoff/start${next ? `?next=${encodeURIComponent(next)}` : ''}`

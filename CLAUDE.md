@@ -48,12 +48,12 @@ npm run test:alive   # scripts/alive.sh — Docker/k3d/K8s API/Temporal/worker p
 npm run test:worker  # tsx tests/worker-isolated.ts — runs real Temporal workflows without browser/webserver
 npm run test:e2e     # test:alive → Playwright (skips the unit preflight `npm test` does)
 npm run test:infra:integration    # full cluster provision → verify → destroy, ~5 min (tests/infra-integration.ts)
-npm run test:routing-live         # root's Caddy on the mesh (local CA, koala.localhost) → a named instance installs on a VM → <name>.<domain> answers through Caddy and sign-in lands there → an app on the instance at <app>-<name>.<domain> → a group the instance claims is routed by root to its edge (the edge's 404 names the instance in X-Koala-Edge) and freed again → nested addresses issued and shown, the flat ones still answering, ~9 min, cleans up
+npm run test:routing-live         # root's Caddy on the mesh (local CA, koala.localhost) → a named instance installs on a VM → <name>.<domain> answers through Caddy and sign-in lands there → an app on the instance at <app>-<name>.<domain> → a group the instance claims is routed by root to its edge (the edge's 404 names the instance in X-Koala-Edge) and freed again → nested addresses issued and shown, the flat ones still answering → signing out everywhere at root ends the instance's session at once, ~9 min, cleans up
 npm run test:mail-live            # the send-only mail server is built and run beside a test mailbox → the backend's mailer sends an alert through it → it arrives DKIM-signed and the signature verifies against the key the DNS script publishes → a host it does not trust is refused, ~2 min
 npm run test:monitoring-live      # a throwaway app on the system cluster → Monitoring calls it healthy → Koala, on your model, proposes an alert for when it stops answering → the card sets it → the app is stopped until the alert fires and the conversation hears it, started until it resolves → the alert is removed and the app destroyed, ~10 min
 npm run test:telemetry-live       # against the running dev stack: the collector and Tempo are on the system cluster (the cluster worker applied them if they were missing) → a throwaway account signs up with an admin's invite → one scripted turn through the check runner → one trace in Tempo, found by the id the request answered with, spans the request, the check workflow's start, the engine run's request, its workflow start and the model call, with nothing said in it → koala_up, the request, workflow, activity and model-call metrics are in Prometheus by name, labelled with the process → the Koala section on GET /api/infrastructure carries them → the stack stays; removes the scenario and the account, ~3 min
 npm run test:infrastructure-live   # Infrastructure reads the system cluster → a workload that cannot pull its image, put there by hand, shows in Needs attention and on the cluster page as not deployed through Koala, then leaves once removed → a Koala chat turn on a model that does not exist shows as failed work, opens its chat and clears → whatever the memory keeper keeps from the run and the quiet conversation is retired, ~15 min
-npm run test:dev-split-live        # against a running `npm run dev:split`: the instance sends a signed-out person to root → root's Google sign-in (the dev mock) → root knows the instance and serves none of its routes → its one-time token signs you into the instance, and not twice → your work is there and the instance makes no accounts → the instance's credential is taken by root and a wrong one refused, ~10 s
+npm run test:dev-split-live        # against a running `npm run dev:split`: the instance starts a signed-out person's sign-in through root's OpenID provider → root's Google sign-in (the dev mock) → root knows the instance and serves none of its routes → the code signs you into the instance, and not twice → your work is there and the instance makes no accounts → root takes the instance's service token and refuses a wrong credential → signing out everywhere at root ends the instance's session at once, ~10 s
 npm run test:hub-live              # against the running dev stack (combined): an admin's invite signs up an owner, who makes two shared projects and invites a collaborator and a client to one and someone else to the other → root shows each invite signed out and signs up only the address invited → the outsider reaches nothing of the first project by id, guess or another's invite → each role can do only what it may → roles change, an invite is taken back, people are removed and leave, the last owner cannot → the owner's removal refused while they alone own a project someone else is on, the outsider's removal taking them off it → one project deleted by name and the owner's removal deleting the other, their databases gone, ~1 min
 npm run test:project-sharing-live  # against the running dev stack (combined): a throwaway project with a repository and a channel someone talked in → the group check refuses a dashed and a reserved name and suggests one from the project's name, sharing without a group is refused → the preview says what goes and stays, nothing is on the hub → shared under its group, which the preview and the hub's project carry, and a second project is refused that group → the channel arrives with its history and a new message follows → a commit on the owner's main reaches the hub's and one pushed to the hub's reaches the owner's → taken back by its name: the hub's database and repository are gone, everything stays on the instance → the group is free again and the second project is shared under it and taken back; the account removes itself, ~30 s
 npm run test:routes-live           # against the running dev stack: signed out, the guard answers before any router, the webhook and /ingress/verify before the guard and /api/metrics wants its token → a throwaway account signs up with an admin's invite → one request to each of the 58 mounted routers answers with the router's own response, never Express's "Cannot GET"; the account removes itself, ~5 s
@@ -564,15 +564,26 @@ registration with a credential, at `http://koala.localhost:5175`. Each has its o
 the app treats it as the E2E port and signs everyone in. The env each process gets is written to
 `apps/backend/data/dev-split/` (gitignored); the owner is the first admin, or `DEV_INSTANCE_OWNER`.
 
-Sign-in on an instance: the instance sends you to root's `/api/identity/go`, which issues a 60-second,
-single-use token for your instance and redirects to `<instance>/#/handoff?token=…`. The instance
-checks the signature, audience, expiry and owner, records the token id so it cannot be reused, and
-sets its own session. **The token is taken only in the browser that started the sign-in** (security audit W2, login CSRF):
-the instance's or hub's `GET /api/auth/handoff/start` sets a signed ten-minute `handoff_nonce` cookie (`__Host-` over https) and
-sends the browser to root's `/api/identity/go?nonce=…`, root puts the nonce in the token (`issueHandoff`), and the handoff is refused
-unless the token's nonce matches the cookie (`platform/lib/handoff-nonce.ts`). A token root issued without a nonce (root's own "Open
-my instance", the hub link, a join) is answered `restart`, and the handoff page goes through the start once
-(`handoffRestarts`), so an instance on an older release than root, which takes tokens without one, still signs in.
+**Sign-in on an instance or the hub is OpenID Connect, with root as the provider** (`oidc-provider` at `/oidc` on root,
+`instances/services/RootProvider.ts`; the client is `openid-client`, `RootSignIn.ts`; rules in `instances/lib/oidc.ts`). At start each
+instance and the hub names an Ed25519 key, derived from its session key, to root with its credential (`PUT /api/instances/sign-in-key`,
+`PUT /api/hub-link/sign-in-key`, `keepAnnouncing`) and from then authenticates to root's token endpoint with `private_key_jwt`. A
+signed-out person is sent to its own `GET /api/auth/oidc/start` (code flow, PKCE, state and nonce in a signed ten-minute
+`koala_sign_in` cookie, `prompt=login`); root finishes the login from its own session at `/oidc/interaction/<uid>` (signed out, root's
+page signs them in and `resumePathFrom` sends them back), takes only an instance's owner (`signInRefusal`), and `GET
+/api/auth/oidc/callback` exchanges the code, checks root's ID token against `ROOT_PUBLIC_KEYS`, keeps the refresh token sealed in
+`clientSessions`, and gives the browser the instance's own session token carrying root's claims (`koala_claims`, from `claimsFor` →
+`claimsOf`). `requireAuth` checks it locally (no database, no call to root) and renews it through the refresh token once the claims are
+20 minutes old; root unreachable keeps the session as it was, root refusing ends it. **Revocation is immediate**: signing out
+everywhere, a 2FA change and an account's removal fire `AccessRevocations` (platform), root forgets the person's grants, sessions and
+tokens and sends each client a back-channel logout token (`logoutDeliveries`, retried every 30 s until the client answers); the client
+records it (`sessionRevocations`, the in-memory `RevocationList`), drops the person's sessions and fires its own `AccessRevocations`,
+which the run grants listen to. **An instance and the hub call root with service tokens** (client credentials, five minutes,
+`RootSignIn.serviceToken`), which root takes wherever it takes the instance's credential (`InstanceService.authenticated`,
+`/api/hub-link/invite`); the credential remains for naming the key and for the shell scripts. **An instance on an older release**
+still signs in by root's old handoff (`/api/identity/go` → `<instance>/#/handoff?token=…`, `issueHandoff`): root sends someone to the
+OIDC start only once the instance has named its key and its own `/api/auth/sign-in` answers with it (`handoffServedFor`), so a rollback
+past this release falls back by itself.
 `tests/lib/handoff.ts` (`handOff`) is that browser for every suite that signs in through root. Register an instance with `npm run instances -w apps/backend -- add <id> <owner> <url>`.
 
 **Addresses (per-user instances step 6).** A person picks a name when their instance is made (`instances/lib/instance-names.ts`:
@@ -618,8 +629,8 @@ each person's allowance, under Project invites on root's admin page (`ProjectInv
 `/api/admin/people/:id/project-invites`); admins are not limited. A refusal comes back as a 429 with its reason and the hub
 keeps no invite for it. Root's join page
 (`hub/components/RootJoinPage.tsx`) shows the invite signed out (`/api/hub-link/invitation`), signs them up, remembers the invite
-across sign-up (`hub/lib/pending-join.ts`) and sends them on: `/api/identity/go?to=hub&next=/hub/join/<token>` issues a token
-with audience `hub`, and the hub takes anyone root vouches for (never an admin there), going on to `next`. The hub's own
+across sign-up (`hub/lib/pending-join.ts`) and sends them on: `/api/identity/go?to=hub&next=/hub/join/<token>` sends them to the hub's own sign-in through root's provider
+(`/api/auth/oidc/start?next=…`), and the hub takes anyone root signs in (never an admin there), going on to `next`. The hub's own
 frontend is only Shared projects (`HubShell`, `onHub` on `/api/auth/me`). An instance links to it through root
 (`hub` on `/api/auth/sign-in`). `dev:split` runs the hub as a third process at `http://hub.localhost:5176` (API :3003).
 **Removing an account lets the person go from the hub first** (`HubPeople`: in process when combined, otherwise root's

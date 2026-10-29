@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import { allowed, asPerson, sharedActionsOf, withSharedRole, type AccessRevoked, type Principal } from '../../platform/index.js';
+import { allowed, asPerson, sharedActionsOf, withSharedRole, type AccessRevocations, type Principal } from '../../platform/index.js';
 import {
   inviteProblem, INVITE_TOKEN, leavingAll, leavingProblem, roleChangeProblem, sameEmail, sharerOf, SHARED_PROJECT_ID, sharedProjectProblem,
   type HubAction, type HubInvite, type HubMember, type HubRole, type SharedProject,
@@ -9,7 +9,7 @@ import { nameProblem } from '../../instances/index.js';
 import type { HubRepoAccess, HubRepos } from './HubRepos.js';
 import { applyPatch, isSyncedKind, SYNCED_KINDS, type HubChange, type RecordChange, type SyncedDoc, type SyncedKind } from '../lib/hub-sync.js';
 import {
-  isRequestKind, koalaAnswers, recordFor, relayProblem, requestInput, requestProblem,
+  isNotice, isRequestKind, koalaAnswers, recordFor, relayProblem, requestInput, requestProblem,
   type HubBoard, type HubRequest, type HubRequestKind, type HubStatus, type Plain, type RelayOp,
 } from '../lib/hub-board.js';
 import { mentionsKoala, personMessage, withAuthorNames, type ConversationMessage } from '../../engine/index.js';
@@ -35,7 +35,7 @@ export interface HubServiceDeps {
   invites: InviteSender;
   repos?: HubRepos | undefined;
   relay?: HubRelay | undefined;
-  revoked?: ((revoked: AccessRevoked) => Promise<void>) | undefined;
+  revocations?: Pick<AccessRevocations, 'revoked'> | undefined;
   now?: (() => string) | undefined;
 }
 
@@ -192,7 +192,7 @@ export class HubService {
     const read = async (kind: SyncedKind) => (await access.store.records(kind)).map(recordFor);
     const [trees, branches, leaves, tasks, planProposals, conversations] = await Promise.all((['trees', 'branches', 'leaves', 'tasks', 'planProposals', 'conversations'] as const).map(read));
     const status = await access.store.status();
-    const requests = (await access.store.requests()).filter((request) => request.state === 'waiting' || request.by.personId === personId);
+    const requests = (await access.store.requests()).filter((request) => !isNotice(request) && (request.state === 'waiting' || request.by.personId === personId));
     return {
       ok: true,
       value: {
@@ -246,7 +246,15 @@ export class HubService {
     return { ok: true, value: await this.saveRequest(access, person, body.kind as HubRequestKind, input, 0) };
   }
 
-  private async saveRequest(access: Access, person: Person, kind: HubRequestKind, input: Plain, after: number): Promise<HubRequest> {
+  private async memberRemoved(access: Access, memberId: string): Promise<void> {
+    if (this.deps.revocations) {
+      await this.deps.revocations.revoked({ personId: memberId, because: 'removed-from-shared-project', at: this.now(), sharedProjectId: access.project.id });
+      return;
+    }
+    await this.saveRequest(access, { id: access.member.personId, email: access.member.email }, 'member-removed', { personId: memberId }, 0);
+  }
+
+  private async saveRequest(access: Access, person: Person, kind: HubRequest['kind'], input: Plain, after: number): Promise<HubRequest> {
     const request: HubRequest = { id: randomBytes(12).toString('hex'), kind, input, by: { personId: person.id, email: person.email, role: access.member.role }, at: this.now(), after, state: 'waiting' };
     await access.store.saveRequest(request);
     return request;
@@ -508,7 +516,7 @@ export class HubService {
     if (problem) return wrong(memberId === personId ? problem : problem.replace('the last owner cannot leave', 'the last owner cannot be removed'));
     await access.store.deleteMember(memberId);
     await this.deps.store.removeMembership(memberId, projectId);
-    await this.deps.revoked?.({ personId: memberId, because: 'removed-from-shared-project', sharedProjectId: projectId });
+    await this.memberRemoved(access, memberId);
     return { ok: true, value: { removed: memberId } };
   }
 }

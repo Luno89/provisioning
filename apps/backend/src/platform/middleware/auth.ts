@@ -7,7 +7,22 @@ import type { Database } from '../lib/db-interface.js';
 import type { InviteMetadata, UserMetadata } from '../lib/types.js';
 import type { SecretKey } from '../lib/crypto.js';
 import { signsInThroughRoot, type PlatformRole } from '../lib/platform-role.js';
-import { authorize, principalOf, type Actions, type Principal, type Resource } from '../lib/permissions.js';
+import { authorize, principalOf, type Actions, type Claim, type Principal, type Resource } from '../lib/permissions.js';
+
+export interface ClientSession {
+  userId: string;
+  email: string;
+  sid: string;
+  sessionAt: number;
+  freshUntil: number;
+  claims: Claim[];
+}
+
+export interface ClientSessions {
+  verified(token: string | undefined): ClientSession | undefined;
+  renew(session: ClientSession): Promise<{ token: string; session: ClientSession } | 'kept' | 'ended'>;
+  sessionSeconds: number;
+}
 
 export function parseCookie(cookieHeader: string | undefined, name: string): string | undefined {
   if (!cookieHeader) return undefined;
@@ -26,6 +41,7 @@ export interface AuthDeps {
   role?: PlatformRole | undefined;
   instanceOwnerId?: string | undefined;
   setupCode?: string | undefined;
+  clientSessions?: ClientSessions | undefined;
 }
 
 export const requireAllowed = <R extends Resource>(action: Actions[R['kind']], resource: R): express.RequestHandler => (req, res, next) => {
@@ -63,7 +79,15 @@ export interface Auth {
 
 export const PUBLIC_PREFIXES = ['/checks/scripted/', '/machines/git/', '/share/'];
 
-export function createAuth({ db, sessionKey, publicUrl, role = 'combined', instanceOwnerId, setupCode }: AuthDeps): Auth {
+const userOfSession = (session: ClientSession): UserMetadata => ({
+  id: session.userId,
+  email: session.email,
+  emailVerified: true,
+  twoFactorEnabled: false,
+  createdAt: new Date(session.sessionAt).toISOString(),
+});
+
+export function createAuth({ db, sessionKey, publicUrl, role = 'combined', instanceOwnerId, setupCode, clientSessions }: AuthDeps): Auth {
   const principalFor = (user: Pick<UserMetadata, 'id' | 'roles'>): Principal => principalOf(user, { role, instanceOwnerId });
   const getCookie = (req: express.Request, name: string) => parseCookie(req.headers.cookie, name);
 
@@ -78,6 +102,10 @@ export function createAuth({ db, sessionKey, publicUrl, role = 'combined', insta
   async function userFromSessionCookie(cookieHeader: string | undefined, secure: boolean): Promise<UserMetadata | undefined> {
     const token = parseCookie(cookieHeader, cookieNamed(SESSION_COOKIE, secure));
     if (!token) return undefined;
+    if (clientSessions) {
+      const session = clientSessions.verified(token);
+      return session ? userOfSession(session) : undefined;
+    }
     const decoded = verifyJWT(token, sessionKey);
     if (!decoded || !decoded.userId) return undefined;
     const user = await db.accounts.getUserById(decoded.userId);
@@ -100,6 +128,8 @@ export function createAuth({ db, sessionKey, publicUrl, role = 'combined', insta
         '/auth/google/callback',
         '/identity/keys',
         '/identity/go',
+        '/instances/sign-in-key',
+        '/hub-link/sign-in-key',
         '/instances/join',
         '/instances/chart.tgz',
         '/instances/release',
@@ -115,7 +145,7 @@ export function createAuth({ db, sessionKey, publicUrl, role = 'combined', insta
         '/instances/monitoring',
         '/instances/move/self',
       ]),
-      ...(signsInThroughRoot(role) ? ['/auth/handoff', '/auth/handoff/start', '/auth/sign-in'] : []),
+      ...(signsInThroughRoot(role) ? ['/auth/sign-in', '/auth/oidc/start', '/auth/oidc/callback', '/auth/oidc/backchannel-logout'] : []),
       '/machines/join',
       '/machines/agent.tgz',
       '/machines/agent.tgz.sha256',
@@ -143,6 +173,24 @@ export function createAuth({ db, sessionKey, publicUrl, role = 'combined', insta
     if (!getCookie(req, cookieNamed(SESSION_COOKIE, secure))) {
       return res.status(401).json({ error: 'Unauthorized: Session missing' });
     }
+    if (clientSessions) {
+      let session = clientSessions.verified(getCookie(req, cookieNamed(SESSION_COOKIE, secure)));
+      if (session && Date.now() >= session.freshUntil) {
+        const renewed = await clientSessions.renew(session);
+        if (renewed === 'ended') session = undefined;
+        else if (renewed !== 'kept') {
+          setSessionCookie(res, renewed.token, req);
+          session = renewed.session;
+        }
+      }
+      if (!session) {
+        clearSession(res);
+        return res.status(401).json({ error: 'Unauthorized: Session invalid or expired' });
+      }
+      (req as any).user = userOfSession(session);
+      (req as any).principal = { kind: 'person', id: session.userId, claims: session.claims } satisfies Principal;
+      return next();
+    }
     const user = await userFromSessionCookie(req.headers.cookie, secure);
     if (!user) {
       return res.status(401).json({ error: 'Unauthorized: Session invalid or expired' });
@@ -161,7 +209,7 @@ export function createAuth({ db, sessionKey, publicUrl, role = 'combined', insta
 
   const setSessionCookie = (res: express.Response, token: string, req?: express.Request) => {
     const secure = req ? securedFor(req) : sessionCookieOptions.secure;
-    res.cookie(cookieNamed(SESSION_COOKIE, secure), token, { ...sessionCookieOptions, secure, maxAge: 24 * 60 * 60 * 1000 });
+    res.cookie(cookieNamed(SESSION_COOKIE, secure), token, { ...sessionCookieOptions, secure, maxAge: (clientSessions?.sessionSeconds ?? 24 * 60 * 60) * 1000 });
   };
   const clearSession = (res: express.Response) => {
     res.clearCookie(cookieNamed(SESSION_COOKIE, true), { ...sessionCookieOptions, secure: true });

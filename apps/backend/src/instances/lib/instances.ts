@@ -2,6 +2,7 @@ import type { PoolPorts } from './pool.js';
 import type { UpdateSetting } from './instance-updates.js';
 import type { TrialStep } from './pool-trial.js';
 import type { InstanceMove } from './instance-move.js';
+import type { SignInKey } from './oidc.js';
 
 export type InstanceStatus = 'waiting' | 'joined' | 'installing' | 'ready' | 'failed' | 'paused';
 
@@ -40,6 +41,7 @@ export interface InstanceRecord {
   updates?: UpdateSetting | undefined;
   running?: string | undefined;
   previous?: string | undefined;
+  signIn?: SignInKey | undefined;
 }
 
 export interface InstanceGroup {

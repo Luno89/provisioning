@@ -13,5 +13,16 @@ export const REVOKED_SAID: Readonly<Record<RevokedBecause, string>> = {
 export interface AccessRevoked {
   personId: string;
   because: RevokedBecause;
+  at: string;
   sharedProjectId?: string | undefined;
 }
+
+export const revocationShaped = (value: unknown): value is AccessRevoked => {
+  const event = value as Partial<AccessRevoked> | undefined;
+  return typeof event?.personId === 'string' && event.personId.length > 0
+    && typeof event.at === 'string' && !Number.isNaN(Date.parse(event.at))
+    && REVOKED_BECAUSE.includes(event.because as RevokedBecause)
+    && (event.sharedProjectId === undefined || (typeof event.sharedProjectId === 'string' && event.sharedProjectId.length > 0));
+};
+
+export const endsSessions = (revoked: AccessRevoked): boolean => revoked.sharedProjectId === undefined;

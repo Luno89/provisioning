@@ -11,6 +11,8 @@ export { nameProblem, suggestedGroup } from './lib/instance-names.js';
 export type { InstanceRelease } from './lib/instance-updates.js';
 export type { InstanceRecord, InstanceStatus } from './lib/instances.js';
 export { importLines } from './lib/mongo-move.js';
+export { publicJwkShaped } from './lib/oidc.js';
+export type { SignInKey } from './lib/oidc.js';
 export { afterStep, nextTrialStep, trialMessage } from './lib/pool-trial.js';
 export type { DueStep, TrialStep } from './lib/pool-trial.js';
 export { admissionManifests, BACKEND_ACCOUNT, backendAccessManifest, COMPONENT_RESOURCES, INSTANCE_RELEASE, namespaceManifest, POOL_LABEL, poolChartValues, poolNamespace, poolSettingsFrom, PROXY, proxyCaddyfile, proxyManifests, RUNTIME_CLASS, VCLUSTER_CHART_VERSION, vclusterAddress, vclusterValues } from './lib/pool.js';

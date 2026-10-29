@@ -164,6 +164,7 @@ describe('members working a shared project from the hub', () => {
         decideTask: async (...args) => { did.push(['decideTask', ...args]); return ok; },
         askKoala: async (ownerId, conversation, note, actingFor) => { did.push(['askKoala', ownerId, conversation.id, note, actingFor]); return ok; },
         openChat: async (...args) => { did.push(['openChat', ...args]); return ok; },
+        memberRemoved: async (revoked) => { did.push(['memberRemoved', revoked]); },
       },
       live: {
         turns: async () => ({ entries: [] }),
@@ -232,6 +233,19 @@ describe('members working a shared project from the hub', () => {
     expect(did).toEqual([['orderStories', 'ann', 'b1', ['l2', 'l1']]]);
     const settled = await store.project(hubId).requests();
     expect(settled.map((request) => [request.kind, request.state]).sort()).toEqual([['accept-task', 'refused'], ['order-stories', 'done']]);
+    sync.stop();
+    relay.stop();
+  });
+
+  it('carries out a member\'s removal on the owner\'s instance as a revocation of that shared project, and takes it from nobody but the hub', async () => {
+    const { hub, hubId, sync, did, relay, store } = await shared();
+    expect(await hub.request({ id: 'bo', email: 'bo@example.com' }, hubId, { kind: 'member-removed', personId: 'cy' })).toMatchObject({ ok: false, status: 400 });
+    expect((await hub.remove('ann', hubId, 'cy')).ok).toBe(true);
+    await store.project(hubId).saveRequest({ id: 'forged', kind: 'member-removed', input: { personId: 'ann' }, by: { personId: 'bo', email: 'bo@example.com', role: 'collaborator' }, at: now, after: 0, state: 'waiting' });
+    await sync.once();
+    expect(did).toEqual([['memberRemoved', { personId: 'cy', because: 'removed-from-shared-project', at: expect.any(String), sharedProjectId: hubId }]]);
+    const settled = await store.project(hubId).requests();
+    expect(settled.map((request) => [request.id === 'forged' ? 'forged' : request.kind, request.state]).sort()).toEqual([['forged', 'refused'], ['member-removed', 'done']]);
     sync.stop();
     relay.stop();
   });

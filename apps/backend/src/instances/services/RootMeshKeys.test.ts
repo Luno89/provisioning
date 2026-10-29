@@ -18,12 +18,12 @@ afterAll(() => new Promise<void>((resolve) => server.close(() => resolve())));
 
 describe('an instance asking root for a machine\'s mesh key', () => {
   it('asks as itself and hands back the key', async () => {
-    expect(await new RootMeshKeys({ rootUrl, instanceId: 'inst-1', credential: 'right' }).createPreAuthKey('owner')).toEqual({ key: 'key-1' });
+    expect(await new RootMeshKeys({ rootUrl, instanceId: 'inst-1', token: async () => 'right' }).createPreAuthKey('owner')).toEqual({ key: 'key-1' });
     expect(seen.at(-1)).toEqual({ instance: 'inst-1', auth: 'Bearer right' });
   });
 
   it('says why when root refuses', async () => {
-    await expect(new RootMeshKeys({ rootUrl, instanceId: 'inst-1', credential: 'wrong' }).createPreAuthKey('owner'))
+    await expect(new RootMeshKeys({ rootUrl, instanceId: 'inst-1', token: async () => 'wrong' }).createPreAuthKey('owner'))
       .rejects.toThrow('root would not let a machine join the mesh (401): unknown instance or credential');
   });
 });

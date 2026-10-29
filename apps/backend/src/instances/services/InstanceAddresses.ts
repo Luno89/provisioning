@@ -5,7 +5,7 @@ import type { InstanceEdge } from '../../infrastructure/index.js';
 export interface InstanceAddressesSettings {
   rootUrl: string;
   instanceId: string;
-  credential: string;
+  token: () => Promise<string>;
   name: string;
 }
 
@@ -29,7 +29,7 @@ export class InstanceAddresses {
   private async call(method: 'GET' | 'PUT', body?: unknown): Promise<AddressesView> {
     const response = await this.fetchImpl(`${this.settings.rootUrl}/api/instances/addresses`, {
       method,
-      headers: { 'content-type': 'application/json', 'x-instance-id': this.settings.instanceId, authorization: `Bearer ${this.settings.credential}` },
+      headers: { 'content-type': 'application/json', 'x-instance-id': this.settings.instanceId, authorization: `Bearer ${await this.settings.token()}` },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     });
     const answer = await response.json().catch(() => ({})) as AddressesView & { error?: unknown };

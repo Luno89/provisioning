@@ -1,7 +1,7 @@
 export interface RootMeshKeysSettings {
   rootUrl: string;
   instanceId: string;
-  credential: string;
+  token: () => Promise<string>;
 }
 
 export class RootMeshKeys {
@@ -10,7 +10,7 @@ export class RootMeshKeys {
   async createPreAuthKey(_ownerId: string): Promise<{ key: string }> {
     const response = await this.fetchImpl(`${this.settings.rootUrl}/api/instances/machine-key`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-instance-id': this.settings.instanceId, authorization: `Bearer ${this.settings.credential}` },
+      headers: { 'content-type': 'application/json', 'x-instance-id': this.settings.instanceId, authorization: `Bearer ${await this.settings.token()}` },
       body: '{}',
     });
     const body = await response.json().catch(() => ({})) as { preAuthKey?: unknown; error?: unknown };
@@ -23,7 +23,7 @@ export class RootMeshKeys {
   async removeNode(_ownerId: string, meshIp: string): Promise<void> {
     const response = await this.fetchImpl(`${this.settings.rootUrl}/api/instances/machine-node`, {
       method: 'DELETE',
-      headers: { 'content-type': 'application/json', 'x-instance-id': this.settings.instanceId, authorization: `Bearer ${this.settings.credential}` },
+      headers: { 'content-type': 'application/json', 'x-instance-id': this.settings.instanceId, authorization: `Bearer ${await this.settings.token()}` },
       body: JSON.stringify({ meshIp }),
     });
     if (!response.ok && response.status !== 404) {

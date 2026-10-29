@@ -39,9 +39,13 @@ export type HubRequestKind = 'approve-plan' | 'reject-plan' | 'order-stories' | 
 
 export const HUB_REQUEST_KINDS: readonly HubRequestKind[] = ['approve-plan', 'reject-plan', 'order-stories', 'order-features', 'accept-task', 'drop-task', 'ask-koala', 'open-chat'];
 
+export type HubNoticeKind = 'member-removed';
+
+export const isNotice = (request: { kind: string }): boolean => request.kind === 'member-removed';
+
 export interface HubRequest {
   id: string;
-  kind: HubRequestKind;
+  kind: HubRequestKind | HubNoticeKind;
   input: Plain;
   by: { personId: string; email: string; role: HubRole };
   at: string;

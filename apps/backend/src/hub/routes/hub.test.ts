@@ -1,3 +1,5 @@
+import { generateIdentityKey, identityKeysFrom } from '../../instances/lib/identity-token.js';
+import { publicJwkOf, type SignInKey } from '../../instances/lib/oidc.js';
 import { afterEach, describe, expect, it } from 'vitest';
 import axios from 'axios';
 import { hubRouter } from './hub.js';
@@ -72,12 +74,19 @@ describe('/api/hub', () => {
 describe('/api/hub-link, on root', () => {
   async function root() {
     const invites: InviteMetadata[] = [];
+    let held: SignInKey | undefined;
     const site = await mountRouter({
       prefix: '/api/hub-link',
-      router: async () => hubLinkRouter({ invites: new ProjectInviteService({ principalFor: (user) => principalOf(user, { role: 'combined' }), invites: { getInviteByCode: async (code) => invites.find((invite) => invite.codeHash === inviteCodeHash(code)), saveInvite: async (invite) => { invites.push(invite); }, getInvites: async () => invites }, people: { getUserById: async (id) => ({ id }), getUserByEmail: async () => undefined }, limits: async () => undefined, rootUrl: 'http://root' }), credentialHash: hashCredential('the-hub'), hash: hashCredential }),
+      router: async () => hubLinkRouter({
+        invites: new ProjectInviteService({ principalFor: (user) => principalOf(user, { role: 'combined' }), invites: { getInviteByCode: async (code) => invites.find((invite) => invite.codeHash === inviteCodeHash(code)), saveInvite: async (invite) => { invites.push(invite); }, getInvites: async () => invites }, people: { getUserById: async (id) => ({ id }), getUserByEmail: async () => undefined }, limits: async () => undefined, rootUrl: 'http://root' }),
+        credentialHash: hashCredential('the-hub'),
+        hash: hashCredential,
+        signInKeys: { get: async () => held, save: async (key) => { held = key; } },
+        serviceCaller: async (token) => (token === 'a-hub-service-token' ? { clientId: 'hub', kind: 'hub' } : token === 'an-instance-service-token' ? { clientId: 'inst-u1', kind: 'instance' } : undefined),
+      }),
     });
     harnesses.push(site);
-    return { site, invites };
+    return { site, invites, held: () => held };
   }
   const invite = { email: 'cy@example.com', inviterId: 'ann', inviterEmail: 'ann@example.com', projectName: 'Shop', role: 'client', join: 'J'.repeat(32) };
 
@@ -90,6 +99,23 @@ describe('/api/hub-link, on root', () => {
     const code = new URLSearchParams((sent.data as { link: string }).link.split('?')[1]).get('code')!;
     expect((await axios.get(site.url(`/api/hub-link/invitation?code=${encodeURIComponent(code)}`))).data).toEqual({ email: 'cy@example.com', project: { name: 'Shop', role: 'client', join: 'J'.repeat(32) }, used: false });
     expect((await axios.get(site.url('/api/hub-link/invitation?code=nope'), ask)).status).toBe(404);
+  });
+
+  it('takes an invite from its hub\'s service token too, never an instance\'s', async () => {
+    const { site } = await root();
+    expect((await axios.post(site.url('/api/hub-link/invite'), invite, { headers: { authorization: 'Bearer a-hub-service-token' } })).status).toBe(201);
+    expect((await axios.post(site.url('/api/hub-link/invite'), invite, { ...ask, headers: { authorization: 'Bearer an-instance-service-token' } })).status).toBe(401);
+  });
+
+  it('takes the hub\'s sign-in key only from the hub, and only a key named by its own thumbprint', async () => {
+    const { site, held } = await root();
+    const jwk = publicJwkOf(identityKeysFrom(generateIdentityKey()));
+    expect((await axios.put(site.url('/api/hub-link/sign-in-key'), { jwk }, ask)).status).toBe(401);
+    expect((await axios.put(site.url('/api/hub-link/sign-in-key'), { jwk: { ...jwk, kid: 'chosen' } }, { ...ask, headers: { authorization: 'Bearer the-hub' } })).status).toBe(400);
+    const named = await axios.put(site.url('/api/hub-link/sign-in-key'), { jwk }, { headers: { authorization: 'Bearer the-hub' } });
+    expect(named.status).toBe(200);
+    expect(held()).toEqual({ jwk, since: named.data.since });
+    expect((await axios.put(site.url('/api/hub-link/sign-in-key'), { jwk }, { headers: { authorization: 'Bearer the-hub' } })).data.since).toBe(named.data.since);
   });
 });
 
