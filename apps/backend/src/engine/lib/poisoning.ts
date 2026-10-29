@@ -24,6 +24,7 @@ export const serious = (severity: SignalSeverity): boolean => severity === 'cert
 
 export const PRIVATE_CLASSES: readonly SourceClass[] = ['logs', 'cluster', 'file', 'repo', 'private'];
 export const OUTSIDE_CLASSES: readonly SourceClass[] = ['web', 'mcp', 'agent', 'logs', 'file'];
+export const HOST_NAMING_CLASSES: readonly SourceClass[] = ['logs', 'file', 'mcp'];
 
 export const WINDOW_CHARS = 24;
 export const STORED_STRIDE = 8;
@@ -121,7 +122,7 @@ export function readsOf(key: string, source: SourceClass, text: string): ReadsPa
     classes: [source],
     private: PRIVATE_CLASSES.includes(source) ? fingerprintsOf(key, text) : [],
     outside: OUTSIDE_CLASSES.includes(source) ? fingerprintsOf(key, text) : [],
-    hosts: OUTSIDE_CLASSES.includes(source) ? hostsIn(text) : [],
+    hosts: HOST_NAMING_CLASSES.includes(source) ? hostsIn(text) : [],
   };
 }
 
@@ -176,7 +177,7 @@ export function findingsOf(call: {
       }
     }
     if (outbound.host && call.reads.hosts.has(outbound.host) && !hostsIn(call.personText).includes(outbound.host)) {
-      found.push({ kind: 'unvouched-host', said: `${call.tool} went to ${outbound.host}, a host only ${fromWhich(call.reads.classes, OUTSIDE_CLASSES)} named, never the person`, host: outbound.host });
+      found.push({ kind: 'unvouched-host', said: `${call.tool} went to ${outbound.host}, a host only ${fromWhich(call.reads.classes, HOST_NAMING_CLASSES)} named, never the person`, host: outbound.host });
     }
   }
   const remembered = rememberedOf(call.tool, call.args);
