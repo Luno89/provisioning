@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { BUILDER_TOOLS } from '@koala/agent-engine';
 import { INSTALLED_EXTENSIONS } from '../../extensions/installed.js';
 import { asPerson, rolePrincipal, ruleFor, type Actions, type Principal } from '../../platform/lib/permissions.js';
-import { accessOf, accessProblem, offerable, OWN_TOOL_ACCESS, resourceFor, TOOL_ACCESS } from './tool-access.js';
+import { accessOf, accessProblem, offerable, OWN_TOOL_ACCESS, resourceFor, sourceOf, TOOL_ACCESS, TOOL_SOURCES } from './tool-access.js';
 
 const owner: Principal = { kind: 'person', id: 'owner', claims: [{ role: 'person' }, { role: 'operator' }] };
 const client = rolePrincipal('cy', 'p1', 'client');
@@ -16,6 +16,15 @@ describe('what every tool declares it needs', () => {
     expect(shipped.filter((name) => TOOL_ACCESS[name] === undefined)).toEqual([]);
     expect(accessOf('a_tool_nobody_classified', undefined, false)).toEqual(OWN_TOOL_ACCESS);
     expect(offerable(OWN_TOOL_ACCESS, client, 'owner', 'p1')).toBe(false);
+  });
+
+  it('says where every shipped tool\'s result comes from, beside what it reaches', () => {
+    const shipped = [...INSTALLED_EXTENSIONS.flatMap((extension) => (extension.tools ?? []).map((tool) => tool.name)), ...BUILDER_TOOLS.map((tool) => tool.name)];
+    expect(shipped.filter((name) => TOOL_SOURCES[name] === undefined)).toEqual([]);
+    expect(Object.keys(TOOL_ACCESS).filter((name) => TOOL_SOURCES[name] === undefined)).toEqual([]);
+    expect(Object.keys(TOOL_SOURCES).filter((name) => TOOL_ACCESS[name] === undefined)).toEqual([]);
+    expect(sourceOf('github__get_issue', true)).toBe('mcp');
+    expect(sourceOf('research', false)).toBe('agent');
   });
 
   it('names an action the permissions table has a row for', () => {

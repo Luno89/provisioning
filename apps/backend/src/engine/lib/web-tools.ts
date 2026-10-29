@@ -1,4 +1,5 @@
 import { patientFetch } from '@koala/agent-engine';
+import { withoutHiddenHtml } from './hidden-text.js';
 
 export interface SearchHit {
   title: string;
@@ -49,6 +50,7 @@ export interface PageOutcome {
   text: string;
   /** The site answered 401/403: it refused this client rather than the fetch breaking. */
   declined?: boolean;
+  hiddenRemoved?: number;
 }
 
 export interface WebTools {
@@ -136,15 +138,15 @@ async function stripTags(doFetch: typeof fetch, url: string, signal?: AbortSigna
     return { ok: false, text: `HTTP error ${res.status}` };
   }
 
-  const html = await res.text().catch(() => '');
-  const text = html
+  const shown = withoutHiddenHtml(await res.text().catch(() => ''));
+  const text = shown.html
     .replace(/<script[\s\S]*?<\/script>/gi, '')
     .replace(/<style[\s\S]*?<\/style>/gi, '')
     .replace(/<[^>]+>/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
     .slice(0, MAX_PAGE_CHARS);
-  return { ok: true, text };
+  return { ok: true, text, ...(shown.removed ? { hiddenRemoved: shown.removed } : {}) };
 }
 
 function crawl4ai(doFetch: typeof fetch, base: string, token: string) {

@@ -13,7 +13,7 @@ export interface SearchOutcomeLike {
 
 export interface WebTools {
   search(query: string, signal?: AbortSignal): Promise<SearchOutcomeLike>;
-  fetchPage(url: string, signal?: AbortSignal): Promise<{ ok: boolean; text: string; declined?: boolean }>;
+  fetchPage(url: string, signal?: AbortSignal): Promise<{ ok: boolean; text: string; declined?: boolean; hiddenRemoved?: number }>;
 }
 
 export interface PlatformToolOptions {
@@ -64,7 +64,8 @@ export function createPlatformTools(options: PlatformToolOptions): Record<string
       if (!url) return { ok: false, digest: 'this call needs a "url"', content: '' };
 
       const page = await web.fetchPage(url, signal);
-      return { ok: page.ok, digest: page.text, content: page.text, ...(page.declined ? { declined: page.declined } : {}) };
+      const removed = page.hiddenRemoved ? ` [hidden parts of the page removed: ${page.hiddenRemoved}]` : '';
+      return { ok: page.ok, digest: `${page.text}${removed}`, content: page.text, ...(page.declined ? { declined: page.declined } : {}) };
     };
   }
 

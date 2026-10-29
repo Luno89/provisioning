@@ -8,6 +8,7 @@ import { keptToProblem } from '../../engine/lib/acting-for.js';
 import { accessOf, accessProblem, projectRefsIn, type ProjectResolution } from '../../engine/lib/tool-access.js';
 import type { ProjectResolver } from '../../engine/index.js';
 import { asPerson, memberPrincipal } from '../../platform/lib/permissions.js';
+import { withoutHidden } from '../../engine/lib/hidden-text.js';
 
 export type { ToolHandler } from '@koala/engine-core';
 export type { ToolRuntime } from '../temporal/contracts.js';
@@ -37,6 +38,17 @@ const argumentsOf = (text: string): Record<string, unknown> => {
     return {};
   }
 };
+
+export function shownToTheModel(outcome: ToolOutcome): { outcome: ToolOutcome; removed: number } {
+  const content = outcome.content === undefined ? undefined : withoutHidden(outcome.content);
+  const digest = withoutHidden(outcome.digest);
+  const removed = (content?.removed ?? 0) + digest.removed;
+  if (!removed) return { outcome, removed: 0 };
+  return {
+    outcome: { ...outcome, digest: `${digest.text} [hidden characters removed: ${content?.removed ?? digest.removed}]`, ...(content ? { content: content.text } : {}) },
+    removed: content?.removed ?? digest.removed,
+  };
+}
 
 const placed = (outcome: ToolOutcome, args: ToolCallArgs): ToolCallOutcome => {
   const { artifacts, ...rest } = outcome;
@@ -104,7 +116,7 @@ export function createToolRuntime(options: ToolRuntimeOptions): ToolRuntime {
         ...(options.digestChars === undefined ? {} : { digestChars: options.digestChars }),
         ...(signal ? { signal } : {}),
       });
-      return placed(outcome, args);
+      return placed(shownToTheModel(outcome).outcome, args);
     },
   };
 }
