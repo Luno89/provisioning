@@ -225,6 +225,26 @@
         {
           "file": ".github/workflows/release.yml",
           "pattern": "version: (v[0-9.]+)"
+        },
+        {
+          "file": "scripts/instance/install.sh",
+          "pattern": "HELM_VERSION=(v[0-9.]+)"
+        }
+      ],
+      "sha256s": {
+        "linux-amd64": "7b20e7791c04ea71e7fe0cbe11f1a8be4a55a692898b57d9db28f3b0c1d52f11",
+        "linux-arm64": "b4c5519b18f01dd2441f5e09497913dc1da1a1eec209033ae792a8d45b9e0e86"
+      },
+      "shaUses": [
+        {
+          "file": "scripts/instance/install.sh",
+          "pattern": "HELM_SHA256_AMD64=([0-9a-f]{64})",
+          "arch": "linux-amd64"
+        },
+        {
+          "file": "scripts/instance/install.sh",
+          "pattern": "HELM_SHA256_ARM64=([0-9a-f]{64})",
+          "arch": "linux-arm64"
         }
       ]
     },
@@ -302,11 +322,27 @@
         {
           "file": "scripts/cluster.sh",
           "pattern": "K3S_VERSION=\"(v[0-9.]+\\+k3s[0-9]+)\""
+        },
+        {
+          "file": "scripts/instance/install.sh",
+          "pattern": "K3S_VERSION=\"(v[0-9.]+\\+k3s[0-9]+)\""
+        },
+        {
+          "file": "scripts/root-node/pool-node.sh",
+          "pattern": "K3S_VERSION=\"(v[0-9.]+\\+k3s[0-9]+)\""
         }
       ],
       "shaUses": [
         {
           "file": "scripts/cluster.sh",
+          "pattern": "K3S_INSTALLER_SHA256=([0-9a-f]{64})"
+        },
+        {
+          "file": "scripts/instance/install.sh",
+          "pattern": "K3S_INSTALLER_SHA256=([0-9a-f]{64})"
+        },
+        {
+          "file": "scripts/root-node/pool-node.sh",
           "pattern": "K3S_INSTALLER_SHA256=([0-9a-f]{64})"
         }
       ]
@@ -846,41 +882,127 @@
           "pattern": "azure/setup\\-helm@[0-9a-f]{40} # (v[0-9.]+)"
         }
       ]
+    },
+    {
+      "kind": "binary",
+      "name": "docker",
+      "version": "29.9.0",
+      "source": "https://download.docker.com (Docker's signed repositories)",
+      "github": "moby/moby",
+      "osv": {
+        "ecosystem": "Go",
+        "name": "github.com/docker/docker"
+      },
+      "uses": [
+        {
+          "file": "scripts/instance/install.sh",
+          "pattern": "DOCKER_VERSION=([0-9.]+)"
+        },
+        {
+          "file": "scripts/setup-root.sh",
+          "pattern": "DOCKER_VERSION=([0-9.]+)"
+        },
+        {
+          "file": "scripts/root-node/bootstrap.sh",
+          "pattern": "DOCKER_VERSION=([0-9.]+)"
+        }
+      ]
+    },
+    {
+      "kind": "binary",
+      "name": "tailscale",
+      "version": "1.104.1",
+      "source": "https://pkgs.tailscale.com/stable/tailscale_1.104.1_amd64.tgz",
+      "github": "tailscale/tailscale",
+      "osv": {
+        "ecosystem": "Go",
+        "name": "tailscale.com"
+      },
+      "sha256s": {
+        "linux-amd64": "108d1d96ecf410d305571e173516f27038f870919a9b89c914a167c6d33a4528",
+        "linux-arm64": "f60294374967f3dfd8cf57bbbd474d6cfce32d123e3a8ddeab82a87940daa806"
+      },
+      "uses": [
+        {
+          "file": "scripts/instance/install.sh",
+          "pattern": "TAILSCALE_VERSION=([0-9.]+)"
+        },
+        {
+          "file": "scripts/machine/machine.sh",
+          "pattern": "TAILSCALE_VERSION=([0-9.]+)"
+        },
+        {
+          "file": "scripts/root-node/pool-node.sh",
+          "pattern": "TAILSCALE_VERSION=([0-9.]+)"
+        },
+        {
+          "file": "scripts/root-node/bootstrap.sh",
+          "pattern": "TAILSCALE_VERSION=([0-9.]+)"
+        }
+      ],
+      "shaUses": [
+        {
+          "file": "scripts/instance/install.sh",
+          "pattern": "TAILSCALE_SHA256_AMD64=([0-9a-f]{64})",
+          "arch": "linux-amd64"
+        },
+        {
+          "file": "scripts/instance/install.sh",
+          "pattern": "TAILSCALE_SHA256_ARM64=([0-9a-f]{64})",
+          "arch": "linux-arm64"
+        },
+        {
+          "file": "scripts/machine/machine.sh",
+          "pattern": "TAILSCALE_SHA256_AMD64=([0-9a-f]{64})",
+          "arch": "linux-amd64"
+        },
+        {
+          "file": "scripts/machine/machine.sh",
+          "pattern": "TAILSCALE_SHA256_ARM64=([0-9a-f]{64})",
+          "arch": "linux-arm64"
+        },
+        {
+          "file": "scripts/root-node/pool-node.sh",
+          "pattern": "TAILSCALE_SHA256_AMD64=([0-9a-f]{64})",
+          "arch": "linux-amd64"
+        },
+        {
+          "file": "scripts/root-node/pool-node.sh",
+          "pattern": "TAILSCALE_SHA256_ARM64=([0-9a-f]{64})",
+          "arch": "linux-arm64"
+        }
+      ]
+    },
+    {
+      "kind": "binary",
+      "name": "docker-install",
+      "version": "ada7a567e59b3935bd601bb21e422da50e80e376",
+      "source": "https://raw.githubusercontent.com/docker/docker-install/ada7a567e59b3935bd601bb21e422da50e80e376/install.sh",
+      "sha256": "2b102d809152ea157a59f171319f489d971273b2d26dd7e9a6d1d737ce89289d",
+      "github": "docker/docker-install",
+      "uses": [
+        {
+          "file": "scripts/instance/install.sh",
+          "pattern": "DOCKER_INSTALL_COMMIT=([0-9a-f]{40})"
+        },
+        {
+          "file": "scripts/setup-root.sh",
+          "pattern": "DOCKER_INSTALL_COMMIT=([0-9a-f]{40})"
+        }
+      ],
+      "shaUses": [
+        {
+          "file": "scripts/instance/install.sh",
+          "pattern": "DOCKER_INSTALL_SHA256=([0-9a-f]{64})"
+        },
+        {
+          "file": "scripts/setup-root.sh",
+          "pattern": "DOCKER_INSTALL_SHA256=([0-9a-f]{64})"
+        }
+      ]
     }
   ],
   "unpinned": [
-    {
-      "name": "tailscale",
-      "how": "curl -fsSL https://tailscale.com/install.sh | sh",
-      "usedIn": [
-        "scripts/instance/install.sh",
-        "scripts/machine/machine.sh",
-        "scripts/root-node/pool-node.sh"
-      ]
-    },
-    {
-      "name": "docker",
-      "how": "curl -fsSL https://get.docker.com | sh",
-      "usedIn": [
-        "scripts/instance/install.sh",
-        "scripts/setup-root.sh"
-      ]
-    },
-    {
-      "name": "k3s",
-      "how": "curl -sfL https://get.k3s.io | sh -",
-      "usedIn": [
-        "scripts/instance/install.sh",
-        "scripts/root-node/pool-node.sh"
-      ]
-    },
-    {
-      "name": "helm",
-      "how": "get-helm-3 from helm's main branch",
-      "usedIn": [
-        "scripts/instance/install.sh"
-      ]
-    },
     {
       "name": "gitea chart",
       "how": "helm upgrade --install with no --version",

@@ -31,6 +31,8 @@ DOCKER_FINGERPRINT=9DC858229FC7DD38854AE2D88D81803C0EBFCD88
 NODESOURCE_FINGERPRINT=6F71F525282841EEDAF851B42F59B5F99B1BE0B4
 TAILSCALE_FINGERPRINT=2596A99EAAB33821893C0A79458CA832957F5868
 NODE_MAJOR=22
+DOCKER_VERSION=29.9.0
+TAILSCALE_VERSION=1.104.1
 
 GREEN='\033[0;32m'; YELLOW='\033[1;33m'; RED='\033[0;31m'; NC='\033[0m'
 ok()   { echo -e "  ${GREEN}✅${NC} $1"; }
@@ -131,7 +133,8 @@ apt_source nodesource https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key 
 apt_source tailscale "https://pkgs.tailscale.com/stable/ubuntu/${VERSION_CODENAME}.noarmor.gpg" "$TAILSCALE_FINGERPRINT" "https://pkgs.tailscale.com/stable/ubuntu ${VERSION_CODENAME} main"
 apt-get update -qq
 if ! command -v docker &>/dev/null; then
-  apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin >/dev/null
+  DOCKER_PACKAGE="5:${DOCKER_VERSION}-1~ubuntu.${VERSION_ID}~${VERSION_CODENAME}"
+  apt-get install -y "docker-ce=${DOCKER_PACKAGE}" "docker-ce-cli=${DOCKER_PACKAGE}" containerd.io docker-buildx-plugin docker-compose-plugin >/dev/null
   ok "Docker installed from Docker's signed repository"
 else
   ok "Docker already present"
@@ -142,7 +145,7 @@ if ! command -v node &>/dev/null || [ "$(node -v | sed 's/v\([0-9]*\).*/\1/')" -
 else
   ok "Node $(node -v) already present"
 fi
-command -v tailscale >/dev/null || apt-get install -y tailscale >/dev/null
+command -v tailscale >/dev/null || apt-get install -y "tailscale=${TAILSCALE_VERSION}" >/dev/null
 ok "Tailscale $(tailscale version | head -1) present"
 
 if [ "$(/usr/local/bin/cosign version 2>/dev/null | awk '/GitVersion/ {print $2}')" != "v${COSIGN_VERSION}" ]; then

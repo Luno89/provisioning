@@ -1,6 +1,12 @@
 #!/bin/sh
 set -eu
 
+K3S_VERSION="v1.36.4+k3s1"
+K3S_INSTALLER_SHA256=46177d4c99440b4c0311b67233823a8e8a2fc09693f6c89af1a7161e152fbfad
+TAILSCALE_VERSION=1.104.1
+TAILSCALE_SHA256_AMD64=108d1d96ecf410d305571e173516f27038f870919a9b89c914a167c6d33a4528
+TAILSCALE_SHA256_ARM64=f60294374967f3dfd8cf57bbbd474d6cfce32d123e3a8ddeab82a87940daa806
+
 LOGIN_SERVER=""
 AUTHKEY=""
 REGISTRY=""
@@ -27,6 +33,42 @@ say() { printf '\n\033[1m%s\033[0m\n' "$1"; }
 ok() { printf '  \033[32m✓\033[0m %s\n' "$1"; }
 die() { printf '  \033[31m✗\033[0m %s\n' "$1" >&2; exit 1; }
 
+arch_of() {
+  case "$(uname -m)" in
+    x86_64|amd64) echo amd64 ;;
+    aarch64|arm64) echo arm64 ;;
+    *) die "this machine is $(uname -m); Koala installs on amd64 and arm64" ;;
+  esac
+}
+
+fetch_checked() {
+  curl -fsSL "$1" -o "$3" || die "could not download $1"
+  printf '%s  %s\n' "$2" "$3" | sha256sum -c --quiet - >/dev/null 2>&1 || { rm -f "$3"; die "the download from $1 is not the one Koala pins (its sha256 differs); nothing was installed"; }
+}
+
+install_k3s() {
+  installer="$(mktemp)"
+  fetch_checked "https://raw.githubusercontent.com/k3s-io/k3s/$(printf '%s' "$K3S_VERSION" | sed 's/+/%2B/')/install.sh" "$K3S_INSTALLER_SHA256" "$installer"
+  INSTALL_K3S_VERSION="$K3S_VERSION" sh "$installer" >/dev/null
+  rm -f "$installer"
+}
+
+install_tailscale() {
+  arch="$(arch_of)"
+  if [ "$arch" = amd64 ]; then sha="$TAILSCALE_SHA256_AMD64"; else sha="$TAILSCALE_SHA256_ARM64"; fi
+  work="$(mktemp -d)"
+  fetch_checked "https://pkgs.tailscale.com/stable/tailscale_${TAILSCALE_VERSION}_${arch}.tgz" "$sha" "$work/tailscale.tgz"
+  tar -xzf "$work/tailscale.tgz" -C "$work"
+  from="$work/tailscale_${TAILSCALE_VERSION}_${arch}"
+  install -m 755 "$from/tailscale" /usr/bin/tailscale
+  install -m 755 "$from/tailscaled" /usr/sbin/tailscaled
+  install -m 644 "$from/systemd/tailscaled.service" /etc/systemd/system/tailscaled.service
+  [ -f /etc/default/tailscaled ] || install -m 644 "$from/systemd/tailscaled.defaults" /etc/default/tailscaled
+  rm -rf "$work"
+  systemctl daemon-reload
+  systemctl enable --now tailscaled >/dev/null 2>&1
+}
+
 [ "$(id -u)" = 0 ] || die "run this as root"
 [ -s "$ACCOUNT" ] || die "copy k8s/root-backend/account.yaml from the checkout to $ACCOUNT first: it is the narrow account root's backend reaches this node with"
 [ -n "$LOGIN_SERVER" ] && [ -n "$AUTHKEY" ] && [ -n "$REGISTRY" ] || die "usage: pool-node.sh --login-server <headscale url> --authkey <tag:pool key> --registry <root registry host:port> [--gvisor-tarball <file>] [--yes]"
@@ -35,12 +77,12 @@ say "k3s"
 if command -v k3s >/dev/null 2>&1; then
   ok "k3s is installed"
 else
-  curl -sfL https://get.k3s.io | sh - >/dev/null
-  ok "k3s installed"
+  install_k3s
+  ok "k3s $K3S_VERSION installed"
 fi
 
 say "The mesh"
-command -v tailscale >/dev/null 2>&1 || { curl -fsSL https://tailscale.com/install.sh | sh >/dev/null; ok "Tailscale installed"; }
+command -v tailscale >/dev/null 2>&1 || { install_tailscale; ok "Tailscale $TAILSCALE_VERSION installed"; }
 if ! tailscale ip -4 >/dev/null 2>&1; then
   tailscale up --login-server="$LOGIN_SERVER" --authkey="$AUTHKEY" --hostname="pool-$(hostname)" --accept-dns=false
 fi
