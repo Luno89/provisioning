@@ -43,7 +43,7 @@ export function bundleAsEnv(bundle: JoinBundle): string {
 }
 
 export function instancesRouter(deps: {
-  instances: Pick<InstanceService, 'createJoinToken' | 'poolOffer' | 'createPoolInstance' | 'poolAdmin' | 'setTrialDays' | 'setTrialEnd' | 'removePoolInstance' | 'join' | 'release' | 'updates' | 'setUpdates' | 'report' | 'mine' | 'machineKey' | 'removeMachineNode' | 'nameCheck' | 'addresses' | 'setAddresses' | 'checkGroup' | 'claimGroup' | 'releaseGroup' | 'ownerOf' | 'trialOf' | 'poolPlaceOf' | 'startMove' | 'startMoveAs' | 'moveOf' | 'moveOfAs' | 'stopMove' | 'stopMoveAs' | 'moveSource'>;
+  instances: Pick<InstanceService, 'createJoinToken' | 'poolOffer' | 'createPoolInstance' | 'poolAdmin' | 'setTrialDays' | 'setTrialEnd' | 'removePoolInstance' | 'join' | 'release' | 'updates' | 'setUpdates' | 'report' | 'mine' | 'machineKey' | 'removeMachineNode' | 'nameCheck' | 'addresses' | 'setAddresses' | 'checkGroup' | 'claimGroup' | 'releaseGroup' | 'ownerOf' | 'trialOf' | 'watchAs' | 'setWatchAs' | 'setWatchOf' | 'poolPlaceOf' | 'startMove' | 'startMoveAs' | 'moveOf' | 'moveOfAs' | 'stopMove' | 'stopMoveAs' | 'moveSource'>;
   chart: () => Promise<string>;
   mailLimit?: InstanceMailLimit | undefined;
   chartOf?: ((imageTag: string) => string | undefined) | undefined;
@@ -103,6 +103,26 @@ export function instancesRouter(deps: {
 
   router.get('/mine', asyncRoute(async (req: Request, res: Response) => {
     res.json({ instance: await deps.instances.mine(userOf(req).id) });
+  }));
+
+  router.put('/mine/watch', asyncRoute(async (req: Request, res: Response) => {
+    const outcome = await deps.instances.setWatchOf(userOf(req).id, ((req.body ?? {}) as { notifyWhenUnreachable?: unknown }).notifyWhenUnreachable);
+    if (!outcome.ok) return res.status(outcome.status).json({ error: outcome.error });
+    return res.json(outcome.value);
+  }));
+
+  router.get('/watch', asyncRoute(async (req: Request, res: Response) => {
+    const { instanceId, credential } = credentialOf(req);
+    const outcome = await deps.instances.watchAs(instanceId, credential);
+    if (!outcome.ok) return res.status(outcome.status).json({ error: outcome.error });
+    return res.json(outcome.value);
+  }));
+
+  router.put('/watch', asyncRoute(async (req: Request, res: Response) => {
+    const { instanceId, credential } = credentialOf(req);
+    const outcome = await deps.instances.setWatchAs(instanceId, credential, ((req.body ?? {}) as { notifyWhenUnreachable?: unknown }).notifyWhenUnreachable);
+    if (!outcome.ok) return res.status(outcome.status).json({ error: outcome.error });
+    return res.json(outcome.value);
   }));
 
   router.post('/join', asyncRoute(async (req: Request, res: Response) => {

@@ -2,7 +2,7 @@ import path from 'path';
 import fs from 'fs/promises';
 import type express from 'express';
 import {
-  type Database, type SecretKey, holdsAccounts, servesTenants, signsInThroughRoot, type RoleConfig, startedFor,
+  type Database, type SecretKey, allowed, holdsAccounts, servesTenants, signsInThroughRoot, type RoleConfig, startedFor,
   getTemporalClient, type mongoTarget, type MailService, type createAuth,
 } from '../../platform/index.js';
 import { poolSettingsFrom } from '../lib/pool.js';
@@ -22,6 +22,8 @@ import { MoveExport } from '../services/MoveExport.js';
 import { MoveRelay, kubeconfigFile } from '../services/MoveRelay.js';
 import { PoolMonitoringService } from '../services/PoolMonitoringService.js';
 import { InstanceMailLimit } from '../services/InstanceMailLimit.js';
+import { InstanceWatch, answersHttp } from '../services/InstanceWatch.js';
+import { unreachableAfterMs } from '../lib/instance-watch.js';
 import type { InstanceEdge, HeadscaleService, InfrastructureService } from '../../infrastructure/index.js';
 import { identityRouter } from '../routes/identity.js';
 import { handoffRouter } from '../routes/handoff.js';
@@ -209,6 +211,18 @@ export async function wireInstances(deps: InstancesWiringDeps): Promise<Instance
     },
   });
   instanceRoutes?.start();
+  if (role.role === 'root') {
+    new InstanceWatch({
+      store: db.instances,
+      probe: answersHttp(),
+      tellOwner: (ownerId, message) => deps.mail.toOwner(ownerId, message),
+      tellOperators: async (message) => {
+        const operators = (await db.accounts.getUsers()).filter((user) => !user.space && allowed(deps.auth.principalFor(user), 'administer', { kind: 'install' }));
+        for (const operator of operators) await deps.mail.toOwner(operator.id, message);
+      },
+      afterMs: unreachableAfterMs(env),
+    }).start();
+  }
 
   const poolMonitoring = 'off' in pool ? undefined : new PoolMonitoringService({
     kubectl: async (args) => String(await deps.infra.runKubectl(args, pool.kubeconfig)),

@@ -110,6 +110,7 @@ export function createAuth({ db, sessionKey, publicUrl, role = 'combined', insta
         '/instances/updates',
         '/instances/groups',
         '/instances/trial',
+        '/instances/watch',
         '/instances/mail',
         '/instances/hub-token',
         '/instances/monitoring',

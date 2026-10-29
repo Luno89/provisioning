@@ -133,12 +133,14 @@ describe('an admin on root', () => {
         await seedPeople(db);
         await db.instances.saveInstance({ id: 'inst-1', ownerId: PERSON.id, name: 'bob', url: 'https://bob.koala.dev', status: 'ready', createdAt: 'then', updatedAt: 'then',
           pool: { ports: { backend: 35000, edge: 35001, registry: 35002 }, startedAt: 'then', trialEndsAt: '2026-11-03T00:00:00.000Z' } });
+        await db.instances.saveReach({ id: 'inst-1', ownerId: PERSON.id }, { reachable: false, unreachableSince: '2026-10-29T10:00:00.000Z', toldDown: true });
         const removal = new AccountRemovalService({
           store: db,
           workflows: { ...workflows, start: async (type, workflowId) => { types.push(type); await workflows.start(type, workflowId, [{ ownerId: PERSON.id }], PERSON.id); } },
           workflowType: ROOT_REMOVAL_WORKFLOW,
           steps: ROOT_REMOVAL_STEPS,
           instances: () => db.instances.getInstances(),
+          watches: () => db.instances.getWatches(),
           now: () => 'now',
           principalFor,
         });
@@ -146,7 +148,7 @@ describe('an admin on root', () => {
       },
     });
     const listed = (await call('get', '/api/admin/people')).data.people as Array<{ id: string; instance?: unknown }>;
-    expect(listed.find((person) => person.id === PERSON.id)?.instance).toEqual({ name: 'bob', where: 'pool', status: 'ready', url: 'https://bob.koala.dev', trialEndsAt: '2026-11-03T00:00:00.000Z', autoUpdates: true });
+    expect(listed.find((person) => person.id === PERSON.id)?.instance).toEqual({ name: 'bob', where: 'pool', status: 'ready', url: 'https://bob.koala.dev', trialEndsAt: '2026-11-03T00:00:00.000Z', autoUpdates: true, unreachableSince: '2026-10-29T10:00:00.000Z' });
     expect(listed.find((person) => person.id === ADMIN.id)?.instance).toBeUndefined();
     expect((await call('delete', `/api/admin/people/${PERSON.id}`, { confirm: 'wrong@example.com' })).status).toBe(400);
     expect((await call('delete', `/api/admin/people/${PERSON.id}`, { confirm: PERSON.email })).status).toBe(202);

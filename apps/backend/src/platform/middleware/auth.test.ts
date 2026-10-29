@@ -192,7 +192,7 @@ describe('what is open without a session, by role', () => {
   });
 
   it('lets an instance reach every route root answers with its credential, which checks it there', async () => {
-    for (const path of ['/instances/status', '/instances/release', '/instances/updates', '/instances/machine-key', '/instances/machine-node', '/instances/trial', '/instances/addresses', '/instances/groups', '/instances/groups/check', '/instances/groups/p1', '/instances/move/self', '/instances/hub-token', '/instances/mail', '/instances/monitoring/alerts']) {
+    for (const path of ['/instances/status', '/instances/release', '/instances/updates', '/instances/machine-key', '/instances/machine-node', '/instances/trial', '/instances/watch', '/instances/addresses', '/instances/groups', '/instances/groups/check', '/instances/groups/p1', '/instances/move/self', '/instances/hub-token', '/instances/mail', '/instances/monitoring/alerts']) {
       expect(await opens('root', path), path).toBe(true);
     }
     expect(await opens('root', '/instances/mine')).toBe(false);

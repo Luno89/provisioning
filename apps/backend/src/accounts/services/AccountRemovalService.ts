@@ -1,5 +1,5 @@
 import { type ClusterMetadata, type DeploymentMetadata, holds, type Principal, startedFor, type UserMetadata } from '../../platform/index.js';
-import type { InstanceRecord, InstanceRelease, InstanceStatus } from '../../instances/index.js';
+import type { InstanceRecord, InstanceRelease, InstanceStatus, InstanceWatchRecord } from '../../instances/index.js';
 import type { Client } from '@temporalio/client';
 import type { AccountsStore } from '../store.js';
 import type { HubPeople } from '../../hub/index.js';
@@ -73,6 +73,7 @@ export interface AccountRemovalDeps {
   steps?: readonly RemovalStep[] | undefined;
   instances?: (() => Promise<InstanceRecord[]>) | undefined;
   releases?: (() => Promise<InstanceRelease[]>) | undefined;
+  watches?: (() => Promise<InstanceWatchRecord[]>) | undefined;
   hub?: HubPeople | undefined;
   principalFor(user: Pick<UserMetadata, 'id' | 'isAdmin'>): Principal;
   now?: () => string;
@@ -87,6 +88,7 @@ export interface PersonInstance {
   trialEndsAt?: string | undefined;
   version?: string | undefined;
   autoUpdates?: boolean | undefined;
+  unreachableSince?: string | undefined;
 }
 
 export interface PersonEntry {
@@ -98,7 +100,7 @@ export interface PersonEntry {
   removal?: { startedAt: string; requestedBy: string; state: RemovalWorkflowState; steps?: readonly RemovalStep[] | undefined } | undefined;
 }
 
-const instanceOf = (instance: InstanceRecord, releases: readonly InstanceRelease[] = []): PersonInstance => ({
+const instanceOf = (instance: InstanceRecord, releases: readonly InstanceRelease[] = [], watch?: InstanceWatchRecord): PersonInstance => ({
   ...(instance.name ? { name: instance.name } : {}),
   where: instance.pool ? 'pool' : 'own',
   status: instance.status ?? (instance.url ? 'ready' : 'waiting'),
@@ -107,6 +109,7 @@ const instanceOf = (instance: InstanceRecord, releases: readonly InstanceRelease
   ...(instance.pool ? { trialEndsAt: instance.pool.trialEndsAt } : {}),
   ...(instance.running ? { version: releases.find((release) => release.imageTag === instance.running)?.version ?? instance.running } : {}),
   ...(instance.status === 'waiting' ? {} : { autoUpdates: instance.updates?.auto ?? true }),
+  ...(watch?.reach?.toldDown && !watch.reach.reachable ? { unreachableSince: watch.reach.unreachableSince } : {}),
 });
 
 export class AccountRemovalService {
@@ -157,6 +160,7 @@ export class AccountRemovalService {
     const users = (await this.deps.store.accounts.getUsers()).filter((user) => !user.space);
     const instances = this.deps.instances ? await this.deps.instances() : [];
     const releases = this.deps.releases ? await this.deps.releases() : [];
+    const watches = this.deps.watches ? await this.deps.watches() : [];
     const steps = this.deps.steps;
     return Promise.all(users.map(async (user) => {
       const instance = instances.find((entry) => entry.ownerId === user.id);
@@ -165,7 +169,7 @@ export class AccountRemovalService {
         email: user.email,
         isAdmin: this.operator(user),
         createdAt: user.createdAt,
-        ...(instance ? { instance: instanceOf(instance, releases) } : {}),
+        ...(instance ? { instance: instanceOf(instance, releases, watches.find((watch) => watch.instanceId === instance.id)) } : {}),
         ...(user.removal ? { removal: { ...user.removal, state: await this.deps.workflows.state(removeAccountWorkflowId(user.id)), ...(steps ? { steps } : {}) } } : {}),
       };
     }));
