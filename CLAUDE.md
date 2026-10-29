@@ -1698,6 +1698,19 @@ instance, without passing its gates first (owner, 2026-10-23: "all those checks 
   is still that commit, since the stack hot-reloads whatever is on disk: work in a worktree while it runs. A pass is
   recorded in `<git common dir>/koala-gates/<commit>.json`, the live ledger is committed on top, and it pushes.
   `-- --no-push` stops before the push.
+- **What Koala is made of** (plan `~/.claude/plans/dependency-monitor.md`). Every binary, image, chart and action Koala downloads is
+  in `dependencies.pins.json` with its version, checksum and the files that name it; `scripts/ci-tools.sh` reads its tools from it
+  (`scripts/pin.mjs`), and `tests/lib/pins.test.ts` fails when a file names a version or checksum the pins file does not. What is
+  still installed unpinned (`curl | sh` installers, charts without `--version`) is listed there with where. `npm run deps:inventory`
+  (`scripts/deps-inventory.mjs`, node only) writes a CycloneDX inventory: npm from the lockfile (development-only marked), the machine
+  agent's packages as Node resolves them, and every pinned or unpinned component; the Release workflow attaches it to each release
+  as `sbom-<version>.cdx.json`, and root keeps one per release it runs beside its chart (`ReleaseCatalogue`, `<image tag>.sbom.json`).
+  **Root checks them daily** (`DependencyWatchWorkflow` on the host worker, `DependencyWatch`): every release root or an instance runs,
+  against OSV in batches (npm, and the Go modules and GitHub Actions the pins name; images and charts are not in OSV), each fix judged
+  by the same two-week rule as ship (`platform/lib/dependency-rule.ts`), findings kept in `dependencyFindings`, and the operator
+  emailed once when an advisory appears against a running release and once more when its fix comes due. Root's admin page shows
+  **Koala's dependencies** (`/#/dependencies`, operator only, Check now), and an instance's Settings → Updates says what its release
+  carries and which newer release fixes it (`/api/instances/release-findings`, the instance's credential).
 - **`npm run release [vYYYY.MM.DD[-n]]`** (`tests/release.ts`) makes a release from a shipped commit `origin/main` has: it
   builds the image from that commit (`buildAppImage` in `tests/lib/gate-runs.ts`, also `nowrinkles/app:dev` for the VM
   suites), runs **G3** and **G4** (`RELEASE_STEPS`: mail, infra and remote integration, instance, machine, byo, mesh,
