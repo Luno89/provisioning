@@ -181,7 +181,9 @@ const scriptModel = (rounds: Map<string, number>, hang?: string) =>
     rounds.set(kind, round);
     if (kind === hang) {
       return new Promise<never>((_, reject) => {
-        run.signal?.addEventListener('abort', () => reject(new Error('the model call was aborted')));
+        const aborted = () => reject(new Error('the model call was aborted'));
+        if (run.signal?.aborted) aborted();
+        else run.signal?.addEventListener('abort', aborted, { once: true });
       });
     }
 
