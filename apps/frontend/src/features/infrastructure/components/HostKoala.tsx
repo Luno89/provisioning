@@ -7,7 +7,9 @@ import { useCan } from '../../platform'
 import { Section } from '../../monitoring'
 import { getVpsCatalog, vpsKeys, type VpsOffer } from '../api/vps-catalog'
 import { FOLLOWED, revealSetupCode, revealSshKey, type ServerOrder } from '../api/server-orders'
-import { useBuyServer, useCancelServerOrder, useQuoteServer, useServerOrder, useServerOrders } from '../hooks/useServerOrders'
+import { useBuyServer, useCancelServerOrder, useDnsProviders, useQuoteServer, useServerOrder, useServerOrders, useZoneChecks } from '../hooks/useServerOrders'
+import { useDebounce } from '../../../shared/lib/use-debounce'
+import type { ZoneView } from '../api/server-orders'
 import { QuietButton } from './Parts'
 
 const field = 'w-full rounded-md border border-[var(--bark-600)] bg-[var(--bark-900)] px-2.5 py-1.5 text-[12px] text-slate-100'
@@ -109,6 +111,28 @@ export function OrderDetail({ id }: { id: string }) {
   )
 }
 
+export function ZoneLine({ zone, override, onOverride, providers }: {
+  zone: ZoneView
+  override: string
+  onOverride: (provider: string) => void
+  providers: readonly { name: string; label: string }[]
+}) {
+  const chosen = override || zone.provider
+  return (
+    <div className="flex flex-wrap items-center gap-2 text-[11px]" data-testid={`zone-${zone.zone}`}>
+      <span className="font-mono text-slate-300">{zone.zone}</span>
+      {zone.provider
+        ? <span className={zone.credentials ? 'text-emerald-300' : 'text-amber-300'}>{zone.label}{zone.credentials ? ', credentials stored' : `, no credentials stored. ${zone.setup ?? ''}`}</span>
+        : <span className="text-amber-300">{zone.problem}</span>}
+      <select aria-label={`DNS provider for ${zone.zone}`} className="rounded border border-[var(--bark-600)] bg-[var(--bark-900)] px-1.5 py-0.5 text-[11px] text-slate-200" value={override} onChange={(event) => onOverride(event.target.value)}>
+        <option value="">{zone.provider ? `As its nameservers say (${zone.label})` : 'Pick its DNS provider'}</option>
+        {providers.map((provider) => <option key={provider.name} value={provider.name}>{provider.label}</option>)}
+      </select>
+      {!chosen && <span className="text-slate-500">Koala needs to know who serves this zone's DNS.</span>}
+    </div>
+  )
+}
+
 export function HostKoala() {
   const can = useCan()
   const orders = useServerOrders()
@@ -120,6 +144,10 @@ export function HostKoala() {
   const [ingressDomain, setIngressDomain] = useState('')
   const [acmeEmail, setAcmeEmail] = useState('')
   const [opened, setOpened] = useState<string>()
+  const [domainDns, setDomainDns] = useState('')
+  const [ingressDns, setIngressDns] = useState('')
+  const zones = useZoneChecks(useDebounce([domain, ingressDomain].filter(Boolean), 500))
+  const dnsProviders = useDnsProviders()
 
   const offers = useMemo(() => (plans.data?.offers ?? []).filter((offer) => offer.provider === 'ovh'), [plans.data])
   const plan: VpsOffer | undefined = offers.find((offer) => offer.id === planId)
@@ -133,7 +161,7 @@ export function HostKoala() {
         <h1 className="flex items-center gap-2 text-lg font-semibold text-slate-100"><Server size={17} className="text-[var(--leaf)]" /> Host Koala on a server</h1>
         <p className="text-[12px] text-slate-400">
           Buy an OVHcloud VPS and make it Koala's root: the server people sign in through, with its own domain and the domain people's instances live under.
-          You need your OVHcloud keys and a Cloudflare token (Zone, DNS, Edit on both domains) under Cloud providers, and a payment method on your OVHcloud account.
+          You need your OVHcloud keys under Cloud providers, credentials for the DNS provider of each domain (Koala finds which from their nameservers), and a payment method on your OVHcloud account.
           Nothing is bought until you confirm the price OVHcloud gives.
         </p>
 
@@ -144,7 +172,7 @@ export function HostKoala() {
               onSubmit={(event) => {
                 event.preventDefault()
                 if (!plan) return
-                quote.mutate({ planCode: plan.planId, planLabel: plan.label, datacenter, domain, ingressDomain, acmeEmail })
+                quote.mutate({ planCode: plan.planId, planLabel: plan.label, datacenter, domain, ingressDomain, acmeEmail, ...(domainDns ? { domainDns } : {}), ...(ingressDns ? { ingressDns } : {}) })
               }}
             >
               <label className="space-y-1 text-[11px] text-slate-400">Plan
@@ -165,6 +193,15 @@ export function HostKoala() {
               <label className="space-y-1 text-[11px] text-slate-400">People's domain (a different registered domain)
                 <input id="host-koala-ingress" className={field} value={ingressDomain} onChange={(event) => setIngressDomain(event.target.value)} placeholder="nowrinkles.app" />
               </label>
+              {(zones.data ?? []).length > 0 && (
+                <div className="space-y-1 sm:col-span-2">
+                  {(zones.data ?? []).map((zone) => (
+                    <ZoneLine key={zone.zone} zone={zone} providers={dnsProviders.data ?? []}
+                      override={zone.zone === domain.trim().toLowerCase() ? domainDns : ingressDns}
+                      onOverride={zone.zone === domain.trim().toLowerCase() ? setDomainDns : setIngressDns} />
+                  ))}
+                </div>
+              )}
               <label className="space-y-1 text-[11px] text-slate-400 sm:col-span-2">Email for certificates and root's mail
                 <input id="host-koala-email" type="email" className={field} value={acmeEmail} onChange={(event) => setAcmeEmail(event.target.value)} placeholder="you@example.com" />
               </label>

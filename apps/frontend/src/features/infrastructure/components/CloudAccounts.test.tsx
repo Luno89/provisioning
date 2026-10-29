@@ -10,10 +10,16 @@ vi.mock('../api/credentials', async (importOriginal) => ({
   ...(await importOriginal<typeof credentialsApi>()),
   listProviders: vi.fn(),
   getDriveStatus: vi.fn(),
+  listDnsProviders: vi.fn(),
 }));
 
 const listProviders = vi.mocked(credentialsApi.listProviders);
 const getDriveStatus = vi.mocked(credentialsApi.getDriveStatus);
+const listDnsProviders = vi.mocked(credentialsApi.listDnsProviders);
+const PORKBUN = {
+  name: 'porkbun', label: 'Porkbun DNS', docsUrl: 'https://porkbun.com/account/api', setup: 'Turn on API Access for each domain.',
+  fields: [{ key: 'apiKey', label: 'API Key', secret: true, placeholder: 'pk1_…', optional: false }, { key: 'secretApiKey', label: 'Secret API Key', secret: true, placeholder: 'sk1_…', optional: false }],
+};
 
 const renderScreen = () => {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -28,6 +34,7 @@ const providers = (...rows: Partial<ProviderStatus>[]): ProviderStatus[] =>
   rows.map((r) => ({ provider: 'aws', label: 'Amazon Web Services', configured: false, ...r }));
 
 beforeEach(() => {
+  listDnsProviders.mockResolvedValue([PORKBUN]);
   vi.clearAllMocks();
   getDriveStatus.mockResolvedValue({});
 });
@@ -84,6 +91,16 @@ describe('CloudAccounts', () => {
     listProviders.mockResolvedValue(providers({ provider: 'aws', label: 'Amazon Web Services' }));
     renderScreen();
     expect(await screen.findByText('Amazon Web Services')).toBeDefined();
+  });
+});
+
+describe('DNS providers', () => {
+  it('lists each one the server\'s registry describes, with how to set it up, instead of a hand-written entry', async () => {
+    listProviders.mockResolvedValue(providers());
+    renderScreen();
+    expect(await screen.findByText('Porkbun DNS')).toBeDefined();
+    expect(screen.getByText('Turn on API Access for each domain.')).toBeDefined();
+    expect(PROVIDERS.some((provider) => provider.key === 'cloudflare' || provider.key === 'porkbun')).toBe(false);
   });
 });
 

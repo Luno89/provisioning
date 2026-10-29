@@ -1,8 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  buyServer, cancelServerOrder, FOLLOWED, getServerOrder, listServerOrders, quoteServer, serverOrderKeys,
+  buyServer, cancelServerOrder, checkZones, FOLLOWED, getServerOrder, listServerOrders, quoteServer, serverOrderKeys,
   type QuoteAsk, type ServerOrder,
 } from '../api/server-orders'
+import { credentialKeys, listDnsProviders } from '../api/credentials'
 
 export const SERVER_ORDER_POLL_MS = 3_000
 
@@ -33,3 +34,12 @@ function useOrderChange<A>(run: (arg: A) => Promise<ServerOrder>) {
 export const useQuoteServer = () => useOrderChange((ask: QuoteAsk) => quoteServer(ask))
 export const useBuyServer = () => useOrderChange(({ id, total }: { id: string; total: number }) => buyServer(id, total))
 export const useCancelServerOrder = () => useOrderChange((id: string) => cancelServerOrder(id))
+
+export function useZoneChecks(zones: readonly string[]) {
+  const named = zones.map((zone) => zone.trim().toLowerCase()).filter((zone) => /^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(zone))
+  return useQuery({ queryKey: serverOrderKeys.zones(named), queryFn: () => checkZones(named), enabled: named.length > 0 })
+}
+
+export function useDnsProviders() {
+  return useQuery({ queryKey: credentialKeys.dns(), queryFn: listDnsProviders, staleTime: Infinity })
+}

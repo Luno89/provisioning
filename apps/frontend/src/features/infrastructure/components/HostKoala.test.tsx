@@ -5,7 +5,7 @@ import type { ReactNode } from 'react'
 import { useShellStore } from '../../platform'
 import * as ordersApi from '../api/server-orders'
 import * as vpsApi from '../api/vps-catalog'
-import { HostKoala, OrderDetail, QuoteCard } from './HostKoala'
+import { HostKoala, OrderDetail, QuoteCard, ZoneLine } from './HostKoala'
 
 vi.mock('../api/server-orders', async (importOriginal) => ({
   ...(await importOriginal<typeof ordersApi>()),
@@ -16,12 +16,13 @@ vi.mock('../api/server-orders', async (importOriginal) => ({
   cancelServerOrder: vi.fn(),
   revealSetupCode: vi.fn(),
   revealSshKey: vi.fn(),
+  checkZones: vi.fn(),
 }))
 vi.mock('../api/vps-catalog', async (importOriginal) => ({ ...(await importOriginal<typeof vpsApi>()), getVpsCatalog: vi.fn() }))
 
 const order: ordersApi.ServerOrder = {
   id: 'o1', provider: 'ovh', purpose: 'root', subsidiary: 'AU', planCode: 'vps-2027-model2', planLabel: 'VPS-2 2027', datacenter: 'SYD',
-  domain: 'nowrinkles.dev', ingressDomain: 'nowrinkles.app', acmeEmail: 'me@example.com',
+  domain: 'nowrinkles.dev', ingressDomain: 'nowrinkles.app', acmeEmail: 'me@example.com', dns: { domain: 'cloudflare', ingress: 'porkbun' },
   quote: { currency: 'AUD', withoutTax: 14, tax: 1.4, withTax: 15.4, monthly: 14, setupFee: 0, lines: [{ description: 'VPS-2 2027', amount: 14 }], contracts: [{ name: 'General Terms', url: 'https://example.ovh/terms.pdf' }] },
   quotedAt: 'x', state: 'quoted', said: 'Priced', hasSetupCode: false, hasSshKey: false, createdAt: 'x', updatedAt: 'x',
 }
@@ -105,5 +106,23 @@ describe('the page', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Price it' }))
     await waitFor(() => expect(ordersApi.quoteServer).toHaveBeenCalledWith({ planCode: 'vps-2027-model2', planLabel: 'VPS-2 2027', datacenter: 'SYD', domain: 'nowrinkles.dev', ingressDomain: 'nowrinkles.app', acmeEmail: 'me@example.com' }))
     expect(ordersApi.buyServer).not.toHaveBeenCalled()
+  })
+})
+
+describe('who serves each domain\'s DNS', () => {
+  const providers = [{ name: 'cloudflare', label: 'Cloudflare DNS' }, { name: 'porkbun', label: 'Porkbun DNS' }]
+
+  it('says the provider its nameservers name and whether its credentials are stored, and lets the operator choose another', () => {
+    const chosen: string[] = []
+    wrap(<ZoneLine zone={{ zone: 'nowrinkles.app', nameservers: ['a.ns.porkbun.com'], provider: 'porkbun', label: 'Porkbun DNS', credentials: false, setup: 'Turn on API Access.' }} override="" onOverride={(provider) => chosen.push(provider)} providers={providers} />)
+    expect(screen.getByText('Porkbun DNS, no credentials stored. Turn on API Access.')).toBeDefined()
+    fireEvent.change(screen.getByLabelText('DNS provider for nowrinkles.app'), { target: { value: 'cloudflare' } })
+    expect(chosen).toEqual(['cloudflare'])
+  })
+
+  it('says why when no provider Koala knows serves the zone', () => {
+    wrap(<ZoneLine zone={{ zone: 'elsewhere.test', nameservers: ['ns1.example.net'], problem: 'elsewhere.test: its nameservers (ns1.example.net) are not Cloudflare DNS or Porkbun DNS', credentials: false }} override="" onOverride={() => undefined} providers={providers} />)
+    expect(screen.getByText(/ns1\.example\.net/)).toBeDefined()
+    expect(screen.getByText('Koala needs to know who serves this zone\'s DNS.')).toBeDefined()
   })
 })
