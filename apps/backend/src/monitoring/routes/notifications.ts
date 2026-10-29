@@ -1,15 +1,17 @@
 import { Router, type Request } from 'express';
 import { asyncRoute, TEST_MAIL, MailError, type MailService } from '../../platform/index.js';
 import type { NotificationService } from '../services/NotificationService.js';
+import { PushError, type PushService } from '../services/PushService.js';
 
 export interface NotificationsRouterDeps {
   notifications: Pick<NotificationService, 'view' | 'set'>;
   mail: Pick<MailService, 'toOwner'>;
+  push?: Pick<PushService, 'view' | 'subscribe' | 'remove' | 'test'> | undefined;
 }
 
 const userOf = (req: Request): { id: string; email?: string } => (req as Request & { user: { id: string; email?: string } }).user;
 
-export function notificationsRouter({ notifications, mail }: NotificationsRouterDeps): Router {
+export function notificationsRouter({ notifications, mail, push }: NotificationsRouterDeps): Router {
   const router = Router();
 
   router.get('/', asyncRoute(async (req, res) => {
@@ -32,6 +34,21 @@ export function notificationsRouter({ notifications, mail }: NotificationsRouter
       return res.status(502).json({ error: `it could not be sent: ${(err as Error).message}` });
     }
   }));
+
+  const pushed = (work: (ownerId: string, req: Request) => Promise<unknown>) => asyncRoute(async (req, res) => {
+    if (!push) return res.status(404).json({ error: 'this server sends no push notifications' });
+    try {
+      return res.json(await work(userOf(req).id, req));
+    } catch (err) {
+      if (err instanceof PushError) return res.status(err.status).json({ error: err.message });
+      throw err;
+    }
+  });
+
+  router.get('/push', pushed((ownerId) => push!.view(ownerId)));
+  router.post('/push', pushed((ownerId, req) => push!.subscribe(ownerId, (req.body as { subscription?: unknown } | undefined)?.subscription, req.get('user-agent'))));
+  router.delete('/push/:id', pushed((ownerId, req) => push!.remove(ownerId, String(req.params.id))));
+  router.post('/push/test', pushed((ownerId) => push!.test(ownerId)));
 
   return router;
 }

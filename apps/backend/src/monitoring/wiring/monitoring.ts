@@ -3,6 +3,7 @@ import { type Database, type MailService, type RoleConfig, servesTenants } from 
 import type { sharedClusterProxy, ClusterService, InfrastructureService } from '../../infrastructure/index.js';
 import type { ConversationNoticeService } from '../../engine/index.js';
 import type { NotificationService } from '../services/NotificationService.js';
+import type { PushService } from '../services/PushService.js';
 import { AlertWatchService } from '../services/AlertWatchService.js';
 import { MonitoringService, prometheusAt } from '../services/MonitoringService.js';
 import { alertNotice, alertWhere } from '../lib/alert-notices.js';
@@ -22,6 +23,7 @@ export interface MonitoringWiringDeps {
   proxy: ReturnType<typeof sharedClusterProxy>;
   notices: ConversationNoticeService;
   notifications: NotificationService;
+  push: PushService;
   mail: MailService;
   people: ConstructorParameters<typeof AlertWatchService>[0]['people'];
 }
@@ -40,7 +42,7 @@ export function wireMonitoring(deps: MonitoringWiringDeps): { monitoring: Monito
     helm: async (cluster, args) => String(await infra.runHelm(args, await clusters.getKubeconfigPath(cluster))),
   });
   tenant.use('/api/monitoring', monitoringRouter({ monitoring }));
-  tenant.use('/api/notifications', notificationsRouter({ notifications, mail: deps.mail }));
+  tenant.use('/api/notifications', notificationsRouter({ notifications, mail: deps.mail, push: deps.push }));
   if (servesTenants(role)) {
     new AlertWatchService({
       monitoring,

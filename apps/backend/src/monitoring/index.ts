@@ -7,6 +7,8 @@ export type { MonitoringAsk, RangeAsk } from './lib/monitoring-asks.js';
 export { VIRTUAL_NAMESPACE_LABEL } from './lib/monitoring-questions.js';
 export type { PoolPlace } from './lib/monitoring-questions.js';
 export type { AlertEpisode } from './lib/monitoring-records.js';
+export { askingPush, previewPush, vapidKeysFrom, vapidSubject } from './lib/web-push.js';
+export type { PushMessage } from './lib/web-push.js';
 export { BLACKBOX_VALUES, hostProbeManifest, hostRuleManifest, parsePoolRule, parseProbes, placeAlerts, POOL_MONITORING, POOL_PROBE_LABEL, poolAppAlerts, poolStackValues, probeIngressPolicy, probeResourceName } from './lib/pool-monitoring.js';
 export type { PoolProbe, PoolRule } from './lib/pool-monitoring.js';
 export { collectorEndpoint, collectorSink } from './services/CollectorReach.js';
@@ -14,4 +16,5 @@ export { MonitoringError, MonitoringService, prometheusAt } from './services/Mon
 export type { KoalaView, MetricsClient, Overview, PrometheusClient, Sample, Viewer } from './services/MonitoringService.js';
 export { NotificationService } from './services/NotificationService.js';
 export { poolMonitor, poolMonitorFrom } from './services/PoolMonitor.js';
+export { PushService, webPushSend } from './services/PushService.js';
 export type { MonitoringStore } from './store.js';

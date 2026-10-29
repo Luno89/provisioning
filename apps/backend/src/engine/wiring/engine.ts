@@ -64,6 +64,7 @@ import { autoModeRouter } from '../routes/auto-mode.js';
 import { workspaceDependenciesRouter } from '../routes/workspace-dependencies.js';
 import { mcpRouter } from '../routes/mcp.js';
 import type { RequestHandler } from 'express';
+import { askingPush, type PushMessage } from '../../monitoring/index.js';
 
 export interface EngineCoreDeps {
   db: Database;
@@ -579,6 +580,7 @@ export async function wireEngine(deps: EngineWiringDeps): Promise<EngineWiring> 
 
 export interface EngineStreamDeps {
   role: RoleConfig;
+  push?: { toPerson(ownerId: string, message: PushMessage): Promise<number> } | undefined;
   io: SocketServer;
   db: Database;
   payloadKey: SecretKey;
@@ -626,6 +628,7 @@ export function startEngineStream(deps: EngineStreamDeps): void {
           const notice = postedNotice(posted);
           if (notice) await deps.notices.post(ownerId, { treeId: notice.refs.treeId, projectId: notice.refs.projectId }, notice);
         },
+        asking: async (ownerId, tool) => { await deps.push?.toPerson(ownerId, askingPush(tool)); },
       },
     });
     void worker.run().catch((err: Error) =>

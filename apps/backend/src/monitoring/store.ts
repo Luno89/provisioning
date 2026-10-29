@@ -3,6 +3,7 @@ import type { AlertRuleRecord } from './lib/monitoring-alerts.js';
 import { type AreaStore, fromDoc, toDoc } from '../platform/lib/collection.js';
 import type { Db } from 'mongodb';
 import type { NotificationSettings } from '../platform/index.js';
+import type { PushSubscriptionRecord } from './lib/web-push.js';
 
 export interface MonitoringStore extends AreaStore {
   getMonitoringSettings(): Promise<MonitoringSetting[]>;
@@ -14,12 +15,35 @@ export interface MonitoringStore extends AreaStore {
   deleteAlertRule(id: string): Promise<void>;
   getAlertEpisodes(ownerId?: string): Promise<AlertEpisode[]>;
   saveAlertEpisode(episode: AlertEpisode): Promise<void>;
+  getPushSubscriptions(ownerId: string): Promise<PushSubscriptionRecord[]>;
+  savePushSubscription(subscription: PushSubscriptionRecord): Promise<void>;
+  deletePushSubscription(ownerId: string, id: string): Promise<boolean>;
 }
 
 export class MongoMonitoringStore implements MonitoringStore {
   constructor(private readonly db: () => Db) {}
 
-  async ensureIndexes(): Promise<void> {}
+  async ensureIndexes(): Promise<void> {
+    await this.db().collection('pushSubscriptions').createIndex({ ownerId: 1, endpoint: 1 }, { unique: true });
+  }
+
+  async getPushSubscriptions(ownerId: string): Promise<PushSubscriptionRecord[]> {
+    const docs = await this.db().collection('pushSubscriptions').find({ ownerId }).sort({ createdAt: 1 }).toArray();
+    return docs.map((doc) => fromDoc<PushSubscriptionRecord>(doc as Record<string, unknown>));
+  }
+
+  async savePushSubscription(subscription: PushSubscriptionRecord): Promise<void> {
+    const { id, ...rest } = subscription;
+    await this.db().collection('pushSubscriptions').updateOne(
+      { ownerId: subscription.ownerId, endpoint: subscription.endpoint },
+      { $set: { keys: rest.keys, label: rest.label }, $setOnInsert: { _id: id as never, createdAt: rest.createdAt } },
+      { upsert: true },
+    );
+  }
+
+  async deletePushSubscription(ownerId: string, id: string): Promise<boolean> {
+    return (await this.db().collection('pushSubscriptions').deleteOne({ _id: id as never, ownerId })).deletedCount === 1;
+  }
 
   async getNotificationSettings(ownerId: string): Promise<NotificationSettings | undefined> {
     const doc = await this.db().collection('notificationSettings').findOne({ _id: ownerId as never });

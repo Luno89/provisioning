@@ -21,6 +21,7 @@ import type { GiteaService } from '../services/GiteaService.js';
 import type { InfisicalService, InfrastructureService, ClusterService, AppService, TemporalBridge } from '../../infrastructure/index.js';
 import type { MachineService } from '../../machines/index.js';
 import type { WorkspaceConclusionService } from '../../memory/index.js';
+import { previewPush, type PushMessage } from '../../monitoring/index.js';
 import type { ProjectSharingService } from '../services/ProjectSharingService.js';
 import type { createEngineHost, createRunStarter, createStoredAgentRegistry } from '../../engine-host/index.js';
 import { createGroveLauncher } from '../../engine-host/grove-launcher.js';
@@ -39,8 +40,11 @@ import { branchesRouter } from '../routes/branches.js';
 import { leavesRouter } from '../routes/leaves.js';
 import type { Mounts } from '../../hub/index.js';
 
+const PUSHED_NOTICES: readonly string[] = ['preview-ready'];
+
 export interface ProjectsCoreDeps {
   db: Database;
+  push?: { toPerson(ownerId: string, message: PushMessage): Promise<number> } | undefined;
   io: SocketServer;
   env: NodeJS.ProcessEnv;
   dataKey: SecretKey;
@@ -86,6 +90,9 @@ export function projectsCore(deps: ProjectsCoreDeps): ProjectsCore {
       return project ? (await channels.ensure(project))?.id : undefined;
     },
     itemChatOf: async (ownerId, item) => (await itemChats.ensure(ownerId, item))?.id,
+    pushed: async (ownerId, notice) => {
+      if (deps.push && PUSHED_NOTICES.includes(notice.kind)) await deps.push.toPerson(ownerId, previewPush(notice.text));
+    },
   });
   const postNotice = (what: string, posting: Promise<unknown>) => { posting.catch((err: Error) => console.warn(`[notices] ${what}: ${err.message}`)); };
   const projectSecrets = projectSecretsFor({

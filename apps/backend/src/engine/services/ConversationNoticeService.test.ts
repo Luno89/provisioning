@@ -31,6 +31,25 @@ describe('telling the chats about a project what happened', () => {
   });
 });
 
+describe('a notice that reaches the person\'s devices', () => {
+  it('is handed over once, when it was first posted somewhere', async () => {
+    const db = await testDatabase();
+    await db.engine.saveConversation({ id: 'channel', ownerId: 'bo', title: 'c', messages: [], createdAt: 't', updatedAt: 't', projectId: 'p1' } as never);
+    const pushed: string[] = [];
+    const service = new ConversationNoticeService({
+      conversations: () => db.engine.getConversations(),
+      append: (ownerId, id, message) => db.engine.appendNotice(ownerId, id, message),
+      told: () => undefined,
+      pushed: async (ownerId, posted) => { pushed.push(`${ownerId} ${posted.kind}`); },
+    });
+    const preview = { key: 'release:r3:preview', kind: 'preview-ready' as const, text: 'A preview is ready.', refs: { projectId: 'p1' }, actions: ['cut-over' as const] };
+    await service.post('bo', { projectId: 'p1' }, preview);
+    await service.post('bo', { projectId: 'p1' }, preview);
+    await service.post('bo', { projectId: 'p9' }, { ...preview, key: 'nowhere' });
+    expect(pushed).toEqual(['bo preview-ready']);
+  });
+});
+
 describe('a notice as the model sees it', () => {
   it('is labelled as the platform\'s, never passed off as something the person said', () => {
     expect(asChatMessages([
