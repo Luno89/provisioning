@@ -1077,6 +1077,39 @@
           "pattern": "DOCKER_INSTALL_SHA256=([0-9a-f]{64})"
         }
       ]
+    },
+    {
+      "kind": "binary",
+      "name": "restic",
+      "version": "0.19.1",
+      "source": "https://github.com/restic/restic/releases/download/v0.19.1/",
+      "github": "restic/restic",
+      "osv": {
+        "ecosystem": "Go",
+        "name": "github.com/restic/restic"
+      },
+      "sha256s": {
+        "linux-amd64": "f415415624dcc452f2a02b8c33641791a8c6d6d3b65bbb3543fcf9a25151585c",
+        "linux-arm64": "a5f64aaab53d51e311fa3829124c5b703f2d14cf187d8640b6be3b2b49376465"
+      },
+      "uses": [
+        {
+          "file": "scripts/root-node/harden-host.sh",
+          "pattern": "RESTIC_VERSION=([0-9.]+)"
+        }
+      ],
+      "shaUses": [
+        {
+          "file": "scripts/root-node/harden-host.sh",
+          "pattern": "RESTIC_SHA256_AMD64=([0-9a-f]{64})",
+          "arch": "linux-amd64"
+        },
+        {
+          "file": "scripts/root-node/harden-host.sh",
+          "pattern": "RESTIC_SHA256_ARM64=([0-9a-f]{64})",
+          "arch": "linux-arm64"
+        }
+      ]
     }
   ],
   "unpinned": [
@@ -1092,13 +1125,6 @@
       "how": "helm upgrade --install with no --version",
       "usedIn": [
         "scripts/ensure-infisical.sh"
-      ]
-    },
-    {
-      "name": "restic",
-      "how": "Ubuntu's signed apt repository, whatever version it carries",
-      "usedIn": [
-        "scripts/root-node/harden-host.sh"
       ]
     }
   ]

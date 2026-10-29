@@ -21,7 +21,7 @@ die()  { echo -e "  ${RED}❌${NC} $1" >&2; exit 1; }
 SNAPSHOT="${1:-}"
 [ -n "$SNAPSHOT" ] || die "usage: restore.sh <snapshot id | latest>  (list them with: restic snapshots)"
 [ "$(id -u)" -eq 0 ] || die "Run as root: this replaces every store root keeps."
-command -v restic >/dev/null || die "restic is not installed; bootstrap.sh installs it"
+command -v restic >/dev/null || die "restic is not installed; bootstrap.sh installs the pinned release through harden-host.sh"
 [ -f "$ENV_FILE" ] && [ -f "$COMPOSE_ENV" ] || die "bootstrap.sh has not run here; a restore goes onto a freshly bootstrapped root"
 
 setting() { grep "^$1=" "$2" 2>/dev/null | tail -1 | cut -d= -f2- || true; }
