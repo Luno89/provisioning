@@ -221,6 +221,10 @@ async function main(): Promise<void> {
   const loaded = await inVm(root, 'sudo docker load -q', false, saved.stdout);
   assert.equal(loaded.code, 0, `the image did not load on root: ${loaded.out.slice(-500)}`);
   await sh(root, `sudo docker tag ${IMAGE_REPO}:${previousTag} 127.0.0.1:5000/${IMAGE_REPO}:${previousTag} && sudo docker push -q 127.0.0.1:5000/${IMAGE_REPO}:${previousTag} >/dev/null`);
+  if (UNHOSTED) {
+    await sh(root, 'sudo systemctl start nowrinkles');
+    note(`root started as bootstrap.sh tells its operator to, since it already runs ${PREVIOUS_LABEL}`);
+  }
   const toPrevious = Date.now();
   await sh(root, `sudo bash ${REPO_DIR}/scripts/root-node/release-watch.sh ${PREVIOUS_LABEL}`, true);
   note(`release-watch.sh ${PREVIOUS_LABEL} took ${minutes(toPrevious)}`);
