@@ -26,6 +26,7 @@ export interface ToolRuntimeOptions {
   digestChars?: number | undefined;
   serverTools?: ServerTools | undefined;
   resources?: ProjectResolver | undefined;
+  grants?: { callProblem(grantId: string | undefined, tool: string, projectId: string | undefined): Promise<string | undefined> } | undefined;
 }
 
 const argumentsOf = (text: string): Record<string, unknown> => {
@@ -77,6 +78,8 @@ export function createToolRuntime(options: ToolRuntimeOptions): ToolRuntime {
         : {};
       const problem = accessProblem(args.name, access, args.ticket.principal ?? (args.ticket.actingFor ? memberPrincipal(args.ticket.actingFor.personId, args.ticket.actingFor.projectId, args.ticket.actingFor.role) : asPerson(args.ticket.ownerId)), args.ticket.ownerId, parsed, resolved, args.ticket.actingFor);
       if (problem) return placed(refuse(problem), args);
+      const granted = await options.grants?.callProblem(args.ticket.grantId, args.name, resolved.project?.id);
+      if (granted) return placed(refuse(granted), args);
       if (attempt > 1 && catalogue.find((tool) => tool.name === args.name)?.idempotent !== true) {
         return placed(refuse(`${args.name} may already have run once before this call failed, and running it again is not safe, so it was not repeated. Check what it did before calling it again.`), args);
       }

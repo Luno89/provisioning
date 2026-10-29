@@ -23,6 +23,7 @@ import type { WorkspaceImage } from '../../engine-host/sandboxes/warm-images.js'
 import type { PruneReport } from '../../engine-host/sandboxes/prune-images.js';
 import { SwitchedOffError } from '../lib/extension-settings.js';
 import { samplingAt, temperatureProblem } from '../lib/run-knobs.js';
+import type { RunEnding } from '../store.js';
 
 export type { TaskAccess } from '../../hub/index.js';
 
@@ -44,6 +45,7 @@ export interface EngineRouterDeps {
   approvals: Pick<ApprovalService, 'approve' | 'answer' | 'cancel'>;
   registry: AgentRegistry;
   traces?: TraceAccess | undefined;
+  endings?: { list(ownerId: string, runIds: readonly string[]): Promise<RunEnding[]> } | undefined;
   tasks?: TaskAccess | undefined;
   accepted?: ((ownerId: string, task: Task) => Promise<{ waiting: string[] } | undefined>) | undefined;
   images?: WorkspaceImageAccess | undefined;
@@ -52,8 +54,10 @@ export interface EngineRouterDeps {
   extensions?: Pick<ExtensionService, 'list' | 'setEnabled' | 'create' | 'update' | 'remove' | 'publish' | 'removeOperation'> | undefined;
 }
 
-const userOf = (req: Request): { id: string } =>
-  (req as unknown as { user: { id: string } }).user;
+const ENDINGS_AT_ONCE = 100;
+
+const userOf = (req: Request): { id: string; email?: string | undefined } =>
+  (req as unknown as { user: { id: string; email?: string | undefined } }).user;
 
 const fail = (res: Response, err: unknown): Response => {
   if (err instanceof EngineUnavailableError) return res.status(503).json({ error: err.message });
@@ -207,6 +211,7 @@ export function engineRouter(deps: EngineRouterDeps): Router {
     try {
       const started = await deps.runs.start({
         ownerId: userOf(req).id,
+        startedBy: 'person',
         ...(attached.attachments.length ? { attachments: attached.attachments } : {}),
         agentSlug: agent,
         message,
@@ -222,6 +227,12 @@ export function engineRouter(deps: EngineRouterDeps): Router {
     } catch (err) {
       return fail(res, err);
     }
+  }));
+
+  router.get('/runs/endings', asyncRoute(async (req: Request, res: Response) => {
+    const ids = String(req.query.ids ?? '').split(',').map((id) => id.trim()).filter(Boolean).slice(0, ENDINGS_AT_ONCE);
+    const endings = deps.endings && ids.length ? await deps.endings.list(userOf(req).id, ids) : [];
+    return res.json({ endings });
   }));
 
   router.get('/runs/:runId/traces', asyncRoute(async (req: Request, res: Response) => {
@@ -261,7 +272,7 @@ export function engineRouter(deps: EngineRouterDeps): Router {
 
   router.post('/runs/:runId/cancel', asyncRoute(async (req: Request, res: Response) => {
     try {
-      if (await deps.approvals.cancel(userOf(req).id, String(req.params.runId)) === 'not-yours') return res.status(404).json({ error: 'You have no run with that id' });
+      if (await deps.approvals.cancel(userOf(req).id, String(req.params.runId), userOf(req).email) === 'not-yours') return res.status(404).json({ error: 'You have no run with that id' });
       return res.json({ ok: true });
     } catch (err) {
       return fail(res, err);

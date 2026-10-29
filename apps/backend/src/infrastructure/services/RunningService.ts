@@ -19,7 +19,7 @@ export interface RunningDeps {
   records(ownerId: string): Promise<RunningRecords>;
   checks: { cancel(ownerId: string, id: string): Promise<boolean> };
   trees: { stop(ownerId: string, treeId: string): Promise<{ ok: boolean; error?: string | undefined }> };
-  runs: { cancel(runId: string): Promise<void> };
+  runs: { cancel(runId: string, by?: string): Promise<void> };
   bench: { settings(ownerId: string): Promise<BenchSettings>; saveSettings(ownerId: string, value: unknown): Promise<{ saved: boolean; problems?: string[] | undefined }> };
   keeper: { state(ownerId: string): Promise<KeeperState>; setPaused(ownerId: string, paused: boolean): Promise<KeeperState> };
 }
@@ -54,7 +54,7 @@ export class RunningService {
     return { ok: true, value: { items, bench: { paused: !bench.enabled }, keeper } };
   }
 
-  async cancel(ownerId: string, workflowId: string): Promise<RunningOutcome<{ cancelling: true }>> {
+  async cancel(ownerId: string, workflowId: string, by?: string): Promise<RunningOutcome<{ cancelling: true }>> {
     const item = (await this.items(ownerId))?.find((entry) => entry.workflowId === workflowId);
     if (!item) return { ok: false, status: 404, error: 'Nothing of yours is running under that id' };
     const how = item.cancel;
@@ -70,7 +70,7 @@ export class RunningService {
         break;
       }
       case 'run':
-        await this.deps.runs.cancel(how.runId);
+        await this.deps.runs.cancel(how.runId, by);
         break;
       case 'workflow': {
         const outcome = await this.deps.workflows.cancel(workflowId);

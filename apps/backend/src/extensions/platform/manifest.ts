@@ -15,6 +15,7 @@ import { SCENARIO_TOOLS } from '../../engine-host/tools/scenario-tools-catalogue
 import { CHECK_TOOLS } from '../../engine-host/tools/check-tools-catalogue.js';
 import { AGENT_CHANGE_TOOLS } from '../../engine-host/tools/agent-change-tools-catalogue.js';
 import { VERDICT_TOOLS } from '../../engine-host/tools/verdict-tools-catalogue.js';
+import { HANDOVER_TOOLS } from '../../engine-host/tools/handover-tools-catalogue.js';
 
 export const PLATFORM: EngineExtension = {
   id: 'platform',
@@ -24,5 +25,5 @@ export const PLATFORM: EngineExtension = {
   operations: [...PLATFORM_OPERATIONS],
   personas: PLATFORM_PERSONAS,
   grants: PLATFORM_GRANTS,
-  tools: [...TASK_TOOLS, ...WORKSPACE_TOOLS, ...SECRET_TOOLS, ...MCP_TOOLS, ...KUBE_TOOLS, ...PROJECT_TOOLS, ...EGRESS_TOOLS, ...CORPUS_TOOLS, ...RUN_TOOLS, ...MEMORY_TOOLS, ...SCENARIO_TOOLS, ...CHECK_TOOLS, ...AGENT_CHANGE_TOOLS, ...VERDICT_TOOLS],
+  tools: [...TASK_TOOLS, ...WORKSPACE_TOOLS, ...SECRET_TOOLS, ...MCP_TOOLS, ...KUBE_TOOLS, ...PROJECT_TOOLS, ...EGRESS_TOOLS, ...CORPUS_TOOLS, ...RUN_TOOLS, ...MEMORY_TOOLS, ...SCENARIO_TOOLS, ...CHECK_TOOLS, ...AGENT_CHANGE_TOOLS, ...VERDICT_TOOLS, ...HANDOVER_TOOLS],
 };

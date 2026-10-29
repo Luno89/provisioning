@@ -56,7 +56,10 @@ import {
   type ResolvedAgentInfo,
   type ToolCallArgs,
   type ToolCallOutcome,
+  type EnvironmentHandleRef,
+  type HandoverArgs,
 } from '../engine-host/temporal/contracts.js';
+import { REVOKED_SAID, runGrantProblem, type Handover, type RevokedBecause } from '../engine/lib/run-grants.js';
 import type { RunLimits, RunLimitsArgs } from '../engine-host/registries/effort.js';
 import { RUN_STATE_QUERY, type RunState } from '../engine-host/temporal/run-cancellation.js';
 import { ASK_CHARS, collectStep, machineChoice, RUN_IN_WORKSPACE, UNNAMED_MACHINE, type Artifact, type RunEffort, type RunStep } from '@koala/agent-engine/procedure';
@@ -81,6 +84,7 @@ interface EngineRemote {
   EngineMachineKeepActivity(args: MachineWorkRequest): Promise<{ kept: true; commit: string } | { kept: false; why: string }>;
   EngineMachineDropActivity(args: MachineWorkRequest): Promise<void>;
   EngineMachineNameActivity(args: { ownerId: string; deviceId: string }): Promise<string | null>;
+  EngineHandoverActivity(args: HandoverArgs): Promise<Handover>;
 }
 
 interface DeviceRemote {
@@ -132,12 +136,14 @@ const ANSWERS_TAKEN_ONCE = 'answers-taken-once';
 const READS_TOGETHER = 'reads-together';
 const MACHINE_NAMES = 'machine-names';
 const MACHINE_MERGES = 'machine-merges';
+const RUN_GRANTS = 'run-grants';
 const MACHINE_ANSWER_WAIT_MS = 15_000;
 const MACHINE_GATHER_MS = 1_000;
 
 export const approveSignal = defineSignal<[{ callId: string; allowed: boolean; forRun?: boolean }]>('approve');
 export const answerSignal = defineSignal<[{ nodeId: string; value: unknown }]>('answer');
-export const cancelSignal = defineSignal<[]>('cancelRun');
+export const cancelSignal = defineSignal<[({ by?: string | undefined } | undefined)?]>('cancelRun');
+export const revokeSignal = defineSignal<[{ because: RevokedBecause; at: string }]>('revokeRun');
 export const stateQuery = defineQuery<RunState>(RUN_STATE_QUERY);
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -178,6 +184,9 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
   const asking = new Set<string>();
   const waitsFor = new Set<string>();
   let cancelled = false;
+  let stoppedBy: string | undefined;
+  let revocation: { because: RevokedBecause; at: string } | undefined;
+  let lastWorkspace: EnvironmentHandleRef | undefined;
   let currentNode: string | undefined;
   let rounds = continued?.checkpoint.counters.rounds ?? 0;
   let children = continued?.children ?? 0;
@@ -207,7 +216,8 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
     if (cancelled) return;
     cancelled = true;
     for (const childId of runningChildren) {
-      void getExternalWorkflowHandle(childId).signal(cancelSignal).catch(() => undefined);
+      const child = getExternalWorkflowHandle(childId);
+      void (revocation ? child.signal(revokeSignal, revocation) : child.signal(cancelSignal)).catch(() => undefined);
     }
   };
   void CancellationScope.nonCancellable(() => condition(() => cancelled)).then(() => {
@@ -222,8 +232,17 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
       inFlight.delete(scope);
     }
   };
-  setHandler(cancelSignal, cancelRun);
-  CancellationScope.current().cancelRequested.catch(cancelRun);
+  setHandler(cancelSignal, (stop) => {
+    if (!cancelled && stop?.by) stoppedBy = stop.by;
+    cancelRun();
+  });
+  setHandler(revokeSignal, (revoked) => {
+    if (revocation) return;
+    revocation = revoked;
+    cancelled = false;
+    cancelRun();
+  });
+  CancellationScope.current().cancelRequested.catch(() => cancelRun());
   setHandler(stateQuery, () => ({ ...(currentNode ? { nodeId: currentNode } : {}), rounds, cancelled, ...(asking.size > 0 ? { asking: [...asking] } : {}), ...(waitsFor.size > 0 ? { waitsFor: [...waitsFor] } : {}) }));
 
   const pending: EngineEvent[] = [];
@@ -258,6 +277,11 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
   const ports: OrchestrationPorts = {
     async runTool({ nodeId, call, persona, environment, run }) {
       const handle = handleFor(environment);
+      if (revocation && patched(RUN_GRANTS)) {
+        const said = runGrantProblem({ state: 'revoked', revokedBecause: revocation.because }, call.name) ?? `${call.name} was not run`;
+        return { ok: false, digest: said, content: said };
+      }
+      if (handle?.workspace) lastWorkspace = handle;
       const args: ToolCallArgs = {
         ticket: ticketFor(run),
         nodeId,
@@ -663,7 +687,7 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
     value: (request) => inner.value(request),
   };
 
-  const signal = { get aborted() { return cancelled; }, reason: 'the run was cancelled' } as AbortSignal;
+  const signal = { get aborted() { return cancelled; }, get reason() { return revocation ? `its access was revoked because ${REVOKED_SAID[revocation.because]}` : 'the run was cancelled'; } } as AbortSignal;
 
   return CancellationScope.nonCancellable(async () => {
     if (ticket.depth === 0 && !input.continued && patched(CONCLUSIONS)) {
@@ -745,6 +769,16 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
     });
 
     const ask = typeof input.inputs.message === 'string' ? input.inputs.message : JSON.stringify(input.inputs);
+    const winding = revocation && patched(RUN_GRANTS) ? revocation : undefined;
+    const handover = winding && ticket.depth === 0
+      ? await engine.EngineHandoverActivity({
+        ticket,
+        ask: ask.slice(0, ASK_CHARS),
+        because: winding.because,
+        steps: steps.map((step) => ({ name: step.name, ...(step.ok === undefined ? {} : { ok: step.ok }), ...(step.digest ? { digest: step.digest } : {}) })),
+        ...(lastWorkspace ? { environment: lastWorkspace } : {}),
+      }).catch((err: Error) => ({ failed: err.message }) as Handover)
+      : undefined;
     await EngineRecordEffortActivity({
       runId: ticket.runId,
       ownerId: ticket.ownerId,
@@ -781,6 +815,9 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
         depth: ticket.depth,
         ...(conversationId ? { conversationId } : {}),
         ...(leafId ? { leafId } : {}),
+        ...(stoppedBy && patched(RUN_GRANTS) ? { stoppedBy } : {}),
+        ...(winding ? { revokedBecause: winding.because } : {}),
+        ...(handover ? { handover } : {}),
       });
     }
 

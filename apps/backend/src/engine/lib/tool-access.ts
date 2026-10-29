@@ -22,6 +22,7 @@ export const TOOL_ACCESS: Readonly<Record<string, ToolAccess>> = {
   search_web: NOTHING,
   fetch_web_page: NOTHING,
   record_verdict: NOTHING,
+  leave_handover_note: NOTHING,
 
   request_cluster_access: { on: 'install', action: 'open-platform-namespaces' },
 

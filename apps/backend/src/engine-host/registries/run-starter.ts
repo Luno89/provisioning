@@ -7,6 +7,7 @@ import type { AgentRegistry } from './registry.js';
 import { machineChoice, machineChoiceId, type MachineChoice } from '@koala/agent-engine/procedure';
 import type { ProcedureRunInput, RunTicket } from '../temporal/contracts.js';
 import { asPerson, memberPrincipal, type Principal } from '../../platform/lib/permissions.js';
+import type { GrantRequest, GrantStartedBy } from '../../engine/index.js';
 import type { ActingFor } from '@koala/agent-engine/procedure';
 
 export interface WorkflowStarter {
@@ -41,6 +42,8 @@ export interface StartRunRequest {
   asks?: string | undefined;
   about?: string | undefined;
   attachments?: MessageAttachment[] | undefined;
+  startedBy?: GrantStartedBy | undefined;
+  projectId?: string | undefined;
 }
 
 export interface StartedRun {
@@ -85,6 +88,7 @@ export { UnknownAgentError };
 export interface RunStarterOptions {
   registry: AgentRegistry;
   principal?: ((ownerId: string) => Promise<Principal>) | undefined;
+  grants?: { issue(request: GrantRequest): Promise<{ id: string }> } | undefined;
   workflows: () => WorkflowStarter | undefined;
   taskQueue?: string | undefined;
   newRunId?: (() => string) | undefined;
@@ -135,11 +139,25 @@ export function createRunStarter(options: RunStarterOptions) {
       const principal = request.actingFor
         ? memberPrincipal(request.actingFor.personId, request.actingFor.projectId, request.actingFor.role)
         : await options.principal?.(request.ownerId) ?? asPerson(request.ownerId);
+      const bound = request.conversationId && options.binding
+        ? await options.binding(request.ownerId, request.conversationId, request.actingFor)
+        : undefined;
+      const grantProject = request.actingFor?.projectId ?? request.keptTo ?? request.projectId ?? bound?.projectId;
+      const grant = await options.grants?.issue({
+        ownerId: request.ownerId,
+        runId,
+        principal,
+        startedBy: request.actingFor ? 'person' : request.startedBy ?? 'platform',
+        ...(grantProject ? { projectId: grantProject } : {}),
+        ...(request.actingFor ? { sharedProjectId: request.actingFor.hubProjectId } : {}),
+        ...(request.conversationId ? { conversationId: request.conversationId } : {}),
+      });
       const ticket: RunTicket = {
         runId,
         depth: 0,
         ownerId: request.ownerId,
         principal,
+        ...(grant ? { grantId: grant.id } : {}),
         ...(request.actingFor ? { actingFor: request.actingFor, projectId: request.actingFor.projectId } : {}),
         ...(request.keptTo && !request.actingFor ? { keptTo: request.keptTo, projectId: request.keptTo } : {}),
         agentSlug: request.agentSlug,
@@ -153,9 +171,6 @@ export function createRunStarter(options: RunStarterOptions) {
 
       const given = Object.fromEntries(Object.entries(request.inputs ?? {})
         .filter(([name]) => !(BINDING_INPUTS as readonly string[]).includes(name)));
-      const bound = request.conversationId && options.binding
-        ? await options.binding(request.ownerId, request.conversationId, request.actingFor)
-        : undefined;
 
       const input: ProcedureRunInput = {
         ticket,
@@ -209,10 +224,10 @@ export function createRunStarter(options: RunStarterOptions) {
       await workflows.signal(workflowOfRun(runId), 'approve', { callId, allowed, forRun });
     },
 
-    async cancel(runId: string): Promise<void> {
+    async cancel(runId: string, by?: string): Promise<void> {
       const workflows = options.workflows();
       if (!workflows?.signal) throw new EngineUnavailableError();
-      await workflows.signal(workflowOfRun(runId), 'cancelRun', undefined);
+      await workflows.signal(workflowOfRun(runId), 'cancelRun', by ? { by } : undefined);
     },
   };
 }

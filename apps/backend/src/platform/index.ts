@@ -38,6 +38,8 @@ export { writePrivate } from './lib/private-file.js';
 export { addressProblem } from './lib/public-address.js';
 export { K3S_TRAEFIK_CONFIG, k3sConfigState, ourTraefikArgs, servicesLabelled, traefikOf } from './lib/request-metrics.js';
 export type { HelmRelease } from './lib/request-metrics.js';
+export { REVOKED_BECAUSE, REVOKED_SAID } from './lib/revocations.js';
+export type { AccessRevoked, RevokedBecause } from './lib/revocations.js';
 export { crossSiteRefusal, foreignOrigin, ourOrigins } from './lib/same-site.js';
 export type { OurOrigins } from './lib/same-site.js';
 export { sameSeededRow } from './lib/seed-diff.js';
@@ -59,6 +61,7 @@ export { createAuth, parseCookie, principalFrom, requireAllowed } from './middle
 export type { Auth } from './middleware/auth.js';
 export { inFlightLimit } from './middleware/in-flight.js';
 export { temporalKeysRouter } from './routes/temporal-keys.js';
+export { AccessRevocations } from './services/AccessRevocations.js';
 export { BaseService } from './services/BaseService.js';
 export { drainThenStop } from './services/drain.js';
 export { MailError, MailService } from './services/MailService.js';

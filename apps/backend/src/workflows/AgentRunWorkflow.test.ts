@@ -20,7 +20,7 @@ import {
   type ModelReply,
   type Procedure,
 } from '@koala/agent-engine/procedure';
-import { AgentRunWorkflow, answerSignal, approveSignal, cancelSignal, stateQuery } from './AgentRunWorkflow.js';
+import { AgentRunWorkflow, answerSignal, approveSignal, cancelSignal, revokeSignal, stateQuery } from './AgentRunWorkflow.js';
 import { createEngineActivities, createNodeRunner } from '../engine-host/temporal/activities.js';
 import { createEnvironmentResolver } from '../engine-host/sandboxes/environments.js';
 import { createRunEnvironments } from '../engine-host/sandboxes/run-environments.js';
@@ -66,6 +66,7 @@ import {
   type RunEnvironment,
   type RunTicket,
   type ToolCallArgs,
+  type HandoverArgs,
 } from '../engine-host/temporal/contracts.js';
 
 const noSummaries = { resolveBaseUrl: async () => { throw new Error('nothing in this test outgrows its window'); } } as never;
@@ -170,6 +171,7 @@ function activities(options: {
       EngineToolActivity: vi.fn(async (args: ToolCallArgs) => ({ ok: true, digest: `ran ${args.name}`, content: `output of ${args.name}` })),
       EngineRecordTracesActivity: vi.fn(async (_args: RecordTracesArgs) => undefined),
       EngineMachineNameActivity: vi.fn(createEngineActivities({ machineName: async (_ownerId: string, deviceId: string) => (deviceId === 'desk' ? 'Desk' : undefined) } as never).EngineMachineNameActivity),
+      EngineHandoverActivity: vi.fn(async (_args: HandoverArgs) => ({ note: 'Asked the person, got no answer yet.', path: 'handover/run.md' })),
       ...(options.machineWork ?? {}),
     },
     device: options.external ? {
@@ -526,6 +528,32 @@ describe('AgentRunWorkflow', () => {
 
     expect(result).toMatchObject({ outcome: 'interrupted', reason: 'the run was cancelled' });
     expect(acts.engine.EngineSettleClaimsActivity).toHaveBeenCalledWith(expect.objectContaining({ outcome: 'interrupted' }));
+  }, 60_000);
+
+  it('ends a run whose access was revoked, gives it one turn to leave a handover note, and says why it ended', async () => {
+    const acts = activities({ script: [{ content: 'unused' }] });
+    const args = input('koala', WAITING, 'Ask me first.');
+    const result = await runWorkflow(args, acts, async (handle) => {
+      await handle.signal(revokeSignal, { because: 'signed-out-everywhere', at: '2026-10-29T10:00:00.000Z' });
+    });
+
+    expect(result).toMatchObject({ outcome: 'interrupted', reason: 'its access was revoked because they signed out everywhere' });
+    expect(acts.engine.EngineHandoverActivity).toHaveBeenCalledTimes(1);
+    expect(acts.engine.EngineHandoverActivity.mock.calls[0]![0]).toMatchObject({ because: 'signed-out-everywhere', ask: 'Ask me first.', ticket: { runId: args.ticket.runId } });
+    const ended = acts.stream.EngineLifecycleActivity.mock.calls.map(([event]) => event).find((event) => event.kind === 'run-ended');
+    expect(ended).toMatchObject({ outcome: 'interrupted', revokedBecause: 'signed-out-everywhere', handover: { note: 'Asked the person, got no answer yet.', path: 'handover/run.md' } });
+  }, 60_000);
+
+  it('says who stopped a run, and leaves no handover when it was stopped rather than revoked', async () => {
+    const acts = activities({ script: [{ content: 'unused' }] });
+    await runWorkflow(input('koala', WAITING), acts, async (handle) => {
+      await handle.signal(cancelSignal, { by: 'luno@example.com' });
+    });
+
+    expect(acts.engine.EngineHandoverActivity).not.toHaveBeenCalled();
+    const ended = acts.stream.EngineLifecycleActivity.mock.calls.map(([event]) => event).find((event) => event.kind === 'run-ended');
+    expect(ended).toMatchObject({ outcome: 'interrupted', stoppedBy: 'luno@example.com' });
+    expect(ended).not.toHaveProperty('revokedBecause');
   }, 60_000);
 
   it('stops a waiting run when it is cancelled', async () => {

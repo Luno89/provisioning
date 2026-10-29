@@ -155,6 +155,12 @@ export interface EngineHostOptions {
   published?: ((ownerId: string) => Promise<import('@koala/agent-engine/procedure').GroupDefinition[]>) | undefined;
   documents?: DocumentRepos | undefined;
   repoFor?: WorkspaceRepoResolver | undefined;
+  runGrants?: RunGrantChecks | undefined;
+}
+
+export interface RunGrantChecks {
+  callProblem(grantId: string | undefined, tool: string, projectId: string | undefined): Promise<string | undefined>;
+  keepHandover(ownerId: string, runId: string, handover: import('../engine/index.js').Handover): Promise<void>;
 }
 
 export interface EngineHost {
@@ -446,6 +452,7 @@ export function createEngineHost(options: EngineHostOptions): EngineHost {
         servers: (options.mcpServers ? await options.mcpServers.list(ownerId) : []).map((server) => ({ name: server.name, tools: (server.captured?.tools ?? []).map((tool) => tool.name) })),
       }),
       ...(options.checks ? { checks: options.checks } : {}),
+      ...(options.runGrants ? { handover: { keep: options.runGrants.keepHandover } } : {}),
       ...(stores.proposals ? {
         scenarios: {
           known: async (ownerId: string) => ({
@@ -499,7 +506,7 @@ export function createEngineHost(options: EngineHostOptions): EngineHost {
     tasks: (ownerId) => stores.tasks.list(ownerId),
     conversation: (ownerId, id) => stores.conversations.get(ownerId, id),
   });
-  const tools = createToolRuntime({ registry, environments, handlers, ...(serverTools ? { serverTools } : {}), ...(resources ? { resources } : {}) });
+  const tools = createToolRuntime({ registry, environments, handlers, ...(serverTools ? { serverTools } : {}), ...(resources ? { resources } : {}), ...(options.runGrants ? { grants: options.runGrants } : {}) });
 
   const efforts = options.efforts
     ? createEffortTracker({ models: options.models, registry, store: options.efforts })

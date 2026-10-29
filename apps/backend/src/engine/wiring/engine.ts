@@ -4,7 +4,7 @@ import { WorkflowNotFoundError } from '@temporalio/client';
 import type { Server as SocketServer } from 'socket.io';
 import type { PersonaRecord } from '@koala/agent-engine';
 import {
-  type Database, type SecretKey, servesTenants, type RoleConfig, signJWT, startedFor, getTemporalClient,
+  type AccessRevocations, type Database, type SecretKey, servesTenants, type RoleConfig, signJWT, startedFor, getTemporalClient,
   keepTrying, grovedTree, treeNotices, postedNotice, ownedBy,
   publicAddressProblem, principalOf, claimSettingsFrom, roleFromEnv,
 } from '../../platform/index.js';
@@ -27,6 +27,9 @@ import { extensionServiceFor } from '../services/ExtensionService.js';
 import { EngineToolService } from '../services/EngineToolService.js';
 import { McpServerService } from '../services/McpServerService.js';
 import { McpService } from '../services/McpService.js';
+import { RunGrantService } from '../services/RunGrantService.js';
+import { revokedNotice, REVOKED_SAID } from '../lib/run-grants.js';
+import type { ConversationNotice } from '../lib/conversations.js';
 import { WorkspaceDependencyService } from '../services/WorkspaceDependencyService.js';
 import { ConversationTurnService } from '../services/ConversationTurnService.js';
 import { WorkspaceBuildService } from '../services/WorkspaceBuildService.js';
@@ -71,6 +74,7 @@ export interface EngineCoreDeps {
   temporalBridge: TemporalBridge;
   machines: Pick<MachineService, 'choiceProblem'>;
   checks: () => Pick<Level2Service, 'list'> | undefined;
+  revocations?: AccessRevocations | undefined;
 }
 
 export interface EngineCore {
@@ -91,6 +95,7 @@ export interface EngineCore {
   reportMemory: (why: string) => (report: { started: string[] }) => void;
   concluded: (ownerId: string, conversationId: string | undefined) => void;
   runningRecords: (ownerId: string) => Promise<RunningRecords>;
+  runGrants: RunGrantService;
 }
 
 export function engineCore(deps: EngineCoreDeps): EngineCore {
@@ -144,8 +149,22 @@ export function engineCore(deps: EngineCoreDeps): EngineCore {
       }
     },
   });
+  const runGrants = new RunGrantService({
+    store: db.engine,
+    signalRevoked: async (runId, revocation) => {
+      if (!temporalBridge.isReady()) throw new Error('Temporal is not connected');
+      try {
+        await temporalBridge.client.workflow.getHandle(workflowOfRun(runId)).signal('revokeRun', revocation);
+      } catch (err) {
+        if (err instanceof WorkflowNotFoundError) return;
+        throw err;
+      }
+    },
+  });
+  deps.revocations?.listen((revoked) => runGrants.revokeGrantsOf(revoked));
   const engineRuns = createRunStarter({
     registry: engineRegistry,
+    grants: runGrants,
     principal: async (ownerId) => principalOf((await db.accounts.getUserById(ownerId)) ?? { id: ownerId }, claimSettingsFrom(roleFromEnv(deps.env))),
     turns: conversationTurns,
     ...(Number(env.ENGINE_CONTINUE_AFTER_EVENTS) > 0 ? { continueAfterEvents: Number(env.ENGINE_CONTINUE_AFTER_EVENTS) } : {}),
@@ -224,7 +243,7 @@ export function engineCore(deps: EngineCoreDeps): EngineCore {
   };
   return {
     extensions, dependencyFollowers, workspaceDependencies, dependenciesOf, agentDirectory, engineRegistry, conversationTurns, engineRuns, workspaceBuilds,
-    bench, agentsHolder, workspaceRepos, workspaceConclusions, memoryKeeper, reportMemory, concluded, runningRecords,
+    bench, agentsHolder, workspaceRepos, workspaceConclusions, memoryKeeper, reportMemory, concluded, runningRecords, runGrants,
   };
 }
 
@@ -465,6 +484,7 @@ export async function wireEngine(deps: EngineWiringDeps): Promise<EngineWiring> 
       prune: async () => evalHost.imagePruner?.prune(),
     },
     traces: { list: (ownerId: string, runId: string) => db.engine.getRunTraces(ownerId, runId) },
+    endings: { list: (ownerId: string, runIds: readonly string[]) => core.runGrants.endings(ownerId, runIds) },
     tasks: {
       list: (ownerId: string) => db.projects.getTasks(ownerId),
       save: (task) => db.projects.saveTask(task),
@@ -584,7 +604,7 @@ export interface EngineStreamDeps {
   payloadKey: SecretKey;
   core: EngineCore;
   models: ModelService;
-  notices: Pick<ConversationNoticeService, 'post'>;
+  notices: Pick<ConversationNoticeService, 'post' | 'postTo'>;
   postNotice: (what: string, posting: Promise<unknown>) => void;
   workFailures: Pick<WorkFailureService, 'runEnded'>;
 }
@@ -617,7 +637,34 @@ export function startEngineStream(deps: EngineStreamDeps): void {
               }
             })());
           }
-          if (event.kind === 'run-ended') await deps.workFailures.runEnded(event).catch((err: Error) => console.warn(`[failures] ${err.message}`));
+          const settled = event.kind === 'run-ended'
+            ? await core.runGrants.runEnded(event).catch((err: Error) => { console.warn(`[run-grants] ${event.runId}: ${err.message}`); return undefined; })
+            : undefined;
+          const revokedBecause = settled?.ending.ended?.how === 'revoked' ? settled.ending.ended.revokedBecause : undefined;
+          if (event.kind === 'run-ended' && event.depth === 0 && revokedBecause) {
+            deps.postNotice('a run ended on revocation', (async () => {
+              const who = settled?.grant ? (await db.accounts.getUserById(settled.grant.personId))?.email ?? 'the person who started it' : 'the person who started it';
+              const handover = event.handover;
+              const treeId = grovedTree(event.runId, event.depth);
+              const projectId = settled?.grant?.scope.projectId;
+              const notice: ConversationNotice = {
+                key: `run-revoked:${event.runId}`,
+                kind: 'run-revoked',
+                text: `${revokedNotice(who, revokedBecause, handover)}${handover?.note ? `\n\n${handover.note}` : ''}`,
+                line: revokedNotice(who, revokedBecause, handover),
+                refs: { ...(projectId ? { projectId } : {}), ...(treeId ? { treeId } : {}), runId: event.runId },
+                actions: treeId ? ['open-tree'] : [],
+              };
+              if (projectId || treeId) await deps.notices.post(event.ownerId, { ...(projectId ? { projectId } : {}), ...(treeId ? { treeId } : {}) }, notice);
+              else if (event.conversationId) await deps.notices.postTo(event.ownerId, event.conversationId, notice);
+            })());
+          }
+          if (event.kind === 'run-ended') {
+            await deps.workFailures.runEnded({
+              ...event,
+              ...(revokedBecause ? { revoked: { reason: `its access was revoked: ${REVOKED_SAID[revokedBecause]}`, ...(event.handover?.note ? { handover: event.handover.note } : {}) } } : {}),
+            }).catch((err: Error) => console.warn(`[failures] ${err.message}`));
+          }
           reportMemory(event.kind)(await memoryKeeper.handle(event));
           await bench.service?.activity(event);
         },

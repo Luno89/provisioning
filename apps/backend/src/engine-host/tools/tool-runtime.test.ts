@@ -121,6 +121,23 @@ describe('tool runtime', () => {
     expect(backend.readFile).toHaveBeenCalled();
   });
 
+  it('asks the run\'s grant before every call, and runs nothing it refuses', async () => {
+    const { backend, driver } = sandbox();
+    const asked: [string | undefined, string, string | undefined][] = [];
+    const tools = createToolRuntime({
+      registry: registry(),
+      environments: sourceFor(driver),
+      grants: { callProblem: async (grantId, tool, projectId) => { asked.push([grantId, tool, projectId]); return grantId === 'grant-gone' ? `This run's access was revoked because they signed out everywhere, so it may not use ${tool}.` : undefined; } },
+    });
+    const live = await tools.run(args({ ticket: { runId: 'run-1', depth: 0, ownerId: 'user-1', agentSlug: 'executor', trigger: 'user', grantId: 'grant-live' } }));
+    expect(live.ok).toBe(true);
+    const gone = await tools.run(args({ ticket: { runId: 'run-1', depth: 0, ownerId: 'user-1', agentSlug: 'executor', trigger: 'user', grantId: 'grant-gone' } }));
+    expect(gone).toMatchObject({ ok: false });
+    expect(gone.digest).toContain('access was revoked because they signed out everywhere, so it may not use run_command');
+    expect(backend.exec).toHaveBeenCalledTimes(1);
+    expect(asked).toEqual([['grant-live', 'run_command', undefined], ['grant-gone', 'run_command', undefined]]);
+  });
+
   it('hands the run\'s project to a platform tool', async () => {
     const seen: (string | undefined)[] = [];
     const tools = createToolRuntime({

@@ -36,6 +36,7 @@ export interface RunEnded {
   outcome: string;
   reason?: string | undefined;
   depth: number;
+  revoked?: { reason: string; handover?: string | undefined } | undefined;
 }
 
 export const POLL_MS = 30_000;
@@ -80,16 +81,17 @@ export class WorkFailureService {
   }
 
   async runEnded(event: RunEnded): Promise<WorkFailure | undefined> {
-    if (event.depth !== 0 || event.outcome !== 'failed') return undefined;
+    if (event.depth !== 0 || (event.outcome !== 'failed' && !event.revoked)) return undefined;
     if (!(await this.deps.isPerson(event.ownerId))) return undefined;
     const workflow = await this.deps.workflows.describeRun(event.runId).catch(() => undefined)
       ?? { workflowId: event.runId, type: 'AgentRunWorkflow', startedAt: this.now().toISOString() };
     const failure = describeFailure(workflow, await this.recordsOf(event.ownerId), {
       id: runFailureId(event.runId),
       ownerId: event.ownerId,
-      reason: event.reason ?? 'it failed',
+      reason: event.revoked?.reason ?? event.reason ?? 'it failed',
       failedAt: this.now().toISOString(),
     });
+    if (event.revoked?.handover) failure.handover = event.revoked.handover;
     await this.record(failure);
     return failure;
   }

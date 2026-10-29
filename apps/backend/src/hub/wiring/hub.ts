@@ -1,6 +1,6 @@
 import type express from 'express';
 import {
-  type Database, type SecretKey, claimSettingsFrom, holdsAccounts, principalOf, servesHub, servesTenants, type RoleConfig, mongoTarget,
+  type AccessRevoked, type Database, type SecretKey, claimSettingsFrom, holdsAccounts, principalOf, servesHub, servesTenants, type RoleConfig, mongoTarget,
   type ProjectMetadata, type MailService,
 } from '../../platform/index.js';
 import { memoryHubStore } from '../lib/hub-store.js';
@@ -41,6 +41,7 @@ export interface HubWiringDeps {
   notify: (ownerId: string, scope: { projectId: string; treeId?: string | undefined }, notice: ConversationNotice) => Promise<unknown>;
   republish: () => Promise<void>;
   syncEveryMs?: number | undefined;
+  revoked?: ((revoked: AccessRevoked) => Promise<void>) | undefined;
 }
 
 export interface HubWiring {
@@ -64,7 +65,7 @@ export async function wireHub(deps: HubWiringDeps): Promise<HubWiring> {
     await hubStore.init();
     const sender = role.hub ? new HubRootClient(role.hub) : projectInvites;
     if (!sender) throw new Error('a hub needs root to send its invites');
-    hubService = new HubService({ store: hubStore, invites: sender, repos: giteaHubRepos(deps.gitea), relay: new HubRelay() });
+    hubService = new HubService({ store: hubStore, invites: sender, repos: giteaHubRepos(deps.gitea), relay: new HubRelay(), ...(deps.revoked ? { revoked: deps.revoked } : {}) });
     app.use('/api/hub', hubRouter({ hub: hubService }));
     if (role.role === 'hub' && role.trusted) app.use('/api/hub-instance', hubInstanceRouter({ hub: hubService, trusted: role.trusted, claim: (jti, expiresAt) => db.instances.claimHandoff(jti, expiresAt) }));
     if (role.role === 'hub' && role.trusted) app.use('/api/hub-root', hubRootRouter({ hub: hubService, trusted: role.trusted, forget: (id) => db.accounts.deleteUser(id), claim: (jti, expiresAt) => db.instances.claimHandoff(jti, expiresAt) }));
@@ -174,6 +175,7 @@ export function hubInstanceWork(deps: HubWorkDeps): HubInstanceWork {
         try {
           await deps.runs.start({
             ownerId,
+            startedBy: 'person',
             ...(actingFor ? { actingFor } : {}),
             agentSlug: typeof conversation.agentSlug === 'string' ? conversation.agentSlug : 'koala',
             message: note.content,

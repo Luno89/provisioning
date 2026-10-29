@@ -1,3 +1,4 @@
+import type { Handover, RevokedBecause } from '../../engine/index.js';
 import type { ModelReach } from '@koala/harness-types';
 import type {
   EngineEvent,
@@ -33,6 +34,7 @@ export interface RunTicket {
   depth: number;
   ownerId: string;
   principal?: Principal | undefined;
+  grantId?: string | undefined;
   actingFor?: ActingFor | undefined;
   keptTo?: string | undefined;
   agentSlug: string;
@@ -90,8 +92,19 @@ export type LifecycleEvent =
     depth: number;
     conversationId?: string | undefined;
     leafId?: string | undefined;
+    stoppedBy?: string | undefined;
+    revokedBecause?: RevokedBecause | undefined;
+    handover?: Handover | undefined;
   }
   | { kind: 'conversation-quiet'; ownerId: string; conversationId: string };
+
+export interface HandoverArgs {
+  ticket: RunTicket;
+  ask: string;
+  because: RevokedBecause;
+  steps: { name: string; ok?: boolean | undefined; digest?: string | undefined }[];
+  environment?: EnvironmentHandleRef | undefined;
+}
 
 export {
   BENCH_IDLE_WORKFLOW, CONCLUDE_WORKSPACE_WORKFLOW, CONVERSATION_CONCLUSION_WORKFLOW, benchIdleId, concludeWorkspaceId, conversationConclusionId,
@@ -278,6 +291,7 @@ export const ticketFor = (run: Pick<RunContext, 'identity' | 'launch'>): RunTick
   depth: run.identity.depth,
   ownerId: run.launch.ownerId,
   ...(run.launch.principal ? { principal: run.launch.principal as Principal } : {}),
+  ...(run.launch.grantId ? { grantId: run.launch.grantId } : {}),
   ...(run.launch.actingFor ? { actingFor: run.launch.actingFor } : {}),
   ...(run.launch.keptTo ? { keptTo: run.launch.keptTo } : {}),
   ...(run.launch.turnId && run.launch.turnId !== run.identity.runId ? { turnId: run.launch.turnId } : {}),
@@ -295,6 +309,7 @@ export const turnOf = (ticket: Pick<RunTicket, 'runId' | 'turnId'>): string => t
 export const launchFor = (ticket: RunTicket, projectId?: string): RunLaunch => ({
   ownerId: ticket.ownerId,
   ...(ticket.principal ? { principal: ticket.principal } : {}),
+  ...(ticket.grantId ? { grantId: ticket.grantId } : {}),
   ...(ticket.actingFor ? { actingFor: ticket.actingFor } : {}),
   ...(ticket.keptTo ? { keptTo: ticket.keptTo } : {}),
   turnId: turnOf(ticket),

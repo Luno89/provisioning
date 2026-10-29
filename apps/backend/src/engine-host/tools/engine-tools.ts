@@ -1,6 +1,7 @@
 import { createProcedureTools, type ProcedureSourceStore, type ProcedureScope } from '../registries/procedure-tools.js';
 import { createTaskTools, type TaskStore } from './task-tools.js';
 import { createVerdictTools } from './verdict-tools.js';
+import { createHandoverTools, type HandoverToolDeps } from './handover-tools.js';
 import type { GroveToolOptions } from '../../extensions/grove/tools/grove-tools.js';
 import { createPlatformTools, type PlatformToolOptions } from './platform-tools.js';
 import { createSecretTools, type SecretToolOptions } from './secret-tools.js';
@@ -44,13 +45,17 @@ export interface EngineToolDeps {
   scenarios?: ScenarioProposalAccess | undefined;
   checks?: CheckAccess | undefined;
   agentChanges?: AgentChangeAccess | undefined;
+  handover?: HandoverToolDeps | undefined;
 }
+
+const NO_HANDOVERS: HandoverToolDeps = { keep: async () => { throw new Error('this server keeps no handover notes'); } };
 
 export function createEngineToolHandlers(deps: EngineToolDeps): Record<string, ToolHandler> {
   return {
     ...createProcedureTools({ store: deps.procedures, scope: deps.scope }),
     ...createTaskTools({ store: deps.tasks, binding: deps.binding, ...(deps.accepted ? { accepted: deps.accepted } : {}) }),
     ...createVerdictTools(),
+    ...createHandoverTools(deps.handover ?? NO_HANDOVERS),
     ...deps.extensions,
     ...createPlatformTools(deps.platform),
     ...(deps.secrets ? createSecretTools(deps.secrets) : {}),

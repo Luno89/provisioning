@@ -441,7 +441,7 @@ describe('engine routes', () => {
     await h.close();
   });
 
-  it('cancels a run, and only the person\'s own', async () => {
+  it('cancels a run, only the person\'s own, saying who stopped it', async () => {
     const workflows = starter();
     const h: Harness = await harnessWith(workflows);
     await harnessDb!.engine.appendTurnLog({ turnId: 'run-1', ownerId: TEST_USER.id, seq: 1, at: 'now', events: [] });
@@ -449,7 +449,7 @@ describe('engine routes', () => {
 
     await axios.post(h.url('/api/engine/runs/run-1/cancel'), {});
 
-    expect(workflows.signal).toHaveBeenCalledWith('run-1', 'cancelRun', undefined);
+    expect(workflows.signal).toHaveBeenCalledWith('run-1', 'cancelRun', { by: TEST_USER.email });
     expect((await axios.post(h.url('/api/engine/runs/run-theirs/cancel'), {}, { validateStatus: () => true })).status).toBe(404);
     expect(workflows.signal).toHaveBeenCalledTimes(1);
 

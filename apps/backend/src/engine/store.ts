@@ -15,6 +15,7 @@ import { type ProcedureSource, procedureKey } from './lib/procedure-source.js';
 import type { PublishedWorkspace } from './lib/published-workspace.js';
 import type { RunEffort } from '@koala/agent-engine/procedure';
 import { type StoredNodeTrace, runTraceKey } from './lib/run-traces.js';
+import type { Handover, RunEnded, RunGrant } from './lib/run-grants.js';
 import type { WorkspaceImageSpec } from './lib/workspace-image-seeds.js';
 
 export interface EngineStore extends AreaStore {
@@ -89,6 +90,22 @@ export interface EngineStore extends AreaStore {
   getEngineTools(ownerId?: string): Promise<EngineTool[]>;
   saveEngineTool(tool: EngineTool): Promise<void>;
   deleteEngineTool(ownerId: string | undefined, name: string): Promise<void>;
+  saveRunGrant(grant: RunGrant): Promise<void>;
+  getRunGrant(id: string): Promise<RunGrant | undefined>;
+  getRunGrantOfRun(runId: string): Promise<RunGrant | undefined>;
+  getLiveRunGrants(personId: string): Promise<RunGrant[]>;
+  saveRunEnded(ending: RunEnding): Promise<void>;
+  saveRunHandover(ownerId: string, runId: string, handover: Handover): Promise<void>;
+  getRunEndings(ownerId: string, runIds: readonly string[]): Promise<RunEnding[]>;
+}
+
+export interface RunEnding {
+  runId: string;
+  ownerId: string;
+  agentSlug?: string | undefined;
+  depth?: number | undefined;
+  ended?: RunEnded | undefined;
+  handover?: Handover | undefined;
 }
 
 const toolGrantKey = (ownerId: string, agent: string, tool: string, kind?: GrantKind | undefined): string => (kind === 'server' ? `${ownerId}:${agent}:server:${tool}` : `${ownerId}:${agent}:${tool}`);
@@ -165,6 +182,14 @@ export class MongoEngineStore implements EngineStore {
     return this.db().collection('engineRunEffort');
   }
 
+  private get runGrants(): Collection {
+    return this.db().collection('runGrants');
+  }
+
+  private get runEndings(): Collection {
+    return this.db().collection('runEndings');
+  }
+
   private get runTraces(): Collection {
     return this.db().collection('engineRunTraces');
   }
@@ -195,6 +220,45 @@ export class MongoEngineStore implements EngineStore {
     await this.frontier.createIndex({ ingestId: 1, state: 1, depth: 1, rank: -1, url: 1 });
     await this.corpus.createIndex({ ownerId: 1, ingestId: 1 });
     await this.corpus.createIndex({ ownerId: 1, projectId: 1 });
+    await this.runGrants.createIndex({ personId: 1, state: 1 });
+    await this.runGrants.createIndex({ runId: 1 });
+    await this.runEndings.createIndex({ ownerId: 1, runId: 1 });
+  }
+
+  async saveRunGrant(grant: RunGrant): Promise<void> {
+    const { _id, ...rest } = toDoc(grant);
+    await this.runGrants.replaceOne({ _id }, rest, { upsert: true });
+  }
+
+  async getRunGrant(id: string): Promise<RunGrant | undefined> {
+    const doc = await this.runGrants.findOne({ _id: id as never });
+    return doc ? fromDoc<RunGrant>(doc) : undefined;
+  }
+
+  async getRunGrantOfRun(runId: string): Promise<RunGrant | undefined> {
+    const doc = await this.runGrants.findOne({ runId });
+    return doc ? fromDoc<RunGrant>(doc) : undefined;
+  }
+
+  async getLiveRunGrants(personId: string): Promise<RunGrant[]> {
+    return (await this.runGrants.find({ personId, state: 'live' }).toArray()).map((doc) => fromDoc<RunGrant>(doc));
+  }
+
+  async saveRunEnded(ending: RunEnding): Promise<void> {
+    const { runId, ownerId, ...rest } = ending;
+    await this.runEndings.updateOne({ _id: runId as never }, { $set: { runId, ownerId, ...rest } }, { upsert: true });
+  }
+
+  async saveRunHandover(ownerId: string, runId: string, handover: Handover): Promise<void> {
+    await this.runEndings.updateOne({ _id: runId as never }, { $set: { runId, ownerId, handover } }, { upsert: true });
+  }
+
+  async getRunEndings(ownerId: string, runIds: readonly string[]): Promise<RunEnding[]> {
+    if (runIds.length === 0) return [];
+    return (await this.runEndings.find({ ownerId, runId: { $in: [...runIds] } }).toArray()).map((doc) => {
+      const { _id, ...rest } = doc;
+      return rest as unknown as RunEnding;
+    });
   }
 
   async getCorpusPages(filter: { ownerId: string; ingestId?: string; projectId?: string }): Promise<CorpusPage[]> {
@@ -364,6 +428,8 @@ export class MongoEngineStore implements EngineStore {
       this.db().collection('engineRunTraces').updateMany({ ownerId: from, ...runs }, { $set: { ownerId: to } }),
       this.turnLogs.updateMany({ ownerId: from, ...turns }, { $set: { ownerId: to } }),
       this.runEffort.updateMany({ ownerId: from, ...runs }, { $set: { ownerId: to } }),
+      this.runEndings.updateMany({ ownerId: from, ...runs }, { $set: { ownerId: to } }),
+      this.runGrants.updateMany({ ownerId: from, ...runs }, { $set: { ownerId: to } }),
       this.reownArtifacts(from, to, runIds),
     ]);
     return moved.reduce((total, result) => total + result.modifiedCount, 0);

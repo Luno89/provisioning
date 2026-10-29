@@ -19,7 +19,7 @@ import {
   getTemporalClient, resolveOwnersWith, PayloadStorageService, createAuth, inFlightLimit, keepTrying, mongoTarget, asyncRoute,
   TEMPORAL_JWKS_PATH, temporalCa, temporalKeysRouter, temporalNamespaceFrom,
   authorize, claimSettingsFrom, type Principal, createDatabase, sharedPayloadBlobs, type Database, migrateLegacyOwnership, ownUnownedProjects, decryptValue, loadKeys,
-  roleFromEnv, servesTenants, holdsAccounts, MailService, emailWayFrom, telemetrySettings, e2eProblem, firstAdminSetup, drainThenStop, podPlaceFrom, runOnce,
+  AccessRevocations, type AccessRevoked, roleFromEnv, servesTenants, holdsAccounts, MailService, emailWayFrom, telemetrySettings, e2eProblem, firstAdminSetup, drainThenStop, podPlaceFrom, runOnce,
 } from './platform/index.js';
 import { startTelemetry } from '@koala/engine-core/telemetry-sdk';
 import { rateLimit } from 'express-rate-limit';
@@ -202,7 +202,9 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     }, (message) => console.warn(message));
   }
 
-  const engine = engineCore({ db, env: process.env, temporalBridge, machines: machineService, checks: () => level2Service });
+  const revocations = new AccessRevocations();
+  const revoked = (gone: AccessRevoked) => revocations.revoked(gone);
+  const engine = engineCore({ db, env: process.env, temporalBridge, machines: machineService, checks: () => level2Service, revocations });
   const {
     extensions, agentDirectory, engineRegistry, engineRuns, workspaceBuilds, workspaceRepos, workspaceConclusions,
     memoryKeeper, concluded, runningRecords, bench, agentsHolder, workspaceDependencies,
@@ -306,12 +308,13 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   wireSockets({ io, db, role, env: process.env, payloadKey: keys.payload, dataKey: keys.data, auth, machines: machineService, clusters: clusterService, apps: appService, infra: infraService, telemetry: machineTelemetry({ sink: () => telemetrySink }), machineTemporal });
 
   app.use('/api/auth', authRouter({
-    db, authService, auth, sessionKey: keys.session, publicUrl: PUBLIC_URL, appUrl: APP_URL, accounts: holdsAccounts(role), hub: role.role === 'hub',
+    db, authService, auth, sessionKey: keys.session, publicUrl: PUBLIC_URL, appUrl: APP_URL, accounts: holdsAccounts(role), hub: role.role === 'hub', revoked,
   }));
   const hub = await wireHub({
     role, env: process.env, app, tenant, db, mail, publicUrl: PUBLIC_URL, dataKey: keys.data, gitea: giteaService,
     notify: (ownerId, scope, notice) => notices.post(ownerId, scope, notice),
     republish: () => appExposureService.syncExposedApps(),
+    revoked,
   });
 
   tenant.get('/ingress/verify', async (req, res) => {
@@ -366,7 +369,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
       },
     } : {}),
   });
-  wireAccounts({ app, role, env: process.env, db, temporalBridge, hubPeople: hub.hubPeople, operatorOnly: requireOperator('manage-accounts'), clearSession: auth.clearSession });
+  wireAccounts({ app, role, env: process.env, db, temporalBridge, hubPeople: hub.hubPeople, operatorOnly: requireOperator('manage-accounts'), clearSession: auth.clearSession, revoked });
   tenant.use('/api/models', modelsRouter({ modelService, db, credentialService, machines: machineService, rateLimits: getModelRateLimiterSnapshot }));
 
   const { evalHost, level2Service, procedureService, mcpCatalogue } = await wireEngine({

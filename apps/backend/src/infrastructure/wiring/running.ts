@@ -121,7 +121,7 @@ export function wireRunning(deps: RunningWiringDeps): { running: RunningService 
     records: deps.records,
     checks: { cancel: (ownerId, id) => deps.checks.cancel(ownerId, id) },
     trees: { stop: async (ownerId, treeId) => { const outcome = await deps.trees.stop(ownerId, treeId); return outcome.ok ? { ok: true } : { ok: false, error: outcome.error }; } },
-    runs: { cancel: (runId) => deps.runs.cancel(runId) },
+    runs: { cancel: (runId, by) => deps.runs.cancel(runId, by) },
     bench: {
       settings: async (ownerId) => (deps.bench.service ? deps.bench.service.settings(ownerId) : { ...DEFAULT_BENCH_SETTINGS }),
       saveSettings: async (ownerId, value) => (deps.bench.service ? deps.bench.service.saveSettings(ownerId, value) : { saved: false, problems: ['the bench is not set up here'] }),

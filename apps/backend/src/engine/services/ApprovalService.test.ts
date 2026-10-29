@@ -61,8 +61,8 @@ describe('answering or stopping a run', () => {
   it('reaches only the run\'s owner\'s runs, the ones it handed work to included', async () => {
     expect(await service().answer('bo', 'run-1-check-writer-1', 'decide', 'Cut over')).toBe('sent');
     expect(answer).toHaveBeenCalledWith('run-1-check-writer-1', 'decide', 'Cut over');
-    expect(await service().cancel('bo', 'run-1')).toBe('sent');
-    expect(cancel).toHaveBeenCalledWith('run-1');
+    expect(await service().cancel('bo', 'run-1', 'bo@example.com')).toBe('sent');
+    expect(cancel).toHaveBeenCalledWith('run-1', 'bo@example.com');
     answer.mockClear();
     cancel.mockClear();
     expect(await service().answer('eve', 'run-1', 'decide', 'Cut over')).toBe('not-yours');

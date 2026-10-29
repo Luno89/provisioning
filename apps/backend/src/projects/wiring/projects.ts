@@ -188,6 +188,7 @@ export function wireProjects(deps: ProjectsWiringDeps): ProjectsWiring {
       },
       leafRun: async (leafId: string) => (await db.projects.getLeaves()).find((leaf) => leaf.id === leafId)?.runId,
       modelFor: (ownerId, treeId, agentSlug) => treeModels.modelFor(ownerId, treeId, agentSlug),
+      projectOf: async (ownerId: string, treeId: string) => (await db.projects.getTrees()).find((entry) => entry.id === treeId && entry.ownerId === ownerId)?.projectIds?.[0],
     }),
   });
   const treeConclusions = { release: (treeId: string, ownerId: string) => deps.workspaceConclusions.conclude(ownerId, { kind: 'tree', id: treeId }) };

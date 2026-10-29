@@ -10,6 +10,7 @@ export interface WorkFailure {
   reason: string;
   failedAt: string;
   clearedAt?: string | undefined;
+  handover?: string | undefined;
 }
 
 export const SHOWN_FOR_MS = 7 * 86_400_000;

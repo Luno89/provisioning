@@ -4,13 +4,15 @@ import { ApplicationFailure } from '@temporalio/common';
 import { Context } from '@temporalio/activity';
 import { abandonedBy, type Task } from '../tools/tasks.js';
 import {
+  asContract,
   callModel,
   type EngineEndpoint,
   type Monitor,
   type EventBus,
 } from '@koala/agent-engine';
 import { UNRESOLVED_MODEL, type EffortTracker, type RunLimits, type RunLimitsArgs } from '../registries/effort.js';
-import { machineChoiceId, type MachineChoice, type RunEffort } from '@koala/agent-engine/procedure';
+import { machineChoice, machineChoiceId, toWireMessages, type MachineChoice, type RunEffort } from '@koala/agent-engine/procedure';
+import { toolSchemas } from '@koala/engine-core';
 import {
   type NodeCatalogue,
   type NodeImplementation,
@@ -37,7 +39,9 @@ import type {
   ToolAllowedArgs, AutoModeArgs,
   ProcedureRunInput,
 } from './contracts.js';
-import { type LifecycleEvent, type BenchIdleOutcome, type ConcludeWorkspaceArgs, groveRunId, runStamp } from './contracts.js';
+import { type HandoverArgs, type LifecycleEvent, type BenchIdleOutcome, type ConcludeWorkspaceArgs, groveRunId, runStamp } from './contracts.js';
+import { HANDOVER_TOOL, handoverPrompt, type Handover } from '../../engine/lib/run-grants.js';
+import { HANDOVER_TOOLS } from '../tools/handover-tools-catalogue.js';
 import type { ConversationWorkspaces } from '../sandboxes/conversation-workspaces.js';
 import type { SavedDocuments } from '../sandboxes/workspace-documents.js';
 import { DEFAULT_CHAT_AGENT } from '../../memory/lib/conclusions.js';
@@ -207,6 +211,7 @@ export interface EngineActivities extends StreamActivities {
   EngineMachineKeepActivity(args: MachineWorkRequest): Promise<{ kept: true; commit: string } | { kept: false; why: string }>;
   EngineMachineDropActivity(args: MachineWorkRequest): Promise<void>;
   EngineMachineNameActivity(args: { ownerId: string; deviceId: string }): Promise<string | null>;
+  EngineHandoverActivity(args: HandoverArgs): Promise<Handover>;
 }
 
 export function createEngineActivities(services: EngineServices): EngineActivities {
@@ -340,6 +345,40 @@ export function createEngineActivities(services: EngineServices): EngineActiviti
 
     async EngineMachineNameActivity({ ownerId, deviceId }) {
       return (await services.machineName?.(ownerId, deviceId)) ?? null;
+    },
+
+    async EngineHandoverActivity({ ticket, ask, because, steps, environment }): Promise<Handover> {
+      if (ticket.modelId && machineChoice(ticket.modelId)) return { failed: 'it ran on an agent on a machine, which cannot be asked for a note once its access is gone' };
+      const prompt = handoverPrompt(because, ask, steps);
+      let note: string;
+      try {
+        const resolved = await services.endpoints.forAgent({ ownerId: ticket.ownerId, agentSlug: ticket.agentSlug, ...(ticket.modelId ? { modelId: ticket.modelId } : {}) });
+        const reply = await callModel({
+          endpoint: resolved.endpoint,
+          messages: toWireMessages(prompt.system, [{ role: 'user', content: prompt.user }]),
+          tools: toolSchemas(HANDOVER_TOOLS.map(asContract)),
+          maxTokens: resolved.maxTokens,
+          ...(resolved.sampling ? { sampling: resolved.sampling } : {}),
+        });
+        const called = reply.toolCalls.find((call) => call.name === HANDOVER_TOOL);
+        const given = called ? (() => { try { return (JSON.parse(called.arguments || '{}') as { note?: unknown }).note; } catch { return undefined; } })() : reply.content;
+        note = typeof given === 'string' ? given.trim() : '';
+      } catch (err) {
+        return { failed: `its model did not answer: ${(err as Error).message}` };
+      }
+      if (!note) return { failed: 'its model answered without a note' };
+      const kept = await services.tools.run({
+        ticket,
+        nodeId: 'handover',
+        name: HANDOVER_TOOL,
+        arguments: JSON.stringify({ note, because }),
+        granted: [HANDOVER_TOOL],
+        ...(environment ? { environment } : {}),
+      });
+      if (!kept.ok) return { note, failed: kept.content ?? kept.digest };
+      const file = kept.artifacts?.find((artifact) => artifact.kind === 'file');
+      const path = file && 'path' in file ? file.path : undefined;
+      return { note, ...(path ? { path } : {}) };
     },
 
     async EngineMachineSendActivity({ start, ...args }) {

@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import { allowed, asPerson, sharedActionsOf, withSharedRole, type Principal } from '../../platform/index.js';
+import { allowed, asPerson, sharedActionsOf, withSharedRole, type AccessRevoked, type Principal } from '../../platform/index.js';
 import {
   inviteProblem, INVITE_TOKEN, leavingAll, leavingProblem, roleChangeProblem, sameEmail, sharerOf, SHARED_PROJECT_ID, sharedProjectProblem,
   type HubAction, type HubInvite, type HubMember, type HubRole, type SharedProject,
@@ -35,6 +35,7 @@ export interface HubServiceDeps {
   invites: InviteSender;
   repos?: HubRepos | undefined;
   relay?: HubRelay | undefined;
+  revoked?: ((revoked: AccessRevoked) => Promise<void>) | undefined;
   now?: (() => string) | undefined;
 }
 
@@ -507,6 +508,7 @@ export class HubService {
     if (problem) return wrong(memberId === personId ? problem : problem.replace('the last owner cannot leave', 'the last owner cannot be removed'));
     await access.store.deleteMember(memberId);
     await this.deps.store.removeMembership(memberId, projectId);
+    await this.deps.revoked?.({ personId: memberId, because: 'removed-from-shared-project', sharedProjectId: projectId });
     return { ok: true, value: { removed: memberId } };
   }
 }

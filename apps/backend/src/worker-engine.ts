@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { machineChoiceProblem, accountDefaultOf } from './machines/index.js';
 import {
-  catalogueOf, AutoModeService, resolveMcpProbeUrl, extensionServiceFor, WorkspaceBuildService, hostedMcpUrl,
+  catalogueOf, AutoModeService, resolveMcpProbeUrl, extensionServiceFor, RunGrantService, WorkspaceBuildService, hostedMcpUrl,
 } from './engine/index.js';
 import { startOnceQuiet } from './engine-host/grove-launcher.js';
 import { SHIPPED_DEPENDENCIES } from './extensions/workspace-dependencies.js';
@@ -183,7 +183,12 @@ async function buildActivities() {
     helm: async (cluster, args) => String(await kubeInfra.runHelm(args, await clusterService.getKubeconfigPath(cluster))),
   });
   const engineFiles = new FileService({ store: db, open: (ownerId, place) => fileStores.open(ownerId, place), defaultCluster: DEFAULT_TARGET_CLUSTER });
+  const runGrants = new RunGrantService({ store: db.engine });
   const host = createEngineHost({
+    runGrants: {
+      callProblem: (grantId, tool, projectId) => runGrants.callProblem(grantId, tool, projectId),
+      keepHandover: (ownerId, runId, handover) => runGrants.keepHandover(ownerId, runId, handover),
+    },
     files: {
       files: engineFiles,
       projects: async (ownerId) => (await db.projects.getProjects()).filter((project) => project.ownerId === ownerId),
@@ -355,6 +360,7 @@ async function buildActivities() {
   };
   const runStarter = createRunStarter({
     principal: async (ownerId) => principalOf((await db.accounts.getUserById(ownerId)) ?? { id: ownerId }, claimSettingsFrom(engineRole)),
+    grants: runGrants,
     registry,
     workflows: () => ({
       start: async (type, options) => {
@@ -378,6 +384,7 @@ async function buildActivities() {
     },
     leafRun: async (leafId: string) => (await db.projects.getLeaves()).find((leaf) => leaf.id === leafId)?.runId,
     modelFor: (ownerId, treeId, agentSlug) => treeModels.modelFor(ownerId, treeId, agentSlug),
+    projectOf: async (ownerId: string, treeId: string) => (await db.projects.getTrees()).find((entry) => entry.id === treeId && entry.ownerId === ownerId)?.projectIds?.[0],
   });
 
   const sweeper = setInterval(() => {

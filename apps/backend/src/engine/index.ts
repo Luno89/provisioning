@@ -22,6 +22,7 @@ export type { McpServerRecord, McpServerTemplate, ServerRuns } from './lib/mcp-s
 export type { ProcedureSource } from './lib/procedure-source.js';
 export { installText, stageText } from './lib/published-workspace.js';
 export type { Parking, PublishedWorkspace } from './lib/published-workspace.js';
+export type { GrantRequest, GrantStartedBy, Handover, RevokedBecause, RunEnded } from './lib/run-grants.js';
 export { samplingAt, temperatureProblem } from './lib/run-knobs.js';
 export { LIVE_RUN_STATUSES, reconcileMissingWorkflow, reconcileRun } from './lib/run-reconcile.js';
 export type { RunStatus } from './lib/run-reconcile.js';
@@ -49,6 +50,7 @@ export type { AgentChangeService } from './services/AgentChangeService.js';
 export { AutoModeService } from './services/AutoModeService.js';
 export { ConversationNoticeService } from './services/ConversationNoticeService.js';
 export { extensionServiceFor } from './services/ExtensionService.js';
+export { RunGrantService } from './services/RunGrantService.js';
 export { TurnLogWriter } from './services/TurnLogWriter.js';
 export { WorkspaceBuildService } from './services/WorkspaceBuildService.js';
 export type { WorkspaceBuildStart } from './services/WorkspaceBuildService.js';
