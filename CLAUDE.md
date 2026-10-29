@@ -1033,6 +1033,29 @@ In dev, `docker compose -f docker-compose.mailpit.yml up -d` and `MAIL_SMTP_URL=
 `npm run test:mail-live` proves the container signs mail that verifies (DKIM checked with `mailauth`) and refuses to
 relay for anyone else. `test:routing-live` proves an instance's email reaching its owner through root.
 
+## Root and instances watch each other, and push reaches devices
+
+**Root watches every instance** (`InstanceWatch`, rules in `instances/lib/instance-watch.ts`, root role only): every minute it asks
+each instance in service with a mesh address (`watched`) for `http://<meshIp>:30320/api/auth/sign-in`; any answer counts. A probe
+still waiting at the next pass counts as not answered and is never started twice (`PendingProbes`), so nothing is cut off by a
+clock. After `WATCH_UNREACHABLE_MINUTES` (10) without an answer root emails the owner once, and once when it is back; a pool
+instance always, also telling root's operators; an own machine unless its owner switched it off (instance Settings → "When this
+instance cannot be reached", `/api/instance-watch` → root's `PUT /api/instances/watch` with the credential, or root's page through
+`PUT /api/instances/mine/watch`). Watch state lives in `instanceWatches` (`reach`, `notifyWhenUnreachable`), apart from the instance
+record, which other writers replace whole. Root's page says the instance is down instead of sending the owner on (`unreachableSince`
+on `/api/identity/instance`), and People shows it.
+
+**Each instance watches root** (`RootWatch`, on `InstanceSide`): it asks root's `/api/identity/keys` every minute by the same rules;
+root down shows first under Infrastructure → Needs attention (`root` on `GET /api/infrastructure`) and is pushed to the owner.
+
+**Push** (`PushService`, `monitoring/lib/web-push.ts`): Koala installs as an app (`public/manifest.webmanifest`, icons,
+`public/sw.js`, which only shows pushes and opens where they point; an iPhone needs it added to the Home Screen first). Settings →
+Notifications → "Notify this device" subscribes the browser (`/api/notifications/push`, one record per person and endpoint in
+`pushSubscriptions`). Each process signs with a P-256 VAPID key derived from `DATA_KEY` (`vapidKeysFrom`), so nothing new is
+configured, and sends straight to the browser's push service, so an instance needs no root to push. What is pushed: alerts the
+person chose to hear about (the same choice as email), a run asking before a call (the tool's name only, never its arguments), a
+release waiting for Cut over, and root not answering. A device the push service says is gone (404, 410) is forgotten.
+
 ## What runs (Infrastructure → Running)
 
 **Running** (`features/infrastructure/components/RunningSection.tsx`; its count is the sidebar badge) lists the person's running work in
