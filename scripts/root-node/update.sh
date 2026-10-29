@@ -45,7 +45,7 @@ step() { echo -e "\n${GREEN}▶${NC} $1"; }
 cd "$REPO_DIR"
 BACKEND_ENV="apps/backend/.env"
 LAB=0
-grep -q '^ROOT_TLS=internal$' .env 2>/dev/null && LAB=1
+grep -q -E '^(CERTIFICATES|ROOT_TLS)=internal$' .env 2>/dev/null && LAB=1
 
 set_backend_env() {
   if grep -q "^$1=" "$BACKEND_ENV"; then
@@ -335,6 +335,7 @@ if ! grep -q '^INGRESS_DOMAIN=' .env; then
   HELD_INGRESS="$(grep '^INGRESS_DOMAIN=' "$BACKEND_ENV" | cut -d= -f2- || true)"
   [ -n "$HELD_INGRESS" ] && echo "INGRESS_DOMAIN=${HELD_INGRESS}" >> .env && ok "Caddy serves people's addresses under ${HELD_INGRESS}, as the backend gives them"
 fi
+COMPOSE_ENV="$REPO_DIR/.env" npx tsx scripts/root-node/dns.ts setup || die "Koala cannot set up DNS and certificates for this release; see above. Nothing was restarted yet."
 docker compose -f docker-compose.caddy.yml up -d --build
 while ! said="$(docker exec nowrinkles-caddy caddy reload --config /etc/caddy/Caddyfile --force 2>&1)"; do
   case "$said" in

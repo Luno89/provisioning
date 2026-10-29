@@ -5,6 +5,7 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } f
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import dotenv from 'dotenv';
+import { caddyTlsSnippet } from '../apps/backend/src/infrastructure/lib/dns-providers.js';
 import { createDisposableVm, type DisposableVm } from './lib/disposable-vm.js';
 import { loadKeys } from '../apps/backend/src/platform/lib/keys.js';
 import { signJWT } from '../apps/backend/src/platform/lib/auth.js';
@@ -146,7 +147,8 @@ async function main(): Promise<void> {
   assert.ok(existsSync(GVISOR_TARBALL), `the pinned gVisor release is cached at ${GVISOR_TARBALL}`);
   work = mkdtempSync(join(tmpdir(), 'pool-live-'));
   const caddyDir = join(work, 'caddy');
-  for (const folder of ['apps', 'instances', 'instance-sites']) mkdirSync(join(caddyDir, folder), { recursive: true });
+  for (const folder of ['apps', 'instances', 'instance-sites', 'tls']) mkdirSync(join(caddyDir, folder), { recursive: true });
+  writeFileSync(join(caddyDir, 'tls', 'koala.caddy'), caddyTlsSnippet('internal'));
   const caddyAdmin = join(work, 'caddy-admin');
   const caddyLog = join(work, 'caddy-log');
   for (const folder of [caddyAdmin, caddyLog]) mkdirSync(folder, { recursive: true });
@@ -165,7 +167,7 @@ async function main(): Promise<void> {
     '-e', 'TS_HOSTNAME=nw-pool-root', '-e', 'TS_USERSPACE=false', '-e', 'TS_STATE_DIR=/var/lib/tailscale', TAILSCALE_IMAGE]);
   await until('root on the mesh', async () => run('docker', ['exec', CONTAINERS.mesh, 'tailscale', 'ip', '-4']).trim() || undefined);
   run('docker', ['run', '-d', '--name', CONTAINERS.caddy, '--network', `container:${CONTAINERS.mesh}`,
-    '-e', `INGRESS_DOMAIN=${DOMAIN}`, '-e', `APP_DOMAIN=app.${ROOT_DOMAIN}`, '-e', `MESH_DOMAIN=mesh.${ROOT_DOMAIN}`, '-e', 'ROOT_TLS=internal',
+    '-e', `INGRESS_DOMAIN=${DOMAIN}`, '-e', `APP_DOMAIN=app.${ROOT_DOMAIN}`, '-e', `MESH_DOMAIN=mesh.${ROOT_DOMAIN}`, '-v', `${join(caddyDir, 'tls')}:/etc/caddy/tls:ro`,
     '-v', `${join(REPO, 'Caddyfile')}:/etc/caddy/Caddyfile:ro`,
     '-v', `${join(caddyDir, 'apps')}:/etc/caddy/apps:ro`, '-v', `${join(caddyDir, 'instances')}:/etc/caddy/instances:ro`, '-v', `${join(caddyDir, 'instance-sites')}:/etc/caddy/instance-sites:ro`,
     '-v', `${caddyAdmin}:/run/caddy-admin`, '-v', `${caddyLog}:/var/log/caddy`,

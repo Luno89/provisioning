@@ -846,6 +846,38 @@
           "pattern": "azure/setup\\-helm@[0-9a-f]{40} # (v[0-9.]+)"
         }
       ]
+    },
+    {
+      "kind": "go",
+      "name": "github.com/caddy-dns/cloudflare",
+      "version": "v0.2.1",
+      "github": "caddy-dns/cloudflare",
+      "osv": {
+        "ecosystem": "Go",
+        "name": "github.com/caddy-dns/cloudflare"
+      },
+      "uses": [
+        {
+          "file": "docker/caddy/modules.txt",
+          "pattern": "^github\\.com/caddy-dns/cloudflare@(\\S+)$"
+        }
+      ]
+    },
+    {
+      "kind": "go",
+      "name": "github.com/caddy-dns/porkbun",
+      "version": "v0.3.1",
+      "github": "caddy-dns/porkbun",
+      "osv": {
+        "ecosystem": "Go",
+        "name": "github.com/caddy-dns/porkbun"
+      },
+      "uses": [
+        {
+          "file": "docker/caddy/modules.txt",
+          "pattern": "^github\\.com/caddy-dns/porkbun@(\\S+)$"
+        }
+      ]
     }
   ],
   "unpinned": [

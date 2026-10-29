@@ -21,7 +21,7 @@ APP_DOMAIN="${APP_DOMAIN:-app.${DOMAIN}}"
 MESH_DOMAIN="${MESH_DOMAIN:-mesh.${DOMAIN}}"
 ACME_EMAIL="${ACME_EMAIL:-admin@${DOMAIN}}"
 REPO_DIR="${REPO_DIR:-/opt/nowrinkles}"
-ROOT_TLS="${ROOT_TLS:-cloudflare}"
+CERTIFICATES="${CERTIFICATES:-}"
 PUBLIC_URL="${PUBLIC_URL:-https://${APP_DOMAIN}}"
 LAB_CA=/usr/local/share/ca-certificates/koala-lab.crt
 SIGNERS=/etc/koala/release-signers
@@ -39,11 +39,19 @@ die()  { echo -e "  ${RED}❌${NC} $1"; exit 1; }
 step() { echo -e "\n${GREEN}▶${NC} $1"; }
 
 [ "$(id -u)" -eq 0 ] || die "Run as root — this installs packages and writes systemd units."
-case "$ROOT_TLS" in
-  cloudflare) LAB=0 ;;
+if [ -z "$CERTIFICATES" ]; then
+  case "${ROOT_TLS:-cloudflare}" in
+    internal) CERTIFICATES=internal ;;
+    cloudflare) CERTIFICATES=acme ;;
+    *) die "ROOT_TLS is cloudflare or internal; set CERTIFICATES=acme|internal instead" ;;
+  esac
+fi
+case "$CERTIFICATES" in
+  acme) LAB=0 ;;
   internal) LAB=1 ;;
-  *) die "ROOT_TLS is cloudflare (certificates from Let's Encrypt, proved over Cloudflare DNS) or internal (a lab: Caddy's own authority, no public DNS)" ;;
+  *) die "CERTIFICATES is acme (Let's Encrypt, proved over the people's domain's DNS provider) or internal (a lab: Caddy's own authority, no public DNS)" ;;
 esac
+export CERTIFICATES
 if [ -z "${INGRESS_DOMAIN:-}" ]; then
   if [ "$LAB" -eq 1 ]; then INGRESS_DOMAIN="$DOMAIN"; else INGRESS_DOMAIN=nowrinkles.app; fi
 fi
@@ -53,7 +61,7 @@ if [ "$LAB" -eq 0 ] && [ "$(registered "$INGRESS_DOMAIN")" = "$(registered "$DOM
 fi
 
 echo "Bootstrapping the No Wrinkles root node"
-[ "$LAB" -eq 1 ] && echo "  lab:  ROOT_TLS=internal — no public DNS, Caddy's own certificate authority"
+[ "$LAB" -eq 1 ] && echo "  lab:  CERTIFICATES=internal — no public DNS, Caddy's own certificate authority"
 echo "  app:  https://${APP_DOMAIN}"
 echo "  mesh: https://${MESH_DOMAIN}"
 echo "  people's instances and apps: https://*.${INGRESS_DOMAIN}"
@@ -227,19 +235,11 @@ if ! grep -q '^MONGO_ROOT_PASSWORD=' "$COMPOSE_ENV"; then
 fi
 MONGO_ROOT_PASSWORD="$(grep '^MONGO_ROOT_PASSWORD=' "$COMPOSE_ENV" | cut -d= -f2-)"
 grep -q '^PLATFORM_BIND=' "$COMPOSE_ENV" || echo "PLATFORM_BIND=127.0.0.1" >> "$COMPOSE_ENV"
-if [ "$LAB" -eq 0 ] && ! grep -q '^CLOUDFLARE_API_TOKEN=.' "$COMPOSE_ENV"; then
-  [ -n "${CLOUDFLARE_API_TOKEN:-}" ] || die "Set CLOUDFLARE_API_TOKEN: a Cloudflare API token with Zone, DNS, Edit on ${DOMAIN} and ${INGRESS_DOMAIN} only. Caddy proves the domain with it for the wildcard certificate *.${INGRESS_DOMAIN}, which every person's address and app is under, and the mail records of ${DOMAIN} are made with it. It stays in ${COMPOSE_ENV}, never in the database."
-  echo "CLOUDFLARE_API_TOKEN=${CLOUDFLARE_API_TOKEN}" >> "$COMPOSE_ENV"
-fi
-for pair in "DOMAIN=${DOMAIN}" "INGRESS_DOMAIN=${INGRESS_DOMAIN}" "APP_DOMAIN=${APP_DOMAIN}" "MESH_DOMAIN=${MESH_DOMAIN}" "ACME_EMAIL=${ACME_EMAIL}" "ROOT_TLS=${ROOT_TLS}"; do
+for pair in "DOMAIN=${DOMAIN}" "INGRESS_DOMAIN=${INGRESS_DOMAIN}" "APP_DOMAIN=${APP_DOMAIN}" "MESH_DOMAIN=${MESH_DOMAIN}" "ACME_EMAIL=${ACME_EMAIL}"; do
   key="${pair%%=*}"
   grep -q "^${key}=" "$COMPOSE_ENV" && sed -i "s|^${key}=.*|${pair}|" "$COMPOSE_ENV" || echo "$pair" >> "$COMPOSE_ENV"
 done
-if [ "$LAB" -eq 1 ]; then
-  ok "Caddy signs *.${INGRESS_DOMAIN}, ${APP_DOMAIN} and ${MESH_DOMAIN} with its own certificate authority"
-else
-  ok "Caddy gets the wildcard certificate for *.${INGRESS_DOMAIN} over Cloudflare DNS"
-fi
+COMPOSE_ENV="$COMPOSE_ENV" npx tsx scripts/root-node/dns.ts setup || die "Koala cannot set up DNS and certificates; see above."
 
 set_env MONGO_URI "mongodb://admin:${MONGO_ROOT_PASSWORD}@127.0.0.1:27017/provisioning?authSource=admin"
 set_env MESH_LOGIN_SERVER "https://${MESH_DOMAIN}"
@@ -321,7 +321,7 @@ if [ "$LAB" -eq 1 ]; then
   docker exec nowrinkles-mail cat /var/lib/dkim/koala.txt | sed 's/^/      /'
 else
 docker exec nowrinkles-mail cat /var/lib/dkim/koala.txt \
-  | CLOUDFLARE_API_TOKEN="$(grep '^CLOUDFLARE_API_TOKEN=' "$COMPOSE_ENV" | cut -d= -f2-)" npx tsx scripts/root-node/mail-dns.ts "$DOMAIN" "$PUBLIC_IP" \
+  | COMPOSE_ENV="$COMPOSE_ENV" npx tsx scripts/root-node/mail-dns.ts "$DOMAIN" "$PUBLIC_IP" \
   || die "The mail DNS records could not be set; see above."
 fi
 if nc -z -w 5 gmail-smtp-in.l.google.com 25 2>/dev/null; then

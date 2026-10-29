@@ -29,7 +29,7 @@ http://127.0.0.1:2019 {
 }
 
 (koala_tls) {
-	import /etc/caddy/tls/{$ROOT_TLS:cloudflare}.caddy
+	import /etc/caddy/tls/koala.caddy
 }
 
 # The platform itself — UI and API.

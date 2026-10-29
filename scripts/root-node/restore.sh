@@ -75,11 +75,13 @@ cp -a "$RESTORED$DATA_DIR/." "$DATA_DIR/"
 REPO_DIR="$REPO_DIR" bash "$REPO_DIR/scripts/root-node/units.sh" >/dev/null
 bash "$REPO_DIR/scripts/temporal-keys.sh" >/dev/null
 ok "env and data restored, keeping this host's own Mongo password, collector address and trial slots"
+(cd "$REPO_DIR" && COMPOSE_ENV="$COMPOSE_ENV" npx tsx scripts/root-node/dns.ts setup >/dev/null && docker compose -f docker-compose.caddy.yml up -d >/dev/null) \
+  || die "Caddy's certificate and DNS settings could not be made from the restored env; run: COMPOSE_ENV=$COMPOSE_ENV npx tsx scripts/root-node/dns.ts setup"
 
 docker stop "$CADDY" >/dev/null
 docker cp - "$CADDY:/" < "$FROM/caddy-data.tar"
 docker start "$CADDY" >/dev/null
-if [ "$(setting ROOT_TLS "$COMPOSE_ENV")" = internal ]; then
+if [ "$(setting CERTIFICATES "$COMPOSE_ENV")" = internal ] || [ "$(setting ROOT_TLS "$COMPOSE_ENV")" = internal ]; then
   docker cp "$CADDY:/data/caddy/pki/authorities/local/root.crt" /usr/local/share/ca-certificates/koala-lab.crt
   update-ca-certificates >/dev/null
   ok "Caddy's certificates restored, and this lab host trusts the restored authority"

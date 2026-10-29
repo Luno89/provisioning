@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { authenticate } from 'mailauth';
 import { MailService } from '../apps/backend/src/platform/services/MailService.js';
 import { alertMail } from '../apps/backend/src/platform/lib/mail.js';
-import { dkimValue } from '../apps/backend/src/platform/lib/mail-dns.js';
+import { dkimValue } from '../apps/backend/src/infrastructure/lib/mail-dns.js';
 import { emailWayFrom } from '../apps/backend/src/platform/lib/email-way.js';
 
 const REPO = fileURLToPath(new URL('..', import.meta.url));

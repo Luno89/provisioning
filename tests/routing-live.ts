@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, statSync, existsSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, statSync, existsSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import dotenv from 'dotenv';
+import { caddyTlsSnippet } from '../apps/backend/src/infrastructure/lib/dns-providers.js';
 import { createDisposableVm, type DisposableVm } from './lib/disposable-vm.js';
 import { loadKeys } from '../apps/backend/src/platform/lib/keys.js';
 import { signJWT } from '../apps/backend/src/platform/lib/auth.js';
@@ -126,7 +127,8 @@ async function teardown(): Promise<void> {
 async function main(): Promise<void> {
   work = mkdtempSync(join(tmpdir(), 'routing-live-'));
   const caddyDir = join(work, 'caddy');
-  for (const folder of ['apps', 'instances', 'instance-sites']) mkdirSync(join(caddyDir, folder), { recursive: true });
+  for (const folder of ['apps', 'instances', 'instance-sites', 'tls']) mkdirSync(join(caddyDir, folder), { recursive: true });
+  writeFileSync(join(caddyDir, 'tls', 'koala.caddy'), caddyTlsSnippet('internal'));
   const caddyAdmin = join(work, 'caddy-admin');
   const caddyLog = join(work, 'caddy-log');
   for (const folder of [caddyAdmin, caddyLog]) mkdirSync(folder, { recursive: true });
@@ -145,7 +147,7 @@ async function main(): Promise<void> {
   const rootMeshIp = await until('root on the mesh', async () => run('docker', ['exec', CONTAINERS.mesh, 'tailscale', 'ip', '-4']).trim() || undefined);
   console.log(`  root is ${rootMeshIp} on the mesh`);
   run('docker', ['run', '-d', '--name', CONTAINERS.caddy, '--network', `container:${CONTAINERS.mesh}`,
-    '-e', `INGRESS_DOMAIN=${DOMAIN}`, '-e', `APP_DOMAIN=app.${ROOT_DOMAIN}`, '-e', `MESH_DOMAIN=mesh.${ROOT_DOMAIN}`, '-e', 'ROOT_TLS=internal',
+    '-e', `INGRESS_DOMAIN=${DOMAIN}`, '-e', `APP_DOMAIN=app.${ROOT_DOMAIN}`, '-e', `MESH_DOMAIN=mesh.${ROOT_DOMAIN}`, '-v', `${join(caddyDir, 'tls')}:/etc/caddy/tls:ro`,
     '-v', `${join(REPO, 'Caddyfile')}:/etc/caddy/Caddyfile:ro`,
     '-v', `${join(caddyDir, 'apps')}:/etc/caddy/apps:ro`, '-v', `${join(caddyDir, 'instances')}:/etc/caddy/instances:ro`, '-v', `${join(caddyDir, 'instance-sites')}:/etc/caddy/instance-sites:ro`,
     '-v', `${caddyAdmin}:/run/caddy-admin`, '-v', `${caddyLog}:/var/log/caddy`,
