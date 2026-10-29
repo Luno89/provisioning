@@ -400,6 +400,13 @@ export interface HostingerCredentials {
   token: string;
 }
 
+export interface OvhCredentials {
+  applicationKey: string;
+  applicationSecret: string;
+  consumerKey: string;
+  subsidiary: string;
+}
+
 export interface ContaboCredentials {
   clientId: string;
   clientSecret: string;
@@ -440,6 +447,7 @@ export interface CloudCredentials {
   scaleway?: ScalewayCredentials;
   hostinger?: HostingerCredentials;
   contabo?: ContaboCredentials;
+  ovh?: OvhCredentials;
   huggingface?: HuggingFaceCredentials;
   artificialanalysis?: ArtificialAnalysisCredentials;
   github?: GitHubCredentials;
@@ -448,7 +456,7 @@ export interface CloudCredentials {
 
 export const CLOUD_PROVIDERS = [
   'aws', 'gcp', 'azure', 'do', 'hetzner',
-  'vultr', 'linode', 'scaleway', 'hostinger', 'contabo',
+  'vultr', 'linode', 'scaleway', 'hostinger', 'contabo', 'ovh',
   'cloudflare',
   'huggingface', 'artificialanalysis', 'github', 'googledrive',
 ] as const;

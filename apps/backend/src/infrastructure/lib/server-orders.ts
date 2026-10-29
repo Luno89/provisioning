@@ -64,6 +64,8 @@ export interface ServerOrder {
 
 export const SERVER_ORDER_LOG_LINES = 2000;
 
+export const rootNodeWorkflowId = (orderId: string): string => `root-node-${orderId}`;
+
 export const FOLLOWING: readonly ServerOrderState[] = ['bought', 'paying', 'waiting-check', 'delivering', 'installing-key', 'waiting-ssh', 'dns', 'waiting-release', 'bootstrapping'];
 
 export const STATE_SAID: Record<ServerOrderState, string> = {

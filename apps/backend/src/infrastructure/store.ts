@@ -8,6 +8,7 @@ import type { ClusterProviderSpec } from './lib/cluster-providers.js';
 import type { Collection, Db } from 'mongodb';
 import type { StoredAppSpec } from './lib/app-spec.js';
 import type { WorkFailure } from './lib/work-failures.js';
+import { SERVER_ORDER_LOG_LINES, type ServerOrder } from './lib/server-orders.js';
 import { mergeRecord } from '../platform/lib/merge-record.js';
 import { v4 as uuidv4 } from 'uuid';
 import { hasPlainSecret, sealDeployment, unsealDeployment } from './lib/deployment-secrets.js';
@@ -47,6 +48,11 @@ export interface InfrastructureStore extends AreaStore {
   getBindingTypes(): Promise<BindingTypeRecord[]>;
   saveBindingType(record: BindingTypeRecord): Promise<void>;
   deleteBindingType(id: string): Promise<void>;
+  getServerOrders(ownerId: string): Promise<ServerOrder[]>;
+  getServerOrder(id: string): Promise<ServerOrder | undefined>;
+  saveServerOrder(order: ServerOrder): Promise<void>;
+  patchServerOrder(id: string, patch: Partial<Omit<ServerOrder, 'id' | 'ownerId'>>): Promise<ServerOrder | undefined>;
+  appendServerOrderLog(id: string, lines: readonly string[]): Promise<void>;
 }
 
 export class MongoInfrastructureStore implements InfrastructureStore {
@@ -86,6 +92,10 @@ export class MongoInfrastructureStore implements InfrastructureStore {
 
   private get pendingApprovals(): Collection {
     return this.db().collection('pendingApprovals');
+  }
+
+  private get serverOrders(): Collection {
+    return this.db().collection('serverOrders');
   }
 
   async ensureIndexes(): Promise<void> {
@@ -267,6 +277,31 @@ export class MongoInfrastructureStore implements InfrastructureStore {
     if (filter.treeId !== undefined) query.treeId = filter.treeId;
     const docs = await this.egressRequests.find(query).sort({ createdAt: 1 }).toArray();
     return docs.map((d: Record<string, unknown>) => fromDoc<EgressRequest>(d));
+  }
+
+  async getServerOrders(ownerId: string): Promise<ServerOrder[]> {
+    const docs = await this.serverOrders.find({ ownerId }, { projection: { log: 0 } }).sort({ createdAt: -1 }).toArray();
+    return docs.map((doc) => fromDoc<ServerOrder>(doc));
+  }
+
+  async getServerOrder(id: string): Promise<ServerOrder | undefined> {
+    const doc = await this.serverOrders.findOne({ _id: id as never });
+    return doc ? fromDoc<ServerOrder>(doc) : undefined;
+  }
+
+  async saveServerOrder(order: ServerOrder): Promise<void> {
+    const { _id, ...rest } = toDoc(order);
+    await this.serverOrders.replaceOne({ _id }, rest, { upsert: true });
+  }
+
+  async patchServerOrder(id: string, patch: Partial<Omit<ServerOrder, 'id' | 'ownerId'>>): Promise<ServerOrder | undefined> {
+    const doc = await this.serverOrders.findOneAndUpdate({ _id: id as never }, { $set: { ...patch, updatedAt: new Date().toISOString() } }, { returnDocument: 'after' });
+    return doc ? fromDoc<ServerOrder>(doc) : undefined;
+  }
+
+  async appendServerOrderLog(id: string, lines: readonly string[]): Promise<void> {
+    if (lines.length === 0) return;
+    await this.serverOrders.updateOne({ _id: id as never }, { $push: { log: { $each: [...lines], $slice: -SERVER_ORDER_LOG_LINES } } as never });
   }
 
   async getEgressRequest(ownerId: string, id: string): Promise<EgressRequest | undefined> {

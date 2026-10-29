@@ -3,6 +3,8 @@ import {
   type SecretKey,
 } from '../../platform/index.js';
 import { COMBINED_CLAIMS, resolveCloudCredentials, usesOperatorCredentials, type ResolvedCredentials } from '../lib/credential-resolver.js';
+import { OVH_SUBSIDIARIES } from '../lib/vps-catalog/adapters.js';
+import { OvhClient, type FetchLike } from './OvhClient.js';
 import type { ClaimSettings } from '../../platform/index.js';
 
 async function readJson(res: Response): Promise<Record<string, any>> {
@@ -21,6 +23,7 @@ const SENSITIVE_FIELDS: Record<string, string[]> = {
   scaleway: ['secretKey'],
   hostinger: ['token'],
   contabo: ['clientId', 'clientSecret', 'apiPassword'],
+  ovh: ['applicationKey', 'applicationSecret', 'consumerKey'],
   huggingface: ['hfToken'],
   artificialanalysis: ['apiKey'],
   github: ['token'],
@@ -39,6 +42,7 @@ const PLAINTEXT_FIELDS: Record<string, string[]> = {
   scaleway: ['accessKey', 'projectId'],
   hostinger: [],
   contabo: ['apiUser'],
+  ovh: ['subsidiary'],
   huggingface: ['defaultModel'],
   artificialanalysis: [],
   github: ['username'],
@@ -58,6 +62,7 @@ export class CredentialService {
     private readonly db: Database,
     private readonly masterKey: SecretKey,
     private readonly claims: ClaimSettings = COMBINED_CLAIMS,
+    private readonly fetchImpl: FetchLike = fetch,
   ) {}
 
   async validateCredentials(
@@ -240,6 +245,26 @@ export class CredentialService {
         return { valid: true, message: 'Authenticated against the Hostinger API.' };
       }
 
+      if (provider === 'ovh') {
+        const { applicationKey, applicationSecret, consumerKey } = creds;
+        const subsidiary = String(creds.subsidiary ?? '').trim().toUpperCase();
+        if (!applicationKey || !applicationSecret || !consumerKey || !subsidiary) {
+          return { valid: false, message: 'OVHcloud needs the application key, application secret, consumer key and your account\'s subsidiary (for example AU, FR or CA).' };
+        }
+        if (!OVH_SUBSIDIARIES.includes(subsidiary)) {
+          return { valid: false, message: `${subsidiary} is not an OVHcloud subsidiary; known ones are ${OVH_SUBSIDIARIES.join(', ')}.` };
+        }
+        try {
+          const me = await new OvhClient({ applicationKey, applicationSecret, consumerKey, subsidiary }, this.fetchImpl).get<{ nichandle?: string; ovhSubsidiary?: string; currency?: { code?: string } }>('/me');
+          if (me.ovhSubsidiary && me.ovhSubsidiary !== subsidiary) {
+            return { valid: false, message: `These keys belong to an OVHcloud ${me.ovhSubsidiary} account, not ${subsidiary}; set the subsidiary to ${me.ovhSubsidiary}.` };
+          }
+          return { valid: true, message: `Signed in to OVHcloud as ${me.nichandle ?? 'your account'} (${subsidiary}${me.currency?.code ? `, ${me.currency.code}` : ''}).` };
+        } catch (error) {
+          return { valid: false, message: (error as Error).message };
+        }
+      }
+
       if (provider === 'contabo') {
         const { clientId, clientSecret, apiUser, apiPassword } = creds;
         if (!clientId || !clientSecret || !apiUser || !apiPassword) {
@@ -325,6 +350,7 @@ export class CredentialService {
       { key: 'scaleway', label: 'Scaleway' },
       { key: 'hostinger', label: 'Hostinger' },
       { key: 'contabo', label: 'Contabo' },
+      { key: 'ovh', label: 'OVHcloud' },
     ];
 
     return providers.map(({ key, label }) => {

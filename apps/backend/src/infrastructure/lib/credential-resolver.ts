@@ -107,6 +107,11 @@ function resolveFromUser(
       if (!h?.token) return null;
       return { HOSTINGER_API_TOKEN: h.token };
     }
+    case 'ovh': {
+      const o = creds.ovh;
+      if (!o?.applicationKey || !o?.applicationSecret || !o?.consumerKey) return null;
+      return { OVH_APPLICATION_KEY: o.applicationKey, OVH_APPLICATION_SECRET: o.applicationSecret, OVH_CONSUMER_KEY: o.consumerKey, OVH_SUBSIDIARY: o.subsidiary || 'FR' };
+    }
     case 'contabo': {
       const c = creds.contabo;
       if (!c?.clientId || !c?.clientSecret || !c?.apiUser || !c?.apiPassword) return null;
@@ -202,6 +207,13 @@ function resolveFromEnv(provider: string): Record<string, string> | null {
     case 'hostinger': {
       const token = process.env.HOSTINGER_API_TOKEN;
       return token ? { HOSTINGER_API_TOKEN: token } : null;
+    }
+    case 'ovh': {
+      const key = process.env.OVH_APPLICATION_KEY;
+      const secret = process.env.OVH_APPLICATION_SECRET;
+      const consumer = process.env.OVH_CONSUMER_KEY;
+      if (!key || !secret || !consumer) return null;
+      return { OVH_APPLICATION_KEY: key, OVH_APPLICATION_SECRET: secret, OVH_CONSUMER_KEY: consumer, OVH_SUBSIDIARY: process.env.OVH_SUBSIDIARY || 'FR' };
     }
     case 'contabo': {
       const id = process.env.CNTB_CLIENT_ID;

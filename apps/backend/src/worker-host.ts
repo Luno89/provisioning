@@ -10,6 +10,7 @@ import { RootRemovalInstanceActivity, RootRemovalMeshActivity, RootRemovalRecord
 import { PoolMoveStartActivity, PoolMoveStopActivity, PoolMoveSwitchActivity } from './activities/PoolActivities.js';
 import { PoolChartActivity, PoolFailedActivity, PoolHostActivity, PoolProxyActivity, PoolReadyActivity, PoolRemoveActivity, PoolTrialNextActivity, PoolTrialStepActivity, PoolVclusterActivity } from './activities/PoolActivities.js';
 import { DependencyWatchActivity } from './activities/DependencyWatchActivity.js';
+import { ServerOrderBootstrapActivity, ServerOrderDnsActivity, ServerOrderFailedActivity, ServerOrderFollowActivity, ServerOrderRebuildActivity, ServerOrderReleaseActivity, ServerOrderSshActivity, ServerOrderStoppedActivity } from './activities/RootNodeActivities.js';
 import { CrawlBatchActivity, NextBatchActivity, SeedFrontierActivity, DiscardFrontierActivity, PurgeCorpusActivity, SearchCorpusActivity, NewIngestIdActivity } from './activities/CrawlActivity.js';
 import { createWorkerLogger, buildDataConverter, connectTemporalWorker, sharedPayloadBlobs, loadKeys, SYSTEM_KUBECONFIG, telemetrySettings } from './platform/index.js';
 import { healthPort, serveHealth, sharedClusterProxy } from './infrastructure/index.js';
@@ -70,6 +71,14 @@ async function main() {
           PoolMoveSwitchActivity,
           PoolMoveStopActivity,
           DependencyWatchActivity,
+          ServerOrderFollowActivity,
+          ServerOrderRebuildActivity,
+          ServerOrderSshActivity,
+          ServerOrderDnsActivity,
+          ServerOrderReleaseActivity,
+          ServerOrderBootstrapActivity,
+          ServerOrderStoppedActivity,
+          ServerOrderFailedActivity,
           RootRemovalInstanceActivity,
           RootRemovalMeshActivity,
           RootRemovalRecordsActivity,
