@@ -6,11 +6,13 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { createDisposableVm, findFreePort, type DisposableVm } from './lib/disposable-vm.js';
 import { buildAppImage } from './lib/gate-runs.js';
-import { endsWith, failedUpgradeReports, imageTagOf, inFlightRefusal, unsignedRefusal, labDnsmasq, labHostsLine, noted, revisionRunning, upgradeReports, type Report } from './lib/release-lab.js';
+import { endsWith, failedUpgradeReports, imageTagOf, inFlightRefusal, unsignedRefusal, labDnsmasq, labHostsLine, noted, revisionRunning, STAND_IN_REF, unhostable, upgradeReports, type Report } from './lib/release-lab.js';
 import { handOff, type Side } from './lib/handoff.js';
 
 const REPO = resolve(new URL('.', import.meta.url).pathname, '..');
 const PREVIOUS_REF = process.env.RELEASE_LIVE_PREVIOUS ?? 'v2026.10.23';
+const UNHOSTED = unhostable(PREVIOUS_REF);
+const PREVIOUS_LABEL = UNHOSTED ? STAND_IN_REF : PREVIOUS_REF;
 const DOMAIN = 'koala.internal';
 const ROOT_LAN = '10.77.0.1';
 const INSTANCE_LAN = '10.77.0.2';
@@ -146,12 +148,15 @@ async function main(): Promise<void> {
   const dirty = run('git', ['status', '--porcelain']).trim().split('\n').filter((line) => line && !/last-passed\.json|LAST-PASSED\.md/.test(line));
   if (dirty.length) note(`uncommitted changes are not part of the candidate: ${dirty.join(', ')}`);
   const candidate = run('git', ['rev-parse', 'HEAD']).trim();
-  const previous = run('git', ['rev-parse', `${PREVIOUS_REF}^{commit}`]).trim();
-  assert.notEqual(candidate, previous, `the candidate is ${PREVIOUS_REF} itself; commit something to rehearse an update`);
+  if (UNHOSTED) {
+    step(`${PREVIOUS_REF} is not rehearsed: ${UNHOSTED.why}, and no real root ever ran it. The candidate's parent commit stands in for it as ${STAND_IN_REF}: root bootstraps on it, then updates, refuses, upgrades its instance and rolls back between it and the candidate`);
+  }
+  const previous = UNHOSTED ? run('git', ['rev-parse', `${candidate}^`]).trim() : run('git', ['rev-parse', `${PREVIOUS_REF}^{commit}`]).trim();
+  assert.notEqual(candidate, previous, `the candidate is ${PREVIOUS_LABEL} itself; commit something to rehearse an update`);
   const candidateTag = imageTagOf(candidate);
 
-  step(`the image is built at ${PREVIOUS_REF} (${imageTagOf(previous)}) and at the candidate (${candidateTag})`);
-  previousTag = buildImage(previous, PREVIOUS_REF);
+  step(`the image is built at ${PREVIOUS_LABEL} (${imageTagOf(previous)}) and at the candidate (${candidateTag})`);
+  previousTag = buildImage(previous, PREVIOUS_LABEL);
   buildImage(candidate, 'candidate');
 
   step('root: a disposable VM on a lab network, bootstrapped by the real bootstrap.sh in lab mode');
@@ -172,25 +177,27 @@ async function main(): Promise<void> {
   const labKey = join(work, 'release-key');
   run('ssh-keygen', ['-q', '-t', 'ed25519', '-N', '', '-C', 'the release rehearsal\'s throwaway key', '-f', labKey]);
   const signing = ['-c', 'gpg.format=ssh', '-c', `user.signingkey=${labKey}`];
-  const previousMessage = run('git', ['tag', '--list', '--format=%(contents:subject)%0a%0a%(contents:body)', PREVIOUS_REF]).trim();
+  const previousMessage = UNHOSTED
+    ? `${STAND_IN_REF}\n\nShipped and released from ${imageTagOf(previous)}: the release rehearsal's stand-in for ${PREVIOUS_REF}, which a hardened root cannot run.`
+    : run('git', ['tag', '--list', '--format=%(contents:subject)%0a%0a%(contents:body)', PREVIOUS_REF]).trim();
   const tagClone = join(work, 'tags.git');
   run('git', ['clone', '-q', '--bare', '--shared', REPO, tagClone]);
   const inTags = (args: string[], env: Record<string, string> = {}) => run('git', ['-C', tagClone, ...args], env);
-  inTags(['tag', '-d', PREVIOUS_REF]);
-  inTags([...signing, 'tag', '-s', PREVIOUS_REF, previous, '-m', previousMessage]);
-  inTags([...signing, 'tag', '-s', CANDIDATE_REF, candidate, '-m', `${CANDIDATE_REF}\n\nShipped and released from ${candidateTag} after ${PREVIOUS_REF}: the release rehearsal's own tag, signed by its throwaway key.`]);
-  inTags(['tag', '-a', UNSIGNED_REF, candidate, '-m', `${UNSIGNED_REF}\n\nShipped and released from ${candidateTag} after ${PREVIOUS_REF}: signed by nobody.`],
+  if (!UNHOSTED) inTags(['tag', '-d', PREVIOUS_LABEL]);
+  inTags([...signing, 'tag', '-s', PREVIOUS_LABEL, previous, '-m', previousMessage]);
+  inTags([...signing, 'tag', '-s', CANDIDATE_REF, candidate, '-m', `${CANDIDATE_REF}\n\nShipped and released from ${candidateTag} after ${PREVIOUS_LABEL}: the release rehearsal's own tag, signed by its throwaway key.`]);
+  inTags(['tag', '-a', UNSIGNED_REF, candidate, '-m', `${UNSIGNED_REF}\n\nShipped and released from ${candidateTag} after ${PREVIOUS_LABEL}: signed by nobody.`],
     { GIT_COMMITTER_DATE: new Date(Date.now() - 86_400_000).toISOString() });
   inTags(['push', '-q', '--force', `ssh://ubuntu@127.0.0.1:${root.port}${ORIGIN}`, `${previous}:refs/heads/previous`, `${candidate}:refs/heads/candidate`,
-    ...[PREVIOUS_REF, CANDIDATE_REF, UNSIGNED_REF].map((name) => `refs/tags/${name}:refs/tags/${name}`)],
+    ...[PREVIOUS_LABEL, CANDIDATE_REF, UNSIGNED_REF].map((name) => `refs/tags/${name}:refs/tags/${name}`)],
     { GIT_SSH_COMMAND: `ssh -i ${root.privateKeyPath} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR` });
-  await sh(root, `sudo git clone -q ${ORIGIN} ${REPO_DIR} && sudo git -C ${REPO_DIR} checkout -q --detach ${candidate} && sudo mkdir -p $(dirname ${UPDATE_SH}) && sudo cp ${REPO_DIR}/scripts/root-node/update.sh ${REPO_DIR}/scripts/root-node/cdktf-bindings.sh ${REPO_DIR}/scripts/root-node/verify-release.sh $(dirname ${UPDATE_SH})/`);
+  await sh(root, `sudo git clone -q ${ORIGIN} ${REPO_DIR} && sudo git -C ${REPO_DIR} checkout -q --detach ${candidate} && sudo mkdir -p $(dirname ${UPDATE_SH}) && sudo cp ${REPO_DIR}/scripts/root-node/update.sh ${REPO_DIR}/scripts/root-node/cdktf-bindings.sh ${REPO_DIR}/scripts/root-node/verify-release.sh $(dirname ${UPDATE_SH})/${UNHOSTED ? ` && sudo git -C ${REPO_DIR} checkout -q --detach ${previous}` : ''}`);
   const signer = Buffer.from(`koala-release namespaces="git" ${readFileSync(`${labKey}.pub`, 'utf8').trim()}\n`).toString('base64');
   await sh(root, `sudo mkdir -p $(dirname ${SIGNERS}) && echo ${signer} | base64 -d | sudo tee ${SIGNERS} >/dev/null`);
-  note(`${REPO_DIR} is a clone of this repository with ${PREVIOUS_REF}, the candidate as ${CANDIDATE_REF} and ${UNSIGNED_REF}; root trusts only the rehearsal's throwaway key, which signed all but ${UNSIGNED_REF}; the candidate's update.sh is kept at ${UPDATE_SH}`);
+  note(`${REPO_DIR} is a clone of this repository with ${PREVIOUS_LABEL}, the candidate as ${CANDIDATE_REF} and ${UNSIGNED_REF}; root trusts only the rehearsal's throwaway key, which signed all but ${UNSIGNED_REF}; the candidate's update.sh is kept at ${UPDATE_SH}`);
   const bootstrapped = Date.now();
   await sh(root, `sudo env ROOT_TLS=internal DOMAIN=${DOMAIN} PUBLIC_URL=${ROOT_URL} bash ${REPO_DIR}/scripts/root-node/bootstrap.sh`, true);
-  note(`bootstrap.sh finished in ${minutes(bootstrapped)}`);
+  note(`bootstrap.sh finished in ${minutes(bootstrapped)}${UNHOSTED ? `, on ${STAND_IN_REF} (${imageTagOf(previous)})` : ''}`);
   writeFileSync(join(work, 'ca.crt'), await sh(root, 'sudo cat /usr/local/share/ca-certificates/koala-lab.crt'));
   const hardened = await sh(root, [
     'sudo sysctl -n net.ipv4.conf.all.accept_redirects kernel.kptr_restrict kernel.dmesg_restrict fs.protected_symlinks',
@@ -209,14 +216,14 @@ async function main(): Promise<void> {
   assert.ok(lynis >= LYNIS_FLOOR, `Lynis scores root's hardening ${lynis}, below the floor of ${LYNIS_FLOOR}: sudo lynis show details on the lab root, or /var/log/lynis-report.dat`);
   note(`Lynis scores root's hardening ${lynis} (the release needs at least ${LYNIS_FLOOR})`);
 
-  step(`root's registry is given the ${PREVIOUS_REF} image, and release-watch.sh, as npm run release runs it over SSH, moves root onto ${PREVIOUS_REF} with the real update.sh`);
+  step(`root's registry is given the ${PREVIOUS_LABEL} image, and release-watch.sh, as npm run release runs it over SSH, moves root onto ${PREVIOUS_LABEL} with the real update.sh`);
   const saved = spawn('docker', ['save', `${IMAGE_REPO}:${previousTag}`], { stdio: ['ignore', 'pipe', 'inherit'] });
   const loaded = await inVm(root, 'sudo docker load -q', false, saved.stdout);
   assert.equal(loaded.code, 0, `the image did not load on root: ${loaded.out.slice(-500)}`);
   await sh(root, `sudo docker tag ${IMAGE_REPO}:${previousTag} 127.0.0.1:5000/${IMAGE_REPO}:${previousTag} && sudo docker push -q 127.0.0.1:5000/${IMAGE_REPO}:${previousTag} >/dev/null`);
   const toPrevious = Date.now();
-  await sh(root, `sudo bash ${REPO_DIR}/scripts/root-node/release-watch.sh ${PREVIOUS_REF}`, true);
-  note(`release-watch.sh ${PREVIOUS_REF} took ${minutes(toPrevious)}`);
+  await sh(root, `sudo bash ${REPO_DIR}/scripts/root-node/release-watch.sh ${PREVIOUS_LABEL}`, true);
+  note(`release-watch.sh ${PREVIOUS_LABEL} took ${minutes(toPrevious)}`);
   const rootHead = async () => (await sh(root!, `sudo git -C ${REPO_DIR} rev-parse HEAD`)).trim();
   const rootReleaseTag = async () => (await sh(root!, `sudo grep '^INSTANCE_IMAGE_TAG=' ${REPO_DIR}/apps/backend/.env | cut -d= -f2-`)).trim();
   assert.equal(await rootHead(), previous, 'root is not on the previous release');
@@ -239,7 +246,7 @@ async function main(): Promise<void> {
   const me = json<{ user?: { isAdmin?: boolean }; isAdmin?: boolean }>(asOwner('/api/auth/me'));
   assert.ok(me.user?.isAdmin ?? me.isAdmin, 'the first account is not the admin');
 
-  step(`an instance: a second VM on the lab network runs root's install command at ${PREVIOUS_REF}`);
+  step(`an instance: a second VM on the lab network runs root's install command at ${PREVIOUS_LABEL}`);
   const joined = asOwner('/api/instances/join-tokens', { method: 'POST', body: { name: NAME } });
   assert.equal(joined.status, 200, joined.body);
   const token = json<{ token: string; name: string }>(joined).token;
@@ -315,7 +322,7 @@ async function main(): Promise<void> {
     const read = json<{ content: string }>(onInstance(`/api/projects/${project.id}/files/content?path=${encodeURIComponent(repoFile)}`));
     assert.ok(read.content.endsWith(`${mark}\n`), 'the repository does not hold the commit');
   };
-  repositoryWorks(`installed at ${PREVIOUS_REF}`);
+  repositoryWorks(`installed at ${PREVIOUS_LABEL}`);
   const deployed = onInstance('/api/deployments', { method: 'POST', body: { name: 'books', clusterId: 'provisioning-lunorica', appType: 'audiobookshelf', strategy: 'native' } });
   assert.equal(deployed.status, 202, deployed.body);
   const deploymentId = json<{ id: string }>(deployed).id;
@@ -497,15 +504,20 @@ async function main(): Promise<void> {
   assert.deepEqual({ auto: following.auto, target: following.target, checking: following.checking }, { auto: true, target: candidateTag, checking: undefined }, 'automatic updates back on moved the instance off the release root runs');
   note(`automatic updates are back on, following root's ${candidateTag} without another check-in`);
 
-  step(`both roll back: update.sh ${PREVIOUS_REF} on root, helm rollback on the instance`);
+  step(`both roll back: update.sh ${PREVIOUS_LABEL} on root, helm rollback on the instance`);
   const back = Date.now();
   await sh(root, `sudo bash ${UPDATE_SH} ${previous}`, true);
-  note(`update.sh ${PREVIOUS_REF} took ${minutes(back)}`);
+  note(`update.sh ${PREVIOUS_LABEL} took ${minutes(back)}`);
   assert.equal(await rootHead(), previous, 'root is not back on the previous release');
   assert.equal(await rootReleaseTag(), previousTag, 'root does not offer instances the previous image again');
   await until('root answering on the previous release', async () => ((await rootAnswers()) ? true : undefined));
-  assert.equal((await sh(root, 'test -f /etc/systemd/system/nowrinkles-workers.service && echo split || systemctl show -p User --value nowrinkles')).trim(), '', 'root kept the split units on a release from before them');
-  note('back on a release from before the split, root runs its single unit as root again');
+  if (UNHOSTED) {
+    assert.equal((await sh(root, 'test -f /etc/systemd/system/nowrinkles-workers.service && echo split || systemctl show -p User --value nowrinkles')).trim(), 'split', 'root lost its split units moving back to a release that has them');
+    note(`back on ${STAND_IN_REF}, root keeps its backend apart from its workers`);
+  } else {
+    assert.equal((await sh(root, 'test -f /etc/systemd/system/nowrinkles-workers.service && echo split || systemctl show -p User --value nowrinkles')).trim(), '', 'root kept the split units on a release from before them');
+    note('back on a release from before the split, root runs its single unit as root again');
+  }
   const revisions = (JSON.parse(await helm('history instance -o json')) as Array<{ revision: number }>).map((entry) => entry.revision);
   const history = [];
   for (const revision of revisions) history.push({ revision, values: JSON.parse(await helm(`get values instance --revision ${revision} -o json`)) as { image?: { tag?: string } } });

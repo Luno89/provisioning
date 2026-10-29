@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { endsWith, failedUpgradeReports, imageTagOf, inFlightRefusal, unsignedRefusal, labDnsmasq, labHostsLine, noted, revisionRunning, upgradeReports } from './release-lab.js';
+import { endsWith, failedUpgradeReports, imageTagOf, inFlightRefusal, unsignedRefusal, labDnsmasq, labHostsLine, noted, revisionRunning, STAND_IN_REF, UNHOSTABLE_RELEASES, unhostable, upgradeReports } from './release-lab.js';
 
 describe('the release lab', () => {
   it('names an image by the first twelve characters of its commit', () => {
@@ -54,5 +54,12 @@ describe('the release lab', () => {
     expect(revisionRunning(history, 'a')).toBe(1);
     expect(revisionRunning(history, 'b')).toBe(4);
     expect(revisionRunning(history, 'c')).toBeUndefined();
+  });
+
+  it('knows the releases a hardened root cannot run, with why, and the lab tag that stands in for one', () => {
+    expect(unhostable('v2026.10.23')?.why).toMatch(/Temporal health check/);
+    expect(unhostable('v2026.10.29')).toBeUndefined();
+    expect(UNHOSTABLE_RELEASES.every((release) => /^v\d{4}\.\d{2}\.\d{2}(-\d+)?$/.test(release.tag) && release.why.length > 0)).toBe(true);
+    expect(STAND_IN_REF).toMatch(/^v2099\./);
   });
 });
