@@ -343,8 +343,7 @@ MCP server only when its owner **attached it to the project** (`projects` on the
 "Used by projects"; a workspace server is reached in the project's workspace without attaching), at their role's level (a hosted server's tools
 are changes until the person marks one read-only). Agent and tree auto mode never apply to member work. Granting a tool an agent
 you could not use yourself is refused (`grantProblem`), applying a deploy card checks the cluster again with the person's principal, and
-`run_in_workspace` asks through the same rule as any call (`callNeedsAsking`). Still to come (steps 3–6): run grants ended on revocation,
-root as an OpenID Connect provider, and the frontend's `can`.
+`run_in_workspace` asks through the same rule as any call (`callNeedsAsking`).
 
 **Every run works with a grant, ended with the run or on revocation** (step 3, 2026-10-29; `engine/lib/run-grants.ts`,
 `RunGrantService`). The run starter issues each top-level run a grant (`runGrants`, `grantId` on the ticket and launch, so children copy it):
@@ -352,10 +351,15 @@ its starter's claims as they were, narrowed to the run's project (a member's ask
 `startedBy` `person` (a chat turn, a tree run, an ask on the hub) or `platform`. The tool runtime asks it before every call
 (`callProblem`: a revoked grant refuses all but `leave_handover_note`, an ended one everything, a call on another project is refused; a
 settled grant is cached, a live one read once a call). It ends when the run ends (the `run-ended` event, which also records how every run
-ended in `runEndings`: finished, failed with its reason, stopped by whom, revoked and why). **Revocation** goes through platform's
-`AccessRevocations` (`revoked({ personId, because, sharedProjectId? })`), called by "sign out everywhere", a 2FA change, an account's
-removal starting and a hub member's removal; the engine core listens and revokes that person's live grants (what they started; every one
-on account removal; only that shared project's on a hub removal) and signals each run `revokeRun`. The run then refuses every call, stops,
+ended in `runEndings`: finished, failed with its reason, stopped by whom, revoked and why). **Revocation is one event**
+(`AccessRevoked { personId, because, at, sharedProjectId? }`, `platform/lib/revocations.ts`) told through one `AccessRevocations` per
+process. On root and combined "sign out everywhere", a 2FA change (`password-or-2fa`) and an account's removal starting fire it, and root's
+provider (below) revokes the person's tokens and sends each client a back-channel logout, which the client fires on its own
+`AccessRevocations`; root acts only on an event that ends sessions (`endsSessions`, never a shared project's). A hub member's removal or
+leaving (`removed-from-shared-project`, with the shared project's id) fires it in process where the hub shares the owner's process, and on a
+hub of its own becomes a `member-removed` request the owner's instance carries out (`HubInstanceWork`), kept off the members' board and
+taken from nobody but the hub. Nothing fires `locked` yet: no route locks an account. The engine core listens and revokes that person's
+live grants (what they started; every one on account removal; only that shared project's on a hub removal) and signals each run `revokeRun`. The run then refuses every call, stops,
 and gets one last model turn (`EngineHandoverActivity`, behind the `run-grants` patch) offering only `leave_handover_note`, which keeps the
 note with the run and writes `handover/<run>.md` in its workspace, marked as written after access was revoked; a model that cannot answer
 leaves none and the run says so. How a run ended shows on the run card, Watch it work (relayed to hub members, `endings`), a story's card
@@ -574,11 +578,10 @@ page signs them in and `resumePathFrom` sends them back), takes only an instance
 /api/auth/oidc/callback` exchanges the code, checks root's ID token against `ROOT_PUBLIC_KEYS`, keeps the refresh token sealed in
 `clientSessions`, and gives the browser the instance's own session token carrying root's claims (`koala_claims`, from `claimsFor` →
 `claimsOf`). `requireAuth` checks it locally (no database, no call to root) and renews it through the refresh token once the claims are
-20 minutes old; root unreachable keeps the session as it was, root refusing ends it. **Revocation is immediate**: signing out
-everywhere, a 2FA change and an account's removal fire `AccessRevocations` (platform), root forgets the person's grants, sessions and
-tokens and sends each client a back-channel logout token (`logoutDeliveries`, retried every 30 s until the client answers); the client
-records it (`sessionRevocations`, the in-memory `RevocationList`), drops the person's sessions and fires its own `AccessRevocations`,
-which the run grants listen to. **An instance and the hub call root with service tokens** (client credentials, five minutes,
+20 minutes old; root unreachable keeps the session as it was, root refusing ends it. **Revocation is immediate** (the one event in
+"Who may do what"): root forgets the person's grants, sessions and tokens and sends each client a back-channel logout token
+(`logoutDeliveries`, retried every 30 s until the client answers, the reason in `koala_why`); the client records it (`sessionRevocations`,
+the in-memory `RevocationList`), drops the person's sessions and fires the event on its own `AccessRevocations`, which ends its runs' grants. **An instance and the hub call root with service tokens** (client credentials, five minutes,
 `RootSignIn.serviceToken`), which root takes wherever it takes the instance's credential (`InstanceService.authenticated`,
 `/api/hub-link/invite`); the credential remains for naming the key and for the shell scripts. **An instance on an older release**
 still signs in by root's old handoff (`/api/identity/go` → `<instance>/#/handoff?token=…`, `issueHandoff`): root sends someone to the
