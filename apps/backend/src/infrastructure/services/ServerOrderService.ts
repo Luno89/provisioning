@@ -107,6 +107,13 @@ export class ServerOrderService {
     }
   }
 
+  async quoteAndDiscard(ownerId: string, planCode: string, datacenter: string): Promise<ServerQuote> {
+    const client = await this.ovh(ownerId);
+    const { cartId, quote } = await this.priceCart(client, planCode, datacenter);
+    await client.delete(`/order/cart/${cartId}`);
+    return quote;
+  }
+
   async quote(ownerId: string, ask: QuoteAsk): Promise<ServerOrderView> {
     const domain = ask.domain.trim().toLowerCase();
     const ingressDomain = ask.ingressDomain.trim().toLowerCase();

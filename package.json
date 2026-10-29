@@ -26,6 +26,7 @@
     "test:vm-live": "tsx tests/lib/vm-rounds.ts",
     "test:workflows": "bash scripts/workflows-local.sh",
     "deps:update": "tsx scripts/deps-update.ts",
+    "ovh:quote": "npm run ovh:quote -w apps/backend --",
     "release:check": "tsx tests/release.ts --check",
     "deps:inventory": "node scripts/deps-inventory.mjs --out sbom.cdx.json",
     "test:worker": "tsx tests/worker-isolated.ts",

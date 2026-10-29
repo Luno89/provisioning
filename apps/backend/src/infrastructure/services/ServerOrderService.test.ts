@@ -162,4 +162,12 @@ describe('buying root\'s server from OVHcloud', () => {
     await expect(service.setupCode('op', quoted.id)).rejects.toThrow(/was shown at/);
     expect((await service.get('op', quoted.id)).hasSetupCode).toBe(false);
   });
+
+  it('prices a plan and throws the cart away, for checking the keys and the price without buying', async () => {
+    const quote = await service.quoteAndDiscard('op', 'vps-2027-model2', 'SYD');
+    expect(quote).toMatchObject({ currency: 'AUD', withTax: 15.4 });
+    expect(ovh.state.deletedCarts).toEqual(['cart-1']);
+    expect(ovh.state.checkedOut).toBe(0);
+    expect(await db.infrastructure.getServerOrders('op')).toEqual([]);
+  });
 });
