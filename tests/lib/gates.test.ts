@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { changedBesidesLedger, HOTFIX_STEPS, productionVulnerabilities, vulnerableRefusal, judgeVulnerabilities, compareVersions, fixOf, waitingLines, ignoredRefusal, leaksRefusal, NO_COMMIT, nextVersion, pushedRange, onlyLedger, pushRefusal, RELEASE_SIGNERS, RELEASE_STEPS, SHIP_STEPS, signingKeyProblem, TAG_SIGNATURE, tagMessage, unsignedTagRefusal } from './gates.js';
+import { changedBesidesLedger, HOTFIX_STEPS, productionVulnerabilities, vulnerableRefusal, judgeVulnerabilities, compareVersions, fixOf, waitingLines, ignoredRefusal, leaksRefusal, NO_COMMIT, nextVersion, pushedRange, onlyLedger, pushRefusal, RELEASE_SIGNERS, RELEASE_STEPS, SHIP_STEPS, checkedThrough, stillToRun, roundsOf, signingKeyProblem, TAG_SIGNATURE, tagMessage, unsignedTagRefusal } from './gates.js';
 
 const shipped = { at: '2026-10-24T01:00:00.000Z', steps: [] };
 const released = (version: string) => ({ ...shipped, version, previous: 'v2026.10.23' });
@@ -159,3 +159,32 @@ describe('known vulnerabilities before ship', () => {
   });
 });
 
+
+describe('checking a release before tagging it', () => {
+  const passed = (script: string) => ({ name: script, script, minutes: 1 });
+
+  it('counts the steps passed for this commit, or for its parent when only the ledger moved', () => {
+    expect(checkedThrough({ record: { commit: 'b', checked: [passed('test:mail-live')] }, onlyLedgerSinceParent: false }).map((step) => step.script)).toEqual(['test:mail-live']);
+    expect(checkedThrough({ parent: { commit: 'a', checked: [passed('test:pool-live')] }, onlyLedgerSinceParent: true }).map((step) => step.script)).toEqual(['test:pool-live']);
+    expect(checkedThrough({ parent: { commit: 'a', checked: [passed('test:pool-live')] }, onlyLedgerSinceParent: false })).toEqual([]);
+  });
+
+  it('runs only the steps not yet passed', () => {
+    const left = stillToRun(RELEASE_STEPS, [passed('test:mail-live'), passed('test:pool-live')]).map((step) => step.script);
+    expect(left).not.toContain('test:mail-live');
+    expect(left).not.toContain('test:pool-live');
+    expect(left).toHaveLength(RELEASE_STEPS.length - 2);
+  });
+
+  it('packs steps into rounds by memory, the biggest first, and runs a step marked alone by itself', () => {
+    const rounds = roundsOf([
+      { id: 'pool', memoryMB: 28672 }, { id: 'mesh', memoryMB: 15360 }, { id: 'byo', memoryMB: 12288 },
+      { id: 'k3d', memoryMB: 4096, alone: true as const }, { id: 'mail', memoryMB: 512 },
+    ], 30000).map((round) => round.map((item) => item.id));
+    expect(rounds).toEqual([['k3d'], ['pool', 'mail'], ['mesh', 'byo']]);
+  });
+
+  it('gives every release step a memory size, so none is packed as free', () => {
+    expect(RELEASE_STEPS.filter((step) => !step.memoryMB).map((step) => step.script)).toEqual([]);
+  });
+});

@@ -1,5 +1,5 @@
-import { execFileSync, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, writeFileSync } from 'node:fs';
+import { execFileSync, spawn, spawnSync } from 'node:child_process';
+import { createWriteStream, existsSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { changedBesidesLedger, LEDGER_FILES, onlyLedger, RELEASE_SIGNERS, type GateRecord, type GateStep, type PushedGates, type StepPassed, productionVulnerabilities, type Vulnerability } from './gates.js';
@@ -153,6 +153,40 @@ export function runSteps(repo: string, commit: string, steps: GateStep[], env: R
     passed.push({ name: step.name, script: step.script, minutes });
   });
   return passed;
+}
+
+export interface RoundResult { step: GateStep; passed: boolean; minutes: number; log: string }
+
+const clock = () => new Date().toISOString().slice(11, 19);
+
+function runLogged(repo: string, step: GateStep, env: Record<string, string>, logFile: string): Promise<RoundResult> {
+  return new Promise((done) => {
+    const started = Date.now();
+    const log = createWriteStream(logFile);
+    const child = spawn('npm', ['run', step.script, '--silent'], { cwd: repo, env: { ...process.env, ...env }, stdio: ['ignore', 'pipe', 'pipe'] });
+    const write = (chunk: Buffer) => { for (const line of chunk.toString().split('\n')) if (line) log.write(`${clock()} ${line}\n`); };
+    child.stdout.on('data', write);
+    child.stderr.on('data', write);
+    child.on('close', (code) => {
+      log.end();
+      done({ step, passed: code === 0, minutes: minutesSince(started), log: logFile });
+    });
+  });
+}
+
+export async function runRounds(repo: string, commit: string, rounds: readonly GateStep[][], env: Record<string, string>): Promise<RoundResult[]> {
+  const logs = join(repo, 'tests/.vm-logs');
+  mkdirSync(logs, { recursive: true });
+  const results: RoundResult[] = [];
+  for (const [index, round] of rounds.entries()) {
+    console.log(`\n━━ round ${index + 1}/${rounds.length}: ${round.map((step) => step.name).join(' · ')}`);
+    const finished = await Promise.all(round.map((step) => runLogged(repo, step, env, join(logs, `${step.script.replace(/[:/]/g, '-')}-${new Date().toISOString().replace(/[:.]/g, '-')}.log`))));
+    for (const result of finished) console.log(`━━ ${result.passed ? '✓' : '✗'} ${result.step.name} in ${result.minutes} min${result.passed ? '' : ` (${result.log})`}`);
+    results.push(...finished);
+    const moved = checkoutProblem(repo, commit);
+    if (moved) throw new Error(`${moved} while round ${index + 1} ran, so what it tested is not this commit; run it again once the checkout is back`);
+  }
+  return results;
 }
 
 export function commitLedger(repo: string, message: string): boolean {

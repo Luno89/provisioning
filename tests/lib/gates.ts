@@ -1,6 +1,6 @@
 export const LEDGER_FILES = ['tests/last-passed.json', 'tests/LAST-PASSED.md'];
 
-export interface GateStep { name: string; script: string }
+export interface GateStep { name: string; script: string; memoryMB?: number; alone?: true }
 
 export const SHIP_STEPS: GateStep[] = [
   { name: 'typecheck and the unit suites', script: 'test:unit' },
@@ -17,18 +17,18 @@ export const SHIP_STEPS: GateStep[] = [
 ];
 
 export const RELEASE_STEPS: GateStep[] = [
-  { name: 'the mail server signs and refuses to relay', script: 'test:mail-live' },
-  { name: 'a cluster provisioned, verified and destroyed', script: 'test:infra:integration' },
-  { name: 'an instance on k3d signs in through root', script: 'test:instance-live' },
-  { name: 'a machine joins and its agents are found', script: 'test:machine-live' },
-  { name: 'install.sh on a VM, sign-in and a self-upgrade', script: 'test:byo-live' },
-  { name: 'a VM provisioned as a remote cluster', script: 'test:remote-integration' },
-  { name: 'the mesh keeps people apart', script: 'test:mesh-live' },
-  { name: 'addresses through root\'s Caddy', script: 'test:routing-live' },
-  { name: 'a pool trial and its move', script: 'test:pool-live' },
-  { name: 'what was made in a live Odoo brought into git', script: 'test:odoo-customizations-live' },
-  { name: 'a root restored from its backup on a fresh host', script: 'test:restore-live' },
-  { name: 'the release rehearsal', script: 'test:release-live' },
+  { name: 'the mail server signs and refuses to relay', script: 'test:mail-live', memoryMB: 512 },
+  { name: 'a cluster provisioned, verified and destroyed', script: 'test:infra:integration', memoryMB: 4096, alone: true },
+  { name: 'an instance on k3d signs in through root', script: 'test:instance-live', memoryMB: 2048 },
+  { name: 'a machine joins and its agents are found', script: 'test:machine-live', memoryMB: 4096 },
+  { name: 'install.sh on a VM, sign-in and a self-upgrade', script: 'test:byo-live', memoryMB: 12288 },
+  { name: 'a VM provisioned as a remote cluster', script: 'test:remote-integration', memoryMB: 6144 },
+  { name: 'the mesh keeps people apart', script: 'test:mesh-live', memoryMB: 15360 },
+  { name: 'addresses through root\'s Caddy', script: 'test:routing-live', memoryMB: 12288 },
+  { name: 'a pool trial and its move', script: 'test:pool-live', memoryMB: 28672 },
+  { name: 'what was made in a live Odoo brought into git', script: 'test:odoo-customizations-live', memoryMB: 2048 },
+  { name: 'a root restored from its backup on a fresh host', script: 'test:restore-live', memoryMB: 24576 },
+  { name: 'the release rehearsal', script: 'test:release-live', memoryMB: 24576 },
 ];
 
 export const HOTFIX_STEPS: GateStep[] = [
@@ -43,6 +43,7 @@ export interface Passed { at: string; steps: StepPassed[]; hotfix?: true | undef
 
 export interface GateRecord {
   commit: string;
+  checked?: StepPassed[] | undefined;
   shipped?: Passed | undefined;
   released?: (Passed & { version: string; previous: string }) | undefined;
 }
@@ -210,6 +211,34 @@ export function changedBesidesLedger(porcelain: string): string[] {
       return renamed >= 0 ? path.slice(renamed + 4) : path;
     })
     .filter((path) => !LEDGER_FILES.includes(path));
+}
+
+export const checkedThrough = (gates: PushedGates): StepPassed[] =>
+  [...(gates.record?.checked ?? []), ...(gates.onlyLedgerSinceParent ? gates.parent?.checked ?? [] : [])];
+
+export const stillToRun = (steps: readonly GateStep[], checked: readonly StepPassed[]): GateStep[] =>
+  steps.filter((step) => !checked.some((passed) => passed.script === step.script));
+
+export function roundsOf<T extends { memoryMB?: number | undefined; alone?: true | undefined }>(items: readonly T[], availableMB: number): T[][] {
+  const rounds: T[][] = items.filter((item) => item.alone).map((item) => [item]);
+  const waiting = items.filter((item) => !item.alone).sort((a, b) => (b.memoryMB ?? 0) - (a.memoryMB ?? 0));
+  while (waiting.length) {
+    const round: T[] = [];
+    let left = availableMB;
+    for (let i = 0; i < waiting.length;) {
+      const item = waiting[i]!;
+      const needs = item.memoryMB ?? 0;
+      if (needs <= left || round.length === 0) {
+        round.push(item);
+        left -= needs;
+        waiting.splice(i, 1);
+      } else {
+        i += 1;
+      }
+    }
+    rounds.push(round);
+  }
+  return rounds;
 }
 
 export const onlyLedger = (changed: readonly string[]): boolean => changed.length > 0 && changed.every((path) => LEDGER_FILES.includes(path));

@@ -1,2 +1,2 @@
 process.argv.push('--adopt');
-await import('./odoo-release-live.ts');
+void import('./odoo-release-live.ts');

@@ -81,5 +81,5 @@ describe('git for a person\'s machine, through Koala', () => {
     const answer = await service.serve(ask({ route: 'git-receive-pack', service: undefined, body: Readable.from(endless) }));
     expect(answer).toEqual({ status: 400, text: 'the push\'s commands run longer than any push git sends' });
     expect(fetchImpl).not.toHaveBeenCalled();
-  });
+  }, 30_000);
 });

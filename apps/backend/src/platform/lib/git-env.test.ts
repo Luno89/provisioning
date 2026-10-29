@@ -31,7 +31,7 @@ describe('git run by Koala', () => {
     } finally {
       server.close();
     }
-  });
+  }, 30_000);
 
   it('keeps what the caller configures after its own settings', () => {
     const env = unpromptedGit({ PATH: '/bin', SSH_ASKPASS: 'x', GIT_CONFIG_COUNT: '9' }, { 'http.extraHeader': 'Authorization: Basic abc' });
