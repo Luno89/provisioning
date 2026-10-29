@@ -537,9 +537,13 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const) {
 }
 
 main()
-  .catch((err) => {
+  .catch(async (err) => {
     console.error(err);
     process.exitCode = 1;
+    if (root) {
+      const seen = await inVm(root, 'cd /opt/nowrinkles && sudo docker compose -f docker-compose.temporal.yml ps -a; sudo docker compose -f docker-compose.temporal.yml logs --no-color --tail 120 temporal');
+      console.error(`\nroot's Temporal when it failed:\n${seen.out}`);
+    }
   })
   .finally(async () => {
     if (process.argv.includes('--keep')) {
