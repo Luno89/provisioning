@@ -9,7 +9,7 @@ import { serverProblems, type McpServerRecord } from '../../engine/lib/mcp-serve
 import type { TaskStatus } from '../../engine-host/tools/tasks.js';
 import type { ReleaseState } from '../../releases/index.js';
 import { noticedProblem } from '../../checks/lib/check-noticed.js';
-import type { SignalKind } from '../../engine/lib/signal-kinds.js';
+import type { SignalKind } from '../../engine/index.js';
 
 export interface WorldTask {
   id: string;

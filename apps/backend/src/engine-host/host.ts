@@ -58,7 +58,7 @@ import type { GroveOperationDeps } from '../extensions/grove/operations/handlers
 import { sourcesFrom } from '../engine/lib/poisoning.js';
 
 export interface EngineHostStores {
-  runReads?: { ofRuns(runIds: readonly string[]): Promise<import('../engine/lib/poisoning.js').RunReads[]> } | undefined;
+  runReads?: { ofRuns(runIds: readonly string[]): Promise<import('../engine/index.js').RunReads[]> } | undefined;
   actions?: { list(ownerId: string): Promise<import('@koala/harness-types').ActionProposal[]>; save(proposal: import('@koala/harness-types').ActionProposal): Promise<void> } | undefined;
   projectRecords?: (() => Promise<import('../platform/index.js').ProjectMetadata[]>) | undefined;
   machines?: { list(): Promise<readonly KnownMachine[]> } | undefined;

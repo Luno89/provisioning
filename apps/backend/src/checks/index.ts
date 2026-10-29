@@ -16,3 +16,4 @@ export { httpCheckAccess } from './services/CheckToolAccess.js';
 export { Level2Service, temporalCheckRunner } from './services/Level2Service.js';
 export { ScriptedModelService } from './services/ScriptedModelService.js';
 export type { ChecksStore } from './store.js';
+export type { Noticed } from './lib/check-noticed.js';

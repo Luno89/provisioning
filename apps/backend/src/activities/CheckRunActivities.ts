@@ -24,7 +24,7 @@ import { randomBytes } from 'node:crypto';
 import { seededGrants, seededPersonas } from '../extensions/seeds.js';
 import { platformCatalogue, platformGroups } from '../extensions/installed.js';
 import type { ReleaseE2E, Slot } from '../releases/index.js';
-import type { Noticed } from '../checks/lib/check-noticed.js';
+import type { Noticed } from '../checks/index.js';
 
 export interface CheckSpaceArgs {
   spaceId: string;
