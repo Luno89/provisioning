@@ -42,7 +42,7 @@ export class PushService {
 
   async view(ownerId: string): Promise<PushView> {
     const devices = await this.deps.store.getPushSubscriptions(ownerId);
-    return { publicKey: this.deps.vapid.publicKey, devices: devices.map(({ id, label, createdAt }) => ({ id, label, createdAt })) };
+    return { publicKey: this.deps.vapid.publicKey, devices: devices.map(({ id, label, endpoint, createdAt }) => ({ id, label, endpoint, createdAt })) };
   }
 
   async subscribe(ownerId: string, raw: unknown, userAgent: string | undefined): Promise<PushView> {

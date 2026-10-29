@@ -34,7 +34,7 @@ describe('a person\'s devices', () => {
   it('are added once per browser, listed with the instance\'s public key, and removed only by their owner', async () => {
     const view = await service.subscribe('alice', browser(1), CHROME);
     expect(view.publicKey).toBe(vapidKeysFrom('k'.repeat(64)).publicKey);
-    expect(view.devices).toEqual([{ id: expect.any(String), label: 'Chrome on Linux', createdAt: '2026-10-29T10:00:00.000Z' }]);
+    expect(view.devices).toEqual([{ id: expect.any(String), label: 'Chrome on Linux', endpoint: browser(1).endpoint, createdAt: '2026-10-29T10:00:00.000Z' }]);
     expect((await service.subscribe('alice', browser(1), CHROME)).devices).toHaveLength(1);
     expect((await service.subscribe('alice', browser(2), undefined)).devices).toHaveLength(2);
     expect((await service.view('bob')).devices).toEqual([]);

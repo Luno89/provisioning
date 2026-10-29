@@ -29,6 +29,7 @@ export interface PushMessage {
 export interface PushDevice {
   id: string;
   label: string;
+  endpoint: string;
   createdAt: string;
 }
 

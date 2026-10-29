@@ -18,7 +18,7 @@ describe('root\'s identity routes', () => {
       prefix: '/api/identity',
       router: (db) => {
         identity = new IdentityService({ role: 'root', signing }, db);
-        return identityRouter({ identity, servesTenants: false, signedIn: async (req) => (req.headers.cookie?.includes('session=ok') ? TEST_USER : undefined) });
+        return identityRouter({ identity, servesTenants: false, signedIn: async (req) => (req.headers.cookie?.includes('session=ok') ? TEST_USER : undefined), reachOf: async (instanceId) => (await db.instances.getWatch(instanceId))?.reach });
       },
     });
 
@@ -32,6 +32,10 @@ describe('root\'s identity routes', () => {
     await identity!.register({ id: 'inst-test', ownerId: TEST_USER.id, url: 'https://test.example.com' });
 
     expect((await axios.get(h.url('/api/identity/instance'))).data).toEqual({ instance: { id: 'inst-test', url: 'https://test.example.com' }, servesTenants: false });
+    await h.db.instances.saveReach({ id: 'inst-test', ownerId: TEST_USER.id }, { reachable: false, unreachableSince: '2026-10-29T10:00:00.000Z' });
+    expect((await axios.get(h.url('/api/identity/instance'))).data.instance).toEqual({ id: 'inst-test', url: 'https://test.example.com' });
+    await h.db.instances.saveReach({ id: 'inst-test', ownerId: TEST_USER.id }, { reachable: false, unreachableSince: '2026-10-29T10:00:00.000Z', toldDown: true });
+    expect((await axios.get(h.url('/api/identity/instance'))).data.instance).toEqual({ id: 'inst-test', url: 'https://test.example.com', unreachableSince: '2026-10-29T10:00:00.000Z' });
     const go = await axios.get(h.url(`/api/identity/go?nonce=${'n'.repeat(32)}`), signedIn);
     expect(go.status).toBe(302);
     expect(go.headers.location).toMatch(/^https:\/\/test\.example\.com\/#\/handoff\?token=/);

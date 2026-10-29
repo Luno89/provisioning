@@ -140,7 +140,7 @@ export async function wireInstances(deps: InstancesWiringDeps): Promise<Instance
   deps.side.follow(deps.syncExposedApps);
 
   if (holdsAccounts(role)) {
-    app.use('/api/identity', identityRouter({ identity, servesTenants: servesTenants(role), signedIn: (req) => deps.auth.userFromSessionCookie(req.headers.cookie, deps.auth.securedFor(req)) }));
+    app.use('/api/identity', identityRouter({ identity, servesTenants: servesTenants(role), signedIn: (req) => deps.auth.userFromSessionCookie(req.headers.cookie, deps.auth.securedFor(req)), reachOf: async (instanceId) => (await db.instances.getWatch(instanceId))?.reach }));
   }
   if (signsInThroughRoot(role.role)) app.use('/api/auth', handoffRouter({ identity, auth: deps.auth, sessionKey: deps.sessionKey }));
 
