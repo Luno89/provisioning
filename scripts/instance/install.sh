@@ -98,6 +98,53 @@ install_tailscale() {
   systemctl enable --now tailscaled >/dev/null 2>&1
 }
 
+read_joined() {
+  while IFS= read -r line || [ -n "$line" ]; do
+    [ -n "$line" ] || continue
+    key="${line%%=*}"
+    raw="${line#*=}"
+    case "$raw" in
+      "'"*"'") ;;
+      *) die "root's join reply has a line this installer cannot read; nothing was installed" ;;
+    esac
+    value="$(printf '%s' "$raw" | sed -e "s/^'//" -e "s/'\$//" -e "s/'\\\\''/'/g")"
+    case "$key" in
+      INSTANCE_ID) INSTANCE_ID="$value" ;;
+      INSTANCE_OWNER_ID) INSTANCE_OWNER_ID="$value" ;;
+      ROOT_URL) ROOT_URL="$value" ;;
+      ROOT_PUBLIC_KEYS_B64) ROOT_PUBLIC_KEYS_B64="$value" ;;
+      MESH_LOGIN_SERVER) MESH_LOGIN_SERVER="$value" ;;
+      MESH_PREAUTH_KEY) MESH_PREAUTH_KEY="$value" ;;
+      INSTANCE_REGISTRY) INSTANCE_REGISTRY="$value" ;;
+      INSTANCE_IMAGE) INSTANCE_IMAGE="$value" ;;
+      INSTANCE_IMAGE_TAG) INSTANCE_IMAGE_TAG="$value" ;;
+      INSTANCE_IMAGE_DIGEST) INSTANCE_IMAGE_DIGEST="$value" ;;
+      INSTANCE_CHART_URL) INSTANCE_CHART_URL="$value" ;;
+      INSTANCE_CHART_SHA256) INSTANCE_CHART_SHA256="$value" ;;
+      INSTANCE_CREDENTIAL) INSTANCE_CREDENTIAL="$value" ;;
+      INSTANCE_NAME) INSTANCE_NAME="$value" ;;
+      INSTANCE_DOMAIN) INSTANCE_DOMAIN="$value" ;;
+      INSTANCE_MOVE) INSTANCE_MOVE="$value" ;;
+    esac
+  done < "$1"
+  for required in INSTANCE_ID INSTANCE_OWNER_ID ROOT_URL ROOT_PUBLIC_KEYS_B64 MESH_LOGIN_SERVER MESH_PREAUTH_KEY INSTANCE_REGISTRY INSTANCE_IMAGE INSTANCE_IMAGE_TAG INSTANCE_CHART_URL INSTANCE_CREDENTIAL; do
+    case "$required" in
+      INSTANCE_ID) given="${INSTANCE_ID:-}" ;;
+      INSTANCE_OWNER_ID) given="${INSTANCE_OWNER_ID:-}" ;;
+      ROOT_URL) given="${ROOT_URL:-}" ;;
+      ROOT_PUBLIC_KEYS_B64) given="${ROOT_PUBLIC_KEYS_B64:-}" ;;
+      MESH_LOGIN_SERVER) given="${MESH_LOGIN_SERVER:-}" ;;
+      MESH_PREAUTH_KEY) given="${MESH_PREAUTH_KEY:-}" ;;
+      INSTANCE_REGISTRY) given="${INSTANCE_REGISTRY:-}" ;;
+      INSTANCE_IMAGE) given="${INSTANCE_IMAGE:-}" ;;
+      INSTANCE_IMAGE_TAG) given="${INSTANCE_IMAGE_TAG:-}" ;;
+      INSTANCE_CHART_URL) given="${INSTANCE_CHART_URL:-}" ;;
+      INSTANCE_CREDENTIAL) given="${INSTANCE_CREDENTIAL:-}" ;;
+    esac
+    [ -n "$given" ] || die "root's join reply has no ${required}; nothing was installed"
+  done
+}
+
 [ -n "$TOKEN" ] || die "usage: curl -fsSL ${ROOT_URL}/install.sh | sudo sh -s -- <join token>"
 [ "$(id -u)" = 0 ] || die "run this as root: pipe it into 'sudo sh -s -- <token>'"
 [ "$(uname -s)" = Linux ] || die "an instance runs on Linux"
@@ -109,14 +156,14 @@ trap 'rm -f "$JOIN_ENV"' EXIT
 HTTP_CODE="$(curl -sS -o "$JOIN_ENV" -w '%{http_code}' -X POST -H 'Content-Type: application/json' \
   -d "{\"token\":\"${TOKEN}\",\"machine\":\"$(hostname)\"}" "${ROOT_URL}/api/instances/join?format=env")"
 [ "$HTTP_CODE" = 200 ] || die "root refused the join (${HTTP_CODE}): $(cat "$JOIN_ENV")"
-. "$JOIN_ENV"
+read_joined "$JOIN_ENV"
 ok "this machine will be instance ${INSTANCE_ID}"
 
 report() {
   curl -fsS -X POST -H 'Content-Type: application/json' -H "X-Instance-Id: ${INSTANCE_ID}" -H "Authorization: Bearer ${INSTANCE_CREDENTIAL}" \
     -d "{\"status\":\"$1\",\"detail\":\"$2\"$( [ -n "${3:-}" ] && printf ',"url":"%s"' "$3" )$( [ -n "${MESH_IP:-}" ] && printf ',"meshIp":"%s"' "$MESH_IP" )$( [ -n "${4:-}" ] && printf ',"moved":true' )$( [ "$1" = ready ] && [ -n "${INSTANCE_IMAGE_TAG:-}" ] && printf ',"imageTag":"%s"' "$INSTANCE_IMAGE_TAG" )}" "${ROOT_URL}/api/instances/status" >/dev/null 2>&1 || true
 }
-trap 'status=$?; rm -f "$JOIN_ENV"; [ $status -ne 0 ] && report failed "The install command stopped on this machine; run it again to retry"' EXIT
+trap 'status=$?; rm -f "$JOIN_ENV" "${MESH_KEY_FILE:-}"; [ $status -ne 0 ] && report failed "The install command stopped on this machine; run it again to retry"' EXIT
 
 say "Checking this machine"
 MEM_MB=$(awk '/MemTotal/ { print int($2 / 1024) }' /proc/meminfo)
@@ -173,7 +220,12 @@ if lspci 2>/dev/null | grep -qi nvidia && ! have nvidia-smi; then
 fi
 
 say "Joining the mesh"
-tailscale up --login-server "$MESH_LOGIN_SERVER" --authkey "$MESH_PREAUTH_KEY" --hostname "$INSTANCE_ID" --accept-dns=false
+MESH_KEY_FILE="$(mktemp)"
+chmod 600 "$MESH_KEY_FILE"
+printf '%s' "$MESH_PREAUTH_KEY" > "$MESH_KEY_FILE"
+MESH_PREAUTH_KEY=""
+tailscale up --login-server "$MESH_LOGIN_SERVER" --auth-key="file:$MESH_KEY_FILE" --hostname "$INSTANCE_ID" --accept-dns=false
+rm -f "$MESH_KEY_FILE"
 MESH_IP="$(tailscale ip -4 | head -n1)"
 ok "on the mesh as ${MESH_IP}"
 report joined "On the mesh as ${MESH_IP}"

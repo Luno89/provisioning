@@ -2,8 +2,8 @@ import { describe, it, expect, afterEach } from 'vitest';
 import axios from 'axios';
 import type { NextFunction, Request, Response } from 'express';
 import { allowed, type Principal } from '../../platform/lib/permissions.js';
-import { execFileSync } from 'node:child_process';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { bundleAsEnv, instancesRouter } from './instances.js';
@@ -11,20 +11,40 @@ import { mountRouter, TEST_USER, type Harness } from '../../platform/routes/test
 import { InstanceService, hashCredential } from '../services/InstanceService.js';
 import { PoolMonitoringService } from '../services/PoolMonitoringService.js';
 
-describe('what the installer sources', () => {
-  it('reads back every value exactly in a POSIX shell, whatever characters it holds', () => {
-    const bundle = {
-      instanceId: 'inst-1', ownerId: 'u1', rootUrl: 'https://app.example.com', rootPublicKeys: "-----BEGIN PUBLIC KEY-----\nab'c$(rm -rf /)\n-----END PUBLIC KEY-----",
-      meshLoginServer: 'https://mesh.example.com', preAuthKey: "key'with`quotes`", registry: '100.64.0.1:5001', image: '100.64.0.1:5001/nowrinkles/app',
-      imageTag: 'abc', chartUrl: 'https://app.example.com/api/instances/chart.tgz', credential: 'c$HOME', name: 'luno', domain: 'example.com',
-    };
+describe('what the installer reads from root', () => {
+  const installer = readFileSync(join(process.cwd(), '../../scripts/instance/install.sh'), 'utf8');
+  const reader = /^read_joined\(\) \{[\s\S]*?^\}$/m.exec(installer)![0];
+  const bundle = {
+    instanceId: 'inst-1', ownerId: 'u1', rootUrl: 'https://app.example.com', rootPublicKeys: "-----BEGIN PUBLIC KEY-----\nab'c$(touch ran)\n-----END PUBLIC KEY-----",
+    meshLoginServer: 'https://mesh.example.com', preAuthKey: "key'with`touch ran`", registry: '100.64.0.1:5001', image: '100.64.0.1:5001/nowrinkles/app',
+    imageTag: 'abc', chartUrl: 'https://app.example.com/api/instances/chart.tgz', credential: "c$HOME'$(touch ran)", name: 'luno', domain: 'example.com',
+  };
+  const readIn = (dir: string, print: string) => spawnSync('sh', ['-c', `die() { echo "refused: $1"; exit 1; }\n${reader}\nread_joined ./join.env\n${print}`], { cwd: dir, encoding: 'utf8' });
+
+  it('reads back every value exactly, whatever characters it holds, and runs none of them', () => {
     const dir = mkdtempSync(join(tmpdir(), 'bundle-'));
     writeFileSync(join(dir, 'join.env'), bundleAsEnv(bundle));
+    const read = readIn(dir, 'printf "%s\\n%s\\n%s" "$MESH_PREAUTH_KEY" "$INSTANCE_CREDENTIAL" "$(printf "%s" "$ROOT_PUBLIC_KEYS_B64" | base64 -d)"');
+    expect(read.status, read.stdout + read.stderr).toBe(0);
+    expect(read.stdout.split('\n').slice(0, 2)).toEqual([bundle.preAuthKey, bundle.credential]);
+    expect(read.stdout.split('\n').slice(2).join('\n')).toBe(bundle.rootPublicKeys);
+    expect(existsSync(join(dir, 'ran'))).toBe(false);
+  });
 
-    const out = execFileSync('sh', ['-c', '. ./join.env; printf "%s\\n%s\\n%s" "$MESH_PREAUTH_KEY" "$INSTANCE_CREDENTIAL" "$(printf "%s" "$ROOT_PUBLIC_KEYS_B64" | base64 -d)"'], { cwd: dir, encoding: 'utf8' });
+  it('refuses a reply missing a value it needs, or holding a line it cannot read', () => {
+    const missing = mkdtempSync(join(tmpdir(), 'bundle-'));
+    writeFileSync(join(missing, 'join.env'), bundleAsEnv({ ...bundle, credential: '' }));
+    expect(readIn(missing, 'true').stdout).toMatch(/refused: root's join reply has no INSTANCE_CREDENTIAL/);
+    const unquoted = mkdtempSync(join(tmpdir(), 'bundle-'));
+    writeFileSync(join(unquoted, 'join.env'), `${bundleAsEnv(bundle)}INSTANCE_ID=$(touch ran)\n`);
+    expect(readIn(unquoted, 'true').stdout).toMatch(/refused: root's join reply has a line this installer cannot read/);
+    expect(existsSync(join(unquoted, 'ran'))).toBe(false);
+  });
 
-    expect(out.split('\n').slice(0, 2)).toEqual([bundle.preAuthKey, bundle.credential]);
-    expect(out.split('\n').slice(2).join('\n')).toBe(bundle.rootPublicKeys);
+  it('never sources the reply, and hands the mesh key to Tailscale in a file', () => {
+    expect(installer).not.toMatch(/^\s*\.\s+"?\$JOIN_ENV/m);
+    expect(installer).toMatch(/--auth-key="file:\$MESH_KEY_FILE"/);
+    expect(installer).not.toMatch(/--authkey "\$MESH_PREAUTH_KEY"/);
   });
 });
 
