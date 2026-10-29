@@ -55,4 +55,19 @@ describe('an instance\'s updates in Settings', () => {
     await waitFor(() => expect(api.get).toHaveBeenCalled())
     expect(container).toBeEmptyDOMElement()
   })
+
+  it('says the release it runs was withdrawn, marks it, and offers the one Koala runs', async () => {
+    const withdrawn = { at: '2026-10-27T00:00:00.000Z', by: 'root rolled back to v2026.10.24' }
+    const rows = [
+      { imageTag: 'c3', version: 'v2026.10.26', servedAt: '2026-10-26T00:00:00.000Z', running: true, current: false, choosable: false, withdrawn },
+      { imageTag: 'a1', version: 'v2026.10.24', servedAt: '2026-10-24T00:00:00.000Z', running: false, current: true, choosable: true },
+    ]
+    vi.mocked(api.get).mockResolvedValue({ data: { auto: false, picked: 'c3', running: 'c3', current: 'a1', target: 'c3', runningWithdrawn: withdrawn, releases: rows } })
+    vi.mocked(api.put).mockResolvedValue({ data: { auto: false, picked: 'a1', running: 'c3', current: 'a1', target: 'a1', runningWithdrawn: withdrawn, releases: rows, checking: 'instance-self-upgrade-z' } })
+    show()
+    expect(await screen.findByTestId('running-withdrawn')).toHaveTextContent('v2026.10.26 was withdrawn when root rolled back to v2026.10.24')
+    expect(within(screen.getByTestId('release-v2026.10.26')).getByText('Withdrawn')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Move to v2026.10.24, which Koala runs' }))
+    await waitFor(() => expect(api.put).toHaveBeenCalledWith('/instance-updates', { version: 'v2026.10.24' }))
+  })
 })

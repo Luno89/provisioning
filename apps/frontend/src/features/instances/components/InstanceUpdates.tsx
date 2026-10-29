@@ -17,6 +17,7 @@ function Release({ row, view, moving, onMove }: { row: ReleaseRow; view: Updates
         <span className="text-[11px] text-slate-500">{day(row.servedAt)}</span>
         {row.hotfix && <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-semibold text-amber-300">Hotfix</span>}
         {row.running && <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-semibold text-emerald-300">Running</span>}
+        {row.withdrawn && <span className="rounded-full bg-red-500/15 px-2 py-0.5 text-[10px] font-semibold text-red-300" title={`Withdrawn when ${row.withdrawn.by}`}>Withdrawn</span>}
         {row.current && !row.running && <span className="rounded-full bg-sky-500/15 px-2 py-0.5 text-[10px] font-semibold text-sky-300">Newest</span>}
         {row.choosable && (
           <button type="button" className="ml-auto text-xs font-semibold text-sky-300 hover:text-sky-200 disabled:opacity-50" disabled={moving} onClick={onMove}>
@@ -50,6 +51,21 @@ export function InstanceUpdates() {
       <p className="text-xs text-slate-400">
         {running ? <>This instance runs <span className="font-mono text-slate-200">{running}</span>.</> : 'This instance has not said which release it runs yet.'}
       </p>
+      {view.runningWithdrawn && (
+        <div role="alert" className="mt-2 rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-200" data-testid="running-withdrawn">
+          <p>{running} was withdrawn when {view.runningWithdrawn.by}. Your instance stays on it until you move it.</p>
+          {view.current !== view.running && (
+            <button
+              type="button"
+              className="mt-1 font-semibold text-red-100 underline hover:text-white disabled:opacity-50"
+              disabled={change.isPending}
+              onClick={() => change.mutate({ version: versionOf(view, view.current) ?? view.current })}
+            >
+              Move to {versionOf(view, view.current)}, which Koala runs
+            </button>
+          )}
+        </div>
+      )}
       {view.checking && moving && (
         <p role="status" className="mt-2 flex items-center gap-2 text-xs text-amber-200">
           <Loader2 size={12} className="animate-spin" /> Moving to {target}. Your instance restarts on it; if it does not come up, it goes back to {running ?? 'what it ran'} by itself.

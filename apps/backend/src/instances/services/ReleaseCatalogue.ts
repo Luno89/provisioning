@@ -4,7 +4,7 @@ import { existsSync } from 'node:fs';
 import { copyFile, mkdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
-import { releaseFromTag, type InstanceRelease } from '../lib/instance-updates.js';
+import { releaseFromTag, rolledBackTo, withdrawnBy, type InstanceRelease } from '../lib/instance-updates.js';
 import type { InstancesStore } from '../store.js';
 import type { ReleaseSource } from './InstanceService.js';
 
@@ -24,7 +24,7 @@ export class ReleaseCatalogue implements ReleaseSource {
   private recorded: Promise<unknown> = Promise.resolve();
 
   constructor(
-    private readonly store: Pick<InstancesStore, 'getReleases' | 'recordRelease'>,
+    private readonly store: Pick<InstancesStore, 'getReleases' | 'recordRelease' | 'withdrawRelease'>,
     private readonly settings: ReleaseCatalogueSettings,
     private readonly now: () => Date = () => new Date(),
   ) {}
@@ -55,11 +55,17 @@ export class ReleaseCatalogue implements ReleaseSource {
       await copyFile(await this.settings.chart(), kept);
       chartSha256 = createHash('sha256').update(await readFile(kept)).digest('hex');
     }
-    return this.store.recordRelease({
+    const recorded = await this.store.recordRelease({
       ...releaseFromTag(imageTag, tag, message, this.now().toISOString()),
       ...(fromHead && imageDigest && DIGEST.test(imageDigest) ? { digest: imageDigest } : {}),
       ...(chartSha256 ? { chartSha256 } : {}),
     });
+    const { clear, withdraw } = withdrawnBy(await this.store.getReleases(), imageTag);
+    if (clear) await this.store.withdrawRelease(imageTag, undefined);
+    const withdrawal = { at: this.now().toISOString(), by: rolledBackTo(recorded.version) };
+    for (const newer of withdraw) await this.store.withdrawRelease(newer, withdrawal);
+    if (withdraw.length) console.log(`[releases] root runs ${recorded.version}, older than what it served before: withdrew ${withdraw.join(', ')}`);
+    return clear ? { ...recorded, withdrawn: undefined } : recorded;
   }
 
   async releases(): Promise<InstanceRelease[]> {

@@ -1745,7 +1745,12 @@ instance, without passing its gates first (owner, 2026-10-23: "all those checks 
   record has `updates` (`auto`, on by default, or a `picked` release), `running` (the image tag its check-in reports) and
   `previous`; `GET /api/instances/release` answers per instance (`updateTarget`): on auto, root's release when it is newer
   than what the instance runs, never older; off, what was picked. A person may pick any newer release or the one it ran
-  just before (`pickProblem`). The instance's Settings → Updates (`InstanceUpdates`, `/api/instance-updates` →
+  just before (`pickProblem`). **A rollback withdraws what root rolled back from** (owner, 2026-10-29): when root boots on a release older than one it
+  served (`ReleaseCatalogue.recordCurrent`, ranked as the catalogue ranks), every newer one gets `withdrawn` (`withdrawnBy`), and a
+  later move onto one clears it. A withdrawn release is never offered or pickable; an instance on auto that runs one follows root
+  down, even when the `running` root recorded is stale; one that picked it keeps it, its Settings → Updates says it was withdrawn and
+  offers root's release, and root emails its owner once per withdrawal (`WithdrawalNotices`, `releaseWithdrawalNotices`). People
+  marks it. The instance's Settings → Updates (`InstanceUpdates`, `/api/instance-updates` →
   root's `/api/instances/updates` with its credential) switches auto and picks, and a change that moves it starts the
   check-in at once (`kubectl create job --from=cronjob/<release>-self-upgrade`, never beside one already running). Root's
   People shows each instance's version and how it updates. Release channels (rc, LTS) are a later conversation.

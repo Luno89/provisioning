@@ -249,4 +249,40 @@ describe('an instance\'s updates on root', () => {
     expect((await call('get', '/api/instances/updates', undefined, 'wrong')).status).toBe(401);
     expect((await call('put', '/api/instances/updates', { auto: 'yes' })).status).toBe(400);
   });
+
+  it('after root rolled back: points an instance on auto at root\'s release, shows the withdrawn one, and refuses picking it', async () => {
+    const withdrawn = { at: '2026-10-26T00:00:00.000Z', by: 'root rolled back to v2026.10.24' };
+    harness = await mountRouter({
+      prefix: '/api/instances',
+      user: TEST_USER,
+      router: (db) => {
+        void db.instances.saveInstance({ id: 'inst-1', ownerId: 'u1', name: 'alice', status: 'ready', url: '', createdAt: 'then', updatedAt: 'then', credentialHash: hashCredential('secret'), running: 'new222', previous: 'old111' });
+        return instancesRouter({
+          instances: new InstanceService(db, {
+            rootUrl: 'https://app.koala.dev', rootPublicKeys: () => ['PEM'], registry: 'r', imageTag: 'old111', domain: 'koala.dev',
+            releases: {
+              releases: async () => [
+                { imageTag: 'old111', version: 'v2026.10.24', servedAt: '2026-10-24T00:00:00.000Z' },
+                { imageTag: 'new222', version: 'v2026.10.25', servedAt: '2026-10-25T00:00:00.000Z', withdrawn },
+              ],
+              hasChart: () => false,
+            },
+          }, undefined),
+          chart: async () => '',
+          chartOf: () => undefined,
+        });
+      },
+    });
+    const call = (method: 'get' | 'put', path: string, data?: unknown) =>
+      axios.request({ method, url: harness!.url(path), data, headers: { 'x-instance-id': 'inst-1', authorization: 'Bearer secret' }, validateStatus: () => true });
+
+    expect((await call('get', '/api/instances/release')).data).toMatchObject({ imageTag: 'old111' });
+    const view = (await call('get', '/api/instances/updates')).data as { target: string; runningWithdrawn?: unknown; releases: Array<{ imageTag: string; withdrawn?: unknown; choosable: boolean }> };
+    expect(view.target).toBe('old111');
+    expect(view.runningWithdrawn).toEqual(withdrawn);
+    expect(view.releases.find((row) => row.imageTag === 'new222')).toMatchObject({ withdrawn, choosable: false });
+    const picked = await call('put', '/api/instances/updates', { version: 'v2026.10.25' });
+    expect(picked.status).toBe(409);
+    expect(picked.data.error).toBe('v2026.10.25 was withdrawn when root rolled back to v2026.10.24; pick another release');
+  });
 });

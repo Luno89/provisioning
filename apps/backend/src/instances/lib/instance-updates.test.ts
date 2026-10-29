@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { choosable, pickProblem, releaseFromTag, updateTarget, updatesView, type InstanceRelease } from './instance-updates.js';
+import { choosable, isWithdrawn, pickProblem, releaseFromTag, rolledBackTo, updateTarget, updatesView, withdrawnBy, type InstanceRelease } from './instance-updates.js';
 
 const releases: InstanceRelease[] = [
   { imageTag: 'c3', version: 'v2026.10.26', servedAt: '2026-10-26T00:00:00.000Z' },
@@ -58,5 +58,41 @@ describe('the updates page', () => {
       ['v2026.10.25', true, false, false],
       ['v2026.10.24', false, false, true],
     ]);
+  });
+});
+
+describe('a release root rolled back from', () => {
+  const pulled = { at: '2026-10-27T00:00:00.000Z', by: rolledBackTo('v2026.10.25') };
+  const afterRollback: InstanceRelease[] = releases.map((release) => (release.imageTag === 'c3' ? { ...release, withdrawn: pulled } : release));
+
+  it('is every release newer than root\'s own, and root moving onto one again clears it', () => {
+    expect(withdrawnBy(releases, 'b2')).toEqual({ clear: false, withdraw: ['c3'] });
+    expect(withdrawnBy(releases, 'c3')).toEqual({ clear: false, withdraw: [] });
+    expect(withdrawnBy(afterRollback, 'b2')).toEqual({ clear: false, withdraw: [] });
+    expect(withdrawnBy(afterRollback, 'c3')).toEqual({ clear: true, withdraw: [] });
+    expect(withdrawnBy(releases, 'zz')).toEqual({ clear: false, withdraw: [] });
+    expect(isWithdrawn(afterRollback, 'c3')).toBe(true);
+    expect(isWithdrawn(afterRollback, 'b2')).toBe(false);
+  });
+
+  it('is never offered: an instance on auto that runs it follows root down, even with what root recorded it running gone stale', () => {
+    expect(updateTarget({ auto: true }, 'c3', 'b2', afterRollback)).toBe('b2');
+    expect(updateTarget({ auto: true }, 'a1', 'b2', afterRollback)).toBe('b2');
+    expect(updateTarget({ auto: true }, 'b2', 'b2', afterRollback)).toBe('b2');
+  });
+
+  it('stays with an instance that picked it, which is shown as withdrawn and offered root\'s release', () => {
+    expect(updateTarget({ auto: false, picked: 'c3' }, 'c3', 'b2', afterRollback)).toBe('c3');
+    const view = updatesView({ auto: false, picked: 'c3' }, 'c3', 'b2', 'b2', afterRollback);
+    expect(view.runningWithdrawn).toEqual(pulled);
+    expect(view.releases.find((row) => row.imageTag === 'c3')?.withdrawn).toEqual(pulled);
+    expect(view.releases.find((row) => row.imageTag === 'b2')?.choosable).toBe(true);
+    expect(updatesView({ auto: true }, 'b2', undefined, 'b2', afterRollback).runningWithdrawn).toBeUndefined();
+  });
+
+  it('cannot be picked, newer or as the one run before', () => {
+    expect(pickProblem(afterRollback, 'a1', undefined, 'v2026.10.26')).toBe(`v2026.10.26 was withdrawn when ${pulled.by}; pick another release`);
+    expect(choosable(afterRollback, 'a1', undefined)).toEqual(['b2']);
+    expect(choosable(afterRollback, 'b2', 'c3')).toEqual([]);
   });
 });

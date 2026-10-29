@@ -20,6 +20,7 @@ export interface PersonInstance {
   url: string
   trialEndsAt?: string
   version?: string
+  versionWithdrawn?: boolean
   autoUpdates?: boolean
 }
 

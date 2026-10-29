@@ -82,4 +82,26 @@ describe('the releases root has run', () => {
     await unpinned.recordCurrent();
     expect((await unpinned.releases())[0]?.digest).toBeUndefined();
   });
+
+  it('withdraws every release newer than the one root boots onto, and clears it when root moves onto one again', async () => {
+    const one = head();
+    await catalogue(one, '2026-10-25T00:00:00.000Z').recordCurrent();
+    const two = commit('two');
+    await catalogue(two, '2026-10-26T00:00:00.000Z').recordCurrent();
+    const three = commit('three');
+    await catalogue(three, '2026-10-27T00:00:00.000Z').recordCurrent();
+
+    const back = await catalogue(one, '2026-10-28T00:00:00.000Z').recordCurrent();
+    expect(back.withdrawn).toBeUndefined();
+    const withdrawn = Object.fromEntries((await db.instances.getReleases()).map((release) => [release.imageTag, release.withdrawn]));
+    expect(withdrawn).toEqual({ [one]: undefined, [two]: { at: '2026-10-28T00:00:00.000Z', by: `root rolled back to ${one}` }, [three]: { at: '2026-10-28T00:00:00.000Z', by: `root rolled back to ${one}` } });
+
+    await catalogue(one, '2026-10-29T00:00:00.000Z').recordCurrent();
+    expect((await db.instances.getReleases()).find((release) => release.imageTag === two)?.withdrawn?.at).toBe('2026-10-28T00:00:00.000Z');
+
+    const forward = await catalogue(two, '2026-10-30T00:00:00.000Z').recordCurrent();
+    expect(forward.withdrawn).toBeUndefined();
+    const after = Object.fromEntries((await db.instances.getReleases()).map((release) => [release.imageTag, release.withdrawn?.by]));
+    expect(after).toEqual({ [one]: undefined, [two]: undefined, [three]: `root rolled back to ${one}` });
+  });
 });

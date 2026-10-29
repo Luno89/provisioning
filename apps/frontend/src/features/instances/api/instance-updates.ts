@@ -6,12 +6,18 @@ import { api } from '../../../api/client'
  * ── DUPLICATED, KNOWINGLY ── `UpdatesView` in apps/backend/src/instances/lib/instance-updates.ts and `UpdatesAnswer` in
  * apps/backend/src/instances/services/InstanceUpdates.ts are the authority.
  */
+export interface Withdrawal {
+  at: string
+  by: string
+}
+
 export interface ReleaseRow {
   imageTag: string
   version: string
   servedAt: string
   notes?: string
   hotfix?: boolean
+  withdrawn?: Withdrawal
   running: boolean
   current: boolean
   choosable: boolean
@@ -24,6 +30,7 @@ export interface UpdatesView {
   previous?: string
   current: string
   target: string
+  runningWithdrawn?: Withdrawal
   releases: ReleaseRow[]
   checking?: string
 }
