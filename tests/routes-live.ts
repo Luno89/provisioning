@@ -49,6 +49,7 @@ const SIGNED_IN: Probe[] = [
   { path: '/api/clusters' },
   { path: '/api/conversations' },
   { path: '/api/credentials' },
+  { path: '/api/dns-providers' },
   { path: '/api/deployments' },
   { path: '/api/documents/no-such-workspace' },
   { path: '/api/egress/requests' },
