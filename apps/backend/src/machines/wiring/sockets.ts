@@ -25,12 +25,13 @@ export interface SocketsWiringDeps {
   payloadKey: Keyring;
   dataKey: SecretKey;
   auth: Pick<ReturnType<typeof createAuth>, 'userFromSessionCookie' | 'securedFor' | 'principalFor'>;
-  machines: Pick<MachineService, 'recordAgents' | 'manualAgents' | 'recordMeshIp' | 'rotationFor' | 'tokenTaken'>;
+  machines: Pick<MachineService, 'seen' | 'recordAgents' | 'manualAgents' | 'recordMeshIp' | 'rotationFor' | 'tokenTaken'>;
   clusters: ClusterService;
   apps: AppService;
   infra: InfrastructureService;
   telemetry: MachineTelemetry;
   machineTemporal?: { address: string; namespace: string } | undefined;
+  now?: (() => Date) | undefined;
 }
 
 export function wireSockets(deps: SocketsWiringDeps): void {
@@ -56,7 +57,7 @@ export function wireSockets(deps: SocketsWiringDeps): void {
   agentNamespace.use(async (socket, next) => {
     const token = socket.handshake.auth?.token as string | undefined;
     if (!token) return next(new Error('Missing device token'));
-    const match = matchDeviceToken(await db.machines.getLocalAgentDevices(), token, dataKey);
+    const match = matchDeviceToken(await db.machines.getLocalAgentDevices(), token, dataKey, (deps.now ?? (() => new Date()))());
     if (!match) return next(new Error('Unauthorized'));
     if (match.expired) return next(new Error(TOKEN_EXPIRED_SAID));
     socket.data.device = match.device;
@@ -67,10 +68,7 @@ export function wireSockets(deps: SocketsWiringDeps): void {
     const device = socket.data.device as { id: string; ownerId: string; rootDir: string };
     const containerMode = socket.handshake.auth?.containerMode === true;
     registerDevice(device.id, device.ownerId, device.rootDir, socket, containerMode);
-    db.machines.getLocalAgentDevices().then((devices) => {
-      const current = devices.find((d) => d.id === device.id);
-      if (current) db.machines.saveLocalAgentDevice({ ...current, lastSeenAt: new Date().toISOString() }).catch(() => undefined);
-    }).catch(() => undefined);
+    deps.machines.seen(device.id).catch((err: Error) => console.warn(`[machines] ${device.id}: when it was last seen could not be recorded: ${err.message}`));
     void rotateDeviceToken(socket, device.id, socket.data.via as TokenVia, deps.machines)
       .catch((err: Error) => console.warn(`[machines] ${device.id}: its token could not be rotated: ${err.message}`));
     socket.on('disconnect', () => unregisterDevice(device.id, socket));
