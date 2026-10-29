@@ -7,7 +7,7 @@ import { join, resolve } from 'node:path';
 import { createDisposableVm, findFreePort, type DisposableVm } from './lib/disposable-vm.js';
 import { buildAppImage } from './lib/gate-runs.js';
 import { endsWith, failedUpgradeReports, imageTagOf, inFlightRefusal, unsignedRefusal, labDnsmasq, labHostsLine, noted, revisionRunning, upgradeReports, type Report } from './lib/release-lab.js';
-import { handOff, type Side } from './lib/handoff.js';
+import { handOff, sessionFrom, type Side, signedInLanding } from './lib/handoff.js';
 
 const REPO = resolve(new URL('.', import.meta.url).pathname, '..');
 const PREVIOUS_REF = process.env.RELEASE_LIVE_PREVIOUS ?? 'v2026.10.23';
@@ -76,7 +76,7 @@ async function sh(vm: DisposableVm, command: string, stream = false): Promise<st
   return out;
 }
 
-interface Answer { status: number; body: string; headers: Record<string, string> }
+interface Answer { status: number; body: string; headers: Record<string, string>; cookies: string[] }
 interface UpdatesSeen { auto: boolean; picked?: string; running?: string; target: string; checking?: string; releases: { imageTag: string; current: boolean; choosable: boolean }[] }
 
 let work = '';
@@ -86,7 +86,7 @@ let previousTag = '';
 
 const httpsSide = (host: string): Side => (path, init = {}) => {
   const answer = https(host, path, init);
-  return { status: answer.status, location: answer.headers.location ?? '', setCookies: answer.headers['set-cookie'] ? [answer.headers['set-cookie']] : [], body: answer.body };
+  return { status: answer.status, location: answer.headers.location ?? '', setCookies: answer.cookies, body: answer.body };
 };
 
 function https(host: string, path: string, init: { method?: string; body?: unknown; cookie?: string } = {}): Answer {
@@ -98,14 +98,16 @@ function https(host: string, path: string, init: { method?: string; body?: unkno
   const head = blocks.shift() ?? '';
   const [statusLine, ...lines] = head.split(/\r?\n/);
   const headers: Record<string, string> = {};
+  const cookies: string[] = [];
   for (const line of lines) {
     const at = line.indexOf(':');
     if (at <= 0) continue;
     const name = line.slice(0, at).trim().toLowerCase();
+    if (name === 'set-cookie') cookies.push(line.slice(at + 1).trim());
     if (name === 'set-cookie' && headers[name] !== undefined) continue;
     headers[name] = line.slice(at + 1).trim();
   }
-  return { status: Number((statusLine ?? '').split(' ')[1]), body: blocks.join('\n\n'), headers };
+  return { status: Number((statusLine ?? '').split(' ')[1]), body: blocks.join('\n\n'), headers, cookies };
 }
 
 const json = <T>(answer: Answer): T => JSON.parse(answer.body) as T;
@@ -268,11 +270,11 @@ async function main(): Promise<void> {
   note(`the instance pulls ${registry} over the mesh`);
 
   const handoff = async (): Promise<string> => {
-    const atRoot: Side = (path, init = {}) => httpsSide(`app.${DOMAIN}`)(path, { ...init, cookie: rootCookie });
+    const atRoot: Side = (path, init = {}) => httpsSide(`app.${DOMAIN}`)(path, { ...init, cookie: [rootCookie, init.cookie].filter(Boolean).join('; ') });
     const { exchange, location } = await handOff(atRoot, httpsSide(instanceHost));
     assert.ok(location.startsWith(`https://${instanceHost}/`), `root sent the owner to ${location}`);
-    assert.equal(exchange.status, 200, `the instance refused the token: ${exchange.body}`);
-    return (exchange.setCookies[0] ?? '').split(';')[0]!;
+    assert.ok(signedInLanding(exchange), `the instance did not sign the owner in: ${exchange.status} ${exchange.body.slice(0, 300)}`);
+    return (sessionFrom(exchange.setCookies) ?? '');
   };
   let cookie = await handoff();
   const onInstance = (path: string, init: { method?: string; body?: unknown } = {}) => https(instanceHost, path, { ...init, cookie });

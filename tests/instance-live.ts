@@ -8,7 +8,7 @@ import dotenv from 'dotenv';
 import { loadKeys } from '../apps/backend/src/platform/lib/keys.js';
 import { signJWT } from '../apps/backend/src/platform/lib/auth.js';
 import { devTemporalCa } from './lib/dev-temporal.js';
-import { fetchSide, handOff } from './lib/handoff.js';
+import { fetchSide, handOff, sessionFrom, signedInLanding } from './lib/handoff.js';
 import { signUp } from './lib/sign-up.js';
 import { dropSuiteDatabase, firstAdmin, forgetMeshUser, suiteRoot, workerEnv } from './lib/suite-root.js';
 
@@ -93,13 +93,14 @@ async function main(): Promise<void> {
   step('the owner signs in at root and is handed to their instance');
   const rootSession = signJWT({ userId: OWNER, email: owner.email }, loadKeys(process.env).session, 300);
   const atInstance = fetchSide(INSTANCE_URL);
-  const { exchange, location, token, nonceCookie } = await handOff(fetchSide(ROOT_URL, `session=${rootSession}`), atInstance);
-  assert.ok(location.startsWith(`${INSTANCE_URL}/#/handoff?token=`), `root sent the owner to ${location}`);
-  assert.ok(nonceCookie, 'the instance took a token bound to no browser');
-  assert.equal(exchange.status, 200, `the instance refused the token: ${exchange.body}`);
-  const instanceSession = (exchange.setCookies[0] ?? '').split(';')[0]!;
-  assert.equal((await atInstance('/api/auth/handoff', { method: 'POST', body: { token }, cookie: nonceCookie })).status, 409, 'the instance accepted the same token twice');
-  assert.equal((await atInstance('/api/auth/handoff', { method: 'POST', body: { token } })).status, 401, 'the instance took a token in a browser that did not start the sign-in');
+  const { exchange, location, callback, startCookie } = await handOff(fetchSide(ROOT_URL, `session=${rootSession}`), atInstance);
+  assert.equal(location, `${INSTANCE_URL}/api/auth/oidc/start`, `root sent the owner to ${location}`);
+  assert.ok(startCookie, 'the instance started a sign-in bound to no browser');
+  assert.ok(signedInLanding(exchange), `the instance did not sign its owner in: ${exchange.status} ${exchange.body.slice(0, 300)}`);
+  const instanceSession = sessionFrom(exchange.setCookies) ?? '';
+  assert.ok(instanceSession, 'the instance set no session');
+  assert.equal((await atInstance(callback!, { cookie: startCookie })).status, 401, 'the instance took the same sign-in twice');
+  assert.equal((await atInstance(callback!)).status, 400, 'the instance took a sign-in in a browser that did not start it');
   const http = (path: string, init: RequestInit = {}) => fetch(`${INSTANCE_URL}${path}`, { ...init, headers: { 'content-type': 'application/json', Cookie: instanceSession, ...(init.headers ?? {}) } });
 
   step('an agent runs code in a sandbox inside the instance\'s cluster');

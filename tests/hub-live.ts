@@ -14,7 +14,7 @@ import { HUB_REPO, hubOrgOf } from '../apps/backend/src/hub/services/HubRepos.js
 import { mainHeads } from '../apps/backend/src/hub/services/HubRepoSync.js';
 import { GiteaService } from '../apps/backend/src/projects/services/GiteaService.js';
 import { InfrastructureService } from '../apps/backend/src/infrastructure/services/InfrastructureService.js';
-import { fetchSide, handOff, sessionFrom } from './lib/handoff.js';
+import { fetchSide, handOff, sessionFrom, signedInLanding } from './lib/handoff.js';
 import { signUp as signUpWithCode } from './lib/sign-up.js';
 
 const ROOT = process.env.HUB_LIVE_ROOT ?? 'http://localhost:3001';
@@ -61,9 +61,9 @@ async function toHub(rootCookie: string): Promise<AxiosInstance> {
   const { exchange, location } = await handOff(fetchSide(ROOT, rootCookie), fetchSide(HUB), '/api/identity/go?to=hub&next=%2Fshared');
   const sent = new URL(location);
   assert.equal(sent.origin, new URL(HUB).origin);
-  assert.equal(new URLSearchParams(sent.hash.split('?')[1] ?? '').get('next'), '/shared');
+  assert.equal(sent.searchParams.get('next') ?? new URLSearchParams(sent.hash.split('?')[1] ?? '').get('next'), '/shared');
   const cookie = sessionFrom(exchange.setCookies);
-  assert.ok(exchange.status === 200 && cookie, `the hub did not take root's token: ${exchange.body}`);
+  assert.ok(signedInLanding(exchange) && cookie, `the hub did not sign the person in: ${exchange.status} ${exchange.body.slice(0, 300)}`);
   return client(HUB, cookie);
 }
 

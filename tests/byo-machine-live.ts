@@ -6,7 +6,7 @@ import { createDisposableVm, type DisposableVm } from './lib/disposable-vm.js';
 import { loadKeys } from '../apps/backend/src/platform/lib/keys.js';
 import { signJWT } from '../apps/backend/src/platform/lib/auth.js';
 import { devTemporalCa } from './lib/dev-temporal.js';
-import { fetchSide, handOff } from './lib/handoff.js';
+import { fetchSide, handOff, sessionFrom, signedInLanding } from './lib/handoff.js';
 import { dropSuiteDatabase, firstAdmin, forgetMeshUser, suiteRoot, workerEnv } from './lib/suite-root.js';
 
 const REPO = resolve(new URL('.', import.meta.url).pathname, '..');
@@ -106,8 +106,8 @@ async function main(): Promise<void> {
 
   step('the owner signs in at root and lands on the instance on their machine');
   const { exchange } = await handOff(fetchSide(ROOT_FOR_HOST, `session=${session}`), fetchSide(INSTANCE_URL));
-  assert.equal(exchange.status, 200, `the instance refused the token: ${exchange.body}`);
-  const cookie = (exchange.setCookies[0] ?? '').split(';')[0]!;
+  assert.ok(signedInLanding(exchange), `the instance did not sign the owner in: ${exchange.status} ${exchange.body.slice(0, 300)}`);
+  const cookie = (sessionFrom(exchange.setCookies) ?? '');
   const http = (path: string, init: RequestInit = {}) => fetch(`${INSTANCE_URL}${path}`, { ...init, headers: { 'content-type': 'application/json', Cookie: cookie, ...(init.headers ?? {}) } });
 
   step('an agent runs code in a sandbox on the user\'s machine');

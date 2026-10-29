@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { call, devSplitEnv, signInAtInstance, signInAtRoot } from './lib/dev-split-session.js';
+import { signedInLanding } from './lib/handoff.js';
 
 const step = (message: string) => console.log(`\n▶ ${message}`);
 
@@ -11,7 +12,7 @@ async function main(): Promise<void> {
 
   step('signed in on the instance through root');
   const signedIn = await signInAtInstance(root.PUBLIC_URL!, await signInAtRoot(root.PUBLIC_URL!), instanceUrl);
-  assert.equal(signedIn.exchange.status, 200, signedIn.exchange.body);
+  assert.ok(signedInLanding(signedIn.exchange), `the instance did not sign you in: ${signedIn.exchange.status} ${signedIn.exchange.body.slice(0, 300)}`);
   const session = signedIn.session!;
   const openRouterNow = async () => ((await call(`${instanceUrl}/api/credentials/llm`, { cookie: session })).body as { providers: Provider[] }).providers.find((one) => one.provider === 'openrouter')!;
   const before = await openRouterNow();
