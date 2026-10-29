@@ -3,8 +3,10 @@ import { decryptValue, encryptValue, type SecretKey } from '../../platform/index
 import type { InfrastructureStore } from '../store.js';
 import {
   configurationFor, FOLLOWING, mandatoryOptions, newestRelease, orderStateOf, priceChangeProblem, quoteFromCheckout, ROOT_OS,
-  rootDnsActions, rootDnsRecords, rootDomainProblem, STATE_SAID, type RootDnsAction, type ServerOrder, type ServerOrderState, type ServerQuote,
+  rootDnsRecords, rootDomainProblem, STATE_SAID, type ServerOrder, type ServerOrderState, type ServerQuote,
 } from '../lib/server-orders.js';
+import { credentialEnvOf, dnsProviderNamed, DnsProviderRefusal, type DnsCredentials, type DnsZone } from '../lib/dns-providers.js';
+import { DnsProviders } from './dns/DnsProviders.js';
 import { OvhClient, type FetchLike, type OvhAccount } from './OvhClient.js';
 
 export class ServerOrderProblem extends Error {
@@ -17,7 +19,8 @@ export interface ServerOrderDeps {
   store: Pick<InfrastructureStore, 'getServerOrders' | 'getServerOrder' | 'saveServerOrder' | 'patchServerOrder' | 'appendServerOrderLog'>;
   dataKey: SecretKey;
   ovhAccountOf: (ownerId: string) => Promise<OvhAccount | undefined>;
-  cloudflareTokenOf: (ownerId: string) => Promise<string | undefined>;
+  dnsCredentialsOf: (ownerId: string, provider: string) => Promise<DnsCredentials | undefined>;
+  dns?: DnsProviders;
   startFollowing?: (order: ServerOrder) => Promise<string>;
   stopFollowing?: (workflowId: string) => Promise<void>;
   lsRemote?: () => Promise<string>;
@@ -32,6 +35,18 @@ export interface QuoteAsk {
   domain: string;
   ingressDomain: string;
   acmeEmail: string;
+  domainDns?: string | undefined;
+  ingressDns?: string | undefined;
+}
+
+export interface ZoneView {
+  zone: string;
+  nameservers: string[];
+  provider?: string | undefined;
+  label?: string | undefined;
+  problem?: string | undefined;
+  credentials: boolean;
+  setup?: string | undefined;
 }
 
 export interface ServerOrderView extends Omit<ServerOrder, 'sshPrivateKey' | 'setupCode' | 'log'> {
@@ -52,16 +67,15 @@ export function viewOf(order: ServerOrder, withLog = false): ServerOrderView {
   };
 }
 
-interface CfZone { id: string; name: string }
-interface CfRecord { id: string; name: string; content: string; type: string }
-
 export class ServerOrderService {
   private readonly fetchImpl: FetchLike;
   private readonly now: () => Date;
+  private readonly dns: DnsProviders;
 
   constructor(private readonly deps: ServerOrderDeps) {
     this.fetchImpl = deps.fetchImpl ?? fetch;
     this.now = deps.now ?? (() => new Date());
+    this.dns = deps.dns ?? new DnsProviders(this.fetchImpl);
   }
 
   private async ovh(ownerId: string): Promise<OvhClient> {
@@ -70,21 +84,35 @@ export class ServerOrderService {
     return new OvhClient(account, this.fetchImpl);
   }
 
-  private async cloudflare<T>(token: string, path: string, init: RequestInit = {}): Promise<T> {
-    const answer = await this.fetchImpl(`https://api.cloudflare.com/client/v4${path}`, {
-      ...init,
-      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
-    });
-    const body = await answer.json() as { success?: boolean; errors?: { message?: string }[]; result: T };
-    if (!body.success) throw new Error(`Cloudflare refused ${path.split('?')[0]}: ${body.errors?.map((error) => error.message).join('; ') || `HTTP ${answer.status}`}`);
-    return body.result;
+  private async credentialsFor(ownerId: string, provider: string): Promise<DnsCredentials> {
+    const described = dnsProviderNamed(provider);
+    const found = await this.deps.dnsCredentialsOf(ownerId, provider);
+    if (!found) throw new ServerOrderProblem(409, `Add your ${described.label} credentials under Cloud providers first. ${described.setup}`);
+    return found;
   }
 
-  private async zoneOf(token: string, zone: string): Promise<CfZone> {
-    const zones = await this.cloudflare<CfZone[]>(token, `/zones?name=${encodeURIComponent(zone)}`);
-    const found = zones.find((entry) => entry.name === zone);
-    if (!found) throw new ServerOrderProblem(409, `Your Cloudflare token cannot see the zone ${zone}; give it Zone → DNS → Edit on ${zone}.`);
-    return found;
+  private async providerFor(ownerId: string, zone: string, override: string | undefined): Promise<string> {
+    const asked = override?.trim();
+    const detected = asked ? undefined : await this.dns.detect(zone);
+    const provider = asked || detected?.provider;
+    if (!provider) throw new ServerOrderProblem(409, detected?.problem ?? `Koala cannot tell who serves ${zone}'s DNS`);
+    try {
+      await this.dns.zone(provider, await this.credentialsFor(ownerId, provider), zone);
+    } catch (error) {
+      if (error instanceof DnsProviderRefusal) throw new ServerOrderProblem(409, error.message);
+      throw error;
+    }
+    return provider;
+  }
+
+  async zones(ownerId: string, zones: readonly string[]): Promise<ZoneView[]> {
+    return Promise.all(zones.map(async (zone) => {
+      const found = await this.dns.detect(zone.trim().toLowerCase());
+      if (!found.provider) return { zone: found.zone, nameservers: found.nameservers, problem: found.problem, credentials: false };
+      const described = dnsProviderNamed(found.provider);
+      const credentials = Boolean(await this.deps.dnsCredentialsOf(ownerId, found.provider));
+      return { zone: found.zone, nameservers: found.nameservers, provider: found.provider, label: described.label, credentials, ...(credentials ? {} : { setup: described.setup }) };
+    }));
   }
 
   async priceCart(client: OvhClient, planCode: string, datacenter: string): Promise<{ cartId: string; quote: ServerQuote }> {
@@ -121,10 +149,7 @@ export class ServerOrderService {
     if (problem) throw new ServerOrderProblem(400, problem);
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(ask.acmeEmail.trim())) throw new ServerOrderProblem(400, 'Give an email address for the certificate authority and root\'s mail.');
     if (!ask.planCode.trim() || !ask.datacenter.trim()) throw new ServerOrderProblem(400, 'Pick a plan and a datacenter.');
-    const token = await this.deps.cloudflareTokenOf(ownerId);
-    if (!token) throw new ServerOrderProblem(409, 'Add a Cloudflare token under Cloud providers first, with Zone → DNS → Edit on both domains.');
-    await this.zoneOf(token, domain);
-    await this.zoneOf(token, ingressDomain);
+    const dns = { domain: await this.providerFor(ownerId, domain, ask.domainDns), ingress: await this.providerFor(ownerId, ingressDomain, ask.ingressDns) };
     const client = await this.ovh(ownerId);
     const { cartId, quote } = await this.priceCart(client, ask.planCode.trim(), ask.datacenter.trim());
     const at = this.now().toISOString();
@@ -140,6 +165,7 @@ export class ServerOrderService {
       domain,
       ingressDomain,
       acmeEmail: ask.acmeEmail.trim(),
+      dns,
       cartId,
       quote,
       quotedAt: at,
@@ -270,22 +296,22 @@ export class ServerOrderService {
   async pointDomains(id: string): Promise<{ done: boolean; refused: string[] }> {
     const order = await this.order(id);
     if (!order.ip) throw new Error('the server has no address yet');
-    const token = await this.deps.cloudflareTokenOf(order.ownerId);
-    if (!token) throw new ServerOrderProblem(409, 'The Cloudflare token is gone from Cloud providers; add it again and the install carries on.');
     if (order.state !== 'dns') await this.mark(id, 'dns');
     const refused: string[] = [];
-    for (const wanted of rootDnsRecords(order.domain, order.ingressDomain, order.ip)) {
-      const zone = await this.zoneOf(token, wanted.zone);
-      const existing = await this.cloudflare<CfRecord[]>(token, `/zones/${zone.id}/dns_records?type=A&name=${encodeURIComponent(wanted.name)}`);
-      const [action] = rootDnsActions([wanted], existing) as [RootDnsAction];
-      if (action.do === 'create') {
-        await this.cloudflare(token, `/zones/${zone.id}/dns_records`, { method: 'POST', body: JSON.stringify({ type: 'A', name: wanted.name, content: wanted.content, ttl: 1, proxied: false }) });
-        await this.log(id, [`added A ${wanted.name} → ${wanted.content} (DNS only)`]);
-      } else if (action.do === 'keep') {
-        await this.log(id, [`A ${wanted.name} already → ${wanted.content}`]);
-      } else {
-        refused.push(action.why);
+    const records = rootDnsRecords(order.domain, order.ingressDomain, order.ip);
+    for (const zoneName of [...new Set(records.map((record) => record.zone))]) {
+      const provider = zoneName === order.domain ? order.dns.domain : order.dns.ingress;
+      let zone: DnsZone;
+      try {
+        zone = await this.dns.zone(provider, await this.credentialsFor(order.ownerId, provider), zoneName);
+      } catch (error) {
+        if (error instanceof DnsProviderRefusal) throw new ServerOrderProblem(409, error.message);
+        throw error;
       }
+      const steps = await this.dns.plan(zone, records.filter((record) => record.zone === zoneName).map((record) => record.wanted));
+      const { lines } = await this.dns.apply(zone, steps);
+      await this.log(id, lines.map((line) => `${zoneName} (${dnsProviderNamed(provider).label}): ${line}`));
+      refused.push(...steps.filter((step) => step.do === 'refuse').map((step) => step.why));
     }
     if (refused.length) await this.mark(id, 'dns', refused.join(' '));
     return { done: refused.length === 0, refused };
@@ -297,11 +323,16 @@ export class ServerOrderService {
     return release;
   }
 
-  async cloudflareTokenFor(id: string): Promise<string> {
+  async dnsFor(id: string): Promise<{ domainDns: string; ingressDns: string; env: Record<string, string> }> {
     const order = await this.order(id);
-    const token = await this.deps.cloudflareTokenOf(order.ownerId);
-    if (!token) throw new ServerOrderProblem(409, 'The Cloudflare token is gone from Cloud providers; add it again and the install carries on.');
-    return token;
+    const env: Record<string, string> = {};
+    for (const provider of new Set([order.dns.domain, order.dns.ingress])) {
+      const described = dnsProviderNamed(provider);
+      const found = credentialEnvOf(described, await this.credentialsFor(order.ownerId, provider));
+      if (!found) throw new ServerOrderProblem(409, `The ${described.label} credentials are incomplete under Cloud providers; add them again and the install carries on.`);
+      Object.assign(env, found);
+    }
+    return { domainDns: order.dns.domain, ingressDns: order.dns.ingress, env };
   }
 
   privateKeyOf(order: ServerOrder): string {

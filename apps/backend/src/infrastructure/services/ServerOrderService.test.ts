@@ -3,39 +3,24 @@ import { testDatabase } from '../../platform/lib/test-database.js';
 import type { MongoDB } from '../../platform/lib/mongo-db.js';
 import { FAKE_OVH_KEYS, fakeOvh, type FakeOvhState } from './fake-ovh.js';
 import type { FetchLike } from './OvhClient.js';
+import { DnsProviders } from './dns/DnsProviders.js';
+import { fakeCloudflare, fakePorkbun, type FakeDns } from './dns/fake-dns.js';
 import { ServerOrderProblem, ServerOrderService } from './ServerOrderService.js';
 
 const KEY = 'server-order-test-key';
 const ASK = { planCode: 'vps-2027-model2', planLabel: 'VPS-2 2027', datacenter: 'SYD', domain: 'nowrinkles.dev', ingressDomain: 'nowrinkles.app', acmeEmail: 'me@example.com' };
 
-interface CfState { zones: string[]; records: { id: string; zone: string; name: string; content: string }[]; created: string[] }
-
-function fakeCloudflare(state: CfState): FetchLike {
-  const json = (result: unknown, success = true) => new Response(JSON.stringify({ success, result, errors: success ? [] : [{ message: 'no' }] }));
-  return async (input, init = {}) => {
-    const url = new URL(input);
-    if ((init.headers as Record<string, string>).authorization !== 'Bearer cf-token') return json(null, false);
-    const zoneMatch = /^\/client\/v4\/zones\/([^/]+)\/dns_records$/.exec(url.pathname);
-    if (url.pathname === '/client/v4/zones') {
-      const name = url.searchParams.get('name');
-      return json(state.zones.filter((zone) => zone === name).map((zone) => ({ id: `z-${zone}`, name: zone })));
-    }
-    if (zoneMatch && (init.method ?? 'GET') === 'GET') {
-      return json(state.records.filter((record) => `z-${record.zone}` === zoneMatch[1] && record.name === url.searchParams.get('name')).map((record) => ({ ...record, type: 'A' })));
-    }
-    if (zoneMatch && init.method === 'POST') {
-      const body = JSON.parse(String(init.body)) as { name: string; content: string; proxied: boolean };
-      state.created.push(`${body.name}→${body.content}${body.proxied ? ' proxied' : ''}`);
-      return json({ id: 'r-new' });
-    }
-    return json(null, false);
-  };
-}
+const NAMESERVERS: Record<string, string[]> = {
+  'nowrinkles.dev': ['journey.ns.cloudflare.com', 'quinton.ns.cloudflare.com'],
+  'nowrinkles.app': ['fortaleza.ns.porkbun.com', 'maceio.ns.porkbun.com'],
+};
 
 describe('buying root\'s server from OVHcloud', () => {
   let db: MongoDB;
   let ovh: { fetch: FetchLike; state: FakeOvhState };
-  let cf: CfState;
+  let cf: FakeDns;
+  let pb: FakeDns;
+  let stored: Record<string, Record<string, string> | undefined>;
   let started: string[];
   let stopped: string[];
   let service: ServerOrderService;
@@ -45,18 +30,21 @@ describe('buying root\'s server from OVHcloud', () => {
     store: db.infrastructure,
     dataKey: KEY,
     ovhAccountOf: async () => ({ ...FAKE_OVH_KEYS, subsidiary: 'AU' }),
-    cloudflareTokenOf: async () => 'cf-token',
+    dnsCredentialsOf: async (_owner, provider) => stored[provider],
     startFollowing: async (order) => { started.push(order.id); return `root-node-${order.id}`; },
     stopFollowing: async (workflowId) => { stopped.push(workflowId); },
     lsRemote: async () => lsRemote,
-    fetchImpl: (input, init) => (input.startsWith('https://api.cloudflare.com') ? fakeCloudflare(cf)(input, init) : ovh.fetch(input, init)),
+    fetchImpl: ovh.fetch,
+    dns: new DnsProviders((input, init) => (input.startsWith('https://api.cloudflare.com') ? cf.fetch(input, init) : pb.fetch(input, init)), async (zone) => NAMESERVERS[zone] ?? []),
     ...overrides,
   });
 
   beforeEach(async () => {
     db = await testDatabase();
     ovh = fakeOvh();
-    cf = { zones: ['nowrinkles.dev', 'nowrinkles.app'], records: [], created: [] };
+    cf = fakeCloudflare(['nowrinkles.dev']);
+    pb = fakePorkbun(['nowrinkles.app']);
+    stored = { cloudflare: cf.good, porkbun: pb.good };
     started = [];
     stopped = [];
     lsRemote = 'a\trefs/tags/v2026.10.29\n';
@@ -77,11 +65,25 @@ describe('buying root\'s server from OVHcloud', () => {
     expect(started).toEqual([]);
   });
 
-  it('refuses to price before the keys, the token and both zones are there', async () => {
+  it('finds each zone\'s DNS provider from its nameservers and keeps it on the order', async () => {
+    expect((await service.quote('op', ASK)).dns).toEqual({ domain: 'cloudflare', ingress: 'porkbun' });
+    expect(await service.zones('op', ['nowrinkles.dev', 'nowrinkles.app', 'elsewhere.test'])).toEqual([
+      { zone: 'nowrinkles.dev', nameservers: NAMESERVERS['nowrinkles.dev'], provider: 'cloudflare', label: 'Cloudflare DNS', credentials: true },
+      { zone: 'nowrinkles.app', nameservers: NAMESERVERS['nowrinkles.app'], provider: 'porkbun', label: 'Porkbun DNS', credentials: true },
+      { zone: 'elsewhere.test', nameservers: [], problem: expect.stringContaining('no nameservers'), credentials: false },
+    ]);
+  });
+
+  it('refuses to price before the keys, each zone\'s DNS credentials and access to both zones are there', async () => {
     await expect(make({ ovhAccountOf: async () => undefined }).quote('op', ASK)).rejects.toThrow(/OVHcloud keys/);
-    await expect(make({ cloudflareTokenOf: async () => undefined }).quote('op', ASK)).rejects.toThrow(/Cloudflare token/);
-    cf.zones = ['nowrinkles.dev'];
-    await expect(service.quote('op', ASK)).rejects.toThrow(/cannot see the zone nowrinkles.app/);
+    stored = { cloudflare: cf.good };
+    await expect(service.quote('op', ASK)).rejects.toThrow(/Add your Porkbun DNS credentials/);
+    stored = { cloudflare: cf.good, porkbun: pb.good };
+    pb.zones.get('nowrinkles.app')!.reachable = false;
+    await expect(service.quote('op', ASK)).rejects.toThrow(/API Access/);
+    pb.zones.get('nowrinkles.app')!.reachable = true;
+    await expect(service.quote('op', { ...ASK, domain: 'elsewhere.test' })).rejects.toThrow(/no nameservers/);
+    await expect(service.quote('op', { ...ASK, ingressDns: 'cloudflare' })).rejects.toThrow(/cannot see the zone nowrinkles.app/);
     await expect(service.quote('op', { ...ASK, ingressDomain: 'people.nowrinkles.dev' })).rejects.toBeInstanceOf(ServerOrderProblem);
     expect(ovh.state.checkedOut).toBe(0);
   });
@@ -138,13 +140,15 @@ describe('buying root\'s server from OVHcloud', () => {
     await service.buy('op', quoted.id, 15.4);
     await service.follow(quoted.id);
     await service.rebuild(quoted.id, { publicKey: 'ssh-ed25519 AAAA koala', privateKey: 'k' });
-    cf.records = [{ id: 'r1', zone: 'nowrinkles.app', name: '*.nowrinkles.app', content: '198.51.100.1' }];
+    pb.zones.get('nowrinkles.app')!.records.push({ id: 'r-theirs', type: 'A', name: '*.nowrinkles.app', content: '198.51.100.1' });
     expect(await service.pointDomains(quoted.id)).toMatchObject({ done: false, refused: [expect.stringMatching(/already points at 198.51.100.1/)] });
-    expect(cf.created).toEqual(['app.nowrinkles.dev→203.0.113.7', 'mesh.nowrinkles.dev→203.0.113.7']);
-    cf.records = [];
-    cf.created = [];
+    expect(cf.zones.get('nowrinkles.dev')!.records.map((record) => `${record.name}→${record.content}`)).toEqual(['app.nowrinkles.dev→203.0.113.7', 'mesh.nowrinkles.dev→203.0.113.7']);
+    expect(pb.zones.get('nowrinkles.app')!.records.map((record) => record.content)).toEqual(['198.51.100.1']);
+    pb.zones.get('nowrinkles.app')!.records = [];
     expect((await service.pointDomains(quoted.id)).done).toBe(true);
-    expect(cf.created).toContain('*.nowrinkles.app→203.0.113.7');
+    expect(pb.zones.get('nowrinkles.app')!.records.map((record) => `${record.name}→${record.content}`)).toEqual(['*.nowrinkles.app→203.0.113.7']);
+    expect(cf.zones.get('nowrinkles.dev')!.records).toHaveLength(2);
+    expect(await service.dnsFor(quoted.id)).toEqual({ domainDns: 'cloudflare', ingressDns: 'porkbun', env: { CLOUDFLARE_API_TOKEN: cf.good.token, PORKBUN_API_KEY: pb.good.apiKey, PORKBUN_API_SECRET_KEY: pb.good.secretApiKey } });
     lsRemote = '';
     expect(await service.releaseToInstall(quoted.id)).toBeUndefined();
     expect((await service.get('op', quoted.id)).state).toBe('waiting-release');

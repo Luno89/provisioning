@@ -13,6 +13,8 @@ import type { TemporalBridge } from '../services/TemporalBridge.js';
 import { backupRouter } from '../routes/backup.js';
 import { clustersRouter } from '../routes/clusters.js';
 import { credentialsRouter } from '../routes/credentials.js';
+import { dnsProvidersRouter } from '../routes/dns-providers.js';
+import { DnsProviders } from '../services/dns/DnsProviders.js';
 import { deploymentsRouter } from '../routes/deployments.js';
 import { llmCredentialsRouter } from '../../models/index.js';
 import type WorkerService from '../services/WorkerService.js';
@@ -65,6 +67,7 @@ const adminOnly = (operatorOnly: RequestHandler, router: Router): Router => Rout
 export function wireInfrastructure(deps: InfrastructureWiringDeps): void {
   const { tenant, db, io } = deps;
   tenant.use('/api/credentials', llmCredentialsRouter({ db, dataKey: deps.dataKey, credentialService: deps.credentials, publicUrl: deps.publicUrl, appUrl: deps.appUrl }));
+  tenant.use('/api/dns-providers', dnsProvidersRouter({ dns: new DnsProviders() }));
   tenant.use('/api/credentials', credentialsRouter({ credentialService: deps.credentials, publicUrl: deps.publicUrl, appUrl: deps.appUrl, sessionKey: deps.sessionKey }));
   tenant.use('/api/backup', adminOnly(deps.operatorOnly, backupRouter({ repoRoot: deps.repoRoot })));
   tenant.use('/api/clusters', clustersRouter({
@@ -86,10 +89,7 @@ export function wireInfrastructure(deps: InfrastructureWiringDeps): void {
       const { OVH_APPLICATION_KEY: applicationKey, OVH_APPLICATION_SECRET: applicationSecret, OVH_CONSUMER_KEY: consumerKey, OVH_SUBSIDIARY: subsidiary } = resolved.env;
       return applicationKey && applicationSecret && consumerKey ? { applicationKey, applicationSecret, consumerKey, subsidiary: subsidiary || 'FR' } : undefined;
     },
-    cloudflareTokenOf: async (ownerId) => {
-      const resolved = await deps.credentials.resolveCredentials(ownerId, 'cloudflare');
-      return resolved.mode === 'mock' ? undefined : resolved.env.CLOUDFLARE_API_TOKEN;
-    },
+    dnsCredentialsOf: (ownerId, provider) => deps.credentials.dnsCredentialsOf(ownerId, provider),
     startFollowing: async (order) => {
       const workflowId = rootNodeWorkflowId(order.id);
       await (await getTemporalClient()).workflow.start('RootNodeWorkflow', {

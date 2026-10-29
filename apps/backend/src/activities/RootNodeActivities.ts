@@ -24,10 +24,7 @@ async function withOrders<T>(work: (orders: ServerOrderService) => Promise<T>): 
         const { OVH_APPLICATION_KEY: applicationKey, OVH_APPLICATION_SECRET: applicationSecret, OVH_CONSUMER_KEY: consumerKey, OVH_SUBSIDIARY: subsidiary } = resolved.env;
         return applicationKey && applicationSecret && consumerKey ? { applicationKey, applicationSecret, consumerKey, subsidiary: subsidiary || 'FR' } : undefined;
       },
-      cloudflareTokenOf: async (ownerId) => {
-        const resolved = await credentials.resolveCredentials(ownerId, 'cloudflare');
-        return resolved.mode === 'mock' ? undefined : resolved.env.CLOUDFLARE_API_TOKEN;
-      },
+      dnsCredentialsOf: (ownerId, provider) => credentials.dnsCredentialsOf(ownerId, provider),
       lsRemote: async () => (await execFileAsync('git', ['ls-remote', '--tags', KOALA_REPOSITORY], { maxBuffer: 16 * 1024 * 1024 })).stdout,
     });
     return await work(orders);
@@ -77,7 +74,8 @@ export async function ServerOrderBootstrapActivity(orderId: string, release: str
   return withOrders(async (orders) => {
     const order = await orders.order(orderId);
     if (!order.ip) throw new Error('the server has no address yet');
-    const token = await orders.cloudflareTokenFor(orderId);
+    const dns = await orders.dnsFor(orderId);
+    const secrets = Object.values(dns.env);
     const target = { host: order.ip, privateKey: orders.privateKeyOf(order) };
     await orders.mark(orderId, 'bootstrapping', `Installing Koala's root (${release}) on ${order.ip}`, { release });
     let buffered: string[] = [];
@@ -88,9 +86,9 @@ export async function ServerOrderBootstrapActivity(orderId: string, release: str
       await orders.log(orderId, lines);
     };
     let flushing = Promise.resolve();
-    const code = await runScriptOverSsh(target, bootstrapScript({ release, domain: order.domain, ingressDomain: order.ingressDomain, acmeEmail: order.acmeEmail, cloudflareToken: token }), (line) => {
+    const code = await runScriptOverSsh(target, bootstrapScript({ release, domain: order.domain, ingressDomain: order.ingressDomain, acmeEmail: order.acmeEmail, domainDns: dns.domainDns, ingressDns: dns.ingressDns, dnsEnv: dns.env }), (line) => {
       if (line.includes(READY_MARK)) { readyMarked = true; return; }
-      buffered.push(redacted(line, [token]).replace(SETUP_CODE_SHAPE, '••••'));
+      buffered.push(redacted(line, secrets).replace(SETUP_CODE_SHAPE, '••••'));
       if (buffered.length >= 20) flushing = flushing.then(flush);
     });
     await flushing;

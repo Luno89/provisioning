@@ -5,6 +5,8 @@ import { mountRouter, TEST_USER, type Harness } from '../../platform/routes/test
 import { authorize, type Principal } from '../../platform/lib/permissions.js';
 import { FAKE_OVH_KEYS, fakeOvh } from '../services/fake-ovh.js';
 import { ServerOrderService } from '../services/ServerOrderService.js';
+import { DnsProviders } from '../services/dns/DnsProviders.js';
+import { fakeCloudflare } from '../services/dns/fake-dns.js';
 import { serverOrdersRouter } from './server-orders.js';
 
 const operatorOnly: express.RequestHandler = (req, res, next) => {
@@ -13,7 +15,6 @@ const operatorOnly: express.RequestHandler = (req, res, next) => {
   next();
 };
 
-const cloudflare = async () => new Response(JSON.stringify({ success: true, result: [{ id: 'z', name: 'nowrinkles.dev' }, { id: 'z2', name: 'nowrinkles.app' }] }));
 const ASK = { planCode: 'vps-2027-model2', planLabel: 'VPS-2 2027', datacenter: 'SYD', domain: 'nowrinkles.dev', ingressDomain: 'nowrinkles.app', acmeEmail: 'me@example.com' };
 const send = { validateStatus: () => true };
 
@@ -22,6 +23,7 @@ afterEach(async () => { await harness?.close(); harness = undefined; });
 
 async function mount() {
   const ovh = fakeOvh();
+  const cf = fakeCloudflare(['nowrinkles.dev', 'nowrinkles.app']);
   const started: string[] = [];
   harness = await mountRouter({
     prefix: '/api/server-orders',
@@ -32,9 +34,10 @@ async function mount() {
         store: db.infrastructure,
         dataKey: 'route-test-key',
         ovhAccountOf: async () => ({ ...FAKE_OVH_KEYS, subsidiary: 'AU' }),
-        cloudflareTokenOf: async () => 'cf-token',
+        dnsCredentialsOf: async (_owner, provider) => (provider === 'cloudflare' ? cf.good : undefined),
         startFollowing: async (order) => { started.push(order.id); return `root-node-${order.id}`; },
-        fetchImpl: (input, init) => (input.startsWith('https://api.cloudflare.com') ? cloudflare() : ovh.fetch(input, init)),
+        fetchImpl: ovh.fetch,
+        dns: new DnsProviders(cf.fetch, async () => ['a.ns.cloudflare.com', 'b.ns.cloudflare.com']),
       }),
     }),
   });
@@ -47,6 +50,15 @@ describe('/api/server-orders', () => {
     h.setUser(TEST_USER);
     expect((await axios.get(h.url('/api/server-orders'), send)).status).toBe(403);
     expect((await axios.post(h.url('/api/server-orders/quote'), ASK, send)).status).toBe(403);
+  });
+
+  it('says who serves each zone\'s DNS and whether its credentials are stored, refusing a request naming none or three', async () => {
+    const { h } = await mount();
+    const answer = await axios.get(h.url('/api/server-orders/zones?zone=nowrinkles.dev&zone=nowrinkles.app'), send);
+    expect(answer.status).toBe(200);
+    expect(answer.data.map((zone: { zone: string; provider: string; credentials: boolean }) => [zone.zone, zone.provider, zone.credentials])).toEqual([['nowrinkles.dev', 'cloudflare', true], ['nowrinkles.app', 'cloudflare', true]]);
+    expect((await axios.get(h.url('/api/server-orders/zones'), send)).status).toBe(400);
+    expect((await axios.get(h.url('/api/server-orders/zones?zone=a.test&zone=b.test&zone=c.test'), send)).status).toBe(400);
   });
 
   it('prices, buys only with the confirmed total, and shows no secret in what it lists', async () => {

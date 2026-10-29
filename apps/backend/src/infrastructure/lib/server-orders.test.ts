@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
+import { zonePlan } from './dns-plan.js';
 import { ovhErrorMessage, ovhHeaders, ovhSignature } from './ovh-api.js';
 import {
   bootstrapScript, configurationFor, mandatoryOptions, newestRelease, orderStateOf, priceChangeProblem, quoteFromCheckout,
-  redacted, rootDnsActions, rootDnsRecords, rootDomainProblem, setupCodeFrom,
+  redacted, rootDnsRecords, rootDomainProblem, setupCodeFrom,
 } from './server-orders.js';
 
 describe('signing an OVHcloud request', () => {
@@ -128,18 +129,18 @@ describe('following the order', () => {
 
 describe('the domains root is reached at', () => {
   it('points app., mesh. and the people\'s wildcard at the server', () => {
-    expect(rootDnsRecords('nowrinkles.dev', 'nowrinkles.app', '203.0.113.7')).toEqual([
-      { zone: 'nowrinkles.dev', name: 'app.nowrinkles.dev', content: '203.0.113.7' },
-      { zone: 'nowrinkles.dev', name: 'mesh.nowrinkles.dev', content: '203.0.113.7' },
-      { zone: 'nowrinkles.app', name: '*.nowrinkles.app', content: '203.0.113.7' },
+    expect(rootDnsRecords('nowrinkles.dev', 'nowrinkles.app', '203.0.113.7').map(({ zone, wanted }) => [zone, wanted.type, wanted.name, wanted.content, wanted.onConflict])).toEqual([
+      ['nowrinkles.dev', 'A', 'app.nowrinkles.dev', '203.0.113.7', 'refuse'],
+      ['nowrinkles.dev', 'A', 'mesh.nowrinkles.dev', '203.0.113.7', 'refuse'],
+      ['nowrinkles.app', 'A', '*.nowrinkles.app', '203.0.113.7', 'refuse'],
     ]);
   });
 
   it('makes a missing record, keeps a right one, and never rewrites one it did not make', () => {
-    const wanted = rootDnsRecords('nowrinkles.dev', 'nowrinkles.app', '203.0.113.7');
-    const actions = rootDnsActions(wanted, [{ name: 'mesh.nowrinkles.dev', content: '203.0.113.7' }, { name: '*.nowrinkles.app', content: '198.51.100.1' }]);
-    expect(actions.map((action) => action.do)).toEqual(['create', 'keep', 'refuse']);
-    expect(actions[2]).toMatchObject({ why: expect.stringMatching(/already points at 198.51.100.1/) });
+    const wanted = rootDnsRecords('nowrinkles.dev', 'nowrinkles.app', '203.0.113.7').map((record) => record.wanted);
+    const steps = zonePlan(wanted, [{ type: 'A', name: 'mesh.nowrinkles.dev', content: '203.0.113.7' }, { type: 'A', name: '*.nowrinkles.app', content: '198.51.100.1' }]);
+    expect(steps.map((step) => step.do)).toEqual(['create', 'keep', 'refuse']);
+    expect(steps[2]).toMatchObject({ why: expect.stringMatching(/already points at 198.51.100.1/) });
   });
 
   it('wants two real domains under different registered domains', () => {
@@ -150,12 +151,18 @@ describe('the domains root is reached at', () => {
 });
 
 describe('installing root over SSH', () => {
-  const script = bootstrapScript({ release: 'v2026.10.29', domain: 'nowrinkles.dev', ingressDomain: 'nowrinkles.app', acmeEmail: 'me@example.com', cloudflareToken: "tok'en" });
+  const script = bootstrapScript({
+    release: 'v2026.10.29', domain: 'nowrinkles.dev', ingressDomain: 'nowrinkles.app', acmeEmail: 'me@example.com',
+    domainDns: 'cloudflare', ingressDns: 'porkbun', dnsEnv: { CLOUDFLARE_API_TOKEN: "tok'en", PORKBUN_API_KEY: 'pk1_a', PORKBUN_API_SECRET_KEY: 'sk1_b' },
+  });
 
-  it('checks out the signed release, runs bootstrap with the domains and the token, starts root and publishes the image', () => {
+  it('checks out the signed release, runs bootstrap with the domains, each zone\'s provider and its credentials, starts root and publishes the image', () => {
     expect(script).toContain("git checkout -q --detach 'v2026.10.29'");
     expect(script).toContain("export DOMAIN='nowrinkles.dev' INGRESS_DOMAIN='nowrinkles.app' ACME_EMAIL='me@example.com'");
+    expect(script).toContain("export CERTIFICATES=acme DOMAIN_DNS='cloudflare' INGRESS_DNS='porkbun'");
     expect(script).toContain("export CLOUDFLARE_API_TOKEN='tok'\\''en'");
+    expect(script).toContain("export PORKBUN_API_SECRET_KEY='sk1_b'");
+    expect(() => bootstrapScript({ release: 'v', domain: 'a.dev', ingressDomain: 'b.app', acmeEmail: 'x@y.z', domainDns: 'cloudflare', ingressDns: 'cloudflare', dnsEnv: { 'BAD NAME': 'x' } })).toThrow(/not an environment variable name/);
     expect(script.indexOf('bootstrap.sh')).toBeLessThan(script.indexOf('systemctl start nowrinkles'));
     expect(script.indexOf('systemctl start nowrinkles')).toBeLessThan(script.indexOf('release-watch.sh'));
   });

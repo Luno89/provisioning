@@ -5,6 +5,7 @@ import { testDatabase } from '../../platform/lib/test-database.js';
 import type { MongoDB } from '../../platform/lib/mongo-db.js';
 import type { UserMetadata } from '../../platform/lib/types.js';
 import { FAKE_OVH_KEYS, fakeOvh } from './fake-ovh.js';
+import { fakePorkbun } from './dns/fake-dns.js';
 
 const TEST_KEY = 'test-master-key-for-credential-tests';
 
@@ -106,7 +107,7 @@ describe('CredentialService', () => {
       expect(statuses.map((s) => s.provider).sort()).toEqual(
         [
           'aws', 'azure', 'do', 'gcp', 'github', 'hetzner', 'huggingface',
-          'vultr', 'linode', 'scaleway', 'hostinger', 'contabo', 'ovh', 'cloudflare',
+          'vultr', 'linode', 'scaleway', 'hostinger', 'contabo', 'ovh', 'cloudflare', 'porkbun',
           'artificialanalysis',
         ].sort(),
       );
@@ -171,6 +172,24 @@ describe('CredentialService', () => {
       } finally {
         fetchSpy.mockRestore();
       }
+    });
+  });
+
+  describe('a DNS provider, from the registry', () => {
+    it('stores Porkbun\'s keys sealed, validates them with Porkbun, and hands them back as fields and env', async () => {
+      const porkbun = fakePorkbun(['koala.test']);
+      const dnsService = new CredentialService(db, TEST_KEY, undefined, porkbun.fetch);
+      expect(await dnsService.validateCredentials('porkbun', porkbun.good)).toMatchObject({ valid: true, message: expect.stringContaining('API Access') });
+      expect(await dnsService.validateCredentials('porkbun', porkbun.bad)).toMatchObject({ valid: false, message: expect.stringContaining('Invalid API key') });
+      await dnsService.saveCredentials('user-1', 'porkbun', porkbun.good);
+      const raw = (await db.accounts.getUserById('user-1'))?.credentials?.porkbun;
+      expect(raw?.apiKey).not.toBe(porkbun.good.apiKey);
+      expect(decryptValue(raw!.apiKey!, TEST_KEY)).toBe(porkbun.good.apiKey);
+      expect((await dnsService.getCredentials('user-1', 'porkbun'))?.secretApiKey).toContain('****');
+      expect(await dnsService.dnsCredentialsOf('user-1', 'porkbun')).toEqual(porkbun.good);
+      expect((await dnsService.resolveCredentials('user-1', 'porkbun')).env).toEqual({ PORKBUN_API_KEY: porkbun.good.apiKey, PORKBUN_API_SECRET_KEY: porkbun.good.secretApiKey });
+      expect(await dnsService.dnsCredentialsOf('user-1', 'cloudflare')).toBeUndefined();
+      expect(await dnsService.dnsCredentialsOf('user-1', 'aws')).toBeUndefined();
     });
   });
 

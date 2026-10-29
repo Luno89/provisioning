@@ -34,7 +34,7 @@ async function main(): Promise<void> {
         const { OVH_APPLICATION_KEY: applicationKey, OVH_APPLICATION_SECRET: applicationSecret, OVH_CONSUMER_KEY: consumerKey, OVH_SUBSIDIARY: subsidiary } = resolved.env;
         return resolved.mode !== 'mock' && applicationKey && applicationSecret && consumerKey ? { applicationKey, applicationSecret, consumerKey, subsidiary: subsidiary || 'FR' } : undefined;
       },
-      cloudflareTokenOf: async () => undefined,
+      dnsCredentialsOf: async () => undefined,
     });
     const quote = await orders.quoteAndDiscard(owner, plan, datacenter);
     console.log(`${plan} in ${datacenter}, priced by OVHcloud (the cart was deleted; nothing was bought):`);

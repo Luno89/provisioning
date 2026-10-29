@@ -1,3 +1,5 @@
+import type { WantedRecord } from './dns-plan.js';
+
 export type ServerOrderState =
   | 'quoted'
   | 'quote-cancelled'
@@ -42,6 +44,7 @@ export interface ServerOrder {
   domain: string;
   ingressDomain: string;
   acmeEmail: string;
+  dns: { domain: string; ingress: string };
   cartId?: string | undefined;
   quote: ServerQuote;
   quotedAt: string;
@@ -184,30 +187,25 @@ export function orderStateOf(status: string): ServerOrderState | 'unknown' {
 
 export interface RootDnsRecord {
   zone: string;
-  name: string;
-  content: string;
+  wanted: WantedRecord;
 }
+
+const pointedAt = (name: string, ip: string): WantedRecord => ({
+  type: 'A',
+  name,
+  content: ip,
+  onConflict: 'refuse',
+  why: `${name} points at the new root (DNS only)`,
+  kept: `${name} already points at ${ip}`,
+  refused: (found) => `${name} already points at ${found.map((record) => record.content).join(', ')}; Koala does not change a record it did not make. Point it at ${ip} (DNS only) or delete it, and the install carries on.`,
+});
 
 export function rootDnsRecords(domain: string, ingressDomain: string, ip: string): RootDnsRecord[] {
   return [
-    { zone: domain, name: `app.${domain}`, content: ip },
-    { zone: domain, name: `mesh.${domain}`, content: ip },
-    { zone: ingressDomain, name: `*.${ingressDomain}`, content: ip },
+    { zone: domain, wanted: pointedAt(`app.${domain}`, ip) },
+    { zone: domain, wanted: pointedAt(`mesh.${domain}`, ip) },
+    { zone: ingressDomain, wanted: pointedAt(`*.${ingressDomain}`, ip) },
   ];
-}
-
-export type RootDnsAction =
-  | { do: 'create'; record: RootDnsRecord }
-  | { do: 'keep'; record: RootDnsRecord }
-  | { do: 'refuse'; record: RootDnsRecord; why: string };
-
-export function rootDnsActions(wanted: readonly RootDnsRecord[], existing: readonly { name: string; content: string }[]): RootDnsAction[] {
-  return wanted.map((record) => {
-    const found = existing.filter((entry) => entry.name === record.name);
-    if (found.length === 0) return { do: 'create', record };
-    if (found.every((entry) => entry.content === record.content)) return { do: 'keep', record };
-    return { do: 'refuse', record, why: `${record.name} already points at ${found.map((entry) => entry.content).join(', ')}; Koala does not change a record it did not make. Point it at ${record.content} (DNS only) or delete it, and the install carries on.` };
-  });
 }
 
 export function newestRelease(lsRemote: string): string | undefined {
@@ -228,12 +226,18 @@ export interface BootstrapInputs {
   domain: string;
   ingressDomain: string;
   acmeEmail: string;
-  cloudflareToken: string;
+  domainDns: string;
+  ingressDns: string;
+  dnsEnv: Readonly<Record<string, string>>;
 }
 
 const shellQuote = (value: string): string => `'${value.replace(/'/g, `'\\''`)}'`;
 
 export function bootstrapScript(inputs: BootstrapInputs, repository = KOALA_REPOSITORY): string {
+  const credentials = Object.entries(inputs.dnsEnv).map(([name, value]) => {
+    if (!/^[A-Z][A-Z0-9_]*$/.test(name)) throw new Error(`${name} is not an environment variable name`);
+    return `export ${name}=${shellQuote(value)}`;
+  });
   return [
     'set -euo pipefail',
     'export DEBIAN_FRONTEND=noninteractive',
@@ -243,7 +247,8 @@ export function bootstrapScript(inputs: BootstrapInputs, repository = KOALA_REPO
     'git fetch -q --tags --prune',
     `git checkout -q --detach ${shellQuote(inputs.release)}`,
     `export DOMAIN=${shellQuote(inputs.domain)} INGRESS_DOMAIN=${shellQuote(inputs.ingressDomain)} ACME_EMAIL=${shellQuote(inputs.acmeEmail)}`,
-    `export CLOUDFLARE_API_TOKEN=${shellQuote(inputs.cloudflareToken)}`,
+    `export CERTIFICATES=acme DOMAIN_DNS=${shellQuote(inputs.domainDns)} INGRESS_DNS=${shellQuote(inputs.ingressDns)}`,
+    ...credentials,
     'bash scripts/root-node/bootstrap.sh',
     'systemctl start nowrinkles',
     'bash scripts/root-node/release-watch.sh',

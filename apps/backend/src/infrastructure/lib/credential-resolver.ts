@@ -1,4 +1,5 @@
 import type { CloudCredentials } from '../../platform/index.js';
+import { credentialEnvOf, credentialsFromEnv, dnsProviderNamed, isDnsProviderName } from './dns-providers.js';
 import { allowed, principalOf, type ClaimedUser, type ClaimSettings } from '../../platform/lib/permissions.js';
 
 export const COMBINED_CLAIMS: ClaimSettings = { role: 'combined' };
@@ -37,6 +38,7 @@ function resolveFromUser(
   creds: CloudCredentials | undefined,
 ): Record<string, string> | null {
   if (!creds) return null;
+  if (isDnsProviderName(provider)) return credentialEnvOf(dnsProviderNamed(provider), creds[provider]) ?? null;
 
   switch (provider) {
     case 'aws': {
@@ -78,11 +80,6 @@ function resolveFromUser(
       const hz = creds.hetzner;
       if (!hz?.token) return null;
       return { HCLOUD_TOKEN: hz.token };
-    }
-    case 'cloudflare': {
-      const cf = creds.cloudflare;
-      if (!cf?.token) return null;
-      return { CLOUDFLARE_API_TOKEN: cf.token, ...(cf.zone ? { CLOUDFLARE_ZONE: cf.zone } : {}) };
     }
     case 'vultr': {
       const v = creds.vultr;
@@ -138,6 +135,11 @@ function resolveFromUser(
 }
 
 function resolveFromEnv(provider: string): Record<string, string> | null {
+  if (isDnsProviderName(provider)) {
+    const described = dnsProviderNamed(provider);
+    const fields = credentialsFromEnv(described, process.env);
+    return fields ? credentialEnvOf(described, fields) ?? null : null;
+  }
   switch (provider) {
     case 'aws': {
       const keyId = process.env.AWS_ACCESS_KEY_ID;
@@ -182,11 +184,6 @@ function resolveFromEnv(provider: string): Record<string, string> | null {
       const token = process.env.HCLOUD_TOKEN || process.env.HETZNER_TOKEN;
       if (!token) return null;
       return { HCLOUD_TOKEN: token };
-    }
-    case 'cloudflare': {
-      const token = process.env.CLOUDFLARE_API_TOKEN || process.env.CF_API_TOKEN;
-      if (!token) return null;
-      return { CLOUDFLARE_API_TOKEN: token, ...(process.env.CLOUDFLARE_ZONE ? { CLOUDFLARE_ZONE: process.env.CLOUDFLARE_ZONE } : {}) };
     }
     case 'vultr': {
       const token = process.env.VULTR_API_KEY;

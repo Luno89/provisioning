@@ -33,10 +33,21 @@ export function serverOrdersRouter(deps: { serverOrders: ServerOrderService; ope
         domain: text(body.domain),
         ingressDomain: text(body.ingressDomain),
         acmeEmail: text(body.acmeEmail),
+        domainDns: text(body.domainDns) || undefined,
+        ingressDns: text(body.ingressDns) || undefined,
       }));
     } catch (error) {
       answer(res, error);
     }
+  }));
+
+  router.get('/zones', asyncRoute(async (req, res) => {
+    const asked = ([] as unknown[]).concat(req.query.zone ?? []).map(text).map((zone) => zone.trim()).filter(Boolean);
+    if (asked.length === 0 || asked.length > 2) {
+      res.status(400).json({ error: 'Name one or two zones as ?zone=' });
+      return;
+    }
+    res.json(await serverOrders.zones(userOf(req).id, asked));
   }));
 
   router.get('/:id', asyncRoute(async (req, res) => {
