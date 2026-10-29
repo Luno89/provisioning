@@ -108,6 +108,7 @@ export function createAuth({ db, sessionKey, publicUrl, role = 'combined', insta
         '/instances/machine-node',
         '/instances/addresses',
         '/instances/updates',
+        '/instances/release-findings',
         '/instances/groups',
         '/instances/trial',
         '/instances/mail',

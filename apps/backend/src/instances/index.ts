@@ -19,9 +19,11 @@ export { forPushing, kanikoRegistryArgs, registryHosts } from './lib/registry-ho
 export type { RegistryHosts } from './lib/registry-hosts.js';
 export { dockerConfigJson, manifestList, registryPullManifests } from './lib/registry-pull.js';
 export type { RegistryLogin, RegistryLoginSource } from './lib/registry-pull.js';
+export { DependencyWatch } from './services/DependencyWatch.js';
 export { IdentityService } from './services/IdentityService.js';
 export { InstanceGroups } from './services/InstanceGroups.js';
 export { hashCredential, instanceIdFor } from './services/InstanceService.js';
 export { kubeconfigFile, MoveRelay } from './services/MoveRelay.js';
+export { inventoryFileFor } from './services/ReleaseCatalogue.js';
 export { RootMeshKeys } from './services/RootMeshKeys.js';
 export type { InstancesStore } from './store.js';

@@ -2,6 +2,8 @@ import { compareVersions, COOLING_OFF_DAYS, DAY_MS, fixOf } from '../../platform
 import type { Severity } from '../../platform/lib/osv.js';
 import type { ComponentKind, InventoryComponent } from '../../platform/lib/sbom.js';
 
+export const DEPENDENCY_WATCH_ID = 'dependency-watch';
+
 export type FindingState = 'waiting' | 'due' | 'no-fix';
 
 export interface FindingComponent {

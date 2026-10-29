@@ -16,13 +16,22 @@ const refused = (res: Response, err: unknown) => {
   throw err;
 };
 
-export function instanceUpdatesRouter(deps: { updates: Pick<InstanceUpdates, 'view' | 'set'> | undefined }): Router {
+export function instanceUpdatesRouter(deps: { updates: Pick<InstanceUpdates, 'view' | 'set' | 'findings'> | undefined }): Router {
   const router = Router();
 
   router.get('/', asyncRoute(async (_req: Request, res: Response) => {
     if (!deps.updates) return res.status(404).json({ error: NONE });
     try {
       return res.json(await deps.updates.view());
+    } catch (err) {
+      return refused(res, err);
+    }
+  }));
+
+  router.get('/findings', asyncRoute(async (_req: Request, res: Response) => {
+    if (!deps.updates) return res.status(404).json({ error: NONE });
+    try {
+      return res.json(await deps.updates.findings());
     } catch (err) {
       return refused(res, err);
     }

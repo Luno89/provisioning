@@ -12,6 +12,12 @@ const run = promisify(execFile);
 const IMAGE_TAG = /^[A-Za-z0-9._-]{1,128}$/;
 const DIGEST = /^sha256:[0-9a-f]{64}$/;
 
+export function inventoryFileFor(chartsDir: string, imageTag: string): string | undefined {
+  if (!IMAGE_TAG.test(imageTag)) return undefined;
+  const file = join(chartsDir, `${imageTag}.sbom.json`);
+  return existsSync(file) ? file : undefined;
+}
+
 export interface ReleaseCatalogueSettings {
   repoRoot: string;
   chartsDir: string;
@@ -76,9 +82,7 @@ export class ReleaseCatalogue implements ReleaseSource {
   }
 
   inventoryFile(imageTag: string): string | undefined {
-    if (!IMAGE_TAG.test(imageTag)) return undefined;
-    const file = join(this.settings.chartsDir, `${imageTag}.sbom.json`);
-    return existsSync(file) ? file : undefined;
+    return inventoryFileFor(this.settings.chartsDir, imageTag);
   }
 
   hasChart(imageTag: string): boolean {

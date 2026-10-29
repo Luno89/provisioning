@@ -7,6 +7,7 @@ import { parseAsk, parseRange, parsePoolRule, parseProbes } from '../../monitori
 import { isMovePart } from '../lib/instance-move.js';
 import { volumeOfPart } from '../lib/app-move.js';
 import type { MoveRelay } from '../services/MoveRelay.js';
+import type { DependencyWatch } from '../services/DependencyWatch.js';
 import type { InstanceMailLimit } from '../services/InstanceMailLimit.js';
 import { heldBackMail } from '../lib/instance-mail-limit.js';
 import type { HubAccess } from '../../hub/index.js';
@@ -43,7 +44,7 @@ export function bundleAsEnv(bundle: JoinBundle): string {
 }
 
 export function instancesRouter(deps: {
-  instances: Pick<InstanceService, 'createJoinToken' | 'poolOffer' | 'createPoolInstance' | 'poolAdmin' | 'setTrialDays' | 'setTrialEnd' | 'removePoolInstance' | 'join' | 'release' | 'updates' | 'setUpdates' | 'report' | 'mine' | 'machineKey' | 'removeMachineNode' | 'nameCheck' | 'addresses' | 'setAddresses' | 'checkGroup' | 'claimGroup' | 'releaseGroup' | 'ownerOf' | 'trialOf' | 'poolPlaceOf' | 'startMove' | 'startMoveAs' | 'moveOf' | 'moveOfAs' | 'stopMove' | 'stopMoveAs' | 'moveSource'>;
+  instances: Pick<InstanceService, 'createJoinToken' | 'poolOffer' | 'createPoolInstance' | 'poolAdmin' | 'setTrialDays' | 'setTrialEnd' | 'removePoolInstance' | 'join' | 'release' | 'updates' | 'setUpdates' | 'report' | 'mine' | 'machineKey' | 'removeMachineNode' | 'nameCheck' | 'addresses' | 'setAddresses' | 'checkGroup' | 'claimGroup' | 'releaseGroup' | 'ownerOf' | 'trialOf' | 'poolPlaceOf' | 'startMove' | 'startMoveAs' | 'moveOf' | 'moveOfAs' | 'stopMove' | 'stopMoveAs' | 'moveSource' | 'runningOf'>;
   chart: () => Promise<string>;
   mailLimit?: InstanceMailLimit | undefined;
   chartOf?: ((imageTag: string) => string | undefined) | undefined;
@@ -51,6 +52,8 @@ export function instancesRouter(deps: {
   poolMonitoring?: PoolMonitoringService | undefined;
   moveRelay?: MoveRelay | undefined;
   operatorOnly?: RequestHandler | undefined;
+  administers?: RequestHandler | undefined;
+  dependencies?: Pick<DependencyWatch, 'view' | 'check' | 'forRelease'> | undefined;
   hubAccess?: ((instanceId: string, ownerId: string) => Promise<HubAccess | undefined>) | undefined;
 }): Router {
   const router = Router();
@@ -130,6 +133,31 @@ export function instancesRouter(deps: {
     const outcome = await deps.instances.updates(instanceId, credential);
     if (!outcome.ok) return res.status(outcome.status).json({ error: outcome.error });
     return res.json(outcome.value);
+  }));
+
+  const administers: RequestHandler = deps.administers ?? admin;
+
+  router.get('/dependencies', administers, asyncRoute(async (_req: Request, res: Response) => {
+    if (!deps.dependencies) return res.status(404).json({ error: 'this server keeps no record of its dependencies' });
+    res.setHeader('Cache-Control', 'no-store');
+    return res.json(await deps.dependencies.view());
+  }));
+
+  router.post('/dependencies/check', administers, asyncRoute(async (_req: Request, res: Response) => {
+    if (!deps.dependencies) return res.status(404).json({ error: 'this server keeps no record of its dependencies' });
+    try {
+      return res.json(await deps.dependencies.check());
+    } catch (err) {
+      return res.status(502).json({ error: `the check could not finish: ${(err as Error).message}` });
+    }
+  }));
+
+  router.get('/release-findings', asyncRoute(async (req: Request, res: Response) => {
+    const { instanceId, credential } = credentialOf(req);
+    const outcome = await deps.instances.runningOf(instanceId, credential);
+    if (!outcome.ok) return res.status(outcome.status).json({ error: outcome.error });
+    if (!deps.dependencies || !outcome.value.running) return res.json({ findings: [] });
+    return res.json(await deps.dependencies.forRelease(outcome.value.running));
   }));
 
   router.put('/updates', asyncRoute(async (req: Request, res: Response) => {

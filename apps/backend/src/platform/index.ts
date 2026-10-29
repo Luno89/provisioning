@@ -34,7 +34,7 @@ export { carriedByOAuthState, newOAuthState, OAUTH_STATE_COOKIE, OAUTH_STATE_SEC
 export { advisoryFor, batches, idsFromBatch, OSV_API, OSV_BATCH, queryKey, queryOf } from './lib/osv.js';
 export type { OsvAdvisory, OsvQuery, Severity } from './lib/osv.js';
 export { ownedBy, withBuiltIns } from './lib/ownership.js';
-export { allowed, asPerson, authorize, claimsOf, clusterResource, holds, memberPrincipal, PERMISSIONS, principalOf, rolePrincipal, SHARED_ROLES, sharedActionsOf, sharedRoleOf, withSharedRole } from './lib/permissions.js';
+export { allowed, asPerson, authorize, claimsOf, clusterResource, holds, memberPrincipal, operatorsAmong, PERMISSIONS, principalOf, rolePrincipal, SHARED_ROLES, sharedActionsOf, sharedRoleOf, withSharedRole } from './lib/permissions.js';
 export type { Actions, Claim, ClaimSettings, Decision, Principal, Resource, SharedAction, SharedRole } from './lib/permissions.js';
 export { claimSettingsFrom, holdsAccounts, roleFromEnv, servesHub, servesTenants, signsInThroughRoot } from './lib/platform-role.js';
 export type { RoleConfig } from './lib/platform-role.js';

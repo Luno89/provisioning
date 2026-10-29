@@ -452,6 +452,12 @@ export class InstanceService {
     return { ok: true, value: await this.viewOf(instance) };
   }
 
+  async runningOf(instanceId: unknown, credential: unknown): Promise<Outcome<{ running?: string | undefined }>> {
+    const instance = await this.authenticated(instanceId, credential);
+    if (!instance) return { ok: false, status: 401, error: 'unknown instance or credential' };
+    return { ok: true, value: { running: instance.running } };
+  }
+
   async setUpdates(instanceId: unknown, credential: unknown, change: { auto?: unknown; version?: unknown }): Promise<Outcome<UpdatesView>> {
     const instance = await this.authenticated(instanceId, credential);
     if (!instance) return { ok: false, status: 401, error: 'unknown instance or credential' };

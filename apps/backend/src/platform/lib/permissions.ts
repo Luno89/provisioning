@@ -44,6 +44,9 @@ export const withSharedRole = (principal: Principal, project: string, as: Shared
 export const holds = (principal: Principal, role: 'operator' | 'instance-owner'): boolean =>
   principal.claims.some((claim) => claim.role === role);
 
+export const operatorsAmong = <T extends { id: string; isAdmin?: boolean | undefined; space?: unknown }>(users: readonly T[], settings: ClaimSettings): T[] =>
+  users.filter((user) => !user.space && holds(principalOf(user, settings), 'operator'));
+
 export const sharedRoleOf = (principal: Principal, project: string): SharedRole | undefined => {
   const claim = principal.claims.find((entry): entry is Extract<Claim, { role: 'shared' }> => entry.role === 'shared' && entry.project === project);
   return claim?.as;
