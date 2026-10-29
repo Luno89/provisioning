@@ -264,8 +264,8 @@ describe('Koala\'s dependencies on root', () => {
   const mount = async (operator: boolean) => mountRouter({
     prefix: '/api/instances',
     user: { ...TEST_USER, isAdmin: operator },
-    router: (db) => {
-      void db.instances.saveInstance({ id: 'inst-1', ownerId: 'u1', name: 'alice', status: 'ready', url: '', createdAt: 'then', updatedAt: 'then', credentialHash: hashCredential('secret'), running: 'new222' });
+    router: async (db) => {
+      await db.instances.saveInstance({ id: 'inst-1', ownerId: 'u1', name: 'alice', status: 'ready', url: '', createdAt: 'then', updatedAt: 'then', credentialHash: hashCredential('secret'), running: 'new222' });
       return instancesRouter({
         instances: new InstanceService(db, { rootUrl: 'https://app.koala.dev', rootPublicKeys: () => ['PEM'], registry: 'r', imageTag: 'new222' }, undefined),
         chart: async () => '',
