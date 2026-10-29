@@ -89,16 +89,89 @@ export interface Vulnerability {
   id: string;
   name: string;
   version: string;
+  fixed: string[];
 }
 
+interface OsvFinding { package: { name: string; version: string }; dependency_groups?: string[]; vulnerabilities?: OsvVulnerability[] }
+interface OsvVulnerability { id: string; affected?: { package?: { name?: string }; ranges?: { events?: { fixed?: string }[] }[] }[] }
+
+const fixedVersionsOf = (vulnerability: OsvVulnerability, name: string): string[] =>
+  (vulnerability.affected ?? [])
+    .filter((affected) => affected.package?.name === name)
+    .flatMap((affected) => affected.ranges ?? [])
+    .flatMap((range) => range.events ?? [])
+    .flatMap((event) => (event.fixed ? [event.fixed] : []));
+
 export const productionVulnerabilities = (report: unknown): Vulnerability[] =>
-  ((report as { results?: { packages?: { package: { name: string; version: string }; dependency_groups?: string[]; vulnerabilities?: { id: string }[] }[] }[] } | undefined)?.results ?? [])
+  ((report as { results?: { packages?: OsvFinding[] }[] } | undefined)?.results ?? [])
     .flatMap((result) => result.packages ?? [])
     .filter((found) => !(found.dependency_groups ?? []).includes('dev'))
-    .flatMap((found) => (found.vulnerabilities ?? []).map((vulnerability) => ({ id: vulnerability.id, name: found.package.name, version: found.package.version })));
+    .flatMap((found) => (found.vulnerabilities ?? []).map((vulnerability) => ({
+      id: vulnerability.id,
+      name: found.package.name,
+      version: found.package.version,
+      fixed: fixedVersionsOf(vulnerability, found.package.name),
+    })));
 
-export const vulnerableRefusal = (found: readonly Vulnerability[]): string | undefined =>
-  found.length ? `osv-scanner finds a known vulnerability in what Koala runs:\n${found.map((one) => `  ${one.name}@${one.version}: https://osv.dev/${one.id}`).join('\n')}\nUpdate the package, or, when no fixed version exists yet, add the id to osv-scanner.toml with why it stays.` : undefined;
+export const COOLING_OFF_DAYS = 14;
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+const releaseParts = (version: string): number[] => (version.split(/[-+]/)[0] ?? '').split('.').map((part) => Number.parseInt(part, 10) || 0);
+
+export function compareVersions(a: string, b: string): number {
+  const left = releaseParts(a);
+  const right = releaseParts(b);
+  for (let i = 0; i < Math.max(left.length, right.length); i += 1) {
+    const difference = (left[i] ?? 0) - (right[i] ?? 0);
+    if (difference !== 0) return difference;
+  }
+  return 0;
+}
+
+export const fixOf = (vulnerability: Vulnerability): string | undefined =>
+  vulnerability.fixed.filter((version) => compareVersions(version, vulnerability.version) > 0).sort(compareVersions)[0];
+
+export interface JudgedVulnerability {
+  vulnerability: Vulnerability;
+  fix?: string | undefined;
+  publishedAt?: string | undefined;
+  takeOn?: string | undefined;
+}
+
+export function judgeVulnerabilities(
+  found: readonly Vulnerability[],
+  publishedAt: (name: string, version: string) => string | undefined,
+  now: Date,
+  days = COOLING_OFF_DAYS,
+): { due: JudgedVulnerability[]; waiting: JudgedVulnerability[] } {
+  const due: JudgedVulnerability[] = [];
+  const waiting: JudgedVulnerability[] = [];
+  for (const vulnerability of found) {
+    const fix = fixOf(vulnerability);
+    const published = fix ? publishedAt(vulnerability.name, fix) : undefined;
+    const takeOn = published ? new Date(Date.parse(published) + days * DAY_MS) : undefined;
+    const judged = { vulnerability, fix, publishedAt: published, takeOn: takeOn?.toISOString().slice(0, 10) };
+    if (takeOn && takeOn.getTime() > now.getTime()) waiting.push(judged);
+    else due.push(judged);
+  }
+  return { due, waiting };
+}
+
+const dueLine = ({ vulnerability, fix, publishedAt }: JudgedVulnerability): string => {
+  const where = `  ${vulnerability.name}@${vulnerability.version}: https://osv.dev/${vulnerability.id}`;
+  if (!fix) return `${where} (no fixed version yet)`;
+  if (!publishedAt) return `${where} (fixed in ${fix}; its publish date could not be read)`;
+  return `${where} (fixed in ${fix}, published ${publishedAt.slice(0, 10)})`;
+};
+
+export const vulnerableRefusal = (due: readonly JudgedVulnerability[]): string | undefined =>
+  due.length
+    ? `osv-scanner finds a known vulnerability in what Koala runs, with its fix at least ${COOLING_OFF_DAYS} days old or none at all:\n${due.map(dueLine).join('\n')}\nTake the fix with \`npm run deps:update -- <package>\`, or, when no fixed version exists yet, add the id to osv-scanner.toml with why it stays.`
+    : undefined;
+
+export const waitingLines = (waiting: readonly JudgedVulnerability[]): string[] =>
+  waiting.map(({ vulnerability, fix, takeOn }) => `${vulnerability.name}@${vulnerability.version}: https://osv.dev/${vulnerability.id}, fixed in ${fix}, which can be taken on ${takeOn}`);
 
 export const TAG_SIGNATURE = /^(Shipped and released|Hotfix released) from /m;
 

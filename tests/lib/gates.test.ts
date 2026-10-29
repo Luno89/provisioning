@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { changedBesidesLedger, HOTFIX_STEPS, productionVulnerabilities, vulnerableRefusal, ignoredRefusal, leaksRefusal, NO_COMMIT, nextVersion, pushedRange, onlyLedger, pushRefusal, RELEASE_SIGNERS, RELEASE_STEPS, SHIP_STEPS, signingKeyProblem, TAG_SIGNATURE, tagMessage, unsignedTagRefusal } from './gates.js';
+import { changedBesidesLedger, HOTFIX_STEPS, productionVulnerabilities, vulnerableRefusal, judgeVulnerabilities, compareVersions, fixOf, waitingLines, ignoredRefusal, leaksRefusal, NO_COMMIT, nextVersion, pushedRange, onlyLedger, pushRefusal, RELEASE_SIGNERS, RELEASE_STEPS, SHIP_STEPS, signingKeyProblem, TAG_SIGNATURE, tagMessage, unsignedTagRefusal } from './gates.js';
 
 const shipped = { at: '2026-10-24T01:00:00.000Z', steps: [] };
 const released = (version: string) => ({ ...shipped, version, previous: 'v2026.10.23' });
@@ -124,18 +124,38 @@ describe('the key a release is signed with', () => {
 
 describe('known vulnerabilities before ship', () => {
   const report = { results: [{ packages: [
-    { package: { name: 'axios', version: '1.18.1' }, vulnerabilities: [{ id: 'GHSA-aaaa' }] },
+    { package: { name: 'axios', version: '1.18.1' }, vulnerabilities: [{ id: 'GHSA-aaaa', affected: [{ package: { name: 'axios' }, ranges: [{ events: [{ introduced: '0' }, { fixed: '1.18.3' }] }] }, { package: { name: 'other' }, ranges: [{ events: [{ fixed: '9.0.0' }] }] }] }] },
     { package: { name: 'vite', version: '8.0.16' }, dependency_groups: ['dev'], vulnerabilities: [{ id: 'GHSA-bbbb' }] },
     { package: { name: 'clean', version: '1.0.0' }, vulnerabilities: [] },
   ] }] };
+  const axios = { id: 'GHSA-aaaa', name: 'axios', version: '1.18.1', fixed: ['1.18.3'] };
+  const now = new Date('2026-10-28T12:00:00Z');
 
-  it('counts what Koala runs, never a tool only its development uses', () => {
-    expect(productionVulnerabilities(report)).toEqual([{ id: 'GHSA-aaaa', name: 'axios', version: '1.18.1' }]);
+  it('counts what Koala runs, never a tool only its development uses, with the fixes for that package', () => {
+    expect(productionVulnerabilities(report)).toEqual([axios]);
     expect(productionVulnerabilities({})).toEqual([]);
   });
 
-  it('refuses to ship with one, naming it and how to settle it', () => {
-    expect(vulnerableRefusal([])).toBeUndefined();
-    expect(vulnerableRefusal(productionVulnerabilities(report))).toMatch(/axios@1\.18\.1: https:\/\/osv\.dev\/GHSA-aaaa[\s\S]*osv-scanner\.toml/);
+  it('takes the lowest fix above the version in use, comparing versions by number', () => {
+    expect(compareVersions('1.6.10', '1.6.8')).toBeGreaterThan(0);
+    expect(compareVersions('2.8.7', '2.8.7')).toBe(0);
+    expect(fixOf({ ...axios, version: '1.6.7', fixed: ['1.6.10', '1.0.0', '1.6.8'] })).toBe('1.6.8');
+    expect(fixOf({ ...axios, fixed: [] })).toBeUndefined();
+  });
+
+  it('lets a fix younger than two weeks wait, naming the day it can be taken', () => {
+    const { due, waiting } = judgeVulnerabilities([axios], () => '2026-10-28T08:00:00Z', now);
+    expect(due).toEqual([]);
+    expect(waitingLines(waiting)).toEqual(['axios@1.18.1: https://osv.dev/GHSA-aaaa, fixed in 1.18.3, which can be taken on 2026-11-11']);
+    expect(vulnerableRefusal(due)).toBeUndefined();
+  });
+
+  it('refuses to ship once the fix is two weeks old, when there is none, or when its date cannot be read', () => {
+    const aged = judgeVulnerabilities([axios], () => '2026-10-10T00:00:00Z', now);
+    expect(aged.waiting).toEqual([]);
+    expect(vulnerableRefusal(aged.due)).toMatch(/axios@1\.18\.1: https:\/\/osv\.dev\/GHSA-aaaa \(fixed in 1\.18\.3, published 2026-10-10\)[\s\S]*deps:update -- <package>[\s\S]*osv-scanner\.toml/);
+    expect(vulnerableRefusal(judgeVulnerabilities([{ ...axios, fixed: [] }], () => undefined, now).due)).toMatch(/no fixed version yet/);
+    expect(vulnerableRefusal(judgeVulnerabilities([axios], () => undefined, now).due)).toMatch(/could not be read/);
   });
 });
+

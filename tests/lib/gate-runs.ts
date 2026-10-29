@@ -51,6 +51,17 @@ export function vulnerabilitiesIn(repo: string): Vulnerability[] {
   return productionVulnerabilities(JSON.parse(scan.stdout));
 }
 
+export function npmPublishTimes(repo: string): (name: string, version: string) => string | undefined {
+  const times = new Map<string, Record<string, string> | undefined>();
+  return (name, version) => {
+    if (!times.has(name)) {
+      const view = spawnSync('npm', ['view', name, 'time', '--json'], { cwd: repo, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 });
+      times.set(name, view.status === 0 ? JSON.parse(view.stdout) as Record<string, string> : undefined);
+    }
+    return times.get(name)?.[version];
+  };
+}
+
 const VERIFY_RELEASE = new URL('../../scripts/root-node/verify-release.sh', import.meta.url).pathname;
 const ciTool = (repo: string, tool: string): string =>
   execFileSync('bash', [new URL('../../scripts/ci-tools.sh', import.meta.url).pathname, tool], { cwd: repo, encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'] }).trim();

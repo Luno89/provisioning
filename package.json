@@ -25,6 +25,7 @@
     "release": "tsx tests/release.ts",
     "test:vm-live": "tsx tests/lib/vm-rounds.ts",
     "test:workflows": "bash scripts/workflows-local.sh",
+    "deps:update": "tsx scripts/deps-update.ts",
     "test:worker": "tsx tests/worker-isolated.ts",
     "typecheck": "npm run typecheck:context-engine && npm run typecheck:backend && npm run typecheck:frontend && npm run typecheck:infra && npm run typecheck:local-agent && npm run typecheck:agent-engine",
     "typecheck:context-engine": "tsc --noEmit -p packages/context-engine/tsconfig.json",
@@ -120,5 +121,8 @@
   "dependencies": {
     "axios": "^1.17.0",
     "protobufjs": "^8.7.1"
+  },
+  "overrides": {
+    "seroval": "1.6.9"
   }
 }
