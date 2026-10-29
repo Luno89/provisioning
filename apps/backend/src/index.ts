@@ -383,9 +383,9 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   wireAccounts({ app, role, env: process.env, db, temporalBridge, hubPeople: hub.hubPeople, operatorOnly: requireOperator('manage-accounts'), clearSession: auth.clearSession, revocations });
   tenant.use('/api/models', modelsRouter({ modelService, db, credentialService, machines: machineService, rateLimits: getModelRateLimiterSnapshot }));
 
-  const { evalHost, level2Service, procedureService, mcpCatalogue } = await wireEngine({
+  const { poisoning, evalHost, level2Service, procedureService, mcpCatalogue } = await wireEngine({
     tenant, db, io, env: process.env, role, sessionKey: keys.session, dataKey: keys.data, core: engine, temporalBridge, models: modelService, gitea: giteaService,
-    artifacts: artifactStore, projectRepos: projectRepoService, customizations, releaseSettings, treeModels: () => treeModels, operatorOnly: requireOperator('administer'),
+    artifacts: artifactStore, projectRepos: projectRepoService, customizations, releaseSettings, treeModels: () => treeModels, operatorOnly: requireOperator('administer'), push, mail,
   });
   if (evalHost.storyDrops) files.setStoryDrops(storyDropsFor({ db, projectRepos: projectRepoService, gitea: giteaService, work: evalHost.storyDrops }));
   if (servesTenants(role)) void db.accounts.getUsers().then((users) => odooReleases.recover(users.map((user) => user.id))).catch(() => undefined);
@@ -416,6 +416,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   const { running } = wireRunning({
     tenant, db, role, temporalBridge, monitoring, workFailures, records: runningRecords, checks: level2Service, trees: groveRuns, runs: engineRuns,
     bench, keeper: memoryKeeper, infra: infraService, clusters: clusterService, root: () => instanceSide.rootReach(),
+    signals: { open: (ownerId) => poisoning.list(ownerId, { open: true }) },
   });
   runningNow = async () => {
     const view = await running.view(role.instance?.ownerId ?? '');

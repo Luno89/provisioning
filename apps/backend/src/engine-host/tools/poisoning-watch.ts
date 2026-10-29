@@ -3,8 +3,7 @@ import { canaryFor } from '@koala/agent-engine/procedure';
 import { koalaMetrics } from '@koala/engine-core/telemetry';
 import type { ToolOutcome } from '@koala/engine-core';
 import type { ToolCallArgs } from '../temporal/contracts.js';
-import type { EngineStore } from '../../engine/store.js';
-import type { SourceClass } from '../../engine/lib/tool-access.js';
+import type { EngineStore, SourceClass } from '../../engine/index.js';
 import {
   SEVERITY_OF, findingsOf, hiddenInRepo, readsOf, rememberedOf, runReadBy, signalId,
   type CallFinding, type PoisoningSignal, type ReadElsewhere, type RunReads,

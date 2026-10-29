@@ -20,6 +20,7 @@ const tools = () => createMemoryTools({
     list: async (ownerId) => [...bank.values()].filter((item) => item.ownerId === ownerId),
     save: async (item) => { bank.set(item.id, item); },
   },
+  sourcesOf: async (runId) => (runId === 'run-web' ? { classes: ['web'], hosts: ['some.example'], runs: ['run-web'] } : undefined),
   now: () => 'now',
   newId: () => `new-${++ids}`,
 });
@@ -52,6 +53,13 @@ describe('save_memory', () => {
 
     expect(out).toMatchObject({ ok: true, content: 'Saved as new-1.' });
     expect(bank.get('new-1')).toMatchObject({ ownerId: 'u1', scope: 'global', category: 'prompt_guidance', source: 'agent_tool', provenance: { experimentId: 'run-k' } });
+  });
+
+  it('keeps what the saving run read as the memory\'s sources', async () => {
+    await call('save_memory', { text: 'Builds are cached for a day.' }, { ownerId: 'u1', runId: 'run-web' });
+    expect(bank.get('new-1')!.provenance).toEqual({ experimentId: 'run-web', sources: { classes: ['web'], hosts: ['some.example'], runs: ['run-web'] } });
+    await call('propose_practice', { agent: 'executor', text: 'Check the cache first.', why: 'run r-9' }, { ownerId: 'u1', runId: 'run-web' });
+    expect([...bank.values()].find((item) => item.category === 'practice')?.provenance?.sources?.hosts).toEqual(['some.example']);
   });
 
   it('scopes it to the project the run works on, when asked', async () => {

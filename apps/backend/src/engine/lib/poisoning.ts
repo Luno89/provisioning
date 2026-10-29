@@ -240,3 +240,59 @@ export interface PoisoningSignal {
 
 export const signalId = (readsKey: string, finding: Pick<CallFinding, 'kind' | 'host' | 'path'>, tool: string): string =>
   createHmac('sha256', 'koala-signal').update([readsKey, finding.kind, tool, finding.host ?? '', finding.path ?? ''].join('\u0000')).digest('hex').slice(0, 24);
+
+export function sourcesFrom(own: RunReads | undefined, read: readonly RunReads[]): { classes: string[]; hosts: string[]; runs: string[] } | undefined {
+  if (!own) return undefined;
+  const all = [own, ...read];
+  const classes = [...new Set(all.flatMap((reads) => reads.classes))].filter((one) => one !== 'none').sort();
+  return {
+    classes,
+    hosts: [...new Set(all.flatMap((reads) => reads.hosts))].sort(),
+    runs: [...new Set([...own.runs, ...(own.readRuns ?? [])])].sort(),
+  };
+}
+
+export interface SignalView {
+  id: string;
+  kind: SignalKind;
+  severity: SignalSeverity;
+  state: SignalState;
+  at: string;
+  runId: string;
+  agentSlug?: string | undefined;
+  tool: string;
+  said: string;
+  matched?: string | undefined;
+  host?: string | undefined;
+  path?: string | undefined;
+  conversationId?: string | undefined;
+  projectId?: string | undefined;
+  dismissedBecause?: string | undefined;
+}
+
+export type RetireScope = 'run' | 'source';
+
+export const retireScopeFrom = (value: unknown): RetireScope | undefined => (value === 'run' || value === 'source' ? value : undefined);
+
+export const KIND_TITLES: Readonly<Record<SignalKind, string>> = {
+  canary: 'A run copied its own canary out',
+  'private-out': 'Private text left in a call',
+  'memory-from-outside': 'A memory quotes outside text',
+  'unvouched-host': 'A call went to a host only outside text named',
+  'hidden-in-repo': 'Hidden characters in repository text',
+};
+
+export function tellingOf(signal: Pick<PoisoningSignal, 'kind' | 'said' | 'runId' | 'conversationId'>): { subject: string; text: string; path: string } {
+  const path = signal.conversationId ? `/chat/${signal.conversationId}` : `/infrastructure`;
+  return {
+    subject: `Koala: ${KIND_TITLES[signal.kind]}`,
+    text: `${signal.said}.\n\nRun ${signal.runId}. Look under Infrastructure, Needs attention, to see what it left and retire it, or dismiss it.`,
+    path,
+  };
+}
+
+export const memoryFromRun = (memory: { provenance?: { experimentId?: string | undefined } | undefined }, runs: ReadonlySet<string>): boolean =>
+  Boolean(memory.provenance?.experimentId && runs.has(memory.provenance.experimentId));
+
+export const memoryFromHost = (memory: { provenance?: { sources?: { hosts?: readonly string[] } | undefined } | undefined }, host: string): boolean =>
+  (memory.provenance?.sources?.hosts ?? []).includes(host);

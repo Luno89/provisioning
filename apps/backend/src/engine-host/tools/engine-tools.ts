@@ -40,6 +40,7 @@ export interface EngineToolDeps {
   corpus?: CorpusAccess | undefined;
   runs?: RunReader | undefined;
   memories?: MemoryToolStore | undefined;
+  memorySources?: ((runId: string) => Promise<import('./memory-tools.js').MemorySourcesFound>) | undefined;
   models?: ((ownerId: string) => Promise<string[]>) | undefined;
   knownTools?: ((ownerId: string) => Promise<KnownTools>) | undefined;
   scenarios?: ScenarioProposalAccess | undefined;
@@ -65,7 +66,7 @@ export function createEngineToolHandlers(deps: EngineToolDeps): Record<string, T
     ...(deps.egress ? createEgressTools({ stores: deps.egress }) : {}),
     ...(deps.corpus ? createCorpusTools({ access: deps.corpus }) : {}),
     ...(deps.runs ? createRunTools({ runs: deps.runs }) : {}),
-    ...(deps.memories ? createMemoryTools({ store: deps.memories, agents: async (ownerId) => (await deps.registry.agents(ownerId)).map((agent) => agent.slug), models: deps.models, tools: deps.knownTools }) : {}),
+    ...(deps.memories ? createMemoryTools({ store: deps.memories, agents: async (ownerId) => (await deps.registry.agents(ownerId)).map((agent) => agent.slug), models: deps.models, tools: deps.knownTools, sourcesOf: deps.memorySources }) : {}),
     ...(deps.scenarios ? createScenarioTools(deps.scenarios) : {}),
     ...(deps.checks ? createCheckTools(deps.checks) : {}),
     ...(deps.agentChanges ? createAgentChangeTools(deps.agentChanges) : {}),

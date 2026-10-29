@@ -7,6 +7,12 @@ export interface PracticeTrial {
   unchecked?: boolean;
 }
 
+export interface MemorySources {
+  classes: string[];
+  hosts: string[];
+  runs: string[];
+}
+
 export interface MemoryItem {
   id: string;
   ownerId: string;
@@ -28,6 +34,7 @@ export interface MemoryItem {
     experimentId?: string;
     taskId?: string;
     toolId?: string;
+    sources?: MemorySources;
   };
   createdAt: string;
   updatedAt: string;

@@ -6,7 +6,7 @@ import type { RunningRecords, RunningWorkflow } from '../lib/running.js';
 import { WorkFailureService, type ClosedWorkflow } from '../services/WorkFailureService.js';
 import { RunningService } from '../services/RunningService.js';
 import { ClusterContentsService } from '../services/ClusterContentsService.js';
-import { InfrastructureViewService, type RootReach } from '../services/InfrastructureViewService.js';
+import { InfrastructureViewService, type InfrastructureViewDeps, type RootReach } from '../services/InfrastructureViewService.js';
 import type { TemporalBridge } from '../services/TemporalBridge.js';
 import type { MonitoringService } from '../../monitoring/index.js';
 import type { GroveRunService } from '../../projects/index.js';
@@ -95,6 +95,7 @@ export interface RunningWiringDeps {
   infra: InfrastructureService;
   clusters: ClusterService;
   root?: (() => RootReach | undefined) | undefined;
+  signals?: InfrastructureViewDeps['signals'];
 }
 
 export function wireRunning(deps: RunningWiringDeps): { running: RunningService } {
@@ -138,7 +139,7 @@ export function wireRunning(deps: RunningWiringDeps): { running: RunningService 
     labelOf: labelValue,
   });
   tenant.use('/api/infrastructure', infrastructureRouter({
-    infrastructure: new InfrastructureViewService({ monitoring, contents: clusterContents, running, failures: workFailures, root: deps.root }),
+    infrastructure: new InfrastructureViewService({ monitoring, contents: clusterContents, running, failures: workFailures, root: deps.root, signals: deps.signals }),
   }));
   if (servesTenants(role)) workFailures.start();
   return { running };

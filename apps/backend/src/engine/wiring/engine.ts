@@ -4,7 +4,7 @@ import { WorkflowNotFoundError } from '@temporalio/client';
 import type { Server as SocketServer } from 'socket.io';
 import type { PersonaRecord } from '@koala/agent-engine';
 import {
-  type AccessRevocations, type Database, type SecretKey, servesTenants, type RoleConfig, signJWT, startedFor, getTemporalClient,
+  type AccessRevocations, type Database, type SecretKey, servesTenants, decryptValue, type RoleConfig, signJWT, startedFor, getTemporalClient,
   keepTrying, grovedTree, treeNotices, postedNotice, ownedBy,
   publicAddressProblem, principalOf, claimSettingsFrom, roleFromEnv,
 } from '../../platform/index.js';
@@ -68,6 +68,10 @@ import { workspaceDependenciesRouter } from '../routes/workspace-dependencies.js
 import { mcpRouter } from '../routes/mcp.js';
 import type { RequestHandler } from 'express';
 import { askingPush, type PushMessage } from '../../monitoring/index.js';
+import { PoisoningService } from '../services/PoisoningService.js';
+import { poisoningRouter } from '../routes/poisoning.js';
+
+const POISONING_TELL_EVERY_MS = 30_000;
 
 export interface EngineCoreDeps {
   db: Database;
@@ -268,9 +272,12 @@ export interface EngineWiringDeps {
   releaseSettings: Releases['releaseSettings'];
   treeModels: () => Pick<TreeModelsService, 'describe' | 'problem'>;
   operatorOnly: RequestHandler;
+  push?: { toPerson(ownerId: string, message: PushMessage): Promise<number> } | undefined;
+  mail?: { toOwner(ownerId: string, message: { subject: string; text: string }): Promise<void> } | undefined;
 }
 
 export interface EngineWiring {
+  poisoning: PoisoningService;
   evalHost: ReturnType<typeof createEngineHost>;
   level2Service: Level2Service;
   procedureService: ProcedureService;
@@ -554,6 +561,18 @@ export async function wireEngine(deps: EngineWiringDeps): Promise<EngineWiring> 
   tenant.use('/api/documents', documentsRouter({ documents: documentService }));
   tenant.use('/api/turns', turnsRouter({ log: { read: (ownerId, turnId, after) => db.engine.getTurnLog(ownerId, turnId, after), recent: (ownerId, since, limit) => db.engine.recentTurns(ownerId, since, limit) } }));
   tenant.use('/api/memories', memoriesRouter({ db, temporalBridge }));
+  const poisoning = new PoisoningService({
+    store: db.engine,
+    memories: { list: (ownerId) => db.memory.getMemories(ownerId), save: (item) => db.memory.saveMemory(item) },
+    unseal: (sealed) => decryptValue(sealed, deps.dataKey),
+    ...(deps.push ? { push: (ownerId: string, message: PushMessage) => deps.push!.toPerson(ownerId, message) } : {}),
+    ...(deps.mail ? { mail: (ownerId: string, message: { subject: string; text: string }) => deps.mail!.toOwner(ownerId, message) } : {}),
+  });
+  tenant.use('/api/poisoning', poisoningRouter({ poisoning }));
+  if (servesTenants(role)) {
+    const telling = setInterval(() => { void poisoning.tellNew().catch((error: Error) => console.warn(`[poisoning] could not tell what was found: ${error.message}`)); }, POISONING_TELL_EVERY_MS);
+    telling.unref();
+  }
 
   const treeTypeDescriptions = new TreeTypeDescriptions({
     dependencies: dependenciesOf,
@@ -595,7 +614,7 @@ export async function wireEngine(deps: EngineWiringDeps): Promise<EngineWiring> 
   tenant.use('/api/workspace-dependencies', workspaceDependenciesRouter({ dependencies: core.workspaceDependencies }));
   tenant.use('/api/mcp', mcpRouter({ mcp: new McpService({ store: db.engine, catalogue: (ownerId) => db.engine.getMcpServers(ownerId) }), catalogue: mcpCatalogue }));
 
-  return { evalHost, level2Service, procedureService, autoModeService, mcpCatalogue };
+  return { poisoning, evalHost, level2Service, procedureService, autoModeService, mcpCatalogue };
 }
 
 export interface EngineStreamDeps {

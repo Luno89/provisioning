@@ -1,3 +1,4 @@
+import type { SignalView } from '../../engine/index.js';
 import type { RunningItem } from '../lib/running.js';
 import type { WorkFailure } from '../lib/work-failures.js';
 import type { BrokenWorkload, ClusterContents } from './ClusterContentsService.js';
@@ -13,6 +14,7 @@ export interface InfrastructureOverview {
   runningProblem?: string | undefined;
   failures: WorkFailure[];
   root?: RootReach | undefined;
+  signals: SignalView[];
 }
 
 export interface RootReach {
@@ -29,6 +31,7 @@ export interface InfrastructureViewDeps {
   running: { view(ownerId: string): Promise<RunningOutcome<RunningView>> };
   failures: { shown(ownerId: string): Promise<WorkFailure[]>; clear(ownerId: string, ids: readonly string[] | 'all'): Promise<number> };
   root?: (() => RootReach | undefined) | undefined;
+  signals?: { open(ownerId: string): Promise<SignalView[]> } | undefined;
 }
 
 export const waitingOnPerson = (items: readonly RunningItem[]): RunningItem[] =>
@@ -45,12 +48,13 @@ export class InfrastructureViewService {
   constructor(private readonly deps: InfrastructureViewDeps) {}
 
   async overview(viewer: Viewer): Promise<InfrastructureOverview> {
-    const [monitoring, koala, broken, running, failures] = await Promise.all([
+    const [monitoring, koala, broken, running, failures, signals] = await Promise.all([
       this.deps.monitoring.overview(viewer),
       this.deps.monitoring.koala(viewer),
       this.deps.contents.broken(viewer).catch(() => []),
       this.deps.running.view(viewer.id),
       this.deps.failures.shown(viewer.id),
+      this.deps.signals ? this.deps.signals.open(viewer.id) : Promise.resolve([]),
     ]);
     const appsTold = new Set(monitoring.attention.filter((entry) => entry.subject.kind === 'app').map((entry) => entry.subject.id));
     const workloads = broken.filter((workload) => !(workload.about.kind === 'app' && appsTold.has(workload.about.id)));
@@ -62,6 +66,7 @@ export class InfrastructureViewService {
       running: running.ok ? running.value.items.length : 0,
       ...(running.ok ? {} : { runningProblem: running.error }),
       failures,
+      signals,
       ...(this.deps.root?.() ? { root: this.deps.root()! } : {}),
     };
   }

@@ -1,6 +1,6 @@
 import { v4 as uuidv4 } from 'uuid';
 import type { ToolHandler, ToolOutcome } from '@koala/engine-core';
-import { unreachableMemory, type MemoryItem } from '../drivers/memory-store.js';
+import { unreachableMemory, type MemoryItem, type MemorySources } from '../drivers/memory-store.js';
 import { unqualify } from '../../engine/lib/mcp-tools.js';
 import { noteSubject } from '../../engine/lib/tool-notes.js';
 
@@ -63,7 +63,14 @@ function noteTarget(parsed: Record<string, unknown>, known: KnownTools): { tool?
   return { refused: `there is no tool called "${tool}"; name it exactly as it is offered` };
 }
 
-export function createMemoryTools(options: { store: MemoryToolStore; agents?: ((ownerId: string) => Promise<string[]>) | undefined; models?: ((ownerId: string) => Promise<string[]>) | undefined; tools?: ((ownerId: string) => Promise<KnownTools>) | undefined; now?: () => string; newId?: () => string }): Record<string, ToolHandler> {
+export type MemorySourcesFound = MemorySources | undefined;
+
+export function createMemoryTools(options: { store: MemoryToolStore; agents?: ((ownerId: string) => Promise<string[]>) | undefined; models?: ((ownerId: string) => Promise<string[]>) | undefined; tools?: ((ownerId: string) => Promise<KnownTools>) | undefined; sourcesOf?: ((runId: string) => Promise<MemorySources | undefined>) | undefined; now?: () => string; newId?: () => string }): Record<string, ToolHandler> {
+  const provenanceOf = async (runId: string | undefined): Promise<MemoryItem['provenance'] | undefined> => {
+    if (!runId) return undefined;
+    const sources = await options.sourcesOf?.(runId);
+    return { experimentId: runId, ...(sources ? { sources } : {}) };
+  };
   const now = options.now ?? (() => new Date().toISOString());
   const newId = options.newId ?? uuidv4;
   const { store } = options;
@@ -120,7 +127,7 @@ export function createMemoryTools(options: { store: MemoryToolStore; agents?: ((
         title,
         text: body,
         source: 'agent_tool',
-        ...(caller.runId ? { provenance: { experimentId: caller.runId } } : {}),
+        ...(await provenanceOf(caller.runId).then((provenance) => (provenance ? { provenance } : {}))),
         createdAt: at,
         updatedAt: at,
       };
@@ -164,7 +171,7 @@ export function createMemoryTools(options: { store: MemoryToolStore; agents?: ((
         title,
         text: learned,
         source: 'agent_tool',
-        ...(caller.runId ? { provenance: { experimentId: caller.runId } } : {}),
+        ...(await provenanceOf(caller.runId).then((provenance) => (provenance ? { provenance } : {}))),
         createdAt: at,
         updatedAt: at,
       };
@@ -203,7 +210,7 @@ export function createMemoryTools(options: { store: MemoryToolStore; agents?: ((
         text: body,
         why,
         source: 'agent_tool',
-        ...(caller.runId ? { provenance: { experimentId: caller.runId } } : {}),
+        ...(await provenanceOf(caller.runId).then((provenance) => (provenance ? { provenance } : {}))),
         createdAt: at,
         updatedAt: at,
       };

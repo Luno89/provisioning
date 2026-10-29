@@ -62,3 +62,6 @@ export type { EngineStore } from './store.js';
 export { ENGINE_TOOL_SEEDS, seedEngineTools } from './wiring/engine-tool-seeds.js';
 export type { EngineToolStore, SeedToolOptions } from './wiring/engine-tool-seeds.js';
 export { buildWebTools, corpusEndpoints, crawlEndpoint } from './wiring/web-tools.js';
+export type { SignalView, SignalKind, SignalSeverity, PoisoningSignal } from './lib/poisoning.js';
+export { PoisoningService } from './services/PoisoningService.js';
+export type { SourceClass } from './lib/tool-access.js';

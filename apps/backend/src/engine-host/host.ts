@@ -55,8 +55,10 @@ import { hostedCaller } from './tools/hosted-servers.js';
 import { proxyUrlFor } from '../infrastructure/lib/egress-proxy.js';
 import { modelNames } from '../models/lib/model-registry.js';
 import type { GroveOperationDeps } from '../extensions/grove/operations/handlers.js';
+import { sourcesFrom } from '../engine/lib/poisoning.js';
 
 export interface EngineHostStores {
+  runReads?: { ofRuns(runIds: readonly string[]): Promise<import('../engine/lib/poisoning.js').RunReads[]> } | undefined;
   actions?: { list(ownerId: string): Promise<import('@koala/harness-types').ActionProposal[]>; save(proposal: import('@koala/harness-types').ActionProposal): Promise<void> } | undefined;
   projectRecords?: (() => Promise<import('../platform/index.js').ProjectMetadata[]>) | undefined;
   machines?: { list(): Promise<readonly KnownMachine[]> } | undefined;
@@ -447,6 +449,7 @@ export function createEngineHost(options: EngineHostOptions): EngineHost {
       ...(options.corpus ? { corpus: options.corpus } : {}),
       ...(stores.runs ? { runs: stores.runs } : {}),
       memories: stores.memories,
+      ...(stores.runReads ? { memorySources: memorySourcesFrom(stores.runReads) } : {}),
       ...(options.models.list ? { models: async (ownerId: string) => modelNames(await options.models.list!(ownerId)) } : {}),
       knownTools: async (ownerId: string) => ({
         tools: await catalogue.names(ownerId),
@@ -571,8 +574,15 @@ export function createEngineHost(options: EngineHostOptions): EngineHost {
   };
 }
 
+const memorySourcesFrom = (reads: NonNullable<EngineHostStores['runReads']>) => async (runId: string) => {
+  const [own] = await reads.ofRuns([runId]);
+  const read = own?.readRuns?.length ? (await reads.ofRuns(own.readRuns)).filter((other) => other.key !== own.key) : [];
+  return sourcesFrom(own, read);
+};
+
 export function storesFromDatabase(db: Database): EngineHostStores {
   return {
+    runReads: { ofRuns: (runIds) => db.engine.getRunReadsOfRuns(runIds) },
     agentRecords: { list: (ownerId: string) => db.engine.getEnginePersonas(ownerId) },
     toolGrants: grantStoreFrom(db.engine),
     procedures: {
