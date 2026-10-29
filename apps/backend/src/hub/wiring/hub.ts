@@ -41,6 +41,7 @@ export interface HubWiringDeps {
   notify: (ownerId: string, scope: { projectId: string; treeId?: string | undefined }, notice: ConversationNotice) => Promise<unknown>;
   republish: () => Promise<void>;
   syncEveryMs?: number | undefined;
+  serviceCaller?: ((token: string) => Promise<{ clientId: string; kind: 'instance' | 'hub' } | undefined>) | undefined;
 }
 
 export interface HubWiring {
@@ -54,7 +55,7 @@ export interface HubWiring {
 export async function wireHub(deps: HubWiringDeps): Promise<HubWiring> {
   const { role, env, app, tenant, db } = deps;
   const projectInvites = holdsAccounts(role) ? new ProjectInviteService({ invites: db.accounts, people: db.accounts, principalFor: (user) => principalOf(user, claimSettingsFrom(role)), limits: () => db.accounts.getInviteLimits(), mail: deps.mail, rootUrl: deps.publicUrl }) : undefined;
-  if (projectInvites) app.use('/api/hub-link', hubLinkRouter({ invites: projectInvites, credentialHash: role.hubLink?.credentialHash, hash: hashCredential }));
+  if (projectInvites) app.use('/api/hub-link', hubLinkRouter({ invites: projectInvites, credentialHash: role.hubLink?.credentialHash, hash: hashCredential, signInKeys: { get: () => db.instances.getHubSignInKey(), save: (key) => db.instances.saveHubSignInKey(key) }, serviceCaller: deps.serviceCaller }));
 
   let hubService: HubService | undefined;
   if (servesHub(role)) {

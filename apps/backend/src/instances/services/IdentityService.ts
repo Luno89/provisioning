@@ -1,22 +1,10 @@
-import { handoffNonceShaped, sameHandoffNonce, type Database, type RoleConfig } from '../../platform/index.js';
-import { checkHandoff, issueHandoff, publicKeyPem, type HandoffCheck } from '../lib/identity-token.js';
+import { handoffNonceShaped, type Database, type RoleConfig } from '../../platform/index.js';
+import { issueHandoff, publicKeyPem } from '../lib/identity-token.js';
 import { inService, instanceProblem, type InstanceRecord } from '../lib/instances.js';
+import { handoffServedFor, START_PATH } from '../lib/oidc.js';
 import { HUB_AUDIENCE } from '../../hub/lib/hub.js';
 
 type Store = Pick<Database, 'instances' | 'accounts'>;
-
-export type HandoffOutcome =
-  | { ok: true; user: { id: string; email: string } }
-  | { ok: false; status: 400 | 401 | 403 | 409; error: string; restart?: true };
-
-const REFUSALS: Record<Exclude<HandoffCheck, { ok: true }>['reason'], string> = {
-  malformed: 'that is not a sign-in token',
-  'unknown-key': 'that sign-in token was not signed by a root this instance trusts',
-  'bad-signature': 'that sign-in token was changed after it was signed',
-  'wrong-audience': 'that sign-in token is for a different instance',
-  expired: 'that sign-in token has expired — sign in again',
-  'not-yet-valid': 'that sign-in token is not valid yet — check this machine\'s clock',
-};
 
 export class IdentityService {
   constructor(
@@ -33,30 +21,22 @@ export class IdentityService {
     return (await this.store.instances.getInstances(ownerId)).find((instance) => instance.url && inService(instance));
   }
 
-  async handoffUrl(user: { id: string; email: string }, to?: { hub: true; next?: string | undefined }, nonce?: unknown): Promise<string | undefined> {
+  async goUrl(user: { id: string; email: string }, to?: { hub: true; next?: string | undefined }, nonce?: unknown): Promise<string | undefined> {
     if (!this.role.signing) return undefined;
     const bound = handoffNonceShaped(nonce) ? nonce : undefined;
     if (to?.hub) {
       if (!this.role.hubLink) return undefined;
+      const going = to.next && /^\/[^/\\]/.test(to.next) ? to.next : undefined;
+      if (await this.store.instances.getHubSignInKey()) return `${this.role.hubLink.url}${START_PATH}${going ? `?next=${encodeURIComponent(going)}` : ''}`;
       const token = issueHandoff(this.role.signing, { userId: user.id, email: user.email }, HUB_AUDIENCE, this.now(), bound);
-      const next = to.next && /^\/[^/\\]/.test(to.next) ? `&next=${encodeURIComponent(to.next)}` : '';
-      return `${this.role.hubLink.url}/#/handoff?token=${encodeURIComponent(token)}${next}`;
+      return `${this.role.hubLink.url}/#/handoff?token=${encodeURIComponent(token)}${going ? `&next=${encodeURIComponent(going)}` : ''}`;
     }
     const instance = await this.instanceOf(user.id);
     if (!instance) return undefined;
+    const base = instance.url.replace(/\/+$/, '');
+    if (!handoffServedFor(instance)) return `${base}${START_PATH}`;
     const token = issueHandoff(this.role.signing, { userId: user.id, email: user.email }, instance.id, this.now(), bound);
-    return `${instance.url.replace(/\/+$/, '')}/#/handoff?token=${encodeURIComponent(token)}`;
-  }
-
-  handoffStartUrl(nonce: string, next?: unknown): string | undefined {
-    const going = typeof next === 'string' && /^\/[^/\\]/.test(next) ? `&next=${encodeURIComponent(next)}` : '';
-    if (this.role.hub) return `${this.role.hub.rootUrl}/api/identity/go?to=hub&nonce=${nonce}${going}`;
-    return this.role.instance ? `${this.role.instance.rootUrl}/api/identity/go?nonce=${nonce}` : undefined;
-  }
-
-  signInUrl(): string | undefined {
-    if (this.role.hub) return `${this.role.hub.rootUrl}/api/identity/go?to=hub`;
-    return this.role.instance ? `${this.role.instance.rootUrl}/api/identity/go` : undefined;
+    return `${base}/#/handoff?token=${encodeURIComponent(token)}`;
   }
 
   hubUrl(): string | undefined {
@@ -65,31 +45,6 @@ export class IdentityService {
 
   removalUrl(): string | undefined {
     return this.role.instance ? `${this.role.instance.rootUrl}/#/remove-account` : undefined;
-  }
-
-  async acceptHandoff(token: unknown, heldNonce?: string): Promise<HandoffOutcome> {
-    const instance = this.role.instance;
-    const hub = this.role.role === 'hub';
-    if ((!instance && !hub) || !this.role.trusted) return { ok: false, status: 400, error: 'this server is not an instance, so it takes no sign-in tokens' };
-    if (typeof token !== 'string') return { ok: false, status: 400, error: 'send the sign-in token as "token"' };
-
-    const check = checkHandoff(token, this.role.trusted, hub ? HUB_AUDIENCE : instance!.id, this.now());
-    if (!check.ok) return { ok: false, status: 401, error: REFUSALS[check.reason] };
-    if (!hub && check.claims.sub !== instance!.ownerId) return { ok: false, status: 403, error: 'this instance belongs to someone else' };
-    if (check.claims.nonce === undefined) return { ok: false, status: 401, error: 'this sign-in has to start here first', restart: true };
-    if (!sameHandoffNonce(heldNonce, check.claims.nonce)) return { ok: false, status: 401, error: 'that sign-in did not start in this browser — sign in again from here' };
-    if (!await this.store.instances.claimHandoff(check.claims.jti, new Date(check.claims.exp * 1000).toISOString())) {
-      return { ok: false, status: 409, error: 'that sign-in token has already been used — sign in again' };
-    }
-
-    const existing = await this.store.accounts.getUserById(check.claims.sub);
-    await this.store.accounts.saveUser({
-      ...(existing ?? { twoFactorEnabled: false, createdAt: new Date(this.now() * 1000).toISOString() }),
-      id: check.claims.sub,
-      email: check.claims.email,
-      emailVerified: true,
-    } as never);
-    return { ok: true, user: { id: check.claims.sub, email: check.claims.email } };
   }
 
   async register(candidate: { id: string; ownerId: string; url: string }): Promise<{ ok: true; instance: InstanceRecord } | { ok: false; error: string }> {

@@ -2,11 +2,8 @@ import { describe, it, expect } from 'vitest';
 import axios from 'axios';
 import { mountRouter, TEST_USER } from '../../platform/routes/test-harness.js';
 import { identityRouter } from './identity.js';
-import { handoffRouter } from './handoff.js';
 import { IdentityService } from '../services/IdentityService.js';
-import { createAuth } from '../../platform/middleware/auth.js';
-import { generateIdentityKey, identityKeysFrom, issueHandoff, publicKeyPem, trustedKeys } from '../lib/identity-token.js';
-import { verifyJWT } from '../../platform/lib/auth.js';
+import { generateIdentityKey, identityKeysFrom, publicKeyPem } from '../lib/identity-token.js';
 
 const signing = identityKeysFrom(generateIdentityKey());
 const quiet = { validateStatus: () => true, maxRedirects: 0 };
@@ -36,52 +33,11 @@ describe('root\'s identity routes', () => {
     expect(go.status).toBe(302);
     expect(go.headers.location).toMatch(/^https:\/\/test\.example\.com\/#\/handoff\?token=/);
     expect(go.headers['cache-control']).toBe('no-store');
-    await h.close();
-  });
-});
 
-describe('an instance\'s sign-in exchange', () => {
-  it('turns root\'s token into this instance\'s own session, once, and points the signed-out, and anyone removing their account, at root', async () => {
-    const sessionKey = 'instance-session-key';
-    const h = await mountRouter({
-      prefix: '/api/auth',
-      router: (db) => {
-        const role = { role: 'instance' as const, trusted: trustedKeys([publicKeyPem(signing.publicKey)]), instance: { id: 'inst-u1', ownerId: 'u1', rootUrl: 'https://app.example.com' } };
-        return handoffRouter({ identity: new IdentityService(role, db), auth: createAuth({ db, sessionKey, publicUrl: 'http://x', role: 'instance' }), sessionKey });
-      },
-    });
-
-    expect((await axios.get(h.url('/api/auth/sign-in'))).data).toEqual({ url: 'https://app.example.com/api/identity/go', hub: 'https://app.example.com/api/identity/go?to=hub' });
-    expect((await axios.get(h.url('/api/auth/account-removal'))).data).toEqual({ url: 'https://app.example.com/#/remove-account' });
-
-    const overHttps = { ...quiet, headers: { 'X-Forwarded-Proto': 'https' } };
-    const started = await axios.get(h.url('/api/auth/handoff/start'), overHttps);
-    expect(started.status).toBe(302);
-    const nonce = new URL(String(started.headers.location)).searchParams.get('nonce')!;
-    expect(String(started.headers.location)).toBe(`https://app.example.com/api/identity/go?nonce=${nonce}`);
-    const held = String(started.headers['set-cookie']?.[0]);
-    expect(held).toMatch(/^__Host-handoff_nonce=.*HttpOnly/);
-    const withNonce = { ...quiet, headers: { 'X-Forwarded-Proto': 'https', Cookie: held.split(';')[0]! } };
-
-    const token = issueHandoff(signing, { userId: 'u1', email: 'u1@example.com' }, 'inst-u1', undefined, nonce);
-    expect((await axios.post(h.url('/api/auth/handoff'), { token }, overHttps)).status).toBe(401);
-    const unbound = await axios.post(h.url('/api/auth/handoff'), { token: issueHandoff(signing, { userId: 'u1', email: 'u1@example.com' }, 'inst-u1') }, withNonce);
-    expect([unbound.status, unbound.data.restart]).toEqual([401, true]);
-    const someoneElses = issueHandoff(signing, { userId: 'u1', email: 'u1@example.com' }, 'inst-u1', undefined, 'x'.repeat(32));
-    expect((await axios.post(h.url('/api/auth/handoff'), { token: someoneElses }, withNonce)).status).toBe(401);
-    const first = await axios.post(h.url('/api/auth/handoff'), { token }, withNonce);
-    expect(first.status).toBe(200);
-    expect(first.headers['set-cookie']?.some((line) => /^__Host-handoff_nonce=;/.test(line))).toBe(true);
-    const cookie = String(first.headers['set-cookie']?.[0]);
-    expect(cookie).toMatch(/^__Host-session=/);
-    expect(cookie).toMatch(/HttpOnly/);
-    expect(cookie).toMatch(/Secure/);
-    expect(cookie).toMatch(/Path=\//);
-    expect(cookie).not.toMatch(/Domain=/i);
-    expect(verifyJWT(cookie.split(';')[0]!.slice('__Host-session='.length), sessionKey)).toMatchObject({ userId: 'u1' });
-
-    expect((await axios.post(h.url('/api/auth/handoff'), { token }, withNonce)).status).toBe(409);
-    expect((await axios.post(h.url('/api/auth/handoff'), {}, quiet)).status).toBe(400);
+    const instance = (await h.db.instances.getInstances(TEST_USER.id))[0]!;
+    await h.db.instances.saveSignInKey(instance.id, { jwk: { kty: 'OKP', crv: 'Ed25519', x: 'x', kid: 'k' }, since: '2026-10-29T00:00:00.000Z' });
+    const moved = await axios.get(h.url(`/api/identity/go?nonce=${'n'.repeat(32)}`), signedIn);
+    expect([moved.status, moved.headers.location]).toEqual([302, 'https://test.example.com/api/auth/oidc/start']);
     await h.close();
   });
 });

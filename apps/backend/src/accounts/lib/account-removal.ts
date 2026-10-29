@@ -100,14 +100,14 @@ export const ACCOUNT_DATA = {
     'accessRequests', 'actionProposals', 'appSpecs', 'artifactChunks', 'artifacts', 'authoredExtensions', 'bindingTypes', 'branches', 'clusters', 'conversations',
     'corpus', 'deferredConclusions', 'deployments', 'egressGrants', 'egressRequests', 'enginePersonas', 'engineRunEffort', 'engineRunTraces', 'engineTools',
     'evalAgentChanges', 'evalCases', 'evalLevel1Runs', 'evalPrompts', 'evalRuns', 'evalScenarioProposals', 'evalScenarioRuns',
-    'evalScenarios', 'fileShares', 'hubLinks', 'instanceJoinTokens', 'instances', 'leaves', 'localAgentDevices', 'machineJoinCodes', 'mcpRequests', 'mcpToolHints', 'memories',
+    'evalScenarios', 'fileShares', 'clientSessions', 'hubLinks', 'instanceJoinTokens', 'instances', 'leaves', 'localAgentDevices', 'machineJoinCodes', 'mcpRequests', 'mcpToolHints', 'memories',
     'modelEndpoints', 'mcpServers', 'monitoringAlertEpisodes', 'monitoringAlertRules', 'monitoringSettings', 'odooReleases', 'pendingApprovals', 'planProposals', 'procedures', 'projects', 'publishedWorkspaces', 'secretRequests', 'tasks', 'toolGrants', 'treeTypes', 'trees', 'workFailures',
     'scriptedRequests', 'turnLogs', 'workspaceDependencies', 'workspaceImages',
   ],
   byId: ['autoModeSettings', 'benchSettings', 'benchStates', 'extensionSettings', 'giteaAccounts', 'keeperSettings', 'notificationSettings', 'fileSettings'],
-  related: { memoryWatermarks: 'the keys of its conversations', crawl_frontier: 'its ingests', pipelineRuns: 'its projects', hubSnapshots: 'its projects' },
+  related: { memoryWatermarks: 'the keys of its conversations', crawl_frontier: 'its ingests', pipelineRuns: 'its projects', hubSnapshots: 'its projects', oidcArtifacts: 'its sign-in grants, sessions and tokens at root' },
   last: 'users',
-  shared: ['clusterProviders', 'hubDirty', 'identityHandoffs', 'instanceReleases', 'inviteLimits', 'invites', 'migrations', 'model_thinking_profiles', 'pendingSignUps', 'poolSettings', 'temporal_payload_chunks'],
+  shared: ['clusterProviders', 'hubDirty', 'hubSignIn', 'identityHandoffs', 'instanceReleases', 'inviteLimits', 'invites', 'logoutDeliveries', 'migrations', 'model_thinking_profiles', 'pendingSignUps', 'poolSettings', 'sessionRevocations', 'temporal_payload_chunks'],
 } as const;
 
 export interface AccountIds {

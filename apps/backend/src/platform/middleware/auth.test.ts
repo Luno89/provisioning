@@ -165,8 +165,10 @@ describe('what is open without a session, by role', () => {
   };
 
   it('lets the hub sign people in like an instance, and lets root take its hub\'s invites and show one to whoever holds its code', async () => {
-    expect(await opens('hub', '/auth/handoff')).toBe(true);
+    for (const path of ['/auth/oidc/start', '/auth/oidc/callback', '/auth/oidc/backchannel-logout']) expect(await opens('hub', path), path).toBe(true);
+    expect(await opens('hub', '/auth/handoff')).toBe(false);
     expect(await opens('hub', '/auth/login')).toBe(false);
+    expect(await opens('root', '/hub-link/sign-in-key')).toBe(true);
     expect(await opens('hub', '/hub/projects')).toBe(false);
     expect(await opens('root', '/hub-link/invite')).toBe(true);
     expect(await opens('root', '/hub-link/invitation')).toBe(true);
@@ -183,16 +185,16 @@ describe('what is open without a session, by role', () => {
     }
   });
 
-    it('lets anyone reach an instance\'s sign-in exchange, and nothing of root\'s sign-in', async () => {
-    expect(await opens('instance', '/auth/handoff')).toBe(true);
-    expect(await opens('instance', '/auth/sign-in')).toBe(true);
+    it('lets anyone reach an instance\'s sign-in through root, and nothing of root\'s own sign-in', async () => {
+    for (const path of ['/auth/sign-in', '/auth/oidc/start', '/auth/oidc/callback', '/auth/oidc/backchannel-logout']) expect(await opens('instance', path), path).toBe(true);
+    expect(await opens('instance', '/auth/handoff')).toBe(false);
     expect(await opens('instance', '/auth/login')).toBe(false);
     expect(await opens('instance', '/auth/github/callback')).toBe(false);
     expect(await opens('instance', '/identity/keys')).toBe(false);
   });
 
   it('lets an instance reach every route root answers with its credential, which checks it there', async () => {
-    for (const path of ['/instances/status', '/instances/release', '/instances/updates', '/instances/machine-key', '/instances/machine-node', '/instances/trial', '/instances/addresses', '/instances/groups', '/instances/groups/check', '/instances/groups/p1', '/instances/move/self', '/instances/hub-token', '/instances/mail', '/instances/monitoring/alerts']) {
+    for (const path of ['/instances/sign-in-key', '/instances/status', '/instances/release', '/instances/updates', '/instances/machine-key', '/instances/machine-node', '/instances/trial', '/instances/addresses', '/instances/groups', '/instances/groups/check', '/instances/groups/p1', '/instances/move/self', '/instances/hub-token', '/instances/mail', '/instances/monitoring/alerts']) {
       expect(await opens('root', path), path).toBe(true);
     }
     expect(await opens('root', '/instances/mine')).toBe(false);

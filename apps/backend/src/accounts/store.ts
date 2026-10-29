@@ -202,6 +202,7 @@ export class MongoAccountsStore implements AccountsStore {
     if (related.ingestIds.length) await count('crawl_frontier', { ingestId: { $in: [...related.ingestIds] } });
     if (related.projectIds.length) await count('pipelineRuns', { projectId: { $in: [...related.projectIds] } });
     if (related.projectIds.length) await count('hubSnapshots', { projectId: { $in: [...related.projectIds] } });
+    await count('oidcArtifacts', { accountId: ownerId });
     for (const name of ACCOUNT_DATA.byOwner) await count(name, { ownerId });
     for (const name of ACCOUNT_DATA.byId) await count(name, { _id: ownerId });
     await count(ACCOUNT_DATA.last, { _id: ownerId });

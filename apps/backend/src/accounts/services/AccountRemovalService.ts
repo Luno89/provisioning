@@ -1,4 +1,4 @@
-import { type ClusterMetadata, type DeploymentMetadata, holds, type Principal, startedFor, type UserMetadata } from '../../platform/index.js';
+import { type AccessRevocations, type ClusterMetadata, type DeploymentMetadata, holds, type Principal, startedFor, type UserMetadata } from '../../platform/index.js';
 import type { InstanceRecord, InstanceRelease, InstanceStatus } from '../../instances/index.js';
 import type { Client } from '@temporalio/client';
 import type { AccountsStore } from '../store.js';
@@ -75,6 +75,7 @@ export interface AccountRemovalDeps {
   releases?: (() => Promise<InstanceRelease[]>) | undefined;
   hub?: HubPeople | undefined;
   principalFor(user: Pick<UserMetadata, 'id' | 'isAdmin'>): Principal;
+  revocations?: Pick<AccessRevocations, 'revoked'> | undefined;
   now?: () => string;
 }
 
@@ -148,7 +149,9 @@ export class AccountRemovalService {
       if (blockers.length > 0) return { ok: false, refusal: { status: 409, error: 'The account cannot be removed yet', blockers } };
       await this.deps.hub.letGo(request.ownerId);
     }
-    await this.deps.store.accounts.saveUser({ ...target!, removal: { startedAt: this.now(), requestedBy: request.requestedBy } });
+    const startedAt = this.now();
+    await this.deps.store.accounts.saveUser({ ...target!, removal: { startedAt, requestedBy: request.requestedBy } });
+    await this.deps.revocations?.revoked({ subject: request.ownerId, at: startedAt, why: 'account-removed' });
     await this.deps.workflows.start(this.deps.workflowType ?? REMOVE_ACCOUNT_WORKFLOW, workflowId, [{ ownerId: request.ownerId }], request.ownerId);
     return { ok: true, state: await this.deps.workflows.state(workflowId) };
   }

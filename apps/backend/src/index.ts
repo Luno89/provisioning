@@ -19,7 +19,7 @@ import {
   getTemporalClient, resolveOwnersWith, PayloadStorageService, createAuth, inFlightLimit, keepTrying, mongoTarget, asyncRoute,
   TEMPORAL_JWKS_PATH, temporalCa, temporalKeysRouter, temporalNamespaceFrom,
   authorize, claimSettingsFrom, type Principal, createDatabase, sharedPayloadBlobs, type Database, migrateLegacyOwnership, ownUnownedProjects, decryptValue, loadKeys,
-  roleFromEnv, servesTenants, holdsAccounts, MailService, emailWayFrom, telemetrySettings, e2eProblem, firstAdminSetup, drainThenStop, podPlaceFrom, runOnce,
+  roleFromEnv, servesTenants, holdsAccounts, MailService, emailWayFrom, telemetrySettings, e2eProblem, firstAdminSetup, drainThenStop, podPlaceFrom, runOnce, AccessRevocations,
 } from './platform/index.js';
 import { startTelemetry } from '@koala/engine-core/telemetry-sdk';
 import { rateLimit } from 'express-rate-limit';
@@ -31,6 +31,7 @@ import { wireInfrastructure } from './infrastructure/wiring/infrastructure.js';
 import { wireAccounts } from './accounts/wiring/accounts.js';
 import { hubInstanceWork, wireHub } from './hub/wiring/hub.js';
 import { InstanceSide, wireInstances, wireMoveExport } from './instances/wiring/instances.js';
+import { rootProviderFor, rootSignInFor } from './instances/wiring/sign-in.js';
 import { projectsCore, wireProjects } from './projects/wiring/projects.js';
 import { engineCore, wireEngine, startEngineStream } from './engine/wiring/engine.js';
 import { wireSockets } from './machines/wiring/sockets.js';
@@ -285,7 +286,11 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
 
   const setup = holdsAccounts(role) ? firstAdminSetup(process.env, (await db.accounts.getUsers()).length === 0) : undefined;
   if (setup?.say) console.log(`🔑 ${setup.say}`);
-  const auth = createAuth({ db, sessionKey: keys.session, publicUrl: PUBLIC_URL, role: role.role, instanceOwnerId: claimSettings.instanceOwnerId, setupCode: setup?.code });
+  const revocations = new AccessRevocations();
+  const rootProvider = rootProviderFor({ role, publicUrl: PUBLIC_URL, keys, db, proxied: process.env.NODE_ENV === 'production' });
+  if (rootProvider) revocations.on((event) => rootProvider.revoke(event));
+  const rootSignIn = rootSignInFor({ role, env: process.env, keys, db, revocations, publicUrl: PUBLIC_URL });
+  const auth = createAuth({ db, sessionKey: keys.session, publicUrl: PUBLIC_URL, role: role.role, instanceOwnerId: claimSettings.instanceOwnerId, setupCode: setup?.code, clientSessions: rootSignIn });
   const { requireOperator } = auth;
 
   let runningNow: (() => Promise<string[] | 'unknown'>) | undefined;
@@ -306,12 +311,13 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   wireSockets({ io, db, role, env: process.env, payloadKey: keys.payload, dataKey: keys.data, auth, machines: machineService, clusters: clusterService, apps: appService, infra: infraService, telemetry: machineTelemetry({ sink: () => telemetrySink }), machineTemporal });
 
   app.use('/api/auth', authRouter({
-    db, authService, auth, sessionKey: keys.session, publicUrl: PUBLIC_URL, appUrl: APP_URL, accounts: holdsAccounts(role), hub: role.role === 'hub',
+    db, authService, auth, sessionKey: keys.session, publicUrl: PUBLIC_URL, appUrl: APP_URL, accounts: holdsAccounts(role), hub: role.role === 'hub', revocations,
   }));
   const hub = await wireHub({
     role, env: process.env, app, tenant, db, mail, publicUrl: PUBLIC_URL, dataKey: keys.data, gitea: giteaService,
     notify: (ownerId, scope, notice) => notices.post(ownerId, scope, notice),
     republish: () => appExposureService.syncExposedApps(),
+    serviceCaller: rootProvider ? (token) => rootProvider.serviceCaller(token) : undefined,
   });
 
   tenant.get('/ingress/verify', async (req, res) => {
@@ -325,7 +331,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   await wireInstances({
     role, env: process.env, app, tenant, db, mail, identity, auth, sessionKey: keys.session, publicUrl: PUBLIC_URL,
     repoRoot: path.join(__dirname, '../../..'), dataDir: path.join(__dirname, '../data'), headscale: headscaleService, infra: infraService,
-    side: instanceSide, syncExposedApps: () => appExposureService.syncExposedApps(),
+    side: instanceSide, syncExposedApps: () => appExposureService.syncExposedApps(), provider: rootProvider, signIn: rootSignIn,
   });
   const people = async () => (await db.accounts.getUsers()).filter((user) => !user.space).map((user) => auth.principalFor(user));
   const { monitoring } = wireMonitoring({ tenant, db, role, env: process.env, io, clusters: clusterService, infra: infraService, proxy: clusterProxyService, notices, notifications, mail, people });
@@ -366,7 +372,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
       },
     } : {}),
   });
-  wireAccounts({ app, role, env: process.env, db, temporalBridge, hubPeople: hub.hubPeople, operatorOnly: requireOperator('manage-accounts'), clearSession: auth.clearSession });
+  wireAccounts({ app, role, env: process.env, db, temporalBridge, hubPeople: hub.hubPeople, operatorOnly: requireOperator('manage-accounts'), clearSession: auth.clearSession, revocations });
   tenant.use('/api/models', modelsRouter({ modelService, db, credentialService, machines: machineService, rateLimits: getModelRateLimiterSnapshot }));
 
   const { evalHost, level2Service, procedureService, mcpCatalogue } = await wireEngine({

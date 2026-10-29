@@ -24,7 +24,11 @@ import { PoolMonitoringService } from '../services/PoolMonitoringService.js';
 import { InstanceMailLimit } from '../services/InstanceMailLimit.js';
 import type { InstanceEdge, HeadscaleService, InfrastructureService } from '../../infrastructure/index.js';
 import { identityRouter } from '../routes/identity.js';
-import { handoffRouter } from '../routes/handoff.js';
+import { signInRouter } from '../routes/sign-in.js';
+import { oidcProviderRouter } from '../routes/oidc-provider.js';
+import type { RootProvider } from '../services/RootProvider.js';
+import type { RootSignIn } from '../services/RootSignIn.js';
+import { OIDC_PATH } from '../lib/oidc.js';
 import { instancesRouter } from '../routes/instances.js';
 import { instanceTrialRouter } from '../routes/instance-trial.js';
 import { instanceAddressesRouter } from '../routes/instance-addresses.js';
@@ -107,6 +111,8 @@ export interface InstancesWiringDeps {
   infra: Pick<InfrastructureService, 'runKubectl' | 'applyManifest'>;
   side: InstanceSide;
   syncExposedApps: () => Promise<void>;
+  provider?: RootProvider | undefined;
+  signIn?: RootSignIn | undefined;
 }
 
 export interface InstancesWiring {
@@ -120,7 +126,17 @@ export async function wireInstances(deps: InstancesWiringDeps): Promise<Instance
   if (holdsAccounts(role)) {
     app.use('/api/identity', identityRouter({ identity, servesTenants: servesTenants(role), signedIn: (req) => deps.auth.userFromSessionCookie(req.headers.cookie, deps.auth.securedFor(req)) }));
   }
-  if (signsInThroughRoot(role.role)) app.use('/api/auth', handoffRouter({ identity, auth: deps.auth, sessionKey: deps.sessionKey }));
+  if (deps.provider) {
+    const provider = deps.provider;
+    app.use(OIDC_PATH, oidcProviderRouter({ provider, signedIn: (req) => deps.auth.userFromSessionCookie(req.headers.cookie, deps.auth.securedFor(req)) }));
+    void provider.deliverLogouts();
+    setInterval(() => { void provider.deliverLogouts(); }, 30_000);
+  }
+  if (signsInThroughRoot(role.role) && deps.signIn) {
+    await deps.signIn.load();
+    deps.signIn.keepAnnouncing((message) => console.warn(`[sign-in] ${message}`));
+    app.use('/api/auth', signInRouter({ signIn: deps.signIn, identity, auth: deps.auth, publicUrl, landing: role.role === 'hub' ? '/shared' : '/chat' }));
+  }
 
   tenant.use('/api/instance-addresses', instanceAddressesRouter({ addresses: () => deps.side.current() }));
   tenant.use('/api/instance-trial', instanceTrialRouter({
@@ -170,6 +186,7 @@ export async function wireInstances(deps: InstancesWiringDeps): Promise<Instance
     domain: routingDomain,
     siteNames,
     pool: 'off' in pool ? pool : { slots: pool.slots, trialDays: pool.trialDays },
+    serviceCaller: deps.provider ? (token) => deps.provider!.serviceCaller(token) : undefined,
   }, deps.headscale, () => new Date(), () => instanceRoutes?.changed(), {
     start: async (instanceId, ownerId) => {
       await (await getTemporalClient()).workflow.start('PoolInstanceWorkflow', {

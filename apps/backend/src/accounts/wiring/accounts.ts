@@ -1,5 +1,5 @@
 import type express from 'express';
-import { claimSettingsFrom, type Database, type RoleConfig, getTemporalClient, holdsAccounts, principalOf, servesTenants, type UserMetadata } from '../../platform/index.js';
+import { claimSettingsFrom, type AccessRevocations, type Database, type RoleConfig, getTemporalClient, holdsAccounts, principalOf, servesTenants, type UserMetadata } from '../../platform/index.js';
 import type { HubPeople, Mounts } from '../../hub/index.js';
 import type { TemporalBridge } from '../../infrastructure/index.js';
 import { AccountRemovalService, temporalRemovalWorkflows } from '../services/AccountRemovalService.js';
@@ -18,6 +18,7 @@ export interface AccountsWiringDeps {
   hubPeople: HubPeople | undefined;
   operatorOnly: express.RequestHandler;
   clearSession: (res: express.Response) => void;
+  revocations?: AccessRevocations | undefined;
 }
 
 export function wireAccounts(deps: AccountsWiringDeps): { peopleRemoval: AccountRemovalService | undefined } {
@@ -28,6 +29,7 @@ export function wireAccounts(deps: AccountsWiringDeps): { peopleRemoval: Account
     workflows: temporalRemovalWorkflows(() => deps.temporalBridge.client, env.TEMPORAL_ENGINE_TASK_QUEUE || DEFAULT_ENGINE_TASK_QUEUE),
     hub: deps.hubPeople,
     principalFor,
+    revocations: deps.revocations,
   }) : undefined;
   const rootRemoval = holdsAccounts(role) && !servesTenants(role) ? new AccountRemovalService({
     store: db,
@@ -38,6 +40,7 @@ export function wireAccounts(deps: AccountsWiringDeps): { peopleRemoval: Account
     releases: () => db.instances.getReleases(),
     hub: deps.hubPeople,
     principalFor,
+    revocations: deps.revocations,
   }) : undefined;
   const peopleRemoval = rootRemoval ?? accountRemoval;
   if (holdsAccounts(role) && peopleRemoval) app.use('/api/account', accountRouter({ removal: peopleRemoval, clearSession: deps.clearSession }));

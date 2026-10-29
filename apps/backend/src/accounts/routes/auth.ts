@@ -2,7 +2,7 @@ import { Router, type Request, type Response } from 'express';
 import {
   attemptsKeyFor, DEVICE_COOKIE, DEVICE_SECONDS, deviceOf, deviceToken, lockedSaid, SignInAttemptLog, signJWT, verifyJWT, hashPassword, verifyPassword, type Auth,
   carriedByOAuthState, cookieNamed, generateOTP, inviteCodeHash, newOAuthState, OAUTH_STATE_COOKIE, OAUTH_STATE_SECONDS, sessionToken,
-  type Database, type SecretKey, holds, principalFrom,
+  type AccessRevocations, type Database, type SecretKey, holds, principalFrom,
 } from '../../platform/index.js';
 import axios from 'axios';
 import { v4 as uuidv4 } from 'uuid';
@@ -20,6 +20,7 @@ export interface AuthRouterDeps {
   appUrl: string;
   accounts?: boolean | undefined;
   hub?: boolean | undefined;
+  revocations?: Pick<AccessRevocations, 'revoked'> | undefined;
 }
 
 export function authRouter(deps: AuthRouterDeps): Router {
@@ -282,6 +283,7 @@ export function authRouter(deps: AuthRouterDeps): Router {
       if (!user) return res.status(401).json({ error: 'Not authenticated' });
       user.sessionsEndedAt = new Date().toISOString();
       await db.accounts.saveUser(user);
+      await deps.revocations?.revoked({ subject: user.id, at: user.sessionsEndedAt, why: 'signed-out-everywhere' });
       setSessionCookie(res, sessionToken(user, sessionKey), req);
       res.json({ ended: true });
     } catch (err: any) {
@@ -307,6 +309,7 @@ export function authRouter(deps: AuthRouterDeps): Router {
       if (preferredMethod !== undefined) user.twoFactorPreferredMethod = preferredMethod;
 
       await db.accounts.saveUser(user);
+      await deps.revocations?.revoked({ subject: user.id, at: user.sessionsEndedAt, why: 'two-factor-changed' });
       setSessionCookie(res, sessionToken(user, sessionKey), req);
       res.json({
         id: user.id,

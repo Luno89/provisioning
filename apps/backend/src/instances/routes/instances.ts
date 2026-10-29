@@ -43,7 +43,7 @@ export function bundleAsEnv(bundle: JoinBundle): string {
 }
 
 export function instancesRouter(deps: {
-  instances: Pick<InstanceService, 'createJoinToken' | 'poolOffer' | 'createPoolInstance' | 'poolAdmin' | 'setTrialDays' | 'setTrialEnd' | 'removePoolInstance' | 'join' | 'release' | 'updates' | 'setUpdates' | 'report' | 'mine' | 'machineKey' | 'removeMachineNode' | 'nameCheck' | 'addresses' | 'setAddresses' | 'checkGroup' | 'claimGroup' | 'releaseGroup' | 'ownerOf' | 'trialOf' | 'poolPlaceOf' | 'startMove' | 'startMoveAs' | 'moveOf' | 'moveOfAs' | 'stopMove' | 'stopMoveAs' | 'moveSource'>;
+  instances: Pick<InstanceService, 'createJoinToken' | 'poolOffer' | 'createPoolInstance' | 'poolAdmin' | 'setTrialDays' | 'setTrialEnd' | 'removePoolInstance' | 'join' | 'release' | 'updates' | 'setUpdates' | 'report' | 'mine' | 'machineKey' | 'removeMachineNode' | 'nameCheck' | 'addresses' | 'setAddresses' | 'checkGroup' | 'claimGroup' | 'releaseGroup' | 'ownerOf' | 'trialOf' | 'poolPlaceOf' | 'startMove' | 'startMoveAs' | 'moveOf' | 'moveOfAs' | 'stopMove' | 'stopMoveAs' | 'moveSource' | 'announceSignIn'>;
   chart: () => Promise<string>;
   mailLimit?: InstanceMailLimit | undefined;
   chartOf?: ((imageTag: string) => string | undefined) | undefined;
@@ -171,6 +171,13 @@ export function instancesRouter(deps: {
   router.get('/addresses', asyncRoute(async (req: Request, res: Response) => {
     const { instanceId, credential } = credentialOf(req);
     const outcome = await deps.instances.addresses(instanceId, credential);
+    if (!outcome.ok) return res.status(outcome.status).json({ error: outcome.error });
+    return res.json(outcome.value);
+  }));
+
+  router.put('/sign-in-key', asyncRoute(async (req: Request, res: Response) => {
+    const { instanceId, credential } = credentialOf(req);
+    const outcome = await deps.instances.announceSignIn(instanceId, credential, (req.body ?? {}).jwk);
     if (!outcome.ok) return res.status(outcome.status).json({ error: outcome.error });
     return res.json(outcome.value);
   }));

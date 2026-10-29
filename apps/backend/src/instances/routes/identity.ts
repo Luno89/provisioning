@@ -6,7 +6,7 @@ const userOf = (req: Request): { id: string; email: string } =>
   (req as unknown as { user: { id: string; email: string } }).user;
 
 export function identityRouter(deps: {
-  identity: Pick<IdentityService, 'publicKeys' | 'instanceOf' | 'handoffUrl'>;
+  identity: Pick<IdentityService, 'publicKeys' | 'instanceOf' | 'goUrl'>;
   servesTenants: boolean;
   signedIn: (req: Request) => Promise<{ id: string; email: string } | undefined>;
 }): Router {
@@ -26,7 +26,7 @@ export function identityRouter(deps: {
     res.setHeader('Cache-Control', 'no-store');
     if (!user) return res.redirect(302, '/');
     const toHub = req.query.to === 'hub';
-    const url = await deps.identity.handoffUrl(user, toHub ? { hub: true, ...(typeof req.query.next === 'string' ? { next: req.query.next } : {}) } : undefined, req.query.nonce);
+    const url = await deps.identity.goUrl(user, toHub ? { hub: true, ...(typeof req.query.next === 'string' ? { next: req.query.next } : {}) } : undefined, req.query.nonce);
     if (!url) return res.status(404).json({ error: toHub ? 'this root has no hub' : 'you have no instance yet' });
     return res.redirect(302, url);
   }));
