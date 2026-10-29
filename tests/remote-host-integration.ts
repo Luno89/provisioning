@@ -12,11 +12,18 @@
  * `npm run test:remote-integration`, same tier as `npm run test:infra:integration`.
  */
 import { execFile } from 'child_process';
+import { fileURLToPath } from 'node:url';
+import dotenv from 'dotenv';
 import { createHash } from 'node:crypto';
 import { promisify } from 'util';
 import { createDisposableVm } from './lib/disposable-vm.js';
 import { InfrastructureService } from '../apps/backend/src/infrastructure/services/InfrastructureService.js';
 import { signUp } from './lib/sign-up.js';
+import { createDatabase } from '../apps/backend/src/platform/lib/db-interface.js';
+import { signJWT } from '../apps/backend/src/platform/lib/auth.js';
+import { loadKeys } from '../apps/backend/src/platform/lib/keys.js';
+
+dotenv.config({ path: fileURLToPath(new URL('../apps/backend/.env', import.meta.url)), quiet: true });
 
 const execFileAsync = promisify(execFile);
 const BASE = (process.env.BACKEND_URL || 'http://localhost:3001').replace(/\/$/, '');
@@ -43,23 +50,14 @@ function extractCookie(res: Response): string {
 }
 
 async function loginAsExistingAdmin(): Promise<string> {
-  // Zero-setup dev OAuth mock path (see index.ts's /api/auth/google — falls back to a fixed
-  // mock-google-user@example.com identity when GOOGLE_CLIENT_ID isn't configured), used here
-  // purely to reach whichever account bootstrap already made admin, so we can mint a real invite
-  // for the throwaway test user below without needing that account's real credentials.
-  // /api/auth/google itself only redirects (302) to /api/auth/google/callback — the session
-  // cookie is set on THAT response, one hop later (confirmed live: the first response has no
-  // Set-Cookie header at all).
-  const initial = await fetch(`${BASE}/api/auth/google`, { redirect: 'manual' });
-  const callbackUrl = initial.headers.get('location');
-  if (!callbackUrl) throw new Error(`/api/auth/google did not redirect (expected a Location header): HTTP ${initial.status}`);
-  const res = await fetch(callbackUrl, { redirect: 'manual' });
-  const cookie = extractCookie(res);
-  const me = await fetch(`${BASE}/api/auth/me`, { headers: { Cookie: cookie } }).then((r) => r.json());
-  if (!me.isAdmin) {
-    throw new Error('The mock-OAuth admin account is not actually admin — cannot mint an invite for the test user. Was migrateLegacyOwnership run?');
-  }
-  return cookie;
+  const admin = process.env.MECHANICS_ADMIN;
+  if (!admin) throw new Error('set MECHANICS_ADMIN to the admin who mints the test user\'s invite');
+  const db = createDatabase();
+  await db.init();
+  const user = await db.accounts.getUserById(admin);
+  await db.close();
+  if (!user?.isAdmin) throw new Error(`${admin} is not an admin, so it cannot mint an invite for the test user`);
+  return `session=${signJWT({ userId: user.id, email: user.email }, loadKeys(process.env).session, 3600)}`;
 }
 
 async function mintInvite(adminCookie: string): Promise<string> {
