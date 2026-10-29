@@ -1,6 +1,5 @@
 import { compareVersions, COOLING_OFF_DAYS, DAY_MS, fixOf } from '../../platform/lib/dependency-rule.js';
-import type { Severity } from '../../platform/lib/osv.js';
-import type { ComponentKind, InventoryComponent } from '../../platform/lib/sbom.js';
+import type { ComponentKind, InventoryComponent, Severity } from '../../platform/index.js';
 
 export const DEPENDENCY_WATCH_ID = 'dependency-watch';
 
