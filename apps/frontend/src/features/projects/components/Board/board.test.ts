@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { buildBoard, featureOnly, featureOrderAfterMove, projectStatus, reachedBy, storiesInOrder, storyOrderAfterMove, withOrder } from './board'
+import { buildBoard, featureOnly, featureOrderAfterMove, projectStatus, reachedBy, storiesInOrder, storyOrderAfterMove, storyRunIds, withOrder } from './board'
+import { turnOfRun } from '../../../engine/lib/run-endings'
 import type { Leaf } from '../../lib/leaf-types'
 import type { OdooRelease } from '../../../releases/api/releases'
 import type { PipelineRun } from '../PipelineRunRow'
@@ -110,6 +111,29 @@ describe('the board of a project', () => {
     expect(only.features.map((feature) => feature.id)).toEqual(['b2'])
     expect(only.totals).toMatchObject({ running: 1, failed: 1, verified: 0 })
     expect(only.total).toBe(2)
+  })
+})
+
+describe('a story whose run lost its access', () => {
+  const runId = 'grove-run-t1~mvs1a-executor-2'
+  const leaves = [leaf('a', { status: 'pending', runId }), leaf('b', { status: 'succeeded', runId: 'grove-run-t1~mvs1a-executor-1' }), leaf('c')]
+  const endings = [
+    { runId, ended: { how: 'revoked' as const, revokedBecause: 'signed-out-everywhere' as const, at: 't' } },
+    { runId: 'grove-run-t1~mvs1a-executor-1', ended: { how: 'revoked' as const, revokedBecause: 'signed-out-everywhere' as const, at: 't' } },
+  ]
+
+  it('asks only for the runs of stories not yet done, each under its tree run', () => {
+    expect(storyRunIds(leaves)).toEqual([runId])
+    expect(turnOfRun(runId)).toBe('grove-run-t1~mvs1a')
+    expect(turnOfRun('run-123')).toBe('run-123')
+  })
+
+  it('says on the card that its last run ended because its access was revoked, and why', () => {
+    const [epic] = buildBoard({ trees: [{ id: 't1', name: 'Shop' }], branches: [{ id: 'b1', title: 'The field', treeId: 't1' }], leaves, endings })
+    const stories = Object.values(epic!.features[0]!.columns).flat()
+    expect(stories.find((story) => story.leaf.id === 'a')?.revoked).toBe('they signed out everywhere')
+    expect(stories.find((story) => story.leaf.id === 'b')?.revoked).toBeUndefined()
+    expect(stories.find((story) => story.leaf.id === 'c')?.revoked).toBeUndefined()
   })
 })
 

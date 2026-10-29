@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react'
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { Boxes, CheckSquare, GripVertical, Hand, Link2, ListPlus, RotateCcw, Rocket, Eye } from 'lucide-react'
+import { Boxes, CheckSquare, GripVertical, Hand, Link2, ListPlus, RotateCcw, Rocket, Eye, ShieldOff } from 'lucide-react'
 import { STATE_DOT } from '../../lib/leaf-types'
 import { ago } from '../../lib/home-summary'
 import type { Story } from './board'
@@ -63,6 +63,9 @@ export function StoryCard({ story, selected, onOpen, grip }: { story: Story; sel
             story.workspaceStuck
               ? <span className="flex items-center gap-0.5 text-red-300/80" title={`Its workspace is ${story.workspaceStuck}`}><Boxes size={10} aria-hidden="true" /> its workspace did not build</span>
               : <span className="flex items-center gap-0.5 text-amber-300/80" title={story.waitsForWorkspace}><Boxes size={10} aria-hidden="true" /> waits on its workspace</span>
+          )}
+          {story.revoked && (
+            <span className="flex items-center gap-0.5 text-amber-300" title={`Its last run ended because the access it worked with was revoked: ${story.revoked}. Open the story for its handover note.`} data-testid="story-revoked"><ShieldOff size={10} aria-hidden="true" /> its run's access was revoked</span>
           )}
           {story.attempts > 0 && (
             <span className="flex items-center gap-0.5 text-amber-400/80"><RotateCcw size={10} aria-hidden="true" /> retried {story.attempts}×</span>

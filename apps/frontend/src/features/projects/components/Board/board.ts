@@ -1,5 +1,6 @@
 import { BOARD_COLUMNS, blockedBy, stateFor, type Leaf, type LeafState } from '../../lib/leaf-types'
-import type { EngineTask } from '../../../engine'
+import type { EngineTask, RunEnding } from '../../../engine'
+import { endingOf, revokedWhy } from '../../../engine'
 import type { OdooRelease } from '../../../releases'
 import type { TreeAsk } from '../../api/grove'
 import type { PipelineRun } from '../PipelineRunRow'
@@ -17,6 +18,7 @@ export interface Story {
   asks?: { tool: string; agent?: string | undefined }
   tasks: { done: number; total: number; proposed: number }
   attempts: number
+  revoked?: string
   reached?: Reached | undefined
 }
 
@@ -101,11 +103,13 @@ export function storyOf(
   releases: readonly Pick<OdooRelease, 'state' | 'startedAt'>[],
   runs: readonly Pick<PipelineRun, 'startedAt' | 'promotedAt'>[],
   asked?: Pick<TreeAsk, 'tool' | 'agent'> | undefined,
+  endings?: readonly RunEnding[] | undefined,
 ): Story | undefined {
   const state = stateFor(leaf, all)
   if (!state) return undefined
   const own = (leaf.tasks ?? []).map((id) => tasks.get(id)).filter((task): task is Pick<EngineTask, 'status' | 'leafId'> => task !== undefined && task.status !== 'proposed' && task.status !== 'dropped')
   const proposed = [...tasks.values()].filter((task) => task.leafId === leaf.id && task.status === 'proposed').length
+  const revoked = revokedOf(leaf, endings)
   return {
     leaf,
     state,
@@ -115,9 +119,16 @@ export function storyOf(
     ...(asked ? { asks: { tool: asked.tool, ...(asked.agent ? { agent: asked.agent } : {}) } } : {}),
     tasks: { done: own.filter((task) => task.status === 'done').length, total: own.length, proposed },
     attempts: leaf.attempts?.length ?? 0,
+    ...(revoked ? { revoked } : {}),
     reached: reachedBy(leaf, releases, runs),
   }
 }
+
+const revokedOf = (leaf: Leaf, endings: readonly RunEnding[] | undefined): string | undefined =>
+  (leaf.runId && leaf.status !== 'succeeded' ? revokedWhy(endingOf(endings, leaf.runId)?.ended) : undefined)
+
+export const storyRunIds = (leaves: readonly Leaf[]): string[] =>
+  leaves.filter((leaf) => leaf.runId && leaf.status !== 'succeeded').map((leaf) => leaf.runId!)
 
 export function buildBoard(input: {
   trees: readonly { id: string; name: string; type?: string | undefined; version?: string | undefined }[]
@@ -128,6 +139,7 @@ export function buildBoard(input: {
   releases?: readonly Pick<OdooRelease, 'state' | 'startedAt'>[] | undefined
   runs?: readonly Pick<PipelineRun, 'startedAt' | 'promotedAt'>[] | undefined
   asking?: readonly TreeAsk[] | undefined
+  endings?: readonly RunEnding[] | undefined
 }): Epic[] {
   const tasks = new Map((input.tasks ?? []).map((task) => [task.id, task]))
   const asked = new Map((input.asking ?? []).filter((ask) => ask.leafId).map((ask) => [ask.leafId!, ask]))
@@ -136,7 +148,7 @@ export function buildBoard(input: {
     const features = input.branches.filter((branch) => branch.treeId === tree.id).sort(byRank).map((branch): Feature => {
       const columns = emptyColumns()
       for (const leaf of input.leaves.filter((candidate) => candidate.branchId === branch.id).sort(byRank)) {
-        const story = storyOf(leaf, input.leaves, tasks, input.releases ?? [], input.runs ?? [], asked.get(leaf.id))
+        const story = storyOf(leaf, input.leaves, tasks, input.releases ?? [], input.runs ?? [], asked.get(leaf.id), input.endings)
         if (!story) continue
         columns[story.state].push(story)
         totals[story.state] += 1

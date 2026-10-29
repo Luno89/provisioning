@@ -57,5 +57,10 @@ export function handoverLine(ending: Pick<RunEnding, 'ended' | 'handover'>): str
   return ending.handover?.failed ? `It could not leave a handover note: ${ending.handover.failed}.` : 'It left no handover note.'
 }
 
+export const revokedWhy = (ended: RunEnded | undefined): string | undefined =>
+  (ended?.how === 'revoked' ? (ended.revokedBecause ? REVOKED_SAID[ended.revokedBecause] : 'its access was taken away') : undefined)
+
+export const turnOfRun = (runId: string): string => /^grove-run-.+?~[^-]+/.exec(runId)?.[0] ?? runId
+
 export const endingOf = (endings: readonly RunEnding[] | undefined, runId: string): RunEnding | undefined =>
   endings?.find((ending) => ending.runId === runId)

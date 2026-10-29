@@ -4,7 +4,7 @@ import { MessageSquarePlus, PanelRightOpen } from 'lucide-react'
 import { ChatSurface } from '../../../engine'
 import LeafDetail from '../LeafDetail'
 import { chatPackKeys, createChatConversation, type ConversationBinding } from '../../../engine'
-import { engineKeys } from '../../../engine'
+import { engineKeys, turnOfRun } from '../../../engine'
 import { releaseKeys } from '../../../releases'
 import type { PipelineRun } from '../PipelineRunRow'
 import { ProjectChannel } from '../Workspace/ProjectChannel'
@@ -23,7 +23,7 @@ import { StoryDrops } from './StoryDrops'
 import { storyFolder } from '../../../files'
 import Reading from '../Reading'
 import { useRouteSync } from '../../hooks/useRouteSync'
-import { buildBoard, byRank, featureOnly, type Epic } from './board'
+import { buildBoard, byRank, featureOnly, storyRunIds, type Epic } from './board'
 import { StoryTasks } from './StoryTasks'
 import { StoryFeed } from './StoryFeed'
 import { useBoardOrder } from './useBoardOrder'
@@ -91,6 +91,16 @@ export function ProjectBoard({ treeId, projectId, initialBranchId, initialLeafId
     combine: askingOf,
   })
 
+  const storyTurns = useMemo(() => {
+    const turns = new Map<string, string[]>()
+    for (const runId of storyRunIds(leaves)) turns.set(turnOfRun(runId), [...(turns.get(turnOfRun(runId)) ?? []), runId])
+    return [...turns]
+  }, [leaves])
+  const endings = useQueries({
+    queries: storyTurns.map(([turnId, runIds]) => ({ queryKey: keyedBy(source, engineKeys.endings(runIds)), queryFn: () => source.listRunEndings(turnId, runIds), refetchInterval: every })),
+    combine: (results) => results.flatMap((result) => result.data ?? []),
+  })
+
   const treeTypes = useQuery({ queryKey: groveKeys.treeTypes(), queryFn: listTreeTypes, staleTime: Infinity, enabled: source.pushed })
   const epics = useMemo(() => buildBoard({
     trees: projectTrees,
@@ -101,7 +111,8 @@ export function ProjectBoard({ treeId, projectId, initialBranchId, initialLeafId
     releases: releases.data?.releases,
     runs: runs.data,
     asking,
-  }), [projectTrees, treeTypes.data, branches, leaves, tasks.data, releases.data, runs.data, asking])
+    endings,
+  }), [projectTrees, treeTypes.data, branches, leaves, tasks.data, releases.data, runs.data, asking, endings])
 
   const order = useBoardOrder()
   const openLeaf = main.kind === 'story' ? leaves.find((leaf) => leaf.id === main.id) : undefined
