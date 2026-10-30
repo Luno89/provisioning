@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { accountOf, devSplitOwner, devSplitPlan, envFileText, readEnvFile, withDatabase } from './dev-split.js';
+import { accountOf, devSplitOwner, devSplitPlan, envFileText, readEnvFile, withDatabase, type SplitPlace } from './dev-split.js';
 import type { UserMetadata } from '../../platform/lib/types.js';
 
 const owner: UserMetadata = {
@@ -63,5 +63,24 @@ describe('root and an instance on one machine', () => {
     expect(withDatabase('mongodb://localhost:27017', 'koala_root')).toBe('mongodb://localhost:27017/koala_root');
     expect(withDatabase('mongodb://a:b@h:1/provisioning?authSource=admin', 'koala_root')).toBe('mongodb://a:b@h:1/koala_root?authSource=admin');
     expect(() => withDatabase('postgres://x', 'y')).toThrow(/not a mongodb/);
+  });
+});
+
+describe('the same split somewhere else, as a suite starts it', () => {
+  const place: SplitPlace = {
+    rootUrl: 'http://localhost:41001', instanceUrl: 'http://localhost:41002', hubUrl: 'http://localhost:41003',
+    rootApiPort: 41001, instanceApiPort: 41002, hubApiPort: 41003,
+    rootDatabase: 'koala_split_root_x', hubDatabase: 'koala_split_hub_x', instanceDatabase: 'koala_split_instance_x',
+  };
+  const elsewhere = devSplitPlan({
+    name: 'dev', owner, instanceId: 'inst-1', credential: 'cred', credentialHash: 'hashed', hubCredential: 'hub-cred', hubCredentialHash: 'hub-hashed', rootPublicKeys: 'k',
+    mongoUri: 'mongodb://admin:admin@localhost:27017/provisioning?authSource=admin', now: '2026-10-29T00:00:00Z', place,
+  });
+
+  it('puts each side at the place it is given, the instance on a database of its own', () => {
+    expect(elsewhere.rootEnv).toMatchObject({ PORT: '41001', MONGO_URI: 'mongodb://admin:admin@localhost:27017/koala_split_root_x?authSource=admin', PUBLIC_URL: 'http://localhost:41001', HUB_URL: 'http://localhost:41003' });
+    expect(elsewhere.instanceEnv).toMatchObject({ PORT: '41002', MONGO_URI: 'mongodb://admin:admin@localhost:27017/koala_split_instance_x?authSource=admin', PUBLIC_URL: 'http://localhost:41002', ROOT_URL: 'http://localhost:41001' });
+    expect(elsewhere.hubEnv).toMatchObject({ PORT: '41003', HUB_DATABASE: 'koala_split_hub_x', ROOT_URL: 'http://localhost:41001' });
+    expect(elsewhere.instance.url).toBe('http://localhost:41002');
   });
 });

@@ -17,6 +17,29 @@ export const DEV_SPLIT = {
   defaultName: 'dev',
 } as const;
 
+export interface SplitPlace {
+  rootUrl: string;
+  instanceUrl: string;
+  hubUrl: string;
+  rootApiPort: number;
+  instanceApiPort: number;
+  hubApiPort: number;
+  rootDatabase: string;
+  hubDatabase: string;
+  instanceDatabase?: string | undefined;
+}
+
+export const devSplitPlace = (name: string): SplitPlace => ({
+  rootUrl: webUrl(DEV_SPLIT.rootHost, DEV_SPLIT.rootWebPort),
+  instanceUrl: webUrl(name, DEV_SPLIT.instanceWebPort),
+  hubUrl: webUrl(DEV_SPLIT.hubHost, DEV_SPLIT.hubWebPort),
+  rootApiPort: DEV_SPLIT.rootApiPort,
+  instanceApiPort: DEV_SPLIT.instanceApiPort,
+  hubApiPort: DEV_SPLIT.hubApiPort,
+  rootDatabase: DEV_SPLIT.rootDatabase,
+  hubDatabase: DEV_SPLIT.hubDatabase,
+});
+
 export interface DevSplitInput {
   name: string;
   owner: UserMetadata;
@@ -29,6 +52,7 @@ export interface DevSplitInput {
   mongoUri: string;
   now: string;
   existing?: InstanceRecord | undefined;
+  place?: SplitPlace | undefined;
 }
 
 export interface DevSplitPlan {
@@ -53,9 +77,8 @@ export function withDatabase(uri: string, database: string): string {
 export function devSplitPlan(input: DevSplitInput): DevSplitPlan {
   const problem = nameProblem(input.name, [DEV_SPLIT.rootHost, DEV_SPLIT.hubHost]);
   if (problem) throw new Error(`DEV_INSTANCE_NAME "${input.name}": ${problem}`);
-  const rootUrl = webUrl(DEV_SPLIT.rootHost, DEV_SPLIT.rootWebPort);
-  const instanceUrl = webUrl(input.name, DEV_SPLIT.instanceWebPort);
-  const hubUrl = webUrl(DEV_SPLIT.hubHost, DEV_SPLIT.hubWebPort);
+  const place = input.place ?? devSplitPlace(input.name);
+  const { rootUrl, instanceUrl, hubUrl } = place;
   const rootPublicKeys = Buffer.from(input.rootPublicKeys, 'utf8').toString('base64');
 
   return {
@@ -64,8 +87,8 @@ export function devSplitPlan(input: DevSplitInput): DevSplitPlan {
     hubUrl,
     rootEnv: {
       ROLE: 'root',
-      PORT: String(DEV_SPLIT.rootApiPort),
-      MONGO_URI: withDatabase(input.mongoUri, DEV_SPLIT.rootDatabase),
+      PORT: String(place.rootApiPort),
+      MONGO_URI: withDatabase(input.mongoUri, place.rootDatabase),
       PUBLIC_URL: rootUrl,
       APP_URL: rootUrl,
       HUB_URL: hubUrl,
@@ -73,7 +96,8 @@ export function devSplitPlan(input: DevSplitInput): DevSplitPlan {
     },
     instanceEnv: {
       ROLE: 'instance',
-      PORT: String(DEV_SPLIT.instanceApiPort),
+      PORT: String(place.instanceApiPort),
+      ...(place.instanceDatabase ? { MONGO_URI: withDatabase(input.mongoUri, place.instanceDatabase) } : {}),
       PUBLIC_URL: instanceUrl,
       APP_URL: instanceUrl,
       INSTANCE_ID: input.instanceId,
@@ -85,9 +109,9 @@ export function devSplitPlan(input: DevSplitInput): DevSplitPlan {
     },
     hubEnv: {
       ROLE: 'hub',
-      PORT: String(DEV_SPLIT.hubApiPort),
-      MONGO_URI: withDatabase(input.mongoUri, DEV_SPLIT.hubDatabase),
-      HUB_DATABASE: DEV_SPLIT.hubDatabase,
+      PORT: String(place.hubApiPort),
+      MONGO_URI: withDatabase(input.mongoUri, place.hubDatabase),
+      HUB_DATABASE: place.hubDatabase,
       PUBLIC_URL: hubUrl,
       APP_URL: hubUrl,
       ROOT_URL: rootUrl,

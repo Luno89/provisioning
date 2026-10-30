@@ -6,6 +6,7 @@ import { buildDataConverter } from '../../platform/lib/temporal-codec.js';
 import { sharedPayloadBlobs } from '../../platform/lib/db-interface.js';
 import type { SecretKey } from '../../platform/index.js';
 import { loadKeys } from '../../platform/lib/keys.js';
+import { temporalNamespaceFrom } from '../../platform/lib/temporal-auth.js';
 import { connectTemporalWorker } from '../../platform/lib/temporal-connection.js';
 import { TurnLogWriter, type TurnLogEntry } from '../../engine/index.js';
 import { heartbeatWhileRunning } from '@koala/engine-core';
@@ -61,7 +62,7 @@ export async function startStreamWorker(options: StreamWorkerOptions): Promise<W
     ...(dataConverter ? { dataConverter } : {}),
     taskQueue: options.taskQueue ?? DEFAULT_STREAM_TASK_QUEUE,
     interceptors: { activity: [heartbeatWhileRunning(), traceActivities()] },
-    ...(options.namespace ? { namespace: options.namespace } : {}),
+    namespace: options.namespace ?? temporalNamespaceFrom(process.env),
     activities: createStreamActivities({ ...options.services, bus, groveChanged: notifyGroveChanged(options.io) }),
   });
 }

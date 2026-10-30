@@ -1,19 +1,15 @@
 import assert from 'node:assert/strict';
-import { call, devSplitEnv, signInAtInstance, signInAtRoot } from './lib/dev-split-session.js';
-import { signedInLanding } from './lib/handoff.js';
+import { call, ownerOnInstance, startSplitStack, type SplitStack } from './lib/split-stack.js';
 
 const step = (message: string) => console.log(`\n▶ ${message}`);
 
 interface Provider { provider: string; modelCount: number; hasKey: boolean }
 
-async function main(): Promise<void> {
-  const { root, instance } = await devSplitEnv();
-  const instanceUrl = instance.PUBLIC_URL!;
+async function stages(stack: SplitStack): Promise<void> {
+  const instanceUrl = stack.instanceUrl;
 
   step('signed in on the instance through root');
-  const signedIn = await signInAtInstance(root.PUBLIC_URL!, await signInAtRoot(root.PUBLIC_URL!), instanceUrl);
-  assert.ok(signedInLanding(signedIn.exchange), `the instance did not sign you in: ${signedIn.exchange.status} ${signedIn.exchange.body.slice(0, 300)}`);
-  const session = signedIn.session!;
+  const session = await ownerOnInstance(stack);
   const openRouterNow = async () => ((await call(`${instanceUrl}/api/credentials/llm`, { cookie: session })).body as { providers: Provider[] }).providers.find((one) => one.provider === 'openrouter')!;
   const before = await openRouterNow();
   console.log(`  OpenRouter now: ${before.modelCount} models, ${before.hasKey ? 'with' : 'without'} a key`);
@@ -52,6 +48,19 @@ async function main(): Promise<void> {
   step('nothing about the person\'s OpenRouter changed');
   assert.deepEqual(await openRouterNow(), before);
 
+}
+
+async function main(): Promise<void> {
+  step('a root and an instance of their own start in containers from this commit\'s image');
+  const stack = await startSplitStack();
+  try {
+    await stages(stack);
+  } catch (err) {
+    for (const side of ['root', 'instance'] as const) console.error(`\n── ${side}'s last lines ──\n${stack.logs(side, 40)}`);
+    throw err;
+  } finally {
+    await stack.stop();
+  }
   console.log('\nopenrouter connect live — PASS (approving on OpenRouter is the person\'s own step)');
 }
 

@@ -49,3 +49,10 @@ describe('the order routes are mounted in bootstrap', () => {
     expect(catchAll).toBeGreaterThan(lastRouter);
   });
 });
+
+describe('a backend that cannot start', () => {
+  it('exits, so whatever runs it starts it again, rather than staying up without serving', () => {
+    const start = bootstrap.slice(at('bootstrap().catch('));
+    expect(start).toMatch(/^bootstrap\(\)\.catch\(\(err\) => \{[\s\S]*?process\.exit\(1\);\s*\}\);/);
+  });
+});
