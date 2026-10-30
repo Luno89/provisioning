@@ -189,7 +189,9 @@ describe('what is open without a session, by role', () => {
     for (const path of ['/auth/sign-in', '/auth/oidc/start', '/auth/oidc/callback', '/auth/oidc/backchannel-logout']) expect(await opens('instance', path), path).toBe(true);
     expect(await opens('instance', '/auth/handoff')).toBe(false);
     expect(await opens('instance', '/auth/login')).toBe(false);
-    expect(await opens('instance', '/auth/github/callback')).toBe(false);
+    expect(await opens('instance', '/auth/provider/google')).toBe(false);
+    expect(await opens('instance', '/auth/provider/google/callback')).toBe(false);
+    expect(await opens('hub', '/auth/provider/google')).toBe(false);
     expect(await opens('instance', '/identity/keys')).toBe(false);
   });
 
@@ -208,6 +210,14 @@ describe('what is open without a session, by role', () => {
     expect(await opens('root', '/auth/handoff')).toBe(false);
     expect(await opens('combined', '/auth/login')).toBe(true);
     expect(await opens('combined', '/auth/handoff')).toBe(false);
+  });
+
+  it('lets anyone start and finish a provider sign-in where accounts are held, and ask which providers there are', async () => {
+    for (const role of ['root', 'combined'] as const) {
+      for (const path of ['/auth/sign-in', '/auth/provider/google', '/auth/provider/google/callback', '/auth/provider/oidc/callback']) expect(await opens(role, path), `${role} ${path}`).toBe(true);
+      expect(await opens(role, '/auth/github')).toBe(false);
+      expect(await opens(role, '/auth/google/callback')).toBe(false);
+    }
   });
 
   it('marks an instance\'s session cookie Secure only when the request really came over https', async () => {

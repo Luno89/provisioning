@@ -440,8 +440,7 @@ export interface UserMetadata {
   id: string;
   email: string;
   passwordHash?: string;
-  githubId?: string;
-  googleId?: string;
+  signInLinks?: { issuer: string; subject: string }[] | undefined;
   twoFactorEnabled: boolean;
   twoFactorSecret?: string;
   twoFactorPhone?: string;

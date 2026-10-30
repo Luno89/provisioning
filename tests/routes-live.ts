@@ -111,7 +111,7 @@ async function main(): Promise<void> {
   let myId: string | undefined;
 
   try {
-    await stage('signed out, the guard answers before any router, the webhook and ingress check answer before the guard, and metrics want their token', async () => {
+    await stage('signed out, the guard answers before any router, the webhook, the ingress check and the sign-in providers answer before the guard, and metrics want their token', async () => {
       const anonymous = client();
       const guarded = await anonymous.get('/api/projects');
       assert.equal(guarded.status, 401, `signed out, /api/projects answered ${guarded.status}`);
@@ -122,6 +122,11 @@ async function main(): Promise<void> {
       assert.equal(ingress.status, 400, `/ingress/verify answered ${ingress.status}`);
       const metrics = await anonymous.get('/api/metrics');
       assert.equal(metrics.status, 401, `/api/metrics answered ${metrics.status}`);
+      const providers = await anonymous.get('/api/auth/sign-in');
+      assert.equal(providers.status, 200, `signed out, /api/auth/sign-in answered ${providers.status}`);
+      assert.ok(Array.isArray((providers.data as { providers?: unknown }).providers), `/api/auth/sign-in named no providers: ${JSON.stringify(providers.data)}`);
+      const unknownProvider = await anonymous.get('/api/auth/provider/no-such-provider');
+      assert.equal(unknownProvider.status, 404, `an unknown provider's sign-in answered ${unknownProvider.status}`);
       const keys = await anonymous.get('/.well-known/temporal-jwks.json');
       assert.equal(keys.status, 200, `Temporal's public key answered ${keys.status}`);
       assert.deepEqual(Object.keys((keys.data as { keys: Record<string, unknown>[] }).keys[0] ?? {}).sort(), ['alg', 'crv', 'kid', 'kty', 'use', 'x', 'y']);

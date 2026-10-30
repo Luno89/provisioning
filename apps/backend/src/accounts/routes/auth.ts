@@ -1,14 +1,12 @@
 import { Router, type Request, type Response } from 'express';
 import {
   attemptsKeyFor, DEVICE_COOKIE, DEVICE_SECONDS, deviceOf, deviceToken, lockedSaid, SignInAttemptLog, signJWT, verifyJWT, hashPassword, verifyPassword, type Auth,
-  carriedByOAuthState, cookieNamed, generateOTP, inviteCodeHash, newOAuthState, OAUTH_STATE_COOKIE, OAUTH_STATE_SECONDS, sessionToken,
+  asyncRoute, cookieNamed, generateOTP, inviteCodeHash, OAUTH_STATE_COOKIE, OAUTH_STATE_SECONDS, sessionToken,
   type AccessRevocations, type Database, type SecretKey, principalFrom, sessionView, type Principal,
 } from '../../platform/index.js';
-import axios from 'axios';
 import { v4 as uuidv4 } from 'uuid';
-import { mockOAuthAllowed } from '../lib/oauth-gate.js';
 import type { AuthService } from '../services/AuthService.js';
-import { githubPrimaryEmail, type ProviderPerson } from '../lib/provider-sign-in.js';
+import type { SignInProviders } from '../services/sign-in/SignInProviders.js';
 import { emailProblem, normalEmail, sameSignUpCode, SIGN_UP_WRONG_CODES, signUpCodeHash, signUpExpiry, signUpLive } from '../lib/sign-up.js';
 
 export interface AuthRouterDeps {
@@ -21,6 +19,7 @@ export interface AuthRouterDeps {
   accounts?: boolean | undefined;
   hub?: boolean | undefined;
   revocations?: Pick<AccessRevocations, 'revoked'> | undefined;
+  providers?: Pick<SignInProviders, 'offered' | 'start' | 'finish'> | undefined;
 }
 
 export function authRouter(deps: AuthRouterDeps): Router {
@@ -42,18 +41,6 @@ export function authRouter(deps: AuthRouterDeps): Router {
     twoFactorEnabled: user.twoFactorEnabled === true,
     ...(deps.hub ? { onHub: true } : {}),
   });
-  const startOAuth = (res: Response, invite: string): string => {
-    const { state, cookie } = newOAuthState(invite, sessionKey);
-    res.cookie(stateCookie, cookie, { ...sessionCookieOptions, maxAge: OAUTH_STATE_SECONDS * 1000 });
-    return encodeURIComponent(state);
-  };
-  const returnedOAuth = (req: Request, res: Response): { invite: string } | undefined => {
-    const held = carriedByOAuthState(getCookie(req, stateCookie), req.query.state, sessionKey);
-    res.clearCookie(stateCookie, sessionCookieOptions);
-    if (!held) res.redirect(`${APP_URL}/?authError=${encodeURIComponent('This sign-in did not start here, or took longer than ten minutes; start it again')}`);
-    return held && { invite: held.carried };
-  };
-  const PUBLIC_URL = publicUrl;
   const APP_URL = appUrl;
 
   accountRoutes.post('/register', async (req, res) => {
@@ -314,136 +301,30 @@ export function authRouter(deps: AuthRouterDeps): Router {
     }
   });
 
-  const finishProviderSignIn = async (res: Response, person: ProviderPerson, invite: string): Promise<void> => {
-    const outcome = await authService.signInWithProvider(person, invite || undefined, checkAndConsumeInvite);
-    if (outcome.kind === 'refused') return res.redirect(`${APP_URL}/?authError=${encodeURIComponent(outcome.why)}`);
-    if (outcome.kind === 'second-factor') return res.redirect(`${APP_URL}/?twoFactor=${encodeURIComponent(signJWT({ twoFactorFor: outcome.user.id }, sessionKey, 5 * 60))}`);
+  accountRoutes.get('/sign-in', (_req, res) => {
+    res.json({ url: null, providers: deps.providers?.offered() ?? [] });
+  });
+
+  accountRoutes.get('/provider/:id', asyncRoute(async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    const started = deps.providers ? await deps.providers.start(String(req.params.id), typeof req.query.invite === 'string' ? req.query.invite : '') : { kind: 'unknown' as const };
+    if (started.kind === 'unknown') return res.status(404).json({ error: 'This server does not offer that way to sign in' });
+    if (started.kind === 'refused') return res.redirect(302, `${APP_URL}/?authError=${encodeURIComponent(started.why)}`);
+    res.cookie(stateCookie, started.cookie, { ...sessionCookieOptions, maxAge: OAUTH_STATE_SECONDS * 1000 });
+    return res.redirect(302, started.url);
+  }));
+
+  accountRoutes.get('/provider/:id/callback', asyncRoute(async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    const outcome = deps.providers
+      ? await deps.providers.finish(String(req.params.id), new URL(req.originalUrl, publicUrl), getCookie(req, stateCookie), checkAndConsumeInvite)
+      : { kind: 'unknown' as const };
+    if (outcome.kind === 'unknown') return res.status(404).json({ error: 'This server does not offer that way to sign in' });
+    res.clearCookie(stateCookie, sessionCookieOptions);
+    if (outcome.kind === 'refused') return res.redirect(302, `${APP_URL}/?authError=${encodeURIComponent(outcome.why)}`);
+    if (outcome.kind === 'second-factor') return res.redirect(302, `${APP_URL}/?twoFactor=${encodeURIComponent(signJWT({ twoFactorFor: outcome.user.id }, sessionKey, 5 * 60))}`);
     setSessionCookie(res, sessionToken(outcome.user, sessionKey));
-    return res.redirect(`${APP_URL}/`);
-  };
-
-  accountRoutes.get('/github', (req, res) => {
-    const invite = typeof req.query.invite === 'string' ? req.query.invite : '';
-    const githubId = process.env.GITHUB_CLIENT_ID;
-    if (!githubId) {
-      if (!mockOAuthAllowed()) {
-        return res.status(501).json({ error: 'GitHub sign-in is not configured on this server.' });
-      }
-      return res.redirect(`${PUBLIC_URL}/api/auth/github/callback?code=mock-github-code&state=${startOAuth(res, invite)}`);
-    }
-    const redirectUri = encodeURIComponent(`${PUBLIC_URL}/api/auth/github/callback`);
-    res.redirect(`https://github.com/login/oauth/authorize?client_id=${githubId}&redirect_uri=${redirectUri}&scope=user:email&state=${startOAuth(res, invite)}`);
-  });
-
-  accountRoutes.get('/github/callback', async (req, res) => {
-    try {
-      const { code } = req.query;
-      const returned = returnedOAuth(req, res);
-      if (!returned) return;
-      let email = 'mock-github-user@example.com';
-      let idStr = 'github-mock-id';
-      let verified = true;
-
-      const githubId = process.env.GITHUB_CLIENT_ID;
-      const githubSecret = process.env.GITHUB_CLIENT_SECRET;
-
-      const mockRequested = code === 'mock-github-code';
-      if (mockRequested && !mockOAuthAllowed()) {
-        return res.status(403).json({ error: 'Mock sign-in is disabled on this server.' });
-      }
-      if (!mockRequested && !(githubId && githubSecret)) {
-        return res.status(501).json({ error: 'Github sign-in is not configured on this server.' });
-      }
-
-      if (githubId && githubSecret && !mockRequested) {
-        const tokenRes = await axios.post('https://github.com/login/oauth/access_token', {
-          client_id: githubId,
-          client_secret: githubSecret,
-          code,
-        }, { headers: { Accept: 'application/json' } });
-        
-        const accessToken = tokenRes.data.access_token;
-        if (!accessToken) throw new Error('No access token returned from GitHub');
-
-        const userRes = await axios.get('https://api.github.com/user', {
-          headers: { Authorization: `Bearer ${accessToken}`, 'User-Agent': 'provisioning-platform' },
-        });
-
-        const emailRes = await axios.get('https://api.github.com/user/emails', {
-          headers: { Authorization: `Bearer ${accessToken}`, 'User-Agent': 'provisioning-platform' },
-        });
-
-        const primary = githubPrimaryEmail(emailRes.data);
-        if (!primary) return res.redirect(`${APP_URL}/?authError=${encodeURIComponent('GitHub gave no primary email address; add one there, or sign in with your password')}`);
-        email = primary.email;
-        verified = primary.verified;
-        idStr = String(userRes.data.id);
-      }
-
-      await finishProviderSignIn(res, { provider: 'GitHub', field: 'githubId', id: idStr, email, verified }, returned.invite);
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
-    }
-  });
-
-  accountRoutes.get('/google', (req, res) => {
-    const invite = typeof req.query.invite === 'string' ? req.query.invite : '';
-    const googleId = process.env.GOOGLE_CLIENT_ID;
-    if (!googleId) {
-      if (!mockOAuthAllowed()) {
-        return res.status(501).json({ error: 'Google sign-in is not configured on this server.' });
-      }
-      return res.redirect(`${PUBLIC_URL}/api/auth/google/callback?code=mock-google-code&state=${startOAuth(res, invite)}`);
-    }
-    const redirectUri = encodeURIComponent(`${PUBLIC_URL}/api/auth/google/callback`);
-    res.redirect(`https://accounts.google.com/o/oauth2/v2/auth?client_id=${googleId}&redirect_uri=${redirectUri}&response_type=code&scope=email%20profile&state=${startOAuth(res, invite)}`);
-  });
-
-  accountRoutes.get('/google/callback', async (req, res) => {
-    try {
-      const { code } = req.query;
-      const returned = returnedOAuth(req, res);
-      if (!returned) return;
-      let email = 'mock-google-user@example.com';
-      let idStr = 'google-mock-id';
-      let verified = true;
-
-      const googleId = process.env.GOOGLE_CLIENT_ID;
-      const googleSecret = process.env.GOOGLE_CLIENT_SECRET;
-
-      const mockRequested = code === 'mock-google-code';
-      if (mockRequested && !mockOAuthAllowed()) {
-        return res.status(403).json({ error: 'Mock sign-in is disabled on this server.' });
-      }
-      if (!mockRequested && !(googleId && googleSecret)) {
-        return res.status(501).json({ error: 'Google sign-in is not configured on this server.' });
-      }
-
-      if (googleId && googleSecret && !mockRequested) {
-        const tokenRes = await axios.post('https://oauth2.googleapis.com/token', {
-          client_id: googleId,
-          client_secret: googleSecret,
-          code,
-          grant_type: 'authorization_code',
-          redirect_uri: `${PUBLIC_URL}/api/auth/google/callback`,
-        });
-
-        const accessToken = tokenRes.data.access_token;
-        if (!accessToken) throw new Error('No access token returned from Google');
-
-        const userRes = await axios.get('https://www.googleapis.com/oauth2/v2/userinfo', {
-          headers: { Authorization: `Bearer ${accessToken}` },
-        });
-
-        email = String(userRes.data.email ?? '').trim().toLowerCase();
-        verified = userRes.data.verified_email === true;
-        idStr = String(userRes.data.id);
-      }
-
-      await finishProviderSignIn(res, { provider: 'Google', field: 'googleId', id: idStr, email, verified }, returned.invite);
-    } catch (err: any) {
-      res.status(500).send(`Google OAuth callback failed: ${err.message}`);
-    }
-  });
+    return res.redirect(302, `${APP_URL}/`);
+  }));
   return router;
 }

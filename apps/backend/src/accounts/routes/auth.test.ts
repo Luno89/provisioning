@@ -297,28 +297,6 @@ describe('auth router', () => {
     expect(passed.headers.get('set-cookie')).toMatch(/^session=/);
   });
 
-  it('takes a GitHub sign-in back only from the browser that started it', async () => {
-    const was = process.env.GITHUB_CLIENT_ID;
-    delete process.env.GITHUB_CLIENT_ID;
-    try {
-      const started = await fetch(ctx.url(`/api/auth/github?invite=${SETUP_CODE}`), { redirect: 'manual' });
-      const back = new URL(started.headers.get('location')!);
-      const cookie = (started.headers.get('set-cookie') ?? '').split(';')[0]!;
-      expect(cookie).toMatch(/^oauth_state=/);
-      expect(back.searchParams.get('state')).toMatch(/^[\w-]{32}$/);
-
-      const elsewhere = await fetch(ctx.url(`${back.pathname}${back.search}`), { redirect: 'manual' });
-      expect(elsewhere.headers.get('location')).toContain('authError=');
-      expect(elsewhere.headers.get('set-cookie') ?? '').not.toMatch(/session=[^;]/);
-
-      const here = await fetch(ctx.url(`${back.pathname}${back.search}`), { redirect: 'manual', headers: { cookie } });
-      expect(here.headers.get('location')).toBe('http://localhost:5173/');
-      expect(here.headers.get('set-cookie')).toMatch(/session=[^;]/);
-    } finally {
-      if (was !== undefined) process.env.GITHUB_CLIENT_ID = was;
-    }
-  });
-
   it('ends every other session on request and when two-factor settings change, keeping the one that asked', async () => {
     await registerAndLogin('many@example.com', 'hunter2hunter2');
     const signIn = async () => ((await fetch(ctx.url('/api/auth/login'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'many@example.com', password: 'hunter2hunter2' }) })).headers.get('set-cookie') ?? '').split(';')[0]!;
@@ -334,37 +312,6 @@ describe('auth router', () => {
     const changed = await fetch(ctx.url('/api/auth/2fa/settings'), { method: 'POST', headers: { 'content-type': 'application/json', cookie: kept }, body: JSON.stringify({ enabled: false }) });
     const after = (changed.headers.get('set-cookie') ?? '').split(';')[0]!;
     expect([await me(tablet), await me(after)]).toEqual([401, 200]);
-  });
-
-  it('asks for the second factor after a GitHub sign-in, and refuses one whose email is linked to another GitHub account', async () => {
-    const was = process.env.GITHUB_CLIENT_ID;
-    delete process.env.GITHUB_CLIENT_ID;
-    try {
-      await registerAndLogin('mock-github-user@example.com', 'hunter2hunter2');
-      const viaGithub = async () => {
-        const started = await fetch(ctx.url('/api/auth/github'), { redirect: 'manual' });
-        const back = new URL(started.headers.get('location')!);
-        const cookie = (started.headers.get('set-cookie') ?? '').split(';')[0]!;
-        return fetch(ctx.url(`${back.pathname}${back.search}`), { redirect: 'manual', headers: { cookie } });
-      };
-      const unconfirmed = await viaGithub();
-      expect(decodeURIComponent(unconfirmed.headers.get('location')!)).toContain('that address was never confirmed, so GitHub cannot join it');
-      expect((await db.accounts.getUserByEmail('mock-github-user@example.com'))?.githubId).toBeUndefined();
-      const user = { ...(await db.accounts.getUserByEmail('mock-github-user@example.com'))!, emailVerified: true };
-      await db.accounts.saveUser({ ...user, twoFactorEnabled: true });
-      vi.spyOn(ctx.authService, 'send2FACode').mockResolvedValue(undefined);
-      const asked = await viaGithub();
-      const back = new URL(asked.headers.get('location')!);
-      expect(back.searchParams.get('twoFactor')).toBeTruthy();
-      expect(asked.headers.get('set-cookie') ?? '').not.toMatch(/(^|, )session=[^;]/);
-      expect((await db.accounts.getUserById(user.id))?.githubId).toBe('github-mock-id');
-
-      await db.accounts.saveUser({ ...user, githubId: 'someone-else', twoFactorEnabled: false });
-      const other = await viaGithub();
-      expect(decodeURIComponent(other.headers.get('location')!)).toContain('authError=mock-github-user@example.com is linked to another GitHub account');
-    } finally {
-      if (was !== undefined) process.env.GITHUB_CLIENT_ID = was;
-    }
   });
 
   it('normalises the email on registration so login can find it again', async () => {

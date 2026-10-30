@@ -2,7 +2,7 @@ import { BaseService, generateOTP, type Database, type MailMessage, type UserMet
 import { timingSafeEqual } from 'node:crypto';
 import https from 'https';
 import { v4 as uuidv4 } from 'uuid';
-import { providerMatch, type ProviderPerson } from '../lib/provider-sign-in.js';
+import { linkedTo, providerMatch, type ProviderPerson } from '../lib/provider-sign-in.js';
 import { signUpCodeMail } from '../lib/sign-up.js';
 
 interface Challenge {
@@ -70,7 +70,7 @@ export class AuthService extends BaseService {
     invite: string | undefined,
     consumeInvite: (code: string | undefined, userId: string, isFirstUser: boolean, email?: string) => Promise<string | null>,
   ): Promise<{ kind: 'refused'; why: string } | { kind: 'signed-in'; user: UserMetadata } | { kind: 'second-factor'; user: UserMetadata }> {
-    const match = providerMatch(person, await this.db.accounts.getUserByProvider(person.field, person.id), await this.db.accounts.getUserByEmail(person.email));
+    const match = providerMatch(person, await this.db.accounts.getUserBySignInLink(person.issuer, person.subject), await this.db.accounts.getUserByEmail(person.email));
     if (match.kind === 'refused') return match;
     let user: UserMetadata;
     if (match.kind === 'new') {
@@ -81,17 +81,17 @@ export class AuthService extends BaseService {
       user = {
         id: userId,
         email: person.email,
-        [person.field]: person.id,
+        signInLinks: [{ issuer: person.issuer, subject: person.subject }],
         twoFactorEnabled: false,
         emailVerified: true,
         createdAt: new Date().toISOString(),
-        ...(isFirstUser ? { roles: ['operator'] } : {}),
-      } as UserMetadata;
+        ...(isFirstUser ? { roles: ['operator' as const] } : {}),
+      };
       await this.db.accounts.saveUser(user);
     } else {
       user = match.user;
       if (match.link) {
-        user = { ...user, [person.field]: person.id };
+        user = linkedTo(user, person);
         await this.db.accounts.saveUser(user);
       }
     }

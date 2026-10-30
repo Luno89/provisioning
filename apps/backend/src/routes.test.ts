@@ -90,13 +90,14 @@ describe('Auth Endpoints & Route Protection Integration', () => {
     }
   });
 
-  it('should support Mock social oauth redirect loops', async () => {
-    const ghRes = await axios.get(getUrl('/api/auth/github'), { maxRedirects: 0, validateStatus: () => true });
-    expect(ghRes.status).toBe(302);
-    expect(ghRes.headers.location).toContain('/api/auth/github/callback?code=mock-github-code');
-
-    const gRes = await axios.get(getUrl('/api/auth/google'), { maxRedirects: 0, validateStatus: () => true });
-    expect(gRes.status).toBe(302);
-    expect(gRes.headers.location).toContain('/api/auth/google/callback?code=mock-google-code');
+  it('offers exactly the sign-in providers this server is configured for, and no pretend one', async () => {
+    const { signInProvidersFrom } = await import('./accounts/index.js');
+    const offered = await axios.get(getUrl('/api/auth/sign-in'), { validateStatus: () => true });
+    expect(offered.status).toBe(200);
+    expect(offered.data.providers).toEqual(signInProvidersFrom(process.env).providers.map(({ id, label }) => ({ id, label })));
+    expect((await axios.get(getUrl('/api/auth/provider/nobody'), { maxRedirects: 0, validateStatus: () => true })).status).toBe(404);
+    for (const old of ['/api/auth/google', '/api/auth/github/callback?code=mock-github-code']) {
+      expect((await axios.get(getUrl(old), { maxRedirects: 0, validateStatus: () => true })).status, old).toBe(401);
+    }
   });
 });

@@ -3,7 +3,7 @@ import { accountOf, devSplitOwner, devSplitPlan, envFileText, readEnvFile, withD
 import type { UserMetadata } from '../../platform/lib/types.js';
 
 const owner: UserMetadata = {
-  id: 'u-1', email: 'me@example.com', googleId: 'g-1', twoFactorEnabled: false, emailVerified: true, createdAt: '2026-09-01T00:00:00Z',
+  id: 'u-1', email: 'me@example.com', signInLinks: [{ issuer: 'https://accounts.google.com', subject: 'g-1' }], twoFactorEnabled: false, emailVerified: true, createdAt: '2026-09-01T00:00:00Z',
   roles: ['operator' as const], defaultModelId: 'tabby', credentials: { aws: { accessKeyId: 'secret' } } as never,
 };
 
@@ -36,7 +36,7 @@ describe('root and an instance on one machine', () => {
   });
 
   it('copies only the account to root, never the person\'s cloud credentials or model settings', () => {
-    expect(plan().rootUser).toEqual({ id: 'u-1', email: 'me@example.com', googleId: 'g-1', twoFactorEnabled: false, emailVerified: true, createdAt: '2026-09-01T00:00:00Z', roles: ['operator' as const] });
+    expect(plan().rootUser).toEqual({ id: 'u-1', email: 'me@example.com', signInLinks: [{ issuer: 'https://accounts.google.com', subject: 'g-1' }], twoFactorEnabled: false, emailVerified: true, createdAt: '2026-09-01T00:00:00Z', roles: ['operator' as const] });
     expect(accountOf(owner)).not.toHaveProperty('credentials');
   });
 

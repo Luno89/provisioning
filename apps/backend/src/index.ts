@@ -12,7 +12,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 import { Server as SocketServer } from 'socket.io';
 
-import { authRouter, AuthService } from './accounts/index.js';
+import { authRouter, AuthService, SignInProviders, signInProvidersFrom } from './accounts/index.js';
 import helmet from 'helmet';
 import {
   CSP_REPORT_LIMIT, CSP_REPORT_PATH, cspHeader, cspModeFrom, violationLine, crossSiteRefusal, foreignOrigin, ourOrigins, MetricsService, JSON_LIMITS, jsonLimitFor, RATE_LIMITS, ruleFor,
@@ -322,8 +322,11 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
 
   wireSockets({ io, db, role, env: process.env, payloadKey: keys.payload, dataKey: keys.data, auth, machines: machineService, clusters: clusterService, apps: appService, infra: infraService, telemetry: machineTelemetry({ sink: () => telemetrySink }), machineTemporal, runs: { life: runLifeVia(() => getTemporalClient()), closed: runClosedVia(() => getTemporalClient()) } });
 
+  const signInWith = holdsAccounts(role) ? signInProvidersFrom(process.env) : { providers: [], problems: [] };
+  for (const problem of signInWith.problems) console.warn(`[sign-in] ${problem}`);
   app.use('/api/auth', authRouter({
     db, authService, auth, sessionKey: keys.session, publicUrl: PUBLIC_URL, appUrl: APP_URL, accounts: holdsAccounts(role), hub: role.role === 'hub', revocations,
+    providers: new SignInProviders({ providers: signInWith.providers, publicUrl: PUBLIC_URL, sessionKey: keys.session, accounts: authService }),
   }));
   const hub = await wireHub({
     role, env: process.env, app, tenant, db, mail, publicUrl: PUBLIC_URL, dataKey: keys.data, gitea: giteaService,

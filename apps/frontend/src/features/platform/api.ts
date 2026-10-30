@@ -1,4 +1,4 @@
-import { api } from '../../api/client'
+import { api, API_BASE } from '../../api/client'
 import type { SessionPermissions } from './lib/permissions'
 
 export interface SessionUser {
@@ -63,8 +63,27 @@ export const resendSignUpCode = (id: string): Promise<SignUpCode> =>
 export const verifyTwoFactor = (body: { challenge: string; code: string }): Promise<LoginResult> =>
   api.post<LoginResult>('/auth/2fa/verify', body).then((r) => r.data)
 
-export const signInElsewhere = (): Promise<string | null> =>
-  api.get<{ url: string | null }>('/auth/sign-in').then((r) => r.data.url).catch(() => null)
+export interface SignInProvider {
+  id: string
+  label: string
+}
+
+export interface SignInPlace {
+  url: string | null
+  providers: SignInProvider[]
+}
+
+export const signInKeys = {
+  place: () => ['auth', 'sign-in'] as const,
+}
+
+export const signInPlace = (): Promise<SignInPlace> =>
+  api.get<{ url?: string | null; providers?: SignInProvider[] }>('/auth/sign-in')
+    .then((r) => ({ url: r.data.url ?? null, providers: r.data.providers ?? [] }))
+    .catch(() => ({ url: null, providers: [] }))
+
+export const providerSignInUrl = (id: string, invite?: string): string =>
+  `${API_BASE.replace(/\/api$/, '')}/api/auth/provider/${encodeURIComponent(id)}${invite ? `?invite=${encodeURIComponent(invite)}` : ''}`
 
 export const accountRemovalPlace = (): Promise<string | null> =>
   api.get<{ url: string | null }>('/auth/account-removal').then((r) => r.data.url)

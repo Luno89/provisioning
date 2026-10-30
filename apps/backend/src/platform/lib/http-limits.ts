@@ -22,7 +22,7 @@ export const RATE_LIMITS: readonly RateLimitRule[] = [
   {
     name: 'sign-in',
     paths: ['/auth/login', '/auth/register', '/auth/register/verify', '/auth/register/resend', '/auth/2fa/verify', '/auth/handoff', '/auth/sign-in'],
-    prefixes: [],
+    prefixes: ['/auth/provider/'],
     windowMs: 15 * MINUTES,
     max: 30,
     said: 'Too many sign-in attempts from this address; wait fifteen minutes and try again.',

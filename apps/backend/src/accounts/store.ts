@@ -5,6 +5,7 @@ import type { InviteMetadata, UserMetadata } from '../platform/index.js';
 import type { InviteLimits } from './lib/project-invite-limits.js';
 import { SIGN_UP_CODES_SENT, type PendingSignUp } from './lib/sign-up.js';
 import { inviteCodeHash } from '../platform/lib/invite-codes.js';
+import { linksFromLegacyIds, type LegacyProviderIds } from './lib/provider-sign-in.js';
 
 export const FIRST_ADMIN_INVITE = 'first-admin';
 
@@ -17,7 +18,8 @@ export interface AccountsStore extends AreaStore {
   saveUser(user: UserMetadata): Promise<void>;
   saveUserList(users: UserMetadata[]): Promise<void>;
   getUserByEmail(email: string): Promise<UserMetadata | undefined>;
-  getUserByProvider(field: 'githubId' | 'googleId', id: string): Promise<UserMetadata | undefined>;
+  getUserBySignInLink(issuer: string, subject: string): Promise<UserMetadata | undefined>;
+  moveProviderIdsToLinks(): Promise<number>;
   getUserById(id: string): Promise<UserMetadata | undefined>;
   deleteUser(id: string): Promise<void>;
   getInvites(): Promise<InviteMetadata[]>;
@@ -70,6 +72,7 @@ export class MongoAccountsStore implements AccountsStore {
 
   async ensureIndexes(): Promise<void> {
     await this.users.createIndex({ email: 1 }, { unique: true });
+    await this.users.createIndex({ 'signInLinks.issuer': 1, 'signInLinks.subject': 1 });
     await this.invites.createIndex({ codeHash: 1 });
     await this.pendingSignUps.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
   }
@@ -239,9 +242,18 @@ export class MongoAccountsStore implements AccountsStore {
     return doc ? fromDoc<UserMetadata>(doc) : undefined;
   }
 
-  async getUserByProvider(field: 'githubId' | 'googleId', id: string): Promise<UserMetadata | undefined> {
-    const doc = await this.users.findOne({ [field]: id });
+  async getUserBySignInLink(issuer: string, subject: string): Promise<UserMetadata | undefined> {
+    const doc = await this.users.findOne({ signInLinks: { $elemMatch: { issuer, subject } } });
     return doc ? fromDoc<UserMetadata>(doc) : undefined;
+  }
+
+  async moveProviderIdsToLinks(): Promise<number> {
+    let moved = 0;
+    for (const doc of await this.users.find({ $or: [{ googleId: { $exists: true } }, { githubId: { $exists: true } }] }).toArray()) {
+      await this.users.updateOne({ _id: doc._id }, { $set: { signInLinks: linksFromLegacyIds(doc as LegacyProviderIds) }, $unset: { googleId: '', githubId: '' } });
+      moved += 1;
+    }
+    return moved;
   }
 
   async getUserById(id: string): Promise<UserMetadata | undefined> {

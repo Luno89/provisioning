@@ -12,7 +12,8 @@ describe('seed-all', () => {
   it('fills every catalogue the platform expects to find in the database', async () => {
     const db = await testDatabase();
 
-    const { removedBuiltInProcedures, removedBuiltInPersonas, agentToolListsMoved, toolGrantsWritten, builtInCopiesDropped, agentServerListsMoved, servingToolsMoved, mcpToolKindsMoved, treeVersionsStamped, toolsNamingNeeds, serversNamingNeeds, dependenciesMade, releasesMarkedTold, deploymentSecretsSealed, inviteCodesHashed, clientFilesForgotten, deviceTokensHashed, deviceTokenLifetimes, shareTokensSealed, ...counts } = await seedAll(db);
+    const { removedBuiltInProcedures, removedBuiltInPersonas, agentToolListsMoved, toolGrantsWritten, builtInCopiesDropped, agentServerListsMoved, servingToolsMoved, mcpToolKindsMoved, treeVersionsStamped, toolsNamingNeeds, serversNamingNeeds, dependenciesMade, releasesMarkedTold, deploymentSecretsSealed, inviteCodesHashed, clientFilesForgotten, deviceTokensHashed, deviceTokenLifetimes, shareTokensSealed, signInLinksMoved, ...counts } = await seedAll(db);
+    expect(signInLinksMoved).toBe(0);
     expect([agentServerListsMoved, servingToolsMoved, mcpToolKindsMoved, treeVersionsStamped, toolsNamingNeeds, serversNamingNeeds, dependenciesMade, releasesMarkedTold, deploymentSecretsSealed, inviteCodesHashed, clientFilesForgotten, deviceTokensHashed, deviceTokenLifetimes, shareTokensSealed]).toEqual([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
     expect(removedBuiltInProcedures).toBe(0);
     expect(removedBuiltInPersonas).toBe(0);
@@ -36,6 +37,22 @@ describe('seed-all', () => {
     expect(stored?.tokenHash).toMatch(/^[0-9a-f]{64}$/);
     expect(findDeviceByToken([stored!], 'the-desk-token', key)?.id).toBe('desk');
     expect(findDeviceByToken([stored!], 'a-guess', key)).toBeUndefined();
+  });
+
+  it('moves the Google and GitHub ids stored before onto sign-in links, and an account is found by its link', async () => {
+    const db = await testDatabase();
+    await db.accounts.saveUser({ id: 'ann', email: 'ann@example.com', twoFactorEnabled: false, emailVerified: true, createdAt: '2026-01-01T00:00:00.000Z', googleId: 'g-1', githubId: '42' } as never);
+    await db.accounts.saveUser({ id: 'bo', email: 'bo@example.com', twoFactorEnabled: false, emailVerified: true, createdAt: '2026-01-01T00:00:00.000Z' });
+
+    expect(await seedAll(db)).toMatchObject({ signInLinksMoved: 1 });
+    expect(await seedAll(db)).toMatchObject({ signInLinksMoved: 0 });
+    const ann = await db.accounts.getUserById('ann');
+    expect(ann).not.toHaveProperty('googleId');
+    expect(ann).not.toHaveProperty('githubId');
+    expect((await db.accounts.getUserBySignInLink('https://accounts.google.com', 'g-1'))?.id).toBe('ann');
+    expect((await db.accounts.getUserBySignInLink('https://github.com', '42'))?.id).toBe('ann');
+    expect(await db.accounts.getUserBySignInLink('https://github.com', 'g-1')).toBeUndefined();
+    expect((await db.accounts.getUserById('bo'))?.signInLinks).toBeUndefined();
   });
 
   it('keeps only a hash of every invite code already stored, and gives an unused one two weeks from now', async () => {

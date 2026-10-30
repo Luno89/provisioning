@@ -122,10 +122,7 @@ export function createAuth({ db, sessionKey, publicUrl, role = 'combined', insta
         '/auth/register/verify',
         '/auth/register/resend',
         '/auth/2fa/verify',
-        '/auth/github',
-        '/auth/google',
-        '/auth/github/callback',
-        '/auth/google/callback',
+        '/auth/sign-in',
         '/identity/keys',
         '/identity/go',
         '/instances/sign-in-key',
@@ -153,7 +150,7 @@ export function createAuth({ db, sessionKey, publicUrl, role = 'combined', insta
       '/machines/agent.tgz.sha256',
       '/metrics',
     ];
-    const publicPrefixes = role === 'instance' ? [...PUBLIC_PREFIXES, '/move/'] : role === 'hub' ? [...PUBLIC_PREFIXES, '/hub-root/', '/hub-instance/'] : [...PUBLIC_PREFIXES, '/instances/monitoring/', '/instances/move/parts/', '/instances/groups/', '/instances/chart/'];
+    const publicPrefixes = role === 'instance' ? [...PUBLIC_PREFIXES, '/move/'] : role === 'hub' ? [...PUBLIC_PREFIXES, '/hub-root/', '/hub-instance/'] : [...PUBLIC_PREFIXES, '/auth/provider/', '/instances/monitoring/', '/instances/move/parts/', '/instances/groups/', '/instances/chart/'];
     if (publicPaths.includes(req.path) || publicPrefixes.some((prefix) => req.path.startsWith(prefix))) {
       return next();
     }
