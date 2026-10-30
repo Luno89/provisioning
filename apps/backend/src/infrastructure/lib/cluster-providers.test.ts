@@ -2,8 +2,13 @@ import { describe, it, expect } from 'vitest';
 import { providersToSeed, BUILT_IN_PROVIDERS, type ClusterProviderSpec } from './cluster-providers.js';
 
 describe('BUILT_IN_PROVIDERS', () => {
-  it('covers the three providers the platform can provision today', () => {
-    expect(BUILT_IN_PROVIDERS.map((p) => p.value).sort()).toEqual(['hetzner', 'k3d', 'remote']);
+  it('covers the four providers the platform can provision today', () => {
+    expect(BUILT_IN_PROVIDERS.map((p) => p.value).sort()).toEqual(['do', 'hetzner', 'k3d', 'remote']);
+  });
+
+  it('marks DigitalOcean as catalog-bearing and credentialed, like Hetzner', () => {
+    const ocean = BUILT_IN_PROVIDERS.find((p) => p.value === 'do')!;
+    expect(ocean).toMatchObject({ hasCatalog: true, usesMesh: false, credentialKey: 'do' });
   });
 
   it('marks hetzner as the catalog-bearing, credentialed provider', () => {
@@ -37,7 +42,7 @@ describe('providersToSeed', () => {
       { value: 'k3d', label: 'Local (renamed by hand)', hasCatalog: false, usesMesh: false },
     ];
     const pending = providersToSeed(stored);
-    expect(pending.map((p) => p.value)).toEqual(['hetzner', 'remote']);
+    expect(pending.map((p) => p.value)).toEqual(['hetzner', 'do', 'remote']);
   });
 
   it('leaves an edited built-in alone instead of overwriting it back', () => {
