@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { NEVER_MOCK_PROVIDERS, isMockCloudProvider, isSelfManagedCluster } from './cluster-topology.js';
+import { NEVER_MOCK_PROVIDERS, isMockCloudProvider, isSelfManagedCluster, provisionRefusal, withoutKeys } from './cluster-topology.js';
 import { buildAppEnv } from './app-env.js';
 
 describe('cluster-topology', () => {
@@ -18,6 +18,37 @@ describe('cluster-topology', () => {
 
     it('treats a credentialed cloud provider as real', () => {
       expect(isMockCloudProvider('aws', hasCredentials)).toBe(false);
+    });
+
+    it('never mocks anything in production, so nothing there falls through to local k3d containers', () => {
+      for (const provider of ['aws', 'gcp', 'azure', 'something-else']) {
+        expect(isMockCloudProvider(provider, noCredentials, { NODE_ENV: 'production' })).toBe(false);
+      }
+      expect(isMockCloudProvider('aws', noCredentials, { NODE_ENV: 'development' })).toBe(true);
+    });
+  });
+
+  describe('a cloud provider with no keys', () => {
+    const production = { NODE_ENV: 'production' };
+
+    it('runs in mock cloud mode on a dev box, and is refused in production', () => {
+      expect(withoutKeys('aws', {})).toBe('mock');
+      expect(withoutKeys('gcp', production)).toBe('refused');
+      expect(withoutKeys('hetzner', production)).toBeUndefined();
+      expect(withoutKeys('huggingface', production)).toBeUndefined();
+    });
+
+    it('is refused in production with where to add the keys, and only when no keys of the person\'s resolve', () => {
+      expect(provisionRefusal('aws', 'mock', production)).toBe('Koala has no Amazon Web Services keys of yours to make this cluster with: add your Amazon Web Services keys under Cloud providers');
+      expect(provisionRefusal('azure', 'mock', production)).toMatch(/add your Microsoft Azure keys under Cloud providers$/);
+      expect(provisionRefusal('aws', 'user', production)).toBeUndefined();
+      expect(provisionRefusal('aws', 'env', production)).toBeUndefined();
+      expect(provisionRefusal('aws', 'mock', { NODE_ENV: 'development' })).toBeUndefined();
+      expect(provisionRefusal('k3d', 'user', production)).toBeUndefined();
+    });
+
+    it('refuses a provider Koala does not make clusters on, anywhere', () => {
+      expect(provisionRefusal('mars', 'user', {})).toBe('mars is not a provider Koala makes clusters on');
     });
   });
 

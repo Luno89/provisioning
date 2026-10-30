@@ -3,9 +3,12 @@ import axios from 'axios';
 import { clustersRouter } from './clusters.js';
 import { mountRouter, TEST_USER, type Harness } from '../../platform/routes/test-harness.js';
 import { allowed, clusterResource, type Principal } from '../../platform/lib/permissions.js';
+import { testDatabase } from '../../platform/lib/test-database.js';
+import { TemporalBridge } from '../services/TemporalBridge.js';
+import { CredentialService } from '../services/CredentialService.js';
 
 let h: Harness | undefined;
-afterEach(async () => { await h?.close(); h = undefined; vi.restoreAllMocks(); });
+afterEach(async () => { await h?.close(); h = undefined; vi.restoreAllMocks(); vi.unstubAllEnvs(); });
 
 const cluster = (over: Record<string, unknown> = {}) => ({
   id: 'c1', name: 'dev', ownerId: TEST_USER.id, status: 'running', ...over,
@@ -207,5 +210,65 @@ describe('adopting the clusters left on the host', () => {
     const admin = await mount(services(), { ...TEST_USER, roles: ['operator' as const] } as typeof TEST_USER);
     expect((await axios.post(admin.h.url('/api/clusters/discover'), {})).status).toBe(200);
     expect(admin.svc.clusterService.discoverClusters).toHaveBeenCalledWith(TEST_USER.id);
+  });
+});
+
+describe('a cloud provider with no keys of the person\'s own, in production', () => {
+  const KEY = 'test-secret';
+
+  async function withBridge(roles: ('operator')[] = []) {
+    const db = await testDatabase();
+    await db.accounts.saveUser({ id: TEST_USER.id, email: TEST_USER.email, twoFactorEnabled: false, emailVerified: true, createdAt: 'then', roles } as never);
+    const bridge = new TemporalBridge(db, undefined, KEY);
+    const start = vi.fn(async () => undefined);
+    bridge.client = { workflow: { start } } as never;
+    vi.spyOn(bridge, 'trackWorkflow').mockImplementation(() => undefined as never);
+    const mounted = await mount({ ...services(), temporalBridge: bridge } as never, { ...TEST_USER, roles });
+    return { ...mounted, db, start };
+  }
+
+  it('is refused with where to add the keys, and nothing is recorded or started', async () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    const { h, db, start } = await withBridge();
+    const err = await axios.post(h.url('/api/clusters'), { name: 'valid-name', provider: 'aws' }).catch((e) => e);
+    expect(err.response.status).toBe(400);
+    expect(err.response.data.error).toBe('Koala has no Amazon Web Services keys of yours to make this cluster with: add your Amazon Web Services keys under Cloud providers');
+    expect(await db.infrastructure.getClusters()).toEqual([]);
+    expect(start).not.toHaveBeenCalled();
+  });
+
+  it('is refused even when the server holds keys of its own, for anyone but the operator', async () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    vi.stubEnv('AWS_ACCESS_KEY_ID', 'the-servers-key');
+    vi.stubEnv('AWS_SECRET_ACCESS_KEY', 'the-servers-secret');
+    const { h, start } = await withBridge();
+    const err = await axios.post(h.url('/api/clusters'), { name: 'valid-name', provider: 'aws' }).catch((e) => e);
+    expect(err.response.status).toBe(400);
+    expect(start).not.toHaveBeenCalled();
+  });
+
+  it('goes ahead on the server\'s keys for the operator, and on the person\'s own stored keys for anyone', async () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    vi.stubEnv('AWS_ACCESS_KEY_ID', 'the-servers-key');
+    vi.stubEnv('AWS_SECRET_ACCESS_KEY', 'the-servers-secret');
+    const operator = await withBridge(['operator']);
+    expect((await axios.post(operator.h.url('/api/clusters'), { name: 'valid-name', provider: 'aws' })).status).toBe(202);
+    expect(operator.start).toHaveBeenCalledTimes(1);
+    await h?.close();
+    h = undefined;
+
+    vi.stubEnv('AWS_ACCESS_KEY_ID', '');
+    vi.stubEnv('AWS_SECRET_ACCESS_KEY', '');
+    const person = await withBridge();
+    await new CredentialService(person.db, KEY).saveCredentials(TEST_USER.id, 'aws', { accessKeyId: 'theirs', secretAccessKey: 'their-secret' });
+    expect((await axios.post(person.h.url('/api/clusters'), { name: 'other-name', provider: 'aws' })).status).toBe(202);
+    expect(person.start).toHaveBeenCalledTimes(1);
+  });
+
+  it('runs in mock cloud mode on a dev box, as before', async () => {
+    vi.stubEnv('NODE_ENV', 'development');
+    const { h, start } = await withBridge();
+    expect((await axios.post(h.url('/api/clusters'), { name: 'valid-name', provider: 'aws' })).status).toBe(202);
+    expect(start).toHaveBeenCalledTimes(1);
   });
 });

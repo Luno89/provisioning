@@ -71,7 +71,7 @@ export class VpsCatalogService {
               offerCount: 0,
               requiresCredentials: true,
               cached: false,
-              message: `Add a ${adapter.provider} API token under Cloud Accounts to include its plans.`,
+              message: `Add your ${adapter.provider} API token under Cloud providers to include its plans.`,
             });
             return;
           }

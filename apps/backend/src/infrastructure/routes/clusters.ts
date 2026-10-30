@@ -3,6 +3,7 @@ import type { Server as SocketServer } from 'socket.io';
 import { asyncRoute, authorize, clusterResource, decryptValue, principalFrom, type SecretKey } from '../../platform/index.js';
 import { signsInAsPlatform, validateClusterName } from '../lib/cluster-name.js';
 import { generateSshKeypair } from '../lib/ssh-keypair.js';
+import { ProvisionRefused } from '../lib/cluster-topology.js';
 import type { ClusterService } from '../services/ClusterService.js';
 import type { AppService } from '../services/AppService.js';
 import type { ClusterProxyService } from '../services/ClusterProxyService.js';
@@ -144,6 +145,7 @@ export function clustersRouter(deps: ClustersRouterDeps): Router {
         state: 'running',
       });
     } catch (err: any) {
+      if (err instanceof ProvisionRefused) return res.status(400).json({ error: err.message });
       res.status(503).json({ error: `Temporal cluster provisioning unavailable: ${err.message}` });
     }
   });

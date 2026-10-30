@@ -74,10 +74,17 @@ describe('CloudAccounts', () => {
     expect((await screen.findAllByText('Configure')).length).toBeGreaterThan(0);
   });
 
-  it('explains mock cloud mode, which is the zero-setup path', async () => {
-    listProviders.mockResolvedValue(providers({ configured: false }));
+  it('explains mock cloud mode where the server runs it, which is the zero-setup path on a dev box', async () => {
+    listProviders.mockResolvedValue(providers({ configured: false, withoutKeys: 'mock' }));
     renderScreen();
     expect((await screen.findAllByText(/Mock Cloud Mode/i)).length).toBeGreaterThan(0);
+  });
+
+  it('in production says a provider needs the person\'s own keys, and never mentions mock cloud mode', async () => {
+    listProviders.mockResolvedValue(providers({ configured: false, withoutKeys: 'refused' }));
+    renderScreen();
+    expect(await screen.findByText('Add your Amazon Web Services keys here to make clusters on it.')).toBeDefined();
+    expect(screen.queryByText(/Mock Cloud Mode/i)).toBeNull();
   });
 
   it('shows a spinner before the first response arrives', () => {

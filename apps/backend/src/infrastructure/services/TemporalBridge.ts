@@ -28,6 +28,8 @@ export type GroveRunStatus =
 import { deploymentForProject } from '../../projects/index.js'
 import { destroyAppArgs, destroyAppWorkflowId } from '../lib/app-destroy.js'
 import { COMBINED_CLAIMS, resolveCloudCredentials, usesOperatorCredentials } from '../lib/credential-resolver.js'
+import { mockableProvider, ProvisionRefused, provisionRefusal } from '../lib/cluster-topology.js'
+import { CredentialService } from './CredentialService.js'
 import { generateSshKeypair } from '../lib/ssh-keypair.js'
 import { consolidateMemories, type ConsolidationReport, indexMemories, similarTo } from '../../memory/index.js'
 import { sharedClusterProxy } from './ClusterProxyService.js'
@@ -754,13 +756,18 @@ export class TemporalBridge {
     const wfId = `cluster-provision-${clusterName}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
     const logFileName = `${Date.now()}-${Math.random().toString(36).slice(2)}-A1.log`
     const absoluteLogPath = path.join(LOG_DIR, logFileName)
+    const keys = mockableProvider(provider)
+      ? (await new CredentialService(this.db, this.masterKey, this.claims).resolveCredentials(userId, provider)).mode
+      : 'user'
+    const refused = provisionRefusal(provider, keys, process.env)
+    if (refused) throw new ProvisionRefused(refused)
     const hcloudToken = provider === 'hetzner' ? await this.resolveHetznerToken(userId) : undefined
     if (provider === 'hetzner' && !hcloudToken) {
-      throw new Error('No Hetzner Cloud API token configured — add one under Cloud Accounts first')
+      throw new ProvisionRefused('No Hetzner Cloud API token configured — add one under Cloud providers first')
     }
     const doToken = provider === 'do' ? await this.resolveDoToken(userId) : undefined
     if (provider === 'do' && !doToken) {
-      throw new Error('No DigitalOcean API token configured — add one under Cloud Accounts first')
+      throw new ProvisionRefused('No DigitalOcean API token configured — add one under Cloud providers first')
     }
     const createsVm = provider === 'hetzner' || provider === 'do'
 
