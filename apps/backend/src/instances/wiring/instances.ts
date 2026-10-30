@@ -3,7 +3,7 @@ import fs from 'fs/promises';
 import type express from 'express';
 import {
   type Database, type SecretKey, allowed, holdsAccounts, servesTenants, signsInThroughRoot, type RoleConfig, startedFor,
-  getTemporalClient, type mongoTarget, type MailService, type createAuth, claimSettingsFrom, operatorsAmong, PLATFORM_OWNER, publicFetch,
+  getTemporalClient, type mongoTarget, type MailService, type createAuth, claimSettingsFrom, operatorsAmong, PLATFORM_OWNER, publicFetch, keepTrying,
 } from '../../platform/index.js';
 import { WorkflowExecutionAlreadyStartedError } from '@temporalio/common';
 import { poolSettingsFrom } from '../lib/pool.js';
@@ -231,16 +231,20 @@ export async function wireInstances(deps: InstancesWiringDeps): Promise<Instance
     },
     rootUrl: publicUrl,
   });
-  (async () => {
-    await (await getTemporalClient()).workflow.start('DependencyWatchWorkflow', {
-      workflowId: DEPENDENCY_WATCH_ID,
-      taskQueue: poolTaskQueue,
-      args: [],
-      ...startedFor(PLATFORM_OWNER),
-    });
-  })().catch((error: Error) => {
-    if (!(error instanceof WorkflowExecutionAlreadyStartedError)) console.warn(`[dependencies] the daily check did not start: ${error.message}`);
-  });
+  void keepTrying('[dependencies] the daily check has not started yet', async () => {
+    try {
+      await (await getTemporalClient()).workflow.start('DependencyWatchWorkflow', {
+        workflowId: DEPENDENCY_WATCH_ID,
+        taskQueue: poolTaskQueue,
+        args: [],
+        ...startedFor(PLATFORM_OWNER),
+      });
+    } catch (error) {
+      if (error instanceof WorkflowExecutionAlreadyStartedError) return;
+      const { message, cause } = error as Error & { cause?: unknown };
+      throw new Error(cause instanceof Error ? `${message}: ${cause.message}` : message);
+    }
+  }, (message) => console.warn(message));
   const pool = poolSettingsFrom(env, POOL_KUBECONFIG);
   const instanceService = new InstanceService(db, {
     rootUrl: publicUrl,
