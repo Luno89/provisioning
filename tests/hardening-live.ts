@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import http from 'node:http';
@@ -31,7 +31,7 @@ const POOL_PORTS = { backend: 35000, edge: 35001, registry: 35002 };
 
 const step = (message: string) => console.log(`\n▶ ${message}`);
 const docker = (args: string[]): string => execFileSync('docker', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
-const quietly = (args: string[]): void => { try { docker(args); } catch { /* gone */ } };
+const quietly = (args: string[]): void => { spawnSync('docker', args, { stdio: 'ignore' }); };
 const containers: string[] = [];
 const databases: string[] = [];
 const run = (name: string, args: string[]): void => {
@@ -165,7 +165,7 @@ async function plaintextRefusals(image: string): Promise<void> {
   step('production refuses to talk to Temporal in plaintext: the backend and a worker stop without the CA');
   const port = String(await freePort());
   await refusesToStart(image, 'the backend without Temporal\'s CA', { TEMPORAL_TLS_CA: '/nowhere/ca.crt', PORT: port }, [], 'backend', /Temporal's certificate authority is not at \/nowhere\/ca\.crt \(TEMPORAL_TLS_CA\)\. In production Koala never talks to Temporal in plaintext/);
-  await refusesToStart(image, 'the host worker without Temporal\'s CA', { TEMPORAL_TLS_CA: '/nowhere/ca.crt', HEALTH_PORT: '0' }, [], 'worker-host', /In production Koala never talks to Temporal in plaintext/);
+  await refusesToStart(image, 'the host worker without Temporal\'s CA', { TEMPORAL_TLS_CA: '/nowhere/ca.crt', HEALTH_PORT: '0', TEMPORAL_METRICS_PORT: String(await freePort()) }, [], 'worker-host', /In production Koala never talks to Temporal in plaintext/);
 
   step('an instance in production refuses to sign in through root over plain http to the open internet');
   dotenv.config({ path: devFile('apps/backend/.env'), quiet: true });
