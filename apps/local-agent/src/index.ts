@@ -98,21 +98,13 @@ async function main() {
   }
   const containerMode = docker.ok;
 
-  const socket = io(`${backendUrl}/agent`, { auth: { token, containerMode, bundle: OWN_BUNDLE ?? '' }, reconnection: true });
-  startTelemetry({ service: 'koala-machine', ...(config.deviceId ? { machineId: config.deviceId } : {}), sink: socketSink(socket), log: (line) => console.warn(`[koala-local-agent] ${line}`) });
-  const mcp = new LocalMcpServer({ log: (line) => console.log(`[koala-local-agent] ${line}`) });
-  await mcp.start();
+  const service = serviceManagerOf(process.platform, process.env, await readCgroup());
   const gate = new IdleGate();
-  const sessions = new ExternalAgentSessions({ rootDir, launches: {}, mcp, gate });
-  for (const signal of ['SIGINT', 'SIGTERM'] as const) {
-    process.once(signal, () => { void sessions.closeAll().finally(() => process.exit(0)); });
-  }
-  watchAgents(socket, config, sessions, gate);
-  const worker = followEngineWorker(socket, config, sessions, gate);
+  const socket = io(`${backendUrl}/agent`, { auth: { token, containerMode, bundle: OWN_BUNDLE ?? '' }, reconnection: true });
   const place = placeOf(AGENT_DIR);
   const updates = new SelfUpdate({
     own: OWN_BUNDLE,
-    service: serviceManagerOf(process.platform, process.env, await readCgroup()),
+    service,
     gate,
     prepare: (bundle) => prepareBundle({ place, bundle, url: `${backendUrl}/api/machines/agent.tgz`, node: process.execPath }),
     discard: () => discardBundle(place),
@@ -122,6 +114,15 @@ async function main() {
     log: (line) => console.log(`[koala-local-agent] ${line}`),
   });
   socket.on('machine:bundle', (named: unknown) => { void updates.named(named); });
+  startTelemetry({ service: 'koala-machine', ...(config.deviceId ? { machineId: config.deviceId } : {}), sink: socketSink(socket), log: (line) => console.warn(`[koala-local-agent] ${line}`) });
+  const mcp = new LocalMcpServer({ log: (line) => console.log(`[koala-local-agent] ${line}`) });
+  await mcp.start();
+  const sessions = new ExternalAgentSessions({ rootDir, launches: {}, mcp, gate });
+  for (const signal of ['SIGINT', 'SIGTERM'] as const) {
+    process.once(signal, () => { void sessions.closeAll().finally(() => process.exit(0)); });
+  }
+  watchAgents(socket, config, sessions, gate);
+  const worker = followEngineWorker(socket, config, sessions, gate);
 
   socket.on('machine:token', ({ token: next }: { token?: unknown }, ack: (answer: { taken: boolean }) => void) => {
     if (typeof next !== 'string' || !next) return ack(tokenAnswer(false));
