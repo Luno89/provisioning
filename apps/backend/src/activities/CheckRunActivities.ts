@@ -13,7 +13,7 @@ import { newTask, type Task } from '../engine-host/tools/tasks.js';
 import type { MemoryItem } from '../memory/index.js';
 import { type UserMetadata, encryptValue, type SecretKey, type ModelEndpointMetadata } from '../platform/index.js';
 import {
-  type BenchSettings, memberSpaceId, reowned, scriptedEndpointId, sharedGroupFor, spacePersonas, spacePractices, spaceServers, spaceUser,
+  type BenchSettings, memberSpaceId, sessionCookieFrom, reowned, scriptedEndpointId, sharedGroupFor, spacePersonas, spacePractices, spaceServers, spaceUser,
   worldServerId, type PromptChange, STEP_NODE, stepProcedure, stepProcedureId, TURN_CALL_KIND, TURN_PROCEDURE_ID,
   turnProcedure, type TurnReply,
 } from '../checks/index.js';
@@ -497,6 +497,9 @@ export function createCheckRunActivities(deps: CheckRunDeps): CheckRunActivities
             revoked = true;
             const signedOut = await http.post('/auth/sessions/end-others', {}, { validateStatus: () => true });
             if (signedOut.status >= 300) throw new Error(`signing the space out everywhere was refused: ${(signedOut.data as { error?: string }).error ?? signedOut.status}`);
+            const carriedOn = sessionCookieFrom(signedOut.headers['set-cookie']);
+            if (!carriedOn) throw new Error('signing the space out everywhere set no new session for the check to carry on with');
+            http.defaults.headers.Cookie = carriedOn;
           }
           if (killAfterChars !== undefined && said > killAfterChars) {
             await deps.terminate(runId, 'the check killed this run mid-turn, as a dying worker would');
