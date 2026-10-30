@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import axios from 'axios';
 import { createDatabase } from '../apps/backend/src/platform/lib/db-interface.js';
 import { createDisposableVm, type DisposableVm } from './lib/disposable-vm.js';
-import { ACP_STUB, chatsOnTheMachine, type Api } from './lib/machine-chat.js';
+import { ACP_STUB, HOLD_SESSION, chatsOnTheMachine, type Api } from './lib/machine-chat.js';
 import { startOwnStack, type OwnStack } from './lib/own-stack.js';
 
 const NAME = `machine-live-${Date.now().toString(36)}`;
@@ -38,7 +38,7 @@ WantedBy=multi-user.target
 `;
 
 interface Agent { id: string; state: string; source: string; version?: string; reason?: string }
-interface AgentUpdate { state: string; current: string; running?: string; reason?: string }
+interface AgentUpdate { state: string; current: string; running?: string; reason?: string; busyWith?: string[] }
 interface Machine { id: string; name: string; online: boolean; connectedAt?: string; os?: string; agents: Agent[]; agentUpdate?: AgentUpdate }
 
 function agentBefore(commit: string): Buffer {
@@ -83,7 +83,7 @@ async function main(): Promise<void> {
     await stages(own, db, (made) => { vm = made; });
     passed = true;
   } finally {
-    console.log('[12] removing the VM and this suite\'s Koala');
+    console.log('[13] removing the VM and this suite\'s Koala');
     if (!passed) console.log(`    the backend said, last:\n${own.logs('backend', 40).split('\n').map((line) => `      ${line}`).join('\n')}`);
     await vm?.destroy();
     console.log('    the VM is gone');
@@ -229,12 +229,31 @@ async function stages(own: OwnStack, db: ReturnType<typeof createDatabase>, made
     assert.equal(await onVm(`test -e ${AGENT_DIR}.next && echo left || echo clean`), 'clean');
     console.log(`    "${refused.agentUpdate?.reason}"; the agent stays ${first.slice(0, 12)}, still running as pid ${kept.pid}`);
 
-    console.log('[9] Koala is updated and serves a newer agent: the machine, idle, updates itself and comes back as its service on it, and My Machines says it is up to date');
+    console.log('[9] a chat turn on the machine holds a session open on gemini when Koala is updated and serves a newer agent: the agent keeps the session and waits, and My Machines says what it waits for');
+    const held = await http.post('/conversations', { title: 'A session held through an update' });
+    assert.ok(held.status < 300, JSON.stringify(held.data));
+    const heldId = (held.data as { id: string }).id;
+    const gemini = `machine:${rejoined.id}:gemini`;
+    assert.equal((await http.patch(`/conversations/${heldId}`, { modelId: gemini })).status, 200);
+    const holding = await http.post('/engine/runs', { agent: 'koala', message: `${HOLD_SESSION}, please.`, conversationId: heldId, modelId: gemini });
+    assert.equal(holding.status, 201, JSON.stringify(holding.data));
+    const heldRun = (holding.data as { runId: string }).runId;
+    await until('the session holding on the machine', 3, async () => ((await onVm('test -e ~/koala-held && echo held || echo not')) === 'held' ? true : undefined));
     own.exec('backend', 'sed -i \'s/"version": "1.0.0"/"version": "1.0.1-machine-live"/\' /app/apps/local-agent/package.json');
     await own.restart('backend');
     const newer = await served();
     assert.notEqual(newer, first);
     const seen = new Set<string>();
+    const waiting = await until('My Machines saying the newer agent waits for the session', 3, updateIs('waiting', seen));
+    assert.equal(waiting.agentUpdate?.current, newer);
+    assert.ok(waiting.agentUpdate?.busyWith?.includes('a session of gemini'), JSON.stringify(waiting.agentUpdate));
+    await sleep(10_000);
+    assert.equal((await mine())?.agentUpdate?.state, 'waiting');
+    assert.equal((await agentOnVm()).bundle, first, 'the agent updated while a session was open');
+    console.log(`    waiting, busy with ${waiting.agentUpdate?.busyWith?.join(', ')}; still ${first.slice(0, 12)}`);
+
+    console.log('[10] the run is terminated, so it never closes its own session: Koala hears it closed and tells the machine, which closes the session, stops taking work, finds itself idle, updates itself and comes back as its service on the newer agent, up to date');
+    own.terminate(heldRun, 'machine-live ends the run without its ending');
     const updated = await until('the machine on the newer agent', 5, async () => {
       const found = await updateIs('current', seen)();
       return found?.agentUpdate?.running === newer ? found : undefined;
@@ -249,8 +268,11 @@ async function stages(own: OwnStack, db: ReturnType<typeof createDatabase>, made
     assert.deepEqual(version, { bundle: newer, version: '1.0.1-machine-live' });
     assert.equal(await onVm(`test -e ${AGENT_DIR}.next && echo left || echo clean`), 'clean');
     console.log(`    states seen: ${[...seen].join(' → ')}; now ${newer.slice(0, 12)} (1.0.1-machine-live) as pid ${after.pid}, the one before kept in ${AGENT_DIR}.previous`);
+    const journal = await onVm('journalctl --user -u koala-machine --no-pager -o cat 2>/dev/null | grep -E "ended, so its|updating this machine|is in place" || true');
+    if (journal) console.log(journal.split('\n').map((line) => `      ${line}`).join('\n'));
+    assert.equal((await http.delete(`/conversations/${heldId}`)).status < 300, true);
 
-    console.log('[10] a chat on its gemini runs on the updated agent: the large message reaches it through the encrypted, offloaded payloads, and the next turn continues the session');
+    console.log('[11] a chat on its gemini runs on the updated agent: the large message reaches it through the encrypted, offloaded payloads, and the next turn continues the session');
     const api: Api = async (method, path, body) => {
       const answer = await http.request({ method, url: path, ...(body === undefined ? {} : { data: body }) });
       return { status: answer.status, data: answer.data };
@@ -258,7 +280,7 @@ async function stages(own: OwnStack, db: ReturnType<typeof createDatabase>, made
     const said = await chatsOnTheMachine(api, rejoined.id);
     console.log(said.map((line) => `    ${line}`).join('\n'));
 
-    console.log('[11] removing it on My Machines stops its agent, deletes its token, its service and the project it was added with');
+    console.log('[12] removing it on My Machines stops its agent, deletes its token, its service and the project it was added with');
     const project = (await db.projects.getProjects()).find((candidate) => candidate.executionTarget?.kind === 'local-device' && candidate.executionTarget.deviceId === rejoined.id);
     assert.ok(project, 'the machine was added without a project');
     assert.equal((await http.delete(`/mesh/local-agents/${rejoined.id}`)).status, 200);

@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url';
 import dotenv from 'dotenv';
 import { buildAppImage } from './gate-runs.js';
 import { devFile, devTemporalCa } from './dev-temporal.js';
-import { answers, envArgs, freePort, temporal } from './split-stack.js';
+import { answers, envArgs, freePort, temporal, temporalContainer } from './split-stack.js';
 import { dropSuiteDatabase, firstAdmin, suiteRoot, type FirstAdmin, type SuiteRoot } from './suite-root.js';
 
 const REPO = fileURLToPath(new URL('../..', import.meta.url));
@@ -20,6 +20,7 @@ export interface OwnStack {
   container: Record<OwnProcess, string>;
   exec: (process: OwnProcess, command: string) => string;
   restart: (process: OwnProcess) => Promise<void>;
+  terminate: (workflowId: string, reason: string) => void;
   logs: (process: OwnProcess, lines?: number) => string;
   stop: () => Promise<void>;
 }
@@ -87,6 +88,9 @@ export async function startOwnStack(suite: string, log: (line: string) => void =
       restart: async (process) => {
         docker(['restart', container[process]]);
         if (process === 'backend') await backendAnswers();
+      },
+      terminate: (workflowId, reason) => {
+        docker(['exec', temporalContainer(), 'temporal', 'workflow', 'terminate', '--namespace', namespace, '--workflow-id', workflowId, '--reason', reason, '--address', '127.0.0.1:7236']);
       },
       logs,
       stop,

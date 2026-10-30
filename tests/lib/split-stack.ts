@@ -91,7 +91,7 @@ export async function freePort(): Promise<number> {
 
 const docker = (args: string[]): string => execFileSync('docker', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
 
-function temporalContainer(): string {
+export function temporalContainer(): string {
   const name = docker(['ps', '--filter', 'label=com.docker.compose.service=temporal', '--format', '{{.Names}}']).split('\n')[0];
   if (!name) throw new Error('the dev stack\'s Temporal is not running');
   return name;
