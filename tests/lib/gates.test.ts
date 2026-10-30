@@ -80,6 +80,7 @@ describe('the gates', () => {
     const shipped = SHIP_STEPS.map((step) => step.script);
     expect(shipped).toContain('test:dev-split-live');
     expect(shipped).toContain('test:openrouter-connect-live');
+    expect(shipped).toContain('test:hub-split-live');
   });
 });
 

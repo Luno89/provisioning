@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { envArgs, ownedBySplit, splitNames, splitPlace } from './split-stack.js';
+import { envArgs, ownedBySplit, sharedProjectDatabases, splitNames, splitPlace } from './split-stack.js';
 
 describe('a split stack of its own', () => {
   const names = splitNames('abc123');
@@ -24,6 +24,10 @@ describe('a split stack of its own', () => {
     expect(ownedBySplit('koala_split_root_abc123')).toBe(true);
     expect(ownedBySplit('provisioning')).toBe(false);
     expect(ownedBySplit('koala_root')).toBe(false);
+  });
+
+  it('drops the database of each project its own hub holds, and nothing named otherwise', () => {
+    expect(sharedProjectDatabases(['0cb63c344e557be8b16403bf', 'koala_hub', 7, '../admin'])).toEqual(['hub_0cb63c344e557be8b16403bf']);
   });
 
   it('hands each value to docker as its own -e', () => {

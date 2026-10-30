@@ -42,7 +42,7 @@ export function splitNames(stamp: string): SplitNames {
   };
 }
 
-export interface SplitPorts { root: number; instance: number; hub: number; instanceGateway: number; rootGateway: number; hubGateway: number; smtp: number; mailApi: number; metrics: number }
+export interface SplitPorts { root: number; instance: number; hub: number; instanceGateway: number; rootGateway: number; hubGateway: number; smtp: number; mailApi: number; metrics: number; engineMetrics?: number }
 
 export const splitPlace = (names: SplitNames, ports: SplitPorts): SplitPlace => ({
   rootUrl: `http://localhost:${ports.root}`,
@@ -57,6 +57,9 @@ export const splitPlace = (names: SplitNames, ports: SplitPorts): SplitPlace => 
 });
 
 export const ownedBySplit = (database: string): boolean => database.startsWith(SPLIT_PREFIX);
+
+export const sharedProjectDatabases = (ids: readonly unknown[]): string[] =>
+  ids.filter((id): id is string => typeof id === 'string' && /^[0-9a-f]{24}$/.test(id)).map((id) => `hub_${id}`);
 
 export const envArgs = (env: Readonly<Record<string, string>>): string[] => Object.entries(env).flatMap(([key, value]) => ['-e', `${key}=${value}`]);
 
@@ -116,13 +119,27 @@ const answers = async (url: string): Promise<true | undefined> => {
   return response && response.status < 500 ? true : undefined;
 };
 
-export async function startSplitStack(options: { engine?: boolean } = {}): Promise<SplitStack> {
+const DEV_KUBECONFIG = '/tmp/kubeconfig-provisioning-lunorica';
+const GITEA_SECRETS = ['.gitea-admin-password'];
+
+function devGitea(): { url: string; mounts: string[] } {
+  const kubectl = (args: string[]) => execFileSync(devFile('bin/kubectl'), ['--kubeconfig', DEV_KUBECONFIG, ...args], { encoding: 'utf8' }).trim();
+  const port = kubectl(['-n', 'gitea', 'get', 'svc', 'gitea-http', '-o', 'jsonpath={.spec.ports[0].nodePort}']);
+  const host = kubectl(['get', 'nodes', '-o', 'jsonpath={.items[0].status.addresses[?(@.type=="InternalIP")].address}']).split(/\s+/)[0];
+  if (!port || !host) throw new Error('the dev stack\'s Gitea has no address this suite can find');
+  return {
+    url: `http://${host}:${port}`,
+    mounts: GITEA_SECRETS.flatMap((file) => ['-v', `${devFile(`apps/backend/data/${file}`)}:/app/apps/backend/data/${file}:ro`]),
+  };
+}
+
+export async function startSplitStack(options: { engine?: boolean; hubGitea?: boolean } = {}): Promise<SplitStack> {
   dotenv.config({ path: devFile('apps/backend/.env'), quiet: true });
   const names = splitNames(Date.now().toString(36));
   const ports: SplitPorts = {
     root: await freePort(), instance: await freePort(), hub: await freePort(),
     instanceGateway: await freePort(), rootGateway: await freePort(), hubGateway: await freePort(),
-    smtp: await freePort(), mailApi: await freePort(), metrics: await freePort(),
+    smtp: await freePort(), mailApi: await freePort(), metrics: await freePort(), engineMetrics: await freePort(),
   };
   const place = splitPlace(names, ports);
   const started: string[] = [];
@@ -146,6 +163,8 @@ export async function startSplitStack(options: { engine?: boolean } = {}): Promi
     const client = new MongoClient(mongoUri);
     try {
       await client.connect();
+      const shared = await client.db(names.databases.hub).collection('shared_projects').find({}, { projection: { _id: 1 } }).toArray();
+      for (const database of sharedProjectDatabases(shared.map((doc) => doc._id))) await client.db(database).dropDatabase();
       for (const database of Object.values(names.databases)) if (ownedBySplit(database)) await client.db(database).dropDatabase();
     } finally {
       await client.close();
@@ -174,8 +193,8 @@ export async function startSplitStack(options: { engine?: boolean } = {}): Promi
       MAIL_SMTP_URL: `smtp://127.0.0.1:${ports.smtp}`,
       MAIL_FROM: 'koala@split.test',
     });
-    const backend = (process: SplitProcess, env: Record<string, string>, command = 'backend'): void =>
-      run(process, ['--network', 'host', '--restart', 'on-failure', '--env-file', envFile, ...devTemporalCa(), ...envArgs(env), image, command]);
+    const backend = (process: SplitProcess, env: Record<string, string>, command = 'backend', extra: string[] = []): void =>
+      run(process, ['--network', 'host', '--restart', 'on-failure', '--env-file', envFile, ...devTemporalCa(), ...extra, ...envArgs(env), image, command]);
 
     const draft = (owner: { id: string; email: string }) => devSplitPlan({
       name: 'split', owner: { id: owner.id, email: owner.email, twoFactorEnabled: false, emailVerified: true, createdAt: new Date().toISOString() },
@@ -197,8 +216,9 @@ export async function startSplitStack(options: { engine?: boolean } = {}): Promi
     await rootDb.close?.();
 
     backend('instance', { ...plan.instanceEnv, ...shared(ports.instanceGateway) });
-    if (options.engine) backend('instance-engine', { ...plan.instanceEnv, ...shared(ports.instanceGateway), HEALTH_PORT: '0' }, 'worker-engine');
-    backend('hub', { ...plan.hubEnv, ...shared(ports.hubGateway) });
+    if (options.engine) backend('instance-engine', { ...plan.instanceEnv, ...shared(ports.instanceGateway), HEALTH_PORT: '0', TEMPORAL_ENGINE_METRICS_PORT: String(ports.engineMetrics) }, 'worker-engine');
+    const gitea = options.hubGitea ? devGitea() : undefined;
+    backend('hub', { ...plan.hubEnv, ...shared(ports.hubGateway), ...(gitea ? { GITEA_URL: gitea.url } : {}) }, 'backend', gitea?.mounts ?? []);
     await until('the instance answering', () => answers(`${place.instanceUrl}/api/auth/sign-in`), () => logs('instance'));
     await until('the hub answering', () => answers(`${place.hubUrl}/api/auth/sign-in`), () => logs('hub'));
 
