@@ -71,7 +71,7 @@ npm run test:pool-live            # a VM becomes a pool node through scripts/roo
 npm run test:root-smoke -- <root domain> <people domain> [--ssh-public]  # read-only, against a live root from outside: certificate, sign-in page and its headers, identity keys, metrics guarded, Headscale, the people wildcard's 404, mail records, only 80/443 (and 22 if public) answering
 npm run test:release-live         # the release rehearsal (gate G4 of plans/release-pipeline.md): the image is built at the previous tag and at the candidate → root on a disposable VM, bootstrapped by the real bootstrap.sh in lab mode (ROOT_TLS=internal) and moved onto the previous tag by update.sh → an instance on a second VM on the lab network installs from it through install.sh, with an account, a project with a repository, an app at <app>-<name>.<domain> through root's Caddy and a sandboxed run → update.sh refuses with its exact words while a workflow runs on root's Temporal, then updates root to the candidate, which its registry then holds → the instance upgrades itself through its real check-in (root hears installing → ready), and sign-in through root, the handoff, the app's address, the repository, a sandboxed run and the check-in still work → with both on the candidate, a release that does not exist fails on the instance, which rolls itself back, tells root and stays at its addresses with sign-in working → update.sh <previous> rolls root back and helm rollback the instance, everything working again; ~1 h, cleans up
 npm run test:byo-live             # disposable QEMU VM runs the real `curl …/install.sh | sudo sh` from a root container → instance on the VM → sign in → sandboxed run → self-upgrade check-in, ~15 min, cleans up
-npm run test:machine-live        # a fresh Ubuntu VM runs the command from My Machines → the agent runs as a user service and finds an ACP agent and two CLIs missing their adapters (`--adapters none`) → after a reboot with nobody logged in it connects again → Install adapter makes Claude Code ready → the command run again with `--yes` installs Codex's adapter; removes the machine, its project and the VM, ~10 min
+npm run test:machine-live        # its own Koala from this commit's image (a backend and an engine worker, a database and a Temporal namespace of its own, `tests/lib/own-stack.ts`) → a fresh Ubuntu VM runs the command from My Machines → the agent runs as a user service, records its bundle and shows up to date, and finds an ACP agent and two CLIs missing their adapters (`--adapters none`) → after a reboot with nobody logged in it connects again → Install adapter makes Claude Code ready → an agent from before agents updated themselves shows as too old to update itself → the command run again with `--yes` installs Codex's adapter and the current agent → a download that is not the bundle Koala named is refused, the agent left as it was and My Machines saying why → Koala serving a newer agent, the idle machine updates itself and comes back as its service on it, up to date → a two-turn chat runs on it; removes the machine, its project, the VM and its Koala, ~15 min
 npm run test:mesh-live           # the image is built; root starts; the owner's instance installs in a VM and joins the mesh, its Temporal answering only on its mesh address → a second VM runs the command from the instance's My Machines, joins the mesh with a key root mints for the instance, and its worker polls the instance's Temporal over the mesh → a third VM, another person's, reaches neither and neither reaches it; ~30 min, removes everything
 npm run test:big-run-live         # real research run on your model, continuing as new each step; asserts every history event < 512 KB and that big payloads went to Mongo
 npm run test:memory-live          # Koala chat → a second message resets the countdown → keeper runs after the quiet time → a new chat recalls it, ~25 min
@@ -458,6 +458,25 @@ telling the agent `machine:removed`: the agent deletes `machine.json` and its se
 the instance owner's nodes and never the instance itself. The project the machine was added with (`appType: 'local'` on that
 device) is deleted, unlinked from any tree. A machine offline when removed keeps its token file and is refused when it next
 connects.
+
+**A machine's agent updates itself** (owner, 2026-10-30). The install writes the bundle's sha256 beside the agent
+(`bundle.sha256` in `~/.local/share/koala/machine`), and that is the agent's version: it sends it in its socket handshake
+(`bundle`), kept on the machine's record (`agentBundle`), and on every connect the backend names the bundle it serves
+(`machine:bundle`, `MachineBundle.sha256()`). An agent running another one updates itself (`SelfUpdate`,
+`apps/local-agent/src/self-update.ts`) only while the machine is idle: its `IdleGate` is held by every device activity, every open
+ACP session (a held tool call lives in one), every command and container the socket started and an adapter install. While anything
+holds it the agent keeps taking work and reports `waiting` with what it is busy with, and it moves on the moment the last hold is let
+go, an event, never a timer. It downloads `/api/machines/agent.tgz`, refuses it unless its sha256 is the one named, unpacks it into
+`<dir>.next`, runs `npm ci --omit=dev --ignore-scripts` there, proves it starts (`node agent.mjs version` must name the new bundle),
+then, finding the machine idle in the same tick, moves the running agent to `<dir>.previous` (kept for going back by hand) and the new
+one in (`agent-bundle.ts`) and exits, so its service starts the new one. It restarts itself only under the service the install made
+(`serviceManagerOf`: systemd's `INVOCATION_ID` with `koala-machine.service` in its cgroup, or launchd's `XPC_SERVICE_NAME` of
+`dev.koala.machine`); started any other way it changes nothing and logs once how to get the newer one. A failure at any step changes
+nothing, is logged and reported (`machine:update`, kept as `agentUpdate`), and is tried again only when the backend next names a
+bundle, on the next connect. My Machines says where each machine's agent stands (`agentUpdateView` in `machines/lib/agent-updates.ts`,
+`MachineAgentUpdate`): up to date, a newer one it takes when it next connects, waiting for it to be idle, updating, failed and why,
+not running as its service, or too old to update itself, which is any agent that connected without naming its bundle (one installed
+before this), whose person runs the command again. `npm run test:machine-live` proves it on a VM.
 
 **A machine's worker reads its instance's payloads like any other worker.** The machine is inside its owner's instance,
 so on every connect the agent asks for the payload keyring over its socket (`machine:payloads`, only where tenants are
