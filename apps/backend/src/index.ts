@@ -25,7 +25,7 @@ import { startTelemetry } from '@koala/engine-core/telemetry-sdk';
 import { rateLimit } from 'express-rate-limit';
 import { wireReleases } from './releases/wiring/releases.js';
 import { storyDropsFor, wireFiles } from './files/wiring/files.js';
-import { wireMachines } from './machines/wiring/machines.js';
+import { machineBundle as newMachineBundle, wireMachines } from './machines/wiring/machines.js';
 import { wireMonitoring } from './monitoring/wiring/monitoring.js';
 import { wireInfrastructure } from './infrastructure/wiring/infrastructure.js';
 import { wireAccounts } from './accounts/wiring/accounts.js';
@@ -38,6 +38,7 @@ import { wireSockets } from './machines/wiring/sockets.js';
 import { workFailuresFor, wireRunning } from './infrastructure/wiring/running.js';
 import { wireActions } from './engine/wiring/actions.js';
 import { PRUNE_FIRST_DELAY_MS, PRUNE_INTERVAL_MS } from './engine-host/sandboxes/prune-images.js';
+import { runClosedVia, runLifeVia } from './engine-host/temporal/run-cancellation.js';
 import { askDevice, dropDevice, localAgentStatus, tellDevice, MachineService, machineTelemetry } from './machines/index.js';
 import { RootMeshKeys, IdentityService } from './instances/index.js';
 import { modelsRouter, ModelService, endpointRulesFromEnv } from './models/index.js';
@@ -180,8 +181,10 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   const headscaleService = new HeadscaleService(keys.data, process.env.HEADSCALE_URL || 'http://localhost:8080', process.env.HEADSCALE_API_KEY);
   const MACHINE_GATEWAY_PORT = Number(process.env.MACHINE_GATEWAY_PORT || 7234);
   const machineTemporal = { address: process.env.MACHINE_TEMPORAL_ADDRESS || `localhost:${MACHINE_GATEWAY_PORT}`, namespace: temporalNamespaceFrom(process.env) };
+  const machineBundle = newMachineBundle(path.join(__dirname, '../../..'));
   const machineService = new MachineService({
     store: db.machines,
+    bundle: machineBundle,
     dataKey: keys.data,
     settings: {
       url: PUBLIC_URL,
@@ -314,7 +317,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     res.type(metrics.contentType).send(await metrics.text());
   }));
 
-  wireSockets({ io, db, role, env: process.env, payloadKey: keys.payload, dataKey: keys.data, auth, machines: machineService, clusters: clusterService, apps: appService, infra: infraService, telemetry: machineTelemetry({ sink: () => telemetrySink }), machineTemporal });
+  wireSockets({ io, db, role, env: process.env, payloadKey: keys.payload, dataKey: keys.data, auth, machines: machineService, clusters: clusterService, apps: appService, infra: infraService, telemetry: machineTelemetry({ sink: () => telemetrySink }), machineTemporal, runs: { life: runLifeVia(() => getTemporalClient()), closed: runClosedVia(() => getTemporalClient()) } });
 
   app.use('/api/auth', authRouter({
     db, authService, auth, sessionKey: keys.session, publicUrl: PUBLIC_URL, appUrl: APP_URL, accounts: holdsAccounts(role), hub: role.role === 'hub', revocations,
@@ -368,7 +371,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   setInterval(sweepArtifacts, 24 * 60 * 60 * 1000).unref();
   void sweepArtifacts();
   wireMachines({
-    tenant, db, dataKey: keys.data, publicUrl: PUBLIC_URL, repoRoot: path.join(__dirname, '../../..'), machines: machineService, headscale: headscaleService, projectRepos: projectRepoService,
+    tenant, db, dataKey: keys.data, publicUrl: PUBLIC_URL, repoRoot: path.join(__dirname, '../../..'), machines: machineService, bundle: machineBundle, headscale: headscaleService, projectRepos: projectRepoService,
     ...(servesTenants(role) ? {
       gateway: {
         port: MACHINE_GATEWAY_PORT,

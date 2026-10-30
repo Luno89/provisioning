@@ -95,6 +95,36 @@ describe('the machine\'s engine worker follows the payload key it is given', () 
     expect(pending).toHaveLength(0);
   });
 
+  it('pauses before an update: stops taking work, waits for what it took to finish, and starts only once resumed', async () => {
+    const pending: { ms: number; then: () => void }[] = [];
+    const after: After = (ms, then) => { const entry = { ms, then }; pending.push(entry); return () => { pending.splice(pending.indexOf(entry), 1); }; };
+    const started: ReturnType<typeof fakeWorker>[] = [];
+    let drained: () => void = () => {};
+    const host = new DeviceWorkerHost(async () => {
+      const worker = fakeWorker();
+      const shutdown = worker.shutdown.bind(worker);
+      worker.shutdown = () => { worker.stopped = true; drained = shutdown; };
+      started.push(worker);
+      return worker;
+    }, () => {}, after);
+    const settings = async () => ({ ring: { current: 'a'.repeat(64) } });
+    await host.connected(settings);
+    let paused = false;
+    const pausing = host.pause().then(() => { paused = true; });
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(started[0]!.stopped).toBe(true);
+    expect(paused).toBe(false);
+    drained();
+    await pausing;
+    expect(host.fingerprint).toBeUndefined();
+    await host.connected(settings);
+    expect(started).toHaveLength(1);
+    expect(pending).toHaveLength(0);
+    await host.resume();
+    expect(started).toHaveLength(2);
+    expect(host.fingerprint).toBeDefined();
+  });
+
   it('never waits more than a minute between tries', () => {
     expect([1, 2, 3, 4, 5, 6, 40].map(retryDelay)).toEqual([5_000, 10_000, 20_000, 40_000, RETRY_MOST_MS, RETRY_MOST_MS, RETRY_MOST_MS]);
   });

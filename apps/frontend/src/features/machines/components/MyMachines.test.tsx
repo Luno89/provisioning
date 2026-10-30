@@ -99,6 +99,19 @@ describe('My Machines', () => {
     expect(await screen.findByText('None found on this machine.')).toBeDefined();
   });
 
+  it('says on each machine whether its agent is up to date, failed to update and why, or is too old to update itself', async () => {
+    renderPanel([
+      machine({ id: 'a', name: 'desk', agentUpdate: { state: 'current', current: 'b'.repeat(64), running: 'b'.repeat(64) } }),
+      machine({ id: 'b', name: 'laptop', agentUpdate: { state: 'failed', current: 'b'.repeat(64), running: 'a'.repeat(64), reason: 'npm ci failed: npm error network' } }),
+      machine({ id: 'c', name: 'old box', agentUpdate: { state: 'too-old', current: 'b'.repeat(64) } }),
+      machine({ id: 'd', name: 'fresh' }),
+    ]);
+    expect(await screen.findByText('Its agent is up to date.')).toBeDefined();
+    expect(screen.getByText(/could not update itself: npm ci failed: npm error network\. It keeps running the agent it has/)).toBeDefined();
+    expect(screen.getByText(/too old to update itself\. Run the command from My Machines on it again/)).toBeDefined();
+    expect(screen.getAllByTestId('agent-update')).toHaveLength(3);
+  });
+
   it('renders registered local agents with their online status', async () => {
     renderPanel([
       machine({ rootDir: '/home/me/work' }),

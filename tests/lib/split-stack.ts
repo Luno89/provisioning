@@ -78,7 +78,7 @@ export interface SplitStack {
   stop: () => Promise<void>;
 }
 
-async function freePort(): Promise<number> {
+export async function freePort(): Promise<number> {
   return new Promise((resolvePort, reject) => {
     const server = createServer();
     server.once('error', reject);
@@ -91,13 +91,13 @@ async function freePort(): Promise<number> {
 
 const docker = (args: string[]): string => execFileSync('docker', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
 
-function temporalContainer(): string {
+export function temporalContainer(): string {
   const name = docker(['ps', '--filter', 'label=com.docker.compose.service=temporal', '--format', '{{.Names}}']).split('\n')[0];
   if (!name) throw new Error('the dev stack\'s Temporal is not running');
   return name;
 }
 
-const temporal = (args: string[]): string => docker(['exec', temporalContainer(), 'temporal', 'operator', ...args, '--address', '127.0.0.1:7236']);
+export const temporal = (args: string[]): string => docker(['exec', temporalContainer(), 'temporal', 'operator', ...args, '--address', '127.0.0.1:7236']);
 
 async function until<T>(what: string, probe: () => Promise<T | undefined>, logs?: () => string): Promise<T> {
   let last = '';
@@ -114,7 +114,7 @@ async function until<T>(what: string, probe: () => Promise<T | undefined>, logs?
   }
 }
 
-const answers = async (url: string): Promise<true | undefined> => {
+export const answers = async (url: string): Promise<true | undefined> => {
   const response = await fetch(url, { redirect: 'manual' }).catch(() => undefined);
   return response && response.status < 500 ? true : undefined;
 };

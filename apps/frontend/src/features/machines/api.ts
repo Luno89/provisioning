@@ -32,6 +32,17 @@ export interface ManualMachineAgent {
   args: string[]
 }
 
+export type AgentUpdateState = 'current' | 'behind' | 'waiting' | 'updating' | 'failed' | 'not-a-service' | 'too-old'
+
+export interface AgentUpdateView {
+  state: AgentUpdateState
+  current: string
+  running?: string
+  reason?: string
+  busyWith?: string[]
+  at?: string
+}
+
 export interface LocalAgentDevice {
   id: string
   name: string
@@ -46,6 +57,7 @@ export interface LocalAgentDevice {
   agents: MachineAgent[]
   agentsAt?: string
   manualAgents: ManualMachineAgent[]
+  agentUpdate?: AgentUpdateView
 }
 
 export interface MachineJoinCode {

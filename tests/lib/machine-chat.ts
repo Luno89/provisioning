@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
 
+export const HOLD_SESSION = 'HOLD-THIS-SESSION';
+
 export const ACP_STUB = `#!/usr/bin/env node
 const rl = require('readline').createInterface({ input: process.stdin });
 const send = (message) => process.stdout.write(JSON.stringify({ jsonrpc: '2.0', ...message }) + '\\n');
@@ -20,6 +22,7 @@ rl.on('line', (line) => {
   if (message.method === 'session/load') { loaded = params.sessionId; return send({ id: message.id, result: {} }); }
   if (message.method === 'session/prompt') {
     const text = (params.prompt || []).map((block) => block.text || '').join('');
+    if (text.includes('${HOLD_SESSION}')) return require('fs').writeFileSync(require('path').join(require('os').homedir(), 'koala-held'), params.sessionId);
     const said = (loaded ? 'loaded ' + loaded + ', ' : '') + 'stub heard ' + text.length + ' characters ending ' + text.slice(-24);
     send({ method: 'session/update', params: { sessionId: params.sessionId, update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: said } } } });
     return send({ id: message.id, result: { stopReason: 'end_turn' } });

@@ -21,10 +21,13 @@ export interface MachinesWiringDeps {
   publicUrl: string;
   repoRoot: string;
   machines: MachineService;
+  bundle: MachineBundle;
   headscale: HeadscaleService;
   projectRepos: ProjectRepoService;
   gateway?: { port: number; host: string; upstream: string; namespace: string; temporalKey: string; temporalCa?: Buffer | undefined } | undefined;
 }
+
+export const machineBundle = (repoRoot: string): MachineBundle => new MachineBundle(repoRoot);
 
 export const deviceByToken = (db: Pick<Database, 'machines'>, dataKey: SecretKey, now: () => Date = () => new Date()) =>
   async (token: string): Promise<LocalAgentDeviceMetadata | undefined> => findDeviceByToken(await db.machines.getLocalAgentDevices(), token, dataKey, now());
@@ -33,7 +36,7 @@ export function wireMachines(deps: MachinesWiringDeps): void {
   const { tenant, db } = deps;
   tenant.use('/api/mesh', meshRouter({ headscaleService: deps.headscale, db }));
   tenant.use('/api/mesh/local-agents', localAgentsRouter({ machines: deps.machines }));
-  const bundle = new MachineBundle(deps.repoRoot);
+  const { bundle } = deps;
   const git = new MachineGitService({
     deviceFor: deviceByToken(db, deps.dataKey),
     remote: (ownerId, repo) => deps.projectRepos.gitRemote(ownerId, repo),

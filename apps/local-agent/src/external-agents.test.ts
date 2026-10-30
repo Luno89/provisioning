@@ -3,9 +3,10 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { ExternalAgentSessions, TOOLS_LINE, WAIT_FOR, servesCall, stillRunning, workingDirOf, workspaceLine } from './external-agents.js';
+import { ExternalAgentSessions, TOOLS_LINE, runOfSession, WAIT_FOR, servesCall, stillRunning, workingDirOf, workspaceLine } from './external-agents.js';
 import { LocalMcpServer } from './local-mcp.js';
 import type { AgentScript } from './acp-script-agent.js';
+import { IdleGate } from './idle-gate.js';
 
 const AGENT = fileURLToPath(new URL('./acp-script-agent.ts', import.meta.url));
 const TSX = import.meta.resolve('tsx');
@@ -19,10 +20,10 @@ afterEach(async () => {
   await rm(dir, { recursive: true, force: true });
 });
 
-const machine = async (script: AgentScript, segmentMs = 2000) => {
+const machine = async (script: AgentScript, segmentMs = 2000, gate?: IdleGate, onRunsChanged?: (runIds: string[]) => void) => {
   const scriptPath = path.join(dir, 'script.json');
   await writeFile(scriptPath, JSON.stringify(script));
-  sessions = new ExternalAgentSessions({ rootDir: path.join(dir, 'root'), launches: { scripted: { command: process.execPath, args: ['--import', TSX, AGENT, scriptPath] } }, segmentMs });
+  sessions = new ExternalAgentSessions({ rootDir: path.join(dir, 'root'), launches: { scripted: { command: process.execPath, args: ['--import', TSX, AGENT, scriptPath] } }, segmentMs, gate, onRunsChanged });
   return sessions;
 };
 
@@ -41,6 +42,47 @@ describe('external agents on a machine', () => {
     expect(await readFile(path.join(dir, 'root', 'shop', 'notes.md'), 'utf8')).toBe('hello');
     expect(await machineSessions.step({ key: 'run-1:node:1', agent: 'scripted', op: { kind: 'close' } })).toMatchObject({ state: 'closed' });
     expect(await machineSessions.step({ key: 'run-1:node:1', agent: 'scripted', op: { kind: 'continue' } })).toMatchObject({ state: 'failed', error: 'that session is no longer open on this machine' });
+  });
+
+  it('keeps the machine busy from the moment a session opens until it is closed, between its steps too', async () => {
+    const gate = new IdleGate();
+    const machineSessions = await machine({ name: 'scripted', version: '1', turns: [{ steps: [{ say: 'one' }] }, { steps: [{ say: 'two' }] }] }, 2000, gate);
+    expect(gate.idle).toBe(true);
+    await machineSessions.step({ key: 'k', agent: 'scripted', op: { kind: 'open', brief: 'go' } });
+    expect(gate.busyWith()).toEqual(['a session of scripted']);
+    await machineSessions.step({ key: 'k', agent: 'scripted', op: { kind: 'prompt', text: 'again' } });
+    expect(gate.idle).toBe(false);
+    await machineSessions.step({ key: 'k', agent: 'scripted', op: { kind: 'close' } });
+    expect(gate.idle).toBe(true);
+    await machineSessions.step({ key: 'other', agent: 'scripted', op: { kind: 'open', brief: 'go' } });
+    expect(gate.idle).toBe(false);
+    await machineSessions.closeAll();
+    expect(gate.idle).toBe(true);
+  });
+
+  it('knows the run each session belongs to from its key', () => {
+    expect(runOfSession('chat-1-koala-1:external:1')).toBe('chat-1-koala-1');
+    expect(runOfSession('grove-run-t~mvv1-executor-2:agent-loop:3')).toBe('grove-run-t~mvv1-executor-2');
+    expect(runOfSession('odd')).toBe('odd');
+  });
+
+  it('closes every session of a run that ended, lets go of the machine, and says which runs still hold sessions', async () => {
+    const gate = new IdleGate();
+    const told: string[][] = [];
+    const machineSessions = await machine({ name: 'scripted', version: '1', turns: [{ steps: [{ say: 'one' }] }] }, 2000, gate, (runIds) => told.push(runIds));
+    await machineSessions.step({ key: 'run-a:external:1', agent: 'scripted', op: { kind: 'open', brief: 'go' } });
+    await machineSessions.step({ key: 'run-a:external:2', agent: 'scripted', op: { kind: 'open', brief: 'go' } });
+    await machineSessions.step({ key: 'run-b:external:1', agent: 'scripted', op: { kind: 'open', brief: 'go' } });
+    expect(machineSessions.openRuns()).toEqual(['run-a', 'run-b']);
+    expect(gate.busyWith()).toEqual(['3 × a session of scripted']);
+    expect(await machineSessions.closeRun('run-a')).toBe(2);
+    expect(machineSessions.openKeys()).toEqual(['run-b:external:1']);
+    expect(gate.busyWith()).toEqual(['a session of scripted']);
+    expect(await machineSessions.closeRun('run-gone')).toBe(0);
+    expect(await machineSessions.step({ key: 'run-a:external:1', agent: 'scripted', op: { kind: 'continue' } })).toMatchObject({ state: 'failed', error: 'that session is no longer open on this machine' });
+    await machineSessions.step({ key: 'run-b:external:1', agent: 'scripted', op: { kind: 'close' } });
+    expect(gate.idle).toBe(true);
+    expect(told).toEqual([['run-a'], ['run-a'], ['run-a', 'run-b'], ['run-b'], []]);
   });
 
   it('pauses on a permission request with what is asked, and carries on with the answer', async () => {

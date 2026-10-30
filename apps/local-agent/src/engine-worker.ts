@@ -5,6 +5,7 @@ import { executeTool, heartbeatWhileRunning, type ExternalAgentStepArgs, type Ex
 import { traceActivities } from '@koala/engine-core/telemetry';
 import { createLocalFsDriver } from './local-fs-driver.js';
 import type { ExternalAgentSessions } from './external-agents.js';
+import { holding, type IdleGate } from './idle-gate.js';
 
 export interface DeviceToolCall {
   ticket: { runId: string; ownerId: string; agentSlug: string };
@@ -38,9 +39,12 @@ export interface DeviceActivitiesOptions {
   languages?: string[];
   externalAgents?: ExternalAgentSessions | undefined;
   git?: ((op: MachineGitOp) => Promise<MachineGitResult>) | undefined;
+  gate?: IdleGate | undefined;
 }
 
 export const HEARTBEAT_MS = 10_000;
+
+export const DRAIN_CEILING = '720h';
 
 const activityContext = (): Context | undefined => {
   try {
@@ -51,7 +55,7 @@ const activityContext = (): Context | undefined => {
 };
 
 export function createDeviceActivities(options: DeviceActivitiesOptions) {
-  return {
+  const activities = {
     async ExternalAgentActivity(args: ExternalAgentStepArgs): Promise<ExternalAgentStepResult> {
       if (!options.externalAgents) return { state: 'failed', error: 'this machine runs no external agents', events: [] };
       const context = activityContext();
@@ -98,6 +102,13 @@ export function createDeviceActivities(options: DeviceActivitiesOptions) {
       };
     },
   };
+  const { gate } = options;
+  if (!gate) return activities;
+  return {
+    ExternalAgentActivity: (args: ExternalAgentStepArgs) => holding(gate, 'an external agent step', () => activities.ExternalAgentActivity(args)),
+    MachineGitActivity: (op: MachineGitOp) => holding(gate, 'a git fetch or push', () => activities.MachineGitActivity(op)),
+    EngineToolActivity: (args: DeviceToolCall) => holding(gate, 'a tool call', () => activities.EngineToolActivity(args)),
+  };
 }
 
 export interface DeviceWorkerOptions extends DeviceActivitiesOptions {
@@ -123,6 +134,7 @@ export async function startDeviceWorker(options: DeviceWorkerOptions): Promise<D
     taskQueue,
     dataConverter: buildDataConverter(options.payloads.ring, options.payloads.blobs),
     interceptors: { activity: [heartbeatWhileRunning(), traceActivities()] },
+    shutdownGraceTime: DRAIN_CEILING,
     ...(options.namespace ? { namespace: options.namespace } : {}),
     activities: createDeviceActivities(options),
   });

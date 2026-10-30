@@ -9,6 +9,7 @@ import {
   MACHINE_CODE_TTL_SECONDS, hashMachineCode, machineAgentsFrom, machineChoiceProblem, machineCommand, manualAgentsOf, manualAgentsProblem, newMachineCode,
   type MachineAgent, type ManualMachineAgent,
 } from '../lib/machines.js';
+import { agentUpdateReportFrom, agentUpdateView, reportedBundle, type AgentUpdateView } from '../lib/agent-updates.js';
 import type { MachinesStore } from '../store.js';
 
 type Store = Pick<MachinesStore, 'getLocalAgentDevices' | 'saveMachineJoinCode' | 'takeMachineJoinCode' | 'saveLocalAgentDevice' | 'updateLocalAgentDevice' | 'deleteLocalAgentDevice'>;
@@ -36,6 +37,7 @@ export interface MachineDeps {
     register(ownerId: string, name: string, opts: { executionTarget?: ProjectMetadata['executionTarget'] }): Promise<ProjectMetadata>;
     removeFor?(ownerId: string, deviceId: string): Promise<void>;
   };
+  bundle?: { sha256(): Promise<string> } | undefined;
   mesh?: {
     createPreAuthKey(ownerId: string, opts?: { reusable?: boolean; expirySeconds?: number }): Promise<{ key: string }>;
     removeNode?(ownerId: string, meshIp: string): Promise<void>;
@@ -59,6 +61,7 @@ export interface MachineView {
   agents: MachineAgent[];
   agentsAt?: string | undefined;
   manualAgents: ManualMachineAgent[];
+  agentUpdate?: AgentUpdateView | undefined;
 }
 
 export interface JoinedMachine {
@@ -88,8 +91,9 @@ export class MachineService {
     return (await this.deps.store.getLocalAgentDevices()).find((device) => device.id === id && device.ownerId === ownerId);
   }
 
-  private view(device: LocalAgentDeviceMetadata): MachineView {
+  private view(device: LocalAgentDeviceMetadata, current?: string): MachineView {
     const status = this.deps.devices.status(device.id);
+    const agentUpdate = agentUpdateView(device, current);
     return {
       id: device.id,
       name: device.name,
@@ -104,7 +108,16 @@ export class MachineService {
       agents: device.agents ?? [],
       ...(device.agentsAt ? { agentsAt: device.agentsAt } : {}),
       manualAgents: device.manualAgents ?? [],
+      ...(agentUpdate ? { agentUpdate } : {}),
     };
+  }
+
+  async currentBundle(): Promise<string | undefined> {
+    if (!this.deps.bundle) return undefined;
+    return this.deps.bundle.sha256().catch((err: Error) => {
+      console.warn(`[machines] which machine agent Koala serves is not known: ${err.message}`);
+      return undefined;
+    });
   }
 
   async choiceProblem(ownerId: string, choice: MachineChoice): Promise<string | undefined> {
@@ -113,7 +126,9 @@ export class MachineService {
   }
 
   async list(ownerId: string): Promise<MachineView[]> {
-    return (await this.deps.store.getLocalAgentDevices()).filter((device) => device.ownerId === ownerId).map((device) => this.view(device));
+    const devices = (await this.deps.store.getLocalAgentDevices()).filter((device) => device.ownerId === ownerId);
+    const current = devices.length ? await this.currentBundle() : undefined;
+    return devices.map((device) => this.view(device, current));
   }
 
   async createJoinCode(ownerId: string): Promise<{ code: string; command: string; expiresAt: string }> {
@@ -219,6 +234,17 @@ export class MachineService {
     await this.deps.store.updateLocalAgentDevice(device.id, { set: { agents: machineAgentsFrom(raw), agentsAt: this.now().toISOString() } });
   }
 
+  async recordAgentBundle(deviceId: string, auth: unknown): Promise<void> {
+    const bundle = reportedBundle(auth);
+    await this.deps.store.updateLocalAgentDevice(deviceId, bundle ? { set: { agentBundle: bundle } } : { unset: ['agentBundle'] });
+  }
+
+  async recordAgentUpdate(deviceId: string, raw: unknown): Promise<void> {
+    const report = agentUpdateReportFrom(raw, this.now().toISOString());
+    if (!report) return;
+    await this.deps.store.updateLocalAgentDevice(deviceId, { set: { agentUpdate: report } });
+  }
+
   async manualAgents(deviceId: string): Promise<ManualMachineAgent[]> {
     const device = (await this.deps.store.getLocalAgentDevices()).find((candidate) => candidate.id === deviceId);
     return device?.manualAgents ?? [];
@@ -232,7 +258,7 @@ export class MachineService {
     const next = { ...device, manualAgents: manualAgentsOf(raw) };
     await this.deps.store.updateLocalAgentDevice(device.id, { set: { manualAgents: next.manualAgents } });
     this.deps.devices.tell(deviceId, 'agents:changed');
-    return { ok: true, value: this.view(next) };
+    return { ok: true, value: this.view(next, await this.currentBundle()) };
   }
 
   async installAdapter(ownerId: string, deviceId: string, agentId: string): Promise<Outcome<{ ok: boolean; output: string }>> {

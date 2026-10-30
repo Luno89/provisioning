@@ -1,5 +1,5 @@
 import { DNS_PROVIDER_NAMES, type DnsProviderName } from '../../infrastructure/lib/dns-providers.js';
-import type { MachineAgent, ManualMachineAgent } from '../../machines/index.js';
+import type { AgentUpdateReport, MachineAgent, ManualMachineAgent } from '../../machines/index.js';
 export type PartialInfo<T> = { [K in keyof T]?: T[K] | undefined };
 
 export type ClusterProviderName = 'k3d' | 'aws' | 'gcp' | 'azure' | 'do' | 'remote' | 'hetzner';
@@ -223,6 +223,8 @@ export interface LocalAgentDeviceMetadata {
   agents?: MachineAgent[] | undefined;
   agentsAt?: string | undefined;
   manualAgents?: ManualMachineAgent[] | undefined;
+  agentBundle?: string | undefined;
+  agentUpdate?: AgentUpdateReport | undefined;
   [key: string]: any;
 }
 

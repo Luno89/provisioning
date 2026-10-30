@@ -5,6 +5,7 @@ import {
 } from '../api';
 import { errorMessage } from '../../../api/client';
 import MachineAgents from './MachineAgents';
+import MachineAgentUpdate from './MachineAgentUpdate';
 import ConfirmDelete from '../../../shared/components/ConfirmDelete';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
@@ -128,6 +129,7 @@ export default function MyMachines() {
                   {!d.online && d.tokenExpired && (
                     <div className="text-[11px] text-amber-400 mt-1">Its token expired while it was offline; run the command from My Machines again.</div>
                   )}
+                  <MachineAgentUpdate device={d} />
                 </div>
                 <button
                   onClick={() => setRemoving(d.id)}
