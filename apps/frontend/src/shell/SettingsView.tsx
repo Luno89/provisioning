@@ -119,7 +119,7 @@ export default function SettingsView() {
       <Notifications />
       <InstanceWatch />
       <DefaultFileServer />
-      <GoogleDriveCard />
+      {can('administer') && <GoogleDriveCard />}
 
       {can('manage-accounts') && <People />}
       {can('manage-accounts') && <Invites />}
