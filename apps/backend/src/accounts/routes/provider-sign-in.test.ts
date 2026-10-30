@@ -252,4 +252,35 @@ describe('signing in with an OpenID provider and with GitHub', () => {
     expect(sessionOf(refused)).toBeUndefined();
     expect(errorOf(refused)).toMatch(id === 'oidc' ? /^Stand-in did not sign you in: .*(PKCE|grant)/i : /^GitHub did not sign you in: bad_verification_code/);
   });
+
+  it('refuses the old mock codes whether or not a provider has keys set: nothing signs in without the provider', async () => {
+    await db.accounts.saveUser({ id: 'ann', email: 'mock-google-user@example.com', twoFactorEnabled: false, emailVerified: true, createdAt: new Date().toISOString(), signInLinks: [{ issuer: 'https://accounts.google.com', subject: 'google-mock-id' }] });
+    for (const old of ['/api/auth/google/callback?code=mock-google-code&state=x', '/api/auth/github/callback?code=mock-github-code&state=x', '/api/auth/google', '/api/auth/github']) {
+      const answer = await fetch(`${app.url}${old}`, { redirect: 'manual' });
+      expect(answer.status, old).toBe(401);
+      expect(sessionOf(answer), old).toBeUndefined();
+    }
+    const unconfigured = await fetch(`${app.url}/api/auth/provider/google/callback?code=mock-google-code&state=x`, { redirect: 'manual' });
+    expect(unconfigured.status).toBe(404);
+    expect(sessionOf(unconfigured)).toBeUndefined();
+
+    const keyed = await serve(db, await listening(), signInProvidersFrom({ GOOGLE_CLIENT_ID: 'real-id', GOOGLE_CLIENT_SECRET: 'real-secret' }).providers);
+    try {
+      expect(await (await fetch(`${keyed.url}/api/auth/sign-in`)).json()).toEqual({ url: null, providers: [{ id: 'google', label: 'Google' }] });
+      const mock = await fetch(`${keyed.url}/api/auth/provider/google/callback?code=mock-google-code&state=x`, { redirect: 'manual' });
+      expect(mock.status).toBe(302);
+      expect(sessionOf(mock)).toBeUndefined();
+      expect(errorOf(mock)).toContain('did not start here');
+    } finally {
+      await new Promise<void>((resolve) => { keyed.server.closeAllConnections(); keyed.server.close(() => resolve()); });
+    }
+
+    issuer.signInAs({ sub: 'google-mock-id', email: 'mock-google-user@example.com', email_verified: true });
+    const started = await start('oidc');
+    const callback = await issuer.authorize(started.headers.get('location')!);
+    callback.searchParams.set('code', 'mock-google-code');
+    const swapped = await fetch(callback, { redirect: 'manual', headers: { cookie: cookieOf(started) } });
+    expect(sessionOf(swapped)).toBeUndefined();
+    expect(errorOf(swapped)).toMatch(/^Stand-in did not sign you in: /);
+  });
 });
