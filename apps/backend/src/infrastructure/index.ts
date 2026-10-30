@@ -17,7 +17,11 @@ export { isMockCloudProvider, isSelfManagedCluster, notAvailableYet, providerRea
 export { hasCloudCredentials } from './lib/credential-resolver.js';
 export { declareDependency } from './lib/declare-dependency.js';
 export { deploymentIdFor } from './lib/deployment-id.js';
-export { credentialsFromEnv, dnsProviderNamed } from './lib/dns-providers.js';
+export {
+  caddyEnvLines, certificateProblems, challengeLeftovers, challengeNameIn, checkWildcardIn, issueCheckCaddyfile, issueCheckTlsSnippet,
+  secretValuesIn, STAGING_CA, zoneChanges,
+} from './lib/dns-issue-check.js';
+export { caddyDnsEnv, credentialEnvOf, credentialsFromEnv, dnsProviderNamed } from './lib/dns-providers.js';
 export { egressReachProblem, validateLocalEgressRules } from './lib/egress-rules.js';
 export { GITAPP_PULL_SECRET, gitappPullSecretArgs } from './lib/gitapp-pull.js';
 export { parseQuantity, planHostMemory } from './lib/host-memory-plan.js';
@@ -52,6 +56,7 @@ export { sharedClusterProxy } from './services/ClusterProxyService.js';
 export type { ClusterProxyService } from './services/ClusterProxyService.js';
 export { ClusterService } from './services/ClusterService.js';
 export { CredentialService } from './services/CredentialService.js';
+export { buildCaddyImage, issueWithCaddy } from './services/dns/CaddyIssueCheck.js';
 export { DnsProviders } from './services/dns/DnsProviders.js';
 export { EgressProxyService } from './services/EgressProxyService.js';
 export { EgressService } from './services/EgressService.js';
