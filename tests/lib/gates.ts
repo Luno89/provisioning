@@ -1,6 +1,6 @@
-import { COOLING_OFF_DAYS, type JudgedVulnerability, type Vulnerability } from '../../apps/backend/src/platform/lib/dependency-rule.js';
+import { COOLING_OFF_DAYS, devOnly, type JudgedVulnerability, type Vulnerability } from '../../apps/backend/src/platform/lib/dependency-rule.js';
 
-export { COOLING_OFF_DAYS, compareVersions, fixOf, judgeVulnerabilities, type JudgedVulnerability, type Vulnerability } from '../../apps/backend/src/platform/lib/dependency-rule.js';
+export { COOLING_OFF_DAYS, compareVersions, devOnly, fixOf, judgeVulnerabilities, type JudgedVulnerability, type Vulnerability } from '../../apps/backend/src/platform/lib/dependency-rule.js';
 
 export const LEDGER_FILES = ['tests/last-passed.json', 'tests/LAST-PASSED.md'];
 
@@ -103,7 +103,7 @@ const fixedVersionsOf = (vulnerability: OsvVulnerability, name: string): string[
 export const productionVulnerabilities = (report: unknown): Vulnerability[] =>
   ((report as { results?: { packages?: OsvFinding[] }[] } | undefined)?.results ?? [])
     .flatMap((result) => result.packages ?? [])
-    .filter((found) => !(found.dependency_groups ?? []).includes('dev'))
+    .filter((found) => !devOnly({ dependencyGroups: found.dependency_groups }))
     .flatMap((found) => (found.vulnerabilities ?? []).map((vulnerability) => ({
       id: vulnerability.id,
       name: found.package.name,

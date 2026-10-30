@@ -1,3 +1,4 @@
+import { devOnly } from './dependency-rule.js';
 export type ComponentKind = 'npm' | 'binary' | 'image' | 'chart' | 'action' | 'unpinned';
 
 export interface InventoryComponent {
@@ -16,6 +17,7 @@ export interface InventoryComponent {
 
 interface BomComponent {
   'bom-ref'?: unknown;
+  scope?: unknown;
   name?: unknown;
   version?: unknown;
   properties?: { name?: unknown; value?: unknown }[];
@@ -42,7 +44,7 @@ export function inventoryComponents(bom: unknown): InventoryComponent[] {
       version,
       kind,
       in: props['koala:in'],
-      dev: props['koala:dev'] === 'true',
+      dev: devOnly({ scope: text(component.scope), dev: props['koala:dev'] === 'true' }),
       where: props['koala:where'],
       ecosystem: npm ? 'npm' : props['koala:osv-ecosystem'],
       osvName: npm ? name : props['koala:osv-name'],

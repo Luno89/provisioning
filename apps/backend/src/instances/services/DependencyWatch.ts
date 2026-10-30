@@ -1,6 +1,6 @@
 import { advisoryFor, batches, checkedByOsv, idsFromBatch, inventoryComponents, OSV_API, queryKey, queryOf, type InventoryComponent, type OsvQuery } from '../../platform/index.js';
 import {
-  componentOf, findingKey, fixingRelease, mergeFindings, tellingMessage,
+  componentOf, findingKey, fixingRelease, mergeFindings, runtimeFindings, tellingMessage,
   type CheckedRelease, type DependencyCheck, type DependencyFinding, type ListedComponent, type Sighting,
 } from '../lib/dependency-findings.js';
 import type { InstanceRelease } from '../lib/instance-updates.js';
@@ -118,7 +118,8 @@ export class DependencyWatch {
         for (const { release, component } of entry.seen) {
           const found = componentOf(component);
           const key = findingKey(found, advisory.id);
-          const sighting = sightings.get(key) ?? { component: found, advisory, releases: [], instances: [], source: component };
+          const sighting = sightings.get(key) ?? { component: found, advisory, releases: [], instances: [], source: component, devOnly: component.dev };
+          sighting.devOnly = Boolean(sighting.devOnly) && component.dev;
           sighting.releases = [...new Set([...sighting.releases, labelOfRelease.get(release) ?? release])];
           sighting.instances = [...new Set([...sighting.instances, ...(instancesOf.get(release) ?? [])])];
           sightings.set(key, sighting);
@@ -189,7 +190,7 @@ export class DependencyWatch {
     const releases = (await this.deps.store.getReleases()).sort((a, b) => (a.servedAt ?? '').localeCompare(b.servedAt ?? ''));
     const record = releases.find((release) => release.imageTag === imageTag);
     const label = labelOf(record, imageTag);
-    const findings = (await this.deps.store.getDependencyFindings()).filter((finding) => finding.releases.includes(label));
+    const findings = runtimeFindings(await this.deps.store.getDependencyFindings()).filter((finding) => finding.releases.includes(label));
     const newer = record ? releases.filter((release) => (release.servedAt ?? '') > (record.servedAt ?? '')) : [];
     const candidates: { release: string; label: string; components: InventoryComponent[] }[] = [];
     for (const release of newer) candidates.push({ release: release.imageTag, label: labelOf(release, release.imageTag), components: inventoryComponents(await this.deps.inventoryOf(release.imageTag)) });

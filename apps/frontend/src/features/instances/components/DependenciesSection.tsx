@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Loader2, RefreshCw } from 'lucide-react'
 import { errorMessage } from '../../../api/client'
 import { useCheckDependencies, useDependencies, type ComponentKind, type DependencyFinding, type FindingState } from '../api/dependencies'
-import { ageOf, componentMatches, countsByState, findingMatches, sortedFindings, STATE_LABEL } from '../lib/dependency-view'
+import { ageOf, byWhatRuns, componentMatches, countsByState, findingMatches, sortedFindings, STATE_LABEL } from '../lib/dependency-view'
 
 const STATE_STYLE: Record<FindingState, string> = {
   due: 'bg-red-500/15 text-red-300',
@@ -46,7 +46,7 @@ export function DependenciesSection() {
   const [withDev, setWithDev] = useState(false)
 
   const view = dependencies.data
-  const findings = sortedFindings(view?.findings ?? [])
+  const { runtime: findings, devOnly } = byWhatRuns(sortedFindings(view?.findings ?? []))
   const counts = countsByState(findings)
   const now = new Date()
   const components = (view?.check?.components ?? []).filter((component) => componentMatches(component, componentQuery, kind, withDev))
@@ -104,6 +104,15 @@ export function DependenciesSection() {
       <ul className="space-y-2">
         {findings.filter((finding) => findingMatches(finding, query, state)).map((finding) => <FindingRow key={finding.key} finding={finding} />)}
       </ul>
+      {devOnly.length > 0 && (
+        <details className="text-xs">
+          <summary className="cursor-pointer text-slate-300">Development tools only ({devOnly.length})</summary>
+          <p className="mt-1 text-slate-400">Packages only Koala's development and tests use. Koala never runs them, so they are not emailed and never hold up a release.</p>
+          <ul className="mt-2 space-y-2">
+            {devOnly.filter((finding) => findingMatches(finding, query, state)).map((finding) => <FindingRow key={finding.key} finding={finding} />)}
+          </ul>
+        </details>
+      )}
 
       {view?.check && (
         <details className="text-xs">

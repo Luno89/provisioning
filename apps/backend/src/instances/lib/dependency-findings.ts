@@ -25,9 +25,11 @@ export interface DependencyFinding {
   instances: string[];
   firstSeenAt: string;
   told: { appeared?: string | undefined; due?: string | undefined };
+  devOnly?: true | undefined;
 }
 
 export interface Sighting {
+  devOnly?: boolean | undefined;
   component: FindingComponent;
   advisory: { id: string; summary?: string | undefined; severity?: Severity | undefined; fixed: string[] };
   releases: string[];
@@ -108,7 +110,9 @@ export function mergeFindings(
       instances: [...sighting.instances].sort(),
       firstSeenAt: known?.firstSeenAt ?? at,
       told: { ...(known?.told ?? {}) },
+      ...(sighting.devOnly ? { devOnly: true as const } : {}),
     };
+    if (finding.devOnly) return finding;
     if (!finding.told.appeared) {
       finding.told.appeared = at;
       if (finding.state === 'due') finding.told.due = at;
@@ -158,3 +162,6 @@ export function fixingRelease(finding: DependencyFinding, releases: readonly { r
     && component.version !== undefined && compareVersions(component.version.replace(/^v/, ''), fix) >= 0));
   return fixes.at(-1)?.label;
 }
+
+export const runtimeFindings = <T extends Pick<DependencyFinding, 'devOnly'>>(findings: readonly T[]): T[] =>
+  findings.filter((finding) => !finding.devOnly);

@@ -5,6 +5,15 @@ export interface Vulnerability {
   fixed: string[];
 }
 
+export interface DevMarks {
+  dependencyGroups?: readonly string[] | undefined;
+  scope?: string | undefined;
+  dev?: boolean | undefined;
+}
+
+export const devOnly = (marks: DevMarks): boolean =>
+  marks.dev === true || marks.scope === 'excluded' || (marks.dependencyGroups ?? []).includes('dev');
+
 export const COOLING_OFF_DAYS = 14;
 
 export const DAY_MS = 24 * 60 * 60 * 1000;

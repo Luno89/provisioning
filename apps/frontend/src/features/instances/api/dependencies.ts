@@ -35,6 +35,7 @@ export interface DependencyFinding {
   releases: string[]
   instances: string[]
   firstSeenAt: string
+  devOnly?: true
 }
 
 export interface CheckedRelease {

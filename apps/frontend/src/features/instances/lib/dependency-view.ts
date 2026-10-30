@@ -12,6 +12,10 @@ export function sortedFindings<T extends Pick<DependencyFinding, 'state' | 'advi
     || a.component.name.localeCompare(b.component.name))
 }
 
+export function byWhatRuns<T extends Pick<DependencyFinding, 'devOnly'>>(findings: readonly T[]): { runtime: T[]; devOnly: T[] } {
+  return { runtime: findings.filter((finding) => !finding.devOnly), devOnly: findings.filter((finding) => finding.devOnly) }
+}
+
 export const countsByState = (findings: readonly Pick<DependencyFinding, 'state'>[]): Record<FindingState, number> =>
   findings.reduce((counts, finding) => ({ ...counts, [finding.state]: counts[finding.state] + 1 }), { due: 0, waiting: 0, 'no-fix': 0 } as Record<FindingState, number>)
 
