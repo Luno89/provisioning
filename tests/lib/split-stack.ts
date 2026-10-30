@@ -221,6 +221,9 @@ export async function startSplitStack(options: { engine?: boolean; hubGitea?: bo
     backend('hub', { ...plan.hubEnv, ...shared(ports.hubGateway), ...(gitea ? { GITEA_URL: gitea.url } : {}) }, 'backend', gitea?.mounts ?? []);
     await until('the instance answering', () => answers(`${place.instanceUrl}/api/auth/sign-in`), () => logs('instance'));
     await until('the hub answering', () => answers(`${place.hubUrl}/api/auth/sign-in`), () => logs('hub'));
+    const asOwner = fetchSide(place.rootUrl, owner.cookie);
+    await until('the hub naming its sign-in key to root', async () =>
+      ((await asOwner('/api/identity/go?to=hub')).location === `${place.hubUrl}/api/auth/oidc/start` ? true : undefined), () => logs('hub'));
 
     const instanceDb = async () => {
       const client = new MongoClient(withDatabase(mongoUri, names.databases.instance));
