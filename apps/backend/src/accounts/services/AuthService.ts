@@ -1,11 +1,12 @@
 import {
-  ACCOUNT_KEY, attemptsKeyFor, BaseService, generateOTP, LOCKOUT, lockedSaid, passwordMatches, SignInAttemptLog, TWO_FACTOR_LOCKOUT, twoFactorKeyFor, twoFactorLockedSaid,
-  type AccessRevocations, type Database, type MailMessage, type UserMetadata,
+  ACCOUNT_KEY, attemptsKeyFor, BaseService, CONFIRM_CODES, confirmCodesKeyFor, confirmCodesSaid, generateOTP, LOCKOUT, lockedSaid, passwordMatches, SignInAttemptLog, TWO_FACTOR_LOCKOUT, twoFactorKeyFor, twoFactorLockedSaid,
+  type Database, type MailMessage, type UserMetadata,
 } from '../../platform/index.js';
 import https from 'https';
 import { v4 as uuidv4 } from 'uuid';
 import { linkedTo, providerMatch, type ProviderPerson } from '../lib/provider-sign-in.js';
 import { signUpCodeMail } from '../lib/sign-up.js';
+import { lockNotice } from '../lib/lock-notice.js';
 import {
   confirmCodeMail, confirmWith, PROOF_ASKED, passwordChangeNeeds, sameTwoFactorCode, signInCodeMail, twoFactorCodeHash, twoFactorCodeId, twoFactorExpiry, twoFactorLive,
   type CodePurpose, type Proof,
@@ -29,7 +30,7 @@ export class AuthService extends BaseService {
   constructor(db: Database, private readonly options: {
     mail?: CodeMail | undefined;
     production?: boolean | undefined;
-    revocations?: Pick<AccessRevocations, 'revoked'> | undefined;
+    push?: { toPerson(ownerId: string, message: { title: string; body: string; path?: string | undefined; tag?: string | undefined }): Promise<number> } | undefined;
     now?: (() => number) | undefined;
   } = {}) {
     super(db);
@@ -37,7 +38,7 @@ export class AuthService extends BaseService {
     this.attempts = new SignInAttemptLog(db.platform, this.now);
   }
 
-  async checkPassword(account: string, user: UserMetadata | undefined, password: string, device: SignedInDevice): Promise<Checked> {
+  async checkPassword(account: string, user: UserMetadata | undefined, password: string, device: SignedInDevice, from?: string | undefined): Promise<Checked> {
     const key = attemptsKeyFor(account, device);
     const locked = await this.attempts.lockedUntil(key, LOCKOUT);
     if (locked !== undefined) return { kind: 'locked', said: lockedSaid(locked, this.now()) };
@@ -46,10 +47,15 @@ export class AuthService extends BaseService {
       return { kind: 'ok' };
     }
     const counted = await this.attempts.failed(key, LOCKOUT);
-    if (counted.locked && user && key.startsWith(ACCOUNT_KEY)) {
-      await this.options.revocations?.revoked({ personId: user.id, because: 'locked', at: new Date(this.now()).toISOString() });
-    }
+    if (counted.locked && user && key.startsWith(ACCOUNT_KEY)) void this.tellLocked(user, from);
     return { kind: 'wrong' };
+  }
+
+  async tellLocked(user: UserMetadata, from: string | undefined): Promise<void> {
+    const notice = lockNotice(from);
+    const told = (how: string) => (err: Error) => this.logger.warn(`[AuthService] ${user.id} was not told by ${how} that their account is locked: ${err.message}`);
+    if (this.options.mail?.available().ok) await this.options.mail.toAddress(user.email, notice.mail).catch(told('email'));
+    await this.options.push?.toPerson(user.id, notice.push).catch(told('push'));
   }
 
   async forgetPasswordFailures(account: string): Promise<void> {
@@ -71,6 +77,16 @@ export class AuthService extends BaseService {
     return { kind: 'sent' };
   }
 
+  async sendConfirmCode(user: UserMetadata): Promise<{ kind: 'sent' } | { kind: 'locked'; said: string } | { kind: 'limited'; said: string }> {
+    const key = confirmCodesKeyFor(user.id);
+    const full = await this.attempts.fullUntil(key, CONFIRM_CODES);
+    if (full !== undefined) return { kind: 'limited', said: confirmCodesSaid(full, this.now()) };
+    const locked = await this.codesLockedSaid(user.id);
+    if (locked) return { kind: 'locked', said: locked };
+    await this.attempts.failed(key, CONFIRM_CODES);
+    return this.sendCode(user, 'confirm');
+  }
+
   async checkCode(userId: string, purpose: CodePurpose, code: string): Promise<Checked> {
     const locked = await this.codesLockedSaid(userId);
     if (locked) return { kind: 'locked', said: locked };
@@ -86,10 +102,10 @@ export class AuthService extends BaseService {
     return { kind: 'locked', said: (await this.codesLockedSaid(userId)) ?? twoFactorLockedSaid(this.now() + TWO_FACTOR_LOCKOUT.forMs, this.now()) };
   }
 
-  private async proven(user: UserMetadata, proof: Proof, device: SignedInDevice, by: 'password' | 'code'): Promise<Refusal | undefined> {
+  private async proven(user: UserMetadata, proof: Proof, device: SignedInDevice, by: 'password' | 'code', from?: string | undefined): Promise<Refusal | undefined> {
     if (by === 'password') {
       if (!proof.password) return { status: 403, error: PROOF_ASKED.password };
-      const checked = await this.checkPassword(user.email, user, proof.password, device);
+      const checked = await this.checkPassword(user.email, user, proof.password, device, from);
       if (checked.kind === 'locked') return { status: 429, error: checked.said };
       return checked.kind === 'ok' ? undefined : { status: 403, error: 'That is not your password' };
     }
@@ -99,15 +115,15 @@ export class AuthService extends BaseService {
     return checked.kind === 'ok' ? undefined : { status: 403, error: 'That code is not the one we sent, or it has expired; ask for a new one' };
   }
 
-  async confirmProblem(user: UserMetadata, proof: Proof, device: SignedInDevice): Promise<Refusal | undefined> {
-    return this.proven(user, proof, device, confirmWith(user) === 'password' ? 'password' : 'code');
+  async confirmProblem(user: UserMetadata, proof: Proof, device: SignedInDevice, from?: string | undefined): Promise<Refusal | undefined> {
+    return this.proven(user, proof, device, confirmWith(user) === 'password' ? 'password' : 'code', from);
   }
 
-  async passwordChangeProblem(user: UserMetadata, proof: Proof & { current?: string | undefined }, device: SignedInDevice): Promise<Refusal | undefined> {
+  async passwordChangeProblem(user: UserMetadata, proof: Proof & { current?: string | undefined }, device: SignedInDevice, from?: string | undefined): Promise<Refusal | undefined> {
     const needs = passwordChangeNeeds(user);
     if (needs.current) {
       if (!proof.current) return { status: 403, error: 'Enter your current password to change it' };
-      const refused = await this.proven(user, { password: proof.current }, device, 'password');
+      const refused = await this.proven(user, { password: proof.current }, device, 'password', from);
       if (refused) return refused.error === 'That is not your password' ? { ...refused, error: 'That is not your current password' } : refused;
     }
     return needs.code ? this.proven(user, proof, device, 'code') : undefined;

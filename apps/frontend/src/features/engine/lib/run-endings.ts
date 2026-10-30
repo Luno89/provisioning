@@ -3,7 +3,7 @@
  * Mirrors `RunEnded`, `Handover` and `REVOKED_SAID` in `apps/backend/src/engine/lib/run-grants.ts` and
  * `RunEnding` in `apps/backend/src/engine/store.ts`, which are the authority. Kept in sync by hand.
  */
-export type RevokedBecause = 'signed-out-everywhere' | 'password-or-2fa' | 'removed-from-shared-project' | 'account-removed' | 'locked'
+export type RevokedBecause = 'signed-out-everywhere' | 'password-or-2fa' | 'removed-from-shared-project' | 'account-removed'
 
 export interface RunEnded {
   how: 'finished' | 'failed' | 'stopped' | 'revoked'
@@ -32,7 +32,6 @@ const REVOKED_SAID: Record<RevokedBecause, string> = {
   'password-or-2fa': 'their password or two-factor sign-in changed',
   'removed-from-shared-project': 'they were removed from the shared project',
   'account-removed': 'their account is being removed',
-  locked: 'their account was locked',
 }
 
 export function endedLine(ended: RunEnded, viewer?: string): string {

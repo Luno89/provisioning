@@ -31,7 +31,7 @@ export function passwordRouter(deps: PasswordRouterDeps): Router {
   router.post('/', asyncRoute(async (req: Request, res: Response) => {
     const user = (req as { user?: UserMetadata }).user;
     if (!user) return res.status(401).json({ error: 'Sign in first' });
-    const changed = await deps.passwords.change(user, { password: req.body?.password, current: req.body?.current, code: req.body?.code }, deps.devices.known(req));
+    const changed = await deps.passwords.change(user, { password: req.body?.password, current: req.body?.current, code: req.body?.code }, deps.devices.known(req), req.ip);
     if (changed.ok) deps.auth.setSessionCookie(res, sessionToken(changed.user, deps.sessionKey), req);
     return answer(res, changed, () => ({ changed: true }));
   }));

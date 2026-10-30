@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { afterFailure, attemptsKeptUntil, attemptsKeyFor, jsonLimitFor, justLocked, lockedSaid, lockedUntil, LOCKOUT, ruleFor, TWO_FACTOR_LOCKOUT, twoFactorKeyFor, twoFactorLockedSaid } from './http-limits.js';
+import { afterFailure, attemptsKeptUntil, CONFIRM_CODES, confirmCodesSaid, fullUntil, attemptsKeyFor, jsonLimitFor, justLocked, lockedSaid, lockedUntil, LOCKOUT, ruleFor, TWO_FACTOR_LOCKOUT, twoFactorKeyFor, twoFactorLockedSaid } from './http-limits.js';
 
 describe('which public paths are rate limited', () => {
   it('limits sign-in, joining and share links, and nothing signed-in', () => {
@@ -86,5 +86,18 @@ describe('how much JSON a request may send', () => {
     expect(jsonLimitFor('/api/checks/scripted/s1/v1/chat/completions', false)).toBe('signedIn');
     expect(jsonLimitFor('/api/hub-instance/projects/p1/sync', false)).toBe('signedIn');
     expect(jsonLimitFor('/api/hub-root/people/u1', false)).toBe('signedOut');
+  });
+});
+
+describe('how many confirmation codes an account is sent', () => {
+  it('is five in fifteen minutes, the next allowed once the oldest of them is fifteen minutes old', () => {
+    const start = 3_000_000;
+    let sent;
+    for (let n = 0; n < CONFIRM_CODES.after - 1; n += 1) sent = afterFailure(sent, start + n * 60_000, CONFIRM_CODES);
+    expect(fullUntil(sent, start + 5 * 60_000)).toBeUndefined();
+    sent = afterFailure(sent, start + 5 * 60_000, CONFIRM_CODES);
+    expect(fullUntil(sent, start + 6 * 60_000)).toBe(start + CONFIRM_CODES.windowMs);
+    expect(fullUntil(sent, start + CONFIRM_CODES.windowMs)).toBeUndefined();
+    expect(confirmCodesSaid(start + CONFIRM_CODES.windowMs, start + 6 * 60_000)).toBe('Koala has sent you 5 confirmation codes in the last 15 minutes; ask for another in 9 minutes.');
   });
 });

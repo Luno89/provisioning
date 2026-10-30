@@ -91,7 +91,7 @@ export class PasswordService {
     return { ok: true, email: user.email };
   }
 
-  async change(signedIn: UserMetadata, input: { password: unknown; current: unknown; code: unknown }, device: SignedInDevice): Promise<Answered<{ user: UserMetadata }>> {
+  async change(signedIn: UserMetadata, input: { password: unknown; current: unknown; code: unknown }, device: SignedInDevice, from?: string | undefined): Promise<Answered<{ user: UserMetadata }>> {
     const user = await this.deps.db.accounts.getUserById(signedIn.id);
     if (!user || user.removal) return { ok: false, status: 401, error: 'Sign in first' };
     const weak = this.newPasswordProblem(input.password, user.email);
@@ -99,7 +99,7 @@ export class PasswordService {
     const refused = await this.deps.auth.passwordChangeProblem(user, {
       ...(typeof input.current === 'string' && input.current ? { current: input.current } : {}),
       ...(typeof input.code === 'string' && input.code.trim() ? { code: input.code.trim() } : {}),
-    }, device);
+    }, device, from);
     if (refused) return { ok: false, ...refused };
     return { ok: true, user: await this.replace(user, input.password as string) };
   }

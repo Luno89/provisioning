@@ -263,16 +263,6 @@ describe('signing in on an instance through root\'s OpenID provider', () => {
     expect((await whoami(instanceJar)).status).toBe(401);
   });
 
-  it('tells the instance of an account locked by wrong passwords, so its runs stop, while its sessions go on', async () => {
-    await signIn.announce();
-    const { instanceJar } = await signInAs('u1');
-    await provider.revoke({ personId: 'u1', at: new Date().toISOString(), because: 'locked' });
-    await provider.deliverLogouts();
-    expect(heard).toEqual([expect.objectContaining({ personId: 'u1', because: 'locked' })]);
-    expect((await whoami(instanceJar)).status).toBe(200);
-    expect(await instanceDb.instances.getRevocations()).toEqual([]);
-  });
-
   it('names the person the hub signed in to root by a token root gave them there, and not by one an instance holds', async () => {
     await signIn.announce();
     const atInstance = signIn.verified((await signInAs('u1')).instanceJar.get('session'));

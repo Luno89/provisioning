@@ -176,7 +176,7 @@ export function authRouter(deps: AuthRouterDeps): Router {
         return res.status(400).json({ error: 'Email and password are required' });
       }
       const user = await db.accounts.getUserByEmail(account);
-      const checked = await authService.checkPassword(account, user, password, devices.known(req));
+      const checked = await authService.checkPassword(account, user, password, devices.known(req), req.ip);
       if (checked.kind === 'locked') return res.status(429).json({ error: checked.said });
       if (checked.kind === 'wrong' || !user) return res.status(401).json({ error: 'Invalid email or password' });
 
@@ -265,8 +265,8 @@ export function authRouter(deps: AuthRouterDeps): Router {
     const user = userOf(req);
     if (!user) return res.status(401).json({ error: 'Not authenticated' });
     if (confirmWith(user) === 'password') return res.status(400).json({ error: 'Confirm with your password; no code is sent for this account' });
-    const sent = await authService.sendCode(user, 'confirm');
-    if (sent.kind === 'locked') return res.status(429).json({ error: sent.said });
+    const sent = await authService.sendConfirmCode(user);
+    if (sent.kind !== 'sent') return res.status(429).json({ error: sent.said });
     res.json({ sent: true });
   }));
 

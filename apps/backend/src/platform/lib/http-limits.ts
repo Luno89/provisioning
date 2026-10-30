@@ -113,3 +113,17 @@ export const attemptsKeyFor = (account: string, device: { account: string; id: s
   device && device.account === account ? `device:${device.id}` : `${ACCOUNT_KEY}${account}`;
 
 export const twoFactorKeyFor = (userId: string): string => `two-factor:${userId}`;
+
+export const CONFIRM_CODES: LockoutRule = { after: 5, windowMs: 15 * MINUTES, forMs: 15 * MINUTES };
+
+export const confirmCodesKeyFor = (userId: string): string => `confirm-codes:${userId}`;
+
+export function fullUntil(sent: SignInAttempts | undefined, now: number, rule: LockoutRule = CONFIRM_CODES): number | undefined {
+  const recent = (sent?.failures ?? []).filter((at) => now - at < rule.windowMs);
+  return recent.length < rule.after ? undefined : Math.min(...recent) + rule.windowMs;
+}
+
+export const confirmCodesSaid = (until: number, now: number, rule: LockoutRule = CONFIRM_CODES): string => {
+  const minutes = Math.max(1, Math.ceil((until - now) / MINUTES));
+  return `Koala has sent you ${rule.after} confirmation codes in the last ${Math.round(rule.windowMs / MINUTES)} minutes; ask for another in ${minutes} ${minutes === 1 ? 'minute' : 'minutes'}.`;
+};

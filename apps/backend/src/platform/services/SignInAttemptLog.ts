@@ -1,4 +1,4 @@
-import { justLocked, lockedUntil, type LockoutRule } from '../lib/http-limits.js';
+import { fullUntil, justLocked, lockedUntil, type LockoutRule } from '../lib/http-limits.js';
 import type { PlatformStore } from '../store.js';
 
 export class SignInAttemptLog {
@@ -12,6 +12,10 @@ export class SignInAttemptLog {
     const now = this.now();
     const { before, after } = await this.store.countFailure(key, now, rule);
     return { locked: justLocked(before, after, now, rule) };
+  }
+
+  async fullUntil(key: string, rule: LockoutRule): Promise<number | undefined> {
+    return fullUntil(await this.store.attemptsOf(key), this.now(), rule);
   }
 
   async succeeded(key: string): Promise<void> {

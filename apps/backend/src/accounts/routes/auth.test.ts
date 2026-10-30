@@ -23,7 +23,7 @@ async function serve(db: Database, options: { mail?: CodeMail; production?: bool
   const revoked: AccessRevoked[] = [];
   const revocations = { revoked: async (event: AccessRevoked) => { revoked.push(event); } };
   const auth = createAuth({ db, sessionKey: JWT_SECRET, publicUrl: 'http://localhost:3001', setupCode: SETUP_CODE, sessionEnds: new SessionEnds(db.platform) });
-  const authService = new AuthService(db, { ...options, revocations });
+  const authService = new AuthService(db, options);
   const passwords = new PasswordService({ db, auth: authService, breached: breachedFrom('password1234\n'), revocations });
   const devices = devicesFor({ auth, sessionKey: JWT_SECRET, authService });
   const app = express();
@@ -545,5 +545,16 @@ describe('auth router', () => {
     const off = await post('/api/auth/2fa/settings', { enabled: false, code: codes.at(-1) }, cookie);
     expect(off.status).toBe(200);
     expect((await db.accounts.getUserByEmail('confirm@example.com'))?.twoFactorEnabled).toBe(false);
+  });
+
+  it('answers a sixth confirmation code in fifteen minutes with 429 and why', async () => {
+    const { session } = await registerAndLogin('limit@example.com', 'hunter2hunter2');
+    vi.spyOn(ctx.authService, 'send2FACode').mockResolvedValue(undefined);
+    const on = await post('/api/auth/2fa/settings', { enabled: true, preferredMethod: 'email', password: 'hunter2hunter2' }, session);
+    const cookie = (on.headers.get('set-cookie') ?? '').split(';')[0]!;
+    for (let n = 0; n < 5; n += 1) expect((await post('/api/auth/confirm/code', {}, cookie)).status).toBe(200);
+    const sixth = await post('/api/auth/confirm/code', {}, cookie);
+    expect(sixth.status).toBe(429);
+    expect(((await sixth.json()) as { error: string }).error).toMatch(/5 confirmation codes in the last 15 minutes/);
   });
 });

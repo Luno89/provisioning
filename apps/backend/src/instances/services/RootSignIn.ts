@@ -2,7 +2,7 @@ import crypto from 'crypto';
 import * as client from 'openid-client';
 import { importJWK, jwtVerify, type JWTPayload } from 'jose';
 import {
-  decryptValue, encryptValue, endsSessions, reachesEveryClient, revocationShaped, signJWT, verifyJWT,
+  decryptValue, encryptValue, endsSessions, revocationShaped, signJWT, verifyJWT,
   type AccessRevocations, type AccessRevoked, type Database, type SecretKey,
 } from '../../platform/index.js';
 import type { IdentityKeyPair } from '../lib/identity-token.js';
@@ -278,12 +278,10 @@ export class RootSignIn {
     }
     const events = payload.events as Record<string, unknown> | undefined;
     const event: AccessRevoked = { personId: String(payload.sub ?? ''), at: String(payload.koala_revoked_at ?? ''), because: payload.koala_why as AccessRevoked['because'] };
-    if (!events || typeof events[LOGOUT_EVENT] !== 'object' || !revocationShaped(event) || !reachesEveryClient(event)) return { ok: false, error: 'that is not a logout token' };
-    if (endsSessions(event)) {
-      await this.store.instances.recordRevocation({ subject: event.personId, before: event.at });
-      this.revoked.revoke(event.personId, event.at);
-      await this.store.instances.dropClientSessionsOf(event.personId);
-    }
+    if (!events || typeof events[LOGOUT_EVENT] !== 'object' || !revocationShaped(event) || !endsSessions(event)) return { ok: false, error: 'that is not a logout token' };
+    await this.store.instances.recordRevocation({ subject: event.personId, before: event.at });
+    this.revoked.revoke(event.personId, event.at);
+    await this.store.instances.dropClientSessionsOf(event.personId);
     await this.revocations.revoked(event);
     return { ok: true };
   }

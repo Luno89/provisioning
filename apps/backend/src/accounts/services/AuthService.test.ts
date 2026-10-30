@@ -69,19 +69,27 @@ describe('AuthService', () => {
     expect(await authService.checkCode(user.id, 'sign-in', sent[sent.length - 1]!)).toEqual({ kind: 'ok' });
   });
 
-  it('locks an account after ten wrong passwords from strangers, tells every place running its work once, and keeps the locked browser\'s own count apart', async () => {
-    const revoked = vi.fn(async () => undefined);
-    const authService = new AuthService(dbMock, { revocations: { revoked } });
+  it('locks an account after ten wrong passwords from strangers, tells its person once by email and push, and keeps the locked browser\'s own count apart', async () => {
+    const mailed: Array<{ to: string; subject: string; text: string }> = [];
+    const pushed: Array<{ ownerId: string; title: string; body: string }> = [];
+    const authService = new AuthService(dbMock, {
+      mail: { available: () => ({ ok: true as const }), toAddress: async (to, message) => { mailed.push({ to, subject: message.subject, text: message.text ?? '' }); } },
+      push: { toPerson: async (ownerId, message) => { pushed.push({ ownerId, ...message }); return 1; } },
+    });
     const user = someone('user-7', { twoFactorEnabled: false, passwordHash: await hashPassword('the-real-password-1') });
     const answers: string[] = [];
-    for (let n = 0; n < 11; n += 1) answers.push((await authService.checkPassword(user.email, user, 'not-the-password-1', undefined)).kind);
+    for (let n = 0; n < 11; n += 1) answers.push((await authService.checkPassword(user.email, user, 'not-the-password-1', undefined, '198.51.100.4')).kind);
     expect(answers.slice(0, 10)).toEqual(Array(10).fill('wrong'));
     expect(answers[10]).toBe('locked');
-    expect(revoked).toHaveBeenCalledTimes(1);
-    expect(revoked).toHaveBeenCalledWith(expect.objectContaining({ personId: 'user-7', because: 'locked' }));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(mailed).toEqual([expect.objectContaining({ to: 'user-7@example.com', subject: 'Your Koala account is locked to other browsers' })]);
+    expect(mailed[0]!.text).toContain('10 times from 198.51.100.4');
+    expect(pushed).toEqual([expect.objectContaining({ ownerId: 'user-7', title: 'Your account is locked to other browsers' })]);
     expect(await authService.checkPassword(user.email, user, 'the-real-password-1', { account: user.email, id: 'own-browser' })).toEqual({ kind: 'ok' });
     for (let n = 0; n < 10; n += 1) await authService.checkPassword(user.email, user, 'not-the-password-1', { account: user.email, id: 'own-browser' });
-    expect(revoked).toHaveBeenCalledTimes(1);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(mailed).toHaveLength(1);
+    expect(pushed).toHaveLength(1);
   });
 
   it('answers a sign-in for an account that does not exist as it answers a wrong password', async () => {
@@ -183,5 +191,17 @@ describe('AuthService', () => {
     expect(authService.codeDelivery()).toEqual({ kind: 'shown' });
     expect(new AuthService(dbMock, { production: true }).codeDelivery()).toMatchObject({ kind: 'refused' });
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('new@example.com'));
+  });
+
+  it('sends an account at most five confirmation codes in fifteen minutes, counted in the database', async () => {
+    const { mail } = codeMail();
+    const clock = Date.now();
+    const authService = new AuthService(dbMock, { mail, now: () => clock });
+    const user = someone('user-12');
+    for (let n = 0; n < 5; n += 1) expect(await authService.sendConfirmCode(user)).toEqual({ kind: 'sent' });
+    expect(await authService.sendConfirmCode(user)).toEqual({ kind: 'limited', said: expect.stringContaining('5 confirmation codes in the last 15 minutes') });
+    expect(await new AuthService(dbMock, { mail, now: () => clock + 60_000 }).sendConfirmCode(user)).toMatchObject({ kind: 'limited' });
+    expect(mail.toAddress).toHaveBeenCalledTimes(5);
+    expect(await new AuthService(dbMock, { mail, now: () => clock + 15 * 60_000 + 1 }).sendConfirmCode(user)).toEqual({ kind: 'sent' });
   });
 });
