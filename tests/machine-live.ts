@@ -13,7 +13,7 @@ import { startOwnStack, type OwnStack } from './lib/own-stack.js';
 const NAME = `machine-live-${Date.now().toString(36)}`;
 const NODE = process.version;
 const REPO = fileURLToPath(new URL('..', import.meta.url));
-const BEFORE_SELF_UPDATE = '4e711811a6aba15c1e5838d8f5b0e1a83ee55ff4';
+const BEFORE_SELF_UPDATE = '4e711811ab8aee66c622007b538453c1e8bf26d7';
 const AGENT_DIR = '~/.local/share/koala/machine';
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
