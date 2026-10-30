@@ -305,7 +305,7 @@ async function main(): Promise<void> {
   assert.ok(nested.status < 400);
   assert.ok(https(`books-${NAME}.${DOMAIN}`, '/').status < 400, 'the flat address still answers');
 
-  step('root tells the owner when their instance stops answering, and once when it answers again');
+  step('root tells the owner when their instance\'s connection to it is gone, and once when it is back');
   const mailTo = async (subject: RegExp) => until(`an email "${subject.source}" at the test mailbox`, async () => {
     const listed = await (await fetch(`http://127.0.0.1:${MAILPIT_API}/api/v1/messages`)).json() as { messages: Array<{ Subject: string; To: Array<{ Address: string }> }> };
     return listed.messages.find((message) => subject.test(message.Subject));

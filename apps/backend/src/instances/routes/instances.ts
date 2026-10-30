@@ -412,7 +412,7 @@ export function instancesRouter(deps: {
 
   router.post('/status', asyncRoute(async (req: Request, res: Response) => {
     const { instanceId, credential } = credentialOf(req);
-    const outcome = await deps.instances.report(instanceId, credential, (req.body ?? {}) as { status?: unknown; detail?: unknown; url?: unknown; meshIp?: unknown; moved?: unknown; imageTag?: unknown });
+    const outcome = await deps.instances.report(instanceId, credential, (req.body ?? {}) as { status?: unknown; detail?: unknown; url?: unknown; meshIp?: unknown; moved?: unknown; imageTag?: unknown; presence?: unknown });
     if (!outcome.ok) return res.status(outcome.status).json({ error: outcome.error });
     return res.json({ status: outcome.value.status });
   }));

@@ -1,9 +1,9 @@
 import type { InstanceRecord } from './instances.js';
 import { inService } from './instances.js';
-import { INSTANCE_BACKEND_PORT } from './instance-routes.js';
 
-export const WATCH_EVERY_MS = 60_000;
 export const DEFAULT_UNREACHABLE_MINUTES = 10;
+export const PRESENCE_NAMESPACE = '/instances';
+export const PRESENCE_RETRY_MS = 5_000;
 
 export interface Reach {
   reachable: boolean;
@@ -18,6 +18,7 @@ export interface InstanceWatchRecord {
   instanceId: string;
   reach?: Reach | undefined;
   notifyWhenUnreachable?: boolean | undefined;
+  presence?: boolean | undefined;
 }
 
 export function unreachableAfterMs(env: Readonly<Record<string, string | undefined>>): number {
@@ -42,12 +43,30 @@ export function nextReach(previous: Reach | undefined, answered: boolean, now: D
   };
 }
 
+export function reachAtStart(previous: Reach | undefined, now: Date): Reach {
+  if (previous?.toldDown && !previous.reachable) return previous;
+  return {
+    reachable: false,
+    ...(previous?.lastSeenAt ? { lastSeenAt: previous.lastSeenAt } : {}),
+    unreachableSince: now.toISOString(),
+  };
+}
+
+export function graceLeftMs(reach: Reach | undefined, now: Date, afterMs: number): number | undefined {
+  if (!reach || reach.reachable || reach.toldDown || !reach.unreachableSince) return undefined;
+  return Math.max(0, Date.parse(reach.unreachableSince) + afterMs - now.getTime());
+}
+
 export const isDown = (reach: Reach | undefined): boolean => reach?.toldDown === true && reach.reachable === false;
 
-export const watched = (instance: InstanceRecord): boolean =>
-  inService(instance) && Boolean(instance.meshIp) && instance.status !== 'paused';
+export const watched = (instance: InstanceRecord, watch: Pick<InstanceWatchRecord, 'presence'> | undefined): boolean =>
+  inService(instance) && instance.status !== 'paused' && watch?.presence === true;
 
-export const probeUrl = (meshIp: string): string => `http://${meshIp}:${INSTANCE_BACKEND_PORT}/api/auth/sign-in`;
+export function presenceAuth(raw: unknown): { instanceId: string; token: string } | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const { instanceId, token } = raw as Record<string, unknown>;
+  return typeof instanceId === 'string' && instanceId && typeof token === 'string' && token ? { instanceId, token } : undefined;
+}
 
 export const tellsOwner = (instance: Pick<InstanceRecord, 'pool'>, watch: Pick<InstanceWatchRecord, 'notifyWhenUnreachable'> | undefined): boolean =>
   Boolean(instance.pool) || watch?.notifyWhenUnreachable !== false;
@@ -75,12 +94,12 @@ export function instanceReachMail(
       : 'It runs on its owner\'s own machine: that machine may be off, asleep or offline.';
     return {
       subject: `${toOperator ? 'An instance' : 'Your instance'} ${who} has not answered for ${minutes} minutes`,
-      text: `Root has not reached ${who} ${where} for ${minutes} minutes${reach.lastSeenAt ? `; it last answered at ${reach.lastSeenAt}` : ''}. ${cause} Root keeps trying and says so once when it answers again.${toOperator || instance.pool ? '' : ' You can switch these emails off in your instance\'s Settings → Notifications.'}`,
+      text: `${who} ${where} has not been in touch with root for ${minutes} minutes${reach.lastSeenAt ? `; it was last in touch at ${reach.lastSeenAt}` : ''}. ${cause} Root says so once when it is back.${toOperator || instance.pool ? '' : ' You can switch these emails off in your instance\'s Settings → Notifications.'}`,
     };
   }
   return {
     subject: `${toOperator ? 'Instance' : 'Your instance'} ${who} answers again`,
-    text: `Root reaches ${who} ${where} again at ${now.toISOString()}.`,
+    text: `${who} ${where} is in touch with root again since ${now.toISOString()}.`,
   };
 }
 

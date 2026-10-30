@@ -1,12 +1,14 @@
 import path from 'path';
 import fs from 'fs/promises';
 import type express from 'express';
+import type { Server as SocketServer } from 'socket.io';
 import {
   type Database, type SecretKey, allowed, holdsAccounts, servesTenants, signsInThroughRoot, type RoleConfig, startedFor,
   getTemporalClient, type mongoTarget, type MailService, type createAuth, claimSettingsFrom, operatorsAmong, PLATFORM_OWNER, publicFetch, keepTrying,
 } from '../../platform/index.js';
 import { WorkflowExecutionAlreadyStartedError } from '@temporalio/common';
 import { poolSettingsFrom } from '../lib/pool.js';
+import type { InstanceRecord } from '../lib/instances.js';
 import { issueMoveToken, type UsedTokenClaim } from '../lib/identity-token.js';
 import { MOVE_FINISHED, MOVE_STOPPED, answersWhileMoving, poolMoveWorkflowId } from '../lib/instance-move.js';
 import { poolRemoveWorkflowId, poolTrialWorkflowId, TRIAL_CHANGED } from '../lib/pool-trial.js';
@@ -26,11 +28,11 @@ import { MoveExport } from '../services/MoveExport.js';
 import { MoveRelay, kubeconfigFile } from '../services/MoveRelay.js';
 import { PoolMonitoringService } from '../services/PoolMonitoringService.js';
 import { InstanceMailLimit } from '../services/InstanceMailLimit.js';
-import { InstanceWatch, answersHttp } from '../services/InstanceWatch.js';
+import { InstancePresence } from '../services/InstancePresence.js';
 import { InstanceWatchSetting } from '../services/InstanceWatchSetting.js';
-import { RootWatch, type RootReachView } from '../services/RootWatch.js';
+import { RootPresence, type RootReachView } from '../services/RootPresence.js';
 import { instanceWatchRouter } from '../routes/instance-watch.js';
-import { unreachableAfterMs } from '../lib/instance-watch.js';
+import { PRESENCE_NAMESPACE, presenceAuth, unreachableAfterMs } from '../lib/instance-watch.js';
 import type { InstanceEdge, HeadscaleService, InfrastructureService } from '../../infrastructure/index.js';
 import { identityRouter } from '../routes/identity.js';
 import { signInRouter } from '../routes/sign-in.js';
@@ -50,7 +52,7 @@ const POOL_KUBECONFIG = '/tmp/kubeconfig-provisioning-lunorica';
 export class InstanceSide {
   readonly edge: InstanceEdge | undefined;
   private addresses: InstanceAddresses | undefined;
-  private rootWatch: RootWatch | undefined;
+  private rootPresence: RootPresence | undefined;
 
   constructor(private readonly role: RoleConfig, private readonly env: NodeJS.ProcessEnv, private readonly rootToken: (() => Promise<string>) | undefined) {
     const name = env.INSTANCE_NAME;
@@ -73,19 +75,20 @@ export class InstanceSide {
   }
 
   watchRoot(tell: (ownerId: string, message: { title: string; body: string; path: string; tag: string }) => Promise<unknown>): void {
-    if (!this.role.instance || this.rootWatch) return;
-    this.rootWatch = new RootWatch({
+    if (!this.role.instance || !this.rootToken || this.rootPresence) return;
+    this.rootPresence = new RootPresence({
       rootUrl: this.role.instance.rootUrl,
+      instanceId: this.role.instance.id,
       ownerId: this.role.instance.ownerId,
-      probe: answersHttp(),
+      token: this.rootToken,
       tell,
       afterMs: unreachableAfterMs(this.env),
     });
-    this.rootWatch.start();
+    this.rootPresence.start();
   }
 
   rootReach(): RootReachView | undefined {
-    return this.rootWatch?.view();
+    return this.rootPresence?.view();
   }
 }
 
@@ -140,6 +143,7 @@ export interface InstancesWiringDeps {
   provider?: RootProvider | undefined;
   signIn?: RootSignIn | undefined;
   rootToken?: (() => Promise<string>) | undefined;
+  io: SocketServer;
 }
 
 export interface InstancesWiring {
@@ -246,7 +250,9 @@ export async function wireInstances(deps: InstancesWiringDeps): Promise<Instance
     }
   }, (message) => console.warn(message));
   const pool = poolSettingsFrom(env, POOL_KUBECONFIG);
+  let presenceOf: ((instanceId: string) => boolean) | undefined;
   const instanceService = new InstanceService(db, {
+    connected: (instanceId) => presenceOf?.(instanceId) ?? false,
     rootUrl: publicUrl,
     rootPublicKeys: () => identity.publicKeys().map((key) => key.publicKey),
     meshLoginServer: env.MESH_LOGIN_SERVER,
@@ -297,16 +303,18 @@ export async function wireInstances(deps: InstancesWiringDeps): Promise<Instance
   });
   instanceRoutes?.start();
   if (role.role === 'root') {
-    new InstanceWatch({
+    const presence = new InstancePresence({
       store: db.instances,
-      probe: answersHttp(),
       tellOwner: (ownerId, message) => deps.mail.toOwner(ownerId, message),
       tellOperators: async (message) => {
         const operators = (await db.accounts.getUsers()).filter((user) => !user.space && allowed(deps.auth.principalFor(user), 'administer', { kind: 'install' }));
         for (const operator of operators) await deps.mail.toOwner(operator.id, message);
       },
       afterMs: unreachableAfterMs(env),
-    }).start();
+    });
+    presenceOf = (instanceId) => presence.connected(instanceId);
+    wireInstancePresence(deps.io, presence, (instanceId, token) => instanceService.presenceCaller(instanceId, token));
+    presence.start().catch((err: Error) => console.warn(`[instance-presence] ${err.message}`));
   }
 
   const poolMonitoring = 'off' in pool ? undefined : new PoolMonitoringService({
@@ -329,4 +337,26 @@ export async function wireInstances(deps: InstancesWiringDeps): Promise<Instance
   app.get('/install.sh', (_req, res) => res.type('text/x-shellscript').send(installer));
   app.get('/install/setup-gpu.sh', (_req, res) => res.type('text/x-shellscript').sendFile(path.join(deps.repoRoot, 'scripts/setup-gpu.sh')));
   return { instanceService };
+}
+
+export function wireInstancePresence(
+  io: Pick<SocketServer, 'of'>,
+  presence: Pick<InstancePresence, 'arrived' | 'left'>,
+  caller: (instanceId: string, token: string) => Promise<InstanceRecord | undefined>,
+): void {
+  const namespace = io.of(PRESENCE_NAMESPACE);
+  namespace.use((socket, next) => {
+    const auth = presenceAuth(socket.handshake.auth);
+    if (!auth) return next(new Error('Unauthorized'));
+    caller(auth.instanceId, auth.token).then((instance) => {
+      if (!instance) return next(new Error('Unauthorized'));
+      socket.data.instance = instance;
+      next();
+    }, () => next(new Error('Unauthorized')));
+  });
+  namespace.on('connection', (socket) => {
+    const instance = socket.data.instance as InstanceRecord;
+    void presence.arrived(instance, socket.id);
+    socket.on('disconnect', () => { void presence.left(instance.id, socket.id); });
+  });
 }

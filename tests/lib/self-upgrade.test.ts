@@ -58,14 +58,14 @@ describe('an instance upgrading itself to what root released', () => {
     expect(ran.code).toBe(0);
     expect(ran.calls).toHaveLength(1);
     expect(ran.calls[0]).toContain('--set image.tag=abc123 --set-string image.digest=' + DIGEST);
-    expect(ran.reports.at(-1)).toEqual({ status: 'ready', detail: 'Upgraded to abc123', imageTag: 'abc123' });
+    expect(ran.reports.at(-1)).toEqual({ status: 'ready', detail: 'Upgraded to abc123', imageTag: 'abc123', presence: true });
   });
 
   it('changes nothing when the chart it was sent is not the one root released', () => {
     const ran = upgrade({ imageTag: 'abc123', chartUrl: 'https://root.example/api/instances/chart.tgz', digest: DIGEST, chartSha256: sha }, 'a chart someone swapped in');
     expect(ran.code).toBe(1);
     expect(ran.calls).toEqual([]);
-    expect(ran.reports.at(-1)).toEqual({ status: 'failed', detail: 'The chart root sent for abc123 is not the one it released (its sha256 differs), so nothing was changed' });
+    expect(ran.reports.at(-1)).toEqual({ status: 'failed', detail: 'The chart root sent for abc123 is not the one it released (its sha256 differs), so nothing was changed', presence: true });
   });
 
   it('changes nothing when root names something that is not a digest', () => {
