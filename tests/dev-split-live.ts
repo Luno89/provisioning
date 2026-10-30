@@ -3,6 +3,8 @@ import { execFileSync } from 'node:child_process';
 import { fetchSide, followSignIn, handOff, sessionFrom, signedInLanding, type Side } from './lib/handoff.js';
 import { sessionCookieOf, signUp } from './lib/sign-up.js';
 import { startSplitStack, type SplitStack } from './lib/split-stack.js';
+import { providerCallbackUrl } from '../apps/backend/src/accounts/lib/sign-in-providers.js';
+import { startStandInIssuer, type StandInIssuer } from '../apps/backend/src/accounts/services/sign-in/stand-in-issuer.js';
 
 const step = (message: string) => console.log(`\n▶ ${message}`);
 
@@ -191,17 +193,77 @@ async function stages(stack: SplitStack): Promise<void> {
   console.log('  root told the instance and the hub; both refuse the session, and the run lost its grant');
 }
 
+async function providerSignIn(stack: SplitStack, issuer: StandInIssuer): Promise<void> {
+  const { rootUrl, owner } = stack;
+  const person = { sub: `provider-${stack.names.stamp}`, email: `provider-${stack.names.stamp}@split.test`, email_verified: true };
+
+  step('root offers only the sign-in providers it is configured for: the stand-in OpenID provider, and not GitHub');
+  const offered = (await call(`${rootUrl}/api/auth/sign-in`)).body as { url: null; providers: { id: string; label: string }[] };
+  assert.deepEqual(offered.providers.find((provider) => provider.id === 'oidc'), { id: 'oidc', label: 'Stand-in' }, JSON.stringify(offered));
+  assert.equal(offered.providers.some((provider) => provider.id === 'github'), false, `root offered GitHub: ${JSON.stringify(offered)}`);
+  assert.equal((await call(`${rootUrl}/api/auth/provider/github`)).status, 404, 'starting a provider root was not configured for did not answer 404');
+
+  const throughProvider = async (invite?: string): Promise<{ session?: string | undefined; landed: string }> => {
+    const started = await fetch(`${rootUrl}/api/auth/provider/oidc${invite ? `?invite=${encodeURIComponent(invite)}` : ''}`, { redirect: 'manual' });
+    assert.equal(started.status, 302, `root did not start the sign-in: ${started.status} ${await started.text()}`);
+    const sentTo = new URL(started.headers.get('location')!);
+    assert.equal(sentTo.origin, issuer.issuer, `root sent the person to ${sentTo.origin}`);
+    assert.equal(sentTo.searchParams.get('code_challenge_method'), 'S256');
+    assert.ok(sentTo.searchParams.get('nonce') && sentTo.searchParams.get('state'), 'root asked without a nonce or a state');
+    const stateCookie = started.headers.getSetCookie().map((line) => line.split(';')[0]!).find((pair) => /^(__Host-)?oauth_state=/.test(pair));
+    assert.ok(stateCookie, 'root set no state cookie');
+    const back = await issuer.authorize(sentTo.href);
+    assert.equal(`${back.origin}${back.pathname}`, providerCallbackUrl(rootUrl, 'oidc'));
+    const finished = await fetch(back, { redirect: 'manual', headers: { cookie: stateCookie } });
+    assert.equal(finished.status, 302, `root's callback answered ${finished.status} ${await finished.text()}`);
+    return { session: sessionFrom(finished.headers.getSetCookie()), landed: finished.headers.get('location') ?? '' };
+  };
+
+  step('signing up through the stand-in provider without an invite is refused, and makes nobody');
+  issuer.signInAs(person);
+  const uninvited = await throughProvider();
+  assert.equal(uninvited.session, undefined, 'root signed someone in with no invite');
+  assert.match(new URL(uninvited.landed).searchParams.get('authError') ?? '', /invite code is required/, uninvited.landed);
+  console.log(`  root sent them back with: ${new URL(uninvited.landed).searchParams.get('authError')}`);
+
+  step('with the owner\'s invite, the same sign-in makes the account, its address confirmed by the provider');
+  const invite = await call(`${rootUrl}/api/admin/invites`, { method: 'POST', body: {}, cookie: owner.cookie });
+  assert.ok(invite.status === 200 || invite.status === 201, JSON.stringify(invite.body));
+  const invited = await throughProvider((invite.body as { code: string }).code);
+  assert.ok(invited.session, `the invited sign-in made no session: ${invited.landed}`);
+  assert.equal(new URL(invited.landed).searchParams.get('authError'), null, invited.landed);
+  const made = (await call(`${rootUrl}/api/auth/me`, { cookie: invited.session })).body as { id: string; email: string; emailVerified: boolean };
+  assert.equal(made.email, person.email);
+  assert.equal(made.emailVerified, true);
+  console.log(`  ${made.email} is account ${made.id}`);
+
+  step('signing in again is matched by the provider\'s subject, even after the provider changes the address');
+  issuer.signInAs({ ...person, email: `renamed-${person.email}`, email_verified: false });
+  const again = await throughProvider();
+  assert.ok(again.session, `the second sign-in made no session: ${again.landed}`);
+  assert.equal(((await call(`${rootUrl}/api/auth/me`, { cookie: again.session })).body as { id: string }).id, made.id);
+  console.log('  the same account, found by its link to the provider');
+}
+
 async function main(): Promise<void> {
   step('a root, an instance and a hub of their own start in containers from this commit\'s image, each on its own database and Temporal namespace');
-  const stack = await startSplitStack();
+  let issuer: StandInIssuer | undefined;
+  const stack = await startSplitStack({
+    rootEnv: async (rootUrl) => {
+      issuer = await startStandInIssuer({ redirectUris: [providerCallbackUrl(rootUrl, 'oidc')] });
+      return { OIDC_ISSUER: issuer.issuer, OIDC_CLIENT_ID: issuer.clientId, OIDC_CLIENT_SECRET: issuer.clientSecret, OIDC_LABEL: 'Stand-in', GITHUB_CLIENT_ID: '', GITHUB_CLIENT_SECRET: '' };
+    },
+  });
   console.log(`  root ${stack.rootUrl}, instance ${stack.instanceUrl}, hub ${stack.hubUrl}; namespace ${stack.names.namespace}`);
   try {
+    await providerSignIn(stack, issuer!);
     await stages(stack);
   } catch (err) {
     for (const side of ['root', 'instance', 'hub'] as const) console.error(`\n── ${side}'s last lines ──\n${stack.logs(side, 40)}`);
     throw err;
   } finally {
     await stack.stop();
+    await issuer?.close();
   }
   console.log('\ndev split live — PASS');
 }
