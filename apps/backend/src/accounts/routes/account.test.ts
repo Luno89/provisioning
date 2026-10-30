@@ -33,6 +33,13 @@ const seedPeople = async (db: Database) => {
 const operatorOnly = (req: Request, res: Response, next: NextFunction) =>
   (allowed((req as unknown as { principal: Principal }).principal, 'manage-accounts', { kind: 'install' }) ? next() : res.status(403).json({ error: 'Admin only' }));
 
+const PROOF = 'my-own-password-1';
+let proofsAsked = 0;
+const confirmed = async (req: { body?: { password?: string } }) => {
+  proofsAsked += 1;
+  return req.body?.password === PROOF ? undefined : { status: 403 as const, error: 'Enter your password to do this' };
+};
+
 const principalFor = (user: { id: string; roles?: ('operator')[] | undefined }) => principalOf(user, { role: 'combined' });
 
 const mount = async (prefix: '/api/account' | '/api/admin', hub?: HubPeople) => {
@@ -43,7 +50,7 @@ const mount = async (prefix: '/api/account' | '/api/admin', hub?: HubPeople) => 
       await seedPeople(db);
       const removal = new AccountRemovalService({ store: db, workflows, now: () => 'now', hub, principalFor });
       return prefix === '/api/account'
-        ? accountRouter({ removal, clearSession: (res) => { cleared += 1; res.clearCookie('session'); } })
+        ? accountRouter({ removal, clearSession: (res) => { cleared += 1; res.clearCookie('session'); }, confirmed })
         : adminRouter({ db, operatorOnly, removal });
     },
   });
@@ -53,6 +60,7 @@ beforeEach(() => {
   started = [];
   states = new Map();
   cleared = 0;
+  proofsAsked = 0;
 });
 
 afterEach(async () => {
@@ -71,7 +79,13 @@ describe('removing your own account', () => {
     expect(wrong.status).toBe(400);
     expect(started).toEqual([]);
 
-    const removed = await call('delete', '/api/account', { confirm: PERSON.email });
+    const unproven = await call('delete', '/api/account', { confirm: PERSON.email });
+    expect(unproven.status).toBe(403);
+    expect(unproven.data.error).toBe('Enter your password to do this');
+    expect(started).toEqual([]);
+    expect((await harness.db.accounts.getUserById(PERSON.id))?.removal).toBeUndefined();
+
+    const removed = await call('delete', '/api/account', { confirm: PERSON.email, password: PROOF });
     expect(removed.status).toBe(202);
     expect(removed.data).toEqual({ state: { state: 'running', done: [] } });
     expect(started).toEqual([`remove-account-${PERSON.id}`]);
@@ -83,9 +97,10 @@ describe('removing your own account', () => {
     await mount('/api/account');
     await harness.db.infrastructure.saveDeployment({ id: 'd1', name: 'odoo', clusterId: 'c1', ownerId: PERSON.id, strategy: 'helm' } as never);
 
-    const refused = await call('delete', '/api/account', { confirm: PERSON.email });
+    const refused = await call('delete', '/api/account', { confirm: PERSON.email, password: PROOF });
     expect(refused.status).toBe(409);
     expect(refused.data.blockers).toEqual(['the app "odoo" is still deployed; remove it first']);
+    expect(proofsAsked).toBe(0);
     expect((await harness.db.accounts.getUserById(PERSON.id))?.removal).toBeUndefined();
   });
 
@@ -93,7 +108,7 @@ describe('removing your own account', () => {
     await mount('/api/account');
     states.set(`remove-account-${PERSON.id}`, { state: 'running', done: ['workflows'] });
 
-    expect((await call('delete', '/api/account', { confirm: PERSON.email })).data).toEqual({ state: { state: 'running', done: ['workflows'] } });
+    expect((await call('delete', '/api/account', { confirm: PERSON.email, password: PROOF })).data).toEqual({ state: { state: 'running', done: ['workflows'] } });
     expect(started).toEqual([]);
   });
 });
@@ -177,13 +192,13 @@ describe('a person removing their own account on root', () => {
           now: () => 'now',
           principalFor,
         });
-        return accountRouter({ removal, clearSession: () => { cleared += 1; } });
+        return accountRouter({ removal, clearSession: () => { cleared += 1; }, confirmed });
       },
     });
     expect((await call('get', '/api/account/removal')).data).toEqual({ email: PERSON.email, blockers: [], instance: { name: 'bob', where: 'own', status: 'ready', url: 'https://bob.koala.dev', autoUpdates: true } });
     expect((await call('delete', '/api/account', { confirm: 'wrong@example.com' })).status).toBe(400);
     expect(types).toEqual([]);
-    expect((await call('delete', '/api/account', { confirm: PERSON.email })).status).toBe(202);
+    expect((await call('delete', '/api/account', { confirm: PERSON.email, password: PROOF })).status).toBe(202);
     expect(types).toEqual([ROOT_REMOVAL_WORKFLOW]);
     expect(cleared).toBe(1);
   });
@@ -208,7 +223,9 @@ describe('removing an account that is on shared projects', () => {
     expect((await sent.mine(PERSON.id)).length).toBe(2);
 
     await sent.changeRole(PERSON.id, shop.value.project.id, ADMIN.id, 'owner');
-    expect((await call('delete', '/api/account', { confirm: PERSON.email })).status).toBe(202);
+    expect((await call('delete', '/api/account', { confirm: PERSON.email })).status).toBe(403);
+    expect((await sent.mine(PERSON.id)).length).toBe(2);
+    expect((await call('delete', '/api/account', { confirm: PERSON.email, password: PROOF })).status).toBe(202);
     expect(started.length).toBe(1);
     expect(await sent.mine(PERSON.id)).toEqual([]);
     expect((await sent.view(ADMIN.id, alone.value.project.id)).ok).toBe(false);

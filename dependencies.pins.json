@@ -1330,6 +1330,30 @@
           "pattern": "^github\\.com/caddy-dns/porkbun@(\\S+)$"
         }
       ]
+    },
+    {
+      "kind": "data",
+      "name": "seclists-ncsc-100k",
+      "version": "913b327317496d062bcc7cace524aaad8a693be2",
+      "sha256": "c2e5696882c603b76bb67a47ee970897e5a76fc4c3f5547abe3d0ca340c576e0",
+      "source": "https://raw.githubusercontent.com/danielmiessler/SecLists/913b327317496d062bcc7cace524aaad8a693be2/Passwords/Common-Credentials/100k-most-used-passwords-NCSC.txt",
+      "commit": "913b327317496d062bcc7cace524aaad8a693be2",
+      "github": "danielmiessler/SecLists",
+      "usedIn": [
+        "scripts/breached-passwords.mjs"
+      ]
+    },
+    {
+      "kind": "data",
+      "name": "seclists-pwdb-top-1000000",
+      "version": "913b327317496d062bcc7cace524aaad8a693be2",
+      "sha256": "e9a88f67aafe65496682dc374559ee714e978bee50314767494c3e37a18c9fc8",
+      "source": "https://raw.githubusercontent.com/danielmiessler/SecLists/913b327317496d062bcc7cace524aaad8a693be2/Passwords/Common-Credentials/Pwdb_top-1000000.txt",
+      "commit": "913b327317496d062bcc7cace524aaad8a693be2",
+      "github": "danielmiessler/SecLists",
+      "usedIn": [
+        "scripts/breached-passwords.mjs"
+      ]
     }
   ],
   "unpinned": []

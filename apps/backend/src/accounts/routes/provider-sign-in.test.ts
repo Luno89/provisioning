@@ -5,6 +5,9 @@ import express from 'express';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { authRouter } from './auth.js';
 import { createAuth } from '../../platform/middleware/auth.js';
+import { SessionEnds } from '../../platform/services/SessionEnds.js';
+import { PasswordService } from '../services/PasswordService.js';
+import { breachedFrom } from '../lib/passwords.js';
 import { testDatabase } from '../../platform/lib/test-database.js';
 import type { Database } from '../../platform/lib/db-interface.js';
 import { AuthService } from '../services/AuthService.js';
@@ -69,7 +72,7 @@ async function standInGithub(): Promise<StandInGithub> {
 }
 
 async function serve(db: Database, { server, url }: { server: http.Server; url: string }, providers: SignInProvider[]) {
-  const auth = createAuth({ db, sessionKey: SESSION_KEY, publicUrl: url, setupCode: SETUP_CODE });
+  const auth = createAuth({ db, sessionKey: SESSION_KEY, publicUrl: url, setupCode: SETUP_CODE, sessionEnds: new SessionEnds(db.platform) });
   const authService = new AuthService(db);
   const app = express();
   app.use(express.json());
@@ -77,6 +80,7 @@ async function serve(db: Database, { server, url }: { server: http.Server; url: 
   app.use('/api/auth', authRouter({
     db, authService, auth, sessionKey: SESSION_KEY, publicUrl: url, appUrl: APP_URL,
     providers: new SignInProviders({ providers, publicUrl: url, sessionKey: SESSION_KEY, accounts: authService }),
+    passwords: new PasswordService({ db, auth: authService, breached: breachedFrom('') }),
   }));
   server.on('request', app);
   return { server, authService, url };
@@ -247,7 +251,7 @@ describe('signing in with an OpenID provider and with GitHub', () => {
     const location = started.headers.get('location')!;
     const callback = id === 'oidc' ? await issuer.authorize(location) : await githubAuthorize(location);
     const state = callback.searchParams.get('state')!;
-    const forged = `oauth_state=${signJWT({ oauthState: state, carried: '', held: { provider: id, verifier: randomBytes(32).toString('base64url'), nonce: new URL(location).searchParams.get('nonce') ?? 'none' } }, SESSION_KEY, 600)}`;
+    const forged = `oauth_state=${signJWT('oauth-state', { oauthState: state, carried: '', held: { provider: id, verifier: randomBytes(32).toString('base64url'), nonce: new URL(location).searchParams.get('nonce') ?? 'none' } }, SESSION_KEY, 600)}`;
     const refused = await fetch(callback, { redirect: 'manual', headers: { cookie: forged } });
     expect(sessionOf(refused)).toBeUndefined();
     expect(errorOf(refused)).toMatch(id === 'oidc' ? /^Stand-in did not sign you in: .*(PKCE|grant)/i : /^GitHub did not sign you in: bad_verification_code/);

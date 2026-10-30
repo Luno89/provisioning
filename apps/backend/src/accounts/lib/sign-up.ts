@@ -14,6 +14,7 @@ export interface PendingSignUp {
   wrong: number;
   sent: number;
   expiresAt: Date;
+  taken?: boolean | undefined;
 }
 
 export const normalEmail = (email: unknown): string => (typeof email === 'string' ? email.trim().toLowerCase() : '');

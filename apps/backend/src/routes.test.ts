@@ -52,7 +52,7 @@ describe('Auth Endpoints & Route Protection Integration', () => {
 
   it('should register and log in natively, returning correct JWT session cookie', async () => {
     const email = `test-user-${Date.now()}@example.com`;
-    const password = 'myPassword123';
+    const password = 'a-koala-routes-password';
 
     const regRes = await axios.post(getUrl('/api/auth/register'), { email, password, inviteCode: SETUP_CODE });
     expect(regRes.status).toBe(200);
