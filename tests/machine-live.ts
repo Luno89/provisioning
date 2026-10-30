@@ -1,24 +1,25 @@
 import assert from 'node:assert/strict';
-import { execFile } from 'node:child_process';
-import dotenv from 'dotenv';
-import { fileURLToPath } from 'url';
-dotenv.config({ path: fileURLToPath(new URL('../apps/backend/.env', import.meta.url)) });
+import { execFile, execFileSync } from 'node:child_process';
+import { mkdtempSync, readFileSync, rmSync, symlinkSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import axios from 'axios';
 import { createDatabase } from '../apps/backend/src/platform/lib/db-interface.js';
-import { signJWT } from '../apps/backend/src/platform/lib/auth.js';
-import { loadKeys } from '../apps/backend/src/platform/lib/keys.js';
 import { createDisposableVm, type DisposableVm } from './lib/disposable-vm.js';
 import { ACP_STUB, chatsOnTheMachine, type Api } from './lib/machine-chat.js';
+import { startOwnStack, type OwnStack } from './lib/own-stack.js';
 
-const BASE = process.env.MACHINE_LIVE_URL ?? 'http://localhost:3001/api';
-const OWNER = process.env.MACHINE_LIVE_OWNER ?? process.env.CHECKS_LIVE_OWNER;
 const NAME = `machine-live-${Date.now().toString(36)}`;
 const NODE = process.version;
+const REPO = fileURLToPath(new URL('..', import.meta.url));
+const BEFORE_SELF_UPDATE = '4e711811a6aba15c1e5838d8f5b0e1a83ee55ff4';
+const AGENT_DIR = '~/.local/share/koala/machine';
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-const LOOPBACK = `#!/bin/sh
+const loopback = (ports: number[]) => `#!/bin/sh
 sysctl -qw net.ipv4.conf.all.route_localnet=1
-for port in 3001 7234; do
+for port in ${ports.join(' ')}; do
   iptables -t nat -C OUTPUT -o lo -d 127.0.0.1 -p tcp --dport $port -j DNAT --to-destination 10.0.2.2:$port 2>/dev/null || \\
     iptables -t nat -A OUTPUT -o lo -d 127.0.0.1 -p tcp --dport $port -j DNAT --to-destination 10.0.2.2:$port
 done
@@ -37,7 +38,20 @@ WantedBy=multi-user.target
 `;
 
 interface Agent { id: string; state: string; source: string; version?: string; reason?: string }
-interface Machine { id: string; name: string; online: boolean; connectedAt?: string; os?: string; agents: Agent[] }
+interface AgentUpdate { state: string; current: string; running?: string; reason?: string }
+interface Machine { id: string; name: string; online: boolean; connectedAt?: string; os?: string; agents: Agent[]; agentUpdate?: AgentUpdate }
+
+function agentBefore(commit: string): Buffer {
+  const work = mkdtempSync(path.join(os.tmpdir(), 'machine-live-agent-'));
+  try {
+    execFileSync('sh', ['-c', `git -C "${REPO}" archive "${commit}" apps/local-agent | tar -x -C "${work}"`]);
+    symlinkSync(path.join(REPO, 'node_modules'), path.join(work, 'node_modules'));
+    execFileSync(process.execPath, [path.join(work, 'apps/local-agent/scripts/bundle-machine.mjs'), path.join(work, 'out')], { stdio: ['ignore', 'ignore', 'inherit'] });
+    return readFileSync(path.join(work, 'out/machine-agent.tgz'));
+  } finally {
+    rmSync(work, { recursive: true, force: true });
+  }
+}
 
 function ssh(vm: DisposableVm, command: string, input?: string): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -57,13 +71,30 @@ const write = (vm: DisposableVm, file: string, content: string, mode = '644', su
   ssh(vm, `${sudo ? 'sudo ' : ''}mkdir -p "$(dirname ${file})" && cat | ${sudo ? 'sudo ' : ''}tee ${file} >/dev/null && ${sudo ? 'sudo ' : ''}chmod ${mode} ${file}`, content);
 
 async function main(): Promise<void> {
-  assert.ok(OWNER, 'set MACHINE_LIVE_OWNER (or CHECKS_LIVE_OWNER) to the person the machine joins');
-  const db = createDatabase();
-  await db.init();
-  const user = await db.accounts.getUserById(OWNER);
-  assert.ok(user, 'no such user');
-  const http = axios.create({ baseURL: BASE, proxy: false, timeout: 0, validateStatus: () => true, headers: { Cookie: `session=${signJWT({ userId: user.id, email: user.email }, loadKeys(process.env).session, 4 * 3600)}` } });
+  console.log('[0] a Koala of this suite\'s own, from this commit\'s image: its backend and engine worker, its database and its Temporal namespace');
+  const own = await startOwnStack('machine-live');
+  const db = createDatabase({ ...process.env, MONGO_URI: own.root.mongoUri });
+  let vm: DisposableVm | undefined;
+  let passed = false;
+  try {
+    await db.init();
+    console.log(`    ${own.url}, its machines reaching Temporal through ${own.gatewayPort}, owned by ${own.owner.email}`);
+    await stages(own, db, (made) => { vm = made; });
+    passed = true;
+  } finally {
+    console.log('[12] removing the VM and this suite\'s Koala');
+    if (!passed) console.log(`    the backend said, last:\n${own.logs('backend', 40).split('\n').map((line) => `      ${line}`).join('\n')}`);
+    await vm?.destroy();
+    console.log('    the VM is gone');
+    await db.close?.();
+    await own.stop();
+    console.log('    its containers, database and namespace are gone');
+  }
+}
 
+async function stages(own: OwnStack, db: ReturnType<typeof createDatabase>, madeVm: (vm: DisposableVm) => void): Promise<void> {
+  let vm: DisposableVm | undefined;
+  const http = axios.create({ baseURL: own.api, proxy: false, timeout: 0, validateStatus: () => true, headers: { Cookie: own.owner.cookie } });
   const machines = async (): Promise<Machine[]> => (await http.get('/mesh/local-agents')).data;
   const mine = async (): Promise<Machine | undefined> => (await machines()).find((machine) => machine.name === NAME);
   const until = async <T>(what: string, minutes: number, check: () => Promise<T | undefined>): Promise<T> => {
@@ -76,10 +107,23 @@ async function main(): Promise<void> {
     throw new Error(`${what} did not happen within ${minutes} minutes`);
   };
 
-  let vm: DisposableVm | undefined;
-  try {
+  const served = async (): Promise<string> => String((await http.get('/machines/agent.tgz.sha256')).data).trim().split(/\s+/)[0]!;
+  const onVm = async (command: string): Promise<string> => (await ssh(vm!, command)).trim();
+  const agentOnVm = async () => ({
+    bundle: await onVm(`cat ${AGENT_DIR}/bundle.sha256 2>/dev/null || echo none`),
+    pid: await onVm('systemctl --user show -p MainPID --value koala-machine'),
+    active: await onVm('systemctl --user is-active koala-machine || true'),
+  });
+  const updateIs = (state: string, seen?: Set<string>) => async (): Promise<Machine | undefined> => {
+    const found = await mine();
+    if (found?.agentUpdate) seen?.add(found.agentUpdate.state);
+    return found?.online && found.agentUpdate?.state === state ? found : undefined;
+  };
+
+  {
     console.log(`[1] a fresh Ubuntu machine with nothing of Koala's on it: ${NAME}`);
     vm = await createDisposableVm(NAME, { memoryMB: 2048, cpus: 2, diskGB: 10, reboots: true });
+    madeVm(vm);
 
     console.log(`[2] it has Node ${NODE}, a coding agent that speaks ACP (gemini), and Claude Code and Codex without their adapters; this computer is its localhost`);
     await ssh(vm, `mkdir -p ~/.local/node ~/agents && curl -fsSL https://nodejs.org/dist/${NODE}/node-${NODE}-linux-x64.tar.xz | tar -xJf - -C ~/.local/node --strip-components=1`);
@@ -87,16 +131,16 @@ async function main(): Promise<void> {
     await write(vm, '~/agents/gemini', ACP_STUB, '755');
     await write(vm, '~/agents/claude', '#!/bin/sh\necho "claude 2.0.0"\n', '755');
     await write(vm, '~/agents/codex', '#!/bin/sh\necho "codex-cli 0.50.0"\n', '755');
-    await write(vm, '/usr/local/sbin/koala-loopback', LOOPBACK, '755', true);
+    await write(vm, '/usr/local/sbin/koala-loopback', loopback([own.apiPort, own.gatewayPort]), '755', true);
     await write(vm, '/etc/systemd/system/koala-loopback.service', LOOPBACK_UNIT, '644', true);
     await ssh(vm, 'sudo systemctl daemon-reload && sudo systemctl enable --now koala-loopback.service');
-    assert.match(await ssh(vm, 'node --version && command -v gemini && curl -fsS -o /dev/null -w "%{http_code}" http://localhost:3001/machine.sh'), /200$/);
+    assert.match(await ssh(vm, `node --version && command -v gemini && curl -fsS -o /dev/null -w "%{http_code}" http://localhost:${own.apiPort}/machine.sh`), /200$/);
 
     console.log('[3] the command from My Machines installs it, lists the agents it found without installing an adapter (--adapters none), starts it as a service, and keeps it starting with the machine');
     const made = await http.post('/mesh/local-agents/join-code', {});
     assert.equal(made.status, 201, JSON.stringify(made.data));
     const command = (made.data as { command: string }).command;
-    assert.match(command, /^curl -fsSL http:\/\/localhost:3001\/machine\.sh \| sh -s -- \S+$/);
+    assert.equal(command.replace(/\S+$/, ''), `curl -fsSL http://localhost:${own.apiPort}/machine.sh | sh -s -- `);
     const installed = (await ssh(vm, `${command} --yes --adapters none`)).replace(/\x1b\[[0-9;]*m/g, '');
     console.log(installed.split('\n').filter((line) => line.trim()).map((line) => `    ${line.trim()}`).join('\n'));
     assert.match(installed, /running as the koala-machine service/);
@@ -114,6 +158,11 @@ async function main(): Promise<void> {
     assert.deepEqual(joined.agents.map((agent) => [agent.id, agent.state]).sort(), [['claude', 'needs-adapter'], ['codex', 'needs-adapter'], ['gemini', 'ready']]);
     assert.equal(joined.agents.find((agent) => agent.id === 'gemini')?.version, '1.2.3');
     console.log('    connected: gemini ready (1.2.3, confirmed over ACP), claude and codex need their adapters');
+    const first = await served();
+    assert.equal((await agentOnVm()).bundle, first, 'the install did not record the bundle it installed');
+    const upToDate = await until('My Machines saying its agent is up to date', 1, updateIs('current'));
+    assert.deepEqual(upToDate.agentUpdate, { state: 'current', current: first, running: first });
+    console.log(`    its agent is ${first.slice(0, 12)}, the bundle Koala serves, and My Machines says it is up to date`);
 
     console.log('[4] after the machine restarts, nobody logs in, and it connects again on its own');
     const before = joined.connectedAt;
@@ -136,20 +185,71 @@ async function main(): Promise<void> {
     assert.equal(claude.state, 'ready', `the adapter installed but ${claude.state}: ${claude.reason ?? ''}`);
     console.log(`    claude ready through its adapter${claude.version ? ` (${claude.version})` : ''}`);
 
-    console.log('[6] running the command again with --yes installs Codex\'s adapter from the script, and replaces the machine rather than adding a second');
+    console.log(`[6] an agent from before agents updated themselves (${BEFORE_SELF_UPDATE.slice(0, 9)}) says nothing about which it is, and My Machines says it is too old to update itself`);
+    const old = agentBefore(BEFORE_SELF_UPDATE);
+    await ssh(vm, 'cat > /tmp/old-agent.tgz', old.toString('base64'));
+    await onVm(`systemctl --user stop koala-machine && rm -rf ${AGENT_DIR} && mkdir -p ${AGENT_DIR} && base64 -d /tmp/old-agent.tgz | tar -xz -C ${AGENT_DIR} && cd ${AGENT_DIR} && npm ci --omit=dev --ignore-scripts --no-audit --no-fund --loglevel=error >/dev/null && systemctl --user start koala-machine`);
+    const tooOld = await until('My Machines saying its agent is too old', 3, updateIs('too-old'));
+    assert.deepEqual(tooOld.agentUpdate, { state: 'too-old', current: first });
+    assert.equal((await agentOnVm()).bundle, 'none');
+    console.log('    too old to update itself: the person is told to run the command again');
+
+    console.log('[7] running the command again with --yes installs Codex\'s adapter from the script, and replaces the machine rather than adding a second');
     const remade = await http.post('/mesh/local-agents/join-code', {});
     assert.equal(remade.status, 201, JSON.stringify(remade.data));
     const again = (await ssh(vm, `${(remade.data as { command: string }).command} --yes`)).replace(/\x1b\[[0-9;]*m/g, '');
     assert.match(again, /✓ Codex[^\n]*, through @agentclientprotocol\/codex-acp/, again);
     const rejoined = await until('the machine connecting again', 3, async () => {
       const found = (await machines()).filter((machine) => machine.name === NAME);
-      return found.length === 1 && found[0]!.online && found[0]!.connectedAt !== back.connectedAt ? found[0] : undefined;
+      return found.length === 1 && found[0]!.online && found[0]!.connectedAt !== tooOld.connectedAt ? found[0] : undefined;
     });
     assert.equal(rejoined.id, back.id);
     const codex = await until('codex showing ready', 3, async () => (await mine())?.agents.find((agent) => agent.id === 'codex' && agent.state === 'ready'));
     console.log(`    codex ready through its adapter${codex.version ? ` (${codex.version})` : ''}; still one machine, ${rejoined.id}`);
+    assert.deepEqual((await until('its agent up to date again', 3, updateIs('current'))).agentUpdate, { state: 'current', current: first, running: first });
+    console.log('    the command installed the current agent in place of the old one, and it is up to date');
 
-    console.log('[7] a chat on its gemini runs on the machine: the large message reaches it through the encrypted, offloaded payloads, and the next turn continues the session');
+    console.log('[8] Koala names a bundle its download does not match: the agent refuses it, keeps running as it is, and My Machines says why');
+    const installedNow = await agentOnVm();
+    const named = 'f'.repeat(64);
+    own.exec('backend', `printf '%s  machine-agent.tgz\\n' ${named} > /app/apps/local-agent/dist/machine-agent.tgz.sha256`);
+    await onVm('systemctl --user restart koala-machine');
+    const refused = await until('My Machines saying the update failed', 3, updateIs('failed'));
+    assert.equal(refused.agentUpdate?.current, named);
+    assert.equal(refused.agentUpdate?.running, first);
+    assert.match(refused.agentUpdate?.reason ?? '', /the agent Koala sent is not the one it named \(its sha256 is [0-9a-f]{12}, Koala named f{12}\)/);
+    const kept = await agentOnVm();
+    assert.equal(kept.bundle, first, 'the refused update changed the installed agent');
+    assert.notEqual(kept.pid, installedNow.pid, 'the agent was not restarted to connect again');
+    await sleep(10_000);
+    const settled = await agentOnVm();
+    assert.equal(settled.active, 'active');
+    assert.equal(settled.pid, kept.pid, 'the agent stopped after refusing the update');
+    assert.equal(await onVm(`test -e ${AGENT_DIR}.next && echo left || echo clean`), 'clean');
+    console.log(`    "${refused.agentUpdate?.reason}"; the agent stays ${first.slice(0, 12)}, still running as pid ${kept.pid}`);
+
+    console.log('[9] Koala is updated and serves a newer agent: the machine, idle, updates itself and comes back as its service on it, and My Machines says it is up to date');
+    own.exec('backend', 'sed -i \'s/"version": "1.0.0"/"version": "1.0.1-machine-live"/\' /app/apps/local-agent/package.json');
+    await own.restart('backend');
+    const newer = await served();
+    assert.notEqual(newer, first);
+    const seen = new Set<string>();
+    const updated = await until('the machine on the newer agent', 5, async () => {
+      const found = await updateIs('current', seen)();
+      return found?.agentUpdate?.running === newer ? found : undefined;
+    });
+    assert.deepEqual(updated.agentUpdate, { state: 'current', current: newer, running: newer });
+    const after = await agentOnVm();
+    assert.equal(after.bundle, newer);
+    assert.equal(after.active, 'active');
+    assert.notEqual(after.pid, kept.pid, 'the service is still the process that ran before the update');
+    assert.equal(await onVm(`cat ${AGENT_DIR}.previous/bundle.sha256`), first, 'the agent before the update was not kept to go back to');
+    const version = JSON.parse(await onVm(`node ${AGENT_DIR}/agent.mjs version`)) as { bundle: string; version: string };
+    assert.deepEqual(version, { bundle: newer, version: '1.0.1-machine-live' });
+    assert.equal(await onVm(`test -e ${AGENT_DIR}.next && echo left || echo clean`), 'clean');
+    console.log(`    states seen: ${[...seen].join(' → ')}; now ${newer.slice(0, 12)} (1.0.1-machine-live) as pid ${after.pid}, the one before kept in ${AGENT_DIR}.previous`);
+
+    console.log('[10] a chat on its gemini runs on the updated agent: the large message reaches it through the encrypted, offloaded payloads, and the next turn continues the session');
     const api: Api = async (method, path, body) => {
       const answer = await http.request({ method, url: path, ...(body === undefined ? {} : { data: body }) });
       return { status: answer.status, data: answer.data };
@@ -157,7 +257,7 @@ async function main(): Promise<void> {
     const said = await chatsOnTheMachine(api, rejoined.id);
     console.log(said.map((line) => `    ${line}`).join('\n'));
 
-    console.log('[8] removing it on My Machines stops its agent, deletes its token, its service and the project it was added with');
+    console.log('[11] removing it on My Machines stops its agent, deletes its token, its service and the project it was added with');
     const project = (await db.projects.getProjects()).find((candidate) => candidate.executionTarget?.kind === 'local-device' && candidate.executionTarget.deviceId === rejoined.id);
     assert.ok(project, 'the machine was added without a project');
     assert.equal((await http.delete(`/mesh/local-agents/${rejoined.id}`)).status, 200);
@@ -172,17 +272,6 @@ async function main(): Promise<void> {
     console.log(`    ${stopped.split('\n').join(', ')}; its project and listing gone`);
 
     console.log('machine live — PASS');
-  } finally {
-    console.log('[9] removing anything left, and the VM');
-    const found = await mine().catch(() => undefined);
-    if (found) {
-      const removed = await http.delete(`/mesh/local-agents/${found.id}`);
-      console.log(`    the machine: ${removed.status}`);
-      const project = (await db.projects.getProjects()).find((candidate) => candidate.executionTarget?.kind === 'local-device' && candidate.executionTarget.deviceId === found.id);
-      if (project) console.log(`    its project: ${(await http.delete(`/projects/${project.id}`, { data: { confirm: project.name } })).status}`);
-    }
-    await vm?.destroy();
-    console.log('    the VM is gone');
   }
 }
 
