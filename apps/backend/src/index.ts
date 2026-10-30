@@ -25,7 +25,7 @@ import { startTelemetry } from '@koala/engine-core/telemetry-sdk';
 import { rateLimit } from 'express-rate-limit';
 import { wireReleases } from './releases/wiring/releases.js';
 import { storyDropsFor, wireFiles } from './files/wiring/files.js';
-import { wireMachines } from './machines/wiring/machines.js';
+import { machineBundle as newMachineBundle, wireMachines } from './machines/wiring/machines.js';
 import { wireMonitoring } from './monitoring/wiring/monitoring.js';
 import { wireInfrastructure } from './infrastructure/wiring/infrastructure.js';
 import { wireAccounts } from './accounts/wiring/accounts.js';
@@ -38,7 +38,7 @@ import { wireSockets } from './machines/wiring/sockets.js';
 import { workFailuresFor, wireRunning } from './infrastructure/wiring/running.js';
 import { wireActions } from './engine/wiring/actions.js';
 import { PRUNE_FIRST_DELAY_MS, PRUNE_INTERVAL_MS } from './engine-host/sandboxes/prune-images.js';
-import { askDevice, dropDevice, localAgentStatus, tellDevice, MachineBundle, MachineService, machineTelemetry } from './machines/index.js';
+import { askDevice, dropDevice, localAgentStatus, tellDevice, MachineService, machineTelemetry } from './machines/index.js';
 import { RootMeshKeys, IdentityService } from './instances/index.js';
 import { modelsRouter, ModelService, endpointRulesFromEnv } from './models/index.js';
 
@@ -180,7 +180,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   const headscaleService = new HeadscaleService(keys.data, process.env.HEADSCALE_URL || 'http://localhost:8080', process.env.HEADSCALE_API_KEY);
   const MACHINE_GATEWAY_PORT = Number(process.env.MACHINE_GATEWAY_PORT || 7234);
   const machineTemporal = { address: process.env.MACHINE_TEMPORAL_ADDRESS || `localhost:${MACHINE_GATEWAY_PORT}`, namespace: temporalNamespaceFrom(process.env) };
-  const machineBundle = new MachineBundle(path.join(__dirname, '../../..'));
+  const machineBundle = newMachineBundle(path.join(__dirname, '../../..'));
   const machineService = new MachineService({
     store: db.machines,
     bundle: machineBundle,

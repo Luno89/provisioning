@@ -3,7 +3,7 @@ import path from 'path';
 import type express from 'express';
 import { type Database, type LocalAgentDeviceMetadata, type SecretKey, asyncRoute, ringOf, sharedPayloadBlobs, temporalApiKey } from '../../platform/index.js';
 import { findDeviceByToken } from '../lib/local-agent-registry.js';
-import type { MachineBundle } from '../services/MachineBundle.js';
+import { MachineBundle } from '../services/MachineBundle.js';
 import { MachineGitService } from '../services/MachineGitService.js';
 import { MachineTemporalGateway } from '../services/MachineTemporalGateway.js';
 import { type HeadscaleService, meshRouter } from '../../infrastructure/index.js';
@@ -26,6 +26,8 @@ export interface MachinesWiringDeps {
   projectRepos: ProjectRepoService;
   gateway?: { port: number; host: string; upstream: string; namespace: string; temporalKey: string; temporalCa?: Buffer | undefined } | undefined;
 }
+
+export const machineBundle = (repoRoot: string): MachineBundle => new MachineBundle(repoRoot);
 
 export const deviceByToken = (db: Pick<Database, 'machines'>, dataKey: SecretKey, now: () => Date = () => new Date()) =>
   async (token: string): Promise<LocalAgentDeviceMetadata | undefined> => findDeviceByToken(await db.machines.getLocalAgentDevices(), token, dataKey, now());

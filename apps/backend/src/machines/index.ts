@@ -6,7 +6,6 @@ export { machineTelemetry } from './lib/machine-telemetry.js';
 export type { MachineTelemetry, TelemetryAnswer } from './lib/machine-telemetry.js';
 export { machineChoiceProblem, meshAddress } from './lib/machines.js';
 export type { ChosenMachine, MachineAgent, ManualMachineAgent } from './lib/machines.js';
-export { MachineBundle } from './services/MachineBundle.js';
 export { MachineService } from './services/MachineService.js';
 export type { MachinesStore } from './store.js';
 export type { Routes } from './wiring/machines.js';
