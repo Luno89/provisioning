@@ -4,13 +4,14 @@ import http from 'http';
 import type { AddressInfo } from 'net';
 import { testDatabase } from '../../platform/lib/test-database.js';
 import type { MongoDB } from '../../platform/lib/mongo-db.js';
-import { createAuth } from '../../platform/middleware/auth.js';
+import { createAuth, type Auth } from '../../platform/middleware/auth.js';
+import { SessionEnds } from '../../platform/services/SessionEnds.js';
 import { sessionToken } from '../../platform/lib/auth.js';
 import { type AccessRevoked } from '../../platform/lib/revocations.js';
 import { sessionView, type Principal } from '../../platform/lib/permissions.js';
 import { AccessRevocations } from '../../platform/services/AccessRevocations.js';
 import { generateIdentityKey, identityKeysFrom, publicKeyPem, trustedKeys } from '../lib/identity-token.js';
-import { clientKeysFrom } from '../lib/oidc.js';
+import { clientKeysFrom, publicJwkOf } from '../lib/oidc.js';
 import { RootProvider } from './RootProvider.js';
 import { InstanceReach } from './InstanceReach.js';
 import { RootSignIn } from './RootSignIn.js';
@@ -23,6 +24,7 @@ const rootSigning = identityKeysFrom(generateIdentityKey());
 const ROOT_SESSION = 'root-session-key-for-the-round-trip';
 const INSTANCE_SESSION = 'instance-session-key-for-the-round-trip';
 const DATA_KEY = 'instance-data-key-for-the-round-trip-0001';
+const HUB_SESSION = 'hub-session-key-for-the-round-trip';
 
 type Jar = Map<string, string>;
 
@@ -52,8 +54,11 @@ let rootDb: MongoDB;
 let instanceDb: MongoDB;
 let root: Served;
 let instance: Served;
+let hub: Served;
 let provider: RootProvider;
 let signIn: RootSignIn;
+let hubSignIn: RootSignIn;
+let instanceAuth: Auth;
 let rootService: InstanceService;
 let offset: number;
 const heard: AccessRevoked[] = [];
@@ -63,6 +68,7 @@ beforeEach(async () => {
   instanceDb = await testDatabase();
   root = await serve();
   instance = await serve();
+  hub = await serve();
   offset = 0;
   heard.length = 0;
 
@@ -70,9 +76,10 @@ beforeEach(async () => {
   await rootDb.accounts.saveUser({ id: 'u2', email: 'u2@example.com', emailVerified: true, twoFactorEnabled: false, createdAt: '2026-10-29T00:00:00.000Z' });
   await rootDb.instances.saveInstance({ id: 'inst-u1', ownerId: 'u1', url: instance.url, credentialHash: hashCredential('the-instance-credential'), createdAt: 'x', updatedAt: 'x', status: 'ready' });
 
-  provider = new RootProvider({ issuer: `${root.url}/oidc`, signing: rootSigning, cookieKey: 'cookie-key-for-the-round-trip', proxied: false, reach: new InstanceReach({ open: true }) }, rootDb);
+  await rootDb.instances.saveHubSignInKey({ jwk: publicJwkOf(clientKeysFrom(HUB_SESSION)), since: 'x' });
+  provider = new RootProvider({ issuer: `${root.url}/oidc`, signing: rootSigning, cookieKey: 'cookie-key-for-the-round-trip', proxied: false, hubUrl: hub.url, reach: new InstanceReach({ open: true }) }, rootDb);
   rootService = new InstanceService(rootDb, { rootUrl: root.url, rootPublicKeys: () => [], registry: '', imageTag: 'dev', serviceCaller: (token) => provider.serviceCaller(token) }, undefined);
-  const rootAuth = createAuth({ db: rootDb, sessionKey: ROOT_SESSION, publicUrl: root.url, role: 'root' });
+  const rootAuth = createAuth({ db: rootDb, sessionKey: ROOT_SESSION, publicUrl: root.url, role: 'root', sessionEnds: new SessionEnds(rootDb.platform) });
   root.app.use('/oidc', oidcProviderRouter({ provider, signedIn: (req) => rootAuth.userFromSessionCookie(req.headers.cookie, false) }));
   root.app.put('/api/instances/sign-in-key', express.json(), async (req, res) => {
     const outcome = await rootService.announceSignIn(req.headers['x-instance-id'], String(req.headers.authorization ?? '').replace(/^Bearer\s+/i, ''), req.body?.jwk);
@@ -95,7 +102,7 @@ beforeEach(async () => {
     announce: { path: '/api/instances/sign-in-key', headers: { 'x-instance-id': 'inst-u1', authorization: 'Bearer the-instance-credential' } },
   }, instanceDb, revocations, () => Date.now() + offset);
   await signIn.load();
-  const instanceAuth = createAuth({ db: instanceDb, sessionKey: INSTANCE_SESSION, publicUrl: instance.url, role: 'instance', instanceOwnerId: 'u1', clientSessions: signIn });
+  instanceAuth = createAuth({ db: instanceDb, sessionKey: INSTANCE_SESSION, publicUrl: instance.url, role: 'instance', instanceOwnerId: 'u1', clientSessions: signIn, sessionEnds: new SessionEnds(instanceDb.platform) });
   const identity = new IdentityService({ role: 'instance', trusted: trustedKeys([publicKeyPem(rootSigning.publicKey)]), instance: { id: 'inst-u1', ownerId: 'u1', rootUrl: root.url } }, instanceDb);
   instance.app.use('/api/auth', signInRouter({ signIn, identity, auth: instanceAuth, publicUrl: instance.url, landing: '/chat' }));
   instance.app.use('/api', instanceAuth.requireAuth);
@@ -104,23 +111,40 @@ beforeEach(async () => {
     const { id, claims, permissions } = sessionView(signed.user, signed.principal, { holdsAccounts: false });
     res.json({ id, claims, permissions });
   });
+
+  const hubDb = await testDatabase();
+  hubSignIn = new RootSignIn({
+    kind: 'hub',
+    clientId: 'hub',
+    rootUrl: root.url,
+    publicUrl: hub.url,
+    clientKeys: clientKeysFrom(HUB_SESSION),
+    trusted: trustedKeys([publicKeyPem(rootSigning.publicKey)]),
+    sessionKey: HUB_SESSION,
+    dataKey: DATA_KEY,
+    announce: { path: '/api/hub-link/sign-in-key', headers: {} },
+  }, hubDb, new AccessRevocations());
+  const hubAuth = createAuth({ db: hubDb, sessionKey: HUB_SESSION, publicUrl: hub.url, role: 'hub', clientSessions: hubSignIn, sessionEnds: new SessionEnds(hubDb.platform) });
+  const hubIdentity = new IdentityService({ role: 'hub', trusted: trustedKeys([publicKeyPem(rootSigning.publicKey)]) } as never, hubDb);
+  hub.app.use('/api/auth', signInRouter({ signIn: hubSignIn, identity: hubIdentity, auth: hubAuth, publicUrl: hub.url, landing: '/hub' }));
 });
 
 afterEach(async () => {
   await new Promise((resolve) => root.server.close(resolve));
   await new Promise((resolve) => instance.server.close(resolve));
+  await new Promise((resolve) => hub.server.close(resolve));
 });
 
-async function signInAs(userId: string): Promise<{ instanceJar: Jar; landed: Response }> {
+async function signInAs(userId: string, at: Served = instance): Promise<{ instanceJar: Jar; landed: Response }> {
   const rootJar: Jar = new Map([['session', sessionToken({ id: userId, email: `${userId}@example.com` }, ROOT_SESSION)]]);
   const instanceJar: Jar = new Map();
-  let answer = await fetch(`${instance.url}/api/auth/oidc/start`, { redirect: 'manual' });
+  let answer = await fetch(`${at.url}/api/auth/oidc/start`, { redirect: 'manual' });
   remember(instanceJar, answer);
   for (;;) {
     const location = answer.headers.get('location');
     if (answer.status < 300 || answer.status >= 400 || !location || location.startsWith('/#')) return { instanceJar, landed: answer };
     const next = new URL(location, answer.url);
-    if (next.origin !== root.url && next.origin !== instance.url) return { instanceJar, landed: answer };
+    if (next.origin !== root.url && next.origin !== at.url) return { instanceJar, landed: answer };
     const jar = next.origin === root.url ? rootJar : instanceJar;
     answer = await fetch(next, { redirect: 'manual', headers: { cookie: cookieOf(jar) } });
     remember(jar, answer);
@@ -223,5 +247,45 @@ describe('signing in on an instance through root\'s OpenID provider', () => {
     expect(await rootService.ownerOf('inst-other', token)).toMatchObject({ ok: false });
     expect(await rootService.ownerOf('inst-u1', 'not-a-token')).toMatchObject({ ok: false, status: 401 });
     expect(await signIn.serviceToken()).toBe(token);
+  });
+
+  it('ends a session signed out of on the instance at once, and drops what would renew it', async () => {
+    await signIn.announce();
+    const { instanceJar } = await signInAs('u1');
+    expect((await whoami(instanceJar)).status).toBe(200);
+    const kept = (await signInAs('u1')).instanceJar;
+    await instanceAuth.endSession({ headers: { cookie: cookieOf(instanceJar) }, secure: false } as unknown as express.Request);
+    expect((await whoami(instanceJar)).status).toBe(401);
+    expect((await whoami(kept)).status).toBe(200);
+    const ended = signIn.verified(instanceJar.get('session'))!;
+    expect(await instanceDb.instances.getClientSession(ended.sid)).toBeUndefined();
+    offset = 21 * 60 * 1000;
+    expect((await whoami(instanceJar)).status).toBe(401);
+  });
+
+  it('tells the instance of an account locked by wrong passwords, so its runs stop, while its sessions go on', async () => {
+    await signIn.announce();
+    const { instanceJar } = await signInAs('u1');
+    await provider.revoke({ personId: 'u1', at: new Date().toISOString(), because: 'locked' });
+    await provider.deliverLogouts();
+    expect(heard).toEqual([expect.objectContaining({ personId: 'u1', because: 'locked' })]);
+    expect((await whoami(instanceJar)).status).toBe(200);
+    expect(await instanceDb.instances.getRevocations()).toEqual([]);
+  });
+
+  it('names the person the hub signed in to root by a token root gave them there, and not by one an instance holds', async () => {
+    await signIn.announce();
+    const atInstance = signIn.verified((await signInAs('u1')).instanceJar.get('session'));
+    const instanceToken = await signIn.personToken(atInstance);
+    expect(instanceToken).toBeTruthy();
+    expect(await provider.personAtHub(instanceToken!)).toBeUndefined();
+    const atHub = (await signInAs('u2', hub)).instanceJar;
+    const onHub = hubSignIn.verified(atHub.get('session'));
+    expect(onHub?.userId).toBe('u2');
+    const hubToken = await hubSignIn.personToken(onHub);
+    expect(await provider.personAtHub(hubToken!)).toBe('u2');
+    expect(await provider.personAtHub('made-up')).toBeUndefined();
+    await provider.revoke({ personId: 'u2', at: new Date().toISOString(), because: 'signed-out-everywhere' });
+    expect(await provider.personAtHub(hubToken!)).toBeUndefined();
   });
 });

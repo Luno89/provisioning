@@ -28,7 +28,7 @@ describe('a shared project and its people', () => {
     const id = shop.project.id;
 
     expect(valueOf(await hub.invite(ann, id, { email: 'Bo@Example.com', role: 'collaborator' }))).toMatchObject({ email: 'bo@example.com', role: 'collaborator', emailed: true });
-    expect(send).toHaveBeenCalledWith(expect.objectContaining({ email: 'bo@example.com', inviterEmail: 'ann@example.com', projectName: 'Shop', role: 'collaborator' }));
+    expect(send).toHaveBeenCalledWith(expect.objectContaining({ email: 'bo@example.com', inviterEmail: 'ann@example.com', projectName: 'Shop', role: 'collaborator' }), expect.objectContaining({ id: 'ann' }));
     expect(valueOf(await hub.view('ann', id)).invites).toEqual([{ projectId: id, email: 'bo@example.com', role: 'collaborator', invitedBy: 'ann', createdAt: 'now' }]);
 
     expect(await hub.accept(eve, tokenOf(0))).toMatchObject({ ok: false, status: 403, why: 'This invite is for bo@example.com; sign in as that address to take it.' });

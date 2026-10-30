@@ -3,11 +3,14 @@ import type { InviteSender } from './HubService.js';
 export class HubRootClient implements InviteSender {
   constructor(private readonly root: { rootUrl: string; token: () => Promise<string> }, private readonly fetchImpl: typeof fetch = fetch) {}
 
-  async send(request: Parameters<InviteSender['send']>[0]): ReturnType<InviteSender['send']> {
+  async send(request: Parameters<InviteSender['send']>[0], inviter: Parameters<InviteSender['send']>[1]): ReturnType<InviteSender['send']> {
+    const inviterToken = await inviter.vouch?.();
+    if (!inviterToken) throw new Error('root takes an invite only from someone it signed in to the hub; sign in again');
+    const { email, projectName, role, join } = request;
     const response = await this.fetchImpl(`${this.root.rootUrl}/api/hub-link/invite`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', authorization: `Bearer ${await this.root.token()}` },
-      body: JSON.stringify(request),
+      body: JSON.stringify({ email, projectName, role, join, inviterToken }),
     });
     const answer = await response.json().catch(() => ({})) as { link?: string; emailed?: boolean; why?: string; error?: string };
     if (response.status === 429 && answer.error) return { refused: answer.error };

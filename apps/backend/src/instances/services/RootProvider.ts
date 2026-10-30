@@ -2,7 +2,7 @@ import crypto from 'crypto';
 import type { IncomingMessage, ServerResponse } from 'http';
 import Provider, { type Adapter, type AdapterPayload, type Configuration, type KoaContextWithOIDC } from 'oidc-provider';
 import { SignJWT } from 'jose';
-import type { AccessRevoked, Database } from '../../platform/index.js';
+import { endsSessions, reachesEveryClient, type AccessRevoked, type Database } from '../../platform/index.js';
 import type { IdentityKeyPair } from '../lib/identity-token.js';
 import {
   CLAIMS_SECONDS, clientMetadata, claimsFor, HUB_CLIENT_ID, hubClient, instanceClient, INTERACTION_PATH, KOALA_CLAIMS, KOALA_SCOPE, LOGOUT_TYP,
@@ -188,8 +188,16 @@ export class RootProvider {
     return { clientId: client.clientId, kind: kindOf(client).kind };
   }
 
+  async personAtHub(token: string): Promise<string | undefined> {
+    const found = await this.provider.AccessToken.find(token);
+    if (!found?.accountId || found.isExpired || found.clientId !== 'hub') return undefined;
+    const user = await this.store.accounts.getUserById(found.accountId);
+    return user && !user.removal ? user.id : undefined;
+  }
+
   async revoke(event: AccessRevoked): Promise<void> {
-    const clientIds = await this.store.instances.oidcForgetAccount(event.personId);
+    if (!reachesEveryClient(event)) return;
+    const clientIds = endsSessions(event) ? await this.store.instances.oidcForgetAccount(event.personId) : [];
     const own = (await this.store.instances.getInstances(event.personId)).filter((instance) => instance.signIn).map((instance) => instance.id);
     const hub = (await this.store.instances.getHubSignInKey()) && this.settings.hubUrl ? ['hub'] : [];
     for (const clientId of new Set([...clientIds, ...own, ...hub])) {

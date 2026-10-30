@@ -17,6 +17,8 @@ export function hubLinkRouter(deps: {
   hash: (secret: string) => string;
   signInKeys?: { get(): Promise<SignInKey | undefined>; save(key: SignInKey): Promise<void> } | undefined;
   serviceCaller?: ((token: string) => Promise<{ clientId: string; kind: 'instance' | 'hub' } | undefined>) | undefined;
+  personAtHub?: ((token: string) => Promise<string | undefined>) | undefined;
+  people: { getUserById(id: string): Promise<{ id: string; email: string; removal?: unknown } | undefined> };
 }): Router {
   const router = Router();
   const bearer = (req: { headers: { authorization?: string | undefined } }) => String(req.headers.authorization ?? '').replace(/^Bearer\s+/i, '');
@@ -37,10 +39,14 @@ export function hubLinkRouter(deps: {
     const vouched = !credentialed(given) && given ? (await deps.serviceCaller?.(given))?.kind === 'hub' : false;
     if (!credentialed(given) && !vouched) return res.status(401).json({ error: 'only this root\'s hub sends project invites' });
     const body = (req.body ?? {}) as Record<string, unknown>;
-    const fields = ['email', 'inviterId', 'inviterEmail', 'projectName', 'role', 'join'] as const;
+    const fields = ['email', 'projectName', 'role', 'join', 'inviterToken'] as const;
     if (fields.some((field) => typeof body[field] !== 'string' || !(body[field] as string).trim())) return res.status(400).json({ error: `an invite names ${fields.join(', ')}` });
     if (!HUB_ROLES.includes(body.role as never)) return res.status(400).json({ error: 'that is not a role on a project' });
-    const sent = await deps.invites.send(body as never);
+    const inviterId = await deps.personAtHub?.(body.inviterToken as string);
+    const inviter = inviterId ? await deps.people.getUserById(inviterId) : undefined;
+    if (!inviter || inviter.removal) return res.status(403).json({ error: 'root does not know who is inviting: the invite carries no sign-in root gave them at the hub' });
+    const { email, projectName, role, join } = body as Record<(typeof fields)[number], string>;
+    const sent = await deps.invites.send({ email, projectName, role, join, inviterId: inviter.id, inviterEmail: inviter.email });
     if ('refused' in sent) return res.status(429).json({ error: sent.refused });
     res.status(201).json(sent);
   }));
