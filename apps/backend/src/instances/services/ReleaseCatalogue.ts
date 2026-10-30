@@ -56,13 +56,16 @@ export class ReleaseCatalogue implements ReleaseSource {
       const kept = join(this.settings.chartsDir, `${imageTag}.tgz`);
       await copyFile(await this.settings.chart(), kept);
       chartSha256 = createHash('sha256').update(await readFile(kept)).digest('hex');
-      await this.settings.inventory(tag ?? imageTag, join(this.settings.chartsDir, `${imageTag}.sbom.json`));
     }
     const recorded = await this.store.recordRelease({
       ...releaseFromTag(imageTag, tag, message, this.now().toISOString()),
       ...(fromHead && imageDigest && DIGEST.test(imageDigest) ? { digest: imageDigest } : {}),
       ...(chartSha256 ? { chartSha256 } : {}),
     });
+    if (IMAGE_TAG.test(imageTag)) {
+      await this.settings.inventory(tag ?? imageTag, join(this.settings.chartsDir, `${imageTag}.sbom.json`))
+        .catch((error: Error) => console.warn(`[releases] ${recorded.version} has no inventory, so its dependencies go unchecked: ${error.message}`));
+    }
     const { clear, withdraw } = withdrawnBy(await this.store.getReleases(), imageTag);
     if (clear) await this.store.withdrawRelease(imageTag, undefined);
     const withdrawal = { at: this.now().toISOString(), by: rolledBackTo(recorded.version) };
