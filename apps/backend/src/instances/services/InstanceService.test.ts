@@ -108,6 +108,26 @@ describe('bringing a user\'s own machine in as their instance', () => {
     expect(await service.report(instanceId, credential, { status: 'ready', url: 'javascript:alert(1)' })).toMatchObject({ ok: false, status: 400 });
   });
 
+  it('stops watching an instance whose check-in comes from a release that never connects, and keeps one that is connected', async () => {
+    const connected = new Set<string>();
+    service = new InstanceService(db, { ...settings, connected: (id: string) => connected.has(id) }, mesh, () => now, () => undefined);
+    const { token } = await tokenFor('u1');
+    const joined = await service.join(token, 'm');
+    if (!joined.ok) throw new Error(joined.error);
+    const { instanceId, credential } = joined.value;
+    const instance = (await db.instances.getInstances()).find((entry) => entry.id === instanceId)!;
+    await db.instances.savePresence(instance, true);
+
+    await service.report(instanceId, credential, { status: 'ready', imageTag: 'v1', presence: true });
+    expect((await db.instances.getWatch(instanceId))?.presence).toBe(true);
+    connected.add(instanceId);
+    await service.report(instanceId, credential, { status: 'ready', imageTag: 'v1' });
+    expect((await db.instances.getWatch(instanceId))?.presence).toBe(true);
+    connected.delete(instanceId);
+    await service.report(instanceId, credential, { status: 'ready', imageTag: 'v0' });
+    expect((await db.instances.getWatch(instanceId))?.presence).toBe(false);
+  });
+
   it('will not let a machine join a root with no mesh or no registry', async () => {
     const { token } = await tokenFor('u1');
     const noRegistry = new InstanceService(db, { ...settings, registry: '' }, mesh, () => now);

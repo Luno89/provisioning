@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  DEFAULT_UNREACHABLE_MINUTES, instanceReachMail, isDown, nextReach, probeUrl, rootReachPush, tellsOperator, tellsOwner, unreachableAfterMs, watched,
+  DEFAULT_UNREACHABLE_MINUTES, graceLeftMs, instanceReachMail, isDown, nextReach, presenceAuth, reachAtStart, rootReachPush, tellsOperator, tellsOwner, unreachableAfterMs, watched,
 } from './instance-watch.js';
 import type { InstanceRecord } from './instances.js';
 
@@ -35,6 +35,24 @@ describe('one instance watched over time', () => {
     expect(blip.tell).toBeUndefined();
   });
 
+  it('counts the grace left from when it went, and none once told or present', () => {
+    const gone = nextReach({ reachable: true, lastSeenAt: at(0).toISOString() }, false, at(1), TEN).reach;
+    expect(graceLeftMs(gone, at(4), TEN)).toBe(7 * 60_000);
+    expect(graceLeftMs(gone, at(20), TEN)).toBe(0);
+    expect(graceLeftMs({ reachable: true }, at(4), TEN)).toBeUndefined();
+    expect(graceLeftMs({ ...gone, toldDown: true }, at(20), TEN)).toBeUndefined();
+    expect(graceLeftMs(undefined, at(4), TEN)).toBeUndefined();
+  });
+
+  it('gives every instance the whole grace again when root starts, keeping one already told down', () => {
+    const stale = { reachable: false, lastSeenAt: at(0).toISOString(), unreachableSince: at(1).toISOString() };
+    expect(reachAtStart(stale, at(60))).toEqual({ reachable: false, lastSeenAt: at(0).toISOString(), unreachableSince: at(60).toISOString() });
+    expect(reachAtStart({ reachable: true, lastSeenAt: at(0).toISOString() }, at(60)).unreachableSince).toBe(at(60).toISOString());
+    const told = { ...stale, toldDown: true };
+    expect(reachAtStart(told, at(60))).toBe(told);
+    expect(reachAtStart(undefined, at(60))).toEqual({ reachable: false, unreachableSince: at(60).toISOString() });
+  });
+
   it('reads the threshold from the environment, ten minutes by default', () => {
     expect(unreachableAfterMs({})).toBe(DEFAULT_UNREACHABLE_MINUTES * 60_000);
     expect(unreachableAfterMs({ WATCH_UNREACHABLE_MINUTES: '2' })).toBe(120_000);
@@ -46,12 +64,22 @@ describe('one instance watched over time', () => {
 describe('which instances root watches and whom it tells', () => {
   const base: InstanceRecord = { id: 'inst-a', ownerId: 'o', url: 'https://a.example', createdAt: '', updatedAt: '', status: 'ready', meshIp: '100.64.0.9', name: 'a' };
 
-  it('watches an instance in service with a mesh address, never a stopped or waiting one', () => {
-    expect(watched(base)).toBe(true);
-    expect(watched({ ...base, meshIp: undefined })).toBe(false);
-    expect(watched({ ...base, status: 'paused' })).toBe(false);
-    expect(watched({ ...base, status: 'waiting' })).toBe(false);
-    expect(probeUrl('100.64.0.9')).toBe('http://100.64.0.9:30320/api/auth/sign-in');
+  it('watches an instance in service that has connected, mesh or not, never a stopped or waiting one', () => {
+    const present = { presence: true };
+    expect(watched(base, present)).toBe(true);
+    expect(watched({ ...base, meshIp: undefined }, present)).toBe(true);
+    expect(watched(base, undefined)).toBe(false);
+    expect(watched(base, { presence: false })).toBe(false);
+    expect(watched({ ...base, status: 'paused' }, present)).toBe(false);
+    expect(watched({ ...base, status: 'waiting' }, present)).toBe(false);
+  });
+
+  it('takes an instance id and a token from a connection, nothing else', () => {
+    expect(presenceAuth({ instanceId: 'inst-a', token: 't' })).toEqual({ instanceId: 'inst-a', token: 't' });
+    expect(presenceAuth({ instanceId: 'inst-a', token: '' })).toBeUndefined();
+    expect(presenceAuth({ instanceId: 3, token: 't' })).toBeUndefined();
+    expect(presenceAuth(undefined)).toBeUndefined();
+    expect(presenceAuth('inst-a')).toBeUndefined();
   });
 
   it('always tells a pool instance\'s owner and the operator; an own machine\'s owner unless switched off', () => {

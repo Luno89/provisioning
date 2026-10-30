@@ -60,6 +60,7 @@ export interface InstanceSettings {
   pool?: { slots: number; trialDays: number } | { off: string } | undefined;
   releases?: ReleaseSource | undefined;
   serviceCaller?: ((token: string) => Promise<{ clientId: string; kind: 'instance' | 'hub' } | undefined>) | undefined;
+  connected?: ((instanceId: string) => boolean) | undefined;
 }
 
 export interface ReleaseSource {
@@ -332,6 +333,10 @@ export class InstanceService {
     return caller?.kind === 'instance' && caller.clientId === instance.id ? instance : undefined;
   }
 
+  presenceCaller(instanceId: string, token: string): Promise<InstanceRecord | undefined> {
+    return this.authenticated(instanceId, token);
+  }
+
   async announceSignIn(instanceId: unknown, credential: unknown, jwk: unknown): Promise<Outcome<{ since: string }>> {
     if (typeof instanceId !== 'string' || typeof credential !== 'string' || !credential) return { ok: false, status: 401, error: 'this instance is not known here' };
     const instance = (await this.store.instances.getInstances()).find((entry) => entry.id === instanceId);
@@ -518,7 +523,7 @@ export class InstanceService {
     return { ok: true, value: { removed: meshIp } };
   }
 
-  async report(instanceId: unknown, credential: unknown, report: { status?: unknown; detail?: unknown; url?: unknown; meshIp?: unknown; moved?: unknown; imageTag?: unknown }): Promise<Outcome<InstanceRecord>> {
+  async report(instanceId: unknown, credential: unknown, report: { status?: unknown; detail?: unknown; url?: unknown; meshIp?: unknown; moved?: unknown; imageTag?: unknown; presence?: unknown }): Promise<Outcome<InstanceRecord>> {
     const moving = await this.mover(instanceId, credential);
     if (moving) return this.reportMove(moving, report);
     const instance = await this.authenticated(instanceId, credential);
@@ -546,6 +551,7 @@ export class InstanceService {
     const running = report.status === 'ready' && typeof report.imageTag === 'string' ? report.imageTag : instance.running;
     const moved = running !== instance.running && instance.running ? { previous: instance.running } : {};
     const saved = await this.save(instance, { status: report.status as InstanceStatus, detail: typeof report.detail === 'string' ? report.detail.slice(0, 500) : undefined, url, meshIp, running, ...moved });
+    if (report.presence !== true && !this.settings.connected?.(instance.id)) await this.store.instances.savePresence(instance, false);
     if (saved.status !== instance.status || saved.meshIp !== instance.meshIp) this.routesChanged();
     return { ok: true, value: saved };
   }

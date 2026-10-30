@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import { fetchSide, followSignIn, handOff, sessionFrom, signedInLanding, type Side } from './lib/handoff.js';
 import { sessionCookieOf, signUp } from './lib/sign-up.js';
 import { startSplitStack, type SplitStack } from './lib/split-stack.js';
@@ -26,6 +27,24 @@ async function eventually(what: string, probe: () => Promise<boolean>): Promise<
     await new Promise((resolve) => setTimeout(resolve, 500));
   }
   assert.fail(`${what} did not happen within a minute`);
+}
+
+const docker = (args: string[]): string => execFileSync('docker', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+
+async function until<T>(what: string, probe: () => Promise<T | undefined>): Promise<T> {
+  for (let tries = 1; ; tries += 1) {
+    const value = await probe().catch(() => undefined);
+    if (value !== undefined) return value;
+    if (tries % 30 === 0) console.log(`    still waiting for ${what}`);
+    await new Promise((resolve) => setTimeout(resolve, 2_000));
+  }
+}
+
+async function mailTo(stack: SplitStack, subject: RegExp): Promise<{ Subject: string; To: Array<{ Address: string }> }> {
+  return until(`an email "${subject.source}"`, async () => {
+    const listed = await (await fetch(`${stack.mailpitApi}/api/v1/messages`)).json() as { messages: Array<{ Subject: string; To: Array<{ Address: string }> }> };
+    return listed.messages.find((message) => subject.test(message.Subject));
+  });
 }
 
 async function signedInThrough(root: Side, target: Side, first: string): Promise<{ session: string; callback: string; startCookie: string }> {
@@ -132,6 +151,33 @@ async function stages(stack: SplitStack): Promise<void> {
   };
   await eventually('the run\'s grant being issued', async () => (await grantOf())?.state === 'live');
   assert.equal((await grantOf())?.personId, owner.id);
+
+  step('the instance holds a connection to root: root emails the owner once when it has been gone a minute, and once when it is back');
+  const instanceName = stack.names.containers.instance;
+  const reachAtRoot = async () => ((await call(`${rootUrl}/api/identity/instance`, { cookie: owner.cookie })).body as { instance?: { unreachableSince?: string } | null }).instance;
+  const rootSeen = async () => ((await call(`${instanceUrl}/api/infrastructure`, { cookie: session })).body as { root?: { down: boolean; reachable: boolean; unreachableSince?: string } }).root;
+  await until('the instance connected to root', async () => ((await rootSeen())?.reachable ? true : undefined));
+  docker(['stop', instanceName]);
+  const down = await mailTo(stack, new RegExp(`Your instance .*\\(${stack.instanceId}\\) has not answered for \\d+ minutes`));
+  assert.equal(down.To[0]?.Address, owner.email, 'root told someone other than the owner');
+  const since = await until('root\'s page saying the instance is not answering', async () => (await reachAtRoot())?.unreachableSince);
+  console.log(`  ${down.Subject}; root's page says not answering since ${since}`);
+  docker(['start', instanceName]);
+  const back = await mailTo(stack, new RegExp(`Your instance .*\\(${stack.instanceId}\\) answers again`));
+  assert.equal(back.To[0]?.Address, owner.email);
+  await until('root\'s page no longer saying it is down', async () => ((await reachAtRoot()) && !(await reachAtRoot())?.unreachableSince ? true : undefined));
+  console.log(`  ${back.Subject}`);
+
+  step('root stopping shows on the instance under Needs attention once a minute has passed, and clears when root is back');
+  await until('the instance answering again', async () => ((await call(`${instanceUrl}/api/auth/me`, { cookie: session })).status === 200 ? true : undefined));
+  await until('the instance connected to root', async () => ((await rootSeen())?.reachable ? true : undefined));
+  docker(['stop', stack.names.containers.root]);
+  const rootDown = await until('the instance calling root down', async () => ((await rootSeen())?.down ? await rootSeen() : undefined));
+  console.log(`  root not answering since ${rootDown.unreachableSince}`);
+  docker(['start', stack.names.containers.root]);
+  await until('root answering again', async () => ((await fetch(`${rootUrl}/api/identity/keys`).catch(() => undefined))?.ok ? true : undefined));
+  await until('the instance clearing root down', async () => ((await rootSeen())?.reachable ? true : undefined));
+  console.log('  cleared once root answered again');
 
   step('signing out everywhere on root ends the instance\'s and the hub\'s sessions at once, and revokes the run\'s grant');
   assert.equal((await call(`${instanceUrl}/api/auth/me`, { cookie: session })).status, 200);

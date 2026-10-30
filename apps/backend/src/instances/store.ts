@@ -42,6 +42,7 @@ export interface InstancesStore extends AreaStore {
   getWatches(): Promise<InstanceWatchRecord[]>;
   getWatch(instanceId: string): Promise<InstanceWatchRecord | undefined>;
   saveReach(instance: { id: string; ownerId: string }, reach: Reach): Promise<void>;
+  savePresence(instance: { id: string; ownerId: string }, presence: boolean): Promise<void>;
   saveNotifyWhenUnreachable(instance: { id: string; ownerId: string }, on: boolean): Promise<void>;
   deleteWatch(instanceId: string): Promise<void>;
   getDependencyFindings(): Promise<DependencyFinding[]>;
@@ -156,6 +157,10 @@ export class MongoInstancesStore implements InstancesStore {
 
   async saveReach(instance: { id: string; ownerId: string }, reach: Reach): Promise<void> {
     await this.watches.updateOne({ _id: instance.id as never }, { $set: { reach, ownerId: instance.ownerId } }, { upsert: true });
+  }
+
+  async savePresence(instance: { id: string; ownerId: string }, presence: boolean): Promise<void> {
+    await this.watches.updateOne({ _id: instance.id as never }, { $set: { presence, ownerId: instance.ownerId } }, { upsert: true });
   }
 
   async saveNotifyWhenUnreachable(instance: { id: string; ownerId: string }, on: boolean): Promise<void> {
