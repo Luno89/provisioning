@@ -24,7 +24,7 @@ npm workspaces: `apps/*`, `packages/*`.
    - **Data kept only in memory** when the feature is a list of history the user comes back to.
    - **A field sent in a shape its consumer silently ignores.** `{ temperature }` where the model call reads `{ toolTurn, conversation }`.
 
-   Product-level mock modes this file documents (mock cloud mode, the OAuth and Twilio fallbacks) are features, not stubs. Test doubles belong in tests.
+   Product-level mock modes this file documents (mock cloud mode on a dev box, the OAuth and Twilio fallbacks) are features, not stubs. Test doubles belong in tests.
 2. **Proactive Questioning & Architectural Alignment**: If you are not 100% confident about requirements, terminology, design trade-offs, or system boundaries, STOP and ask the user directly before proceeding. Never guess or assume intent. Check existing plan documents (`~/.claude/plans/`, `CLAUDE.md`) and project history first so questions are informed and focused on unsettled decisions. Any architectural decision, abstraction boundary, or UX paradigm shift MUST be surfaced to the user for explicit review and sign-off.
 3. **Mandatory Live Operational E2E Verification**: Never declare any feature or capability "done" based solely on unit tests or typechecks. You MUST perform a live, end-to-end operational verification against the running application (e.g. authenticating, exercising actual HTTP/WebSocket routes, validating client payload contracts, verifying state mutations) proving the exact user flow succeeds end-to-end before concluding.
 
@@ -53,6 +53,7 @@ npm run test:mail-live            # the send-only mail server is built and run b
 npm run test:monitoring-live      # a throwaway app on the system cluster → Monitoring calls it healthy → Koala, on your model, proposes an alert for when it stops answering → the card sets it → the app is stopped until the alert fires and the conversation hears it, started until it resolves → the alert is removed and the app destroyed, ~10 min
 npm run test:telemetry-live       # against the running dev stack: the collector and Tempo are on the system cluster (the cluster worker applied them if they were missing) → a throwaway account signs up with an admin's invite → one scripted turn through the check runner → one trace in Tempo, found by the id the request answered with, spans the request, the check workflow's start, the engine run's request, its workflow start and the model call, with nothing said in it → koala_up, the request, workflow, activity and model-call metrics are in Prometheus by name, labelled with the process → the Koala section on GET /api/infrastructure carries them → the stack stays; removes the scenario and the account, ~3 min
 npm run test:infrastructure-live   # Infrastructure reads the system cluster → a workload that cannot pull its image, put there by hand, shows in Needs attention and on the cluster page as not deployed through Koala, then leaves once removed → a Koala chat turn on a model that does not exist shows as failed work, opens its chat and clears → whatever the memory keeper keeps from the run and the quiet conversation is retired, ~15 min
+npm run test:hardening-live        # what production refuses and what it passes on: root's Caddy, the pool's proxy and an instance backend from this commit's image on a network of mesh addresses carry each visitor's address (the proxy as it was before made everyone root), and a caller around root's Caddy is taken for who they are whatever they claim → the backend and a worker without Temporal's CA, and an instance whose ROOT_URL is plain http to the open internet, stop with the reason → on a split stack (production containers), the instance refuses an AWS cluster to someone with no keys of their own and lists AWS, Google Cloud and Azure as wanting them → a root that is not a lab refuses an instance's loopback, private and metadata addresses and, given one stored before, neither asks it how it signs in nor sends it a logout; in ship, ~4 min
 npm run test:dev-split-live        # its own root, instance and hub (tests/lib/split-stack.ts: containers from this commit's image on spare ports, each on a throwaway database, one Temporal namespace of their own, a mailbox) → signed out, the instance starts its sign-in through root's OpenID provider → the owner, made with root's setup code, is handed to the instance by code, PKCE and state, once and only in the browser that started it → root serves none of the instance's routes and the instance makes no accounts → a stranger with a root account is sent nowhere by root and stopped at the instance's own door → the instance's service token sends mail through root and a wrong credential is refused → the hub signs in through root too → signing out everywhere on root ends the instance's and the hub's sessions at once and revokes a run's grant; in ship, ~3 min
 npm run test:hub-live              # against the running dev stack (combined): an admin's invite signs up an owner, who makes two shared projects and invites a collaborator and a client to one and someone else to the other → root shows each invite signed out and signs up only the address invited → the outsider reaches nothing of the first project by id, guess or another's invite → each role can do only what it may → roles change, an invite is taken back, people are removed and leave, the last owner cannot → the owner's removal refused while they alone own a project someone else is on, the outsider's removal taking them off it → one project deleted by name and the owner's removal deleting the other, their databases gone, ~1 min
 npm run test:project-sharing-live  # against the running dev stack (combined): a throwaway project with a repository and a channel someone talked in → the group check refuses a dashed and a reserved name and suggests one from the project's name, sharing without a group is refused → the preview says what goes and stays, nothing is on the hub → shared under its group, which the preview and the hub's project carry, and a second project is refused that group → the channel arrives with its history and a new message follows → a commit on the owner's main reaches the hub's and one pushed to the hub's reaches the owner's → taken back by its name: the hub's database and repository are gone, everything stays on the instance → the group is free again and the second project is shared under it and taken back; the account removes itself, ~30 s
@@ -147,7 +148,7 @@ Refreshes every 2s: MongoDB cluster status/progress, live log tail, K8s pod stat
 | `apps/backend/src/<area>/store.ts` | **The area's records**: `interface <Area>Store` and `Mongo<Area>Store`, its collections, indexes (`ensureIndexes`) and every read and write of them. A service reads another area's records through `db.<area>` or a `Pick` of that store, never through the driver. `MongoDB` composes the fourteen stores and wraps the projects and engine stores in the hub-write marker |
 | `apps/backend/src/platform/lib/mongo-db.ts` | The MongoDB implementation, the only one. Unit tests get a real Mongo from `platform/lib/test-database.ts`: `testDatabase()` opens a fresh database on the `mongodb-memory-server` that `vitest.global-setup.ts` starts once per run, and `vitest.setup.ts` drops every database a file opened when it ends |
 | `apps/backend/src/platform/lib/auth.ts`, `crypto.ts` | JWT sign/verify, password hashing; AES-256-GCM encrypt/decrypt/mask for stored secrets |
-| `apps/backend/src/infrastructure/lib/credential-resolver.ts` | Resolution chain for cloud creds: user-stored → `process.env` → mock mode |
+| `apps/backend/src/infrastructure/lib/credential-resolver.ts` | Resolution chain for cloud creds: user-stored → `process.env` (the operator only) → mock mode (a dev box only, `cluster-topology.ts`) |
 | `apps/backend/src/platform/middleware/` | `asyncRoute` + the error responder, and `auth.ts`'s `createAuth()` — `requireAuth`, `requireAdmin`, the session cookie and the invite gate. Express 4 does not await handlers — an unwrapped async handler that rejects sends NO response and the request hangs |
 | `apps/backend/src/workflows/` + `activities/` | Temporal.io workflow/activity definitions |
 | `apps/backend/src/worker-host.ts` | Host-side Temporal worker — cluster provisioning/destruction activities |
@@ -221,7 +222,14 @@ it, Netflix's gradient limit, between 10 and 200; loopback, private and mesh add
 not limited, nor an instance's relay long-poll, `index.test.ts` guards its place, an account is locked for fifteen minutes after ten wrong
 passwords (`lockedUntil`) to every browser but one it signed in on before: a full sign-in leaves a signed `device` cookie naming the account
 (`deviceToken`), and that browser's failures are counted on their own (`attemptsKeyFor`, `SignInAttemptLog`, pruned as failures age out), so
-nobody can lock a person out of their own browser by guessing, every response carries `helmet`'s headers, and the proxy is trusted in production. **The SPA's
+nobody can lock a person out of their own browser by guessing, every response carries `helmet`'s headers, and the proxy is trusted in production
+(`trustProxyFor`: the one hop in front, so `req.ip` is the visitor). **Every hop in front of a backend says who the visitor is**: root's
+Caddy, on the host's network, sets `X-Forwarded-For` to its peer and ignores what a visitor claims, and that is the one hop in front
+of root and of an instance on its owner's machine (reached over the mesh through a NodePort); a pool instance is two hops behind, so
+the pool node's proxy (`proxyCaddyfile` in `instances/lib/pool.ts`) trusts only the mesh's `tag:platform` nodes, root's Caddy, read from
+Headscale when root writes its config (`taggedAddresses`), and hands the instance `{client_ip}`, the visitor root's Caddy named, or the
+caller's own address when anyone else reaches it; before, every visitor of a pool instance was root's mesh address, which the in-flight
+cap never limits and the rate limits held in one bucket. `npm run test:hardening-live` proves both paths with real Caddy. **The SPA's
 content security policy** (`platform/lib/csp.ts`: same-origin scripts, sockets and frames, inline styles allowed, blob workers and
 media, nothing framed from elsewhere) is enforced in production (`CSP=report` sends it as `Content-Security-Policy-Report-Only`
 instead, `CSP=off|report|enforce` sets it anywhere); the browser's reports land on `POST /csp-report` and are logged as one
@@ -251,7 +259,13 @@ backups, the host's nginx config, binding type changes and adopting the host's k
 (`platform/services/public-fetch.ts`) refuse private, loopback, mesh, link-local and tunnelled addresses, at connect time and on
 every redirect; fetch_web_page, a crawl's start, a model endpoint's host (the person's own mesh node excepted) and a hosted MCP
 server's URL go through them. Root takes an instance's mesh address only from its owner's Headscale nodes, and Headscale's
-`/api` is not served on the mesh's public name.
+`/api` is not served on the mesh's public name. **Root never calls an address an instance made up** (`InstanceReach`,
+`instances/lib/instance-reach.ts`): the url an instance reports (`/api/instances/status`, a move's too) is taken only when it is the
+address root gave it (`https://<name>.<INGRESS_DOMAIN>`), its own mesh address, or resolves to public addresses only
+(`publicAddressProblem`), and every call root makes to an instance (asking how it signs in, back-channel logouts) goes through the same
+rule at connect time, `publicFetch` for anything but the first two; outside production, and in a lab (`labFrom`: `CERTIFICATES=internal`
+in the process's env with `DOMAIN` and `INGRESS_DOMAIN`, when set, under `.internal` or `.localhost`), root calls anything, which is how
+the split stack's and the VM suites' roots (`tests/lib/split-stack.ts`, `suite-root.ts`) reach instances on loopback.
 **Only an instance's own pods reach its Temporal, Temporal's database and Mongo** (W7, `charts/instance/templates/networkpolicy.yaml`,
 enforced by k3s's network policy controller; a pool vcluster copies it to the host, `sync.toHost.networkPolicies`), so an app,
 a release slot or a build on the same cluster cannot; sandboxes were already shut in by their own `default-deny`. An instance's
@@ -268,7 +282,8 @@ connection to Temporal is TLS (owner, 2026-10-27), to a certificate signed by a 
 makes it once under `apps/backend/data/temporal-tls/` (the CA's key thrown away after signing, the server's key readable only by
 Temporal's uid 1000), the chart generates it into `<release>-temporal-tls` with `genCA`/`genSignedCert` for its service names and
 keeps it across upgrades; processes trust it through `temporalTls` (`TEMPORAL_TLS_CA`, by default that folder's `ca.crt`), and the
-machine gateway's upstream too. Payloads were already sealed by the codec; TLS also hides tokens and workflow names on the wire. Temporal reads the public key (`temporalJwks`, also served at
+machine gateway's upstream too. In production the backend and every worker refuse to start without that CA (`temporalTlsProblem`)
+rather than talk to Temporal in plaintext; a dev box without one still connects as before. Payloads were already sealed by the codec; TLS also hides tokens and workflow names on the wire. Temporal reads the public key (`temporalJwks`, also served at
 `/.well-known/temporal-jwks.json`) from a file beside it, never from the backend, so it has it from its first moment: on an
 instance an init container (`temporal-keys` in the entrypoint, `src/scripts/temporal-keys.ts`) writes it and a native busybox
 sidecar serves it before Temporal starts (`charts/instance/templates/temporal.yaml`); under compose `scripts/temporal-keys.sh`
@@ -585,7 +600,10 @@ page signs them in and `resumePathFrom` sends them back), takes only an instance
 20 minutes old; root unreachable keeps the session as it was, root refusing ends it. **Revocation is immediate** (the one event in
 "Who may do what"): root forgets the person's grants, sessions and tokens and sends each client a back-channel logout token
 (`logoutDeliveries`, retried every 30 s until the client answers, the reason in `koala_why`); the client records it (`sessionRevocations`,
-the in-memory `RevocationList`), drops the person's sessions and fires the event on its own `AccessRevocations`, which ends its runs' grants. **An instance and the hub call root with service tokens** (client credentials, five minutes,
+the in-memory `RevocationList`), drops the person's sessions and fires the event on its own `AccessRevocations`, which ends its runs' grants. **Only over https in
+production**: an instance or the hub refuses to start when its `ROOT_URL` is plain http to the open internet (`plaintextProblem` in
+`platform/lib/lab.ts`, from `roleFromEnv`); a lab, loopback, a private or mesh address and a name under `.internal` or `.localhost`
+are allowed, which is what the split stack, the VM suites and the rehearsal's `http://app.koala.internal:3001` use. **An instance and the hub call root with service tokens** (client credentials, five minutes,
 `RootSignIn.serviceToken`), which root takes wherever it takes the instance's credential (`InstanceService.authenticated`,
 `/api/hub-link/invite`); the credential remains for naming the key and for the shell scripts. **An instance on an older release**
 still signs in by root's old handoff (`/api/identity/go` → `<instance>/#/handoff?token=…`, `issueHandoff`): root sends someone to the
@@ -1259,7 +1277,10 @@ a tenant created since would vanish. It is disaster recovery for a broken machin
 deploy". Rollback is git-based for exactly this reason.
 
 **Lab mode.** `CERTIFICATES=internal bash scripts/root-node/bootstrap.sh` (an older root's `ROOT_TLS=internal` means the same) makes a root with no public DNS, for the release
-rehearsal: the app and mesh names are checked against this host's own resolver (they must point at this machine; the
+rehearsal, and only on a domain nothing public resolves (under `.internal`, the rehearsal's `koala.internal`, or `.localhost`):
+`scripts/root-node/lab.sh` decides it for `bootstrap.sh` and `update.sh`, and refuses, changing nothing, when the settings say lab
+(`CERTIFICATES=internal` or `ROOT_TLS=internal` in `.env`) while `DOMAIN` is real, as on a former lab bootstrapped again for real, whose
+`ROOT_TLS=internal` `dns.ts setup` used to leave (it now drops `ROOT_TLS` on acme unless the people's domain is on Cloudflare). A lab: the app and mesh names are checked against this host's own resolver (they must point at this machine; the
 wildcard is the tester's to resolve), Caddy signs with its own certificate authority, which the host then trusts
 (`/usr/local/share/ca-certificates/koala-lab.crt`), no DNS provider or its credentials are needed, the mail records are printed rather than
 published, and `PUBLIC_URL` may be given (the rehearsal gives `http://app.<domain>:3001`, since the pods of an instance trust
@@ -1319,7 +1340,7 @@ too-permissive policy still parses cleanly and fails open.
 
 ## Cloud credentials
 
-Per-user credentials for aws/gcp/azure/do/huggingface/github are stored via `CredentialService`, encrypted at rest, and resolved through `credential-resolver.ts`'s chain: user-stored → `process.env` → mock mode. If a provider has no credentials anywhere, that provider runs in **mock cloud mode** using local k3d containers instead of a real cloud API — this is the zero-setup dev path referenced throughout `.env.example`-style comments in `apps/backend/.env`.
+Per-user credentials for aws/gcp/azure/do/huggingface/github are stored via `CredentialService`, encrypted at rest, and resolved through `credential-resolver.ts`'s chain: user-stored → `process.env` (only for a principal allowed `use-operator-credentials`) → mock mode. **Mock cloud mode is a dev box's only** (owner, 2026-10-30; rules in `infrastructure/lib/cluster-topology.ts`): outside production an AWS, Google Cloud or Azure cluster with no credentials anywhere runs as local k3d containers instead of a real cloud API, the zero-setup dev path; under `NODE_ENV=production` nothing is ever mocked (`isMockCloudProvider`), `POST /api/clusters` refuses such a cluster with "add your <provider> keys under Cloud providers" before anything is recorded (`provisionRefusal`, `ProvisionRefused` → 400), and Cloud providers says each provider's way without keys (`withoutKeys`: `mock` or `refused`), showing the Mock Cloud Mode note only where it applies. A provider Koala does not make clusters on is refused anywhere.
 
 ## Worker architecture
 
@@ -1577,7 +1598,8 @@ which is copied into the vault on every release so the two never drift. **A vaul
 taken from what the cluster was last given (`<release>-vault` for an Odoo release, `<namespace>-secrets` for an image deploy)
 before one is generated, since a new database password would lock the app out of its own database; and a project's stored
 reader that Infisical refuses (`readerWorks`) is replaced by a new one, as is the backend's own machine identity when
-Infisical is new again. `test:odoo-release-live` removes its project's workspace and reader between two releases to prove it. An Odoo project no tree is the home of uses the
+Infisical is new again. Infisical's admin password is the one `scripts/ensure-infisical.sh` wrote; in production Koala refuses to sign in to Infisical
+without it rather than fall back to the development password (`infisicalAdminPassword`). `test:odoo-release-live` removes its project's workspace and reader between two releases to prove it. An Odoo project no tree is the home of uses the
 release's own list (`ODOO_RELEASE_SECRETS`). The person sees a sign-in with "Show sign-in" on the project's card
 (`GET /api/projects/:id/sign-in`, uncached, read from the vault to their browser); the planner reads the list in
 `describe_tree_type`, and the Studio edits it under a type's Secrets.
@@ -1874,7 +1896,8 @@ instance, without passing its gates first (owner, 2026-10-23: "all those checks 
   (owner, 2026-10-24, removing the CI that repeated G1 afterwards).
 - **Root moves onto a release two ways**: `koala-release-watch.timer` (installed by `bootstrap.sh` outside a lab, started by
   hand once root works) runs `scripts/root-node/release-watch.sh` hourly, which finds GitHub's newest published release
-  and runs a copy of `update.sh` with it when it is newer than root's; and `npm run release` with `ROOT_SSH=<user@host>`
+  and runs a copy of `update.sh` with it when it is newer than root's, except a hotfix (its tag says "Hotfix released from"), which
+  the timer leaves and reaches root only when the operator names it (`release-watch.sh <tag>`); and `npm run release` with `ROOT_SSH=<user@host>`
   waits for the published image and runs `release-watch.sh <tag>` there over SSH. **Root moves only onto a signed release**
   (W1, owner 2026-10-25): before checking anything out, `update.sh` checks the tag against `/etc/koala/release-signers`
   (installed by `bootstrap.sh` from the checkout once, then changed only by hand; never the checkout's copy), and outside
