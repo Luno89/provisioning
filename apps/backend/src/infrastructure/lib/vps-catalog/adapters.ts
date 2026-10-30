@@ -309,6 +309,11 @@ export function ovhHostFor(subsidiary: string): string {
   return found.host;
 }
 
+export const OVH_ORDERABLE_TAG = 'order-funnel:show';
+
+export const ovhOrderable = (plan: { blobs?: { tags?: unknown } } | undefined): boolean =>
+  Array.isArray(plan?.blobs?.tags) && plan.blobs.tags.includes(OVH_ORDERABLE_TAG);
+
 export function ovhCatalogUrl(subsidiary: string): string {
   return `${ovhHostFor(subsidiary)}/order/catalog/public/vps?ovhSubsidiary=${encodeURIComponent(subsidiary.trim().toUpperCase())}`;
 }
@@ -369,6 +374,7 @@ export function ovhOffersFromCatalog(data: any): AdapterResult {
     if (!spec) continue;
 
     if (/-vps-\d{4}-model\d+(-|$)/.test(String(plan.planCode))) continue;
+    if (!ovhOrderable(plan)) continue;
 
     const planMonthly = ovhMonthlyOf(plan?.pricings);
     if (planMonthly === undefined || planMonthly <= 0) { skippedNoPrice++; continue; }

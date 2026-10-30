@@ -248,7 +248,15 @@
             "option-additional-disk-2027-50g"
           ]
         }
-      ]
+      ],
+      "blobs": {
+        "tags": [
+          "order-funnel:show",
+          "website:show",
+          "os:distribution-only",
+          "os:distribution-with-application"
+        ]
+      }
     },
     {
       "planCode": "vps-2027-model1",
@@ -490,7 +498,15 @@
             "option-additional-disk-2027-50g"
           ]
         }
-      ]
+      ],
+      "blobs": {
+        "tags": [
+          "order-funnel:show",
+          "website:show",
+          "os:distribution-only",
+          "os:distribution-with-application"
+        ]
+      }
     },
     {
       "planCode": "vps-starter-1-2-20",
@@ -658,7 +674,13 @@
             "option-additional-disk-100g"
           ]
         }
-      ]
+      ],
+      "blobs": {
+        "tags": [
+          "os:distribution-only",
+          "os:distribution-with-application"
+        ]
+      }
     }
   ],
   "products": [
