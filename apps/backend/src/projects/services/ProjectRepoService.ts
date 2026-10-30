@@ -59,7 +59,12 @@ export class ProjectRepoService {
     try {
       ({ password } = await this.gitea.createUserAccount(username, `${username}@koala.local`));
     } catch (err) {
-      if (!/duplicate key|already exists|user already/i.test((err as Error).message)) throw err;
+      const said = (err as Error).message;
+      if (!/HTTP \d{3}/.test(said) && !/duplicate key|already exists|user already/i.test(said)) {
+        if (await this.gitea.userExists(username)) return this.takeOver(ownerId, username);
+        throw err;
+      }
+      if (!/duplicate key|already exists|user already/i.test(said)) throw err;
       const waitMs = this.options.recordWaitMs ?? 30_000;
       const step = Math.min(1_000, waitMs);
       for (let waited = 0; waited < waitMs; waited += step) {

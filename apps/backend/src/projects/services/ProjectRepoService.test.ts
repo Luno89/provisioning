@@ -48,6 +48,34 @@ describe('the Gitea user behind an account', () => {
     expect(new Set(passwords).size).toBe(1);
     expect((await repos.ensureAccountFor('space-3')).username).toBe('koala-space3');
   });
+
+  it('takes the user over at once when the answer to making it was lost on the way', async () => {
+    const db = await testDatabase();
+    const passwords: string[] = [];
+    const gitea = {
+      createUserAccount: async () => { throw new Error('This socket has been ended by the other party'); },
+      userExists: async () => true,
+      setUserPassword: async (_username: string, password: string) => { passwords.push(password); },
+    };
+    const repos = new ProjectRepoService(db, gitea as never, KEY as never, undefined, { recordWaitMs: 20 });
+
+    const accounts = await Promise.all([repos.ensureAccountFor('space-4'), repos.ensureAccountFor('space-4'), repos.ensureAccountFor('space-4')]);
+
+    expect(new Set(accounts.map((account) => account.username))).toEqual(new Set(['koala-space4']));
+    expect(passwords).toHaveLength(1);
+    expect((await db.projects.getGiteaAccount('space-4'))?.username).toBe('koala-space4');
+  });
+
+  it('passes on a lost answer when the user was never made', async () => {
+    const db = await testDatabase();
+    const gitea = {
+      createUserAccount: async () => { throw new Error('This socket has been ended by the other party'); },
+      userExists: async () => false,
+      setUserPassword: async () => undefined,
+    };
+    await expect(new ProjectRepoService(db, gitea as never, KEY as never).ensureAccountFor('space-5')).rejects.toThrow(/ended by the other party/);
+    expect(await db.projects.getGiteaAccount('space-5')).toBeNull();
+  });
 });
 
 describe('making a project with a repository', () => {
