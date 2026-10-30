@@ -77,6 +77,7 @@ describe('how a run ended', () => {
     expect(renderHandover('Did the first half.', 'signed-out-everywhere', '2026-10-29T10:00:00Z')).toMatch(/^# Handover\n\nWritten after access was revoked: they signed out everywhere \(2026-10-29T10:00:00Z\)\.[\s\S]*Did the first half\.\n$/);
     expect(revokedNotice('luno@example.com', 'signed-out-everywhere', { note: 'x' })).toBe('This run was ended because luno@example.com\'s access was revoked (they signed out everywhere). It left a handover note.');
     expect(revokedNotice('luno@example.com', 'account-removed', { failed: 'the model did not answer' })).toBe('This run was ended because luno@example.com\'s access was revoked (their account is being removed). It could not leave a handover note: the model did not answer.');
+    expect(revokedNotice(undefined, 'signed-out-everywhere', { note: 'x' })).toMatch(/^This run was ended because the access of the person who started it was revoked \(/);
   });
 
   it('asks the model for the note from what the run was asked and did', () => {

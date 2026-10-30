@@ -664,7 +664,7 @@ export function startEngineStream(deps: EngineStreamDeps): void {
           const revokedBecause = settled?.ending.ended?.how === 'revoked' ? settled.ending.ended.revokedBecause : undefined;
           if (event.kind === 'run-ended' && event.depth === 0 && revokedBecause) {
             deps.postNotice('a run ended on revocation', (async () => {
-              const who = settled?.grant ? (await db.accounts.getUserById(settled.grant.personId))?.email ?? 'the person who started it' : 'the person who started it';
+              const who = settled?.grant ? (await db.accounts.getUserById(settled.grant.personId))?.email : undefined;
               const handover = event.handover;
               const treeId = grovedTree(event.runId, event.depth);
               const projectId = settled?.grant?.scope.projectId;

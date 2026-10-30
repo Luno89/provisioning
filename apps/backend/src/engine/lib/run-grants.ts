@@ -149,7 +149,8 @@ export function handoverPrompt(because: RevokedBecause, ask: string, steps: read
   };
 }
 
-export function revokedNotice(who: string, because: RevokedBecause, handover: Handover | undefined): string {
+export function revokedNotice(who: string | undefined, because: RevokedBecause, handover: Handover | undefined): string {
   const left = handover?.note ? ' It left a handover note.' : ` It could not leave a handover note${handover?.failed ? `: ${handover.failed}` : ''}.`;
-  return `This run was ended because ${who}'s access was revoked (${REVOKED_SAID[because]}).${left}`;
+  const whose = who ? `${who}'s access` : 'the access of the person who started it';
+  return `This run was ended because ${whose} was revoked (${REVOKED_SAID[because]}).${left}`;
 }
