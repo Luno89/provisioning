@@ -129,6 +129,22 @@ async function signInAs(userId: string): Promise<{ instanceJar: Jar; landed: Res
 const whoami = (jar: Jar) => fetch(`${instance.url}/api/whoami`, { headers: { cookie: cookieOf(jar) } });
 
 describe('signing in on an instance through root\'s OpenID provider', () => {
+  it('answers as its public address whatever name a request reached it by, so the issuer, every address it hands out and the tokens agree', async () => {
+    await signIn.announce();
+    const other = root.url.replace('127.0.0.1', 'localhost');
+    const discovered = await (await fetch(`${other}/oidc/.well-known/openid-configuration`)).json() as Record<string, unknown>;
+    expect(discovered.issuer).toBe(`${root.url}/oidc`);
+    for (const endpoint of ['authorization_endpoint', 'token_endpoint', 'jwks_uri', 'revocation_endpoint']) expect(String(discovered[endpoint])).toMatch(new RegExp(`^${root.url}/oidc/`));
+    const start = await fetch(`${instance.url}/api/auth/oidc/start`, { redirect: 'manual' });
+    const authorize = start.headers.get('location')!;
+    expect(new URL(authorize).origin).toBe(root.url);
+    const reachedElsewhere = await fetch(authorize.replace(root.url, other), { redirect: 'manual' });
+    const next = reachedElsewhere.headers.get('location')!;
+    expect(next.startsWith('/') || new URL(next).origin === root.url, `root sent a browser that reached it as ${other} to ${next}`).toBe(true);
+    const { landed } = await signInAs('u1');
+    expect([landed.status, landed.headers.get('location')]).toEqual([302, '/#/chat']);
+  });
+
   it('takes its owner from root\'s session to their instance with the claims root issued, checked there without a call to root', async () => {
     await signIn.announce();
     const { instanceJar, landed } = await signInAs('u1');

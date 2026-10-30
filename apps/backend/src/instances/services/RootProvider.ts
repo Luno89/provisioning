@@ -47,7 +47,15 @@ export class RootProvider {
     private readonly now: () => number = () => Date.now(),
   ) {
     this.provider = new Provider(settings.issuer, this.configuration());
-    this.provider.proxy = settings.proxied;
+    this.provider.proxy = true;
+  }
+
+  get issuer(): string {
+    return this.settings.issuer;
+  }
+
+  get proxied(): boolean {
+    return this.settings.proxied;
   }
 
   async registration(clientId: string): Promise<ClientRegistration | undefined> {

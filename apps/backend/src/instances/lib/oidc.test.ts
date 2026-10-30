@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { generateIdentityKey, identityKeysFrom } from './identity-token.js';
 import {
-  BACKCHANNEL_PATH, CALLBACK_PATH, claimsFor, claimsShaped, clientKeysFrom, clientMetadata, handoffServedFor, hubClient, instanceClient,
+  asIssuerRequest, BACKCHANNEL_PATH, CALLBACK_PATH, claimsFor, claimsShaped, clientKeysFrom, clientMetadata, handoffServedFor, hubClient, instanceClient,
   logoutClaims, LOGOUT_EVENT, publicJwkOf, publicJwkShaped, safeNextPath, signInRefusal, startsSignInItself,
 } from './oidc.js';
 
@@ -80,5 +80,18 @@ describe('an instance or the hub as root\'s client', () => {
     expect(safeNextPath('//evil.example.com')).toBeUndefined();
     expect(safeNextPath('https://evil.example.com')).toBeUndefined();
     expect(safeNextPath('/a\nSet-Cookie: x')).toBeUndefined();
+  });
+});
+
+describe('the provider answers as root\'s public address, whatever host a request named', () => {
+  it('puts the issuer\'s own host and scheme on every request, over anything the client sent', () => {
+    expect(asIssuerRequest('https://app.example.com/oidc', { 'x-forwarded-host': 'evil.example', 'x-forwarded-proto': 'http' }, true, '10.0.0.1'))
+      .toEqual({ 'x-forwarded-host': 'app.example.com', 'x-forwarded-proto': 'https' });
+    expect(asIssuerRequest('http://localhost:3231/oidc', {}, false, '127.0.0.1')).toEqual({ 'x-forwarded-host': 'localhost:3231', 'x-forwarded-proto': 'http', 'x-forwarded-for': '127.0.0.1' });
+  });
+
+  it('keeps the address the proxy in front reported, and trusts no client-sent one when nothing is in front', () => {
+    expect(asIssuerRequest('https://app.example.com/oidc', { 'x-forwarded-for': '203.0.113.9' }, true, '127.0.0.1')['x-forwarded-for']).toBe('203.0.113.9');
+    expect(asIssuerRequest('http://localhost:3231/oidc', { 'x-forwarded-for': '203.0.113.9' }, false, '10.0.2.15')['x-forwarded-for']).toBe('10.0.2.15');
   });
 });

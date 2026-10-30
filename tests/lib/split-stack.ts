@@ -175,7 +175,7 @@ export async function startSplitStack(options: { engine?: boolean } = {}): Promi
       MAIL_FROM: 'koala@split.test',
     });
     const backend = (process: SplitProcess, env: Record<string, string>, command = 'backend'): void =>
-      run(process, ['--network', 'host', '--env-file', envFile, ...devTemporalCa(), ...envArgs(env), image, command]);
+      run(process, ['--network', 'host', '--restart', 'on-failure', '--env-file', envFile, ...devTemporalCa(), ...envArgs(env), image, command]);
 
     const draft = (owner: { id: string; email: string }) => devSplitPlan({
       name: 'split', owner: { id: owner.id, email: owner.email, twoFactorEnabled: false, emailVerified: true, createdAt: new Date().toISOString() },

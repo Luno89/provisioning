@@ -141,3 +141,15 @@ export const logoutClaims = (issuer: string, clientId: string, revoked: { subjec
 
 export const safeNextPath = (next: unknown): string | undefined =>
   typeof next === 'string' && /^\/[^/\\]/.test(next) && !/[\r\n]/.test(next) ? next : undefined;
+
+type RequestHeaders = Readonly<Record<string, string | string[] | undefined>>;
+
+export function asIssuerRequest(issuer: string, headers: RequestHeaders, proxied: boolean, remoteAddress: string | undefined): Record<string, string | string[]> {
+  const origin = new URL(issuer);
+  const forwardedFor = proxied ? headers['x-forwarded-for'] : remoteAddress;
+  return {
+    'x-forwarded-host': origin.host,
+    'x-forwarded-proto': origin.protocol.replace(/:$/, ''),
+    ...(forwardedFor ? { 'x-forwarded-for': forwardedFor } : {}),
+  };
+}

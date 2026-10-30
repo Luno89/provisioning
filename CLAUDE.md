@@ -570,7 +570,9 @@ the app treats it as the E2E port and signs everyone in. The env each process ge
 `apps/backend/data/dev-split/` (gitignored); the owner is the first admin, or `DEV_INSTANCE_OWNER`.
 
 **Sign-in on an instance or the hub is OpenID Connect, with root as the provider** (`oidc-provider` at `/oidc` on root,
-`instances/services/RootProvider.ts`; the client is `openid-client`, `RootSignIn.ts`; rules in `instances/lib/oidc.ts`). At start each
+`instances/services/RootProvider.ts`; the client is `openid-client`, `RootSignIn.ts`; rules in `instances/lib/oidc.ts`). The provider always answers as root's
+`PUBLIC_URL`: every request reaches it with the issuer's own host and scheme put over whatever it named (`asIssuerRequest`), so
+the issuer, the addresses discovery and redirects hand out, and the tokens' `iss` are the same however a host reaches root. At start each
 instance and the hub names an Ed25519 key, derived from its session key, to root with its credential (`PUT /api/instances/sign-in-key`,
 `PUT /api/hub-link/sign-in-key`, `keepAnnouncing`) and from then authenticates to root's token endpoint with `private_key_jwt`. A
 signed-out person is sent to its own `GET /api/auth/oidc/start` (code flow, PKCE, state and nonce in a signed ten-minute
