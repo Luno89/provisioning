@@ -174,11 +174,11 @@ export default function CloudAccounts() {
                   </p>
                 )}
 
-                {!isConfigured && !isExpanded && status?.withoutKeys && (
+                {!isExpanded && (status?.clusters === 'mock-only' || status?.clusters === 'not-yet') && (
                   <p className="text-[11px] text-slate-400 leading-relaxed mb-3">
-                    {status.withoutKeys === 'mock'
-                      ? 'Without keys, a cluster on it runs in Mock Cloud Mode: local k3d containers on this machine.'
-                      : `Add your ${provider.label} keys here to make clusters on it.`}
+                    {status.clusters === 'mock-only'
+                      ? `${provider.label} clusters are not available yet. On this development box, a cluster on it with no keys stored runs in Mock Cloud Mode: local k3d containers on this machine.`
+                      : `${provider.label} clusters are not available yet.`}
                   </p>
                 )}
 
@@ -317,9 +317,9 @@ export default function CloudAccounts() {
                   <AlertTriangle className="text-red-500 mb-3" size={32} />
                   <h4 className="font-bold text-lg mb-1">Remove Credentials?</h4>
                   <p className="text-slate-400 text-sm text-center mb-6">
-                    {status?.withoutKeys === 'mock'
+                    {status?.clusters === 'mock-only'
                       ? 'This provider will revert to Mock Cloud Mode.'
-                      : status?.withoutKeys === 'refused'
+                      : status?.clusters === 'available'
                         ? 'No new cluster can be made on it until you add keys again.'
                         : 'Koala will no longer use these credentials.'}
                   </p>
@@ -345,7 +345,7 @@ export default function CloudAccounts() {
         })}
       </div>
 
-      {statuses.some((s) => s.withoutKeys === 'mock') && (
+      {statuses.some((s) => s.clusters === 'mock-only') && (
         <div className="mt-8 max-w-4xl bg-blue-500/5 border border-blue-500/20 rounded-2xl p-5 flex items-start gap-4">
           <Cloud className="text-blue-500 flex-shrink-0 mt-0.5" size={20} />
           <div>

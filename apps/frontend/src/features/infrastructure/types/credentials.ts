@@ -5,7 +5,7 @@ export interface ProviderStatus {
   configured: boolean
   source?: 'user' | 'env'
   summary?: Record<string, string>
-  withoutKeys?: 'mock' | 'refused'
+  clusters?: 'available' | 'mock-only' | 'not-yet'
 }
 
 export interface GoogleDriveStatus {
