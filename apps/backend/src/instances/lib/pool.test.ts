@@ -100,13 +100,19 @@ describe('the proxy on the pool node', () => {
   const caddyfile = proxyCaddyfile([
     { name: 'bob', ports: { backend: 35003, edge: 35004, registry: 35005 } },
     { name: 'alice', ports: { backend: 35000, edge: 35001, registry: 35002 } },
-  ], '100.64.0.9');
+  ], '100.64.0.9', ['100.64.0.1']);
 
   it('serves each instance\'s backend and apps on the node\'s mesh address, whatever host they are asked for', () => {
     expect(caddyfile).toContain('http://:35000 {\n\tbind 100.64.0.9\n\treverse_proxy instance-x-nowrinkles-x-alice.pool-alice.svc.cluster.local:80 {');
     expect(caddyfile).toContain('http://:35001 {\n\tbind 100.64.0.9\n\treverse_proxy instance-edge-x-nowrinkles-x-alice.pool-alice.svc.cluster.local:80 {');
     expect(caddyfile.indexOf('pool-alice')).toBeLessThan(caddyfile.indexOf('pool-bob'));
     expect(caddyfile).toContain('read_timeout 0');
+  });
+
+  it('trusts only root\'s Caddy to say who the visitor is, and hands the instance that visitor\'s address', () => {
+    expect(caddyfile).toContain('{\n\tadmin off\n\tauto_https off\n\tpersist_config off\n\tservers {\n\t\ttrusted_proxies static 100.64.0.1/32\n\t\ttrusted_proxies_strict\n\t}\n}\n');
+    expect(caddyfile.match(/header_up X-Forwarded-For \{client_ip\}/g)).toHaveLength(6);
+    expect(proxyCaddyfile([], '100.64.0.9', ['100.64.0.1', 'fd7a:115c:a1e0::1', '100.64.0.1'])).toContain('trusted_proxies static 100.64.0.1/32 fd7a:115c:a1e0::1/128\n');
   });
 
   it('serves each instance\'s registry on the node\'s loopback only, for the node to pull from', () => {
@@ -116,7 +122,7 @@ describe('the proxy on the pool node', () => {
   });
 
   it('starts with no admin endpoint, and runs on the node\'s own network so it can bind there', () => {
-    expect(proxyCaddyfile([], '100.64.0.9')).toBe('{\n\tadmin off\n\tauto_https off\n\tpersist_config off\n}\n\n');
+    expect(proxyCaddyfile([], '100.64.0.9', [])).toBe('{\n\tadmin off\n\tauto_https off\n\tpersist_config off\n}\n\n');
     const [config, daemon] = proxyManifests(caddyfile) as [any, any];
     expect(config.data.Caddyfile).toBe(caddyfile);
     expect(daemon.spec.template.spec.hostNetwork).toBe(true);

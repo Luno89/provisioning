@@ -34,7 +34,7 @@ export function suiteRoot(suite: string, metricsPort: number): SuiteRoot {
   const queue = `${suite}-${stamp}`;
   return {
     suite, database, mongoUri, setupCode, queue, metricsPort,
-    env: ['-e', `MONGO_URI=${mongoUri}`, '-e', `ADMIN_SETUP_CODE=${setupCode}`, '-e', `POOL_TASK_QUEUE=${queue}`],
+    env: ['-e', `MONGO_URI=${mongoUri}`, '-e', `ADMIN_SETUP_CODE=${setupCode}`, '-e', `POOL_TASK_QUEUE=${queue}`, '-e', 'CERTIFICATES=internal'],
   };
 }
 

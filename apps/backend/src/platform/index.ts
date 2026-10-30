@@ -1,5 +1,6 @@
 export { CLI_CEILING } from './lib/activity-liveness.js';
 export { arrivedOverHttps, cookieNamed, DEVICE_COOKIE, deviceOf, deviceToken, DEVICE_SECONDS, e2eProblem, generateOTP, hashPassword, SESSION_COOKIE, SESSION_SECONDS, sessionEnded, sessionToken, signJWT, signsEveryoneIn, verifyJWT, verifyPassword } from './lib/auth.js';
+export { trustProxyFor } from './lib/client-address.js';
 export type { AreaStore } from './lib/collection.js';
 export { CommandFailedError } from './lib/command-error.js';
 export { decryptValue, encryptValue, keyId, maskSecret, ringOf } from './lib/crypto.js';
@@ -24,6 +25,7 @@ export { keepTrying } from './lib/keep-trying.js';
 export { reencrypt } from './lib/key-rotation.js';
 export { generateKey, KEY_NAMES, loadKeys } from './lib/keys.js';
 export type { PlatformKeys } from './lib/keys.js';
+export { labFrom, labName, plaintextProblem, staysPrivate } from './lib/lab.js';
 export { alertMail, DEFAULT_EMAIL, emailWanted, isEmailChoice, mailProblem, TEST_MAIL } from './lib/mail.js';
 export type { EmailChoice, MailMessage, NotificationSettings } from './lib/mail.js';
 export { migrateLegacyOwnership, operatorsFromAdmins, ownUnownedProjects } from './lib/migrate-ownership.js';
@@ -56,7 +58,7 @@ export { TEMPORAL_JWKS_PATH, temporalApiKey, temporalJwks, temporalNamespaceFrom
 export { getTemporalClient, pollWorkflowRun, resolveOwnersWith } from './lib/temporal-client.js';
 export { buildDataConverter } from './lib/temporal-codec.js';
 export { connectTemporalWorker } from './lib/temporal-connection.js';
-export { temporalCa, temporalTls } from './lib/temporal-tls.js';
+export { temporalCa, temporalTls, temporalTlsProblem } from './lib/temporal-tls.js';
 export { failureReason } from './lib/temporal-failure.js';
 export { isCloudProvider } from './lib/types.js';
 export type { CloudCredentials, CloudProvider, ClusterMetadata, ClusterProgress, DeploymentMetadata, InviteMetadata, LocalAgentDeviceMetadata, LocalEgressRule, ModelEndpointMetadata, PartialInfo, PendingApprovalMetadata, PipelineRunMetadata, PlatformGrant, ProjectMetadata, UserMetadata } from './lib/types.js';

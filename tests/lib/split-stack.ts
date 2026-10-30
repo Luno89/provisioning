@@ -193,6 +193,7 @@ export async function startSplitStack(options: { engine?: boolean; hubGitea?: bo
       MAIL_SMTP_URL: `smtp://127.0.0.1:${ports.smtp}`,
       MAIL_FROM: 'koala@split.test',
       WATCH_UNREACHABLE_MINUTES: '1',
+      CERTIFICATES: 'internal',
     });
     const backend = (process: SplitProcess, env: Record<string, string>, command = 'backend', extra: string[] = []): void =>
       run(process, ['--network', 'host', '--restart', 'on-failure', '--env-file', envFile, ...devTemporalCa(), ...extra, ...envArgs(env), image, command]);

@@ -6,6 +6,7 @@ import {
   trustedKeys,
   type IdentityKeyPair,
 } from '../../instances/lib/identity-token.js';
+import { plaintextProblem } from './lab.js';
 
 export type PlatformRole = 'combined' | 'root' | 'instance' | 'hub';
 
@@ -67,6 +68,8 @@ export function roleFromEnv(env: Readonly<Record<string, string | undefined>>): 
   if (role === 'instance') {
     const missing = ['INSTANCE_ID', 'INSTANCE_OWNER_ID', 'ROOT_URL', 'ROOT_PUBLIC_KEYS'].filter((name) => !env[name]?.trim());
     if (missing.length > 0) throw new RoleConfigError(`an instance needs ${missing.join(', ')}`);
+    const plaintext = plaintextProblem('ROOT_URL', env.ROOT_URL!.trim(), env);
+    if (plaintext) throw new RoleConfigError(plaintext);
     return {
       role,
       trusted: trustedKeys(pemList(env.ROOT_PUBLIC_KEYS!)),
@@ -77,6 +80,8 @@ export function roleFromEnv(env: Readonly<Record<string, string | undefined>>): 
   if (role === 'hub') {
     const missing = ['ROOT_URL', 'ROOT_PUBLIC_KEYS', 'HUB_CREDENTIAL'].filter((name) => !env[name]?.trim());
     if (missing.length > 0) throw new RoleConfigError(`a hub needs ${missing.join(', ')}`);
+    const plaintext = plaintextProblem('ROOT_URL', env.ROOT_URL!.trim(), env);
+    if (plaintext) throw new RoleConfigError(plaintext);
     return {
       role,
       trusted: trustedKeys(pemList(env.ROOT_PUBLIC_KEYS!)),

@@ -17,7 +17,7 @@ export { publicJwkShaped } from './lib/oidc.js';
 export type { SignInKey } from './lib/oidc.js';
 export { afterStep, nextTrialStep, trialMessage } from './lib/pool-trial.js';
 export type { DueStep, TrialStep } from './lib/pool-trial.js';
-export { admissionManifests, BACKEND_ACCOUNT, backendAccessManifest, COMPONENT_RESOURCES, INSTANCE_RELEASE, namespaceManifest, POOL_LABEL, poolChartValues, poolNamespace, poolSettingsFrom, PROXY, proxyCaddyfile, proxyManifests, RUNTIME_CLASS, VCLUSTER_CHART_VERSION, vclusterAddress, vclusterValues } from './lib/pool.js';
+export { admissionManifests, BACKEND_ACCOUNT, backendAccessManifest, COMPONENT_RESOURCES, INSTANCE_RELEASE, namespaceManifest, PLATFORM_TAG, POOL_LABEL, poolChartValues, poolNamespace, poolSettingsFrom, PROXY, proxyCaddyfile, proxyManifests, RUNTIME_CLASS, VCLUSTER_CHART_VERSION, vclusterAddress, vclusterValues } from './lib/pool.js';
 export type { PoolSettings } from './lib/pool.js';
 export { forPushing, kanikoRegistryArgs, registryHosts } from './lib/registry-hosts.js';
 export type { RegistryHosts } from './lib/registry-hosts.js';
@@ -26,6 +26,7 @@ export type { RegistryLogin, RegistryLoginSource } from './lib/registry-pull.js'
 export { DependencyWatch } from './services/DependencyWatch.js';
 export { IdentityService } from './services/IdentityService.js';
 export { InstanceGroups } from './services/InstanceGroups.js';
+export { InstanceReach, instanceReachFrom } from './services/InstanceReach.js';
 export { hashCredential, instanceIdFor } from './services/InstanceService.js';
 export { kubeconfigFile, MoveRelay } from './services/MoveRelay.js';
 export { inventoryFileFor } from './services/release-files.js';

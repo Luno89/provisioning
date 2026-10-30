@@ -17,7 +17,7 @@ import helmet from 'helmet';
 import {
   CSP_REPORT_LIMIT, CSP_REPORT_PATH, cspHeader, cspModeFrom, violationLine, crossSiteRefusal, foreignOrigin, ourOrigins, MetricsService, JSON_LIMITS, jsonLimitFor, RATE_LIMITS, ruleFor,
   getTemporalClient, resolveOwnersWith, PayloadStorageService, createAuth, inFlightLimit, keepTrying, mongoTarget, asyncRoute,
-  TEMPORAL_JWKS_PATH, temporalCa, temporalKeysRouter, temporalNamespaceFrom,
+  TEMPORAL_JWKS_PATH, temporalCa, temporalTlsProblem, temporalKeysRouter, trustProxyFor, temporalNamespaceFrom,
   authorize, claimSettingsFrom, type Principal, createDatabase, sharedPayloadBlobs, type Database, migrateLegacyOwnership, operatorsFromAdmins, ownUnownedProjects, decryptValue, loadKeys,
   AccessRevocations, endsSessions, roleFromEnv, servesTenants, holdsAccounts, MailService, emailWayFrom, telemetrySettings, e2eProblem, firstAdminSetup, drainThenStop, podPlaceFrom, runOnce,
 } from './platform/index.js';
@@ -40,7 +40,7 @@ import { wireActions } from './engine/wiring/actions.js';
 import { PRUNE_FIRST_DELAY_MS, PRUNE_INTERVAL_MS } from './engine-host/sandboxes/prune-images.js';
 import { runClosedVia, runLifeVia } from './engine-host/temporal/run-cancellation.js';
 import { askDevice, dropDevice, localAgentStatus, tellDevice, MachineService, machineTelemetry } from './machines/index.js';
-import { RootMeshKeys, IdentityService } from './instances/index.js';
+import { RootMeshKeys, IdentityService, instanceReachFrom } from './instances/index.js';
 import { modelsRouter, ModelService, endpointRulesFromEnv } from './models/index.js';
 
 import {
@@ -88,6 +88,8 @@ function startHostTunnel(port = 8000) {
 }
 
 export async function bootstrap(): Promise<{ app: express.Application; io: SocketServer; temporalBridge?: TemporalBridge; db: Database }> {
+  const plaintext = temporalTlsProblem(process.env);
+  if (plaintext) throw new Error(plaintext);
   const app = express();
   const httpServer = createServer(app);
   httpServer.requestTimeout = 0;
@@ -127,7 +129,8 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   if (e2e) throw new Error(e2e);
   const keys = loadKeys(process.env);
   const revocations = new AccessRevocations();
-  const rootProvider = rootProviderFor({ role, publicUrl: PUBLIC_URL, keys, db, proxied: process.env.NODE_ENV === 'production' });
+  const instanceReach = instanceReachFrom(process.env);
+  const rootProvider = rootProviderFor({ role, publicUrl: PUBLIC_URL, keys, db, proxied: process.env.NODE_ENV === 'production', reach: instanceReach });
   if (rootProvider) revocations.listen(async (revoked) => { if (endsSessions(revoked)) await rootProvider.revoke(revoked); });
   const rootSignIn = rootSignInFor({ role, env: process.env, keys, db, revocations, publicUrl: PUBLIC_URL });
   const rootToken = rootSignIn ? () => rootSignIn.serviceToken() : undefined;
@@ -141,7 +144,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   const push = new PushService({ store: db.monitoring, vapid, send: webPushSend(vapid, vapidSubject(process.env.MAIL_FROM, PUBLIC_URL)), log: (message) => console.warn(message) });
   const notifications = new NotificationService({ store: db.monitoring, mail, push, publicUrl: PUBLIC_URL, log: (message) => console.warn(message) });
   const tenant: express.Router = servesTenants(role) ? (app as unknown as express.Router) : express.Router();
-  const identity = new IdentityService(role, db);
+  const identity = new IdentityService(role, db, undefined, undefined, instanceReach);
   console.log(`🧭 Running as ${role.role}${role.instance ? ` (instance ${role.instance.id}, owned by ${role.instance.ownerId})` : ''}`);
   const infraService = new InfrastructureService();
   const builderService = new BuilderService(db, infraService);
@@ -226,7 +229,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   startEngineStream({ role, push, io, db, payloadKey: keys.payload, core: engine, models: modelService, notices, postNotice, workFailures });
 
   const authService = new AuthService(db, { mail, production: process.env.NODE_ENV === 'production' });
-  app.set('trust proxy', process.env.NODE_ENV === 'production' ? 1 : false);
+  app.set('trust proxy', trustProxyFor(process.env));
   app.use(inFlightLimit());
   app.use(cors({
     origin: (origin, callback) => callback(null, originAllowed(origin)),

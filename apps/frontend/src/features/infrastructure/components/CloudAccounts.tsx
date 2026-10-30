@@ -174,6 +174,14 @@ export default function CloudAccounts() {
                   </p>
                 )}
 
+                {!isConfigured && !isExpanded && status?.withoutKeys && (
+                  <p className="text-[11px] text-slate-400 leading-relaxed mb-3">
+                    {status.withoutKeys === 'mock'
+                      ? 'Without keys, a cluster on it runs in Mock Cloud Mode: local k3d containers on this machine.'
+                      : `Add your ${provider.label} keys here to make clusters on it.`}
+                  </p>
+                )}
+
                 {isConfigured && !isExpanded && status?.summary && status.source === 'user' && (
                   <div className="space-y-1 mb-4">
                     {Object.entries(status.summary).map(([key, value]) => (
@@ -309,7 +317,11 @@ export default function CloudAccounts() {
                   <AlertTriangle className="text-red-500 mb-3" size={32} />
                   <h4 className="font-bold text-lg mb-1">Remove Credentials?</h4>
                   <p className="text-slate-400 text-sm text-center mb-6">
-                    This provider will revert to Mock Cloud Mode.
+                    {status?.withoutKeys === 'mock'
+                      ? 'This provider will revert to Mock Cloud Mode.'
+                      : status?.withoutKeys === 'refused'
+                        ? 'No new cluster can be made on it until you add keys again.'
+                        : 'Koala will no longer use these credentials.'}
                   </p>
                   <div className="flex gap-3 w-full max-w-xs">
                     <button
@@ -333,17 +345,19 @@ export default function CloudAccounts() {
         })}
       </div>
 
-      <div className="mt-8 max-w-4xl bg-blue-500/5 border border-blue-500/20 rounded-2xl p-5 flex items-start gap-4">
-        <Cloud className="text-blue-500 flex-shrink-0 mt-0.5" size={20} />
-        <div>
-          <h4 className="text-sm font-bold text-blue-400 mb-1">Mock Cloud Mode</h4>
-          <p className="text-xs text-slate-400 leading-relaxed">
-            Providers without configured credentials automatically run in Mock Cloud Mode,
-            using local k3d containers for zero-setup development. Configure real credentials
-            above to deploy to actual cloud infrastructure.
-          </p>
+      {statuses.some((s) => s.withoutKeys === 'mock') && (
+        <div className="mt-8 max-w-4xl bg-blue-500/5 border border-blue-500/20 rounded-2xl p-5 flex items-start gap-4">
+          <Cloud className="text-blue-500 flex-shrink-0 mt-0.5" size={20} />
+          <div>
+            <h4 className="text-sm font-bold text-blue-400 mb-1">Mock Cloud Mode</h4>
+            <p className="text-xs text-slate-400 leading-relaxed">
+              On this development box, providers without configured credentials run in Mock Cloud Mode,
+              using local k3d containers for zero-setup development. Configure real credentials
+              above to deploy to actual cloud infrastructure.
+            </p>
+          </div>
         </div>
-      </div>
+      )}
 
 
     </section>

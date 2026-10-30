@@ -23,6 +23,16 @@ describe('what this server is', () => {
     expect(() => roleFromEnv({ ROLE: 'root', NODE_ENV: 'production' })).toThrow(/ROOT_IDENTITY_KEY is not set/);
   });
 
+  it('in production signs in through root only over https, but for a lab and an address that stays private', () => {
+    const instance = { ROLE: 'instance', INSTANCE_ID: 'inst-1', INSTANCE_OWNER_ID: 'u1', ROOT_PUBLIC_KEYS: rootPublic, NODE_ENV: 'production' };
+    expect(() => roleFromEnv({ ...instance, ROOT_URL: 'http://app.nowrinkles.dev' })).toThrow(RoleConfigError);
+    expect(() => roleFromEnv({ ...instance, ROOT_URL: 'http://app.nowrinkles.dev' })).toThrow(/plain http to an address on the open internet/);
+    expect(() => roleFromEnv({ ROLE: 'hub', ROOT_PUBLIC_KEYS: rootPublic, HUB_CREDENTIAL: 'c', NODE_ENV: 'production', ROOT_URL: 'http://app.nowrinkles.dev' })).toThrow(/plain http/);
+    expect(roleFromEnv({ ...instance, ROOT_URL: 'https://app.nowrinkles.dev' }).instance?.rootUrl).toBe('https://app.nowrinkles.dev');
+    expect(roleFromEnv({ ...instance, ROOT_URL: 'http://app.koala.internal:3001' }).instance?.rootUrl).toBe('http://app.koala.internal:3001');
+    expect(roleFromEnv({ ...instance, ROOT_URL: 'http://localhost:3002' }).instance?.rootUrl).toBe('http://localhost:3002');
+  });
+
   it('as an instance needs to know who it is, who owns it and which root it trusts — and says what is missing', () => {
     expect(() => roleFromEnv({ ROLE: 'instance', INSTANCE_ID: 'inst-1' })).toThrow('an instance needs INSTANCE_OWNER_ID, ROOT_URL, ROOT_PUBLIC_KEYS');
     const config = roleFromEnv({ ROLE: 'instance', INSTANCE_ID: 'inst-1', INSTANCE_OWNER_ID: 'u1', ROOT_URL: 'https://app.example.com/', ROOT_PUBLIC_KEYS: rootPublic });

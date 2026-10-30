@@ -5,6 +5,7 @@ import axios from 'axios';
 import type { InfrastructureService } from './InfrastructureService.js';
 import type { ClusterProxyService } from './ClusterProxyService.js';
 import { readerNameFor, readerPrefixFor, workspaceNameFor } from '../lib/infisical-names.js';
+import { infisicalAdminPassword } from '../lib/infisical-admin.js';
 
 const NAMESPACE = 'infisical';
 const DATA_DIR = path.join(process.cwd(), 'data');
@@ -95,12 +96,8 @@ export class InfisicalService {
   }
 
   async getAdminCredentials(): Promise<{ username: string; password: string }> {
-    let adminPassword = 'dev-admin-password-1234';
-    try {
-      const read = await fs.readFile(ADMIN_PASSWORD_FILE, 'utf8');
-      if (read.trim()) adminPassword = read.trim();
-    } catch { /* ignored */ }
-    return { username: 'admin', password: adminPassword };
+    const stored = await fs.readFile(ADMIN_PASSWORD_FILE, 'utf8').catch(() => undefined);
+    return { username: 'admin', password: infisicalAdminPassword(stored, process.env.NODE_ENV === 'production', ADMIN_PASSWORD_FILE) };
   }
 
   private async loadAuthCreds(): Promise<{ clientId: string; clientSecret: string; orgId: string } | null> {

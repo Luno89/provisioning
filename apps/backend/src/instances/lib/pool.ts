@@ -162,6 +162,8 @@ export function vclusterValues(name: string, slot: PoolSlot): Record<string, unk
   };
 }
 
+export const PLATFORM_TAG = 'tag:platform';
+
 export interface ProxiedInstance {
   name: string;
   ports: PoolPorts;
@@ -169,6 +171,7 @@ export interface ProxiedInstance {
 
 const passThrough = (target: string): string[] => [
   `\treverse_proxy ${target} {`,
+  '\t\theader_up X-Forwarded-For {client_ip}',
   '\t\ttransport http {',
   '\t\t\tread_timeout 0',
   '\t\t\twrite_timeout 0',
@@ -176,7 +179,16 @@ const passThrough = (target: string): string[] => [
   '\t}',
 ];
 
-export function proxyCaddyfile(instances: readonly ProxiedInstance[], address: string): string {
+const asRange = (address: string): string => (address.includes('/') ? address : `${address}/${address.includes(':') ? 128 : 32}`);
+
+const trusting = (proxies: readonly string[]): string[] => proxies.length === 0 ? [] : [
+  '\tservers {',
+  `\t\ttrusted_proxies static ${[...new Set(proxies.map(asRange))].sort().join(' ')}`,
+  '\t\ttrusted_proxies_strict',
+  '\t}',
+];
+
+export function proxyCaddyfile(instances: readonly ProxiedInstance[], address: string, trustedProxies: readonly string[]): string {
   const blocks = [...instances].sort((a, b) => a.name.localeCompare(b.name)).flatMap((instance) => {
     const namespace = poolNamespace(instance.name);
     const service = (name: string, inNamespace: string) => `${syncedService(name, inNamespace, instance.name)}.${namespace}.svc.cluster.local`;
@@ -186,7 +198,7 @@ export function proxyCaddyfile(instances: readonly ProxiedInstance[], address: s
       `http://:${instance.ports.registry} {`, '\tbind 127.0.0.1', ...passThrough(`${service(GITEA_SERVICE.name, GITEA_SERVICE.namespace)}:${GITEA_SERVICE.port}`), '}',
     ];
   });
-  return [`{`, '\tadmin off', '\tauto_https off', '\tpersist_config off', '}', '', ...blocks, ''].join('\n');
+  return [`{`, '\tadmin off', '\tauto_https off', '\tpersist_config off', ...trusting(trustedProxies), '}', '', ...blocks, ''].join('\n');
 }
 
 export function proxyManifests(caddyfile: string): Record<string, unknown>[] {

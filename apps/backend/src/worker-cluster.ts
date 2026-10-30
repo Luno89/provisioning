@@ -13,7 +13,7 @@ import { SyncConfigActivity } from './activities/SyncConfigActivity.js';
 import { DownloadModelActivity } from './activities/DownloadModelActivity.js';
 import { VerifyGpuRuntimeActivity } from './activities/VerifyGpuRuntimeActivity.js';
 import { RunPipelineActivity } from './activities/RunPipelineActivity.js';
-import { createWorkerLogger, buildDataConverter, connectTemporalWorker, sharedPayloadBlobs, loadKeys, roleFromEnv, SYSTEM_KUBECONFIG, telemetrySettings, temporalNamespaceFrom } from './platform/index.js';
+import { createWorkerLogger, buildDataConverter, connectTemporalWorker, temporalTlsProblem, sharedPayloadBlobs, loadKeys, roleFromEnv, SYSTEM_KUBECONFIG, telemetrySettings, temporalNamespaceFrom } from './platform/index.js';
 import { healthPort, serveHealth, InfrastructureService, sharedClusterProxy } from './infrastructure/index.js';
 import { heartbeatWhileRunning } from '@koala/engine-core';
 import { traceActivities } from '@koala/engine-core/telemetry';
@@ -59,6 +59,8 @@ Runtime.install({
 });
 
 async function main() {
+  const plaintext = temporalTlsProblem(process.env);
+  if (plaintext) throw new Error(plaintext);
   await setupInClusterAuth();
 
   const queue = process.env.TEMPORAL_TASK_QUEUE || 'cluster-ops-queue';
