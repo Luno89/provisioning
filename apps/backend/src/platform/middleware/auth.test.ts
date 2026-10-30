@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { parseCookie, createAuth } from './auth.js';
 import { testDatabase } from '../lib/test-database.js';
+import type { Database } from '../lib/db-interface.js';
 import { signJWT } from '../lib/auth.js';
 import type { Request, Response } from 'express';
 import { inviteCodeHash } from '../lib/invite-codes.js';
@@ -156,9 +157,13 @@ describe('what is open without a session, by role', () => {
     (call.req as unknown as { path: string }).path = path;
     return call;
   };
+  let opened: Promise<Database> | undefined;
+  const database = (): Promise<Database> => {
+    opened ??= testDatabase().then(async (db) => { await db.init(); return db; });
+    return opened;
+  };
   const opens = async (role: 'root' | 'instance' | 'combined' | 'hub', path: string): Promise<boolean> => {
-    const db = await testDatabase();
-    await db.init();
+    const db = await database();
     const call = at(path);
     await createAuth({ db, sessionKey: 'k', publicUrl: 'http://localhost:3001', role }).requireAuth(call.req, call.res, call.next);
     return call.result().nexted;
