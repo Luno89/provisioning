@@ -25,4 +25,6 @@ export const revocationShaped = (value: unknown): value is AccessRevoked => {
     && (event.sharedProjectId === undefined || (typeof event.sharedProjectId === 'string' && event.sharedProjectId.length > 0));
 };
 
-export const endsSessions = (revoked: AccessRevoked): boolean => revoked.sharedProjectId === undefined;
+export const endsSessions = (revoked: AccessRevoked): boolean => revoked.sharedProjectId === undefined && revoked.because !== 'locked';
+
+export const reachesEveryClient = (revoked: AccessRevoked): boolean => revoked.sharedProjectId === undefined;

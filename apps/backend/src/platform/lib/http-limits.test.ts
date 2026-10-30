@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { afterFailure, attemptsKeyFor, jsonLimitFor, lockedSaid, lockedUntil, LOCKOUT, ruleFor, SignInAttemptLog } from './http-limits.js';
+import { afterFailure, attemptsKeptUntil, attemptsKeyFor, jsonLimitFor, justLocked, lockedSaid, lockedUntil, LOCKOUT, ruleFor, TWO_FACTOR_LOCKOUT, twoFactorKeyFor, twoFactorLockedSaid } from './http-limits.js';
 
 describe('which public paths are rate limited', () => {
   it('limits sign-in, joining and share links, and nothing signed-in', () => {
@@ -22,6 +22,13 @@ describe('which public paths are rate limited', () => {
     expect(ruleFor('/auth/login')?.countsOnlyFailures).toBe(true);
     expect(ruleFor('/machines/join')?.countsOnlyFailures).toBe(true);
     expect(ruleFor('/share/tok')?.countsOnlyFailures).toBe(false);
+  });
+
+  it('counts every password reset asked for, since asking succeeds whether or not the account exists, and only failed resets', () => {
+    expect(ruleFor('/auth/password/forgot')?.name).toBe('password-reset');
+    expect(ruleFor('/auth/password/forgot/resend')?.countsOnlyFailures).toBe(false);
+    expect(ruleFor('/auth/password/reset')?.name).toBe('sign-in');
+    expect(ruleFor('/auth/password')).toBeUndefined();
   });
 });
 
@@ -47,21 +54,23 @@ describe('whose failures a sign-in counts against', () => {
     expect(attemptsKeyFor('ann@example.com', undefined)).toBe('account:ann@example.com');
   });
 
-  it('locks one key without the other, forgets a key on success, and prunes keys whose failures have all aged out', () => {
-    const log = new SignInAttemptLog(LOCKOUT, 60_000);
-    const start = 5_000_000;
-    for (let n = 0; n < LOCKOUT.after; n += 1) log.failed('account:ann@example.com', start + n);
-    expect(log.lockedUntil('account:ann@example.com', start + 100)).toBeDefined();
-    expect(log.lockedUntil('device:d1', start + 100)).toBeUndefined();
-    log.failed('device:d1', start + 200);
-    log.succeeded('device:d1');
-    expect(log.size).toBe(1);
-    log.failed('account:bob@example.com', start + LOCKOUT.windowMs - 1);
-    log.prune(start + LOCKOUT.windowMs + 50);
-    expect(log.size).toBe(1);
-    expect(log.lockedUntil('account:ann@example.com', start + LOCKOUT.windowMs + 50)).toBeUndefined();
-    log.failed('account:carol@example.com', start + 2 * LOCKOUT.windowMs + 60_000);
-    expect(log.size).toBe(1);
+  it('keeps the failures of a key for as long as they can still lock it', () => {
+    expect(attemptsKeptUntil({ failures: [1_000, 9_000] })).toBe(9_000 + LOCKOUT.windowMs);
+  });
+});
+
+describe('locking an account\'s codes after repeated wrong ones', () => {
+  it('locks codes for the account after the fifth wrong one in the window, whatever sign-in they came from', () => {
+    let attempts;
+    const start = 2_000_000;
+    for (let n = 0; n < TWO_FACTOR_LOCKOUT.after - 1; n += 1) attempts = afterFailure(attempts, start + n, TWO_FACTOR_LOCKOUT);
+    expect(lockedUntil(attempts, start + 10, TWO_FACTOR_LOCKOUT)).toBeUndefined();
+    const before = attempts;
+    attempts = afterFailure(attempts, start + 10, TWO_FACTOR_LOCKOUT);
+    expect(justLocked(before, attempts, start + 10, TWO_FACTOR_LOCKOUT)).toBe(true);
+    expect(justLocked(attempts, afterFailure(attempts, start + 11, TWO_FACTOR_LOCKOUT), start + 11, TWO_FACTOR_LOCKOUT)).toBe(false);
+    expect(twoFactorLockedSaid(lockedUntil(attempts, start + 10, TWO_FACTOR_LOCKOUT)!, start + 10)).toBe('Too many wrong codes for this account; codes are refused for 15 minutes.');
+    expect(twoFactorKeyFor('u1')).toBe('two-factor:u1');
   });
 });
 

@@ -21,12 +21,21 @@ export function jsonLimitFor(path: string, signedIn: boolean): keyof typeof JSON
 export const RATE_LIMITS: readonly RateLimitRule[] = [
   {
     name: 'sign-in',
-    paths: ['/auth/login', '/auth/register', '/auth/register/verify', '/auth/register/resend', '/auth/2fa/verify', '/auth/handoff', '/auth/sign-in'],
+    paths: ['/auth/login', '/auth/register', '/auth/register/verify', '/auth/register/resend', '/auth/2fa/verify', '/auth/handoff', '/auth/sign-in', '/auth/password/reset'],
     prefixes: ['/auth/provider/'],
     windowMs: 15 * MINUTES,
     max: 30,
     said: 'Too many sign-in attempts from this address; wait fifteen minutes and try again.',
     countsOnlyFailures: true,
+  },
+  {
+    name: 'password-reset',
+    paths: ['/auth/password/forgot', '/auth/password/forgot/resend'],
+    prefixes: [],
+    windowMs: 15 * MINUTES,
+    max: 10,
+    said: 'Too many password resets asked from this address; wait fifteen minutes and try again.',
+    countsOnlyFailures: false,
   },
   {
     name: 'joining',
@@ -61,9 +70,17 @@ export interface SignInAttempts {
   failures: number[];
 }
 
-export const LOCKOUT = { after: 10, windowMs: 15 * MINUTES, forMs: 15 * MINUTES };
+export interface LockoutRule {
+  after: number;
+  windowMs: number;
+  forMs: number;
+}
 
-export function lockedUntil(attempts: SignInAttempts | undefined, now: number, rule = LOCKOUT): number | undefined {
+export const LOCKOUT: LockoutRule = { after: 10, windowMs: 15 * MINUTES, forMs: 15 * MINUTES };
+
+export const TWO_FACTOR_LOCKOUT: LockoutRule = { after: 5, windowMs: 15 * MINUTES, forMs: 15 * MINUTES };
+
+export function lockedUntil(attempts: SignInAttempts | undefined, now: number, rule: LockoutRule = LOCKOUT): number | undefined {
   if (!attempts) return undefined;
   const recent = attempts.failures.filter((at) => now - at < rule.windowMs);
   if (recent.length < rule.after) return undefined;
@@ -71,45 +88,28 @@ export function lockedUntil(attempts: SignInAttempts | undefined, now: number, r
   return last + rule.forMs > now ? last + rule.forMs : undefined;
 }
 
-export const afterFailure = (attempts: SignInAttempts | undefined, now: number, rule = LOCKOUT): SignInAttempts =>
+export const afterFailure = (attempts: SignInAttempts | undefined, now: number, rule: LockoutRule = LOCKOUT): SignInAttempts =>
   ({ failures: [...(attempts?.failures ?? []).filter((at) => now - at < rule.windowMs), now] });
+
+export const attemptsKeptUntil = (attempts: SignInAttempts, rule: LockoutRule = LOCKOUT): number =>
+  Math.max(0, ...attempts.failures) + Math.max(rule.windowMs, rule.forMs);
+
+export const justLocked = (before: SignInAttempts | undefined, after: SignInAttempts, now: number, rule: LockoutRule = LOCKOUT): boolean =>
+  lockedUntil(before, now, rule) === undefined && lockedUntil(after, now, rule) !== undefined;
 
 export const lockedSaid = (until: number, now: number): string => {
   const minutes = Math.max(1, Math.ceil((until - now) / MINUTES));
   return `Too many failed sign-ins for this account; try again in ${minutes} ${minutes === 1 ? 'minute' : 'minutes'}.`;
 };
 
+export const twoFactorLockedSaid = (until: number, now: number): string => {
+  const minutes = Math.max(1, Math.ceil((until - now) / MINUTES));
+  return `Too many wrong codes for this account; codes are refused for ${minutes} ${minutes === 1 ? 'minute' : 'minutes'}.`;
+};
+
+export const ACCOUNT_KEY = 'account:';
+
 export const attemptsKeyFor = (account: string, device: { account: string; id: string } | undefined): string =>
-  device && device.account === account ? `device:${device.id}` : `account:${account}`;
+  device && device.account === account ? `device:${device.id}` : `${ACCOUNT_KEY}${account}`;
 
-export class SignInAttemptLog {
-  private readonly held = new Map<string, SignInAttempts>();
-  private prunedAt = 0;
-
-  constructor(private readonly rule = LOCKOUT, private readonly pruneEveryMs = MINUTES) {}
-
-  get size(): number {
-    return this.held.size;
-  }
-
-  lockedUntil(key: string, now: number): number | undefined {
-    return lockedUntil(this.held.get(key), now, this.rule);
-  }
-
-  failed(key: string, now: number): void {
-    if (now - this.prunedAt >= this.pruneEveryMs) this.prune(now);
-    this.held.set(key, afterFailure(this.held.get(key), now, this.rule));
-  }
-
-  succeeded(key: string): void {
-    this.held.delete(key);
-  }
-
-  prune(now: number): void {
-    this.prunedAt = now;
-    const kept = Math.max(this.rule.windowMs, this.rule.forMs);
-    for (const [key, attempts] of this.held) {
-      if (attempts.failures.every((at) => now - at >= kept)) this.held.delete(key);
-    }
-  }
-}
+export const twoFactorKeyFor = (userId: string): string => `two-factor:${userId}`;

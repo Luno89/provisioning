@@ -4,7 +4,7 @@ import { WorkflowNotFoundError } from '@temporalio/client';
 import type { Server as SocketServer } from 'socket.io';
 import type { PersonaRecord } from '@koala/agent-engine';
 import {
-  type AccessRevocations, type Database, type SecretKey, servesTenants, decryptValue, type RoleConfig, signJWT, startedFor, getTemporalClient,
+  type AccessRevocations, type Database, type SecretKey, servesTenants, decryptValue, type RoleConfig, sessionToken, startedFor, getTemporalClient,
   keepTrying, grovedTree, treeNotices, postedNotice, ownedBy,
   publicAddressProblem, principalOf, claimSettingsFrom, roleFromEnv,
 } from '../../platform/index.js';
@@ -329,7 +329,7 @@ export async function wireEngine(deps: EngineWiringDeps): Promise<EngineWiring> 
     checks: httpCheckAccess(async (ownerId) => {
       const person = await db.accounts.getUserById(ownerId);
       if (!person) throw new Error(`there is no account ${ownerId} to act for`);
-      return axios.create({ baseURL: `http://localhost:${env.PORT || 3001}/api`, proxy: false, headers: { Cookie: `session=${signJWT({ userId: person.id, email: person.email }, deps.sessionKey, 60 * 60)}` } });
+      return axios.create({ baseURL: `http://localhost:${env.PORT || 3001}/api`, proxy: false, headers: { Cookie: `session=${sessionToken(person, deps.sessionKey, { seconds: 60 * 60 })}` } });
     }),
     documents: { push: (request) => projectRepos.pushDocuments(request), pull: (request) => projectRepos.pullDocuments(request), merge: (request) => projectRepos.mergeDocuments(request), pushBranch: (request) => projectRepos.pushBranch(request), pullBranch: (request) => projectRepos.pullBranch(request), deleteBranch: (request) => projectRepos.deleteBranch(request) },
     repoFor: workspaceRepos,
