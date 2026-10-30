@@ -4,7 +4,7 @@
 # Usage (on the root node, as root):
 #   bash scripts/root-node/update.sh v2026.10.25        # a release tag signed by a key in /etc/koala/release-signers
 #   bash scripts/root-node/update.sh v2026.10.25 --force  # update despite work in flight
-#   (a lab, ROOT_TLS=internal, also takes any git ref, and origin/main when none is given)
+#   (a lab, CERTIFICATES=internal on a DOMAIN under .internal, also takes any git ref, and origin/main when none is given)
 #
 # Rollback is git-based and automatic: if the health check fails, this returns to the commit that
 # was running before and restarts again.
@@ -23,6 +23,7 @@ REGISTRY="${REGISTRY:-127.0.0.1:5000}"
 IMAGE_REPO="nowrinkles/app"
 PUBLISHED_IMAGE="${PUBLISHED_IMAGE-ghcr.io/luno89/nowrinkles/app}"
 SIGNERS="${RELEASE_SIGNERS:-/etc/koala/release-signers}"
+LAB_SH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lab.sh"
 FORCE=0
 TARGET_REF=""
 
@@ -44,8 +45,9 @@ step() { echo -e "\n${GREEN}▶${NC} $1"; }
 [ -d "$REPO_DIR/.git" ] || die "No repo at ${REPO_DIR}. Run bootstrap.sh first."
 cd "$REPO_DIR"
 BACKEND_ENV="apps/backend/.env"
-LAB=0
-grep -q -E '^(CERTIFICATES|ROOT_TLS)=internal$' .env 2>/dev/null && LAB=1
+env_value() { grep -E "^$1=" .env 2>/dev/null | tail -n1 | cut -d= -f2- || true; }
+[ -f "$LAB_SH" ] || LAB_SH="scripts/root-node/lab.sh"
+LAB="$(bash "$LAB_SH" "$(env_value CERTIFICATES)" "$(env_value ROOT_TLS)" "$(env_value DOMAIN)" 2>&1)" || die "$LAB"
 
 set_backend_env() {
   if grep -q "^$1=" "$BACKEND_ENV"; then

@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import {
   caddyDnsEnv, caddyModules, caddyTlsSnippet, credentialsFromEnv, dnsProviderNamed, providerForNameservers, rootDnsSettingsFrom,
 } from '../../apps/backend/src/infrastructure/lib/dns-providers.js';
-import { readEnvFile, setEnvValues } from './root-env.js';
+import { dropEnvValues, readEnvFile, setEnvValues } from './root-env.js';
 
 const REPO = resolve(fileURLToPath(new URL('.', import.meta.url)), '../..');
 const COMPOSE_ENV = process.env.COMPOSE_ENV ?? join(REPO, '.env');
@@ -58,6 +58,7 @@ async function setup(): Promise<void> {
     for (const field of described.credential) if (fields[field.key]) kept[field.env] = fields[field.key]!;
   }
   if (ingressDns === 'cloudflare') kept.ROOT_TLS = 'cloudflare';
+  else dropEnvValues(COMPOSE_ENV, ['ROOT_TLS']);
   setEnvValues(COMPOSE_ENV, kept);
   const ingressProvider = dnsProviderNamed(ingressDns);
   writeFileSync(join(CADDY_DIR, 'caddy-tls', 'koala.caddy'), caddyTlsSnippet('acme', ingressProvider));

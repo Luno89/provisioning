@@ -18,11 +18,18 @@ if [ -z "$wanted" ]; then
     echo "root runs ${current}, newer than the newest published release ${wanted}; leaving it"
     exit 0
   fi
+  git -C "$REPO_DIR" rev-parse -q --verify "refs/tags/${wanted}" >/dev/null \
+    || git -C "$REPO_DIR" fetch --quiet origin "refs/tags/${wanted}:refs/tags/${wanted}" \
+    || { echo "could not fetch ${wanted} from origin to see what kind of release it is" >&2; exit 1; }
+  if git -C "$REPO_DIR" for-each-ref --format='%(contents)' "refs/tags/${wanted}" | grep -q '^Hotfix released from '; then
+    echo "${wanted} is a hotfix, released without the gates; root moves onto it only when the operator names it: bash ${REPO_DIR}/scripts/root-node/release-watch.sh ${wanted}"
+    exit 0
+  fi
 fi
 [[ "$wanted" =~ ^v[0-9]{4}\.[0-9]{2}\.[0-9]{2}(-[0-9]+)?$ ]] || { echo "${wanted} is not a release tag" >&2; exit 1; }
 
 echo "moving root from ${current:-$(git -C "$REPO_DIR" rev-parse --short=12 HEAD)} to ${wanted}"
 copy="$(mktemp -d)"
 trap 'rm -rf "$copy"' EXIT
-cp "$REPO_DIR/scripts/root-node/update.sh" "$REPO_DIR/scripts/root-node/cdktf-bindings.sh" "$REPO_DIR/scripts/root-node/verify-release.sh" "$copy/"
+cp "$REPO_DIR/scripts/root-node/update.sh" "$REPO_DIR/scripts/root-node/cdktf-bindings.sh" "$REPO_DIR/scripts/root-node/verify-release.sh" "$REPO_DIR/scripts/root-node/lab.sh" "$copy/"
 bash "$copy/update.sh" "$wanted"

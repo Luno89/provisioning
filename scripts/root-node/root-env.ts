@@ -21,3 +21,11 @@ export function setEnvValues(path: string, values: Readonly<Record<string, strin
   writeFileSync(path, `${lines.join('\n')}\n`, { mode: 0o600 });
   chmodSync(path, 0o600);
 }
+
+export function dropEnvValues(path: string, keys: readonly string[]): void {
+  if (!existsSync(path)) return;
+  const lines = readFileSync(path, 'utf8').split('\n').filter((line, index, all) => line !== '' || index < all.length - 1);
+  const kept = lines.filter((line) => !keys.some((key) => line.startsWith(`${key}=`)));
+  writeFileSync(path, `${kept.join('\n')}\n`, { mode: 0o600 });
+  chmodSync(path, 0o600);
+}
