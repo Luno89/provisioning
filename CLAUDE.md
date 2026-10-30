@@ -24,7 +24,7 @@ npm workspaces: `apps/*`, `packages/*`.
    - **Data kept only in memory** when the feature is a list of history the user comes back to.
    - **A field sent in a shape its consumer silently ignores.** `{ temperature }` where the model call reads `{ toolTurn, conversation }`.
 
-   Product-level mock modes this file documents (mock cloud mode on a dev box, the OAuth and Twilio fallbacks) are features, not stubs. Test doubles belong in tests.
+   Product-level mock modes this file documents (mock cloud mode on a dev box, the Twilio fallback) are features, not stubs. Test doubles belong in tests.
 2. **Proactive Questioning & Architectural Alignment**: If you are not 100% confident about requirements, terminology, design trade-offs, or system boundaries, STOP and ask the user directly before proceeding. Never guess or assume intent. Check existing plan documents (`~/.claude/plans/`, `CLAUDE.md`) and project history first so questions are informed and focused on unsettled decisions. Any architectural decision, abstraction boundary, or UX paradigm shift MUST be surfaced to the user for explicit review and sign-off.
 3. **Mandatory Live Operational E2E Verification**: Never declare any feature or capability "done" based solely on unit tests or typechecks. You MUST perform a live, end-to-end operational verification against the running application (e.g. authenticating, exercising actual HTTP/WebSocket routes, validating client payload contracts, verifying state mutations) proving the exact user flow succeeds end-to-end before concluding.
 
@@ -54,7 +54,7 @@ npm run test:monitoring-live      # a throwaway app on the system cluster → Mo
 npm run test:telemetry-live       # against the running dev stack: the collector and Tempo are on the system cluster (the cluster worker applied them if they were missing) → a throwaway account signs up with an admin's invite → one scripted turn through the check runner → one trace in Tempo, found by the id the request answered with, spans the request, the check workflow's start, the engine run's request, its workflow start and the model call, with nothing said in it → koala_up, the request, workflow, activity and model-call metrics are in Prometheus by name, labelled with the process → the Koala section on GET /api/infrastructure carries them → the stack stays; removes the scenario and the account, ~3 min
 npm run test:infrastructure-live   # Infrastructure reads the system cluster → a workload that cannot pull its image, put there by hand, shows in Needs attention and on the cluster page as not deployed through Koala, then leaves once removed → a Koala chat turn on a model that does not exist shows as failed work, opens its chat and clears → whatever the memory keeper keeps from the run and the quiet conversation is retired, ~15 min
 npm run test:hardening-live        # what production refuses and what it passes on: root's Caddy, the pool's proxy and an instance backend from this commit's image on a network of mesh addresses carry each visitor's address (the proxy as it was before made everyone root), and a caller around root's Caddy is taken for who they are whatever they claim → the backend and a worker without Temporal's CA, and an instance whose ROOT_URL is plain http to the open internet, stop with the reason → on a split stack (production containers), Provision a cluster offers k3d, a machine of the person's, Hetzner and DigitalOcean only, and the instance refuses an AWS, Google Cloud or Azure cluster as not available yet, recording nothing → a root that is not a lab refuses an instance's loopback, private and metadata addresses and, given one stored before, neither asks it how it signs in nor sends it a logout; in ship, ~4 min
-npm run test:dev-split-live        # its own root, instance and hub (tests/lib/split-stack.ts: containers from this commit's image on spare ports, each on a throwaway database, one Temporal namespace of their own, a mailbox) → signed out, the instance starts its sign-in through root's OpenID provider → the owner, made with root's setup code, is handed to the instance by code, PKCE and state, once and only in the browser that started it → root serves none of the instance's routes and the instance makes no accounts → a stranger with a root account is sent nowhere by root and stopped at the instance's own door → the instance's service token sends mail through root and a wrong credential is refused → the hub signs in through root too → the instance's connection to root: stopped, root emails the owner after a minute and once when it is back, and root stopped shows on the instance under Needs attention and clears → signing out everywhere on root ends the instance's and the hub's sessions at once and revokes a run's grant; in ship, ~6 min
+npm run test:dev-split-live        # its own root, instance and hub (tests/lib/split-stack.ts: containers from this commit's image on spare ports, each on a throwaway database, one Temporal namespace of their own, a mailbox) → root, given a stand-in OpenID provider through OIDC_*, offers it and not GitHub, refuses a sign-up through it without an invite, makes the account with the owner's invite and signs it in again by its subject → signed out, the instance starts its sign-in through root's OpenID provider → the owner, made with root's setup code, is handed to the instance by code, PKCE and state, once and only in the browser that started it → root serves none of the instance's routes and the instance makes no accounts → a stranger with a root account is sent nowhere by root and stopped at the instance's own door → the instance's service token sends mail through root and a wrong credential is refused → the hub signs in through root too → the instance's connection to root: stopped, root emails the owner after a minute and once when it is back, and root stopped shows on the instance under Needs attention and clears → signing out everywhere on root ends the instance's and the hub's sessions at once and revokes a run's grant; in ship, ~6 min
 npm run test:hub-live              # against the running dev stack (combined): an admin's invite signs up an owner, who makes two shared projects and invites a collaborator and a client to one and someone else to the other → root shows each invite signed out and signs up only the address invited → the outsider reaches nothing of the first project by id, guess or another's invite → each role can do only what it may → roles change, an invite is taken back, people are removed and leave, the last owner cannot → the owner's removal refused while they alone own a project someone else is on, the outsider's removal taking them off it → one project deleted by name and the owner's removal deleting the other, their databases gone, ~1 min
 npm run test:project-sharing-live  # against the running dev stack (combined): a throwaway project with a repository and a channel someone talked in → the group check refuses a dashed and a reserved name and suggests one from the project's name, sharing without a group is refused → the preview says what goes and stays, nothing is on the hub → shared under its group, which the preview and the hub's project carry, and a second project is refused that group → the channel arrives with its history and a new message follows → a commit on the owner's main reaches the hub's and one pushed to the hub's reaches the owner's → taken back by its name: the hub's database and repository are gone, everything stays on the instance → the group is free again and the second project is shared under it and taken back; the account removes itself, ~30 s
 npm run test:routes-live           # against the running dev stack: signed out, the guard answers before any router, the webhook and /ingress/verify before the guard and /api/metrics wants its token → a throwaway account signs up with an admin's invite → one request to each of the 59 mounted routers answers with the router's own response, never Express's "Cannot GET"; the account removes itself, ~5 s
@@ -183,7 +183,7 @@ Services live in their area's `services/` folder (`apps/backend/src/<area>/servi
 
 ## Auth
 
-All `/api/*` routes require a session (JWT in a `session` cookie) via `requireAuth` from `platform/middleware/auth.ts`'s `createAuth()`, mounted in `bootstrap()`, except `/auth/login`, `/auth/register`, `/auth/2fa/verify`, and the GitHub/Google OAuth routes. When `IS_E2E=true`, `requireAuth` short-circuits to a mock user so Playwright doesn't need to log in. GitHub/Google OAuth fall back to a zero-setup local mock flow when their client env vars are blank; 2FA SMS falls back to a logged warning when Twilio env vars are blank.
+All `/api/*` routes require a session (JWT in a `session` cookie) via `requireAuth` from `platform/middleware/auth.ts`'s `createAuth()`, mounted in `bootstrap()`, except `/auth/login`, `/auth/register`, `/auth/2fa/verify`, `/auth/sign-in` and the provider sign-in routes (`/auth/provider/:id`, `/auth/provider/:id/callback`). When `IS_E2E=true`, `requireAuth` short-circuits to a mock user so Playwright doesn't need to log in. 2FA SMS falls back to a logged warning when Twilio env vars are blank.
 
 **Who may sign in, and for how long** (security audit W2, owner 2026-10-26). The first account needs the setup code
 (`ADMIN_SETUP_CODE`, which `bootstrap.sh` writes and prints; a dev box without one makes a code at start and logs it while
@@ -197,17 +197,43 @@ password's hash, the invite's hash, the code's hash, gone after 30 minutes by a 
 ending the sign-up, and `/auth/register/resend` sends a new code, five codes at most. Where no email can be sent, production refuses
 the sign-up and anywhere else the code is logged and handed back as `devCode`, which the live suites use (`tests/lib/sign-up.ts`; the
 VM suites' roots send it to a test mailbox and read it there). The first account, made with the setup code, still signs up at once
-(the setup code proves the operator, and root's mail may not deliver on day one) and is kept `emailVerified: false`. Google or
-GitHub joins an existing account by its email only when that account's address was confirmed (`providerMatch`).
+(the setup code proves the operator, and root's mail may not deliver on day one) and is kept `emailVerified: false`. A provider
+joins an existing account by its email only when that account's address was confirmed (`providerMatch`).
 Every session is signed by `sessionToken` with when it began; `sessionsEndedAt` on the user refuses older ones (Settings →
 Signed in elsewhere, `POST /api/auth/sessions/end-others`, and any two-factor change), and a token without an expiry is
 refused. 2FA answers a login with a signed five-minute challenge (`twoFactorFor`, never a session), ends a challenge after
-five wrong codes, emails codes through the platform's mail and logs one only outside production. Google and GitHub carry a
-random state bound to a signed ten-minute cookie (`platform/lib/oauth-state.ts`, the Drive connection too), link an existing
-account only when the provider says the email is verified (GitHub's primary address), match later sign-ins by the
-provider's id, refuse an email linked to another account there, and ask the account's second factor too
-(`accounts/lib/provider-sign-in.ts`, `AuthService.signInWithProvider`, `?twoFactor=` back to the sign-in page). `IS_E2E`
+five wrong codes, emails codes through the platform's mail and logs one only outside production. `IS_E2E`
 signs nobody in under `NODE_ENV=production`, which refuses to start with it.
+
+**Signing in with Google, GitHub or an organisation's own OpenID provider** (owner, 2026-10-30; only where accounts are held,
+root and combined). Every provider is one description and one client, as DNS providers are:
+- `accounts/lib/sign-in-providers.ts` describes each (`SIGN_IN_PROVIDERS`: id, label, kind `oidc` with its issuer or `github`
+  with GitHub's addresses, scopes, and the env names its credentials come from) and holds the pure rules: `signInProvidersFrom`
+  (a provider is offered only when its credentials are all set; a half-set one is left out and logged), `offeredProviders`,
+  `providerCallbackUrl`, `identityFromIdToken`. Google is `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` at `https://accounts.google.com`;
+  GitHub is `GITHUB_CLIENT_ID`/`GITHUB_CLIENT_SECRET`; an organisation's own is `OIDC_ISSUER`, `OIDC_CLIENT_ID`,
+  `OIDC_CLIENT_SECRET` and `OIDC_LABEL` (the button's words). An issuer is https, or plain http only on this machine's loopback.
+- `accounts/services/sign-in/` holds the clients (`SignInClient`: `authorizationUrl`, `identify`), registered by kind in
+  `SIGN_IN_CLIENTS`, and `SignInProviders`, the service the routes call (`offered`, `start`, `finish`). `oidc.ts` is
+  `openid-client`: discovery, the code flow with PKCE (S256), a state and a nonce, and the ID token's signature checked against the
+  issuer's keys (`enableNonRepudiationChecks`), with its issuer, audience, nonce and expiry; who it is comes from `sub`, `email` and
+  `email_verified`, scopes `openid email profile` only. `github.ts` is OAuth with PKCE (GitHub's web flow takes S256), then the
+  account id and the primary address with whether GitHub verified it.
+- The browser reads `GET /api/auth/sign-in` (`{ url: null, providers }`), and the Login page shows a button for each and nothing
+  else. `GET /api/auth/provider/:id` starts one (`?invite=` carried), answering 404 for one not configured; the state, the PKCE
+  verifier, the nonce and the provider's id ride in the signed ten-minute `oauth_state` cookie (`platform/lib/oauth-state.ts`, the
+  Drive connection too), so a callback from another browser, with another state or at another provider's callback is refused.
+  The redirect URI to register with each provider is `<PUBLIC_URL>/api/auth/provider/<id>/callback`.
+- An account holds its providers as `signInLinks` (issuer and subject; the startup migration `sign-in-links` moved the old
+  `googleId`/`githubId`). A new account needs an invite, as any sign-up; a provider links an existing account only when it says
+  the email is verified and the account confirmed that address; later sign-ins match by the link alone; an email whose account is
+  linked to another subject at that issuer is refused; and the account's second factor is asked too
+  (`accounts/lib/provider-sign-in.ts`, `AuthService.signInWithProvider`, `?twoFactor=` back to the sign-in page).
+  `npm run accounts -w apps/backend -- prepare-provider-link <user-id> <email>` sets an account's address, confirmed, and forgets
+  its links, so the next provider sign-in naming that address joins it.
+- There is no pretend provider. Tests run a real `oidc-provider` on loopback as the issuer
+  (`accounts/services/sign-in/stand-in-issuer.ts`, which can also forge a bad signature, audience, nonce or issuer), and
+  `test:dev-split-live` gives its root one through `OIDC_*` and signs up, is refused and signs in again through it.
 
 **Limits and headers.** Sign-in, sign-up, 2FA, handoffs, invites, joins and share links are rate limited per address
 (`platform/lib/http-limits.ts`, mounted on `/api` before the guard; sign-in and joining count only **failed** requests
@@ -1861,7 +1887,7 @@ typecheck + lint + both unit suites before anything reaches `main`. Each rule be
 - **One router per URL prefix in `src/<area>/routes/<domain>.ts`, exported as a factory** taking its deps,
   so `src/platform/routes/test-harness.ts` can mount it without booting the app.
 - **A test may not re-declare the logic it tests.** Two security tests did, and could not fail —
-  see `platform/lib/ownership.ts` and `accounts/lib/oauth-gate.ts`.
+  see `platform/lib/ownership.ts` (the other guarded a pretend Google sign-in, since removed).
 - **Route order in `bootstrap()` is load-bearing**: the Gitea webhook must stay before
   `express.json()` (it verifies an HMAC over the raw body), `app.use('/api', requireAuth)` before
   every `/api` router, and the SPA catch-all last.
