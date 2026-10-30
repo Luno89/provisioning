@@ -17,7 +17,7 @@ import helmet from 'helmet';
 import {
   CSP_REPORT_LIMIT, CSP_REPORT_PATH, cspHeader, cspModeFrom, violationLine, crossSiteRefusal, foreignOrigin, ourOrigins, MetricsService, JSON_LIMITS, jsonLimitFor, RATE_LIMITS, ruleFor,
   getTemporalClient, resolveOwnersWith, PayloadStorageService, createAuth, inFlightLimit, keepTrying, mongoTarget, asyncRoute,
-  TEMPORAL_JWKS_PATH, temporalCa, temporalTlsProblem, temporalKeysRouter, temporalNamespaceFrom,
+  TEMPORAL_JWKS_PATH, temporalCa, temporalTlsProblem, temporalKeysRouter, trustProxyFor, temporalNamespaceFrom,
   authorize, claimSettingsFrom, type Principal, createDatabase, sharedPayloadBlobs, type Database, migrateLegacyOwnership, operatorsFromAdmins, ownUnownedProjects, decryptValue, loadKeys,
   AccessRevocations, endsSessions, roleFromEnv, servesTenants, holdsAccounts, MailService, emailWayFrom, telemetrySettings, e2eProblem, firstAdminSetup, drainThenStop, podPlaceFrom, runOnce,
 } from './platform/index.js';
@@ -226,7 +226,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   startEngineStream({ role, push, io, db, payloadKey: keys.payload, core: engine, models: modelService, notices, postNotice, workFailures });
 
   const authService = new AuthService(db, { mail, production: process.env.NODE_ENV === 'production' });
-  app.set('trust proxy', process.env.NODE_ENV === 'production' ? 1 : false);
+  app.set('trust proxy', trustProxyFor(process.env));
   app.use(inFlightLimit());
   app.use(cors({
     origin: (origin, callback) => callback(null, originAllowed(origin)),

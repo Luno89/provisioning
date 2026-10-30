@@ -1,5 +1,6 @@
 export { CLI_CEILING } from './lib/activity-liveness.js';
 export { arrivedOverHttps, cookieNamed, DEVICE_COOKIE, deviceOf, deviceToken, DEVICE_SECONDS, e2eProblem, generateOTP, hashPassword, SESSION_COOKIE, SESSION_SECONDS, sessionEnded, sessionToken, signJWT, signsEveryoneIn, verifyJWT, verifyPassword } from './lib/auth.js';
+export { trustProxyFor } from './lib/client-address.js';
 export type { AreaStore } from './lib/collection.js';
 export { CommandFailedError } from './lib/command-error.js';
 export { decryptValue, encryptValue, keyId, maskSecret, ringOf } from './lib/crypto.js';

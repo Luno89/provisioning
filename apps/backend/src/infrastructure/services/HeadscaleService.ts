@@ -164,6 +164,13 @@ export class HeadscaleService {
     }
   }
 
+  async taggedAddresses(tag: string): Promise<string[]> {
+    const res = await this.apiFetch('/api/v1/node');
+    if (!res.ok) throw new Error(`Failed to list Headscale nodes: HTTP ${res.status}`);
+    const body = (await res.json()) as { nodes?: Array<{ ipAddresses?: string[]; tags?: string[] }> };
+    return (body.nodes ?? []).filter((node) => node.tags?.includes(tag)).flatMap((node) => node.ipAddresses ?? []);
+  }
+
   async resolveDeviceMeshIp(nodeId: string): Promise<string | undefined> {
     const res = await this.apiFetch(`/api/v1/node/${nodeId}`);
     if (!res.ok) throw new Error(`Failed to get Headscale node ${nodeId}: HTTP ${res.status}`);

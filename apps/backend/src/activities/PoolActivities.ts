@@ -3,12 +3,12 @@ import fs from 'fs/promises';
 import os from 'os';
 import path from 'path';
 import { ApplicationFailure } from '@temporalio/common';
-import { createDatabase, roleFromEnv, emailWayFrom, MailService } from '../platform/index.js';
-import { InfrastructureService } from '../infrastructure/index.js';
+import { createDatabase, roleFromEnv, emailWayFrom, loadKeys, MailService } from '../platform/index.js';
+import { HeadscaleService, InfrastructureService } from '../infrastructure/index.js';
 import {
   hashCredential, publicKeyPem, afterStep, nextTrialStep, trialMessage, type DueStep, type TrialStep, MoveRelay,
   kubeconfigFile, issueMoveToken, type InstanceRecord, admissionManifests, backendAccessManifest, COMPONENT_RESOURCES, INSTANCE_RELEASE,
-  namespaceManifest, POOL_LABEL, poolChartValues, poolNamespace, poolSettingsFrom, PROXY, proxyCaddyfile,
+  namespaceManifest, PLATFORM_TAG, POOL_LABEL, poolChartValues, poolNamespace, poolSettingsFrom, PROXY, proxyCaddyfile,
   proxyManifests, RUNTIME_CLASS, VCLUSTER_CHART_VERSION, vclusterAddress, vclusterValues, type PoolSettings,
 } from '../instances/index.js';
 import { BLACKBOX_VALUES, POOL_MONITORING, poolAppAlerts, poolStackValues, probeIngressPolicy } from '../monitoring/index.js';
@@ -26,6 +26,12 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 function settings(): PoolSettings {
   const found = poolSettingsFrom(process.env, DEFAULT_KUBECONFIG);
   if ('off' in found) throw ApplicationFailure.nonRetryable(found.off, 'PoolOff');
+  return found;
+}
+
+async function rootCaddies(): Promise<string[]> {
+  const found = await new HeadscaleService(loadKeys(process.env).data, process.env.HEADSCALE_URL || 'http://localhost:8080', process.env.HEADSCALE_API_KEY).taggedAddresses(PLATFORM_TAG);
+  if (found.length === 0) throw ApplicationFailure.retryable(`no ${PLATFORM_TAG} node is on the mesh, so the pool's proxy could not tell root's Caddy from anyone else`, 'NoPlatformNode');
   return found;
 }
 
@@ -65,7 +71,7 @@ export async function PoolHostActivity(): Promise<void> {
     await sleep(2000);
   }
   const existing = await infra.runKubectl(['get', 'daemonset', PROXY.name, '-n', PROXY.namespace, '-o', 'name'], pool.kubeconfig).catch(() => '');
-  if (!existing.trim()) await infra.applyManifest(yaml(proxyManifests(proxyCaddyfile([], pool.address))), pool.kubeconfig);
+  if (!existing.trim()) await infra.applyManifest(yaml(proxyManifests(proxyCaddyfile([], pool.address, await rootCaddies()))), pool.kubeconfig);
   await poolMonitoring(infra, pool.kubeconfig);
 }
 
@@ -104,7 +110,7 @@ export async function PoolProxyActivity(): Promise<void> {
   await db.init();
   try {
     const instances = (await db.instances.getInstances()).filter((entry) => entry.pool && entry.name);
-    const caddyfile = proxyCaddyfile(instances.map((entry) => ({ name: entry.name!, ports: entry.pool!.ports })), pool.address);
+    const caddyfile = proxyCaddyfile(instances.map((entry) => ({ name: entry.name!, ports: entry.pool!.ports })), pool.address, await rootCaddies());
     await new InfrastructureService().applyManifest(yaml([proxyManifests(caddyfile)[0]!]), pool.kubeconfig);
   } finally {
     await db.close();
