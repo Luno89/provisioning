@@ -46,6 +46,7 @@ function agentBefore(commit: string): Buffer {
   try {
     execFileSync('sh', ['-c', `git -C "${REPO}" archive "${commit}" apps/local-agent | tar -x -C "${work}"`]);
     symlinkSync(path.join(REPO, 'node_modules'), path.join(work, 'node_modules'));
+    symlinkSync(path.join(REPO, 'apps/local-agent/node_modules'), path.join(work, 'apps/local-agent/node_modules'));
     execFileSync(process.execPath, [path.join(work, 'apps/local-agent/scripts/bundle-machine.mjs'), path.join(work, 'out')], { stdio: ['ignore', 'ignore', 'inherit'] });
     return readFileSync(path.join(work, 'out/machine-agent.tgz'));
   } finally {
