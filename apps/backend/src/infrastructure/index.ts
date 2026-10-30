@@ -13,7 +13,7 @@ export { capacityFromNodes } from './lib/cluster-capacity.js';
 export type { ClusterCapacity } from './lib/cluster-capacity.js';
 export { PLATFORM_NAMESPACES } from './lib/cluster-workloads.js';
 export { seedClusterProviders } from './lib/cluster-providers.js';
-export { isMockCloudProvider, isSelfManagedCluster } from './lib/cluster-topology.js';
+export { isMockCloudProvider, isSelfManagedCluster, notAvailableYet, providerReady } from './lib/cluster-topology.js';
 export { hasCloudCredentials } from './lib/credential-resolver.js';
 export { declareDependency } from './lib/declare-dependency.js';
 export { deploymentIdFor } from './lib/deployment-id.js';

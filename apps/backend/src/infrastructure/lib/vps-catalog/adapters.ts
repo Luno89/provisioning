@@ -1,3 +1,4 @@
+import { providerReady } from '../cluster-topology.js';
 import { withDerived, type AdapterResult, type VpsArch, type VpsCatalogAdapter, type VpsCpuType, type VpsOffer, type VpsPricePart } from './types.js';
 
 const TIMEOUT_MS = 15_000;
@@ -17,7 +18,7 @@ async function getJson(url: string, headers: Record<string, string> = {}): Promi
 export const linodeAdapter: VpsCatalogAdapter = {
   provider: 'linode',
   requiresCredentials: false,
-  provisionable: false,
+  provisionable: providerReady('linode'),
   async fetch() {
     const data = await getJson('https://api.linode.com/v4/linode/types');
     const offers: VpsOffer[] = [];
@@ -52,7 +53,7 @@ export const linodeAdapter: VpsCatalogAdapter = {
         taxIncluded: false,
         hourlyBilling: true,
         locations: [],
-        provisionable: false,
+        provisionable: providerReady('linode'),
       }));
     }
     return { offers, skippedNoPrice };
@@ -62,7 +63,7 @@ export const linodeAdapter: VpsCatalogAdapter = {
 export const vultrAdapter: VpsCatalogAdapter = {
   provider: 'vultr',
   requiresCredentials: false,
-  provisionable: false,
+  provisionable: providerReady('vultr'),
   async fetch() {
     const data = await getJson('https://api.vultr.com/v2/plans?per_page=500');
     const offers: VpsOffer[] = [];
@@ -109,7 +110,7 @@ export const vultrAdapter: VpsCatalogAdapter = {
         taxIncluded: false,
         hourlyBilling: true,
         locations: Array.isArray(p.locations) ? p.locations.map(String) : [],
-        provisionable: false,
+        provisionable: providerReady('vultr'),
       }));
     }
     return { offers, skippedNoPrice };
@@ -119,7 +120,7 @@ export const vultrAdapter: VpsCatalogAdapter = {
 export const hetznerAdapter: VpsCatalogAdapter = {
   provider: 'hetzner',
   requiresCredentials: true,
-  provisionable: true,
+  provisionable: providerReady('hetzner'),
   async fetch(token?: string) {
     if (!token) return { offers: [], skippedNoPrice: 0 };
     const data = await getJson('https://api.hetzner.cloud/v1/server_types?per_page=100', {
@@ -176,7 +177,7 @@ export const hetznerAdapter: VpsCatalogAdapter = {
           taxIncluded: false,
           hourlyBilling: true,
           locations,
-          provisionable: true,
+          provisionable: providerReady('hetzner'),
         }));
       }
     }
@@ -187,7 +188,7 @@ export const hetznerAdapter: VpsCatalogAdapter = {
 export const digitalOceanAdapter: VpsCatalogAdapter = {
   provider: 'do',
   requiresCredentials: true,
-  provisionable: true,
+  provisionable: providerReady('do'),
   async fetch(token?: string) {
     if (!token) return { offers: [], skippedNoPrice: 0 };
     const data = await getJson('https://api.digitalocean.com/v2/sizes?per_page=200', {
@@ -217,7 +218,7 @@ export const digitalOceanAdapter: VpsCatalogAdapter = {
         taxIncluded: false,
         hourlyBilling: true,
         locations: Array.isArray(s.regions) ? s.regions.map(String) : [],
-        provisionable: true,
+        provisionable: providerReady('do'),
       }));
     }
     return { offers, skippedNoPrice };
@@ -229,7 +230,7 @@ const SCALEWAY_ZONES = ['fr-par-1', 'fr-par-2', 'nl-ams-1', 'pl-waw-1'] as const
 export const scalewayAdapter: VpsCatalogAdapter = {
   provider: 'scaleway',
   requiresCredentials: false,
-  provisionable: false,
+  provisionable: providerReady('scaleway'),
   async fetch() {
     const byPlan = new Map<string, { raw: any; zones: string[] }>();
 
@@ -282,7 +283,7 @@ export const scalewayAdapter: VpsCatalogAdapter = {
         taxIncluded: false,
         hourlyBilling: true,
         locations: zones,
-        provisionable: false,
+        provisionable: providerReady('scaleway'),
       }));
     }
     return { offers, skippedNoPrice };
@@ -430,7 +431,7 @@ export function ovhOffersFromCatalog(data: any): AdapterResult {
       taxIncluded: false,
       hourlyBilling: false,
       locations: entry.locations,
-      provisionable: false,
+      provisionable: providerReady('ovh'),
     }));
   }
 
@@ -448,7 +449,7 @@ export function ovhAdapterFor(subsidiary: string | (() => string)): VpsCatalogAd
   return {
     provider: 'ovh',
     requiresCredentials: false,
-    provisionable: false,
+    provisionable: providerReady('ovh'),
     async fetch() {
       return ovhOffersFromCatalog(await getJson(ovhCatalogUrl(subsidiaryNow())));
     },
@@ -507,7 +508,7 @@ export function interserverOffersFromSliceXml(xml: string): AdapterResult {
         taxIncluded: false,
         hourlyBilling: false,
         locations: [],
-        provisionable: false,
+        provisionable: providerReady('interserver'),
       }));
     }
   }
@@ -517,7 +518,7 @@ export function interserverOffersFromSliceXml(xml: string): AdapterResult {
 export const interserverAdapter: VpsCatalogAdapter = {
   provider: 'interserver',
   requiresCredentials: false,
-  provisionable: false,
+  provisionable: providerReady('interserver'),
   async fetch() {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);

@@ -3,7 +3,7 @@ import {
   type SecretKey,
 } from '../../platform/index.js';
 import { COMBINED_CLAIMS, resolveCloudCredentials, usesOperatorCredentials, type ResolvedCredentials } from '../lib/credential-resolver.js';
-import { withoutKeys } from '../lib/cluster-topology.js';
+import { clusterAvailability } from '../lib/cluster-topology.js';
 import { OVH_SUBSIDIARIES } from '../lib/vps-catalog/adapters.js';
 import { credentialsFromEnv, dnsProviderNamed, DNS_PROVIDERS, isDnsProviderName, plainFieldsOf, secretFieldsOf } from '../lib/dns-providers.js';
 import { DnsProviders } from './dns/DnsProviders.js';
@@ -58,7 +58,7 @@ export interface ProviderStatus {
   configured: boolean;
   source?: 'user' | 'env';
   summary?: Record<string, string>;
-  withoutKeys?: 'mock' | 'refused';
+  clusters?: 'available' | 'mock-only' | 'not-yet';
 }
 
 export class CredentialService {
@@ -321,8 +321,8 @@ export class CredentialService {
 
     return providers.map(({ key, label }) => {
       const resolved = resolveCloudCredentials(key, user?.credentials ? this.decryptAll(user.credentials, key) : undefined, usesOperatorCredentials(user, this.claims));
-      const without = withoutKeys(key, process.env);
-      const unkeyed = without ? { withoutKeys: without } : {};
+      const clusters = clusterAvailability(key, process.env);
+      const unkeyed = clusters ? { clusters } : {};
 
       if (resolved.mode === 'mock') {
         return { provider: key, label, configured: false, ...unkeyed };

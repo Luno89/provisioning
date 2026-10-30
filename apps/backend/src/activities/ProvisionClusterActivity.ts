@@ -1,8 +1,9 @@
 import fs from 'fs/promises';
 
 import {
-  InfrastructureService, hasCloudCredentials, isMockCloudProvider, capacityFromNodes, type ClusterCapacity,
+  InfrastructureService, hasCloudCredentials, isMockCloudProvider, notAvailableYet, providerReady, capacityFromNodes, type ClusterCapacity,
 } from '../infrastructure/index.js';
+import { ApplicationFailure } from '@temporalio/common';
 import { ProvisionRemoteHostActivity } from './ProvisionRemoteHostActivity.js';
 import { ProvisionHetznerVmActivity } from './ProvisionHetznerVmActivity.js';
 import { ProvisionDigitalOceanVmActivity } from './ProvisionDigitalOceanVmActivity.js';
@@ -61,6 +62,7 @@ export async function ProvisionClusterActivity(
   const isHetzner = args.provider === 'hetzner';
   const isDigitalOcean = args.provider === 'do';
   const isMock = isMockCloudProvider(args.provider, hasCloudCredentials);
+  if (!isMock && !providerReady(args.provider)) throw ApplicationFailure.nonRetryable(notAvailableYet(args.provider), 'ProviderNotAvailable');
   const physicalName = isMock ? `mock-${args.provider}-${args.name}` : args.name;
   const kubeconfigPath = `/tmp/kubeconfig-${physicalName}`;
   let vm: { host: string; serverId: string; privateKey: string; username: string } | undefined;

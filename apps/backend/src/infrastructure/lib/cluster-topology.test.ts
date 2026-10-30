@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { NEVER_MOCK_PROVIDERS, isMockCloudProvider, isSelfManagedCluster, provisionRefusal, withoutKeys } from './cluster-topology.js';
+import { NEVER_MOCK_PROVIDERS, clusterAvailability, isMockCloudProvider, isSelfManagedCluster, providerReady, provisionRefusal } from './cluster-topology.js';
 import { buildAppEnv } from './app-env.js';
 
 describe('cluster-topology', () => {
@@ -28,23 +28,29 @@ describe('cluster-topology', () => {
     });
   });
 
-  describe('a cloud provider with no keys', () => {
+  describe('a provider Koala cannot make clusters on yet', () => {
     const production = { NODE_ENV: 'production' };
 
-    it('runs in mock cloud mode on a dev box, and is refused in production', () => {
-      expect(withoutKeys('aws', {})).toBe('mock');
-      expect(withoutKeys('gcp', production)).toBe('refused');
-      expect(withoutKeys('hetzner', production)).toBeUndefined();
-      expect(withoutKeys('huggingface', production)).toBeUndefined();
+    it('is AWS, Google Cloud and Azure, whose constructs are stubs; k3d, a machine of the person\'s, Hetzner and DigitalOcean are made for real', () => {
+      expect(['k3d', 'remote', 'hetzner', 'do'].every(providerReady)).toBe(true);
+      expect(['aws', 'gcp', 'azure'].some(providerReady)).toBe(false);
+      expect(providerReady('linode')).toBe(false);
     });
 
-    it('is refused in production with where to add the keys, and only when no keys of the person\'s resolve', () => {
-      expect(provisionRefusal('aws', 'mock', production)).toBe('Koala has no Amazon Web Services keys of yours to make this cluster with: add your Amazon Web Services keys under Cloud providers');
-      expect(provisionRefusal('azure', 'mock', production)).toMatch(/add your Microsoft Azure keys under Cloud providers$/);
-      expect(provisionRefusal('aws', 'user', production)).toBeUndefined();
-      expect(provisionRefusal('aws', 'env', production)).toBeUndefined();
-      expect(provisionRefusal('aws', 'mock', { NODE_ENV: 'development' })).toBeUndefined();
-      expect(provisionRefusal('k3d', 'user', production)).toBeUndefined();
+    it('is refused as not available yet, keys or none, except for mock cloud mode on a dev box', () => {
+      expect(provisionRefusal('aws', 'user', production)).toBe('Amazon Web Services is not available yet');
+      expect(provisionRefusal('gcp', 'mock', production)).toBe('Google Cloud Platform is not available yet');
+      expect(provisionRefusal('azure', 'env', {})).toBe('Microsoft Azure is not available yet');
+      expect(provisionRefusal('aws', 'user', {})).toBe('Amazon Web Services is not available yet');
+      expect(provisionRefusal('aws', 'mock', {})).toBeUndefined();
+      for (const provider of ['k3d', 'remote', 'hetzner', 'do']) expect(provisionRefusal(provider, 'user', production), provider).toBeUndefined();
+    });
+
+    it('says so on Cloud providers: mock cloud mode only on a dev box, otherwise not yet', () => {
+      expect(clusterAvailability('aws', {})).toBe('mock-only');
+      expect(clusterAvailability('aws', production)).toBe('not-yet');
+      expect(clusterAvailability('hetzner', production)).toBe('available');
+      expect(clusterAvailability('huggingface', production)).toBeUndefined();
     });
 
     it('refuses a provider Koala does not make clusters on, anywhere', () => {
