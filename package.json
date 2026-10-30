@@ -95,6 +95,7 @@
     "test:infrastructure-live": "cd apps/backend && tsx ../../tests/lib/run-live.ts infrastructure-live",
     "test:dev-split-live": "cd apps/backend && tsx ../../tests/lib/run-live.ts dev-split-live",
     "test:hardening-live": "cd apps/backend && tsx ../../tests/lib/run-live.ts hardening-live",
+    "test:account-hardening-live": "cd apps/backend && tsx ../../tests/lib/run-live.ts account-hardening-live",
     "test:hub-split-live": "cd apps/backend && tsx ../../tests/lib/run-live.ts hub-split-live",
     "test:hub-live": "cd apps/backend && tsx ../../tests/lib/run-live.ts hub-live",
     "test:routes-live": "cd apps/backend && tsx ../../tests/lib/run-live.ts routes-live",
