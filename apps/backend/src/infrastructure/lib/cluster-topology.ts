@@ -4,17 +4,35 @@ export const CLUSTER_PROVIDER_NAMES: readonly string[] = ['k3d', 'aws', 'gcp', '
 
 export const NEVER_MOCK_PROVIDERS: readonly string[] = ['k3d', 'remote', 'hetzner', 'do'];
 
-export const CLOUD_LABELS: Readonly<Record<string, string>> = { aws: 'Amazon Web Services', gcp: 'Google Cloud Platform', azure: 'Microsoft Azure' };
+export type ClusterBuild = 'here' | 'over-ssh' | 'vm-then-ssh' | 'not-yet';
+
+export const CLUSTER_BUILDS: Readonly<Record<string, ClusterBuild>> = {
+  k3d: 'here',
+  remote: 'over-ssh',
+  hetzner: 'vm-then-ssh',
+  do: 'vm-then-ssh',
+  aws: 'not-yet',
+  gcp: 'not-yet',
+  azure: 'not-yet',
+};
+
+export const PROVIDER_LABELS: Readonly<Record<string, string>> = {
+  k3d: 'Local Datacenter (k3d)', remote: 'One of my machines', hetzner: 'Hetzner Cloud', do: 'DigitalOcean',
+  aws: 'Amazon Web Services', gcp: 'Google Cloud Platform', azure: 'Microsoft Azure',
+};
+
+export const providerReady = (provider: string): boolean => CLUSTER_PROVIDER_NAMES.includes(provider) && CLUSTER_BUILDS[provider] !== 'not-yet';
+
+export const notAvailableYet = (provider: string): string => `${PROVIDER_LABELS[provider] ?? provider} is not available yet`;
 
 export const mockCloudAllowed = (env: Env): boolean => env.NODE_ENV !== 'production';
 
 export const mockableProvider = (provider: string): boolean => CLUSTER_PROVIDER_NAMES.includes(provider) && !NEVER_MOCK_PROVIDERS.includes(provider);
 
-export const addYourKeys = (provider: string): string => `add your ${CLOUD_LABELS[provider] ?? provider} keys under Cloud providers`;
-
-export function withoutKeys(provider: string, env: Env): 'mock' | 'refused' | undefined {
-  if (!mockableProvider(provider)) return undefined;
-  return mockCloudAllowed(env) ? 'mock' : 'refused';
+export function clusterAvailability(provider: string, env: Env): 'available' | 'mock-only' | 'not-yet' | undefined {
+  if (!CLUSTER_PROVIDER_NAMES.includes(provider)) return undefined;
+  if (providerReady(provider)) return 'available';
+  return mockableProvider(provider) && mockCloudAllowed(env) ? 'mock-only' : 'not-yet';
 }
 
 export class ProvisionRefused extends Error {
@@ -26,8 +44,9 @@ export class ProvisionRefused extends Error {
 
 export function provisionRefusal(provider: string, credentials: 'user' | 'env' | 'mock', env: Env): string | undefined {
   if (!CLUSTER_PROVIDER_NAMES.includes(provider)) return `${provider} is not a provider Koala makes clusters on`;
-  if (credentials !== 'mock' || withoutKeys(provider, env) !== 'refused') return undefined;
-  return `Koala has no ${CLOUD_LABELS[provider]} keys of yours to make this cluster with: ${addYourKeys(provider)}`;
+  if (providerReady(provider)) return undefined;
+  if (credentials === 'mock' && mockableProvider(provider) && mockCloudAllowed(env)) return undefined;
+  return notAvailableYet(provider);
 }
 
 export function isSelfManagedCluster(provider: string, isMock: boolean): boolean {

@@ -1,3 +1,5 @@
+import { providerReady } from './cluster-topology.js';
+
 
 export interface ClusterProviderSpec {
   value: string;
@@ -25,6 +27,14 @@ export const BUILT_IN_PROVIDERS: ClusterProviderSpec[] = [
     usesMesh: false,
   },
   {
+    value: 'do',
+    label: 'DigitalOcean (Droplet)',
+    credentialKey: 'do',
+    hint: 'Creates a real Droplet, installs k3s on it over SSH, and bills to your DigitalOcean account.',
+    hasCatalog: true,
+    usesMesh: false,
+  },
+  {
     value: 'remote',
     label: 'One of my machines',
     hint: 'Use hardware you already own — a GPU workstation, a spare server — once it has joined the mesh under My Machines.',
@@ -32,6 +42,9 @@ export const BUILT_IN_PROVIDERS: ClusterProviderSpec[] = [
     usesMesh: true,
   },
 ];
+
+export const offeredProviders = (stored: readonly ClusterProviderSpec[]): ClusterProviderSpec[] =>
+  stored.filter((provider) => providerReady(provider.value));
 
 export function providersToSeed(stored: ClusterProviderSpec[]): ClusterProviderSpec[] {
   const present = new Set(stored.map((p) => p.value));

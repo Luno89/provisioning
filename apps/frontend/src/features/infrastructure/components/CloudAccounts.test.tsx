@@ -75,15 +75,16 @@ describe('CloudAccounts', () => {
   });
 
   it('explains mock cloud mode where the server runs it, which is the zero-setup path on a dev box', async () => {
-    listProviders.mockResolvedValue(providers({ configured: false, withoutKeys: 'mock' }));
+    listProviders.mockResolvedValue(providers({ configured: false, clusters: 'mock-only' }));
     renderScreen();
     expect((await screen.findAllByText(/Mock Cloud Mode/i)).length).toBeGreaterThan(0);
+    expect(await screen.findByText(/^Amazon Web Services clusters are not available yet\. On this development box/)).toBeDefined();
   });
 
-  it('in production says a provider needs the person\'s own keys, and never mentions mock cloud mode', async () => {
-    listProviders.mockResolvedValue(providers({ configured: false, withoutKeys: 'refused' }));
+  it('in production says a provider whose clusters are not built yet is not available, and never mentions mock cloud mode', async () => {
+    listProviders.mockResolvedValue(providers({ configured: false, clusters: 'not-yet' }));
     renderScreen();
-    expect(await screen.findByText('Add your Amazon Web Services keys here to make clusters on it.')).toBeDefined();
+    expect(await screen.findByText('Amazon Web Services clusters are not available yet.')).toBeDefined();
     expect(screen.queryByText(/Mock Cloud Mode/i)).toBeNull();
   });
 

@@ -213,62 +213,69 @@ describe('adopting the clusters left on the host', () => {
   });
 });
 
-describe('a cloud provider with no keys of the person\'s own, in production', () => {
+describe('which providers Koala makes a cluster on', () => {
   const KEY = 'test-secret';
 
   async function withBridge(roles: ('operator')[] = []) {
     const db = await testDatabase();
     await db.accounts.saveUser({ id: TEST_USER.id, email: TEST_USER.email, twoFactorEnabled: false, emailVerified: true, createdAt: 'then', roles } as never);
     const bridge = new TemporalBridge(db, undefined, KEY);
-    const start = vi.fn(async () => undefined);
+    const start = vi.fn(async (..._args: unknown[]) => undefined);
     bridge.client = { workflow: { start } } as never;
     vi.spyOn(bridge, 'trackWorkflow').mockImplementation(() => undefined as never);
     const mounted = await mount({ ...services(), temporalBridge: bridge } as never, { ...TEST_USER, roles });
     return { ...mounted, db, start };
   }
 
-  it('is refused with where to add the keys, and nothing is recorded or started', async () => {
-    vi.stubEnv('NODE_ENV', 'production');
-    const { h, db, start } = await withBridge();
-    const err = await axios.post(h.url('/api/clusters'), { name: 'valid-name', provider: 'aws' }).catch((e) => e);
+  const refusedAsStub = async (setup: () => Promise<{ h: Harness; db: Awaited<ReturnType<typeof testDatabase>>; start: ReturnType<typeof vi.fn> }>, provider = 'aws') => {
+    const { h: harness, db, start } = await setup();
+    const err = await axios.post(harness.url('/api/clusters'), { name: 'valid-name', provider }).catch((e) => e);
     expect(err.response.status).toBe(400);
-    expect(err.response.data.error).toBe('Koala has no Amazon Web Services keys of yours to make this cluster with: add your Amazon Web Services keys under Cloud providers');
     expect(await db.infrastructure.getClusters()).toEqual([]);
     expect(start).not.toHaveBeenCalled();
-  });
+    await h?.close();
+    h = undefined;
+    return err.response.data.error as string;
+  };
 
-  it('is refused even when the server holds keys of its own, for anyone but the operator', async () => {
+  it('in production refuses AWS, Google Cloud and Azure as not available yet, keys or none, recording and starting nothing', async () => {
     vi.stubEnv('NODE_ENV', 'production');
+    expect(await refusedAsStub(() => withBridge())).toBe('Amazon Web Services is not available yet');
+    expect(await refusedAsStub(() => withBridge(), 'gcp')).toBe('Google Cloud Platform is not available yet');
+    expect(await refusedAsStub(async () => {
+      const made = await withBridge();
+      await new CredentialService(made.db, KEY).saveCredentials(TEST_USER.id, 'azure', { clientId: 'theirs', clientSecret: 'their-secret' });
+      return made;
+    }, 'azure')).toBe('Microsoft Azure is not available yet');
     vi.stubEnv('AWS_ACCESS_KEY_ID', 'the-servers-key');
     vi.stubEnv('AWS_SECRET_ACCESS_KEY', 'the-servers-secret');
-    const { h, start } = await withBridge();
-    const err = await axios.post(h.url('/api/clusters'), { name: 'valid-name', provider: 'aws' }).catch((e) => e);
-    expect(err.response.status).toBe(400);
-    expect(start).not.toHaveBeenCalled();
+    expect(await refusedAsStub(() => withBridge(['operator']))).toBe('Amazon Web Services is not available yet');
   });
 
-  it('goes ahead on the server\'s keys for the operator, and on the person\'s own stored keys for anyone', async () => {
+  it('on a dev box keeps mock cloud mode for a provider with no keys, and refuses it once keys would make it real', async () => {
+    vi.stubEnv('NODE_ENV', 'development');
+    const mocked = await withBridge();
+    expect((await axios.post(mocked.h.url('/api/clusters'), { name: 'valid-name', provider: 'aws' })).status).toBe(202);
+    expect(mocked.start).toHaveBeenCalledTimes(1);
+    await h?.close();
+    h = undefined;
+    expect(await refusedAsStub(async () => {
+      const made = await withBridge();
+      await new CredentialService(made.db, KEY).saveCredentials(TEST_USER.id, 'aws', { accessKeyId: 'theirs', secretAccessKey: 'their-secret' });
+      return made;
+    })).toBe('Amazon Web Services is not available yet');
+  });
+
+  it('makes a cluster on the providers that are real, DigitalOcean with the plan and region the person chose', async () => {
     vi.stubEnv('NODE_ENV', 'production');
-    vi.stubEnv('AWS_ACCESS_KEY_ID', 'the-servers-key');
-    vi.stubEnv('AWS_SECRET_ACCESS_KEY', 'the-servers-secret');
-    const operator = await withBridge(['operator']);
-    expect((await axios.post(operator.h.url('/api/clusters'), { name: 'valid-name', provider: 'aws' })).status).toBe(202);
-    expect(operator.start).toHaveBeenCalledTimes(1);
+    const local = await withBridge();
+    expect((await axios.post(local.h.url('/api/clusters'), { name: 'valid-name', provider: 'k3d' })).status).toBe(202);
     await h?.close();
     h = undefined;
 
-    vi.stubEnv('AWS_ACCESS_KEY_ID', '');
-    vi.stubEnv('AWS_SECRET_ACCESS_KEY', '');
-    const person = await withBridge();
-    await new CredentialService(person.db, KEY).saveCredentials(TEST_USER.id, 'aws', { accessKeyId: 'theirs', secretAccessKey: 'their-secret' });
-    expect((await axios.post(person.h.url('/api/clusters'), { name: 'other-name', provider: 'aws' })).status).toBe(202);
-    expect(person.start).toHaveBeenCalledTimes(1);
-  });
-
-  it('runs in mock cloud mode on a dev box, as before', async () => {
-    vi.stubEnv('NODE_ENV', 'development');
-    const { h, start } = await withBridge();
-    expect((await axios.post(h.url('/api/clusters'), { name: 'valid-name', provider: 'aws' })).status).toBe(202);
-    expect(start).toHaveBeenCalledTimes(1);
+    const ocean = await withBridge();
+    await new CredentialService(ocean.db, KEY).saveCredentials(TEST_USER.id, 'do', { token: 'their-do-token' });
+    expect((await axios.post(ocean.h.url('/api/clusters'), { name: 'droplet-one', provider: 'do', hetznerServerType: 's-2vcpu-8gb', hetznerLocation: 'fra1' })).status).toBe(202);
+    expect(ocean.start.mock.calls[0]?.[1]).toMatchObject({ args: [expect.objectContaining({ provider: 'do', doToken: 'their-do-token', doSize: 's-2vcpu-8gb', doRegion: 'fra1' })] });
   });
 });

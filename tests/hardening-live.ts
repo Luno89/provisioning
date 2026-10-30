@@ -178,24 +178,23 @@ async function plaintextRefusals(image: string): Promise<void> {
   }, devTemporalCa(), 'backend', /ROOT_URL is http:\/\/app\.nowrinkles\.dev: plain http to an address on the open internet/);
 }
 
-async function noMockCloud(stack: SplitStack): Promise<void> {
-  step('an instance in production makes no cluster on a cloud the person has no keys for, and says where to add them');
+async function noStubClouds(stack: SplitStack): Promise<void> {
+  step('an instance in production makes no cluster on a provider whose clusters are not built yet, and offers none');
   const session = await ownerOnInstance(stack);
-  const providers = (await call(`${stack.instanceUrl}/api/credentials`, { cookie: session })).body as { providers: { provider: string; configured: boolean; withoutKeys?: string }[] };
+  const offered = ((await call(`${stack.instanceUrl}/api/cluster-providers`, { cookie: session })).body as { value: string }[]).map((provider) => provider.value).sort();
+  assert.deepEqual(offered, ['do', 'hetzner', 'k3d', 'remote'], `Provision a cluster offers ${offered.join(', ')}`);
+  const providers = (await call(`${stack.instanceUrl}/api/credentials`, { cookie: session })).body as { providers: { provider: string; clusters?: string }[] };
   for (const name of ['aws', 'gcp', 'azure']) {
-    assert.deepEqual(providers.providers.find((entry) => entry.provider === name), wanted(name), `${name} as Cloud providers lists it`);
+    assert.equal(providers.providers.find((entry) => entry.provider === name)?.clusters, 'not-yet', `${name} as Cloud providers lists it`);
   }
-  const asked = await call(`${stack.instanceUrl}/api/clusters`, { method: 'POST', cookie: session, body: JSON.stringify({ name: `hardening-${STAMP}`, provider: 'aws' }) });
-  assert.equal(asked.status, 400, JSON.stringify(asked.body));
-  assert.equal((asked.body as { error: string }).error, 'Koala has no Amazon Web Services keys of yours to make this cluster with: add your Amazon Web Services keys under Cloud providers');
+  for (const [provider, label] of [['aws', 'Amazon Web Services'], ['gcp', 'Google Cloud Platform'], ['azure', 'Microsoft Azure']] as const) {
+    const asked = await call(`${stack.instanceUrl}/api/clusters`, { method: 'POST', cookie: session, body: JSON.stringify({ name: `hardening-${provider}-${STAMP}`, provider }) });
+    assert.equal(asked.status, 400, JSON.stringify(asked.body));
+    assert.equal((asked.body as { error: string }).error, `${label} is not available yet`);
+  }
   const clusters = (await call(`${stack.instanceUrl}/api/clusters`, { cookie: session })).body as { name: string }[];
-  assert.ok(!clusters.some((cluster) => cluster.name.includes(`hardening-${STAMP}`)), 'a cluster was recorded anyway');
-  console.log('  refused, nothing recorded; Cloud providers lists AWS, Google Cloud and Azure as wanting the person\'s own keys');
-
-  function wanted(name: string) {
-    const labels: Record<string, string> = { aws: 'Amazon Web Services', gcp: 'Google Cloud Platform', azure: 'Microsoft Azure' };
-    return { provider: name, label: labels[name], configured: false, withoutKeys: 'refused' };
-  }
+  assert.ok(!clusters.some((cluster) => cluster.name.includes(STAMP)), 'a cluster was recorded anyway');
+  console.log(`  offered: ${offered.join(', ')}; AWS, Google Cloud and Azure each refused as not available yet, nothing recorded`);
 }
 
 async function rootNeverCallsMadeUpAddresses(stack: SplitStack, image: string): Promise<void> {
@@ -276,7 +275,7 @@ async function main(): Promise<void> {
     step('a root, an instance and a hub of their own start in production containers from this commit\'s image');
     const stack = await startSplitStack();
     try {
-      await noMockCloud(stack);
+      await noStubClouds(stack);
       await rootNeverCallsMadeUpAddresses(stack, image);
     } catch (err) {
       for (const side of ['root', 'instance'] as const) console.error(`\n── ${side}'s last lines ──\n${stack.logs(side, 40)}`);

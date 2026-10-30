@@ -128,7 +128,7 @@ export function clustersRouter(deps: ClustersRouterDeps): Router {
           message: 'Authorise this key on the machine, then start provisioning.',
         });
       }
-      const hetzner = req.body.provider === 'hetzner'
+      const hetzner = req.body.provider === 'hetzner' || req.body.provider === 'do'
         ? {
             ...(req.body.hetznerServerType ? { serverType: String(req.body.hetznerServerType) } : {}),
             ...(req.body.hetznerLocation ? { location: String(req.body.hetznerLocation) } : {}),
