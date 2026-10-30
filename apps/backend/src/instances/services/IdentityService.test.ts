@@ -2,7 +2,10 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import crypto from 'crypto';
 import { testDatabase } from '../../platform/lib/test-database.js';
 import type { MongoDB } from '../../platform/lib/mongo-db.js';
+import http from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { IdentityService } from './IdentityService.js';
+import { InstanceReach } from './InstanceReach.js';
 import { generateIdentityKey, identityKeysFrom } from '../lib/identity-token.js';
 import type { RoleConfig } from '../../platform/lib/platform-role.js';
 
@@ -42,6 +45,25 @@ describe('signing in at root and landing on your own instance', () => {
 
     const rolledBack = new IdentityService(rootRole, rootDb, () => now, onAnOlderRelease);
     expect(await rolledBack.goUrl({ id: 'u1', email: 'u1@example.com' }, undefined, N)).toMatch(/^https:\/\/u1\.example\.com\/#\/handoff\?token=/);
+  });
+
+  it('asks an instance whether it starts sign-in itself only where root may call it, and otherwise sends the person through OpenID Connect', async () => {
+    let asked = 0;
+    const server = http.createServer((_req, res) => { asked += 1; res.setHeader('content-type', 'application/json'); res.end(JSON.stringify({ url: '/api/auth/oidc/start' })); });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    try {
+      const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+      await rootDb.instances.saveInstance({ id: 'inst-u1', ownerId: 'u1', url, createdAt: 'x', updatedAt: 'x', status: 'ready' });
+      await rootDb.instances.saveSignInKey('inst-u1', announced);
+      const strict = new IdentityService(rootRole, rootDb, () => now, undefined, new InstanceReach({ open: false, domain: 'koala.dev' }));
+      expect(await strict.goUrl({ id: 'u1', email: 'u1@example.com' }, undefined, N)).toBe(`${url}/api/auth/oidc/start`);
+      expect(asked).toBe(0);
+      const lab = new IdentityService(rootRole, rootDb, () => now, undefined, new InstanceReach({ open: true }));
+      expect(await lab.goUrl({ id: 'u1', email: 'u1@example.com' }, undefined, N)).toBe(`${url}/api/auth/oidc/start`);
+      expect(asked).toBe(1);
+    } finally {
+      await new Promise((resolve) => server.close(resolve));
+    }
   });
 
   it('issues nothing for a user with no instance', async () => {

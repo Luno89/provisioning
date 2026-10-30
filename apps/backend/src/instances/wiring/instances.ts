@@ -13,6 +13,7 @@ import { poolRemoveWorkflowId, poolTrialWorkflowId, TRIAL_CHANGED } from '../lib
 import { HUB_AUDIENCE, hubInstancePart, type Mounts } from '../../hub/index.js';
 import type { IdentityService } from '../services/IdentityService.js';
 import { InstanceService } from '../services/InstanceService.js';
+import { instanceReachFrom } from '../services/InstanceReach.js';
 import { InstanceRoutes, dockerCaddy, socketCaddy } from '../services/InstanceRoutes.js';
 import { InstanceAddresses, adminEdge } from '../services/InstanceAddresses.js';
 import { InstanceTrial } from '../services/InstanceTrial.js';
@@ -253,6 +254,7 @@ export async function wireInstances(deps: InstancesWiringDeps): Promise<Instance
     siteNames,
     pool: 'off' in pool ? pool : { slots: pool.slots, trialDays: pool.trialDays },
     serviceCaller: deps.provider ? (token) => deps.provider!.serviceCaller(token) : undefined,
+    reach: instanceReachFrom(env),
   }, deps.headscale, () => new Date(), () => instanceRoutes?.changed(), {
     start: async (instanceId, ownerId) => {
       await (await getTemporalClient()).workflow.start('PoolInstanceWorkflow', {

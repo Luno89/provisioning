@@ -11,6 +11,7 @@ import { moveProblem, type MoveStateName } from '../lib/instance-move.js';
 import { DEFAULT_UPDATES, findRelease, pickProblem, pinned, updateTarget, updatesView, type InstanceRelease, type UpdatesView } from '../lib/instance-updates.js';
 import type { Reach } from '../lib/instance-watch.js';
 import { commandSafeCode } from '../../platform/index.js';
+import { InstanceReach } from './InstanceReach.js';
 
 export const JOIN_TOKEN_TTL_SECONDS = 3600;
 
@@ -60,6 +61,7 @@ export interface InstanceSettings {
   pool?: { slots: number; trialDays: number } | { off: string } | undefined;
   releases?: ReleaseSource | undefined;
   serviceCaller?: ((token: string) => Promise<{ clientId: string; kind: 'instance' | 'hub' } | undefined>) | undefined;
+  reach?: InstanceReach | undefined;
 }
 
 export interface ReleaseSource {
@@ -108,6 +110,10 @@ export class InstanceService {
     private readonly routesChanged: () => void = () => {},
     private readonly poolWorkflows: PoolWorkflows | undefined = undefined,
   ) {}
+
+  private get reach(): InstanceReach {
+    return this.settings.reach ?? new InstanceReach({ open: false, domain: this.settings.domain });
+  }
 
   private async nameFor(ownerId: string, name: unknown): Promise<{ ok: true; name: string } | { ok: false; error: string }> {
     const existing = (await this.store.instances.getInstances(ownerId))[0];
@@ -426,11 +432,9 @@ export class InstanceService {
       if (owned === 'yes') target.meshIp = report.meshIp;
     }
     if (typeof report.url === 'string') {
-      try {
-        target.url = new URL(report.url).origin;
-      } catch {
-        return { ok: false, status: 400, error: 'url is the origin the instance answers on' };
-      }
+      const checked = await this.reach.reportedUrl(report.url, { name: instance.name, meshIp: target.meshIp });
+      if (!checked.ok) return { ok: false, status: 400, error: checked.error };
+      target.url = checked.url;
     }
     if (report.status === 'failed') {
       const saved = await this.save(instance, { move: { ...move, state: 'failed', detail: detail ?? 'The move stopped on your machine', target } });
@@ -525,22 +529,18 @@ export class InstanceService {
     if (!instance) return { ok: false, status: 401, error: 'unknown instance or credential' };
     if (!INSTANCE_STATUSES.includes(report.status as InstanceStatus)) return { ok: false, status: 400, error: `status is one of ${INSTANCE_STATUSES.join(', ')}` };
     if (instance.pool && (instance.status !== 'ready' || instance.move)) return { ok: true, value: instance };
-    let url = instance.url;
-    if (report.url !== undefined) {
-      try {
-        const parsed = new URL(String(report.url));
-        if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') throw new Error('protocol');
-        url = parsed.origin;
-      } catch {
-        return { ok: false, status: 400, error: 'url is the origin the instance answers on' };
-      }
-    }
     let meshIp = instance.meshIp;
     if (report.meshIp !== undefined) {
       if (typeof report.meshIp !== 'string' || routeProblem({ name: 'x', meshIp: report.meshIp, nested: false })) return { ok: false, status: 400, error: 'meshIp is the instance\'s address on the mesh' };
       const owned = report.meshIp === instance.meshIp ? 'yes' : await this.meshIpOwned(instance.ownerId, report.meshIp);
       if (owned === 'no') return { ok: false, status: 400, error: `${report.meshIp} is not one of this instance's owner's machines on the mesh` };
       if (owned === 'yes') meshIp = report.meshIp;
+    }
+    let url = instance.url;
+    if (report.url !== undefined) {
+      const checked = await this.reach.reportedUrl(report.url, { name: instance.name, meshIp });
+      if (!checked.ok) return { ok: false, status: 400, error: checked.error };
+      url = checked.url;
     }
     if (report.imageTag !== undefined && (typeof report.imageTag !== 'string' || !/^[A-Za-z0-9._-]{1,128}$/.test(report.imageTag))) return { ok: false, status: 400, error: 'imageTag is the image tag the instance runs' };
     const running = report.status === 'ready' && typeof report.imageTag === 'string' ? report.imageTag : instance.running;

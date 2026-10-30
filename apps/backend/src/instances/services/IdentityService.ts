@@ -3,6 +3,7 @@ import { issueHandoff, publicKeyPem } from '../lib/identity-token.js';
 import { inService, instanceProblem, type InstanceRecord } from '../lib/instances.js';
 import { handoffServedFor, START_PATH, startsSignInItself } from '../lib/oidc.js';
 import { HUB_AUDIENCE } from '../../hub/lib/hub.js';
+import { InstanceReach } from './InstanceReach.js';
 
 type Store = Pick<Database, 'instances' | 'accounts'>;
 
@@ -11,12 +12,16 @@ export class IdentityService {
     private readonly role: RoleConfig,
     private readonly store: Store,
     private readonly now: () => number = () => Math.floor(Date.now() / 1000),
-    private readonly signInAnswer: (url: string) => Promise<unknown> = async (url) => (await fetch(`${url}/api/auth/sign-in`)).json(),
+    private readonly signInAnswer: ((url: string) => Promise<unknown>) | undefined = undefined,
+    private readonly reach: InstanceReach = new InstanceReach({ open: false }),
   ) {}
 
-  private async startsSignIn(url: string): Promise<boolean | undefined> {
+  private async startsSignIn(url: string, instance: InstanceRecord): Promise<boolean | undefined> {
     try {
-      return startsSignInItself(await this.signInAnswer(url));
+      const answer = this.signInAnswer
+        ? await this.signInAnswer(url)
+        : await (await this.reach.fetchFor(instance)(`${url}/api/auth/sign-in`)).json();
+      return startsSignInItself(answer);
     } catch {
       return undefined;
     }
@@ -43,7 +48,7 @@ export class IdentityService {
     const instance = await this.instanceOf(user.id);
     if (!instance) return undefined;
     const base = instance.url.replace(/\/+$/, '');
-    if (!handoffServedFor(instance, instance.signIn ? await this.startsSignIn(base) : undefined)) return `${base}${START_PATH}`;
+    if (!handoffServedFor(instance, instance.signIn ? await this.startsSignIn(base, instance) : undefined)) return `${base}${START_PATH}`;
     const token = issueHandoff(this.role.signing, { userId: user.id, email: user.email }, instance.id, this.now(), bound);
     return `${base}/#/handoff?token=${encodeURIComponent(token)}`;
   }

@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { testDatabase } from '../../platform/lib/test-database.js';
 import type { MongoDB } from '../../platform/lib/mongo-db.js';
 import { InstanceService, JOIN_TOKEN_TTL_SECONDS, hashCredential, instanceIdFor } from './InstanceService.js';
+import { InstanceReach } from './InstanceReach.js';
 
 const settings = {
   rootUrl: 'https://app.example.com',
@@ -102,10 +103,40 @@ describe('bringing a user\'s own machine in as their instance', () => {
     if (!joined.ok) throw new Error(joined.error);
     const { instanceId, credential } = joined.value;
 
-    expect(await service.report(instanceId, credential, { status: 'ready', detail: 'Installed', url: 'http://100.64.0.7:30320/' })).toMatchObject({ ok: true });
+    expect(await service.report(instanceId, credential, { status: 'ready', detail: 'Installed', url: 'http://100.64.0.7:30320/', meshIp: '100.64.0.7' })).toMatchObject({ ok: true });
     expect(await service.mine('u1')).toEqual({ id: instanceId, status: 'ready', detail: 'Installed', url: 'http://100.64.0.7:30320', name: 'luno', watch: { notifyWhenUnreachable: true, alwaysTold: false } });
     expect(await service.report(instanceId, credential, { status: 'exploded' })).toMatchObject({ ok: false, status: 400 });
     expect(await service.report(instanceId, credential, { status: 'ready', url: 'javascript:alert(1)' })).toMatchObject({ ok: false, status: 400 });
+    expect(await service.report(instanceId, credential, { status: 'ready', url: 'https://luno.koala.dev' })).toMatchObject({ ok: true, value: { url: 'https://luno.koala.dev' } });
+  });
+
+  it('never takes an address for the instance that root would call somewhere private, unless it is the instance\'s own mesh address', async () => {
+    const { token } = await tokenFor('u1');
+    const joined = await service.join(token, 'm');
+    if (!joined.ok) throw new Error(joined.error);
+    const { instanceId, credential } = joined.value;
+    await service.report(instanceId, credential, { status: 'ready', url: 'https://luno.koala.dev', meshIp: '100.64.0.7' });
+
+    for (const url of ['http://127.0.0.1:3001', 'http://localhost:8080', 'http://10.0.0.5', 'http://169.254.169.254', 'http://100.64.0.8:30320', 'http://[::1]:3001', 'http://user:pw@luno.koala.dev']) {
+      const refused = await service.report(instanceId, credential, { status: 'ready', url });
+      expect(refused, url).toMatchObject({ ok: false, status: 400 });
+    }
+    expect(await service.report(instanceId, credential, { status: 'ready', url: 'http://127.0.0.1:3001' })).toMatchObject({ error: expect.stringMatching(/^root does not call http:\/\/127\.0\.0\.1:3001: .* is a private, loopback, mesh or reserved address\./) });
+    expect(await service.report(instanceId, credential, { status: 'ready', url: 'http://100.64.0.7:30320' })).toMatchObject({ ok: true });
+    expect((await service.mine('u1'))?.url).toBe('http://100.64.0.7:30320');
+  });
+
+  it('takes a public address only once it resolves to public addresses, and any address in a lab or on a dev box', async () => {
+    const publicProblem = async (url: string) => (url.includes('rebound') ? 'rebound.example resolves to 10.0.0.1 is a private, loopback, mesh or reserved address' : undefined);
+    const strict = new InstanceService(db, { ...settings, reach: new InstanceReach({ open: false, domain: 'koala.dev' }, { open: fetch, public: fetch, publicProblem }) }, mesh, () => now);
+    const lab = new InstanceService(db, { ...settings, reach: new InstanceReach({ open: true, domain: 'koala.dev' }) }, mesh, () => now);
+    const { token } = await tokenFor('u1');
+    const joined = await service.join(token, 'm');
+    if (!joined.ok) throw new Error(joined.error);
+    const { instanceId, credential } = joined.value;
+    expect(await strict.report(instanceId, credential, { status: 'ready', url: 'https://box.example.org' })).toMatchObject({ ok: true, value: { url: 'https://box.example.org' } });
+    expect(await strict.report(instanceId, credential, { status: 'ready', url: 'https://rebound.example' })).toMatchObject({ ok: false, status: 400 });
+    expect(await lab.report(instanceId, credential, { status: 'ready', url: 'http://127.0.0.1:3001' })).toMatchObject({ ok: true, value: { url: 'http://127.0.0.1:3001' } });
   });
 
   it('will not let a machine join a root with no mesh or no registry', async () => {

@@ -39,7 +39,7 @@ import { workFailuresFor, wireRunning } from './infrastructure/wiring/running.js
 import { wireActions } from './engine/wiring/actions.js';
 import { PRUNE_FIRST_DELAY_MS, PRUNE_INTERVAL_MS } from './engine-host/sandboxes/prune-images.js';
 import { askDevice, dropDevice, localAgentStatus, tellDevice, MachineService, machineTelemetry } from './machines/index.js';
-import { RootMeshKeys, IdentityService } from './instances/index.js';
+import { RootMeshKeys, IdentityService, instanceReachFrom } from './instances/index.js';
 import { modelsRouter, ModelService, endpointRulesFromEnv } from './models/index.js';
 
 import {
@@ -128,7 +128,8 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   if (e2e) throw new Error(e2e);
   const keys = loadKeys(process.env);
   const revocations = new AccessRevocations();
-  const rootProvider = rootProviderFor({ role, publicUrl: PUBLIC_URL, keys, db, proxied: process.env.NODE_ENV === 'production' });
+  const instanceReach = instanceReachFrom(process.env);
+  const rootProvider = rootProviderFor({ role, publicUrl: PUBLIC_URL, keys, db, proxied: process.env.NODE_ENV === 'production', reach: instanceReach });
   if (rootProvider) revocations.listen(async (revoked) => { if (endsSessions(revoked)) await rootProvider.revoke(revoked); });
   const rootSignIn = rootSignInFor({ role, env: process.env, keys, db, revocations, publicUrl: PUBLIC_URL });
   const rootToken = rootSignIn ? () => rootSignIn.serviceToken() : undefined;
@@ -142,7 +143,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   const push = new PushService({ store: db.monitoring, vapid, send: webPushSend(vapid, vapidSubject(process.env.MAIL_FROM, PUBLIC_URL)), log: (message) => console.warn(message) });
   const notifications = new NotificationService({ store: db.monitoring, mail, push, publicUrl: PUBLIC_URL, log: (message) => console.warn(message) });
   const tenant: express.Router = servesTenants(role) ? (app as unknown as express.Router) : express.Router();
-  const identity = new IdentityService(role, db);
+  const identity = new IdentityService(role, db, undefined, undefined, instanceReach);
   console.log(`🧭 Running as ${role.role}${role.instance ? ` (instance ${role.instance.id}, owned by ${role.instance.ownerId})` : ''}`);
   const infraService = new InfrastructureService();
   const builderService = new BuilderService(db, infraService);

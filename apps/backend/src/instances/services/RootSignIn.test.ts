@@ -12,6 +12,7 @@ import { AccessRevocations } from '../../platform/services/AccessRevocations.js'
 import { generateIdentityKey, identityKeysFrom, publicKeyPem, trustedKeys } from '../lib/identity-token.js';
 import { clientKeysFrom } from '../lib/oidc.js';
 import { RootProvider } from './RootProvider.js';
+import { InstanceReach } from './InstanceReach.js';
 import { RootSignIn } from './RootSignIn.js';
 import { InstanceService, hashCredential } from './InstanceService.js';
 import { oidcProviderRouter } from '../routes/oidc-provider.js';
@@ -69,7 +70,7 @@ beforeEach(async () => {
   await rootDb.accounts.saveUser({ id: 'u2', email: 'u2@example.com', emailVerified: true, twoFactorEnabled: false, createdAt: '2026-10-29T00:00:00.000Z' });
   await rootDb.instances.saveInstance({ id: 'inst-u1', ownerId: 'u1', url: instance.url, credentialHash: hashCredential('the-instance-credential'), createdAt: 'x', updatedAt: 'x', status: 'ready' });
 
-  provider = new RootProvider({ issuer: `${root.url}/oidc`, signing: rootSigning, cookieKey: 'cookie-key-for-the-round-trip', proxied: false }, rootDb);
+  provider = new RootProvider({ issuer: `${root.url}/oidc`, signing: rootSigning, cookieKey: 'cookie-key-for-the-round-trip', proxied: false, reach: new InstanceReach({ open: true }) }, rootDb);
   rootService = new InstanceService(rootDb, { rootUrl: root.url, rootPublicKeys: () => [], registry: '', imageTag: 'dev', serviceCaller: (token) => provider.serviceCaller(token) }, undefined);
   const rootAuth = createAuth({ db: rootDb, sessionKey: ROOT_SESSION, publicUrl: root.url, role: 'root' });
   root.app.use('/oidc', oidcProviderRouter({ provider, signedIn: (req) => rootAuth.userFromSessionCookie(req.headers.cookie, false) }));
@@ -200,6 +201,18 @@ describe('signing in on an instance through root\'s OpenID provider', () => {
     await provider.deliverLogouts();
     expect(await rootDb.instances.pendingLogouts()).toEqual([]);
     expect((await whoami(instanceJar)).status).toBe(401);
+  });
+
+  it('in production never sends a logout to an address the instance made up on this machine or a private network', async () => {
+    await signIn.announce();
+    const { instanceJar } = await signInAs('u1');
+    const strict = new RootProvider({ issuer: `${root.url}/oidc`, signing: rootSigning, cookieKey: 'cookie-key-for-the-round-trip', proxied: false, reach: new InstanceReach({ open: false, domain: 'koala.dev' }) }, rootDb);
+    await strict.revoke({ personId: 'u1', at: new Date().toISOString(), because: 'signed-out-everywhere' });
+    await strict.deliverLogouts();
+    const [waiting] = await rootDb.instances.pendingLogouts();
+    expect(waiting).toMatchObject({ clientId: 'inst-u1', attempts: 1, lastError: expect.stringMatching(/Koala does not reach that from here: 127\.0\.0\.1 is a private, loopback, mesh or reserved address/) });
+    expect(heard).toEqual([]);
+    expect((await whoami(instanceJar)).status).toBe(200);
   });
 
   it('gives the instance a short-lived service token root takes in place of its long-lived credential', async () => {

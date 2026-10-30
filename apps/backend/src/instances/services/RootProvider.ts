@@ -5,11 +5,12 @@ import { SignJWT } from 'jose';
 import type { AccessRevoked, Database } from '../../platform/index.js';
 import type { IdentityKeyPair } from '../lib/identity-token.js';
 import {
-  CLAIMS_SECONDS, clientMetadata, claimsFor, hubClient, instanceClient, INTERACTION_PATH, KOALA_CLAIMS, KOALA_SCOPE, LOGOUT_TYP,
+  CLAIMS_SECONDS, clientMetadata, claimsFor, HUB_CLIENT_ID, hubClient, instanceClient, INTERACTION_PATH, KOALA_CLAIMS, KOALA_SCOPE, LOGOUT_TYP,
   logoutClaims, privateJwkOf, SERVICE_SCOPE, SERVICE_TOKEN_SECONDS, SESSION_SECONDS, SIGN_IN_SCOPES, SIGNING_ALG, signInRefusal,
   type ClientKind, type ClientRegistration,
 } from '../lib/oidc.js';
 import type { LogoutDelivery } from '../lib/sign-in-state.js';
+import { InstanceReach } from './InstanceReach.js';
 
 type Store = Pick<Database, 'instances' | 'accounts'>;
 
@@ -19,6 +20,7 @@ export interface RootProviderSettings {
   cookieKey: string;
   hubUrl?: string | undefined;
   proxied: boolean;
+  reach?: InstanceReach | undefined;
 }
 
 export interface ServiceCaller {
@@ -218,10 +220,16 @@ export class RootProvider {
     return this.delivering;
   }
 
+  private async deliveryFetch(delivery: LogoutDelivery): Promise<typeof fetch> {
+    if (delivery.clientId === HUB_CLIENT_ID) return globalThis.fetch;
+    const instance = (await this.store.instances.getInstances()).find((candidate) => candidate.id === delivery.clientId);
+    return (this.settings.reach ?? new InstanceReach({ open: false })).fetchFor(instance ?? {});
+  }
+
   private async deliverPending(): Promise<void> {
     for (const delivery of await this.store.instances.pendingLogouts()) {
       try {
-        const sent = await fetch(delivery.url, {
+        const sent = await (await this.deliveryFetch(delivery))(delivery.url, {
           method: 'POST',
           headers: { 'content-type': 'application/x-www-form-urlencoded' },
           body: new URLSearchParams({ logout_token: await this.logoutToken(delivery) }).toString(),

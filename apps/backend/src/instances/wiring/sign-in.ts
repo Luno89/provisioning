@@ -2,11 +2,12 @@ import crypto from 'crypto';
 import type { AccessRevocations, Database, PlatformKeys, RoleConfig } from '../../platform/index.js';
 import { clientKeysFrom, HUB_CLIENT_ID, OIDC_PATH } from '../lib/oidc.js';
 import { RootProvider } from '../services/RootProvider.js';
+import type { InstanceReach } from '../services/InstanceReach.js';
 import { RootSignIn } from '../services/RootSignIn.js';
 
 const currentOf = (key: PlatformKeys['session']): string => (typeof key === 'string' ? key : key.current);
 
-export function rootProviderFor(deps: { role: RoleConfig; publicUrl: string; keys: Pick<PlatformKeys, 'session'>; db: Database; proxied: boolean }): RootProvider | undefined {
+export function rootProviderFor(deps: { role: RoleConfig; publicUrl: string; keys: Pick<PlatformKeys, 'session'>; db: Database; proxied: boolean; reach: InstanceReach }): RootProvider | undefined {
   if (deps.role.role !== 'root' || !deps.role.signing) return undefined;
   return new RootProvider({
     issuer: `${deps.publicUrl.replace(/\/+$/, '')}${OIDC_PATH}`,
@@ -14,6 +15,7 @@ export function rootProviderFor(deps: { role: RoleConfig; publicUrl: string; key
     cookieKey: Buffer.from(crypto.hkdfSync('sha256', currentOf(deps.keys.session), 'koala-sign-in-provider', 'cookies', 32)).toString('hex'),
     hubUrl: deps.role.hubLink?.url,
     proxied: deps.proxied,
+    reach: deps.reach,
   }, deps.db);
 }
 
