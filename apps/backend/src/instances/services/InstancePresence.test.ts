@@ -94,10 +94,11 @@ describe('an instance holding a connection to root', () => {
     expect((await watchOf(own.id))?.reach?.reachable).toBe(true);
     expect(first.client.view().reachable).toBe(true);
 
+    const stoppedAt = Date.now();
     first.client.stop();
     await until(async () => (await watchOf(own.id))?.reach?.reachable === false);
-    expect(mailed).toEqual([]);
     await until(() => mailed.length === 1);
+    expect(Date.now() - stoppedAt).toBeGreaterThanOrEqual(GRACE);
     expect(mailed[0]).toEqual({ to: 'person', subject: 'Your instance own (inst-own) has not answered for 1 minutes' });
     expect((await watchOf(own.id))?.reach?.toldDown).toBe(true);
     expect(operators).toEqual([]);
