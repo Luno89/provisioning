@@ -6,6 +6,7 @@ import {
 import { randomUUID } from 'node:crypto';
 import { insideRoot, modelName, openAcpSession, type AcpLaunch, type AcpSession, type PermissionAnswer } from './acp-session.js';
 import type { LocalMcpServer, LocalTool, Mounted } from './local-mcp.js';
+import type { IdleGate, Release } from './idle-gate.js';
 
 export const KOALA_TOOLS_INSTRUCTIONS = 'Koala\'s own tools, served to you for this session. Each runs in Koala exactly as it would for Koala itself, so a proposal becomes a card for the person, and a call that changes something may wait for the person to allow it.';
 
@@ -67,6 +68,7 @@ interface Live {
   jobs: Map<string, Promise<{ content: string } | { error: Error }>>;
   ended?: { stopReason: string } | { error: string } | undefined;
   wake: () => void;
+  release?: Release | undefined;
 }
 
 export interface ExternalAgentSessionsOptions {
@@ -76,6 +78,7 @@ export interface ExternalAgentSessionsOptions {
   mcp?: LocalMcpServer | undefined;
   callAnswerMs?: number | undefined;
   jobWaitMs?: number | undefined;
+  gate?: IdleGate | undefined;
 }
 
 const NOT_ANSWERED = 'the run that offered this tool stopped before it answered';
@@ -124,7 +127,7 @@ export class ExternalAgentSessions {
       this.live.delete(args.key);
       releaseHeld(live, NOT_ANSWERED);
       live.mounted?.unmount();
-      await live.session.close();
+      await live.session.close().finally(() => live.release?.());
       return { ...this.about(live), state: 'closed', events: live.events.splice(0) };
     }
     const answers = op.kind === 'result' ? [op] : op.kind === 'results' ? op.results : [];
@@ -164,7 +167,7 @@ export class ExternalAgentSessions {
       releaseHeld(live, NOT_ANSWERED);
       live.mounted?.unmount();
     }
-    await Promise.all(open.map((live) => live.session.close()));
+    await Promise.all(open.map((live) => live.session.close().finally(() => live.release?.())));
   }
 
   private async open(key: string, agent: string, op: Extract<ExternalAgentStepArgs['op'], { kind: 'open' }>, beat: () => void): Promise<ExternalAgentStepResult> {
@@ -234,6 +237,7 @@ export class ExternalAgentSessions {
     }
 
     this.live.set(key, opened);
+    opened.release = this.options.gate?.hold(`a session of ${agent}`);
     const opening = [workspaceLine(cwd), mounted ? TOOLS_LINE : '', op.context].filter(Boolean).join('\n\n');
     const text = session.resumed ? op.brief : `${opening}\n\n${op.brief}`;
     session.prompt(text).then(

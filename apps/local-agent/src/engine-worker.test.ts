@@ -4,6 +4,7 @@ import os from 'os';
 import path from 'path';
 import { MockActivityEnvironment } from '@temporalio/testing';
 import { createDeviceActivities, deviceQueue, DEVICE_TOOLS } from './engine-worker.js';
+import { IdleGate } from './idle-gate.js';
 
 let rootDir: string;
 
@@ -32,6 +33,19 @@ const call = (over: Record<string, unknown> = {}) => ({
 describe('device queue naming', () => {
   it('matches what the server schedules against', () => {
     expect(deviceQueue('tallgeese')).toBe('device-tallgeese');
+  });
+});
+
+describe('work the machine takes keeps it busy', () => {
+  it('holds the idle gate while a tool call runs, and lets go when it ends', async () => {
+    const gate = new IdleGate();
+    const busy = createDeviceActivities({ rootDir, deviceId: 'tallgeese', gate });
+    const running = busy.EngineToolActivity(call({ name: 'run_command', arguments: JSON.stringify({ command: 'sleep 0.2; echo done' }) }));
+    expect(gate.busyWith()).toEqual(['a tool call']);
+    expect((await running).content).toContain('done');
+    expect(gate.idle).toBe(true);
+    await busy.MachineGitActivity({ kind: 'fetch' } as never);
+    expect(gate.idle).toBe(true);
   });
 });
 

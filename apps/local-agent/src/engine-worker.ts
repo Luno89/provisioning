@@ -5,6 +5,7 @@ import { executeTool, heartbeatWhileRunning, type ExternalAgentStepArgs, type Ex
 import { traceActivities } from '@koala/engine-core/telemetry';
 import { createLocalFsDriver } from './local-fs-driver.js';
 import type { ExternalAgentSessions } from './external-agents.js';
+import { holding, type IdleGate } from './idle-gate.js';
 
 export interface DeviceToolCall {
   ticket: { runId: string; ownerId: string; agentSlug: string };
@@ -38,6 +39,7 @@ export interface DeviceActivitiesOptions {
   languages?: string[];
   externalAgents?: ExternalAgentSessions | undefined;
   git?: ((op: MachineGitOp) => Promise<MachineGitResult>) | undefined;
+  gate?: IdleGate | undefined;
 }
 
 export const HEARTBEAT_MS = 10_000;
@@ -51,7 +53,7 @@ const activityContext = (): Context | undefined => {
 };
 
 export function createDeviceActivities(options: DeviceActivitiesOptions) {
-  return {
+  const activities = {
     async ExternalAgentActivity(args: ExternalAgentStepArgs): Promise<ExternalAgentStepResult> {
       if (!options.externalAgents) return { state: 'failed', error: 'this machine runs no external agents', events: [] };
       const context = activityContext();
@@ -97,6 +99,13 @@ export function createDeviceActivities(options: DeviceActivitiesOptions) {
         ...(outcome.content === undefined ? {} : { content: outcome.content }),
       };
     },
+  };
+  const { gate } = options;
+  if (!gate) return activities;
+  return {
+    ExternalAgentActivity: (args: ExternalAgentStepArgs) => holding(gate, 'an external agent step', () => activities.ExternalAgentActivity(args)),
+    MachineGitActivity: (op: MachineGitOp) => holding(gate, 'a git fetch or push', () => activities.MachineGitActivity(op)),
+    EngineToolActivity: (args: DeviceToolCall) => holding(gate, 'a tool call', () => activities.EngineToolActivity(args)),
   };
 }
 

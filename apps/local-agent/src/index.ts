@@ -1,5 +1,7 @@
 import { createMachineGit } from './machine-git.js';
 import { mkdir } from 'fs/promises';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { io, type Socket } from 'socket.io-client';
 import {
   runCommand, readLocalFile, writeLocalFile, listLocalDir, deleteLocalFile, type ExecResult,
@@ -22,14 +24,19 @@ import { DeviceWorkerHost } from './device-worker-host.js';
 import { forgetThisMachine, meshIp } from './machine-removal.js';
 import { startTelemetry } from '@koala/engine-core/telemetry-sdk';
 import { socketSink } from './telemetry-sink.js';
+import { IdleGate, holding, type Release } from './idle-gate.js';
+import { SelfUpdate, serviceManagerOf, type UpdateReport } from './self-update.js';
+import { discardBundle, ownBundle, ownVersion, placeOf, prepareBundle, readCgroup, swapBundle } from './agent-bundle.js';
 
-const activeContainers = new Set<string>();
+const activeContainers = new Map<string, Release>();
+const AGENT_DIR = path.dirname(fileURLToPath(import.meta.url));
+const OWN_BUNDLE = ownBundle(AGENT_DIR);
 
 const manualOver = (socket: Socket) => new Promise<ManualAgent[]>((resolve) => {
   socket.emit('agents:manual', {}, (answer: unknown) => resolve(manualAgentsFrom(answer)));
 });
 
-function watchAgents(socket: Socket, config: MachineConfig, sessions: ExternalAgentSessions): void {
+function watchAgents(socket: Socket, config: MachineConfig, sessions: ExternalAgentSessions, gate: IdleGate): void {
   const deps = systemDeps(config.rootDir, probeAcp);
   const rediscover = async (): Promise<void> => {
     const manual = await manualOver(socket);
@@ -46,14 +53,15 @@ function watchAgents(socket: Socket, config: MachineConfig, sessions: ExternalAg
   socket.on('agents:install', ({ id }: { id?: string }, ack: (answer: { ok: boolean; output: string }) => void) => {
     const known = KNOWN_AGENTS.find((agent) => agent.id === id);
     if (!known?.install) return ack({ ok: false, output: `there is nothing to install for ${String(id)}` });
-    void installAgent(known.install).then((outcome) => {
+    const install = known.install;
+    void holding(gate, `installing ${known.id}'s adapter`, () => installAgent(install)).then((outcome) => {
       ack(outcome);
       void rediscover();
     });
   });
 }
 
-function followEngineWorker(socket: Socket, config: MachineConfig, sessions: ExternalAgentSessions): DeviceWorkerHost | undefined {
+function followEngineWorker(socket: Socket, config: MachineConfig, sessions: ExternalAgentSessions, gate: IdleGate): DeviceWorkerHost | undefined {
   if (!config.deviceId) return undefined;
   const { deviceId } = config;
   const host = new DeviceWorkerHost(async (settings) => {
@@ -69,6 +77,7 @@ function followEngineWorker(socket: Socket, config: MachineConfig, sessions: Ext
       address,
       token: config.token,
       payloads: { ring: settings.ring, blobs: remoteBlobs(socket) },
+      gate,
       ...(namespace ? { namespace } : {}),
       onReady: (queue) => console.log(`[koala-local-agent] engine worker polling ${queue} at ${address}`),
     });
@@ -89,16 +98,30 @@ async function main() {
   }
   const containerMode = docker.ok;
 
-  const socket = io(`${backendUrl}/agent`, { auth: { token, containerMode }, reconnection: true });
+  const socket = io(`${backendUrl}/agent`, { auth: { token, containerMode, bundle: OWN_BUNDLE ?? '' }, reconnection: true });
   startTelemetry({ service: 'koala-machine', ...(config.deviceId ? { machineId: config.deviceId } : {}), sink: socketSink(socket), log: (line) => console.warn(`[koala-local-agent] ${line}`) });
   const mcp = new LocalMcpServer({ log: (line) => console.log(`[koala-local-agent] ${line}`) });
   await mcp.start();
-  const sessions = new ExternalAgentSessions({ rootDir, launches: {}, mcp });
+  const gate = new IdleGate();
+  const sessions = new ExternalAgentSessions({ rootDir, launches: {}, mcp, gate });
   for (const signal of ['SIGINT', 'SIGTERM'] as const) {
     process.once(signal, () => { void sessions.closeAll().finally(() => process.exit(0)); });
   }
-  watchAgents(socket, config, sessions);
-  const worker = followEngineWorker(socket, config, sessions);
+  watchAgents(socket, config, sessions, gate);
+  const worker = followEngineWorker(socket, config, sessions, gate);
+  const place = placeOf(AGENT_DIR);
+  const updates = new SelfUpdate({
+    own: OWN_BUNDLE,
+    service: serviceManagerOf(process.platform, process.env, await readCgroup()),
+    gate,
+    prepare: (bundle) => prepareBundle({ place, bundle, url: `${backendUrl}/api/machines/agent.tgz`, node: process.execPath }),
+    discard: () => discardBundle(place),
+    swap: () => swapBundle(place),
+    restart: () => process.exit(0),
+    report: (report: UpdateReport) => { if (socket.connected) socket.emit('machine:update', report); },
+    log: (line) => console.log(`[koala-local-agent] ${line}`),
+  });
+  socket.on('machine:bundle', (named: unknown) => { void updates.named(named); });
 
   socket.on('machine:token', ({ token: next }: { token?: unknown }, ack: (answer: { taken: boolean }) => void) => {
     if (typeof next !== 'string' || !next) return ack(tokenAnswer(false));
@@ -141,12 +164,15 @@ async function main() {
     ack: (result: { containerMode: boolean; error?: string }) => void,
   ) => {
     if (!containerMode) return ack({ containerMode: false });
+    const creating = gate.hold(`a container for ${request.leafId}`);
     createContainer({ ...request, rootDir })
       .then(() => {
-        activeContainers.add(request.leafId);
+        activeContainers.get(request.leafId)?.();
+        activeContainers.set(request.leafId, creating);
         ack({ containerMode: true });
       })
       .catch((err: Error) => {
+        creating();
         console.warn(`[koala-local-agent] ${request.leafId}: container create failed (${err.message}) — falling back to raw host exec for this leaf`);
         ack({ containerMode: false, error: err.message });
       });
@@ -156,27 +182,30 @@ async function main() {
     { leafId }: { leafId: string },
     ack: () => void,
   ) => {
-    if (!activeContainers.has(leafId)) return ack();
+    const release = activeContainers.get(leafId);
+    if (!release) return ack();
     activeContainers.delete(leafId);
     destroyContainer(leafId).catch((err: Error) => {
       console.warn(`[koala-local-agent] ${leafId}: container cleanup failed: ${err.message}`);
-    }).finally(ack);
+    }).finally(() => {
+      release();
+      ack();
+    });
   });
 
   socket.on('sandbox:exec', (
     { leafId, command, cwd, maxOutputChars, timeoutMs }: { leafId: string; command: string; cwd?: string; maxOutputChars?: number; timeoutMs?: number },
     ack: (result: ExecResult) => void,
   ) => {
-    if (activeContainers.has(leafId)) {
-      execInContainer(leafId, command, timeoutMs, cwd, maxOutputChars).then(ack);
-    } else {
+    void holding(gate, 'a command', () => {
+      if (activeContainers.has(leafId)) return execInContainer(leafId, command, timeoutMs, cwd, maxOutputChars);
       const options: { timeoutMs?: number | undefined; subPath?: string | undefined; maxOutputChars?: number | undefined } = {
         ...(timeoutMs ? { timeoutMs } : {}),
       };
       if (cwd !== undefined) options.subPath = cwd;
       if (maxOutputChars !== undefined) options.maxOutputChars = maxOutputChars;
-      runCommand(rootDir, command, options).then(ack);
-    }
+      return runCommand(rootDir, command, options);
+    }).then(ack);
   });
 
   socket.on('sandbox:readFile', (
@@ -237,9 +266,15 @@ async function setUpAgentsHere(args: string[]): Promise<void> {
   });
 }
 
-const started = process.argv[2] === 'agents' ? setUpAgentsHere(process.argv.slice(3)) : main();
+function sayVersion(): Promise<void> {
+  console.log(JSON.stringify({ bundle: OWN_BUNDLE ?? null, version: ownVersion(AGENT_DIR) ?? null }));
+  return Promise.resolve();
+}
+
+const command = process.argv[2];
+const started = command === 'agents' ? setUpAgentsHere(process.argv.slice(3)) : command === 'version' ? sayVersion() : main();
 started.then(() => {
-  if (process.argv[2] === 'agents') process.exit(0);
+  if (command === 'agents' || command === 'version') process.exit(0);
 }, (err: Error) => {
   console.error(`[koala-local-agent] fatal: ${err.message}`);
   process.exit(1);

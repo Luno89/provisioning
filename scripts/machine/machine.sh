@@ -147,6 +147,7 @@ GOT=$(sha256_of "$BUNDLE")
 tar -xzf "$BUNDLE" -C "$NEXT_DIR"
 rm -f "$BUNDLE"
 (cd "$NEXT_DIR" && npm ci --omit=dev --ignore-scripts --no-audit --no-fund --loglevel=error >/dev/null)
+printf '%s\n' "$KOALA_AGENT_SHA256" > "$NEXT_DIR/bundle.sha256"
 rm -rf "$DATA_DIR"
 mv "$NEXT_DIR" "$DATA_DIR"
 ok "installed in $DATA_DIR"
