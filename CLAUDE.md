@@ -1412,6 +1412,16 @@ client** (owner, 2026-10-29: Porkbun beside Cloudflare, nothing hardcoded to eit
   `modules.txt` regenerated, and a fake in `services/dns/fake-dns.ts`: the contract suite (`dns-providers.contract.test.ts`) runs
   against every registered provider. Porkbun answers only for a domain with **API Access** turned on in its dashboard.
 - `npm run dns:check -- <zone> …` finds who serves each zone and lists its records with the stored credentials, changing nothing.
+- `npm run dns:issue-check -- <zone> …` proves a certificate is really issued over DNS-01 for each zone before root exists: it builds
+  root's Caddy from `docker/caddy` and runs it with root's own tls snippet (`caddyTlsSnippet`) for `*.koala-check.<zone>`, the
+  zone's provider found from its nameservers and its stored credentials handed to the container on stdin (never a file, an env
+  file or a label), from Let's Encrypt's **staging** service only (`acme_ca`, and `caddy adapt` refused unless every issuer is
+  staging, `stagingOnlyProblem`), with no port published, so the certificate is obtained and never served. It reads the
+  certificate back (its one name, the staging issuer, its dates), asks the provider's API that no TXT
+  `_acme-challenge.koala-check.<zone>` is left (removing one only by that name, `challengeLeftovers`), that the rest of the zone is
+  as it was, and that Caddy's log named no credential; the container and its storage go however it ends (rules in
+  `infrastructure/lib/dns-issue-check.ts`, the container in `services/dns/CaddyIssueCheck.ts`). It passed for both zones on
+  2026-10-30, once Caddy's Cloudflare module was v0.2.4: earlier ones refuse Cloudflare's `cfat_`/`cfut_` tokens as too long.
 
 ## Headscale mesh
 

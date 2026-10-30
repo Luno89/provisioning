@@ -15,6 +15,10 @@ provider are on branches being merged):
    credentials for each zone (a Cloudflare token for `nowrinkles.dev`; Porkbun's API key and secret for
    `nowrinkles.app`, with API Access switched on for that domain in Porkbun's dashboard).
 2. Before paying anything, `npm run ovh:quote -- --plan <plan code> --datacenter <dc>` prices a cart and deletes it.
+   Prove issuance too: `npm run dns:issue-check -- nowrinkles.app nowrinkles.dev` gets a wildcard certificate for
+   `*.koala-check.<zone>` from Let's Encrypt's staging service through root's own Caddy and each zone's stored DNS
+   credentials, then checks the temporary `_acme-challenge` records are gone and nothing else in the zone changed. Every
+   zone must say ✓ issued; a refusal names what to change (Porkbun's API Access on the domain, the Cloudflare token's zones).
 3. Infrastructure → Clusters → **Host Koala on a server**: pick the plan and datacenter, the two domains and an email,
    **Price it**, read the card, tick the box, **Buy**. Nothing is charged before Buy.
 4. Koala follows the order. A first order on a new OVHcloud account can wait 24–48 hours for OVHcloud's identity check;
