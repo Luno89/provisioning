@@ -17,6 +17,7 @@
     "start:worker:engine": "tsx src/worker-engine.ts",
     "keys": "tsx src/scripts/rotate-keys.ts",
     "instances": "tsx src/scripts/instances.ts",
+    "accounts": "tsx src/scripts/accounts.ts",
     "dns:check": "tsx src/scripts/dns-check.ts",
     "ovh:quote": "tsx src/scripts/ovh-quote.ts",
     "dev:split:setup": "tsx src/scripts/dev-split.ts",
