@@ -129,9 +129,28 @@ TEMPORAL="$(docker ps --filter label=com.docker.compose.service=temporal --forma
 if [ -z "$TEMPORAL" ]; then
   warn "No Temporal container is running, so nothing can be in flight"
 else
-  LISTED="$(docker exec "$TEMPORAL" temporal workflow list --address 127.0.0.1:7236 --query 'ExecutionStatus="Running"' 2>&1 || docker exec "$TEMPORAL" temporal workflow list --address temporal:7233 --query 'ExecutionStatus="Running"' 2>&1)" || die "Could not list the workflows in flight: ${LISTED}"
-  RUNNING="$(printf '%s\n' "$LISTED" | grep -c ' Running ' || true)"
+  TEMPORAL_AT=""
+  for address in 127.0.0.1:7236 temporal:7233; do
+    if LISTED="$(docker exec "$TEMPORAL" temporal workflow list --address "$address" --query 'ExecutionStatus="Running"' 2>&1)"; then
+      TEMPORAL_AT="$address"
+      break
+    fi
+  done
+  [ -n "$TEMPORAL_AT" ] || die "Could not list the workflows in flight: ${LISTED}"
+  WORKING=""
+  WAITING=0
+  for id in $(printf '%s\n' "$LISTED" | awk '$1 == "Running" { print $2 }'); do
+    DESCRIBED="$(docker exec "$TEMPORAL" temporal workflow describe --address "$TEMPORAL_AT" --workflow-id "$id" -o json 2>&1)" || die "Could not describe ${id}: ${DESCRIBED}"
+    if printf '%s\n' "$DESCRIBED" | grep -E '"pending(Activities|WorkflowTask)"' >/dev/null; then
+      WORKING="${WORKING}${WORKING:+ }${id}"
+    else
+      WAITING=$((WAITING + 1))
+    fi
+  done
+  RUNNING="$(printf '%s' "$WORKING" | wc -w)"
+  [ "$WAITING" -eq 0 ] || ok "${WAITING} workflow(s) wait on a timer or a person, which a restart costs nothing"
   if [ "$RUNNING" -gt 0 ]; then
+    warn "Working now: ${WORKING}"
     if [ "$FORCE" -eq 1 ]; then
       warn "${RUNNING} workflow(s) running — continuing anyway (--force)"
     else

@@ -1241,7 +1241,7 @@ goes through the systemd unit so the **workers restart too** — they run plain 
 hot-reload, so bouncing only the backend would leave them on the old release silently.
 
 A restart mid-provision is safe (Temporal holds the workflow state, so activities resume) but costs
-one retry attempt, so the script refuses while work is in flight unless given `--force`.
+one retry attempt, so the script refuses while work is in flight (a running activity or workflow task; a workflow waiting on a timer or a person, such as the daily dependency check, is not) unless given `--force`.
 
 **The firewall.** ufw lets in 22 (or only over the mesh), 80 and 443, and root's own k3s pods (a pool on root's node included)
 reach the host only on the Kubernetes API, the kubelet and node metrics (6443, 10250, 9100; `bootstrap.sh`, and `harden-host.sh`
