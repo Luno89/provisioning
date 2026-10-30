@@ -8,7 +8,7 @@ import { caddyTlsSnippet } from '../apps/backend/src/infrastructure/lib/dns-prov
 import { createDisposableVm, type DisposableVm } from './lib/disposable-vm.js';
 import { loadKeys } from '../apps/backend/src/platform/lib/keys.js';
 import { signJWT } from '../apps/backend/src/platform/lib/auth.js';
-import { devTemporalCa } from './lib/dev-temporal.js';
+import { devDataMounts, devTemporalCa } from './lib/dev-temporal.js';
 import { fetchSide, handOff, signedInLanding, type Side } from './lib/handoff.js';
 import { dropSuiteDatabase, firstAdmin, forgetMeshUser, suiteRoot, workerEnv } from './lib/suite-root.js';
 
@@ -36,7 +36,6 @@ const MAILPIT_API = 18026;
 const WATCH_MINUTES = 1;
 const NAME = `rt${Date.now().toString(36)}`;
 const CONTAINERS = { root: 'nw-route-root', worker: 'nw-route-worker', caddy: 'nw-route-caddy', mesh: 'nw-route-ts', relay: 'nw-route-relay', mailbox: 'nw-route-mailbox' };
-const SECRET_FILES = ['.gitea-admin-password', '.gitea-admin-token', '.headscale-api-key', '.infisical-admin-password', '.infisical-machine-identity', '.infisical-encryption-key', '.infisical-postgres-password', '.infisical-redis-password'];
 
 const run = (cmd: string, args: string[]) => execFileSync(cmd, args, { cwd: REPO, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
 const step = (message: string) => console.log(`\n▶ ${message}`);
@@ -165,7 +164,7 @@ async function main(): Promise<void> {
   step('root starts with the domain, writing its routes where Caddy reads them, and sending email to a test mailbox');
   run('docker', ['run', '-d', '--name', CONTAINERS.mailbox, '-p', `127.0.0.1:${MAILPIT_SMTP}:1025`, '-p', `127.0.0.1:${MAILPIT_API}:8025`, MAILPIT_IMAGE]);
   run('docker', ['run', '-d', '--name', CONTAINERS.root, '--network', 'host', '--env-file', 'apps/backend/.env', ...ROOT.env, ...devTemporalCa(), '--group-add', String(statSync('/var/run/docker.sock').gid),
-    ...SECRET_FILES.flatMap((file) => ['-v', `${join(REPO, 'apps/backend/data', file)}:/app/apps/backend/data/${file}:ro`]),
+    ...devDataMounts(),
     '-v', '/var/run/docker.sock:/var/run/docker.sock', '-v', `${caddyDir}:/app/apps/backend/data/caddy`,
     '-e', 'ROLE=root', '-e', `PORT=${ROOT_PORT}`, '-e', `PUBLIC_URL=${ROOT_FOR_GUEST}`,
     '-e', `INGRESS_DOMAIN=${DOMAIN}`, '-e', `APP_DOMAIN=app.${ROOT_DOMAIN}`, '-e', `MESH_DOMAIN=mesh.${ROOT_DOMAIN}`,
@@ -175,7 +174,7 @@ async function main(): Promise<void> {
     '-e', 'MESH_LOGIN_SERVER=http://10.0.2.2:8080', '-e', 'INSTANCE_REGISTRY=10.0.2.2:5001', '-e', `INSTANCE_IMAGE_TAG=${TAG}`, '-e', `MAIL_SMTP_URL=smtp://127.0.0.1:${MAILPIT_SMTP}`, '-e', `WATCH_UNREACHABLE_MINUTES=${WATCH_MINUTES}`, IMAGE, 'backend']);
   await until('root answering', async () => ((await fetch(`${ROOT_FOR_HOST}/api/identity/keys`)).ok ? true : undefined));
   run('docker', ['run', '-d', '--name', CONTAINERS.worker, '--network', 'host', '--env-file', 'apps/backend/.env', ...ROOT.env, ...devTemporalCa(),
-    ...SECRET_FILES.flatMap((file) => ['-v', `${join(REPO, 'apps/backend/data', file)}:/app/apps/backend/data/${file}:ro`]), ...workerEnv(ROOT), IMAGE, 'worker-host']);
+    ...devDataMounts(), ...workerEnv(ROOT), IMAGE, 'worker-host']);
   const owner = await firstAdmin(ROOT_FOR_HOST, ROOT);
   ownerId = owner.id;
   const session = signJWT({ userId: owner.id, email: owner.email }, loadKeys(process.env).session, 3600);

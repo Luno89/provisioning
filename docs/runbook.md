@@ -69,13 +69,13 @@ On the dev box: `npm run release:check` (every release step, in rounds), then `n
 
 Root then moves at its next hourly look, or now: `bash scripts/root-node/release-watch.sh <tag>` on root, or
 `ROOT_SSH=<user@host> npm run release` from the dev box. Root refuses a tag not signed by a key in
-`/etc/koala/release-signers`, and refuses while workflows run (wait, or add `--force`, which costs each one a retry).
+`/etc/koala/release-signers`, and refuses while a workflow is working, an activity or a workflow task in flight (wait, or add `--force`, which costs each one a retry); one waiting on a timer or a person, such as the daily dependency check or a trial, does not hold it up.
 `update.sh` builds and checks everything before restarting, and goes back to the previous commit by itself if the
 backend does not come back.
 
 ## 4. Rolling root back
 
-`bash scripts/root-node/update.sh <the tag it ran before>` (add `--force` if workflows run). It is a full update in
+`bash scripts/root-node/update.sh <the tag it ran before>` (add `--force` if a workflow is working). It is a full update in
 reverse, through the same checks. What a rollback does to people's instances: the release root left is **withdrawn**.
 Instances on automatic updates move back to root's release at their next check-in; nobody is offered the withdrawn
 one again; an owner who picked it by hand keeps it and is emailed once. Disk snapshots are **not** a rollback: they

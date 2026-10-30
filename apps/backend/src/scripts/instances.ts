@@ -6,7 +6,7 @@ import { IdentityService } from '../instances/index.js';
 
 dotenv.config({ path: resolve(dirname(fileURLToPath(import.meta.url)), '../../.env') });
 
-const USAGE = 'usage: npm run instances -w apps/backend -- list | add <id> <owner-user-id> <url> | remove <id>';
+const USAGE = 'usage: npm run instances -w apps/backend -- list | add <id> <owner-user-id> <url> (prints the instance\'s credential) | remove <id>';
 
 async function main(): Promise<void> {
   const [command, ...rest] = process.argv.slice(2);
@@ -24,6 +24,8 @@ async function main(): Promise<void> {
     const result = await identity.register({ id, ownerId, url });
     if (!result.ok) throw new Error(result.error);
     console.log(`registered ${result.instance.id} for ${ownerId} at ${result.instance.url}`);
+    console.log(`its credential, shown once and replacing any it had: ${result.credential}`);
+    console.log(`give it to the instance's chart as --set instance.credential=${result.credential}`);
   } else if (command === 'remove' && rest.length === 1) {
     await db.instances.deleteInstance(rest[0]!);
     console.log(`removed ${rest[0]}`);

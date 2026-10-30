@@ -8,7 +8,7 @@ import { createDatabase, roleFromEnv } from '../../apps/backend/src/platform/ind
 import { devSplitPlan, hashCredential, instanceIdFor, publicKeyPem, type SplitPlace } from '../../apps/backend/src/instances/index.js';
 import { buildAppImage } from './gate-runs.js';
 import { fetchSide, handOff, sessionFrom, signedInLanding } from './handoff.js';
-import { devFile, devTemporalCa } from './dev-temporal.js';
+import { devDataMounts, devFile, devTemporalCa } from './dev-temporal.js';
 import { firstAdmin, withDatabase, type FirstAdmin } from './suite-root.js';
 
 export const MAILPIT_IMAGE = 'axllent/mailpit:v1.21.0';
@@ -129,7 +129,7 @@ function devGitea(): { url: string; mounts: string[] } {
   if (!port || !host) throw new Error('the dev stack\'s Gitea has no address this suite can find');
   return {
     url: `http://${host}:${port}`,
-    mounts: GITEA_SECRETS.flatMap((file) => ['-v', `${devFile(`apps/backend/data/${file}`)}:/app/apps/backend/data/${file}:ro`]),
+    mounts: devDataMounts(GITEA_SECRETS),
   };
 }
 

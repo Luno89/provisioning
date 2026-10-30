@@ -86,6 +86,10 @@ until kube get --raw /readyz >/dev/null 2>&1; do
   i=$((i + 1)); [ "$i" -gt 120 ] && die "the API server did not come back after the restart"
   sleep 2
 done
+until [ -f /run/flannel/subnet.env ] && kube get nodes --no-headers 2>/dev/null | grep -q ' Ready '; do
+  sleep 2
+done
+ok "the node is ready and its pod network is up"
 kube apply -f - >/dev/null <<'EOF'
 apiVersion: node.k8s.io/v1
 kind: RuntimeClass

@@ -591,7 +591,7 @@ the in-memory `RevocationList`), drops the person's sessions and fires the event
 still signs in by root's old handoff (`/api/identity/go` → `<instance>/#/handoff?token=…`, `issueHandoff`): root sends someone to the
 OIDC start only once the instance has named its key and its own `/api/auth/sign-in` answers with it (`handoffServedFor`), so a rollback
 past this release falls back by itself.
-`tests/lib/handoff.ts` (`handOff`) is that browser for every suite that signs in through root. Register an instance with `npm run instances -w apps/backend -- add <id> <owner> <url>`.
+`tests/lib/handoff.ts` (`handOff`) is that browser for every suite that signs in through root. Register an instance by hand with `npm run instances -w apps/backend -- add <id> <owner> <url>`, which prints the credential its chart takes as `instance.credential` (without one an instance cannot sign anyone in).
 
 **Addresses (per-user instances step 6).** A person picks a name when their instance is made (`instances/lib/instance-names.ts`:
 3–20 lowercase letters and digits, no dashes, some reserved; unique on root, fixed afterwards, asked on root's "Use my own
@@ -1241,7 +1241,7 @@ goes through the systemd unit so the **workers restart too** — they run plain 
 hot-reload, so bouncing only the backend would leave them on the old release silently.
 
 A restart mid-provision is safe (Temporal holds the workflow state, so activities resume) but costs
-one retry attempt, so the script refuses while work is in flight unless given `--force`.
+one retry attempt, so the script refuses while work is in flight (a running activity or workflow task; a workflow waiting on a timer or a person, such as the daily dependency check, is not) unless given `--force`.
 
 **The firewall.** ufw lets in 22 (or only over the mesh), 80 and 443, and root's own k3s pods (a pool on root's node included)
 reach the host only on the Kubernetes API, the kubelet and node metrics (6443, 10250, 9100; `bootstrap.sh`, and `harden-host.sh`

@@ -393,8 +393,12 @@ async function main(): Promise<void> {
   const temporal = (await sh(root, "sudo docker ps --filter label=com.docker.compose.service=temporal --format '{{.Names}}'")).trim().split('\n')[0]!;
   assert.ok(temporal, 'root has no Temporal container');
   await sh(root, `sudo docker exec ${temporal} sh -c 'for address in 127.0.0.1:7236 temporal:7233; do temporal workflow start --address $address --task-queue release-live-in-flight --type ReleaseRehearsalInFlight --workflow-id release-live-in-flight >/dev/null && exit 0; done; exit 1'`);
+  await until('root\'s Temporal listing the workflow in flight', async () => {
+    const listed = await sh(root, `sudo docker exec ${temporal} temporal workflow list --address 127.0.0.1:7236 --query 'WorkflowId="release-live-in-flight" AND ExecutionStatus="Running"'`);
+    return /\brelease-live-in-flight\b/.test(listed) ? true : undefined;
+  });
   const refused = await inVm(root, `sudo bash ${UPDATE_SH} ${candidate}`);
-  assert.notEqual(refused.code, 0, 'update.sh went ahead with a workflow in flight');
+  assert.notEqual(refused.code, 0, `update.sh went ahead with a workflow in flight:\n${refused.out.slice(-1500)}`);
   assert.ok(refused.out.includes(inFlightRefusal(1)), `update.sh did not refuse with the expected words:\n${refused.out.slice(-800)}`);
   assert.equal(await rootHead(), previous, 'the refused update moved root');
   note(`refused: ${inFlightRefusal(1)}`);

@@ -57,6 +57,14 @@ describe('the releases root has run', () => {
     expect(again.inventoryFile('../../etc/passwd')).toBeUndefined();
   });
 
+  it('records the release even when its inventory cannot be written, so instances are still offered it', async () => {
+    const one = head();
+    const failing = new ReleaseCatalogue(db.instances, { repoRoot: repo, chartsDir, imageTag: one, chart: async () => chart, inventory: async () => { throw new Error('dependencies.pins.json is missing'); } }, () => new Date('2026-10-30T00:00:00.000Z'));
+    expect((await failing.recordCurrent()).imageTag).toBe(one);
+    expect((await failing.releases()).map((release) => release.imageTag)).toContain(one);
+    expect(failing.inventoryFile(one)).toBeUndefined();
+  });
+
   it('records a build no tag names under its image tag, and lists every release', async () => {
     const one = head();
     await catalogue(one, '2026-10-25T00:00:00.000Z').recordCurrent();
