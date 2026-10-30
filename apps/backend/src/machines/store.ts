@@ -3,9 +3,16 @@ import type { Collection, Db } from 'mongodb';
 import type { LocalAgentDeviceMetadata } from '../platform/index.js';
 import type { MachineJoinCode } from './lib/machines.js';
 
+export interface DeviceChange {
+  set?: Partial<LocalAgentDeviceMetadata> | undefined;
+  unset?: readonly (keyof LocalAgentDeviceMetadata & string)[] | undefined;
+  when?: Partial<Record<keyof LocalAgentDeviceMetadata & string, string | null>> | undefined;
+}
+
 export interface MachinesStore extends AreaStore {
   getLocalAgentDevices(): Promise<LocalAgentDeviceMetadata[]>;
   saveLocalAgentDevice(device: LocalAgentDeviceMetadata): Promise<void>;
+  updateLocalAgentDevice(id: string, change: DeviceChange): Promise<boolean>;
   deleteLocalAgentDevice(id: string): Promise<void>;
   saveMachineJoinCode(code: MachineJoinCode): Promise<void>;
   takeMachineJoinCode(hash: string): Promise<MachineJoinCode | undefined>;
@@ -35,6 +42,17 @@ export class MongoMachinesStore implements MachinesStore {
     const id = doc._id;
     const { _id, ...filter } = doc;
     await this.localAgentDevices.replaceOne({ _id: id }, filter, { upsert: true });
+  }
+
+  async updateLocalAgentDevice(id: string, change: DeviceChange): Promise<boolean> {
+    const filter: Record<string, unknown> = { _id: id };
+    for (const [field, value] of Object.entries(change.when ?? {})) filter[field] = value === null ? { $exists: false } : value;
+    const update: Record<string, unknown> = {};
+    if (change.set && Object.keys(change.set).length) update.$set = change.set;
+    if (change.unset?.length) update.$unset = Object.fromEntries(change.unset.map((field) => [field, '']));
+    if (!Object.keys(update).length) return false;
+    const result = await this.localAgentDevices.updateOne(filter as never, update);
+    return result.matchedCount === 1;
   }
 
   async deleteLocalAgentDevice(id: string): Promise<void> {

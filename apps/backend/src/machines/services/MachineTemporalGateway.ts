@@ -93,11 +93,13 @@ export class MachineTemporalGateway {
       const path = header(headers[':path']) ?? '';
       const call = gatewayCallOf(path);
       if (!call) return refuse(stream, GRPC.unimplemented, 'a machine asks Temporal only for its own work');
+      const received = collect(stream);
+      received.catch(() => undefined);
       const token = (header(headers.authorization) ?? '').replace(/^Bearer\s+/i, '');
       const deviceId = token ? await this.deviceFor(token) : undefined;
       if (!deviceId) return refuse(stream, GRPC.unauthenticated, 'this machine is not known here; add it again from My Machines');
       const keys = this.deps.keys();
-      const decision = gatewayDecision(call, unframe(await collect(stream), header(headers['grpc-encoding'])), { deviceId, namespace: this.deps.namespace, keys });
+      const decision = gatewayDecision(call, unframe(await received, header(headers['grpc-encoding'])), { deviceId, namespace: this.deps.namespace, keys });
       if ('refused' in decision) {
         this.deps.log?.(`[machine-gateway] refused ${call} from ${deviceId}: ${decision.refused}`);
         return refuse(stream, GRPC.permissionDenied, decision.refused);

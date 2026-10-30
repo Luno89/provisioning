@@ -11,7 +11,7 @@ import {
 } from '../lib/machines.js';
 import type { MachinesStore } from '../store.js';
 
-type Store = Pick<MachinesStore, 'getLocalAgentDevices' | 'saveMachineJoinCode' | 'takeMachineJoinCode' | 'saveLocalAgentDevice' | 'deleteLocalAgentDevice'>;
+type Store = Pick<MachinesStore, 'getLocalAgentDevices' | 'saveMachineJoinCode' | 'takeMachineJoinCode' | 'saveLocalAgentDevice' | 'updateLocalAgentDevice' | 'deleteLocalAgentDevice'>;
 
 export interface MachineSettings {
   url: string;
@@ -184,8 +184,12 @@ export class MachineService {
     }
     if (!rotationDue(device, this.now())) return undefined;
     const token = newDeviceToken();
-    await this.deps.store.saveLocalAgentDevice(withNextToken(device, deviceTokenHash(token), this.now()));
-    return token;
+    const next = withNextToken(device, deviceTokenHash(token), this.now());
+    const saved = await this.deps.store.updateLocalAgentDevice(device.id, {
+      set: { nextTokenHash: next.nextTokenHash, nextIssuedAt: next.nextIssuedAt, nextExpiresAt: next.nextExpiresAt },
+      when: { nextTokenHash: null },
+    });
+    return saved ? token : undefined;
   }
 
   async tokenTaken(deviceId: string): Promise<void> {
@@ -194,15 +198,25 @@ export class MachineService {
   }
 
   private async promote(device: LocalAgentDeviceMetadata): Promise<void> {
+    if (!device.nextTokenHash) return;
     const retired = device.tokenHash;
-    await this.deps.store.saveLocalAgentDevice(promotedNext(device));
-    if (retired) for (const listener of this.retiredListeners) listener(retired);
+    const promoted = promotedNext(device);
+    const moved = await this.deps.store.updateLocalAgentDevice(device.id, {
+      set: { tokenHash: promoted.tokenHash, issuedAt: promoted.issuedAt, expiresAt: promoted.expiresAt },
+      unset: ['nextTokenHash', 'nextIssuedAt', 'nextExpiresAt'],
+      when: { nextTokenHash: device.nextTokenHash },
+    });
+    if (moved && retired) for (const listener of this.retiredListeners) listener(retired);
+  }
+
+  async seen(deviceId: string): Promise<void> {
+    await this.deps.store.updateLocalAgentDevice(deviceId, { set: { lastSeenAt: this.now().toISOString() } });
   }
 
   async recordAgents(deviceId: string, raw: unknown): Promise<void> {
     const device = (await this.deps.store.getLocalAgentDevices()).find((candidate) => candidate.id === deviceId);
     if (!device) return;
-    await this.deps.store.saveLocalAgentDevice({ ...device, agents: machineAgentsFrom(raw), agentsAt: this.now().toISOString() });
+    await this.deps.store.updateLocalAgentDevice(device.id, { set: { agents: machineAgentsFrom(raw), agentsAt: this.now().toISOString() } });
   }
 
   async manualAgents(deviceId: string): Promise<ManualMachineAgent[]> {
@@ -216,7 +230,7 @@ export class MachineService {
     const problem = manualAgentsProblem(raw);
     if (problem) return { ok: false, status: 400, error: problem };
     const next = { ...device, manualAgents: manualAgentsOf(raw) };
-    await this.deps.store.saveLocalAgentDevice(next);
+    await this.deps.store.updateLocalAgentDevice(device.id, { set: { manualAgents: next.manualAgents } });
     this.deps.devices.tell(deviceId, 'agents:changed');
     return { ok: true, value: this.view(next) };
   }
@@ -248,6 +262,6 @@ export class MachineService {
     if (!meshIp) return;
     const device = (await this.deps.store.getLocalAgentDevices()).find((candidate) => candidate.id === deviceId);
     if (!device || device.meshIp === meshIp) return;
-    await this.deps.store.saveLocalAgentDevice({ ...device, meshIp });
+    await this.deps.store.updateLocalAgentDevice(device.id, { set: { meshIp } });
   }
 }

@@ -1,7 +1,7 @@
 import fs from 'fs/promises';
 import path from 'path';
 import type express from 'express';
-import { type Database, type SecretKey, asyncRoute, ringOf, sharedPayloadBlobs, temporalApiKey } from '../../platform/index.js';
+import { type Database, type LocalAgentDeviceMetadata, type SecretKey, asyncRoute, ringOf, sharedPayloadBlobs, temporalApiKey } from '../../platform/index.js';
 import { findDeviceByToken } from '../lib/local-agent-registry.js';
 import { MachineBundle } from '../services/MachineBundle.js';
 import { MachineGitService } from '../services/MachineGitService.js';
@@ -26,13 +26,16 @@ export interface MachinesWiringDeps {
   gateway?: { port: number; host: string; upstream: string; namespace: string; temporalKey: string; temporalCa?: Buffer | undefined } | undefined;
 }
 
+export const deviceByToken = (db: Pick<Database, 'machines'>, dataKey: SecretKey, now: () => Date = () => new Date()) =>
+  async (token: string): Promise<LocalAgentDeviceMetadata | undefined> => findDeviceByToken(await db.machines.getLocalAgentDevices(), token, dataKey, now());
+
 export function wireMachines(deps: MachinesWiringDeps): void {
   const { tenant, db } = deps;
   tenant.use('/api/mesh', meshRouter({ headscaleService: deps.headscale, db }));
   tenant.use('/api/mesh/local-agents', localAgentsRouter({ machines: deps.machines }));
   const bundle = new MachineBundle(deps.repoRoot);
   const git = new MachineGitService({
-    deviceFor: async (token) => findDeviceByToken(await db.machines.getLocalAgentDevices(), token, deps.dataKey),
+    deviceFor: deviceByToken(db, deps.dataKey),
     remote: (ownerId, repo) => deps.projectRepos.gitRemote(ownerId, repo),
   });
   if (deps.gateway) {
@@ -44,7 +47,7 @@ export function wireMachines(deps: MachinesWiringDeps): void {
       upstreamCa: temporalCa,
       namespace,
       keys: () => [ring.current, ...(ring.previous ?? [])],
-      deviceOf: async (token) => findDeviceByToken(await db.machines.getLocalAgentDevices(), token, deps.dataKey),
+      deviceOf: deviceByToken(db, deps.dataKey),
       handed: (workflowId, deviceId) => sharedPayloadBlobs().handTo(workflowId, deviceId),
       log: (line) => console.log(line),
     });
