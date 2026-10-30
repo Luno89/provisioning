@@ -11,6 +11,7 @@ export const SHIP_STEPS: GateStep[] = [
   { name: 'lint', script: 'lint' },
   { name: 'every router answers', script: 'test:routes-live' },
   { name: 'sign-in across root, an instance and the hub', script: 'test:dev-split-live' },
+  { name: 'production refuses what only a dev box allows, and sees each visitor', script: 'test:hardening-live' },
   { name: 'Connect OpenRouter from an instance', script: 'test:openrouter-connect-live' },
   { name: 'a project shared from an instance and worked on the hub', script: 'test:hub-split-live' },
   { name: 'an account removes itself', script: 'test:account-removal-live' },
