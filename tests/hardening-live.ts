@@ -97,7 +97,7 @@ async function clientAddresses(image: string): Promise<void> {
     const oldPool = proxyCaddyfile([{ name: 'oldpool', ports: POOL_PORTS }], `${SUBNET}.5`, []).replace(/\n\t\theader_up X-Forwarded-For \{client_ip\}/g, '');
     const upstreams = [...new Set([...pool.matchAll(/reverse_proxy (\S+):\d+/g), ...oldPool.matchAll(/reverse_proxy (\S+):\d+/g)].map((match) => match[1]!))];
     run(NAMES.echo, ['--network', NAMES.network, '--ip', `${SUBNET}.4`, ...upstreams.flatMap((alias) => ['--network-alias', alias]), '--sysctl', 'net.ipv4.ip_unprivileged_port_start=0',
-      image, 'npx', 'tsx', '/app/tests/lib/client-address-echo.ts', '80', '3000', '30320']);
+      '-v', `${join(REPO, 'tests/lib/client-address-echo.ts')}:/app/tests/lib/client-address-echo.ts:ro`, image, 'npx', 'tsx', '/app/tests/lib/client-address-echo.ts', '80', '3000', '30320']);
 
     for (const [name, at, config] of [[NAMES.pool, '3', pool], [NAMES.oldPool, '5', oldPool]] as const) {
       const dir = join(work, name);
