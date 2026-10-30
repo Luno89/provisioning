@@ -63,6 +63,7 @@ export function principalFrom(req: express.Request): Principal {
 export interface Auth {
   getCookie: (req: express.Request, name: string) => string | undefined;
   userFromSessionCookie: (cookieHeader: string | undefined, secure: boolean) => Promise<UserMetadata | undefined>;
+  sessionFromCookie: (cookieHeader: string | undefined, secure: boolean) => Promise<{ user: UserMetadata; sessionId: string; sessionAt: number } | undefined>;
   securedFor: (arrived: { headers: IncomingHttpHeaders; secure: boolean }) => boolean;
   requireAuth: express.RequestHandler;
   requireOperator: (action: Actions['install']) => express.RequestHandler;
@@ -113,17 +114,21 @@ export function createAuth({ db, sessionKey, publicUrl, role = 'combined', insta
     return session && !sessionEnds.ended(session.jti) ? session : undefined;
   };
 
-  async function userFromSessionCookie(cookieHeader: string | undefined, secure: boolean): Promise<UserMetadata | undefined> {
+  async function sessionFromCookie(cookieHeader: string | undefined, secure: boolean): Promise<{ user: UserMetadata; sessionId: string; sessionAt: number } | undefined> {
     const token = parseCookie(cookieHeader, cookieNamed(SESSION_COOKIE, secure));
     if (!token) return undefined;
     if (clientSessions) {
       const session = clientSessionOf(token);
-      return session ? userOfSession(session) : undefined;
+      return session ? { user: userOfSession(session), sessionId: session.sid, sessionAt: session.sessionAt } : undefined;
     }
     const session = ownSessionOf(token);
     if (!session) return undefined;
     const user = await db.accounts.getUserById(session.userId);
-    return !user || user.removal || sessionEnded(session, user) ? undefined : user;
+    return !user || user.removal || sessionEnded(session, user) ? undefined : { user, sessionId: session.jti, sessionAt: session.sessionAt };
+  }
+
+  async function userFromSessionCookie(cookieHeader: string | undefined, secure: boolean): Promise<UserMetadata | undefined> {
+    return (await sessionFromCookie(cookieHeader, secure))?.user;
   }
 
   async function endSession(req: express.Request): Promise<void> {
@@ -279,7 +284,7 @@ export function createAuth({ db, sessionKey, publicUrl, role = 'combined', insta
   }
 
   return {
-    getCookie, userFromSessionCookie, securedFor, requireAuth, requireOperator, principalFor,
+    getCookie, userFromSessionCookie, sessionFromCookie, securedFor, requireAuth, requireOperator, principalFor,
     setSessionCookie, clearSession, endSession, sessionCookieOptions, checkAndConsumeInvite, inviteProblem, claimHeldInvite,
   };
 }

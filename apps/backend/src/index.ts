@@ -19,7 +19,7 @@ import {
   getTemporalClient, resolveOwnersWith, PayloadStorageService, createAuth, inFlightLimit, keepTrying, mongoTarget, asyncRoute,
   TEMPORAL_JWKS_PATH, temporalCa, temporalTlsProblem, temporalKeysRouter, trustProxyFor, temporalNamespaceFrom,
   authorize, claimSettingsFrom, type Principal, createDatabase, sharedPayloadBlobs, type Database, migrateLegacyOwnership, operatorsFromAdmins, ownUnownedProjects, decryptValue, loadKeys,
-  AccessRevocations, SessionEnds, roleFromEnv, servesTenants, holdsAccounts, MailService, emailWayFrom, telemetrySettings, e2eProblem, firstAdminSetup, drainThenStop, podPlaceFrom, runOnce,
+  AccessRevocations, SessionEnds, SessionSockets, endsSessions, roleFromEnv, servesTenants, holdsAccounts, MailService, emailWayFrom, telemetrySettings, e2eProblem, firstAdminSetup, drainThenStop, podPlaceFrom, runOnce,
 } from './platform/index.js';
 import { startTelemetry } from '@koala/engine-core/telemetry-sdk';
 import { rateLimit } from 'express-rate-limit';
@@ -228,11 +228,14 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
 
   startEngineStream({ role, push, io, db, payloadKey: keys.payload, core: engine, models: modelService, notices, postNotice, workFailures });
 
-  const authService = new AuthService(db, { mail, production: process.env.NODE_ENV === 'production', revocations });
+  const authService = new AuthService(db, { mail, production: process.env.NODE_ENV === 'production', push });
   const passwords = new PasswordService({ db, auth: authService, breached: loadBreachedPasswords(), revocations });
   const sessionEnds = new SessionEnds(db.platform);
   await sessionEnds.load();
   sessionEnds.keepReading((message) => console.warn(message));
+  const sessionSockets = new SessionSockets();
+  sessionEnds.onEnd((sessionId) => sessionSockets.end({ kind: 'session', sessionId }));
+  revocations.listen(async (revoked) => { if (endsSessions(revoked)) sessionSockets.end({ kind: 'person', personId: revoked.personId, before: Date.parse(revoked.at) }); });
   app.set('trust proxy', trustProxyFor(process.env));
   app.use(inFlightLimit());
   app.use(cors({
@@ -325,7 +328,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     res.type(metrics.contentType).send(await metrics.text());
   }));
 
-  wireSockets({ io, db, role, env: process.env, payloadKey: keys.payload, dataKey: keys.data, auth, machines: machineService, clusters: clusterService, apps: appService, infra: infraService, telemetry: machineTelemetry({ sink: () => telemetrySink }), machineTemporal, runs: { life: runLifeVia(() => getTemporalClient()), closed: runClosedVia(() => getTemporalClient()) } });
+  wireSockets({ io, db, role, env: process.env, sessionSockets, payloadKey: keys.payload, dataKey: keys.data, auth, machines: machineService, clusters: clusterService, apps: appService, infra: infraService, telemetry: machineTelemetry({ sink: () => telemetrySink }), machineTemporal, runs: { life: runLifeVia(() => getTemporalClient()), closed: runClosedVia(() => getTemporalClient()) } });
 
   const signInWith = holdsAccounts(role) ? signInProvidersFrom(process.env) : { providers: [], problems: [] };
   for (const problem of signInWith.problems) console.warn(`[sign-in] ${problem}`);
