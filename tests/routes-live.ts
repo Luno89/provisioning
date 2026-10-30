@@ -5,7 +5,7 @@ import { fileURLToPath } from 'url';
 dotenv.config({ path: fileURLToPath(new URL('../apps/backend/.env', import.meta.url)) });
 import axios, { type AxiosInstance, type AxiosResponse } from 'axios';
 import { createDatabase } from '../apps/backend/src/platform/lib/db-interface.js';
-import { signJWT } from '../apps/backend/src/platform/lib/auth.js';
+import { sessionToken } from '../apps/backend/src/platform/lib/auth.js';
 import { loadKeys } from '../apps/backend/src/platform/lib/keys.js';
 import { signUp } from './lib/sign-up.js';
 
@@ -41,6 +41,7 @@ const SIGNED_IN: Probe[] = [
   { path: '/api/app-schemas/odoo' },
   { path: '/api/artifacts/storage' },
   { path: '/api/auth/me' },
+  { method: 'post', path: '/api/auth/password/forgot/resend', body: { id: 'no-such-reset' } },
   { path: '/api/auto-mode' },
   { path: '/api/binding-types' },
   { path: '/api/branches' },
@@ -104,7 +105,7 @@ async function main(): Promise<void> {
   await db.init();
   const admin = await db.accounts.getUserById(ADMIN);
   assert.ok(admin?.roles?.includes('operator'), `${ADMIN} is not an admin`);
-  const adminHttp = client(`session=${signJWT({ userId: admin.id, email: admin.email }, loadKeys(process.env).session, 3600)}`);
+  const adminHttp = client(`session=${sessionToken(admin, loadKeys(process.env).session, { seconds: 3600 })}`);
   const email = `routes-live-${Date.now().toString(36)}@nowrinkles.test`;
   const password = crypto.randomBytes(18).toString('base64url');
   let me: AxiosInstance | undefined;
@@ -145,7 +146,7 @@ async function main(): Promise<void> {
 
     await stage('a throwaway account signs up with an admin\'s invite', async () => {
       const invite = (await adminHttp.post('/api/admin/invites')).data as { code: string };
-      const registered = await signUp(`${ROOT}/api`, { email, password, inviteCode: invite.code });
+      const registered = await signUp(`${ROOT}/api`, { email, password, inviteCode: invite.code }, { production: false });
       assert.equal(registered.status, 200, registered.error);
       const login = await client().post('/api/auth/login', { email, password });
       const cookie = sessionOf(login.headers);
@@ -165,7 +166,7 @@ async function main(): Promise<void> {
     });
   } finally {
     if (me && myId) {
-      const removed = await me.delete('/api/account', { data: { confirm: email } });
+      const removed = await me.delete('/api/account', { data: { confirm: email, password } });
       if (removed.status === 202) {
         for (let tries = 0; tries < 150 && await db.accounts.getUserById(myId); tries += 1) await sleep(2_000);
         console.log((await db.accounts.getUserById(myId)) ? `    ${email} is still being removed` : '    removed the test account');

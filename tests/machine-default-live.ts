@@ -7,7 +7,7 @@ import dotenv from 'dotenv';
 dotenv.config({ path: fileURLToPath(new URL('../apps/backend/.env', import.meta.url)) });
 import axios, { type AxiosInstance } from 'axios';
 import { createDatabase } from '../apps/backend/src/platform/lib/db-interface.js';
-import { signJWT } from '../apps/backend/src/platform/lib/auth.js';
+import { sessionToken } from '../apps/backend/src/platform/lib/auth.js';
 import { loadKeys } from '../apps/backend/src/platform/lib/keys.js';
 import { getTemporalClient } from '../apps/backend/src/platform/lib/temporal-client.js';
 import { workflowOfRun } from '../apps/backend/src/engine-host/temporal/contracts.js';
@@ -44,7 +44,7 @@ async function main(): Promise<void> {
   assert.ok(owner, `there is no machine ${deviceId}`);
   const user = await db.accounts.getUserById(owner);
   assert.ok(user, 'the machine\'s owner is gone');
-  api = axios.create({ baseURL: BASE, proxy: false, validateStatus: () => true, headers: { Cookie: `session=${signJWT({ userId: user.id, email: user.email }, loadKeys(process.env).session, 3600)}` } });
+  api = axios.create({ baseURL: BASE, proxy: false, validateStatus: () => true, headers: { Cookie: `session=${sessionToken(user, loadKeys(process.env).session, { seconds: 3600 })}` } });
   const temporal = await getTemporalClient();
   const runIds = new Set<string>();
   const began = new Date().toISOString();

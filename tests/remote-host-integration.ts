@@ -14,13 +14,13 @@
 import { execFile } from 'child_process';
 import { fileURLToPath } from 'node:url';
 import dotenv from 'dotenv';
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { promisify } from 'util';
 import { createDisposableVm } from './lib/disposable-vm.js';
 import { InfrastructureService } from '../apps/backend/src/infrastructure/services/InfrastructureService.js';
 import { signUp } from './lib/sign-up.js';
 import { createDatabase } from '../apps/backend/src/platform/lib/db-interface.js';
-import { signJWT } from '../apps/backend/src/platform/lib/auth.js';
+import { sessionToken } from '../apps/backend/src/platform/lib/auth.js';
 import { loadKeys } from '../apps/backend/src/platform/lib/keys.js';
 
 dotenv.config({ path: fileURLToPath(new URL('../apps/backend/.env', import.meta.url)), quiet: true });
@@ -57,7 +57,7 @@ async function loginAsExistingAdmin(): Promise<string> {
   const user = await db.accounts.getUserById(admin);
   await db.close();
   if (!user?.roles?.includes('operator')) throw new Error(`${admin} is not an admin, so it cannot mint an invite for the test user`);
-  return `session=${signJWT({ userId: user.id, email: user.email }, loadKeys(process.env).session, 3600)}`;
+  return `session=${sessionToken(user, loadKeys(process.env).session, { seconds: 3600 })}`;
 }
 
 async function mintInvite(adminCookie: string): Promise<string> {
@@ -68,7 +68,7 @@ async function mintInvite(adminCookie: string): Promise<string> {
 }
 
 async function registerAndLogin(email: string, password: string, inviteCode: string): Promise<string> {
-  const reg = await signUp(`${BASE}/api`, { email, password, inviteCode });
+  const reg = await signUp(`${BASE}/api`, { email, password, inviteCode }, { production: false });
   if (reg.status !== 200) throw new Error(`Registration failed: HTTP ${reg.status} ${reg.error ?? ''}`);
 
   const login = await fetch(`${BASE}/api/auth/login`, {
@@ -108,7 +108,7 @@ async function run() {
     const adminCookie = await loginAsExistingAdmin();
     inviteCode = await mintInvite(adminCookie);
     testEmail = `remote-host-it-${Date.now()}@example.com`;
-    userCookie = await registerAndLogin(testEmail, 'Password123!', inviteCode);
+    userCookie = await registerAndLogin(testEmail, randomBytes(18).toString('base64url'), inviteCode);
 
     const clusterName = `remote-it-${Date.now()}`;
     console.log(`🔨 Provisioning provider:'remote' cluster "${clusterName}" against the disposable VM...`);

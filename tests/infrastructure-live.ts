@@ -6,7 +6,7 @@ import { fileURLToPath } from 'url';
 dotenv.config({ path: fileURLToPath(new URL('../apps/backend/.env', import.meta.url)) });
 import axios, { type AxiosInstance } from 'axios';
 import { createDatabase } from '../apps/backend/src/platform/lib/db-interface.js';
-import { signJWT } from '../apps/backend/src/platform/lib/auth.js';
+import { sessionToken } from '../apps/backend/src/platform/lib/auth.js';
 import { loadKeys } from '../apps/backend/src/platform/lib/keys.js';
 import { memoryRunId } from '../apps/backend/src/memory/lib/conclusions.js';
 import { getTemporalClient } from '../apps/backend/src/platform/lib/temporal-client.js';
@@ -60,7 +60,7 @@ async function main(): Promise<void> {
   closeDb = async () => { await db.close?.(); };
   const user = await db.accounts.getUserById(OWNER);
   assert.ok(user, 'no such user');
-  http = axios.create({ baseURL: BASE, proxy: false, validateStatus: () => true, headers: { Cookie: `session=${signJWT({ userId: user.id, email: user.email }, loadKeys(process.env).session, 4 * 3600)}` } });
+  http = axios.create({ baseURL: BASE, proxy: false, validateStatus: () => true, headers: { Cookie: `session=${sessionToken(user, loadKeys(process.env).session, { seconds: 4 * 3600 })}` } });
   const api = http;
   const overview = async (): Promise<Overview> => {
     const res = await api.get('/infrastructure');

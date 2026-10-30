@@ -7,7 +7,7 @@ import axios, { type AxiosInstance } from 'axios';
 import { MongoClient } from 'mongodb';
 import { createDatabase } from '../apps/backend/src/platform/lib/db-interface.js';
 import { mongoTarget } from '../apps/backend/src/platform/lib/mongo-db.js';
-import { signJWT } from '../apps/backend/src/platform/lib/auth.js';
+import { sessionToken } from '../apps/backend/src/platform/lib/auth.js';
 import { loadKeys } from '../apps/backend/src/platform/lib/keys.js';
 import { HUB_DATABASE_PREFIX } from '../apps/backend/src/hub/lib/hub.js';
 import { HUB_REPO, hubOrgOf } from '../apps/backend/src/hub/services/HubRepos.js';
@@ -54,7 +54,7 @@ async function main(): Promise<void> {
   await db.init();
   const admin = await db.accounts.getUserById(ADMIN);
   assert.ok(admin?.roles?.includes('operator'), `${ADMIN} is not an admin`);
-  const adminHttp = client(`session=${signJWT({ userId: admin.id, email: admin.email }, loadKeys(process.env).session, 3600)}`);
+  const adminHttp = client(`session=${sessionToken(admin, loadKeys(process.env).session, { seconds: 3600 })}`);
   const mongo = await MongoClient.connect(mongoTarget(process.env).uri);
   const gitea = new GiteaService(new InfrastructureService(), loadKeys(process.env).data, '/tmp/kubeconfig-provisioning-lunorica');
   const stamp = Date.now().toString(36);
@@ -69,7 +69,7 @@ async function main(): Promise<void> {
   try {
     const project = await stage('an owner signs up and has a project with a repository and a channel someone has talked in', async () => {
       const invite = (await adminHttp.post('/admin/invites')).data as { code: string };
-      const registered = await signUp(`${BASE}/api`, { email, password, inviteCode: invite.code });
+      const registered = await signUp(`${BASE}/api`, { email, password, inviteCode: invite.code }, { production: false });
       assert.equal(registered.status, 200, registered.error);
       const login = await client().post('/auth/login', { email, password });
       owner = client(sessionOf(login.headers));
@@ -173,7 +173,7 @@ async function main(): Promise<void> {
       const code = link.searchParams.get('code');
       const token = link.searchParams.get('project');
       assert.ok(code && token, sent.data.link);
-      const joined = await signUp(`${BASE}/api`, { email: memberEmail, password, inviteCode: code });
+      const joined = await signUp(`${BASE}/api`, { email: memberEmail, password, inviteCode: code }, { production: false });
       assert.equal(joined.status, 200, joined.error);
       const login = await client().post('/auth/login', { email: memberEmail, password });
       member = client(sessionOf(login.headers));
@@ -253,14 +253,14 @@ async function main(): Promise<void> {
     });
   } finally {
     if (member && memberId) {
-      const removed = await member.delete('/account', { data: { confirm: memberEmail } });
+      const removed = await member.delete('/account', { data: { confirm: memberEmail, password } });
       if (removed.status !== 202) console.log(`    could not remove ${memberEmail}: ${removed.status} ${JSON.stringify(removed.data)}`);
       for (let tries = 0; tries < 150 && await db.accounts.getUserById(memberId); tries += 1) await sleep(2_000);
       assert.equal(await db.accounts.getUserById(memberId), undefined, `${memberEmail} was not removed`);
       console.log('    removed the client account');
     }
     if (owner && ownerId) {
-      const removed = await owner.delete('/account', { data: { confirm: email } });
+      const removed = await owner.delete('/account', { data: { confirm: email, password } });
       if (removed.status !== 202) console.log(`    could not remove ${email}: ${removed.status} ${JSON.stringify(removed.data)}`);
       for (let tries = 0; tries < 150 && await db.accounts.getUserById(ownerId); tries += 1) await sleep(2_000);
       assert.equal(await db.accounts.getUserById(ownerId), undefined, `${email} was not removed`);

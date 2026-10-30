@@ -5,7 +5,7 @@ import { fileURLToPath } from 'url';
 dotenv.config({ path: fileURLToPath(new URL('../apps/backend/.env', import.meta.url)) });
 
 import axios, { type AxiosInstance } from 'axios';
-import { signJWT } from '../apps/backend/src/platform/lib/auth.js';
+import { sessionToken } from '../apps/backend/src/platform/lib/auth.js';
 import { createDatabase } from '../apps/backend/src/platform/lib/db-interface.js';
 import type { AccessRequest } from '@koala/harness-types';
 import { loadKeys } from '../apps/backend/src/platform/lib/keys.js';
@@ -40,7 +40,7 @@ async function main(): Promise<void> {
   assert.ok(admin, 'there is no administrator to test with');
   const secret = loadKeys(process.env).session;
   assert.ok(secret);
-  const http = axios.create({ baseURL: BASE, proxy: false, headers: { Cookie: `session=${signJWT({ userId: admin.id, email: admin.email }, secret, 3600)}` } });
+  const http = axios.create({ baseURL: BASE, proxy: false, headers: { Cookie: `session=${sessionToken(admin, secret, { seconds: 3600 })}` } });
 
   const conversationId = (await http.post('/conversations', {})).data.id as string;
   try {

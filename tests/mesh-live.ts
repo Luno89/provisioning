@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
 import { join, resolve } from 'node:path';
 import dotenv from 'dotenv';
-import { signJWT } from '../apps/backend/src/platform/lib/auth.js';
+import { sessionToken } from '../apps/backend/src/platform/lib/auth.js';
 import { loadKeys } from '../apps/backend/src/platform/lib/keys.js';
 import { ACP_STUB, chatsOnTheMachine } from './lib/machine-chat.js';
 import { createDisposableVm, type DisposableVm } from './lib/disposable-vm.js';
@@ -103,7 +103,7 @@ async function main(): Promise<void> {
     ...devDataMounts(), ...workerEnv(ROOT), IMAGE, 'worker-host']);
   const owner = await firstAdmin(ROOT_FOR_HOST, ROOT);
   ownerId = owner.id;
-  const session = signJWT({ userId: owner.id, email: owner.email }, loadKeys(process.env).session, 4 * 3600);
+  const session = sessionToken(owner, loadKeys(process.env).session, { seconds: 4 * 3600 });
   const asOwner = (path: string, init: RequestInit = {}) => fetch(`${ROOT_FOR_HOST}${path}`, { ...init, headers: { 'content-type': 'application/json', Cookie: `session=${session}`, ...(init.headers ?? {}) } });
 
   step('the owner\'s instance is installed on a machine of theirs, and joins the mesh');

@@ -7,7 +7,7 @@ dotenv.config({ path: fileURLToPath(new URL('../apps/backend/.env', import.meta.
 import axios, { type AxiosInstance } from 'axios';
 import { randomUUID } from 'node:crypto';
 import { MongoClient } from 'mongodb';
-import { signJWT } from '../apps/backend/src/platform/lib/auth.js';
+import { sessionToken } from '../apps/backend/src/platform/lib/auth.js';
 import { createDatabase, type Database } from '../apps/backend/src/platform/lib/db-interface.js';
 import { sanitiseNamespaceName } from '../apps/backend/src/projects/lib/projects.js';
 import { InfisicalService } from '../apps/backend/src/infrastructure/services/InfisicalService.js';
@@ -141,7 +141,7 @@ async function main(): Promise<void> {
   assert.ok(user);
   const secret = loadKeys(process.env).session;
 
-  const http = axios.create({ baseURL: BASE, proxy: false, headers: { Cookie: `session=${signJWT({ userId: user.id, email: user.email }, secret, 4 * 3600)}` } });
+  const http = axios.create({ baseURL: BASE, proxy: false, headers: { Cookie: `session=${sessionToken(user, secret, { seconds: 4 * 3600 })}` } });
   const infra = new InfrastructureService();
   const infisical = new InfisicalService(infra, secret, '/tmp/kubeconfig-provisioning-lunorica', undefined, new ClusterProxyService());
 

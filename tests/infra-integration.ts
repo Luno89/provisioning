@@ -5,7 +5,7 @@ import { fileURLToPath } from 'url';
 dotenv.config({ path: fileURLToPath(new URL('../apps/backend/.env', import.meta.url)) });
 
 import axios from 'axios';
-import { signJWT } from '../apps/backend/src/platform/lib/auth.js';
+import { sessionToken } from '../apps/backend/src/platform/lib/auth.js';
 import { createDatabase } from '../apps/backend/src/platform/lib/db-interface.js';
 import { InfrastructureService } from '../apps/backend/src/infrastructure/services/InfrastructureService.js';
 import { loadKeys } from '../apps/backend/src/platform/lib/keys.js';
@@ -36,7 +36,7 @@ async function main(): Promise<void> {
   const http = axios.create({
     baseURL: BASE,
     proxy: false,
-    headers: { Cookie: `session=${signJWT({ userId: owner.id, email: owner.email }, secret, 3600)}` },
+    headers: { Cookie: `session=${sessionToken(owner, secret, { seconds: 3600 })}` },
   });
   const infra = new InfrastructureService();
   const name = `test-infra-${Date.now().toString(36)}`;

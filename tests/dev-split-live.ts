@@ -105,7 +105,7 @@ async function stages(stack: SplitStack): Promise<void> {
   const invite = await call(`${rootUrl}/api/admin/invites`, { method: 'POST', body: {}, cookie: owner.cookie });
   assert.ok(invite.status === 200 || invite.status === 201, JSON.stringify(invite.body));
   const strangerEmail = `stranger-${stack.names.stamp}@split.test`;
-  const stranger = await signUp(`${rootUrl}/api`, { email: strangerEmail, password: `pw-${stack.names.stamp}-stranger-long`, inviteCode: (invite.body as { code: string }).code }, { mailpitApi: stack.mailpitApi });
+  const stranger = await signUp(`${rootUrl}/api`, { email: strangerEmail, password: `pw-${stack.names.stamp}-stranger-long`, inviteCode: (invite.body as { code: string }).code }, { production: true, mailpitApi: stack.mailpitApi });
   const strangerCookie = sessionCookieOf(stranger);
   assert.ok(strangerCookie, `the stranger could not sign up on root: ${stranger.status} ${stranger.error ?? ''}`);
   const notSent = await call(`${rootUrl}/api/identity/go`, { cookie: strangerCookie });

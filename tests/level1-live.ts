@@ -4,7 +4,7 @@ import { fileURLToPath } from 'url';
 dotenv.config({ path: fileURLToPath(new URL('../apps/backend/.env', import.meta.url)) });
 
 import axios from 'axios';
-import { signJWT } from '../apps/backend/src/platform/lib/auth.js';
+import { sessionToken } from '../apps/backend/src/platform/lib/auth.js';
 import { createDatabase } from '../apps/backend/src/platform/lib/db-interface.js';
 import type { Level1Run } from '../apps/backend/src/services/Level1Service.js';
 import { loadKeys } from '../apps/backend/src/platform/lib/keys.js';
@@ -30,7 +30,7 @@ async function main(): Promise<void> {
   await db.close();
   if (!user) throw new Error('no project owner to run as');
   const secret = loadKeys(process.env).session;
-  const http = axios.create({ baseURL: BASE, proxy: false, headers: { Cookie: `session=${signJWT({ userId: user.id, email: user.email }, secret, 3600)}` } });
+  const http = axios.create({ baseURL: BASE, proxy: false, headers: { Cookie: `session=${sessionToken(user, secret, { seconds: 3600 })}` } });
 
   const started = existing
     ? { id: existing }

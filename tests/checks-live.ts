@@ -4,7 +4,7 @@ import { fileURLToPath } from 'url';
 dotenv.config({ path: fileURLToPath(new URL('../apps/backend/.env', import.meta.url)) });
 import axios from 'axios';
 import { createDatabase } from '../apps/backend/src/platform/lib/db-interface.js';
-import { signJWT } from '../apps/backend/src/platform/lib/auth.js';
+import { sessionToken } from '../apps/backend/src/platform/lib/auth.js';
 import { loadKeys } from '../apps/backend/src/platform/lib/keys.js';
 
 const BASE = process.env.CHECKS_LIVE_URL ?? 'http://localhost:3001/api';
@@ -22,7 +22,7 @@ async function main(): Promise<void> {
   await db.init();
   const user = await db.accounts.getUserById(OWNER);
   assert.ok(user, 'no such user');
-  const http = axios.create({ baseURL: BASE, proxy: false, headers: { Cookie: `session=${signJWT({ userId: user.id, email: user.email }, loadKeys(process.env).session, 4 * 3600)}` }, validateStatus: () => true });
+  const http = axios.create({ baseURL: BASE, proxy: false, headers: { Cookie: `session=${sessionToken(user, loadKeys(process.env).session, { seconds: 4 * 3600 })}` }, validateStatus: () => true });
   const spacesBefore = (await db.accounts.getUsers()).filter((entry) => entry.space).length;
 
   try {

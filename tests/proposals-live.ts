@@ -3,7 +3,7 @@ import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
 dotenv.config({ path: fileURLToPath(new URL('../apps/backend/.env', import.meta.url)) });
 import axios, { type AxiosInstance } from 'axios';
-import { signJWT } from '../apps/backend/src/platform/lib/auth.js';
+import { sessionToken } from '../apps/backend/src/platform/lib/auth.js';
 import { createDatabase } from '../apps/backend/src/platform/lib/db-interface.js';
 import { loadKeys } from '../apps/backend/src/platform/lib/keys.js';
 import { forgetWhatRunsLeft } from './lib/forget-test-runs.js';
@@ -39,7 +39,7 @@ async function main(): Promise<void> {
   await db.init();
   const user = await db.accounts.getUserById(OWNER);
   assert.ok(user, 'no such user');
-  const http = axios.create({ baseURL: BASE, proxy: false, headers: { Cookie: `session=${signJWT({ userId: user.id, email: user.email }, loadKeys(process.env).session, 7200)}` } });
+  const http = axios.create({ baseURL: BASE, proxy: false, headers: { Cookie: `session=${sessionToken(user, loadKeys(process.env).session, { seconds: 7200 })}` } });
   const touched = new Set<string>();
   const chat = async (conversationId: string, message: string) => {
     const { runId } = (await http.post('/engine/runs', { agent: 'koala', message, conversationId, inputs: { conversationId } })).data as { runId: string };

@@ -6,7 +6,7 @@ import { fileURLToPath } from 'url';
 dotenv.config({ path: fileURLToPath(new URL('../apps/backend/.env', import.meta.url)) });
 import axios, { type AxiosInstance } from 'axios';
 import { createDatabase } from '../apps/backend/src/platform/lib/db-interface.js';
-import { signJWT } from '../apps/backend/src/platform/lib/auth.js';
+import { sessionToken } from '../apps/backend/src/platform/lib/auth.js';
 import { loadKeys } from '../apps/backend/src/platform/lib/keys.js';
 
 const run = promisify(execFile);
@@ -65,7 +65,7 @@ async function main(): Promise<void> {
   const admin = await db.accounts.getUserById(ADMIN);
   await db.close();
   assert.ok(admin?.roles?.includes('operator'), `${ADMIN} is not an admin`);
-  const api = client(`session=${signJWT({ userId: admin.id, email: admin.email }, loadKeys(process.env).session, 3600)}`);
+  const api = client(`session=${sessionToken(admin, loadKeys(process.env).session, { seconds: 3600 })}`);
   let id: string | undefined;
   let forward: ReturnType<typeof spawn> | undefined;
 

@@ -7,7 +7,7 @@ import axios, { type AxiosInstance } from 'axios';
 import { MongoClient } from 'mongodb';
 import { createDatabase } from '../apps/backend/src/platform/lib/db-interface.js';
 import { mongoTarget } from '../apps/backend/src/platform/lib/mongo-db.js';
-import { signJWT } from '../apps/backend/src/platform/lib/auth.js';
+import { sessionToken } from '../apps/backend/src/platform/lib/auth.js';
 import { loadKeys } from '../apps/backend/src/platform/lib/keys.js';
 import { HUB_DATABASE_PREFIX } from '../apps/backend/src/hub/lib/hub.js';
 import { HUB_REPO, hubOrgOf } from '../apps/backend/src/hub/services/HubRepos.js';
@@ -47,7 +47,7 @@ const stamp = Date.now().toString(36);
 const person = (name: string): Person => ({ name, email: `hub-live-${name}-${stamp}@nowrinkles.test`, password: crypto.randomBytes(18).toString('base64url') });
 
 async function signUp(who: Person, code: string): Promise<void> {
-  const registered = await signUpWithCode(`${ROOT}/api`, { email: who.email, password: who.password, inviteCode: code });
+  const registered = await signUpWithCode(`${ROOT}/api`, { email: who.email, password: who.password, inviteCode: code }, { production: false });
   assert.equal(registered.status, 200, `${who.name} could not sign up: ${registered.error}`);
   const login = await client(ROOT).post('/auth/login', { email: who.email, password: who.password });
   const cookie = sessionOf(login.headers);
@@ -78,12 +78,12 @@ async function main(): Promise<void> {
   await db.init();
   const admin = await db.accounts.getUserById(ADMIN);
   assert.ok(admin?.roles?.includes('operator'), `${ADMIN} is not an admin`);
-  const adminHttp = client(ROOT, `session=${signJWT({ userId: admin.id, email: admin.email }, loadKeys(process.env).session, 3600)}`);
+  const adminHttp = client(ROOT, `session=${sessionToken(admin, loadKeys(process.env).session, { seconds: 3600 })}`);
   const mongo = await MongoClient.connect(mongoTarget(process.env).uri);
   const gitea = new GiteaService(new InfrastructureService(), loadKeys(process.env).data, '/tmp/kubeconfig-provisioning-lunorica');
 
   const removeAccount = async (who: Person): Promise<void> => {
-    const removed = await who.root!.delete('/account', { data: { confirm: who.email } });
+    const removed = await who.root!.delete('/account', { data: { confirm: who.email, password: who.password } });
     assert.equal(removed.status, 202, `${who.name}'s removal answered ${removed.status}: ${JSON.stringify(removed.data)}`);
     who.removed = true;
     for (let tries = 0; tries < 150 && await db.accounts.getUserById(who.id!); tries += 1) await sleep(2_000);
@@ -145,7 +145,7 @@ async function main(): Promise<void> {
     await stage('root shows each invite to whoever holds its link, signed out, and lets only that address sign up with it', async () => {
       const shown = await client(ROOT).get('/hub-link/invitation', { params: { code: links.cy!.code } });
       assert.deepEqual(shown.data, { email: cy.email, project: { name: shop.name, role: 'client', join: links.cy!.project }, used: false });
-      const wrong = await client(ROOT).post('/auth/register', { email: `hub-live-intruder-${stamp}@nowrinkles.test`, password: 'x'.repeat(16), inviteCode: links.cy!.code });
+      const wrong = await client(ROOT).post('/auth/register', { email: `hub-live-intruder-${stamp}@nowrinkles.test`, password: crypto.randomBytes(18).toString('base64url'), inviteCode: links.cy!.code });
       assert.equal(wrong.status, 403, JSON.stringify(wrong.data));
       assert.match(wrong.data.error, /This invite is for/);
       assert.equal((await client(ROOT).get('/hub-link/invitation', { params: { code: links.cy!.code } })).data.used, false, 'a refused sign-up used the invite');
@@ -233,7 +233,7 @@ async function main(): Promise<void> {
       const preview = (await ann.root!.get('/account/removal')).data as { blockers: string[] };
       assert.ok(preview.blockers.some((line) => line.includes(`"${other.name}"`)), JSON.stringify(preview));
       assert.ok(!preview.blockers.some((line) => line.includes(`"${shop.name}"`)), 'a project only the owner is on blocked the removal');
-      const refused = await ann.root!.delete('/account', { data: { confirm: ann.email } });
+      const refused = await ann.root!.delete('/account', { data: { confirm: ann.email, password: ann.password } });
       assert.equal(refused.status, 409, JSON.stringify(refused.data));
       assert.equal((await ann.hub!.get(`/hub/projects/${shop.id}`)).status, 200, 'a refused removal still let the owner go');
       await removeAccount(eve);
