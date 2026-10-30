@@ -49,7 +49,7 @@ async function main(): Promise<void> {
   console.log(`  its key: ${dkim.slice(0, 40)}…`);
 
   step('the backend\'s mailer sends an alert through it');
-  const way = emailWayFrom({ MAIL_SMTP_URL: `smtp://127.0.0.1:${SMTP_PORT}`, INGRESS_DOMAIN: DOMAIN }, { role: 'root' });
+  const way = emailWayFrom({ MAIL_SMTP_URL: `smtp://127.0.0.1:${SMTP_PORT}`, DOMAIN }, { role: 'root' });
   assert.equal(way.kind, 'smtp');
   const mail = new MailService({ way, emailOf: async () => TO });
   const message = alertMail({ id: 'e1', ownerId: 'o', clusterId: 'c', key: 'k', name: 'Koala_down', summary: 'books has not answered for 5 minutes', about: { kind: 'app', deploymentId: 'books' }, startedAt: new Date().toISOString() }, 'fired', `https://app.${DOMAIN}`);
