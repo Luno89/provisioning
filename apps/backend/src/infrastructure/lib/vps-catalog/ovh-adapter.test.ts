@@ -13,6 +13,8 @@ const price = (eur: number, commitment = 0) => ({
   tax: eur * 0.2 * 1e8,
 });
 
+const sold = { tags: ['order-funnel:show', 'website:show'] };
+
 const catalogue = {
   locale: { currencyCode: 'EUR', subsidiary: 'FR', taxRate: 20 },
   products: [
@@ -22,18 +24,19 @@ const catalogue = {
     { name: 'vps-option-backup', blobs: null },
   ],
   plans: [
-    { planCode: 'vps-2025-model3', product: 'vps-2025-model3', invoiceName: 'VPS-3 2026',
+    { planCode: 'vps-2025-model3', product: 'vps-2025-model3', blobs: sold, invoiceName: 'VPS-3 2026',
       pricings: [price(19.99, 0), price(16.99, 12), price(18.99, 6)] },
-    { planCode: 'vps-2025-model3-10percent', product: 'vps-2025-model3', invoiceName: 'VPS-3 2026',
+    { planCode: 'vps-2025-model3-10percent', product: 'vps-2025-model3', blobs: sold, invoiceName: 'VPS-3 2026',
       pricings: [price(17.99, 0)] },
-    { planCode: 'vps-elite-8-8-160-vps-2025-model3', product: 'vps-2025-model3', invoiceName: 'VPS-3 2026',
+    { planCode: 'vps-elite-8-8-160-vps-2025-model3', product: 'vps-2025-model3', blobs: sold, invoiceName: 'VPS-3 2026',
       pricings: [price(34.5, 0)] },
-    { planCode: 'vps-elite-8-8-160-vps-2025-model3-10percent', product: 'vps-2025-model3', invoiceName: 'VPS-3 2026',
+    { planCode: 'vps-elite-8-8-160-vps-2025-model3-10percent', product: 'vps-2025-model3', blobs: sold, invoiceName: 'VPS-3 2026',
       pricings: [price(33.0, 0)] },
-    { planCode: 'vps-2025-model1', product: 'vps-2025-model1', invoiceName: 'VPS-1 2026',
+    { planCode: 'vps-2025-model1', product: 'vps-2025-model1', blobs: sold, invoiceName: 'VPS-1 2026',
       pricings: [price(6.49, 0)] },
-    { planCode: 'vps-option-additional-disk-50g', product: 'vps-option-additional-disk-50g', pricings: [price(3, 0)] },
-    { planCode: 'vps-committed-only', product: 'vps-2025-model1', pricings: [price(4.0, 24)] },
+    { planCode: 'vps-option-additional-disk-50g', product: 'vps-option-additional-disk-50g', blobs: sold, pricings: [price(3, 0)] },
+    { planCode: 'vps-2024-model1', product: 'vps-2025-model1', invoiceName: 'VPS-1 2024', pricings: [price(1.0, 0)] },
+    { planCode: 'vps-committed-only', product: 'vps-2025-model1', blobs: sold, pricings: [price(4.0, 24)] },
   ],
 };
 
@@ -44,6 +47,11 @@ describe('ovhOffersFromCatalog', () => {
   it('joins specs from products onto plans', () => {
     expect(byId('vps-2025-model3')).toMatchObject({ vcpu: 8, ramGb: 24, diskGb: 200 });
     expect(byId('vps-2025-model1')).toMatchObject({ vcpu: 4, ramGb: 8, diskGb: 75 });
+  });
+
+  it('offers only plans OVHcloud still sells, which its order funnel shows, never a cheaper one it no longer does', () => {
+    expect(byId('vps-2024-model1')).toBeUndefined();
+    expect(byId('vps-2025-model1')?.priceMonthly).toBe(6.49);
   });
 
   it('quotes the NO-COMMITMENT monthly price, not the cheapest tier', () => {
@@ -130,7 +138,7 @@ describe('the host that serves a subsidiary', () => {
   });
 });
 
-describe('the AU catalogue (ca.api.ovh.com, ovhSubsidiary=AU, fetched 2026-10-23)', () => {
+describe('the AU catalogue (ca.api.ovh.com, ovhSubsidiary=AU, fetched 2026-10-23, tags as read 2026-10-31)', () => {
   const { offers, market } = ovhOffersFromCatalog(auCatalog);
   const byId = (planId: string) => offers.find((o) => o.planId === planId);
 
@@ -138,8 +146,8 @@ describe('the AU catalogue (ca.api.ovh.com, ovhSubsidiary=AU, fetched 2026-10-23
     expect(market).toEqual({ subsidiary: 'AU', currency: 'AUD', taxRate: 10 });
   });
 
-  it('lists the 2027 models and the starter by their planCode', () => {
-    expect(offers.map((o) => o.planId).sort()).toEqual(['vps-2027-model1', 'vps-2027-model2', 'vps-starter-1-2-20']);
+  it('lists the 2027 models by their planCode, and not the starter, which the order funnel no longer shows', () => {
+    expect(offers.map((o) => o.planId).sort()).toEqual(['vps-2027-model1', 'vps-2027-model2']);
     expect(byId('vps-2027-model2')).toMatchObject({ label: 'VPS-2 2027', vcpu: 4, ramGb: 8, diskGb: 75 });
   });
 
@@ -150,7 +158,6 @@ describe('the AU catalogue (ca.api.ovh.com, ovhSubsidiary=AU, fetched 2026-10-23
   it('offers Sydney among the datacenters', () => {
     expect(byId('vps-2027-model2')?.locations).toContain('SYD');
     expect(byId('vps-2027-model1')?.locations).toContain('SYD');
-    expect(byId('vps-starter-1-2-20')?.locations).toEqual(['BHS', 'DE', 'GRA', 'SBG', 'SGP', 'SYD', 'UK', 'WAW']);
   });
 
   it('adds the cheapest priced mandatory option of each family to the monthly price', () => {
@@ -171,11 +178,6 @@ describe('the AU catalogue (ca.api.ovh.com, ovhSubsidiary=AU, fetched 2026-10-23
     const labels = byId('vps-2027-model2')!.priceParts!.map((p) => p.label);
     expect(labels).not.toContain('OS');
     expect(labels).not.toContain('storage');
-  });
-
-  it('lets a plan whose mandatory options are all free keep its own price', () => {
-    expect(byId('vps-starter-1-2-20')).toMatchObject({ priceMonthly: 5.75 });
-    expect(byId('vps-starter-1-2-20')?.priceParts).toBeUndefined();
   });
 
   it('reads the subsidiary from the env when the catalog is fetched, after dotenv has run, and falls back to FR', () => {
