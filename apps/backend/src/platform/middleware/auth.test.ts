@@ -1,7 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import { parseCookie, createAuth } from './auth.js';
 import { testDatabase } from '../lib/test-database.js';
-import { signJWT } from '../lib/auth.js';
+import type { Database } from '../lib/db-interface.js';
+import { sessionToken, signJWT } from '../lib/auth.js';
+import { SessionEnds } from '../services/SessionEnds.js';
+
+const noEnds = { ended: () => false, end: async () => undefined };
 import type { Request, Response } from 'express';
 import { inviteCodeHash } from '../lib/invite-codes.js';
 
@@ -44,7 +48,7 @@ describe('requireAuth', () => {
   async function build() {
     const db = await testDatabase();
     await db.init();
-    return { db, auth: createAuth({ db, sessionKey, publicUrl: 'http://localhost:3001' }) };
+    return { db, auth: createAuth({ db, sessionKey, publicUrl: 'http://localhost:3001', sessionEnds: new SessionEnds(db.platform) }) };
   }
 
   it('refuses a request with no session cookie', async () => {
@@ -57,7 +61,7 @@ describe('requireAuth', () => {
 
   it('refuses a validly-signed token for a user who no longer exists', async () => {
     const { auth } = await build();
-    const token = signJWT({ userId: 'deleted-user' }, sessionKey, 3600);
+    const token = sessionToken({ id: 'deleted-user', email: 'deleted-user@example.com' }, sessionKey);
     const c = fakeCall({ cookie: `session=${token}` });
     await auth.requireAuth(c.req, c.res, c.next);
     expect(c.result().statusCode).toBe(401);
@@ -66,7 +70,7 @@ describe('requireAuth', () => {
   it('refuses a token signed with a different secret', async () => {
     const { db, auth } = await build();
     await db.accounts.saveUser({ id: 'u1', email: 'u1@example.com', createdAt: new Date().toISOString() } as never);
-    const token = signJWT({ userId: 'u1' }, 'not-the-secret', 3600);
+    const token = sessionToken({ id: 'u1', email: 'u1@example.com' }, 'not-the-secret');
     const c = fakeCall({ cookie: `session=${token}` });
     await auth.requireAuth(c.req, c.res, c.next);
     expect(c.result().statusCode).toBe(401);
@@ -75,7 +79,7 @@ describe('requireAuth', () => {
   it('puts the resolved user on the request and continues', async () => {
     const { db, auth } = await build();
     await db.accounts.saveUser({ id: 'u1', email: 'u1@example.com', createdAt: new Date().toISOString() } as never);
-    const token = signJWT({ userId: 'u1' }, sessionKey, 3600);
+    const token = sessionToken({ id: 'u1', email: 'u1@example.com' }, sessionKey);
     const c = fakeCall({ cookie: `session=${token}` });
     await auth.requireAuth(c.req, c.res, c.next);
     expect(c.result().nexted).toBe(true);
@@ -85,7 +89,7 @@ describe('requireAuth', () => {
   it('refuses a still-valid session of an account being removed, for requests and sockets alike', async () => {
     const { db, auth } = await build();
     await db.accounts.saveUser({ id: 'u1', email: 'u1@example.com', createdAt: new Date().toISOString(), removal: { startedAt: 'now', requestedBy: 'u1' } } as never);
-    const token = signJWT({ userId: 'u1' }, sessionKey, 3600);
+    const token = sessionToken({ id: 'u1', email: 'u1@example.com' }, sessionKey);
     const c = fakeCall({ cookie: `session=${token}` });
     await auth.requireAuth(c.req, c.res, c.next);
     expect(c.result().statusCode).toBe(401);
@@ -95,7 +99,7 @@ describe('requireAuth', () => {
   it('resolves the same user the socket handshake would', async () => {
     const { db, auth } = await build();
     await db.accounts.saveUser({ id: 'u1', email: 'u1@example.com', createdAt: new Date().toISOString() } as never);
-    const token = signJWT({ userId: 'u1' }, sessionKey, 3600);
+    const token = sessionToken({ id: 'u1', email: 'u1@example.com' }, sessionKey);
 
     const c = fakeCall({ cookie: `session=${token}` });
     await auth.requireAuth(c.req, c.res, c.next);
@@ -104,11 +108,42 @@ describe('requireAuth', () => {
     expect(viaSocket?.id).toBe((c.result().user as { id: string }).id);
     expect(await auth.userFromSessionCookie('session=garbage', false)).toBeUndefined();
   });
+
+  it('refuses a session signed out of, for requests and sockets alike, while the account\'s other sessions go on', async () => {
+    const { db, auth } = await build();
+    await db.accounts.saveUser({ id: 'u1', email: 'u1@example.com', createdAt: new Date().toISOString() } as never);
+    const left = sessionToken({ id: 'u1', email: 'u1@example.com' }, sessionKey);
+    const kept = sessionToken({ id: 'u1', email: 'u1@example.com' }, sessionKey);
+    await auth.endSession({ headers: { cookie: `session=${left}` } } as unknown as Request);
+    const c = fakeCall({ cookie: `session=${left}` });
+    await auth.requireAuth(c.req, c.res, c.next);
+    expect(c.result().statusCode).toBe(401);
+    expect(await auth.userFromSessionCookie(`session=${left}`, false)).toBeUndefined();
+    expect((await auth.userFromSessionCookie(`session=${kept}`, false))?.id).toBe('u1');
+    const restarted = new SessionEnds(db.platform);
+    await restarted.load();
+    const again = createAuth({ db, sessionKey, publicUrl: 'http://localhost:3001', sessionEnds: restarted });
+    expect(await again.userFromSessionCookie(`session=${left}`, false)).toBeUndefined();
+  });
+
+  it('refuses a session token that does not say when it began, and a token signed for another purpose', async () => {
+    const { db, auth } = await build();
+    await db.accounts.saveUser({ id: 'u1', email: 'u1@example.com', createdAt: new Date().toISOString() } as never);
+    for (const token of [
+      signJWT('session', { userId: 'u1', email: 'u1@example.com', jti: 'j1' }, sessionKey, 3600),
+      signJWT('two-factor', { userId: 'u1', twoFactorFor: 'u1', sessionAt: Date.now(), jti: 'j2' }, sessionKey, 3600),
+      signJWT('device', { userId: 'u1', deviceFor: 'u1@example.com', device: 'd', sessionAt: Date.now(), jti: 'j3' }, sessionKey, 3600),
+    ]) {
+      const c = fakeCall({ cookie: `session=${token}` });
+      await auth.requireAuth(c.req, c.res, c.next);
+      expect(c.result().statusCode).toBe(401);
+    }
+  });
 });
 
 describe('requireAdmin', () => {
   const auth = createAuth({
-    db: null as never, sessionKey: 'x', publicUrl: 'http://localhost:3001',
+    db: null as never, sessionKey: 'x', publicUrl: 'http://localhost:3001', sessionEnds: noEnds,
   });
 
   it('refuses a signed-in non-admin with 403, not 401', async () => {
@@ -135,15 +170,15 @@ describe('requireAdmin', () => {
 describe('session cookie flags', () => {
   it('marks the cookie secure only when the public origin is https', () => {
     const db = null as never;
-    expect(createAuth({ db, sessionKey: 'x', publicUrl: 'https://app.example.com' })
+    expect(createAuth({ db, sessionKey: 'x', publicUrl: 'https://app.example.com', sessionEnds: noEnds })
       .sessionCookieOptions.secure).toBe(true);
-    expect(createAuth({ db, sessionKey: 'x', publicUrl: 'http://localhost:3001' })
+    expect(createAuth({ db, sessionKey: 'x', publicUrl: 'http://localhost:3001', sessionEnds: noEnds })
       .sessionCookieOptions.secure).toBe(false);
   });
 
   it('is httpOnly and lax in both cases', () => {
     for (const url of ['https://app.example.com', 'http://localhost:3001']) {
-      const opts = createAuth({ db: null as never, sessionKey: 'x', publicUrl: url }).sessionCookieOptions;
+      const opts = createAuth({ db: null as never, sessionKey: 'x', publicUrl: url, sessionEnds: noEnds }).sessionCookieOptions;
       expect(opts.httpOnly).toBe(true);
       expect(opts.sameSite).toBe('lax');
     }
@@ -156,11 +191,15 @@ describe('what is open without a session, by role', () => {
     (call.req as unknown as { path: string }).path = path;
     return call;
   };
+  let opened: Promise<Database> | undefined;
+  const database = (): Promise<Database> => {
+    opened ??= testDatabase().then(async (db) => { await db.init(); return db; });
+    return opened;
+  };
   const opens = async (role: 'root' | 'instance' | 'combined' | 'hub', path: string): Promise<boolean> => {
-    const db = await testDatabase();
-    await db.init();
+    const db = await database();
     const call = at(path);
-    await createAuth({ db, sessionKey: 'k', publicUrl: 'http://localhost:3001', role }).requireAuth(call.req, call.res, call.next);
+    await createAuth({ db, sessionKey: 'k', publicUrl: 'http://localhost:3001', role, sessionEnds: noEnds }).requireAuth(call.req, call.res, call.next);
     return call.result().nexted;
   };
 
@@ -189,7 +228,9 @@ describe('what is open without a session, by role', () => {
     for (const path of ['/auth/sign-in', '/auth/oidc/start', '/auth/oidc/callback', '/auth/oidc/backchannel-logout']) expect(await opens('instance', path), path).toBe(true);
     expect(await opens('instance', '/auth/handoff')).toBe(false);
     expect(await opens('instance', '/auth/login')).toBe(false);
-    expect(await opens('instance', '/auth/github/callback')).toBe(false);
+    expect(await opens('instance', '/auth/provider/google')).toBe(false);
+    expect(await opens('instance', '/auth/provider/google/callback')).toBe(false);
+    expect(await opens('hub', '/auth/provider/google')).toBe(false);
     expect(await opens('instance', '/identity/keys')).toBe(false);
   });
 
@@ -210,10 +251,18 @@ describe('what is open without a session, by role', () => {
     expect(await opens('combined', '/auth/handoff')).toBe(false);
   });
 
+  it('lets anyone start and finish a provider sign-in where accounts are held, and ask which providers there are', async () => {
+    for (const role of ['root', 'combined'] as const) {
+      for (const path of ['/auth/sign-in', '/auth/provider/google', '/auth/provider/google/callback', '/auth/provider/oidc/callback']) expect(await opens(role, path), `${role} ${path}`).toBe(true);
+      expect(await opens(role, '/auth/github')).toBe(false);
+      expect(await opens(role, '/auth/google/callback')).toBe(false);
+    }
+  });
+
   it('marks an instance\'s session cookie Secure only when the request really came over https', async () => {
     const db = await testDatabase();
     await db.init();
-    const auth = createAuth({ db, sessionKey: 'k', publicUrl: 'http://localhost:3001', role: 'instance' });
+    const auth = createAuth({ db, sessionKey: 'k', publicUrl: 'http://localhost:3001', role: 'instance', sessionEnds: noEnds });
     const cookies: Array<{ name: string; secure: boolean }> = [];
     const res = { cookie: (name: string, _value: string, options: { secure: boolean }) => { cookies.push({ name, secure: options.secure }); } } as unknown as Response;
 
@@ -229,7 +278,7 @@ describe('an invite to sign up', () => {
     const db = await testDatabase();
     await db.init();
     await db.accounts.saveInvite({ id: 'i1', codeHash: inviteCodeHash('CODE'), createdBy: 'ann', createdAt: 't', ...(email ? { email } : {}) });
-    return { db, auth: createAuth({ db, sessionKey: 'k', publicUrl: 'http://localhost:3001' }) };
+    return { db, auth: createAuth({ db, sessionKey: 'k', publicUrl: 'http://localhost:3001', sessionEnds: noEnds }) };
   };
 
   it('made for one address signs up only that address, however it is written', async () => {
@@ -252,7 +301,7 @@ describe('a session over https cannot be planted by a site next door', () => {
     const db = await testDatabase();
     await db.init();
     await db.accounts.saveUser({ id: 'u1', email: 'u1@example.com', createdAt: new Date().toISOString() } as never);
-    return { auth: createAuth({ db, sessionKey: 'k', publicUrl, role }), token: signJWT({ userId: 'u1' }, 'k', 3600) };
+    return { auth: createAuth({ db, sessionKey: 'k', publicUrl, role, sessionEnds: noEnds }), token: sessionToken({ id: 'u1', email: 'u1@example.com' }, 'k') };
   };
 
   it('names the cookie __Host-session over https, which a sibling subdomain cannot set, and takes no plain session there', async () => {

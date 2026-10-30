@@ -1,6 +1,7 @@
 import { Router, type Request, type Response } from 'express';
 import { asyncRoute, principalFrom } from '../../platform/index.js';
 import type { AccountRemovalService } from '../services/AccountRemovalService.js';
+import type { Refusal } from '../services/AuthService.js';
 
 const userOf = (req: Request): { id: string; email: string } =>
   (req as unknown as { user: { id: string; email: string } }).user;
@@ -8,6 +9,7 @@ const userOf = (req: Request): { id: string; email: string } =>
 export interface AccountRouterDeps {
   removal: Pick<AccountRemovalService, 'preview' | 'remove'>;
   clearSession: (res: Response) => void;
+  confirmed: (req: Request) => Promise<Refusal | undefined>;
 }
 
 export function accountRouter(deps: AccountRouterDeps): Router {
@@ -21,7 +23,7 @@ export function accountRouter(deps: AccountRouterDeps): Router {
 
   router.delete('/', asyncRoute(async (req: Request, res: Response) => {
     const confirm = typeof req.body?.confirm === 'string' ? req.body.confirm : '';
-    const outcome = await deps.removal.remove({ ownerId: userOf(req).id, requestedBy: userOf(req).id, confirm }, principalFrom(req));
+    const outcome = await deps.removal.remove({ ownerId: userOf(req).id, requestedBy: userOf(req).id, confirm }, principalFrom(req), () => deps.confirmed(req));
     if (!outcome.ok) return res.status(outcome.refusal.status).json(outcome.refusal);
     deps.clearSession(res);
     return res.status(202).json({ state: outcome.state });

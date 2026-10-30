@@ -18,9 +18,19 @@ export async function verifyPassword(password: string, hash: string): Promise<bo
 
     crypto.scrypt(password, salt, 64, (err, derivedKey) => {
       if (err) return reject(err);
-      resolve(derivedKey.toString('hex') === key);
+      const expected = Buffer.from(key, 'hex');
+      resolve(expected.length === derivedKey.length && crypto.timingSafeEqual(expected, derivedKey));
     });
   });
+}
+
+let dummyHash: Promise<string> | undefined;
+
+export async function passwordMatches(password: string, hash: string | undefined): Promise<boolean> {
+  if (hash) return verifyPassword(password, hash);
+  dummyHash ??= hashPassword(crypto.randomBytes(18).toString('base64url'));
+  await verifyPassword(password, await dummyHash);
+  return false;
 }
 
 function base64urlEncode(obj: any): string {
@@ -33,11 +43,13 @@ function base64urlDecode(str: string): any {
   return JSON.parse(json);
 }
 
-export function signJWT(payload: Record<string, any>, key: SecretKey, expiresInSeconds: number): string {
+export type TokenPurpose = 'session' | 'client-session' | 'two-factor' | 'device' | 'oauth-state' | 'root-sign-in';
+
+export function signJWT(purpose: TokenPurpose, payload: Record<string, any>, key: SecretKey, expiresInSeconds: number): string {
   const secret = ringOf(key).current;
   const header = { alg: 'HS256', typ: 'JWT' };
   const exp = Math.floor(Date.now() / 1000) + expiresInSeconds;
-  const fullPayload = { ...payload, exp };
+  const fullPayload = { ...payload, purpose, exp };
 
   const encodedHeader = base64urlEncode(header);
   const encodedPayload = base64urlEncode(fullPayload);
@@ -55,7 +67,7 @@ const signatureMatches = (secret: string, signed: string, signature: string): bo
   return expected.length === given.length && crypto.timingSafeEqual(expected, given);
 };
 
-export function verifyJWT(token: string, key: SecretKey): Record<string, any> | null {
+export function verifyJWT(token: string, purpose: TokenPurpose, key: SecretKey): Record<string, any> | null {
   try {
     const parts = token.split('.');
     if (parts.length !== 3) return null;
@@ -71,6 +83,7 @@ export function verifyJWT(token: string, key: SecretKey): Record<string, any> | 
     if (typeof payload.exp !== 'number' || payload.exp < Math.floor(Date.now() / 1000)) {
       return null;
     }
+    if (payload.purpose !== purpose) return null;
 
     return payload;
   } catch {
@@ -108,11 +121,11 @@ export interface SignedInDevice {
 }
 
 export const deviceToken = (account: string, key: SecretKey, id: string = crypto.randomUUID()): string =>
-  signJWT({ deviceFor: account.trim().toLowerCase(), device: id }, key, DEVICE_SECONDS);
+  signJWT('device', { deviceFor: account.trim().toLowerCase(), device: id }, key, DEVICE_SECONDS);
 
 export function deviceOf(token: string | undefined, key: SecretKey): SignedInDevice | undefined {
   if (!token) return undefined;
-  const decoded = verifyJWT(token, key);
+  const decoded = verifyJWT(token, 'device', key);
   return decoded && typeof decoded.deviceFor === 'string' && typeof decoded.device === 'string' && decoded.device
     ? { account: decoded.deviceFor, id: decoded.device }
     : undefined;
@@ -121,8 +134,23 @@ export function deviceOf(token: string | undefined, key: SecretKey): SignedInDev
 export const arrivedOverHttps = (forwardedProto: string | string[] | undefined, encrypted: boolean): boolean =>
   encrypted || String(forwardedProto ?? '').split(',')[0]?.trim() === 'https';
 
-export const sessionToken = (user: { id: string; email: string }, key: SecretKey, now = Date.now()): string =>
-  signJWT({ userId: user.id, email: user.email, sessionAt: now }, key, SESSION_SECONDS);
+export const sessionToken = (user: { id: string; email: string }, key: SecretKey, options: { now?: number; seconds?: number } = {}): string =>
+  signJWT('session', { userId: user.id, email: user.email, sessionAt: options.now ?? Date.now(), jti: crypto.randomUUID() }, key, options.seconds ?? SESSION_SECONDS);
 
-export const sessionEnded = (decoded: Record<string, unknown>, user: { sessionsEndedAt?: string | undefined }): boolean =>
-  typeof decoded.sessionAt === 'number' && user.sessionsEndedAt !== undefined && decoded.sessionAt < Date.parse(user.sessionsEndedAt);
+export interface SignedSession {
+  userId: string;
+  jti: string;
+  sessionAt: number;
+  until: number;
+}
+
+export function signedSession(decoded: Record<string, unknown> | null | undefined): SignedSession | undefined {
+  if (!decoded) return undefined;
+  const { userId, jti, sessionAt, exp } = decoded;
+  if (typeof userId !== 'string' || !userId || typeof jti !== 'string' || !jti) return undefined;
+  if (typeof sessionAt !== 'number' || !Number.isFinite(sessionAt) || typeof exp !== 'number') return undefined;
+  return { userId, jti, sessionAt, until: exp * 1000 };
+}
+
+export const sessionEnded = (session: Pick<SignedSession, 'sessionAt'>, user: { sessionsEndedAt?: string | undefined }): boolean =>
+  user.sessionsEndedAt !== undefined && session.sessionAt < Date.parse(user.sessionsEndedAt);

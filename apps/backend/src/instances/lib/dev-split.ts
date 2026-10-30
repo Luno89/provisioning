@@ -134,7 +134,7 @@ export function devSplitPlan(input: DevSplitInput): DevSplitPlan {
   };
 }
 
-const ACCOUNT_FIELDS = ['id', 'email', 'passwordHash', 'githubId', 'googleId', 'twoFactorEnabled', 'twoFactorSecret', 'twoFactorPhone', 'twoFactorPreferredMethod', 'emailVerified', 'createdAt'] as const;
+const ACCOUNT_FIELDS = ['id', 'email', 'passwordHash', 'signInLinks', 'twoFactorEnabled', 'twoFactorSecret', 'twoFactorPhone', 'twoFactorPreferredMethod', 'emailVerified', 'createdAt'] as const;
 
 export function accountOf(user: UserMetadata): UserMetadata {
   const kept = Object.fromEntries(ACCOUNT_FIELDS.filter((field) => user[field] !== undefined).map((field) => [field, user[field]]));

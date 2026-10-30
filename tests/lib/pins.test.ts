@@ -25,7 +25,7 @@ const found = (use: Use): string[] => [...read(use.file).matchAll(new RegExp(use
 describe('the pins file', () => {
   it('names every component with a kind, a version and, where it has one, a well-formed checksum', () => {
     for (const component of pins.components) {
-      expect(['binary', 'image', 'chart', 'action', 'npm', 'go'], component.name).toContain(component.kind);
+      expect(['binary', 'image', 'chart', 'action', 'npm', 'go', 'data'], component.name).toContain(component.kind);
       expect(component.version, component.name).toMatch(/\S/);
       if (component.sha256) expect(component.sha256, component.name).toMatch(/^[0-9a-f]{64}$/);
       if (component.sha512) expect(component.sha512, component.name).toMatch(/^[0-9a-f]{128}$/);

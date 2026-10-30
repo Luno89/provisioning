@@ -31,6 +31,7 @@ export type RemovalRefusal =
   | { status: 404; error: string }
   | { status: 403; error: string }
   | { status: 400; error: string }
+  | { status: 429; error: string }
   | { status: 409; error: string; blockers: string[] };
 
 const GONE: ClusterMetadata['status'][] = ['destroyed'];
@@ -101,14 +102,14 @@ export const ACCOUNT_DATA = {
     'corpus', 'deferredConclusions', 'deployments', 'egressGrants', 'egressRequests', 'enginePersonas', 'engineRunEffort', 'engineRunTraces', 'engineTools',
     'evalAgentChanges', 'evalCases', 'evalLevel1Runs', 'evalPrompts', 'evalRuns', 'evalScenarioProposals', 'evalScenarioRuns',
     'clientSessions', 'evalScenarios', 'fileShares', 'hubLinks', 'instanceJoinTokens', 'instanceWatches', 'instances', 'leaves', 'localAgentDevices', 'machineJoinCodes', 'mcpRequests',
-    'mcpServers', 'mcpToolHints', 'memories', 'modelEndpoints', 'monitoringAlertEpisodes', 'monitoringAlertRules', 'monitoringSettings', 'odooReleases', 'pendingApprovals', 'planProposals',
-    'procedures', 'projects', 'publishedWorkspaces', 'pushSubscriptions', 'poisoningSignals', 'releaseWithdrawalNotices', 'runEndings', 'runGrants', 'runReads', 'secretRequests', 'serverOrders', 'tasks', 'toolGrants', 'trees', 'treeTypes', 'workFailures',
+    'mcpServers', 'mcpToolHints', 'memories', 'modelEndpoints', 'monitoringAlertEpisodes', 'monitoringAlertRules', 'monitoringSettings', 'odooReleases', 'passwordResets', 'pendingApprovals', 'planProposals',
+    'procedures', 'projects', 'publishedWorkspaces', 'pushSubscriptions', 'poisoningSignals', 'releaseWithdrawalNotices', 'runEndings', 'runGrants', 'runReads', 'secretRequests', 'serverOrders', 'tasks', 'toolGrants', 'trees', 'treeTypes', 'twoFactorCodes', 'workFailures',
     'scriptedRequests', 'turnLogs', 'workspaceDependencies', 'workspaceImages',
   ],
   byId: ['autoModeSettings', 'benchSettings', 'benchStates', 'extensionSettings', 'giteaAccounts', 'keeperSettings', 'notificationSettings', 'fileSettings'],
   related: { memoryWatermarks: 'the keys of its conversations', crawl_frontier: 'its ingests', pipelineRuns: 'its projects', hubSnapshots: 'its projects', oidcArtifacts: 'its sign-in grants, sessions and tokens at root' },
   last: 'users',
-  shared: ['clusterProviders', 'dependencyChecks', 'dependencyFindings', 'hubDirty', 'hubSignIn', 'identityHandoffs', 'instanceReleases', 'inviteLimits', 'invites', 'logoutDeliveries', 'migrations', 'model_thinking_profiles', 'pendingSignUps', 'poolSettings', 'sessionRevocations', 'temporal_payload_chunks'],
+  shared: ['clusterProviders', 'dependencyChecks', 'dependencyFindings', 'endedSessions', 'hubDirty', 'hubSignIn', 'identityHandoffs', 'instanceReleases', 'inviteLimits', 'invites', 'logoutDeliveries', 'migrations', 'model_thinking_profiles', 'pendingSignUps', 'poolSettings', 'sessionRevocations', 'signInAttempts', 'temporal_payload_chunks'],
 } as const;
 
 export interface AccountIds {

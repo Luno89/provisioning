@@ -1,6 +1,7 @@
 import express from 'express';
 import type { IncomingHttpHeaders } from 'node:http';
-import { arrivedOverHttps, cookieNamed, SESSION_COOKIE, sessionEnded, signsEveryoneIn, verifyJWT } from '../lib/auth.js';
+import { arrivedOverHttps, cookieNamed, SESSION_COOKIE, sessionEnded, signedSession, signsEveryoneIn, verifyJWT } from '../lib/auth.js';
+import type { SessionEnds } from '../services/SessionEnds.js';
 import { inviteCodeHash, inviteExpired } from '../lib/invite-codes.js';
 import { setupCodeProblem } from '../lib/first-admin.js';
 import type { Database } from '../lib/db-interface.js';
@@ -19,8 +20,9 @@ export interface ClientSession {
 }
 
 export interface ClientSessions {
-  verified(token: string | undefined): ClientSession | undefined;
+  verified(token: string | undefined): (ClientSession & { until: number }) | undefined;
   renew(session: ClientSession): Promise<{ token: string; session: ClientSession } | 'kept' | 'ended'>;
+  end(session: ClientSession): Promise<void>;
   sessionSeconds: number;
 }
 
@@ -42,6 +44,7 @@ export interface AuthDeps {
   instanceOwnerId?: string | undefined;
   setupCode?: string | undefined;
   clientSessions?: ClientSessions | undefined;
+  sessionEnds: Pick<SessionEnds, 'ended' | 'end'>;
 }
 
 export const requireAllowed = <R extends Resource>(action: Actions[R['kind']], resource: R): express.RequestHandler => (req, res, next) => {
@@ -60,12 +63,14 @@ export function principalFrom(req: express.Request): Principal {
 export interface Auth {
   getCookie: (req: express.Request, name: string) => string | undefined;
   userFromSessionCookie: (cookieHeader: string | undefined, secure: boolean) => Promise<UserMetadata | undefined>;
+  sessionFromCookie: (cookieHeader: string | undefined, secure: boolean) => Promise<{ user: UserMetadata; sessionId: string; sessionAt: number } | undefined>;
   securedFor: (arrived: { headers: IncomingHttpHeaders; secure: boolean }) => boolean;
   requireAuth: express.RequestHandler;
   requireOperator: (action: Actions['install']) => express.RequestHandler;
   principalFor: (user: Pick<UserMetadata, 'id' | 'roles'>) => Principal;
   setSessionCookie: (res: express.Response, token: string, req?: express.Request) => void;
   clearSession: (res: express.Response) => void;
+  endSession: (req: express.Request) => Promise<void>;
   sessionCookieOptions: { httpOnly: boolean; secure: boolean; sameSite: 'lax' };
   checkAndConsumeInvite: (
     code: string | undefined,
@@ -87,7 +92,7 @@ const userOfSession = (session: ClientSession): UserMetadata => ({
   createdAt: new Date(session.sessionAt).toISOString(),
 });
 
-export function createAuth({ db, sessionKey, publicUrl, role = 'combined', instanceOwnerId, setupCode, clientSessions }: AuthDeps): Auth {
+export function createAuth({ db, sessionKey, publicUrl, role = 'combined', instanceOwnerId, setupCode, clientSessions, sessionEnds }: AuthDeps): Auth {
   const principalFor = (user: Pick<UserMetadata, 'id' | 'roles'>): Principal => principalOf(user, { role, instanceOwnerId });
   const getCookie = (req: express.Request, name: string) => parseCookie(req.headers.cookie, name);
 
@@ -99,17 +104,44 @@ export function createAuth({ db, sessionKey, publicUrl, role = 'combined', insta
   const securedFor = (arrived: { headers: IncomingHttpHeaders; secure: boolean }): boolean =>
     signsInThroughRoot(role) ? arrivedOverHttps(arrived.headers['x-forwarded-proto'], arrived.secure) : sessionCookieOptions.secure;
 
-  async function userFromSessionCookie(cookieHeader: string | undefined, secure: boolean): Promise<UserMetadata | undefined> {
+  const clientSessionOf = (token: string | undefined) => {
+    const session = clientSessions?.verified(token);
+    return session && !sessionEnds.ended(session.sid) ? session : undefined;
+  };
+
+  const ownSessionOf = (token: string | undefined) => {
+    const session = token ? signedSession(verifyJWT(token, 'session', sessionKey)) : undefined;
+    return session && !sessionEnds.ended(session.jti) ? session : undefined;
+  };
+
+  async function sessionFromCookie(cookieHeader: string | undefined, secure: boolean): Promise<{ user: UserMetadata; sessionId: string; sessionAt: number } | undefined> {
     const token = parseCookie(cookieHeader, cookieNamed(SESSION_COOKIE, secure));
     if (!token) return undefined;
     if (clientSessions) {
-      const session = clientSessions.verified(token);
-      return session ? userOfSession(session) : undefined;
+      const session = clientSessionOf(token);
+      return session ? { user: userOfSession(session), sessionId: session.sid, sessionAt: session.sessionAt } : undefined;
     }
-    const decoded = verifyJWT(token, sessionKey);
-    if (!decoded || !decoded.userId) return undefined;
-    const user = await db.accounts.getUserById(decoded.userId);
-    return !user || user.removal || sessionEnded(decoded, user) ? undefined : user;
+    const session = ownSessionOf(token);
+    if (!session) return undefined;
+    const user = await db.accounts.getUserById(session.userId);
+    return !user || user.removal || sessionEnded(session, user) ? undefined : { user, sessionId: session.jti, sessionAt: session.sessionAt };
+  }
+
+  async function userFromSessionCookie(cookieHeader: string | undefined, secure: boolean): Promise<UserMetadata | undefined> {
+    return (await sessionFromCookie(cookieHeader, secure))?.user;
+  }
+
+  async function endSession(req: express.Request): Promise<void> {
+    const token = getCookie(req, cookieNamed(SESSION_COOKIE, securedFor(req)));
+    if (clientSessions) {
+      const session = clientSessionOf(token);
+      if (!session) return;
+      await sessionEnds.end(session.sid, Math.max(session.until, Date.now() + clientSessions.sessionSeconds * 1000));
+      await clientSessions.end(session);
+      return;
+    }
+    const session = ownSessionOf(token);
+    if (session) await sessionEnds.end(session.jti, session.until);
   }
 
   const requireAuth: express.RequestHandler = async (req, res, next) => {
@@ -122,10 +154,10 @@ export function createAuth({ db, sessionKey, publicUrl, role = 'combined', insta
         '/auth/register/verify',
         '/auth/register/resend',
         '/auth/2fa/verify',
-        '/auth/github',
-        '/auth/google',
-        '/auth/github/callback',
-        '/auth/google/callback',
+        '/auth/password/forgot',
+        '/auth/password/forgot/resend',
+        '/auth/password/reset',
+        '/auth/sign-in',
         '/identity/keys',
         '/identity/go',
         '/instances/sign-in-key',
@@ -153,7 +185,7 @@ export function createAuth({ db, sessionKey, publicUrl, role = 'combined', insta
       '/machines/agent.tgz.sha256',
       '/metrics',
     ];
-    const publicPrefixes = role === 'instance' ? [...PUBLIC_PREFIXES, '/move/'] : role === 'hub' ? [...PUBLIC_PREFIXES, '/hub-root/', '/hub-instance/'] : [...PUBLIC_PREFIXES, '/instances/monitoring/', '/instances/move/parts/', '/instances/groups/', '/instances/chart/'];
+    const publicPrefixes = role === 'instance' ? [...PUBLIC_PREFIXES, '/move/'] : role === 'hub' ? [...PUBLIC_PREFIXES, '/hub-root/', '/hub-instance/'] : [...PUBLIC_PREFIXES, '/auth/provider/', '/instances/monitoring/', '/instances/move/parts/', '/instances/groups/', '/instances/chart/'];
     if (publicPaths.includes(req.path) || publicPrefixes.some((prefix) => req.path.startsWith(prefix))) {
       return next();
     }
@@ -176,7 +208,7 @@ export function createAuth({ db, sessionKey, publicUrl, role = 'combined', insta
       return res.status(401).json({ error: 'Unauthorized: Session missing' });
     }
     if (clientSessions) {
-      let session = clientSessions.verified(getCookie(req, cookieNamed(SESSION_COOKIE, secure)));
+      let session: ClientSession | undefined = clientSessionOf(getCookie(req, cookieNamed(SESSION_COOKIE, secure)));
       if (session && Date.now() >= session.freshUntil) {
         const renewed = await clientSessions.renew(session);
         if (renewed === 'ended') session = undefined;
@@ -190,6 +222,8 @@ export function createAuth({ db, sessionKey, publicUrl, role = 'combined', insta
         return res.status(401).json({ error: 'Unauthorized: Session invalid or expired' });
       }
       (req as any).user = userOfSession(session);
+      (req as any).sessionId = session.sid;
+      (req as any).clientSession = session;
       (req as any).principal = { kind: 'person', id: session.userId, claims: session.claims } satisfies Principal;
       return next();
     }
@@ -198,6 +232,7 @@ export function createAuth({ db, sessionKey, publicUrl, role = 'combined', insta
       return res.status(401).json({ error: 'Unauthorized: Session invalid or expired' });
     }
     (req as any).user = user;
+    (req as any).sessionId = ownSessionOf(getCookie(req, cookieNamed(SESSION_COOKIE, secure)))?.jti;
     (req as any).principal = principalFor(user);
     next();
   };
@@ -249,7 +284,7 @@ export function createAuth({ db, sessionKey, publicUrl, role = 'combined', insta
   }
 
   return {
-    getCookie, userFromSessionCookie, securedFor, requireAuth, requireOperator, principalFor,
-    setSessionCookie, clearSession, sessionCookieOptions, checkAndConsumeInvite, inviteProblem, claimHeldInvite,
+    getCookie, userFromSessionCookie, sessionFromCookie, securedFor, requireAuth, requireOperator, principalFor,
+    setSessionCookie, clearSession, endSession, sessionCookieOptions, checkAndConsumeInvite, inviteProblem, claimHeldInvite,
   };
 }

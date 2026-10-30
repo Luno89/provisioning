@@ -1,7 +1,9 @@
 import React, { useEffect, useState } from 'react';
-import { Mail, Lock, LogIn, UserPlus, Github, Chrome, ShieldAlert, ArrowRight, ShieldCheck, Phone } from 'lucide-react';
-import { API_BASE, errorMessage } from '../../../api/client';
-import { login, resendSignUpCode, verifySignUp, verifyTwoFactor, type LoginResult, type SessionUser } from '../../platform';
+import { Mail, Lock, LogIn, UserPlus, Github, Chrome, KeyRound, ShieldAlert, ArrowRight, ShieldCheck, Phone } from 'lucide-react';
+import { errorMessage } from '../../../api/client';
+import { login, providerSignInUrl, resendSignUpCode, verifySignUp, verifyTwoFactor, type LoginResult, type SessionUser } from '../../platform';
+import { useSignInProviders } from '../hooks/useSignInProviders';
+import ForgotPassword from './ForgotPassword';
 
 interface LoginProps {
   onSuccess: (user: SessionUser) => void;
@@ -25,6 +27,7 @@ export default function Login({ onSuccess, invite }: LoginProps) {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
+  const [forgotten, setForgotten] = useState(false);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -132,9 +135,9 @@ export default function Login({ onSuccess, invite }: LoginProps) {
     }
   };
 
-  const handleSocialLogin = (provider: 'github' | 'google') => {
-    const query = isRegister && inviteCode ? `?invite=${encodeURIComponent(inviteCode)}` : '';
-    window.location.href = `${API_BASE.replace(/\/api$/, '')}/api/auth/${provider}${query}`;
+  const providers = useSignInProviders();
+  const handleProviderSignIn = (id: string) => {
+    window.location.href = providerSignInUrl(id, isRegister && inviteCode ? inviteCode : undefined);
   };
 
   return (
@@ -166,7 +169,17 @@ export default function Login({ onSuccess, invite }: LoginProps) {
           </div>
         )}
 
-        {signUpId ? (
+        {forgotten ? (
+          <ForgotPassword
+            email={email}
+            onReset={(said) => {
+              setForgotten(false);
+              setPassword('');
+              setMessage(said);
+            }}
+            onBack={() => setForgotten(false)}
+          />
+        ) : signUpId ? (
           <form onSubmit={handleSignUpVerify} className="space-y-6">
             <div className="text-center mb-4">
               <h3 className="text-lg font-bold text-white">Confirm your email</h3>
@@ -320,6 +333,21 @@ export default function Login({ onSuccess, invite }: LoginProps) {
                     className="block w-full pl-12 pr-4 py-3.5 bg-[#1f2430]/50 border border-white/5 rounded-2xl text-white placeholder-gray-500 focus:outline-none focus:border-violet-500 transition-colors"
                   />
                 </div>
+                {isRegister ? (
+                  <p className="text-xs text-[#8c94a6] mt-2">At least twelve characters, and not one leaked from another site.</p>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setForgotten(true);
+                      setError('');
+                      setMessage('');
+                    }}
+                    className="mt-2 text-xs text-[#8c94a6] hover:text-white transition-colors cursor-pointer"
+                  >
+                    Forgot password?
+                  </button>
+                )}
               </div>
 
               {isRegister && (
@@ -355,31 +383,32 @@ export default function Login({ onSuccess, invite }: LoginProps) {
               </button>
             </form>
 
-            <div className="relative my-8 text-center">
-              <div className="absolute inset-0 flex items-center">
-                <div className="w-full border-t border-white/5" />
-              </div>
-              <span className="relative px-4 bg-[#161a22] text-[#8c94a6] text-xs uppercase tracking-wider">
-                Or continue with
-              </span>
-            </div>
+            {providers.length > 0 && (
+              <>
+                <div className="relative my-8 text-center">
+                  <div className="absolute inset-0 flex items-center">
+                    <div className="w-full border-t border-white/5" />
+                  </div>
+                  <span className="relative px-4 bg-[#161a22] text-[#8c94a6] text-xs uppercase tracking-wider">
+                    Or continue with
+                  </span>
+                </div>
 
-            <div className="grid grid-cols-2 gap-4">
-              <button
-                onClick={() => handleSocialLogin('github')}
-                className="flex items-center justify-center gap-2 py-3 px-4 bg-[#1f2430]/40 border border-white/5 rounded-2xl text-white hover:bg-[#1f2430]/80 transition-colors cursor-pointer"
-              >
-                <Github className="w-5 h-5" />
-                <span className="text-sm font-semibold">GitHub</span>
-              </button>
-              <button
-                onClick={() => handleSocialLogin('google')}
-                className="flex items-center justify-center gap-2 py-3 px-4 bg-[#1f2430]/40 border border-white/5 rounded-2xl text-white hover:bg-[#1f2430]/80 transition-colors cursor-pointer"
-              >
-                <Chrome className="w-5 h-5 text-red-500" />
-                <span className="text-sm font-semibold">Google</span>
-              </button>
-            </div>
+                <div className={`grid gap-4 ${providers.length === 1 ? 'grid-cols-1' : 'grid-cols-2'}`}>
+                  {providers.map((provider) => (
+                    <button
+                      key={provider.id}
+                      type="button"
+                      onClick={() => handleProviderSignIn(provider.id)}
+                      className="flex items-center justify-center gap-2 py-3 px-4 bg-[#1f2430]/40 border border-white/5 rounded-2xl text-white hover:bg-[#1f2430]/80 transition-colors cursor-pointer"
+                    >
+                      {provider.id === 'github' ? <Github className="w-5 h-5" /> : provider.id === 'google' ? <Chrome className="w-5 h-5 text-red-500" /> : <KeyRound className="w-5 h-5" />}
+                      <span className="text-sm font-semibold">{provider.label}</span>
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
 
             <div className="mt-8 text-center">
               <button

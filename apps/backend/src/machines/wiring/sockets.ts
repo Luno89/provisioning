@@ -4,7 +4,7 @@ import { spawn } from 'child_process';
 import type { Server as SocketServer } from 'socket.io';
 import {
   sharedPayloadBlobs, type Database, type Keyring, type SecretKey, type UserMetadata, servesTenants,
-  type RoleConfig, allowed, type Principal, type createAuth, signsEveryoneIn,
+  type RoleConfig, allowed, type Principal, type createAuth, signSocketsIn, type SessionSockets,
 } from '../../platform/index.js';
 import { matchDeviceToken, registerDevice, unregisterDevice } from '../lib/local-agent-registry.js';
 import { TOKEN_EXPIRED_SAID, type TokenVia } from '../lib/device-tokens.js';
@@ -25,7 +25,8 @@ export interface SocketsWiringDeps {
   env: NodeJS.ProcessEnv;
   payloadKey: Keyring;
   dataKey: SecretKey;
-  auth: Pick<ReturnType<typeof createAuth>, 'userFromSessionCookie' | 'securedFor' | 'principalFor'>;
+  auth: Pick<ReturnType<typeof createAuth>, 'sessionFromCookie' | 'securedFor' | 'principalFor'>;
+  sessionSockets: Pick<SessionSockets, 'track' | 'forget'>;
   machines: Pick<MachineService, 'seen' | 'recordAgents' | 'manualAgents' | 'recordMeshIp' | 'rotationFor' | 'tokenTaken' | 'recordAgentBundle' | 'recordAgentUpdate' | 'currentBundle'>;
   clusters: ClusterService;
   apps: AppService;
@@ -38,21 +39,7 @@ export interface SocketsWiringDeps {
 
 export function wireSockets(deps: SocketsWiringDeps): void {
   const { io, db, role, env, payloadKey, dataKey, clusters, apps, infra } = deps;
-  io.use(async (socket, next) => {
-    if (signsEveryoneIn(env)) {
-      const users = await db.accounts.getUsers();
-      socket.data.user = users[0] || { id: 'test-user-id', email: 'test@example.com' };
-      return next();
-    }
-    try {
-      const user = await deps.auth.userFromSessionCookie(socket.handshake.headers.cookie, deps.auth.securedFor(socket.handshake));
-      if (!user) return next(new Error('Unauthorized'));
-      socket.data.user = user;
-      next();
-    } catch {
-      next(new Error('Unauthorized'));
-    }
-  });
+  signSocketsIn(io, { auth: deps.auth, db, env, sessionSockets: deps.sessionSockets });
 
   const agentNamespace = io.of('/agent');
   const forMachines = machinePayloads({ ring: servesTenants(role) ? payloadKey : undefined, blobs: sharedPayloadBlobs(), ...(deps.machineTemporal ? { temporal: deps.machineTemporal } : {}) });

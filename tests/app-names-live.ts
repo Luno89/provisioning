@@ -7,7 +7,7 @@ import { fileURLToPath } from 'url';
 dotenv.config({ path: fileURLToPath(new URL('../apps/backend/.env', import.meta.url)) });
 import axios, { type AxiosInstance } from 'axios';
 import { createDatabase } from '../apps/backend/src/platform/lib/db-interface.js';
-import { signJWT } from '../apps/backend/src/platform/lib/auth.js';
+import { sessionToken } from '../apps/backend/src/platform/lib/auth.js';
 import { loadKeys } from '../apps/backend/src/platform/lib/keys.js';
 import { signUp } from './lib/sign-up.js';
 
@@ -85,7 +85,7 @@ async function main(): Promise<void> {
   await db.init();
   const admin = await db.accounts.getUserById(ADMIN);
   assert.ok(admin?.roles?.includes('operator'), `${ADMIN} is not an admin`);
-  const adminHttp = client(`session=${signJWT({ userId: admin.id, email: admin.email }, loadKeys(process.env).session, 3600)}`);
+  const adminHttp = client(`session=${sessionToken(admin, loadKeys(process.env).session, { seconds: 3600 })}`);
   const email = `app-names-live-${Date.now().toString(36)}@nowrinkles.test`;
   const password = crypto.randomBytes(18).toString('base64url');
   let other: AxiosInstance | undefined;
@@ -95,7 +95,7 @@ async function main(): Promise<void> {
   try {
     await stage('a second owner signs up with the admin\'s invite', async () => {
       const invite = (await adminHttp.post('/api/admin/invites')).data as { code: string };
-      const registered = await signUp(`${ROOT}/api`, { email, password, inviteCode: invite.code });
+      const registered = await signUp(`${ROOT}/api`, { email, password, inviteCode: invite.code }, { production: false });
       assert.equal(registered.status, 200, registered.error);
       const login = await client().post('/api/auth/login', { email, password });
       const cookie = sessionOf(login.headers);
@@ -141,7 +141,7 @@ async function main(): Promise<void> {
   } finally {
     for (const { api, id } of deployed) await destroy(api, id).catch((err) => console.log(`    could not destroy ${id}: ${(err as Error).message}`));
     if (other && otherId) {
-      const removed = await other.delete('/api/account', { data: { confirm: email } });
+      const removed = await other.delete('/api/account', { data: { confirm: email, password } });
       if (removed.status === 202) {
         for (let tries = 0; tries < 150 && await db.accounts.getUserById(otherId); tries += 1) await sleep(2_000);
         console.log((await db.accounts.getUserById(otherId)) ? `    ${email} is still being removed` : '    removed the test account');

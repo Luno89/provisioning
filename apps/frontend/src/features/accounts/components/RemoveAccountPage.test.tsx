@@ -3,6 +3,7 @@ import { render, screen, fireEvent } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import RemoveAccountPage from './RemoveAccountPage'
 import * as accountApi from '../api'
+import { useShellStore } from '../../platform/stores/shell'
 
 vi.mock('../api', async (importOriginal) => ({
   ...(await importOriginal<typeof accountApi>()),
@@ -17,9 +18,12 @@ const renderPage = (onRemoved = vi.fn()) => {
 }
 
 describe('deleting your account on root', () => {
-  beforeEach(() => vi.clearAllMocks())
+  beforeEach(() => {
+    vi.clearAllMocks()
+    useShellStore.getState().setUser({ id: 'bo', email: 'bo@example.com', confirmWith: 'password' } as never)
+  })
 
-  it('says a pool instance is deleted with it, and removes only once the email is typed', async () => {
+  it('says a pool instance is deleted with it, and removes only once the email and the password are typed', async () => {
     vi.mocked(accountApi.getRemovalPreview).mockResolvedValue({ email: 'bo@example.com', blockers: [], instance: { name: 'bo', where: 'pool', status: 'ready', url: 'https://bo.koala.dev' } })
     vi.mocked(accountApi.removeMyAccount).mockResolvedValue({ state: 'running', done: [] })
     const onRemoved = renderPage()
@@ -28,9 +32,11 @@ describe('deleting your account on root', () => {
     const remove = screen.getByRole('button', { name: 'Delete my account' })
     expect(remove).toBeDisabled()
     fireEvent.change(screen.getByRole('textbox'), { target: { value: 'bo@example.com' } })
+    expect(remove).toBeDisabled()
+    fireEvent.change(screen.getByLabelText('Your password'), { target: { value: 'my-own-password' } })
     fireEvent.click(remove)
     expect(await screen.findByText(/signed out everywhere/)).toBeInTheDocument()
-    expect(accountApi.removeMyAccount).toHaveBeenCalledWith('bo@example.com')
+    expect(accountApi.removeMyAccount).toHaveBeenCalledWith('bo@example.com', { password: 'my-own-password' })
     fireEvent.click(screen.getByRole('button', { name: 'Done' }))
     expect(onRemoved).toHaveBeenCalled()
   })

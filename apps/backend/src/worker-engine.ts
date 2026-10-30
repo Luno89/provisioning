@@ -14,7 +14,7 @@ import {
 } from './projects/index.js';
 import {
   stopIfRunning, createDatabase, sharedPayloadBlobs, createWorkerLogger, buildDataConverter, connectTemporalWorker, temporalTlsProblem, failureReason,
-  signJWT, principalOf, claimSettingsFrom, roleFromEnv, getTemporalClient, resolveOwnersWith, loadKeys, startedFor, carryingTrace, SYSTEM_KUBECONFIG, telemetrySettings, AccessRevocations,
+  sessionToken, principalOf, claimSettingsFrom, roleFromEnv, getTemporalClient, resolveOwnersWith, loadKeys, startedFor, carryingTrace, SYSTEM_KUBECONFIG, telemetrySettings, AccessRevocations,
   publicAddressProblem, encryptValue, temporalNamespaceFrom,
 } from './platform/index.js';
 import { rootSignInFor } from './instances/wiring/sign-in.js';
@@ -144,7 +144,7 @@ async function buildActivities() {
   const checks = httpCheckAccess(async (ownerId) => {
     const person = await db.accounts.getUserById(ownerId);
     if (!person) throw new Error(`there is no account ${ownerId} to act for`);
-    return carryingTrace(axios.create({ baseURL: checksApi, proxy: false, headers: { Cookie: `session=${signJWT({ userId: person.id, email: person.email }, keys.session, 60 * 60)}` } }));
+    return carryingTrace(axios.create({ baseURL: checksApi, proxy: false, headers: { Cookie: `session=${sessionToken(person, keys.session, { seconds: 60 * 60 })}` } }));
   });
   const engineStores = storesFromDatabase(db);
   const growers: { launcher?: GroveRunLauncher } = {};
@@ -535,7 +535,7 @@ async function buildActivities() {
       api: (space) => carryingTrace(axios.create({
         baseURL: process.env.CHECKS_API_URL || `http://localhost:${process.env.PORT || 3001}/api`,
         proxy: false,
-        headers: { Cookie: `session=${signJWT({ userId: space.id, email: space.email }, keys.session, 24 * 60 * 60)}` },
+        headers: { Cookie: `session=${sessionToken(space, keys.session)}` },
       })),
       seedFiles: (ownerId, repo, files) => withSeedBundle(files, async (bundle) => {
         await projectRepos.pushDocuments({ ownerId, repo, describe: 'A check\'s conversation workspace', bundle });

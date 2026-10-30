@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import type { ReactNode } from 'react';
 
 vi.mock('../../platform/api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../platform/api')>()),
@@ -7,20 +9,24 @@ vi.mock('../../platform/api', async (importOriginal) => ({
   verifyTwoFactor: vi.fn(),
   verifySignUp: vi.fn(),
   resendSignUpCode: vi.fn(),
+  signInPlace: vi.fn(),
 }));
 
 import Login from './Login.js';
-import { login, resendSignUpCode, verifySignUp, verifyTwoFactor } from '../../platform/api';
+import { login, resendSignUpCode, signInPlace, verifySignUp, verifyTwoFactor } from '../../platform/api';
+
+const show = (node: ReactNode) => render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>{node}</QueryClientProvider>);
 
 const mockedLogin = vi.mocked(login);
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.mocked(signInPlace).mockResolvedValue({ url: null, providers: [] });
 });
 
 describe('Login Component', () => {
   it('renders login form by default', () => {
-    render(<Login onSuccess={() => {}} />);
+    show(<Login onSuccess={() => {}} />);
 
     expect(screen.getByRole('heading', { name: /no wrinkles/i })).toBeInTheDocument();
     expect(screen.getByPlaceholderText('you@example.com')).toBeInTheDocument();
@@ -29,7 +35,7 @@ describe('Login Component', () => {
   });
 
   it('switches between Sign In and Register views', () => {
-    render(<Login onSuccess={() => {}} />);
+    show(<Login onSuccess={() => {}} />);
 
     const toggleBtn = screen.getByRole('button', { name: /don't have an account yet\? register/i });
     fireEvent.click(toggleBtn);
@@ -41,7 +47,7 @@ describe('Login Component', () => {
   it('displays 2FA OTP code panel when requested', async () => {
     mockedLogin.mockResolvedValue({ twoFactorRequired: true, challenge: 'signed-challenge' });
 
-    render(<Login onSuccess={() => {}} />);
+    show(<Login onSuccess={() => {}} />);
 
     fireEvent.change(screen.getByPlaceholderText('you@example.com'), { target: { value: 'test@example.com' } });
     fireEvent.change(screen.getByPlaceholderText('••••••••'), { target: { value: 'password123' } });
@@ -62,7 +68,7 @@ describe('Login Component', () => {
     const user = { id: 'u1', email: 'test@example.com' };
     vi.mocked(verifyTwoFactor).mockResolvedValue({ user });
     const onSuccess = vi.fn();
-    render(<Login onSuccess={onSuccess} />);
+    show(<Login onSuccess={onSuccess} />);
 
     expect(await screen.findByText('Two-Factor Authentication')).toBeInTheDocument();
     expect(window.location.search).toBe('');
@@ -77,7 +83,7 @@ describe('Login Component', () => {
     mockedLogin.mockResolvedValue({ user });
 
     const onSuccess = vi.fn();
-    render(<Login onSuccess={onSuccess} />);
+    show(<Login onSuccess={onSuccess} />);
 
     fireEvent.change(screen.getByPlaceholderText('you@example.com'), { target: { value: 'test@example.com' } });
     fireEvent.change(screen.getByPlaceholderText('••••••••'), { target: { value: 'password123' } });
@@ -100,7 +106,7 @@ describe('Login Component', () => {
     mockedLogin.mockResolvedValue({ verify: 'pending-1' });
     vi.mocked(verifySignUp).mockResolvedValue({ user });
     const onSuccess = vi.fn();
-    render(<Login onSuccess={onSuccess} invite={{ code: 'INVITE' }} />);
+    show(<Login onSuccess={onSuccess} invite={{ code: 'INVITE' }} />);
 
     await signUpAs('new@example.com');
     expect(mockedLogin).toHaveBeenCalledWith({ email: 'new@example.com', password: 'password123', inviteCode: 'INVITE' }, { register: true });
@@ -119,7 +125,7 @@ describe('Login Component', () => {
     mockedLogin.mockResolvedValue({ verify: 'pending-2', devCode: '111111' });
     vi.mocked(resendSignUpCode).mockResolvedValue({ verify: 'pending-2', devCode: '222222' });
     vi.mocked(verifySignUp).mockRejectedValue({ response: { status: 401, data: { error: 'That code is not the one we sent; check the email and try again' } } });
-    render(<Login onSuccess={() => {}} invite={{ code: 'INVITE' }} />);
+    show(<Login onSuccess={() => {}} invite={{ code: 'INVITE' }} />);
 
     await signUpAs('dev@example.com');
     expect(screen.getByText('This server sends no email, so here is the code: 111111')).toBeInTheDocument();
@@ -136,7 +142,7 @@ describe('Login Component', () => {
   it('goes back to signing up once the sign-up has ended', async () => {
     mockedLogin.mockResolvedValue({ verify: 'pending-3' });
     vi.mocked(verifySignUp).mockRejectedValue({ response: { status: 410, data: { error: 'That code was wrong too many times; sign up again' } } });
-    render(<Login onSuccess={() => {}} invite={{ code: 'INVITE' }} />);
+    show(<Login onSuccess={() => {}} invite={{ code: 'INVITE' }} />);
 
     await signUpAs('gone@example.com');
     fireEvent.change(screen.getByLabelText('Code from the email'), { target: { value: '000000' } });
@@ -148,7 +154,7 @@ describe('Login Component', () => {
 
   it('tells the first account to sign in once it is made, since it needs no code', async () => {
     mockedLogin.mockResolvedValue({});
-    render(<Login onSuccess={() => {}} invite={{ code: 'SETUP' }} />);
+    show(<Login onSuccess={() => {}} invite={{ code: 'SETUP' }} />);
     fireEvent.change(screen.getByPlaceholderText('you@example.com'), { target: { value: 'owner@example.com' } });
     fireEvent.change(screen.getByPlaceholderText('••••••••'), { target: { value: 'password123' } });
     fireEvent.click(screen.getByRole('button', { name: /create account/i }));
@@ -158,7 +164,7 @@ describe('Login Component', () => {
   it('shows the server error message when sign-in fails', async () => {
     mockedLogin.mockRejectedValue(new Error('Invalid credentials'));
 
-    render(<Login onSuccess={() => {}} />);
+    show(<Login onSuccess={() => {}} />);
 
     fireEvent.change(screen.getByPlaceholderText('you@example.com'), { target: { value: 'test@example.com' } });
     fireEvent.change(screen.getByPlaceholderText('••••••••'), { target: { value: 'wrong-password' } });
@@ -167,5 +173,29 @@ describe('Login Component', () => {
     await waitFor(() => {
       expect(screen.getByText('Invalid credentials')).toBeInTheDocument();
     });
+  });
+
+  it('offers no provider when the server has none configured', async () => {
+    show(<Login onSuccess={() => {}} />);
+    await waitFor(() => expect(signInPlace).toHaveBeenCalled());
+    expect(screen.queryByText(/or continue with/i)).toBeNull();
+    expect(screen.queryByRole('button', { name: /google|github/i })).toBeNull();
+  });
+
+  it('offers only the providers the server says it has, and starts one with the invite when signing up', async () => {
+    vi.mocked(signInPlace).mockResolvedValue({ url: null, providers: [{ id: 'google', label: 'Google' }, { id: 'oidc', label: 'Example Co' }] });
+    const assign = vi.fn();
+    const was = window.location;
+    Object.defineProperty(window, 'location', { configurable: true, value: { ...was, set href(to: string) { assign(to); } } });
+    try {
+      show(<Login onSuccess={() => {}} invite={{ code: 'INV ITE' }} />);
+      expect(await screen.findByRole('button', { name: 'Example Co' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Google' })).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'GitHub' })).toBeNull();
+      fireEvent.click(screen.getByRole('button', { name: 'Example Co' }));
+      expect(assign).toHaveBeenCalledWith(expect.stringMatching(/\/api\/auth\/provider\/oidc\?invite=INV%20ITE$/));
+    } finally {
+      Object.defineProperty(window, 'location', { configurable: true, value: was });
+    }
   });
 });

@@ -26,8 +26,12 @@ export interface Person {
   email: string;
 }
 
+export interface Inviter extends Person {
+  vouch?: (() => Promise<string | undefined>) | undefined;
+}
+
 export interface InviteSender {
-  send(request: { email: string; inviterId: string; inviterEmail: string; projectName: string; role: string; join: string }): Promise<{ link: string; emailed: boolean; why?: string | undefined } | { refused: string }>;
+  send(request: { email: string; inviterId: string; inviterEmail: string; projectName: string; role: string; join: string }, inviter: Inviter): Promise<{ link: string; emailed: boolean; why?: string | undefined } | { refused: string }>;
 }
 
 export interface HubServiceDeps {
@@ -358,7 +362,7 @@ export class HubService {
     };
   }
 
-  async invite(person: Person, projectId: string, input: { email: unknown; role: unknown }): Promise<HubOutcome<{ email: string; role: HubRole; link: string; emailed: boolean; why?: string | undefined }>> {
+  async invite(person: Inviter, projectId: string, input: { email: unknown; role: unknown }): Promise<HubOutcome<{ email: string; role: HubRole; link: string; emailed: boolean; why?: string | undefined }>> {
     const access = await this.access(person.id, projectId);
     if (!access) return NOT_FOUND;
     if (!may(access, 'invite')) return refuse('Only an owner can invite people to this project.');
@@ -375,7 +379,7 @@ export class HubService {
     };
     await access.store.saveInvite(invite);
     await this.deps.store.indexInvite(invite.token, projectId);
-    const sent = await this.deps.invites.send({ email: invite.email, inviterId: person.id, inviterEmail: person.email, projectName: access.project.name, role: invite.role, join: invite.token });
+    const sent = await this.deps.invites.send({ email: invite.email, inviterId: person.id, inviterEmail: person.email, projectName: access.project.name, role: invite.role, join: invite.token }, person);
     if ('refused' in sent) {
       await access.store.deleteInvite(invite.token);
       await this.deps.store.forgetInvite(invite.token);

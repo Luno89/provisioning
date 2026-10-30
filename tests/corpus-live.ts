@@ -5,7 +5,7 @@ import { fileURLToPath } from 'url';
 dotenv.config({ path: fileURLToPath(new URL('../apps/backend/.env', import.meta.url)) });
 
 import axios, { type AxiosInstance } from 'axios';
-import { signJWT } from '../apps/backend/src/platform/lib/auth.js';
+import { sessionToken } from '../apps/backend/src/platform/lib/auth.js';
 import { createDatabase } from '../apps/backend/src/platform/lib/db-interface.js';
 import { loadKeys } from '../apps/backend/src/platform/lib/keys.js';
 
@@ -40,7 +40,7 @@ async function main(): Promise<void> {
   assert.ok(user);
   const secret = loadKeys(process.env).session;
   assert.ok(secret);
-  const http = axios.create({ baseURL: BASE, proxy: false, headers: { Cookie: `session=${signJWT({ userId: user.id, email: user.email }, secret, 3600)}` } });
+  const http = axios.create({ baseURL: BASE, proxy: false, headers: { Cookie: `session=${sessionToken(user, secret, { seconds: 3600 })}` } });
   const conversationId = (await http.post('/conversations', {})).data.id as string;
   let ingestId: string | undefined;
   let crawler: string | undefined;

@@ -9,6 +9,8 @@ vi.mock('../features/platform', () => ({
     pick({ user: { id: 'u1', email: 'person@example.com', twoFactorEnabled: false } }),
 }));
 vi.mock('../features/accounts', () => ({
+  ChangePassword: () => <div>Password</div>,
+  TwoFactorSettings: () => <div>Two-factor</div>,
   DeleteAccount: () => <div>Delete account</div>,
   People: () => <div>People</div>,
   Invites: () => <div>Invites</div>,
@@ -35,6 +37,8 @@ describe('Settings shows the operator sections only to the operator', () => {
     expect(screen.queryByText('People')).toBeNull();
     expect(screen.queryByText('Invites')).toBeNull();
     expect(screen.getByText('Notifications')).toBeTruthy();
+    expect(screen.getByText('Password')).toBeTruthy();
+    expect(screen.getByText('Two-factor')).toBeTruthy();
   });
 
   it('shows backups to the operator', () => {

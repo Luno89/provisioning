@@ -7,6 +7,7 @@ import { ProjectInviteLimitsService } from '../services/ProjectInviteLimitsServi
 import { DEFAULT_ENGINE_TASK_QUEUE } from '../../engine-host/temporal/contracts.js';
 import { ROOT_REMOVAL_STEPS, ROOT_REMOVAL_WORKFLOW } from '../lib/account-removal.js';
 import { accountRouter } from '../routes/account.js';
+import type { Devices } from '../routes/device.js';
 import { adminRouter } from '../routes/admin.js';
 
 export interface AccountsWiringDeps {
@@ -18,6 +19,7 @@ export interface AccountsWiringDeps {
   hubPeople: HubPeople | undefined;
   operatorOnly: express.RequestHandler;
   clearSession: (res: express.Response) => void;
+  devices: Pick<Devices, 'confirmed'>;
   revocations?: AccessRevocations | undefined;
 }
 
@@ -44,7 +46,7 @@ export function wireAccounts(deps: AccountsWiringDeps): { peopleRemoval: Account
     revocations: deps.revocations,
   }) : undefined;
   const peopleRemoval = rootRemoval ?? accountRemoval;
-  if (holdsAccounts(role) && peopleRemoval) app.use('/api/account', accountRouter({ removal: peopleRemoval, clearSession: deps.clearSession }));
+  if (holdsAccounts(role) && peopleRemoval) app.use('/api/account', accountRouter({ removal: peopleRemoval, clearSession: deps.clearSession, confirmed: (req) => deps.devices.confirmed(req, (req as unknown as { user: UserMetadata }).user) }));
   if (holdsAccounts(role)) app.use('/api/admin', adminRouter({ db, operatorOnly: deps.operatorOnly, inviteLimits: new ProjectInviteLimitsService({ store: db.accounts, principalFor }), ...(peopleRemoval ? { removal: peopleRemoval } : {}) }));
   return { peopleRemoval };
 }

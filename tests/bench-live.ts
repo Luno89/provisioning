@@ -4,7 +4,7 @@ import { fileURLToPath } from 'url';
 dotenv.config({ path: fileURLToPath(new URL('../apps/backend/.env', import.meta.url)) });
 import axios from 'axios';
 import { io as connect } from 'socket.io-client';
-import { signJWT } from '../apps/backend/src/platform/lib/auth.js';
+import { sessionToken } from '../apps/backend/src/platform/lib/auth.js';
 import { createDatabase } from '../apps/backend/src/platform/lib/db-interface.js';
 import { loadKeys } from '../apps/backend/src/platform/lib/keys.js';
 import { fingerprintOf } from '../apps/backend/src/checks/lib/bench.js';
@@ -33,7 +33,7 @@ async function main(): Promise<void> {
   await db.init();
   const user = await db.accounts.getUserById(OWNER);
   assert.ok(user, 'no such user');
-  const cookie = `session=${signJWT({ userId: user.id, email: user.email }, loadKeys(process.env).session, 7200)}`;
+  const cookie = `session=${sessionToken(user, loadKeys(process.env).session, { seconds: 7200 })}`;
   const http = axios.create({ baseURL: BASE, proxy: false, headers: { Cookie: cookie } });
   const socket = connect(ORIGIN, { extraHeaders: { Cookie: cookie }, transports: ['websocket'] });
   const regressionsSeen: { runId: string; regressions: string[] }[] = [];

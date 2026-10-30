@@ -78,17 +78,20 @@ describe('/api/hub-link, on root', () => {
     const site = await mountRouter({
       prefix: '/api/hub-link',
       router: async () => hubLinkRouter({
-        invites: new ProjectInviteService({ principalFor: (user) => principalOf(user, { role: 'combined' }), invites: { getInviteByCode: async (code) => invites.find((invite) => invite.codeHash === inviteCodeHash(code)), saveInvite: async (invite) => { invites.push(invite); }, getInvites: async () => invites }, people: { getUserById: async (id) => ({ id }), getUserByEmail: async () => undefined }, limits: async () => undefined, rootUrl: 'http://root' }),
+        invites: new ProjectInviteService({ principalFor: (user) => principalOf(user, { role: 'combined' }), invites: { getInviteByCode: async (code) => invites.find((invite) => invite.codeHash === inviteCodeHash(code)), saveInvite: async (invite) => { invites.push(invite); }, getInvites: async () => invites }, people: { getUserById: async (id) => PEOPLE.find((person) => person.id === id), getUserByEmail: async () => undefined }, limits: async () => ({ perHour: 1 }), rootUrl: 'http://root' }),
         credentialHash: hashCredential('the-hub'),
         hash: hashCredential,
         signInKeys: { get: async () => held, save: async (key) => { held = key; } },
         serviceCaller: async (token) => (token === 'a-hub-service-token' ? { clientId: 'hub', kind: 'hub' } : token === 'an-instance-service-token' ? { clientId: 'inst-u1', kind: 'instance' } : undefined),
+        personAtHub: async (token) => ({ 'ann-at-the-hub': 'ann', 'boss-at-the-hub': 'boss' } as Record<string, string>)[token],
+        people: { getUserById: async (id) => PEOPLE.find((person) => person.id === id) },
       }),
     });
     harnesses.push(site);
     return { site, invites, held: () => held };
   }
-  const invite = { email: 'cy@example.com', inviterId: 'ann', inviterEmail: 'ann@example.com', projectName: 'Shop', role: 'client', join: 'J'.repeat(32) };
+  const PEOPLE = [{ id: 'ann', email: 'ann@example.com' }, { id: 'boss', email: 'boss@example.com', roles: ['operator' as const] }];
+  const invite = { email: 'cy@example.com', inviterToken: 'ann-at-the-hub', projectName: 'Shop', role: 'client', join: 'J'.repeat(32) };
 
   it('sends an invite only for its own hub, and shows it to whoever holds its code', async () => {
     const { site } = await root();
@@ -99,6 +102,19 @@ describe('/api/hub-link, on root', () => {
     const code = new URLSearchParams((sent.data as { link: string }).link.split('?')[1]).get('code')!;
     expect((await axios.get(site.url(`/api/hub-link/invitation?code=${encodeURIComponent(code)}`))).data).toEqual({ email: 'cy@example.com', project: { name: 'Shop', role: 'client', join: 'J'.repeat(32) }, used: false });
     expect((await axios.get(site.url('/api/hub-link/invitation?code=nope'), ask)).status).toBe(404);
+  });
+
+  it('takes the inviter from the sign-in root gave them at the hub, so the hub cannot name an operator to skip the limits', async () => {
+    const { site, invites } = await root();
+    const hub = { headers: { authorization: 'Bearer the-hub' } };
+    expect((await axios.post(site.url('/api/hub-link/invite'), { ...invite, inviterToken: undefined, inviterId: 'boss' }, { ...ask, ...hub })).status).toBe(400);
+    expect((await axios.post(site.url('/api/hub-link/invite'), { ...invite, inviterToken: 'made-up' }, { ...ask, ...hub })).status).toBe(403);
+    expect((await axios.post(site.url('/api/hub-link/invite'), { ...invite, inviterId: 'boss', inviterEmail: 'boss@example.com' }, hub)).status).toBe(201);
+    expect(invites.at(-1)?.createdBy).toBe('ann');
+    const again = await axios.post(site.url('/api/hub-link/invite'), { ...invite, email: 'dee@example.com', inviterId: 'boss' }, { ...ask, ...hub });
+    expect(again.status).toBe(429);
+    expect((await axios.post(site.url('/api/hub-link/invite'), { ...invite, email: 'dee@example.com', inviterToken: 'boss-at-the-hub' }, hub)).status).toBe(201);
+    expect(invites.at(-1)?.createdBy).toBe('boss');
   });
 
   it('takes an invite from its hub\'s service token too, never an instance\'s', async () => {

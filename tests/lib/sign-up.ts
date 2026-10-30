@@ -25,10 +25,17 @@ async function asJson(response: Response): Promise<unknown> {
   }
 }
 
-export async function codeFromMailpit(mailpitApi: string, email: string, after: number): Promise<string> {
+export type StackUnderTest = { production: true; mailpitApi: string } | { production: false };
+
+export function codeHandedOut(stack: StackUnderTest, devCode: unknown, what: string): string | undefined {
+  if (stack.production && devCode !== undefined) throw new Error(`a production backend handed back ${what} (devCode) instead of only emailing it`);
+  return typeof devCode === 'string' ? devCode : undefined;
+}
+
+export async function codeFromMailpit(mailpitApi: string, email: string, after: number, subject = 'Your Koala sign-up code'): Promise<string> {
   for (;;) {
     const listed = await (await fetch(`${mailpitApi}/api/v1/messages`)).json() as { messages: Array<{ ID: string; Created: string; Subject: string; To: Array<{ Address: string }> }> };
-    const sent = listed.messages.find((message) => message.Subject === 'Your Koala sign-up code'
+    const sent = listed.messages.find((message) => message.Subject === subject
       && Date.parse(message.Created) >= after - 1000
       && message.To.some((to) => to.Address.toLowerCase() === email.toLowerCase()));
     if (sent) {
@@ -40,7 +47,7 @@ export async function codeFromMailpit(mailpitApi: string, email: string, after: 
   }
 }
 
-export async function signUp(apiBase: string, account: SignUpAccount, options: { mailpitApi?: string; headers?: Record<string, string> } = {}): Promise<SignedUp> {
+export async function signUp(apiBase: string, account: SignUpAccount, stack: StackUnderTest, options: { headers?: Record<string, string> } = {}): Promise<SignedUp> {
   const post = (path: string, body: unknown) => fetch(`${apiBase}${path}`, {
     method: 'POST',
     headers: { 'content-type': 'application/json', ...(options.headers ?? {}) },
@@ -51,10 +58,10 @@ export async function signUp(apiBase: string, account: SignUpAccount, options: {
   const pending = await asJson(registered) as { verify?: string; devCode?: string };
   if (registered.status !== 200) return { status: registered.status, ...(errorOf(pending) ? { error: errorOf(pending)! } : {}), cookies: [] };
   if (!pending.verify) return { status: registered.status, cookies: registered.headers.getSetCookie().map((line) => line.split(';')[0]!) };
-  let code = pending.devCode;
+  let code = codeHandedOut(stack, pending.devCode, `${account.email}'s sign-up code`);
   if (!code) {
-    if (!options.mailpitApi) throw new Error(`${account.email}'s sign-up code was emailed, and this suite reads no mailbox`);
-    code = await codeFromMailpit(options.mailpitApi, account.email, asked);
+    if (!stack.production) throw new Error(`${account.email}'s sign-up code was emailed, and this suite reads no mailbox`);
+    code = await codeFromMailpit(stack.mailpitApi, account.email, asked);
   }
   const verified = await post('/auth/register/verify', { id: pending.verify, code });
   const body = await asJson(verified) as { user?: { id: string; email: string } };

@@ -4,15 +4,17 @@ Written by `tests/lib/run-live.ts`, which every `npm run test:*-live` and `test:
 
 | Script | Last passed | Last failed |
 |---|---|---|
+| `account-hardening-live` | 2026-10-30 21:28 | — |
 | `account-removal-live` | 2026-10-30 00:43 | 2026-10-24 05:47 |
 | `app-names-live` | 2026-10-30 00:46 | 2026-10-22 21:33 |
 | `app-sign-in-live` | 2026-10-27 22:24 | 2026-10-27 22:22 |
 | `byo-machine-live` | 2026-10-29 21:16 | 2026-10-30 02:35 |
 | `checks-live` | 2026-10-30 01:21 | 2026-10-29 23:56 |
-| `dev-split-live` | 2026-10-30 17:13 | 2026-10-29 23:50 |
+| `dev-split-live` | 2026-10-30 21:33 | 2026-10-29 23:50 |
 | `files-live` | 2026-10-30 00:48 | 2026-10-28 16:23 |
+| `hardening-live` | 2026-10-30 21:33 | — |
 | `hub-live` | 2026-10-30 00:43 | 2026-10-24 18:21 |
-| `hub-split-live` | 2026-10-30 00:43 | — |
+| `hub-split-live` | 2026-10-30 21:33 | — |
 | `infra-integration` | 2026-10-30 01:26 | 2026-10-24 14:12 |
 | `instance-live` | 2026-10-29 20:18 | 2026-10-30 01:30 |
 | `machine-chat-live` | 2026-10-28 02:48 | — |

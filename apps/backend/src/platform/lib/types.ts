@@ -468,13 +468,17 @@ export function isCloudProvider(value: unknown): value is CloudProvider {
 
 export type PlatformGrant = 'operator';
 
+export interface SignInLink {
+  issuer: string;
+  subject: string;
+}
+
 export interface UserMetadata {
   sessionsEndedAt?: string | undefined;
   id: string;
   email: string;
   passwordHash?: string;
-  githubId?: string;
-  googleId?: string;
+  signInLinks?: SignInLink[] | undefined;
   twoFactorEnabled: boolean;
   twoFactorSecret?: string;
   twoFactorPhone?: string;

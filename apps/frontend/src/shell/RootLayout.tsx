@@ -20,7 +20,7 @@ import { errorMessage } from '../api/client';
 import { releaseKeys, type OdooRelease } from '../features/releases';
 import { useCan, useShellStore, startHistorySync } from '../features/platform';
 import { reconnectSocket, useSocketEvent } from '../features/platform';
-import { getMe, logout, resumePathFrom, signInElsewhere } from '../features/platform';
+import { getMe, logout, resumePathFrom, signInKeys, signInPlace } from '../features/platform';
 import { getMyInstance, identityKeys, INSTANCE_GO_URL } from '../features/instances';
 import { NoInstance } from '../features/instances';
 import { RootAdmin } from '../features/instances';
@@ -108,7 +108,7 @@ export function RootLayout() {
 
   const searched = new URLSearchParams(location.searchStr ?? '');
   const joinPage = location.pathname === '/join';
-  const signInUrl = useQuery({ queryKey: ['auth', 'sign-in'], queryFn: signInElsewhere, enabled: !authLoading && !user, staleTime: Infinity });
+  const signInUrl = useQuery({ queryKey: signInKeys.place(), queryFn: signInPlace, enabled: !authLoading && !user, staleTime: Infinity, select: (place) => place.url });
   const placement = useQuery({ queryKey: identityKeys.mine(), queryFn: getMyInstance, enabled: Boolean(user) && !user?.onHub, staleTime: Infinity });
   useEffect(() => {
     const resume = user ? resumePathFrom(window.location.search) : undefined;

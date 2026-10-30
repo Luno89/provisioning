@@ -8,7 +8,7 @@ import dotenv from 'dotenv';
 import { caddyTlsSnippet } from '../apps/backend/src/infrastructure/lib/dns-providers.js';
 import { createDisposableVm, type DisposableVm } from './lib/disposable-vm.js';
 import { loadKeys } from '../apps/backend/src/platform/lib/keys.js';
-import { signJWT } from '../apps/backend/src/platform/lib/auth.js';
+import { sessionToken } from '../apps/backend/src/platform/lib/auth.js';
 import { devDataMounts, devFile, devTemporalCa } from './lib/dev-temporal.js';
 import { fetchSide, handOff, sessionFrom, type Side, signedInLanding } from './lib/handoff.js';
 import { dropSuiteDatabase, firstAdmin, forgetMeshUser, suiteRoot, workerEnv } from './lib/suite-root.js';
@@ -219,7 +219,7 @@ async function main(): Promise<void> {
   await until('root answering', async () => ((await fetch(`${ROOT_FOR_HOST}/api/identity/keys`)).ok ? true : undefined));
   const owner = await firstAdmin(ROOT_FOR_HOST, ROOT);
   ownerId = owner.id;
-  const session = signJWT({ userId: owner.id, email: owner.email }, loadKeys(process.env).session, 3600);
+  const session = sessionToken(owner, loadKeys(process.env).session, { seconds: 3600 });
   const asOwner = (path: string, init: RequestInit = {}) => fetch(`${ROOT_FOR_HOST}${path}`, { ...init, headers: { 'content-type': 'application/json', Cookie: `session=${session}`, ...(init.headers ?? {}) } });
 
   step(`the owner is offered a trial on Koala's servers, and starts one named "${NAME}"`);
@@ -503,14 +503,14 @@ async function main(): Promise<void> {
   step('an admin on root removes a throwaway account: its instance on its own machine is let go of, and the account goes');
   const invite = await (await asOwner('/api/admin/invites', { method: 'POST', body: '{}' })).json() as { code: string };
   const email = `pool-live-${NAME}@example.com`;
-  const registered = await signUp(`${ROOT_FOR_HOST}/api`, { email, password: randomBytes(18).toString('base64url'), inviteCode: invite.code }, { mailpitApi: `http://127.0.0.1:${MAILPIT_API}` });
+  const registered = await signUp(`${ROOT_FOR_HOST}/api`, { email, password: randomBytes(18).toString('base64url'), inviteCode: invite.code }, { production: true, mailpitApi: `http://127.0.0.1:${MAILPIT_API}` });
   assert.equal(registered.status, 200, registered.error);
   console.log('  it signed up with the code root emailed it');
   const people = async () => (await (await asOwner('/api/admin/people')).json() as { people: Array<{ id: string; email: string; instance?: { where: string; name?: string } }> }).people;
   const throwaway = (await people()).find((person) => person.email === email);
   assert.ok(throwaway, 'root\'s admin page does not list the new account');
   throwawayId = throwaway.id;
-  const theirs = signJWT({ userId: throwaway.id, email }, loadKeys(process.env).session, 3600);
+  const theirs = sessionToken({ id: throwaway.id, email }, loadKeys(process.env).session, { seconds: 3600 });
   const joining = await fetch(`${ROOT_FOR_HOST}/api/instances/join-tokens`, {
     method: 'POST', headers: { 'content-type': 'application/json', Cookie: `session=${theirs}` }, body: JSON.stringify({ name: `${NAME}b` }),
   });
@@ -523,12 +523,12 @@ async function main(): Promise<void> {
   throwawayId = undefined;
   const second = await (await asOwner('/api/admin/invites', { method: 'POST', body: '{}' })).json() as { code: string };
   const secondEmail = `pool-live-${NAME}-c@example.com`;
-  const secondRegistered = await signUp(`${ROOT_FOR_HOST}/api`, { email: secondEmail, password: randomBytes(18).toString('base64url'), inviteCode: second.code }, { mailpitApi: `http://127.0.0.1:${MAILPIT_API}` });
+  const secondRegistered = await signUp(`${ROOT_FOR_HOST}/api`, { email: secondEmail, password: randomBytes(18).toString('base64url'), inviteCode: second.code }, { production: true, mailpitApi: `http://127.0.0.1:${MAILPIT_API}` });
   assert.equal(secondRegistered.status, 200, secondRegistered.error);
   const secondId = (await people()).find((person) => person.email === secondEmail)?.id;
   assert.ok(secondId, 'root\'s admin page does not list the second account');
   throwawayId = secondId;
-  const asSecond = signJWT({ userId: secondId, email: secondEmail }, loadKeys(process.env).session, 3600);
+  const asSecond = sessionToken({ id: secondId, email: secondEmail }, loadKeys(process.env).session, { seconds: 3600 });
   const nameFree = await (await fetch(`${ROOT_FOR_HOST}/api/instances/name-check?name=${NAME}b`, { headers: { Cookie: `session=${asSecond}` } })).json() as { ok: boolean; problem?: string };
   assert.ok(nameFree.ok, `the removed account's instance name is still taken: ${nameFree.problem}`);
   const secondRemoved = await asOwner(`/api/admin/people/${secondId}`, { method: 'DELETE', body: JSON.stringify({ confirm: secondEmail }) });

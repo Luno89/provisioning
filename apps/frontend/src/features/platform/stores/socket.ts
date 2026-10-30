@@ -1,11 +1,18 @@
 import { useEffect, useRef } from 'react'
 import { io, type Socket } from 'socket.io-client'
 import { SOCKET_URL } from '../../../api/client'
+import { tryAgainAfter } from '../lib/socket-reconnect'
 
 let shared: Socket | null = null
 
+const opened = (): Socket => {
+  const socket = io(SOCKET_URL, { withCredentials: true })
+  socket.on('disconnect', (reason: string) => { if (tryAgainAfter(reason)) socket.connect() })
+  return socket
+}
+
 export function getSocket(): Socket {
-  if (!shared) shared = io(SOCKET_URL, { withCredentials: true })
+  if (!shared) shared = opened()
   return shared
 }
 
@@ -53,7 +60,7 @@ export function useLogSocket(opts: {
 
   useEffect(() => {
     if (!room) return undefined
-    const socket = io(SOCKET_URL, { withCredentials: true })
+    const socket = opened()
     const isKube = Boolean(join)
 
     const enter = () => {

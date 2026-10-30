@@ -8,6 +8,7 @@ describe('a person\'s access taken away', () => {
     expect(revocationShaped(event)).toBe(true);
     expect(revocationShaped({ ...event, because: 'removed-from-shared-project', sharedProjectId: 'sp1' })).toBe(true);
     expect(revocationShaped({ ...event, because: 'bored' })).toBe(false);
+    expect(revocationShaped({ ...event, because: 'locked' })).toBe(false);
     expect(revocationShaped({ ...event, at: 'yesterday' })).toBe(false);
     expect(revocationShaped({ ...event, personId: '' })).toBe(false);
     expect(revocationShaped({ ...event, sharedProjectId: '' })).toBe(false);

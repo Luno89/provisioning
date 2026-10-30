@@ -1,7 +1,9 @@
 import { useState } from 'react'
 import { errorMessage } from '../../../api/client'
 import { useCan, useShellStore } from '../../platform'
-import { confirmMatches, dangerButton, dangerPanel, emailField, quietButton, refusalBlockers, useAccountRemovalPlace, useRemovalPreview, useRemoveMyAccount } from '../shared'
+import { confirmMatches, dangerButton, dangerPanel, emailField, proofReady, proofSent, quietButton, refusalBlockers, useAccountRemovalPlace, useRemovalPreview, useRemoveMyAccount } from '../shared'
+import type { Proof } from '../types'
+import { ProofField } from './ProofField'
 import { safeHref } from '../../../shared/lib/safe-href'
 
 function RemovedOnRoot() {
@@ -25,6 +27,8 @@ export function DeleteAccount() {
 function DeleteHere() {
   const [open, setOpen] = useState(false)
   const [typed, setTyped] = useState('')
+  const [proof, setProof] = useState<Proof>({})
+  const confirmWith = useShellStore((s) => s.user?.confirmWith)
   const setUser = useShellStore((s) => s.setUser)
   const pushNotification = useShellStore((s) => s.pushNotification)
   const preview = useRemovalPreview(open)
@@ -59,12 +63,13 @@ function DeleteHere() {
                 Type <span className="font-mono text-slate-200">{email}</span> to confirm
                 <input className={`${emailField} mt-1`} value={typed} onChange={(event) => setTyped(event.target.value)} autoComplete="off" />
               </label>
+              <ProofField confirmWith={confirmWith} value={proof} onChange={setProof} />
               {remove.isError && blockers.length === 0 && <div className="text-sm text-red-300">{errorMessage(remove.error)}</div>}
               <div className="flex gap-2">
-                <button type="button" className={dangerButton} disabled={!confirmMatches(typed, email) || remove.isPending} onClick={() => remove.mutate(typed)}>
+                <button type="button" className={dangerButton} disabled={!confirmMatches(typed, email) || !proofReady(confirmWith, proof) || remove.isPending} onClick={() => remove.mutate({ confirm: typed, proof: proofSent(confirmWith, proof) })}>
                   {remove.isPending ? 'Removing…' : 'Delete my account'}
                 </button>
-                <button type="button" className={quietButton} onClick={() => { setOpen(false); setTyped('') }}>Keep it</button>
+                <button type="button" className={quietButton} onClick={() => { setOpen(false); setTyped(''); setProof({}) }}>Keep it</button>
               </div>
             </>
           )}

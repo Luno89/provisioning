@@ -133,7 +133,7 @@ function devGitea(): { url: string; mounts: string[] } {
   };
 }
 
-export async function startSplitStack(options: { engine?: boolean; hubGitea?: boolean } = {}): Promise<SplitStack> {
+export async function startSplitStack(options: { engine?: boolean; hubGitea?: boolean; rootEnv?: (rootUrl: string) => Promise<Record<string, string>> } = {}): Promise<SplitStack> {
   dotenv.config({ path: devFile('apps/backend/.env'), quiet: true });
   const names = splitNames(Date.now().toString(36));
   const ports: SplitPorts = {
@@ -205,7 +205,7 @@ export async function startSplitStack(options: { engine?: boolean; hubGitea?: bo
       mongoUri, now: new Date().toISOString(), place,
     });
 
-    const rootEnv = { ...draft({ id: 'pending', email: 'pending@split.test' }).rootEnv, ...shared(ports.rootGateway), ADMIN_SETUP_CODE: setupCode };
+    const rootEnv = { ...draft({ id: 'pending', email: 'pending@split.test' }).rootEnv, ...shared(ports.rootGateway), ADMIN_SETUP_CODE: setupCode, ...(options.rootEnv ? await options.rootEnv(place.rootUrl) : {}) };
     backend('root', rootEnv);
     backend('root-host', { ...rootEnv, HEALTH_PORT: '0', TEMPORAL_METRICS_PORT: String(ports.metrics) }, 'worker-host');
     await until('root answering', () => answers(`${place.rootUrl}/api/identity/keys`), () => logs('root'));

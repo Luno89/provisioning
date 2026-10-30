@@ -24,7 +24,7 @@ npm workspaces: `apps/*`, `packages/*`.
    - **Data kept only in memory** when the feature is a list of history the user comes back to.
    - **A field sent in a shape its consumer silently ignores.** `{ temperature }` where the model call reads `{ toolTurn, conversation }`.
 
-   Product-level mock modes this file documents (mock cloud mode on a dev box, the OAuth and Twilio fallbacks) are features, not stubs. Test doubles belong in tests.
+   Product-level mock modes this file documents (mock cloud mode on a dev box, the Twilio fallback) are features, not stubs. Test doubles belong in tests.
 2. **Proactive Questioning & Architectural Alignment**: If you are not 100% confident about requirements, terminology, design trade-offs, or system boundaries, STOP and ask the user directly before proceeding. Never guess or assume intent. Check existing plan documents (`~/.claude/plans/`, `CLAUDE.md`) and project history first so questions are informed and focused on unsettled decisions. Any architectural decision, abstraction boundary, or UX paradigm shift MUST be surfaced to the user for explicit review and sign-off.
 3. **Mandatory Live Operational E2E Verification**: Never declare any feature or capability "done" based solely on unit tests or typechecks. You MUST perform a live, end-to-end operational verification against the running application (e.g. authenticating, exercising actual HTTP/WebSocket routes, validating client payload contracts, verifying state mutations) proving the exact user flow succeeds end-to-end before concluding.
 
@@ -54,10 +54,11 @@ npm run test:monitoring-live      # a throwaway app on the system cluster → Mo
 npm run test:telemetry-live       # against the running dev stack: the collector and Tempo are on the system cluster (the cluster worker applied them if they were missing) → a throwaway account signs up with an admin's invite → one scripted turn through the check runner → one trace in Tempo, found by the id the request answered with, spans the request, the check workflow's start, the engine run's request, its workflow start and the model call, with nothing said in it → koala_up, the request, workflow, activity and model-call metrics are in Prometheus by name, labelled with the process → the Koala section on GET /api/infrastructure carries them → the stack stays; removes the scenario and the account, ~3 min
 npm run test:infrastructure-live   # Infrastructure reads the system cluster → a workload that cannot pull its image, put there by hand, shows in Needs attention and on the cluster page as not deployed through Koala, then leaves once removed → a Koala chat turn on a model that does not exist shows as failed work, opens its chat and clears → whatever the memory keeper keeps from the run and the quiet conversation is retired, ~15 min
 npm run test:hardening-live        # what production refuses and what it passes on: root's Caddy, the pool's proxy and an instance backend from this commit's image on a network of mesh addresses carry each visitor's address (the proxy as it was before made everyone root), and a caller around root's Caddy is taken for who they are whatever they claim → the backend and a worker without Temporal's CA, and an instance whose ROOT_URL is plain http to the open internet, stop with the reason → on a split stack (production containers), Provision a cluster offers k3d, a machine of the person's, Hetzner and DigitalOcean only, and the instance refuses an AWS, Google Cloud or Azure cluster as not available yet, recording nothing → a root that is not a lab refuses an instance's loopback, private and metadata addresses and, given one stored before, neither asks it how it signs in nor sends it a logout; in ship, ~4 min
-npm run test:dev-split-live        # its own root, instance and hub (tests/lib/split-stack.ts: containers from this commit's image on spare ports, each on a throwaway database, one Temporal namespace of their own, a mailbox) → signed out, the instance starts its sign-in through root's OpenID provider → the owner, made with root's setup code, is handed to the instance by code, PKCE and state, once and only in the browser that started it → root serves none of the instance's routes and the instance makes no accounts → a stranger with a root account is sent nowhere by root and stopped at the instance's own door → the instance's service token sends mail through root and a wrong credential is refused → the hub signs in through root too → the instance's connection to root: stopped, root emails the owner after a minute and once when it is back, and root stopped shows on the instance under Needs attention and clears → signing out everywhere on root ends the instance's and the hub's sessions at once and revokes a run's grant; in ship, ~6 min
+npm run test:dev-split-live        # its own root, instance and hub (tests/lib/split-stack.ts: containers from this commit's image on spare ports, each on a throwaway database, one Temporal namespace of their own, a mailbox) → root, given a stand-in OpenID provider through OIDC_*, offers it and not GitHub, refuses a sign-up through it without an invite, makes the account with the owner's invite and signs it in again by its subject → signed out, the instance starts its sign-in through root's OpenID provider → the owner, made with root's setup code, is handed to the instance by code, PKCE and state, once and only in the browser that started it → root serves none of the instance's routes and the instance makes no accounts → a stranger with a root account is sent nowhere by root and stopped at the instance's own door → the instance's service token sends mail through root and a wrong credential is refused → the hub signs in through root too → the instance's connection to root: stopped, root emails the owner after a minute and once when it is back, and root stopped shows on the instance under Needs attention and clears → signing out everywhere on root ends the instance's and the hub's sessions at once and revokes a run's grant; in ship, ~6 min
 npm run test:hub-live              # against the running dev stack (combined): an admin's invite signs up an owner, who makes two shared projects and invites a collaborator and a client to one and someone else to the other → root shows each invite signed out and signs up only the address invited → the outsider reaches nothing of the first project by id, guess or another's invite → each role can do only what it may → roles change, an invite is taken back, people are removed and leave, the last owner cannot → the owner's removal refused while they alone own a project someone else is on, the outsider's removal taking them off it → one project deleted by name and the owner's removal deleting the other, their databases gone, ~1 min
 npm run test:project-sharing-live  # against the running dev stack (combined): a throwaway project with a repository and a channel someone talked in → the group check refuses a dashed and a reserved name and suggests one from the project's name, sharing without a group is refused → the preview says what goes and stays, nothing is on the hub → shared under its group, which the preview and the hub's project carry, and a second project is refused that group → the channel arrives with its history and a new message follows → a commit on the owner's main reaches the hub's and one pushed to the hub's reaches the owner's → taken back by its name: the hub's database and repository are gone, everything stays on the instance → the group is free again and the second project is shared under it and taken back; the account removes itself, ~30 s
-npm run test:routes-live           # against the running dev stack: signed out, the guard answers before any router, the webhook and /ingress/verify before the guard and /api/metrics wants its token → a throwaway account signs up with an admin's invite → one request to each of the 59 mounted routers answers with the router's own response, never Express's "Cannot GET"; the account removes itself, ~5 s
+npm run test:account-hardening-live # its own root, instance and hub (split-stack, production containers, a mailbox): a short or leaked password is refused and no sign-up hands a code back → asking a reset answers alike for an address with no account and mails only one that has → signing out on the instance ends that session there and closes the connection made with it → the emailed code resets the owner's password, root's and the instance's sessions ending and the instance's open connection closed → changing a password asks the current one and ends every other session → two-factor goes on only with the password, then turning it off, deleting the account and changing the password are refused without a current code and the emailed one lets the change through → a sixth confirmation code in fifteen minutes is refused → signing out on root makes the cookie useless and closes its connection → wrong codes over two sign-ins lock the account's codes, which a password sign-in does not reset → ten wrong passwords lock it and email its person once, ending none of their sessions or connections, and the lock and the signed-out cookie survive root restarting; in ship, ~3 min
+npm run test:routes-live           # against the running dev stack: signed out, the guard answers before any router, the webhook and /ingress/verify before the guard and /api/metrics wants its token → a throwaway account signs up with an admin's invite → one request to each of the 60 mounted routers answers with the router's own response, never Express's "Cannot GET"; the account removes itself, ~5 s
 npm run test:app-names-live        # against the running dev stack: two owners each deploy an app called shop on the system cluster → both run, each in a namespace of its own (`<name>-<six of its id>`), each owner sees only theirs → a redeploy by the same owner goes to the same app, not a second one; destroys both and removes the second account, ~5 min
 npm run test:machine-container-live  # this computer's Docker: a workspace container starts the way a machine in container mode starts one → from inside it, changing the egress proxy's allowlist is refused with no token and a guessed one → it reaches only the host its allowlist names; removes the container and the proxy, ~1 min
 npm run test:app-sign-in-live         # against the running dev stack: a Hermes deploys on the system cluster with a password Koala made for it → Show sign-in gives its owner the login, never cached, and the listing carries no password → its Deployment holds only a secretKeyRef → the dashboard lets that password in and refuses admin/hermes123 and none; destroys it, ~5 min
@@ -183,7 +184,7 @@ Services live in their area's `services/` folder (`apps/backend/src/<area>/servi
 
 ## Auth
 
-All `/api/*` routes require a session (JWT in a `session` cookie) via `requireAuth` from `platform/middleware/auth.ts`'s `createAuth()`, mounted in `bootstrap()`, except `/auth/login`, `/auth/register`, `/auth/2fa/verify`, and the GitHub/Google OAuth routes. When `IS_E2E=true`, `requireAuth` short-circuits to a mock user so Playwright doesn't need to log in. GitHub/Google OAuth fall back to a zero-setup local mock flow when their client env vars are blank; 2FA SMS falls back to a logged warning when Twilio env vars are blank.
+All `/api/*` routes require a session (JWT in a `session` cookie) via `requireAuth` from `platform/middleware/auth.ts`'s `createAuth()`, mounted in `bootstrap()`, except `/auth/login`, `/auth/register`, `/auth/2fa/verify`, `/auth/password/forgot`, `/auth/password/forgot/resend`, `/auth/password/reset`, `/auth/sign-in` and the provider sign-in routes (`/auth/provider/:id`, `/auth/provider/:id/callback`). When `IS_E2E=true`, `requireAuth` short-circuits to a mock user so Playwright doesn't need to log in. 2FA SMS falls back to a logged warning when Twilio env vars are blank.
 
 **Who may sign in, and for how long** (security audit W2, owner 2026-10-26). The first account needs the setup code
 (`ADMIN_SETUP_CODE`, which `bootstrap.sh` writes and prints; a dev box without one makes a code at start and logs it while
@@ -195,19 +196,72 @@ stored only as `codeHash`, working for `INVITE_DAYS` (14), claimed in one condit
 password's hash, the invite's hash, the code's hash, gone after 30 minutes by a TTL index; `accounts/lib/sign-up.ts`), answering
 `{ verify }`; `/auth/register/verify` spends the invite, makes the account with `emailVerified: true` and signs it in, five wrong codes
 ending the sign-up, and `/auth/register/resend` sends a new code, five codes at most. Where no email can be sent, production refuses
-the sign-up and anywhere else the code is logged and handed back as `devCode`, which the live suites use (`tests/lib/sign-up.ts`; the
-VM suites' roots send it to a test mailbox and read it there). The first account, made with the setup code, still signs up at once
-(the setup code proves the operator, and root's mail may not deliver on day one) and is kept `emailVerified: false`. Google or
-GitHub joins an existing account by its email only when that account's address was confirmed (`providerMatch`).
-Every session is signed by `sessionToken` with when it began; `sessionsEndedAt` on the user refuses older ones (Settings →
-Signed in elsewhere, `POST /api/auth/sessions/end-others`, and any two-factor change), and a token without an expiry is
-refused. 2FA answers a login with a signed five-minute challenge (`twoFactorFor`, never a session), ends a challenge after
-five wrong codes, emails codes through the platform's mail and logs one only outside production. Google and GitHub carry a
-random state bound to a signed ten-minute cookie (`platform/lib/oauth-state.ts`, the Drive connection too), link an existing
-account only when the provider says the email is verified (GitHub's primary address), match later sign-ins by the
-provider's id, refuse an email linked to another account there, and ask the account's second factor too
-(`accounts/lib/provider-sign-in.ts`, `AuthService.signInWithProvider`, `?twoFactor=` back to the sign-in page). `IS_E2E`
-signs nobody in under `NODE_ENV=production`, which refuses to start with it.
+the sign-up and anywhere else the code is logged and handed back as `devCode`, which the live suites on the dev stack use
+(`tests/lib/sign-up.ts`, told which stack it tests: one in production containers reads the code from its test mailbox and fails on any
+`devCode`, and `test:account-hardening-live` checks no answer carries one). A sign-up of an address that already has an account answers
+exactly as a new one, and that address is emailed that it has an account instead of a code (`takenAddressMail`), so nobody learns who
+has one; sign-in checks a dummy hash when the account is missing (`passwordMatches`). The first account, made with the setup code, still signs up at once
+(the setup code proves the operator, and root's mail may not deliver on day one) and is kept `emailVerified: false`. A provider
+joins an existing account by its email only when that account's address was confirmed (`providerMatch`).
+**Every signed token says what it is for** (`signJWT(purpose, …)`/`verifyJWT(token, purpose, …)`: `session`, `client-session`,
+`two-factor`, `device`, `oauth-state`, `root-sign-in`), so one is never taken as another. A session (`sessionToken`) carries its own
+id (`jti`) and when it began (`sessionAt`); one without either is refused (`signedSession`), and `sessionsEndedAt` on the user refuses older
+ones (Settings → Signed in elsewhere, `POST /api/auth/sessions/end-others`, a password or two-factor change, a reset). **Signing out ends
+that session on the server** (`/auth/logout`, `Auth.endSession`): its id (an instance's or the hub's `sid`, whose client session is
+dropped too) goes into `endedSessions` until it would have expired, and `requireAuth` and the socket handshake refuse it from a set kept in
+memory (`SessionEnds`: loaded at start, added to as sessions end, read again every 30 s), so the check costs no read. **An open connection
+ends with its session**: the Socket.IO handshake (`signSocketsIn`, `platform/middleware/socket-sign-in.ts`) records which session and person
+each connection came from (`SessionSockets`), and a session signed out of closes its connections, while an event that ends a person's
+sessions (signing out everywhere, a password or two-factor change, a reset, a revocation from root) closes every connection of theirs from a
+session begun before it (`endsSocket`); the browser opens a connection the server closed once more with the cookie it holds now
+(`tryAgainAfter`), which a session that ended is refused. **Passwords** are 12
+characters or more and not on a list of leaked passwords (`accounts/lib/passwords.ts`; the list, the 30k of twelve characters or more from
+SecLists' NCSC top 100k and Pwdb top million at a pinned commit, lowercased, is `apps/backend/assets/breached-passwords.txt.gz`, built by
+`node scripts/breached-passwords.mjs` from the two `data` entries in `dependencies.pins.json`, `--check` proving it; nothing is fetched at
+sign-in); a password set before still signs in. **A forgotten password** is reset by a six-digit emailed code as a sign-up is confirmed
+(`PasswordService`, `/api/auth/password/forgot` → `{ reset }`, `/forgot/resend`, five codes at most, `/reset` with the code and the new
+password, five wrong codes ending it, `passwordResets` gone after 30 minutes); an address with no account gets the same answer and no email,
+production without email refuses it, and a reset ends every session of the account and fires `password-or-2fa`, so the instances and the
+hub drop theirs; it signs nobody in. **Changing a password** (Settings → Password, `POST /api/auth/password`) asks the current one, and a
+current code too with two-factor on. **Risky changes ask for proof** (owner, 2026-10-30): turning two-factor on or off or changing how it
+sends, changing the password and starting the account's removal take a current code (`POST /api/auth/confirm/code` sends one, at most five
+an account in fifteen minutes, counted in `signInAttempts` and answered 429 with why past that (`CONFIRM_CODES`); an account with
+no password and two-factor off gets it by email) or, with two-factor off, the password (`confirmWith` on `/api/auth/me`,
+`AuthService.confirmProblem`); removal asks it only once nothing else refuses. Koala has no way to change an account's email. **2FA** answers a
+login with a signed five-minute challenge (never a session); its codes (`sign-in` and `confirm`) are kept hashed in `twoFactorCodes` and
+**wrong ones count per account**, across challenges: five in fifteen minutes refuse every code and every new one for fifteen minutes, and a
+correct password does not start the count again (`TWO_FACTOR_LOCKOUT`). Codes go by the platform's mail or Twilio, and are logged only
+outside production. `IS_E2E` signs nobody in under `NODE_ENV=production`, which refuses to start with it.
+
+**Signing in with Google, GitHub or an organisation's own OpenID provider** (owner, 2026-10-30; only where accounts are held,
+root and combined). Every provider is one description and one client, as DNS providers are:
+- `accounts/lib/sign-in-providers.ts` describes each (`SIGN_IN_PROVIDERS`: id, label, kind `oidc` with its issuer or `github`
+  with GitHub's addresses, scopes, and the env names its credentials come from) and holds the pure rules: `signInProvidersFrom`
+  (a provider is offered only when its credentials are all set; a half-set one is left out and logged), `offeredProviders`,
+  `providerCallbackUrl`, `identityFromIdToken`. Google is `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` at `https://accounts.google.com`;
+  GitHub is `GITHUB_CLIENT_ID`/`GITHUB_CLIENT_SECRET`; an organisation's own is `OIDC_ISSUER`, `OIDC_CLIENT_ID`,
+  `OIDC_CLIENT_SECRET` and `OIDC_LABEL` (the button's words). An issuer is https, or plain http only on this machine's loopback.
+- `accounts/services/sign-in/` holds the clients (`SignInClient`: `authorizationUrl`, `identify`), registered by kind in
+  `SIGN_IN_CLIENTS`, and `SignInProviders`, the service the routes call (`offered`, `start`, `finish`). `oidc.ts` is
+  `openid-client`: discovery, the code flow with PKCE (S256), a state and a nonce, and the ID token's signature checked against the
+  issuer's keys (`enableNonRepudiationChecks`), with its issuer, audience, nonce and expiry; who it is comes from `sub`, `email` and
+  `email_verified`, scopes `openid email profile` only. `github.ts` is OAuth with PKCE (GitHub's web flow takes S256), then the
+  account id and the primary address with whether GitHub verified it.
+- The browser reads `GET /api/auth/sign-in` (`{ url: null, providers }`), and the Login page shows a button for each and nothing
+  else. `GET /api/auth/provider/:id` starts one (`?invite=` carried), answering 404 for one not configured; the state, the PKCE
+  verifier, the nonce and the provider's id ride in the signed ten-minute `oauth_state` cookie (`platform/lib/oauth-state.ts`, the
+  Drive connection too), so a callback from another browser, with another state or at another provider's callback is refused.
+  The redirect URI to register with each provider is `<PUBLIC_URL>/api/auth/provider/<id>/callback`.
+- An account holds its providers as `signInLinks` (issuer and subject; the startup migration `sign-in-links` moved the old
+  `googleId`/`githubId`). A new account needs an invite, as any sign-up; a provider links an existing account only when it says
+  the email is verified and the account confirmed that address; later sign-ins match by the link alone; an email whose account is
+  linked to another subject at that issuer is refused; and the account's second factor is asked too
+  (`accounts/lib/provider-sign-in.ts`, `AuthService.signInWithProvider`, `?twoFactor=` back to the sign-in page).
+  `npm run accounts -w apps/backend -- prepare-provider-link <user-id> <email>` sets an account's address, confirmed, and forgets
+  its links, so the next provider sign-in naming that address joins it.
+- There is no pretend provider. Tests run a real `oidc-provider` on loopback as the issuer
+  (`accounts/services/sign-in/stand-in-issuer.ts`, which can also forge a bad signature, audience, nonce or issuer), and
+  `test:dev-split-live` gives its root one through `OIDC_*` and signs up, is refused and signs in again through it.
 
 **Limits and headers.** Sign-in, sign-up, 2FA, handoffs, invites, joins and share links are rate limited per address
 (`platform/lib/http-limits.ts`, mounted on `/api` before the guard; sign-in and joining count only **failed** requests
@@ -221,8 +275,12 @@ root while responses come back (time to their headers) no slower than twice thei
 it, Netflix's gradient limit, between 10 and 200; loopback, private and mesh addresses (the host's own processes, pods, machines) are
 not limited, nor an instance's relay long-poll, `index.test.ts` guards its place, an account is locked for fifteen minutes after ten wrong
 passwords (`lockedUntil`) to every browser but one it signed in on before: a full sign-in leaves a signed `device` cookie naming the account
-(`deviceToken`), and that browser's failures are counted on their own (`attemptsKeyFor`, `SignInAttemptLog`, pruned as failures age out), so
-nobody can lock a person out of their own browser by guessing, every response carries `helmet`'s headers, and the proxy is trusted in production
+(`deviceToken`), and that browser's failures are counted on their own (`attemptsKeyFor`, `SignInAttemptLog`), so
+nobody can lock a person out of their own browser by guessing; the counts live in `signInAttempts` (one atomic update a failure, gone by TTL
+once they can no longer lock), so a restart keeps a lockout, and when an account is locked to strangers its person is emailed and pushed once,
+saying someone tried their password ten times from that address, the account is locked to other browsers for fifteen minutes and they may
+want to change their password (`lockNotice`, owner 2026-10-30); a lock ends no session and stops no run, since anyone can lock an account by
+guessing, every response carries `helmet`'s headers, and the proxy is trusted in production
 (`trustProxyFor`: the one hop in front, so `req.ip` is the visitor). **Every hop in front of a backend says who the visitor is**: root's
 Caddy, on the host's network, sets `X-Forwarded-For` to its peer and ignores what a visitor claims, and that is the one hop in front
 of root and of an instance on its owner's machine (reached over the mesh through a NodePort); a pool instance is two hops behind, so
@@ -375,7 +433,7 @@ provider (below) revokes the person's tokens and sends each client a back-channe
 `AccessRevocations`; root acts only on an event that ends sessions (`endsSessions`, never a shared project's). A hub member's removal or
 leaving (`removed-from-shared-project`, with the shared project's id) fires it in process where the hub shares the owner's process, and on a
 hub of its own becomes a `member-removed` request the owner's instance carries out (`HubInstanceWork`), kept off the members' board and
-taken from nobody but the hub. Nothing fires `locked` yet: no route locks an account. The engine core listens and revokes that person's
+taken from nobody but the hub. The engine core listens and revokes that person's
 live grants (what they started; every one on account removal; only that shared project's on a hub removal) and signals each run `revokeRun`. The run then refuses every call, stops,
 and gets one last model turn (`EngineHandoverActivity`, behind the `run-grants` patch) offering only `leave_handover_note`, which keeps the
 note with the run and writes `handover/<run>.md` in its workspace, marked as written after access was revoked; a model that cannot answer
@@ -674,7 +732,9 @@ member sees everything in the project, the code and every file included (owner, 
 Settings → People, `origin` the project, opened again rather than made twice), invites, roles, remove/leave, delete (typing
 the name drops its database), invitations. **Inviting goes through root**: the hub posts to root's `/api/hub-link/invite`
 with its credential (root knows it by `HUB_URL` and `HUB_CREDENTIAL_HASH`; combined calls `ProjectInviteService` in
-process), root makes an invite code bound to that email (`checkAndConsumeInvite` refuses any other address), emails
+process) and the inviting member's own access token from root (`RootSignIn.personToken`, kept sealed with their client session),
+from which root reads who invites (`RootProvider.personAtHub`: a live token root issued to the hub), never from what the hub says, so the
+hub cannot name an operator to skip the limits below; root makes an invite code bound to that email (`checkAndConsumeInvite` refuses any other address), emails
 `<root>/#/join?code=…&project=<join token>` when it sends mail and otherwise hands the link back to show. **Project invites are limited**
 (security audit D4, owner 2026-10-26): root counts each person's invites that would make an account (`makesAccount`; inviting
 someone who already has one counts nothing) while used or unexpired, and refuses past their allowance (10 by default, or their
@@ -1861,7 +1921,7 @@ typecheck + lint + both unit suites before anything reaches `main`. Each rule be
 - **One router per URL prefix in `src/<area>/routes/<domain>.ts`, exported as a factory** taking its deps,
   so `src/platform/routes/test-harness.ts` can mount it without booting the app.
 - **A test may not re-declare the logic it tests.** Two security tests did, and could not fail —
-  see `platform/lib/ownership.ts` and `accounts/lib/oauth-gate.ts`.
+  see `platform/lib/ownership.ts` (the other guarded a pretend Google sign-in, since removed).
 - **Route order in `bootstrap()` is load-bearing**: the Gitea webhook must stay before
   `express.json()` (it verifies an HMAC over the raw body), `app.use('/api', requireAuth)` before
   every `/api` router, and the SPA catch-all last.
@@ -1897,7 +1957,7 @@ instance, without passing its gates first (owner, 2026-10-23: "all those checks 
   runs whose fix is due: production packages in `package-lock.json`; a fix published under 14 days ago waits and is listed with the day it
   can be taken, one 14 days old or more fails ship until `npm run deps:update -- <package>` takes it (the newest version two weeks old in
   the major it is on, an override when no workspace names it), and those with no fix yet are kept in `osv-scanner.toml` with why), then **G1** (typecheck, the unit suites, lint) and **G2** (`SHIP_STEPS` in `tests/lib/gates.ts`: routes,
-  sign-in across a root, an instance and a hub of the suite's own, Connect OpenRouter, a project shared from that instance and
+  sign-in across a root, an instance and a hub of the suite's own, passwords, codes, sign-out and lockout on a root of its own, Connect OpenRouter, a project shared from that instance and
   worked on that hub, account removal, hub, project sharing,
   telemetry, app names, files, the Odoo release and every mechanics check, each through its npm script against the dev stack), failing at the first that fails. Every mechanics check has to pass
   (`CHECKS_LIVE_ALL_PASS`), three check runs side by side (`CHECKS_LIVE_TOGETHER`, each check already in a space of its own): on its own `test:checks-live` only proves the check runner, since checks on a model vary. After each step it checks the checkout

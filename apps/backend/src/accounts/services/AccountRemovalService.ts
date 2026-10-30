@@ -140,7 +140,7 @@ export class AccountRemovalService {
     return { email: user.email, blockers, ...(instance ? { instance: instanceOf(instance) } : {}) };
   }
 
-  async remove(request: RemovalRequest, requester: Principal): Promise<{ ok: true; state: RemovalWorkflowState } | { ok: false; refusal: RemovalRefusal }> {
+  async remove(request: RemovalRequest, requester: Principal, proven?: () => Promise<RemovalRefusal | undefined>): Promise<{ ok: true; state: RemovalWorkflowState } | { ok: false; refusal: RemovalRefusal }> {
     const world = await this.world();
     const target = world.users.find((entry) => entry.id === request.ownerId);
     const refusal = refuseRemoval(request, { ...world, requester });
@@ -152,8 +152,10 @@ export class AccountRemovalService {
     if (this.deps.hub) {
       const blockers = await this.deps.hub.blockers(request.ownerId);
       if (blockers.length > 0) return { ok: false, refusal: { status: 409, error: 'The account cannot be removed yet', blockers } };
-      await this.deps.hub.letGo(request.ownerId);
     }
+    const unproven = await proven?.();
+    if (unproven) return { ok: false, refusal: unproven };
+    if (this.deps.hub) await this.deps.hub.letGo(request.ownerId);
     const startedAt = this.now();
     await this.deps.store.accounts.saveUser({ ...target!, removal: { startedAt, requestedBy: request.requestedBy } });
     await this.deps.revocations?.revoked({ personId: request.ownerId, because: 'account-removed', at: startedAt });

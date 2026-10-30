@@ -5,7 +5,7 @@ import { fileURLToPath } from 'url';
 dotenv.config({ path: fileURLToPath(new URL('../apps/backend/.env', import.meta.url)) });
 import axios, { type AxiosInstance } from 'axios';
 import { createDatabase } from '../apps/backend/src/platform/lib/db-interface.js';
-import { signJWT } from '../apps/backend/src/platform/lib/auth.js';
+import { sessionToken } from '../apps/backend/src/platform/lib/auth.js';
 import { loadKeys } from '../apps/backend/src/platform/lib/keys.js';
 import { getTemporalClient } from '../apps/backend/src/platform/lib/temporal-client.js';
 import { workflowOfRun } from '../apps/backend/src/engine-host/temporal/contracts.js';
@@ -144,7 +144,7 @@ async function main(): Promise<void> {
   assert.ok(owner, 'set FILES_LIVE_OWNER, or run MinIO for someone first');
   const user = await db.accounts.getUserById(owner);
   assert.ok(user, 'no such user');
-  api = axios.create({ baseURL: BASE, proxy: false, validateStatus: () => true, headers: { Cookie: `session=${signJWT({ userId: user.id, email: user.email }, loadKeys(process.env).session, 4 * 3600)}` } });
+  api = axios.create({ baseURL: BASE, proxy: false, validateStatus: () => true, headers: { Cookie: `session=${sessionToken(user, loadKeys(process.env).session, { seconds: 4 * 3600 })}` } });
   const temporal = await getTemporalClient();
   const runIds = new Set<string>();
   const began = new Date().toISOString();

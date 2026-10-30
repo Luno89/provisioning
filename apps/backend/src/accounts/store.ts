@@ -5,6 +5,9 @@ import type { InviteMetadata, UserMetadata } from '../platform/index.js';
 import type { InviteLimits } from './lib/project-invite-limits.js';
 import { SIGN_UP_CODES_SENT, type PendingSignUp } from './lib/sign-up.js';
 import { inviteCodeHash } from '../platform/lib/invite-codes.js';
+import { linksFromLegacyIds, type LegacyProviderIds } from './lib/provider-sign-in.js';
+import type { TwoFactorCode } from './lib/second-factor.js';
+import { RESET_CODES_SENT, type PasswordReset } from './lib/password-reset.js';
 
 export const FIRST_ADMIN_INVITE = 'first-admin';
 
@@ -17,7 +20,8 @@ export interface AccountsStore extends AreaStore {
   saveUser(user: UserMetadata): Promise<void>;
   saveUserList(users: UserMetadata[]): Promise<void>;
   getUserByEmail(email: string): Promise<UserMetadata | undefined>;
-  getUserByProvider(field: 'githubId' | 'googleId', id: string): Promise<UserMetadata | undefined>;
+  getUserBySignInLink(issuer: string, subject: string): Promise<UserMetadata | undefined>;
+  moveProviderIdsToLinks(): Promise<number>;
   getUserById(id: string): Promise<UserMetadata | undefined>;
   deleteUser(id: string): Promise<void>;
   getInvites(): Promise<InviteMetadata[]>;
@@ -30,6 +34,15 @@ export interface AccountsStore extends AreaStore {
   wrongSignUpCode(id: string): Promise<number>;
   newSignUpCode(id: string, codeHash: string, expiresAt: Date): Promise<boolean>;
   deletePendingSignUp(id: string): Promise<boolean>;
+  saveTwoFactorCode(code: TwoFactorCode): Promise<void>;
+  getTwoFactorCode(id: string): Promise<TwoFactorCode | undefined>;
+  takeTwoFactorCode(id: string): Promise<boolean>;
+  dropTwoFactorCodesOf(ownerId: string): Promise<void>;
+  savePasswordReset(reset: PasswordReset): Promise<void>;
+  getPasswordReset(id: string): Promise<PasswordReset | undefined>;
+  wrongResetCode(id: string): Promise<number>;
+  newResetCode(id: string, codeHash: string, expiresAt: Date): Promise<boolean>;
+  deletePasswordReset(id: string): Promise<boolean>;
   hashInviteCodes(expiresAt: string): Promise<number>;
   claimFirstAdmin(userId: string, at: string): Promise<boolean>;
   saveInvite(invite: InviteMetadata): Promise<void>;
@@ -56,6 +69,14 @@ export class MongoAccountsStore implements AccountsStore {
     return this.db().collection('pendingSignUps');
   }
 
+  private get passwordResets(): Collection {
+    return this.db().collection('passwordResets');
+  }
+
+  private get twoFactorCodes(): Collection {
+    return this.db().collection('twoFactorCodes');
+  }
+
   private get pipelineRuns(): Collection {
     return this.db().collection('pipelineRuns');
   }
@@ -70,8 +91,12 @@ export class MongoAccountsStore implements AccountsStore {
 
   async ensureIndexes(): Promise<void> {
     await this.users.createIndex({ email: 1 }, { unique: true });
+    await this.users.createIndex({ 'signInLinks.issuer': 1, 'signInLinks.subject': 1 });
     await this.invites.createIndex({ codeHash: 1 });
     await this.pendingSignUps.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
+    await this.passwordResets.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
+    await this.twoFactorCodes.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
+    await this.twoFactorCodes.createIndex({ ownerId: 1 });
   }
 
   async getInvites(): Promise<InviteMetadata[]> {
@@ -120,6 +145,51 @@ export class MongoAccountsStore implements AccountsStore {
 
   async deletePendingSignUp(id: string): Promise<boolean> {
     return (await this.pendingSignUps.deleteOne({ _id: id as never })).deletedCount === 1;
+  }
+
+  async saveTwoFactorCode(code: TwoFactorCode): Promise<void> {
+    const { id, ...rest } = code;
+    await this.twoFactorCodes.replaceOne({ _id: id as never }, rest, { upsert: true });
+  }
+
+  async getTwoFactorCode(id: string): Promise<TwoFactorCode | undefined> {
+    const doc = await this.twoFactorCodes.findOne({ _id: id as never });
+    if (!doc) return undefined;
+    return { id: String(doc._id), ownerId: String(doc.ownerId), codeHash: String(doc.codeHash), expiresAt: doc.expiresAt as Date };
+  }
+
+  async takeTwoFactorCode(id: string): Promise<boolean> {
+    return (await this.twoFactorCodes.deleteOne({ _id: id as never })).deletedCount === 1;
+  }
+
+  async dropTwoFactorCodesOf(ownerId: string): Promise<void> {
+    await this.twoFactorCodes.deleteMany({ ownerId });
+  }
+
+  async savePasswordReset(reset: PasswordReset): Promise<void> {
+    const { id, ...rest } = reset;
+    await this.passwordResets.replaceOne({ _id: id as never }, rest, { upsert: true });
+  }
+
+  async getPasswordReset(id: string): Promise<PasswordReset | undefined> {
+    const doc = await this.passwordResets.findOne({ _id: id as never });
+    if (!doc) return undefined;
+    const { _id, ...rest } = doc;
+    return { id: String(_id), ...rest } as PasswordReset;
+  }
+
+  async wrongResetCode(id: string): Promise<number> {
+    const doc = await this.passwordResets.findOneAndUpdate({ _id: id as never }, { $inc: { wrong: 1 } }, { returnDocument: 'after' });
+    return typeof doc?.wrong === 'number' ? doc.wrong : Number.POSITIVE_INFINITY;
+  }
+
+  async newResetCode(id: string, codeHash: string, expiresAt: Date): Promise<boolean> {
+    const sent = await this.passwordResets.updateOne({ _id: id as never, sent: { $lt: RESET_CODES_SENT } }, { $set: { codeHash, expiresAt }, $inc: { sent: 1 } });
+    return sent.modifiedCount === 1;
+  }
+
+  async deletePasswordReset(id: string): Promise<boolean> {
+    return (await this.passwordResets.deleteOne({ _id: id as never })).deletedCount === 1;
   }
 
   async claimFirstAdmin(userId: string, at: string): Promise<boolean> {
@@ -239,9 +309,18 @@ export class MongoAccountsStore implements AccountsStore {
     return doc ? fromDoc<UserMetadata>(doc) : undefined;
   }
 
-  async getUserByProvider(field: 'githubId' | 'googleId', id: string): Promise<UserMetadata | undefined> {
-    const doc = await this.users.findOne({ [field]: id });
+  async getUserBySignInLink(issuer: string, subject: string): Promise<UserMetadata | undefined> {
+    const doc = await this.users.findOne({ signInLinks: { $elemMatch: { issuer, subject } } });
     return doc ? fromDoc<UserMetadata>(doc) : undefined;
+  }
+
+  async moveProviderIdsToLinks(): Promise<number> {
+    let moved = 0;
+    for (const doc of await this.users.find({ $or: [{ googleId: { $exists: true } }, { githubId: { $exists: true } }] }).toArray()) {
+      await this.users.updateOne({ _id: doc._id }, { $set: { signInLinks: linksFromLegacyIds(doc as LegacyProviderIds) }, $unset: { googleId: '', githubId: '' } });
+      moved += 1;
+    }
+    return moved;
   }
 
   async getUserById(id: string): Promise<UserMetadata | undefined> {

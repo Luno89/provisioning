@@ -44,6 +44,8 @@ export interface HubWiringDeps {
   revocations?: Pick<AccessRevocations, 'revoked'> | undefined;
   serviceCaller?: ((token: string) => Promise<{ clientId: string; kind: 'instance' | 'hub' } | undefined>) | undefined;
   rootToken?: (() => Promise<string>) | undefined;
+  personAtHub?: ((token: string) => Promise<string | undefined>) | undefined;
+  vouch?: ((req: express.Request) => Promise<string | undefined>) | undefined;
 }
 
 export interface HubWiring {
@@ -57,7 +59,7 @@ export interface HubWiring {
 export async function wireHub(deps: HubWiringDeps): Promise<HubWiring> {
   const { role, env, app, tenant, db } = deps;
   const projectInvites = holdsAccounts(role) ? new ProjectInviteService({ invites: db.accounts, people: db.accounts, principalFor: (user) => principalOf(user, claimSettingsFrom(role)), limits: () => db.accounts.getInviteLimits(), mail: deps.mail, rootUrl: deps.publicUrl }) : undefined;
-  if (projectInvites) app.use('/api/hub-link', hubLinkRouter({ invites: projectInvites, credentialHash: role.hubLink?.credentialHash, hash: hashCredential, signInKeys: { get: () => db.instances.getHubSignInKey(), save: (key) => db.instances.saveHubSignInKey(key) }, serviceCaller: deps.serviceCaller }));
+  if (projectInvites) app.use('/api/hub-link', hubLinkRouter({ invites: projectInvites, credentialHash: role.hubLink?.credentialHash, hash: hashCredential, signInKeys: { get: () => db.instances.getHubSignInKey(), save: (key) => db.instances.saveHubSignInKey(key) }, serviceCaller: deps.serviceCaller, personAtHub: deps.personAtHub, people: db.accounts }));
 
   let hubService: HubService | undefined;
   if (servesHub(role)) {
@@ -68,7 +70,7 @@ export async function wireHub(deps: HubWiringDeps): Promise<HubWiring> {
     const sender = role.hub && deps.rootToken ? new HubRootClient({ rootUrl: role.hub.rootUrl, token: deps.rootToken }) : projectInvites;
     if (!sender) throw new Error('a hub needs root to send its invites');
     hubService = new HubService({ store: hubStore, invites: sender, repos: giteaHubRepos(deps.gitea), relay: new HubRelay(), ...(deps.revocations && servesTenants(deps.role) ? { revocations: deps.revocations } : {}) });
-    app.use('/api/hub', hubRouter({ hub: hubService }));
+    app.use('/api/hub', hubRouter({ hub: hubService, vouch: deps.vouch }));
     if (role.role === 'hub' && role.trusted) app.use('/api/hub-instance', hubInstanceRouter({ hub: hubService, trusted: role.trusted, claim: (jti, expiresAt) => db.instances.claimHandoff(jti, expiresAt) }));
     if (role.role === 'hub' && role.trusted) app.use('/api/hub-root', hubRootRouter({ hub: hubService, trusted: role.trusted, forget: (id) => db.accounts.deleteUser(id), claim: (jti, expiresAt) => db.instances.claimHandoff(jti, expiresAt) }));
   }

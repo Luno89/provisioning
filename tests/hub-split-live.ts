@@ -86,7 +86,7 @@ async function stages(stack: SplitStack): Promise<void> {
     const inviteCode = link.searchParams.get('code')!;
     const joinToken = link.searchParams.get('project')!;
     assert.ok(inviteCode && joinToken, `the invite link carries no code: ${String((invited.body as { link: string }).link)}`);
-    const signedUp = await signUp(`${rootUrl}/api`, { email, password: `pw-${names.stamp}-${name}-long`, inviteCode }, { mailpitApi: stack.mailpitApi });
+    const signedUp = await signUp(`${rootUrl}/api`, { email, password: `pw-${names.stamp}-${name}-long`, inviteCode }, { production: true, mailpitApi: stack.mailpitApi });
     const rootCookie = sessionCookieOf(signedUp);
     assert.ok(rootCookie && signedUp.user, `${name} could not sign up on root: ${signedUp.status} ${signedUp.error ?? ''}`);
     const hub = await hubSession(stack, rootCookie, `/hub/join/${joinToken}`);

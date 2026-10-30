@@ -30,7 +30,7 @@ export function sendRelayed(res: Response, answer: RelayAnswer, inline: boolean,
   answer.stream.pipe(res);
 }
 
-export function hubRouter(deps: { hub: HubService }): Router {
+export function hubRouter(deps: { hub: HubService; vouch?: ((req: Request) => Promise<string | undefined>) | undefined }): Router {
   const router = Router();
 
   router.get('/projects', asyncRoute(async (req, res) => {
@@ -46,7 +46,7 @@ export function hubRouter(deps: { hub: HubService }): Router {
   }));
 
   router.post('/projects/:id/invites', asyncRoute(async (req, res) => {
-    answer(res, await deps.hub.invite(personOf(req), param(req, 'id'), { email: req.body?.email, role: req.body?.role }), 201);
+    answer(res, await deps.hub.invite({ ...personOf(req), vouch: async () => deps.vouch?.(req) }, param(req, 'id'), { email: req.body?.email, role: req.body?.role }), 201);
   }));
 
   router.delete('/projects/:id/invites', asyncRoute(async (req, res) => {

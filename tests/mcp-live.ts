@@ -5,7 +5,7 @@ import { fileURLToPath } from 'url';
 dotenv.config({ path: fileURLToPath(new URL('../apps/backend/.env', import.meta.url)) });
 
 import axios, { type AxiosInstance } from 'axios';
-import { signJWT } from '../apps/backend/src/platform/lib/auth.js';
+import { sessionToken } from '../apps/backend/src/platform/lib/auth.js';
 import { createDatabase } from '../apps/backend/src/platform/lib/db-interface.js';
 import { slugify } from '../apps/backend/src/engine/lib/mcp-tools.js';
 import { loadKeys } from '../apps/backend/src/platform/lib/keys.js';
@@ -61,7 +61,7 @@ async function main(): Promise<void> {
   const user = await db.accounts.getUserById(ownerId);
   assert.ok(user);
   const secret = loadKeys(process.env).session;
-  const cookie = `session=${signJWT({ userId: user.id, email: user.email }, secret, 3600)}`;
+  const cookie = `session=${sessionToken(user, secret, { seconds: 3600 })}`;
   const http = axios.create({ baseURL: BASE, proxy: false, headers: { Cookie: cookie } });
 
   const servers = (await http.get('/mcp/servers')).data as { name: string; tools: { name: string }[]; unreachable?: string }[];

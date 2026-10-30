@@ -2,8 +2,16 @@ export { memoryWatermarkKeys, ownedWorkflowIds } from './lib/account-removal.js'
 export type { AccountIds, AccountRelated } from './lib/account-removal.js';
 export { accountsMadeBy, DEFAULT_INVITE_LIMITS, limitsProblem, projectInviteRefusal } from './lib/project-invite-limits.js';
 export type { InviteLimits } from './lib/project-invite-limits.js';
+export { readiedForProviderLink } from './lib/provider-sign-in.js';
+export { signInProvidersFrom } from './lib/sign-in-providers.js';
+export { emailProblem, normalEmail } from './lib/sign-up.js';
 export { authRouter } from './routes/auth.js';
+export { devicesFor } from './routes/device.js';
+export { passwordRouter } from './routes/password.js';
 export { temporalRemovalWorkflows } from './services/AccountRemovalService.js';
 export type { AccountRemovalWorkflows, RemovalWorkflowState } from './services/AccountRemovalService.js';
 export { AuthService } from './services/AuthService.js';
+export { PasswordService } from './services/PasswordService.js';
+export { loadBreachedPasswords } from './services/breached-passwords.js';
+export { SignInProviders } from './services/sign-in/SignInProviders.js';
 export type { AccountsStore } from './store.js';

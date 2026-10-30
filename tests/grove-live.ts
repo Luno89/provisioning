@@ -10,7 +10,7 @@ import { loadKeys } from '../apps/backend/src/platform/lib/keys.js';
 import axios from 'axios';
 import { treeRepoName, treeWorkspaceRunId } from '../apps/backend/src/engine-host/sandboxes/tree-workspaces.js';
 import { conversationRepoName } from '../apps/backend/src/engine-host/sandboxes/workspace-repos.js';
-import { signJWT } from '../apps/backend/src/platform/lib/auth.js';
+import { sessionToken } from '../apps/backend/src/platform/lib/auth.js';
 import { createKubeRunner } from '../apps/backend/src/engine-host/sandboxes/kube.js';
 import { workspaceName } from '../apps/backend/src/engine-host/sandboxes/workspace.js';
 
@@ -36,7 +36,7 @@ async function main(): Promise<void> {
   const client = await getTemporalClient();
   const user = await db.accounts.getUserById(OWNER);
   assert.ok(user, 'no such user');
-  const http = axios.create({ baseURL: BASE, proxy: false, headers: { Cookie: `session=${signJWT({ userId: user.id, email: user.email }, loadKeys(process.env).session, 7200)}` } });
+  const http = axios.create({ baseURL: BASE, proxy: false, headers: { Cookie: `session=${sessionToken(user, loadKeys(process.env).session, { seconds: 7200 })}` } });
   const gitea = new GiteaService(new InfrastructureService(), loadKeys(process.env).data, '/tmp/kubeconfig-provisioning-lunorica');
 
   console.log(`[1/4] the planner proposes (${elapsed(started)})`);

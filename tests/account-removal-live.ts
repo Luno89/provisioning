@@ -7,7 +7,7 @@ import axios from 'axios';
 import { MongoClient } from 'mongodb';
 import { createDatabase } from '../apps/backend/src/platform/lib/db-interface.js';
 import { mongoTarget } from '../apps/backend/src/platform/lib/mongo-db.js';
-import { signJWT } from '../apps/backend/src/platform/lib/auth.js';
+import { sessionToken } from '../apps/backend/src/platform/lib/auth.js';
 import { loadKeys } from '../apps/backend/src/platform/lib/keys.js';
 import { getTemporalClient } from '../apps/backend/src/platform/lib/temporal-client.js';
 import { ACCOUNT_DATA, removeAccountWorkflowId } from '../apps/backend/src/accounts/lib/account-removal.js';
@@ -52,7 +52,7 @@ async function main(): Promise<void> {
   await db.init();
   const admin = await db.accounts.getUserById(ADMIN);
   assert.ok(admin?.roles?.includes('operator'), `${ADMIN} is not an admin`);
-  const session = (user: { id: string; email: string }) => `session=${signJWT({ userId: user.id, email: user.email }, loadKeys(process.env).session, 3600)}`;
+  const session = (user: { id: string; email: string }) => `session=${sessionToken(user, loadKeys(process.env).session, { seconds: 3600 })}`;
   const as = (cookie: string) => axios.create({ baseURL: BASE, proxy: false, headers: { Cookie: cookie }, validateStatus: () => true });
   const adminHttp = as(session(admin));
   const gitea = new GiteaService(new InfrastructureService(), loadKeys(process.env).data, '/tmp/kubeconfig-provisioning-lunorica');
@@ -65,7 +65,7 @@ async function main(): Promise<void> {
   try {
     const http = await stage('a new account is invited and registered', async () => {
       const invite = (await adminHttp.post('/admin/invites')).data as { code: string };
-      const registered = await signUp(BASE, { email, password, inviteCode: invite.code });
+      const registered = await signUp(BASE, { email, password, inviteCode: invite.code }, { production: false });
       assert.equal(registered.status, 200, registered.error);
       ownerId = (await db.accounts.getUserByEmail(email))!.id;
       return as(session({ id: ownerId, email }));
@@ -82,10 +82,12 @@ async function main(): Promise<void> {
       return account.username;
     });
 
-    await stage('removal is refused without the email typed, then starts and signs the account out', async () => {
+    await stage('removal is refused without the email typed or without the password, then starts and signs the account out', async () => {
       assert.deepEqual((await http.get('/account/removal')).data, { email, blockers: [] });
-      assert.equal((await http.delete('/account', { data: { confirm: 'nope' } })).status, 400);
-      const removed = await http.delete('/account', { data: { confirm: email } });
+      assert.equal((await http.delete('/account', { data: { confirm: 'nope', password } })).status, 400);
+      assert.equal((await http.delete('/account', { data: { confirm: email } })).status, 403);
+      assert.equal((await http.delete('/account', { data: { confirm: email, password: 'not-the-password-at-all' } })).status, 403);
+      const removed = await http.delete('/account', { data: { confirm: email, password } });
       assert.equal(removed.status, 202, JSON.stringify(removed.data));
       assert.match(String(removed.headers['set-cookie'] ?? ''), /session=;/, 'the session cookie was not cleared');
       assert.equal((await http.get('/conversations')).status, 401, 'the old session still works');

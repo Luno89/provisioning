@@ -12,14 +12,14 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 import { Server as SocketServer } from 'socket.io';
 
-import { authRouter, AuthService } from './accounts/index.js';
+import { authRouter, AuthService, devicesFor, loadBreachedPasswords, passwordRouter, PasswordService, SignInProviders, signInProvidersFrom } from './accounts/index.js';
 import helmet from 'helmet';
 import {
   CSP_REPORT_LIMIT, CSP_REPORT_PATH, cspHeader, cspModeFrom, violationLine, crossSiteRefusal, foreignOrigin, ourOrigins, MetricsService, JSON_LIMITS, jsonLimitFor, RATE_LIMITS, ruleFor,
   getTemporalClient, resolveOwnersWith, PayloadStorageService, createAuth, inFlightLimit, keepTrying, mongoTarget, asyncRoute,
   TEMPORAL_JWKS_PATH, temporalCa, temporalTlsProblem, temporalKeysRouter, trustProxyFor, temporalNamespaceFrom,
   authorize, claimSettingsFrom, type Principal, createDatabase, sharedPayloadBlobs, type Database, migrateLegacyOwnership, operatorsFromAdmins, ownUnownedProjects, decryptValue, loadKeys,
-  AccessRevocations, endsSessions, roleFromEnv, servesTenants, holdsAccounts, MailService, emailWayFrom, telemetrySettings, e2eProblem, firstAdminSetup, drainThenStop, podPlaceFrom, runOnce,
+  AccessRevocations, SessionEnds, SessionSockets, endsSessions, roleFromEnv, servesTenants, holdsAccounts, MailService, emailWayFrom, telemetrySettings, e2eProblem, firstAdminSetup, drainThenStop, podPlaceFrom, runOnce,
 } from './platform/index.js';
 import { startTelemetry } from '@koala/engine-core/telemetry-sdk';
 import { rateLimit } from 'express-rate-limit';
@@ -131,7 +131,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   const revocations = new AccessRevocations();
   const instanceReach = instanceReachFrom(process.env);
   const rootProvider = rootProviderFor({ role, publicUrl: PUBLIC_URL, keys, db, proxied: process.env.NODE_ENV === 'production', reach: instanceReach });
-  if (rootProvider) revocations.listen(async (revoked) => { if (endsSessions(revoked)) await rootProvider.revoke(revoked); });
+  if (rootProvider) revocations.listen((revoked) => rootProvider.revoke(revoked));
   const rootSignIn = rootSignInFor({ role, env: process.env, keys, db, revocations, publicUrl: PUBLIC_URL });
   const rootToken = rootSignIn ? () => rootSignIn.serviceToken() : undefined;
   const metrics = new MetricsService({ token: process.env.METRICS_TOKEN?.trim() || undefined, role: role.role });
@@ -228,7 +228,14 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
 
   startEngineStream({ role, push, io, db, payloadKey: keys.payload, core: engine, models: modelService, notices, postNotice, workFailures });
 
-  const authService = new AuthService(db, { mail, production: process.env.NODE_ENV === 'production' });
+  const authService = new AuthService(db, { mail, production: process.env.NODE_ENV === 'production', push });
+  const passwords = new PasswordService({ db, auth: authService, breached: loadBreachedPasswords(), revocations });
+  const sessionEnds = new SessionEnds(db.platform);
+  await sessionEnds.load();
+  sessionEnds.keepReading((message) => console.warn(message));
+  const sessionSockets = new SessionSockets();
+  sessionEnds.onEnd((sessionId) => sessionSockets.end({ kind: 'session', sessionId }));
+  revocations.listen(async (revoked) => { if (endsSessions(revoked)) sessionSockets.end({ kind: 'person', personId: revoked.personId, before: Date.parse(revoked.at) }); });
   app.set('trust proxy', trustProxyFor(process.env));
   app.use(inFlightLimit());
   app.use(cors({
@@ -302,7 +309,8 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
 
   const setup = holdsAccounts(role) ? firstAdminSetup(process.env, (await db.accounts.getUsers()).length === 0) : undefined;
   if (setup?.say) console.log(`🔑 ${setup.say}`);
-  const auth = createAuth({ db, sessionKey: keys.session, publicUrl: PUBLIC_URL, role: role.role, instanceOwnerId: claimSettings.instanceOwnerId, setupCode: setup?.code, clientSessions: rootSignIn });
+  const auth = createAuth({ db, sessionKey: keys.session, publicUrl: PUBLIC_URL, role: role.role, instanceOwnerId: claimSettings.instanceOwnerId, setupCode: setup?.code, clientSessions: rootSignIn, sessionEnds });
+  const devices = devicesFor({ auth, sessionKey: keys.session, authService });
   const { requireOperator } = auth;
 
   let runningNow: (() => Promise<string[] | 'unknown'>) | undefined;
@@ -320,17 +328,23 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     res.type(metrics.contentType).send(await metrics.text());
   }));
 
-  wireSockets({ io, db, role, env: process.env, payloadKey: keys.payload, dataKey: keys.data, auth, machines: machineService, clusters: clusterService, apps: appService, infra: infraService, telemetry: machineTelemetry({ sink: () => telemetrySink }), machineTemporal, runs: { life: runLifeVia(() => getTemporalClient()), closed: runClosedVia(() => getTemporalClient()) } });
+  wireSockets({ io, db, role, env: process.env, sessionSockets, payloadKey: keys.payload, dataKey: keys.data, auth, machines: machineService, clusters: clusterService, apps: appService, infra: infraService, telemetry: machineTelemetry({ sink: () => telemetrySink }), machineTemporal, runs: { life: runLifeVia(() => getTemporalClient()), closed: runClosedVia(() => getTemporalClient()) } });
 
+  const signInWith = holdsAccounts(role) ? signInProvidersFrom(process.env) : { providers: [], problems: [] };
+  for (const problem of signInWith.problems) console.warn(`[sign-in] ${problem}`);
   app.use('/api/auth', authRouter({
     db, authService, auth, sessionKey: keys.session, publicUrl: PUBLIC_URL, appUrl: APP_URL, accounts: holdsAccounts(role), hub: role.role === 'hub', revocations,
+    providers: new SignInProviders({ providers: signInWith.providers, publicUrl: PUBLIC_URL, sessionKey: keys.session, accounts: authService }), passwords,
   }));
+  if (holdsAccounts(role)) app.use('/api/auth/password', passwordRouter({ passwords, auth, devices, sessionKey: keys.session }));
   const hub = await wireHub({
     role, env: process.env, app, tenant, db, mail, publicUrl: PUBLIC_URL, dataKey: keys.data, gitea: giteaService,
     notify: (ownerId, scope, notice) => notices.post(ownerId, scope, notice),
     republish: () => appExposureService.syncExposedApps(),
     revocations,
     serviceCaller: rootProvider ? (token) => rootProvider.serviceCaller(token) : undefined,
+    personAtHub: rootProvider ? (token) => rootProvider.personAtHub(token) : undefined,
+    vouch: rootSignIn && role.role === 'hub' ? (req) => rootSignIn.personToken((req as { clientSession?: Parameters<typeof rootSignIn.personToken>[0] }).clientSession) : undefined,
     rootToken,
   });
 
@@ -386,7 +400,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
       },
     } : {}),
   });
-  wireAccounts({ app, role, env: process.env, db, temporalBridge, hubPeople: hub.hubPeople, operatorOnly: requireOperator('manage-accounts'), clearSession: auth.clearSession, revocations });
+  wireAccounts({ app, role, env: process.env, db, temporalBridge, hubPeople: hub.hubPeople, operatorOnly: requireOperator('manage-accounts'), clearSession: auth.clearSession, devices, revocations });
   tenant.use('/api/models', modelsRouter({ modelService, db, credentialService, machines: machineService, rateLimits: getModelRateLimiterSnapshot }));
 
   const { poisoning, evalHost, level2Service, procedureService, mcpCatalogue } = await wireEngine({
