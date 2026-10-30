@@ -13,7 +13,7 @@ import {
   TreeHomeService, webhookAddress, type GroveRunLauncher,
 } from './projects/index.js';
 import {
-  stopIfRunning, createDatabase, sharedPayloadBlobs, createWorkerLogger, buildDataConverter, connectTemporalWorker, failureReason,
+  stopIfRunning, createDatabase, sharedPayloadBlobs, createWorkerLogger, buildDataConverter, connectTemporalWorker, temporalTlsProblem, failureReason,
   signJWT, principalOf, claimSettingsFrom, roleFromEnv, getTemporalClient, resolveOwnersWith, loadKeys, startedFor, carryingTrace, SYSTEM_KUBECONFIG, telemetrySettings, AccessRevocations,
   publicAddressProblem, encryptValue, temporalNamespaceFrom,
 } from './platform/index.js';
@@ -561,6 +561,8 @@ async function buildActivities() {
 }
 
 async function main() {
+  const plaintext = temporalTlsProblem(process.env);
+  if (plaintext) throw new Error(plaintext);
   const queue = process.env.TEMPORAL_ENGINE_TASK_QUEUE || DEFAULT_ENGINE_TASK_QUEUE;
   const address = process.env.TEMPORAL_CONNECTION_ADDRESS || 'localhost:7233';
   logger.info(`[EngineWorker] Starting — taskQueue=${queue}, address=${address}`);

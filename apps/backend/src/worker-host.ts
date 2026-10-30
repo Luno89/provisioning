@@ -12,7 +12,7 @@ import { PoolChartActivity, PoolFailedActivity, PoolHostActivity, PoolProxyActiv
 import { DependencyWatchActivity } from './activities/DependencyWatchActivity.js';
 import { ServerOrderBootstrapActivity, ServerOrderDnsActivity, ServerOrderFailedActivity, ServerOrderFollowActivity, ServerOrderRebuildActivity, ServerOrderReleaseActivity, ServerOrderSshActivity, ServerOrderStoppedActivity } from './activities/RootNodeActivities.js';
 import { CrawlBatchActivity, NextBatchActivity, SeedFrontierActivity, DiscardFrontierActivity, PurgeCorpusActivity, SearchCorpusActivity, NewIngestIdActivity } from './activities/CrawlActivity.js';
-import { createWorkerLogger, buildDataConverter, connectTemporalWorker, sharedPayloadBlobs, loadKeys, SYSTEM_KUBECONFIG, telemetrySettings, temporalNamespaceFrom } from './platform/index.js';
+import { createWorkerLogger, buildDataConverter, connectTemporalWorker, temporalTlsProblem, sharedPayloadBlobs, loadKeys, SYSTEM_KUBECONFIG, telemetrySettings, temporalNamespaceFrom } from './platform/index.js';
 import { healthPort, serveHealth, sharedClusterProxy } from './infrastructure/index.js';
 import { collectorSink } from './monitoring/index.js';
 import { heartbeatWhileRunning } from '@koala/engine-core';
@@ -40,6 +40,8 @@ Runtime.install({
 });
 
 async function main() {
+  const plaintext = temporalTlsProblem(process.env);
+  if (plaintext) throw new Error(plaintext);
   const queue = process.env.TEMPORAL_TASK_QUEUE || 'host-ops-queue';
   const address = process.env.TEMPORAL_CONNECTION_ADDRESS || 'localhost:7233';
   logger.info(`[HostWorker] Starting — taskQueue=${queue}, address=${address}`);
