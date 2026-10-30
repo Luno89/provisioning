@@ -37,15 +37,32 @@ async function owned<T extends { workflowType: string; options: { workflowId: st
   return resolved === owner ? input : { ...input, options: { ...input.options, ...startedFor(resolved) } }
 }
 
+export const ownerNotYetMapped = (err: unknown): boolean =>
+  new RegExp(`no mapping defined for search attribute ${OWNER_ATTRIBUTE.name}`, 'i').test(String((err as Error)?.message ?? err))
+
+export async function onceOwnerMapped<T>(start: () => Promise<T>, waitMs = 1_000): Promise<T> {
+  for (;;) {
+    try {
+      return await start()
+    } catch (err) {
+      if (!ownerNotYetMapped(err)) throw err
+      await new Promise((resolve) => setTimeout(resolve, waitMs))
+    }
+  }
+}
+
 export const requireOwner: WorkflowClientInterceptor = {
   async start(input, next) {
-    return next(await owned(input))
+    const ready = await owned(input)
+    return onceOwnerMapped(() => next(ready))
   },
   async startWithDetails(input, next) {
-    return next(await owned(input))
+    const ready = await owned(input)
+    return onceOwnerMapped(() => next(ready))
   },
   async signalWithStart(input, next) {
-    return next(await owned(input))
+    const ready = await owned(input)
+    return onceOwnerMapped(() => next(ready))
   },
 }
 
