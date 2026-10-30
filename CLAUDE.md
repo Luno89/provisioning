@@ -591,7 +591,7 @@ the in-memory `RevocationList`), drops the person's sessions and fires the event
 still signs in by root's old handoff (`/api/identity/go` → `<instance>/#/handoff?token=…`, `issueHandoff`): root sends someone to the
 OIDC start only once the instance has named its key and its own `/api/auth/sign-in` answers with it (`handoffServedFor`), so a rollback
 past this release falls back by itself.
-`tests/lib/handoff.ts` (`handOff`) is that browser for every suite that signs in through root. Register an instance with `npm run instances -w apps/backend -- add <id> <owner> <url>`.
+`tests/lib/handoff.ts` (`handOff`) is that browser for every suite that signs in through root. Register an instance by hand with `npm run instances -w apps/backend -- add <id> <owner> <url>`, which prints the credential its chart takes as `instance.credential` (without one an instance cannot sign anyone in).
 
 **Addresses (per-user instances step 6).** A person picks a name when their instance is made (`instances/lib/instance-names.ts`:
 3–20 lowercase letters and digits, no dashes, some reserved; unique on root, fixed afterwards, asked on root's "Use my own

@@ -21,6 +21,7 @@ const CLUSTER = 'inst-live';
 const ROOT_PORT = 3211;
 const INSTANCE_PORT = 3212;
 const ROOT_URL = `http://localhost:${ROOT_PORT}`;
+const ROOT_FOR_PODS = `http://host.k3d.internal:${ROOT_PORT}`;
 const INSTANCE_URL = `http://127.0.0.1:${INSTANCE_PORT}`;
 const IMAGE = 'nowrinkles/app:dev';
 const MAILBOX = 'nw-live-mailbox';
@@ -68,7 +69,7 @@ async function main(): Promise<void> {
   step('root starts, and publishes its public key');
   try { run('docker', ['rm', '-f', MAILBOX]); } catch { /* not running */ }
   run('docker', ['run', '-d', '--name', MAILBOX, '-p', `127.0.0.1:${MAILPIT_SMTP}:1025`, '-p', `127.0.0.1:${MAILPIT_API}:8025`, MAILPIT_IMAGE]);
-  run('docker', ['run', '-d', '--name', 'nw-live-root', '--network', 'host', '--env-file', 'apps/backend/.env', ...ROOT.env, ...devTemporalCa(), '-e', 'ROLE=root', '-e', `PORT=${ROOT_PORT}`,
+  run('docker', ['run', '-d', '--name', 'nw-live-root', '--network', 'host', '--env-file', 'apps/backend/.env', ...ROOT.env, ...devTemporalCa(), '-e', 'ROLE=root', '-e', `PORT=${ROOT_PORT}`, '-e', `PUBLIC_URL=${ROOT_FOR_PODS}`,
     '-e', `MAIL_SMTP_URL=smtp://127.0.0.1:${MAILPIT_SMTP}`, '-e', 'MAIL_FROM=koala@instance-live.test', IMAGE, 'backend']);
   run('docker', ['run', '-d', '--name', WORKER, '--network', 'host', '--env-file', 'apps/backend/.env', ...ROOT.env, ...devTemporalCa(),
     ...devDataMounts(), ...workerEnv(ROOT), IMAGE, 'worker-host']);
@@ -82,12 +83,13 @@ async function main(): Promise<void> {
   const OWNER = owner.id;
   const instances = (args: string[]) => run('npm', ['run', 'instances', '--silent', '-w', 'apps/backend', '--', ...args], { MONGO_URI: ROOT.mongoUri });
 
-  step('the chart installs the instance, and its setup jobs install the services it uses');
+  step('root registers the instance and gives it a credential, then the chart installs it and its setup jobs install the services it uses');
+  const credential = /--set instance\.credential=(\S+)/.exec(instances(['add', 'inst-live', OWNER, INSTANCE_URL]))?.[1];
+  assert.ok(credential, 'root registered the instance without a credential to sign people in with');
   run(bin('helm'), ['install', 'live', 'charts/instance', '--namespace', 'nowrinkles', '--create-namespace',
-    '--set', 'instance.id=inst-live', '--set', `instance.ownerId=${OWNER}`, '--set', `instance.rootUrl=${ROOT_URL}`,
+    '--set', 'instance.id=inst-live', '--set', `instance.ownerId=${OWNER}`, '--set', `instance.rootUrl=${ROOT_FOR_PODS}`, '--set', `instance.credential=${credential}`,
     '--set-file', `instance.rootPublicKeys=${publicKeyFile}`, '--set', `publicUrl=${INSTANCE_URL}`,
     '--set', 'backend.nodePort=30320', '--set', 'hostDocker=false', '--timeout', '30m'], { KUBECONFIG });
-  instances(['add', 'inst-live', OWNER, INSTANCE_URL]);
 
   step('the owner signs in at root and is handed to their instance');
   const rootSession = signJWT({ userId: OWNER, email: owner.email }, loadKeys(process.env).session, 300);
@@ -222,7 +224,7 @@ process.exit(0);`;
 
   step('deleting an account is root\'s: the instance removes none and points there, and a person on root removes their own, their instance let go of with it');
   const place = await (await http('/api/auth/account-removal')).json() as { url: string | null };
-  assert.equal(place.url, `${ROOT_URL}/#/remove-account`, 'the instance does not send people to root to delete their account');
+  assert.equal(place.url, `${ROOT_FOR_PODS}/#/remove-account`, 'the instance does not send people to root to delete their account');
   assert.equal((await http('/api/account', { method: 'DELETE', body: JSON.stringify({ confirm: 'live' }) })).status, 404, 'the instance still removes accounts itself');
   const asOwner = (path: string, init: RequestInit = {}) => fetch(`${ROOT_URL}${path}`, { ...init, headers: { 'content-type': 'application/json', Cookie: `session=${rootSession}`, ...(init.headers ?? {}) } });
   const invite = await (await asOwner('/api/admin/invites', { method: 'POST', body: '{}' })).json() as { code: string };

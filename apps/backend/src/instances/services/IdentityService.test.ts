@@ -76,6 +76,19 @@ describe('signing in at root and landing on your own instance', () => {
     expect((await root.register({ id: 'inst-u1', ownerId: 'u1', url: 'https://u1.example.com' })).ok).toBe(true);
     expect(await root.register({ id: 'inst-u1-b', ownerId: 'u1', url: 'https://b.example.com' })).toMatchObject({ ok: false, error: expect.stringMatching(/already has an instance/) });
   });
+
+  it('gives an instance registered by hand a credential to sign people in with, kept only as its hash', async () => {
+    const root = new IdentityService(rootRole, rootDb, () => now);
+    const first = await root.register({ id: 'inst-u1', ownerId: 'u1', url: 'https://u1.example.com' });
+    if (!first.ok) throw new Error(first.error);
+    const stored = (await rootDb.instances.getInstances('u1'))[0]!;
+    expect(stored.credentialHash).toBe(crypto.createHash('sha256').update(first.credential).digest('hex'));
+    expect(JSON.stringify(stored)).not.toContain(first.credential);
+    const again = await root.register({ id: 'inst-u1', ownerId: 'u1', url: 'https://u1.example.com' });
+    if (!again.ok) throw new Error(again.error);
+    expect(again.credential).not.toBe(first.credential);
+    expect((await rootDb.instances.getInstances('u1'))[0]!.credentialHash).toBe(crypto.createHash('sha256').update(again.credential).digest('hex'));
+  });
 });
 
 describe('signing in at root and landing on the hub', () => {
