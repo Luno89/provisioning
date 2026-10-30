@@ -15,7 +15,7 @@ import {
 import {
   stopIfRunning, createDatabase, sharedPayloadBlobs, createWorkerLogger, buildDataConverter, connectTemporalWorker, failureReason,
   signJWT, principalOf, claimSettingsFrom, roleFromEnv, getTemporalClient, resolveOwnersWith, loadKeys, startedFor, carryingTrace, SYSTEM_KUBECONFIG, telemetrySettings, AccessRevocations,
-  publicAddressProblem, encryptValue,
+  publicAddressProblem, encryptValue, temporalNamespaceFrom,
 } from './platform/index.js';
 import { rootSignInFor } from './instances/wiring/sign-in.js';
 import { createWorkspaceRepoResolver, treeOfWorkspace } from './engine-host/sandboxes/workspace-repos.js';
@@ -577,6 +577,7 @@ async function main() {
 
       const worker = await Worker.create({
         connection,
+        namespace: temporalNamespaceFrom(process.env),
         ...(dataConverter ? { dataConverter } : {}),
         taskQueue: queue,
         workflowsPath: resolve(__dirname, 'workflows'),

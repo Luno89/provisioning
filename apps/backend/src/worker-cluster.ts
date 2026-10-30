@@ -13,7 +13,7 @@ import { SyncConfigActivity } from './activities/SyncConfigActivity.js';
 import { DownloadModelActivity } from './activities/DownloadModelActivity.js';
 import { VerifyGpuRuntimeActivity } from './activities/VerifyGpuRuntimeActivity.js';
 import { RunPipelineActivity } from './activities/RunPipelineActivity.js';
-import { createWorkerLogger, buildDataConverter, connectTemporalWorker, sharedPayloadBlobs, loadKeys, roleFromEnv, SYSTEM_KUBECONFIG, telemetrySettings } from './platform/index.js';
+import { createWorkerLogger, buildDataConverter, connectTemporalWorker, sharedPayloadBlobs, loadKeys, roleFromEnv, SYSTEM_KUBECONFIG, telemetrySettings, temporalNamespaceFrom } from './platform/index.js';
 import { healthPort, serveHealth, InfrastructureService, sharedClusterProxy } from './infrastructure/index.js';
 import { heartbeatWhileRunning } from '@koala/engine-core';
 import { traceActivities } from '@koala/engine-core/telemetry';
@@ -72,6 +72,7 @@ async function main() {
       const dataConverter = buildDataConverter(loadKeys(process.env).payload, sharedPayloadBlobs());
       worker = await Worker.create({
         connection,
+        namespace: temporalNamespaceFrom(process.env),
         ...(dataConverter ? { dataConverter } : {}),
         taskQueue: queue,
         workflowsPath: resolve(__dirname, 'workflows'),

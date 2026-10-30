@@ -12,7 +12,7 @@ import { PoolChartActivity, PoolFailedActivity, PoolHostActivity, PoolProxyActiv
 import { DependencyWatchActivity } from './activities/DependencyWatchActivity.js';
 import { ServerOrderBootstrapActivity, ServerOrderDnsActivity, ServerOrderFailedActivity, ServerOrderFollowActivity, ServerOrderRebuildActivity, ServerOrderReleaseActivity, ServerOrderSshActivity, ServerOrderStoppedActivity } from './activities/RootNodeActivities.js';
 import { CrawlBatchActivity, NextBatchActivity, SeedFrontierActivity, DiscardFrontierActivity, PurgeCorpusActivity, SearchCorpusActivity, NewIngestIdActivity } from './activities/CrawlActivity.js';
-import { createWorkerLogger, buildDataConverter, connectTemporalWorker, sharedPayloadBlobs, loadKeys, SYSTEM_KUBECONFIG, telemetrySettings } from './platform/index.js';
+import { createWorkerLogger, buildDataConverter, connectTemporalWorker, sharedPayloadBlobs, loadKeys, SYSTEM_KUBECONFIG, telemetrySettings, temporalNamespaceFrom } from './platform/index.js';
 import { healthPort, serveHealth, sharedClusterProxy } from './infrastructure/index.js';
 import { collectorSink } from './monitoring/index.js';
 import { heartbeatWhileRunning } from '@koala/engine-core';
@@ -51,6 +51,7 @@ async function main() {
       const dataConverter = buildDataConverter(loadKeys(process.env).payload, sharedPayloadBlobs());
       worker = await Worker.create({
         connection,
+        namespace: temporalNamespaceFrom(process.env),
         ...(dataConverter ? { dataConverter } : {}),
         taskQueue: queue,
         workflowsPath: resolve(__dirname, 'workflows'),
