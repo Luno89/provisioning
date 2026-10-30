@@ -1,10 +1,14 @@
 import { api, API_BASE } from '../../api/client'
 import type { SessionPermissions } from './lib/permissions'
 
+export type ConfirmWith = 'two-factor' | 'password' | 'email-code'
+
 export interface SessionUser {
   id: string
   email: string
   permissions?: SessionPermissions
+  confirmWith?: ConfirmWith
+  hasPassword?: boolean
   onHub?: boolean
   twoFactorEnabled?: boolean
   twoFactorPhone?: string

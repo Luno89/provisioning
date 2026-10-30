@@ -1,12 +1,14 @@
 import { addPushDevice, getNotifications, getPush, notificationKeys, pushKeys, removePushDevice, sendTestEmail, sendTestPush, setEmailChoice, type EmailChoice, type NotificationView } from '../monitoring'
 import { abilitiesOf, pushSupport, subscribeThisDevice, thisDeviceEndpoint, unsubscribeThisDevice } from './lib/this-device'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { accountKeys, endOtherSessions, getPersonRemoval, getProjectInviteLimits, getRemovalPreview, listInvites, listPeople, mintInvite, removeMyAccount, removePerson, setOwnInviteAccounts, setProjectInviteLimits } from './api'
+import { accountKeys, changePassword, endOtherSessions, forgotPassword, getPersonRemoval, getProjectInviteLimits, getRemovalPreview, listInvites, listPeople, mintInvite, removeMyAccount, removePerson, resendPasswordReset, resetPassword, saveTwoFactor, sendConfirmCode, setOwnInviteAccounts, setProjectInviteLimits } from './api'
+import type { Proof, TwoFactorChange, TwoFactorSaved } from './types'
 import { getInstanceAddresses, instanceAddressKeys, setNestedAddresses } from '../instances'
 import { deploymentKeys } from '../infrastructure'
 import { accountRemovalPlace } from '../platform'
 
 export { confirmMatches, refusalBlockers, removalText } from './lib/removal-text'
+export { newPasswordProblem, proofAsked, proofReady, proofSent, sendsCode } from './lib/proof'
 
 export const dangerPanel = 'pt-6 border-t border-slate-700'
 export const dangerButton = 'text-xs font-bold px-3 py-2 rounded-xl bg-red-700 hover:bg-red-600 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed'
@@ -18,7 +20,31 @@ export function useRemovalPreview(enabled: boolean) {
 }
 
 export function useRemoveMyAccount(onRemoved: () => void) {
-  return useMutation({ mutationFn: (confirm: string) => removeMyAccount(confirm), onSuccess: onRemoved })
+  return useMutation({ mutationFn: ({ confirm, proof }: { confirm: string; proof: Proof }) => removeMyAccount(confirm, proof), onSuccess: onRemoved })
+}
+
+export function useForgotPassword() {
+  return useMutation({ mutationFn: (email: string) => forgotPassword(email) })
+}
+
+export function useResendPasswordReset() {
+  return useMutation({ mutationFn: (id: string) => resendPasswordReset(id) })
+}
+
+export function useResetPassword() {
+  return useMutation({ mutationFn: (body: { id: string; code: string; password: string }) => resetPassword(body) })
+}
+
+export function useChangePassword(onChanged: () => void) {
+  return useMutation({ mutationFn: (body: { password: string; current?: string; code?: string }) => changePassword(body), onSuccess: onChanged })
+}
+
+export function useSendConfirmCode() {
+  return useMutation({ mutationFn: sendConfirmCode })
+}
+
+export function useSaveTwoFactor(onSaved: (saved: TwoFactorSaved) => void) {
+  return useMutation({ mutationFn: ({ change, proof }: { change: TwoFactorChange; proof: Proof }) => saveTwoFactor(change, proof), onSuccess: onSaved })
 }
 
 export function useAccountRemovalPlace(enabled: boolean) {

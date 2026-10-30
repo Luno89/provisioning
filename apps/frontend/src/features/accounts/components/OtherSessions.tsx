@@ -14,7 +14,7 @@ export function OtherSessions() {
         <button type="button" className={quietButton} disabled={end.isPending} onClick={() => end.mutate()}>Sign out everywhere else</button>
       </div>
       <p className="text-xs text-slate-400">
-        Ends every session but this one: other browsers, devices and anyone holding an old session cookie. Changing your two-factor settings does the same.
+        Ends every session but this one: other browsers, devices and anyone holding an old session cookie. Changing your password or two-factor settings does the same.
       </p>
       {end.isError && <div className="mt-2 text-sm text-red-300">{errorMessage(end.error)}</div>}
     </div>

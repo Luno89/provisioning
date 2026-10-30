@@ -71,3 +71,26 @@ export interface RemovalRefusal {
   error: string
   blockers?: string[]
 }
+
+export interface Proof {
+  password?: string
+  code?: string
+}
+
+export interface PasswordReset {
+  reset: string
+  devCode?: string
+}
+
+export interface TwoFactorChange {
+  enabled: boolean
+  phone?: string
+  preferredMethod?: 'email' | 'sms'
+}
+
+export interface TwoFactorSaved {
+  twoFactorEnabled: boolean
+  twoFactorPhone?: string
+  twoFactorPreferredMethod?: 'email' | 'sms'
+  confirmWith: 'two-factor' | 'password' | 'email-code'
+}

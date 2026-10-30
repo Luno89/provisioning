@@ -3,6 +3,7 @@ import { Mail, Lock, LogIn, UserPlus, Github, Chrome, KeyRound, ShieldAlert, Arr
 import { errorMessage } from '../../../api/client';
 import { login, providerSignInUrl, resendSignUpCode, verifySignUp, verifyTwoFactor, type LoginResult, type SessionUser } from '../../platform';
 import { useSignInProviders } from '../hooks/useSignInProviders';
+import ForgotPassword from './ForgotPassword';
 
 interface LoginProps {
   onSuccess: (user: SessionUser) => void;
@@ -26,6 +27,7 @@ export default function Login({ onSuccess, invite }: LoginProps) {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
+  const [forgotten, setForgotten] = useState(false);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -167,7 +169,17 @@ export default function Login({ onSuccess, invite }: LoginProps) {
           </div>
         )}
 
-        {signUpId ? (
+        {forgotten ? (
+          <ForgotPassword
+            email={email}
+            onReset={(said) => {
+              setForgotten(false);
+              setPassword('');
+              setMessage(said);
+            }}
+            onBack={() => setForgotten(false)}
+          />
+        ) : signUpId ? (
           <form onSubmit={handleSignUpVerify} className="space-y-6">
             <div className="text-center mb-4">
               <h3 className="text-lg font-bold text-white">Confirm your email</h3>
@@ -321,6 +333,21 @@ export default function Login({ onSuccess, invite }: LoginProps) {
                     className="block w-full pl-12 pr-4 py-3.5 bg-[#1f2430]/50 border border-white/5 rounded-2xl text-white placeholder-gray-500 focus:outline-none focus:border-violet-500 transition-colors"
                   />
                 </div>
+                {isRegister ? (
+                  <p className="text-xs text-[#8c94a6] mt-2">At least twelve characters, and not one leaked from another site.</p>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setForgotten(true);
+                      setError('');
+                      setMessage('');
+                    }}
+                    className="mt-2 text-xs text-[#8c94a6] hover:text-white transition-colors cursor-pointer"
+                  >
+                    Forgot password?
+                  </button>
+                )}
               </div>
 
               {isRegister && (

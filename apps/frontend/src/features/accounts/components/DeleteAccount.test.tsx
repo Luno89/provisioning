@@ -25,10 +25,10 @@ const renderSection = () => {
 describe('deleting your own account', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    useShellStore.getState().setUser({ id: 'bo', email: 'bo@example.com', permissions: { 'manage-own-account': true } } as never)
+    useShellStore.getState().setUser({ id: 'bo', email: 'bo@example.com', confirmWith: 'password', permissions: { 'manage-own-account': true } } as never)
   })
 
-  it('removes the account only once the email is typed, then signs out', async () => {
+  it('removes the account only once the email and the password are typed, then signs out', async () => {
     vi.mocked(accountApi.getRemovalPreview).mockResolvedValue({ email: 'bo@example.com', blockers: [] })
     vi.mocked(accountApi.removeMyAccount).mockResolvedValue({ state: 'running', done: [] })
     renderSection()
@@ -40,9 +40,11 @@ describe('deleting your own account', () => {
     expect(remove).toBeDisabled()
 
     fireEvent.change(confirm, { target: { value: 'BO@example.com' } })
+    expect(remove).toBeDisabled()
+    fireEvent.change(screen.getByLabelText('Your password'), { target: { value: 'my-own-password' } })
     fireEvent.click(remove)
     await waitFor(() => expect(useShellStore.getState().user).toBeNull())
-    expect(accountApi.removeMyAccount).toHaveBeenCalledWith('BO@example.com')
+    expect(accountApi.removeMyAccount).toHaveBeenCalledWith('BO@example.com', { password: 'my-own-password' })
   })
 
   it('shows what still stands in the way instead of the confirmation', async () => {
@@ -52,6 +54,30 @@ describe('deleting your own account', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Delete account…' }))
     expect(await screen.findByText('the app "odoo" is still deployed; remove it first')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Delete my account' })).toBeNull()
+  })
+})
+
+describe('deleting an account with two-factor sign-in on', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    useShellStore.getState().setUser({ id: 'bo', email: 'bo@example.com', confirmWith: 'two-factor', permissions: { 'manage-own-account': true } } as never)
+  })
+
+  it('asks for a code it sends on request, never the password', async () => {
+    vi.mocked(accountApi.getRemovalPreview).mockResolvedValue({ email: 'bo@example.com', blockers: [] })
+    vi.mocked(accountApi.removeMyAccount).mockResolvedValue({ state: 'running', done: [] })
+    const sent = vi.spyOn(accountApi, 'sendConfirmCode').mockResolvedValue(undefined)
+    renderSection()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete account…' }))
+    const [confirm, code] = await screen.findAllByRole('textbox')
+    expect(screen.queryByLabelText('Your password')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Send me a code' }))
+    await waitFor(() => expect(sent).toHaveBeenCalled())
+    fireEvent.change(confirm!, { target: { value: 'bo@example.com' } })
+    fireEvent.change(code!, { target: { value: '12a3456' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Delete my account' }))
+    await waitFor(() => expect(accountApi.removeMyAccount).toHaveBeenCalledWith('bo@example.com', { code: '123456' }))
   })
 })
 

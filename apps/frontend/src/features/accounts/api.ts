@@ -1,5 +1,5 @@
 import { api } from '../../api/client'
-import type { Invite, MintedInvite, PersonEntry, ProjectInviteLimits, ProjectInvitePerson, RemovalPreview, RemovalState } from './types'
+import type { Invite, MintedInvite, PasswordReset, PersonEntry, ProjectInviteLimits, ProjectInvitePerson, Proof, RemovalPreview, RemovalState, TwoFactorChange, TwoFactorSaved } from './types'
 
 export const accountKeys = {
   removal: () => ['account', 'removal'] as const,
@@ -27,8 +27,8 @@ export const mintInvite = (): Promise<MintedInvite> =>
 export const getRemovalPreview = (): Promise<RemovalPreview> =>
   api.get<RemovalPreview>('/account/removal').then((r) => r.data)
 
-export const removeMyAccount = (confirm: string): Promise<RemovalState> =>
-  api.delete<{ state: RemovalState }>('/account', { data: { confirm } }).then((r) => r.data.state)
+export const removeMyAccount = (confirm: string, proof: Proof): Promise<RemovalState> =>
+  api.delete<{ state: RemovalState }>('/account', { data: { confirm, ...proof } }).then((r) => r.data.state)
 
 export const listPeople = (): Promise<PersonEntry[]> =>
   api.get<{ people: PersonEntry[] }>('/admin/people').then((r) => r.data.people)
@@ -41,3 +41,21 @@ export const removePerson = (id: string, confirm: string): Promise<RemovalState>
 
 export const endOtherSessions = (): Promise<void> =>
   api.post('/auth/sessions/end-others', {}).then(() => undefined)
+
+export const forgotPassword = (email: string): Promise<PasswordReset> =>
+  api.post<PasswordReset>('/auth/password/forgot', { email }).then((r) => r.data)
+
+export const resendPasswordReset = (id: string): Promise<PasswordReset> =>
+  api.post<PasswordReset>('/auth/password/forgot/resend', { id }).then((r) => r.data)
+
+export const resetPassword = (body: { id: string; code: string; password: string }): Promise<{ email: string }> =>
+  api.post<{ email: string }>('/auth/password/reset', body).then((r) => r.data)
+
+export const changePassword = (body: { password: string; current?: string; code?: string }): Promise<void> =>
+  api.post('/auth/password', body).then(() => undefined)
+
+export const sendConfirmCode = (): Promise<void> =>
+  api.post('/auth/confirm/code', {}).then(() => undefined)
+
+export const saveTwoFactor = (change: TwoFactorChange, proof: Proof): Promise<TwoFactorSaved> =>
+  api.post<TwoFactorSaved>('/auth/2fa/settings', { ...change, ...proof }).then((r) => r.data)
