@@ -32,6 +32,7 @@ export class ProjectRepoService {
     private gitea: GiteaService,
     private masterKey: SecretKey,
     private webhookUrl?: ((projectId: string) => Promise<string>) | undefined,
+    private options: { recordWaitMs?: number | undefined } = {},
   ) {}
 
   async ensureAccountFor(ownerId: string): Promise<{ username: string }> {
@@ -59,12 +60,14 @@ export class ProjectRepoService {
       ({ password } = await this.gitea.createUserAccount(username, `${username}@koala.local`));
     } catch (err) {
       if (!/duplicate key|already exists|user already/i.test((err as Error).message)) throw err;
-      for (let tries = 0; tries < 30; tries += 1) {
+      const waitMs = this.options.recordWaitMs ?? 30_000;
+      const step = Math.min(1_000, waitMs);
+      for (let waited = 0; waited < waitMs; waited += step) {
         const saved = await this.db.projects.getGiteaAccount(ownerId);
         if (saved) return { username: saved.username, password: decryptValue(saved.passwordEnc, this.masterKey) };
-        await new Promise((resolve) => setTimeout(resolve, 1_000));
+        await new Promise((resolve) => setTimeout(resolve, step));
       }
-      throw new Error(`the Gitea user ${username} was made by another process, which never recorded it`);
+      return this.takeOver(ownerId, username);
     }
 
     const account: GiteaAccount = {
@@ -75,6 +78,18 @@ export class ProjectRepoService {
     };
     await this.db.projects.saveGiteaAccount(account);
     return { username, password };
+  }
+
+  private async takeOver(ownerId: string, username: string): Promise<{ username: string; password: string }> {
+    const stored = await this.db.projects.claimGiteaAccount({
+      ownerId,
+      username,
+      passwordEnc: encryptValue(crypto.randomBytes(24).toString('base64url'), this.masterKey),
+      createdAt: new Date().toISOString(),
+    });
+    const password = decryptValue(stored.passwordEnc, this.masterKey);
+    await this.gitea.setUserPassword(stored.username, password);
+    return { username: stored.username, password };
   }
 
   async register(

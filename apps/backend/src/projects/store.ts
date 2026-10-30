@@ -22,6 +22,7 @@ export interface ProjectsStore extends AreaStore {
   deleteTreeType(id: string, ownerId: string): Promise<void>;
   getGiteaAccount(ownerId: string): Promise<GiteaAccount | null>;
   saveGiteaAccount(account: GiteaAccount): Promise<void>;
+  claimGiteaAccount(account: GiteaAccount): Promise<GiteaAccount>;
   getTrees(): Promise<Tree[]>;
   saveTree(tree: Tree): Promise<void>;
   deleteTree(id: string): Promise<void>;
@@ -192,6 +193,13 @@ export class MongoProjectsStore implements ProjectsStore {
   async saveGiteaAccount(account: GiteaAccount): Promise<void> {
     const { ownerId, ...rest } = account;
     await this.giteaAccounts.replaceOne({ _id: ownerId as any }, rest, { upsert: true });
+  }
+
+  async claimGiteaAccount(account: GiteaAccount): Promise<GiteaAccount> {
+    const { ownerId, ...rest } = account;
+    const doc = await this.giteaAccounts.findOneAndUpdate({ _id: ownerId as any }, { $setOnInsert: rest }, { upsert: true, returnDocument: 'after' });
+    const { _id, ...stored } = doc as any;
+    return { ...stored, ownerId: String(_id) } as GiteaAccount;
   }
 
   async getLeaves(): Promise<Leaf[]> {

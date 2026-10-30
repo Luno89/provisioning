@@ -29,6 +29,25 @@ describe('the Gitea user behind an account', () => {
 
     expect((await waiting).username).toBe((await theirs.ensureAccountFor('space-2')).username);
   });
+
+  it('takes over a user an earlier attempt made but never recorded, instead of failing forever', async () => {
+    const db = await testDatabase();
+    const passwords: string[] = [];
+    const gitea = {
+      createUserAccount: async () => { throw new Error('Failed to create Gitea account koala-space3: HTTP 422 {"message":"user already exists [name: koala-space3]"}'); },
+      setUserPassword: async (_username: string, password: string) => { passwords.push(password); },
+    };
+    const repos = new ProjectRepoService(db, gitea as never, KEY as never, undefined, { recordWaitMs: 20 });
+
+    const [first, second] = await Promise.all([repos.ensureAccountFor('space-3'), new ProjectRepoService(db, gitea as never, KEY as never, undefined, { recordWaitMs: 20 }).ensureAccountFor('space-3')]);
+
+    expect(first.username).toBe('koala-space3');
+    expect(second.username).toBe('koala-space3');
+    const stored = await db.projects.getGiteaAccount('space-3');
+    expect(stored?.username).toBe('koala-space3');
+    expect(new Set(passwords).size).toBe(1);
+    expect((await repos.ensureAccountFor('space-3')).username).toBe('koala-space3');
+  });
 });
 
 describe('making a project with a repository', () => {

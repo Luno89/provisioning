@@ -936,6 +936,15 @@ export class GiteaService {
     if (!res.ok && res.status !== 404) throw new Error(`Gitea would not delete the organisation ${org} (HTTP ${res.status}): ${(await res.text()).slice(0, 200)}`);
   }
 
+  async setUserPassword(username: string, password: string): Promise<void> {
+    const res = await this.apiFetch(`/api/v1/admin/users/${encodeURIComponent(username)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ login_name: username, source_id: 0, password, must_change_password: false }),
+    });
+    if (!res.ok) throw new Error(`Gitea would not set the password of ${username} (HTTP ${res.status}): ${(await res.text().catch(() => '')).slice(0, 200)}`);
+  }
+
   async deleteUser(username: string): Promise<boolean> {
     const res = await this.apiFetch(`/api/v1/admin/users/${encodeURIComponent(username)}?purge=true`, { method: 'DELETE' });
     if (res.status === 404) return false;
