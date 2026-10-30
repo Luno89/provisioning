@@ -9,7 +9,7 @@ import { caddyTlsSnippet } from '../apps/backend/src/infrastructure/lib/dns-prov
 import { createDisposableVm, type DisposableVm } from './lib/disposable-vm.js';
 import { loadKeys } from '../apps/backend/src/platform/lib/keys.js';
 import { signJWT } from '../apps/backend/src/platform/lib/auth.js';
-import { devTemporalCa } from './lib/dev-temporal.js';
+import { devDataMounts, devFile, devTemporalCa } from './lib/dev-temporal.js';
 import { fetchSide, handOff, sessionFrom, type Side, signedInLanding } from './lib/handoff.js';
 import { dropSuiteDatabase, firstAdmin, forgetMeshUser, suiteRoot, workerEnv } from './lib/suite-root.js';
 import { signUp } from './lib/sign-up.js';
@@ -34,13 +34,12 @@ const BRIDGE = '172.17.0.1';
 const CADDY_IMAGE = 'nowrinkles/caddy:2.10.2';
 const TAILSCALE_IMAGE = 'tailscale/tailscale:v1.88.2';
 const SOCAT_IMAGE = 'alpine/socat:1.8.0.3';
-const GVISOR_TARBALL = join(REPO, 'tests/.vm-cache/gvisor-20261005.0/gvisor.tar.zstd');
+const GVISOR_TARBALL = devFile('tests/.vm-cache/gvisor-20261005.0/gvisor.tar.zstd');
 const NAME = `pl${Date.now().toString(36)}`;
 const CONTAINERS = { root: 'nw-pool-root', worker: 'nw-pool-worker', caddy: 'nw-pool-caddy', mesh: 'nw-pool-ts', relay: 'nw-pool-relay', mailbox: 'nw-pool-mailbox' };
 const MAILPIT_IMAGE = 'axllent/mailpit:v1.21.0';
 const MAILPIT_SMTP = 11026;
 const MAILPIT_API = 18027;
-const SECRET_FILES = ['.gitea-admin-password', '.gitea-admin-token', '.headscale-api-key', '.infisical-admin-password', '.infisical-machine-identity', '.infisical-encryption-key', '.infisical-postgres-password', '.infisical-redis-password'];
 
 const run = (cmd: string, args: string[]) => execFileSync(cmd, args, { cwd: REPO, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 64 * 1024 * 1024 });
 const step = (message: string) => console.log(`\n▶ ${message}`);
@@ -208,7 +207,7 @@ async function main(): Promise<void> {
   const poolEnv = ['-e', `POOL_ADDRESS=${poolIp}`, '-e', 'POOL_SLOTS=1', '-e', 'POOL_KUBECONFIG=/pool/kubeconfig.yaml',
     '-e', `POOL_IMAGE=${HOST_FOR_GUEST}:5001/nowrinkles/app`, '-e', `POOL_IMAGE_TAG=${TAG}`, '-e', 'POOL_SLOT_MEMORY_MIB=10240', '-e', 'POOL_TRIAL_DAYS=14'];
   const rootEnv = ['--network', 'host', '--env-file', 'apps/backend/.env', ...ROOT.env, ...devTemporalCa(),
-    ...SECRET_FILES.flatMap((file) => ['-v', `${join(REPO, 'apps/backend/data', file)}:/app/apps/backend/data/${file}:ro`]),
+    ...devDataMounts(),
     '-e', 'ROLE=root', '-e', `PUBLIC_URL=${ROOT_FOR_GUEST}`, '-e', `INGRESS_DOMAIN=${DOMAIN}`, '-e', `APP_DOMAIN=app.${ROOT_DOMAIN}`, '-e', `MESH_DOMAIN=mesh.${ROOT_DOMAIN}`,
     '-e', `MESH_LOGIN_SERVER=http://${HOST_FOR_GUEST}:8080`, '-e', `INSTANCE_REGISTRY=${HOST_FOR_GUEST}:5001`, '-e', `INSTANCE_IMAGE_TAG=${TAG}`, '-e', `MAIL_SMTP_URL=smtp://127.0.0.1:${MAILPIT_SMTP}`, ...poolEnv];
   run('docker', ['run', '-d', '--name', CONTAINERS.root, ...rootEnv, '-v', `${backendKubeconfigPath}:/pool/kubeconfig.yaml:ro`, '--group-add', String(statSync('/var/run/docker.sock').gid), '-v', `${caddyDir}:/app/apps/backend/data/caddy`,

@@ -5,7 +5,7 @@ import dotenv from 'dotenv';
 import { createDisposableVm, type DisposableVm } from './lib/disposable-vm.js';
 import { loadKeys } from '../apps/backend/src/platform/lib/keys.js';
 import { signJWT } from '../apps/backend/src/platform/lib/auth.js';
-import { devTemporalCa } from './lib/dev-temporal.js';
+import { devDataMounts, devTemporalCa } from './lib/dev-temporal.js';
 import { fetchSide, handOff, sessionFrom, signedInLanding } from './lib/handoff.js';
 import { dropSuiteDatabase, firstAdmin, forgetMeshUser, suiteRoot, workerEnv } from './lib/suite-root.js';
 
@@ -53,13 +53,12 @@ let vm: DisposableVm | undefined;
 async function startRoot(releaseTag: string): Promise<void> {
   try { run('docker', ['rm', '-f', 'nw-byo-root']); } catch { /* not running */ }
   run('docker', ['run', '-d', '--name', 'nw-byo-root', '--network', 'host', '--env-file', 'apps/backend/.env', ...ROOT.env, ...devTemporalCa(),
-    ...SECRET_FILES.flatMap((file) => ['-v', `${join(REPO, 'apps/backend/data', file)}:/app/apps/backend/data/${file}:ro`]),
+    ...devDataMounts(),
     '-e', 'ROLE=root', '-e', `PORT=${ROOT_PORT}`, '-e', `PUBLIC_URL=${ROOT_FOR_GUEST}`,
     '-e', 'MESH_LOGIN_SERVER=http://10.0.2.2:8080', '-e', 'INSTANCE_REGISTRY=10.0.2.2:5001', '-e', `INSTANCE_IMAGE_TAG=${releaseTag}`, IMAGE, 'backend']);
   await until('root answering', 3, async () => ((await fetch(`${ROOT_FOR_HOST}/api/identity/keys`)).ok ? true : undefined));
 }
 let instanceId: string | undefined;
-const SECRET_FILES = ['.gitea-admin-password', '.gitea-admin-token', '.headscale-api-key', '.infisical-admin-password', '.infisical-machine-identity', '.infisical-encryption-key', '.infisical-postgres-password', '.infisical-redis-password'];
 
 async function teardown(): Promise<void> {
   for (const name of ['nw-byo-root', 'nw-byo-worker']) try { run('docker', ['rm', '-f', name]); } catch { /* not running */ }
@@ -82,7 +81,7 @@ async function main(): Promise<void> {
   step('root starts, as the user\'s machine will see it');
   await startRoot(TAG);
   run('docker', ['run', '-d', '--name', 'nw-byo-worker', '--network', 'host', '--env-file', 'apps/backend/.env', ...ROOT.env, ...devTemporalCa(),
-    ...SECRET_FILES.flatMap((file) => ['-v', `${join(REPO, 'apps/backend/data', file)}:/app/apps/backend/data/${file}:ro`]), ...workerEnv(ROOT), IMAGE, 'worker-host']);
+    ...devDataMounts(), ...workerEnv(ROOT), IMAGE, 'worker-host']);
   const owner = await firstAdmin(ROOT_FOR_HOST, ROOT);
   ownerId = owner.id;
   const session = signJWT({ userId: owner.id, email: owner.email }, loadKeys(process.env).session, 3600);

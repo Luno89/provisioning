@@ -7,7 +7,7 @@ import { join, resolve } from 'node:path';
 import dotenv from 'dotenv';
 import { loadKeys } from '../apps/backend/src/platform/lib/keys.js';
 import { signJWT } from '../apps/backend/src/platform/lib/auth.js';
-import { devTemporalCa } from './lib/dev-temporal.js';
+import { devDataMounts, devTemporalCa } from './lib/dev-temporal.js';
 import { fetchSide, handOff, sessionFrom, signedInLanding } from './lib/handoff.js';
 import { signUp } from './lib/sign-up.js';
 import { dropSuiteDatabase, firstAdmin, forgetMeshUser, suiteRoot, workerEnv } from './lib/suite-root.js';
@@ -25,7 +25,6 @@ const INSTANCE_URL = `http://127.0.0.1:${INSTANCE_PORT}`;
 const IMAGE = 'nowrinkles/app:dev';
 const MAILBOX = 'nw-live-mailbox';
 const WORKER = 'nw-live-worker';
-const SECRET_FILES = ['.gitea-admin-password', '.gitea-admin-token', '.headscale-api-key', '.infisical-admin-password', '.infisical-machine-identity', '.infisical-encryption-key', '.infisical-postgres-password', '.infisical-redis-password'];
 const MAILPIT_IMAGE = 'axllent/mailpit:v1.21.0';
 const MAILPIT_SMTP = 11027;
 const MAILPIT_API = 18028;
@@ -72,7 +71,7 @@ async function main(): Promise<void> {
   run('docker', ['run', '-d', '--name', 'nw-live-root', '--network', 'host', '--env-file', 'apps/backend/.env', ...ROOT.env, ...devTemporalCa(), '-e', 'ROLE=root', '-e', `PORT=${ROOT_PORT}`,
     '-e', `MAIL_SMTP_URL=smtp://127.0.0.1:${MAILPIT_SMTP}`, '-e', 'MAIL_FROM=koala@instance-live.test', IMAGE, 'backend']);
   run('docker', ['run', '-d', '--name', WORKER, '--network', 'host', '--env-file', 'apps/backend/.env', ...ROOT.env, ...devTemporalCa(),
-    ...SECRET_FILES.flatMap((file) => ['-v', `${join(REPO, 'apps/backend/data', file)}:/app/apps/backend/data/${file}:ro`]), ...workerEnv(ROOT), IMAGE, 'worker-host']);
+    ...devDataMounts(), ...workerEnv(ROOT), IMAGE, 'worker-host']);
   const keys = await until('root answering', 3, async () => {
     const response = await fetch(`${ROOT_URL}/api/identity/keys`);
     return response.ok ? (await response.json() as { keys: { publicKey: string }[] }).keys : undefined;

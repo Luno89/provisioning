@@ -6,7 +6,7 @@ import { signJWT } from '../apps/backend/src/platform/lib/auth.js';
 import { loadKeys } from '../apps/backend/src/platform/lib/keys.js';
 import { ACP_STUB, chatsOnTheMachine } from './lib/machine-chat.js';
 import { createDisposableVm, type DisposableVm } from './lib/disposable-vm.js';
-import { devTemporalCa } from './lib/dev-temporal.js';
+import { devDataMounts, devTemporalCa } from './lib/dev-temporal.js';
 import { fetchSide, handOff, sessionFrom, signedInLanding } from './lib/handoff.js';
 import { dropSuiteDatabase, firstAdmin, forgetMeshUser, suiteRoot, workerEnv } from './lib/suite-root.js';
 
@@ -28,7 +28,6 @@ const TAG = 'mesh-live';
 const ROOT_CONTAINER = 'nw-mesh-root';
 const WORKER_CONTAINER = 'nw-mesh-worker';
 const OTHER_USER = `mesh-live-other-${STAMP}`;
-const SECRET_FILES = ['.gitea-admin-password', '.gitea-admin-token', '.headscale-api-key', '.infisical-admin-password', '.infisical-machine-identity', '.infisical-encryption-key', '.infisical-postgres-password', '.infisical-redis-password'];
 
 const run = (cmd: string, args: string[], input?: string) => execFileSync(cmd, args, { cwd: REPO, encoding: 'utf8', input, stdio: [input === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'], maxBuffer: 64 * 1024 * 1024 });
 const headscale = (...args: string[]) => run('docker', ['exec', 'provisioning-headscale', 'headscale', ...args]);
@@ -96,12 +95,12 @@ async function main(): Promise<void> {
   step('root starts, with the mesh at its address on this computer');
   for (const name of [ROOT_CONTAINER, WORKER_CONTAINER]) try { run('docker', ['rm', '-f', name]); } catch { /* not running */ }
   run('docker', ['run', '-d', '--name', ROOT_CONTAINER, '--network', 'host', '--env-file', 'apps/backend/.env', ...ROOT.env, ...devTemporalCa(),
-    ...SECRET_FILES.flatMap((file) => ['-v', `${join(REPO, 'apps/backend/data', file)}:/app/apps/backend/data/${file}:ro`]),
+    ...devDataMounts(),
     '-e', 'ROLE=root', '-e', `PORT=${ROOT_PORT}`, '-e', `PUBLIC_URL=${ROOT_FOR_GUEST}`,
     '-e', `MESH_LOGIN_SERVER=${MESH}`, '-e', 'INSTANCE_REGISTRY=10.0.2.2:5001', '-e', `INSTANCE_IMAGE_TAG=${TAG}`, IMAGE, 'backend']);
   await until('root answering', 3, async () => ((await fetch(`${ROOT_FOR_HOST}/api/identity/keys`)).ok ? true : undefined));
   run('docker', ['run', '-d', '--name', WORKER_CONTAINER, '--network', 'host', '--env-file', 'apps/backend/.env', ...ROOT.env, ...devTemporalCa(),
-    ...SECRET_FILES.flatMap((file) => ['-v', `${join(REPO, 'apps/backend/data', file)}:/app/apps/backend/data/${file}:ro`]), ...workerEnv(ROOT), IMAGE, 'worker-host']);
+    ...devDataMounts(), ...workerEnv(ROOT), IMAGE, 'worker-host']);
   const owner = await firstAdmin(ROOT_FOR_HOST, ROOT);
   ownerId = owner.id;
   const session = signJWT({ userId: owner.id, email: owner.email }, loadKeys(process.env).session, 4 * 3600);
