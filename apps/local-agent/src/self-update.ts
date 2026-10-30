@@ -52,6 +52,8 @@ export interface SelfUpdateDeps {
   gate: Gate;
   prepare(bundle: string): Promise<void>;
   discard(): Promise<void>;
+  quiesce(): Promise<void>;
+  resume(): Promise<void>;
   swap(): void;
   restart(bundle: string): void;
   report(report: UpdateReport): void;
@@ -114,13 +116,16 @@ export class SelfUpdate {
       await this.deps.discard().catch(() => undefined);
       return false;
     }
-    while (!this.deps.gate.idle) {
-      this.say({ state: 'waiting', bundle, busyWith: this.deps.gate.busyWith() });
-      await this.deps.gate.whenIdle();
+    for (;;) {
+      await this.untilIdle(bundle);
+      await this.deps.quiesce();
+      if (this.deps.gate.idle) break;
+      await this.deps.resume();
     }
     try {
       this.deps.swap();
     } catch (err) {
+      await this.deps.resume();
       await this.deps.discard().catch(() => undefined);
       this.failed(bundle, `the new agent could not take the old one's place: ${(err as Error).message}`);
       return false;

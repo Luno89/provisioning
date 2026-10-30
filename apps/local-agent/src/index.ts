@@ -102,12 +102,15 @@ async function main() {
   const gate = new IdleGate();
   const socket = io(`${backendUrl}/agent`, { auth: { token, containerMode, bundle: OWN_BUNDLE ?? '' }, reconnection: true });
   const place = placeOf(AGENT_DIR);
+  let worker: DeviceWorkerHost | undefined;
   const updates = new SelfUpdate({
     own: OWN_BUNDLE,
     service,
     gate,
     prepare: (bundle) => prepareBundle({ place, bundle, url: `${backendUrl}/api/machines/agent.tgz`, node: process.execPath }),
     discard: () => discardBundle(place),
+    quiesce: () => worker?.pause() ?? Promise.resolve(),
+    resume: () => worker?.resume() ?? Promise.resolve(),
     swap: () => swapBundle(place),
     restart: () => process.exit(0),
     report: (report: UpdateReport) => { if (socket.connected) socket.emit('machine:update', report); },
@@ -122,7 +125,7 @@ async function main() {
     process.once(signal, () => { void sessions.closeAll().finally(() => process.exit(0)); });
   }
   watchAgents(socket, config, sessions, gate);
-  const worker = followEngineWorker(socket, config, sessions, gate);
+  worker = followEngineWorker(socket, config, sessions, gate);
 
   socket.on('machine:token', ({ token: next }: { token?: unknown }, ack: (answer: { taken: boolean }) => void) => {
     if (typeof next !== 'string' || !next) return ack(tokenAnswer(false));

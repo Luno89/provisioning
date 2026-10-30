@@ -57,11 +57,12 @@ interface Harness {
   steps: string[];
   prepared: (() => void)[];
   failPrepare: (bundle: string) => Error | undefined;
+  quiesce: () => Promise<void>;
 }
 
 function harness(over: Partial<SelfUpdateDeps> = {}): Harness {
   const gate = new IdleGate();
-  const h: Harness = { gate, reports: [], lines: [], steps: [], prepared: [], failPrepare: () => undefined } as unknown as Harness;
+  const h: Harness = { gate, reports: [], lines: [], steps: [], prepared: [], failPrepare: () => undefined, quiesce: async () => undefined } as unknown as Harness;
   h.updates = new SelfUpdate({
     own: A,
     service: 'systemd',
@@ -73,6 +74,8 @@ function harness(over: Partial<SelfUpdateDeps> = {}): Harness {
       return new Promise<void>((resolve) => { h.prepared.push(resolve); });
     },
     discard: async () => { h.steps.push('discard'); },
+    quiesce: async () => { h.steps.push('quiesce'); await h.quiesce(); },
+    resume: async () => { h.steps.push('resume'); },
     swap: () => { h.steps.push(`swap while ${gate.idle ? 'idle' : 'busy'}`); },
     restart: (bundle) => { h.steps.push(`restart ${bundle[0]}`); },
     report: (report) => h.reports.push(report),
@@ -99,7 +102,7 @@ describe('an agent Koala names a newer bundle to', () => {
     expect(h.reports.map((r) => r.state)).toEqual(['updating']);
     h.prepared.shift()!();
     await done;
-    expect(h.steps).toEqual(['prepare b', 'swap while idle', 'restart b']);
+    expect(h.steps).toEqual(['prepare b', 'quiesce', 'swap while idle', 'restart b']);
   });
 
   it('waits while work runs, keeps taking it, and updates at the moment the machine is idle', async () => {
@@ -118,7 +121,7 @@ describe('an agent Koala names a newer bundle to', () => {
     expect(h.steps).toEqual(['prepare b']);
     h.prepared.shift()!();
     await done;
-    expect(h.steps).toEqual(['prepare b', 'swap while idle', 'restart b']);
+    expect(h.steps).toEqual(['prepare b', 'quiesce', 'swap while idle', 'restart b']);
   });
 
   it('never swaps while work that arrived during the preparation runs', async () => {
@@ -132,7 +135,30 @@ describe('an agent Koala names a newer bundle to', () => {
     expect(h.reports.at(-1)).toEqual({ state: 'waiting', bundle: B, busyWith: ['a tool call'] });
     arrived();
     await done;
-    expect(h.steps).toEqual(['prepare b', 'swap while idle', 'restart b']);
+    expect(h.steps).toEqual(['prepare b', 'quiesce', 'swap while idle', 'restart b']);
+  });
+
+  it('stops taking work before it swaps, lets what it took finish, and goes back to work when that left the machine busy', async () => {
+    const h = harness();
+    let session: (() => void) | undefined;
+    let quiesced = 0;
+    h.quiesce = async () => {
+      quiesced += 1;
+      if (quiesced > 1) return;
+      const step = h.gate.hold('an external agent step');
+      session = h.gate.hold('a session of gemini');
+      await Promise.resolve();
+      step();
+    };
+    const done = h.updates.named({ sha256: B });
+    await settle();
+    h.prepared.shift()!();
+    await settle();
+    expect(h.steps).toEqual(['prepare b', 'quiesce', 'resume']);
+    expect(h.reports.at(-1)).toEqual({ state: 'waiting', bundle: B, busyWith: ['a session of gemini'] });
+    session!();
+    await done;
+    expect(h.steps).toEqual(['prepare b', 'quiesce', 'resume', 'quiesce', 'swap while idle', 'restart b']);
   });
 
   it('keeps running as it is when a step fails, says why, and tries again only when Koala names a bundle again', async () => {
@@ -149,7 +175,7 @@ describe('an agent Koala names a newer bundle to', () => {
     await settle();
     h.prepared.shift()!();
     await again;
-    expect(h.steps).toEqual(['prepare b', 'prepare b', 'swap while idle', 'restart b']);
+    expect(h.steps).toEqual(['prepare b', 'prepare b', 'quiesce', 'swap while idle', 'restart b']);
   });
 
   it('puts the running agent back and says so when the swap fails', async () => {
@@ -158,7 +184,7 @@ describe('an agent Koala names a newer bundle to', () => {
     await settle();
     h.prepared.shift()!();
     await done;
-    expect(h.steps).toEqual(['prepare b', 'discard']);
+    expect(h.steps).toEqual(['prepare b', 'quiesce', 'resume', 'discard']);
     expect(h.reports.at(-1)?.state).toBe('failed');
     expect(h.reports.at(-1)?.reason).toContain('EXDEV');
   });
@@ -173,7 +199,7 @@ describe('an agent Koala names a newer bundle to', () => {
     expect(h.steps).toEqual(['prepare b', 'discard', 'prepare c']);
     h.prepared.shift()!();
     await done;
-    expect(h.steps).toEqual(['prepare b', 'discard', 'prepare c', 'swap while idle', 'restart c']);
+    expect(h.steps).toEqual(['prepare b', 'discard', 'prepare c', 'quiesce', 'swap while idle', 'restart c']);
   });
 
   it('tells Koala again where it is when named the same bundle while waiting', async () => {

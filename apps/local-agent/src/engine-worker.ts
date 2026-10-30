@@ -44,6 +44,8 @@ export interface DeviceActivitiesOptions {
 
 export const HEARTBEAT_MS = 10_000;
 
+export const DRAIN_CEILING = '720h';
+
 const activityContext = (): Context | undefined => {
   try {
     return Context.current();
@@ -132,6 +134,7 @@ export async function startDeviceWorker(options: DeviceWorkerOptions): Promise<D
     taskQueue,
     dataConverter: buildDataConverter(options.payloads.ring, options.payloads.blobs),
     interceptors: { activity: [heartbeatWhileRunning(), traceActivities()] },
+    shutdownGraceTime: DRAIN_CEILING,
     ...(options.namespace ? { namespace: options.namespace } : {}),
     activities: createDeviceActivities(options),
   });

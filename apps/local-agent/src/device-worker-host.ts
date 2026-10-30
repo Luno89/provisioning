@@ -35,6 +35,7 @@ export class DeviceWorkerHost {
   private failures = 0;
   private cancelRetry: (() => void) | undefined;
   private stopped = false;
+  private paused = false;
 
   constructor(
     private readonly start: (settings: EngineSettings) => Promise<RunningWorker>,
@@ -53,6 +54,7 @@ export class DeviceWorkerHost {
 
   connected(settingsOf: () => Promise<EngineSettings>): Promise<void> {
     this.settingsOf = settingsOf;
+    if (this.paused) return this.queue;
     this.cancelRetry?.();
     this.cancelRetry = undefined;
     this.queue = this.queue.then(() => this.follow(settingsOf)).catch((err: Error) => {
@@ -60,6 +62,20 @@ export class DeviceWorkerHost {
       if (!this.current) this.retryLater();
     });
     return this.queue;
+  }
+
+  async pause(): Promise<void> {
+    this.paused = true;
+    this.cancelRetry?.();
+    this.cancelRetry = undefined;
+    await this.queue;
+    await this.retire();
+  }
+
+  resume(): Promise<void> {
+    this.paused = false;
+    if (this.stopped || !this.settingsOf) return Promise.resolve();
+    return this.connected(this.settingsOf);
   }
 
   async stop(): Promise<void> {
@@ -71,18 +87,20 @@ export class DeviceWorkerHost {
   }
 
   private retryLater(): void {
-    if (this.stopped || this.cancelRetry || !this.settingsOf) return;
+    if (this.stopped || this.paused || this.cancelRetry || !this.settingsOf) return;
     this.failures += 1;
     const delay = retryDelay(this.failures);
     this.log(`the engine worker starts again in ${Math.round(delay / 1000)}s`);
     this.cancelRetry = this.after(delay, () => {
       this.cancelRetry = undefined;
-      if (!this.stopped && !this.current && this.settingsOf) void this.connected(this.settingsOf);
+      if (!this.stopped && !this.paused && !this.current && this.settingsOf) void this.connected(this.settingsOf);
     });
   }
 
   private async follow(settingsOf: () => Promise<EngineSettings>): Promise<void> {
+    if (this.paused) return;
     const settings = await settingsOf();
+    if (this.paused) return;
     const fingerprint = settingsFingerprint(settings);
     if (this.current?.fingerprint === fingerprint) return;
     if (this.current) this.log('Koala\'s payload key or the way to its Temporal changed, so the engine worker starts again with it');
