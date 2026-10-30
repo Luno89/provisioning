@@ -79,9 +79,15 @@ export interface ExternalAgentSessionsOptions {
   callAnswerMs?: number | undefined;
   jobWaitMs?: number | undefined;
   gate?: IdleGate | undefined;
+  onRunsChanged?: ((runIds: string[]) => void) | undefined;
 }
 
 const NOT_ANSWERED = 'the run that offered this tool stopped before it answered';
+
+export function runOfSession(key: string): string {
+  const parts = key.split(':');
+  return parts.length > 2 ? parts.slice(0, -2).join(':') : key;
+}
 
 function releaseHeld(live: Pick<Live, 'held' | 'calls' | 'jobs'>, why: string): void {
   for (const held of live.held.values()) held.reject(new Error(why));
@@ -118,16 +124,41 @@ export class ExternalAgentSessions {
     return [...this.live.keys()];
   }
 
+  openRuns(): string[] {
+    return [...new Set([...this.live.keys()].map(runOfSession))].sort();
+  }
+
+  async closeRun(runId: string): Promise<number> {
+    const keys = [...this.live.keys()].filter((key) => runOfSession(key) === runId);
+    await Promise.all(keys.map((key) => this.shut(key)));
+    if (keys.length) this.runsChanged();
+    return keys.length;
+  }
+
+  private async shut(key: string): Promise<Live | undefined> {
+    const live = this.live.get(key);
+    if (!live) return undefined;
+    this.live.delete(key);
+    releaseHeld(live, NOT_ANSWERED);
+    live.ask?.answer({ cancelled: true });
+    live.ask = undefined;
+    live.mounted?.unmount();
+    await live.session.close().finally(() => live.release?.());
+    return live;
+  }
+
+  private runsChanged(): void {
+    this.options.onRunsChanged?.(this.openRuns());
+  }
+
   async step(args: ExternalAgentStepArgs, beat: () => void = () => {}): Promise<ExternalAgentStepResult> {
     const { op } = args;
     if (op.kind === 'open') return this.open(args.key, args.agent, op, beat);
     const live = this.live.get(args.key);
     if (!live) return { state: 'failed', error: 'that session is no longer open on this machine', events: [] };
     if (op.kind === 'close') {
-      this.live.delete(args.key);
-      releaseHeld(live, NOT_ANSWERED);
-      live.mounted?.unmount();
-      await live.session.close().finally(() => live.release?.());
+      await this.shut(args.key);
+      this.runsChanged();
       return { ...this.about(live), state: 'closed', events: live.events.splice(0) };
     }
     const answers = op.kind === 'result' ? [op] : op.kind === 'results' ? op.results : [];
@@ -168,6 +199,7 @@ export class ExternalAgentSessions {
       live.mounted?.unmount();
     }
     await Promise.all(open.map((live) => live.session.close().finally(() => live.release?.())));
+    if (open.length) this.runsChanged();
   }
 
   private async open(key: string, agent: string, op: Extract<ExternalAgentStepArgs['op'], { kind: 'open' }>, beat: () => void): Promise<ExternalAgentStepResult> {
@@ -238,6 +270,7 @@ export class ExternalAgentSessions {
 
     this.live.set(key, opened);
     opened.release = this.options.gate?.hold(`a session of ${agent}`);
+    this.runsChanged();
     const opening = [workspaceLine(cwd), mounted ? TOOLS_LINE : '', op.context].filter(Boolean).join('\n\n');
     const text = session.resumed ? op.brief : `${opening}\n\n${op.brief}`;
     session.prompt(text).then(

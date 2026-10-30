@@ -38,6 +38,7 @@ import { wireSockets } from './machines/wiring/sockets.js';
 import { workFailuresFor, wireRunning } from './infrastructure/wiring/running.js';
 import { wireActions } from './engine/wiring/actions.js';
 import { PRUNE_FIRST_DELAY_MS, PRUNE_INTERVAL_MS } from './engine-host/sandboxes/prune-images.js';
+import { runClosedVia, runLifeVia } from './engine-host/temporal/run-cancellation.js';
 import { askDevice, dropDevice, localAgentStatus, tellDevice, MachineService, machineTelemetry } from './machines/index.js';
 import { RootMeshKeys, IdentityService } from './instances/index.js';
 import { modelsRouter, ModelService, endpointRulesFromEnv } from './models/index.js';
@@ -316,7 +317,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     res.type(metrics.contentType).send(await metrics.text());
   }));
 
-  wireSockets({ io, db, role, env: process.env, payloadKey: keys.payload, dataKey: keys.data, auth, machines: machineService, clusters: clusterService, apps: appService, infra: infraService, telemetry: machineTelemetry({ sink: () => telemetrySink }), machineTemporal });
+  wireSockets({ io, db, role, env: process.env, payloadKey: keys.payload, dataKey: keys.data, auth, machines: machineService, clusters: clusterService, apps: appService, infra: infraService, telemetry: machineTelemetry({ sink: () => telemetrySink }), machineTemporal, runs: { life: runLifeVia(() => getTemporalClient()), closed: runClosedVia(() => getTemporalClient()) } });
 
   app.use('/api/auth', authRouter({
     db, authService, auth, sessionKey: keys.session, publicUrl: PUBLIC_URL, appUrl: APP_URL, accounts: holdsAccounts(role), hub: role.role === 'hub', revocations,

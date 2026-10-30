@@ -24,6 +24,7 @@ let served: string;
 let server: http.Server;
 let io: SocketServer;
 let url = '';
+let ending: Map<string, () => void>;
 const clients: ClientSocket[] = [];
 
 function agent(auth: Record<string, unknown>): Promise<{ socket: ClientSocket; named: Promise<unknown> }> {
@@ -49,6 +50,7 @@ const shown = async () => (await machines.list('owner-1'))[0]?.agentUpdate;
 beforeEach(async () => {
   db = await testDatabase();
   served = B;
+  ending = new Map();
   machines = new MachineService({
     store: db.machines,
     dataKey: keys.data,
@@ -68,6 +70,10 @@ beforeEach(async () => {
     auth: { userFromSessionCookie: async () => undefined, securedFor: () => false, principalFor: () => undefined } as unknown as SocketsWiringDeps['auth'],
     machines, clusters: {} as never, apps: {} as never, infra: {} as never,
     telemetry: { relay: async () => ({ ok: true }) } as never,
+    runs: {
+      life: async (runId) => (runId === 'chat-gone-koala-1' ? 'ended' : 'running'),
+      closed: (runId) => new Promise((resolve) => ending.set(runId, () => resolve('ended'))),
+    },
   });
   await new Promise<void>((done) => server.listen(0, '127.0.0.1', done));
   url = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
@@ -99,7 +105,7 @@ describe('a machine\'s agent and the bundle Koala serves', () => {
     const updates = new SelfUpdate({
       own: A, service: 'systemd', gate,
       prepare: () => Promise.reject(new Error('npm ci failed: npm error network')),
-      discard: async () => undefined, swap: () => undefined, restart: () => undefined,
+      discard: async () => undefined, quiesce: async () => undefined, resume: async () => undefined, swap: () => undefined, restart: () => undefined,
       report: (report) => socket.emit('machine:update', report),
       log: () => undefined,
     });
@@ -117,6 +123,21 @@ describe('a machine\'s agent and the bundle Koala serves', () => {
     served = A;
     await until(async () => ((await shown())?.state === 'current' ? true : undefined));
     served = B;
+  ending = new Map();
     expect(await shown()).toEqual({ state: 'behind', current: B, running: A });
+  }, 30_000);
+});
+
+describe('a machine\'s sessions and the runs that hold them', () => {
+  it('is told when a run it says holds a session has ended, or ends later', async () => {
+    const { socket } = await agent({ bundle: B });
+    const ended: string[] = [];
+    socket.on('machine:run-ended', ({ runId }: { runId: string }) => ended.push(runId));
+    socket.emit('machine:runs', { runIds: ['chat-1-koala-1', 'chat-gone-koala-1'] });
+    await until(async () => (ended.includes('chat-gone-koala-1') && ending.has('chat-1-koala-1') ? true : undefined));
+    expect(ended).toEqual(['chat-gone-koala-1']);
+    ending.get('chat-1-koala-1')!();
+    await until(async () => (ended.length === 2 ? true : undefined));
+    expect(ended).toEqual(['chat-gone-koala-1', 'chat-1-koala-1']);
   }, 30_000);
 });

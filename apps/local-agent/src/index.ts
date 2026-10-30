@@ -120,7 +120,15 @@ async function main() {
   startTelemetry({ service: 'koala-machine', ...(config.deviceId ? { machineId: config.deviceId } : {}), sink: socketSink(socket), log: (line) => console.warn(`[koala-local-agent] ${line}`) });
   const mcp = new LocalMcpServer({ log: (line) => console.log(`[koala-local-agent] ${line}`) });
   await mcp.start();
-  const sessions = new ExternalAgentSessions({ rootDir, launches: {}, mcp, gate });
+  const tellRuns = (runIds: string[]) => { if (socket.connected) socket.emit('machine:runs', { runIds }); };
+  const sessions = new ExternalAgentSessions({ rootDir, launches: {}, mcp, gate, onRunsChanged: tellRuns });
+  socket.on('connect', () => tellRuns(sessions.openRuns()));
+  socket.on('machine:run-ended', ({ runId }: { runId?: unknown } = {}) => {
+    if (typeof runId !== 'string') return;
+    void sessions.closeRun(runId).then((closed) => {
+      if (closed) console.log(`[koala-local-agent] ${runId} ended, so its ${closed === 1 ? 'session is' : `${closed} sessions are`} closed`);
+    });
+  });
   for (const signal of ['SIGINT', 'SIGTERM'] as const) {
     process.once(signal, () => { void sessions.closeAll().finally(() => process.exit(0)); });
   }
