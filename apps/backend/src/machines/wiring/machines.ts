@@ -3,7 +3,7 @@ import path from 'path';
 import type express from 'express';
 import { type Database, type LocalAgentDeviceMetadata, type SecretKey, asyncRoute, ringOf, sharedPayloadBlobs, temporalApiKey } from '../../platform/index.js';
 import { findDeviceByToken } from '../lib/local-agent-registry.js';
-import { MachineBundle } from '../services/MachineBundle.js';
+import type { MachineBundle } from '../services/MachineBundle.js';
 import { MachineGitService } from '../services/MachineGitService.js';
 import { MachineTemporalGateway } from '../services/MachineTemporalGateway.js';
 import { type HeadscaleService, meshRouter } from '../../infrastructure/index.js';
@@ -21,6 +21,7 @@ export interface MachinesWiringDeps {
   publicUrl: string;
   repoRoot: string;
   machines: MachineService;
+  bundle: MachineBundle;
   headscale: HeadscaleService;
   projectRepos: ProjectRepoService;
   gateway?: { port: number; host: string; upstream: string; namespace: string; temporalKey: string; temporalCa?: Buffer | undefined } | undefined;
@@ -33,7 +34,7 @@ export function wireMachines(deps: MachinesWiringDeps): void {
   const { tenant, db } = deps;
   tenant.use('/api/mesh', meshRouter({ headscaleService: deps.headscale, db }));
   tenant.use('/api/mesh/local-agents', localAgentsRouter({ machines: deps.machines }));
-  const bundle = new MachineBundle(deps.repoRoot);
+  const { bundle } = deps;
   const git = new MachineGitService({
     deviceFor: deviceByToken(db, deps.dataKey),
     remote: (ownerId, repo) => deps.projectRepos.gitRemote(ownerId, repo),

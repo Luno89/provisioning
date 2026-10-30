@@ -25,7 +25,7 @@ export interface SocketsWiringDeps {
   payloadKey: Keyring;
   dataKey: SecretKey;
   auth: Pick<ReturnType<typeof createAuth>, 'userFromSessionCookie' | 'securedFor' | 'principalFor'>;
-  machines: Pick<MachineService, 'seen' | 'recordAgents' | 'manualAgents' | 'recordMeshIp' | 'rotationFor' | 'tokenTaken'>;
+  machines: Pick<MachineService, 'seen' | 'recordAgents' | 'manualAgents' | 'recordMeshIp' | 'rotationFor' | 'tokenTaken' | 'recordAgentBundle' | 'recordAgentUpdate' | 'currentBundle'>;
   clusters: ClusterService;
   apps: AppService;
   infra: InfrastructureService;
@@ -69,11 +69,16 @@ export function wireSockets(deps: SocketsWiringDeps): void {
     const containerMode = socket.handshake.auth?.containerMode === true;
     registerDevice(device.id, device.ownerId, device.rootDir, socket, containerMode);
     deps.machines.seen(device.id).catch((err: Error) => console.warn(`[machines] ${device.id}: when it was last seen could not be recorded: ${err.message}`));
+    deps.machines.recordAgentBundle(device.id, socket.handshake.auth).catch((err: Error) => console.warn(`[machines] ${device.id}: which agent it runs could not be recorded: ${err.message}`));
+    void deps.machines.currentBundle().then((sha256) => { if (sha256 && socket.connected) socket.emit('machine:bundle', { sha256 }); });
     void rotateDeviceToken(socket, device.id, socket.data.via as TokenVia, deps.machines)
       .catch((err: Error) => console.warn(`[machines] ${device.id}: its token could not be rotated: ${err.message}`));
     socket.on('disconnect', () => unregisterDevice(device.id, socket));
     socket.on('agents:found', (report: { agents?: unknown } | undefined) => {
       deps.machines.recordAgents(device.id, report?.agents).catch((err: Error) => console.warn(`[machines] ${device.id}: its agents could not be recorded: ${err.message}`));
+    });
+    socket.on('machine:update', (report: unknown) => {
+      deps.machines.recordAgentUpdate(device.id, report).catch((err: Error) => console.warn(`[machines] ${device.id}: how its agent's update goes could not be recorded: ${err.message}`));
     });
     socket.on('machine:mesh', (report: { ip?: unknown } | undefined) => {
       deps.machines.recordMeshIp(device.id, report?.ip).catch((err: Error) => console.warn(`[machines] ${device.id}: its mesh address could not be recorded: ${err.message}`));

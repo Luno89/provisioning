@@ -1,10 +1,12 @@
 export { askDevice, deleteFileOnDevice, dropDevice, giveDeviceTokenLifetimes, hashDeviceTokens, listDirOnDevice, localAgentStatus, readFileOnDevice, tellDevice, writeFileOnDevice } from './lib/local-agent-registry.js';
+export type { AgentUpdateReport, AgentUpdateView } from './lib/agent-updates.js';
 export { accountDefaultOf, MACHINE_DEFAULT_NEEDS_MODEL } from './lib/machine-runs.js';
 export type { AccountDefault } from './lib/machine-runs.js';
 export { machineTelemetry } from './lib/machine-telemetry.js';
 export type { MachineTelemetry, TelemetryAnswer } from './lib/machine-telemetry.js';
 export { machineChoiceProblem, meshAddress } from './lib/machines.js';
 export type { ChosenMachine, MachineAgent, ManualMachineAgent } from './lib/machines.js';
+export { MachineBundle } from './services/MachineBundle.js';
 export { MachineService } from './services/MachineService.js';
 export type { MachinesStore } from './store.js';
 export type { Routes } from './wiring/machines.js';
