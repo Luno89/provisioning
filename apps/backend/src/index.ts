@@ -503,5 +503,8 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
 }
 
 if (process.env.NODE_ENV !== 'test' || process.env.IS_E2E === 'true') {
-  bootstrap().catch(console.error);
+  bootstrap().catch((err) => {
+    console.error('[bootstrap] the backend could not start, so it stops rather than staying up without serving:', err);
+    process.exit(1);
+  });
 }
