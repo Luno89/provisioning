@@ -6,6 +6,8 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { createDisposableVm, findFreePort, type DisposableVm } from './lib/disposable-vm.js';
 import { labDnsmasq, labHostsLine } from './lib/release-lab.js';
+import { answeringIn, answersThrough, nodePortsOf, probeCommand } from './lib/node-ports.js';
+import { mailCheckFrom } from '../apps/backend/src/platform/lib/mail-reputation.js';
 
 const REPO = resolve(new URL('.', import.meta.url).pathname, '..');
 const DOMAIN = 'koala.internal';
@@ -141,6 +143,53 @@ async function main(): Promise<void> {
   step('two fresh roots, each bootstrapped by the real bootstrap.sh in lab mode, side by side');
   const [first, second] = await Promise.all([standUpRoot('restore-first', commit), standUpRoot('restore-second', commit)]);
   const firstCa = join(work, 'restore-first-ca.crt');
+
+  step('root checks its own mail: the blocklists\' own test address is listed through root\'s resolver, and its name, reverse DNS and port 25 are read');
+  const mailChecked = sh(first.vm, `cd ${REPO_DIR} && sudo npx tsx scripts/root-node/mail-check.ts ${DOMAIN} --ip 127.0.0.2 --json`).then((out) => ({ out }), (error: Error) => ({ error }));
+
+  step('root\'s node ports answer on its loopback and its mesh, where Koala reaches them, and say nothing on its network address, where kube-proxy would answer before ufw');
+  const kubectl = `sudo ${REPO_DIR}/bin/kubectl --kubeconfig /var/lib/rancher/k3s-provisioning-lunorica/kubeconfig.yaml`;
+  const nodePorts = nodePortsOf(JSON.parse(await sh(first.vm, `${kubectl} get svc -A -o json`)));
+  assert.ok(nodePorts.length > 0, 'root\'s cluster has no node ports to probe');
+  const meshIp = (await sh(first.vm, 'tailscale ip -4')).trim().split('\n')[0]!;
+  const inside = async (address: string) => answeringIn(await sh(first.vm, probeCommand(address, nodePorts.map((entry) => entry.port))));
+  const onLoopback = await inside('127.0.0.1');
+  assert.ok(onLoopback.length > 0, `none of root's node ports (${nodePorts.map((entry) => `${entry.service}:${entry.port}`).join(', ')}) answers on its own loopback`);
+  assert.deepEqual(await inside(meshIp), onLoopback, 'root\'s node ports do not answer on its mesh address as they do on its loopback');
+  const forwards = new Map<number, number>();
+  for (const port of onLoopback) {
+    const hostPort = await findFreePort();
+    await first.vm.forward(hostPort, port);
+    forwards.set(port, hostPort);
+  }
+  const fromOutside = async () => (await Promise.all([...forwards].map(async ([port, hostPort]) => ((await answersThrough(hostPort)) ? port : undefined)))).filter((port): port is number => port !== undefined);
+  assert.deepEqual(await fromOutside(), [], 'a node port of root answers on its network address');
+  note(`${onLoopback.length} node ports (${nodePorts.filter((entry) => onLoopback.includes(entry.port)).map((entry) => `${entry.service}:${entry.port}`).join(', ')}) answer on 127.0.0.1 and ${meshIp}; from this computer, through the VM's own address, none says anything`);
+
+  step('taken away, as on a root from before the setting, the same node ports answer from outside; harden-host.sh, as update.sh runs it, closes them again');
+  await sh(first.vm, 'sudo rm /etc/rancher/k3s/config.yaml.d/koala-node-ports.yaml && sudo systemctl restart k3s-provisioning-lunorica');
+  const exposed = await until('a node port of root answering from outside', async () => {
+    const open = await fromOutside();
+    return open.length ? open : undefined;
+  });
+  note(`without it, ${exposed.join(', ')} answered this computer through the VM's own address`);
+  const hardened = await sh(first.vm, `sudo LAB=1 bash ${REPO_DIR}/scripts/root-node/harden-host.sh`);
+  assert.match(hardened, /k3s restarted, so kube-proxy takes the node port addresses/);
+  await until('root\'s node ports to close to the outside again', async () => ((await fromOutside()).length === 0 ? true : undefined));
+  await until('root\'s node ports answering on its loopback and mesh again', async () => {
+    const [loopback, mesh] = await Promise.all([inside('127.0.0.1'), inside(meshIp)]);
+    return loopback.length === onLoopback.length && mesh.length === onLoopback.length ? true : undefined;
+  });
+  note('harden-host.sh wrote the setting back and restarted k3s: nothing answers from outside, everything answers on loopback and the mesh');
+
+  const mailRun = await mailChecked;
+  if ('error' in mailRun) throw mailRun.error;
+  const mail = mailCheckFrom(mailRun.out);
+  assert.ok(mail, `mail-check.ts printed no result:\n${mailRun.out}`);
+  const listedOn = mail.blocklists.filter((list) => list.state === 'listed').map((list) => list.name);
+  assert.ok(listedOn.length > 0, `no blocklist named its own test address through root's resolver: ${JSON.stringify(mail.blocklists)}`);
+  assert.ok(mail.blocklists.every((list) => list.state !== 'clear'), `a blocklist read its own test address as clear: ${JSON.stringify(mail.blocklists)}`);
+  note(`127.0.0.2, every list's test address, is on ${listedOn.join(', ')} through root's resolver${mail.blocklists.some((list) => list.state === 'unknown') ? `; ${mail.blocklists.filter((list) => list.state === 'unknown').map((list) => list.said).join('; ')}` : ''}; reverse DNS: ${mail.reverseDns?.said}; ${mail.port25.said}`);
 
   step('the first root holds an account, an instance, a node on its mesh and Temporal\'s history');
   const setupCode = (await sh(first.vm, `sudo grep '^ADMIN_SETUP_CODE=' ${REPO_DIR}/apps/backend/.env | cut -d= -f2-`)).trim();
