@@ -1,6 +1,7 @@
 import type { WantedRecord } from './dns-plan.js';
 import type { ServerReverseDns } from './reverse-dns.js';
 import type { MailReport } from '../../platform/index.js';
+import { isDomainName, type RootSignInChoice } from './root-sign-in.js';
 
 export type ServerOrderState =
   | 'quoted'
@@ -47,6 +48,8 @@ export interface ServerOrder {
   ingressDomain: string;
   acmeEmail: string;
   dns: { domain: string; ingress: string };
+  signIn?: RootSignInChoice[] | undefined;
+  signInEnv?: string | undefined;
   cartId?: string | undefined;
   quote: ServerQuote;
   quotedAt: string;
@@ -70,6 +73,16 @@ export interface ServerOrder {
 }
 
 export const SERVER_ORDER_LOG_LINES = 2000;
+
+export const ORDER_SECRET_FIELDS = ['sshPrivateKey', 'setupCode', 'signInEnv'] as const satisfies readonly (keyof ServerOrder)[];
+
+const ORDER_SECRETS = new Set<string>(ORDER_SECRET_FIELDS);
+
+export function withoutOrderSecrets(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(withoutOrderSecrets);
+  if (!value || typeof value !== 'object' || Object.getPrototypeOf(value) !== Object.prototype) return value;
+  return Object.fromEntries(Object.entries(value).filter(([key]) => !ORDER_SECRETS.has(key)).map(([key, inner]) => [key, withoutOrderSecrets(inner)]));
+}
 
 export const rootNodeWorkflowId = (orderId: string): string => `root-node-${orderId}`;
 
@@ -233,12 +246,13 @@ export interface BootstrapInputs {
   domainDns: string;
   ingressDns: string;
   dnsEnv: Readonly<Record<string, string>>;
+  signInEnv?: Readonly<Record<string, string>> | undefined;
 }
 
 const shellQuote = (value: string): string => `'${value.replace(/'/g, `'\\''`)}'`;
 
 export function bootstrapScript(inputs: BootstrapInputs, repository = KOALA_REPOSITORY): string {
-  const credentials = Object.entries(inputs.dnsEnv).map(([name, value]) => {
+  const credentials = Object.entries({ ...inputs.dnsEnv, ...(inputs.signInEnv ?? {}) }).map(([name, value]) => {
     if (!/^[A-Z][A-Z0-9_]*$/.test(name)) throw new Error(`${name} is not an environment variable name`);
     return `export ${name}=${shellQuote(value)}`;
   });
@@ -272,9 +286,8 @@ export function redacted(line: string, secrets: readonly string[]): string {
 }
 
 export function rootDomainProblem(domain: string, ingressDomain: string): string | undefined {
-  const name = /^(?=.{4,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/;
-  if (!name.test(domain)) return `${domain || 'The root domain'} is not a domain name`;
-  if (!name.test(ingressDomain)) return `${ingressDomain || 'The people\'s domain'} is not a domain name`;
+  if (!isDomainName(domain)) return `${domain || 'The root domain'} is not a domain name`;
+  if (!isDomainName(ingressDomain)) return `${ingressDomain || 'The people\'s domain'} is not a domain name`;
   const registered = (value: string) => value.split('.').slice(-2).join('.');
   if (registered(domain) === registered(ingressDomain)) return 'People\'s instances and apps must be under a different registered domain from root\'s, or a page someone deploys would count as root\'s own site.';
   return undefined;

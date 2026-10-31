@@ -1,5 +1,6 @@
 import { Router, type Request, type RequestHandler, type Response } from 'express';
 import { asyncRoute } from '../../platform/index.js';
+import { withoutOrderSecrets } from '../lib/server-orders.js';
 import { ServerOrderProblem, type ServerOrderService } from '../services/ServerOrderService.js';
 
 const userOf = (req: Request): { id: string } => (req as unknown as { user: { id: string } }).user;
@@ -14,19 +15,27 @@ const answer = (res: Response, error: unknown): void => {
 
 const text = (value: unknown): string => (typeof value === 'string' ? value : '');
 
+const sendOrder = (res: Response, body: unknown, status = 200): void => {
+  res.status(status).json(withoutOrderSecrets(body));
+};
+
 export function serverOrdersRouter(deps: { serverOrders: ServerOrderService; operatorOnly: RequestHandler }): Router {
   const { serverOrders } = deps;
   const router = Router();
   router.use(deps.operatorOnly);
 
   router.get('/', asyncRoute(async (req, res) => {
-    res.json(await serverOrders.list(userOf(req).id));
+    sendOrder(res, await serverOrders.list(userOf(req).id));
   }));
+
+  router.get('/sign-in-providers', (req, res) => {
+    res.json(serverOrders.signInProviders(text(req.query.domain) || undefined));
+  });
 
   router.post('/quote', asyncRoute(async (req, res) => {
     const body = (req.body ?? {}) as Record<string, unknown>;
     try {
-      res.status(201).json(await serverOrders.quote(userOf(req).id, {
+      sendOrder(res, await serverOrders.quote(userOf(req).id, {
         planCode: text(body.planCode),
         planLabel: text(body.planLabel),
         datacenter: text(body.datacenter),
@@ -35,7 +44,8 @@ export function serverOrdersRouter(deps: { serverOrders: ServerOrderService; ope
         acmeEmail: text(body.acmeEmail),
         domainDns: text(body.domainDns) || undefined,
         ingressDns: text(body.ingressDns) || undefined,
-      }));
+        signIn: body.signIn,
+      }), 201);
     } catch (error) {
       answer(res, error);
     }
@@ -52,7 +62,7 @@ export function serverOrdersRouter(deps: { serverOrders: ServerOrderService; ope
 
   router.get('/:id', asyncRoute(async (req, res) => {
     try {
-      res.json(await serverOrders.get(userOf(req).id, String(req.params.id)));
+      sendOrder(res, await serverOrders.get(userOf(req).id, String(req.params.id)));
     } catch (error) {
       answer(res, error);
     }
@@ -60,7 +70,7 @@ export function serverOrdersRouter(deps: { serverOrders: ServerOrderService; ope
 
   router.post('/:id/buy', asyncRoute(async (req, res) => {
     try {
-      res.json(await serverOrders.buy(userOf(req).id, String(req.params.id), (req.body ?? {}).confirmedTotal));
+      sendOrder(res, await serverOrders.buy(userOf(req).id, String(req.params.id), (req.body ?? {}).confirmedTotal));
     } catch (error) {
       answer(res, error);
     }
@@ -68,7 +78,7 @@ export function serverOrdersRouter(deps: { serverOrders: ServerOrderService; ope
 
   router.delete('/:id', asyncRoute(async (req, res) => {
     try {
-      res.json(await serverOrders.cancel(userOf(req).id, String(req.params.id)));
+      sendOrder(res, await serverOrders.cancel(userOf(req).id, String(req.params.id)));
     } catch (error) {
       answer(res, error);
     }
