@@ -45,4 +45,24 @@ export class MoveRelay {
       outgoing.end();
     });
   }
+
+  async thaw(source: { name: string; instanceId: string }): Promise<string | undefined> {
+    const answer = await this.open(source, 'thaw', 'POST').catch((err: Error) => err);
+    if (answer instanceof Error) return `Koala's servers could not be reached: ${answer.message}`;
+    const chunks: Buffer[] = [];
+    for await (const chunk of answer) chunks.push(Buffer.from(chunk as Buffer));
+    const status = answer.statusCode ?? 0;
+    if (status >= 200 && status < 300) return undefined;
+    return `Koala's servers answered ${status}: ${refusalOf(Buffer.concat(chunks).toString('utf8'))}`;
+  }
+}
+
+function refusalOf(body: string): string {
+  try {
+    const parsed = JSON.parse(body) as { error?: unknown };
+    if (typeof parsed.error === 'string') return parsed.error;
+  } catch {
+    return body.trim().slice(0, 300) || 'no reason given';
+  }
+  return body.trim().slice(0, 300) || 'no reason given';
 }

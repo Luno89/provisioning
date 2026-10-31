@@ -70,7 +70,7 @@ export async function PoolHostActivity(): Promise<void> {
     if (refused) break;
     await sleep(2000);
   }
-  const existing = await infra.runKubectl(['get', 'daemonset', PROXY.name, '-n', PROXY.namespace, '-o', 'name'], pool.kubeconfig).catch(() => '');
+  const existing = await infra.runKubectl(['get', 'daemonset', PROXY.name, '-n', PROXY.namespace, '--ignore-not-found', '-o', 'name'], pool.kubeconfig);
   if (!existing.trim()) await infra.applyManifest(yaml(proxyManifests(proxyCaddyfile([], pool.address, await rootCaddies()))), pool.kubeconfig);
   await poolMonitoring(infra, pool.kubeconfig);
 }
@@ -405,10 +405,10 @@ export async function PoolMoveStopActivity(args: { instanceId: string; reason: s
   const pool = settings();
   const instance = await readInstance(args.instanceId);
   if (!instance?.pool || !instance.name || !instance.move) return;
-  const thawed = await moveRelay(pool).open({ name: instance.name, instanceId: instance.id }, 'thaw', 'POST')
-    .then((answer) => { answer.resume(); return true; }, () => false);
-  if (!thawed) console.warn(`[pool] ${instance.name} could not be told the move stopped; it starts taking work again when it restarts`);
+  const notThawed = await moveRelay(pool).thaw({ name: instance.name, instanceId: instance.id });
+  if (notThawed) console.warn(`[pool] ${instance.name} could not be told the move stopped: ${notThawed}`);
   if (instance.move.wasPaused) await vclusterReplicas(pool, instance.name, 0);
   const now = await readInstance(args.instanceId);
-  if (now?.move) await writeInstance({ ...now, move: { ...now.move, state: 'failed', detail: args.reason.slice(0, 500) } });
+  const detail = notThawed ? `${args.reason} Your instance on Koala's servers could not be told, so it takes no work until it restarts (${notThawed}).` : args.reason;
+  if (now?.move) await writeInstance({ ...now, move: { ...now.move, state: 'failed', detail: detail.slice(0, 500) } });
 }
