@@ -7,6 +7,7 @@ import { join, resolve } from 'node:path';
 import { createDisposableVm, findFreePort, type DisposableVm } from './lib/disposable-vm.js';
 import { labDnsmasq, labHostsLine } from './lib/release-lab.js';
 import { answeringIn, answersThrough, nodePortsOf, probeCommand } from './lib/node-ports.js';
+import { restoreRunNames, restoreRunStamp } from './lib/restore-lab.js';
 import { mailCheckFrom } from '../apps/backend/src/platform/lib/mail-reputation.js';
 
 const REPO = resolve(new URL('.', import.meta.url).pathname, '..');
@@ -18,14 +19,14 @@ const REPO_DIR = '/opt/nowrinkles';
 const ORIGIN = '/opt/nowrinkles-origin.git';
 const MINIO_IMAGE = 'pgsty/minio:RELEASE.2026-03-14T12-00-00Z';
 const TAILSCALE_IMAGE = 'tailscale/tailscale:v1.88.2';
-const MINIO = 'nw-restore-minio';
-const PROBE = 'restore-probe';
-const STAMP = Date.now().toString(36);
-const EMAIL = `restore-live-${STAMP}@example.com`;
+const NAMES = restoreRunNames(restoreRunStamp(Date.now(), randomBytes(3).toString('hex')));
+const MINIO = NAMES.minio;
+const PROBE = NAMES.probe;
+const EMAIL = NAMES.email;
 const PASSWORD = randomBytes(18).toString('base64url');
-const INSTANCE_ID = `inst-restore-${STAMP}`;
+const INSTANCE_ID = NAMES.instanceId;
 const BACKUP = {
-  user: `restore${STAMP}`,
+  user: NAMES.backupUser,
   secret: randomBytes(18).toString('base64url'),
   password: randomBytes(24).toString('base64url'),
 };
@@ -173,7 +174,7 @@ const temporal = async (root: Root, args: string) => {
   const name = (await sh(root.vm, "sudo docker ps --filter label=com.docker.compose.service=temporal --format '{{.Names}}'")).trim();
   return sh(root.vm, `sudo docker exec ${name} temporal ${args} --address 127.0.0.1:7236`);
 };
-const WORKFLOW = `restore-live-${STAMP}`;
+const WORKFLOW = NAMES.workflow;
 
 async function teardown(): Promise<void> {
   for (const tunnel of tunnels) tunnel.kill();
@@ -185,6 +186,7 @@ async function teardown(): Promise<void> {
 
 async function main(): Promise<void> {
   work = mkdtempSync(join(tmpdir(), 'restore-live-'));
+  note(`this drill's containers, VMs, workflow and accounts end in ${NAMES.stamp}, and its teardown removes only those`);
   const commit = run('git', ['rev-parse', 'HEAD']).trim();
   const minioPort = await findFreePort();
   const repository = `s3:http://10.0.2.2:${minioPort}/koala-backup`;
@@ -201,9 +203,9 @@ async function main(): Promise<void> {
   note(`issuer ${issuer.issuer}, client ${issuer.clientId}`);
 
   step('two fresh roots, each bootstrapped by the real bootstrap.sh in lab mode, side by side; the first given the issuer\'s settings on stdin, as a bought root is');
-  const [first, second] = await Promise.all([standUpRoot('restore-first', commit, signInEnv), standUpRoot('restore-second', commit)]);
-  const firstCa = join(work, 'restore-first-ca.crt');
-  const secondFreshCa = join(work, 'restore-second-ca.crt');
+  const [first, second] = await Promise.all([standUpRoot(NAMES.firstRoot, commit, signInEnv), standUpRoot(NAMES.secondRoot, commit)]);
+  const firstCa = join(work, `${NAMES.firstRoot}-ca.crt`);
+  const secondFreshCa = join(work, `${NAMES.secondRoot}-ca.crt`);
   for (const root of [first, second]) reachIssuer(root.vm, issuerPort);
 
   step('the first root offers sign-in with the issuer it was given and starts one with it; the second, given none, offers passwords only');
