@@ -4,7 +4,6 @@ import { randomBytes } from 'node:crypto';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { startStandInIssuer, type StandInIssuer } from '../apps/backend/src/accounts/services/sign-in/stand-in-issuer.js';
 import { createDisposableVm, findFreePort, type DisposableVm } from './lib/disposable-vm.js';
 import { labDnsmasq, labHostsLine } from './lib/release-lab.js';
 import { answeringIn, answersThrough, nodePortsOf, probeCommand } from './lib/node-ports.js';
@@ -91,7 +90,23 @@ interface Root { vm: DisposableVm; tlsPort: number }
 let work = '';
 const roots: Root[] = [];
 const tunnels: ChildProcess[] = [];
-let issuer: StandInIssuer | undefined;
+interface Issuer { issuer: string; clientId: string; clientSecret: string }
+let issuer: Issuer | undefined;
+let issuerProcess: ChildProcess | undefined;
+
+function startIssuer(redirectUri: string): Promise<Issuer> {
+  const tsx = join(REPO, 'node_modules/.bin/tsx');
+  issuerProcess = spawn(tsx, [join(REPO, 'tests/lib/stand-in-issuer-serve.ts'), redirectUri], { stdio: ['ignore', 'pipe', 'inherit'] });
+  return new Promise((done, fail) => {
+    let said = '';
+    issuerProcess!.stdout!.on('data', (chunk) => {
+      said += chunk;
+      const line = said.split('\n').find((candidate) => candidate.startsWith('{"issuer"'));
+      if (line) done(JSON.parse(line) as Issuer);
+    });
+    issuerProcess!.on('exit', (code) => fail(new Error(`the stand-in issuer ended with ${code} before it answered`)));
+  });
+}
 const SIGN_IN_LABEL = 'Restore stand-in';
 const CALLBACK = `${ROOT_URL}/api/auth/provider/oidc/callback`;
 
@@ -162,7 +177,7 @@ const WORKFLOW = `restore-live-${STAMP}`;
 
 async function teardown(): Promise<void> {
   for (const tunnel of tunnels) tunnel.kill();
-  await issuer?.close().catch(() => undefined);
+  issuerProcess?.kill('SIGTERM');
   for (const root of roots) await root.vm.destroy().catch(() => undefined);
   try { run('docker', ['rm', '-f', MINIO]); } catch { /* gone */ }
   if (work) rmSync(work, { recursive: true, force: true });
@@ -179,8 +194,8 @@ async function main(): Promise<void> {
   run('docker', ['run', '-d', '--name', MINIO, '-p', `127.0.0.1:${minioPort}:9000`, '-e', `MINIO_ROOT_USER=${BACKUP.user}`, '-e', `MINIO_ROOT_PASSWORD=${BACKUP.secret}`, MINIO_IMAGE, 'server', '/data']);
   note(`MinIO at 127.0.0.1:${minioPort}, which the VMs reach at 10.0.2.2`);
 
-  step('a stand-in OpenID issuer on this computer, which each root reaches on its own loopback');
-  issuer = await startStandInIssuer({ redirectUris: [CALLBACK] });
+  step('a stand-in OpenID issuer in a process of its own on this computer, which each root reaches on its own loopback through an SSH tunnel');
+  issuer = await startIssuer(CALLBACK);
   const issuerPort = Number(new URL(issuer.issuer).port);
   const signInEnv = { OIDC_ISSUER: issuer.issuer, OIDC_CLIENT_ID: issuer.clientId, OIDC_CLIENT_SECRET: issuer.clientSecret, OIDC_LABEL: SIGN_IN_LABEL };
   note(`issuer ${issuer.issuer}, client ${issuer.clientId}`);
@@ -305,6 +320,13 @@ async function main(): Promise<void> {
   note(`signed in with the old password and the old session, ${INSTANCE_ID} listed, ${PROBE} on the mesh, root at ${secondMeshIp} again, ${WORKFLOW} in Temporal, sign-in with "${SIGN_IN_LABEL}" back`);
 
   console.log('\nrestore live — PASS');
+}
+
+for (const signal of ['SIGTERM', 'SIGINT'] as const) {
+  process.once(signal, () => {
+    console.error(`\n${signal}: tearing down`);
+    void teardown().finally(() => process.exit(1));
+  });
 }
 
 main().then(async () => { await teardown(); process.exit(0); }, async (err) => {
