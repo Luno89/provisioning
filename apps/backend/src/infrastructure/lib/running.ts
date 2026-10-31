@@ -95,7 +95,7 @@ function checkRun(workflow: RunningWorkflow, records: RunningRecords): Omit<Runn
   };
 }
 
-const BY_TYPE: Record<string, (workflow: RunningWorkflow, records: RunningRecords) => Omit<RunningItem, 'workflowId' | 'since'>> = {
+export const BY_TYPE: Record<string, (workflow: RunningWorkflow, records: RunningRecords) => Omit<RunningItem, 'workflowId' | 'since'>> = {
   AgentRunWorkflow: agentRun,
   CheckRunWorkflow: checkRun,
   AdoptPlanWorkflow: () => ({ kind: 'plan', title: 'Applying a plan you approved', opens: { kind: 'temporal' }, cancel: { via: 'none', why: 'an approved plan is applied in one go, in moments' } }),
@@ -112,7 +112,7 @@ const BY_TYPE: Record<string, (workflow: RunningWorkflow, records: RunningRecord
   }),
   ConcludeWorkspaceWorkflow: (workflow) => ({ kind: 'save', title: 'Saving a workspace\'s files', opens: { kind: 'temporal', id: workflow.workflowId }, cancel: { via: 'none', why: 'it saves what the workspace holds, then ends' } }),
   executePipelineRunWorkflow: (workflow) => ({ kind: 'deploy', title: 'Building a project', opens: { kind: 'temporal', id: workflow.workflowId }, cancel: { via: 'workflow' } }),
-  executeAppDeployWorkflow: (workflow) => ({ kind: 'deploy', title: 'Deploying an app', opens: { kind: 'temporal', id: workflow.workflowId }, cancel: { via: 'workflow' } }),
+  executeDeployAppWorkflow: (workflow) => ({ kind: 'deploy', title: 'Deploying an app', opens: { kind: 'temporal', id: workflow.workflowId }, cancel: { via: 'workflow' } }),
   executeDestroyAppWorkflow: (workflow) => ({ kind: 'deploy', title: 'Removing an app', opens: { kind: 'temporal', id: workflow.workflowId }, cancel: { via: 'none', why: 'an app being removed is removed to the end' } }),
   executeResizeDiskWorkflow: (workflow) => ({ kind: 'deploy', title: 'Resizing an app\'s disk', opens: { kind: 'temporal', id: workflow.workflowId }, cancel: { via: 'none', why: 'a disk being resized is resized to the end' } }),
   executeSyncConfigWorkflow: (workflow) => ({ kind: 'deploy', title: 'Updating an app\'s settings', opens: { kind: 'temporal', id: workflow.workflowId }, cancel: { via: 'workflow' } }),

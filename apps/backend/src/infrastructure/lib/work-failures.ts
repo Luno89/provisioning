@@ -16,7 +16,7 @@ export interface WorkFailure {
 export const SHOWN_FOR_MS = 7 * 86_400_000;
 export const KEPT_FOR_MS = 30 * 86_400_000;
 
-export const FAILURE_SHOWN_ON_RECORD: readonly string[] = ['executeAppDeployWorkflow', 'ClusterProvisionWorkflow'];
+export const FAILURE_SHOWN_ON_RECORD: readonly string[] = ['executeDeployAppWorkflow', 'ClusterProvisionWorkflow'];
 
 export const runFailureId = (runId: string): string => `run:${runId}`;
 export const workflowFailureId = (workflowId: string, temporalRunId: string): string => `workflow:${workflowId}:${temporalRunId}`;

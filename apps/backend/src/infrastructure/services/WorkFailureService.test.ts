@@ -47,7 +47,7 @@ describe('work that failed', () => {
   it('finds workflows Temporal closed as failed, once each, with the cause, but not deploys or platform work', async () => {
     const { service } = await setUp([
       closedWorkflow({}),
-      closedWorkflow({ workflowId: 'deploy-1', type: 'executeAppDeployWorkflow' }),
+      closedWorkflow({ workflowId: 'deploy-1', type: 'executeDeployAppWorkflow' }),
       closedWorkflow({ workflowId: 'sweep', type: 'SweepWorkflow', ownerId: 'platform' }),
       closedWorkflow({ workflowId: 'child', parent: 'remove-project-p1' }),
     ]);
