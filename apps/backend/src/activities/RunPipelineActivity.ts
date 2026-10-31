@@ -197,7 +197,10 @@ spec:
     return { status: 'succeeded', imageTag };
   } finally {
     logTail?.kill();
-    await gitea.revokeToken(deployToken.name).catch(() => {});
+    await gitea.revokeToken(deployToken.name).catch(async (err: Error) => {
+      console.error(`[pipeline] the build's Gitea token ${deployToken.name} could not be revoked: ${err.message}`);
+      await log(args.logFile, `The build's Gitea token ${deployToken.name} could not be revoked (${err.message}); revoke it in Gitea`).catch(() => undefined);
+    });
     await infra.runKubectl(['delete', 'job', jobName, '-n', BUILD_NAMESPACE, '--ignore-not-found'], kubeconfig).catch(() => {});
     await infra.runKubectl(['delete', 'secret', gitSecretName, registrySecretName, '-n', BUILD_NAMESPACE, '--ignore-not-found'], kubeconfig).catch(() => {});
     await fs.rm(manifestPath, { force: true }).catch(() => {});

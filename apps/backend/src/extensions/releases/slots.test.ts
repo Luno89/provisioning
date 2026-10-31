@@ -180,8 +180,19 @@ describe('releasing beside the live slot', () => {
     expect(w.asked.map((question) => question.choices)).toEqual([[CUT_OVER, DISCARD, RETEST]]);
     expect(w.actions.slice(-1)).toEqual(['scale app-a 1']);
     expect(stateOf(w.records(), 'r2')?.reason).toContain('the column shop_order.note is dropped; 2 rows held a value in it');
+    expect(stateOf(w.records(), 'r2')?.reason).toContain('The slot that was live serves again');
     expect(stateOf(w.records(), 'r2')).toMatchObject({ state: 'failed', changes: { losing: false } });
     expect(w.state().live).toBe('a');
+  });
+
+  it('says the live slot is still in maintenance when a stopped cut-over could not put it back', async () => {
+    const w = world({
+      state: { installed: true, live: 'a', tags: { a: 'one', b: undefined } }, records: [record('r1', { state: 'live', slot: 'a' }), record('r2')], answers: [CUT_OVER], breakOn: 'scale app-a 1',
+      compared: { live: { shop_order: { id: 'integer', note: 'text' } }, prepared: { shop_order: { id: 'integer' } }, counts: [{ 'columns|shop_order.note': 0 }, { 'columns|shop_order.note': 2 }] },
+    });
+    expect(await w.run(SLOTS, INPUT)).toMatchObject({ outcome: 'failed' });
+    expect(stateOf(w.records(), 'r2')?.reason).toContain('The slot that was live could not be put back and is still in maintenance: scale app-a 1 broke');
+    expect(stateOf(w.records(), 'r2')?.reason).not.toContain('serves again');
   });
 
   it('clears the preview when the person discards it, leaving the live slot as it was', async () => {

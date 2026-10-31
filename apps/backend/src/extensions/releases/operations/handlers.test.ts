@@ -150,7 +150,7 @@ describe('cutting over', () => {
 
   it('starts the old slot again when the cut-over breaks before live switched', async () => {
     breakOn = 'upgrade';
-    expect(await ops()['releases.switch']!(request({ release: { ...input, slot: 'b' } }))).toEqual({ exit: 'failed', outputs: { reason: 'upgrade b broke' } });
+    expect(await ops()['releases.switch']!(request({ release: { ...input, slot: 'b' } }))).toEqual({ exit: 'failed', outputs: { reason: 'upgrade b broke. The slot that was live serves again' } });
     expect(actions.at(-1)).toBe('scale app-a 1');
   });
 });

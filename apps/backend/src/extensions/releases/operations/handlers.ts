@@ -201,15 +201,18 @@ export function createReleaseOperations(deps: ReleaseOperationDeps): Record<stri
         await adapter.upgrade(cluster, release.target, idle, buildOf(release));
         const shown = (await recordOf(release, release.build.releaseId))?.changes;
         const appeared = newLosses(shown, await compareSlots(cluster, adapter, release.target, current.live, idle, now()));
-        if (appeared.length) throw new Error(`the cut-over was stopped, because the final copy would also lose what the preview did not show: ${appeared.join('; ')}. The live slot serves again; push again to prepare a new preview`);
+        if (appeared.length) throw new Error(`the cut-over was stopped, because the final copy would also lose what the preview did not show: ${appeared.join('; ')}. Push again to prepare a new preview`);
         await apply(adapter, release, { ...ready, live: idle });
         maintenance = undefined;
         await cluster.scale(release.target, adapter.workload(release.target, current.live), 0);
         await cluster.waitReady(release.target, adapter.workload(release.target, idle));
         return { exit: 'done', outputs: { release: { ...release, slot: idle } } };
       } catch (err) {
-        if (maintenance) await cluster.scale(release.target, adapter.workload(release.target, maintenance), 1).catch(() => undefined);
-        return failed(err);
+        if (!maintenance) return failed(err);
+        const notBack = await cluster.scale(release.target, adapter.workload(release.target, maintenance), 1).then(() => undefined, (problem: unknown) => reasonOf(problem));
+        return failed(new Error(notBack
+          ? `${reasonOf(err)}. The slot that was live could not be put back and is still in maintenance: ${notBack}`
+          : `${reasonOf(err)}. The slot that was live serves again`));
       }
     },
 
@@ -241,14 +244,15 @@ export function createReleaseOperations(deps: ReleaseOperationDeps): Record<stri
       const adapter = adapterOf(deps.adapters, release.adapter);
       if (record.state === 'preview') {
         const current = await cluster.state(release.target);
-        await apply(adapter, release, cleared(current, idleOf(current.live))).catch(() => undefined);
-        await mark(release, record.id, { state: 'superseded', reason: 'a newer build took its place' });
+        const notCleared = await apply(adapter, release, cleared(current, idleOf(current.live))).then(() => undefined, (problem: unknown) => reasonOf(problem));
+        await mark(release, record.id, { state: 'superseded', reason: notCleared ? `a newer build took its place, but its preview could not be cleared: ${notCleared}` : 'a newer build took its place' });
       } else if (record.state === 'preparing' || record.state === 'queued') {
         await mark(release, record.id, { state: 'failed', reason: 'the release was stopped before it was ready' });
       } else if (record.state === 'cutting-over') {
-        const current = await cluster.state(release.target).catch(() => undefined);
-        if (current) await cluster.scale(release.target, adapter.workload(release.target, current.live), 1).catch(() => undefined);
-        await mark(release, record.id, { state: 'failed', reason: 'the cut-over was stopped; the slot that was live serves again' });
+        const notBack = await cluster.state(release.target)
+          .then((current) => cluster.scale(release.target, adapter.workload(release.target, current.live), 1))
+          .then(() => undefined, (problem: unknown) => reasonOf(problem));
+        await mark(release, record.id, { state: 'failed', reason: notBack ? `the cut-over was stopped, and the slot that was live could not be put back: ${notBack}` : 'the cut-over was stopped; the slot that was live serves again' });
       }
       return { exit: 'done', outputs: {} };
     },
