@@ -44,3 +44,27 @@ describe('listing apps against the cluster', () => {
     expect(found.map((app) => app.name)).toEqual(['stray']);
   });
 });
+
+describe('the listing pass never removes what it did not judge', () => {
+  it('keeps an app made while it read the cluster, and the apps of a cluster being destroyed', async () => {
+    const db = await testDatabase();
+    const cluster = { id: 'c1', name: 'system', provider: 'k3d', status: 'healthy', ownerId: 'bo' };
+    await db.infrastructure.saveCluster({ id: 'leaving', name: 'leaving', provider: 'k3d', status: 'destroying', ownerId: 'bo' });
+    const clusters = { reconcileAllClusters: async () => [cluster], getKubeconfigPath: async () => '/tmp/kubeconfig' };
+    const infra = {
+      runKubectl: async () => {
+        await db.infrastructure.saveDeploymentInfo({ id: 'new', name: 'New', clusterId: 'c1', strategy: 'helm', appType: 'wordpress', ownerId: 'bo', status: 'deploying', createdAt: at });
+        return JSON.stringify({ items: [{ metadata: { name: 'wordpress' } }] });
+      },
+    };
+    const apps = new AppService(db, infra as never, clusters as never, {} as never);
+    await db.infrastructure.saveDeploymentInfo({ id: 'wp', name: 'WordPress', clusterId: 'c1', strategy: 'helm', appType: 'wordpress', ownerId: 'bo', status: 'running', createdAt: at });
+    await db.infrastructure.saveDeploymentInfo({ id: 'gone', name: 'Gone', clusterId: 'c1', strategy: 'helm', appType: 'wordpress', ownerId: 'bo', status: 'running', createdAt: at });
+    await db.infrastructure.saveDeploymentInfo({ id: 'on-leaving', name: 'OnLeaving', clusterId: 'leaving', strategy: 'helm', appType: 'wordpress', ownerId: 'bo', status: 'running', createdAt: at });
+    await db.infrastructure.saveDeploymentInfo({ id: 'orphan', name: 'Orphan', clusterId: 'never-was', strategy: 'helm', appType: 'wordpress', ownerId: 'bo', status: 'running', createdAt: at });
+
+    await apps.getAll('bo');
+
+    expect((await db.infrastructure.getDeployments()).map((app) => app.id).sort()).toEqual(['new', 'on-leaving', 'wp']);
+  });
+});

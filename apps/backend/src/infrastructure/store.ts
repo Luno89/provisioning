@@ -16,12 +16,13 @@ import { hasPlainSecret, sealDeployment, unsealDeployment } from './lib/deployme
 export interface InfrastructureStore extends AreaStore {
   getClusters(): Promise<ClusterMetadata[]>;
   saveCluster(cluster: ClusterMetadata): Promise<void>;
-  saveClusterList(clusters: ClusterMetadata[]): Promise<void>;
+  deleteCluster(id: string): Promise<void>;
+  patchCluster(id: string, patch: Partial<ClusterMetadata>): Promise<void>;
   saveClusterInfo(cluster: PartialInfo<ClusterMetadata>): Promise<ClusterMetadata>;
   updateClusterProgress(clusterId: string, progress: ClusterProgress): Promise<void>;
   getDeployments(): Promise<DeploymentMetadata[]>;
   saveDeployment(deployment: DeploymentMetadata): Promise<void>;
-  saveDeploymentList(deployments: DeploymentMetadata[]): Promise<void>;
+  deleteDeploymentsOfCluster(clusterId: string): Promise<number>;
   deleteDeployment(id: string): Promise<void>;
   saveDeploymentInfo(deployment: PartialInfo<DeploymentMetadata>): Promise<DeploymentMetadata>;
   sealDeploymentSecrets(): Promise<number>;
@@ -116,11 +117,13 @@ export class MongoInfrastructureStore implements InfrastructureStore {
     await this.clusters.replaceOne({ _id: id }, filter, { upsert: true });
   }
 
-  async saveClusterList(clusters: ClusterMetadata[]): Promise<void> {
-    await this.clusters.deleteMany({});
-    if (clusters.length > 0) {
-      await this.clusters.insertMany(clusters.map(toDoc));
-    }
+  async deleteCluster(id: string): Promise<void> {
+    await this.clusters.deleteOne({ _id: id as any });
+  }
+
+  async patchCluster(id: string, patch: Partial<ClusterMetadata>): Promise<void> {
+    const { id: _id, ...fields } = patch;
+    if (Object.keys(fields).length > 0) await this.clusters.updateOne({ _id: id as any }, { $set: fields });
   }
 
   async saveClusterInfo(cluster: PartialInfo<ClusterMetadata>): Promise<ClusterMetadata> {
@@ -157,17 +160,8 @@ export class MongoInfrastructureStore implements InfrastructureStore {
     await this.deployments.replaceOne({ _id: id }, filter, { upsert: true });
   }
 
-  async saveDeploymentList(deployments: DeploymentMetadata[]): Promise<void> {
-    const keep = deployments.map((deployment) => toDoc(sealDeployment(deployment, this.dataKey)));
-    const keepIds = keep.map((d) => d._id);
-
-    const ops: any[] = keep.map((doc) => {
-      const { _id, ...rest } = doc;
-      return { replaceOne: { filter: { _id }, replacement: rest, upsert: true } };
-    });
-    ops.push({ deleteMany: { filter: keepIds.length ? { _id: { $nin: keepIds } } : {} } });
-
-    await this.deployments.bulkWrite(ops, { ordered: false });
+  async deleteDeploymentsOfCluster(clusterId: string): Promise<number> {
+    return (await this.deployments.deleteMany({ clusterId })).deletedCount;
   }
 
   async sealDeploymentSecrets(): Promise<number> {

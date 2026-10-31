@@ -52,13 +52,15 @@ export class AppService extends BaseService {
       deploymentsByCluster.get(dep.clusterId)!.push(dep);
     }
 
-    let changed = false;
+    const recorded = new Set((await this.db.infrastructure.getClusters()).map((cluster) => cluster.id));
+    const gone: string[] = [];
     const cleanDeployments: typeof deployments = [];
 
     for (const [clusterId, deps] of deploymentsByCluster.entries()) {
       const cluster = clusters.find(c => c.id === clusterId);
       if (!cluster) {
-        changed = true;
+        if (recorded.has(clusterId)) cleanDeployments.push(...deps);
+        else gone.push(...deps.map((dep) => dep.id));
         continue;
       }
 
@@ -83,7 +85,7 @@ export class AppService extends BaseService {
           if (namespaces.includes(ns)) {
             cleanDeployments.push({ ...dep, lastSyncedAt: now });
           } else {
-            changed = true;
+            gone.push(dep.id);
             this.logger.info(`Detected deployment ${dep.name} namespace ${ns} deleted outside the system. Syncing...`);
             if (io) {
               io.to(`user:${dep.ownerId}`).emit('resource-destroyed', { id: dep.id, type: 'deployment', name: dep.name, outOfBand: true });
@@ -96,9 +98,7 @@ export class AppService extends BaseService {
       }
     }
 
-    if (changed) {
-      await this.db.infrastructure.saveDeploymentList(cleanDeployments);
-    }
+    for (const id of gone) await this.db.infrastructure.deleteDeployment(id);
 
     return cleanDeployments.filter((d) => d.ownerId === userId);
   }
@@ -174,9 +174,7 @@ export class AppService extends BaseService {
       discovered.push(entry);
     }
 
-    if (discovered.length > 0) {
-      await this.db.infrastructure.saveDeploymentList([...dbDeployments, ...discovered]);
-    }
+    for (const deployment of discovered) await this.db.infrastructure.saveDeployment(deployment);
 
     return discovered;
   }

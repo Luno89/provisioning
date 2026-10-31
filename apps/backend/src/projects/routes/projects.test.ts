@@ -396,10 +396,8 @@ describe('POST / — where it deploys', () => {
 
   it('keeps the cluster the person picked, when it is theirs, and refuses someone else\'s', async () => {
     const harness = await mountForCreate();
-    await harness.db.infrastructure.saveClusterList([
-      { id: 'my-k3d', name: 'my-k3d', provider: 'k3d', status: 'healthy', ownerId: TEST_USER.id } as never,
-      { id: 'their-k3d', name: 'their-k3d', provider: 'k3d', status: 'healthy', ownerId: 'someone-else' } as never,
-    ]);
+    await harness.db.infrastructure.saveCluster({ id: 'my-k3d', name: 'my-k3d', provider: 'k3d', status: 'healthy', ownerId: TEST_USER.id });
+    await harness.db.infrastructure.saveCluster({ id: 'their-k3d', name: 'their-k3d', provider: 'k3d', status: 'healthy', ownerId: 'someone-else' });
     const res = await axios.post(harness.url('/api/projects'), { name: 'demo', giteaRepo: 'demo', targetClusterId: 'my-k3d' });
     expect(res.data.targetClusterId).toBe('my-k3d');
     const theirs = await axios.post(harness.url('/api/projects'), { name: 'other', giteaRepo: 'other', targetClusterId: 'their-k3d' }, { validateStatus: () => true });

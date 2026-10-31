@@ -202,61 +202,39 @@ export class ClusterService extends BaseService {
   async reconcileAllClusters(io?: SocketServer): Promise<ClusterMetadata[]> {
     const dbClusters = await this.db.infrastructure.getClusters();
     const activeK3dNames = await this.infra.listLocalClusters();
-    const now = new Date().toISOString();
 
-    let changed = false;
     const cleanClusters: ClusterMetadata[] = [];
 
     for (const cluster of dbClusters) {
       const isMock = this.isMockCloud(cluster);
-      if (cluster.gpuEnabled) {
-        cleanClusters.push({ ...cluster, lastSyncedAt: now });
+      if (cluster.gpuEnabled || !(cluster.provider === 'k3d' || isMock)) {
+        cleanClusters.push(cluster);
         continue;
       }
-      if (cluster.provider === 'k3d' || isMock) {
-        const physicalName = this.getPhysicalClusterName(cluster);
-        if (cluster.status === 'provisioning') {
-          const recoveryResult = await this.recoverStuckCluster(cluster, physicalName, activeK3dNames);
-          if (recoveryResult) {
-            changed = true;
-            cleanClusters.push(recoveryResult);
-            if (io) io.emit('cluster-updated');
-          } else {
-            cleanClusters.push({ ...cluster, lastSyncedAt: now });
-          }
-          continue;
-        }
-        if (cluster.status === 'destroying') {
-          continue;
-        }
-
-        if (activeK3dNames.includes(physicalName)) {
-          cleanClusters.push({ ...cluster, lastSyncedAt: now });
+      const physicalName = this.getPhysicalClusterName(cluster);
+      if (cluster.status === 'provisioning') {
+        const recovered = await this.recoverStuckCluster(cluster, physicalName, activeK3dNames);
+        if (recovered) {
+          await this.db.infrastructure.patchCluster(cluster.id, { status: recovered.status, ...(recovered.lastSyncedAt ? { lastSyncedAt: recovered.lastSyncedAt } : {}) });
+          cleanClusters.push(recovered);
+          if (io) io.emit('cluster-updated');
         } else {
-          changed = true;
-          this.logger.info(`Detected local cluster ${physicalName} deleted outside the system. Syncing...`);
-          if (io) {
-            io.to(`user:${cluster.ownerId}`).emit('resource-destroyed', { id: cluster.id, type: 'cluster', name: cluster.name, outOfBand: true });
-          }
-
-          try {
-            const deployments = await this.db.infrastructure.getDeployments();
-            const cleanDeployments = deployments.filter(d => d.clusterId !== cluster.id);
-            if (deployments.length !== cleanDeployments.length) {
-              await this.db.infrastructure.saveDeploymentList(cleanDeployments);
-            }
-            await fs.rm(`/tmp/kubeconfig-${physicalName}`, { force: true }).catch(() => {});
-          } catch (err: any) {
-            this.logger.error(`Failed to clean up deployments for deleted cluster ${cluster.name}: ${err.message}`);
-          }
+          cleanClusters.push(cluster);
         }
-      } else {
-        cleanClusters.push({ ...cluster, lastSyncedAt: now });
+        continue;
       }
-    }
-
-    if (changed) {
-      await this.db.infrastructure.saveClusterList(cleanClusters);
+      if (cluster.status === 'destroying') continue;
+      if (activeK3dNames.includes(physicalName)) {
+        cleanClusters.push(cluster);
+        continue;
+      }
+      this.logger.info(`Detected local cluster ${physicalName} deleted outside the system. Syncing...`);
+      if (io) {
+        io.to(`user:${cluster.ownerId}`).emit('resource-destroyed', { id: cluster.id, type: 'cluster', name: cluster.name, outOfBand: true });
+      }
+      await this.db.infrastructure.deleteDeploymentsOfCluster(cluster.id);
+      await this.db.infrastructure.deleteCluster(cluster.id);
+      await fs.rm(`/tmp/kubeconfig-${physicalName}`, { force: true }).catch(() => {});
     }
 
     const systemCluster = await this.getSystemClusterEntry();
@@ -347,10 +325,7 @@ export class ClusterService extends BaseService {
       discovered.push(metadata);
     }
 
-    if (discovered.length > 0) {
-      const allClusters = [...dbClusters, ...discovered];
-      await this.db.infrastructure.saveClusterList(allClusters);
-    }
+    for (const cluster of discovered) await this.db.infrastructure.saveCluster(cluster);
 
     return discovered;
   }
@@ -551,8 +526,7 @@ export class ClusterService extends BaseService {
           try {
             await fs.rm(kubeconfigPath, { force: true });
           } catch { /* ignored */ }
-          const clusters = await this.db.infrastructure.getClusters();
-          await this.db.infrastructure.saveClusterList(clusters.filter((c: any) => c.id !== id));
+          await this.db.infrastructure.deleteCluster(id);
           if (io) io.to(`user:${cluster.ownerId}`).emit('resource-destroyed', { id, type: 'cluster', name: cluster.name });
           return;
         }
@@ -575,8 +549,7 @@ export class ClusterService extends BaseService {
             } catch { /* ignored */ }
         }
 
-        const clusters = await this.db.infrastructure.getClusters();
-        await this.db.infrastructure.saveClusterList(clusters.filter((c: any) => c.id !== id));
+        await this.db.infrastructure.deleteCluster(id);
         if (io) io.to(`user:${cluster.ownerId}`).emit('resource-destroyed', { id, type: 'cluster', name: cluster.name });
       } catch (err: any) {
         this.logger.error(`Destruction failed: ${err.message}`);
@@ -615,8 +588,7 @@ export class ClusterService extends BaseService {
           }
         }
 
-        const clusters = await this.db.infrastructure.getClusters();
-        await this.db.infrastructure.saveClusterList(clusters.filter((c: any) => c.id !== id));
+        await this.db.infrastructure.deleteCluster(id);
 
         if (io) {
           io.to(id).emit('log', '\n--- CLUSTER PROVISIONING ABORTED AND CLEANED UP ---\n');
@@ -625,8 +597,7 @@ export class ClusterService extends BaseService {
         }
       } catch (err: any) {
         this.logger.error(`Abort failed for cluster ${cluster.name}: ${err.message}`);
-        const clusters = await this.db.infrastructure.getClusters();
-        await this.db.infrastructure.saveClusterList(clusters.filter((c: any) => c.id !== id));
+        await this.db.infrastructure.deleteCluster(id);
         if (io) io.emit('cluster:updated');
       }
     })().catch((err: any) => this.logger.error(`Unhandled error during cluster abort: ${err.message}`));

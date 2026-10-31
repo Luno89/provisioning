@@ -21,7 +21,7 @@ export interface ClustersRouterDeps {
   infisicalService: InfisicalService;
   infraService: Pick<InfrastructureService, 'runKubectl'>;
   temporalBridge: TemporalBridge;
-  db: Pick<InfrastructureStore, 'getClusters' | 'saveClusterList'>;
+  db: Pick<InfrastructureStore, 'getClusters' | 'deleteCluster'>;
   io: SocketServer;
   dataKey: SecretKey;
 }
@@ -169,8 +169,7 @@ export function clustersRouter(deps: ClustersRouterDeps): Router {
         ...(cluster.remoteSshPort !== undefined ? { port: cluster.remoteSshPort } : {}),
       });
 
-      const all = await db.getClusters();
-      await db.saveClusterList(all.filter((c) => c.id !== cluster.id));
+      await db.deleteCluster(cluster.id);
 
       res.status(202).json({ message: 'Provisioning started', id: info.resourceId, workflowId: info.id });
     } catch (err: any) {

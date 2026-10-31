@@ -82,7 +82,7 @@ async function updateUserStatus(
   const existing = clusters.find((c: any) => c.id === clusterId);
 
   if (status === 'destroyed') {
-    await db.infrastructure.saveClusterList(clusters.filter((c: any) => c.id !== clusterId));
+    await db.infrastructure.deleteCluster(clusterId);
     return;
   }
   await db.infrastructure.saveClusterInfo({
@@ -1195,9 +1195,7 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
   }
 
   async onClusterStatusClearup(clusterId: string): Promise<void> {
-    const deployments = await this.db.infrastructure.getDeployments()
-    const arr = deployments.filter((d: any) => d.clusterId !== clusterId)
-    await this.db.infrastructure.saveDeploymentList(arr)
+    await this.db.infrastructure.deleteDeploymentsOfCluster(clusterId)
   }
 
   async runPipeline(project: ProjectMetadata, commitSha: string, ref: string): Promise<WorkflowDeal> {

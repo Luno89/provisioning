@@ -42,9 +42,8 @@ describe('the deployments store keeps secrets sealed at rest', () => {
     expect(read).toMatchObject({ minioRootPassword: 'hunter2', qdrantApiKey: 'q-key', minioRootUser: 'koala' });
   });
 
-  it('seals what a whole list saves, and what a partial update merges in', async () => {
-    const [d1] = await store.getDeployments();
-    await store.saveDeploymentList([d1!, deployment('d2', { nextcloudAdminPassword: 'admin-pw' })]);
+  it('seals what a save writes, and what a partial update merges in', async () => {
+    await store.saveDeployment(deployment('d2', { nextcloudAdminPassword: 'admin-pw' }));
     expect(looksEncrypted(String((await raw('d2'))?.nextcloudAdminPassword))).toBe(true);
     expect(looksEncrypted(String((await raw('d1'))?.minioRootPassword))).toBe(true);
 

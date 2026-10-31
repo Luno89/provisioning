@@ -53,21 +53,13 @@ describe('redeploying a name that was destroyed', () => {
   });
 });
 
-describe('saveDeploymentList', () => {
-  it('reconciles to the list given', async () => {
-    await db.infrastructure.saveDeployment(dep('a'));
-    await db.infrastructure.saveDeployment(dep('b'));
+describe('deleteDeploymentsOfCluster', () => {
+  it('removes that cluster\'s deployments and nothing else', async () => {
+    await db.infrastructure.saveDeployment(dep('a', { clusterId: 'gone' }));
+    await db.infrastructure.saveDeployment(dep('b', { clusterId: 'gone' }));
+    await db.infrastructure.saveDeployment(dep('c', { clusterId: 'kept' }));
 
-    await db.infrastructure.saveDeploymentList([dep('b', { status: 'failed' }), dep('c')]);
-
-    const all = await db.infrastructure.getDeployments();
-    expect(all.map((d) => d.id).sort()).toEqual(['b', 'c']);
-    expect(all.find((d) => d.id === 'b')!.status).toBe('failed');
-  });
-
-  it('empties the collection only when explicitly given an empty list', async () => {
-    await db.infrastructure.saveDeployment(dep('a'));
-    await db.infrastructure.saveDeploymentList([]);
-    expect(await db.infrastructure.getDeployments()).toEqual([]);
+    expect(await db.infrastructure.deleteDeploymentsOfCluster('gone')).toBe(2);
+    expect((await db.infrastructure.getDeployments()).map((d) => d.id)).toEqual(['c']);
   });
 });
