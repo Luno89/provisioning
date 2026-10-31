@@ -219,7 +219,7 @@ async function main(): Promise<void> {
   await until('root answering', async () => ((await fetch(`${ROOT_FOR_HOST}/api/identity/keys`)).ok ? true : undefined));
   const owner = await firstAdmin(ROOT_FOR_HOST, ROOT);
   ownerId = owner.id;
-  const session = sessionToken(owner, loadKeys(process.env).session, { seconds: 3600 });
+  const session = sessionToken(owner, loadKeys(process.env).session);
   const asOwner = (path: string, init: RequestInit = {}) => fetch(`${ROOT_FOR_HOST}${path}`, { ...init, headers: { 'content-type': 'application/json', Cookie: `session=${session}`, ...(init.headers ?? {}) } });
 
   step(`the owner is offered a trial on Koala's servers, and starts one named "${NAME}"`);
