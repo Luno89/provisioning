@@ -32,7 +32,7 @@ const clients: RootPresence[] = [];
 
 async function startRoot(onPort = 0): Promise<void> {
   server = http.createServer();
-  io = new Server(server, { pingInterval: 200, pingTimeout: 200 });
+  io = new Server(server, { pingInterval: 10_000, pingTimeout: 10_000 });
   presence = new InstancePresence({
     store: db.instances,
     tellOwner: async (to, message) => { mailed.push({ to, subject: message.subject }); },
