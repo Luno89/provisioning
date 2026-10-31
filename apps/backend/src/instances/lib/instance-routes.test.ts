@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { certificateCovers, instanceRouteFiles, issuingProblem, wantedRoutes } from './instance-routes.js';
+import { certificateCovers, instanceRouteFiles, issuingProblem, wantedRoutes, withoutCredentials } from './instance-routes.js';
 
 describe('instance routes', () => {
   it('sends the person\'s own address to their backend and their flat app addresses to their edge', () => {
@@ -88,5 +88,16 @@ describe('the routes root wants', () => {
     ].join('\n');
     expect(issuingProblem(log, 'luno', 'koala.dev')).toMatch(/weekly limit/);
     expect(issuingProblem(log, 'kim', 'koala.dev')).toBeUndefined();
+  });
+
+  it('never passes on a credential Caddy\'s DNS module wrote into its error', () => {
+    const token = 'cfat_abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLM';
+    const log = JSON.stringify({ level: 'error', identifier: '*.luno.koala.dev', error: `presenting for challenge: API token '${token}' appears invalid; key="short"` });
+    const said = issuingProblem(log, 'luno', 'koala.dev') ?? '';
+    expect(said).not.toContain(token);
+    expect(said).not.toContain('short');
+    expect(said).toContain("API token '[hidden]' appears invalid");
+    expect(withoutCredentials(`retry with ${token} later`)).toBe('retry with [hidden] later');
+    expect(withoutCredentials('HTTP 429 urn:ietf:params:acme:error:rateLimited')).toBe('HTTP 429 urn:ietf:params:acme:error:rateLimited');
   });
 });

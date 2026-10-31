@@ -96,6 +96,12 @@ export function certificateCovers(subjectAltName: string | undefined, name: stri
   return (subjectAltName ?? '').split(',').map((entry) => entry.trim()).includes(`DNS:${nestedSiteOf(name, domain)}`);
 }
 
+const QUOTED_CREDENTIAL = /\b(token|key|secret|password)(\s*[:=]?\s*)(['"])[^'"]*\3/gi;
+const OPAQUE_VALUE = /\b[A-Za-z0-9_-]{32,}\b/g;
+
+export const withoutCredentials = (said: string): string =>
+  said.replace(QUOTED_CREDENTIAL, '$1$2$3[hidden]$3').replace(OPAQUE_VALUE, '[hidden]');
+
 export function issuingProblem(caddyLog: string, name: string, domain: string): string | undefined {
   const site = nestedSiteOf(name, domain);
   let found: string | undefined;
@@ -108,7 +114,7 @@ export function issuingProblem(caddyLog: string, name: string, domain: string): 
       continue;
     }
     if (entry.level !== 'error') continue;
-    const said = entry.error ?? entry.msg ?? '';
+    const said = withoutCredentials(entry.error ?? entry.msg ?? '');
     found = /rateLimited|too many certificates/i.test(said)
       ? `Let's Encrypt is refusing new certificates for now (its weekly limit); Caddy keeps asking and the addresses switch once one is issued. It said: ${said.slice(0, 300)}`
       : `Getting the certificate failed for now; Caddy keeps trying. It said: ${said.slice(0, 300)}`;
