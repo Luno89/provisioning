@@ -122,7 +122,7 @@ export function RootLayout() {
     const pending = user && !joinPage ? pendingJoin() : undefined;
     if (pending) void navigate({ to: '/join', search: pending });
   }, [user, joinPage, navigate]);
-  const adminPage = ((location.pathname === '/pool' || location.pathname === '/admin') && can('manage-accounts')) || (location.pathname === '/dependencies' && can('administer'));
+  const adminPage = ((location.pathname === '/pool' || location.pathname === '/admin') && can('manage-accounts')) || ((location.pathname === '/dependencies' || location.pathname === '/mail') && can('administer'));
   const removalPage = location.pathname === '/remove-account';
   useEffect(() => {
     if (placement.data && !placement.data.servesTenants && placement.data.instance && !placement.data.instance.unreachableSince && !adminPage && !removalPage && !joinPage) window.location.assign(INSTANCE_GO_URL);
@@ -301,7 +301,7 @@ export function RootLayout() {
   }
 
   if (placement.data && !placement.data.servesTenants && adminPage) {
-    return <RootAdmin section={location.pathname === '/pool' ? 'pool' : location.pathname === '/dependencies' ? 'dependencies' : undefined} onLogout={handleLogout} />;
+    return <RootAdmin section={location.pathname === '/pool' ? 'pool' : location.pathname === '/dependencies' ? 'dependencies' : location.pathname === '/mail' ? 'mail' : undefined} onLogout={handleLogout} />;
   }
 
   if (placement.data && !placement.data.servesTenants) {

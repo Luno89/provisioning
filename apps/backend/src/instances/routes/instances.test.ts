@@ -2,6 +2,7 @@ import { describe, it, expect, afterEach } from 'vitest';
 import axios from 'axios';
 import type { NextFunction, Request, Response } from 'express';
 import { allowed, type Principal } from '../../platform/lib/permissions.js';
+import { MailReputation } from '../../platform/services/MailReputation.js';
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -350,5 +351,53 @@ describe('Koala\'s dependencies on root', () => {
     const answer = await ask('secret');
     expect(answer.data).toMatchObject({ release: 'v2026.10.25', findings: [{ advisory: { id: 'GHSA-x' }, fixedBy: 'v2026.10.29' }] });
     expect((await ask('wrong')).status).toBe(401);
+  });
+});
+
+describe('root\'s mail on its admin page', () => {
+  let harness: Harness | undefined;
+  afterEach(async () => { await harness?.close(); });
+
+  const mount = async (operator: boolean, mailReputation?: MailReputation) => mountRouter({
+    prefix: '/api/instances',
+    user: { ...TEST_USER, ...(operator ? { roles: ['operator'] } : {}) },
+    router: async (db) => instancesRouter({
+      instances: new InstanceService(db, { rootUrl: 'https://app.koala.dev', rootPublicKeys: () => ['PEM'], registry: 'r', imageTag: 'new222' }, undefined),
+      chart: async () => '',
+      administers: (req: Request, res: Response, next: NextFunction) => (allowed((req as unknown as { principal: Principal }).principal, 'administer', { kind: 'install' }) ? next() : res.status(403).json({ error: 'Only the operator of this server can do that.' })),
+      ...(mailReputation ? { mailReputation } : {}),
+    }),
+  });
+
+  it('shows the operator what root found about its mail and checks again on asking', async () => {
+    let lookups = 0;
+    const reputation = new MailReputation({
+      domain: 'koala.dev',
+      resolve4: async (name) => {
+        lookups += 1;
+        if (name === 'mail.koala.dev') return ['203.0.113.7'];
+        if (name.startsWith('2.0.0.127.')) return ['127.0.0.2'];
+        throw Object.assign(new Error('ENOTFOUND'), { code: 'ENOTFOUND' });
+      },
+      reverse: async () => ['mail.koala.dev.'],
+      reach25: async () => ({ ok: true }),
+    });
+    harness = await mount(false, reputation);
+    expect((await axios.get(harness.url('/api/instances/mail-reputation'), { validateStatus: () => true })).status).toBe(403);
+    expect((await axios.post(harness.url('/api/instances/mail-reputation/check'), {}, { validateStatus: () => true })).status).toBe(403);
+    expect(lookups).toBe(0);
+    await harness.close();
+    harness = await mount(true, reputation);
+    const started = await axios.post(harness.url('/api/instances/mail-reputation/check'), {}, { validateStatus: () => true });
+    expect(started.status).toBe(202);
+    await reputation.check();
+    const seen = await axios.get(harness.url('/api/instances/mail-reputation'), { validateStatus: () => true });
+    expect(seen.headers['cache-control']).toBe('no-store');
+    expect(seen.data).toMatchObject({ checking: false, report: { problems: [], lines: expect.arrayContaining([{ mark: 'ok', said: '203.0.113.7 reverses to mail.koala.dev' }]), check: { ip: '203.0.113.7', reverseDns: { state: 'matches' }, blocklists: [{ state: 'clear' }, { state: 'clear' }, { state: 'clear' }] } } });
+  });
+
+  it('says so where this server sends no mail itself', async () => {
+    harness = await mount(true);
+    expect((await axios.get(harness.url('/api/instances/mail-reputation'), { validateStatus: () => true })).status).toBe(404);
   });
 });

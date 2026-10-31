@@ -5,7 +5,9 @@ import type { Server as SocketServer } from 'socket.io';
 import {
   type Database, type SecretKey, allowed, holdsAccounts, servesTenants, signsInThroughRoot, type RoleConfig, startedFor,
   getTemporalClient, type mongoTarget, type MailService, type createAuth, claimSettingsFrom, operatorsAmong, PLATFORM_OWNER, publicFetch, keepTrying,
+  emailWayFrom, mailDomainFrom, MailReputation,
 } from '../../platform/index.js';
+import { parse as parseEnv } from 'dotenv';
 import { WorkflowExecutionAlreadyStartedError } from '@temporalio/common';
 import { poolSettingsFrom } from '../lib/pool.js';
 import type { InstanceRecord } from '../lib/instances.js';
@@ -334,7 +336,13 @@ export async function wireInstances(deps: InstancesWiringDeps): Promise<Instance
       return { token: issueMoveToken(role.signing!, HUB_AUDIENCE, hubInstancePart(instanceId, ownerId, owner.email)), hubUrl: role.hubLink!.url, personId: ownerId, email: owner.email, instanceId };
     }
     : undefined;
-  app.use('/api/instances', instancesRouter({ instances: instanceService, mailLimit: new InstanceMailLimit(), chart: () => instanceChart.path(), chartOf: (imageTag) => releaseCatalogue.chartFile(imageTag), mail: deps.mail, operatorOnly: deps.auth.requireOperator('manage-accounts'), administers: deps.auth.requireOperator('administer'), dependencies: dependencyWatch, poolMonitoring, moveRelay, hubAccess }));
+  const mailDomain = mailDomainFrom(env);
+  const composeEnv = await fs.readFile(path.join(deps.repoRoot, '.env'), 'utf8').then(parseEnv, () => ({} as Record<string, string>));
+  const mailReputation = mailDomain && emailWayFrom(env, role).kind === 'smtp'
+    ? new MailReputation({ domain: mailDomain, relayhost: (env.MAIL_RELAYHOST || composeEnv.MAIL_RELAYHOST || '').trim() || undefined })
+    : undefined;
+  if (mailReputation && role.role === 'root') void mailReputation.check().catch((err: Error) => console.warn(`[mail] the check of root's mail could not finish: ${err.message}`));
+  app.use('/api/instances', instancesRouter({ instances: instanceService, mailLimit: new InstanceMailLimit(), chart: () => instanceChart.path(), chartOf: (imageTag) => releaseCatalogue.chartFile(imageTag), mail: deps.mail, operatorOnly: deps.auth.requireOperator('manage-accounts'), administers: deps.auth.requireOperator('administer'), dependencies: dependencyWatch, mailReputation, poolMonitoring, moveRelay, hubAccess }));
   const installer = (await fs.readFile(path.join(deps.repoRoot, 'scripts/instance/install.sh'), 'utf8')).replace('__ROOT_URL__', publicUrl);
   app.get('/install.sh', (_req, res) => res.type('text/x-shellscript').send(installer));
   app.get('/install/setup-gpu.sh', (_req, res) => res.type('text/x-shellscript').sendFile(path.join(deps.repoRoot, 'scripts/setup-gpu.sh')));

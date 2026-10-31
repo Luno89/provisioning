@@ -1,6 +1,6 @@
 import { Router, type NextFunction, type Request, type RequestHandler, type Response } from 'express';
 import { pipeline } from 'stream';
-import { mailProblem, MailError, type MailService, asyncRoute } from '../../platform/index.js';
+import { mailProblem, MailError, type MailReputation, type MailService, asyncRoute } from '../../platform/index.js';
 import type { InstanceService, JoinBundle } from '../services/InstanceService.js';
 import { PoolMonitoringError, type PoolMonitoringService } from '../services/PoolMonitoringService.js';
 import { parseAsk, parseRange, parsePoolRule, parseProbes } from '../../monitoring/index.js';
@@ -54,6 +54,7 @@ export function instancesRouter(deps: {
   operatorOnly?: RequestHandler | undefined;
   administers?: RequestHandler | undefined;
   dependencies?: Pick<DependencyWatch, 'view' | 'check' | 'forRelease'> | undefined;
+  mailReputation?: Pick<MailReputation, 'view' | 'check'> | undefined;
   hubAccess?: ((instanceId: string, ownerId: string) => Promise<HubAccess | undefined>) | undefined;
 }): Router {
   const router = Router();
@@ -171,6 +172,18 @@ export function instancesRouter(deps: {
       return res.status(502).json({ error: `the check could not finish: ${(err as Error).message}` });
     }
   }));
+
+  router.get('/mail-reputation', administers, (_req: Request, res: Response) => {
+    if (!deps.mailReputation) return res.status(404).json({ error: 'this server does not send mail itself' });
+    res.setHeader('Cache-Control', 'no-store');
+    return res.json(deps.mailReputation.view());
+  });
+
+  router.post('/mail-reputation/check', administers, (_req: Request, res: Response) => {
+    if (!deps.mailReputation) return res.status(404).json({ error: 'this server does not send mail itself' });
+    void deps.mailReputation.check().catch((err: Error) => console.warn(`[mail] the check of root's mail could not finish: ${err.message}`));
+    return res.status(202).json(deps.mailReputation.view());
+  });
 
   router.get('/release-findings', asyncRoute(async (req: Request, res: Response) => {
     const { instanceId, credential } = credentialOf(req);
