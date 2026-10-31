@@ -7,7 +7,7 @@ import { fileURLToPath } from 'url';
 import { GiteaService } from '../projects/index.js';
 import { ApplicationFailure } from '@temporalio/common';
 import { buildPlanAt, isCommitSha, buildArgEntries } from '../releases/index.js';
-import { loadKeys } from '../platform/index.js';
+import { loadKeys, writePrivate } from '../platform/index.js';
 import { forPushing, kanikoRegistryArgs, dockerConfigJson } from '../instances/index.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -40,7 +40,7 @@ export async function resolveKubeconfig(infra: InfrastructureService): Promise<s
     await fs.access(MGMT_KUBECONFIG);
   } catch {
     const content = await infra.getManagementClusterKubeconfig(MGMT_CLUSTER);
-    await fs.writeFile(MGMT_KUBECONFIG, content, 'utf-8');
+    await writePrivate(MGMT_KUBECONFIG, content);
   }
   return MGMT_KUBECONFIG;
 }
