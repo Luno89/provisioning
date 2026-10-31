@@ -167,7 +167,7 @@ export const PROVIDERS: ProviderMeta[] = [
     fields: [
       { key: 'applicationKey', label: 'Application key', sensitive: true, placeholder: 'From createToken on your region\'s API (eu.api.ovh.com, ca.api.ovh.com or api.us.ovhcloud.com)' },
       { key: 'applicationSecret', label: 'Application secret', sensitive: true, placeholder: 'Shown once, beside the application key' },
-      { key: 'consumerKey', label: 'Consumer key', sensitive: true, placeholder: 'Rules: GET /*, POST /order/*, DELETE /order/*, POST /vps/*, POST /me/order/*' },
+      { key: 'consumerKey', label: 'Consumer key', sensitive: true, placeholder: 'Rules: GET /*, POST /order/*, DELETE /order/*, POST /vps/*, POST /me/order/*, POST /ip/*' },
       { key: 'subsidiary', label: 'Account subsidiary', sensitive: false, placeholder: 'AU, CA, FR, GB, US…' },
     ],
   },

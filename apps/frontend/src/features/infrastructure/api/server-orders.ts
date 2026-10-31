@@ -1,4 +1,5 @@
 import { api } from '../../../api/client'
+import type { MailReport } from '../../../shared/components/MailReport'
 
 /**
  * ── DUPLICATED, KNOWINGLY ──
@@ -46,6 +47,8 @@ export interface ServerOrder {
   log?: string[]
   createdAt: string
   updatedAt: string
+  reverseDns?: ServerReverseDns
+  mail?: MailReport
 }
 
 export interface QuoteAsk {
@@ -89,3 +92,14 @@ export const revealSetupCode = (id: string): Promise<string> =>
   api.post<{ setupCode: string }>(`/server-orders/${encodeURIComponent(id)}/setup-code`, {}).then((r) => r.data.setupCode)
 export const revealSshKey = (id: string): Promise<{ privateKey: string; host?: string }> =>
   api.post<{ privateKey: string; host?: string }>(`/server-orders/${encodeURIComponent(id)}/ssh-key`, {}).then((r) => r.data)
+
+/**
+ * ── DUPLICATED, KNOWINGLY ── `ServerReverseDns` in `apps/backend/src/infrastructure/lib/reverse-dns.ts` is the authority.
+ */
+export interface ServerReverseDns {
+  ip: string
+  name: string
+  state: 'set' | 'already' | 'waiting' | 'refused'
+  said: string
+  at: string
+}

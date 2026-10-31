@@ -1,4 +1,4 @@
-import { CancellationScope, isCancellation, log, proxyActivities, sleep } from '@temporalio/workflow';
+import { CancellationScope, isCancellation, log, patched, proxyActivities, sleep } from '@temporalio/workflow';
 import type * as root from '../activities/RootNodeActivities.js';
 import { LIVE_ACTIVITY } from '../platform/lib/activity-liveness.js';
 export { rootNodeWorkflowId } from '../infrastructure/lib/server-orders.js';
@@ -17,6 +17,10 @@ export async function RootNodeWorkflow(orderId: string): Promise<void> {
       release = await steps.ServerOrderReleaseActivity(orderId);
     }
     await steps.ServerOrderBootstrapActivity(orderId, release);
+    if (patched('root-mail-reputation')) {
+      while (!(await steps.ServerOrderReverseDnsActivity(orderId))) await sleep('5 minutes');
+      await steps.ServerOrderMailCheckActivity(orderId);
+    }
   } catch (error) {
     if (isCancellation(error)) {
       await CancellationScope.nonCancellable(() => steps.ServerOrderStoppedActivity(orderId));

@@ -25,6 +25,7 @@ interface Script {
   dnsTries?: number;
   releaseTries?: number;
   bootstrapFails?: string;
+  reverseTries?: number;
 }
 
 function activities(script: Script, done: string[]) {
@@ -32,6 +33,7 @@ function activities(script: Script, done: string[]) {
   let sshes = 0;
   let dns = 0;
   let releases = 0;
+  let reverses = 0;
   return {
     ServerOrderFollowActivity: async () => { follows += 1; done.push('follow'); return { delivered: follows > (script.undelivered ?? 0) }; },
     ServerOrderRebuildActivity: async () => { done.push('rebuild'); return { ip: '203.0.113.7' }; },
@@ -42,6 +44,8 @@ function activities(script: Script, done: string[]) {
       done.push(`bootstrap ${release}`);
       if (script.bootstrapFails) throw ApplicationFailure.nonRetryable(script.bootstrapFails, 'BootstrapFailed');
     },
+    ServerOrderReverseDnsActivity: async () => { reverses += 1; done.push('reverse dns'); return reverses > (script.reverseTries ?? 0); },
+    ServerOrderMailCheckActivity: async () => { done.push('mail check'); },
     ServerOrderStoppedActivity: async () => { done.push('stopped'); },
     ServerOrderFailedActivity: async (_orderId: string, reason: string) => { done.push(`failed: ${reason}`); },
   };
@@ -56,8 +60,8 @@ async function run(script: Script): Promise<string[]> {
 }
 
 describe('following a bought server until root runs on it', () => {
-  it('waits for delivery, SSH, the domains and a signed release however long each takes, then installs root', async () => {
-    const done = await run({ undelivered: 3, sshTries: 2, dnsTries: 1, releaseTries: 2 });
+  it('waits for delivery, SSH, the domains and a signed release however long each takes, installs root, then sets its reverse DNS once OVHcloud sees its name and checks its mail', async () => {
+    const done = await run({ undelivered: 3, sshTries: 2, dnsTries: 1, releaseTries: 2, reverseTries: 2 });
     expect(done).toEqual([
       'follow', 'follow', 'follow', 'follow',
       'rebuild',
@@ -65,6 +69,8 @@ describe('following a bought server until root runs on it', () => {
       'dns', 'dns',
       'release', 'release', 'release',
       'bootstrap v2026.10.29',
+      'reverse dns', 'reverse dns', 'reverse dns',
+      'mail check',
     ]);
   }, 120_000);
 
