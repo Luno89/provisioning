@@ -29,7 +29,7 @@ Written by `tests/lib/run-live.ts`, which every `npm run test:*-live` and `test:
 | `project-sharing-live` | 2026-10-30 21:58 | 2026-10-22 13:53 |
 | `release-live` | 2026-10-29 20:55 | 2026-10-30 02:05 |
 | `remote-host-integration` | 2026-10-30 01:37 | 2026-10-29 05:04 |
-| `restore-live` | 2026-10-31 02:16 | 2026-10-31 01:51 |
+| `restore-live` | 2026-10-31 02:44 | 2026-10-31 01:51 |
 | `routes-live` | 2026-10-30 21:51 | 2026-10-24 05:15 |
 | `routing-live` | 2026-10-29 21:28 | 2026-10-30 16:09 |
 | `telemetry-live` | 2026-10-30 21:58 | — |
