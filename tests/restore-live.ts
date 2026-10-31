@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
-import { execFileSync, spawn } from 'node:child_process';
+import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { startStandInIssuer, type StandInIssuer } from '../apps/backend/src/accounts/services/sign-in/stand-in-issuer.js';
 import { createDisposableVm, findFreePort, type DisposableVm } from './lib/disposable-vm.js';
 import { labDnsmasq, labHostsLine } from './lib/release-lab.js';
 import { answeringIn, answersThrough, nodePortsOf, probeCommand } from './lib/node-ports.js';
@@ -52,23 +53,24 @@ async function until<T>(what: string, probe: () => Promise<T | undefined>): Prom
 
 const sshArgs = (vm: DisposableVm) => ['-i', vm.privateKeyPath, '-p', String(vm.port), '-o', 'StrictHostKeyChecking=no', '-o', 'UserKnownHostsFile=/dev/null', '-o', 'LogLevel=ERROR', '-o', 'ServerAliveInterval=30', `${vm.username}@${vm.host}`];
 
-function inVm(vm: DisposableVm, command: string, stream = false): Promise<{ code: number; out: string }> {
+function inVm(vm: DisposableVm, command: string, stream = false, input?: string): Promise<{ code: number; out: string }> {
   return new Promise((done) => {
-    const child = spawn('ssh', [...sshArgs(vm), command], { stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn('ssh', [...sshArgs(vm), command], { stdio: [input === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'] });
+    if (input !== undefined) child.stdin!.end(input);
     let out = '';
-    child.stdout.on('data', (chunk) => { out += chunk; if (stream) process.stdout.write(`    ${String(chunk).replace(/\n(?!$)/g, '\n    ')}`); });
-    child.stderr.on('data', (chunk) => { out += chunk; if (stream) process.stderr.write(`    ${chunk}`); });
+    child.stdout!.on('data', (chunk) => { out += chunk; if (stream) process.stdout.write(`    ${String(chunk).replace(/\n(?!$)/g, '\n    ')}`); });
+    child.stderr!.on('data', (chunk) => { out += chunk; if (stream) process.stderr.write(`    ${chunk}`); });
     child.on('close', (code) => done({ code: code ?? 1, out }));
   });
 }
 
-async function sh(vm: DisposableVm, command: string, stream = false): Promise<string> {
-  const { code, out } = await inVm(vm, command, stream);
+async function sh(vm: DisposableVm, command: string, stream = false, input?: string): Promise<string> {
+  const { code, out } = await inVm(vm, command, stream, input);
   if (code !== 0) throw new Error(`exited ${code} running: ${command}\n${out.slice(-3000)}`);
   return out;
 }
 
-interface Answer { status: number; body: string; cookie: string }
+interface Answer { status: number; body: string; cookie: string; location: string }
 
 function https(tlsPort: number, ca: string, path: string, init: { method?: string; body?: unknown; cookie?: string } = {}): Answer {
   const host = `app.${DOMAIN}`;
@@ -80,15 +82,45 @@ function https(tlsPort: number, ca: string, path: string, init: { method?: strin
   const head = blocks.shift() ?? '';
   const [statusLine, ...lines] = head.split(/\r?\n/);
   const cookie = lines.find((line) => /^set-cookie:\s*(__Host-)?session=/i.test(line))?.replace(/^set-cookie:\s*/i, '').split(';')[0] ?? '';
-  return { status: Number((statusLine ?? '').split(' ')[1]), body: blocks.join('\n\n'), cookie };
+  const location = lines.find((line) => /^location:/i.test(line))?.replace(/^location:\s*/i, '').trim() ?? '';
+  return { status: Number((statusLine ?? '').split(' ')[1]), body: blocks.join('\n\n'), cookie, location };
 }
 
 interface Root { vm: DisposableVm; tlsPort: number }
 
 let work = '';
 const roots: Root[] = [];
+const tunnels: ChildProcess[] = [];
+let issuer: StandInIssuer | undefined;
+const SIGN_IN_LABEL = 'Restore stand-in';
+const CALLBACK = `${ROOT_URL}/api/auth/provider/oidc/callback`;
 
-async function standUpRoot(label: string, commit: string): Promise<Root> {
+const quoted = (value: string) => `'${value.replace(/'/g, `'\\''`)}'`;
+
+function reachIssuer(vm: DisposableVm, port: number): void {
+  const tunnel = spawn('ssh', ['-N', '-o', 'ExitOnForwardFailure=yes', '-R', `127.0.0.1:${port}:127.0.0.1:${port}`, ...sshArgs(vm)], { stdio: 'ignore' });
+  tunnels.push(tunnel);
+}
+
+function offeredBy(root: Root, ca: string): { id: string; label: string }[] {
+  const answer = https(root.tlsPort, ca, '/api/auth/sign-in');
+  assert.equal(answer.status, 200, answer.body);
+  return (JSON.parse(answer.body) as { providers?: { id: string; label: string }[] }).providers ?? [];
+}
+
+async function signsInWithStandIn(root: Root, ca: string, label: string): Promise<void> {
+  assert.deepEqual(offeredBy(root, ca), [{ id: 'oidc', label: SIGN_IN_LABEL }], `${label} does not offer the stand-in issuer`);
+  const started = await until(`${label} starting a sign-in with the stand-in issuer`, async () => {
+    const answer = https(root.tlsPort, ca, '/api/auth/provider/oidc');
+    return answer.status === 302 && answer.location.startsWith(`${issuer!.issuer}/auth?`) ? answer : undefined;
+  });
+  const asked = new URL(started.location).searchParams;
+  assert.equal(asked.get('client_id'), issuer!.clientId, `${label} asked the issuer as another client`);
+  assert.equal(asked.get('redirect_uri'), CALLBACK, `${label} asked the issuer to send people back elsewhere`);
+  assert.equal(asked.get('code_challenge_method'), 'S256');
+}
+
+async function standUpRoot(label: string, commit: string, signInEnv: Record<string, string> = {}): Promise<Root> {
   const tlsPort = await findFreePort();
   const vm = await createDisposableVm(label, { memoryMB: 12288, cpus: 4, diskGB: 60, forwards: [{ host: tlsPort, guest: 443 }], lan: { listen: await findFreePort(), address: `${ROOT_LAN}/24` } });
   const root = { vm, tlsPort };
@@ -106,7 +138,12 @@ async function standUpRoot(label: string, commit: string): Promise<Root> {
     { env: { ...process.env, GIT_SSH_COMMAND: `ssh -i ${vm.privateKeyPath} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR` } });
   await sh(vm, `sudo git clone -q ${ORIGIN} ${REPO_DIR} && sudo git -C ${REPO_DIR} checkout -q --detach ${commit}`);
   const begun = Date.now();
-  await sh(vm, `sudo env ROOT_TLS=internal DOMAIN=${DOMAIN} PUBLIC_URL=${ROOT_URL} bash ${REPO_DIR}/scripts/root-node/bootstrap.sh > /tmp/bootstrap.log 2>&1 || { tail -60 /tmp/bootstrap.log; exit 1; }`);
+  await sh(vm, 'sudo bash -s', false, [
+    'set -euo pipefail',
+    `export ROOT_TLS=internal DOMAIN=${DOMAIN} PUBLIC_URL=${ROOT_URL}`,
+    ...Object.entries(signInEnv).map(([name, value]) => `export ${name}=${quoted(value)}`),
+    `bash ${REPO_DIR}/scripts/root-node/bootstrap.sh > /tmp/bootstrap.log 2>&1 || { tail -60 /tmp/bootstrap.log; exit 1; }`,
+  ].join('\n'));
   await sh(vm, 'sudo systemctl start nowrinkles.service nowrinkles-workers.service');
   const ca = join(work, `${label}-ca.crt`);
   writeFileSync(ca, await sh(vm, 'sudo cat /usr/local/share/ca-certificates/koala-lab.crt'));
@@ -124,6 +161,8 @@ const temporal = async (root: Root, args: string) => {
 const WORKFLOW = `restore-live-${STAMP}`;
 
 async function teardown(): Promise<void> {
+  for (const tunnel of tunnels) tunnel.kill();
+  await issuer?.close().catch(() => undefined);
   for (const root of roots) await root.vm.destroy().catch(() => undefined);
   try { run('docker', ['rm', '-f', MINIO]); } catch { /* gone */ }
   if (work) rmSync(work, { recursive: true, force: true });
@@ -140,9 +179,25 @@ async function main(): Promise<void> {
   run('docker', ['run', '-d', '--name', MINIO, '-p', `127.0.0.1:${minioPort}:9000`, '-e', `MINIO_ROOT_USER=${BACKUP.user}`, '-e', `MINIO_ROOT_PASSWORD=${BACKUP.secret}`, MINIO_IMAGE, 'server', '/data']);
   note(`MinIO at 127.0.0.1:${minioPort}, which the VMs reach at 10.0.2.2`);
 
-  step('two fresh roots, each bootstrapped by the real bootstrap.sh in lab mode, side by side');
-  const [first, second] = await Promise.all([standUpRoot('restore-first', commit), standUpRoot('restore-second', commit)]);
+  step('a stand-in OpenID issuer on this computer, which each root reaches on its own loopback');
+  issuer = await startStandInIssuer({ redirectUris: [CALLBACK] });
+  const issuerPort = Number(new URL(issuer.issuer).port);
+  const signInEnv = { OIDC_ISSUER: issuer.issuer, OIDC_CLIENT_ID: issuer.clientId, OIDC_CLIENT_SECRET: issuer.clientSecret, OIDC_LABEL: SIGN_IN_LABEL };
+  note(`issuer ${issuer.issuer}, client ${issuer.clientId}`);
+
+  step('two fresh roots, each bootstrapped by the real bootstrap.sh in lab mode, side by side; the first given the issuer\'s settings on stdin, as a bought root is');
+  const [first, second] = await Promise.all([standUpRoot('restore-first', commit, signInEnv), standUpRoot('restore-second', commit)]);
   const firstCa = join(work, 'restore-first-ca.crt');
+  const secondFreshCa = join(work, 'restore-second-ca.crt');
+  for (const root of [first, second]) reachIssuer(root.vm, issuerPort);
+
+  step('the first root offers sign-in with the issuer it was given and starts one with it; the second, given none, offers passwords only');
+  assert.equal((await sh(first.vm, `sudo stat -c %a ${REPO_DIR}/apps/backend/.env`)).trim(), '600');
+  assert.equal((await sh(first.vm, `sudo grep -c '^OIDC_CLIENT_SECRET=' ${REPO_DIR}/apps/backend/.env`)).trim(), '1');
+  assert.equal((await inVm(first.vm, `sudo grep -c -F ${quoted(issuer.clientSecret)} /tmp/bootstrap.log`)).out.trim(), '0', 'bootstrap.sh printed the client secret');
+  await signsInWithStandIn(first, firstCa, 'the first root');
+  assert.deepEqual(offeredBy(second, secondFreshCa), [], 'the second root offers a sign-in provider it was never given');
+  note(`the first root reads ${Object.keys(signInEnv).join(', ')} from its .env (mode 600), offers "${SIGN_IN_LABEL}", and sends a sign-in to the issuer as ${issuer.clientId} with ${CALLBACK}`);
 
   step('root checks its own mail: the blocklists\' own test address is listed through root\'s resolver, and its name, reverse DNS and port 25 are read');
   const mailChecked = sh(first.vm, `cd ${REPO_DIR} && sudo npx tsx scripts/root-node/mail-check.ts ${DOMAIN} --ip 127.0.0.2 --json`).then((out) => ({ out }), (error: Error) => ({ error }));
@@ -246,7 +301,8 @@ async function main(): Promise<void> {
   const described = JSON.parse(await temporal(second, `workflow describe --workflow-id ${WORKFLOW} -o json`)) as { workflowExecutionInfo?: { type?: { name?: string } } };
   assert.equal(described.workflowExecutionInfo?.type?.name, 'RestoreLiveProbe', 'the restored Temporal does not hold the workflow started before the backup');
   assert.equal((await sh(second.vm, 'systemctl is-active nowrinkles.service')).trim(), 'active');
-  note(`signed in with the old password and the old session, ${INSTANCE_ID} listed, ${PROBE} on the mesh, root at ${secondMeshIp} again, ${WORKFLOW} in Temporal`);
+  await signsInWithStandIn(second, firstCa, 'the restored root');
+  note(`signed in with the old password and the old session, ${INSTANCE_ID} listed, ${PROBE} on the mesh, root at ${secondMeshIp} again, ${WORKFLOW} in Temporal, sign-in with "${SIGN_IN_LABEL}" back`);
 
   console.log('\nrestore live — PASS');
 }
