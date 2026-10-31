@@ -3,7 +3,9 @@ import axios from 'axios';
 import type { NextFunction, Request, Response } from 'express';
 import { allowed, type Principal } from '../../platform/lib/permissions.js';
 import { MailReputation } from '../../platform/services/MailReputation.js';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
+import http from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -46,6 +48,97 @@ describe('what the installer reads from root', () => {
     expect(installer).not.toMatch(/^\s*\.\s+"?\$JOIN_ENV/m);
     expect(installer).toMatch(/--auth-key="file:\$MESH_KEY_FILE"/);
     expect(installer).not.toMatch(/--authkey "\$MESH_PREAUTH_KEY"/);
+  });
+});
+
+describe('what the installer tells root as it installs', () => {
+  const installer = readFileSync(join(process.cwd(), '../../scripts/instance/install.sh'), 'utf8');
+  const fn = (name: string) => new RegExp(`^${name}\\(\\) \\{[\\s\\S]*?^\\}$`, 'm').exec(installer)![0];
+  const reporting = ['json_string', 'report_body', 'send_report', 'report', 'report_failure'].map(fn).join('\n');
+  let harness: Harness | undefined;
+  let rootDown: http.Server | undefined;
+  afterEach(async () => {
+    await harness?.close();
+    await new Promise((resolve) => (rootDown ? rootDown.close(resolve) : resolve(undefined)));
+    rootDown = undefined;
+  });
+
+  async function rootWithAnInstance() {
+    let service: InstanceService | undefined;
+    harness = await mountRouter({
+      prefix: '/api/instances',
+      router: (db) => {
+        const mesh = { createPreAuthKey: async () => ({ key: 'mesh-key' }), listUserDevices: async () => [{ ipAddresses: ['100.64.0.9'] }] };
+        service = new InstanceService(db, { rootUrl: 'https://app.koala.dev', rootPublicKeys: () => ['PEM'], registry: 'r', imageTag: 't', domain: 'koala.dev', meshLoginServer: 'https://mesh.koala.dev' }, mesh);
+        return instancesRouter({ instances: service, chart: async () => '', operatorOnly: (_req: Request, _res: Response, next: NextFunction) => next() });
+      },
+    });
+    const made = await service!.createJoinToken(TEST_USER.id, 'luno');
+    if (!made.ok) throw new Error(made.error);
+    const joined = await service!.join(made.value.token, 'box');
+    if (!joined.ok) throw new Error(joined.error);
+    return { credential: joined.value.credential, instanceId: joined.value.instanceId, record: async () => (await harness!.db.instances.getInstances()).find((entry) => entry.id === joined.value.instanceId)! };
+  }
+
+  function installerReports(calls: string[], env: Record<string, string>): Promise<{ status: number | null; stdout: string; stderr: string }> {
+    const bin = mkdtempSync(join(tmpdir(), 'installer-bin-'));
+    writeFileSync(join(bin, 'sleep'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+    const child = spawn('sh', ['-c', `set -eu\ndie() { echo "refused: $1"; exit 1; }\n${reporting}\n${calls.join('\n')}\necho finished`], { env: { PATH: `${bin}:${process.env.PATH}`, ...env } });
+    let stdout = '';
+    let stderr = '';
+    child.stdout.on('data', (chunk: Buffer) => { stdout += chunk.toString(); });
+    child.stderr.on('data', (chunk: Buffer) => { stderr += chunk.toString(); });
+    return new Promise((resolve) => child.on('close', (status) => resolve({ status, stdout, stderr })));
+  }
+
+  it('reaches root at every step, so root holds where it is, its mesh address, its url and what it runs', async () => {
+    const root = await rootWithAnInstance();
+    const ran = await installerReports([
+      'report joined "On the mesh as 100.64.0.9"',
+      'report installing "Installing the instance" "https://luno.koala.dev"',
+      'report ready "Installed" "https://luno.koala.dev"',
+    ], { ROOT_URL: harness!.url(''), INSTANCE_ID: root.instanceId, INSTANCE_CREDENTIAL: root.credential, MESH_IP: '100.64.0.9', INSTANCE_IMAGE_TAG: 'abc123' });
+    expect(ran.stdout + ran.stderr).toContain('finished');
+    expect(await root.record()).toMatchObject({ status: 'ready', detail: 'Installed', meshIp: '100.64.0.9', url: 'https://luno.koala.dev', running: 'abc123' });
+  });
+
+  it('sends any words root can read, quotes, backslashes and new lines included', async () => {
+    const root = await rootWithAnInstance();
+    const ran = await installerReports([`report installing 'it said "no" at C:\\path
+and stopped'`], { ROOT_URL: harness!.url(''), INSTANCE_ID: root.instanceId, INSTANCE_CREDENTIAL: root.credential });
+    expect(ran.stdout + ran.stderr).toContain('finished');
+    expect((await root.record()).detail).toBe('it said "no" at C:\\path and stopped');
+  });
+
+  it('stops the install with root\'s reason when root refuses a report', async () => {
+    const root = await rootWithAnInstance();
+    const ran = await installerReports(['report joined "On the mesh as 100.64.0.9"'], { ROOT_URL: harness!.url(''), INSTANCE_ID: root.instanceId, INSTANCE_CREDENTIAL: 'not-the-credential', MESH_IP: '100.64.0.9' });
+    expect(ran.status).toBe(1);
+    expect(ran.stdout).toContain('refused: root refused this machine\'s report that it is joined (401): {"error":"unknown instance or credential"}');
+    expect(ran.stdout).not.toContain('finished');
+  });
+
+  it('sends a report again while root is not answering it, and stops asking once root takes it', async () => {
+    const root = await rootWithAnInstance();
+    let tries = 0;
+    rootDown = http.createServer((req, res) => {
+      tries += 1;
+      if (tries < 3) { res.writeHead(503); res.end('restarting'); return; }
+      const forwarded = http.request(harness!.url(req.url ?? ''), { method: req.method, headers: req.headers }, (answer) => { res.writeHead(answer.statusCode ?? 502, answer.headers); answer.pipe(res); });
+      req.pipe(forwarded);
+    });
+    await new Promise<void>((resolve) => rootDown!.listen(0, '127.0.0.1', resolve));
+    const ran = await installerReports(['report joined "On the mesh as 100.64.0.9"'], { ROOT_URL: `http://127.0.0.1:${(rootDown.address() as AddressInfo).port}`, INSTANCE_ID: root.instanceId, INSTANCE_CREDENTIAL: root.credential, MESH_IP: '100.64.0.9' });
+    expect(ran.stdout).toContain('root did not take this machine\'s report that it is joined (503); sending it again');
+    expect(ran.stdout).toContain('finished');
+    expect(tries).toBe(3);
+    expect(await root.record()).toMatchObject({ status: 'joined', meshIp: '100.64.0.9' });
+  });
+
+  it('tells root the install stopped without waiting on a root that does not answer', async () => {
+    const ran = await installerReports(['report_failure "The install command stopped on this machine; run it again to retry"'], { ROOT_URL: 'http://127.0.0.1:9', INSTANCE_ID: 'inst-x', INSTANCE_CREDENTIAL: 'c' });
+    expect(ran.stderr).toContain('root did not take the report that the install stopped (000)');
+    expect(ran.stdout).toContain('finished');
   });
 });
 

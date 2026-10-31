@@ -1,4 +1,4 @@
-import type { ClusterMetadata } from '../../platform/lib/types.js';
+import type { ClusterMetadata } from '../../platform/index.js';
 import type { ClusterCapacity } from './cluster-capacity.js';
 
 export interface ProvisionedCluster {

@@ -160,11 +160,48 @@ HTTP_CODE="$(curl -sS -o "$JOIN_ENV" -w '%{http_code}' -X POST -H 'Content-Type:
 read_joined "$JOIN_ENV"
 ok "this machine will be instance ${INSTANCE_ID}"
 
-report() {
-  curl -fsS -X POST -H 'Content-Type: application/json' -H "X-Instance-Id: ${INSTANCE_ID}" -H "Authorization: Bearer ${INSTANCE_CREDENTIAL}" \
-    -d "{\"status\":\"$1\",\"detail\":\"$2\"$( [ -n "${3:-}" ] && printf ',"url":"%s"' "$3" )$( [ -n "${MESH_IP:-}" ] && printf ',"meshIp":"%s"' "$MESH_IP" )$( [ -n "${4:-}" ] && printf ',"moved":true' )$( [ "$1" = ready ] && [ -n "${INSTANCE_IMAGE_TAG:-}" ] && printf ',"imageTag":"%s"' "$INSTANCE_IMAGE_TAG" ),\"presence\":true}" "${ROOT_URL}/api/instances/status" >/dev/null 2>&1 || true
+json_string() {
+  printf '%s' "$1" | tr '\n\r\t' '   ' | tr -d '\000-\037' | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'
 }
-trap 'status=$?; rm -f "$JOIN_ENV" "${MESH_KEY_FILE:-}"; [ $status -ne 0 ] && report failed "The install command stopped on this machine; run it again to retry"' EXIT
+
+report_body() {
+  body="{\"status\":\"$(json_string "$1")\",\"detail\":\"$(json_string "$2")\""
+  if [ -n "${3:-}" ]; then body="${body},\"url\":\"$(json_string "$3")\""; fi
+  if [ -n "${MESH_IP:-}" ]; then body="${body},\"meshIp\":\"$(json_string "$MESH_IP")\""; fi
+  if [ -n "${4:-}" ]; then body="${body},\"moved\":true"; fi
+  if [ "$1" = ready ] && [ -n "${INSTANCE_IMAGE_TAG:-}" ]; then body="${body},\"imageTag\":\"$(json_string "$INSTANCE_IMAGE_TAG")\""; fi
+  printf '%s,"presence":true}' "$body"
+}
+
+send_report() {
+  ANSWER_FILE="$(mktemp)"
+  code="$(curl -sS -o "$ANSWER_FILE" -w '%{http_code}' -X POST -H 'Content-Type: application/json' -H "X-Instance-Id: ${INSTANCE_ID}" -H "Authorization: Bearer ${INSTANCE_CREDENTIAL}" \
+    -d "$1" "${ROOT_URL}/api/instances/status" 2>/dev/null)" || true
+  ANSWER="$(cat "$ANSWER_FILE" 2>/dev/null || true)"
+  rm -f "$ANSWER_FILE"
+  REPORT_CODE="${code:-000}"
+}
+
+report() {
+  body="$(report_body "$@")"
+  while :; do
+    send_report "$body"
+    case "$REPORT_CODE" in
+      2??) return 0 ;;
+      4??) die "root refused this machine's report that it is ${1} (${REPORT_CODE}): ${ANSWER}" ;;
+      *) echo "  root did not take this machine's report that it is ${1} (${REPORT_CODE}); sending it again"; sleep 5 ;;
+    esac
+  done
+}
+
+report_failure() {
+  send_report "$(report_body failed "$1")"
+  case "$REPORT_CODE" in
+    2??) ;;
+    *) printf '  root did not take the report that the install stopped (%s): %s\n' "$REPORT_CODE" "$ANSWER" >&2 ;;
+  esac
+}
+trap 'status=$?; rm -f "$JOIN_ENV" "${MESH_KEY_FILE:-}"; [ $status -ne 0 ] && report_failure "The install command stopped on this machine; run it again to retry"' EXIT
 
 say "Checking this machine"
 MEM_MB=$(awk '/MemTotal/ { print int($2 / 1024) }' /proc/meminfo)
@@ -309,6 +346,7 @@ rm -f "$KEYS_FILE"
 if [ -n "$MOVE_ARGS" ]; then
   ok "everything came over"
   helm upgrade "$RELEASE" /tmp/instance-chart.tgz --namespace "$NAMESPACE" --reuse-values --set move.enabled=false --wait --timeout 720h
+  echo "  waiting for the instance to answer on ${MESH_IP}:${NODE_PORT}"
   until curl -fsS -o /dev/null "http://${MESH_IP}:${NODE_PORT}/api/auth/sign-in"; do sleep 3; done
   report ready "Moved here" "$PUBLIC_URL" moved
 else
