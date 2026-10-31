@@ -8,6 +8,7 @@ import { PassThrough } from 'stream';
 import { mountRouter, TEST_USER, type Harness } from '../../platform/routes/test-harness.js';
 import { moveRouter } from './move.js';
 import { MoveExport, MOVING_FILE } from '../services/MoveExport.js';
+import { REPLICAS_ANNOTATION } from '../lib/app-move.js';
 import { generateIdentityKey, identityKeysFrom, issueMoveToken, publicKeyPem, trustedKeys } from '../lib/identity-token.js';
 
 const KEYS = { SESSION_KEY: 'a'.repeat(64), DATA_KEY: 'b'.repeat(64), PAYLOAD_KEY: 'c'.repeat(64), EGRESS_KEY: 'd'.repeat(64) };
@@ -17,13 +18,27 @@ let harness: Harness;
 let dataDir: string;
 let running: string[] | 'unknown';
 let spawned: string[][];
+let refusing: string[];
+
+const kubectlSays = (args: string[]): string | undefined => {
+  const asked = args.join(' ');
+  if (asked === 'get namespaces -o json') return JSON.stringify({ items: [{ metadata: { name: 'books' } }, { metadata: { name: 'nowrinkles' } }] });
+  if (asked === 'get deployments -n books -o json') return JSON.stringify({ items: [{ metadata: { name: 'web', annotations: { [REPLICAS_ANNOTATION]: '2' } } }, { metadata: { name: 'never-scaled' } }] });
+  if (asked === 'get statefulsets -n books -o json') return JSON.stringify({ items: [] });
+  return undefined;
+};
 
 const fakeSpawn = ((command: string, args: string[]) => {
   spawned.push([command, ...args]);
   const child = new EventEmitter() as EventEmitter & { stdout: PassThrough; stderr: PassThrough };
   child.stdout = new PassThrough();
   child.stderr = new PassThrough();
-  setImmediate(() => { child.stdout.end(`${command} output`); child.emit('close', 0); });
+  const refused = command === 'kubectl' && refusing.some((prefix) => args.join(' ').startsWith(prefix));
+  setImmediate(() => {
+    if (refused) child.stderr.write('Error from server (Forbidden): not allowed');
+    child.stdout.end(refused ? '' : (command === 'kubectl' ? kubectlSays(args) : undefined) ?? `${command} output`);
+    child.emit('close', refused ? 1 : 0);
+  });
   return child;
 }) as never;
 
@@ -31,6 +46,7 @@ beforeEach(async () => {
   dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'move-'));
   running = [];
   spawned = [];
+  refusing = [];
   harness = await mountRouter({
     prefix: '/api/move', user: TEST_USER,
     router: async (db) => {
@@ -98,10 +114,37 @@ describe('a pool instance handing itself over', () => {
     expect(fs.existsSync(path.join(dataDir, MOVING_FILE))).toBe(false);
   });
 
-  it('takes work again when root says the move stopped', async () => {
+  const thaw = () => axios.post(harness.url('/api/move/thaw'), {}, { headers: { 'x-koala-move-token': issueMoveToken(root, 'inst-bo', 'thaw') }, validateStatus: () => true });
+  const kubectlRan = () => spawned.filter(([command]) => command === 'kubectl').map((argv) => argv.slice(1).join(' '));
+
+  it('takes work again when root says the move stopped, starting its apps as they were and its self-upgrade', async () => {
     await get('keys', issueMoveToken(root, 'inst-bo', 'keys'));
-    const thawed = await axios.post(harness.url('/api/move/thaw'), {}, { headers: { 'x-koala-move-token': issueMoveToken(root, 'inst-bo', 'thaw') }, validateStatus: () => true });
+    expect(kubectlRan()).toContain('patch cronjob instance-self-upgrade -n nowrinkles --type=merge -p {"spec":{"suspend":true}}');
+    const thawed = await thaw();
     expect(thawed.data).toEqual({ thawed: true });
+    expect(kubectlRan()).toEqual(expect.arrayContaining([
+      'scale deployments web -n books --replicas=2',
+      `annotate deployments web -n books ${REPLICAS_ANNOTATION}-`,
+      'patch cronjob instance-self-upgrade -n nowrinkles --type=merge -p {"spec":{"suspend":false}}',
+    ]));
+    expect(kubectlRan().some((ran) => ran.includes('never-scaled'))).toBe(false);
+    expect(fs.existsSync(path.join(dataDir, MOVING_FILE))).toBe(false);
+  });
+
+  it('says which apps it could not start again, still taking work itself', async () => {
+    await get('keys', issueMoveToken(root, 'inst-bo', 'keys'));
+    refusing = ['scale deployments web'];
+    const thawed = await thaw();
+    expect(thawed.status).toBe(500);
+    expect(thawed.data.error).toBe('it takes work again, but books\'s apps could not be started again: kubectl ended with 1: Error from server (Forbidden): not allowed');
+    expect(fs.existsSync(path.join(dataDir, MOVING_FILE))).toBe(false);
+  });
+
+  it('does not stop for the move when it cannot pause its own self-upgrade', async () => {
+    refusing = ['patch cronjob instance-self-upgrade'];
+    const refused = await get('keys', issueMoveToken(root, 'inst-bo', 'keys'));
+    expect(refused.status).toBe(500);
+    expect(refused.data).toContain('its self-upgrade could not be paused, so it was not stopped for the move');
     expect(fs.existsSync(path.join(dataDir, MOVING_FILE))).toBe(false);
   });
 });

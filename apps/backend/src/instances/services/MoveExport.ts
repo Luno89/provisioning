@@ -58,28 +58,36 @@ export class MoveExport {
     const running = await this.deps.running();
     if (running === 'unknown') return { status: 503, error: 'the instance is still starting; ask again shortly' };
     if (running.length) return { status: 409, error: `finish or stop what runs first, then start the move again: ${running.join('; ')}` };
+    const notPaused = await this.selfUpgrade(false).then(() => undefined, (err: Error) => err.message);
+    if (notPaused) return { status: 500, error: `its self-upgrade could not be paused, so it was not stopped for the move: ${notPaused}` };
     await fs.writeFile(path.join(this.deps.dataDir, MOVING_FILE), new Date().toISOString());
     this.frozen = true;
-    await this.selfUpgrade(false).catch(() => undefined);
     return undefined;
   }
 
-  async thaw(): Promise<void> {
-    for (const namespace of await this.namespaces().catch(() => [])) {
-      for (const kind of SCALED_KINDS) {
-        const listed = JSON.parse(await this.kubectl(['get', kind, '-n', namespace, '-o', 'json'])) as { items?: KubeObject[] };
-        for (const item of listed.items ?? []) {
-          const kept = item.metadata?.annotations?.[REPLICAS_ANNOTATION];
-          if (kept === undefined || !item.metadata?.name) continue;
-          await this.kubectl(['scale', kind, item.metadata.name, '-n', namespace, `--replicas=${kept}`]);
-          await this.kubectl(['annotate', kind, item.metadata.name, '-n', namespace, `${REPLICAS_ANNOTATION}-`]);
+  async thaw(): Promise<string[]> {
+    const problems: string[] = [];
+    const namespaces = await this.namespaces().catch((err: Error) => { problems.push(`its apps' namespaces could not be listed: ${err.message}`); return []; });
+    for (const namespace of namespaces) {
+      try {
+        for (const kind of SCALED_KINDS) {
+          const listed = JSON.parse(await this.kubectl(['get', kind, '-n', namespace, '-o', 'json'])) as { items?: KubeObject[] };
+          for (const item of listed.items ?? []) {
+            const kept = item.metadata?.annotations?.[REPLICAS_ANNOTATION];
+            if (kept === undefined || !item.metadata?.name) continue;
+            await this.kubectl(['scale', kind, item.metadata.name, '-n', namespace, `--replicas=${kept}`]);
+            await this.kubectl(['annotate', kind, item.metadata.name, '-n', namespace, `${REPLICAS_ANNOTATION}-`]);
+          }
         }
+        await this.kubectl(['delete', 'pod', VOLUME_HELPER, '-n', namespace, '--ignore-not-found']);
+      } catch (err) {
+        problems.push(`${namespace}'s apps could not be started again: ${(err as Error).message}`);
       }
-      await this.kubectl(['delete', 'pod', VOLUME_HELPER, '-n', namespace, '--ignore-not-found']);
     }
-    await this.selfUpgrade(true).catch(() => undefined);
+    await this.selfUpgrade(true).catch((err: Error) => { problems.push(`its self-upgrade could not be switched back on: ${err.message}`); });
     await fs.rm(path.join(this.deps.dataDir, MOVING_FILE), { force: true });
     this.frozen = false;
+    return problems;
   }
 
   private selfUpgrade(on: boolean): Promise<string> {

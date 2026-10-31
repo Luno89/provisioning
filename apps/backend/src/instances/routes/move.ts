@@ -35,7 +35,8 @@ export function moveRouter(deps: { move: MoveExport; log?: (message: string) => 
   router.post('/thaw', asyncRoute(async (req: Request, res: Response) => {
     const refused = await deps.move.check(tokenOf(req), 'thaw');
     if (refused) return res.status(refused.status).json({ error: refused.error });
-    await deps.move.thaw();
+    const problems = await deps.move.thaw();
+    if (problems.length) return res.status(500).json({ error: `it takes work again, but ${problems.join('; ')}` });
     return res.json({ thawed: true });
   }));
 
