@@ -6,8 +6,8 @@ import { MOVE_TOKEN_HEADER } from '../lib/identity-token.js';
 
 const servers: http.Server[] = [];
 
-async function poolApi(answer: (req: http.IncomingMessage, res: http.ServerResponse) => void): Promise<{ relay: MoveRelay; seen: Array<{ method?: string; path?: string; token?: string }> }> {
-  const seen: Array<{ method?: string; path?: string; token?: string }> = [];
+async function poolApi(answer: (req: http.IncomingMessage, res: http.ServerResponse) => void): Promise<{ relay: MoveRelay; seen: Array<{ method: string | undefined; path: string | undefined; token: string | undefined }> }> {
+  const seen: Array<{ method: string | undefined; path: string | undefined; token: string | undefined }> = [];
   const server = http.createServer((req, res) => {
     seen.push({ method: req.method, path: req.url, token: req.headers[MOVE_TOKEN_HEADER] as string | undefined });
     answer(req, res);
