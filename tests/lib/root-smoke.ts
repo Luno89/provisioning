@@ -2,6 +2,12 @@ export const EXPIRY_MARGIN_DAYS = 14;
 
 export const SCANNED_PORTS: readonly number[] = [21, 22, 23, 25, 53, 80, 110, 143, 443, 465, 587, 993, 2375, 2376, 2525, 3000, 3001, 3002, 5000, 5001, 5432, 6379, 6443, 7233, 7234, 7236, 8080, 8233, 8443, 9090, 9100, 10250, 27017, 30320, 30321, 30322, 31737];
 
+export const NODE_PORTS = { first: 30000, last: 32767 } as const;
+
+export const nodePortRange = (): number[] => Array.from({ length: NODE_PORTS.last - NODE_PORTS.first + 1 }, (_, at) => NODE_PORTS.first + at);
+
+export const portsToScan = (): number[] => [...new Set([...SCANNED_PORTS, ...nodePortRange()])].sort((a, b) => a - b);
+
 export const ALWAYS_OPEN: readonly number[] = [80, 443];
 
 export interface SmokeResult {
@@ -63,6 +69,11 @@ export function portProblems(open: readonly number[], sshPublic: boolean): strin
   for (const port of open) if (!allowed.has(port)) problems.push(`port ${port} answers from outside`);
   for (const port of ALWAYS_OPEN) if (!open.includes(port)) problems.push(`port ${port} does not answer`);
   return problems;
+}
+
+export function portSummary(open: readonly number[], scanned: number, address: string): string {
+  const nodePorts = open.filter((port) => port >= NODE_PORTS.first && port <= NODE_PORTS.last);
+  return `${address}: of ${scanned} ports (${NODE_PORTS.first}–${NODE_PORTS.last}, every port Kubernetes gives a NodePort, among them), ${open.join(', ') || 'none'} answer${nodePorts.length ? `, ${nodePorts.length} of them node ports` : ''}`;
 }
 
 export const unknownName = (peopleDomain: string, random: string): string => `smoke${random.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 12)}.${peopleDomain}`;

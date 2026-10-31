@@ -2,7 +2,9 @@ import { randomBytes } from 'node:crypto';
 import { promises as dns } from 'node:dns';
 import { connect as netConnect } from 'node:net';
 import { connect as tlsConnect } from 'node:tls';
-import { certificateProblem, headerProblems, mailRecordProblems, portProblems, SCANNED_PORTS, summary, unknownName, type SmokeResult } from './lib/root-smoke.js';
+import { certificateProblem, headerProblems, mailRecordProblems, portProblems, portsToScan, portSummary, summary, unknownName, type SmokeResult } from './lib/root-smoke.js';
+import { answerOf } from '../apps/backend/src/platform/services/MailReputation.js';
+import { BLOCKLIST_TEST_ADDRESS, blocklistQuery, blocklistVerdict, MAIL_BLOCKLISTS, reverseDnsVerdict } from '../apps/backend/src/platform/lib/mail-reputation.js';
 
 const [rootDomain, peopleDomain] = process.argv.slice(2).filter((arg) => !arg.startsWith('--'));
 const SSH_PUBLIC = process.argv.includes('--ssh-public');
@@ -110,12 +112,39 @@ async function main(): Promise<void> {
     report('mail records', `mail.${rootDomain}, SPF, DKIM (selector koala) and DMARC are as mail-dns.ts publishes them`, problems.length ? problems.join('; ') : undefined);
   });
 
-  await attempt('open ports', async () => {
-    const open: number[] = [];
-    for (const port of SCANNED_PORTS) if (await answers(ip, port)) open.push(port);
-    const problems = portProblems(open, SSH_PUBLIC);
-    report('open ports', `of ${SCANNED_PORTS.length} common ports, ${open.join(', ') || 'none'} answer${SSH_PUBLIC ? ' (SSH may be public)' : ' (SSH only over the mesh)'}`, problems.length ? problems.join('; ') : undefined);
+  await attempt('reverse DNS', async () => {
+    const verdict = reverseDnsVerdict(ip, `mail.${rootDomain}`, await answerOf(dns.reverse(ip)));
+    report('reverse DNS', verdict.said, verdict.state === 'matches' ? undefined : verdict.said);
   });
+
+  await attempt('blocklists', async () => {
+    const verdicts = await Promise.all(MAIL_BLOCKLISTS.map(async (list) => blocklistVerdict(
+      list,
+      ip,
+      await answerOf(dns.resolve4(blocklistQuery(BLOCKLIST_TEST_ADDRESS, list.zone))),
+      await answerOf(dns.resolve4(blocklistQuery(ip, list.zone))),
+    )));
+    const listed = verdicts.filter((verdict) => verdict.state === 'listed');
+    report('blocklists', verdicts.map((verdict) => `${verdict.name}: ${verdict.state === 'unknown' ? verdict.said : verdict.state}`).join('; '), listed.length ? listed.map((verdict) => verdict.said).join('; ') : undefined);
+  });
+
+  const scan = async (address: string) => {
+    const ports = portsToScan();
+    const open: number[] = [];
+    let next = 0;
+    await Promise.all(Array.from({ length: 256 }, async () => {
+      while (next < ports.length) {
+        const port = ports[next++]!;
+        if (await answers(address, port)) open.push(port);
+      }
+    }));
+    open.sort((a, b) => a - b);
+    const problems = portProblems(open, SSH_PUBLIC);
+    report(`open ports on ${address}`, `${portSummary(open, ports.length, address)}${SSH_PUBLIC ? ' (SSH may be public)' : ' (SSH only over the mesh)'}`, problems.length ? problems.join('; ') : undefined);
+  };
+  await attempt('open ports', () => scan(ip));
+  const [ip6] = await dns.resolve6(app).catch(() => [] as string[]);
+  if (ip6) await attempt('open ports over IPv6', () => scan(ip6));
 
   const { failed } = summary(results);
   console.log(failed ? `\nroot smoke — FAIL: ${failed} of ${results.length} checks` : `\nroot smoke — PASS: ${results.length} checks`);
