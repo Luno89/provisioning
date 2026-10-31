@@ -5,7 +5,7 @@ export function readEnvFile(path: string): Record<string, string> {
   const values: Record<string, string> = {};
   for (const line of readFileSync(path, 'utf8').split('\n')) {
     const match = /^([A-Z][A-Z0-9_]*)=(.*)$/.exec(line);
-    if (match) values[match[1]!] = match[2]!;
+    if (match) values[match[1]!] = /^'[^']*'$/.test(match[2]!) ? match[2]!.slice(1, -1) : match[2]!;
   }
   return values;
 }
@@ -28,4 +28,9 @@ export function dropEnvValues(path: string, keys: readonly string[]): void {
   const kept = lines.filter((line) => !keys.some((key) => line.startsWith(`${key}=`)));
   writeFileSync(path, `${kept.join('\n')}\n`, { mode: 0o600 });
   chmodSync(path, 0o600);
+}
+
+export function dotenvValue(value: string): string {
+  if (/[\r\n']/.test(value)) throw new Error('a value holding a line break or a single quote cannot be kept in .env as it is');
+  return /^[A-Za-z0-9._~:/@+=,%-]*$/.test(value) ? value : `'${value}'`;
 }

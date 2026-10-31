@@ -31,6 +31,7 @@ export type { DownloadProgress } from './lib/huggingface.js';
 export { cleanKubeconfig } from './lib/kubeconfig-clean.js';
 export { dkimValue, mailByHand, mailRecords } from './lib/mail-dns.js';
 export { isValidImageTag } from './lib/registry-tags.js';
+export { missingFromEnvFile, signInSecretsOf } from './lib/root-sign-in.js';
 export type { RunningRecords } from './lib/running.js';
 export { bindingProjection, bindingSecretName } from './lib/service-binding.js';
 export type { ProjectedBinding } from './lib/service-binding.js';

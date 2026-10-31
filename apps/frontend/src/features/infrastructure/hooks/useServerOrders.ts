@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  buyServer, cancelServerOrder, checkZones, FOLLOWED, getServerOrder, listServerOrders, quoteServer, serverOrderKeys,
+  buyServer, cancelServerOrder, checkZones, FOLLOWED, getServerOrder, listRootSignInProviders, listServerOrders, quoteServer, serverOrderKeys,
   type QuoteAsk, type ServerOrder,
 } from '../api/server-orders'
 import { credentialKeys, listDnsProviders } from '../api/credentials'
@@ -42,4 +42,9 @@ export function useZoneChecks(zones: readonly string[]) {
 
 export function useDnsProviders() {
   return useQuery({ queryKey: credentialKeys.dns(), queryFn: listDnsProviders, staleTime: Infinity })
+}
+
+export function useRootSignInProviders(domain: string) {
+  const named = domain.trim().toLowerCase()
+  return useQuery({ queryKey: serverOrderKeys.signIn(named), queryFn: () => listRootSignInProviders(named), placeholderData: (previous) => previous, staleTime: Infinity })
 }

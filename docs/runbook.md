@@ -20,7 +20,8 @@ provider are on branches being merged):
    credentials, then checks the temporary `_acme-challenge` records are gone and nothing else in the zone changed. Every
    zone must say ✓ issued; a refusal names what to change (Porkbun's API Access on the domain, the Cloudflare token's zones).
 3. Infrastructure → Clusters → **Host Koala on a server**: pick the plan and datacenter, the two domains and an email,
-   **Price it**, read the card, tick the box, **Buy**. Nothing is charged before Buy.
+   optionally the sign-in providers root offers (below), **Price it**, read the card, tick the box, **Buy**. Nothing is
+   charged before Buy.
 4. Koala follows the order. A first order on a new OVHcloud account can wait 24–48 hours for OVHcloud's identity check;
    the page says so. Then it reinstalls the server with its own SSH key, makes the DNS records, waits for a signed
    release, runs `scripts/root-node/bootstrap.sh`, starts root and shows the setup code **once**. Then it sets the
@@ -45,6 +46,28 @@ provider are on branches being merged):
 
 Bootstrapping by hand instead (a VPS bought another way): see the header of `scripts/root-node/bootstrap.sh`; it prints
 the same next steps when it ends.
+
+### Sign-in providers
+
+People can always sign in to root with a password. Root can also offer Google, GitHub and an organisation's own OpenID
+provider, each once its variables are in `/opt/nowrinkles/apps/backend/.env` (`accounts/lib/sign-in-providers.ts` lists
+them: `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`, `GITHUB_CLIENT_ID`/`GITHUB_CLIENT_SECRET`, `OIDC_ISSUER`/`OIDC_CLIENT_ID`/
+`OIDC_CLIENT_SECRET` with `OIDC_LABEL` for its button). Register root at each with the redirect URI
+`https://app.<DOMAIN>/api/auth/provider/<google|github|oidc>/callback`.
+
+- **Bought through Host Koala**: give them on the page. Each provider shows its fields, its redirect URI for the domain
+  typed and where it is made. The keys are sealed on the order with `DATA_KEY`, never shown again, and handed to
+  `bootstrap.sh` on the SSH session's stdin with the DNS credentials; the order's log hides them and says once root is
+  running whether they reached its `.env`.
+- **Bootstrapping by hand**: export the same variables before `bootstrap.sh`, as the DNS credentials are given; it checks
+  them (a provider half given, or an issuer that is not https, stops it there, writing none of them), writes them into
+  `apps/backend/.env` (mode 600), and lists every provider with its redirect URI, on or off.
+- **Changing them later**: edit the lines in `apps/backend/.env` by hand (a value with spaces or `#` goes in single
+  quotes; one holding a single quote cannot be kept there), then `systemctl restart nowrinkles`, which restarts the
+  workers with it. Root's sign-in page shows a button for each provider it reads at start; one half set is left out and
+  named in `journalctl -u nowrinkles`. Running `bootstrap.sh` again keeps what is there and changes only what it is given.
+  `update.sh`, the release watch and a rollback never touch them, and a restore brings back the old root's, since both
+  env files are in every backup.
 
 ### What to keep offline
 
@@ -137,6 +160,8 @@ data (it lives on the person's machine, or in their pool namespace).
 - **The release signing key**: make a new one, replace the line in `scripts/root-node/release-signers` and
   `/etc/koala/release-signers` on root by hand (root never takes it from the checkout), and release again.
 - **`METRICS_TOKEN`**: change it in `.env`, restart.
+- **A sign-in provider's client secret**: make a new secret at the provider (Google Cloud console, GitHub's OAuth app, the
+  organisation's provider), revoke the old one there, replace the line in `apps/backend/.env`, `systemctl restart nowrinkles`.
 
 ## 8. When something breaks on the box
 

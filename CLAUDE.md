@@ -1345,7 +1345,22 @@ operator opens Infrastructure → Clusters → **Host Koala on a server** (`/#/h
 operator only, mounted only on `combined`). It needs OVHcloud keys under Cloud providers (provider `ovh`: application key, secret
 and consumer key sealed, the subsidiary plain, checked with `GET /me`; the keys need `GET /*`, `POST /order/*`, `DELETE /order/*`,
 `POST /vps/*`, `POST /me/order/*`, `POST /ip/*`) and stored credentials for each domain's DNS provider, found from its nameservers (or chosen
-on the page) and kept on the order (`dns`), which must reach both zones. **Price it** builds a real cart
+on the page) and kept on the order (`dns`), which must reach both zones. **Sign-in for root is optional and offered there
+too**: every provider in `SIGN_IN_PROVIDERS` (each description carries `register`, where it is made and how, and
+`signInFieldsOf` its fields), with its redirect URI for the domain typed (`GET /api/server-orders/sign-in-providers?domain=`,
+`rootSignInProviders` in `infrastructure/lib/root-sign-in.ts`), so a provider added to the registry appears with no page change.
+The quote checks what was given with `signInProvidersFrom` (`rootSignInEnv`: a half-given provider or an issuer that is not https
+is refused before any cart), seals the env it makes on the order (`signInEnv`, `DATA_KEY`) and keeps only which were given
+(`signIn`); `withoutOrderSecrets` (`ORDER_SECRET_FIELDS`: the SSH key, the setup code, `signInEnv`) shapes every order the
+routes send. The bootstrap hands them to `bootstrap.sh` on the SSH session's stdin with the DNS credentials, the order's log
+hiding them (`signInSecretsOf`) and saying, once root runs, whether they reached its `.env` (`missingFromEnvFile`).
+`bootstrap.sh`, by hand or bought, runs `scripts/root-node/sign-in.ts setup`: the variables in its environment are checked
+against what `apps/backend/.env` already holds, refused whole when a provider is half set, written mode 600 (a value with
+spaces or `#` single-quoted, `dotenvValue`), and every provider listed with its redirect URI, on or off. Changing them later is
+by hand in root's `.env` and `systemctl restart nowrinkles` (`docs/runbook.md`, Sign-in providers); update, rollback and the
+release watch never touch them, and a restore brings back the backed-up root's. `test:restore-live` bootstraps its first
+root with a stand-in OpenID issuer's settings on stdin and checks root offers it and starts a sign-in with it, before and
+after the restore. **Price it** builds a real cart
 (`ServerOrderService.priceCart`: the plan for one month, `vps_datacenter` and `vps_os` Ubuntu 24.04, every mandatory option read
 from the cart's own options) and shows OVHcloud's own checkout total, lines and contracts; nothing is bought. **Buy** is the only
 path to `POST /order/cart/{id}/checkout` (auto-paid with the account's default payment method) and refuses unless the total the

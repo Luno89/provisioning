@@ -3,8 +3,8 @@ import { promisify } from 'node:util';
 import { ApplicationFailure } from '@temporalio/common';
 import { claimSettingsFrom, createDatabase, loadKeys, roleFromEnv, type Database } from '../platform/index.js';
 import {
-  bootstrapScript, CredentialService, generateSshKeypair, KOALA_REPOSITORY, READY_MARK, readOverSsh, redacted, runScriptOverSsh,
-  ServerOrderProblem, ServerOrderService, setupCodeFrom, sshAnswers,
+  bootstrapScript, CredentialService, generateSshKeypair, KOALA_REPOSITORY, missingFromEnvFile, READY_MARK, readOverSsh, redacted,
+  runScriptOverSsh, ServerOrderProblem, ServerOrderService, setupCodeFrom, signInSecretsOf, sshAnswers,
 } from '../infrastructure/index.js';
 
 const execFileAsync = promisify(execFile);
@@ -75,7 +75,8 @@ export async function ServerOrderBootstrapActivity(orderId: string, release: str
     const order = await orders.order(orderId);
     if (!order.ip) throw new Error('the server has no address yet');
     const dns = await orders.dnsFor(orderId);
-    const secrets = Object.values(dns.env);
+    const signInEnv = await orders.signInFor(orderId);
+    const secrets = [...Object.values(dns.env), ...signInSecretsOf(signInEnv)];
     const target = { host: order.ip, privateKey: orders.privateKeyOf(order) };
     await orders.mark(orderId, 'bootstrapping', `Installing Koala's root (${release}) on ${order.ip}`, { release });
     let buffered: string[] = [];
@@ -86,7 +87,7 @@ export async function ServerOrderBootstrapActivity(orderId: string, release: str
       await orders.log(orderId, lines);
     };
     let flushing = Promise.resolve();
-    const code = await runScriptOverSsh(target, bootstrapScript({ release, domain: order.domain, ingressDomain: order.ingressDomain, acmeEmail: order.acmeEmail, domainDns: dns.domainDns, ingressDns: dns.ingressDns, dnsEnv: dns.env }), (line) => {
+    const code = await runScriptOverSsh(target, bootstrapScript({ release, domain: order.domain, ingressDomain: order.ingressDomain, acmeEmail: order.acmeEmail, domainDns: dns.domainDns, ingressDns: dns.ingressDns, dnsEnv: dns.env, signInEnv }), (line) => {
       if (line.includes(READY_MARK)) { readyMarked = true; return; }
       buffered.push(redacted(line, secrets).replace(SETUP_CODE_SHAPE, '••••'));
       if (buffered.length >= 20) flushing = flushing.then(flush);
@@ -95,6 +96,12 @@ export async function ServerOrderBootstrapActivity(orderId: string, release: str
     await flush();
     if (code !== 0 || !readyMarked) throw ApplicationFailure.nonRetryable(`Installing root ended with ${code}; the log above says where. Fix it on the server or in its DNS, then retry from the order.`, 'BootstrapFailed');
     const setupCode = setupCodeFrom(await readOverSsh(target, "grep '^ADMIN_SETUP_CODE=' /opt/nowrinkles/apps/backend/.env"));
+    if (Object.keys(signInEnv).length) {
+      const missing = missingFromEnvFile(await readOverSsh(target, "grep -oE '^[A-Z][A-Z0-9_]*=' /opt/nowrinkles/apps/backend/.env"), signInEnv);
+      await orders.log(orderId, [missing.length
+        ? `${release} did not write ${missing.join(', ')} into root's .env, so root offers passwords only until they are added there by hand and nowrinkles.service is restarted (docs/runbook.md, Sign-in providers)`
+        : `root offers sign-in with ${(order.signIn ?? []).map((provider) => provider.label).join(', ')} beside passwords`]);
+    }
     await orders.ready(orderId, setupCode, release);
   }).catch(final);
 }

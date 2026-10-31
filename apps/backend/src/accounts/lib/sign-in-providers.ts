@@ -13,6 +13,11 @@ export interface GithubEndpoints {
   api: string;
 }
 
+export interface SignInRegistration {
+  url?: string;
+  how: string;
+}
+
 export interface SignInProviderDescription {
   id: string;
   label: string;
@@ -21,6 +26,18 @@ export interface SignInProviderDescription {
   github?: GithubEndpoints;
   scopes: readonly string[];
   env: SignInEnvNames;
+  register: SignInRegistration;
+}
+
+export type SignInFieldKey = keyof SignInEnvNames;
+
+export interface SignInField {
+  key: SignInFieldKey;
+  label: string;
+  env: string;
+  secret: boolean;
+  optional: boolean;
+  placeholder: string;
 }
 
 export interface SignInProvider {
@@ -67,6 +84,10 @@ export const GOOGLE_SIGN_IN: SignInProviderDescription = {
   issuer: 'https://accounts.google.com',
   scopes: ['openid', 'email', 'profile'],
   env: { clientId: 'GOOGLE_CLIENT_ID', clientSecret: 'GOOGLE_CLIENT_SECRET' },
+  register: {
+    url: 'https://console.cloud.google.com/apis/credentials',
+    how: 'Create credentials → OAuth client ID, of type Web application, with the redirect URI below as an authorised redirect URI. Google shows the client ID and secret once it is made.',
+  },
 };
 
 export const GITHUB_SIGN_IN: SignInProviderDescription = {
@@ -77,6 +98,10 @@ export const GITHUB_SIGN_IN: SignInProviderDescription = {
   github: { authorization: 'https://github.com/login/oauth/authorize', token: 'https://github.com/login/oauth/access_token', api: 'https://api.github.com' },
   scopes: ['user:email'],
   env: { clientId: 'GITHUB_CLIENT_ID', clientSecret: 'GITHUB_CLIENT_SECRET' },
+  register: {
+    url: 'https://github.com/settings/applications/new',
+    how: 'Register a new OAuth app with the redirect URI below as its authorization callback URL, then generate a client secret on its page.',
+  },
 };
 
 export const OWN_OIDC_SIGN_IN: SignInProviderDescription = {
@@ -85,9 +110,28 @@ export const OWN_OIDC_SIGN_IN: SignInProviderDescription = {
   kind: 'oidc',
   scopes: ['openid', 'email', 'profile'],
   env: { clientId: 'OIDC_CLIENT_ID', clientSecret: 'OIDC_CLIENT_SECRET', issuer: 'OIDC_ISSUER', label: 'OIDC_LABEL' },
+  register: {
+    how: 'At your organisation\'s OpenID provider (Keycloak, Authentik, Okta, Microsoft Entra and the like), register a confidential web client with the redirect URI below and the scopes openid, email and profile. Its issuer is the address its /.well-known/openid-configuration is served under.',
+  },
 };
 
 export const SIGN_IN_PROVIDERS: readonly SignInProviderDescription[] = [GOOGLE_SIGN_IN, GITHUB_SIGN_IN, OWN_OIDC_SIGN_IN];
+
+export function signInFieldsOf(description: SignInProviderDescription): SignInField[] {
+  const fields: SignInField[] = [];
+  if (description.env.issuer && !description.issuer) {
+    fields.push({ key: 'issuer', label: 'Issuer', env: description.env.issuer, secret: false, optional: false, placeholder: 'https://login.example.com/realms/staff' });
+  }
+  fields.push({ key: 'clientId', label: 'Client ID', env: description.env.clientId, secret: false, optional: false, placeholder: '' });
+  fields.push({ key: 'clientSecret', label: 'Client secret', env: description.env.clientSecret, secret: true, optional: false, placeholder: '' });
+  if (description.env.label) {
+    fields.push({ key: 'label', label: 'Button label', env: description.env.label, secret: false, optional: true, placeholder: description.label });
+  }
+  return fields;
+}
+
+export const signInEnvNames = (described: readonly SignInProviderDescription[] = SIGN_IN_PROVIDERS): string[] =>
+  described.flatMap((description) => signInFieldsOf(description).map((field) => field.env));
 
 const LOOPBACK = new Set(['localhost', '127.0.0.1', '[::1]']);
 

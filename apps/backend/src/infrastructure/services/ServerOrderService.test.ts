@@ -167,6 +167,24 @@ describe('buying root\'s server from OVHcloud', () => {
     expect((await service.get('op', quoted.id)).hasSetupCode).toBe(false);
   });
 
+  it('seals the sign-in providers\' keys on the order, shows only which were given, and hands them back to the install', async () => {
+    const signIn = [{ id: 'github', values: { clientId: 'github-fake-client', clientSecret: 'github-client-secret-0123' } }];
+    const quoted = await service.quote('op', { ...ASK, signIn });
+    expect(quoted.signIn).toEqual([{ id: 'github', label: 'GitHub' }]);
+    expect(JSON.stringify(quoted)).not.toMatch(/github-client-secret-0123|github-fake-client|signInEnv/);
+    const stored = await db.infrastructure.getServerOrder(quoted.id);
+    expect(stored?.signInEnv).toMatch(/^v2:/);
+    expect(stored?.signInEnv).not.toContain('github-client-secret-0123');
+    expect(await service.signInFor(quoted.id)).toEqual({ GITHUB_CLIENT_ID: 'github-fake-client', GITHUB_CLIENT_SECRET: 'github-client-secret-0123' });
+    for (const view of [await service.get('op', quoted.id), ...(await service.list('op'))]) expect(JSON.stringify(view)).not.toMatch(/github-client-secret-0123|signInEnv/);
+    const plain = await service.quote('op', ASK);
+    expect(plain.signIn).toEqual([]);
+    expect(await service.signInFor(plain.id)).toEqual({});
+    const carts = ovh.state.calls.filter((call) => call === 'POST /order/cart').length;
+    await expect(service.quote('op', { ...ASK, signIn: [{ id: 'github', values: { clientId: 'only-the-id' } }] })).rejects.toThrow(/GITHUB_CLIENT_SECRET is not set/);
+    expect(ovh.state.calls.filter((call) => call === 'POST /order/cart').length).toBe(carts);
+  });
+
   it('prices a plan and throws the cart away, for checking the keys and the price without buying', async () => {
     const quote = await service.quoteAndDiscard('op', 'vps-2027-model2', 'SYD');
     expect(quote).toMatchObject({ currency: 'AUD', withTax: 15.4 });

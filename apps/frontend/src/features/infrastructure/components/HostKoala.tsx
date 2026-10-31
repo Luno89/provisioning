@@ -6,8 +6,9 @@ import { safeHref } from '../../../shared/lib/safe-href'
 import { useCan } from '../../platform'
 import { Section } from '../../monitoring'
 import { getVpsCatalog, vpsKeys, type VpsOffer } from '../api/vps-catalog'
-import { FOLLOWED, revealSetupCode, revealSshKey, type ServerOrder } from '../api/server-orders'
-import { useBuyServer, useCancelServerOrder, useDnsProviders, useQuoteServer, useServerOrder, useServerOrders, useZoneChecks } from '../hooks/useServerOrders'
+import { FOLLOWED, revealSetupCode, revealSshKey, type RootSignInProvider, type ServerOrder } from '../api/server-orders'
+import { useBuyServer, useCancelServerOrder, useDnsProviders, useQuoteServer, useRootSignInProviders, useServerOrder, useServerOrders, useZoneChecks } from '../hooks/useServerOrders'
+import { signInAsks, withValue, type SignInValues } from '../lib/root-sign-in'
 import { useDebounce } from '../../../shared/lib/use-debounce'
 import type { ZoneView } from '../api/server-orders'
 import { QuietButton } from './Parts'
@@ -43,6 +44,9 @@ export function QuoteCard({ order, onBought }: { order: ServerOrder; onBought: (
           </ul>
         </div>
       )}
+      <p className="text-[11px] text-slate-400" data-testid="quote-sign-in">
+        {order.signIn.length ? `People sign in to root with ${order.signIn.map((provider) => provider.label).join(', ')} or a password.` : 'People sign in to root with a password; sign-in providers can be added to root\'s .env later.'}
+      </p>
       <p className="text-[11px] text-slate-400">
         It is charged to the payment method on your OVHcloud account and renews each month until you terminate it in OVHcloud's control panel.
         Koala then installs Ubuntu 24.04 with its own SSH key, points app.{order.domain}, mesh.{order.domain} and *.{order.ingressDomain} at it, and installs root.
@@ -96,6 +100,7 @@ export function OrderDetail({ id }: { id: string }) {
         {current.ip && <span className="text-[11px] text-slate-500">{current.ip}</span>}
       </div>
       <p className="text-[12px] text-slate-300">{current.said}</p>
+      <p className="text-[11px] text-slate-500">{current.signIn.length ? `Sign-in on root: ${current.signIn.map((provider) => provider.label).join(', ')} and passwords.` : 'Sign-in on root: passwords.'} Change providers later in root's .env (docs/runbook.md).</p>
       <div className="flex flex-wrap items-center gap-2">
         {current.state === 'ready' && (
           <a href={safeHref(`https://app.${current.domain}`)} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 rounded-md bg-emerald-700 px-3 py-1 text-[12px] font-semibold text-white hover:bg-emerald-600">Open root <ExternalLink size={11} /></a>
@@ -135,6 +140,51 @@ export function ZoneLine({ zone, override, onOverride, providers }: {
   )
 }
 
+export function SignInChoices({ providers, values, onValue }: {
+  providers: readonly RootSignInProvider[]
+  values: SignInValues
+  onValue: (id: string, key: string, value: string) => void
+}) {
+  return (
+    <div className="space-y-2" data-testid="root-sign-in">
+      {providers.map((provider) => {
+        const given = Object.values(values[provider.id] ?? {}).some((value) => value.trim())
+        return (
+          <details key={provider.id} open={given} className="rounded-md border border-[var(--bark-700)] bg-[var(--bark-900)]/40 px-3 py-2" data-testid={`sign-in-${provider.id}`}>
+            <summary className="cursor-pointer text-[12px] font-semibold text-slate-100">{provider.label}{given ? <span className="ml-2 text-[11px] font-normal text-emerald-300">given</span> : null}</summary>
+            <div className="mt-2 space-y-2">
+              <p className="text-[11px] text-slate-400">{provider.register.how}</p>
+              {provider.register.url && (
+                <a href={safeHref(provider.register.url)} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[11px] text-blue-300 hover:underline">Make it at {new URL(provider.register.url).host} <ExternalLink size={10} /></a>
+              )}
+              <div className="text-[11px] text-slate-400">
+                Redirect URI: {provider.redirectUri
+                  ? <code className="select-all break-all rounded bg-[var(--bark-950)] px-1 text-slate-200" data-testid={`redirect-${provider.id}`}>{provider.redirectUri}</code>
+                  : <span className="text-slate-500">type root's domain above to see it</span>}
+              </div>
+              <div className="grid gap-2 sm:grid-cols-2">
+                {provider.fields.map((input) => (
+                  <label key={input.key} className="space-y-1 text-[11px] text-slate-400">{input.label}{input.optional ? ' (optional)' : ''}
+                    <input
+                      id={`host-koala-sign-in-${provider.id}-${input.key}`}
+                      className={field}
+                      type={input.secret ? 'password' : 'text'}
+                      autoComplete="off"
+                      placeholder={input.placeholder}
+                      value={values[provider.id]?.[input.key] ?? ''}
+                      onChange={(event) => onValue(provider.id, input.key, event.target.value)}
+                    />
+                  </label>
+                ))}
+              </div>
+            </div>
+          </details>
+        )
+      })}
+    </div>
+  )
+}
+
 export function HostKoala() {
   const can = useCan()
   const orders = useServerOrders()
@@ -150,6 +200,9 @@ export function HostKoala() {
   const [ingressDns, setIngressDns] = useState('')
   const zones = useZoneChecks(useDebounce([domain, ingressDomain].filter(Boolean), 500))
   const dnsProviders = useDnsProviders()
+  const signInProviders = useRootSignInProviders(useDebounce(domain, 500))
+  const [signIn, setSignIn] = useState<SignInValues>({})
+  const chosenSignIn = signInAsks(signIn)
 
   const offers = useMemo(() => (plans.data?.offers ?? []).filter((offer) => offer.provider === 'ovh'), [plans.data])
   const plan: VpsOffer | undefined = offers.find((offer) => offer.id === planId)
@@ -174,7 +227,7 @@ export function HostKoala() {
               onSubmit={(event) => {
                 event.preventDefault()
                 if (!plan) return
-                quote.mutate({ planCode: plan.planId, planLabel: plan.label, datacenter, domain, ingressDomain, acmeEmail, ...(domainDns ? { domainDns } : {}), ...(ingressDns ? { ingressDns } : {}) })
+                quote.mutate({ planCode: plan.planId, planLabel: plan.label, datacenter, domain, ingressDomain, acmeEmail, ...(domainDns ? { domainDns } : {}), ...(ingressDns ? { ingressDns } : {}), ...(chosenSignIn.length ? { signIn: chosenSignIn } : {}) })
               }}
             >
               <label className="space-y-1 text-[11px] text-slate-400">Plan
@@ -207,6 +260,15 @@ export function HostKoala() {
               <label className="space-y-1 text-[11px] text-slate-400 sm:col-span-2">Email for certificates and root's mail
                 <input id="host-koala-email" type="email" className={field} value={acmeEmail} onChange={(event) => setAcmeEmail(event.target.value)} placeholder="you@example.com" />
               </label>
+              <div className="space-y-1 sm:col-span-2">
+                <div className="text-[12px] font-semibold text-slate-200">Sign-in for root (optional)</div>
+                <p className="text-[11px] text-slate-400">
+                  People can always sign in with a password. To also offer a provider, register root with it and give its keys here; they are sealed on the order, shown nowhere again, and written into root's .env when it is installed.
+                </p>
+                {signInProviders.isError
+                  ? <p className="text-[11px] text-rose-300">{errorMessage(signInProviders.error)}</p>
+                  : <SignInChoices providers={signInProviders.data ?? []} values={signIn} onValue={(id, key, value) => setSignIn((values) => withValue(values, id, key, value))} />}
+              </div>
               <div className="flex items-center gap-3 sm:col-span-2">
                 <button type="submit" disabled={!plan || !datacenter || !domain || !ingressDomain || !acmeEmail || quote.isPending} className="rounded-md bg-blue-600 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-blue-500 disabled:opacity-50">
                   {quote.isPending ? 'Asking OVHcloud for the price…' : 'Price it'}

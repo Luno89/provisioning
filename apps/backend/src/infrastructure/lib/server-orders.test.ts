@@ -3,7 +3,7 @@ import { zonePlan } from './dns-plan.js';
 import { ovhErrorMessage, ovhHeaders, ovhSignature } from './ovh-api.js';
 import {
   bootstrapScript, configurationFor, mandatoryOptions, newestRelease, orderStateOf, priceChangeProblem, quoteFromCheckout,
-  redacted, rootDnsRecords, rootDomainProblem, setupCodeFrom,
+  redacted, rootDnsRecords, rootDomainProblem, setupCodeFrom, withoutOrderSecrets,
 } from './server-orders.js';
 
 describe('signing an OVHcloud request', () => {
@@ -165,6 +165,23 @@ describe('installing root over SSH', () => {
     expect(() => bootstrapScript({ release: 'v', domain: 'a.dev', ingressDomain: 'b.app', acmeEmail: 'x@y.z', domainDns: 'cloudflare', ingressDns: 'cloudflare', dnsEnv: { 'BAD NAME': 'x' } })).toThrow(/not an environment variable name/);
     expect(script.indexOf('bootstrap.sh')).toBeLessThan(script.indexOf('systemctl start nowrinkles'));
     expect(script.indexOf('systemctl start nowrinkles')).toBeLessThan(script.indexOf('release-watch.sh'));
+  });
+
+  it('hands root the sign-in providers\' keys on stdin with the rest, before bootstrap.sh runs', () => {
+    const withSignIn = bootstrapScript({
+      release: 'v2026.10.30', domain: 'nowrinkles.dev', ingressDomain: 'nowrinkles.app', acmeEmail: 'me@example.com',
+      domainDns: 'cloudflare', ingressDns: 'cloudflare', dnsEnv: { CLOUDFLARE_API_TOKEN: 'tok' },
+      signInEnv: { OIDC_ISSUER: 'https://login.example.com', OIDC_CLIENT_ID: 'koala', OIDC_CLIENT_SECRET: "s3cr'et", OIDC_LABEL: 'Example staff' },
+    });
+    expect(withSignIn).toContain("export OIDC_CLIENT_SECRET='s3cr'\\''et'");
+    expect(withSignIn).toContain("export OIDC_LABEL='Example staff'");
+    expect(withSignIn.indexOf('OIDC_CLIENT_SECRET')).toBeLessThan(withSignIn.indexOf('bash scripts/root-node/bootstrap.sh'));
+    expect(script).not.toContain('OIDC_');
+  });
+
+  it('keeps every sealed field out of what it sends, however deep', () => {
+    expect(withoutOrderSecrets([{ id: 'o', sshPrivateKey: 'k', setupCode: 'c', signInEnv: 'v2:x', signIn: [{ id: 'google', label: 'Google' }] }]))
+      .toEqual([{ id: 'o', signIn: [{ id: 'google', label: 'Google' }] }]);
   });
 
   it('reads the setup code from root\'s env and hides secrets in what it logs', () => {

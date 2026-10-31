@@ -79,6 +79,42 @@ describe('/api/server-orders', () => {
     expect((await axios.get(h.url('/api/server-orders/nope'), send)).status).toBe(404);
   });
 
+  it('describes the sign-in providers root can be given, with root\'s redirect URI for each once the domain is a domain', async () => {
+    const { h } = await mount();
+    const listed = await axios.get(h.url('/api/server-orders/sign-in-providers?domain=nowrinkles.dev'), send);
+    expect(listed.status).toBe(200);
+    expect(listed.data.map((provider: { id: string; redirectUri?: string }) => [provider.id, provider.redirectUri])).toEqual([
+      ['google', 'https://app.nowrinkles.dev/api/auth/provider/google/callback'],
+      ['github', 'https://app.nowrinkles.dev/api/auth/provider/github/callback'],
+      ['oidc', 'https://app.nowrinkles.dev/api/auth/provider/oidc/callback'],
+    ]);
+    expect((await axios.get(h.url('/api/server-orders/sign-in-providers'), send)).data[0].redirectUri).toBeUndefined();
+    h.setUser(TEST_USER);
+    expect((await axios.get(h.url('/api/server-orders/sign-in-providers'), send)).status).toBe(403);
+  });
+
+  it('never sends a sign-in secret back, in any answer about the order', async () => {
+    const { h } = await mount();
+    const secrets = /google-fake-route-secret|route-client-id|signInEnv|sshPrivateKey|"setupCode"/;
+    const signIn = [{ id: 'google', values: { clientId: 'route-client-id', clientSecret: 'google-fake-route-secret' } }];
+    expect((await axios.post(h.url('/api/server-orders/quote'), { ...ASK, signIn: [{ id: 'google', values: { clientId: 'route-client-id' } }] }, send)).status).toBe(400);
+    const quoted = await axios.post(h.url('/api/server-orders/quote'), { ...ASK, signIn }, send);
+    expect(quoted.status).toBe(201);
+    expect(quoted.data.signIn).toEqual([{ id: 'google', label: 'Google' }]);
+    const id = quoted.data.id as string;
+    const answers = [
+      quoted,
+      await axios.get(h.url('/api/server-orders'), send),
+      await axios.get(h.url(`/api/server-orders/${id}`), send),
+      await axios.post(h.url(`/api/server-orders/${id}/buy`), { confirmedTotal: 15.4 }, send),
+      await axios.get(h.url(`/api/server-orders/${id}`), send),
+      await axios.delete(h.url(`/api/server-orders/${id}`), send),
+      await axios.post(h.url(`/api/server-orders/${id}/setup-code`), {}, send),
+      await axios.post(h.url(`/api/server-orders/${id}/ssh-key`), {}, send),
+    ];
+    for (const answer of answers) expect(JSON.stringify(answer.data)).not.toMatch(secrets);
+  });
+
   it('answers the setup code and the SSH key uncached, and only when there is one', async () => {
     const { h } = await mount();
     const id = (await axios.post(h.url('/api/server-orders/quote'), ASK, send)).data.id as string;

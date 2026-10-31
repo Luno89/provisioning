@@ -3,8 +3,9 @@ import { decryptValue, encryptValue, mailCheckFrom, mailHostOf, mailReport, type
 import type { InfrastructureStore } from '../store.js';
 import {
   configurationFor, FOLLOWING, mandatoryOptions, newestRelease, orderStateOf, priceChangeProblem, quoteFromCheckout, ROOT_OS,
-  rootDnsRecords, rootDomainProblem, STATE_SAID, type ServerOrder, type ServerOrderState, type ServerQuote,
+  rootDnsRecords, rootDomainProblem, STATE_SAID, withoutOrderSecrets, type ServerOrder, type ServerOrderState, type ServerQuote,
 } from '../lib/server-orders.js';
+import { rootSignInEnv, rootSignInProviders, type RootSignInProvider } from '../lib/root-sign-in.js';
 import { credentialEnvOf, dnsProviderNamed, DnsProviderRefusal, type DnsCredentials, type DnsZone } from '../lib/dns-providers.js';
 import { DnsProviders } from './dns/DnsProviders.js';
 import { OvhClient, OvhError, type FetchLike, type OvhAccount } from './OvhClient.js';
@@ -38,6 +39,7 @@ export interface QuoteAsk {
   acmeEmail: string;
   domainDns?: string | undefined;
   ingressDns?: string | undefined;
+  signIn?: unknown;
 }
 
 export interface ZoneView {
@@ -50,7 +52,8 @@ export interface ZoneView {
   setup?: string | undefined;
 }
 
-export interface ServerOrderView extends Omit<ServerOrder, 'sshPrivateKey' | 'setupCode' | 'log'> {
+export interface ServerOrderView extends Omit<ServerOrder, 'sshPrivateKey' | 'setupCode' | 'signInEnv' | 'log' | 'signIn'> {
+  signIn: NonNullable<ServerOrder['signIn']>;
   said: string;
   hasSetupCode: boolean;
   hasSshKey: boolean;
@@ -58,12 +61,13 @@ export interface ServerOrderView extends Omit<ServerOrder, 'sshPrivateKey' | 'se
 }
 
 export function viewOf(order: ServerOrder, withLog = false): ServerOrderView {
-  const { sshPrivateKey, setupCode, log, ...rest } = order;
+  const { log, ...rest } = order;
   return {
-    ...rest,
+    ...(withoutOrderSecrets(rest) as Omit<ServerOrder, 'sshPrivateKey' | 'setupCode' | 'signInEnv' | 'log'>),
+    signIn: order.signIn ?? [],
     said: order.detail ?? STATE_SAID[order.state],
-    hasSetupCode: Boolean(setupCode) && !order.setupCodeShownAt,
-    hasSshKey: Boolean(sshPrivateKey),
+    hasSetupCode: Boolean(order.setupCode) && !order.setupCodeShownAt,
+    hasSshKey: Boolean(order.sshPrivateKey),
     ...(withLog ? { log: log ?? [] } : {}),
   };
 }
@@ -150,6 +154,8 @@ export class ServerOrderService {
     if (problem) throw new ServerOrderProblem(400, problem);
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(ask.acmeEmail.trim())) throw new ServerOrderProblem(400, 'Give an email address for the certificate authority and root\'s mail.');
     if (!ask.planCode.trim() || !ask.datacenter.trim()) throw new ServerOrderProblem(400, 'Pick a plan and a datacenter.');
+    const signIn = rootSignInEnv(ask.signIn);
+    if ('problem' in signIn) throw new ServerOrderProblem(400, signIn.problem);
     const dns = { domain: await this.providerFor(ownerId, domain, ask.domainDns), ingress: await this.providerFor(ownerId, ingressDomain, ask.ingressDns) };
     const client = await this.ovh(ownerId);
     const { cartId, quote } = await this.priceCart(client, ask.planCode.trim(), ask.datacenter.trim());
@@ -167,6 +173,8 @@ export class ServerOrderService {
       ingressDomain,
       acmeEmail: ask.acmeEmail.trim(),
       dns,
+      signIn: signIn.chosen,
+      ...(Object.keys(signIn.env).length ? { signInEnv: encryptValue(JSON.stringify(signIn.env), this.deps.dataKey) } : {}),
       cartId,
       quote,
       quotedAt: at,
@@ -334,6 +342,16 @@ export class ServerOrderService {
       Object.assign(env, found);
     }
     return { domainDns: order.dns.domain, ingressDns: order.dns.ingress, env };
+  }
+
+  signInProviders(domain: string | undefined): RootSignInProvider[] {
+    return rootSignInProviders(domain);
+  }
+
+  async signInFor(id: string): Promise<Record<string, string>> {
+    const order = await this.order(id);
+    if (!order.signInEnv) return {};
+    return JSON.parse(decryptValue(order.signInEnv, this.deps.dataKey)) as Record<string, string>;
   }
 
   privateKeyOf(order: ServerOrder): string {
