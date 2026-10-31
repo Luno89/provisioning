@@ -11,6 +11,7 @@ import {
 } from '../../engine/index.js'
 import { namespaceOf } from '../lib/app-namespace.js'
 import { healthFromProbe } from '../lib/service-health.js'
+import { clusterFieldsFrom } from '../lib/provisioned-cluster.js'
 import { fileURLToPath } from 'url';
 import fs from 'fs';
 import type { Client } from '@temporalio/client'
@@ -263,6 +264,21 @@ export class TemporalBridge {
     } catch { /* ignored */ }
   }
 
+  private async recordProvisioned(workflowId: string, cluster: { id: string; name: string; provider: ClusterMetadata['provider'] | '' }): Promise<string | undefined> {
+    try {
+      const provisioned = await this.client.workflow.getHandle<typeof ClusterProvisionWorkflow>(workflowId).result()
+      const fields = clusterFieldsFrom(provisioned, (secret) => encryptValue(secret, this.masterKey))
+      if (Object.keys(fields).length > 0) {
+        const current = (await this.db.infrastructure.getClusters()).find((c: ClusterMetadata) => c.id === cluster.id)
+        await this.db.infrastructure.saveClusterInfo({ ...(current ?? {}), id: cluster.id, name: cluster.name, ...(cluster.provider ? { provider: cluster.provider } : {}), ...fields })
+      }
+      return provisioned.kubeconfig
+    } catch (err: any) {
+      console.error(`[TemporalBridge] Cluster ${cluster.id} provisioned, but what it was given could not be recorded: ${err.message}`)
+      return undefined
+    }
+  }
+
   private async appliedOutcome(
     wfId: string,
     meta: any,
@@ -300,36 +316,7 @@ export class TemporalBridge {
           const name = status.status?.name
           let kubeconfig: string | undefined
           if (name === 'COMPLETED' && action === 'cluster-provision') {
-            try {
-              const handle = this.client.workflow.getHandle(wfId)
-              const wfResult = await handle.result()
-              kubeconfig = (wfResult as any).kubeconfig
-              const meshIp = (wfResult as any).meshIp
-              if (meshIp) {
-                const current = (await this.db.infrastructure.getClusters()).find((c: ClusterMetadata) => c.id === resourceId)
-                await this.db.infrastructure.saveClusterInfo({ ...(current ?? {}), id: resourceId, name: resourceName, provider, meshIp } as any)
-              }
-              const vmHost = (wfResult as any).createdHost
-              if (vmHost) {
-                const current = (await this.db.infrastructure.getClusters()).find((c: ClusterMetadata) => c.id === resourceId)
-                await this.db.infrastructure.saveClusterInfo({
-                  ...(current ?? {}),
-                  id: resourceId,
-                  name: resourceName,
-                  provider,
-                  remoteHost: vmHost,
-                  remoteUsername: (wfResult as any).createdUsername,
-                  remoteSshPrivateKeyEnc: encryptValue((wfResult as any).createdPrivateKey, this.masterKey),
-                  hetznerServerId: (wfResult as any).hetznerServerId,
-                  doServerId: (wfResult as any).doServerId,
-                } as any)
-              }
-              const capacity = (wfResult as any).capacity
-              if (capacity) {
-                const current = (await this.db.infrastructure.getClusters()).find((c: ClusterMetadata) => c.id === resourceId)
-                await this.db.infrastructure.saveClusterInfo({ ...(current ?? {}), id: resourceId, name: resourceName, provider, capacity } as any)
-              }
-            } catch {}
+            kubeconfig = await this.recordProvisioned(wfId, { id: resourceId, name: resourceName, provider })
           }
           const applied = name === 'COMPLETED' && (action === 'app-deploy' || action === 'app-sync-config' || action === 'app-resize')
             ? await this.appliedOutcome(wfId, meta)
@@ -340,10 +327,10 @@ export class TemporalBridge {
           let pipelineImageTag: string | undefined
           if (name === 'COMPLETED' && action === 'pipeline-run') {
             try {
-              const handle = this.client.workflow.getHandle(wfId)
-              const wfResult = await handle.result()
-              pipelineImageTag = (wfResult as any).imageTag
-            } catch {}
+              pipelineImageTag = (await this.client.workflow.getHandle<typeof executePipelineRunWorkflow>(wfId).result()).imageTag
+            } catch (err: any) {
+              console.error(`[TemporalBridge] Build ${resourceId} finished, but its image could not be read: ${err.message}`)
+            }
           }
 
           if (action === 'cluster-provision') {
@@ -509,12 +496,7 @@ export class TemporalBridge {
               } else if (statusName === 'TERMINATED' || statusName === 'CANCELLED') {
                 await updateUserStatus(this.db, cluster.id, cluster.name, cluster.provider, 'destroyed')
               } else {
-                let kubeconfig: string | undefined
-                try {
-                  const handle = this.client.workflow.getHandle(wfId)
-                  const wfResult = await handle.result()
-                  kubeconfig = (wfResult as any).kubeconfig
-                } catch {}
+                const kubeconfig = await this.recordProvisioned(wfId, cluster)
                 await updateUserStatus(this.db, cluster.id, cluster.name, cluster.provider, 'healthy', kubeconfig)
               }
             } else {

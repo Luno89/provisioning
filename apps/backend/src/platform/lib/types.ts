@@ -41,6 +41,7 @@ export interface ClusterMetadata {
   hetznerLocation?: string;
   hetznerImage?: string;
   hetznerServerId?: string;
+  doServerId?: string;
   [key: string]: any;
 }
 
