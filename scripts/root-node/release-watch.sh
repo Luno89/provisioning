@@ -11,8 +11,15 @@ if [ -z "$wanted" ]; then
   origin="$(git -C "$REPO_DIR" remote get-url origin)"
   slug="$(printf '%s' "$origin" | sed -nE 's#^(https://github\.com/|git@github\.com:)([^/]+/[^/]+)$#\2#p' | sed -E 's#\.git$##')"
   [ -n "$slug" ] || { echo "root's checkout does not come from GitHub (${origin}), so there are no published releases to follow" >&2; exit 1; }
-  wanted="$(curl -fsS -m 30 "https://api.github.com/repos/${slug}/releases/latest" | node -e 'let s="";process.stdin.on("data",(d)=>s+=d).on("end",()=>{try{console.log(JSON.parse(s).tag_name ?? "")}catch{console.log("")}})' || true)"
-  [ -n "$wanted" ] || { echo "found no published release of ${slug} on GitHub; looking again next time"; exit 0; }
+  latest="$(mktemp)"
+  code="$(curl -sS -m 30 -o "$latest" -w '%{http_code}' "https://api.github.com/repos/${slug}/releases/latest" 2>/dev/null)" || code="${code:-000}"
+  case "$code" in
+    200) wanted="$(node -e 'let s="";process.stdin.on("data",(d)=>s+=d).on("end",()=>{try{console.log(JSON.parse(s).tag_name ?? "")}catch{console.log("")}})' < "$latest")" ;;
+    404) rm -f "$latest"; echo "found no published release of ${slug} on GitHub; looking again next time"; exit 0 ;;
+    *) echo "GitHub did not say which release of ${slug} is newest (${code}): $(head -c 300 "$latest")" >&2; rm -f "$latest"; exit 1 ;;
+  esac
+  rm -f "$latest"
+  [ -n "$wanted" ] || { echo "GitHub's newest release of ${slug} names no tag" >&2; exit 1; }
   if [ "$wanted" = "$current" ]; then echo "root runs ${current}, the newest release"; exit 0; fi
   if [ -n "$current" ] && [ "$(printf '%s\n%s\n' "$current" "$wanted" | sort -V | tail -1)" = "$current" ]; then
     echo "root runs ${current}, newer than the newest published release ${wanted}; leaving it"

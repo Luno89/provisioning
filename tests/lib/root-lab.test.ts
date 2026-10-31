@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { dropEnvValues } from '../../scripts/root-node/root-env.js';
+import { tagMessage } from './gates.js';
 
 const ROOT_NODE = new URL('../../scripts/root-node/', import.meta.url).pathname;
 const dirs: string[] = [];
@@ -77,7 +78,10 @@ describe('bootstrap.sh asked for a lab', () => {
 });
 
 describe('the hourly release watch', () => {
-  function rootOn(latest: string): { repo: string; stub: string } {
+  const ran = [{ name: 'the release rehearsal', script: 'test:release-live', minutes: 40 }];
+  const github = (code: number, body: string) => `#!/usr/bin/env bash\nout=""\nwhile [ $# -gt 0 ]; do [ "$1" = -o ] && out="$2"; shift; done\nprintf '%s' '${body}' > "$out"\nprintf '${code}'\n`;
+
+  function rootOn(latest: string, answer = github(200, `{"tag_name":"${latest}"}`)): { repo: string; stub: string } {
     const repo = scratch('root-lab-watch-');
     const git = (...args: string[]) => execFileSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', ...args], { cwd: repo, encoding: 'utf8' });
     git('init', '-q');
@@ -87,13 +91,13 @@ describe('the hourly release watch', () => {
     for (const name of ['cdktf-bindings.sh', 'verify-release.sh', 'lab.sh']) writeFileSync(join(repo, 'scripts/root-node', name), '');
     git('add', '-A');
     git('commit', '-qm', 'running');
-    git('tag', '-a', 'v2026.10.29', '-m', 'v2026.10.29\n\nShipped and released from aaaaaaaaaaaa after v2026.10.28: release-live.');
+    git('tag', '-a', 'v2026.10.29', '-m', tagMessage('v2026.10.29', 'a'.repeat(40), 'v2026.10.28', ran, false));
     git('commit', '-qm', 'gated', '--allow-empty');
-    git('tag', '-a', 'v2026.10.30', '-m', 'v2026.10.30\n\nShipped and released from bbbbbbbbbbbb after v2026.10.29: release-live.');
+    git('tag', '-a', 'v2026.10.30', '-m', tagMessage('v2026.10.30', 'b'.repeat(40), 'v2026.10.29', ran, false));
     git('commit', '-qm', 'fixed', '--allow-empty');
-    git('tag', '-a', 'v2026.10.30-2', '-m', 'v2026.10.30-2\n\nHotfix released from cccccccccccc after v2026.10.30 without the gates: typecheck and the image build.');
+    git('tag', '-a', 'v2026.10.30-2', '-m', tagMessage('v2026.10.30-2', 'c'.repeat(40), 'v2026.10.30', [], true));
     git('checkout', '-q', 'v2026.10.29');
-    const stub = stubs({ curl: `#!/usr/bin/env bash\necho '{"tag_name":"${latest}"}'\n` });
+    const stub = stubs({ curl: answer });
     return { repo, stub };
   }
 
@@ -104,6 +108,16 @@ describe('the hourly release watch', () => {
     const moved = watch(rootOn('v2026.10.30'));
     expect(moved.status).toBe(0);
     expect(moved.stdout).toContain('update.sh moved root onto v2026.10.30');
+  });
+
+  it('waits quietly while nothing is published yet, and fails saying why when GitHub cannot be asked', () => {
+    const none = watch(rootOn('', github(404, '{"message":"Not Found"}')));
+    expect(none.status).toBe(0);
+    expect(none.stdout).toContain('found no published release of luno89/nowrinkles on GitHub');
+    const limited = watch(rootOn('', github(403, '{"message":"API rate limit exceeded"}')));
+    expect(limited.status).toBe(1);
+    expect(limited.stderr).toContain('GitHub did not say which release of luno89/nowrinkles is newest (403): {"message":"API rate limit exceeded"}');
+    expect(limited.stdout).not.toContain('update.sh moved root');
   });
 
   it('leaves a hotfix for the operator, and takes it when they name it', () => {

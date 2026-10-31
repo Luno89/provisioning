@@ -62,16 +62,15 @@ async function generateSshKeypairLocal(name: string) {
   };
 }
 
-async function ensureSshKey(token: string, name: string, publicKey: string): Promise<number> {
-  const keyName = `provisioning-${name}`;
-  const existing = await doApi(token, '/account/keys?per_page=200');
-  const match = (existing?.ssh_keys ?? []).find((k: any) => k?.name === keyName);
-  if (match?.id) return Number(match.id);
+type DoApi = (pathname: string, init?: RequestInit) => Promise<any>;
 
-  const created = await doApi(token, '/account/keys', {
-    method: 'POST',
-    body: JSON.stringify({ name: keyName, public_key: publicKey }),
-  });
+const keyMaterial = (publicKey: string): string => publicKey.trim().split(/\s+/).slice(0, 2).join(' ');
+
+export async function sshKeyFor(api: DoApi, name: string, publicKey: string): Promise<number> {
+  const existing = await api('/account/keys?per_page=200');
+  const same = (existing?.ssh_keys ?? []).find((key: any) => typeof key?.public_key === 'string' && keyMaterial(key.public_key) === keyMaterial(publicKey));
+  if (same?.id) return Number(same.id);
+  const created = await api('/account/keys', { method: 'POST', body: JSON.stringify({ name: `provisioning-${name}`, public_key: publicKey }) });
   return Number(created?.ssh_key?.id);
 }
 
@@ -125,7 +124,7 @@ export async function ProvisionDigitalOceanVmActivity(
     if (droplet) {
       await log(`Reusing existing droplet ${droplet.id} (a previous attempt created it)`);
     } else {
-      const keyId = await ensureSshKey(args.doToken, args.name, publicKey);
+      const keyId = await sshKeyFor((pathname, init) => doApi(args.doToken, pathname, init), args.name, publicKey);
       const created = await doApi(args.doToken, '/droplets', {
         method: 'POST',
         body: JSON.stringify({
