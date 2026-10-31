@@ -8,6 +8,8 @@ export interface FakeOvhState {
   deletedCarts: string[];
   rebuilt: { serviceName: string; body: Record<string, unknown> }[];
   calls: string[];
+  reverses: Record<string, string>;
+  reverseRefusal?: { status: number; message: string } | undefined;
   me: { nichandle: string; ovhSubsidiary: string; currency: { code: string } };
 }
 
@@ -23,6 +25,7 @@ export function fakeOvh(overrides: Partial<FakeOvhState> = {}): { fetch: FetchLi
     deletedCarts: [],
     rebuilt: [],
     calls: [],
+    reverses: {},
     me: { nichandle: 'ab12345-ovh', ovhSubsidiary: 'AU', currency: { code: 'AUD' } },
     ...overrides,
   };
@@ -83,6 +86,25 @@ export function fakeOvh(overrides: Partial<FakeOvhState> = {}): { fetch: FetchLi
       return json({ id: 99, state: 'todo', type: 'reinstallVm' });
     }
     if (method === 'GET' && /^\/vps\/[^/]+\/ips$/.test(path)) return json(['2001:db8::1', '203.0.113.7']);
+    if (method === 'GET' && path === '/ip') {
+      const asked = url.searchParams.get('ip');
+      return json(asked === '203.0.113.7' ? ['203.0.113.7/32'] : asked === '2001:db8::1' ? ['2001:db8::/64'] : []);
+    }
+    if ((match = /^\/ip\/([^/]+)\/reverse(?:\/([^/]+))?$/.exec(path))) {
+      const block = decodeURIComponent(match[1]!);
+      if (block !== '203.0.113.7/32' && block !== '2001:db8::/64') return json({ message: `The requested object (ip = ${block}) does not exist` }, 404);
+      const address = match[2] ? decodeURIComponent(match[2]) : undefined;
+      if (method === 'GET' && address) {
+        const reverse = state.reverses[address];
+        return reverse ? json({ ipReverse: address, reverse }) : json({ message: `The requested object (ipReverse = ${address}) does not exist` }, 404);
+      }
+      if (method === 'POST' && !address) {
+        if (state.reverseRefusal) return json({ message: state.reverseRefusal.message }, state.reverseRefusal.status);
+        if (typeof sent.ipReverse !== 'string' || typeof sent.reverse !== 'string') return json({ message: 'Missing parameter' }, 400);
+        state.reverses[sent.ipReverse] = sent.reverse;
+        return json({ ipReverse: sent.ipReverse, reverse: sent.reverse });
+      }
+    }
     return json({ message: `fake OVHcloud has no ${method} ${path}` }, 404);
   };
   return { fetch: fetchImpl, state };

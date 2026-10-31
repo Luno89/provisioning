@@ -161,3 +161,15 @@ if command -v ufw >/dev/null 2>&1 && ufw status | grep -q '^Status: active'; the
   for port in 6443 9100 10250; do ufw allow proto tcp from 10.42.0.0/16 to any port "$port" >/dev/null; done
   ok "ufw: the cluster's pods reach this host only on the Kubernetes API, the kubelet and the node's metrics"
 fi
+
+K3S_UNIT=k3s-provisioning-lunorica.service
+if write_if_changed /etc/rancher/k3s/config.yaml.d/koala-node-ports.yaml <<'CONF'; then
+kube-proxy-arg+:
+  - nodeport-addresses=127.0.0.1/32,100.64.0.0/10
+CONF
+  if systemctl is-active --quiet "$K3S_UNIT"; then
+    systemctl restart "$K3S_UNIT"
+    ok "k3s restarted, so kube-proxy takes the node port addresses"
+  fi
+fi
+ok "k3s answers on its node ports only on 127.0.0.1 and the mesh, never on this host's public address (kube-proxy's rules run before ufw's)"

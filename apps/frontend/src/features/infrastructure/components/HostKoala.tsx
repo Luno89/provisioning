@@ -11,6 +11,7 @@ import { useBuyServer, useCancelServerOrder, useDnsProviders, useQuoteServer, us
 import { useDebounce } from '../../../shared/lib/use-debounce'
 import type { ZoneView } from '../api/server-orders'
 import { QuietButton } from './Parts'
+import { ServerOrderMail } from './ServerOrderMail'
 
 const field = 'w-full rounded-md border border-[var(--bark-600)] bg-[var(--bark-900)] px-2.5 py-1.5 text-[12px] text-slate-100'
 const money = (amount: number, currency: string) => `${amount.toFixed(2)} ${currency}`
@@ -104,6 +105,7 @@ export function OrderDetail({ id }: { id: string }) {
         {following && <QuietButton danger onClick={() => cancel.mutate(current.id)} disabled={cancel.isPending}>Stop following</QuietButton>}
       </div>
       {current.hasSetupCode && <p className="text-[11px] text-slate-500">Sign up at root with the setup code in the invite field; that account becomes root's operator.</p>}
+      <ServerOrderMail order={current} />
       {(current.log ?? []).length > 0 && (
         <pre className="max-h-96 overflow-auto rounded bg-[var(--bark-950)] p-2 text-[11px] leading-snug text-slate-300" data-testid="server-order-log">{(current.log ?? []).join('\n')}</pre>
       )}

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ALWAYS_OPEN, certificateProblem, headerProblems, mailRecordProblems, portProblems, summary, unknownName } from './root-smoke.js';
+import { ALWAYS_OPEN, certificateProblem, headerProblems, mailRecordProblems, portProblems, portsToScan, portSummary, summary, unknownName } from './root-smoke.js';
 
 const now = new Date('2026-10-29T00:00:00Z');
 const days = (n: number) => new Date(now.getTime() + n * 24 * 60 * 60 * 1000);
@@ -75,5 +75,23 @@ describe('the report', () => {
       lines: ['✓ tls: 60 days left', '✗ ports: port 22 answers from outside'],
       failed: 1,
     });
+  });
+});
+
+describe('the ports scanned', () => {
+  it('covers every port Kubernetes hands out as a NodePort, besides the common ones', () => {
+    const ports = portsToScan();
+    expect(ports).toContain(30000);
+    expect(ports).toContain(31737);
+    expect(ports).toContain(32767);
+    expect(ports).toContain(27017);
+    expect(ports).not.toContain(32768);
+    expect(new Set(ports).size).toBe(ports.length);
+  });
+
+  it('says how many node ports answered', () => {
+    expect(portSummary([80, 443], 2800, '203.0.113.7')).toBe('203.0.113.7: of 2800 ports (30000–32767, every port Kubernetes gives a NodePort, among them), 80, 443 answer');
+    expect(portSummary([80, 443, 31737], 2800, '203.0.113.7')).toMatch(/80, 443, 31737 answer, 1 of them node ports$/);
+    expect(portProblems([80, 443, 31737], false)).toEqual(['port 31737 answers from outside']);
   });
 });

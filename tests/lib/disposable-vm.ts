@@ -16,6 +16,7 @@ import { execFile, spawn, type ChildProcess } from 'child_process';
 import { promisify } from 'util';
 import fs from 'fs/promises';
 import fssync from 'fs';
+import os from 'os';
 import path from 'path';
 import net from 'net';
 import { calculateRequiredVmMemoryMB } from './memory-budget.js';
@@ -46,7 +47,28 @@ export interface DisposableVm {
   username: string;
   privateKeyPath: string;
   privateKey: string;
+  forward: (hostPort: number, guestPort: number) => Promise<void>;
   destroy: () => Promise<void>;
+}
+
+function monitorCommand(socketPath: string, command: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const socket = net.connect(socketPath);
+    let out = '';
+    let sent = false;
+    socket.on('data', (chunk) => {
+      out += chunk.toString();
+      const prompts = out.split('(qemu)').length - 1;
+      if (!sent && prompts >= 1) {
+        sent = true;
+        socket.write(`${command}\n`);
+      } else if (sent && prompts >= 2) {
+        socket.end();
+        resolve(out);
+      }
+    });
+    socket.on('error', reject);
+  });
 }
 
 async function checkPrereqs(): Promise<void> {
@@ -128,6 +150,7 @@ export async function createDisposableVm(name: string, options: DisposableVmOpti
   const keyPath = path.join(workDir, 'id_ed25519');
   const pidPath = path.join(workDir, 'qemu.pid');
   const serialLogPath = path.join(workDir, 'serial.log');
+  const monitorPath = path.join(os.tmpdir(), `koala-vm-${randomBytes(6).toString('hex')}.sock`);
 
   console.log(`  🔑 Generating throwaway SSH keypair for ${name}...`);
   await execFileAsync('ssh-keygen', ['-t', 'ed25519', '-N', '', '-f', keyPath, '-C', `disposable-vm-${name}`]);
@@ -203,6 +226,7 @@ export async function createDisposableVm(name: string, options: DisposableVmOpti
     '-smp', String(options.cpus ?? 2),
     '-display', 'none',
     '-serial', `file:${serialLogPath}`,
+    '-monitor', `unix:${monitorPath},server,nowait`,
     ...(options.reboots ? [] : ['-no-reboot']),
     '-drive', `file=${overlayPath},if=virtio,format=qcow2`,
     '-drive', `file=${seedPath},if=virtio,format=raw,readonly=on`,
@@ -222,6 +246,7 @@ export async function createDisposableVm(name: string, options: DisposableVmOpti
       // Already dead or never started — fine.
     }
     await fs.rm(workDir, { recursive: true, force: true });
+    await fs.rm(monitorPath, { force: true });
   };
 
   console.log(`  ⏳ Waiting for ${name} to finish booting and accept SSH...`);
@@ -268,6 +293,10 @@ export async function createDisposableVm(name: string, options: DisposableVmOpti
     username: 'ubuntu',
     privateKeyPath: keyPath,
     privateKey,
+    forward: async (hostPort, guestPort) => {
+      const answer = await monitorCommand(monitorPath, `hostfwd_add tcp:127.0.0.1:${hostPort}-:${guestPort}`);
+      if (/could not|error|invalid/i.test(answer.split('hostfwd_add').slice(1).join(''))) throw new Error(`${name} would not forward 127.0.0.1:${hostPort} to its port ${guestPort}: ${answer.trim()}`);
+    },
     destroy,
   };
 }

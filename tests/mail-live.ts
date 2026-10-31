@@ -6,6 +6,7 @@ import { MailService } from '../apps/backend/src/platform/services/MailService.j
 import { alertMail } from '../apps/backend/src/platform/lib/mail.js';
 import { dkimValue } from '../apps/backend/src/infrastructure/lib/mail-dns.js';
 import { emailWayFrom } from '../apps/backend/src/platform/lib/email-way.js';
+import { MailReputation, reachPort25 } from '../apps/backend/src/platform/services/MailReputation.js';
 
 const REPO = fileURLToPath(new URL('..', import.meta.url));
 const DOMAIN = 'koala.localhost';
@@ -76,6 +77,16 @@ async function main(): Promise<void> {
   console.log(`  dkim: ${signature?.status.result} for ${signature?.signingDomain}`);
   assert.equal(signature?.status.result, 'pass');
   assert.equal(signature?.signingDomain, DOMAIN);
+
+  step('root\'s mail check asks the real blocklists through this computer\'s resolver: each list\'s own test address is listed, loopback is on none');
+  const reputation = (ip: string) => new MailReputation({ domain: DOMAIN, ip, reach25: () => reachPort25('127.0.0.1', SMTP_PORT) }).check();
+  const [testAddress, loopback] = await Promise.all([reputation('127.0.0.2'), reputation('127.0.0.1')]);
+  console.log(testAddress.blocklists.map((list) => `  127.0.0.2 · ${list.name}: ${list.state === 'unknown' ? list.said : list.state}`).join('\n'));
+  console.log(loopback.blocklists.map((list) => `  127.0.0.1 · ${list.name}: ${list.state === 'unknown' ? list.said : list.state}`).join('\n'));
+  assert.ok(testAddress.blocklists.some((list) => list.state === 'listed'), 'no blocklist answered for its own test address');
+  assert.ok(testAddress.blocklists.every((list) => list.state !== 'clear'), 'a blocklist\'s own test address read as clear');
+  assert.ok(loopback.blocklists.every((list) => list.state !== 'listed'), 'loopback read as listed');
+  assert.equal(testAddress.port25.open, true, 'the mail server\'s port did not answer the port check');
 
   step('a message from somewhere it does not trust is refused');
   const refused = (() => {

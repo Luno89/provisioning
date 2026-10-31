@@ -332,7 +332,10 @@ docker exec nowrinkles-mail cat /var/lib/dkim/koala.txt \
   | COMPOSE_ENV="$COMPOSE_ENV" npx tsx scripts/root-node/mail-dns.ts "$DOMAIN" "$PUBLIC_IP" \
   || die "The mail DNS records could not be set; see above."
 fi
-if nc -z -w 5 gmail-smtp-in.l.google.com 25 2>/dev/null; then
+if [ "$LAB" -eq 0 ]; then
+  COMPOSE_ENV="$COMPOSE_ENV" npx tsx scripts/root-node/mail-check.ts "$DOMAIN" --ip "$PUBLIC_IP" \
+    || warn "root's mail could not be checked; its admin page checks again at ${PUBLIC_URL}/#/mail"
+elif nc -z -w 5 gmail-smtp-in.l.google.com 25 2>/dev/null; then
   ok "Outbound port 25 is open, so mail goes straight to recipients"
 else
   warn "Outbound port 25 looks blocked (Hetzner blocks it on new servers until you ask). Ask your host to open it, or set MAIL_RELAYHOST=[host]:587 in ${COMPOSE_ENV} and run: docker compose -f docker-compose.mail.yml up -d"
@@ -371,7 +374,7 @@ npx tsx apps/backend/src/scripts/seed-all.ts
 ok "Catalogues seeded"
 
 step "Creating the management cluster"
-K3S_KUBECONFIG_MODE=600 K3S_SERVER_ARGS="--kube-proxy-arg=nodeport-addresses=127.0.0.1/32,${ROOT_MESH_IP}/32" bash scripts/cluster.sh install provisioning-lunorica || die "native k3s could not be installed"
+K3S_KUBECONFIG_MODE=600 bash scripts/cluster.sh install provisioning-lunorica || die "native k3s could not be installed"
 bash scripts/cluster.sh create provisioning-lunorica || die "the management cluster did not come up"
 KOALA_ROOT_NODE=1 bash scripts/ensure-cluster.sh || warn "ensure-cluster.sh reported a problem — check before provisioning"
 

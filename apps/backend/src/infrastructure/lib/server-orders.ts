@@ -1,4 +1,6 @@
 import type { WantedRecord } from './dns-plan.js';
+import type { ServerReverseDns } from './reverse-dns.js';
+import type { MailReport } from '../../platform/index.js';
 
 export type ServerOrderState =
   | 'quoted'
@@ -61,6 +63,8 @@ export interface ServerOrder {
   setupCode?: string | undefined;
   setupCodeShownAt?: string | undefined;
   workflowId?: string | undefined;
+  reverseDns?: ServerReverseDns | undefined;
+  mail?: MailReport | undefined;
   createdAt: string;
   updatedAt: string;
 }

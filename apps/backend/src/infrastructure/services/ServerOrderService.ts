@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { decryptValue, encryptValue, type SecretKey } from '../../platform/index.js';
+import { decryptValue, encryptValue, mailCheckFrom, mailHostOf, mailReport, type SecretKey } from '../../platform/index.js';
 import type { InfrastructureStore } from '../store.js';
 import {
   configurationFor, FOLLOWING, mandatoryOptions, newestRelease, orderStateOf, priceChangeProblem, quoteFromCheckout, ROOT_OS,
@@ -7,7 +7,8 @@ import {
 } from '../lib/server-orders.js';
 import { credentialEnvOf, dnsProviderNamed, DnsProviderRefusal, type DnsCredentials, type DnsZone } from '../lib/dns-providers.js';
 import { DnsProviders } from './dns/DnsProviders.js';
-import { OvhClient, type FetchLike, type OvhAccount } from './OvhClient.js';
+import { OvhClient, OvhError, type FetchLike, type OvhAccount } from './OvhClient.js';
+import { forwardNotSeen, ipBlockFor, ptrValue, reverseDnsPath, reverseDnsSaid, samePtr, type ReverseDnsState } from '../lib/reverse-dns.js';
 
 export class ServerOrderProblem extends Error {
   constructor(readonly status: number, message: string) {
@@ -354,6 +355,67 @@ export class ServerOrderService {
   }
 
   async failed(id: string, reason: string): Promise<void> {
+    if ((await this.order(id)).state === 'ready') {
+      await this.log(id, [`root is running, but checking its mail stopped: ${reason}`]);
+      return;
+    }
     await this.mark(id, 'failed', reason);
+  }
+
+  private async noteReverseDns(order: ServerOrder, state: ReverseDnsState, why?: string): Promise<{ done: boolean }> {
+    const name = mailHostOf(order.domain);
+    const said = reverseDnsSaid(state, order.ip!, name, why);
+    if (order.reverseDns?.said !== said) {
+      await this.deps.store.patchServerOrder(order.id, { reverseDns: { ip: order.ip!, name, state, said, at: this.now().toISOString() } });
+      await this.log(order.id, [`reverse DNS: ${said}`]);
+    }
+    return { done: state !== 'waiting' };
+  }
+
+  async setReverseDns(id: string): Promise<{ done: boolean }> {
+    const order = await this.order(id);
+    if (!order.ip) throw new Error('the server has no address yet');
+    const name = mailHostOf(order.domain);
+    let pointed: string[];
+    try {
+      const zone = await this.dns.zone(order.dns.domain, await this.credentialsFor(order.ownerId, order.dns.domain), order.domain);
+      pointed = (await zone.list('A', name)).map((record) => record.content);
+    } catch (error) {
+      if (error instanceof DnsProviderRefusal || error instanceof ServerOrderProblem) return this.noteReverseDns(order, 'refused', `Koala could not read ${order.domain}'s records: ${error.message}`);
+      throw error;
+    }
+    if (!pointed.includes(order.ip)) {
+      return this.noteReverseDns(order, 'refused', pointed.length ? `${name} points at ${pointed.join(', ')}, not ${order.ip}` : `${order.domain} has no A record for ${name}`);
+    }
+    const client = await this.ovh(order.ownerId);
+    try {
+      const block = ipBlockFor(await client.get<unknown>(`/ip?ip=${encodeURIComponent(order.ip)}`), order.ip);
+      if (!block) return this.noteReverseDns(order, 'refused', `OVHcloud lists no IP block holding ${order.ip} on this account`);
+      const current = await client.get<{ reverse?: string }>(reverseDnsPath(block, order.ip)).catch((error: unknown) => {
+        if (error instanceof OvhError && error.status === 404) return undefined;
+        throw error;
+      });
+      if (samePtr(current?.reverse, name)) return this.noteReverseDns(order, 'already');
+      await client.post(reverseDnsPath(block), { ipReverse: order.ip, reverse: ptrValue(name) });
+      return this.noteReverseDns(order, 'set');
+    } catch (error) {
+      if (!(error instanceof OvhError)) throw error;
+      if (error.status < 500 && forwardNotSeen(error.message)) return this.noteReverseDns(order, 'waiting', error.message);
+      if (error.status >= 500) throw error;
+      return this.noteReverseDns(order, 'refused', error.message);
+    }
+  }
+
+  async recordMailCheck(id: string, output: string | undefined): Promise<void> {
+    const check = output === undefined ? undefined : mailCheckFrom(output);
+    if (!check) {
+      await this.log(id, ['mail: this release cannot check root\'s mail yet; root\'s admin page checks it once root runs a release that can']);
+      return;
+    }
+    const mail = mailReport(check);
+    await this.deps.store.patchServerOrder(id, { mail });
+    const { problems } = mail;
+    await this.log(id, mail.lines.map((line) => `mail: ${line.mark === 'ok' ? '✓' : line.mark === 'problem' ? '!' : '?'} ${line.said}`));
+    await this.log(id, [problems.length ? `mail: ${problems.length} thing${problems.length === 1 ? '' : 's'} to fix before root's mail is relied on` : 'mail: root is ready to send']);
   }
 }

@@ -23,15 +23,25 @@ provider are on branches being merged):
    **Price it**, read the card, tick the box, **Buy**. Nothing is charged before Buy.
 4. Koala follows the order. A first order on a new OVHcloud account can wait 24–48 hours for OVHcloud's identity check;
    the page says so. Then it reinstalls the server with its own SSH key, makes the DNS records, waits for a signed
-   release, runs `scripts/root-node/bootstrap.sh`, starts root and shows the setup code **once**.
+   release, runs `scripts/root-node/bootstrap.sh`, starts root and shows the setup code **once**. Then it sets the
+   reverse DNS (PTR) of the server's IPv4 to `mail.nowrinkles.dev` through OVHcloud's IP API (the consumer key needs
+   `POST /ip/*`), waiting until OVHcloud sees that name point at the server, and runs root's mail check on the server:
+   forward and reverse DNS, outbound port 25, and Spamhaus ZEN, Barracuda and UCEPROTECT level 1 asked through root's
+   own resolver. The order page shows both. If OVHcloud refuses the PTR, the page says why and what to set by hand.
+   IPv6 gets no PTR: root's mail server sends over IPv4 only.
 5. Sign up at `https://app.nowrinkles.dev` with the setup code in the invite field. That account is the operator.
 6. Run the smoke test from the dev box: `npm run test:root-smoke -- nowrinkles.dev nowrinkles.app` (add `--ssh-public`
-   while SSH is still open to the internet). Every line must be ✓.
-7. Close SSH to the internet: on your own computer join the mesh as an admin machine
+   while SSH is still open to the internet). Every line must be ✓. It scans every port Kubernetes hands out as a
+   NodePort (30000–32767) besides the common ones, over IPv6 too when `app.` has an AAAA record, and checks the PTR and
+   the blocklists from where you run it.
+7. Before relying on root's email, open root's admin page at `https://app.nowrinkles.dev/#/mail` and **Check now**:
+   every line should be ✓. A `?` means a list could not be asked from root (Spamhaus refuses public resolvers); a `!`
+   on a blocklist names where to ask for removal.
+8. Close SSH to the internet: on your own computer join the mesh as an admin machine
    (`sudo bash scripts/root-node/admin-machine.sh` on root prints the command), then on root
    `sudo bash scripts/root-node/ssh-over-mesh.sh`. From then on SSH answers only over the mesh; the OVHcloud KVM console is
    the way in when the mesh is down (`ssh-over-mesh.sh --public` opens 22 again).
-8. Once root works, let it follow releases: `systemctl start koala-release-watch.timer`.
+9. Once root works, let it follow releases: `systemctl start koala-release-watch.timer`.
 
 Bootstrapping by hand instead (a VPS bought another way): see the header of `scripts/root-node/bootstrap.sh`; it prints
 the same next steps when it ends.
@@ -138,9 +148,15 @@ data (it lives on the person's machine, or in their pool namespace).
 - **Caddy not getting a certificate**: `tail -200 /var/log/koala-caddy/caddy.log`. Let's Encrypt allows 5 certificates
   per exact name per week; a loop of failed issues hits it and the log names the time it lifts. Wildcards are proved
   through the zone's DNS provider: check its credential is in root's `.env` and still valid.
-- **Mail not arriving**: the smoke test's mail line first. PTR (reverse DNS) is set at OVHcloud for the server's IP to
-  `mail.nowrinkles.dev`. Send yourself a test from Settings → Notifications and read the received headers for
-  `spf=pass` and `dkim=pass`. If OVHcloud blocks port 25, set `MAIL_RELAYHOST` (see `docker-compose.mail.yml`).
+- **Mail not arriving**: root's admin page, `#/mail`, **Check now**, then the smoke test's mail, reverse DNS and
+  blocklist lines. The PTR of the server's IPv4 must be `mail.nowrinkles.dev` (the order sets it; by hand it is the
+  address's "Modify the reverse path" in OVHcloud's control panel, which OVHcloud accepts only once that name resolves
+  to the address). Send yourself a test from Settings → Notifications and read the received headers for `spf=pass` and
+  `dkim=pass`; once real mail passes both, DMARC can go from `p=none` to `p=quarantine`. If OVHcloud blocks port 25, set
+  `MAIL_RELAYHOST` (see `docker-compose.mail.yml`).
+- **A node port answering from outside**: kube-proxy's rules run before ufw's, so root's k3s must keep
+  `/etc/rancher/k3s/config.yaml.d/koala-node-ports.yaml` (node ports only on 127.0.0.1 and the mesh).
+  `scripts/root-node/harden-host.sh` writes it back and restarts k3s; `update.sh` runs it on every release.
 - **Logs**: `journalctl -u nowrinkles -f`, `journalctl -u nowrinkles-workers -f`, `docker logs nowrinkles-caddy`,
   `docker logs provisioning-headscale`.
 

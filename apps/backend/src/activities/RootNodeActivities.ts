@@ -99,6 +99,22 @@ export async function ServerOrderBootstrapActivity(orderId: string, release: str
   }).catch(final);
 }
 
+export async function ServerOrderReverseDnsActivity(orderId: string): Promise<boolean> {
+  return withOrders(async (orders) => (await orders.setReverseDns(orderId)).done).catch(final);
+}
+
+export async function ServerOrderMailCheckActivity(orderId: string): Promise<void> {
+  return withOrders(async (orders) => {
+    const order = await orders.order(orderId);
+    if (!order.ip) throw new Error('the server has no address yet');
+    const lines: string[] = [];
+    const quoted = (value: string) => `'${value.replace(/'/g, `'\\''`)}'`;
+    const script = `[ -f /opt/nowrinkles/scripts/root-node/mail-check.ts ] || exit 3\ncd /opt/nowrinkles && npx tsx scripts/root-node/mail-check.ts ${quoted(order.domain)} --ip ${quoted(order.ip)} --json`;
+    const code = await runScriptOverSsh({ host: order.ip, privateKey: orders.privateKeyOf(order) }, script, (line) => lines.push(line));
+    await orders.recordMailCheck(orderId, code === 3 ? undefined : lines.join('\n'));
+  }).catch(final);
+}
+
 export async function ServerOrderStoppedActivity(orderId: string): Promise<void> {
   return withOrders((orders) => orders.stopped(orderId));
 }

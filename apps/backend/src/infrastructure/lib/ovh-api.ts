@@ -27,7 +27,7 @@ export function ovhHeaders(keys: OvhKeys, method: string, url: string, body: str
   };
 }
 
-export const OVH_ACCESS_RULES: readonly string[] = ['GET /*', 'POST /order/*', 'DELETE /order/*', 'POST /vps/*', 'POST /me/order/*'];
+export const OVH_ACCESS_RULES: readonly string[] = ['GET /*', 'POST /order/*', 'DELETE /order/*', 'POST /vps/*', 'POST /me/order/*', 'POST /ip/*'];
 
 export const ovhCreateTokenUrl = (apiHost: string): string => `${apiHost.replace(/\/1\.0$/, '')}/createToken/`;
 

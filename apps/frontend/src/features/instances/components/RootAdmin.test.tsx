@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import RootAdmin from './RootAdmin'
 import { api } from '../../../api/client'
@@ -33,6 +33,19 @@ const DEPENDENCIES = {
   ],
 }
 
+const MAIL = {
+  checking: false,
+  report: {
+    check: { domain: 'koala.dev', host: 'mail.koala.dev', ip: '203.0.113.7', checkedAt: '2026-10-30T03:00:00.000Z' },
+    lines: [
+      { mark: 'ok', said: 'mail.koala.dev points at 203.0.113.7' },
+      { mark: 'problem', said: '203.0.113.7 reverses to vps-1.vps.ovh.us, not mail.koala.dev; set its PTR to mail.koala.dev' },
+      { mark: 'unknown', said: 'Barracuda does not answer for its own test address 127.0.0.2 through this resolver, so its silence about 203.0.113.7 proves nothing' },
+    ],
+    problems: ['203.0.113.7 reverses to vps-1.vps.ovh.us, not mail.koala.dev; set its PTR to mail.koala.dev'],
+  },
+}
+
 const renderPage = () => {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(<QueryClientProvider client={client}><RootAdmin onLogout={() => {}} /></QueryClientProvider>)
@@ -47,6 +60,7 @@ describe('root\'s admin area', () => {
       if (url === '/admin/invites') return { data: [{ id: 'c1', createdBy: 'ana', createdAt: '2026-10-01T00:00:00.000Z', expiresAt: '2026-10-15T00:00:00.000Z', expired: true }] }
       if (url === '/instances/pool/admin') return { data: { slots: 4, trialDays: 14, defaultTrialDays: 14, instances: [] } }
       if (url === '/instances/dependencies') return { data: DEPENDENCIES }
+      if (url === '/instances/mail-reputation') return { data: MAIL }
       throw new Error(`unexpected ${url}`)
     })
     vi.mocked(api.post).mockResolvedValue({ data: { id: 'c2', code: 'efgh5678', createdBy: 'ana', createdAt: '2026-10-20T00:00:00.000Z', expiresAt: '2026-11-03T00:00:00.000Z', expired: false } })
@@ -95,7 +109,20 @@ describe('root\'s admin area', () => {
     expect(screen.queryByTestId('finding-GHSA-seroval')).toBeNull()
     expect(screen.getByText('not checked by OSV')).toBeInTheDocument()
     expect(screen.queryByText('vite')).toBeNull()
-    fireEvent.click(screen.getByRole('button', { name: /Check now/ }))
+    fireEvent.click(within(screen.getByRole('region', { name: 'Koala\'s dependencies' })).getByRole('button', { name: /Check now/ }))
     await waitFor(() => expect(api.post).toHaveBeenCalledWith('/instances/dependencies/check', {}))
+  })
+
+  it('shows root\'s mail and checks it again on asking', async () => {
+    vi.mocked(api.post).mockResolvedValueOnce({ data: { ...MAIL, checking: true } })
+    renderPage()
+    const section = await screen.findByRole('region', { name: 'Root\'s mail' })
+    expect(await within(section).findByLabelText('to fix')).toBeInTheDocument()
+    expect(section).toHaveTextContent('reverses to vps-1.vps.ovh.us, not mail.koala.dev')
+    expect(within(section).getByLabelText('could not be checked').closest('li')).toHaveTextContent('Barracuda')
+    expect(section).toHaveTextContent('for 203.0.113.7')
+    fireEvent.click(within(section).getByRole('button', { name: /Check now/ }))
+    await waitFor(() => expect(api.post).toHaveBeenCalledWith('/instances/mail-reputation/check', {}))
+    expect(await within(section).findByText('Checking…')).toBeInTheDocument()
   })
 })

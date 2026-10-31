@@ -102,6 +102,18 @@ else
   ok "its certificate will name $MESH_IP"
 fi
 
+say "k3s answers on its node ports only on this machine and the mesh"
+NODE_PORTS=/etc/rancher/k3s/config.yaml.d/koala-node-ports.yaml
+WANTED_NODE_PORTS="$(printf 'kube-proxy-arg+:\n  - nodeport-addresses=127.0.0.1/32,100.64.0.0/10')"
+if [ -f "$NODE_PORTS" ] && [ "$(cat "$NODE_PORTS")" = "$WANTED_NODE_PORTS" ]; then
+  ok "node ports stay off this server's public address"
+else
+  mkdir -p "$(dirname "$NODE_PORTS")"
+  printf '%s\n' "$WANTED_NODE_PORTS" > "$NODE_PORTS"
+  CHANGED=1
+  ok "node ports will stay off this server's public address (kube-proxy's rules run before any firewall's)"
+fi
+
 say "Root's registry"
 REGISTRIES=/etc/rancher/k3s/registries.yaml
 if [ -f "$REGISTRIES" ] && grep -q "\"$REGISTRY\"" "$REGISTRIES"; then
