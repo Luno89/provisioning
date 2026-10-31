@@ -121,7 +121,7 @@ if [ -d "$RESTORED/var/lib/tailscale" ]; then
   for _ in $(seq 1 60); do MESH_IP="$(tailscale ip -4 2>/dev/null | head -n1 || true)"; [ -n "$MESH_IP" ] && tailscale status >/dev/null 2>&1 && break; sleep 2; done
   [ -n "$MESH_IP" ] || die "this host did not come back on the mesh as the old root; check Headscale and tailscaled"
   ok "this host is the old root on the mesh again, at ${MESH_IP}"
-  if [ -n "$FRESH_MESH_IP" ] && [ "$FRESH_MESH_IP" != "$MESH_IP" ] && [ -f "$K3S_UNIT" ]; then
+  if [ -n "$FRESH_MESH_IP" ] && [ "$FRESH_MESH_IP" != "$MESH_IP" ] && [ -f "$K3S_UNIT" ] && grep -q "${FRESH_MESH_IP}/32" "$K3S_UNIT"; then
     sed -i "s|${FRESH_MESH_IP}/32|${MESH_IP}/32|g" "$K3S_UNIT"
     systemctl daemon-reload
     systemctl restart "$(basename "$K3S_UNIT")"
