@@ -20,7 +20,7 @@ Written by `tests/lib/run-live.ts`, which every `npm run test:*-live` and `test:
 | `machine-chat-live` | 2026-10-28 02:48 | — |
 | `machine-container-live` | 2026-10-27 22:45 | — |
 | `machine-live` | 2026-10-30 20:34 | 2026-10-30 20:00 |
-| `mail-live` | 2026-10-29 19:26 | 2026-10-30 01:26 |
+| `mail-live` | 2026-10-31 00:30 | 2026-10-31 00:30 |
 | `mesh-live` | 2026-10-30 02:35 | 2026-10-28 02:39 |
 | `odoo-customizations-live` | 2026-10-30 02:23 | 2026-10-29 15:22 |
 | `odoo-release-live` | 2026-10-30 00:59 | 2026-10-28 19:41 |
@@ -29,7 +29,7 @@ Written by `tests/lib/run-live.ts`, which every `npm run test:*-live` and `test:
 | `project-sharing-live` | 2026-10-30 00:43 | 2026-10-22 13:53 |
 | `release-live` | 2026-10-29 20:55 | 2026-10-30 02:05 |
 | `remote-host-integration` | 2026-10-30 01:37 | 2026-10-29 05:04 |
-| `restore-live` | 2026-10-30 01:56 | — |
+| `restore-live` | 2026-10-31 02:16 | 2026-10-31 01:51 |
 | `routes-live` | 2026-10-30 00:41 | 2026-10-24 05:15 |
 | `routing-live` | 2026-10-29 21:28 | 2026-10-30 16:09 |
 | `telemetry-live` | 2026-10-30 00:44 | — |
