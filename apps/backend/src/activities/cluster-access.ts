@@ -1,7 +1,7 @@
 import fs from 'fs/promises';
 import path from 'path';
 import { type InfrastructureService, hasCloudCredentials, isMockCloudProvider, isSelfManagedCluster } from '../infrastructure/index.js';
-import type { ClusterMetadata } from '../platform/index.js';
+import { type ClusterMetadata, writePrivate } from '../platform/index.js';
 
 export interface ClusterRef {
   clusterName: string;
@@ -27,7 +27,7 @@ export async function reachCluster(infra: InfrastructureService, cluster: Cluste
     const present = await fs.access(kubeconfigPath).then(() => true, () => false);
     if (!present) {
       const content = cluster.gpuEnabled ? await infra.getManagementClusterKubeconfig(physicalName) : await infra.getKubeconfig(physicalName);
-      await fs.writeFile(kubeconfigPath, content, 'utf-8');
+      await writePrivate(kubeconfigPath, content);
     }
     return kubeconfigPath;
   }
