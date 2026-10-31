@@ -26,6 +26,7 @@
     "test:workflows": "bash scripts/workflows-local.sh",
     "deps:update": "tsx scripts/deps-update.ts",
     "dns:check": "npm run dns:check -w apps/backend --",
+    "dns:issue-check": "npm run dns:issue-check -w apps/backend --",
     "ovh:quote": "npm run ovh:quote -w apps/backend --",
     "release:check": "tsx tests/release.ts --check",
     "deps:inventory": "node scripts/deps-inventory.mjs --out sbom.cdx.json",

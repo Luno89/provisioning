@@ -1302,7 +1302,7 @@
     {
       "kind": "go",
       "name": "github.com/caddy-dns/cloudflare",
-      "version": "v0.2.1",
+      "version": "v0.2.4",
       "github": "caddy-dns/cloudflare",
       "osv": {
         "ecosystem": "Go",
