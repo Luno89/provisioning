@@ -4,6 +4,7 @@ import { InfrastructureService, hasCloudCredentials, isMockCloudProvider } from 
 import { DestroyRemoteHostActivity } from './ProvisionRemoteHostActivity.js';
 import { DestroyHetznerVmActivity } from './ProvisionHetznerVmActivity.js';
 import { DestroyDigitalOceanVmActivity } from './ProvisionDigitalOceanVmActivity.js';
+import { messageOf } from './failure-reasons.js';
 
 export interface DestroyClusterArgs {
   name: string;
@@ -38,11 +39,12 @@ export async function DestroyClusterActivity(
   const isMock = isMockCloudProvider(args.provider, hasCloudCredentials);
   const physicalName = isMock ? `mock-${args.provider}-${args.name}` : args.name;
   const kubeconfigPath = `/tmp/kubeconfig-${physicalName}`;
+  const forgetKubeconfig = () => fs.rm(kubeconfigPath, { force: true }).catch((err: unknown) => {
+    console.warn(`[DestroyClusterActivity] the kubeconfig of the destroyed cluster "${physicalName}" could not be removed from ${kubeconfigPath}: ${messageOf(err)}`);
+  });
 
   if (args.gpuEnabled) {
-    try {
-      await fs.rm(kubeconfigPath, { force: true });
-    } catch {}
+    await forgetKubeconfig();
     return { status: 'destroyed', msg: `Cluster ${args.name} detached from the management cluster` };
   }
 
@@ -54,19 +56,19 @@ export async function DestroyClusterActivity(
   };
   try {
     await infra.destroy(`${physicalName}-observability`, { logFile, env: clusterEnv });
-  } catch { /* ignored */ }
+  } catch (err) {
+    console.warn(`[DestroyClusterActivity] ObservabilityStack destroy failed for "${physicalName}" (continuing to the cluster stack): ${messageOf(err)}`);
+  }
   try {
     await infra.destroy(physicalName, { logFile, env: clusterEnv });
-  } catch (err: any) {
-    console.warn(`[DestroyClusterActivity] ClusterStack destroy failed for "${physicalName}" (continuing to substrate teardown): ${err.message}`);
+  } catch (err) {
+    console.warn(`[DestroyClusterActivity] ClusterStack destroy failed for "${physicalName}" (continuing to substrate teardown): ${messageOf(err)}`);
   }
 
   if (args.provider === 'k3d' || isMock) {
     await infra.deleteLocalCluster(physicalName, { logFile });
     await infra.disconnectNginxFromNetwork(physicalName);
-    try {
-      await fs.rm(kubeconfigPath, { force: true });
-    } catch {}
+    await forgetKubeconfig();
   } else if (isRemote) {
     if (args.remoteHost && args.remoteUsername && args.remoteSshPrivateKey) {
       try {
@@ -77,13 +79,11 @@ export async function DestroyClusterActivity(
           privateKey: args.remoteSshPrivateKey,
           ...(args.remoteSshPort !== undefined ? { port: args.remoteSshPort } : {}),
         });
-      } catch (err: any) {
-        console.warn(`[DestroyClusterActivity] Remote k3s uninstall failed (continuing): ${err.message}`);
+      } catch (err) {
+        console.warn(`[DestroyClusterActivity] Remote k3s uninstall failed (continuing): ${messageOf(err)}`);
       }
     }
-    try {
-      await fs.rm(kubeconfigPath, { force: true });
-    } catch {}
+    await forgetKubeconfig();
   } else if (isHetzner) {
     if (!args.hcloudToken) {
       throw new Error('provider "hetzner" requires a Hetzner Cloud API token to destroy the VM');
@@ -94,9 +94,7 @@ export async function DestroyClusterActivity(
       logFile,
       ...(args.hetznerServerId ? { serverId: args.hetznerServerId } : {}),
     });
-    try {
-      await fs.rm(kubeconfigPath, { force: true });
-    } catch {}
+    await forgetKubeconfig();
     return { status: 'destroyed', msg: `Cluster ${args.name} destroyed — ${result.msg}` };
   } else if (isDigitalOcean) {
     if (!args.doToken) {
@@ -108,9 +106,7 @@ export async function DestroyClusterActivity(
       logFile,
       ...(args.doServerId ? { serverId: args.doServerId } : {}),
     });
-    try {
-      await fs.rm(kubeconfigPath, { force: true });
-    } catch {}
+    await forgetKubeconfig();
     return { status: 'destroyed', msg: `Cluster ${args.name} destroyed — ${result.msg}` };
   }
 

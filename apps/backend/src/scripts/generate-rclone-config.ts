@@ -19,18 +19,18 @@ async function main() {
   const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
   if (!jwtSecret || !clientId || !clientSecret) process.exit(1);
 
-  const db = createDatabase() as any;
-  if (typeof db.init === 'function') await db.init();
+  const db = createDatabase();
+  await db.init();
 
   const users = await db.accounts.getUsers();
-  const user = users.find((u: any) => u.credentials?.googledrive?.refreshToken);
-  if (!user) process.exit(1);
+  const gd = users.map((u) => u.credentials?.googledrive).find((drive) => drive?.refreshToken);
+  if (!gd?.refreshToken) process.exit(1);
 
-  const gd = user.credentials.googledrive;
   let refreshToken: string;
   try {
     refreshToken = decryptValue(gd.refreshToken, jwtSecret);
-  } catch {
+  } catch (err) {
+    process.stderr.write(`the Google Drive refresh token could not be decrypted: ${(err as Error).message}\n`);
     process.exit(1);
   }
 
@@ -67,7 +67,9 @@ async function main() {
         'filename_encryption = standard',
         '',
       );
-    } catch { /* ignored */ }
+    } catch (err) {
+      process.stderr.write(`the backup encryption password could not be used, so the encrypted remote is left out: ${(err as Error).message}\n`);
+    }
   }
 
   const outPath = path.join(ROOT, '.rclone-runtime.conf');
@@ -75,4 +77,7 @@ async function main() {
   process.stdout.write(outPath);
 }
 
-main().catch(() => process.exit(1));
+main().catch((err: Error) => {
+  process.stderr.write(`the rclone config could not be written: ${err.message}\n`);
+  process.exit(1);
+});

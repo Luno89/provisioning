@@ -15,6 +15,8 @@ import { clusterAccess } from './cluster-access.js';
 import { ensureClusterMonitoring } from './cluster-monitoring.js';
 import { appServiceType, placedOnPool } from '../monitoring/index.js';
 import { infisicalHostFor } from '../releases/index.js';
+import { ignore } from '@koala/engine-core/failures';
+import { messageOf } from './failure-reasons.js';
 
 async function nodeAllocatableBytes(
   infra: InfrastructureService,
@@ -171,8 +173,8 @@ export async function DeployAppActivity(
       try {
         await infra.checkGpuToolkit(gpuVendor);
         await infra.installGpuDevicePlugin(gpuVendor, kubeconfigPath);
-      } catch (err: any) {
-        console.warn(`[DeployAppActivity] GPU toolkit check or device plugin install failed (${err.message}). Falling back to CPU mode.`);
+      } catch (err) {
+        console.warn(`[DeployAppActivity] GPU toolkit check or device plugin install failed (${messageOf(err)}). Falling back to CPU mode.`);
         effectiveDevice = 'cpu';
         effectiveGpuCount = 0;
       }
@@ -184,8 +186,8 @@ export async function DeployAppActivity(
     try {
       await infra.checkGpuToolkit('nvidia');
       await infra.installGpuDevicePlugin('nvidia', kubeconfigPath);
-    } catch (err: any) {
-      console.warn(`[DeployAppActivity] GPU toolkit check or device plugin install failed (${err.message}). TabbyAPI requires an NVIDIA GPU and cannot run in CPU mode.`);
+    } catch (err) {
+      console.warn(`[DeployAppActivity] GPU toolkit check or device plugin install failed (${messageOf(err)}). TabbyAPI requires an NVIDIA GPU and cannot run in CPU mode.`);
     }
   }
 
@@ -233,24 +235,24 @@ export async function DeployAppActivity(
   if (args.appType === 'palworld') {
     const REQUIRED_GI = 12;
     try {
-      const nodesJson = await infra.runKubectl(['get', 'nodes', '-o', 'json'], kubeconfigPath);
-      const nodes = JSON.parse(nodesJson).items ?? [];
+      const memories = await infra.runKubectl(['get', 'nodes', '-o', 'jsonpath={.items[*].status.allocatable.memory}'], kubeconfigPath);
+      const nodes = memories.trim().split(/\s+/).filter(Boolean);
       const toGi = (q: string): number => {
         const m = /^(\d+)(Ki|Mi|Gi)?$/.exec(q ?? '');
         if (!m?.[1]) return 0;
         const n = Number(m[1]);
         return m[2] === 'Gi' ? n : m[2] === 'Mi' ? n / 1024 : n / (1024 * 1024);
       };
-      const largest = Math.max(0, ...nodes.map((n: any) => toGi(n.status?.allocatable?.memory)));
+      const largest = Math.max(0, ...nodes.map((memory) => toGi(memory)));
       if (largest > 0 && largest < REQUIRED_GI) {
         throw new Error(
           `Palworld needs a node with at least ${REQUIRED_GI}Gi allocatable memory; the largest node in this ` +
           `cluster has ${largest.toFixed(1)}Gi. Deploy to a bigger cluster (Hetzner CX53 or larger).`,
         );
       }
-    } catch (err: any) {
-      if (err?.message?.includes('allocatable memory')) throw err;
-      console.warn(`[DeployAppActivity] Palworld node-size preflight skipped: ${err.message}`);
+    } catch (err) {
+      if (messageOf(err).includes('allocatable memory')) throw err;
+      console.warn(`[DeployAppActivity] Palworld node-size preflight skipped: ${messageOf(err)}`);
     }
   }
 
@@ -279,14 +281,17 @@ export async function DeployAppActivity(
       const { getHfModelSize } = await import('../infrastructure/index.js');
       const size = await getHfModelSize(args.tabbyModel, args.tabbyRevision, args.tabbyHfToken);
       tabbyModelSizeBytes = size.totalBytes;
-    } catch (err: any) {
-      console.warn(`[DeployAppActivity] Could not fetch model size for ${args.tabbyModel}: ${err.message}`);
+    } catch (err) {
+      console.warn(`[DeployAppActivity] Could not fetch model size for ${args.tabbyModel}: ${messageOf(err)}`);
     }
   }
 
   let tabbyMemoryPlan: HostMemoryPlan | undefined;
   if (args.appType === 'tabbyapi') {
-    const allocatableBytes = await nodeAllocatableBytes(infra, kubeconfigPath, physicalName).catch(() => undefined);
+    const allocatableBytes = await nodeAllocatableBytes(infra, kubeconfigPath, physicalName).catch((err: unknown) => {
+      console.warn(`[DeployAppActivity] the nodes' memory could not be read, so the memory plan is made without it: ${messageOf(err)}`);
+      return undefined;
+    });
     tabbyMemoryPlan = planHostMemory({
       modelBytes: tabbyModelSizeBytes,
       gpuCount: effectiveTabbyGpuCount,
@@ -313,7 +318,7 @@ export async function DeployAppActivity(
     await specDb.init();
     const stored = (await specDb.infrastructure.getAppSpecs()).find((s) => s.id === args.appType)
       ?? undefined;
-    await specDb.close().catch(() => undefined);
+    await specDb.close().catch(ignore('the specs were already read, and a connection that does not close cleanly holds nothing this deploy needs'));
     if (stored?.spec) {
       const secrets = specSecrets(args.appType, stored.spec, {
         crawl4aiApiToken: args.crawl4aiApiToken,
@@ -332,8 +337,8 @@ export async function DeployAppActivity(
       });
       console.log(`[DeployAppActivity] ${args.appType} deploying from a stored spec, not a construct`);
     }
-  } catch (err: any) {
-    console.warn(`[DeployAppActivity] could not read app specs: ${err.message}`);
+  } catch (err) {
+    console.warn(`[DeployAppActivity] could not read app specs: ${messageOf(err)}`);
   }
 
   let bindingsJson = '';
@@ -349,8 +354,11 @@ export async function DeployAppActivity(
     const specs = needs.length && project?.ownerId
       ? visibleAppSpecs(await bindDb.infrastructure.getAppSpecs(), project.ownerId)
       : [];
-    const dynamicTypes = needs.length ? await bindDb.infrastructure.getBindingTypes().catch(() => []) : [];
-    await bindDb.close().catch(() => undefined);
+    const dynamicTypes = needs.length ? await bindDb.infrastructure.getBindingTypes().catch((err: unknown) => {
+      console.warn(`[bindings] ${physicalName}: the binding types people added could not be read, so only the built-in ones bind: ${messageOf(err)}`);
+      return [];
+    }) : [];
+    await bindDb.close().catch(ignore('the bindings were already read, and a connection that does not close cleanly holds nothing this deploy needs'));
 
     if (needs.length && project?.ownerId) {
       const { bindings, problems } = resolveBindings(needs, deployments, specs, project.ownerId, { dynamicTypes });
@@ -358,10 +366,7 @@ export async function DeployAppActivity(
 
       const projected: ProjectedBinding[] = [];
       for (const b of bindings) {
-        const credentials = await readBindingCredentials(async (args) => {
-          const raw = await infra.runKubectl(args, kubeconfigPath);
-          return typeof raw === 'string' ? raw : ((raw as any)?.stdout ?? '');
-        }, b);
+        const credentials = await readBindingCredentials((args) => infra.runKubectl(args, kubeconfigPath), b);
 
         const secretName = bindingSecretName(b.name);
         const files = bindingFiles(b, credentials);
@@ -376,18 +381,20 @@ export async function DeployAppActivity(
         try {
           await fs.writeFile(manifestPath, manifest, { encoding: 'utf-8', mode: 0o600 });
           await infra.runKubectl(['apply', '-f', manifestPath], kubeconfigPath);
-        } catch (err: any) {
-          console.warn(`[bindings] could not write ${secretName}: ${err.message}`);
+        } catch (err) {
+          console.warn(`[bindings] could not write ${secretName}: ${messageOf(err)}`);
         } finally {
-          await fs.unlink(manifestPath).catch(() => undefined);
+          await fs.rm(manifestPath, { force: true }).catch((err: unknown) => {
+            console.warn(`[bindings] ${manifestPath}, which holds ${b.name}'s credentials, could not be removed: ${messageOf(err)}`);
+          });
         }
         projected.push({ name: b.name, secretName });
         console.log(`[bindings] ${physicalName}: bound ${b.name} (${b.type}) from ${b.source.namespace}`);
       }
       if (projected.length) bindingsJson = JSON.stringify(bindingProjection(projected));
     }
-  } catch (err: any) {
-    console.warn(`[bindings] ${physicalName}: ${err.message}`);
+  } catch (err) {
+    console.warn(`[bindings] ${physicalName}: ${messageOf(err)}`);
   }
 
   const env = buildAppEnv({
@@ -511,15 +518,12 @@ export async function DeployAppActivity(
         }
       }
     } finally {
-      await secretDb.close().catch(() => undefined);
+      await secretDb.close().catch(ignore('the secrets were already synced, and a connection that does not close cleanly holds nothing this deploy needs'));
     }
   }
 
   if (args.appType === 'palworld') {
-    const exists = await infra
-      .runKubectl(['get', 'secret', 'palworld-secrets', '-n', namespace], kubeconfigPath)
-      .then(() => true)
-      .catch(() => false);
+    const exists = (await infra.runKubectl(['get', 'secret', 'palworld-secrets', '-n', namespace, '--ignore-not-found', '-o', 'name'], kubeconfigPath)).trim() !== '';
 
     if (!exists) {
       const { randomBytes } = await import('crypto');
@@ -533,15 +537,17 @@ export async function DeployAppActivity(
         kubeconfigPath,
       );
       const tmpPath = path.join(os.tmpdir(), `palworld-secrets-${deploymentId}.yaml`);
-      await fs.writeFile(tmpPath, secretYaml as any, { mode: 0o600 });
+      await fs.writeFile(tmpPath, secretYaml, { mode: 0o600 });
       try {
         await infra.runKubectl(['apply', '-f', tmpPath], kubeconfigPath);
       } finally {
-        await fs.rm(tmpPath, { force: true }).catch(() => {});
+        await fs.rm(tmpPath, { force: true }).catch((err: unknown) => {
+          console.warn(`[DeployAppActivity] ${tmpPath}, which holds Palworld's passwords, could not be removed: ${messageOf(err)}`);
+        });
       }
       await infra
         .runKubectl(['rollout', 'restart', 'deployment/palworld', '-n', namespace], kubeconfigPath)
-        .catch((err: any) => console.warn(`[DeployAppActivity] palworld restart after secret creation failed: ${err.message}`));
+        .catch((err: unknown) => console.warn(`[DeployAppActivity] palworld restart after secret creation failed: ${messageOf(err)}`));
     }
   }
 

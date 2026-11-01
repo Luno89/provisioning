@@ -7,6 +7,7 @@ import type { AdoptedPlan } from '../projects/index.js';
 import { DEFAULT_STREAM_TASK_QUEUE, GROVE_CHANGED_PATCH, RUN_ID_MEMO, groveRunWorkflowId, type AdoptPlanArgs, type AdoptPlanResult, type ProcedureRunInput } from '../engine-host/temporal/contracts.js';
 import { ownerIn, startedFor } from '../platform/lib/workflow-owner.js';
 import { LIVE_ACTIVITY } from '../platform/lib/activity-liveness.js';
+import { ignore } from '@koala/engine-core/failures';
 
 const { PlanAdoptStopActivity, PlanAdoptRecordsActivity, PlanAdoptDocumentsActivity, PlanAdoptSettleActivity, GroveRunInputActivity } = proxyActivities<{
   GroveRunInputActivity(args: { treeId: string; ownerId: string }): Promise<ProcedureRunInput>;
@@ -37,7 +38,7 @@ export async function AdoptPlanWorkflow(args: AdoptPlanArgs): Promise<AdoptPlanR
     const commit = await PlanAdoptDocumentsActivity({ ...args, records });
     const adopted: AdoptedPlan = { ...records.adopted, commit };
     await PlanAdoptSettleActivity({ ...args, status: 'adopted', adopted });
-    if (patched(GROVE_CHANGED_PATCH)) await told.EngineGroveChangedActivity({ ownerId: args.ownerId }).catch(() => undefined);
+    if (patched(GROVE_CHANGED_PATCH)) await told.EngineGroveChangedActivity({ ownerId: args.ownerId }).catch(ignore('the browser reads its trees again when it next looks; this only tells it sooner'));
     const growing = records.grow === false ? { started: false as const, reason: 'nothing was put back in line to work' } : await growTree(adopted.treeId, args.ownerId);
     return { proposalId: args.proposalId, status: 'adopted', treeId: adopted.treeId, commit, growing };
   } catch (err) {

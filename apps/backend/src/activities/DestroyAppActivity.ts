@@ -7,6 +7,7 @@ import {
 } from '../infrastructure/index.js';
 import { reachCluster } from './cluster-access.js';
 import { ODOO_PROJECT_APP } from '../releases/index.js';
+import { ignore } from '@koala/engine-core/failures';
 
 export type { DestroyAppArgs } from '../infrastructure/index.js';
 
@@ -36,7 +37,7 @@ export async function DestroyAppActivity(
   if (args.appType === ODOO_PROJECT_APP) {
     const kubeconfig = await reachCluster(infra, { clusterName: args.clusterName, provider: args.provider, gpuEnabled: args.gpuEnabled, kubeconfigPath: args.kubeconfigPath });
     const release = namespace;
-    await fs.appendFile(logFile, `Uninstalling the Odoo release ${release} and its namespace, databases and attachments with it\n`).catch(() => undefined);
+    await fs.appendFile(logFile, `Uninstalling the Odoo release ${release} and its namespace, databases and attachments with it\n`).catch(ignore('the log only shows progress, and the work goes on without it'));
     await infra.runHelm(['uninstall', release, '-n', release, '--ignore-not-found'], kubeconfig);
     await infra.runKubectl(['delete', 'namespace', release, '--ignore-not-found', '--wait=false'], kubeconfig);
     await infra.waitForNamespaceDeletion(release, kubeconfig);

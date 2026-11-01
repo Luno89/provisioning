@@ -5,6 +5,9 @@ import os from 'os';
 import path from 'path';
 import { writePrivate } from '../platform/index.js';
 import { cleanKubeconfig } from '../infrastructure/index.js';
+import { ignore } from '@koala/engine-core/failures';
+import { hasReadyNode } from './json-shapes.js';
+import { waitingOn } from './failure-reasons.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -52,8 +55,7 @@ export async function ProvisionRemoteHostActivity(
     const prefix = sshPrefix(args.username);
 
     const alreadyInstalled = await runSsh(args.host, port, args.username, keyPath, 'command -v k3s')
-      .then(() => true)
-      .catch(() => false);
+      .then(() => true, ignore('k3s missing is the answer, and an ssh that cannot run fails again, with its reason, at the install'));
 
     if (!alreadyInstalled) {
       await runSsh(
@@ -63,15 +65,17 @@ export async function ProvisionRemoteHostActivity(
     }
 
     let ready = false;
+    const waiting = waitingOn(`a Ready node on ${args.host}`);
     for (let i = 0; i < 60; i++) {
       try {
         const nodesJson = await runSsh(args.host, port, args.username, keyPath, `${prefix}k3s kubectl get nodes -o json`);
-        const nodes = JSON.parse(nodesJson).items ?? [];
-        if (nodes.some((n: any) => n.status?.conditions?.some((c: any) => c.type === 'Ready' && c.status === 'True'))) {
+        if (hasReadyNode(JSON.parse(nodesJson))) {
           ready = true;
           break;
         }
-      } catch { /* ignored */ }
+      } catch (err) {
+        waiting(err);
+      }
       await new Promise((r) => setTimeout(r, 3000));
     }
     if (!ready) {

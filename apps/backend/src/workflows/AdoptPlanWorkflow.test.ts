@@ -394,8 +394,10 @@ describe('AdoptPlanWorkflow', () => {
 
     const result = await adopt(w);
 
-    expect(result).toMatchObject({ status: 'failed', reason: expect.stringContaining('tree gone, which no longer exists') });
-    expect(w.proposals[0]).toMatchObject({ status: 'failed', reason: expect.stringContaining('no longer exists') });
+    expect(result.status).toBe('failed');
+    expect(result.reason).toContain('tree gone, which no longer exists');
+    expect(w.proposals[0]?.status).toBe('failed');
+    expect(w.proposals[0]?.reason).toContain('no longer exists');
     expect(w.leaves.size).toBe(0);
     expect(w.files.size).toBe(0);
   }, 120_000);

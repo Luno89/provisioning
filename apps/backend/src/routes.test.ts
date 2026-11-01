@@ -3,6 +3,7 @@ import express from 'express';
 import { bootstrap } from './index.js';
 import axios from 'axios';
 import http from 'http';
+import type { AddressInfo } from 'net';
 
 describe('Auth Endpoints & Route Protection Integration', () => {
   let app: express.Application;
@@ -25,8 +26,7 @@ describe('Auth Endpoints & Route Protection Integration', () => {
     server = http.createServer(app);
     await new Promise<void>((resolve) => {
       server.listen(0, '127.0.0.1', () => {
-        const addr = server.address() as any;
-        port = addr.port;
+        port = (server.address() as AddressInfo).port;
         resolve();
       });
     });
@@ -41,24 +41,20 @@ describe('Auth Endpoints & Route Protection Integration', () => {
   const getUrl = (path: string) => `http://127.0.0.1:${port}${path}`;
 
   it('should block protected routes with 401 when no session is provided', async () => {
-    try {
-      await axios.get(getUrl('/api/clusters'));
-      expect.fail('Should have failed with 401');
-    } catch (err: any) {
-      expect(err.response.status).toBe(401);
-      expect(err.response.data.error).toContain('Session missing');
-    }
+    const res = await axios.get<{ error: string }>(getUrl('/api/clusters'), { validateStatus: () => true });
+    expect(res.status).toBe(401);
+    expect(res.data.error).toContain('Session missing');
   });
 
   it('should register and log in natively, returning correct JWT session cookie', async () => {
     const email = `test-user-${Date.now()}@example.com`;
     const password = 'a-koala-routes-password';
 
-    const regRes = await axios.post(getUrl('/api/auth/register'), { email, password, inviteCode: SETUP_CODE });
+    const regRes = await axios.post<{ success: boolean }>(getUrl('/api/auth/register'), { email, password, inviteCode: SETUP_CODE });
     expect(regRes.status).toBe(200);
     expect(regRes.data.success).toBe(true);
 
-    const loginRes = await axios.post(getUrl('/api/auth/login'), { email, password });
+    const loginRes = await axios.post<{ success: boolean }>(getUrl('/api/auth/login'), { email, password });
     expect(loginRes.status).toBe(200);
     expect(loginRes.data.success).toBe(true);
     expect(loginRes.headers['set-cookie']).toBeDefined();
@@ -67,7 +63,7 @@ describe('Auth Endpoints & Route Protection Integration', () => {
     session = sessionCookie;
     expect(sessionCookie).toContain('session=');
 
-    const profileRes = await axios.get(getUrl('/api/auth/me'), {
+    const profileRes = await axios.get<{ email: string; twoFactorEnabled: boolean }>(getUrl('/api/auth/me'), {
       headers: { Cookie: sessionCookie },
     });
     expect(profileRes.status).toBe(200);
@@ -92,7 +88,7 @@ describe('Auth Endpoints & Route Protection Integration', () => {
 
   it('offers exactly the sign-in providers this server is configured for, and no pretend one', async () => {
     const { signInProvidersFrom } = await import('./accounts/index.js');
-    const offered = await axios.get(getUrl('/api/auth/sign-in'), { validateStatus: () => true });
+    const offered = await axios.get<{ providers: unknown }>(getUrl('/api/auth/sign-in'), { validateStatus: () => true });
     expect(offered.status).toBe(200);
     expect(offered.data.providers).toEqual(signInProvidersFrom(process.env).providers.map(({ id, label }) => ({ id, label })));
     expect((await axios.get(getUrl('/api/auth/provider/nobody'), { maxRedirects: 0, validateStatus: () => true })).status).toBe(404);

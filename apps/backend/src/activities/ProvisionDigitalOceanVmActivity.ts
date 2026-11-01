@@ -3,6 +3,9 @@ import { promisify } from 'util';
 import fs from 'fs/promises';
 import os from 'os';
 import path from 'path';
+import { ignore } from '@koala/engine-core/failures';
+import { messageOf } from './failure-reasons.js';
+import { listOf, recordOf } from './json-shapes.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -28,7 +31,20 @@ export interface ProvisionDigitalOceanVmResult {
   username: string;
 }
 
-async function doApi(token: string, pathname: string, init: RequestInit = {}): Promise<any> {
+interface Droplet {
+  id: string;
+  name: string | undefined;
+  ipv4: string | undefined;
+}
+
+function dropletOf(value: unknown): Droplet | undefined {
+  const droplet = recordOf(value);
+  if (typeof droplet.id !== 'number' && typeof droplet.id !== 'string') return undefined;
+  const ip = listOf(recordOf(droplet.networks).v4).map(recordOf).find((network) => network.type === 'public')?.ip_address;
+  return { id: String(droplet.id), name: typeof droplet.name === 'string' ? droplet.name : undefined, ipv4: typeof ip === 'string' ? ip : undefined };
+}
+
+async function doApi(token: string, pathname: string, init: RequestInit = {}): Promise<unknown> {
   const res = await fetch(`${DO_API}${pathname}`, {
     ...init,
     headers: {
@@ -38,9 +54,10 @@ async function doApi(token: string, pathname: string, init: RequestInit = {}): P
     },
   });
   if (res.status === 204) return {};
-  const body = (await res.json().catch(() => ({}))) as { message?: string };
+  const body: unknown = await res.json().catch(ignore('an answer without a JSON body is described by its status alone'));
   if (!res.ok) {
-    throw new Error(`${pathname} → ${body?.message ?? `HTTP ${res.status}`}`);
+    const said = recordOf(body).message;
+    throw new Error(`${pathname} → ${typeof said === 'string' ? said : `HTTP ${res.status}`}`);
   }
   return body;
 }
@@ -62,25 +79,21 @@ async function generateSshKeypairLocal(name: string) {
   };
 }
 
-type DoApi = (pathname: string, init?: RequestInit) => Promise<any>;
+type DoApi = (pathname: string, init?: RequestInit) => Promise<unknown>;
 
 const keyMaterial = (publicKey: string): string => publicKey.trim().split(/\s+/).slice(0, 2).join(' ');
 
 export async function sshKeyFor(api: DoApi, name: string, publicKey: string): Promise<number> {
   const existing = await api('/account/keys?per_page=200');
-  const same = (existing?.ssh_keys ?? []).find((key: any) => typeof key?.public_key === 'string' && keyMaterial(key.public_key) === keyMaterial(publicKey));
+  const same = listOf(recordOf(existing).ssh_keys).map(recordOf).find((key) => typeof key.public_key === 'string' && keyMaterial(key.public_key) === keyMaterial(publicKey));
   if (same?.id) return Number(same.id);
   const created = await api('/account/keys', { method: 'POST', body: JSON.stringify({ name: `provisioning-${name}`, public_key: publicKey }) });
-  return Number(created?.ssh_key?.id);
+  return Number(recordOf(recordOf(created).ssh_key).id);
 }
 
-async function findExistingDroplet(token: string, name: string): Promise<any | undefined> {
+async function findExistingDroplet(token: string, name: string): Promise<Droplet | undefined> {
   const res = await doApi(token, `/droplets?per_page=200&name=${encodeURIComponent(name)}`);
-  return (res?.droplets ?? []).find((d: any) => d?.name === name);
-}
-
-function publicIpv4(droplet: any): string | undefined {
-  return (droplet?.networks?.v4 ?? []).find((n: any) => n?.type === 'public')?.ip_address;
+  return listOf(recordOf(res).droplets).map(dropletOf).find((droplet) => droplet?.name === name);
 }
 
 async function waitForSsh(host: string, privateKeyPath: string, attempts = 60): Promise<void> {
@@ -109,7 +122,7 @@ export async function ProvisionDigitalOceanVmActivity(
   args: ProvisionDigitalOceanVmArgs,
 ): Promise<ProvisionDigitalOceanVmResult> {
   const log = async (msg: string) => {
-    await fs.appendFile(args.logFile, `[digitalocean] ${msg}\n`).catch(() => {});
+    await fs.appendFile(args.logFile, `[digitalocean] ${msg}\n`).catch(ignore('the log only shows progress, and the work goes on without it'));
   };
 
   const supplied = args.sshPrivateKey && args.sshPublicKey
@@ -136,17 +149,17 @@ export async function ProvisionDigitalOceanVmActivity(
           tags: ['nowrinkles', `cluster-${args.name}`],
         }),
       });
-      droplet = created?.droplet;
-      if (!droplet?.id) throw new Error('DigitalOcean did not return a droplet id');
+      droplet = dropletOf(recordOf(created).droplet);
+      if (!droplet) throw new Error('DigitalOcean did not return a droplet id');
       await log(`Created droplet ${droplet.id}`);
     }
 
-    let host = publicIpv4(droplet);
+    let host = droplet.ipv4;
     for (let i = 0; i < 60 && !host; i++) {
       await new Promise((r) => setTimeout(r, 5000));
       const refreshed = await doApi(args.doToken, `/droplets/${droplet.id}`);
-      droplet = refreshed?.droplet ?? droplet;
-      host = publicIpv4(droplet);
+      droplet = dropletOf(recordOf(refreshed).droplet) ?? droplet;
+      host = droplet.ipv4;
     }
     if (!host) throw new Error(`Droplet ${droplet.id} never reported a public IPv4 address`);
     await log(`Droplet ${droplet.id} is ${host}, waiting for SSH`);
@@ -155,9 +168,11 @@ export async function ProvisionDigitalOceanVmActivity(
     await waitForSsh(host, keyPath);
     await log(`SSH is up on ${host}`);
 
-    return { host, serverId: String(droplet.id), privateKey, username: DO_SSH_USERNAME };
+    return { host, serverId: droplet.id, privateKey, username: DO_SSH_USERNAME };
   } finally {
-    await fs.rm(keyPath, { force: true }).catch(() => {});
+    await fs.rm(keyPath, { force: true }).catch((err: unknown) => {
+      console.warn(`[digitalocean] ${keyPath}, which holds the droplet's private key, could not be removed: ${messageOf(err)}`);
+    });
     await cleanup();
   }
 }
@@ -173,28 +188,28 @@ export async function DestroyDigitalOceanVmActivity(
   args: DestroyDigitalOceanVmArgs,
 ): Promise<{ verified: boolean; msg: string }> {
   const log = async (msg: string) => {
-    await fs.appendFile(args.logFile, `[digitalocean] ${msg}\n`).catch(() => {});
+    await fs.appendFile(args.logFile, `[digitalocean] ${msg}\n`).catch(ignore('the log only shows progress, and the work goes on without it'));
   };
 
   let serverId = args.serverId;
   if (!serverId) {
     const found = await findExistingDroplet(args.doToken, args.name);
-    serverId = found?.id ? String(found.id) : undefined;
+    serverId = found?.id;
   }
   if (!serverId) {
     return { verified: true, msg: `No droplet named ${args.name} exists — nothing to delete` };
   }
 
-  await doApi(args.doToken, `/droplets/${serverId}`, { method: 'DELETE' }).catch(async (err) => {
-    if (!/404|not found/i.test(String(err?.message))) throw err;
+  await doApi(args.doToken, `/droplets/${serverId}`, { method: 'DELETE' }).catch(async (err: unknown) => {
+    if (!/404|not found/i.test(messageOf(err))) throw err;
     await log(`Droplet ${serverId} was already absent`);
   });
 
   for (let i = 0; i < 12; i++) {
     try {
       await doApi(args.doToken, `/droplets/${serverId}`);
-    } catch (err: any) {
-      if (/404|not found/i.test(String(err?.message))) {
+    } catch (err) {
+      if (/404|not found/i.test(messageOf(err))) {
         return { verified: true, msg: `DigitalOcean droplet ${serverId} confirmed deleted` };
       }
     }

@@ -4,6 +4,7 @@ import {
 } from '../infrastructure/index.js';
 import { waitUntilRolledOut } from './cluster-jobs.js';
 import { Context } from '@temporalio/activity';
+import { messageOf } from './failure-reasons.js';
 
 export interface SyncConfigArgs {
   name: string;
@@ -147,8 +148,8 @@ export async function SyncConfigActivity(
 
   try {
     await infra.runKubectl(['rollout', 'restart', 'deployment', '-n', namespace], kubeconfigPath);
-  } catch (err: any) {
-    console.warn(`[SyncConfigActivity] rollout restart failed in namespace ${namespace}: ${err.message}`);
+  } catch (err) {
+    console.warn(`[SyncConfigActivity] rollout restart failed in namespace ${namespace}: ${messageOf(err)}`);
   }
 
   if (args.appType === 'openwebui') {
@@ -157,8 +158,8 @@ export async function SyncConfigActivity(
         kubectl: (kubectlArgs) => infra.runKubectl(['-n', namespace, ...kubectlArgs], kubeconfigPath),
         apply: async () => undefined,
       }, 'deployment/open-webui', { beat: () => { try { Context.current().heartbeat(); } catch { return; } } });
-    } catch (err: any) {
-      console.warn(`[SyncConfigActivity] open-webui cannot become ready: ${err.message} — attempting the config push anyway`);
+    } catch (err) {
+      console.warn(`[SyncConfigActivity] open-webui cannot become ready: ${messageOf(err)} — attempting the config push anyway`);
     }
     await pushOpenWebUiWebSearchConfig(infra, kubeconfigPath, namespace, {
       ...(args.webuiEnableWebSearch !== undefined ? { enableWebSearch: args.webuiEnableWebSearch } : {}),

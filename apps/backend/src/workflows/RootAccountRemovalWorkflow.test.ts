@@ -5,6 +5,7 @@ import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
 import { ROOT_REMOVAL_WORKFLOW, removeAccountWorkflowId } from '../accounts/lib/account-removal.js';
 import { temporalTestEnvironment } from './temporal-test-env.js';
+import type { RootAccountRemovalWorkflow } from './RootAccountRemovalWorkflow.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -32,7 +33,7 @@ const run = async (poolInstanceId: string | undefined) => {
       RootRemovalRecordsActivity: async () => { seen.push('records'); return { users: 1, instances: 1 }; },
     },
   });
-  const result = await worker.runUntil(env.client.workflow.execute(ROOT_REMOVAL_WORKFLOW, {
+  const result = await worker.runUntil(env.client.workflow.execute<typeof RootAccountRemovalWorkflow>(ROOT_REMOVAL_WORKFLOW, {
     workflowId: removeAccountWorkflowId('bo'), taskQueue, args: [{ ownerId: 'bo' }], searchAttributes: { KoalaOwner: ['bo'] },
   }));
   return { seen, result };

@@ -6,6 +6,7 @@ import {
 } from '../engine/index.js';
 import { ApplicationFailure } from '@temporalio/common';
 import { v4 as uuidv4 } from 'uuid';
+import { messageOf } from './failure-reasons.js';
 
 async function endpoint(ownerId: string) {
   const db = createDatabase();
@@ -132,8 +133,8 @@ export async function CrawlBatchActivity(args: CrawlBatchArgs): Promise<CrawlBat
           embedded = await embedPages(ends, docs);
         }
       }
-    } catch (err: any) {
-      console.warn(`[Crawl] corpus services unavailable, stored to the database only: ${err?.message}`);
+    } catch (err) {
+      console.warn(`[Crawl] corpus services unavailable, stored to the database only: ${messageOf(err)}`);
     }
 
     await db.engine.saveCorpusPages(stored);
@@ -173,7 +174,10 @@ export async function SearchCorpusActivity(
   const db = createDatabase();
   await db.init();
   try {
-    const ends: CorpusEndpoints = await corpusEndpoints(db, args.ownerId).catch(() => ({}));
+    const ends: CorpusEndpoints = await corpusEndpoints(db, args.ownerId).catch((err: unknown) => {
+      console.warn(`[Crawl] corpus services could not be found, searching the stored pages only: ${messageOf(err)}`);
+      return {};
+    });
     if (ends.index || ends.vectors) {
       const hits = await searchCorpus(ends, args.query, {
         ownerId: args.ownerId,
@@ -209,7 +213,7 @@ export async function PurgeCorpusActivity(args: { ownerId: string; ingestId: str
   const db = createDatabase();
   await db.init();
   try {
-    const ends: CorpusEndpoints = await corpusEndpoints(db, args.ownerId).catch(() => ({}));
+    const ends = await corpusEndpoints(db, args.ownerId);
     await purgeCorpus(ends, args.ingestId);
     await db.engine.deleteCorpus(args.ingestId);
   } finally {

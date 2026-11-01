@@ -11,6 +11,9 @@ import { JoinMeshActivity } from './JoinMeshActivity.js';
 import { infisicalHostFor } from '../releases/index.js';
 import { ensureInfisicalOperator } from '../projects/index.js';
 import { CLI_CEILING, writePrivate } from '../platform/index.js';
+import { ignore } from '@koala/engine-core/failures';
+import { messageOf, waitingOn } from './failure-reasons.js';
+import { hasReadyNode } from './json-shapes.js';
 
 export interface ProvisionClusterArgs {
   name: string;
@@ -69,9 +72,7 @@ export async function ProvisionClusterActivity(
   let meshIp: string | undefined;
 
   if (args.provider === 'k3d' || isMock) {
-    try {
-      await infra.runKubectl(['config', 'unset', 'clusters.k3d-' + physicalName]);
-    } catch {}
+    await infra.runKubectl(['config', 'unset', 'clusters.k3d-' + physicalName]).catch(ignore('a kubeconfig with no entry for this cluster has nothing to unset'));
 
     await infra.createLocalCluster(physicalName, { logFile });
 
@@ -79,19 +80,17 @@ export async function ProvisionClusterActivity(
     await writePrivate(kubeconfigPath, kubeconfigContent);
 
     let ready = false;
+    const waiting = waitingOn(`a Ready node in ${physicalName}`);
     for (let i = 0; i < 45; i++) {
       try {
         const nodesJson = await infra.runKubectl(['get', 'nodes', '-o', 'json'], kubeconfigPath);
-        const nodesObj = JSON.parse(nodesJson);
-        const nodes = nodesObj.items || [];
-        const hasReadyNode = nodes.some((node: any) =>
-          node.status?.conditions?.some((c: any) => c.type === 'Ready' && c.status === 'True')
-        );
-        if (hasReadyNode) {
+        if (hasReadyNode(JSON.parse(nodesJson))) {
           ready = true;
           break;
         }
-      } catch {}
+      } catch (err) {
+        waiting(err);
+      }
 
       if (i > 0 && i % 5 === 0) {
         try {
@@ -104,8 +103,8 @@ export async function ProvisionClusterActivity(
           if (logs.includes('too many open files') || logs.includes('fsnotify')) {
             throw new Error(`Docker/Colima VM resource limit exhausted: 'too many open files' in K3s file watcher. Please run 'colima restart' in your terminal to reset the VM limits.`);
           }
-        } catch (logErr: any) {
-          if (logErr.message.includes('VM resource limit')) {
+        } catch (logErr) {
+          if (messageOf(logErr).includes('VM resource limit')) {
             throw logErr;
           }
         }
@@ -142,14 +141,15 @@ export async function ProvisionClusterActivity(
           ['get', 'configmap', 'coredns', '-n', 'kube-system', '-o', 'json'],
           kubeconfigPath,
         );
-        const cm = JSON.parse(cmJson);
-        if (cm?.data?.Corefile) {
-          const updated = cm.data.Corefile.replace(
+        const cm: unknown = JSON.parse(cmJson);
+        const data = corefileOf(cm);
+        if (data?.Corefile) {
+          const updated = data.Corefile.replace(
             /forward\s+\.\s+\/etc\/resolv\.conf/g,
             `forward . ${dnsList.join(' ')}`,
           );
-          if (updated !== cm.data.Corefile) {
-            cm.data.Corefile = updated;
+          if (updated !== data.Corefile) {
+            data.Corefile = updated;
             const containerName = `k3d-${physicalName}-server-0`;
             const cmJsonString = JSON.stringify(cm).replace(/'/g, "'\\''");
             const exec = (await import('child_process')).exec;
@@ -256,56 +256,46 @@ export async function ProvisionClusterActivity(
     });
   }
 
-  try {
-    await infra.runHelm(['uninstall', 'traefik', '-n', 'traefik', '--wait', '--timeout', CLI_CEILING], kubeconfigPath);
-  } catch { /* ignored */ }
-  try {
-    await infra.runHelm(['uninstall', 'traefik', '-n', 'kube-system', '--wait', '--timeout', CLI_CEILING], kubeconfigPath);
-  } catch { /* ignored */ }
-  try {
-    await infra.runHelm(['uninstall', 'kube-prometheus-stack', '-n', 'monitoring', '--wait', '--timeout', CLI_CEILING], kubeconfigPath);
-  } catch { /* ignored */ }
-  try {
-    await infra.runKubectl(['delete', 'ingressclass', 'traefik', '--ignore-not-found'], kubeconfigPath);
-  } catch { /* ignored */ }
-  try {
-    await infra.runKubectl(['patch', 'ingressclass', 'traefik', '--type=json', '-p=[{"op":"remove","path":"/metadata/annotations"}]', '--ignore-not-found'], kubeconfigPath);
-  } catch {}
+  const absent = ignore('a cluster without what this clears has nothing to clear, and one that cannot be reached fails at the deploy below with its reason');
+  await infra.runHelm(['uninstall', 'traefik', '-n', 'traefik', '--wait', '--timeout', CLI_CEILING], kubeconfigPath).catch(absent);
+  await infra.runHelm(['uninstall', 'traefik', '-n', 'kube-system', '--wait', '--timeout', CLI_CEILING], kubeconfigPath).catch(absent);
+  await infra.runHelm(['uninstall', 'kube-prometheus-stack', '-n', 'monitoring', '--wait', '--timeout', CLI_CEILING], kubeconfigPath).catch(absent);
+  await infra.runKubectl(['delete', 'ingressclass', 'traefik', '--ignore-not-found'], kubeconfigPath).catch(absent);
+  await infra.runKubectl(['patch', 'ingressclass', 'traefik', '--type=json', '-p=[{"op":"remove","path":"/metadata/annotations"}]', '--ignore-not-found'], kubeconfigPath).catch(absent);
   await new Promise((r) => setTimeout(r, 2000));
   try {
     await infra.runKubectl(['get', 'ingressclass', 'traefik'], kubeconfigPath);
     await infra.runKubectl(['patch', 'ingressclass', 'traefik', '--type=json', '-p=[{"op":"remove","path":"/metadata/annotations"}]', '--ignore-not-found'], kubeconfigPath);
     await infra.runKubectl(['delete', 'ingressclass', 'traefik', '--ignore-not-found'], kubeconfigPath);
     await new Promise((r) => setTimeout(r, 2000));
-  } catch { /* ignored */ }
+  } catch (err) {
+    absent(err);
+  }
   const clusterEnv: Record<string, string> = {
     STACK_TYPE: 'cluster',
     ENV: isMock ? 'local' : args.provider,
     CLUSTER_NAME: physicalName,
     KUBECONFIG_PATH: kubeconfigPath,
   };
-  try {
-    await infra.destroy(`${physicalName}-observability`, { logFile, env: clusterEnv });
-  } catch { /* ignored */ }
-  try {
-    await infra.destroy(physicalName, { logFile, env: clusterEnv });
-  } catch { /* ignored */ }
+  const neverDeployed = ignore('a stack never deployed here has nothing to destroy, and the deploy below fails with its reason if the cluster cannot be reached');
+  await infra.destroy(`${physicalName}-observability`, { logFile, env: clusterEnv }).catch(neverDeployed);
+  await infra.destroy(physicalName, { logFile, env: clusterEnv }).catch(neverDeployed);
 
   await infra.deploy(physicalName, { logFile, env: clusterEnv });
   await infra.deploy(`${physicalName}-observability`, { logFile, env: clusterEnv });
 
   if (!('problem' in infisicalHostFor({ clusterName: args.name, provider: args.provider, isMock }))) {
-    await fs.appendFile(logFile, '[secrets] installing the Infisical secrets operator\n').catch(() => {});
+    await fs.appendFile(logFile, '[secrets] installing the Infisical secrets operator\n').catch(ignore('the log only shows progress, and the work goes on without it'));
     const operator = await ensureInfisicalOperator(infra, kubeconfigPath);
-    await fs.appendFile(logFile, `[secrets] Infisical secrets operator ${operator}\n`).catch(() => {});
+    await fs.appendFile(logFile, `[secrets] Infisical secrets operator ${operator}\n`).catch(ignore('the log only shows progress, and the work goes on without it'));
   }
 
   let capacity: ClusterCapacity | undefined;
   try {
     const nodesJson = await infra.runKubectl(['get', 'nodes', '-o', 'json'], kubeconfigPath);
     capacity = capacityFromNodes(JSON.parse(nodesJson));
-  } catch (err: any) {
-    await fs.appendFile(logFile, `[capacity] could not read node capacity: ${err.message}\n`).catch(() => {});
+  } catch (err) {
+    await fs.appendFile(logFile, `[capacity] could not read node capacity: ${messageOf(err)}\n`).catch(ignore('the log only shows progress, and the work goes on without it'));
   }
 
   return {
@@ -326,6 +316,12 @@ export async function ProvisionClusterActivity(
   };
 }
 
+function corefileOf(configMap: unknown): { Corefile: string } | undefined {
+  if (typeof configMap !== 'object' || configMap === null || !('data' in configMap)) return undefined;
+  const { data } = configMap;
+  return typeof data === 'object' && data !== null && 'Corefile' in data && typeof data.Corefile === 'string' ? data as { Corefile: string } : undefined;
+}
+
 const PRESETS = ['/run/systemd/resolve/resolv.conf', '/var/run/systemd/resolve/resolv.conf', '/etc/resolv.conf'] as const;
 
 async function getRealNameservers(): Promise<string[]> {
@@ -334,7 +330,7 @@ async function getRealNameservers(): Promise<string[]> {
       const lines = await Promise.resolve()
         .then(() => fs.readFile(p, 'utf-8'))
         .then((c) => c.split('\n'))
-        .catch(() => []);
+        .catch(ignore('a resolver file that is not there names no nameservers')) ?? [];
       const ips = lines
         .map((l) => l.trim())
         .flatMap((l) => {

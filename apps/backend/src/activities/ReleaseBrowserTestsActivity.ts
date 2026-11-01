@@ -14,6 +14,8 @@ import type { ClusterMetadata, ProjectMetadata } from '../platform/index.js';
 import { reachCluster } from './cluster-access.js';
 import { manifestList, registryPullManifests, type RegistryLoginSource } from '../instances/index.js';
 import { inNamespace, runClusterJob, type NamespacedCluster } from './cluster-jobs.js';
+import { ignore } from '@koala/engine-core/failures';
+import { messageOf, waitingOn } from './failure-reasons.js';
 
 const vaultKeys = (data: string): string[] => {
   try {
@@ -117,10 +119,11 @@ export function createReleaseBrowserTestActivities(deps: ReleaseBrowserTestDeps)
 
   async function waitForDone(cluster: NamespacedCluster, name: string): Promise<{ pod: string; done: string } | { problem: string }> {
     let pod = '';
+    const waiting = waitingOn(`the browser tests' pod for ${name}`);
     for (;;) {
       beat(name);
       stopped();
-      const seen = await cluster.kubectl(['get', 'pod', '-l', `job-name=${name}`, '-o', 'json']).catch(() => '');
+      const seen = await cluster.kubectl(['get', 'pod', '-l', `job-name=${name}`, '-o', 'json']).catch((err: unknown) => { waiting(err); return ''; });
       const pods = seen ? JSON.parse(seen) as { items?: { metadata?: { name?: string }; status?: { phase?: string } }[] } : { items: [] };
       const first = pods.items?.[0];
       const phase = first?.status?.phase ?? '';
@@ -128,7 +131,7 @@ export function createReleaseBrowserTestActivities(deps: ReleaseBrowserTestDeps)
       const health = assessWorkload(pods);
       if (health.health === 'unhealthy') return { problem: `the browser's pod cannot run: ${health.reason}` };
       if (phase === 'Failed' || phase === 'Succeeded') {
-        const logs = await cluster.kubectl(['logs', pod, '-c', 'playwright', '--tail=20']).catch(() => '');
+        const logs = await cluster.kubectl(['logs', pod, '-c', 'playwright', '--tail=20']).catch((err: unknown) => `its log could not be read: ${messageOf(err)}`);
         return { problem: `the browser's pod ended before the tests finished${logs ? `:\n${plain(logs).slice(-1200)}` : ''}` };
       }
       if (pod && phase === 'Running') {
@@ -166,8 +169,9 @@ export function createReleaseBrowserTestActivities(deps: ReleaseBrowserTestDeps)
     const jobName = releaseE2EName(release);
     try {
       await ensureLogin(cluster, release);
-      const vaulted = await cluster.kubectl(['get', 'secret', vaultDatabaseSecret(release).secret, '-o', 'jsonpath={.data}', '--ignore-not-found']).catch(() => '');
-      const password = databaseSecretFrom(vaultKeys(vaulted), release);
+      const vaulted = await cluster.kubectl(['get', 'secret', vaultDatabaseSecret(release).secret, '-o', 'jsonpath={.data}', '--ignore-not-found']).then((said) => ({ said }), (err: unknown) => ({ unread: messageOf(err) }));
+      if ('unread' in vaulted) return unavailable(`the database's password could not be read from ${vaultDatabaseSecret(release).secret}: ${vaulted.unread}`);
+      const password = databaseSecretFrom(vaultKeys(vaulted.said), release);
       try {
         await runClusterJob(cluster, {
           name: releaseLoginJobName(release, input.slot),
@@ -208,8 +212,10 @@ export function createReleaseBrowserTestActivities(deps: ReleaseBrowserTestDeps)
       }
       return releaseE2EFrom({ report, exit: Number.isFinite(exit) ? exit : 1, printed, artifacts, notKept, startedAt, finishedAt: now() });
     } finally {
-      await cluster.kubectl(['delete', 'job', jobName, '--ignore-not-found', '--wait=false']).catch(() => undefined);
-      await cluster.kubectl(['delete', 'configmap', jobName, '--ignore-not-found']).catch(() => undefined);
+      await cluster.kubectl(['delete', 'job', jobName, '--ignore-not-found', '--wait=false']).catch((err: unknown) => {
+        console.warn(`[release-e2e] the browser tests' job ${jobName} in ${namespace} could not be removed, and is removed before the next run: ${messageOf(err)}`);
+      });
+      await cluster.kubectl(['delete', 'configmap', jobName, '--ignore-not-found']).catch(ignore('the next run replaces the specs it holds'));
     }
   }
 

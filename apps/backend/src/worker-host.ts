@@ -97,8 +97,8 @@ async function main() {
         },
       });
       break;
-    } catch (err: any) {
-      logger.warn(`[HostWorker] ⚠️ Connection to Temporal server failed: ${err.message}. Retrying in 10s...`);
+    } catch (err) {
+      logger.warn(`[HostWorker] ⚠️ Connection to Temporal server failed: ${(err as Error).message}. Retrying in 10s...`);
       await new Promise((resolve) => setTimeout(resolve, 10000));
     }
   }
@@ -109,7 +109,7 @@ async function main() {
   await worker.run();
 }
 
-main().catch((err) => {
+main().catch((err: Error) => {
   logger.error(`[HostWorker] FATAL: ${err.stack || err.message}`);
   process.exit(1);
 });

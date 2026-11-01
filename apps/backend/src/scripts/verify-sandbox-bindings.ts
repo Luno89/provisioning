@@ -18,17 +18,19 @@ async function main(): Promise<void> {
 
   try {
     const projects = await db.projects.getProjects();
-    const project = projects.find((p: any) => (p.needs ?? []).length);
-    if (!project) return console.log('No project declares any dependency. Nothing to verify.');
+    const project = projects.find((p) => (p.needs ?? []).length);
+    if (!project?.needs) return console.log('No project declares any dependency. Nothing to verify.');
+    const { needs, ownerId } = project;
+    if (!ownerId) return console.log(`${project.name} has no owner, so whose services it may reach cannot be told.`);
 
-    console.log(`\nProject: ${(project as any).name}`);
-    console.log(`Declares: ${JSON.stringify((project as any).needs)}`);
+    console.log(`\nProject: ${project.name}`);
+    console.log(`Declares: ${JSON.stringify(needs)}`);
 
     const { bindings, problems } = resolveBindings(
-      (project as any).needs,
+      needs,
       await db.infrastructure.getDeployments(),
       await db.infrastructure.getAppSpecs(),
-      (project as any).ownerId,
+      ownerId,
     );
     for (const p of problems) console.log(`  problem: ${p}`);
     if (!bindings.length) return console.log('Nothing resolved — cannot verify reachability.');
@@ -41,12 +43,12 @@ async function main(): Promise<void> {
     const files = await workspaces.materializeBindings(bindings);
     for (const f of files) console.log(`  files:    ${f.name}/ -> ${Object.keys(f.files).join(', ')}`);
 
-    const images = await new WorkspaceImageService(db).list((project as any).ownerId);
+    const images = await new WorkspaceImageService(db).list(ownerId);
 
     line();
     console.log('WITH the declared dependency:');
     const withId = randomUUID();
-    await workspaces.create({ leafId: withId, ownerId: (project as any).ownerId, egress, bindings: files }, 120_000, images);
+    await workspaces.create({ leafId: withId, ownerId, egress, bindings: files }, 120_000, images);
     created.push(withId);
 
     const b0 = bindings[0]!;
@@ -61,7 +63,7 @@ async function main(): Promise<void> {
     line();
     console.log('WITHOUT it (same image, no egress, no bindings):');
     const withoutId = randomUUID();
-    await workspaces.create({ leafId: withoutId, ownerId: (project as any).ownerId }, 120_000, images);
+    await workspaces.create({ leafId: withoutId, ownerId }, 120_000, images);
     created.push(withoutId);
 
     const control = `echo "SERVICE_BINDING_ROOT=${'$'}{SERVICE_BINDING_ROOT:-<unset>}"; `
@@ -76,9 +78,11 @@ async function main(): Promise<void> {
     console.log(`undeclared service blocked:    ${blocked ? 'YES' : 'NO — THE POLICY IS OPEN'}`);
     console.log(reached && blocked ? '\nBoth hold.' : '\nSomething is wrong — see above.');
   } finally {
-    for (const id of created) await workspaces.destroy(id).catch(() => undefined);
+    for (const id of created) {
+      await workspaces.destroy(id).catch((err: Error) => console.warn(`the sandbox ${id} could not be removed; remove it by hand: ${err.message}`));
+    }
     await db.close();
   }
 }
 
-main().then(() => process.exit(0)).catch((err) => { console.error(err); process.exit(1); });
+main().then(() => process.exit(0)).catch((err: unknown) => { console.error(err); process.exit(1); });

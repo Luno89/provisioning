@@ -3,6 +3,7 @@ import type * as pool from '../activities/PoolActivities.js';
 import { LIVE_ACTIVITY } from '../platform/lib/activity-liveness.js';
 import { MOVE_FINISHED, MOVE_STOPPED } from '../instances/lib/instance-move.js';
 import { poolTrialWorkflowId, TRIAL_CHANGED } from '../instances/lib/pool-trial.js';
+import { ignore } from '@koala/engine-core/failures';
 
 const moving = proxyActivities<Pick<typeof pool, 'PoolMoveStartActivity' | 'PoolMoveSwitchActivity' | 'PoolMoveStopActivity'>>({ ...LIVE_ACTIVITY, retry: { maximumAttempts: 10 } });
 
@@ -14,12 +15,12 @@ export async function PoolMoveWorkflow(input: { instanceId: string }): Promise<'
   setHandler(moveFinished, () => { outcome ??= { finished: true }; });
   setHandler(moveStopped, (reason) => { outcome ??= { stopped: reason }; });
   const trial = getExternalWorkflowHandle(poolTrialWorkflowId(input.instanceId));
-  await trial.signal(TRIAL_CHANGED).catch(() => undefined);
+  await trial.signal(TRIAL_CHANGED).catch(ignore('a trial workflow that has already ended has no schedule left to change'));
   await moving.PoolMoveStartActivity(input);
   await condition(() => outcome !== undefined);
   const settled = outcome!;
   if ('finished' in settled) await moving.PoolMoveSwitchActivity(input);
   else await moving.PoolMoveStopActivity({ instanceId: input.instanceId, reason: settled.stopped });
-  await trial.signal(TRIAL_CHANGED).catch(() => undefined);
+  await trial.signal(TRIAL_CHANGED).catch(ignore('a trial workflow that has already ended has no schedule left to change'));
   return 'finished' in settled ? 'moved' : 'stopped';
 }
