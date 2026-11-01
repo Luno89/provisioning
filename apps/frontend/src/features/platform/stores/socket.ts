@@ -47,7 +47,7 @@ export function useLogSocket(opts: {
   event?: 'log' | 'kube-log'
   onChunk: (chunk: string) => void
   onReconnect?: (() => void) | undefined
-  join?: { emit: string; payload: unknown } | undefined
+  join?: { emit: 'tail-pod'; payload: unknown } | undefined
 }): void {
   const { room, event = 'log', join } = opts
   const onChunkRef = useRef(opts.onChunk)

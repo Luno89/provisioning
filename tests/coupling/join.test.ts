@@ -21,6 +21,7 @@ const graph: Graph = {
     { from: 'caller', site: site(CALLER, 5), to: ['callee'], through: 'interface' },
   ],
   unresolved: [],
+  unmatched: [],
 };
 
 const ran = (count: number, from: number, to: number, fn?: string): RanRange => ({ start: { line: from, column: 1 }, end: { line: to, column: 80 }, count, ...(fn ? { fn } : {}) });

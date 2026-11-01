@@ -1,5 +1,6 @@
 import { join } from 'node:path';
 import type { CrossProcess, Project } from './graph.js';
+import { socketChannels } from './socket-edges.js';
 import { temporalWorld } from './temporal-edges.js';
 
 export interface Workspace { name: string; folder: string; tsconfig: string }
@@ -29,6 +30,7 @@ export const projectsOf = (root: string, workspaces: readonly Workspace[] = WORK
   workspaces.map((workspace) => ({
     tsconfig: join(root, workspace.folder, workspace.tsconfig),
     owns: (file) => workspaceOf(file) === workspace,
+    channels: socketChannels,
     ...(workspace.name === 'backend' ? { crossing: temporalCalls(root) } : {}),
   }));
 

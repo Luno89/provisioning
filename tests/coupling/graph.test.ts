@@ -37,6 +37,11 @@ describe('the edge graph', () => {
     expect(graph.edges.every((edge) => edge.to.every((id) => graph.units[id]!.file !== graph.units[edge.from]!.file))).toBe(true);
   });
 
+  it('keeps a call whose result another call is chained on', () => {
+    const loud = graph.edges.find((edge) => graph.units[edge.from]?.name === 'loud');
+    expect(loud && named(graph, loud.to)).toEqual(['src/lib/shout.ts#shout']);
+  });
+
   it('reports a call through any as unresolved', () => {
     expect(graph.unresolved.map((call) => `${call.site.file} ${call.text} ${call.why}`)).toEqual(['src/reader/loose.ts thing.go called through any']);
   });

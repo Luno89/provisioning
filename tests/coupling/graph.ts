@@ -18,24 +18,30 @@ export interface Edge {
   from: string;
   site: Site;
   to: string[];
-  through: 'call' | 'interface' | 'temporal';
+  through: 'call' | 'interface' | 'temporal' | 'socket';
   device?: boolean;
 }
 
 export interface Unresolved { from: string; site: Site; text: string; why: string }
 
+export interface Unmatched { kind: ChannelEnd['kind']; name: string; side: ChannelEnd['side']; site: Site }
+
 export interface Graph {
   units: Record<string, Unit>;
   edges: Edge[];
   unresolved: Unresolved[];
+  unmatched: Unmatched[];
 }
 
 export interface CrossProcess { to: ts.Node[]; through: 'temporal'; device?: boolean }
+
+export interface ChannelEnd { kind: 'socket'; name: string; side: 'sends' | 'hears'; handler?: ts.Node }
 
 export interface Project {
   tsconfig: string;
   owns: (file: string) => boolean;
   crossing?: (program: ts.Program) => (call: ts.CallExpression) => CrossProcess | undefined;
+  channels?: (program: ts.Program) => (call: ts.CallExpression) => ChannelEnd[] | undefined;
 }
 
 export interface GraphOptions {
@@ -109,6 +115,7 @@ export function buildGraph(options: GraphOptions): Graph {
   };
 
   const seenSites = new Set<string>();
+  const ends: Array<{ kind: ChannelEnd['kind']; name: string; side: ChannelEnd['side']; from: string; site: Site; handler?: string }> = [];
 
   for (const project of options.projects) {
     const config = ts.getParsedCommandLineOfConfigFile(project.tsconfig, {}, { ...ts.sys, onUnRecoverableConfigFileDiagnostic: (problem) => { throw new Error(String(problem.messageText)); } });
@@ -117,6 +124,7 @@ export function buildGraph(options: GraphOptions): Graph {
     const checker = program.getTypeChecker();
     const sources = program.getSourceFiles().filter((source) => ownCode(source.fileName));
     const crossing = project.crossing?.(program);
+    const channels = project.channels?.(program);
 
     const aliased = (symbol: ts.Symbol | undefined): ts.Symbol | undefined => (symbol && symbol.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(symbol) : symbol);
     const functionOf = (node: ts.Node | undefined, depth = 0): ts.Node | undefined => {
@@ -232,10 +240,14 @@ export function buildGraph(options: GraphOptions): Graph {
       const visit = (node: ts.Node) => {
         if (ts.isCallExpression(node) || ts.isNewExpression(node)) {
           const site = siteOf(node);
-          const key = `${site.file}:${site.start}`;
+          const key = `${site.file}:${site.start}:${site.end}`;
           if (!seenSites.has(key)) {
             seenSites.add(key);
             const from = enclosing(node);
+            for (const end of (channels && ts.isCallExpression(node) ? channels(node) : undefined) ?? []) {
+              const handler = end.handler ? functionOf(end.handler) : undefined;
+              ends.push({ kind: end.kind, name: end.name, side: end.side, from: from.id, site, ...(handler ? { handler: unitOf(handler).id } : {}) });
+            }
             const crossed = crossing && ts.isCallExpression(node) ? crossing(node) : undefined;
             const declaration = crossed ? undefined : checker.getResolvedSignature(node)?.getDeclaration() as ts.Declaration | undefined;
             if (crossed) {
@@ -264,5 +276,13 @@ export function buildGraph(options: GraphOptions): Graph {
       visit(source);
     }
   }
-  return { units, edges, unresolved };
+  const unmatched: Unmatched[] = [];
+  for (const end of ends) {
+    const partners = ends.filter((other) => other.kind === end.kind && other.name === end.name && other.side !== end.side);
+    if (partners.length === 0) unmatched.push({ kind: end.kind, name: end.name, side: end.side, site: end.site });
+    if (end.side !== 'sends' || partners.length === 0) continue;
+    const to = [...new Set(partners.map((partner) => partner.handler).filter((id): id is string => id !== undefined))];
+    edges.push({ from: end.from, site: end.site, to, through: end.kind });
+  }
+  return { units, edges, unresolved, unmatched };
 }

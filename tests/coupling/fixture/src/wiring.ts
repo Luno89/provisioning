@@ -9,3 +9,5 @@ export const wired = (id: string): string => readOne({ store: new PlainStore(), 
 export const kept = new MemoryStore();
 
 export const formatted = formatAll(quiet, ['A']);
+
+export const loud = (id: string): string => shout(id).trim();
