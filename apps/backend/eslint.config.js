@@ -75,6 +75,36 @@ const boundaries = {
   },
 }
 
+const SWALLOWED = ":matches([body.type='Identifier'][body.name='undefined'], [body.type='BlockStatement'][body.body.length=0], [body.type='Literal'], [body.type='ArrayExpression'][body.elements.length=0], [body.type='ObjectExpression'][body.properties.length=0])"
+const SWALLOW_MESSAGE = 'a failure dropped silently turns into a hang or a wrong answer later: handle it, or say why it does not matter with ignore(why) from @koala/engine-core/failures'
+
+const ACCESS = [
+  { selector: "MemberExpression[property.name='isAdmin']", message: 'who may do what is decided by authorize in platform/lib/permissions.ts, from the claims claimsOf gives; there is no isAdmin' },
+  { selector: "MemberExpression[property.name='roles']", message: 'a person\'s stored roles become claims in claimsOf (platform/lib/permissions.ts) and are read nowhere else; ask authorize' },
+  { selector: "CallExpression[callee.name='can']", message: 'a shared project\'s roles are decided by authorize in platform/lib/permissions.ts' },
+]
+
+const BUG_BACKED = {
+  '@typescript-eslint/no-explicit-any': 'error',
+  '@typescript-eslint/no-unsafe-member-access': 'error',
+  '@typescript-eslint/no-unsafe-assignment': 'error',
+  '@typescript-eslint/no-unsafe-argument': 'error',
+  '@typescript-eslint/no-unsafe-call': 'error',
+  '@typescript-eslint/no-unsafe-return': 'error',
+  '@typescript-eslint/no-floating-promises': 'error',
+  '@typescript-eslint/no-misused-promises': ['error', { checksVoidReturn: { attributes: false } }],
+  '@typescript-eslint/await-thenable': 'error',
+  '@typescript-eslint/only-throw-error': 'error',
+  '@typescript-eslint/switch-exhaustiveness-check': ['error', { considerDefaultExhaustiveForUnions: true }],
+  'no-empty': ['error', { allowEmptyCatch: false }],
+}
+
+const SWALLOWING = [
+  { selector: `CallExpression[callee.property.name='catch'] > ArrowFunctionExpression.arguments[params.length=0]${SWALLOWED}`, message: SWALLOW_MESSAGE },
+  { selector: `CallExpression[callee.property.name='then'][arguments.length=2] > ArrowFunctionExpression.arguments:nth-child(2)[params.length=0]${SWALLOWED}`, message: SWALLOW_MESSAGE },
+  { selector: "CallExpression[callee.property.name=/^(start|signalWithStart|execute)$/][callee.object.property.name='workflow'] > Literal.arguments:first-child", message: 'start a workflow by its function, so a renamed or misspelt workflow fails the typecheck rather than every start' },
+]
+
 export default defineConfig([
   globalIgnores(['dist', 'data', 'node_modules']),
   {
@@ -106,11 +136,21 @@ export default defineConfig([
     ignores: ['**/*.test.ts', 'src/platform/lib/permissions.ts', 'src/*/store.ts'],
     languageOptions: { parser: tseslint.parser },
     rules: {
-      'no-restricted-syntax': ['error',
-        { selector: "MemberExpression[property.name='isAdmin']", message: 'who may do what is decided by authorize in platform/lib/permissions.ts, from the claims claimsOf gives; there is no isAdmin' },
-        { selector: "MemberExpression[property.name='roles']", message: 'a person\'s stored roles become claims in claimsOf (platform/lib/permissions.ts) and are read nowhere else; ask authorize' },
-        { selector: "CallExpression[callee.name='can']", message: 'a shared project\'s roles are decided by authorize in platform/lib/permissions.ts' },
-      ],
+      'no-restricted-syntax': ['error', ...ACCESS, ...SWALLOWING],
     },
+  },
+  {
+    files: ['src/*/lib/**/*.ts'],
+    ignores: ['**/*.test.ts', 'src/platform/lib/permissions.ts'],
+    languageOptions: { parser: tseslint.parser },
+    rules: {
+      'no-restricted-syntax': ['error', ...ACCESS, ...SWALLOWING, { selector: "MemberExpression[object.name='process'][property.name='env']", message: 'lib is pure: it takes settings as arguments and never reads process.env, which may not be loaded yet when it runs' }],
+    },
+  },
+  {
+    files: ['src/**/*.ts'],
+    languageOptions: { parser: tseslint.parser, parserOptions: { projectService: true, tsconfigRootDir: path.dirname(fileURLToPath(import.meta.url)) } },
+    plugins: { '@typescript-eslint': tseslint.plugin },
+    rules: BUG_BACKED,
   },
 ])
