@@ -65,6 +65,8 @@ export function rolloutOf(listed: unknown, now: number = Date.now()): Rollout {
   const items = itemsOf(listed);
   const workloads = items.filter((item) => item.kind === 'Deployment' || item.kind === 'StatefulSet');
   if (workloads.length === 0) return { state: 'rolling', waiting: 'none of the release\'s workloads is there yet' };
+  const unseen = workloads.find((workload) => (workload.status?.observedGeneration ?? 0) < (workload.metadata?.generation ?? 0));
+  if (unseen) return { state: 'rolling', waiting: waitingOn(unseen) ?? 'a workload has not seen its new spec' };
   const health = assessWorkload({ items: currentPods(items, workloads) }, now);
   if (health.health === 'unhealthy') return { state: 'hopeless', reason: health.reason };
   const waiting = workloads.map(waitingOn).find((reason): reason is string => reason !== undefined);

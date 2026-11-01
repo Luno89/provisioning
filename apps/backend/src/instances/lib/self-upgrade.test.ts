@@ -55,6 +55,16 @@ describe('how far an instance\'s upgrade has rolled out', () => {
     expect(rolloutOf(listed, NOW)).toEqual({ state: 'done' });
   });
 
+  it('judges no pod while a workload has not seen its spec, so a rollback is not taken for the revision it undoes', () => {
+    const undoing = (observedGeneration: number) => ({ items: [
+      { ...deployment('instance-temporal', '7', { replicas: 1, updatedReplicas: 0, availableReplicas: 0 }), metadata: { name: 'instance-temporal', generation: 9, annotations: { 'deployment.kubernetes.io/revision': '7' } }, status: { observedGeneration, replicas: 1, updatedReplicas: 1, availableReplicas: 1 } },
+      replicaSet('temporal-broken', 'instance-temporal', '7'),
+      pod('temporal-broken-a', { kind: 'ReplicaSet', name: 'temporal-broken' }, pulling),
+    ] });
+    expect(rolloutOf(undoing(8), NOW)).toEqual({ state: 'rolling', waiting: 'deployment/instance-temporal has not seen its new spec' });
+    expect(rolloutOf(undoing(9), NOW)).toEqual({ state: 'hopeless', reason: 'temporal-broken-a: ImagePullBackOff' });
+  });
+
   it('waits while none of the release\'s workloads exists yet', () => {
     expect(rolloutOf({ items: [] }, NOW)).toEqual({ state: 'rolling', waiting: 'none of the release\'s workloads is there yet' });
   });
