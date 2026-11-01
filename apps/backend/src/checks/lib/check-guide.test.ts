@@ -8,7 +8,7 @@ describe('the guide a check writer works from', () => {
     for (const [table, entries] of Object.entries(ALL)) {
       for (const [key, entry] of Object.entries(entries)) {
         if (entry.example === undefined) continue;
-        expect(() => JSON.parse(entry.example!), `${table}.${key}: ${entry.example}`).not.toThrow();
+        expect(() => JSON.parse(entry.example!) as unknown, `${table}.${key}: ${entry.example}`).not.toThrow();
       }
     }
   });

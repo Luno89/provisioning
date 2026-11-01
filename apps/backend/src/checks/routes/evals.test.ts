@@ -56,6 +56,11 @@ const level2Harness = (): Promise<Harness> => mountRouter({
   }),
 });
 
+type Notes = { notes: Array<{ id: string }> };
+type Proposals = { proposals: Array<{ id: string; status: string }> };
+type Scenarios = { scenarios: Array<{ id: string }> };
+type CheckRun = { id: string; state: string; results: unknown[]; error?: string };
+
 describe('level 2 eval routes', () => {
   it('lists the person\'s tool notes, makes one held for them live, and retires one', async () => {
     const harness = await level2Harness();
@@ -64,13 +69,13 @@ describe('level 2 eval routes', () => {
       await note('held', 'pending_review');
       await note('live', 'active');
 
-      const listed = await axios.get(harness.url('/api/evals/level2/tool-notes'));
+      const listed = await axios.get<Notes>(harness.url('/api/evals/level2/tool-notes'));
       expect(listed.data.notes.map((entry: { id: string }) => entry.id).sort()).toEqual(['held', 'live']);
 
-      expect((await axios.post(harness.url('/api/evals/level2/tool-notes/held/live'))).data.note).toMatchObject({ id: 'held', status: 'active' });
+      expect((await axios.post<{ note: unknown }>(harness.url('/api/evals/level2/tool-notes/held/live'))).data.note).toMatchObject({ id: 'held', status: 'active' });
       expect((await axios.post(harness.url('/api/evals/level2/tool-notes/held/live'), {}, { validateStatus: () => true })).status).toBe(404);
       expect((await axios.post(harness.url('/api/evals/level2/tool-notes/live/retire'))).data).toEqual({ retired: true });
-      expect((await axios.get(harness.url('/api/evals/level2/tool-notes'))).data.notes.map((entry: { id: string }) => entry.id)).toEqual(['held']);
+      expect((await axios.get<Notes>(harness.url('/api/evals/level2/tool-notes'))).data.notes.map((entry: { id: string }) => entry.id)).toEqual(['held']);
     } finally {
       await harness.close();
     }
@@ -86,16 +91,16 @@ describe('level 2 eval routes', () => {
       await harness.db.checks.saveEvalRecord('evalScenarioProposals', proposal('agent-builder-saves') as never);
       await harness.db.checks.saveEvalRecord('evalScenarioProposals', proposal('agent-builder-other') as never);
 
-      expect((await axios.get(harness.url('/api/evals/level2/proposals'))).data.proposals.map((entry: { id: string }) => entry.id).sort()).toEqual(['agent-builder-other', 'agent-builder-saves']);
+      expect((await axios.get<Proposals>(harness.url('/api/evals/level2/proposals'))).data.proposals.map((entry: { id: string }) => entry.id).sort()).toEqual(['agent-builder-other', 'agent-builder-saves']);
 
       const edited = { ...proposal('agent-builder-saves').scenario, name: 'Saves when asked, edited' };
-      const accepted = await axios.post(harness.url('/api/evals/level2/proposals/agent-builder-saves/accept'), { scenario: edited }, quiet);
+      const accepted = await axios.post<{ scenario: unknown }>(harness.url('/api/evals/level2/proposals/agent-builder-saves/accept'), { scenario: edited }, quiet);
       expect(accepted.data.scenario).toMatchObject({ id: 'agent-builder-saves', name: 'Saves when asked, edited' });
-      expect((await axios.get(harness.url('/api/evals/level2/scenarios'))).data.scenarios.some((scenario: { id: string }) => scenario.id === 'agent-builder-saves')).toBe(true);
+      expect((await axios.get<Scenarios>(harness.url('/api/evals/level2/scenarios'))).data.scenarios.some((scenario: { id: string }) => scenario.id === 'agent-builder-saves')).toBe(true);
       expect((await axios.post(harness.url('/api/evals/level2/proposals/agent-builder-saves/accept'), {}, quiet)).status).toBe(404);
 
       expect((await axios.post(harness.url('/api/evals/level2/proposals/agent-builder-other/dismiss'), {}, quiet)).data).toEqual({ dismissed: true });
-      const statuses = (await axios.get(harness.url('/api/evals/level2/proposals'))).data.proposals.map((entry: { id: string; status: string }) => `${entry.id}:${entry.status}`).sort();
+      const statuses = (await axios.get<Proposals>(harness.url('/api/evals/level2/proposals'))).data.proposals.map((entry: { id: string; status: string }) => `${entry.id}:${entry.status}`).sort();
       expect(statuses).toEqual(['agent-builder-other:dismissed', 'agent-builder-saves:accepted']);
     } finally {
       await harness.close();
@@ -109,10 +114,10 @@ describe('level 2 eval routes', () => {
         id: 'broken', ownerId: TEST_USER.id, status: 'proposed', why: 'x', createdAt: 'now',
         scenario: { id: 'broken', name: 'Broken', describe: 'x', agent: 'nobody', procedure: { id: 'tool-rounds' }, input: { message: 'x' }, expect: { outcome: 'ok' } },
       } as never);
-      const refused = await axios.post(harness.url('/api/evals/level2/proposals/broken/accept'), {}, quiet);
+      const refused = await axios.post<{ problems: string[] }>(harness.url('/api/evals/level2/proposals/broken/accept'), {}, quiet);
       expect(refused.status).toBe(400);
       expect(refused.data.problems).toContain('there is no agent called "nobody"');
-      expect((await axios.get(harness.url('/api/evals/level2/proposals'))).data.proposals[0].status).toBe('proposed');
+      expect((await axios.get<Proposals>(harness.url('/api/evals/level2/proposals'))).data.proposals[0]!.status).toBe('proposed');
     } finally {
       await harness.close();
     }
@@ -125,11 +130,11 @@ describe('level 2 eval routes', () => {
         settings: { enabled: true, idleMinutes: 15, fullEveryHours: 24 },
         state: { ownerId: TEST_USER.id, benched: {} },
       });
-      const saved = await axios.put(harness.url('/api/evals/level2/bench'), { enabled: false, idleMinutes: 30, fullEveryHours: 48 }, quiet);
+      const saved = await axios.put<unknown>(harness.url('/api/evals/level2/bench'), { enabled: false, idleMinutes: 30, fullEveryHours: 48 }, quiet);
       expect(saved.data).toEqual({ settings: { enabled: false, idleMinutes: 30, fullEveryHours: 48 } });
       const refused = await axios.put(harness.url('/api/evals/level2/bench'), { enabled: true, idleMinutes: -1, fullEveryHours: 48 }, quiet);
       expect(refused.status).toBe(400);
-      expect((await axios.get(harness.url('/api/evals/level2/bench'))).data.settings).toEqual({ enabled: false, idleMinutes: 30, fullEveryHours: 48 });
+      expect((await axios.get<{ settings: unknown }>(harness.url('/api/evals/level2/bench'))).data.settings).toEqual({ enabled: false, idleMinutes: 30, fullEveryHours: 48 });
     } finally {
       await harness.close();
     }
@@ -138,9 +143,9 @@ describe('level 2 eval routes', () => {
   it('lists scenarios, saves one of your own, and refuses a broken one', async () => {
     const h = await level2Harness();
 
-    expect((await axios.get(h.url('/api/evals/level2/scenarios'))).data.scenarios).toEqual([{ ...SCENARIO, mine: false }]);
+    expect((await axios.get<Scenarios>(h.url('/api/evals/level2/scenarios'))).data.scenarios).toEqual([{ ...SCENARIO, mine: false }]);
     const saved = await axios.put(h.url('/api/evals/level2/scenarios/mine'), { ...SCENARIO, id: 'mine' }, quiet);
-    const broken = await axios.put(h.url('/api/evals/level2/scenarios/mine'), { ...SCENARIO, id: 'mine', procedure: { id: 'ghost' } }, quiet);
+    const broken = await axios.put<{ problems: string[] }>(h.url('/api/evals/level2/scenarios/mine'), { ...SCENARIO, id: 'mine', procedure: { id: 'ghost' } }, quiet);
 
     expect(saved.status).toBe(200);
     expect(broken.data.problems).toEqual(['there is no procedure called "ghost"']);
@@ -156,8 +161,8 @@ describe('level 2 eval routes', () => {
     expect((await axios.put(h.url('/api/evals/level2/scenarios/turn-reads'), turn, quiet)).status).toBe(200);
     expect((await axios.put(h.url('/api/evals/level2/scenarios/step-decides'), step, quiet)).status).toBe(200);
 
-    expect((await axios.get(h.url('/api/evals/level2/scenarios/turn-reads/procedure'))).data.procedure.id).toBe('turn-check');
-    expect((await axios.get(h.url('/api/evals/level2/scenarios/step-decides/procedure'))).data.procedure.id).toBe('step-check-step-decides');
+    expect((await axios.get<{ procedure: { id: string } }>(h.url('/api/evals/level2/scenarios/turn-reads/procedure'))).data.procedure.id).toBe('turn-check');
+    expect((await axios.get<{ procedure: { id: string } }>(h.url('/api/evals/level2/scenarios/step-decides/procedure'))).data.procedure.id).toBe('step-check-step-decides');
     expect((await axios.get(h.url('/api/evals/level2/scenarios/builder-saves/procedure'), quiet)).status).toBe(404);
     await h.close();
   });
@@ -165,7 +170,7 @@ describe('level 2 eval routes', () => {
   it('says what the checks leave uncovered', async () => {
     const h = await level2Harness();
 
-    const uncovered = async () => ((await axios.get(h.url('/api/evals/level2/coverage'))).data.gaps as { kind: string; tool?: string }[])
+    const uncovered = async () => ((await axios.get<{ gaps: Array<{ kind: string; tool?: string }> }>(h.url('/api/evals/level2/coverage'))).data.gaps as { kind: string; tool?: string }[])
       .filter((gap) => gap.kind === 'uncovered').map((gap) => gap.tool);
     expect(await uncovered()).toContain('check_procedure');
     expect((await axios.put(h.url('/api/evals/level2/scenarios/mine'), { ...SCENARIO, id: 'mine', expect: { toolsCalled: ['check_procedure'] } }, quiet)).status).toBe(200);
@@ -175,10 +180,10 @@ describe('level 2 eval routes', () => {
 
   it('compares two check runs of yours, and refuses one that is not', async () => {
     const h = await level2Harness();
-    const started = await axios.post(h.url('/api/evals/level2/runs'), {}, quiet);
-    for (let tries = 0; tries < 400 && (await axios.get(h.url(`/api/evals/level2/runs/${started.data.id}`))).data.state === 'running'; tries += 1) await new Promise((done) => setTimeout(done, 10));
+    const started = await axios.post<CheckRun>(h.url('/api/evals/level2/runs'), {}, quiet);
+    for (let tries = 0; tries < 400 && (await axios.get<CheckRun>(h.url(`/api/evals/level2/runs/${started.data.id}`))).data.state === 'running'; tries += 1) await new Promise((done) => setTimeout(done, 10));
 
-    const same = await axios.get(h.url('/api/evals/level2/compare'), { params: { before: started.data.id, after: started.data.id } });
+    const same = await axios.get<unknown>(h.url('/api/evals/level2/compare'), { params: { before: started.data.id, after: started.data.id } });
     expect(same.data).toMatchObject({ differences: [], checks: [{ id: 'builder-saves', change: 0 }] });
     expect((await axios.get(h.url('/api/evals/level2/compare'), { params: { before: started.data.id, after: 'ghost' }, ...quiet })).status).toBe(404);
     expect((await axios.get(h.url('/api/evals/level2/compare'), quiet)).status).toBe(400);
@@ -188,18 +193,18 @@ describe('level 2 eval routes', () => {
   it('starts a scenario run on the check runner and reports how it went', async () => {
     const h = await level2Harness();
 
-    const started = await axios.post(h.url('/api/evals/level2/runs'), {}, quiet);
+    const started = await axios.post<CheckRun>(h.url('/api/evals/level2/runs'), {}, quiet);
     expect(started.status).toBe(202);
 
-    let run = started.data;
+    let run: CheckRun = started.data;
     for (let tries = 0; tries < 400 && run.state === 'running'; tries += 1) {
       await new Promise((done) => setTimeout(done, 10));
-      run = (await axios.get(h.url(`/api/evals/level2/runs/${started.data.id}`))).data;
+      run = (await axios.get<CheckRun>(h.url(`/api/evals/level2/runs/${started.data.id}`))).data;
     }
 
     expect(run.state).toBe('done');
     expect(run.results[0]).toMatchObject({ scenarioId: 'builder-saves', passed: true, outcome: 'ok' });
-    expect((await axios.post(h.url('/api/evals/level2/runs'), { only: ['ghost'] }, quiet)).data.error).toContain('there is no scenario called "ghost"');
+    expect((await axios.post<{ error: string }>(h.url('/api/evals/level2/runs'), { only: ['ghost'] }, quiet)).data.error).toContain('there is no scenario called "ghost"');
     expect((await axios.post(h.url('/api/evals/level2/runs'), { temperature: 9 }, quiet)).status).toBe(400);
     await h.close();
   }, 30_000);

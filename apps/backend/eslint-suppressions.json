@@ -300,58 +300,6 @@
       "count": 1
     }
   },
-  "src/checks/lib/check-guide.test.ts": {
-    "@typescript-eslint/no-unsafe-return": {
-      "count": 1
-    }
-  },
-  "src/checks/lib/check-session.ts": {
-    "@typescript-eslint/no-unsafe-argument": {
-      "count": 1
-    }
-  },
-  "src/checks/lib/turn-check.test.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 1
-    },
-    "@typescript-eslint/no-unsafe-argument": {
-      "count": 1
-    }
-  },
-  "src/checks/routes/evals-level2.ts": {
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 3
-    }
-  },
-  "src/checks/routes/evals.test.ts": {
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 6
-    },
-    "@typescript-eslint/no-unsafe-call": {
-      "count": 8
-    },
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 28
-    }
-  },
-  "src/checks/services/Level2Service.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 2
-    }
-  },
-  "src/checks/services/Level2Service.ts": {
-    "no-restricted-syntax": {
-      "count": 5
-    }
-  },
-  "src/checks/store.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 7
-    },
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 7
-    }
-  },
   "src/engine-host/grove-launcher.test.ts": {
     "@typescript-eslint/no-unsafe-assignment": {
       "count": 1

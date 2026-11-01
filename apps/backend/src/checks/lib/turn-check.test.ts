@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { BUILDER_TOOLS } from '@koala/agent-engine';
+import { BUILDER_TOOLS, type ToolDefinition } from '@koala/agent-engine';
 import { describeChoice, scoreTurn, turnChoiceProblems, type ArgCheck, type TurnReply } from './turn-check.js';
 
 const writeProcedure = BUILDER_TOOLS.find((tool) => tool.name === 'save_procedure')!;
@@ -122,17 +122,22 @@ describe('checking the arguments a case cares about', () => {
   });
 
   it('matches boolean values case-insensitively whether string or boolean', () => {
-    const boolTool = {
+    const boolTool: ToolDefinition = {
       name: 'list_tasks',
-      description: 'list tasks',
+      summary: 'list tasks',
+      binding: 'platform',
+      effect: 'read',
+      idempotent: true,
+      openWorld: false,
       parameters: {
-        type: 'object' as const,
-        properties: { ready: { type: 'boolean' } },
+        type: 'object',
+        properties: { ready: { type: 'boolean', description: 'whether the task is ready' } },
       },
+      returns: 'the tasks',
       failures: [],
     };
     const checkBool = (args: unknown, check_: ArgCheck) =>
-      scoreTurn(calling('list_tasks', args), { tool: 'list_tasks', args: [check_] }, boolTool as any);
+      scoreTurn(calling('list_tasks', args), { tool: 'list_tasks', args: [check_] }, boolTool);
 
     expect(checkBool({ ready: true }, { arg: 'ready', is: 'true' }).passed).toBe(true);
     expect(checkBool({ ready: 'True' }, { arg: 'ready', is: 'true' }).passed).toBe(true);
