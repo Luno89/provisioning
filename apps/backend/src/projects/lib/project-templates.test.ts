@@ -18,6 +18,13 @@ function materialise(files: { path: string; content: string }[], name = 'probe')
   return dir;
 }
 
+interface PackageJson {
+  name?: string;
+  scripts?: Record<string, string>;
+  dependencies?: Record<string, string>;
+  devDependencies?: Record<string, string>;
+}
+
 describe('the api-service skeleton', () => {
   it('passes its own tests on a clean checkout', () => {
     const dir = materialise(NODE_SERVICE_FILES);
@@ -43,8 +50,8 @@ describe('the api-service skeleton', () => {
   });
 
   it('uses the runtime test runner rather than an install', () => {
-    const pkg = JSON.parse(renderStarterFiles(NODE_SERVICE_FILES, { projectName: 'probe', registryHost: '' }).find((f) => f.path === 'package.json')!.content);
-    expect(pkg.scripts.test).toContain('node --test');
+    const pkg = JSON.parse(renderStarterFiles(NODE_SERVICE_FILES, { projectName: 'probe', registryHost: '' }).find((f) => f.path === 'package.json')!.content) as PackageJson;
+    expect(pkg.scripts?.test).toContain('node --test');
     expect(pkg.dependencies).toBeUndefined();
   });
 });
@@ -65,7 +72,7 @@ describe('choosing a template', () => {
   });
 
   it('names the repository in what it writes', () => {
-    const pkg = JSON.parse(renderStarterFiles(NODE_SERVICE_FILES, { projectName: 'weather-api', registryHost: '' }).find((f) => f.path === 'package.json')!.content);
+    const pkg = JSON.parse(renderStarterFiles(NODE_SERVICE_FILES, { projectName: 'weather-api', registryHost: '' }).find((f) => f.path === 'package.json')!.content) as PackageJson;
     expect(pkg.name).toBe('weather-api');
   });
 });
@@ -92,7 +99,7 @@ describe('the ui-app starter', () => {
 
   it('turns browser tests on, with the Playwright whose Chromium the workspace has', () => {
     expect(readWorkspaceFile(file(WORKSPACE_FILE))).toEqual({ file: { needs: ['koala-e2e'] } });
-    expect(JSON.parse(file('package.json')).devDependencies['@playwright/test']).toBe(PLAYWRIGHT_VERSION);
+    expect((JSON.parse(file('package.json')) as PackageJson).devDependencies?.['@playwright/test']).toBe(PLAYWRIGHT_VERSION);
     expect(file('e2e/app.spec.ts')).toContain("from '@playwright/test'");
     expect(file('.gitignore')).toContain('node_modules/');
   });

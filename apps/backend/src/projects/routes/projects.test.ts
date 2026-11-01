@@ -4,6 +4,8 @@ import { projectsRouter } from './projects.js';
 import { mountRouter, type Harness, TEST_USER } from '../../platform/routes/test-harness.js';
 import { allowed, clusterResource, type Principal } from '../../platform/lib/permissions.js';
 import type { Database } from '../../platform/lib/db-interface.js';
+import type { ClusterMetadata, PipelineRunMetadata, ProjectMetadata } from '../../platform/lib/types.js';
+import type { GiteaService } from '../services/GiteaService.js';
 import { ProjectRepoService } from '../services/ProjectRepoService.js';
 import { DEFAULT_TARGET_CLUSTER } from '../lib/project-shipping.js';
 
@@ -23,14 +25,21 @@ function giteaServiceStub(commit: { message: string } | null) {
   };
 }
 
-async function mountWithGitea(gitea: { getCommit: (...args: any[]) => Promise<any> }): Promise<Harness> {
+const unused = (): never => { throw new Error('not used by this test'); };
+
+const systemCluster: ClusterMetadata = { id: 'provisioning-lunorica', name: 'provisioning-lunorica', provider: 'k3d', status: 'healthy', isSystem: true };
+
+async function mountWithGitea(gitea: Pick<GiteaService, 'getCommit'>): Promise<Harness> {
   return mountRouter({
     prefix: '/api/projects',
     router: (db: Database) => projectsRouter({
       db,
       giteaService: gitea,
+      projectRepoService: { createProject: unused },
+      temporalBridge: { promoteProjectBuild: unused },
+      clusterService: { getById: unused },
       getOwnedProject: async (id: string, principal: Principal) => {
-        const p = (await db.projects.getProjects()).find((x: any) => x.id === id);
+        const p = (await db.projects.getProjects()).find((x) => x.id === id);
         return p && allowed(principal, 'see', { kind: 'project', ownerId: p.ownerId }) ? p : undefined;
       },
     }),
@@ -42,23 +51,23 @@ async function mountForCreate(): Promise<Harness> {
     prefix: '/api/projects',
     router: (db: Database) => projectsRouter({
       db,
-      giteaService: { adminUsername: 'koala-bot' },
+      giteaService: { getCommit: unused },
+      temporalBridge: { promoteProjectBuild: unused },
       projectRepoService: new ProjectRepoService(db, {
         createUserAccount: async (username: string) => ({ username, password: 'pw' }),
-        getRepo: async () => ({}),
         findRepo: async (owner: string, name: string) => ({ owner, name }),
         createRepoForUser: async () => ({}),
         replaceWebhook: async () => undefined,
         seedTemplate: async () => [],
       } as never, 'a'.repeat(64) as never, async (id) => `http://10.0.0.5:3001/webhooks/gitea/${id}`),
       clusterService: {
-        getById: async (id: string, principal: Principal, action: 'deploy-to') => {
-          const found = id === 'provisioning-lunorica' ? { id, isSystem: true } : (await db.infrastructure.getClusters()).find((entry) => entry.id === id);
+        getById: async (id, principal, action = 'see') => {
+          const found = id === systemCluster.id ? systemCluster : (await db.infrastructure.getClusters()).find((entry) => entry.id === id);
           return found && allowed(principal, action, clusterResource(found)) ? found : undefined;
         },
       },
       getOwnedProject: async (id: string, principal: Principal) => {
-        const p = (await db.projects.getProjects()).find((x: any) => x.id === id);
+        const p = (await db.projects.getProjects()).find((x) => x.id === id);
         return p && allowed(principal, 'see', { kind: 'project', ownerId: p.ownerId }) ? p : undefined;
       },
     }),
@@ -74,11 +83,11 @@ describe('GET /:id/runs commit-message enrichment', () => {
       status: 'succeeded', startedAt: '2026-01-01T00:00:00Z',
     });
 
-    const res = await axios.get(harness.url(`/api/projects/${project.id}/runs`));
+    const res = await axios.get<PipelineRunMetadata[]>(harness.url(`/api/projects/${project.id}/runs`));
     expect(res.data).toHaveLength(1);
-    expect(res.data[0].commitMessage).toBe('Fix the thing\n\nlonger body');
+    expect(res.data[0]?.commitMessage).toBe('Fix the thing\n\nlonger body');
 
-    const persisted = (await harness.db.releases.getPipelineRuns()).find((r: any) => r.id === 'run-1');
+    const persisted = (await harness.db.releases.getPipelineRuns()).find((r) => r.id === 'run-1');
     expect(persisted?.commitMessage).toBe('Fix the thing\n\nlonger body');
 
     await harness.close();
@@ -96,8 +105,8 @@ describe('GET /:id/runs commit-message enrichment', () => {
       status: 'succeeded', startedAt: '2026-01-01T00:00:00Z', commitMessage: 'Already known',
     });
 
-    const res = await axios.get(harness.url(`/api/projects/${project.id}/runs`));
-    expect(res.data[0].commitMessage).toBe('Already known');
+    const res = await axios.get<PipelineRunMetadata[]>(harness.url(`/api/projects/${project.id}/runs`));
+    expect(res.data[0]?.commitMessage).toBe('Already known');
     expect(calls).toBe(0);
 
     await harness.close();
@@ -112,9 +121,9 @@ describe('GET /:id/runs commit-message enrichment', () => {
       status: 'succeeded', startedAt: '2026-01-01T00:00:00Z',
     });
 
-    const res = await axios.get(harness.url(`/api/projects/${project.id}/runs`));
+    const res = await axios.get<PipelineRunMetadata[]>(harness.url(`/api/projects/${project.id}/runs`));
     expect(res.data).toHaveLength(1);
-    expect(res.data[0].commitMessage).toBeUndefined();
+    expect(res.data[0]?.commitMessage).toBeUndefined();
 
     await harness.close();
   });
@@ -128,7 +137,7 @@ describe('POST / — execution target', () => {
       tokenEnc: 'irrelevant', createdAt: '2026-01-01T00:00:00Z',
     });
 
-    const res = await axios.post(harness.url('/api/projects'), {
+    const res = await axios.post<ProjectMetadata>(harness.url('/api/projects'), {
       name: 'demo', giteaRepo: 'demo', executionTargetDeviceId: 'dev-1',
     });
 
@@ -157,7 +166,7 @@ describe('POST / — execution target', () => {
   it('leaves executionTarget unset when no device is chosen — the K8s sandbox stays the default', async () => {
     const harness = await mountForCreate();
 
-    const res = await axios.post(harness.url('/api/projects'), { name: 'demo', giteaRepo: 'demo' });
+    const res = await axios.post<ProjectMetadata>(harness.url('/api/projects'), { name: 'demo', giteaRepo: 'demo' });
 
     expect(res.status).toBe(201);
     expect(res.data.executionTarget).toBeUndefined();
@@ -172,7 +181,7 @@ describe('POST / — execution target', () => {
       tokenEnc: 'irrelevant', createdAt: '2026-01-01T00:00:00Z',
     });
 
-    const res = await axios.post(harness.url('/api/projects'), {
+    const res = await axios.post<ProjectMetadata>(harness.url('/api/projects'), {
       name: 'demo', giteaRepo: 'demo', executionTargetDeviceId: 'dev-1',
       executionTargetEgress: [{ host: 'registry.npmjs.org', ports: [443] }],
     });
@@ -205,7 +214,7 @@ describe('POST / — execution target', () => {
   it('ignores egress hints entirely when no local device is chosen', async () => {
     const harness = await mountForCreate();
 
-    const res = await axios.post(harness.url('/api/projects'), {
+    const res = await axios.post<ProjectMetadata>(harness.url('/api/projects'), {
       name: 'demo', giteaRepo: 'demo', executionTargetEgress: [{ host: 'registry.npmjs.org' }],
     });
 
@@ -242,7 +251,7 @@ describe('POST / — execution target', () => {
       ...project, id: 'proj-existing', executionTarget: { kind: 'local-device', deviceId: 'dev-1', path: 'apps/one' },
     });
 
-    const res = await axios.post(harness.url('/api/projects'), {
+    const res = await axios.post<ProjectMetadata>(harness.url('/api/projects'), {
       name: 'demo2', giteaRepo: 'demo2', executionTargetDeviceId: 'dev-1', executionTargetPath: 'apps/two',
     });
 
@@ -276,7 +285,7 @@ describe('POST / — execution target', () => {
       tokenEnc: 'irrelevant', createdAt: '2026-01-01T00:00:00Z',
     });
 
-    const res = await axios.post(harness.url('/api/projects'), {
+    const res = await axios.post<ProjectMetadata>(harness.url('/api/projects'), {
       name: 'local-only', executionTargetDeviceId: 'dev-1',
     });
 
@@ -308,7 +317,7 @@ describe('PATCH /:id — execution target', () => {
       tokenEnc: 'irrelevant', createdAt: '2026-01-01T00:00:00Z',
     });
 
-    const res = await axios.patch(harness.url(`/api/projects/${project.id}`), {
+    const res = await axios.patch<ProjectMetadata>(harness.url(`/api/projects/${project.id}`), {
       executionTargetDeviceId: 'dev-1',
     });
 
@@ -324,7 +333,7 @@ describe('PATCH /:id — execution target', () => {
       ...project, executionTarget: { kind: 'local-device', deviceId: 'dev-1' },
     });
 
-    const res = await axios.patch(harness.url(`/api/projects/${project.id}`), {
+    const res = await axios.patch<ProjectMetadata>(harness.url(`/api/projects/${project.id}`), {
       executionTargetDeviceId: '',
     });
 
@@ -362,7 +371,7 @@ describe('PATCH /:id — execution target', () => {
       tokenEnc: 'irrelevant', createdAt: '2026-01-01T00:00:00Z',
     });
 
-    const res = await axios.patch(harness.url(`/api/projects/${project.id}`), {
+    const res = await axios.patch<ProjectMetadata>(harness.url(`/api/projects/${project.id}`), {
       executionTargetDeviceId: 'dev-1', executionApproval: 'auto',
     });
 
@@ -388,7 +397,7 @@ describe('PATCH /:id — execution target', () => {
 describe('POST / — where it deploys', () => {
   it('sends a project with a repository to its own cluster when none is picked', async () => {
     const harness = await mountForCreate();
-    const res = await axios.post(harness.url('/api/projects'), { name: 'demo', giteaRepo: 'demo' });
+    const res = await axios.post<ProjectMetadata>(harness.url('/api/projects'), { name: 'demo', giteaRepo: 'demo' });
     expect(res.status).toBe(201);
     expect(res.data.targetClusterId).toBe(DEFAULT_TARGET_CLUSTER);
     await harness.close();
@@ -398,9 +407,9 @@ describe('POST / — where it deploys', () => {
     const harness = await mountForCreate();
     await harness.db.infrastructure.saveCluster({ id: 'my-k3d', name: 'my-k3d', provider: 'k3d', status: 'healthy', ownerId: TEST_USER.id });
     await harness.db.infrastructure.saveCluster({ id: 'their-k3d', name: 'their-k3d', provider: 'k3d', status: 'healthy', ownerId: 'someone-else' });
-    const res = await axios.post(harness.url('/api/projects'), { name: 'demo', giteaRepo: 'demo', targetClusterId: 'my-k3d' });
+    const res = await axios.post<ProjectMetadata>(harness.url('/api/projects'), { name: 'demo', giteaRepo: 'demo', targetClusterId: 'my-k3d' });
     expect(res.data.targetClusterId).toBe('my-k3d');
-    const theirs = await axios.post(harness.url('/api/projects'), { name: 'other', giteaRepo: 'other', targetClusterId: 'their-k3d' }, { validateStatus: () => true });
+    const theirs = await axios.post<{ error?: string }>(harness.url('/api/projects'), { name: 'other', giteaRepo: 'other', targetClusterId: 'their-k3d' }, { validateStatus: () => true });
     expect([theirs.status, theirs.data.error]).toEqual([400, 'Deploy to the system cluster or one of your own clusters.']);
     await harness.close();
   });

@@ -11,6 +11,7 @@ import type { TreeHomeService } from '../services/TreeHomeService.js';
 import type { GroveOrderService } from '../services/GroveOrderService.js';
 import type { TreeWorkspaceService } from '../services/TreeWorkspaceService.js';
 import type { TreeModelsService } from '../../models/index.js';
+import { fieldsOf } from '../lib/request-fields.js';
 
 export interface TreesRouterDeps {
   db: Database;
@@ -57,7 +58,7 @@ export function treesRouter(deps: TreesRouterDeps): Router {
 
   router.post('/', asyncRoute(async (req, res) => {
     const userId = userOf(req).id;
-    const input = normaliseTreeInput(req.body ?? {});
+    const input = normaliseTreeInput(fieldsOf(req.body));
     if (!input) return res.status(400).json({ error: 'name and type are required' });
 
     const typeSpec = await resolveTreeType(db.projects, userId, input.type);
@@ -113,7 +114,7 @@ export function treesRouter(deps: TreesRouterDeps): Router {
   }));
 
   router.put('/:id/order', asyncRoute(async (req, res) => {
-    const outcome = await deps.order.orderFeatures(userOf(req).id, idOf(req), req.body?.branchIds);
+    const outcome = await deps.order.orderFeatures(userOf(req).id, idOf(req), fieldsOf(req.body).branchIds);
     if (!outcome.ok) return res.status(outcome.status).json({ error: outcome.error });
     res.json(outcome.value);
   }));

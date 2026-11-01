@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { INFISICAL_IN_CLUSTER, infisicalHostFor, infisicalSecretManifest, readerSecretManifest } from './infisical-sync.js';
+import { containing } from '../../projects/lib/test-matchers.js';
 
 describe('where a cluster reaches the vault', () => {
   it('uses the in-cluster service on the management cluster', () => {
@@ -13,8 +14,8 @@ describe('where a cluster reaches the vault', () => {
 
   it('says so for a cluster that cannot reach it', () => {
     const remote = infisicalHostFor({ clusterName: 'gpu-box', provider: 'remote', isMock: false });
-    expect(remote).toEqual({ problem: expect.stringContaining('gpu-box is a machine outside this node') });
-    expect(infisicalHostFor({ clusterName: 'eks', provider: 'aws', isMock: false })).toEqual({ problem: expect.stringContaining('a cloud cluster') });
+    expect(remote).toEqual({ problem: containing('gpu-box is a machine outside this node') });
+    expect(infisicalHostFor({ clusterName: 'eks', provider: 'aws', isMock: false })).toEqual({ problem: containing('a cloud cluster') });
   });
 });
 

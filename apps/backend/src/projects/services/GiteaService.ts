@@ -9,6 +9,8 @@ import type { InfrastructureService } from '../../infrastructure/index.js';
 import { registryHosts, type RegistryHosts, type RegistryLogin } from '../../instances/index.js';
 import { privatePatches, type GiteaListedUser } from '../lib/gitea-visibility.js';
 import { blockedDropPath, dropPathQueries } from '../lib/drop-paths.js';
+import { nodePortOf, pullBetween, pullsFrom, type GiteaPull } from '../lib/gitea-answers.js';
+import { ignore } from '@koala/engine-core/failures';
 
 const run = promisify(execFile);
 
@@ -29,6 +31,9 @@ function gitWithInput(args: string[], env: NodeJS.ProcessEnv, input: string): Pr
     child.stdin.end(input);
   });
 }
+
+const detailOf = async (res: Response): Promise<string> =>
+  (await res.text().catch(ignore('the failure is still reported by its status when its body cannot be read'))) ?? '';
 
 const NAMESPACE = 'gitea';
 const ADMIN_USERNAME = 'provisioning-bot';
@@ -63,7 +68,7 @@ export class GiteaService {
   private pullLogin: Promise<RegistryLogin> | null = null;
 
   constructor(
-    private readonly infra: InfrastructureService,
+    private readonly infra: Pick<InfrastructureService, 'runKubectl' | 'getK3dServerIp'>,
     private readonly masterKey: SecretKey,
     private readonly kubeconfigPath: string,
   ) {}
@@ -79,8 +84,7 @@ export class GiteaService {
       ['get', 'svc', 'gitea-http', '-n', NAMESPACE, '-o', 'json'],
       this.kubeconfigPath,
     );
-    const svc = JSON.parse(svcJson);
-    const nodePort = svc.spec?.ports?.find((p: any) => p.name === 'http')?.nodePort ?? svc.spec?.ports?.[0]?.nodePort;
+    const nodePort = nodePortOf(JSON.parse(svcJson) as unknown, 'http');
     if (!nodePort) {
       throw new Error('Gitea service has no nodePort assigned — did ensure-gitea.sh set the NodePort override?');
     }
@@ -119,7 +123,9 @@ export class GiteaService {
       });
       const scoped = await fs.readFile(TOKEN_SCOPES_FILE, 'utf8').then((raw) => JSON.parse(raw) as string[], () => [] as string[]);
       if (res.ok && TOKEN_SCOPES.every((scope) => scoped.includes(scope))) return this.tokenCache;
-    } catch { /* ignored */ }
+    } catch (failure) {
+      ignore('a stored token that cannot be read or no longer answers is replaced by the one minted below')(failure);
+    }
 
     const baseUrl = await this.resolveBaseUrl();
     const password = await this.readAdminPassword();
@@ -142,7 +148,7 @@ export class GiteaService {
     await fs.writeFile(TOKEN_FILE, encryptValue(this.tokenCache, this.masterKey), { mode: 0o600 });
     await fs.writeFile(TOKEN_SCOPES_FILE, JSON.stringify(TOKEN_SCOPES), { mode: 0o600 });
 
-    await this.ensureClusterSecret(this.tokenCache).catch(() => undefined);
+    await this.ensureClusterSecret(this.tokenCache);
 
     return this.tokenCache;
   }
@@ -170,10 +176,10 @@ export class GiteaService {
       try {
         await this.infra.runKubectl(['apply', '-f', tmpPath], this.kubeconfigPath);
       } finally {
-        await fs.unlink(tmpPath).catch(() => undefined);
+        await fs.unlink(tmpPath).catch(ignore('the manifest was written under /tmp only for kubectl to read, and the system clears it'));
       }
-    } catch (err: any) {
-      console.warn(`[GiteaService] could not sync gitea-credentials secret: ${err.message}`);
+    } catch (err) {
+      console.warn(`[GiteaService] could not sync gitea-credentials secret: ${(err as Error).message}`);
     }
   }
 
@@ -212,14 +218,6 @@ export class GiteaService {
     }
     const body = await res.json() as { owner: { login: string }; name: string; clone_url: string };
     return { owner: body.owner.login, name: body.name, cloneUrl: body.clone_url };
-  }
-
-  async getRepo(owner: string, name: string): Promise<any> {
-    const res = await this.apiFetch(`/api/v1/repos/${owner}/${name}`);
-    if (!res.ok) {
-      throw new Error(`Gitea repo "${owner}/${name}" not found: HTTP ${res.status}`);
-    }
-    return res.json();
   }
 
   async getCommit(owner: string, name: string, sha: string): Promise<{ message: string; author?: string; date?: string } | null> {
@@ -423,9 +421,9 @@ export class GiteaService {
     const auth = `Basic ${Buffer.from(`${ADMIN_USERNAME}:${adminPassword}`).toString('base64')}`;
     const repo = `${baseUrl}/api/v1/repos/${encodeURIComponent(username)}/${encodeURIComponent(name)}`;
 
-    const branch = await fetch(`${repo}/branches/${encodeURIComponent(ref)}`, { headers: { Authorization: auth } })
-      .catch(() => undefined);
-    if (!branch?.ok) return { exists: false, found: [], missing: paths };
+    const branch = await fetch(`${repo}/branches/${encodeURIComponent(ref)}`, { headers: { Authorization: auth } });
+    if (branch.status === 404) return { exists: false, found: [], missing: paths };
+    if (!branch.ok) throw new Error(`Gitea would not say whether ${username}/${name} has ${ref} (HTTP ${branch.status})`);
 
     const found: string[] = [];
     const missing: string[] = [];
@@ -433,9 +431,10 @@ export class GiteaService {
       const res = await fetch(
         `${repo}/contents/${path}?ref=${encodeURIComponent(ref)}`,
         { headers: { Authorization: auth } },
-      ).catch(() => undefined);
-      if (!res?.ok) { missing.push(path); continue; }
-      const body = await res.json().catch(() => ({})) as { size?: number };
+      );
+      if (res.status === 404) { missing.push(path); continue; }
+      if (!res.ok) throw new Error(`Gitea would not say whether ${username}/${name} has ${path} on ${ref} (HTTP ${res.status})`);
+      const body = await res.json() as { size?: number };
       if (typeof body.size === 'number' && body.size > 0) found.push(path);
       else missing.push(path);
     }
@@ -457,9 +456,9 @@ export class GiteaService {
 
     const missing: { path: string; content: string }[] = [];
     for (const f of files) {
-      const existing = await fetch(`${repo}/contents/${f.path}`, { headers: { Authorization: auth } })
-        .catch(() => undefined);
-      if (!existing?.ok) missing.push(f);
+      const existing = await fetch(`${repo}/contents/${f.path}`, { headers: { Authorization: auth } });
+      if (existing.status === 404) missing.push(f);
+      else if (!existing.ok) throw new Error(`Gitea would not say whether ${username}/${name} has ${f.path} (HTTP ${existing.status})`);
     }
     if (!missing.length) return [];
 
@@ -474,15 +473,16 @@ export class GiteaService {
           content: Buffer.from(f.content).toString('base64'),
         })),
       }),
-    }).catch(() => undefined);
+    }).catch((err: unknown) => {
+      console.warn(`[GiteaService] scaffolding ${username}/${name} in one commit did not reach Gitea, so each file is written on its own: ${(err as Error).message}`);
+      return undefined;
+    });
 
     if (res?.ok) return missing.map((f) => f.path);
 
     const written: string[] = [];
     for (const f of missing) {
-      const did = await this.ensureFile(username, name, f.path, f.content, `Scaffold ${f.path}`)
-        .catch(() => false);
-      if (did) written.push(f.path);
+      if (await this.ensureFile(username, name, f.path, f.content, `Scaffold ${f.path}`)) written.push(f.path);
     }
     return written;
   }
@@ -494,8 +494,9 @@ export class GiteaService {
     const auth = `Basic ${Buffer.from(`${ADMIN_USERNAME}:${adminPassword}`).toString('base64')}`;
     const repo = `${baseUrl}/api/v1/repos/${encodeURIComponent(username)}/${encodeURIComponent(name)}`;
     const operations = await Promise.all(files.map(async (file) => {
-      const existing = await fetch(`${repo}/contents/${file.path}`, { headers: { Authorization: auth } }).catch(() => undefined);
-      const sha = existing?.ok ? ((await existing.json()) as { sha?: string }).sha : undefined;
+      const existing = await fetch(`${repo}/contents/${file.path}`, { headers: { Authorization: auth } });
+      if (!existing.ok && existing.status !== 404) throw new Error(`Gitea would not say whether ${username}/${name} has ${file.path} (HTTP ${existing.status})`);
+      const sha = existing.ok ? ((await existing.json()) as { sha?: string }).sha : undefined;
       return { operation: sha ? 'update' : 'create', path: file.path, content: Buffer.from(file.content).toString('base64'), ...(sha ? { sha } : {}) };
     }));
     const res = await fetch(`${repo}/contents`, {
@@ -624,8 +625,8 @@ export class GiteaService {
     if (!res.ok) throw new Error(`Failed to create repo ${username}/${name}: HTTP ${res.status} ${(await res.text()).slice(0, 200)}`);
     const body = await res.json() as { clone_url: string; full_name: string };
     if (opts.empty === true) return { fullName: body.full_name, cloneUrl: body.clone_url };
-    await this.ensureGitignore(username, name).catch((err) =>
-      console.warn(`[GiteaService] no .gitignore on ${username}/${name}: ${err.message}`));
+    await this.ensureGitignore(username, name).catch((err: unknown) =>
+      console.warn(`[GiteaService] no .gitignore on ${username}/${name}: ${(err as Error).message}`));
     return { fullName: body.full_name, cloneUrl: body.clone_url };
   }
 
@@ -661,10 +662,11 @@ export class GiteaService {
 
   async revokeUserToken(username: string, password: string, tokenName: string): Promise<void> {
     const baseUrl = await this.resolveBaseUrl();
-    await fetch(`${baseUrl}/api/v1/users/${encodeURIComponent(username)}/tokens/${encodeURIComponent(tokenName)}`, {
+    const res = await fetch(`${baseUrl}/api/v1/users/${encodeURIComponent(username)}/tokens/${encodeURIComponent(tokenName)}`, {
       method: 'DELETE',
       headers: { Authorization: `Basic ${Buffer.from(`${username}:${password}`).toString('base64')}` },
     });
+    if (!res.ok && res.status !== 404) throw new Error(`Gitea would not revoke the token ${tokenName} of ${username} (HTTP ${res.status}): ${(await detailOf(res)).slice(0, 200)}`);
   }
 
   get adminUsername(): string {
@@ -860,9 +862,8 @@ export class GiteaService {
 
     const existing = await this.apiFetch(`${repoPath}/pulls?state=open&limit=50`);
     if (existing.ok) {
-      const open = (await existing.json().catch(() => [])) as any[];
-      const already = open.find((pr) => pr?.head?.ref === head && pr?.base?.ref === base)?.number;
-      if (typeof already === 'number') return this.mergePull(repoPath, already);
+      const already = pullBetween(pullsFrom(await existing.json()), head, base);
+      if (already !== undefined) return this.mergePull(repoPath, already);
     }
 
     const created = await this.apiFetch(`${repoPath}/pulls`, {
@@ -872,13 +873,12 @@ export class GiteaService {
 
     let index: number | undefined;
     if (created.ok) {
-      index = ((await created.json().catch(() => ({}))) as { number?: number }).number;
+      index = ((await created.json()) as { number?: number }).number;
     } else {
-      const detail = await created.text().catch(() => '');
+      const detail = await detailOf(created);
       if (/already exists/i.test(detail)) {
         const open = await this.apiFetch(`${repoPath}/pulls?state=open&limit=50`);
-        const list = open.ok ? (await open.json().catch(() => [])) as any[] : [];
-        index = list.find((pr) => pr?.head?.ref === head && pr?.base?.ref === base)?.number;
+        index = open.ok ? pullBetween(pullsFrom(await open.json()), head, base) : undefined;
       } else if (/no merge base|identical|nothing to compare|not different/i.test(detail)) {
         return 'nothing';
       }
@@ -890,7 +890,7 @@ export class GiteaService {
 
   private async mergePull(repoPath: string, index: number): Promise<'merged' | 'conflict' | 'nothing' | 'failed'> {
     const commits = await this.apiFetch(`${repoPath}/pulls/${index}/commits?limit=1`);
-    if (commits.ok && ((await commits.json().catch(() => [])) as unknown[]).length === 0) {
+    if (commits.ok && ((await commits.json()) as unknown[]).length === 0) {
       await this.apiFetch(`${repoPath}/pulls/${index}`, { method: 'PATCH', body: JSON.stringify({ state: 'closed' }) });
       return 'nothing';
     }
@@ -904,7 +904,7 @@ export class GiteaService {
       if (merged.status !== 405) return 'failed';
 
       const pull = await this.apiFetch(`${repoPath}/pulls/${index}`);
-      const state = pull.ok ? (await pull.json().catch(() => ({}))) as { mergeable?: boolean; merged?: boolean } : {};
+      const state = pull.ok ? (await pull.json()) as { mergeable?: boolean; merged?: boolean } : {};
       if (state.merged) return 'merged';
       if (state.mergeable === false) return 'conflict';
       if (attempt >= MERGEABILITY_TRIES) return 'failed';
@@ -942,21 +942,20 @@ export class GiteaService {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ login_name: username, source_id: 0, password, must_change_password: false }),
     });
-    if (!res.ok) throw new Error(`Gitea would not set the password of ${username} (HTTP ${res.status}): ${(await res.text().catch(() => '')).slice(0, 200)}`);
+    if (!res.ok) throw new Error(`Gitea would not set the password of ${username} (HTTP ${res.status}): ${(await detailOf(res)).slice(0, 200)}`);
   }
 
   async deleteUser(username: string): Promise<boolean> {
     const res = await this.apiFetch(`/api/v1/admin/users/${encodeURIComponent(username)}?purge=true`, { method: 'DELETE' });
     if (res.status === 404) return false;
-    if (!res.ok) throw new Error(`Gitea would not delete the user ${username} (HTTP ${res.status}): ${(await res.text().catch(() => '')).slice(0, 200)}`);
+    if (!res.ok) throw new Error(`Gitea would not delete the user ${username} (HTTP ${res.status}): ${(await detailOf(res)).slice(0, 200)}`);
     return true;
   }
 
-  async pullRequests(owner: string, repo: string): Promise<{ number: number; title: string; head: string; base: string; state: string; merged: boolean }[]> {
+  async pullRequests(owner: string, repo: string): Promise<GiteaPull[]> {
     const listed = await this.apiFetch(`/api/v1/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/pulls?state=all&limit=50`);
     if (!listed.ok) throw new Error(`Gitea would not list the pull requests of ${owner}/${repo} (HTTP ${listed.status})`);
-    const pulls = (await listed.json().catch(() => [])) as any[];
-    return pulls.map((pr) => ({ number: pr.number, title: pr.title, head: pr.head?.ref, base: pr.base?.ref, state: pr.state, merged: pr.merged === true }));
+    return pullsFrom(await listed.json());
   }
 
   async getRegistryHost(): Promise<string> {
@@ -977,7 +976,7 @@ export class GiteaService {
 
   private async loadRegistryLogin(): Promise<RegistryLogin> {
     const hosts = await this.getRegistryHosts();
-    const stored = await fs.readFile(PULL_TOKEN_FILE, 'utf8').then((raw) => decryptValue(raw.trim(), this.masterKey), () => undefined);
+    const stored = await fs.readFile(PULL_TOKEN_FILE, 'utf8').then((raw) => decryptValue(raw.trim(), this.masterKey), ignore('with no stored pull token one is minted below'));
     if (stored && await this.registryAccepts(stored)) return { hosts, username: ADMIN_USERNAME, password: stored };
     const minted = await this.mintUserToken(ADMIN_USERNAME, await this.readAdminPassword(), 'registry-pull', ['read:package']);
     await fs.mkdir(DATA_DIR, { recursive: true });
@@ -996,7 +995,7 @@ export class GiteaService {
     const users: GiteaListedUser[] = [];
     for (let page = 1; ; page += 1) {
       const res = await this.apiFetch(`/api/v1/admin/users?page=${page}&limit=${USERS_PAGE}`);
-      if (!res.ok) throw new Error(`Gitea would not list its users (HTTP ${res.status}): ${(await res.text().catch(() => '')).slice(0, 200)}`);
+      if (!res.ok) throw new Error(`Gitea would not list its users (HTTP ${res.status}): ${(await detailOf(res)).slice(0, 200)}`);
       const listed = (await res.json()) as GiteaListedUser[];
       users.push(...listed);
       if (listed.length < USERS_PAGE) break;
@@ -1006,7 +1005,7 @@ export class GiteaService {
     for (const patch of privatePatches(users)) {
       const res = await this.apiFetch(`/api/v1/admin/users/${encodeURIComponent(patch.username)}`, { method: 'PATCH', body: JSON.stringify(patch.body) });
       if (res.ok) changed.push(patch.username);
-      else refused.push(`${patch.username} (HTTP ${res.status}: ${(await res.text().catch(() => '')).slice(0, 120)})`);
+      else refused.push(`${patch.username} (HTTP ${res.status}: ${(await detailOf(res)).slice(0, 120)})`);
     }
     if (refused.length) throw new Error(`Gitea would not make ${refused.join(', ')} private; ${changed.length} made private`);
     return changed;

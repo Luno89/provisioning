@@ -7,6 +7,7 @@ import { HubSyncService, localHubSync } from './HubSyncService.js';
 import { HubRelay } from './HubRelay.js';
 import { HubInstanceWork } from './HubInstanceWork.js';
 import type { Leaf } from '../../projects/lib/leaves.js';
+import { anyOf } from '../../projects/lib/test-matchers.js';
 
 const ann = { id: 'ann', email: 'ann@example.com' };
 const now = '2026-10-21T00:00:00Z';
@@ -243,7 +244,7 @@ describe('members working a shared project from the hub', () => {
     expect((await hub.remove('ann', hubId, 'cy')).ok).toBe(true);
     await store.project(hubId).saveRequest({ id: 'forged', kind: 'member-removed', input: { personId: 'ann' }, by: { personId: 'bo', email: 'bo@example.com', role: 'collaborator' }, at: now, after: 0, state: 'waiting' });
     await sync.once();
-    expect(did).toEqual([['memberRemoved', { personId: 'cy', because: 'removed-from-shared-project', at: expect.any(String), sharedProjectId: hubId }]]);
+    expect(did).toEqual([['memberRemoved', { personId: 'cy', because: 'removed-from-shared-project', at: anyOf(String), sharedProjectId: hubId }]]);
     const settled = await store.project(hubId).requests();
     expect(settled.map((request) => [request.id === 'forged' ? 'forged' : request.kind, request.state]).sort()).toEqual([['forged', 'refused'], ['member-removed', 'done']]);
     sync.stop();

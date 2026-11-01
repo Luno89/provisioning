@@ -1,5 +1,6 @@
 import { Router, type Request, type Response } from 'express';
 import { asyncRoute } from '../../platform/index.js';
+import { fieldsOf } from '../../projects/index.js';
 import type { HubOutcome, HubService } from '../services/HubService.js';
 import type { RelayAnswer } from '../services/HubRelay.js';
 import type { RelayOp } from '../lib/hub-board.js';
@@ -42,11 +43,11 @@ export function hubRouter(deps: { hub: HubService; vouch?: ((req: Request) => Pr
   }));
 
   router.delete('/projects/:id', asyncRoute(async (req, res) => {
-    answer(res, await deps.hub.delete(personOf(req).id, param(req, 'id'), req.body?.name));
+    answer(res, await deps.hub.delete(personOf(req).id, param(req, 'id'), fieldsOf(req.body).name));
   }));
 
   router.post('/projects/:id/invites', asyncRoute(async (req, res) => {
-    answer(res, await deps.hub.invite({ ...personOf(req), vouch: async () => deps.vouch?.(req) }, param(req, 'id'), { email: req.body?.email, role: req.body?.role }), 201);
+    answer(res, await deps.hub.invite({ ...personOf(req), vouch: async () => deps.vouch?.(req) }, param(req, 'id'), { email: fieldsOf(req.body).email, role: fieldsOf(req.body).role }), 201);
   }));
 
   router.delete('/projects/:id/invites', asyncRoute(async (req, res) => {
@@ -54,7 +55,7 @@ export function hubRouter(deps: { hub: HubService; vouch?: ((req: Request) => Pr
   }));
 
   router.put('/projects/:id/members/:personId', asyncRoute(async (req, res) => {
-    answer(res, await deps.hub.changeRole(personOf(req).id, param(req, 'id'), param(req, 'personId'), req.body?.role));
+    answer(res, await deps.hub.changeRole(personOf(req).id, param(req, 'id'), param(req, 'personId'), fieldsOf(req.body).role));
   }));
 
   router.delete('/projects/:id/members/:personId', asyncRoute(async (req, res) => {
@@ -70,11 +71,11 @@ export function hubRouter(deps: { hub: HubService; vouch?: ((req: Request) => Pr
   }));
 
   router.post('/projects/:id/conversations/:conversationId/messages', asyncRoute(async (req, res) => {
-    answer(res, await deps.hub.post(personOf(req), param(req, 'id'), param(req, 'conversationId'), { content: req.body?.content, askKoala: req.body?.askKoala }), 201);
+    answer(res, await deps.hub.post(personOf(req), param(req, 'id'), param(req, 'conversationId'), { content: fieldsOf(req.body).content, askKoala: fieldsOf(req.body).askKoala }), 201);
   }));
 
   router.post('/projects/:id/requests', asyncRoute(async (req, res) => {
-    answer(res, await deps.hub.request(personOf(req), param(req, 'id'), (req.body ?? {}) as Record<string, unknown>), 202);
+    answer(res, await deps.hub.request(personOf(req), param(req, 'id'), fieldsOf(req.body)), 202);
   }));
 
   const relayed = (req: Request, res: Response, op: RelayOp, args: Record<string, unknown>, upload?: Parameters<HubService['relay']>[4]) => (async () => {
@@ -89,7 +90,7 @@ export function hubRouter(deps: { hub: HubService; vouch?: ((req: Request) => Pr
   router.get('/projects/:id/live/extensions', asyncRoute(async (req, res) => relayed(req, res, 'extensions', {})));
 
   const pathIn = (req: Request, res: Response, key: string, allowRoot = false): string | undefined => {
-    const raw = query(req, key) ?? (typeof req.body?.[key] === 'string' ? String(req.body[key]) : '');
+    const raw = query(req, key) ?? (typeof fieldsOf(req.body)[key] === 'string' ? String(fieldsOf(req.body)[key]) : '');
     const cleaned = cleanPath(raw, { allowRoot });
     if (!cleaned.ok) { res.status(400).json({ error: cleaned.why }); return undefined; }
     return cleaned.path;

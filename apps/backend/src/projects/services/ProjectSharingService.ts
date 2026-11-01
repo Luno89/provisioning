@@ -162,7 +162,8 @@ export class ProjectSharingService {
       try {
         shared = await this.deps.sharing.share(owner, { id: project.id, name: project.name, group });
       } catch (err) {
-        await this.deps.groups.release(projectId).catch(() => {});
+        await this.deps.groups.release(projectId).catch((released: unknown) =>
+          console.warn(`[sharing] the group ${group} stays claimed for ${projectId}, though sharing it failed, since letting it go failed too: ${(released as Error).message}`));
         throw err;
       }
       await this.deps.store.hub.saveHubLink({

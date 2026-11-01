@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { HubService } from './HubService.js';
 import { memoryHubStore } from '../lib/hub-store.js';
+import { objectWith } from '../../projects/lib/test-matchers.js';
 
 const ann = { id: 'ann', email: 'ann@example.com' };
 const bo = { id: 'bo', email: 'bo@example.com' };
@@ -28,7 +29,7 @@ describe('a shared project and its people', () => {
     const id = shop.project.id;
 
     expect(valueOf(await hub.invite(ann, id, { email: 'Bo@Example.com', role: 'collaborator' }))).toMatchObject({ email: 'bo@example.com', role: 'collaborator', emailed: true });
-    expect(send).toHaveBeenCalledWith(expect.objectContaining({ email: 'bo@example.com', inviterEmail: 'ann@example.com', projectName: 'Shop', role: 'collaborator' }), expect.objectContaining({ id: 'ann' }));
+    expect(send).toHaveBeenCalledWith(objectWith({ email: 'bo@example.com', inviterEmail: 'ann@example.com', projectName: 'Shop', role: 'collaborator' }), objectWith({ id: 'ann' }));
     expect(valueOf(await hub.view('ann', id)).invites).toEqual([{ projectId: id, email: 'bo@example.com', role: 'collaborator', invitedBy: 'ann', createdAt: 'now' }]);
 
     expect(await hub.accept(eve, tokenOf(0))).toMatchObject({ ok: false, status: 403, why: 'This invite is for bo@example.com; sign in as that address to take it.' });
@@ -222,7 +223,7 @@ describe('taking someone off a shared project ends what Koala was doing for them
 
     expect(valueOf(await hub.remove('ann', id, 'bo'))).toEqual({ removed: 'bo' });
     const waiting = await store.project(id).requests();
-    expect(waiting).toEqual([expect.objectContaining({ kind: 'member-removed', input: { personId: 'bo' }, by: expect.objectContaining({ personId: 'ann' }), state: 'waiting' })]);
+    expect(waiting).toEqual([objectWith({ kind: 'member-removed', input: { personId: 'bo' }, by: objectWith({ personId: 'ann' }), state: 'waiting' })]);
     expect(valueOf(await hub.boardView('ann', id)).requests).toEqual([]);
   });
 });

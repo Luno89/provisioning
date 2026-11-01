@@ -1,6 +1,7 @@
 import { Router, type Request } from 'express';
 import { asyncRoute, ownedBy, type Database } from '../../platform/index.js';
-import { agentProblem, treeTypeReachProblem, validateTreeType } from '../lib/tree-types.js';
+import { agentProblem, treeTypeFrom, treeTypeReachProblem } from '../lib/tree-types.js';
+import { fieldsOf } from '../lib/request-fields.js';
 
 export interface TreeTypesRouterDeps {
   releaseProblem?: ((ownerId: string, how: unknown) => Promise<string | null>) | undefined;
@@ -37,10 +38,11 @@ export function treeTypesRouter(deps: TreeTypesRouterDeps): Router {
 
   router.put('/:id', asyncRoute(async (req, res) => {
     const userId = userOf(req).id;
-    const candidate = { ...(req.body ?? {}), id: idOf(req), ownerId: userId };
+    const read = treeTypeFrom(await db.engine.getWorkspaceImages(userId), { ...fieldsOf(req.body), id: idOf(req), ownerId: userId });
+    if ('problem' in read) return res.status(400).json({ error: read.problem });
+    const candidate = read.type;
 
-    const invalid = validateTreeType(await db.engine.getWorkspaceImages(userId), candidate)
-      ?? agentProblem(candidate.agent, await deps.agents(userId))
+    const invalid = agentProblem(candidate.agent, await deps.agents(userId))
       ?? treeTypeReachProblem(candidate, await deps.ownNamespaces(userId))
       ?? (candidate.release !== undefined && deps.releaseProblem ? await deps.releaseProblem(userId, candidate.release) : null);
     if (invalid) return res.status(400).json({ error: invalid });

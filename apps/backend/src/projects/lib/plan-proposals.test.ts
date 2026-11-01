@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { parseLeafPlan, parsePlan, planSummary } from './plan-proposals.js';
+import { containing } from './test-matchers.js';
 
 const world = { treeTypes: ['api-service', 'research'], existingLeafIds: new Set(['old-leaf']) };
 
@@ -40,7 +41,7 @@ describe('parsePlan', () => {
     expect(parsed).toMatchObject({
       plan: {
         tree: { name: 'Widget API', type: 'api-service' },
-        branches: [{ title: 'Operability', leaves: [{ key: 'health', brief: expect.stringContaining('src/server.ts'), tasks: [{ key: 't1', dependsOn: [] }] }] }],
+        branches: [{ title: 'Operability', leaves: [{ key: 'health', brief: containing('src/server.ts'), tasks: [{ key: 't1', dependsOn: [] }] }] }],
       },
     });
     expect('plan' in parsed && planSummary(parsed.plan)).toBe('1 branch, 1 leaf, 1 task for a new api-service tree "Widget API"');
@@ -184,17 +185,17 @@ describe('parseLeafPlan', () => {
 
   it('takes new tasks and a brief for one leaf, keeping the goal unless it is amended', () => {
     const parsed = parseLeafPlan(raw(), world);
-    expect(parsed).toMatchObject({ plan: { treeId: 't1', leafId: 'leaf-1', mode: 'replan', brief: expect.stringContaining('http.server'), tasks: [{ key: 'serve' }] } });
+    expect(parsed).toMatchObject({ plan: { treeId: 't1', leafId: 'leaf-1', mode: 'replan', brief: containing('http.server'), tasks: [{ key: 'serve' }] } });
     expect('plan' in parsed && parsed.plan.body).toBeFalsy();
     expect(parseLeafPlan(raw({ body: 'curl :8080 returns the page, served by any web server' }), world)).toMatchObject({ plan: { body: 'curl :8080 returns the page, served by any web server' } });
   });
 
   it('asks for the mode, the why, a brief and at least one task, with task briefs held to the usual rules', () => {
-    expect(parseLeafPlan(raw({ mode: 'retry' }), world)).toMatchObject({ problem: expect.stringContaining("'replan'") });
-    expect(parseLeafPlan(raw({ why: '' }), world)).toMatchObject({ problem: expect.stringContaining('needs a why') });
-    expect(parseLeafPlan(raw({ brief: '' }), world)).toMatchObject({ problem: expect.stringContaining('needs a brief') });
-    expect(parseLeafPlan(raw({ tasks: [] }), world)).toMatchObject({ problem: expect.stringContaining('at least one task') });
-    expect(parseLeafPlan(raw({ tasks: JSON.stringify([task({ role: '' })]) }), world)).toMatchObject({ problem: expect.stringContaining('what part it plays') });
+    expect(parseLeafPlan(raw({ mode: 'retry' }), world)).toMatchObject({ problem: containing("'replan'") });
+    expect(parseLeafPlan(raw({ why: '' }), world)).toMatchObject({ problem: containing('needs a why') });
+    expect(parseLeafPlan(raw({ brief: '' }), world)).toMatchObject({ problem: containing('needs a brief') });
+    expect(parseLeafPlan(raw({ tasks: [] }), world)).toMatchObject({ problem: containing('at least one task') });
+    expect(parseLeafPlan(raw({ tasks: JSON.stringify([task({ role: '' })]) }), world)).toMatchObject({ problem: containing('what part it plays') });
   });
 });
 

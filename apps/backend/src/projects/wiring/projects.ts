@@ -170,8 +170,8 @@ export function wireProjects(deps: ProjectsWiringDeps): ProjectsWiring {
     workflows: temporalRemovalWorkflows<{ projectId: string }, ProjectRemovalStep>(() => temporalBridge.client, engineQueue, PROJECT_REMOVAL_PROGRESS_QUERY),
   });
   tenant.use('/api/projects', projectsRouter({
-    db, projectRepoService, appService: deps.apps, temporalBridge, getOwnedProject: deps.getOwnedProject,
-    giteaService: gitea, clusterService: deps.clusters, infraService: deps.infra, dataKey: deps.dataKey, removal: projectRemoval, channels,
+    db, projectRepoService, temporalBridge, getOwnedProject: deps.getOwnedProject,
+    giteaService: gitea, clusterService: deps.clusters, removal: projectRemoval, channels,
   }));
   tenant.use('/api/items', itemChatsRouter({ items: itemChats }));
   tenant.use('/api/projects', projectChannelRouter({

@@ -4,6 +4,7 @@ import type { Leaf } from '../lib/leaves.js';
 import type { ProjectsStore } from '../store.js';
 import type { GroveRunService } from '../services/GroveRunService.js';
 import type { GroveDeletionService } from '../services/GroveDeletionService.js';
+import { fieldsOf, trimmedText } from '../lib/request-fields.js';
 
 export interface LeavesRouterDeps {
   db: Pick<ProjectsStore, 'getLeaves'>;
@@ -39,10 +40,9 @@ export function leavesRouter(deps: LeavesRouterDeps): Router {
   router.post('/:id/settle', asyncRoute(async (req, res) => {
     const leaf = await ownedLeaf(req);
     if (!leaf) return res.status(404).json({ error: 'Leaf not found' });
-    const verdict = req.body?.verdict;
+    const { verdict, note } = fieldsOf(req.body);
     if (verdict !== 'verified' && verdict !== 'failed') return res.status(400).json({ error: "verdict is 'verified' or 'failed'" });
-    const note = typeof req.body?.note === 'string' && req.body.note.trim() ? req.body.note.trim() : undefined;
-    const settled = await deps.runs.settleClaim(leaf, verdict, note);
+    const settled = await deps.runs.settleClaim(leaf, verdict, trimmedText(note));
     if (!settled.ok) return res.status(settled.status).json({ error: settled.error });
     res.json(settled.value);
   }));

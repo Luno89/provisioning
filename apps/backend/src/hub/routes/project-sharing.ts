@@ -1,5 +1,6 @@
 import { Router, type Request, type Response } from 'express';
 import { asyncRoute } from '../../platform/index.js';
+import { fieldsOf } from '../../projects/index.js';
 import type { ProjectSharingService, SharingOutcome } from '../../projects/index.js';
 
 const personOf = (req: Request) => (req as unknown as { user: { id: string; email: string } }).user;
@@ -22,11 +23,11 @@ export function projectSharingRouter(deps: { sharing: ProjectSharingService }): 
 
   router.post('/:id', asyncRoute(async (req, res) => {
     const person = personOf(req);
-    answer(res, await deps.sharing.share({ id: person.id, email: person.email }, id(req), req.body?.group));
+    answer(res, await deps.sharing.share({ id: person.id, email: person.email }, id(req), fieldsOf(req.body).group));
   }));
 
   router.delete('/:id', asyncRoute(async (req, res) => {
-    answer(res, await deps.sharing.takeBack(personOf(req).id, id(req), req.body?.confirm));
+    answer(res, await deps.sharing.takeBack(personOf(req).id, id(req), fieldsOf(req.body).confirm));
   }));
 
   return router;

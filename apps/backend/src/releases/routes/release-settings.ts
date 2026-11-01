@@ -1,10 +1,11 @@
 import { Router, type Request, type Response } from 'express';
 import { asyncRoute } from '../../platform/index.js';
+import { fieldsOf } from '../../projects/index.js';
 import type { ReleaseSettings } from '../services/ReleaseSettings.js';
 
 const userOf = (req: Request): { id: string } => (req as unknown as { user: { id: string } }).user;
 const param = (req: Request, name: string): string => String(req.params[name] ?? '');
-const howOf = (req: Request): unknown => (req.body?.release === null ? undefined : req.body?.release);
+const howOf = (req: Request): unknown => fieldsOf(req.body).release ?? undefined;
 
 export function releaseSettingsRouter(deps: { settings: Pick<ReleaseSettings, 'options' | 'setForType' | 'ofProject' | 'setForProject'> }): Router {
   const router = Router();

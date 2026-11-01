@@ -71,13 +71,13 @@ export class ClientImportService {
     if (!entry || !SET_ASIDE.includes(entry.state)) return { ok: false, status: 409, error: entry ? `the client's database is ${entry.state}, so there is nothing to start without` : `${project.name} is not waiting for a client's database` };
     const established = await this.deps.releases.established(ownerId, projectId);
     if (established) return { ok: false, status: 409, error: `${project.name} has already released` };
-    await this.deps.saveProject({ id: project.id, clientImport: null });
     const cluster = project.targetClusterId ? await this.deps.clusterById(project.targetClusterId) : undefined;
     if (cluster && project.releaseName) {
       const target = releaseTargetOf(cluster, project);
-      await this.deps.cluster.remove(target, 'job', restoreJobName(project.releaseName, 'a'), true).catch(() => undefined);
-      await this.deps.cluster.remove(target, 'pvc', importClaim(project.releaseName)).catch(() => undefined);
+      await this.deps.cluster.remove(target, 'job', restoreJobName(project.releaseName, 'a'), true);
+      await this.deps.cluster.remove(target, 'pvc', importClaim(project.releaseName));
     }
+    await this.deps.saveProject({ id: project.id, clientImport: null });
     const build = await this.deps.latestBuild(project);
     if (build) await this.deps.releases.release({ ...project, clientImport: undefined }, build);
     return { ok: true, value: { released: Boolean(build) } };
@@ -113,7 +113,10 @@ export class ClientImportService {
       await this.deps.cluster.put(target, holderManifest(target.release));
       await this.deps.cluster.running(target, holder);
       await this.deps.cluster.pipe(target, holder, RECEIVE_COMMAND, input.body);
-      const manifest = parseManifest(await this.deps.cluster.exec(target, holder, MANIFEST_COMMAND).catch(() => ''));
+      const manifest = parseManifest(await this.deps.cluster.exec(target, holder, MANIFEST_COMMAND).catch((err: unknown) => {
+        console.warn(`[client import] ${project.name}: reading manifest.json from the backup failed, so it is taken as having none: ${(err as Error).message}`);
+        return '';
+      }));
       const problem = versionProblem(manifest, major);
       if (problem) {
         await this.deps.cluster.exec(target, holder, DISCARD_COMMAND);
@@ -126,7 +129,8 @@ export class ClientImportService {
       await record({ state: 'failed', mode, bytes: input.bytes, reason, at: this.now() });
       return { ok: false, status: 500, error: reason };
     } finally {
-      await this.deps.cluster.remove(target, 'pod', holder).catch(() => undefined);
+      await this.deps.cluster.remove(target, 'pod', holder).catch((err: unknown) =>
+        console.warn(`[client import] ${project.name}: the pod ${holder} holding the backup is still there, since removing it failed: ${(err as Error).message}`));
     }
 
     const build = await this.deps.latestBuild(named);

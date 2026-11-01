@@ -128,10 +128,10 @@ describe('/api/hub-link, on root', () => {
     const jwk = publicJwkOf(identityKeysFrom(generateIdentityKey()));
     expect((await axios.put(site.url('/api/hub-link/sign-in-key'), { jwk }, ask)).status).toBe(401);
     expect((await axios.put(site.url('/api/hub-link/sign-in-key'), { jwk: { ...jwk, kid: 'chosen' } }, { ...ask, headers: { authorization: 'Bearer the-hub' } })).status).toBe(400);
-    const named = await axios.put(site.url('/api/hub-link/sign-in-key'), { jwk }, { headers: { authorization: 'Bearer the-hub' } });
+    const named = await axios.put<{ since?: string }>(site.url('/api/hub-link/sign-in-key'), { jwk }, { headers: { authorization: 'Bearer the-hub' } });
     expect(named.status).toBe(200);
     expect(held()).toEqual({ jwk, since: named.data.since });
-    expect((await axios.put(site.url('/api/hub-link/sign-in-key'), { jwk }, { headers: { authorization: 'Bearer the-hub' } })).data.since).toBe(named.data.since);
+    expect((await axios.put<{ since?: string }>(site.url('/api/hub-link/sign-in-key'), { jwk }, { headers: { authorization: 'Bearer the-hub' } })).data.since).toBe(named.data.since);
   });
 });
 

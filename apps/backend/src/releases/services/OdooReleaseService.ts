@@ -435,8 +435,16 @@ export class OdooReleaseService {
   }
 
   private async watch(ownerId: string, projectId: string): Promise<void> {
+    let unsure = false;
     for (;;) {
-      const running = await this.deps.runs.running(projectId).catch(() => true);
+      const running = await this.deps.runs.running(projectId).then((answer) => {
+        unsure = false;
+        return answer;
+      }, (err: unknown) => {
+        if (!unsure) console.warn(`[releases] cannot tell whether ${projectId}'s release still runs, so it is watched as running: ${(err as Error).message}`);
+        unsure = true;
+        return true;
+      });
       const releases = await this.deps.store.releases.getOdooReleases(ownerId, projectId);
       for (const release of releases) {
         if (!untold(release)) continue;

@@ -1,6 +1,7 @@
 import { Router, type Request } from 'express';
 import { asyncRoute } from '../../platform/index.js';
 import type { SecretRequestService } from '../services/SecretRequestService.js';
+import { fieldsOf } from '../lib/request-fields.js';
 
 export interface SecretRequestsRouterDeps {
   secrets: SecretRequestService;
@@ -26,8 +27,8 @@ export function secretRequestsRouter(deps: SecretRequestsRouterDeps): Router {
   }));
 
   router.post('/:id/submit', asyncRoute(async (req, res) => {
-    const value = typeof req.body?.value === 'string' ? req.body.value : '';
-    const decided = await deps.secrets.submit(userOf(req).id, idOf(req), value);
+    const { value } = fieldsOf(req.body);
+    const decided = await deps.secrets.submit(userOf(req).id, idOf(req), typeof value === 'string' ? value : '');
     if (!decided.ok) return res.status(decided.status).json({ error: decided.error });
     res.json(decided.request);
   }));

@@ -1,6 +1,7 @@
 import { HUB_AUDIENCE, signedPart } from '../lib/hub.js';
 import { issueMoveToken, type IdentityKeyPair } from '../../instances/index.js';
 import type { HubService } from './HubService.js';
+import { refusalOf } from './hub-answers.js';
 
 export interface HubPeople {
   blockers(personId: string): Promise<string[]>;
@@ -22,9 +23,8 @@ export class RemoteHubPeople implements HubPeople {
   private async ask(method: 'GET' | 'DELETE', personId: string, what: 'leaving' | 'let-go'): Promise<Record<string, unknown>> {
     const token = issueMoveToken(this.hub.signing, HUB_AUDIENCE, hubPersonPart(personId, what));
     const response = await this.fetchImpl(`${this.hub.url}/api/hub-root/people/${encodeURIComponent(personId)}`, { method, headers: { authorization: `Bearer ${token}` } });
-    const answer = await response.json().catch(() => ({})) as Record<string, unknown>;
-    if (!response.ok) throw new Error(`the hub would not ${what === 'leaving' ? 'say what this account is on' : 'let this account go'} (${response.status}): ${String(answer.error ?? 'no reason given')}`);
-    return answer;
+    if (!response.ok) throw new Error(`the hub would not ${what === 'leaving' ? 'say what this account is on' : 'let this account go'} (${response.status}): ${(await refusalOf(response)).error ?? 'no reason given'}`);
+    return await response.json() as Record<string, unknown>;
   }
 
   async blockers(personId: string): Promise<string[]> {

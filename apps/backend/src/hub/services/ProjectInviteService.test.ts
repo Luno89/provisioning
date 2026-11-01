@@ -3,6 +3,7 @@ import { ProjectInviteService } from './ProjectInviteService.js';
 import type { InviteMetadata } from '../../platform/lib/types.js';
 import { inviteCodeHash } from '../../platform/lib/invite-codes.js';
 import { principalOf } from '../../platform/lib/permissions.js';
+import { matching } from '../../projects/lib/test-matchers.js';
 
 function setUp(mail: 'works' | 'off' | 'fails', over: { limits?: { accounts?: number; perHour?: number }; people?: Record<string, { roles?: ('operator')[]; inviteAccounts?: number }>; accounts?: string[]; now?: () => string } = {}) {
   const invites: InviteMetadata[] = [];
@@ -61,7 +62,7 @@ describe('inviting someone to a project, on root', () => {
   it('takes a person\'s own allowance over the default, and limits none for an admin', async () => {
     const own = setUp('off', { limits: { accounts: 0 }, people: { ann: { inviteAccounts: 1 } } });
     expect(await own.service.send(asked)).toMatchObject({ emailed: false });
-    expect(await own.service.send({ ...asked, email: 'z@example.com' })).toMatchObject({ refused: expect.stringMatching(/as many as you may \(1\)/) });
+    expect(await own.service.send({ ...asked, email: 'z@example.com' })).toMatchObject({ refused: matching(/as many as you may \(1\)/) });
     const admin = setUp('off', { limits: { accounts: 0, perHour: 1 }, people: { ann: { roles: ['operator' as const] } } });
     for (const email of ['a@example.com', 'b@example.com']) expect(await admin.service.send({ ...asked, email })).toMatchObject({ emailed: false });
   });

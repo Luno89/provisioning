@@ -16,10 +16,18 @@ function source(name: string, bytes: Buffer): string {
   return file;
 }
 
+interface GiteaInternals {
+  resolveBaseUrl(): Promise<string>;
+  getToken(): Promise<string>;
+}
+
+const unused = (): never => { throw new Error('not used by this test'); };
+
 function service(): GiteaService {
-  const gitea = new GiteaService({} as never, 'master-key', '/tmp/kubeconfig');
-  vi.spyOn(gitea as any, 'resolveBaseUrl').mockResolvedValue(`file://${root}`);
-  vi.spyOn(gitea as any, 'getToken').mockResolvedValue('admin');
+  const gitea = new GiteaService({ runKubectl: unused, getK3dServerIp: unused }, 'master-key', '/tmp/kubeconfig');
+  const internals = gitea as unknown as GiteaInternals;
+  vi.spyOn(internals, 'resolveBaseUrl').mockResolvedValue(`file://${root}`);
+  vi.spyOn(internals, 'getToken').mockResolvedValue('admin');
   vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ full_name: 'Ada', email: 'ada@example.com' }), { status: 200 })));
   return gitea;
 }

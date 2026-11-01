@@ -4,6 +4,7 @@ import { memoryHubStore } from '../../hub/lib/hub-store.js';
 import { HubService } from '../../hub/services/HubService.js';
 import { HubSyncService, localHubSync } from '../../hub/services/HubSyncService.js';
 import { localHubSharing, localProjectGroups, ProjectSharingService, type ProjectGroups } from './ProjectSharingService.js';
+import { arrayWith, matching } from '../lib/test-matchers.js';
 
 const now = '2026-10-21T00:00:00Z';
 const ann = { id: 'ann', email: 'ann@example.com' };
@@ -35,7 +36,7 @@ describe('sharing a project from its owner\'s instance', () => {
   it('shows what would move and what stays, moves nothing until asked, then moves the board and its chats with their history', async () => {
     const { db, store, hub, sharing } = await setUp();
     const before = await sharing.preview('ann', 'p1');
-    expect(before).toEqual({ ok: true, value: { canShare: true, addresses: { scope: 'owner' }, moves: { epics: 1, features: 1, stories: 1, tasks: 0, chats: 1 }, stays: expect.arrayContaining(['the project\'s secrets']) } });
+    expect(before).toEqual({ ok: true, value: { canShare: true, addresses: { scope: 'owner' }, moves: { epics: 1, features: 1, stories: 1, tasks: 0, chats: 1 }, stays: arrayWith(['the project\'s secrets']) } });
     expect(await hub.mine('ann')).toEqual([]);
     expect(await sharing.preview('bo', 'p1')).toMatchObject({ ok: false, status: 404 });
 
@@ -72,9 +73,9 @@ describe('sharing a project from its owner\'s instance', () => {
 describe('the group a shared project\'s apps are addressed under', () => {
   it('is needed to share, follows the name rules and is refused while another project holds it', async () => {
     const { sharing, republished } = await setUp();
-    expect(await sharing.share(ann, 'p1', undefined)).toMatchObject({ ok: false, status: 400, why: expect.stringMatching(/Name the group/) });
-    expect(await sharing.share(ann, 'p1', 'ac-me')).toMatchObject({ ok: false, status: 400, why: expect.stringMatching(/no dashes/) });
-    expect(await sharing.share(ann, 'p1', 'mail')).toMatchObject({ ok: false, status: 400, why: expect.stringMatching(/kept for the platform/) });
+    expect(await sharing.share(ann, 'p1', undefined)).toMatchObject({ ok: false, status: 400, why: matching(/Name the group/) });
+    expect(await sharing.share(ann, 'p1', 'ac-me')).toMatchObject({ ok: false, status: 400, why: matching(/no dashes/) });
+    expect(await sharing.share(ann, 'p1', 'mail')).toMatchObject({ ok: false, status: 400, why: matching(/kept for the platform/) });
     expect(republished).toEqual([]);
     const shared = await sharing.share(ann, 'p1', 'acme');
     expect(shared).toMatchObject({ ok: true, value: { group: 'acme', addresses: { scope: 'group' } } });
@@ -90,7 +91,7 @@ describe('the group a shared project\'s apps are addressed under', () => {
     const { db, sharing } = await setUp({ domain: 'koala.dev' });
     expect(await sharing.groupCheck('ann', 'p1', undefined)).toEqual({ ok: true, value: { ok: false, suggested: 'shop' } });
     expect(await sharing.groupCheck('ann', 'p1', 'acme')).toEqual({ ok: true, value: { ok: true, suggested: 'shop', example: '<app>-acme.koala.dev' } });
-    expect(await sharing.groupCheck('ann', 'p1', 'a-b')).toMatchObject({ ok: true, value: { ok: false, problem: expect.stringMatching(/no dashes/) } });
+    expect(await sharing.groupCheck('ann', 'p1', 'a-b')).toMatchObject({ ok: true, value: { ok: false, problem: matching(/no dashes/) } });
     expect(await sharing.groupCheck('bo', 'p1', 'acme')).toMatchObject({ ok: false, status: 404 });
     await db.infrastructure.saveDeployment({ id: 'd1', name: 'Shop Front', gitappProjectId: 'p1', clusterId: 'c1', appType: 'gitapp', status: 'running', createdAt: now } as never);
     expect(await sharing.groupCheck('ann', 'p1', 'acme')).toMatchObject({ ok: true, value: { example: 'shop-front-acme.koala.dev' } });

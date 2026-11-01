@@ -5,8 +5,9 @@ import { secretRequestsRouter } from './secret-requests.js';
 import { SecretRequestService, type VaultBackend } from '../services/SecretRequestService.js';
 import type { SecretRequest } from '../lib/secret-requests.js';
 
-const post = (url: string, body: unknown) => axios.post(url, body, { validateStatus: () => true });
-const get = (url: string) => axios.get(url, { validateStatus: () => true });
+interface Answer { status?: string; error?: string }
+const post = (url: string, body: unknown) => axios.post<Answer>(url, body, { validateStatus: () => true });
+const get = (url: string) => axios.get<SecretRequest[]>(url, { validateStatus: () => true });
 
 const request = (over: Partial<SecretRequest> = {}): SecretRequest => ({
   id: 'req-1',
@@ -51,7 +52,7 @@ describe('/api/secret-requests', () => {
   it('lists a conversation\'s requests', async () => {
     const res = await get(harness.url('/api/secret-requests?conversationId=conv-1'));
     expect(res.status).toBe(200);
-    expect(res.data.map((entry: SecretRequest) => entry.key)).toEqual(['STRIPE_API_KEY']);
+    expect(res.data.map((entry) => entry.key)).toEqual(['STRIPE_API_KEY']);
   });
 
   it('puts the value in the vault, marks the request provided, and answers without the value', async () => {
