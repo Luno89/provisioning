@@ -22,8 +22,10 @@ export { ACCOUNT_KEY, afterFailure, attemptsKeyFor, CONFIRM_CODES, confirmCodesK
 export type { LockoutRule, SignInAttempts } from './lib/http-limits.js';
 export { commandSafeCode, INVITE_DAYS, inviteCodeHash, inviteExpired, inviteExpiry, inviteView, newInviteCode } from './lib/invite-codes.js';
 export type { InviteView } from './lib/invite-codes.js';
-export { fieldOf, isRecord, listAt, textAt } from './lib/json-shapes.js';
+export { at, isRecord, listAt, numberAt, recordAt, textAt } from './lib/json-shapes.js';
 export type { JsonRecord } from './lib/json-shapes.js';
+export { fieldsOf, trimmedText } from './lib/request-fields.js';
+export type { Fields } from './lib/request-fields.js';
 export { keepTrying } from './lib/keep-trying.js';
 export { reencrypt } from './lib/key-rotation.js';
 export { generateKey, KEY_NAMES, loadKeys } from './lib/keys.js';

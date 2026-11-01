@@ -1,7 +1,6 @@
 import { Router, type Request, type Response } from 'express';
-import { asyncRoute } from '../../platform/index.js';
+import { asyncRoute, fieldsOf } from '../../platform/index.js';
 import type { ProcedureService } from '../services/ProcedureService.js';
-import { fieldsOf } from '../lib/request-fields.js';
 
 export interface ProceduresRouterDeps {
   procedures: ProcedureService;

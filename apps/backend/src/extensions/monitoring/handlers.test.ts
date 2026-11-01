@@ -1,9 +1,9 @@
+import { containing } from '../../platform/lib/test-matchers.js';
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { ActionProposal } from '../../engine/lib/action-proposals.js';
 import { createMonitoringTools, type MonitoringReading } from './handlers.js';
 import { APP_HEALTH, MONITORING_OVERVIEW, PROPOSE_ALERT } from './catalogue.js';
 import { asPerson } from '../../platform/lib/permissions.js';
-import { containing } from '../../engine/lib/test-matchers.js';
 
 const caller = { ownerId: 'me', conversationId: 'conv-1', runId: 'run-1' };
 let saved: ActionProposal[];

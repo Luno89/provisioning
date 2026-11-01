@@ -1,8 +1,7 @@
 import { Router, type Request, type Response } from 'express';
 import { LANGUAGE_IDS } from '@koala/agent-engine';
-import { asyncRoute, principalFrom } from '../../platform/index.js';
+import { asyncRoute, fieldsOf, principalFrom } from '../../platform/index.js';
 import type { AgentService } from '../services/AgentService.js';
-import { fieldsOf } from '../lib/request-fields.js';
 
 export interface AgentsRouterDeps {
   agents: AgentService;

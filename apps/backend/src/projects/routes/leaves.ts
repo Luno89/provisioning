@@ -1,10 +1,9 @@
 import { Router, type Request } from 'express';
-import { asyncRoute, ownedBy } from '../../platform/index.js';
+import { asyncRoute, fieldsOf, ownedBy, trimmedText } from '../../platform/index.js';
 import type { Leaf } from '../lib/leaves.js';
 import type { ProjectsStore } from '../store.js';
 import type { GroveRunService } from '../services/GroveRunService.js';
 import type { GroveDeletionService } from '../services/GroveDeletionService.js';
-import { fieldsOf, trimmedText } from '../lib/request-fields.js';
 
 export interface LeavesRouterDeps {
   db: Pick<ProjectsStore, 'getLeaves'>;

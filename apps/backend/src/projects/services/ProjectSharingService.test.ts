@@ -1,10 +1,10 @@
+import { arrayWith, matching } from '../../platform/lib/test-matchers.js';
 import { describe, expect, it } from 'vitest';
 import { testDatabase } from '../../platform/lib/test-database.js';
 import { memoryHubStore } from '../../hub/lib/hub-store.js';
 import { HubService } from '../../hub/services/HubService.js';
 import { HubSyncService, localHubSync } from '../../hub/services/HubSyncService.js';
 import { localHubSharing, localProjectGroups, ProjectSharingService, type ProjectGroups } from './ProjectSharingService.js';
-import { arrayWith, matching } from '../lib/test-matchers.js';
 
 const now = '2026-10-21T00:00:00Z';
 const ann = { id: 'ann', email: 'ann@example.com' };

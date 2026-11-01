@@ -1,10 +1,9 @@
-import { BaseService, type Database, type ClusterMetadata, type DeploymentMetadata } from '../../platform/index.js';
+import { at, BaseService, type ClusterMetadata, type Database, type DeploymentMetadata, listAt, numberAt, textAt } from '../../platform/index.js';
 import type { InfrastructureService } from './InfrastructureService.js';
 import type { ClusterService } from './ClusterService.js';
 import { hasCloudCredentials, isMockCloudProvider } from './cloud-credentials.js';
 import { isSelfManagedCluster } from '../lib/cluster-topology.js';
 import { assertUpstreamTarget } from '../lib/upstream-target.js';
-import { at, listAt, numberAt, textAt } from '../lib/json-reading.js';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import fs from 'fs/promises';

@@ -1,3 +1,4 @@
+import { containing } from '../../platform/lib/test-matchers.js';
 import { describe, it, expect, beforeEach } from 'vitest';
 import { testDatabase } from '../../platform/lib/test-database.js';
 import type { MongoDB } from '../../platform/lib/mongo-db.js';
@@ -5,7 +6,6 @@ import { OdooReleaseService, type ReleaseRuns } from './OdooReleaseService.js';
 import { newReleaseName } from '../lib/odoo-release.js';
 import { marked, type ReleaseMark, type ReleaseRunInput, type RollBackRunInput } from '../lib/release-run.js';
 import type { ClusterMetadata, PipelineRunMetadata, ProjectMetadata } from '../../platform/lib/types.js';
-import { containing } from '../../projects/lib/test-matchers.js';
 
 let db: MongoDB;
 let running: boolean;

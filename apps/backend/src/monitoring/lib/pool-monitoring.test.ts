@@ -1,9 +1,10 @@
+import { containing } from '../../platform/lib/test-matchers.js';
+import { at } from '../../platform/lib/json-shapes.js';
 import { describe, expect, it } from 'vitest';
 import {
   BLACKBOX_VALUES, hostProbeManifest, hostRuleManifest, parsePoolRule, parseProbes, placeAlerts, poolStackValues,
   probeIngressPolicy, probesFromCluster,
 } from './pool-monitoring.js';
-import { at, containing } from '../../platform/lib/test-matchers.js';
 
 const place = { hostNamespace: 'pool-alice' };
 

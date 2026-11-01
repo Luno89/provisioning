@@ -1,3 +1,4 @@
+import { containing } from '../../platform/lib/test-matchers.js';
 import { describe, expect, it } from 'vitest';
 import type { RunEffort } from '@koala/agent-engine/procedure';
 import { TreeWorkspaceService, type TreeWorkspaceDeps } from './TreeWorkspaceService.js';
@@ -5,7 +6,6 @@ import { WorkspaceFileService } from '../../engine/services/WorkspaceFileService
 import { GiteaConflictError } from './GiteaService.js';
 import { WORKSPACE_FILE, type WorkspaceFile } from '../../engine/lib/workspace-file.js';
 import type { PublishedWorkspace } from '../../engine/lib/published-workspace.js';
-import { containing } from '../lib/test-matchers.js';
 
 const TREES = [{ id: 't1', ownerId: 'u1' }, { id: 't2', ownerId: 'u2' }];
 const PUBLISHED: PublishedWorkspace = {

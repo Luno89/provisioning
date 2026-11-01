@@ -1,8 +1,8 @@
+import { containing } from '../../platform/lib/test-matchers.js';
 import { describe, it, expect, vi } from 'vitest';
 import type { EnvironmentDriver, ExecResult } from '@koala/engine-core';
 import { createCodeRunner, readOutputs, wrapBody } from './code-runner.js';
 import type { RunTicket } from '../temporal/contracts.js';
-import { containing } from '../../engine/lib/test-matchers.js';
 
 const ticket: RunTicket = { runId: 'run-1', depth: 0, ownerId: 'user-1', agentSlug: 'koala', trigger: 'user' };
 

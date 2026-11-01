@@ -1,5 +1,5 @@
+import { at, listAt, recordAt } from '../../../platform/lib/json-shapes.js';
 import { providerReady } from '../cluster-topology.js';
-import { at, listAt, recordAt } from '../json-reading.js';
 import { withDerived, type AdapterResult, type VpsArch, type VpsCatalogAdapter, type VpsCpuType, type VpsOffer, type VpsPricePart } from './types.js';
 
 const TIMEOUT_MS = 15_000;

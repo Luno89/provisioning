@@ -1,6 +1,6 @@
+import { matching } from '../../platform/lib/test-matchers.js';
 import { describe, it, expect } from 'vitest';
 import { awaitingReview, resetForRetry, settleClaim, type Leaf } from './leaves.js';
-import { matching } from './test-matchers.js';
 
 const leaf = (over: Partial<Leaf> = {}): Leaf => ({
   id: 'l1', ownerId: 'u1', branchId: 'b1', title: 'A leaf', body: 'the port answers', status: 'pending',

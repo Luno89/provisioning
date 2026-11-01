@@ -1,3 +1,4 @@
+import { arrayWith, containing, objectWith } from '../../platform/lib/test-matchers.js';
 import type { ToolDefinition } from '@koala/agent-engine';
 import { describe, it, expect, vi } from 'vitest';
 import {
@@ -12,7 +13,6 @@ import type { MachineBackend } from '../drivers/machine.js';
 import type { EnvironmentHandleRef, RunTicket } from '../temporal/contracts.js';
 import { seededAgents } from '../../extensions/seeds.js';
 import { createMachineWorkspaces } from './machine-workspaces.js';
-import { arrayWith, containing, objectWith } from '../../engine/lib/test-matchers.js';
 
 const ticket = (agentSlug: string, runId = 'run-1'): RunTicket => ({
   runId,

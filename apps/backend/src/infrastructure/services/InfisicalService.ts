@@ -1,3 +1,4 @@
+import { listAt, numberAt, textAt } from '../../platform/index.js';
 import type { SecretKey } from '../../platform/index.js';
 import path from 'path';
 import fs from 'fs/promises';
@@ -6,7 +7,6 @@ import type { InfrastructureService } from './InfrastructureService.js';
 import type { ClusterProxyService } from './ClusterProxyService.js';
 import { readerNameFor, readerPrefixFor, workspaceNameFor } from '../lib/infisical-names.js';
 import { infisicalAdminPassword } from '../lib/infisical-admin.js';
-import { listAt, numberAt, textAt } from '../lib/json-reading.js';
 import { ignore } from '@koala/engine-core/failures';
 
 const NAMESPACE = 'infisical';

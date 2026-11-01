@@ -1,8 +1,7 @@
 import { Router, type Request, type Response } from 'express';
-import { asyncRoute } from '../../platform/index.js';
+import { asyncRoute, fieldsOf } from '../../platform/index.js';
 import type { McpDecision, McpService } from '../services/McpService.js';
 import type { McpServerOutcome, McpServerService } from '../services/McpServerService.js';
-import { fieldsOf } from '../lib/request-fields.js';
 
 export interface McpRouterDeps {
   mcp: McpService;

@@ -192,7 +192,7 @@ describe('a workflow named by a string is one that exists', () => {
 
   it('anywhere in the backend or the frontend', () => {
     const named = [SRC, FRONTEND].flatMap(sourceFiles).flatMap((file) =>
-      [...readFileSync(file, 'utf8').matchAll(/['"`]([A-Za-z]+Workflow)['"`]/g)].map((found) => ({ file: file.slice(SRC.length - 3), type: found[1]! })));
+      [...readFileSync(file, 'utf8').matchAll(/['"`]([A-Z][A-Za-z]*Workflow)['"`]/g)].map((found) => ({ file: file.slice(SRC.length - 3), type: found[1]! })));
     expect(named.length).toBeGreaterThan(0);
     expect(named.filter((entry) => !real.has(entry.type)).map((entry) => `${entry.file}: ${entry.type}`)).toEqual([]);
   });

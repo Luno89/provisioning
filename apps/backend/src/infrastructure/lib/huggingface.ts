@@ -1,9 +1,9 @@
+import { type JsonRecord, listAt, recordAt } from '../../platform/lib/json-shapes.js';
 import axios from 'axios';
 import fs from 'fs';
 import fsp from 'fs/promises';
 import path from 'path';
 import type { Readable } from 'stream';
-import { listAt, recordAt, type JsonRecord } from './json-reading.js';
 
 export interface HfFile {
   path: string;

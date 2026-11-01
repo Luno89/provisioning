@@ -1,3 +1,4 @@
+import { matching } from '../../platform/lib/test-matchers.js';
 import { describe, it, expect, beforeEach } from 'vitest';
 import { testDatabase } from '../../platform/lib/test-database.js';
 import type { MongoDB } from '../../platform/lib/mongo-db.js';
@@ -5,7 +6,6 @@ import { ExtensionService } from './ExtensionService.js';
 import { INSTALLED_EXTENSIONS, platformCatalogue, platformGroups } from '../../extensions/installed.js';
 import { PROCEDURE_SCHEMA, defineGroup, type Procedure } from '@koala/agent-engine/procedure';
 import type { ProcedureSource } from '../lib/procedure-source.js';
-import { matching } from '../lib/test-matchers.js';
 
 let db: MongoDB;
 let service: ExtensionService;

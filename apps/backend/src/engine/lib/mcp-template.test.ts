@@ -1,3 +1,4 @@
+import { arrayWith } from '../../platform/lib/test-matchers.js';
 import { describe, it, expect, afterEach } from 'vitest';
 import { writeFileSync, mkdtempSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -8,7 +9,6 @@ import { MCP_SERVER_FILES } from '../../projects/lib/project-templates.js';
 import { renderStarterFiles } from '../../projects/lib/tree-types.js';
 import { TREE_TYPE_SEEDS } from '../../projects/lib/tree-type-seeds.js';
 import { McpClient } from './mcp-client.js';
-import { arrayWith } from './test-matchers.js';
 
 let child: ChildProcess | undefined;
 afterEach(() => { child?.kill(); child = undefined; });

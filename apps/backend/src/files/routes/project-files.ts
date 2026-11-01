@@ -1,7 +1,7 @@
 import { Router, type Request } from 'express';
 import crypto from 'crypto';
 import path from 'path';
-import { asyncRoute, fieldOf, principalFrom, type Principal, type ProjectMetadata } from '../../platform/index.js';
+import { asyncRoute, at, type Principal, principalFrom, type ProjectMetadata } from '../../platform/index.js';
 import { isSafeRepoDir, isSafeRepoFilePath } from '../lib/project-file-paths.js';
 import { DROP_TYPE } from '../lib/drops.js';
 import { withReceivedDrop } from '../services/drop-receiver.js';
@@ -127,9 +127,9 @@ export function projectFilesRouter(deps: ProjectFilesRouterDeps): Router {
     const project = await ownedProject(req);
     if (!project) return res.status(404).json({ error: 'Project not found' });
 
-    const filePath = fieldOf(req.body, 'path');
-    const content = fieldOf(req.body, 'content');
-    const sha = fieldOf(req.body, 'sha');
+    const filePath = at(req.body, 'path');
+    const content = at(req.body, 'content');
+    const sha = at(req.body, 'sha');
     if (typeof filePath !== 'string' || !isSafeRepoFilePath(filePath)) {
       return res.status(400).json({ error: 'path must name a file inside the repository.' });
     }
@@ -149,8 +149,8 @@ export function projectFilesRouter(deps: ProjectFilesRouterDeps): Router {
       return res.json({ sha: localSha(content) });
     }
 
-    const message = fieldOf(req.body, 'message');
-    const ref = fieldOf(req.body, 'ref');
+    const message = at(req.body, 'message');
+    const ref = at(req.body, 'ref');
     const repository = repositoryOf(project);
     if (!repository) return res.status(409).json({ error: NO_REPOSITORY });
     const { token } = await projectRepoService.editorCredential(project.ownerId);

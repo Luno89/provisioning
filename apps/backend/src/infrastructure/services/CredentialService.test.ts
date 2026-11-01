@@ -1,3 +1,4 @@
+import { containing, matching } from '../../platform/lib/test-matchers.js';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { CredentialService } from './CredentialService.js';
 import { decryptValue } from '../../platform/lib/crypto.js';
@@ -6,7 +7,6 @@ import type { MongoDB } from '../../platform/lib/mongo-db.js';
 import type { UserMetadata } from '../../platform/lib/types.js';
 import { FAKE_OVH_KEYS, fakeOvh } from './fake-ovh.js';
 import { fakePorkbun } from './dns/fake-dns.js';
-import { containing, matching } from './test-matchers.js';
 
 const TEST_KEY = 'test-master-key-for-credential-tests';
 

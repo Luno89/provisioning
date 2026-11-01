@@ -1,7 +1,7 @@
 import { Router, type Request } from 'express';
 import { machineChoice } from '@koala/agent-engine/procedure';
 import { ignore } from '@koala/engine-core/failures';
-import { asyncRoute, fieldOf, type Database } from '../../platform/index.js';
+import { asyncRoute, at, type Database } from '../../platform/index.js';
 import type { CredentialService } from '../../infrastructure/index.js';
 import type { MachineService } from '../../machines/index.js';
 import {
@@ -22,7 +22,7 @@ export interface ModelsRouterDeps {
 
 const messageOf = (err: unknown): string => (err instanceof Error ? err.message : String(err));
 
-const statusOf = (err: unknown): unknown => fieldOf(fieldOf(err, 'response'), 'status');
+const statusOf = (err: unknown): unknown => at(at(err, 'response'), 'status');
 
 const queryText = (req: Request, key: string): string | undefined => {
   const value = req.query[key];
@@ -52,7 +52,7 @@ export function modelsRouter(deps: ModelsRouterDeps): Router {
    */
   router.put('/default', asyncRoute(async (req, res) => {
     const user = userOf(req);
-    const modelId = fieldOf(req.body, 'modelId');
+    const modelId = at(req.body, 'modelId');
     if (modelId !== null && typeof modelId !== 'string') {
       return res.status(400).json({ error: 'modelId must be a string, or null to clear' });
     }
@@ -79,7 +79,7 @@ export function modelsRouter(deps: ModelsRouterDeps): Router {
    * the default into each pack could not do.
    */
   router.put('/default/override', asyncRoute(async (req, res) => {
-    const override = fieldOf(req.body, 'override');
+    const override = at(req.body, 'override');
     if (typeof override !== 'boolean') {
       return res.status(400).json({ error: 'override must be true or false' });
     }
@@ -100,7 +100,7 @@ export function modelsRouter(deps: ModelsRouterDeps): Router {
   router.put('/extractor', async (req, res) => {
     try {
       const user = userOf(req);
-      const modelId = fieldOf(req.body, 'modelId');
+      const modelId = at(req.body, 'modelId');
       if (modelId !== null && typeof modelId !== 'string') {
         return res.status(400).json({ error: 'modelId must be a string, or null to clear' });
       }

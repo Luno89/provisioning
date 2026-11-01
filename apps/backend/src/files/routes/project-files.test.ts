@@ -1,3 +1,4 @@
+import { anyOf } from '../../platform/lib/test-matchers.js';
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import axios from 'axios';
 import crypto from 'crypto';
@@ -12,7 +13,6 @@ import { readFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { Readable } from 'node:stream';
 import { registerDevice } from '../../machines/lib/local-agent-registry.js';
-import { anyOf } from '../../platform/lib/test-matchers.js';
 import type { Database } from '../../platform/lib/db-interface.js';
 
 const project = {

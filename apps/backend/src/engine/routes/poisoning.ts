@@ -1,8 +1,7 @@
 import { Router, type Request, type Response } from 'express';
-import { asyncRoute } from '../../platform/index.js';
+import { asyncRoute, fieldsOf } from '../../platform/index.js';
 import { PoisoningError, type PoisoningService } from '../services/PoisoningService.js';
 import { retireScopeFrom } from '../lib/poisoning.js';
-import { fieldsOf } from '../lib/request-fields.js';
 
 export interface PoisoningRouterDeps {
   poisoning: Pick<PoisoningService, 'list' | 'dismiss' | 'retire'>;

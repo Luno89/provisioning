@@ -1,3 +1,4 @@
+import { arrayWith, objectWith } from '../../platform/lib/test-matchers.js';
 import { describe, it, expect } from 'vitest';
 import axios from 'axios';
 import { BUILT_IN_GROUPS, EXAMPLE_PROCEDURE, PROCEDURE_SCHEMA, RESEARCH_V2, builtInCatalogue, defineGroup } from '@koala/agent-engine/procedure';
@@ -8,7 +9,6 @@ import { mountRouter, TEST_USER, type Harness } from '../../platform/routes/test
 import { proceduresRouter } from './procedures.js';
 import { ProcedureService } from '../services/ProcedureService.js';
 import { createProcedureStore } from '../../engine-host/registries/procedure-store.js';
-import { arrayWith, objectWith } from '../lib/test-matchers.js';
 
 const harness = (): Promise<Harness> => mountRouter({
   prefix: '/api/procedures',

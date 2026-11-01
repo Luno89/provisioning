@@ -1,3 +1,4 @@
+import { containing } from '../../platform/lib/test-matchers.js';
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import axios from 'axios';
 import { treesRouter } from './trees.js';
@@ -14,7 +15,6 @@ import { seedTreeTypes } from '../lib/tree-types.js';
 import type { Database } from '../../platform/lib/db-interface.js';
 import type { ProjectMetadata } from '../../platform/lib/types.js';
 import type { Tree } from '../lib/trees.js';
-import { containing } from '../lib/test-matchers.js';
 
 let h: Harness | undefined;
 afterEach(async () => { await h?.close(); h = undefined; vi.restoreAllMocks(); });

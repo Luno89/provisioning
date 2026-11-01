@@ -1,9 +1,9 @@
+import { arrayWith, containing, matching } from '../../platform/lib/test-matchers.js';
 import { describe, it, expect } from 'vitest';
 import { draftServerProposal, type ProposalKnown } from './mcp-proposals.js';
 import { runsFingerprint, type McpServerRecord, type ServerRuns } from './mcp-servers.js';
 import { MCP_SERVER_TEMPLATES } from '../../extensions/mcp/templates.js';
 import { SHIPPED_DEPENDENCIES } from '../../extensions/workspace-dependencies.js';
-import { arrayWith, containing, matching } from './test-matchers.js';
 
 const HOSTED: ServerRuns = { where: 'hosted', url: 'http://docs.test/mcp' };
 const docs: McpServerRecord = {

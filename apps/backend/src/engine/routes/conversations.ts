@@ -1,10 +1,9 @@
 import { readAttachments } from '../lib/attachments.js';
 import { type Request, Router } from 'express';
-import { asyncRoute, type Database } from '../../platform/index.js';
+import { asyncRoute, type Database, fieldsOf, trimmedText } from '../../platform/index.js';
 import type { Conversation } from '../lib/conversations.js';
 import { personMessage, titleFrom, withAuthorNames } from '../lib/conversations.js';
 import { conversationContext } from '../lib/conversation-context.js';
-import { fieldsOf, textOf } from '../lib/request-fields.js';
 import { v4 as uuidv4 } from 'uuid';
 
 export interface ConversationsRouterDeps {
@@ -60,8 +59,8 @@ export function conversationsRouter(deps: ConversationsRouterDeps): Router {
   router.post('/', asyncRoute(async (req, res) => {
     const userId = userOf(req).id;
     const body = fieldsOf(req.body);
-    const treeId = textOf(body.treeId);
-    const projectId = textOf(body.projectId);
+    const treeId = trimmedText(body.treeId);
+    const projectId = trimmedText(body.projectId);
     if (treeId && projectId) return res.status(400).json({ error: 'A conversation is about a tree or a project, not both' });
     if (treeId) {
       const trees = deps.ownedTrees ? await deps.ownedTrees(userId) : [];
@@ -122,7 +121,7 @@ export function conversationsRouter(deps: ConversationsRouterDeps): Router {
     const body = fieldsOf(req.body);
     const next: Conversation = { ...found };
     let changed = false;
-    const modelId = textOf(body.modelId);
+    const modelId = trimmedText(body.modelId);
     if (modelId) {
       next.modelId = modelId;
       changed = true;
@@ -137,7 +136,7 @@ export function conversationsRouter(deps: ConversationsRouterDeps): Router {
       delete next.modelReach;
       changed = true;
     }
-    const agentSlug = textOf(body.agentSlug);
+    const agentSlug = trimmedText(body.agentSlug);
     if (agentSlug) {
       next.agentSlug = agentSlug;
       changed = true;

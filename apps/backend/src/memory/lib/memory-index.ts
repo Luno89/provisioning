@@ -1,3 +1,4 @@
+import { at, listAt } from '../../platform/lib/json-shapes.js';
 import { collectionConfig, pointId } from '../../engine/lib/corpus-backend.js';
 import { embed } from '../../engine/lib/corpus-client.js';
 import {
@@ -6,7 +7,6 @@ import {
 } from './memory-rank.js';
 import type { MemoryItem } from './memory-store.js';
 import type { CorpusEndpoints } from '../../engine/index.js';
-import { fieldOf, listAt } from '../../platform/lib/json-shapes.js';
 
 export type MemoryEndpoints = Pick<CorpusEndpoints, 'vectors' | 'embeddings' | 'index'>;
 
@@ -16,7 +16,7 @@ async function ok(res: Response, what: string): Promise<unknown> {
   return text ? JSON.parse(text) as unknown : {};
 }
 
-const memoryIdOf = (point: unknown): string => String(fieldOf(fieldOf(point, 'payload'), 'memory_id') ?? '');
+const memoryIdOf = (point: unknown): string => String(at(at(point, 'payload'), 'memory_id') ?? '');
 
 const indexes = new Set<string>();
 const collections = new Set<string>();
@@ -176,7 +176,7 @@ export async function searchMemoryIndex(
   const body = await ok(await fetch(url), 'Quickwit refused the memory search');
   const seen = new Set<string>();
   for (const h of listAt(body, 'hits')) {
-    const id = String(fieldOf(h, 'memory_id') ?? '');
+    const id = String(at(h, 'memory_id') ?? '');
     if (id) seen.add(id);
   }
   return [...seen];
@@ -217,6 +217,6 @@ export async function similarTo(
   });
   const body = await ok(res, 'Qdrant refused the neighbour lookup');
   return listAt(body, 'result')
-    .map((p) => ({ id: memoryIdOf(p), score: Number(fieldOf(p, 'score') ?? 0) }))
+    .map((p) => ({ id: memoryIdOf(p), score: Number(at(p, 'score') ?? 0) }))
     .filter((h) => h.id && h.id !== memoryId);
 }

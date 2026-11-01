@@ -1,9 +1,8 @@
 import { Router, type Request } from 'express';
-import { asyncRoute, ownedBy } from '../../platform/index.js';
+import { asyncRoute, fieldsOf, ownedBy } from '../../platform/index.js';
 import type { GroveDeletionService } from '../services/GroveDeletionService.js';
 import type { GroveOrderService } from '../services/GroveOrderService.js';
 import type { ProjectsStore } from '../store.js';
-import { fieldsOf } from '../lib/request-fields.js';
 
 export interface BranchesRouterDeps {
   db: Pick<ProjectsStore, 'getBranches'>;

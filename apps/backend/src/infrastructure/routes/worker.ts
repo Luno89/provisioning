@@ -1,5 +1,5 @@
+import { at } from '../../platform/index.js';
 import { Router, type RequestHandler } from 'express';
-import { at } from '../lib/json-reading.js';
 import type WorkerService from '../services/WorkerService.js';
 
 export interface WorkerRouterDeps {

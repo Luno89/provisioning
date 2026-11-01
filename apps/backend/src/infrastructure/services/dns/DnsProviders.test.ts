@@ -1,8 +1,8 @@
+import { containing, matching } from '../../../platform/lib/test-matchers.js';
 import { describe, expect, it } from 'vitest';
 import { DNS_PROVIDERS } from '../../lib/dns-providers.js';
 import { DNS_PROVIDER_CLIENTS, DnsProviders } from './DnsProviders.js';
 import { fakePorkbun } from './fake-dns.js';
-import { containing, matching } from '../test-matchers.js';
 
 describe('the DNS provider registry service', () => {
   it('has a client for every provider described, and describes them without their env names', () => {

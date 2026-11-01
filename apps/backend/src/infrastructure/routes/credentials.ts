@@ -1,10 +1,7 @@
 import { Router, type Request, type Response, type NextFunction } from 'express';
 import axios from 'axios';
-import {
-  asyncRoute, carriedByOAuthState, cookieNamed, isCloudProvider, newOAuthState, OAUTH_STATE_COOKIE, OAUTH_STATE_SECONDS, parseCookie, type CloudProvider, type SecretKey,
-} from '../../platform/index.js';
+import { asyncRoute, carriedByOAuthState, type CloudProvider, cookieNamed, isCloudProvider, newOAuthState, OAUTH_STATE_COOKIE, OAUTH_STATE_SECONDS, parseCookie, recordAt, type SecretKey, textAt } from '../../platform/index.js';
 import { credentialFieldsFrom } from '../lib/credential-resolver.js';
-import { recordAt, textAt } from '../lib/json-reading.js';
 import type { CredentialService } from '../services/CredentialService.js';
 
 export interface CredentialsRouterDeps {

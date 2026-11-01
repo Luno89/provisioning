@@ -1,6 +1,6 @@
+import { containing } from '../../platform/lib/test-matchers.js';
 import { describe, it, expect } from 'vitest';
 import { parseLeafPlan, parsePlan, planSummary } from './plan-proposals.js';
-import { containing } from './test-matchers.js';
 
 const world = { treeTypes: ['api-service', 'research'], existingLeafIds: new Set(['old-leaf']) };
 

@@ -1,4 +1,4 @@
-import { fieldOf } from './json-shapes.js';
+import { at } from './json-shapes.js';
 
 export const TRAEFIK_CHART_REPO = 'https://traefik.github.io/charts';
 
@@ -18,7 +18,7 @@ export function traefikOf(releases: readonly HelmRelease[]): TraefikKind {
 }
 
 export const servicesLabelled = (values: unknown): boolean =>
-  fieldOf(fieldOf(fieldOf(values, 'metrics'), 'prometheus'), 'addServicesLabels') === true;
+  at(at(at(values, 'metrics'), 'prometheus'), 'addServicesLabels') === true;
 
 export function ourTraefikArgs(version: string): string[] {
   return [
@@ -50,7 +50,7 @@ export type K3sConfigState = 'missing' | 'ours' | 'theirs';
 
 export function k3sConfigState(existing: unknown): K3sConfigState {
   if (!existing) return 'missing';
-  const managed = fieldOf(fieldOf(fieldOf(existing, 'metadata'), 'labels'), 'koala.dev/managed') === 'request-metrics';
-  if (managed && fieldOf(fieldOf(existing, 'spec'), 'valuesContent') === K3S_TRAEFIK_VALUES) return 'ours';
+  const managed = at(at(at(existing, 'metadata'), 'labels'), 'koala.dev/managed') === 'request-metrics';
+  if (managed && at(at(existing, 'spec'), 'valuesContent') === K3S_TRAEFIK_VALUES) return 'ours';
   return managed ? 'missing' : 'theirs';
 }

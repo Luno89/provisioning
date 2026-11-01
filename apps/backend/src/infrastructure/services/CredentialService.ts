@@ -1,7 +1,4 @@
-import {
-  type Database, type CloudCredentials, type CloudProvider, encryptValue, decryptValue, maskSecret,
-  type SecretKey,
-} from '../../platform/index.js';
+import { at, type CloudCredentials, type CloudProvider, type Database, decryptValue, encryptValue, isRecord, listAt, maskSecret, type SecretKey, textAt } from '../../platform/index.js';
 import { COMBINED_CLAIMS, usesOperatorCredentials, type ResolvedCredentials } from '../lib/credential-resolver.js';
 import { resolveCloudCredentials } from './cloud-credentials.js';
 import { clusterAvailability } from '../lib/cluster-topology.js';
@@ -9,7 +6,6 @@ import { OVH_SUBSIDIARIES } from '../lib/vps-catalog/adapters.js';
 import { credentialsFromEnv, dnsProviderNamed, DNS_PROVIDERS, isDnsProviderName, plainFieldsOf, secretFieldsOf } from '../lib/dns-providers.js';
 import { DnsProviders } from './dns/DnsProviders.js';
 import { OvhClient, type FetchLike } from './OvhClient.js';
-import { at, isJsonRecord, listAt, textAt } from '../lib/json-reading.js';
 import type { ClaimSettings } from '../../platform/index.js';
 
 async function readJson(res: Response): Promise<unknown> {
@@ -395,7 +391,7 @@ export class CredentialService {
       user.credentials = {};
     }
     const existing = at(user.credentials, provider);
-    Object.assign(user.credentials, { [provider]: { ...(isJsonRecord(existing) ? existing : {}), ...encrypted } });
+    Object.assign(user.credentials, { [provider]: { ...(isRecord(existing) ? existing : {}), ...encrypted } });
 
     await this.db.accounts.saveUser(user);
   }
@@ -424,7 +420,7 @@ export class CredentialService {
 
   private decryptAll(credentials: CloudCredentials, provider: string): CloudCredentials {
     const providerCreds = at(credentials, provider);
-    if (!isJsonRecord(providerCreds)) return {};
+    if (!isRecord(providerCreds)) return {};
 
     const sensitive = SENSITIVE_FIELDS[provider] || [];
     const decrypted: Record<string, string> = {};

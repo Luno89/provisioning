@@ -1,3 +1,4 @@
+import { matching } from '../../platform/lib/test-matchers.js';
 import { createHash } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
 import { Readable } from 'node:stream';
@@ -6,7 +7,6 @@ import type { FileStore } from './FileStores.js';
 import type { DeploymentMetadata, ProjectMetadata } from '../../platform/lib/types.js';
 import type { FilePlace, FileSettings } from '../lib/file-places.js';
 import type { FileShare } from '../lib/file-shares.js';
-import { matching } from '../../platform/lib/test-matchers.js';
 
 const deployment = (over: Partial<DeploymentMetadata>): DeploymentMetadata => ({ id: 'm1', name: 'minio', appType: 'minio', status: 'running', clusterId: 'c1', ownerId: 'u1', minioRootPassword: 'pw', ...over } as DeploymentMetadata);
 

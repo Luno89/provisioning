@@ -1,6 +1,6 @@
+import { containing } from '../../platform/lib/test-matchers.js';
 import { describe, expect, it } from 'vitest';
 import { WorkspaceFileService, type WorkspaceFileDeps } from './WorkspaceFileService.js';
-import { containing } from '../lib/test-matchers.js';
 
 function world(text: string | undefined, over: Partial<WorkspaceFileDeps> = {}) {
   const writes: { path: string; content: string; message: string }[] = [];

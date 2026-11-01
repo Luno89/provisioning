@@ -1,3 +1,4 @@
+import { arrayWith, containing, matching, objectWith } from '../../../platform/lib/test-matchers.js';
 import { describe, it, expect, beforeEach } from 'vitest';
 import type { Parking } from '../../../engine/lib/published-workspace.js';
 import { PROCEDURE_SCHEMA, type NodeRequest, type Procedure } from '@koala/agent-engine/procedure';
@@ -7,7 +8,6 @@ import type { Tree } from '../../../projects/lib/trees.js';
 import type { Task } from '../../../engine-host/tools/tasks.js';
 import type { PlanProposal } from '../../../projects/lib/plan-proposals.js';
 import { SUPERSEDED_NOTE } from '../../../projects/lib/landing.js';
-import { arrayWith, containing, matching, objectWith } from '../../../engine/lib/test-matchers.js';
 
 const SANDBOX = { kind: 'sandbox', id: 'engine-tree-t1', workspace: { runId: 'tree-t1' }, capabilities: { kind: 'sandbox', lifecycle: 'invocation' } } as const;
 

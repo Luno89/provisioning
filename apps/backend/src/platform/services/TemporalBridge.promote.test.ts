@@ -1,9 +1,9 @@
+import { anyOf } from '../lib/test-matchers.js';
 import { describe, it, expect, beforeEach } from 'vitest';
 import { testDatabase } from '../lib/test-database.js';
 import type { MongoDB } from '../lib/mongo-db.js';
 import { deployProjectBuild, type AppDeployDeps } from '../../infrastructure/services/AppDeploy.js';
 import type { ClusterMetadata, ProjectMetadata, PipelineRunMetadata } from '../lib/types.js';
-import { anyOf } from '../lib/test-matchers.js';
 
 describe('deploying a project\'s build', () => {
   let db: MongoDB;

@@ -1,6 +1,6 @@
+import { at } from '../../platform/index.js';
 import { Router, type Request } from 'express';
 import type { Database } from '../../platform/index.js';
-import { at } from '../lib/json-reading.js';
 
 const userOf = (req: Request): { id: string; email: string } =>
   (req as unknown as { user: { id: string; email: string } }).user;

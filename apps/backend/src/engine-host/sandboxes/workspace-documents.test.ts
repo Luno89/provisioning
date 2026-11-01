@@ -1,3 +1,4 @@
+import { containing } from '../../platform/lib/test-matchers.js';
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { execFile, spawn } from 'child_process';
 import { createReadStream, createWriteStream } from 'fs';
@@ -9,7 +10,6 @@ import type { KubeRunner, KubeStreamer } from './kube.js';
 import { createWorkspaceDocuments, type DocumentRepos } from './workspace-documents.js';
 import { createTreeWorkspaces, treeRepoName } from './tree-workspaces.js';
 import type { EnvironmentResolver } from './environments.js';
-import { containing } from '../../engine/lib/test-matchers.js';
 
 const git = promisify(execFile);
 

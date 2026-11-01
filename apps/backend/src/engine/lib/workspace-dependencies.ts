@@ -1,5 +1,5 @@
+import { fieldsOf } from '../../platform/lib/request-fields.js';
 import { dependencyProblems, type Install, type WorkspaceDependency } from '@koala/agent-engine';
-import { fieldsOf } from './request-fields.js';
 
 const PACKAGE_MANAGERS = ['dnf', 'apt', 'pip', 'npm'] as const;
 

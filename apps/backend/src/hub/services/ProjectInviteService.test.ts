@@ -1,9 +1,9 @@
+import { matching } from '../../platform/lib/test-matchers.js';
 import { describe, expect, it, vi } from 'vitest';
 import { ProjectInviteService } from './ProjectInviteService.js';
 import type { InviteMetadata } from '../../platform/lib/types.js';
 import { inviteCodeHash } from '../../platform/lib/invite-codes.js';
 import { principalOf } from '../../platform/lib/permissions.js';
-import { matching } from '../../projects/lib/test-matchers.js';
 
 function setUp(mail: 'works' | 'off' | 'fails', over: { limits?: { accounts?: number; perHour?: number }; people?: Record<string, { roles?: ('operator')[]; inviteAccounts?: number }>; accounts?: string[]; now?: () => string } = {}) {
   const invites: InviteMetadata[] = [];

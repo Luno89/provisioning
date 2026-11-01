@@ -1,7 +1,7 @@
 import type { ExtensionService, ExtensionState } from '../services/ExtensionService.js';
 import { readAttachments } from '../lib/attachments.js';
 import { Router, type Request, type RequestHandler, type Response } from 'express';
-import { asyncRoute } from '../../platform/index.js';
+import { asyncRoute, fieldsOf } from '../../platform/index.js';
 import { NoNoteToAskError } from '../lib/conversations.js';
 import type { ApprovalService } from '../services/ApprovalService.js';
 import {
@@ -22,7 +22,6 @@ import { decideTask, type TaskAccess } from '../../hub/index.js';
 import type { WorkspaceImage } from '../../engine-host/sandboxes/warm-images.js';
 import type { PruneReport } from '../../engine-host/sandboxes/prune-images.js';
 import { SwitchedOffError } from '../lib/extension-settings.js';
-import { fieldsOf } from '../lib/request-fields.js';
 import { samplingAt, temperatureProblem } from '../lib/run-knobs.js';
 import type { RunEnding } from '../store.js';
 

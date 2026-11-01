@@ -1,3 +1,4 @@
+import { anyOf, containing } from '../../../platform/lib/test-matchers.js';
 import type { ActionProposal } from '../../../engine/lib/action-proposals.js';
 import { describe, it, expect, beforeEach } from 'vitest';
 import { createGroveTools } from './grove-tools.js';
@@ -5,7 +6,6 @@ import type { Branch, Leaf, LeafStatus } from '../../../projects/lib/leaves.js';
 import type { Tree } from '../../../projects/lib/trees.js';
 import { type Task, type TaskStatus } from '../../../engine-host/tools/tasks.js';
 import type { PlanProposal } from '../../../projects/lib/plan-proposals.js';
-import { anyOf, containing } from '../../../engine/lib/test-matchers.js';
 
 type Ready = { ready: { id: string }[]; waitingOnWorkspace: unknown[] };
 

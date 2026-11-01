@@ -1,3 +1,4 @@
+import { arrayWith, objectWith } from '../../platform/lib/test-matchers.js';
 import { asPerson } from '../../platform/lib/permissions.js';
 import { describe, it, expect, vi } from 'vitest';
 import { type Persona } from '@koala/agent-engine';
@@ -8,7 +9,6 @@ import { AgentService, agentProblems } from './AgentService.js';
 import type { ImageStanding } from '../../engine-host/sandboxes/image-builder.js';
 import { seededAgents, seededProcedures } from '../../extensions/seeds.js';
 import type { McpServerRecord, ServerRuns } from '../lib/mcp-servers.js';
-import { arrayWith, objectWith } from '../lib/test-matchers.js';
 
 const tools = () => [...ENGINE_TOOL_SEEDS];
 const PROCEDURES = seededProcedures();

@@ -1,8 +1,8 @@
+import { anyOf, matching } from '../../platform/lib/test-matchers.js';
 import { describe, it, expect } from 'vitest';
 import { testDatabase } from '../../platform/lib/test-database.js';
 import type { MongoDB } from '../../platform/lib/mongo-db.js';
 import { ProjectRepoService } from './ProjectRepoService.js';
-import { anyOf, matching } from '../lib/test-matchers.js';
 
 const KEY = 'a'.repeat(64);
 

@@ -1,4 +1,4 @@
-import { textAt } from '../json-reading.js';
+import { textAt } from '../../../platform/lib/json-shapes.js';
 import { NATURAL_SORT_DIR, type VpsArch, type VpsCatalogFilters, type VpsCpuType, type VpsSortKey } from './types.js';
 
 const ARCHES: readonly VpsArch[] = ['x86', 'arm', 'unknown'];

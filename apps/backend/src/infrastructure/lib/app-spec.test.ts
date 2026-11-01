@@ -1,3 +1,4 @@
+import { at } from '../../platform/lib/json-shapes.js';
 import { describe, it, expect } from 'vitest';
 import {
   renderApp, MINIO_SPEC, type AppSpec,
@@ -5,7 +6,6 @@ import {
   constructBackedToSeed, seedConstructBackedTypes, appTypeFromName,
   type StoredAppSpec,
 } from './app-spec.js';
-import { at } from './json-reading.js';
 
 const ctx = {
   id: 'abc123',

@@ -1,8 +1,8 @@
+import { containing } from '../../platform/lib/test-matchers.js';
 import { describe, it, expect } from 'vitest';
 import type { Leaf } from './leaves.js';
 import type { Task } from './tasks.js';
 import { applyChange, briefIn, changeSummary, parseCancel, parseNewStories, parseStoryEdit, renderChangeNote, runsToStop, withWaitsOn, type ChangeWorld } from './item-changes.js';
-import { containing } from './test-matchers.js';
 
 const leaf = (id: string, status: Leaf['status'], extra: Partial<Leaf> = {}): Leaf => ({
   id, ownerId: 'u1', branchId: 'b1', title: `Story ${id}`, body: `Goal of ${id}`, status, createdAt: 't', updatedAt: 't', ...extra,

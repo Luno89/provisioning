@@ -1,9 +1,9 @@
+import { anyOf } from '../../platform/lib/test-matchers.js';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { testDatabase } from '../../platform/lib/test-database.js';
 import type { MongoDB } from '../../platform/lib/mongo-db.js';
 import { PushError, PushService } from './PushService.js';
 import { vapidKeysFrom } from '../lib/web-push.js';
-import { anyOf } from '../../platform/lib/test-matchers.js';
 
 const browser = (n: number) => ({ endpoint: `https://push.example/send/${n}`, keys: { p256dh: `key${n}`, auth: `auth${n}` } });
 const CHROME = 'Mozilla/5.0 (X11; Linux x86_64) Chrome/130.0 Safari/537.36';

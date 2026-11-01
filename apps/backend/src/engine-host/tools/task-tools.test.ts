@@ -1,7 +1,7 @@
+import { containing } from '../../platform/lib/test-matchers.js';
 import { describe, it, expect, beforeEach } from 'vitest';
 import { createTaskTools, type TaskStore } from './task-tools.js';
 import type { Task } from './tasks.js';
-import { containing } from '../../engine/lib/test-matchers.js';
 
 let stored: Task[] = [];
 let nextId = 0;

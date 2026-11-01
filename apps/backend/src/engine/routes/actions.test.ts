@@ -1,3 +1,4 @@
+import { objectWith } from '../../platform/lib/test-matchers.js';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import axios from 'axios';
 import { mountRouter, TEST_USER, type Harness } from '../../platform/routes/test-harness.js';
@@ -6,7 +7,6 @@ import { ActionService, type ActionDeployer } from '../services/ActionService.js
 import type { ActionProposal } from '../lib/action-proposals.js';
 import { runsFingerprint, type McpServerRecord, type ServerRuns } from '../lib/mcp-servers.js';
 import type { ImageNow } from '../../projects/lib/proposal-progress.js';
-import { objectWith } from '../lib/test-matchers.js';
 
 const WORKSPACE: ServerRuns = { where: 'workspace', needs: ['playwright-mcp'], start: 'playwright-mcp', port: 8931 };
 

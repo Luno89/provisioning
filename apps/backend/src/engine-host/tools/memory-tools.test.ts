@@ -1,9 +1,9 @@
+import { containing } from '../../platform/lib/test-matchers.js';
 import { describe, it, expect, beforeEach } from 'vitest';
 import type { ToolHandlerContext } from '@koala/engine-core';
 import type { MemoryItem } from '../drivers/memory-store.js';
 import { createMemoryTools, matchMemories, searchAnswer } from './memory-tools.js';
 import { MEMORY_TOOLS } from './memory-tools-catalogue.js';
-import { containing } from '../../engine/lib/test-matchers.js';
 
 let bank: Map<string, MemoryItem>;
 let ids: number;

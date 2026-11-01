@@ -1,7 +1,6 @@
 import { Router, type Request } from 'express';
-import { asyncRoute } from '../../platform/index.js';
+import { asyncRoute, fieldsOf } from '../../platform/index.js';
 import type { SecretRequestService } from '../services/SecretRequestService.js';
-import { fieldsOf } from '../lib/request-fields.js';
 
 export interface SecretRequestsRouterDeps {
   secrets: SecretRequestService;

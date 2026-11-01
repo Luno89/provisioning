@@ -1,6 +1,6 @@
+import { recordAt } from '../../platform/lib/json-shapes.js';
 import type { CloudCredentials } from '../../platform/index.js';
 import { credentialEnvOf, credentialsFromEnv, dnsProviderNamed, isDnsProviderName } from './dns-providers.js';
-import { recordAt } from './json-reading.js';
 import { allowed, principalOf, type ClaimedUser, type ClaimSettings } from '../../platform/lib/permissions.js';
 
 export const COMBINED_CLAIMS: ClaimSettings = { role: 'combined' };

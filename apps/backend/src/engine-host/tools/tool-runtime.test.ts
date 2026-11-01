@@ -1,3 +1,4 @@
+import { matching, objectWith } from '../../platform/lib/test-matchers.js';
 import { describe, it, expect, vi } from 'vitest';
 import { createToolRuntime, type EnvironmentSource } from './tool-runtime.js';
 import { rolePrincipal } from '../../platform/lib/permissions.js';
@@ -9,7 +10,6 @@ import type { EnvironmentDriver, EnvironmentSpec, ToolContract } from '@koala/en
 import type { AgentDefinition } from '@koala/agent-engine';
 import { createServerTools } from './server-tools.js';
 import { runsFingerprint, type McpServerRecord, type ServerRuns } from '../../engine/lib/mcp-servers.js';
-import { matching, objectWith } from '../../engine/lib/test-matchers.js';
 
 const spec: EnvironmentSpec = { kind: 'sandbox', lifecycle: 'invocation', languages: ['node20'] };
 

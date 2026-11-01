@@ -1,5 +1,5 @@
 import { Router, type Request, type Response } from 'express';
-import { asyncRoute, fieldOf } from '../../platform/index.js';
+import { asyncRoute, at } from '../../platform/index.js';
 import type { Level2Service } from '../services/Level2Service.js';
 import type { BenchService } from '../services/BenchService.js';
 import type { PracticeService } from '../../memory/index.js';
@@ -40,7 +40,7 @@ export function evalsLevel2Router(deps: Level2RouterDeps): Router {
 
   router.post('/changes/:id/accept', asyncRoute(async (req: Request, res: Response) => {
     if (!deps.changes) return res.status(404).json({ error: 'there are no changes here' });
-    const outcome = await deps.changes.accept(userOf(req).id, String(req.params.id), fieldOf(bodyOf(req), 'prompt'));
+    const outcome = await deps.changes.accept(userOf(req).id, String(req.params.id), at(bodyOf(req), 'prompt'));
     if (!outcome.accepted) return res.status(outcome.status).json({ problems: outcome.problems });
     res.json({ change: outcome.change });
   }));
@@ -92,7 +92,7 @@ export function evalsLevel2Router(deps: Level2RouterDeps): Router {
   }));
 
   router.post('/proposals/:id/accept', asyncRoute(async (req: Request, res: Response) => {
-    const outcome = await deps.level2.acceptProposal(userOf(req).id, String(req.params.id), fieldOf(bodyOf(req), 'scenario'));
+    const outcome = await deps.level2.acceptProposal(userOf(req).id, String(req.params.id), at(bodyOf(req), 'scenario'));
     if ('missing' in outcome) return res.status(404).json({ error: 'there is no proposal waiting with that id' });
     if (!outcome.saved) return res.status(400).json({ problems: outcome.problems });
     res.json({ scenario: outcome.scenario });
@@ -114,7 +114,7 @@ export function evalsLevel2Router(deps: Level2RouterDeps): Router {
   router.put('/scenarios/:id', asyncRoute(async (req: Request, res: Response) => {
     const id = String(req.params.id);
     const body = bodyOf(req);
-    if (fieldOf(body, 'id') !== id) return res.status(400).json({ error: `the scenario in the body is not called "${id}"` });
+    if (at(body, 'id') !== id) return res.status(400).json({ error: `the scenario in the body is not called "${id}"` });
     const outcome = await deps.level2.saveScenario(userOf(req).id, body);
     if (!outcome.saved) return res.status(400).json({ error: 'The scenario has problems', problems: outcome.problems });
     return res.json({ scenario: outcome.scenario });

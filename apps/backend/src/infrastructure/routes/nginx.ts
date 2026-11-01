@@ -1,6 +1,6 @@
+import { at } from '../../platform/index.js';
 import { Router } from 'express';
 import fs from 'fs/promises';
-import { at } from '../lib/json-reading.js';
 
 export interface NginxRouterDeps {
   nginxConfPath: string;

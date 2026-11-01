@@ -1,6 +1,5 @@
 import { Router, type Request, type Response } from 'express';
-import { asyncRoute } from '../../platform/index.js';
-import { fieldsOf } from '../../projects/index.js';
+import { asyncRoute, fieldsOf } from '../../platform/index.js';
 import type { ReleaseSettings } from '../services/ReleaseSettings.js';
 
 const userOf = (req: Request): { id: string } => (req as unknown as { user: { id: string } }).user;

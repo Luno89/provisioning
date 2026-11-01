@@ -1,5 +1,5 @@
+import { isRecord, type JsonRecord } from '../../platform/lib/json-shapes.js';
 import type { DeploymentMetadata } from '../../platform/index.js';
-import { isJsonRecord, type JsonRecord } from './json-reading.js';
 
 type Kind = 'text' | 'number' | 'flag' | 'texts';
 
@@ -35,7 +35,7 @@ function isKind(value: unknown, kind: Kind): boolean {
 }
 
 export const isTexts = (value: unknown): value is Record<string, string> =>
-  isJsonRecord(value) && Object.values(value).every((entry) => typeof entry === 'string');
+  isRecord(value) && Object.values(value).every((entry) => typeof entry === 'string');
 
 export type DeploymentConfigPatch = Partial<Omit<DeploymentMetadata, 'appSettings'>>;
 
@@ -52,7 +52,7 @@ function isConfigPatch(patch: Record<string, unknown>): patch is DeploymentConfi
 }
 
 export function deploymentConfigPatch(body: unknown): DeploymentConfigRead | { problem: string } {
-  const fields = isJsonRecord(body) ? body : {};
+  const fields = isRecord(body) ? body : {};
   const picked: Record<string, unknown> = {};
   for (const [key, kind] of Object.entries(CONFIGURABLE)) {
     const value = fields[key];
@@ -61,7 +61,7 @@ export function deploymentConfigPatch(body: unknown): DeploymentConfigRead | { p
     picked[key] = value;
   }
   const appSettings = fields.appSettings;
-  if (appSettings !== undefined && !isJsonRecord(appSettings)) return { problem: 'appSettings must be an object' };
+  if (appSettings !== undefined && !isRecord(appSettings)) return { problem: 'appSettings must be an object' };
   if (!isConfigPatch(picked)) return { problem: 'the settings could not be read' };
   return { patch: picked, ...(appSettings ? { appSettings } : {}) };
 }

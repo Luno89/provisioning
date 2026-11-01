@@ -1,3 +1,4 @@
+import { recordAt } from '../platform/index.js';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import fs from 'fs/promises';
@@ -5,7 +6,6 @@ import os from 'os';
 import path from 'path';
 
 import { InfrastructureService } from '../infrastructure/index.js';
-import { recordOf } from './json-shapes.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -100,7 +100,7 @@ export async function ProvisionHetznerVmActivity(
     });
 
     const raw = await fs.readFile(outputsFile, 'utf-8');
-    const outputs = recordOf(recordOf(JSON.parse(raw))[stackName]);
+    const outputs = recordAt(recordAt(JSON.parse(raw))[stackName]);
     const host = typeof outputs.ipv4_address === 'string' ? outputs.ipv4_address : undefined;
     const serverId = typeof outputs.server_id === 'string' || typeof outputs.server_id === 'number' ? String(outputs.server_id) : '';
 

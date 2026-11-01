@@ -1,3 +1,4 @@
+import { listAt, recordAt } from '../platform/index.js';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import fs from 'fs/promises';
@@ -5,7 +6,6 @@ import os from 'os';
 import path from 'path';
 import { ignore } from '@koala/engine-core/failures';
 import { messageOf } from './failure-reasons.js';
-import { listOf, recordOf } from './json-shapes.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -38,9 +38,9 @@ interface Droplet {
 }
 
 function dropletOf(value: unknown): Droplet | undefined {
-  const droplet = recordOf(value);
+  const droplet = recordAt(value);
   if (typeof droplet.id !== 'number' && typeof droplet.id !== 'string') return undefined;
-  const ip = listOf(recordOf(droplet.networks).v4).map(recordOf).find((network) => network.type === 'public')?.ip_address;
+  const ip = listAt(recordAt(droplet.networks).v4).map((item) => recordAt(item)).find((network) => network.type === 'public')?.ip_address;
   return { id: String(droplet.id), name: typeof droplet.name === 'string' ? droplet.name : undefined, ipv4: typeof ip === 'string' ? ip : undefined };
 }
 
@@ -56,7 +56,7 @@ async function doApi(token: string, pathname: string, init: RequestInit = {}): P
   if (res.status === 204) return {};
   const body: unknown = await res.json().catch(ignore('an answer without a JSON body is described by its status alone'));
   if (!res.ok) {
-    const said = recordOf(body).message;
+    const said = recordAt(body).message;
     throw new Error(`${pathname} → ${typeof said === 'string' ? said : `HTTP ${res.status}`}`);
   }
   return body;
@@ -85,15 +85,15 @@ const keyMaterial = (publicKey: string): string => publicKey.trim().split(/\s+/)
 
 export async function sshKeyFor(api: DoApi, name: string, publicKey: string): Promise<number> {
   const existing = await api('/account/keys?per_page=200');
-  const same = listOf(recordOf(existing).ssh_keys).map(recordOf).find((key) => typeof key.public_key === 'string' && keyMaterial(key.public_key) === keyMaterial(publicKey));
+  const same = listAt(recordAt(existing).ssh_keys).map((item) => recordAt(item)).find((key) => typeof key.public_key === 'string' && keyMaterial(key.public_key) === keyMaterial(publicKey));
   if (same?.id) return Number(same.id);
   const created = await api('/account/keys', { method: 'POST', body: JSON.stringify({ name: `provisioning-${name}`, public_key: publicKey }) });
-  return Number(recordOf(recordOf(created).ssh_key).id);
+  return Number(recordAt(recordAt(created).ssh_key).id);
 }
 
 async function findExistingDroplet(token: string, name: string): Promise<Droplet | undefined> {
   const res = await doApi(token, `/droplets?per_page=200&name=${encodeURIComponent(name)}`);
-  return listOf(recordOf(res).droplets).map(dropletOf).find((droplet) => droplet?.name === name);
+  return listAt(recordAt(res).droplets).map(dropletOf).find((droplet) => droplet?.name === name);
 }
 
 async function waitForSsh(host: string, privateKeyPath: string, attempts = 60): Promise<void> {
@@ -149,7 +149,7 @@ export async function ProvisionDigitalOceanVmActivity(
           tags: ['nowrinkles', `cluster-${args.name}`],
         }),
       });
-      droplet = dropletOf(recordOf(created).droplet);
+      droplet = dropletOf(recordAt(created).droplet);
       if (!droplet) throw new Error('DigitalOcean did not return a droplet id');
       await log(`Created droplet ${droplet.id}`);
     }
@@ -158,7 +158,7 @@ export async function ProvisionDigitalOceanVmActivity(
     for (let i = 0; i < 60 && !host; i++) {
       await new Promise((r) => setTimeout(r, 5000));
       const refreshed = await doApi(args.doToken, `/droplets/${droplet.id}`);
-      droplet = dropletOf(recordOf(refreshed).droplet) ?? droplet;
+      droplet = dropletOf(recordAt(refreshed).droplet) ?? droplet;
       host = droplet.ipv4;
     }
     if (!host) throw new Error(`Droplet ${droplet.id} never reported a public IPv4 address`);

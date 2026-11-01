@@ -1,5 +1,5 @@
 import { Router, type Request } from 'express';
-import { asyncRoute, encryptValue, fieldOf, isRecord, listAt, textAt, type JsonRecord, type Database, type ModelEndpointMetadata, type SecretKey, parseCookie } from '../../platform/index.js';
+import { asyncRoute, at, type Database, encryptValue, isRecord, type JsonRecord, listAt, type ModelEndpointMetadata, parseCookie, type SecretKey, textAt } from '../../platform/index.js';
 import { ignore } from '@koala/engine-core/failures';
 import type { CredentialService } from '../../infrastructure/index.js';
 import { v4 as uuidv4 } from 'uuid';
@@ -100,10 +100,10 @@ function modelEntryOf(raw: unknown): ModelEntry | undefined {
   const id = textAt(raw, 'id');
   if (!id) return undefined;
   const name = textAt(raw, 'name');
-  const context = fieldOf(raw, 'context_length');
-  const pricing = fieldOf(raw, 'pricing');
-  const prompt = priceText(fieldOf(pricing, 'prompt'));
-  const completion = priceText(fieldOf(pricing, 'completion'));
+  const context = at(raw, 'context_length');
+  const pricing = at(raw, 'pricing');
+  const prompt = priceText(at(pricing, 'prompt'));
+  const completion = priceText(at(pricing, 'completion'));
   return {
     id,
     ...(name !== undefined ? { name } : {}),
@@ -141,7 +141,7 @@ async function fetchModelList(
       return { models: [], error: `Provider returned ${res.status}: ${text.slice(0, 200)}` };
     }
     const body: unknown = await res.json();
-    const listed = fieldOf(body, 'data') !== undefined ? listAt(body, 'data') : listAt(body, 'models');
+    const listed = at(body, 'data') !== undefined ? listAt(body, 'data') : listAt(body, 'models');
     const models = listed.map(modelEntryOf).filter((m): m is ModelEntry => m !== undefined).map((m) => {
       const pricing = pricingOf(m);
       return {

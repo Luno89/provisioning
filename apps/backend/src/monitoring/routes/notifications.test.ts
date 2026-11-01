@@ -1,3 +1,4 @@
+import { matching } from '../../platform/lib/test-matchers.js';
 import { afterEach, describe, expect, it } from 'vitest';
 import axios from 'axios';
 import { mountRouter, TEST_USER, type Harness } from '../../platform/routes/test-harness.js';
@@ -9,7 +10,6 @@ import { NotificationService } from '../services/NotificationService.js';
 import { PushService } from '../services/PushService.js';
 import { vapidKeysFrom } from '../lib/web-push.js';
 import type { InstanceService } from '../../instances/services/InstanceService.js';
-import { matching } from '../../platform/lib/test-matchers.js';
 
 let harness: Harness;
 let sent: Array<{ to: string; subject: string }>;

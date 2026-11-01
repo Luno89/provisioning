@@ -1,4 +1,5 @@
 export { readBindingCredentials } from './lib/binding-project.js';
+export { pushToBuild } from './lib/gitea-push.js';
 export { parseNewStories } from './lib/item-changes.js';
 export { CONFLICT_TASK_TITLE } from './lib/landing.js';
 export type { Branch, Leaf } from './lib/leaves.js';
@@ -10,7 +11,6 @@ export { deploymentForProject } from './lib/project-status.js';
 export { giteaUsernameFor, sanitiseNamespaceName } from './lib/projects.js';
 export { serverProgress } from './lib/proposal-progress.js';
 export type { ImageNow } from './lib/proposal-progress.js';
-export { fieldsOf, trimmedText } from './lib/request-fields.js';
 export type { TaskChecks } from './lib/tasks.js';
 export type { ReleaseWays } from './lib/tree-type-description.js';
 export { ODOO_TREE_TYPE } from './lib/tree-type-seeds.js';

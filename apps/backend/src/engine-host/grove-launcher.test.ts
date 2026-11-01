@@ -1,8 +1,8 @@
+import { matching, objectWith } from '../platform/lib/test-matchers.js';
 import { describe, it, expect, vi } from 'vitest';
 import { createGroveLauncher, RUN_END_POLL_MS, startOnceQuiet } from './grove-launcher.js';
 import { EngineUnavailableError, type StartRunRequest } from './registries/run-starter.js';
 import { workflowOfRun } from './temporal/contracts.js';
-import { matching, objectWith } from '../engine/lib/test-matchers.js';
 
 type Described = { status: { name: string }; startTime: Date; closeTime?: Date; memo?: Record<string, unknown> };
 

@@ -1,9 +1,9 @@
+import { containing } from '../../platform/lib/test-matchers.js';
 import { describe, it, expect } from 'vitest';
 import { createCheckTools, type CheckAccess, type CheckRunView } from './check-tools.js';
 import { CHECK_TOOLS } from './check-tools-catalogue.js';
 import type { Scenario } from '../../eval/level2/scenario.js';
 import type { ScenarioResult } from '../../eval/level2/results.js';
-import { containing } from '../../engine/lib/test-matchers.js';
 
 const scenario = (over: Partial<Scenario> & { id: string }, mine = false): Scenario & { mine: boolean } => ({
   name: over.id, describe: '', agent: 'executor', procedure: { id: 'do-one-task' }, input: { message: 'go' }, expect: { outcome: 'ok' }, mine, ...over,

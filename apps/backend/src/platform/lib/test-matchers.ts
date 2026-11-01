@@ -4,11 +4,10 @@ export const matching = (pattern: string | RegExp): unknown => expect.stringMatc
 
 export const containing = (text: string): unknown => expect.stringContaining(text);
 
-export const anyOf = (type: unknown): unknown => expect.any(type);
+export const anyOf = (kind: unknown): unknown => expect.any(kind);
 
-export const objectWith = (shape: Record<string, unknown>): unknown => expect.objectContaining(shape);
+export const anything = (): unknown => expect.anything();
 
-export const arrayWith = (items: unknown[]): unknown => expect.arrayContaining(items);
+export const objectWith = (fields: Readonly<Record<string, unknown>>): unknown => expect.objectContaining(fields);
 
-export const at = (value: unknown, ...path: Array<string | number>): unknown =>
-  path.reduce<unknown>((inside, step) => (inside !== null && typeof inside === 'object' ? (inside as Record<string | number, unknown>)[step] : undefined), value);
+export const arrayWith = (items: readonly unknown[]): unknown => expect.arrayContaining([...items]);

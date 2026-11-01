@@ -1,9 +1,9 @@
+import { matching } from './test-matchers.js';
 import { describe, expect, it } from 'vitest';
 import {
   blocklistQuery, blocklistVerdict, forwardVerdict, mailCheckFrom, MAIL_BLOCKLISTS, MAIL_CHECK_MARK, mailDomainFrom, mailLines, mailProblems,
   mailUnknowns, port25Verdict, reverseDnsVerdict, type MailReadiness,
 } from './mail-reputation.js';
-import { matching } from './test-matchers.js';
 
 const zen = MAIL_BLOCKLISTS[0]!;
 

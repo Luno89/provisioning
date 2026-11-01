@@ -1,5 +1,5 @@
 import { Router, type Request, type Response } from 'express';
-import { asyncRoute, fieldOf, type ProjectMetadata, principalFrom, type Principal } from '../../platform/index.js';
+import { asyncRoute, at, type Principal, principalFrom, type ProjectMetadata } from '../../platform/index.js';
 import { cleanPath } from '../lib/file-places.js';
 import type { FileScope, FileService, FilesOutcome } from '../services/FileService.js';
 import { isShareDays, SHARE_DAYS } from '../lib/file-shares.js';
@@ -31,7 +31,7 @@ export function filesRouter(deps: FilesRouterDeps): Router {
 
   const pathOf = (req: Request, res: Response, key: string, allowRoot = false): string | undefined => {
     const query = req.query[key];
-    const body = fieldOf(req.body, key);
+    const body = at(req.body, key);
     const raw = typeof query === 'string' ? query : typeof body === 'string' ? body : '';
     const cleaned = cleanPath(raw, { allowRoot });
     if (!cleaned.ok) { res.status(400).json({ error: cleaned.why }); return undefined; }
@@ -43,7 +43,7 @@ export function filesRouter(deps: FilesRouterDeps): Router {
   }));
 
   router.put('/default', asyncRoute(async (req, res) => {
-    const wanted = fieldOf(req.body, 'deploymentId');
+    const wanted = at(req.body, 'deploymentId');
     if (wanted !== null && typeof wanted !== 'string') return res.status(400).json({ error: 'deploymentId must name a file server, or be null.' });
     answer(res, await deps.files.setDefault(userOf(req).id, wanted));
   }));
@@ -65,7 +65,7 @@ export function filesRouter(deps: FilesRouterDeps): Router {
   router.put('/projects/:id/place', asyncRoute(async (req, res) => {
     const project = await deps.getOwnedProject(String(req.params.id ?? ''), principalFrom(req));
     if (!project) return res.status(404).json({ error: 'Project not found' });
-    const deploymentId = fieldOf(req.body, 'deploymentId');
+    const deploymentId = at(req.body, 'deploymentId');
     if (typeof deploymentId !== 'string') return res.status(400).json({ error: 'deploymentId must name a file server.' });
     answer(res, await deps.files.choose(userOf(req).id, project, deploymentId));
   }));
@@ -103,7 +103,7 @@ export function filesRouter(deps: FilesRouterDeps): Router {
     if (!scope) return;
     const path = pathOf(req, res, 'path');
     if (path === undefined) return;
-    const days = fieldOf(req.body, 'days');
+    const days = at(req.body, 'days');
     if (!isShareDays(days)) return res.status(400).json({ error: `a link lasts ${SHARE_DAYS.join(', ')} days` });
     answer(res, await deps.files.share(userOf(req).id, scope, path, days), 201);
   }));

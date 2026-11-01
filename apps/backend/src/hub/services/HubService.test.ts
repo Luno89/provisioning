@@ -1,7 +1,7 @@
+import { objectWith } from '../../platform/lib/test-matchers.js';
 import { describe, expect, it, vi } from 'vitest';
 import { HubService } from './HubService.js';
 import { memoryHubStore } from '../lib/hub-store.js';
-import { objectWith } from '../../projects/lib/test-matchers.js';
 
 const ann = { id: 'ann', email: 'ann@example.com' };
 const bo = { id: 'bo', email: 'bo@example.com' };

@@ -1,6 +1,6 @@
 import { Router, type Request } from 'express';
 import type { Server as SocketServer } from 'socket.io';
-import { asyncRoute, principalFrom, type Database, type DeploymentMetadata } from '../../platform/index.js';
+import { asyncRoute, at, type Database, type DeploymentMetadata, listAt, principalFrom } from '../../platform/index.js';
 import { CapacityError } from '../lib/cluster-capacity.js';
 import { APP_SETTINGS_SCHEMAS, NO_WEB_UI_APP_TYPES } from '../lib/app-schemas.js';
 import { deployRequestFrom } from '../lib/app-namespace.js';
@@ -10,7 +10,6 @@ import { parseQuantity, planHostMemory } from '../lib/host-memory-plan.js';
 import { TABBYAPI_DEFAULT_MAX_SEQ_LEN } from '../lib/app-env.js';
 import { visibleAppSpecs } from '../lib/app-spec.js';
 import { deploymentConfigPatch, isTexts } from '../lib/deployment-config.js';
-import { at, listAt } from '../lib/json-reading.js';
 import { ignore } from '@koala/engine-core/failures';
 import type { AppService } from '../services/AppService.js';
 import type { ClusterService } from '../services/ClusterService.js';

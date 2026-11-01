@@ -1,9 +1,9 @@
+import { arrayWith } from '../../platform/lib/test-matchers.js';
 import { describe, it, expect } from 'vitest';
 import axios from 'axios';
 import { mountRouter, TEST_USER } from '../../platform/routes/test-harness.js';
 import { workspaceDependenciesRouter } from './workspace-dependencies.js';
 import { WorkspaceDependencyService } from '../services/WorkspaceDependencyService.js';
-import { arrayWith } from '../lib/test-matchers.js';
 
 const quiet = { validateStatus: () => true };
 

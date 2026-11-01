@@ -1,3 +1,4 @@
+import { arrayWith, containing, matching } from '../../platform/lib/test-matchers.js';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { testDatabase } from '../../platform/lib/test-database.js';
 import type { MongoDB } from '../../platform/lib/mongo-db.js';
@@ -6,7 +7,6 @@ import type { FetchLike } from './OvhClient.js';
 import { DnsProviders } from './dns/DnsProviders.js';
 import { fakeCloudflare, fakePorkbun, type FakeDns } from './dns/fake-dns.js';
 import { ServerOrderProblem, ServerOrderService } from './ServerOrderService.js';
-import { containing, matching, listContaining } from './test-matchers.js';
 
 const KEY = 'server-order-test-key';
 const ASK = { planCode: 'vps-2027-model2', planLabel: 'VPS-2 2027', datacenter: 'SYD', domain: 'nowrinkles.dev', ingressDomain: 'nowrinkles.app', acmeEmail: 'me@example.com' };
@@ -56,7 +56,7 @@ describe('buying root\'s server from OVHcloud', () => {
     const order = await service.quote('op', ASK);
     expect(order).toMatchObject({ state: 'quoted', subsidiary: 'AU', quote: { currency: 'AUD', withTax: 15.4, monthly: 14, setupFee: 0 }, hasSetupCode: false, hasSshKey: false });
     expect(order.quote.contracts).toEqual([{ name: 'General Terms of Service', url: 'https://example.ovh/terms.pdf' }]);
-    expect(ovh.state.calls).toEqual(listContaining([
+    expect(ovh.state.calls).toEqual(arrayWith([
       'POST /order/cart', 'POST /order/cart/cart-1/assign', 'POST /order/cart/cart-1/vps',
       'POST /order/cart/cart-1/item/7/configuration', 'GET /order/cart/cart-1/vps/options?planCode=vps-2027-model2',
       'GET /order/cart/cart-1/checkout',

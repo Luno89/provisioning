@@ -1,4 +1,4 @@
-import { type Fields, fieldsOf } from './request-fields.js';
+import { type Fields, fieldsOf } from '../../platform/lib/request-fields.js';
 
 
 export interface CrawlSpec {

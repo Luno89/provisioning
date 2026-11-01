@@ -1,7 +1,6 @@
 import { Router, type Request, type Response } from 'express';
-import { asyncRoute } from '../../platform/index.js';
+import { asyncRoute, fieldsOf } from '../../platform/index.js';
 import { dependencyFrom } from '../lib/workspace-dependencies.js';
-import { fieldsOf } from '../lib/request-fields.js';
 import type { WorkspaceDependencyService } from '../services/WorkspaceDependencyService.js';
 
 export interface WorkspaceDependenciesRouterDeps {

@@ -1,10 +1,10 @@
+import { anyOf, arrayWith } from '../../platform/lib/test-matchers.js';
 import { describe, it, expect, vi } from 'vitest';
 import { baseFor, languagesFor, type AgentDefinition } from '@koala/agent-engine';
 import { mergeWorkspaceAgents, type EnvironmentResolver } from './environments.js';
 import { createTreeWorkspaces } from './tree-workspaces.js';
 import { treeLanguageFrom, type TreeTypeSpec } from '../../projects/lib/tree-types.js';
 import { WORKSPACE_BASES } from '../../extensions/workspace-bases.js';
-import { anyOf, arrayWith } from '../../engine/lib/test-matchers.js';
 
 const agent = (slug: string, over: Partial<AgentDefinition> = {}): AgentDefinition => ({
   slug, name: slug, prompt: '', tools: [`${slug}_tool`], procedure: 'tool-rounds',

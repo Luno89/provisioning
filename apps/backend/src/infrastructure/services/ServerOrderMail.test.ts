@@ -1,3 +1,4 @@
+import { arrayWith, matching } from '../../platform/lib/test-matchers.js';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { testDatabase } from '../../platform/lib/test-database.js';
 import type { MongoDB } from '../../platform/lib/mongo-db.js';
@@ -7,7 +8,6 @@ import type { FetchLike } from './OvhClient.js';
 import { DnsProviders } from './dns/DnsProviders.js';
 import { fakeCloudflare, fakePorkbun, type FakeDns } from './dns/fake-dns.js';
 import { ServerOrderService } from './ServerOrderService.js';
-import { matching, listContaining } from './test-matchers.js';
 
 const ASK = { planCode: 'vps-2027-model2', planLabel: 'VPS-2 2027', datacenter: 'SYD', domain: 'nowrinkles.dev', ingressDomain: 'nowrinkles.app', acmeEmail: 'me@example.com' };
 const NAMESERVERS: Record<string, string[]> = {
@@ -56,7 +56,7 @@ describe('root\'s mail once its server is bought', () => {
     mailRecord('203.0.113.7');
     expect(await service.setReverseDns(id)).toEqual({ done: true });
     expect(ovh.state.reverses).toEqual({ '203.0.113.7': 'mail.nowrinkles.dev.' });
-    expect(ovh.state.calls).toEqual(listContaining(['GET /ip?ip=203.0.113.7', 'GET /ip/203.0.113.7%2F32/reverse/203.0.113.7', 'POST /ip/203.0.113.7%2F32/reverse']));
+    expect(ovh.state.calls).toEqual(arrayWith(['GET /ip?ip=203.0.113.7', 'GET /ip/203.0.113.7%2F32/reverse/203.0.113.7', 'POST /ip/203.0.113.7%2F32/reverse']));
     expect((await service.get('op', id)).reverseDns).toMatchObject({ ip: '203.0.113.7', name: 'mail.nowrinkles.dev', state: 'set', said: 'OVHcloud set the reverse DNS of 203.0.113.7 to mail.nowrinkles.dev' });
     const posts = () => ovh.state.calls.filter((call) => call.startsWith('POST /ip/')).length;
     expect(posts()).toBe(1);
@@ -106,11 +106,11 @@ describe('root\'s mail once its server is bought', () => {
     };
     await service.recordMailCheck(id, `  ✓ lines\n${MAIL_CHECK_MARK} ${JSON.stringify(check)}`);
     const order = await service.get('op', id);
-    expect(order.mail).toMatchObject({ check: { ip: '203.0.113.7', blocklists: [{ state: 'listed' }] }, problems: [matching(/UCEPROTECT/)], lines: listContaining([{ mark: 'problem', said: matching(/UCEPROTECT/) }]) });
+    expect(order.mail).toMatchObject({ check: { ip: '203.0.113.7', blocklists: [{ state: 'listed' }] }, problems: [matching(/UCEPROTECT/)], lines: arrayWith([{ mark: 'problem', said: matching(/UCEPROTECT/) }]) });
     expect(order.log!.slice(-2)).toEqual([matching(/mail: ! 203\.0\.113\.7 is on UCEPROTECT level 1/), matching(/mail: 1 thing to fix before root's mail is relied on/)]);
     await service.recordMailCheck(id, undefined);
     expect((await service.get('op', id)).log!.at(-1)).toMatch(/this release cannot check root's mail yet/);
     await service.failed(id, 'the reverse DNS step failed five times');
-    expect((await service.get('op', id))).toMatchObject({ state: 'ready', log: listContaining([matching(/root is running, but checking its mail stopped: the reverse DNS step failed five times/)]) });
+    expect((await service.get('op', id))).toMatchObject({ state: 'ready', log: arrayWith([matching(/root is running, but checking its mail stopped: the reverse DNS step failed five times/)]) });
   });
 });

@@ -1,6 +1,5 @@
 import { ignore } from '@koala/engine-core/failures';
-import { BaseService } from '../../platform/index.js';
-import { textAt } from '../lib/json-reading.js';
+import { BaseService, textAt } from '../../platform/index.js';
 import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';

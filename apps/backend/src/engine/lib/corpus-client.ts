@@ -1,9 +1,9 @@
+import { fieldsOf } from '../../platform/lib/request-fields.js';
 import {
   indexConfig, collectionConfig, buildIndexQuery, chunksFor, pointId, mergeHits,
   SEARCH_LIMIT, type CorpusDoc, type CorpusHit,
 } from './corpus-backend.js';
 import { SNIPPET_CHARS } from './corpus.js';
-import { fieldsOf } from './request-fields.js';
 import type { CorpusEndpoints } from './web-tools-resolver.js';
 
 export const INDEX_ID = 'koala-corpus';

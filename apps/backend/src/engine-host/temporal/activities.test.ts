@@ -1,3 +1,4 @@
+import { anyOf, matching, objectWith } from '../../platform/lib/test-matchers.js';
 import { describe, it, expect, vi } from 'vitest';
 import { MockActivityEnvironment } from '@temporalio/testing';
 import { stepImplementation } from '@koala/agent-engine/procedure';
@@ -6,7 +7,6 @@ import type { Task } from '../tools/tasks.js';
 import { createEventBus, type EngineEvent } from '@koala/agent-engine';
 import { createAgentRegistry } from '../registries/registry.js';
 import type { RunTicket } from './contracts.js';
-import { anyOf, matching, objectWith } from '../../engine/lib/test-matchers.js';
 
 const ticket = (over: Partial<RunTicket> = {}): RunTicket => ({
   runId: 'run-1',

@@ -1,10 +1,10 @@
+import { matching, objectWith } from '../../platform/lib/test-matchers.js';
 import { describe, expect, it } from 'vitest';
 import { McpServerService } from './McpServerService.js';
 import { runsFingerprint, serverNameFrom, type McpServerRecord } from '../lib/mcp-servers.js';
 import { MCP_SERVER_TEMPLATES } from '../../extensions/mcp/templates.js';
 import type { DeploymentMetadata } from '../../platform/lib/types.js';
 import type { StartRunRequest } from '../../engine-host/registries/run-starter.js';
-import { matching, objectWith } from '../lib/test-matchers.js';
 
 function world(over: { deployments?: Partial<DeploymentMetadata>[]; startFails?: string; finished?: Record<string, { outcome: string; reason?: string }>; projects?: { id: string; name: string }[] } = {}) {
   const records = new Map<string, McpServerRecord>();

@@ -1,3 +1,4 @@
+import { anyOf, objectWith } from '../../platform/lib/test-matchers.js';
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { createEventBus, fittedMaxTokens, type AgentDefinition, type EngineEvent, type Monitor, type ModelProvider } from '@koala/agent-engine';
 import {
@@ -24,7 +25,6 @@ import { createProcedureExecutor, withTemperature, type HostNodeServices } from 
 import { inMemoryConversations } from './conversation-nodes.js';
 import { INTERACTIVE_CHAT_V4 } from '@koala/agent-engine/procedure';
 import { seededAgents } from '../../extensions/seeds.js';
-import { anyOf, objectWith } from '../../engine/lib/test-matchers.js';
 
 const CATALOGUE: ToolContract[] = [
   { name: 'run_command', description: 'Run a shell command', binding: 'environment', requires: { terminal: true }, usageGuidance: 'Prefer a dedicated tool when one fits.' },

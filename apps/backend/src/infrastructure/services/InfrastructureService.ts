@@ -8,10 +8,9 @@ import { fileURLToPath } from 'url';
 import { Server as SocketServer } from 'socket.io';
 
 import os from 'os';
-import { CommandFailedError } from '../../platform/index.js';
+import { CommandFailedError, listAt, textAt } from '../../platform/index.js';
 import { ignore } from '@koala/engine-core/failures';
 import { assessWorkload } from '../lib/workload-health.js';
-import { listAt, textAt } from '../lib/json-reading.js';
 
 const execAsync = promisify(exec);
 const __filename = fileURLToPath(import.meta.url);

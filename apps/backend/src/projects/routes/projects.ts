@@ -1,5 +1,5 @@
 import { Router, type Request } from 'express';
-import { allowed, asyncRoute, principalFrom } from '../../platform/index.js';
+import { allowed, asyncRoute, fieldsOf, principalFrom, trimmedText } from '../../platform/index.js';
 import type { Database, LocalEgressRule, LocalAgentDeviceMetadata, PartialInfo, Principal, ProjectMetadata } from '../../platform/index.js';
 import { isWorkspaceLanguage, WorkspaceImageService } from '../../engine/index.js';
 import { v4 as uuidv4 } from 'uuid';
@@ -7,7 +7,6 @@ import { rollupProjectStatus, deploymentForProject } from '../lib/project-status
 import { namesTargetCluster, targetClusterProblem } from '../lib/project-shipping.js';
 import { validateLocalEgressRules } from '../../infrastructure/index.js';
 import type { ClusterService, TemporalBridge } from '../../infrastructure/index.js';
-import { fieldsOf, trimmedText } from '../lib/request-fields.js';
 import type { ProjectRemovalService } from '../services/ProjectRemovalService.js';
 import type { ProjectRepoService } from '../services/ProjectRepoService.js';
 import type { ProjectChannelService } from '../services/ProjectChannelService.js';

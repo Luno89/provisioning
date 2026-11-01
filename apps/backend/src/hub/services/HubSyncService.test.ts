@@ -1,3 +1,4 @@
+import { anyOf } from '../../platform/lib/test-matchers.js';
 import { describe, expect, it, vi } from 'vitest';
 import { Readable } from 'node:stream';
 import { testDatabase } from '../../platform/lib/test-database.js';
@@ -7,7 +8,6 @@ import { HubSyncService, localHubSync } from './HubSyncService.js';
 import { HubRelay } from './HubRelay.js';
 import { HubInstanceWork } from './HubInstanceWork.js';
 import type { Leaf } from '../../projects/lib/leaves.js';
-import { anyOf } from '../../projects/lib/test-matchers.js';
 
 const ann = { id: 'ann', email: 'ann@example.com' };
 const now = '2026-10-21T00:00:00Z';

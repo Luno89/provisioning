@@ -1,6 +1,6 @@
+import { fieldsOf } from '../../platform/lib/request-fields.js';
 import { patientFetch } from '@koala/agent-engine';
 import { withoutHiddenHtml } from './hidden-text.js';
-import { fieldsOf } from './request-fields.js';
 
 export interface SearchHit {
   title: string;

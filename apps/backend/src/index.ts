@@ -51,7 +51,7 @@ import {
 import { TemporalBridge } from './infrastructure/services/TemporalBridge.js';
 import net from 'net';
 import { spawn } from 'child_process';
-import { GiteaService } from './projects/index.js';
+import { GiteaService, pushToBuild } from './projects/index.js';
 
 import { seedAll } from './scripts/seed-all.js';
 import { collectorSink, NotificationService, PushService, vapidKeysFrom, vapidSubject, webPushSend } from './monitoring/index.js';
@@ -257,16 +257,12 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
         return res.status(401).json({ error: 'Invalid webhook signature' });
       }
 
-      const payload = giteaPushOf(JSON.parse(rawBody.toString('utf8')));
-      if (!payload) return res.status(200).json({ status: 'ignored', reason: 'not a push event' });
-
-      const { ref, defaultBranch } = payload;
-      if (ref !== defaultBranch) {
-        return res.status(200).json({ status: 'ignored', reason: `not the default branch (${ref} != ${defaultBranch})` });
-      }
+      const decided = pushToBuild(JSON.parse(rawBody.toString('utf8')));
+      if ('ignored' in decided) return res.status(200).json({ status: 'ignored', reason: decided.ignored });
+      const payload = decided.build;
 
       res.status(202).json({ status: 'accepted' });
-      temporalBridge.runPipeline(project, payload.after, ref).catch((err: Error) =>
+      temporalBridge.runPipeline(project, payload.after, payload.ref).catch((err: Error) =>
         console.error(`[webhook] Failed to start pipeline run for project ${project.id}: ${err.message}`)
       );
       workspaceBuilds.pushed(project, payload.after, payload.commits).catch((err: Error) =>
@@ -518,23 +514,6 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   process.on('SIGTERM', shutdown);
 
   return { app, io, temporalBridge, db };
-}
-
-function giteaPushOf(body: unknown): { ref: string; after: string; defaultBranch: string; commits: { added: string[]; modified: string[]; removed: string[] }[] } | undefined {
-  const fields = (value: unknown): Record<string, unknown> => (typeof value === 'object' && value !== null ? value as Record<string, unknown> : {});
-  const paths = (value: unknown): string[] => (Array.isArray(value) ? (value as unknown[]).filter((entry): entry is string => typeof entry === 'string') : []);
-  const push = fields(body);
-  if (typeof push.ref !== 'string' || !push.ref || typeof push.after !== 'string' || !push.after) return undefined;
-  const branch = fields(push.repository).default_branch;
-  return {
-    ref: push.ref.replace('refs/heads/', ''),
-    after: push.after,
-    defaultBranch: typeof branch === 'string' && branch ? branch : 'main',
-    commits: (Array.isArray(push.commits) ? (push.commits as unknown[]) : []).map((commit) => {
-      const changed = fields(commit);
-      return { added: paths(changed.added), modified: paths(changed.modified), removed: paths(changed.removed) };
-    }),
-  };
 }
 
 if (process.env.NODE_ENV !== 'test' || process.env.IS_E2E === 'true') {

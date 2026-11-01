@@ -1,3 +1,4 @@
+import { containing, objectWith } from '../../platform/lib/test-matchers.js';
 import { describe, expect, it } from 'vitest';
 import {
   BUILT_IN_GROUPS,
@@ -15,7 +16,6 @@ import { createMcpOperations } from './operations/handlers.js';
 import { CAPTURE_MCP_SERVER } from './procedures.js';
 import { PLAYWRIGHT } from './templates.js';
 import { createRunEnvironments, environmentIdFor } from '../../engine-host/sandboxes/run-environments.js';
-import { containing, objectWith } from '../../engine/lib/test-matchers.js';
 
 const TOOLS = [
   { name: 'browser_navigate', description: 'Open a page.', inputSchema: { type: 'object', properties: { url: { type: 'string' } } } },

@@ -1,8 +1,8 @@
+import { arrayWith, containing, objectWith } from '../../platform/lib/test-matchers.js';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import axios from 'axios';
 import { mountRouter, TEST_USER, type Harness } from '../../platform/routes/test-harness.js';
 import { engineRouter, extensionSummary, type EngineRouterDeps } from './engine.js';
-import { arrayWith, containing, objectWith } from '../lib/test-matchers.js';
 import { createAgentRegistry, createRunStarter, type WorkflowStarter, type Task } from '../../engine-host/index.js';
 import type { Database } from '../../platform/lib/db-interface.js';
 import { conversationBinding } from '../../engine-host/conversation-binding.js';

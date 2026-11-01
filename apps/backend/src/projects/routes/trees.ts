@@ -1,5 +1,5 @@
 import { Router, type Request } from 'express';
-import { asyncRoute, ownedBy, type Database } from '../../platform/index.js';
+import { asyncRoute, type Database, fieldsOf, ownedBy } from '../../platform/index.js';
 import { v4 as uuidv4 } from 'uuid';
 import { resolveTreeType, versionForNewTree } from '../lib/tree-types.js';
 import { normaliseTreeInput } from '../lib/trees.js';
@@ -11,7 +11,6 @@ import type { TreeHomeService } from '../services/TreeHomeService.js';
 import type { GroveOrderService } from '../services/GroveOrderService.js';
 import type { TreeWorkspaceService } from '../services/TreeWorkspaceService.js';
 import type { TreeModelsService } from '../../models/index.js';
-import { fieldsOf } from '../lib/request-fields.js';
 
 export interface TreesRouterDeps {
   db: Database;

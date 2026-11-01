@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
 import { fieldsOf, trimmedText } from './request-fields.js';
+import { describe, expect, it } from 'vitest';
 
 describe('reading a request body', () => {
   it('takes an object as its fields, and anything else as none', () => {

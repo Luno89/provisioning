@@ -1,9 +1,9 @@
+import { containing } from '../../../platform/lib/test-matchers.js';
 import { describe, expect, it, vi } from 'vitest';
 import type { ToolCallerContext } from '@koala/engine-core';
 import type { WorkspaceChange } from '../../../engine/lib/workspace-file.js';
 import type { Task } from '../../../engine-host/tools/tasks.js';
 import { changeFrom, createWorkspaceTools, type WorkspaceToolDeps } from './handlers.js';
-import { containing } from '../../../engine/lib/test-matchers.js';
 
 const task = (over: Partial<Task> = {}): Task => ({ id: 'task-1', ownerId: 'u1', leafId: 'leaf-a', title: 'Render the invoice', doneMeans: 'a PDF', dependsOn: [], status: 'running', runs: ['r1'], createdAt: 't0', updatedAt: 't0', ...over });
 

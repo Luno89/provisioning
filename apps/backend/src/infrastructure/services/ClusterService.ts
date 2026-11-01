@@ -1,7 +1,6 @@
-import { allowed, authorize, BaseService, clusterResource, type Actions, type ClusterMetadata, type Database, encryptValue, type Principal, type SecretKey, writePrivate } from '../../platform/index.js';
+import { type Actions, allowed, authorize, BaseService, type ClusterMetadata, clusterResource, type Database, encryptValue, listAt, numberAt, type Principal, recordAt, type SecretKey, textAt, writePrivate } from '../../platform/index.js';
 import { InfrastructureService } from './InfrastructureService.js';
 import type { TemporalBridge } from './TemporalBridge.js';
-import { listAt, numberAt, recordAt, textAt } from '../lib/json-reading.js';
 import { ignore } from '@koala/engine-core/failures';
 import { hasCloudCredentials, isMockCloudProvider } from './cloud-credentials.js';
 import { v4 as uuidv4 } from 'uuid';

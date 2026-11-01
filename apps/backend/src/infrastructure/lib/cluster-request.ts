@@ -1,4 +1,4 @@
-import { recordAt } from './json-reading.js';
+import { recordAt } from '../../platform/lib/json-shapes.js';
 
 export interface RemoteHostRequest {
   host: string;

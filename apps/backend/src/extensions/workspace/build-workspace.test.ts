@@ -1,3 +1,4 @@
+import { containing, objectWith } from '../../platform/lib/test-matchers.js';
 import { describe, expect, it } from 'vitest';
 import {
   BUILT_IN_GROUPS,
@@ -14,7 +15,6 @@ import type { Leaf } from '../../projects/lib/leaves.js';
 import { platformCatalogue } from '../installed.js';
 import { createWorkspaceOperations } from './operations/handlers.js';
 import { BUILD_WORKSPACE, DO_NOT_INSTALL, INSTALL_IT } from './procedures.js';
-import { containing, objectWith } from '../../engine/lib/test-matchers.js';
 
 const TREE = { id: 't1', ownerId: 'u1', name: 'Shop', projectIds: ['p1'] };
 

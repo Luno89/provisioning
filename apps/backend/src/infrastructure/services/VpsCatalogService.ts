@@ -1,6 +1,5 @@
 import { ignore } from '@koala/engine-core/failures';
-import { type CloudCredentials, type Database, decryptValue, type SecretKey } from '../../platform/index.js';
-import { textAt } from '../lib/json-reading.js';
+import { type CloudCredentials, type Database, decryptValue, type SecretKey, textAt } from '../../platform/index.js';
 import { COMBINED_CLAIMS, usesOperatorCredentials } from '../lib/credential-resolver.js';
 import { resolveCloudCredentials } from './cloud-credentials.js';
 import type { ClaimSettings } from '../../platform/index.js';

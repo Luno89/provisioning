@@ -1,5 +1,5 @@
+import { at } from '../../platform/index.js';
 import { Router, type Request } from 'express';
-import { at } from '../lib/json-reading.js';
 import type { HeadscaleService } from '../services/HeadscaleService.js';
 
 export interface MeshRouterDeps {

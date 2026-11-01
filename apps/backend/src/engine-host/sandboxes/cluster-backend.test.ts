@@ -1,3 +1,4 @@
+import { anyOf } from '../../platform/lib/test-matchers.js';
 import { describe, it, expect, vi } from 'vitest';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
@@ -5,7 +6,6 @@ import { createClusterBackend, GROUPED_EXEC, STOP_GROUPED_EXEC, WorkspaceUnavail
 import { workspaceName, type RunWorkspace } from './workspace.js';
 import type { KubeResult, KubeRunner } from './kube.js';
 import { workspaceStamp } from '../../engine/lib/published-workspace.js';
-import { anyOf } from '../../engine/lib/test-matchers.js';
 
 const workspace: RunWorkspace = {
   runId: 'run-abc',

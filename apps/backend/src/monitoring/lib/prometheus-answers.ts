@@ -1,4 +1,4 @@
-import { fieldOf, isRecord, listAt } from '../../platform/lib/json-shapes.js';
+import { at, isRecord, listAt } from '../../platform/lib/json-shapes.js';
 import type { PromAlert } from './monitoring-alerts.js';
 
 export interface PromSample {
@@ -18,15 +18,15 @@ const pointOf = (value: unknown): [number, number] => {
 };
 
 export function promAnswer(ok: boolean, status: number, body: unknown): unknown {
-  if (!ok || fieldOf(body, 'status') !== 'success') {
-    const error = fieldOf(body, 'error');
+  if (!ok || at(body, 'status') !== 'success') {
+    const error = at(body, 'error');
     throw new Error(`Prometheus answered ${status}${typeof error === 'string' && error ? `: ${error}` : ''}`);
   }
-  return fieldOf(body, 'data');
+  return at(body, 'data');
 }
 
 export const instantSamples = (data: unknown): PromSample[] =>
-  listAt(data, 'result').map((entry) => ({ metric: labelsOf(fieldOf(entry, 'metric'), 'a series'), value: pointOf(fieldOf(entry, 'value'))[1] }));
+  listAt(data, 'result').map((entry) => ({ metric: labelsOf(at(entry, 'metric'), 'a series'), value: pointOf(at(entry, 'value'))[1] }));
 
 export const firstRange = (data: unknown): Array<[number, number]> => {
   const [first] = listAt(data, 'result');
@@ -35,26 +35,26 @@ export const firstRange = (data: unknown): Array<[number, number]> => {
 
 export const promAlerts = (data: unknown): PromAlert[] =>
   listAt(data, 'alerts').map((alert) => {
-    const annotations = fieldOf(alert, 'annotations');
-    const activeAt = fieldOf(alert, 'activeAt');
-    const value = fieldOf(alert, 'value');
+    const annotations = at(alert, 'annotations');
+    const activeAt = at(alert, 'activeAt');
+    const value = at(alert, 'value');
     return {
-      labels: labelsOf(fieldOf(alert, 'labels'), 'an alert'),
+      labels: labelsOf(at(alert, 'labels'), 'an alert'),
       ...(annotations !== undefined ? { annotations: labelsOf(annotations, 'an alert\'s annotations') } : {}),
-      state: String(fieldOf(alert, 'state') ?? ''),
+      state: String(at(alert, 'state') ?? ''),
       ...(typeof activeAt === 'string' ? { activeAt } : {}),
       ...(typeof value === 'string' ? { value } : {}),
     };
   });
 
 export const answeredSamples = (answer: unknown): PromSample[] =>
-  listAt(answer, 'samples').map((entry) => ({ metric: labelsOf(fieldOf(entry, 'metric'), 'a series'), value: Number(fieldOf(entry, 'value')) }));
+  listAt(answer, 'samples').map((entry) => ({ metric: labelsOf(at(entry, 'metric'), 'a series'), value: Number(at(entry, 'value')) }));
 
 export const answeredPoints = (answer: unknown): Array<[number, number]> => listAt(answer, 'points').map(pointOf);
 
 export const answeredHistory = (answer: unknown): { days: number; kept?: number } => {
-  const days = fieldOf(answer, 'days');
-  const kept = fieldOf(answer, 'kept');
+  const days = at(answer, 'days');
+  const kept = at(answer, 'kept');
   if (typeof days !== 'number') throw new Error('root answered how long history is kept without saying how many days');
   return { days, ...(typeof kept === 'number' ? { kept } : {}) };
 };

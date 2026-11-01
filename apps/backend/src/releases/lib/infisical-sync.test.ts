@@ -1,6 +1,6 @@
+import { containing } from '../../platform/lib/test-matchers.js';
 import { describe, it, expect } from 'vitest';
 import { INFISICAL_IN_CLUSTER, infisicalHostFor, infisicalSecretManifest, readerSecretManifest } from './infisical-sync.js';
-import { containing } from '../../projects/lib/test-matchers.js';
 
 describe('where a cluster reaches the vault', () => {
   it('uses the in-cluster service on the management cluster', () => {

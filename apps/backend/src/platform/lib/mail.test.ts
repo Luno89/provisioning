@@ -1,8 +1,8 @@
+import { containing } from './test-matchers.js';
 import { describe, expect, it } from 'vitest';
 import { alertMail, emailWanted, mailProblem } from './mail.js';
 import { emailWayFrom } from './email-way.js';
 import type { AlertEpisode } from '../../monitoring/lib/monitoring-records.js';
-import { containing } from './test-matchers.js';
 
 const episode: AlertEpisode = { id: 'e1', ownerId: 'o', clusterId: 'c', key: 'k', name: 'Koala_down', summary: 'books has not answered for 5 minutes', about: { kind: 'app', deploymentId: 'books' }, startedAt: '2026-10-17T10:00:00Z' };
 

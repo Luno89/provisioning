@@ -1,7 +1,6 @@
 import { Router, type Request } from 'express';
-import { asyncRoute, ownedBy, type Database } from '../../platform/index.js';
+import { asyncRoute, type Database, fieldsOf, ownedBy } from '../../platform/index.js';
 import { agentProblem, treeTypeFrom, treeTypeReachProblem } from '../lib/tree-types.js';
-import { fieldsOf } from '../lib/request-fields.js';
 
 export interface TreeTypesRouterDeps {
   releaseProblem?: ((ownerId: string, how: unknown) => Promise<string | null>) | undefined;

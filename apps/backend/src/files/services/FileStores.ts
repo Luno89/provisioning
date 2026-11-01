@@ -1,9 +1,9 @@
+import { at } from '../../platform/index.js';
 import type { Readable } from 'node:stream';
 import { Client } from 'minio';
 import type { ClusterMetadata, DeploymentMetadata } from '../../platform/index.js';
 import { FILES_BUCKET, FOLDER_MARK, SEARCH_LIMIT, isFolderMark, matchesSearch, within, type FileEntry, type FilePlace } from '../lib/file-places.js';
 import { s3Address, type ServiceSpec } from '../lib/artifacts.js';
-import { fieldOf } from '../../platform/index.js';
 
 export interface Download {
   stream: Readable;
@@ -66,7 +66,7 @@ const collect = <T>(stream: NodeJS.ReadableStream): Promise<T[]> => new Promise(
 const byKind = (a: FileEntry, b: FileEntry) => (a.type === b.type ? a.name.localeCompare(b.name) : a.type === 'dir' ? -1 : 1);
 
 const missingObject = (err: unknown): boolean => {
-  const code = fieldOf(err, 'code');
+  const code = at(err, 'code');
   return code === 'NotFound' || code === 'NoSuchKey';
 };
 

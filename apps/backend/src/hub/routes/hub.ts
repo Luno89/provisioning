@@ -1,6 +1,5 @@
 import { Router, type Request, type Response } from 'express';
-import { asyncRoute } from '../../platform/index.js';
-import { fieldsOf } from '../../projects/index.js';
+import { asyncRoute, fieldsOf } from '../../platform/index.js';
 import type { HubOutcome, HubService } from '../services/HubService.js';
 import type { RelayAnswer } from '../services/HubRelay.js';
 import type { RelayOp } from '../lib/hub-board.js';

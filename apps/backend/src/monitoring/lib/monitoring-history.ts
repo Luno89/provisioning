@@ -1,4 +1,4 @@
-import { fieldOf, textAt } from '../../platform/lib/json-shapes.js';
+import { at, textAt } from '../../platform/lib/json-shapes.js';
 
 export const DEFAULT_HISTORY_DAYS = 10;
 export const MIN_HISTORY_DAYS = 1;
@@ -34,11 +34,11 @@ export interface PrometheusNow {
 }
 
 export function prometheusNow(resource: unknown): PrometheusNow {
-  const spec = fieldOf(resource, 'spec');
+  const spec = at(resource, 'spec');
   return {
     retention: textAt(spec, 'retention'),
     retentionSize: textAt(spec, 'retentionSize'),
-    durable: Boolean(fieldOf(fieldOf(spec, 'storage'), 'volumeClaimTemplate')),
+    durable: Boolean(at(at(spec, 'storage'), 'volumeClaimTemplate')),
   };
 }
 

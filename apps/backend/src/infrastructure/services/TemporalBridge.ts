@@ -17,7 +17,7 @@ import fs from 'fs';
 import type { Client, WorkflowExecutionInfo } from '@temporalio/client'
 import type { temporal } from '@temporalio/proto'
 import { ignore } from '@koala/engine-core/failures'
-import { textAt } from '../lib/json-reading.js'
+import { textAt } from '../../platform/index.js'
 import { definedFields, deployRequestOf } from '../lib/deploy-request.js'
 import { AdoptPlanWorkflow } from '../../workflows/AdoptPlanWorkflow.js'
 import { executeIngestWorkflow } from '../../workflows/IngestWorkflow.js'

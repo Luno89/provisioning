@@ -1,10 +1,10 @@
+import { arrayWith, objectWith } from '../../platform/lib/test-matchers.js';
 import { describe, it, expect, vi } from 'vitest';
 import {
   chunkText, chunksFor, pointId, buildIndexQuery, mergeHits, indexConfig, collectionConfig, worthEmbedding,
   CHUNK_CHARS, CHUNK_OVERLAP, VECTOR_SIZE, type CorpusHit,
 } from './corpus-backend.js';
 import { snippetAround, embed, EMBED_BATCH } from './corpus-client.js';
-import { arrayWith, objectWith } from './test-matchers.js';
 
 describe('splitting a page for embedding', () => {
   it('leaves a short page as one chunk', () => {

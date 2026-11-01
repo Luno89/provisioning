@@ -1,3 +1,4 @@
+import { containing, objectWith } from '../../../platform/lib/test-matchers.js';
 import { describe, expect, it } from 'vitest';
 import type { NodeRequest } from '@koala/agent-engine/procedure';
 import type { PlanLine } from '@koala/agent-engine';
@@ -5,7 +6,6 @@ import type { PublishedWorkspace } from '../../../engine/lib/published-workspace
 import type { Branch, Leaf } from '../../../projects/lib/leaves.js';
 import type { Task } from '../../../engine-host/tools/tasks.js';
 import { changesFrom, createWorkspaceOperations, type ComposedPlan, type WorkspaceOperationDeps } from './handlers.js';
-import { containing, objectWith } from '../../../engine/lib/test-matchers.js';
 
 const TREE = { id: 't1', ownerId: 'u1', name: 'Shop', projectIds: ['p1'] };
 const line = (from: string, packages: string[]): PlanLine => ({ from, install: { via: 'dnf', packages } });

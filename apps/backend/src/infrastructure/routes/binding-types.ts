@@ -1,8 +1,7 @@
 import { Router, type Request } from 'express';
-import { allowed, asyncRoute, principalFrom } from '../../platform/index.js';
+import { allowed, asyncRoute, principalFrom, recordAt } from '../../platform/index.js';
 import type { BindingTypeRecord } from '../lib/service-binding.js';
 import { seedBindingTypes } from '../lib/binding-type-seeds.js';
-import { recordAt } from '../lib/json-reading.js';
 import type { InfrastructureStore } from '../store.js';
 
 export interface BindingTypesRouterDeps {

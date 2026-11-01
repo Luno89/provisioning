@@ -1,8 +1,8 @@
+import { textAt } from '../../platform/index.js';
 import type { MonitoringAsk, RangeAsk } from '../lib/monitoring-asks.js';
 import type { PoolProbe, PoolRule } from '../lib/pool-monitoring.js';
 import type { PoolMonitor } from './MonitoringService.js';
 import { answeredHistory, answeredPoints, answeredSamples, promAlerts } from '../lib/prometheus-answers.js';
-import { textAt } from '../../platform/index.js';
 
 export interface PoolMonitorSettings {
   rootUrl: string;
