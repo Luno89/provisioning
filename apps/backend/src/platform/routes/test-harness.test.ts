@@ -2,6 +2,7 @@ import { describe, it, expect, afterEach } from 'vitest';
 import { Router } from 'express';
 import axios from 'axios';
 import { mountRouter, TEST_USER, type Harness } from './test-harness.js';
+import { principalFrom } from '../middleware/auth.js';
 
 let h: Harness | undefined;
 axios.defaults.proxy = false;
@@ -9,16 +10,16 @@ afterEach(async () => { await h?.close(); h = undefined; });
 
 const probeRouter = () => {
   const r = Router();
-  r.get('/me', (req, res) => res.json({ id: (req as never as { user: { id: string } }).user.id }));
+  r.get('/me', (req, res) => res.json({ id: principalFrom(req).id }));
   r.get('/boom', () => { throw new Error('deliberate'); });
-  r.post('/echo', (req, res) => res.status(201).json({ got: req.body }));
+  r.post('/echo', (req, res) => { const got: unknown = req.body; res.status(201).json({ got }); });
   return r;
 };
 
 describe('the router test harness', () => {
   it('mounts a router and reaches it over real HTTP', async () => {
     h = await mountRouter({ prefix: '/api/probe', router: () => probeRouter() });
-    const res = await axios.get(h.url('/api/probe/me'));
+    const res = await axios.get<{ id: string }>(h.url('/api/probe/me'));
     expect(res.status).toBe(200);
     expect(res.data.id).toBe(TEST_USER.id);
   });
@@ -33,7 +34,7 @@ describe('the router test harness', () => {
   it('can change tenant mid-test, which is how cross-tenant reads get checked', async () => {
     h = await mountRouter({ prefix: '/api/probe', router: () => probeRouter() });
     h.setUser({ id: 'someone-else', email: 'other@example.com' });
-    expect((await axios.get(h.url('/api/probe/me'))).data.id).toBe('someone-else');
+    expect((await axios.get<{ id: string }>(h.url('/api/probe/me'))).data.id).toBe('someone-else');
   });
 
   it('turns a thrown handler into a 500 with a body, not a hung socket', async () => {
@@ -45,7 +46,7 @@ describe('the router test harness', () => {
 
   it('parses a JSON body, since most routes worth testing take one', async () => {
     h = await mountRouter({ prefix: '/api/probe', router: () => probeRouter() });
-    const res = await axios.post(h.url('/api/probe/echo'), { hello: 'world' });
+    const res = await axios.post<{ got: unknown }>(h.url('/api/probe/echo'), { hello: 'world' });
     expect(res.status).toBe(201);
     expect(res.data.got).toEqual({ hello: 'world' });
   });

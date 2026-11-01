@@ -24,7 +24,7 @@ function fakeMinio(objects: Record<string, Buffer>) {
       return listing(items);
     }),
     statObject: vi.fn(async (_bucket: string, key: string) => {
-      if (!objects[key]) throw new Error('NotFound');
+      if (!objects[key]) throw Object.assign(new Error('Not Found'), { code: 'NotFound' });
       return { size: objects[key]!.length, metaData: { 'content-type': 'application/pdf' } };
     }),
     getObject: vi.fn(async (_bucket: string, key: string) => Readable.from([objects[key]!])),
@@ -64,6 +64,14 @@ describe('a project\'s files in MinIO', () => {
     expect(Object.keys(objects)).toEqual(['shop/archive/docs/a.pdf']);
     await store.remove('archive');
     expect(objects).toEqual({});
+  });
+
+  it('says MinIO did not answer rather than calling a file missing', async () => {
+    const { client } = fakeMinio({ 'shop/a.pdf': Buffer.from('a') });
+    client.statObject.mockRejectedValueOnce(Object.assign(new Error('connect ECONNREFUSED'), { code: 'ECONNREFUSED' }));
+    const store = minioStore(client as never, 'shop');
+    await expect(store.download('a.pdf')).rejects.toThrow('ECONNREFUSED');
+    expect(await store.download('a.pdf')).toMatchObject({ size: 1 });
   });
 
   it('keeps an empty folder with a mark the listing leaves out, and finds files by name anywhere in the project', async () => {

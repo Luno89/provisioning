@@ -22,7 +22,7 @@ export const databaseOf = (uri: string): string => {
   return name || 'provisioning';
 };
 
-export function mongoTarget(env: Readonly<Record<string, string | undefined>> = process.env): { uri: string; dbName: string; e2e: boolean } {
+export function mongoTarget(env: Readonly<Record<string, string | undefined>>): { uri: string; dbName: string; e2e: boolean } {
   const base = env.MONGO_URI || 'mongodb://admin:admin@localhost:27017/provisioning?authSource=admin';
   const e2e = env.IS_E2E === 'true';
   if (e2e) return { uri: env.MONGO_TEST_URI || base.replace('/provisioning', '/provisioning_test'), dbName: 'provisioning_test', e2e };
@@ -47,7 +47,7 @@ export class MongoDB implements Database {
   readonly infrastructure: MongoInfrastructureStore;
   readonly engine: MongoEngineStore;
 
-  constructor(private readonly env: Readonly<Record<string, string | undefined>> = process.env) {
+  constructor(private readonly env: Readonly<Record<string, string | undefined>>) {
     this.platform = new MongoPlatformStore(() => this.db!);
     this.accounts = new MongoAccountsStore(() => this.db!);
     this.instances = new MongoInstancesStore(() => this.db!);

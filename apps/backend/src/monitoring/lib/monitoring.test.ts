@@ -4,6 +4,7 @@ import { appLines, appVerdict, clusterVerdict, koalaLines, koalaVerdict, worstFi
 import { alertExpression, alertRuleManifest, alertSpec, alertSummary, koalaAlertExpression, visibleAlerts, isKoalaAlertKind, KOALA_ALERT_KINDS, RULE_LABEL, type AlertRuleRecord, type AlertSpec } from './monitoring-alerts.js';
 import { askQuery, parseAsk } from './monitoring-asks.js';
 import { chartVersionOf, helmHistoryArgs, historyApplied, historyProblem, keptDays, prometheusNow, storageFor } from './monitoring-history.js';
+import { at } from '../../platform/lib/test-matchers.js';
 
 const books = { namespace: 'books', services: ['audiobookshelf'] };
 
@@ -123,9 +124,9 @@ describe('alert rules', () => {
   it('becomes a PrometheusRule the operator picks up, labelled with its rule', () => {
     const spec = alertSpec('slow', 1.5) as AlertSpec;
     const rule: AlertRuleRecord = { id: 'R-1', ownerId: 'o', deploymentId: 'd1', clusterId: 'c', namespace: 'books', appName: 'Books', spec, summary: 'Books is slow', createdAt: 'now' };
-    const manifest = alertRuleManifest(rule, alertExpression(spec, books) as string) as any;
-    expect(manifest.metadata).toMatchObject({ name: 'koala-alert-r-1', namespace: 'books', labels: { release: 'kube-prometheus-stack' } });
-    expect(manifest.spec.groups[0].rules[0]).toEqual({
+    const manifest = alertRuleManifest(rule, alertExpression(spec, books) as string);
+    expect(at(manifest, 'metadata')).toMatchObject({ name: 'koala-alert-r-1', namespace: 'books', labels: { release: 'kube-prometheus-stack' } });
+    expect(at(manifest, 'spec', 'groups', 0, 'rules', 0)).toEqual({
       alert: 'Koala_slow',
       expr: 'avg(probe_duration_seconds{namespace="books"}) > 1.5',
       for: '10m',

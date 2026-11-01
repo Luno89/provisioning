@@ -63,7 +63,7 @@ async function main(): Promise<void> {
   }
   console.log(`[3/4] ${runs.length} executions, ${events} events, the largest ${(largest / 1024).toFixed(0)} KB`);
 
-  const { uri, dbName } = mongoTarget();
+  const { uri, dbName } = mongoTarget(process.env);
   const mongo = new MongoClient(uri);
   await mongo.connect();
   const [stored] = await mongo.db(dbName).collection('temporal_payload_chunks').aggregate<{ chunks: number; bytes: number; largest: number }>([

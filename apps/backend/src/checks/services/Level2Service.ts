@@ -5,7 +5,7 @@ import { BUILT_IN_SCENARIOS } from '../../eval/level2/scenarios.js';
 import { scenarioProblems, type Scenario } from '../../eval/level2/scenario.js';
 import type { ScenarioResult } from '../../eval/level2/results.js';
 import type { Client } from '@temporalio/client';
-import type { CheckRunInput, CheckRunOutcome } from '../../workflows/CheckRunWorkflow.js';
+import { CheckRunWorkflow, type CheckRunInput, type CheckRunOutcome } from '../../workflows/CheckRunWorkflow.js';
 import type { EvalRecord, EvalRecordStore } from '../lib/eval-run.js';
 import { regressionsIn, type BenchTrigger } from '../lib/bench.js';
 import type { ScenarioProposal } from '../lib/scenario-proposals.js';
@@ -64,14 +64,17 @@ export function temporalCheckRunner(client: () => Client | undefined | null, tas
   };
   return {
     async start(workflowId, input) {
-      await connected().workflow.start('CheckRunWorkflow', { workflowId, taskQueue, args: [input], ...startedFor(input.person) });
+      await connected().workflow.start(CheckRunWorkflow, { workflowId, taskQueue, args: [input], ...startedFor(input.person) });
     },
     async cancel(workflowId) {
-      return connected().workflow.getHandle(workflowId).signal('cancelCheck').then(() => true, () => false);
+      return connected().workflow.getHandle(workflowId).signal('cancelCheck').then(() => true, (err: unknown) => {
+        if (/not\s*found/i.test(innermost(err) ?? '')) return false;
+        throw err;
+      });
     },
     async outcome(workflowId) {
       try {
-        return await connected().workflow.getHandle(workflowId).result() as CheckRunOutcome;
+        return await connected().workflow.getHandle<typeof CheckRunWorkflow>(workflowId).result();
       } catch (err) {
         const reason = innermost(err) ?? 'the checks failed';
         return /not\s*found/i.test(reason) ? { missing: true } : { failed: reason };
@@ -108,7 +111,7 @@ export class Level2Service {
 
   async recover(): Promise<number> {
     const running = await this.options.store.getEvalRecordsInState<Level2Run>('evalScenarioRuns', 'running');
-    for (const run of running) void this.settle(run.ownerId, run.id);
+    for (const run of running) this.settleLater(run.ownerId, run.id);
     return running.length;
   }
 
@@ -181,7 +184,10 @@ export class Level2Service {
     if (unknown.length > 0) return { unknown };
     const chosen = input.only?.length ? all.filter((scenario) => input.only!.includes(scenario.id)) : all;
 
-    const agents = await this.options.fingerprints?.(input.ownerId, [...new Set(chosen.map((scenario) => scenario.agent))]).catch(() => undefined);
+    const agents = await this.options.fingerprints?.(input.ownerId, [...new Set(chosen.map((scenario) => scenario.agent))]).catch((err: Error) => {
+      console.warn(`[checks] the agents' fingerprints could not be read, so this run does not say which versions it checked: ${err.message}`);
+      return undefined;
+    });
     const run: Level2Run = {
       ...(agents ? { agents } : {}),
       id: (this.options.newId ?? uuidv4)(),
@@ -220,8 +226,14 @@ export class Level2Service {
       await this.options.store.saveEvalRecord('evalScenarioRuns', failed);
       return failed;
     }
-    void this.settle(run.ownerId, run.id);
+    this.settleLater(run.ownerId, run.id);
     return run;
+  }
+
+  private settleLater(ownerId: string, id: string): void {
+    this.settle(ownerId, id).catch((err: Error) => {
+      console.warn(`[checks] run ${id} could not be settled, so it stays running until the backend next starts and settles it: ${err.message}`);
+    });
   }
 
   private async settle(ownerId: string, id: string): Promise<void> {
@@ -237,7 +249,9 @@ export class Level2Service {
     settled.finishedAt = this.now();
     settled.regressions = regressionsIn(settled.results, await this.earlier(settled));
     await this.options.store.saveEvalRecord('evalScenarioRuns', settled);
-    await this.options.onFinished?.(settled).catch(() => undefined);
+    await this.options.onFinished?.(settled).catch((err: Error) => {
+      console.warn(`[checks] run ${settled.id} finished, but what follows from it (a trial settled, a change compared, a regression told) failed: ${err.message}`);
+    });
   }
 
   async list(ownerId: string): Promise<Level2Run[]> {
@@ -270,7 +284,7 @@ export class Level2Service {
   }
 
   async earlier(run: Level2Run): Promise<Level2Run[]> {
-    const runs = await this.options.store.getEvalRecords<Level2Run>('evalScenarioRuns', run.ownerId, 100).catch(() => []);
+    const runs = await this.options.store.getEvalRecords<Level2Run>('evalScenarioRuns', run.ownerId, 100);
     return runs
       .filter((other) => other.id !== run.id && other.startedAt < run.startedAt && other.state === 'done')
       .filter((other) => other.trigger?.kind !== 'practice' && other.trigger?.kind !== 'tool-note' && other.trigger?.kind !== 'prompt-change')

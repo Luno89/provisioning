@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const searchMemories = vi.fn();
-vi.mock('./memory-index.js', () => ({ searchMemories: (...a: unknown[]) => searchMemories(...a) }));
+type SearchMemories = typeof import('./memory-index.js').searchMemories;
+const searchMemories = vi.fn<SearchMemories>();
+vi.mock('./memory-index.js', () => ({ searchMemories: (...a: Parameters<SearchMemories>) => searchMemories(...a) }));
 
 const { recallMemories, recallQuery, orderByRelevance, markUsed, PINNED_TITLES } =
   await import('./memory-recall.js');

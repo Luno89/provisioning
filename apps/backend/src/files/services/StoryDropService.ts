@@ -41,7 +41,9 @@ export class StoryDropService {
     try {
       arrival = await this.deps.work.arrive({ ownerId, treeId: tree.id, leafId, branch, message: `Merge what was dropped on the story: ${dropMessage(files, said)}` });
     } catch (err) {
-      await this.deps.work.forget({ ownerId, treeId: tree.id, branch }).catch(() => undefined);
+      await this.deps.work.forget({ ownerId, treeId: tree.id, branch }).catch((forgetting: Error) => {
+        console.warn(`[drops] the branch ${branch} stays in the tree's repository after its drop failed: ${forgetting.message}`);
+      });
       throw err;
     }
     const base: StoryDrop = { id, branch, paths: files.map((file) => file.path), at: this.now(), by: ownerId, state: 'waiting' };

@@ -6,14 +6,17 @@ import {
 } from './memory-rank.js';
 import type { MemoryItem } from './memory-store.js';
 import type { CorpusEndpoints } from '../../engine/index.js';
+import { fieldOf, listAt } from '../../platform/lib/json-shapes.js';
 
 export type MemoryEndpoints = Pick<CorpusEndpoints, 'vectors' | 'embeddings' | 'index'>;
 
-async function ok(res: Response, what: string): Promise<any> {
+async function ok(res: Response, what: string): Promise<unknown> {
   if (!res.ok) throw new Error(`${what}: HTTP ${res.status} ${(await res.text()).slice(0, 300)}`);
   const text = await res.text();
-  return text ? JSON.parse(text) : {};
+  return text ? JSON.parse(text) as unknown : {};
 }
+
+const memoryIdOf = (point: unknown): string => String(fieldOf(fieldOf(point, 'payload'), 'memory_id') ?? '');
 
 const indexes = new Set<string>();
 const collections = new Set<string>();
@@ -159,8 +162,7 @@ export async function searchMemoryVectors(
     }),
   });
   const body = await ok(res, 'Qdrant refused the memory search');
-  const found: any[] = Array.isArray(body?.result) ? body.result : [];
-  return found.map((p) => String(p?.payload?.memory_id ?? '')).filter(Boolean);
+  return listAt(body, 'result').map(memoryIdOf).filter(Boolean);
 }
 
 export async function searchMemoryIndex(
@@ -172,11 +174,9 @@ export async function searchMemoryIndex(
   const q = buildMemoryQuery(query, scope);
   const url = `${base}/api/v1/${MEMORY_INDEX}/search?query=${encodeURIComponent(q)}&max_hits=${limit}`;
   const body = await ok(await fetch(url), 'Quickwit refused the memory search');
-  const hits: any[] = Array.isArray(body?.hits) ? body.hits : [];
-
   const seen = new Set<string>();
-  for (const h of hits) {
-    const id = String(h?.memory_id ?? '');
+  for (const h of listAt(body, 'hits')) {
+    const id = String(fieldOf(h, 'memory_id') ?? '');
     if (id) seen.add(id);
   }
   return [...seen];
@@ -216,8 +216,7 @@ export async function similarTo(
     }),
   });
   const body = await ok(res, 'Qdrant refused the neighbour lookup');
-  const found: any[] = Array.isArray(body?.result) ? body.result : [];
-  return found
-    .map((p) => ({ id: String(p?.payload?.memory_id ?? ''), score: Number(p?.score ?? 0) }))
+  return listAt(body, 'result')
+    .map((p) => ({ id: memoryIdOf(p), score: Number(fieldOf(p, 'score') ?? 0) }))
     .filter((h) => h.id && h.id !== memoryId);
 }

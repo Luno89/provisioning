@@ -33,11 +33,11 @@ function fakeRunner() {
     return outcomes.get(workflowId)!;
   };
   const runner: CheckRunner = {
-    start: async (workflowId, input) => { started.push({ workflowId, input }); outcomeOf(workflowId); },
+    start: async (workflowId, input) => { started.push({ workflowId, input }); void outcomeOf(workflowId); },
     cancel: async (workflowId) => { cancelled.push(workflowId); return true; },
     outcome: (workflowId) => outcomeOf(workflowId),
   };
-  const finish = (workflowId: string, outcome: CheckRunOutcome | { failed: string } | { missing: true }) => { outcomeOf(workflowId); finishes.get(workflowId)!(outcome); };
+  const finish = (workflowId: string, outcome: CheckRunOutcome | { failed: string } | { missing: true }) => { void outcomeOf(workflowId); finishes.get(workflowId)!(outcome); };
   return { runner, started, cancelled, finish };
 }
 

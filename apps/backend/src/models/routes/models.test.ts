@@ -5,6 +5,8 @@ import { modelsRouter } from './models.js';
 
 const quiet = { validateStatus: () => true };
 
+type Default = { defaultModelId: string | null; error?: string };
+
 describe('the account default', () => {
   it('takes an agent on one of the person\'s machines, and refuses one that cannot answer', async () => {
     const asked: string[] = [];
@@ -15,6 +17,8 @@ describe('the account default', () => {
         return modelsRouter({
           db,
           modelService: { list: async () => [{ id: 'tabby-qwen' }] },
+          credentialService: { resolveCredentials: async () => ({ mode: 'mock' as const, env: {} }) },
+          rateLimits: () => [],
           machines: {
             choiceProblem: async (ownerId: string, choice: { deviceId: string; agent: string }) => {
               asked.push(`${ownerId}:${choice.deviceId}:${choice.agent}`);
@@ -25,13 +29,13 @@ describe('the account default', () => {
       },
     });
 
-    const set = await axios.put(h.url('/api/models/default'), { modelId: 'machine:d1:claude-code' }, quiet);
+    const set = await axios.put<Default>(h.url('/api/models/default'), { modelId: 'machine:d1:claude-code' }, quiet);
     expect([set.status, set.data.defaultModelId]).toEqual([200, 'machine:d1:claude-code']);
-    expect((await axios.get(h.url('/api/models/default'))).data.defaultModelId).toBe('machine:d1:claude-code');
+    expect((await axios.get<Default>(h.url('/api/models/default'))).data.defaultModelId).toBe('machine:d1:claude-code');
 
-    const gone = await axios.put(h.url('/api/models/default'), { modelId: 'machine:gone:claude-code' }, quiet);
+    const gone = await axios.put<Default>(h.url('/api/models/default'), { modelId: 'machine:gone:claude-code' }, quiet);
     expect([gone.status, gone.data.error]).toEqual([400, 'that machine is not one of yours any more']);
-    expect((await axios.get(h.url('/api/models/default'))).data.defaultModelId).toBe('machine:d1:claude-code');
+    expect((await axios.get<Default>(h.url('/api/models/default'))).data.defaultModelId).toBe('machine:d1:claude-code');
 
     expect((await axios.put(h.url('/api/models/default'), { modelId: 'nothing' }, quiet)).status).toBe(404);
     expect((await axios.put(h.url('/api/models/default'), { modelId: 'tabby-qwen' }, quiet)).status).toBe(200);

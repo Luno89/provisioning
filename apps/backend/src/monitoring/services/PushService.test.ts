@@ -3,6 +3,7 @@ import { testDatabase } from '../../platform/lib/test-database.js';
 import type { MongoDB } from '../../platform/lib/mongo-db.js';
 import { PushError, PushService } from './PushService.js';
 import { vapidKeysFrom } from '../lib/web-push.js';
+import { anyOf } from '../../platform/lib/test-matchers.js';
 
 const browser = (n: number) => ({ endpoint: `https://push.example/send/${n}`, keys: { p256dh: `key${n}`, auth: `auth${n}` } });
 const CHROME = 'Mozilla/5.0 (X11; Linux x86_64) Chrome/130.0 Safari/537.36';
@@ -34,7 +35,7 @@ describe('a person\'s devices', () => {
   it('are added once per browser, listed with the instance\'s public key, and removed only by their owner', async () => {
     const view = await service.subscribe('alice', browser(1), CHROME);
     expect(view.publicKey).toBe(vapidKeysFrom('k'.repeat(64)).publicKey);
-    expect(view.devices).toEqual([{ id: expect.any(String), label: 'Chrome on Linux', endpoint: browser(1).endpoint, createdAt: '2026-10-29T10:00:00.000Z' }]);
+    expect(view.devices).toEqual([{ id: anyOf(String), label: 'Chrome on Linux', endpoint: browser(1).endpoint, createdAt: '2026-10-29T10:00:00.000Z' }]);
     expect((await service.subscribe('alice', browser(1), CHROME)).devices).toHaveLength(1);
     expect((await service.subscribe('alice', browser(2), undefined)).devices).toHaveLength(2);
     expect((await service.view('bob')).devices).toEqual([]);
@@ -60,6 +61,6 @@ describe('a person\'s devices', () => {
     await expect(service.test('alice')).rejects.toMatchObject({ status: 409 });
     await service.subscribe('alice', browser(1), CHROME);
     expect(await service.test('alice')).toEqual({ sent: 1 });
-    expect(JSON.parse(sent[0]!.payload).title).toBe('Koala can reach this device');
+    expect((JSON.parse(sent[0]!.payload) as { title: string }).title).toBe('Koala can reach this device');
   });
 });

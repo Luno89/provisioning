@@ -32,7 +32,7 @@ async function serve() {
   const io = new SocketServer(server);
   signSocketsIn(io, { auth, db, env: {}, sessionSockets });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-  closing.push(() => new Promise<void>((resolve) => { io.close(); server.close(() => resolve()); }));
+  closing.push(async () => { await Promise.all([io.close(), new Promise<void>((resolve) => server.close(() => resolve()))]); });
   const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   return { auth, revocations, sessionSockets, url };
 }

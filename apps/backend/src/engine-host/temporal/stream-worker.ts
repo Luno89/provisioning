@@ -52,7 +52,7 @@ export function createTurnLogBus(options: Pick<StreamWorkerOptions, 'io' | 'turn
 }
 
 export async function startStreamWorker(options: StreamWorkerOptions): Promise<Worker> {
-  const connection = await connectTemporalWorker(options.address ?? process.env.TEMPORAL_CONNECTION_ADDRESS ?? 'localhost:7233', 'koala-stream-worker');
+  const connection = await connectTemporalWorker(options.address ?? process.env.TEMPORAL_CONNECTION_ADDRESS ?? 'localhost:7233', 'koala-stream-worker', process.env);
 
   const bus = createTurnLogBus(options);
   const dataConverter = buildDataConverter(options.encryptionKey ?? loadKeys(process.env).payload, sharedPayloadBlobs());

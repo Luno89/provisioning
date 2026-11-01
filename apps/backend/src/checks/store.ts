@@ -1,6 +1,6 @@
 import type { AreaStore } from '../platform/index.js';
 import type { BenchSettings, BenchState } from './lib/bench.js';
-import type { Db } from 'mongodb';
+import type { Collection, Db } from 'mongodb';
 import { type EvalCollection, type EvalRecord, evalRecordKey } from './lib/eval-run.js';
 import type { ScriptedRequestRecord } from './lib/check-script.js';
 
@@ -32,26 +32,30 @@ export class MongoChecksStore implements ChecksStore {
     return docs.map(({ _id, ...rest }) => rest as unknown as ScriptedRequestRecord);
   }
 
+  private keyed(name: string): Collection<{ _id: string }> {
+    return this.db().collection<{ _id: string }>(name);
+  }
+
   async getBenchSettings(ownerId: string): Promise<BenchSettings | undefined> {
-    const doc = await this.db().collection('benchSettings').findOne({ _id: ownerId as any });
+    const doc = await this.keyed('benchSettings').findOne({ _id: ownerId });
     if (!doc) return undefined;
     const { _id, ...settings } = doc;
     return settings as unknown as BenchSettings;
   }
 
   async saveBenchSettings(ownerId: string, settings: BenchSettings): Promise<void> {
-    await this.db().collection('benchSettings').replaceOne({ _id: ownerId as any }, { ...settings }, { upsert: true });
+    await this.keyed('benchSettings').replaceOne({ _id: ownerId }, { ...settings }, { upsert: true });
   }
 
   async getBenchState(ownerId: string): Promise<BenchState | undefined> {
-    const doc = await this.db().collection('benchStates').findOne({ _id: ownerId as any });
+    const doc = await this.keyed('benchStates').findOne({ _id: ownerId });
     if (!doc) return undefined;
     const { _id, ...state } = doc;
     return state as unknown as BenchState;
   }
 
   async saveBenchState(state: BenchState): Promise<void> {
-    await this.db().collection('benchStates').replaceOne({ _id: state.ownerId as any }, { ...state }, { upsert: true });
+    await this.keyed('benchStates').replaceOne({ _id: state.ownerId }, { ...state }, { upsert: true });
   }
 
   async getEvalRecords<T extends EvalRecord>(collection: EvalCollection, ownerId: string, limit = 200): Promise<T[]> {
@@ -65,17 +69,17 @@ export class MongoChecksStore implements ChecksStore {
   }
 
   async getEvalRecord<T extends EvalRecord>(collection: EvalCollection, ownerId: string, id: string): Promise<T | null> {
-    const doc = await this.db().collection(collection).findOne({ _id: evalRecordKey(ownerId, id) as any });
+    const doc = await this.keyed(collection).findOne({ _id: evalRecordKey(ownerId, id) });
     if (!doc) return null;
     const { _id, ...rest } = doc;
     return rest as unknown as T;
   }
 
   async saveEvalRecord<T extends EvalRecord>(collection: EvalCollection, record: T): Promise<void> {
-    await this.db().collection(collection).replaceOne({ _id: evalRecordKey(record.ownerId, record.id) as any }, { ...record }, { upsert: true });
+    await this.keyed(collection).replaceOne({ _id: evalRecordKey(record.ownerId, record.id) }, { ...record }, { upsert: true });
   }
 
   async deleteEvalRecord(collection: EvalCollection, ownerId: string, id: string): Promise<void> {
-    await this.db().collection(collection).deleteOne({ _id: evalRecordKey(ownerId, id) as any });
+    await this.keyed(collection).deleteOne({ _id: evalRecordKey(ownerId, id) });
   }
 }

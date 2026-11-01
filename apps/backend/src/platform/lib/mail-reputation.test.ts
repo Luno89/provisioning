@@ -3,6 +3,7 @@ import {
   blocklistQuery, blocklistVerdict, forwardVerdict, mailCheckFrom, MAIL_BLOCKLISTS, MAIL_CHECK_MARK, mailDomainFrom, mailLines, mailProblems,
   mailUnknowns, port25Verdict, reverseDnsVerdict, type MailReadiness,
 } from './mail-reputation.js';
+import { matching } from './test-matchers.js';
 
 const zen = MAIL_BLOCKLISTS[0]!;
 
@@ -23,7 +24,7 @@ describe('blocklistVerdict', () => {
 
   it('is clear only when the list answers for its own test address', () => {
     expect(blocklistVerdict(zen, '203.0.113.7', listedTest, { missing: true })).toMatchObject({ state: 'clear', said: '203.0.113.7 is not on Spamhaus ZEN' });
-    expect(blocklistVerdict(zen, '203.0.113.7', { missing: true }, { missing: true })).toMatchObject({ state: 'unknown', said: expect.stringMatching(/does not answer for its own test address 127\.0\.0\.2/) });
+    expect(blocklistVerdict(zen, '203.0.113.7', { missing: true }, { missing: true })).toMatchObject({ state: 'unknown', said: matching(/does not answer for its own test address 127\.0\.0\.2/) });
   });
 
   it('is listed with the codes and where to ask for removal', () => {
@@ -32,9 +33,9 @@ describe('blocklistVerdict', () => {
 
   it('reads Spamhaus\'s answers to a public resolver as not asked, never as listed', () => {
     const viaPublic = { found: ['127.255.255.254'] };
-    expect(blocklistVerdict(zen, '203.0.113.7', viaPublic, viaPublic)).toMatchObject({ state: 'unknown', said: expect.stringMatching(/refuses queries that come through a public resolver/) });
+    expect(blocklistVerdict(zen, '203.0.113.7', viaPublic, viaPublic)).toMatchObject({ state: 'unknown', said: matching(/refuses queries that come through a public resolver/) });
     expect(blocklistVerdict(zen, '203.0.113.7', viaPublic, { missing: true })).toMatchObject({ state: 'unknown' });
-    expect(blocklistVerdict(zen, '203.0.113.7', listedTest, { found: ['127.255.255.255'] })).toMatchObject({ state: 'unknown', said: expect.stringMatching(/asked too often/) });
+    expect(blocklistVerdict(zen, '203.0.113.7', listedTest, { found: ['127.255.255.255'] })).toMatchObject({ state: 'unknown', said: matching(/asked too often/) });
   });
 
   it('says a lookup that failed could not be asked', () => {
@@ -65,7 +66,7 @@ describe('forwardVerdict', () => {
 describe('port25Verdict', () => {
   it('says how to send when port 25 is closed', () => {
     expect(port25Verdict({ ok: true })).toMatchObject({ open: true });
-    expect(port25Verdict({ ok: false, error: 'ETIMEDOUT' })).toMatchObject({ open: false, said: expect.stringMatching(/MAIL_RELAYHOST=\[host\]:587/) });
+    expect(port25Verdict({ ok: false, error: 'ETIMEDOUT' })).toMatchObject({ open: false, said: matching(/MAIL_RELAYHOST=\[host\]:587/) });
     expect(port25Verdict({ ok: false, error: 'ETIMEDOUT' }, '[smtp.example.net]:587')).toMatchObject({ open: false, relay: '[smtp.example.net]:587' });
   });
 });

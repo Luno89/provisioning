@@ -51,7 +51,7 @@ describe('what a push carries', () => {
     const payload = JSON.parse(pushPayload({ title: 't', body: 'x'.repeat(400), path: '/#/x', tag: 'k' })) as { body: string; path: string; tag: string };
     expect(payload.body).toHaveLength(300);
     expect(payload.path).toBe('/#/x');
-    expect(JSON.parse(pushPayload({ title: 't', body: 'b' })).path).toBe('/');
+    expect((JSON.parse(pushPayload({ title: 't', body: 'b' })) as { path: string }).path).toBe('/');
     expect(alertPush({ name: 'shop is down', summary: 'shop has not answered its probe for 2 minutes' }, 'fired')).toMatchObject({ title: 'Alert: shop is down', body: 'shop has not answered its probe for 2 minutes' });
     expect(alertPush({ name: 'shop is down', summary: '' }, 'resolved').title).toBe('Resolved: shop is down');
     expect(askingPush('delete_file').body).toBe('It asks to use delete_file. Open Koala to allow it or not.');

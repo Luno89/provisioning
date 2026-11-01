@@ -3,6 +3,7 @@ import { koalaMetrics } from '@koala/engine-core/telemetry';
 import type { MailMessage } from '../lib/mail.js';
 
 import type { EmailWay } from '../lib/email-way.js';
+import { ignore } from '@koala/engine-core/failures';
 
 export type { EmailWay };
 
@@ -58,8 +59,9 @@ export class MailService {
           body: JSON.stringify(message),
         });
         if (!response.ok) {
-          const answer = await response.json().catch(() => ({})) as { error?: unknown };
-          throw new MailError(502, `root did not send it (${response.status}): ${typeof answer.error === 'string' ? answer.error : 'no reason given'}`);
+          const answer: unknown = await response.json().catch(ignore('root answered without a JSON body, so its status is the whole reason'));
+          const reason = answer && typeof answer === 'object' && 'error' in answer && typeof answer.error === 'string' ? answer.error : 'no reason given';
+          throw new MailError(502, `root did not send it (${response.status}): ${reason}`);
         }
       });
     }

@@ -152,13 +152,13 @@ export async function consolidateMemories(deps: ConsolidateDeps): Promise<Consol
   let memories = await deps.db.memory.getMemories(deps.ownerId);
 
   const unreachable = planUnreachable(memories, now);
-  for (const m of unreachable) await deps.db.memory.saveMemory(m).catch(() => undefined);
+  for (const m of unreachable) await deps.db.memory.saveMemory(m);
   const unreachableIds = new Set(unreachable.map((m) => m.id));
   memories = memories.map((m) => (unreachableIds.has(m.id) ? { ...m, invalidAt: now } : m));
 
-  const leaves = (await deps.db.projects.getLeaves().catch(() => [])).filter((leaf) => !deps.ownerId || leaf.ownerId === deps.ownerId);
+  const leaves = (await deps.db.projects.getLeaves()).filter((leaf) => !deps.ownerId || leaf.ownerId === deps.ownerId);
   const promoted = planPromotions(leaves, memories, now, newId);
-  for (const m of promoted) await deps.db.memory.saveMemory(m).catch(() => undefined);
+  for (const m of promoted) await deps.db.memory.saveMemory(m);
   memories = [...memories, ...promoted];
 
   const byTitle = planTitleDedupe(memories, now);
@@ -166,20 +166,26 @@ export async function consolidateMemories(deps: ConsolidateDeps): Promise<Consol
 
   const live = memories.filter((m) => !m.invalidAt && !retiredIds.has(m.id));
   const bySimilarity = deps.similar
-    ? planSimilarityDedupe(live, await deps.similar(live.map((m) => m.id)).catch(() => new Map()), now)
+    ? planSimilarityDedupe(live, await deps.similar(live.map((m) => m.id)).catch((err: unknown) => {
+      console.warn(`[Consolidate] the memory vectors could not be asked, so only memories with the same title are merged: ${(err as Error).message}`);
+      return new Map<string, { id: string; score: number }[]>();
+    }), now)
     : [];
 
   const deduped = [...byTitle, ...bySimilarity];
-  for (const m of deduped) await deps.db.memory.saveMemory(m).catch(() => undefined);
+  for (const m of deduped) await deps.db.memory.saveMemory(m);
   for (const m of deduped) retiredIds.add(m.id);
 
   const decayed = planDecay(memories.filter((m) => !retiredIds.has(m.id)), now);
-  for (const m of decayed) await deps.db.memory.saveMemory(m).catch(() => undefined);
+  for (const m of decayed) await deps.db.memory.saveMemory(m);
   for (const m of decayed) retiredIds.add(m.id);
 
   const survivors = memories.filter((m) => !m.invalidAt && !retiredIds.has(m.id) && m.status !== 'pending_review');
   const indexed = deps.index
-    ? await deps.index(survivors).then((r) => r.vectors).catch(() => 0)
+    ? await deps.index(survivors).then((r) => r.vectors).catch((err: unknown) => {
+      console.warn(`[Consolidate] the memories could not be indexed, so recall finds them by recency until the next pass: ${(err as Error).message}`);
+      return 0;
+    })
     : 0;
 
   return {

@@ -7,8 +7,8 @@ const harness: Harness = await mountRouter({
   prefix: '/api/models',
   router: (db) => modelsRouter({
     db,
-    modelService: {},
-    credentialService: {},
+    modelService: { list: async () => [] },
+    credentialService: { resolveCredentials: async () => ({ mode: 'mock' as const, env: {} }) },
     rateLimits: (ownerId: string) => {
       asked.push(ownerId);
       return [{ key: 'tabby', label: 'Tabby', inFlight: 1, queued: 0, totalRequests: 5, total429: 0, totalErrors: 0 }];

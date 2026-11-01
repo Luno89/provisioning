@@ -42,7 +42,7 @@ export interface ClusterMetadata {
   hetznerImage?: string;
   hetznerServerId?: string;
   doServerId?: string;
-  [key: string]: any;
+  [key: string]: unknown;
 }
 
 export interface DeploymentMetadata {
@@ -145,7 +145,7 @@ export interface DeploymentMetadata {
   webuiEnableWebSearch?: boolean;
   webuiWebSearchEngine?: 'duckduckgo' | 'tavily' | 'brave' | 'serper' | 'bing';
   webuiWebSearchApiKey?: string;
-  [key: string]: any;
+  [key: string]: unknown;
 }
 
 export interface ModelEndpointMetadata {
@@ -202,7 +202,7 @@ export interface ProjectMetadata {
    * Absent means 'plan' for a local device (the safer default) and 'auto' otherwise.
    */
   executionApproval?: 'plan' | 'auto';
-  [key: string]: any;
+  [key: string]: unknown;
 }
 
 export interface LocalAgentDeviceMetadata {
@@ -226,7 +226,7 @@ export interface LocalAgentDeviceMetadata {
   manualAgents?: ManualMachineAgent[] | undefined;
   agentBundle?: string | undefined;
   agentUpdate?: AgentUpdateReport | undefined;
-  [key: string]: any;
+  [key: string]: unknown;
 }
 
 /**
@@ -248,7 +248,7 @@ export interface PendingApprovalMetadata {
   status: 'pending' | 'approved' | 'denied';
   createdAt: string;
   decidedAt?: string;
-  [key: string]: any;
+  [key: string]: unknown;
 }
 
 export interface PipelineRunMetadata {
@@ -269,7 +269,7 @@ export interface PipelineRunMetadata {
   releaseRefused?: string;
   releaseSkipped?: string;
   releaseHeld?: string;
-  [key: string]: any;
+  [key: string]: unknown;
 }
 
 export interface ClusterTaskArgs {

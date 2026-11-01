@@ -1,5 +1,7 @@
 import { Router, type Request } from 'express';
-import { asyncRoute, encryptValue, type SecretKey, parseCookie } from '../../platform/index.js';
+import { asyncRoute, encryptValue, fieldOf, isRecord, listAt, textAt, type JsonRecord, type Database, type ModelEndpointMetadata, type SecretKey, parseCookie } from '../../platform/index.js';
+import { ignore } from '@koala/engine-core/failures';
+import type { CredentialService } from '../../infrastructure/index.js';
 import { v4 as uuidv4 } from 'uuid';
 import {
   authUrl, checkCallback, connectedRedirect, CONNECT_COOKIE, CONNECT_COOKIE_MS, CONNECT_PATH, exchangeBody, exchangeProblem,
@@ -80,6 +82,36 @@ function perMillion(raw: string | undefined): number | undefined {
   return perToken * 1_000_000;
 }
 
+const priceText = (value: unknown): string | undefined =>
+  typeof value === 'string' ? value : typeof value === 'number' ? String(value) : undefined;
+
+const aaModelOf = (record: JsonRecord): AaModel => {
+  const { id, slug, name, evaluations, ...rest } = record;
+  return {
+    ...rest,
+    ...(typeof id === 'string' ? { id } : {}),
+    ...(typeof slug === 'string' ? { slug } : {}),
+    ...(typeof name === 'string' ? { name } : {}),
+    ...(isRecord(evaluations) ? { evaluations } : {}),
+  };
+};
+
+function modelEntryOf(raw: unknown): ModelEntry | undefined {
+  const id = textAt(raw, 'id');
+  if (!id) return undefined;
+  const name = textAt(raw, 'name');
+  const context = fieldOf(raw, 'context_length');
+  const pricing = fieldOf(raw, 'pricing');
+  const prompt = priceText(fieldOf(pricing, 'prompt'));
+  const completion = priceText(fieldOf(pricing, 'completion'));
+  return {
+    id,
+    ...(name !== undefined ? { name } : {}),
+    ...(typeof context === 'number' ? { context_length: context } : {}),
+    ...(pricing !== undefined ? { pricing: { ...(prompt !== undefined ? { prompt } : {}), ...(completion !== undefined ? { completion } : {}) } } : {}),
+  };
+}
+
 export function pricingOf(entry: ModelEntry): ModelPricing | undefined {
   const promptPerMTok = perMillion(entry.pricing?.prompt);
   const completionPerMTok = perMillion(entry.pricing?.completion);
@@ -105,12 +137,12 @@ async function fetchModelList(
   try {
     const res = await fetch(url, { headers, signal: AbortSignal.timeout(15_000) });
     if (!res.ok) {
-      const text = await res.text().catch(() => '');
+      const text = await res.text().catch(ignore('a refusal whose body cannot be read is reported by its status alone')) ?? '';
       return { models: [], error: `Provider returned ${res.status}: ${text.slice(0, 200)}` };
     }
-    const body = await res.json() as { data?: ModelEntry[]; models?: ModelEntry[] };
-    const data = body.data ?? body.models ?? [];
-    const models = data.map((m: ModelEntry) => {
+    const body: unknown = await res.json();
+    const listed = fieldOf(body, 'data') !== undefined ? listAt(body, 'data') : listAt(body, 'models');
+    const models = listed.map(modelEntryOf).filter((m): m is ModelEntry => m !== undefined).map((m) => {
       const pricing = pricingOf(m);
       return {
         id: m.id,
@@ -126,8 +158,8 @@ async function fetchModelList(
       };
     });
     return { models };
-  } catch (err: any) {
-    return { models: [], error: err?.message ?? 'Failed to reach provider' };
+  } catch (err) {
+    return { models: [], error: (err as Error | undefined)?.message ?? 'Failed to reach provider' };
   }
 }
 
@@ -142,12 +174,12 @@ const AA_MODELS_URL = 'https://artificialanalysis.ai/api/v2/data/llms/models';
  * unreachable third party would block backfilling pricing and context windows too.
  */
 async function intelligenceIndex(
-  credentials: any,
+  credentials: Credentials | undefined,
   userId: string,
 ): Promise<Map<string, number>> {
   try {
-    const resolved = await credentials?.resolveCredentials?.(userId, 'artificialanalysis');
-    const apiKey = resolved?.env?.ARTIFICIALANALYSIS_API_KEY ?? resolved?.values?.apiKey;
+    const resolved = await credentials?.resolveCredentials(userId, 'artificialanalysis');
+    const apiKey = resolved?.env.ARTIFICIALANALYSIS_API_KEY;
     if (!apiKey) return new Map();
 
     const res = await fetch(AA_MODELS_URL, {
@@ -155,15 +187,15 @@ async function intelligenceIndex(
       signal: AbortSignal.timeout(15_000),
     });
     if (!res.ok) return new Map();
-    const body = await res.json() as { data?: AaModel[] };
-    return buildIntelligenceIndex(body.data ?? []);
+    const body: unknown = await res.json();
+    return buildIntelligenceIndex(listAt(body, 'data').filter(isRecord).map(aaModelOf));
   } catch {
     return new Map();
   }
 }
 
 async function connectPreset(
-  db: any,
+  db: Pick<Database, 'models'>,
   dataKey: SecretKey,
   userId: string,
   preset: GatewayPreset,
@@ -192,10 +224,23 @@ async function connectPreset(
   }
 
   const fresh = await db.models.getModelEndpoints();
-  return { endpoints: fresh.filter((e: any) => e.ownerId === userId) };
+  return { endpoints: fresh.filter((e) => e.ownerId === userId) };
 }
 
-export function llmCredentialsRouter(deps: Record<string, any>): Router {
+type Credentials = Pick<CredentialService, 'resolveCredentials'>;
+
+export interface LlmCredentialsRouterDeps {
+  db: Pick<Database, 'models'>;
+  dataKey: SecretKey;
+  credentialService?: Credentials | undefined;
+  publicUrl?: string | undefined;
+  appUrl?: string | undefined;
+}
+
+const ownEndpoints = (endpoints: ModelEndpointMetadata[], userId: string): ModelEndpointMetadata[] =>
+  endpoints.filter((e) => e.ownerId === userId);
+
+export function llmCredentialsRouter(deps: LlmCredentialsRouterDeps): Router {
   const { db, dataKey, credentialService } = deps;
   const publicUrl: string = deps.publicUrl ?? 'http://localhost:3001';
   const appUrl: string = deps.appUrl ?? publicUrl;
@@ -204,19 +249,22 @@ export function llmCredentialsRouter(deps: Record<string, any>): Router {
   router.get('/llm', asyncRoute(async (req, res) => {
     const endpoints = await db.models.getModelEndpoints();
     const userId = userOf(req).id;
-    const userEndpoints = endpoints.filter((e: any) => e.ownerId === userId);
+    const userEndpoints = ownEndpoints(endpoints, userId);
     const gateways = Object.entries(GATEWAY_PRESETS).map(([key, preset]) => {
-      const models = userEndpoints.filter((e: any) =>
+      const models = userEndpoints.filter((e) =>
         e.name?.startsWith(`${preset.label} · `) || e.baseUrl === preset.baseUrl,
       );
-      return { provider: key, ...preset, modelCount: models.length, hasKey: models.some((m: any) => m.apiKeyEnc) };
+      return { provider: key, ...preset, modelCount: models.length, hasKey: models.some((m) => Boolean(m.apiKeyEnc)) };
     });
     res.json({ providers: gateways });
   }));
 
   router.post('/llm', asyncRoute(async (req, res) => {
     const userId = userOf(req).id;
-    const { provider, apiKey, baseUrl, model } = (req.body ?? {}) as Record<string, string | undefined>;
+    const provider = textAt(req.body, 'provider');
+    const apiKey = textAt(req.body, 'apiKey');
+    const baseUrl = textAt(req.body, 'baseUrl');
+    const model = textAt(req.body, 'model');
 
     if (!provider) return res.status(400).json({ error: 'provider is required' });
     const preset: GatewayPreset | undefined = GATEWAY_PRESETS[provider as keyof typeof GATEWAY_PRESETS];
@@ -237,8 +285,8 @@ export function llmCredentialsRouter(deps: Record<string, any>): Router {
     if (isCustom) {
       if (!model) return res.status(400).json({ error: 'model is required for custom endpoints' });
       const label = apiKey ? `Custom · ${model}` : model;
-      const existing = (await db.models.getModelEndpoints()).filter((e: any) => e.ownerId === userId);
-      const found = existing.find((e: any) => e.name === label && e.baseUrl === effectiveBaseUrl && e.model === model);
+      const existing = ownEndpoints(await db.models.getModelEndpoints(), userId);
+      const found = existing.find((e) => e.name === label && e.baseUrl === effectiveBaseUrl && e.model === model);
       if (!found) {
         await db.models.saveModelEndpoint({
           id: uuidv4(),
@@ -251,7 +299,7 @@ export function llmCredentialsRouter(deps: Record<string, any>): Router {
         });
       }
       const endpoints = await db.models.getModelEndpoints();
-      return res.json({ endpoints: endpoints.filter((e: any) => e.ownerId === userId) });
+      return res.json({ endpoints: ownEndpoints(endpoints, userId) });
     }
 
     /**
@@ -313,7 +361,7 @@ export function llmCredentialsRouter(deps: Record<string, any>): Router {
     if (!preset) return res.status(400).json({ error: `Unknown provider: ${provider}` });
 
     const mine = (await db.models.getModelEndpoints())
-      .filter((e: any) => e.ownerId === userId && e.baseUrl === preset.baseUrl);
+      .filter((e) => e.ownerId === userId && e.baseUrl === preset.baseUrl);
     if (mine.length === 0) {
       return res.status(404).json({ error: `${preset.label} is not set up on this account` });
     }

@@ -1,4 +1,4 @@
-import { type AreaStore, fromDoc, toDoc } from '../platform/lib/collection.js';
+import { type AreaStore, fromDoc } from '../platform/lib/collection.js';
 import type { Collection, Db } from 'mongodb';
 import type { ModelEndpointMetadata } from '../platform/index.js';
 import type { ModelThinkingProfile } from '../engine/index.js';
@@ -14,8 +14,8 @@ export interface ModelsStore extends AreaStore {
 export class MongoModelsStore implements ModelsStore {
   constructor(private readonly db: () => Db) {}
 
-  private get modelEndpoints(): Collection {
-    return this.db().collection('modelEndpoints');
+  private get modelEndpoints(): Collection<{ _id: string }> {
+    return this.db().collection<{ _id: string }>('modelEndpoints');
   }
 
   private get thinkingProfiles(): Collection {
@@ -29,14 +29,12 @@ export class MongoModelsStore implements ModelsStore {
   }
 
   async saveModelEndpoint(endpoint: ModelEndpointMetadata): Promise<void> {
-    const doc = toDoc(endpoint);
-    const id = doc._id;
-    const { _id, ...filter } = doc;
-    await this.modelEndpoints.replaceOne({ _id: id }, filter, { upsert: true });
+    const { id, ...rest } = endpoint;
+    await this.modelEndpoints.replaceOne({ _id: id }, rest, { upsert: true });
   }
 
   async deleteModelEndpoint(id: string): Promise<void> {
-    await this.modelEndpoints.deleteOne({ _id: id as any });
+    await this.modelEndpoints.deleteOne({ _id: id });
   }
 
   async getModelThinkingProfile(modelId: string): Promise<ModelThinkingProfile | null> {

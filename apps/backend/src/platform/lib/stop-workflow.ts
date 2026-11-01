@@ -1,3 +1,5 @@
+import { ignore } from '@koala/engine-core/failures';
+
 export const STOP_WAIT_MS = 60_000;
 
 export interface StoppableWorkflow {
@@ -23,7 +25,7 @@ export async function stopIfRunning(handle: StoppableWorkflow, reason: string, w
   });
   let timer: ReturnType<typeof setTimeout> | undefined;
   const closed = await Promise.race([
-    handle.result().then(() => true, () => true),
+    handle.result().catch(ignore('a workflow that ends cancelled or failed rejects its result, which is it closing all the same')).then(() => true),
     new Promise<boolean>((settle) => { timer = setTimeout(() => settle(false), waitMs); }),
   ]);
   if (timer) clearTimeout(timer);

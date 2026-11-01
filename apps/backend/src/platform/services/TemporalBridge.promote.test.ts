@@ -3,6 +3,7 @@ import { testDatabase } from '../lib/test-database.js';
 import type { MongoDB } from '../lib/mongo-db.js';
 import { deployProjectBuild, type AppDeployDeps } from '../../infrastructure/services/AppDeploy.js';
 import type { ClusterMetadata, ProjectMetadata, PipelineRunMetadata } from '../lib/types.js';
+import { anyOf } from '../lib/test-matchers.js';
 
 describe('deploying a project\'s build', () => {
   let db: MongoDB;
@@ -55,7 +56,7 @@ describe('deploying a project\'s build', () => {
     expect(deployment!.namespace).toMatch(/^demo-[a-f0-9]{6}$/);
     expect(starts[0]!.args[0]).toMatchObject({ namespace: deployment!.namespace });
     const [saved] = (await db.releases.getPipelineRuns()).filter((entry) => entry.id === 'run-1');
-    expect(saved).toMatchObject({ deploymentId: deployment!.id, promotedAt: expect.any(String) });
+    expect(saved).toMatchObject({ deploymentId: deployment!.id, promotedAt: anyOf(String) });
   });
 
   it('deploys a build as the project\'s owner, so the person can see and remove the app it makes', async () => {

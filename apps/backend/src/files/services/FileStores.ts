@@ -3,6 +3,7 @@ import { Client } from 'minio';
 import type { ClusterMetadata, DeploymentMetadata } from '../../platform/index.js';
 import { FILES_BUCKET, FOLDER_MARK, SEARCH_LIMIT, isFolderMark, matchesSearch, within, type FileEntry, type FilePlace } from '../lib/file-places.js';
 import { s3Address, type ServiceSpec } from '../lib/artifacts.js';
+import { fieldOf } from '../../platform/index.js';
 
 export interface Download {
   stream: Readable;
@@ -64,6 +65,11 @@ const collect = <T>(stream: NodeJS.ReadableStream): Promise<T[]> => new Promise(
 
 const byKind = (a: FileEntry, b: FileEntry) => (a.type === b.type ? a.name.localeCompare(b.name) : a.type === 'dir' ? -1 : 1);
 
+const missingObject = (err: unknown): boolean => {
+  const code = fieldOf(err, 'code');
+  return code === 'NotFound' || code === 'NoSuchKey';
+};
+
 export function minioStore(client: MinioLike, folder: string): FileStore {
   let ready: Promise<void> | undefined;
   const bucket = () => (ready ??= client.bucketExists(FILES_BUCKET).then(async (exists) => { if (!exists) await client.makeBucket(FILES_BUCKET); }));
@@ -71,7 +77,11 @@ export function minioStore(client: MinioLike, folder: string): FileStore {
   const relative = (name: string) => name.slice(folder.length + 1);
   const everything = async (prefix: string) => (await collect<{ name?: string; size?: number; lastModified?: Date }>(client.listObjectsV2(FILES_BUCKET, prefix, true))).filter((item) => item.name);
   const keysUnder = async (path: string): Promise<string[]> => (await everything(`${key(path)}/`)).map((item) => item.name!);
-  const exists = async (path: string): Promise<boolean> => client.statObject(FILES_BUCKET, key(path)).then(() => true, () => false);
+  const stat = (path: string) => client.statObject(FILES_BUCKET, key(path)).catch((err: unknown) => {
+    if (missingObject(err)) return undefined;
+    throw err;
+  });
+  const exists = async (path: string): Promise<boolean> => (await stat(path)) !== undefined;
 
   return {
     async list(dir) {
@@ -99,10 +109,10 @@ export function minioStore(client: MinioLike, folder: string): FileStore {
     },
     async download(path) {
       await bucket();
-      const stat = await client.statObject(FILES_BUCKET, key(path)).catch(() => undefined);
-      if (!stat) return undefined;
+      const found = await stat(path);
+      if (!found) return undefined;
       const stream = await client.getObject(FILES_BUCKET, key(path));
-      return { stream: stream as Readable, size: stat.size, contentType: String(stat.metaData?.['content-type'] ?? 'application/octet-stream'), ...(stat.etag ? { etag: stat.etag } : {}) };
+      return { stream: stream as Readable, size: found.size, contentType: String(found.metaData?.['content-type'] ?? 'application/octet-stream'), ...(found.etag ? { etag: found.etag } : {}) };
     },
     async upload(path, body, size, contentType) {
       await bucket();

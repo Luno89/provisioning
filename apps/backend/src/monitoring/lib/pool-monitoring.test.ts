@@ -3,6 +3,7 @@ import {
   BLACKBOX_VALUES, hostProbeManifest, hostRuleManifest, parsePoolRule, parseProbes, placeAlerts, poolStackValues,
   probeIngressPolicy, probesFromCluster,
 } from './pool-monitoring.js';
+import { at, containing } from '../../platform/lib/test-matchers.js';
 
 const place = { hostNamespace: 'pool-alice' };
 
@@ -17,10 +18,10 @@ describe('watching a pool instance\'s apps from root', () => {
   });
 
   it('probes the app\'s own service on the node, by the name it has there, labelled with its namespace inside', () => {
-    const manifest = hostProbeManifest(place, { namespace: 'shop', service: 'web', port: 80, path: '', module: 'http_2xx' }, 'web-x-shop-x-alice') as any;
-    expect(manifest.metadata.namespace).toBe('pool-alice');
-    expect(manifest.spec.targets.staticConfig.static).toEqual(['web-x-shop-x-alice.pool-alice.svc.cluster.local:80']);
-    expect(manifest.spec.targets.staticConfig.labels).toEqual({ koala_namespace: 'shop', app: 'web' });
+    const manifest = hostProbeManifest(place, { namespace: 'shop', service: 'web', port: 80, path: '', module: 'http_2xx' }, 'web-x-shop-x-alice');
+    expect(at(manifest, 'metadata', 'namespace')).toBe('pool-alice');
+    expect(at(manifest, 'spec', 'targets', 'staticConfig', 'static')).toEqual(['web-x-shop-x-alice.pool-alice.svc.cluster.local:80']);
+    expect(at(manifest, 'spec', 'targets', 'staticConfig', 'labels')).toEqual({ koala_namespace: 'shop', app: 'web' });
   });
 
   it('refuses probes that are not an app\'s namespace, service, port, path and module', () => {
@@ -33,14 +34,14 @@ describe('watching a pool instance\'s apps from root', () => {
   it('builds an alert from its kind alone, in the instance\'s namespace, refusing what it cannot watch there', () => {
     const rule = parsePoolRule('r1', { namespace: 'shop', spec: { kind: 'down' }, summary: 'Shop has not answered for 5 minutes' });
     expect('error' in rule).toBe(false);
-    const manifest = hostRuleManifest(place, rule as Exclude<typeof rule, { error: string }>) as any;
-    expect(manifest.metadata.namespace).toBe('pool-alice');
-    expect(manifest.spec.groups[0].rules[0].expr).toBe('max(probe_success{namespace="pool-alice",koala_namespace="shop"}) < 1');
-    expect(manifest.spec.groups[0].rules[0].labels).toMatchObject({ koala_rule: 'r1', koala_namespace: 'shop' });
+    const manifest = hostRuleManifest(place, rule as Exclude<typeof rule, { error: string }>);
+    expect(at(manifest, 'metadata', 'namespace')).toBe('pool-alice');
+    expect(at(manifest, 'spec', 'groups', 0, 'rules', 0, 'expr')).toBe('max(probe_success{namespace="pool-alice",koala_namespace="shop"}) < 1');
+    expect(at(manifest, 'spec', 'groups', 0, 'rules', 0, 'labels')).toMatchObject({ koala_rule: 'r1', koala_namespace: 'shop' });
     expect(parsePoolRule('r2', { namespace: 'shop', spec: { kind: 'down', expr: 'up' }, summary: 's' })).not.toHaveProperty('expr');
     const errors = parsePoolRule('r3', { namespace: 'shop', spec: { kind: 'errors' }, summary: 's' });
-    expect(hostRuleManifest(place, errors as Exclude<typeof errors, { error: string }>)).toEqual({ error: expect.stringContaining('not counted') });
-    expect(parsePoolRule('r4', { namespace: 'shop', spec: { kind: 'slow', threshold: 9999 }, summary: 's' })).toEqual({ error: expect.stringContaining('between') });
+    expect(hostRuleManifest(place, errors as Exclude<typeof errors, { error: string }>)).toEqual({ error: containing('not counted') });
+    expect(parsePoolRule('r4', { namespace: 'shop', spec: { kind: 'slow', threshold: 9999 }, summary: 's' })).toEqual({ error: containing('between') });
   });
 
   it('shows an instance only its own alerts, under the namespaces it knows', () => {
@@ -56,18 +57,18 @@ describe('watching a pool instance\'s apps from root', () => {
   });
 
   it('keeps every rule and probe on the node to the namespace it was made in, and never follows a redirect', () => {
-    const values = poolStackValues() as any;
-    expect(values.prometheus.prometheusSpec.enforcedNamespaceLabel).toBe('namespace');
-    expect(values.prometheus.prometheusSpec.excludedFromEnforcement.every((ref: { namespace: string }) => ref.namespace === 'monitoring')).toBe(true);
-    expect(values.grafana.enabled).toBe(false);
+    const values = poolStackValues();
+    expect(at(values, 'prometheus', 'prometheusSpec', 'enforcedNamespaceLabel')).toBe('namespace');
+    expect((at(values, 'prometheus', 'prometheusSpec', 'excludedFromEnforcement') as unknown[]).every((ref) => at(ref, 'namespace') === 'monitoring')).toBe(true);
+    expect(at(values, 'grafana', 'enabled')).toBe(false);
     expect(BLACKBOX_VALUES).toContain('follow_redirects: false');
     expect(BLACKBOX_VALUES).not.toContain('follow_redirects: true');
   });
 
   it('lets only the checker in, and only to the instance\'s own workloads', () => {
-    const policy = probeIngressPolicy('alice', place) as any;
-    expect(policy.metadata.namespace).toBe('pool-alice');
-    expect(policy.spec.podSelector.matchLabels).toEqual({ 'vcluster.loft.sh/managed-by': 'alice' });
-    expect(policy.spec.ingress[0].from[0].podSelector.matchLabels).toEqual({ 'app.kubernetes.io/name': 'prometheus-blackbox-exporter' });
+    const policy = probeIngressPolicy('alice', place);
+    expect(at(policy, 'metadata', 'namespace')).toBe('pool-alice');
+    expect(at(policy, 'spec', 'podSelector', 'matchLabels')).toEqual({ 'vcluster.loft.sh/managed-by': 'alice' });
+    expect(at(policy, 'spec', 'ingress', 0, 'from', 0, 'podSelector', 'matchLabels')).toEqual({ 'app.kubernetes.io/name': 'prometheus-blackbox-exporter' });
   });
 });

@@ -1,7 +1,8 @@
 import type { MonitoringAsk, RangeAsk } from '../lib/monitoring-asks.js';
-import type { PromAlert } from '../lib/monitoring-alerts.js';
 import type { PoolProbe, PoolRule } from '../lib/pool-monitoring.js';
-import type { PoolMonitor, Sample } from './MonitoringService.js';
+import type { PoolMonitor } from './MonitoringService.js';
+import { answeredHistory, answeredPoints, answeredSamples, promAlerts } from '../lib/prometheus-answers.js';
+import { textAt } from '../../platform/index.js';
 
 export interface PoolMonitorSettings {
   rootUrl: string;
@@ -17,7 +18,7 @@ export function poolMonitorFrom(env: NodeJS.ProcessEnv, token: (() => Promise<st
 }
 
 export function poolMonitor(settings: PoolMonitorSettings, fetchImpl: typeof fetch = globalThis.fetch): PoolMonitor {
-  const call = async <T>(method: string, path: string, body?: unknown): Promise<T> => {
+  const call = async (method: string, path: string, body?: unknown): Promise<unknown> => {
     const response = await fetchImpl(`${settings.rootUrl}/api/instances/monitoring${path}`, {
       method,
       headers: {
@@ -27,15 +28,21 @@ export function poolMonitor(settings: PoolMonitorSettings, fetchImpl: typeof fet
       },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     });
-    const answer = await response.json().catch(() => ({})) as T & { error?: unknown };
-    if (!response.ok) throw new Error(`root answered ${response.status}: ${typeof answer.error === 'string' ? answer.error : 'no reason given'}`);
+    const text = await response.text();
+    let answer: unknown = {};
+    try {
+      if (text) answer = JSON.parse(text) as unknown;
+    } catch {
+      if (response.ok) throw new Error(`root answered ${response.status} with something that is not JSON: ${text.slice(0, 200)}`);
+    }
+    if (!response.ok) throw new Error(`root answered ${response.status}: ${textAt(answer, 'error') ?? 'no reason given'}`);
     return answer;
   };
   return {
-    ask: async (ask: MonitoringAsk) => (await call<{ samples: Sample[] }>('POST', '/ask', { ask })).samples,
-    askRange: async (ask: MonitoringAsk, range: RangeAsk) => (await call<{ points: Array<[number, number]> }>('POST', '/ask', { ask, range })).points,
-    alerts: async () => (await call<{ alerts: PromAlert[] }>('GET', '/alerts')).alerts,
-    history: () => call<{ days: number; kept?: number }>('GET', ''),
+    ask: async (ask: MonitoringAsk) => answeredSamples(await call('POST', '/ask', { ask })),
+    askRange: async (ask: MonitoringAsk, range: RangeAsk) => answeredPoints(await call('POST', '/ask', { ask, range })),
+    alerts: async () => promAlerts(await call('GET', '/alerts')),
+    history: async () => answeredHistory(await call('GET', '')),
     setRule: async (rule: PoolRule) => {
       await call('PUT', `/rules/${encodeURIComponent(rule.id)}`, { namespace: rule.namespace, spec: rule.spec, summary: rule.summary });
     },

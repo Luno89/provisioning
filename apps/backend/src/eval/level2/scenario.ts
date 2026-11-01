@@ -384,7 +384,7 @@ export function scenarioProblems(
     else if ('slug' in settings || 'ownerId' in settings) problems.push(`its world's settings for ${slug} cannot change its slug or owner`);
     else if ('tools' in settings) {
       const tools = (settings as { tools?: unknown }).tools;
-      if (!Array.isArray(tools) || tools.some((tool) => typeof tool !== 'string')) problems.push(`its world's tools for ${slug} have to be a list of tool names`);
+      if (!Array.isArray(tools) || !tools.every((tool): tool is string => typeof tool === 'string')) problems.push(`its world's tools for ${slug} have to be a list of tool names`);
       else for (const tool of tools) if (!toolNames.has(tool)) problems.push(`its world grants ${slug} "${tool}", which is not a tool`);
     }
     if (settings && typeof settings === 'object' && 'servers' in settings) {

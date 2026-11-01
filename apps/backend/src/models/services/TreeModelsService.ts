@@ -130,7 +130,10 @@ export class TreeModelsService {
 
 export const treeAgentsFrom = (registry: { runnable(ownerId: string, slug: string): Promise<{ agent: { slug: string; name: string; description?: string | undefined; model?: { endpointId?: string | null | undefined } | undefined }; procedure: TreeAgent['procedure'] } | undefined> }) =>
   async (ownerId: string, slug: string): Promise<TreeAgent | undefined> => {
-    const runnable = await registry.runnable(ownerId, slug).catch(() => undefined);
+    const runnable = await registry.runnable(ownerId, slug).catch((err: Error) => {
+      console.warn(`[tree models] ${slug} could not be read, so the tree's models leave it out: ${err.message}`);
+      return undefined;
+    });
     if (!runnable) return undefined;
     return {
       slug,

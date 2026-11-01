@@ -8,9 +8,11 @@ export const startedFor = (owner: string): { typedSearchAttributes: SearchAttrib
   typedSearchAttributes: [{ key: OWNER_ATTRIBUTE, value: owner }],
 });
 
+const isPairs = (attributes: TypedSearchAttributes | readonly SearchAttributePair[]): attributes is readonly SearchAttributePair[] => Array.isArray(attributes);
+
 export function ownerIn(attributes: TypedSearchAttributes | readonly SearchAttributePair[] | undefined): string | undefined {
   if (!attributes) return undefined;
-  const pairs = Array.isArray(attributes) ? attributes : (attributes as TypedSearchAttributes).getAll();
+  const pairs: readonly SearchAttributePair[] = isPairs(attributes) ? attributes : attributes.getAll();
   const found = pairs.find((pair) => pair.key.name === OWNER_ATTRIBUTE.name);
   return typeof found?.value === 'string' && found.value ? found.value : undefined;
 }

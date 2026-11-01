@@ -6,6 +6,7 @@ import type { FileStore } from './FileStores.js';
 import type { DeploymentMetadata, ProjectMetadata } from '../../platform/lib/types.js';
 import type { FilePlace, FileSettings } from '../lib/file-places.js';
 import type { FileShare } from '../lib/file-shares.js';
+import { matching } from '../../platform/lib/test-matchers.js';
 
 const deployment = (over: Partial<DeploymentMetadata>): DeploymentMetadata => ({ id: 'm1', name: 'minio', appType: 'minio', status: 'running', clusterId: 'c1', ownerId: 'u1', minioRootPassword: 'pw', ...over } as DeploymentMetadata);
 
@@ -145,7 +146,7 @@ describe('where a project\'s files go', () => {
     expect(made.value.etag).toMatch(/^[0-9a-f]{32}$/);
     expect(await world.files.shared(made.value.token)).toMatchObject({ ok: true });
     world.kept.set('a.pdf', Buffer.from('%PDF a different file put at the same name'));
-    expect(await world.files.shared(made.value.token)).toMatchObject({ ok: false, status: 404, why: expect.stringMatching(/replaced or removed/) });
+    expect(await world.files.shared(made.value.token)).toMatchObject({ ok: false, status: 404, why: matching(/replaced or removed/) });
   });
 
   it('ties a link made before links were tied to the file it opens first', async () => {
