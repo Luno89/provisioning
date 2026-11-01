@@ -2,11 +2,11 @@ import type { Database } from '../lib/db-interface.js';
 import pino from 'pino';
 import pinoPretty from 'pino-pretty';
 
-export class BaseService {
+export class BaseService<Db = Database> {
   protected logger = pino(pinoPretty());
-  protected db: Database;
+  protected db: Db;
 
-  constructor(db: Database) {
+  constructor(db: Db) {
     this.db = db;
   }
 }

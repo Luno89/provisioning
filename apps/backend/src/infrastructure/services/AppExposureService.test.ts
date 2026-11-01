@@ -1,9 +1,11 @@
 import { describe, it, expect, vi, beforeEach, beforeAll } from 'vitest';
+import type { AppExposureDb, AppExposureService as Exposure, ExposureClusters, ExposureInfra } from './AppExposureService.js';
+import type { ClusterMetadata, DeploymentMetadata } from '../../platform/index.js';
 
-const mockReaddir = vi.fn();
-const mockWriteFile = vi.fn();
-const mockMkdir = vi.fn();
-const mockUnlink = vi.fn();
+const mockReaddir = vi.fn<(dir: string) => Promise<string[]>>();
+const mockWriteFile = vi.fn<(file: string, content: string) => Promise<void>>();
+const mockMkdir = vi.fn<(dir: string) => Promise<void>>();
+const mockUnlink = vi.fn<(file: string) => Promise<void>>();
 
 vi.mock('node:fs/promises', () => ({
   default: {
@@ -18,7 +20,7 @@ vi.mock('node:fs/promises', () => ({
   unlink: mockUnlink,
 }));
 
-const mockExec = vi.fn((cmd: string, cb: Function) => cb(null, { stdout: '', stderr: '' }));
+const mockExec = vi.fn((_cmd: string, cb: (err: Error | null, out: { stdout: string; stderr: string }) => void) => cb(null, { stdout: '', stderr: '' }));
 const mockSpawnStdoutOn = vi.fn();
 const mockSpawnStderrOn = vi.fn();
 const mockSpawnOn = vi.fn();
@@ -35,8 +37,8 @@ vi.mock('node:child_process', () => ({
 }));
 
 vi.mock('node:util', () => ({
-  promisify: (_fn: Function) => {
-    return (..._args: any[]) => Promise.resolve({ stdout: '', stderr: '' });
+  promisify: (_fn: unknown) => {
+    return (..._args: unknown[]) => Promise.resolve({ stdout: '', stderr: '' });
   },
 }));
 
@@ -44,14 +46,21 @@ vi.mock('node:url', () => ({
   fileURLToPath: () => '/app/src/services/AppExposureService.ts',
 }));
 
-const mockGetDeployments = vi.fn();
-const mockSaveDeployment = vi.fn();
-const mockGetById = vi.fn();
-const mockGetKubeconfigPath = vi.fn();
-const mockRunKubectl = vi.fn();
-const mockGetK3dServerIp = vi.fn();
+const mockGetDeployments = vi.fn<AppExposureDb['infrastructure']['getDeployments']>();
+const mockSaveDeployment = vi.fn<AppExposureDb['infrastructure']['saveDeployment']>();
+const mockGetById = vi.fn<ExposureClusters['getByIdUnscoped']>();
+const mockGetKubeconfigPath = vi.fn<ExposureClusters['getKubeconfigPath']>();
+const mockRunKubectl = vi.fn<ExposureInfra['runKubectl']>();
+const mockGetK3dServerIp = vi.fn<ExposureInfra['getK3dServerIp']>();
+const mockGetHostGatewayIp = vi.fn<ExposureInfra['getHostGatewayIp']>();
 
-let AppExposureService: any;
+const deployment = (over: Partial<DeploymentMetadata>): DeploymentMetadata => ({ id: 'd0', name: 'app', clusterId: '', strategy: 'native', status: 'running', ...over });
+const clusterOf = (over: Partial<ClusterMetadata>): ClusterMetadata => ({ id: 'c1', name: 'Tc', provider: 'k3d', status: 'healthy', ...over });
+const db: AppExposureDb = { infrastructure: { getDeployments: mockGetDeployments, saveDeployment: mockSaveDeployment } };
+const infra: ExposureInfra = { runKubectl: mockRunKubectl, getK3dServerIp: mockGetK3dServerIp, getHostGatewayIp: mockGetHostGatewayIp };
+const clusters: ExposureClusters = { getByIdUnscoped: mockGetById, getKubeconfigPath: mockGetKubeconfigPath };
+
+let AppExposureService: typeof Exposure;
 
 beforeAll(async () => {
   const mod = await import('./AppExposureService.js');
@@ -59,13 +68,6 @@ beforeAll(async () => {
 });
 
 function createService() {
-  const db = { infrastructure: { getDeployments: mockGetDeployments, saveDeployment: mockSaveDeployment } };
-  const infra = { runKubectl: mockRunKubectl, getK3dServerIp: mockGetK3dServerIp };
-  const clusters = {
-    getById: mockGetById,
-    getByIdUnscoped: mockGetById,
-    getKubeconfigPath: mockGetKubeconfigPath,
-  };
   return new AppExposureService(db, infra, clusters);
 }
 
@@ -77,26 +79,26 @@ const traefikSvcJson = JSON.stringify({ spec: { type: 'NodePort', ports: [{ name
 
 describe('sanitize', () => {
   it('converts to lowercase and replaces non-alphanumeric chars with hyphens', () => {
-    expect((createService() as any).sanitize('Hello World-Foo!')).toBe('hello-world-foo');
+    expect(createService()['sanitize']('Hello World-Foo!')).toBe('hello-world-foo');
   });
   it('removes leading and trailing hyphens', () => {
-    expect((createService() as any).sanitize('--hello--')).toBe('hello');
+    expect(createService()['sanitize']('--hello--')).toBe('hello');
   });
   it('collapses multiple hyphens', () => {
-    expect((createService() as any).sanitize('a---b---c')).toBe('a-b-c');
+    expect(createService()['sanitize']('a---b---c')).toBe('a-b-c');
   });
 });
 
 describe('buildConfContent', () => {
   it('generates a valid nginx server block', () => {
-    const content = (createService() as any).buildConfContent('my-app', '172.17.0.1:31301', 'my-app.apps.local');
+    const content = createService()['buildConfContent']('my-app', '172.17.0.1:31301', 'my-app.apps.local');
     expect(content).toContain('server {');
     expect(content).toContain('server_name my-app ~^my-app\\..*$;');
     expect(content).toContain('set $upstream "172.17.0.1:31301";');
     expect(content).toContain('proxy_set_header Host my-app.apps.local;');
   });
   it('handles namespaces with hyphens', () => {
-    const content = (createService() as any).buildConfContent('my-long-app-name', '10.0.0.1:8080', 'my-long-app-name.apps.local');
+    const content = createService()['buildConfContent']('my-long-app-name', '10.0.0.1:8080', 'my-long-app-name.apps.local');
     expect(content).toContain('server_name my-long-app-name ~^my-long-app-name\\..*$;');
   });
 });
@@ -143,7 +145,7 @@ describe('syncExposedApps', () => {
 
   it('keeps the config of a locally exposed app whose release has a namespace of its own name, and sweeps public configs nothing exposes', async () => {
     mockGetDeployments.mockResolvedValue([{ ...mockDep, name: 'Shop', namespace: 'shop-1a2b3c', appType: 'odoo-project', isExposedPublicly: false, isExposedLocally: true }]);
-    mockGetById.mockResolvedValue(null);
+    mockGetById.mockResolvedValue(undefined);
     mockReaddir.mockImplementation(async (dir: string) => (String(dir).includes('caddy') ? ['shop-1a2b3c.caddy', 'gone-app.caddy'] : ['default.conf', 'shop-1a2b3c.conf', 'shop-1a2b3c-preview.conf', 'shop.conf']));
 
     await createService().syncExposedApps();
@@ -154,7 +156,7 @@ describe('syncExposedApps', () => {
 
   it('handles missing cluster gracefully', async () => {
     mockGetDeployments.mockResolvedValue([mockDep]);
-    mockGetById.mockResolvedValue(null);
+    mockGetById.mockResolvedValue(undefined);
 
     await createService().syncExposedApps();
     expect(mockWriteFile).not.toHaveBeenCalled();
@@ -190,7 +192,7 @@ describe('buildUpstreamTarget', () => {
     mockGetKubeconfigPath.mockResolvedValue('/tmp/k');
     mockRunKubectl.mockResolvedValueOnce(JSON.stringify({ items: [{ metadata: { name: 'm-w' }, spec: { type: 'NodePort', ports: [{ port: 80, nodePort: 31301 }] } }] })).mockResolvedValueOnce(traefikSvcJson);
     mockGetK3dServerIp.mockResolvedValue('10.0.0.5');
-    const r = await (createService() as any).buildUpstreamTarget(dep, cluster);
+    const r = await createService()['buildUpstreamTarget'](dep, cluster);
     expect(r).toEqual({ namespace: 'myapp', backendTarget: '10.0.0.5:32080', appHostname: 'myapp.apps.local' });
   });
 
@@ -201,7 +203,7 @@ describe('buildUpstreamTarget', () => {
       { metadata: { name: 'm-w' }, spec: { type: 'NodePort', ports: [{ port: 80, nodePort: 31301 }] } },
     ] })).mockResolvedValueOnce(traefikSvcJson);
     mockGetK3dServerIp.mockResolvedValue('10.0.0.5');
-    const r = await (createService() as any).buildUpstreamTarget(dep, cluster);
+    const r = await createService()['buildUpstreamTarget'](dep, cluster);
     expect(r.backendTarget).toBe('10.0.0.5:32080');
   });
 
@@ -212,14 +214,14 @@ describe('buildUpstreamTarget', () => {
       { metadata: { name: 'shop-db650n-a' }, spec: { type: 'NodePort', ports: [{ port: 8069, nodePort: 31302 }] } },
     ] })).mockResolvedValueOnce(traefikSvcJson);
     mockGetK3dServerIp.mockResolvedValue('10.0.0.5');
-    const r = await (createService() as any).buildUpstreamTarget({ ...dep, name: 'shop', namespace: 'shop-db650n' }, cluster);
+    const r = await createService()['buildUpstreamTarget']({ ...dep, name: 'shop', namespace: 'shop-db650n' }, cluster);
     expect(r.namespace).toBe('shop-db650n');
   });
 
   it('throws when no web services', async () => {
     mockGetKubeconfigPath.mockResolvedValue('/tmp/k');
     mockRunKubectl.mockResolvedValue(JSON.stringify({ items: [] }));
-    await expect((createService() as any).buildUpstreamTarget(dep, cluster)).rejects.toThrow('No proxyable web services');
+    await expect(createService()['buildUpstreamTarget'](dep, cluster)).rejects.toThrow('No proxyable web services');
   });
 
   it('throws when Traefik has no NodePort assigned', async () => {
@@ -227,7 +229,7 @@ describe('buildUpstreamTarget', () => {
     mockRunKubectl
       .mockResolvedValueOnce(JSON.stringify({ items: [{ metadata: { name: 'm-w' }, spec: { type: 'NodePort', ports: [{ port: 80, nodePort: 31301 }] } }] }))
       .mockResolvedValueOnce(JSON.stringify({ spec: { type: 'ClusterIP', ports: [{ name: 'web', port: 80 }] } }));
-    await expect((createService() as any).buildUpstreamTarget(dep, cluster)).rejects.toThrow('does not have a nodePort');
+    await expect(createService()['buildUpstreamTarget'](dep, cluster)).rejects.toThrow('does not have a nodePort');
   });
 });
 
@@ -330,10 +332,10 @@ describe('exposePublic / exposeLocal', () => {
 describe('buildUpstreamTarget on mesh clusters', () => {
   const appSvcJson = JSON.stringify({ items: [{ metadata: { name: 'web' }, spec: { ports: [{ port: 80 }] } }] });
 
-  const target = async (cluster: any) => {
+  const target = async (cluster: Partial<ClusterMetadata>) => {
     mockGetKubeconfigPath.mockResolvedValue('/tmp/kubeconfig-test');
     mockRunKubectl.mockResolvedValueOnce(appSvcJson).mockResolvedValueOnce(traefikSvcJson);
-    return (createService() as any).buildUpstreamTarget({ name: 'my-app' }, cluster);
+    return createService()['buildUpstreamTarget'](deployment({ name: 'my-app' }), clusterOf(cluster));
   };
 
   it('routes to the mesh IP and Traefik nodePort', async () => {
@@ -354,38 +356,38 @@ describe('buildUpstreamTarget on mesh clusters', () => {
 });
 
 describe('public hostname allocation', async () => {
-  const svc = () => createService() as any;
+  const svc = () => createService();
 
   it('is stable across calls, so a saved link keeps working', async () => {
-    const dep = { id: 'abc123de-0000-4000-8000-000000000000', name: 'My Blog' };
-    const a = await svc().hostnameFor(dep, 'nowrinkles.dev');
-    const b = await svc().hostnameFor({ ...dep, publicHostname: a }, 'nowrinkles.dev');
+    const dep = deployment({ id: 'abc123de-0000-4000-8000-000000000000', name: 'My Blog' });
+    const a = await svc()['hostnameFor'](dep, 'nowrinkles.dev');
+    const b = await svc()['hostnameFor']({ ...dep, publicHostname: a }, 'nowrinkles.dev');
     expect(b).toBe(a);
   });
 
   it('distinguishes two tenants who both called their app the same thing', async () => {
-    const alice = await svc().hostnameFor({ id: 'aaaaaaaa-0000-4000-8000-000000000000', name: 'blog' }, 'nowrinkles.dev');
-    const bob = await svc().hostnameFor({ id: 'bbbbbbbb-0000-4000-8000-000000000000', name: 'blog' }, 'nowrinkles.dev');
+    const alice = await svc()['hostnameFor'](deployment({ id: 'aaaaaaaa-0000-4000-8000-000000000000', name: 'blog' }), 'nowrinkles.dev');
+    const bob = await svc()['hostnameFor'](deployment({ id: 'bbbbbbbb-0000-4000-8000-000000000000', name: 'blog' }), 'nowrinkles.dev');
     expect(alice).not.toBe(bob);
     expect(alice.startsWith('blog-')).toBe(true);
   });
 
   it('produces a DNS-safe label from an awkward app name', async () => {
-    const h = await svc().hostnameFor({ id: 'ffffffff-0000-4000-8000-000000000000', name: 'My  App!! v2' }, 'nowrinkles.dev');
+    const h = await svc()['hostnameFor'](deployment({ id: 'ffffffff-0000-4000-8000-000000000000', name: 'My  App!! v2' }), 'nowrinkles.dev');
     expect(h).toMatch(/^[a-z0-9-]+\.nowrinkles\.dev$/);
   });
 });
 
 describe('buildCaddyContent', () => {
   it('rewrites Host to the app ingress hostname, not the public one', () => {
-    const c = (createService() as any).buildCaddyContent('blog-abc123.nowrinkles.dev', '100.64.0.5:32080', 'blog.apps.local');
+    const c = createService()['buildCaddyContent']('blog-abc123.nowrinkles.dev', '100.64.0.5:32080', 'blog.apps.local');
     expect(c).toContain('blog-abc123.nowrinkles.dev {');
     expect(c).toContain('reverse_proxy 100.64.0.5:32080');
     expect(c).toContain('header_up Host blog.apps.local');
   });
 
   it('disables proxy timeouts so streaming apps are not severed', () => {
-    const c = (createService() as any).buildCaddyContent('a.nowrinkles.dev', '10.0.0.1:80', 'a.apps.local');
+    const c = createService()['buildCaddyContent']('a.nowrinkles.dev', '10.0.0.1:80', 'a.apps.local');
     expect(c).toContain('read_timeout 0');
     expect(c).toContain('write_timeout 0');
   });
@@ -454,16 +456,13 @@ describe('an instance publishing its apps through its edge', () => {
   };
   const onEdge = (nested: boolean) => {
     const reloads: number[] = [];
-    const db = { infrastructure: { getDeployments: mockGetDeployments, saveDeployment: mockSaveDeployment } };
-    const infra = { runKubectl: mockRunKubectl, getK3dServerIp: mockGetK3dServerIp };
-    const clusters = { getById: mockGetById, getByIdUnscoped: mockGetById, getKubeconfigPath: mockGetKubeconfigPath };
     const service = new AppExposureService(db, infra, clusters, undefined, { edge: { name: 'luno', nestedReady: () => nested, reload: async () => { reloads.push(1); } } });
     return { service, reloads };
   };
 
   it('gives an app and its preview flat addresses under the instance\'s name, served over plain http, reloading the edge', async () => {
     process.env.INGRESS_DOMAIN = 'koala.dev';
-    mockGetDeployments.mockResolvedValue([{ ...odoo }, { id: 'other', name: 'shop!', publicHostname: 'shop-luno.koala.dev' }]);
+    mockGetDeployments.mockResolvedValue([{ ...odoo }, deployment({ id: 'other', name: 'shop!', publicHostname: 'shop-luno.koala.dev' })]);
     reach();
     const { service, reloads } = onEdge(false);
     const exposed = await service.exposePublic('d1abcdef');
@@ -492,7 +491,7 @@ describe('an instance publishing its apps through its edge', () => {
     mockRunKubectl.mockReset();
     mockRunKubectl
       .mockResolvedValueOnce(svcJson)
-      .mockRejectedValueOnce(new Error('NotFound'))
+      .mockResolvedValueOnce('')
       .mockResolvedValueOnce(JSON.stringify({ spec: { type: 'LoadBalancer', ports: [{ name: 'web', port: 80 }] } }));
     await onEdge(false).service.exposePublic('d1abcdef');
     expect(String(mockWriteFile.mock.calls[0]![1])).toContain('reverse_proxy traefik.kube-system.svc.cluster.local:80');
@@ -513,9 +512,6 @@ describe('a shared project\'s apps, addressed under the group its sharer named',
   };
   const groups = new Map<string, string>();
   const make = (edge?: { name: string; nested: boolean }) => {
-    const db = { infrastructure: { getDeployments: mockGetDeployments, saveDeployment: mockSaveDeployment } };
-    const infra = { runKubectl: mockRunKubectl, getK3dServerIp: mockGetK3dServerIp };
-    const clusters = { getById: mockGetById, getByIdUnscoped: mockGetById, getKubeconfigPath: mockGetKubeconfigPath };
     return new AppExposureService(db, infra, clusters, undefined, {
       ...(edge ? { edge: { name: edge.name, nestedReady: () => edge.nested, reload: async () => {} } } : {}),
       groupOf: async (dep: { gitappProjectId?: string }) => (dep.gitappProjectId ? groups.get(dep.gitappProjectId) : undefined),
@@ -543,7 +539,7 @@ describe('a shared project\'s apps, addressed under the group its sharer named',
 
   it('gives the app <app>-<group> on an instance, free among the group\'s other apps, and never a nested address', async () => {
     groups.set('p1', 'acme');
-    mockGetDeployments.mockResolvedValue([{ ...odoo, publicHostname: 'shop-luno.koala.dev' }, { id: 'other', name: 'Shop', gitappProjectId: 'p1', publicHostname: 'shop-acme.koala.dev' }]);
+    mockGetDeployments.mockResolvedValue([{ ...odoo, publicHostname: 'shop-luno.koala.dev' }, deployment({ id: 'other', name: 'Shop', gitappProjectId: 'p1', publicHostname: 'shop-acme.koala.dev' })]);
     reach();
     const exposed = await make({ name: 'luno', nested: true }).exposePublic('d1abcdef');
     expect(exposed).toMatchObject({ publicHostname: 'shop-2-acme.koala.dev', publicExposureUrl: 'https://shop-2-acme.koala.dev', previewPublicUrl: 'https://shop-2-preview-acme.koala.dev' });
