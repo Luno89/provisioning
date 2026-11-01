@@ -37,13 +37,13 @@ export function modelsRouter(deps: ModelsRouterDeps): Router {
     res.json({ buckets: deps.rateLimits(userOf(req).id) });
   }));
 
-  router.get('/', async (req, res) => {
+  router.get('/', asyncRoute(async (req, res) => {
     try {
       res.json(await modelService.list(userOf(req).id));
     } catch (err) {
       res.status(500).json({ error: messageOf(err) });
     }
-  });
+  }));
 
   /**
    * The account's default engine. A pack that names no `model.endpointId` of its own runs on this,
@@ -97,7 +97,7 @@ export function modelsRouter(deps: ModelsRouterDeps): Router {
     });
   }));
 
-  router.put('/extractor', async (req, res) => {
+  router.put('/extractor', asyncRoute(async (req, res) => {
     try {
       const user = userOf(req);
       const modelId = at(req.body, 'modelId');
@@ -116,14 +116,14 @@ export function modelsRouter(deps: ModelsRouterDeps): Router {
     } catch (err) {
       res.status(500).json({ error: messageOf(err) });
     }
-  });
+  }));
 
   router.get('/extractor', asyncRoute(async (req, res) => {
     const record = await db.accounts.getUserById(userOf(req).id);
     res.json({ extractionModelId: record?.extractionModelId ?? null });
   }));
 
-  router.get('/hf-size', async (req, res) => {
+  router.get('/hf-size', asyncRoute(async (req, res) => {
     try {
       const repo = queryText(req, 'repo');
       if (!repo) return res.status(400).json({ error: 'repo is required' });
@@ -149,9 +149,9 @@ export function modelsRouter(deps: ModelsRouterDeps): Router {
     } catch (err) {
       res.status(500).json({ error: statusOf(err) === 404 ? `Model or revision not found: ${queryText(req, 'repo') ?? ''}@${queryText(req, 'revision') || 'main'}` : messageOf(err) });
     }
-  });
+  }));
 
-  router.get('/search', async (req, res) => {
+  router.get('/search', asyncRoute(async (req, res) => {
     try {
       const q = queryText(req, 'q') || '';
       const appType = queryText(req, 'appType');
@@ -162,9 +162,9 @@ export function modelsRouter(deps: ModelsRouterDeps): Router {
     } catch (err) {
       res.status(500).json({ error: messageOf(err) });
     }
-  });
+  }));
 
-  router.get('/hf-branches', async (req, res) => {
+  router.get('/hf-branches', asyncRoute(async (req, res) => {
     try {
       const repo = queryText(req, 'repo');
       if (!repo) return res.status(400).json({ error: 'repo is required' });
@@ -175,7 +175,7 @@ export function modelsRouter(deps: ModelsRouterDeps): Router {
     } catch (err) {
       res.status(500).json({ error: statusOf(err) === 404 ? `Model not found: ${queryText(req, 'repo') ?? ''}` : messageOf(err) });
     }
-  });
+  }));
 
   return router;
 }

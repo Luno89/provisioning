@@ -50,7 +50,7 @@ export function deploymentsRouter(deps: DeploymentsRouterDeps): Router {
     res.json(specs.map((s) => ({ ...s, deploysFromSpec: Boolean(s.spec) })));
   }));
 
-  router.post('/', async (req, res) => {
+  router.post('/', asyncRoute(async (req, res) => {
     try {
       const user = userOf(req);
       const asked = deployRequestFrom(req.body);
@@ -71,9 +71,9 @@ export function deploymentsRouter(deps: DeploymentsRouterDeps): Router {
       }
       res.status(503).json({ error: `Temporal app deploy unavailable: ${(err as Error).message}` });
     }
-  });
+  }));
 
-  router.delete('/:id', async (req, res) => {
+  router.delete('/:id', asyncRoute(async (req, res) => {
     try {
       const dep = await appService.getById(idOf(req), userOf(req).id);
       if (!dep) return res.status(404).json({ error: 'Deployment not found' });
@@ -96,7 +96,7 @@ export function deploymentsRouter(deps: DeploymentsRouterDeps): Router {
         res.status(503).json({ error: `Deployment destruction unavailable: ${(err as Error).message}; deleting its record failed too: ${(fallbackErr as Error).message}` });
       }
     }
-  });
+  }));
 
   router.get('/:id/sign-in', asyncRoute(async (req, res) => {
     const signIns = await appService.signIns(idOf(req), userOf(req).id);
@@ -105,11 +105,11 @@ export function deploymentsRouter(deps: DeploymentsRouterDeps): Router {
   }));
   router.get('/:id/helm', asyncRoute(async (req, res) => res.json({ content: await appService.getHelmStatus(idOf(req), userOf(req).id) })));
   router.get('/:id/diagnostics', asyncRoute(async (req, res) => res.json({ content: await appService.getDiagnostics(idOf(req), userOf(req).id) })));
-  router.get('/:id/pods', async (req, res) => {
+  router.get('/:id/pods', asyncRoute(async (req, res) => {
     try { res.json(await appService.listPods(idOf(req), userOf(req).id)); } catch { res.status(500).json({ error: 'Failed to list pods' }); }
-  });
+  }));
 
-  router.post('/:id/expose', async (req, res) => {
+  router.post('/:id/expose', asyncRoute(async (req, res) => {
     try {
       const dep = await appService.getById(idOf(req), userOf(req).id);
       if (!dep) return res.status(404).json({ error: 'Deployment not found' });
@@ -122,16 +122,16 @@ export function deploymentsRouter(deps: DeploymentsRouterDeps): Router {
       const result = mode === 'local' ? await appExposureService.exposeLocal(idOf(req)) : await appExposureService.exposePublic(idOf(req));
       res.json(result);
     } catch (err) { res.status(500).json({ error: (err as Error).message }); }
-  });
-  router.post('/:id/unexpose', async (req, res) => {
+  }));
+  router.post('/:id/unexpose', asyncRoute(async (req, res) => {
     try {
       if (!(await appService.getById(idOf(req), userOf(req).id))) return res.status(404).json({ error: 'Deployment not found' });
       const mode = at(req.body, 'mode') === 'local' ? 'local' : 'public';
       const result = mode === 'local' ? await appExposureService.unexposeLocal(idOf(req)) : await appExposureService.unexposePublic(idOf(req));
       res.json(result);
     } catch (err) { res.status(500).json({ error: (err as Error).message }); }
-  });
-  router.patch('/:id/exposure-path', async (req, res) => {
+  }));
+  router.patch('/:id/exposure-path', asyncRoute(async (req, res) => {
     try {
       if (!(await appService.getById(idOf(req), userOf(req).id))) return res.status(404).json({ error: 'Deployment not found' });
       const path = at(req.body, 'path');
@@ -140,7 +140,7 @@ export function deploymentsRouter(deps: DeploymentsRouterDeps): Router {
     } catch (err) {
       res.status(500).json({ error: (err as Error).message });
     }
-  });
+  }));
 
   router.patch('/:id/modules', asyncRoute(async (req, res) => {
     const modules = at(req.body, 'modules');
@@ -148,7 +148,7 @@ export function deploymentsRouter(deps: DeploymentsRouterDeps): Router {
     res.status(202).json(await appService.updateModules(idOf(req), listAt(modules).map(String), userOf(req).id, io));
   }));
 
-  router.patch('/:id/storage', async (req, res) => {
+  router.patch('/:id/storage', asyncRoute(async (req, res) => {
     try {
       if (!(await appService.getById(idOf(req), userOf(req).id))) return res.status(404).json({ error: 'Deployment not found' });
       const storage = at(req.body, 'storage');
@@ -163,9 +163,9 @@ export function deploymentsRouter(deps: DeploymentsRouterDeps): Router {
     } catch (err) {
       res.status(503).json({ error: `Temporal resize disk unavailable: ${(err as Error).message}` });
     }
-  });
+  }));
 
-  router.get('/:id/resource-plan', async (req, res) => {
+  router.get('/:id/resource-plan', asyncRoute(async (req, res) => {
     const dep = await appService.getById(idOf(req), userOf(req).id);
     if (!dep) return res.status(404).json({ error: 'Deployment not found' });
     if (dep.appType !== 'tabbyapi') return res.json({ applicable: false });
@@ -182,12 +182,10 @@ export function deploymentsRouter(deps: DeploymentsRouterDeps): Router {
     try {
       const nodes = await infraService.runCommand("kubectl", [
         'get', 'nodes', '-o', 'jsonpath={.items[*].status.allocatable.memory}',
-      ], `resource-plan-${dep.id}`) as { stdout: string; exitCode: number };
-      if (nodes.exitCode === 0) {
-        const sizes = nodes.stdout.trim().split(/\s+/).map((q) => parseQuantity(q))
-          .filter((n): n is number => n !== undefined);
-        if (sizes.length) allocatableBytes = Math.min(...sizes);
-      }
+      ], `resource-plan-${dep.id}`);
+      const sizes = nodes.stdout.trim().split(/\s+/).map((q) => parseQuantity(q))
+        .filter((n): n is number => n !== undefined);
+      if (sizes.length) allocatableBytes = Math.min(...sizes);
     } catch (failure) {
       ignore('without the nodes\' memory the plan has no budget to check and says so')(failure);
     }
@@ -208,9 +206,9 @@ export function deploymentsRouter(deps: DeploymentsRouterDeps): Router {
       basis: plan.basis,
       ...(plan.refusal ? { refusal: plan.refusal } : {}),
     });
-  });
+  }));
 
-  router.patch('/:id/config', async (req, res) => {
+  router.patch('/:id/config', asyncRoute(async (req, res) => {
     try {
       if (!(await appService.getById(idOf(req), userOf(req).id))) return res.status(404).json({ error: 'Deployment not found' });
       const read = deploymentConfigPatch(req.body);
@@ -240,7 +238,7 @@ export function deploymentsRouter(deps: DeploymentsRouterDeps): Router {
     } catch (err) {
       res.status(503).json({ error: `Temporal config update unavailable: ${(err as Error).message}` });
     }
-  });
+  }));
 
   return router;
 }

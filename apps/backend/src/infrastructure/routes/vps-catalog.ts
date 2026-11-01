@@ -1,3 +1,4 @@
+import { asyncRoute } from '../../platform/index.js';
 import { Router, type Request, type RequestHandler } from 'express';
 import { vpsFiltersFrom } from '../lib/vps-catalog/filters.js';
 import type { VpsCatalogService } from '../services/VpsCatalogService.js';
@@ -14,7 +15,7 @@ export function vpsCatalogRouter(deps: VpsCatalogRouterDeps): Router {
   const { vpsCatalogService, operatorOnly } = deps;
   const router = Router();
 
-  router.get('/', async (req, res) => {
+  router.get('/', asyncRoute(async (req, res) => {
     try {
       const read = vpsFiltersFrom(req.query);
       if ('problem' in read) return res.status(400).json({ error: read.problem });
@@ -24,12 +25,12 @@ export function vpsCatalogRouter(deps: VpsCatalogRouterDeps): Router {
       console.error('[vps-catalog] search failed:', (err as Error).stack ?? (err as Error).message);
       res.status(500).json({ error: (err as Error).message });
     }
-  });
+  }));
 
-  router.post('/refresh', operatorOnly, async (_req, res) => {
+  router.post('/refresh', operatorOnly, asyncRoute(async (_req, res) => {
     vpsCatalogService.clearCache();
     res.json({ ok: true });
-  });
+  }));
 
   return router;
 }

@@ -53,7 +53,7 @@ export function clustersRouter(deps: ClustersRouterDeps): Router {
   const ownedCluster = (req: Request) => clusterService.getById(idOf(req), principalFrom(req), 'see-everything');
 
   for (const serviceKey of PROXY_SERVICES) {
-    router.get(`/:id/proxy/${serviceKey}`, async (req, res) => {
+    router.get(`/:id/proxy/${serviceKey}`, asyncRoute(async (req, res) => {
       try {
         const clusterId = idOf(req);
         const cluster = await ownedCluster(req);
@@ -84,12 +84,12 @@ export function clustersRouter(deps: ClustersRouterDeps): Router {
       } catch (err) {
         res.status(502).json({ error: `Service unavailable: ${(err as Error).message}` });
       }
-    });
+    }));
   }
 
   router.get('/', asyncRoute(async (req, res) => res.json(await clusterService.getAll(principalFrom(req), io))));
 
-  router.post('/', async (req, res) => {
+  router.post('/', asyncRoute(async (req, res) => {
     try {
       const body = provisionRequestOf(req.body);
       const nameCheck = validateClusterName(body.name);
@@ -137,9 +137,9 @@ export function clustersRouter(deps: ClustersRouterDeps): Router {
       if (err instanceof ProvisionRefused) return res.status(400).json({ error: err.message });
       res.status(503).json({ error: `Temporal cluster provisioning unavailable: ${(err as Error).message}` });
     }
-  });
+  }));
 
-  router.post('/:id/start', async (req, res) => {
+  router.post('/:id/start', asyncRoute(async (req, res) => {
     try {
       const userId = userOf(req).id;
       const cluster = await clusterService.getById(idOf(req), principalFrom(req), 'change');
@@ -164,9 +164,9 @@ export function clustersRouter(deps: ClustersRouterDeps): Router {
     } catch (err) {
       res.status(500).json({ error: (err as Error).message });
     }
-  });
+  }));
 
-  router.delete('/:id', async (req, res) => {
+  router.delete('/:id', asyncRoute(async (req, res) => {
     const cluster = await clusterService.getById(idOf(req), principalFrom(req));
     if (!cluster) return res.status(404).json({ error: 'Cluster not found' });
     const decision = authorize(principalFrom(req), 'delete', clusterResource(cluster));
@@ -192,9 +192,9 @@ export function clustersRouter(deps: ClustersRouterDeps): Router {
         res.status(503).json({ error: `Cluster destruction unavailable: ${(err as Error).message}; deleting its record failed too: ${(fallbackErr as Error).message}` });
       }
     }
-  });
+  }));
 
-  router.post('/discover', async (req, res) => {
+  router.post('/discover', asyncRoute(async (req, res) => {
     const decision = authorize(principalFrom(req), 'administer', { kind: 'install' });
     if (!decision.allowed) return res.status(decision.status).json({ error: decision.error });
     try {
@@ -203,9 +203,9 @@ export function clustersRouter(deps: ClustersRouterDeps): Router {
     } catch (err) {
       res.status(500).json({ error: (err as Error).message });
     }
-  });
+  }));
 
-  router.post('/:id/discover-deployments', async (req, res) => {
+  router.post('/:id/discover-deployments', asyncRoute(async (req, res) => {
     if (!(await ownedCluster(req))) return res.status(404).json({ error: 'Cluster not found' });
     try {
       const discovered = await appService.discoverDeployments(idOf(req), principalFrom(req));
@@ -213,7 +213,7 @@ export function clustersRouter(deps: ClustersRouterDeps): Router {
     } catch (err) {
       res.status(500).json({ error: (err as Error).message });
     }
-  });
+  }));
 
   router.get('/:id/gpu-status', asyncRoute(async (req, res) => {
     if (!(await ownedCluster(req))) return res.status(404).json({ error: 'Cluster not found' });

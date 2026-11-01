@@ -23,12 +23,12 @@ export function adminRouter(deps: AdminRouterDeps): Router {
   const { db, operatorOnly, inviteLimits, removal } = deps;
   const router = Router();
 
-  router.get('/invites', operatorOnly, async (_req, res) => {
+  router.get('/invites', operatorOnly, asyncRoute(async (_req, res) => {
     const now = new Date();
     res.json((await db.accounts.getInvites()).filter((invite) => !invite.project && invite.id !== FIRST_ADMIN_INVITE).map((invite) => inviteView(invite, now)));
-  });
+  }));
 
-  router.post('/invites', operatorOnly, async (req, res) => {
+  router.post('/invites', operatorOnly, asyncRoute(async (req, res) => {
     const now = new Date();
     const code = newInviteCode();
     const invite: InviteMetadata = {
@@ -40,7 +40,7 @@ export function adminRouter(deps: AdminRouterDeps): Router {
     };
     await db.accounts.saveInvite(invite);
     res.status(201).json({ ...inviteView(invite, now), code });
-  });
+  }));
 
   const answered = <T>(res: Response, outcome: { ok: true; value: T } | { ok: false; status: number; why: string }) =>
     (outcome.ok ? res.json(outcome.value) : res.status(outcome.status).json({ error: outcome.why }));

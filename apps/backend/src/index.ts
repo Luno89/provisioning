@@ -14,13 +14,11 @@ import { Server as SocketServer } from 'socket.io';
 
 import { authRouter, AuthService, devicesFor, loadBreachedPasswords, passwordRouter, PasswordService, SignInProviders, signInProvidersFrom } from './accounts/index.js';
 import helmet from 'helmet';
-import {
-  CSP_REPORT_LIMIT, CSP_REPORT_PATH, cspHeader, cspModeFrom, violationLine, crossSiteRefusal, foreignOrigin, ourOrigins, MetricsService, JSON_LIMITS, jsonLimitFor, RATE_LIMITS, ruleFor,
+import { CSP_REPORT_LIMIT, CSP_REPORT_PATH, cspHeader, cspModeFrom, violationLine, crossSiteRefusal, foreignOrigin, ourOrigins, MetricsService, JSON_LIMITS, jsonLimitFor, RATE_LIMITS, ruleFor,
   getTemporalClient, resolveOwnersWith, PayloadStorageService, createAuth, inFlightLimit, keepTrying, mongoTarget, asyncRoute,
   TEMPORAL_JWKS_PATH, temporalCa, temporalTlsProblem, temporalKeysRouter, trustProxyFor, temporalNamespaceFrom,
   authorize, claimSettingsFrom, type Principal, createDatabase, sharedPayloadBlobs, type Database, migrateLegacyOwnership, operatorsFromAdmins, ownUnownedProjects, decryptValue, loadKeys,
-  AccessRevocations, SessionEnds, SessionSockets, endsSessions, roleFromEnv, servesTenants, holdsAccounts, MailService, emailWayFrom, telemetrySettings, e2eProblem, firstAdminSetup, drainThenStop, podPlaceFrom, runOnce,
-} from './platform/index.js';
+  AccessRevocations, SessionEnds, SessionSockets, endsSessions, roleFromEnv, servesTenants, holdsAccounts, MailService, emailWayFrom, telemetrySettings, e2eProblem, firstAdminSetup, drainThenStop, podPlaceFrom, runOnce, } from './platform/index.js';
 import { startTelemetry } from '@koala/engine-core/telemetry-sdk';
 import { rateLimit } from 'express-rate-limit';
 import { wireReleases } from './releases/wiring/releases.js';
@@ -243,7 +241,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     credentials: true,
   }));
 
-  tenant.post('/webhooks/gitea/:projectId', express.raw({ type: 'application/json' }), async (req, res) => {
+  tenant.post('/webhooks/gitea/:projectId', express.raw({ type: 'application/json' }), asyncRoute(async (req, res) => {
     try {
       const projects = await db.projects.getProjects();
       const project = projects.find((p) => p.id === req.params.projectId);
@@ -272,7 +270,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
       console.error(`[webhook] Gitea webhook error: ${(err as Error).message}`);
       res.status(500).json({ error: 'Internal error processing webhook' });
     }
-  });
+  }));
 
   app.use(metrics.middleware());
   app.use(helmet({ contentSecurityPolicy: false, crossOriginEmbedderPolicy: false, hsts: process.env.NODE_ENV === 'production' }));
@@ -342,13 +340,13 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     rootToken,
   });
 
-  tenant.get('/ingress/verify', async (req, res) => {
+  tenant.get('/ingress/verify', asyncRoute(async (req, res) => {
     const domain = String(req.query.domain ?? '');
     if (!domain) return res.status(400).send('domain required');
     const deployments = await db.infrastructure.getDeployments();
     const owned = deployments.some((d) => d.isExposedPublicly && d.publicHostname === domain);
     return owned ? res.status(200).send('ok') : res.status(404).send('unknown host');
-  });
+  }));
 
   await wireInstances({
     role, env: process.env, app, tenant, db, mail, identity, auth, sessionKey: keys.session, publicUrl: PUBLIC_URL,

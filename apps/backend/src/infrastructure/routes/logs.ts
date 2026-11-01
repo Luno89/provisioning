@@ -1,6 +1,6 @@
 import { Router, type Request } from 'express';
 import fs from 'fs/promises';
-import { allowed, principalFrom, type ClusterMetadata, type Database, type Principal } from '../../platform/index.js';
+import { asyncRoute, allowed, principalFrom, type ClusterMetadata, type Database, type Principal } from '../../platform/index.js';
 import type { AppService } from '../services/AppService.js';
 
 export interface LogsRouterDeps {
@@ -22,7 +22,7 @@ export function logsRouter(deps: LogsRouterDeps): Router {
     return project && allowed(principal, 'see', { kind: 'project', ownerId: project.ownerId }) ? run : undefined;
   };
 
-  router.get('/:type/:id', async (req, res) => {
+  router.get('/:type/:id', asyncRoute<{ type: string; id: string }>(async (req, res) => {
     const { type, id } = req.params;
     const logPath = type === 'cluster'
       ? (await clusterService.getById(id, principalFrom(req), 'see-everything'))?.lastLogPath
@@ -37,7 +37,7 @@ export function logsRouter(deps: LogsRouterDeps): Router {
     catch {
       res.json({ content: 'Waiting for logs...' });
     }
-  });
+  }));
 
   return router;
 }

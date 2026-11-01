@@ -1,4 +1,4 @@
-import { at } from '../../platform/index.js';
+import { asyncRoute, at } from '../../platform/index.js';
 import { Router, type RequestHandler } from 'express';
 import type WorkerService from '../services/WorkerService.js';
 
@@ -11,7 +11,7 @@ export function workerRouter(deps: WorkerRouterDeps): Router {
   const { workerService, operatorOnly } = deps;
   const router = Router();
 
-  router.post('/', operatorOnly, async (req, res) => {
+  router.post('/', operatorOnly, asyncRoute(async (req, res) => {
     try {
       const clusterId = at(req.body, 'clusterId');
       const context = at(req.body, 'context');
@@ -27,9 +27,9 @@ export function workerRouter(deps: WorkerRouterDeps): Router {
       console.error(`[Worker] Failed to initialize: ${(err as Error).message}`);
       res.status(503).json({ error: (err as Error).message });
     }
-  });
+  }));
 
-  router.delete('/', operatorOnly, async (req, res) => {
+  router.delete('/', operatorOnly, asyncRoute(async (req, res) => {
     try {
       console.log('[Worker] Worker stopped');
       res.status(200).json({ message: 'Worker stopped' });
@@ -37,9 +37,9 @@ export function workerRouter(deps: WorkerRouterDeps): Router {
       console.error(`[Worker] Failed to stop: ${(err as Error).message}`);
       res.status(500).json({ error: (err as Error).message });
     }
-  });
+  }));
 
-  router.get('/', async (req, res) => {
+  router.get('/', asyncRoute(async (req, res) => {
     try {
       const state = workerService.status();
       res.json({
@@ -51,7 +51,7 @@ export function workerRouter(deps: WorkerRouterDeps): Router {
     } catch (err) {
       res.status(500).json({ error: (err as Error).message });
     }
-  });
+  }));
 
   return router;
 }

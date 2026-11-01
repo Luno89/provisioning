@@ -59,7 +59,7 @@ export function projectsRouter(deps: ProjectsRouterDeps): Router {
     .find((d) => d.id === deviceId && allowed(principalFrom(req), 'see', { kind: 'record', noun: 'machine', ownerId: d.ownerId }));
   const router = Router();
 
-  router.get('/', async (req, res) => {
+  router.get('/', asyncRoute(async (req, res) => {
     const projects = await db.projects.getProjects();
     const mine = projects.filter((p) => allowed(principalFrom(req), 'see', { kind: 'project', ownerId: p.ownerId }));
     const [runs, deployments] = await Promise.all([db.releases.getPipelineRuns(), db.infrastructure.getDeployments()]);
@@ -67,9 +67,9 @@ export function projectsRouter(deps: ProjectsRouterDeps): Router {
       ...p,
       ...rollupProjectStatus(p, runs, deploymentForProject(p, deployments)),
     })));
-  });
+  }));
 
-  router.get('/:id/runs', async (req, res) => {
+  router.get('/:id/runs', asyncRoute(async (req, res) => {
     const project = await getOwnedProject(idOf(req), principalFrom(req));
     if (!project) {
       return res.status(404).json({ error: 'Project not found' });
@@ -91,9 +91,9 @@ export function projectsRouter(deps: ProjectsRouterDeps): Router {
     }));
 
     res.json(enriched);
-  });
+  }));
 
-  router.post('/', async (req, res) => {
+  router.post('/', asyncRoute(async (req, res) => {
     try {
       const body = fieldsOf(req.body);
       const { createRepo, autoDeployOnBuild, language: language_, executionTargetEgress } = body;
@@ -159,7 +159,7 @@ export function projectsRouter(deps: ProjectsRouterDeps): Router {
     } catch (err) {
       res.status(500).json({ error: (err as Error).message });
     }
-  });
+  }));
 
   router.patch('/:id', asyncRoute(async (req, res) => {
     const project = await getOwnedProject(idOf(req), principalFrom(req));
@@ -199,7 +199,7 @@ export function projectsRouter(deps: ProjectsRouterDeps): Router {
     res.json(updated);
   }));
 
-  router.post('/:id/runs/:runId/promote', async (req, res) => {
+  router.post('/:id/runs/:runId/promote', asyncRoute(async (req, res) => {
     try {
       const user = userOf(req);
       const project = await getOwnedProject(idOf(req), principalFrom(req));
@@ -214,7 +214,7 @@ export function projectsRouter(deps: ProjectsRouterDeps): Router {
     } catch (err) {
       res.status(400).json({ error: (err as Error).message });
     }
-  });
+  }));
 
   const { removal } = deps;
 

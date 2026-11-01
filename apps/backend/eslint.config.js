@@ -76,6 +76,8 @@ const boundaries = {
   },
 }
 
+const UNAWAITED_HANDLER = { selector: "CallExpression[callee.property.name=/^(get|post|put|patch|delete|use|all)$/] > :matches(ArrowFunctionExpression, FunctionExpression)[async=true]", message: 'Express 4 never awaits a handler, so one that rejects sends no response and the request hangs: wrap it in asyncRoute' }
+
 const ACCESS = [
   { selector: "MemberExpression[property.name='isAdmin']", message: 'who may do what is decided by authorize in platform/lib/permissions.ts, from the claims claimsOf gives; there is no isAdmin' },
   { selector: "MemberExpression[property.name='roles']", message: 'a person\'s stored roles become claims in claimsOf (platform/lib/permissions.ts) and are read nowhere else; ask authorize' },
@@ -114,7 +116,7 @@ export default defineConfig([
     ignores: ['**/*.test.ts', 'src/platform/lib/permissions.ts', 'src/*/store.ts'],
     languageOptions: { parser: tseslint.parser },
     rules: {
-      'no-restricted-syntax': ['error', ...ACCESS, ...SWALLOWING],
+      'no-restricted-syntax': ['error', ...ACCESS, ...SWALLOWING, UNAWAITED_HANDLER],
     },
   },
   {
@@ -122,7 +124,7 @@ export default defineConfig([
     ignores: ['**/*.test.ts', 'src/platform/lib/permissions.ts'],
     languageOptions: { parser: tseslint.parser },
     rules: {
-      'no-restricted-syntax': ['error', ...ACCESS, ...SWALLOWING, { selector: "MemberExpression[object.name='process'][property.name='env']", message: 'lib is pure: it takes settings as arguments and never reads process.env, which may not be loaded yet when it runs' }],
+      'no-restricted-syntax': ['error', ...ACCESS, ...SWALLOWING, UNAWAITED_HANDLER, { selector: "MemberExpression[object.name='process'][property.name='env']", message: 'lib is pure: it takes settings as arguments and never reads process.env, which may not be loaded yet when it runs' }],
     },
   },
   bugBacked({ files: ['src/**/*.ts'], root: path.dirname(fileURLToPath(import.meta.url)) }),

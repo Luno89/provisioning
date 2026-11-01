@@ -1,4 +1,4 @@
-import { at } from '../../platform/index.js';
+import { asyncRoute, at } from '../../platform/index.js';
 import { Router, type Request } from 'express';
 import type { Database } from '../../platform/index.js';
 
@@ -9,14 +9,14 @@ export function pendingApprovalsRouter(deps: { db: Database }): Router {
   const { db } = deps;
   const router = Router();
 
-  router.get('/', async (req, res) => {
+  router.get('/', asyncRoute(async (req, res) => {
     const mine = (await db.infrastructure.getPendingApprovals())
       .filter((a) => a.ownerId === userOf(req).id && a.status === 'pending')
       .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
     res.json(mine);
-  });
+  }));
 
-  router.post('/:id/decide', async (req, res) => {
+  router.post('/:id/decide', asyncRoute(async (req, res) => {
     const decision = at(req.body, 'decision');
     if (decision !== 'approved' && decision !== 'denied') {
       return res.status(400).json({ error: 'decision must be "approved" or "denied"' });
@@ -29,7 +29,7 @@ export function pendingApprovalsRouter(deps: { db: Database }): Router {
 
     await db.infrastructure.savePendingApproval({ ...row, status: decision, decidedAt: new Date().toISOString() });
     res.json({ success: true });
-  });
+  }));
 
   return router;
 }

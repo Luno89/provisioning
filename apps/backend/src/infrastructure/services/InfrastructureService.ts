@@ -590,7 +590,7 @@ export class InfrastructureService {
     console.log(`[InfrastructureService] GPU device plugin (${vendor}) is ready.`);
   }
 
-  async runCommand(cmd: string, args: string[], logId: string, options: ExecuteOptions = {}) {
+  async runCommand(cmd: string, args: string[], logId: string, options: ExecuteOptions = {}): Promise<{ stdout: string; logFile: string }> {
     const env: NodeJS.ProcessEnv = {
       ...process.env,
       ...options.env,
@@ -604,7 +604,7 @@ export class InfrastructureService {
 
     console.log(`[InfrastructureService] Spawning cmd=${cmd} args=${JSON.stringify(args)} (TF_PLUGIN_CACHE_DIR deliberately unset — see the delete above)`);
 
-    return new Promise((resolve, reject) => {
+    return new Promise<{ stdout: string; logFile: string }>((resolve, reject) => {
       const child = spawn(cmd, args, { cwd, env });
       let stdout = '', stderr = '';
       const broadcast = (data: string) => {

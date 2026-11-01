@@ -1,10 +1,8 @@
 import { Router, type Request } from 'express';
 import { randomUUID } from 'node:crypto';
-import {
-  signJWT, verifyJWT, hashPassword, type Auth,
+import { signJWT, verifyJWT, hashPassword, type Auth,
   asyncRoute, cookieNamed, generateOTP, inviteCodeHash, OAUTH_STATE_COOKIE, OAUTH_STATE_SECONDS, sessionToken,
-  type AccessRevocations, type Database, type SecretKey, principalFrom, sessionView, type Principal, type UserMetadata,
-} from '../../platform/index.js';
+  type AccessRevocations, type Database, type SecretKey, principalFrom, sessionView, type Principal, type UserMetadata, } from '../../platform/index.js';
 import { v4 as uuidv4 } from 'uuid';
 import type { AuthService } from '../services/AuthService.js';
 import type { PasswordService } from '../services/PasswordService.js';
@@ -49,7 +47,7 @@ export function authRouter(deps: AuthRouterDeps): Router {
   });
   const APP_URL = appUrl;
 
-  accountRoutes.post('/register', async (req, res) => {
+  accountRoutes.post('/register', asyncRoute(async (req, res) => {
     try {
       const { password, inviteCode, email: given } = bodyOf(req);
       const email = normalEmail(given);
@@ -104,7 +102,7 @@ export function authRouter(deps: AuthRouterDeps): Router {
     } catch (err) {
       res.status(500).json({ error: (err as Error).message });
     }
-  });
+  }));
 
   const pendingFor = async (id: unknown) => {
     if (typeof id !== 'string' || !id) return undefined;
@@ -113,7 +111,7 @@ export function authRouter(deps: AuthRouterDeps): Router {
   };
   const SIGN_UP_GONE = 'This sign-up has ended; sign up again';
 
-  accountRoutes.post('/register/verify', async (req, res) => {
+  accountRoutes.post('/register/verify', asyncRoute(async (req, res) => {
     try {
       const { id, code } = bodyOf(req);
       if (typeof code !== 'string' || !/^\s*\d{6}\s*$/.test(code)) {
@@ -149,9 +147,9 @@ export function authRouter(deps: AuthRouterDeps): Router {
     } catch (err) {
       res.status(500).json({ error: (err as Error).message });
     }
-  });
+  }));
 
-  accountRoutes.post('/register/resend', async (req, res) => {
+  accountRoutes.post('/register/resend', asyncRoute(async (req, res) => {
     try {
       const pending = await pendingFor(bodyOf(req).id);
       if (!pending) return res.status(410).json({ error: SIGN_UP_GONE });
@@ -167,9 +165,9 @@ export function authRouter(deps: AuthRouterDeps): Router {
     } catch (err) {
       res.status(500).json({ error: (err as Error).message });
     }
-  });
+  }));
 
-  accountRoutes.post('/login', async (req, res) => {
+  accountRoutes.post('/login', asyncRoute(async (req, res) => {
     try {
       const { password, email } = bodyOf(req);
       const account = normalEmail(email);
@@ -199,9 +197,9 @@ export function authRouter(deps: AuthRouterDeps): Router {
     } catch (err) {
       res.status(500).json({ error: (err as Error).message });
     }
-  });
+  }));
 
-  accountRoutes.post('/2fa/verify', async (req, res) => {
+  accountRoutes.post('/2fa/verify', asyncRoute(async (req, res) => {
     try {
       const { challenge, code } = bodyOf(req);
       if (typeof challenge !== 'string' || typeof code !== 'string' || !code) {
@@ -226,7 +224,7 @@ export function authRouter(deps: AuthRouterDeps): Router {
     } catch (err) {
       res.status(500).json({ error: (err as Error).message });
     }
-  });
+  }));
 
   router.post('/logout', asyncRoute(async (req, res) => {
     await deps.auth.endSession(req);
@@ -248,7 +246,7 @@ export function authRouter(deps: AuthRouterDeps): Router {
     });
   });
 
-  accountRoutes.post('/sessions/end-others', async (req, res) => {
+  accountRoutes.post('/sessions/end-others', asyncRoute(async (req, res) => {
     try {
       const user = userOf(req);
       if (!user) return res.status(401).json({ error: 'Not authenticated' });
@@ -260,7 +258,7 @@ export function authRouter(deps: AuthRouterDeps): Router {
     } catch (err) {
       res.status(500).json({ error: (err as Error).message });
     }
-  });
+  }));
 
   accountRoutes.post('/confirm/code', asyncRoute(async (req, res) => {
     const user = userOf(req);
@@ -271,7 +269,7 @@ export function authRouter(deps: AuthRouterDeps): Router {
     res.json({ sent: true });
   }));
 
-  accountRoutes.post('/2fa/settings', async (req, res) => {
+  accountRoutes.post('/2fa/settings', asyncRoute(async (req, res) => {
     try {
       const user = userOf(req);
       if (!user) {
@@ -306,7 +304,7 @@ export function authRouter(deps: AuthRouterDeps): Router {
     } catch (err) {
       res.status(500).json({ error: (err as Error).message });
     }
-  });
+  }));
 
   accountRoutes.get('/sign-in', (_req, res) => {
     res.json({ url: null, providers: deps.providers?.offered() ?? [] });

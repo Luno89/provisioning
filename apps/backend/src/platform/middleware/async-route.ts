@@ -1,8 +1,9 @@
 import type { Request, Response, NextFunction, RequestHandler } from 'express';
+import type { ParamsDictionary } from 'express-serve-static-core';
 
-export function asyncRoute(
-  handler: (req: Request, res: Response, next: NextFunction) => Promise<unknown>,
-): RequestHandler {
+export function asyncRoute<P = ParamsDictionary>(
+  handler: (req: Request<P>, res: Response, next: NextFunction) => Promise<unknown>,
+): RequestHandler<P> {
   return (req, res, next) => {
     handler(req, res, next).catch(next);
   };

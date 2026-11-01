@@ -26,8 +26,7 @@ async function nodeAllocatableBytes(
   const res = await infra.runCommand('kubectl', [
     '--kubeconfig', kubeconfigPath,
     'get', 'nodes', '-o', 'jsonpath={.items[*].status.allocatable.memory}',
-  ], logId) as { stdout: string; exitCode: number };
-  if (res.exitCode !== 0) return undefined;
+  ], logId);
   const sizes = res.stdout.trim().split(/\s+/)
     .map((q: string) => parseQuantity(q))
     .filter((n): n is number => n !== undefined);

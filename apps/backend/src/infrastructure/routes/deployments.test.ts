@@ -4,6 +4,8 @@ import { deploymentsRouter } from './deployments.js';
 import { mountRouter, TEST_USER, type Harness } from '../../platform/routes/test-harness.js';
 import { CapacityError } from '../lib/cluster-capacity.js';
 
+vi.mock('../lib/huggingface.js', () => ({ getHfModelSize: async () => ({ totalBytes: 20e9 }) }));
+
 const ANY_STATUS = { validateStatus: () => true };
 
 let h: Harness | undefined;
@@ -25,7 +27,7 @@ const services = () => ({
   },
   clusterService: { getById: vi.fn(async () => ({ id: 'c1', name: 'dev' })) },
   appExposureService: { expose: vi.fn(async () => ({ url: 'https://x' })), unexpose: vi.fn(async () => undefined) },
-  infraService: { runKubectl: vi.fn(async () => ''), runCommand: vi.fn(async () => '') },
+  infraService: { runKubectl: vi.fn(async () => ''), runCommand: vi.fn(async (): Promise<{ stdout: string; logFile: string }> => ({ stdout: '', logFile: 'x.log' })) },
   temporalBridge: {
     deployApp: vi.fn(async () => ({ id: 'w1', resourceId: 'd1' })),
     destroyApp: vi.fn(async () => ({ id: 'w2' })),
@@ -122,6 +124,32 @@ describe('the four routes that lived 3,900 lines away', () => {
     expect(await reached(axios.patch(h.url('/api/deployments/d1/storage'), { size: '10Gi' }, ANY_STATUS))).toBe(true);
     expect(await reached(axios.get(h.url('/api/deployments/d1/resource-plan'), ANY_STATUS))).toBe(true);
     expect(await reached(axios.patch(h.url('/api/deployments/d1/config'), { replicas: 1 }, ANY_STATUS))).toBe(true);
+  });
+});
+
+describe('a TabbyAPI deployment\'s resource plan', () => {
+  const tabby = () => {
+    const svc = services();
+    svc.appService.getById = vi.fn(async () => deployment({ appType: 'tabbyapi', tabbyModel: 'org/model' }));
+    return svc;
+  };
+
+  it('budgets against the smallest node\'s memory, read from the cluster', async () => {
+    const svc = tabby();
+    svc.infraService.runCommand = vi.fn(async () => ({ stdout: '4Gi 64Gi', logFile: 'plan.log' }));
+    await mount(svc);
+    const res = await axios.get<{ applicable: boolean; refusal?: string }>(h!.url('/api/deployments/d1/resource-plan'));
+    expect(res.data.applicable).toBe(true);
+    expect(res.data.refusal).toMatch(/allocatable/);
+  });
+
+  it('plans without a budget when the nodes\' memory cannot be read, and says nothing is refused', async () => {
+    const svc = tabby();
+    svc.infraService.runCommand = vi.fn(async () => { throw new Error('the cluster did not answer'); });
+    await mount(svc);
+    const res = await axios.get<{ applicable: boolean; refusal?: string }>(h!.url('/api/deployments/d1/resource-plan'));
+    expect(res.data.applicable).toBe(true);
+    expect(res.data.refusal).toBeUndefined();
   });
 });
 
