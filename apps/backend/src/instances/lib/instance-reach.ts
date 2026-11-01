@@ -1,6 +1,9 @@
+export interface CaddyAddress { host: string; port: number }
+
 export interface ReachSettings {
   open: boolean;
   domain?: string | undefined;
+  ownCaddy?: CaddyAddress | undefined;
 }
 
 export interface ReachedInstance {
@@ -10,8 +13,25 @@ export interface ReachedInstance {
 
 export type Reach = 'open' | 'mesh' | 'assigned' | 'public';
 
-export const reachSettingsFrom = (env: Readonly<Record<string, string | undefined>>, lab: boolean): ReachSettings =>
-  ({ open: env.NODE_ENV !== 'production' || lab, domain: env.INGRESS_DOMAIN?.trim() || undefined });
+export function caddyAddressOf(text: string): CaddyAddress | undefined {
+  const found = /^\[?([^\]]+?)\]?:(\d{1,5})$/.exec(text.trim());
+  return found ? { host: found[1]!, port: Number(found[2]) } : undefined;
+}
+
+export function reachSettingsFrom(env: Readonly<Record<string, string | undefined>>, lab: boolean): ReachSettings {
+  const domain = env.INGRESS_DOMAIN?.trim() || undefined;
+  const ownCaddy = domain ? caddyAddressOf(env.CADDY_TLS_ADDRESS || '127.0.0.1:443') : undefined;
+  return { open: env.NODE_ENV !== 'production' || lab, domain, ...(ownCaddy ? { ownCaddy } : {}) };
+}
+
+export interface ThroughCaddy extends CaddyAddress { servername: string }
+
+export function throughOwnCaddy(url: URL, settings: ReachSettings): ThroughCaddy | undefined {
+  if (url.protocol !== 'https:' || !settings.domain || !settings.ownCaddy) return undefined;
+  const host = url.hostname.toLowerCase();
+  const domain = settings.domain.toLowerCase();
+  return host === domain || host.endsWith(`.${domain}`) ? { ...settings.ownCaddy, servername: host } : undefined;
+}
 
 export function instanceOrigin(raw: unknown): { origin: URL } | { problem: string } {
   let url: URL;

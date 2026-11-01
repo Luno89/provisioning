@@ -245,8 +245,14 @@ export class RootProvider {
         if (sent.ok) await this.store.instances.logoutDelivered(delivery.id);
         else await this.store.instances.logoutFailed(delivery.id, `answered ${sent.status}`, new Date(this.now()).toISOString());
       } catch (err) {
-        await this.store.instances.logoutFailed(delivery.id, (err as Error).message, new Date(this.now()).toISOString());
+        await this.store.instances.logoutFailed(delivery.id, failureOf(err), new Date(this.now()).toISOString());
       }
     }
   }
+}
+
+function failureOf(err: unknown): string {
+  const failure = err as Error & { cause?: { code?: string; message?: string } };
+  const cause = failure.cause?.code ?? failure.cause?.message;
+  return cause ? `${failure.message}: ${cause}` : failure.message;
 }

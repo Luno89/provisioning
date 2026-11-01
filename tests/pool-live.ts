@@ -214,7 +214,7 @@ async function main(): Promise<void> {
     '-v', '/var/run/docker.sock:/var/run/docker.sock', '-e', `PORT=${ROOT_PORT}`,
     '-v', `${caddyAdmin}:/run/koala-caddy`, '-v', `${caddyLog}:/var/log/koala-caddy:ro`,
     '-v', `${join(REPO, 'Caddyfile')}:/etc/koala/Caddyfile:ro`, '-e', 'CADDY_CONFIG=/etc/koala/Caddyfile',
-    '-e', 'CADDY_ADMIN_SOCKET=/run/koala-caddy/admin.sock', '-e', 'CADDY_LOG=/var/log/koala-caddy/caddy.log', '-e', `CADDY_TLS_ADDRESS=127.0.0.1:${TLS_PORT}`, IMAGE, 'backend']);
+    '-e', 'CADDY_ADMIN_SOCKET=/run/koala-caddy/admin.sock', '-e', 'CADDY_LOG=/var/log/koala-caddy/caddy.log', '-e', `CADDY_TLS_ADDRESS=127.0.0.1:${TLS_PORT}`, '-v', `${join(work, 'ca.crt')}:/etc/koala/lab-ca.crt:ro`, '-e', 'NODE_EXTRA_CA_CERTS=/etc/koala/lab-ca.crt', IMAGE, 'backend']);
   run('docker', ['run', '-d', '--name', CONTAINERS.worker, ...rootEnv, '-v', `${kubeconfigPath}:/pool/kubeconfig.yaml:ro`, ...workerEnv(ROOT), IMAGE, 'worker-host']);
   await until('root answering', async () => ((await fetch(`${ROOT_FOR_HOST}/api/identity/keys`)).ok ? true : undefined));
   const owner = await firstAdmin(ROOT_FOR_HOST, ROOT);

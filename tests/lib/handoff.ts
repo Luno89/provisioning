@@ -68,10 +68,15 @@ async function legacyHandOff(root: Side, target: Side, go: Hop): Promise<Handoff
   return { exchange: await target('/api/auth/handoff', { method: 'POST', body: { token: boundToken }, cookie: nonceCookie }), token: boundToken, location: bound.location, nonceCookie };
 }
 
-export async function handOff(root: Side, target: Side, first = '/api/identity/go'): Promise<Handoff> {
+export type SignInWay = 'oidc' | 'either';
+
+export async function handOff(root: Side, target: Side, first = '/api/identity/go', via: SignInWay = 'oidc'): Promise<Handoff> {
   const go = await root(first);
   assert.equal(go.status, 302, `root did not send the person on: ${go.status} ${go.body}`);
-  if (/\/#\/handoff\?token=/.test(go.location)) return legacyHandOff(root, target, go);
+  if (/\/#\/handoff\?token=/.test(go.location)) {
+    assert.equal(via, 'either', `root fell back to the old handoff (${go.location.split('?')[0]}), so it could not ask the instance how it signs in, or the instance named no key: the OpenID sign-in this suite tests never ran`);
+    return legacyHandOff(root, target, go);
+  }
 
   return followSignIn(root, target, new URL(go.location), go.location);
 }

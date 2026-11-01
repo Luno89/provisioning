@@ -8,7 +8,7 @@ import { createDisposableVm, findFreePort, type DisposableVm } from './lib/dispo
 import { buildAppImage } from './lib/gate-runs.js';
 import { UPGRADE_WORDS } from '../apps/backend/src/instances/lib/self-upgrade.js';
 import { UPDATE_COPIES, endsWith, failedUpgradeReports, imageTagOf, inFlightRefusal, unsignedRefusal, labDnsmasq, labHostsLine, noted, revisionRunning, STAND_IN_REF, unhostable, upgradeReports, type Report } from './lib/release-lab.js';
-import { handOff, sessionFrom, type Side, signedInLanding } from './lib/handoff.js';
+import { handOff, sessionFrom, type Side, type SignInWay, signedInLanding } from './lib/handoff.js';
 
 const REPO = resolve(new URL('.', import.meta.url).pathname, '..');
 const PREVIOUS_REF = process.env.RELEASE_LIVE_PREVIOUS ?? 'v2026.10.23';
@@ -281,14 +281,14 @@ async function main(): Promise<void> {
   const registry = (await sh(instance, `sudo kubectl -n ${NAMESPACE} get deploy instance-backend -o jsonpath='{.spec.template.spec.containers[0].image}'`)).trim().replace(/@sha256:[0-9a-f]+$/, '').replace(/:[^:/]+$/, '');
   note(`the instance pulls ${registry} over the mesh`);
 
-  const handoff = async (): Promise<string> => {
+  const handoff = async (via: SignInWay): Promise<string> => {
     const atRoot: Side = (path, init = {}) => httpsSide(`app.${DOMAIN}`)(path, { ...init, cookie: [rootCookie, init.cookie].filter(Boolean).join('; ') });
-    const { exchange, location } = await handOff(atRoot, httpsSide(instanceHost));
+    const { exchange, location } = await handOff(atRoot, httpsSide(instanceHost), '/api/identity/go', via);
     assert.ok(location.startsWith(`https://${instanceHost}/`), `root sent the owner to ${location}`);
     assert.ok(signedInLanding(exchange), `the instance did not sign the owner in: ${exchange.status} ${exchange.body.slice(0, 300)}`);
     return (sessionFrom(exchange.setCookies) ?? '');
   };
-  let cookie = await handoff();
+  let cookie = await handoff('either');
   const onInstance = (path: string, init: { method?: string; body?: unknown } = {}) => https(instanceHost, path, { ...init, cookie });
   note('signing in at root lands on the instance');
 
@@ -460,7 +460,7 @@ async function main(): Promise<void> {
   assert.ok(upgraded.ended.includes('Complete'), `the upgrade job did not complete: ${upgraded.ended}`);
   assert.ok(endsWith(upgraded.trail, upgradeReports(previousTag, candidateTag)), 'root did not hear installing then ready');
   await allOn(candidateTag);
-  cookie = await handoff();
+  cookie = await handoff('oidc');
   await appAnswers();
   repositoryWorks(`upgraded to ${candidateTag}`);
   await sandboxedRun('release-live-upgraded');
@@ -505,7 +505,7 @@ async function main(): Promise<void> {
   assert.equal(https(instanceHost, '/api/auth/sign-in').status, 200, 'the instance stopped answering at its address after the failed upgrade');
   assert.equal(mine().status, 'failed');
   assert.ok(mine().detail?.startsWith(`${UPGRADE_WORDS.rolledBack(nothing, candidateTag)}: `), `root shows ${mine().detail}`);
-  cookie = await handoff();
+  cookie = await handoff('oidc');
   await appAnswers();
   note(`after the failed upgrade: root shows it failed and rolled back, and sign-in through root, the handoff and the app's address still work`);
   const helmHistory = await helm('history instance');
@@ -541,7 +541,7 @@ async function main(): Promise<void> {
   assert.ok(rolledBack.ended.includes('Complete'), `the check-in after the rollback did not complete: ${rolledBack.ended}`);
   assert.deepEqual(rolledBack.trail[rolledBack.trail.length - 1], { status: 'ready', detail: `Running ${previousTag}` });
   await allOn(previousTag);
-  cookie = await handoff();
+  cookie = await handoff('either');
   const pulled = updatesNow().releases.find((row) => row.imageTag === candidateTag);
   assert.ok(pulled?.withdrawn && !pulled.choosable, `root did not withdraw ${candidateTag} when it rolled back: ${JSON.stringify(pulled)}`);
   note(`root withdrew ${candidateTag} (${pulled.withdrawn.by}), so the instance on automatic updates followed it down and is not offered it`);

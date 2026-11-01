@@ -128,7 +128,7 @@ describe('bringing a user\'s own machine in as their instance', () => {
 
   it('takes a public address only once it resolves to public addresses, and any address in a lab or on a dev box', async () => {
     const publicProblem = async (url: string) => (url.includes('rebound') ? 'rebound.example resolves to 10.0.0.1 is a private, loopback, mesh or reserved address' : undefined);
-    const strict = new InstanceService(db, { ...settings, reach: new InstanceReach({ open: false, domain: 'koala.dev' }, { open: fetch, public: fetch, publicProblem }) }, mesh, () => now);
+    const strict = new InstanceService(db, { ...settings, reach: new InstanceReach({ open: false, domain: 'koala.dev' }, { open: fetch, public: fetch, publicProblem, viaCaddy: async () => { throw new Error('nothing here goes through root\'s Caddy'); } }) }, mesh, () => now);
     const lab = new InstanceService(db, { ...settings, reach: new InstanceReach({ open: true, domain: 'koala.dev' }) }, mesh, () => now);
     const { token } = await tokenFor('u1');
     const joined = await service.join(token, 'm');

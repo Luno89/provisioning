@@ -67,6 +67,16 @@ export function forgetMeshUser(ownerId: string): void {
   } catch { /* never joined */ }
 }
 
+export async function logoutDeliveries(root: SuiteRoot): Promise<Array<{ url: string; attempts: number; lastError?: string }>> {
+  const client = new MongoClient(root.mongoUri);
+  try {
+    await client.connect();
+    return (await client.db(root.database).collection('logoutDeliveries').find({}).toArray()).map((doc) => ({ url: String(doc.url), attempts: Number(doc.attempts ?? 0), ...(doc.lastError ? { lastError: String(doc.lastError) } : {}) }));
+  } finally {
+    await client.close();
+  }
+}
+
 export async function dropSuiteDatabase(root: SuiteRoot): Promise<void> {
   if (!root.database.startsWith('koala_')) throw new Error(`${root.database} is not a suite's database`);
   const client = new MongoClient(root.mongoUri);

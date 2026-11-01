@@ -78,6 +78,9 @@ if [ -n "$POOL_ELSEWHERE" ] && [ "$POOL_ELSEWHERE" != "/tmp/kubeconfig-provision
   fi
 fi
 
+LAB_TRUST=""
+[ -f /usr/local/share/ca-certificates/koala-lab.crt ] && LAB_TRUST="Environment=NODE_EXTRA_CA_CERTS=/usr/local/share/ca-certificates/koala-lab.crt"
+
 cat > /etc/systemd/system/nowrinkles.service <<UNIT
 [Unit]
 Description=No Wrinkles platform: the backend
@@ -100,6 +103,7 @@ Environment=POOL_KUBECONFIG=${BACKEND_POOL}
 Environment=GIT_CONFIG_COUNT=1
 Environment=GIT_CONFIG_KEY_0=safe.directory
 Environment=GIT_CONFIG_VALUE_0=${REPO_DIR}
+${LAB_TRUST}
 StateDirectory=koala
 UMask=0077
 NoNewPrivileges=yes
@@ -141,6 +145,7 @@ ExecStart=/usr/bin/npx concurrently --kill-others "npm run start:worker -w apps/
 Restart=always
 RestartSec=10
 Environment=NODE_ENV=production
+${LAB_TRUST}
 
 [Install]
 WantedBy=multi-user.target

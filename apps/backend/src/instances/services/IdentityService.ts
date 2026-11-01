@@ -24,7 +24,8 @@ export class IdentityService {
         ? await this.signInAnswer(url)
         : await (await this.reach.fetchFor(instance)(`${url}/api/auth/sign-in`)).json();
       return startsSignInItself(answer);
-    } catch {
+    } catch (err) {
+      console.warn(`[identity] ${instance.name ?? instance.id} could not be asked at ${url} how it signs people in (${(err as Error).message}); it is sent the old handoff instead`);
       return undefined;
     }
   }

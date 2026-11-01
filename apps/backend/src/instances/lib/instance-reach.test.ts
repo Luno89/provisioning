@@ -7,7 +7,7 @@ const at = (raw: string): URL => new URL(raw);
 describe('how root reaches an instance', () => {
   it('calls anything outside production, and in a lab', () => {
     expect(reachSettingsFrom({}, false)).toEqual({ open: true, domain: undefined });
-    expect(reachSettingsFrom({ NODE_ENV: 'production', INGRESS_DOMAIN: 'nowrinkles.app' }, false)).toEqual(strict);
+    expect(reachSettingsFrom({ NODE_ENV: 'production', INGRESS_DOMAIN: 'nowrinkles.app' }, false)).toEqual({ ...strict, ownCaddy: { host: '127.0.0.1', port: 443 } });
     expect(reachSettingsFrom({ NODE_ENV: 'production' }, true).open).toBe(true);
     expect(reachOf(at('http://127.0.0.1:3001'), {}, { open: true })).toBe('open');
   });

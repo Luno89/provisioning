@@ -10,7 +10,7 @@ import { loadKeys } from '../apps/backend/src/platform/lib/keys.js';
 import { sessionToken } from '../apps/backend/src/platform/lib/auth.js';
 import { devDataMounts, devTemporalCa } from './lib/dev-temporal.js';
 import { fetchSide, handOff, signedInLanding, type Side } from './lib/handoff.js';
-import { dropSuiteDatabase, firstAdmin, forgetMeshUser, suiteRoot, workerEnv } from './lib/suite-root.js';
+import { dropSuiteDatabase, firstAdmin, forgetMeshUser, logoutDeliveries, suiteRoot, workerEnv } from './lib/suite-root.js';
 
 const REPO = resolve(new URL('.', import.meta.url).pathname, '..');
 dotenv.config({ path: join(REPO, 'apps/backend/.env') });
@@ -170,7 +170,7 @@ async function main(): Promise<void> {
     '-e', `INGRESS_DOMAIN=${DOMAIN}`, '-e', `APP_DOMAIN=app.${ROOT_DOMAIN}`, '-e', `MESH_DOMAIN=mesh.${ROOT_DOMAIN}`,
     '-v', `${caddyAdmin}:/run/koala-caddy`, '-v', `${caddyLog}:/var/log/koala-caddy:ro`,
     '-v', `${join(REPO, 'Caddyfile')}:/etc/koala/Caddyfile:ro`, '-e', 'CADDY_CONFIG=/etc/koala/Caddyfile',
-    '-e', 'CADDY_ADMIN_SOCKET=/run/koala-caddy/admin.sock', '-e', 'CADDY_LOG=/var/log/koala-caddy/caddy.log', '-e', `CADDY_TLS_ADDRESS=127.0.0.1:${TLS_PORT}`,
+    '-e', 'CADDY_ADMIN_SOCKET=/run/koala-caddy/admin.sock', '-e', 'CADDY_LOG=/var/log/koala-caddy/caddy.log', '-e', `CADDY_TLS_ADDRESS=127.0.0.1:${TLS_PORT}`, '-v', `${join(work, 'ca.crt')}:/etc/koala/lab-ca.crt:ro`, '-e', 'NODE_EXTRA_CA_CERTS=/etc/koala/lab-ca.crt',
     '-e', 'MESH_LOGIN_SERVER=http://10.0.2.2:8080', '-e', 'INSTANCE_REGISTRY=10.0.2.2:5001', '-e', `INSTANCE_IMAGE_TAG=${TAG}`, '-e', `MAIL_SMTP_URL=smtp://127.0.0.1:${MAILPIT_SMTP}`, '-e', `WATCH_UNREACHABLE_MINUTES=${WATCH_MINUTES}`, IMAGE, 'backend']);
   await until('root answering', async () => ((await fetch(`${ROOT_FOR_HOST}/api/identity/keys`)).ok ? true : undefined));
   run('docker', ['run', '-d', '--name', CONTAINERS.worker, '--network', 'host', '--env-file', 'apps/backend/.env', ...ROOT.env, ...devTemporalCa(),
@@ -350,7 +350,13 @@ async function main(): Promise<void> {
   assert.equal(https(`${NAME}.${DOMAIN}`, '/api/auth/me', { cookie }).status, 200, 'the instance session no longer worked before the sign-out');
   const ended = await asOwner('/api/auth/sessions/end-others', { method: 'POST', body: '{}' });
   assert.equal(ended.status, 200, `root did not sign the owner out everywhere: ${ended.status}`);
-  await until('the instance to hear from root that the owner signed out everywhere', async () => (https(`${NAME}.${DOMAIN}`, '/api/auth/me', { cookie }).status === 401 ? true : undefined));
+  await until('the instance to hear from root that the owner signed out everywhere', async () => {
+    if (https(`${NAME}.${DOMAIN}`, '/api/auth/me', { cookie }).status === 401) return true;
+    const failing = (await logoutDeliveries(ROOT)).find((delivery) => delivery.lastError);
+    if (failing && /CERT|certificate|ENOTFOUND|EAI_AGAIN/i.test(failing.lastError!)) throw new Hopeless(`root cannot tell the instance at ${failing.url}: ${failing.lastError}`);
+    if (failing) throw new Error(`root has tried ${failing.attempts} times to tell the instance at ${failing.url}: ${failing.lastError}`);
+    return undefined;
+  });
   console.log('  the instance refuses the session root revoked');
 
   console.log('\nrouting live — PASS');
