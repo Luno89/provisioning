@@ -23,7 +23,7 @@ describe('what a machine is given to read its instance\'s payloads', () => {
   });
 
   it('gives a machine what the instance stored only for a workflow it was handed a task of', async () => {
-    const { blobs, stored } = testPayloadBlobs();
+    const { blobs } = testPayloadBlobs();
     const payloads = machinePayloads({ ring: undefined, blobs });
     const OTHER = '1c2d3e4f-5a6b-4c7d-8e9f-0a1b2c3d4e5f';
     await blobs.put([
