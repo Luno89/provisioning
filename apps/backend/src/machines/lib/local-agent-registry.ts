@@ -218,5 +218,5 @@ export async function createContainerOnDevice(
 
 export async function destroyContainerOnDevice(deviceId: string, ownerId: string, leafId: string): Promise<void> {
   const conn = connectionFor(deviceId, ownerId);
-  await ask<unknown>(deviceId, conn, 'sandbox:destroyContainer', { leafId }).catch(() => undefined);
+  await ask<unknown>(deviceId, conn, 'sandbox:destroyContainer', { leafId });
 }

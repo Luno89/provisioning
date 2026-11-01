@@ -45,7 +45,10 @@ export class MachineRunWatch {
   }
 
   private async watch(deviceId: string, following: Following, runId: string): Promise<void> {
-    const now = await this.runs.life(runId, following.ownerId).catch((): RunLife => 'running');
+    const now = await this.runs.life(runId, following.ownerId).catch((err: Error): RunLife => {
+      this.log(`${deviceId} named ${runId}, whose state could not be read, so Koala waits for it to close: ${err.message}`);
+      return 'running';
+    });
     const life = now === 'running' ? await this.runs.closed(runId, following.ownerId) : now;
     if (this.following.get(deviceId) !== following || !following.runs.has(runId)) return;
     following.runs.delete(runId);
