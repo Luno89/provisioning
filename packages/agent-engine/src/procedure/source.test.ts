@@ -25,11 +25,14 @@ describe('reading a procedure', () => {
   });
 
   it('refuses something that is not JSON, or not this format', () => {
-    expect(readProcedure('{ nope')).toMatchObject({ ok: false, problems: [{ message: expect.stringMatching(/^this is not valid JSON/) }] });
-    expect(readProcedure({ id: 'old', version: '1', initialStep: 'think', nodes: [] })).toMatchObject({
-      ok: false,
-      problems: [{ message: expect.stringMatching(/needs "schema": 2/) }],
-    });
+    const notJson = readProcedure('{ nope');
+    expect(notJson.ok).toBe(false);
+    expect(notJson.problems).toHaveLength(1);
+    expect(notJson.problems[0]?.message).toMatch(/^this is not valid JSON/);
+    const old = readProcedure({ id: 'old', version: '1', initialStep: 'think', nodes: [] });
+    expect(old.ok).toBe(false);
+    expect(old.problems).toHaveLength(1);
+    expect(old.problems[0]?.message).toMatch(/needs "schema": 2/);
   });
 
   it('checks what it reads, and names where each problem is', () => {

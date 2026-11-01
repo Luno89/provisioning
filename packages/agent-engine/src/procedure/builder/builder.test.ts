@@ -136,7 +136,8 @@ describe('reading builder code without running it', () => {
     const wrongSocket = refusal(source("  const turn = p.callModel('turn', { system: done.nothing })"));
     const wrongType = refusal(source("  const persona = p.persona('persona')\n  const turn = p.callModel('turn', { system: persona.persona })"));
 
-    expect(wrongExit).toMatchObject({ line: 6, message: expect.stringContaining('has no exit called "toolcall"') });
+    expect(wrongExit.line).toBe(6);
+    expect(wrongExit.message).toContain('has no exit called "toolcall"');
     expect(wrongSocket.message).toContain('Finish "done" has no output or method called "nothing"');
     expect(wrongType.message).toBe('"turn.system" takes text, but persona.persona gives persona');
   });

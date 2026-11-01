@@ -3,7 +3,6 @@ import crypto from 'crypto';
 const CREDENTIAL_SALT = 'ianthe-credential-encryption-v1';
 const KEY_LENGTH = 32;
 const IV_LENGTH = 16;
-const AUTH_TAG_LENGTH = 16;
 
 function deriveKey(masterSecret: string): Buffer {
   return crypto.scryptSync(masterSecret, CREDENTIAL_SALT, KEY_LENGTH);

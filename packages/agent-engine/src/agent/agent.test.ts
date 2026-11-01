@@ -9,8 +9,6 @@ import {
   visibleAgents,
   type AgentDefinition,
 } from './agent.js';
-import { capabilitiesOf } from '@koala/engine-core';
-import type { ToolContract } from '@koala/engine-core';
 
 const agent = (over: Partial<AgentDefinition> = {}): AgentDefinition => ({
   slug: 'planner',
@@ -28,11 +26,6 @@ const agent = (over: Partial<AgentDefinition> = {}): AgentDefinition => ({
   ...over,
 });
 
-const catalogue: ToolContract[] = [
-  { name: 'propose_work', description: 'Propose a unit of work', binding: 'platform' },
-  { name: 'search_web', description: 'Search the web', binding: 'network' },
-  { name: 'run_command', description: 'Run a shell command', binding: 'environment' },
-];
 
 describe('agent resolution', () => {
   const seeded = agent({ slug: 'research', name: 'Research (default)', ownerId: undefined });

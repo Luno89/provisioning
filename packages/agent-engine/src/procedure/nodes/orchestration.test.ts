@@ -1,5 +1,5 @@
-import { describe, it, expect, vi } from 'vitest';
-import { callNeedsAsking, createOrchestrationNodes, REFUSED_CALL, RUN_IN_WORKSPACE, type OrchestrationPorts } from './orchestration.js';
+import { describe, it, expect, vi, type Mock } from 'vitest';
+import { callNeedsAsking, createOrchestrationNodes, REFUSED_CALL, RUN_IN_WORKSPACE, type ExternalAgentRequest, type OrchestrationPorts } from './orchestration.js';
 import { approveToolCalls, callTool, runToolCalls } from './tools.js';
 import { askMachineAgent, delegate, externalAgent, fanOut, waitForPerson, whereItRuns } from './control.js';
 import type { BuiltInNode, NodeImplementation } from '../implementation.js';
@@ -22,14 +22,18 @@ const reply = (calls: { id: string; name: string; arguments: string }[]): ModelR
   id: 'turn#5', content: '', thinking: '', finishReason: 'tool_calls', toolCalls: calls,
 });
 
-function ports(over: Partial<OrchestrationPorts> = {}): OrchestrationPorts & { [K in keyof OrchestrationPorts]: ReturnType<typeof vi.fn> } {
-  return {
-    runTool: vi.fn(async ({ call }) => ({ ok: true, digest: `ran ${call.name}`, content: `output of ${call.name}` })),
-    runChild: vi.fn(async ({ agent, inputs }) => ({ runId: `child-${agent}`, agentId: agent, outcome: 'ok', outputs: { echoed: inputs } })),
-    approve: vi.fn(async () => true),
-    ask: vi.fn(async () => ({ answered: true, value: 'go ahead' })),
-    ...over,
-  } as never;
+const requestsTo = <A>(mock: { mock: { calls: [A, ...unknown[]][] } }): A[] => mock.mock.calls.map(([request]) => request);
+
+type PortMocks = { [K in 'runTool' | 'runChild' | 'approve' | 'ask']: Mock<OrchestrationPorts[K]> };
+
+function ports(over: Partial<OrchestrationPorts> & Partial<PortMocks> = {}): OrchestrationPorts & PortMocks {
+  const mocks: PortMocks = {
+    runTool: vi.fn<OrchestrationPorts['runTool']>(async ({ call }) => ({ ok: true, digest: `ran ${call.name}`, content: `output of ${call.name}` })),
+    runChild: vi.fn<OrchestrationPorts['runChild']>(async ({ agent, inputs }) => ({ runId: `child-${agent}`, agentId: agent, outcome: 'ok', outputs: { echoed: inputs } })),
+    approve: vi.fn<OrchestrationPorts['approve']>(async () => true),
+    ask: vi.fn<OrchestrationPorts['ask']>(async () => ({ answered: true, value: 'go ahead' })),
+  };
+  return { ...mocks, ...over };
 }
 
 async function invoke(
@@ -166,7 +170,7 @@ describe('run tool calls', () => {
       },
     });
 
-    expect(p.runTool).toHaveBeenCalledWith(expect.objectContaining({ nodeId: 'here', call: expect.objectContaining({ id: 'a' }) }));
+    expect(requestsTo(p.runTool).find((request) => request.call.id === 'a')?.nodeId).toBe('here');
     expect(p.runChild).toHaveBeenCalledWith(expect.objectContaining({ agent: 'research', inputs: { question: 'why' } }));
     expect((outcome.outputs.results as ToolResult[]).map((r) => [r.callId, r.forReply, r.ok, r.content])).toEqual([
       ['a', 'turn#5', true, 'output of read_file'],
@@ -602,16 +606,12 @@ describe('an agent on a machine working on a workspace', () => {
     });
 
     expect(outcome.exit).toBe('finished');
-    expect(runExternal).toHaveBeenCalledWith(expect.objectContaining({
-      agent: 'antigravity', model: 'pro', workspace,
-      environment: expect.objectContaining({ kind: 'machine', deviceId: 'laptop' }),
-    }));
+    expect(requestsTo(runExternal)[0]).toMatchObject({ agent: 'antigravity', model: 'pro', workspace, environment: { kind: 'machine', deviceId: 'laptop' } });
     expect(served.map((tool) => tool.name)).toEqual(['search_memories', RUN_IN_WORKSPACE]);
-    expect(p.runTool).toHaveBeenCalledWith(expect.objectContaining({
-      call: { id: 'c1', name: 'run_command', arguments: '{"command":"odoo-check"}' },
-      persona: expect.objectContaining({ tools: ['read_file', 'run_command'] }),
-      environment: workspace,
-    }));
+    const ranAs = requestsTo(p.runTool).find((request) => request.call.id === 'c1');
+    expect(ranAs?.call).toEqual({ id: 'c1', name: 'run_command', arguments: '{"command":"odoo-check"}' });
+    expect(ranAs?.persona.tools).toEqual(['read_file', 'run_command']);
+    expect(ranAs?.environment).toEqual(workspace);
     expect(ran).toEqual({ ok: true, content: 'output of run_command' });
   });
 
@@ -625,14 +625,15 @@ describe('an agent on a machine working on a workspace', () => {
         calls: [{ callId: 'c6', name: 'research', args: '{"question":"port"}', ok: true, digest: 'Port 5000.', child: { runId: 'child-research', agentId: 'research', outcome: 'ok', steps } }],
       };
     });
-    const p = ports({ runExternal, runChild: vi.fn(async ({ agent }) => ({ runId: `child-${agent}`, agentId: agent, outcome: 'ok', outputs: { result: 'Port 5000.' }, steps })) } as never);
+    const p = ports({ runExternal, runChild: vi.fn<OrchestrationPorts['runChild']>(async ({ agent }) => ({ runId: `child-${agent}`, agentId: agent, outcome: 'ok', outputs: { result: 'Port 5000.' }, steps })) } as never);
     const outcome = await invoke(createOrchestrationNodes(p), externalAgent, {
       inputs: { brief: 'Find the port.', environment: workspace, persona: persona({ agents: ['research'] }), tools: [{ name: 'research', description: 'looks things up', binding: 'none' }] },
       run: onMachine,
     });
 
     expect(answered).toMatchObject({ ok: true, child: { runId: 'child-research', agentId: 'research', outcome: 'ok', steps } });
-    expect(outcome.outputs.results).toEqual([expect.objectContaining({ callId: 'c6', name: 'research', child: expect.objectContaining({ steps }) })]);
+    expect(outcome.outputs.results).toMatchObject([{ callId: 'c6', name: 'research', child: { steps } }]);
+    expect(outcome.outputs.results).toHaveLength(1);
   });
 
   it('runs the persona\'s served tools in the workspace too, as a model\'s call would', async () => {
@@ -645,7 +646,7 @@ describe('an agent on a machine working on a workspace', () => {
       inputs: { brief: 'Judge it.', environment: workspace, persona: persona({ tools: ['record_verdict'] }), tools: [{ name: 'record_verdict', description: 'records', binding: 'none' }] },
       run: onMachine,
     });
-    expect(p.runTool).toHaveBeenCalledWith(expect.objectContaining({ call: expect.objectContaining({ name: 'record_verdict' }), environment: workspace }));
+    expect(requestsTo(p.runTool).find((request) => request.call.name === 'record_verdict')?.environment).toEqual(workspace);
   });
 
   it('lets the agent work in its own folder when the run\'s sandbox keeps no repository, running Koala\'s tools in the sandbox and offering no run_in_workspace', async () => {
@@ -664,9 +665,10 @@ describe('an agent on a machine working on a workspace', () => {
 
     expect(served.map((tool) => tool.name)).toEqual(['search_web']);
     expect(runExternal.mock.calls[0]).not.toHaveProperty('0.workspace');
-    expect(runExternal).toHaveBeenCalledWith(expect.objectContaining({ environment: expect.objectContaining({ kind: 'machine', deviceId: 'laptop' }) }));
+    expect(requestsTo(runExternal)[0]).toMatchObject({ environment: { kind: 'machine', deviceId: 'laptop' } });
     expect(p.runTool).toHaveBeenCalledTimes(1);
-    expect(p.runTool).toHaveBeenCalledWith(expect.objectContaining({ call: expect.objectContaining({ name: 'search_web' }), environment: ownSandbox }));
+    expect(requestsTo(p.runTool)[0]?.call.name).toBe('search_web');
+    expect(requestsTo(p.runTool)[0]?.environment).toEqual(ownSandbox);
   });
 
   it('puts an agent with no environment at all on the run\'s machine, and runs Koala\'s tools with no environment, as it does for a bare machine', async () => {
@@ -679,8 +681,10 @@ describe('an agent on a machine working on a workspace', () => {
       const runExternal = vi.fn(callOnce);
       const p = ports({ runExternal } as never);
       await invoke(createOrchestrationNodes(p), externalAgent, { inputs: { brief: 'Look.', environment, persona: persona({ tools: ['search_memories'] }), tools }, run: onMachine });
-      expect(runExternal).toHaveBeenCalledWith(expect.objectContaining({ environment: expect.objectContaining({ kind: 'machine', deviceId: 'laptop' }) }));
-      expect(p.runTool).toHaveBeenCalledWith(expect.objectContaining({ call: expect.objectContaining({ name: 'search_memories' }), environment: undefined }));
+      expect(requestsTo(runExternal)[0]).toMatchObject({ environment: { kind: 'machine', deviceId: 'laptop' } });
+      const searched = requestsTo(p.runTool).find((request) => request.call.name === 'search_memories');
+      expect(searched).toBeDefined();
+      expect(searched?.environment).toBeUndefined();
     }
   });
 
@@ -692,16 +696,13 @@ describe('an agent on a machine working on a workspace', () => {
   });
 
   it('asks the machine\'s agent a yes-or-no question in a session of its own, and leaves by its answer', async () => {
-    const runExternal = vi.fn(async () => ({ outcome: 'finished' as const, stopReason: 'end_turn', text: 'Yes. The verdict accepts the work.', identity, sessionId: 's' }));
+    const runExternal = vi.fn(async (_request: ExternalAgentRequest) => ({ outcome: 'finished' as const, stopReason: 'end_turn', text: 'Yes. The verdict accepts the work.', identity, sessionId: 's' }));
     const outcome = await invoke(createOrchestrationNodes(ports({ runExternal } as never)), askMachineAgent, {
       settings: { question: 'Does this verdict say the work is done?' }, inputs: { text: { verdict: 'pass' } }, run: onMachine,
     });
     expect(outcome).toMatchObject({ exit: 'yes', outputs: { decision: 'yes', why: 'Yes. The verdict accepts the work.' } });
-    expect(runExternal).toHaveBeenCalledWith(expect.objectContaining({
-      agent: 'antigravity', model: 'pro',
-      brief: expect.stringContaining('Question: Does this verdict say the work is done?\n\nText:\n{\n  "verdict": "pass"\n}'),
-      environment: expect.objectContaining({ kind: 'machine', deviceId: 'laptop' }),
-    }));
+    expect(requestsTo(runExternal)[0]).toMatchObject({ agent: 'antigravity', model: 'pro', environment: { kind: 'machine', deviceId: 'laptop' } });
+    expect(requestsTo(runExternal)[0]?.brief).toContain('Question: Does this verdict say the work is done?\n\nText:\n{\n  "verdict": "pass"\n}');
     expect(runExternal.mock.calls[0]).not.toHaveProperty('0.tools');
 
     const died = ports({ runExternal: vi.fn(async () => ({ outcome: 'failed' as const, text: '', reason: 'the laptop is off' })) } as never);

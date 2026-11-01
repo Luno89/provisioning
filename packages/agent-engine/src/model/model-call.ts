@@ -1,4 +1,5 @@
 import type { ModelKind, SamplingConfig } from '@koala/harness-types';
+import { ignore } from '@koala/engine-core/failures';
 import { buildModelRequest } from './model-request.js';
 import { pause, rateLimitedFetch } from './model-rate-limiter.js';
 import { patientFetch } from './patient-fetch.js';
@@ -63,7 +64,7 @@ async function* readChunks(body: unknown): AsyncGenerator<string> {
         if (value) yield decoder.decode(value, { stream: true });
       }
     } finally {
-      reader.cancel().catch(() => {});
+      reader.cancel().catch(ignore('the stream is read to its end or left; cancelling only lets the connection go'));
     }
     return;
   }
@@ -187,7 +188,7 @@ async function serverAnswers(endpoint: EngineEndpoint, fetchImpl: typeof fetch, 
     await pause(wait, signal);
     try {
       const answer = await fetchImpl(`${endpoint.baseUrl}/models`, { headers, ...(signal ? { signal } : {}) });
-      await answer.body?.cancel().catch(() => {});
+      await answer.body?.cancel().catch(ignore('only the status is asked for; cancelling the body only lets the connection go'));
       if (answer.status < 500) return;
     } catch (err) {
       if (signal?.aborted) await pause(0, signal);
@@ -204,7 +205,7 @@ async function askOnce(
   const response = await send();
 
   if (!response.ok) {
-    const detail = await response.text().catch(() => '');
+    const detail = await response.text().catch(ignore('the status already says the call failed, and the body only adds detail when it can be read'));
     throw new ModelCallError(
       `Model call failed (HTTP ${response.status})${detail ? `: ${detail.slice(0, 400)}` : ''}`,
       response.status,
