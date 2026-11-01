@@ -114,3 +114,4 @@ packages/cdktf-infra/lib/*.js
 
 .ci-tools/
 /sbom.cdx.json
+/tests/.coupling/

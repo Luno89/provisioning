@@ -4,8 +4,8 @@ export default defineConfig({
   test: {
     globals: true,
     environment: 'node',
-    include: ['src/**/*.test.ts', '../../tests/lib/*.test.ts'],
+    include: ['src/**/*.test.ts', '../../tests/lib/*.test.ts', '../../tests/coupling/*.test.ts'],
     globalSetup: ['./vitest.global-setup.ts'],
-    setupFiles: ['./vitest.setup.ts'],
+    setupFiles: ['./vitest.setup.ts', '../../tests/coupling/vitest-setup.ts'],
   },
 });

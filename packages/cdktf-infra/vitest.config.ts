@@ -14,5 +14,5 @@ const sourceOverBuilt: Plugin = {
 
 export default defineConfig({
   plugins: [sourceOverBuilt],
-  test: { include: ["**/*.test.ts"], exclude: ["node_modules/**", ".gen/**", "cdktf.out/**"] },
+  test: { include: ["**/*.test.ts"], exclude: ["node_modules/**", ".gen/**", "cdktf.out/**"], setupFiles: ["../../tests/coupling/vitest-setup.ts"] },
 });
