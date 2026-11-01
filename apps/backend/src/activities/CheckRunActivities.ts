@@ -821,8 +821,9 @@ export function createCheckRunActivities(deps: CheckRunDeps): CheckRunActivities
       const observeFlow = async (expect: ScenarioExpectations, requestsBefore: number, ran?: Awaited<ReturnType<typeof chat>>): Promise<ObservedFlow> => {
         const flow: ObservedFlow = {};
         if (expect.modelSaw) {
-          const requests = ((await http.get('/checks/model-requests')).data as { requests: { text: string }[] }).requests;
-          flow.modelRequests = requests.slice(requestsBefore).map((request) => request.text);
+          const requests = ((await http.get('/checks/model-requests')).data as { requests: { text: string; rule?: number; miss?: string }[] }).requests.slice(requestsBefore);
+          flow.modelRequests = requests.map((request) => request.text);
+          flow.modelAnswers = requests.map((request) => (request.rule !== undefined ? `rule ${request.rule + 1}` : 'no rule'));
         }
         if (expect.compacted !== undefined) {
           flow.compacted = Boolean(ran?.events.some((event) => event.type === 'notice' && (event.message ?? '').startsWith('the conversation was summarised')));

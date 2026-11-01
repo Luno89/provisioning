@@ -31,6 +31,7 @@ export interface ObservedFlow {
   build?: { status: string; held?: string | undefined } | undefined;
   notices?: string[] | undefined;
   modelRequests?: string[] | undefined;
+  modelAnswers?: string[] | undefined;
   compacted?: boolean | undefined;
   summary?: { through: number } | undefined;
   kept?: { interrupted: boolean; chars: number; loggedChars: number; prefix: boolean } | undefined;
@@ -218,7 +219,8 @@ export async function scoreScenario(expect: ScenarioExpectations, observed: Obse
   const flow = observed.flow ?? {};
   if (expect.modelSaw) {
     const requests = flow.modelRequests ?? [];
-    const seen = `the model was sent ${requests.length} request${requests.length === 1 ? '' : 's'}`;
+    const answered = flow.modelAnswers?.length ? ` (answered by ${flow.modelAnswers.join(', ')})` : '';
+    const seen = `the model was sent ${requests.length} request${requests.length === 1 ? '' : 's'}${answered}`;
     if (expect.modelSaw.anyRequest) {
       const carrying = (text: string) => requests.filter((request) => request.includes(text)).length;
       for (const text of expect.modelSaw.contains ?? []) add(`some request to the model carries "${text}"`, carrying(text) > 0, `${seen}; ${carrying(text)} carried it`);

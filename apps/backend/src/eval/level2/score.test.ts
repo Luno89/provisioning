@@ -200,6 +200,13 @@ describe('checks on the plumbing a flow goes through', () => {
     expect(checks).toHaveLength(12);
   });
 
+  it('says which rule of the script answered each request when it finds what the last one lacked', async () => {
+    const flow = { modelRequests: ['count slowly', 'leave_handover_note they signed out everywhere', 'count slowly'], modelAnswers: ['rule 3', 'rule 1', 'rule 3'] };
+    expect(await scoreScenario({ modelSaw: { contains: ['leave_handover_note'] } }, observed({ flow }), { tools })).toEqual([
+      { what: 'the model is sent "leave_handover_note"', passed: false, detail: 'the model was sent 3 requests (answered by rule 3, rule 1, rule 3); the last one did not have it' },
+    ]);
+  });
+
   it('can look for what any request carried, not only the last', async () => {
     const flow = { modelRequests: ['the planner: THE PLATFORM DOES THESE', 'Koala: the plan is on the card'] };
     const any = await scoreScenario({ modelSaw: { anyRequest: true, contains: ['THE PLATFORM DOES THESE'], lacks: ['secret'] } }, observed({ flow }), { tools });
