@@ -1,7 +1,7 @@
 import * as fs from "fs";
 import { Construct } from "constructs";
 import { Namespace } from "../.gen/providers/kubernetes/namespace/index.js";
-import { Deployment } from "../.gen/providers/kubernetes/deployment/index.js";
+import { Deployment, type DeploymentSpecTemplateSpec, type DeploymentSpecTemplateSpecContainer, type DeploymentSpecTemplateSpecVolume } from "../.gen/providers/kubernetes/deployment/index.js";
 import { Service } from "../.gen/providers/kubernetes/service/index.js";
 import { secretEnv } from "../lib/app-secret.js";
 import { Manifest } from "../.gen/providers/kubernetes/manifest/index.js";
@@ -64,7 +64,7 @@ export class VllmApp extends Construct {
       : `vllm/vllm-openai:${imageTag}`;
 
     const gpuResourceKey = gpuVendor === 'amd' ? 'amd.com/gpu' : 'nvidia.com/gpu';
-    const gpuResources = (gpuCount > 0 && device !== 'cpu') ? { [gpuResourceKey]: gpuCount } : {};
+    const gpuResources = (gpuCount > 0 && device !== 'cpu') ? { [gpuResourceKey]: String(gpuCount) } : {};
 
     const extraArgs = config.extraArgs || [];
     const servedModelName = config.servedModelName || (isPreDownloaded ? modelName : undefined);
@@ -95,7 +95,7 @@ export class VllmApp extends Construct {
 
     const sanitizedName = namespaceName.toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
 
-    const containerSpec: any = {
+    const containerSpec: DeploymentSpecTemplateSpecContainer = {
       name: "vllm",
       image: imageName,
       command: ["/bin/sh", "-c"],
@@ -145,7 +145,7 @@ export class VllmApp extends Construct {
       startupProbe: {
         httpGet: {
           path: "/health",
-          port: 8000,
+          port: "8000",
         },
         initialDelaySeconds: 10,
         timeoutSeconds: 10,
@@ -155,7 +155,7 @@ export class VllmApp extends Construct {
       livenessProbe: {
         httpGet: {
           path: "/health",
-          port: 8000,
+          port: "8000",
         },
         timeoutSeconds: 30,
         periodSeconds: 15,
@@ -164,27 +164,26 @@ export class VllmApp extends Construct {
       readinessProbe: {
         httpGet: {
           path: "/health",
-          port: 8000,
+          port: "8000",
         },
         timeoutSeconds: 15,
         periodSeconds: 10,
         failureThreshold: 3,
       },
+      ...(gpuVendor === 'amd' ? {
+        securityContext: {
+          seccompProfile: {
+            type: "Unconfined",
+          },
+          runAsGroup: "44",
+          capabilities: {
+            add: ["SYS_PTRACE"],
+          },
+        },
+      } : {}),
     };
 
-    if (gpuVendor === 'amd') {
-      containerSpec.securityContext = {
-        seccompProfile: {
-          type: "Unconfined",
-        },
-        runAsGroup: 44,
-        capabilities: {
-          add: ["SYS_PTRACE"],
-        },
-      };
-    }
-
-    const volumes: any[] = [
+    const volumes: DeploymentSpecTemplateSpecVolume[] = [
       {
         name: "model-cache",
         hostPath: {
@@ -201,19 +200,12 @@ export class VllmApp extends Construct {
       },
     ];
 
-    const podSpec: any = {
+    const podSpec: DeploymentSpecTemplateSpec = {
       container: [containerSpec],
       volume: volumes,
+      ...(gpuVendor === 'nvidia' && gpuCount > 0 && device !== 'cpu' ? { runtimeClassName: "nvidia" } : {}),
+      ...(gpuVendor === 'amd' ? { hostNetwork: true, hostIpc: true } : {}),
     };
-
-    if (gpuVendor === 'nvidia' && gpuCount > 0 && device !== 'cpu') {
-      podSpec.runtimeClassName = "nvidia";
-    }
-
-    if (gpuVendor === 'amd') {
-      podSpec.hostNetwork = true;
-      podSpec.hostIPC = true;
-    }
 
     new Deployment(this, "vllm-deployment", {
       metadata: {

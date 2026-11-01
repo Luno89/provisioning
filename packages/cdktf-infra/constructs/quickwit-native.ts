@@ -1,6 +1,6 @@
 import { Construct } from "constructs";
 import { Namespace } from "../.gen/providers/kubernetes/namespace/index.js";
-import { Deployment } from "../.gen/providers/kubernetes/deployment/index.js";
+import { Deployment, type DeploymentSpecTemplateSpec } from "../.gen/providers/kubernetes/deployment/index.js";
 import { Service } from "../.gen/providers/kubernetes/service/index.js";
 import { Secret } from "../.gen/providers/kubernetes/secret/index.js";
 import { type VpnConfig, VpnService } from "../lib/vpn-service.js";
@@ -71,7 +71,7 @@ export class QuickwitNativeApp extends Construct {
       type: "Opaque",
     });
 
-    const podSpec: any = {
+    const podSpec: DeploymentSpecTemplateSpec = {
       /**
        * The bucket has to exist before Quickwit looks for its metastore in it.
        *

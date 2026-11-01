@@ -1,7 +1,7 @@
 import { Construct } from "constructs";
 import { Namespace } from "../.gen/providers/kubernetes/namespace/index.js";
 import { secretEnv, type SecretEnvEntry } from "../lib/app-secret.js";
-import { Deployment } from "../.gen/providers/kubernetes/deployment/index.js";
+import { Deployment, type DeploymentSpecTemplateSpec, type DeploymentSpecTemplateSpecContainer, type DeploymentSpecTemplateSpecVolume } from "../.gen/providers/kubernetes/deployment/index.js";
 import { Service } from "../.gen/providers/kubernetes/service/index.js";
 import { createAppIngress } from "../lib/app-ingress.js";
 import { createAppProbe } from "../lib/app-probe.js";
@@ -95,7 +95,7 @@ export class TabbyApiApp extends Construct {
     const imageTag = isValidImageTag(config.imageTag) ? config.imageTag : 'latest';
     const imageName = `ghcr.io/theroyallab/tabbyapi:${imageTag}`;
 
-    const gpuResources = gpuCount > 0 ? { 'nvidia.com/gpu': gpuCount } : {};
+    const gpuResources = gpuCount > 0 ? { 'nvidia.com/gpu': String(gpuCount) } : {};
 
     // EXL2/EXL3 quants are frequently distributed as multiple bpw (bits-per-weight) branches of
     // the SAME repo rather than separate repos, so the cache folder name has to fold in the
@@ -200,7 +200,7 @@ export class TabbyApiApp extends Construct {
     // image. Non-fatal on failure — a model that's pure full_attention doesn't need this at all.
     const pythonDevInstallCmd = `(apt-get update -qq && apt-get install -y -qq python3-dev >/dev/null 2>&1) || echo "WARNING: could not install python3-dev — Triton/fla kernels will fall back to CPU, which is severe for hybrid linear-attention models" >&2`;
 
-    const containerSpec: any = {
+    const containerSpec: DeploymentSpecTemplateSpecContainer = {
       name: "tabbyapi",
       image: imageName,
       command: ["/bin/sh", "-c"],
@@ -244,7 +244,7 @@ export class TabbyApiApp extends Construct {
       startupProbe: {
         httpGet: {
           path: "/health",
-          port: 5000,
+          port: "5000",
         },
         initialDelaySeconds: 10,
         timeoutSeconds: 10,
@@ -262,9 +262,9 @@ export class TabbyApiApp extends Construct {
       // for — so /health shares the same event loop as generation and can't be made to respond
       // instantly while a request is in flight; that's not something fixable from the K8s side.
       livenessProbe: {
-        tcpSocket: {
-          port: 5000,
-        },
+        tcpSocket: [{
+          port: "5000",
+        }],
         timeoutSeconds: 10,
         periodSeconds: 15,
         failureThreshold: 4,
@@ -275,7 +275,7 @@ export class TabbyApiApp extends Construct {
       readinessProbe: {
         httpGet: {
           path: "/health",
-          port: 5000,
+          port: "5000",
         },
         timeoutSeconds: 15,
         periodSeconds: 10,
@@ -283,7 +283,7 @@ export class TabbyApiApp extends Construct {
       },
     };
 
-    const volumes: any[] = [
+    const volumes: DeploymentSpecTemplateSpecVolume[] = [
       {
         name: "model-cache",
         hostPath: {
@@ -300,15 +300,11 @@ export class TabbyApiApp extends Construct {
       },
     ];
 
-    const podSpec: any = {
+    const podSpec: DeploymentSpecTemplateSpec = {
       container: [containerSpec],
       volume: volumes,
+      ...(gpuCount > 0 ? { runtimeClassName: "nvidia" } : {}),
     };
-
-    // Same RuntimeClass wiring as vllm.ts — see InfrastructureService.installGpuDevicePlugin.
-    if (gpuCount > 0) {
-      podSpec.runtimeClassName = "nvidia";
-    }
 
     new Deployment(this, "tabbyapi-deployment", {
       metadata: {

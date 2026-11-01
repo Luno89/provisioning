@@ -1,5 +1,5 @@
 import { Construct } from "constructs";
-import { Release } from "../.gen/providers/helm/release/index.js";
+import { Release, type ReleaseSet } from "../.gen/providers/helm/release/index.js";
 import { Namespace } from "../.gen/providers/kubernetes/namespace/index.js";
 
 export interface TemporalConfig {
@@ -20,7 +20,7 @@ export class TemporalApp extends Construct {
     });
 
     const enableBackend = config.enableBackend !== false;
-    const helmValues: any[] = [
+    const helmValues: ReleaseSet[] = [
       { name: "enableBackend", value: String(enableBackend) },
     ];
 

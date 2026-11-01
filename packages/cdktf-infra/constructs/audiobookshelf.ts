@@ -1,5 +1,5 @@
 import { Construct } from "constructs";
-import { Release } from "../.gen/providers/helm/release/index.js";
+import { Release, type ReleaseSet } from "../.gen/providers/helm/release/index.js";
 import { Namespace } from "../.gen/providers/kubernetes/namespace/index.js";
 import { createAppIngress } from "../lib/app-ingress.js";
 import { createAppProbe } from "../lib/app-probe.js";
@@ -28,7 +28,7 @@ export class AudiobookshelfApp extends Construct {
 
     const serviceType = config.serviceType || defaultServiceType();
 
-    const helmValues: any[] = [
+    const helmValues: ReleaseSet[] = [
       { name: "service.type", value: serviceType },
       { name: "image.repository", value: config.webRepo || "ghcr.io/advplyr/audiobookshelf" },
       { name: "image.tag", value: config.webTag || "latest" }

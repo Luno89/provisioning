@@ -1,5 +1,5 @@
 import { Construct } from "constructs";
-import { Release } from "../.gen/providers/helm/release/index.js";
+import { Release, type ReleaseSet } from "../.gen/providers/helm/release/index.js";
 import { Namespace } from "../.gen/providers/kubernetes/namespace/index.js";
 import { defaultServiceType } from "../lib/service-type.js";
 
@@ -24,7 +24,7 @@ export class PrometheusApp extends Construct {
 
     const serviceType = config.serviceType || defaultServiceType();
 
-    const helmValues: any[] = [
+    const helmValues: ReleaseSet[] = [
       { name: "grafana.enabled", value: "true" },
       { name: "prometheus.prometheusSpec.service.type", value: serviceType }
     ];

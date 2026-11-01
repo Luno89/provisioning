@@ -1,5 +1,5 @@
 import { Construct } from "constructs";
-import { Release } from "../.gen/providers/helm/release/index.js";
+import { Release, type ReleaseSet } from "../.gen/providers/helm/release/index.js";
 import { Namespace } from "../.gen/providers/kubernetes/namespace/index.js";
 import { createAppIngress } from "../lib/app-ingress.js";
 import { createAppProbe } from "../lib/app-probe.js";
@@ -49,9 +49,9 @@ export class NextcloudApp extends Construct {
 
     const serviceType = config.serviceType || defaultServiceType();
 
-    const helmValues: any[] = [
+    const helmValues: ReleaseSet[] = [
       { name: "service.type", value: serviceType },
-      { name: "global.security.allowInsecureImages", value: true },
+      { name: "global.security.allowInsecureImages", value: "true" },
       
       // Nextcloud Web Image
       { name: "image.registry", value: web.registry },

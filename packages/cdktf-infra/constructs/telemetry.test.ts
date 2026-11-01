@@ -50,7 +50,7 @@ describe("Koala's own dashboards", () => {
         expect(panel.targets.length).toBeGreaterThan(0);
         for (const target of panel.targets) expect(target.expr, panel.title).toMatch(/koala_|temporal_/);
       }
-      expect(() => JSON.parse(JSON.stringify(built))).not.toThrow();
+      expect(() => { JSON.parse(JSON.stringify(built)); }).not.toThrow();
     }
   });
 });

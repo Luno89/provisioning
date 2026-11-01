@@ -6,6 +6,7 @@ import { PersistentVolumeClaim } from "../.gen/providers/kubernetes/persistent-v
 import { createAppIngress } from "../lib/app-ingress.js";
 import { createAppProbe } from "../lib/app-probe.js";
 import { defaultServiceType } from "../lib/service-type.js";
+import { bindingsFrom, jsonFrom } from "../lib/env-json.js";
 
 // A sibling project's image comes from a CI pipeline run (RunPipelineActivity), not a
 // hand-picked public registry tag — so unlike every other app construct here, there's no
@@ -33,19 +34,7 @@ export class GitappApp extends Construct {
      * a build-order dependency for no gain — and the decision of WHAT to mount belongs where it can
      * be unit-tested. Absent means no bindings, which is every app that declares no dependencies.
      */
-    const binding: {
-      volumes: any[];
-      volumeMounts: any[];
-      env: { name: string; value: string }[];
-    } = (() => {
-      const raw = process.env.BINDINGS_JSON;
-      if (!raw) return { volumes: [], volumeMounts: [], env: [] };
-      try {
-        return JSON.parse(raw);
-      } catch (err) {
-        throw new Error(`BINDINGS_JSON is not valid JSON: ${(err as Error).message}`);
-      }
-    })();
+    const binding = process.env.BINDINGS_JSON ? bindingsFrom(jsonFrom("BINDINGS_JSON", process.env.BINDINGS_JSON)) : { volumes: [], volumeMounts: [], env: [] };
 
     const containerPort = config.containerPort || 8080;
     const serviceType = config.serviceType || defaultServiceType();

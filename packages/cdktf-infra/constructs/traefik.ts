@@ -38,7 +38,11 @@ export class TraefikApp extends Construct {
     // to satisfy it.
     const serviceType = config.serviceType || defaultServiceType();
 
-    const configValues: any = {
+    const image = {
+      ...(config.webRepo ? { repository: config.webRepo } : {}),
+      ...(config.webTag ? { tag: config.webTag } : {}),
+    };
+    const configValues = {
       service: {
         spec: {
           type: serviceType
@@ -54,17 +58,9 @@ export class TraefikApp extends Construct {
         websecure: {
           port: 18443
         }
-      }
+      },
+      ...(config.webRepo || config.webTag ? { image } : {}),
     };
-
-    if (config.webRepo) {
-      configValues.image = configValues.image || {};
-      configValues.image.repository = config.webRepo;
-    }
-    if (config.webTag) {
-      configValues.image = configValues.image || {};
-      configValues.image.tag = config.webTag;
-    }
 
     new Release(this, "traefik-release", {
       name: "traefik",
