@@ -1,4 +1,5 @@
 import type { ExtendedCompactionConfig } from '../config.js';
+import { toolArgs } from '../observations/tool-args.js';
 
 export interface GenericMessage {
   role?: string | undefined;
@@ -91,10 +92,7 @@ export function extractContinuityState(
 
     for (const call of calls) {
       const name = (call.name || '').toLowerCase();
-      let argsObj: Record<string, unknown> = {};
-      try {
-        if (call.args) argsObj = typeof call.args === 'string' ? JSON.parse(call.args) : call.args;
-      } catch { /* ignored */ }
+      const argsObj = toolArgs(call.args);
 
       const targetPath = String(argsObj.path || argsObj.TargetFile || argsObj.file || '');
       if (targetPath) {
