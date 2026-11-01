@@ -5,10 +5,12 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { healthFromProbe, describeProbeFailure } from './service-health.js';
 
+const containing = (text: string): unknown => expect.stringContaining(text);
+
 describe('what a probe implies', () => {
   it('marks a service that does not answer', () => {
     expect(healthFromProbe({ unreachable: 'HTTP 404 from initialize: {"error":"Not found"}', tools: 0 }))
-      .toEqual({ reason: expect.stringContaining('HTTP 404 from initialize') });
+      .toEqual({ reason: containing('HTTP 404 from initialize') });
   });
 
   it('marks a service that answers and offers nothing', () => {

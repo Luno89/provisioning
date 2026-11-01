@@ -2,6 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { namespaceOf, newAppNamespace, sameOwner, deployRequestFrom, MADE_BY_KOALA_APP_TYPES, platformNamespaceProblem, podLogTarget } from './app-namespace.js';
 import { ODOO_PROJECT_APP } from '../../releases/lib/odoo-release.js';
 
+const containing = (text: string): unknown => expect.stringContaining(text);
+const matching = (pattern: RegExp): unknown => expect.stringMatching(pattern);
+
 describe('an app\'s namespace', () => {
   it('is the stored one, or the sanitized name for an app deployed before namespaces were stored', () => {
     expect(namespaceOf({ name: 'My Shop', namespace: 'my-shop-1a2b3c' })).toBe('my-shop-1a2b3c');
@@ -39,7 +42,7 @@ describe('a deploy someone asks for', () => {
 
   it('is never an app Koala makes from a project', () => {
     expect(deployRequestFrom({ name: 'x', appType: 'odoo-project' })).toEqual({ problem: 'a odoo-project app is made by Koala from its project, never deployed by hand' });
-    expect(deployRequestFrom({ name: 'x', appType: 'gitapp' })).toMatchObject({ problem: expect.stringContaining('gitapp') });
+    expect(deployRequestFrom({ name: 'x', appType: 'gitapp' })).toMatchObject({ problem: containing('gitapp') });
     expect(MADE_BY_KOALA_APP_TYPES.has(ODOO_PROJECT_APP)).toBe(true);
   });
 });
@@ -54,8 +57,8 @@ describe('destroying an app', () => {
 
 describe('a model server someone deploys', () => {
   it('keeps its cache in a folder of its own, never a path on the host', () => {
-    expect(deployRequestFrom({ name: 'llm', appType: 'vllm', vllmCachePvc: '/' })).toMatchObject({ problem: expect.stringMatching(/folder name/) });
-    expect(deployRequestFrom({ name: 'llm', appType: 'tabbyapi', tabbyCachePvc: '/etc' })).toMatchObject({ problem: expect.stringMatching(/folder name/) });
+    expect(deployRequestFrom({ name: 'llm', appType: 'vllm', vllmCachePvc: '/' })).toMatchObject({ problem: matching(/folder name/) });
+    expect(deployRequestFrom({ name: 'llm', appType: 'tabbyapi', tabbyCachePvc: '/etc' })).toMatchObject({ problem: matching(/folder name/) });
     expect(deployRequestFrom({ name: 'llm', appType: 'tabbyapi', tabbyCachePvc: 'my-models' })).toEqual({ request: { name: 'llm', appType: 'tabbyapi', tabbyCachePvc: 'my-models' } });
   });
 });

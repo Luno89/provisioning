@@ -6,6 +6,8 @@ import {
   redacted, rootDnsRecords, rootDomainProblem, setupCodeFrom, withoutOrderSecrets,
 } from './server-orders.js';
 
+const matching = (pattern: RegExp): unknown => expect.stringMatching(pattern);
+
 describe('signing an OVHcloud request', () => {
   it('signs "$1$" + SHA1 of secret, consumer key, method, URL, body and timestamp joined by "+"', () => {
     expect(ovhSignature({ applicationSecret: '7kbG7Bk7S9Nt7ZSV', consumerKey: 'MtU9VPMWg7syNG9JVuoJT33OF8' }, 'GET', 'https://eu.api.ovh.com/1.0/me', '', 1366560945))
@@ -140,7 +142,7 @@ describe('the domains root is reached at', () => {
     const wanted = rootDnsRecords('nowrinkles.dev', 'nowrinkles.app', '203.0.113.7').map((record) => record.wanted);
     const steps = zonePlan(wanted, [{ type: 'A', name: 'mesh.nowrinkles.dev', content: '203.0.113.7' }, { type: 'A', name: '*.nowrinkles.app', content: '198.51.100.1' }]);
     expect(steps.map((step) => step.do)).toEqual(['create', 'keep', 'refuse']);
-    expect(steps[2]).toMatchObject({ why: expect.stringMatching(/already points at 198.51.100.1/) });
+    expect(steps[2]).toMatchObject({ why: matching(/already points at 198.51.100.1/) });
   });
 
   it('wants two real domains under different registered domains', () => {

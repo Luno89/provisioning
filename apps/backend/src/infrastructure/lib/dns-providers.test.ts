@@ -5,6 +5,8 @@ import {
   dnsProviderNamed, providerForNameservers, rootDnsSettingsFrom,
 } from './dns-providers.js';
 
+const containing = (text: string): unknown => expect.stringContaining(text);
+
 const repoFile = (path: string): string => readFileSync(new URL(`../../../../../${path}`, import.meta.url), 'utf8');
 
 describe('the DNS provider registry', () => {
@@ -24,9 +26,9 @@ describe('who serves a zone, from its nameservers', () => {
   });
 
   it('refuses nameservers that are no provider Koala knows, or a mix, naming them', () => {
-    expect(providerForNameservers(['ns1.example.net'])).toEqual({ problem: expect.stringContaining('ns1.example.net') });
-    expect(providerForNameservers(['a.ns.cloudflare.com', 'b.ns.porkbun.com'])).toEqual({ problem: expect.stringContaining('a.ns.cloudflare.com, b.ns.porkbun.com') });
-    expect(providerForNameservers([])).toEqual({ problem: expect.stringContaining('no nameservers') });
+    expect(providerForNameservers(['ns1.example.net'])).toEqual({ problem: containing('ns1.example.net') });
+    expect(providerForNameservers(['a.ns.cloudflare.com', 'b.ns.porkbun.com'])).toEqual({ problem: containing('a.ns.cloudflare.com, b.ns.porkbun.com') });
+    expect(providerForNameservers([])).toEqual({ problem: containing('no nameservers') });
   });
 });
 
@@ -39,8 +41,8 @@ describe('root\'s certificate and DNS settings', () => {
 
   it('lets CERTIFICATES and a provider per zone say it, and refuses what it does not know', () => {
     expect(rootDnsSettingsFrom({ CERTIFICATES: 'acme', DOMAIN_DNS: 'cloudflare', INGRESS_DNS: 'porkbun', ROOT_TLS: 'cloudflare' })).toEqual({ certificates: 'acme', domainDns: 'cloudflare', ingressDns: 'porkbun' });
-    expect(rootDnsSettingsFrom({ CERTIFICATES: 'letsencrypt' })).toEqual({ problem: expect.stringContaining('acme') });
-    expect(rootDnsSettingsFrom({ INGRESS_DNS: 'route53' })).toEqual({ problem: expect.stringContaining('INGRESS_DNS is route53') });
+    expect(rootDnsSettingsFrom({ CERTIFICATES: 'letsencrypt' })).toEqual({ problem: containing('acme') });
+    expect(rootDnsSettingsFrom({ INGRESS_DNS: 'route53' })).toEqual({ problem: containing('INGRESS_DNS is route53') });
   });
 });
 

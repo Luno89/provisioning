@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { SIGN_IN_PROVIDERS, signInEnvNames, type SignInProviderDescription } from '../../accounts/lib/sign-in-providers.js';
 import { missingFromEnvFile, rootSignInEnv, rootSignInProviders, signInSecretsOf } from './root-sign-in.js';
 
+const matching = (pattern: RegExp): unknown => expect.stringMatching(pattern);
+
 const GOOGLE = { id: 'google', values: { clientId: 'google-id.apps.googleusercontent.com', clientSecret: 'google-fake-google-secret' } };
 const OWN = { id: 'oidc', values: { issuer: 'https://login.example.com/realms/staff', clientId: 'koala', clientSecret: 'own-secret-value', label: 'Example staff' } };
 
@@ -50,14 +52,14 @@ describe('the sign-in keys an order carries to root', () => {
   });
 
   it('refuses a half-given provider, a plain-http issuer, an unknown or repeated one, and a value .env cannot hold', () => {
-    expect(rootSignInEnv([{ id: 'google', values: { clientId: 'only-the-id' } }])).toEqual({ problem: expect.stringMatching(/Google sign-in is off: GOOGLE_CLIENT_SECRET is not set/) });
-    expect(rootSignInEnv([{ id: 'oidc', values: { ...OWN.values, issuer: 'http://login.example.com' } }])).toEqual({ problem: expect.stringMatching(/is not https/) });
-    expect(rootSignInEnv([{ id: 'myspace', values: {} }])).toEqual({ problem: expect.stringMatching(/no sign-in provider "myspace"/) });
+    expect(rootSignInEnv([{ id: 'google', values: { clientId: 'only-the-id' } }])).toEqual({ problem: matching(/Google sign-in is off: GOOGLE_CLIENT_SECRET is not set/) });
+    expect(rootSignInEnv([{ id: 'oidc', values: { ...OWN.values, issuer: 'http://login.example.com' } }])).toEqual({ problem: matching(/is not https/) });
+    expect(rootSignInEnv([{ id: 'myspace', values: {} }])).toEqual({ problem: matching(/no sign-in provider "myspace"/) });
     expect(rootSignInEnv([GOOGLE, GOOGLE])).toEqual({ problem: 'Google is named twice.' });
-    expect(rootSignInEnv([{ id: 'google', values: { ...GOOGLE.values, clientSecret: "it's" } }])).toEqual({ problem: expect.stringMatching(/single quote/) });
-    expect(rootSignInEnv([{ id: 'google', values: { ...GOOGLE.values, clientSecret: 'a\nb' } }])).toEqual({ problem: expect.stringMatching(/line break/) });
-    expect(rootSignInEnv({ google: GOOGLE.values })).toEqual({ problem: expect.stringMatching(/as a list/) });
-    expect(rootSignInEnv([{ id: 'google', values: { clientId: 7, clientSecret: 'x' } }])).toEqual({ problem: expect.stringMatching(/not text/) });
+    expect(rootSignInEnv([{ id: 'google', values: { ...GOOGLE.values, clientSecret: "it's" } }])).toEqual({ problem: matching(/single quote/) });
+    expect(rootSignInEnv([{ id: 'google', values: { ...GOOGLE.values, clientSecret: 'a\nb' } }])).toEqual({ problem: matching(/line break/) });
+    expect(rootSignInEnv({ google: GOOGLE.values })).toEqual({ problem: matching(/as a list/) });
+    expect(rootSignInEnv([{ id: 'google', values: { clientId: 7, clientSecret: 'x' } }])).toEqual({ problem: matching(/not text/) });
   });
 
   it('names the values the order\'s log hides, and what root\'s .env lacks', () => {

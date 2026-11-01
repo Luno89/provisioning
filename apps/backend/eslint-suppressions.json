@@ -1183,60 +1183,6 @@
       "count": 2
     }
   },
-  "src/infrastructure/lib/app-namespace.test.ts": {
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 3
-    }
-  },
-  "src/infrastructure/lib/app-spec.test.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 19
-    },
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 8
-    },
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 39
-    }
-  },
-  "src/infrastructure/lib/dns-plan.test.ts": {
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 1
-    }
-  },
-  "src/infrastructure/lib/dns-providers.test.ts": {
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 5
-    }
-  },
-  "src/infrastructure/lib/kube-diagnostics.test.ts": {
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 4
-    }
-  },
-  "src/infrastructure/lib/kubeconfig-clean.test.ts": {
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 1
-    },
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 3
-    }
-  },
-  "src/infrastructure/lib/root-sign-in.test.ts": {
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 7
-    }
-  },
-  "src/infrastructure/lib/server-orders.test.ts": {
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 1
-    }
-  },
-  "src/infrastructure/lib/service-health.test.ts": {
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 1
-    }
-  },
   "src/infrastructure/services/AppDeploy.ts": {
     "@typescript-eslint/no-explicit-any": {
       "count": 1
