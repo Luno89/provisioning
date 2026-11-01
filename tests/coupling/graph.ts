@@ -24,6 +24,8 @@ export interface Edge {
 
 export interface Unresolved { from: string; site: Site; text: string; why: string }
 
+export interface ExtraEnd { unit: { file: string; line: number; name: string }; kind: ChannelEnd['kind']; name: string; side: ChannelEnd['side'] }
+
 export interface Unmatched { kind: ChannelEnd['kind']; name: string; side: ChannelEnd['side']; site: Site }
 
 export interface Graph {
@@ -49,6 +51,7 @@ export interface GraphOptions {
   root: string;
   calledFrom: (file: string) => boolean;
   matches?: Partial<Record<ChannelEnd['kind'], (sent: string, heard: string) => boolean>>;
+  extraEnds?: readonly ExtraEnd[];
 }
 
 const TEST_FOLDER = /(^|\/)(tests?|testing|__tests__)\//;
@@ -278,6 +281,11 @@ export function buildGraph(options: GraphOptions): Graph {
       };
       visit(source);
     }
+  }
+  for (const extra of options.extraEnds ?? []) {
+    const id = `${extra.unit.file}:${extra.unit.line}:1`;
+    units[id] ??= { id, file: extra.unit.file, name: extra.unit.name, line: extra.unit.line, column: 1, start: 0, end: 0, inTest: false };
+    ends.push({ kind: extra.kind, name: extra.name, side: extra.side, from: id, site: { file: extra.unit.file, line: extra.unit.line, column: 1, start: 0, end: 0 } });
   }
   const unmatched: Unmatched[] = [];
   const byKind = new Map<string, typeof ends>();

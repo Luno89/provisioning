@@ -1,6 +1,7 @@
 import { join } from 'node:path';
 import type { CrossProcess, Project } from './graph.js';
 import { httpChannels, httpMatches } from './http-routes.js';
+import { shellEnds, shellScripts } from './shell-edges.js';
 import { socketChannels } from './socket-edges.js';
 import { temporalWorld } from './temporal-edges.js';
 
@@ -53,3 +54,5 @@ export function areaOf(file: string): string {
   if (parts[0] === 'apps' || parts[0] === 'packages') return parts.slice(0, 2).join('/');
   return parts[0] ?? file;
 }
+
+export const scriptEnds = (root: string) => shellScripts(root, 'scripts').flatMap((file) => shellEnds(root, file));
