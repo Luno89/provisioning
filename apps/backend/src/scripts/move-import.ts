@@ -14,6 +14,9 @@ import { SYSTEM_CLUSTER } from '../monitoring/index.js';
 import { InfrastructureService } from '../infrastructure/index.js';
 import { GiteaService } from '../projects/index.js';
 import { loadKeys, mongoTarget } from '../platform/index.js';
+import { ignore } from '@koala/engine-core/failures';
+import { waitingOn } from '../activities/failure-reasons.js';
+import type { ReadableStream as WebReadableStream } from 'stream/web';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = path.join(__dirname, '../../data');
@@ -27,7 +30,7 @@ const headers = { 'x-instance-id': instanceId, authorization: `Bearer ${credenti
 async function report(status: 'installing' | 'failed', detail: string): Promise<void> {
   await fetch(`${rootUrl}/api/instances/status`, {
     method: 'POST', headers: { ...headers, 'content-type': 'application/json' }, body: JSON.stringify({ status, detail }),
-  }).catch(() => undefined);
+  }).catch((err: Error) => console.warn(`  root could not be told "${status}: ${detail}": ${err.message}`));
 }
 
 async function part(name: MovePart | string, saying?: string): Promise<Readable> {
@@ -42,12 +45,12 @@ async function part(name: MovePart | string, saying?: string): Promise<Readable>
     response = await fetch(`${rootUrl}/api/instances/move/parts/${encodeURIComponent(name)}`, { headers });
   }
   if (!response.ok || !response.body) {
-    const said = await response.text().catch(() => '');
+    const said = await response.text().catch((err: Error) => `its answer could not be read: ${err.message}`);
     let reason = said;
-    try { reason = (JSON.parse(said) as { error?: string }).error ?? said; } catch { /* plain text */ }
+    try { reason = (JSON.parse(said) as { error?: string }).error ?? said; } catch (err) { ignore('an answer that is not JSON is its own reason')(err); }
     throw new Error(`Koala's servers would not give ${name} (${response.status}): ${reason}`);
   }
-  return Readable.fromWeb(response.body as never);
+  return Readable.fromWeb(response.body as WebReadableStream<Uint8Array>);
 }
 
 function run(args: string[], input?: Readable): Promise<string> {
@@ -68,9 +71,10 @@ function run(args: string[], input?: Readable): Promise<string> {
 
 const kubectl = (args: string[], input?: Readable) => run(['kubectl', ...args], input);
 
-async function untilTrue(probe: () => Promise<boolean>): Promise<void> {
+async function untilTrue(what: string, probe: () => Promise<boolean>): Promise<void> {
+  const waiting = waitingOn(what);
   for (;;) {
-    if (await probe().catch(() => false)) return;
+    if (await probe().catch((err: unknown) => { waiting(err); return false; })) return;
     await new Promise((resolve) => setTimeout(resolve, 3000));
   }
 }
@@ -79,9 +83,9 @@ async function restoreMongo(): Promise<void> {
   const target = mongoTarget(process.env);
   const client = new MongoClient(target.uri);
   for (;;) {
-    const connected = await client.connect().then(() => true, () => false);
-    if (connected) break;
-    console.log('  waiting for this machine\'s Mongo');
+    const unreachable = await client.connect().then(() => undefined, (err: Error) => err.message);
+    if (unreachable === undefined) break;
+    console.log(`  waiting for this machine's Mongo: ${unreachable}`);
     await new Promise((resolve) => setTimeout(resolve, 3000));
   }
   try {
@@ -94,14 +98,14 @@ async function restoreMongo(): Promise<void> {
 
 async function restorePostgres(name: 'gitea-db' | 'infisical-db'): Promise<void> {
   const place = MOVED_POSTGRES[name];
-  await untilTrue(async () => (await kubectl(['get', 'pod', place.pod, '-n', place.namespace, '-o', 'jsonpath={.status.containerStatuses[0].ready}'])).trim() === 'true');
+  await untilTrue(`the pod ${place.pod} to be ready`, async () => (await kubectl(['get', 'pod', place.pod, '-n', place.namespace, '-o', 'jsonpath={.status.containerStatuses[0].ready}'])).trim() === 'true');
   await kubectl(['exec', '-i', '-n', place.namespace, place.pod, '--', 'sh', '-c', PG_RESTORE], await part(name));
 }
 
 async function restoreGiteaData(): Promise<void> {
   const { namespace, deployment, claim, path: mount } = GITEA_DATA;
   await kubectl(['scale', `deployment/${deployment}`, '-n', namespace, '--replicas=0']);
-  await untilTrue(async () => (await kubectl(['get', 'pods', '-n', namespace, '-l', 'app.kubernetes.io/name=gitea', '-o', 'name'])).trim() === '');
+  await untilTrue('Gitea\'s pods to stop', async () => (await kubectl(['get', 'pods', '-n', namespace, '-l', 'app.kubernetes.io/name=gitea', '-o', 'name'])).trim() === '');
   await restorePostgres('gitea-db');
   await kubectl(['delete', 'pod', HELPER, '-n', namespace, '--ignore-not-found', '--wait=true']);
   const overrides = {
@@ -123,7 +127,7 @@ async function restoreInfisical(): Promise<void> {
   const selector = users!;
   const replicas = (await kubectl(['get', 'deployment', '-n', namespace, '-l', selector, '-o', 'jsonpath={.items[*].spec.replicas}'])).trim().split(/\s+/).map(Number).find((count) => count > 0) ?? 1;
   await kubectl(['scale', 'deployment', '-n', namespace, '-l', selector, '--replicas=0']);
-  await untilTrue(async () => (await kubectl(['get', 'pods', '-n', namespace, '-l', selector, '-o', 'name'])).trim() === '');
+  await untilTrue(`the pods of ${selector} to stop`, async () => (await kubectl(['get', 'pods', '-n', namespace, '-l', selector, '-o', 'name'])).trim() === '');
   await restorePostgres('infisical-db');
   await kubectl(['scale', 'deployment', '-n', namespace, '-l', selector, `--replicas=${replicas}`]);
   await kubectl(['rollout', 'status', 'deployment', '-n', namespace, '-l', selector, '--timeout=720h']);

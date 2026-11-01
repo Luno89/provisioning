@@ -10,7 +10,10 @@ async function main(): Promise<void> {
   try {
     const before = await db.memory.getMemories();
     const ownerId = before[0]?.ownerId;
-    const ends = ownerId ? await corpusEndpoints(db, ownerId).catch(() => undefined) : undefined;
+    const ends = ownerId ? await corpusEndpoints(db, ownerId).catch((err: Error) => {
+      console.warn(`The corpus services could not be found, so similarity dedupe is off: ${err.message}`);
+      return undefined;
+    }) : undefined;
 
     console.log(`\n${apply ? 'APPLYING' : 'DRY RUN — nothing will be written'}`);
     console.log(`Bank: ${before.length} memories, ${before.filter((m) => !m.invalidAt).length} current.`);
@@ -27,14 +30,19 @@ async function main(): Promise<void> {
           },
         },
         projects: {
-          getLeaves: () => db.projects.getLeaves() as never,
+          getLeaves: () => db.projects.getLeaves(),
         },
       },
       ...(ends ? {
         ...(apply ? { index: (items: MemoryItem[]) => indexMemories(ends, items) } : {}),
         similar: async (ids: string[]) => {
           const out = new Map<string, { id: string; score: number }[]>();
-          for (const id of ids) out.set(id, await similarTo(ends, id, { ownerId: ownerId! }).catch(() => []));
+          for (const id of ids) {
+            out.set(id, await similarTo(ends, id, { ownerId: ownerId! }).catch((err: Error) => {
+              console.warn(`Memories like ${id} could not be found, so it is deduped by title only: ${err.message}`);
+              return [];
+            }));
+          }
           return out;
         },
       } : {}),
@@ -60,4 +68,4 @@ async function main(): Promise<void> {
   }
 }
 
-main().then(() => process.exit(0)).catch((err) => { console.error(err); process.exit(1); });
+main().then(() => process.exit(0)).catch((err: unknown) => { console.error(err); process.exit(1); });

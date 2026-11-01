@@ -81,7 +81,7 @@ export async function selfUpgrade(deps: SelfUpgradeDeps): Promise<boolean> {
   async function rollout(): Promise<{ state: 'done' } | { state: 'hopeless'; reason: string }> {
     let said = '';
     for (;;) {
-      const listed = JSON.parse(await deps.run('kubectl', ['get', 'deployments,statefulsets,replicasets,pods', '-n', namespace, '-l', `app.kubernetes.io/instance=${name}`, '-o', 'json']));
+      const listed: unknown = JSON.parse(await deps.run('kubectl', ['get', 'deployments,statefulsets,replicasets,pods', '-n', namespace, '-l', `app.kubernetes.io/instance=${name}`, '-o', 'json']));
       const now = rolloutOf(listed);
       if (now.state !== 'rolling') return now;
       if (now.waiting !== said) log(`waiting: ${now.waiting}`);
