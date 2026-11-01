@@ -54,6 +54,17 @@ export const requireAllowed = <R extends Resource>(action: Actions[R['kind']], r
   next();
 };
 
+interface SignedIn {
+  user: UserMetadata;
+  principal: Principal;
+  sessionId?: string | undefined;
+  clientSession?: ClientSession;
+}
+
+const signedIn = (req: express.Request, fields: SignedIn): void => {
+  Object.assign(req, fields);
+};
+
 export function principalFrom(req: express.Request): Principal {
   const principal = (req as { principal?: Principal }).principal;
   if (!principal) throw new Error(`${req.method} ${req.path} reached a route that needs a signed-in person without one`);
@@ -198,8 +209,7 @@ export function createAuth({ db, sessionKey, publicUrl, role = 'combined', insta
         emailVerified: true,
         createdAt: new Date().toISOString(),
       };
-      (req as any).user = mockUser;
-      (req as any).principal = principalFor(mockUser);
+      signedIn(req, { user: mockUser, principal: principalFor(mockUser) });
       return next();
     }
 
@@ -221,19 +231,14 @@ export function createAuth({ db, sessionKey, publicUrl, role = 'combined', insta
         clearSession(res);
         return res.status(401).json({ error: 'Unauthorized: Session invalid or expired' });
       }
-      (req as any).user = userOfSession(session);
-      (req as any).sessionId = session.sid;
-      (req as any).clientSession = session;
-      (req as any).principal = { kind: 'person', id: session.userId, claims: session.claims } satisfies Principal;
+      signedIn(req, { user: userOfSession(session), sessionId: session.sid, clientSession: session, principal: { kind: 'person', id: session.userId, claims: session.claims } });
       return next();
     }
     const user = await userFromSessionCookie(req.headers.cookie, secure);
     if (!user) {
       return res.status(401).json({ error: 'Unauthorized: Session invalid or expired' });
     }
-    (req as any).user = user;
-    (req as any).sessionId = ownSessionOf(getCookie(req, cookieNamed(SESSION_COOKIE, secure)))?.jti;
-    (req as any).principal = principalFor(user);
+    signedIn(req, { user, sessionId: ownSessionOf(getCookie(req, cookieNamed(SESSION_COOKIE, secure)))?.jti, principal: principalFor(user) });
     next();
   };
 

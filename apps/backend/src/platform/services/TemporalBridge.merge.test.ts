@@ -27,7 +27,7 @@ describe('TemporalBridge.updateConfigAndSync map merging', () => {
     } as DeploymentMetadata);
 
     bridge = new TemporalBridge(db);
-    vi.spyOn(bridge as any, 'syncConfig').mockResolvedValue({ id: 'wf', event: 'app-sync-config' });
+    vi.spyOn(bridge, 'syncConfig').mockResolvedValue({ id: 'wf', event: 'app-sync-config' });
   });
 
   it('merges a partial appSettings patch instead of replacing the map', async () => {

@@ -1,4 +1,4 @@
-import { Client, Connection, type WorkflowClientInterceptor } from '@temporalio/client'
+import { Client, Connection, type WorkflowClientInterceptor, type WorkflowExecutionDescription } from '@temporalio/client'
 import protos from '@temporalio/proto'
 import { traceWorkflowStarts } from '@koala/engine-core/telemetry'
 import { buildDataConverter } from './temporal-codec.js'
@@ -8,7 +8,7 @@ import { loadKeys } from './keys.js'
 import { temporalApiKey, temporalNamespaceFrom, temporalToken } from './temporal-auth.js'
 import { temporalTls } from './temporal-tls.js'
 
-const serverUrl = process.env.TEMPORAL_CONNECTION_ADDRESS || 'http://localhost:7233'
+const DEFAULT_ADDRESS = 'http://localhost:7233'
 
 function toConnectionAddress(address: string): string {
   return address.replace(/^https?:\/\//, '')
@@ -30,8 +30,8 @@ export const resolveOwnersWith = (resolver: OwnerResolver | undefined): void => 
   resolveOwner = resolver
 }
 
-async function owned<T extends { workflowType: string; options: { workflowId: string; typedSearchAttributes?: unknown } }>(input: T): Promise<T> {
-  const owner = ownerIn(input.options.typedSearchAttributes as never)
+async function owned<T extends { workflowType: string; options: { workflowId: string; typedSearchAttributes?: Parameters<typeof ownerIn>[0] } }>(input: T): Promise<T> {
+  const owner = ownerIn(input.options.typedSearchAttributes)
   if (!owner) throw new UnownedWorkflowError(input.workflowType, input.options.workflowId)
   const resolved = resolveOwner ? await resolveOwner(owner) : owner
   return resolved === owner ? input : { ...input, options: { ...input.options, ...startedFor(resolved) } }
@@ -80,12 +80,13 @@ export async function registerOwnerAttribute(connection: Connection, namespace: 
 
 export async function getTemporalClient(options?: TemporalClientOptions): Promise<Client> {
   if (shared) return shared
-  const address = options?.address ?? process.env.TEMPORAL_CONNECTION_ADDRESS ?? serverUrl
-  const namespace = options?.namespace ?? temporalNamespaceFrom(process.env)
-  const keys = loadKeys(process.env)
+  const env = process.env
+  const address = options?.address ?? (env.TEMPORAL_CONNECTION_ADDRESS || DEFAULT_ADDRESS)
+  const namespace = options?.namespace ?? temporalNamespaceFrom(env)
+  const keys = loadKeys(env)
   const connection = await Connection.connect({
     address: toConnectionAddress(address),
-    tls: temporalTls(process.env),
+    tls: temporalTls(env),
     apiKey: temporalApiKey(keys.temporal, { subject: 'koala-backend', namespace, role: 'write' }),
   })
   await registerOwnerAttribute(connection, namespace, temporalToken(keys.temporal, { subject: 'koala-backend', namespace, role: 'admin' }))
@@ -105,7 +106,7 @@ export async function ensureTemporalClient(): Promise<void> {
 export async function pollWorkflowRun(
   workflowId: string,
   _namespace: string = 'default',
-): Promise<any> {
+): Promise<WorkflowExecutionDescription> {
   const client = await getTemporalClient()
   const handle = client.workflow.getHandle(workflowId)
   return await handle.describe()

@@ -37,7 +37,7 @@
       "count": 1
     },
     "@typescript-eslint/no-unsafe-assignment": {
-      "count": 16
+      "count": 15
     },
     "@typescript-eslint/no-unsafe-member-access": {
       "count": 10
@@ -541,11 +541,6 @@
     }
   },
   "src/engine-host/tools/poisoning-watch.test.ts": {
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 1
-    }
-  },
-  "src/engine-host/tools/project-tools.ts": {
     "@typescript-eslint/no-unsafe-assignment": {
       "count": 1
     }
@@ -1915,16 +1910,16 @@
       "count": 1
     },
     "@typescript-eslint/no-unsafe-argument": {
-      "count": 26
+      "count": 25
     },
     "@typescript-eslint/no-unsafe-assignment": {
-      "count": 23
+      "count": 13
     },
     "@typescript-eslint/no-unsafe-call": {
-      "count": 2
+      "count": 1
     },
     "@typescript-eslint/no-unsafe-member-access": {
-      "count": 45
+      "count": 38
     },
     "no-empty": {
       "count": 1
@@ -2210,11 +2205,6 @@
     },
     "@typescript-eslint/no-unsafe-return": {
       "count": 1
-    }
-  },
-  "src/instances/services/RootSignIn.ts": {
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 3
     }
   },
   "src/instances/store.ts": {
@@ -2540,57 +2530,9 @@
       "count": 1
     }
   },
-  "src/platform/lib/auth.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 4
-    },
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 1
-    },
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 3
-    },
-    "@typescript-eslint/no-unsafe-return": {
-      "count": 1
-    }
-  },
-  "src/platform/lib/collection.ts": {
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 3
-    },
-    "@typescript-eslint/no-unsafe-call": {
-      "count": 1
-    },
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 2
-    }
-  },
   "src/platform/lib/db-interface.ts": {
     "no-restricted-syntax": {
       "count": 1
-    }
-  },
-  "src/platform/lib/mail-reputation.test.ts": {
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 4
-    }
-  },
-  "src/platform/lib/mail.test.ts": {
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 1
-    }
-  },
-  "src/platform/lib/merge-record.test.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 8
-    },
-    "@typescript-eslint/no-unsafe-argument": {
-      "count": 8
-    }
-  },
-  "src/platform/lib/mongo-db.ts": {
-    "no-restricted-syntax": {
-      "count": 2
     }
   },
   "src/platform/lib/mongo-payload-blobs.ts": {
@@ -2598,103 +2540,9 @@
       "count": 1
     }
   },
-  "src/platform/lib/stop-workflow.ts": {
-    "no-restricted-syntax": {
-      "count": 1
-    }
-  },
   "src/platform/lib/temporal-client.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 1
-    },
-    "no-restricted-syntax": {
-      "count": 5
-    }
-  },
-  "src/platform/lib/temporal-codec.test.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 5
-    },
-    "@typescript-eslint/no-unsafe-argument": {
-      "count": 7
-    },
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 9
-    },
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 7
-    }
-  },
-  "src/platform/lib/temporal-connection.ts": {
     "no-restricted-syntax": {
       "count": 1
-    }
-  },
-  "src/platform/lib/temporal-tls.ts": {
-    "no-restricted-syntax": {
-      "count": 3
-    }
-  },
-  "src/platform/lib/types.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 6
-    }
-  },
-  "src/platform/lib/workflow-owner.ts": {
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 1
-    },
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 4
-    },
-    "@typescript-eslint/no-unsafe-return": {
-      "count": 1
-    }
-  },
-  "src/platform/middleware/auth.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 9
-    },
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 9
-    }
-  },
-  "src/platform/middleware/socket-sign-in.test.ts": {
-    "@typescript-eslint/no-floating-promises": {
-      "count": 1
-    }
-  },
-  "src/platform/middleware/socket-sign-in.ts": {
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 4
-    }
-  },
-  "src/platform/routes/test-harness.test.ts": {
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 1
-    },
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 3
-    }
-  },
-  "src/platform/services/MailService.ts": {
-    "no-restricted-syntax": {
-      "count": 1
-    }
-  },
-  "src/platform/services/TemporalBridge.merge.test.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 1
-    }
-  },
-  "src/platform/services/TemporalBridge.promote.test.ts": {
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 1
-    }
-  },
-  "src/platform/services/public-fetch.ts": {
-    "no-restricted-syntax": {
-      "count": 2
     }
   },
   "src/projects/lib/binding-project.ts": {
@@ -3002,7 +2850,7 @@
       "count": 1
     },
     "@typescript-eslint/no-unsafe-return": {
-      "count": 4
+      "count": 3
     }
   },
   "src/releases/services/OdooReleaseService.ts": {

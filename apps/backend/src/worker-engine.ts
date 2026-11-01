@@ -574,7 +574,7 @@ async function main() {
 
   for (;;) {
     try {
-      const connection = await connectTemporalWorker(address, 'koala-worker-engine');
+      const connection = await connectTemporalWorker(address, 'koala-worker-engine', process.env);
       const dataConverter = buildDataConverter(keys.payload, sharedPayloadBlobs());
 
       const worker = await Worker.create({

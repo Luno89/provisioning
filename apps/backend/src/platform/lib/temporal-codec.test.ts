@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import type { Payload } from '@temporalio/common';
 import { EncryptionCodec, buildDataConverter } from './temporal-codec.js';
 import { CompressionCodec, OFFLOAD_ABOVE_BYTES } from './payload-storage.js';
 import { testPayloadBlobs } from './test-database.js';
@@ -7,32 +8,37 @@ const KEY = 'test-master-key-for-codec';
 const te = new TextEncoder();
 const td = new TextDecoder();
 
-type Loose = { encode(payloads: any[]): Promise<any[]>; decode(payloads: any[]): Promise<any[]> };
-const loose = (codec: Loose): Loose => codec;
+const only = async (payloads: Promise<Payload[]>): Promise<Payload> => {
+  const [payload] = await payloads;
+  if (!payload) throw new Error('the codec gave back no payload');
+  return payload;
+};
+const text = (bytes: Uint8Array | null | undefined): string => td.decode(bytes ?? undefined);
+const encodingOf = (payload: Payload): string => text(payload.metadata?.encoding);
 
-const plainPayload = (value: unknown) => ({
+const plainPayload = (value: unknown): Payload => ({
   metadata: { encoding: te.encode('json/plain') },
   data: te.encode(JSON.stringify(value)),
 });
 
 describe('EncryptionCodec', () => {
-  const codec = loose(new EncryptionCodec(KEY));
+  const codec = new EncryptionCodec(KEY);
 
   it('round-trips a payload', async () => {
     const original = plainPayload({ hcloudToken: 'super-secret', name: 'my-cluster' });
-    const [encoded] = await codec.encode([original]);
-    const [decoded] = await codec.decode([encoded]);
+    const encoded = await only(codec.encode([original]));
+    const decoded = await only(codec.decode([encoded]));
 
-    expect(td.decode(decoded.data)).toBe(td.decode(original.data));
-    expect(td.decode(decoded.metadata.encoding)).toBe('json/plain');
+    expect(text(decoded.data)).toBe(text(original.data));
+    expect(encodingOf(decoded)).toBe('json/plain');
   });
 
   it('leaves no plaintext in the encoded payload', async () => {
-    const [encoded] = await codec.encode([plainPayload({ hcloudToken: 'super-secret-token' })]);
-    const wire = td.decode(encoded.data);
+    const encoded = await only(codec.encode([plainPayload({ hcloudToken: 'super-secret-token' })]));
+    const wire = text(encoded.data);
     expect(wire).not.toContain('super-secret-token');
     expect(wire).not.toContain('hcloudToken');
-    expect(td.decode(encoded.metadata.encoding)).toBe('binary/encrypted-aes-256-gcm');
+    expect(encodingOf(encoded)).toBe('binary/encrypted-aes-256-gcm');
   });
 
   it('refuses a payload it did not seal, so nobody can hand a worker plaintext through Temporal', async () => {
@@ -47,26 +53,26 @@ describe('EncryptionCodec', () => {
   });
 
   it('handles a payload with no data', async () => {
-    const original = { metadata: { encoding: te.encode('binary/null') }, data: undefined };
-    const [encoded] = await codec.encode([original as any]);
-    const [decoded] = await codec.decode([encoded]);
-    expect(td.decode(decoded.metadata.encoding)).toBe('binary/null');
+    const original: Payload = { metadata: { encoding: te.encode('binary/null') } };
+    const encoded = await only(codec.encode([original]));
+    const decoded = await only(codec.decode([encoded]));
+    expect(encodingOf(decoded)).toBe('binary/null');
     expect(decoded.data).toBeUndefined();
   });
 
   it('fails loudly on a wrong key rather than returning garbage', async () => {
-    const [encoded] = await codec.encode([plainPayload({ a: 1 })]);
-    const other = loose(new EncryptionCodec('a-different-key'));
+    const encoded = await only(codec.encode([plainPayload({ a: 1 })]));
+    const other = new EncryptionCodec('a-different-key');
     await expect(other.decode([encoded])).rejects.toThrow(/written with a key this worker does not hold/);
   });
 
   it('reads history written under the old key while writing everything new under the current one', async () => {
-    const [old] = await loose(new EncryptionCodec('the-old-jwt-secret')).encode([plainPayload({ a: 1 })]);
-    const rotated = loose(new EncryptionCodec({ current: 'the-new-payload-key', previous: ['the-old-jwt-secret'] }));
+    const old = await only(new EncryptionCodec('the-old-jwt-secret').encode([plainPayload({ a: 1 })]));
+    const rotated = new EncryptionCodec({ current: 'the-new-payload-key', previous: ['the-old-jwt-secret'] });
 
-    const [decoded] = await rotated.decode([old]);
-    expect(JSON.parse(td.decode(decoded.data))).toEqual({ a: 1 });
-    const [fresh] = await rotated.encode([plainPayload({ b: 2 })]);
+    const decoded = await only(rotated.decode([old]));
+    expect(JSON.parse(text(decoded.data))).toEqual({ a: 1 });
+    const fresh = await only(rotated.encode([plainPayload({ b: 2 })]));
     await expect(new EncryptionCodec('the-old-jwt-secret').decode([fresh])).rejects.toThrow();
   });
 

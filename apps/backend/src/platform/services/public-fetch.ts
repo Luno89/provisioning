@@ -2,6 +2,7 @@ import dns from 'node:dns';
 import { isIP, type LookupFunction } from 'node:net';
 import { Agent } from 'undici';
 import { addressProblem } from '../lib/public-address.js';
+import { ignore } from '@koala/engine-core/failures';
 
 export class NotPublicError extends Error {
   constructor(why: string) {
@@ -38,7 +39,12 @@ export async function publicAddressProblem(raw: string): Promise<string | undefi
   if (literal) return literal;
   const host = url.hostname.replace(/^\[|\]$/g, '');
   if (isIP(host)) return undefined;
-  const addresses = await dns.promises.lookup(host, { all: true }).catch(() => []);
+  let addresses: dns.LookupAddress[];
+  try {
+    addresses = await dns.promises.lookup(host, { all: true });
+  } catch (err) {
+    return `${host} resolves to nothing: ${(err as Error).message}`;
+  }
   if (addresses.length === 0) return `${host} resolves to nothing`;
   return addresses.map((entry) => addressProblem(entry.address)).find(Boolean);
 }
@@ -55,7 +61,7 @@ export const publicFetch: typeof fetch = async (input, init) => {
     const location = response.status >= 300 && response.status < 400 ? response.headers.get('location') : null;
     if (!location) return response;
     if (hop >= REDIRECTS) throw new NotPublicError(`${url.host} redirected more than ${REDIRECTS} times`);
-    await response.body?.cancel().catch(() => undefined);
+    await response.body?.cancel().catch(ignore('the redirect\'s own body is thrown away unread, so a failure to cancel it leaves nothing behind'));
     url = new URL(location, url);
   }
 };

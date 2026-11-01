@@ -5,8 +5,9 @@ export type Identified = { id: string };
 export function fromDoc<T extends Identified>(doc: Document | null | undefined): T {
   if (!doc) return null as unknown as T;
   const result: Document = { ...doc };
-  if (result._id !== undefined && result._id !== null) {
-    result.id = typeof result._id === 'object' && typeof result._id.toString === 'function' ? result._id.toString() : String(result._id);
+  const rawId: unknown = result._id;
+  if (rawId !== undefined && rawId !== null) {
+    result.id = String(rawId);
   } else if (!result.id) {
     result.id = '';
   }
@@ -15,7 +16,7 @@ export function fromDoc<T extends Identified>(doc: Document | null | undefined):
 }
 
 export function toDoc<T extends Identified>(entity: T): Document {
-  const { id, ...rest } = entity as Document;
+  const { id, ...rest } = entity;
   return { ...rest, _id: id };
 }
 
@@ -42,8 +43,8 @@ export class Records<T extends Identified> {
   }
 
   async put(entity: T): Promise<void> {
-    const { _id, ...rest } = toDoc(entity);
-    await this.raw.replaceOne({ _id }, rest, { upsert: true });
+    const { id, ...rest } = entity;
+    await this.raw.replaceOne({ _id: id as never }, rest, { upsert: true });
   }
 
   async patch(id: string, fields: Partial<T>): Promise<void> {

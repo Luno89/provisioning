@@ -33,19 +33,20 @@ export async function passwordMatches(password: string, hash: string | undefined
   return false;
 }
 
-function base64urlEncode(obj: any): string {
+function base64urlEncode(obj: unknown): string {
   const json = JSON.stringify(obj);
   return Buffer.from(json).toString('base64url');
 }
 
-function base64urlDecode(str: string): any {
+function base64urlDecode(str: string): Record<string, unknown> | null {
   const json = Buffer.from(str, 'base64url').toString('utf8');
-  return JSON.parse(json);
+  const parsed: unknown = JSON.parse(json);
+  return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Record<string, unknown> : null;
 }
 
 export type TokenPurpose = 'session' | 'client-session' | 'two-factor' | 'device' | 'oauth-state' | 'root-sign-in';
 
-export function signJWT(purpose: TokenPurpose, payload: Record<string, any>, key: SecretKey, expiresInSeconds: number): string {
+export function signJWT(purpose: TokenPurpose, payload: Record<string, unknown>, key: SecretKey, expiresInSeconds: number): string {
   const secret = ringOf(key).current;
   const header = { alg: 'HS256', typ: 'JWT' };
   const exp = Math.floor(Date.now() / 1000) + expiresInSeconds;
@@ -67,7 +68,7 @@ const signatureMatches = (secret: string, signed: string, signature: string): bo
   return expected.length === given.length && crypto.timingSafeEqual(expected, given);
 };
 
-export function verifyJWT(token: string, purpose: TokenPurpose, key: SecretKey): Record<string, any> | null {
+export function verifyJWT(token: string, purpose: TokenPurpose, key: SecretKey): Record<string, unknown> | null {
   try {
     const parts = token.split('.');
     if (parts.length !== 3) return null;
@@ -80,6 +81,7 @@ export function verifyJWT(token: string, purpose: TokenPurpose, key: SecretKey):
     if (![ring.current, ...(ring.previous ?? [])].some((secret) => signatureMatches(secret, signed, signature))) return null;
 
     const payload = base64urlDecode(encodedPayload);
+    if (!payload) return null;
     if (typeof payload.exp !== 'number' || payload.exp < Math.floor(Date.now() / 1000)) {
       return null;
     }

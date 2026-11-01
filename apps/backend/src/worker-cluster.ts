@@ -70,7 +70,7 @@ async function main() {
   let worker;
   while (true) {
     try {
-      const connection = await connectTemporalWorker(address, 'koala-worker-cluster');
+      const connection = await connectTemporalWorker(address, 'koala-worker-cluster', process.env);
       const dataConverter = buildDataConverter(loadKeys(process.env).payload, sharedPayloadBlobs());
       worker = await Worker.create({
         connection,
