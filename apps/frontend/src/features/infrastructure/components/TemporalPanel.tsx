@@ -128,7 +128,7 @@ export default function TemporalPanel() {
     refetchInterval: 5000,
   });
 
-  const { data: workflowsData, isLoading } = useQuery({
+  const { data: workflowsData, isLoading, error: listError } = useQuery({
     queryKey: temporalKeys.workflows(scope),
     queryFn: () => listWorkflows(50, scope),
     placeholderData: keepPreviousData,
@@ -233,9 +233,15 @@ export default function TemporalPanel() {
           <h3 className="font-bold flex items-center gap-2"><Activity size={16} className="text-blue-500" /> Recent Workflows</h3>
           <span className="text-[10px] text-slate-500 font-mono">{workflows.length} executions</span>
         </div>
+        {listError && workflows.length > 0 && <p className="px-5 py-2 text-xs text-red-400">{errorMessage(listError)}</p>}
 
         {isLoading ? (
           <div className="flex items-center justify-center py-16"><Loader2 className="animate-spin text-slate-600" size={32} /></div>
+        ) : listError && workflows.length === 0 ? (
+          <div className="text-center py-16 text-red-400">
+            <p className="font-medium mb-1">The workflows could not be read</p>
+            <p className="text-xs">{errorMessage(listError)}</p>
+          </div>
         ) : workflows.length === 0 ? (
           <div className="text-center py-16 text-slate-500">
             <Activity size={40} className="mx-auto mb-3 opacity-30" />

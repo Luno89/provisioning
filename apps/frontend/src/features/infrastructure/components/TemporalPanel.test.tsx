@@ -45,6 +45,14 @@ describe('TemporalPanel', () => {
     expect(screen.getByText(/cluster-provision-dev-456/)).toBeDefined();
   });
 
+  it('says the workflows could not be read rather than that there are none', async () => {
+    vi.mocked(temporalApi.listWorkflows).mockRejectedValueOnce(new Error('Temporal is not reachable'));
+    renderPanel([]);
+    await waitFor(() => expect(screen.getByText('The workflows could not be read')).toBeDefined());
+    expect(screen.getByText('Temporal is not reachable')).toBeDefined();
+    expect(screen.queryByText('No workflow executions found')).toBeNull();
+  });
+
   it('renders when Temporal is not connected', async () => {
     renderPanel([], { connected: false });
     await waitFor(() => expect(vi.mocked(temporalApi.getTemporalStatus)).toHaveBeenCalled());

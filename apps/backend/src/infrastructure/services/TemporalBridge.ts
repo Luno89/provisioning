@@ -14,7 +14,7 @@ import { healthFromProbe } from '../lib/service-health.js'
 import { clusterFieldsFrom } from '../lib/provisioned-cluster.js'
 import { fileURLToPath } from 'url';
 import fs from 'fs';
-import type { Client, WorkflowExecutionInfo } from '@temporalio/client'
+import { WorkflowNotFoundError, type Client, type WorkflowExecutionInfo } from '@temporalio/client'
 import type { temporal } from '@temporalio/proto'
 import { ignore } from '@koala/engine-core/failures'
 import { textAt } from '../../platform/index.js'
@@ -1181,43 +1181,44 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
     return this.syncConfig(deploymentId)
   }
 
+  private reachable(): Client {
+    if (!this.isReady()) throw Object.assign(new Error('Temporal is not reachable'), { status: 503 })
+    return this.client
+  }
+
   async listWorkflows(query?: string, pageSize?: number): Promise<WorkflowSummary[]> {
-    if (!this.isReady()) return [];
-    try {
-      const iter = this.client.workflow.list({ ...(query ? { query } : {}), pageSize: pageSize || 50 });
-      const workflows: WorkflowSummary[] = [];
-      for await (const wf of iter) workflows.push(summaryOf(wf));
-      return workflows;
-    } catch { return []; }
+    const iter = this.reachable().workflow.list({ ...(query ? { query } : {}), pageSize: pageSize || 50 })
+    const workflows: WorkflowSummary[] = []
+    for await (const wf of iter) workflows.push(summaryOf(wf))
+    return workflows
   }
 
   async countWorkflows(query?: string): Promise<number> {
-    if (!this.isReady()) return 0;
-    try {
-      const result = await this.client.workflow.count(query);
-      return result.count;
-    } catch { return 0; }
+    return (await this.reachable().workflow.count(query)).count
   }
 
   async describeWorkflow(workflowId: string): Promise<WorkflowSummary | null> {
-    if (!this.isReady()) return null;
     try {
-      return summaryOf(await this.client.workflow.getHandle(workflowId).describe());
-    } catch { return null; }
+      return summaryOf(await this.reachable().workflow.getHandle(workflowId).describe())
+    } catch (err) {
+      if (err instanceof WorkflowNotFoundError) return null
+      throw err
+    }
   }
 
   async getWorkflowHistory(workflowId: string): Promise<unknown[] | null> {
-    if (!this.isReady()) return null;
     try {
-      const handle = this.client.workflow.getHandle(workflowId);
-      const history = await handle.fetchHistory();
+      const history = await this.reachable().workflow.getHandle(workflowId).fetchHistory()
       return (history.events ?? []).map((e) => ({
         id: e.eventId,
         type: e.eventType,
         time: e.eventTime,
         attributes: attributesOf(e),
-      }));
-    } catch { return null; }
+      }))
+    } catch (err) {
+      if (err instanceof WorkflowNotFoundError) return null
+      throw err
+    }
   }
 
   async onClusterStatus(_query: string): Promise<ClusterMetadata[]> {
