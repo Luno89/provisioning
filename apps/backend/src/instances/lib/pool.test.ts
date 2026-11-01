@@ -4,6 +4,9 @@ import {
   proxyManifests, vclusterValues, type PoolPorts,
 } from './pool.js';
 
+const at = (value: unknown, ...path: Array<string | number>): unknown =>
+  path.reduce<unknown>((here, key) => (typeof here === 'object' && here !== null ? (here as Record<string | number, unknown>)[key] : undefined), value);
+
 const SLOT = { memoryMiB: 6144, cpu: 2, storageGiB: 20 };
 
 describe('the pool on a node', () => {
@@ -42,42 +45,42 @@ describe('the pool on a node', () => {
   });
 
   it('refuses any pod in a pool namespace that does not run under gVisor, whoever asks', () => {
-    const [policy, binding] = admissionManifests('127.0.0.1:5000/nowrinkles/app') as [any, any];
-    expect(policy.spec.matchConstraints.namespaceSelector).toEqual({ matchLabels: { 'koala.dev/pool': 'true' } });
-    expect(policy.spec.matchConstraints.resourceRules[0].resources).toEqual(['pods', 'pods/ephemeralcontainers']);
-    expect(policy.spec.failurePolicy).toBe('Fail');
-    expect(policy.spec.validations[0].expression).toBe("has(object.spec.runtimeClassName) && object.spec.runtimeClassName == 'gvisor'");
-    expect(binding.spec).toEqual({ policyName: 'koala-pool-gvisor', validationActions: ['Deny'] });
+    const [policy, binding] = admissionManifests('127.0.0.1:5000/nowrinkles/app');
+    expect(at(policy, 'spec', 'matchConstraints', 'namespaceSelector')).toEqual({ matchLabels: { 'koala.dev/pool': 'true' } });
+    expect(at(policy, 'spec', 'matchConstraints', 'resourceRules', 0, 'resources')).toEqual(['pods', 'pods/ephemeralcontainers']);
+    expect(at(policy, 'spec', 'failurePolicy')).toBe('Fail');
+    expect(at(policy, 'spec', 'validations', 0, 'expression')).toBe("has(object.spec.runtimeClassName) && object.spec.runtimeClassName == 'gvisor'");
+    expect(at(binding, 'spec')).toEqual({ policyName: 'koala-pool-gvisor', validationActions: ['Deny'] });
   });
 
   it('lets a pool pod pull from the node\'s loopback only through its own instance\'s registry, or the platform\'s own image', () => {
-    const [policy] = admissionManifests('127.0.0.1:5000/nowrinkles/app') as [any];
-    const rule = policy.spec.validations[1].expression as string;
+    const [policy] = admissionManifests('127.0.0.1:5000/nowrinkles/app');
+    const rule = String(at(policy, 'spec', 'validations', 1, 'expression'));
     expect(rule).toContain("image.startsWith('127.0.0.1:' + namespaceObject.metadata.labels['koala.dev/registry-port'] + '/')");
     expect(rule).toContain("image.startsWith('127.0.0.1:5000/nowrinkles/app:') || image.startsWith('127.0.0.1:5000/nowrinkles/app@')");
     for (const prefix of ['127.', 'localhost', '[::1]', '0.0.0.0', '[::]']) expect(rule).toContain(`image.startsWith('${prefix}')`);
-    expect(policy.spec.variables[0].expression).toContain('ephemeralContainers');
+    expect(at(policy, 'spec', 'variables', 0, 'expression')).toContain('ephemeralContainers');
   });
 
   it('runs a vcluster\'s control plane and every pod it syncs under gVisor, within its slot, with no node ports, its network policies enforced on the host', () => {
-    const values = vclusterValues('alice', SLOT) as any;
-    expect(values.controlPlane.statefulSet.runtimeClassName).toBe('gvisor');
-    expect(values.controlPlane.proxy.extraSANs).toEqual(['alice.pool-alice.svc']);
-    expect(values.sync.toHost.pods.runtimeClassName).toBe('gvisor');
-    expect(values.policies.resourceQuota.quota).toMatchObject({
+    const values = vclusterValues('alice', SLOT);
+    expect(at(values, 'controlPlane', 'statefulSet', 'runtimeClassName')).toBe('gvisor');
+    expect(at(values, 'controlPlane', 'proxy', 'extraSANs')).toEqual(['alice.pool-alice.svc']);
+    expect(at(values, 'sync', 'toHost', 'pods', 'runtimeClassName')).toBe('gvisor');
+    expect(at(values, 'policies', 'resourceQuota', 'quota')).toMatchObject({
       'requests.memory': '6144Mi', 'requests.cpu': '2', 'services.nodeports': 0, 'services.loadbalancers': 0,
     });
-    expect(values.policies.resourceQuota.quota).toMatchObject({ 'limits.memory': null, 'limits.cpu': null, 'limits.ephemeral-storage': null });
-    expect(values.policies.networkPolicy.enabled).toBe(true);
-    expect(values.sync.toHost.networkPolicies.enabled).toBe(true);
-    expect(values.policies.limitRange.max).toEqual({ memory: '6144Mi', cpu: '2', 'ephemeral-storage': `${SLOT.storageGiB}Gi` });
+    expect(at(values, 'policies', 'resourceQuota', 'quota')).toMatchObject({ 'limits.memory': null, 'limits.cpu': null, 'limits.ephemeral-storage': null });
+    expect(at(values, 'policies', 'networkPolicy', 'enabled')).toBe(true);
+    expect(at(values, 'sync', 'toHost', 'networkPolicies', 'enabled')).toBe(true);
+    expect(at(values, 'policies', 'limitRange', 'max')).toEqual({ memory: '6144Mi', cpu: '2', 'ephemeral-storage': `${SLOT.storageGiB}Gi` });
   });
 
   it('lets a pool instance\'s pods out to the public internet only, never to cloud metadata, a private or mesh address, or a mail port', () => {
-    const values = vclusterValues('alice', SLOT) as any;
-    const workload = values.policies.networkPolicy.workload;
-    expect(workload.publicEgress).toEqual({ enabled: false });
-    expect(workload.egress).toEqual([{
+    const values = vclusterValues('alice', SLOT);
+    const workload = at(values, 'policies', 'networkPolicy', 'workload');
+    expect(at(workload, 'publicEgress')).toEqual({ enabled: false });
+    expect(at(workload, 'egress')).toEqual([{
       to: [{ ipBlock: { cidr: '0.0.0.0/0', except: ['10.0.0.0/8', '100.64.0.0/10', '127.0.0.0/8', '169.254.0.0/16', '172.16.0.0/12', '192.168.0.0/16'] } }],
       ports: [
         { port: 1, endPort: 24, protocol: 'TCP' },
@@ -90,9 +93,9 @@ describe('the pool on a node', () => {
   });
 
   it('keeps every container\'s default within a small slot', () => {
-    const values = vclusterValues('tiny', { memoryMiB: 512, cpu: 1, storageGiB: 4 }) as any;
-    expect(values.policies.limitRange.default).toEqual({ memory: '512Mi', cpu: '1', 'ephemeral-storage': '4Gi' });
-    expect(values.policies.limitRange.max).toEqual({ memory: '512Mi', cpu: '1', 'ephemeral-storage': '4Gi' });
+    const values = vclusterValues('tiny', { memoryMiB: 512, cpu: 1, storageGiB: 4 });
+    expect(at(values, 'policies', 'limitRange', 'default')).toEqual({ memory: '512Mi', cpu: '1', 'ephemeral-storage': '4Gi' });
+    expect(at(values, 'policies', 'limitRange', 'max')).toEqual({ memory: '512Mi', cpu: '1', 'ephemeral-storage': '4Gi' });
   });
 });
 
@@ -123,10 +126,10 @@ describe('the proxy on the pool node', () => {
 
   it('starts with no admin endpoint, and runs on the node\'s own network so it can bind there', () => {
     expect(proxyCaddyfile([], '100.64.0.9', [])).toBe('{\n\tadmin off\n\tauto_https off\n\tpersist_config off\n}\n\n');
-    const [config, daemon] = proxyManifests(caddyfile) as [any, any];
-    expect(config.data.Caddyfile).toBe(caddyfile);
-    expect(daemon.spec.template.spec.hostNetwork).toBe(true);
-    expect(daemon.spec.template.spec.containers[0].args).toContain('--watch');
+    const [config, daemon] = proxyManifests(caddyfile);
+    expect(at(config, 'data', 'Caddyfile')).toBe(caddyfile);
+    expect(at(daemon, 'spec', 'template', 'spec', 'hostNetwork')).toBe(true);
+    expect(at(daemon, 'spec', 'template', 'spec', 'containers', 0, 'args')).toContain('--watch');
   });
 });
 
@@ -136,13 +139,13 @@ describe('the instance chart\'s values in the pool', () => {
     credential: 'cred', name: 'alice', domain: 'koala.dev', publicUrl: 'https://alice.koala.dev',
     image: { repository: '100.64.0.1:5001/nowrinkles/app', tag: 'abc' }, ports: { backend: 35000, edge: 35001, registry: 35002 },
     resources: { backend: { requests: { memory: '300Mi' } } },
-  }) as any;
+  });
 
   it('installs in pool mode, pulling its own images through its loopback registry port', () => {
     expect(values.pool).toEqual({ enabled: true, registryPullHost: '127.0.0.1:35002' });
     expect(values.hostDocker).toBe(false);
     expect(values.routing).toEqual({ name: 'alice', domain: 'koala.dev' });
-    expect(Buffer.from(values.instance.rootPublicKeys, 'base64').toString('utf8')).toContain('BEGIN PUBLIC KEY');
+    expect(Buffer.from(String(at(values, 'instance', 'rootPublicKeys')), 'base64').toString('utf8')).toContain('BEGIN PUBLIC KEY');
     expect(values.resources).toEqual({ backend: { requests: { memory: '300Mi' } } });
   });
 });
