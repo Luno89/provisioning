@@ -352,9 +352,6 @@
   "src/engine-host/grove-launcher.test.ts": {
     "@typescript-eslint/no-unsafe-assignment": {
       "count": 1
-    },
-    "@typescript-eslint/only-throw-error": {
-      "count": 1
     }
   },
   "src/engine-host/nodes/code-runner.test.ts": {
@@ -880,11 +877,6 @@
   },
   "src/engine/services/McpServerService.test.ts": {
     "@typescript-eslint/no-unsafe-assignment": {
-      "count": 1
-    }
-  },
-  "src/engine/services/McpServerService.ts": {
-    "@typescript-eslint/await-thenable": {
       "count": 1
     }
   },
@@ -2998,9 +2990,6 @@
     }
   },
   "src/releases/wiring/releases.ts": {
-    "@typescript-eslint/await-thenable": {
-      "count": 1
-    },
     "no-restricted-syntax": {
       "count": 4
     }
@@ -3162,9 +3151,6 @@
     }
   },
   "src/workflows/AgentRunWorkflow.ts": {
-    "@typescript-eslint/only-throw-error": {
-      "count": 4
-    },
     "no-restricted-syntax": {
       "count": 3
     }

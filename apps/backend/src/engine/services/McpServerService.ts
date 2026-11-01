@@ -152,7 +152,7 @@ export class McpServerService {
   }
 
   private async capturedOnceListed(servers: McpServerRecord[]): Promise<McpServerRecord[]> {
-    return Promise.all(servers.map((server) => (deploymentOf(server) && serverState(server).state === 'new' ? this.capture(server) : server)));
+    return Promise.all(servers.map(async (server) => (deploymentOf(server) && serverState(server).state === 'new' ? this.capture(server) : server)));
   }
 
   async catalogue(ownerId: string): Promise<McpCatalogue> {

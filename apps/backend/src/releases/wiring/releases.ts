@@ -182,7 +182,7 @@ export function wireReleases(deps: ReleasesWiringDeps): ReleasesWiring {
     saveProject: (patch) => db.projects.saveProjectInfo(patch),
     clusterById,
     adapterOf: async (project) => {
-      const how = await releaseHowOf(project, await treeTypeOfProject(db.projects, project), true);
+      const how = releaseHowOf(project, await treeTypeOfProject(db.projects, project), true);
       return how.app === ODOO_RELEASE_ADAPTER.id ? ODOO_RELEASE_ADAPTER : undefined;
     },
     cluster: slotCluster(),

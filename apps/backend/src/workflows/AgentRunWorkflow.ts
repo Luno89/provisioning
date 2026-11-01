@@ -418,7 +418,8 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
       const answers: ExternalCallAnswer[] = [];
       const answering = new Map<string, Promise<void>>();
       let inWorkspace: Promise<unknown> = Promise.resolve();
-      let broke: unknown;
+      let broke: Error | undefined;
+      const brokeNow = (): Error | undefined => broke;
       const unsyncedFor = async (): Promise<string | undefined> => {
         const back = await bringBack(`Work so far, for ${RUN_IN_WORKSPACE}`);
         if (back.ok) return undefined;
@@ -447,14 +448,14 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
         if (call.name === RUN_IN_WORKSPACE) inWorkspace = running.catch(() => undefined);
         answering.set(call.callId, running.then(
           (done) => { answers.push(done); },
-          (err: unknown) => { broke ??= err; },
+          (err: unknown) => { broke ??= err instanceof Error ? err : new Error(String(err)); },
         ).finally(() => { answering.delete(call.callId); }));
       };
       const drive = async (from: ExternalAgentStepResult): Promise<ExternalAgentStepResult> => {
         let at = from;
         for (;;) {
           await take(at);
-          if (broke !== undefined) throw broke;
+          { const failure = brokeNow(); if (failure) throw failure; }
           if (at.state === 'ended' || at.state === 'failed' || at.state === 'closed') return at;
           if (cancelled) {
             at = await step({ kind: 'cancel' });
@@ -483,7 +484,7 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
             continue;
           }
           if (answers.length === 0 && answering.size > 0) await condition(() => answers.length > 0 || broke !== undefined || cancelled, MACHINE_ANSWER_WAIT_MS);
-          if (broke !== undefined) throw broke;
+          { const failure = brokeNow(); if (failure) throw failure; }
           at = await step(answers.length > 0 && !cancelled ? { kind: 'results', results: answers.splice(0) } : { kind: 'continue' });
           ranOn = at.model ?? ranOn;
         }
@@ -510,13 +511,13 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
           }
           result = await drive(await step({ kind: 'prompt', text: ask }));
           await Promise.all(answering.values());
-          if (broke !== undefined) throw broke;
+          { const failure = brokeNow(); if (failure) throw failure; }
         }
       };
 
       result = await drive(result);
       await Promise.all(answering.values());
-      if (broke !== undefined) throw broke;
+      { const failure = brokeNow(); if (failure) throw failure; }
       let notBack: string | undefined;
       if (merging) {
         notBack = await settle();

@@ -5,7 +5,7 @@ import { workflowOfRun } from './temporal/contracts.js';
 
 type Described = { status: { name: string }; startTime: Date; closeTime?: Date; memo?: Record<string, unknown> };
 
-function fakeClient(runs: Record<string, { described: Described; result?: unknown; fails?: unknown }>) {
+function fakeClient(runs: Record<string, { described: Described; result?: unknown; fails?: Error }>) {
   const signalled: [string, string][] = [];
   return {
     signalled,
