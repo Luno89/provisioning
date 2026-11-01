@@ -13,8 +13,8 @@ export default function ClaimReview({ leaf }: { leaf: Leaf }) {
   const settle = useMutation({
     mutationFn: ({ verdict, reason }: { verdict: 'verified' | 'failed'; reason?: string }) => settleLeaf(leaf.id, verdict, reason),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['leaves'] })
-      qc.invalidateQueries({ queryKey: ['tree-board'] })
+      void qc.invalidateQueries({ queryKey: ['leaves'] })
+      void qc.invalidateQueries({ queryKey: ['tree-board'] })
     },
   })
 

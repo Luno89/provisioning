@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import type { Procedure } from '@koala/agent-engine/procedure'
 import ProcedureExplorer from './ProcedureExplorer'
 
 const navigate = vi.fn(async () => undefined)
@@ -45,7 +46,7 @@ vi.mock('../../api/procedures', async () => {
       ],
       unreadable: [{ id: 'broken', report: 'node "x" is not a kind of node' }],
     })),
-    saveProcedure: vi.fn(async (procedure) => ({ saved: true, procedure: { ...procedure, version: '1' }, problems: [] })),
+    saveProcedure: vi.fn(async (procedure: Procedure) => ({ saved: true, procedure: { ...procedure, version: '1' }, problems: [] })),
     deleteProcedure: vi.fn(async () => undefined),
   }
 })

@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import type { MemoryItem } from '../types'
 import Memories from './Memories'
 
 vi.mock('../api', async () => {
@@ -28,7 +29,7 @@ vi.mock('../../models/api', async () => {
 
 const { listMemories, createMemory, updateMemory } = await import('../api')
 
-const memory = (id: string, title: string, model?: string) => ({
+const memory = (id: string, title: string, model?: string): MemoryItem => ({
   id, ownerId: 'u', category: 'lessons_learned', scope: 'global', status: 'active', title, text: `${title} text`, createdAt: 'a', updatedAt: 'a', ...(model ? { model } : {}),
 })
 

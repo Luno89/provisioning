@@ -90,13 +90,13 @@ export const startInstanceMove = (): Promise<MoveCommand> =>
   api.post<MoveCommand>('/instance-trial/move').then((r) => r.data)
 
 export const stopInstanceMove = (): Promise<unknown> =>
-  api.delete('/instance-trial/move').then((r) => r.data)
+  api.delete<unknown>('/instance-trial/move').then((r) => r.data)
 
 export const startMyMove = (): Promise<MoveCommand> =>
   api.post<MoveCommand>('/instances/move').then((r) => r.data)
 
 export const stopMyMove = (): Promise<unknown> =>
-  api.delete('/instances/move').then((r) => r.data)
+  api.delete<unknown>('/instances/move').then((r) => r.data)
 
 export const moveUnderWay = (move: MoveView | null | undefined): boolean => Boolean(move) && move!.state !== 'failed'
 
@@ -116,13 +116,13 @@ export const getPoolAdmin = (): Promise<PoolAdmin> =>
   api.get<PoolAdmin>('/instances/pool/admin').then((r) => r.data)
 
 export const setPoolTrialDays = (days: number): Promise<unknown> =>
-  api.put('/instances/pool/admin/trial-days', { days }).then((r) => r.data)
+  api.put<unknown>('/instances/pool/admin/trial-days', { days }).then((r) => r.data)
 
 export const setPoolTrialEnd = (id: string, trialEndsAt: string): Promise<PoolInstanceRow> =>
   api.put<PoolInstanceRow>(`/instances/pool/admin/instances/${encodeURIComponent(id)}/trial`, { trialEndsAt }).then((r) => r.data)
 
 export const removePoolInstance = (id: string, confirm: string): Promise<unknown> =>
-  api.delete(`/instances/pool/admin/instances/${encodeURIComponent(id)}`, { data: { confirm } }).then((r) => r.data)
+  api.delete<unknown>(`/instances/pool/admin/instances/${encodeURIComponent(id)}`, { data: { confirm } }).then((r) => r.data)
 
 export interface InstanceTrialView {
   trialEndsAt?: string

@@ -56,7 +56,7 @@ export default function ChatMessageRenderer({
             strong: ({ children: c }) => <strong className="font-semibold text-slate-100">{c}</strong>,
             em: ({ children: c }) => <em className="italic text-slate-300">{c}</em>,
             blockquote: ({ children: c }) => {
-              const firstChild = Array.isArray(c) ? c[0] : c;
+              const firstChild: unknown = Array.isArray(c) ? c[0] : c;
               const textContent = typeof firstChild === 'string' ? firstChild : '';
               const match = textContent.match(/^\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]/i);
 

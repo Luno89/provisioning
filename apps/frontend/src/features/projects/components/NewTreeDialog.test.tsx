@@ -3,6 +3,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import NewTreeDialog from './NewTreeDialog.js'
 import * as groveApi from '../api/grove.js'
+import type { TreeType } from '../types/grove.js'
 
 vi.mock('../api/grove', async (importOriginal) => ({
   ...(await importOriginal<typeof groveApi>()),
@@ -13,16 +14,16 @@ vi.mock('../api/grove', async (importOriginal) => ({
   patchTree: vi.fn(),
 }))
 
-const TYPES = [
-  { id: 'type-1', label: 'Freeform project', summary: 'no assumptions', doneMeans: 'whatever the plan says', produces: 'service' },
-  { id: 'type-2', label: 'Research paper', summary: 'a written answer', doneMeans: 'every claim cited', produces: 'artefact' },
+const TYPES: TreeType[] = [
+  { id: 'type-1', label: 'Freeform project', summary: 'no assumptions', doneMeans: 'whatever the plan says', produces: 'service', language: 'base', files: [] },
+  { id: 'type-2', label: 'Research paper', summary: 'a written answer', doneMeans: 'every claim cited', produces: 'artefact', language: 'base', files: [] },
 ]
 
-function renderDialog(props: Partial<Parameters<typeof NewTreeDialog>[0]> = {}, types: readonly object[] = TYPES) {
+function renderDialog(props: Partial<Parameters<typeof NewTreeDialog>[0]> = {}, types: TreeType[] = TYPES) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   const onClose = vi.fn()
   const onCreated = vi.fn()
-  vi.mocked(groveApi.listTreeTypes).mockResolvedValue(types as any)
+  vi.mocked(groveApi.listTreeTypes).mockResolvedValue(types)
   render(
     <QueryClientProvider client={qc}>
       <NewTreeDialog onClose={onClose} onCreated={onCreated} {...props} />
@@ -35,7 +36,7 @@ describe('NewTreeDialog — plain creation', () => {
   beforeEach(() => { vi.clearAllMocks() })
 
   it('creates a tree with the picked type and calls onCreated with its id, no promotion calls', async () => {
-    vi.mocked(groveApi.createTree).mockResolvedValue({ id: 'tree-1' } as any)
+    vi.mocked(groveApi.createTree).mockResolvedValue({ id: 'tree-1' })
     const { onCreated } = renderDialog()
 
     fireEvent.change(screen.getByPlaceholderText('Koala API'), { target: { value: 'My Tree' } })
@@ -62,10 +63,10 @@ describe('NewTreeDialog — plain creation', () => {
 
 describe('NewTreeDialog — a type with versions', () => {
   beforeEach(() => { vi.clearAllMocks() })
-  const ODOO = { id: 'odoo-addons', label: 'Odoo addons', summary: 'modules', doneMeans: 'installs', produces: 'service', versions: { of: 'Odoo', choices: [{ version: '20', language: 'odoo-20' }, { version: '18', language: 'odoo' }], default: '20' } }
+  const ODOO: TreeType = { id: 'odoo-addons', label: 'Odoo addons', summary: 'modules', doneMeans: 'installs', produces: 'service', language: 'odoo-20', files: [], versions: { of: 'Odoo', choices: [{ version: '20', language: 'odoo-20' }, { version: '18', language: 'odoo' }], default: '20' } }
 
   it('starts on the type\'s default version and sends the one picked', async () => {
-    vi.mocked(groveApi.createTree).mockResolvedValue({ id: 'tree-2' } as any)
+    vi.mocked(groveApi.createTree).mockResolvedValue({ id: 'tree-2' })
     renderDialog({}, [...TYPES, ODOO])
     fireEvent.change(screen.getByPlaceholderText('Koala API'), { target: { value: 'Shop' } })
     fireEvent.click(await screen.findByText('Odoo addons'))
@@ -77,7 +78,7 @@ describe('NewTreeDialog — a type with versions', () => {
   })
 
   it('offers no version for a type without versions, and sends none', async () => {
-    vi.mocked(groveApi.createTree).mockResolvedValue({ id: 'tree-3' } as any)
+    vi.mocked(groveApi.createTree).mockResolvedValue({ id: 'tree-3' })
     renderDialog({}, [...TYPES, ODOO])
     fireEvent.change(screen.getByPlaceholderText('Koala API'), { target: { value: 'Paper' } })
     fireEvent.click(await screen.findByText('Research paper'))

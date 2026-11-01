@@ -173,7 +173,7 @@ export function Projects({ clusters }: {
             : next.page === 'settings'
               ? navigate({ to: '/projects/project/$projectId/settings', params: { projectId: next.id } })
               : navigate({ to: '/projects/project/$projectId', params: { projectId: next.id } })
-      go.catch(() => {})
+      void go
     }
     setOpen(next)
   }
@@ -181,7 +181,7 @@ export function Projects({ clusters }: {
   const closeEntity = () => {
     window.location.hash = formatHash('projects')
     if (navigate) {
-      navigate({ to: '/projects' }).catch(() => {})
+      void navigate({ to: '/projects' })
     }
     setOpen(null)
   }

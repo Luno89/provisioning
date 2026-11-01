@@ -1,5 +1,13 @@
 import axios from 'axios'
 
+declare global {
+  interface ImportMetaEnv {
+    readonly VITE_API_BASE?: string
+    readonly VITE_SOCKET_URL?: string
+    readonly VITE_IS_E2E?: string
+  }
+}
+
 export interface BackendAddress {
   apiBase: string
   socketUrl: string
@@ -30,6 +38,11 @@ export const api = axios.create({
 
 export const serverError = (err: unknown): string | undefined =>
   (err as { response?: { data?: { error?: string } } } | undefined)?.response?.data?.error
+
+export const noneWhenMissing = (err: unknown): null => {
+  if ((err as { response?: { status?: number } } | undefined)?.response?.status === 404) return null
+  throw err
+}
 
 export const errorMessage = (err: unknown): string =>
   serverError(err) ?? (err as { message?: string } | undefined)?.message ?? 'Something went wrong.'

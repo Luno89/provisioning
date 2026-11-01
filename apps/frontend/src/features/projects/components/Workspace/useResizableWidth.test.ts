@@ -25,7 +25,7 @@ describe('useResizableWidth', () => {
     // Start resize with mouse move
     act(() => {
       const resizeHandler = result.current.startResize(1)
-      resizeHandler({ clientX: 100, preventDefault: () => {} } as any)
+      resizeHandler({ clientX: 100, preventDefault: () => undefined })
       window.dispatchEvent(new MouseEvent('mousemove', { clientX: 1100 }))
       window.dispatchEvent(new MouseEvent('mouseup'))
     })
@@ -57,7 +57,7 @@ describe('useResizableWidth', () => {
 
     act(() => {
       const resizeHandler = result.current.startResize(1)
-      resizeHandler({ clientX: 100, preventDefault: () => {} } as any)
+      resizeHandler({ clientX: 100, preventDefault: () => undefined })
       // Dragging left by 250px -> 300 - 250 = 50px (< 80px threshold)
       window.dispatchEvent(new MouseEvent('mousemove', { clientX: -150 }))
       window.dispatchEvent(new MouseEvent('mouseup'))

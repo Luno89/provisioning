@@ -177,7 +177,7 @@ export function useConversationTurn({
   const createMutation = useMutation({
     mutationFn: () => createChatConversation('New conversation', binding),
     onSuccess: (newConv) => {
-      qc.invalidateQueries({ queryKey: chatPackKeys.conversations() });
+      void qc.invalidateQueries({ queryKey: chatPackKeys.conversations() });
       setSelectedConvId(newConv.id);
       setError(null);
       onConversationChange?.(newConv.id);
@@ -187,7 +187,7 @@ export function useConversationTurn({
   const deleteMutation = useMutation({
     mutationFn: (id: string) => deleteChatConversation(id),
     onSuccess: (_, deletedId) => {
-      qc.invalidateQueries({ queryKey: chatPackKeys.conversations() });
+      void qc.invalidateQueries({ queryKey: chatPackKeys.conversations() });
       clearLocalMessages(deletedId);
       if (selectedConvId === deletedId) {
         const remaining = conversations.filter((c) => c.id !== deletedId);
@@ -258,8 +258,8 @@ export function useConversationTurn({
       if (outcome === 'ok' || outcome === 'interrupted') setError(null);
       else setError(`Turn stopped: ${reason ?? outcome}`);
 
-      qc.invalidateQueries({ queryKey: chatPackKeys.conversation(convId) });
-      qc.invalidateQueries({ queryKey: chatPackKeys.conversations() });
+      void qc.invalidateQueries({ queryKey: chatPackKeys.conversation(convId) });
+      void qc.invalidateQueries({ queryKey: chatPackKeys.conversations() });
       setPendingApprovals([]);
     },
     [qc, appendLocalMessage],
@@ -327,7 +327,7 @@ export function useConversationTurn({
   });
 
   useEffect(() => {
-    for (const turnId of follower.followed()) void follower.catchUp(turnId, apply).catch(() => undefined);
+    for (const turnId of follower.followed()) void follower.catchUp(turnId, apply).catch((err) => setError(`Could not catch up on the turn: ${errorMessage(err)}`));
   }, [apply]);
 
   const liveTurnOf = activeConversation?.liveTurn?.runId;
@@ -353,7 +353,7 @@ export function useConversationTurn({
         targetConvId = created.id;
         setSelectedConvId(created.id);
         onConversationChange?.(created.id);
-        qc.invalidateQueries({ queryKey: chatPackKeys.conversations() });
+        void qc.invalidateQueries({ queryKey: chatPackKeys.conversations() });
       } catch (err) {
         setError(`Failed to create conversation: ${errorMessage(err)}`);
         setCreatingConversation(false);
@@ -385,14 +385,14 @@ export function useConversationTurn({
         ...(options.asks ? { asks: options.asks } : {}),
         ...(options.attachments?.length ? { attachments: options.attachments.map(sentAttachment) } : {}),
       });
-      if (options.asks) qc.invalidateQueries({ queryKey: chatPackKeys.conversation(targetConvId) });
+      if (options.asks) void qc.invalidateQueries({ queryKey: chatPackKeys.conversation(targetConvId) });
     } catch (err) {
       const state = useLiveTurnsStore.getState().turns[key]?.renderState ?? emptyChatRenderState;
       const msg = assistantMsgFromRenderState(state);
       if (msg) appendLocalMessage(targetConvId, { ...msg, interruptedReason: `Stopped early: ${errorMessage(err)}` });
       setError(`Turn failed: ${errorMessage(err)}`);
       useLiveTurnsStore.getState().finish(key, 'error');
-      qc.invalidateQueries({ queryKey: chatPackKeys.conversation(targetConvId) });
+      void qc.invalidateQueries({ queryKey: chatPackKeys.conversation(targetConvId) });
       return;
     }
 
@@ -411,9 +411,7 @@ export function useConversationTurn({
     // The run's own interrupted/run.finished events follow, but the turn is settled now so the
     // bubble stops immediately instead of waiting on the round-trip.
     settleTurn(active.convId, active.key, 'interrupted', undefined, true);
-    cancelRun(active.runId).catch(() => {
-      /* the run may already be finished; nothing else to do */
-    });
+    cancelRun(active.runId).catch((err) => setError(`Could not stop the run, unless it had already finished: ${errorMessage(err)}`));
   }, [settleTurn]);
 
   const decideApproval = useCallback(

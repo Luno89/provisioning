@@ -48,7 +48,7 @@ export function TreeTypeEditor({ type, types, only, onSaved, initialLabel }: {
   const save = useMutation({
     mutationFn: () => updateTreeType(draft.id, draft),
     onSuccess: (saved) => {
-      qc.invalidateQueries({ queryKey: groveKeys.treeTypes() });
+      void qc.invalidateQueries({ queryKey: groveKeys.treeTypes() });
       setDraft(saved);
       setSaveError('');
       setSavedNote('Saved.');

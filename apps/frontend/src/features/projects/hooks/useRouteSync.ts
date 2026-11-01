@@ -54,6 +54,6 @@ export function useRouteSync(place: ProjectPlace | undefined) {
             : branchId
               ? router.navigate({ to: '/projects/tree/$treeId/$branchId', params: { treeId: id, branchId }, replace })
               : router.navigate({ to: '/projects/tree/$treeId', params: { treeId: id }, replace })
-    go.catch(() => {})
+    void go
   }, [kind, id, page, branchId, leafId, router])
 }

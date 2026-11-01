@@ -22,7 +22,7 @@ export default function NewTreeDialog({ onClose, onCreated }: {
   const create = useMutation({
     mutationFn: (body: { name: string; type: string; goal: string; version?: string }) => createTree<{ id: string }>(body),
     onSuccess: (tree: { id: string }) => {
-      qc.invalidateQueries({ queryKey: ['trees'] });
+      void qc.invalidateQueries({ queryKey: ['trees'] });
       onCreated?.(tree?.id ?? '');
       onClose();
     },

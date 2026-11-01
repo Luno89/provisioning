@@ -2,8 +2,6 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Brain, Plus, Trash2, Edit3, Save, X, Lightbulb, Pin, ScrollText, Check, Globe, Folder, AlertCircle, ArrowUpRight } from 'lucide-react';
 
-type MemoryCategory = 'lessons_learned' | 'environment_facts' | 'prompt_guidance';
-type MemoryScope = 'project' | 'global';
 import {
   listMemories, getConsolidation, createMemory, updateMemory,
   approveMemory, promoteMemory, deleteMemory, memoryKeys,
@@ -11,44 +9,10 @@ import {
 import { listModels, providerKeys, useDefaultModel } from '../../models';
 import { useCan } from '../../platform';
 import { ANY_MODEL, EVERY_MODEL, matchesModel, modelChoices, modelLine } from '../lib/memory-models';
-import { ANY_SOURCE, fromOutside, matchesSource, sourceChoices, sourcesLine, type MemorySources } from '../lib/memory-sources';
+import { ANY_SOURCE, fromOutside, matchesSource, sourceChoices, sourcesLine } from '../lib/memory-sources';
+import type { MemoryCategory, MemoryItem, MemoryScope } from '../types';
 
 const card = 'bg-[var(--bark-800)] border border-[var(--bark-600)] rounded-xl';
-
-interface MemoryItem {
-  id: string;
-  ownerId: string;
-  projectId?: string;
-  category: 'lessons_learned' | 'environment_facts' | 'prompt_guidance';
-  model?: string;
-  scope?: 'project' | 'global';
-  recommendedScope?: 'project' | 'global';
-  status?: 'active' | 'pending_review';
-  title: string;
-  text: string;
-  source?: 'manual' | 'agent_tool' | 'post_run_extractor';
-  provenance?: {
-    experimentId?: string;
-    taskId?: string;
-    toolId?: string;
-    sources?: MemorySources;
-  };
-  createdAt: string;
-  updatedAt: string;
-  invalidAt?: string;
-  supersededBy?: string;
-  lastUsedAt?: string;
-  useCount?: number;
-}
-
-interface ConsolidationReport {
-  at: string;
-  indexed: number;
-  deduped: number;
-  promoted: number;
-  decayed: number;
-  live: number;
-}
 
 const CATEGORY_META = {
   lessons_learned: { label: 'Lessons Learned', icon: Lightbulb, color: 'text-amber-400 border-amber-800 bg-amber-950/40' },
@@ -70,7 +34,7 @@ export default function Memories({ sharedWith }: { sharedWith?: string[] | undef
   const [modelFilter, setModelFilter] = useState<string>(ANY_MODEL);
   const [sourceFilter, setSourceFilter] = useState<string>(ANY_SOURCE);
 
-  const { data: memories, isLoading } = useQuery<MemoryItem[]>({
+  const { data: memories, isLoading } = useQuery({
     queryKey: memoryKeys.list(),
     queryFn: listMemories,
   });
@@ -80,7 +44,7 @@ export default function Memories({ sharedWith }: { sharedWith?: string[] | undef
   const models = modelChoices(memories ?? [], providers ?? [], defaultModel?.defaultModelId);
 
   const operator = useCan()('administer');
-  const { data: consolidation } = useQuery<ConsolidationReport | null>({
+  const { data: consolidation } = useQuery({
     queryKey: memoryKeys.consolidation(),
     queryFn: getConsolidation,
     enabled: operator,
@@ -95,7 +59,7 @@ export default function Memories({ sharedWith }: { sharedWith?: string[] | undef
       setTitle('');
       setText('');
       setModel('');
-      invalidate();
+      void invalidate();
     },
   });
 
@@ -114,7 +78,7 @@ export default function Memories({ sharedWith }: { sharedWith?: string[] | undef
       updateMemory(item.id, item),
     onSuccess: () => {
       setEditingId(null);
-      invalidate();
+      void invalidate();
     },
   });
 

@@ -153,7 +153,10 @@ describe('a turn check as a form', () => {
 
   it('runs the turn procedure, expects only the choice, and treats a blank tool as answering without one', () => {
     const outcome = scenarioFromDraft({ ...emptyDraft('koala'), id: 'turn-declines', name: 'Declines', describe: 'x', message: 'What is a secret reference?', turn: true, toolsCalled: 'read_file', outcome: 'ok' })
-    expect(outcome).toEqual({ scenario: expect.objectContaining({ procedure: { id: 'turn-check' }, turn: true, expect: { chooses: { tool: null } } }) })
+    if (!('scenario' in outcome)) throw new Error(outcome.problems.join('; '))
+    expect(outcome.scenario.procedure).toEqual({ id: 'turn-check' })
+    expect(outcome.scenario.turn).toBe(true)
+    expect(outcome.scenario.expect).toEqual({ chooses: { tool: null } })
   })
 
   it('refuses repeats that are not a count, and a turn that is also a step', () => {

@@ -6,6 +6,7 @@ import { useQuery } from '@tanstack/react-query';
 import { getVpsCatalog } from '../api/vps-catalog';
 import VpsCatalog from './VpsCatalog';
 import { validateCredentials, saveCredentials } from '../api/credentials';
+import { errorMessage } from '../../../api/client';
 
 const catalogQueryFor = (providerValue: string) =>
   `provider=${providerValue}&provisionableOnly=true&arch=x86&minRamGb=8&sort=price&sortDir=asc&limit=100`;
@@ -169,8 +170,8 @@ export default function ClusterWizard({
     try {
       const data = await validateCredentials(credentialKey!, { token });
       setTokenResult({ valid: !!data.valid, ...(data.message !== undefined ? { message: data.message } : {}) });
-    } catch (err: any) {
-      setTokenResult({ valid: false, message: `Validation failed: ${err.message}` });
+    } catch (err) {
+      setTokenResult({ valid: false, message: `Validation failed: ${errorMessage(err)}` });
     } finally {
       setValidating(false);
     }
@@ -184,8 +185,8 @@ export default function ClusterWizard({
       setToken('');
       onCredentialsSaved?.();
       setStep(needsOptionsStep ? 3 : 1);
-    } catch (err: any) {
-      setTokenResult({ valid: false, message: `Could not save token: ${err.message}` });
+    } catch (err) {
+      setTokenResult({ valid: false, message: `Could not save token: ${errorMessage(err)}` });
     } finally {
       setSaving(false);
     }

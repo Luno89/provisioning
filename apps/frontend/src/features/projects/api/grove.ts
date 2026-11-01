@@ -119,20 +119,20 @@ export const setTreeModel = (id: string, agent: string, modelId: string | null):
 export const listTrees = (): Promise<Tree[]> => api.get<Tree[]>('/trees').then((r) => r.data)
 export const createTree = <T,>(body: unknown): Promise<T> =>
   api.post<T>('/trees', body).then((r) => r.data)
-export const deleteTree = (id: string) => api.delete(`/trees/${id}`).then((r) => r.data)
+export const deleteTree = (id: string) => api.delete<unknown>(`/trees/${id}`).then((r) => r.data)
 export const listBranches = (): Promise<Branch[]> =>
   api.get<Branch[]>('/branches').then((r) => r.data)
 
-export const deleteBranch = (id: string) => api.delete(`/branches/${id}`).then((r) => r.data)
+export const deleteBranch = (id: string) => api.delete<unknown>(`/branches/${id}`).then((r) => r.data)
 
 export const listLeaves = (): Promise<Leaf[]> => api.get<Leaf[]>('/leaves').then((r) => r.data)
-export const deleteLeaf = (id: string) => api.delete(`/leaves/${id}`).then((r) => r.data)
+export const deleteLeaf = (id: string) => api.delete<unknown>(`/leaves/${id}`).then((r) => r.data)
 
-export const cancelLeaf = (id: string) => api.post(`/leaves/${id}/cancel`, {}).then((r) => r.data)
+export const cancelLeaf = (id: string) => api.post<unknown>(`/leaves/${id}/cancel`, {}).then((r) => r.data)
 export const settleLeaf = (id: string, verdict: 'verified' | 'failed', note?: string) =>
-  api.post(`/leaves/${id}/settle`, { verdict, ...(note ? { note } : {}) }).then((r) => r.data)
+  api.post<unknown>(`/leaves/${id}/settle`, { verdict, ...(note ? { note } : {}) }).then((r) => r.data)
 export const retryLeaf = (id: string) =>
-  api.post(`/leaves/${id}/retry`, {}).then((r) => r.data)
+  api.post<unknown>(`/leaves/${id}/retry`, {}).then((r) => r.data)
 
 export const listTreeTypes = (): Promise<TreeType[]> =>
   api.get<TreeType[]>('/tree-types').then((r) => r.data)

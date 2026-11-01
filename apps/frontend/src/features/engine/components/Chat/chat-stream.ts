@@ -5,6 +5,16 @@ export interface ChatMessageRecord extends ChatMessageData {
   handoff?: boolean | undefined;
 }
 
+const NOT_JSON = Symbol('not JSON');
+
+function frameOf(payload: string): unknown {
+  try {
+    return JSON.parse(payload);
+  } catch {
+    return NOT_JSON;
+  }
+}
+
 /** One `data:` SSE frame at a time, shared by both scopes — they emit the exact same UnifiedFrame wire format. */
 export async function readSseFrames(body: ReadableStream<Uint8Array>, onFrame: (frame: unknown) => void): Promise<void> {
   const reader = body.getReader();
@@ -21,9 +31,12 @@ export async function readSseFrames(body: ReadableStream<Uint8Array>, onFrame: (
       if (!trimmed.startsWith('data: ')) continue;
       const payload = trimmed.slice(6).trim();
       if (!payload || payload === '[DONE]') continue;
-      try {
-        onFrame(JSON.parse(payload));
-      } catch { /* ignored */ }
+      const frame = frameOf(payload);
+      if (frame === NOT_JSON) {
+        console.warn(`a stream frame was not JSON, so it was skipped: ${payload.slice(0, 200)}`);
+        continue;
+      }
+      onFrame(frame);
     }
   }
 }

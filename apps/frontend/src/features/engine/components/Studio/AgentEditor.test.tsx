@@ -262,11 +262,11 @@ describe('the grants a procedure requires', () => {
     await userEvent.selectOptions(screen.getByLabelText('Procedure it runs'), 'do-one-task')
     await userEvent.click(screen.getByRole('button', { name: /Save/ }))
 
-    await waitFor(() => expect(saveAgent).toHaveBeenCalledWith(expect.objectContaining({
-      procedure: 'do-one-task',
-      tools: expect.arrayContaining(['mark_done']),
-      agents: expect.arrayContaining(['judge']),
-    })))
+    await waitFor(() => expect(saveAgent).toHaveBeenCalled())
+    const saved = vi.mocked(saveAgent).mock.calls.at(-1)?.[0]
+    expect(saved?.procedure).toBe('do-one-task')
+    expect(saved?.tools).toContain('mark_done')
+    expect(saved?.agents).toContain('judge')
   })
 })
 

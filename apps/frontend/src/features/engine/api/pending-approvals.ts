@@ -17,4 +17,4 @@ export const listPendingApprovals = (): Promise<PendingApproval[]> =>
   api.get<PendingApproval[]>('/pending-approvals').then((r) => r.data)
 
 export const decideApproval = (id: string, decision: 'approved' | 'denied') =>
-  api.post(`/pending-approvals/${id}/decide`, { decision }).then((r) => r.data)
+  api.post<unknown>(`/pending-approvals/${id}/decide`, { decision }).then((r) => r.data)

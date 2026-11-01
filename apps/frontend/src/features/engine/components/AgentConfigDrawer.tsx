@@ -60,7 +60,7 @@ export function AgentConfigDrawer({
   const commit = () => {
     if (!currentAgent) return;
     onSelectAgent(currentAgent.slug);
-    qc.invalidateQueries({ queryKey: agentKeys.all });
+    void qc.invalidateQueries({ queryKey: agentKeys.all });
     onClose();
   };
 

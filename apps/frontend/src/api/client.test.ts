@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { api, errorMessage, API_BASE, backendAddress } from './client'
+import { api, errorMessage, API_BASE, backendAddress, noneWhenMissing } from './client'
 
 describe('the shared api client', () => {
   it('carries credentials, so no call site has to remember to', () => {
@@ -26,6 +26,18 @@ describe('errorMessage', () => {
     expect(errorMessage(null)).toBe('Something went wrong.')
     expect(errorMessage({})).toBe('Something went wrong.')
     expect(errorMessage({ response: {} })).toBe('Something went wrong.')
+  })
+})
+
+describe('noneWhenMissing', () => {
+  it('takes a route this backend does not serve as nothing there', () => {
+    expect(noneWhenMissing({ response: { status: 404 } })).toBeNull()
+  })
+
+  it('lets every other failure through', () => {
+    const down = { response: { status: 502 } }
+    expect(() => noneWhenMissing(down)).toThrow()
+    expect(() => noneWhenMissing(new Error('Network Error'))).toThrow('Network Error')
   })
 })
 

@@ -1,6 +1,10 @@
 import { Shield, Loader2, Plus, Check, AlertTriangle, Puzzle, Terminal } from 'lucide-react';
 import type { UseMutationResult } from '@tanstack/react-query';
 import type { Dispatch, SetStateAction } from 'react';
+import { errorMessage } from '../../../api/client';
+import { useCopy } from '../../../shared/lib/use-copy';
+import type { Cluster } from '../types/cluster';
+import type { Deployment } from '../types/deployment';
 
 export default function NginxView({
   editorContent, setEditorContent, loadingNginxConfig, updateNginxConfig,
@@ -10,9 +14,9 @@ export default function NginxView({
   editorContent: string;
   setEditorContent: Dispatch<SetStateAction<string>>;
   loadingNginxConfig: boolean;
-  updateNginxConfig: UseMutationResult<any, any, string, any>;
-  deployments: any[];
-  clusters: any[];
+  updateNginxConfig: Pick<UseMutationResult<void, unknown, string>, 'mutate' | 'isPending' | 'isSuccess' | 'isError' | 'error'>;
+  deployments: Deployment[];
+  clusters: Pick<Cluster, 'id' | 'name'>[];
   vpnDomains: Record<string, string>;
   setVpnDomains: Dispatch<SetStateAction<Record<string, string>>>;
   onAddRoute: () => void;
@@ -55,7 +59,7 @@ export default function NginxView({
           )}
           {updateNginxConfig.isError && (
             <div className="mb-6 p-4 bg-red-500/10 border border-red-500/20 text-red-400 rounded-xl text-sm font-semibold flex items-center gap-2 animate-in fade-in zoom-in-95">
-              <AlertTriangle size={16} /> {(updateNginxConfig.error as any)?.response?.data?.error || updateNginxConfig.error.message}
+              <AlertTriangle size={16} /> {errorMessage(updateNginxConfig.error)}
             </div>
           )}
 
@@ -95,85 +99,17 @@ export default function NginxView({
                   </div>
                 ) : (
                   <div className="space-y-4 max-h-[40vh] overflow-y-auto pr-2 custom-scrollbar">
-                    {deployments.map((d: any) => {
-                      const cluster = clusters.find((c: any) => c.id === d.clusterId);
-                      const clusterName = cluster ? cluster.name : 'unknown';
-                      const ns = d.name.toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
-                      
-                      const serviceName = d.appType === 'prometheus' ? 'prometheus-server' : d.appType || 'odoo';
-                      const port = d.appType === 'odoo' ? '8069' : '80';
-                      const internalDns = `http://${serviceName}.${ns}.svc.cluster.local:${port}`;
-                      
-                      const domainKey = `${d.id}`;
-                      const currentDomain = vpnDomains[domainKey] || `${d.name.toLowerCase()}.vpn.local`;
-                      
-                      const nginxBlock = `
-  # Proxy configuration for ${d.name} (${d.appType}) on cluster ${clusterName}
-  server {
-      listen 80;
-      server_name ${currentDomain};
-
-      location / {
-          proxy_pass ${internalDns};
-          proxy_set_header Host $host;
-          proxy_set_header X-Real-IP $remote_addr;
-          proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-          proxy_set_header X-Forwarded-Proto $scheme;
-      }
-  }`;
-
-                      const handleInsert = () => {
-                        if (editorContent.includes('http {')) {
-                          const lastBraceIdx = editorContent.lastIndexOf('}');
-                          if (lastBraceIdx !== -1) {
-                            const newContent = editorContent.slice(0, lastBraceIdx) + nginxBlock + '\n' + editorContent.slice(lastBraceIdx);
-                            setEditorContent(newContent);
-                            return;
-                          }
-                        }
-                        setEditorContent(prev => prev + '\n' + nginxBlock);
-                      };
-
-                      return (
-                        <div key={d.id} className="p-4 bg-slate-900/60 border border-slate-700/60 rounded-xl space-y-3">
-                          <div className="flex justify-between items-center">
-                            <span className="font-bold text-slate-200 text-xs">{d.name}</span>
-                            <span className="text-[9px] px-2 py-0.5 rounded bg-blue-500/10 text-blue-400 font-mono font-bold uppercase">{d.appType || 'odoo'}</span>
-                          </div>
-                          <div className="text-[10px] text-slate-400 space-y-1">
-                            <div><span className="text-slate-500">Cluster:</span> <span className="font-mono text-slate-300">{clusterName}</span></div>
-                            <div><span className="text-slate-500">Namespace:</span> <span className="font-mono text-slate-300">{ns}</span></div>
-                            <div><span className="text-slate-500">Internal DNS:</span> <span className="font-mono text-[9px] text-slate-300">{internalDns}</span></div>
-                          </div>
-                          <div>
-                            <label className="block text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1.5">Proxy Hostname</label>
-                            <input 
-                              type="text"
-                              value={currentDomain}
-                              onChange={e => setVpnDomains(prev => ({ ...prev, [domainKey]: e.target.value }))}
-                              className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-slate-300 focus:border-blue-500 transition-all font-mono"
-                              placeholder="e.g. app.vpn.local"
-                            />
-                          </div>
-                          <div className="flex gap-2 pt-1">
-                            <button 
-                              onClick={handleInsert}
-                              className="flex-1 bg-blue-600 hover:bg-blue-500 text-white font-bold py-1.5 px-3 rounded-lg text-[10px] transition-all flex items-center justify-center gap-1 cursor-pointer"
-                            >
-                              <Plus size={12} /> Inject config
-                            </button>
-                            <button 
-                              onClick={() => {
-                                navigator.clipboard.writeText(nginxBlock);
-                              }}
-                              className="bg-slate-700 hover:bg-slate-600 text-slate-300 font-bold py-1.5 px-3 rounded-lg text-[10px] transition-all cursor-pointer"
-                            >
-                              Copy
-                            </button>
-                          </div>
-                        </div>
-                      );
-                    })}
+                    {deployments.map((d) => (
+                      <RouteHelper
+                        key={d.id}
+                        deployment={d}
+                        clusterName={clusters.find((c) => c.id === d.clusterId)?.name ?? 'unknown'}
+                        domain={vpnDomains[d.id] || `${d.name.toLowerCase()}.vpn.local`}
+                        onDomain={(domain) => setVpnDomains((prev) => ({ ...prev, [d.id]: domain }))}
+                        editorContent={editorContent}
+                        setEditorContent={setEditorContent}
+                      />
+                    ))}
                   </div>
                 )}
               </div>
@@ -207,5 +143,84 @@ export default function NginxView({
             </div>
           </div>
         </section>
+  );
+}
+
+function RouteHelper({ deployment: d, clusterName, domain, onDomain, editorContent, setEditorContent }: {
+  deployment: Deployment;
+  clusterName: string;
+  domain: string;
+  onDomain: (domain: string) => void;
+  editorContent: string;
+  setEditorContent: Dispatch<SetStateAction<string>>;
+}) {
+  const copying = useCopy();
+  const ns = d.name.toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
+  const serviceName = d.appType === 'prometheus' ? 'prometheus-server' : d.appType || 'odoo';
+  const port = d.appType === 'odoo' ? '8069' : '80';
+  const internalDns = `http://${serviceName}.${ns}.svc.cluster.local:${port}`;
+
+  const nginxBlock = `
+  # Proxy configuration for ${d.name} (${d.appType}) on cluster ${clusterName}
+  server {
+      listen 80;
+      server_name ${domain};
+
+      location / {
+          proxy_pass ${internalDns};
+          proxy_set_header Host $host;
+          proxy_set_header X-Real-IP $remote_addr;
+          proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+          proxy_set_header X-Forwarded-Proto $scheme;
+      }
+  }`;
+
+  const handleInsert = () => {
+    if (editorContent.includes('http {')) {
+      const lastBraceIdx = editorContent.lastIndexOf('}');
+      if (lastBraceIdx !== -1) {
+        setEditorContent(editorContent.slice(0, lastBraceIdx) + nginxBlock + '\n' + editorContent.slice(lastBraceIdx));
+        return;
+      }
+    }
+    setEditorContent(prev => prev + '\n' + nginxBlock);
+  };
+
+  return (
+    <div className="p-4 bg-slate-900/60 border border-slate-700/60 rounded-xl space-y-3">
+      <div className="flex justify-between items-center">
+        <span className="font-bold text-slate-200 text-xs">{d.name}</span>
+        <span className="text-[9px] px-2 py-0.5 rounded bg-blue-500/10 text-blue-400 font-mono font-bold uppercase">{d.appType || 'odoo'}</span>
+      </div>
+      <div className="text-[10px] text-slate-400 space-y-1">
+        <div><span className="text-slate-500">Cluster:</span> <span className="font-mono text-slate-300">{clusterName}</span></div>
+        <div><span className="text-slate-500">Namespace:</span> <span className="font-mono text-slate-300">{ns}</span></div>
+        <div><span className="text-slate-500">Internal DNS:</span> <span className="font-mono text-[9px] text-slate-300">{internalDns}</span></div>
+      </div>
+      <div>
+        <label className="block text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1.5">Proxy Hostname</label>
+        <input
+          type="text"
+          value={domain}
+          onChange={e => onDomain(e.target.value)}
+          className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-slate-300 focus:border-blue-500 transition-all font-mono"
+          placeholder="e.g. app.vpn.local"
+        />
+      </div>
+      <div className="flex gap-2 pt-1">
+        <button
+          onClick={handleInsert}
+          className="flex-1 bg-blue-600 hover:bg-blue-500 text-white font-bold py-1.5 px-3 rounded-lg text-[10px] transition-all flex items-center justify-center gap-1 cursor-pointer"
+        >
+          <Plus size={12} /> Inject config
+        </button>
+        <button
+          onClick={() => copying.copy(nginxBlock)}
+          className="bg-slate-700 hover:bg-slate-600 text-slate-300 font-bold py-1.5 px-3 rounded-lg text-[10px] transition-all cursor-pointer"
+        >
+          {copying.state === 'copied' ? 'Copied' : copying.state === 'failed' ? 'Could not copy' : 'Copy'}
+        </button>
+      </div>
+    </div>
   );
 }

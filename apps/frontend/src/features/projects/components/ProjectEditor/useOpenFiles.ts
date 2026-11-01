@@ -60,7 +60,7 @@ export function useOpenFiles(projectId: string) {
       const result = await saveProjectFileContent(projectId, { path, content: file.content, sha: file.sha })
       setOpenFiles((fs) => fs.map((f) => (f.path === path ? { ...f, savedContent: f.content, sha: result.sha } : f)))
       setConflictPath(null)
-      qc.invalidateQueries({ queryKey: ['project-files', projectId] })
+      void qc.invalidateQueries({ queryKey: ['project-files', projectId] })
     } catch (err) {
       if (axios.isAxiosError(err) && err.response?.status === 409) setConflictPath(path)
       else setOpenFiles((fs) => fs.map((f) => (f.path === path ? { ...f, error: errorMessage(err) } : f)))
@@ -75,7 +75,7 @@ export function useOpenFiles(projectId: string) {
     try {
       await deleteProjectFile(projectId, path, file.sha)
       closeFile(path)
-      qc.invalidateQueries({ queryKey: ['project-files', projectId] })
+      void qc.invalidateQueries({ queryKey: ['project-files', projectId] })
     } catch (err) {
       if (axios.isAxiosError(err) && err.response?.status === 409) setConflictPath(path)
       else setOpenFiles((fs) => fs.map((f) => (f.path === path ? { ...f, error: errorMessage(err) } : f)))
