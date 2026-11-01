@@ -1,3 +1,5 @@
+import { fieldOf } from './json-shapes.js';
+
 export const TRAEFIK_CHART_REPO = 'https://traefik.github.io/charts';
 
 export interface HelmRelease {
@@ -15,8 +17,8 @@ export function traefikOf(releases: readonly HelmRelease[]): TraefikKind {
   return { kind: 'none' };
 }
 
-export const servicesLabelled = (values: { metrics?: { prometheus?: { addServicesLabels?: unknown } } } | null | undefined): boolean =>
-  values?.metrics?.prometheus?.addServicesLabels === true;
+export const servicesLabelled = (values: unknown): boolean =>
+  fieldOf(fieldOf(fieldOf(values, 'metrics'), 'prometheus'), 'addServicesLabels') === true;
 
 export function ourTraefikArgs(version: string): string[] {
   return [
@@ -46,8 +48,9 @@ export const K3S_TRAEFIK_CONFIG = {
 
 export type K3sConfigState = 'missing' | 'ours' | 'theirs';
 
-export function k3sConfigState(existing: { metadata?: { labels?: Record<string, string> }; spec?: { valuesContent?: string } } | undefined): K3sConfigState {
+export function k3sConfigState(existing: unknown): K3sConfigState {
   if (!existing) return 'missing';
-  if (existing.metadata?.labels?.['koala.dev/managed'] === 'request-metrics' && existing.spec?.valuesContent === K3S_TRAEFIK_VALUES) return 'ours';
-  return existing.metadata?.labels?.['koala.dev/managed'] === 'request-metrics' ? 'missing' : 'theirs';
+  const managed = fieldOf(fieldOf(fieldOf(existing, 'metadata'), 'labels'), 'koala.dev/managed') === 'request-metrics';
+  if (managed && fieldOf(fieldOf(existing, 'spec'), 'valuesContent') === K3S_TRAEFIK_VALUES) return 'ours';
+  return managed ? 'missing' : 'theirs';
 }

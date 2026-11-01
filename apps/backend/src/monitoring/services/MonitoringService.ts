@@ -24,6 +24,8 @@ import {
 } from '../lib/monitoring-history.js';
 import type { AlertEpisode, MonitoringSetting } from '../lib/monitoring-records.js';
 import { namespaceOf } from '../../infrastructure/index.js';
+import { firstRange, instantSamples, promAlerts, promAnswer } from '../lib/prometheus-answers.js';
+import { ignore } from '@koala/engine-core/failures';
 
 export interface Sample {
   metric: Record<string, string>;
@@ -65,25 +67,26 @@ export interface PoolMonitor extends MetricsClient {
 
 export function prometheusAt(base: string, fetchImpl: typeof fetch = fetch): PrometheusClient {
   const root = base.endsWith('/') ? base : `${base}/`;
-  const get = async (path: string): Promise<any> => {
+  const get = async (path: string): Promise<unknown> => {
     const response = await fetchImpl(`${root}api/v1/${path}`);
-    const body = await response.json().catch(() => undefined) as { status?: string; data?: unknown; error?: string } | undefined;
-    if (!response.ok || body?.status !== 'success') throw new Error(`Prometheus answered ${response.status}${body?.error ? `: ${body.error}` : ''}`);
-    return body.data;
+    const text = await response.text();
+    let body: unknown;
+    try {
+      body = JSON.parse(text) as unknown;
+    } catch {
+      throw new Error(`Prometheus answered ${response.status} with no JSON: ${text.slice(0, 200)}`);
+    }
+    return promAnswer(response.ok, response.status, body);
   };
   return {
     async query(query) {
-      const data = await get(`query?query=${encodeURIComponent(query)}`);
-      return (data.result as Array<{ metric: Record<string, string>; value: [number, string] }>).map((entry) => ({ metric: entry.metric, value: Number(entry.value[1]) }));
+      return instantSamples(await get(`query?query=${encodeURIComponent(query)}`));
     },
     async range(query, start, end, step) {
-      const data = await get(`query_range?query=${encodeURIComponent(query)}&start=${start}&end=${end}&step=${step}`);
-      const first = (data.result as Array<{ values: Array<[number, string]> }>)[0];
-      return (first?.values ?? []).map(([at, value]) => [at, Number(value)] as [number, number]).filter(([, value]) => Number.isFinite(value));
+      return firstRange(await get(`query_range?query=${encodeURIComponent(query)}&start=${start}&end=${end}&step=${step}`));
     },
     async alerts() {
-      const data = await get('alerts');
-      return data.alerts as PromAlert[];
+      return promAlerts(await get('alerts'));
     },
   };
 }
@@ -258,8 +261,8 @@ export class MonitoringService {
       await prometheus.query('vector(1)');
       return { cluster, state: 'ok', metrics: metricsOf(prometheus) };
     } catch (err) {
-      const monitoring = await this.deps.kubectl(cluster, ['get', 'service', 'kube-prometheus-stack-prometheus', '-n', 'monitoring', '--ignore-not-found', '-o', 'name']).catch(() => undefined);
-      if (monitoring === undefined) return { cluster, state: 'unreachable', reason: 'it does not answer' };
+      const monitoring = await this.deps.kubectl(cluster, ['get', 'service', 'kube-prometheus-stack-prometheus', '-n', 'monitoring', '--ignore-not-found', '-o', 'name']).catch((failure: unknown) => failure as Error);
+      if (monitoring instanceof Error) return { cluster, state: 'unreachable', reason: `it does not answer (${monitoring.message})` };
       if (monitoring.trim() === '') return { cluster, state: 'installing', reason: 'its monitoring is installed before its next app is deployed' };
       return { cluster, state: 'unreachable', reason: `its Prometheus does not answer (${(err as Error).message})` };
     }
@@ -274,12 +277,12 @@ export class MonitoringService {
     const days = setting?.historyDays ?? DEFAULT_HISTORY_DAYS;
     const pool = this.deps.pool?.(cluster);
     if (pool) {
-      const kept = await pool.history().catch(() => undefined);
+      const kept = await pool.history().catch(ignore('when Koala\'s servers cannot say how long they keep history, how much is kept is shown as not known'));
       return { days: kept?.days ?? DEFAULT_HISTORY_DAYS, kept: kept?.kept, applied: true, can: [], byKoala: true };
     }
     const can: HistoryAction[] = viewer && this.ownsCluster(viewer, cluster) ? ['change'] : [];
     if (reached && reached.state !== 'ok') return { days, applied: false, can, ...(setting?.problem ? { problem: setting.problem } : {}) };
-    const now = await this.prometheusResource(cluster).catch(() => undefined);
+    const now = await this.prometheusResource(cluster).catch(ignore('a Prometheus that cannot be read is shown keeping an unknown history, not applied'));
     return {
       days,
       kept: keptDays(now?.retention),
@@ -291,11 +294,11 @@ export class MonitoringService {
 
   private async prometheusResource(cluster: ClusterMetadata) {
     const json = await this.deps.kubectl(cluster, ['get', 'prometheus', 'kube-prometheus-stack-prometheus', '-n', 'monitoring', '-o', 'json']);
-    return prometheusNow(JSON.parse(json));
+    return prometheusNow(JSON.parse(json) as unknown);
   }
 
   async servicesOf(metrics: MetricsClient, namespace: string): Promise<string[]> {
-    const samples = await metrics.ask({ kind: 'services', namespace }).catch(() => []);
+    const samples = await metrics.ask({ kind: 'services', namespace }).catch(ignore('with no services known, the app\'s requests are shown as not measured')) ?? [];
     return [...new Set(samples.map((sample) => sample.metric.service).filter((name): name is string => Boolean(name)))];
   }
 
@@ -303,11 +306,11 @@ export class MonitoringService {
     const numbers: AppNumbers = {};
     await Promise.all([
       ...APP_QUESTIONS.map(async (question) => {
-        const value = first(await metrics.ask({ kind: 'app', question, subject }).catch(() => []));
-        numbers[question] = value ?? (COUNTED.has(question) ? 0 : undefined);
+        const samples = await metrics.ask({ kind: 'app', question, subject }).catch(ignore('a question Prometheus could not answer is shown as not measured'));
+        numbers[question] = samples && (first(samples) ?? (COUNTED.has(question) ? 0 : undefined));
       }),
       ...([['uptimeDay', 'uptime', 86_400], ['uptimeWeek', 'uptime', 604_800], ['uptimeKept', 'uptime', kept * 86_400], ['restartsDay', 'restarts', 86_400]] as const).map(async ([key, question, seconds]) => {
-        numbers[key] = first(await metrics.ask({ kind: 'window', question, subject, seconds }).catch(() => []));
+        numbers[key] = first(await metrics.ask({ kind: 'window', question, subject, seconds }).catch(ignore('a question Prometheus could not answer is shown as not measured')) ?? []);
       }),
     ]);
     if (!numbers.probed) {
@@ -321,8 +324,8 @@ export class MonitoringService {
   async clusterNumbers(metrics: MetricsClient): Promise<ClusterNumbers> {
     const numbers: ClusterNumbers = {};
     await Promise.all(CLUSTER_QUESTIONS.map(async (question) => {
-      const value = first(await metrics.ask({ kind: 'cluster', question }).catch(() => []));
-      numbers[question] = value ?? (COUNTED.has(question) ? 0 : undefined);
+      const samples = await metrics.ask({ kind: 'cluster', question }).catch(ignore('a question Prometheus could not answer is shown as not measured'));
+      numbers[question] = samples && (first(samples) ?? (COUNTED.has(question) ? 0 : undefined));
     }));
     return numbers;
   }
@@ -337,16 +340,20 @@ export class MonitoringService {
     };
   }
 
-  private async telemetryOn(cluster: ClusterMetadata): Promise<TelemetrySeen> {
-    const present = async (name: string) => (await this.deps.kubectl(cluster, ['get', 'service', name, '-n', 'monitoring', '--ignore-not-found', '-o', 'name']).catch(() => '')).trim() !== '';
-    const [collector, tempo] = await Promise.all([present(TELEMETRY_SERVICES.collector), present(TELEMETRY_SERVICES.tempo)]);
-    return { collector, tempo };
+  private async telemetryOn(cluster: ClusterMetadata): Promise<{ seen: TelemetrySeen; problem?: string }> {
+    const present = async (name: string) => (await this.deps.kubectl(cluster, ['get', 'service', name, '-n', 'monitoring', '--ignore-not-found', '-o', 'name'])).trim() !== '';
+    try {
+      const [collector, tempo] = await Promise.all([present(TELEMETRY_SERVICES.collector), present(TELEMETRY_SERVICES.tempo)]);
+      return { seen: { collector, tempo } };
+    } catch (err) {
+      return { seen: { collector: false, tempo: false }, problem: (err as Error).message };
+    }
   }
 
   async koalaNumbers(metrics: MetricsClient): Promise<KoalaNumbers> {
     const numbers: KoalaNumbers = {};
     await Promise.all(KOALA_QUESTIONS.map(async (question) => {
-      numbers[question] = first(await metrics.ask({ kind: 'koala', question }).catch(() => []));
+      numbers[question] = first(await metrics.ask({ kind: 'koala', question }).catch(ignore('a question Prometheus could not answer is shown as not measured')) ?? []);
     }));
     return numbers;
   }
@@ -356,16 +363,18 @@ export class MonitoringService {
     const system = await this.deps.systemCluster();
     if (!system) return { state: 'unreachable', reasons: ['there is no system cluster'], numbers: {}, services: [], lines: ['Koala cannot be reached: there is no system cluster.'], telemetry: { collector: false, tempo: false }, checkedAt };
     const reached = await this.reach(system);
-    const telemetry = await this.telemetryOn(system);
+    const { seen: telemetry, problem: telemetryProblem } = await this.telemetryOn(system);
     const unmeasured = (state: HealthState, reason: string): KoalaView =>
       ({ state, reasons: [reason], numbers: {}, services: [], lines: koalaLines({ state, reasons: [reason] }, {}, []), telemetry, checkedAt });
     if (!reached.metrics) return unmeasured(reached.state, `its cluster ${reached.reason ?? 'cannot be reached'}`);
     if (this.isPool(system)) return unmeasured('unreachable', 'Koala\'s own telemetry is not kept on Koala\'s servers');
+    if (telemetryProblem) return unmeasured('unreachable', `its cluster could not say whether its collector and Tempo are there (${telemetryProblem})`);
     if (!telemetry.collector || !telemetry.tempo) return unmeasured('installing', 'its collector and Tempo are installed when the cluster worker starts or an app is deployed');
     const [numbers, reporting] = await Promise.all([
       this.koalaNumbers(reached.metrics),
-      reached.metrics.ask({ kind: 'koalaServices' }).catch(() => []),
+      reached.metrics.ask({ kind: 'koalaServices' }).catch((failure: unknown) => failure as Error),
     ]);
+    if (reporting instanceof Error) return unmeasured('unreachable', `its Prometheus could not say which parts of Koala report (${reporting.message})`);
     const services = [...new Set(reporting.map((sample) => sample.metric.service_name).filter((name): name is string => Boolean(name)))].sort();
     const verdict = koalaVerdict(numbers, services);
     const firing = (await this.firingOn(viewer, reached, [])).filter((alert) => alert.about.kind === 'koala').map((alert) => alert.summary);
@@ -376,7 +385,10 @@ export class MonitoringService {
 
   async firingOn(viewer: Viewer, reached: Reached, apps: DeploymentMetadata[]): Promise<VisibleAlert[]> {
     if (!reached.metrics) return [];
-    const alerts = await reached.metrics.alerts().catch(() => []);
+    const alerts = await reached.metrics.alerts().catch((err: unknown) => {
+      console.warn(`[Monitoring] ${reached.cluster.name}'s Prometheus could not list its alerts, so none are shown firing: ${(err as Error).message}`);
+      return [];
+    });
     return visibleAlerts(alerts, await this.scopeFor(viewer, reached.cluster, apps));
   }
 
@@ -454,7 +466,7 @@ export class MonitoringService {
       const namespace = namespaceOf(dep);
       const subject = { namespace, services: await this.servicesOf(metrics, namespace) };
       await Promise.all(APP_CHARTS.map(async (chart: AppChart) => {
-        const points = await metrics.askRange({ kind: 'appChart', chart, subject }, window).catch(() => []);
+        const points = await metrics.askRange({ kind: 'appChart', chart, subject }, window).catch(ignore('a chart Prometheus could not draw is left out, which shows it as not measured')) ?? [];
         if (points.length) series.push({ chart, points });
       }));
     }
@@ -489,7 +501,7 @@ export class MonitoringService {
     if (reached.metrics) {
       const metrics = reached.metrics;
       await Promise.all(CLUSTER_CHARTS.map(async (chart: ClusterChart) => {
-        const points = await metrics.askRange({ kind: 'clusterChart', chart }, window).catch(() => []);
+        const points = await metrics.askRange({ kind: 'clusterChart', chart }, window).catch(ignore('a chart Prometheus could not draw is left out, which shows it as not measured')) ?? [];
         if (points.length) series.push({ chart, points });
       }));
     }
@@ -552,7 +564,7 @@ export class MonitoringService {
     if (this.isPool(cluster)) return false;
     const setting = await this.settingOf(cluster.id);
     const days = setting?.historyDays ?? DEFAULT_HISTORY_DAYS;
-    const now = await this.prometheusResource(cluster).catch(() => undefined);
+    const now = await this.prometheusResource(cluster).catch(ignore('a Prometheus that cannot be read now has its history applied on the watcher\'s next pass'));
     if (!now || historyApplied(now, days)) return false;
     try {
       const releases = JSON.parse(await this.deps.helm(cluster, ['list', '-n', 'monitoring', '-o', 'json'])) as Array<{ name?: string; chart?: string }>;
@@ -573,13 +585,13 @@ export class MonitoringService {
     const traefik = traefikOf(releases);
     if (traefik.kind === 'none') return { problem: 'the cluster has no Traefik, so requests cannot be counted' };
     if (traefik.kind === 'ours') {
-      const values = JSON.parse(await this.deps.helm(cluster, ['get', 'values', 'traefik', '-n', 'traefik', '-o', 'json']));
+      const values: unknown = JSON.parse(await this.deps.helm(cluster, ['get', 'values', 'traefik', '-n', 'traefik', '-o', 'json']));
       if (servicesLabelled(values)) return 'already';
       await this.deps.helm(cluster, ourTraefikArgs(traefik.version));
       return 'applied';
     }
     const existing = await this.deps.kubectl(cluster, ['get', 'helmchartconfig', 'traefik', '-n', 'kube-system', '--ignore-not-found', '-o', 'json']);
-    const state = k3sConfigState(existing.trim() ? JSON.parse(existing) : undefined);
+    const state = k3sConfigState(existing.trim() ? JSON.parse(existing) as unknown : undefined);
     if (state === 'ours') return 'already';
     if (state === 'theirs') return { problem: 'k3s\'s Traefik has settings of its own here, so request counting was not switched on' };
     await this.deps.apply(cluster, JSON.stringify(K3S_TRAEFIK_CONFIG));

@@ -7,6 +7,7 @@ import { appQuery, appWindowQuery, clusterQuery, koalaQuery, koalaServicesQuery,
 import { RULE_LABEL, alertSpec, koalaAlertExpression, type AlertSpec, type PromAlert } from '../lib/monitoring-alerts.js';
 import { MonitoringService, type MonitoringDeps, type PrometheusClient, type Sample } from './MonitoringService.js';
 import { AlertWatchService } from './AlertWatchService.js';
+import { at, containing } from '../../platform/lib/test-matchers.js';
 
 const NOW = new Date('2026-10-17T12:00:00Z');
 const ME = principalOf({ id: 'me' }, { role: 'instance', instanceOwnerId: 'me' });
@@ -198,7 +199,7 @@ describe('alert rules', () => {
   it('becomes a PrometheusRule on the app\'s cluster and a record', async () => {
     const rule = await monitoring.addRule(ME, 'books', alertSpec('down') as AlertSpec, 'conv-1');
     expect(rule).toMatchObject({ id: 'rule-1', summary: 'Books has not answered for 5 minutes', conversationId: 'conv-1' });
-    expect(JSON.parse(applied[0]!).spec.groups[0].rules[0].expr).toBe('max(probe_success{namespace="books"}) < 1');
+    expect(at(JSON.parse(applied[0]!), 'spec', 'groups', 0, 'rules', 0, 'expr')).toBe('max(probe_success{namespace="books"}) < 1');
     expect(await db.monitoring.getAlertRules('me')).toHaveLength(1);
   });
 
@@ -212,7 +213,7 @@ describe('alert rules', () => {
 
   it('says why one cannot be proposed', async () => {
     expect(await monitoring.proposeAlertProblem(ME, 'Nope', alertSpec('down') as AlertSpec)).toEqual({ error: 'no app called Nope; yours are: Books' });
-    expect(await monitoring.proposeAlertProblem(ME, 'books', alertSpec('errors') as AlertSpec)).toMatchObject({ summary: expect.stringContaining('of its requests') });
+    expect(await monitoring.proposeAlertProblem(ME, 'books', alertSpec('errors') as AlertSpec)).toMatchObject({ summary: containing('of its requests') });
   });
 });
 

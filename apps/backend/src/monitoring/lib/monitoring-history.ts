@@ -1,3 +1,5 @@
+import { fieldOf, textAt } from '../../platform/lib/json-shapes.js';
+
 export const DEFAULT_HISTORY_DAYS = 10;
 export const MIN_HISTORY_DAYS = 1;
 export const MAX_HISTORY_DAYS = 365;
@@ -31,11 +33,12 @@ export interface PrometheusNow {
   durable: boolean;
 }
 
-export function prometheusNow(resource: { spec?: { retention?: string; retentionSize?: string; storage?: { volumeClaimTemplate?: unknown } } }): PrometheusNow {
+export function prometheusNow(resource: unknown): PrometheusNow {
+  const spec = fieldOf(resource, 'spec');
   return {
-    retention: resource.spec?.retention,
-    retentionSize: resource.spec?.retentionSize,
-    durable: Boolean(resource.spec?.storage?.volumeClaimTemplate),
+    retention: textAt(spec, 'retention'),
+    retentionSize: textAt(spec, 'retentionSize'),
+    durable: Boolean(fieldOf(fieldOf(spec, 'storage'), 'volumeClaimTemplate')),
   };
 }
 

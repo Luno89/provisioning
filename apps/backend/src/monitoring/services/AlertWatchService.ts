@@ -62,7 +62,10 @@ export class AlertWatchService {
       if (!reached.metrics) continue;
       await this.deps.monitoring.syncPoolProbes(cluster).catch((err: Error) => this.deps.log?.(`[alerts] ${cluster.name}: its probes were not handed to Koala's servers (${err.message})`));
       await this.reconcileHistory(cluster);
-      const alerts = await reached.metrics.alerts().catch(() => undefined);
+      const alerts = await reached.metrics.alerts().catch((err: Error) => {
+        this.deps.log?.(`[alerts] ${cluster.name}: its alerts could not be read, so none are opened or resolved this pass (${err.message})`);
+        return undefined;
+      });
       if (!alerts) continue;
       const onCluster = apps.filter((dep) => dep.clusterId === cluster.id);
       const owners = new Set<string>([
@@ -77,7 +80,10 @@ export class AlertWatchService {
     const last = this.historyTried.get(cluster.id);
     if (last !== undefined && this.now().getTime() - last < HISTORY_RETRY_MS) return;
     this.historyTried.set(cluster.id, this.now().getTime());
-    const changed = await this.deps.monitoring.applyHistory(cluster).catch(() => false);
+    const changed = await this.deps.monitoring.applyHistory(cluster).catch((err: Error) => {
+      this.deps.log?.(`[alerts] ${cluster.name}: its history could not be set (${err.message})`);
+      return false;
+    });
     if (changed) this.deps.log?.(`[alerts] ${cluster.name} now keeps the history it was set to`);
     const counting = await this.deps.monitoring.applyRequestMetrics(cluster).catch((err: Error) => ({ problem: err.message }));
     if (counting === 'applied') this.deps.log?.(`[alerts] ${cluster.name} now counts each app's requests`);

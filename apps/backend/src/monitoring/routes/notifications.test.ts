@@ -9,6 +9,7 @@ import { NotificationService } from '../services/NotificationService.js';
 import { PushService } from '../services/PushService.js';
 import { vapidKeysFrom } from '../lib/web-push.js';
 import type { InstanceService } from '../../instances/services/InstanceService.js';
+import { matching } from '../../platform/lib/test-matchers.js';
 
 let harness: Harness;
 let sent: Array<{ to: string; subject: string }>;
@@ -79,7 +80,7 @@ describe('root sending for an instance', () => {
       expect((await axios.post(harness.url('/api/instances/mail'), { subject: `Alert ${index}`, text: 'y' }, as('cred'))).data).toEqual({ sent: true });
       now += 1000;
     }
-    await expect(axios.post(harness.url('/api/instances/mail'), { subject: 'Alert 60', text: 'y' }, as('cred'))).rejects.toMatchObject({ response: { status: 429, data: { error: expect.stringMatching(/held back until 2026-10-26T13:00:00.000Z/) } } });
+    await expect(axios.post(harness.url('/api/instances/mail'), { subject: 'Alert 60', text: 'y' }, as('cred'))).rejects.toMatchObject({ response: { status: 429, data: { error: matching(/held back until 2026-10-26T13:00:00.000Z/) } } });
     await expect(axios.post(harness.url('/api/instances/mail'), { subject: 'Alert 61', text: 'y' }, as('cred'))).rejects.toMatchObject({ response: { status: 429 } });
     expect(sent.map((mail) => (mail as { subject: string }).subject).slice(-2)).toEqual(['Alert 59', 'Koala is holding back email from your instance']);
     expect(sent).toHaveLength(61);
@@ -111,7 +112,7 @@ describe('/api/notifications/push', () => {
     expect((await axios.post(harness.url('/api/notifications/push/test'))).data).toEqual({ sent: 1 });
     expect(pushed).toEqual([subscription.endpoint]);
     await expect(axios.post(harness.url('/api/notifications/push'), { subscription: { endpoint: 'http://plain' } })).rejects.toMatchObject({ response: { status: 400 } });
-    expect((await axios.delete(harness.url(`/api/notifications/push/${added.devices[0]!.id}`))).data.devices).toEqual([]);
+    expect((await axios.delete<{ devices: unknown[] }>(harness.url(`/api/notifications/push/${added.devices[0]!.id}`))).data.devices).toEqual([]);
     await expect(axios.delete(harness.url('/api/notifications/push/nope'))).rejects.toMatchObject({ response: { status: 404 } });
   });
 
