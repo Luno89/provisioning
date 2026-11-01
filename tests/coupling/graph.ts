@@ -37,13 +37,14 @@ export interface Graph {
 
 export interface CrossProcess { to: ts.Node[]; through: 'temporal'; device?: boolean }
 
-export interface ChannelEnd { kind: 'socket' | 'http'; name: string; side: 'sends' | 'hears'; handler?: ts.Node }
+export interface ChannelEnd { kind: 'socket' | 'http' | 'env'; name: string; side: 'sends' | 'hears'; handler?: ts.Node }
 
 export interface Project {
   tsconfig: string;
   owns: (file: string) => boolean;
   crossing?: (program: ts.Program) => (call: ts.CallExpression) => CrossProcess | undefined;
   channels?: (program: ts.Program) => (call: ts.CallExpression) => ChannelEnd[] | undefined;
+  readers?: (program: ts.Program) => (node: ts.Node) => ChannelEnd[] | undefined;
 }
 
 export interface GraphOptions {
@@ -131,6 +132,7 @@ export function buildGraph(options: GraphOptions): Graph {
     const sources = program.getSourceFiles().filter((source) => ownCode(source.fileName));
     const crossing = project.crossing?.(program);
     const channels = project.channels?.(program);
+    const readers = project.readers?.(program);
 
     const aliased = (symbol: ts.Symbol | undefined): ts.Symbol | undefined => (symbol && symbol.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(symbol) : symbol);
     const functionOf = (node: ts.Node | undefined, depth = 0): ts.Node | undefined => {
@@ -244,6 +246,10 @@ export function buildGraph(options: GraphOptions): Graph {
       const file = at(source.fileName);
       if (!project.owns(file) || !options.calledFrom(file)) continue;
       const visit = (node: ts.Node) => {
+        for (const end of readers?.(node) ?? []) {
+          const site = siteOf(node);
+          ends.push({ kind: end.kind, name: end.name, side: end.side, from: enclosing(node).id, site });
+        }
         if (ts.isCallExpression(node) || ts.isNewExpression(node)) {
           const site = siteOf(node);
           const key = `${site.file}:${site.start}:${site.end}`;
@@ -295,7 +301,7 @@ export function buildGraph(options: GraphOptions): Graph {
     const partners = (byKind.get(end.kind) ?? []).filter((other) => other.side !== end.side && (end.side === 'sends' ? match(end.name, other.name) : match(other.name, end.name)));
     if (partners.length === 0) unmatched.push({ kind: end.kind, name: end.name, side: end.side, site: end.site });
     if (end.side !== 'sends' || partners.length === 0) continue;
-    const to = [...new Set(partners.map((partner) => partner.handler).filter((id): id is string => id !== undefined))];
+    const to = [...new Set(partners.map((partner) => partner.handler ?? partner.from))];
     edges.push({ from: end.from, site: end.site, to, through: end.kind });
   }
   return { units, edges, unresolved, unmatched };

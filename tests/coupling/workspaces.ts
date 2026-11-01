@@ -1,5 +1,6 @@
 import { join } from 'node:path';
 import type { CrossProcess, Project } from './graph.js';
+import { chartEnv, envChannels } from './env-edges.js';
 import { httpChannels, httpMatches } from './http-routes.js';
 import { shellEnds, shellScripts } from './shell-edges.js';
 import { socketChannels } from './socket-edges.js';
@@ -41,7 +42,7 @@ export const projectsOf = (root: string, workspaces: readonly Workspace[] = WORK
     tsconfig: join(root, workspace.folder, workspace.tsconfig),
     owns: (file) => workspaceOf(file) === workspace,
     channels: bothChannels,
-    ...(workspace.name === 'backend' ? { crossing: temporalCalls(root) } : {}),
+    ...(workspace.name === 'backend' ? { crossing: temporalCalls(root), readers: envChannels } : {}),
   }));
 
 export function areaOf(file: string): string {
@@ -56,3 +57,5 @@ export function areaOf(file: string): string {
 }
 
 export const scriptEnds = (root: string) => shellScripts(root, 'scripts').flatMap((file) => shellEnds(root, file));
+
+export const outsideEnds = (root: string) => [...scriptEnds(root), ...chartEnv(root)];

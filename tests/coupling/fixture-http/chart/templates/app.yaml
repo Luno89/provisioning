@@ -1,0 +1,30 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: app
+spec:
+  selector:
+    matchLabels:
+      app: app
+  template:
+    metadata:
+      labels:
+        app: app
+    spec:
+      containers:
+        - name: app
+          image: nowrinkles/app:dev
+          env:
+            - name: TOKEN
+              value: t
+            - name: DB_PASS
+              value: p
+            - name: DB_URL
+              value: postgres://u:$(DB_PASS)@db
+            - name: SESSION_KEY
+              value: k
+        - name: db
+          image: postgres:17
+          env:
+            - name: POSTGRES_PASSWORD
+              value: p
