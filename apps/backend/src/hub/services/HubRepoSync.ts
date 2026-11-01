@@ -7,6 +7,11 @@ import { unpromptedGit } from '../../platform/index.js';
 
 const run = promisify(execFile);
 
+const exitedWith = (code: number) => (err: unknown): false => {
+  if ((err as { code?: unknown }).code === code) return false;
+  throw err;
+};
+
 export interface GitEnd {
   url: string;
   auth?: { username: string; token: string } | undefined;
@@ -61,7 +66,7 @@ export async function syncMain(owner: GitEnd, hub: GitEnd, keptName: () => strin
       await git('push', '--quiet', 'owner', 'refs/remotes/hub/main:refs/heads/main');
       return { outcome: 'from-hub', head: hubHead };
     }
-    const contains = async (ancestor: string, of: string) => git('merge-base', '--is-ancestor', ancestor, of).then(() => true, () => false);
+    const contains = async (ancestor: string, of: string) => git('merge-base', '--is-ancestor', ancestor, of).then(() => true, exitedWith(1));
     if (await contains(hubHead, ownerHead)) {
       await git('push', '--quiet', 'hub', 'refs/remotes/owner/main:refs/heads/main');
       return { outcome: 'to-hub', head: ownerHead };
@@ -71,7 +76,7 @@ export async function syncMain(owner: GitEnd, hub: GitEnd, keptName: () => strin
       return { outcome: 'from-hub', head: hubHead };
     }
     await git('checkout', '--quiet', '-b', 'main', 'refs/remotes/owner/main');
-    const merged = await git('merge', '--quiet', '--no-edit', '-m', 'Merge the shared project\'s main from the hub', 'refs/remotes/hub/main').then(() => true, () => false);
+    const merged = await git('merge', '--quiet', '--no-edit', '-m', 'Merge the shared project\'s main from the hub', 'refs/remotes/hub/main').then(() => true, exitedWith(1));
     if (!merged) {
       const files = (await git('diff', '--name-only', '--diff-filter=U')).stdout.split('\n').map((line) => line.trim()).filter(Boolean);
       const kept = keptName();

@@ -1,6 +1,7 @@
 import type crypto from 'node:crypto';
 import { Router, type Request, type Response } from 'express';
 import { asyncRoute } from '../../platform/index.js';
+import { fieldsOf } from '../../projects/index.js';
 import { HUB_AUDIENCE, hubInstancePart } from '../lib/hub.js';
 import { moveTokenOnce, type UsedTokenClaim } from '../../instances/index.js';
 import type { HubOutcome, HubService, SyncOrigin } from '../services/HubService.js';
@@ -31,13 +32,13 @@ export function hubInstanceRouter(deps: { hub: InstanceHub; trusted: ReadonlyMap
     await work(origin, req, res);
   });
 
-  router.post('/share', withOrigin(async (origin, req, res) => answer(res, await deps.hub.share(origin, { name: req.body?.name, projectId: req.body?.projectId, group: req.body?.group }))));
+  router.post('/share', withOrigin(async (origin, req, res) => answer(res, await deps.hub.share(origin, { name: fieldsOf(req.body).name, projectId: fieldsOf(req.body).projectId, group: fieldsOf(req.body).group }))));
   router.delete('/projects/:id', withOrigin(async (origin, req, res) => answer(res, await deps.hub.unshare(origin, String(req.params.id)))));
-  router.post('/projects/:id/changes', withOrigin(async (origin, req, res) => answer(res, await deps.hub.receive(origin, String(req.params.id), req.body?.changes))));
+  router.post('/projects/:id/changes', withOrigin(async (origin, req, res) => answer(res, await deps.hub.receive(origin, String(req.params.id), fieldsOf(req.body).changes))));
   router.get('/projects/:id/changes', withOrigin(async (origin, req, res) => answer(res, await deps.hub.changesSince(origin, String(req.params.id), Number(req.query.after ?? 0)))));
   router.get('/projects/:id/requests', withOrigin(async (origin, req, res) => answer(res, await deps.hub.waitingRequests(origin, String(req.params.id)))));
-  router.post('/projects/:id/requests/:requestId', withOrigin(async (origin, req, res) => answer(res, await deps.hub.settleRequest(origin, String(req.params.id), String(req.params.requestId), { state: req.body?.state, why: req.body?.why }))));
-  router.put('/projects/:id/status', withOrigin(async (origin, req, res) => answer(res, await deps.hub.putStatus(origin, String(req.params.id), req.body?.status))));
+  router.post('/projects/:id/requests/:requestId', withOrigin(async (origin, req, res) => answer(res, await deps.hub.settleRequest(origin, String(req.params.id), String(req.params.requestId), { state: fieldsOf(req.body).state, why: fieldsOf(req.body).why }))));
+  router.put('/projects/:id/status', withOrigin(async (origin, req, res) => answer(res, await deps.hub.putStatus(origin, String(req.params.id), fieldsOf(req.body).status))));
 
   router.get('/projects/:id/relay', withOrigin(async (origin, req, res) => {
     const closed = new Promise<void>((resolve) => res.on('close', () => resolve()));
@@ -59,8 +60,8 @@ export function hubInstanceRouter(deps: { hub: InstanceHub; trusted: ReadonlyMap
   }));
 
   router.post('/relay/:callId', withOrigin(async (origin, req, res) => {
-    const status = Number(req.body?.status);
-    answer(res, await deps.hub.answerRelay(origin, String(req.params.callId), { kind: 'json', status: Number.isInteger(status) ? status : 502, body: req.body?.body ?? null }));
+    const status = Number(fieldsOf(req.body).status);
+    answer(res, await deps.hub.answerRelay(origin, String(req.params.callId), { kind: 'json', status: Number.isInteger(status) ? status : 502, body: fieldsOf(req.body).body ?? null }));
   }));
 
   router.post('/relay/:callId/stream', withOrigin(async (origin, req, res) => {

@@ -1,4 +1,5 @@
 import type { Server as SocketServer } from 'socket.io';
+import { ignore } from '@koala/engine-core/failures';
 import { type ClusterMetadata, type Database, type ProjectMetadata, awaitedNotice, releaseNotice, type Principal } from '../../platform/index.js';
 import {
   treeTypeOfProject, ODOO_TREE_TYPE, deploymentForProject, type projectSecretsFor, type ProjectChannelService,
@@ -66,7 +67,7 @@ export function wireReleases(deps: ReleasesWiringDeps): ReleasesWiring {
   const treeOfProject = async (projectId: string) => (await db.projects.getTrees()).find((tree) => tree.projectIds?.[0] === projectId);
   const clusterById = async (id: string) => (id === 'provisioning-lunorica' ? clusters.getSystemClusterEntry() : (await db.infrastructure.getClusters()).find((cluster) => cluster.id === id));
   const onCluster = async (cluster: ClusterMetadata, namespace: string, secret: string, key: string): Promise<string | undefined> => {
-    const data = await infra.runKubectl(['get', 'secret', secret, '-n', namespace, '-o', 'jsonpath={.data}'], await clusters.getKubeconfigPath(cluster)).catch(() => '');
+    const data = await infra.runKubectl(['get', 'secret', secret, '-n', namespace, '-o', 'jsonpath={.data}', '--ignore-not-found'], await clusters.getKubeconfigPath(cluster));
     const encoded = data ? (JSON.parse(data) as Record<string, string>)[key] : undefined;
     return encoded ? Buffer.from(encoded, 'base64').toString('utf8') : undefined;
   };
@@ -121,7 +122,7 @@ export function wireReleases(deps: ReleasesWiringDeps): ReleasesWiring {
     notify: (ownerId, release) => {
       deps.io.to(`user:${ownerId}`).emit('odoo-release-updated', release);
       postNotice('a release changed', treeOfProject(release.projectId).then(async (tree) => {
-        const made = release.restore && release.state === 'live' ? await customizations.drift(ownerId, release.projectId).then((drift) => (drift.ok ? drift.value.items.length : undefined), () => undefined) : undefined;
+        const made = release.restore && release.state === 'live' ? await customizations.drift(ownerId, release.projectId).then((drift) => (drift.ok ? drift.value.items.length : undefined), ignore('the notice goes without the count of what was made in the app')) : undefined;
         const notice = releaseNotice(release, tree?.id, made);
         return notice ? notices.post(ownerId, { projectId: release.projectId, treeId: tree?.id }, notice) : [];
       }));
@@ -134,7 +135,7 @@ export function wireReleases(deps: ReleasesWiringDeps): ReleasesWiring {
     },
   });
   temporalBridge.ensureSecrets = ensureDeployedSecrets;
-  temporalBridge.planBuild = (project, commitSha) => buildPlanAt((file) => gitea.getRawFile(project.giteaOwner!, project.giteaRepo!, file, commitSha).catch(() => null), commitSha);
+  temporalBridge.planBuild = (project, commitSha) => buildPlanAt((file) => gitea.getRawFile(project.giteaOwner!, project.giteaRepo!, file, commitSha), commitSha);
 
   const releaseSettings = new ReleaseSettings({
     agents: async (ownerId) => (await deps.agents.agents(ownerId)).map((agent) => ({ slug: agent.slug, name: agent.name, description: agent.description })),
@@ -189,7 +190,7 @@ export function wireReleases(deps: ReleasesWiringDeps): ReleasesWiring {
     odooVersion: async (project) => {
       const tree = (await db.projects.getTrees()).find((entry) => entry.ownerId === project.ownerId && entry.projectIds?.[0] === project.id);
       if (tree?.version) return projectMajor(tree.version);
-      const declared = project.giteaOwner && project.giteaRepo ? odooVersionOfDockerfile(await gitea.getRawFile(project.giteaOwner, project.giteaRepo, 'Dockerfile', 'main').catch(() => null)) : undefined;
+      const declared = project.giteaOwner && project.giteaRepo ? odooVersionOfDockerfile(await gitea.getRawFile(project.giteaOwner, project.giteaRepo, 'Dockerfile', 'main')) : undefined;
       if (declared) return declared;
       const type = await treeTypeOfProject(db.projects, project) ?? (await db.projects.getTreeTypes(project.ownerId)).find((entry) => entry.id === ODOO_TREE_TYPE);
       return type?.versions?.default ? projectMajor(type.versions.default) : undefined;

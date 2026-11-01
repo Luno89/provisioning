@@ -1095,74 +1095,6 @@
       "count": 1
     }
   },
-  "src/hub/routes/hub-instance.ts": {
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 9
-    }
-  },
-  "src/hub/routes/hub.test.ts": {
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 1
-    },
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 3
-    }
-  },
-  "src/hub/routes/hub.ts": {
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 8
-    }
-  },
-  "src/hub/routes/project-sharing.ts": {
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 2
-    }
-  },
-  "src/hub/services/HubPeople.ts": {
-    "no-restricted-syntax": {
-      "count": 1
-    }
-  },
-  "src/hub/services/HubRemote.ts": {
-    "no-restricted-syntax": {
-      "count": 4
-    }
-  },
-  "src/hub/services/HubRepoSync.ts": {
-    "no-restricted-syntax": {
-      "count": 2
-    }
-  },
-  "src/hub/services/HubRootClient.ts": {
-    "no-restricted-syntax": {
-      "count": 1
-    }
-  },
-  "src/hub/services/HubService.test.ts": {
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 1
-    }
-  },
-  "src/hub/services/HubService.ts": {
-    "no-restricted-syntax": {
-      "count": 1
-    }
-  },
-  "src/hub/services/HubSyncService.test.ts": {
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 1
-    }
-  },
-  "src/hub/services/HubSyncService.ts": {
-    "no-restricted-syntax": {
-      "count": 1
-    }
-  },
-  "src/hub/services/ProjectInviteService.test.ts": {
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 1
-    }
-  },
   "src/index.ts": {
     "@typescript-eslint/no-explicit-any": {
       "count": 9
@@ -2695,49 +2627,6 @@
   "src/platform/services/public-fetch.ts": {
     "no-restricted-syntax": {
       "count": 2
-    }
-  },
-  "src/releases/lib/infisical-sync.test.ts": {
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 2
-    }
-  },
-  "src/releases/routes/project-app.test.ts": {
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 1
-    }
-  },
-  "src/releases/routes/release-settings.ts": {
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 2
-    }
-  },
-  "src/releases/routes/releases.ts": {
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 1
-    }
-  },
-  "src/releases/services/ClientImportService.ts": {
-    "no-restricted-syntax": {
-      "count": 4
-    }
-  },
-  "src/releases/services/OdooReleaseService.test.ts": {
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 1
-    },
-    "@typescript-eslint/no-unsafe-return": {
-      "count": 4
-    }
-  },
-  "src/releases/services/OdooReleaseService.ts": {
-    "no-restricted-syntax": {
-      "count": 1
-    }
-  },
-  "src/releases/wiring/releases.ts": {
-    "no-restricted-syntax": {
-      "count": 4
     }
   },
   "src/routes.test.ts": {

@@ -5,6 +5,7 @@ import type { HubSyncTransport } from './HubSyncService.js';
 import type { HubSharing } from '../../projects/index.js';
 import type { InstanceCall } from './HubInstanceWork.js';
 import { RELAY_NAME_HEADER, RELAY_STATUS_HEADER, RELAY_TYPE_HEADER } from '../lib/hub-board.js';
+import { refusalOf } from './hub-answers.js';
 
 export class RootHubAccess {
   constructor(private readonly settings: { rootUrl: string; instanceId: string; token: () => Promise<string> }, private readonly fetchImpl: typeof fetch = fetch) {}
@@ -14,7 +15,7 @@ export class RootHubAccess {
       method: 'POST',
       headers: { 'x-instance-id': this.settings.instanceId, authorization: `Bearer ${await this.settings.token()}` },
     });
-    const answer = await response.json().catch(() => ({})) as HubAccess & { error?: string };
+    const answer = (response.ok ? await response.json() : await refusalOf(response)) as HubAccess & { error?: string };
     if (!response.ok || !answer.token) throw new Error(`root gave no way to the hub (${response.status}): ${answer.error ?? 'no reason given'}`);
     return answer;
   }
@@ -37,15 +38,14 @@ export class RemoteHub implements HubSyncTransport, HubSharing {
       },
     } as RequestInit);
     if (!response.ok) {
-      const answer = await response.json().catch(() => ({})) as { error?: string };
-      throw Object.assign(new Error(`the hub answered ${response.status}: ${answer.error ?? 'no reason given'}`), { status: response.status });
+      throw Object.assign(new Error(`the hub answered ${response.status}: ${(await refusalOf(response)).error ?? 'no reason given'}`), { status: response.status });
     }
     return response;
   }
 
   private async call<T>(method: 'GET' | 'POST' | 'PUT' | 'DELETE', path: string, body?: unknown): Promise<T> {
     const response = await this.send(method, path, body === undefined ? {} : { headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
-    return await response.json().catch(() => ({})) as T;
+    return await response.json() as T;
   }
 
   private projectPath = (hubProjectId: string) => `/projects/${encodeURIComponent(hubProjectId)}`;
@@ -98,7 +98,10 @@ export class RemoteHub implements HubSyncTransport, HubSharing {
     });
   };
 
-  reachable = async (): Promise<boolean> => this.root.access().then(() => true, () => false);
+  reachable = async (): Promise<boolean> => this.root.access().then(() => true, (err: unknown) => {
+    console.warn(`[hub] the hub cannot be reached through root: ${(err as Error).message}`);
+    return false;
+  });
 
   push: HubSyncTransport['push'] = (link, changes) => this.call('POST', `/projects/${encodeURIComponent(link.hubProjectId)}/changes`, { changes });
 

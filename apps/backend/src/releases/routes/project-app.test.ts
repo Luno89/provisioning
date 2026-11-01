@@ -25,7 +25,7 @@ describe('a project\'s app', () => {
   it('says where it is, and opens it on this machine or publicly as asked', async () => {
     const { harness, opened } = await mount();
     expect((await axios.get(harness.url('/api/projects/p1/app'))).data).toEqual({ app: { id: 'd1', name: 'Shop', status: 'running', local: {}, public: {} } });
-    expect((await axios.post(harness.url('/api/projects/p1/app/open'), { mode: 'local' })).data.app.local.app).toBe('http://shop.localhost:8000');
+    expect((await axios.post<{ app: { local: { app?: string } } }>(harness.url('/api/projects/p1/app/open'), { mode: 'local' })).data.app.local.app).toBe('http://shop.localhost:8000');
     await axios.post(harness.url('/api/projects/p1/app/open'), { mode: 'public' });
     expect(opened).toEqual(['local', 'public']);
   });

@@ -6,6 +6,7 @@ import type { HubRequest, HubStatus } from '../lib/hub-board.js';
 import type { HubInstanceWork, InstanceAnswer, InstanceCall } from './HubInstanceWork.js';
 import type { RelayAnswer, RelayCall } from './HubRelay.js';
 import { elapsedSeconds, koalaMetrics } from '@koala/engine-core/telemetry';
+import { ignore } from '@koala/engine-core/failures';
 
 export interface HubSyncTransport {
   push(link: HubLink, changes: RecordChange[]): Promise<{ through: number }>;
@@ -304,7 +305,7 @@ export class HubSyncService {
       this.running = this.pass().finally(() => { this.running = undefined; });
       return this.running;
     }
-    this.next ??= this.running.catch(() => {}).then(() => {
+    this.next ??= this.running.catch(ignore('whoever started the running pass hears how it failed; the next pass only waits for it to end')).then(() => {
       this.next = undefined;
       return this.once();
     });

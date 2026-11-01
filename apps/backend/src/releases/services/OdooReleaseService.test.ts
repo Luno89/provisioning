@@ -5,6 +5,7 @@ import { OdooReleaseService, type ReleaseRuns } from './OdooReleaseService.js';
 import { newReleaseName } from '../lib/odoo-release.js';
 import { marked, type ReleaseMark, type ReleaseRunInput, type RollBackRunInput } from '../lib/release-run.js';
 import type { ClusterMetadata, PipelineRunMetadata, ProjectMetadata } from '../../platform/lib/types.js';
+import { containing } from '../../projects/lib/test-matchers.js';
 
 let db: MongoDB;
 let running: boolean;
@@ -237,7 +238,7 @@ describe('one release at a time per project', () => {
 
 describe('a project that starts from a client\'s database', () => {
   const uploaded = { state: 'uploaded', mode: 'copy', bytes: 10, version: '20.0', modules: ['base', 'sale'], at: 't' };
-  const importOf = async () => (await db.projects.getProjects()).find((entry) => entry.id === 'p1')?.clientImport;
+  const importOf = async (): Promise<unknown> => (await db.projects.getProjects()).find((entry) => entry.id === 'p1')?.clientImport;
 
   it('restores it in the first release, and records it imported once that release is live', async () => {
     const svc = service();
@@ -255,7 +256,7 @@ describe('a project that starts from a client\'s database', () => {
     await svc.release({ ...project, clientImport: uploaded } as ProjectMetadata, run('b1', 'abc'));
     await engineMarks('r1', { state: 'failed', reason: 'shop-restore-a failed:\nERROR missing modules: web_studio' } as ReleaseMark);
     await runEnds(svc);
-    expect(await importOf()).toMatchObject({ state: 'refused', missing: ['web_studio'], reason: expect.stringContaining('this project does not: web_studio') });
+    expect(await importOf()).toMatchObject({ state: 'refused', missing: ['web_studio'], reason: containing('this project does not: web_studio') });
     const stored = (await db.projects.getProjects()).find((entry) => entry.id === 'p1')!;
     await svc.release(stored, run('b2', 'def'));
     expect((started.at(-1)!.inputs as ReleaseRunInput).build.restore).toEqual({ mode: 'copy' });
@@ -339,9 +340,9 @@ describe('what the run records', () => {
   it('keeps what the run records while the change before it is told, and tells the release as it is now', async () => {
     const seen: string[] = [];
     let recordsMeanwhile = true;
-    const bound = <T extends object>(target: T, key: string | symbol) => {
-      const value = Reflect.get(target, key);
-      return typeof value === 'function' ? value.bind(target) : value;
+    const bound = <T extends object>(target: T, key: string | symbol): unknown => {
+      const value: unknown = Reflect.get(target, key);
+      return typeof value === 'function' ? (value as (...args: unknown[]) => unknown).bind(target) : value;
     };
     const releases = new Proxy(db.releases, {
       get: (target, key) => key !== 'markOdooReleaseTold' ? bound(target, key) : async (id: string, updatedAt: string) => {

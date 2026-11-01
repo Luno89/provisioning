@@ -1,4 +1,5 @@
 import { randomBytes } from 'node:crypto';
+import { ignore } from '@koala/engine-core/failures';
 import { allowed, asPerson, sharedActionsOf, withSharedRole, type AccessRevocations, type Principal } from '../../platform/index.js';
 import {
   inviteProblem, INVITE_TOKEN, leavingAll, leavingProblem, roleChangeProblem, sameEmail, sharerOf, SHARED_PROJECT_ID, sharedProjectProblem,
@@ -99,7 +100,7 @@ export class HubService {
   private inOrder<T>(projectId: string, work: () => Promise<T>): Promise<T> {
     const before = this.queues.get(projectId) ?? Promise.resolve();
     const next = before.then(work, work);
-    this.queues.set(projectId, next.catch(() => undefined));
+    this.queues.set(projectId, next.catch(ignore('whoever asked for this work hears how it failed; the queue only waits for it to end')));
     return next;
   }
 
