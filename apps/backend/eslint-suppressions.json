@@ -1621,66 +1621,6 @@
       "count": 3
     }
   },
-  "src/infrastructure/services/ClusterProxyService.test.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 5
-    },
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 45
-    },
-    "@typescript-eslint/no-unsafe-call": {
-      "count": 56
-    },
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 36
-    },
-    "@typescript-eslint/no-unsafe-return": {
-      "count": 2
-    }
-  },
-  "src/infrastructure/services/ClusterService.test.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 4
-    },
-    "@typescript-eslint/no-unsafe-argument": {
-      "count": 3
-    },
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 4
-    },
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 4
-    },
-    "@typescript-eslint/no-unsafe-return": {
-      "count": 2
-    }
-  },
-  "src/infrastructure/services/ClusterService.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 31
-    },
-    "@typescript-eslint/no-unsafe-argument": {
-      "count": 5
-    },
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 33
-    },
-    "@typescript-eslint/no-unsafe-call": {
-      "count": 11
-    },
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 64
-    },
-    "@typescript-eslint/no-unsafe-return": {
-      "count": 3
-    },
-    "no-empty": {
-      "count": 2
-    },
-    "no-restricted-syntax": {
-      "count": 9
-    }
-  },
   "src/infrastructure/services/StorageAdapter.ts": {
     "@typescript-eslint/no-explicit-any": {
       "count": 1
