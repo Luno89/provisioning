@@ -3,6 +3,7 @@ import { draftServerProposal, type ProposalKnown } from './mcp-proposals.js';
 import { runsFingerprint, type McpServerRecord, type ServerRuns } from './mcp-servers.js';
 import { MCP_SERVER_TEMPLATES } from '../../extensions/mcp/templates.js';
 import { SHIPPED_DEPENDENCIES } from '../../extensions/workspace-dependencies.js';
+import { arrayWith, containing, matching } from './test-matchers.js';
 
 const HOSTED: ServerRuns = { where: 'hosted', url: 'http://docs.test/mcp' };
 const docs: McpServerRecord = {
@@ -34,8 +35,8 @@ describe('a proposed MCP server', () => {
     expect(drafted.sections[1]!.parts).toEqual([{ kind: 'text', text: 'executor — its workspace image is rebuilt with it' }]);
     expect(drafted.sections[2]!.parts).toEqual([{ kind: 'text', text: 'Odoo is at http://localhost:8069.' }]);
     const running = drafted.sections[3]!.parts;
-    expect(running).toEqual(expect.arrayContaining([
-      { kind: 'code', label: 'start', code: expect.stringContaining('playwright-mcp --browser chromium') },
+    expect(running).toEqual(arrayWith([
+      { kind: 'code', label: 'start', code: containing('playwright-mcp --browser chromium') },
       { kind: 'fields', fields: [{ label: 'needs', value: 'playwright-mcp' }, { label: 'languages', value: 'node' }] },
       { kind: 'fields', fields: [{ label: 'answers', value: '127.0.0.1:8931/mcp', code: true }] },
     ]));
@@ -57,9 +58,9 @@ describe('a proposed MCP server', () => {
   it('adds a new one only when it makes sense', () => {
     const runs = { where: 'hosted', url: 'http://tickets.test/mcp' };
     const drafted = draftServerProposal({ name: 'tickets', runs: JSON.stringify(runs), agents: '["koala"]', why: 'w' }, known());
-    expect(drafted).toMatchObject({ proposal: { name: 'tickets', runs, agents: ['koala'] }, sections: expect.arrayContaining([{ title: 'How it runs', parts: [{ kind: 'fields', fields: [{ label: 'At', value: 'http://tickets.test/mcp', code: true }] }] }]) });
+    expect(drafted).toMatchObject({ proposal: { name: 'tickets', runs, agents: ['koala'] }, sections: arrayWith([{ title: 'How it runs', parts: [{ kind: 'fields', fields: [{ label: 'At', value: 'http://tickets.test/mcp', code: true }] }] }]) });
 
-    expect(draftServerProposal({ name: 'Tickets!', runs, why: 'w' }, known())).toMatchObject({ problem: expect.stringMatching(/^the name has to be/) });
+    expect(draftServerProposal({ name: 'Tickets!', runs, why: 'w' }, known())).toMatchObject({ problem: matching(/^the name has to be/) });
     expect(draftServerProposal({ name: 'tickets', runs: { where: 'hosted', url: 'ftp://x' }, why: 'w' }, known())).toEqual({ problem: 'a hosted server\'s URL has to be http or https' });
     expect(draftServerProposal({ name: 'docs', runs, why: 'w' }, known())).toEqual({ problem: 'you already have a server called docs' });
   });
@@ -71,9 +72,9 @@ describe('a proposed MCP server', () => {
     expect(drafted).toMatchObject({ proposal: { name: 'tickets', runs, dependencies: [dependency] } });
     expect('sections' in drafted && drafted.sections.find((entry) => entry.title === 'New dependencies it adds')?.folded).toBe('tickets-server');
 
-    expect(draftServerProposal({ name: 'tickets', runs, agents: ['executor'], why: 'w' }, known())).toEqual({ problem: expect.stringMatching(/^no dependency is called "tickets-server"; there are .*; propose it in dependencies$/) });
-    expect(draftServerProposal({ name: 'tickets', runs, dependencies: [{ ...dependency, name: 'jq' }], why: 'w' }, known())).toMatchObject({ problem: expect.stringContaining('jq already exists; name it in the server\'s needs instead') });
-    expect(draftServerProposal({ name: 'tickets', runs, dependencies: [{ ...dependency, provides: [] }], why: 'w' }, known())).toMatchObject({ problem: expect.stringContaining('has to say which programs it puts on the PATH') });
+    expect(draftServerProposal({ name: 'tickets', runs, agents: ['executor'], why: 'w' }, known())).toEqual({ problem: matching(/^no dependency is called "tickets-server"; there are .*; propose it in dependencies$/) });
+    expect(draftServerProposal({ name: 'tickets', runs, dependencies: [{ ...dependency, name: 'jq' }], why: 'w' }, known())).toMatchObject({ problem: containing('jq already exists; name it in the server\'s needs instead') });
+    expect(draftServerProposal({ name: 'tickets', runs, dependencies: [{ ...dependency, provides: [] }], why: 'w' }, known())).toMatchObject({ problem: containing('has to say which programs it puts on the PATH') });
   });
 
   it('refuses what it cannot tell apart, what does not exist, a template already added, and no reason', () => {

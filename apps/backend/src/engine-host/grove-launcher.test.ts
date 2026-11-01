@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { createGroveLauncher, RUN_END_POLL_MS, startOnceQuiet } from './grove-launcher.js';
 import { EngineUnavailableError, type StartRunRequest } from './registries/run-starter.js';
 import { workflowOfRun } from './temporal/contracts.js';
+import { matching, objectWith } from '../engine/lib/test-matchers.js';
 
 type Described = { status: { name: string }; startTime: Date; closeTime?: Date; memo?: Record<string, unknown> };
 
@@ -36,7 +37,7 @@ describe('the grove launcher', () => {
     const launcher = createGroveLauncher({ runs: { start }, client: () => client, agentFor: async () => 'grove-paper', leafRun: async () => undefined });
 
     expect(await launcher.startGroveRun('u1', 't1')).toEqual({ started: true, workflowId: 'grove-run-t1' });
-    expect(start).toHaveBeenCalledWith(expect.objectContaining({ ownerId: 'u1', agentSlug: 'grove-paper', runId: expect.stringMatching(/^grove-run-t1~[0-9a-z]+$/), bound: { treeId: 't1' } }));
+    expect(start).toHaveBeenCalledWith(objectWith({ ownerId: 'u1', agentSlug: 'grove-paper', runId: matching(/^grove-run-t1~[0-9a-z]+$/), bound: { treeId: 't1' } }));
   });
 
   it('starts the grove agent on the model the tree chose for it, and on its own when the tree chose none', async () => {

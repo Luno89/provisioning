@@ -3,6 +3,7 @@ import type { ToolHandlerContext } from '@koala/engine-core';
 import type { MemoryItem } from '../drivers/memory-store.js';
 import { createMemoryTools, matchMemories, searchAnswer } from './memory-tools.js';
 import { MEMORY_TOOLS } from './memory-tools-catalogue.js';
+import { containing } from '../../engine/lib/test-matchers.js';
 
 let bank: Map<string, MemoryItem>;
 let ids: number;
@@ -202,7 +203,7 @@ describe('the answer to a memory search, as an agent on a machine gets it', () =
       memory({ id: 'a', title: 'Odoo 20 access', text: 'Access rules are ir.access rows.' }),
       memory({ id: 'b', title: 'Old access note', text: 'Access rules are ir.model.access rows.', invalidAt: '2026-10-01T00:00:00Z' }),
     ];
-    expect(searchAnswer(memories, 'access rules')).toEqual({ found: 1, text: expect.stringContaining('Odoo 20 access: Access rules are ir.access rows.') });
+    expect(searchAnswer(memories, 'access rules')).toEqual({ found: 1, text: containing('Odoo 20 access: Access rules are ir.access rows.') });
     expect(searchAnswer(memories, 'payroll')).toEqual({ found: 0, text: 'Nothing remembered matches "payroll".' });
   });
 });

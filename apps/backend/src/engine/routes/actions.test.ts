@@ -6,10 +6,11 @@ import { ActionService, type ActionDeployer } from '../services/ActionService.js
 import type { ActionProposal } from '../lib/action-proposals.js';
 import { runsFingerprint, type McpServerRecord, type ServerRuns } from '../lib/mcp-servers.js';
 import type { ImageNow } from '../../projects/lib/proposal-progress.js';
+import { objectWith } from '../lib/test-matchers.js';
 
 const WORKSPACE: ServerRuns = { where: 'workspace', needs: ['playwright-mcp'], start: 'playwright-mcp', port: 8931 };
 
-const post = (url: string) => axios.post(url, {}, { validateStatus: () => true });
+const post = (url: string) => axios.post<{ status: string; reason?: string }>(url, {}, { validateStatus: () => true });
 
 const proposal = (over: Partial<ActionProposal>): ActionProposal => ({
   id: 'a1', ownerId: TEST_USER.id, kind: 'deploy_app', summary: 's', detail: [], params: {}, status: 'proposed',
@@ -132,7 +133,7 @@ describe('/api/actions adding an MCP server', () => {
       result: 'added playwright; its tools are being captured; given to executor, planner; building executor, planner\'s images',
       started: { server: { id: 'pw-id', name: 'playwright', added: true }, images: ['executor', 'planner'] },
     });
-    expect(added).toEqual([expect.objectContaining({ template: 'playwright', name: 'playwright', notes: 'Odoo on 8069' })]);
+    expect(added).toEqual([objectWith({ template: 'playwright', name: 'playwright', notes: 'Odoo on 8069' })]);
     expect(granted).toEqual([
       ['executor', 'playwright', { why: 'check pages', proposalId: 'a1' }],
       ['planner', 'playwright', { why: 'check pages', proposalId: 'a1' }],
@@ -143,7 +144,7 @@ describe('/api/actions adding an MCP server', () => {
     await harness.db.engine.saveActionProposal(proposal({ kind: 'add_mcp_server', params: { spec: spec({ template: 'playwright', agents: ['executor'] }) } }));
     await post(harness.url('/api/actions/a1/apply'));
 
-    const first = (await axios.get(harness.url('/api/actions/a1/progress'))).data;
+    const first = (await axios.get<unknown>(harness.url('/api/actions/a1/progress'))).data;
     expect(first).toEqual({
       steps: [
         { label: 'Added playwright', state: 'done' },
@@ -158,7 +159,7 @@ describe('/api/actions adding an MCP server', () => {
     delete server.capturing;
     server.captured = { ...captured, fingerprint: runsFingerprint(WORKSPACE) };
     images.executor = { state: 'ready' };
-    const last = (await axios.get(harness.url('/api/actions/a1/progress'))).data;
+    const last = (await axios.get<unknown>(harness.url('/api/actions/a1/progress'))).data;
     expect(last).toMatchObject({ done: true, ready: 'playwright is ready for executor', steps: [{ state: 'done' }, { label: 'Captured its tools', state: 'done', detail: '2, 2 offered' }, { label: 'executor\'s image is built', state: 'done' }] });
   });
 
@@ -317,7 +318,7 @@ describe('applying a deploy card checks its cluster again', () => {
   it('deploys to a cluster the person may deploy to, and fails the card for one they may not', async () => {
     await harness.db.engine.saveActionProposal(proposal({ id: 'a1', params: { appType: 'odoo', name: 'shop', clusterId: 'c1' } }));
     expect((await post(harness.url('/api/actions/a1/apply'))).data.status).toBe('applied');
-    expect(getById).toHaveBeenCalledWith('c1', expect.objectContaining({ id: TEST_USER.id }), 'deploy-to');
+    expect(getById).toHaveBeenCalledWith('c1', objectWith({ id: TEST_USER.id }), 'deploy-to');
     expect(deployApp).toHaveBeenCalledTimes(1);
     await harness.db.engine.saveActionProposal(proposal({ id: 'a2', params: { appType: 'odoo', name: 'shop', clusterId: 'c9' } }));
     expect((await post(harness.url('/api/actions/a2/apply'))).data).toMatchObject({ status: 'failed', reason: 'that cluster is not one you can deploy to' });

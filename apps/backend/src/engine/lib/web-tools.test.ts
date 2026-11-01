@@ -3,7 +3,7 @@ import { createWebTools } from './web-tools.js';
 
 function stubFetch(routes: Array<[string, Partial<Response> | (() => Partial<Response>)]>) {
   const calls: Array<{ url: string; init: RequestInit | undefined }> = [];
-  const impl = vi.fn(async (input: any, init?: RequestInit) => {
+  const impl = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
     const url = String(input);
     calls.push({ url, init });
     for (const [match, res] of routes) {
@@ -109,7 +109,7 @@ describe('fetching a page', () => {
     const tools = createWebTools({ crawl4aiUrl: 'http://c4:11235', crawl4aiToken: 'sekrit', fetchImpl: impl });
 
     expect(await tools.fetchPage('https://weather.com/x')).toContain('AQI 42');
-    expect((calls[0]?.init?.headers as any).authorization).toBe('Bearer sekrit');
+    expect((calls[0]?.init?.headers as Record<string, string> | undefined)?.authorization).toBe('Bearer sekrit');
   });
 
   it('never calls the token endpoint', async () => {

@@ -9,11 +9,11 @@ function tools() {
   const access: CorpusAccess = {
     crawlerReady: async (ownerId) => ownerId === 'u1',
     addressProblem: async (url) => (url.includes('10.0.0.') ? '10.0.0.5 is a private, loopback, mesh or reserved address' : undefined),
-    start: vi.fn(async (id, args) => { started.push({ id, args }); }),
-    status: vi.fn(async (id) => (id.endsWith('done')
+    start: vi.fn<CorpusAccess['start']>(async (id, args) => { started.push({ id, args }); }),
+    status: vi.fn<CorpusAccess['status']>(async (id) => (id.endsWith('done')
       ? { state: 'completed' as const, receipt: { ingestId: 'i1', seed: 's', pages: 12, bytes: 20480, failed: 1, hosts: ['docs.example.com'] } }
       : { state: 'running' as const })),
-    pages: vi.fn(async (filter) => [page({}), page({ ownerId: 'u2', text: 'retry budget elsewhere' })].filter((p) => p.ownerId === filter.ownerId)),
+    pages: vi.fn<CorpusAccess['pages']>(async (filter) => [page({}), page({ ownerId: 'u2', text: 'retry budget elsewhere' })].filter((p) => p.ownerId === filter.ownerId)),
   };
   const handlers = createCorpusTools({ access, now: () => 1000 });
   const call = (name: string, parsed: Record<string, unknown>, ownerId = 'u1') => handlers[name]!({ name, parsed, driver: undefined, caller: { ownerId, projectId: 'p1' } });

@@ -75,7 +75,7 @@ describe('a workspace pulling a Koala-built image', () => {
     expect(kinds.indexOf('Secret')).toBeLessThan(kinds.indexOf('Pod'));
     expect(secret.type).toBe('kubernetes.io/dockerconfigjson');
     expect(secret.metadata).toMatchObject({ name: 'koala-registry-pull', namespace: workspaceName('run-1'), labels: { 'koala.dev/run': 'run-1' } });
-    expect(Object.keys(JSON.parse(Buffer.from(secret.data['.dockerconfigjson']!, 'base64').toString()).auths)).toEqual(['gitea-http.gitea.svc.cluster.local:3000', '127.0.0.1:35010']);
+    expect(Object.keys((JSON.parse(Buffer.from(secret.data['.dockerconfigjson']!, 'base64').toString()) as { auths: Record<string, unknown> }).auths)).toEqual(['gitea-http.gitea.svc.cluster.local:3000', '127.0.0.1:35010']);
     const pod = manifests.find((manifest) => manifest.kind === 'Pod') as { spec: { imagePullSecrets?: unknown } };
     expect(pod.spec.imagePullSecrets).toEqual([{ name: 'koala-registry-pull' }]);
   });

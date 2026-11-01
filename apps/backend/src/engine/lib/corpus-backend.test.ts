@@ -4,6 +4,7 @@ import {
   CHUNK_CHARS, CHUNK_OVERLAP, VECTOR_SIZE, type CorpusHit,
 } from './corpus-backend.js';
 import { snippetAround, embed, EMBED_BATCH } from './corpus-client.js';
+import { arrayWith, objectWith } from './test-matchers.js';
 
 describe('splitting a page for embedding', () => {
   it('leaves a short page as one chunk', () => {
@@ -118,33 +119,29 @@ describe('snippets', () => {
 
 describe('the service configuration', () => {
   it('matches the vector size the embedding model emits', () => {
-    expect((collectionConfig() as any).vectors.size).toBe(VECTOR_SIZE);
+    expect(collectionConfig()).toMatchObject({ vectors: { size: VECTOR_SIZE } });
   });
 
   it('keeps quantized vectors in RAM and the originals on disk', () => {
-    const c = collectionConfig() as any;
-    expect(c.vectors.on_disk).toBe(true);
-    expect(c.quantization_config.scalar).toMatchObject({ type: 'int8', always_ram: true });
+    expect(collectionConfig()).toMatchObject({ vectors: { on_disk: true }, quantization_config: { scalar: { type: 'int8', always_ram: true } } });
   });
 
   it('indexes ids as whole terms, not as tokens', () => {
-    const fields = (indexConfig('koala-corpus') as any).doc_mapping.field_mappings;
     for (const name of ['owner_id', 'ingest_id', 'url']) {
-      expect(fields.find((f: any) => f.name === name).tokenizer).toBe('raw');
+      expect(indexConfig('koala-corpus')).toMatchObject({ doc_mapping: { field_mappings: arrayWith([objectWith({ name, tokenizer: 'raw' })]) } });
     }
   });
 
   it('records positions, so a quoted phrase is a phrase', () => {
-    const fields = (indexConfig('koala-corpus') as any).doc_mapping.field_mappings;
-    expect(fields.find((f: any) => f.name === 'body').record).toBe('position');
+    expect(indexConfig('koala-corpus')).toMatchObject({ doc_mapping: { field_mappings: arrayWith([objectWith({ name: 'body', record: 'position' })]) } });
   });
 });
 
 describe('batching the embedding requests', () => {
   it('never sends more than the service accepts', async () => {
     const seen: number[] = [];
-    const fake = vi.fn(async (_url: string, init: any) => {
-      const inputs = JSON.parse(init.body).inputs as string[];
+    const fake = vi.fn<typeof fetch>(async (_url, init) => {
+      const { inputs } = JSON.parse(String(init?.body)) as { inputs: string[] };
       seen.push(inputs.length);
       return new Response(JSON.stringify(inputs.map(() => [0.1, 0.2])), { status: 200 });
     });

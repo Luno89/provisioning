@@ -7,6 +7,7 @@ import type { Tree } from '../../../projects/lib/trees.js';
 import type { Task } from '../../../engine-host/tools/tasks.js';
 import type { PlanProposal } from '../../../projects/lib/plan-proposals.js';
 import { SUPERSEDED_NOTE } from '../../../projects/lib/landing.js';
+import { arrayWith, containing, matching, objectWith } from '../../../engine/lib/test-matchers.js';
 
 const SANDBOX = { kind: 'sandbox', id: 'engine-tree-t1', workspace: { runId: 'tree-t1' }, capabilities: { kind: 'sandbox', lifecycle: 'invocation' } } as const;
 
@@ -192,7 +193,7 @@ describe('Prepare Worktrees', () => {
     expect(items[1]).toMatchObject({ leafFailure: 'leaves/b.failed.md' });
     expect(items[1]).not.toHaveProperty('failure');
     expect(items[0]!.siblings).toMatch(/1 other leaves/);
-    expect(written).toEqual([expect.objectContaining({ worktree: 'trees/b', path: 'leaves/b.failed.md', content: expect.stringContaining('the test never ran') })]);
+    expect(written).toEqual([objectWith({ worktree: 'trees/b', path: 'leaves/b.failed.md', content: containing('the test never ran') })]);
     expect(commands.some((entry) => entry.worktree === 'trees/b' && entry.command.includes('git add leaves/b.failed.md'))).toBe(true);
   });
 });
@@ -314,7 +315,7 @@ describe('Land Leaves', () => {
 
     expect(leaves[0]).toMatchObject({ status: 'succeeded', verified: true });
     expect(leaves[0]!.landed).toBeUndefined();
-    expect(emitted).toEqual([expect.objectContaining({ type: 'notice', message: 'leaf a did not land this pass; it will be tried again' })]);
+    expect(emitted).toEqual([objectWith({ type: 'notice', message: 'leaf a did not land this pass; it will be tried again' })]);
   });
 
   it('does nothing when nothing is ready to land', async () => {
@@ -333,8 +334,8 @@ describe('File Claim', () => {
     const outcome = await run('grove.file-claim', { leaf: { leafId: 'a' }, environment: SANDBOX, evidence: 'wrote paper.md' }, { result: 'claimed' });
 
     expect(outcome, JSON.stringify(outcome)).toMatchObject({ exit: 'filed' });
-    expect(commands.filter((entry) => entry.worktree === 'trees/a').map((entry) => entry.command)).toEqual(expect.arrayContaining([expect.stringMatching(/^git add -A && git commit/)]));
-    expect(leaves[0]).toMatchObject({ status: 'claimed', claim: { evidence: expect.stringContaining('wrote paper.md') } });
+    expect(commands.filter((entry) => entry.worktree === 'trees/a').map((entry) => entry.command)).toEqual(arrayWith([matching(/^git add -A && git commit/)]));
+    expect(leaves[0]).toMatchObject({ status: 'claimed', claim: { evidence: containing('wrote paper.md') } });
   });
 
   it('saves the tree\'s repository once the claim is filed, so the leaf\'s documents open from Gitea', async () => {
@@ -387,7 +388,7 @@ describe('Check Claims', () => {
 
     const outcome = await run('grove.check-claims', { tree: TREE, environment: SANDBOX, claimed: [{ id: 'a' }, { id: 'b' }] });
 
-    expect(outcome).toMatchObject({ exit: 'judge', outputs: { toJudge: [{ id: 'b' }], settled: [{ leafId: 'a', report: expect.stringContaining('missing.txt') }] } });
+    expect(outcome).toMatchObject({ exit: 'judge', outputs: { toJudge: [{ id: 'b' }], settled: [{ leafId: 'a', report: containing('missing.txt') }] } });
     expect(leaves.find((entry) => entry.id === 'a')).toMatchObject({ status: 'failed', review: { model: 'grove-check-runner' } });
   });
 
@@ -397,7 +398,7 @@ describe('Check Claims', () => {
 
     const outcome = await run('grove.check-claims', { tree: TREE, environment: SANDBOX, claimed: [{ id: 'a' }] });
 
-    expect(outcome).toMatchObject({ exit: 'judge', outputs: { toJudge: [{ id: 'a', checks: expect.stringMatching(/^passed — .*koala_probe/) }], settled: [] } });
+    expect(outcome).toMatchObject({ exit: 'judge', outputs: { toJudge: [{ id: 'a', checks: matching(/^passed — .*koala_probe/) }], settled: [] } });
   });
 
   it('hands a claim whose work stopped on a failed task to its judge with the failing checks, rather than settling it', async () => {
@@ -406,7 +407,7 @@ describe('Check Claims', () => {
 
     const outcome = await run('grove.check-claims', { tree: TREE, environment: SANDBOX, claimed: [{ id: 'a' }] });
 
-    expect(outcome).toMatchObject({ exit: 'judge', outputs: { toJudge: [{ id: 'a', checks: expect.stringContaining('missing.txt') }], settled: [] } });
+    expect(outcome).toMatchObject({ exit: 'judge', outputs: { toJudge: [{ id: 'a', checks: containing('missing.txt') }], settled: [] } });
     expect(leaves.find((entry) => entry.id === 'a')).toMatchObject({ status: 'claimed' });
   });
 });
@@ -446,7 +447,7 @@ describe('Judge Checkouts', () => {
 
     const outcome = await run('grove.judge-checkouts', { tree: TREE, environment: SANDBOX, claims: [{ id: 'a' }] });
 
-    expect(outcome).toMatchObject({ exit: 'ready', outputs: { items: [{ leafId: 'a', leafBody: 'a works', treeId: 't1', worktree: expect.stringMatching(/a$/), claim: { evidence: 'x' } }] } });
+    expect(outcome).toMatchObject({ exit: 'ready', outputs: { items: [{ leafId: 'a', leafBody: 'a works', treeId: 't1', worktree: matching(/a$/), claim: { evidence: 'x' } }] } });
   });
 
   it('carries the checks a stopped claim failed on to its judge', async () => {
@@ -473,7 +474,7 @@ describe('Needs Plan', () => {
 
     const open = await run('grove.needs-plan', { tree: TREE });
     expect(open).toMatchObject({ exit: 'some', outputs: { items: [
-      { leafId: 'a', mode: 'replan', goal: 'Replan the leaf "leaf a".', message: 'Replan the leaf "leaf a".', leafBrief: 'leaves/a.md', failure: expect.stringContaining('the build broke') },
+      { leafId: 'a', mode: 'replan', goal: 'Replan the leaf "leaf a".', message: 'Replan the leaf "leaf a".', leafBrief: 'leaves/a.md', failure: containing('the build broke') },
       { leafId: 'b', mode: 'breakdown', goal: 'Break down the leaf "leaf b".' },
     ] } });
 

@@ -8,6 +8,7 @@ import { MCP_SERVER_FILES } from '../../projects/lib/project-templates.js';
 import { renderStarterFiles } from '../../projects/lib/tree-types.js';
 import { TREE_TYPE_SEEDS } from '../../projects/lib/tree-type-seeds.js';
 import { McpClient } from './mcp-client.js';
+import { arrayWith } from './test-matchers.js';
 
 let child: ChildProcess | undefined;
 afterEach(() => { child?.kill(); child = undefined; });
@@ -87,14 +88,14 @@ describe('a project started from the mcp-server template', () => {
 describe('the scaffold itself', () => {
   it('has everything the pipeline needs to build and deploy it', () => {
     const paths = renderStarterFiles(MCP_SERVER_FILES, { projectName: 'x', registryHost: '' }).map((f) => f.path);
-    expect(paths).toEqual(expect.arrayContaining([
+    expect(paths).toEqual(arrayWith([
       'Dockerfile', 'package.json', 'src/server.js', 'test/server.test.js', 'README.md',
     ]));
   });
 
   it('depends on nothing', () => {
     const pkg = renderStarterFiles(MCP_SERVER_FILES, { projectName: 'x', registryHost: '' }).find((f) => f.path === 'package.json')!;
-    const parsed = JSON.parse(pkg.content);
+    const parsed = JSON.parse(pkg.content) as { dependencies?: Record<string, string> };
     expect(parsed.dependencies ?? {}).toEqual({});
   });
 

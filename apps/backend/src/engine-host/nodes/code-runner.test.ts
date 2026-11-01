@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import type { EnvironmentDriver, ExecResult } from '@koala/engine-core';
 import { createCodeRunner, readOutputs, wrapBody } from './code-runner.js';
 import type { RunTicket } from '../temporal/contracts.js';
+import { containing } from '../../engine/lib/test-matchers.js';
 
 const ticket: RunTicket = { runId: 'run-1', depth: 0, ownerId: 'user-1', agentSlug: 'koala', trigger: 'user' };
 
@@ -59,7 +60,7 @@ describe('running a piece of code in the run\'s sandbox', () => {
   it('says it exited without explaining when it says nothing at all', async () => {
     const { driver } = sandbox({ exec: async () => ({ stdout: '', stderr: '', exitCode: 137 }) });
 
-    expect(await runnerFor(driver).run(request())).toMatchObject({ ok: false, error: expect.stringContaining('exited 137') });
+    expect(await runnerFor(driver).run(request())).toMatchObject({ ok: false, error: containing('exited 137') });
   });
 
   it('refuses when the run has no sandbox to run in', async () => {
@@ -108,11 +109,11 @@ describe('reading back what the code handed over', () => {
   });
 
   it('refuses something that is not JSON', () => {
-    expect(readOutputs('not json')).toMatchObject({ ok: false, error: expect.stringContaining('not JSON') });
+    expect(readOutputs('not json')).toMatchObject({ ok: false, error: containing('not JSON') });
   });
 
   it('refuses a bare value, because outputs are named', () => {
-    expect(readOutputs('[1,2]')).toMatchObject({ ok: false, error: expect.stringContaining('object of the values it declares') });
+    expect(readOutputs('[1,2]')).toMatchObject({ ok: false, error: containing('object of the values it declares') });
     expect(readOutputs('42')).toMatchObject({ ok: false });
   });
 });

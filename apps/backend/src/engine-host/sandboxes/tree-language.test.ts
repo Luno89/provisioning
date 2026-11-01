@@ -4,6 +4,7 @@ import { mergeWorkspaceAgents, type EnvironmentResolver } from './environments.j
 import { createTreeWorkspaces } from './tree-workspaces.js';
 import { treeLanguageFrom, type TreeTypeSpec } from '../../projects/lib/tree-types.js';
 import { WORKSPACE_BASES } from '../../extensions/workspace-bases.js';
+import { anyOf, arrayWith } from '../../engine/lib/test-matchers.js';
 
 const agent = (slug: string, over: Partial<AgentDefinition> = {}): AgentDefinition => ({
   slug, name: slug, prompt: '', tools: [`${slug}_tool`], procedure: 'tool-rounds',
@@ -82,6 +83,6 @@ describe('the Odoo workspace\'s own environment', () => {
       agent: agent('executor', { environmentSpec: { kind: 'sandbox', lifecycle: 'invocation', languages: ['odoo'] } as never }),
       images: { ensure: async () => 'reg/workspace:x' } as never,
     });
-    expect(workspace.env).toEqual(expect.arrayContaining([{ name: 'PLAYWRIGHT_BROWSERS_PATH', value: '/ms-playwright' }, { name: 'NPM_CONFIG_REGISTRY', value: expect.any(String) }]));
+    expect(workspace.env).toEqual(arrayWith([{ name: 'PLAYWRIGHT_BROWSERS_PATH', value: '/ms-playwright' }, { name: 'NPM_CONFIG_REGISTRY', value: anyOf(String) }]));
   });
 });

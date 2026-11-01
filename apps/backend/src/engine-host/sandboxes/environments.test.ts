@@ -12,6 +12,7 @@ import type { MachineBackend } from '../drivers/machine.js';
 import type { EnvironmentHandleRef, RunTicket } from '../temporal/contracts.js';
 import { seededAgents } from '../../extensions/seeds.js';
 import { createMachineWorkspaces } from './machine-workspaces.js';
+import { arrayWith, containing, objectWith } from '../../engine/lib/test-matchers.js';
 
 const ticket = (agentSlug: string, runId = 'run-1'): RunTicket => ({
   runId,
@@ -137,7 +138,9 @@ describe('describing a run environment', () => {
 
     expect(await resolver.describeShared({ ticket: ticket('research', 'conversation-c1'), agents: ['research'] })).toMatchObject({ workspace: { repository: 'this conversation\'s documents' } });
     expect(await resolver.describeShared({ ticket: ticket('research', 'tree-t1'), agents: ['research'] })).toMatchObject({ workspace: { repository: 'the project\'s repository' } });
-    expect(await resolver.describe(ticket('research'))).toMatchObject({ workspace: expect.not.objectContaining({ repository: expect.anything() }) });
+    const own = await resolver.describe(ticket('research'));
+    expect(own).toHaveProperty('workspace');
+    expect(own).not.toHaveProperty('workspace.repository');
   });
 
   it('does not consult the workspace for an agent that never asked for one', async () => {
@@ -165,8 +168,8 @@ describe('describing a run environment', () => {
 
     expect(await resolver.describe(ticket('pythonic'))).toMatchObject({
       workspace: {
-        image: expect.stringContaining('python-312'),
-        provides: expect.arrayContaining(['pip']),
+        image: containing('python-312'),
+        provides: arrayWith(['pip']),
       },
     });
   });
@@ -212,7 +215,9 @@ describe('describing a run environment', () => {
     const { resolver } = setup({ workspaces });
 
     expect(await resolver.describe(ticket('executor'), 60 * 60_000)).toMatchObject({ workspace: { lifetimeMs: 75 * 60_000 } });
-    expect(await resolver.describe(ticket('executor'))).toMatchObject({ workspace: expect.not.objectContaining({ lifetimeMs: expect.anything() }) });
+    const unlimited = await resolver.describe(ticket('executor'));
+    expect(unlimited).toHaveProperty('workspace');
+    expect(unlimited).not.toHaveProperty('workspace.lifetimeMs');
   });
 
   it('carries the package-registry env and egress that make installs work at all', async () => {
@@ -222,11 +227,11 @@ describe('describing a run environment', () => {
 
     expect(described).toMatchObject({
       workspace: {
-        env: expect.arrayContaining([
-          expect.objectContaining({ name: 'NPM_CONFIG_REGISTRY' }),
+        env: arrayWith([
+          objectWith({ name: 'NPM_CONFIG_REGISTRY' }),
         ]),
-        egress: expect.arrayContaining([
-          expect.objectContaining({ namespace: 'koala-registry' }),
+        egress: arrayWith([
+          objectWith({ namespace: 'koala-registry' }),
         ]),
       },
     });
@@ -243,13 +248,13 @@ describe('describing a run environment', () => {
     });
     const granted = await resolver.describe(ticket('executor'));
     if (granted.kind !== 'sandbox') throw new Error('expected a sandbox');
-    expect(granted.workspace.env).toEqual(expect.arrayContaining([
+    expect(granted.workspace.env).toEqual(arrayWith([
       { name: 'HTTPS_PROXY', value: 'http://u-user-1-executor:pw@egress-proxy.koala-egress.svc.cluster.local:8888' },
       { name: 'NO_PROXY', value: '.svc.cluster.local,.svc,localhost,127.0.0.1' },
       { name: 'no_proxy', value: '.svc.cluster.local,.svc,localhost,127.0.0.1' },
     ]));
     expect(granted.workspace.egress.every((rule) => rule.cidr === undefined)).toBe(true);
-    expect(granted.workspace.egress).toEqual(expect.arrayContaining([expect.objectContaining({ namespace: 'koala-egress' })]));
+    expect(granted.workspace.egress).toEqual(arrayWith([objectWith({ namespace: 'koala-egress' })]));
     expect(granted.workspace.grantedHosts).toEqual(['api.stripe.com']);
   });
 
@@ -445,9 +450,9 @@ describe('a tree\'s published workspace', () => {
     expect(ensured[0]).toContain(JSON.stringify({ via: 'dnf', packages: ['wkhtmltopdf'] }));
     expect(shared.workspace.image).toBe('registry/koala/workspace:first');
     expect(shared.workspace.env).toContainEqual({ name: 'SHOP', value: 'demo' });
-    expect(kept.saved).toEqual([expect.objectContaining({
+    expect(kept.saved).toEqual([objectWith({
       ownerId: 'user-1', treeId: 't1', image: 'registry/koala/workspace:first', env: [{ name: 'SHOP', value: 'demo' }], publishedAt: '2026-10-12T00:00:00Z',
-      lines: expect.arrayContaining([{ install: { via: 'dnf', packages: ['wkhtmltopdf'] }, from: 'project' }]),
+      lines: arrayWith([{ install: { via: 'dnf', packages: ['wkhtmltopdf'] }, from: 'project' }]),
     })]);
   });
 
@@ -481,7 +486,7 @@ describe('a tree\'s published workspace', () => {
 
     expect(built).toHaveLength(2);
     expect(kept.saved.at(-1)).toMatchObject({ image: after.workspace.image, file: { packages: { dnf: ['wkhtmltopdf'] } } });
-    expect(kept.saved.at(-1)!.lines.map((line) => line.from)).toEqual(expect.arrayContaining(['project', 'tool:run_command']));
+    expect(kept.saved.at(-1)!.lines.map((line) => line.from)).toEqual(arrayWith(['project', 'tool:run_command']));
   });
 
   it('tells the runs in it what main asks for that it does not have yet, and how far the rebuild has got', async () => {

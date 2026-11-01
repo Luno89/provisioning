@@ -9,6 +9,9 @@ import { ENGINE_TOOL_SEEDS } from '../../engine-host/tools/engine-tool-seeds.js'
 
 const quiet = { validateStatus: () => true };
 
+type ToolView = { name: string; mine: boolean; command?: string };
+type Answer = { tools: ToolView[]; tool: ToolView; problems: string[] };
+
 const counter = (over: Partial<ToolDefinition> = {}): ToolDefinition => ({
   name: 'count_lines',
   summary: 'Counts the lines that match',
@@ -49,7 +52,7 @@ const harness = (): Promise<Harness> => mountRouter({
 describe('the engine tools API', () => {
   it('lists the tools a person can see', async () => {
     const { url, close } = await harness();
-    const { data } = await axios.get(url('/api/engine-tools'));
+    const { data } = await axios.get<Answer>(url('/api/engine-tools'));
     await close();
 
     expect(Array.isArray(data.tools)).toBe(true);
@@ -58,8 +61,8 @@ describe('the engine tools API', () => {
   it('saves a tool of your own, with the command that runs it', async () => {
     const { url, close } = await harness();
 
-    const saved = await axios.put(url('/api/engine-tools/count_lines'), counter());
-    const read = await axios.get(url('/api/engine-tools/count_lines'));
+    const saved = await axios.put<Answer>(url('/api/engine-tools/count_lines'), counter());
+    const read = await axios.get<Answer>(url('/api/engine-tools/count_lines'));
     await close();
 
     expect(saved.status).toBe(200);
@@ -70,7 +73,7 @@ describe('the engine tools API', () => {
   it('refuses one whose command fills in an argument it does not take', async () => {
     const { url, close } = await harness();
 
-    const out = await axios.put(url('/api/engine-tools/count_lines'), counter({ command: 'rg {nowhere}' }), quiet);
+    const out = await axios.put<Answer>(url('/api/engine-tools/count_lines'), counter({ command: 'rg {nowhere}' }), quiet);
     await close();
 
     expect(out.status).toBe(400);

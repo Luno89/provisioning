@@ -3,6 +3,7 @@ import type { ToolCallerContext } from '@koala/engine-core';
 import type { WorkspaceChange } from '../../../engine/lib/workspace-file.js';
 import type { Task } from '../../../engine-host/tools/tasks.js';
 import { changeFrom, createWorkspaceTools, type WorkspaceToolDeps } from './handlers.js';
+import { containing } from '../../../engine/lib/test-matchers.js';
 
 const task = (over: Partial<Task> = {}): Task => ({ id: 'task-1', ownerId: 'u1', leafId: 'leaf-a', title: 'Render the invoice', doneMeans: 'a PDF', dependsOn: [], status: 'running', runs: ['r1'], createdAt: 't0', updatedAt: 't0', ...over });
 
@@ -56,9 +57,9 @@ describe('change_workspace', () => {
 
   it('refuses without a why, without a tree, without anything to add, and passes on why the file refused', async () => {
     const { call } = world({ files: { change: async () => ({ ok: false, why: '"DB_PASSWORD" looks like a secret' }) } });
-    expect(await call({ dnf: ['jq'] })).toMatchObject({ ok: false, content: expect.stringContaining('say why') });
-    expect(await call({ why: 'x', dnf: ['jq'] }, { ownerId: 'u1' })).toMatchObject({ ok: false, content: expect.stringContaining('name the tree with treeId') });
-    expect(await call({ why: 'x' })).toMatchObject({ ok: false, content: expect.stringContaining('say what to add') });
+    expect(await call({ dnf: ['jq'] })).toMatchObject({ ok: false, content: containing('say why') });
+    expect(await call({ why: 'x', dnf: ['jq'] }, { ownerId: 'u1' })).toMatchObject({ ok: false, content: containing('name the tree with treeId') });
+    expect(await call({ why: 'x' })).toMatchObject({ ok: false, content: containing('say what to add') });
     expect(await call({ why: 'x', env: [{ name: 'DB_PASSWORD', value: 'p' }] })).toMatchObject({ ok: false, content: '"DB_PASSWORD" looks like a secret; nothing was committed' });
   });
 
@@ -87,7 +88,7 @@ describe('mark_waiting', () => {
 
   it('refuses when there is nothing to wait for, so a task never waits forever', async () => {
     const { wait, tasks } = world({ pending: async () => [] });
-    expect(await wait({ taskId: 'task-1', waitsFor: 'x' })).toMatchObject({ ok: false, content: expect.stringContaining('nothing to wait for') });
+    expect(await wait({ taskId: 'task-1', waitsFor: 'x' })).toMatchObject({ ok: false, content: containing('nothing to wait for') });
     expect(tasks[0]!.status).toBe('running');
   });
 

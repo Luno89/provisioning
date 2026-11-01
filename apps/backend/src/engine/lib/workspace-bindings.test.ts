@@ -6,6 +6,16 @@ import { readBindingCredentials } from '../../projects/lib/binding-project.js';
 import type { ResolvedBinding } from '../../infrastructure/lib/binding-resolve.js';
 import { WORKSPACE_IMAGE_SEEDS as IMAGES } from './workspace-image-seeds.js';
 
+type Pod = { spec: { containers: { volumeMounts: { mountPath: string; readOnly?: boolean }[]; env: { name: string; value: string }[] }[]; volumes: { name: string }[] } };
+type Secret = { metadata: { name: string; namespace: string }; stringData: Record<string, string> };
+type Policy = { spec: { ingress: unknown[]; egress: { to: { namespaceSelector: { matchLabels: Record<string, string> } }[] }[] } };
+type Manifests = ReturnType<typeof buildWorkspaceManifests>;
+const one = (manifests: Manifests, kind: string) => {
+  const found = manifests.find((m) => m.kind === kind);
+  if (!found) throw new Error(`no ${kind} among the manifests`);
+  return found;
+};
+
 const binding = (over: Partial<ResolvedBinding> = {}): ResolvedBinding => ({
   name: 'qdrant',
   type: 'qdrant',
@@ -48,41 +58,40 @@ describe('what reaches the sandbox', () => {
     bindings: [{ name: 'qdrant', files: { type: 'qdrant', host: 'h', port: '6333', 'api-key': 'secret-value' } }],
   };
   const manifests = buildWorkspaceManifests(IMAGES, spec);
-  const kind = (k: string) => manifests.filter((m) => (m as any).kind === k) as any[];
-  const pod = kind('Pod')[0];
+  const pod = one(manifests, 'Pod') as Pod;
 
   it('mounts the binding at $SERVICE_BINDING_ROOT, read-only', () => {
-    const mount = pod.spec.containers[0].volumeMounts.find((m: any) => m.mountPath.includes('bindings'));
-    expect(mount.mountPath).toBe(`${SERVICE_BINDING_ROOT}/qdrant`);
-    expect(mount.readOnly).toBe(true);
+    const mount = pod.spec.containers[0]?.volumeMounts.find((m) => m.mountPath.includes('bindings'));
+    expect(mount?.mountPath).toBe(`${SERVICE_BINDING_ROOT}/qdrant`);
+    expect(mount?.readOnly).toBe(true);
   });
 
   it('sets SERVICE_BINDING_ROOT explicitly rather than relying on the convention', () => {
-    const env = pod.spec.containers[0].env.find((e: any) => e.name === 'SERVICE_BINDING_ROOT');
-    expect(env.value).toBe(SERVICE_BINDING_ROOT);
+    const env = pod.spec.containers[0]?.env.find((e) => e.name === 'SERVICE_BINDING_ROOT');
+    expect(env?.value).toBe(SERVICE_BINDING_ROOT);
   });
 
   it('ships the Secret in the same document as the Pod', () => {
-    const secret = kind('Secret')[0];
+    const secret = one(manifests, 'Secret') as Secret;
     expect(secret.metadata.name).toBe(bindingSecretName('qdrant'));
     expect(secret.metadata.namespace).toBe(workspaceNamespace(spec.leafId));
     expect(secret.stringData['api-key']).toBe('secret-value');
   });
 
   it('keeps the default-deny policy and adds only the declared hole', () => {
-    const policy = kind('NetworkPolicy')[0];
+    const policy = one(manifests, 'NetworkPolicy') as Policy;
     expect(policy.spec.ingress).toEqual([]);
     expect(policy.spec.egress).toHaveLength(2);
-    expect(policy.spec.egress[1].to[0].namespaceSelector.matchLabels['kubernetes.io/metadata.name'])
+    expect(policy.spec.egress[1]?.to[0]?.namespaceSelector.matchLabels['kubernetes.io/metadata.name'])
       .toBe('koala-vectors');
   });
 
   it('changes nothing for a leaf with no bindings', () => {
-    const plain = buildWorkspaceManifests(IMAGES, { leafId: spec.leafId, ownerId: 'u1' }) as any[];
+    const plain = buildWorkspaceManifests(IMAGES, { leafId: spec.leafId, ownerId: 'u1' });
     expect(plain.filter((m) => m.kind === 'Secret')).toEqual([]);
-    const p = plain.find((m) => m.kind === 'Pod');
-    expect(p.spec.containers[0].env.some((e: any) => e.name === 'SERVICE_BINDING_ROOT')).toBe(false);
-    expect(p.spec.volumes.map((v: any) => v.name)).toEqual(['work', 'tmp']);
+    const p = one(plain, 'Pod') as Pod;
+    expect(p.spec.containers[0]?.env.some((e) => e.name === 'SERVICE_BINDING_ROOT')).toBe(false);
+    expect(p.spec.volumes.map((v) => v.name)).toEqual(['work', 'tmp']);
   });
 });
 

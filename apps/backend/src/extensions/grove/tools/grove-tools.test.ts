@@ -5,6 +5,9 @@ import type { Branch, Leaf, LeafStatus } from '../../../projects/lib/leaves.js';
 import type { Tree } from '../../../projects/lib/trees.js';
 import { type Task, type TaskStatus } from '../../../engine-host/tools/tasks.js';
 import type { PlanProposal } from '../../../projects/lib/plan-proposals.js';
+import { anyOf, containing } from '../../../engine/lib/test-matchers.js';
+
+type Ready = { ready: { id: string }[]; waitingOnWorkspace: unknown[] };
 
 let trees: Tree[] = [];
 let branches: Branch[] = [];
@@ -87,15 +90,15 @@ describe('ready_leaves', () => {
     );
     for (const id of ['later', 'top', 'first-feature']) tasks.push(task(`t-${id}`, id, 'accepted'));
     const outcome = await run('ready_leaves', { treeId: 'tree-1' });
-    expect(JSON.parse(outcome.content!).ready.map((entry: { id: string }) => entry.id)).toEqual(['first-feature', 'top', 'later']);
+    expect((JSON.parse(outcome.content!) as Ready).ready.map((entry) => entry.id)).toEqual(['first-feature', 'top', 'later']);
   });
 
   it('keeps a leaf waiting on its workspace out of the ready ones, saying what it waits for', async () => {
     leaves.push(leaf('parked', 'pending', { waitingFor: { reason: '"task t-parked" waits for the workspace to get dnf jq', since: 't0' } }), leaf('free', 'pending'));
     tasks.push(task('t-parked', 'parked', 'waiting'), task('t-free', 'free', 'accepted'));
     const outcome = await run('ready_leaves', { treeId: 'tree-1' });
-    const read = JSON.parse(outcome.content!);
-    expect(read.ready.map((entry: { id: string }) => entry.id)).toEqual(['free']);
+    const read = JSON.parse(outcome.content!) as Ready;
+    expect(read.ready.map((entry) => entry.id)).toEqual(['free']);
     expect(read.waitingOnWorkspace).toEqual([{ id: 'parked', title: 'leaf parked', waitingFor: '"task t-parked" waits for the workspace to get dnf jq' }]);
     expect(outcome.digest).toContain('1 waiting on the workspace');
   });
@@ -227,10 +230,10 @@ describe('next_leaf_task', () => {
         role: 'the greeting',
         siblings: 'leaf-2 is being worked next door',
         context: {
-          planDoc: expect.any(String),
-          leafBrief: expect.stringContaining('leaf-1'),
-          worktree: expect.stringContaining('leaf-1'),
-          branch: expect.stringContaining('leaf-1'),
+          planDoc: anyOf(String),
+          leafBrief: containing('leaf-1'),
+          worktree: containing('leaf-1'),
+          branch: containing('leaf-1'),
         },
       },
     });
@@ -243,7 +246,7 @@ describe('next_leaf_task', () => {
     const outcome = await next({ leafId: 'leaf-1' });
 
     expect(outcome.digest).toBe('next: task a (attempt 2)');
-    expect(JSON.parse(outcome.content ?? '{}').item).toMatchObject({ id: 'a', previousAttempt: 'the test did not pass' });
+    expect((JSON.parse(outcome.content ?? '{}') as { item?: unknown }).item).toMatchObject({ id: 'a', previousAttempt: 'the test did not pass' });
   });
 
   it('says when the leaf is ready to claim, when it was never broken down, and when it cannot be finished', async () => {
@@ -294,7 +297,7 @@ describe('claim_leaf', () => {
     const saved = leaves.find((leaf) => leaf.id === 'leaf-1')!;
     expect(saved.status).toBe('claimed');
     expect(saved.claim).toMatchObject({
-      evidence: expect.stringContaining('listening on :3000'),
+      evidence: containing('listening on :3000'),
       findings: 'health endpoint flaky under load',
       runs: ['r7'],
     });
@@ -404,7 +407,7 @@ describe('settle_leaf', () => {
     expect(outcome.digest).toContain('kept leaf-j2 claimed');
     const saved = leaves.find((leaf) => leaf.id === 'leaf-j2')!;
     expect(saved.status).toBe('claimed'); // stayed — not promoted, not re-run
-    expect(saved.review).toMatchObject({ verdict: 'concern', reason: expect.stringContaining('two more load samples') });
+    expect(saved.review).toMatchObject({ verdict: 'concern', reason: containing('two more load samples') });
   });
 
   it('fails a claim whose evidence shows the goal was not reached', async () => {
@@ -454,7 +457,7 @@ describe('another owner\'s grove', () => {
 
     expect(claim).toMatchObject({ ok: false, digest: 'no such leaf: leaf-1' });
     expect(settle).toMatchObject({ ok: false, digest: 'no such leaf: leaf-1' });
-    expect(schedule).toMatchObject({ ok: false, digest: expect.stringContaining('no such tree: tree-1') });
+    expect(schedule).toMatchObject({ ok: false, digest: containing('no such tree: tree-1') });
     expect(leaves[0]!.status).toBe('claimed');
   });
 });
@@ -475,7 +478,7 @@ describe('list_tree_types', () => {
   });
 
   it('says so when there are none', async () => {
-    expect(await run('list_tree_types', {})).toMatchObject({ ok: false, digest: expect.stringContaining('no tree types') });
+    expect(await run('list_tree_types', {})).toMatchObject({ ok: false, digest: containing('no tree types') });
   });
 });
 
@@ -491,12 +494,12 @@ describe('describe_tree_type', () => {
 
   it('hands the planner what a tree of that type becomes', async () => {
     const outcome = await withDescriptions()['describe_tree_type']!({ name: 'describe_tree_type', parsed: { type: 'odoo-addons' }, driver: undefined, caller });
-    expect(outcome).toMatchObject({ ok: true, digest: 'odoo-addons described', content: expect.stringContaining('- deploying or releasing') });
+    expect(outcome).toMatchObject({ ok: true, digest: 'odoo-addons described', content: containing('- deploying or releasing') });
   });
 
   it('refuses a type that is not the person\'s, or none at all, pointing at list_tree_types', async () => {
     expect(await withDescriptions()['describe_tree_type']!({ name: 'describe_tree_type', parsed: { type: 'nope' }, driver: undefined, caller })).toMatchObject({ ok: false, digest: 'there is no tree type "nope" — list_tree_types gives the ids' });
-    expect(await withDescriptions()['describe_tree_type']!({ name: 'describe_tree_type', parsed: {}, driver: undefined, caller })).toMatchObject({ ok: false, digest: expect.stringContaining('name the tree type') });
+    expect(await withDescriptions()['describe_tree_type']!({ name: 'describe_tree_type', parsed: {}, driver: undefined, caller })).toMatchObject({ ok: false, digest: containing('name the tree type') });
   });
 });
 
@@ -545,7 +548,7 @@ describe('claim_leaf in a worktree', () => {
     leaves = [pending()];
     const outcome = await claimWith(driverWith({ 'git status': { stdout: ' M site/index.html\n?? notes.txt' } }));
 
-    expect(outcome).toMatchObject({ ok: false, digest: expect.stringContaining('uncommitted changes (M site/index.html; ?? notes.txt)') });
+    expect(outcome).toMatchObject({ ok: false, digest: containing('uncommitted changes (M site/index.html; ?? notes.txt)') });
     expect(leaves[0]!.status).toBe('pending');
   });
 });

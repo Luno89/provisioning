@@ -4,6 +4,7 @@ import { runsFingerprint, serverNameFrom, type McpServerRecord } from '../lib/mc
 import { MCP_SERVER_TEMPLATES } from '../../extensions/mcp/templates.js';
 import type { DeploymentMetadata } from '../../platform/lib/types.js';
 import type { StartRunRequest } from '../../engine-host/registries/run-starter.js';
+import { matching, objectWith } from '../lib/test-matchers.js';
 
 function world(over: { deployments?: Partial<DeploymentMetadata>[]; startFails?: string; finished?: Record<string, { outcome: string; reason?: string }>; projects?: { id: string; name: string }[] } = {}) {
   const records = new Map<string, McpServerRecord>();
@@ -46,10 +47,10 @@ describe('the MCP server catalogue', () => {
     const { service, records, started } = world();
     const added = await service.add('u1', { template: 'playwright' });
     expect(added).toMatchObject({ ok: true, server: { name: 'playwright', from: { template: 'playwright' }, omit: ['browser_take_screenshot', 'browser_run_code_unsafe'], status: { state: 'capturing' } } });
-    expect(started).toEqual([expect.objectContaining({ agentSlug: 'mcp-capture', inputs: { serverId: 's1' }, runId: expect.stringMatching(/^mcp-capture-s1-/) })]);
+    expect(started).toEqual([objectWith({ agentSlug: 'mcp-capture', inputs: { serverId: 's1' }, runId: matching(/^mcp-capture-s1-/) })]);
     expect(records.get('s1')!.capturing!.runId).toBe(started[0]!.runId);
     expect((await service.add('u1', { template: 'playwright' }))).toMatchObject({ ok: true, server: { name: 'playwright-2' } });
-    expect((await service.catalogue('u1')).templates).toEqual([expect.objectContaining({ id: 'playwright', added: true })]);
+    expect((await service.catalogue('u1')).templates).toEqual([objectWith({ id: 'playwright', added: true })]);
   });
 
   it('adds a known server with the notes, dependency and tools it is given in place of the template\'s own', async () => {
@@ -103,7 +104,7 @@ describe('the MCP server catalogue', () => {
   it('lists the person\'s running MCP deployments as hosted servers, once each, named after their tree', async () => {
     const { service, started } = world({ deployments: [{ gitappProjectId: 'p1' }] });
     const first = await service.catalogue('u1');
-    expect(first.servers).toEqual([expect.objectContaining({ name: 'weather-api', runs: { where: 'hosted', deploymentId: 'd1' }, from: { projectId: 'p1' } })]);
+    expect(first.servers).toEqual([objectWith({ name: 'weather-api', runs: { where: 'hosted', deploymentId: 'd1' }, from: { projectId: 'p1' } })]);
     await service.catalogue('u1');
     expect(started).toHaveLength(1);
     expect(await service.remove('u1', first.servers[0]!.id)).toMatchObject({ ok: false, status: 409 });

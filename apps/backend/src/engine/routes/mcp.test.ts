@@ -7,8 +7,9 @@ import { runsFingerprint } from '../lib/mcp-servers.js';
 import { McpServerService } from '../services/McpServerService.js';
 import { MCP_SERVER_TEMPLATES } from '../../extensions/mcp/templates.js';
 
-const post = (url: string, body: unknown = {}) => axios.post(url, body, { validateStatus: () => true });
-const put = (url: string, body: unknown) => axios.put(url, body, { validateStatus: () => true });
+type Answer = { request: { status: string }; conversation: { mcpServers: string[] }; error: string; id: string; servers: unknown[] };
+const post = (url: string, body: unknown = {}) => axios.post<Answer>(url, body, { validateStatus: () => true });
+const put = (url: string, body: unknown) => axios.put<Answer>(url, body, { validateStatus: () => true });
 
 describe('/api/mcp', () => {
   let harness: Harness;
@@ -92,7 +93,7 @@ describe('/api/mcp/catalogue', () => {
     const added = await post(harness.url('/api/mcp/catalogue'), { template: 'playwright' });
     expect(added.status).toBe(201);
     expect(added.data).toMatchObject({ name: 'playwright', status: { state: 'capturing' } });
-    const id = added.data.id as string;
+    const id = added.data.id;
 
     expect((await axios.get(harness.url('/api/mcp/catalogue'))).data).toMatchObject({ servers: [{ id, name: 'playwright' }], templates: [{ id: 'playwright', added: true }] });
     expect((await put(harness.url(`/api/mcp/catalogue/${id}`), { notes: 'Snapshot first.' })).data).toMatchObject({ notes: 'Snapshot first.' });
@@ -104,7 +105,7 @@ describe('/api/mcp/catalogue', () => {
     expect((await axios.delete(harness.url('/api/mcp/catalogue/theirs'), { validateStatus: () => true })).status).toBe(404);
 
     expect((await axios.delete(harness.url(`/api/mcp/catalogue/${id}`))).data).toEqual({ removed: true });
-    expect((await axios.get(harness.url('/api/mcp/catalogue'))).data.servers).toEqual([]);
+    expect((await axios.get<Answer>(harness.url('/api/mcp/catalogue'))).data.servers).toEqual([]);
     expect(started).toHaveLength(1);
   });
 });

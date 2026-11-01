@@ -5,6 +5,7 @@ import { ExtensionService } from './ExtensionService.js';
 import { INSTALLED_EXTENSIONS, platformCatalogue, platformGroups } from '../../extensions/installed.js';
 import { PROCEDURE_SCHEMA, defineGroup, type Procedure } from '@koala/agent-engine/procedure';
 import type { ProcedureSource } from '../lib/procedure-source.js';
+import { matching } from '../lib/test-matchers.js';
 
 let db: MongoDB;
 let service: ExtensionService;
@@ -37,7 +38,7 @@ describe('an owner\'s extensions', () => {
   });
 
   it('refuse to switch off the platform, and know no extension that is not installed', async () => {
-    expect(await service.setEnabled('u1', 'platform', false)).toMatchObject({ ok: false, status: 409, error: expect.stringMatching(/cannot be switched off/) });
+    expect(await service.setEnabled('u1', 'platform', false)).toMatchObject({ ok: false, status: 409, error: matching(/cannot be switched off/) });
     expect(await service.setEnabled('u1', 'ghost', false)).toMatchObject({ ok: false, status: 404 });
   });
 });
@@ -99,7 +100,7 @@ describe('an extension of the owner\'s own', () => {
 
   it('is created beside the installed ones, can be switched off, and bundles only the owner\'s own things', async () => {
     expect((await service.create('u1', { id: 'loud', title: 'Loud' })).ok).toBe(true);
-    expect((await service.create('u1', { id: 'grove', title: 'Mine' }))).toMatchObject({ ok: false, error: expect.stringMatching(/already an extension/) });
+    expect((await service.create('u1', { id: 'grove', title: 'Mine' }))).toMatchObject({ ok: false, error: matching(/already an extension/) });
 
     expect(await service.update('u1', 'loud', { personas: ['koala'] })).toMatchObject({ ok: false, error: 'koala is not agents of your own' });
     expect((await service.update('u1', 'loud', { personas: ['loud-agent'], tools: ['loud_tool'], procedures: ['greeter'] })).ok).toBe(true);
@@ -121,7 +122,7 @@ describe('an extension of the owner\'s own', () => {
     expect((await service.groups('u1')).map((group) => group.id)).toEqual(['loud.shout@1']);
 
     const broken = { ...shout(), start: 'nowhere' };
-    expect(await service.publish('u1', 'loud', 'mumble', broken)).toMatchObject({ ok: false, status: 400, error: expect.stringMatching(/does not check/) });
+    expect(await service.publish('u1', 'loud', 'mumble', broken)).toMatchObject({ ok: false, status: 400, error: matching(/does not check/) });
   });
 
   it('moves every procedure using an operation onto its new version when it is saved, keeping the old versions', async () => {
@@ -140,8 +141,9 @@ describe('an extension of the owner\'s own', () => {
     await service.publish('u1', 'loud', 'shout', shout());
     await db.engine.saveProcedure(using(1));
 
-    expect(await service.publish('u1', 'loud', 'shout', shout('said'))).toMatchObject({ ok: false, status: 409, error: expect.stringMatching(/would break greeter/) });
-    expect(JSON.parse((await db.engine.getProcedures('u1'))[0]!.source).nodes.find((node: { id: string }) => node.id === 'shout').group).toBe('loud.shout@1');
+    expect(await service.publish('u1', 'loud', 'shout', shout('said'))).toMatchObject({ ok: false, status: 409, error: matching(/would break greeter/) });
+    const stored = JSON.parse((await db.engine.getProcedures('u1'))[0]!.source) as { nodes: { id: string; group?: string }[] };
+    expect(stored.nodes.find((node) => node.id === 'shout')?.group).toBe('loud.shout@1');
   });
 
   it('will not remove an operation, or the extension, while a procedure uses it', async () => {
@@ -149,7 +151,7 @@ describe('an extension of the owner\'s own', () => {
     await service.publish('u1', 'loud', 'shout', shout());
     await db.engine.saveProcedure(using(1));
 
-    expect(await service.removeOperation('u1', 'loud', 'shout')).toMatchObject({ ok: false, status: 409, error: expect.stringMatching(/greeter still uses it/) });
+    expect(await service.removeOperation('u1', 'loud', 'shout')).toMatchObject({ ok: false, status: 409, error: matching(/greeter still uses it/) });
     expect(await service.remove('u1', 'loud')).toMatchObject({ ok: false, status: 409 });
   });
 });

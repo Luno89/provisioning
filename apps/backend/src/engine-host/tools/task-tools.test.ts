@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { createTaskTools, type TaskStore } from './task-tools.js';
 import type { Task } from './tasks.js';
+import { containing } from '../../engine/lib/test-matchers.js';
 
 let stored: Task[] = [];
 let nextId = 0;
@@ -48,6 +49,8 @@ beforeEach(() => {
   stored = [];
   nextId = 0;
 });
+
+const unblockedIn = (content: string): unknown => (JSON.parse(content) as { unblocked: unknown }).unblocked;
 
 describe('propose_work', () => {
   it('refuses loose tasks in a conversation about a tree or a project, and says to plan a Grove tree instead', async () => {
@@ -172,7 +175,7 @@ describe('propose_work', () => {
       leafId: 'leaf-1',
       title: 'Wire the job queue',
       description: 'Add the worker pool, the retry loop, and the startup drain.',
-      role: expect.stringContaining('webhooks'),
+      role: containing('webhooks'),
     });
     expect(stored[0]?.checks).toEqual({ fileExists: 'src/queue/worker.ts', httpUrl: 'http://localhost:8080/health' });
   });
@@ -309,7 +312,7 @@ describe('mark_done reports exactly what it unblocked', () => {
     expect(outcome.ok).toBe(true);
     expect(outcome.digest).toContain('this unblocked');
     expect(outcome.digest).toContain('Depends on groundwork');
-    expect(JSON.parse(outcome.content!).unblocked).toEqual([
+    expect(unblockedIn(outcome.content!)).toEqual([
       { id: 'b', title: 'Depends on groundwork', agent: 'executor' },
     ]);
   });
@@ -320,7 +323,7 @@ describe('mark_done reports exactly what it unblocked', () => {
     const outcome = await run('mark_done', { taskId: 'a' });
 
     expect(outcome.digest).toContain('nothing was waiting on it');
-    expect(JSON.parse(outcome.content!).unblocked).toEqual([]);
+    expect(unblockedIn(outcome.content!)).toEqual([]);
   });
 
   it('does not report work still waiting on something else', async () => {
@@ -330,14 +333,14 @@ describe('mark_done reports exactly what it unblocked', () => {
 
     const outcome = await run('mark_done', { taskId: 'a' });
 
-    expect(JSON.parse(outcome.content!).unblocked).toEqual([]);
+    expect(unblockedIn(outcome.content!)).toEqual([]);
   });
 
   it('does not report work nobody has accepted yet', async () => {
     seed({ id: 'a', status: 'running' });
     seed({ id: 'b', dependsOn: ['a'], status: 'proposed' });
 
-    expect(JSON.parse((await run('mark_done', { taskId: 'a' })).content!).unblocked).toEqual([]);
+    expect(unblockedIn((await run('mark_done', { taskId: 'a' })).content!)).toEqual([]);
   });
 
   it('keeps the evidence it was given', async () => {
@@ -378,7 +381,7 @@ describe('tasks under a grove leaf', () => {
     seed({ id: 'a1', leafId: 'leaf-a' });
     const outcome = await run('start_task', { taskId: 'a1' });
 
-    expect(JSON.parse(outcome.content ?? '{}')).toMatchObject({ taskId: 'a1', context: expect.stringContaining('work in trees/leaf-a') });
+    expect(JSON.parse(outcome.content ?? '{}')).toMatchObject({ taskId: 'a1', context: containing('work in trees/leaf-a') });
   });
 });
 

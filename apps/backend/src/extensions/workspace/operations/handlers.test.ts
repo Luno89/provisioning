@@ -5,6 +5,7 @@ import type { PublishedWorkspace } from '../../../engine/lib/published-workspace
 import type { Branch, Leaf } from '../../../projects/lib/leaves.js';
 import type { Task } from '../../../engine-host/tools/tasks.js';
 import { changesFrom, createWorkspaceOperations, type ComposedPlan, type WorkspaceOperationDeps } from './handlers.js';
+import { containing, objectWith } from '../../../engine/lib/test-matchers.js';
 
 const TREE = { id: 't1', ownerId: 'u1', name: 'Shop', projectIds: ['p1'] };
 const line = (from: string, packages: string[]): PlanLine => ({ from, install: { via: 'dnf', packages } });
@@ -45,7 +46,7 @@ describe('reading what a project says its workspace needs', () => {
 
   it('reads no file as needing nothing, and says what is wrong with one it cannot use', async () => {
     expect((await world({ readFile: async () => undefined }).run('workspace.read')).outputs).toMatchObject({ file: {} });
-    expect(await world({ readFile: async () => '{ "brew": [] }' }).run('workspace.read')).toMatchObject({ exit: 'unreadable', outputs: { reason: expect.stringContaining('"brew" is not something') } });
+    expect(await world({ readFile: async () => '{ "brew": [] }' }).run('workspace.read')).toMatchObject({ exit: 'unreadable', outputs: { reason: containing('"brew" is not something') } });
     expect(await world().run('workspace.read', {}, {}, {})).toMatchObject({ exit: 'unreadable', outputs: { reason: 'no treeId was wired in, and the run was not started with one' } });
   });
 });
@@ -109,9 +110,9 @@ describe('building and publishing it', () => {
   it('tells the project\'s channel, with a notice the backend posts', async () => {
     const { run, emitted } = world();
     await run('workspace.notify', { tree, summary: 'adds dnf wkhtmltopdf (project)' }, { what: 'ready' });
-    expect(emitted).toEqual([expect.objectContaining({
+    expect(emitted).toEqual([objectWith({
       type: 'notice',
-      post: expect.objectContaining({ key: 'workspace:workspace-build-t1-abc123:ready', kind: 'workspace-ready', refs: { treeId: 't1', projectId: 'p1' }, text: expect.stringContaining('The workspace for Shop is ready: adds dnf wkhtmltopdf (project)') }),
+      post: objectWith({ key: 'workspace:workspace-build-t1-abc123:ready', kind: 'workspace-ready', refs: { treeId: 't1', projectId: 'p1' }, text: containing('The workspace for Shop is ready: adds dnf wkhtmltopdf (project)') }),
     })]);
   });
 });
