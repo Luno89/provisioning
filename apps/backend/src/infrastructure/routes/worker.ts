@@ -1,23 +1,31 @@
-import { Router } from 'express';
+import { Router, type RequestHandler } from 'express';
+import { at } from '../lib/json-reading.js';
+import type WorkerService from '../services/WorkerService.js';
 
-export function workerRouter(deps: Record<string, any>): Router {
+export interface WorkerRouterDeps {
+  workerService: Pick<WorkerService, 'status'>;
+  operatorOnly: RequestHandler;
+}
+
+export function workerRouter(deps: WorkerRouterDeps): Router {
   const { workerService, operatorOnly } = deps;
   const router = Router();
 
   router.post('/', operatorOnly, async (req, res) => {
     try {
-      const { clusterId, context } = req.body || {};
+      const clusterId = at(req.body, 'clusterId');
+      const context = at(req.body, 'context');
       if (!clusterId) return res.status(400).json({ error: 'clusterId is required' });
-      console.log(`[Worker] Initialized worker ${clusterId} (context: ${context || 'local'})`);
+      console.log(`[Worker] Initialized worker ${String(clusterId)} (context: ${String(context || 'local')})`);
       res.status(202).json({
         message: 'Worker initialized',
         clusterId,
         context: context || 'local',
         state: 'running',
       });
-    } catch (err: any) {
-      console.error(`[Worker] Failed to initialize: ${err.message}`);
-      res.status(503).json({ error: err.message });
+    } catch (err) {
+      console.error(`[Worker] Failed to initialize: ${(err as Error).message}`);
+      res.status(503).json({ error: (err as Error).message });
     }
   });
 
@@ -25,9 +33,9 @@ export function workerRouter(deps: Record<string, any>): Router {
     try {
       console.log('[Worker] Worker stopped');
       res.status(200).json({ message: 'Worker stopped' });
-    } catch (err: any) {
-      console.error(`[Worker] Failed to stop: ${err.message}`);
-      res.status(500).json({ error: err.message });
+    } catch (err) {
+      console.error(`[Worker] Failed to stop: ${(err as Error).message}`);
+      res.status(500).json({ error: (err as Error).message });
     }
   });
 
@@ -40,8 +48,8 @@ export function workerRouter(deps: Record<string, any>): Router {
         state: state?.state || 'stopped',
         running: state?.state === 'running',
       });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
     }
   });
 

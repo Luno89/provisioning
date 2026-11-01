@@ -51,12 +51,22 @@ async function app(root?: () => RootReach | undefined) {
   return { cleared };
 }
 
+interface InfrastructureAnswer {
+  workloads: BrokenWorkload[];
+  waiting: { workflowId: string }[];
+  running: number;
+  failures: unknown;
+  monitoring: { attention: unknown[] };
+  koala: unknown;
+  root?: unknown;
+}
+
 describe('/api/infrastructure', () => {
   it('puts together what needs the person: health, broken workloads not already told by their app, work waiting on them, failures', async () => {
     await app();
-    const res = await axios.get(harness.url('/api/infrastructure'));
-    expect(res.data.workloads.map((workload: BrokenWorkload) => workload.name)).toEqual(['mystery']);
-    expect(res.data.waiting.map((item: { workflowId: string }) => item.workflowId)).toEqual(['release-p1']);
+    const res = await axios.get<InfrastructureAnswer>(harness.url('/api/infrastructure'));
+    expect(res.data.workloads.map((workload) => workload.name)).toEqual(['mystery']);
+    expect(res.data.waiting.map((item) => item.workflowId)).toEqual(['release-p1']);
     expect(res.data.running).toBe(2);
     expect(res.data.failures).toEqual([failure]);
     expect(res.data.monitoring.attention).toHaveLength(1);
@@ -65,10 +75,10 @@ describe('/api/infrastructure', () => {
 
   it('says when the instance cannot reach root, and says nothing where it is not an instance', async () => {
     await app(() => ({ rootUrl: 'https://app.koala.dev', reachable: false, down: true, unreachableSince: '2026-10-29T10:00:00.000Z' }));
-    expect((await axios.get(harness.url('/api/infrastructure'))).data.root).toEqual({ rootUrl: 'https://app.koala.dev', reachable: false, down: true, unreachableSince: '2026-10-29T10:00:00.000Z' });
+    expect((await axios.get<InfrastructureAnswer>(harness.url('/api/infrastructure'))).data.root).toEqual({ rootUrl: 'https://app.koala.dev', reachable: false, down: true, unreachableSince: '2026-10-29T10:00:00.000Z' });
     await harness.close();
     await app();
-    expect((await axios.get(harness.url('/api/infrastructure'))).data.root).toBeUndefined();
+    expect((await axios.get<InfrastructureAnswer>(harness.url('/api/infrastructure'))).data.root).toBeUndefined();
   });
 
   it('reads one cluster', async () => {

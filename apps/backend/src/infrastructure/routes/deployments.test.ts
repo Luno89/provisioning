@@ -4,6 +4,8 @@ import { deploymentsRouter } from './deployments.js';
 import { mountRouter, TEST_USER, type Harness } from '../../platform/routes/test-harness.js';
 import { CapacityError } from '../lib/cluster-capacity.js';
 
+const ANY_STATUS = { validateStatus: () => true };
+
 let h: Harness | undefined;
 afterEach(async () => { await h?.close(); h = undefined; vi.restoreAllMocks(); });
 
@@ -78,19 +80,19 @@ describe('patching config', () => {
 
   it('rejects settings the schema does not accept, with the reasons', async () => {
     const { h } = await mount();
-    const err = await axios.patch(h.url('/api/deployments/d1/config'), {
+    const err = await axios.patch<unknown>(h.url('/api/deployments/d1/config'), {
       appSettings: { adminPassword: 12345 },
-    }).catch((e) => e);
-    if (err.response?.status === 400) {
-      expect(err.response.data).toHaveProperty('error');
+    }, ANY_STATUS);
+    if (err.status === 400) {
+      expect(err.data).toHaveProperty('error');
     }
   });
 
   it('reports Temporal being down as 503, not as a bad patch', async () => {
     const { h, svc } = await mount();
     svc.temporalBridge.updateConfigAndSync.mockRejectedValue(new Error('no worker') as never);
-    const err = await axios.patch(h.url('/api/deployments/d1/config'), { replicas: 2 }).catch((e) => e);
-    expect(err.response.status).toBe(503);
+    const err = await axios.patch<unknown>(h.url('/api/deployments/d1/config'), { replicas: 2 }, ANY_STATUS);
+    expect(err.status).toBe(503);
   });
 });
 
@@ -115,14 +117,11 @@ describe('when the cluster cannot be reached', () => {
 describe('the four routes that lived 3,900 lines away', () => {
   it('are all reachable under the same prefix as the rest', async () => {
     const { h } = await mount();
-    const reached = async (call: Promise<unknown>) => {
-      const r = await call.then(() => 200).catch((e) => e.response?.status ?? 0);
-      return r !== 404 && r !== 0;
-    };
-    expect(await reached(axios.patch(h.url('/api/deployments/d1/modules'), { modules: [] }))).toBe(true);
-    expect(await reached(axios.patch(h.url('/api/deployments/d1/storage'), { size: '10Gi' }))).toBe(true);
-    expect(await reached(axios.get(h.url('/api/deployments/d1/resource-plan')))).toBe(true);
-    expect(await reached(axios.patch(h.url('/api/deployments/d1/config'), { replicas: 1 }))).toBe(true);
+    const reached = async (call: Promise<{ status: number }>) => (await call).status !== 404;
+    expect(await reached(axios.patch(h.url('/api/deployments/d1/modules'), { modules: [] }, ANY_STATUS))).toBe(true);
+    expect(await reached(axios.patch(h.url('/api/deployments/d1/storage'), { size: '10Gi' }, ANY_STATUS))).toBe(true);
+    expect(await reached(axios.get(h.url('/api/deployments/d1/resource-plan'), ANY_STATUS))).toBe(true);
+    expect(await reached(axios.patch(h.url('/api/deployments/d1/config'), { replicas: 1 }, ANY_STATUS))).toBe(true);
   });
 });
 
@@ -134,7 +133,7 @@ describe('POST / when the deploy is refused', () => {
     });
     await mount(svc);
 
-    const res = await axios.post(h!.url('/api/deployments'), { name: 'x', clusterId: 'c1' }, {
+    const res = await axios.post<{ error: string }>(h!.url('/api/deployments'), { name: 'x', clusterId: 'c1' }, {
       validateStatus: () => true,
     });
 
@@ -148,7 +147,7 @@ describe('POST / when the deploy is refused', () => {
     svc.temporalBridge.deployApp = vi.fn(async () => { throw new Error('connection refused'); });
     await mount(svc);
 
-    const res = await axios.post(h!.url('/api/deployments'), { name: 'x', clusterId: 'c1' }, {
+    const res = await axios.post<{ error: string }>(h!.url('/api/deployments'), { name: 'x', clusterId: 'c1' }, {
       validateStatus: () => true,
     });
 
@@ -173,7 +172,7 @@ describe('an app\'s sign-in', () => {
     svc.appService.getAll.mockResolvedValue([deployment({ appType: 'nextcloud', ...sealed })] as never);
     svc.appService.updateModules.mockResolvedValue({ deployment: deployment(sealed) } as never);
     const { h } = await mount(svc);
-    const listed = await axios.get(h.url('/api/deployments'));
+    const listed = await axios.get<unknown[]>(h.url('/api/deployments'));
     expect(listed.data[0]).toMatchObject({ id: 'd1', appType: 'nextcloud' });
     const changed = await axios.patch(h.url('/api/deployments/d1/modules'), { modules: [] });
     for (const body of [listed.data, changed.data]) for (const value of Object.values(sealed)) expect(JSON.stringify(body)).not.toContain(value);

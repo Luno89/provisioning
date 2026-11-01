@@ -3,7 +3,8 @@ import type { Server as SocketServer } from 'socket.io';
 import { asyncRoute, authorize, clusterResource, decryptValue, principalFrom, type SecretKey } from '../../platform/index.js';
 import { signsInAsPlatform, validateClusterName } from '../lib/cluster-name.js';
 import { generateSshKeypair } from '../lib/ssh-keypair.js';
-import { ProvisionRefused } from '../lib/cluster-topology.js';
+import { isClusterProviderName, notAClusterProvider, ProvisionRefused } from '../lib/cluster-topology.js';
+import { provisionRequestOf } from '../lib/cluster-request.js';
 import type { ClusterService } from '../services/ClusterService.js';
 import type { AppService } from '../services/AppService.js';
 import type { ClusterProxyService } from '../services/ClusterProxyService.js';
@@ -71,8 +72,8 @@ export function clustersRouter(deps: ClustersRouterDeps): Router {
                   : await infisicalService.getAdminCredentials();
               const cookies = await clusterProxyService.getAutoLoginCookies(serviceKey, targetUrl, credentials);
               for (const cookie of cookies) res.append('Set-Cookie', cookie);
-            } catch (err: any) {
-              console.warn(`[proxy] Auto-login failed for ${serviceKey}: ${err.message} — falling back to manual login`);
+            } catch (err) {
+              console.warn(`[proxy] Auto-login failed for ${serviceKey}: ${(err as Error).message} — falling back to manual login`);
             }
           }
           return res.redirect(302, targetUrl);
@@ -80,8 +81,8 @@ export function clustersRouter(deps: ClustersRouterDeps): Router {
 
         res.setHeader('Content-Type', 'text/html');
         res.send(`<!DOCTYPE html><html><head><title>${serviceKey}</title></head><body style="margin:0"><iframe src="${targetUrl}" style="width:100%;height:100vh;border:none"></iframe></body></html>`);
-      } catch (err: any) {
-        res.status(502).json({ error: `Service unavailable: ${err.message}` });
+      } catch (err) {
+        res.status(502).json({ error: `Service unavailable: ${(err as Error).message}` });
       }
     });
   }
@@ -90,31 +91,25 @@ export function clustersRouter(deps: ClustersRouterDeps): Router {
 
   router.post('/', async (req, res) => {
     try {
-      const nameCheck = validateClusterName(req.body.name);
+      const body = provisionRequestOf(req.body);
+      const nameCheck = validateClusterName(body.name);
       if (!nameCheck.ok) {
         return res.status(400).json({
           error: nameCheck.error,
           ...(nameCheck.suggestion ? { suggestion: nameCheck.suggestion } : {}),
         });
       }
+      const name = String(body.name);
 
-      const remote = req.body.provider === 'remote'
-        ? {
-            host: req.body.remoteHost,
-            username: req.body.remoteUsername,
-            privateKey: req.body.remoteSshPrivateKey,
-            ...(typeof req.body.remoteSshPort === 'number' ? { port: req.body.remoteSshPort } : {}),
-            ...(typeof req.body.remoteK3sApiPort === 'number' ? { k3sApiPort: req.body.remoteK3sApiPort } : {}),
-          }
-        : undefined;
+      const remote = body.remote;
       if (remote && (!remote.host || !remote.username)) {
         return res.status(400).json({ error: 'remoteHost and remoteUsername are required for provider "remote"' });
       }
 
       if (remote && !remote.privateKey) {
-        const pair = await generateSshKeypair(`nowrinkles-${req.body.name}`);
+        const pair = await generateSshKeypair(`nowrinkles-${name}`);
         const saved = await clusterService.createAwaitingKey({
-          name: req.body.name,
+          name,
           ownerId: userOf(req).id,
           host: remote.host,
           username: remote.username,
@@ -128,25 +123,19 @@ export function clustersRouter(deps: ClustersRouterDeps): Router {
           message: 'Authorise this key on the machine, then start provisioning.',
         });
       }
-      const hetzner = req.body.provider === 'hetzner' || req.body.provider === 'do'
-        ? {
-            ...(req.body.hetznerServerType ? { serverType: String(req.body.hetznerServerType) } : {}),
-            ...(req.body.hetznerLocation ? { location: String(req.body.hetznerLocation) } : {}),
-            ...(req.body.hetznerImage ? { image: String(req.body.hetznerImage) } : {}),
-          }
-        : undefined;
-      const info = await temporalBridge.provision(req.body.name, req.body.provider, userOf(req).id, remote, hetzner);
+      if (!isClusterProviderName(body.provider)) return res.status(400).json({ error: notAClusterProvider(body.provider) });
+      const info = await temporalBridge.provision(name, body.provider, userOf(req).id, remote, body.vm);
       res.status(202).json({
         message: 'Provisioning started',
-        clusterName: req.body.name,
-        provider: req.body.provider,
+        clusterName: name,
+        provider: body.provider,
         id: info.resourceId,
         workflowId: info.id,
         state: 'running',
       });
-    } catch (err: any) {
+    } catch (err) {
       if (err instanceof ProvisionRefused) return res.status(400).json({ error: err.message });
-      res.status(503).json({ error: `Temporal cluster provisioning unavailable: ${err.message}` });
+      res.status(503).json({ error: `Temporal cluster provisioning unavailable: ${(err as Error).message}` });
     }
   });
 
@@ -172,8 +161,8 @@ export function clustersRouter(deps: ClustersRouterDeps): Router {
       await db.deleteCluster(cluster.id);
 
       res.status(202).json({ message: 'Provisioning started', id: info.resourceId, workflowId: info.id });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
     }
   });
 
@@ -195,12 +184,12 @@ export function clustersRouter(deps: ClustersRouterDeps): Router {
         workflowId: info.id,
         state: 'running',
       });
-    } catch (err: any) {
+    } catch (err) {
       try {
         await clusterService.abort(idOf(req), principalFrom(req), io);
         res.json({ success: true, message: 'Cluster deleted' });
-      } catch (fallbackErr: any) {
-        res.status(503).json({ error: `Cluster destruction unavailable: ${err.message}` });
+      } catch (fallbackErr) {
+        res.status(503).json({ error: `Cluster destruction unavailable: ${(err as Error).message}; deleting its record failed too: ${(fallbackErr as Error).message}` });
       }
     }
   });
@@ -211,8 +200,8 @@ export function clustersRouter(deps: ClustersRouterDeps): Router {
     try {
       const discovered = await clusterService.discoverClusters(userOf(req).id);
       res.json({ clusters: discovered });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
     }
   });
 
@@ -221,8 +210,8 @@ export function clustersRouter(deps: ClustersRouterDeps): Router {
     try {
       const discovered = await appService.discoverDeployments(idOf(req), principalFrom(req));
       res.json({ deployments: discovered });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
     }
   });
 

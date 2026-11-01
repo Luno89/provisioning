@@ -34,7 +34,7 @@ export const deviceByToken = (db: Pick<Database, 'machines'>, dataKey: SecretKey
 
 export function wireMachines(deps: MachinesWiringDeps): void {
   const { tenant, db } = deps;
-  tenant.use('/api/mesh', meshRouter({ headscaleService: deps.headscale, db }));
+  tenant.use('/api/mesh', meshRouter({ headscaleService: deps.headscale }));
   tenant.use('/api/mesh/local-agents', localAgentsRouter({ machines: deps.machines }));
   const { bundle } = deps;
   const git = new MachineGitService({

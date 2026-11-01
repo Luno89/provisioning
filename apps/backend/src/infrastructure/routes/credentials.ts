@@ -3,6 +3,8 @@ import axios from 'axios';
 import {
   asyncRoute, carriedByOAuthState, cookieNamed, isCloudProvider, newOAuthState, OAUTH_STATE_COOKIE, OAUTH_STATE_SECONDS, parseCookie, type CloudProvider, type SecretKey,
 } from '../../platform/index.js';
+import { credentialFieldsFrom } from '../lib/credential-resolver.js';
+import { recordAt, textAt } from '../lib/json-reading.js';
 import type { CredentialService } from '../services/CredentialService.js';
 
 export interface CredentialsRouterDeps {
@@ -43,10 +45,10 @@ export function credentialsRouter(deps: CredentialsRouterDeps): Router {
 
   router.post('/validate/:provider', requireProvider, asyncRoute(async (req, res) => {
     const provider = providerOf(req);
-    const result = provider === 'googledrive'
-      ? await credentialService.testGoogleDriveConnection(userOf(req).id)
-      : await credentialService.validateCredentials(provider, req.body);
-    res.json(result);
+    if (provider === 'googledrive') return res.json(await credentialService.testGoogleDriveConnection(userOf(req).id));
+    const read = credentialFieldsFrom(req.body);
+    if ('problem' in read) return res.status(400).json({ error: read.problem });
+    return res.json(await credentialService.validateCredentials(provider, read.fields));
   }));
 
   router.get('/:provider', requireProvider, asyncRoute(async (req, res) => {
@@ -57,7 +59,9 @@ export function credentialsRouter(deps: CredentialsRouterDeps): Router {
 
   router.put('/:provider', requireProvider, asyncRoute(async (req, res) => {
     const provider = providerOf(req);
-    await credentialService.saveCredentials(userOf(req).id, provider, req.body);
+    const read = credentialFieldsFrom(req.body);
+    if ('problem' in read) return res.status(400).json({ error: read.problem });
+    await credentialService.saveCredentials(userOf(req).id, provider, read.fields);
     const updated = await credentialService.getCredentials(userOf(req).id, provider);
     res.json({ success: true, provider, credentials: updated });
   }));
@@ -100,7 +104,7 @@ export function credentialsRouter(deps: CredentialsRouterDeps): Router {
         return res.redirect(`${appUrl}/?driveError=missing_client_id#/settings`);
       }
 
-      const tokenRes = await axios.post('https://oauth2.googleapis.com/token', {
+      const tokenRes = await axios.post<unknown>('https://oauth2.googleapis.com/token', {
         client_id: googleId,
         client_secret: googleSecret,
         code,
@@ -108,16 +112,16 @@ export function credentialsRouter(deps: CredentialsRouterDeps): Router {
         redirect_uri: `${publicUrl}/api/credentials/googledrive/callback`,
       });
 
-      const refreshToken = tokenRes.data.refresh_token;
-      const accessToken = tokenRes.data.access_token;
+      const refreshToken = textAt(tokenRes.data, 'refresh_token');
+      const accessToken = textAt(tokenRes.data, 'access_token');
       if (!refreshToken) {
         return res.redirect(`${appUrl}/?driveError=no_refresh_token#/settings`);
       }
 
-      const aboutRes = await axios.get('https://www.googleapis.com/drive/v3/about?fields=user', {
+      const aboutRes = await axios.get<unknown>('https://www.googleapis.com/drive/v3/about?fields=user', {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
-      const email = aboutRes.data.user?.emailAddress || '';
+      const email = textAt(recordAt(aboutRes.data, 'user'), 'emailAddress') || '';
 
       await credentialService.saveCredentials(userOf(req).id, 'googledrive', { refreshToken, email });
       res.redirect(`${appUrl}/?driveConnected=1#/settings`);

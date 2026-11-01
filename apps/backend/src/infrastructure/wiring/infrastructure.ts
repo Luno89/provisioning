@@ -108,7 +108,7 @@ export function wireInfrastructure(deps: InfrastructureWiringDeps): void {
   if (roleFromEnv(process.env).role === 'combined') tenant.use('/api/server-orders', serverOrdersRouter({ serverOrders, operatorOnly: deps.operatorOnly }));
   tenant.use('/api/temporal', temporalRouter({ temporalBridge: deps.temporalBridge }));
   tenant.use('/api/worker', workerRouter({ workerService: deps.worker, operatorOnly: deps.operatorOnly }));
-  tenant.use('/api/nginx', adminOnly(deps.operatorOnly, nginxRouter({ infraService: deps.infra, nginxConfPath: deps.nginxConfPath })));
+  tenant.use('/api/nginx', adminOnly(deps.operatorOnly, nginxRouter({ nginxConfPath: deps.nginxConfPath })));
   tenant.use('/api/logs', logsRouter({ db, clusterService: deps.clusters, appService: deps.apps }));
   tenant.use('/api/registry', registryRouter({ registryService: deps.registry }));
   tenant.use('/api/modules', modulesRouter({ gitModuleService: deps.gitModules }));

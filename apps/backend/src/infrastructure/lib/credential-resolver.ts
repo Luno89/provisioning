@@ -1,5 +1,6 @@
 import type { CloudCredentials } from '../../platform/index.js';
 import { credentialEnvOf, credentialsFromEnv, dnsProviderNamed, isDnsProviderName } from './dns-providers.js';
+import { recordAt } from './json-reading.js';
 import { allowed, principalOf, type ClaimedUser, type ClaimSettings } from '../../platform/lib/permissions.js';
 
 export const COMBINED_CLAIMS: ClaimSettings = { role: 'combined' };
@@ -236,4 +237,13 @@ function resolveFromEnv(provider: string, env: OperatorEnv): Record<string, stri
     default:
       return null;
   }
+}
+
+export function credentialFieldsFrom(body: unknown): { fields: Record<string, string> } | { problem: string } {
+  const fields: Record<string, string> = {};
+  for (const [key, value] of Object.entries(recordAt(body))) {
+    if (typeof value === 'string') fields[key] = value;
+    else if (value) return { problem: `${key} must be text` };
+  }
+  return { fields };
 }

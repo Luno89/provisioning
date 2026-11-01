@@ -1,6 +1,7 @@
 import { Router, type Request, type RequestHandler, type Response } from 'express';
 import { asyncRoute } from '../../platform/index.js';
 import { withoutOrderSecrets } from '../lib/server-orders.js';
+import { at } from '../lib/json-reading.js';
 import { ServerOrderProblem, type ServerOrderService } from '../services/ServerOrderService.js';
 
 const userOf = (req: Request): { id: string } => (req as unknown as { user: { id: string } }).user;
@@ -70,7 +71,7 @@ export function serverOrdersRouter(deps: { serverOrders: ServerOrderService; ope
 
   router.post('/:id/buy', asyncRoute(async (req, res) => {
     try {
-      sendOrder(res, await serverOrders.buy(userOf(req).id, String(req.params.id), (req.body ?? {}).confirmedTotal));
+      sendOrder(res, await serverOrders.buy(userOf(req).id, String(req.params.id), at(req.body, 'confirmedTotal')));
     } catch (error) {
       answer(res, error);
     }

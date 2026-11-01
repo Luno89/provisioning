@@ -54,19 +54,19 @@ describe('/api/server-orders', () => {
 
   it('says who serves each zone\'s DNS and whether its credentials are stored, refusing a request naming none or three', async () => {
     const { h } = await mount();
-    const answer = await axios.get(h.url('/api/server-orders/zones?zone=nowrinkles.dev&zone=nowrinkles.app'), send);
+    const answer = await axios.get<{ zone: string; provider: string; credentials: boolean }[]>(h.url('/api/server-orders/zones?zone=nowrinkles.dev&zone=nowrinkles.app'), send);
     expect(answer.status).toBe(200);
-    expect(answer.data.map((zone: { zone: string; provider: string; credentials: boolean }) => [zone.zone, zone.provider, zone.credentials])).toEqual([['nowrinkles.dev', 'cloudflare', true], ['nowrinkles.app', 'cloudflare', true]]);
+    expect(answer.data.map((zone) => [zone.zone, zone.provider, zone.credentials])).toEqual([['nowrinkles.dev', 'cloudflare', true], ['nowrinkles.app', 'cloudflare', true]]);
     expect((await axios.get(h.url('/api/server-orders/zones'), send)).status).toBe(400);
     expect((await axios.get(h.url('/api/server-orders/zones?zone=a.test&zone=b.test&zone=c.test'), send)).status).toBe(400);
   });
 
   it('prices, buys only with the confirmed total, and shows no secret in what it lists', async () => {
     const { h, ovh, started } = await mount();
-    const quoted = await axios.post(h.url('/api/server-orders/quote'), ASK, send);
+    const quoted = await axios.post<{ id: string }>(h.url('/api/server-orders/quote'), ASK, send);
     expect(quoted.status).toBe(201);
     expect(ovh.state.checkedOut).toBe(0);
-    const id = quoted.data.id as string;
+    const id = quoted.data.id;
     expect((await axios.post(h.url(`/api/server-orders/${id}/buy`), {}, send)).status).toBe(400);
     expect((await axios.post(h.url(`/api/server-orders/${id}/buy`), { confirmedTotal: 1 }, send)).status).toBe(409);
     expect(ovh.state.checkedOut).toBe(0);
@@ -81,14 +81,14 @@ describe('/api/server-orders', () => {
 
   it('describes the sign-in providers root can be given, with root\'s redirect URI for each once the domain is a domain', async () => {
     const { h } = await mount();
-    const listed = await axios.get(h.url('/api/server-orders/sign-in-providers?domain=nowrinkles.dev'), send);
+    const listed = await axios.get<{ id: string; redirectUri?: string }[]>(h.url('/api/server-orders/sign-in-providers?domain=nowrinkles.dev'), send);
     expect(listed.status).toBe(200);
-    expect(listed.data.map((provider: { id: string; redirectUri?: string }) => [provider.id, provider.redirectUri])).toEqual([
+    expect(listed.data.map((provider) => [provider.id, provider.redirectUri])).toEqual([
       ['google', 'https://app.nowrinkles.dev/api/auth/provider/google/callback'],
       ['github', 'https://app.nowrinkles.dev/api/auth/provider/github/callback'],
       ['oidc', 'https://app.nowrinkles.dev/api/auth/provider/oidc/callback'],
     ]);
-    expect((await axios.get(h.url('/api/server-orders/sign-in-providers'), send)).data[0].redirectUri).toBeUndefined();
+    expect((await axios.get<{ redirectUri?: string }[]>(h.url('/api/server-orders/sign-in-providers'), send)).data[0]?.redirectUri).toBeUndefined();
     h.setUser(TEST_USER);
     expect((await axios.get(h.url('/api/server-orders/sign-in-providers'), send)).status).toBe(403);
   });
@@ -98,10 +98,10 @@ describe('/api/server-orders', () => {
     const secrets = /google-fake-route-secret|route-client-id|signInEnv|sshPrivateKey|"setupCode"/;
     const signIn = [{ id: 'google', values: { clientId: 'route-client-id', clientSecret: 'google-fake-route-secret' } }];
     expect((await axios.post(h.url('/api/server-orders/quote'), { ...ASK, signIn: [{ id: 'google', values: { clientId: 'route-client-id' } }] }, send)).status).toBe(400);
-    const quoted = await axios.post(h.url('/api/server-orders/quote'), { ...ASK, signIn }, send);
+    const quoted = await axios.post<{ id: string; signIn: unknown }>(h.url('/api/server-orders/quote'), { ...ASK, signIn }, send);
     expect(quoted.status).toBe(201);
     expect(quoted.data.signIn).toEqual([{ id: 'google', label: 'Google' }]);
-    const id = quoted.data.id as string;
+    const id = quoted.data.id;
     const answers = [
       quoted,
       await axios.get(h.url('/api/server-orders'), send),
@@ -117,7 +117,7 @@ describe('/api/server-orders', () => {
 
   it('answers the setup code and the SSH key uncached, and only when there is one', async () => {
     const { h } = await mount();
-    const id = (await axios.post(h.url('/api/server-orders/quote'), ASK, send)).data.id as string;
+    const id = (await axios.post<{ id: string }>(h.url('/api/server-orders/quote'), ASK, send)).data.id;
     const code = await axios.post(h.url(`/api/server-orders/${id}/setup-code`), {}, send);
     expect(code.status).toBe(404);
     expect(code.headers['cache-control']).toBe('no-store');
