@@ -582,11 +582,12 @@ describe('a conversation about one tree', () => {
     branches: [{ title: 'More', leaves: [{ key: 'bye', title: 'Bye', body: 'bye.txt says bye', brief: 'Write bye.txt.', dependsOn: ['leaf-1'], tasks: [] }] }],
   };
   let saved: PlanProposal[] = [];
+  let grown: string[] = [];
   const bound = (_conversationId: string) => createGroveTools({
     stores: {
-      trees: { list: async () => trees, save: async () => undefined },
-      branches: { list: async () => branches, save: async () => undefined },
-      leaves: { list: async () => leaves, save: async () => undefined },
+      trees: { list: async () => trees, save: async (tree) => { grown.push(`tree ${tree.id}`); } },
+      branches: { list: async () => branches, save: async (branch) => { grown.push(`branch ${branch.id}`); } },
+      leaves: { list: async () => leaves, save: async (leaf) => { grown.push(`leaf ${leaf.id}`); } },
       tasks: { list: async () => tasks },
       plans: { save: async (entry) => { saved = [...saved.filter((e) => e.id !== entry.id), entry]; }, list: async () => saved },
       treeTypes: async () => [{ id: 'application', label: 'App', summary: 'an app' }],
@@ -600,6 +601,7 @@ describe('a conversation about one tree', () => {
 
   beforeEach(() => {
     saved = [];
+    grown = [];
     leaves = [{ id: 'leaf-1', ownerId: 'user-1', branchId: 'branch-1', title: 'Hello', body: 'hello.txt says hello', status: 'succeeded', createdAt: 'now', updatedAt: 'now' }];
   });
 
@@ -637,6 +639,7 @@ describe('a conversation about one tree', () => {
     expect(outcome.ok, outcome.digest).toBe(true);
     expect(saved[0]?.plan?.treeId).toBe('tree-1');
     expect(saved[0]?.plan?.branches[0]?.leaves[0]?.dependsOn).toEqual(['leaf-1']);
+    expect(grown, 'a proposal made part of the grove before anyone approved it').toEqual([]);
   });
 
   it('refuses a new tree or another tree, and saves nothing', async () => {
@@ -654,6 +657,7 @@ describe('a conversation about one tree', () => {
     const outcome = await call('conv-free', 'propose_plan', { ...PLAN, tree: { name: 'New', type: 'application', goal: 'x' }, branches: [{ title: 'More', leaves: [{ ...PLAN.branches[0]!.leaves[0]!, dependsOn: [] }] }] });
     expect(outcome.ok, outcome.digest).toBe(true);
     expect(saved[0]?.plan?.tree?.name).toBe('New');
+    expect(grown, 'a proposal made part of the grove before anyone approved it').toEqual([]);
   });
 
   it('marks a new tree planned in a conversation about a project for linking to it, and only a new one', async () => {
