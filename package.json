@@ -1,7 +1,7 @@
 {
   "name": "nowrinkles",
   "version": "1.0.0",
-  "description": "No Wrinkles \u2014 spin up Kubernetes clusters on your own hardware or any VPS, and deploy apps to them",
+  "description": "No Wrinkles — spin up Kubernetes clusters on your own hardware or any VPS, and deploy apps to them",
   "private": true,
   "scripts": {
     "postinstall": "node scripts/fix-dnd-kit-hoisting.js",
@@ -117,6 +117,7 @@
     "packages/*"
   ],
   "devDependencies": {
+    "@jridgewell/trace-mapping": "0.3.31",
     "@playwright/test": "^1.61.1",
     "@types/node": "^26.0.1",
     "concurrently": "^8.2.0",
