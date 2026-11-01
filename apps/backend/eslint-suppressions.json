@@ -1578,26 +1578,6 @@
       "count": 10
     }
   },
-  "src/infrastructure/services/AppDeploy.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 1
-    },
-    "@typescript-eslint/no-unsafe-argument": {
-      "count": 5
-    },
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 64
-    },
-    "@typescript-eslint/no-unsafe-call": {
-      "count": 2
-    },
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 83
-    },
-    "no-restricted-syntax": {
-      "count": 1
-    }
-  },
   "src/infrastructure/services/AppService.ts": {
     "@typescript-eslint/no-explicit-any": {
       "count": 31
@@ -1630,32 +1610,6 @@
     },
     "@typescript-eslint/no-unsafe-member-access": {
       "count": 1
-    }
-  },
-  "src/infrastructure/services/TemporalBridge.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 34
-    },
-    "@typescript-eslint/no-floating-promises": {
-      "count": 1
-    },
-    "@typescript-eslint/no-unsafe-argument": {
-      "count": 26
-    },
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 23
-    },
-    "@typescript-eslint/no-unsafe-call": {
-      "count": 2
-    },
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 45
-    },
-    "no-empty": {
-      "count": 1
-    },
-    "no-restricted-syntax": {
-      "count": 12
     }
   },
   "src/infrastructure/store.ts": {
@@ -2278,9 +2232,6 @@
     }
   },
   "src/platform/lib/temporal-client.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 1
-    },
     "no-restricted-syntax": {
       "count": 5
     }

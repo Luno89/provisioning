@@ -1,4 +1,4 @@
-import { Client, Connection, type WorkflowClientInterceptor } from '@temporalio/client'
+import { Client, Connection, type WorkflowClientInterceptor, type WorkflowExecutionDescription } from '@temporalio/client'
 import protos from '@temporalio/proto'
 import { traceWorkflowStarts } from '@koala/engine-core/telemetry'
 import { buildDataConverter } from './temporal-codec.js'
@@ -105,7 +105,7 @@ export async function ensureTemporalClient(): Promise<void> {
 export async function pollWorkflowRun(
   workflowId: string,
   _namespace: string = 'default',
-): Promise<any> {
+): Promise<WorkflowExecutionDescription> {
   const client = await getTemporalClient()
   const handle = client.workflow.getHandle(workflowId)
   return await handle.describe()
