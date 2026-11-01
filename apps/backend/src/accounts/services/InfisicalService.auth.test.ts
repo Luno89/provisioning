@@ -10,11 +10,11 @@ vi.mock('fs/promises', () => ({
   },
 }));
 
-const post = vi.fn();
-const get = vi.fn();
-const patch = vi.fn();
+const post = vi.fn<(...args: unknown[]) => Promise<unknown>>();
+const get = vi.fn<(...args: unknown[]) => Promise<unknown>>();
+const patch = vi.fn<(...args: unknown[]) => Promise<unknown>>();
 vi.mock('axios', () => ({
-  default: { post: (...a: any[]) => post(...a), get: (...a: any[]) => get(...a), patch: (...a: any[]) => patch(...a) },
+  default: { post: (...a: unknown[]) => post(...a), get: (...a: unknown[]) => get(...a), patch: (...a: unknown[]) => patch(...a) },
 }));
 
 import path from 'path';

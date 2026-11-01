@@ -421,7 +421,10 @@ export class InstanceService {
 
   private async meshIpOwned(ownerId: string, meshIp: string): Promise<'yes' | 'no' | 'unknown'> {
     if (!this.mesh?.listUserDevices) return 'yes';
-    const theirs = await this.mesh.listUserDevices(ownerId).catch(() => undefined);
+    const theirs = await this.mesh.listUserDevices(ownerId).catch((err: Error) => {
+      console.warn(`[instances] the mesh could not say which machines are ${ownerId}'s, so ${meshIp} is not taken as their instance's address yet: ${err.message}`);
+      return undefined;
+    });
     if (!theirs) return 'unknown';
     return theirs.some((device) => device.ipAddresses.includes(meshIp)) ? 'yes' : 'no';
   }

@@ -22,7 +22,8 @@ export function accountRouter(deps: AccountRouterDeps): Router {
   }));
 
   router.delete('/', asyncRoute(async (req: Request, res: Response) => {
-    const confirm = typeof req.body?.confirm === 'string' ? req.body.confirm : '';
+    const { confirm: given } = (req.body ?? {}) as { confirm?: unknown };
+    const confirm = typeof given === 'string' ? given : '';
     const outcome = await deps.removal.remove({ ownerId: userOf(req).id, requestedBy: userOf(req).id, confirm }, principalFrom(req), () => deps.confirmed(req));
     if (!outcome.ok) return res.status(outcome.refusal.status).json(outcome.refusal);
     deps.clearSession(res);

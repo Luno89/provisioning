@@ -1,5 +1,5 @@
 import { type AreaStore, fromDoc, toDoc } from '../platform/lib/collection.js';
-import type { Collection, Db } from 'mongodb';
+import type { Collection, Db, Document } from 'mongodb';
 import type { LocalAgentDeviceMetadata } from '../platform/index.js';
 import type { MachineJoinCode } from './lib/machines.js';
 
@@ -21,8 +21,8 @@ export interface MachinesStore extends AreaStore {
 export class MongoMachinesStore implements MachinesStore {
   constructor(private readonly db: () => Db) {}
 
-  private get localAgentDevices(): Collection {
-    return this.db().collection('localAgentDevices');
+  private get localAgentDevices(): Collection<Document & { _id: string }> {
+    return this.db().collection<Document & { _id: string }>('localAgentDevices');
   }
 
   private get machineJoinCodes(): Collection {
@@ -38,10 +38,8 @@ export class MongoMachinesStore implements MachinesStore {
   }
 
   async saveLocalAgentDevice(device: LocalAgentDeviceMetadata): Promise<void> {
-    const doc = toDoc(device);
-    const id = doc._id;
-    const { _id, ...filter } = doc;
-    await this.localAgentDevices.replaceOne({ _id: id }, filter, { upsert: true });
+    const { _id, ...filter } = toDoc(device);
+    await this.localAgentDevices.replaceOne({ _id: device.id }, filter, { upsert: true });
   }
 
   async updateLocalAgentDevice(id: string, change: DeviceChange): Promise<boolean> {
@@ -56,7 +54,7 @@ export class MongoMachinesStore implements MachinesStore {
   }
 
   async deleteLocalAgentDevice(id: string): Promise<void> {
-    await this.localAgentDevices.deleteOne({ _id: id as any });
+    await this.localAgentDevices.deleteOne({ _id: id });
   }
 
   async saveMachineJoinCode(code: MachineJoinCode): Promise<void> {

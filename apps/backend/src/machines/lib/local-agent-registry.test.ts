@@ -18,13 +18,13 @@ function device(over: Partial<LocalAgentDeviceMetadata> = {}): LocalAgentDeviceM
   };
 }
 
-function fakeSocket(handler: (event: string, payload: unknown, ack: (...args: any[]) => void, disconnect: () => void) => void): Socket {
+function fakeSocket(handler: (event: string, payload: unknown, ack: (...args: unknown[]) => void, disconnect: () => void) => void): Socket {
   const gone = new Set<() => void>();
   const socket = {
     connected: true,
     once: (event: string, listener: () => void) => { if (event === 'disconnect') gone.add(listener); },
     off: (event: string, listener: () => void) => { if (event === 'disconnect') gone.delete(listener); },
-    emit: (event: string, payload: unknown, ack: (...args: any[]) => void) => handler(event, payload, ack, () => {
+    emit: (event: string, payload: unknown, ack: (...args: unknown[]) => void) => handler(event, payload, ack, () => {
       socket.connected = false;
       for (const listener of gone) listener();
     }),

@@ -216,13 +216,17 @@ export class MongoInstancesStore implements InstancesStore {
     return updated.matchedCount > 0;
   }
 
+  private get hubSignIn(): Collection<SignInKey & { _id: string }> {
+    return this.db().collection<SignInKey & { _id: string }>('hubSignIn');
+  }
+
   async getHubSignInKey(): Promise<SignInKey | undefined> {
-    const doc = await this.db().collection('hubSignIn').findOne({ _id: 'hub' as never });
-    return doc ? { jwk: doc.jwk, since: doc.since } as SignInKey : undefined;
+    const doc = await this.hubSignIn.findOne({ _id: 'hub' });
+    return doc ? { jwk: doc.jwk, since: doc.since } : undefined;
   }
 
   async saveHubSignInKey(key: SignInKey): Promise<void> {
-    await this.db().collection('hubSignIn').replaceOne({ _id: 'hub' as never }, { ...key }, { upsert: true });
+    await this.hubSignIn.replaceOne({ _id: 'hub' }, { jwk: key.jwk, since: key.since }, { upsert: true });
   }
 
   async oidcUpsert(model: string, id: string, payload: Record<string, unknown>, expiresIn?: number): Promise<void> {

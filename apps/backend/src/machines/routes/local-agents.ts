@@ -20,7 +20,7 @@ export function localAgentsRouter(deps: { machines: Pick<MachineService, 'list' 
   }));
 
   router.put('/:id/agents', asyncRoute(async (req: Request, res: Response) => {
-    const outcome = await machines.setManualAgents(userOf(req).id, param(req, 'id'), req.body?.agents);
+    const outcome = await machines.setManualAgents(userOf(req).id, param(req, 'id'), ((req.body ?? {}) as { agents?: unknown }).agents);
     if (!outcome.ok) return res.status(outcome.status).json({ error: outcome.error });
     res.json(outcome.value);
   }));

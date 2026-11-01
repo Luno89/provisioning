@@ -1,5 +1,6 @@
 import fs from 'fs/promises';
 import type { InstanceAddresses as Addresses } from '../lib/instances.js';
+import { rootAnswer } from '../lib/root-answer.js';
 import type { InstanceEdge } from '../../infrastructure/index.js';
 
 export interface InstanceAddressesSettings {
@@ -32,9 +33,9 @@ export class InstanceAddresses {
       headers: { 'content-type': 'application/json', 'x-instance-id': this.settings.instanceId, authorization: `Bearer ${await this.settings.token()}` },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     });
-    const answer = await response.json().catch(() => ({})) as AddressesView & { error?: unknown };
-    if (!response.ok) throw new Error(`root did not answer about this instance's addresses (${response.status}): ${typeof answer.error === 'string' ? answer.error : 'no reason given'}`);
-    return answer;
+    const answer = rootAnswer(response.ok, response.status, await response.text());
+    if (!response.ok) throw new Error(`root did not answer about this instance's addresses (${response.status}): ${answer.error ?? 'no reason given'}`);
+    return answer.body as AddressesView;
   }
 
   private async take(next: AddressesView): Promise<AddressesView> {
@@ -50,7 +51,7 @@ export class InstanceAddresses {
     this.watching = setInterval(() => {
       void this.refresh().then((view) => {
         if (!(view.nested && view.state === 'issuing')) this.unwatch();
-      }).catch(() => {});
+      }).catch((err: Error) => console.warn(`[addresses] how this instance's nested addresses are being issued could not be read from root; asking again in ${Math.round(this.everyMs / 1000)}s: ${err.message}`));
     }, this.everyMs);
   }
 

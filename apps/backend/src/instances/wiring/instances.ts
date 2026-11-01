@@ -49,6 +49,10 @@ import { instanceAddressesRouter } from '../routes/instance-addresses.js';
 import { instanceUpdatesRouter } from '../routes/instance-updates.js';
 import { moveRouter } from '../routes/move.js';
 import type { Routes } from '../../machines/index.js';
+import { DependencyWatchWorkflow } from '../../workflows/DependencyWatchWorkflow.js';
+import { PoolInstanceWorkflow } from '../../workflows/PoolInstanceWorkflow.js';
+import { PoolRemoveWorkflow } from '../../workflows/PoolRemoveWorkflow.js';
+import { PoolMoveWorkflow } from '../../workflows/PoolMoveWorkflow.js';
 
 const POOL_KUBECONFIG = '/tmp/kubeconfig-provisioning-lunorica';
 
@@ -240,7 +244,7 @@ export async function wireInstances(deps: InstancesWiringDeps): Promise<Instance
   });
   void keepTrying('[dependencies] the daily check has not started yet', async () => {
     try {
-      await (await getTemporalClient()).workflow.start('DependencyWatchWorkflow', {
+      await (await getTemporalClient()).workflow.start(DependencyWatchWorkflow, {
         workflowId: DEPENDENCY_WATCH_ID,
         taskQueue: poolTaskQueue,
         args: [],
@@ -269,7 +273,7 @@ export async function wireInstances(deps: InstancesWiringDeps): Promise<Instance
     reach: instanceReachFrom(env),
   }, deps.headscale, () => new Date(), () => instanceRoutes?.changed(), {
     start: async (instanceId, ownerId) => {
-      await (await getTemporalClient()).workflow.start('PoolInstanceWorkflow', {
+      await (await getTemporalClient()).workflow.start(PoolInstanceWorkflow, {
         workflowId: `pool-instance-${instanceId}`,
         taskQueue: poolTaskQueue,
         args: [{ instanceId }],
@@ -282,7 +286,7 @@ export async function wireInstances(deps: InstancesWiringDeps): Promise<Instance
       });
     },
     remove: async (instanceId, ownerId) => {
-      await (await getTemporalClient()).workflow.start('PoolRemoveWorkflow', {
+      await (await getTemporalClient()).workflow.start(PoolRemoveWorkflow, {
         workflowId: poolRemoveWorkflowId(instanceId),
         taskQueue: poolTaskQueue,
         args: [{ instanceId }],
@@ -290,7 +294,7 @@ export async function wireInstances(deps: InstancesWiringDeps): Promise<Instance
       });
     },
     move: async (instanceId, ownerId) => {
-      await (await getTemporalClient()).workflow.start('PoolMoveWorkflow', {
+      await (await getTemporalClient()).workflow.start(PoolMoveWorkflow, {
         workflowId: poolMoveWorkflowId(instanceId),
         taskQueue: poolTaskQueue,
         args: [{ instanceId }],
@@ -355,17 +359,25 @@ export function wireInstancePresence(
   caller: (instanceId: string, token: string) => Promise<InstanceRecord | undefined>,
 ): void {
   const namespace = io.of(PRESENCE_NAMESPACE);
+  const admitted = new WeakMap<object, InstanceRecord>();
   namespace.use((socket, next) => {
     const auth = presenceAuth(socket.handshake.auth);
     if (!auth) return next(new Error('Unauthorized'));
     caller(auth.instanceId, auth.token).then((instance) => {
       if (!instance) return next(new Error('Unauthorized'));
-      socket.data.instance = instance;
+      admitted.set(socket, instance);
       next();
-    }, () => next(new Error('Unauthorized')));
+    }, (err: Error) => {
+      console.warn(`[instance-presence] ${auth.instanceId}'s connection could not be checked: ${err.message}`);
+      next(new Error('root could not check this instance just now; it connects again by itself'));
+    });
   });
   namespace.on('connection', (socket) => {
-    const instance = socket.data.instance as InstanceRecord;
+    const instance = admitted.get(socket);
+    if (!instance) {
+      socket.disconnect(true);
+      return;
+    }
     void presence.arrived(instance, socket.id);
     socket.on('disconnect', () => { void presence.left(instance.id, socket.id); });
   });

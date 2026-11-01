@@ -34,7 +34,7 @@ afterEach(async () => {
   await harness.close();
 });
 
-const call = (method: 'get' | 'delete', path: string, data?: unknown) => axios.request({ method, url: harness.url(path), data, validateStatus: () => true });
+const call = (method: 'get' | 'delete', path: string, data?: unknown) => axios.request<Record<string, unknown>>({ method, url: harness.url(path), data, validateStatus: () => true });
 
 describe('deleting a project', () => {
   it('previews what goes with it, and deletes it once its name is typed', async () => {

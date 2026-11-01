@@ -20,6 +20,9 @@ import { oidcProviderRouter } from '../routes/oidc-provider.js';
 import { signInRouter } from '../routes/sign-in.js';
 import { IdentityService } from './IdentityService.js';
 
+const matching = (pattern: RegExp): unknown => expect.stringMatching(pattern);
+const having = (fields: Record<string, unknown>): unknown => expect.objectContaining(fields);
+
 const rootSigning = identityKeysFrom(generateIdentityKey());
 const ROOT_SESSION = 'root-session-key-for-the-round-trip';
 const INSTANCE_SESSION = 'instance-session-key-for-the-round-trip';
@@ -45,7 +48,7 @@ interface Served { url: string; server: http.Server; app: express.Express }
 
 async function serve(): Promise<Served> {
   const app = express();
-  const server = http.createServer((req, res) => app(req, res));
+  const server = http.createServer((req, res) => { app(req, res); });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   return { url: `http://127.0.0.1:${(server.address() as AddressInfo).port}`, server, app };
 }
@@ -82,7 +85,7 @@ beforeEach(async () => {
   const rootAuth = createAuth({ db: rootDb, sessionKey: ROOT_SESSION, publicUrl: root.url, role: 'root', sessionEnds: new SessionEnds(rootDb.platform) });
   root.app.use('/oidc', oidcProviderRouter({ provider, signedIn: (req) => rootAuth.userFromSessionCookie(req.headers.cookie, false) }));
   root.app.put('/api/instances/sign-in-key', express.json(), async (req, res) => {
-    const outcome = await rootService.announceSignIn(req.headers['x-instance-id'], String(req.headers.authorization ?? '').replace(/^Bearer\s+/i, ''), req.body?.jwk);
+    const outcome = await rootService.announceSignIn(req.headers['x-instance-id'], String(req.headers.authorization ?? '').replace(/^Bearer\s+/i, ''), ((req.body ?? {}) as { jwk?: unknown }).jwk);
     if (!outcome.ok) return res.status(outcome.status).json({ error: outcome.error });
     return res.json(outcome.value);
   });
@@ -207,10 +210,10 @@ describe('signing in on an instance through root\'s OpenID provider', () => {
 
     await provider.revoke({ personId: 'u1', at: new Date().toISOString(), because: 'signed-out-everywhere' });
     await provider.deliverLogouts();
-    expect(heard).toEqual([expect.objectContaining({ personId: 'u1', because: 'signed-out-everywhere' })]);
+    expect(heard).toEqual([having({ personId: 'u1', because: 'signed-out-everywhere' })]);
     expect(await rootDb.instances.pendingLogouts()).toEqual([]);
     expect((await whoami(instanceJar)).status).toBe(401);
-    expect(await instanceDb.instances.getRevocations()).toEqual([expect.objectContaining({ subject: 'u1' })]);
+    expect(await instanceDb.instances.getRevocations()).toEqual([having({ subject: 'u1' })]);
   });
 
   it('keeps a revocation root could not deliver and delivers it once the instance answers', async () => {
@@ -234,7 +237,7 @@ describe('signing in on an instance through root\'s OpenID provider', () => {
     await strict.revoke({ personId: 'u1', at: new Date().toISOString(), because: 'signed-out-everywhere' });
     await strict.deliverLogouts();
     const [waiting] = await rootDb.instances.pendingLogouts();
-    expect(waiting).toMatchObject({ clientId: 'inst-u1', attempts: 1, lastError: expect.stringMatching(/Koala does not reach that from here: 127\.0\.0\.1 is a private, loopback, mesh or reserved address/) });
+    expect(waiting).toMatchObject({ clientId: 'inst-u1', attempts: 1, lastError: matching(/Koala does not reach that from here: 127\.0\.0\.1 is a private, loopback, mesh or reserved address/) });
     expect(heard).toEqual([]);
     expect((await whoami(instanceJar)).status).toBe(200);
   });

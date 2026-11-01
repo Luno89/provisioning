@@ -61,7 +61,9 @@ describe('AuthService', () => {
     await authService.sendCode(user, 'confirm');
     const last = sent[sent.length - 1]!;
     expect(await authService.checkCode(user.id, 'confirm', wrongFor(last))).toMatchObject({ kind: 'locked' });
-    expect(await authService.checkCode(user.id, 'confirm', last)).toMatchObject({ kind: 'locked', said: expect.stringContaining('15 minutes') });
+    const lockedOut = await authService.checkCode(user.id, 'confirm', last);
+    expect(lockedOut.kind).toBe('locked');
+    expect(lockedOut.kind === 'locked' ? lockedOut.said : '').toContain('15 minutes');
     expect(await authService.sendCode(user, 'sign-in')).toMatchObject({ kind: 'locked' });
     expect(mail.toAddress).toHaveBeenCalledTimes(3);
     clock += 16 * 60 * 1000;
@@ -148,11 +150,12 @@ describe('AuthService', () => {
   const person: UserMetadata = { id: 'user-5', email: 'five@example.com', twoFactorEnabled: true, twoFactorPreferredMethod: 'email', emailVerified: true, createdAt: '' } as UserMetadata;
 
   it('emails the code where the server sends email, and logs nothing of it', async () => {
-    const toAddress = vi.fn(async () => undefined);
+    const toAddress = vi.fn(async (_to: string, _message: { subject: string; text: string }) => undefined);
     const authService = new AuthService(dbMock, { mail: { available: () => ({ ok: true as const }), toAddress }, production: true });
     const warn = vi.spyOn(authService['logger'], 'warn');
     await authService.send2FACode(person, '424242');
-    expect(toAddress).toHaveBeenCalledWith('five@example.com', expect.objectContaining({ text: expect.stringContaining('424242') }));
+    expect(toAddress.mock.calls.map(([to]) => to)).toEqual(['five@example.com']);
+    expect(toAddress.mock.calls[0]?.[1].text).toContain('424242');
     expect(warn).not.toHaveBeenCalled();
   });
 
@@ -167,11 +170,12 @@ describe('AuthService', () => {
   });
 
   it('emails a sign-up code where the server sends email, and logs nothing of it', async () => {
-    const toAddress = vi.fn(async () => undefined);
+    const toAddress = vi.fn(async (_to: string, _message: { subject: string; text: string }) => undefined);
     const authService = new AuthService(dbMock, { mail: { available: () => ({ ok: true as const }), toAddress }, production: true });
     const warn = vi.spyOn(authService['logger'], 'warn');
     expect(await authService.sendSignUpCode('new@example.com', '135790')).toEqual({ kind: 'sent' });
-    expect(toAddress).toHaveBeenCalledWith('new@example.com', expect.objectContaining({ subject: 'Your Koala sign-up code', text: expect.stringContaining('135790') }));
+    expect(toAddress.mock.calls.map(([to, message]) => [to, message.subject])).toEqual([['new@example.com', 'Your Koala sign-up code']]);
+    expect(toAddress.mock.calls[0]?.[1].text).toContain('135790');
     expect(warn).not.toHaveBeenCalled();
   });
 
@@ -199,7 +203,9 @@ describe('AuthService', () => {
     const authService = new AuthService(dbMock, { mail, now: () => clock });
     const user = someone('user-12');
     for (let n = 0; n < 5; n += 1) expect(await authService.sendConfirmCode(user)).toEqual({ kind: 'sent' });
-    expect(await authService.sendConfirmCode(user)).toEqual({ kind: 'limited', said: expect.stringContaining('5 confirmation codes in the last 15 minutes') });
+    const limited = await authService.sendConfirmCode(user);
+    expect(limited.kind).toBe('limited');
+    expect(limited.kind === 'limited' ? limited.said : '').toContain('5 confirmation codes in the last 15 minutes');
     expect(await new AuthService(dbMock, { mail, now: () => clock + 60_000 }).sendConfirmCode(user)).toMatchObject({ kind: 'limited' });
     expect(mail.toAddress).toHaveBeenCalledTimes(5);
     expect(await new AuthService(dbMock, { mail, now: () => clock + 15 * 60_000 + 1 }).sendConfirmCode(user)).toEqual({ kind: 'sent' });

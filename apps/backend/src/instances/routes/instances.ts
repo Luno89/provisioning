@@ -238,7 +238,7 @@ export function instancesRouter(deps: {
 
   router.put('/sign-in-key', asyncRoute(async (req: Request, res: Response) => {
     const { instanceId, credential } = credentialOf(req);
-    const outcome = await deps.instances.announceSignIn(instanceId, credential, (req.body ?? {}).jwk);
+    const outcome = await deps.instances.announceSignIn(instanceId, credential, ((req.body ?? {}) as { jwk?: unknown }).jwk);
     if (!outcome.ok) return res.status(outcome.status).json({ error: outcome.error });
     return res.json(outcome.value);
   }));
@@ -411,7 +411,7 @@ export function instancesRouter(deps: {
     if (!deps.mail) return res.status(503).json({ error: 'this root sends no email' });
     const verdict = deps.mailLimit?.take(instanceId);
     if (verdict && !verdict.send) {
-      if (verdict.tell) await deps.mail.toOwner(owner.value.ownerId, heldBackMail(verdict.until)).catch(() => undefined);
+      if (verdict.tell) await deps.mail.toOwner(owner.value.ownerId, heldBackMail(verdict.until)).catch((err: Error) => console.warn(`[mail] ${instanceId}'s owner could not be told their email is held back: ${err.message}`));
       return res.status(429).json({ error: `this instance has sent as many emails as an hour allows; more are held back until ${new Date(verdict.until).toISOString()}` });
     }
     try {

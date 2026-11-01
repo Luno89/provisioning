@@ -4,6 +4,9 @@ import type { MongoDB } from '../../platform/lib/mongo-db.js';
 import { InstanceService, JOIN_TOKEN_TTL_SECONDS, hashCredential, instanceIdFor } from './InstanceService.js';
 import { InstanceReach } from './InstanceReach.js';
 
+const matching = (pattern: RegExp): unknown => expect.stringMatching(pattern);
+const containing = (text: string): unknown => expect.stringContaining(text);
+
 const settings = {
   rootUrl: 'https://app.example.com',
   rootPublicKeys: () => ['PEM-1'],
@@ -121,7 +124,7 @@ describe('bringing a user\'s own machine in as their instance', () => {
       const refused = await service.report(instanceId, credential, { status: 'ready', url });
       expect(refused, url).toMatchObject({ ok: false, status: 400 });
     }
-    expect(await service.report(instanceId, credential, { status: 'ready', url: 'http://127.0.0.1:3001' })).toMatchObject({ error: expect.stringMatching(/^root does not call http:\/\/127\.0\.0\.1:3001: .* is a private, loopback, mesh or reserved address\./) });
+    expect(await service.report(instanceId, credential, { status: 'ready', url: 'http://127.0.0.1:3001' })).toMatchObject({ error: matching(/^root does not call http:\/\/127\.0\.0\.1:3001: .* is a private, loopback, mesh or reserved address\./) });
     expect(await service.report(instanceId, credential, { status: 'ready', url: 'http://100.64.0.7:30320' })).toMatchObject({ ok: true });
     expect((await service.mine('u1'))?.url).toBe('http://100.64.0.7:30320');
   });
@@ -168,13 +171,13 @@ describe('bringing a user\'s own machine in as their instance', () => {
 
 describe('an instance\'s name and addresses', () => {
   it('takes the name with the join command, refusing a bad one, one taken, and a change', async () => {
-    expect(await service.createJoinToken('u1', 'shop-x')).toMatchObject({ ok: false, status: 400, error: expect.stringMatching(/no dashes/) });
-    expect(await service.createJoinToken('u1', 'mesh')).toMatchObject({ ok: false, error: expect.stringMatching(/kept for the platform/) });
+    expect(await service.createJoinToken('u1', 'shop-x')).toMatchObject({ ok: false, status: 400, error: matching(/no dashes/) });
+    expect(await service.createJoinToken('u1', 'mesh')).toMatchObject({ ok: false, error: matching(/kept for the platform/) });
     expect(await service.createJoinToken('u1')).toMatchObject({ ok: false, error: 'pick a name for your instance' });
     await tokenFor('u1', 'luno');
     expect(await service.createJoinToken('u2', 'luno')).toMatchObject({ ok: false, error: '"luno" is taken' });
     expect(await service.nameCheck('u2', 'luno')).toEqual({ ok: false, problem: '"luno" is taken' });
-    expect(await service.createJoinToken('u1', 'other')).toMatchObject({ ok: false, error: expect.stringMatching(/already named "luno"/) });
+    expect(await service.createJoinToken('u1', 'other')).toMatchObject({ ok: false, error: matching(/already named "luno"/) });
     expect(await service.createJoinToken('u1')).toMatchObject({ ok: true, value: { name: 'luno' } });
   });
 
@@ -232,9 +235,9 @@ describe('the groups a shared project\'s apps are addressed under', () => {
     const luno = await joinedAs('u1', 'luno');
     await joinedAs('u2', 'sam');
     expect(await service.checkGroup(luno.instanceId, luno.credential, 'acme')).toEqual({ ok: true, value: { ok: true } });
-    expect(await service.checkGroup(luno.instanceId, luno.credential, 'ac-me')).toMatchObject({ ok: true, value: { ok: false, problem: expect.stringMatching(/no dashes/) } });
-    expect(await service.checkGroup(luno.instanceId, luno.credential, 'mesh')).toMatchObject({ ok: true, value: { ok: false, problem: expect.stringMatching(/kept for the platform/) } });
-    expect(await service.checkGroup(luno.instanceId, luno.credential, 'app')).toMatchObject({ ok: true, value: { ok: false, problem: expect.stringMatching(/kept for the platform/) } });
+    expect(await service.checkGroup(luno.instanceId, luno.credential, 'ac-me')).toMatchObject({ ok: true, value: { ok: false, problem: matching(/no dashes/) } });
+    expect(await service.checkGroup(luno.instanceId, luno.credential, 'mesh')).toMatchObject({ ok: true, value: { ok: false, problem: matching(/kept for the platform/) } });
+    expect(await service.checkGroup(luno.instanceId, luno.credential, 'app')).toMatchObject({ ok: true, value: { ok: false, problem: matching(/kept for the platform/) } });
     expect(await service.checkGroup(luno.instanceId, luno.credential, 'sam')).toEqual({ ok: true, value: { ok: false, problem: '"sam" is taken' } });
     expect(await service.checkGroup(luno.instanceId, 'guess', 'acme')).toMatchObject({ ok: false, status: 401 });
   });
@@ -250,7 +253,7 @@ describe('the groups a shared project\'s apps are addressed under', () => {
     expect(await service.claimGroup(luno.instanceId, luno.credential, 'p2', 'acme')).toEqual({ ok: false, status: 409, error: '"acme" is taken' });
     expect(await service.claimGroup(sam.instanceId, sam.credential, 'p1', 'acme')).toEqual({ ok: false, status: 409, error: '"acme" is taken' });
     expect(await service.checkGroup(sam.instanceId, sam.credential, 'acme')).toEqual({ ok: true, value: { ok: false, problem: '"acme" is taken' } });
-    expect(await service.claimGroup(luno.instanceId, luno.credential, 'p1', 'other')).toMatchObject({ ok: false, status: 409, error: expect.stringMatching(/already addressed under "acme"/) });
+    expect(await service.claimGroup(luno.instanceId, luno.credential, 'p1', 'other')).toMatchObject({ ok: false, status: 409, error: matching(/already addressed under "acme"/) });
     expect(await service.claimGroup(luno.instanceId, luno.credential, 'p3', 'sam')).toEqual({ ok: false, status: 409, error: '"sam" is taken' });
     expect(await service.claimGroup(luno.instanceId, luno.credential, 'p3', 'shop-x')).toMatchObject({ ok: false, status: 400 });
     expect(await service.claimGroup(luno.instanceId, luno.credential, '', 'shop')).toMatchObject({ ok: false, status: 400 });
@@ -313,7 +316,7 @@ describe('a trial instance on Koala\'s servers', () => {
   it('says when the pool is full, and lets nobody past it, though someone already in it is still offered theirs', async () => {
     const pool = pooled({ slots: 1, trialDays: 14 });
     await pool.createPoolInstance('u1', 'alice');
-    expect(await pool.poolOffer('u2')).toMatchObject({ available: false, reason: expect.stringContaining('full') });
+    expect(await pool.poolOffer('u2')).toMatchObject({ available: false, reason: containing('full') });
     expect(await pool.createPoolInstance('u2', 'bob')).toMatchObject({ ok: false, status: 503 });
     expect(await pool.poolOffer('u1')).toMatchObject({ available: true });
   });
@@ -342,7 +345,7 @@ describe('a trial instance on Koala\'s servers', () => {
   it('is never replaced by a join command for a machine, which would lose it', async () => {
     const pool = pooled();
     await pool.createPoolInstance('u1', 'alice');
-    expect(await pool.createJoinToken('u1', 'alice')).toMatchObject({ ok: false, status: 400, error: expect.stringContaining('moving it to your own machine keeps your work') });
+    expect(await pool.createJoinToken('u1', 'alice')).toMatchObject({ ok: false, status: 400, error: containing('moving it to your own machine keeps your work') });
     expect((await db.instances.getInstances('u1'))[0]!.pool).toBeDefined();
   });
 
@@ -379,7 +382,7 @@ describe('a trial instance on Koala\'s servers', () => {
   it('lets an admin delete one, once they type its name, and starts its removal', async () => {
     const pool = pooled();
     const { value } = await pool.createPoolInstance('u1', 'alice') as { value: { id: string } };
-    expect(await pool.removePoolInstance(value.id, 'alise')).toMatchObject({ ok: false, status: 400, error: expect.stringContaining('"alice"') });
+    expect(await pool.removePoolInstance(value.id, 'alise')).toMatchObject({ ok: false, status: 400, error: containing('"alice"') });
     expect(removed).toEqual([]);
     expect(await pool.removePoolInstance(value.id, 'alice')).toEqual({ ok: true, value: { removing: 'alice' } });
     expect(removed).toEqual([value.id]);
@@ -539,7 +542,7 @@ describe('which release an instance runs', () => {
     const { id, credential } = await joined();
     await service.report(id, credential, { status: 'ready', imageTag: 'mid222' });
     await service.report(id, credential, { status: 'ready', imageTag: 'abc123' });
-    expect(await service.setUpdates(id, credential, { version: 'v2026.10.24' })).toMatchObject({ ok: false, status: 409, error: expect.stringContaining('back to v2026.10.25, the one it ran before') });
+    expect(await service.setUpdates(id, credential, { version: 'v2026.10.24' })).toMatchObject({ ok: false, status: 409, error: containing('back to v2026.10.25, the one it ran before') });
     expect(await service.setUpdates(id, credential, { version: 'v2026.10.25' })).toMatchObject({ ok: true, value: { target: 'mid222' } });
   });
 

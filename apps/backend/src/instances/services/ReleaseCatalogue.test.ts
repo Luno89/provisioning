@@ -52,7 +52,7 @@ describe('the releases root has run', () => {
     expect(again.hasChart('bbbbbbbbbbbb')).toBe(false);
     expect(again.chartFile('../../etc/passwd')).toBeUndefined();
     expect(inventoried.map((entry) => entry.release)).toEqual(['v2026.10.25', 'v2026.10.25']);
-    expect(JSON.parse(readFileSync(again.inventoryFile(one)!, 'utf8')).metadata.component.version).toBe('v2026.10.25');
+    expect(JSON.parse(readFileSync(again.inventoryFile(one)!, 'utf8'))).toMatchObject({ metadata: { component: { version: 'v2026.10.25' } } });
     expect(again.inventoryFile('bbbbbbbbbbbb')).toBeUndefined();
     expect(again.inventoryFile('../../etc/passwd')).toBeUndefined();
   });

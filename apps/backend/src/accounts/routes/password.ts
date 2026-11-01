@@ -10,6 +10,8 @@ export interface PasswordRouterDeps {
   sessionKey: SecretKey;
 }
 
+const bodyOf = (req: Request): Record<string, unknown> => (req.body ?? {}) as Record<string, unknown>;
+
 const answer = <T extends object>(res: Response, outcome: Answered<T>, shape: (value: T) => unknown) =>
   (outcome.ok ? res.json(shape(outcome)) : res.status(outcome.status).json({ error: outcome.error }));
 
@@ -17,21 +19,23 @@ export function passwordRouter(deps: PasswordRouterDeps): Router {
   const router = Router();
 
   router.post('/forgot', asyncRoute(async (req, res) => {
-    answer(res, await deps.passwords.forgot(req.body?.email), ({ reset, devCode }) => ({ reset, ...(devCode ? { devCode } : {}) }));
+    answer(res, await deps.passwords.forgot(bodyOf(req).email), ({ reset, devCode }) => ({ reset, ...(devCode ? { devCode } : {}) }));
   }));
 
   router.post('/forgot/resend', asyncRoute(async (req, res) => {
-    answer(res, await deps.passwords.resend(req.body?.id), ({ reset, devCode }) => ({ reset, ...(devCode ? { devCode } : {}) }));
+    answer(res, await deps.passwords.resend(bodyOf(req).id), ({ reset, devCode }) => ({ reset, ...(devCode ? { devCode } : {}) }));
   }));
 
   router.post('/reset', asyncRoute(async (req, res) => {
-    answer(res, await deps.passwords.reset({ id: req.body?.id, code: req.body?.code, password: req.body?.password }), ({ email }) => ({ reset: true, email }));
+    const { id, code, password } = bodyOf(req);
+    answer(res, await deps.passwords.reset({ id, code, password }), ({ email }) => ({ reset: true, email }));
   }));
 
   router.post('/', asyncRoute(async (req: Request, res: Response) => {
     const user = (req as { user?: UserMetadata }).user;
     if (!user) return res.status(401).json({ error: 'Sign in first' });
-    const changed = await deps.passwords.change(user, { password: req.body?.password, current: req.body?.current, code: req.body?.code }, deps.devices.known(req), req.ip);
+    const { password, current, code } = bodyOf(req);
+    const changed = await deps.passwords.change(user, { password, current, code }, deps.devices.known(req), req.ip);
     if (changed.ok) deps.auth.setSessionCookie(res, sessionToken(changed.user, deps.sessionKey), req);
     return answer(res, changed, () => ({ changed: true }));
   }));

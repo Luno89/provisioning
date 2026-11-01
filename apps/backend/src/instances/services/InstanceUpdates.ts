@@ -1,4 +1,5 @@
 import type { UpdatesView } from '../lib/instance-updates.js';
+import { rootAnswer } from '../lib/root-answer.js';
 import type { ReleaseFindings } from './DependencyWatch.js';
 
 export interface InstanceUpdatesSettings {
@@ -27,9 +28,9 @@ export class InstanceUpdates {
       headers: { 'content-type': 'application/json', 'x-instance-id': this.settings.instanceId, authorization: `Bearer ${await this.settings.token()}` },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     });
-    const answer = await response.json().catch(() => ({})) as UpdatesView & { error?: unknown };
-    if (!response.ok) throw new UpdatesRefused(response.status, typeof answer.error === 'string' ? answer.error : `root answered ${response.status} about this instance's updates`);
-    return answer;
+    const answer = rootAnswer(response.ok, response.status, await response.text());
+    if (!response.ok) throw new UpdatesRefused(response.status, answer.error ?? `root answered ${response.status} about this instance's updates`);
+    return answer.body as UpdatesView;
   }
 
   private async checkingNow(): Promise<string | undefined> {
@@ -53,13 +54,16 @@ export class InstanceUpdates {
     const response = await this.fetchImpl(`${this.settings.rootUrl}/api/instances/release-findings`, {
       headers: { 'x-instance-id': this.settings.instanceId, authorization: `Bearer ${await this.settings.token()}` },
     });
-    const answer = await response.json().catch(() => ({})) as (ReleaseFindings | { findings: [] }) & { error?: unknown };
-    if (!response.ok) throw new UpdatesRefused(response.status, typeof answer.error === 'string' ? answer.error : `root answered ${response.status} about this instance's release`);
-    return answer;
+    const answer = rootAnswer(response.ok, response.status, await response.text());
+    if (!response.ok) throw new UpdatesRefused(response.status, answer.error ?? `root answered ${response.status} about this instance's release`);
+    return answer.body as ReleaseFindings | { findings: [] };
   }
 
   async view(): Promise<UpdatesAnswer> {
-    const [view, checking] = await Promise.all([this.call('GET'), this.checkingNow().catch(() => undefined)]);
+    const [view, checking] = await Promise.all([this.call('GET'), this.checkingNow().catch((err: Error) => {
+      console.warn(`[updates] whether a check-in is running could not be read, so none is shown: ${err.message}`);
+      return undefined;
+    })]);
     return { ...view, ...(checking ? { checking } : {}) };
   }
 

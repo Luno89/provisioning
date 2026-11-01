@@ -50,7 +50,7 @@ async function startRoot(onPort = 0): Promise<void> {
 async function stopRoot(): Promise<void> {
   presence.stop();
   io.disconnectSockets(true);
-  await new Promise<void>((resolve) => { io.close(() => resolve()); });
+  await io.close();
 }
 
 function instanceDialing(instance: InstanceRecord, token = `good-${instance.id}`) {
@@ -90,6 +90,7 @@ describe('an instance holding a connection to root', () => {
   it('is present while connected, and root tells its owner once when it has been gone the whole grace, and once when it is back', async () => {
     const first = instanceDialing(own);
     await until(() => presence.connected(own.id));
+    await until(async () => (await watchOf(own.id))?.reach?.reachable);
     expect((await watchOf(own.id))?.presence).toBe(true);
     expect((await watchOf(own.id))?.reach?.reachable).toBe(true);
     expect(first.client.view().reachable).toBe(true);

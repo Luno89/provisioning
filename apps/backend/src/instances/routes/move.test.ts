@@ -11,6 +11,9 @@ import { MoveExport, MOVING_FILE } from '../services/MoveExport.js';
 import { REPLICAS_ANNOTATION } from '../lib/app-move.js';
 import { generateIdentityKey, identityKeysFrom, issueMoveToken, publicKeyPem, trustedKeys } from '../lib/identity-token.js';
 
+const containing = (text: string): unknown => expect.stringContaining(text);
+const including = (items: unknown[]): unknown => expect.arrayContaining(items);
+
 const KEYS = { SESSION_KEY: 'a'.repeat(64), DATA_KEY: 'b'.repeat(64), PAYLOAD_KEY: 'c'.repeat(64), EGRESS_KEY: 'd'.repeat(64) };
 const root = identityKeysFrom(generateIdentityKey());
 
@@ -66,7 +69,7 @@ afterEach(async () => {
   fs.rmSync(dataDir, { recursive: true, force: true });
 });
 
-const get = (part: string, token: string) => axios.get(harness.url(`/api/move/parts/${part}`), { headers: { 'x-koala-move-token': token }, validateStatus: () => true, responseType: 'text' });
+const get = (part: string, token: string) => axios.get<string>(harness.url(`/api/move/parts/${part}`), { headers: { 'x-koala-move-token': token }, validateStatus: () => true, responseType: 'text' });
 
 describe('a pool instance handing itself over', () => {
   it('hands each part only to root\'s token for that part, and stops taking work from the first', async () => {
@@ -103,7 +106,7 @@ describe('a pool instance handing itself over', () => {
     running = ['Koala chat: plan the shop'];
     const refused = await get('keys', issueMoveToken(root, 'inst-bo', 'keys'));
     expect(refused.status).toBe(409);
-    expect(JSON.parse(refused.data).error).toContain('Koala chat: plan the shop');
+    expect(JSON.parse(refused.data)).toMatchObject({ error: containing('Koala chat: plan the shop') });
     expect(fs.existsSync(path.join(dataDir, MOVING_FILE))).toBe(false);
   });
 
@@ -114,7 +117,7 @@ describe('a pool instance handing itself over', () => {
     expect(fs.existsSync(path.join(dataDir, MOVING_FILE))).toBe(false);
   });
 
-  const thaw = () => axios.post(harness.url('/api/move/thaw'), {}, { headers: { 'x-koala-move-token': issueMoveToken(root, 'inst-bo', 'thaw') }, validateStatus: () => true });
+  const thaw = () => axios.post<{ error?: string }>(harness.url('/api/move/thaw'), {}, { headers: { 'x-koala-move-token': issueMoveToken(root, 'inst-bo', 'thaw') }, validateStatus: () => true });
   const kubectlRan = () => spawned.filter(([command]) => command === 'kubectl').map((argv) => argv.slice(1).join(' '));
 
   it('takes work again when root says the move stopped, starting its apps as they were and its self-upgrade', async () => {
@@ -122,7 +125,7 @@ describe('a pool instance handing itself over', () => {
     expect(kubectlRan()).toContain('patch cronjob instance-self-upgrade -n nowrinkles --type=merge -p {"spec":{"suspend":true}}');
     const thawed = await thaw();
     expect(thawed.data).toEqual({ thawed: true });
-    expect(kubectlRan()).toEqual(expect.arrayContaining([
+    expect(kubectlRan()).toEqual(including([
       'scale deployments web -n books --replicas=2',
       `annotate deployments web -n books ${REPLICAS_ANNOTATION}-`,
       'patch cronjob instance-self-upgrade -n nowrinkles --type=merge -p {"spec":{"suspend":false}}',

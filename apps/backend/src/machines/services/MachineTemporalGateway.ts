@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import http2 from 'node:http2';
+import { ignore } from '@koala/engine-core/failures';
 import { frame, gatewayCallOf, gatewayDecision, handedWorkflowOf, sealedPollAnswer, unframe } from '../lib/temporal-gateway.js';
 
 export interface MachineTemporalGatewayDeps {
@@ -68,7 +69,7 @@ export class MachineTemporalGateway {
       const session = this.deps.upstreamCa
         ? http2.connect(`https://${this.deps.upstream}`, { ca: this.deps.upstreamCa })
         : http2.connect(`http://${this.deps.upstream}`);
-      session.on('error', (err) => this.deps.log?.(`[machine-gateway] Temporal connection: ${err.message}`));
+      session.on('error', (err: Error) => this.deps.log?.(`[machine-gateway] Temporal connection: ${err.message}`));
       this.session = session;
     }
     return this.session;
@@ -94,7 +95,7 @@ export class MachineTemporalGateway {
       const call = gatewayCallOf(path);
       if (!call) return refuse(stream, GRPC.unimplemented, 'a machine asks Temporal only for its own work');
       const received = collect(stream);
-      received.catch(() => undefined);
+      received.catch(ignore('what the machine sent is awaited below when its call goes on; a call refused before that has no use for it'));
       const token = (header(headers.authorization) ?? '').replace(/^Bearer\s+/i, '');
       const deviceId = token ? await this.deviceFor(token) : undefined;
       if (!deviceId) return refuse(stream, GRPC.unauthenticated, 'this machine is not known here; add it again from My Machines');
@@ -115,8 +116,8 @@ export class MachineTemporalGateway {
         let answered: http2.IncomingHttpHeaders = {};
         let ended: http2.IncomingHttpHeaders = {};
         const chunks: Buffer[] = [];
-        up.on('response', (h) => { answered = h; });
-        up.on('trailers', (t) => { ended = t; });
+        up.on('response', (h: http2.IncomingHttpHeaders) => { answered = h; });
+        up.on('trailers', (t: http2.IncomingHttpHeaders) => { ended = t; });
         up.on('data', (chunk: Buffer) => chunks.push(chunk));
         up.on('end', () => resolve([answered, Buffer.concat(chunks), ended]));
         up.on('error', reject);

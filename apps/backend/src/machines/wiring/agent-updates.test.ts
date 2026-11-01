@@ -82,7 +82,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
   for (const client of clients.splice(0)) client.close();
-  io.close();
+  await io.close();
   await new Promise<void>((done) => server.close(() => done()));
 });
 

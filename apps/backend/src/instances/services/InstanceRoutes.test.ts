@@ -7,6 +7,8 @@ import type { MongoDB } from '../../platform/lib/mongo-db.js';
 import { InstanceRoutes, type CaddyControl } from './InstanceRoutes.js';
 import type { InstanceRecord } from '../lib/instances.js';
 
+const matching = (pattern: RegExp): unknown => expect.stringMatching(pattern);
+
 const record = (patch: Partial<InstanceRecord>): InstanceRecord => ({ id: 'inst-1', ownerId: 'u1', url: '', createdAt: 'x', updatedAt: 'x', name: 'luno', meshIp: '100.64.0.7', status: 'ready', ...patch });
 
 let db: MongoDB;
@@ -68,7 +70,7 @@ describe('root\'s routes to instances', () => {
     log = JSON.stringify({ level: 'error', identifier: '*.luno.koala.dev', error: 'rateLimited: too many certificates' });
     await routes.sync();
     expect(await fs.readFile(path.join(dir, 'instance-sites', 'luno.caddy'), 'utf8')).toMatch(/^\*\.luno\.koala\.dev/);
-    expect((await db.instances.getInstances())[0]!.addresses).toMatchObject({ state: 'issuing', detail: expect.stringMatching(/weekly limit/) });
+    expect((await db.instances.getInstances())[0]!.addresses).toMatchObject({ state: 'issuing', detail: matching(/weekly limit/) });
     served = 'DNS:*.luno.koala.dev';
     await routes.sync();
     expect((await db.instances.getInstances())[0]!.addresses).toEqual({ nested: true, state: 'ready' });

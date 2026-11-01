@@ -1,4 +1,5 @@
 import type { Reach } from '../lib/instance-watch.js';
+import { rootAnswer } from '../lib/root-answer.js';
 import { RootRefused } from './InstanceTrial.js';
 
 export interface InstanceWatchView {
@@ -19,9 +20,10 @@ export class InstanceWatchSetting {
       headers: { 'x-instance-id': this.settings.instanceId, authorization: `Bearer ${await this.settings.token()}`, ...(body ? { 'content-type': 'application/json' } : {}) },
       ...(body ? { body: JSON.stringify(body) } : {}),
     });
-    const answer = await response.json().catch(() => ({})) as InstanceWatchView & { error?: unknown };
-    if (!response.ok) throw new RootRefused(response.status, typeof answer.error === 'string' ? answer.error : `root answered ${response.status}`);
-    return { notifyWhenUnreachable: answer.notifyWhenUnreachable, alwaysTold: answer.alwaysTold, ...(answer.reach ? { reach: answer.reach } : {}) };
+    const answer = rootAnswer(response.ok, response.status, await response.text());
+    if (!response.ok) throw new RootRefused(response.status, answer.error ?? `root answered ${response.status}`);
+    const view = answer.body as InstanceWatchView;
+    return { notifyWhenUnreachable: view.notifyWhenUnreachable, alwaysTold: view.alwaysTold, ...(view.reach ? { reach: view.reach } : {}) };
   }
 
   read(): Promise<InstanceWatchView> {

@@ -36,7 +36,7 @@ describe('whether root emails the instance\'s owner when it cannot be reached', 
   it('passes root\'s refusal on, and says so where nothing is watched', async () => {
     const refusing = { read: async () => { throw new RootRefused(409, 'an instance on Koala\'s servers always tells its owner when it cannot be reached'); }, set: async () => { throw new RootRefused(409, 'no'); } };
     harness = await mountRouter({ prefix: '/api/instance-watch', claims: { role: 'instance', instanceOwnerId: TEST_USER.id }, router: () => instanceWatchRouter({ setting: refusing }) });
-    const answer = await axios.get(harness.url('/api/instance-watch'), { validateStatus: () => true });
+    const answer = await axios.get<{ error?: string }>(harness.url('/api/instance-watch'), { validateStatus: () => true });
     expect([answer.status, answer.data.error]).toEqual([409, 'an instance on Koala\'s servers always tells its owner when it cannot be reached']);
     await harness.close();
     harness = await mountRouter({ prefix: '/api/instance-watch', router: () => instanceWatchRouter({ setting: undefined }) });

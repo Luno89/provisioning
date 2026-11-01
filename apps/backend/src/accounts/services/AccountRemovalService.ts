@@ -1,6 +1,7 @@
 import { type AccessRevocations, type ClusterMetadata, type DeploymentMetadata, holds, type Principal, startedFor, type UserMetadata } from '../../platform/index.js';
 import type { InstanceRecord, InstanceRelease, InstanceStatus, InstanceWatchRecord } from '../../instances/index.js';
 import type { Client } from '@temporalio/client';
+import { ignore } from '@koala/engine-core/failures';
 import type { AccountsStore } from '../store.js';
 import type { HubPeople } from '../../hub/index.js';
 import {
@@ -57,7 +58,7 @@ export function temporalRemovalWorkflows<Args = { ownerId: string }, Step extend
         throw err;
       });
       if (!described) return { state: 'none' };
-      if (described.status.name === 'RUNNING') return { state: 'running', done: await handle.query<Step[]>(progressQuery).catch(() => []) };
+      if (described.status.name === 'RUNNING') return { state: 'running', done: (await handle.query<Step[]>(progressQuery).catch(ignore('the steps done are only shown while the removal runs; it still reads as running, and the next look asks again'))) ?? [] };
       if (described.status.name === 'COMPLETED') return { state: 'finished' };
       const fallback = described.status.name.toLowerCase();
       const reason = await handle.result().then(() => fallback, (err: unknown) => innermost(err) ?? fallback);

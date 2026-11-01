@@ -9,6 +9,8 @@ import { InstanceReach } from './InstanceReach.js';
 import { generateIdentityKey, identityKeysFrom } from '../lib/identity-token.js';
 import type { RoleConfig } from '../../platform/lib/platform-role.js';
 
+const matching = (pattern: RegExp): unknown => expect.stringMatching(pattern);
+
 const signing = identityKeysFrom(generateIdentityKey());
 const N = 'nonce-held-by-this-browser-00001';
 const rootRole: RoleConfig = { role: 'root', signing };
@@ -94,9 +96,9 @@ describe('signing in at root and landing on your own instance', () => {
 
   it('registers one instance per user, at an origin', async () => {
     const root = new IdentityService(rootRole, rootDb, () => now);
-    expect(await root.register({ id: 'inst-u1', ownerId: 'u1', url: 'https://u1.example.com/app' })).toMatchObject({ ok: false, error: expect.stringMatching(/origin/) });
+    expect(await root.register({ id: 'inst-u1', ownerId: 'u1', url: 'https://u1.example.com/app' })).toMatchObject({ ok: false, error: matching(/origin/) });
     expect((await root.register({ id: 'inst-u1', ownerId: 'u1', url: 'https://u1.example.com' })).ok).toBe(true);
-    expect(await root.register({ id: 'inst-u1-b', ownerId: 'u1', url: 'https://b.example.com' })).toMatchObject({ ok: false, error: expect.stringMatching(/already has an instance/) });
+    expect(await root.register({ id: 'inst-u1-b', ownerId: 'u1', url: 'https://b.example.com' })).toMatchObject({ ok: false, error: matching(/already has an instance/) });
   });
 
   it('gives an instance registered by hand a credential to sign people in with, kept only as its hash', async () => {
