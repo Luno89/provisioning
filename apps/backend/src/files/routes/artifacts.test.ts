@@ -52,7 +52,7 @@ describe('/api/artifacts', () => {
   });
 
   it('lists a run\'s artifacts and says whether the person has MinIO', async () => {
-    const listed = await axios.get(harness.url('/api/artifacts/runs/run-1'));
+    const listed = await axios.get<{ artifacts: StoredArtifact[] }>(harness.url('/api/artifacts/runs/run-1'));
     expect(listed.data.artifacts.map((a: StoredArtifact) => a.name).sort()).toEqual(['signs-in/drawn.svg', 'signs-in/test-failed-1.png', 'signs-in/trace.zip']);
     expect((await axios.get(harness.url('/api/artifacts/storage'))).data).toEqual({ minio: false });
   });
@@ -60,6 +60,6 @@ describe('/api/artifacts', () => {
   it('never serves or lists someone else\'s', async () => {
     const theirs = (await harness.db.files.getArtifacts('someone-else'))[0]!;
     expect((await get(harness.url(`/api/artifacts/${theirs.id}`))).status).toBe(404);
-    expect((await axios.get(harness.url('/api/artifacts/runs/run-2'))).data.artifacts).toEqual([]);
+    expect((await axios.get<{ artifacts: StoredArtifact[] }>(harness.url('/api/artifacts/runs/run-2'))).data.artifacts).toEqual([]);
   });
 });

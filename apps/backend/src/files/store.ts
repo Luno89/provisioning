@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { type AreaStore, fromDoc, toDoc } from '../platform/lib/collection.js';
+import { type AreaStore, fromDoc } from '../platform/lib/collection.js';
 import { decryptValue, encryptValue, type SecretKey } from '../platform/lib/crypto.js';
 import type { ArtifactChunk, StoredArtifact } from './lib/artifacts.js';
 import type { Collection, Db } from 'mongodb';
@@ -40,8 +40,8 @@ export class MongoFilesStore implements FilesStore {
     return this.db().collection('artifactChunks');
   }
 
-  private get artifacts(): Collection {
-    return this.db().collection('artifacts');
+  private get artifacts(): Collection<{ _id: string }> {
+    return this.db().collection<{ _id: string }>('artifacts');
   }
 
   async ensureIndexes(): Promise<void> {
@@ -52,8 +52,8 @@ export class MongoFilesStore implements FilesStore {
   }
 
   async saveArtifact(artifact: StoredArtifact): Promise<void> {
-    const { _id, ...rest } = toDoc(artifact);
-    await this.artifacts.replaceOne({ _id }, rest, { upsert: true });
+    const { id, ...rest } = artifact;
+    await this.artifacts.replaceOne({ _id: id }, rest, { upsert: true });
   }
 
   async getArtifacts(ownerId: string, runId?: string): Promise<StoredArtifact[]> {

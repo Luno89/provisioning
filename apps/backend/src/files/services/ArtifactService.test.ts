@@ -87,6 +87,18 @@ describe('keeping a run\'s failure artifacts', () => {
     expect(await service(db).list('bo', 'run-2')).toEqual([]);
     expect(inMinio.stored).toHaveLength(1);
   });
+
+  it('keeps an expired artifact whose MinIO does not answer, so a later sweep removes it rather than leaving its bytes behind', async () => {
+    const db = await testDatabase();
+    const { objects, store } = bucket();
+    await service(db, store).put('bo', 'run-3', [{ name: 'c.png', bytes: Buffer.from('z') }]);
+    clock = '2026-11-23T12:00:00.000Z';
+    const unreachable = new ArtifactService({ records: db.files, minioFor: async () => { throw new Error('connect ECONNREFUSED'); }, now: () => clock });
+    expect(await unreachable.sweep()).toBe(0);
+    expect(await db.files.getArtifacts('bo', 'run-3')).toHaveLength(1);
+    expect(await service(db, store).sweep()).toBe(1);
+    expect(objects.size).toBe(0);
+  });
 });
 
 describe('a check\'s space handing its runs to the person', () => {

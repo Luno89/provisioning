@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
+import type { ProjectMetadata } from '../../platform/index.js';
 import type { DroppedFile } from '../lib/drops.js';
 import { dropMessage } from '../lib/drops.js';
 
@@ -8,7 +9,7 @@ export interface DropTarget {
   ownerId: string;
   giteaOwner?: string | undefined;
   giteaRepo?: string | undefined;
-  executionTarget?: { kind: string; deviceId: string; path?: string | undefined } | undefined;
+  executionTarget?: ProjectMetadata['executionTarget'] | undefined;
 }
 
 export interface RepositoryDropDeps {

@@ -1,15 +1,16 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { GiteaConflictError, GiteaService } from '../../projects/services/GiteaService.js';
+import type { InfrastructureService } from '../../infrastructure/index.js';
 
 type Call = { url: string; method: string; body?: Record<string, unknown> };
 
 function serviceAnswering(answer: (call: Call) => Response) {
-  const service = new GiteaService({} as any, 'master-key', '/tmp/kubeconfig');
-  vi.spyOn(service as any, 'resolveBaseUrl').mockResolvedValue('http://gitea.test');
-  vi.spyOn(service as any, 'readAdminPassword').mockResolvedValue('pw');
+  vi.stubEnv('GITEA_URL', 'http://gitea.test');
+  const service = new GiteaService({} as InfrastructureService, 'master-key', '/tmp/kubeconfig');
+  vi.spyOn(service as unknown as { readAdminPassword(): Promise<string> }, 'readAdminPassword').mockResolvedValue('pw');
   const calls: Call[] = [];
   vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
-    const call: Call = { url, method: init?.method ?? 'GET', ...(init?.body ? { body: JSON.parse(String(init.body)) } : {}) };
+    const call: Call = { url, method: init?.method ?? 'GET', ...(init?.body ? { body: JSON.parse(String(init.body)) as Record<string, unknown> } : {}) };
     calls.push(call);
     return answer(call);
   }));
@@ -19,7 +20,7 @@ function serviceAnswering(answer: (call: Call) => Response) {
 const existing = (content: string) => new Response(JSON.stringify({ sha: 'old-sha', content: Buffer.from(content).toString('base64') }), { status: 200 });
 const committed = () => new Response(JSON.stringify({ commit: { sha: 'new-commit' } }), { status: 201 });
 const encoded = (text: string) => Buffer.from(text).toString('base64');
-
+afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); });
 afterEach(() => vi.unstubAllGlobals());
 
 describe('GiteaService.putFile', () => {

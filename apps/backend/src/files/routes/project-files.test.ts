@@ -2,16 +2,17 @@ import { describe, it, expect, afterEach, vi } from 'vitest';
 import axios from 'axios';
 import crypto from 'crypto';
 import type { Socket } from 'socket.io';
-import { projectFilesRouter } from './project-files.js';
+import { projectFilesRouter, type ProjectFilesRouterDeps } from './project-files.js';
 import { mountRouter, type Harness, TEST_USER } from '../../platform/routes/test-harness.js';
 import { allowed, type Principal } from '../../platform/lib/permissions.js';
 import { GiteaConflictError } from '../../projects/services/GiteaService.js';
-import { RepositoryDropService } from '../services/RepositoryDropService.js';
+import { RepositoryDropService, type RepositoryDropDeps } from '../services/RepositoryDropService.js';
 import { DROP_TYPE, dropBody } from '../lib/drops.js';
 import { readFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { Readable } from 'node:stream';
 import { registerDevice } from '../../machines/lib/local-agent-registry.js';
+import { anyOf } from '../../platform/lib/test-matchers.js';
 import type { Database } from '../../platform/lib/db-interface.js';
 
 const project = {
@@ -36,25 +37,39 @@ const deviceProject = {
 let h: Harness | undefined;
 afterEach(async () => { await h?.close(); h = undefined; vi.restoreAllMocks(); });
 
-async function mount(gitea: Record<string, unknown>, opts: { seedProject?: boolean } = { seedProject: true }): Promise<Harness> {
+type Fakes = Partial<ProjectFilesRouterDeps['giteaService']> & {
+  commitDropFromDisk?: RepositoryDropDeps['commit'];
+  storyDrop?: ProjectFilesRouterDeps['storyDrops']['drop'];
+};
+
+const notCalled = (what: string) => (): never => { throw new Error(`${what} was not expected here`); };
+
+const ownedBy = (db: Database) => async (id: string, principal: Principal) => {
+  const p = (await db.projects.getProjects()).find((x) => x.id === id);
+  return p && allowed(principal, 'see', { kind: 'project', ownerId: p.ownerId }) ? p : undefined;
+};
+
+async function mount(fakes: Fakes, opts: { seedProject?: boolean } = { seedProject: true }): Promise<Harness> {
   const projectRepoService = { editorCredential: vi.fn(async () => ({ token: 'tok-1', username: 'acme' })) };
   const harness = await mountRouter({
     prefix: '/api/projects',
     router: async (db: Database) => {
-      if (opts.seedProject !== false) await db.projects.saveProjectInfo(project as never);
+      if (opts.seedProject !== false) await db.projects.saveProjectInfo(project);
       return projectFilesRouter({
         projectRepoService,
-        giteaService: gitea,
+        giteaService: {
+          listDirectory: fakes.listDirectory ?? notCalled('listDirectory'),
+          getFileContent: fakes.getFileContent ?? notCalled('getFileContent'),
+          updateFile: fakes.updateFile ?? notCalled('updateFile'),
+          deleteFile: fakes.deleteFile ?? notCalled('deleteFile'),
+        },
         drops: new RepositoryDropService({
           credential: projectRepoService.editorCredential,
-          commit: (...args) => (gitea.commitDropFromDisk as (...given: unknown[]) => Promise<{ commit: string }>)(...args),
+          commit: fakes.commitDropFromDisk ?? notCalled('commitDropFromDisk'),
           writeOnDevice: vi.fn(),
         }),
-        storyDrops: { drop: (gitea.storyDrop as (...given: unknown[]) => Promise<unknown>) ?? vi.fn() },
-        getOwnedProject: async (id: string, principal: Principal) => {
-          const p = (await db.projects.getProjects()).find((x: any) => x.id === id);
-          return p && allowed(principal, 'see', { kind: 'project', ownerId: p.ownerId }) ? p : undefined;
-        },
+        storyDrops: { drop: fakes.storyDrop ?? notCalled('storyDrop') },
+        getOwnedProject: ownedBy(db),
       });
     },
   });
@@ -62,54 +77,60 @@ async function mount(gitea: Record<string, unknown>, opts: { seedProject?: boole
   return harness;
 }
 
-function fakeSocket(handler: (event: string, payload: unknown, ack: (...args: any[]) => void) => void): Socket {
+function fakeSocket(handler: (event: string, payload: unknown, ack: (...args: unknown[]) => void) => void): Socket {
   return {
     connected: true,
     once: () => undefined,
     off: () => undefined,
-    emit: (event: string, payload: unknown, ack: (...args: any[]) => void) => handler(event, payload, ack),
+    emit: (event: string, payload: unknown, ack: (...args: unknown[]) => void) => handler(event, payload, ack),
   } as unknown as Socket;
 }
 
 async function mountForDevice(): Promise<Harness> {
-  const projectRepoService = { editorCredential: vi.fn() };
+  const projectRepoService = { editorCredential: notCalled('editorCredential') };
   const harness = await mountRouter({
     prefix: '/api/projects',
     router: async (db: Database) => {
-      await db.projects.saveProjectInfo(deviceProject as never);
+      await db.projects.saveProjectInfo(deviceProject);
       return projectFilesRouter({
         projectRepoService,
-        giteaService: {},
-        getOwnedProject: async (id: string, principal: Principal) => {
-          const p = (await db.projects.getProjects()).find((x: any) => x.id === id);
-          return p && allowed(principal, 'see', { kind: 'project', ownerId: p.ownerId }) ? p : undefined;
-        },
+        giteaService: { listDirectory: notCalled('listDirectory'), getFileContent: notCalled('getFileContent'), updateFile: notCalled('updateFile'), deleteFile: notCalled('deleteFile') },
+        drops: { drop: notCalled('drop') },
+        storyDrops: { drop: notCalled('storyDrop') },
+        getOwnedProject: ownedBy(db),
       });
     },
   });
   h = harness;
   return harness;
 }
+
+const statusOf = async (request: Promise<unknown>): Promise<number | undefined> => {
+  try {
+    await request;
+    return undefined;
+  } catch (err) {
+    return axios.isAxiosError(err) ? err.response?.status : undefined;
+  }
+};
 
 describe('GET /:id/files', () => {
   it('lists a directory using a per-user editor token', async () => {
     const listDirectory = vi.fn(async () => [{ path: 'src', name: 'src', type: 'dir' as const }]);
     const harness = await mount({ listDirectory });
-    const res = await axios.get(harness.url('/api/projects/proj-1/files'));
+    const res = await axios.get<{ entries: unknown }>(harness.url('/api/projects/proj-1/files'));
     expect(res.data.entries).toEqual([{ path: 'src', name: 'src', type: 'dir' }]);
     expect(listDirectory).toHaveBeenCalledWith('tok-1', 'acme', 'demo', '', undefined);
   });
 
   it('refuses a path that escapes the repo', async () => {
     const harness = await mount({ listDirectory: vi.fn() });
-    const err = await axios.get(harness.url('/api/projects/proj-1/files?path=../etc')).catch((e) => e);
-    expect(err.response.status).toBe(400);
+    expect(await statusOf(axios.get(harness.url('/api/projects/proj-1/files?path=../etc')))).toBe(400);
   });
 
   it('404s a project owned by someone else', async () => {
     const harness = await mount({ listDirectory: vi.fn() });
-    const err = await axios.get(harness.url('/api/projects/ghost/files')).catch((e) => e);
-    expect(err.response.status).toBe(404);
+    expect(await statusOf(axios.get(harness.url('/api/projects/ghost/files')))).toBe(404);
   });
 });
 
@@ -123,14 +144,12 @@ describe('GET /:id/files/content', () => {
 
   it('404s a missing file', async () => {
     const harness = await mount({ getFileContent: vi.fn(async () => null) });
-    const err = await axios.get(harness.url('/api/projects/proj-1/files/content?path=ghost.md')).catch((e) => e);
-    expect(err.response.status).toBe(404);
+    expect(await statusOf(axios.get(harness.url('/api/projects/proj-1/files/content?path=ghost.md')))).toBe(404);
   });
 
   it('refuses an empty path', async () => {
     const harness = await mount({ getFileContent: vi.fn() });
-    const err = await axios.get(harness.url('/api/projects/proj-1/files/content')).catch((e) => e);
-    expect(err.response.status).toBe(400);
+    expect(await statusOf(axios.get(harness.url('/api/projects/proj-1/files/content')))).toBe(400);
   });
 });
 
@@ -147,17 +166,15 @@ describe('PUT /:id/files/content', () => {
 
   it('requires a sha', async () => {
     const harness = await mount({ updateFile: vi.fn() });
-    const err = await axios.put(harness.url('/api/projects/proj-1/files/content'), { path: 'a.ts', content: 'x' }).catch((e) => e);
-    expect(err.response.status).toBe(400);
+    expect(await statusOf(axios.put(harness.url('/api/projects/proj-1/files/content'), { path: 'a.ts', content: 'x' }))).toBe(400);
   });
 
   it('surfaces a stale sha as a 409, not a 500', async () => {
     const updateFile = vi.fn(async () => { throw new GiteaConflictError('changed since it was loaded'); });
     const harness = await mount({ updateFile });
-    const err = await axios.put(harness.url('/api/projects/proj-1/files/content'), {
+    expect(await statusOf(axios.put(harness.url('/api/projects/proj-1/files/content'), {
       path: 'a.ts', content: 'x', sha: 'stale',
-    }).catch((e) => e);
-    expect(err.response.status).toBe(409);
+    }))).toBe(409);
   });
 });
 
@@ -173,8 +190,7 @@ describe('DELETE /:id/files/content', () => {
   it('surfaces a stale sha as a 409', async () => {
     const deleteFile = vi.fn(async () => { throw new GiteaConflictError('changed since it was loaded'); });
     const harness = await mount({ deleteFile });
-    const err = await axios.delete(harness.url('/api/projects/proj-1/files/content?path=old.ts&sha=stale')).catch((e) => e);
-    expect(err.response.status).toBe(409);
+    expect(await statusOf(axios.delete(harness.url('/api/projects/proj-1/files/content?path=old.ts&sha=stale')))).toBe(409);
   });
 });
 
@@ -197,7 +213,7 @@ describe('a project scoped to a local machine', () => {
     }));
     const harness = await mountForDevice();
 
-    const res = await axios.get(harness.url('/api/projects/proj-device/files/content?path=README.md'));
+    const res = await axios.get<{ path: string; content: string; sha: string }>(harness.url('/api/projects/proj-device/files/content?path=README.md'));
     expect(res.data.path).toBe('README.md');
     expect(res.data.content).toBe('# hi');
     expect(res.data.sha).toMatch(/^[0-9a-f]{64}$/);
@@ -209,13 +225,12 @@ describe('a project scoped to a local machine', () => {
     }));
     const harness = await mountForDevice();
 
-    const err = await axios.get(harness.url('/api/projects/proj-device/files/content?path=ghost.md')).catch((e) => e);
-    expect(err.response.status).toBe(404);
+    expect(await statusOf(axios.get(harness.url('/api/projects/proj-device/files/content?path=ghost.md')))).toBe(404);
   });
 
   it('writes a file over the local-agent connection when the sha matches', async () => {
     let wrote: unknown;
-    registerDevice('dev-1', TEST_USER.id, '/x', fakeSocket((event, payload: any, ack) => {
+    registerDevice('dev-1', TEST_USER.id, '/x', fakeSocket((event, payload, ack) => {
       if (event === 'sandbox:readFile') return ack({ content: 'old' });
       wrote = { event, payload };
       ack();
@@ -223,11 +238,11 @@ describe('a project scoped to a local machine', () => {
     const harness = await mountForDevice();
 
     const sha = crypto.createHash('sha256').update('old').digest('hex');
-    const res = await axios.put(harness.url('/api/projects/proj-device/files/content'), {
+    const res = await axios.put<{ sha: string }>(harness.url('/api/projects/proj-device/files/content'), {
       path: 'a.ts', content: 'new', sha,
     });
     expect(res.data.sha).toMatch(/^[0-9a-f]{64}$/);
-    expect(wrote).toEqual({ event: 'sandbox:writeFile', payload: { leafId: expect.any(String), path: 'a.ts', content: 'new' } });
+    expect(wrote).toEqual({ event: 'sandbox:writeFile', payload: { leafId: anyOf(String), path: 'a.ts', content: 'new' } });
   });
 
   it('refuses to write with a stale sha, 409', async () => {
@@ -236,15 +251,14 @@ describe('a project scoped to a local machine', () => {
     }));
     const harness = await mountForDevice();
 
-    const err = await axios.put(harness.url('/api/projects/proj-device/files/content'), {
+    expect(await statusOf(axios.put(harness.url('/api/projects/proj-device/files/content'), {
       path: 'a.ts', content: 'new', sha: 'stale-sha',
-    }).catch((e) => e);
-    expect(err.response.status).toBe(409);
+    }))).toBe(409);
   });
 
   it('deletes a file when the sha matches', async () => {
     let deleted: unknown;
-    registerDevice('dev-1', TEST_USER.id, '/x', fakeSocket((event, payload: any, ack) => {
+    registerDevice('dev-1', TEST_USER.id, '/x', fakeSocket((event, payload, ack) => {
       if (event === 'sandbox:readFile') return ack({ content: 'bye' });
       deleted = { event, payload };
       ack();
@@ -263,14 +277,13 @@ describe('a project scoped to a local machine', () => {
     }));
     const harness = await mountForDevice();
 
-    const err = await axios.delete(harness.url('/api/projects/proj-device/files/content?path=old.ts&sha=abc123')).catch((e) => e);
-    expect(err.response.status).toBe(409);
+    expect(await statusOf(axios.delete(harness.url('/api/projects/proj-device/files/content?path=old.ts&sha=abc123')))).toBe(409);
   });
 });
 
 describe('POST /:id/files/drop', () => {
   const sent = { headers: { 'Content-Type': DROP_TYPE }, validateStatus: () => true };
-  const received = (into: { path: string; bytes: Buffer; source: string }[]) => vi.fn(async (_auth: unknown, _owner: string, _repo: string, files: { path: string; source: string }[]) => {
+  const received = (into: { path: string; bytes: Buffer; source: string }[]) => vi.fn(async (_auth: unknown, _owner: string, _repo: string, files: readonly { path: string; source: string }[]) => {
     for (const file of files) into.push({ path: file.path, source: file.source, bytes: await readFile(file.source) });
     return { commit: 'c1' };
   });
@@ -302,7 +315,7 @@ describe('POST /:id/files/drop', () => {
   });
 
   it('hands code dropped on a story to the story, and says what became of it', async () => {
-    const storyDrop = vi.fn(async () => ({ ok: true, drop: { id: 'd1', state: 'merged' }, said: 'logo.svg merged into the story\'s checkout' }));
+    const storyDrop = vi.fn(async () => ({ ok: true as const, drop: { id: 'd1', branch: 'drop/l1/d1', paths: ['logo.svg'], at: 'now', by: TEST_USER.id, state: 'merged' as const }, said: 'logo.svg merged into the story\'s checkout' }));
     const commitDropFromDisk = vi.fn();
     const harness = await mount({ commitDropFromDisk, storyDrop });
     const res = await axios.post(harness.url('/api/projects/proj-1/files/drop'), dropBody({ leafId: 'l1' }, [{ path: 'logo.svg', bytes: Buffer.from('<svg/>') }]), sent);

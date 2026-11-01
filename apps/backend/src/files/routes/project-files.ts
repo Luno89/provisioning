@@ -1,11 +1,13 @@
 import { Router, type Request } from 'express';
 import crypto from 'crypto';
 import path from 'path';
-import { asyncRoute, principalFrom } from '../../platform/index.js';
+import { asyncRoute, fieldOf, principalFrom, type Principal, type ProjectMetadata } from '../../platform/index.js';
 import { isSafeRepoDir, isSafeRepoFilePath } from '../lib/project-file-paths.js';
 import { DROP_TYPE } from '../lib/drops.js';
 import { withReceivedDrop } from '../services/drop-receiver.js';
-import { GiteaConflictError } from '../../projects/index.js';
+import { GiteaConflictError, type GiteaService, type ProjectRepoService } from '../../projects/index.js';
+import type { RepositoryDropService } from '../services/RepositoryDropService.js';
+import type { StoryDropService } from '../services/StoryDropService.js';
 import { listDirOnDevice, readFileOnDevice, writeFileOnDevice, deleteFileOnDevice } from '../../machines/index.js';
 
 const idOf = (req: Request): string => String(req.params.id ?? '');
@@ -20,7 +22,14 @@ const queryString = (req: Request, key: string): string | undefined => {
 
 const localSha = (content: string): string => crypto.createHash('sha256').update(content).digest('hex');
 
-function devicePath(project: { executionTarget?: { kind: string; deviceId: string; path?: string } }, p: string): string {
+type OwnedProject = ProjectMetadata & { ownerId: string };
+
+const repositoryOf = (project: ProjectMetadata): { owner: string; repo: string } | undefined =>
+  project.giteaOwner && project.giteaRepo ? { owner: project.giteaOwner, repo: project.giteaRepo } : undefined;
+
+const NO_REPOSITORY = 'this project has no repository';
+
+function devicePath(project: ProjectMetadata, p: string): string {
   const base = project.executionTarget?.kind === 'local-device' ? project.executionTarget.path : undefined;
   return base ? path.posix.join(base, p) : p;
 }
@@ -34,13 +43,26 @@ async function readLocalContent(deviceId: string, ownerId: string, target: strin
   }
 }
 
-export function projectFilesRouter(deps: Record<string, any>): Router {
-  const { projectRepoService, giteaService, getOwnedProject, drops, storyDrops } = deps;
+export interface ProjectFilesRouterDeps {
+  projectRepoService: Pick<ProjectRepoService, 'editorCredential'>;
+  giteaService: Pick<GiteaService, 'listDirectory' | 'getFileContent' | 'updateFile' | 'deleteFile'>;
+  getOwnedProject: (id: string, principal: Principal) => Promise<ProjectMetadata | undefined>;
+  drops: Pick<RepositoryDropService, 'drop'>;
+  storyDrops: Pick<StoryDropService, 'drop'>;
+}
+
+export function projectFilesRouter(deps: ProjectFilesRouterDeps): Router {
+  const { projectRepoService, giteaService, drops, storyDrops } = deps;
   const router = Router();
+
+  const ownedProject = async (req: Request): Promise<OwnedProject | undefined> => {
+    const project = await deps.getOwnedProject(idOf(req), principalFrom(req));
+    return project?.ownerId ? { ...project, ownerId: project.ownerId } : undefined;
+  };
 
   router.post('/:id/files/drop', asyncRoute(async (req, res) => {
     if (!req.is(DROP_TYPE)) return res.status(415).json({ error: `Send a drop as ${DROP_TYPE}.` });
-    const project = await getOwnedProject(idOf(req), principalFrom(req));
+    const project = await ownedProject(req);
     if (!project) return res.status(404).json({ error: 'Project not found' });
     await withReceivedDrop(req, async (read) => {
       if (!read.ok) return res.status(400).json({ error: read.why });
@@ -62,7 +84,7 @@ export function projectFilesRouter(deps: Record<string, any>): Router {
   }));
 
   router.get('/:id/files', asyncRoute(async (req, res) => {
-    const project = await getOwnedProject(idOf(req), principalFrom(req));
+    const project = await ownedProject(req);
     if (!project) return res.status(404).json({ error: 'Project not found' });
 
     const dirPath = queryString(req, 'path') ?? '';
@@ -73,13 +95,15 @@ export function projectFilesRouter(deps: Record<string, any>): Router {
       return res.json({ path: dirPath, entries });
     }
 
+    const repository = repositoryOf(project);
+    if (!repository) return res.status(409).json({ error: NO_REPOSITORY });
     const { token } = await projectRepoService.editorCredential(project.ownerId);
-    const entries = await giteaService.listDirectory(token, project.giteaOwner, project.giteaRepo, dirPath, queryString(req, 'ref'));
+    const entries = await giteaService.listDirectory(token, repository.owner, repository.repo, dirPath, queryString(req, 'ref'));
     res.json({ path: dirPath, entries });
   }));
 
   router.get('/:id/files/content', asyncRoute(async (req, res) => {
-    const project = await getOwnedProject(idOf(req), principalFrom(req));
+    const project = await ownedProject(req);
     if (!project) return res.status(404).json({ error: 'Project not found' });
 
     const filePath = queryString(req, 'path') ?? '';
@@ -91,17 +115,21 @@ export function projectFilesRouter(deps: Record<string, any>): Router {
       return res.json({ path: filePath, content, sha: localSha(content) });
     }
 
+    const repository = repositoryOf(project);
+    if (!repository) return res.status(409).json({ error: NO_REPOSITORY });
     const { token } = await projectRepoService.editorCredential(project.ownerId);
-    const file = await giteaService.getFileContent(token, project.giteaOwner, project.giteaRepo, filePath, queryString(req, 'ref'));
+    const file = await giteaService.getFileContent(token, repository.owner, repository.repo, filePath, queryString(req, 'ref'));
     if (!file) return res.status(404).json({ error: 'File not found' });
     res.json(file);
   }));
 
   router.put('/:id/files/content', asyncRoute(async (req, res) => {
-    const project = await getOwnedProject(idOf(req), principalFrom(req));
+    const project = await ownedProject(req);
     if (!project) return res.status(404).json({ error: 'Project not found' });
 
-    const { path: filePath, content, sha } = req.body ?? {};
+    const filePath = fieldOf(req.body, 'path');
+    const content = fieldOf(req.body, 'content');
+    const sha = fieldOf(req.body, 'sha');
     if (typeof filePath !== 'string' || !isSafeRepoFilePath(filePath)) {
       return res.status(400).json({ error: 'path must name a file inside the repository.' });
     }
@@ -121,11 +149,14 @@ export function projectFilesRouter(deps: Record<string, any>): Router {
       return res.json({ sha: localSha(content) });
     }
 
-    const { message, ref } = req.body ?? {};
+    const message = fieldOf(req.body, 'message');
+    const ref = fieldOf(req.body, 'ref');
+    const repository = repositoryOf(project);
+    if (!repository) return res.status(409).json({ error: NO_REPOSITORY });
     const { token } = await projectRepoService.editorCredential(project.ownerId);
     try {
       const result = await giteaService.updateFile(
-        token, project.giteaOwner, project.giteaRepo, filePath, content,
+        token, repository.owner, repository.repo, filePath, content,
         typeof message === 'string' && message.trim() ? message.trim() : `Update ${filePath}`,
         sha, typeof ref === 'string' ? ref : undefined,
       );
@@ -137,7 +168,7 @@ export function projectFilesRouter(deps: Record<string, any>): Router {
   }));
 
   router.delete('/:id/files/content', asyncRoute(async (req, res) => {
-    const project = await getOwnedProject(idOf(req), principalFrom(req));
+    const project = await ownedProject(req);
     if (!project) return res.status(404).json({ error: 'Project not found' });
 
     const filePath = queryString(req, 'path') ?? '';
@@ -157,10 +188,12 @@ export function projectFilesRouter(deps: Record<string, any>): Router {
       return res.json({ success: true });
     }
 
+    const repository = repositoryOf(project);
+    if (!repository) return res.status(409).json({ error: NO_REPOSITORY });
     const { token } = await projectRepoService.editorCredential(project.ownerId);
     try {
       await giteaService.deleteFile(
-        token, project.giteaOwner, project.giteaRepo, filePath,
+        token, repository.owner, repository.repo, filePath,
         `Delete ${filePath}`, sha, queryString(req, 'ref'),
       );
       res.json({ success: true });
