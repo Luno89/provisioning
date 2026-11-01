@@ -1,6 +1,7 @@
 import { Router, type Request, type Response } from 'express';
 import { asyncRoute } from '../../platform/index.js';
 import type { ProcedureService } from '../services/ProcedureService.js';
+import { fieldsOf } from '../lib/request-fields.js';
 
 export interface ProceduresRouterDeps {
   procedures: ProcedureService;
@@ -31,7 +32,7 @@ export function proceduresRouter(deps: ProceduresRouterDeps): Router {
   }));
 
   router.put('/:id/builder', asyncRoute(async (req: Request, res: Response) => {
-    const outcome = await deps.procedures.saveBuilderCode(userOf(req).id, String(req.params.id), req.body?.code);
+    const outcome = await deps.procedures.saveBuilderCode(userOf(req).id, String(req.params.id), fieldsOf(req.body).code);
     if (!outcome.saved) return res.status(400).json({ error: 'The builder code does not make a procedure that checks clean', problems: outcome.problems });
     return res.json({ procedure: outcome.procedure, problems: outcome.problems });
   }));

@@ -1,8 +1,8 @@
 import type { ActionProposal, McpRequest } from '@koala/harness-types';
-import { type AreaStore, fromDoc, toDoc } from '../platform/lib/collection.js';
+import { type AreaStore, type Identified, fromDoc } from '../platform/lib/collection.js';
 import type { AuthoredExtension } from './lib/authored-extensions.js';
 import type { AutoModeSettings } from './lib/auto-mode.js';
-import type { Collection, Db } from 'mongodb';
+import { type Collection, type Db, MongoBulkWriteError, MongoServerError } from 'mongodb';
 import type { Conversation, ConversationMessage } from './lib/conversations.js';
 import type { CorpusPage } from './lib/corpus.js';
 import type { PersonaRecord as EnginePersona, ToolDefinition as EngineTool, GrantKind, ToolGrant, WorkspaceDependency } from '@koala/agent-engine';
@@ -118,114 +118,121 @@ export interface RunEnding {
   handover?: Handover | undefined;
 }
 
+type Keyed = { _id: string };
+
+const keyedDoc = <T extends Identified>(entity: T): { _id: string; rest: Omit<T, 'id'> } => {
+  const { id, ...rest } = entity;
+  return { _id: id, rest };
+};
+
 const toolGrantKey = (ownerId: string, agent: string, tool: string, kind?: GrantKind | undefined): string => (kind === 'server' ? `${ownerId}:${agent}:server:${tool}` : `${ownerId}:${agent}:${tool}`);
 const kindFilter = (kind: GrantKind | undefined): Record<string, unknown> => (kind === 'server' ? { kind: 'server' } : kind === 'tool' ? { kind: { $ne: 'server' } } : {});
 
 export class MongoEngineStore implements EngineStore {
   constructor(private readonly db: () => Db) {}
 
-  private get actionProposals(): Collection {
-    return this.db().collection('actionProposals');
+  private get actionProposals(): Collection<Keyed> {
+    return this.db().collection<Keyed>('actionProposals');
   }
 
-  private get artifactChunks(): Collection {
-    return this.db().collection('artifactChunks');
+  private get artifactChunks(): Collection<Keyed> {
+    return this.db().collection<Keyed>('artifactChunks');
   }
 
-  private get artifacts(): Collection {
-    return this.db().collection('artifacts');
+  private get artifacts(): Collection<Keyed> {
+    return this.db().collection<Keyed>('artifacts');
   }
 
-  private get authoredExtensions(): Collection {
-    return this.db().collection('authoredExtensions');
+  private get authoredExtensions(): Collection<Keyed> {
+    return this.db().collection<Keyed>('authoredExtensions');
   }
 
-  private get autoModeSettings(): Collection {
-    return this.db().collection('autoModeSettings');
+  private get autoModeSettings(): Collection<Keyed> {
+    return this.db().collection<Keyed>('autoModeSettings');
   }
 
-  private get conversations(): Collection {
-    return this.db().collection('conversations');
+  private get conversations(): Collection<Keyed> {
+    return this.db().collection<Keyed>('conversations');
   }
 
-  private get corpus(): Collection {
-    return this.db().collection('corpus');
+  private get corpus(): Collection<Keyed> {
+    return this.db().collection<Keyed>('corpus');
   }
 
-  private get enginePersonas(): Collection {
-    return this.db().collection('enginePersonas');
+  private get enginePersonas(): Collection<Keyed> {
+    return this.db().collection<Keyed>('enginePersonas');
   }
 
-  private get engineTools(): Collection {
-    return this.db().collection('engineTools');
+  private get engineTools(): Collection<Keyed> {
+    return this.db().collection<Keyed>('engineTools');
   }
 
-  private get extensionSettings(): Collection {
-    return this.db().collection('extensionSettings');
+  private get extensionSettings(): Collection<Keyed> {
+    return this.db().collection<Keyed>('extensionSettings');
   }
 
-  private get frontier(): Collection {
-    return this.db().collection('crawl_frontier');
+  private get frontier(): Collection<Keyed> {
+    return this.db().collection<Keyed>('crawl_frontier');
   }
 
-  private get mcpRequests(): Collection {
-    return this.db().collection('mcpRequests');
+  private get mcpRequests(): Collection<Keyed> {
+    return this.db().collection<Keyed>('mcpRequests');
   }
 
-  private get mcpServers(): Collection {
-    return this.db().collection('mcpServers');
+  private get mcpServers(): Collection<Keyed> {
+    return this.db().collection<Keyed>('mcpServers');
   }
 
-  private get mcpToolHints(): Collection {
-    return this.db().collection('mcpToolHints');
+  private get mcpToolHints(): Collection<Keyed> {
+    return this.db().collection<Keyed>('mcpToolHints');
   }
 
-  private get procedures(): Collection {
-    return this.db().collection('procedures');
+  private get procedures(): Collection<Keyed> {
+    return this.db().collection<Keyed>('procedures');
   }
 
-  private get publishedWorkspaces(): Collection {
-    return this.db().collection('publishedWorkspaces');
+  private get publishedWorkspaces(): Collection<Keyed> {
+    return this.db().collection<Keyed>('publishedWorkspaces');
   }
 
-  private get runEffort(): Collection {
-    return this.db().collection('engineRunEffort');
+  private get runEffort(): Collection<Keyed> {
+    return this.db().collection<Keyed>('engineRunEffort');
   }
 
-  private get runGrants(): Collection {
-    return this.db().collection('runGrants');
+  private get runGrants(): Collection<Keyed> {
+    return this.db().collection<Keyed>('runGrants');
   }
 
-  private get runEndings(): Collection {
-    return this.db().collection('runEndings');
+  private get runEndings(): Collection<Keyed> {
+    return this.db().collection<Keyed>('runEndings');
   }
 
-  private get runReads(): Collection {
-    return this.db().collection('runReads');
+  private get runReads(): Collection<Keyed> {
+    return this.db().collection<Keyed>('runReads');
   }
 
-  private get poisoningSignals(): Collection {
-    return this.db().collection('poisoningSignals');
+  private get poisoningSignals(): Collection<Keyed> {
+    return this.db().collection<Keyed>('poisoningSignals');
   }
 
-  private get runTraces(): Collection {
-    return this.db().collection('engineRunTraces');
+  private get runTraces(): Collection<Keyed> {
+    return this.db().collection<Keyed>('engineRunTraces');
   }
 
-  private get toolGrants(): Collection {
-    return this.db().collection('toolGrants');
+  private get toolGrants(): Collection<Keyed> {
+    return this.db().collection<Keyed>('toolGrants');
   }
 
   private get turnLogs(): Collection {
     return this.db().collection('turnLogs');
   }
 
-  private get workspaceDependencies(): Collection {
-    return this.db().collection('workspaceDependencies');
+  private get workspaceDependencies(): Collection<Keyed> {
+    return this.db().collection<Keyed>('workspaceDependencies');
   }
 
-  private get workspaceImages(): Collection {
-    return this.db().collection('workspaceImages');
+  private get workspaceImages(): Collection<Keyed> {
+    return this.db().collection<Keyed>('workspaceImages');
   }
 
   async ensureIndexes(): Promise<void> {
@@ -248,7 +255,7 @@ export class MongoEngineStore implements EngineStore {
   }
 
   async saveRunGrant(grant: RunGrant): Promise<void> {
-    const { _id, ...rest } = toDoc(grant);
+    const { _id, rest } = keyedDoc(grant);
     await this.runGrants.replaceOne({ _id }, rest, { upsert: true });
   }
 
@@ -351,8 +358,7 @@ export class MongoEngineStore implements EngineStore {
   async saveCorpusPages(pages: CorpusPage[]): Promise<void> {
     if (!pages.length) return;
     await this.corpus.bulkWrite(pages.map((page) => {
-      const doc = toDoc(page);
-      const { _id, ...rest } = doc;
+      const { _id, rest } = keyedDoc(page);
       return { replaceOne: { filter: { _id }, replacement: rest, upsert: true } };
     }));
   }
@@ -365,12 +371,13 @@ export class MongoEngineStore implements EngineStore {
     if (!urls.length) return 0;
     try {
       const res = await this.frontier.insertMany(
-        urls.map((u) => { const { _id, ...rest } = toDoc(u); return { _id, ...rest }; }),
+        urls.map((u) => { const { _id, rest } = keyedDoc(u); return { ...rest, _id }; }),
         { ordered: false },
       );
       return res.insertedCount;
-    } catch (err: any) {
-      if (err?.code === 11000 || err?.writeErrors) return err.result?.insertedCount ?? err.insertedCount ?? 0;
+    } catch (err) {
+      if (err instanceof MongoBulkWriteError) return err.insertedCount;
+      if (err instanceof MongoServerError && err.code === 11000) return 0;
       throw err;
     }
   }
@@ -378,7 +385,7 @@ export class MongoEngineStore implements EngineStore {
   async claimFrontier(ingestId: string, limit: number): Promise<FrontierClaim[]> {
     if (limit <= 0) return [];
     const docs = await this.frontier
-      .find({ ingestId, state: 'pending' })
+      .find<{ url: unknown; depth: unknown }>({ ingestId, state: 'pending' })
       .sort({ depth: 1, rank: -1, url: 1 })
       .limit(limit)
       .toArray();
@@ -403,18 +410,18 @@ export class MongoEngineStore implements EngineStore {
   }
 
   async getConversation(ownerId: string, id: string): Promise<Conversation | undefined> {
-    const doc = await this.conversations.findOne({ _id: id as any, ownerId });
+    const doc = await this.conversations.findOne({ _id: id, ownerId });
     return doc ? fromDoc<Conversation>(doc) : undefined;
   }
 
   async allowToolInConversation(ownerId: string, conversationId: string, tool: string): Promise<boolean> {
-    const result = await this.conversations.updateOne({ _id: conversationId as any, ownerId }, { $addToSet: { allowedTools: tool } });
+    const result = await this.conversations.updateOne({ _id: conversationId, ownerId }, { $addToSet: { allowedTools: tool } });
     return result.matchedCount > 0;
   }
 
   async setConversationAutoMode(ownerId: string, conversationId: string, on: boolean): Promise<boolean> {
     const result = await this.conversations.updateOne(
-      { _id: conversationId as any, ownerId },
+      { _id: conversationId, ownerId },
       on ? { $set: { autoMode: true } } : { $unset: { autoMode: '' } },
     );
     return result.matchedCount > 0;
@@ -422,20 +429,20 @@ export class MongoEngineStore implements EngineStore {
 
   async bindConversation(ownerId: string, conversationId: string, binding: { treeId: string; projectId?: string | undefined }): Promise<boolean> {
     const set = { treeId: binding.treeId, ...(binding.projectId ? { projectId: binding.projectId } : {}), updatedAt: new Date().toISOString() };
-    const result = await this.conversations.updateOne({ _id: conversationId as any, ownerId, treeId: { $exists: false } }, { $set: set });
+    const result = await this.conversations.updateOne({ _id: conversationId, ownerId, treeId: { $exists: false } }, { $set: set });
     return result.modifiedCount > 0;
   }
 
   async appendMessage(ownerId: string, conversationId: string, message: ConversationMessage): Promise<boolean> {
-    const result = await this.conversations.updateOne({ _id: conversationId as any, ownerId }, { $push: { messages: message as any }, $set: { updatedAt: message.at } });
+    const result = await this.conversations.updateOne({ _id: conversationId, ownerId }, { $push: { messages: message }, $set: { updatedAt: message.at } });
     return result.modifiedCount > 0;
   }
 
   async appendNotice(ownerId: string, conversationId: string, message: ConversationMessage): Promise<boolean> {
     if (!message.notice) return false;
     const result = await this.conversations.updateOne(
-      { _id: conversationId as any, ownerId, 'messages.notice.key': { $ne: message.notice.key } },
-      { $push: { messages: message as any }, $set: { updatedAt: message.at } },
+      { _id: conversationId, ownerId, 'messages.notice.key': { $ne: message.notice.key } },
+      { $push: { messages: message }, $set: { updatedAt: message.at } },
     );
     return result.modifiedCount > 0;
   }
@@ -455,9 +462,7 @@ export class MongoEngineStore implements EngineStore {
   }
 
   async saveConversation(conversation: Conversation): Promise<void> {
-    const doc = toDoc(conversation);
-    const id = doc._id;
-    const { _id, ...rest } = doc;
+    const { _id: id, rest } = keyedDoc(conversation);
     try {
       await this.conversations.replaceOne({ _id: id, ownerId: conversation.ownerId }, rest, { upsert: true });
     } catch (err) {
@@ -467,7 +472,7 @@ export class MongoEngineStore implements EngineStore {
   }
 
   async deleteConversation(id: string): Promise<void> {
-    await this.conversations.deleteOne({ _id: id as any });
+    await this.conversations.deleteOne({ _id: id });
   }
 
   async getWorkspaceImages(ownerId?: string): Promise<WorkspaceImageSpec[]> {
@@ -493,11 +498,11 @@ export class MongoEngineStore implements EngineStore {
   }
 
   private async reownArtifacts(from: string, to: string, runIds?: readonly string[] | undefined): Promise<{ modifiedCount: number }> {
-    const moving = await this.artifacts.find({ ownerId: from, ...(runIds ? { runId: { $in: [...runIds] } } : {}) }).project({ _id: 1 }).toArray();
+    const moving = await this.artifacts.find({ ownerId: from, ...(runIds ? { runId: { $in: [...runIds] } } : {}) }).project<Keyed>({ _id: 1 }).toArray();
     if (moving.length === 0) return { modifiedCount: 0 };
     const ids = moving.map((doc) => doc._id);
-    await this.artifactChunks.updateMany({ artifactId: { $in: ids as never[] } }, { $set: { ownerId: to } });
-    return this.artifacts.updateMany({ _id: { $in: ids as never[] } }, { $set: { ownerId: to } });
+    await this.artifactChunks.updateMany({ artifactId: { $in: ids } }, { $set: { ownerId: to } });
+    return this.artifacts.updateMany({ _id: { $in: ids } }, { $set: { ownerId: to } });
   }
 
   async reownRuns(from: string, to: string, runIds?: readonly string[] | undefined): Promise<number> {
@@ -522,7 +527,7 @@ export class MongoEngineStore implements EngineStore {
   }
 
   async deleteMcpToolHint(ownerId: string, server: string, tool: string): Promise<void> {
-    await this.mcpToolHints.deleteOne({ _id: hintKey(ownerId, server, tool) as any });
+    await this.mcpToolHints.deleteOne({ _id: hintKey(ownerId, server, tool) });
   }
 
   async getMcpRequests(ownerId: string, conversationId?: string): Promise<McpRequest[]> {
@@ -532,7 +537,7 @@ export class MongoEngineStore implements EngineStore {
   }
 
   async getMcpRequest(ownerId: string, id: string): Promise<McpRequest | undefined> {
-    const doc = await this.mcpRequests.findOne({ _id: id as any, ownerId });
+    const doc = await this.mcpRequests.findOne({ _id: id, ownerId });
     return doc ? fromDoc<McpRequest>(doc as Record<string, unknown>) : undefined;
   }
 
@@ -545,14 +550,12 @@ export class MongoEngineStore implements EngineStore {
   }
 
   async getActionProposal(ownerId: string, id: string): Promise<ActionProposal | undefined> {
-    const doc = await this.actionProposals.findOne({ _id: id as any, ownerId });
+    const doc = await this.actionProposals.findOne({ _id: id, ownerId });
     return doc ? fromDoc<ActionProposal>(doc as Record<string, unknown>) : undefined;
   }
 
   async saveActionProposal(proposal: ActionProposal): Promise<void> {
-    const doc = toDoc(proposal);
-    const id = doc._id;
-    const { _id, ...rest } = doc;
+    const { _id: id, rest } = keyedDoc(proposal);
     await this.actionProposals.replaceOne({ _id: id }, rest, { upsert: true });
   }
 
@@ -597,14 +600,12 @@ export class MongoEngineStore implements EngineStore {
   }
 
   async saveMcpRequest(request: McpRequest): Promise<void> {
-    const doc = toDoc(request);
-    const id = doc._id;
-    const { _id, ...rest } = doc;
+    const { _id: id, rest } = keyedDoc(request);
     await this.mcpRequests.replaceOne({ _id: id }, rest, { upsert: true });
   }
 
   async getProcedure(ownerId: string, id: string): Promise<ProcedureSource | undefined> {
-    const doc = await this.procedures.findOne({ _id: procedureKey(ownerId, id) as any });
+    const doc = await this.procedures.findOne({ _id: procedureKey(ownerId, id) });
     if (!doc) return undefined;
     const { _id, ...rest } = doc;
     return rest as unknown as ProcedureSource;
@@ -621,7 +622,7 @@ export class MongoEngineStore implements EngineStore {
 
   async saveProcedure(source: ProcedureSource): Promise<void> {
     await this.procedures.replaceOne(
-      { _id: procedureKey(source.ownerId, source.id) as any },
+      { _id: procedureKey(source.ownerId, source.id) },
       { ...source },
       { upsert: true },
     );
@@ -631,7 +632,7 @@ export class MongoEngineStore implements EngineStore {
     if (traces.length === 0) return;
     await this.runTraces.bulkWrite(traces.map((trace) => ({
       replaceOne: {
-        filter: { _id: runTraceKey(trace.runId, trace.sequence) as any },
+        filter: { _id: runTraceKey(trace.runId, trace.sequence) },
         replacement: { ...trace },
         upsert: true,
       },
@@ -639,7 +640,7 @@ export class MongoEngineStore implements EngineStore {
   }
 
   async saveRunEffort(effort: RunEffort): Promise<void> {
-    await this.runEffort.replaceOne({ _id: effort.runId as any }, { ...effort }, { upsert: true });
+    await this.runEffort.replaceOne({ _id: effort.runId }, { ...effort }, { upsert: true });
   }
 
   async getRunEffort(ownerId: string, procedureId: string, modelKey?: string): Promise<RunEffort[]> {
@@ -697,7 +698,7 @@ export class MongoEngineStore implements EngineStore {
   }
 
   async deleteProcedure(ownerId: string | undefined, id: string): Promise<void> {
-    await this.procedures.deleteOne({ _id: procedureKey(ownerId, id) as any });
+    await this.procedures.deleteOne({ _id: procedureKey(ownerId, id) });
   }
 
   async getEnginePersonas(ownerId?: string): Promise<EnginePersona[]> {
@@ -720,37 +721,37 @@ export class MongoEngineStore implements EngineStore {
 
   async saveEngineTool(tool: EngineTool): Promise<void> {
     await this.engineTools.replaceOne(
-      { _id: `${tool.ownerId ?? 'builtin'}:${tool.name}` as any },
+      { _id: `${tool.ownerId ?? 'builtin'}:${tool.name}` },
       { ...tool },
       { upsert: true },
     );
   }
 
   async deleteEngineTool(ownerId: string | undefined, name: string): Promise<void> {
-    await this.engineTools.deleteOne({ _id: `${ownerId ?? 'builtin'}:${name}` as any });
+    await this.engineTools.deleteOne({ _id: `${ownerId ?? 'builtin'}:${name}` });
   }
 
   async saveEnginePersona(persona: EnginePersona): Promise<void> {
     await this.enginePersonas.replaceOne(
-      { _id: `${persona.ownerId ?? 'builtin'}:${persona.slug}` as any },
+      { _id: `${persona.ownerId ?? 'builtin'}:${persona.slug}` },
       { ...persona },
       { upsert: true },
     );
   }
 
   async deleteEnginePersona(ownerId: string | undefined, slug: string): Promise<void> {
-    await this.enginePersonas.deleteOne({ _id: `${ownerId ?? 'builtin'}:${slug}` as any });
+    await this.enginePersonas.deleteOne({ _id: `${ownerId ?? 'builtin'}:${slug}` });
   }
 
   async getPublishedWorkspace(ownerId: string, treeId: string): Promise<PublishedWorkspace | undefined> {
-    const doc = await this.publishedWorkspaces.findOne({ _id: `${ownerId}:${treeId}` as any });
+    const doc = await this.publishedWorkspaces.findOne({ _id: `${ownerId}:${treeId}` });
     if (!doc) return undefined;
     const { _id, ...rest } = doc;
     return rest as unknown as PublishedWorkspace;
   }
 
   async savePublishedWorkspace(workspace: PublishedWorkspace): Promise<void> {
-    await this.publishedWorkspaces.replaceOne({ _id: `${workspace.ownerId}:${workspace.treeId}` as any }, { ...workspace }, { upsert: true });
+    await this.publishedWorkspaces.replaceOne({ _id: `${workspace.ownerId}:${workspace.treeId}` }, { ...workspace }, { upsert: true });
   }
 
   async getPublishedWorkspaces(ownerId: string): Promise<PublishedWorkspace[]> {
@@ -759,7 +760,7 @@ export class MongoEngineStore implements EngineStore {
   }
 
   async deletePublishedWorkspace(ownerId: string, treeId: string): Promise<void> {
-    await this.publishedWorkspaces.deleteOne({ _id: `${ownerId}:${treeId}` as any });
+    await this.publishedWorkspaces.deleteOne({ _id: `${ownerId}:${treeId}` });
   }
 
   async getMcpServers(ownerId: string): Promise<McpServerRecord[]> {
@@ -768,11 +769,11 @@ export class MongoEngineStore implements EngineStore {
   }
 
   async saveMcpServer(server: McpServerRecord): Promise<void> {
-    await this.mcpServers.replaceOne({ _id: `${server.ownerId}:${server.id}` as any }, { ...server }, { upsert: true });
+    await this.mcpServers.replaceOne({ _id: `${server.ownerId}:${server.id}` }, { ...server }, { upsert: true });
   }
 
   async deleteMcpServer(ownerId: string, id: string): Promise<void> {
-    await this.mcpServers.deleteOne({ _id: `${ownerId}:${id}` as any });
+    await this.mcpServers.deleteOne({ _id: `${ownerId}:${id}` });
   }
 
   async getWorkspaceDependencies(ownerId: string): Promise<WorkspaceDependency[]> {
@@ -781,11 +782,11 @@ export class MongoEngineStore implements EngineStore {
   }
 
   async saveWorkspaceDependency(dependency: WorkspaceDependency & { ownerId: string }): Promise<void> {
-    await this.workspaceDependencies.replaceOne({ _id: `${dependency.ownerId}:${dependency.name}` as any }, { ...dependency }, { upsert: true });
+    await this.workspaceDependencies.replaceOne({ _id: `${dependency.ownerId}:${dependency.name}` }, { ...dependency }, { upsert: true });
   }
 
   async deleteWorkspaceDependency(ownerId: string, name: string): Promise<void> {
-    await this.workspaceDependencies.deleteOne({ _id: `${ownerId}:${name}` as any });
+    await this.workspaceDependencies.deleteOne({ _id: `${ownerId}:${name}` });
   }
 
   async getToolGrants(ownerId: string): Promise<ToolGrant[]> {
@@ -794,11 +795,11 @@ export class MongoEngineStore implements EngineStore {
   }
 
   async saveToolGrant(grant: ToolGrant & { ownerId: string }): Promise<void> {
-    await this.toolGrants.replaceOne({ _id: toolGrantKey(grant.ownerId, grant.agent, grant.tool, grant.kind) as any }, { ...grant }, { upsert: true });
+    await this.toolGrants.replaceOne({ _id: toolGrantKey(grant.ownerId, grant.agent, grant.tool, grant.kind) }, { ...grant }, { upsert: true });
   }
 
   async deleteToolGrant(ownerId: string, agent: string, tool: string, kind?: GrantKind | undefined): Promise<void> {
-    await this.toolGrants.deleteOne({ _id: toolGrantKey(ownerId, agent, tool, kind) as any });
+    await this.toolGrants.deleteOne({ _id: toolGrantKey(ownerId, agent, tool, kind) });
   }
 
   async deleteToolGrantsFor(ownerId: string | undefined, of: { agent?: string; tool?: string; kind?: GrantKind | undefined }): Promise<number> {

@@ -728,11 +728,6 @@
       "count": 9
     }
   },
-  "src/engine/routes/agents.ts": {
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 1
-    }
-  },
   "src/engine/routes/conversations.test.ts": {
     "@typescript-eslint/no-explicit-any": {
       "count": 5
@@ -747,23 +742,6 @@
       "count": 2
     }
   },
-  "src/engine/routes/conversations.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 6
-    },
-    "@typescript-eslint/no-unsafe-argument": {
-      "count": 8
-    },
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 11
-    },
-    "@typescript-eslint/no-unsafe-call": {
-      "count": 8
-    },
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 27
-    }
-  },
   "src/engine/routes/engine-tools.test.ts": {
     "@typescript-eslint/no-unsafe-assignment": {
       "count": 1
@@ -773,11 +751,6 @@
     },
     "@typescript-eslint/no-unsafe-member-access": {
       "count": 4
-    }
-  },
-  "src/engine/routes/engine-tools.ts": {
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 1
     }
   },
   "src/engine/routes/engine.test.ts": {
@@ -791,36 +764,9 @@
       "count": 26
     }
   },
-  "src/engine/routes/engine.ts": {
-    "@typescript-eslint/no-unsafe-argument": {
-      "count": 1
-    },
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 5
-    }
-  },
   "src/engine/routes/mcp.test.ts": {
     "@typescript-eslint/no-unsafe-member-access": {
       "count": 6
-    }
-  },
-  "src/engine/routes/mcp.ts": {
-    "@typescript-eslint/no-unsafe-argument": {
-      "count": 2
-    },
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 1
-    }
-  },
-  "src/engine/routes/poisoning.ts": {
-    "@typescript-eslint/no-unsafe-argument": {
-      "count": 1
-    },
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 1
-    },
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 3
     }
   },
   "src/engine/routes/procedures.test.ts": {
@@ -834,22 +780,9 @@
       "count": 17
     }
   },
-  "src/engine/routes/procedures.ts": {
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 1
-    }
-  },
   "src/engine/routes/workspace-dependencies.test.ts": {
     "@typescript-eslint/no-unsafe-member-access": {
       "count": 6
-    }
-  },
-  "src/engine/routes/workspace-dependencies.ts": {
-    "@typescript-eslint/no-unsafe-argument": {
-      "count": 1
-    },
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 1
     }
   },
   "src/engine/services/AgentService.test.ts": {
@@ -896,20 +829,6 @@
       "count": 2
     },
     "no-restricted-syntax": {
-      "count": 2
-    }
-  },
-  "src/engine/store.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 31
-    },
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 39
-    },
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 4
-    },
-    "@typescript-eslint/no-unsafe-return": {
       "count": 2
     }
   },
