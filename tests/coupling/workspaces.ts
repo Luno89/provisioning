@@ -1,5 +1,6 @@
 import { join } from 'node:path';
 import type { CrossProcess, Project } from './graph.js';
+import { httpChannels, httpMatches } from './http-routes.js';
 import { socketChannels } from './socket-edges.js';
 import { temporalWorld } from './temporal-edges.js';
 
@@ -26,11 +27,19 @@ const temporalCalls = (root: string): NonNullable<Project['crossing']> => (progr
   };
 };
 
+const bothChannels: NonNullable<Project['channels']> = (program) => {
+  const sockets = socketChannels(program);
+  const http = httpChannels(program);
+  return (call) => [...(sockets(call) ?? []), ...(http(call) ?? [])];
+};
+
+export const MATCHES = { http: httpMatches };
+
 export const projectsOf = (root: string, workspaces: readonly Workspace[] = WORKSPACES): Project[] =>
   workspaces.map((workspace) => ({
     tsconfig: join(root, workspace.folder, workspace.tsconfig),
     owns: (file) => workspaceOf(file) === workspace,
-    channels: socketChannels,
+    channels: bothChannels,
     ...(workspace.name === 'backend' ? { crossing: temporalCalls(root) } : {}),
   }));
 

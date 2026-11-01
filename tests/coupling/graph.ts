@@ -18,7 +18,7 @@ export interface Edge {
   from: string;
   site: Site;
   to: string[];
-  through: 'call' | 'interface' | 'temporal' | 'socket';
+  through: 'call' | 'interface' | 'temporal' | ChannelEnd['kind'];
   device?: boolean;
 }
 
@@ -35,7 +35,7 @@ export interface Graph {
 
 export interface CrossProcess { to: ts.Node[]; through: 'temporal'; device?: boolean }
 
-export interface ChannelEnd { kind: 'socket'; name: string; side: 'sends' | 'hears'; handler?: ts.Node }
+export interface ChannelEnd { kind: 'socket' | 'http'; name: string; side: 'sends' | 'hears'; handler?: ts.Node }
 
 export interface Project {
   tsconfig: string;
@@ -48,12 +48,15 @@ export interface GraphOptions {
   projects: readonly Project[];
   root: string;
   calledFrom: (file: string) => boolean;
+  matches?: Partial<Record<ChannelEnd['kind'], (sent: string, heard: string) => boolean>>;
 }
 
 const TEST_FOLDER = /(^|\/)(tests?|testing|__tests__)\//;
 const TEST_FILE = /\.test\.tsx?$|(^|\/)(test-[^/]*|fake-[^/]*|[^/]*-fakes?|[^/]*\.fake)\.tsx?$/;
 
-export const isTest = (file: string): boolean => TEST_FILE.test(file) || TEST_FOLDER.test(file);
+export const isTestFile = (file: string): boolean => TEST_FILE.test(file);
+
+export const isTest = (file: string): boolean => isTestFile(file) || TEST_FOLDER.test(file);
 
 const GENERATED = /\.generated\.ts$/;
 
@@ -277,8 +280,11 @@ export function buildGraph(options: GraphOptions): Graph {
     }
   }
   const unmatched: Unmatched[] = [];
+  const byKind = new Map<string, typeof ends>();
+  for (const end of ends) byKind.set(end.kind, [...(byKind.get(end.kind) ?? []), end]);
   for (const end of ends) {
-    const partners = ends.filter((other) => other.kind === end.kind && other.name === end.name && other.side !== end.side);
+    const match = options.matches?.[end.kind] ?? ((sent: string, heard: string) => sent === heard);
+    const partners = (byKind.get(end.kind) ?? []).filter((other) => other.side !== end.side && (end.side === 'sends' ? match(end.name, other.name) : match(other.name, end.name)));
     if (partners.length === 0) unmatched.push({ kind: end.kind, name: end.name, side: end.side, site: end.site });
     if (end.side !== 'sends' || partners.length === 0) continue;
     const to = [...new Set(partners.map((partner) => partner.handler).filter((id): id is string => id !== undefined))];

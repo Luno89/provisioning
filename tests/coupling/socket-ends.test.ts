@@ -1,7 +1,7 @@
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { buildGraph, isTest, type Graph } from './graph.js';
-import { projectsOf, WORKSPACES, workspaceOf } from './workspaces.js';
+import { MATCHES, projectsOf, WORKSPACES, workspaceOf } from './workspaces.js';
 
 const ROOT = join(import.meta.dirname, '..', '..');
 
@@ -18,7 +18,7 @@ describe('every socket.io event one side sends, another hears', () => {
 
   it('builds the edges between the backend, the browser and the machine agent', () => {
     const sides = WORKSPACES.filter((workspace) => ['backend', 'frontend', 'local-agent'].includes(workspace.name));
-    graph = buildGraph({ projects: projectsOf(ROOT, sides), root: ROOT, calledFrom: (file) => !isTest(file) && workspaceOf(file) !== undefined });
+    graph = buildGraph({ projects: projectsOf(ROOT, sides), root: ROOT, matches: MATCHES, calledFrom: (file) => !isTest(file) && workspaceOf(file) !== undefined });
     expect(graph.edges.filter((edge) => edge.through === 'socket').length).toBeGreaterThan(50);
   }, 300_000);
 

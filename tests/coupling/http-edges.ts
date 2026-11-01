@@ -40,9 +40,9 @@ export function routesOf(app: { _router?: { stack: Layer[] } }): Route[] {
 
 const VERBS = new Set(['get', 'post', 'put', 'delete', 'patch']);
 
-type Locals = Map<string, ts.Expression>;
+export type Locals = Map<string, ts.Expression>;
 
-function localsOf(source: ts.SourceFile): Locals {
+export function localsOf(source: ts.SourceFile): Locals {
   const locals: Locals = new Map();
   for (const statement of source.statements) {
     if (!ts.isVariableStatement(statement)) continue;
@@ -53,7 +53,7 @@ function localsOf(source: ts.SourceFile): Locals {
   return locals;
 }
 
-function pathsOf(node: ts.Expression, locals: Locals, depth = 0): string[] | undefined {
+export function pathsOf(node: ts.Expression, locals: Locals, depth = 0): string[] | undefined {
   if (depth > 4) return undefined;
   if (ts.isParenthesizedExpression(node)) return pathsOf(node.expression, locals, depth);
   if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) return [node.text];

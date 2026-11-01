@@ -3,7 +3,9 @@ import { randomUUID } from 'node:crypto';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, inject, it } from 'vitest';
+import ts from 'typescript';
 import { clientCallsIn, served, type Route } from '../../../tests/coupling/http-edges.js';
+import { httpChannels } from '../../../tests/coupling/http-routes.js';
 import { devSplitPlan, generateIdentityKey, hashCredential, publicKeyPem } from './instances/index.js';
 import { identityKeysFrom } from './instances/lib/identity-token.js';
 
@@ -26,6 +28,12 @@ function routesFor(env: Record<string, string>): Promise<Route[]> {
 }
 
 const byRole: Record<string, Route[]> = {};
+
+const MOUNTED_ONLY_ELSEWHERE: Record<string, string> = {
+  'GET /^(?!\\/api).*': 'the built frontend, served only in production',
+  'GET /api/move/parts/:part': 'a pool instance, which serves its parts while it moves to its owner\'s machine',
+  'POST /api/move/thaw': 'a pool instance, thawed by root when its move ends',
+};
 
 beforeAll(async () => {
   const mongo = inject('mongoUri');
@@ -53,4 +61,23 @@ describe('every call the frontend makes is one some backend serves', () => {
     expect(calls.filter((call) => !served(call, everywhere)).map((call) => `${call.method} ${call.path} (${call.file}:${call.line})`)).toEqual([]);
     expect(unread.map((call) => `${call.file}:${call.line} ${call.text}`)).toEqual([]);
   });
+
+  it('mounts exactly the routes the coupling graph reads from the code without running it', () => {
+    const config = ts.getParsedCommandLineOfConfigFile(join(BACKEND, 'tsconfig.json'), {}, { ...ts.sys, onUnRecoverableConfigFileDiagnostic: (problem) => { throw new Error(String(problem.messageText)); } });
+    if (!config) throw new Error('the backend tsconfig could not be read');
+    const program = ts.createProgram(config.fileNames, { ...config.options, noEmit: true });
+    const ends = httpChannels(program, []);
+    const read = new Set<string>();
+    for (const source of program.getSourceFiles()) {
+      if (source.isDeclarationFile || source.fileName.includes('/node_modules/') || /\.test\.ts$/.test(source.fileName)) continue;
+      const visit = (node: ts.Node) => {
+        if (ts.isCallExpression(node)) for (const end of ends(node) ?? []) if (end.side === 'hears') read.add(end.name);
+        ts.forEachChild(node, visit);
+      };
+      visit(source);
+    }
+    const mounted = new Set(Object.values(byRole).flat().map((route) => `${route.method} ${route.path}`));
+    expect([...mounted].filter((route) => !read.has(route)).sort()).toEqual([]);
+    expect([...read].filter((route) => !mounted.has(route)).sort()).toEqual(Object.keys(MOUNTED_ONLY_ELSEWHERE).sort());
+  }, 120_000);
 });

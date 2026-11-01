@@ -4,7 +4,7 @@ import { join, resolve } from 'node:path';
 import { buildGraph, isTest } from './graph.js';
 import { judge } from './join.js';
 import { levelFrom, runsIn, summary } from './report.js';
-import { projectsOf, WORKSPACES, workspaceOf, type Workspace } from './workspaces.js';
+import { MATCHES, projectsOf, WORKSPACES, workspaceOf, type Workspace } from './workspaces.js';
 
 const ROOT = resolve(import.meta.dirname, '..', '..');
 
@@ -41,7 +41,7 @@ if (!options.reuse) {
 }
 
 const graphStarted = Date.now();
-const graph = buildGraph({ projects: projectsOf(ROOT), root: ROOT, calledFrom: (file) => !isTest(file) && workspaceOf(file) !== undefined });
+const graph = buildGraph({ projects: projectsOf(ROOT), root: ROOT, matches: MATCHES, calledFrom: (file) => !isTest(file) && workspaceOf(file) !== undefined });
 const graphSeconds = Math.round((Date.now() - graphStarted) / 100) / 10;
 const joinStarted = Date.now();
 const judged = judge(graph, runsIn(runs), levelFrom(ROOT));
