@@ -7,12 +7,14 @@ import { InstanceGroups } from './InstanceGroups.js';
 import { InstanceWatchSetting } from './InstanceWatchSetting.js';
 import { InstanceUpdates } from './InstanceUpdates.js';
 import { InstanceTrial } from './InstanceTrial.js';
+import { RootMeshKeys } from './RootMeshKeys.js';
 
 let harness: Harness | undefined;
 afterEach(async () => { await harness?.close(); harness = undefined; });
 
 async function rootWithAnInstance() {
   let service: InstanceService | undefined;
+  const meshAsked: string[] = [];
   const settings = {
     rootUrl: '', rootPublicKeys: () => ['PEM'], registry: 'r', imageTag: 'new222', domain: 'koala.dev', meshLoginServer: 'https://mesh.koala.dev',
     releases: { hasChart: () => false, releases: async () => [
@@ -23,7 +25,11 @@ async function rootWithAnInstance() {
   harness = await mountRouter({
     prefix: '/api/instances',
     router: (db) => {
-      service = new InstanceService(db, settings, { createPreAuthKey: async () => ({ key: 'k' }), listUserDevices: async () => [{ ipAddresses: ['100.64.0.9'] }] });
+      service = new InstanceService(db, settings, {
+        createPreAuthKey: async (ownerId) => { meshAsked.push(`key for ${ownerId}`); return { key: `key-of-${ownerId}` }; },
+        listUserDevices: async () => [{ ipAddresses: ['100.64.0.9'] }],
+        removeNode: async (ownerId, meshIp) => { meshAsked.push(`remove ${meshIp} of ${ownerId}`); },
+      });
       return instancesRouter({ instances: service, chart: async () => '', operatorOnly: (_req: Request, _res: Response, next: NextFunction) => next() });
     },
   });
@@ -32,9 +38,9 @@ async function rootWithAnInstance() {
   if (!made.ok) throw new Error(made.error);
   const joined = await service!.join(made.value.token, 'box');
   if (!joined.ok) throw new Error(joined.error);
-  await service!.report(joined.value.instanceId, joined.value.credential, { status: 'ready', detail: 'Installed', imageTag: 'old111', presence: true });
+  await service!.report(joined.value.instanceId, joined.value.credential, { status: 'ready', detail: 'Installed', imageTag: 'old111', meshIp: '100.64.0.9', presence: true });
   const instance = { rootUrl: harness.url(''), instanceId: joined.value.instanceId, token: async () => joined.value.credential };
-  return { instance, record: async () => (await harness!.db.instances.getInstances()).find((entry) => entry.id === joined.value.instanceId)! };
+  return { instance, meshAsked, record: async () => (await harness!.db.instances.getInstances()).find((entry) => entry.id === joined.value.instanceId)! };
 }
 
 describe('an instance\'s clients against root\'s own routes', () => {
@@ -80,5 +86,14 @@ describe('an instance\'s clients against root\'s own routes', () => {
     const { instance } = await rootWithAnInstance();
     expect(await new InstanceTrial(instance).read()).not.toHaveProperty('trialEndsAt');
     await expect(new InstanceTrial({ ...instance, token: async () => 'not-the-credential' }).read()).rejects.toThrow('root did not answer about this instance\'s trial (401): unknown instance or credential');
+  });
+
+  it('gets a key for a machine to join its owner\'s mesh, and takes a machine off it, never the instance itself', async () => {
+    const { instance, meshAsked } = await rootWithAnInstance();
+    const keys = new RootMeshKeys(instance);
+    expect(await keys.createPreAuthKey('ignored')).toEqual({ key: `key-of-${TEST_USER.id}` });
+    await keys.removeNode('ignored', '100.64.0.20');
+    await expect(keys.removeNode('ignored', '100.64.0.9')).rejects.toThrow('root would not take the machine off the mesh (400): that is the instance itself, not one of its machines');
+    expect(meshAsked).toEqual([`key for ${TEST_USER.id}`, `key for ${TEST_USER.id}`, `remove 100.64.0.20 of ${TEST_USER.id}`]);
   });
 });
