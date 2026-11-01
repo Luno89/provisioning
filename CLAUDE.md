@@ -45,7 +45,6 @@ npm run test         # test:unit → test:e2e:sync (alive check → unit → tes
 npm run test:all     # test → test:synth:palworld → test:infra:integration → test:remote-integration
 npm run test:unit    # typecheck + every package's Vitest suite (frontend, backend, local-agent, the engine packages, cdktf-infra)
 npm run test:alive   # scripts/alive.sh — Docker/k3d/K8s API/Temporal/worker pod health, fails fast with fix hints
-npm run test:worker  # tsx tests/worker-isolated.ts — runs real Temporal workflows without browser/webserver
 npm run test:e2e     # test:alive → Playwright (skips the unit preflight `npm test` does)
 npm run test:infra:integration    # full cluster provision → verify → destroy, ~5 min (tests/infra-integration.ts)
 npm run test:routing-live         # root's Caddy on the mesh (local CA, koala.localhost) → a named instance installs on a VM → <name>.<domain> answers through Caddy and sign-in lands there → an app on the instance at <app>-<name>.<domain> → a group the instance claims is routed by root to its edge (the edge's 404 names the instance in X-Koala-Edge) and freed again → nested addresses issued and shown, the flat ones still answering → root emails the owner when the instance's connection to it is gone and when it is back, and the instance shows root down under Needs attention and clears it (a 1-minute threshold, `WATCH_UNREACHABLE_MINUTES`) → signing out everywhere at root ends the instance's session at once, ~9 min, cleans up
@@ -2106,7 +2105,7 @@ instance, without passing its gates first (owner, 2026-10-23: "all those checks 
      by `k3d cluster list` — that returns nothing on a native-k3s host and used to report a
      healthy machine as broken, which then suppressed every later check.
 2. **Unit** (`npm run test:unit`) — typecheck + Vitest, frontend + backend. ~80s (20s typecheck, 29s frontend, 29s backend). The `<5s` this used to claim has not been true for a long time.
-3. **Worker isolation** (`npm run test:worker`, `tests/worker-isolated.ts` via `npx tsx`) — runs real Temporal workflows (`ClusterProvisionWorkflow`, `AppDeployWorkflow`, etc.) end-to-end (k3d, CDKTF, Helm, kubectl) without a browser or webserver.
+3. **Workflows** (in the unit step) — each workflow runs on Temporal's test server (`workflows/temporal-test-env.ts`) with its activities, and `src/worker-activities.test.ts` reads every workflow's activity types and every worker's map from the compiler, so an activity a workflow calls is always registered on the queue it runs on.
 4. **Full E2E** (`npm run test:e2e`) — Playwright driving the React UI; starts host and cluster workers on the host network to support all deployment types.
 5. **Remote-host integration** (`npm run test:remote-integration`, `tests/remote-host-integration.ts`) — boots a real disposable QEMU/KVM VM (`tests/lib/disposable-vm.ts`) and drives the actual `POST /api/clusters` (`provider: 'remote'`) → Temporal → SSH-bootstrap-k3s path against it, the same way a user adding their own GPU workstation or a Phase-3 VPS would. Slow (~10-15 min, includes a one-time ~600MB cloud image download cached in `tests/.vm-cache/`) — not in the default `npm test` chain, only `npm run test:all`.
 

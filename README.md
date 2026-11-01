@@ -148,11 +148,9 @@ Verify: `nvidia-smi` and `docker run --rm --gpus all ubuntu nvidia-smi`.
 |---|---|---|
 | Alive | `npm run test:alive` | Docker, management cluster, K8s API, Temporal, workers — and that workers run current code |
 | Unit | `npm run test:unit` | Typecheck plus every workspace's Vitest suite (~80s) |
-| Worker | `npm run test:worker` | Real Temporal workflows (provision, deploy) without the browser |
 | E2E | `npm run test:e2e` | Playwright through the UI (`tests/e2e.spec.ts`) |
 | Infra | `npm run test:infra:integration` | Provision → verify → destroy a cluster |
 | Remote | `npm run test:remote-integration` | A disposable QEMU VM provisioned as a `remote` cluster over SSH (~10–15 min) |
-| Grove | `npm run test:tree-sandbox`, `test:plan-adoption`, `test:leaf-worktrees` | The tree sandbox, plan adoption and worktrees against the real cluster |
 | Live model | `npm run test:planner-live`, `test:grove-live` | The planner and a grove run on a real model |
 | Secrets | `npm run test:secrets-live`, `test:secret-injection-live` | Koala asks for a secret, the card vaults it, nothing leaks; the value reaches a deployed pod and a rotation follows |
 
