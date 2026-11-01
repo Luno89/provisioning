@@ -18,17 +18,32 @@ const TERMINAL_WAITING = new Set([
   'CreateContainerConfigError',
 ]);
 
+interface ContainerLike {
+  name?: string;
+  ready?: boolean;
+  restartCount?: number;
+  state?: { waiting?: { reason?: string }; terminated?: { reason?: string; exitCode?: number } };
+  lastState?: { terminated?: { finishedAt?: string } };
+}
+
 interface PodLike {
   metadata?: { name?: string };
   status?: {
     phase?: string;
-    containerStatuses?: {
-      ready?: boolean;
-      restartCount?: number;
-      state?: { waiting?: { reason?: string }; terminated?: { reason?: string; exitCode?: number } };
-      lastState?: { terminated?: { finishedAt?: string } };
-    }[];
+    initContainerStatuses?: ContainerLike[];
+    containerStatuses?: ContainerLike[];
   };
+}
+
+function stuck(name: string, container: ContainerLike, now: number): WorkloadStatus | undefined {
+  const waiting = container.state?.waiting?.reason;
+  if (waiting && TERMINAL_WAITING.has(waiting)) return { health: 'unhealthy', reason: `${name}: ${waiting}` };
+  const lastRestart = Date.parse(container.lastState?.terminated?.finishedAt ?? '');
+  const restartedLately = Number.isFinite(lastRestart) && now - lastRestart < RECENT_RESTART_MS;
+  if ((container.restartCount ?? 0) >= RESTARTS_BEFORE_FAILING && !container.ready && restartedLately) {
+    return { health: 'unhealthy', reason: `${name}: restarted ${container.restartCount} times` };
+  }
+  return undefined;
 }
 
 export function assessWorkload(podListJson: unknown, now: number = Date.now()): WorkloadStatus {
@@ -45,19 +60,17 @@ export function assessWorkload(podListJson: unknown, now: number = Date.now()): 
     if (phase === 'Succeeded' || phase === 'Failed') continue;
     judged = true;
 
+    for (const init of pod.status?.initContainerStatuses ?? []) {
+      const failing = stuck(`${name} (init container ${init.name ?? 'unnamed'})`, init, now);
+      if (failing) return failing;
+    }
+
     const containers = pod.status?.containerStatuses ?? [];
     if (containers.length === 0) { starting = true; continue; }
 
     for (const c of containers) {
-      const waiting = c.state?.waiting?.reason;
-      if (waiting && TERMINAL_WAITING.has(waiting)) {
-        return { health: 'unhealthy', reason: `${name}: ${waiting}` };
-      }
-      const lastRestart = Date.parse(c.lastState?.terminated?.finishedAt ?? '');
-      const restartedLately = Number.isFinite(lastRestart) && now - lastRestart < RECENT_RESTART_MS;
-      if ((c.restartCount ?? 0) >= RESTARTS_BEFORE_FAILING && !c.ready && restartedLately) {
-        return { health: 'unhealthy', reason: `${name}: restarted ${c.restartCount} times` };
-      }
+      const failing = stuck(name, c, now);
+      if (failing) return failing;
       if (!c.ready) starting = true;
     }
   }

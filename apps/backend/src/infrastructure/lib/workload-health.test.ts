@@ -53,6 +53,26 @@ describe('a workload that has settled into failing', () => {
       .toBe('unhealthy');
   });
 
+  it('catches an init container that cannot pull its image or keeps crashing, which held its pod at Init forever', () => {
+    const initWaiting = (reason: string) => ({ items: [{ metadata: { name: 'backend-new' }, status: {
+      phase: 'Pending',
+      initContainerStatuses: [{ name: 'temporal-keys', ready: false, restartCount: 0, state: { waiting: { reason } } }],
+      containerStatuses: [{ name: 'backend', ready: false, restartCount: 0, state: { waiting: { reason: 'PodInitializing' } } }],
+    } }] });
+    expect(assessWorkload(initWaiting('ImagePullBackOff'))).toEqual({ health: 'unhealthy', reason: 'backend-new (init container temporal-keys): ImagePullBackOff' });
+    expect(assessWorkload(initWaiting('CrashLoopBackOff')).health).toBe('unhealthy');
+    expect(assessWorkload(initWaiting('PodInitializing')).health).toBe('starting');
+  });
+
+  it('passes an init container that finished', () => {
+    const done = { items: [{ metadata: { name: 'backend' }, status: {
+      phase: 'Running',
+      initContainerStatuses: [{ name: 'temporal-keys', ready: true, restartCount: 0, state: { terminated: { reason: 'Completed', exitCode: 0 } } }],
+      containerStatuses: [ok],
+    } }] };
+    expect(assessWorkload(done).health).toBe('healthy');
+  });
+
   it('catches repeated restarts before Kubernetes says CrashLoopBackOff', () => {
     const now = Date.parse('2026-10-18T12:00:00Z');
     const r = assessWorkload(pods([{ ready: false, restartCount: 3, state: {}, lastState: { terminated: { finishedAt: '2026-10-18T11:50:00Z' } } }]), now);

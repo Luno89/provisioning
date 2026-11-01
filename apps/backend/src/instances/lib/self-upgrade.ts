@@ -17,11 +17,11 @@ export type Rollout = { state: 'done' } | { state: 'rolling'; waiting: string } 
 interface Owner { kind?: string; name?: string }
 interface Item {
   kind?: string;
-  metadata?: { name?: string; generation?: number; labels?: Record<string, string>; annotations?: Record<string, string>; ownerReferences?: Owner[]; deletionTimestamp?: string };
+  metadata?: { name?: string; generation?: number; labels?: Record<string, string>; annotations?: Record<string, string>; ownerReferences?: Owner[]; deletionTimestamp?: string; creationTimestamp?: string };
   spec?: { replicas?: number };
   status?: {
     observedGeneration?: number; replicas?: number; updatedReplicas?: number; availableReplicas?: number; readyReplicas?: number;
-    currentRevision?: string; updateRevision?: string;
+    currentRevision?: string; updateRevision?: string; succeeded?: number;
   } & Record<string, unknown>;
 }
 
@@ -57,8 +57,12 @@ function currentPods(items: readonly Item[], workloads: readonly Item[]): Item[]
   });
 }
 
+const HOOK = 'helm.sh/hook';
+const itemsOf = (listed: unknown): Item[] => ((listed as { items?: Item[] })?.items ?? []).filter((item) => item && typeof item === 'object');
+const madeSince = (item: Item, since: number): boolean => Date.parse(item.metadata?.creationTimestamp ?? '') >= Math.floor(since / 1000) * 1000;
+
 export function rolloutOf(listed: unknown, now: number = Date.now()): Rollout {
-  const items = ((listed as { items?: Item[] })?.items ?? []).filter((item) => item && typeof item === 'object');
+  const items = itemsOf(listed);
   const workloads = items.filter((item) => item.kind === 'Deployment' || item.kind === 'StatefulSet');
   if (workloads.length === 0) return { state: 'rolling', waiting: 'none of the release\'s workloads is there yet' };
   const health = assessWorkload({ items: currentPods(items, workloads) }, now);
@@ -66,3 +70,17 @@ export function rolloutOf(listed: unknown, now: number = Date.now()): Rollout {
   const waiting = workloads.map(waitingOn).find((reason): reason is string => reason !== undefined);
   return waiting ? { state: 'rolling', waiting } : { state: 'done' };
 }
+
+export function stuckHook(listed: unknown, since: number, now: number = Date.now()): string | undefined {
+  const items = itemsOf(listed);
+  const hooks = items.filter((item) => item.kind === 'Job' && item.metadata?.annotations?.[HOOK] && madeSince(item, since));
+  const pods = items.filter((item) => item.kind === 'Pod' && !item.metadata?.deletionTimestamp && hooks.some((job) => ownedBy(item, 'Job', job.metadata?.name)));
+  if (pods.length === 0) return undefined;
+  const health = assessWorkload({ items: pods }, now);
+  return health.health === 'unhealthy' ? `the chart's ${health.reason}` : undefined;
+}
+
+export const abandonedJobs = (listed: unknown, since: number): string[] => itemsOf(listed)
+  .filter((item) => item.kind === 'Job' && madeSince(item, since) && (item.status?.succeeded ?? 0) === 0)
+  .map((item) => item.metadata?.name)
+  .filter((name): name is string => name !== undefined);

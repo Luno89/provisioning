@@ -3,14 +3,15 @@ import { createHash } from 'node:crypto';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { rolloutOf, UPGRADE_WORDS, withWhy } from '../instances/index.js';
+import { abandonedJobs, rolloutOf, stuckHook, UPGRADE_WORDS, withWhy } from '../instances/index.js';
 
 export interface SelfUpgradeDeps {
   root: { url: string; instanceId: string; credential: string };
   release: { name: string; namespace: string; current: string };
-  run: (command: string, args: readonly string[]) => Promise<string>;
+  run: (command: string, args: readonly string[], signal?: AbortSignal) => Promise<string>;
   fetch?: typeof fetch;
   sleep?: (ms: number) => Promise<void>;
+  now?: () => number;
   log?: (line: string) => void;
 }
 
@@ -23,6 +24,7 @@ export async function selfUpgrade(deps: SelfUpgradeDeps): Promise<boolean> {
   const call = deps.fetch ?? fetch;
   const sleep = deps.sleep ?? ((ms: number) => new Promise((done) => setTimeout(done, ms)));
   const log = deps.log ?? ((line: string) => console.log(line));
+  const now = deps.now ?? (() => Date.now());
   const headers = { 'X-Instance-Id': deps.root.instanceId, Authorization: `Bearer ${deps.root.credential}` };
   const { name, namespace, current } = deps.release;
 
@@ -61,8 +63,9 @@ export async function selfUpgrade(deps: SelfUpgradeDeps): Promise<boolean> {
   try {
     const chartFile = join(dir, 'chart.tgz');
     await writeFile(chartFile, bytes);
-    const upgraded = await deps.run('helm', ['upgrade', name, chartFile, '-n', namespace, '--reset-then-reuse-values', '--set', `image.tag=${wanted.imageTag}`, '--set-string', `image.digest=${wanted.digest ?? ''}`, '--timeout', CEILING])
-      .then(() => rollout(), (err: Error) => ({ state: 'hopeless' as const, reason: err.message }));
+    const since = now();
+    const applied = await whileHelmRuns(['upgrade', name, chartFile, '-n', namespace, '--reset-then-reuse-values', '--set', `image.tag=${wanted.imageTag}`, '--set-string', `image.digest=${wanted.digest ?? ''}`, '--timeout', CEILING], since);
+    const upgraded = applied.ok ? await rollout() : { state: 'hopeless' as const, reason: applied.reason };
     if (upgraded.state === 'done') {
       await report('ready', UPGRADE_WORDS.upgraded(wanted.imageTag), wanted.imageTag);
       return true;
@@ -70,12 +73,42 @@ export async function selfUpgrade(deps: SelfUpgradeDeps): Promise<boolean> {
     log(`the upgrade to ${wanted.imageTag} cannot finish: ${upgraded.reason}; rolling back to ${current}`);
     const back = await deps.run('helm', ['rollback', name, '-n', namespace, '--timeout', CEILING])
       .then(() => rollout(), (err: Error) => ({ state: 'hopeless' as const, reason: err.message }));
+    const left = await clearAbandoned(since);
+    const why = left ? `${upgraded.reason}; ${left}` : upgraded.reason;
     await report('failed', back.state === 'done'
-      ? withWhy(UPGRADE_WORDS.rolledBack(wanted.imageTag, current), upgraded.reason)
-      : withWhy(UPGRADE_WORDS.notRolledBack(wanted.imageTag, current), `${upgraded.reason}; rolling back: ${back.reason}`));
+      ? withWhy(UPGRADE_WORDS.rolledBack(wanted.imageTag, current), why)
+      : withWhy(UPGRADE_WORDS.notRolledBack(wanted.imageTag, current), `${why}; rolling back: ${back.reason}`));
     return false;
   } finally {
     await rm(dir, { recursive: true, force: true });
+  }
+
+  async function whileHelmRuns(args: string[], since: number): Promise<{ ok: true } | { ok: false; reason: string }> {
+    const stop = new AbortController();
+    const ended: { result?: { ok: true } | { ok: false; reason: string } } = {};
+    const helm = deps.run('helm', args, stop.signal).then(() => { ended.result = { ok: true }; }, (err: Error) => { ended.result = { ok: false, reason: err.message }; });
+    for (;;) {
+      await Promise.race([helm, sleep(5000)]);
+      if (ended.result) return ended.result;
+      const stuck = stuckHook(JSON.parse(await deps.run('kubectl', ['get', 'jobs,pods', '-n', namespace, '-l', `app.kubernetes.io/instance=${name}`, '-o', 'json'])), since, now());
+      if (stuck) {
+        stop.abort();
+        await helm;
+        return { ok: false, reason: stuck };
+      }
+    }
+  }
+
+  async function clearAbandoned(since: number): Promise<string | undefined> {
+    try {
+      const names = abandonedJobs(JSON.parse(await deps.run('kubectl', ['get', 'jobs', '-n', namespace, '-l', `app.kubernetes.io/instance=${name}`, '-o', 'json'])), since);
+      if (names.length > 0) await deps.run('kubectl', ['delete', 'jobs', '-n', namespace, '--ignore-not-found', ...names]);
+      return undefined;
+    } catch (err) {
+      const said = `the jobs the upgrade left could not be removed, and one still running stops the next check-in: ${(err as Error).message}`;
+      log(said);
+      return said;
+    }
   }
 
   async function rollout(): Promise<{ state: 'done' } | { state: 'hopeless'; reason: string }> {
@@ -91,9 +124,9 @@ export async function selfUpgrade(deps: SelfUpgradeDeps): Promise<boolean> {
   }
 }
 
-export function runCommand(command: string, args: readonly string[]): Promise<string> {
+export function runCommand(command: string, args: readonly string[], signal?: AbortSignal): Promise<string> {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn(command, args, { stdio: ['ignore', 'pipe', 'pipe'], ...(signal ? { signal } : {}) });
     let out = '';
     let said = '';
     child.stdout.on('data', (chunk: Buffer) => { out += chunk.toString(); });

@@ -2078,7 +2078,9 @@ instance, without passing its gates first (owner, 2026-10-23: "all those checks 
   People shows each instance's version and how it updates. **The self-upgrade** (`apps/backend/src/scripts/self-upgrade.ts`, the
   chart's `self-upgrade` CronJob, rules in `instances/lib/self-upgrade.ts`) applies root's chart without helm's wait and watches the
   release's Deployments and StatefulSets roll out (`rolloutOf`), with no deadline: it rolls back the moment a pod of the new revision is
-  in a state that does not recover (`assessWorkload`: CrashLoopBackOff, ImagePullBackOff, a restart loop) and tells root why; the words it
+  in a state that does not recover (`assessWorkload`: CrashLoopBackOff, ImagePullBackOff, a restart loop, an init container's too) and tells root why;
+  Helm still waits on the chart's hook jobs, so while it runs the self-upgrade watches the hooks this upgrade made and stops Helm when one
+  cannot start (`stuckHook`), then removes the jobs the failed attempt left (`abandonedJobs`), since one left running blocks every later check-in; the words it
   reports are `UPGRADE_WORDS`, which the rehearsal and byo-live wait for. Release channels (rc, LTS) are a later conversation.
   **An upgrade drops no request** (owner 2026-10-27: drain on events): told to stop in its pod (`POD_IP`, `POD_NAMESPACE` from the
   chart), the backend keeps serving until no EndpointSlice in its namespace lists its pod ready, nor its pod beside only a
