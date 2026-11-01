@@ -13,21 +13,20 @@ export interface SocketSignInDeps {
 }
 
 export function signSocketsIn(io: SocketServer, deps: SocketSignInDeps): void {
-  io.use(async (socket, next) => {
-    if (signsEveryoneIn(deps.env)) {
-      const users = await deps.db.accounts.getUsers();
-      socket.data.user = users[0] || { id: 'test-user-id', email: 'test@example.com' };
-      return next();
-    }
-    try {
+  io.use((socket, next) => {
+    const signIn = async (): Promise<Error | undefined> => {
+      if (signsEveryoneIn(deps.env)) {
+        const users = await deps.db.accounts.getUsers();
+        socket.data.user = users[0] || { id: 'test-user-id', email: 'test@example.com' };
+        return undefined;
+      }
       const signedIn = await deps.auth.sessionFromCookie(socket.handshake.headers.cookie, deps.auth.securedFor(socket.handshake));
-      if (!signedIn) return next(new Error('Unauthorized'));
+      if (!signedIn) return new Error('Unauthorized');
       socket.data.user = signedIn.user;
       socket.data.session = { sessionId: signedIn.sessionId, personId: signedIn.user.id, sessionAt: signedIn.sessionAt } satisfies SocketSession;
-      next();
-    } catch {
-      next(new Error('Unauthorized'));
-    }
+      return undefined;
+    };
+    signIn().then((refused) => next(refused), () => next(new Error('Unauthorized')));
   });
   io.on('connection', (socket) => {
     const session = socket.data.session as SocketSession | undefined;

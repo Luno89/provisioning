@@ -305,7 +305,7 @@ export class TemporalBridge {
     if (this.following.has(wfId)) return
     this.following.add(wfId)
     let consecutiveFailures = 0
-    const timer = setInterval(async () => {
+    const poll = async () => {
       try {
         const status = await pollWorkflowRun(wfId)
         consecutiveFailures = 0
@@ -418,7 +418,8 @@ export class TemporalBridge {
           console.warn(`[TemporalBridge] Failed polling workflow ${wfId} (${consecutiveFailures}/${MAX_POLL_FAILURES}): ${err.message}`)
         }
       }
-    }, WORKFLOW_POLL_INTERVAL)
+    }
+    const timer = setInterval(() => { void poll() }, WORKFLOW_POLL_INTERVAL)
   }
 
   async adoptPlan(ownerId: string, proposalId: string): Promise<string | undefined> {
@@ -659,12 +660,10 @@ export class TemporalBridge {
       }
     }
 
-    reconcile()
-    setInterval(reconcile, RECONCILE_INTERVAL)
-    consolidate()
-    setInterval(consolidate, CONSOLIDATE_INTERVAL)
-    reconcileRuns()
-    setInterval(reconcileRuns, RECONCILE_INTERVAL)
+    for (const [pass, every] of [[reconcile, RECONCILE_INTERVAL], [consolidate, CONSOLIDATE_INTERVAL], [reconcileRuns, RECONCILE_INTERVAL]] as const) {
+      void pass()
+      setInterval(() => { void pass() }, every)
+    }
   }
 
   async stopIfRunning(wfId: string, reason: string): Promise<boolean> {
@@ -870,8 +869,8 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
     }
     const wfId = `cluster-destroy-${cluster.name}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
 
-    this.db.infrastructure.saveClusterInfo({
-      ...cluster,
+    await this.db.infrastructure.saveClusterInfo({
+      id: cluster.id,
       status: 'destroying',
       temporalWorkflowId: wfId,
       lastLogPath: absoluteLogPath,
@@ -919,8 +918,8 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
 
     const activityArgs = destroyAppArgs(dep, cluster, absoluteLogPath)
 
-     this.db.infrastructure.saveDeploymentInfo({
-      ...dep,
+    await this.db.infrastructure.saveDeploymentInfo({
+      id: dep.id,
       status: 'destroying',
       temporalWorkflowId: wfId,
       lastLogPath: absoluteLogPath,
@@ -1087,8 +1086,8 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
       appSettings: dep.appSettings,
     }
 
-    this.db.infrastructure.saveDeploymentInfo({
-      ...dep,
+    await this.db.infrastructure.saveDeploymentInfo({
+      id: dep.id,
       status: 'deploying',
       healthReason: '',
       temporalWorkflowId: wfId,

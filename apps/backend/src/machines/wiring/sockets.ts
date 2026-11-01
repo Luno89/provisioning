@@ -43,15 +43,17 @@ export function wireSockets(deps: SocketsWiringDeps): void {
 
   const agentNamespace = io.of('/agent');
   const forMachines = machinePayloads({ ring: servesTenants(role) ? payloadKey : undefined, blobs: sharedPayloadBlobs(), ...(deps.machineTemporal ? { temporal: deps.machineTemporal } : {}) });
-  agentNamespace.use(async (socket, next) => {
+  agentNamespace.use((socket, next) => {
     const token = socket.handshake.auth?.token as string | undefined;
     if (!token) return next(new Error('Missing device token'));
-    const match = matchDeviceToken(await db.machines.getLocalAgentDevices(), token, dataKey, (deps.now ?? (() => new Date()))());
-    if (!match) return next(new Error('Unauthorized'));
-    if (match.expired) return next(new Error(TOKEN_EXPIRED_SAID));
-    socket.data.device = match.device;
-    socket.data.via = match.via;
-    next();
+    db.machines.getLocalAgentDevices().then((devices) => {
+      const match = matchDeviceToken(devices, token, dataKey, (deps.now ?? (() => new Date()))());
+      if (!match) return next(new Error('Unauthorized'));
+      if (match.expired) return next(new Error(TOKEN_EXPIRED_SAID));
+      socket.data.device = match.device;
+      socket.data.via = match.via;
+      return next();
+    }, (err: Error) => next(new Error(`Koala could not look up this machine just now (${err.message}); it connects again by itself`)));
   });
   const runWatch = deps.runs ? new MachineRunWatch(deps.runs) : undefined;
   agentNamespace.on('connection', (socket) => {
@@ -61,7 +63,7 @@ export function wireSockets(deps: SocketsWiringDeps): void {
     registerDevice(device.id, device.ownerId, device.rootDir, socket, containerMode);
     deps.machines.seen(device.id).catch((err: Error) => console.warn(`[machines] ${device.id}: when it was last seen could not be recorded: ${err.message}`));
     deps.machines.recordAgentBundle(device.id, socket.handshake.auth).catch((err: Error) => console.warn(`[machines] ${device.id}: which agent it runs could not be recorded: ${err.message}`));
-    void deps.machines.currentBundle().then((sha256) => { if (sha256 && socket.connected) socket.emit('machine:bundle', { sha256 }); });
+    deps.machines.currentBundle().then((sha256) => { if (sha256 && socket.connected) socket.emit('machine:bundle', { sha256 }); }, (err: Error) => console.warn(`[machines] ${device.id}: the agent it should run could not be named: ${err.message}`));
     void rotateDeviceToken(socket, device.id, socket.data.via as TokenVia, deps.machines)
       .catch((err: Error) => console.warn(`[machines] ${device.id}: its token could not be rotated: ${err.message}`));
     socket.on('disconnect', () => {
