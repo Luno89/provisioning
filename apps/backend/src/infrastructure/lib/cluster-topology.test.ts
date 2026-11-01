@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { NEVER_MOCK_PROVIDERS, clusterAvailability, isMockCloudProvider, isSelfManagedCluster, providerReady, provisionRefusal } from './cluster-topology.js';
-import { buildAppEnv } from './app-env.js';
+import { NEVER_MOCK_PROVIDERS, clusterAvailability, isMockCloudProviderIn, isSelfManagedCluster, providerReady, provisionRefusal } from './cluster-topology.js';
+import { buildAppEnv, type AppEnvArgs } from './app-env.js';
 
 describe('cluster-topology', () => {
   const noCredentials = () => false;
@@ -8,23 +8,23 @@ describe('cluster-topology', () => {
 
   describe('isMockCloudProvider', () => {
     it.each(NEVER_MOCK_PROVIDERS)('never treats %s as mock cloud, even with no credentials', (provider) => {
-      expect(isMockCloudProvider(provider, noCredentials)).toBe(false);
+      expect(isMockCloudProviderIn(provider, noCredentials, {})).toBe(false);
     });
 
     it('treats an uncredentialed real cloud provider as mock', () => {
-      expect(isMockCloudProvider('aws', noCredentials)).toBe(true);
-      expect(isMockCloudProvider('gcp', noCredentials)).toBe(true);
+      expect(isMockCloudProviderIn('aws', noCredentials, {})).toBe(true);
+      expect(isMockCloudProviderIn('gcp', noCredentials, {})).toBe(true);
     });
 
     it('treats a credentialed cloud provider as real', () => {
-      expect(isMockCloudProvider('aws', hasCredentials)).toBe(false);
+      expect(isMockCloudProviderIn('aws', hasCredentials, {})).toBe(false);
     });
 
     it('never mocks anything in production, so nothing there falls through to local k3d containers', () => {
       for (const provider of ['aws', 'gcp', 'azure', 'something-else']) {
-        expect(isMockCloudProvider(provider, noCredentials, { NODE_ENV: 'production' })).toBe(false);
+        expect(isMockCloudProviderIn(provider, noCredentials, { NODE_ENV: 'production' })).toBe(false);
       }
-      expect(isMockCloudProvider('aws', noCredentials, { NODE_ENV: 'development' })).toBe(true);
+      expect(isMockCloudProviderIn('aws', noCredentials, { NODE_ENV: 'development' })).toBe(true);
     });
   });
 
@@ -60,8 +60,8 @@ describe('cluster-topology', () => {
 
   describe('DigitalOcean', () => {
     it('is never mock, with or without credentials', () => {
-      expect(isMockCloudProvider('do', noCredentials)).toBe(false);
-      expect(isMockCloudProvider('do', hasCredentials)).toBe(false);
+      expect(isMockCloudProviderIn('do', noCredentials, {})).toBe(false);
+      expect(isMockCloudProviderIn('do', hasCredentials, {})).toBe(false);
     });
 
     it('is self-managed, so apps get NodePort rather than a LoadBalancer that never resolves', () => {
@@ -92,9 +92,12 @@ describe('buildAppEnv provider handling', () => {
     deploymentId: 'dep1',
     kubeconfigPath: '/tmp/kubeconfig-c1',
     appType: 'audiobookshelf',
+    vllmGpuCount: 0,
+    vllmDevice: '',
+    hostHfToken: undefined,
     tabbyGpuCount: 0,
     storageEnv: {},
-  } as any;
+  } satisfies Omit<AppEnvArgs, 'provider' | 'isMock'>;
 
   it.each(['k3d', 'remote', 'hetzner'])('sets SELF_MANAGED_K8S=true for %s', (provider) => {
     expect(buildAppEnv({ ...base, provider, isMock: false }).SELF_MANAGED_K8S).toBe('true');

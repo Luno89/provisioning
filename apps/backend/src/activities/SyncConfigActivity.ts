@@ -89,6 +89,7 @@ export async function SyncConfigActivity(
   const deploymentId = args.deploymentId || 'default';
 
   const env = buildAppEnv({
+    hostHfToken: process.env.HF_TOKEN,
     physicalName,
     strategy: args.strategy,
     namespace,

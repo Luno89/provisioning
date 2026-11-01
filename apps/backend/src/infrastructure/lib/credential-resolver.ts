@@ -12,25 +12,28 @@ export interface ResolvedCredentials {
   env: Record<string, string>;
 }
 
-export function resolveCloudCredentials(
+export type OperatorEnv = Readonly<Record<string, string | undefined>>;
+
+export function credentialsFor(
   provider: string,
   userCreds: CloudCredentials | undefined,
-  asOperator = true,
+  operatorEnv: OperatorEnv | undefined,
 ): ResolvedCredentials {
   const fromUser = resolveFromUser(provider, userCreds);
   if (fromUser) return { mode: 'user', env: fromUser };
 
-  const fromEnv = asOperator ? resolveFromEnv(provider) : null;
+  const fromEnv = operatorEnv ? resolveFromEnv(provider, operatorEnv) : null;
   if (fromEnv) return { mode: 'env', env: fromEnv };
 
   return { mode: 'mock', env: {} };
 }
 
-export function hasCloudCredentials(
+export function hasCredentialsIn(
   provider: string,
+  operatorEnv: OperatorEnv,
   userCreds?: CloudCredentials,
 ): boolean {
-  return resolveCloudCredentials(provider, userCreds).mode !== 'mock';
+  return credentialsFor(provider, userCreds, operatorEnv).mode !== 'mock';
 }
 
 function resolveFromUser(
@@ -134,99 +137,99 @@ function resolveFromUser(
   }
 }
 
-function resolveFromEnv(provider: string): Record<string, string> | null {
+function resolveFromEnv(provider: string, env: OperatorEnv): Record<string, string> | null {
   if (isDnsProviderName(provider)) {
     const described = dnsProviderNamed(provider);
-    const fields = credentialsFromEnv(described, process.env);
+    const fields = credentialsFromEnv(described, env);
     return fields ? credentialEnvOf(described, fields) ?? null : null;
   }
   switch (provider) {
     case 'aws': {
-      const keyId = process.env.AWS_ACCESS_KEY_ID;
-      const profile = process.env.AWS_PROFILE;
+      const keyId = env.AWS_ACCESS_KEY_ID;
+      const profile = env.AWS_PROFILE;
       if (!keyId && !profile) return null;
-      const env: Record<string, string> = {};
-      if (keyId) env.AWS_ACCESS_KEY_ID = keyId;
-      if (process.env.AWS_SECRET_ACCESS_KEY) env.AWS_SECRET_ACCESS_KEY = process.env.AWS_SECRET_ACCESS_KEY;
-      if (profile) env.AWS_PROFILE = profile;
-      if (process.env.AWS_DEFAULT_REGION) env.AWS_DEFAULT_REGION = process.env.AWS_DEFAULT_REGION;
-      return env;
+      const out: Record<string, string> = {};
+      if (keyId) out.AWS_ACCESS_KEY_ID = keyId;
+      if (env.AWS_SECRET_ACCESS_KEY) out.AWS_SECRET_ACCESS_KEY = env.AWS_SECRET_ACCESS_KEY;
+      if (profile) out.AWS_PROFILE = profile;
+      if (env.AWS_DEFAULT_REGION) out.AWS_DEFAULT_REGION = env.AWS_DEFAULT_REGION;
+      return out;
     }
     case 'gcp': {
-      const cred = process.env.GOOGLE_APPLICATION_CREDENTIALS;
-      const gcred = process.env.GOOGLE_CREDENTIALS;
-      const proj = process.env.GCP_PROJECT;
+      const cred = env.GOOGLE_APPLICATION_CREDENTIALS;
+      const gcred = env.GOOGLE_CREDENTIALS;
+      const proj = env.GCP_PROJECT;
       if (!cred && !gcred && !proj) return null;
-      const env: Record<string, string> = {};
-      if (cred) env.GOOGLE_APPLICATION_CREDENTIALS = cred;
-      if (gcred) env.GOOGLE_CREDENTIALS = gcred;
-      if (proj) env.GCP_PROJECT = proj;
-      return env;
+      const out: Record<string, string> = {};
+      if (cred) out.GOOGLE_APPLICATION_CREDENTIALS = cred;
+      if (gcred) out.GOOGLE_CREDENTIALS = gcred;
+      if (proj) out.GCP_PROJECT = proj;
+      return out;
     }
     case 'azure': {
-      const armId = process.env.ARM_CLIENT_ID;
-      const azureId = process.env.AZURE_CLIENT_ID;
+      const armId = env.ARM_CLIENT_ID;
+      const azureId = env.AZURE_CLIENT_ID;
       if (!armId && !azureId) return null;
-      const env: Record<string, string> = {};
-      if (armId) env.ARM_CLIENT_ID = armId;
-      if (azureId) env.AZURE_CLIENT_ID = azureId;
-      if (process.env.ARM_CLIENT_SECRET) env.ARM_CLIENT_SECRET = process.env.ARM_CLIENT_SECRET;
-      if (process.env.ARM_SUBSCRIPTION_ID) env.ARM_SUBSCRIPTION_ID = process.env.ARM_SUBSCRIPTION_ID;
-      if (process.env.ARM_TENANT_ID) env.ARM_TENANT_ID = process.env.ARM_TENANT_ID;
-      return env;
+      const out: Record<string, string> = {};
+      if (armId) out.ARM_CLIENT_ID = armId;
+      if (azureId) out.AZURE_CLIENT_ID = azureId;
+      if (env.ARM_CLIENT_SECRET) out.ARM_CLIENT_SECRET = env.ARM_CLIENT_SECRET;
+      if (env.ARM_SUBSCRIPTION_ID) out.ARM_SUBSCRIPTION_ID = env.ARM_SUBSCRIPTION_ID;
+      if (env.ARM_TENANT_ID) out.ARM_TENANT_ID = env.ARM_TENANT_ID;
+      return out;
     }
     case 'do': {
-      const token = process.env.DIGITALOCEAN_TOKEN || process.env.DO_TOKEN;
+      const token = env.DIGITALOCEAN_TOKEN || env.DO_TOKEN;
       if (!token) return null;
       return { DIGITALOCEAN_TOKEN: token };
     }
     case 'hetzner': {
-      const token = process.env.HCLOUD_TOKEN || process.env.HETZNER_TOKEN;
+      const token = env.HCLOUD_TOKEN || env.HETZNER_TOKEN;
       if (!token) return null;
       return { HCLOUD_TOKEN: token };
     }
     case 'vultr': {
-      const token = process.env.VULTR_API_KEY;
+      const token = env.VULTR_API_KEY;
       return token ? { VULTR_API_KEY: token } : null;
     }
     case 'linode': {
-      const token = process.env.LINODE_TOKEN;
+      const token = env.LINODE_TOKEN;
       return token ? { LINODE_TOKEN: token } : null;
     }
     case 'scaleway': {
-      const secret = process.env.SCW_SECRET_KEY;
+      const secret = env.SCW_SECRET_KEY;
       if (!secret) return null;
-      const env: Record<string, string> = { SCW_SECRET_KEY: secret };
-      if (process.env.SCW_ACCESS_KEY) env.SCW_ACCESS_KEY = process.env.SCW_ACCESS_KEY;
-      if (process.env.SCW_DEFAULT_PROJECT_ID) env.SCW_DEFAULT_PROJECT_ID = process.env.SCW_DEFAULT_PROJECT_ID;
-      return env;
+      const out: Record<string, string> = { SCW_SECRET_KEY: secret };
+      if (env.SCW_ACCESS_KEY) out.SCW_ACCESS_KEY = env.SCW_ACCESS_KEY;
+      if (env.SCW_DEFAULT_PROJECT_ID) out.SCW_DEFAULT_PROJECT_ID = env.SCW_DEFAULT_PROJECT_ID;
+      return out;
     }
     case 'hostinger': {
-      const token = process.env.HOSTINGER_API_TOKEN;
+      const token = env.HOSTINGER_API_TOKEN;
       return token ? { HOSTINGER_API_TOKEN: token } : null;
     }
     case 'ovh': {
-      const key = process.env.OVH_APPLICATION_KEY;
-      const secret = process.env.OVH_APPLICATION_SECRET;
-      const consumer = process.env.OVH_CONSUMER_KEY;
+      const key = env.OVH_APPLICATION_KEY;
+      const secret = env.OVH_APPLICATION_SECRET;
+      const consumer = env.OVH_CONSUMER_KEY;
       if (!key || !secret || !consumer) return null;
-      return { OVH_APPLICATION_KEY: key, OVH_APPLICATION_SECRET: secret, OVH_CONSUMER_KEY: consumer, OVH_SUBSIDIARY: process.env.OVH_SUBSIDIARY || 'FR' };
+      return { OVH_APPLICATION_KEY: key, OVH_APPLICATION_SECRET: secret, OVH_CONSUMER_KEY: consumer, OVH_SUBSIDIARY: env.OVH_SUBSIDIARY || 'FR' };
     }
     case 'contabo': {
-      const id = process.env.CNTB_CLIENT_ID;
-      const secret = process.env.CNTB_CLIENT_SECRET;
-      const user = process.env.CNTB_API_USER;
-      const pass = process.env.CNTB_API_PASSWORD;
+      const id = env.CNTB_CLIENT_ID;
+      const secret = env.CNTB_CLIENT_SECRET;
+      const user = env.CNTB_API_USER;
+      const pass = env.CNTB_API_PASSWORD;
       if (!id || !secret || !user || !pass) return null;
       return { CNTB_CLIENT_ID: id, CNTB_CLIENT_SECRET: secret, CNTB_API_USER: user, CNTB_API_PASSWORD: pass };
     }
     case 'huggingface': {
-      const token = process.env.HF_TOKEN || process.env.VLLM_HF_TOKEN || process.env.HUGGING_FACE_HUB_TOKEN;
+      const token = env.HF_TOKEN || env.VLLM_HF_TOKEN || env.HUGGING_FACE_HUB_TOKEN;
       if (!token) return null;
       return { HF_TOKEN: token, HUGGING_FACE_HUB_TOKEN: token };
     }
     case 'github': {
-      const token = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
+      const token = env.GITHUB_TOKEN || env.GH_TOKEN;
       if (!token) return null;
       return { GITHUB_TOKEN: token, GH_TOKEN: token };
     }

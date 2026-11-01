@@ -69,7 +69,7 @@ except Exception as e:
       kubeconfigPath,
     );
     console.log(`[openwebui-admin] ${String(output).trim()}`);
-  } catch (err: any) {
-    console.warn(`[openwebui-admin] failed to push web search config via admin API: ${err.message}`);
+  } catch (err) {
+    console.warn(`[openwebui-admin] failed to push web search config via admin API: ${(err as Error).message}`);
   }
 }

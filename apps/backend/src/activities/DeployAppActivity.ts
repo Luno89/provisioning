@@ -391,6 +391,7 @@ export async function DeployAppActivity(
   }
 
   const env = buildAppEnv({
+    hostHfToken: process.env.HF_TOKEN,
     ...(placedOnPool(process.env, physicalName) ? { serviceType: 'ClusterIP' } : {}),
     ...(renderedSpec ? { renderedSpec } : {}),
     ...(bindingsJson ? { bindingsJson } : {}),

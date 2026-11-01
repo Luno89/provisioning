@@ -1,7 +1,6 @@
 import { allowed, authorize, BaseService, clusterResource, type Actions, type ClusterMetadata, type Database, encryptValue, type Principal, type SecretKey, writePrivate } from '../../platform/index.js';
 import { InfrastructureService } from './InfrastructureService.js';
-import { hasCloudCredentials } from '../lib/credential-resolver.js';
-import { isMockCloudProvider } from '../lib/cluster-topology.js';
+import { hasCloudCredentials, isMockCloudProvider } from './cloud-credentials.js';
 import { v4 as uuidv4 } from 'uuid';
 import { capacityFromNodes, type ClusterCapacity } from '../lib/cluster-capacity.js';
 import { parseNvidiaSmiVram } from '../lib/gpu-vram.js';

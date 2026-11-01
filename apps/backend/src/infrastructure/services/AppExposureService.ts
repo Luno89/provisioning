@@ -1,8 +1,8 @@
 import { BaseService, type Database, type ClusterMetadata, type DeploymentMetadata } from '../../platform/index.js';
 import { InfrastructureService } from './InfrastructureService.js';
 import { ClusterService } from './ClusterService.js';
-import { hasCloudCredentials } from '../lib/credential-resolver.js';
-import { isMockCloudProvider, isSelfManagedCluster } from '../lib/cluster-topology.js';
+import { hasCloudCredentials, isMockCloudProvider } from './cloud-credentials.js';
+import { isSelfManagedCluster } from '../lib/cluster-topology.js';
 import { assertUpstreamTarget } from '../lib/upstream-target.js';
 import { exec } from 'child_process';
 import { promisify } from 'util';

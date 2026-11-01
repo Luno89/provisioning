@@ -2,7 +2,8 @@ import {
   type Database, type CloudCredentials, type CloudProvider, encryptValue, decryptValue, maskSecret,
   type SecretKey,
 } from '../../platform/index.js';
-import { COMBINED_CLAIMS, resolveCloudCredentials, usesOperatorCredentials, type ResolvedCredentials } from '../lib/credential-resolver.js';
+import { COMBINED_CLAIMS, usesOperatorCredentials, type ResolvedCredentials } from '../lib/credential-resolver.js';
+import { resolveCloudCredentials } from './cloud-credentials.js';
 import { clusterAvailability } from '../lib/cluster-topology.js';
 import { OVH_SUBSIDIARIES } from '../lib/vps-catalog/adapters.js';
 import { credentialsFromEnv, dnsProviderNamed, DNS_PROVIDERS, isDnsProviderName, plainFieldsOf, secretFieldsOf } from '../lib/dns-providers.js';

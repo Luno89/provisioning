@@ -34,6 +34,7 @@ import { workerRouter } from '../routes/worker.js';
 import { serverOrdersRouter } from '../routes/server-orders.js';
 import { ServerOrderService } from '../services/ServerOrderService.js';
 import { rootNodeWorkflowId } from '../lib/server-orders.js';
+import { RootNodeWorkflow } from '../../workflows/RootNodeWorkflow.js';
 import type { Mounts } from '../../hub/index.js';
 
 export interface InfrastructureWiringDeps {
@@ -92,7 +93,7 @@ export function wireInfrastructure(deps: InfrastructureWiringDeps): void {
     dnsCredentialsOf: (ownerId, provider) => deps.credentials.dnsCredentialsOf(ownerId, provider),
     startFollowing: async (order) => {
       const workflowId = rootNodeWorkflowId(order.id);
-      await (await getTemporalClient()).workflow.start('RootNodeWorkflow', {
+      await (await getTemporalClient()).workflow.start(RootNodeWorkflow, {
         workflowId,
         taskQueue: process.env.POOL_TASK_QUEUE || 'host-ops-queue',
         args: [order.id],
@@ -111,5 +112,5 @@ export function wireInfrastructure(deps: InfrastructureWiringDeps): void {
   tenant.use('/api/logs', logsRouter({ db, clusterService: deps.clusters, appService: deps.apps }));
   tenant.use('/api/registry', registryRouter({ registryService: deps.registry }));
   tenant.use('/api/modules', modulesRouter({ gitModuleService: deps.gitModules }));
-  tenant.use('/api/app-schemas', appSchemasRouter({}));
+  tenant.use('/api/app-schemas', appSchemasRouter());
 }

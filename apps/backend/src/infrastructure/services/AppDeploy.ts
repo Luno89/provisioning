@@ -3,7 +3,8 @@ import { randomUUID } from 'node:crypto';
 import type { Client } from '@temporalio/client';
 import { deploymentIdFor } from '../lib/deployment-id.js';
 import { newAppNamespace, sameOwner } from '../lib/app-namespace.js';
-import { resolveCloudCredentials, usesOperatorCredentials } from '../lib/credential-resolver.js';
+import { usesOperatorCredentials } from '../lib/credential-resolver.js';
+import { resolveCloudCredentials } from './cloud-credentials.js';
 import {
   decryptValue, type SecretKey, type Database, type ClusterMetadata, type DeploymentMetadata,
   type PipelineRunMetadata, type ProjectMetadata, type ClaimSettings, PLATFORM_OWNER, startedFor,

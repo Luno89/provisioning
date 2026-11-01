@@ -17,7 +17,7 @@ function declaredStringFields(): string[] {
 const base: AppEnvArgs = {
   physicalName: 'c', strategy: 'native', namespace: 'app', deploymentId: 'd1',
   kubeconfigPath: '/tmp/k', provider: 'k3d', isMock: false, appType: 'gitapp',
-  vllmGpuCount: 0, tabbyGpuCount: 0, vllmDevice: 'cpu', storageEnv: {},
+  vllmGpuCount: 0, tabbyGpuCount: 0, vllmDevice: 'cpu', storageEnv: {}, hostHfToken: undefined,
 };
 
 describe('a setting reaching the container', () => {
@@ -46,6 +46,14 @@ describe('a setting reaching the container', () => {
     expect(env.MINIO_ROOT_PASSWORD).toBe('pw');
     expect(env.QUICKWIT_S3_SECRET_KEY).toBe('sk');
     expect(env.VERDACCIO_UPSTREAM).toBe('https://registry.npmjs.org/');
+  });
+
+  it('gives an app with no token of its own the host\'s Hugging Face token', () => {
+    const env = buildAppEnv({ ...base, hostHfToken: 'hosts-token' });
+    expect(env.VLLM_HF_TOKEN).toBe('hosts-token');
+    expect(env.TABBYAPI_HF_TOKEN).toBe('hosts-token');
+    expect(env.HF_TOKEN).toBe('hosts-token');
+    expect(buildAppEnv({ ...base, hostHfToken: 'hosts-token', tabbyHfToken: 'theirs' }).TABBYAPI_HF_TOKEN).toBe('theirs');
   });
 
   it('does not invent values for fields that were not set', () => {

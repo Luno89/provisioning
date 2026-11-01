@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { APP_SETTINGS_SCHEMAS } from '../lib/app-schemas.js';
 
-export function appSchemasRouter(_deps: Record<string, any>): Router {
+export function appSchemasRouter(): Router {
   const router = Router();
 
   router.get('/:appType', async (req, res) => {

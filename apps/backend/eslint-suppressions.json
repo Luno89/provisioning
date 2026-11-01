@@ -1183,11 +1183,6 @@
       "count": 2
     }
   },
-  "src/infrastructure/lib/app-env.ts": {
-    "no-restricted-syntax": {
-      "count": 3
-    }
-  },
   "src/infrastructure/lib/app-namespace.test.ts": {
     "@typescript-eslint/no-unsafe-assignment": {
       "count": 3
@@ -1204,40 +1199,6 @@
       "count": 39
     }
   },
-  "src/infrastructure/lib/binding-type-seeds.ts": {
-    "no-restricted-syntax": {
-      "count": 1
-    }
-  },
-  "src/infrastructure/lib/cluster-topology.test.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 1
-    },
-    "@typescript-eslint/no-unsafe-argument": {
-      "count": 6
-    },
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 1
-    }
-  },
-  "src/infrastructure/lib/cluster-topology.ts": {
-    "no-restricted-syntax": {
-      "count": 1
-    }
-  },
-  "src/infrastructure/lib/credential-resolver.ts": {
-    "no-restricted-syntax": {
-      "count": 43
-    }
-  },
-  "src/infrastructure/lib/declare-dependency.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 1
-    },
-    "no-restricted-syntax": {
-      "count": 1
-    }
-  },
   "src/infrastructure/lib/dns-plan.test.ts": {
     "@typescript-eslint/no-unsafe-assignment": {
       "count": 1
@@ -1246,23 +1207,6 @@
   "src/infrastructure/lib/dns-providers.test.ts": {
     "@typescript-eslint/no-unsafe-assignment": {
       "count": 5
-    }
-  },
-  "src/infrastructure/lib/huggingface.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 7
-    },
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 14
-    },
-    "@typescript-eslint/no-unsafe-call": {
-      "count": 5
-    },
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 20
-    },
-    "@typescript-eslint/no-unsafe-return": {
-      "count": 2
     }
   },
   "src/infrastructure/lib/kube-diagnostics.test.ts": {
@@ -1290,39 +1234,6 @@
   },
   "src/infrastructure/lib/service-health.test.ts": {
     "@typescript-eslint/no-unsafe-assignment": {
-      "count": 1
-    }
-  },
-  "src/infrastructure/lib/vps-catalog/adapters.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 9
-    },
-    "@typescript-eslint/no-unsafe-argument": {
-      "count": 2
-    },
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 21
-    },
-    "@typescript-eslint/no-unsafe-call": {
-      "count": 10
-    },
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 135
-    },
-    "@typescript-eslint/no-unsafe-return": {
-      "count": 1
-    },
-    "no-restricted-syntax": {
-      "count": 1
-    }
-  },
-  "src/infrastructure/lib/vps-catalog/ovh-adapter.test.ts": {
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 1
-    }
-  },
-  "src/infrastructure/routes/app-schemas.ts": {
-    "@typescript-eslint/no-explicit-any": {
       "count": 1
     }
   },
@@ -1990,19 +1901,6 @@
     },
     "@typescript-eslint/no-unsafe-assignment": {
       "count": 27
-    }
-  },
-  "src/infrastructure/wiring/infrastructure.ts": {
-    "no-restricted-syntax": {
-      "count": 1
-    }
-  },
-  "src/infrastructure/wiring/openwebui-admin.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 1
-    },
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 1
     }
   },
   "src/instances/lib/app-move.test.ts": {

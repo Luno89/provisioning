@@ -53,10 +53,10 @@ export function isSelfManagedCluster(provider: string, isMock: boolean): boolean
   return isMock || NEVER_MOCK_PROVIDERS.includes(provider);
 }
 
-export function isMockCloudProvider(
+export function isMockCloudProviderIn(
   provider: string,
   hasCloudCredentials: (provider: string) => boolean,
-  env: Env = process.env,
+  env: Env,
 ): boolean {
   if (NEVER_MOCK_PROVIDERS.includes(provider) || !mockCloudAllowed(env)) return false;
   return !hasCloudCredentials(provider);

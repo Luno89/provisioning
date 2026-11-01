@@ -46,7 +46,7 @@ import { modelsRouter, ModelService, endpointRulesFromEnv } from './models/index
 import {
   InfrastructureService, ClusterService, AppService, RegistryService, GitModuleService, BuilderService,
   AppExposureService, VpsCatalogService, WorkerService, sharedClusterProxy, CredentialService, InfisicalService,
-  HeadscaleService, BUILD_TOKENS_MIGRATION, cleanUpBuildTokens, gitappPullSecretArgs,
+  HeadscaleService, BUILD_TOKENS_MIGRATION, cleanUpBuildTokens, gitappPullSecretArgs, ovhSubsidiaryFrom, vpsCatalogAdapters,
 } from './infrastructure/index.js';
 import { TemporalBridge } from './infrastructure/services/TemporalBridge.js';
 import net from 'net';
@@ -305,7 +305,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     next();
   });
   const credentialService = new CredentialService(db, keys.data, claimSettings);
-  const vpsCatalogService = new VpsCatalogService(db, keys.data, undefined, claimSettings);
+  const vpsCatalogService = new VpsCatalogService(db, keys.data, vpsCatalogAdapters(() => ovhSubsidiaryFrom(process.env)), claimSettings);
 
   const setup = holdsAccounts(role) ? firstAdminSetup(process.env, (await db.accounts.getUsers()).length === 0) : undefined;
   if (setup?.say) console.log(`🔑 ${setup.say}`);

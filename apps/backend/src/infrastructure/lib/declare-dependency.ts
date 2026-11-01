@@ -10,9 +10,7 @@ export interface DeclareResult {
 }
 
 export async function declareDependency(
-  db: Pick<Database, 'projects' | 'infrastructure'> & {
-    getBindingTypes?: () => Promise<any[]>;
-  },
+  db: Pick<Database, 'projects' | 'infrastructure'>,
   userId: string,
   args: { projectId?: unknown; service?: unknown; as?: unknown },
 ): Promise<DeclareResult> {
@@ -23,7 +21,7 @@ export async function declareDependency(
   const service = String(args.service ?? '').trim();
   const as = args.as ? String(args.as) : undefined;
 
-  const dynamicTypes = db.getBindingTypes ? await db.getBindingTypes().catch(() => []) : [];
+  const dynamicTypes = await db.infrastructure.getBindingTypes();
   const { bindings, problems } = resolveBindings(
     [{ service, ...(as ? { as } : {}) }],
     await db.infrastructure.getDeployments(),

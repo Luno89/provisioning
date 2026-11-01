@@ -28,7 +28,8 @@ export type GroveRunStatus =
   | { state: 'failed'; startedAt: string; closedAt?: string; reason: string; turnId?: string | undefined }
 import { deploymentForProject } from '../../projects/index.js'
 import { destroyAppArgs, destroyAppWorkflowId } from '../lib/app-destroy.js'
-import { COMBINED_CLAIMS, resolveCloudCredentials, usesOperatorCredentials } from '../lib/credential-resolver.js'
+import { COMBINED_CLAIMS, usesOperatorCredentials } from '../lib/credential-resolver.js'
+import { resolveCloudCredentials } from './cloud-credentials.js'
 import { mockableProvider, ProvisionRefused, provisionRefusal } from '../lib/cluster-topology.js'
 import { CredentialService } from './CredentialService.js'
 import { generateSshKeypair } from '../lib/ssh-keypair.js'
