@@ -105,7 +105,9 @@ describe('a machine\'s checkout of a project\'s work', () => {
     expect(await readFile(path.join(folder, 'first.md'), 'utf8')).toBe('first\n');
     expect(await readFile(path.join(folder, 'notes.md'), 'utf8')).toContain('<<<<<<<');
 
-    expect(await machine({ kind: 'push', ...at, message: 'too soon' })).toEqual({ ok: false, error: expect.stringContaining('notes.md'), unresolved: ['notes.md'] });
+    const tooSoon = await machine({ kind: 'push', ...at, message: 'too soon' });
+    expect(tooSoon).toMatchObject({ ok: false, unresolved: ['notes.md'] });
+    expect(tooSoon.ok ? '' : tooSoon.error).toContain('notes.md');
     git(folder, 'add', '-A');
     expect(await machine({ kind: 'push', ...at, message: 'markers staged' })).toMatchObject({ ok: false, unresolved: ['notes.md'] });
 

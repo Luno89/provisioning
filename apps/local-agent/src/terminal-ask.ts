@@ -1,3 +1,4 @@
+import { ignore } from '@koala/engine-core/failures';
 import { closeSync, openSync } from 'node:fs';
 import readline from 'node:readline/promises';
 import tty from 'node:tty';
@@ -22,6 +23,10 @@ export async function askOnTerminal(question: string): Promise<boolean | undefin
     lines.close();
     input.destroy();
     output.destroy();
-    try { closeSync(fd); } catch {}
+    try {
+      closeSync(fd);
+    } catch (failure) {
+      ignore('destroying the streams has usually closed the terminal already')(failure);
+    }
   }
 }

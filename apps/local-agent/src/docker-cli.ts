@@ -34,8 +34,8 @@ export function runDocker(args: string[], opts: RunDockerOptions = {}): Promise<
       child.kill('SIGKILL');
     }, timeoutMs) : undefined;
 
-    child.stdout.on('data', (d) => { stdout += d.toString(); });
-    child.stderr.on('data', (d) => { stderr += d.toString(); });
+    child.stdout.on('data', (d: Buffer) => { stdout += d.toString(); });
+    child.stderr.on('data', (d: Buffer) => { stderr += d.toString(); });
     child.on('error', (err) => { clearTimeout(timer); reject(err); });
     child.on('close', (code) => {
       clearTimeout(timer);

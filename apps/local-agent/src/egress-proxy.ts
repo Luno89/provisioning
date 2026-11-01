@@ -129,5 +129,8 @@ if (isMain) {
   const proxy = new EgressProxy(process.env.CONTROL_TOKEN ?? '');
   proxy.listen(proxyPort, controlPort).then(() => {
     console.log(`[egress-proxy] listening — proxy :${proxyPort}, control (loopback only) :${controlPort}`);
+  }, (err: Error) => {
+    console.error(`[egress-proxy] could not listen on :${proxyPort} and :${controlPort}: ${err.message}`);
+    process.exit(1);
   });
 }

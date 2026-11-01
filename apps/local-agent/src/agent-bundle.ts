@@ -1,3 +1,4 @@
+import { ignore } from '@koala/engine-core/failures';
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { createWriteStream, readFileSync, renameSync, rmSync } from 'node:fs';
@@ -100,7 +101,7 @@ export async function prepareBundle(options: PrepareOptions): Promise<void> {
       const started = versionSaid(said);
       if (started?.bundle !== bundle) throw new Error(`the new agent did not start as itself: it said ${said.trim().slice(0, 200) || 'nothing'}`);
     } catch (err) {
-      await rm(place.next, { recursive: true, force: true }).catch(() => undefined);
+      await rm(place.next, { recursive: true, force: true }).catch(ignore('the next update empties this folder before it unpacks into it'));
       throw err;
     }
   } finally {
@@ -137,5 +138,5 @@ export async function discardBundle(place: BundlePlace): Promise<void> {
 }
 
 export async function readCgroup(): Promise<string | undefined> {
-  return readFile('/proc/self/cgroup', 'utf8').catch(() => undefined);
+  return readFile('/proc/self/cgroup', 'utf8').catch(ignore('only Linux has /proc/self/cgroup, and without it no systemd service is running this agent'));
 }

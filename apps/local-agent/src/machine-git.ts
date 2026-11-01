@@ -1,8 +1,19 @@
 import { execFile } from 'node:child_process';
-import { mkdir, readFile, rm, stat } from 'node:fs/promises';
+import { mkdir, readFile, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { MACHINE_TREES, type MachineGitOp, type MachineGitResult } from '@koala/engine-core';
 import { insideRoot } from './acp-session.js';
+import { present } from './file-present.js';
+
+
+async function textUnlessGone(file: string): Promise<string> {
+  try {
+    return await readFile(file, 'utf8');
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return '';
+    throw err;
+  }
+}
 
 export interface GitRun {
   (args: string[], cwd: string, env: NodeJS.ProcessEnv): Promise<{ code: number; stdout: string; stderr: string }>;
@@ -68,8 +79,7 @@ export function createMachineGit(options: MachineGitOptions): (op: MachineGitOp)
     const stillMarked = async (files: string[]): Promise<string[]> => {
       const marked: string[] = [];
       for (const file of files) {
-        const content = await readFile(path.join(folder, file), 'utf8').catch(() => '');
-        if (CONFLICT_MARKER.test(content)) marked.push(file);
+        if (CONFLICT_MARKER.test(await textUnlessGone(path.join(folder, file)))) marked.push(file);
       }
       return marked;
     };
@@ -82,7 +92,7 @@ export function createMachineGit(options: MachineGitOptions): (op: MachineGitOp)
     try {
       if (op.kind === 'checkout') {
         await mkdir(folder, { recursive: true });
-        if (!(await stat(path.join(folder, '.git')).then(() => true, () => false))) {
+        if (!(await present(path.join(folder, '.git')))) {
           await must(['init', '-q', '-b', 'koala-work'], 'could not start the folder');
         }
         await must([...signedIn(), 'fetch', '-q', remote, `+refs/heads/${op.branch}:refs/remotes/koala/work`], `could not fetch ${op.branch}`);

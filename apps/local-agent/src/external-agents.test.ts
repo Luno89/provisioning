@@ -7,6 +7,9 @@ import { ExternalAgentSessions, TOOLS_LINE, runOfSession, WAIT_FOR, servesCall, 
 import { LocalMcpServer } from './local-mcp.js';
 import type { AgentScript } from './acp-script-agent.js';
 import { IdleGate } from './idle-gate.js';
+import type { ExternalAgentStepResult } from '@koala/engine-core';
+
+const failure = (step: ExternalAgentStepResult): string => (step.state === 'failed' ? step.error : `it did not fail: ${step.state}`);
 
 const AGENT = fileURLToPath(new URL('./acp-script-agent.ts', import.meta.url));
 const TSX = import.meta.resolve('tsx');
@@ -91,7 +94,8 @@ describe('external agents on a machine', () => {
     expect(asks).toMatchObject({ state: 'asks', ask: { tool: { callId: 'push', title: 'git push', kind: 'execute', input: { command: 'git push' } }, options: [{ optionId: 'allow', kind: 'allow_once' }, { optionId: 'always', kind: 'allow_always' }, { optionId: 'reject', kind: 'reject_once' }] } });
     const after = await machineSessions.step({ key: 'k', agent: 'scripted', op: { kind: 'answer', optionId: 'allow' } });
     expect(after).toMatchObject({ state: 'ended', stopReason: 'end_turn' });
-    expect(after.events).toContainEqual({ type: 'tool', tool: expect.objectContaining({ callId: 'push', status: 'completed', output: 'pushed' }) });
+    const tools = after.events.flatMap((event) => (event.type === 'tool' ? [event.tool] : []));
+    expect(tools.find((tool) => tool.callId === 'push' && tool.status === 'completed')?.output).toBe('pushed');
     expect(after.events).toContainEqual({ type: 'text', delta: 'Pushed.' });
   });
 
@@ -117,7 +121,7 @@ describe('external agents on a machine', () => {
     const machineSessions = await machine({ name: 'scripted', version: '1', turns: [{ steps: [{ exit: 2 }] }] });
     expect(await machineSessions.step({ key: 'a', agent: 'claude', op: { kind: 'open', brief: 'go' } })).toEqual({ state: 'failed', error: 'this machine has no agent called claude (it has scripted)', events: [] });
     expect(await machineSessions.step({ key: 'b', agent: 'scripted', op: { kind: 'open', brief: 'go', path: '../elsewhere' } })).toEqual({ state: 'failed', error: '../elsewhere is outside this machine\'s folder', events: [] });
-    expect(await machineSessions.step({ key: 'c', agent: 'scripted', op: { kind: 'open', brief: 'go' } })).toMatchObject({ state: 'failed', error: expect.stringMatching(/exited \(2\) during the turn/) });
+    expect(failure(await machineSessions.step({ key: 'c', agent: 'scripted', op: { kind: 'open', brief: 'go' } }))).toMatch(/exited \(2\) during the turn/);
   });
 
   it('tells the agent its folder and what it was given once, at the start, and only the task after that', async () => {
@@ -186,7 +190,7 @@ describe('the run\'s tools for an external agent', () => {
       const calls = (result as { calls: { callId: string; arguments: string }[] }).calls;
       expect(calls.map((call) => call.arguments).sort()).toEqual(['{"treeId":"a"}', '{"treeId":"b"}']);
       await new Promise((resolve) => setTimeout(resolve, 200));
-      result = await sessions.step({ key: 'k', agent: 'scripted', op: { kind: 'results', results: calls.map((call) => ({ callId: call.callId, ok: true, content: `tree ${JSON.parse(call.arguments).treeId}` })) } });
+      result = await sessions.step({ key: 'k', agent: 'scripted', op: { kind: 'results', results: calls.map((call) => ({ callId: call.callId, ok: true, content: `tree ${(JSON.parse(call.arguments) as { treeId: string }).treeId}` })) } });
       while (result.state === 'running') result = await sessions.step({ key: 'k', agent: 'scripted', op: { kind: 'continue' } });
       expect(result.state).toBe('ended');
       const said = result.events.filter((event) => event.type === 'text').map((event) => (event as { delta: string }).delta);
@@ -321,7 +325,7 @@ describe('the agent\'s model', () => {
       await sessions.step({ key: 'k', agent: 'scripted', op: { kind: 'close' } });
 
       const refused = await sessions.step({ key: 'k3', agent: 'scripted', op: { kind: 'open', brief: 'which?', model: 'ultra' } });
-      expect(refused).toMatchObject({ state: 'failed', error: expect.stringContaining('has no model ultra (it has Gemini 3.8 Flash, Gemini 3.8 Pro)') });
+      expect(failure(refused)).toContain('has no model ultra (it has Gemini 3.8 Flash, Gemini 3.8 Pro)');
     } finally {
       await sessions.closeAll();
     }

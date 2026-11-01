@@ -217,7 +217,7 @@ async function main() {
       if (cwd !== undefined) options.subPath = cwd;
       if (maxOutputChars !== undefined) options.maxOutputChars = maxOutputChars;
       return runCommand(rootDir, command, options);
-    }).then(ack);
+    }).then(ack, (err: Error) => ack({ stdout: '', stderr: `the command could not start: ${err.message}`, exitCode: -1, timedOut: false }));
   });
 
   socket.on('sandbox:readFile', (
@@ -230,7 +230,7 @@ async function main() {
         (err: Error) => ack({ error: err.message }),
       );
     } else {
-      readLocalFile(rootDir, relativePath).then(ack);
+      void readLocalFile(rootDir, relativePath).then(ack);
     }
   });
 
@@ -245,7 +245,7 @@ async function main() {
         (err: Error) => ack({ error: err.message }),
       );
     } else {
-      writeLocalFile(rootDir, relativePath, bytes).then(ack);
+      void writeLocalFile(rootDir, relativePath, bytes).then(ack);
     }
   });
 
@@ -253,14 +253,14 @@ async function main() {
     { path: relativePath }: { path: string },
     ack: (result: { entries: { name: string; path: string; type: 'file' | 'dir' }[] } | { error: string }) => void,
   ) => {
-    listLocalDir(rootDir, relativePath).then(ack);
+    void listLocalDir(rootDir, relativePath).then(ack);
   });
 
   socket.on('sandbox:deleteFile', (
     { path: relativePath }: { path: string },
     ack: (result?: { error: string }) => void,
   ) => {
-    deleteLocalFile(rootDir, relativePath).then(ack);
+    void deleteLocalFile(rootDir, relativePath).then(ack);
   });
 }
 

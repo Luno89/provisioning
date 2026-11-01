@@ -115,9 +115,25 @@ async function setProxyAllowlist(containerIp: string, rules: EgressRule[]): Prom
   });
 }
 
-async function clearProxyAllowlist(containerIp: string): Promise<void> {
-  await fetch(`http://127.0.0.1:${CONTROL_PORT}/allowlist/${encodeURIComponent(containerIp)}`, { method: 'DELETE', headers: controlHeaders() })
-    .catch(() => undefined);
+async function clearProxyAllowlist(containerIp: string): Promise<string | undefined> {
+  try {
+    const answer = await fetch(`http://127.0.0.1:${CONTROL_PORT}/allowlist/${encodeURIComponent(containerIp)}`, { method: 'DELETE', headers: controlHeaders() });
+    return answer.ok ? undefined : `the egress proxy kept ${containerIp}'s allowlist (it answered ${answer.status})`;
+  } catch (err) {
+    return `the egress proxy could not be asked to forget ${containerIp}'s allowlist: ${(err as Error).message}`;
+  }
+}
+
+const ALREADY_GONE = /no such (container|network)|not found|is not connected/i;
+
+async function removeLeftover(args: string[]): Promise<string | undefined> {
+  try {
+    const result = await runDocker(args);
+    if (result.exitCode === 0 || ALREADY_GONE.test(result.stderr)) return undefined;
+    return `docker ${args.join(' ')} failed: ${result.stderr.trim() || `exit ${result.exitCode}`}`;
+  } catch (err) {
+    return `docker ${args.join(' ')} could not run: ${(err as Error).message}`;
+  }
 }
 
 export { dockerAvailable };
@@ -192,11 +208,14 @@ export async function destroyContainer(leafId: string): Promise<void> {
   const net = networkName(leafId);
   const containerIp = leafContainerIps.get(leafId);
 
-  await runDocker(['stop', containerName(leafId)]).catch(() => undefined);
+  const problems: (string | undefined)[] = [];
+  problems.push(await removeLeftover(['stop', containerName(leafId)]));
   if (containerIp) {
-    await clearProxyAllowlist(containerIp);
+    problems.push(await clearProxyAllowlist(containerIp));
     leafContainerIps.delete(leafId);
   }
-  await runDocker(['network', 'disconnect', '-f', net, PROXY_CONTAINER_NAME]).catch(() => undefined);
-  await runDocker(['network', 'rm', net]).catch(() => undefined);
+  problems.push(await removeLeftover(['network', 'disconnect', '-f', net, PROXY_CONTAINER_NAME]));
+  problems.push(await removeLeftover(['network', 'rm', net]));
+  const left = problems.filter((problem): problem is string => problem !== undefined);
+  if (left.length) throw new Error(left.join('; '));
 }
