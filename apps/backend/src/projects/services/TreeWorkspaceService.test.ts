@@ -5,6 +5,7 @@ import { WorkspaceFileService } from '../../engine/services/WorkspaceFileService
 import { GiteaConflictError } from './GiteaService.js';
 import { WORKSPACE_FILE, type WorkspaceFile } from '../../engine/lib/workspace-file.js';
 import type { PublishedWorkspace } from '../../engine/lib/published-workspace.js';
+import { containing } from '../lib/test-matchers.js';
 
 const TREES = [{ id: 't1', ownerId: 'u1' }, { id: 't2', ownerId: 'u2' }];
 const PUBLISHED: PublishedWorkspace = {
@@ -67,7 +68,7 @@ describe('the Workspace section of a tree', () => {
 
   it('is nobody else\'s, and says why a file it cannot use or a workspace it cannot compose is wrong', async () => {
     expect(await world().service.view('u1', 't2')).toBeUndefined();
-    expect(await world({ repo: { [`tree-t1/${WORKSPACE_FILE}`]: '{ "brew": [] }' } }).service.view('u1', 't1')).toMatchObject({ unreadable: expect.stringContaining('"brew" is not something') });
+    expect(await world({ repo: { [`tree-t1/${WORKSPACE_FILE}`]: '{ "brew": [] }' } }).service.view('u1', 't1')).toMatchObject({ unreadable: containing('"brew" is not something') });
     expect(await world({ compose: async () => { throw new Error('count_lines needs rg, which nothing installs'); } }).service.view('u1', 't1')).toMatchObject({ unbuildable: 'count_lines needs rg, which nothing installs' });
   });
 
@@ -82,7 +83,7 @@ describe('the Workspace section of a tree', () => {
     });
     const view = await service.view('u1', 't1');
     expect(view!.builds.map((build) => [build.runId, build.outcome])).toEqual([['workspace-build-t1-cccccccccccc', 'failed'], ['workspace-build-t1-aaaaaaaaaaaa', 'ok']]);
-    expect(view!.next).toMatchObject({ runId: 'workspace-build-t1-bbbbbbbbbbbb', stage: 'waiting', text: expect.stringContaining('approve its install script') });
+    expect(view!.next).toMatchObject({ runId: 'workspace-build-t1-bbbbbbbbbbbb', stage: 'waiting', text: containing('approve its install script') });
   });
 
   it('does not call a build under way once it has ended without saying so', async () => {
@@ -104,8 +105,8 @@ describe('the Workspace section of a tree', () => {
   });
 
   it('refuses a file the workspace cannot use, someone else\'s tree, and a file changed on main meanwhile', async () => {
-    expect(await world().service.save('u1', 't1', { env: [{ name: 'API_TOKEN', value: 'x' }] }, 'x')).toMatchObject({ ok: false, status: 400, why: expect.stringContaining('looks like a secret') });
+    expect(await world().service.save('u1', 't1', { env: [{ name: 'API_TOKEN', value: 'x' }] }, 'x')).toMatchObject({ ok: false, status: 400, why: containing('looks like a secret') });
     expect(await world().service.save('u1', 't2', {}, 'x')).toMatchObject({ ok: false, status: 404 });
-    expect(await world({ conflict: true }).service.save('u1', 't1', { packages: { pip: ['jq'] } }, 'x')).toMatchObject({ ok: false, status: 409, why: expect.stringContaining('changed on main') });
+    expect(await world({ conflict: true }).service.save('u1', 't1', { packages: { pip: ['jq'] } }, 'x')).toMatchObject({ ok: false, status: 409, why: containing('changed on main') });
   });
 });

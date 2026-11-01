@@ -65,7 +65,13 @@ export class PlanService {
     delete adopting.reason;
     await this.deps.store.savePlanProposal(adopting);
 
-    const started = await this.deps.adopter.adoptPlan(ownerId, id).catch(() => undefined);
+    let started: string | undefined;
+    try {
+      started = await this.deps.adopter.adoptPlan(ownerId, id);
+    } catch (err) {
+      await this.deps.store.savePlanProposal(proposal);
+      return { ok: false, status: 503, error: `The plan could not be built: ${(err as Error).message}. It is still waiting for approval.` };
+    }
     if (!started) {
       await this.deps.store.savePlanProposal(proposal);
       return { ok: false, status: 503, error: 'Temporal is not reachable, so the plan could not be built. It is still waiting for approval.' };

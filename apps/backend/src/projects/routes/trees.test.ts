@@ -13,6 +13,8 @@ import type { ModelProvider } from '../../models/lib/model-registry.js';
 import { seedTreeTypes } from '../lib/tree-types.js';
 import type { Database } from '../../platform/lib/db-interface.js';
 import type { ProjectMetadata } from '../../platform/lib/types.js';
+import type { Tree } from '../lib/trees.js';
+import { containing } from '../lib/test-matchers.js';
 
 let h: Harness | undefined;
 afterEach(async () => { await h?.close(); h = undefined; vi.restoreAllMocks(); });
@@ -131,9 +133,9 @@ describe('a tree\'s workspace', () => {
     await harness.db.projects.saveLeaf({ id: 'l1', ownerId: TEST_USER.id, branchId: 'b1', title: 'L', status: 'pending', createdAt: stamp, updatedAt: stamp } as never);
     workspaces.release.mockRejectedValueOnce(new Error('Pushing to koala-u1/tree-t1 failed: Gitea is down'));
 
-    const err = await axios.delete(harness.url('/api/trees/t1')).catch((e) => e);
+    const err = await axios.delete<{ error?: string }>(harness.url('/api/trees/t1'), { validateStatus: () => true });
 
-    expect(err.response.status).toBe(500);
+    expect(err.status).toBe(500);
     expect((await harness.db.projects.getTrees()).map((t) => t.id)).toEqual(['t1']);
     expect((await harness.db.projects.getLeaves()).map((l) => l.id)).toEqual(['l1']);
   });
@@ -141,8 +143,8 @@ describe('a tree\'s workspace', () => {
   it('refuses to delete another owner\'s tree and touches nothing', async () => {
     const harness = await mount();
     await harness.db.projects.saveTree(tree({ ownerId: 'someone-else' }) as never);
-    const err = await axios.delete(harness.url('/api/trees/t1')).catch((e) => e);
-    expect(err.response.status).toBe(404);
+    const err = await axios.delete<{ error?: string }>(harness.url('/api/trees/t1'), { validateStatus: () => true });
+    expect(err.status).toBe(404);
     expect(await harness.db.projects.getTrees()).toHaveLength(1);
   });
 });
@@ -200,14 +202,14 @@ describe('running a tree on the engine', () => {
     await harness.db.projects.saveTree(tree() as never);
     await harness.db.projects.saveTree(tree({ id: 't2', ownerId: 'someone-else' }) as never);
 
-    const empty = await axios.post(harness.url('/api/trees/t1/run')).catch((e) => e);
-    expect(empty.response.status).toBe(409);
-    expect(empty.response.data.error).toMatch(/Nothing is planned/);
-    expect((await axios.post(harness.url('/api/trees/t2/run')).catch((e) => e)).response.status).toBe(404);
+    const empty = await axios.post<{ error?: string }>(harness.url('/api/trees/t1/run'), undefined, { validateStatus: () => true });
+    expect(empty.status).toBe(409);
+    expect(empty.data.error).toMatch(/Nothing is planned/);
+    expect((await axios.post(harness.url('/api/trees/t2/run'), undefined, { validateStatus: () => true })).status).toBe(404);
     expect(launcher.startGroveRun).not.toHaveBeenCalled();
 
-    const idle = await axios.post(harness.url('/api/trees/t1/run/stop')).catch((e) => e);
-    expect(idle.response.status).toBe(409);
+    const idle = await axios.post<{ error?: string }>(harness.url('/api/trees/t1/run/stop'), undefined, { validateStatus: () => true });
+    expect(idle.status).toBe(409);
     await harness.db.projects.saveBranch(branch as never);
     await harness.db.projects.saveLeaf(leafOf() as never);
     await axios.post(harness.url('/api/trees/t1/run'));
@@ -224,11 +226,11 @@ describe('the models a tree works with', () => {
     await harness.db.projects.saveTree(tree({ id: 't2', ownerId: 'someone-else' }) as never);
 
     expect((await axios.get(harness.url('/api/trees/t1/models'))).data).toEqual({ rows: [{ agent: 'executor', name: 'Executor', own: { modelId: 'tabby' }, noMachine: true }] });
-    const chosen = await axios.put(harness.url('/api/trees/t1/models'), { agent: 'executor', modelId: 'tabby' });
-    expect(chosen.data.rows[0].chosen).toEqual({ modelId: 'tabby' });
+    const chosen = await axios.put<{ rows: { chosen?: unknown }[] }>(harness.url('/api/trees/t1/models'), { agent: 'executor', modelId: 'tabby' });
+    expect(chosen.data.rows[0]?.chosen).toEqual({ modelId: 'tabby' });
     expect((await harness.db.projects.getTrees()).find((entry) => entry.id === 't1')?.models).toEqual({ executor: 'tabby' });
 
-    const refused = await axios.put(harness.url('/api/trees/t1/models'), { agent: 'executor', modelId: 'nope' }, { validateStatus: () => true });
+    const refused = await axios.put<{ error?: string }>(harness.url('/api/trees/t1/models'), { agent: 'executor', modelId: 'nope' }, { validateStatus: () => true });
     expect(refused.status).toBe(400);
     expect(refused.data.error).toBe('There is no model nope among yours');
     expect((await axios.get(harness.url('/api/trees/t2/models'), { validateStatus: () => true })).status).toBe(404);
@@ -240,13 +242,13 @@ describe('making a tree', () => {
     homeFails = false;
     const harness = await mount();
     await seedTreeTypes(harness.db.projects);
-    const service = await axios.post(harness.url('/api/trees'), { name: 'My Shop', type: 'odoo-addons', goal: 'sell things' });
+    const service = await axios.post<Tree>(harness.url('/api/trees'), { name: 'My Shop', type: 'odoo-addons', goal: 'sell things' });
     expect(service.status).toBe(201);
     expect(service.data.projectIds).toEqual([`project-${service.data.id}`]);
     expect((await harness.db.projects.getProjects()).map((project) => project.giteaRepo)).toEqual(['my-shop']);
     expect((await harness.db.projects.getTrees()).find((entry) => entry.id === service.data.id)?.projectIds).toEqual([`project-${service.data.id}`]);
 
-    const paper = await axios.post(harness.url('/api/trees'), { name: 'Which queue', type: 'research-paper', goal: 'compare queues' });
+    const paper = await axios.post<Tree>(harness.url('/api/trees'), { name: 'Which queue', type: 'research-paper', goal: 'compare queues' });
     expect(paper.status).toBe(201);
     expect(paper.data.projectIds).toEqual([]);
     expect(await harness.db.projects.getProjects()).toHaveLength(1);
@@ -257,7 +259,7 @@ describe('making a tree', () => {
     homeFails = true;
     const harness = await mount();
     await seedTreeTypes(harness.db.projects);
-    const res = await axios.post(harness.url('/api/trees'), { name: 'My Shop', type: 'odoo-addons', goal: 'sell things' }, { validateStatus: () => true });
+    const res = await axios.post<{ error?: string }>(harness.url('/api/trees'), { name: 'My Shop', type: 'odoo-addons', goal: 'sell things' }, { validateStatus: () => true });
     expect(res.status).toBe(502);
     expect(res.data.error).toBe('The tree could not be given its project, so it was not made: Gitea is down');
     expect(await harness.db.projects.getTrees()).toEqual([]);
@@ -308,7 +310,7 @@ describe('a tree\'s workspace file', () => {
     expect(JSON.parse(repo['tree-t1/.koala/workspace.json']!)).toEqual({ packages: { pip: ['cowsay'] } });
     expect(builds).toEqual(['t1@abcdef0123456789']);
 
-    await expect(axios.put(harness.url('/api/trees/t1/workspace-file'), { file: { env: [{ name: 'DB_PASSWORD', value: 'x' }] } })).rejects.toMatchObject({ response: { status: 400, data: { error: expect.stringContaining('looks like a secret') } } });
+    await expect(axios.put(harness.url('/api/trees/t1/workspace-file'), { file: { env: [{ name: 'DB_PASSWORD', value: 'x' }] } })).rejects.toMatchObject({ response: { status: 400, data: { error: containing('looks like a secret') } } });
     await expect(axios.put(harness.url('/api/trees/t9/workspace-file'), { file: {} })).rejects.toMatchObject({ response: { status: 404 } });
   });
 });
@@ -317,7 +319,7 @@ describe('making a tree of a type with versions', () => {
   it('makes it in the default version unless one it offers is asked for, and refuses one it does not offer', async () => {
     const harness = await mount();
     await seedTreeTypes(harness.db.projects);
-    const make = (body: Record<string, unknown>) => axios.post(harness.url('/api/trees'), { name: 'Shop', type: 'odoo-addons', ...body }, { validateStatus: () => true });
+    const make = (body: Record<string, unknown>) => axios.post<{ version?: string; error?: string }>(harness.url('/api/trees'), { name: 'Shop', type: 'odoo-addons', ...body }, { validateStatus: () => true });
 
     const fresh = await make({});
     expect(fresh.status).toBe(201);

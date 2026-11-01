@@ -42,8 +42,8 @@ describe('listing leaves', () => {
     await harness.db.projects.saveLeaf(leaf({ id: 'mine' }) as never);
     await harness.db.projects.saveLeaf(leaf({ id: 'other-branch', branchId: 'b2' }) as never);
     await harness.db.projects.saveLeaf(leaf({ id: 'theirs', ownerId: 'someone-else' }) as never);
-    expect((await axios.get(harness.url('/api/leaves'))).data.map((l: { id: string }) => l.id)).toEqual(['mine', 'other-branch']);
-    expect((await axios.get(harness.url('/api/leaves?branchId=b2'))).data.map((l: { id: string }) => l.id)).toEqual(['other-branch']);
+    expect((await axios.get<{ id: string }[]>(harness.url('/api/leaves'))).data.map((l) => l.id)).toEqual(['mine', 'other-branch']);
+    expect((await axios.get<{ id: string }[]>(harness.url('/api/leaves?branchId=b2'))).data.map((l) => l.id)).toEqual(['other-branch']);
   });
 
   it('refuses an unauthenticated caller', async () => {
@@ -99,9 +99,9 @@ describe('settling a claim a judge kept for a person', () => {
     const harness = await mount();
     await harness.db.projects.saveLeaf(parked() as never);
 
-    const bare = await axios.post(harness.url('/api/leaves/p1/settle'), { verdict: 'failed' }).catch((e) => e);
-    expect(bare.response.status).toBe(409);
-    expect(bare.response.data.error).toMatch(/needs a reason/);
+    const bare = await axios.post<{ error?: string }>(harness.url('/api/leaves/p1/settle'), { verdict: 'failed' }, { validateStatus: () => true });
+    expect(bare.status).toBe(409);
+    expect(bare.data.error).toMatch(/needs a reason/);
 
     const res = await axios.post(harness.url('/api/leaves/p1/settle'), { verdict: 'failed', note: 'serves the wrong page' });
     expect(res.data).toMatchObject({ status: 'failed', verified: false, findings: 'serves the wrong page' });
@@ -113,7 +113,7 @@ describe('settling a claim a judge kept for a person', () => {
     await harness.db.projects.saveLeaf(parked({ id: 'theirs', ownerId: 'someone-else' }) as never);
     await harness.db.projects.saveLeaf(parked() as never);
 
-    const statusOf = (id: string, body: unknown) => axios.post(harness.url(`/api/leaves/${id}/settle`), body).then(() => 200, (e) => e.response.status);
+    const statusOf = (id: string, body: unknown) => axios.post(harness.url(`/api/leaves/${id}/settle`), body, { validateStatus: () => true }).then((res) => res.status);
     expect(await statusOf('done', { verdict: 'verified' })).toBe(409);
     expect(await statusOf('p1', { verdict: 'stay-claimed' })).toBe(400);
     expect(await statusOf('theirs', { verdict: 'verified' })).toBe(404);
@@ -137,7 +137,7 @@ describe('retrying a failed engine leaf', () => {
     await h.db.projects.saveTask({ id: 'k1', ownerId: TEST_USER.id, leafId: 'e1', title: 'Write test.sh', doneMeans: 'it exits 0', dependsOn: [], status: 'failed', runs: [], createdAt: 'now', updatedAt: 'now' } as never);
     await h.db.projects.saveTask({ id: 'k2', ownerId: TEST_USER.id, leafId: 'e1', title: 'Write greet.js', doneMeans: 'it greets', dependsOn: [], status: 'done', runs: [], createdAt: 'now', updatedAt: 'now' } as never);
 
-    const res = await axios.post(h.url('/api/leaves/e1/retry'));
+    const res = await axios.post<{ claim?: unknown }>(h.url('/api/leaves/e1/retry'));
 
     expect(res.data).toMatchObject({ status: 'pending', attempts: [{ attempt: 1, error: 'test.sh exits 1' }] });
     expect(res.data.claim).toBeUndefined();
@@ -170,8 +170,8 @@ describe('retrying a failed engine leaf', () => {
   it('refuses a leaf that has not failed', async () => {
     const harness = await mount();
     await harness.db.projects.saveLeaf(leaf({ id: 'busy', status: 'running' }) as never);
-    const err = await axios.post(harness.url('/api/leaves/busy/retry')).catch((e) => e);
-    expect(err.response.status).toBe(409);
+    const err = await axios.post<{ error?: string }>(harness.url('/api/leaves/busy/retry'), undefined, { validateStatus: () => true });
+    expect(err.status).toBe(409);
   });
 });
 
@@ -185,8 +185,8 @@ describe('cancelling a leaf', () => {
     const res = await axios.post(harness.url('/api/leaves/live/cancel'));
     expect(res.data).toMatchObject({ id: 'live', status: 'cancelled' });
     expect(launcher.signalGroveRun).toHaveBeenCalledWith('t1', 'cancelLeaf', 'live');
-    const err = await axios.post(harness.url('/api/leaves/done/cancel')).catch((e) => e);
-    expect(err.response.status).toBe(409);
+    const err = await axios.post<{ error?: string }>(harness.url('/api/leaves/done/cancel'), undefined, { validateStatus: () => true });
+    expect(err.status).toBe(409);
   });
 });
 

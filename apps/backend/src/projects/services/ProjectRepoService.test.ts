@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { testDatabase } from '../../platform/lib/test-database.js';
 import type { MongoDB } from '../../platform/lib/mongo-db.js';
 import { ProjectRepoService } from './ProjectRepoService.js';
+import { anyOf, matching } from '../lib/test-matchers.js';
 
 const KEY = 'a'.repeat(64);
 
@@ -104,8 +105,8 @@ describe('making a project with a repository', () => {
     const { db, repos } = await made(gitea);
     const project = await repos.createProject('u1', { id: 'p1', name: 'My Shop', repo: 'my-shop', language: 'odoo', autoDeployOnBuild: true, starter: [{ path: 'Dockerfile', content: 'FROM odoo' }] });
 
-    expect(calls).toEqual([expect.stringMatching(/^repo .+\/my-shop$/), expect.stringMatching(/^hook .+\/my-shop http:\/\/10\.0\.0\.5:3001\/webhooks\/gitea\/p1$/), expect.stringMatching(/^seed .+\/my-shop Dockerfile$/)]);
-    expect(project).toMatchObject({ id: 'p1', name: 'My Shop', ownerId: 'u1', giteaRepo: 'my-shop', language: 'odoo', appType: 'gitapp', targetClusterId: 'provisioning-lunorica', autoDeployOnBuild: true, webhookSecretEnc: expect.any(String) });
+    expect(calls).toEqual([matching(/^repo .+\/my-shop$/), matching(/^hook .+\/my-shop http:\/\/10\.0\.0\.5:3001\/webhooks\/gitea\/p1$/), matching(/^seed .+\/my-shop Dockerfile$/)]);
+    expect(project).toMatchObject({ id: 'p1', name: 'My Shop', ownerId: 'u1', giteaRepo: 'my-shop', language: 'odoo', appType: 'gitapp', targetClusterId: 'provisioning-lunorica', autoDeployOnBuild: true, webhookSecretEnc: anyOf(String) });
     expect((await db.projects.getProjects()).map((entry) => entry.id)).toEqual(['p1']);
   });
 
@@ -119,7 +120,7 @@ describe('making a project with a repository', () => {
     const again = fakeGitea({ repos: [`${owner}/my-shop`] });
     const retried = await (await made(again.gitea, db)).repos.createProject('u1', { id: 'p1', name: 'My Shop', repo: 'my-shop', autoDeployOnBuild: true });
     expect(again.calls).toEqual([`hook ${owner}/my-shop http://10.0.0.5:3001/webhooks/gitea/p1`]);
-    expect(retried.webhookSecretEnc).toEqual(expect.any(String));
+    expect(retried.webhookSecretEnc).toEqual(anyOf(String));
     expect(await db.projects.getProjects()).toHaveLength(1);
   });
 

@@ -41,8 +41,8 @@ describe('/api/plans', () => {
     await harness.db.projects.savePlanProposal(proposal({ id: 'p2', conversationId: 'conv-2' }));
     await harness.db.projects.savePlanProposal(proposal({ id: 'p3', ownerId: 'someone-else' }));
 
-    const res = await axios.get(harness.url('/api/plans?conversationId=conv-1'));
-    expect(res.data.map((entry: PlanProposal) => entry.id)).toEqual(['p1']);
+    const res = await axios.get<PlanProposal[]>(harness.url('/api/plans?conversationId=conv-1'));
+    expect(res.data.map((entry) => entry.id)).toEqual(['p1']);
     expect(await statusOf(axios.get(harness.url('/api/plans/p3')))).toBe(404);
   });
 
@@ -50,7 +50,7 @@ describe('/api/plans', () => {
     const harness = await mount();
     await harness.db.projects.savePlanProposal(proposal());
 
-    const res = await axios.post(harness.url('/api/plans/p1/approve'));
+    const res = await axios.post<PlanProposal>(harness.url('/api/plans/p1/approve'));
 
     expect(res.status).toBe(202);
     expect(res.data.status).toBe('adopting');
@@ -74,7 +74,7 @@ describe('/api/plans', () => {
     await harness.db.projects.savePlanProposal(proposal({ status: 'failed', reason: 'the sandbox would not start' }));
     await harness.db.projects.savePlanProposal(proposal({ id: 'p2', status: 'adopted' }));
 
-    const retried = await axios.post(harness.url('/api/plans/p1/approve'));
+    const retried = await axios.post<PlanProposal>(harness.url('/api/plans/p1/approve'));
     expect(retried.data).toMatchObject({ status: 'adopting' });
     expect(retried.data.reason).toBeUndefined();
     expect(await statusOf(axios.post(harness.url('/api/plans/p2/approve')))).toBe(409);
@@ -98,8 +98,8 @@ describe('/api/plans', () => {
     await harness.db.projects.savePlanProposal(proposal({ id: 'replan', plan: undefined, leafPlan: { treeId: 't9', leafId: 'l1', leafTitle: 'L', mode: 'replan', why: 'w', brief: 'b', tasks: [] } }));
     await harness.db.projects.savePlanProposal(proposal({ id: 'elsewhere', plan: undefined, leafPlan: { treeId: 't8', leafId: 'l2', leafTitle: 'L', mode: 'replan', why: 'w', brief: 'b', tasks: [] } }));
 
-    const res = await axios.get(harness.url('/api/plans?treeId=t9'));
-    expect(res.data.map((entry: PlanProposal) => entry.id).sort()).toEqual(['grew', 'replan']);
+    const res = await axios.get<PlanProposal[]>(harness.url('/api/plans?treeId=t9'));
+    expect(res.data.map((entry) => entry.id).sort()).toEqual(['grew', 'replan']);
   });
 
   it('marks a card about a story that has since succeeded as replaced, and refuses to approve it, so nothing out of date is applied', async () => {
@@ -107,7 +107,7 @@ describe('/api/plans', () => {
     await harness.db.projects.savePlanProposal(proposal({ id: 'old', plan: undefined, leafPlan: { treeId: 't9', leafId: 'l1', leafTitle: 'The sandbox facts', mode: 'replan', why: 'w', brief: 'b', tasks: [] } }));
     await harness.db.projects.savePlanProposal(proposal({ id: 'again', plan: undefined, leafPlan: { treeId: 't9', leafId: 'l1', leafTitle: 'The sandbox facts', mode: 'replan', why: 'w', brief: 'b', tasks: [] } }));
 
-    const refused = await axios.post(harness.url('/api/plans/old/approve'), {}, { validateStatus: () => true });
+    const refused = await axios.post<{ error?: string }>(harness.url('/api/plans/old/approve'), {}, { validateStatus: () => true });
     expect(refused.status).toBe(409);
     expect(refused.data.error).toBe('This card is out of date: "The sandbox facts" has succeeded since this was proposed. Nothing was changed.');
     expect(adopter.adoptPlan).not.toHaveBeenCalled();

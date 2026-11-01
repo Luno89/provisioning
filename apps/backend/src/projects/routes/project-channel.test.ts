@@ -32,10 +32,10 @@ describe('a project\'s channel over HTTP', () => {
     await h.db.projects.saveProject({ id: 'p1', name: 'Shop', ownerId: TEST_USER.id, appType: 'gitapp', createdAt: 't' });
     await h.db.engine.saveConversation({ id: 'side', ownerId: TEST_USER.id, title: 'About the discount', projectId: 'p1', messages: [], createdAt: 't', updatedAt: 't' });
 
-    const opened = (await axios.get(h.url('/api/p1/channel'))).data;
+    const opened = (await axios.get<unknown>(h.url('/api/p1/channel'))).data;
     expect(opened).toEqual({ channel: { id: 'channel-p1', title: 'Shop' }, threads: [{ id: 'side', title: 'About the discount', updatedAt: 't', messageCount: 0 }] });
 
-    const said = await axios.post(h.url('/api/channel-p1/messages'), { content: '  the shop opens at 9  ' }, { validateStatus: () => true });
+    const said = await axios.post<{ message?: unknown }>(h.url('/api/channel-p1/messages'), { content: '  the shop opens at 9  ' }, { validateStatus: () => true });
     expect(said.status).toBe(201);
     expect(said.data.message).toMatchObject({ role: 'user', author: { kind: 'person', id: TEST_USER.id }, content: 'the shop opens at 9' });
     expect(posted).toEqual([`${TEST_USER.id} channel-p1`]);

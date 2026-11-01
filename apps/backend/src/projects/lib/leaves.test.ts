@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { awaitingReview, resetForRetry, settleClaim, type Leaf } from './leaves.js';
+import { matching } from './test-matchers.js';
 
 const leaf = (over: Partial<Leaf> = {}): Leaf => ({
   id: 'l1', ownerId: 'u1', branchId: 'b1', title: 'A leaf', body: 'the port answers', status: 'pending',
@@ -14,7 +15,7 @@ describe('settling a claim', () => {
   });
 
   it('fails a claimed leaf only with a reason', () => {
-    expect(settleClaim(claimed(), { verdict: 'failed', at: 't2' })).toMatchObject({ problem: expect.stringMatching(/needs a reason/) });
+    expect(settleClaim(claimed(), { verdict: 'failed', at: 't2' })).toMatchObject({ problem: matching(/needs a reason/) });
     expect(settleClaim(claimed(), { verdict: 'failed', note: 'no listener', at: 't2' })).toMatchObject({ leaf: { status: 'failed', verified: false, findings: 'no listener' } });
   });
 
@@ -25,7 +26,7 @@ describe('settling a claim', () => {
   });
 
   it('refuses a leaf that has no claim on file', () => {
-    expect(settleClaim(leaf(), { verdict: 'verified', at: 't2' })).toMatchObject({ problem: expect.stringMatching(/not awaiting judgment/) });
+    expect(settleClaim(leaf(), { verdict: 'verified', at: 't2' })).toMatchObject({ problem: matching(/not awaiting judgment/) });
   });
 });
 

@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import type { Leaf } from './leaves.js';
 import type { Task } from './tasks.js';
 import { applyChange, briefIn, changeSummary, parseCancel, parseNewStories, parseStoryEdit, renderChangeNote, runsToStop, withWaitsOn, type ChangeWorld } from './item-changes.js';
+import { containing } from './test-matchers.js';
 
 const leaf = (id: string, status: Leaf['status'], extra: Partial<Leaf> = {}): Leaf => ({
   id, ownerId: 'u1', branchId: 'b1', title: `Story ${id}`, body: `Goal of ${id}`, status, createdAt: 't', updatedAt: 't', ...extra,
@@ -16,14 +17,14 @@ const at = { proposalId: 'p9', at: '2026-10-10T12:00:00Z' };
 describe('changing a story', () => {
   it('refuses a shipped story and says to propose a follow-up instead', () => {
     const parsed = parseStoryEdit({ why: 'also print it', body: 'New goal' }, 'l1', world([leaf('l1', 'succeeded', { verified: true })]));
-    expect(parsed).toEqual({ problem: expect.stringContaining('propose_stories, waiting on l1') });
+    expect(parsed).toEqual({ problem: containing('propose_stories, waiting on l1') });
   });
 
   it('refuses a change that changes nothing, a rework of untried work, and waits that go in a circle', () => {
     const stories = [leaf('l1', 'pending'), leaf('l2', 'pending', { dependsOn: ['l1'] })];
-    expect(parseStoryEdit({ why: 'w', title: 'Story l1' }, 'l1', world(stories))).toEqual({ problem: expect.stringContaining('nothing would change') });
-    expect(parseStoryEdit({ why: 'w', rework: true }, 'l1', world(stories))).toEqual({ problem: expect.stringContaining('nothing to rework') });
-    expect(parseStoryEdit({ why: 'w', dependsOn: ['l2'] }, 'l1', world(stories))).toEqual({ problem: expect.stringContaining('circle') });
+    expect(parseStoryEdit({ why: 'w', title: 'Story l1' }, 'l1', world(stories))).toEqual({ problem: containing('nothing would change') });
+    expect(parseStoryEdit({ why: 'w', rework: true }, 'l1', world(stories))).toEqual({ problem: containing('nothing to rework') });
+    expect(parseStoryEdit({ why: 'w', dependsOn: ['l2'] }, 'l1', world(stories))).toEqual({ problem: containing('circle') });
   });
 
   it('restarts a running story whose brief changes: its run is stopped, the attempt kept with the run, its stuck tasks handed back', () => {
@@ -81,7 +82,7 @@ describe('changing a story', () => {
   it('refuses dropping a task being worked unless the story starts again', () => {
     const stories = [leaf('l1', 'running', { runId: 'r' })];
     const tasks = [task('k1', 'l1', 'running')];
-    expect(parseStoryEdit({ why: 'w', dropTasks: ['k1'] }, 'l1', world(stories, tasks))).toEqual({ problem: expect.stringContaining('add rework') });
+    expect(parseStoryEdit({ why: 'w', dropTasks: ['k1'] }, 'l1', world(stories, tasks))).toEqual({ problem: containing('add rework') });
     expect('change' in parseStoryEdit({ why: 'w', dropTasks: ['k1'], rework: true }, 'l1', world(stories, tasks))).toBe(true);
   });
 
@@ -124,8 +125,8 @@ describe('adding stories to a feature', () => {
 
   it('refuses a story without a brief, or one waiting on something that does not exist', () => {
     const branch = { id: 'b1', title: 'F' };
-    expect(parseNewStories({ why: 'w', stories: [{ title: 'A', body: 'B' }] }, branch, world([]))).toEqual({ problem: expect.stringContaining('needs a brief') });
-    expect(parseNewStories({ why: 'w', stories: [{ title: 'A', body: 'B', brief: 'C', dependsOn: ['nope'] }] }, branch, world([]))).toEqual({ problem: expect.stringContaining('neither a new story') });
+    expect(parseNewStories({ why: 'w', stories: [{ title: 'A', body: 'B' }] }, branch, world([]))).toEqual({ problem: containing('needs a brief') });
+    expect(parseNewStories({ why: 'w', stories: [{ title: 'A', body: 'B', brief: 'C', dependsOn: ['nope'] }] }, branch, world([]))).toEqual({ problem: containing('neither a new story') });
   });
 });
 
@@ -149,7 +150,7 @@ describe('cancelling stories', () => {
   });
 
   it('refuses a shipped story', () => {
-    expect(parseCancel({ why: 'w' }, ['l1'], world([leaf('l1', 'succeeded')]))).toEqual({ problem: expect.stringContaining('has shipped') });
+    expect(parseCancel({ why: 'w' }, ['l1'], world([leaf('l1', 'succeeded')]))).toEqual({ problem: containing('has shipped') });
   });
 });
 

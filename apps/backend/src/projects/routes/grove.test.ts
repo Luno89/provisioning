@@ -31,10 +31,10 @@ describe('the tree-type catalogue', () => {
     });
     // Setup seeds; the route no longer does it lazily on read.
     await seedTreeTypes(h.db.projects);
-    const res = await axios.get(h.url('/api/tree-types'));
+    const res = await axios.get<unknown[]>(h.url('/api/tree-types'));
     expect(res.status).toBe(200);
     expect(res.data.length).toBeGreaterThan(0);
-    const again = await axios.get(h.url('/api/tree-types'));
+    const again = await axios.get<unknown[]>(h.url('/api/tree-types'));
     expect(again.data.length).toBe(res.data.length);
   });
 
@@ -79,7 +79,7 @@ describe('the tree-type catalogue', () => {
     await seedWorkspaceImages(h.db.engine);
     const harness = h;
     const target = ((await axios.get(harness.url('/api/tree-types'))).data as { id: string }[]).find((t) => t.id === 'mcp-server')!;
-    const put = (egress: unknown) => axios.put(harness.url(`/api/tree-types/${target.id}`), { ...target, egress }, { validateStatus: () => true });
+    const put = (egress: unknown) => axios.put<{ error?: string }>(harness.url(`/api/tree-types/${target.id}`), { ...target, egress }, { validateStatus: () => true });
     expect((await put([{ namespace: 'shop-1a2b3c', ports: [80] }])).status).toBe(200);
     expect((await put([{ namespace: 'gitea', ports: [3000] }])).data.error).toContain('"gitea" is not one of your apps\' namespaces');
     expect((await put([{ cidr: '192.168.1.0/24' }])).data.error).toContain('inside 192.168.0.0/16, an internal range');
@@ -94,10 +94,10 @@ describe('the tree-type catalogue', () => {
     await seedWorkspaceImages(h.db.engine);
     const paper = ((await axios.get(h.url('/api/tree-types'))).data as { id: string }[]).find((t) => t.id === 'research-paper')!;
 
-    const saved = await axios.put(h.url('/api/tree-types/research-paper'), { ...paper, agent: 'research' });
+    const saved = await axios.put<{ agent?: string }>(h.url('/api/tree-types/research-paper'), { ...paper, agent: 'research' });
     expect(saved.data.agent).toBe('research');
 
-    const unknown = await axios.put(h.url('/api/tree-types/research-paper'), { ...paper, agent: 'nobody' }, { validateStatus: () => true });
+    const unknown = await axios.put<{ error?: string }>(h.url('/api/tree-types/research-paper'), { ...paper, agent: 'nobody' }, { validateStatus: () => true });
     expect(unknown.status).toBe(400);
     expect(unknown.data.error).toContain('"nobody"');
   });
@@ -130,7 +130,7 @@ describe('the tree-type catalogue', () => {
     await axios.put(h.url('/api/tree-types/my-own-kind'), { ...shipped, id: 'my-own-kind', label: 'Mine' });
     await h.db.projects.saveTree({ id: 't1', ownerId: TEST_USER.id, name: 'thing', type: 'my-own-kind', createdAt: 'x', updatedAt: 'x' } as never);
 
-    const refused = await axios.delete(h.url('/api/tree-types/my-own-kind'), { validateStatus: () => true });
+    const refused = await axios.delete<{ error?: string }>(h.url('/api/tree-types/my-own-kind'), { validateStatus: () => true });
     expect(refused.status).toBe(409);
     expect(refused.data.error).toBe('1 tree(s) still use this type: thing.');
   });
@@ -150,15 +150,15 @@ describe('trees', () => {
     const harness = await mount();
     await harness.db.projects.saveTree({ id: 't1', ownerId: TEST_USER.id, name: 'mine', projectIds: [] } as never);
     await harness.db.projects.saveTree({ id: 't2', ownerId: 'someone-else', name: 'theirs', projectIds: [] } as never);
-    const res = await axios.get(harness.url('/api/trees'));
-    expect(res.data.map((t: { name: string }) => t.name)).toEqual(['mine']);
+    const res = await axios.get<{ name: string }[]>(harness.url('/api/trees'));
+    expect(res.data.map((t) => t.name)).toEqual(['mine']);
   });
 
   it('does not let one tenant read another\'s by guessing the id', async () => {
     const harness = await mount();
     await harness.db.projects.saveTree({ id: 't2', ownerId: 'someone-else', name: 'theirs', projectIds: [] } as never);
-    const err = await axios.get(harness.url('/api/trees/t2/run')).catch((e) => e);
-    expect(err.response.status).toBe(404);
+    const err = await axios.get<{ error?: string }>(harness.url('/api/trees/t2/run'), { validateStatus: () => true });
+    expect(err.status).toBe(404);
   });
 
   it('saves the order of a tree\'s features, and refuses one naming a feature of another tree or another person\'s tree', async () => {
@@ -169,7 +169,7 @@ describe('trees', () => {
     const ok = await axios.put(harness.url('/api/trees/t1/order'), { branchIds: ['b2', 'b1'] });
     expect(ok.data).toEqual({ ordered: 2 });
     expect((await harness.db.projects.getBranches()).filter((branch) => branch.treeId === 't1').map((branch) => [branch.id, branch.priority])).toEqual([['b1', 1], ['b2', 0]]);
-    const outside = await axios.put(harness.url('/api/trees/t1/order'), { branchIds: ['bx'] }, { validateStatus: () => true });
+    const outside = await axios.put<{ error?: string }>(harness.url('/api/trees/t1/order'), { branchIds: ['bx'] }, { validateStatus: () => true });
     expect([outside.status, outside.data.error]).toEqual([400, 'bx is not among the features here']);
     expect((await axios.put(harness.url('/api/trees/t2/order'), { branchIds: [] }, { validateStatus: () => true })).status).toBe(404);
   });
@@ -201,7 +201,7 @@ describe('branches', () => {
     for (const id of ['l1', 'l2', 'l3']) await harness.db.projects.saveLeaf({ id, ownerId: TEST_USER.id, branchId: 'b1', title: id, status: 'pending', createdAt: 'then', updatedAt: 'then' });
     expect((await axios.put(harness.url('/api/branches/b1/order'), { leafIds: ['l3', 'l1', 'l2'] })).data).toEqual({ ordered: 3 });
     expect((await harness.db.projects.getLeaves()).map((leaf) => [leaf.id, leaf.priority])).toEqual([['l1', 1], ['l2', 2], ['l3', 0]]);
-    const twice = await axios.put(harness.url('/api/branches/b1/order'), { leafIds: ['l1', 'l1'] }, { validateStatus: () => true });
+    const twice = await axios.put<{ error?: string }>(harness.url('/api/branches/b1/order'), { leafIds: ['l1', 'l1'] }, { validateStatus: () => true });
     expect([twice.status, twice.data.error]).toEqual([400, 'a story appears twice in the order']);
     expect((await axios.put(harness.url('/api/branches/b2/order'), { leafIds: [] }, { validateStatus: () => true })).status).toBe(404);
   });
@@ -210,15 +210,15 @@ describe('branches', () => {
     const harness = await mount();
     await harness.db.projects.saveBranch({ id: 'b1', ownerId: TEST_USER.id, title: 'mine', treeId: 't1' } as never);
     await harness.db.projects.saveBranch({ id: 'b2', ownerId: 'someone-else', title: 'theirs', treeId: 't1' } as never);
-    const res = await axios.get(harness.url('/api/branches'));
-    expect(res.data.map((b: { title: string }) => b.title)).toEqual(['mine']);
+    const res = await axios.get<{ title: string }[]>(harness.url('/api/branches'));
+    expect(res.data.map((b) => b.title)).toEqual(['mine']);
   });
 
   it('404s a branch belonging to someone else rather than 403', async () => {
     const harness = await mount();
     await harness.db.projects.saveBranch({ id: 'b2', ownerId: 'someone-else', title: 'theirs', treeId: 't1' } as never);
-    const err = await axios.delete(harness.url('/api/branches/b2')).catch((e) => e);
-    expect(err.response.status).toBe(404);
+    const err = await axios.delete<{ error?: string }>(harness.url('/api/branches/b2'), { validateStatus: () => true });
+    expect(err.status).toBe(404);
     const stored = (await harness.db.projects.getBranches()).find((b) => b.id === 'b2');
     expect(stored?.title).toBe('theirs');
   });
