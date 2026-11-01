@@ -6,6 +6,7 @@ import type { Task } from '../tools/tasks.js';
 import { createEventBus, type EngineEvent } from '@koala/agent-engine';
 import { createAgentRegistry } from '../registries/registry.js';
 import type { RunTicket } from './contracts.js';
+import { anyOf, matching, objectWith } from '../../engine/lib/test-matchers.js';
 
 const ticket = (over: Partial<RunTicket> = {}): RunTicket => ({
   runId: 'run-1',
@@ -85,7 +86,7 @@ describe('the remaining engine activities', () => {
     });
 
     expect(outcome).toMatchObject({ ok: true, digest: 'tool digest' });
-    expect(svc.tools.run).toHaveBeenCalledWith(expect.objectContaining({ name: 'read_file' }), 1, expect.any(AbortSignal));
+    expect(svc.tools.run).toHaveBeenCalledWith(objectWith({ name: 'read_file' }), 1, anyOf(AbortSignal));
   });
 
   it('keeps a long tool call alive with heartbeats, and hands it the stop when the run is stopped', async () => {
@@ -258,7 +259,7 @@ describe('settling the tasks a run claimed', () => {
     const settled = await createEngineActivities(svc).EngineSettleClaimsActivity({ ownerId: 'user-1', runId: 'run-1', outcome: 'failed', reason: '"turn" failed: the endpoint is down' });
 
     expect(settled).toEqual(['left-running']);
-    expect(saved).toEqual([expect.objectContaining({
+    expect(saved).toEqual([objectWith({
       id: 'left-running',
       status: 'failed',
       evidence: 'the run working on it ended without recording an outcome: failed — "turn" failed: the endpoint is down',
@@ -284,7 +285,7 @@ describe('the run a tree is grown by', () => {
 
     const input = await activities.GroveRunInputActivity({ treeId: 'tree-1', ownerId: 'user-1' });
 
-    expect(input.ticket).toMatchObject({ runId: expect.stringMatching(/^grove-run-tree-1~[0-9a-z]+$/), agentSlug: 'grove-paper', ownerId: 'user-1' });
+    expect(input.ticket).toMatchObject({ runId: matching(/^grove-run-tree-1~[0-9a-z]+$/), agentSlug: 'grove-paper', ownerId: 'user-1' });
     expect(input.procedure.id).toBe('grove-paper-run');
     expect(input.inputs).toMatchObject({ treeId: 'tree-1' });
   });
@@ -368,7 +369,7 @@ describe('sending a workspace\'s work to a machine', () => {
 
     expect(forRun).toHaveBeenCalledWith({ ticket: ticket({ runId: 'run-1-research-1' }), environment });
     expect(exec).toHaveBeenCalledWith({ command: 'true' });
-    expect(sendBranch).toHaveBeenCalledWith(expect.objectContaining({ repo: 'conversation-c1', folder: '/work', branch: 'machine/d/k' }));
+    expect(sendBranch).toHaveBeenCalledWith(objectWith({ repo: 'conversation-c1', folder: '/work', branch: 'machine/d/k' }));
     expect(sent).toEqual({ repo: 'conversation-c1', folder: '/work', commit: 'c0ffee' });
   });
 });

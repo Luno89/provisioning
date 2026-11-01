@@ -9,7 +9,7 @@ const harness: Harness = await mountRouter({
   router: (db: Database) => conversationsRouter({
     db,
     ownedConversations: async (userId: string) =>
-      db.engine.getConversations().then((c: any) => c.filter((x: any) => x.ownerId === userId)),
+      (await db.engine.getConversations()).filter((x) => x.ownerId === userId),
     ownedTrees: async (userId: string) => (await db.projects.getTrees()).filter((tree) => tree.ownerId === userId),
     ownedProjects: async (userId: string) => (await db.projects.getProjects()).filter((project) => project.ownerId === userId),
     workspaces: { conclude: async (ownerId: string, conversationId: string) => {
@@ -71,8 +71,8 @@ describe('conversation CRUD', () => {
 
     const listRes = await fetch(harness.url('/api/conversations'));
     expect(listRes.status).toBe(200);
-    const list = (await listRes.json()) as any[];
-    expect(list.some((c: any) => c.id === created.id)).toBe(true);
+    const list = (await listRes.json()) as { id: string }[];
+    expect(list.some((c) => c.id === created.id)).toBe(true);
 
     const getRes = await fetch(harness.url(`/api/conversations/${created.id}`));
     expect(getRes.status).toBe(200);
@@ -81,7 +81,7 @@ describe('conversation CRUD', () => {
 
     const delRes = await fetch(harness.url(`/api/conversations/${created.id}`), { method: 'DELETE' });
     expect(delRes.status).toBe(200);
-    const afterDel = (await harness.db.engine.getConversations()).find((c: any) => c.id === created.id);
+    const afterDel = (await harness.db.engine.getConversations()).find((c) => c.id === created.id);
     expect(afterDel).toBeUndefined();
   });
 });

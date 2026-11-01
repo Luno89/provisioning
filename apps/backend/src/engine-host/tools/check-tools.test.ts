@@ -3,6 +3,7 @@ import { createCheckTools, type CheckAccess, type CheckRunView } from './check-t
 import { CHECK_TOOLS } from './check-tools-catalogue.js';
 import type { Scenario } from '../../eval/level2/scenario.js';
 import type { ScenarioResult } from '../../eval/level2/results.js';
+import { containing } from '../../engine/lib/test-matchers.js';
 
 const scenario = (over: Partial<Scenario> & { id: string }, mine = false): Scenario & { mine: boolean } => ({
   name: over.id, describe: '', agent: 'executor', procedure: { id: 'do-one-task' }, input: { message: 'go' }, expect: { outcome: 'ok' }, mine, ...over,
@@ -63,15 +64,15 @@ describe('the check writer\'s tools', () => {
     const { tools, saved } = world();
     expect((await call(tools, 'write_check', { check: { id: 'new-one', name: 'New one' } })).content).toContain('saved new-one');
     expect(await call(tools, 'write_check', { check: { id: 'new-two' } })).toMatchObject({ ok: false, content: 'nothing was saved — fix these and send the whole check again:\n- a check needs a name\n- it expects nothing' });
-    expect(await call(tools, 'write_check', { check: { id: 'mine-writes', name: 'x' } })).toMatchObject({ ok: false, content: expect.stringContaining('change the person\'s own with update_check') });
-    expect(await call(tools, 'write_check', { check: { id: 'executor-does-one-task', name: 'x' } })).toMatchObject({ ok: false, content: expect.stringContaining('built-in check called "executor-does-one-task"') });
+    expect(await call(tools, 'write_check', { check: { id: 'mine-writes', name: 'x' } })).toMatchObject({ ok: false, content: containing('change the person\'s own with update_check') });
+    expect(await call(tools, 'write_check', { check: { id: 'executor-does-one-task', name: 'x' } })).toMatchObject({ ok: false, content: containing('built-in check called "executor-does-one-task"') });
     expect(saved).toHaveLength(2);
   });
 
   it('replaces only the person\'s own check, never a built-in', async () => {
     const { tools, saved } = world();
     expect((await call(tools, 'update_check', { check: { id: 'mine-writes', name: 'Changed' } })).content).toContain('replaced mine-writes');
-    expect(await call(tools, 'update_check', { check: { id: 'executor-does-one-task', name: 'x' } })).toMatchObject({ ok: false, content: expect.stringContaining('it is built in') });
+    expect(await call(tools, 'update_check', { check: { id: 'executor-does-one-task', name: 'x' } })).toMatchObject({ ok: false, content: containing('it is built in') });
     expect(await call(tools, 'update_check', { check: { id: 'ghost', name: 'x' } })).toMatchObject({ ok: false });
     expect(saved).toHaveLength(1);
   });

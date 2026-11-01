@@ -1,5 +1,7 @@
 import { Router, type Request, type Response } from 'express';
 import { asyncRoute } from '../../platform/index.js';
+import { dependencyFrom } from '../lib/workspace-dependencies.js';
+import { fieldsOf } from '../lib/request-fields.js';
 import type { WorkspaceDependencyService } from '../services/WorkspaceDependencyService.js';
 
 export interface WorkspaceDependenciesRouterDeps {
@@ -18,8 +20,10 @@ export function workspaceDependenciesRouter(deps: WorkspaceDependenciesRouterDep
 
   router.put('/:name', asyncRoute(async (req: Request, res: Response) => {
     const name = String(req.params.name);
-    if (req.body?.name !== name) return res.status(400).json({ error: `the dependency in the body is not called "${name}"` });
-    const outcome = await deps.dependencies.save(userOf(req).id, req.body);
+    if (fieldsOf(req.body).name !== name) return res.status(400).json({ error: `the dependency in the body is not called "${name}"` });
+    const reading = dependencyFrom(req.body);
+    if (!reading.ok) return res.status(400).json({ error: reading.problem, problems: [reading.problem] });
+    const outcome = await deps.dependencies.save(userOf(req).id, reading.dependency);
     if (!outcome.saved) return res.status(400).json({ error: outcome.problems.join('; '), problems: outcome.problems });
     return res.json({ dependency: outcome.dependency });
   }));

@@ -1,3 +1,4 @@
+import { ignore } from '@koala/engine-core/failures';
 import { ApplicationFailure } from '@temporalio/common';
 import { type InfrastructureService, InfisicalService, sharedClusterProxy } from '../../infrastructure/index.js';
 import { syncProjectSecrets } from '../../projects/index.js';
@@ -15,6 +16,6 @@ export const syncVaultFromProject = (infra: InfrastructureService): VaultSync =>
     const vault = new InfisicalService(infra, masterKey, '/tmp/kubeconfig-provisioning-lunorica', undefined, sharedClusterProxy());
     await syncProjectSecrets({ infra, vault, projects: db.projects, masterKey }, { project, namespace: args.namespace, kubeconfig: args.kubeconfig, target: args.target, secretName: args.secretName });
   } finally {
-    await db.close().catch(() => undefined);
+    await db.close().catch(ignore('the connection is closed only to free it; the vault was synced, or why not is thrown'));
   }
 };

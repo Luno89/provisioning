@@ -1,3 +1,4 @@
+import { ignore } from '@koala/engine-core/failures';
 import { imageReference, needsBuilding, renderDockerfile, type ImagePlan } from '@koala/agent-engine';
 import type { KubeRunner } from './kube.js';
 import { assessWorkload } from '../../infrastructure/lib/workload-health.js';
@@ -269,12 +270,21 @@ export function createImageBuilder(options: ImageBuilderOptions): ImageBuilder {
       const counts = read.exitCode === 0 ? countsIn(read.stdout) : undefined;
       if (!gone && !(counts && !counts.active && (counts.succeeded || counts.failed))) continue;
       await options.revokePushToken(token);
-      await run(['delete', 'secret', secret.metadata.name, '-n', namespace, '--ignore-not-found'], undefined, undefined).catch(() => undefined);
+      await run(['delete', 'secret', secret.metadata.name, '-n', namespace, '--ignore-not-found'], undefined, undefined).catch(ignore('the token it held is revoked already, and the next pass finds the secret again and deletes it'));
     }
   };
 
+  const releaseTokensNow = (): Promise<void> => releaseFinishedTokens().catch((err: unknown) => {
+    console.warn(`[images] the push tokens of finished builds stay valid until the next try, at the next build or check: ${(err as Error).message}`);
+  });
+
+  const inRegistry = (plan: ImagePlan): Promise<boolean> => exists(plan).catch((err: unknown) => {
+    console.warn(`[images] the registry could not say whether ${plan.fingerprint} is there, so its build is gone by instead: ${(err as Error).message}`);
+    return false;
+  });
+
   const apply = async (plan: ImagePlan, reference: string): Promise<void> => {
-    await releaseFinishedTokens().catch(() => undefined);
+    await releaseTokensNow();
     const push = options.pushToken ? await options.pushToken() : await options.account?.();
     const registryHosts = await hosts();
     const config = push ? dockerConfigJson(registryHosts, push) : undefined;
@@ -325,7 +335,7 @@ export function createImageBuilder(options: ImageBuilderOptions): ImageBuilder {
     if (read.exitCode !== 0) return { state: 'unbuilt', reference };
 
     const { active, succeeded, failed } = countsIn(read.stdout);
-    if (!active && (succeeded || failed)) await releaseFinishedTokens().catch(() => undefined);
+    if (!active && (succeeded || failed)) await releaseTokensNow();
     if (failed) return { state: 'failed', reference, detail: await whyItFailed(plan) };
     if (active) {
       const stuck = await stuckBecause(plan);
@@ -340,8 +350,8 @@ export function createImageBuilder(options: ImageBuilderOptions): ImageBuilder {
     if (!needsBuilding(plan)) return { state: 'ready', reference: plan.base };
 
     const reference = await target(plan);
-    if (await exists(plan).catch(() => false)) {
-      await releaseFinishedTokens().catch(() => undefined);
+    if (await inRegistry(plan)) {
+      await releaseTokensNow();
       return { state: 'ready', reference };
     }
 
@@ -364,7 +374,7 @@ export function createImageBuilder(options: ImageBuilderOptions): ImageBuilder {
       if (!needsBuilding(plan)) return plan.base;
 
       const reference = await target(plan);
-      if (await exists(plan).catch(() => false)) return reference;
+      if (await inRegistry(plan)) return reference;
 
       const startedAt = Date.now();
       const measure = (outcome: string) => koalaMetrics().imageBuildSeconds.record(elapsedSeconds(startedAt), { kind: 'workspace', outcome });
@@ -378,7 +388,7 @@ export function createImageBuilder(options: ImageBuilderOptions): ImageBuilder {
 
           if (state.state === 'ready') {
             measure('ok');
-            await releaseFinishedTokens().catch(() => undefined);
+            await releaseTokensNow();
             return reference;
           }
           if (state.state === 'failed') {

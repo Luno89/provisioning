@@ -22,6 +22,7 @@ import { decideTask, type TaskAccess } from '../../hub/index.js';
 import type { WorkspaceImage } from '../../engine-host/sandboxes/warm-images.js';
 import type { PruneReport } from '../../engine-host/sandboxes/prune-images.js';
 import { SwitchedOffError } from '../lib/extension-settings.js';
+import { fieldsOf } from '../lib/request-fields.js';
 import { samplingAt, temperatureProblem } from '../lib/run-knobs.js';
 import type { RunEnding } from '../store.js';
 
@@ -191,7 +192,7 @@ export function engineRouter(deps: EngineRouterDeps): Router {
   router.post('/tasks/:taskId/drop', decide('dropped'));
 
   router.post('/runs', asyncRoute(async (req: Request, res: Response) => {
-    const { agent, message, inputs, conversationId, modelId, modelReach, temperature, procedure, asks, attachments } = req.body ?? {};
+    const { agent, message, inputs, conversationId, modelId, modelReach, temperature, procedure, asks, attachments } = fieldsOf(req.body);
 
     if (typeof agent !== 'string' || !agent.trim()) {
       return res.status(400).json({ error: 'agent is required' });
@@ -219,7 +220,7 @@ export function engineRouter(deps: EngineRouterDeps): Router {
         ...(typeof conversationId === 'string' ? { conversationId } : {}),
         ...(typeof modelId === 'string' && modelId ? { modelId } : {}),
         ...(modelReach === 'handoffs' || modelReach === 'chat' ? { modelReach } : {}),
-        ...(temperature === undefined ? {} : { sampling: samplingAt(temperature) }),
+        ...(typeof temperature === 'number' ? { sampling: samplingAt(temperature) } : {}),
         ...(typeof procedure === 'string' && procedure.trim() ? { procedureId: procedure.trim() } : {}),
         ...(typeof asks === 'string' ? { asks } : {}),
       });
@@ -241,7 +242,7 @@ export function engineRouter(deps: EngineRouterDeps): Router {
   }));
 
   router.post('/runs/:runId/answer', asyncRoute(async (req: Request, res: Response) => {
-    const { nodeId, value } = req.body ?? {};
+    const { nodeId, value } = fieldsOf(req.body);
     if (typeof nodeId !== 'string') return res.status(400).json({ error: 'nodeId is required' });
 
     try {
@@ -253,7 +254,7 @@ export function engineRouter(deps: EngineRouterDeps): Router {
   }));
 
   router.post('/runs/:runId/approve', asyncRoute(async (req: Request, res: Response) => {
-    const { callId, allowed, forRun, conversationId, tool, auto } = req.body ?? {};
+    const { callId, allowed, forRun, conversationId, tool, auto } = fieldsOf(req.body);
     if (typeof callId !== 'string') return res.status(400).json({ error: 'callId is required' });
     if (typeof allowed !== 'boolean') return res.status(400).json({ error: 'allowed must be true or false' });
     if (auto !== undefined && auto !== 'agent' && auto !== 'tree') return res.status(400).json({ error: 'auto is agent or tree' });

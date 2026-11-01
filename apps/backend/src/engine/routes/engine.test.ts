@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import axios from 'axios';
 import { mountRouter, TEST_USER, type Harness } from '../../platform/routes/test-harness.js';
-import { engineRouter, type EngineRouterDeps } from './engine.js';
+import { engineRouter, extensionSummary, type EngineRouterDeps } from './engine.js';
+import { arrayWith, containing, objectWith } from '../lib/test-matchers.js';
 import { createAgentRegistry, createRunStarter, type WorkflowStarter, type Task } from '../../engine-host/index.js';
 import type { Database } from '../../platform/lib/db-interface.js';
 import { conversationBinding } from '../../engine-host/conversation-binding.js';
@@ -12,6 +13,10 @@ import { ApprovalService } from '../services/ApprovalService.js';
 import { INSTALLED_EXTENSIONS, platformCatalogue, platformGroups } from '../../extensions/installed.js';
 import { defineGroup } from '@koala/agent-engine/procedure';
 import { ConversationTurnService } from '../services/ConversationTurnService.js';
+
+type Summary = ReturnType<typeof extensionSummary>;
+
+type ListedTask = Task & { ready: boolean; waitingOn: { id: string; title: string; status: string }[] };
 
 let tasks: Task[] = [];
 
@@ -72,20 +77,20 @@ const starter = (): WorkflowStarter & { start: ReturnType<typeof vi.fn>; signal:
 describe('engine routes', () => {
   it('serves each installed extension\'s vocabulary and whether the caller has it on, and switches one for them', async () => {
     const h = await harnessWith(undefined, new ExtensionService({ store: (await testDatabase()).engine, installed: INSTALLED_EXTENSIONS }));
-    const res = await axios.get(h.url('/api/engine/extensions'));
+    const res = await axios.get<Summary[]>(h.url('/api/engine/extensions'));
 
     expect(res.status).toBe(200);
-    const grove = res.data.find((extension: { id: string }) => extension.id === 'grove');
-    expect(grove).toMatchObject({ requires: ['platform'], personas: expect.arrayContaining(['grove', 'grove-leaf']), procedures: expect.arrayContaining(['grove-run', 'grove-leaf']) });
-    expect(grove.operations).toEqual(JSON.parse(JSON.stringify(INSTALLED_EXTENSIONS.find((extension) => extension.id === 'grove')!.operations)));
-    expect(res.data.map((extension: { id: string; enabled: boolean; alwaysOn: boolean }) => [extension.id, extension.enabled, extension.alwaysOn])).toEqual([['platform', true, true], ['grove', true, false], ['workspace', true, false], ['mcp', true, false], ['external-agents', true, false], ['releases', true, false], ['monitoring', true, false], ['files', true, false]]);
+    const grove = res.data.find((extension) => extension.id === 'grove');
+    expect(grove).toMatchObject({ requires: ['platform'], personas: arrayWith(['grove', 'grove-leaf']), procedures: arrayWith(['grove-run', 'grove-leaf']) });
+    expect(grove?.operations).toEqual(JSON.parse(JSON.stringify(INSTALLED_EXTENSIONS.find((extension) => extension.id === 'grove')!.operations)));
+    expect(res.data.map((extension) => [extension.id, extension.enabled, extension.alwaysOn])).toEqual([['platform', true, true], ['grove', true, false], ['workspace', true, false], ['mcp', true, false], ['external-agents', true, false], ['releases', true, false], ['monitoring', true, false], ['files', true, false]]);
 
-    const needed = await axios.put(h.url('/api/engine/extensions/grove/enabled'), { enabled: false }, { validateStatus: () => true });
+    const needed = await axios.put<{ error: string }>(h.url('/api/engine/extensions/grove/enabled'), { enabled: false }, { validateStatus: () => true });
     expect(needed.status).toBe(409);
     expect(needed.data.error).toMatch(/Workspace needs Grove/);
     await axios.put(h.url('/api/engine/extensions/workspace/enabled'), { enabled: false });
-    const off = await axios.put(h.url('/api/engine/extensions/grove/enabled'), { enabled: false });
-    expect(off.data.find((extension: { id: string }) => extension.id === 'grove').enabled).toBe(false);
+    const off = await axios.put<Summary[]>(h.url('/api/engine/extensions/grove/enabled'), { enabled: false });
+    expect(off.data.find((extension) => extension.id === 'grove')?.enabled).toBe(false);
     const refused = await axios.put(h.url('/api/engine/extensions/platform/enabled'), { enabled: false }, { validateStatus: () => true });
     expect(refused.status).toBe(409);
     const unread = await axios.put(h.url('/api/engine/extensions/grove/enabled'), { enabled: 'yes' }, { validateStatus: () => true });
@@ -108,28 +113,28 @@ describe('engine routes', () => {
       g.layout({ said: [0, 0] });
     });
 
-    const made = await axios.post(h.url('/api/engine/extensions'), { id: 'loud', title: 'Loud' });
-    expect(made.data.find((extension: { id: string }) => extension.id === 'loud')).toMatchObject({ authored: true, enabled: true, latest: [] });
+    const made = await axios.post<Summary[]>(h.url('/api/engine/extensions'), { id: 'loud', title: 'Loud' });
+    expect(made.data.find((extension) => extension.id === 'loud')).toMatchObject({ authored: true, enabled: true, latest: [] });
     expect((await axios.post(h.url('/api/engine/extensions'), { id: 'grove', title: 'Mine' }, { validateStatus: () => true })).status).toBe(400);
 
     const first = await axios.post(h.url('/api/engine/extensions/loud/operations'), { name: 'shout', group: shout });
     expect(first.data).toEqual({ id: 'loud.shout@1', version: 1, moved: [] });
-    const second = await axios.post(h.url('/api/engine/extensions/loud/operations'), { name: 'shout', group: shout });
+    const second = await axios.post<{ id: string }>(h.url('/api/engine/extensions/loud/operations'), { name: 'shout', group: shout });
     expect(second.data.id).toBe('loud.shout@2');
-    const listed = (await axios.get(h.url('/api/engine/extensions'))).data.find((extension: { id: string }) => extension.id === 'loud');
+    const listed = (await axios.get<Summary[]>(h.url('/api/engine/extensions'))).data.find((extension) => extension.id === 'loud');
     expect(listed).toMatchObject({ version: '2', latest: ['loud.shout@2'] });
-    expect(listed.groups.map((group: { id: string }) => group.id)).toEqual(['loud.shout@1', 'loud.shout@2']);
+    expect(listed?.groups.map((group) => group.id)).toEqual(['loud.shout@1', 'loud.shout@2']);
 
     expect((await axios.post(h.url('/api/engine/extensions/loud/operations'), { name: 'Shout!', group: shout }, { validateStatus: () => true })).status).toBe(400);
     expect((await axios.post(h.url('/api/engine/extensions/loud/operations'), { name: 'shout' }, { validateStatus: () => true })).status).toBe(400);
     expect((await axios.post(h.url('/api/engine/extensions/nope/operations'), { name: 'shout', group: shout }, { validateStatus: () => true })).status).toBe(404);
 
-    const bundled = await axios.put(h.url('/api/engine/extensions/loud'), { title: 'Louder' });
-    expect(bundled.data.find((extension: { id: string }) => extension.id === 'loud').title).toBe('Louder');
-    const gone = await axios.delete(h.url('/api/engine/extensions/loud/operations/shout'));
-    expect(gone.data.find((extension: { id: string }) => extension.id === 'loud').latest).toEqual([]);
-    const deleted = await axios.delete(h.url('/api/engine/extensions/loud'));
-    expect(deleted.data.map((extension: { id: string }) => extension.id)).toEqual(['platform', 'grove', 'workspace', 'mcp', 'external-agents', 'releases', 'monitoring', 'files']);
+    const bundled = await axios.put<Summary[]>(h.url('/api/engine/extensions/loud'), { title: 'Louder' });
+    expect(bundled.data.find((extension) => extension.id === 'loud')?.title).toBe('Louder');
+    const gone = await axios.delete<Summary[]>(h.url('/api/engine/extensions/loud/operations/shout'));
+    expect(gone.data.find((extension) => extension.id === 'loud')?.latest).toEqual([]);
+    const deleted = await axios.delete<Summary[]>(h.url('/api/engine/extensions/loud'));
+    expect(deleted.data.map((extension) => extension.id)).toEqual(['platform', 'grove', 'workspace', 'mcp', 'external-agents', 'releases', 'monitoring', 'files']);
     await h.close();
   });
 
@@ -137,12 +142,12 @@ describe('engine routes', () => {
     const workflows = starter();
     const h: Harness = await harnessWith(workflows);
 
-    const res = await axios.get(h.url('/api/engine/agents'));
+    const res = await axios.get<{ slug: string }[]>(h.url('/api/engine/agents'));
 
     expect(res.status).toBe(200);
-    expect(res.data.map((a: { slug: string }) => a.slug).sort())
+    expect(res.data.map((a) => a.slug).sort())
       .toEqual(['agent-builder', 'antigravity', 'check-writer', 'delivery', 'executor', 'grove', 'grove-leaf', 'grove-paper', 'grove-paper-leaf', 'judge', 'koala', 'leaf-judge', 'mcp-capture', 'memory-keeper', 'paper-writer', 'planner', 'release', 'release-replace', 'release-roll-back', 'research', 'workspace']);
-    expect(res.data.find((a: { slug: string }) => a.slug === 'koala')).toMatchObject({ mine: false });
+    expect(res.data.find((a) => a.slug === 'koala')).toMatchObject({ mine: false });
 
     await h.close();
   });
@@ -156,7 +161,7 @@ describe('engine routes', () => {
     expect(res.status).toBe(201);
     expect(res.data).toEqual({ runId: 'run-fixed', agentSlug: 'koala', loopId: 'interactive-chat' });
 
-    expect(workflows.start).toHaveBeenCalledWith('AgentRunWorkflow', expect.objectContaining({
+    expect(workflows.start).toHaveBeenCalledWith('AgentRunWorkflow', objectWith({
       workflowId: 'run-fixed',
       taskQueue: 'engine-queue',
     }));
@@ -181,7 +186,7 @@ describe('engine routes', () => {
     expect(res.status).toBe(201);
     expect(options.args[0].procedure).toEqual(RESEARCH_V2);
     await expect(axios.post(h.url('/api/engine/runs'), { agent: 'koala', message: 'hi', procedure: 'nowhere' }))
-      .rejects.toMatchObject({ response: { status: 404, data: { error: expect.stringContaining('nowhere') } } });
+      .rejects.toMatchObject({ response: { status: 404, data: { error: containing('nowhere') } } });
 
     await h.close();
   });
@@ -246,7 +251,7 @@ describe('engine routes', () => {
     await db!.engine.saveConversation({ id: 'channel-p1', ownerId: TEST_USER.id, title: 'Shop', kind: 'channel', projectId: 'p1', messages: [
       { role: 'user', author: { kind: 'person', id: TEST_USER.id }, content: 'add an e2e test', at: stamp },
     ], createdAt: stamp, updatedAt: stamp } as never);
-    const ask = (body: Record<string, unknown>) => axios.post(h.url('/api/engine/runs'), { agent: 'koala', message: 'add an e2e test', conversationId: 'channel-p1', ...body }, { validateStatus: () => true });
+    const ask = (body: Record<string, unknown>) => axios.post<{ error?: string }>(h.url('/api/engine/runs'), { agent: 'koala', message: 'add an e2e test', conversationId: 'channel-p1', ...body }, { validateStatus: () => true });
 
     const asked = await ask({ asks: stamp });
     expect(asked.status).toBe(201);
@@ -279,7 +284,7 @@ describe('engine routes', () => {
     const h: Harness = await harnessWith(starter());
 
     await expect(axios.post(h.url('/api/engine/runs'), { agent: 'ghost', message: 'hi' }))
-      .rejects.toMatchObject({ response: { status: 404, data: { error: expect.stringContaining('ghost') } } });
+      .rejects.toMatchObject({ response: { status: 404, data: { error: containing('ghost') } } });
 
     await h.close();
   });
@@ -309,9 +314,9 @@ describe('engine routes', () => {
     });
     await db!.engine.saveRunTraces([trace(2, TEST_USER.id), trace(1, TEST_USER.id), trace(3, 'someone-else')]);
 
-    const res = await axios.get(h.url('/api/engine/runs/run-1/traces'));
+    const res = await axios.get<{ traces: { node: string }[] }>(h.url('/api/engine/runs/run-1/traces'));
 
-    expect(res.data.traces.map((entry: { node: string }) => entry.node)).toEqual(['n1', 'n2']);
+    expect(res.data.traces.map((entry) => entry.node)).toEqual(['n1', 'n2']);
     await h.close();
   });
 
@@ -370,13 +375,13 @@ describe('engine routes', () => {
     seedTask({ id: 'third', status: 'accepted' });
 
     const h: Harness = await harnessWith(starter());
-    const res = await axios.get(h.url('/api/engine/tasks'));
+    const res = await axios.get<ListedTask[]>(h.url('/api/engine/tasks'));
 
-    const second = res.data.find((task: { id: string }) => task.id === 'second');
-    const third = res.data.find((task: { id: string }) => task.id === 'third');
+    const second = res.data.find((task) => task.id === 'second');
+    const third = res.data.find((task) => task.id === 'third');
 
     expect(second).toMatchObject({ ready: false });
-    expect(second.waitingOn).toEqual([{ id: 'first', title: 'first', status: 'running' }]);
+    expect(second?.waitingOn).toEqual([{ id: 'first', title: 'first', status: 'running' }]);
     expect(third).toMatchObject({ ready: true, waitingOn: [] });
 
     await h.close();
@@ -387,9 +392,9 @@ describe('engine routes', () => {
     seedTask({ id: 'b', status: 'done' });
 
     const h: Harness = await harnessWith(starter());
-    const res = await axios.get(h.url('/api/engine/tasks?status=proposed'));
+    const res = await axios.get<ListedTask[]>(h.url('/api/engine/tasks?status=proposed'));
 
-    expect(res.data.map((task: { id: string }) => task.id)).toEqual(['a']);
+    expect(res.data.map((task) => task.id)).toEqual(['a']);
 
     await h.close();
   });
@@ -398,7 +403,7 @@ describe('engine routes', () => {
     seedTask({ id: 'a', status: 'proposed' });
 
     const h: Harness = await harnessWith(starter());
-    const res = await axios.post(h.url('/api/engine/tasks/a/accept'), {});
+    const res = await axios.post<Task>(h.url('/api/engine/tasks/a/accept'), {});
 
     expect(res.data.status).toBe('accepted');
     expect(tasks[0]?.status).toBe('accepted');
@@ -434,9 +439,9 @@ describe('engine routes', () => {
     });
 
     const h: Harness = await harnessWith(starter());
-    const res = await axios.get(h.url('/api/engine/tasks'));
+    const res = await axios.get<ListedTask[]>(h.url('/api/engine/tasks'));
 
-    expect(res.data.map((task: { id: string }) => task.id)).toEqual(['mine']);
+    expect(res.data.map((task) => task.id)).toEqual(['mine']);
 
     await h.close();
   });
@@ -467,9 +472,9 @@ describe('engine routes', () => {
     });
 
     expect(res.status).toBe(201);
-    expect(workflows.start).toHaveBeenCalledWith('AgentRunWorkflow', expect.objectContaining({
-      args: [expect.objectContaining({
-        ticket: expect.objectContaining({
+    expect(workflows.start).toHaveBeenCalledWith('AgentRunWorkflow', objectWith({
+      args: [objectWith({
+        ticket: objectWith({
           modelId: 'test-model-123',
         }),
       })],
@@ -502,9 +507,9 @@ describe('engine routes', () => {
       temperature: 0.4,
     });
     expect(started.status).toBe(201);
-    expect(workflows.start).toHaveBeenCalledWith('AgentRunWorkflow', expect.objectContaining({
-      args: [expect.objectContaining({
-        ticket: expect.objectContaining({
+    expect(workflows.start).toHaveBeenCalledWith('AgentRunWorkflow', objectWith({
+      args: [objectWith({
+        ticket: objectWith({
           sampling: { toolTurn: { temperature: 0.4 }, conversation: { temperature: 0.4 } },
         }),
       })],

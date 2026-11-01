@@ -1,3 +1,4 @@
+import { ignore } from '@koala/engine-core/failures';
 import type { NodeRequest, Procedure, StepResult } from '@koala/agent-engine/procedure';
 import { resolveTreeType, type TreeTypeSpec } from '../../../projects/lib/tree-types.js';
 import type { EnvironmentDriver } from '@koala/engine-core';
@@ -347,7 +348,7 @@ export function createGroveOperations(deps: GroveOperationDeps): Record<string, 
         const driver = await driverFor(request, environment, tree.id, checkout ? judgeCheckout(leafId) : leafWorktree(leafId));
         const sandbox = {
           exec: async (command: string, timeoutMs?: number) => driver.exec({ command, ...(timeoutMs ? { timeoutMs } : {}) }),
-          readFile: (path: string) => driver.readFile(path).catch(() => undefined),
+          readFile: (path: string) => driver.readFile(path).catch(ignore('a file the checks cannot read is reported by them as not read, which fails its check saying so')),
         };
         const outcomes: CheckOutcome[] = [];
         for (const task of withChecks) outcomes.push(...await runTaskChecks(sandbox, task.checks));

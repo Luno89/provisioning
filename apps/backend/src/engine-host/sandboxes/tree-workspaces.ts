@@ -79,7 +79,7 @@ export function createTreeWorkspaces(options: { resolver: EnvironmentResolver; k
       const namespace = namespaceOf(treeId);
       const found = await options.kube(['get', 'namespace', namespace, '-o', 'name']);
       if (found.exitCode !== 0) return 'none';
-      return (await workspaceRunning(options.kube, namespace, POD).catch(() => false)) ? 'running' : 'parked';
+      return (await workspaceRunning(options.kube, namespace, POD)) ? 'running' : 'parked';
     },
 
     save,

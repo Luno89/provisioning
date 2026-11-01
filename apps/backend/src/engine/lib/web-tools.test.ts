@@ -3,7 +3,7 @@ import { createWebTools } from './web-tools.js';
 
 function stubFetch(routes: Array<[string, Partial<Response> | (() => Partial<Response>)]>) {
   const calls: Array<{ url: string; init: RequestInit | undefined }> = [];
-  const impl = vi.fn(async (input: any, init?: RequestInit) => {
+  const impl = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
     const url = String(input);
     calls.push({ url, init });
     for (const [match, res] of routes) {
@@ -90,6 +90,13 @@ describe('search', () => {
 
     expect((await tools.search('x')).unavailable).toBe(true);
   });
+
+  it('treats a DuckDuckGo answer cut off mid-body as unavailable, not as no matches', async () => {
+    const { impl } = stubFetch([['duckduckgo', { text: async () => { throw new Error('terminated'); } }]]);
+    const tools = createWebTools({ fetchImpl: impl });
+
+    expect((await tools.search('x')).unavailable).toBe(true);
+  });
 });
 
 describe('fetching a page', () => {
@@ -102,7 +109,7 @@ describe('fetching a page', () => {
     const tools = createWebTools({ crawl4aiUrl: 'http://c4:11235', crawl4aiToken: 'sekrit', fetchImpl: impl });
 
     expect(await tools.fetchPage('https://weather.com/x')).toContain('AQI 42');
-    expect((calls[0]?.init?.headers as any).authorization).toBe('Bearer sekrit');
+    expect((calls[0]?.init?.headers as Record<string, string> | undefined)?.authorization).toBe('Bearer sekrit');
   });
 
   it('never calls the token endpoint', async () => {
@@ -148,6 +155,13 @@ describe('fetching a page', () => {
     expect(await tools.readPage('https://gone.dev/x')).toEqual({ ok: false, text: 'HTTP error 404' });
     expect(await tools.readPage('https://fine.dev')).toEqual({ ok: true, text: 'here' });
     expect(await tools.readPage('file:///etc/passwd')).toMatchObject({ ok: false });
+  });
+
+  it('says a page could not be read when its body is cut off, rather than calling it empty', async () => {
+    const { impl } = stubFetch([['cut.dev', { text: async () => { throw new Error('terminated'); } }]]);
+    const tools = createWebTools({ fetchImpl: impl });
+
+    expect(await tools.readPage('https://cut.dev')).toEqual({ ok: false, text: 'The page could not be read: terminated' });
   });
 
   it('marks a blocked site as a refusal so the agent can reroute instead of retrying', async () => {

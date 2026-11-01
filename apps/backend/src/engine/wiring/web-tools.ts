@@ -7,6 +7,7 @@ export type { CorpusEndpoints };
 
 export const webToolsDeps = (db: Pick<Database, 'infrastructure'>): WebToolsDeps => ({
   ...webToolsDepsFrom(db.infrastructure, new ClusterService(db as never, new InfrastructureService()), sharedClusterProxy()),
+  env: process.env,
   pageFetch: publicFetch,
   pageCheck: publicAddressProblem,
 });

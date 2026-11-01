@@ -24,6 +24,7 @@ import { createProcedureExecutor, withTemperature, type HostNodeServices } from 
 import { inMemoryConversations } from './conversation-nodes.js';
 import { INTERACTIVE_CHAT_V4 } from '@koala/agent-engine/procedure';
 import { seededAgents } from '../../extensions/seeds.js';
+import { anyOf, objectWith } from '../../engine/lib/test-matchers.js';
 
 const CATALOGUE: ToolContract[] = [
   { name: 'run_command', description: 'Run a shell command', binding: 'environment', requires: { terminal: true }, usageGuidance: 'Prefer a dedicated tool when one fits.' },
@@ -447,12 +448,12 @@ describe('running tool-rounds node by node', () => {
     const [, second] = model.bodies();
 
     expect(result.outcome).toBe('ok');
-    expect(toolRuns).toHaveBeenCalledWith(expect.objectContaining({
+    expect(toolRuns).toHaveBeenCalledWith(objectWith({
       name: 'read_file',
       arguments: '{"path":"package.json"}',
       callId: 'call-7',
       granted: SANDBOXED.tools,
-      environment: expect.objectContaining({ id: expect.any(String) }),
+      environment: objectWith({ id: anyOf(String) }),
     }));
     expect(second!.messages.slice(1)).toEqual([
       { role: 'user', content: 'get on with it' },
@@ -709,7 +710,7 @@ describe('doing one task', () => {
     expect(result).toMatchObject({ outcome: 'ok' });
     expect(judged!.messages.at(-1)?.content).toBe(`work: I wrote hello.txt with the word hello in it.\n\nexpected: ${task.doneMeans}`);
     expect(decided!.messages.at(-1)?.content).toContain('Verdict: met. The file holds the word.');
-    expect(toolRuns.mock.calls.map(([call]) => [call!.name, JSON.parse(call!.arguments)])).toEqual([
+    expect(toolRuns.mock.calls.map(([call]) => [call!.name, JSON.parse(call!.arguments) as unknown])).toEqual([
       ['start_task', { taskId: 'task-1' }],
       ['task_status', { taskId: 'task-1' }],
       ['mark_done', { taskId: 'task-1', evidence: 'I wrote hello.txt with the word hello in it.' }],
@@ -734,7 +735,7 @@ describe('doing one task', () => {
     const result = await doTask(services);
 
     expect(result).toMatchObject({ outcome: 'failed', reason: 'the judge did not accept the work' });
-    expect(toolRuns.mock.calls.map(([call]) => [call!.name, JSON.parse(call!.arguments)])).toEqual([
+    expect(toolRuns.mock.calls.map(([call]) => [call!.name, JSON.parse(call!.arguments) as unknown])).toEqual([
       ['start_task', { taskId: 'task-1' }],
       ['task_status', { taskId: 'task-1' }],
       ['mark_failed', { taskId: 'task-1', reason: 'no\nThe judge found no evidence the file exists.' }],

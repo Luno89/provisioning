@@ -1,17 +1,18 @@
 import { describe, it, expect, vi } from 'vitest';
-import { resolveWebTools } from './web-tools-resolver.js';
+import { resolveWebTools, type WebToolsDeps } from './web-tools-resolver.js';
+import type { DeploymentMetadata } from '../../platform/index.js';
 
-const dep = (over: Record<string, unknown> = {}) => ({
-  id: 'd1', name: 'Koala Search', appType: 'searxng', status: 'running', clusterId: 'c1', ...over,
-} as any);
+const dep = (over: Partial<DeploymentMetadata> = {}): DeploymentMetadata => ({
+  id: 'd1', name: 'Koala Search', appType: 'searxng', status: 'running', clusterId: 'c1', strategy: 'helm', ...over,
+});
 
-const deps = (deployments: any[], over: Record<string, unknown> = {}) => ({
+const deps = (deployments: DeploymentMetadata[], over: Partial<WebToolsDeps> = {}) => ({
   db: { getDeployments: vi.fn(async () => deployments) },
-  serviceUrl: vi.fn(async (_c: string, _k: string, _kc: string, t: any) => `http://localhost:4${t.remotePort}/`),
+  serviceUrl: vi.fn<WebToolsDeps['serviceUrl']>(async (_c, _k, _kc, t) => `http://localhost:4${t.remotePort}/`),
   kubeconfigFor: vi.fn(async () => '/tmp/kubeconfig'),
   env: {},
   ...over,
-} as any);
+}) satisfies WebToolsDeps;
 
 describe('resolving a deployed service', () => {
   it('reaches into the deployment and uses it', async () => {
@@ -50,18 +51,19 @@ describe('resolving a deployed service', () => {
 });
 
 describe('crawl4ai credentials', () => {
-  const crawl = (over = {}) => dep({ id: 'c9', name: 'crawler', appType: 'crawl4ai', crawl4aiApiToken: 'tok', ...over });
+  const untokened = () => dep({ id: 'c9', name: 'crawler', appType: 'crawl4ai' });
+  const crawl = () => ({ ...untokened(), crawl4aiApiToken: 'tok' });
 
   it('pairs the deployment with its own stored token', async () => {
     expect((await resolveWebTools(deps([crawl()]))).sources.fetch).toBe('crawl4ai');
   });
 
   it('will not use a deployment whose token was never stored', async () => {
-    expect((await resolveWebTools(deps([crawl({ crawl4aiApiToken: undefined })]))).sources.fetch).toBe('strip-tags');
+    expect((await resolveWebTools(deps([untokened()]))).sources.fetch).toBe('strip-tags');
   });
 
   it('never pairs a deployment URL with an env var token', async () => {
-    const d = deps([crawl({ crawl4aiApiToken: undefined })], { env: { CRAWL4AI_API_TOKEN: 'unrelated' } });
+    const d = deps([untokened()], { env: { CRAWL4AI_API_TOKEN: 'unrelated' } });
 
     expect((await resolveWebTools(d)).sources.fetch).toBe('strip-tags');
   });

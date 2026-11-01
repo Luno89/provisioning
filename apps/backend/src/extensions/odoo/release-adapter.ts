@@ -46,7 +46,9 @@ export const ODOO_RELEASE_ADAPTER: SlotAdapter = {
     try {
       await cluster.job(target, name, restoreJob({ release: target.release, image: build.image, database: databaseOf(slot), mode, vault: build.vault }));
     } finally {
-      await cluster.remove(target, 'job', name, true).catch(() => undefined);
+      await cluster.remove(target, 'job', name, true).catch((err: unknown) => {
+        console.warn(`[odoo] the restore job ${name} is left in ${target.namespace}, and the next restore replaces it: ${(err as Error).message}`);
+      });
     }
   },
 

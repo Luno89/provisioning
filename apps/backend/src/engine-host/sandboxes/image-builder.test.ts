@@ -25,7 +25,7 @@ const CUSTOM = planImage({ tools: [needsPsql] });
 function kube(script: Partial<Record<string, KubeResult>> = {}) {
   const calls: { args: string[]; input?: string | undefined }[] = [];
 
-  const run: KubeRunner = vi.fn(async (args, input) => {
+  const run = vi.fn<KubeRunner>(async (args, input) => {
     calls.push({ args, ...(input === undefined ? {} : { input }) });
     return script[args[0] ?? ''] ?? { stdout: '', stderr: '', exitCode: 0 };
   });
@@ -103,7 +103,8 @@ describe('building what does', () => {
       const applied = calls.find((call) => call.args[0] === 'apply')?.input ?? '';
       expect(applied).toContain(`--destination=${imageReference('gitea-http.gitea.svc.cluster.local:3000', CUSTOM)}`);
       expect(applied).toContain('--registry-map=127.0.0.1:35010=gitea-http.gitea.svc.cluster.local:3000');
-      const config = JSON.parse(JSON.parse(applied.split('\n---\n')[0]!).stringData['.dockerconfigjson']);
+      const secret = JSON.parse(applied.split('\n---\n')[0]!) as { stringData: Record<string, string> };
+      const config = JSON.parse(secret.stringData['.dockerconfigjson'] ?? '{}') as { auths: Record<string, unknown> };
       expect(Object.keys(config.auths).sort()).toEqual(['127.0.0.1:35010', 'gitea-http.gitea.svc.cluster.local:3000']);
       expect(asked.every((url) => url.startsWith('http://gitea-http.gitea.svc.cluster.local:3000/v2/'))).toBe(true);
     } finally {
@@ -188,7 +189,7 @@ describe('building what does', () => {
 
 describe('finding the registry rather than being told', () => {
   it('builds the address from the node and the pinned NodePort', async () => {
-    const run: KubeRunner = vi.fn(async (args) => {
+    const run = vi.fn<KubeRunner>(async (args) => {
       if (args[1] === 'svc') return { stdout: '31737', stderr: '', exitCode: 0 };
       return { stdout: '10.0.0.130', stderr: '', exitCode: 0 };
     });
@@ -197,13 +198,13 @@ describe('finding the registry rather than being told', () => {
   });
 
   it('says the registry is missing rather than pushing somewhere malformed', async () => {
-    const run: KubeRunner = vi.fn(async () => ({ stdout: '', stderr: 'NotFound', exitCode: 1 }));
+    const run = vi.fn<KubeRunner>(async () => ({ stdout: '', stderr: 'NotFound', exitCode: 1 }));
 
     await expect(discoverRegistry(run)).rejects.toThrow(/Could not find the image registry/);
   });
 
   it('says so when the node has no address the registry could be reached at', async () => {
-    const run: KubeRunner = vi.fn(async (args) =>
+    const run = vi.fn<KubeRunner>(async (args) =>
       (args[1] === 'svc'
         ? { stdout: '31737', stderr: '', exitCode: 0 }
         : { stdout: '', stderr: '', exitCode: 0 }));
@@ -214,7 +215,7 @@ describe('finding the registry rather than being told', () => {
   it('discovers once and reuses it, rather than asking per build', async () => {
     let lookups = 0;
     let applied = 0;
-    const run: KubeRunner = vi.fn(async (args) => {
+    const run = vi.fn<KubeRunner>(async (args) => {
       if (args[0] === 'apply') {
         applied += 1;
         return { stdout: '', stderr: '', exitCode: 0 };
@@ -304,7 +305,7 @@ describe('the token a workspace build pushes with', () => {
   function cluster() {
     const secrets = new Map<string, { name: string; labels?: Record<string, string>; annotations?: Record<string, string> }>();
     const jobs = new Map<string, string>();
-    const run: KubeRunner = vi.fn(async (args, input) => {
+    const run = vi.fn<KubeRunner>(async (args, input) => {
       const ok = (stdout = ''): KubeResult => ({ stdout, stderr: '', exitCode: 0 });
       if (args[0] === 'apply') {
         for (const doc of (input ?? '').split('\n---\n').map((text: string) => JSON.parse(text) as { kind: string; metadata: { name: string; labels?: Record<string, string>; annotations?: Record<string, string> } })) {

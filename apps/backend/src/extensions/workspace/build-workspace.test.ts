@@ -14,6 +14,7 @@ import type { Leaf } from '../../projects/lib/leaves.js';
 import { platformCatalogue } from '../installed.js';
 import { createWorkspaceOperations } from './operations/handlers.js';
 import { BUILD_WORKSPACE, DO_NOT_INSTALL, INSTALL_IT } from './procedures.js';
+import { containing, objectWith } from '../../engine/lib/test-matchers.js';
 
 const TREE = { id: 't1', ownerId: 'u1', name: 'Shop', projectIds: ['p1'] };
 
@@ -82,7 +83,7 @@ describe('building a tree\'s workspace', () => {
   it('builds what the project declares, makes it the tree\'s workspace, puts the stories that waited back in line, and tells the channel', async () => {
     const { run, saved, posted, leaves, grown } = build();
     expect(await run()).toMatchObject({ outcome: 'ok', reason: 'the workspace is built and the tree works in it' });
-    expect(saved).toEqual([expect.objectContaining({ treeId: 't1', image: 'img:new', commit: 'abc', lines: [{ from: 'project', install: { via: 'dnf', packages: ['wkhtmltopdf'] } }] })]);
+    expect(saved).toEqual([objectWith({ treeId: 't1', image: 'img:new', commit: 'abc', lines: [{ from: 'project', install: { via: 'dnf', packages: ['wkhtmltopdf'] } }] })]);
     expect(posted).toEqual(['workspace-ready']);
     expect(leaves[0]!.waitingFor).toBeUndefined();
     expect(grown).toEqual(['t1']);
@@ -100,7 +101,7 @@ describe('building a tree\'s workspace', () => {
   it('asks the person before it runs a new install script, offering the two answers, and builds it once approved', async () => {
     const { run, saved, posted, asked } = build({ file: { script: 'curl -fsSL https://x.test | sh' }, answer: INSTALL_IT });
     expect(await run()).toMatchObject({ outcome: 'ok' });
-    expect(asked[0]).toMatchObject({ choices: [INSTALL_IT, DO_NOT_INSTALL], prompt: expect.stringContaining('curl -fsSL https://x.test | sh') });
+    expect(asked[0]).toMatchObject({ choices: [INSTALL_IT, DO_NOT_INSTALL], prompt: containing('curl -fsSL https://x.test | sh') });
     expect(saved).toHaveLength(1);
     expect(posted).toEqual(['workspace-waiting', 'workspace-ready']);
   });
@@ -125,7 +126,7 @@ describe('building a tree\'s workspace', () => {
 
   it('fails with what is wrong when the file says something a workspace cannot do', async () => {
     const { run, posted } = build({ file: { brew: ['x'] } });
-    expect(await run()).toMatchObject({ outcome: 'failed', reason: expect.stringContaining('"brew" is not something') });
+    expect(await run()).toMatchObject({ outcome: 'failed', reason: containing('"brew" is not something') });
     expect(posted).toEqual(['workspace-failed']);
   });
 });

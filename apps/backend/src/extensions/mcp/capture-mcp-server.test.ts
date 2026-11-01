@@ -15,6 +15,7 @@ import { createMcpOperations } from './operations/handlers.js';
 import { CAPTURE_MCP_SERVER } from './procedures.js';
 import { PLAYWRIGHT } from './templates.js';
 import { createRunEnvironments, environmentIdFor } from '../../engine-host/sandboxes/run-environments.js';
+import { containing, objectWith } from '../../engine/lib/test-matchers.js';
 
 const TOOLS = [
   { name: 'browser_navigate', description: 'Open a page.', inputSchema: { type: 'object', properties: { url: { type: 'string' } } } },
@@ -108,13 +109,13 @@ describe('capturing an MCP server', () => {
   it('keeps why a hosted server could not be reached, and offers it to no one', async () => {
     const { run, records } = capture(record(), { unreachable: true });
     expect(await run()).toMatchObject({ outcome: 'failed' });
-    expect(records.get('s1')!.failed).toMatchObject({ why: expect.stringContaining('has no address this server can reach') });
+    expect(records.get('s1')!.failed).toMatchObject({ why: containing('has no address this server can reach') });
   });
 
   it('builds a workspace server\'s image, starts it in the run\'s own sandbox in that image, and asks it', async () => {
     const { run, records, opened, commands, released } = capture(record({ name: 'playwright', runs: PLAYWRIGHT.runs }));
     expect(await run()).toMatchObject({ outcome: 'ok', outputs: { capturedStarted: { result: 'playwright serves 2 tools' } } });
-    expect(opened).toEqual([expect.objectContaining({ id: environmentIdFor('mcp-capture-s1'), spec: { kind: 'sandbox', lifecycle: 'invocation' }, workspace: expect.objectContaining({ image: 'reg/ws:fp', runId: 'mcp-capture-s1' }) })]);
+    expect(opened).toEqual([objectWith({ id: environmentIdFor('mcp-capture-s1'), spec: { kind: 'sandbox', lifecycle: 'invocation' }, workspace: objectWith({ image: 'reg/ws:fp', runId: 'mcp-capture-s1' }) })]);
     expect(commands[0]).toContain('playwright-mcp --browser chromium');
     expect(records.get('s1')!.captured!.tools.map((tool) => tool.name)).toEqual(['browser_navigate', 'browser_snapshot']);
     expect(released).toEqual(['mcp-capture-s1']);

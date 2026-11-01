@@ -1,3 +1,4 @@
+import { ignore } from '@koala/engine-core/failures';
 import type { ModelReach } from '@koala/harness-types';
 import { attachmentsText, type MessageAttachment } from '../../engine/lib/attachments.js';
 import { v4 as uuidv4 } from 'uuid';
@@ -205,7 +206,7 @@ export function createRunStarter(options: RunStarterOptions) {
           },
         });
       } catch (err) {
-        if (turn) await options.turns!.fail(turn, `the run could not start: ${(err as Error).message}`).catch(() => undefined);
+        if (turn) await options.turns!.fail(turn, `the run could not start: ${(err as Error).message}`).catch(ignore('the start failure is thrown below, and a turn left open is closed the next time its conversation is read, its run not running'));
         throw err;
       }
 

@@ -52,8 +52,8 @@ export class WorkspaceService {
         child.kill('SIGKILL');
       }, timeoutMs);
 
-      child.stdout.on('data', (d) => { stdout += d.toString(); });
-      child.stderr.on('data', (d) => { stderr += d.toString(); });
+      child.stdout.on('data', (d: Buffer) => { stdout += d.toString(); });
+      child.stderr.on('data', (d: Buffer) => { stderr += d.toString(); });
       child.on('error', (err) => { clearTimeout(timer); reject(err); });
       child.on('close', (code) => {
         clearTimeout(timer);
@@ -110,7 +110,9 @@ export class WorkspaceService {
       { timeoutMs: readyTimeoutMs + 10_000 },
     );
     if (ready.exitCode !== 0) {
-      await this.destroy(spec.leafId).catch(() => undefined);
+      await this.destroy(spec.leafId).catch((err: unknown) => {
+        console.warn(`[workspace] ${namespace} never became ready and could not be removed, so it is left for the stale sweep: ${(err as Error).message}`);
+      });
       throw new Error(`Workspace ${namespace} never became ready: ${ready.stderr || ready.stdout}`);
     }
     return namespace;
@@ -200,8 +202,12 @@ export class WorkspaceService {
       const [, createdAt, leafId] = line.trim().split(/\s+/);
       if (!createdAt || !leafId) continue;
       if (new Date(createdAt).getTime() > cutoff) continue;
-      await this.destroy(leafId).catch(() => undefined);
-      reaped.push(leafId);
+      try {
+        await this.destroy(leafId);
+        reaped.push(leafId);
+      } catch (err) {
+        console.warn(`[workspace] could not remove the stale workspace of ${leafId}: ${(err as Error).message}`);
+      }
     }
     return reaped;
   }

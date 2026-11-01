@@ -10,8 +10,31 @@ import { WORKSPACE_IMAGE_SEEDS as IMAGES } from './workspace-image-seeds.js';
 import { seedsByLanguage as BY_LANGUAGE, DEFAULT_WORKSPACE_LANGUAGE } from './workspace-image-seeds.js';
 
 const spec = { leafId: 'aaaa-bbbb-cccc', ownerId: 'user-1' };
-const find = (kind: string, manifests = buildWorkspaceManifests(IMAGES, spec)) =>
-  manifests.find((m) => m.kind === kind) as any;
+type Labelled = { name: string; labels: Record<string, string> };
+type Container = {
+  command: string[];
+  securityContext: { allowPrivilegeEscalation: boolean; capabilities: { drop: string[] }; readOnlyRootFilesystem: boolean };
+  resources: { limits: Record<string, string> };
+  volumeMounts: { mountPath: string }[];
+};
+type Pod = {
+  metadata: Labelled;
+  spec: { automountServiceAccountToken: boolean; securityContext: { runAsNonRoot: boolean; runAsUser: number }; containers: Container[]; activeDeadlineSeconds: number; restartPolicy: string };
+};
+type EgressRule = { to: unknown[]; ports: { protocol: string; port: number }[] };
+type NetworkPolicy = { spec: { ingress: unknown[]; egress: EgressRule[]; podSelector: unknown; policyTypes: string[] } };
+type Namespace = { metadata: Labelled };
+type Manifests = ReturnType<typeof buildWorkspaceManifests>;
+const kindOf = (kind: string, manifests: Manifests) => {
+  const found = manifests.find((m) => m.kind === kind);
+  if (!found) throw new Error(`no ${kind} among the manifests`);
+  return found;
+};
+const find = {
+  Pod: (manifests: Manifests = buildWorkspaceManifests(IMAGES, spec)) => kindOf('Pod', manifests) as Pod,
+  NetworkPolicy: (manifests: Manifests = buildWorkspaceManifests(IMAGES, spec)) => kindOf('NetworkPolicy', manifests) as NetworkPolicy,
+  Namespace: (manifests: Manifests = buildWorkspaceManifests(IMAGES, spec)) => kindOf('Namespace', manifests) as Namespace,
+};
 
 describe('workspaceNamespace', () => {
   it('derives a valid Kubernetes name from a leaf id', () => {
@@ -35,71 +58,71 @@ describe('workspaceNamespace', () => {
 
 describe('the sandbox pod', () => {
   it('never mounts a service-account token', () => {
-    expect(find('Pod').spec.automountServiceAccountToken).toBe(false);
+    expect(find.Pod().spec.automountServiceAccountToken).toBe(false);
   });
 
   it('runs unprivileged, as a non-root user, with no capabilities', () => {
-    const pod = find('Pod');
+    const pod = find.Pod();
     expect(pod.spec.securityContext.runAsNonRoot).toBe(true);
     expect(pod.spec.securityContext.runAsUser).not.toBe(0);
     const container = pod.spec.containers[0];
-    expect(container.securityContext.allowPrivilegeEscalation).toBe(false);
-    expect(container.securityContext.capabilities.drop).toContain('ALL');
-    expect(container.securityContext.readOnlyRootFilesystem).toBe(true);
+    expect(container?.securityContext.allowPrivilegeEscalation).toBe(false);
+    expect(container?.securityContext.capabilities.drop).toContain('ALL');
+    expect(container?.securityContext.readOnlyRootFilesystem).toBe(true);
   });
 
   it('starts idle, so nothing runs that a tool call did not ask for', () => {
-    expect(find('Pod').spec.containers[0].command[0]).toBe('sleep');
+    expect(find.Pod().spec.containers[0]?.command[0]).toBe('sleep');
   });
 
   it('is capped in cpu, memory and wall-clock', () => {
-    const pod = find('Pod');
+    const pod = find.Pod();
     expect(pod.spec.activeDeadlineSeconds).toBe(MAX_WORKSPACE_SECONDS);
-    expect(pod.spec.containers[0].resources.limits).toMatchObject({ cpu: '2', memory: '2Gi' });
+    expect(pod.spec.containers[0]?.resources.limits).toMatchObject({ cpu: '2', memory: '2Gi' });
     expect(pod.spec.restartPolicy).toBe('Never');
   });
 
   it('has a writable workspace and tmp despite the read-only root', () => {
-    const container = find('Pod').spec.containers[0];
-    expect(container.volumeMounts.map((v: any) => v.mountPath).sort()).toEqual(['/tmp', '/work']);
+    const container = find.Pod().spec.containers[0];
+    expect(container?.volumeMounts.map((v) => v.mountPath).sort()).toEqual(['/tmp', '/work']);
   });
 
   it('uses a fixed pod name, so exec never has to discover one', () => {
-    expect(find('Pod').metadata.name).toBe(WORKSPACE_POD);
+    expect(find.Pod().metadata.name).toBe(WORKSPACE_POD);
   });
 });
 
 describe('the network policy', () => {
   it('denies all ingress — nothing should ever dial into a sandbox', () => {
-    expect(find('NetworkPolicy').spec.ingress).toEqual([]);
+    expect(find.NetworkPolicy().spec.ingress).toEqual([]);
   });
 
   it('allows DNS to the cluster\'s own resolver and nothing else by default, so port 53 is no way out', () => {
-    const egress = find('NetworkPolicy').spec.egress;
+    const egress = find.NetworkPolicy().spec.egress;
     expect(egress).toHaveLength(1);
-    expect(egress[0].ports.map((p: any) => p.port)).toEqual([53, 53]);
-    expect(egress[0].to).toEqual([{
+    expect(egress[0]?.ports.map((p) => p.port)).toEqual([53, 53]);
+    expect(egress[0]?.to).toEqual([{
       namespaceSelector: { matchLabels: { 'kubernetes.io/metadata.name': 'kube-system' } },
       podSelector: { matchLabels: { 'k8s-app': 'kube-dns' } },
     }]);
   });
 
   it('covers every pod in the namespace, not just the one we create', () => {
-    expect(find('NetworkPolicy').spec.podSelector).toEqual({});
-    expect(find('NetworkPolicy').spec.policyTypes.sort()).toEqual(['Egress', 'Ingress']);
+    expect(find.NetworkPolicy().spec.podSelector).toEqual({});
+    expect(find.NetworkPolicy().spec.policyTypes.sort()).toEqual(['Egress', 'Ingress']);
   });
 
   it('opens exactly what an allowlist asks for, and no more', () => {
     const manifests = buildWorkspaceManifests(IMAGES, { ...spec, egress: [{ cidr: '203.0.113.5/32', ports: [443] }] });
-    const egress = find('NetworkPolicy', manifests).spec.egress;
+    const egress = find.NetworkPolicy(manifests).spec.egress;
     expect(egress).toHaveLength(2);
-    expect(egress[1].to).toEqual([{ ipBlock: { cidr: '203.0.113.5/32' } }]);
-    expect(egress[1].ports).toEqual([{ protocol: 'TCP', port: 443 }]);
+    expect(egress[1]?.to).toEqual([{ ipBlock: { cidr: '203.0.113.5/32' } }]);
+    expect(egress[1]?.ports).toEqual([{ protocol: 'TCP', port: 443 }]);
   });
 
   it('scopes the namespace to its owner, so orphans are findable', () => {
-    expect(find('Namespace').metadata.labels['koala.dev/owner']).toBe('user-1');
-    expect(find('Namespace').metadata.labels['koala.dev/leaf']).toBe('aaaa-bbbb-cccc');
+    expect(find.Namespace().metadata.labels['koala.dev/owner']).toBe('user-1');
+    expect(find.Namespace().metadata.labels['koala.dev/leaf']).toBe('aaaa-bbbb-cccc');
   });
 });
 

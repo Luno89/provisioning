@@ -1,5 +1,6 @@
 import { patientFetch } from '@koala/agent-engine';
 import { withoutHiddenHtml } from './hidden-text.js';
+import { fieldsOf } from './request-fields.js';
 
 export interface SearchHit {
   title: string;
@@ -75,6 +76,23 @@ async function tryFetch(
   }
 }
 
+async function bodyText(res: Response): Promise<string | Error> {
+  try {
+    return await res.text();
+  } catch (err) {
+    return err instanceof Error ? err : new Error(String(err));
+  }
+}
+
+async function bodyJson(res: Response): Promise<unknown> {
+  try {
+    const parsed: unknown = await res.json();
+    return parsed;
+  } catch {
+    return undefined;
+  }
+}
+
 async function duckduckgo(doFetch: typeof fetch, query: string, signal?: AbortSignal): Promise<SearchHit[] | undefined> {
   const res = await tryFetch(doFetch, `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`, {
     headers: {
@@ -83,7 +101,8 @@ async function duckduckgo(doFetch: typeof fetch, query: string, signal?: AbortSi
   }, signal);
   if (!res?.ok) return undefined;
 
-  const html = await res.text().catch(() => '');
+  const html = await bodyText(res);
+  if (html instanceof Error) return undefined;
   if (/anomaly|unusual traffic|blocked/i.test(html) && !html.includes('result__url')) return undefined;
 
   const hits: SearchHit[] = [];
@@ -106,11 +125,11 @@ async function searxng(doFetch: typeof fetch, base: string, query: string, signa
   const res = await tryFetch(doFetch, url, { headers: { accept: 'application/json' } }, signal);
   if (!res?.ok) return undefined;
 
-  const body = await res.json().catch(() => undefined) as { results?: unknown[] } | undefined;
-  if (!Array.isArray(body?.results)) return undefined;
+  const { results } = fieldsOf(await bodyJson(res));
+  if (!Array.isArray(results)) return undefined;
 
-  return body.results.slice(0, 5).map((r) => {
-    const hit = r as { title?: unknown; content?: unknown; url?: unknown };
+  return results.slice(0, 5).map((r) => {
+    const hit = fieldsOf(r);
     return {
       title: String(hit.title ?? ''),
       snippet: String(hit.content ?? ''),
@@ -138,7 +157,9 @@ async function stripTags(doFetch: typeof fetch, url: string, signal?: AbortSigna
     return { ok: false, text: `HTTP error ${res.status}` };
   }
 
-  const shown = withoutHiddenHtml(await res.text().catch(() => ''));
+  const html = await bodyText(res);
+  if (html instanceof Error) return { ok: false, text: `The page could not be read: ${html.message}` };
+  const shown = withoutHiddenHtml(html);
   const text = shown.html
     .replace(/<script[\s\S]*?<\/script>/gi, '')
     .replace(/<style[\s\S]*?<\/style>/gi, '')
@@ -160,8 +181,8 @@ function crawl4ai(doFetch: typeof fetch, base: string, token: string) {
     }, signal);
     if (!res?.ok) return undefined;
 
-    const body = await res.json().catch(() => undefined) as { markdown?: unknown } | undefined;
-    const markdown = typeof body?.markdown === 'string' ? body.markdown : undefined;
+    const { markdown: said } = fieldsOf(await bodyJson(res));
+    const markdown = typeof said === 'string' ? said : undefined;
     return markdown?.trim() ? markdown.slice(0, MAX_PAGE_CHARS) : undefined;
   };
 }

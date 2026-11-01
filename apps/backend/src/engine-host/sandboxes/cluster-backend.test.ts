@@ -5,6 +5,7 @@ import { createClusterBackend, GROUPED_EXEC, STOP_GROUPED_EXEC, WorkspaceUnavail
 import { workspaceName, type RunWorkspace } from './workspace.js';
 import type { KubeResult, KubeRunner } from './kube.js';
 import { workspaceStamp } from '../../engine/lib/published-workspace.js';
+import { anyOf } from '../../engine/lib/test-matchers.js';
 
 const workspace: RunWorkspace = {
   runId: 'run-abc',
@@ -25,7 +26,7 @@ const NAMESPACE = workspaceName('run-abc');
 function kube(script: Partial<Record<string, KubeResult>> = {}, fallback?: KubeResult) {
   const calls: { args: string[]; input?: string | undefined }[] = [];
 
-  const run: KubeRunner = vi.fn(async (args, input) => {
+  const run = vi.fn<KubeRunner>(async (args, input) => {
     calls.push({ args, ...(input === undefined ? {} : { input }) });
     const verb = args[0] === 'get' && args.includes('json') ? 'ready' : args[0] ?? '';
     return script[verb] ?? (verb === 'ready' ? readyPod : undefined) ?? fallback ?? { stdout: '', stderr: '', exitCode: 0 };
@@ -83,9 +84,9 @@ describe('standing a workspace up', () => {
     const login = { hosts: { push: '10.0.0.130:31737', pull: '10.0.0.130:31737' }, username: 'provisioning-bot', password: 'tok' };
     const withLogin = kube({ get: notRunning });
     await createClusterBackend({ run: withLogin.run, workspace, registry: async () => login }).exec({ sandboxId: 'x', command: 'echo' });
-    const docs = (withLogin.calls.find((call) => call.args[0] === 'apply')?.input ?? '').split('\n---\n').map((doc) => JSON.parse(doc));
+    const docs = (withLogin.calls.find((call) => call.args[0] === 'apply')?.input ?? '').split('\n---\n').map((doc) => JSON.parse(doc) as { kind: string; spec?: { imagePullSecrets?: unknown } });
     expect(docs.find((doc) => doc.kind === 'Secret')).toMatchObject({ type: 'kubernetes.io/dockerconfigjson', metadata: { name: 'koala-registry-pull', namespace: NAMESPACE } });
-    expect(docs.find((doc) => doc.kind === 'Pod').spec.imagePullSecrets).toEqual([{ name: 'koala-registry-pull' }]);
+    expect(docs.find((doc) => doc.kind === 'Pod')?.spec?.imagePullSecrets).toEqual([{ name: 'koala-registry-pull' }]);
 
     const without = kube({ get: notRunning });
     await createClusterBackend({ run: without.run, workspace }).exec({ sandboxId: 'x', command: 'echo' });
@@ -115,7 +116,7 @@ describe('standing a workspace up', () => {
 
   it('keeps waiting for a pod that is still pulling its image, however long that takes', async () => {
     let asked = 0;
-    const run: KubeRunner = vi.fn(async (args) => {
+    const run = vi.fn<KubeRunner>(async (args) => {
       if (args[0] === 'get' && args.includes('json')) {
         asked += 1;
         return asked < 4 ? podSaying({ phase: 'Pending', containerStatuses: [{ ready: false, state: { waiting: { reason: 'ContainerCreating' } } }] }) : readyPod;
@@ -253,7 +254,7 @@ describe('a workspace that outlives its pod', () => {
   it('brings a pod back over the same volume after it was parked or ran out its deadline', async () => {
     let phase: KubeResult = notRunning;
     const calls: string[][] = [];
-    const run: KubeRunner = vi.fn(async (args) => {
+    const run = vi.fn<KubeRunner>(async (args) => {
       calls.push(args);
       if (args[0] === 'get' && args.includes('json')) { phase = running; return readyPod; }
       if (args[0] === 'get') return phase;
@@ -307,7 +308,7 @@ describe('a kept workspace whose image was rebuilt', () => {
 describe('a workspace several runs share', () => {
   it('is started once when they all reach for it at the same moment, and its files are restored once', async () => {
     let applied = 0;
-    const run: KubeRunner = vi.fn(async (args) => {
+    const run = vi.fn<KubeRunner>(async (args) => {
       if (args[0] === 'apply') { applied += 1; await new Promise((resolve) => setTimeout(resolve, 30)); }
       if (args[0] === 'get') return args.includes('json') ? readyPod : applied > 0 ? running : notRunning;
       return { stdout: '', stderr: '', exitCode: 0 };
@@ -324,7 +325,7 @@ describe('a workspace several runs share', () => {
 
   it('applies again when another process created it first', async () => {
     let attempts = 0;
-    const run: KubeRunner = vi.fn(async (args) => {
+    const run = vi.fn<KubeRunner>(async (args) => {
       if (args[0] === 'apply') {
         attempts += 1;
         return attempts === 1 ? { stdout: '', stderr: 'Error from server (AlreadyExists): persistentvolumeclaims "work" already exists', exitCode: 1 } : { stdout: 'configured', stderr: '', exitCode: 0 };
@@ -341,7 +342,7 @@ describe('a command that may run long', () => {
   it('runs in its own process group with no time limit, and stopping it stops that group in the pod first', async () => {
     const calls: { args: string[]; timeoutMs?: number | undefined; options?: Record<string, unknown> | undefined }[] = [];
     const stop = new AbortController();
-    const run: KubeRunner = vi.fn(async (args, _input, timeoutMs, options) => {
+    const run = vi.fn<KubeRunner>(async (args, _input, timeoutMs, options) => {
       calls.push({ args, timeoutMs, options: options as never });
       if (args[0] === 'get') return args.includes('json') ? readyPod : running;
       if (args.includes(GROUPED_EXEC)) {
@@ -365,7 +366,7 @@ describe('a command that may run long', () => {
   it('runs every call in its own process group, so a limit the call set reaches what it started too', async () => {
     const { run, calls } = kube({ get: running });
     await createClusterBackend({ run, workspace }).exec({ sandboxId: 'x', command: 'ls', timeoutMs: 5_000 });
-    expect(calls.at(-1)?.args).toEqual(['exec', 'workspace', '-n', NAMESPACE, '-i', '--', 'sh', '-c', GROUPED_EXEC, 'sh', expect.any(String), 'ls']);
+    expect(calls.at(-1)?.args).toEqual(['exec', 'workspace', '-n', NAMESPACE, '-i', '--', 'sh', '-c', GROUPED_EXEC, 'sh', anyOf(String), 'ls']);
   });
 
   it('really stops what a command started when the stop script runs, and leaves the exit code of one that ends on its own', async () => {

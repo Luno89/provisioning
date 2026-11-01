@@ -3,6 +3,7 @@ import type { ActionProposal } from '../../engine/lib/action-proposals.js';
 import { createMonitoringTools, type MonitoringReading } from './handlers.js';
 import { APP_HEALTH, MONITORING_OVERVIEW, PROPOSE_ALERT } from './catalogue.js';
 import { asPerson } from '../../platform/lib/permissions.js';
+import { containing } from '../../engine/lib/test-matchers.js';
 
 const caller = { ownerId: 'me', conversationId: 'conv-1', runId: 'run-1' };
 let saved: ActionProposal[];
@@ -47,14 +48,14 @@ describe('the monitoring tools', () => {
   it('put an alert on a card, once', async () => {
     expect(await call(PROPOSE_ALERT, { app: 'Books', kind: 'down', why: 'they asked' })).toMatchObject({ ok: true, digest: 'proposed: Tell me when Books has not answered for 5 minutes' });
     expect(saved[0]).toMatchObject({ kind: 'set_alert', params: { deploymentId: 'books', kind: 'down', threshold: '0', forMinutes: '5' }, conversationId: 'conv-1', status: 'proposed' });
-    expect(await call(PROPOSE_ALERT, { app: 'Books', kind: 'down', why: 'again' })).toMatchObject({ ok: true, digest: expect.stringContaining('already proposed') });
+    expect(await call(PROPOSE_ALERT, { app: 'Books', kind: 'down', why: 'again' })).toMatchObject({ ok: true, digest: containing('already proposed') });
     expect(saved).toHaveLength(1);
   });
 
   it('take a threshold sent as text, and refuse one out of range before asking the cluster', async () => {
     await call(PROPOSE_ALERT, { app: 'Books', kind: 'slow', threshold: '1.5', forMinutes: 3, why: 'w' });
     expect(asked).toEqual(['Books:slow:1.5:3']);
-    expect(await call(PROPOSE_ALERT, { app: 'Books', kind: 'memory', threshold: 500, why: 'w' })).toMatchObject({ ok: false, content: expect.stringContaining('between 10 and 100') });
+    expect(await call(PROPOSE_ALERT, { app: 'Books', kind: 'memory', threshold: 500, why: 'w' })).toMatchObject({ ok: false, content: containing('between 10 and 100') });
     expect(asked).toHaveLength(1);
   });
 

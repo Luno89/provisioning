@@ -1,3 +1,4 @@
+import { ignore } from '@koala/engine-core/failures';
 import {
   machineChoice,
   stepImplementation,
@@ -23,7 +24,7 @@ export function createEnvironmentNodes(services: HostNodeServices): NodeImplemen
         }
       }
 
-      const waiting = await services.images?.waiting(run.launch.ownerId, run.identity.agentId).catch(() => undefined);
+      const waiting = await services.images?.waiting(run.launch.ownerId, run.identity.agentId).catch(ignore('the waiting notice only explains a delay; describing the environment below fails on its own, saying why, when the image is not there'));
       if (waiting) run.emit({ type: 'notice', level: 'info', message: waiting } as never);
 
       try {

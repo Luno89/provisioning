@@ -5,6 +5,7 @@ import type { EnvironmentDriver, ExecResult } from '@koala/engine-core';
 import { createPlatformOperations, type PlatformOperationDeps } from './handlers.js';
 import { E2E_IGNORED } from '../../../engine/lib/e2e.js';
 import { PLAYWRIGHT_REPORT } from '../../../engine/lib/e2e-fixtures.js';
+import { objectWith } from '../../../engine/lib/test-matchers.js';
 
 const PASSING = JSON.stringify({ suites: [{ title: 'a.spec.ts', file: 'a.spec.ts', specs: [{ title: 'signs in', file: 'a.spec.ts', tests: [{ status: 'expected', results: [{ status: 'passed', duration: 900 }] }] }] }], errors: [] });
 const SHOT = Buffer.from('png-bytes');
@@ -102,7 +103,7 @@ describe('Run Browser Tests', () => {
     const { run } = setUp({ exitCode: 1, stdout: 'koala-e2e: FAILED — there is no module under addons/ to serve' });
     const result = await run();
 
-    expect(result).toEqual({ exit: 'failed', outputs: expect.objectContaining({ reason: 'the browser tests against the workspace\'s own app left no report — it exited 1: koala-e2e: FAILED — there is no module under addons/ to serve' }) });
+    expect(result).toEqual({ exit: 'failed', outputs: objectWith({ reason: 'the browser tests against the workspace\'s own app left no report — it exited 1: koala-e2e: FAILED — there is no module under addons/ to serve' }) });
   });
 
   it('is unavailable where the image has no runner, or there is no workspace', async () => {

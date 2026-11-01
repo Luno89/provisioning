@@ -1,3 +1,4 @@
+import { ignore } from '@koala/engine-core/failures';
 import type { NodeRequest, StepResult } from '@koala/agent-engine/procedure';
 import type { EnvironmentDriver } from '@koala/engine-core';
 import type { HostOperationRun } from '../../types.js';
@@ -54,7 +55,7 @@ export function createPlatformOperations(deps: PlatformOperationDeps): Record<st
         return unavailable(browserTestsMissing(asked));
       }
 
-      const report = readE2EReport(await driver.readFile(E2E_REPORT).catch(() => undefined));
+      const report = readE2EReport(await driver.readFile(E2E_REPORT).catch(ignore('a report that cannot be read is told as no report, with how the tests exited and what they printed')));
       if (!report) {
         const why = `the browser tests against ${e2eTarget(asked)} left no report — it exited ${ran.exitCode}: ${printedTail(ran) || 'no output'}`;
         return { exit: 'failed', outputs: { summary: why, reason: why, artifacts: [] } };

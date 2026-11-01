@@ -66,7 +66,7 @@ async function baseUrlFor(
 }
 
 export async function resolveWebTools(deps: WebToolsDeps, ownerId?: string): Promise<WebTools> {
-  const env = deps.env ?? process.env;
+  const env = deps.env ?? {};
   const deployments = await deps.db.getDeployments().catch(() => [] as DeploymentMetadata[]);
 
   const searxDep = liveDeployment(deployments, 'searxng', ownerId);

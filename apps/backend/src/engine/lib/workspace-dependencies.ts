@@ -1,4 +1,58 @@
 import { dependencyProblems, type Install, type WorkspaceDependency } from '@koala/agent-engine';
+import { fieldsOf } from './request-fields.js';
+
+const PACKAGE_MANAGERS = ['dnf', 'apt', 'pip', 'npm'] as const;
+
+const isTextList = (value: unknown): value is string[] => Array.isArray(value) && value.every((entry) => typeof entry === 'string');
+
+function installFrom(value: unknown): Install | undefined {
+  const fields = fieldsOf(value);
+  if (fields.via === 'base') return { via: 'base' };
+  if (fields.via === 'script') return typeof fields.run === 'string' ? { via: 'script', run: fields.run } : undefined;
+  const via = PACKAGE_MANAGERS.find((manager) => manager === fields.via);
+  return via && isTextList(fields.packages) ? { via, packages: fields.packages } : undefined;
+}
+
+function installsFrom(value: unknown, field: string): Install[] | string {
+  if (!Array.isArray(value)) return `${field} has to be a list of installs`;
+  const installs: Install[] = [];
+  for (const entry of value) {
+    const install = installFrom(entry);
+    if (!install) return `every entry in ${field} is { via: dnf|apt|pip|npm, packages: [...] } or { via: script, run: "..." }`;
+    installs.push(install);
+  }
+  return installs;
+}
+
+export type DependencyReading = { ok: true; dependency: WorkspaceDependency } | { ok: false; problem: string };
+
+export function dependencyFrom(value: unknown): DependencyReading {
+  const fields = fieldsOf(value);
+  if (typeof fields.name !== 'string') return { ok: false, problem: 'a dependency needs a name' };
+  if (fields.summary !== undefined && typeof fields.summary !== 'string') return { ok: false, problem: 'summary has to be text' };
+  for (const list of ['provides', 'libraries', 'needs'] as const) {
+    if (fields[list] !== undefined && !isTextList(fields[list])) return { ok: false, problem: `${list} has to be a list of names` };
+  }
+  const install = fields.install === undefined ? [] : installsFrom(fields.install, 'install');
+  if (typeof install === 'string') return { ok: false, problem: install };
+  const onDebian = fields.onDebian === undefined ? undefined : installsFrom(fields.onDebian, 'onDebian');
+  if (typeof onDebian === 'string') return { ok: false, problem: onDebian };
+  const provides = isTextList(fields.provides) ? fields.provides : [];
+  const libraries = isTextList(fields.libraries) ? fields.libraries : undefined;
+  const needs = isTextList(fields.needs) ? fields.needs : undefined;
+  return {
+    ok: true,
+    dependency: {
+      name: fields.name,
+      summary: typeof fields.summary === 'string' ? fields.summary : '',
+      provides,
+      ...(libraries ? { libraries } : {}),
+      ...(needs ? { needs } : {}),
+      install,
+      ...(onDebian ? { onDebian } : {}),
+    },
+  };
+}
 
 export function catalogueOf(shipped: readonly WorkspaceDependency[], own: readonly WorkspaceDependency[]): WorkspaceDependency[] {
   const taken = new Set(shipped.map((dependency) => dependency.name));

@@ -2,6 +2,7 @@ import { Router, type Request, type Response } from 'express';
 import { LANGUAGE_IDS } from '@koala/agent-engine';
 import { asyncRoute, principalFrom } from '../../platform/index.js';
 import type { AgentService } from '../services/AgentService.js';
+import { fieldsOf } from '../lib/request-fields.js';
 
 export interface AgentsRouterDeps {
   agents: AgentService;
@@ -29,7 +30,7 @@ export function agentsRouter(deps: AgentsRouterDeps): Router {
 
   router.put('/:slug', asyncRoute(async (req: Request, res: Response) => {
     const slug = String(req.params.slug);
-    if (req.body?.slug !== slug) return res.status(400).json({ error: `the agent in the body is not called "${slug}"` });
+    if (fieldsOf(req.body).slug !== slug) return res.status(400).json({ error: `the agent in the body is not called "${slug}"` });
 
     const outcome = await deps.agents.save(userOf(req).id, req.body, principalFrom(req));
     if (!outcome.saved) return res.status(400).json({ error: 'The agent does not hold together', problems: outcome.problems });

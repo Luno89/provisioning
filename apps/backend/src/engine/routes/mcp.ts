@@ -2,6 +2,7 @@ import { Router, type Request, type Response } from 'express';
 import { asyncRoute } from '../../platform/index.js';
 import type { McpDecision, McpService } from '../services/McpService.js';
 import type { McpServerOutcome, McpServerService } from '../services/McpServerService.js';
+import { fieldsOf } from '../lib/request-fields.js';
 
 export interface McpRouterDeps {
   mcp: McpService;
@@ -44,12 +45,12 @@ export function mcpRouter(deps: McpRouterDeps): Router {
 
   router.post('/catalogue', asyncRoute(async (req, res) => {
     const catalogue = catalogueOf(res);
-    if (catalogue) saved(res.status(201), await catalogue.add(userOf(req).id, req.body ?? {}));
+    if (catalogue) saved(res.status(201), await catalogue.add(userOf(req).id, fieldsOf(req.body)));
   }));
 
   router.put('/catalogue/:id', asyncRoute(async (req, res) => {
     const catalogue = catalogueOf(res);
-    if (catalogue) saved(res, await catalogue.save(userOf(req).id, String(req.params.id ?? ''), req.body ?? {}));
+    if (catalogue) saved(res, await catalogue.save(userOf(req).id, String(req.params.id ?? ''), fieldsOf(req.body)));
   }));
 
   router.post('/catalogue/:id/capture', asyncRoute(async (req, res) => {
@@ -79,7 +80,7 @@ export function mcpRouter(deps: McpRouterDeps): Router {
   }));
 
   router.put('/conversations/:id/servers', asyncRoute(async (req, res) => {
-    answer(res, await deps.mcp.setConversationServers(userOf(req).id, String(req.params.id ?? ''), req.body?.servers));
+    answer(res, await deps.mcp.setConversationServers(userOf(req).id, String(req.params.id ?? ''), fieldsOf(req.body).servers));
   }));
 
   return router;

@@ -1,6 +1,7 @@
 import { Router, type Request, type Response } from 'express';
 import { asyncRoute } from '../../platform/index.js';
 import type { EngineToolService } from '../services/EngineToolService.js';
+import { fieldsOf } from '../lib/request-fields.js';
 
 export interface EngineToolsRouterDeps {
   tools: EngineToolService;
@@ -24,7 +25,7 @@ export function engineToolsRouter(deps: EngineToolsRouterDeps): Router {
 
   router.put('/:name', asyncRoute(async (req: Request, res: Response) => {
     const name = String(req.params.name);
-    if (req.body?.name !== name) return res.status(400).json({ error: `the tool in the body is not called "${name}"` });
+    if (fieldsOf(req.body).name !== name) return res.status(400).json({ error: `the tool in the body is not called "${name}"` });
 
     const outcome = await deps.tools.save(userOf(req).id, req.body);
     if (!outcome.saved) return res.status(400).json({ error: 'The tool does not hold together', problems: outcome.problems });

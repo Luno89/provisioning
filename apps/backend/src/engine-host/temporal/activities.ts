@@ -425,7 +425,9 @@ export function createStreamActivities(services: StreamServices): StreamActiviti
         const { post: posted, callId, tool } = event as { type: string; post?: Readonly<Record<string, unknown>>; callId?: unknown; tool?: unknown };
         if (event.type === 'notice' && posted && services.post) await services.post(args.ownerId, posted);
         if (event.type === 'notice' && typeof callId === 'string' && typeof tool === 'string' && services.asking) {
-          await services.asking(args.ownerId, tool).catch(() => undefined);
+          await services.asking(args.ownerId, tool).catch((err: unknown) => {
+            console.warn(`[engine] the run asking before ${tool} is shown in Koala, but ${args.ownerId}'s devices were not told: ${(err as Error).message}`);
+          });
         }
       }
     },

@@ -32,6 +32,7 @@ import {
   type GroveRunResult,
   type PublishArgs,
   type RecordTracesArgs,
+  type ResolveAgentArgs,
 } from '../../engine-host/temporal/contracts.js';
 import { createTaskTools } from '../../engine-host/tools/task-tools.js';
 import { createGroveTools } from './tools/grove-tools.js';
@@ -480,7 +481,7 @@ async function runGroveWorld(options: {
         EngineRecordEffortActivity: vi.fn((effort: RunEffort) => tracker.record(effort)),
         EngineSettleClaimsActivity: vi.fn(async () => [] as string[]),
         EngineNodeActivity: createNodeRunner(hostNodes, undefined, { carryNotices: true }),
-        EngineResolveAgentActivity: vi.fn(async ({ ownerId, agentSlug }) => {
+        EngineResolveAgentActivity: vi.fn(async ({ ownerId, agentSlug }: ResolveAgentArgs) => {
           const runnable = await registry.runnable(ownerId, agentSlug);
           if (!runnable) return { found: false, callableAgents: [] };
           const callable = await registry.callable(ownerId, agentSlug);

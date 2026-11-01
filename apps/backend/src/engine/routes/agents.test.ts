@@ -10,6 +10,9 @@ import { seededAgents, seededProcedures } from '../../extensions/seeds.js';
 
 const quiet = { validateStatus: () => true };
 
+type AgentView = { slug: string; mine: boolean; image?: unknown };
+type Answer = { agents: AgentView[]; agent: AgentView; problems: string[]; error: string };
+
 const PROCEDURES = seededProcedures();
 
 const digger = (over: Partial<Persona> = {}): Persona => ({
@@ -49,30 +52,30 @@ const harness = (): Promise<Harness> => mountRouter({
 describe('the agents API', () => {
   it('lists what ships, marked as not yours', async () => {
     const { url, close } = await harness();
-    const { data } = await axios.get(url('/api/agents'));
+    const { data } = await axios.get<Answer>(url('/api/agents'));
     await close();
 
     expect(data.agents.length).toBe(seededAgents().length);
-    expect(data.agents.every((agent: { mine: boolean }) => agent.mine === false)).toBe(true);
+    expect(data.agents.every((agent) => agent.mine === false)).toBe(true);
   });
 
   it('saves your own agent and hands back what its image is doing', async () => {
     const { url, close } = await harness();
 
-    const saved = await axios.put(`${url('/api/agents/digger')}`, digger());
-    const listed = await axios.get(url('/api/agents'));
+    const saved = await axios.put<Answer>(`${url('/api/agents/digger')}`, digger());
+    const listed = await axios.get<Answer>(url('/api/agents'));
     await close();
 
     expect(saved.status).toBe(200);
     expect(saved.data.agent).toMatchObject({ slug: 'digger', mine: true, ownerId: TEST_USER.id });
     expect(saved.data.agent.image).toMatchObject({ state: 'building' });
-    expect(listed.data.agents.find((agent: { slug: string }) => agent.slug === 'digger')).toBeDefined();
+    expect(listed.data.agents.find((agent) => agent.slug === 'digger')).toBeDefined();
   });
 
   it('refuses one that does not hold together, and says why', async () => {
     const { url, close } = await harness();
 
-    const out = await axios.put(`${url('/api/agents/digger')}`, digger({ tools: ['ghost_tool'] }), quiet);
+    const out = await axios.put<Answer>(`${url('/api/agents/digger')}`, digger({ tools: ['ghost_tool'] }), quiet);
     await close();
 
     expect(out.status).toBe(400);
@@ -82,7 +85,7 @@ describe('the agents API', () => {
   it('refuses a body that is not the agent the url names', async () => {
     const { url, close } = await harness();
 
-    const out = await axios.put(`${url('/api/agents/digger')}`, digger({ slug: 'other' }), quiet);
+    const out = await axios.put<Answer>(`${url('/api/agents/digger')}`, digger({ slug: 'other' }), quiet);
     await close();
 
     expect(out.status).toBe(400);
@@ -92,7 +95,7 @@ describe('the agents API', () => {
   it('reads one back by slug, and says nothing for one that is not there', async () => {
     const { url, close } = await harness();
 
-    const found = await axios.get(`${url('/api/agents/executor')}`);
+    const found = await axios.get<Answer>(`${url('/api/agents/executor')}`);
     const missing = await axios.get(`${url('/api/agents/nobody')}`, quiet);
     await close();
 
@@ -105,7 +108,7 @@ describe('the agents API', () => {
     await axios.put(`${url('/api/agents/research')}`, { ...seededAgents().find((one) => one.slug === 'research')!, prompt: 'Mine.' });
 
     const removed = await axios.delete(`${url('/api/agents/research')}`);
-    const after = await axios.get(`${url('/api/agents/research')}`);
+    const after = await axios.get<Answer>(`${url('/api/agents/research')}`);
     const again = await axios.delete(`${url('/api/agents/research')}`, quiet);
     await close();
 

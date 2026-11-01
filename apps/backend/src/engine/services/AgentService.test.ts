@@ -8,6 +8,7 @@ import { AgentService, agentProblems } from './AgentService.js';
 import type { ImageStanding } from '../../engine-host/sandboxes/image-builder.js';
 import { seededAgents, seededProcedures } from '../../extensions/seeds.js';
 import type { McpServerRecord, ServerRuns } from '../lib/mcp-servers.js';
+import { arrayWith, objectWith } from '../lib/test-matchers.js';
 
 const tools = () => [...ENGINE_TOOL_SEEDS];
 const PROCEDURES = seededProcedures();
@@ -239,7 +240,7 @@ describe('agents you can edit', () => {
 
     expect(image).toEqual({ state: 'building', reference: 'registry/koala:abc', base: 'registry.access.redhat.com/ubi9/nodejs-22', contents: [{ dependency: 'jq', why: ['server:echoes'], installed: true }] });
     expect(images.start).toHaveBeenCalledOnce();
-    expect(images.start.mock.calls[0]![0]).toMatchObject({ lines: expect.arrayContaining([expect.objectContaining({ from: 'server:echoes' })]) });
+    expect(images.start.mock.calls[0]![0]).toMatchObject({ lines: arrayWith([objectWith({ from: 'server:echoes' })]) });
     expect((await agents.get('user-1', 'digger'))?.servers).toEqual(['echoes']);
     expect(await agents.image('user-1', 'digger')).toMatchObject({ state: 'ready', reference: 'registry/koala:abc', contents: [{ dependency: 'jq', why: ['server:echoes'], installed: true }] });
     await expect(agents.holdServer('user-1', 'ghost', 'echoes')).rejects.toThrow('there is no agent called ghost');
@@ -343,7 +344,7 @@ describe('how an agent is used', () => {
     const listed = await agents.list('user-1');
 
     expect(listed.find((one) => one.slug === 'koala')?.usedBy).toContainEqual({ kind: 'chat', by: 'every new conversation' });
-    expect(listed.find((one) => one.slug === 'memory-keeper')?.usedBy).toContainEqual(expect.objectContaining({ kind: 'platform' }));
+    expect(listed.find((one) => one.slug === 'memory-keeper')?.usedBy).toContainEqual(objectWith({ kind: 'platform' }));
     expect(listed.find((one) => one.slug === 'grove')?.usedBy).toContainEqual({ kind: 'tree-type', by: 'Default' });
     expect(listed.find((one) => one.slug === 'research')?.usedBy).toContainEqual({ kind: 'hand-off', by: 'koala' });
   });

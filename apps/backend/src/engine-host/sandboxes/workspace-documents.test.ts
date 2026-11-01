@@ -9,6 +9,7 @@ import type { KubeRunner, KubeStreamer } from './kube.js';
 import { createWorkspaceDocuments, type DocumentRepos } from './workspace-documents.js';
 import { createTreeWorkspaces, treeRepoName } from './tree-workspaces.js';
 import type { EnvironmentResolver } from './environments.js';
+import { containing } from '../../engine/lib/test-matchers.js';
 
 const git = promisify(execFile);
 
@@ -35,8 +36,8 @@ const kube: KubeRunner = async (args) => {
     const child = spawn(binary!, rest, { cwd: root });
     let stdout = '';
     let stderr = '';
-    child.stdout.on('data', (chunk) => { stdout += chunk.toString(); });
-    child.stderr.on('data', (chunk) => { stderr += chunk.toString(); });
+    child.stdout.on('data', (chunk: Buffer) => { stdout += chunk.toString(); });
+    child.stderr.on('data', (chunk: Buffer) => { stderr += chunk.toString(); });
     child.on('close', (code) => resolve({ stdout, stderr, exitCode: code ?? -1 }));
   });
 };
@@ -50,7 +51,7 @@ const stream: KubeStreamer = {
       const out = createWriteStream(destination);
       let stderr = '';
       child.stdout.pipe(out);
-      child.stderr.on('data', (chunk) => { stderr += chunk.toString(); });
+      child.stderr.on('data', (chunk: Buffer) => { stderr += chunk.toString(); });
       child.on('close', (code) => out.end(() => resolve({ exitCode: code ?? -1, stderr })));
     });
   },
@@ -61,7 +62,7 @@ const stream: KubeStreamer = {
       const child = spawn(binary!, rest, { cwd: root });
       let stderr = '';
       child.stdout.resume();
-      child.stderr.on('data', (chunk) => { stderr += chunk.toString(); });
+      child.stderr.on('data', (chunk: Buffer) => { stderr += chunk.toString(); });
       child.on('close', (code) => resolve({ exitCode: code ?? -1, stderr }));
       createReadStream(source).pipe(child.stdin);
     });
@@ -464,7 +465,7 @@ describe('a workspace folder going to a machine and coming back', () => {
     await inFolder('add', '-A');
     await inFolder('commit', '-q', '-m', 'another agent landed first');
     await writeFile(path.join(folder(), 'scratch.txt'), 'uncommitted\n');
-    expect(await documents.takeBranch(request)).toEqual({ brought: false, why: expect.stringContaining('these files conflict: label.txt'), conflicts: ['label.txt'] });
+    expect(await documents.takeBranch(request)).toEqual({ brought: false, why: containing('these files conflict: label.txt'), conflicts: ['label.txt'] });
     expect(await inFolder('log', '-1', '--format=%s')).toBe('another agent landed first');
     expect(await readFile(path.join(folder(), 'label.txt'), 'utf8')).toBe('another agent\'s label\n');
     expect(await readFile(path.join(folder(), 'scratch.txt'), 'utf8')).toBe('uncommitted\n');
@@ -525,7 +526,7 @@ describe('a workspace folder going to a machine and coming back', () => {
     const bundle = path.join(base, 'out.bundle');
     await git('git', ['-C', base, 'bundle', 'create', bundle, dropBranch]);
     branches.set(dropBranch, bundle);
-    expect(await documents.applyDrop(asked)).toEqual({ brought: false, why: expect.stringContaining('the story\'s checkout changed the same files, and these files conflict: README.md'), conflicts: ['README.md'] });
+    expect(await documents.applyDrop(asked)).toEqual({ brought: false, why: containing('the story\'s checkout changed the same files, and these files conflict: README.md'), conflicts: ['README.md'] });
     expect(await inFolder('rev-parse', 'HEAD')).toBe(before);
     expect(await readFile(path.join(folder(), 'README.md'), 'utf8')).toBe('the worker\'s readme\n');
   });

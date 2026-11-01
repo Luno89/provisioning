@@ -9,6 +9,7 @@ import type { EnvironmentDriver, EnvironmentSpec, ToolContract } from '@koala/en
 import type { AgentDefinition } from '@koala/agent-engine';
 import { createServerTools } from './server-tools.js';
 import { runsFingerprint, type McpServerRecord, type ServerRuns } from '../../engine/lib/mcp-servers.js';
+import { matching, objectWith } from '../../engine/lib/test-matchers.js';
 
 const spec: EnvironmentSpec = { kind: 'sandbox', lifecycle: 'invocation', languages: ['node20'] };
 
@@ -82,7 +83,7 @@ describe('tool runtime', () => {
     const outcome = await runtime(driver).run(args());
 
     expect(outcome).toMatchObject({ ok: true, digest: 'all good' });
-    expect(backend.exec).toHaveBeenCalledWith(expect.objectContaining({ command: 'npm test' }));
+    expect(backend.exec).toHaveBeenCalledWith(objectWith({ command: 'npm test' }));
   });
 
   it('reports a failing command as not ok without throwing', async () => {
@@ -106,7 +107,7 @@ describe('tool runtime', () => {
     expect((await tools.run(args({ name: 'list_dir', arguments: '{"path":"."}' }))).digest)
       .toContain('d src');
 
-    expect(backend.writeFile).toHaveBeenCalledWith(expect.objectContaining({ content: 'hello' }));
+    expect(backend.writeFile).toHaveBeenCalledWith(objectWith({ content: 'hello' }));
   });
 
   it('hands the model no hidden characters from a result, and says how many were taken out', async () => {
@@ -382,14 +383,14 @@ describe('a tool call in a run Koala does for a member of a shared project', () 
 
   it('treats a project it cannot resolve as outside when it answers a member, and as the owner\'s own when it does not', async () => {
     const { tools } = withRuntime({ resources: undefined });
-    expect(await tools.run(asMember(client, { name: 'get_project_url', arguments: '{"projectId":"p1"}' }))).toMatchObject({ ok: false, digest: expect.stringMatching(/may not be given that projectId/) });
+    expect(await tools.run(asMember(client, { name: 'get_project_url', arguments: '{"projectId":"p1"}' }))).toMatchObject({ ok: false, digest: matching(/may not be given that projectId/) });
     expect(await tools.run(args({ name: 'get_project_url', arguments: '{"projectId":"p1"}' }))).toMatchObject({ ok: true });
   });
 
   it('keeps the memory keeper to the project when others talked in the conversation', async () => {
     const { tools } = withRuntime();
     const kept = { ...args().ticket, keptTo: 'p1', projectId: 'p1' };
-    expect(await tools.run(args({ ticket: kept, name: 'save_memory', arguments: '{"title":"x","text":"y","scope":"global"}' }))).toMatchObject({ ok: false, digest: expect.stringMatching(/never global/) });
+    expect(await tools.run(args({ ticket: kept, name: 'save_memory', arguments: '{"title":"x","text":"y","scope":"global"}' }))).toMatchObject({ ok: false, digest: matching(/never global/) });
     expect(await tools.run(args({ ticket: kept, name: 'save_memory', arguments: '{"title":"x","text":"y"}' }))).toMatchObject({ ok: true, digest: 'saved' });
   });
 

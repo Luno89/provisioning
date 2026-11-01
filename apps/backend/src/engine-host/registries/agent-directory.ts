@@ -104,7 +104,12 @@ export function createAgentDirectory(options: AgentDirectoryOptions): AgentDirec
     if (!options.stepNeeds) return agents;
     const byProcedure = new Map<string, Promise<Need[]>>();
     const needsOf = (procedure: string) => {
-      if (!byProcedure.has(procedure)) byProcedure.set(procedure, options.stepNeeds!(ownerId, procedure).catch(() => []));
+      if (!byProcedure.has(procedure)) {
+        byProcedure.set(procedure, options.stepNeeds!(ownerId, procedure).catch((err: unknown): Need[] => {
+          console.warn(`[agents] what the steps of ${procedure} need could not be read, so its agents are listed without it: ${(err as Error).message}`);
+          return [];
+        }));
+      }
       return byProcedure.get(procedure)!;
     };
     return Promise.all(agents.map(async (agent) => {
