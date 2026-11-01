@@ -7,7 +7,7 @@ import { join, resolve } from 'node:path';
 import { createDisposableVm, findFreePort, type DisposableVm } from './lib/disposable-vm.js';
 import { buildAppImage } from './lib/gate-runs.js';
 import { UPGRADE_WORDS } from '../apps/backend/src/instances/lib/self-upgrade.js';
-import { endsWith, failedUpgradeReports, imageTagOf, inFlightRefusal, unsignedRefusal, labDnsmasq, labHostsLine, noted, revisionRunning, STAND_IN_REF, unhostable, upgradeReports, type Report } from './lib/release-lab.js';
+import { UPDATE_COPIES, endsWith, failedUpgradeReports, imageTagOf, inFlightRefusal, unsignedRefusal, labDnsmasq, labHostsLine, noted, revisionRunning, STAND_IN_REF, unhostable, upgradeReports, type Report } from './lib/release-lab.js';
 import { handOff, sessionFrom, type Side, signedInLanding } from './lib/handoff.js';
 
 const REPO = resolve(new URL('.', import.meta.url).pathname, '..');
@@ -194,7 +194,7 @@ async function main(): Promise<void> {
   inTags(['push', '-q', '--force', `ssh://ubuntu@127.0.0.1:${root.port}${ORIGIN}`, `${previous}:refs/heads/previous`, `${candidate}:refs/heads/candidate`,
     ...[PREVIOUS_LABEL, CANDIDATE_REF, UNSIGNED_REF].map((name) => `refs/tags/${name}:refs/tags/${name}`)],
     { GIT_SSH_COMMAND: `ssh -i ${root.privateKeyPath} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR` });
-  await sh(root, `sudo git clone -q ${ORIGIN} ${REPO_DIR} && sudo git -C ${REPO_DIR} checkout -q --detach ${candidate} && sudo mkdir -p $(dirname ${UPDATE_SH}) && sudo cp ${REPO_DIR}/scripts/root-node/update.sh ${REPO_DIR}/scripts/root-node/cdktf-bindings.sh ${REPO_DIR}/scripts/root-node/verify-release.sh $(dirname ${UPDATE_SH})/${UNHOSTED ? ` && sudo git -C ${REPO_DIR} checkout -q --detach ${previous}` : ''}`);
+  await sh(root, `sudo git clone -q ${ORIGIN} ${REPO_DIR} && sudo git -C ${REPO_DIR} checkout -q --detach ${candidate} && sudo mkdir -p $(dirname ${UPDATE_SH}) && sudo cp ${UPDATE_COPIES.map((name) => `${REPO_DIR}/scripts/root-node/${name}`).join(' ')} $(dirname ${UPDATE_SH})/${UNHOSTED ? ` && sudo git -C ${REPO_DIR} checkout -q --detach ${previous}` : ''}`);
   const signer = Buffer.from(`koala-release namespaces="git" ${readFileSync(`${labKey}.pub`, 'utf8').trim()}\n`).toString('base64');
   await sh(root, `sudo mkdir -p $(dirname ${SIGNERS}) && echo ${signer} | base64 -d | sudo tee ${SIGNERS} >/dev/null`);
   note(`${REPO_DIR} is a clone of this repository with ${PREVIOUS_LABEL}, the candidate as ${CANDIDATE_REF} and ${UNSIGNED_REF}; root trusts only the rehearsal's throwaway key, which signed all but ${UNSIGNED_REF}; the candidate's update.sh is kept at ${UPDATE_SH}`);

@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { endsWith, failedUpgradeReports, imageTagOf, inFlightRefusal, unsignedRefusal, labDnsmasq, labHostsLine, noted, revisionRunning, STAND_IN_REF, UNHOSTABLE_RELEASES, unhostable, upgradeReports } from './release-lab.js';
+import { UPDATE_COPIES, endsWith, failedUpgradeReports, imageTagOf, inFlightRefusal, unsignedRefusal, labDnsmasq, labHostsLine, noted, revisionRunning, STAND_IN_REF, UNHOSTABLE_RELEASES, unhostable, upgradeReports } from './release-lab.js';
 
 describe('the release lab', () => {
   it('names an image by the first twelve characters of its commit', () => {
@@ -39,6 +39,14 @@ describe('the release lab', () => {
     const failed = noted(noted([], { status: 'installing', detail: 'Upgrading from a to nothing' }), { status: 'failed', detail: 'The upgrade to nothing failed, so it was rolled back to a: instance-backend-x: ImagePullBackOff' });
     expect(endsWith(failed, failedUpgradeReports('a', 'nothing'))).toBe(true);
     expect(endsWith([...failed.slice(0, 1), { status: 'failed', detail: 'The upgrade to nothing failed, so it was rolled back to a' }], failedUpgradeReports('a', 'nothing'))).toBe(false);
+  });
+
+  it('runs update.sh beside exactly the files the release watch copies for it', () => {
+    const watch = readFileSync(new URL('../../scripts/root-node/release-watch.sh', import.meta.url), 'utf8');
+    const copied = /^cp (.+) "\$copy\/"$/m.exec(watch)?.[1]?.split(' ').map((file) => file.replace(/^"\$REPO_DIR\/scripts\/root-node\//, '').replace(/"$/, ''));
+    expect(copied).toEqual([...UPDATE_COPIES]);
+    const update = readFileSync(new URL('../../scripts/root-node/update.sh', import.meta.url), 'utf8');
+    for (const name of UPDATE_COPIES.filter((file) => file !== 'update.sh')) expect(update, `update.sh no longer uses ${name}`).toContain(name);
   });
 
   it('says what update.sh refuses with', () => {
