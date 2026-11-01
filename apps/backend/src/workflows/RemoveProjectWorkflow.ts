@@ -7,6 +7,7 @@ import type { ProjectRemovalActivities, RemoveProjectArgs } from '../activities/
 import { LIVE_ACTIVITY } from '../platform/lib/activity-liveness.js';
 import { DEFAULT_STREAM_TASK_QUEUE, GROVE_CHANGED_PATCH } from '../engine-host/temporal/contracts.js';
 import { ownerIn } from '../platform/lib/workflow-owner.js';
+import { ignore } from '@koala/engine-core/failures';
 
 const steps = proxyActivities<ProjectRemovalActivities>({
   retry: DESTROY_RETRY,
@@ -52,7 +53,7 @@ export async function RemoveProjectWorkflow(args: RemoveProjectArgs): Promise<Pr
   const records = await steps.RemoveProjectRecordsActivity(args);
   done.push('records');
   const owner = ownerIn(workflowInfo().typedSearchAttributes);
-  if (owner && patched(GROVE_CHANGED_PATCH)) await told.EngineGroveChangedActivity({ ownerId: owner }).catch(() => undefined);
+  if (owner && patched(GROVE_CHANGED_PATCH)) await told.EngineGroveChangedActivity({ ownerId: owner }).catch(ignore('the browser reads its trees again when it next looks; this only tells it sooner'));
 
   return { stoppedWorkflows, apps: apps.length, workspaces, secrets, repositories, files, records };
 }

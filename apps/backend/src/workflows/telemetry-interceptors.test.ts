@@ -24,7 +24,7 @@ describe('the trace a workflow was started under follows its activities and chil
     await inbound![0]!.execute!({ args: [], headers: { traceparent, other } } as never, (async () => undefined) as never);
     await outbound![0]!.scheduleActivity!({ activityType: 'A', args: [], headers: { other }, options: {}, seq: 2 } as never, next as never);
     await outbound![0]!.scheduleLocalActivity!({ activityType: 'B', args: [], headers: {}, options: {}, seq: 3, originalScheduleTime: undefined, attempt: 1, activityId: 'b' } as never, next as never);
-    await outbound![0]!.startChildWorkflowExecution!({ workflowType: 'Child', options: {}, headers: {}, seq: 4 } as never, next as never);
+    void await outbound![0]!.startChildWorkflowExecution!({ workflowType: 'Child', options: {}, headers: {}, seq: 4 } as never, next as never);
     await outbound![0]!.continueAsNew!({ args: [], headers: {}, options: {} } as never, next as never);
     expect(scheduled.slice(1)).toEqual([{ other, traceparent }, { traceparent }, { traceparent }, { traceparent }]);
   });

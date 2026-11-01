@@ -5,6 +5,7 @@ import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
 import { MOVE_FINISHED, MOVE_STOPPED, poolMoveWorkflowId } from '../instances/lib/instance-move.js';
 import { temporalTestEnvironment } from './temporal-test-env.js';
+import type { PoolMoveWorkflow } from './PoolMoveWorkflow.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 let env: TestWorkflowEnvironment;
@@ -26,10 +27,10 @@ const run = async (signal: (handle: { signal: (name: string, ...args: unknown[])
     },
   });
   const result = await worker.runUntil(async () => {
-    const handle = await env.client.workflow.start('PoolMoveWorkflow', {
+    const handle = await env.client.workflow.start<typeof PoolMoveWorkflow>('PoolMoveWorkflow', {
       workflowId: poolMoveWorkflowId('inst-bo'), taskQueue, args: [{ instanceId: 'inst-bo' }], searchAttributes: { KoalaOwner: ['bo'] },
     });
-    await signal(handle as never);
+    await signal({ signal: (name, ...args) => handle.signal(name, ...args) });
     return handle.result();
   });
   return { seen, result };

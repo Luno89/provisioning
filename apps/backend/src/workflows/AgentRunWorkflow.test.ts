@@ -316,7 +316,7 @@ describe('AgentRunWorkflow', () => {
     expect(acts.engine.EngineToolActivity).toHaveBeenCalledWith(expect.objectContaining({
       name: 'read_file',
       callId: 'c1',
-      granted: expect.arrayContaining(['read_file']),
+      granted: expect.arrayContaining(['read_file']) as unknown,
     }));
     expect(acts.seen[1]!.slice(1)).toEqual([
       { role: 'assistant', content: '', toolCalls: [{ id: 'c1', name: 'read_file', arguments: '{"path":"a"}' }] },
@@ -388,7 +388,7 @@ describe('AgentRunWorkflow', () => {
     expect(acts.engine.EngineToolActivity).toHaveBeenCalledTimes(1);
     expect(published(acts)).toEqual(expect.arrayContaining([
       expect.objectContaining({ type: 'tool.called', callId: 'c1' }),
-      expect.objectContaining({ type: 'notice', level: 'warn', callId: 'c1', tool: 'run_command', message: expect.stringContaining('run_command on Desk') }),
+      expect.objectContaining({ type: 'notice', level: 'warn', callId: 'c1', tool: 'run_command', message: expect.stringContaining('run_command on Desk') as unknown }),
     ]));
   }, 60_000);
 
@@ -576,7 +576,7 @@ describe('AgentRunWorkflow', () => {
 
     expect(result).toMatchObject({ outcome: 'interrupted', reason: 'the run was cancelled' });
     expect(acts.aborted).toEqual([`${args.ticket.runId}-research-1`]);
-    const child = await new WorkflowClient({ connection: env.connection }).getHandle(`${args.ticket.runId}-research-1`).result();
+    const child = await new WorkflowClient({ connection: env.connection }).getHandle<typeof AgentRunWorkflow>(`${args.ticket.runId}-research-1`).result();
     expect(child).toMatchObject({ outcome: 'interrupted', reason: 'the run was cancelled' });
   }, 60_000);
 
@@ -725,8 +725,8 @@ describe('AgentRunWorkflow', () => {
       expect(sent).toEqual([expect.objectContaining({
         workspaceRunId: 'conversation-c1',
         start: {
-          ticket: expect.objectContaining({ agentSlug: 'research', inPlace: true }),
-          environment: expect.objectContaining({ id: expect.stringContaining('conversation-c1'), workspace: expect.objectContaining({ runId: 'conversation-c1' }) }),
+          ticket: expect.objectContaining({ agentSlug: 'research', inPlace: true }) as unknown,
+          environment: expect.objectContaining({ id: expect.stringContaining('conversation-c1') as unknown, workspace: expect.objectContaining({ runId: 'conversation-c1' }) as unknown }) as unknown,
         },
       })]);
       expect(recorded?.cwd.startsWith(`${resolve(machineRoot, 'koala-trees', 'conversation-c1', 'repo')}@`)).toBe(true);
@@ -916,7 +916,7 @@ describe('a long run continues as a new one', () => {
     const childRunId = `${args.ticket.runId}-research-1`;
     expect(result.steps).toEqual([
       {
-        callId: 'c1', name: 'research', ok: true, digest: expect.any(String), artifacts: [findings],
+        callId: 'c1', name: 'research', ok: true, digest: expect.any(String) as unknown, artifacts: [findings],
         child: { runId: childRunId, agentId: 'research', outcome: 'ok', steps: [{ callId: 'c2', name: 'write_file', ok: true, digest: 'ran write_file', artifacts: [findings] }] },
       },
       { callId: 'c3', name: 'read_file', ok: true, digest: 'ran read_file' },
@@ -1413,8 +1413,8 @@ describe('an external agent working on someone\'s machine', () => {
         let stdout = '';
         let stderr = '';
         const out = into ? createWriteStream(into) : undefined;
-        if (out) child.stdout.pipe(out); else child.stdout.on('data', (chunk) => { stdout += chunk.toString(); });
-        child.stderr.on('data', (chunk) => { stderr += chunk.toString(); });
+        if (out) child.stdout.pipe(out); else child.stdout.on('data', (chunk: Buffer) => { stdout += chunk.toString(); });
+        child.stderr.on('data', (chunk: Buffer) => { stderr += chunk.toString(); });
         child.on('close', (code) => (out ? out.end(() => done({ stdout, stderr, exitCode: code ?? -1 })) : done({ stdout, stderr, exitCode: code ?? -1 })));
         if (from) createReadStream(from).pipe(child.stdin); else child.stdin.end();
       });
@@ -1527,7 +1527,7 @@ describe('an external agent working on someone\'s machine', () => {
       const kept = git(folder, 'branch', '--list', 'machine/*').replace('*', '').trim();
       expect(kept).toMatch(/^machine\/desk\//);
       expect(git(folder, 'show', `${kept}:label.txt`)).toContain('Axial Concepts');
-      expect(published(acts)).toContainEqual(expect.objectContaining({ type: 'notice', level: 'warn', message: expect.stringContaining(`kept as the branch ${kept} in the workspace`) }));
+      expect(published(acts)).toContainEqual(expect.objectContaining({ type: 'notice', level: 'warn', message: expect.stringContaining(`kept as the branch ${kept} in the workspace`) as unknown }));
     }, 60_000);
   });
 
@@ -1739,7 +1739,7 @@ describe('an external agent working on someone\'s machine', () => {
       const stored = await conversations.get('user-1', 'c-tools');
       expect(stored?.machineSessions).toEqual({ 'desk:antigravity:pro': 'scripted-1' });
       expect(stored?.messages.at(-1)?.toolCalls).toEqual(expect.arrayContaining([
-        expect.objectContaining({ name: 'list_references', ok: true, digest: expect.stringContaining('output of list_references') }),
+        expect.objectContaining({ name: 'list_references', ok: true, digest: expect.stringContaining('output of list_references') as unknown }),
         expect.objectContaining({ name: 'save_procedure', ok: false, digest: 'you did not approve that call, so it did not run' }),
       ]));
       expect(sessions.openKeys()).toEqual([]);
@@ -1777,7 +1777,7 @@ describe('an external agent working on someone\'s machine', () => {
       expect(stored?.messages.at(-1)?.toolCalls).toContainEqual(expect.objectContaining({
         name: 'research',
         ok: true,
-        child: expect.objectContaining({ agentId: 'research', outcome: 'ok', steps: expect.any(Array) }),
+        child: expect.objectContaining({ agentId: 'research', outcome: 'ok', steps: expect.any(Array) as unknown }) as unknown,
       }));
     } finally {
       await sessions.closeAll();
@@ -1809,7 +1809,7 @@ describe('an external agent working on someone\'s machine', () => {
       most = Math.max(most, running);
       await new Promise((settle) => setTimeout(settle, 1500));
       running -= 1;
-      const about = JSON.parse(args).about as string;
+      const { about } = JSON.parse(args) as { about: string };
       return { ok: true, digest: `references about ${about}`, content: `references about ${about}` };
     });
     try {

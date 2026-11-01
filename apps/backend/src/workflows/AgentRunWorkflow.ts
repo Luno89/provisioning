@@ -12,6 +12,7 @@ import {
   workflowInfo,
   patched,
   ActivityFailure,
+  log,
 } from '@temporalio/workflow';
 import { ACTIVITY_RETRY } from '../platform/lib/activity-retry.js';
 import { childInputs } from '../engine-host/nodes/child-inputs.js';
@@ -72,6 +73,7 @@ import { machineBranch, machineFolder, machineStepFolder } from '../machines/lib
 import type { MachineSendRequest, MachineWorkRequest } from '../engine-host/sandboxes/machine-work.js';
 import type { BroughtBack } from '../engine-host/sandboxes/workspace-documents.js';
 import { LIVE_ACTIVITY } from '../platform/lib/activity-liveness.js';
+import { ignore } from '@koala/engine-core/failures';
 
 export const CONTINUE_AFTER_EVENTS = 10_000;
 
@@ -174,7 +176,9 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
   const item = input.inputs.item as { leafId?: unknown } | undefined;
   const leafId = typeof item?.leafId === 'string' ? item.leafId : undefined;
   const conclude = async (event: LifecycleEvent): Promise<void> => {
-    await EngineLifecycleActivity(event).catch(() => undefined);
+    await EngineLifecycleActivity(event).catch((err: unknown) => {
+      log.warn('the run could not report how it went, so the memory keeper, the bench and its grant do not hear it', { kind: event.kind, error: err instanceof Error ? err.message : String(err) });
+    });
   };
 
   const { continued } = input;
@@ -217,7 +221,7 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
     cancelled = true;
     for (const childId of runningChildren) {
       const child = getExternalWorkflowHandle(childId);
-      void (revocation ? child.signal(revokeSignal, revocation) : child.signal(cancelSignal)).catch(() => undefined);
+      void (revocation ? child.signal(revokeSignal, revocation) : child.signal(cancelSignal)).catch(ignore('a child run that already closed has nothing left to stop'));
     }
   };
   void CancellationScope.nonCancellable(() => condition(() => cancelled)).then(() => {
@@ -445,7 +449,7 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
       };
       const start = (call: ExternalToolCall): void => {
         const running = call.name === RUN_IN_WORKSPACE ? inWorkspace.then(() => answer(call)) : answer(call);
-        if (call.name === RUN_IN_WORKSPACE) inWorkspace = running.catch(() => undefined);
+        if (call.name === RUN_IN_WORKSPACE) inWorkspace = running.catch(ignore('its failure is kept by the answer that ran it; the next call in the workspace only waits for it to end'));
         answering.set(call.callId, running.then(
           (done) => { answers.push(done); },
           (err: unknown) => { broke ??= err instanceof Error ? err : new Error(String(err)); },

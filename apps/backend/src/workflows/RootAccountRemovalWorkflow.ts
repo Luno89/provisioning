@@ -5,6 +5,7 @@ import { DESTROY_RETRY } from '../platform/lib/activity-retry.js';
 import { LIVE_ACTIVITY } from '../platform/lib/activity-liveness.js';
 import { REMOVAL_PROGRESS_QUERY, type RemovalStep } from '../accounts/lib/account-removal.js';
 import { poolTrialWorkflowId, TRIAL_CHANGED } from '../instances/lib/pool-trial.js';
+import { ignore } from '@koala/engine-core/failures';
 
 const steps = proxyActivities<RootRemovalActivities & Pick<typeof pool, 'PoolRemoveActivity'>>({ retry: DESTROY_RETRY, ...LIVE_ACTIVITY });
 
@@ -16,7 +17,7 @@ export async function RootAccountRemovalWorkflow(args: { ownerId: string }): Pro
   const { poolInstanceId } = await steps.RootRemovalInstanceActivity(args);
   if (poolInstanceId) {
     await steps.PoolRemoveActivity({ instanceId: poolInstanceId });
-    await getExternalWorkflowHandle(poolTrialWorkflowId(poolInstanceId)).signal(TRIAL_CHANGED).catch(() => undefined);
+    await getExternalWorkflowHandle(poolTrialWorkflowId(poolInstanceId)).signal(TRIAL_CHANGED).catch(ignore('a trial workflow that has already ended has no schedule left to change'));
   }
   done.push('instance');
   const mesh = await steps.RootRemovalMeshActivity(args);
