@@ -26,7 +26,7 @@ describe('root watching one pool instance', () => {
     ]);
     expect(outcome).toEqual({ probed: 1, missing: ['shop/gone'] });
     expect(calls[0]).toEqual(['get', 'services', '-n', 'pool-alice', '-l', 'vcluster.loft.sh/managed-by=alice', '-o', 'json']);
-    expect(JSON.parse(applied[0]!).spec.targets.staticConfig.static).toEqual(['web-x-shop-x-alice.pool-alice.svc.cluster.local:80']);
+    expect(JSON.parse(applied[0]!)).toMatchObject({ spec: { targets: { staticConfig: { static: ['web-x-shop-x-alice.pool-alice.svc.cluster.local:80'] } } } });
     expect(calls.at(-1)).toEqual(['delete', 'probes.monitoring.coreos.com', '-n', 'pool-alice', '--ignore-not-found', 'koala-probe-old']);
   });
 

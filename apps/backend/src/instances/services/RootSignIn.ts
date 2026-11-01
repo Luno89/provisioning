@@ -162,9 +162,9 @@ export class RootSignIn {
 
   async callback(currentUrl: URL, heldCookie: string | undefined): Promise<SignedIn> {
     const held = heldCookie ? verifyJWT(heldCookie, 'root-sign-in', this.settings.sessionKey) : null;
-    const verifier = held?.verifier;
-    const state = held?.state;
-    const nonce = held?.nonce;
+    const verifier: unknown = held?.verifier;
+    const state: unknown = held?.state;
+    const nonce: unknown = held?.nonce;
     if (typeof verifier !== 'string' || typeof state !== 'string' || typeof nonce !== 'string') {
       return { ok: false, status: 400, error: 'this sign-in did not start in this browser — sign in again from here' };
     }

@@ -19,7 +19,7 @@ describe('root\'s identity routes', () => {
       },
     });
 
-    const keys = await axios.get(h.url('/api/identity/keys'));
+    const keys = await axios.get<{ keys: unknown }>(h.url('/api/identity/keys'));
     expect(keys.data.keys).toEqual([{ kid: signing.kid, publicKey: publicKeyPem(signing.publicKey) }]);
 
     const signedOut = await axios.get(h.url('/api/identity/go'), quiet);
@@ -30,9 +30,9 @@ describe('root\'s identity routes', () => {
 
     expect((await axios.get(h.url('/api/identity/instance'))).data).toEqual({ instance: { id: 'inst-test', url: 'https://test.example.com' }, servesTenants: false });
     await h.db.instances.saveReach({ id: 'inst-test', ownerId: TEST_USER.id }, { reachable: false, unreachableSince: '2026-10-29T10:00:00.000Z' });
-    expect((await axios.get(h.url('/api/identity/instance'))).data.instance).toEqual({ id: 'inst-test', url: 'https://test.example.com' });
+    expect((await axios.get<{ instance: unknown }>(h.url('/api/identity/instance'))).data.instance).toEqual({ id: 'inst-test', url: 'https://test.example.com' });
     await h.db.instances.saveReach({ id: 'inst-test', ownerId: TEST_USER.id }, { reachable: false, unreachableSince: '2026-10-29T10:00:00.000Z', toldDown: true });
-    expect((await axios.get(h.url('/api/identity/instance'))).data.instance).toEqual({ id: 'inst-test', url: 'https://test.example.com', unreachableSince: '2026-10-29T10:00:00.000Z' });
+    expect((await axios.get<{ instance: unknown }>(h.url('/api/identity/instance'))).data.instance).toEqual({ id: 'inst-test', url: 'https://test.example.com', unreachableSince: '2026-10-29T10:00:00.000Z' });
     const go = await axios.get(h.url(`/api/identity/go?nonce=${'n'.repeat(32)}`), signedIn);
     expect(go.status).toBe(302);
     expect(go.headers.location).toMatch(/^https:\/\/test\.example\.com\/#\/handoff\?token=/);

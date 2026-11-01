@@ -50,6 +50,13 @@ describe('root asking a pool instance for a part of itself', () => {
     expect(checkMoveToken(issueMoveToken(other, 'inst-1', 'mongo', now), trusted, 'inst-1', 'mongo', now)).toEqual({ ok: false, reason: 'unknown-key' });
     expect(checkMoveToken(issueHandoff(keys, { userId: 'u', email: 'e' }, 'inst-1', now), trusted, 'inst-1', 'mongo', now)).toEqual({ ok: false, reason: 'malformed' });
   });
+
+  it('calls a token whose header or claims are not an object malformed rather than failing on it', () => {
+    const [, body, signature] = issueMoveToken(keys, 'inst-1', 'mongo', now).split('.') as [string, string, string];
+    const nothing = Buffer.from('null').toString('base64url');
+    expect(checkMoveToken(`${nothing}.${body}.${signature}`, trusted, 'inst-1', 'mongo', now)).toEqual({ ok: false, reason: 'malformed' });
+    expect(checkMoveToken(`${body}.${nothing}.${signature}`, trusted, 'inst-1', 'mongo', now)).toEqual({ ok: false, reason: 'malformed' });
+  });
 });
 
 describe('reaching a pool instance through the pool node\'s API server', () => {

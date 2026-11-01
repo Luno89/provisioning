@@ -45,7 +45,7 @@ export function signInRouter(deps: {
 
   router.post('/oidc/backchannel-logout', express.urlencoded({ extended: false, limit: '16kb' }), asyncRoute(async (req: Request, res: Response) => {
     res.setHeader('Cache-Control', 'no-store');
-    const outcome = await deps.signIn.backchannel((req.body ?? {}).logout_token);
+    const outcome = await deps.signIn.backchannel(((req.body ?? {}) as { logout_token?: unknown }).logout_token);
     if (!outcome.ok) return res.status(400).json({ error: 'invalid_request', error_description: outcome.error });
     return res.status(200).end();
   }));

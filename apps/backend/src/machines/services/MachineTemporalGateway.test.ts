@@ -9,6 +9,7 @@ import { buildDataConverter, type BlobReach } from '@koala/engine-core/payloads'
 import { temporalTestEnvironment } from '../../workflows/temporal-test-env.js';
 import { testPayloadBlobs } from '../../platform/lib/test-database.js';
 import { MachineTemporalGateway } from './MachineTemporalGateway.js';
+import { askMachine } from './MachineTemporalGateway.fixture-workflow.js';
 
 let env: TestWorkflowEnvironment;
 let gateway: MachineTemporalGateway;
@@ -31,7 +32,7 @@ async function recordingRelay(to: string): Promise<string> {
     upstreamAuth.push(headers.authorization);
     const up = relayed.request(withoutPseudo(headers, [':method', ':path']));
     let trailers: http2.OutgoingHttpHeaders = {};
-    up.on('trailers', (ended) => { trailers = withoutPseudo(ended); });
+    up.on('trailers', (ended: http2.IncomingHttpHeaders) => { trailers = withoutPseudo(ended); });
     up.on('response', (answered) => {
       if (answered['grpc-status'] !== undefined) return stream.respond(withoutPseudo(answered, [':status']), { endStream: true });
       stream.respond(withoutPseudo(answered, [':status']), { waitForTrailers: true });
@@ -89,7 +90,7 @@ describe('a machine reaching Temporal through the gateway', () => {
       activities: { Echo: async (text: string) => { Context.current().heartbeat(); return `machine says ${text}`; } },
     });
     const workflows = await Worker.create({ connection: env.nativeConnection, taskQueue: 'gateway-test', workflowsPath: resolve(__dirname, 'MachineTemporalGateway.fixture-workflow.ts') });
-    const answer = await workflows.runUntil(machine.runUntil(env.client.workflow.execute('askMachine', { taskQueue: 'gateway-test', workflowId: `ask-${Date.now()}`, args: ['d1', 'hello'] })));
+    const answer = await workflows.runUntil(machine.runUntil(env.client.workflow.execute(askMachine, { taskQueue: 'gateway-test', workflowId: `ask-${Date.now()}`, args: ['d1', 'hello'] })));
     expect(answer).toBe('machine says hello');
   }, 120_000);
 
@@ -105,7 +106,7 @@ describe('a machine reaching Temporal through the gateway', () => {
     const client = new Client({ connection: env.connection, namespace: env.namespace ?? 'default', dataConverter: converter });
     const pasted = 'a'.repeat(100) + Buffer.alloc(200_000).map(() => Math.floor(Math.random() * 26) + 97).toString();
     const before = new Set((await stored()).map((blob) => blob.id));
-    const answer = await workflows.runUntil(machine.runUntil(client.workflow.execute('askMachine', { taskQueue: 'gateway-big', workflowId: `big-${Date.now()}`, args: ['d1', pasted] })));
+    const answer = await workflows.runUntil(machine.runUntil(client.workflow.execute(askMachine, { taskQueue: 'gateway-big', workflowId: `big-${Date.now()}`, args: ['d1', pasted] })));
     expect(answer).toBe(`machine says ${pasted}`);
     const offloaded = (await stored()).map((blob) => blob.id).filter((id) => !before.has(id));
     const itsOwn = offloaded.filter((id) => handedBlobs.has(id));

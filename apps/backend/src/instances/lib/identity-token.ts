@@ -102,6 +102,11 @@ export function issueMoveToken(keys: IdentityKeyPair, instanceId: string, part: 
   return `${signed}.${b64(crypto.sign(null, Buffer.from(signed), keys.privateKey))}`;
 }
 
+const jsonRecord = (text: string): Record<string, unknown> | undefined => {
+  const value: unknown = JSON.parse(text);
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
+};
+
 export function checkMoveToken(
   token: string,
   trusted: ReadonlyMap<string, crypto.KeyObject>,
@@ -112,23 +117,26 @@ export function checkMoveToken(
   const parts = typeof token === 'string' ? token.split('.') : [];
   if (parts.length !== 3) return { ok: false, reason: 'malformed' };
   const [head, body, signature] = parts as [string, string, string];
-  let header: { alg?: unknown; typ?: unknown; kid?: unknown };
-  let claims: Partial<MoveClaims>;
+  let header: Record<string, unknown> | undefined;
+  let claims: Record<string, unknown> | undefined;
   try {
-    header = JSON.parse(fromB64(head).toString('utf8'));
-    claims = JSON.parse(fromB64(body).toString('utf8'));
+    header = jsonRecord(fromB64(head).toString('utf8'));
+    claims = jsonRecord(fromB64(body).toString('utf8'));
   } catch {
     return { ok: false, reason: 'malformed' };
   }
-  if (header.alg !== ALG || header.typ !== MOVE_TYP || typeof header.kid !== 'string') return { ok: false, reason: 'malformed' };
-  const key = trusted.get(header.kid);
+  if (!header || !claims) return { ok: false, reason: 'malformed' };
+  const { alg, typ, kid } = header;
+  if (alg !== ALG || typ !== MOVE_TYP || typeof kid !== 'string') return { ok: false, reason: 'malformed' };
+  const key = trusted.get(kid);
   if (!key) return { ok: false, reason: 'unknown-key' };
   if (!crypto.verify(null, Buffer.from(`${head}.${body}`), key, fromB64(signature))) return { ok: false, reason: 'bad-signature' };
-  if (typeof claims.aud !== 'string' || typeof claims.part !== 'string' || typeof claims.iat !== 'number' || typeof claims.exp !== 'number' || typeof claims.jti !== 'string' || !claims.jti) return { ok: false, reason: 'malformed' };
-  if (claims.aud !== instanceId || claims.part !== part) return { ok: false, reason: 'wrong-audience' };
-  if (claims.exp <= now) return { ok: false, reason: 'expired' };
-  if (claims.iat > now + 30) return { ok: false, reason: 'not-yet-valid' };
-  return { ok: true, claims: claims as MoveClaims };
+  const { aud, part: forPart, iat, exp, jti } = claims;
+  if (typeof aud !== 'string' || typeof forPart !== 'string' || typeof iat !== 'number' || typeof exp !== 'number' || typeof jti !== 'string' || !jti) return { ok: false, reason: 'malformed' };
+  if (aud !== instanceId || forPart !== part) return { ok: false, reason: 'wrong-audience' };
+  if (exp <= now) return { ok: false, reason: 'expired' };
+  if (iat > now + 30) return { ok: false, reason: 'not-yet-valid' };
+  return { ok: true, claims: { aud, part: forPart, iat, exp, jti } };
 }
 
 export type UsedTokenClaim = (jti: string, expiresAt: string) => Promise<boolean>;

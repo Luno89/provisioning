@@ -3,6 +3,8 @@ import { describe, expect, it } from 'vitest';
 import { temporal } from '@temporalio/proto';
 import { frame, gatewayCallOf, gatewayDecision, handedWorkflowOf, sealedPollAnswer, unframe, unsealToken, withBytesField, wireFields } from './temporal-gateway.js';
 
+const anyOf = (kind: unknown): unknown => expect.any(kind);
+
 const ws = temporal.api.workflowservice.v1;
 const bytes = (encoded: { finish(): Uint8Array }): Buffer => Buffer.from(encoded.finish());
 const machine = { deviceId: 'd1', namespace: 'default', keys: ['the-key'] };
@@ -21,9 +23,9 @@ describe('what a machine may ask Temporal', () => {
     const poll = (queue: string, namespace = 'default') => bytes(ws.PollActivityTaskQueueRequest.encode({ namespace, taskQueue: { name: queue }, identity: 'w' }));
     expect(gatewayDecision('PollActivityTaskQueue', poll('device-d1'), machine)).toEqual({ forward: poll('device-d1') });
     expect(gatewayDecision('PollActivityTaskQueue', poll('device-d2'), machine)).toEqual({ refused: 'a machine takes work only from its own queue, device-d1' });
-    expect(gatewayDecision('PollActivityTaskQueue', poll('engine-queue'), machine)).toMatchObject({ refused: expect.any(String) });
+    expect(gatewayDecision('PollActivityTaskQueue', poll('engine-queue'), machine)).toMatchObject({ refused: anyOf(String) });
     expect(gatewayDecision('PollActivityTaskQueue', poll('device-d1', 'other'), machine)).toEqual({ refused: 'a machine works only in the namespace default' });
-    expect(gatewayDecision('DescribeNamespace', bytes(ws.DescribeNamespaceRequest.encode({ namespace: 'default' })), machine)).toMatchObject({ forward: expect.any(Buffer) });
+    expect(gatewayDecision('DescribeNamespace', bytes(ws.DescribeNamespaceRequest.encode({ namespace: 'default' })), machine)).toMatchObject({ forward: anyOf(Buffer) });
     expect(gatewayDecision('GetSystemInfo', Buffer.alloc(0), machine)).toEqual({ forward: Buffer.alloc(0) });
   });
 
@@ -44,8 +46,8 @@ describe('what a machine may ask Temporal', () => {
 
     expect(gatewayDecision('RespondActivityTaskCompleted', complete(token), machine)).toEqual({ refused: 'a machine answers only for the tasks it was handed' });
     expect(gatewayDecision('RecordActivityTaskHeartbeat', complete(handedToken), { ...machine, deviceId: 'd2' })).toEqual({ refused: 'a machine answers only for the tasks it was handed' });
-    expect(gatewayDecision('RespondActivityTaskFailed', complete(handedToken), { ...machine, keys: ['another-key'] })).toMatchObject({ refused: expect.any(String) });
-    expect(gatewayDecision('RespondActivityTaskCanceled', complete(handedToken), { ...machine, keys: ['another-key', 'the-key'] })).toMatchObject({ forward: expect.any(Buffer) });
+    expect(gatewayDecision('RespondActivityTaskFailed', complete(handedToken), { ...machine, keys: ['another-key'] })).toMatchObject({ refused: anyOf(String) });
+    expect(gatewayDecision('RespondActivityTaskCanceled', complete(handedToken), { ...machine, keys: ['another-key', 'the-key'] })).toMatchObject({ forward: anyOf(Buffer) });
   });
 
   it('reads which workflow a task it hands out belongs to, and none from an empty poll', () => {

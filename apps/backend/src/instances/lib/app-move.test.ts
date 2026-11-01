@@ -45,25 +45,23 @@ describe('copying an app\'s namespace to the new machine', () => {
       spec: { replicas: 0, template: { spec: { containers: [{ image: `${FROM}/bo/books:abc` }, { image: 'nginx:1.27' }], initContainers: [{ image: `${FROM}/bo/init:1` }] } } },
       status: { readyReplicas: 0 },
     };
-    const moved = cleaned(deployment, FROM, TO) as any;
-    expect(moved.spec.replicas).toBe(2);
+    const moved = cleaned(deployment, FROM, TO);
+    expect(moved.spec).toEqual({ replicas: 2, template: { spec: { containers: [{ image: `${TO}/bo/books:abc` }, { image: 'nginx:1.27' }], initContainers: [{ image: `${TO}/bo/init:1` }] } } });
     expect(moved.metadata).toEqual({ name: 'web', namespace: 'books', annotations: {} });
     expect(moved.status).toBeUndefined();
-    expect(moved.spec.template.spec.containers.map((c: { image: string }) => c.image)).toEqual([`${TO}/bo/books:abc`, 'nginx:1.27']);
-    expect(moved.spec.template.spec.initContainers[0].image).toBe(`${TO}/bo/init:1`);
     expect(rewriteImage('docker.io/library/postgres:17', FROM, TO)).toBe('docker.io/library/postgres:17');
   });
 
   it('lets the new cluster give services, claims and pull secrets what is its own', () => {
-    const service = cleaned({ kind: 'Service', metadata: { name: 's' }, spec: { type: 'NodePort', clusterIP: '10.43.0.9', clusterIPs: ['10.43.0.9'], ports: [{ port: 80, nodePort: 30080 }] } }, FROM, TO) as any;
+    const service = cleaned({ kind: 'Service', metadata: { name: 's' }, spec: { type: 'NodePort', clusterIP: '10.43.0.9', clusterIPs: ['10.43.0.9'], ports: [{ port: 80, nodePort: 30080 }] } }, FROM, TO);
     expect(service.spec).toEqual({ type: 'NodePort', ports: [{ port: 80 }] });
-    const claim = cleaned({ kind: 'PersistentVolumeClaim', metadata: { name: 'data', annotations: { 'pv.kubernetes.io/bind-completed': 'yes', keep: 'me' } }, spec: { volumeName: 'pvc-1', storageClassName: 'local-path', resources: { requests: { storage: '1Gi' } } } }, FROM, TO) as any;
+    const claim = cleaned({ kind: 'PersistentVolumeClaim', metadata: { name: 'data', annotations: { 'pv.kubernetes.io/bind-completed': 'yes', keep: 'me' } }, spec: { volumeName: 'pvc-1', storageClassName: 'local-path', resources: { requests: { storage: '1Gi' } } } }, FROM, TO);
     expect(claim.spec).toEqual({ resources: { requests: { storage: '1Gi' } } });
-    expect(claim.metadata.annotations).toEqual({ keep: 'me' });
+    expect(claim.metadata?.annotations).toEqual({ keep: 'me' });
     const config = Buffer.from(JSON.stringify({ auths: { [FROM]: { auth: 'x' } } })).toString('base64');
-    const pull = cleaned({ kind: 'Secret', type: 'kubernetes.io/dockerconfigjson', metadata: { name: 'pull', ownerReferences: [{ uid: 'gone' }] as never }, data: { '.dockerconfigjson': config } }, FROM, TO) as any;
-    expect(JSON.parse(Buffer.from(pull.data['.dockerconfigjson'], 'base64').toString())).toEqual({ auths: { [TO]: { auth: 'x' } } });
-    expect(pull.metadata.ownerReferences).toBeUndefined();
+    const pull = cleaned({ kind: 'Secret', type: 'kubernetes.io/dockerconfigjson', metadata: { name: 'pull', ownerReferences: [{ uid: 'gone' }] }, data: { '.dockerconfigjson': config } }, FROM, TO);
+    expect(JSON.parse(Buffer.from(pull.data?.['.dockerconfigjson'] ?? '', 'base64').toString())).toEqual({ auths: { [TO]: { auth: 'x' } } });
+    expect(pull.metadata?.ownerReferences).toBeUndefined();
   });
 
   it('puts claims and settings first and workloads after them, and finds each claim\'s volume', () => {

@@ -238,7 +238,7 @@ export function instancesRouter(deps: {
 
   router.put('/sign-in-key', asyncRoute(async (req: Request, res: Response) => {
     const { instanceId, credential } = credentialOf(req);
-    const outcome = await deps.instances.announceSignIn(instanceId, credential, (req.body ?? {}).jwk);
+    const outcome = await deps.instances.announceSignIn(instanceId, credential, ((req.body ?? {}) as { jwk?: unknown }).jwk);
     if (!outcome.ok) return res.status(outcome.status).json({ error: outcome.error });
     return res.json(outcome.value);
   }));

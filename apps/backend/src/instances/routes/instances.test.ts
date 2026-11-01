@@ -14,6 +14,8 @@ import { mountRouter, TEST_USER, type Harness } from '../../platform/routes/test
 import { InstanceService, hashCredential } from '../services/InstanceService.js';
 import { PoolMonitoringService } from '../services/PoolMonitoringService.js';
 
+const including = (items: unknown[]): unknown => expect.arrayContaining(items);
+
 describe('what the installer reads from root', () => {
   const installer = readFileSync(join(process.cwd(), '../../scripts/instance/install.sh'), 'utf8');
   const reader = /^read_joined\(\) \{[\s\S]*?^\}$/m.exec(installer)![0];
@@ -160,7 +162,7 @@ describe('trying Koala on its own servers', () => {
         operatorOnly: (req: Request, res: Response, next: NextFunction) => (allowed((req as unknown as { principal: Principal }).principal, 'manage-accounts', { kind: 'install' }) ? next() : res.status(403).json({ error: 'Admin only' })),
       }),
     });
-    const call = (method: 'get' | 'post', path: string, data?: unknown) => axios.request({ method, url: harness!.url(path), data, validateStatus: () => true });
+    const call = (method: 'get' | 'post', path: string, data?: unknown) => axios.request<Record<string, unknown>>({ method, url: harness!.url(path), data, validateStatus: () => true });
 
     expect((await call('get', '/api/instances/pool')).data).toEqual({ available: true, trialDays: 14 });
     expect((await call('post', '/api/instances/pool', { name: 'no-dashes' })).status).toBe(400);
@@ -235,7 +237,7 @@ describe('a pool instance asking root about its own apps', () => {
     expect((await call('post', '/api/instances/monitoring/ask', { ask: { kind: 'query', query: 'up' } })).status).toBe(400);
     expect((await call('post', '/api/instances/monitoring/ask', { ask: { kind: 'cluster', question: 'nodes' } }, 'wrong')).status).toBe(401);
     expect((await call('put', '/api/instances/monitoring/rules/r1', { namespace: 'shop', spec: { kind: 'down' }, summary: 'Shop is down' })).data).toEqual({ set: 'r1' });
-    expect(JSON.parse(applied[0]!).metadata.namespace).toBe('pool-alice');
+    expect(JSON.parse(applied[0]!)).toMatchObject({ metadata: { namespace: 'pool-alice' } });
     expect((await call('put', '/api/instances/monitoring/rules/r2', { namespace: 'shop', spec: { kind: 'errors' }, summary: 's' })).status).toBe(400);
   });
 });
@@ -388,7 +390,7 @@ describe('an instance\'s updates on root', () => {
       },
     });
     const call = (method: 'get' | 'put', path: string, data?: unknown) =>
-      axios.request({ method, url: harness!.url(path), data, headers: { 'x-instance-id': 'inst-1', authorization: 'Bearer secret' }, validateStatus: () => true });
+      axios.request<Record<string, unknown>>({ method, url: harness!.url(path), data, headers: { 'x-instance-id': 'inst-1', authorization: 'Bearer secret' }, validateStatus: () => true });
 
     expect((await call('get', '/api/instances/release')).data).toMatchObject({ imageTag: 'old111' });
     const view = (await call('get', '/api/instances/updates')).data as { target: string; runningWithdrawn?: unknown; releases: Array<{ imageTag: string; withdrawn?: unknown; choosable: boolean }> };
@@ -431,7 +433,7 @@ describe('Koala\'s dependencies on root', () => {
     expect((await axios.post(harness.url('/api/instances/dependencies/check'), {}, { validateStatus: () => true })).status).toBe(403);
     await harness.close();
     harness = await mount(true);
-    const seen = await axios.get(harness.url('/api/instances/dependencies'), { validateStatus: () => true });
+    const seen = await axios.get<{ check: { checkedAt: string } }>(harness.url('/api/instances/dependencies'), { validateStatus: () => true });
     expect(seen.status).toBe(200);
     expect(seen.headers['cache-control']).toBe('no-store');
     expect(seen.data.check.checkedAt).toBe('2026-10-29T00:00:00.000Z');
@@ -486,7 +488,7 @@ describe('root\'s mail on its admin page', () => {
     await reputation.check();
     const seen = await axios.get(harness.url('/api/instances/mail-reputation'), { validateStatus: () => true });
     expect(seen.headers['cache-control']).toBe('no-store');
-    expect(seen.data).toMatchObject({ checking: false, report: { problems: [], lines: expect.arrayContaining([{ mark: 'ok', said: '203.0.113.7 reverses to mail.koala.dev' }]), check: { ip: '203.0.113.7', reverseDns: { state: 'matches' }, blocklists: [{ state: 'clear' }, { state: 'clear' }, { state: 'clear' }] } } });
+    expect(seen.data).toMatchObject({ checking: false, report: { problems: [], lines: including([{ mark: 'ok', said: '203.0.113.7 reverses to mail.koala.dev' }]), check: { ip: '203.0.113.7', reverseDns: { state: 'matches' }, blocklists: [{ state: 'clear' }, { state: 'clear' }, { state: 'clear' }] } } });
   });
 
   it('says so where this server sends no mail itself', async () => {
