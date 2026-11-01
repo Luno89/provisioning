@@ -1,6 +1,6 @@
-import { Router, type Request } from 'express';
+import { Router, type Request, type RequestHandler, type Response } from 'express';
 import crypto from 'crypto';
-import { asyncRoute, inviteCodeHash, inviteExpiry, inviteView, newInviteCode, principalFrom, type InviteMetadata } from '../../platform/index.js';
+import { asyncRoute, inviteCodeHash, inviteExpiry, inviteView, newInviteCode, principalFrom, type Database, type InviteMetadata } from '../../platform/index.js';
 import type { AccountRemovalService } from '../services/AccountRemovalService.js';
 import type { ProjectInviteLimitsService } from '../services/ProjectInviteLimitsService.js';
 import { FIRST_ADMIN_INVITE } from '../store.js';
@@ -10,13 +10,22 @@ const idOf = (req: Request): string => String(req.params.id ?? '');
 const userOf = (req: Request): { id: string; email: string } =>
   (req as unknown as { user: { id: string; email: string } }).user;
 
-export function adminRouter(deps: Record<string, any>): Router {
-  const { db, operatorOnly } = deps;
+export interface AdminRouterDeps {
+  db: { accounts: Pick<Database['accounts'], 'getInvites' | 'saveInvite'> };
+  operatorOnly: RequestHandler;
+  inviteLimits: Pick<ProjectInviteLimitsService, 'overview' | 'setLimits' | 'setOwn'>;
+  removal?: Pick<AccountRemovalService, 'people' | 'preview' | 'remove'> | undefined;
+}
+
+const bodyOf = (req: Request): Record<string, unknown> => (req.body ?? {}) as Record<string, unknown>;
+
+export function adminRouter(deps: AdminRouterDeps): Router {
+  const { db, operatorOnly, inviteLimits, removal } = deps;
   const router = Router();
 
   router.get('/invites', operatorOnly, async (_req, res) => {
     const now = new Date();
-    res.json((await db.accounts.getInvites() as InviteMetadata[]).filter((invite) => !invite.project && invite.id !== FIRST_ADMIN_INVITE).map((invite) => inviteView(invite, now)));
+    res.json((await db.accounts.getInvites()).filter((invite) => !invite.project && invite.id !== FIRST_ADMIN_INVITE).map((invite) => inviteView(invite, now)));
   });
 
   router.post('/invites', operatorOnly, async (req, res) => {
@@ -33,15 +42,13 @@ export function adminRouter(deps: Record<string, any>): Router {
     res.status(201).json({ ...inviteView(invite, now), code });
   });
 
-  const inviteLimits = deps.inviteLimits as ProjectInviteLimitsService;
-  const answered = <T>(res: import('express').Response, outcome: { ok: true; value: T } | { ok: false; status: number; why: string }) =>
+  const answered = <T>(res: Response, outcome: { ok: true; value: T } | { ok: false; status: number; why: string }) =>
     (outcome.ok ? res.json(outcome.value) : res.status(outcome.status).json({ error: outcome.why }));
 
   router.get('/project-invites', operatorOnly, asyncRoute(async (_req, res) => res.json(await inviteLimits.overview())));
-  router.put('/project-invites', operatorOnly, asyncRoute(async (req, res) => answered(res, await inviteLimits.setLimits({ accounts: req.body?.accounts, perHour: req.body?.perHour }))));
-  router.put('/people/:id/project-invites', operatorOnly, asyncRoute(async (req, res) => answered(res, await inviteLimits.setOwn(idOf(req), req.body?.accounts))));
+  router.put('/project-invites', operatorOnly, asyncRoute(async (req, res) => answered(res, await inviteLimits.setLimits({ accounts: bodyOf(req).accounts, perHour: bodyOf(req).perHour }))));
+  router.put('/people/:id/project-invites', operatorOnly, asyncRoute(async (req, res) => answered(res, await inviteLimits.setOwn(idOf(req), bodyOf(req).accounts))));
 
-  const removal = deps.removal as AccountRemovalService | undefined;
   const ELSEWHERE = 'Accounts cannot be removed here';
 
   router.get('/people', operatorOnly, asyncRoute(async (_req, res) => {
@@ -58,7 +65,8 @@ export function adminRouter(deps: Record<string, any>): Router {
 
   router.delete('/people/:id', operatorOnly, asyncRoute(async (req, res) => {
     if (!removal) return res.status(404).json({ error: ELSEWHERE });
-    const confirm = typeof req.body?.confirm === 'string' ? req.body.confirm : '';
+    const { confirm: given } = bodyOf(req);
+    const confirm = typeof given === 'string' ? given : '';
     const outcome = await removal.remove({ ownerId: idOf(req), requestedBy: userOf(req).id, confirm }, principalFrom(req));
     if (!outcome.ok) return res.status(outcome.refusal.status).json(outcome.refusal);
     return res.status(202).json({ state: outcome.state });

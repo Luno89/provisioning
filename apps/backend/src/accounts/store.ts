@@ -1,6 +1,6 @@
 import { ACCOUNT_DATA, type AccountIds, type AccountRelated } from './lib/account-removal.js';
 import { type AreaStore, fromDoc, toDoc } from '../platform/lib/collection.js';
-import type { Collection, Db } from 'mongodb';
+import type { Collection, Db, Document } from 'mongodb';
 import type { InviteMetadata, UserMetadata } from '../platform/index.js';
 import type { InviteLimits } from './lib/project-invite-limits.js';
 import { SIGN_UP_CODES_SENT, type PendingSignUp } from './lib/sign-up.js';
@@ -50,6 +50,8 @@ export interface AccountsStore extends AreaStore {
   saveInviteLimits(limits: InviteLimits): Promise<void>;
 }
 
+type KeyedDoc = Document & { _id: string };
+
 export class MongoAccountsStore implements AccountsStore {
   constructor(private readonly db: () => Db) {}
 
@@ -61,8 +63,8 @@ export class MongoAccountsStore implements AccountsStore {
     return this.db().collection('corpus');
   }
 
-  private get invites(): Collection {
-    return this.db().collection('invites');
+  private get invites(): Collection<KeyedDoc> {
+    return this.db().collection<KeyedDoc>('invites');
   }
 
   private get pendingSignUps(): Collection {
@@ -85,8 +87,8 @@ export class MongoAccountsStore implements AccountsStore {
     return this.db().collection('turnLogs');
   }
 
-  private get users(): Collection {
-    return this.db().collection('users');
+  private get users(): Collection<KeyedDoc> {
+    return this.db().collection<KeyedDoc>('users');
   }
 
   async ensureIndexes(): Promise<void> {
@@ -194,7 +196,7 @@ export class MongoAccountsStore implements AccountsStore {
 
   async claimFirstAdmin(userId: string, at: string): Promise<boolean> {
     try {
-      await this.invites.insertOne({ _id: FIRST_ADMIN_INVITE as never, id: FIRST_ADMIN_INVITE, createdBy: 'setup', createdAt: at, usedBy: userId, usedAt: at });
+      await this.invites.insertOne({ _id: FIRST_ADMIN_INVITE, id: FIRST_ADMIN_INVITE, createdBy: 'setup', createdAt: at, usedBy: userId, usedAt: at });
       return true;
     } catch (err) {
       if ((err as { code?: number }).code === 11000) return false;
@@ -227,10 +229,8 @@ export class MongoAccountsStore implements AccountsStore {
   }
 
   async saveInvite(invite: InviteMetadata): Promise<void> {
-    const doc = toDoc(invite);
-    const id = doc._id;
-    const { _id, ...filter } = doc;
-    await this.invites.replaceOne({ _id: id }, filter, { upsert: true });
+    const { _id, ...filter } = toDoc(invite);
+    await this.invites.replaceOne({ _id: invite.id }, filter, { upsert: true });
   }
 
   async accountIds(ownerId: string): Promise<AccountIds> {
@@ -247,7 +247,7 @@ export class MongoAccountsStore implements AccountsStore {
       proposalIds: await ids('planProposals'),
       projectIds,
       buildWorkflowIds: (await this.pipelineRuns.find({ projectId: { $in: projectIds }, status: { $in: ['queued', 'running'] } }, { projection: { temporalWorkflowId: 1 } }).toArray())
-        .map((doc) => doc.temporalWorkflowId).filter((id): id is string => typeof id === 'string'),
+        .map((doc): unknown => doc.temporalWorkflowId).filter((id): id is string => typeof id === 'string'),
       ingestIds: ((await this.corpus.distinct('ingestId', { ownerId })) as unknown[]).filter((id): id is string => typeof id === 'string'),
     };
   }
@@ -291,16 +291,14 @@ export class MongoAccountsStore implements AccountsStore {
   }
 
   async saveUser(user: UserMetadata): Promise<void> {
-    const doc = toDoc(user);
-    const id = doc._id;
-    const { _id, ...filter } = doc;
-    await this.users.replaceOne({ _id: id }, filter, { upsert: true });
+    const { _id, ...filter } = toDoc(user);
+    await this.users.replaceOne({ _id: user.id }, filter, { upsert: true });
   }
 
   async saveUserList(users: UserMetadata[]): Promise<void> {
     await this.users.deleteMany({});
     if (users.length > 0) {
-      await this.users.insertMany(users.map(toDoc));
+      await this.users.insertMany(users.map((user) => ({ ...toDoc(user), _id: user.id })));
     }
   }
 
@@ -324,11 +322,11 @@ export class MongoAccountsStore implements AccountsStore {
   }
 
   async getUserById(id: string): Promise<UserMetadata | undefined> {
-    const doc = await this.users.findOne({ _id: id as any });
+    const doc = await this.users.findOne({ _id: id });
     return doc ? fromDoc<UserMetadata>(doc) : undefined;
   }
 
   async deleteUser(id: string): Promise<void> {
-    await this.users.deleteOne({ _id: id as any });
+    await this.users.deleteOne({ _id: id });
   }
 }

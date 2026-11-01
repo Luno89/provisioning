@@ -5,6 +5,7 @@ import { mountRouter, TEST_USER, type Harness } from '../../platform/routes/test
 import { accountRouter } from './account.js';
 import { adminRouter } from './admin.js';
 import { AccountRemovalService, type AccountRemovalWorkflows, type RemovalWorkflowState } from '../services/AccountRemovalService.js';
+import { ProjectInviteLimitsService } from '../services/ProjectInviteLimitsService.js';
 import type { Database } from '../../platform/lib/db-interface.js';
 import { ROOT_REMOVAL_STEPS, ROOT_REMOVAL_WORKFLOW } from '../lib/account-removal.js';
 import { HubService } from '../../hub/services/HubService.js';
@@ -51,7 +52,7 @@ const mount = async (prefix: '/api/account' | '/api/admin', hub?: HubPeople) => 
       const removal = new AccountRemovalService({ store: db, workflows, now: () => 'now', hub, principalFor });
       return prefix === '/api/account'
         ? accountRouter({ removal, clearSession: (res) => { cleared += 1; res.clearCookie('session'); }, confirmed })
-        : adminRouter({ db, operatorOnly, removal });
+        : adminRouter({ db, operatorOnly, removal, inviteLimits: new ProjectInviteLimitsService({ store: db.accounts, principalFor }) });
     },
   });
 };
@@ -68,7 +69,7 @@ afterEach(async () => {
 });
 
 const call = (method: 'get' | 'delete', path: string, data?: unknown) =>
-  axios.request({ method, url: harness.url(path), data, validateStatus: () => true });
+  axios.request<Record<string, unknown>>({ method, url: harness.url(path), data, validateStatus: () => true });
 
 describe('removing your own account', () => {
   it('shows what would stop it, then removes it once you type your email, and signs you out', async () => {
@@ -159,7 +160,7 @@ describe('an admin on root', () => {
           now: () => 'now',
           principalFor,
         });
-        return adminRouter({ db, operatorOnly, removal });
+        return adminRouter({ db, operatorOnly, removal, inviteLimits: new ProjectInviteLimitsService({ store: db.accounts, principalFor }) });
       },
     });
     const listed = (await call('get', '/api/admin/people')).data.people as Array<{ id: string; instance?: unknown }>;

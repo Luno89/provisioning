@@ -44,6 +44,23 @@ export function proofFrom(body: unknown): Proof {
   };
 }
 
+export interface TwoFactorChange {
+  enabled: boolean;
+  phone?: string | undefined;
+  preferredMethod?: 'email' | 'sms' | undefined;
+}
+
+export function twoFactorChangeFrom(body: unknown): TwoFactorChange | { problem: string } {
+  const given = (body ?? {}) as Record<string, unknown>;
+  if (given.phone !== undefined && typeof given.phone !== 'string') return { problem: 'The phone number for sign-in codes must be text' };
+  if (given.preferredMethod !== undefined && given.preferredMethod !== 'email' && given.preferredMethod !== 'sms') return { problem: 'Sign-in codes go by email or by SMS' };
+  return {
+    enabled: Boolean(given.enabled),
+    ...(given.phone !== undefined ? { phone: given.phone } : {}),
+    ...(given.preferredMethod !== undefined ? { preferredMethod: given.preferredMethod } : {}),
+  };
+}
+
 export const PROOF_ASKED: Readonly<Record<ConfirmWith, string>> = {
   'two-factor': 'Enter a current code from your two-factor sign-in to do this',
   password: 'Enter your password to do this',

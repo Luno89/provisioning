@@ -11,7 +11,7 @@ import type { PasswordService } from '../services/PasswordService.js';
 import type { SignInProviders } from '../services/sign-in/SignInProviders.js';
 import { emailProblem, normalEmail, sameSignUpCode, SIGN_UP_WRONG_CODES, signUpCodeHash, signUpExpiry, signUpLive } from '../lib/sign-up.js';
 import { takenAddressMail } from '../lib/password-reset.js';
-import { confirmWith } from '../lib/second-factor.js';
+import { confirmWith, twoFactorChangeFrom } from '../lib/second-factor.js';
 import { devicesFor } from './device.js';
 
 const TWO_FACTOR_SECONDS = 5 * 60;
@@ -39,6 +39,7 @@ export function authRouter(deps: AuthRouterDeps): Router {
   const devices = devicesFor({ auth: deps.auth, sessionKey, authService });
   const rememberDevice = devices.remember;
   const userOf = (req: Request): UserMetadata | undefined => (req as { user?: UserMetadata }).user;
+  const bodyOf = (req: Request): Record<string, unknown> => (req.body ?? {}) as Record<string, unknown>;
   const place = { holdsAccounts: deps.accounts !== false };
   const signedIn = (user: { id: string; email: string; twoFactorEnabled?: boolean | undefined; passwordHash?: string | undefined }, principal: Principal) => ({
     ...sessionView(user, principal, place),
@@ -50,8 +51,8 @@ export function authRouter(deps: AuthRouterDeps): Router {
 
   accountRoutes.post('/register', async (req, res) => {
     try {
-      const { password, inviteCode } = req.body;
-      const email = normalEmail(req.body.email);
+      const { password, inviteCode, email: given } = bodyOf(req);
+      const email = normalEmail(given);
       if (!email || typeof password !== 'string' || !password) {
         return res.status(400).json({ error: 'Email and password are required' });
       }
@@ -100,8 +101,8 @@ export function authRouter(deps: AuthRouterDeps): Router {
         ...(taken ? { taken: true } : {}),
       });
       res.json({ verify: id, ...(sending.kind === 'shown' && sending.code ? { devCode: sending.code } : {}) });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
     }
   });
 
@@ -114,7 +115,7 @@ export function authRouter(deps: AuthRouterDeps): Router {
 
   accountRoutes.post('/register/verify', async (req, res) => {
     try {
-      const { id, code } = req.body;
+      const { id, code } = bodyOf(req);
       if (typeof code !== 'string' || !/^\s*\d{6}\s*$/.test(code)) {
         return res.status(400).json({ error: 'Enter the six digits from the email' });
       }
@@ -145,14 +146,14 @@ export function authRouter(deps: AuthRouterDeps): Router {
       setSessionCookie(res, sessionToken(user, sessionKey));
       rememberDevice(req, res, user.email);
       res.json({ success: true, user: signedIn(user, deps.auth.principalFor(user)) });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
     }
   });
 
   accountRoutes.post('/register/resend', async (req, res) => {
     try {
-      const pending = await pendingFor(req.body.id);
+      const pending = await pendingFor(bodyOf(req).id);
       if (!pending) return res.status(410).json({ error: SIGN_UP_GONE });
       const sentCode = generateOTP();
       if (!await db.accounts.newSignUpCode(pending.id, signUpCodeHash(pending.id, pending.taken ? randomUUID() : sentCode), signUpExpiry(new Date()))) {
@@ -163,15 +164,15 @@ export function authRouter(deps: AuthRouterDeps): Router {
         : await authService.sendSignUpCode(pending.email, sentCode);
       if (sending.kind === 'refused') return res.status(503).json({ error: sending.why });
       res.json({ verify: pending.id, ...(sending.kind === 'shown' && sending.code ? { devCode: sending.code } : {}) });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
     }
   });
 
   accountRoutes.post('/login', async (req, res) => {
     try {
-      const { password } = req.body;
-      const account = normalEmail(req.body.email);
+      const { password, email } = bodyOf(req);
+      const account = normalEmail(email);
       if (!account || typeof password !== 'string' || !password) {
         return res.status(400).json({ error: 'Email and password are required' });
       }
@@ -195,18 +196,18 @@ export function authRouter(deps: AuthRouterDeps): Router {
         success: true,
         user: signedIn(user, deps.auth.principalFor(user)),
       });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
     }
   });
 
   accountRoutes.post('/2fa/verify', async (req, res) => {
     try {
-      const { challenge, code } = req.body;
+      const { challenge, code } = bodyOf(req);
       if (typeof challenge !== 'string' || typeof code !== 'string' || !code) {
         return res.status(400).json({ error: 'The sign-in and its code are required' });
       }
-      const userId = verifyJWT(challenge, 'two-factor', sessionKey)?.twoFactorFor;
+      const userId: unknown = verifyJWT(challenge, 'two-factor', sessionKey)?.twoFactorFor;
       const user = typeof userId === 'string' ? await db.accounts.getUserById(userId) : undefined;
       if (!user || user.removal) {
         return res.status(400).json({ error: 'This sign-in has expired; sign in again' });
@@ -222,8 +223,8 @@ export function authRouter(deps: AuthRouterDeps): Router {
         success: true,
         user: signedIn(user, deps.auth.principalFor(user)),
       });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
     }
   });
 
@@ -256,8 +257,8 @@ export function authRouter(deps: AuthRouterDeps): Router {
       await deps.revocations?.revoked({ personId: user.id, because: 'signed-out-everywhere', at: user.sessionsEndedAt });
       setSessionCookie(res, sessionToken(user, sessionKey), req);
       res.json({ ended: true });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
     }
   });
 
@@ -272,11 +273,13 @@ export function authRouter(deps: AuthRouterDeps): Router {
 
   accountRoutes.post('/2fa/settings', async (req, res) => {
     try {
-      const { enabled, phone, preferredMethod } = req.body;
       const user = userOf(req);
       if (!user) {
         return res.status(401).json({ error: 'Not authenticated' });
       }
+      const change = twoFactorChangeFrom(req.body);
+      if ('problem' in change) return res.status(400).json({ error: change.problem });
+      const { enabled, phone, preferredMethod } = change;
 
       const method = preferredMethod ?? user.twoFactorPreferredMethod ?? 'email';
       const cannot = enabled ? authService.sendingProblem(method) : undefined;
@@ -285,7 +288,7 @@ export function authRouter(deps: AuthRouterDeps): Router {
       if (refused) return res.status(refused.status).json({ error: refused.error });
 
       user.sessionsEndedAt = new Date().toISOString();
-      user.twoFactorEnabled = !!enabled;
+      user.twoFactorEnabled = enabled;
       if (phone !== undefined) user.twoFactorPhone = phone;
       if (preferredMethod !== undefined) user.twoFactorPreferredMethod = preferredMethod;
 
@@ -300,8 +303,8 @@ export function authRouter(deps: AuthRouterDeps): Router {
         twoFactorPreferredMethod: user.twoFactorPreferredMethod,
         confirmWith: confirmWith(user),
       });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
     }
   });
 
