@@ -2,6 +2,10 @@ import { allowed, asPerson, BaseService, type Database, type DeploymentMetadata,
 import { InfrastructureService } from './InfrastructureService.js';
 import { ClusterService } from './ClusterService.js';
 import { BuilderService } from './BuilderService.js';
+import type { TemporalBridge } from './TemporalBridge.js';
+import { listAt, textAt } from '../lib/json-reading.js';
+import { definedFields, type DeployRequest } from '../lib/deploy-request.js';
+import { ignore } from '@koala/engine-core/failures';
 import { StorageAdapter } from './StorageAdapter.js';
 import { isSelfManagedCluster } from '../lib/cluster-topology.js';
 import { sanitizeNamespace, llmAppSpec, specFromTag, inClusterBaseUrl } from '../../models/index.js';
@@ -15,11 +19,21 @@ import path from 'path';
 
 const DEFAULT_KUBECONFIG = path.join(os.homedir(), '.kube/config');
 
+type AppDeployConfig = DeployRequest & {
+  vpnEnabled?: boolean;
+  vpnProtocol?: 'wireguard' | 'openvpn';
+  vpnConfig?: string;
+  vpnDedicatedIp?: string;
+};
+
+const namesOf = (listJson: string): string[] =>
+  listAt(JSON.parse(listJson) as unknown, 'items').map((item) => textAt(item, 'metadata', 'name') ?? '');
+
 export class AppService extends BaseService {
   private infra: InfrastructureService;
   private clusters: ClusterService;
   private builder: BuilderService;
-  private temporalBridge?: any;
+  private temporalBridge?: Pick<TemporalBridge, 'terminateWorkflow'>;
 
   constructor(db: Database, infra: InfrastructureService, clusters: ClusterService, builder: BuilderService) {
     super(db);
@@ -28,13 +42,13 @@ export class AppService extends BaseService {
     this.builder = builder;
   }
 
-  setTemporalBridge(temporalBridge: any) {
+  setTemporalBridge(temporalBridge: Pick<TemporalBridge, 'terminateWorkflow'>) {
     this.temporalBridge = temporalBridge;
   }
 
   async getById(id: string, userId: string) {
     const deployments = await this.db.infrastructure.getDeployments();
-    const dep = deployments.find((d: any) => d.id === id);
+    const dep = deployments.find((d) => d.id === id);
     return dep && allowed(asPerson(userId), 'see', { kind: 'deployment', ownerId: dep.ownerId }) ? dep : undefined;
   }
 
@@ -72,8 +86,7 @@ export class AppService extends BaseService {
       try {
         const kubeconfigPath = await this.clusters.getKubeconfigPath(cluster);
         const output = await this.infra.runKubectl(['get', 'ns', '-o', 'json'], kubeconfigPath);
-        const data = JSON.parse(output);
-        const namespaces = data.items.map((item: any) => item.metadata.name);
+        const namespaces = namesOf(output);
 
         for (const dep of deps) {
           if (dep.status === 'deploying' || dep.status === 'destroying' || dep.status === 'failed') {
@@ -92,8 +105,8 @@ export class AppService extends BaseService {
             }
           }
         }
-      } catch (err: any) {
-        this.logger.warn(`Failed to sync deployments for cluster ${cluster.name}: ${err.message}. Keeping existing metadata.`);
+      } catch (err) {
+        this.logger.warn(`Failed to sync deployments for cluster ${cluster.name}: ${(err as Error).message}. Keeping existing metadata.`);
         cleanDeployments.push(...deps.map(d => ({ ...d, lastSyncedAt: now })));
       }
     }
@@ -113,12 +126,10 @@ export class AppService extends BaseService {
     const now = new Date().toISOString();
 
     const nsOutput = await this.infra.runKubectl(['get', 'ns', '-o', 'json'], kubeconfigPath);
-    const nsData = JSON.parse(nsOutput);
-    const userNamespaces = nsData.items
-      .map((item: any) => item.metadata.name)
-      .filter((n: string) => !n.startsWith('kube-') && n !== 'default' && n !== 'kube-node-lease');
+    const userNamespaces = namesOf(nsOutput)
+      .filter((n) => !n.startsWith('kube-') && n !== 'default' && n !== 'kube-node-lease');
 
-    let helmReleases: any[] = [];
+    let helmReleases: unknown[] = [];
     try {
       const isMock = this.clusters.isMockCloud(cluster);
       const physicalName = this.clusters.getPhysicalClusterName(cluster);
@@ -126,8 +137,10 @@ export class AppService extends BaseService {
       const args = ['list', '-A', '-o', 'json'];
       if (context) args.push('--kube-context', context);
       const helmOutput = await this.infra.runHelm(args, kubeconfigPath);
-      helmReleases = JSON.parse(helmOutput);
-    } catch { /* ignored */ }
+      helmReleases = listAt(JSON.parse(helmOutput) as unknown);
+    } catch (failure) {
+      ignore('without helm\'s releases each namespace is told apart by its pods instead')(failure);
+    }
 
     const discovered: DeploymentMetadata[] = [];
     const catalogueIds = (await this.db.infrastructure.getAppSpecs()).map((s) => s.id);
@@ -136,7 +149,7 @@ export class AppService extends BaseService {
       const alreadyTracked = clusterDeployments.some(d => namespaceOf(d) === ns);
       if (alreadyTracked) continue;
 
-      const nsReleases = helmReleases.filter((r: any) => r.Namespace === ns);
+      const nsReleases = helmReleases.filter((r) => textAt(r, 'Namespace') === ns);
       let appType: DeploymentMetadata['appType'] | undefined;
       let strategy: 'helm' | 'native' = 'native';
       let webRepo: string | undefined;
@@ -146,15 +159,16 @@ export class AppService extends BaseService {
 
       if (nsReleases.length > 0) {
         strategy = 'helm';
-        const releaseName = nsReleases[0].Chart?.split(':')[0]?.toLowerCase() ?? '';
+        const releaseName = textAt(nsReleases[0], 'Chart')?.split(':')[0]?.toLowerCase() ?? '';
         appType = appTypeFromName(releaseName, catalogueIds);
       } else {
         try {
           const podsOutput = await this.infra.runKubectl(['get', 'pods', '-n', ns, '-o', 'json'], kubeconfigPath);
-          const podsData = JSON.parse(podsOutput);
-          const podNames = podsData.items.map((p: any) => p.metadata.name ?? '').map((n: string) => n.split('-')[0]);
-          appType = podNames.map((p: string) => appTypeFromName(p, catalogueIds)).find(Boolean);
-        } catch { /* ignored */ }
+          const podNames = namesOf(podsOutput).map((n) => n.split('-')[0] ?? '');
+          appType = podNames.map((p) => appTypeFromName(p, catalogueIds)).find(Boolean);
+        } catch (failure) {
+          ignore('a namespace whose pods cannot be listed is discovered without an app type')(failure);
+        }
       }
 
       const entry: DeploymentMetadata = {
@@ -179,11 +193,12 @@ export class AppService extends BaseService {
     return discovered;
   }
 
-  async deploy(config: any, userId: string, io?: SocketServer) {
+  async deploy(config: AppDeployConfig, userId: string, io?: SocketServer) {
     const {
       name, clusterId, odooRepo, odooTag, pgRepo, pgTag, modules = [], appType = 'odoo', storage = {},
       vpnEnabled = false, vpnProtocol = 'wireguard', vpnConfig = '', vpnDedicatedIp = ''
     } = config;
+    if (!name || !clusterId) throw new Error('an app needs a name and a cluster to deploy to');
     let strategy = config.strategy || 'helm';
     if (appType === 'odoo') {
       strategy = 'native';
@@ -202,10 +217,7 @@ export class AppService extends BaseService {
       status: 'deploying', 
       lastLogPath: logFile, 
       modules,
-      webRepo: odooRepo,
-      webTag: odooTag,
-      dbRepo: pgRepo,
-      dbTag: pgTag,
+      ...definedFields({ webRepo: odooRepo, webTag: odooTag, dbRepo: pgRepo, dbTag: pgTag }),
       storage,
       vpnEnabled,
       vpnProtocol,
@@ -235,8 +247,8 @@ export class AppService extends BaseService {
             try {
               await this.infra.checkGpuToolkit(gpuVendor);
               await this.infra.installGpuDevicePlugin(gpuVendor, kubeconfigPath);
-            } catch (err: any) {
-              this.logger.warn(`[AppService] GPU toolkit check or device plugin install failed (${err.message}). Falling back to CPU mode.`);
+            } catch (err) {
+              this.logger.warn(`[AppService] GPU toolkit check or device plugin install failed (${(err as Error).message}). Falling back to CPU mode.`);
               effectiveDevice = 'cpu';
               effectiveGpuCount = 0;
             }
@@ -345,11 +357,11 @@ export class AppService extends BaseService {
         const defaultPort = appType === 'odoo' ? '8069' : '80';
         const displayUrl = vpnEnabled && vpnDedicatedIp ? `http://${vpnDedicatedIp}:${defaultPort}` : `http://localhost:${defaultPort}`;
         await this.db.infrastructure.saveDeployment({ ...metadata, status: 'running', url: displayUrl });
-      } catch (err: any) {
-        this.logger.error(`App deployment failed: ${err.message}`);
+      } catch (err) {
+        this.logger.error(`App deployment failed: ${(err as Error).message}`);
         await this.db.infrastructure.saveDeployment({ ...metadata, status: 'failed' });
       }
-    })().catch((err: any) => this.logger.error(`Unhandled error during app deployment: ${err.message}`));
+    })().catch((err: unknown) => this.logger.error(`Unhandled error during app deployment: ${(err as Error).message}`));
 
     return metadata;
   }
@@ -411,18 +423,18 @@ export class AppService extends BaseService {
   
           await this.infra.deploy(`app-${physicalName}-${id.slice(0, 8)}`, { logFile, io, resourceId: id, env });
           await this.db.infrastructure.saveDeployment({ ...updatedMetadata, status: 'running' });
-        } catch (err: any) {
-          this.logger.error(`Module update failed: ${err.message}`);
+        } catch (err) {
+          this.logger.error(`Module update failed: ${(err as Error).message}`);
           await this.db.infrastructure.saveDeployment({ ...updatedMetadata, status: 'failed' });
         }
-      })().catch((err: any) => this.logger.error(`Unhandled error during module update: ${err.message}`));
+      })().catch((err: unknown) => this.logger.error(`Unhandled error during module update: ${(err as Error).message}`));
 
       return updatedMetadata;
   }
 
   async listPods(id: string, userId: string) {
     try {
-        const dep = (await this.getAll(userId)).find((d: any) => d.id === id);
+        const dep = (await this.getAll(userId)).find((d) => d.id === id);
         if (!dep) throw new Error('Deployment not found');
         const cluster = await this.clusters.getById(dep.clusterId, asPerson(userId));
         if (!cluster) throw new Error('Cluster not found');
@@ -436,9 +448,9 @@ export class AppService extends BaseService {
 
         const kubeconfigPath = await this.clusters.getKubeconfigPath(cluster);
         const output = await this.infra.runKubectl(args, kubeconfigPath);
-        return { pods: JSON.parse(output).items, namespace };
-    } catch (err: any) {
-        this.logger.error(`Failed to list pods: ${err.message}`);
+        return { pods: listAt(JSON.parse(output) as unknown, 'items'), namespace };
+    } catch (err) {
+        this.logger.error(`Failed to list pods: ${(err as Error).message}`);
         return { pods: [], namespace: 'default' };
     }
   }
@@ -456,7 +468,7 @@ export class AppService extends BaseService {
 
   async getHelmStatus(id: string, userId: string) {
     try {
-        const dep = (await this.getAll(userId)).find((d: any) => d.id === id);
+        const dep = (await this.getAll(userId)).find((d) => d.id === id);
         if (!dep) throw new Error('Deployment not found');
         if (dep.strategy === 'native') return 'Native deployments do not use Helm. Use Diagnostics or Pod Inspector for status.';
 
@@ -473,15 +485,15 @@ export class AppService extends BaseService {
 
         const kubeconfigPath = await this.clusters.getKubeconfigPath(cluster);
         return await this.infra.runHelm(args, kubeconfigPath);
-    } catch (err: any) {
-        this.logger.error(`Helm status error: ${err.message}`);
+    } catch (err) {
+        this.logger.error(`Helm status error: ${(err as Error).message}`);
         return 'Helm release not found or not initialized yet.';
     }
   }
 
   async getDiagnostics(id: string, userId: string) {
     try {
-        const dep = (await this.getAll(userId)).find((d: any) => d.id === id);
+        const dep = (await this.getAll(userId)).find((d) => d.id === id);
         if (!dep) throw new Error('Deployment not found');
         const cluster = await this.clusters.getById(dep.clusterId, asPerson(userId));
         if (!cluster) throw new Error('Cluster not found');
@@ -503,14 +515,14 @@ export class AppService extends BaseService {
         const events = await this.infra.runKubectl(eventsArgs, kubeconfigPath);
 
         return `--- POD STATUS (Namespace: ${namespace}) ---\n${pods}\n\n--- RECENT EVENTS ---\n${events}`;
-    } catch (err: any) {
-        this.logger.error(`Diagnostics error: ${err.message}`);
+    } catch (err) {
+        this.logger.error(`Diagnostics error: ${(err as Error).message}`);
         return 'Failed to fetch diagnostics.';
     }
   }
 
   async delete(id: string, userId: string, io?: SocketServer) {
-    const dep = (await this.getAll(userId)).find((d: any) => d.id === id);
+    const dep = (await this.getAll(userId)).find((d) => d.id === id);
     if (!dep) throw new Error('Deployment not found');
     const cluster = await this.clusters.getById(dep.clusterId, asPerson(userId));
     
@@ -535,21 +547,19 @@ export class AppService extends BaseService {
 
         await this.infra.destroy(`app-${physicalName}-${id.slice(0, 8)}`, { logFile, io, resourceId: id, env });
         
-        try {
-            await this.infra.waitForNamespaceDeletion(namespaceOf(dep), kubeconfigPath);
-        } catch { /* ignored */ }
+        await this.infra.waitForNamespaceDeletion(namespaceOf(dep), kubeconfigPath);
 
         await this.db.infrastructure.deleteDeployment(id);
         if (io) io.to(`user:${dep.ownerId}`).emit('resource-destroyed', { id, type: 'deployment', name: dep.name });
-      } catch (err: any) {
-        this.logger.error(`App destruction failed: ${err.message}`);
+      } catch (err) {
+        this.logger.error(`App destruction failed: ${(err as Error).message}`);
         await this.db.infrastructure.saveDeployment({ ...dep, status: 'failed' });
       }
-    })().catch((err: any) => this.logger.error(`Unhandled error during app destruction: ${err.message}`));
+    })().catch((err: unknown) => this.logger.error(`Unhandled error during app destruction: ${(err as Error).message}`));
   }
 
   async abort(id: string, userId: string, io?: SocketServer) {
-    const dep = (await this.getAll(userId)).find((d: any) => d.id === id);
+    const dep = (await this.getAll(userId)).find((d) => d.id === id);
     if (!dep) throw new Error('Deployment not found');
 
     const logFile = this.infra.getLogPath(`${dep.name}-abort`);
@@ -566,8 +576,8 @@ export class AppService extends BaseService {
           const kubeconfigPath = await this.clusters.getKubeconfigPath(cluster);
           try {
             await this.infra.waitForNamespaceDeletion(namespaceOf(dep), kubeconfigPath);
-          } catch (err: any) {
-            this.logger.warn(`Error deleting namespace during app abort: ${err.message}`);
+          } catch (err) {
+            this.logger.warn(`Error deleting namespace during app abort: ${(err as Error).message}`);
           }
         }
 
@@ -578,15 +588,15 @@ export class AppService extends BaseService {
           io.to(`user:${dep.ownerId}`).emit('resource-destroyed', { id, type: 'deployment', name: dep.name });
           io.emit('deployment:updated');
         }
-      } catch (err: any) {
-        this.logger.error(`Abort failed for deployment ${dep.name}: ${err.message}`);
+      } catch (err) {
+        this.logger.error(`Abort failed for deployment ${dep.name}: ${(err as Error).message}`);
         await this.db.infrastructure.deleteDeployment(id);
         if (io) io.emit('deployment:updated');
       }
-    })().catch((err: any) => this.logger.error(`Unhandled error during deployment abort: ${err.message}`));
+    })().catch((err: unknown) => this.logger.error(`Unhandled error during deployment abort: ${(err as Error).message}`));
   }
 
-  async resizeDisk(id: string, storage: any, userId: string, io?: SocketServer) {
+  async resizeDisk(id: string, storage: Record<string, string>, userId: string, io?: SocketServer) {
     const dep = (await this.getAll(userId)).find(d => d.id === id);
     if (!dep) throw new Error('Deployment not found');
 
@@ -634,11 +644,11 @@ export class AppService extends BaseService {
   
           await this.infra.deploy(`app-${physicalName}-${id.slice(0, 8)}`, { logFile, io, resourceId: id, env });
           await this.db.infrastructure.saveDeployment({ ...updatedMetadata, status: 'running' });
-        } catch (err: any) {
-          this.logger.error(`Disk resize failed: ${err.message}`);
+        } catch (err) {
+          this.logger.error(`Disk resize failed: ${(err as Error).message}`);
           await this.db.infrastructure.saveDeployment({ ...updatedMetadata, status: 'failed' });
         }
-      })().catch((err: any) => this.logger.error(`Unhandled error during disk resize: ${err.message}`));
+      })().catch((err: unknown) => this.logger.error(`Unhandled error during disk resize: ${(err as Error).message}`));
 
       return updatedMetadata;
   }

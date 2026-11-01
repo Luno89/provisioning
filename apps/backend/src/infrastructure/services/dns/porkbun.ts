@@ -1,3 +1,4 @@
+import { ignore } from '@koala/engine-core/failures';
 import { DnsProviderRefusal, PORKBUN_ACCESS, PORKBUN_DNS, type DnsCredentials, type DnsProvider, type DnsRecord, type DnsRecordType, type DnsValidation, type DnsZone } from '../../lib/dns-providers.js';
 import type { FetchLike } from '../OvhClient.js';
 
@@ -26,7 +27,7 @@ export const subdomainIn = (name: string, zone: string): string => {
 export function porkbunProvider(fetchImpl: FetchLike = fetch): DnsProvider {
   const call = async (path: string, body: Record<string, string>): Promise<PbAnswer> => {
     const answer = await fetchImpl(`${PORKBUN_API}${path}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
-    const parsed = await answer.json().catch(() => ({})) as PbAnswer;
+    const parsed: PbAnswer = (await answer.json().catch(ignore('an answer that is not JSON is told by its HTTP status')) as PbAnswer | undefined) ?? {};
     if (parsed.status !== 'SUCCESS') {
       const said = parsed.message || `HTTP ${answer.status}`;
       const access = /opted in|api access/i.test(said) ? ` ${PORKBUN_ACCESS}` : '';

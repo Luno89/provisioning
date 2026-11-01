@@ -32,7 +32,7 @@ export class StorageAdapter {
     }
   }
 
-  static getStorageEnv(appType: string, strategy: string, storage: any = {}): Record<string, string> {
+  static getStorageEnv(appType: string, strategy: string, storage: Record<string, string | undefined> = {}): Record<string, string> {
     const env: Record<string, string> = {};
     const supported = this.getSupportedVolumes(appType, strategy);
     

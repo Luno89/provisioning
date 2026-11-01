@@ -1,3 +1,4 @@
+import { ignore } from '@koala/engine-core/failures';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import path from 'path';
@@ -42,7 +43,9 @@ export class HeadscaleService {
         this.apiKeyCache = candidate;
         return candidate;
       }
-    } catch { /* ignored */ }
+    } catch (failure) {
+      ignore('a stored key that is missing, unreadable or refused is replaced by a new one')(failure);
+    }
 
     const { stdout } = await execFileAsync('docker', [
       'exec', CONTAINER_NAME, 'headscale', 'apikeys', 'create', '--expiration', '87600h',

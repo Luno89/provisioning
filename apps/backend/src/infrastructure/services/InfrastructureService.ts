@@ -9,7 +9,9 @@ import { Server as SocketServer } from 'socket.io';
 
 import os from 'os';
 import { CommandFailedError } from '../../platform/index.js';
+import { ignore } from '@koala/engine-core/failures';
 import { assessWorkload } from '../lib/workload-health.js';
+import { listAt, textAt } from '../lib/json-reading.js';
 
 const execAsync = promisify(exec);
 const __filename = fileURLToPath(import.meta.url);
@@ -75,27 +77,18 @@ export class InfrastructureService {
   }
 
   async waitForNamespaceDeletion(namespace: string, kubeconfigPath?: string): Promise<void> {
-    try {
-      await this.runKubectl(['delete', 'namespace', namespace, '--ignore-not-found=true', '--wait=false'], kubeconfigPath);
-    } catch {}
+    await this.runKubectl(['delete', 'namespace', namespace, '--ignore-not-found=true', '--wait=false'], kubeconfigPath);
 
     const startTime = Date.now();
     for (;;) {
-      try {
-        const output = await this.runKubectl(['get', 'namespace', namespace, '-o', 'json'], kubeconfigPath);
-        const nsObj = JSON.parse(output);
-        if (!nsObj || nsObj.status?.phase === 'Terminating') {
-          if (Date.now() - startTime > 30000) {
-            try {
-              await this.runKubectl(
-                ['patch', 'namespace', namespace, '-p', '{"spec":{"finalizers":[]}}', '--type=merge'],
-                kubeconfigPath
-              );
-            } catch {}
-          }
-        }
-      } catch {
-        return;
+      const output = await this.runKubectl(['get', 'namespace', namespace, '--ignore-not-found', '-o', 'json'], kubeconfigPath);
+      if (!output.trim()) return;
+      const nsObj: unknown = JSON.parse(output);
+      if (textAt(nsObj, 'status', 'phase') === 'Terminating' && Date.now() - startTime > 30000) {
+        await this.runKubectl(
+          ['patch', 'namespace', namespace, '-p', '{"spec":{"finalizers":[]}}', '--type=merge'],
+          kubeconfigPath
+        ).catch(ignore('a namespace whose finalizers cannot be cleared yet is tried again on the next pass'));
       }
       await new Promise((r) => setTimeout(r, 2000));
     }
@@ -157,7 +150,10 @@ export class InfrastructureService {
       child.on('error', reject);
       child.on('close', (code) => {
         if (code === 0) return resolve(out);
-        if (attempt === 1 && lostCreateRace(err)) return this.applyManifest(manifest, kubeconfig, 2).then(resolve, reject);
+        if (attempt === 1 && lostCreateRace(err)) {
+          void this.applyManifest(manifest, kubeconfig, 2).then(resolve, reject);
+          return;
+        }
         reject(new Error(`kubectl apply failed: ${err.trim() || `exit ${code}`}`));
       });
       child.stdin.end(manifest);
@@ -201,8 +197,8 @@ export class InfrastructureService {
               : path.join(BIN_DIR, 'helm');
             await execAsync(`docker cp ${escapeShellArg(hostHelmPath)} ${containerName}:/bin/helm`);
             await execAsync(`docker exec ${containerName} chmod +x /bin/helm`);
-          } catch (err: any) {
-            console.error(`Failed to copy helm to container ${containerName}: ${err.message}`);
+          } catch (err) {
+            console.error(`Failed to copy helm to container ${containerName}: ${(err as Error).message}`);
           }
         }
 
@@ -280,18 +276,16 @@ export class InfrastructureService {
         console.log(`[InfrastructureService] Cluster ${name} already exists. Skipping k3d cluster creation.`);
         return { stdout: `Cluster ${name} already exists.`, logFile: this.getLogPath(name) };
       }
-    } catch (err: any) {
-      console.warn(`[InfrastructureService] Failed to check existing clusters: ${err.message}`);
+    } catch (err) {
+      console.warn(`[InfrastructureService] Failed to check existing clusters: ${(err as Error).message}`);
     }
 
     let resolvConfPath = '/etc/resolv.conf';
-    try {
-      if (existsSync('/run/systemd/resolve/resolv.conf')) {
-        resolvConfPath = '/run/systemd/resolve/resolv.conf';
-      } else if (existsSync('/var/run/systemd/resolve/resolv.conf')) {
-        resolvConfPath = '/var/run/systemd/resolve/resolv.conf';
-      }
-    } catch (e) {}
+    if (existsSync('/run/systemd/resolve/resolv.conf')) {
+      resolvConfPath = '/run/systemd/resolve/resolv.conf';
+    } else if (existsSync('/var/run/systemd/resolve/resolv.conf')) {
+      resolvConfPath = '/var/run/systemd/resolve/resolv.conf';
+    }
 
     const args = [
       'cluster', 'create', name,
@@ -386,8 +380,8 @@ export class InfrastructureService {
     }
 
     this.activeStreams.set(resourceId, child);
-    child.stdout.on('data', (data) => io.to(room).emit('kube-log', data.toString()));
-    child.stderr.on('data', (data) => io.to(room).emit('kube-log', data.toString()));
+    child.stdout.on('data', (data: Buffer) => io.to(room).emit('kube-log', data.toString()));
+    child.stderr.on('data', (data: Buffer) => io.to(room).emit('kube-log', data.toString()));
     child.on('error', (err) => {
       console.warn(`[streamLogs] ${resourceId}: ${err.message}`);
       this.activeStreams.delete(resourceId);
@@ -503,30 +497,31 @@ export class InfrastructureService {
           ['get', 'events', '--field-selector', `involvedObject.name=${probeName}`, '-o', 'json'],
           kubeconfigPath,
         ) as string;
-        const events = JSON.parse(eventsRaw).items || [];
-        const runtimeFailure = events.find((e: any) =>
-          e.reason === 'FailedCreatePodSandBox' && /no runtime for/i.test(e.message || ''));
+        const events = listAt(JSON.parse(eventsRaw) as unknown, 'items');
+        const runtimeFailure = events.find((e) =>
+          textAt(e, 'reason') === 'FailedCreatePodSandBox' && /no runtime for/i.test(textAt(e, 'message') ?? ''));
         if (runtimeFailure) {
           throw new Error(
             `GPU RuntimeClass "${vendor}" exists in Kubernetes, but the underlying container runtime isn't ` +
             `wired up — any pod requesting a GPU will sit in ContainerCreating forever. This means ` +
             `nvidia-container-toolkit is missing or k3s hasn't been restarted since it was installed ` +
             `(k3s only detects it at its own startup). Fix: sudo bash scripts/setup-gpu.sh, then ` +
-            `sudo systemctl restart <your k3s service>. Raw kubelet error: ${runtimeFailure.message}`
+            `sudo systemctl restart <your k3s service>. Raw kubelet error: ${textAt(runtimeFailure, 'message') ?? ''}`
           );
         }
 
-        const podRaw = await this.runKubectl(['get', 'pod', probeName, '-o', 'json'], kubeconfigPath).catch(() => null) as string | null;
-        if (podRaw) {
-          const pod = JSON.parse(podRaw);
-          const phase = pod.status?.phase;
-          if (phase === 'Running' || phase === 'Succeeded') return;
-          const health = assessWorkload({ items: [pod] });
-          if (health.health === 'unhealthy') throw new Error(`The "${vendor}" GPU runtime probe cannot start: ${health.reason}`);
-        }
+        const podRaw = await this.runKubectl(['get', 'pod', probeName, '--ignore-not-found', '-o', 'json'], kubeconfigPath);
+        if (!podRaw.trim()) throw new Error(`The "${vendor}" GPU runtime probe pod ${probeName} is gone before it ran`);
+        const pod: unknown = JSON.parse(podRaw);
+        const phase = textAt(pod, 'status', 'phase');
+        if (phase === 'Running' || phase === 'Succeeded') return;
+        const health = assessWorkload({ items: [pod] });
+        if (health.health === 'unhealthy') throw new Error(`The "${vendor}" GPU runtime probe cannot start: ${health.reason}`);
       }
     } finally {
-      await this.runKubectl(['delete', 'pod', probeName, '--ignore-not-found', '--wait=false'], kubeconfigPath).catch(() => {});
+      await this.runKubectl(['delete', 'pod', probeName, '--ignore-not-found', '--wait=false'], kubeconfigPath).catch((err: unknown) => {
+        console.warn(`[InfrastructureService] the GPU runtime probe pod ${probeName} could not be removed and is left running: ${(err as Error).message}`);
+      });
     }
   }
 
@@ -542,8 +537,8 @@ export class InfrastructureService {
           `${escapeShellArg(path.join(BIN_DIR, 'kubectl'))} apply -f ${escapeShellArg(runtimeClassPath)}`,
           { env: { ...process.env, KUBECONFIG: kubeconfigPath } },
         );
-      } catch (err: any) {
-        console.warn(`[InfrastructureService] Failed to apply nvidia RuntimeClass: ${err.message}`);
+      } catch (err) {
+        console.warn(`[InfrastructureService] Failed to apply nvidia RuntimeClass: ${(err as Error).message}`);
       }
     }
 
@@ -570,17 +565,18 @@ export class InfrastructureService {
           ['get', 'pods', '-n', 'kube-system', '-l', dsLabel, '-o', 'json'],
           kubeconfigPath
         );
-        const podsObj = JSON.parse(podsJson);
-        const pods = podsObj.items || [];
-        const hasReadyPod = pods.some((pod: any) =>
-          pod.status?.phase === 'Running' &&
-          pod.status?.conditions?.some((c: any) => c.type === 'Ready' && c.status === 'True')
+        const pods = listAt(JSON.parse(podsJson) as unknown, 'items');
+        const hasReadyPod = pods.some((pod) =>
+          textAt(pod, 'status', 'phase') === 'Running' &&
+          listAt(pod, 'status', 'conditions').some((c) => textAt(c, 'type') === 'Ready' && textAt(c, 'status') === 'True')
         );
         if (hasReadyPod) {
           ready = true;
           break;
         }
-      } catch { /* ignored */ }
+      } catch (failure) {
+        ignore('a read of the plugin pods that fails is tried again on the next pass')(failure);
+      }
       await new Promise((r) => setTimeout(r, 2000));
     }
 
@@ -596,15 +592,15 @@ export class InfrastructureService {
   }
 
   async runCommand(cmd: string, args: string[], logId: string, options: ExecuteOptions = {}) {
-    const env = {
+    const env: NodeJS.ProcessEnv = {
       ...process.env,
       ...options.env,
       PATH: `${process.env.PATH}:${BIN_DIR}`,
       CDKTF_DISABLE_PLUGIN_CACHE_ENV: 'true',
     };
-    delete (env as any).TF_PLUGIN_CACHE_DIR;
+    delete env.TF_PLUGIN_CACHE_DIR;
     const logFile = options.logFile || this.getLogPath(logId);
-    const cwd = (options.env as any)?.CD_DIR || CDKTF_DIR;
+    const cwd = options.env?.CD_DIR || CDKTF_DIR;
     await fs.mkdir(LOG_DIR, { recursive: true });
 
     console.log(`[InfrastructureService] Spawning cmd=${cmd} args=${JSON.stringify(args)} (TF_PLUGIN_CACHE_DIR deliberately unset — see the delete above)`);
@@ -618,14 +614,14 @@ export class InfrastructureService {
         }
       };
 
-      child.stdout.on('data', (data) => {
+      child.stdout.on('data', (data: Buffer) => {
         const chunk = data.toString();
         stdout += chunk;
         broadcast(chunk);
         fs.appendFile(logFile, chunk).catch(console.error);
       });
 
-      child.stderr.on('data', (data) => {
+      child.stderr.on('data', (data: Buffer) => {
         const chunk = data.toString();
         stderr += chunk;
         broadcast(chunk);

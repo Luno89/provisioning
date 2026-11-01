@@ -2,7 +2,7 @@ import path from 'path';
 import { isCommitSha, type BuildPlan } from '../../releases/index.js'
 import {
   stopIfRunning, getTemporalClient, pollWorkflowRun, decryptValue, encryptValue, type SecretKey, type Database,
-  type ClusterMetadata, type ClusterProgress, type DeploymentMetadata, type ProjectMetadata,
+  type CloudCredentials, type ClusterMetadata, type ClusterProgress, type DeploymentMetadata, type ProjectMetadata,
   type PipelineRunMetadata, type ClaimSettings, PLATFORM_OWNER, ownerIn, startedFor,
 } from '../../platform/index.js'
 import {
@@ -14,7 +14,13 @@ import { healthFromProbe } from '../lib/service-health.js'
 import { clusterFieldsFrom } from '../lib/provisioned-cluster.js'
 import { fileURLToPath } from 'url';
 import fs from 'fs';
-import type { Client } from '@temporalio/client'
+import type { Client, WorkflowExecutionInfo } from '@temporalio/client'
+import type { temporal } from '@temporalio/proto'
+import { ignore } from '@koala/engine-core/failures'
+import { textAt } from '../lib/json-reading.js'
+import { definedFields, deployRequestOf } from '../lib/deploy-request.js'
+import { AdoptPlanWorkflow } from '../../workflows/AdoptPlanWorkflow.js'
+import { executeIngestWorkflow } from '../../workflows/IngestWorkflow.js'
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -61,6 +67,37 @@ const MAX_POLL_FAILURES = 12
 
 const DEEP_MERGE_FIELDS = ['storage', 'appSettings'] as const
 
+type TrackedDeployment = DeploymentMetadata & { newStorage?: Record<string, string> | undefined }
+
+export type WorkflowSummary = {
+  workflowId: string
+  runId: string
+  type: string
+  taskQueue: string
+  status: string
+  startTime: string
+  closeTime: string | undefined
+  historyLength: number
+  owner: string | undefined
+}
+
+const summaryOf = (wf: Omit<WorkflowExecutionInfo, 'raw'>): WorkflowSummary => ({
+  workflowId: wf.workflowId,
+  runId: wf.runId,
+  type: wf.type,
+  taskQueue: wf.taskQueue,
+  status: wf.status.name,
+  startTime: wf.startTime.toISOString(),
+  closeTime: wf.closeTime?.toISOString(),
+  historyLength: wf.historyLength,
+  owner: ownerIn(wf.typedSearchAttributes),
+})
+
+const attributesOf = (event: temporal.api.history.v1.IHistoryEvent): string | null => {
+  const found = Object.entries(event).find(([key, value]) => key.endsWith('Attributes') && value)
+  return found ? JSON.stringify(found[1]).slice(0, 500) : null
+}
+
 export interface WorkflowDeal {
   readonly id: string
   readonly resourceId?: string
@@ -80,7 +117,7 @@ async function updateUserStatus(
   kubeconfigPath?: string,
 ): Promise<void> {
   const clusters = await db.infrastructure.getClusters();
-  const existing = clusters.find((c: any) => c.id === clusterId);
+  const existing = clusters.find((c) => c.id === clusterId);
 
   if (status === 'destroyed') {
     await db.infrastructure.deleteCluster(clusterId);
@@ -103,7 +140,7 @@ async function updatePipelineRunStatus(
   extra: { imageTag?: string; errorMessage?: string } = {},
 ): Promise<void> {
   const runs = await db.releases.getPipelineRuns();
-  const existing = runs.find((r: any) => r.id === runId);
+  const existing = runs.find((r) => r.id === runId);
   if (!existing) return;
   const imageTag = extra.imageTag ?? existing.imageTag;
   const errorMessage = extra.errorMessage ?? existing.errorMessage;
@@ -116,7 +153,7 @@ async function updatePipelineRunStatus(
   });
   if (status === 'succeeded' || status === 'failed') {
     const projects = await db.projects.getProjects();
-    const project = projects.find((p: any) => p.id === existing.projectId);
+    const project = projects.find((p) => p.id === existing.projectId);
     if (project) {
       await db.projects.saveProjectInfo({ ...project, lastBuildStatus: status });
     }
@@ -131,7 +168,7 @@ async function updateDeploymentStatus(
   storage: Record<string, string> | undefined = undefined,
 ): Promise<void> {
   const deployments = await db.infrastructure.getDeployments();
-  const existing = deployments.find((d: any) => d.id === deploymentId);
+  const existing = deployments.find((d) => d.id === deploymentId);
   await db.infrastructure.saveDeploymentInfo({
     ...deployment,
     id: deploymentId,
@@ -262,7 +299,9 @@ export class TemporalBridge {
   async stop(): Promise<void> {
     try {
       await this.client.connection.close()
-    } catch { /* ignored */ }
+    } catch (failure) {
+      ignore('a connection to Temporal that is already closed has nothing left to close')(failure)
+    }
   }
 
   private async recordProvisioned(workflowId: string, cluster: { id: string; name: string; provider: ClusterMetadata['provider'] | '' }): Promise<string | undefined> {
@@ -274,24 +313,26 @@ export class TemporalBridge {
         await this.db.infrastructure.saveClusterInfo({ ...(current ?? {}), id: cluster.id, name: cluster.name, ...(cluster.provider ? { provider: cluster.provider } : {}), ...fields })
       }
       return provisioned.kubeconfig
-    } catch (err: any) {
-      console.error(`[TemporalBridge] Cluster ${cluster.id} provisioned, but what it was given could not be recorded: ${err.message}`)
+    } catch (err) {
+      console.error(`[TemporalBridge] Cluster ${cluster.id} provisioned, but what it was given could not be recorded: ${(err as Error).message}`)
       return undefined
     }
   }
 
   private async appliedOutcome(
     wfId: string,
-    meta: any,
-  ): Promise<{ status: 'running' | 'unhealthy'; meta: any }> {
-    let verdict: { workload?: string; workloadReason?: string } = {}
+    meta: TrackedDeployment,
+  ): Promise<{ status: 'running' | 'unhealthy'; meta: TrackedDeployment }> {
+    let verdict: unknown
     try {
-      verdict = (await this.client.workflow.getHandle(wfId).result()) as typeof verdict
-    } catch {}
-    const unhealthy = verdict.workload === 'unhealthy'
+      verdict = await this.client.workflow.getHandle(wfId).result()
+    } catch (err) {
+      console.warn(`[TemporalBridge] ${wfId} finished, but its verdict on the workload could not be read, so the app is taken as running: ${(err as Error).message}`)
+    }
+    const unhealthy = textAt(verdict, 'workload') === 'unhealthy'
     return {
       status: unhealthy ? 'unhealthy' : 'running',
-      meta: { ...meta, healthReason: unhealthy ? (verdict.workloadReason ?? '') : '' },
+      meta: { ...meta, healthReason: unhealthy ? (textAt(verdict, 'workloadReason') ?? '') : '' },
     }
   }
 
@@ -301,11 +342,16 @@ export class TemporalBridge {
     resourceId: string,
     resourceName: string,
     provider: ClusterMetadata['provider'] | '',
-    meta?: any
+    meta?: TrackedDeployment
   ) {
     if (this.following.has(wfId)) return
     this.following.add(wfId)
     let consecutiveFailures = 0
+    const deployment = (): TrackedDeployment => {
+      if (!meta) throw new Error(`${action} ${wfId} of ${resourceId} is followed without its deployment`)
+      return meta
+    }
+    const applied = async () => this.appliedOutcome(wfId, deployment())
     const poll = async () => {
       try {
         const status = await pollWorkflowRun(wfId)
@@ -319,18 +365,13 @@ export class TemporalBridge {
           if (name === 'COMPLETED' && action === 'cluster-provision') {
             kubeconfig = await this.recordProvisioned(wfId, { id: resourceId, name: resourceName, provider })
           }
-          const applied = name === 'COMPLETED' && (action === 'app-deploy' || action === 'app-sync-config' || action === 'app-resize')
-            ? await this.appliedOutcome(wfId, meta)
-            : { status: 'running' as const, meta }
-          const appliedStatus = applied.status
-          const appliedMeta = applied.meta
 
           let pipelineImageTag: string | undefined
           if (name === 'COMPLETED' && action === 'pipeline-run') {
             try {
               pipelineImageTag = (await this.client.workflow.getHandle<typeof executePipelineRunWorkflow>(wfId).result()).imageTag
-            } catch (err: any) {
-              console.error(`[TemporalBridge] Build ${resourceId} finished, but its image could not be read: ${err.message}`)
+            } catch (err) {
+              console.error(`[TemporalBridge] Build ${resourceId} finished, but its image could not be read: ${(err as Error).message}`)
             }
           }
 
@@ -352,19 +393,20 @@ export class TemporalBridge {
             if (this.io) this.io.emit('cluster-updated')
           } else if (action === 'app-deploy') {
             if (name === 'FAILED') {
-              await updateDeploymentStatus(this.db, resourceId, meta, 'failed', meta?.storage)
+              await updateDeploymentStatus(this.db, resourceId, deployment(), 'failed', meta?.storage)
             } else if (name === 'TERMINATED' || name === 'CANCELLED') {
-              await updateDeploymentStatus(this.db, resourceId, meta, 'failed', meta?.storage)
+              await updateDeploymentStatus(this.db, resourceId, deployment(), 'failed', meta?.storage)
             } else if (name === 'COMPLETED') {
-              await updateDeploymentStatus(this.db, resourceId, appliedMeta, appliedStatus, meta?.storage)
-              if (appliedStatus === 'running') {
-                await maybeSetDefaultModel(this.db, resourceId, appliedMeta?.ownerId, appliedMeta?.appType)
+              const done = await applied()
+              await updateDeploymentStatus(this.db, resourceId, done.meta, done.status, meta?.storage)
+              if (done.status === 'running') {
+                await maybeSetDefaultModel(this.db, resourceId, done.meta.ownerId, done.meta.appType)
               }
             }
             if (this.io) this.io.emit('deployment-updated')
           } else if (action === 'app-destroy') {
             if (name === 'FAILED') {
-              await updateDeploymentStatus(this.db, resourceId, meta, 'failed', meta?.storage)
+              await updateDeploymentStatus(this.db, resourceId, deployment(), 'failed', meta?.storage)
             } else if (name === 'TERMINATED' || name === 'CANCELLED' || name === 'COMPLETED') {
               await this.db.infrastructure.deleteDeployment(resourceId)
             }
@@ -372,18 +414,20 @@ export class TemporalBridge {
           } else if (action === 'app-resize') {
             const newStorage = { ...meta?.storage, ...meta?.newStorage }
             if (name === 'FAILED') {
-              await updateDeploymentStatus(this.db, resourceId, meta, 'failed', meta?.storage)
+              await updateDeploymentStatus(this.db, resourceId, deployment(), 'failed', meta?.storage)
             } else if (name === 'TERMINATED' || name === 'CANCELLED') {
-              await updateDeploymentStatus(this.db, resourceId, meta, 'failed', meta?.storage)
+              await updateDeploymentStatus(this.db, resourceId, deployment(), 'failed', meta?.storage)
             } else if (name === 'COMPLETED') {
-              await updateDeploymentStatus(this.db, resourceId, appliedMeta, appliedStatus, newStorage)
+              const done = await applied()
+              await updateDeploymentStatus(this.db, resourceId, done.meta, done.status, newStorage)
             }
             if (this.io) this.io.emit('deployment-updated')
           } else if (action === 'app-sync-config') {
             if (name === 'FAILED' || name === 'TERMINATED' || name === 'CANCELLED') {
-              await updateDeploymentStatus(this.db, resourceId, meta, 'failed', meta?.storage)
+              await updateDeploymentStatus(this.db, resourceId, deployment(), 'failed', meta?.storage)
             } else if (name === 'COMPLETED') {
-              await updateDeploymentStatus(this.db, resourceId, appliedMeta, appliedStatus, meta?.storage)
+              const done = await applied()
+              await updateDeploymentStatus(this.db, resourceId, done.meta, done.status, meta?.storage)
             }
             if (this.io) this.io.emit('deployment-updated')
           } else if (action === 'pipeline-run') {
@@ -393,8 +437,8 @@ export class TemporalBridge {
               await updatePipelineRunStatus(this.db, resourceId, 'succeeded', pipelineImageTag !== undefined ? { imageTag: pipelineImageTag } : {})
               try {
                 const [projects, runs] = await Promise.all([this.db.projects.getProjects(), this.db.releases.getPipelineRuns()])
-                const run = runs.find((r: any) => r.id === resourceId)
-                const project = run && projects.find((p: any) => p.id === run.projectId)
+                const run = runs.find((r) => r.id === resourceId)
+                const project = run && projects.find((p) => p.id === run.projectId)
                 const released = project && run && this.onBuilt ? await this.onBuilt(project, run) : false
                 if (!released && project?.autoDeployOnBuild && run) {
                   const since = deploymentForProject(project, await this.db.infrastructure.getDeployments())?.gitappImageTag?.split(':').pop()
@@ -402,21 +446,21 @@ export class TemporalBridge {
                   if (decision.release) await this.promoteProjectBuild(project, run)
                   else await this.db.releases.savePipelineRunInfo({ id: run.id, releaseSkipped: decision.reason })
                 }
-              } catch (err: any) {
-                console.error(`[TemporalBridge] Auto-deploy-on-build failed for pipeline run ${resourceId}: ${err.message}`)
+              } catch (err) {
+                console.error(`[TemporalBridge] Auto-deploy-on-build failed for pipeline run ${resourceId}: ${(err as Error).message}`)
               }
             }
             if (this.io) this.io.emit('pipeline-run-updated')
           }
         }
-      } catch (err: any) {
+      } catch (err) {
         consecutiveFailures++
         if (consecutiveFailures >= MAX_POLL_FAILURES) {
           clearInterval(timer)
           this.following.delete(wfId)
           console.error(`[TemporalBridge] Workflow ${wfId} polling failed ${consecutiveFailures} times — giving up`)
         } else {
-          console.warn(`[TemporalBridge] Failed polling workflow ${wfId} (${consecutiveFailures}/${MAX_POLL_FAILURES}): ${err.message}`)
+          console.warn(`[TemporalBridge] Failed polling workflow ${wfId} (${consecutiveFailures}/${MAX_POLL_FAILURES}): ${(err as Error).message}`)
         }
       }
     }
@@ -426,7 +470,7 @@ export class TemporalBridge {
   async adoptPlan(ownerId: string, proposalId: string): Promise<string | undefined> {
     if (!this.client) return undefined
     const workflowId = `adopt-plan-${proposalId}`
-    await this.client.workflow.start('AdoptPlanWorkflow', {
+    await this.client.workflow.start(AdoptPlanWorkflow, {
       workflowId,
       taskQueue: process.env.TEMPORAL_ENGINE_TASK_QUEUE || DEFAULT_ENGINE_TASK_QUEUE,
       args: [{ ownerId, proposalId }],
@@ -440,8 +484,8 @@ export class TemporalBridge {
     if (!this.client) {
       try {
         this.client = await getDefaultClient()
-      } catch (err: any) {
-        console.warn(`[TemporalBridge] Skipping recovery, Temporal client not ready: ${err.message}`)
+      } catch (err) {
+        console.warn(`[TemporalBridge] Skipping recovery, Temporal client not ready: ${(err as Error).message}`)
         return
       }
     }
@@ -533,7 +577,9 @@ export class TemporalBridge {
           try {
             const cluster = await this.clusterService?.getByIdUnscoped(clusterId)
             if (cluster) path = await this.clusterService!.getKubeconfigPath(cluster)
-          } catch { /* ignored */ }
+          } catch (err) {
+            console.warn(`[Reconcile] the apps on cluster ${clusterId} are not checked this pass, since it cannot be reached: ${(err as Error).message}`)
+          }
           kubeconfigForCluster.set(clusterId, path)
           return path
         }
@@ -545,14 +591,16 @@ export class TemporalBridge {
             if (!kubeconfig) continue
             const namespace = namespaceOf(dep)
             const raw = await new InfrastructureService().runKubectl(['get', 'pods', '-n', namespace, '-o', 'json'], kubeconfig)
-            const { health, reason } = assessWorkload(JSON.parse(raw))
+            const { health, reason } = assessWorkload(JSON.parse(raw) as unknown)
 
             let serviceReason = ''
             if (health === 'healthy' && looksLikeMcp(dep) && dep.ownerId) {
               try {
                 const verdict = healthFromProbe(await this.mcpProbes(namespaceOfDeployment(dep)))
                 if (verdict) serviceReason = verdict.reason
-              } catch { /* ignored */ }
+              } catch (err) {
+                console.warn(`[Reconcile] ${dep.name}'s MCP server could not be asked how it is, so only its pods are judged: ${(err as Error).message}`)
+              }
             }
 
             const effective = serviceReason ? 'unhealthy' as const : health
@@ -562,7 +610,9 @@ export class TemporalBridge {
               await updateDeploymentStatus(this.db, dep.id, { ...dep, healthReason: serviceReason || reason }, next, dep.storage)
               if (this.io) this.io.emit('deployment-updated')
             }
-          } catch { /* ignored */ }
+          } catch (err) {
+            console.warn(`[Reconcile] ${dep.name} is not checked this pass: ${(err as Error).message}`)
+          }
         }
 
         for (const dep of deployments) {
@@ -590,8 +640,8 @@ export class TemporalBridge {
             if (this.io) this.io.emit('deployment-updated')
           }
         }
-      } catch (err: any) {
-        console.warn(`[Reconcile] Error: ${err.message}`)
+      } catch (err) {
+        console.warn(`[Reconcile] Error: ${(err as Error).message}`)
       }
 
     }
@@ -608,8 +658,8 @@ export class TemporalBridge {
           try {
             const described = await pollWorkflowRun(run.temporalWorkflowId!)
             next = reconcileRun(current, described?.status?.name)
-          } catch (err: any) {
-            const missing = /not\s*found/i.test(String(err?.message ?? err))
+          } catch (err) {
+            const missing = /not\s*found/i.test(String((err as Error | undefined)?.message ?? err))
             if (!missing) continue
             next = reconcileMissingWorkflow(current, run.startedAt)
           }
@@ -619,8 +669,8 @@ export class TemporalBridge {
           console.warn(`[Reconcile] pipeline run ${String(run.commitSha).slice(0, 8)}: ${current} -> ${next} (its workflow had already ended)`)
           if (this.io) this.io.emit('pipeline-run-updated')
         }
-      } catch (err: any) {
-        console.warn(`[Reconcile] Could not reconcile pipeline runs: ${err.message}`)
+      } catch (err) {
+        console.warn(`[Reconcile] Could not reconcile pipeline runs: ${(err as Error).message}`)
       }
     }
 
@@ -629,9 +679,9 @@ export class TemporalBridge {
       if (consolidating) return
       consolidating = true
       try {
-        const owners = [...new Set((await this.db.memory.getMemories().catch(() => [])).map((memory) => memory.ownerId))]
+        const owners = [...new Set((await this.db.memory.getMemories()).map((memory) => memory.ownerId))]
         for (const ownerId of owners) {
-          const ends = await corpusEndpointsWith(webToolsDepsFrom(this.db.infrastructure, this.clusterService ?? new ClusterService(this.db, new InfrastructureService()), sharedClusterProxy()), ownerId).catch(() => undefined)
+          const ends = await corpusEndpointsWith(webToolsDepsFrom(this.db.infrastructure, this.clusterService ?? new ClusterService(this.db, new InfrastructureService()), sharedClusterProxy()), ownerId).catch(ignore('an owner with no search service has their memories consolidated without an index'))
           const report = await consolidateMemories({
             db: this.db,
             ownerId,
@@ -640,7 +690,7 @@ export class TemporalBridge {
               similar: async (ids: string[]) => {
                 const out = new Map<string, { id: string; score: number }[]>()
                 for (const id of ids) {
-                  out.set(id, await similarTo(ends, id, { ownerId }).catch(() => []))
+                  out.set(id, await similarTo(ends, id, { ownerId }).catch(ignore('a memory the index cannot compare is left apart this pass and compared on the next')) ?? [])
                 }
                 return out
               },
@@ -654,8 +704,8 @@ export class TemporalBridge {
           }
           this.lastConsolidation = report
         }
-      } catch (err: any) {
-        console.warn(`[Consolidate] pass failed: ${err.message}`)
+      } catch (err) {
+        console.warn(`[Consolidate] pass failed: ${(err as Error).message}`)
       } finally {
         consolidating = false
       }
@@ -690,39 +740,43 @@ export class TemporalBridge {
       await handle.terminate(reason);
       console.log(`[TemporalBridge] Terminated workflow ${wfId}: ${reason}`);
       return true;
-    } catch (err: any) {
-      console.warn(`[TemporalBridge] Failed to terminate workflow ${wfId}: ${err.message}`);
+    } catch (err) {
+      console.warn(`[TemporalBridge] Failed to terminate workflow ${wfId}: ${(err as Error).message}`);
       return false;
     }
   }
 
   private async resolveHetznerToken(userId?: string): Promise<string | undefined> {
-    let userCreds: any
+    let userCreds: CloudCredentials | undefined
     let asOperator = !userId
     if (userId) {
       const user = await this.db.accounts.getUserById(userId)
       asOperator = usesOperatorCredentials(user, this.claims)
-      const enc = (user?.credentials as any)?.hetzner?.token
+      const enc = user?.credentials?.hetzner?.token
       if (enc) {
         try {
           userCreds = { hetzner: { token: decryptValue(enc, this.masterKey) } }
-        } catch { /* ignored */ }
+        } catch (failure) {
+          ignore('a stored Hetzner token that can no longer be decrypted counts as none, so provisioning asks for one')(failure)
+        }
       }
     }
     return resolveCloudCredentials('hetzner', userCreds, asOperator).env.HCLOUD_TOKEN
   }
 
   private async resolveDoToken(userId?: string): Promise<string | undefined> {
-    let userCreds: any
+    let userCreds: CloudCredentials | undefined
     let asOperator = !userId
     if (userId) {
       const user = await this.db.accounts.getUserById(userId)
       asOperator = usesOperatorCredentials(user, this.claims)
-      const enc = (user?.credentials as any)?.do?.token
+      const enc = user?.credentials?.do?.token
       if (enc) {
         try {
           userCreds = { do: { token: decryptValue(enc, this.masterKey) } }
-        } catch { /* ignored */ }
+        } catch (failure) {
+          ignore('a stored DigitalOcean token that can no longer be decrypted counts as none, so provisioning asks for one')(failure)
+        }
       }
     }
     return resolveCloudCredentials('do', userCreds, asOperator).env.DIGITALOCEAN_TOKEN
@@ -762,8 +816,8 @@ export class TemporalBridge {
     if (createsVm && meshLoginServer && this.headscale) {
       try {
         meshPreAuthKey = (await this.headscale.createPreAuthKey(userId, { reusable: true, expirySeconds: 2 * 60 * 60 })).key
-      } catch (err: any) {
-        console.error(`[TemporalBridge] Could not mint a mesh pre-auth key for "${clusterName}" — provisioning without mesh join: ${err.message}`)
+      } catch (err) {
+        console.error(`[TemporalBridge] Could not mint a mesh pre-auth key for "${clusterName}" — provisioning without mesh join: ${(err as Error).message}`)
       }
     }
 
@@ -893,8 +947,8 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
   }
 
 
-  async deployApp(config: any, userId?: string): Promise<WorkflowDeal> {
-    const { workflowId, deployment } = await startAppDeploy(this.appDeployDeps(), config, userId)
+  async deployApp(config: Record<string, unknown>, userId?: string): Promise<WorkflowDeal> {
+    const { workflowId, deployment } = await startAppDeploy(this.appDeployDeps(), deployRequestOf(config), userId)
     this.trackWorkflow(workflowId, 'app-deploy', deployment.id, deployment.name, '', deployment)
     return {
       id: workflowId,
@@ -964,7 +1018,7 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
       deploymentId: dep.deploymentId || 'default',
     }
 
-    this.db.infrastructure.saveDeploymentInfo({
+    await this.db.infrastructure.saveDeploymentInfo({
       ...dep,
       storage: { ...dep.storage, ...storage },
       status: 'deploying',
@@ -1115,11 +1169,11 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
     const dep = deployments.find((d: DeploymentMetadata) => d.id === deploymentId)
     if (!dep) throw new Error('DeploymentMetadata not found (updateConfigAndSync)')
 
-    const merged: Record<string, any> = { ...dep, ...patch }
+    const merged: DeploymentMetadata = { ...dep, ...patch }
     for (const field of DEEP_MERGE_FIELDS) {
-      const incoming = (patch as Record<string, any>)[field]
+      const incoming = patch[field]
       if (incoming) {
-        merged[field] = { ...((dep as Record<string, any>)[field] ?? {}), ...incoming }
+        merged[field] = { ...(dep[field] ?? {}), ...incoming }
       }
     }
     await this.db.infrastructure.saveDeploymentInfo(merged)
@@ -1127,24 +1181,12 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
     return this.syncConfig(deploymentId)
   }
 
-  async listWorkflows(query?: string, pageSize?: number): Promise<any[]> {
+  async listWorkflows(query?: string, pageSize?: number): Promise<WorkflowSummary[]> {
     if (!this.isReady()) return [];
     try {
       const iter = this.client.workflow.list({ ...(query ? { query } : {}), pageSize: pageSize || 50 });
-      const workflows: any[] = [];
-      for await (const wf of iter) {
-        workflows.push({
-          workflowId: wf.workflowId,
-          runId: wf.runId,
-          type: wf.type,
-          taskQueue: wf.taskQueue,
-          status: wf.status?.name,
-          startTime: wf.startTime?.toISOString?.() || wf.startTime,
-          closeTime: wf.closeTime?.toISOString?.() || wf.closeTime,
-          historyLength: wf.historyLength,
-          owner: ownerIn(wf.typedSearchAttributes),
-        });
-      }
+      const workflows: WorkflowSummary[] = [];
+      for await (const wf of iter) workflows.push(summaryOf(wf));
       return workflows;
     } catch { return []; }
   }
@@ -1157,35 +1199,23 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
     } catch { return 0; }
   }
 
-  async describeWorkflow(workflowId: string): Promise<any | null> {
+  async describeWorkflow(workflowId: string): Promise<WorkflowSummary | null> {
     if (!this.isReady()) return null;
     try {
-      const handle = this.client.workflow.getHandle(workflowId);
-      const desc = await handle.describe();
-      return {
-        workflowId: desc.workflowId,
-        runId: desc.runId,
-        type: desc.type,
-        taskQueue: desc.taskQueue,
-        status: desc.status?.name,
-        startTime: desc.startTime?.toISOString?.() || desc.startTime,
-        closeTime: desc.closeTime?.toISOString?.() || desc.closeTime,
-        historyLength: desc.historyLength,
-        owner: ownerIn(desc.typedSearchAttributes),
-      };
+      return summaryOf(await this.client.workflow.getHandle(workflowId).describe());
     } catch { return null; }
   }
 
-  async getWorkflowHistory(workflowId: string): Promise<any[] | null> {
+  async getWorkflowHistory(workflowId: string): Promise<unknown[] | null> {
     if (!this.isReady()) return null;
     try {
       const handle = this.client.workflow.getHandle(workflowId);
       const history = await handle.fetchHistory();
-      return (history?.events || []).map((e: any) => ({
+      return (history.events ?? []).map((e) => ({
         id: e.eventId,
         type: e.eventType,
-        time: e.eventTime?.toISOString?.() || e.eventTime,
-        attributes: e.attributes ? JSON.stringify(e.attributes).slice(0, 500) : null,
+        time: e.eventTime,
+        attributes: attributesOf(e),
       }));
     } catch { return null; }
   }
@@ -1258,10 +1288,11 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
     keywords?: string[] | undefined;
   }): Promise<{ workflowId: string }> {
     const workflowId = `ingest-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-    await this.client.workflow.start('executeIngestWorkflow', {
+    const { ownerId, url, ...limits } = args
+    await this.client.workflow.start(executeIngestWorkflow, {
       taskQueue: 'host-ops-queue',
       workflowId,
-      args: [args],
+      args: [{ ownerId, url, ...definedFields(limits) }],
       ...startedFor(args.ownerId),
     })
     return { workflowId }
@@ -1273,12 +1304,12 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
       const name = status?.status?.name
       if (name === 'RUNNING') return { state: 'running' }
       if (name === 'COMPLETED') {
-        const receipt = await this.client.workflow.getHandle(workflowId).result()
+        const receipt: unknown = await this.client.workflow.getHandle<typeof executeIngestWorkflow>(workflowId).result()
         return { state: 'completed', receipt }
       }
       return { state: (name ?? 'unknown').toLowerCase() }
-    } catch (err: any) {
-      return { state: 'unknown', error: err?.message ?? String(err) }
+    } catch (err) {
+      return { state: 'unknown', error: (err as Error | undefined)?.message ?? String(err) }
     }
   }
 

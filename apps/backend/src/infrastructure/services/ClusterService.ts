@@ -1,5 +1,8 @@
 import { allowed, authorize, BaseService, clusterResource, type Actions, type ClusterMetadata, type Database, encryptValue, type Principal, type SecretKey, writePrivate } from '../../platform/index.js';
 import { InfrastructureService } from './InfrastructureService.js';
+import type { TemporalBridge } from './TemporalBridge.js';
+import { listAt, numberAt, recordAt, textAt } from '../lib/json-reading.js';
+import { ignore } from '@koala/engine-core/failures';
 import { hasCloudCredentials, isMockCloudProvider } from './cloud-credentials.js';
 import { v4 as uuidv4 } from 'uuid';
 import { capacityFromNodes, type ClusterCapacity } from '../lib/cluster-capacity.js';
@@ -20,7 +23,7 @@ const SYSTEM_CLUSTER_ID = 'provisioning-lunorica';
 export class ClusterService extends BaseService {
   private infra: InfrastructureService;
   private masterKey: SecretKey;
-  private temporalBridge?: any;
+  private temporalBridge?: Pick<TemporalBridge, 'terminateWorkflow'>;
 
   constructor(db: Database, infra: InfrastructureService, masterKey?: SecretKey) {
     super(db);
@@ -28,7 +31,7 @@ export class ClusterService extends BaseService {
     this.masterKey = masterKey || '';
   }
 
-  setTemporalBridge(temporalBridge: any) {
+  setTemporalBridge(temporalBridge: Pick<TemporalBridge, 'terminateWorkflow'>) {
     this.temporalBridge = temporalBridge;
   }
 
@@ -90,7 +93,9 @@ export class ClusterService extends BaseService {
         if (nameservers.length > 0) {
           return nameservers;
         }
-      } catch { /* ignored */ }
+      } catch (failure) {
+        ignore('a resolver file this host does not have is passed over for the next')(failure);
+      }
     }
     
     return ['8.8.8.8', '1.1.1.1'];
@@ -115,8 +120,8 @@ export class ClusterService extends BaseService {
             ? await this.infra.getManagementClusterKubeconfig(physicalName)
             : await this.infra.getKubeconfig(physicalName);
           await writePrivate(dynamicPath, content);
-        } catch (err: any) {
-          this.logger.error(`Failed to dynamically fetch kubeconfig for cluster ${physicalName}: ${err.message}`);
+        } catch (err) {
+          this.logger.error(`Failed to dynamically fetch kubeconfig for cluster ${physicalName}: ${(err as Error).message}`);
           return cluster.kubeconfigPath || DEFAULT_KUBECONFIG;
         }
       }
@@ -150,7 +155,9 @@ export class ClusterService extends BaseService {
       const content = await this.infra.getManagementClusterKubeconfig(SYSTEM_CLUSTER_ID);
       status = 'healthy';
       const kubeconfigPath = `/tmp/kubeconfig-${SYSTEM_CLUSTER_ID}`;
-      await writePrivate(kubeconfigPath, content).catch(() => {});
+      await writePrivate(kubeconfigPath, content).catch((err: unknown) => {
+        this.logger.warn(`Could not write the system cluster's kubeconfig to ${kubeconfigPath}, so its capacity is read from what is there: ${(err as Error).message}`);
+      });
       capacity = await this.readLiveCapacity(kubeconfigPath);
     } catch {
       status = 'failed';
@@ -181,7 +188,9 @@ export class ClusterService extends BaseService {
       const { stdout } = await execAsync('nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits');
       const mib = parseNvidiaSmiVram(stdout);
       if (mib) capacity = { ...capacity, gpuVramMib: mib };
-    } catch { /* ignored */ }
+    } catch (failure) {
+      ignore('a host whose nvidia-smi does not answer shows its capacity without VRAM')(failure);
+    }
     return capacity;
   }
 
@@ -193,8 +202,8 @@ export class ClusterService extends BaseService {
       await this.infra.checkGpuToolkit('nvidia');
       await this.infra.installGpuDevicePlugin('nvidia', kubeconfigPath);
       this.logger.info('GPU device plugin ready on the management cluster.');
-    } catch (err: any) {
-      this.logger.info(`Skipping management-cluster GPU device plugin install: ${err.message}`);
+    } catch (err) {
+      this.logger.info(`Skipping management-cluster GPU device plugin install: ${(err as Error).message}`);
     }
   }
 
@@ -233,7 +242,9 @@ export class ClusterService extends BaseService {
       }
       await this.db.infrastructure.deleteDeploymentsOfCluster(cluster.id);
       await this.db.infrastructure.deleteCluster(cluster.id);
-      await fs.rm(`/tmp/kubeconfig-${physicalName}`, { force: true }).catch(() => {});
+      await fs.rm(`/tmp/kubeconfig-${physicalName}`, { force: true }).catch((err: unknown) => {
+        this.logger.warn(`Could not remove the kubeconfig of ${physicalName}, deleted outside the system: ${(err as Error).message}`);
+      });
     }
 
     const systemCluster = await this.getSystemClusterEntry();
@@ -264,8 +275,7 @@ export class ClusterService extends BaseService {
     try {
       const kubeconfigPath = `/tmp/kubeconfig-${physicalName}`;
       const helmOutput = await this.infra.runHelm(['list', '-A', '-o', 'json'], kubeconfigPath);
-      const releases = JSON.parse(helmOutput);
-      const releaseNames = releases.map((r: any) => r.name);
+      const releaseNames = listAt(JSON.parse(helmOutput) as unknown).map((release) => textAt(release, 'name'));
       const hasMonitoring = releaseNames.includes('kube-prometheus-stack');
       const hasTraefik = releaseNames.includes('traefik');
 
@@ -276,8 +286,8 @@ export class ClusterService extends BaseService {
 
       this.logger.info(`Cluster ${cluster.name} missing expected helm releases — marking as failed`);
       return { ...cluster, status: 'failed', lastSyncedAt: new Date().toISOString() };
-    } catch (err: any) {
-      this.logger.warn(`Failed to verify helm releases for stuck cluster ${cluster.name}: ${err.message}`);
+    } catch (err) {
+      this.logger.warn(`Failed to verify helm releases for stuck cluster ${cluster.name}: ${(err as Error).message}`);
       return null;
     }
   }
@@ -299,8 +309,8 @@ export class ClusterService extends BaseService {
       try {
         kubeconfigContent = await this.infra.getKubeconfig(k3dName);
         await writePrivate(kubeconfigPath, kubeconfigContent);
-      } catch (err: any) {
-        this.logger.warn(`Cannot fetch kubeconfig for discovered cluster ${k3dName}: ${err.message}`);
+      } catch (err) {
+        this.logger.warn(`Cannot fetch kubeconfig for discovered cluster ${k3dName}: ${(err as Error).message}`);
         continue;
       }
 
@@ -308,8 +318,8 @@ export class ClusterService extends BaseService {
       try {
         await this.infra.runKubectl(['get', 'nodes'], kubeconfigPath);
         status = 'healthy';
-      } catch (err: any) {
-        this.logger.warn(`K8s API ping failed for discovered cluster ${k3dName}: ${err.message}`);
+      } catch (err) {
+        this.logger.warn(`K8s API ping failed for discovered cluster ${k3dName}: ${(err as Error).message}`);
       }
 
       const metadata: ClusterMetadata = {
@@ -334,7 +344,7 @@ export class ClusterService extends BaseService {
       return this.getSystemClusterEntry();
     }
     const clusters = await this.db.infrastructure.getClusters();
-    return clusters.find((c: any) => c.id === id);
+    return clusters.find((c) => c.id === id);
   }
 
   async getById(id: string, principal: Principal, action: Actions['cluster'] = 'see') {
@@ -362,7 +372,9 @@ export class ClusterService extends BaseService {
 
           try {
             await this.infra.runKubectl(['config', 'unset', 'clusters.k3d-' + physicalName]);
-          } catch { /* ignored */ }
+          } catch (failure) {
+            ignore('a kubeconfig entry from an earlier cluster of this name may not be there to unset')(failure);
+          }
 
           await this.infra.createLocalCluster(physicalName, { logFile, io, resourceId: id });
 
@@ -374,17 +386,16 @@ export class ClusterService extends BaseService {
           for (let i = 0; i < 45; i++) {
             try {
               const nodesJson = await this.infra.runKubectl(['get', 'nodes', '-o', 'json'], kubeconfigPath);
-              const nodesObj = JSON.parse(nodesJson);
-              const nodes = nodesObj.items || [];
-              const hasReadyNode = nodes.some((node: any) =>
-                node.status?.conditions?.some((c: any) => c.type === 'Ready' && c.status === 'True')
+              const nodes = listAt(JSON.parse(nodesJson) as unknown, 'items');
+              const hasReadyNode = nodes.some((node) =>
+                listAt(node, 'status', 'conditions').some((c) => textAt(c, 'type') === 'Ready' && textAt(c, 'status') === 'True')
               );
               if (hasReadyNode) {
                 ready = true;
                 break;
               }
-            } catch (err: any) {
-              this.logger.info(`Waiting for cluster ${physicalName} API server: ${err.message}`);
+            } catch (err) {
+              this.logger.info(`Waiting for cluster ${physicalName} API server: ${(err as Error).message}`);
             }
 
             if (i > 0 && i % 5 === 0) {
@@ -398,8 +409,8 @@ export class ClusterService extends BaseService {
                 if (logs.includes('too many open files') || logs.includes('fsnotify')) {
                   throw new Error(`Docker/Colima VM resource limit exhausted: 'too many open files' in K3s file watcher. Please run 'colima restart' in your terminal to reset the VM limits.`);
                 }
-              } catch (logErr: any) {
-                if (logErr.message.includes('VM resource limit')) {
+              } catch (logErr) {
+                if ((logErr as Error).message.includes('VM resource limit')) {
                   throw logErr;
                 }
               }
@@ -420,16 +431,16 @@ export class ClusterService extends BaseService {
                 this.logger.info(`Successfully enabled volume expansion on local-path storage class`);
                 scPatched = true;
                 break;
-              } catch (err: any) {
-                this.logger.info(`Waiting for local-path storage class to be available: ${err.message}`);
+              } catch (err) {
+                this.logger.info(`Waiting for local-path storage class to be available: ${(err as Error).message}`);
                 await new Promise(resolve => setTimeout(resolve, 2000));
               }
             }
             if (!scPatched) {
               this.logger.error(`local-path StorageClass was not available or could not be patched.`);
             }
-          } catch (err: any) {
-            this.logger.error(`Failed to patch local-path storage class: ${err.message}`);
+          } catch (err) {
+            this.logger.error(`Failed to patch local-path storage class: ${(err as Error).message}`);
           }
 
           try {
@@ -443,15 +454,16 @@ export class ClusterService extends BaseService {
                   ['get', 'configmap', 'coredns', '-n', 'kube-system', '-o', 'json'],
                   kubeconfigPath
                 );
-                const cm = JSON.parse(configMapJson);
-                if (cm?.data?.Corefile) {
-                  const originalCorefile = cm.data.Corefile;
+                const cm: unknown = JSON.parse(configMapJson);
+                const cmData = recordAt(cm, 'data');
+                const originalCorefile = cmData.Corefile;
+                if (typeof originalCorefile === 'string' && originalCorefile) {
                   const updatedCorefile = originalCorefile.replace(
                     /forward\s+\.\s+\/etc\/resolv\.conf/g,
                     `forward . ${dnsList.join(' ')}`
                   );
                   if (updatedCorefile !== originalCorefile) {
-                    cm.data.Corefile = updatedCorefile;
+                    cmData.Corefile = updatedCorefile;
                     const execAsync = (await import('util')).promisify((await import('child_process')).exec);
                     const containerName = `k3d-${physicalName}-server-0`;
                     const cmJsonString = JSON.stringify(cm).replace(/'/g, "'\\''");
@@ -465,16 +477,16 @@ export class ClusterService extends BaseService {
                   patched = true;
                   break;
                 }
-              } catch (err: any) {
-                this.logger.info(`Waiting for coredns configmap to be available: ${err.message}`);
+              } catch (err) {
+                this.logger.info(`Waiting for coredns configmap to be available: ${(err as Error).message}`);
                 await new Promise(resolve => setTimeout(resolve, 2000));
               }
             }
             if (!patched) {
               this.logger.error(`CoreDNS ConfigMap was not available or could not be patched.`);
             }
-          } catch (dnsErr: any) {
-            this.logger.error(`Failed to patch coredns: ${dnsErr.message}`);
+          } catch (dnsErr) {
+            this.logger.error(`Failed to patch coredns: ${(dnsErr as Error).message}`);
           }
 
           await new Promise(resolve => setTimeout(resolve, 5000));
@@ -492,11 +504,11 @@ export class ClusterService extends BaseService {
         await this.infra.deploy(physicalName, { logFile, io, resourceId: id, env });
 
         await this.db.infrastructure.saveCluster({ ...metadata, status: 'healthy', kubeconfigPath });
-      } catch (err: any) {
-        this.logger.error(`Provisioning failed: ${err.message}`);
+      } catch (err) {
+        this.logger.error(`Provisioning failed: ${(err as Error).message}`);
         await this.db.infrastructure.saveCluster({ ...metadata, status: 'failed' });
       }
-    })().catch((err: any) => this.logger.error(`Unhandled error during cluster provisioning: ${err.message}`));
+    })().catch((err: unknown) => this.logger.error(`Unhandled error during cluster provisioning: ${(err as Error).message}`));
 
     return metadata;
   }
@@ -522,9 +534,9 @@ export class ClusterService extends BaseService {
         const kubeconfigPath = await this.getKubeconfigPath(cluster);
 
         if (cluster.gpuEnabled) {
-          try {
-            await fs.rm(kubeconfigPath, { force: true });
-          } catch { /* ignored */ }
+          await fs.rm(kubeconfigPath, { force: true }).catch((err: unknown) => {
+            this.logger.warn(`Could not remove the kubeconfig at ${kubeconfigPath}, so a new cluster of this name would find it: ${(err as Error).message}`);
+          });
           await this.db.infrastructure.deleteCluster(id);
           if (io) io.to(`user:${cluster.ownerId}`).emit('resource-destroyed', { id, type: 'cluster', name: cluster.name });
           return;
@@ -543,18 +555,18 @@ export class ClusterService extends BaseService {
         if (cluster.provider === 'k3d' || isMock) {
             await this.infra.deleteLocalCluster(physicalName, { logFile, io, resourceId: id });
             await this.infra.disconnectNginxFromNetwork(physicalName);
-            try {
-                await fs.rm(kubeconfigPath, { force: true });
-            } catch { /* ignored */ }
+            await fs.rm(kubeconfigPath, { force: true }).catch((err: unknown) => {
+              this.logger.warn(`Could not remove the kubeconfig at ${kubeconfigPath}, so a new cluster of this name would find it: ${(err as Error).message}`);
+            });
         }
 
         await this.db.infrastructure.deleteCluster(id);
         if (io) io.to(`user:${cluster.ownerId}`).emit('resource-destroyed', { id, type: 'cluster', name: cluster.name });
-      } catch (err: any) {
-        this.logger.error(`Destruction failed: ${err.message}`);
+      } catch (err) {
+        this.logger.error(`Destruction failed: ${(err as Error).message}`);
         await this.db.infrastructure.saveCluster({ ...cluster, status: 'failed' });
       }
-    })().catch((err: any) => this.logger.error(`Unhandled error during cluster destruction: ${err.message}`));
+    })().catch((err: unknown) => this.logger.error(`Unhandled error during cluster destruction: ${(err as Error).message}`));
   }
 
   async abort(id: string, principal: Principal, io?: SocketServer) {
@@ -574,16 +586,16 @@ export class ClusterService extends BaseService {
         const kubeconfigPath = await this.getKubeconfigPath(cluster);
 
         if (cluster.gpuEnabled) {
-          try {
-            await fs.rm(kubeconfigPath, { force: true });
-          } catch {}
+          await fs.rm(kubeconfigPath, { force: true }).catch((err: unknown) => {
+            this.logger.warn(`Could not remove the kubeconfig at ${kubeconfigPath} during abort: ${(err as Error).message}`);
+          });
         } else if (cluster.provider === 'k3d' || isMock) {
           try {
             await this.infra.deleteLocalCluster(physicalName, { logFile, io, resourceId: id });
             await this.infra.disconnectNginxFromNetwork(physicalName);
             await fs.rm(kubeconfigPath, { force: true });
-          } catch (err: any) {
-            this.logger.warn(`Error deleting physical cluster during abort: ${err.message}`);
+          } catch (err) {
+            this.logger.warn(`Error deleting physical cluster during abort: ${(err as Error).message}`);
           }
         }
 
@@ -594,15 +606,15 @@ export class ClusterService extends BaseService {
           io.to(`user:${cluster.ownerId}`).emit('resource-destroyed', { id, type: 'cluster', name: cluster.name });
           io.emit('cluster:updated');
         }
-      } catch (err: any) {
-        this.logger.error(`Abort failed for cluster ${cluster.name}: ${err.message}`);
+      } catch (err) {
+        this.logger.error(`Abort failed for cluster ${cluster.name}: ${(err as Error).message}`);
         await this.db.infrastructure.deleteCluster(id);
         if (io) io.emit('cluster:updated');
       }
-    })().catch((err: any) => this.logger.error(`Unhandled error during cluster abort: ${err.message}`));
+    })().catch((err: unknown) => this.logger.error(`Unhandled error during cluster abort: ${(err as Error).message}`));
   }
 
-  async listAllPods(id: string, principal: Principal) {
+  async listAllPods(id: string, principal: Principal): Promise<unknown[]> {
     try {
         const cluster = await this.getById(id, principal, 'see-everything');
         if (!cluster) throw new Error('Cluster not found');
@@ -613,9 +625,9 @@ export class ClusterService extends BaseService {
         
         const kubeconfigPath = await this.getOwnKubeconfigPath(cluster);
         const output = await this.infra.runKubectl(args, kubeconfigPath);
-        return JSON.parse(output).items;
-    } catch (err: any) {
-        this.logger.error(`Failed to list all pods: ${err.message}`);
+        return listAt(JSON.parse(output) as unknown, 'items');
+    } catch (err) {
+        this.logger.error(`Failed to list all pods: ${(err as Error).message}`);
         return [];
     }
   }
@@ -627,31 +639,31 @@ export class ClusterService extends BaseService {
 
       const kubeconfigPath = await this.getOwnKubeconfigPath(cluster);
       
-      let nodes: any[] = [];
+      let nodes: unknown[] = [];
       try {
         const nodesOutput = await this.infra.runKubectl(['get', 'nodes', '-o', 'json'], kubeconfigPath);
-        nodes = JSON.parse(nodesOutput).items || [];
-      } catch (err: any) {
-        this.logger.warn(`Failed to fetch nodes for GPU status on cluster ${id}: ${err.message}`);
+        nodes = listAt(JSON.parse(nodesOutput) as unknown, 'items');
+      } catch (err) {
+        this.logger.warn(`Failed to fetch nodes for GPU status on cluster ${id}: ${(err as Error).message}`);
       }
 
-      let pods: any[] = [];
+      let pods: unknown[] = [];
       try {
         pods = await this.listAllPods(id, principal);
-      } catch (err: any) {
-        this.logger.warn(`Failed to fetch pods for GPU status on cluster ${id}: ${err.message}`);
+      } catch (err) {
+        this.logger.warn(`Failed to fetch pods for GPU status on cluster ${id}: ${(err as Error).message}`);
       }
 
       const devicePlugins: { vendor: string; name: string; status: string; readyPods: number; desiredPods: number }[] = [];
       try {
         const dsOutput = await this.infra.runKubectl(['get', 'daemonsets', '-n', 'kube-system', '-o', 'json'], kubeconfigPath);
-        const dsItems = JSON.parse(dsOutput).items || [];
+        const dsItems = listAt(JSON.parse(dsOutput) as unknown, 'items');
         for (const ds of dsItems) {
-          const name = ds.metadata?.name || '';
+          const name = textAt(ds, 'metadata', 'name') || '';
           if (name.includes('nvidia-device-plugin') || name.includes('amdgpu-device-plugin')) {
             const vendor = name.includes('nvidia') ? 'NVIDIA' : 'AMD';
-            const readyPods = ds.status?.numberReady || 0;
-            const desiredPods = ds.status?.desiredNumberScheduled || 0;
+            const readyPods = numberAt(ds, 'status', 'numberReady') || 0;
+            const desiredPods = numberAt(ds, 'status', 'desiredNumberScheduled') || 0;
             devicePlugins.push({
               vendor,
               name,
@@ -661,22 +673,24 @@ export class ClusterService extends BaseService {
             });
           }
         }
-      } catch {}
+      } catch (err) {
+        this.logger.warn(`Failed to fetch the GPU device plugins on cluster ${id}: ${(err as Error).message}`);
+      }
 
       let totalCapacity = 0;
       let totalAllocatable = 0;
       let vendor = 'none';
 
-      const nodeSummaries = nodes.map((node: any) => {
-        const nodeName = node.metadata?.name || 'unknown';
-        const capacityObj = node.status?.capacity || {};
-        const allocatableObj = node.status?.allocatable || {};
+      const nodeSummaries = nodes.map((node) => {
+        const nodeName = textAt(node, 'metadata', 'name') || 'unknown';
+        const capacityOf = (resource: string) => parseInt(textAt(node, 'status', 'capacity', resource) || '0', 10);
+        const allocatableOf = (resource: string) => parseInt(textAt(node, 'status', 'allocatable', resource) || '0', 10);
 
-        const nvidiaCap = parseInt(capacityObj['nvidia.com/gpu'] || '0', 10);
-        const amdCap = parseInt(capacityObj['amd.com/gpu'] || '0', 10);
+        const nvidiaCap = capacityOf('nvidia.com/gpu');
+        const amdCap = capacityOf('amd.com/gpu');
 
-        const nvidiaAlloc = parseInt(allocatableObj['nvidia.com/gpu'] || '0', 10);
-        const amdAlloc = parseInt(allocatableObj['amd.com/gpu'] || '0', 10);
+        const nvidiaAlloc = allocatableOf('nvidia.com/gpu');
+        const amdAlloc = allocatableOf('amd.com/gpu');
 
         const nodeCap = nvidiaCap + amdCap;
         const nodeAlloc = nvidiaAlloc + amdAlloc;
@@ -700,24 +714,23 @@ export class ClusterService extends BaseService {
       const gpuPods: { name: string; namespace: string; gpus: number; status: string }[] = [];
 
       for (const pod of pods) {
-        const phase = pod.status?.phase;
+        const phase = textAt(pod, 'status', 'phase');
         if (phase === 'Succeeded' || phase === 'Failed') continue;
 
-        const containers = pod.spec?.containers || [];
         let podGpuCount = 0;
 
-        for (const container of containers) {
-          const limits = container.resources?.limits || {};
-          const requests = container.resources?.requests || {};
-          const gpuReq = parseInt(limits['nvidia.com/gpu'] || requests['nvidia.com/gpu'] || limits['amd.com/gpu'] || requests['amd.com/gpu'] || '0', 10);
+        for (const container of listAt(pod, 'spec', 'containers')) {
+          const limit = (resource: string) => textAt(container, 'resources', 'limits', resource);
+          const request = (resource: string) => textAt(container, 'resources', 'requests', resource);
+          const gpuReq = parseInt(limit('nvidia.com/gpu') || request('nvidia.com/gpu') || limit('amd.com/gpu') || request('amd.com/gpu') || '0', 10);
           podGpuCount += gpuReq;
         }
 
         if (podGpuCount > 0) {
           totalAllocated += podGpuCount;
           gpuPods.push({
-            name: pod.metadata?.name || 'unknown',
-            namespace: pod.metadata?.namespace || 'default',
+            name: textAt(pod, 'metadata', 'name') || 'unknown',
+            namespace: textAt(pod, 'metadata', 'namespace') || 'default',
             gpus: podGpuCount,
             status: phase || 'Unknown',
           });
@@ -739,8 +752,8 @@ export class ClusterService extends BaseService {
         devicePlugins,
         gpuPods,
       };
-    } catch (err: any) {
-      this.logger.error(`Failed to get GPU status for cluster ${id}: ${err.message}`);
+    } catch (err) {
+      this.logger.error(`Failed to get GPU status for cluster ${id}: ${(err as Error).message}`);
       return {
         passthroughEnabled: false,
         hasGpu: false,
@@ -752,7 +765,7 @@ export class ClusterService extends BaseService {
         nodes: [],
         devicePlugins: [],
         gpuPods: [],
-        error: err.message,
+        error: (err as Error).message,
       };
     }
   }

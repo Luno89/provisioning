@@ -1,3 +1,4 @@
+import { ignore } from '@koala/engine-core/failures';
 import { ovhErrorMessage, ovhHeaders, type OvhKeys } from '../lib/ovh-api.js';
 import { ovhHostFor } from '../lib/vps-catalog/adapters.js';
 
@@ -28,7 +29,7 @@ export class OvhClient {
   private async timestamp(): Promise<number> {
     if (this.drift === undefined) {
       const answer = await this.fetchImpl(`${this.host}/auth/time`);
-      if (!answer.ok) throw new OvhError(answer.status, ovhErrorMessage(answer.status, await answer.json().catch(() => undefined)));
+      if (!answer.ok) throw new OvhError(answer.status, ovhErrorMessage(answer.status, await answer.json().catch(ignore('an error answer without a JSON body is described by its status alone'))));
       const serverTime = Number(await answer.json());
       this.drift = Number.isFinite(serverTime) ? serverTime - Math.floor(this.now() / 1000) : 0;
     }
@@ -42,7 +43,7 @@ export class OvhClient {
     if (text) headers['Content-Type'] = 'application/json';
     const answer = await this.fetchImpl(url, { method, headers, ...(text ? { body: text } : {}) });
     const raw = await answer.text();
-    const parsed: unknown = raw ? (() => { try { return JSON.parse(raw); } catch { return raw; } })() : undefined;
+    const parsed: unknown = raw ? ((): unknown => { try { return JSON.parse(raw); } catch { return raw; } })() : undefined;
     if (!answer.ok) throw new OvhError(answer.status, ovhErrorMessage(answer.status, parsed));
     return parsed as T;
   }

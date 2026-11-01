@@ -51,7 +51,10 @@ export class InfrastructureViewService {
     const [monitoring, koala, broken, running, failures, signals] = await Promise.all([
       this.deps.monitoring.overview(viewer),
       this.deps.monitoring.koala(viewer),
-      this.deps.contents.broken(viewer).catch(() => []),
+      this.deps.contents.broken(viewer).catch((err: unknown) => {
+        console.warn(`[InfrastructureView] broken workloads could not be read for ${viewer.id}: ${(err as Error).message}`);
+        return [];
+      }),
       this.deps.running.view(viewer.id),
       this.deps.failures.shown(viewer.id),
       this.deps.signals ? this.deps.signals.open(viewer.id) : Promise.resolve([]),

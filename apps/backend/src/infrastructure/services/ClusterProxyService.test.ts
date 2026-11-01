@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { EventEmitter } from 'events';
-import type { ChildProcess } from 'child_process';
+import type { ClusterProxyService as Proxy } from './ClusterProxyService.js';
 
 vi.mock('node:url', () => ({
   fileURLToPath: () => '/app/src/services/ClusterProxyService.ts',
@@ -12,7 +12,7 @@ vi.mock('child_process', () => ({
   execFile: vi.fn(),
 }));
 
-let ClusterProxyService: any;
+let ClusterProxyService: typeof Proxy;
 
 beforeEach(async () => {
   vi.clearAllMocks();
@@ -25,21 +25,18 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-function fakeChildProcess(): ChildProcess & { _stdout: EventEmitter; _stderr: EventEmitter; _killed: boolean } {
-  const stdout = new EventEmitter();
-  const stderr = new EventEmitter();
-  const proc = new EventEmitter() as ChildProcess & { _stdout: EventEmitter; _stderr: EventEmitter; _killed: boolean };
-  proc.stdout = stdout as any;
-  proc.stderr = stderr as any;
-  proc.kill = vi.fn(() => { proc._killed = true; return true; });
-  proc._stdout = stdout;
-  proc._stderr = stderr;
-  proc._killed = false;
-  return proc;
+class FakeChild extends EventEmitter {
+  readonly stdout = new EventEmitter();
+  readonly stderr = new EventEmitter();
+  readonly kill = vi.fn(() => true);
 }
 
-function emitForwarding(child: ChildProcess, port: number) {
-  (child as any)._stdout.emit('data', Buffer.from(`Forwarding from 127.0.0.1:${port} -> 9090\n`));
+function fakeChildProcess(): FakeChild {
+  return new FakeChild();
+}
+
+function emitForwarding(child: FakeChild, port: number) {
+  child.stdout.emit('data', Buffer.from(`Forwarding from 127.0.0.1:${port} -> 9090\n`));
 }
 
 describe('ClusterProxyService', () => {
@@ -154,7 +151,7 @@ describe('ClusterProxyService', () => {
       const svc = new ClusterProxyService();
       const p = svc.ensurePortForward('c1', 'prometheus', '/tmp/kubeconfig-c1');
 
-      (child as any)._stderr.emit('data', Buffer.from('Error: service not found\n'));
+      child.stderr.emit('data', Buffer.from('Error: service not found\n'));
       child.emit('close', 1);
 
       await expect(p).rejects.toThrow('port-forward exited with code 1: Error: service not found');

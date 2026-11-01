@@ -1,4 +1,6 @@
-import { type Database, decryptValue, type SecretKey } from '../../platform/index.js';
+import { ignore } from '@koala/engine-core/failures';
+import { type CloudCredentials, type Database, decryptValue, type SecretKey } from '../../platform/index.js';
+import { textAt } from '../lib/json-reading.js';
 import { COMBINED_CLAIMS, usesOperatorCredentials } from '../lib/credential-resolver.js';
 import { resolveCloudCredentials } from './cloud-credentials.js';
 import type { ClaimSettings } from '../../platform/index.js';
@@ -22,11 +24,15 @@ interface CacheEntry {
   fetchedAt: number;
 }
 
+export interface VpsCatalogDb {
+  accounts: Pick<Database['accounts'], 'getUserById'>;
+}
+
 export class VpsCatalogService {
   private cache = new Map<string, CacheEntry>();
 
   constructor(
-    private readonly db: Database,
+    private readonly db: VpsCatalogDb,
     private readonly masterKey: SecretKey,
     private readonly adapters: readonly VpsCatalogAdapter[],
     private readonly claims: ClaimSettings = COMBINED_CLAIMS,
@@ -41,12 +47,14 @@ export class VpsCatalogService {
 
   private async resolveToken(userId: string, provider: string): Promise<string | undefined> {
     const user = await this.db.accounts.getUserById(userId);
-    const enc = (user?.credentials as any)?.[provider]?.token;
-    let userCreds: any;
+    const enc = textAt(user?.credentials, provider, 'token');
+    let userCreds: CloudCredentials | undefined;
     if (enc) {
       try {
         userCreds = { [provider]: { token: decryptValue(enc, this.masterKey) } };
-      } catch { /* ignored */ }
+      } catch (failure) {
+        ignore('a stored token that can no longer be decrypted counts as none, so the provider asks for credentials again')(failure);
+      }
     }
     const env = resolveCloudCredentials(provider, userCreds, usesOperatorCredentials(user, this.claims)).env;
     return env.HCLOUD_TOKEN ?? env.DIGITALOCEAN_TOKEN;
@@ -113,7 +121,8 @@ export class VpsCatalogService {
             ...(skippedNoPrice ? { skippedNoPrice } : {}),
             ...(market ? { market } : {}),
           });
-        } catch (err: any) {
+        } catch (caught) {
+          const err = caught as Error;
           if (hit && Array.isArray(hit.offers)) {
             all.push(...hit.offers);
             sources.push({

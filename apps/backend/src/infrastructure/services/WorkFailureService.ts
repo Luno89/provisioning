@@ -1,3 +1,4 @@
+import { ignore } from '@koala/engine-core/failures';
 import type { RunningRecords, RunningWorkflow } from '../lib/running.js';
 import {
   FAILURE_SHOWN_ON_RECORD, KEPT_FOR_MS, describeFailure, runFailureId, shownFailures, temporalFailureReason, workflowFailureId,
@@ -83,7 +84,7 @@ export class WorkFailureService {
   async runEnded(event: RunEnded): Promise<WorkFailure | undefined> {
     if (event.depth !== 0 || (event.outcome !== 'failed' && !event.revoked)) return undefined;
     if (!(await this.deps.isPerson(event.ownerId))) return undefined;
-    const workflow = await this.deps.workflows.describeRun(event.runId).catch(() => undefined)
+    const workflow = await this.deps.workflows.describeRun(event.runId).catch(ignore('a run Temporal no longer describes is recorded from what the event says'))
       ?? { workflowId: event.runId, type: 'AgentRunWorkflow', startedAt: this.now().toISOString() };
     const failure = describeFailure(workflow, await this.recordsOf(event.ownerId), {
       id: runFailureId(event.runId),
@@ -108,7 +109,7 @@ export class WorkFailureService {
         if (!workflow.ownerId || !(await this.deps.isPerson(workflow.ownerId))) continue;
         const id = workflowFailureId(workflow.workflowId, workflow.temporalRunId);
         if ((await this.deps.store.getWorkFailures(workflow.ownerId)).some((entry) => entry.id === id)) continue;
-        const cause = await this.deps.workflows.failureOf(workflow.workflowId, workflow.temporalRunId).catch(() => undefined);
+        const cause = await this.deps.workflows.failureOf(workflow.workflowId, workflow.temporalRunId).catch(ignore('without its failure the reason is told from how the workflow closed'));
         await this.record(describeFailure(workflow, await this.recordsOf(workflow.ownerId), {
           id,
           ownerId: workflow.ownerId,

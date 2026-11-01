@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { applyFilters, VpsCatalogService } from './VpsCatalogService.js';
+import { applyFilters, VpsCatalogService, type VpsCatalogDb } from './VpsCatalogService.js';
+import type { AdapterResult } from '../lib/vps-catalog/types.js';
 import { withDerived } from '../lib/vps-catalog/types.js';
 import type { VpsCatalogAdapter, VpsOffer } from '../lib/vps-catalog/types.js';
 
@@ -11,7 +12,7 @@ const offer = (o: Partial<Parameters<typeof withDerived>[0]> = {}): VpsOffer =>
     priceMonthly: 20, currency: 'USD', taxIncluded: false,
     hourlyBilling: true, locations: ['us-east'], provisionable: false,
     ...o,
-  } as any);
+  });
 
 describe('applyFilters', () => {
   it('filters on the resource dimensions', () => {
@@ -100,7 +101,7 @@ describe('column sorting', () => {
   });
 
   it('sinks missing bandwidth to the bottom in both directions', () => {
-    const known = offer({ planId: 'known', bandwidthTb: 2 } as any);
+    const known = offer({ planId: 'known', bandwidthTb: 2 });
     const missing = offer({ planId: 'missing' });
     expect(applyFilters([missing, known], { sort: 'bandwidth', sortDir: 'asc' })[0]!.planId).toBe('known');
     expect(applyFilters([missing, known], { sort: 'bandwidth', sortDir: 'desc' })[0]!.planId).toBe('known');
@@ -125,14 +126,14 @@ describe('column sorting', () => {
 
 describe('hourly pricing', () => {
   it('sorts by hourly rate independently of the monthly price', async () => {
-    const cheapMonthly = offer({ planId: 'monthly-deal', priceMonthly: 10, priceHourly: 0.05 } as any);
-    const cheapHourly = offer({ planId: 'hourly-deal', priceMonthly: 40, priceHourly: 0.001 } as any);
+    const cheapMonthly = offer({ planId: 'monthly-deal', priceMonthly: 10, priceHourly: 0.05 });
+    const cheapHourly = offer({ planId: 'hourly-deal', priceMonthly: 40, priceHourly: 0.001 });
     expect(applyFilters([cheapMonthly, cheapHourly], { sort: 'price' })[0]!.planId).toBe('monthly-deal');
     expect(applyFilters([cheapMonthly, cheapHourly], { sort: 'priceHourly' })[0]!.planId).toBe('hourly-deal');
   });
 
   it('sinks plans with no hourly rate to the bottom in both directions', async () => {
-    const known = offer({ planId: 'known', priceHourly: 0.02 } as any);
+    const known = offer({ planId: 'known', priceHourly: 0.02 });
     const missing = offer({ planId: 'missing' });
     expect(applyFilters([missing, known], { sort: 'priceHourly', sortDir: 'asc' })[0]!.planId).toBe('known');
     expect(applyFilters([missing, known], { sort: 'priceHourly', sortDir: 'desc' })[0]!.planId).toBe('known');
@@ -140,7 +141,7 @@ describe('hourly pricing', () => {
 });
 
 describe('GPU is kept separate from system RAM', () => {
-  const gpuBox = offer({ planId: 'gpu', ramGb: 480, priceMonthly: 2000, gpuCount: 1, gpuVramGb: 192 } as any);
+  const gpuBox = offer({ planId: 'gpu', ramGb: 480, priceMonthly: 2000, gpuCount: 1, gpuVramGb: 192 });
   const plainBox = offer({ planId: 'plain', ramGb: 32, priceMonthly: 100 });
 
   it('prices per GB against system RAM, not VRAM', () => {
@@ -161,7 +162,7 @@ describe('GPU is kept separate from system RAM', () => {
   });
 
   it('filters on minimum VRAM, excluding plans with no GPU at all', () => {
-    const small = offer({ planId: 'small-gpu', gpuCount: 1, gpuVramGb: 16 } as any);
+    const small = offer({ planId: 'small-gpu', gpuCount: 1, gpuVramGb: 16 });
     const out = applyFilters([gpuBox, small, plainBox], { minGpuVramGb: 24 });
     expect(out.map((o) => o.planId)).toEqual(['gpu']);
   });
@@ -172,27 +173,27 @@ describe('GPU is kept separate from system RAM', () => {
   });
 
   it('detects a GPU from VRAM or model alone, not just a count', () => {
-    const vultrStyle = offer({ planId: 'vultr-gpu', gpuVramGb: 192, gpuModel: 'NVIDIA' } as any);
+    const vultrStyle = offer({ planId: 'vultr-gpu', gpuVramGb: 192, gpuModel: 'NVIDIA' });
     expect(applyFilters([vultrStyle, plainBox], { hasGpu: true }).map((o) => o.planId)).toEqual(['vultr-gpu']);
     expect(applyFilters([vultrStyle, plainBox], { hasGpu: false }).map((o) => o.planId)).toEqual(['plain']);
   });
 
   it('sorts by price per GB of VRAM, sinking non-GPU plans', () => {
-    const value = offer({ planId: 'value', priceMonthly: 100, gpuVramGb: 100 } as any);
-    const pricey = offer({ planId: 'pricey', priceMonthly: 400, gpuVramGb: 100 } as any);
+    const value = offer({ planId: 'value', priceMonthly: 100, gpuVramGb: 100 });
+    const pricey = offer({ planId: 'pricey', priceMonthly: 400, gpuVramGb: 100 });
     const out = applyFilters([pricey, plainBox, value], { sort: 'pricePerGbVram' });
     expect(out.map((o) => o.planId)).toEqual(['value', 'pricey', 'plain']);
   });
 
   it('sorts by VRAM, falling back to card count where VRAM is unpublished', () => {
-    const noVram = offer({ planId: 'linode-gpu', gpuCount: 4 } as any);
+    const noVram = offer({ planId: 'linode-gpu', gpuCount: 4 });
     const out = applyFilters([noVram, gpuBox, plainBox], { sort: 'gpu' });
     expect(out.map((o) => o.planId)).toEqual(['gpu', 'linode-gpu', 'plain']);
   });
 });
 
 describe('one bad provider must not empty the whole catalogue', () => {
-  const stubDb = { accounts: { getUserById: async () => undefined } } as any;
+  const stubDb: VpsCatalogDb = { accounts: { getUserById: async () => undefined } };
 
   const good = (provider: string): VpsCatalogAdapter => ({
     provider, requiresCredentials: false, provisionable: false,
@@ -217,7 +218,7 @@ describe('one bad provider must not empty the whole catalogue', () => {
   it('survives an adapter whose result shape is wrong, and does not poison the cache', async () => {
     const malformed: VpsCatalogAdapter = {
       provider: 'malformed', requiresCredentials: false, provisionable: false,
-      fetch: async () => [offer({ provider: 'malformed' })] as any,
+      fetch: async () => JSON.parse(JSON.stringify([offer({ provider: 'malformed' })])) as AdapterResult,
     };
     const s = svc([good('linode'), malformed]);
 
@@ -231,7 +232,7 @@ describe('one bad provider must not empty the whole catalogue', () => {
   });
 
   it('does not reject when token resolution blows up for a credentialed provider', async () => {
-    const failingDb = { accounts: { getUserById: async () => { throw new Error('mongo unavailable'); } } } as any;
+    const failingDb: VpsCatalogDb = { accounts: { getUserById: async () => { throw new Error('mongo unavailable'); } } };
     const gated: VpsCatalogAdapter = {
       provider: 'hetzner', requiresCredentials: true, provisionable: true,
       fetch: async () => ({ offers: [], skippedNoPrice: 0 }),
@@ -243,7 +244,7 @@ describe('one bad provider must not empty the whole catalogue', () => {
 });
 
 describe('the market a provider was read for', () => {
-  const stubDb = { accounts: { getUserById: async () => undefined } } as any;
+  const stubDb: VpsCatalogDb = { accounts: { getUserById: async () => undefined } };
   const au: VpsCatalogAdapter = {
     provider: 'ovh', requiresCredentials: false, provisionable: false,
     fetch: async () => ({
@@ -275,11 +276,11 @@ describe('per-location pricing', () => {
   const eu = offer({
     planId: 'cpx11', idSuffix: 'fsn1', priceMonthly: 5.99, bandwidthTb: 20,
     locations: ['fsn1', 'hel1', 'nbg1'],
-  } as any);
+  });
   const us = offer({
     planId: 'cpx11', idSuffix: 'ash', priceMonthly: 20.49, bandwidthTb: 1,
     locations: ['ash', 'hil'],
-  } as any);
+  });
 
   it('gives each price tier a distinct id while keeping planId deployable', () => {
     expect(eu.id).toBe('test:cpx11@fsn1');

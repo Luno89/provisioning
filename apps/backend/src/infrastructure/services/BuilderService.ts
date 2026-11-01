@@ -1,7 +1,7 @@
-import { BaseService, type Database } from '../../platform/index.js';
+import { BaseService, CommandFailedError, type Database } from '../../platform/index.js';
 import fs from 'fs/promises';
 import path from 'path';
-import { InfrastructureService } from './InfrastructureService.js';
+import { InfrastructureService, type ExecuteOptions } from './InfrastructureService.js';
 import { fileURLToPath } from 'url';
 import { elapsedSeconds, koalaMetrics } from '@koala/engine-core/telemetry';
 
@@ -18,11 +18,11 @@ export class BuilderService extends BaseService {
     this.infra = infra;
   }
 
-  async buildCustomImage(baseImage: string, modules: string[], appType: string = 'odoo', options: any = {}) {
+  async buildCustomImage(baseImage: string, modules: string[], appType: string = 'odoo', options: ExecuteOptions = {}): Promise<string> {
     const { io, resourceId } = options;
     const buildId = Date.now();
     const sanitizedAppType = appType ? appType.toLowerCase() : 'odoo';
-    const tag = `${sanitizedAppType}-custom:${resourceId.slice(0, 8)}-${buildId}`;
+    const tag = `${sanitizedAppType}-custom:${(resourceId ?? 'build').slice(0, 8)}-${buildId}`;
     
     const folderName = sanitizedAppType === 'odoo' ? 'odoo-custom-modules' : `${sanitizedAppType}-custom-plugins`;
     const sourceRepo = path.join(PROJECT_ROOT, '..', folderName);
@@ -56,8 +56,9 @@ export class BuilderService extends BaseService {
           const modPath = path.join(sourceRepo, modId);
           await this.infra.runCommand('python3', [validatorPath, modPath], 'validate', options);
           if (io && resourceId) io.to(resourceId).emit('log', `✅ Module ${modId}: OK\n`);
-        } catch (err: any) {
-          const errorMsg = `\n🚨 VALIDATION FAILED for module "${modId}":\n${err.stdout || err.message}\n`;
+        } catch (err) {
+          const said = err instanceof CommandFailedError && err.stdout ? err.stdout : (err as Error).message;
+          const errorMsg = `\n🚨 VALIDATION FAILED for module "${modId}":\n${said}\n`;
           if (io && resourceId) io.to(resourceId).emit('log', errorMsg);
           throw new Error(`Module validation failed: ${modId}`);
         }

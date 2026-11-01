@@ -1,9 +1,10 @@
 import { BaseService, type Database, type ClusterMetadata, type DeploymentMetadata } from '../../platform/index.js';
-import { InfrastructureService } from './InfrastructureService.js';
-import { ClusterService } from './ClusterService.js';
+import type { InfrastructureService } from './InfrastructureService.js';
+import type { ClusterService } from './ClusterService.js';
 import { hasCloudCredentials, isMockCloudProvider } from './cloud-credentials.js';
 import { isSelfManagedCluster } from '../lib/cluster-topology.js';
 import { assertUpstreamTarget } from '../lib/upstream-target.js';
+import { at, listAt, numberAt, textAt } from '../lib/json-reading.js';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import fs from 'fs/promises';
@@ -27,19 +28,27 @@ export interface AppAddressing {
   groupOf?: ((dep: DeploymentMetadata) => Promise<string | undefined>) | undefined;
 }
 
+export interface AppExposureDb {
+  infrastructure: Pick<Database['infrastructure'], 'getDeployments' | 'saveDeployment'>;
+}
+
+export type ExposureInfra = Pick<InfrastructureService, 'runKubectl' | 'getHostGatewayIp' | 'getK3dServerIp'>;
+export type ExposureClusters = Pick<ClusterService, 'getByIdUnscoped' | 'getKubeconfigPath'>;
+
 const execAsync = promisify(exec);
+const isMissingFile = (err: unknown): boolean => textAt(err, 'code') === 'ENOENT';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-export class AppExposureService extends BaseService {
-  private infra: InfrastructureService;
-  private clusters: ClusterService;
+export class AppExposureService extends BaseService<AppExposureDb> {
+  private infra: ExposureInfra;
+  private clusters: ExposureClusters;
   private nginxConfDir: string;
   private io: SocketServer | undefined;
   private edge: InstanceEdge | undefined;
   private groupOf: (dep: DeploymentMetadata) => Promise<string | undefined>;
 
-  constructor(db: Database, infra: InfrastructureService, clusters: ClusterService, io?: SocketServer, addressing: AppAddressing = {}) {
+  constructor(db: AppExposureDb, infra: ExposureInfra, clusters: ExposureClusters, io?: SocketServer, addressing: AppAddressing = {}) {
     super(db);
     this.infra = infra;
     this.clusters = clusters;
@@ -62,20 +71,19 @@ export class AppExposureService extends BaseService {
     const kubeconfigPath = await this.clusters.getKubeconfigPath(cluster);
 
     const output = await this.infra.runKubectl(['get', 'svc', '-n', namespace, '-o', 'json'], kubeconfigPath);
-    const res = JSON.parse(output);
-    const services: any[] = res.items || [];
+    const services = listAt(JSON.parse(output) as unknown, 'items');
 
     const dbKeywords = ['db', 'postgres', 'mysql', 'redis', 'mongo', 'memcached', 'mariadb', 'influx', 'cassandra', 'elasticsearch'];
     const dbPorts = [5432, 3306, 6379, 27017, 11211, 8086, 9042, 9200];
 
-    const candidateServices = services.filter((svc: any) => {
-      const full = svc.metadata?.name?.toLowerCase() || '';
+    const candidateServices = services.filter((svc) => {
+      const full = textAt(svc, 'metadata', 'name')?.toLowerCase() || '';
       const owned = [namespace, dep.name.toLowerCase()].find((prefix) => full.startsWith(prefix));
       const name = owned ? full.slice(owned.length) : full;
       if (dbKeywords.some(kw => name.includes(kw))) return false;
-      const ports = svc.spec?.ports || [];
+      const ports = listAt(svc, 'spec', 'ports');
       if (ports.length === 0) return false;
-      return ports.some((p: any) => !dbPorts.includes(p.port));
+      return ports.some((p) => !dbPorts.includes(numberAt(p, 'port') ?? 0));
     });
 
     if (candidateServices.length === 0) {
@@ -86,38 +94,39 @@ export class AppExposureService extends BaseService {
 
     if (this.edge && cluster.isSystem) {
       for (const traefikNamespace of ['traefik', 'kube-system']) {
-        const found = await this.infra.runKubectl(['get', 'svc', 'traefik', '-n', traefikNamespace, '-o', 'json'], kubeconfigPath).catch(() => undefined);
-        if (!found) continue;
-        const svc = JSON.parse(found);
-        const port = (svc.spec?.ports?.find((p: any) => p.name === 'web') || svc.spec?.ports?.[0])?.port || 80;
+        const found = await this.infra.runKubectl(['get', 'svc', 'traefik', '-n', traefikNamespace, '--ignore-not-found', '-o', 'json'], kubeconfigPath);
+        if (!found.trim()) continue;
+        const ports = listAt(JSON.parse(found) as unknown, 'spec', 'ports');
+        const port = numberAt(ports.find((p) => textAt(p, 'name') === 'web') ?? ports[0], 'port') || 80;
         return { namespace, backendTarget: assertUpstreamTarget(`traefik.${traefikNamespace}.svc.cluster.local:${port}`, namespace), appHostname };
       }
       throw new Error('This instance\'s cluster has no Traefik (looked in the traefik and kube-system namespaces), so its apps cannot be reached.');
     }
 
     const traefikOutput = await this.infra.runKubectl(['get', 'svc', 'traefik', '-n', 'traefik', '-o', 'json'], kubeconfigPath);
-    const traefikSvc = JSON.parse(traefikOutput);
-    const traefikPortObj = traefikSvc.spec?.ports?.find((p: any) => p.name === 'web') || traefikSvc.spec?.ports?.[0];
-    const targetPort = traefikPortObj?.port || 80;
+    const traefikSvc: unknown = JSON.parse(traefikOutput);
+    const traefikPorts = listAt(traefikSvc, 'spec', 'ports');
+    const traefikPortObj = traefikPorts.find((p) => textAt(p, 'name') === 'web') ?? traefikPorts[0];
+    const targetPort = numberAt(traefikPortObj, 'port') || 80;
 
     const isMock = this.isMockCloud(cluster);
     let backendTarget = '';
     if (cluster.gpuEnabled) {
-      const nodePort = traefikPortObj?.nodePort;
+      const nodePort = numberAt(traefikPortObj, 'nodePort');
       if (!nodePort) {
         throw new Error(`Traefik's Service does not have a nodePort assigned. Cannot expose locally.`);
       }
       const hostIp = await this.infra.getHostGatewayIp();
       backendTarget = `${hostIp}:${nodePort}`;
     } else if (cluster.provider === 'k3d' || isMock) {
-      const nodePort = traefikPortObj?.nodePort;
+      const nodePort = numberAt(traefikPortObj, 'nodePort');
       if (!nodePort) {
         throw new Error(`Traefik's Service does not have a nodePort assigned. Cannot expose locally.`);
       }
       const serverIp = await this.infra.getK3dServerIp(cluster.name);
       backendTarget = `${serverIp}:${nodePort}`;
     } else if (cluster.meshIp) {
-      const nodePort = traefikPortObj?.nodePort;
+      const nodePort = numberAt(traefikPortObj, 'nodePort');
       if (!nodePort) {
         throw new Error(
           `Traefik on "${cluster.name}" has no nodePort — the cluster stack predates the NodePort change and needs re-applying.`,
@@ -125,8 +134,8 @@ export class AppExposureService extends BaseService {
       }
       backendTarget = `${cluster.meshIp}:${nodePort}`;
     } else {
-      const ingress = traefikSvc.status?.loadBalancer?.ingress?.[0];
-      const targetIpOrHost = ingress?.ip || ingress?.hostname;
+      const ingress = at(traefikSvc, 'status', 'loadBalancer', 'ingress', 0);
+      const targetIpOrHost = textAt(ingress, 'ip') || textAt(ingress, 'hostname');
       if (!targetIpOrHost) {
         throw new Error(
           isSelfManagedCluster(cluster.provider, isMock)
@@ -248,8 +257,8 @@ export class AppExposureService extends BaseService {
     await fs.writeFile(confPath, this.edge ? edgeSite(hosts, backendTarget, appHostname) : this.buildCaddyContent(publicHostname, backendTarget, appHostname));
     try {
       await this.reloadCaddy();
-    } catch (err: any) {
-      throw new Error(`Failed to reload Caddy: ${err.message}`);
+    } catch (err) {
+      throw new Error(`Failed to reload Caddy: ${(err as Error).message}`);
     }
     return shown;
   }
@@ -257,11 +266,13 @@ export class AppExposureService extends BaseService {
   private async removeCaddyConf(namespace: string) {
     try {
       await fs.unlink(this.caddyConfPathFor(namespace));
-    } catch { /* ignored */ }
+    } catch (err) {
+      if (!isMissingFile(err)) throw err;
+    }
     try {
       await this.reloadCaddy();
-    } catch (err: any) {
-      this.logger.error(`Failed to reload Caddy: ${err.message}`);
+    } catch (err) {
+      this.logger.error(`Failed to reload Caddy: ${(err as Error).message}`);
     }
   }
 
@@ -272,19 +283,21 @@ export class AppExposureService extends BaseService {
     await fs.writeFile(confPath, confContent);
     try {
       await execAsync('docker exec provisioner-nginx nginx -s reload');
-    } catch (err: any) {
-      throw new Error(`Failed to reload Nginx container: ${err.message}`);
+    } catch (err) {
+      throw new Error(`Failed to reload Nginx container: ${(err as Error).message}`);
     }
   }
 
   private async removeNginxConf(namespace: string) {
     try {
       await fs.unlink(this.confPathFor(namespace));
-    } catch { /* ignored */ }
+    } catch (err) {
+      if (!isMissingFile(err)) throw err;
+    }
     try {
       await execAsync('docker exec provisioner-nginx nginx -s reload');
-    } catch (err: any) {
-      this.logger.error(`Failed to reload Nginx container: ${err.message}`);
+    } catch (err) {
+      this.logger.error(`Failed to reload Nginx container: ${(err as Error).message}`);
     }
   }
 
@@ -392,8 +405,8 @@ export class AppExposureService extends BaseService {
         const modes = [dep.isExposedPublicly ? `public: ${dep.publicHostname}` : null, dep.isExposedLocally ? 'local' : null].filter(Boolean).join(', ');
         this.logger.info(`Synced exposure for "${dep.name}" -> ${backendTarget} (${modes})`);
 
-      } catch (err: any) {
-        this.logger.error(`Failed to sync nginx config for "${dep.name}": ${err.message}`);
+      } catch (err) {
+        this.logger.error(`Failed to sync nginx config for "${dep.name}": ${(err as Error).message}`);
       }
     }
 
@@ -412,8 +425,8 @@ export class AppExposureService extends BaseService {
           changed = true;
         }
       }
-    } catch (err: any) {
-      this.logger.error(`Failed to clean stale nginx configs: ${err.message}`);
+    } catch (err) {
+      this.logger.error(`Failed to clean stale nginx configs: ${(err as Error).message}`);
     }
 
     const caddyDir = path.dirname(this.caddyConfPathFor('x'));
@@ -426,16 +439,16 @@ export class AppExposureService extends BaseService {
         removed = true;
       }
       if (removed) await this.reloadCaddy();
-    } catch (err: any) {
-      this.logger.error(`Failed to clean stale Caddy configs: ${err.message}`);
+    } catch (err) {
+      this.logger.error(`Failed to clean stale Caddy configs: ${(err as Error).message}`);
     }
 
     if (changed) {
       try {
         await execAsync('docker exec provisioner-nginx nginx -s reload');
         this.logger.info('Nginx reloaded after sync');
-      } catch (err: any) {
-        this.logger.error(`Failed to reload Nginx after sync: ${err.message}`);
+      } catch (err) {
+        this.logger.error(`Failed to reload Nginx after sync: ${(err as Error).message}`);
       }
     }
 

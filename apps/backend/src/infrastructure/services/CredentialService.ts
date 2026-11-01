@@ -9,10 +9,11 @@ import { OVH_SUBSIDIARIES } from '../lib/vps-catalog/adapters.js';
 import { credentialsFromEnv, dnsProviderNamed, DNS_PROVIDERS, isDnsProviderName, plainFieldsOf, secretFieldsOf } from '../lib/dns-providers.js';
 import { DnsProviders } from './dns/DnsProviders.js';
 import { OvhClient, type FetchLike } from './OvhClient.js';
+import { at, isJsonRecord, listAt, textAt } from '../lib/json-reading.js';
 import type { ClaimSettings } from '../../platform/index.js';
 
-async function readJson(res: Response): Promise<Record<string, any>> {
-  return (await res.json()) as Record<string, any>;
+async function readJson(res: Response): Promise<unknown> {
+  return res.json();
 }
 
 const SENSITIVE_FIELDS: Record<string, string[]> = {
@@ -74,7 +75,7 @@ export class CredentialService {
   async validateCredentials(
     provider: string,
     creds: Record<string, string>,
-  ): Promise<{ valid: boolean; message: string; details?: any }> {
+  ): Promise<{ valid: boolean; message: string; details?: unknown }> {
     try {
       if (isDnsProviderName(provider)) return await this.dns.validate(provider, creds);
 
@@ -88,7 +89,7 @@ export class CredentialService {
           return { valid: false, message: `Invalid token or unauthorized (HTTP ${res.status}).` };
         }
         const data = await readJson(res);
-        return { valid: true, message: `Authenticated as Hugging Face user @${data.name || data.fullname || 'user'}`, details: data };
+        return { valid: true, message: `Authenticated as Hugging Face user @${textAt(data, 'name') || textAt(data, 'fullname') || 'user'}`, details: data };
       }
 
       if (provider === 'github') {
@@ -101,7 +102,7 @@ export class CredentialService {
           return { valid: false, message: `Invalid token or unauthorized (HTTP ${res.status}).` };
         }
         const data = await readJson(res);
-        return { valid: true, message: `Authenticated as GitHub user @${data.login}`, details: data };
+        return { valid: true, message: `Authenticated as GitHub user @${textAt(data, 'login') ?? ''}`, details: data };
       }
 
       if (provider === 'aws') {
@@ -119,11 +120,12 @@ export class CredentialService {
           return { valid: false, message: 'GCP Service Account JSON is required.' };
         }
         try {
-          const parsed = JSON.parse(creds.serviceAccountJson);
-          if (parsed.type !== 'service_account' || !parsed.project_id) {
+          const parsed: unknown = JSON.parse(creds.serviceAccountJson);
+          const projectId = textAt(parsed, 'project_id');
+          if (textAt(parsed, 'type') !== 'service_account' || !projectId) {
             return { valid: false, message: 'Invalid GCP Service Account JSON structure.' };
           }
-          return { valid: true, message: `Validated GCP Service Account for project "${parsed.project_id}"` };
+          return { valid: true, message: `Validated GCP Service Account for project "${projectId}"` };
         } catch {
           return { valid: false, message: 'Service Account JSON is not valid JSON.' };
         }
@@ -145,7 +147,7 @@ export class CredentialService {
           return { valid: false, message: `Invalid token or unauthorized (HTTP ${res.status}).` };
         }
         const data = await readJson(res);
-        return { valid: true, message: `Authenticated as DigitalOcean account (${data.account?.email || 'active'})` };
+        return { valid: true, message: `Authenticated as DigitalOcean account (${textAt(data, 'account', 'email') || 'active'})` };
       }
 
       if (provider === 'hetzner') {
@@ -160,7 +162,7 @@ export class CredentialService {
           return { valid: false, message: `Hetzner Cloud API returned HTTP ${res.status}.` };
         }
         const data = await readJson(res);
-        const total = data?.meta?.pagination?.total_entries;
+        const total = at(data, 'meta', 'pagination', 'total_entries');
         return {
           valid: true,
           message: `Authenticated against Hetzner Cloud project${
@@ -176,7 +178,7 @@ export class CredentialService {
         });
         if (!res.ok) return { valid: false, message: `Invalid token or unauthorized (HTTP ${res.status}).` };
         const data = await readJson(res);
-        return { valid: true, message: `Authenticated as Vultr account (${data.account?.email || 'active'}).` };
+        return { valid: true, message: `Authenticated as Vultr account (${textAt(data, 'account', 'email') || 'active'}).` };
       }
 
       if (provider === 'linode') {
@@ -186,7 +188,7 @@ export class CredentialService {
         });
         if (!res.ok) return { valid: false, message: `Invalid token or unauthorized (HTTP ${res.status}).` };
         const data = await readJson(res);
-        return { valid: true, message: `Authenticated as Linode account (${data.email || 'active'}).` };
+        return { valid: true, message: `Authenticated as Linode account (${textAt(data, 'email') || 'active'}).` };
       }
 
       if (provider === 'scaleway') {
@@ -196,7 +198,8 @@ export class CredentialService {
         });
         if (!res.ok) return { valid: false, message: `Invalid secret key or unauthorized (HTTP ${res.status}).` };
         const data = await readJson(res);
-        const n = Array.isArray(data?.projects) ? data.projects.length : undefined;
+        const projects = at(data, 'projects');
+        const n = Array.isArray(projects) ? listAt(data, 'projects').length : undefined;
         return {
           valid: true,
           message: `Authenticated against Scaleway${n !== undefined ? ` (${n} project${n === 1 ? '' : 's'})` : ''}.`,
@@ -252,7 +255,7 @@ export class CredentialService {
           return { valid: false, message: `Contabo rejected these credentials (HTTP ${res.status}).` };
         }
         const data = await readJson(res);
-        if (!data?.access_token) return { valid: false, message: 'Contabo returned no access token.' };
+        if (!textAt(data, 'access_token')) return { valid: false, message: 'Contabo returned no access token.' };
         return {
           valid: true,
           message: 'Authenticated against Contabo. Note: their API exposes no pricing, so Contabo plans will not appear in the VPS catalog.',
@@ -275,27 +278,27 @@ export class CredentialService {
         if (!tokenRes.ok) {
           return { valid: false, message: `Google Drive refresh token is no longer valid (HTTP ${tokenRes.status}) — reconnect.` };
         }
-        const { access_token } = await readJson(tokenRes);
+        const accessToken = textAt(await readJson(tokenRes), 'access_token');
         const aboutRes = await fetch('https://www.googleapis.com/drive/v3/about?fields=user', {
-          headers: { Authorization: `Bearer ${access_token}` },
+          headers: { Authorization: `Bearer ${accessToken}` },
         });
         if (!aboutRes.ok) {
           return { valid: false, message: `Drive API check failed (HTTP ${aboutRes.status}).` };
         }
         const about = await readJson(aboutRes);
-        return { valid: true, message: `Connected to Google Drive as ${about.user?.emailAddress || 'unknown account'}` };
+        return { valid: true, message: `Connected to Google Drive as ${textAt(about, 'user', 'emailAddress') || 'unknown account'}` };
       }
 
       return { valid: true, message: 'Credentials formatted.' };
-    } catch (err: any) {
-      return { valid: false, message: `Validation failed: ${err?.message || 'Network error'}` };
+    } catch (err) {
+      return { valid: false, message: `Validation failed: ${(err as Error | undefined)?.message || 'Network error'}` };
     }
   }
 
-  async testGoogleDriveConnection(userId: string): Promise<{ valid: boolean; message: string; details?: any }> {
+  async testGoogleDriveConnection(userId: string): Promise<{ valid: boolean; message: string; details?: unknown }> {
     const user = await this.db.accounts.getUserById(userId);
     const decrypted = user?.credentials ? this.decryptAll(user.credentials, 'googledrive') : undefined;
-    const refreshToken = (decrypted as any)?.googledrive?.refreshToken || '';
+    const refreshToken = decrypted?.googledrive?.refreshToken || '';
     return this.validateCredentials('googledrive', { refreshToken });
   }
 
@@ -391,8 +394,8 @@ export class CredentialService {
     if (!user.credentials) {
       user.credentials = {};
     }
-    const existing = (user.credentials as any)[provider] || {};
-    (user.credentials as any)[provider] = { ...existing, ...encrypted };
+    const existing = at(user.credentials, provider);
+    Object.assign(user.credentials, { [provider]: { ...(isJsonRecord(existing) ? existing : {}), ...encrypted } });
 
     await this.db.accounts.saveUser(user);
   }
@@ -402,7 +405,7 @@ export class CredentialService {
     if (!user) throw new Error('User not found');
 
     if (user.credentials) {
-      delete (user.credentials as any)[provider];
+      Reflect.deleteProperty(user.credentials, provider);
       await this.db.accounts.saveUser(user);
     }
   }
@@ -420,8 +423,8 @@ export class CredentialService {
   }
 
   private decryptAll(credentials: CloudCredentials, provider: string): CloudCredentials {
-    const providerCreds = (credentials as any)[provider];
-    if (!providerCreds) return {};
+    const providerCreds = at(credentials, provider);
+    if (!isJsonRecord(providerCreds)) return {};
 
     const sensitive = SENSITIVE_FIELDS[provider] || [];
     const decrypted: Record<string, string> = {};

@@ -1,5 +1,6 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { ClusterService } from './ClusterService.js';
+import { InfrastructureService } from './InfrastructureService.js';
 import { decryptValue } from '../../platform/lib/crypto.js';
 import { testDatabase } from '../../platform/lib/test-database.js';
 import type { MongoDB } from '../../platform/lib/mongo-db.js';
@@ -7,16 +8,10 @@ import type { ClusterMetadata } from '../../platform/lib/types.js';
 
 const MASTER = 'test-master-key';
 
-function createService() {
-  const saved: any[] = [];
-  const db = {
-    infrastructure: {
-      saveClusterInfo: vi.fn(async (c: any) => { saved.push(c); return c; }),
-      getClusters: vi.fn(async () => saved),
-    },
-  } as any;
-  const infra = {} as any;
-  return { svc: new ClusterService(db, infra, MASTER), saved, db };
+async function createService() {
+  const db = await testDatabase();
+  const svc = new ClusterService(db, new InfrastructureService(), MASTER);
+  return { svc, saved: () => db.infrastructure.getClusters() };
 }
 
 describe('createAwaitingKey', () => {
@@ -29,38 +24,39 @@ describe('createAwaitingKey', () => {
   };
 
   it('never stores the private key in plaintext', async () => {
-    const { svc, saved } = createService();
+    const { svc, saved } = await createService();
     await svc.createAwaitingKey(args);
 
-    const record = saved[0];
+    const [record] = await saved();
     expect(JSON.stringify(record)).not.toContain('secret-material');
-    expect(record.remoteSshPrivateKeyEnc).toBeDefined();
-    expect(decryptValue(record.remoteSshPrivateKeyEnc, MASTER)).toBe(args.privateKey);
+    expect(record?.remoteSshPrivateKeyEnc).toBeDefined();
+    expect(decryptValue(record?.remoteSshPrivateKeyEnc ?? '', MASTER)).toBe(args.privateKey);
   });
 
   it('parks the cluster in awaiting-key rather than provisioning', async () => {
-    const { svc, saved } = createService();
+    const { svc, saved } = await createService();
     await svc.createAwaitingKey(args);
-    expect(saved[0].status).toBe('awaiting-key');
+    expect((await saved())[0]?.status).toBe('awaiting-key');
   });
 
   it('records the connection details the start route will need', async () => {
-    const { svc, saved } = createService();
+    const { svc, saved } = await createService();
     await svc.createAwaitingKey({ ...args, port: 2222 });
-    expect(saved[0]).toMatchObject({
+    const [record] = await saved();
+    expect(record).toMatchObject({
       provider: 'remote',
       ownerId: 'user-1',
       remoteHost: '100.64.0.9',
       remoteUsername: 'root',
       remoteSshPort: 2222,
     });
-    expect(saved[0].id).toBeTruthy();
+    expect(record?.id).toBeTruthy();
   });
 
   it('omits the port entirely when not given, rather than writing undefined', async () => {
-    const { svc, saved } = createService();
+    const { svc, saved } = await createService();
     await svc.createAwaitingKey(args);
-    expect('remoteSshPort' in saved[0]).toBe(false);
+    expect('remoteSshPort' in ((await saved())[0] ?? {})).toBe(false);
   });
 });
 
@@ -69,11 +65,11 @@ describe('reconciling clusters against k3d', () => {
 
   async function passWith(during: (db: MongoDB) => Promise<void>, running: string[]) {
     const db = await testDatabase();
-    const infra = {
-      listLocalClusters: async () => { await during(db); return running; },
-      getManagementClusterKubeconfig: async () => { throw new Error('no management cluster here'); },
-    };
-    return { db, svc: new ClusterService(db, infra as never, MASTER) };
+    class K3dHere extends InfrastructureService {
+      override async listLocalClusters(): Promise<string[]> { await during(db); return running; }
+      override async getManagementClusterKubeconfig(): Promise<string> { throw new Error('no management cluster here'); }
+    }
+    return { db, svc: new ClusterService(db, new K3dHere(), MASTER) };
   }
 
   it('removes a cluster deleted outside Koala with its deployments, and nothing else', async () => {

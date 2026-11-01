@@ -1,3 +1,4 @@
+import { ignore } from '@koala/engine-core/failures';
 import type { ClusterMetadata, DeploymentMetadata } from '../../platform/index.js';
 import {
   brokenWorkloads, clusterWorkloads,
@@ -42,7 +43,7 @@ interface Raw {
   readAt: string;
   pods: PodJson[];
   namespaces: NamespaceJson[];
-  nodes: ClusterNode[];
+  nodes?: ClusterNode[] | undefined;
   releases: HelmReleaseJson[] | undefined;
   memory?: UsageSample[] | undefined;
   cpu?: UsageSample[] | undefined;
@@ -91,6 +92,8 @@ export function nodesFrom(json: string): ClusterNode[] {
   });
 }
 
+const unmeasured = ignore('a workload Prometheus does not answer for is shown as not measured');
+
 const usage = (samples: Sample[]): UsageSample[] =>
   samples.filter((sample) => sample.metric.namespace && sample.metric.pod).map((sample) => ({ namespace: sample.metric.namespace!, pod: sample.metric.pod!, value: sample.value }));
 
@@ -115,19 +118,19 @@ export class ClusterContentsService {
     const [pods, namespaces, nodes, releases, reached] = await Promise.all([
       this.deps.kubectl(cluster, ['get', 'pods', '--all-namespaces', '-o', 'json']),
       this.deps.kubectl(cluster, ['get', 'namespaces', '-o', 'json']),
-      this.deps.kubectl(cluster, ['get', 'nodes', '-o', 'json']).catch(() => '{"items":[]}'),
-      this.deps.helm(cluster, ['list', '-A', '-o', 'json']).then((out) => JSON.parse(out) as HelmReleaseJson[]).catch(() => undefined),
+      this.deps.kubectl(cluster, ['get', 'nodes', '-o', 'json']).catch(ignore('nodes that cannot be listed are left out, as they are for anyone but the owner')),
+      this.deps.helm(cluster, ['list', '-A', '-o', 'json']).then((out) => JSON.parse(out) as HelmReleaseJson[]).catch(ignore('releases helm cannot list are left out, and the workloads still show')),
       this.deps.monitoring.reach(cluster).catch(() => ({ metrics: undefined })),
     ]);
     const metrics = reached.metrics;
     const [memory, cpu] = metrics
-      ? await Promise.all([metrics.ask({ kind: 'usage', of: 'memory' }).then(usage).catch(() => undefined), metrics.ask({ kind: 'usage', of: 'cpu' }).then(usage).catch(() => undefined)])
+      ? await Promise.all([metrics.ask({ kind: 'usage', of: 'memory' }).then(usage).catch(unmeasured), metrics.ask({ kind: 'usage', of: 'cpu' }).then(usage).catch(unmeasured)])
       : [undefined, undefined];
     return {
       readAt: this.now().toISOString(),
       pods: (JSON.parse(pods) as { items?: PodJson[] }).items ?? [],
       namespaces: (JSON.parse(namespaces) as { items?: NamespaceJson[] }).items ?? [],
-      nodes: nodesFrom(nodes),
+      ...(nodes === undefined ? {} : { nodes: nodesFrom(nodes) }),
       releases,
       ...(memory ? { memory } : {}),
       ...(cpu ? { cpu } : {}),
@@ -166,7 +169,7 @@ export class ClusterContentsService {
       ...(ownsCluster ? {
         services: platformServices(workloads, raw.releases ?? []),
         ...(raw.releases ? { releases: raw.releases } : {}),
-        nodes: raw.nodes,
+        ...(raw.nodes ? { nodes: raw.nodes } : {}),
       } : {}),
     };
   }

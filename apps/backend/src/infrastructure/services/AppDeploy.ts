@@ -6,7 +6,7 @@ import { newAppNamespace, sameOwner } from '../lib/app-namespace.js';
 import { usesOperatorCredentials } from '../lib/credential-resolver.js';
 import { resolveCloudCredentials } from './cloud-credentials.js';
 import {
-  decryptValue, type SecretKey, type Database, type ClusterMetadata, type DeploymentMetadata,
+  decryptValue, type SecretKey, type Database, type ClusterMetadata, type CloudCredentials, type DeploymentMetadata,
   type PipelineRunMetadata, type ProjectMetadata, type ClaimSettings, PLATFORM_OWNER, startedFor,
 } from '../../platform/index.js';
 import { CapacityError, checkCapacity, requestedGpuCount } from '../lib/cluster-capacity.js';
@@ -14,6 +14,8 @@ import { executeDeployAppWorkflow } from '../../workflows/AppDeployWorkflow.js';
 import { resolveVllmDefaults, resolveTabbyDefaults, resolveCrawl4aiDefaults, resolveSearxngDefaults,
   resolveHermesDefaults, resolveMinioDefaults, resolveNextcloudDefaults, resolveQdrantDefaults, resolveQuickwitDefaults } from '../lib/app-env.js';
 import { resolveAppSettingsDefaults } from '../lib/app-schemas.js';
+import { definedFields, type DeployRequest } from '../lib/deploy-request.js';
+import { ignore } from '@koala/engine-core/failures';
 import { resolveTabbyCacheHostPath, resolveVllmCacheHostPath } from '../../models/index.js';
 
 export const CLUSTER_QUEUE = 'cluster-ops-queue';
@@ -49,7 +51,7 @@ export function resolveOpenaiApiBaseUrl(dep: DeploymentMetadata, allDeployments:
     : `http://${targetNs}-vllm.${targetNs}.svc.cluster.local:8000/v1`;
 }
 
-export async function startAppDeploy(deps: AppDeployDeps, config: any, userId?: string): Promise<StartedDeploy> {
+export async function startAppDeploy(deps: AppDeployDeps, config: DeployRequest, userId?: string): Promise<StartedDeploy> {
     if (userId) {
       const cluster = (await deps.db.infrastructure.getClusters()).find((c: ClusterMetadata) => c.id === config.clusterId)
       const appType = config.appType || 'odoo'
@@ -64,6 +66,7 @@ export async function startAppDeploy(deps: AppDeployDeps, config: any, userId?: 
       return false
     })
     if (!dep) {
+      if (!config.name || !config.clusterId) throw new Error('a new app needs a name and a cluster to deploy to')
       const id = config.id || randomUUID()
       dep = {
         status: 'deploying',
@@ -75,53 +78,55 @@ export async function startAppDeploy(deps: AppDeployDeps, config: any, userId?: 
         appType: config.appType || 'odoo',
         modules: config.modules || [],
         storage: config.storage || {},
-        webRepo: config.webRepo || config.odooRepo,
-        webTag: config.webTag || config.odooTag,
-        dbRepo: config.dbRepo || config.pgRepo,
-        dbTag: config.dbTag || config.pgTag,
-        url: config.url,
-        vllmModel: config.vllmModel,
-        vllmGpuCount: config.vllmGpuCount,
-        vllmGpuVendor: config.vllmGpuVendor,
-        vllmCachePvc: config.vllmCachePvc,
-        vllmHfToken: config.vllmHfToken?.trim(),
-        vllmMaxModelLen: config.vllmMaxModelLen,
-        vllmGpuMemUtil: config.vllmGpuMemUtil,
-        vllmExtraArgs: config.vllmExtraArgs,
-        vllmToolCallingEnabled: config.vllmToolCallingEnabled,
-        vllmToolCallParser: config.vllmToolCallParser,
-        vllmServedModelName: config.vllmServedModelName,
-        vllmMaxNumSeqs: config.vllmMaxNumSeqs,
-        vllmDtype: config.vllmDtype,
-        vllmEnablePrefixCaching: config.vllmEnablePrefixCaching,
-        tabbyModel: config.tabbyModel,
-        tabbyRevision: config.tabbyRevision,
-        tabbyGpuCount: config.tabbyGpuCount,
-        tabbyHfToken: config.tabbyHfToken?.trim(),
-        tabbyCachePvc: config.tabbyCachePvc,
-        tabbyImageTag: config.tabbyImageTag,
-        tabbyCacheMode: config.tabbyCacheMode,
-        tabbyMaxSeqLen: config.tabbyMaxSeqLen,
-        tabbyMaxBatchSize: config.tabbyMaxBatchSize,
-        tabbyReasoning: config.tabbyReasoning,
-        tabbyToolFormat: config.tabbyToolFormat,
-        tabbyInlineModelLoading: config.tabbyInlineModelLoading,
-        tabbyDisableAuth: config.tabbyDisableAuth,
-        tabbyMemoryLimit: config.tabbyMemoryLimit,
-        tabbyShmSize: config.tabbyShmSize,
-        tabbyCpuLimit: config.tabbyCpuLimit,
-        tabbyExtraEnv: config.tabbyExtraEnv,
-        searxngSecretKey: config.searxngSecretKey,
-        searxngEngines: config.searxngEngines,
-        crawl4aiApiToken: config.crawl4aiApiToken,
-        crawl4aiMemoryLimit: config.crawl4aiMemoryLimit,
-        crawl4aiShmSize: config.crawl4aiShmSize,
-        openWebuiTargetId: config.openWebuiTargetId,
-        hermesTargetId: config.hermesTargetId,
-        webuiEnableWebSearch: config.webuiEnableWebSearch,
-        webuiWebSearchEngine: config.webuiWebSearchEngine,
-        webuiWebSearchApiKey: config.webuiWebSearchApiKey,
-        appSettings: config.appSettings,
+        ...definedFields({
+          webRepo: config.webRepo || config.odooRepo,
+          webTag: config.webTag || config.odooTag,
+          dbRepo: config.dbRepo || config.pgRepo,
+          dbTag: config.dbTag || config.pgTag,
+          url: config.url,
+          vllmModel: config.vllmModel,
+          vllmGpuCount: config.vllmGpuCount,
+          vllmGpuVendor: config.vllmGpuVendor,
+          vllmCachePvc: config.vllmCachePvc,
+          vllmHfToken: config.vllmHfToken?.trim(),
+          vllmMaxModelLen: config.vllmMaxModelLen,
+          vllmGpuMemUtil: config.vllmGpuMemUtil,
+          vllmExtraArgs: config.vllmExtraArgs,
+          vllmToolCallingEnabled: config.vllmToolCallingEnabled,
+          vllmToolCallParser: config.vllmToolCallParser,
+          vllmServedModelName: config.vllmServedModelName,
+          vllmMaxNumSeqs: config.vllmMaxNumSeqs,
+          vllmDtype: config.vllmDtype,
+          vllmEnablePrefixCaching: config.vllmEnablePrefixCaching,
+          tabbyModel: config.tabbyModel,
+          tabbyRevision: config.tabbyRevision,
+          tabbyGpuCount: config.tabbyGpuCount,
+          tabbyHfToken: config.tabbyHfToken?.trim(),
+          tabbyCachePvc: config.tabbyCachePvc,
+          tabbyImageTag: config.tabbyImageTag,
+          tabbyCacheMode: config.tabbyCacheMode,
+          tabbyMaxSeqLen: config.tabbyMaxSeqLen,
+          tabbyMaxBatchSize: config.tabbyMaxBatchSize,
+          tabbyReasoning: config.tabbyReasoning,
+          tabbyToolFormat: config.tabbyToolFormat,
+          tabbyInlineModelLoading: config.tabbyInlineModelLoading,
+          tabbyDisableAuth: config.tabbyDisableAuth,
+          tabbyMemoryLimit: config.tabbyMemoryLimit,
+          tabbyShmSize: config.tabbyShmSize,
+          tabbyCpuLimit: config.tabbyCpuLimit,
+          tabbyExtraEnv: config.tabbyExtraEnv,
+          searxngSecretKey: config.searxngSecretKey,
+          searxngEngines: config.searxngEngines,
+          crawl4aiApiToken: config.crawl4aiApiToken,
+          crawl4aiMemoryLimit: config.crawl4aiMemoryLimit,
+          crawl4aiShmSize: config.crawl4aiShmSize,
+          openWebuiTargetId: config.openWebuiTargetId,
+          hermesTargetId: config.hermesTargetId,
+          webuiEnableWebSearch: config.webuiEnableWebSearch,
+          webuiWebSearchEngine: config.webuiWebSearchEngine,
+          webuiWebSearchApiKey: config.webuiWebSearchApiKey,
+          appSettings: config.appSettings,
+        }),
         ...(userId !== undefined ? { ownerId: userId } : {}),
       }
       dep = resolveVllmDefaults(dep as DeploymentMetadata)
@@ -158,7 +163,7 @@ export async function startAppDeploy(deps: AppDeployDeps, config: any, userId?: 
     const openaiApiBaseUrl = resolveOpenaiApiBaseUrl(dep, unresolved);
 
     if (!dep.vllmHfToken && !dep.tabbyHfToken && (dep.appType === 'vllm' || config.appType === 'vllm' || dep.appType === 'tabbyapi' || config.appType === 'tabbyapi')) {
-      let userCreds;
+      let userCreds: CloudCredentials | undefined;
       let asOperator = !userId;
       if (userId) {
         const user = await deps.db.accounts.getUserById(userId);
@@ -167,7 +172,9 @@ export async function startAppDeploy(deps: AppDeployDeps, config: any, userId?: 
         if (encryptedToken) {
           try {
             userCreds = { huggingface: { hfToken: decryptValue(encryptedToken, deps.masterKey) } };
-          } catch { /* ignored */ }
+          } catch (failure) {
+            ignore('a stored Hugging Face token that can no longer be decrypted counts as none, so the operator\'s or none is used')(failure);
+          }
         }
       }
       const resolved = resolveCloudCredentials('huggingface', userCreds, asOperator);

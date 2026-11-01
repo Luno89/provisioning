@@ -6,6 +6,8 @@ import type { InfrastructureService } from './InfrastructureService.js';
 import type { ClusterProxyService } from './ClusterProxyService.js';
 import { readerNameFor, readerPrefixFor, workspaceNameFor } from '../lib/infisical-names.js';
 import { infisicalAdminPassword } from '../lib/infisical-admin.js';
+import { listAt, numberAt, textAt } from '../lib/json-reading.js';
+import { ignore } from '@koala/engine-core/failures';
 
 const NAMESPACE = 'infisical';
 const DATA_DIR = path.join(process.cwd(), 'data');
@@ -22,14 +24,23 @@ export interface InfisicalSecretRecord {
 
 async function readIdentity(file: string): Promise<{ clientId: string; clientSecret: string; orgId: string } | null> {
   try {
-    const parsed = JSON.parse(await fs.readFile(file, 'utf8'));
-    if (parsed?.clientId && parsed?.clientSecret && parsed?.orgId) return parsed;
-  } catch { /* ignored */ }
+    const parsed: unknown = JSON.parse(await fs.readFile(file, 'utf8'));
+    const clientId = textAt(parsed, 'clientId');
+    const clientSecret = textAt(parsed, 'clientSecret');
+    const orgId = textAt(parsed, 'orgId');
+    if (clientId && clientSecret && orgId) return { clientId, clientSecret, orgId };
+  } catch (failure) {
+    ignore('an identity file that is missing or unreadable holds no identity to log in with')(failure);
+  }
   return null;
 }
 
-const workspaceGone = (err: any): boolean =>
-  err?.response?.status === 404 && /^Project with ID /.test(String(err.response?.data?.message ?? ''));
+const statusOf = (err: unknown): number | undefined => numberAt(err, 'response', 'status');
+
+const messageOf = (err: unknown): string => (err as Error | undefined)?.message ?? String(err);
+
+const workspaceGone = (err: unknown): boolean =>
+  statusOf(err) === 404 && /^Project with ID /.test(textAt(err, 'response', 'data', 'message') ?? '');
 
 export class InfisicalService {
   private baseUrlCache: string | null = null;
@@ -55,8 +66,8 @@ export class InfisicalService {
         const url = await this.clusterProxy.serviceUrl('platform', 'infisical', this.kubeconfigPath);
         this.baseUrlCache = url.replace(/\/$/, '');
         return this.baseUrlCache;
-      } catch (err: any) {
-        console.warn(`[InfisicalService] could not reach Infisical inside the cluster, falling back to NodePort lookup: ${err.message}`);
+      } catch (err) {
+        console.warn(`[InfisicalService] could not reach Infisical inside the cluster, falling back to NodePort lookup: ${messageOf(err)}`);
       }
     }
 
@@ -71,10 +82,10 @@ export class InfisicalService {
         )
       );
 
-      const svc = JSON.parse(svcJson);
+      const ports = listAt(JSON.parse(svcJson) as unknown, 'spec', 'ports');
       const nodePort =
-        svc.spec?.ports?.find((p: any) => p.name === 'http' || p.port === 8080)?.nodePort
-        ?? svc.spec?.ports?.[0]?.nodePort
+        numberAt(ports.find((p) => textAt(p, 'name') === 'http' || numberAt(p, 'port') === 8080), 'nodePort')
+        ?? numberAt(ports[0], 'nodePort')
         ?? 31738;
 
       let host = '127.0.0.1';
@@ -82,8 +93,8 @@ export class InfisicalService {
         const raw = await this.infra.runKubectl(
           ['get', 'nodes', '-o', 'jsonpath={.items[0].status.addresses[?(@.type=="InternalIP")].address}'],
           this.kubeconfigPath,
-        ).catch(() => '');
-        const parsed = raw.trim().split(/\s+/)[0];
+        ).catch(ignore('without the node\'s address Infisical is reached on this machine\'s loopback'));
+        const parsed = raw?.trim().split(/\s+/)[0];
         if (parsed) host = parsed;
       }
 
@@ -96,7 +107,7 @@ export class InfisicalService {
   }
 
   async getAdminCredentials(): Promise<{ username: string; password: string }> {
-    const stored = await fs.readFile(ADMIN_PASSWORD_FILE, 'utf8').catch(() => undefined);
+    const stored = await fs.readFile(ADMIN_PASSWORD_FILE, 'utf8').catch(ignore('with no stored password infisicalAdminPassword gives the development one, and refuses in production'));
     return { username: 'admin', password: infisicalAdminPassword(stored, process.env.NODE_ENV === 'production', ADMIN_PASSWORD_FILE) };
   }
 
@@ -112,8 +123,8 @@ export class InfisicalService {
     try {
       await fs.mkdir(DATA_DIR, { recursive: true });
       await fs.writeFile(IDENTITY_FILE, JSON.stringify(creds), { encoding: 'utf8', mode: 0o600 });
-    } catch (err: any) {
-      console.warn(`[InfisicalService] could not persist auth credentials: ${err.message}`);
+    } catch (err) {
+      console.warn(`[InfisicalService] could not persist auth credentials: ${messageOf(err)}`);
     }
   }
 
@@ -129,38 +140,38 @@ export class InfisicalService {
     const { password: adminPassword } = await this.getAdminCredentials();
 
     try {
-      const bootstrapRes = await axios.post(
+      const bootstrapRes = await axios.post<unknown>(
         `${baseUrl}/api/v1/admin/bootstrap`,
         { email: 'admin@provisioning.local', password: adminPassword, organization: 'provisioning' },
         { timeout: 5000, proxy: false },
       );
-      const bootstrapToken = bootstrapRes.data?.identity?.credentials?.token;
-      const identityId = bootstrapRes.data?.identity?.id;
-      const orgId = bootstrapRes.data?.organization?.id;
+      const bootstrapToken = textAt(bootstrapRes.data, 'identity', 'credentials', 'token');
+      const identityId = textAt(bootstrapRes.data, 'identity', 'id');
+      const orgId = textAt(bootstrapRes.data, 'organization', 'id');
       if (!bootstrapToken || !identityId || !orgId) return null;
 
       const headers = { Authorization: `Bearer ${bootstrapToken}` };
-      const attachRes = await axios.post(
+      const attachRes = await axios.post<unknown>(
         `${baseUrl}/api/v1/auth/universal-auth/identities/${identityId}`,
         { accessTokenTTL: 31536000, accessTokenMaxTTL: 31536000, accessTokenNumUsesLimit: 0 },
         { headers, timeout: 5000, proxy: false },
       );
-      const clientId = attachRes.data?.identityUniversalAuth?.clientId;
+      const clientId = textAt(attachRes.data, 'identityUniversalAuth', 'clientId');
       if (!clientId) return null;
 
-      const secretRes = await axios.post(
+      const secretRes = await axios.post<unknown>(
         `${baseUrl}/api/v1/auth/universal-auth/identities/${identityId}/client-secrets`,
         { description: 'provisioning backend', ttl: 0, numUsesLimit: 0 },
         { headers, timeout: 5000, proxy: false },
       );
-      const clientSecret = secretRes.data?.clientSecret;
+      const clientSecret = textAt(secretRes.data, 'clientSecret');
       if (!clientSecret) return null;
 
       const creds = { clientId, clientSecret, orgId };
       await this.saveAuthCreds(creds);
       return creds;
-    } catch (err: any) {
-      console.warn(`[InfisicalService] could not provision a machine identity: ${err.message}`);
+    } catch (err) {
+      console.warn(`[InfisicalService] could not provision a machine identity: ${messageOf(err)}`);
       return null;
     }
   }
@@ -194,16 +205,16 @@ export class InfisicalService {
   private async login(creds: { clientId: string; clientSecret: string }): Promise<string | undefined> {
     const baseUrl = await this.resolveBaseUrl();
     try {
-      const res = await axios.post(
+      const res = await axios.post<unknown>(
         `${baseUrl}/api/v1/auth/universal-auth/login`,
         { clientId: creds.clientId, clientSecret: creds.clientSecret },
         { timeout: 5000, proxy: false },
       );
-      const token = res.data?.accessToken;
+      const token = textAt(res.data, 'accessToken');
       if (!token) throw new Error('Infisical login returned no access token');
-      return token as string;
-    } catch (err: any) {
-      if (err?.response?.status === 401) return undefined;
+      return token;
+    } catch (err) {
+      if (statusOf(err) === 401) return undefined;
       throw err;
     }
   }
@@ -212,8 +223,8 @@ export class InfisicalService {
     const baseUrl = await this.resolveBaseUrl();
     try {
       return await call(await this.authenticate(), baseUrl);
-    } catch (err: any) {
-      if (err?.response?.status !== 401) throw err;
+    } catch (err) {
+      if (statusOf(err) !== 401) throw err;
       this.tokenCache = null;
       return call(await this.authenticate(), baseUrl);
     }
@@ -226,15 +237,15 @@ export class InfisicalService {
     const projectName = workspaceNameFor(projectId);
     const id = await this.authorized(async (token, baseUrl) => {
       const headers = { Authorization: `Bearer ${token}` };
-      const list = await axios.get(`${baseUrl}/api/v1/workspace`, { headers, timeout: 4000, proxy: false });
-      const found = (list.data?.workspaces ?? []).find((w: any) => w.name === projectName);
-      if (found?.id) return found.id as string;
-      const created = await axios.post(
+      const list = await axios.get<unknown>(`${baseUrl}/api/v1/workspace`, { headers, timeout: 4000, proxy: false });
+      const foundId = textAt(listAt(list.data, 'workspaces').find((w) => textAt(w, 'name') === projectName), 'id');
+      if (foundId) return foundId;
+      const created = await axios.post<unknown>(
         `${baseUrl}/api/v2/workspace`,
         { projectName, organizationId: this.orgId },
         { headers, timeout: 4000, proxy: false },
       );
-      return created.data?.project?.id as string | undefined;
+      return textAt(created.data, 'project', 'id');
     });
     if (!id) throw new Error(`Infisical did not return a workspace for ${projectId}`);
     this.workspaceCache.set(projectId, id);
@@ -244,7 +255,7 @@ export class InfisicalService {
   private async inWorkspace<T>(projectId: string, call: (workspaceId: string) => Promise<T>): Promise<T> {
     try {
       return await call(await this.ensureWorkspace(projectId));
-    } catch (err: any) {
+    } catch (err) {
       if (!workspaceGone(err)) throw err;
       this.workspaceCache.delete(projectId);
       return call(await this.ensureWorkspace(projectId));
@@ -254,13 +265,13 @@ export class InfisicalService {
   async getSecret(projectId: string, key: string, environment = 'dev'): Promise<string | null> {
     return this.inWorkspace(projectId, async (workspaceId) => {
       try {
-        const res = await this.authorized((token, baseUrl) => axios.get(
+        const res = await this.authorized((token, baseUrl) => axios.get<unknown>(
           `${baseUrl}/api/v3/secrets/raw/${encodeURIComponent(key)}`,
           { params: { workspaceId, environment }, headers: { Authorization: `Bearer ${token}` }, timeout: 4000, proxy: false },
         ));
-        return res.data?.secret?.secretValue ?? null;
-      } catch (err: any) {
-        if (err?.response?.status === 404 && !workspaceGone(err)) return null;
+        return textAt(res.data, 'secret', 'secretValue') ?? null;
+      } catch (err) {
+        if (statusOf(err) === 404 && !workspaceGone(err)) return null;
         throw err;
       }
     });
@@ -287,8 +298,8 @@ export class InfisicalService {
       await this.authorized(async (token, baseUrl) => {
         const headers = { Authorization: `Bearer ${token}` };
         const url = `${baseUrl}/api/v3/secrets/raw/${encodeURIComponent(key)}`;
-        await axios.post(url, body, { headers, timeout: 4000, proxy: false }).catch(async (err: any) => {
-          if (err.response?.status !== 400) throw err;
+        await axios.post(url, body, { headers, timeout: 4000, proxy: false }).catch(async (err: unknown) => {
+          if (statusOf(err) !== 400) throw err;
           await axios.patch(url, body, { headers, timeout: 4000, proxy: false });
         });
       });
@@ -303,23 +314,28 @@ export class InfisicalService {
           `${baseUrl}/api/v3/secrets/raw/${encodeURIComponent(key)}`,
           { data: { workspaceId, environment }, headers: { Authorization: `Bearer ${token}` }, timeout: 4000, proxy: false },
         ));
-      } catch (err: any) {
-        if (err?.response?.status !== 404 || workspaceGone(err)) throw err;
+      } catch (err) {
+        if (statusOf(err) !== 404 || workspaceGone(err)) throw err;
       }
     });
   }
 
   async listSecrets(projectId: string, environment = 'dev'): Promise<InfisicalSecretRecord[]> {
-    const res = await this.inWorkspace(projectId, (workspaceId) => this.authorized((token, baseUrl) => axios.get(
+    const res = await this.inWorkspace(projectId, (workspaceId) => this.authorized((token, baseUrl) => axios.get<unknown>(
       `${baseUrl}/api/v3/secrets/raw`,
       { params: { workspaceId, environment }, headers: { Authorization: `Bearer ${token}` }, timeout: 4000, proxy: false },
     )));
-    return (res.data?.secrets ?? []).map((s: any) => ({
-      key: s.secretKey,
-      secretReference: `secret://${projectId}/${s.secretKey}`,
-      version: s.version ?? 1,
-      ...(s.secretComment ? { comment: s.secretComment } : {}),
-    }));
+    return listAt(res.data, 'secrets').flatMap((s) => {
+      const key = textAt(s, 'secretKey');
+      if (key === undefined) return [];
+      const comment = textAt(s, 'secretComment');
+      return [{
+        key,
+        secretReference: `secret://${projectId}/${key}`,
+        version: numberAt(s, 'version') ?? 1,
+        ...(comment ? { comment } : {}),
+      }];
+    });
   }
 
   async removeProject(projectId: string): Promise<{ workspace: boolean; readers: number }> {
@@ -327,15 +343,15 @@ export class InfisicalService {
     return this.authorized(async (token, baseUrl) => {
       const options = { headers: { Authorization: `Bearer ${token}` }, timeout: 8000, proxy: false as const };
       const prefix = readerPrefixFor(projectId);
-      const memberships = await axios.get(`${baseUrl}/api/v2/organizations/${this.orgId}/identity-memberships`, options);
-      const readers = ((memberships.data?.identityMemberships ?? []) as { identity?: { id?: string; name?: string } }[])
-        .map((membership) => membership.identity)
-        .filter((identity): identity is { id: string; name: string } => typeof identity?.id === 'string' && (identity.name ?? '').startsWith(prefix));
+      const memberships = await axios.get<unknown>(`${baseUrl}/api/v2/organizations/${this.orgId}/identity-memberships`, options);
+      const readers = listAt(memberships.data, 'identityMemberships')
+        .map((membership) => ({ id: textAt(membership, 'identity', 'id'), name: textAt(membership, 'identity', 'name') ?? '' }))
+        .filter((identity): identity is { id: string; name: string } => identity.id !== undefined && identity.name.startsWith(prefix));
       for (const reader of readers) await axios.delete(`${baseUrl}/api/v1/identities/${reader.id}`, options);
-      const listed = await axios.get(`${baseUrl}/api/v1/workspace`, options);
-      const workspace = ((listed.data?.workspaces ?? []) as { id?: string; name?: string }[]).find((entry) => entry.name === workspaceNameFor(projectId));
-      if (workspace?.id) await axios.delete(`${baseUrl}/api/v1/workspace/${workspace.id}`, options);
-      return { workspace: Boolean(workspace?.id), readers: readers.length };
+      const listed = await axios.get<unknown>(`${baseUrl}/api/v1/workspace`, options);
+      const workspaceId = textAt(listAt(listed.data, 'workspaces').find((entry) => textAt(entry, 'name') === workspaceNameFor(projectId)), 'id');
+      if (workspaceId) await axios.delete(`${baseUrl}/api/v1/workspace/${workspaceId}`, options);
+      return { workspace: Boolean(workspaceId), readers: readers.length };
     });
   }
 
@@ -348,25 +364,25 @@ export class InfisicalService {
     return this.authorized(async (token, baseUrl) => {
       const headers = { Authorization: `Bearer ${token}` };
       const options = { headers, timeout: 8000, proxy: false as const };
-      const identity = await axios.post(
+      const identity = await axios.post<unknown>(
         `${baseUrl}/api/v1/identities`,
         { name: readerNameFor(projectId, Date.now()), organizationId: this.orgId, role: 'no-access' },
         options,
       );
-      const identityId = identity.data?.identity?.id;
+      const identityId = textAt(identity.data, 'identity', 'id');
       if (!identityId) throw new Error('Infisical did not return the new identity');
-      const auth = await axios.post(
+      const auth = await axios.post<unknown>(
         `${baseUrl}/api/v1/auth/universal-auth/identities/${identityId}`,
         { accessTokenTTL: 2592000, accessTokenMaxTTL: 2592000, accessTokenNumUsesLimit: 0 },
         options,
       );
-      const clientId = auth.data?.identityUniversalAuth?.clientId;
-      const secret = await axios.post(
+      const clientId = textAt(auth.data, 'identityUniversalAuth', 'clientId');
+      const secret = await axios.post<unknown>(
         `${baseUrl}/api/v1/auth/universal-auth/identities/${identityId}/client-secrets`,
         { description: `operator reader for ${projectId}`, ttl: 0, numUsesLimit: 0 },
         options,
       );
-      const clientSecret = secret.data?.clientSecret;
+      const clientSecret = textAt(secret.data, 'clientSecret');
       if (!clientId || !clientSecret) throw new Error('Infisical did not return a client credential for the reader');
       await axios.post(
         `${baseUrl}/api/v2/workspace/${workspaceId}/identity-memberships/${identityId}`,

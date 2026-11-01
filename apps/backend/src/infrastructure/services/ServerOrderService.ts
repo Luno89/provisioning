@@ -1,3 +1,4 @@
+import { ignore } from '@koala/engine-core/failures';
 import { randomUUID } from 'node:crypto';
 import { decryptValue, encryptValue, mailCheckFrom, mailHostOf, mailReport, type SecretKey } from '../../platform/index.js';
 import type { InfrastructureStore } from '../store.js';
@@ -135,7 +136,7 @@ export class ServerOrderService {
       }
       return { cartId: cart.cartId, quote: quoteFromCheckout(await client.get<unknown>(`/order/cart/${cart.cartId}/checkout`)) };
     } catch (error) {
-      await client.delete(`/order/cart/${cart.cartId}`).catch(() => undefined);
+      await client.delete(`/order/cart/${cart.cartId}`).catch(ignore('a cart that is never checked out buys nothing, and OVHcloud lets it expire'));
       throw error;
     }
   }
@@ -221,7 +222,7 @@ export class ServerOrderService {
   async cancel(ownerId: string, id: string): Promise<ServerOrderView> {
     const order = await this.owned(ownerId, id);
     if (order.state === 'quoted') {
-      if (order.cartId) await (await this.ovh(ownerId)).delete(`/order/cart/${order.cartId}`).catch(() => undefined);
+      if (order.cartId) await (await this.ovh(ownerId)).delete(`/order/cart/${order.cartId}`).catch(ignore('a cart that is never checked out buys nothing, and OVHcloud lets it expire'));
       await this.deps.store.patchServerOrder(id, { state: 'quote-cancelled', cartId: undefined, detail: undefined });
       return viewOf((await this.deps.store.getServerOrder(id))!);
     }

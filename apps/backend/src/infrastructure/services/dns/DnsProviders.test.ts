@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { DNS_PROVIDERS } from '../../lib/dns-providers.js';
 import { DNS_PROVIDER_CLIENTS, DnsProviders } from './DnsProviders.js';
 import { fakePorkbun } from './fake-dns.js';
+import { containing, matching } from '../test-matchers.js';
 
 describe('the DNS provider registry service', () => {
   it('has a client for every provider described, and describes them without their env names', () => {
@@ -15,8 +16,8 @@ describe('the DNS provider registry service', () => {
       return zone === 'koala.test' ? ['fortaleza.ns.porkbun.com'] : ['ns1.example.net'];
     });
     expect(await dns.detect('koala.test')).toEqual({ zone: 'koala.test', nameservers: ['fortaleza.ns.porkbun.com'], provider: 'porkbun' });
-    expect(await dns.detect('gone.test')).toMatchObject({ nameservers: [], problem: expect.stringContaining('ENOTFOUND') });
-    expect(await dns.detect('other.test')).toMatchObject({ problem: expect.stringContaining('ns1.example.net') });
+    expect(await dns.detect('gone.test')).toMatchObject({ nameservers: [], problem: containing('ENOTFOUND') });
+    expect(await dns.detect('other.test')).toMatchObject({ problem: containing('ns1.example.net') });
   });
 
   it('refuses a provider it does not know, and runs a plan, logging what it left alone', async () => {
@@ -27,6 +28,6 @@ describe('the DNS provider registry service', () => {
     await zone.create({ type: 'A', name: 'mesh.koala.test', content: '198.51.100.1' });
     const { done, lines } = await dns.apply(zone, await dns.plan(zone, [{ type: 'A', name: 'mesh.koala.test', content: '203.0.113.7', why: 'root', onConflict: 'refuse' }]));
     expect(done).toBe(false);
-    expect(lines).toEqual([expect.stringMatching(/^left as it is: .*198\.51\.100\.1/)]);
+    expect(lines).toEqual([matching(/^left as it is: .*198\.51\.100\.1/)]);
   });
 });
