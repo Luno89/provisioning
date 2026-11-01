@@ -18,7 +18,8 @@ export interface Edge {
   from: string;
   site: Site;
   to: string[];
-  through: 'call' | 'interface';
+  through: 'call' | 'interface' | 'temporal';
+  device?: boolean;
 }
 
 export interface Unresolved { from: string; site: Site; text: string; why: string }
@@ -29,9 +30,12 @@ export interface Graph {
   unresolved: Unresolved[];
 }
 
+export interface CrossProcess { to: ts.Node[]; through: 'temporal'; device?: boolean }
+
 export interface Project {
   tsconfig: string;
   owns: (file: string) => boolean;
+  crossing?: (program: ts.Program) => (call: ts.CallExpression) => CrossProcess | undefined;
 }
 
 export interface GraphOptions {
@@ -112,6 +116,7 @@ export function buildGraph(options: GraphOptions): Graph {
     const program = ts.createProgram(config.fileNames, { ...config.options, noEmit: true });
     const checker = program.getTypeChecker();
     const sources = program.getSourceFiles().filter((source) => ownCode(source.fileName));
+    const crossing = project.crossing?.(program);
 
     const aliased = (symbol: ts.Symbol | undefined): ts.Symbol | undefined => (symbol && symbol.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(symbol) : symbol);
     const functionOf = (node: ts.Node | undefined, depth = 0): ts.Node | undefined => {
@@ -119,7 +124,7 @@ export function buildGraph(options: GraphOptions): Graph {
       if (FUNCTION_KINDS.has(node.kind)) return node;
       if (ts.isPropertyAssignment(node) || ts.isPropertyDeclaration(node) || ts.isVariableDeclaration(node)) return functionOf(node.initializer, depth + 1);
       if (ts.isParenthesizedExpression(node) || ts.isAsExpression(node) || ts.isSatisfiesExpression(node)) return functionOf(node.expression, depth + 1);
-      if (ts.isShorthandPropertyAssignment(node)) return functionOf(checker.getShorthandAssignmentValueSymbol(node)?.valueDeclaration, depth + 1);
+      if (ts.isShorthandPropertyAssignment(node)) return functionOf(aliased(checker.getShorthandAssignmentValueSymbol(node))?.valueDeclaration, depth + 1);
       if (ts.isIdentifier(node)) return functionOf(aliased(checker.getSymbolAtLocation(node))?.valueDeclaration, depth + 1);
       if (ts.isPropertyAccessExpression(node)) return functionOf(checker.getSymbolAtLocation(node.name)?.valueDeclaration, depth + 1);
       return undefined;
@@ -231,8 +236,12 @@ export function buildGraph(options: GraphOptions): Graph {
           if (!seenSites.has(key)) {
             seenSites.add(key);
             const from = enclosing(node);
-            const declaration = checker.getResolvedSignature(node)?.getDeclaration() as ts.Declaration | undefined;
-            if (!declaration) {
+            const crossed = crossing && ts.isCallExpression(node) ? crossing(node) : undefined;
+            const declaration = crossed ? undefined : checker.getResolvedSignature(node)?.getDeclaration() as ts.Declaration | undefined;
+            if (crossed) {
+              const to = crossed.to.flatMap((declared) => (isMember(declared) ? implementationsOf(declared) : [functionOf(declared)])).filter((body): body is ts.Node => body !== undefined).map(unitOf).filter((unit) => !unit.inTest);
+              edges.push({ from: from.id, site, to: [...new Set(to.map((unit) => unit.id))], through: crossed.through, ...(crossed.device ? { device: true } : {}) });
+            } else if (!declaration) {
               const type = checker.getTypeAtLocation(node.expression);
               if (type.flags & ts.TypeFlags.Any) unresolved.push({ from: from.id, site, text: node.expression.getText().slice(0, 80), why: 'called through any' });
             } else if (ownCode(declaration.getSourceFile().fileName) && !GENERATED.test(declaration.getSourceFile().fileName)) {

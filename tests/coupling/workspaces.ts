@@ -1,5 +1,6 @@
 import { join } from 'node:path';
-import type { Project } from './graph.js';
+import type { CrossProcess, Project } from './graph.js';
+import { temporalWorld } from './temporal-edges.js';
 
 export interface Workspace { name: string; folder: string; tsconfig: string }
 
@@ -15,8 +16,21 @@ export const WORKSPACES: readonly Workspace[] = [
 
 export const workspaceOf = (file: string): Workspace | undefined => WORKSPACES.find((workspace) => file.startsWith(`${workspace.folder}/`));
 
+const temporalCalls = (root: string): NonNullable<Project['crossing']> => (program) => {
+  const world = temporalWorld(program, join(root, 'apps/backend/src'));
+  return (call): CrossProcess | undefined => {
+    const proxied = world.proxied(call);
+    if (!proxied) return undefined;
+    return { to: world.implementations(proxied), through: 'temporal', ...(proxied.device ? { device: true } : {}) };
+  };
+};
+
 export const projectsOf = (root: string, workspaces: readonly Workspace[] = WORKSPACES): Project[] =>
-  workspaces.map((workspace) => ({ tsconfig: join(root, workspace.folder, workspace.tsconfig), owns: (file) => workspaceOf(file) === workspace }));
+  workspaces.map((workspace) => ({
+    tsconfig: join(root, workspace.folder, workspace.tsconfig),
+    owns: (file) => workspaceOf(file) === workspace,
+    ...(workspace.name === 'backend' ? { crossing: temporalCalls(root) } : {}),
+  }));
 
 export function areaOf(file: string): string {
   const parts = file.split('/');
