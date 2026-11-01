@@ -26,7 +26,8 @@
   "scripts": {
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "gen:builder": "tsx scripts/gen-procedure-builder.ts"
+    "gen:builder": "tsx scripts/gen-procedure-builder.ts",
+    "lint": "eslint ."
   },
   "dependencies": {
     "@babel/parser": "^7.29.8",

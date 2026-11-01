@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { environmentHandlers, executeTool, type ToolDefinition } from './tool-exec.js';
+import { environmentHandlers, executeTool } from './tool-exec.js';
+import type { ToolContract } from './tools.js';
 
 describe('a tool whose implementation is the command it declares', () => {
   const counter = {
@@ -64,10 +65,10 @@ describe('a tool whose implementation is the command it declares', () => {
 });
 
 describe('a peer refusing a call', () => {
-  const definition: ToolDefinition = {
+  const definition: ToolContract = {
     name: 'fetch_web_page',
     description: 'Fetches a page',
-    binding: 'handler' as const,
+    binding: 'network' as const,
     parameters: { type: 'object', properties: {} },
   };
 

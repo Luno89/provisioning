@@ -1,0 +1,328 @@
+{
+  "src/api/client.ts": {
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 2
+    }
+  },
+  "src/features/accounts/components/Login.tsx": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unsafe-argument": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 1
+    }
+  },
+  "src/features/accounts/components/OtherSessions.test.tsx": {
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 1
+    }
+  },
+  "src/features/checks/api.ts": {
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unsafe-return": {
+      "count": 1
+    }
+  },
+  "src/features/checks/components/ChangesPanel.tsx": {
+    "no-restricted-syntax": {
+      "count": 1
+    }
+  },
+  "src/features/checks/lib/scenario-draft.test.ts": {
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 1
+    }
+  },
+  "src/features/engine/api/mcp.ts": {
+    "@typescript-eslint/no-unsafe-return": {
+      "count": 1
+    }
+  },
+  "src/features/engine/api/pending-approvals.ts": {
+    "@typescript-eslint/no-unsafe-return": {
+      "count": 1
+    }
+  },
+  "src/features/engine/components/AgentConfigDrawer.tsx": {
+    "@typescript-eslint/no-floating-promises": {
+      "count": 1
+    }
+  },
+  "src/features/engine/components/Chat/chat-stream.ts": {
+    "no-restricted-syntax": {
+      "count": 1
+    }
+  },
+  "src/features/engine/components/ChatPage.tsx": {
+    "no-restricted-syntax": {
+      "count": 4
+    }
+  },
+  "src/features/engine/components/ChatSurface.test.tsx": {
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 1
+    }
+  },
+  "src/features/engine/components/Studio/AgentEditor.test.tsx": {
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 2
+    }
+  },
+  "src/features/engine/components/Studio/ProcedureExplorer.test.tsx": {
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 1
+    }
+  },
+  "src/features/engine/components/Studio/SettingsFields.tsx": {
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 2
+    },
+    "@typescript-eslint/no-unsafe-return": {
+      "count": 1
+    }
+  },
+  "src/features/engine/hooks/useConversationTurn.ts": {
+    "@typescript-eslint/no-floating-promises": {
+      "count": 7
+    },
+    "no-restricted-syntax": {
+      "count": 2
+    }
+  },
+  "src/features/hub/api.ts": {
+    "no-restricted-syntax": {
+      "count": 1
+    }
+  },
+  "src/features/infrastructure/api/credentials.ts": {
+    "@typescript-eslint/no-unsafe-return": {
+      "count": 1
+    }
+  },
+  "src/features/infrastructure/api/egress.ts": {
+    "@typescript-eslint/no-unsafe-return": {
+      "count": 3
+    }
+  },
+  "src/features/infrastructure/api/mesh.ts": {
+    "@typescript-eslint/no-unsafe-return": {
+      "count": 1
+    }
+  },
+  "src/features/infrastructure/api/vps-catalog.ts": {
+    "@typescript-eslint/no-unsafe-return": {
+      "count": 1
+    }
+  },
+  "src/features/infrastructure/components/AppDashboard/index.tsx": {
+    "@typescript-eslint/no-floating-promises": {
+      "count": 3
+    },
+    "@typescript-eslint/no-unsafe-return": {
+      "count": 2
+    }
+  },
+  "src/features/infrastructure/components/ClusterWizard.tsx": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 2
+    },
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 2
+    }
+  },
+  "src/features/infrastructure/components/NginxView.test.tsx": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 2
+    },
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unsafe-return": {
+      "count": 1
+    }
+  },
+  "src/features/infrastructure/components/NginxView.tsx": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 8
+    },
+    "@typescript-eslint/no-floating-promises": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 5
+    },
+    "@typescript-eslint/no-unsafe-call": {
+      "count": 5
+    },
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 19
+    }
+  },
+  "src/features/infrastructure/components/TemporalPanel.tsx": {
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 1
+    }
+  },
+  "src/features/infrastructure/components/VpsCatalog.test.tsx": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 1
+    }
+  },
+  "src/features/infrastructure/lib/root-sign-in.ts": {
+    "@typescript-eslint/no-unsafe-argument": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 2
+    }
+  },
+  "src/features/instances/api/identity.ts": {
+    "no-restricted-syntax": {
+      "count": 1
+    }
+  },
+  "src/features/instances/api/instances.ts": {
+    "@typescript-eslint/no-unsafe-return": {
+      "count": 4
+    }
+  },
+  "src/features/machines/api.ts": {
+    "@typescript-eslint/no-unsafe-return": {
+      "count": 1
+    }
+  },
+  "src/features/machines/components/MachineAgents.tsx": {
+    "@typescript-eslint/no-floating-promises": {
+      "count": 1
+    }
+  },
+  "src/features/machines/components/MyMachines.tsx": {
+    "@typescript-eslint/no-floating-promises": {
+      "count": 1
+    }
+  },
+  "src/features/memory/api.ts": {
+    "@typescript-eslint/no-unsafe-return": {
+      "count": 7
+    }
+  },
+  "src/features/memory/components/Memories.tsx": {
+    "@typescript-eslint/no-floating-promises": {
+      "count": 2
+    }
+  },
+  "src/features/models/components/DefaultModelPicker.tsx": {
+    "@typescript-eslint/no-floating-promises": {
+      "count": 2
+    }
+  },
+  "src/features/projects/api/grove.ts": {
+    "@typescript-eslint/no-unsafe-return": {
+      "count": 6
+    }
+  },
+  "src/features/projects/api/projects.ts": {
+    "@typescript-eslint/no-unsafe-return": {
+      "count": 3
+    }
+  },
+  "src/features/projects/components/ClaimReview.tsx": {
+    "@typescript-eslint/no-floating-promises": {
+      "count": 2
+    }
+  },
+  "src/features/projects/components/NewProjectDialog.tsx": {
+    "@typescript-eslint/no-floating-promises": {
+      "count": 1
+    }
+  },
+  "src/features/projects/components/NewTreeDialog.test.tsx": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 4
+    },
+    "@typescript-eslint/no-unsafe-argument": {
+      "count": 1
+    }
+  },
+  "src/features/projects/components/NewTreeDialog.tsx": {
+    "@typescript-eslint/no-floating-promises": {
+      "count": 1
+    }
+  },
+  "src/features/projects/components/ProjectEditor/useOpenFiles.ts": {
+    "@typescript-eslint/no-floating-promises": {
+      "count": 2
+    }
+  },
+  "src/features/projects/components/Projects.tsx": {
+    "no-restricted-syntax": {
+      "count": 2
+    }
+  },
+  "src/features/projects/components/TreeTypes/TreeTypeEditor.tsx": {
+    "@typescript-eslint/no-floating-promises": {
+      "count": 1
+    }
+  },
+  "src/features/projects/components/Workspace/useResizableWidth.test.ts": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 2
+    },
+    "@typescript-eslint/no-unsafe-argument": {
+      "count": 2
+    }
+  },
+  "src/features/projects/components/Workspace/useResizableWidth.ts": {
+    "no-restricted-syntax": {
+      "count": 3
+    }
+  },
+  "src/features/projects/hooks/useRouteSync.ts": {
+    "no-restricted-syntax": {
+      "count": 1
+    }
+  },
+  "src/shared/chat-parser/ChatMessageRenderer.tsx": {
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 1
+    }
+  },
+  "src/shared/chat-parser/chat-parser.ts": {
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 4
+    },
+    "@typescript-eslint/no-unsafe-call": {
+      "count": 5
+    },
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 10
+    },
+    "no-restricted-syntax": {
+      "count": 1
+    }
+  },
+  "src/shell/RootLayout.tsx": {
+    "@typescript-eslint/no-floating-promises": {
+      "count": 11
+    }
+  },
+  "src/shell/Sidebar.tsx": {
+    "@typescript-eslint/no-floating-promises": {
+      "count": 2
+    },
+    "no-restricted-syntax": {
+      "count": 1
+    }
+  }
+}

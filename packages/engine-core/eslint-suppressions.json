@@ -1,0 +1,7 @@
+{
+  "src/tool-exec.test.ts": {
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 1
+    }
+  }
+}

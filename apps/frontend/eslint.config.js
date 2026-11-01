@@ -4,6 +4,7 @@ import reactHooks from 'eslint-plugin-react-hooks'
 import reactRefresh from 'eslint-plugin-react-refresh'
 import tseslint from 'typescript-eslint'
 import { defineConfig, globalIgnores } from 'eslint/config'
+import { bugBacked, SWALLOWING } from '../../eslint.bug-backed.mjs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -166,7 +167,9 @@ export default defineConfig([
     rules: {
       'no-restricted-syntax': ['error',
         { selector: "MemberExpression[property.name=/^(isAdmin|holdsAccounts)$/]", message: 'what the session may do comes from useCan (features/platform), which the server works out with authorize; there is no isAdmin or holdsAccounts' },
+        ...SWALLOWING,
       ],
     },
   },
+  bugBacked({ files: ['src/**/*.{ts,tsx}'], root: path.dirname(fileURLToPath(import.meta.url)), project: ['./tsconfig.app.json'] }),
 ])

@@ -43,6 +43,7 @@
     "@temporalio/common": "^1.23.0"
   },
   "scripts": {
-    "test": "vitest run"
+    "test": "vitest run",
+    "lint": "eslint ."
   }
 }

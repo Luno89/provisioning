@@ -1,0 +1,97 @@
+{
+  "src/acp-session.ts": {
+    "no-restricted-syntax": {
+      "count": 5
+    }
+  },
+  "src/agent-bundle.ts": {
+    "no-restricted-syntax": {
+      "count": 2
+    }
+  },
+  "src/agent-discovery.test.ts": {
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 1
+    },
+    "no-restricted-syntax": {
+      "count": 1
+    }
+  },
+  "src/agent-discovery.ts": {
+    "no-restricted-syntax": {
+      "count": 2
+    }
+  },
+  "src/docker-cli.test.ts": {
+    "@typescript-eslint/no-unsafe-return": {
+      "count": 1
+    }
+  },
+  "src/docker-cli.ts": {
+    "@typescript-eslint/no-unsafe-call": {
+      "count": 2
+    },
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 2
+    }
+  },
+  "src/docker-driver.test.ts": {
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unsafe-return": {
+      "count": 1
+    }
+  },
+  "src/docker-driver.ts": {
+    "no-restricted-syntax": {
+      "count": 4
+    }
+  },
+  "src/egress-proxy.ts": {
+    "@typescript-eslint/no-floating-promises": {
+      "count": 1
+    }
+  },
+  "src/external-agents.test.ts": {
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 3
+    },
+    "@typescript-eslint/no-unsafe-member-access": {
+      "count": 1
+    }
+  },
+  "src/index.ts": {
+    "@typescript-eslint/no-floating-promises": {
+      "count": 4
+    }
+  },
+  "src/machine-git.test.ts": {
+    "@typescript-eslint/no-unsafe-assignment": {
+      "count": 1
+    }
+  },
+  "src/machine-git.ts": {
+    "no-restricted-syntax": {
+      "count": 2
+    }
+  },
+  "src/machine-removal.ts": {
+    "no-restricted-syntax": {
+      "count": 2
+    }
+  },
+  "src/self-update.ts": {
+    "no-restricted-syntax": {
+      "count": 2
+    }
+  },
+  "src/terminal-ask.ts": {
+    "no-empty": {
+      "count": 1
+    },
+    "no-restricted-syntax": {
+      "count": 1
+    }
+  }
+}
