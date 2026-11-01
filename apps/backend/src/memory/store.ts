@@ -1,4 +1,4 @@
-import { type AreaStore, fromDoc, toDoc } from '../platform/lib/collection.js';
+import { type AreaStore, fromDoc } from '../platform/lib/collection.js';
 import type { Collection, Db } from 'mongodb';
 import type { DeferredConclusion, KeeperSettings } from './lib/conclusions.js';
 import type { MemoryItem } from './lib/memory-store.js';
@@ -19,8 +19,12 @@ export interface MemoryStore extends AreaStore {
 export class MongoMemoryStore implements MemoryStore {
   constructor(private readonly db: () => Db) {}
 
-  private get memories(): Collection {
-    return this.db().collection('memories');
+  private get memories(): Collection<{ _id: string }> {
+    return this.db().collection<{ _id: string }>('memories');
+  }
+
+  private get watermarks(): Collection<{ _id: string; value?: unknown }> {
+    return this.db().collection<{ _id: string; value?: unknown }>('memoryWatermarks');
   }
 
   async ensureIndexes(): Promise<void> {}
@@ -32,14 +36,12 @@ export class MongoMemoryStore implements MemoryStore {
   }
 
   async saveMemory(memory: MemoryItem): Promise<void> {
-    const doc = toDoc(memory);
-    const id = doc._id;
-    const { _id, ...filter } = doc;
-    await this.memories.replaceOne({ _id: id }, filter, { upsert: true });
+    const { id, ...rest } = memory;
+    await this.memories.replaceOne({ _id: id }, rest, { upsert: true });
   }
 
   async deleteMemory(id: string): Promise<void> {
-    await this.memories.deleteOne({ _id: id as any });
+    await this.memories.deleteOne({ _id: id });
   }
 
   async getKeeperSettings(ownerId: string): Promise<KeeperSettings | undefined> {
@@ -69,11 +71,11 @@ export class MongoMemoryStore implements MemoryStore {
   }
 
   async getMemoryWatermark(key: string): Promise<string | undefined> {
-    const doc = await this.db().collection('memoryWatermarks').findOne({ _id: key as any });
+    const doc = await this.watermarks.findOne({ _id: key });
     return typeof doc?.value === 'string' ? doc.value : undefined;
   }
 
   async saveMemoryWatermark(key: string, value: string): Promise<void> {
-    await this.db().collection('memoryWatermarks').replaceOne({ _id: key as any }, { value }, { upsert: true });
+    await this.watermarks.replaceOne({ _id: key }, { value }, { upsert: true });
   }
 }

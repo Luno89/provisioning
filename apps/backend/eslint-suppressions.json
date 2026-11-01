@@ -913,11 +913,6 @@
       "count": 6
     }
   },
-  "src/eval/level2/scenario.ts": {
-    "@typescript-eslint/no-unsafe-argument": {
-      "count": 1
-    }
-  },
   "src/extensions/grove/grove-run.test.ts": {
     "@typescript-eslint/no-unsafe-argument": {
       "count": 4
@@ -2303,56 +2298,6 @@
   "src/machines/wiring/token-rotation.test.ts": {
     "@typescript-eslint/no-floating-promises": {
       "count": 1
-    }
-  },
-  "src/memory/lib/memory-consolidate.ts": {
-    "no-restricted-syntax": {
-      "count": 6
-    }
-  },
-  "src/memory/lib/memory-index.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 4
-    },
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 6
-    },
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 10
-    }
-  },
-  "src/memory/lib/memory-recall.test.ts": {
-    "@typescript-eslint/no-unsafe-return": {
-      "count": 1
-    }
-  },
-  "src/memory/lib/memory-recall.ts": {
-    "no-restricted-syntax": {
-      "count": 2
-    }
-  },
-  "src/memory/routes/memories.test.ts": {
-    "@typescript-eslint/no-unsafe-call": {
-      "count": 1
-    },
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 3
-    }
-  },
-  "src/memory/routes/memories.ts": {
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 7
-    },
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 2
-    }
-  },
-  "src/memory/store.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 3
-    },
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 5
     }
   },
   "src/models/routes/llm-credentials.test.ts": {

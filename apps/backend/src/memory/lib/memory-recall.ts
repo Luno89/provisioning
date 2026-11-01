@@ -53,7 +53,10 @@ export function orderByRelevance(memories: MemoryItem[], rankedIds: readonly str
 function within<T>(promise: Promise<T | null>, ms: number): Promise<T | null> {
   let timer: NodeJS.Timeout;
   return Promise.race([
-    promise.catch(() => null),
+    promise.catch((err: unknown) => {
+      console.warn(`[Recall] searching memories failed, so they are recalled by recency: ${(err as Error).message}`);
+      return null;
+    }),
     new Promise<null>((resolve) => { timer = setTimeout(() => resolve(null), ms); }),
   ]).finally(() => clearTimeout(timer));
 }
@@ -88,5 +91,7 @@ export async function markUsed(
     ...m,
     lastUsedAt: now,
     useCount: (m.useCount ?? 0) + 1,
-  }).catch(() => undefined)));
+  }).catch((err: unknown) => {
+    console.warn(`[Recall] could not record that memory ${m.id} was used: ${(err as Error).message}`);
+  })));
 }
