@@ -75,6 +75,7 @@ import { platformGroups } from './extensions/installed.js';
 import { heartbeatWhileRunning } from '@koala/engine-core';
 import { traceActivities } from '@koala/engine-core/telemetry';
 import { startTelemetry } from '@koala/engine-core/telemetry-sdk';
+import { executeIngestWorkflow } from './workflows/IngestWorkflow.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -104,7 +105,10 @@ async function buildActivities() {
   resolveOwnersWith(async (owner) => (await db.accounts.getUserById(owner))?.space?.person ?? owner);
 
   const models = createModelService(db, keys.data);
-  const web = await buildWebTools(db).catch(() => undefined);
+  const web = await buildWebTools(db).catch((err: Error) => {
+    console.warn(`[EngineWorker] the web tools could not be built, so runs on this worker go without them: ${err.message}`);
+    return undefined;
+  });
 
   const gitea = new GiteaService(new InfrastructureService(), keys.data, '/tmp/kubeconfig-provisioning-lunorica');
   const infisical = new InfisicalService(
@@ -279,11 +283,11 @@ async function buildActivities() {
       addressProblem: publicAddressProblem,
       crawlerReady: async (ownerId) => (await db.infrastructure.getDeployments()).some((dep) => dep.appType === 'crawl4ai' && dep.status === 'running' && dep.ownerId === ownerId),
       start: async (workflowId, args) => {
-        await (await getTemporalClient()).workflow.start('executeIngestWorkflow', { taskQueue: 'host-ops-queue', workflowId, args: [args], ...startedFor(args.ownerId) });
+        await (await getTemporalClient()).workflow.start(executeIngestWorkflow, { taskQueue: 'host-ops-queue', workflowId, args: [args], ...startedFor(args.ownerId) });
       },
       status: async (workflowId) => {
         try {
-          const handle = (await getTemporalClient()).workflow.getHandle(workflowId);
+          const handle = (await getTemporalClient()).workflow.getHandle<typeof executeIngestWorkflow>(workflowId);
           const name = (await handle.describe()).status.name;
           if (name === 'RUNNING') return { state: 'running' };
           if (name === 'COMPLETED') return { state: 'completed', receipt: await handle.result() };
@@ -313,7 +317,10 @@ async function buildActivities() {
         .map((spec) => ({ id: spec.id, builtIn: spec.builtIn, ...(spec.label ? { label: spec.label } : {}), ...(spec.uiDefaults?.strategies ? { strategies: spec.uiDefaults.strategies } : {}) })),
       readPath: (project, path) => projectRepos.readPath(project, path),
       bindingCheck: async (ownerId, service, as) => {
-        const dynamicTypes = await db.infrastructure.getBindingTypes().catch(() => []);
+        const dynamicTypes = await db.infrastructure.getBindingTypes().catch((err: Error) => {
+          console.warn(`[bindings] the binding types people added could not be read, so only the built-in ones are checked: ${err.message}`);
+          return [];
+        });
         const { bindings, problems } = resolveBindings([{ service, ...(as ? { as } : {}) }], await db.infrastructure.getDeployments(), await db.infrastructure.getAppSpecs(), ownerId, { dynamicTypes });
         const binding = bindings[0];
         return binding ? { name: binding.name, type: binding.type } : { problem: problems[0] ?? `cannot bind to "${service}"` };
@@ -547,7 +554,11 @@ async function buildActivities() {
         project: async (id) => (await db.projects.getProjects()).find((project) => project.id === id),
         clusterById: async (id) => (id === DEFAULT_TARGET_CLUSTER ? clusterService.getSystemClusterEntry() : (await db.infrastructure.getClusters()).find((cluster) => cluster.id === id)),
       }),
-      terminate: async (runId, reason) => { await temporal.workflow.getHandle(workflowOfRun(runId)).terminate(reason).catch(() => undefined); },
+      terminate: async (runId, reason) => {
+        await temporal.workflow.getHandle(workflowOfRun(runId)).terminate(reason).catch((err: Error) => {
+          console.warn(`[checks] the check could not kill ${runId} mid-turn, and judges the run as it ended: ${err.message}`);
+        });
+      },
       leftovers: {
         records: (ownerId) => db.accounts.accountLeftovers(ownerId),
         workspaces: async (ownerId) => (await createKubeRunner()(['get', 'namespace', '-l', `koala.dev/owner=${labelValue(ownerId)}`, '-o', 'name'])).stdout.split('\n').map((line) => line.trim()).filter(Boolean),

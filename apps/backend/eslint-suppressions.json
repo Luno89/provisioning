@@ -953,26 +953,6 @@
       "count": 1
     }
   },
-  "src/index.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 9
-    },
-    "@typescript-eslint/no-misused-promises": {
-      "count": 1
-    },
-    "@typescript-eslint/no-unsafe-argument": {
-      "count": 2
-    },
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 1
-    },
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 18
-    },
-    "no-restricted-syntax": {
-      "count": 2
-    }
-  },
   "src/infrastructure/lib/app-env.ts": {
     "no-restricted-syntax": {
       "count": 3
@@ -2810,17 +2790,6 @@
       "count": 4
     }
   },
-  "src/routes.test.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 2
-    },
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 2
-    },
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 8
-    }
-  },
   "src/scripts/generate-rclone-config.ts": {
     "@typescript-eslint/no-explicit-any": {
       "count": 2
@@ -2919,33 +2888,6 @@
     },
     "no-restricted-syntax": {
       "count": 1
-    }
-  },
-  "src/worker-cluster.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 2
-    },
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 4
-    },
-    "no-restricted-syntax": {
-      "count": 1
-    }
-  },
-  "src/worker-engine.ts": {
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 1
-    },
-    "no-restricted-syntax": {
-      "count": 4
-    }
-  },
-  "src/worker-host.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 1
-    },
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 3
     }
   }
 }

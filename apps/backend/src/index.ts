@@ -74,7 +74,7 @@ function startHostTunnel(port = 8000) {
     child.on('close', () => socket.destroy());
   });
 
-  server.on('error', (err: any) => {
+  server.on('error', (err: NodeJS.ErrnoException) => {
     if (err.code === 'EADDRINUSE') {
       console.log(`ℹ️  Host tunnel port ${port} is already bound — reusing existing tunnel.`);
       return;
@@ -163,7 +163,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   const telemetrySink = collectorSink({
     env: process.env,
     proxy: clusterProxyService,
-    kubeconfigPath: async () => clusterService.getKubeconfigPath(await clusterService.getSystemClusterEntry()).catch(() => undefined),
+    kubeconfigPath: async () => clusterService.getKubeconfigPath(await clusterService.getSystemClusterEntry()),
   });
   telemetry.exportTo(telemetrySink);
   const giteaService = new GiteaService(infraService, keys.data, '/tmp/kubeconfig-provisioning-lunorica');
@@ -204,7 +204,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   const modelService = new ModelService(db, appService, clusterService, clusterProxyService, headscaleService, keys.data, endpointRulesFromEnv(process.env));
 
   if (servesTenants(role)) {
-    clusterService.ensureSystemClusterGpuReady().catch((err: any) =>
+    clusterService.ensureSystemClusterGpuReady().catch((err: Error) =>
       console.warn(`[bootstrap] System cluster GPU readiness check failed: ${err.message}`)
     );
   }
@@ -246,7 +246,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   tenant.post('/webhooks/gitea/:projectId', express.raw({ type: 'application/json' }), async (req, res) => {
     try {
       const projects = await db.projects.getProjects();
-      const project = projects.find((p: any) => p.id === req.params.projectId);
+      const project = projects.find((p) => p.id === req.params.projectId);
       if (!project) return res.status(404).json({ error: 'Unknown project' });
       if (project.removal) return res.status(410).json({ error: 'This project is being deleted' });
       if (!project.webhookSecretEnc) return res.status(500).json({ error: 'Project has no webhook secret configured' });
@@ -257,25 +257,23 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
         return res.status(401).json({ error: 'Invalid webhook signature' });
       }
 
-      const payload = JSON.parse(rawBody.toString('utf8'));
-      if (!payload.ref || !payload.after) return res.status(200).json({ status: 'ignored', reason: 'not a push event' });
+      const payload = giteaPushOf(JSON.parse(rawBody.toString('utf8')));
+      if (!payload) return res.status(200).json({ status: 'ignored', reason: 'not a push event' });
 
-      const ref = String(payload.ref).replace('refs/heads/', '');
-
-      const defaultBranch = String(payload.repository?.default_branch ?? 'main');
+      const { ref, defaultBranch } = payload;
       if (ref !== defaultBranch) {
         return res.status(200).json({ status: 'ignored', reason: `not the default branch (${ref} != ${defaultBranch})` });
       }
 
       res.status(202).json({ status: 'accepted' });
-      temporalBridge.runPipeline(project, payload.after, ref).catch((err: any) =>
+      temporalBridge.runPipeline(project, payload.after, ref).catch((err: Error) =>
         console.error(`[webhook] Failed to start pipeline run for project ${project.id}: ${err.message}`)
       );
-      workspaceBuilds.pushed(project, String(payload.after), Array.isArray(payload.commits) ? payload.commits : []).catch((err: any) =>
+      workspaceBuilds.pushed(project, payload.after, payload.commits).catch((err: Error) =>
         console.error(`[webhook] Failed to start the workspace build for project ${project.id}: ${err.message}`)
       );
-    } catch (err: any) {
-      console.error(`[webhook] Gitea webhook error: ${err.message}`);
+    } catch (err) {
+      console.error(`[webhook] Gitea webhook error: ${(err as Error).message}`);
       res.status(500).json({ error: 'Internal error processing webhook' });
     }
   });
@@ -371,8 +369,8 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     nginxConfPath: path.join(__dirname, '../data/nginx/nginx.conf'), vpsCatalog: vpsCatalogService, worker: workerService, registry: registryService, gitModules: gitModuleService,
   });
 
-  const getOwnedProject = async (id: string, principal: Principal): Promise<any | undefined> => {
-    const project = (await db.projects.getProjects()).find((p: any) => p.id === id);
+  const getOwnedProject = async (id: string, principal: Principal) => {
+    const project = (await db.projects.getProjects()).find((p) => p.id === id);
     return project && authorize(principal, 'see', { kind: 'project', ownerId: project.ownerId }).allowed ? project : undefined;
   };
 
@@ -385,7 +383,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   const { odooReleases, releaseSettings, customizations } = releases;
   tenant.use('/api/artifacts', artifactsRouter({ artifacts: artifactStore.artifacts, hasMinio: (ownerId) => artifactStore.minio.hasMinio(ownerId) }));
   const sweepArtifacts = () => artifactStore.artifacts.sweep().catch((err: Error) => console.warn(`[artifacts] the sweep failed: ${err.message}`));
-  setInterval(sweepArtifacts, 24 * 60 * 60 * 1000).unref();
+  setInterval(() => { void sweepArtifacts(); }, 24 * 60 * 60 * 1000).unref();
   void sweepArtifacts();
   wireMachines({
     tenant, db, dataKey: keys.data, publicUrl: PUBLIC_URL, repoRoot: path.join(__dirname, '../../..'), machines: machineService, bundle: machineBundle, headscale: headscaleService, projectRepos: projectRepoService,
@@ -408,7 +406,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     artifacts: artifactStore, projectRepos: projectRepoService, customizations, releaseSettings, treeModels: () => treeModels, operatorOnly: requireOperator('administer'), push, mail,
   });
   if (evalHost.storyDrops) files.setStoryDrops(storyDropsFor({ db, projectRepos: projectRepoService, gitea: giteaService, work: evalHost.storyDrops }));
-  if (servesTenants(role)) void db.accounts.getUsers().then((users) => odooReleases.recover(users.map((user) => user.id))).catch(() => undefined);
+  if (servesTenants(role)) void db.accounts.getUsers().then((users) => odooReleases.recover(users.map((user) => user.id))).catch((err: Error) => console.warn(`[releases] the releases that were running when the backend stopped could not be followed again: ${err.message}`));
   if (servesTenants(role)) void releases.letReleasesPull().catch((err: Error) => console.warn(`[releases] could not give release namespaces their registry login: ${err.message}`));
 
   const payloadStorage = new PayloadStorageService(sharedPayloadBlobs(), () => getTemporalClient());
@@ -495,7 +493,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   if (process.env.NODE_ENV !== 'test' || process.env.IS_E2E === 'true') {
     const hostTunnelPort = process.env.IS_E2E === 'true' ? 8001 : 8000;
     if (servesTenants(role) && process.env.NODE_ENV !== 'production') startHostTunnel(hostTunnelPort);
-    httpServer.on('error', (err: any) => {
+    httpServer.on('error', (err: NodeJS.ErrnoException) => {
       if (err.code === 'EADDRINUSE') {
         console.error(`❌ Port ${port} is already in use by another process. Run 'npm run clean-dev' or free port ${port}.`);
         process.exit(1);
@@ -520,6 +518,23 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   process.on('SIGTERM', shutdown);
 
   return { app, io, temporalBridge, db };
+}
+
+function giteaPushOf(body: unknown): { ref: string; after: string; defaultBranch: string; commits: { added: string[]; modified: string[]; removed: string[] }[] } | undefined {
+  const fields = (value: unknown): Record<string, unknown> => (typeof value === 'object' && value !== null ? value as Record<string, unknown> : {});
+  const paths = (value: unknown): string[] => (Array.isArray(value) ? (value as unknown[]).filter((entry): entry is string => typeof entry === 'string') : []);
+  const push = fields(body);
+  if (typeof push.ref !== 'string' || !push.ref || typeof push.after !== 'string' || !push.after) return undefined;
+  const branch = fields(push.repository).default_branch;
+  return {
+    ref: push.ref.replace('refs/heads/', ''),
+    after: push.after,
+    defaultBranch: typeof branch === 'string' && branch ? branch : 'main',
+    commits: (Array.isArray(push.commits) ? (push.commits as unknown[]) : []).map((commit) => {
+      const changed = fields(commit);
+      return { added: paths(changed.added), modified: paths(changed.modified), removed: paths(changed.removed) };
+    }),
+  };
 }
 
 if (process.env.NODE_ENV !== 'test' || process.env.IS_E2E === 'true') {

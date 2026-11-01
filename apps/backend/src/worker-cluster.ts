@@ -42,8 +42,8 @@ async function setupInClusterAuth() {
     process.env.K8S_TOKEN = token;
     process.env.K8S_CA_CERT = caCert;
     logger.info('[ClusterWorker] In-cluster auth configured');
-  } catch (err: any) {
-    logger.warn(`[ClusterWorker] Failed to read service account: ${err.message}`);
+  } catch (err) {
+    logger.warn(`[ClusterWorker] Failed to read service account: ${(err as Error).message}`);
   }
 }
 
@@ -91,8 +91,8 @@ async function main() {
         },
       });
       break;
-    } catch (err: any) {
-      logger.warn(`[ClusterWorker] ⚠️ Connection to Temporal server failed: ${err.message}. Retrying in 10s...`);
+    } catch (err) {
+      logger.warn(`[ClusterWorker] ⚠️ Connection to Temporal server failed: ${(err as Error).message}. Retrying in 10s...`);
       await new Promise((resolve) => setTimeout(resolve, 10000));
     }
   }
@@ -100,7 +100,11 @@ async function main() {
   logger.info('[ClusterWorker] ✅ Listening for app deployment tasks');
   const instance = roleFromEnv(process.env).role === 'instance';
   const systemKubeconfig = instance ? process.env.KUBECONFIG_PATH : (process.env.KUBECONFIG_PATH || SYSTEM_KUBECONFIG);
-  if (systemKubeconfig && await fs.access(systemKubeconfig).then(() => true, () => false)) {
+  const present = (file: string) => fs.access(file).then(() => true, (err: NodeJS.ErrnoException) => {
+    if (err.code === 'ENOENT') return false;
+    throw err;
+  });
+  if (systemKubeconfig && await present(systemKubeconfig)) {
     ensureClusterMonitoring(new InfrastructureService(), { physicalName: SYSTEM_CLUSTER, kubeconfigPath: systemKubeconfig, local: !instance, pool: placedOnPool(process.env, SYSTEM_CLUSTER) })
       .then(() => logger.info('[ClusterWorker] the system cluster has monitoring and Koala\'s own telemetry stack'))
       .catch((err: Error) => logger.warn(`[ClusterWorker] monitoring could not be installed yet; the next deploy tries again: ${err.message}`));
@@ -110,7 +114,7 @@ async function main() {
   await worker.run();
 }
 
-main().catch((err) => {
+main().catch((err: Error) => {
   logger.error(`[ClusterWorker] FATAL: ${err.stack || err.message}`);
   process.exit(1);
 });

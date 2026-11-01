@@ -41,13 +41,13 @@ interface IngestProgress {
 
 export interface IngestArgs {
   ownerId: string;
-  projectId?: string;
+  projectId?: string | undefined;
   url: string;
-  maxDepth?: number;
-  maxPages?: number;
-  domains?: string[];
-  keywords?: string[];
-  resume?: IngestProgress;
+  maxDepth?: number | undefined;
+  maxPages?: number | undefined;
+  domains?: string[] | undefined;
+  keywords?: string[] | undefined;
+  resume?: IngestProgress | undefined;
 }
 
 export async function executeIngestWorkflow(args: IngestArgs): Promise<IngestReceipt> {
