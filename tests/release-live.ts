@@ -534,9 +534,11 @@ async function main(): Promise<void> {
   assert.equal(await rootReleaseTag(), previousTag, 'root does not offer instances the previous image again');
   await until('root answering on the previous release', async () => ((await rootAnswers()) ? true : undefined));
   keepRootSession(previousTag);
-  if (UNHOSTED) {
+  const previousSplits = run('git', ['ls-tree', '--name-only', previous, 'scripts/root-node/units.sh']).trim() !== ''
+    && run('git', ['show', `${previous}:scripts/root-node/units.sh`]).includes('nowrinkles-workers');
+  if (previousSplits) {
     assert.equal((await sh(root, 'test -f /etc/systemd/system/nowrinkles-workers.service && echo split || systemctl show -p User --value nowrinkles')).trim(), 'split', 'root lost its split units moving back to a release that has them');
-    note(`back on ${STAND_IN_REF}, root keeps its backend apart from its workers`);
+    note(`back on ${PREVIOUS_LABEL}, root keeps its backend apart from its workers`);
   } else {
     assert.equal((await sh(root, 'test -f /etc/systemd/system/nowrinkles-workers.service && echo split || systemctl show -p User --value nowrinkles')).trim(), '', 'root kept the split units on a release from before them');
     note('back on a release from before the split, root runs its single unit as root again');
