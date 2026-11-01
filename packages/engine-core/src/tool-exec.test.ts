@@ -122,7 +122,8 @@ describe('what the model is told after changing a file', () => {
     const written = await environmentHandlers.write_file!({ parsed: { path: 'branches.json', content: [{ title: 'a', leaves: [] }] }, driver: keeping } as never);
 
     expect(files['branches.json']).toBe(`${JSON.stringify([{ title: 'a', leaves: [] }], null, 2)}\n`);
-    expect(written).toMatchObject({ ok: true, content: expect.stringContaining('content arrived as JSON data, so it was written out as JSON') });
+    expect(written.ok).toBe(true);
+    expect(written.content).toContain('content arrived as JSON data, so it was written out as JSON');
   });
 
   it('refuses rather than writing an empty file when there is no content', async () => {
