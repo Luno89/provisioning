@@ -6,6 +6,7 @@ import type { MongoDB } from '../../platform/lib/mongo-db.js';
 import type { UserMetadata } from '../../platform/lib/types.js';
 import { FAKE_OVH_KEYS, fakeOvh } from './fake-ovh.js';
 import { fakePorkbun } from './dns/fake-dns.js';
+import { containing, matching } from './test-matchers.js';
 
 const TEST_KEY = 'test-master-key-for-credential-tests';
 
@@ -179,8 +180,8 @@ describe('CredentialService', () => {
     it('stores Porkbun\'s keys sealed, validates them with Porkbun, and hands them back as fields and env', async () => {
       const porkbun = fakePorkbun(['koala.test']);
       const dnsService = new CredentialService(db, TEST_KEY, undefined, porkbun.fetch);
-      expect(await dnsService.validateCredentials('porkbun', porkbun.good)).toMatchObject({ valid: true, message: expect.stringContaining('API Access') });
-      expect(await dnsService.validateCredentials('porkbun', porkbun.bad)).toMatchObject({ valid: false, message: expect.stringContaining('Invalid API key') });
+      expect(await dnsService.validateCredentials('porkbun', porkbun.good)).toMatchObject({ valid: true, message: containing('API Access') });
+      expect(await dnsService.validateCredentials('porkbun', porkbun.bad)).toMatchObject({ valid: false, message: containing('Invalid API key') });
       await dnsService.saveCredentials('user-1', 'porkbun', porkbun.good);
       const raw = (await db.accounts.getUserById('user-1'))?.credentials?.porkbun;
       expect(raw?.apiKey).not.toBe(porkbun.good.apiKey);
@@ -230,10 +231,10 @@ describe('CredentialService', () => {
       const withOvh = new CredentialService(db, TEST_KEY, undefined, ovh.fetch);
       await expect(withOvh.validateCredentials('ovh', { ...FAKE_OVH_KEYS, subsidiary: 'au' })).resolves.toEqual({ valid: true, message: 'Signed in to OVHcloud as ab12345-ovh (AU, AUD).' });
       expect(ovh.state.calls).toEqual(['GET /me']);
-      await expect(withOvh.validateCredentials('ovh', { ...FAKE_OVH_KEYS, subsidiary: 'FR' })).resolves.toMatchObject({ valid: false, message: expect.stringMatching(/belong to an OVHcloud AU account/) });
-      await expect(withOvh.validateCredentials('ovh', { ...FAKE_OVH_KEYS, subsidiary: 'XX' })).resolves.toMatchObject({ valid: false, message: expect.stringMatching(/not an OVHcloud subsidiary/) });
+      await expect(withOvh.validateCredentials('ovh', { ...FAKE_OVH_KEYS, subsidiary: 'FR' })).resolves.toMatchObject({ valid: false, message: matching(/belong to an OVHcloud AU account/) });
+      await expect(withOvh.validateCredentials('ovh', { ...FAKE_OVH_KEYS, subsidiary: 'XX' })).resolves.toMatchObject({ valid: false, message: matching(/not an OVHcloud subsidiary/) });
       await expect(withOvh.validateCredentials('ovh', { applicationKey: 'AK-test', subsidiary: 'AU' })).resolves.toMatchObject({ valid: false });
-      await expect(withOvh.validateCredentials('ovh', { ...FAKE_OVH_KEYS, applicationSecret: 'wrong', subsidiary: 'AU' })).resolves.toMatchObject({ valid: false, message: expect.stringMatching(/Invalid signature/) });
+      await expect(withOvh.validateCredentials('ovh', { ...FAKE_OVH_KEYS, applicationSecret: 'wrong', subsidiary: 'AU' })).resolves.toMatchObject({ valid: false, message: matching(/Invalid signature/) });
     });
 
     it('keeps the three keys sealed and the subsidiary plain', async () => {

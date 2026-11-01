@@ -16,10 +16,10 @@ const patch = vi.fn();
 const del = vi.fn();
 vi.mock('axios', () => ({
   default: {
-    post: (...a: unknown[]) => post(...a),
-    get: (...a: unknown[]) => get(...a),
-    patch: (...a: unknown[]) => patch(...a),
-    delete: (...a: unknown[]) => del(...a),
+    post: (...a: unknown[]): unknown => post(...a),
+    get: (...a: unknown[]): unknown => get(...a),
+    patch: (...a: unknown[]): unknown => patch(...a),
+    delete: (...a: unknown[]): unknown => del(...a),
   },
 }));
 

@@ -1,3 +1,4 @@
+import { ignore } from '@koala/engine-core/failures';
 import { runningItems, type RunningItem, type RunningRecords, type RunningWorkflow } from '../lib/running.js';
 import type { BenchSettings } from '../../checks/index.js';
 import type { KeeperState } from '../../memory/index.js';
@@ -38,7 +39,7 @@ export class RunningService {
     const items = runningItems(workflows, await this.deps.records(ownerId));
     return Promise.all(items.map(async (item) => {
       if (item.cancel.via !== 'run' && item.cancel.via !== 'tree') return item;
-      const waiting = await this.deps.workflows.waiting(item.workflowId).catch(() => undefined);
+      const waiting = await this.deps.workflows.waiting(item.workflowId).catch(ignore('a run that has just closed cannot be asked what it waits for, and is listed without it'));
       return {
         ...item,
         ...(waiting?.asking.length ? { asking: waiting.asking } : {}),

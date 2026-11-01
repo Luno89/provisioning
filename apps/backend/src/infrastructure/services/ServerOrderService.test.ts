@@ -6,6 +6,7 @@ import type { FetchLike } from './OvhClient.js';
 import { DnsProviders } from './dns/DnsProviders.js';
 import { fakeCloudflare, fakePorkbun, type FakeDns } from './dns/fake-dns.js';
 import { ServerOrderProblem, ServerOrderService } from './ServerOrderService.js';
+import { containing, matching, listContaining } from './test-matchers.js';
 
 const KEY = 'server-order-test-key';
 const ASK = { planCode: 'vps-2027-model2', planLabel: 'VPS-2 2027', datacenter: 'SYD', domain: 'nowrinkles.dev', ingressDomain: 'nowrinkles.app', acmeEmail: 'me@example.com' };
@@ -55,7 +56,7 @@ describe('buying root\'s server from OVHcloud', () => {
     const order = await service.quote('op', ASK);
     expect(order).toMatchObject({ state: 'quoted', subsidiary: 'AU', quote: { currency: 'AUD', withTax: 15.4, monthly: 14, setupFee: 0 }, hasSetupCode: false, hasSshKey: false });
     expect(order.quote.contracts).toEqual([{ name: 'General Terms of Service', url: 'https://example.ovh/terms.pdf' }]);
-    expect(ovh.state.calls).toEqual(expect.arrayContaining([
+    expect(ovh.state.calls).toEqual(listContaining([
       'POST /order/cart', 'POST /order/cart/cart-1/assign', 'POST /order/cart/cart-1/vps',
       'POST /order/cart/cart-1/item/7/configuration', 'GET /order/cart/cart-1/vps/options?planCode=vps-2027-model2',
       'GET /order/cart/cart-1/checkout',
@@ -70,7 +71,7 @@ describe('buying root\'s server from OVHcloud', () => {
     expect(await service.zones('op', ['nowrinkles.dev', 'nowrinkles.app', 'elsewhere.test'])).toEqual([
       { zone: 'nowrinkles.dev', nameservers: NAMESERVERS['nowrinkles.dev'], provider: 'cloudflare', label: 'Cloudflare DNS', credentials: true },
       { zone: 'nowrinkles.app', nameservers: NAMESERVERS['nowrinkles.app'], provider: 'porkbun', label: 'Porkbun DNS', credentials: true },
-      { zone: 'elsewhere.test', nameservers: [], problem: expect.stringContaining('no nameservers'), credentials: false },
+      { zone: 'elsewhere.test', nameservers: [], problem: containing('no nameservers'), credentials: false },
     ]);
   });
 
@@ -141,7 +142,7 @@ describe('buying root\'s server from OVHcloud', () => {
     await service.follow(quoted.id);
     await service.rebuild(quoted.id, { publicKey: 'ssh-ed25519 AAAA koala', privateKey: 'k' });
     pb.zones.get('nowrinkles.app')!.records.push({ id: 'r-theirs', type: 'A', name: '*.nowrinkles.app', content: '198.51.100.1' });
-    expect(await service.pointDomains(quoted.id)).toMatchObject({ done: false, refused: [expect.stringMatching(/already points at 198.51.100.1/)] });
+    expect(await service.pointDomains(quoted.id)).toMatchObject({ done: false, refused: [matching(/already points at 198.51.100.1/)] });
     expect(cf.zones.get('nowrinkles.dev')!.records.map((record) => `${record.name}→${record.content}`)).toEqual(['app.nowrinkles.dev→203.0.113.7', 'mesh.nowrinkles.dev→203.0.113.7']);
     expect(pb.zones.get('nowrinkles.app')!.records.map((record) => record.content)).toEqual(['198.51.100.1']);
     pb.zones.get('nowrinkles.app')!.records = [];

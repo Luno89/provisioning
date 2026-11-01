@@ -54,7 +54,7 @@ export function runScriptOverSsh(target: SshTarget, script: string, onLine: (lin
 }
 
 export async function sshAnswers(target: SshTarget): Promise<boolean> {
-  return (await runScriptOverSsh(target, 'true', () => undefined).catch(() => 255)) === 0;
+  return (await runScriptOverSsh(target, 'true', () => undefined)) === 0;
 }
 
 export async function readOverSsh(target: SshTarget, command: string): Promise<string> {

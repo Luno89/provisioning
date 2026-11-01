@@ -7,6 +7,7 @@ import type { FetchLike } from './OvhClient.js';
 import { DnsProviders } from './dns/DnsProviders.js';
 import { fakeCloudflare, fakePorkbun, type FakeDns } from './dns/fake-dns.js';
 import { ServerOrderService } from './ServerOrderService.js';
+import { matching, listContaining } from './test-matchers.js';
 
 const ASK = { planCode: 'vps-2027-model2', planLabel: 'VPS-2 2027', datacenter: 'SYD', domain: 'nowrinkles.dev', ingressDomain: 'nowrinkles.app', acmeEmail: 'me@example.com' };
 const NAMESERVERS: Record<string, string[]> = {
@@ -55,7 +56,7 @@ describe('root\'s mail once its server is bought', () => {
     mailRecord('203.0.113.7');
     expect(await service.setReverseDns(id)).toEqual({ done: true });
     expect(ovh.state.reverses).toEqual({ '203.0.113.7': 'mail.nowrinkles.dev.' });
-    expect(ovh.state.calls).toEqual(expect.arrayContaining(['GET /ip?ip=203.0.113.7', 'GET /ip/203.0.113.7%2F32/reverse/203.0.113.7', 'POST /ip/203.0.113.7%2F32/reverse']));
+    expect(ovh.state.calls).toEqual(listContaining(['GET /ip?ip=203.0.113.7', 'GET /ip/203.0.113.7%2F32/reverse/203.0.113.7', 'POST /ip/203.0.113.7%2F32/reverse']));
     expect((await service.get('op', id)).reverseDns).toMatchObject({ ip: '203.0.113.7', name: 'mail.nowrinkles.dev', state: 'set', said: 'OVHcloud set the reverse DNS of 203.0.113.7 to mail.nowrinkles.dev' });
     const posts = () => ovh.state.calls.filter((call) => call.startsWith('POST /ip/')).length;
     expect(posts()).toBe(1);
@@ -70,7 +71,7 @@ describe('root\'s mail once its server is bought', () => {
     mailRecord('203.0.113.7');
     ovh.state.reverseRefusal = { status: 400, message: 'Cannot check if mail.nowrinkles.dev. resolves to 203.0.113.7' };
     expect(await service.setReverseDns(id)).toEqual({ done: false });
-    expect((await service.get('op', id)).reverseDns).toMatchObject({ state: 'waiting', said: expect.stringMatching(/^waiting for OVHcloud to see mail\.nowrinkles\.dev point at 203\.0\.113\.7/) });
+    expect((await service.get('op', id)).reverseDns).toMatchObject({ state: 'waiting', said: matching(/^waiting for OVHcloud to see mail\.nowrinkles\.dev point at 203\.0\.113\.7/) });
     const logged = (await service.get('op', id)).log!.filter((line) => line.includes('reverse DNS')).length;
     expect(await service.setReverseDns(id)).toEqual({ done: false });
     expect((await service.get('op', id)).log!.filter((line) => line.includes('reverse DNS'))).toHaveLength(logged);
@@ -83,14 +84,14 @@ describe('root\'s mail once its server is bought', () => {
     const id = await readyOrder();
     ovh.state.reverseRefusal = { status: 403, message: 'This call has not been granted' };
     expect(await service.setReverseDns(id)).toEqual({ done: true });
-    expect((await service.get('op', id)).reverseDns).toMatchObject({ state: 'refused', said: expect.stringMatching(/has no A record for mail\.nowrinkles\.dev.*Modify the reverse path/) });
+    expect((await service.get('op', id)).reverseDns).toMatchObject({ state: 'refused', said: matching(/has no A record for mail\.nowrinkles\.dev.*Modify the reverse path/) });
     mailRecord('198.51.100.1');
     expect(await service.setReverseDns(id)).toEqual({ done: true });
     expect((await service.get('op', id)).reverseDns?.said).toMatch(/mail\.nowrinkles\.dev points at 198\.51\.100\.1, not 203\.0\.113\.7/);
     cf.zones.get('nowrinkles.dev')!.records = cf.zones.get('nowrinkles.dev')!.records.filter((record) => record.name !== 'mail.nowrinkles.dev');
     mailRecord('203.0.113.7');
     expect(await service.setReverseDns(id)).toEqual({ done: true });
-    expect((await service.get('op', id)).reverseDns).toMatchObject({ state: 'refused', said: expect.stringMatching(/OVHcloud answered 403: This call has not been granted; set the reverse DNS \(PTR\) of 203\.0\.113\.7 to mail\.nowrinkles\.dev/) });
+    expect((await service.get('op', id)).reverseDns).toMatchObject({ state: 'refused', said: matching(/OVHcloud answered 403: This call has not been granted; set the reverse DNS \(PTR\) of 203\.0\.113\.7 to mail\.nowrinkles\.dev/) });
     expect(ovh.state.reverses).toEqual({});
   });
 
@@ -105,11 +106,11 @@ describe('root\'s mail once its server is bought', () => {
     };
     await service.recordMailCheck(id, `  ✓ lines\n${MAIL_CHECK_MARK} ${JSON.stringify(check)}`);
     const order = await service.get('op', id);
-    expect(order.mail).toMatchObject({ check: { ip: '203.0.113.7', blocklists: [{ state: 'listed' }] }, problems: [expect.stringMatching(/UCEPROTECT/)], lines: expect.arrayContaining([{ mark: 'problem', said: expect.stringMatching(/UCEPROTECT/) }]) });
-    expect(order.log!.slice(-2)).toEqual([expect.stringMatching(/mail: ! 203\.0\.113\.7 is on UCEPROTECT level 1/), expect.stringMatching(/mail: 1 thing to fix before root's mail is relied on/)]);
+    expect(order.mail).toMatchObject({ check: { ip: '203.0.113.7', blocklists: [{ state: 'listed' }] }, problems: [matching(/UCEPROTECT/)], lines: listContaining([{ mark: 'problem', said: matching(/UCEPROTECT/) }]) });
+    expect(order.log!.slice(-2)).toEqual([matching(/mail: ! 203\.0\.113\.7 is on UCEPROTECT level 1/), matching(/mail: 1 thing to fix before root's mail is relied on/)]);
     await service.recordMailCheck(id, undefined);
     expect((await service.get('op', id)).log!.at(-1)).toMatch(/this release cannot check root's mail yet/);
     await service.failed(id, 'the reverse DNS step failed five times');
-    expect((await service.get('op', id))).toMatchObject({ state: 'ready', log: expect.arrayContaining([expect.stringMatching(/root is running, but checking its mail stopped: the reverse DNS step failed five times/)]) });
+    expect((await service.get('op', id))).toMatchObject({ state: 'ready', log: listContaining([matching(/root is running, but checking its mail stopped: the reverse DNS step failed five times/)]) });
   });
 });

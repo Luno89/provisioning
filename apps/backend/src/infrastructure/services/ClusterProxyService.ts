@@ -139,7 +139,7 @@ export class ClusterProxyService {
     const target = explicitTarget ?? SERVICE_TARGETS[serviceKey];
     if (!target) throw new Error(`Unknown service: ${serviceKey}`);
 
-    const clusterForwards = this.forwards.get(clusterId) ?? new Map();
+    const clusterForwards = this.forwards.get(clusterId) ?? new Map<string, PortForwardEntry>();
     this.forwards.set(clusterId, clusterForwards);
 
     const existing = clusterForwards.get(serviceKey);

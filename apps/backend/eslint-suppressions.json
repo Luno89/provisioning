@@ -1675,11 +1675,6 @@
       "count": 19
     }
   },
-  "src/infrastructure/services/ClusterContentsService.ts": {
-    "no-restricted-syntax": {
-      "count": 4
-    }
-  },
   "src/infrastructure/services/ClusterProxyService.test.ts": {
     "@typescript-eslint/no-explicit-any": {
       "count": 5
@@ -1695,17 +1690,6 @@
     },
     "@typescript-eslint/no-unsafe-return": {
       "count": 2
-    }
-  },
-  "src/infrastructure/services/ClusterProxyService.ts": {
-    "@typescript-eslint/no-unsafe-argument": {
-      "count": 1
-    },
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 2
-    },
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 1
     }
   },
   "src/infrastructure/services/ClusterService.test.ts": {
@@ -1751,11 +1735,6 @@
       "count": 9
     }
   },
-  "src/infrastructure/services/CredentialService.test.ts": {
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 5
-    }
-  },
   "src/infrastructure/services/CredentialService.ts": {
     "@typescript-eslint/no-explicit-any": {
       "count": 10
@@ -1782,16 +1761,6 @@
     },
     "no-restricted-syntax": {
       "count": 1
-    }
-  },
-  "src/infrastructure/services/HeadscaleService.ts": {
-    "no-restricted-syntax": {
-      "count": 1
-    }
-  },
-  "src/infrastructure/services/InfisicalService.test.ts": {
-    "@typescript-eslint/no-unsafe-return": {
-      "count": 4
     }
   },
   "src/infrastructure/services/InfisicalService.ts": {
@@ -1843,19 +1812,6 @@
       "count": 6
     }
   },
-  "src/infrastructure/services/InfrastructureViewService.ts": {
-    "no-restricted-syntax": {
-      "count": 1
-    }
-  },
-  "src/infrastructure/services/OvhClient.ts": {
-    "@typescript-eslint/no-unsafe-return": {
-      "count": 1
-    },
-    "no-restricted-syntax": {
-      "count": 1
-    }
-  },
   "src/infrastructure/services/RegistryService.ts": {
     "@typescript-eslint/no-explicit-any": {
       "count": 6
@@ -1874,26 +1830,6 @@
     },
     "@typescript-eslint/no-unsafe-return": {
       "count": 4
-    }
-  },
-  "src/infrastructure/services/RunningService.ts": {
-    "no-restricted-syntax": {
-      "count": 1
-    }
-  },
-  "src/infrastructure/services/ServerOrderMail.test.ts": {
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 6
-    }
-  },
-  "src/infrastructure/services/ServerOrderService.test.ts": {
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 1
-    }
-  },
-  "src/infrastructure/services/ServerOrderService.ts": {
-    "no-restricted-syntax": {
-      "count": 2
     }
   },
   "src/infrastructure/services/StorageAdapter.ts": {
@@ -1960,26 +1896,6 @@
     "@typescript-eslint/no-unsafe-member-access": {
       "count": 3
     },
-    "no-restricted-syntax": {
-      "count": 1
-    }
-  },
-  "src/infrastructure/services/WorkFailureService.ts": {
-    "no-restricted-syntax": {
-      "count": 2
-    }
-  },
-  "src/infrastructure/services/dns/DnsProviders.test.ts": {
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 2
-    }
-  },
-  "src/infrastructure/services/dns/porkbun.ts": {
-    "no-restricted-syntax": {
-      "count": 1
-    }
-  },
-  "src/infrastructure/services/ssh-session.ts": {
     "no-restricted-syntax": {
       "count": 1
     }
