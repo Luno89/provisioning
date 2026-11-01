@@ -1,5 +1,6 @@
 import { Router, type Request } from 'express';
 import type { Database } from '../../platform/index.js';
+import { at } from '../lib/json-reading.js';
 
 const userOf = (req: Request): { id: string; email: string } =>
   (req as unknown as { user: { id: string; email: string } }).user;
@@ -16,7 +17,7 @@ export function pendingApprovalsRouter(deps: { db: Database }): Router {
   });
 
   router.post('/:id/decide', async (req, res) => {
-    const decision = req.body?.decision;
+    const decision = at(req.body, 'decision');
     if (decision !== 'approved' && decision !== 'denied') {
       return res.status(400).json({ error: 'decision must be "approved" or "denied"' });
     }

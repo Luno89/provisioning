@@ -6,7 +6,7 @@ import { EgressService } from '../services/EgressService.js';
 import { EgressProxyService } from '../services/EgressProxyService.js';
 import type { EgressGrantRecord } from '@koala/harness-types';
 
-const post = (url: string) => axios.post(url, {}, { validateStatus: () => true });
+const post = (url: string) => axios.post<{ request: { status: string }; grant: { revokedAt?: string } }>(url, {}, { validateStatus: () => true });
 
 describe('/api/egress', () => {
   let harness: Harness;

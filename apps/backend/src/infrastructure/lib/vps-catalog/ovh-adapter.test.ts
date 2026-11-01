@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { OVH_DEFAULT_SUBSIDIARY, OVH_SUBSIDIARIES, ovhCatalogUrl, ovhHostFor, ovhOffersFromCatalog, ovhSubsidiaryFrom } from './adapters.js';
 
-const auCatalog = JSON.parse(readFileSync(new URL('./ovh-au-catalog.json', import.meta.url), 'utf8'));
+const auCatalog: unknown = JSON.parse(readFileSync(new URL('./ovh-au-catalog.json', import.meta.url), 'utf8'));
 
 const price = (eur: number, commitment = 0) => ({
   capacities: ['renew'],

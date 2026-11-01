@@ -25,6 +25,7 @@ export interface AppEnvArgs {
   vllmCachePvc?: string | undefined;
   vllmDevice: string;
   vllmHfToken?: string | undefined;
+  hostHfToken: string | undefined;
   vllmMaxModelLen?: number | undefined;
   vllmGpuMemUtil?: number | undefined;
   vllmExtraArgs?: string | undefined;
@@ -227,8 +228,8 @@ export function buildAppEnv(a: AppEnvArgs): Record<string, string> {
     VLLM_CACHE_PVC: a.vllmCachePvc || '',
     VLLM_IMAGE_TAG: (a.webTag && a.webTag !== 'latest') ? a.webTag : 'v0.7.2',
     VLLM_DEVICE: a.vllmDevice,
-    VLLM_HF_TOKEN: a.vllmHfToken || process.env.HF_TOKEN || '',
-    HF_TOKEN: a.vllmHfToken || a.tabbyHfToken || process.env.HF_TOKEN || '',
+    VLLM_HF_TOKEN: a.vllmHfToken || a.hostHfToken || '',
+    HF_TOKEN: a.vllmHfToken || a.tabbyHfToken || a.hostHfToken || '',
     VLLM_MAX_MODEL_LEN: a.vllmMaxModelLen !== undefined ? String(a.vllmMaxModelLen) : '',
     VLLM_GPU_MEM_UTIL: a.vllmGpuMemUtil !== undefined ? String(a.vllmGpuMemUtil) : '',
     VLLM_EXTRA_ARGS: a.vllmExtraArgs || '',
@@ -242,7 +243,7 @@ export function buildAppEnv(a: AppEnvArgs): Record<string, string> {
     TABBYAPI_REVISION: a.tabbyRevision || '',
     TABBYAPI_GPU_COUNT: String(a.tabbyGpuCount),
     TABBYAPI_MODEL_SIZE_BYTES: a.tabbyModelSizeBytes !== undefined ? String(a.tabbyModelSizeBytes) : '',
-    TABBYAPI_HF_TOKEN: a.tabbyHfToken || process.env.HF_TOKEN || '',
+    TABBYAPI_HF_TOKEN: a.tabbyHfToken || a.hostHfToken || '',
     TABBYAPI_CACHE_PVC: a.tabbyCachePvc || '',
     TABBYAPI_IMAGE_TAG: a.tabbyImageTag || 'latest',
     TABBYAPI_CACHE_MODE: a.tabbyCacheMode || '',

@@ -1,7 +1,7 @@
 import { type Database, decryptValue, type SecretKey } from '../../platform/index.js';
-import { COMBINED_CLAIMS, resolveCloudCredentials, usesOperatorCredentials } from '../lib/credential-resolver.js';
+import { COMBINED_CLAIMS, usesOperatorCredentials } from '../lib/credential-resolver.js';
+import { resolveCloudCredentials } from './cloud-credentials.js';
 import type { ClaimSettings } from '../../platform/index.js';
-import { ADAPTERS } from '../lib/vps-catalog/adapters.js';
 import { NATURAL_SORT_DIR, offerHasGpu } from '../lib/vps-catalog/types.js';
 import type {
   VpsCatalogAdapter,
@@ -28,7 +28,7 @@ export class VpsCatalogService {
   constructor(
     private readonly db: Database,
     private readonly masterKey: SecretKey,
-    private readonly adapters: readonly VpsCatalogAdapter[] = ADAPTERS,
+    private readonly adapters: readonly VpsCatalogAdapter[],
     private readonly claims: ClaimSettings = COMBINED_CLAIMS,
   ) {}
 

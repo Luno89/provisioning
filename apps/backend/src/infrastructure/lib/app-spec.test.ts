@@ -5,6 +5,7 @@ import {
   constructBackedToSeed, seedConstructBackedTypes, appTypeFromName,
   type StoredAppSpec,
 } from './app-spec.js';
+import { at } from './json-reading.js';
 
 const ctx = {
   id: 'abc123',
@@ -37,25 +38,25 @@ describe('minio, rendered from a spec', () => {
   });
 
   it('builds the same container, down to the args and probes', () => {
-    const container = (out.deployment as any).spec.template.spec.container[0];
-    expect(container.name).toBe('minio');
-    expect(container.image).toBe('pgsty/minio:RELEASE.2026-03-14T12-00-00Z');
-    expect(container.args).toEqual(['server', '/data', '--console-address', ':9001']);
-    expect(container.port).toEqual([
+    const container = at(out.deployment, 'spec', 'template', 'spec', 'container', 0);
+    expect(at(container, 'name')).toBe('minio');
+    expect(at(container, 'image')).toBe('pgsty/minio:RELEASE.2026-03-14T12-00-00Z');
+    expect(at(container, 'args')).toEqual(['server', '/data', '--console-address', ':9001']);
+    expect(at(container, 'port')).toEqual([
       { containerPort: 9000, name: 's3' },
       { containerPort: 9001, name: 'console' },
     ]);
-    expect(container.volumeMount).toEqual([{ name: 'data', mountPath: '/data' }]);
-    expect(container.resources).toEqual({
+    expect(at(container, 'volumeMount')).toEqual([{ name: 'data', mountPath: '/data' }]);
+    expect(at(container, 'resources')).toEqual({
       limits: { memory: '2Gi', cpu: '2000m' },
       requests: { memory: '256Mi', cpu: '100m' },
     });
-    expect(container.livenessProbe).toEqual({
+    expect(at(container, 'livenessProbe')).toEqual({
       httpGet: { path: '/minio/health/live', port: '9000' },
       initialDelaySeconds: 10,
       periodSeconds: 20,
     });
-    expect(container.readinessProbe).toEqual({
+    expect(at(container, 'readinessProbe')).toEqual({
       httpGet: { path: '/minio/health/ready', port: '9000' },
       initialDelaySeconds: 5,
       periodSeconds: 10,
@@ -63,7 +64,7 @@ describe('minio, rendered from a spec', () => {
   });
 
   it('reads generated credentials from the Secret, never inline', () => {
-    const env = (out.deployment as any).spec.template.spec.container[0].env;
+    const env = at(out.deployment, 'spec', 'template', 'spec', 'container', 0, 'env');
     expect(env).toEqual([
       { name: 'MINIO_ROOT_USER', valueFrom: { secretKeyRef: { name: 'minio-secret', key: 'root_user' } } },
       { name: 'MINIO_ROOT_PASSWORD', valueFrom: { secretKeyRef: { name: 'minio-secret', key: 'root_password' } } },
@@ -72,11 +73,11 @@ describe('minio, rendered from a spec', () => {
   });
 
   it('builds the same Deployment shell, with labels and selector agreeing', () => {
-    const dep = out.deployment as any;
-    expect(dep.metadata).toEqual({ name: 'minio', namespace: 'minio', labels: { app: 'minio-abc123' } });
-    expect(dep.spec.replicas).toBe('1');
-    expect(dep.spec.selector).toEqual({ matchLabels: { app: 'minio-abc123' } });
-    expect(dep.spec.template.metadata.labels).toEqual({ app: 'minio-abc123' });
+    const dep = out.deployment;
+    expect(at(dep, 'metadata')).toEqual({ name: 'minio', namespace: 'minio', labels: { app: 'minio-abc123' } });
+    expect(at(dep, 'spec', 'replicas')).toBe('1');
+    expect(at(dep, 'spec', 'selector')).toEqual({ matchLabels: { app: 'minio-abc123' } });
+    expect(at(dep, 'spec', 'template', 'metadata', 'labels')).toEqual({ app: 'minio-abc123' });
   });
 
   it('builds the same Service', () => {
@@ -96,13 +97,13 @@ describe('minio, rendered from a spec', () => {
 
 describe('the rules that stay code', () => {
   it('forces Recreate when there is a volume', () => {
-    expect((renderApp(MINIO_SPEC, ctx).deployment as any).spec.strategy).toEqual({ type: 'Recreate' });
+    expect(at(renderApp(MINIO_SPEC, ctx).deployment, 'spec', 'strategy')).toEqual({ type: 'Recreate' });
   });
 
   it('leaves the strategy default when there is none', () => {
     const stateless: AppSpec = { id: 'tei', image: 'tei:1', ports: [{ name: 'http', port: 80 }] };
     const out = renderApp(stateless, { ...ctx, namespace: 'tei' });
-    expect((out.deployment as any).spec.strategy).toBeUndefined();
+    expect(at(out.deployment, 'spec', 'strategy')).toBeUndefined();
     expect(out.pvcs).toEqual([]);
     expect(out.secret).toBeUndefined();
   });
@@ -111,15 +112,14 @@ describe('the rules that stay code', () => {
 describe('what a deployment may override', () => {
   it('takes a bigger disk without touching the spec', () => {
     const out = renderApp(MINIO_SPEC, { ...ctx, storage: { '/data': '500Gi' } });
-    expect((out.pvcs[0]!.spec as any).resources.requests.storage).toBe('500Gi');
+    expect(at(out.pvcs[0]!.spec, 'resources', 'requests', 'storage')).toBe('500Gi');
   });
 
   it('takes a memory limit, leaving the requests alone', () => {
-    const container = (renderApp(MINIO_SPEC, { ...ctx, memoryLimit: '8Gi' }).deployment as any)
-      .spec.template.spec.container[0];
-    expect(container.resources.limits.memory).toBe('8Gi');
-    expect(container.resources.limits.cpu).toBe('2000m');
-    expect(container.resources.requests.memory).toBe('256Mi');
+    const container = at(renderApp(MINIO_SPEC, { ...ctx, memoryLimit: '8Gi' }).deployment, 'spec', 'template', 'spec', 'container', 0);
+    expect(at(container, 'resources', 'limits', 'memory')).toBe('8Gi');
+    expect(at(container, 'resources', 'limits', 'cpu')).toBe('2000m');
+    expect(at(container, 'resources', 'requests', 'memory')).toBe('256Mi');
   });
 });
 
@@ -138,11 +138,11 @@ describe('what this means for adding MongoDB', () => {
     };
     const out = renderApp(mongo, { ...ctx, namespace: 'mongo', secrets: { username: 'koala', password: 'x' } });
 
-    expect((out.deployment as any).spec.strategy).toEqual({ type: 'Recreate' });
+    expect(at(out.deployment, 'spec', 'strategy')).toEqual({ type: 'Recreate' });
     expect(out.pvcs[0]!.metadata.name).toBe('mongo-data-pvc');
-    expect((out.service as any).spec.port).toEqual([{ port: 27017, targetPort: '27017', name: 'mongo' }]);
-    const env = (out.deployment as any).spec.template.spec.container[0].env;
-    expect(env[1].valueFrom.secretKeyRef).toEqual({ name: 'mongo-secret', key: 'password' });
+    expect(at(out.service, 'spec', 'port')).toEqual([{ port: 27017, targetPort: '27017', name: 'mongo' }]);
+    const env = at(out.deployment, 'spec', 'template', 'spec', 'container', 0, 'env');
+    expect(at(env, 1, 'valueFrom', 'secretKeyRef')).toEqual({ name: 'mongo-secret', key: 'password' });
   });
 });
 
@@ -157,7 +157,7 @@ describe('config files (render a ConfigMap, mount it read-only, copy-then-substi
     resources: { limits: { memory: '1Gi', cpu: '1' } },
   };
   const out = renderApp(spec, { ...ctx, namespace: 'searxng' });
-  const container = (out.deployment as any).spec.template.spec.container[0];
+  const container = at(out.deployment, 'spec', 'template', 'spec', 'container', 0);
 
   it('creates a ConfigMap keyed by the file name', () => {
     expect(out.configMap).toEqual({
@@ -167,13 +167,13 @@ describe('config files (render a ConfigMap, mount it read-only, copy-then-substi
   });
 
   it('overrides the entrypoint with command, keeping args', () => {
-    expect(container.command).toEqual(['/bin/sh', '-c']);
-    expect(container.args).toEqual(['cp /config-src/settings.yml /etc/searxng/settings.yml && exec entrypoint.sh']);
+    expect(at(container, 'command')).toEqual(['/bin/sh', '-c']);
+    expect(at(container, 'args')).toEqual(['cp /config-src/settings.yml /etc/searxng/settings.yml && exec entrypoint.sh']);
   });
 
   it('mounts the ConfigMap read-only at the declared path', () => {
-    expect(container.volumeMount).toEqual([{ name: 'config-src', mountPath: '/config-src', readOnly: true }]);
-    expect((out.deployment as any).spec.template.spec.volume).toEqual([
+    expect(at(container, 'volumeMount')).toEqual([{ name: 'config-src', mountPath: '/config-src', readOnly: true }]);
+    expect(at(out.deployment, 'spec', 'template', 'spec', 'volume')).toEqual([
       { name: 'config-src', configMap: { name: 'searxng-config' } },
     ]);
   });
@@ -191,10 +191,10 @@ describe('ephemeral volumes (no PVC, no data survives a restart)', () => {
       resources: { limits: { memory: '1Gi', cpu: '1' } },
     };
     const out = renderApp(spec, { ...ctx, namespace: 'verdaccio' });
-    const podSpec = (out.deployment as any).spec.template.spec;
+    const podSpec = at(out.deployment, 'spec', 'template', 'spec');
     expect(out.pvcs).toHaveLength(1);
     expect(out.pvcs[0]!.metadata.name).toBe('verdaccio-data-pvc');
-    expect(podSpec.volume).toEqual([
+    expect(at(podSpec, 'volume')).toEqual([
       { name: 'data', persistentVolumeClaim: { claimName: 'verdaccio-data-pvc' } },
       { name: 'data-1', emptyDir: {} },
     ]);
@@ -207,9 +207,9 @@ describe('ephemeral volumes (no PVC, no data survives a restart)', () => {
       resources: { limits: { memory: '4Gi', cpu: '2' } },
     };
     const out = renderApp(spec, { ...ctx, namespace: 'crawl4ai' });
-    const podSpec = (out.deployment as any).spec.template.spec;
+    const podSpec = at(out.deployment, 'spec', 'template', 'spec');
     expect(out.pvcs).toEqual([]);
-    expect(podSpec.volume).toEqual([{ name: 'data', emptyDir: { medium: 'Memory', sizeLimit: '1Gi' } }]);
+    expect(at(podSpec, 'volume')).toEqual([{ name: 'data', emptyDir: { medium: 'Memory', sizeLimit: '1Gi' } }]);
   });
 
   it('does not force Recreate strategy when every volume is ephemeral', () => {
@@ -218,7 +218,7 @@ describe('ephemeral volumes (no PVC, no data survives a restart)', () => {
       volumes: [{ path: '/dev/shm', type: 'ephemeral', medium: 'Memory', size: '1Gi' }],
       resources: { limits: { memory: '4Gi', cpu: '2' } },
     };
-    expect((renderApp(spec, { ...ctx, namespace: 'crawl4ai' }).deployment as any).spec.strategy).toBeUndefined();
+    expect(at(renderApp(spec, { ...ctx, namespace: 'crawl4ai' }).deployment, 'spec', 'strategy')).toBeUndefined();
   });
 });
 
@@ -230,13 +230,13 @@ describe('securityContext (pod-level UID/GID only)', () => {
       resources: { limits: { memory: '1Gi', cpu: '1' } },
     };
     const out = renderApp(spec, { ...ctx, namespace: 'verdaccio' });
-    expect((out.deployment as any).spec.template.spec.securityContext).toEqual({
+    expect(at(out.deployment, 'spec', 'template', 'spec', 'securityContext')).toEqual({
       runAsUser: '10001', runAsGroup: '65533', fsGroup: '65533',
     });
   });
 
   it('is absent when not set', () => {
-    expect((renderApp(MINIO_SPEC, ctx).deployment as any).spec.template.spec.securityContext).toBeUndefined();
+    expect(at(renderApp(MINIO_SPEC, ctx).deployment, 'spec', 'template', 'spec', 'securityContext')).toBeUndefined();
   });
 });
 
@@ -251,8 +251,8 @@ describe('the contract with the construct', () => {
     expect(out.namespace.metadata.name).toBeTruthy();
     expect(out.secret?.metadata.name).toBeTruthy();
     expect(Array.isArray(out.pvcs)).toBe(true);
-    expect((out.deployment as any).spec.template.spec).toBeTruthy();
-    expect((out.service as any).metadata.name).toBeTruthy();
+    expect(at(out.deployment, 'spec', 'template', 'spec')).toBeTruthy();
+    expect(at(out.service, 'metadata', 'name')).toBeTruthy();
   });
 
   it('tells the platform where to probe, using LIVENESS', () => {

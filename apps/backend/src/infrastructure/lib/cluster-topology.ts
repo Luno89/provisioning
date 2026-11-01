@@ -1,3 +1,5 @@
+import type { ClusterMetadata } from '../../platform/index.js';
+
 type Env = Readonly<Record<string, string | undefined>>;
 
 export const CLUSTER_PROVIDER_NAMES: readonly string[] = ['k3d', 'aws', 'gcp', 'azure', 'do', 'remote', 'hetzner'];
@@ -42,8 +44,12 @@ export class ProvisionRefused extends Error {
   }
 }
 
+export const notAClusterProvider = (provider: string): string => `${provider} is not a provider Koala makes clusters on`;
+
+export const isClusterProviderName = (provider: string): provider is ClusterMetadata['provider'] => CLUSTER_PROVIDER_NAMES.includes(provider);
+
 export function provisionRefusal(provider: string, credentials: 'user' | 'env' | 'mock', env: Env): string | undefined {
-  if (!CLUSTER_PROVIDER_NAMES.includes(provider)) return `${provider} is not a provider Koala makes clusters on`;
+  if (!CLUSTER_PROVIDER_NAMES.includes(provider)) return notAClusterProvider(provider);
   if (providerReady(provider)) return undefined;
   if (credentials === 'mock' && mockableProvider(provider) && mockCloudAllowed(env)) return undefined;
   return notAvailableYet(provider);
@@ -53,10 +59,10 @@ export function isSelfManagedCluster(provider: string, isMock: boolean): boolean
   return isMock || NEVER_MOCK_PROVIDERS.includes(provider);
 }
 
-export function isMockCloudProvider(
+export function isMockCloudProviderIn(
   provider: string,
   hasCloudCredentials: (provider: string) => boolean,
-  env: Env = process.env,
+  env: Env,
 ): boolean {
   if (NEVER_MOCK_PROVIDERS.includes(provider) || !mockCloudAllowed(env)) return false;
   return !hasCloudCredentials(provider);

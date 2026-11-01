@@ -2,6 +2,7 @@ import { Router, type Request } from 'express';
 import { allowed, asyncRoute, principalFrom } from '../../platform/index.js';
 import type { BindingTypeRecord } from '../lib/service-binding.js';
 import { seedBindingTypes } from '../lib/binding-type-seeds.js';
+import { recordAt } from '../lib/json-reading.js';
 import type { InfrastructureStore } from '../store.js';
 
 export interface BindingTypesRouterDeps {
@@ -32,6 +33,8 @@ export function validateBindingType(candidate: unknown): string | null {
   return null;
 }
 
+const isBindingType = (candidate: unknown): candidate is BindingTypeRecord => validateBindingType(candidate) === null;
+
 export function bindingTypesRouter(
   deps: BindingTypesRouterDeps | Pick<InfrastructureStore, 'getBindingTypes' | 'saveBindingType' | 'deleteBindingType'>,
 ): Router {
@@ -48,13 +51,10 @@ export function bindingTypesRouter(
   router.put('/:id', asyncRoute(async (req, res) => {
     if (!isOperator(req)) return res.status(403).json({ error: EVERYONES });
     const id = idOf(req);
-    const candidate: BindingTypeRecord = {
-      ...(req.body ?? {}),
-      id,
-    };
+    const candidate = { ...recordAt(req.body), id };
 
     const invalid = validateBindingType(candidate);
-    if (invalid) return res.status(400).json({ error: invalid });
+    if (invalid || !isBindingType(candidate)) return res.status(400).json({ error: invalid });
 
     await db.saveBindingType(candidate);
     res.json({ ok: true, bindingType: candidate });

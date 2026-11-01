@@ -33,7 +33,7 @@ const mount = async (svc = service(), user: typeof TEST_USER | null = TEST_USER)
 describe('listing configured providers', () => {
   it('returns them under `providers`, which is the shape the UI reads', async () => {
     const { h, svc } = await mount();
-    const res = await axios.get(h.url('/api/credentials'));
+    const res = await axios.get<{ providers: unknown }>(h.url('/api/credentials'));
     expect(res.status).toBe(200);
     expect(res.data.providers).toEqual([{ provider: 'aws', configured: true }]);
     expect(svc.getConfiguredProviders).toHaveBeenCalledWith(TEST_USER.id);
@@ -70,7 +70,7 @@ describe('provider validation', () => {
   it('accepts every provider the platform actually supports', async () => {
     const { h } = await mount();
     for (const provider of CLOUD_PROVIDERS) {
-      const res = await axios.get(h.url(`/api/credentials/${provider}`));
+      const res = await axios.get<{ provider: string }>(h.url(`/api/credentials/${provider}`));
       expect(res.status, provider).toBe(200);
       expect(res.data.provider, provider).toBe(provider);
     }
@@ -106,7 +106,7 @@ describe('provider validation', () => {
 describe('reading and writing one provider', () => {
   it('saves, then reads back rather than echoing the request', async () => {
     const { h, svc } = await mount();
-    const res = await axios.put(h.url('/api/credentials/aws'), { accessKeyId: 'AKIAREAL', secret: 's' });
+    const res = await axios.put<{ credentials: unknown }>(h.url('/api/credentials/aws'), { accessKeyId: 'AKIAREAL', secret: 's' });
     expect(res.status).toBe(200);
     expect(svc.saveCredentials).toHaveBeenCalledWith(TEST_USER.id, 'aws', { accessKeyId: 'AKIAREAL', secret: 's' });
     expect(res.data.credentials).toEqual({ accessKeyId: 'AKIA••••' });

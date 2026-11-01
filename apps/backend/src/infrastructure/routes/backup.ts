@@ -14,8 +14,8 @@ export function backupRouter(deps: BackupRouterDeps): Router {
     const child = spawn('bash', [script], { cwd: deps.repoRoot });
 
     let output = '';
-    child.stdout.on('data', (d) => { output += d.toString(); });
-    child.stderr.on('data', (d) => { output += d.toString(); });
+    child.stdout.on('data', (d: Buffer) => { output += d.toString(); });
+    child.stderr.on('data', (d: Buffer) => { output += d.toString(); });
 
     child.on('close', (exitCode) => {
       res.json({ success: exitCode === 0, output });

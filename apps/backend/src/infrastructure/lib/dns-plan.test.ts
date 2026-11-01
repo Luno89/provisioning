@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { planIsDone, zonePlan, type WantedRecord } from './dns-plan.js';
 
+const containing = (text: string): unknown => expect.stringContaining(text);
+
 const a = (name: string, onConflict: WantedRecord['onConflict'] = 'refuse'): WantedRecord => ({ type: 'A', name, content: '203.0.113.7', why: 'root', onConflict });
 
 describe('the plan for a zone\'s records', () => {
@@ -12,7 +14,7 @@ describe('the plan for a zone\'s records', () => {
 
   it('refuses to rewrite a record it did not make, saying what to do', () => {
     const [step] = zonePlan([a('app.koala.test')], [{ id: '1', type: 'A', name: 'app.koala.test', content: '198.51.100.1' }]);
-    expect(step).toMatchObject({ do: 'refuse', why: expect.stringContaining('198.51.100.1') });
+    expect(step).toMatchObject({ do: 'refuse', why: containing('198.51.100.1') });
     expect(planIsDone([step!])).toBe(false);
   });
 

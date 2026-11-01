@@ -1,9 +1,10 @@
 import { providerReady } from '../cluster-topology.js';
+import { at, listAt, recordAt } from '../json-reading.js';
 import { withDerived, type AdapterResult, type VpsArch, type VpsCatalogAdapter, type VpsCpuType, type VpsOffer, type VpsPricePart } from './types.js';
 
 const TIMEOUT_MS = 15_000;
 
-async function getJson(url: string, headers: Record<string, string> = {}): Promise<any> {
+async function getJson(url: string, headers: Record<string, string> = {}): Promise<unknown> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
   try {
@@ -23,8 +24,9 @@ export const linodeAdapter: VpsCatalogAdapter = {
     const data = await getJson('https://api.linode.com/v4/linode/types');
     const offers: VpsOffer[] = [];
     let skippedNoPrice = 0;
-    for (const p of data?.data ?? []) {
-      const monthly = p?.price?.monthly;
+    for (const item of listAt(data, 'data')) {
+      const p = recordAt(item);
+      const monthly = at(p, 'price', 'monthly');
       if (typeof monthly !== 'number' || monthly <= 0) { skippedNoPrice++; continue; }
 
       const cls = String(p.class ?? '');
@@ -48,7 +50,7 @@ export const linodeAdapter: VpsCatalogAdapter = {
           ? { gpuModel: /\+\s*([A-Za-z0-9]+)\s*GPU/i.exec(String(p.label))![1]! }
           : {}),
         priceMonthly: monthly,
-        ...(typeof p?.price?.hourly === 'number' ? { priceHourly: p.price.hourly } : {}),
+        ...(typeof at(p, 'price', 'hourly') === 'number' ? { priceHourly: Number(at(p, 'price', 'hourly')) } : {}),
         currency: 'USD',
         taxIncluded: false,
         hourlyBilling: true,
@@ -68,8 +70,9 @@ export const vultrAdapter: VpsCatalogAdapter = {
     const data = await getJson('https://api.vultr.com/v2/plans?per_page=500');
     const offers: VpsOffer[] = [];
     let skippedNoPrice = 0;
-    for (const p of data?.plans ?? []) {
-      const monthly = Number(p?.monthly_cost ?? 0);
+    for (const item of listAt(data, 'plans')) {
+      const p = recordAt(item);
+      const monthly = Number(p.monthly_cost ?? 0);
       if (!monthly) { skippedNoPrice++; continue; }
 
       const family = String(p.type ?? '');
@@ -109,7 +112,7 @@ export const vultrAdapter: VpsCatalogAdapter = {
         currency: 'USD',
         taxIncluded: false,
         hourlyBilling: true,
-        locations: Array.isArray(p.locations) ? p.locations.map(String) : [],
+        locations: listAt(p, 'locations').map(String),
         provisionable: providerReady('vultr'),
       }));
     }
@@ -128,18 +131,19 @@ export const hetznerAdapter: VpsCatalogAdapter = {
     });
     const offers: VpsOffer[] = [];
     let skippedNoPrice = 0;
-    for (const st of data?.server_types ?? []) {
-      if (st?.deprecated) continue;
+    for (const item of listAt(data, 'server_types')) {
+      const st = recordAt(item);
+      if (st.deprecated) continue;
 
-      const prices: any[] = Array.isArray(st.prices) ? st.prices : [];
+      const prices = listAt(st, 'prices');
 
       const tiers = new Map<string, { monthly: number; hourly?: number; traffic?: number; locations: string[] }>();
       for (const p of prices) {
-        const monthly = Number(p?.price_monthly?.net ?? NaN);
+        const monthly = Number(at(p, 'price_monthly', 'net') ?? NaN);
         if (!Number.isFinite(monthly) || monthly <= 0) continue;
-        const hourly = Number(p?.price_hourly?.net ?? NaN);
-        const traffic = Number(p?.included_traffic ?? NaN);
-        const location = String(p?.location ?? '');
+        const hourly = Number(at(p, 'price_hourly', 'net') ?? NaN);
+        const traffic = Number(at(p, 'included_traffic') ?? NaN);
+        const location = String(at(p, 'location') ?? '');
         const key = `${monthly}|${hourly}|${traffic}`;
         const seen = tiers.get(key);
         if (seen) {
@@ -164,7 +168,7 @@ export const hetznerAdapter: VpsCatalogAdapter = {
           provider: 'hetzner',
           planId: String(st.name),
           ...(multiTier && locations[0] ? { idSuffix: locations[0] } : {}),
-          label: `${String(st.name).toUpperCase()} — ${st.description ?? ''}`.trim(),
+          label: `${String(st.name).toUpperCase()} — ${String(st.description ?? '')}`.trim(),
           vcpu: Number(st.cores ?? 0),
           cpuType: String(st.cpu_type ?? '') === 'dedicated' ? 'dedicated' : 'shared',
           arch,
@@ -196,9 +200,10 @@ export const digitalOceanAdapter: VpsCatalogAdapter = {
     });
     const offers: VpsOffer[] = [];
     let skippedNoPrice = 0;
-    for (const s of data?.sizes ?? []) {
-      if (s?.available === false) continue;
-      const monthly = Number(s?.price_monthly ?? 0);
+    for (const item of listAt(data, 'sizes')) {
+      const s = recordAt(item);
+      if (s.available === false) continue;
+      const monthly = Number(s.price_monthly ?? 0);
       if (!monthly) { skippedNoPrice++; continue; }
 
       const slug = String(s.slug ?? '');
@@ -217,7 +222,7 @@ export const digitalOceanAdapter: VpsCatalogAdapter = {
         currency: 'USD',
         taxIncluded: false,
         hourlyBilling: true,
-        locations: Array.isArray(s.regions) ? s.regions.map(String) : [],
+        locations: listAt(s, 'regions').map(String),
         provisionable: providerReady('do'),
       }));
     }
@@ -232,7 +237,7 @@ export const scalewayAdapter: VpsCatalogAdapter = {
   requiresCredentials: false,
   provisionable: providerReady('scaleway'),
   async fetch() {
-    const byPlan = new Map<string, { raw: any; zones: string[] }>();
+    const byPlan = new Map<string, { raw: Record<string, unknown>; zones: string[] }>();
 
     const results = await Promise.allSettled(
       SCALEWAY_ZONES.map(async (z) => ({
@@ -243,18 +248,18 @@ export const scalewayAdapter: VpsCatalogAdapter = {
 
     for (const r of results) {
       if (r.status !== 'fulfilled') continue;
-      for (const [name, raw] of Object.entries<any>(r.value.data?.servers ?? {})) {
+      for (const [name, raw] of Object.entries(recordAt(r.value.data, 'servers'))) {
         const existing = byPlan.get(name);
         if (existing) existing.zones.push(r.value.zone);
-        else byPlan.set(name, { raw, zones: [r.value.zone] });
+        else byPlan.set(name, { raw: recordAt(raw), zones: [r.value.zone] });
       }
     }
 
     const offers: VpsOffer[] = [];
     let skippedNoPrice = 0;
     for (const [name, { raw, zones }] of byPlan) {
-      if (raw?.end_of_service) continue;
-      const monthly = Number(raw?.monthly_price ?? 0);
+      if (raw.end_of_service) continue;
+      const monthly = Number(raw.monthly_price ?? 0);
       if (!monthly) { skippedNoPrice++; continue; }
 
       offers.push(withDerived({
@@ -265,17 +270,17 @@ export const scalewayAdapter: VpsCatalogAdapter = {
         cpuType: 'unknown',
         arch: String(raw.arch ?? '') === 'arm64' ? 'arm' : 'x86',
         ramGb: Math.round(Number(raw.ram ?? 0) / 1024 ** 3),
-        diskGb: Math.round(Number(raw?.per_volume_constraint?.l_ssd?.max_size ?? 0) / 1024 ** 3),
+        diskGb: Math.round(Number(at(raw, 'per_volume_constraint', 'l_ssd', 'max_size') ?? 0) / 1024 ** 3),
         ...(Number(raw.gpu ?? 0) > 0 ? { gpuCount: Number(raw.gpu) } : {}),
-        ...(raw?.gpu_info?.gpu_memory
+        ...(at(raw, 'gpu_info', 'gpu_memory')
           ? {
               gpuVramGb: Math.round(
-                (Number(raw.gpu_info.gpu_memory) / 1024 ** 3) * Math.max(1, Number(raw.gpu ?? 1)),
+                (Number(at(raw, 'gpu_info', 'gpu_memory')) / 1024 ** 3) * Math.max(1, Number(raw.gpu ?? 1)),
               ),
             }
           : {}),
-        ...(raw?.gpu_info?.gpu_name
-          ? { gpuModel: `${raw.gpu_info.gpu_manufacturer ?? ''} ${raw.gpu_info.gpu_name}`.trim() }
+        ...(at(raw, 'gpu_info', 'gpu_name')
+          ? { gpuModel: `${String(at(raw, 'gpu_info', 'gpu_manufacturer') ?? '')} ${String(at(raw, 'gpu_info', 'gpu_name'))}`.trim() }
           : {}),
         priceMonthly: monthly,
         ...(typeof raw.hourly_price === 'number' ? { priceHourly: raw.hourly_price } : {}),
@@ -325,37 +330,40 @@ const OVH_FAMILY_LABELS: Record<string, string> = {
 };
 
 function ovhMonthlyOf(pricings: unknown): number | undefined {
-  return (Array.isArray(pricings) ? pricings : [])
-    .filter((p: any) =>
-      Array.isArray(p?.capacities) && p.capacities.includes('renew') &&
-      p?.intervalUnit === 'month' && Number(p?.interval) === 1 &&
-      Number(p?.commitment ?? 0) === 0)
-    .map((p: any) => Number(p.price) / 1e8)
-    .filter((n: number) => Number.isFinite(n) && n >= 0)
-    .sort((a: number, b: number) => a - b)[0];
+  return listAt(pricings)
+    .map((p) => recordAt(p))
+    .filter((p) =>
+      listAt(p, 'capacities').includes('renew') &&
+      p.intervalUnit === 'month' && Number(p.interval) === 1 &&
+      Number(p.commitment ?? 0) === 0)
+    .map((p) => Number(p.price) / 1e8)
+    .filter((n) => Number.isFinite(n) && n >= 0)
+    .sort((a, b) => a - b)[0];
 }
 
 const cents = (n: number) => Math.round(n * 100) / 100;
 
-export function ovhOffersFromCatalog(data: any): AdapterResult {
-  const currency = data?.locale?.currencyCode === undefined ? undefined : String(data.locale.currencyCode);
-  const subsidiary = data?.locale?.subsidiary === undefined ? undefined : String(data.locale.subsidiary);
-  const taxRate = Number(data?.locale?.taxRate);
+export function ovhOffersFromCatalog(data: unknown): AdapterResult {
+  const locale = recordAt(data, 'locale');
+  const currency = locale.currencyCode === undefined ? undefined : String(locale.currencyCode);
+  const subsidiary = locale.subsidiary === undefined ? undefined : String(locale.subsidiary);
+  const taxRate = Number(locale.taxRate);
 
   const specs = new Map<string, { vcpu: number; ramGb: number; diskGb: number }>();
-  for (const product of data?.products ?? []) {
-    const tech = product?.blobs?.technical;
-    const vcpu = Number(tech?.cpu?.cores ?? NaN);
-    const ramGb = Number(tech?.memory?.size ?? NaN);
+  for (const product of listAt(data, 'products')) {
+    const tech = at(product, 'blobs', 'technical');
+    const vcpu = Number(at(tech, 'cpu', 'cores') ?? NaN);
+    const ramGb = Number(at(tech, 'memory', 'size') ?? NaN);
     if (!Number.isFinite(vcpu) || !Number.isFinite(ramGb) || vcpu <= 0 || ramGb <= 0) continue;
-    const diskGb = Number(tech?.storage?.disks?.[0]?.capacity ?? 0);
-    specs.set(String(product.name), { vcpu, ramGb, diskGb: Number.isFinite(diskGb) ? diskGb : 0 });
+    const diskGb = Number(at(tech, 'storage', 'disks', 0, 'capacity') ?? 0);
+    specs.set(String(at(product, 'name')), { vcpu, ramGb, diskGb: Number.isFinite(diskGb) ? diskGb : 0 });
   }
 
   const optionPrices = new Map<string, number>();
-  for (const addon of data?.addons ?? []) {
-    const monthly = ovhMonthlyOf(addon?.pricings);
-    if (addon?.planCode !== undefined && monthly !== undefined) optionPrices.set(String(addon.planCode), monthly);
+  for (const addon of listAt(data, 'addons')) {
+    const monthly = ovhMonthlyOf(at(addon, 'pricings'));
+    const addonCode = at(addon, 'planCode');
+    if (addonCode !== undefined && monthly !== undefined) optionPrices.set(String(addonCode), monthly);
   }
 
   interface Best {
@@ -369,33 +377,35 @@ export function ovhOffersFromCatalog(data: any): AdapterResult {
   const best = new Map<string, Best>();
   let skippedNoPrice = 0;
 
-  for (const plan of data?.plans ?? []) {
-    const spec = specs.get(String(plan?.product ?? ''));
+  for (const item of listAt(data, 'plans')) {
+    const plan = recordAt(item);
+    const spec = specs.get(String(plan.product ?? ''));
     if (!spec) continue;
 
     if (/-vps-\d{4}-model\d+(-|$)/.test(String(plan.planCode))) continue;
     if (!ovhOrderable(plan)) continue;
 
-    const planMonthly = ovhMonthlyOf(plan?.pricings);
+    const planMonthly = ovhMonthlyOf(plan.pricings);
     if (planMonthly === undefined || planMonthly <= 0) { skippedNoPrice++; continue; }
 
     const planCode = String(plan.planCode);
     const options: VpsPricePart[] = [];
-    for (const family of plan?.addonFamilies ?? []) {
-      if (family?.mandatory !== true) continue;
-      const priced = (Array.isArray(family.addons) ? family.addons : [])
-        .map((code: unknown) => ({ code: String(code), amount: optionPrices.get(String(code)) }))
-        .filter((o: { amount: number | undefined }): o is { code: string; amount: number } => o.amount !== undefined)
-        .sort((a: { amount: number }, b: { amount: number }) => a.amount - b.amount);
+    for (const familyItem of listAt(plan, 'addonFamilies')) {
+      const family = recordAt(familyItem);
+      if (family.mandatory !== true) continue;
+      const priced = listAt(family, 'addons')
+        .map((code) => ({ code: String(code), amount: optionPrices.get(String(code)) }))
+        .filter((o): o is { code: string; amount: number } => o.amount !== undefined)
+        .sort((a, b) => a.amount - b.amount);
       const cheapest = priced[0];
       if (!cheapest || cheapest.amount <= 0) continue;
       const familyName = String(family.name ?? cheapest.code);
       options.push({ label: OVH_FAMILY_LABELS[familyName] ?? familyName, planCode: cheapest.code, amount: cheapest.amount });
     }
 
-    const locations = (plan?.configurations ?? [])
-      .filter((c: any) => c?.name === 'vps_datacenter' && Array.isArray(c.values))
-      .flatMap((c: any) => c.values.map(String))
+    const locations = listAt(plan, 'configurations')
+      .filter((c) => at(c, 'name') === 'vps_datacenter')
+      .flatMap((c) => listAt(c, 'values').map(String))
       .sort();
 
     const key = String(plan.product);
@@ -463,8 +473,6 @@ export function ovhAdapterFor(subsidiary: string | (() => string)): VpsCatalogAd
 }
 
 export const ovhSubsidiaryFrom = (env: Readonly<Record<string, string | undefined>>): string => env.OVH_SUBSIDIARY?.trim() || OVH_DEFAULT_SUBSIDIARY;
-
-export const ovhAdapter: VpsCatalogAdapter = ovhAdapterFor(() => ovhSubsidiaryFrom(process.env));
 
 const INTERSERVER_ENDPOINT = 'https://my.interserver.net/api.php';
 
@@ -546,12 +554,14 @@ export const interserverAdapter: VpsCatalogAdapter = {
   },
 };
 
-export const ADAPTERS: readonly VpsCatalogAdapter[] = [
-  hetznerAdapter,
-  linodeAdapter,
-  vultrAdapter,
-  digitalOceanAdapter,
-  scalewayAdapter,
-  ovhAdapter,
-  interserverAdapter,
-];
+export function vpsCatalogAdapters(ovhSubsidiary: () => string): readonly VpsCatalogAdapter[] {
+  return [
+    hetznerAdapter,
+    linodeAdapter,
+    vultrAdapter,
+    digitalOceanAdapter,
+    scalewayAdapter,
+    ovhAdapterFor(ovhSubsidiary),
+    interserverAdapter,
+  ];
+}

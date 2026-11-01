@@ -86,10 +86,10 @@ describe('the Temporal page shows each person their own workflows', () => {
   it('opens, and shows the history of, only a workflow the viewer may see', async () => {
     const { mounted } = harness();
     const h = await mounted;
-    expect((await axios.get(h.url('/api/temporal/workflows/run-mine'))).data.workflow.workflowId).toBe('run-mine');
+    expect((await axios.get<{ workflow: { workflowId: string } }>(h.url('/api/temporal/workflows/run-mine'))).data.workflow.workflowId).toBe('run-mine');
     expect((await axios.get(h.url('/api/temporal/workflows/run-theirs'), quiet)).status).toBe(404);
     expect((await axios.get(h.url('/api/temporal/workflows/run-theirs/history'), quiet)).status).toBe(404);
-    expect((await axios.get(h.url('/api/temporal/workflows/run-mine/history'))).data.events).toHaveLength(1);
+    expect((await axios.get<{ events: unknown[] }>(h.url('/api/temporal/workflows/run-mine/history'))).data.events).toHaveLength(1);
     await h.close();
   });
 });

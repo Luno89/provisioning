@@ -2,6 +2,8 @@ import axios from 'axios';
 import fs from 'fs';
 import fsp from 'fs/promises';
 import path from 'path';
+import type { Readable } from 'stream';
+import { listAt, recordAt, type JsonRecord } from './json-reading.js';
 
 export interface HfFile {
   path: string;
@@ -16,6 +18,15 @@ export interface HfModelSearchResult {
   tags: string[];
 }
 
+const countOf = (value: unknown): number => (typeof value === 'number' && value ? value : 0);
+
+const positive = (value: unknown): number | undefined => (typeof value === 'number' && value ? value : undefined);
+
+function modelFound(raw: unknown, tags: string[]): HfModelSearchResult {
+  const m = recordAt(raw);
+  return { id: String(m.id), downloads: countOf(m.downloads), likes: countOf(m.likes), tags };
+}
+
 export async function searchHfModels(
   query: string,
   options?: { pipelineTag?: string; limit?: number },
@@ -27,30 +38,23 @@ export async function searchHfModels(
     limit: String(options?.limit || 20),
   };
   if (options?.pipelineTag) params.filter = options.pipelineTag;
-  const res = await axios.get('https://huggingface.co/api/models', { params });
-  return (res.data as any[]).map((m) => ({
-    id: m.id,
-    downloads: m.downloads || 0,
-    likes: m.likes || 0,
-    tags: m.tags || [],
-  }));
+  const res = await axios.get<unknown>('https://huggingface.co/api/models', { params });
+  return listAt(res.data).map((m) => modelFound(m, listAt(m, 'tags').map(String)));
 }
 
 export async function getExl3ModelCollection(query?: string): Promise<HfModelSearchResult[]> {
-  const res = await axios.get('https://huggingface.co/api/collections/turboderp/exl3-models');
-  const items = (res.data.items as any[]).filter((i) => i.repoType === 'model');
+  const res = await axios.get<unknown>('https://huggingface.co/api/collections/turboderp/exl3-models');
+  const items = listAt(res.data, 'items').filter((i) => recordAt(i).repoType === 'model').map((i) => modelFound(i, []));
   const filtered = query
     ? items.filter((i) => i.id.toLowerCase().includes(query.toLowerCase()))
     : items;
-  return filtered
-    .map((i) => ({ id: i.id, downloads: i.downloads || 0, likes: i.likes || 0, tags: [] }))
-    .sort((a, b) => b.downloads - a.downloads);
+  return filtered.sort((a, b) => b.downloads - a.downloads);
 }
 
 export async function getHfModelBranches(repo: string, token?: string): Promise<string[]> {
   const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
-  const res = await axios.get(`https://huggingface.co/api/models/${repo}/refs`, { headers });
-  const names: string[] = (res.data.branches as any[]).map((b) => b.name);
+  const res = await axios.get<unknown>(`https://huggingface.co/api/models/${repo}/refs`, { headers });
+  const names = listAt(res.data, 'branches').map((b) => String(recordAt(b).name));
   const bpwOf = (name: string) => {
     const m = name.match(/(\d+(?:\.\d+)?)\s*bpw/i);
     return m?.[1] ? parseFloat(m[1]) : null;
@@ -71,16 +75,17 @@ export async function getHfModelFiles(
 ): Promise<HfFile[]> {
   const rev = revision || 'main';
   const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
-  const res = await axios.get(
+  const res = await axios.get<unknown>(
     `https://huggingface.co/api/models/${repo}/tree/${encodeURIComponent(rev)}?recursive=true`,
     { headers },
   );
-  return (res.data as any[])
+  return listAt(res.data)
+    .map((raw) => recordAt(raw))
     .filter((item) => item.type === 'file')
     .map((item) => ({
-      path: item.path,
-      size: item.size || 0,
-      url: `https://huggingface.co/${repo}/resolve/${rev}/${item.path}`,
+      path: String(item.path),
+      size: countOf(item.size),
+      url: `https://huggingface.co/${repo}/resolve/${rev}/${String(item.path)}`,
     }));
 }
 
@@ -97,15 +102,15 @@ export async function getHfModelConfig(
   repo: string,
   revision: string | undefined,
   token?: string,
-): Promise<Record<string, any>> {
+): Promise<JsonRecord> {
   const rev = revision || 'main';
   const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
-  const res = await axios.get(
+  const res = await axios.get<unknown>(
     `https://huggingface.co/${repo}/raw/${encodeURIComponent(rev)}/config.json`,
     { headers },
   );
-  const config = res.data as Record<string, any>;
-  return config.text_config ? { ...config, ...config.text_config } : config;
+  const config = recordAt(res.data);
+  return config.text_config ? { ...config, ...recordAt(config.text_config) } : config;
 }
 
 const CACHE_MODE_BYTES_PER_ELEMENT: Record<string, number> = {
@@ -113,17 +118,18 @@ const CACHE_MODE_BYTES_PER_ELEMENT: Record<string, number> = {
 };
 
 export function estimateKvCacheBytes(
-  config: Record<string, any>,
+  config: JsonRecord,
   maxSeqLen: number,
   cacheMode: string | undefined,
 ): number {
-  const layerTypes: string[] | undefined = config.layer_types;
-  const fullAttentionLayers = layerTypes
-    ? layerTypes.filter((t) => t === 'full_attention').length
-    : (config.num_hidden_layers || 32);
+  const fullAttentionLayers = Array.isArray(config.layer_types)
+    ? listAt(config, 'layer_types').filter((t) => t === 'full_attention').length
+    : (positive(config.num_hidden_layers) ?? 32);
 
-  const headDim = config.head_dim || (config.hidden_size && config.num_attention_heads ? config.hidden_size / config.num_attention_heads : 128);
-  const numKvHeads = config.num_key_value_heads || config.num_attention_heads || 8;
+  const hiddenSize = positive(config.hidden_size);
+  const attentionHeads = positive(config.num_attention_heads);
+  const headDim = positive(config.head_dim) ?? (hiddenSize && attentionHeads ? hiddenSize / attentionHeads : 128);
+  const numKvHeads = positive(config.num_key_value_heads) ?? attentionHeads ?? 8;
   const bytesPerElement = CACHE_MODE_BYTES_PER_ELEMENT[cacheMode || 'FP16'] ?? 2;
 
   return 2 * numKvHeads * headDim * bytesPerElement * fullAttentionLayers * maxSeqLen;
@@ -148,11 +154,12 @@ export async function downloadHfFiles(
   for (const file of files) {
     const dest = path.join(destDir, file.path);
     await fsp.mkdir(path.dirname(dest), { recursive: true });
-    const response = await axios.get(file.url, { headers, responseType: 'stream' });
+    const response = await axios.get<Readable>(file.url, { headers, responseType: 'stream' });
+    const body = response.data;
     await new Promise<void>((resolve, reject) => {
       const writer = fs.createWriteStream(dest);
       if (onProgress) {
-        response.data.on('data', (chunk: Buffer) => {
+        body.on('data', (chunk: Buffer) => {
           downloadedBytes += chunk.length;
           const now = Date.now();
           if (now - lastReportAt >= 2000) {
@@ -161,10 +168,10 @@ export async function downloadHfFiles(
           }
         });
       }
-      response.data.pipe(writer);
+      body.pipe(writer);
       writer.on('finish', resolve);
       writer.on('error', reject);
-      response.data.on('error', reject);
+      body.on('error', reject);
     });
   }
   if (onProgress) onProgress({ downloadedBytes, totalBytes, currentFile: '' });

@@ -26,7 +26,7 @@ describe('GET /api/pending-approvals', () => {
     });
 
     const res = await fetch(harness.url('/api/pending-approvals'));
-    const body = await res.json() as any[];
+    const body = await res.json() as { id: string }[];
 
     expect(body.map((a) => a.id)).toEqual(['a-mine']);
   });

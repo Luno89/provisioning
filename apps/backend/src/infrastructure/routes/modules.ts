@@ -1,6 +1,11 @@
 import { Router } from 'express';
+import type { GitModuleService } from '../services/GitModuleService.js';
 
-export function modulesRouter(deps: Record<string, any>): Router {
+export interface ModulesRouterDeps {
+  gitModuleService: Pick<GitModuleService, 'listAvailableModules'>;
+}
+
+export function modulesRouter(deps: ModulesRouterDeps): Router {
   const { gitModuleService } = deps;
   const router = Router();
 

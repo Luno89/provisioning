@@ -1,8 +1,13 @@
 import { Router } from 'express';
 import { asyncRoute } from '../../platform/index.js';
 import { clampPage, clampPageSize, parseTagSort } from '../lib/registry-tags.js';
+import type { RegistryService } from '../services/RegistryService.js';
 
-export function registryRouter(deps: Record<string, any>): Router {
+export interface RegistryRouterDeps {
+  registryService: Pick<RegistryService, 'search' | 'getTagPage' | 'getLocalTags'>;
+}
+
+export function registryRouter(deps: RegistryRouterDeps): Router {
   const { registryService } = deps;
   const router = Router();
 

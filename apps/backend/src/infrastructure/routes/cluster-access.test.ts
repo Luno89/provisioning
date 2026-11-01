@@ -4,7 +4,7 @@ import { mountRouter, TEST_USER, type Harness } from '../../platform/routes/test
 import { clusterAccessRouter } from './cluster-access.js';
 import { AccessService } from '../services/AccessService.js';
 
-const post = (url: string) => axios.post(url, {}, { validateStatus: () => true });
+const post = (url: string) => axios.post<{ status?: string }>(url, {}, { validateStatus: () => true });
 
 describe('/api/cluster-access', () => {
   let harness: Harness;

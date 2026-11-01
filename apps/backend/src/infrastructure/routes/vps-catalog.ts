@@ -1,38 +1,28 @@
-import { Router, type Request } from 'express';
+import { Router, type Request, type RequestHandler } from 'express';
+import { vpsFiltersFrom } from '../lib/vps-catalog/filters.js';
+import type { VpsCatalogService } from '../services/VpsCatalogService.js';
 
 const userOf = (req: Request): { id: string; email: string } =>
   (req as unknown as { user: { id: string; email: string } }).user;
 
-export function vpsCatalogRouter(deps: Record<string, any>): Router {
+export interface VpsCatalogRouterDeps {
+  vpsCatalogService: Pick<VpsCatalogService, 'search' | 'clearCache'>;
+  operatorOnly: RequestHandler;
+}
+
+export function vpsCatalogRouter(deps: VpsCatalogRouterDeps): Router {
   const { vpsCatalogService, operatorOnly } = deps;
   const router = Router();
 
   router.get('/', async (req, res) => {
     try {
-      const q = req.query as Record<string, string | undefined>;
-      const num = (v: string | undefined) => (v !== undefined && v !== '' && !Number.isNaN(Number(v)) ? Number(v) : undefined);
-      const result = await vpsCatalogService.search(userOf(req).id, {
-        ...(num(q.minRamGb) !== undefined ? { minRamGb: num(q.minRamGb)! } : {}),
-        ...(num(q.maxRamGb) !== undefined ? { maxRamGb: num(q.maxRamGb)! } : {}),
-        ...(num(q.minVcpu) !== undefined ? { minVcpu: num(q.minVcpu)! } : {}),
-        ...(num(q.minDiskGb) !== undefined ? { minDiskGb: num(q.minDiskGb)! } : {}),
-        ...(num(q.maxPriceMonthly) !== undefined ? { maxPriceMonthly: num(q.maxPriceMonthly)! } : {}),
-        ...(q.location ? { location: q.location } : {}),
-        ...(q.arch ? { arch: q.arch as any } : {}),
-        ...(q.cpuType ? { cpuType: q.cpuType as any } : {}),
-        ...(q.hasGpu === 'true' ? { hasGpu: true } : q.hasGpu === 'false' ? { hasGpu: false } : {}),
-        ...(num(q.minGpuVramGb) !== undefined ? { minGpuVramGb: num(q.minGpuVramGb)! } : {}),
-        ...(q.provider ? { provider: q.provider } : {}),
-        ...(q.provisionableOnly === 'true' ? { provisionableOnly: true } : {}),
-        ...(q.hourlyOnly === 'true' ? { hourlyOnly: true } : {}),
-        ...(q.sort ? { sort: q.sort as any } : {}),
-        ...(q.sortDir === 'asc' || q.sortDir === 'desc' ? { sortDir: q.sortDir } : {}),
-        ...(num(q.limit) !== undefined ? { limit: num(q.limit)! } : {}),
-      });
+      const read = vpsFiltersFrom(req.query);
+      if ('problem' in read) return res.status(400).json({ error: read.problem });
+      const result = await vpsCatalogService.search(userOf(req).id, read.filters);
       res.json(result);
-    } catch (err: any) {
-      console.error('[vps-catalog] search failed:', err.stack ?? err.message);
-      res.status(500).json({ error: err.message });
+    } catch (err) {
+      console.error('[vps-catalog] search failed:', (err as Error).stack ?? (err as Error).message);
+      res.status(500).json({ error: (err as Error).message });
     }
   });
 

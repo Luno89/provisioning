@@ -7,6 +7,8 @@ import { testDatabase } from '../../platform/lib/test-database.js';
 import { TemporalBridge } from '../services/TemporalBridge.js';
 import { CredentialService } from '../services/CredentialService.js';
 
+const ANY_STATUS = { validateStatus: () => true };
+
 let h: Harness | undefined;
 afterEach(async () => { await h?.close(); h = undefined; vi.restoreAllMocks(); vi.unstubAllEnvs(); });
 
@@ -68,16 +70,16 @@ describe('reading one cluster', () => {
   it('404s for a cluster owned by someone else, not 403', async () => {
     const { h, svc } = await mount();
     svc.clusterService.getById.mockResolvedValue(undefined as never);
-    const err = await axios.get(h.url('/api/clusters/someone-elses/proxy/grafana')).catch((e) => e);
-    expect(err.response.status).toBe(404);
-    expect(JSON.stringify(err.response.data)).not.toMatch(/permission|forbidden|owner/i);
+    const err = await axios.get<unknown>(h.url('/api/clusters/someone-elses/proxy/grafana'), ANY_STATUS);
+    expect(err.status).toBe(404);
+    expect(JSON.stringify(err.data)).not.toMatch(/permission|forbidden|owner/i);
   });
 
   it('404s identically for an id that does not exist', async () => {
     const { h, svc } = await mount();
     svc.clusterService.getById.mockResolvedValue(undefined as never);
-    const err = await axios.get(h.url('/api/clusters/no-such-thing/proxy/grafana')).catch((e) => e);
-    expect(err.response.status).toBe(404);
+    const err = await axios.get<unknown>(h.url('/api/clusters/no-such-thing/proxy/grafana'), ANY_STATUS);
+    expect(err.status).toBe(404);
   });
 
   it('passes the calling user down to every lookup', async () => {
@@ -91,16 +93,16 @@ describe('reading one cluster', () => {
 describe('creating a cluster', () => {
   it('rejects a name that would break deep inside CDKTF, before anything is billed', async () => {
     const { h, svc } = await mount();
-    const err = await axios.post(h.url('/api/clusters'), { name: 'has spaces' }).catch((e) => e);
-    expect(err.response.status).toBe(400);
+    const err = await axios.post<unknown>(h.url('/api/clusters'), { name: 'has spaces' }, ANY_STATUS);
+    expect(err.status).toBe(400);
     expect(svc.temporalBridge.provision).not.toHaveBeenCalled();
   });
 
   it('reports Temporal being down as 503, not as a bad request', async () => {
     const { h, svc } = await mount();
     svc.temporalBridge.provision.mockRejectedValue(new Error('connection refused') as never);
-    const err = await axios.post(h.url('/api/clusters'), { name: 'valid-name' }).catch((e) => e);
-    expect(err.response.status).toBe(503);
+    const err = await axios.post<unknown>(h.url('/api/clusters'), { name: 'valid-name', provider: 'k3d' }, ANY_STATUS);
+    expect(err.status).toBe(503);
   });
 });
 
@@ -109,8 +111,8 @@ describe('the dashboard proxies', () => {
     const { h, svc } = await mount();
     svc.clusterService.getById.mockResolvedValue(undefined as never);
     for (const service of ['prometheus', 'grafana', 'traefik', 'gitea', 'alertmanager', 'infisical']) {
-      const err = await axios.get(h.url(`/api/clusters/c1/proxy/${service}`)).catch((e) => e);
-      expect(err.response?.status, service).toBe(404);
+      const err = await axios.get<unknown>(h.url(`/api/clusters/c1/proxy/${service}`), ANY_STATUS);
+      expect(err.status, service).toBe(404);
     }
   });
 });
@@ -129,13 +131,13 @@ describe('what only whoever owns a cluster may open', () => {
   it('answers someone who only sees the system cluster exactly as for an unknown one, and opens nothing', async () => {
     const { h, svc } = await mount(onSystem(), someone);
     for (const service of PROXIES) {
-      const err = await axios.get(h.url(`/api/clusters/${system.id}/proxy/${service}`), { maxRedirects: 0 }).catch((e) => e);
-      expect(err.response?.status, service).toBe(404);
-      expect(err.response?.data, service).toEqual({ error: 'Cluster not found' });
+      const err = await axios.get<unknown>(h.url(`/api/clusters/${system.id}/proxy/${service}`), { maxRedirects: 0, ...ANY_STATUS });
+      expect(err.status, service).toBe(404);
+      expect(err.data, service).toEqual({ error: 'Cluster not found' });
     }
-    const gpu = await axios.get(h.url(`/api/clusters/${system.id}/gpu-status`)).catch((e) => e);
-    expect(gpu.response?.status).toBe(404);
-    expect(gpu.response?.data).toEqual({ error: 'Cluster not found' });
+    const gpu = await axios.get<unknown>(h.url(`/api/clusters/${system.id}/gpu-status`), ANY_STATUS);
+    expect(gpu.status).toBe(404);
+    expect(gpu.data).toEqual({ error: 'Cluster not found' });
     expect(svc.clusterProxyService.ensurePortForward).not.toHaveBeenCalled();
     expect(svc.clusterProxyService.getAutoLoginCookies).not.toHaveBeenCalled();
     expect(svc.infraService.runKubectl).not.toHaveBeenCalled();
@@ -144,16 +146,16 @@ describe('what only whoever owns a cluster may open', () => {
 
   it('on an instance, refuses an admin who is not its owner', async () => {
     const { h, svc } = await mount(onSystem(), admin, 'the-owner');
-    const err = await axios.get(h.url(`/api/clusters/${system.id}/proxy/grafana`), { maxRedirects: 0 }).catch((e) => e);
-    expect(err.response?.status).toBe(404);
+    const err = await axios.get<unknown>(h.url(`/api/clusters/${system.id}/proxy/grafana`), { maxRedirects: 0, ...ANY_STATUS });
+    expect(err.status).toBe(404);
     expect(svc.clusterProxyService.ensurePortForward).not.toHaveBeenCalled();
   });
 
   it('opens the system cluster\'s dashboards and GPUs for an admin when combined, and for the owner on an instance', async () => {
     for (const [user, instanceOwner] of [[admin, undefined], [someone, 'someone']] as const) {
       const { h, svc } = await mount(onSystem(), user, instanceOwner);
-      const res = await axios.get(h.url(`/api/clusters/${system.id}/proxy/grafana`), { maxRedirects: 0 }).catch((e) => e);
-      expect(res.response?.status).toBe(302);
+      const res = await axios.get<unknown>(h.url(`/api/clusters/${system.id}/proxy/grafana`), { maxRedirects: 0, ...ANY_STATUS });
+      expect(res.status).toBe(302);
       expect(svc.clusterProxyService.getAutoLoginCookies).toHaveBeenCalled();
       expect((await axios.get(h.url(`/api/clusters/${system.id}/gpu-status`))).data).toEqual({ gpus: 0 });
       await h.close();
@@ -163,22 +165,22 @@ describe('what only whoever owns a cluster may open', () => {
 
   it('lets only the operator make records of the system cluster\'s apps, and nobody delete it', async () => {
     const { h, svc } = await mount(onSystem(), someone);
-    const discover = await axios.post(h.url(`/api/clusters/${system.id}/discover-deployments`)).catch((e) => e);
-    expect([discover.response?.status, discover.response?.data]).toEqual([404, { error: 'Cluster not found' }]);
+    const discover = await axios.post<unknown>(h.url(`/api/clusters/${system.id}/discover-deployments`), undefined, ANY_STATUS);
+    expect([discover.status, discover.data]).toEqual([404, { error: 'Cluster not found' }]);
     expect(svc.appService.discoverDeployments).not.toHaveBeenCalled();
-    const deleted = await axios.delete(h.url(`/api/clusters/${system.id}`)).catch((e) => e);
-    expect([deleted.response?.status, deleted.response?.data]).toEqual([403, { error: 'The system cluster cannot be deleted' }]);
+    const deleted = await axios.delete<unknown>(h.url(`/api/clusters/${system.id}`), ANY_STATUS);
+    expect([deleted.status, deleted.data]).toEqual([403, { error: 'The system cluster cannot be deleted' }]);
     await h.close();
     const asOperator = await mount(onSystem(), admin);
     expect((await axios.post(asOperator.h.url(`/api/clusters/${system.id}/discover-deployments`))).status).toBe(200);
-    const operatorDeletes = await axios.delete(asOperator.h.url(`/api/clusters/${system.id}`)).catch((e) => e);
-    expect(operatorDeletes.response?.status).toBe(403);
+    const operatorDeletes = await axios.delete<unknown>(asOperator.h.url(`/api/clusters/${system.id}`), ANY_STATUS);
+    expect(operatorDeletes.status).toBe(403);
   });
 
   it('lets only the operator adopt the host\'s clusters', async () => {
     const { h, svc } = await mount(services(), someone);
-    const refused = await axios.post(h.url('/api/clusters/discover')).catch((e) => e);
-    expect([refused.response?.status, refused.response?.data]).toEqual([403, { error: 'Only the operator of this server can do that.' }]);
+    const refused = await axios.post<unknown>(h.url('/api/clusters/discover'), undefined, ANY_STATUS);
+    expect([refused.status, refused.data]).toEqual([403, { error: 'Only the operator of this server can do that.' }]);
     expect(svc.clusterService.discoverClusters).not.toHaveBeenCalled();
   });
 
@@ -229,13 +231,13 @@ describe('which providers Koala makes a cluster on', () => {
 
   const refusedAsStub = async (setup: () => Promise<{ h: Harness; db: Awaited<ReturnType<typeof testDatabase>>; start: ReturnType<typeof vi.fn> }>, provider = 'aws') => {
     const { h: harness, db, start } = await setup();
-    const err = await axios.post(harness.url('/api/clusters'), { name: 'valid-name', provider }).catch((e) => e);
-    expect(err.response.status).toBe(400);
+    const err = await axios.post<unknown>(harness.url('/api/clusters'), { name: 'valid-name', provider }, ANY_STATUS);
+    expect(err.status).toBe(400);
     expect(await db.infrastructure.getClusters()).toEqual([]);
     expect(start).not.toHaveBeenCalled();
     await h?.close();
     h = undefined;
-    return err.response.data.error as string;
+    return (err.data as { error: string }).error;
   };
 
   it('in production refuses AWS, Google Cloud and Azure as not available yet, keys or none, recording and starting nothing', async () => {

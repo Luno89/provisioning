@@ -88,7 +88,7 @@ export const BINDING_TYPE_SEEDS: BindingTypeRecord[] = [
 export async function seedBindingTypes(
   db: Pick<InfrastructureStore, 'getBindingTypes' | 'saveBindingType'>,
 ): Promise<number> {
-  const existing = await db.getBindingTypes().catch(() => []);
+  const existing = await db.getBindingTypes();
   const existingIds = new Set(existing.map((t) => t.id));
   let added = 0;
 

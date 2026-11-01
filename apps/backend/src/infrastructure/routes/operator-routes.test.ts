@@ -27,7 +27,7 @@ describe('what only the operator of this server does', () => {
   });
 
   it('starts and stops the worker, which anyone may still read', async () => {
-    const workerService = { status: () => ({ clusterId: 'c', context: 'local', state: 'running' }) };
+    const workerService = { status: () => ({ clusterId: 'c', context: 'local', state: 'running' as const }) };
     harness = await mountRouter({ prefix: '/api/worker', router: () => workerRouter({ workerService, operatorOnly }) });
     expect((await axios.post(harness.url('/api/worker'), { clusterId: 'c' }, { validateStatus: () => true })).status).toBe(403);
     expect((await axios.delete(harness.url('/api/worker'), { validateStatus: () => true })).status).toBe(403);
