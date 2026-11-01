@@ -15,8 +15,15 @@ const npm = (args: string[]): string => {
   return ran.stdout;
 };
 
-const asWritten = (manifest: Manifest): string =>
-  `${JSON.stringify(manifest, null, 2).replace(/[\u007f-\uffff]/g, (char) => `\\u${char.charCodeAt(0).toString(16).padStart(4, '0')}`)}\n`;
+const escapesItsText = (folder: string): boolean => {
+  const text = readFileSync(join(REPO, folder, 'package.json'), 'utf8');
+  return /\\u[0-9a-fA-F]{4}/.test(text) && !/[\u007f-\uffff]/.test(text);
+};
+
+const asWritten = (manifest: Manifest, folder: string): string => {
+  const text = JSON.stringify(manifest, null, 2);
+  return `${escapesItsText(folder) ? text.replace(/[\u007f-\uffff]/g, (char) => `\\u${char.charCodeAt(0).toString(16).padStart(4, '0')}`) : text}\n`;
+};
 
 const manifestAt = (folder: string): Manifest => JSON.parse(readFileSync(join(REPO, folder, 'package.json'), 'utf8')) as Manifest;
 
@@ -54,13 +61,13 @@ function take(name: string): void {
       const range = (manifest[field] as Record<string, string>)[name]!;
       const prefix = /^[\^~]/.test(range) ? range[0] : '';
       (manifest[field] as Record<string, string>)[name] = `${prefix}${newest.version}`;
-      writeFileSync(join(REPO, folder, 'package.json'), asWritten(manifest));
+      writeFileSync(join(REPO, folder, 'package.json'), asWritten(manifest, folder));
       console.log(`${folder === '.' ? 'the root' : folder}: ${name} ${range} → ${prefix}${newest.version} (published ${newest.publishedAt.slice(0, 10)})`);
     }
   } else {
     const root = manifestAt('.');
     root.overrides = { ...(root.overrides ?? {}), [name]: newest.version };
-    writeFileSync(join(REPO, 'package.json'), asWritten(root));
+    writeFileSync(join(REPO, 'package.json'), asWritten(root, '.'));
     console.log(`the root's overrides: ${name} → ${newest.version} (published ${newest.publishedAt.slice(0, 10)}), since no workspace names it`);
   }
 }

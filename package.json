@@ -129,6 +129,6 @@
     "protobufjs": "^8.7.1"
   },
   "overrides": {
-    "seroval": "1.6.9"
+    "seroval": "1.6.10"
   }
 }
