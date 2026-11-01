@@ -14,8 +14,11 @@ const graph = buildGraph({
 const at = (id: string) => `${graph.units[id]!.file}:${graph.units[id]!.line}`;
 
 describe('HTTP edges', () => {
-  it('join each call through the client to the handler of the route that serves it, however the route was made and mounted', () => {
+  it('join each call through the client or fetch to the handler of the route that serves it, however the route was made and mounted', () => {
     expect(graph.edges.filter((edge) => edge.through === 'http').map((edge) => `${graph.units[edge.from]!.name} → ${edge.to.map(at).join(' | ')}`).sort()).toEqual([
+      'RootClient.decide → src/server/routes.ts:15',
+      'RootClient.decide → src/server/routes.ts:15',
+      'RootClient.notes → src/server/routes.ts:8',
       'acceptItem → src/server/routes.ts:16',
       'discardItem → src/server/routes.ts:15',
       'itemNotes → src/server/routes.ts:8',
@@ -26,7 +29,6 @@ describe('HTTP edges', () => {
   it('name the calls no route serves and the routes nothing here calls, never a router no one mounts', () => {
     expect(graph.unmatched.map((end) => `${end.side} ${end.name}`).sort()).toEqual([
       'hears GET /install.sh',
-      'hears POST /api/items/:id/cut-over',
       'sends GET /api/nowhere',
     ]);
   });

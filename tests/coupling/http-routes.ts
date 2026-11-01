@@ -18,8 +18,15 @@ const joined = (prefix: string, path: string): string => `${prefix}${path === '/
 export const httpMatches = (sent: string, heard: string): boolean => {
   const [method, path] = sent.split(' ');
   const [routeMethod, routePath] = heard.split(' ');
-  return !!method && !!path && !!routeMethod && !!routePath && served({ method, path }, [{ method: routeMethod, path: routePath }]);
+  if (!method || !path || !routeMethod || !routePath) return false;
+  const routes = [{ method: routeMethod, path: routePath }];
+  if (served({ method, path }, routes)) return true;
+  if (!/[^/]:\*$/.test(path)) return false;
+  const base = path.slice(0, -2);
+  return [base, `${base}/:*`, `${base}/:*/:*`].some((candidate) => served({ method, path: candidate }, routes));
 };
+
+const FETCH_TYPES = /\/node_modules\/(typescript\/lib\/lib\.dom|undici-types|@types\/node)\//;
 
 export interface KoalaClient { file: RegExp; name: string; base: string }
 
@@ -127,6 +134,37 @@ export function httpChannels(program: ts.Program, clients: readonly KoalaClient[
 
   const locals = new Map<ts.SourceFile, Locals>();
 
+  const isFetch = (call: ts.CallExpression): boolean => {
+    const declaration = checker.getResolvedSignature(call)?.getDeclaration();
+    return !!declaration && ts.isFunctionDeclaration(declaration) && declaration.name?.text === 'fetch' && FETCH_TYPES.test(declaration.getSourceFile().fileName);
+  };
+  const urlPaths = (expression: ts.Expression | undefined, depth = 0): string[] | undefined => {
+    if (!expression || depth > 4) return undefined;
+    const known = literalsOf(expression);
+    if (known) return known;
+    if (ts.isParenthesizedExpression(expression)) return urlPaths(expression.expression, depth + 1);
+    if (ts.isIdentifier(expression)) {
+      const declaration = aliased(checker.getSymbolAtLocation(expression))?.valueDeclaration;
+      return declaration && ts.isVariableDeclaration(declaration) && declaration.initializer ? urlPaths(declaration.initializer, depth + 1) : undefined;
+    }
+    if (ts.isNewExpression(expression) && expression.expression.getText() === 'URL') return urlPaths(expression.arguments?.[0], depth + 1);
+    if (ts.isTemplateExpression(expression)) {
+      let found = [expression.head.text];
+      for (const span of expression.templateSpans) {
+        const parts = urlPaths(span.expression, depth + 1) ?? [':*'];
+        found = found.flatMap((before) => parts.map((part) => `${before}${part}${span.literal.text}`));
+      }
+      return found;
+    }
+    return undefined;
+  };
+  const methodOf = (init: ts.Expression | undefined): string[] => {
+    if (!init || !ts.isObjectLiteralExpression(init)) return ['GET'];
+    const named = init.properties.find((property) => property.name?.getText() === 'method');
+    const value = named && ts.isPropertyAssignment(named) ? literalsOf(named.initializer) : undefined;
+    return value ? value.map((method) => method.toUpperCase()) : named ? ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'] : ['GET'];
+  };
+
   return (call) => {
     const method = onExpress(call);
     if (method && method !== 'use') {
@@ -136,6 +174,10 @@ export function httpChannels(program: ts.Program, clients: readonly KoalaClient[
       const handler = handlerOf(call.arguments[call.arguments.length - 1]);
       const verb = method === 'all' ? '_ALL' : method.toUpperCase();
       return rootPrefixes(inside).flatMap((prefix) => paths.map((path) => ({ kind: 'http' as const, name: `${verb} ${joined(prefix, path)}`, side: 'hears' as const, ...(handler ? { handler } : {}) })));
+    }
+    if (isFetch(call)) {
+      const paths = (urlPaths(call.arguments[0]) ?? []).map((path) => path.replace(/^:\*/, '').split('?')[0]!).filter((path) => path.startsWith('/'));
+      return paths.flatMap((path) => methodOf(call.arguments[1]).map((verb) => ({ kind: 'http' as const, name: `${verb} ${joined('', path)}`, side: 'sends' as const })));
     }
     if (!ts.isPropertyAccessExpression(call.expression) || !VERBS.has(call.expression.name.text) || !call.arguments[0]) return undefined;
     if (!declaredIn(checker.getTypeAtLocation(call.expression.expression), AXIOS_TYPES)) return undefined;
