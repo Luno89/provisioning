@@ -205,8 +205,8 @@ describe('a pool instance asking root about its own apps', () => {
     harness = await mountRouter({
       prefix: '/api/instances',
       user: TEST_USER,
-      router: (db) => {
-        void db.instances.saveInstance({
+      router: async (db) => {
+        await db.instances.saveInstance({
           id: 'inst-1', ownerId: 'u1', name: 'alice', status: 'ready', createdAt: 'then', updatedAt: 'then', credentialHash: hashCredential('secret'),
           pool: { ports: { backend: 35000, edge: 35001, registry: 35002 }, startedAt: 'then', trialEndsAt: '2026-11-03T00:00:00.000Z' },
         } as never);
@@ -250,14 +250,12 @@ describe('an instance keeping the groups its shared projects are addressed under
     harness = await mountRouter({
       prefix: '/api/instances',
       user: TEST_USER,
-      router: (db) => {
-        void db.instances.saveInstance({ id: 'inst-1', ownerId: 'u1', name: 'alice', status: 'ready', url: '', createdAt: 'then', updatedAt: 'then', credentialHash: hashCredential('secret') });
-        return instancesRouter({
-          instances: new InstanceService(db, { rootUrl: 'https://app.koala.dev', rootPublicKeys: () => ['PEM'], registry: 'r', imageTag: 't', domain: 'koala.dev' }, undefined),
-          chart: async () => '',
-        });
-      },
+      router: (db) => instancesRouter({
+        instances: new InstanceService(db, { rootUrl: 'https://app.koala.dev', rootPublicKeys: () => ['PEM'], registry: 'r', imageTag: 't', domain: 'koala.dev' }, undefined),
+        chart: async () => '',
+      }),
     });
+    await harness.db.instances.saveInstance({ id: 'inst-1', ownerId: 'u1', name: 'alice', status: 'ready', url: '', createdAt: 'then', updatedAt: 'then', credentialHash: hashCredential('secret') });
     const call = (method: 'get' | 'put' | 'delete', path: string, data?: unknown, credential = 'secret') =>
       axios.request({ method, url: harness!.url(path), data, headers: { 'x-instance-id': 'inst-1', authorization: `Bearer ${credential}` }, validateStatus: () => true });
 
@@ -336,8 +334,8 @@ describe('an instance\'s updates on root', () => {
     harness = await mountRouter({
       prefix: '/api/instances',
       user: TEST_USER,
-      router: (db) => {
-        void db.instances.saveInstance({ id: 'inst-1', ownerId: 'u1', name: 'alice', status: 'ready', url: '', createdAt: 'then', updatedAt: 'then', credentialHash: hashCredential('secret'), running: 'new222', previous: 'old111' });
+      router: async (db) => {
+        await db.instances.saveInstance({ id: 'inst-1', ownerId: 'u1', name: 'alice', status: 'ready', url: '', createdAt: 'then', updatedAt: 'then', credentialHash: hashCredential('secret'), running: 'new222', previous: 'old111' });
         return instancesRouter({
           instances: new InstanceService(db, {
             rootUrl: 'https://app.koala.dev', rootPublicKeys: () => ['PEM'], registry: 'r', imageTag: 'new222', domain: 'koala.dev',
@@ -371,8 +369,8 @@ describe('an instance\'s updates on root', () => {
     harness = await mountRouter({
       prefix: '/api/instances',
       user: TEST_USER,
-      router: (db) => {
-        void db.instances.saveInstance({ id: 'inst-1', ownerId: 'u1', name: 'alice', status: 'ready', url: '', createdAt: 'then', updatedAt: 'then', credentialHash: hashCredential('secret'), running: 'new222', previous: 'old111' });
+      router: async (db) => {
+        await db.instances.saveInstance({ id: 'inst-1', ownerId: 'u1', name: 'alice', status: 'ready', url: '', createdAt: 'then', updatedAt: 'then', credentialHash: hashCredential('secret'), running: 'new222', previous: 'old111' });
         return instancesRouter({
           instances: new InstanceService(db, {
             rootUrl: 'https://app.koala.dev', rootPublicKeys: () => ['PEM'], registry: 'r', imageTag: 'old111', domain: 'koala.dev',
