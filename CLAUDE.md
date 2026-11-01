@@ -42,8 +42,8 @@ npm run ship         # G1 + G2 against the dev stack on this commit, then push m
 npm run release      # G3 + G4 on a shipped commit, then tag it; GitHub builds and publishes the image (Releases, below)
 npm run test:workflows # actionlint, then the Release workflow run here under act, publishing nothing
 npm run test         # test:unit → test:e2e:sync (alive check → unit → tests/e2e.spec.ts via Playwright)
-npm run test:all     # test → test:infra:integration → test:remote-integration → test:unit:vpn
-npm run test:unit    # typecheck + test:unit:frontend + test:unit:backend (Vitest, ~80s total)
+npm run test:all     # test → test:synth:palworld → test:infra:integration → test:remote-integration
+npm run test:unit    # typecheck + every package's Vitest suite (frontend, backend, local-agent, the engine packages, cdktf-infra)
 npm run test:alive   # scripts/alive.sh — Docker/k3d/K8s API/Temporal/worker pod health, fails fast with fix hints
 npm run test:worker  # tsx tests/worker-isolated.ts — runs real Temporal workflows without browser/webserver
 npm run test:e2e     # test:alive → Playwright (skips the unit preflight `npm test` does)
