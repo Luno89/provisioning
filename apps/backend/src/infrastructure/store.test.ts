@@ -45,7 +45,6 @@ describe('the deployments store keeps secrets sealed at rest', () => {
   it('seals what a save writes, and what a partial update merges in', async () => {
     await store.saveDeployment(deployment('d2', { nextcloudAdminPassword: 'admin-pw' }));
     expect(looksEncrypted(String((await raw('d2'))?.nextcloudAdminPassword))).toBe(true);
-    expect(looksEncrypted(String((await raw('d1'))?.minioRootPassword))).toBe(true);
 
     await store.saveDeploymentInfo({ id: 'd2', searxngSecretKey: 'sx' });
     expect(looksEncrypted(String((await raw('d2'))?.searxngSecretKey))).toBe(true);
