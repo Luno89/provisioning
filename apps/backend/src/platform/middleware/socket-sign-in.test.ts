@@ -19,7 +19,7 @@ afterEach(async () => {
   for (const close of closing.splice(0)) await close();
 });
 
-async function serve() {
+async function serve(failing = false) {
   const db = await testDatabase();
   await db.accounts.saveUser({ id: 'ann', email: 'ann@example.com', twoFactorEnabled: false, emailVerified: true, createdAt: 'x' });
   const sessionEnds = new SessionEnds(db.platform);
@@ -27,7 +27,8 @@ async function serve() {
   const revocations = new AccessRevocations();
   sessionEnds.onEnd((sessionId) => sessionSockets.end({ kind: 'session', sessionId }));
   revocations.listen(async (revoked) => { if (endsSessions(revoked)) sessionSockets.end({ kind: 'person', personId: revoked.personId, before: Date.parse(revoked.at) }); });
-  const auth = createAuth({ db, sessionKey: KEY, publicUrl: 'http://localhost:3001', sessionEnds });
+  const real = createAuth({ db, sessionKey: KEY, publicUrl: 'http://localhost:3001', sessionEnds });
+  const auth = failing ? { ...real, sessionFromCookie: async () => { throw new Error('the database did not answer'); } } : real;
   const server = http.createServer();
   const io = new SocketServer(server);
   signSocketsIn(io, { auth, db, env: {}, sessionSockets });
@@ -44,6 +45,8 @@ const opened = (url: string, token: string): Promise<{ socket: ClientSocket; clo
   socket.on('connect', () => resolve({ socket, closed }));
   socket.on('connect_error', (err) => reject(err));
 });
+
+const refusal = (url: string, token: string): Promise<Error & { data?: unknown }> => opened(url, token).then(() => { throw new Error('it connected'); }, (err: Error & { data?: unknown }) => err);
 
 describe('an open connection ends with its session', () => {
   it('closes the connection made with a session signed out of, keeps the others, and refuses it again', async () => {
@@ -68,5 +71,21 @@ describe('an open connection ends with its session', () => {
     expect(after.socket.connected).toBe(true);
     await revocations.revoked({ personId: 'ann', because: 'removed-from-shared-project', at: new Date(Date.now() + 120_000).toISOString(), sharedProjectId: 'sp1' });
     expect(after.socket.connected).toBe(true);
+  });
+});
+
+describe('a session the server could not check', () => {
+  it('is refused as one to try again, never as Unauthorized, so the browser does not take it for signed out', async () => {
+    const { url } = await serve(true);
+    const refused = await refusal(url, sessionToken({ id: 'ann', email: 'ann@example.com' }, KEY));
+    expect(refused.message).toBe('the session could not be checked; try again');
+    expect(refused.data).toEqual({ tryAgain: true });
+  });
+
+  it('refuses a session that is not one as Unauthorized, with nothing to try again', async () => {
+    const { url } = await serve();
+    const refused = await refusal(url, 'not-a-session');
+    expect(refused.message).toBe('Unauthorized');
+    expect(refused.data).toBeUndefined();
   });
 });

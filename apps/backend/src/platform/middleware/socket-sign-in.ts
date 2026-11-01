@@ -18,6 +18,8 @@ interface SignedInData {
   session?: SocketSession;
 }
 
+export const SIGN_IN_UNCHECKED = { tryAgain: true } as const;
+
 const signedInData = (socket: Socket): SignedInData => socket.data as SignedInData;
 
 export function signSocketsIn(io: SocketServer, deps: SocketSignInDeps): void {
@@ -35,7 +37,10 @@ export function signSocketsIn(io: SocketServer, deps: SocketSignInDeps): void {
       data.session = { sessionId: signedIn.sessionId, personId: signedIn.user.id, sessionAt: signedIn.sessionAt };
       return undefined;
     };
-    signIn().then((refused) => next(refused), () => next(new Error('Unauthorized')));
+    signIn().then((refused) => next(refused), (err: unknown) => {
+      console.error(`[sockets] a connection's session could not be checked, so it is asked to try again: ${err instanceof Error ? err.message : String(err)}`);
+      next(Object.assign(new Error('the session could not be checked; try again'), { data: SIGN_IN_UNCHECKED }));
+    });
   });
   io.on('connection', (socket) => {
     const { session } = signedInData(socket);
