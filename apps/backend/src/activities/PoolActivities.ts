@@ -12,6 +12,7 @@ import {
   proxyManifests, RUNTIME_CLASS, VCLUSTER_CHART_VERSION, vclusterAddress, vclusterValues, type PoolSettings,
 } from '../instances/index.js';
 import { BLACKBOX_VALUES, POOL_MONITORING, poolAppAlerts, poolStackValues, probeIngressPolicy } from '../monitoring/index.js';
+import { messageOf, waitingOn } from './failure-reasons.js';
 
 const DEFAULT_KUBECONFIG = '/tmp/kubeconfig-provisioning-lunorica';
 const ADMISSION_CHECK_NAMESPACE = 'pool-admission-check';
@@ -135,8 +136,9 @@ export async function PoolVclusterActivity(args: { instanceId: string }): Promis
     } finally {
       await fs.rm(dir, { recursive: true, force: true });
     }
+    const waiting = waitingOn(`the vcluster ${name}'s sign-in`);
     for (;;) {
-      const secret = await infra.runKubectl(['get', 'secret', `vc-${name}`, '-n', namespace, '-o', 'name'], pool.kubeconfig).catch(() => '');
+      const secret = await infra.runKubectl(['get', 'secret', `vc-${name}`, '-n', namespace, '-o', 'name'], pool.kubeconfig).catch((err: unknown) => { waiting(err); return ''; });
       if (secret.trim()) break;
       await sleep(2000);
     }
@@ -170,12 +172,13 @@ export async function PoolChartActivity(args: { instanceId: string }): Promise<v
       { apiVersion: 'v1', kind: 'Secret', metadata: { name: 'instance-values', namespace }, stringData: { 'values.json': JSON.stringify(values) } },
       installJob(job, namespace, name, pool.image),
     ]), pool.kubeconfig);
+    const waiting = waitingOn(`the install job ${job} in ${namespace}`);
     for (;;) {
-      const counts = await infra.runKubectl(['get', 'job', job, '-n', namespace, '-o', 'jsonpath={.status.succeeded}|{.status.failed}'], pool.kubeconfig).catch(() => '|');
+      const counts = await infra.runKubectl(['get', 'job', job, '-n', namespace, '-o', 'jsonpath={.status.succeeded}|{.status.failed}'], pool.kubeconfig).catch((err: unknown) => { waiting(err); return '|'; });
       const [succeeded, failed] = counts.split('|');
       if (Number(succeeded) > 0) break;
       if (Number(failed) > 0) {
-        const logs = await infra.runKubectl(['logs', `job/${job}`, '-n', namespace, '--tail=30'], pool.kubeconfig).catch(() => '');
+        const logs = await infra.runKubectl(['logs', `job/${job}`, '-n', namespace, '--tail=30'], pool.kubeconfig).catch((err: unknown) => `its log could not be read: ${messageOf(err)}`);
         throw new Error(`installing Koala in ${namespace} failed: ${logs.trim().split('\n').slice(-6).join(' | ') || 'no log'}`);
       }
       await sleep(5000);
@@ -225,8 +228,9 @@ export async function PoolReadyActivity(args: { instanceId: string }): Promise<v
   await withInstance(args.instanceId, async (instance, save) => {
     await save({ detail: 'Starting Koala in your space' });
     const probe = `wget -q -O /dev/null -T 10 http://${pool.address}:${instance.pool!.ports.backend}/api/auth/sign-in`;
+    const waiting = waitingOn(`the pool proxy reaching ${instance.name}'s backend`);
     for (;;) {
-      const answered = await infra.runKubectl(['exec', '-n', PROXY.namespace, `daemonset/${PROXY.name}`, '--', 'sh', '-c', probe], pool.kubeconfig).then(() => true, () => false);
+      const answered = await infra.runKubectl(['exec', '-n', PROXY.namespace, `daemonset/${PROXY.name}`, '--', 'sh', '-c', probe], pool.kubeconfig).then(() => true, (err: unknown) => { waiting(err); return false; });
       if (answered) break;
       await sleep(5000);
     }
@@ -355,8 +359,9 @@ function moveRelay(pool: PoolSettings): MoveRelay {
 async function backendAnswers(pool: PoolSettings, ports: { backend: number }): Promise<void> {
   const infra = new InfrastructureService();
   const probe = `wget -q -O /dev/null -T 10 http://${pool.address}:${ports.backend}/api/auth/sign-in`;
+  const waiting = waitingOn(`the pool proxy reaching the backend on port ${ports.backend}`);
   for (;;) {
-    const answered = await infra.runKubectl(['exec', '-n', PROXY.namespace, `daemonset/${PROXY.name}`, '--', 'sh', '-c', probe], pool.kubeconfig).then(() => true, () => false);
+    const answered = await infra.runKubectl(['exec', '-n', PROXY.namespace, `daemonset/${PROXY.name}`, '--', 'sh', '-c', probe], pool.kubeconfig).then(() => true, (err: unknown) => { waiting(err); return false; });
     if (answered) return;
     await sleep(5000);
   }

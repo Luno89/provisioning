@@ -5,6 +5,7 @@ import os from 'os';
 import path from 'path';
 
 import { InfrastructureService } from '../infrastructure/index.js';
+import { recordOf } from './json-shapes.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -99,9 +100,9 @@ export async function ProvisionHetznerVmActivity(
     });
 
     const raw = await fs.readFile(outputsFile, 'utf-8');
-    const outputs = JSON.parse(raw)?.[stackName] ?? {};
-    const host = outputs.ipv4_address;
-    const serverId = outputs.server_id;
+    const outputs = recordOf(recordOf(JSON.parse(raw))[stackName]);
+    const host = typeof outputs.ipv4_address === 'string' ? outputs.ipv4_address : undefined;
+    const serverId = typeof outputs.server_id === 'string' || typeof outputs.server_id === 'number' ? String(outputs.server_id) : '';
 
     if (!host) {
       throw new Error(`Hetzner VM stack ${stackName} produced no ipv4_address output`);
@@ -115,7 +116,7 @@ export async function ProvisionHetznerVmActivity(
       await fs.rm(keyPath, { force: true });
     }
 
-    const result = { host, serverId: String(serverId ?? ''), privateKey, username: HETZNER_SSH_USERNAME };
+    const result = { host, serverId, privateKey, username: HETZNER_SSH_USERNAME };
     await cleanup();
     return result;
   } finally {

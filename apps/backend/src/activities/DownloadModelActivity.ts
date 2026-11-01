@@ -3,6 +3,7 @@ import fsp from 'fs/promises';
 import path from 'path';
 import { getHfModelFiles, downloadHfFiles, type DownloadProgress } from '../infrastructure/index.js';
 import { computeModelFolderName } from '../models/index.js';
+import { ignore } from '@koala/engine-core/failures';
 
 export interface DownloadModelArgs {
   modelRepo: string;
@@ -23,7 +24,7 @@ const gib = (bytes: number) => (bytes / 1e9).toFixed(1);
 
 async function log(logFile: string | undefined, line: string): Promise<void> {
   if (!logFile) return;
-  await fsp.appendFile(logFile, `${line}\n`).catch(() => { /* best-effort — never fail the download over a log write */ });
+  await fsp.appendFile(logFile, `${line}\n`).catch(ignore('the log only shows progress, and the work goes on without it'));
 }
 
 export async function DownloadModelActivity(args: DownloadModelArgs): Promise<DownloadModelResult> {

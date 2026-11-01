@@ -1,6 +1,7 @@
 import fs from 'fs/promises';
 import type { InfrastructureService } from '../infrastructure/index.js';
 import { monitoringPlan, monitoringStackEnv, monitoringStackName, TELEMETRY_SERVICES } from '../monitoring/index.js';
+import { ignore } from '@koala/engine-core/failures';
 
 export interface MonitoredCluster {
   physicalName: string;
@@ -23,7 +24,7 @@ async function install(infra: InfrastructureService, cluster: MonitoredCluster, 
   const plan = monitoringPlan({ apiResources, blackbox, ingressClasses, telemetry: { collector, tempo } }, cluster.pool);
   if (plan.stacks.length === 0) return;
   const env = monitoringStackEnv(cluster, plan.keepIngress);
-  if (logFile) await fs.appendFile(logFile, `[monitoring] ${cluster.physicalName} ${cluster.pool ? 'is watched by Koala\'s servers; installing what its apps need' : `has no monitoring yet; installing ${plan.stacks.join(' and ')}`}\n`).catch(() => {});
+  if (logFile) await fs.appendFile(logFile, `[monitoring] ${cluster.physicalName} ${cluster.pool ? 'is watched by Koala\'s servers; installing what its apps need' : `has no monitoring yet; installing ${plan.stacks.join(' and ')}`}\n`).catch(ignore('the log only shows progress, and the work goes on without it'));
   for (const part of plan.stacks) {
     await infra.deploy(monitoringStackName(cluster.physicalName, part), { env, ...(logFile ? { logFile } : {}) });
   }

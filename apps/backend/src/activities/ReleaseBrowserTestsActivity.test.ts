@@ -129,9 +129,10 @@ describe('running a release\'s browser tests against its preview', () => {
   });
 
   it('says why when the test login cannot be set up, or Playwright cannot be installed, or the pod dies', async () => {
-    expect(await activity(cluster({ loginFails: true }), SPECS)(input)).toMatchObject({ state: 'unavailable', reason: expect.stringContaining('the test login could not be set up in slot b: shop-e2e-login-b failed:\nTraceback') });
-    expect(await activity(cluster({ done: 'install' }), SPECS)(input)).toMatchObject({ state: 'unavailable', reason: expect.stringContaining('Playwright could not be installed in the browser\'s pod:\nnpm ERR! network request') });
-    expect(await activity(cluster({ podPhase: 'Failed' }), SPECS)(input)).toMatchObject({ state: 'unavailable', reason: expect.stringContaining('the browser\'s pod ended before the tests finished') });
+    const unavailableBecause = (e2e: { state: string; reason?: string | undefined }) => (e2e.state === 'unavailable' ? e2e.reason : `not unavailable but ${e2e.state}`);
+    expect(unavailableBecause(await activity(cluster({ loginFails: true }), SPECS)(input))).toContain('the test login could not be set up in slot b: shop-e2e-login-b failed:\nTraceback');
+    expect(unavailableBecause(await activity(cluster({ done: 'install' }), SPECS)(input))).toContain('Playwright could not be installed in the browser\'s pod:\nnpm ERR! network request');
+    expect(unavailableBecause(await activity(cluster({ podPhase: 'Failed' }), SPECS)(input))).toContain('the browser\'s pod ended before the tests finished');
   });
 
   it('fails a run that left no report, quoting what Playwright printed', async () => {

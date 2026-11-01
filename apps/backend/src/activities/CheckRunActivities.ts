@@ -25,6 +25,7 @@ import { seededGrants, seededPersonas } from '../extensions/seeds.js';
 import { platformCatalogue, platformGroups } from '../extensions/installed.js';
 import type { ReleaseE2E, Slot } from '../releases/index.js';
 import type { Noticed } from '../checks/index.js';
+import { ignore } from '@koala/engine-core/failures';
 
 export interface CheckSpaceArgs {
   spaceId: string;
@@ -330,7 +331,7 @@ export function createCheckRunActivities(deps: CheckRunDeps): CheckRunActivities
       const context = activityContext();
       const stopIfCancelled = async (runId?: string) => {
         if (!context?.cancellationSignal.aborted) return;
-        if (runId) await http.post(`/engine/runs/${runId}/cancel`, {}).catch(() => undefined);
+        if (runId) await http.post(`/engine/runs/${runId}/cancel`, {}).catch(ignore('removing the check\'s space afterwards stops every run it left'));
         throw context.cancellationSignal.reason ?? new Error('the check was cancelled');
       };
       const wait = async () => {

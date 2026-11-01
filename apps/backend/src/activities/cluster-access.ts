@@ -24,7 +24,10 @@ export async function reachCluster(infra: InfrastructureService, cluster: Cluste
   if (cluster.gpuEnabled || cluster.provider === 'k3d' || isMock) {
     const physicalName = isMock ? `mock-${cluster.provider}-${cluster.clusterName}` : cluster.clusterName;
     const kubeconfigPath = `/tmp/kubeconfig-${physicalName}`;
-    const present = await fs.access(kubeconfigPath).then(() => true, () => false);
+    const present = await fs.access(kubeconfigPath).then(() => true, (err: NodeJS.ErrnoException) => {
+      if (err.code === 'ENOENT') return false;
+      throw err;
+    });
     if (!present) {
       const content = cluster.gpuEnabled ? await infra.getManagementClusterKubeconfig(physicalName) : await infra.getKubeconfig(physicalName);
       await writePrivate(kubeconfigPath, content);

@@ -3,6 +3,8 @@ import { promisify } from 'util';
 import fs from 'fs/promises';
 import os from 'os';
 import path from 'path';
+import { ignore } from '@koala/engine-core/failures';
+import { messageOf, waitingOn } from './failure-reasons.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -61,12 +63,12 @@ export async function JoinMeshActivity(args: JoinMeshArgs): Promise<JoinMeshResu
     const prefix = sshPrefix(args.username);
     const ssh = (cmd: string) => runSsh(args.host, port, args.username, keyPath, cmd);
 
-    const existing = await ssh(`${prefix}tailscale ip -4 2>/dev/null || true`).catch(() => '');
+    const existing = await ssh(`${prefix}tailscale ip -4 2>/dev/null || true`).catch(ignore('an ssh that fails here fails again, with its reason, at the steps below')) ?? '';
     if (isMeshIp(existing)) {
       return { meshIp: existing.trim().split('\n')[0]!.trim() };
     }
 
-    const installed = await ssh('command -v tailscale').then(() => true).catch(() => false);
+    const installed = await ssh('command -v tailscale').then(() => true, ignore('tailscale missing is the answer, and an ssh that cannot run fails again, with its reason, at the install'));
     if (!installed) {
       await ssh(`${prefix}sh -c 'curl -fsSL https://tailscale.com/install.sh | sh'`);
     }
@@ -76,8 +78,9 @@ export async function JoinMeshActivity(args: JoinMeshArgs): Promise<JoinMeshResu
     );
 
     let meshIp = '';
+    const waiting = waitingOn(`${args.host}'s mesh address`);
     for (let attempt = 0; attempt < 20; attempt++) {
-      const out = await ssh(`${prefix}tailscale ip -4 2>/dev/null || true`).catch(() => '');
+      const out = await ssh(`${prefix}tailscale ip -4 2>/dev/null || true`).catch((err: unknown) => { waiting(err); return ''; });
       const candidate = out.trim().split('\n')[0]?.trim() ?? '';
       if (isMeshIp(candidate)) {
         meshIp = candidate;
@@ -88,7 +91,7 @@ export async function JoinMeshActivity(args: JoinMeshArgs): Promise<JoinMeshResu
 
     if (!meshIp) {
       throw new Error(
-        `Host joined the mesh but never reported a 100.64.0.0/10 address (last seen: "${(await ssh(`${prefix}tailscale status 2>&1 | head -3 || true`).catch(() => 'unavailable')).trim()}")`,
+        `Host joined the mesh but never reported a 100.64.0.0/10 address (last seen: "${(await ssh(`${prefix}tailscale status 2>&1 | head -3 || true`).catch((err: unknown) => `unavailable: ${messageOf(err)}`)).trim()}")`,
       );
     }
 

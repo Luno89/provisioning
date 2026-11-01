@@ -9,6 +9,8 @@ import { ApplicationFailure } from '@temporalio/common';
 import { buildPlanAt, isCommitSha, buildArgEntries } from '../releases/index.js';
 import { loadKeys, writePrivate } from '../platform/index.js';
 import { forPushing, kanikoRegistryArgs, dockerConfigJson } from '../instances/index.js';
+import { ignore } from '@koala/engine-core/failures';
+import { messageOf, waitingOn } from './failure-reasons.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -46,7 +48,7 @@ export async function resolveKubeconfig(infra: InfrastructureService): Promise<s
 }
 
 async function log(logFile: string, line: string): Promise<void> {
-  await fs.appendFile(logFile, `${line}\n`).catch(() => {});
+  await fs.appendFile(logFile, `${line}\n`).catch(ignore('the log only shows progress, and the work goes on without it'));
 }
 
 export function yamlDoubleQuoted(value: string): string {
@@ -73,7 +75,7 @@ export async function RunPipelineActivity(args: RunPipelineArgs): Promise<RunPip
 
   await log(args.logFile, `Building ${args.giteaOwner}/${args.giteaRepo}@${args.commitSha} -> ${imageTag}`);
 
-  const plan = await buildPlanAt((file) => gitea.getRawFile(args.giteaOwner, args.giteaRepo, file, args.commitSha).catch(() => null), args.commitSha);
+  const plan = await buildPlanAt((file) => gitea.getRawFile(args.giteaOwner, args.giteaRepo, file, args.commitSha), args.commitSha);
   if (!plan.build) {
     await log(args.logFile, `Nothing to build: ${plan.reason}.`);
     throw ApplicationFailure.nonRetryable(`Nothing to build: ${plan.reason}.`, 'NoDockerfile');
@@ -168,8 +170,9 @@ spec:
     await infra.runKubectl(['apply', '-f', manifestPath], kubeconfig);
     await log(args.logFile, `Applied Job ${jobName} in namespace ${BUILD_NAMESPACE}`);
 
+    const waiting = waitingOn(`the build job ${jobName}`);
     for (let i = 0; i < 30 && !podName; i++) {
-      const out = await infra.runKubectl(['get', 'pods', '-n', BUILD_NAMESPACE, '-l', `job-name=${jobName}`, '-o', 'jsonpath={.items[0].metadata.name}'], kubeconfig).catch(() => '');
+      const out = await infra.runKubectl(['get', 'pods', '-n', BUILD_NAMESPACE, '-l', `job-name=${jobName}`, '-o', 'jsonpath={.items[0].metadata.name}'], kubeconfig).catch((err: unknown) => { waiting(err); return ''; });
       if (out && out.trim()) podName = out.trim();
       else await new Promise(r => setTimeout(r, 2000));
     }
@@ -178,16 +181,16 @@ spec:
       logTail = spawn(path.join(BIN_DIR, 'kubectl'), ['logs', '-f', podName, '-n', BUILD_NAMESPACE, '--all-containers=true', '--context', MGMT_CONTEXT], {
         env: { ...process.env, KUBECONFIG: kubeconfig },
       });
-      logTail.stdout?.on('data', (chunk) => fs.appendFile(args.logFile, chunk).catch(() => {}));
-      logTail.stderr?.on('data', (chunk) => fs.appendFile(args.logFile, chunk).catch(() => {}));
+      logTail.stdout?.on('data', (chunk: Buffer) => { void fs.appendFile(args.logFile, chunk).catch(ignore('the log only shows progress, and the work goes on without it')); });
+      logTail.stderr?.on('data', (chunk: Buffer) => { void fs.appendFile(args.logFile, chunk).catch(ignore('the log only shows progress, and the work goes on without it')); });
     }
 
     for (;;) {
-      const out = await infra.runKubectl(['get', 'job', jobName, '-n', BUILD_NAMESPACE, '-o', 'json'], kubeconfig);
-      const job = JSON.parse(out);
-      if ((job.status?.succeeded || 0) > 0) break;
-      if ((job.status?.failed || 0) > 0) throw new Error('Pipeline build failed — see log for details');
-      const pods = await infra.runKubectl(['get', 'pods', '-l', `job-name=${jobName}`, '-n', BUILD_NAMESPACE, '-o', 'json'], kubeconfig).catch(() => '');
+      const counts = await infra.runKubectl(['get', 'job', jobName, '-n', BUILD_NAMESPACE, '-o', 'jsonpath={.status.succeeded}|{.status.failed}'], kubeconfig);
+      const [succeeded, failed] = counts.split('|').map((value) => Number(value) || 0);
+      if (succeeded) break;
+      if (failed) throw new Error('Pipeline build failed — see log for details');
+      const pods = await infra.runKubectl(['get', 'pods', '-l', `job-name=${jobName}`, '-n', BUILD_NAMESPACE, '-o', 'json'], kubeconfig).catch((err: unknown) => { waiting(err); return ''; });
       const health = pods ? assessWorkload(JSON.parse(pods)) : undefined;
       if (health?.health === 'unhealthy') throw new Error(`Pipeline build cannot run: ${health.reason}`);
       await new Promise(r => setTimeout(r, 5000));
@@ -199,10 +202,16 @@ spec:
     logTail?.kill();
     await gitea.revokeToken(deployToken.name).catch(async (err: Error) => {
       console.error(`[pipeline] the build's Gitea token ${deployToken.name} could not be revoked: ${err.message}`);
-      await log(args.logFile, `The build's Gitea token ${deployToken.name} could not be revoked (${err.message}); revoke it in Gitea`).catch(() => undefined);
+      await log(args.logFile, `The build's Gitea token ${deployToken.name} could not be revoked (${err.message}); revoke it in Gitea`);
     });
-    await infra.runKubectl(['delete', 'job', jobName, '-n', BUILD_NAMESPACE, '--ignore-not-found'], kubeconfig).catch(() => {});
-    await infra.runKubectl(['delete', 'secret', gitSecretName, registrySecretName, '-n', BUILD_NAMESPACE, '--ignore-not-found'], kubeconfig).catch(() => {});
-    await fs.rm(manifestPath, { force: true }).catch(() => {});
+    await infra.runKubectl(['delete', 'job', jobName, '-n', BUILD_NAMESPACE, '--ignore-not-found'], kubeconfig).catch((err: unknown) => {
+      console.warn(`[pipeline] the build job ${jobName} in ${BUILD_NAMESPACE} could not be removed: ${messageOf(err)}`);
+    });
+    await infra.runKubectl(['delete', 'secret', gitSecretName, registrySecretName, '-n', BUILD_NAMESPACE, '--ignore-not-found'], kubeconfig).catch((err: unknown) => {
+      console.warn(`[pipeline] the build's secrets ${gitSecretName} and ${registrySecretName} in ${BUILD_NAMESPACE} could not be removed: ${messageOf(err)}`);
+    });
+    await fs.rm(manifestPath, { force: true }).catch((err: unknown) => {
+      console.warn(`[pipeline] the build's manifest ${manifestPath}, which holds its Gitea token, could not be removed: ${messageOf(err)}`);
+    });
   }
 }

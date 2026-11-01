@@ -117,7 +117,7 @@ describe('the steps that delete a project', () => {
     const planned = await steps.RemoveProjectAppsActivity({ projectId: 'p1' });
     expect(planned).toEqual([{
       deploymentId: 'odoo-p1',
-      workflowId: expect.stringMatching(/^app-destroy-shop-p1-/),
+      workflowId: expect.stringMatching(/^app-destroy-shop-p1-/) as unknown,
       taskQueue: 'cluster-ops-queue',
       args: { name: 'shop-p1', clusterId: 'system', clusterName: 'provisioning-lunorica', provider: 'k3d', strategy: 'helm', logFile: '/logs/destroy.log', deploymentId: 'default', appType: 'odoo-project', namespace: 'shop-p1-1a2b3c' },
     }]);

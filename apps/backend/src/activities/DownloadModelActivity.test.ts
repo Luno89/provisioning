@@ -56,7 +56,7 @@ describe('DownloadModelActivity', () => {
       { rfilename: 'model.safetensors', size: 5000 },
     ];
     getHfModelFiles.mockResolvedValue(files);
-    downloadHfFiles.mockImplementation(async (_files, dir) => {
+    downloadHfFiles.mockImplementation(async (_files: unknown, dir: string) => {
       await fsp.writeFile(path.join(dir, 'config.json'), '{}');
       await fsp.writeFile(path.join(dir, 'model.safetensors'), 'dummy');
     });
