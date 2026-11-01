@@ -2,12 +2,12 @@ import { useState } from 'react'
 import { Check, Copy, Link2 } from 'lucide-react'
 import { errorMessage } from '../../../api/client'
 import { shareUrl } from '../api/files'
-import { SHARE_DAYS, type FileScope, type ShareDays } from '../types'
+import { SHARE_DAYS, type ShareableScope, type ShareDays } from '../types'
 import { useShareFile } from '../shared'
 
 const DAYS_SAID: Record<ShareDays, string> = { 1: 'a day', 7: 'a week', 30: 'a month' }
 
-export default function ShareFile({ scope, path }: { scope: FileScope; path: string }) {
+export default function ShareFile({ scope, path }: { scope: ShareableScope; path: string }) {
   const share = useShareFile(scope)
   const [days, setDays] = useState<ShareDays>(7)
   const [copied, setCopied] = useState(false)

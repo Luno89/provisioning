@@ -8,7 +8,7 @@ import {
 import { dropIntoRepository, projectFileKeys } from '../projects'
 import { groveKeys } from '../projects'
 import { joinPath, type PickedFile } from './lib/file-drop'
-import type { FileScope, PlaceState, ShareDays } from './types'
+import type { FileScope, PlaceState, ShareableScope, ShareDays } from './types'
 
 export const STARTING_POLL_MS = 3000
 
@@ -102,7 +102,7 @@ export function useFileShares() {
   return useQuery({ queryKey: fileKeys.shares, queryFn: listFileShares })
 }
 
-export function useShareFile(scope: FileScope) {
+export function useShareFile(scope: ShareableScope) {
   const client = useQueryClient()
   return useMutation({
     mutationFn: ({ path, days }: { path: string; days: ShareDays }) => shareStoredFile(scope, path, days),

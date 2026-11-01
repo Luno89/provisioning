@@ -43,6 +43,8 @@ export interface MessageAttachment {
 
 export type FileScope = { kind: 'project'; projectId: string } | { kind: 'hub'; projectId: string } | { kind: 'mine' }
 
+export type ShareableScope = Exclude<FileScope, { kind: 'hub' }>
+
 export interface FileShare {
   id: string
   token: string

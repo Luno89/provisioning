@@ -1,5 +1,5 @@
 import { api, API_BASE } from '../../../api/client'
-import type { FileScope, FileServer, FileShare, PlaceState, ShareDays, StoredFile } from '../types'
+import type { FileScope, FileServer, FileShare, PlaceState, ShareableScope, ShareDays, StoredFile } from '../types'
 
 export const FILE_TYPE_HEADER = 'X-File-Type'
 
@@ -61,8 +61,11 @@ export const makeStoredFolder = (scope: FileScope, path: string): Promise<{ path
 export const searchStoredFiles = (scope: FileScope, query: string): Promise<StoredFile[]> =>
   api.get<StoredFile[]>(`${base(scope)}/search`, { params: { q: query } }).then((r) => r.data)
 
-export const shareStoredFile = (scope: FileScope, path: string, days: ShareDays): Promise<FileShare> =>
-  api.post<FileShare>(`${base(scope)}/shares`, { path, days }).then((r) => r.data)
+const shareBase = (scope: ShareableScope): string =>
+  scope.kind === 'project' ? `/files/projects/${encodeURIComponent(scope.projectId)}` : '/files/mine'
+
+export const shareStoredFile = (scope: ShareableScope, path: string, days: ShareDays): Promise<FileShare> =>
+  api.post<FileShare>(`${shareBase(scope)}/shares`, { path, days }).then((r) => r.data)
 
 export const listFileShares = (): Promise<FileShare[]> =>
   api.get<FileShare[]>('/files/shares').then((r) => r.data)
