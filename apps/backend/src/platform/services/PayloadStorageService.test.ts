@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { TestWorkflowEnvironment } from '@temporalio/testing';
-import { inMemoryPayloadBlobs } from '../lib/payload-storage.js';
+import { testPayloadBlobs } from '../lib/test-database.js';
 import { PayloadStorageService } from './PayloadStorageService.js';
 import { temporalTestEnvironment } from '../../workflows/temporal-test-env.js';
 
@@ -16,7 +16,7 @@ afterAll(async () => {
 
 describe('sweeping stored Temporal payloads against a real Temporal', () => {
   it('keeps the payloads of a workflow Temporal still has and releases those of one it has dropped', async () => {
-    const blobs = inMemoryPayloadBlobs();
+    const { blobs, stored } = testPayloadBlobs();
     const handle = await env.client.workflow.start('NeverRegistered', { taskQueue: 'nobody-polls', workflowId: `alive-${Date.now()}` });
     const old = new Date(Date.now() - 400 * 24 * 60 * 60 * 1000);
     await blobs.put([
@@ -28,7 +28,7 @@ describe('sweeping stored Temporal payloads against a real Temporal', () => {
     const report = await service.sweep();
 
     expect(report.released).toEqual(['never-existed']);
-    expect([...blobs.stored.keys()]).toEqual(['kept']);
+    expect((await stored()).map((blob) => blob.id)).toEqual(['kept']);
     expect(await service.retentionMs()).toBeGreaterThan(0);
     await handle.terminate();
   }, 120_000);

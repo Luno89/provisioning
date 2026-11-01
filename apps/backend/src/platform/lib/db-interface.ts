@@ -1,6 +1,6 @@
 import { MongoDB } from './mongo-db.js';
 import { mongoPayloadBlobs } from './mongo-payload-blobs.js';
-import { inMemoryPayloadBlobs, type PayloadBlobs } from './payload-storage.js';
+import type { PayloadBlobs } from './payload-storage.js';
 import type { PlatformStore } from '../store.js';
 import type { AccountsStore } from '../../accounts/index.js';
 import type { InstancesStore } from '../../instances/index.js';
@@ -38,10 +38,7 @@ export interface Database {
 let payloadBlobs: PayloadBlobs | undefined;
 
 export function sharedPayloadBlobs(): PayloadBlobs {
-  if (!payloadBlobs) {
-    const inMemory = process.env.NODE_ENV === 'test' && !process.env.IS_E2E;
-    payloadBlobs = inMemory ? inMemoryPayloadBlobs() : mongoPayloadBlobs();
-  }
+  payloadBlobs ??= mongoPayloadBlobs();
   return payloadBlobs;
 }
 

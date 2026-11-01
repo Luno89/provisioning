@@ -38,7 +38,7 @@ import { inMemoryConversations } from '../engine-host/nodes/conversation-nodes.j
 import { temporal } from '@temporalio/proto';
 import type { DataConverter } from '@temporalio/common';
 import { buildDataConverter } from '../platform/lib/temporal-codec.js';
-import { inMemoryPayloadBlobs } from '../platform/lib/payload-storage.js';
+import { testPayloadBlobs } from '../platform/lib/test-database.js';
 import { loadKeys } from '../platform/lib/keys.js';
 import { PAPER_WRITING } from '../extensions/grove/procedures.js';
 import { timeSkippingTestEnvironment } from './temporal-test-env.js';
@@ -995,7 +995,7 @@ describe('a run bigger than Temporal can carry', () => {
       { content: 'three pages read' },
     ] });
     acts.engine.EngineToolActivity.mockImplementation(async (call: ToolCallArgs) => ({ ok: true, digest: `fetched ${call.callId}`, content: `${call.callId}: ${page()}` }));
-    const blobs = inMemoryPayloadBlobs();
+    const { blobs, stored } = testPayloadBlobs();
     const converter = buildDataConverter(loadKeys({ JWT_SECRET: 'payload-storage-test' }).payload, blobs);
     const args = { ...input('executor', TOOL_ROUNDS_V2), continueAfterEvents: 1 };
     let firstRun = '';
@@ -1006,9 +1006,9 @@ describe('a run bigger than Temporal can carry', () => {
     const sizes = await historyOf(args.ticket.runId, firstRun);
     expect(sizes.length).toBeGreaterThan(0);
     expect(Math.max(...sizes)).toBeLessThan(512 * 1024);
-    expect(Math.max(...[...blobs.stored.values()].map((blob) => blob.data.length))).toBeGreaterThan(3_000_000);
-    expect(blobs.stored.size).toBeGreaterThan(0);
-    expect([...blobs.stored.values()].every((blob) => blob.workflowId === args.ticket.runId)).toBe(true);
+    expect(Math.max(...(await stored()).map((blob) => blob.size))).toBeGreaterThan(3_000_000);
+    expect((await stored()).length).toBeGreaterThan(0);
+    expect((await stored()).every((blob) => blob.workflowId === args.ticket.runId)).toBe(true);
   }, 180_000);
 });
 
@@ -1837,7 +1837,7 @@ describe('an external agent working on someone\'s machine', () => {
     const sessions = new ExternalAgentSessions({ rootDir: resolve(root, 'machine'), launches: { antigravity: { command: process.execPath, args: ['--import', import.meta.resolve('tsx'), AGENT, scriptPath] } }, segmentMs: 500 });
     const acts = activities({ script: [{ content: 'unused' }], external: sessions, environment: MACHINE, conversations: inMemoryConversations() });
     const ring = loadKeys({ JWT_SECRET: 'machine-payloads-test' }).payload;
-    const blobs = inMemoryPayloadBlobs();
+    const { blobs, stored } = testPayloadBlobs();
     const instance = machinePayloads({ ring, blobs });
     const asked: string[] = [];
     const socket: AskingSocket = {
@@ -1846,7 +1846,7 @@ describe('an external agent working on someone\'s machine', () => {
       off: () => undefined,
       emit(event, payload, ack) {
         asked.push(event);
-        const handedEverything = async () => { for (const blob of blobs.stored.values()) if (blob.workflowId) await blobs.handTo(blob.workflowId, 'desk'); };
+        const handedEverything = async () => { for (const blob of await stored()) if (blob.workflowId) await blobs.handTo(blob.workflowId, 'desk'); };
         const answer = event === 'machine:payloads' ? Promise.resolve(instance.ring()) : event === 'payloads:put' ? instance.put('desk', payload) : handedEverything().then(() => instance.get('desk', payload));
         void answer.then((value) => (ack as (answer: unknown) => void)(value));
         return true;
@@ -1864,7 +1864,7 @@ describe('an external agent working on someone\'s machine', () => {
     expect(result.outcome).toBe('ok');
     expect(String(result.outputs.result).endsWith(pasted)).toBe(true);
     expect(asked).toEqual(expect.arrayContaining(['machine:payloads', 'payloads:get', 'payloads:put']));
-    expect(blobs.stored.size).toBeGreaterThan(1);
+    expect((await stored()).length).toBeGreaterThan(1);
     await sessions.closeAll();
   }, 60_000);
 

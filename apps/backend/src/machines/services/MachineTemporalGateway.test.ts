@@ -7,14 +7,14 @@ import { Context } from '@temporalio/activity';
 import type { TestWorkflowEnvironment } from '@temporalio/testing';
 import { buildDataConverter, type BlobReach } from '@koala/engine-core/payloads';
 import { temporalTestEnvironment } from '../../workflows/temporal-test-env.js';
-import { inMemoryPayloadBlobs } from '../../platform/lib/payload-storage.js';
+import { testPayloadBlobs } from '../../platform/lib/test-database.js';
 import { MachineTemporalGateway } from './MachineTemporalGateway.js';
 
 let env: TestWorkflowEnvironment;
 let gateway: MachineTemporalGateway;
 let address = '';
 const refusals: string[] = [];
-const blobs = inMemoryPayloadBlobs();
+const { blobs, stored } = testPayloadBlobs();
 const PAYLOAD_KEY = 'p'.repeat(64);
 const handedBlobs = new Set<string>();
 const upstreamAuth: (string | undefined)[] = [];
@@ -57,7 +57,7 @@ beforeAll(async () => {
     keys: () => ['the-key'],
     deviceOf: async (token) => ({ 'token-d1': { id: 'd1' }, 'token-d2': { id: 'd2' } } as Record<string, { id: string }>)[token],
     handed: async (workflowId, deviceId) => {
-      for (const [id, blob] of blobs.stored) if (blob.workflowId === workflowId) handedBlobs.add(id);
+      for (const blob of await stored()) if (blob.workflowId === workflowId) handedBlobs.add(blob.id);
       await blobs.handTo(workflowId, deviceId);
     },
     log: (line) => refusals.push(line),
@@ -104,10 +104,10 @@ describe('a machine reaching Temporal through the gateway', () => {
     const workflows = await Worker.create({ connection: env.nativeConnection, taskQueue: 'gateway-big', dataConverter: converter, workflowsPath: resolve(__dirname, 'MachineTemporalGateway.fixture-workflow.ts') });
     const client = new Client({ connection: env.connection, namespace: env.namespace ?? 'default', dataConverter: converter });
     const pasted = 'a'.repeat(100) + Buffer.alloc(200_000).map(() => Math.floor(Math.random() * 26) + 97).toString();
-    const before = new Set(blobs.stored.keys());
+    const before = new Set((await stored()).map((blob) => blob.id));
     const answer = await workflows.runUntil(machine.runUntil(client.workflow.execute('askMachine', { taskQueue: 'gateway-big', workflowId: `big-${Date.now()}`, args: ['d1', pasted] })));
     expect(answer).toBe(`machine says ${pasted}`);
-    const offloaded = [...blobs.stored.keys()].filter((id) => !before.has(id));
+    const offloaded = (await stored()).map((blob) => blob.id).filter((id) => !before.has(id));
     const itsOwn = offloaded.filter((id) => handedBlobs.has(id));
     expect(itsOwn.length).toBeGreaterThanOrEqual(2);
     expect(itsOwn.length).toBeLessThan(offloaded.length);
