@@ -58,7 +58,7 @@ describe('connecting OpenRouter with the person\'s own account', () => {
     expect(setCookie).toMatch(/Path=\/api\/credentials\/llm\/openrouter/);
     expect(setCookie).toMatch(/Secure/);
     const sealed = setCookie.split(';')[0]!.slice(CONNECT_COOKIE.length + 1);
-    const pending = JSON.parse(decryptValue(Buffer.from(sealed, 'base64url').toString('utf8'), DATA_KEY));
+    const pending = JSON.parse(decryptValue(Buffer.from(sealed, 'base64url').toString('utf8'), DATA_KEY)) as { userId: string; verifier: string };
     expect(pending.userId).toBe(TEST_USER.id);
     expect(challengeOf(pending.verifier)).toBe(location.searchParams.get('code_challenge'));
     expect(location.toString()).not.toContain(pending.verifier);
@@ -71,7 +71,7 @@ describe('connecting OpenRouter with the person\'s own account', () => {
     const back = await get(harness.url(`/api/credentials/llm/openrouter/callback?code=the-code&state=${location.searchParams.get('state')}`), cookie);
     expect(back.status).toBe(302);
     expect(back.headers.location).toBe('https://app.example.com/?openrouterConnected=1#/studio/models');
-    const exchange = JSON.parse(seen.find((call) => call.url === OPENROUTER_KEYS_URL)!.body!);
+    const exchange = JSON.parse(seen.find((call) => call.url === OPENROUTER_KEYS_URL)!.body!) as { code: string; code_challenge_method: string; code_verifier: string };
     expect(exchange.code).toBe('the-code');
     expect(exchange.code_challenge_method).toBe('S256');
     expect(challengeOf(exchange.code_verifier)).toBe(location.searchParams.get('code_challenge'));

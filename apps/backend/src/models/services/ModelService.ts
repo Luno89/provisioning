@@ -37,8 +37,8 @@ export class ModelService extends BaseService {
     let devices;
     try {
       devices = await this.headscale.listUserDevices(userId);
-    } catch (err: any) {
-      throw new Error(`Cannot verify ownership of ${host} — the mesh is unreachable (${err.message})`);
+    } catch (err) {
+      throw new Error(`Cannot verify ownership of ${host} — the mesh is unreachable (${(err as Error).message})`);
     }
     const owned = devices.some((d) => d.ipAddresses.includes(host));
     if (!owned) {
@@ -120,7 +120,9 @@ export class ModelService extends BaseService {
       await this.assertOwnsMeshAddress(userId, check.literalIp);
     }
     if (!scripted && !check.literalIp && check.hostname) {
-      const addresses = await dns.lookup(check.hostname, { all: true }).catch(() => []);
+      const addresses = await dns.lookup(check.hostname, { all: true }).catch((err: Error) => {
+        throw new Error(`Endpoint "${provider.name}" cannot be checked: ${check.hostname} does not resolve (${err.message})`);
+      });
       for (const { address } of addresses) {
         if (isMeshAddress(address)) await this.assertOwnsMeshAddress(userId, address);
         else if (addressProblem(address)) throw new Error(`Endpoint "${provider.name}" is no longer allowed: ${check.hostname} resolves to ${addressProblem(address)}`);

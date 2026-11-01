@@ -1,6 +1,9 @@
 import { Router, type Request } from 'express';
 import { machineChoice } from '@koala/agent-engine/procedure';
-import { asyncRoute } from '../../platform/index.js';
+import { ignore } from '@koala/engine-core/failures';
+import { asyncRoute, fieldOf, type Database } from '../../platform/index.js';
+import type { CredentialService } from '../../infrastructure/index.js';
+import type { MachineService } from '../../machines/index.js';
 import {
   getHfModelSize, getHfModelConfig, estimateKvCacheBytes, searchHfModels,
   getExl3ModelCollection, getHfModelBranches,
@@ -9,7 +12,24 @@ import {
 const userOf = (req: Request): { id: string; email: string } =>
   (req as unknown as { user: { id: string; email: string } }).user;
 
-export function modelsRouter(deps: Record<string, any>): Router {
+export interface ModelsRouterDeps {
+  modelService: { list(userId: string): Promise<Array<{ id: string }>> };
+  db: Pick<Database, 'accounts'>;
+  credentialService: Pick<CredentialService, 'resolveCredentials'>;
+  machines?: Pick<MachineService, 'choiceProblem'> | undefined;
+  rateLimits: (ownerId: string) => unknown;
+}
+
+const messageOf = (err: unknown): string => (err instanceof Error ? err.message : String(err));
+
+const statusOf = (err: unknown): unknown => fieldOf(fieldOf(err, 'response'), 'status');
+
+const queryText = (req: Request, key: string): string | undefined => {
+  const value = req.query[key];
+  return typeof value === 'string' ? value : undefined;
+};
+
+export function modelsRouter(deps: ModelsRouterDeps): Router {
   const { modelService, db, credentialService } = deps;
   const router = Router();
 
@@ -20,8 +40,8 @@ export function modelsRouter(deps: Record<string, any>): Router {
   router.get('/', async (req, res) => {
     try {
       res.json(await modelService.list(userOf(req).id));
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
+    } catch (err) {
+      res.status(500).json({ error: messageOf(err) });
     }
   });
 
@@ -32,7 +52,7 @@ export function modelsRouter(deps: Record<string, any>): Router {
    */
   router.put('/default', asyncRoute(async (req, res) => {
     const user = userOf(req);
-    const { modelId } = req.body ?? {};
+    const modelId = fieldOf(req.body, 'modelId');
     if (modelId !== null && typeof modelId !== 'string') {
       return res.status(400).json({ error: 'modelId must be a string, or null to clear' });
     }
@@ -42,12 +62,13 @@ export function modelsRouter(deps: Record<string, any>): Router {
       const problem = await deps.machines.choiceProblem(user.id, onMachine);
       if (problem) return res.status(400).json({ error: problem });
     } else if (modelId) {
-      const owned = (await modelService.list(user.id)).some((m: any) => m.id === modelId);
+      const owned = (await modelService.list(user.id)).some((m) => m.id === modelId);
       if (!owned) return res.status(404).json({ error: 'Model not found' });
     }
     const record = await db.accounts.getUserById(user.id);
     if (!record) return res.status(404).json({ error: 'User not found' });
-    await db.accounts.saveUser({ ...record, ...(modelId ? { defaultModelId: modelId } : { defaultModelId: undefined }) });
+    const { defaultModelId: _replaced, ...kept } = record;
+    await db.accounts.saveUser(modelId ? { ...kept, defaultModelId: modelId } : kept);
     res.json({ success: true, defaultModelId: modelId || null });
   }));
 
@@ -58,7 +79,7 @@ export function modelsRouter(deps: Record<string, any>): Router {
    * the default into each pack could not do.
    */
   router.put('/default/override', asyncRoute(async (req, res) => {
-    const { override } = req.body ?? {};
+    const override = fieldOf(req.body, 'override');
     if (typeof override !== 'boolean') {
       return res.status(400).json({ error: 'override must be true or false' });
     }
@@ -79,78 +100,80 @@ export function modelsRouter(deps: Record<string, any>): Router {
   router.put('/extractor', async (req, res) => {
     try {
       const user = userOf(req);
-      const { modelId } = req.body ?? {};
+      const modelId = fieldOf(req.body, 'modelId');
       if (modelId !== null && typeof modelId !== 'string') {
         return res.status(400).json({ error: 'modelId must be a string, or null to clear' });
       }
       if (modelId) {
-        const owned = (await modelService.list(user.id)).some((m: any) => m.id === modelId);
+        const owned = (await modelService.list(user.id)).some((m) => m.id === modelId);
         if (!owned) return res.status(404).json({ error: 'Model not found' });
       }
       const record = await db.accounts.getUserById(user.id);
       if (!record) return res.status(404).json({ error: 'User not found' });
-      await db.accounts.saveUser({ ...record, ...(modelId ? { extractionModelId: modelId } : { extractionModelId: undefined }) });
+      const { extractionModelId: _replaced, ...kept } = record;
+      await db.accounts.saveUser(modelId ? { ...kept, extractionModelId: modelId } : kept);
       res.json({ success: true, extractionModelId: modelId || null });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
+    } catch (err) {
+      res.status(500).json({ error: messageOf(err) });
     }
   });
 
-  router.get('/extractor', async (req, res) => {
+  router.get('/extractor', asyncRoute(async (req, res) => {
     const record = await db.accounts.getUserById(userOf(req).id);
     res.json({ extractionModelId: record?.extractionModelId ?? null });
-  });
+  }));
 
   router.get('/hf-size', async (req, res) => {
     try {
-      const repo = req.query.repo as string;
+      const repo = queryText(req, 'repo');
       if (!repo) return res.status(400).json({ error: 'repo is required' });
-      const revision = req.query.revision as string | undefined;
+      const revision = queryText(req, 'revision');
       const user = userOf(req);
       const resolved = await credentialService.resolveCredentials(user.id, 'huggingface');
       const size = await getHfModelSize(repo, revision, resolved.env.HF_TOKEN);
 
-      const maxSeqLen = req.query.maxSeqLen ? parseInt(req.query.maxSeqLen as string) : undefined;
-      const gpuCount = Math.max(parseInt((req.query.gpuCount as string) || '1'), 1);
+      const seqLen = queryText(req, 'maxSeqLen');
+      const maxSeqLen = seqLen ? parseInt(seqLen) : undefined;
+      const gpuCount = Math.max(parseInt(queryText(req, 'gpuCount') || '1'), 1);
       let kvCacheBytesPerGpu: number | undefined;
       let weightBytesPerGpu: number | undefined;
       if (maxSeqLen) {
-        try {
-          const config = await getHfModelConfig(repo, revision, resolved.env.HF_TOKEN);
-          kvCacheBytesPerGpu = estimateKvCacheBytes(config, maxSeqLen, req.query.cacheMode as string | undefined) / gpuCount;
+        const config = await getHfModelConfig(repo, revision, resolved.env.HF_TOKEN).catch(ignore('a model whose config cannot be read is shown without a KV cache estimate'));
+        if (config) {
+          kvCacheBytesPerGpu = estimateKvCacheBytes(config, maxSeqLen, queryText(req, 'cacheMode')) / gpuCount;
           weightBytesPerGpu = size.totalBytes / gpuCount;
-        } catch { /* ignored */ }
+        }
       }
 
       res.json({ ...size, kvCacheBytesPerGpu, weightBytesPerGpu });
-    } catch (err: any) {
-      res.status(500).json({ error: err.response?.status === 404 ? `Model or revision not found: ${req.query.repo}@${req.query.revision || 'main'}` : err.message });
+    } catch (err) {
+      res.status(500).json({ error: statusOf(err) === 404 ? `Model or revision not found: ${queryText(req, 'repo') ?? ''}@${queryText(req, 'revision') || 'main'}` : messageOf(err) });
     }
   });
 
   router.get('/search', async (req, res) => {
     try {
-      const q = (req.query.q as string) || '';
-      const appType = req.query.appType as string;
+      const q = queryText(req, 'q') || '';
+      const appType = queryText(req, 'appType');
       const results = appType === 'tabbyapi'
         ? await getExl3ModelCollection(q)
         : await searchHfModels(q, { ...(appType === "vllm" ? { pipelineTag: "text-generation" } : {}), limit: 20 });
       res.json(results);
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
+    } catch (err) {
+      res.status(500).json({ error: messageOf(err) });
     }
   });
 
   router.get('/hf-branches', async (req, res) => {
     try {
-      const repo = req.query.repo as string;
+      const repo = queryText(req, 'repo');
       if (!repo) return res.status(400).json({ error: 'repo is required' });
       const user = userOf(req);
       const resolved = await credentialService.resolveCredentials(user.id, 'huggingface');
       const branches = await getHfModelBranches(repo, resolved.env.HF_TOKEN);
       res.json(branches);
-    } catch (err: any) {
-      res.status(500).json({ error: err.response?.status === 404 ? `Model not found: ${req.query.repo}` : err.message });
+    } catch (err) {
+      res.status(500).json({ error: statusOf(err) === 404 ? `Model not found: ${queryText(req, 'repo') ?? ''}` : messageOf(err) });
     }
   });
 
