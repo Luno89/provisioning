@@ -1,11 +1,49 @@
 import { Router, type Request } from 'express';
 import { allowed, asyncRoute, principalFrom } from '../../platform/index.js';
+import type { Database, LocalEgressRule, LocalAgentDeviceMetadata, PartialInfo, Principal, ProjectMetadata } from '../../platform/index.js';
 import { isWorkspaceLanguage, WorkspaceImageService } from '../../engine/index.js';
 import { v4 as uuidv4 } from 'uuid';
 import { rollupProjectStatus, deploymentForProject } from '../lib/project-status.js';
 import { namesTargetCluster, targetClusterProblem } from '../lib/project-shipping.js';
 import { validateLocalEgressRules } from '../../infrastructure/index.js';
+import type { ClusterService, TemporalBridge } from '../../infrastructure/index.js';
 import type { ProjectRemovalService } from '../services/ProjectRemovalService.js';
+import type { ProjectRepoService } from '../services/ProjectRepoService.js';
+import type { ProjectChannelService } from '../services/ProjectChannelService.js';
+import type { GiteaService } from '../services/GiteaService.js';
+
+export interface ProjectsRouterDeps {
+  db: Database;
+  getOwnedProject: (id: string, principal: Principal) => Promise<ProjectMetadata | undefined>;
+  projectRepoService: Pick<ProjectRepoService, 'createProject'>;
+  temporalBridge: Pick<TemporalBridge, 'promoteProjectBuild'>;
+  giteaService: Pick<GiteaService, 'getCommit'>;
+  clusterService: Pick<ClusterService, 'getById'>;
+  channels?: Pick<ProjectChannelService, 'ensure'> | undefined;
+  removal?: Pick<ProjectRemovalService, 'preview' | 'remove'> | undefined;
+}
+
+type ExecutionTarget = NonNullable<ProjectMetadata['executionTarget']>;
+
+const bodyOf = (req: Request): Record<string, unknown> => {
+  const body: unknown = req.body;
+  return body && typeof body === 'object' ? body as Record<string, unknown> : {};
+};
+
+const textOf = (value: unknown): string | undefined => (typeof value === 'string' && value ? value : undefined);
+
+const trimmedPath = (value: unknown): string | undefined =>
+  typeof value === 'string' && value.trim() ? value.trim() : undefined;
+
+const approvalOf = (value: unknown): 'auto' | 'plan' | undefined =>
+  (value === 'auto' || value === 'plan' ? value : undefined);
+
+const localTarget = (deviceId: string, path: string | undefined, egress: unknown): ExecutionTarget => ({
+  kind: 'local-device',
+  deviceId,
+  ...(path ? { path } : {}),
+  ...(Array.isArray(egress) && egress.length ? { egress: egress as LocalEgressRule[] } : {}),
+});
 
 const idOf = (req: Request): string => String(req.params.id ?? '');
 
@@ -13,43 +51,43 @@ const userOf = (req: Request): { id: string; email: string } =>
   (req as unknown as { user: { id: string; email: string } }).user;
 
 const claimedByAnotherProject = (
-  projects: any[], deviceId: string, path: string | undefined, excludeProjectId?: string,
+  projects: readonly ProjectMetadata[], deviceId: string, path: string | undefined, excludeProjectId?: string,
 ): boolean =>
   projects.some((p) => p.id !== excludeProjectId
     && p.executionTarget?.kind === 'local-device'
     && p.executionTarget.deviceId === deviceId
     && (p.executionTarget.path ?? '') === (path ?? ''));
 
-export function projectsRouter(deps: Record<string, any>): Router {
+export function projectsRouter(deps: ProjectsRouterDeps): Router {
   const {
     db, projectRepoService, temporalBridge, getOwnedProject,
     giteaService, channels, clusterService,
   } = deps;
-  const ownDevice = async (req: Request, deviceId: unknown) => (await db.machines.getLocalAgentDevices())
-    .find((d: any) => d.id === deviceId && allowed(principalFrom(req), 'see', { kind: 'record', noun: 'machine', ownerId: d.ownerId }));
+  const ownDevice = async (req: Request, deviceId: string): Promise<LocalAgentDeviceMetadata | undefined> => (await db.machines.getLocalAgentDevices())
+    .find((d) => d.id === deviceId && allowed(principalFrom(req), 'see', { kind: 'record', noun: 'machine', ownerId: d.ownerId }));
   const router = Router();
 
   router.get('/', async (req, res) => {
     const projects = await db.projects.getProjects();
-    const mine = projects.filter((p: any) => allowed(principalFrom(req), 'see', { kind: 'project', ownerId: p.ownerId }));
+    const mine = projects.filter((p) => allowed(principalFrom(req), 'see', { kind: 'project', ownerId: p.ownerId }));
     const [runs, deployments] = await Promise.all([db.releases.getPipelineRuns(), db.infrastructure.getDeployments()]);
-    res.json(mine.map((p: any) => ({
+    res.json(mine.map((p) => ({
       ...p,
       ...rollupProjectStatus(p, runs, deploymentForProject(p, deployments)),
     })));
   });
 
   router.get('/:id/runs', async (req, res) => {
-    const project = await getOwnedProject(req.params.id, principalFrom(req));
+    const project = await getOwnedProject(idOf(req), principalFrom(req));
     if (!project) {
       return res.status(404).json({ error: 'Project not found' });
     }
     const runs = (await db.releases.getPipelineRuns())
-      .filter((r: any) => r.projectId === req.params.id)
-      .sort((a: any, b: any) => b.startedAt.localeCompare(a.startedAt));
+      .filter((r) => r.projectId === req.params.id)
+      .sort((a, b) => b.startedAt.localeCompare(a.startedAt));
 
-    const enriched = await Promise.all(runs.map(async (run: any) => {
-      if (run.commitMessage || !run.commitSha) return run;
+    const enriched = await Promise.all(runs.map(async (run) => {
+      if (run.commitMessage || !run.commitSha || !project.giteaOwner || !project.giteaRepo) return run;
       try {
         const commit = await giteaService.getCommit(project.giteaOwner, project.giteaRepo, run.commitSha);
         if (!commit?.message) return run;
@@ -65,24 +103,24 @@ export function projectsRouter(deps: Record<string, any>): Router {
 
   router.post('/', async (req, res) => {
     try {
-      const {
-        name, giteaRepo, createRepo, targetClusterId, autoDeployOnBuild, language: language_,
-        executionTargetDeviceId, executionTargetPath, executionApproval, executionTargetEgress,
-      } = req.body;
+      const body = bodyOf(req);
+      const { createRepo, autoDeployOnBuild, language: language_, executionTargetEgress } = body;
+      const name = textOf(body.name);
+      const giteaRepo = textOf(body.giteaRepo);
+      const targetClusterId = textOf(body.targetClusterId);
+      const executionTargetDeviceId = textOf(body.executionTargetDeviceId);
+      const executionApproval = approvalOf(body.executionApproval);
       if (!name) return res.status(400).json({ error: 'name is required' });
-      const deployable = namesTargetCluster(targetClusterId) && Boolean(await clusterService.getById(targetClusterId, principalFrom(req), 'deploy-to'));
-      const clusterProblem = targetClusterProblem(targetClusterId, deployable);
+      const deployable = namesTargetCluster(body.targetClusterId) && Boolean(targetClusterId && await clusterService.getById(targetClusterId, principalFrom(req), 'deploy-to'));
+      const clusterProblem = targetClusterProblem(body.targetClusterId, deployable);
       if (clusterProblem) return res.status(400).json({ error: clusterProblem });
-      const wantsRepo = Boolean(giteaRepo);
-      if (!wantsRepo && !executionTargetDeviceId) {
+      if (!giteaRepo && !executionTargetDeviceId) {
         return res.status(400).json({ error: 'giteaRepo is required unless the project runs on a registered local machine' });
       }
 
-      const path = typeof executionTargetPath === 'string' && executionTargetPath.trim()
-        ? executionTargetPath.trim()
-        : undefined;
+      const path = trimmedPath(body.executionTargetPath);
 
-      let executionTarget: { kind: 'k8s' } | { kind: 'local-device'; deviceId: string; path?: string; egress?: any[] } | undefined;
+      let executionTarget: ExecutionTarget | undefined;
       if (executionTargetDeviceId) {
         const owned = await ownDevice(req, executionTargetDeviceId);
         if (!owned) return res.status(400).json({ error: 'Unknown local execution device' });
@@ -94,23 +132,16 @@ export function projectsRouter(deps: Record<string, any>): Router {
         const egressError = validateLocalEgressRules(executionTargetEgress);
         if (egressError) return res.status(400).json({ error: egressError });
 
-        executionTarget = {
-          kind: 'local-device',
-          deviceId: owned.id,
-          ...(path ? { path } : {}),
-          ...(Array.isArray(executionTargetEgress) && executionTargetEgress.length
-            ? { egress: executionTargetEgress }
-            : {}),
-        };
+        executionTarget = localTarget(owned.id, path, executionTargetEgress);
       }
 
       const language = isWorkspaceLanguage(await new WorkspaceImageService(db).list(userOf(req).id), language_) ? language_ : undefined;
       const extra = {
         ...(executionTarget ? { executionTarget } : {}),
-        ...(executionTarget && (executionApproval === 'auto' || executionApproval === 'plan') ? { executionApproval } : {}),
+        ...(executionTarget && executionApproval ? { executionApproval } : {}),
       };
 
-      const project = wantsRepo
+      const project = giteaRepo
         ? await projectRepoService.createProject(userOf(req).id, {
           name,
           repo: giteaRepo,
@@ -133,8 +164,8 @@ export function projectsRouter(deps: Record<string, any>): Router {
         });
       await channels?.ensure(project);
       res.status(201).json(project);
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
     }
   });
 
@@ -142,17 +173,18 @@ export function projectsRouter(deps: Record<string, any>): Router {
     const project = await getOwnedProject(idOf(req), principalFrom(req));
     if (!project) return res.status(404).json({ error: 'Project not found' });
 
-    const { executionTargetDeviceId, executionTargetPath, executionApproval, executionTargetEgress } = req.body ?? {};
-    const patch: Record<string, unknown> = { id: project.id };
+    const body = bodyOf(req);
+    const { executionTargetEgress } = body;
+    const executionApproval = approvalOf(body.executionApproval);
+    const patch: PartialInfo<ProjectMetadata> = { id: project.id };
 
-    if (executionTargetDeviceId !== undefined) {
+    if (body.executionTargetDeviceId !== undefined) {
+      const executionTargetDeviceId = body.executionTargetDeviceId ? String(body.executionTargetDeviceId) : undefined;
       if (executionTargetDeviceId) {
         const owned = await ownDevice(req, executionTargetDeviceId);
         if (!owned) return res.status(400).json({ error: 'Unknown local execution device' });
 
-        const path = typeof executionTargetPath === 'string' && executionTargetPath.trim()
-          ? executionTargetPath.trim()
-          : undefined;
+        const path = trimmedPath(body.executionTargetPath);
 
         if (claimedByAnotherProject(await db.projects.getProjects(), executionTargetDeviceId, path, project.id)) {
           return res.status(409).json({ error: 'That machine (at that path) is already the execution target for another project.' });
@@ -161,45 +193,38 @@ export function projectsRouter(deps: Record<string, any>): Router {
         const egressError = validateLocalEgressRules(executionTargetEgress);
         if (egressError) return res.status(400).json({ error: egressError });
 
-        patch.executionTarget = {
-          kind: 'local-device',
-          deviceId: owned.id,
-          ...(path ? { path } : {}),
-          ...(Array.isArray(executionTargetEgress) && executionTargetEgress.length
-            ? { egress: executionTargetEgress }
-            : {}),
-        };
+        patch.executionTarget = localTarget(owned.id, path, executionTargetEgress);
       } else {
         patch.executionTarget = { kind: 'k8s' };
       }
     }
 
-    if (executionApproval === 'auto' || executionApproval === 'plan') {
+    if (executionApproval) {
       patch.executionApproval = executionApproval;
     }
 
-    const updated = await db.projects.saveProjectInfo(patch as any);
+    const updated = await db.projects.saveProjectInfo(patch);
     res.json(updated);
   }));
 
   router.post('/:id/runs/:runId/promote', async (req, res) => {
     try {
       const user = userOf(req);
-      const project = await getOwnedProject(req.params.id, principalFrom(req));
+      const project = await getOwnedProject(idOf(req), principalFrom(req));
       if (!project) return res.status(404).json({ error: 'Project not found' });
       const runs = await db.releases.getPipelineRuns();
-      const run = runs.find((r: any) => r.id === req.params.runId && r.projectId === project.id);
+      const run = runs.find((r) => r.id === req.params.runId && r.projectId === project.id);
       if (!run) return res.status(404).json({ error: 'Run not found' });
       if (project.removal) return res.status(409).json({ error: 'This project is being deleted' });
 
       const info = await temporalBridge.promoteProjectBuild(project, run, user?.id);
       res.status(202).json({ message: 'Promoting build to deployment', workflowId: info.id, deploymentId: info.resourceId });
-    } catch (err: any) {
-      res.status(400).json({ error: err.message });
+    } catch (err) {
+      res.status(400).json({ error: (err as Error).message });
     }
   });
 
-  const removal = deps.removal as ProjectRemovalService | undefined;
+  const { removal } = deps;
 
   router.get('/:id/removal', asyncRoute(async (req, res) => {
     if (!removal) return res.status(404).json({ error: 'Projects cannot be deleted here' });
@@ -210,7 +235,7 @@ export function projectsRouter(deps: Record<string, any>): Router {
 
   router.delete('/:id', asyncRoute(async (req, res) => {
     if (!removal) return res.status(404).json({ error: 'Projects cannot be deleted here' });
-    const confirm = typeof req.body?.confirm === 'string' ? req.body.confirm : '';
+    const confirm = textOf(bodyOf(req).confirm) ?? '';
     const outcome = await removal.remove(userOf(req).id, idOf(req), confirm);
     if (!outcome.ok) return res.status(outcome.refusal.status).json(outcome.refusal);
     return res.status(202).json({ state: outcome.state });

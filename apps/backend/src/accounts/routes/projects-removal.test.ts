@@ -25,7 +25,12 @@ beforeEach(async () => {
           state: async (workflowId) => states.get(workflowId) ?? { state: 'none' },
         },
       });
-      return projectsRouter({ db, removal, getOwnedProject: async () => undefined });
+      const unused = (): never => { throw new Error('not used by this test'); };
+      return projectsRouter({
+        db, removal, getOwnedProject: async () => undefined,
+        projectRepoService: { createProject: unused }, temporalBridge: { promoteProjectBuild: unused },
+        giteaService: { getCommit: unused }, clusterService: { getById: unused },
+      });
     },
   });
 });

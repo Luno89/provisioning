@@ -2808,34 +2808,6 @@
       "count": 1
     }
   },
-  "src/projects/routes/projects.test.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 5
-    },
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 21
-    }
-  },
-  "src/projects/routes/projects.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 14
-    },
-    "@typescript-eslint/no-unsafe-argument": {
-      "count": 11
-    },
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 35
-    },
-    "@typescript-eslint/no-unsafe-call": {
-      "count": 27
-    },
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 55
-    },
-    "@typescript-eslint/no-unsafe-return": {
-      "count": 7
-    }
-  },
   "src/projects/routes/secret-requests.test.ts": {
     "@typescript-eslint/no-unsafe-call": {
       "count": 1
