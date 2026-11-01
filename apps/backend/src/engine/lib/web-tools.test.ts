@@ -90,6 +90,13 @@ describe('search', () => {
 
     expect((await tools.search('x')).unavailable).toBe(true);
   });
+
+  it('treats a DuckDuckGo answer cut off mid-body as unavailable, not as no matches', async () => {
+    const { impl } = stubFetch([['duckduckgo', { text: async () => { throw new Error('terminated'); } }]]);
+    const tools = createWebTools({ fetchImpl: impl });
+
+    expect((await tools.search('x')).unavailable).toBe(true);
+  });
 });
 
 describe('fetching a page', () => {
@@ -148,6 +155,13 @@ describe('fetching a page', () => {
     expect(await tools.readPage('https://gone.dev/x')).toEqual({ ok: false, text: 'HTTP error 404' });
     expect(await tools.readPage('https://fine.dev')).toEqual({ ok: true, text: 'here' });
     expect(await tools.readPage('file:///etc/passwd')).toMatchObject({ ok: false });
+  });
+
+  it('says a page could not be read when its body is cut off, rather than calling it empty', async () => {
+    const { impl } = stubFetch([['cut.dev', { text: async () => { throw new Error('terminated'); } }]]);
+    const tools = createWebTools({ fetchImpl: impl });
+
+    expect(await tools.readPage('https://cut.dev')).toEqual({ ok: false, text: 'The page could not be read: terminated' });
   });
 
   it('marks a blocked site as a refusal so the agent can reroute instead of retrying', async () => {

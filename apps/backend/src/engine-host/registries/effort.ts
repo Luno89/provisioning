@@ -1,3 +1,4 @@
+import { ignore } from '@koala/engine-core/failures';
 import type { Procedure } from '@koala/agent-engine/procedure';
 import type { RunBudget } from '@koala/agent-engine';
 import { limitsFor, replyCeilingFor, trackRecord, type RunEffort } from '@koala/agent-engine/procedure';
@@ -34,7 +35,7 @@ export function createEffortTracker(options: EffortTrackerOptions) {
       const agent = await options.registry.agent(args.ownerId, args.agentSlug);
       const resolved = await options.models
         .resolveBaseUrl(args.ownerId, args.modelId, agent?.model?.endpointId ?? undefined)
-        .catch(() => undefined);
+        .catch(ignore('a run whose model cannot be resolved is told why when it chooses one; until then its limits are those of its procedure'));
 
       if (!resolved) return { modelKey: UNRESOLVED_MODEL, modelLabel: 'no model', limits: { ...args.procedure.budget } };
 

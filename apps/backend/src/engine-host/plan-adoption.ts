@@ -292,7 +292,11 @@ export function createPlanAdoption(options: PlanAdoptionOptions): PlanAdoption {
         const world = await changeWorld(ownerId, change.treeId);
         const branches = await options.stores.branches.list();
         const titleOf = (leafId: string) => world.leaves.find((leaf) => leaf.id === leafId)?.title ?? leafId;
-        const read = async (path: string): Promise<string> => (await driver.readFile(`${TREE_REPO}/${path}`).catch(() => '')) ?? '';
+        const read = async (path: string): Promise<string> => {
+          const file = `${TREE_REPO}/${path}`;
+          if ((await driver.exec({ command: `test -f ${shell(file)}` })).exitCode !== 0) return '';
+          return driver.readFile(file);
+        };
         const written: { path: string; content: string }[] = [];
         const touched: string[] = [];
 

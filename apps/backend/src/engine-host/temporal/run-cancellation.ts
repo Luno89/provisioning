@@ -1,3 +1,4 @@
+import { ignore } from '@koala/engine-core/failures';
 import { RUN_ID_MEMO, workflowOfRun } from './contracts.js';
 import type { Client } from '@temporalio/client';
 import { ownerIn } from '../../platform/lib/workflow-owner.js';
@@ -81,7 +82,7 @@ export function runClosedVia(client: () => Promise<Client>, retryMs = RUN_WATCH_
   const life = runLifeVia(client);
   return async (runId, ownerId) => {
     for (;;) {
-      await client().then((connected) => connected.workflow.getHandle(workflowOfRun(runId)).result()).catch(() => undefined);
+      await client().then((connected) => connected.workflow.getHandle(workflowOfRun(runId)).result()).catch(ignore('a run that failed or was terminated rejects here as well, and whether it closed is asked next'));
       const now = await life(runId, ownerId).catch(() => 'running' as const);
       if (now !== 'running') return now;
       await new Promise((resolve) => setTimeout(resolve, retryMs));

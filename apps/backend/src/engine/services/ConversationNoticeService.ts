@@ -20,7 +20,11 @@ export class ConversationNoticeService {
     const posted = itemChat ? await this.deliver(ownerId, [itemChat], notice) : [];
     const told = itemChat ? { key: `${notice.key}:line`, kind: notice.kind, text: notice.line ?? notice.text, refs: notice.refs, actions: ['open-story' as const] } : notice;
     const delivered = [...posted, ...await this.deliver(ownerId, await this.audience(ownerId, scope), told)];
-    if (delivered.length > 0 && this.deps.pushed) await this.deps.pushed(ownerId, notice).catch(() => undefined);
+    if (delivered.length > 0 && this.deps.pushed) {
+      await this.deps.pushed(ownerId, notice).catch((err: unknown) => {
+        console.warn(`[notices] ${notice.key} reached its chats but not ${ownerId}'s devices: ${(err as Error).message}`);
+      });
+    }
     return delivered;
   }
 

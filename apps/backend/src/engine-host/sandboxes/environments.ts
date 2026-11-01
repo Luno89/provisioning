@@ -1,3 +1,4 @@
+import { ignore } from '@koala/engine-core/failures';
 import {
   BYPASS_ENV,
   environmentFor,
@@ -190,7 +191,7 @@ export function mergeWorkspaceAgents(
     needs: unique(working.flatMap((agent) => agent.needs ?? [])),
     needsFrom: [...new Map(working.flatMap((agent) => agent.needsFrom?.length ? agent.needsFrom : (agent.needs ?? []).map((name) => ({ name, from: `agent:${agent.slug}` }))).map((need) => [`${need.name} ${need.from}`, need])).values()],
     environment: {
-      ...Object.assign({}, ...working.map((agent) => agent.environment)),
+      ...working.reduce<AgentDefinition['environment']>((all, agent) => ({ ...all, ...agent.environment }), first.environment),
       languages: merged,
     },
     ...(first.environmentSpec ? { environmentSpec: { ...first.environmentSpec, languages: merged } } : {}),
@@ -241,10 +242,10 @@ export function createEnvironmentResolver(options: EnvironmentResolverOptions): 
       const servers = await serversOf(ticket.ownerId);
       const dependencies = await dependenciesOf(ticket.ownerId);
       const published = store ? await store.get(ticket.ownerId, treeId!) : undefined;
-      const read = store && !published ? readWorkspaceFile(await store.file(ticket.ownerId, treeId!).catch(() => undefined)) : undefined;
+      const read = store && !published ? readWorkspaceFile(await store.file(ticket.ownerId, treeId!)) : undefined;
       const file = published ? published.file : read && 'file' in read ? read.file : undefined;
       const current = published && composeWithBases(merged, tools, file, servers, dependencies)?.plan.fingerprint === published.fingerprint ? published : undefined;
-      const onMain = published ? readWorkspaceFile(await store!.file(ticket.ownerId, treeId!).catch(() => undefined)) : undefined;
+      const onMain = published ? readWorkspaceFile(await store!.file(ticket.ownerId, treeId!).catch(ignore('what main has that the published workspace lacks is only told to the run, which works in the published workspace either way'))) : undefined;
       const coming = published && onMain && 'file' in onMain ? pendingChanges(published.file, onMain.file) : [];
       const { workspace, plan, fileEnv } = await composeRunWorkspace({
         runId: ticket.runId,

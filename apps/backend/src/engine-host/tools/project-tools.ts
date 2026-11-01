@@ -118,7 +118,7 @@ export function createProjectTools(options: {
         app?.local.preview ? `its preview on this machine at ${app.local.preview}` : '',
         app?.public.preview ? `its preview publicly at ${app.public.preview}` : '',
       ].filter(Boolean);
-      const url = deployment.displayUrl ?? deployment.url;
+      const url = deployment.url;
       const reached = addresses.length > 0
         ? `It is reached ${addresses.join('; ')}.`
         : url ? `It is reached at ${url}.` : 'It is not exposed yet: the person opens it with "Open app" on the project\'s card, on this machine or publicly.';

@@ -57,7 +57,10 @@ export function createRunEnvironments(options: RunEnvironmentOptions): RunEnviro
 
   const dispose = async (id: string, entry: Live): Promise<void> => {
     live.delete(id);
-    if (entry.owned) await entry.driver.dispose?.().catch(() => undefined);
+    if (!entry.owned) return;
+    await entry.driver.dispose?.().catch((err: unknown) => {
+      console.warn(`[engine] the sandbox of run ${entry.runId} could not be removed and is left running: ${(err as Error).message}`);
+    });
   };
 
   return {

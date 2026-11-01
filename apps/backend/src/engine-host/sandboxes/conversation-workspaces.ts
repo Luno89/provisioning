@@ -72,7 +72,7 @@ export function createConversationWorkspaces(options: {
     async state(conversationId) {
       const namespace = workspaceName(conversationWorkspaceRunId(conversationId));
       if ((await options.kube(['get', 'namespace', namespace, '-o', 'name'])).exitCode !== 0) return 'none';
-      return (await workspaceRunning(options.kube, namespace, POD).catch(() => false)) ? 'running' : 'parked';
+      return (await workspaceRunning(options.kube, namespace, POD)) ? 'running' : 'parked';
     },
 
     save: ({ conversationId, ownerId }) => {
@@ -86,7 +86,7 @@ export function createConversationWorkspaces(options: {
       const exists = (await options.kube(['get', 'namespace', namespace, '-o', 'name'])).exitCode === 0;
       if (!exists) return { saved: false, why: 'nothing ever ran in this conversation\'s workspace' };
 
-      if (!(await workspaceRunning(options.kube, namespace, POD).catch(() => false))) {
+      if (!(await workspaceRunning(options.kube, namespace, POD))) {
         const shared = await describe(request);
         if (!shared) throw new Error(`the workspace of conversation ${request.conversationId} is stopped and could not be described to start it again`);
         const driver = await options.resolver.forRun({

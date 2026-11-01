@@ -1,3 +1,5 @@
+import { type Fields, fieldsOf } from './request-fields.js';
+
 
 export interface CrawlSpec {
   url: string;
@@ -18,23 +20,28 @@ export function buildBatchPayload(urls: string[]): { urls: string[] } {
   return { urls };
 }
 
+const listOf = (value: unknown): unknown[] => (Array.isArray(value) ? value : []);
+
+function markdownOf(result: Fields): unknown {
+  if (typeof result.markdown === 'string') return result.markdown;
+  const markdown = fieldsOf(result.markdown);
+  return markdown.raw_markdown ?? markdown.fit_markdown ?? result.cleaned_html ?? '';
+}
+
 export function readCrawlResults(body: unknown): FetchedPage[] {
-  const b = (body ?? {}) as Record<string, any>;
-  const results: any[] = Array.isArray(b.results) ? b.results : Array.isArray(b.result) ? b.result : [];
-  return results.map((r) => {
-    const md = typeof r?.markdown === 'string'
-      ? r.markdown
-      : r?.markdown?.raw_markdown ?? r?.markdown?.fit_markdown ?? r?.cleaned_html ?? '';
-    const internal: any[] = Array.isArray(r?.links?.internal) ? r.links.internal : [];
-    const external: any[] = Array.isArray(r?.links?.external) ? r.links.external : [];
+  const b = fieldsOf(body);
+  const results = Array.isArray(b.results) ? b.results : listOf(b.result);
+  return results.map((entry) => {
+    const r = fieldsOf(entry);
+    const links = fieldsOf(r.links);
     return {
-      url: String(r?.url ?? ''),
-      markdown: String(md ?? ''),
-      links: [...internal, ...external]
-        .map((l) => String(l?.href ?? l ?? ''))
+      url: String(r.url ?? ''),
+      markdown: String(markdownOf(r) ?? ''),
+      links: [...listOf(links.internal), ...listOf(links.external)]
+        .map((l) => String(fieldsOf(l).href ?? l ?? ''))
         .filter(Boolean),
-      ...(r?.success === false
-        ? { error: String(r?.error_message || `HTTP ${r?.status_code ?? 'error'}`) }
+      ...(r.success === false
+        ? { error: String(r.error_message || `HTTP ${String(r.status_code ?? 'error')}`) }
         : {}),
     };
   }).filter((p) => p.url);

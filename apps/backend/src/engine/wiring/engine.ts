@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { ignore } from '@koala/engine-core/failures';
 import axios from 'axios';
 import { WorkflowNotFoundError } from '@temporalio/client';
 import type { Server as SocketServer } from 'socket.io';
@@ -103,6 +104,12 @@ export interface EngineCore {
   runGrants: RunGrantService;
 }
 
+const tellBench = (bench: { service?: BenchService }, ownerId: string): void => {
+  void bench.service?.changed(ownerId).catch((err: unknown) => {
+    console.warn(`[bench] could not hear that ${ownerId}'s agents changed, so its next idle run may not check them: ${(err as Error).message}`);
+  });
+};
+
 export function engineCore(deps: EngineCoreDeps): EngineCore {
   const { db, env, temporalBridge } = deps;
   const engineQueue = env.TEMPORAL_ENGINE_TASK_QUEUE || DEFAULT_ENGINE_TASK_QUEUE;
@@ -132,7 +139,7 @@ export function engineCore(deps: EngineCoreDeps): EngineCore {
   const agentDirectory = directoryFromDatabase(db.engine, {
     stepNeeds: stepNeedsReader({ sources: { list: (ownerId?: string) => db.engine.getProcedures(ownerId) }, published: (ownerId: string) => extensions.groups(ownerId) }),
     hidden: (ownerId: string) => extensions.hidden(ownerId),
-    onChanged: (ownerId: string) => void bench.service?.changed(ownerId).catch(() => undefined),
+    onChanged: (ownerId: string) => tellBench(bench, ownerId),
   });
   const engineRegistry = createStoredAgentRegistry({
     agents: agentDirectory,
@@ -305,7 +312,10 @@ export async function wireEngine(deps: EngineWiringDeps): Promise<EngineWiring> 
     tools: { list: (ownerId?: string) => db.engine.getEngineTools(ownerId) },
   });
 
-  const evalWeb = await buildWebTools(db).catch(() => undefined);
+  const evalWeb = await buildWebTools(db).catch((err: unknown) => {
+    console.warn(`[engine] checks run without web tools, which could not be resolved: ${(err as Error).message}`);
+    return undefined;
+  });
   const evalHost = createEngineHost({
     dependencies: dependenciesOf,
     customizations: { drift: (...args) => deps.customizations.drift(...args), propose: (...args) => deps.customizations.propose(...args), exportItems: (...args) => deps.customizations.exportItems(...args) },
@@ -374,7 +384,7 @@ export async function wireEngine(deps: EngineWiringDeps): Promise<EngineWiring> 
     },
   });
   const agentFingerprints = async (ownerId: string, agents: readonly string[]): Promise<Record<string, string>> => Object.fromEntries((await Promise.all(agents.map(async (slug) => {
-    const runnable = await engineRegistry.runnable(ownerId, slug).catch(() => undefined);
+    const runnable = await engineRegistry.runnable(ownerId, slug).catch(ignore('an agent that cannot run has no fingerprint, and its checks fail on their own saying why'));
     return runnable ? [slug, fingerprintOf({ agent: runnable.agent, procedure: runnable.procedure })] as const : undefined;
   }))).filter((entry): entry is readonly [string, string] => entry !== undefined));
 
@@ -429,7 +439,11 @@ export async function wireEngine(deps: EngineWiringDeps): Promise<EngineWiring> 
     },
   });
 
-  if (servesTenants(role)) await level2Service.recover().catch(() => undefined);
+  if (servesTenants(role)) {
+    await level2Service.recover().catch((err: unknown) => {
+      console.warn(`[checks] check runs left running when the backend stopped were not settled: ${(err as Error).message}`);
+    });
+  }
 
   void evalHost.workspaceImages.warm().then((images) => {
     const building = images.filter((image) => image.state === 'building');
@@ -464,7 +478,7 @@ export async function wireEngine(deps: EngineWiringDeps): Promise<EngineWiring> 
       get: (ownerId, id) => db.engine.getProcedure(ownerId, id),
       save: async (source) => {
         await db.engine.saveProcedure(source);
-        if (source.ownerId) void bench.service?.changed(source.ownerId).catch(() => undefined);
+        if (source.ownerId) tellBench(bench, source.ownerId);
       },
       delete: (ownerId, id) => db.engine.deleteProcedure(ownerId, id),
     },
@@ -522,7 +536,7 @@ export async function wireEngine(deps: EngineWiringDeps): Promise<EngineWiring> 
       records: {
         save: async (record: PersonaRecord) => {
           await db.engine.saveEnginePersona(record);
-          if (record.ownerId) void bench.service?.changed(record.ownerId).catch(() => undefined);
+          if (record.ownerId) tellBench(bench, record.ownerId);
         },
         remove: (ownerId: string | undefined, slug: string) => db.engine.deleteEnginePersona(ownerId, slug),
       },

@@ -161,7 +161,7 @@ export function createClusterBackend(options: ClusterBackendOptions): SandboxBac
 
     async destroy(): Promise<void> {
       standing = false;
-      await destroyWorkspace(run, namespace).catch(() => undefined);
+      await destroyWorkspace(run, namespace);
     },
   };
 }

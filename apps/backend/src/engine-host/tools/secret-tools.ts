@@ -130,7 +130,10 @@ export function createSecretTools(options: SecretToolOptions): Record<string, To
 
       const source = sourceFor(key);
       if (source && vault) {
-        const minted = await vault.mint(ownerId, project.id, key, source.id).then(() => true, () => false);
+        const minted = await vault.mint(ownerId, project.id, key, source.id).then(() => true, (err: unknown) => {
+          console.warn(`[secrets] ${key} for ${project.id} could not be made by ${source.id}, so the person is asked for it: ${(err as Error).message}`);
+          return false;
+        });
         if (minted) {
           const provisioned: SecretRequest = { ...base, status: 'provisioned', source: source.id };
           await stores.requests.save(provisioned);

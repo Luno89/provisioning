@@ -45,7 +45,7 @@ export function createKubeStreamer(options: { binDir?: string; kubeconfig?: stri
     const timer = timeoutMs ? setTimeout(() => child.kill('SIGKILL'), timeoutMs) : undefined;
     const finish = wire(child);
 
-    child.stderr!.on('data', (chunk) => { stderr += chunk.toString(); });
+    child.stderr!.on('data', (chunk: Buffer) => { stderr += chunk.toString(); });
     child.on('error', (err) => { if (timer) clearTimeout(timer); reject(err); });
     child.on('close', (code) => {
       if (timer) clearTimeout(timer);
@@ -85,7 +85,11 @@ export function createKubeRunner(options: { binDir?: string; kubeconfig?: string
     const stop = (why: 'timeout' | 'cancelled'): void => {
       if (stopped) return;
       stopped = why;
-      const ended = runOptions.onStop ? runOptions.onStop(why).catch(() => undefined) : Promise.resolve();
+      const ended = runOptions.onStop
+        ? runOptions.onStop(why).catch((err: unknown) => {
+          console.warn(`[kube] kubectl ${args[0] ?? ''} was stopped (${why}) but what it started could not be, so it may still run in its pod: ${(err as Error).message}`);
+        })
+        : Promise.resolve();
       void ended.finally(() => child.kill('SIGKILL'));
     };
     const timer = timeoutMs ? setTimeout(() => stop('timeout'), timeoutMs) : undefined;

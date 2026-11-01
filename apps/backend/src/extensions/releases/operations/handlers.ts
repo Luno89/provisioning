@@ -292,7 +292,12 @@ export function createReleaseOperations(deps: ReleaseOperationDeps): Record<stri
         await mark(release, release.from, { state: 'rolled-back', reason: `rolled back to the release of ${release.to.source.commit.slice(0, 8)}` });
         return { exit: 'done', outputs: {} };
       } catch (err) {
-        if (started) await cluster.scale(release.target, adapter.workload(release.target, started), 0).catch(() => undefined);
+        if (started) {
+          const slot = started;
+          await cluster.scale(release.target, adapter.workload(release.target, slot), 0).catch((stopping: unknown) => {
+            console.warn(`[releases] slot ${slot} of ${release.target.release} was started for the rollback and could not be stopped again, so both slots run: ${reasonOf(stopping)}`);
+          });
+        }
         await mark(release, release.from, { state: 'live', reason: `the rollback failed: ${reasonOf(err)}` });
         return failed(err);
       }

@@ -71,6 +71,10 @@ export function createSlotCluster(deps: { infra: InfrastructureService; repo: ()
     kubectl: (args) => kubectl(target, args),
     apply: async (manifest) => { await infra.applyManifest(JSON.stringify(inNamespace(manifest, target.namespace)), await kubeconfigOf(target)); },
   });
+  const absentAsNothing = (err: unknown): string => {
+    if (/NotFound|not found/i.test((err as Error).message)) return '';
+    throw err;
+  };
   const prepare = async (target: ReleaseTarget, kubeconfig: string): Promise<void> => {
     await infra.applyManifest(JSON.stringify(preparedNamespace(target, await deps.registry())), kubeconfig);
   };
@@ -126,7 +130,7 @@ export function createSlotCluster(deps: { infra: InfrastructureService; repo: ()
       let missing = vault.keys;
       for (;;) {
         beat(missing);
-        const data = await kubectl(target, ['get', 'secret', vault.secret, '-o', 'jsonpath={.data}']).catch(() => '');
+        const data = await kubectl(target, ['get', 'secret', vault.secret, '-o', 'jsonpath={.data}']).catch(absentAsNothing);
         const present = new Set(Object.keys(data ? JSON.parse(data) as Record<string, string> : {}));
         missing = vault.keys.filter((key) => !present.has(key));
         if (missing.length === 0) return;
@@ -166,10 +170,10 @@ export function createSlotCluster(deps: { infra: InfrastructureService; repo: ()
     async running(target, pod) {
       for (;;) {
         beat(pod);
-        const phase = await kubectl(target, ['get', 'pod', pod, '-o', 'jsonpath={.status.phase}']).catch(() => '');
+        const phase = await kubectl(target, ['get', 'pod', pod, '-o', 'jsonpath={.status.phase}']).catch(absentAsNothing);
         if (phase === 'Running') return;
         if (phase === 'Failed' || phase === 'Succeeded') throw ApplicationFailure.nonRetryable(`${pod} stopped (${phase}) before it could be used`);
-        const listed = await kubectl(target, ['get', 'pod', pod, '-o', 'json']).catch(() => '');
+        const listed = await kubectl(target, ['get', 'pod', pod, '-o', 'json']).catch(absentAsNothing);
         const health = listed ? assessWorkload({ items: [JSON.parse(listed)] }) : undefined;
         if (health?.health === 'unhealthy') throw ApplicationFailure.nonRetryable(`${pod} cannot run: ${health.reason}`);
         await sleep(POLL_MS);

@@ -1,3 +1,4 @@
+import { ignore } from '@koala/engine-core/failures';
 import { mkdtemp, rm } from 'fs/promises';
 import os from 'os';
 import path from 'path';
@@ -230,9 +231,9 @@ const REJECTED = /\(fetch first\)|non-fast-forward|\[rejected\]/;
 export function createWorkspaceDocuments(options: { kube: KubeRunner; stream: KubeStreamer; repos: DocumentRepos }): WorkspaceDocuments {
   const saving = new Map<string, Promise<unknown>>();
   const oneAtATime = <T>(workspaceRunId: string, work: () => Promise<T>): Promise<T> => {
-    const next = (saving.get(workspaceRunId) ?? Promise.resolve()).catch(() => undefined).then(work);
+    const next = (saving.get(workspaceRunId) ?? Promise.resolve()).catch(ignore('the work before this failed for its own caller, who was told; this work runs after it either way')).then(work);
     saving.set(workspaceRunId, next);
-    void next.finally(() => { if (saving.get(workspaceRunId) === next) saving.delete(workspaceRunId); }).catch(() => undefined);
+    void next.finally(() => { if (saving.get(workspaceRunId) === next) saving.delete(workspaceRunId); }).catch(ignore('a failure of this work reaches its caller through the promise returned below'));
     return next;
   };
 

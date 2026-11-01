@@ -24,10 +24,10 @@ export function extensionRuntimes(deps: ExtensionRuntimeDeps): Record<string, Ex
 }
 
 export const operationHandlers = (runtimes: Record<string, ExtensionRuntime>): Record<string, HostOperationRun> =>
-  Object.assign({}, ...Object.values(runtimes).map((runtime) => runtime.operations));
+  Object.values(runtimes).reduce<Record<string, HostOperationRun>>((all, runtime) => ({ ...all, ...runtime.operations }), {});
 
 export const toolHandlers = (runtimes: Record<string, ExtensionRuntime>): Record<string, ToolHandler> =>
-  Object.assign({}, ...Object.values(runtimes).map((runtime) => runtime.tools));
+  Object.values(runtimes).reduce<Record<string, ToolHandler>>((all, runtime) => ({ ...all, ...runtime.tools }), {});
 
 export function unhandledOperations(handlers: Readonly<Record<string, HostOperationRun>>): string[] {
   return HOST_OPERATIONS.map((operation) => operation.name).filter((name) => !handlers[name]).sort();

@@ -3,18 +3,24 @@ import {
   SEARCH_LIMIT, type CorpusDoc, type CorpusHit,
 } from './corpus-backend.js';
 import { SNIPPET_CHARS } from './corpus.js';
+import { fieldsOf } from './request-fields.js';
 import type { CorpusEndpoints } from './web-tools-resolver.js';
 
 export const INDEX_ID = 'koala-corpus';
 export const COLLECTION_ID = 'koala-corpus';
 
-async function ok(res: Response, what: string): Promise<any> {
+async function ok(res: Response, what: string): Promise<unknown> {
   if (!res.ok) {
     throw new Error(`${what}: HTTP ${res.status} ${(await res.text()).slice(0, 300)}`);
   }
   const text = await res.text();
-  return text ? JSON.parse(text) : {};
+  const parsed: unknown = text ? JSON.parse(text) : {};
+  return parsed;
 }
+
+const listOf = (value: unknown): unknown[] => (Array.isArray(value) ? value : []);
+
+const isVector = (value: unknown): value is number[] => Array.isArray(value) && value.every((entry) => typeof entry === 'number');
 
 const created = new Set<string>();
 const collections = new Set<string>();
@@ -53,10 +59,9 @@ export async function searchIndex(
   const query = buildIndexQuery(phrase, scope);
   const url = `${base}/api/v1/${INDEX_ID}/search?query=${encodeURIComponent(query)}&max_hits=${limit}`;
   const body = await ok(await fetch(url), 'Quickwit refused the search');
-  const hits: any[] = Array.isArray(body?.hits) ? body.hits : [];
-  return hits.map((h) => ({
-    url: String(h?.url ?? ''),
-    snippet: snippetAround(String(h?.body ?? ''), phrase),
+  return listOf(fieldsOf(body).hits).map(fieldsOf).map((h) => ({
+    url: String(h.url ?? ''),
+    snippet: snippetAround(String(h.body ?? ''), phrase),
     via: 'index' as const,
   })).filter((h) => h.url);
 }
@@ -81,7 +86,9 @@ export async function embed(base: string, inputs: string[]): Promise<number[][]>
       body: JSON.stringify({ inputs: inputs.slice(at, at + EMBED_BATCH), truncate: true }),
     });
     const body = await ok(res, 'The embedding service refused the batch');
-    if (Array.isArray(body)) out.push(...body);
+    if (!Array.isArray(body)) continue;
+    if (!body.every(isVector)) throw new Error('The embedding service answered with something that is not a list of vectors');
+    out.push(...body);
   }
   return out;
 }
@@ -184,10 +191,9 @@ export async function searchVectors(
     }),
   });
   const body = await ok(res, 'Qdrant refused the search');
-  const found: any[] = Array.isArray(body?.result) ? body.result : [];
-  return found.map((p) => ({
-    url: String(p?.payload?.url ?? ''),
-    snippet: String(p?.payload?.text ?? '').slice(0, SNIPPET_CHARS).trim(),
+  return listOf(fieldsOf(body).result).map((p) => fieldsOf(fieldsOf(p).payload)).map((payload) => ({
+    url: String(payload.url ?? ''),
+    snippet: String(payload.text ?? '').slice(0, SNIPPET_CHARS).trim(),
     via: 'vectors' as const,
   })).filter((h) => h.url);
 }
