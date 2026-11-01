@@ -4,6 +4,7 @@ import { existsSync } from 'node:fs';
 import { copyFile, mkdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
+import { ignore } from '@koala/engine-core/failures';
 import { releaseFromTag, rolledBackTo, withdrawnBy, type InstanceRelease } from '../lib/instance-updates.js';
 import type { InstancesStore } from '../store.js';
 import type { ReleaseSource } from './InstanceService.js';
@@ -41,7 +42,7 @@ export class ReleaseCatalogue implements ReleaseSource {
 
   recordCurrent(): Promise<InstanceRelease> {
     const recording = this.record();
-    this.recorded = recording.catch(() => undefined);
+    this.recorded = recording.catch(ignore('whoever asked to record the release is handed its failure; this copy only lets the list wait until recording is over'));
     return recording;
   }
 

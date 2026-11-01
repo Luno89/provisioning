@@ -75,7 +75,10 @@ export class DependencyWatch {
 
   private async githubRelease(repo: string, version: string): Promise<string | undefined> {
     for (const tag of version.startsWith('v') ? [version] : [`v${version}`, version]) {
-      const found = await this.json(`https://api.github.com/repos/${repo}/releases/tags/${encodeURIComponent(tag)}`).catch(() => undefined) as { published_at?: string } | undefined;
+      const found = await this.json(`https://api.github.com/repos/${repo}/releases/tags/${encodeURIComponent(tag)}`).catch((err: Error) => {
+        console.warn(`[dependencies] when ${repo} released ${tag} could not be read, so it stays unknown until the next check: ${err.message}`);
+        return undefined;
+      }) as { published_at?: string } | undefined;
       if (found?.published_at) return found.published_at;
     }
     return undefined;
@@ -136,7 +139,10 @@ export class DependencyWatch {
         const key = dateKey(source, fix);
         if (dates.has(key)) continue;
         if (source.ecosystem === 'npm') {
-          if (!npmTimes.has(source.name)) npmTimes.set(source.name, await this.npmTimes(source.name).catch(() => undefined));
+          if (!npmTimes.has(source.name)) npmTimes.set(source.name, await this.npmTimes(source.name).catch((err: Error) => {
+            console.warn(`[dependencies] when ${source.name}'s versions were published could not be read, so its fixes stay undated until the next check: ${err.message}`);
+            return undefined;
+          }));
           dates.set(key, npmTimes.get(source.name)?.[fix]);
         } else {
           dates.set(key, source.github ? await this.githubRelease(source.github, fix) : undefined);

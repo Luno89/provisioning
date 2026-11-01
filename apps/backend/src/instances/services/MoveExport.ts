@@ -40,7 +40,10 @@ export class MoveExport {
   constructor(private readonly deps: MoveExportDeps) {}
 
   async load(): Promise<void> {
-    this.frozen = await fs.access(path.join(this.deps.dataDir, MOVING_FILE)).then(() => true, () => false);
+    this.frozen = await fs.access(path.join(this.deps.dataDir, MOVING_FILE)).then(() => true, (err: NodeJS.ErrnoException) => {
+      if (err.code === 'ENOENT') return false;
+      throw err;
+    });
   }
 
   isFrozen(): boolean {
@@ -154,7 +157,9 @@ export class MoveExport {
       try {
         await tar.done;
       } finally {
-        await this.kubectl(['delete', 'pod', VOLUME_HELPER, '-n', namespace, '--ignore-not-found', '--wait=false']).catch(() => '');
+        await this.kubectl(['delete', 'pod', VOLUME_HELPER, '-n', namespace, '--ignore-not-found', '--wait=false']).catch((err: Error) => {
+          console.warn(`[move] the pod that read ${claim} in ${namespace} could not be removed; the next copy of a volume removes it first: ${err.message}`);
+        });
       }
     })();
     done.catch((err: Error) => out.destroy(err));

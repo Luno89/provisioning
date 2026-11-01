@@ -1,3 +1,5 @@
+import { rootAnswer } from '../lib/root-answer.js';
+
 export interface InstanceGroupsSettings {
   rootUrl: string;
   instanceId: string;
@@ -13,9 +15,9 @@ export class InstanceGroups {
       headers: { 'content-type': 'application/json', 'x-instance-id': this.settings.instanceId, authorization: `Bearer ${await this.settings.token()}` },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     });
-    const answer = await response.json().catch(() => ({})) as T & { error?: unknown };
-    if (!response.ok) throw new Error(typeof answer.error === 'string' ? answer.error : `root did not answer about this instance's groups (${response.status})`);
-    return answer;
+    const answer = rootAnswer(response.ok, response.status, await response.text());
+    if (!response.ok) throw new Error(answer.error ?? `root did not answer about this instance's groups (${response.status})`);
+    return answer.body as T;
   }
 
   async check(name: string): Promise<string | null> {

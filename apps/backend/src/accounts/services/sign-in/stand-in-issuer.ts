@@ -120,7 +120,7 @@ export async function startStandInIssuer(options: { redirectUris: string[]; clie
         return res;
       }) as typeof res.end;
     }
-    callback(req, res);
+    void callback(req, res);
   });
 
   const authorize = async (authorizationUrl: string): Promise<URL> => {

@@ -1,3 +1,5 @@
+import { rootAnswer } from '../lib/root-answer.js';
+
 export interface RootMeshKeysSettings {
   rootUrl: string;
   instanceId: string;
@@ -13,11 +15,12 @@ export class RootMeshKeys {
       headers: { 'content-type': 'application/json', 'x-instance-id': this.settings.instanceId, authorization: `Bearer ${await this.settings.token()}` },
       body: '{}',
     });
-    const body = await response.json().catch(() => ({})) as { preAuthKey?: unknown; error?: unknown };
-    if (!response.ok || typeof body.preAuthKey !== 'string') {
-      throw new Error(`root would not let a machine join the mesh (${response.status}): ${typeof body.error === 'string' ? body.error : 'no key came back'}`);
+    const answer = rootAnswer(response.ok, response.status, await response.text());
+    const { preAuthKey } = answer.body as { preAuthKey?: unknown };
+    if (!response.ok || typeof preAuthKey !== 'string') {
+      throw new Error(`root would not let a machine join the mesh (${response.status}): ${answer.error ?? 'no key came back'}`);
     }
-    return { key: body.preAuthKey };
+    return { key: preAuthKey };
   }
 
   async removeNode(_ownerId: string, meshIp: string): Promise<void> {
@@ -27,8 +30,8 @@ export class RootMeshKeys {
       body: JSON.stringify({ meshIp }),
     });
     if (!response.ok && response.status !== 404) {
-      const body = await response.json().catch(() => ({})) as { error?: unknown };
-      throw new Error(`root would not take the machine off the mesh (${response.status}): ${typeof body.error === 'string' ? body.error : 'no reason given'}`);
+      const answer = rootAnswer(response.ok, response.status, await response.text());
+      throw new Error(`root would not take the machine off the mesh (${response.status}): ${answer.error ?? 'no reason given'}`);
     }
   }
 }

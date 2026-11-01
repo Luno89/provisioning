@@ -1,3 +1,5 @@
+import { rootAnswer } from '../lib/root-answer.js';
+
 export interface TrialView {
   trialEndsAt?: string | undefined;
 }
@@ -30,9 +32,9 @@ export class InstanceTrial {
       method,
       headers: { 'x-instance-id': this.settings.instanceId, authorization: `Bearer ${await this.settings.token()}` },
     });
-    const answer = await response.json().catch(() => ({})) as T & { error?: unknown };
-    if (!response.ok) throw new RootRefused(response.status, typeof answer.error === 'string' ? answer.error : `root answered ${response.status}`);
-    return answer;
+    const answer = rootAnswer(response.ok, response.status, await response.text());
+    if (!response.ok) throw new RootRefused(response.status, answer.error ?? `root answered ${response.status}`);
+    return answer.body as T;
   }
 
   startMove(): Promise<{ command: string; expiresAt: string }> {
@@ -52,9 +54,10 @@ export class InstanceTrial {
     const response = await this.fetchImpl(`${this.settings.rootUrl}/api/instances/trial`, {
       headers: { 'x-instance-id': this.settings.instanceId, authorization: `Bearer ${await this.settings.token()}` },
     });
-    const answer = await response.json().catch(() => ({})) as TrialView & { error?: unknown };
-    if (!response.ok) throw new Error(`root did not answer about this instance's trial (${response.status}): ${typeof answer.error === 'string' ? answer.error : 'no reason given'}`);
-    const view = answer.trialEndsAt ? { trialEndsAt: answer.trialEndsAt } : {};
+    const answer = rootAnswer(response.ok, response.status, await response.text());
+    if (!response.ok) throw new Error(`root did not answer about this instance's trial (${response.status}): ${answer.error ?? 'no reason given'}`);
+    const { trialEndsAt } = answer.body as TrialView;
+    const view = trialEndsAt ? { trialEndsAt } : {};
     this.cached = { view, at: this.now() };
     return view;
   }

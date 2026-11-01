@@ -30,7 +30,10 @@ function certificateAt(tlsAddress: string): CaddyControl['certificateFor'] {
 const LOG_TAIL_BYTES = 4 * 1024 * 1024;
 
 async function tailOf(file: string): Promise<string> {
-  const handle = await fs.open(file, 'r').catch(() => undefined);
+  const handle = await fs.open(file, 'r').catch((err: NodeJS.ErrnoException) => {
+    if (err.code === 'ENOENT') return undefined;
+    throw err;
+  });
   if (!handle) return '';
   try {
     const { size } = await handle.stat();
@@ -145,7 +148,10 @@ export class InstanceRoutes {
       }
     }
     for (const [file, content] of wanted) {
-      const current = await fs.readFile(path.join(where, file), 'utf8').catch(() => undefined);
+      const current = await fs.readFile(path.join(where, file), 'utf8').catch((err: NodeJS.ErrnoException) => {
+        if (err.code === 'ENOENT') return undefined;
+        throw err;
+      });
       if (current === content) continue;
       await fs.writeFile(path.join(where, file), content);
       touched = true;
@@ -166,7 +172,10 @@ export class InstanceRoutes {
 
     const issuing = records.filter((record) => record.name && record.addresses?.nested && record.addresses.state === 'issuing' && wanted.sites.has(`${record.name}.caddy`));
     if (issuing.length === 0) return;
-    const caddyLog = await this.caddy.recentLog().catch(() => '');
+    const caddyLog = await this.caddy.recentLog().catch((err: Error) => {
+      console.warn(`[routes] Caddy's log could not be read, so why a nested address is not issued yet cannot be said: ${err.message}`);
+      return '';
+    });
     for (const record of issuing) {
       const name = record.name!;
       const served = certificateCovers(await this.caddy.certificateFor(nestedSiteOf(name, this.domain).replace('*', 'koala-probe')), name, this.domain);
