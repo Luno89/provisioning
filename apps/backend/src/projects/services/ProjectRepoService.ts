@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import { type Database, type ProjectMetadata, encryptValue, decryptValue, type SecretKey, allowed, asPerson } from '../../platform/index.js';
 import type { GiteaService, RepoFileEntry } from './GiteaService.js';
 import { DEFAULT_TARGET_CLUSTER } from '../lib/project-shipping.js';
+import { ignore } from '@koala/engine-core/failures';
 import {
   giteaUsernameFor,
   sanitiseRepoName,
@@ -167,7 +168,7 @@ export class ProjectRepoService {
     const owner = project.giteaOwner!;
 
     if (creating) {
-      const there = await this.gitea.getRepo(owner, repo).then(() => true, () => false);
+      const there = Boolean(await this.gitea.findRepo(owner, repo));
       if (!there) await this.gitea.createRepoForUser(owner, repo, { private: true, ...(input.description ? { description: input.description } : {}) });
     }
 
@@ -223,7 +224,9 @@ export class ProjectRepoService {
           : file.content;
         return { path, type: 'file', content };
       }
-    } catch {}
+    } catch (failure) {
+      ignore('a directory is not a file, and is listed below, where any other failure is met again')(failure);
+    }
     const entries = await this.gitea.listDirectory(token, project.giteaOwner, project.giteaRepo, path);
     return { path, type: 'dir', entries };
   }
@@ -278,7 +281,7 @@ export class ProjectRepoService {
       if (created) await this.untilServed(username, request.repo);
       return { owner: username, repo: request.repo, commit };
     } finally {
-      await this.gitea.revokeUserToken(username, password, tokenName).catch(() => undefined);
+      await this.revoke(username, password, tokenName);
     }
   }
 
@@ -300,7 +303,7 @@ export class ProjectRepoService {
     try {
       return await this.gitea.pullBundle({ username, token }, username, request.repo, request.bundle);
     } finally {
-      await this.gitea.revokeUserToken(username, password, tokenName).catch(() => undefined);
+      await this.revoke(username, password, tokenName);
     }
   }
 
@@ -310,7 +313,7 @@ export class ProjectRepoService {
     try {
       return await this.gitea.diffBetween({ username, token }, request.owner, request.repo, request.base, request.head);
     } finally {
-      await this.gitea.revokeUserToken(username, password, tokenName).catch(() => undefined);
+      await this.revoke(username, password, tokenName);
     }
   }
 
@@ -326,7 +329,7 @@ export class ProjectRepoService {
       if (created) await this.untilServed(username, request.repo);
       return commit;
     } finally {
-      await this.gitea.revokeUserToken(username, password, tokenName).catch(() => undefined);
+      await this.revoke(username, password, tokenName);
     }
   }
 
@@ -337,7 +340,7 @@ export class ProjectRepoService {
     try {
       return await this.gitea.pullBranchBundle({ username, token }, username, request.repo, request.branch, request.bundle);
     } finally {
-      await this.gitea.revokeUserToken(username, password, tokenName).catch(() => undefined);
+      await this.revoke(username, password, tokenName);
     }
   }
 
@@ -360,6 +363,11 @@ export class ProjectRepoService {
     if (!(await this.gitea.findRepo(username, repo))) return null;
     const content = await this.gitea.getRawFile(username, repo, path.split('/').map(encodeURIComponent).join('/'), ref);
     return content === null ? null : { owner: username, repo, content };
+  }
+
+  private async revoke(username: string, password: string, tokenName: string): Promise<void> {
+    await this.gitea.revokeUserToken(username, password, tokenName).catch((err: unknown) =>
+      console.warn(`[ProjectRepoService] the Gitea token ${tokenName} of ${username} is still valid, since revoking it failed: ${(err as Error).message}`));
   }
 
   async revokeCheckout(ownerId: string, tokenName: string): Promise<void> {

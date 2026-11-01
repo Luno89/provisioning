@@ -86,7 +86,6 @@ describe('making a project with a repository', () => {
       calls,
       gitea: {
         createUserAccount: async (username: string) => ({ username, password: 'pw' }),
-        getRepo: async (owner: string, name: string) => { if (!repos.has(`${owner}/${name}`)) throw new Error('not found'); return {}; },
         findRepo: async (owner: string, name: string) => (repos.has(`${owner}/${name}`) ? { owner, name } : null),
         addRepo: (path: string) => { repos.add(path); },
         createRepoForUser: async (owner: string, name: string) => { calls.push(`repo ${owner}/${name}`); repos.add(`${owner}/${name}`); return {}; },

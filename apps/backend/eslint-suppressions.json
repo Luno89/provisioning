@@ -2857,44 +2857,6 @@
       "count": 1
     }
   },
-  "src/projects/services/GiteaService.commitDropFromDisk.test.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 2
-    }
-  },
-  "src/projects/services/GiteaService.getCommit.test.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 2
-    },
-    "@typescript-eslint/no-misused-promises": {
-      "count": 1
-    },
-    "@typescript-eslint/no-unsafe-argument": {
-      "count": 1
-    }
-  },
-  "src/projects/services/GiteaService.registry.test.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 7
-    }
-  },
-  "src/projects/services/GiteaService.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 6
-    },
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 9
-    },
-    "@typescript-eslint/no-unsafe-call": {
-      "count": 1
-    },
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 18
-    },
-    "no-restricted-syntax": {
-      "count": 22
-    }
-  },
   "src/projects/services/PlanService.ts": {
     "no-restricted-syntax": {
       "count": 1
@@ -2903,14 +2865,6 @@
   "src/projects/services/ProjectRepoService.test.ts": {
     "@typescript-eslint/no-unsafe-assignment": {
       "count": 1
-    }
-  },
-  "src/projects/services/ProjectRepoService.ts": {
-    "no-empty": {
-      "count": 1
-    },
-    "no-restricted-syntax": {
-      "count": 7
     }
   },
   "src/projects/services/ProjectSecretSync.ts": {

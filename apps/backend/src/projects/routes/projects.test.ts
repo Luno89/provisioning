@@ -55,7 +55,6 @@ async function mountForCreate(): Promise<Harness> {
       temporalBridge: { promoteProjectBuild: unused },
       projectRepoService: new ProjectRepoService(db, {
         createUserAccount: async (username: string) => ({ username, password: 'pw' }),
-        getRepo: async () => ({}),
         findRepo: async (owner: string, name: string) => ({ owner, name }),
         createRepoForUser: async () => ({}),
         replaceWebhook: async () => undefined,

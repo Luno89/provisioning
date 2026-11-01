@@ -6,10 +6,21 @@ import { encryptValue } from '../../platform/lib/crypto.js';
 const KEY = 'test-master-key-for-unit-tests-only';
 const BASE = 'http://10.0.0.130:31737';
 
+interface GiteaInternals {
+  resolveBaseUrl(): Promise<string>;
+  readAdminPassword(): Promise<string>;
+  apiFetch(path: string, init?: RequestInit): Promise<Response>;
+  mintUserToken(username: string, password: string, namePrefix: string, scopes: string[]): Promise<{ name: string; token: string }>;
+}
+
+const unused = (): never => { throw new Error('not used by this test'); };
+
+const internalsOf = (gitea: GiteaService): GiteaInternals => gitea as unknown as GiteaInternals;
+
 function service() {
-  const gitea = new GiteaService({} as never, KEY, '/tmp/kubeconfig');
-  vi.spyOn(gitea as any, 'resolveBaseUrl').mockResolvedValue(BASE as never);
-  vi.spyOn(gitea as any, 'readAdminPassword').mockResolvedValue('admin-pass' as never);
+  const gitea = new GiteaService({ runKubectl: unused, getK3dServerIp: unused }, KEY, '/tmp/kubeconfig');
+  vi.spyOn(internalsOf(gitea), 'resolveBaseUrl').mockResolvedValue(BASE);
+  vi.spyOn(internalsOf(gitea), 'readAdminPassword').mockResolvedValue('admin-pass');
   return gitea;
 }
 
@@ -32,12 +43,12 @@ describe('Gitea users are private', () => {
     const first = Array.from({ length: 50 }, (_, index) => ({ login: `u${index}`, visibility: 'private' }));
     first[7] = { login: 'u7', visibility: 'public' };
     const asked: { path: string; init?: RequestInit | undefined }[] = [];
-    vi.spyOn(gitea as any, 'apiFetch').mockImplementation((async (path: string, init?: RequestInit) => {
+    vi.spyOn(internalsOf(gitea), 'apiFetch').mockImplementation(async (path, init) => {
       asked.push({ path, init });
       if (path.includes('page=1&')) return new Response(JSON.stringify(first));
       if (path.includes('page=2&')) return new Response(JSON.stringify([{ login: 'late', login_name: 'late', source_id: 0, visibility: 'limited' }]));
       return new Response('{}');
-    }) as never);
+    });
     expect(await gitea.makeUsersPrivate()).toEqual(['u7', 'late']);
     const patches = asked.filter((call) => call.init?.method === 'PATCH');
     expect(patches.map((call) => call.path)).toEqual(['/api/v1/admin/users/u7', '/api/v1/admin/users/late']);
@@ -47,16 +58,16 @@ describe('Gitea users are private', () => {
 
   it('tries every user and then says which Gitea refused', async () => {
     const gitea = service();
-    vi.spyOn(gitea as any, 'apiFetch').mockImplementation((async (path: string, init?: RequestInit) => {
+    vi.spyOn(internalsOf(gitea), 'apiFetch').mockImplementation(async (path, init) => {
       if (!init?.method) return new Response(JSON.stringify([{ login: 'a' }, { login: 'b' }]));
       return path.endsWith('/a') ? new Response('nope', { status: 422 }) : new Response('{}');
-    }) as never);
+    });
     await expect(gitea.makeUsersPrivate()).rejects.toThrow(/a \(HTTP 422: nope\) private; 1 made private/);
   });
 
   it('says so when Gitea will not list its users', async () => {
     const gitea = service();
-    vi.spyOn(gitea as any, 'apiFetch').mockResolvedValue(new Response('down', { status: 502 }) as never);
+    vi.spyOn(internalsOf(gitea), 'apiFetch').mockResolvedValue(new Response('down', { status: 502 }));
     await expect(gitea.makeUsersPrivate()).rejects.toThrow(/would not list its users \(HTTP 502\)/);
   });
 });
@@ -68,7 +79,7 @@ describe('the registry login Koala pulls its images with', () => {
     vi.spyOn(fs, 'mkdir').mockResolvedValue(undefined);
     const written: { file: string; content: string }[] = [];
     vi.spyOn(fs, 'writeFile').mockImplementation((async (file: string, content: string) => { written.push({ file, content }); }) as never);
-    const mint = vi.spyOn(gitea as any, 'mintUserToken').mockResolvedValue({ name: 'registry-pull-1', token: 'pull-token' } as never);
+    const mint = vi.spyOn(internalsOf(gitea), 'mintUserToken').mockResolvedValue({ name: 'registry-pull-1', token: 'pull-token' });
     const [one, two] = await Promise.all([gitea.registryLogin(), gitea.registryLogin()]);
     expect(one).toEqual({ hosts: { push: '10.0.0.130:31737', pull: '10.0.0.130:31737' }, username: 'provisioning-bot', password: 'pull-token' });
     expect(two).toBe(one);
@@ -94,7 +105,7 @@ describe('the registry login Koala pulls its images with', () => {
 
     vi.stubGlobal('fetch', vi.fn(async () => new Response('', { status: 401 })));
     const refused = service();
-    vi.spyOn(refused as any, 'mintUserToken').mockResolvedValue({ name: 'registry-pull-2', token: 'fresh-token' } as never);
+    vi.spyOn(internalsOf(refused), 'mintUserToken').mockResolvedValue({ name: 'registry-pull-2', token: 'fresh-token' });
     expect((await refused.registryLogin()).password).toBe('fresh-token');
   });
 });
