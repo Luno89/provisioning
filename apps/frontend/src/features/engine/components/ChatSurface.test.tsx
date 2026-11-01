@@ -434,14 +434,10 @@ describe('ChatSurface — unified persona-pack chat surface', () => {
     fireEvent.click(screen.getByText('Propose Project Tree'));
 
     await waitForRunStarted();
-    expect(engineApi.startRun).toHaveBeenCalledWith(
-      expect.objectContaining({
-        agent: 'koala',
-        conversationId: 'c1',
-        message: expect.stringContaining('Propose a new project architecture'),
-        inputs: { conversationId: 'c1' },
-      }),
-    );
+    const started = vi.mocked(engineApi.startRun).mock.calls.at(-1)?.[0];
+    expect(started).toMatchObject({ agent: 'koala', conversationId: 'c1' });
+    expect(started?.message).toContain('Propose a new project architecture');
+    expect(started?.inputs).toEqual({ conversationId: 'c1' });
 
     // Drain the run so no half-finished turn leaks into the next test's surface.
     emit({ type: 'run.finished', outcome: 'ok' });

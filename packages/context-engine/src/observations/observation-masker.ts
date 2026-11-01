@@ -1,4 +1,5 @@
 import { clampDualBoundary } from './dual-boundary.js';
+import { toolArgs } from './tool-args.js';
 
 export interface MaskToolCall {
   name: string;
@@ -15,16 +16,6 @@ export interface MaskOptions {
   maxChars?: number | undefined;
   elidePayloadAboveBytes?: number | undefined;
   preserveErrors?: boolean | undefined;
-}
-
-function parseArgs(raw: string | Record<string, unknown> | undefined): Record<string, unknown> {
-  if (!raw) return {};
-  if (typeof raw === 'object') return raw;
-  try {
-    return JSON.parse(raw);
-  } catch {
-    return {};
-  }
 }
 
 /**
@@ -66,7 +57,7 @@ export function maskToolObservation(
     return result;
   }
 
-  const args = parseArgs(call.arguments);
+  const args = toolArgs(call.arguments);
   const toolName = (call.name || result.name || '').toLowerCase();
 
   // File Read Tools (read_file, view_file, cat)

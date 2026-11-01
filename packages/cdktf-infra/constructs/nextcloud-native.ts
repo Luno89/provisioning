@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { Construct } from "constructs";
 import { Namespace } from "../.gen/providers/kubernetes/namespace/index.js";
-import { Deployment } from "../.gen/providers/kubernetes/deployment/index.js";
+import { Deployment, type DeploymentSpecTemplateSpec } from "../.gen/providers/kubernetes/deployment/index.js";
 import { Service } from "../.gen/providers/kubernetes/service/index.js";
 import { Secret } from "../.gen/providers/kubernetes/secret/index.js";
 import { PersistentVolumeClaim } from "../.gen/providers/kubernetes/persistent-volume-claim/index.js";
@@ -164,7 +164,7 @@ export class NextcloudNativeApp extends Construct {
       },
     });
 
-    const podSpec: any = {
+    const podSpec: DeploymentSpecTemplateSpec = {
       container: [
         {
           name: "nextcloud",

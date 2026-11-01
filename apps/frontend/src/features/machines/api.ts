@@ -84,7 +84,7 @@ export const installMachineAdapter = (id: string, agentId: string): Promise<Adap
   api.post<AdapterInstall>(`/mesh/local-agents/${id}/agents/${agentId}/install`, {}).then((r) => r.data)
 
 export const deleteLocalAgentDevice = (id: string) =>
-  api.delete(`/mesh/local-agents/${id}`).then((r) => r.data)
+  api.delete<unknown>(`/mesh/local-agents/${id}`).then((r) => r.data)
 
 export function useLocalAgentDevices(enabled = true) {
   return useQuery({ queryKey: localAgentKeys.list(), queryFn: listLocalAgentDevices, enabled })

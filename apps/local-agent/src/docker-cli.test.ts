@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { EventEmitter } from 'events';
 
-const spawnMock = vi.fn();
+const spawnMock = vi.fn<(...args: unknown[]) => unknown>();
 vi.mock('child_process', () => ({ spawn: (...args: unknown[]) => spawnMock(...args) }));
 
 const { runDocker, dockerAvailable } = await import('./docker-cli.js');

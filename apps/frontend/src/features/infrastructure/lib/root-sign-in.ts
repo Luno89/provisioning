@@ -4,7 +4,7 @@ export type SignInValues = Readonly<Record<string, Readonly<Record<string, strin
 
 export function signInAsks(values: SignInValues): SignInAsk[] {
   return Object.entries(values).flatMap(([id, fields]) => {
-    const given = Object.fromEntries(Object.entries(fields).map(([key, value]) => [key, value.trim()]).filter(([, value]) => value))
+    const given = Object.fromEntries(Object.entries(fields).map(([key, value]): [string, string] => [key, value.trim()]).filter(([, value]) => value))
     return Object.keys(given).length ? [{ id, values: given }] : []
   })
 }

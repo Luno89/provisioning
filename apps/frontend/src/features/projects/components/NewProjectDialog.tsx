@@ -26,7 +26,7 @@ export function NewProjectDialog({ clusters, onClose, onCreated }: {
   const createProject = useMutation({
     mutationFn: (payload: unknown) => createProjectApi(payload),
     onSuccess: (project: { id: string }) => {
-      qc.invalidateQueries({ queryKey: ['projects'] })
+      void qc.invalidateQueries({ queryKey: ['projects'] })
       onCreated(project.id)
     },
   })

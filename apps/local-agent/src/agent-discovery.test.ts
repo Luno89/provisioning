@@ -1,10 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { access, chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { discoverAgents, manualAgentsFrom, onPath, type DiscoveryDeps, type FoundAgent } from './agent-discovery.js';
 import { probeAcp } from './acp-session.js';
+import { present } from './file-present.js';
 import type { AgentScript } from './acp-script-agent.js';
 
 const AGENT = fileURLToPath(new URL('./acp-script-agent.ts', import.meta.url));
@@ -38,7 +39,7 @@ const inHome = (place: string) => (place.startsWith('~/') ? path.join(dir, 'home
 
 const deps = (): DiscoveryDeps => ({
   which: (command) => onPath(inHome(command), bin),
-  exists: (place) => access(inHome(place)).then(() => true, () => false),
+  exists: (place) => present(inHome(place)),
   probe: (launch) => probeAcp(launch, dir),
 });
 
@@ -104,7 +105,8 @@ describe('finding the agents on a machine', () => {
   it('keeps a program that does not answer as an ACP agent out of what runs, saying why', async () => {
     await executable('goose', 'echo "goose: unknown command acp" >&2; exit 3');
     const found = await discoverAgents(deps(), []);
-    expect(found.agents[0]).toMatchObject({ id: 'goose', state: 'not-answering', reason: expect.stringContaining('without answering as an ACP agent') });
+    expect(found.agents[0]).toMatchObject({ id: 'goose', state: 'not-answering' });
+    expect(found.agents[0]?.reason).toContain('without answering as an ACP agent');
     expect(found.launches).toEqual({});
   });
 

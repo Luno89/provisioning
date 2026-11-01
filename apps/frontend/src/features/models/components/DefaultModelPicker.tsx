@@ -27,7 +27,7 @@ export function DefaultModelPicker() {
   const save = useMutation({
     mutationFn: (id: string | null) => setDefaultModel(id),
     onSuccess: (id) => {
-      qc.invalidateQueries({ queryKey: defaultModelKeys.current() });
+      void qc.invalidateQueries({ queryKey: defaultModelKeys.current() });
       setNote(id ? 'Default model saved.' : 'Default cleared.');
       setTimeout(() => setNote(null), 4000);
     },
@@ -37,7 +37,7 @@ export function DefaultModelPicker() {
   const toggleOverride = useMutation({
     mutationFn: (next: boolean) => setGlobalModelOverride(next),
     onSuccess: (next) => {
-      qc.invalidateQueries({ queryKey: defaultModelKeys.current() });
+      void qc.invalidateQueries({ queryKey: defaultModelKeys.current() });
       setNote(next
         ? 'Every agent now runs on the default.'
         : 'Agents are back on the models they name.');

@@ -6,6 +6,19 @@ export interface ParsedChatMessage {
   toolCalls: { name: string; args: string }[];
 }
 
+function toolCallOf(body: string): { name: string; args: string } | 'not-json' | undefined {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(body.trim() || '{}');
+  } catch {
+    return 'not-json';
+  }
+  if (typeof parsed !== 'object' || parsed === null) return undefined;
+  const { name, arguments: args } = parsed as { name?: unknown; arguments?: unknown };
+  if (!name) return undefined;
+  return { name: String(name), args: typeof args === 'string' ? args : JSON.stringify(args || {}) };
+}
+
 export class ChatParser {
   private static readonly CONTROL_TOKENS = [
     /<\|im_start\|>/gi,
@@ -67,7 +80,7 @@ export class ChatParser {
   static normalizeAlerts(text: string): string {
     return text.replace(
       /^>\s*\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]\s*\n((?:^>.*(?:\n|$))*)/gim,
-      (_match, type, body) => {
+      (_match: string, type: string, body: string) => {
         const cleanBody = body
           .split('\n')
           .map((line: string) => line.replace(/^>\s?/, ''))
@@ -82,20 +95,12 @@ export class ChatParser {
     const toolCalls: { name: string; args: string }[] = [];
     const toolCallRegex = /<tool_call>([\s\S]*?)<\/tool_call>/gi;
 
-    let match: RegExpExecArray | null;
-    while ((match = toolCallRegex.exec(text)) !== null) {
-      try {
-        const parsed = JSON.parse(match[1]?.trim() || '{}');
-        if (parsed.name) {
-          toolCalls.push({
-            name: parsed.name,
-            args: typeof parsed.arguments === 'string' ? parsed.arguments : JSON.stringify(parsed.arguments || {}),
-          });
-        }
-      } catch { /* ignored */ }
-    }
-
-    const cleanContent = text.replace(toolCallRegex, '').trim();
+    const cleanContent = text.replace(toolCallRegex, (whole: string, body: string) => {
+      const call = toolCallOf(body);
+      if (call === 'not-json') return whole;
+      if (call) toolCalls.push(call);
+      return '';
+    }).trim();
     return { toolCalls, cleanContent };
   }
 

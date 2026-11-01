@@ -86,7 +86,7 @@ function AddByHand({ device }: { device: LocalAgentDevice }) {
     ]),
     onSuccess: () => {
       setOpen(false); setId(''); setTitle(''); setCommand(''); setArgs('');
-      qc.invalidateQueries({ queryKey: localAgentKeys.list() });
+      void qc.invalidateQueries({ queryKey: localAgentKeys.list() });
     },
   });
   if (!open) {

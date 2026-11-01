@@ -1,3 +1,4 @@
+import { ignore } from '@koala/engine-core/failures';
 import type { AgentDefinition } from '../../agent/agent.js';
 import { stepImplementation, type NodeImplementation } from '../implementation.js';
 import { fillTemplate } from '../template.js';
@@ -314,7 +315,7 @@ export function createOrchestrationNodes(ports: OrchestrationPorts): NodeImpleme
       const handOffs = new Map(reply.toolCalls
         .filter((call) => delegates.has(call.name))
         .map((call) => [call.id, runOne(request, call, persona, environment)] as const));
-      for (const handOff of handOffs.values()) handOff.catch(() => undefined);
+      for (const handOff of handOffs.values()) handOff.catch(ignore('each hand-off is awaited below, where its failure surfaces; this only keeps it from counting as unhandled until then'));
       const settled: { call: ToolCallRequest; outcome: ToolRunOutcome }[] = [];
 
       if (ports.readsTogether?.() === true) {
@@ -330,7 +331,7 @@ export function createOrchestrationNodes(ports: OrchestrationPorts): NodeImpleme
           if (run.signal?.aborted) continue;
           if (reads.has(call.name)) {
             const reading = runOne(request, call, persona, environment);
-            reading.catch(() => undefined);
+            reading.catch(ignore('each read is awaited below, where its failure surfaces; this only keeps it from counting as unhandled until then'));
             started.set(call.id, reading);
             before.push(reading);
             continue;
@@ -340,7 +341,7 @@ export function createOrchestrationNodes(ports: OrchestrationPorts): NodeImpleme
           const changing = runOne(request, call, persona, environment);
           started.set(call.id, changing);
           before.push(changing);
-          await changing.catch(() => undefined);
+          await Promise.allSettled([changing]);
         }
         for (const call of reply.toolCalls) {
           const running = handOffs.get(call.id) ?? started.get(call.id);
@@ -423,7 +424,7 @@ export function createOrchestrationNodes(ports: OrchestrationPorts): NodeImpleme
         }, node.id).items;
       }
 
-      const items = Array.isArray(list) ? list : [];
+      const items: unknown[] = Array.isArray(list) ? list : [];
       const limit = Math.max(1, numberOf(node.settings, 'maxParallel', 3));
       const children: ChildOutcomeValue[] = [];
       const handed = (inputs.environment as EnvironmentValue | undefined) ?? sandboxOf(run.launch.environment);

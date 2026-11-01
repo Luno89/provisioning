@@ -20,7 +20,7 @@ describe('signing out everywhere else', () => {
     show()
     fireEvent.click(screen.getByRole('button', { name: 'Sign out everywhere else' }))
     await waitFor(() => expect(api.endOtherSessions).toHaveBeenCalledOnce())
-    await waitFor(() => expect(pushed).toHaveBeenCalledWith(expect.objectContaining({ message: expect.stringContaining('signed out') })))
+    await waitFor(() => expect(pushed.mock.calls.map(([notice]) => notice.message).join('\n')).toContain('signed out'))
   })
 
   it('is not offered on an instance, whose sessions come from root', () => {

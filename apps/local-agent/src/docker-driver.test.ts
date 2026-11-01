@@ -1,10 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const runDockerMock = vi.fn();
+const runDockerMock = vi.fn<(args: string[], opts?: RunDockerOptions) => Promise<DockerResult>>();
 vi.mock('./docker-cli.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('./docker-cli.js')>()),
-  runDocker: (...args: unknown[]) => runDockerMock(...args),
+  runDocker: (args: string[], opts?: RunDockerOptions) => runDockerMock(args, opts),
 }));
+
+import type { DockerResult, RunDockerOptions } from './docker-cli.js';
 
 const {
   createContainer, destroyContainer, execInContainer, readFileInContainer, writeFileInContainer,
@@ -143,12 +145,31 @@ describe('destroyContainer', () => {
     expect(calls[0]).toEqual(['stop', 'koala-leaf-leaf-1']);
     expect(calls.some((a) => a[0] === 'network' && a[1] === 'disconnect' && a.includes('koala-leaf-net-leaf-1'))).toBe(true);
     expect(calls.some((a) => a[0] === 'network' && a[1] === 'rm' && a[2] === 'koala-leaf-net-leaf-1')).toBe(true);
-    expect(fetch).toHaveBeenCalledWith('http://127.0.0.1:38081/allowlist/172.20.0.9', { method: 'DELETE', headers: { authorization: expect.stringMatching(/^Bearer [0-9a-f]{64}$/) } });
+    const [url, init] = vi.mocked(fetch).mock.calls[0] ?? [];
+    expect(url).toBe('http://127.0.0.1:38081/allowlist/172.20.0.9');
+    expect(init?.method).toBe('DELETE');
+    expect(new Headers(init?.headers).get('authorization')).toMatch(/^Bearer [0-9a-f]{64}$/);
   });
 
-  it('never throws, even when every docker call fails', async () => {
-    runDockerMock.mockResolvedValue(fail());
+  it('takes a container and network that are already gone as removed', async () => {
+    runDockerMock.mockImplementation(async (args: string[]) => (args[0] === 'stop'
+      ? fail('Error response from daemon: No such container: koala-leaf-leaf-never-created')
+      : fail('Error response from daemon: network koala-leaf-net-leaf-never-created not found')));
     await expect(destroyContainer('leaf-never-created')).resolves.toBeUndefined();
+  });
+
+  it('still removes the network when the container would not stop, then says what was left', async () => {
+    runDockerMock.mockImplementation(async (args: string[]) => (args[0] === 'stop' ? fail('Error response from daemon: cannot stop container: permission denied') : ok()));
+    await expect(destroyContainer('leaf-2')).rejects.toThrow(/docker stop koala-leaf-leaf-2 failed: Error response from daemon: cannot stop container: permission denied/);
+    expect(runDockerMock.mock.calls.map((c) => argsOf(c))).toContainEqual(['network', 'rm', 'koala-leaf-net-leaf-2']);
+  });
+
+  it('says so when the egress proxy keeps a gone container\'s allowlist', async () => {
+    mockHappyPathCreate(undefined, '172.20.0.7');
+    await createContainer({ leafId: 'leaf-1', image: 'x', rootDir: '/x' });
+    runDockerMock.mockResolvedValue(ok());
+    vi.mocked(fetch).mockResolvedValue(new Response('', { status: 500 }));
+    await expect(destroyContainer('leaf-1')).rejects.toThrow(/the egress proxy kept 172.20.0.7's allowlist \(it answered 500\)/);
   });
 });
 

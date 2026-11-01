@@ -1,26 +1,29 @@
 import { render, screen, fireEvent } from '@testing-library/react';
+import type { ComponentProps } from 'react';
 import { describe, it, expect, vi } from 'vitest';
 import NginxView from './NginxView';
 
-const mutation = (over: Record<string, unknown> = {}) => ({
+type Props = ComponentProps<typeof NginxView>;
+
+const mutation = (over: Partial<Props['updateNginxConfig']> = {}): Props['updateNginxConfig'] => ({
   isPending: false, isSuccess: false, isError: false, error: null,
   mutate: vi.fn(), ...over,
-}) as any;
+});
 
-const setup = (over: Record<string, unknown> = {}) => {
-  const props = {
+const setup = (over: Partial<Props> = {}) => {
+  const props: Props = {
     editorContent: 'server { listen 80; }',
     setEditorContent: vi.fn(),
     loadingNginxConfig: false,
     updateNginxConfig: mutation(),
-    deployments: [{ id: 'd1', name: 'weather', status: 'running' }],
+    deployments: [{ id: 'd1', name: 'weather', appType: 'wordpress', clusterId: 'c1', status: 'running' }],
     clusters: [{ id: 'c1', name: 'local' }],
-    vpnDomains: {} as Record<string, string>,
+    vpnDomains: {},
     setVpnDomains: vi.fn(),
     onAddRoute: vi.fn(),
     ...over,
   };
-  render(<NginxView {...(props as any)} />);
+  render(<NginxView {...props} />);
   return props;
 };
 

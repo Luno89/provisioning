@@ -1,4 +1,5 @@
-import { access, constants } from 'node:fs/promises';
+import { constants } from 'node:fs/promises';
+import { present } from './file-present.js';
 import os from 'node:os';
 import path from 'node:path';
 import type { AcpLaunch, AcpProbe } from './acp-session.js';
@@ -89,7 +90,7 @@ export function manualAgentsFrom(raw: unknown): ManualAgent[] {
 
 export const expandHome = (command: string): string => (command === '~' || command.startsWith('~/') ? path.join(os.homedir(), command.slice(1)) : command);
 
-const executable = async (file: string): Promise<boolean> => access(file, constants.X_OK).then(() => true, () => false);
+const executable = (file: string): Promise<boolean> => present(file, constants.X_OK);
 
 export async function onPath(command: string, envPath: string | undefined = process.env.PATH): Promise<string | undefined> {
   const expanded = expandHome(command);
@@ -103,7 +104,7 @@ export async function onPath(command: string, envPath: string | undefined = proc
 
 export const systemDeps = (cwd: string, probe: (launch: AcpLaunch, cwd: string) => Promise<AcpProbe>): DiscoveryDeps => ({
   which: (command) => onPath(command),
-  exists: (place) => access(expandHome(place)).then(() => true, () => false),
+  exists: (place) => present(expandHome(place)),
   probe: (launch) => probe(launch, cwd),
 });
 

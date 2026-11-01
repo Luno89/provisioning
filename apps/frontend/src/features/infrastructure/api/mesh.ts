@@ -30,4 +30,4 @@ export const createPreauthKey = (body: { reusable: boolean; expirySeconds: numbe
   api.post<PreauthKey>('/mesh/preauth-key', body).then((r) => r.data)
 
 export const deleteMeshDevice = (nodeId: string) =>
-  api.delete(`/mesh/devices/${nodeId}`).then((r) => r.data)
+  api.delete<unknown>(`/mesh/devices/${nodeId}`).then((r) => r.data)

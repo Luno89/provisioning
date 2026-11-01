@@ -100,7 +100,7 @@ export function RootLayout() {
     try {
       await logout();
       setUser(null);
-      navigate({ to: '/infrastructure' });
+      void navigate({ to: '/infrastructure' });
     } catch (err) {
       console.error('Logout failed', err);
     }
@@ -162,14 +162,14 @@ export function RootLayout() {
     setShowLogModal((current) => (current && current.id === data.id) ? null : current);
     clearDestroyFor(data.id);
 
-    queryClient.invalidateQueries({ queryKey: ['clusters'] });
-    queryClient.invalidateQueries({ queryKey: ['deployments'] });
+    void queryClient.invalidateQueries({ queryKey: ['clusters'] });
+    void queryClient.invalidateQueries({ queryKey: ['deployments'] });
     setTimeout(() => dismissNotification(nid), 5000);
   });
 
   const [releasesNoticed] = useState(() => new Set<string>());
   useSocketEvent<OdooRelease>('odoo-release-updated', (release) => {
-    queryClient.invalidateQueries({ queryKey: releaseKeys.list(release.projectId) });
+    void queryClient.invalidateQueries({ queryKey: releaseKeys.list(release.projectId) });
     const notice = releaseNotice(releasesNoticed, release);
     if (notice) pushNotification(notice);
   });
@@ -177,7 +177,7 @@ export function RootLayout() {
   useGroveChanges();
 
   useSocketEvent('deployment-updated', () => {
-    queryClient.invalidateQueries({ queryKey: ['deployments'] });
+    void queryClient.invalidateQueries({ queryKey: ['deployments'] });
   });
 
   const reportFailure = (what: string) => (err: unknown) =>
@@ -186,7 +186,7 @@ export function RootLayout() {
   const provisionCluster = useMutation({
     mutationFn: (newCluster: unknown) => provisionClusterApi<ClusterCreated>(newCluster),
     onSuccess: (res) => {
-      queryClient.invalidateQueries({ queryKey: ['clusters'] });
+      void queryClient.invalidateQueries({ queryKey: ['clusters'] });
       setShowClusterModal(false);
       setWizardPreset(undefined);
       if (res.status === 'awaiting-key') {
@@ -202,7 +202,7 @@ export function RootLayout() {
   const startAwaitingCluster = useMutation({
     mutationFn: (id: string) => startAwaitingClusterApi<ClusterCreated>(id),
     onSuccess: (res) => {
-      queryClient.invalidateQueries({ queryKey: ['clusters'] });
+      void queryClient.invalidateQueries({ queryKey: ['clusters'] });
       setPendingKey(null);
       setShowLogModal({ type: 'cluster', id: res.id });
       setLogTab('provision');
@@ -213,7 +213,7 @@ export function RootLayout() {
   const deployApp = useMutation({ 
     mutationFn: (newApp: unknown) => deployAppApi<{ id: string }>(newApp),
     onSuccess: (res) => { 
-      queryClient.invalidateQueries({ queryKey: ['deployments'] }); 
+      void queryClient.invalidateQueries({ queryKey: ['deployments'] }); 
       setShowAppModal(false); 
       setShowLogModal({ type: 'app', id: res.id }); 
       setLogTab('provision'); 
@@ -224,8 +224,8 @@ export function RootLayout() {
   const destroyResource = useMutation({
     mutationFn: ({ type, id }: { type: 'cluster' | 'app'; id: string }) => destroyResourceApi(type, id),
     onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({ queryKey: ['clusters'] });
-      queryClient.invalidateQueries({ queryKey: ['deployments'] });
+      void queryClient.invalidateQueries({ queryKey: ['clusters'] });
+      void queryClient.invalidateQueries({ queryKey: ['deployments'] });
       setConfirmDestroy(null);
       setShowLogModal({ type: variables.type, id: variables.id });
       setLogTab('provision');
@@ -243,7 +243,7 @@ export function RootLayout() {
   const updateNginxConfig = useMutation({
     mutationFn: saveNginxConfig,
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['nginx-config'] });
+      void queryClient.invalidateQueries({ queryKey: ['nginx-config'] });
     },
     onError: reportFailure('Could not save the nginx config'),
   });

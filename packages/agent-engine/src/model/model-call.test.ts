@@ -51,7 +51,7 @@ describe('callModel', () => {
     const [url, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
     expect(url).toBe('https://models.test/v1/chat/completions');
     expect((init.headers as Record<string, string>).authorization).toBe('Bearer secret-key');
-    const body = JSON.parse(init.body as string);
+    const body = JSON.parse(init.body as string) as { stream?: boolean; model?: string };
     expect(body.stream).toBe(true);
     expect(body.model).toBe('test-model');
   });

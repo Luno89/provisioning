@@ -8,6 +8,9 @@ import { PersistentVolumeClaim } from "../.gen/providers/kubernetes/persistent-v
 import { type VpnConfig, VpnService } from "../lib/vpn-service.js";
 import { createAppIngress } from "../lib/app-ingress.js";
 import { createAppProbe } from "../lib/app-probe.js";
+import type { RenderedAppConfig } from "../lib/env-json.js";
+
+export type { RenderedAppConfig };
 
 /**
  * One construct for every app that is only a Deployment, a Service and a disk.
@@ -36,20 +39,6 @@ import { createAppProbe } from "../lib/app-probe.js";
  * to accommodate them — the moment this file starts branching on app type, it has become the
  * fifteen files it replaced.
  */
-
-/** What the renderer produces. Kept in sync by the test that renders minio and diffs it. */
-export interface RenderedAppConfig {
-  namespace: { metadata: { name: string } };
-  secret?: { metadata: { name: string; namespace: string }; data: Record<string, string>; type: string };
-  configMap?: { metadata: { name: string; namespace: string }; data: Record<string, string> };
-  pvcs: { metadata: { name: string; namespace: string }; spec: unknown; waitUntilBound: boolean }[];
-  deployment: Record<string, any>;
-  service: Record<string, any>;
-  /** Which port a browser should reach, when the app has a UI worth exposing. */
-  ingressPort?: number;
-  /** Where a probe should look, so a deployed spec reports health like every other app. */
-  health?: { port: number; path: string };
-}
 
 export interface SpecAppConfig extends VpnConfig {
   readonly rendered: RenderedAppConfig;
@@ -88,7 +77,7 @@ export class SpecApp extends Construct {
     rendered.pvcs.forEach((pvc, i) => {
       new PersistentVolumeClaim(this, `pvc-${i}`, {
         metadata: { ...pvc.metadata, namespace: ns.metadata.name },
-        spec: pvc.spec as any,
+        spec: pvc.spec,
         waitUntilBound: pvc.waitUntilBound,
       });
     });
@@ -104,12 +93,12 @@ export class SpecApp extends Construct {
     new Deployment(this, "deployment", {
       ...rendered.deployment,
       metadata: { ...rendered.deployment.metadata, namespace: ns.metadata.name },
-    } as any);
+    });
 
     new Service(this, "service", {
       ...rendered.service,
       metadata: { ...rendered.service.metadata, namespace: ns.metadata.name },
-    } as any);
+    });
 
     // Only when the app has something a person would open. A database has no console, and an
     // ingress pointing at one would be a hostname that answers with a protocol error.

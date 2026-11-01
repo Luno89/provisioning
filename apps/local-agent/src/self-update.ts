@@ -1,3 +1,5 @@
+import { ignore } from '@koala/engine-core/failures';
+
 export const BUNDLE_FILE = 'bundle.sha256';
 export const SERVICE_UNIT = 'koala-machine.service';
 export const LAUNCHD_LABEL = 'dev.koala.machine';
@@ -113,7 +115,7 @@ export class SelfUpdate {
       return false;
     }
     if (this.wanted !== bundle) {
-      await this.deps.discard().catch(() => undefined);
+      await this.deps.discard().catch(ignore('the next update empties the unused folder before it unpacks into it'));
       return false;
     }
     for (;;) {
@@ -126,7 +128,7 @@ export class SelfUpdate {
       this.deps.swap();
     } catch (err) {
       await this.deps.resume();
-      await this.deps.discard().catch(() => undefined);
+      await this.deps.discard().catch(ignore('the next update empties the unused folder before it unpacks into it'));
       this.failed(bundle, `the new agent could not take the old one's place: ${(err as Error).message}`);
       return false;
     }

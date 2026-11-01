@@ -3,10 +3,10 @@ import { Activity, AlertTriangle, Box, Check, Cpu, Database, ExternalLink, FileT
 import { AppSignInReveal } from './AppSignInReveal';
 import { signsIn } from '../../lib/app-sign-in';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { api } from '../../../../api/client';
 import {
   useDeploymentPods, useHelmStatus, useDiagnostics,
   useAvailableModules, useResourcePlan, useInitialLogs, deploymentKeys, useAppCatalogue,
+  exposeDeployment, unexposeDeployment, setDeploymentModules, patchDeploymentConfig, setExposurePath, type ExposureMode,
 } from '../../api/deployments';
 import { useTabbyImageTags } from '../../../models';
 import { useLogSocket } from '../../../platform';
@@ -119,13 +119,11 @@ export default function AppDashboard({
   const invalidate = () => qc.invalidateQueries({ queryKey: deploymentKeys.all });
 
   const exposeApp = useMutation({
-    mutationFn: ({ id, mode }: { id: string; mode: 'public' | 'local' }) =>
-      api.post(`/deployments/${id}/expose`, { mode }).then((r) => r.data),
+    mutationFn: ({ id, mode }: { id: string; mode: ExposureMode }) => exposeDeployment(id, mode),
     onSuccess: invalidate,
   });
   const unexposeApp = useMutation({
-    mutationFn: ({ id, mode }: { id: string; mode: 'public' | 'local' }) =>
-      api.post(`/deployments/${id}/unexpose`, { mode }).then((r) => r.data),
+    mutationFn: ({ id, mode }: { id: string; mode: ExposureMode }) => unexposeDeployment(id, mode),
     onSuccess: invalidate,
   });
 
@@ -146,25 +144,25 @@ export default function AppDashboard({
   const [gameSettings, setGameSettings] = useState<Record<string, string>>({});
 
   const updateAppModules = useMutation({
-    mutationFn: ({ id, modules }: { id: string; modules: string[] }) => api.patch(`/deployments/${id}/modules`, { modules }),
+    mutationFn: ({ id, modules }: { id: string; modules: string[] }) => setDeploymentModules(id, modules),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['deployments'] });
+      void queryClient.invalidateQueries({ queryKey: ['deployments'] });
       setLogTab('provision');
     }
   });
 
   const updateAppConfig = useMutation({
-    mutationFn: ({ id, patch }: { id: string; patch: Record<string, unknown> }) => api.patch(`/deployments/${id}/config`, patch),
+    mutationFn: ({ id, patch }: { id: string; patch: Record<string, unknown> }) => patchDeploymentConfig(id, patch),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['deployments'] });
+      void queryClient.invalidateQueries({ queryKey: ['deployments'] });
       setLogTab('provision');
     }
   });
 
   const updateExposurePath = useMutation({
-    mutationFn: ({ id, path }: { id: string, path: string }) => api.patch(`/deployments/${id}/exposure-path`, { path }),
+    mutationFn: ({ id, path }: { id: string, path: string }) => setExposurePath(id, path),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['deployments'] });
+      void queryClient.invalidateQueries({ queryKey: ['deployments'] });
     }
   });
 

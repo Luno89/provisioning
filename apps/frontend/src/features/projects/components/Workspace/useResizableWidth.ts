@@ -1,4 +1,7 @@
 import { useState, useCallback } from 'react'
+import { ignore } from '@koala/engine-core/failures'
+
+const UNKEPT = 'the width is a convenience of this browser; without storage it is only not remembered'
 
 export function useResizableWidth(
   storageKey: string,
@@ -37,8 +40,8 @@ export function useResizableWidth(
       const next = !prev
       try {
         localStorage.setItem(`${storageKey}-collapsed`, String(next))
-      } catch {
-        /* ignore */
+      } catch (failure) {
+        ignore(UNKEPT)(failure)
       }
       return next
     })
@@ -48,12 +51,12 @@ export function useResizableWidth(
     setIsCollapsed(collapsed)
     try {
       localStorage.setItem(`${storageKey}-collapsed`, String(collapsed))
-    } catch {
-      /* ignore */
+    } catch (failure) {
+      ignore(UNKEPT)(failure)
     }
   }, [storageKey])
 
-  const startResize = (direction: 1 | -1) => (e: React.MouseEvent) => {
+  const startResize = (direction: 1 | -1) => (e: Pick<React.MouseEvent, 'clientX' | 'preventDefault'>) => {
     e.preventDefault()
     const startX = e.clientX
     const startWidth = width
@@ -83,8 +86,8 @@ export function useResizableWidth(
       window.removeEventListener('mouseup', onUp)
       try {
         localStorage.setItem(storageKey, String(latest))
-      } catch {
-        /* ignore */
+      } catch (failure) {
+        ignore(UNKEPT)(failure)
       }
     }
 

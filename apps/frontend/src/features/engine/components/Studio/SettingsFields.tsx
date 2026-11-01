@@ -53,7 +53,7 @@ function ValueEditor({ name, schema, value, disabled, onChange }: ValueEditorPro
       )
 
     case 'array': {
-      const list = Array.isArray(value) ? value : []
+      const list: unknown[] = Array.isArray(value) ? value : []
       return (
         <div className="space-y-1.5">
           {list.map((item, index) => (

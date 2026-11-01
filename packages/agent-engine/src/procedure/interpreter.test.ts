@@ -425,7 +425,7 @@ describe('pausing a run and resuming it from its checkpoint', () => {
         ...(checkpoint ? { resume: checkpoint } : {}),
         pauseWhen: () => (sinceResume += 1) > 2,
       });
-      checkpoint = result.paused ? JSON.parse(JSON.stringify(result.paused)) : undefined;
+      checkpoint = result.paused ? JSON.parse(JSON.stringify(result.paused)) as NonNullable<RunProcedureOptions['resume']> : undefined;
     } while (checkpoint);
 
     expect(segments).toBeGreaterThan(2);

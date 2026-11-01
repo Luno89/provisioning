@@ -50,7 +50,7 @@ export const getRootInvitation = (code: string): Promise<RootInvitation> =>
 export const HUB_GO_URL = (next: string): string => `/api/identity/go?to=hub&next=${encodeURIComponent(next)}`
 
 export const hubElsewhere = (): Promise<string | null> =>
-  api.get<{ hub?: string | null }>('/auth/sign-in').then((r) => r.data.hub ?? null).catch(() => null)
+  api.get<{ hub?: string | null }>('/auth/sign-in').then((r) => r.data.hub ?? null)
 
 export const sharingKeys = {
   of: (projectId: string) => ['project-sharing', projectId] as const,

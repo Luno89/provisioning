@@ -128,8 +128,8 @@ export default function Login({ onSuccess, invite }: LoginProps) {
       if (data.user) {
         onSuccess(data.user);
       }
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err) {
+      setError(errorMessage(err));
     } finally {
       setLoading(false);
     }

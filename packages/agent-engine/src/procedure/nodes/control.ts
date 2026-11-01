@@ -119,7 +119,7 @@ export const collect: BuiltInNode = {
     summarize: (settings) => (settings.spread === true ? 'collects everything in each list' : 'collects a list'),
   }),
   implementation: stepImplementation('collect', ({ node, inputs, previous }) => {
-    const adding = node.settings.spread === true && Array.isArray(inputs.item) ? inputs.item : [inputs.item];
+    const adding: unknown[] = node.settings.spread === true && Array.isArray(inputs.item) ? inputs.item : [inputs.item];
     return {
       exit: 'done',
       outputs: { items: [...((previous?.items as unknown[] | undefined) ?? []), ...adding] },

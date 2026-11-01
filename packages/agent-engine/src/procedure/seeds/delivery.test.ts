@@ -17,7 +17,7 @@ function deliver(executorOutcomes: Record<string, Omit<ChildOutcomeValue, 'runId
       const ready = listed === 1 ? Object.keys(executorOutcomes).map((id) => ({ id, title: `Task ${id}` })) : [];
       return { ok: true, digest: JSON.stringify(ready), content: JSON.stringify(ready) };
     }),
-    runChild: vi.fn(async ({ agent, inputs }) => {
+    runChild: vi.fn<OrchestrationPorts['runChild']>(async ({ agent, inputs }) => {
       if (agent === 'planner') return { runId: 'plan', agentId: agent, outcome: 'ok', outputs: { result: 'Two tasks: a writes the file, b checks it.' } };
       const id = (inputs.item as { id: string }).id;
       return { runId: `do-${id}`, agentId: agent, ...executorOutcomes[id]! } as ChildOutcomeValue;

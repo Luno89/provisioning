@@ -4,6 +4,7 @@ import { calculatePressure } from '../tokens/context-budget.js';
 import { maskToolObservation } from '../observations/observation-masker.js';
 import { extractContinuityState } from '../state/state-vector.js';
 import { renderContinuityNotice } from '../state/state-renderer.js';
+import { toolArgs } from '../observations/tool-args.js';
 import type { ContextMessage, CompactionResult } from './compactor-types.js';
 
 export interface CompactionOptions {
@@ -79,10 +80,9 @@ function applyObservationMasking<T extends ContextMessage>(
           if (c.function.arguments.length > cfg.elidePayloadAboveBytes) {
             changed = true;
             let path = 'the file';
-            try {
-              const parsed = JSON.parse(c.function.arguments);
-              if (parsed.path || parsed.TargetFile) path = parsed.path || parsed.TargetFile;
-            } catch { /* ignored */ }
+            const args = toolArgs(c.function.arguments);
+            const named = args.path || args.TargetFile;
+            if (typeof named === 'string' && named) path = named;
             return {
               ...c,
               function: {

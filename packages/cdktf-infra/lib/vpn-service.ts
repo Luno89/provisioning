@@ -1,5 +1,7 @@
 import { Construct } from "constructs";
+import type { IResolvable } from "cdktf";
 import { Secret } from "../.gen/providers/kubernetes/secret/index.js";
+import type { DeploymentSpecTemplateSpecContainer, DeploymentSpecTemplateSpecVolume } from "../.gen/providers/kubernetes/deployment/index.js";
 
 export interface VpnConfig {
   vpnEnabled?: boolean;
@@ -8,11 +10,22 @@ export interface VpnConfig {
   vpnDedicatedIp?: string;
 }
 
+export interface SidecarPod {
+  container?: DeploymentSpecTemplateSpecContainer[] | IResolvable;
+  volume?: DeploymentSpecTemplateSpecVolume[] | IResolvable;
+}
+
+function listOf<T>(list: T[] | IResolvable | undefined, what: string): T[] {
+  if (list === undefined) return [];
+  if (Array.isArray(list)) return list;
+  throw new Error(`the pod's ${what} is a Terraform token, so the VPN sidecar cannot be added to it`);
+}
+
 export class VpnService {
   static apply(
     scope: Construct,
     namespace: string,
-    podSpec: any, // This is the pod template spec (spec.template.spec)
+    podSpec: SidecarPod,
     config: VpnConfig
   ) {
     if (!config || !config.vpnEnabled || !config.vpnConfig) {
@@ -22,7 +35,6 @@ export class VpnService {
     const protocol = config.vpnProtocol || 'wireguard';
     const configFileName = protocol === 'wireguard' ? 'wg0.conf' : 'client.ovpn';
 
-    // 1. Create a Kubernetes Secret containing the VPN config
     const secret = new Secret(scope, "vpn-config-secret", {
       metadata: {
         name: "windscribe-vpn-config",
@@ -33,8 +45,19 @@ export class VpnService {
       },
     });
 
-    // 2. Define the VPN sidecar container
-    const sidecarContainer: any = {
+    const command = protocol === 'wireguard'
+      ? [
+        "sh",
+        "-c",
+        "apk add --no-cache wireguard-tools iproute2 && wg-quick up /config/wg0.conf && sleep infinity"
+      ]
+      : [
+        "sh",
+        "-c",
+        "apk add --no-cache openvpn && mkdir -p /dev/net && [ -c /dev/net/tun ] || mknod /dev/net/tun c 10 200 && openvpn --config /config/client.ovpn"
+      ];
+
+    const sidecarContainer: DeploymentSpecTemplateSpecContainer = {
       name: "vpn-sidecar",
       image: "alpine:3.19",
       securityContext: {
@@ -49,37 +72,18 @@ export class VpnService {
           readOnly: true,
         },
       ],
+      command,
     };
 
-    if (protocol === 'wireguard') {
-      sidecarContainer.command = [
-        "sh",
-        "-c",
-        "apk add --no-cache wireguard-tools iproute2 && wg-quick up /config/wg0.conf && sleep infinity"
-      ];
-    } else {
-      sidecarContainer.command = [
-        "sh",
-        "-c",
-        "apk add --no-cache openvpn && mkdir -p /dev/net && [ -c /dev/net/tun ] || mknod /dev/net/tun c 10 200 && openvpn --config /config/client.ovpn"
-      ];
-    }
-
-    // 3. Append the sidecar container to podSpec
-    if (!podSpec.container) {
-      podSpec.container = [];
-    }
-    podSpec.container.push(sidecarContainer);
-
-    // 4. Append the secret volume to podSpec
-    if (!podSpec.volume) {
-      podSpec.volume = [];
-    }
-    podSpec.volume.push({
-      name: "vpn-config-volume",
-      secret: {
-        secretName: secret.metadata.name,
+    podSpec.container = [...listOf(podSpec.container, "containers"), sidecarContainer];
+    podSpec.volume = [
+      ...listOf(podSpec.volume, "volumes"),
+      {
+        name: "vpn-config-volume",
+        secret: {
+          secretName: secret.metadata.name,
+        },
       },
-    });
+    ];
   }
 }

@@ -410,6 +410,6 @@ export async function cancelLevel2Run(id: string): Promise<void> {
 }
 
 export async function listModels(): Promise<ModelChoice[]> {
-  const { data } = await api.get('/models')
+  const { data } = await api.get<ModelChoice[] | { models?: ModelChoice[] }>('/models')
   return Array.isArray(data) ? data : (data.models ?? [])
 }

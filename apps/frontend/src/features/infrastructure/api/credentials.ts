@@ -53,7 +53,7 @@ export const saveLlmCredentials = (data: {
   api.post<{ endpoints: unknown[] }>('/credentials/llm', data).then((r) => r.data)
 
 export const deleteLlmCredentials = (provider: string): Promise<{ removed: number }> =>
-  api.delete(`/credentials/llm/${provider}`).then((r) => r.data)
+  api.delete<{ removed: number }>(`/credentials/llm/${provider}`).then((r) => r.data)
 
 export interface LlmProviderStatus {
   provider: string; label: string; baseUrl: string; docsUrl: string

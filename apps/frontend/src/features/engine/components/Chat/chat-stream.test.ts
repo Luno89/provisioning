@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { readSseFrames, assistantMsgFromRenderState } from './chat-stream.js';
 import { emptyChatRenderState, type ChatRenderState } from '../../lib/chat-unified-reducer.js';
 
@@ -42,13 +42,22 @@ describe('readSseFrames', () => {
     expect(frames).toEqual([{ type: 'content', delta: 'abcdef' }]);
   });
 
-  it('ignores an unparseable frame rather than throwing', async () => {
+  it('skips an unparseable frame and says so, rather than throwing', async () => {
+    const warned = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const frames: unknown[] = [];
     await readSseFrames(
       streamOf(['data: not json\n\n', 'data: {"type":"content","delta":"ok"}\n\n']),
       (f) => frames.push(f),
     );
     expect(frames).toEqual([{ type: 'content', delta: 'ok' }]);
+    expect(warned).toHaveBeenCalledWith('a stream frame was not JSON, so it was skipped: not json');
+  });
+
+  it('lets a frame its reader cannot take fail the stream, rather than hiding it', async () => {
+    await expect(readSseFrames(
+      streamOf(['data: {"type":"content","delta":"a"}\n\n']),
+      () => { throw new Error('the reducer broke'); },
+    )).rejects.toThrow('the reducer broke');
   });
 });
 

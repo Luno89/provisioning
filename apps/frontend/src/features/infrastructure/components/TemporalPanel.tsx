@@ -25,11 +25,15 @@ const STATUS_ICONS: Record<string, LucideIcon> = {
   TIMED_OUT: Timer,
 };
 
-function statusBadge(status: string | undefined) {
+function badgeClass(status: string | undefined): string {
   const color = STATUS_COLORS[status || ''] || 'bg-slate-500/10 text-slate-400';
+  return `inline-flex items-center gap-1.5 text-[10px] font-bold px-3 py-1 rounded-full uppercase ${color}`;
+}
+
+function statusBadge(status: string | undefined) {
   const Icon = STATUS_ICONS[status || ''];
   return (
-    <span className={`inline-flex items-center gap-1.5 text-[10px] font-bold px-3 py-1 rounded-full uppercase ${color}`}>
+    <span className={badgeClass(status)}>
       {Icon && <Icon size={12} />}
       {status || 'UNKNOWN'}
     </span>
@@ -286,7 +290,7 @@ export default function TemporalPanel() {
                             </div>
                           </div>
                           <div className="flex flex-col items-end gap-3 text-right">
-                            <span className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium ${statusBadge(wfDetail.status).props.className}`}>
+                            <span className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium ${badgeClass(wfDetail.status)}`}>
                               {statusBadge(wfDetail.status)}
                             </span>
                             {(canSeeAll || (me !== undefined && wfDetail.owner === me)) && wfDetail.status === 'RUNNING' && <CancelWorkflow key={wfDetail.workflowId} workflowId={wfDetail.workflowId} />}

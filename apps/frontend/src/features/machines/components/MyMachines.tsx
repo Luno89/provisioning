@@ -7,15 +7,16 @@ import { errorMessage } from '../../../api/client';
 import MachineAgents from './MachineAgents';
 import MachineAgentUpdate from './MachineAgentUpdate';
 import ConfirmDelete from '../../../shared/components/ConfirmDelete';
+import { useCopy } from '../../../shared/lib/use-copy';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
-  Loader2, Copy, Check, Trash2, Circle, Terminal, ShieldCheck, ShieldAlert,
+  Loader2, Copy, Check, X, Trash2, Circle, Terminal, ShieldCheck, ShieldAlert,
 } from 'lucide-react';
 
 export default function MyMachines() {
   const qc = useQueryClient();
   const [machineCode, setMachineCode] = useState<MachineJoinCode | null>(null);
-  const [agentCopied, setAgentCopied] = useState(false);
+  const agentCopy = useCopy();
   const [removing, setRemoving] = useState<string | null>(null);
 
   const { data: localAgents } = useQuery<LocalAgentDevice[]>({
@@ -26,7 +27,7 @@ export default function MyMachines() {
 
   const createCode = useMutation({
     mutationFn: createMachineJoinCode,
-    onSuccess: (data) => { setMachineCode(data); setAgentCopied(false); },
+    onSuccess: (data) => { setMachineCode(data); agentCopy.reset(); },
   });
 
   const revokeAgent = useMutation({
@@ -36,9 +37,7 @@ export default function MyMachines() {
 
   const copyAgentCommand = () => {
     if (!machineCode) return;
-    navigator.clipboard.writeText(machineCode.command);
-    setAgentCopied(true);
-    setTimeout(() => setAgentCopied(false), 2000);
+    agentCopy.copy(machineCode.command);
   };
 
   return (
@@ -77,8 +76,8 @@ export default function MyMachines() {
           <div className="mt-5">
             <div className="flex items-start gap-2 bg-slate-950 border border-slate-800 rounded-xl p-4">
               <code className="text-[11px] text-slate-300 font-mono break-all flex-1 leading-relaxed">{machineCode.command}</code>
-              <button onClick={copyAgentCommand} className="text-slate-500 hover:text-white transition-colors flex-shrink-0" title="Copy">
-                {agentCopied ? <Check size={14} className="text-green-400" /> : <Copy size={14} />}
+              <button onClick={copyAgentCommand} className="text-slate-500 hover:text-white transition-colors flex-shrink-0" title={agentCopy.state === 'failed' ? 'Could not copy' : 'Copy'}>
+                {agentCopy.state === 'copied' ? <Check size={14} className="text-green-400" /> : agentCopy.state === 'failed' ? <X size={14} className="text-rose-400" /> : <Copy size={14} />}
               </button>
             </div>
             <p className="text-[11px] text-amber-400/80 mt-2 px-1">

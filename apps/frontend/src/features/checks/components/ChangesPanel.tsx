@@ -65,7 +65,7 @@ export default function ChangesPanel({ agent }: { agent?: string | undefined } =
   const navigate = useNavigate()
   const changes = useChanges()
   const { handOver, dismiss } = useDecideChange((conversationId) => {
-    navigate({ to: '/chat/$conversationId', params: { conversationId } }).catch(() => undefined)
+    void navigate({ to: '/chat/$conversationId', params: { conversationId } })
   })
   const waiting = (changes.data ?? []).filter((change: AgentChange) => WAITING.has(change.status) && (!agent || change.agent === agent))
   if (waiting.length === 0) return null

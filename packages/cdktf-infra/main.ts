@@ -1,5 +1,6 @@
 import { App, TerraformStack } from "cdktf";
 import { SpecApp } from "./constructs/spec-app.js";
+import { jsonFrom, renderedAppFrom, settingsFrom } from "./lib/env-json.js";
 import { Construct } from "constructs";
 import { BaseCluster } from "./constructs/cluster.js";
 import { OperatorCrdsStack } from "./constructs/operator-crds.js";
@@ -167,14 +168,7 @@ class AppStack extends TerraformStack {
     // Schema-driven settings for app types with too many options for individual env vars (game
     // servers: ~120 each). Built by lib/app-settings-schema.ts on the backend and passed as one
     // JSON blob, so adding a setting needs no change here at all.
-    let appSettings: Record<string, string> = {};
-    if (process.env.APP_SETTINGS_JSON) {
-      try {
-        appSettings = JSON.parse(process.env.APP_SETTINGS_JSON);
-      } catch (err) {
-        throw new Error(`APP_SETTINGS_JSON is not valid JSON: ${(err as Error).message}`);
-      }
-    }
+    const appSettings = process.env.APP_SETTINGS_JSON ? settingsFrom("APP_SETTINGS_JSON", jsonFrom("APP_SETTINGS_JSON", process.env.APP_SETTINGS_JSON)) : {};
 
     const vpnEnabled = process.env.VPN_ENABLED === 'true';
     const vpnProtocol = process.env.VPN_PROTOCOL as 'wireguard' | 'openvpn' | undefined;
@@ -191,12 +185,7 @@ class AppStack extends TerraformStack {
      * their constructs permanently.
      */
     if (process.env.APP_SPEC_JSON) {
-      let rendered: any;
-      try {
-        rendered = JSON.parse(process.env.APP_SPEC_JSON);
-      } catch (err) {
-        throw new Error(`APP_SPEC_JSON is not valid JSON: ${(err as Error).message}`);
-      }
+      const rendered = renderedAppFrom(jsonFrom("APP_SPEC_JSON", process.env.APP_SPEC_JSON));
       new SpecApp(this, "spec-app", { rendered, ...vpnProps });
       return;
     }

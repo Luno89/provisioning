@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import type { ComponentProps } from 'react';
 import VpsCatalog from './VpsCatalog';
 import { useShellStore } from '../../platform';
 import * as vpsApi from '../api/vps-catalog';
@@ -36,7 +37,7 @@ const cpuOnly = {
   label: 'Linode 4GB', ramGb: 4,
 };
 
-const renderWith = (offers: unknown[], onDeploy?: (o: any) => void, sources?: unknown[]) => {
+const renderWith = (offers: unknown[], onDeploy?: ComponentProps<typeof VpsCatalog>['onDeploy'], sources?: unknown[]) => {
   vi.mocked(vpsApi.getVpsCatalog).mockResolvedValue({
     offers,
     sources: sources ?? [{ provider: 'vultr', status: 'ok', offerCount: offers.length, requiresCredentials: false, cached: false }],

@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { Construct } from "constructs";
 import { Namespace } from "../.gen/providers/kubernetes/namespace/index.js";
-import { Deployment } from "../.gen/providers/kubernetes/deployment/index.js";
+import { Deployment, type DeploymentSpecTemplateSpec } from "../.gen/providers/kubernetes/deployment/index.js";
 import { Service } from "../.gen/providers/kubernetes/service/index.js";
 import { ConfigMap } from "../.gen/providers/kubernetes/config-map/index.js";
 import { Secret } from "../.gen/providers/kubernetes/secret/index.js";
@@ -109,7 +109,7 @@ export class SearxngNativeApp extends Construct {
       data: { "settings.yml": settingsYaml },
     });
 
-    const podSpec: any = {
+    const podSpec: DeploymentSpecTemplateSpec = {
       container: [
         {
           name: "searxng",

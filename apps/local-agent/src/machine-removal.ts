@@ -1,3 +1,4 @@
+import { ignore } from '@koala/engine-core/failures';
 import { execFile } from 'node:child_process';
 import { rm } from 'node:fs/promises';
 import os from 'node:os';
@@ -25,13 +26,13 @@ export async function forgetThisMachine(log: (line: string) => void, env: NodeJS
   const home = os.homedir();
   await rm(configFile(env), { force: true });
   log('this machine was removed from Koala: its token is deleted and the agent stops');
-  for (const file of serviceFiles(process.platform, env, home)) await rm(file, { force: true }).catch(() => undefined);
+  for (const file of serviceFiles(process.platform, env, home)) await rm(file, { force: true }).catch((err: Error) => log(`${file} could not be removed, so the service may start the agent again: ${err.message}`));
   for (const command of stopServiceCommands(process.platform, process.getuid?.() ?? 0, home)) {
     await run(command.file, command.args).catch((err: Error) => log(`${command.file} could not stop the service: ${err.message}`));
   }
 }
 
 export async function meshIp(): Promise<string | undefined> {
-  const answer = await run('tailscale', ['ip', '-4']).catch(() => undefined);
+  const answer = await run('tailscale', ['ip', '-4']).catch(ignore('a machine where tailscale is missing or signed out is not on the mesh, which is what no address says'));
   return answer?.stdout.split('\n').map((line) => line.trim()).find(Boolean);
 }

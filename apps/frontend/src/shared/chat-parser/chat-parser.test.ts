@@ -39,4 +39,12 @@ describe('ChatParser', () => {
     expect(parsed.cleanContent).toContain('Let me look that up:');
     expect(parsed.cleanContent).toContain('Found log stream.');
   });
+
+  it('leaves a tool call that is not JSON in the text, rather than dropping what the model wrote', () => {
+    const raw = 'Trying:\n<tool_call>{"name": "get_logs", oops}</tool_call>\nand <tool_call>{"name":"read_file","arguments":"{}"}</tool_call>';
+    const parsed = ChatParser.parse(raw);
+    expect(parsed.toolCalls).toEqual([{ name: 'read_file', args: '{}' }]);
+    expect(parsed.cleanContent).toContain('<tool_call>{"name": "get_logs", oops}</tool_call>');
+    expect(parsed.cleanContent).not.toContain('read_file');
+  });
 });

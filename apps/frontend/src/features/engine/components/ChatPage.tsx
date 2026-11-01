@@ -39,7 +39,7 @@ export default function ChatPage() {
     setView('projects');
     window.location.hash = `#/projects/tree/${treeId}`;
     if (navigate) {
-      navigate({ to: '/projects/tree/$treeId', params: { treeId } }).catch(() => {});
+      void navigate({ to: '/projects/tree/$treeId', params: { treeId } });
     }
   };
 
@@ -47,7 +47,7 @@ export default function ChatPage() {
     setView('projects');
     window.location.hash = `#/projects/tree/${treeId}/${branchId}/${leafId}`;
     if (navigate) {
-      navigate({ to: '/projects/tree/$treeId/$branchId/$leafId', params: { treeId, branchId, leafId } }).catch(() => {});
+      void navigate({ to: '/projects/tree/$treeId/$branchId/$leafId', params: { treeId, branchId, leafId } });
     }
   };
 
@@ -56,9 +56,9 @@ export default function ChatPage() {
     window.location.hash = hash;
     if (navigate) {
       if (convId) {
-        navigate({ to: '/chat/$conversationId', params: { conversationId: convId } }).catch(() => {});
+        void navigate({ to: '/chat/$conversationId', params: { conversationId: convId } });
       } else {
-        navigate({ to: '/chat' }).catch(() => {});
+        void navigate({ to: '/chat' });
       }
     }
   };

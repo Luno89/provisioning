@@ -1,3 +1,4 @@
+import { ignore } from '@koala/engine-core/failures';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import path from 'node:path';
@@ -194,8 +195,8 @@ export async function openAcpSession(options: AcpSessionOptions): Promise<AcpSes
     if (err instanceof AcpSessionError) throw err;
     throw new AcpSessionError((err as Error).message, stderr.join('\n'));
   }
-  void spawnFailed.catch(() => {});
-  void endedEarly.catch(() => {});
+  void spawnFailed.catch(ignore('only the opening raced it, and the session follows the child through exited from here'));
+  void endedEarly.catch(ignore('only the opening raced it, and the session follows the child through exited from here'));
 
   const info = opened.init.agentInfo;
   const releasePending = () => {
@@ -283,7 +284,10 @@ export async function probeAcp(launch: AcpLaunch, cwd: string): Promise<AcpProbe
       endedEarly,
     ]);
     const info = init.agentInfo;
-    const opened = await Promise.race([connection.newSession({ cwd, mcpServers: [] }), spawnFailed, endedEarly]).catch(() => undefined);
+    const opened = await Promise.race([connection.newSession({ cwd, mcpServers: [] }), spawnFailed, endedEarly]).catch((err: Error) => {
+      console.warn(`[koala-local-agent] ${launch.command} answered as an ACP agent but opened no session, so its models are not known: ${err.message}`);
+      return undefined;
+    });
     const models = modelsOf(opened?.configOptions);
     return {
       ...(models ? { models } : {}),
@@ -296,8 +300,8 @@ export async function probeAcp(launch: AcpLaunch, cwd: string): Promise<AcpProbe
     if (ended) throw new AcpSessionError(`${launch.command} exited (${ended.signal ?? ended.code}) without answering as an ACP agent`, stderr.join('\n'));
     throw new AcpSessionError((err as Error).message, stderr.join('\n'));
   } finally {
-    void spawnFailed.catch(() => {});
-    void endedEarly.catch(() => {});
+    void spawnFailed.catch(ignore('the probe has its answer or its failure already, and the child is stopped next'));
+    void endedEarly.catch(ignore('the probe has its answer or its failure already, and the child is stopped next'));
     await stopChild(child, exited);
   }
 }

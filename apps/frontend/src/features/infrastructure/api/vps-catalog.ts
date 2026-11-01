@@ -28,4 +28,4 @@ export const getVpsCatalog = (query: string): Promise<CatalogResult> =>
   api.get<CatalogResult>(`/vps-catalog?${query}`).then((r) => r.data)
 
 export const refreshVpsCatalog = () =>
-  api.post('/vps-catalog/refresh', {}).then((r) => r.data)
+  api.post<unknown>('/vps-catalog/refresh', {}).then((r) => r.data)

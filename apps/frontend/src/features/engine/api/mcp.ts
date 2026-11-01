@@ -121,4 +121,4 @@ export const dismissMcpRequest = (id: string): Promise<{ request: McpRequest }> 
   api.post<{ request: McpRequest }>(`/mcp/requests/${id}/dismiss`).then((r) => r.data)
 
 export const setConversationServers = (conversationId: string, servers: string[]): Promise<unknown> =>
-  api.put(`/mcp/conversations/${conversationId}/servers`, { servers }).then((r) => r.data)
+  api.put<unknown>(`/mcp/conversations/${conversationId}/servers`, { servers }).then((r) => r.data)

@@ -150,3 +150,20 @@ export const deployApp = <T,>(body: unknown): Promise<T> =>
 
 export const destroyResource = (kind: 'cluster' | 'app', id: string): Promise<void> =>
   api.delete(`/${kind === 'cluster' ? 'clusters' : 'deployments'}/${id}`).then(() => undefined)
+
+export type ExposureMode = 'public' | 'local'
+
+export const exposeDeployment = (id: string, mode: ExposureMode): Promise<void> =>
+  api.post(`/deployments/${id}/expose`, { mode }).then(() => undefined)
+
+export const unexposeDeployment = (id: string, mode: ExposureMode): Promise<void> =>
+  api.post(`/deployments/${id}/unexpose`, { mode }).then(() => undefined)
+
+export const setDeploymentModules = (id: string, modules: string[]): Promise<void> =>
+  api.patch(`/deployments/${id}/modules`, { modules }).then(() => undefined)
+
+export const patchDeploymentConfig = (id: string, patch: Record<string, unknown>): Promise<void> =>
+  api.patch(`/deployments/${id}/config`, patch).then(() => undefined)
+
+export const setExposurePath = (id: string, path: string): Promise<void> =>
+  api.patch(`/deployments/${id}/exposure-path`, { path }).then(() => undefined)

@@ -123,7 +123,7 @@ export default function Sidebar({ pages, onLogout }: {
       window.location.hash = hash;
       setCurrentHash(hash);
       if (navigate) {
-        navigate({ to: cleanPath as NonNullable<NavigateOptions['to']> }).catch(() => {});
+        void navigate({ to: cleanPath as NonNullable<NavigateOptions['to']> });
       }
     });
   };
@@ -131,7 +131,7 @@ export default function Sidebar({ pages, onLogout }: {
   const newConversation = useMutation({
     mutationFn: () => createChatConversation('New conversation'),
     onSuccess: (created) => {
-      qc.invalidateQueries({ queryKey: chatPackKeys.conversations() });
+      void qc.invalidateQueries({ queryKey: chatPackKeys.conversations() });
       navigateTo('chat', `#/chat/${created.id}`);
     },
   });
@@ -139,7 +139,7 @@ export default function Sidebar({ pages, onLogout }: {
   const deleteConversation = useMutation({
     mutationFn: (id: string) => deleteChatConversation(id),
     onSuccess: (_, deletedId) => {
-      qc.invalidateQueries({ queryKey: chatPackKeys.conversations() });
+      void qc.invalidateQueries({ queryKey: chatPackKeys.conversations() });
       if (activeConvId === deletedId) navigateTo('chat', '#/chat');
     },
   });
