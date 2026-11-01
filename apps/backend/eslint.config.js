@@ -100,6 +100,7 @@ const BUG_BACKED = {
 }
 
 const SWALLOWING = [
+  { selector: 'CatchClause > BlockStatement[body.length=0]', message: SWALLOW_MESSAGE },
   { selector: `CallExpression[callee.property.name='catch'] > ArrowFunctionExpression.arguments[params.length=0]${SWALLOWED}`, message: SWALLOW_MESSAGE },
   { selector: `CallExpression[callee.property.name='then'][arguments.length=2] > ArrowFunctionExpression.arguments:nth-child(2)[params.length=0]${SWALLOWED}`, message: SWALLOW_MESSAGE },
   { selector: "CallExpression[callee.property.name=/^(start|signalWithStart|execute)$/][callee.object.property.name='workflow'] > Literal.arguments:first-child", message: 'start a workflow by its function, so a renamed or misspelt workflow fails the typecheck rather than every start' },

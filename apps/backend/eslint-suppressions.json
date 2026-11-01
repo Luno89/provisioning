@@ -143,6 +143,9 @@
     },
     "no-empty": {
       "count": 5
+    },
+    "no-restricted-syntax": {
+      "count": 6
     }
   },
   "src/activities/DownloadModelActivity.test.ts": {
@@ -185,7 +188,7 @@
       "count": 3
     },
     "no-restricted-syntax": {
-      "count": 4
+      "count": 14
     }
   },
   "src/activities/ProvisionDigitalOceanVmActivity.ts": {
@@ -239,7 +242,7 @@
       "count": 1
     },
     "no-restricted-syntax": {
-      "count": 1
+      "count": 2
     }
   },
   "src/activities/ReleaseBrowserTestsActivity.test.ts": {
@@ -1405,6 +1408,9 @@
     },
     "@typescript-eslint/no-unsafe-member-access": {
       "count": 13
+    },
+    "no-restricted-syntax": {
+      "count": 2
     }
   },
   "src/infrastructure/routes/dns-providers.test.ts": {
@@ -1587,6 +1593,9 @@
     },
     "@typescript-eslint/no-unsafe-member-access": {
       "count": 83
+    },
+    "no-restricted-syntax": {
+      "count": 1
     }
   },
   "src/infrastructure/services/AppExposureService.test.ts": {
@@ -1623,7 +1632,7 @@
       "count": 31
     },
     "no-restricted-syntax": {
-      "count": 1
+      "count": 3
     }
   },
   "src/infrastructure/services/AppService.ts": {
@@ -1643,6 +1652,9 @@
       "count": 65
     },
     "@typescript-eslint/no-unsafe-return": {
+      "count": 3
+    },
+    "no-restricted-syntax": {
       "count": 3
     }
   },
@@ -1736,7 +1748,7 @@
       "count": 2
     },
     "no-restricted-syntax": {
-      "count": 2
+      "count": 9
     }
   },
   "src/infrastructure/services/CredentialService.test.ts": {
@@ -1767,6 +1779,14 @@
     },
     "@typescript-eslint/no-unsafe-member-access": {
       "count": 5
+    },
+    "no-restricted-syntax": {
+      "count": 1
+    }
+  },
+  "src/infrastructure/services/HeadscaleService.ts": {
+    "no-restricted-syntax": {
+      "count": 1
     }
   },
   "src/infrastructure/services/InfisicalService.test.ts": {
@@ -1791,7 +1811,7 @@
       "count": 4
     },
     "no-restricted-syntax": {
-      "count": 2
+      "count": 3
     }
   },
   "src/infrastructure/services/InfrastructureService.ts": {
@@ -1820,7 +1840,7 @@
       "count": 3
     },
     "no-restricted-syntax": {
-      "count": 2
+      "count": 6
     }
   },
   "src/infrastructure/services/InfrastructureViewService.ts": {
@@ -1910,7 +1930,7 @@
       "count": 1
     },
     "no-restricted-syntax": {
-      "count": 5
+      "count": 12
     }
   },
   "src/infrastructure/services/VpsCatalogService.test.ts": {
@@ -1939,6 +1959,9 @@
     },
     "@typescript-eslint/no-unsafe-member-access": {
       "count": 3
+    },
+    "no-restricted-syntax": {
+      "count": 1
     }
   },
   "src/infrastructure/services/WorkFailureService.ts": {
@@ -2396,6 +2419,9 @@
     },
     "@typescript-eslint/no-unsafe-member-access": {
       "count": 31
+    },
+    "no-restricted-syntax": {
+      "count": 1
     }
   },
   "src/models/services/ModelService.ts": {
@@ -2894,7 +2920,7 @@
       "count": 18
     },
     "no-restricted-syntax": {
-      "count": 21
+      "count": 22
     }
   },
   "src/projects/services/PlanService.ts": {
@@ -2912,7 +2938,7 @@
       "count": 1
     },
     "no-restricted-syntax": {
-      "count": 6
+      "count": 7
     }
   },
   "src/projects/services/ProjectSecretSync.ts": {
@@ -3023,6 +3049,9 @@
     },
     "@typescript-eslint/no-unsafe-return": {
       "count": 1
+    },
+    "no-restricted-syntax": {
+      "count": 1
     }
   },
   "src/scripts/inspect-models.ts": {
@@ -3063,7 +3092,7 @@
   },
   "src/scripts/move-import.ts": {
     "no-restricted-syntax": {
-      "count": 4
+      "count": 5
     }
   },
   "src/scripts/self-upgrade.ts": {
