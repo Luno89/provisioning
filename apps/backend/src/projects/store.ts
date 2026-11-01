@@ -1,6 +1,6 @@
-import { type AreaStore, fromDoc, toDoc } from '../platform/lib/collection.js';
+import { type AreaStore, type Identified, fromDoc, toDoc } from '../platform/lib/collection.js';
 import type { Branch, Leaf } from './lib/leaves.js';
-import type { Collection, Db } from 'mongodb';
+import type { Collection, Db, Document } from 'mongodb';
 import type { GiteaAccount } from './lib/projects.js';
 import type { PartialInfo, ProjectMetadata } from '../platform/index.js';
 import type { PlanProposal } from './lib/plan-proposals.js';
@@ -45,43 +45,50 @@ export interface ProjectsStore extends AreaStore {
   deleteSecretRequest(ownerId: string, id: string): Promise<void>;
 }
 
+type Stored = Document & { _id: string };
+
+async function put(collection: Collection<Stored>, entity: Identified): Promise<void> {
+  const { _id, ...rest } = toDoc(entity);
+  await collection.replaceOne({ _id: entity.id }, rest, { upsert: true });
+}
+
 export class MongoProjectsStore implements ProjectsStore {
   constructor(private readonly db: () => Db) {}
 
-  private get branches(): Collection {
-    return this.db().collection('branches');
+  private get branches(): Collection<Stored> {
+    return this.db().collection<Stored>('branches');
   }
 
-  private get giteaAccounts(): Collection {
-    return this.db().collection('giteaAccounts');
+  private get giteaAccounts(): Collection<Stored> {
+    return this.db().collection<Stored>('giteaAccounts');
   }
 
-  private get leaves(): Collection {
-    return this.db().collection('leaves');
+  private get leaves(): Collection<Stored> {
+    return this.db().collection<Stored>('leaves');
   }
 
-  private get planProposals(): Collection {
-    return this.db().collection('planProposals');
+  private get planProposals(): Collection<Stored> {
+    return this.db().collection<Stored>('planProposals');
   }
 
-  private get projects(): Collection {
-    return this.db().collection('projects');
+  private get projects(): Collection<Stored> {
+    return this.db().collection<Stored>('projects');
   }
 
-  private get secretRequests(): Collection {
-    return this.db().collection('secretRequests');
+  private get secretRequests(): Collection<Stored> {
+    return this.db().collection<Stored>('secretRequests');
   }
 
-  private get tasks(): Collection {
-    return this.db().collection('tasks');
+  private get tasks(): Collection<Stored> {
+    return this.db().collection<Stored>('tasks');
   }
 
-  private get treeTypes(): Collection {
-    return this.db().collection('treeTypes');
+  private get treeTypes(): Collection<Stored> {
+    return this.db().collection<Stored>('treeTypes');
   }
 
-  private get trees(): Collection {
-    return this.db().collection('trees');
+  private get trees(): Collection<Stored> {
+    return this.db().collection<Stored>('trees');
   }
 
   async ensureIndexes(): Promise<void> {
@@ -110,10 +117,7 @@ export class MongoProjectsStore implements ProjectsStore {
   }
 
   async saveProject(project: ProjectMetadata): Promise<void> {
-    const doc = toDoc(project);
-    const id = doc._id;
-    const { _id, ...filter } = doc;
-    await this.projects.replaceOne({ _id: id }, filter, { upsert: true });
+    await put(this.projects, project);
   }
 
   async saveProjectInfo(project: PartialInfo<ProjectMetadata>): Promise<ProjectMetadata> {
@@ -139,14 +143,11 @@ export class MongoProjectsStore implements ProjectsStore {
   }
 
   async saveTree(tree: Tree): Promise<void> {
-    const doc = toDoc(tree);
-    const id = doc._id;
-    const { _id, ...rest } = doc;
-    await this.trees.replaceOne({ _id: id }, rest, { upsert: true });
+    await put(this.trees, tree);
   }
 
   async deleteTree(id: string): Promise<void> {
-    await this.trees.deleteOne({ _id: id as any });
+    await this.trees.deleteOne({ _id: id });
   }
 
   async getBranches(): Promise<Branch[]> {
@@ -154,52 +155,50 @@ export class MongoProjectsStore implements ProjectsStore {
   }
 
   async saveBranch(branch: Branch): Promise<void> {
-    const doc = toDoc(branch);
-    const id = doc._id;
-    const { _id, ...filter } = doc;
-    await this.branches.replaceOne({ _id: id }, filter, { upsert: true });
+    await put(this.branches, branch);
   }
 
   async deleteBranch(id: string): Promise<void> {
-    await this.branches.deleteOne({ _id: id as any });
+    await this.branches.deleteOne({ _id: id });
   }
 
   async getTreeTypes(ownerId?: string): Promise<TreeTypeSpec[]> {
     const filter = ownerId ? { $or: [{ ownerId }, { ownerId: { $exists: false } }] } : {};
     const docs = await this.treeTypes.find(filter).toArray();
-    return docs.map(({ _id, ...rest }) => rest as unknown as TreeTypeSpec);
+    return docs.map(({ _id, ...rest }) => rest as TreeTypeSpec);
   }
 
   async saveTreeType(treeType: TreeTypeSpec): Promise<void> {
     const { _id: _ignored, ...doc } = treeType as TreeTypeSpec & { _id?: unknown };
     await this.treeTypes.replaceOne(
-      { _id: `${treeType.ownerId}:${treeType.id}` } as never,
+      { _id: `${treeType.ownerId}:${treeType.id}` },
       doc,
       { upsert: true },
     );
   }
 
   async deleteTreeType(id: string, ownerId: string): Promise<void> {
-    await this.treeTypes.deleteOne({ _id: `${ownerId}:${id}` } as never);
+    await this.treeTypes.deleteOne({ _id: `${ownerId}:${id}` });
   }
 
   async getGiteaAccount(ownerId: string): Promise<GiteaAccount | null> {
-    const doc = await this.giteaAccounts.findOne({ _id: ownerId as any });
+    const doc = await this.giteaAccounts.findOne({ _id: ownerId });
     if (!doc) return null;
-    const { _id, ...rest } = doc as any;
-    return { ...rest, ownerId: String(_id) } as GiteaAccount;
+    const { _id, ...rest } = doc;
+    return { ...rest, ownerId: _id } as GiteaAccount;
   }
 
   async saveGiteaAccount(account: GiteaAccount): Promise<void> {
     const { ownerId, ...rest } = account;
-    await this.giteaAccounts.replaceOne({ _id: ownerId as any }, rest, { upsert: true });
+    await this.giteaAccounts.replaceOne({ _id: ownerId }, rest, { upsert: true });
   }
 
   async claimGiteaAccount(account: GiteaAccount): Promise<GiteaAccount> {
     const { ownerId, ...rest } = account;
-    const doc = await this.giteaAccounts.findOneAndUpdate({ _id: ownerId as any }, { $setOnInsert: rest }, { upsert: true, returnDocument: 'after' });
-    const { _id, ...stored } = doc as any;
-    return { ...stored, ownerId: String(_id) } as GiteaAccount;
+    const doc = await this.giteaAccounts.findOneAndUpdate({ _id: ownerId }, { $setOnInsert: rest }, { upsert: true, returnDocument: 'after' });
+    if (!doc) throw new Error(`Mongo kept no Gitea account for ${ownerId} after claiming it`);
+    const { _id, ...stored } = doc;
+    return { ...stored, ownerId: _id } as GiteaAccount;
   }
 
   async getLeaves(): Promise<Leaf[]> {
@@ -207,14 +206,11 @@ export class MongoProjectsStore implements ProjectsStore {
   }
 
   async saveLeaf(leaf: Leaf): Promise<void> {
-    const doc = toDoc(leaf);
-    const id = doc._id;
-    const { _id, ...filter } = doc;
-    await this.leaves.replaceOne({ _id: id }, filter, { upsert: true });
+    await put(this.leaves, leaf);
   }
 
   async deleteLeaf(id: string): Promise<void> {
-    await this.leaves.deleteOne({ _id: id as any });
+    await this.leaves.deleteOne({ _id: id });
   }
 
   async removeProjectRecords(projectId: string): Promise<Record<string, number>> {
@@ -227,7 +223,7 @@ export class MongoProjectsStore implements ProjectsStore {
       const { modifiedCount } = await this.db().collection(name).updateMany({ projectId }, { $unset: { projectId: '' } });
       if (modifiedCount) removed[`${name} unlinked`] = modifiedCount;
     }
-    const { deletedCount } = await this.projects.deleteOne({ _id: projectId as never });
+    const { deletedCount } = await this.projects.deleteOne({ _id: projectId });
     if (deletedCount) removed.projects = deletedCount;
     return removed;
   }
@@ -235,40 +231,34 @@ export class MongoProjectsStore implements ProjectsStore {
   async getTasks(ownerId?: string): Promise<Task[]> {
     const filter = ownerId ? { ownerId } : {};
     const docs = await this.tasks.find(filter).toArray();
-    return docs.map((d: Record<string, unknown>) => fromDoc<Task>(d));
+    return docs.map((d) => fromDoc<Task>(d));
   }
 
   async saveTask(task: Task): Promise<void> {
-    const doc = toDoc(task);
-    const id = doc._id;
-    const { _id, ...rest } = doc;
-    await this.tasks.replaceOne({ _id: id }, rest, { upsert: true });
+    await put(this.tasks, task);
   }
 
   async deleteTask(id: string): Promise<void> {
-    await this.tasks.deleteOne({ _id: id as any });
+    await this.tasks.deleteOne({ _id: id });
   }
 
   async getPlanProposals(ownerId: string, conversationId?: string): Promise<PlanProposal[]> {
     const filter = conversationId === undefined ? { ownerId } : { ownerId, conversationId };
     const docs = await this.planProposals.find(filter).sort({ createdAt: 1 }).toArray();
-    return docs.map((d: Record<string, unknown>) => fromDoc<PlanProposal>(d));
+    return docs.map((d) => fromDoc<PlanProposal>(d));
   }
 
   async getPlanProposal(ownerId: string, id: string): Promise<PlanProposal | undefined> {
-    const doc = await this.planProposals.findOne({ _id: id as any, ownerId });
-    return doc ? fromDoc<PlanProposal>(doc as Record<string, unknown>) : undefined;
+    const doc = await this.planProposals.findOne({ _id: id, ownerId });
+    return doc ? fromDoc<PlanProposal>(doc) : undefined;
   }
 
   async savePlanProposal(proposal: PlanProposal): Promise<void> {
-    const doc = toDoc(proposal);
-    const id = doc._id;
-    const { _id, ...rest } = doc;
-    await this.planProposals.replaceOne({ _id: id }, rest, { upsert: true });
+    await put(this.planProposals, proposal);
   }
 
   async deletePlanProposal(ownerId: string, id: string): Promise<void> {
-    await this.planProposals.deleteOne({ _id: id as any, ownerId });
+    await this.planProposals.deleteOne({ _id: id, ownerId });
   }
 
   async getSecretRequests(ownerId: string, filter: SecretRequestFilter = {}): Promise<SecretRequest[]> {
@@ -277,22 +267,19 @@ export class MongoProjectsStore implements ProjectsStore {
     if (filter.projectId !== undefined) query.projectId = filter.projectId;
     if (filter.treeId !== undefined) query.treeId = filter.treeId;
     const docs = await this.secretRequests.find(query).sort({ createdAt: 1 }).toArray();
-    return docs.map((d: Record<string, unknown>) => fromDoc<SecretRequest>(d));
+    return docs.map((d) => fromDoc<SecretRequest>(d));
   }
 
   async getSecretRequest(ownerId: string, id: string): Promise<SecretRequest | undefined> {
-    const doc = await this.secretRequests.findOne({ _id: id as any, ownerId });
-    return doc ? fromDoc<SecretRequest>(doc as Record<string, unknown>) : undefined;
+    const doc = await this.secretRequests.findOne({ _id: id, ownerId });
+    return doc ? fromDoc<SecretRequest>(doc) : undefined;
   }
 
   async saveSecretRequest(request: SecretRequest): Promise<void> {
-    const doc = toDoc(request);
-    const id = doc._id;
-    const { _id, ...rest } = doc;
-    await this.secretRequests.replaceOne({ _id: id }, rest, { upsert: true });
+    await put(this.secretRequests, request);
   }
 
   async deleteSecretRequest(ownerId: string, id: string): Promise<void> {
-    await this.secretRequests.deleteOne({ _id: id as any, ownerId });
+    await this.secretRequests.deleteOne({ _id: id, ownerId });
   }
 }

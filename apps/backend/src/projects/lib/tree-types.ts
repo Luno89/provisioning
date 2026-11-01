@@ -176,6 +176,15 @@ export function validateTreeType(
   return null;
 }
 
+export function treeTypeFrom(
+  images: readonly WorkspaceImageSpec[],
+  fields: Record<string, unknown>,
+): { type: TreeTypeSpec } | { problem: string } {
+  const candidate = fields as Partial<TreeTypeSpec>;
+  const problem = validateTreeType(images, candidate);
+  return problem ? { problem } : { type: candidate as TreeTypeSpec };
+}
+
 export interface StarterVars {
   projectName: string;
   registryHost: string;

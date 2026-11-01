@@ -3,6 +3,7 @@ import { asyncRoute, ownedBy } from '../../platform/index.js';
 import type { GroveDeletionService } from '../services/GroveDeletionService.js';
 import type { GroveOrderService } from '../services/GroveOrderService.js';
 import type { ProjectsStore } from '../store.js';
+import { fieldsOf } from '../lib/request-fields.js';
 
 export interface BranchesRouterDeps {
   db: Pick<ProjectsStore, 'getBranches'>;
@@ -24,7 +25,7 @@ export function branchesRouter(deps: BranchesRouterDeps): Router {
   }));
 
   router.put('/:id/order', asyncRoute(async (req, res) => {
-    const outcome = await deps.order.orderStories(userOf(req).id, idOf(req), req.body?.leafIds);
+    const outcome = await deps.order.orderStories(userOf(req).id, idOf(req), fieldsOf(req.body).leafIds);
     if (!outcome.ok) return res.status(outcome.status).json({ error: outcome.error });
     res.json(outcome.value);
   }));

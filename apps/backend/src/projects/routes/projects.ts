@@ -7,6 +7,7 @@ import { rollupProjectStatus, deploymentForProject } from '../lib/project-status
 import { namesTargetCluster, targetClusterProblem } from '../lib/project-shipping.js';
 import { validateLocalEgressRules } from '../../infrastructure/index.js';
 import type { ClusterService, TemporalBridge } from '../../infrastructure/index.js';
+import { fieldsOf, trimmedText } from '../lib/request-fields.js';
 import type { ProjectRemovalService } from '../services/ProjectRemovalService.js';
 import type { ProjectRepoService } from '../services/ProjectRepoService.js';
 import type { ProjectChannelService } from '../services/ProjectChannelService.js';
@@ -25,15 +26,7 @@ export interface ProjectsRouterDeps {
 
 type ExecutionTarget = NonNullable<ProjectMetadata['executionTarget']>;
 
-const bodyOf = (req: Request): Record<string, unknown> => {
-  const body: unknown = req.body;
-  return body && typeof body === 'object' ? body as Record<string, unknown> : {};
-};
-
 const textOf = (value: unknown): string | undefined => (typeof value === 'string' && value ? value : undefined);
-
-const trimmedPath = (value: unknown): string | undefined =>
-  typeof value === 'string' && value.trim() ? value.trim() : undefined;
 
 const approvalOf = (value: unknown): 'auto' | 'plan' | undefined =>
   (value === 'auto' || value === 'plan' ? value : undefined);
@@ -103,7 +96,7 @@ export function projectsRouter(deps: ProjectsRouterDeps): Router {
 
   router.post('/', async (req, res) => {
     try {
-      const body = bodyOf(req);
+      const body = fieldsOf(req.body);
       const { createRepo, autoDeployOnBuild, language: language_, executionTargetEgress } = body;
       const name = textOf(body.name);
       const giteaRepo = textOf(body.giteaRepo);
@@ -118,7 +111,7 @@ export function projectsRouter(deps: ProjectsRouterDeps): Router {
         return res.status(400).json({ error: 'giteaRepo is required unless the project runs on a registered local machine' });
       }
 
-      const path = trimmedPath(body.executionTargetPath);
+      const path = trimmedText(body.executionTargetPath);
 
       let executionTarget: ExecutionTarget | undefined;
       if (executionTargetDeviceId) {
@@ -173,7 +166,7 @@ export function projectsRouter(deps: ProjectsRouterDeps): Router {
     const project = await getOwnedProject(idOf(req), principalFrom(req));
     if (!project) return res.status(404).json({ error: 'Project not found' });
 
-    const body = bodyOf(req);
+    const body = fieldsOf(req.body);
     const { executionTargetEgress } = body;
     const executionApproval = approvalOf(body.executionApproval);
     const patch: PartialInfo<ProjectMetadata> = { id: project.id };
@@ -184,7 +177,7 @@ export function projectsRouter(deps: ProjectsRouterDeps): Router {
         const owned = await ownDevice(req, executionTargetDeviceId);
         if (!owned) return res.status(400).json({ error: 'Unknown local execution device' });
 
-        const path = trimmedPath(body.executionTargetPath);
+        const path = trimmedText(body.executionTargetPath);
 
         if (claimedByAnotherProject(await db.projects.getProjects(), executionTargetDeviceId, path, project.id)) {
           return res.status(409).json({ error: 'That machine (at that path) is already the execution target for another project.' });
@@ -235,7 +228,7 @@ export function projectsRouter(deps: ProjectsRouterDeps): Router {
 
   router.delete('/:id', asyncRoute(async (req, res) => {
     if (!removal) return res.status(404).json({ error: 'Projects cannot be deleted here' });
-    const confirm = textOf(bodyOf(req).confirm) ?? '';
+    const confirm = textOf(fieldsOf(req.body).confirm) ?? '';
     const outcome = await removal.remove(userOf(req).id, idOf(req), confirm);
     if (!outcome.ok) return res.status(outcome.refusal.status).json(outcome.refusal);
     return res.status(202).json({ state: outcome.state });

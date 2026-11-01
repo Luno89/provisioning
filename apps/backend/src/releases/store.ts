@@ -1,5 +1,5 @@
-import { type AreaStore, fromDoc, toDoc } from '../platform/lib/collection.js';
-import type { Collection, Db } from 'mongodb';
+import { type AreaStore, type Identified, fromDoc, toDoc } from '../platform/lib/collection.js';
+import type { Collection, Db, Document } from 'mongodb';
 import type { OdooRelease } from './lib/odoo-release.js';
 import type { PartialInfo, PipelineRunMetadata } from '../platform/index.js';
 import { mergeRecord } from '../platform/lib/merge-record.js';
@@ -15,15 +15,22 @@ export interface ReleasesStore extends AreaStore {
   markOdooReleasesTold(): Promise<number>;
 }
 
+type Stored = Document & { _id: string };
+
+async function put(collection: Collection<Stored>, entity: Identified): Promise<void> {
+  const { _id, ...rest } = toDoc(entity);
+  await collection.replaceOne({ _id: entity.id }, rest, { upsert: true });
+}
+
 export class MongoReleasesStore implements ReleasesStore {
   constructor(private readonly db: () => Db) {}
 
-  private get odooReleases(): Collection {
-    return this.db().collection('odooReleases');
+  private get odooReleases(): Collection<Stored> {
+    return this.db().collection<Stored>('odooReleases');
   }
 
-  private get pipelineRuns(): Collection {
-    return this.db().collection('pipelineRuns');
+  private get pipelineRuns(): Collection<Stored> {
+    return this.db().collection<Stored>('pipelineRuns');
   }
 
   async ensureIndexes(): Promise<void> {
@@ -36,10 +43,7 @@ export class MongoReleasesStore implements ReleasesStore {
   }
 
   async savePipelineRun(run: PipelineRunMetadata): Promise<void> {
-    const doc = toDoc(run);
-    const id = doc._id;
-    const { _id, ...filter } = doc;
-    await this.pipelineRuns.replaceOne({ _id: id }, filter, { upsert: true });
+    await put(this.pipelineRuns, run);
   }
 
   async savePipelineRunInfo(run: PartialInfo<PipelineRunMetadata>): Promise<PipelineRunMetadata> {
@@ -62,17 +66,15 @@ export class MongoReleasesStore implements ReleasesStore {
 
   async getOdooReleases(ownerId: string, projectId?: string): Promise<OdooRelease[]> {
     const docs = await this.odooReleases.find({ ownerId, ...(projectId ? { projectId } : {}) }).sort({ startedAt: -1 }).toArray();
-    return docs.map((d: Record<string, unknown>) => fromDoc<OdooRelease>(d));
+    return docs.map((d) => fromDoc<OdooRelease>(d));
   }
 
   async saveOdooRelease(release: OdooRelease): Promise<void> {
-    const doc = toDoc(release);
-    const { _id, ...rest } = doc;
-    await this.odooReleases.replaceOne({ _id }, rest, { upsert: true });
+    await put(this.odooReleases, release);
   }
 
   async markOdooReleaseTold(id: string, updatedAt: string): Promise<boolean> {
-    const result = await this.odooReleases.updateOne({ _id: id as never, updatedAt }, { $set: { toldAt: updatedAt } });
+    const result = await this.odooReleases.updateOne({ _id: id, updatedAt }, { $set: { toldAt: updatedAt } });
     return result.modifiedCount === 1;
   }
 

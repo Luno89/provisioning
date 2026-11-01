@@ -2697,20 +2697,6 @@
       "count": 2
     }
   },
-  "src/projects/lib/binding-project.ts": {
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 1
-    },
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 1
-    },
-    "@typescript-eslint/no-unsafe-return": {
-      "count": 1
-    },
-    "no-restricted-syntax": {
-      "count": 1
-    }
-  },
   "src/projects/lib/item-changes.test.ts": {
     "@typescript-eslint/no-unsafe-assignment": {
       "count": 8
@@ -2732,11 +2718,6 @@
     },
     "@typescript-eslint/no-unsafe-member-access": {
       "count": 4
-    }
-  },
-  "src/projects/routes/branches.ts": {
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 1
     }
   },
   "src/projects/routes/grove.test.ts": {
@@ -2767,37 +2748,12 @@
       "count": 4
     }
   },
-  "src/projects/routes/leaves.ts": {
-    "@typescript-eslint/no-unsafe-argument": {
-      "count": 2
-    },
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 2
-    },
-    "@typescript-eslint/no-unsafe-call": {
-      "count": 2
-    },
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 4
-    }
-  },
   "src/projects/routes/plans.test.ts": {
     "@typescript-eslint/no-unsafe-call": {
       "count": 3
     },
     "@typescript-eslint/no-unsafe-member-access": {
       "count": 6
-    }
-  },
-  "src/projects/routes/plans.ts": {
-    "@typescript-eslint/no-unsafe-argument": {
-      "count": 1
-    },
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 1
-    },
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 2
     }
   },
   "src/projects/routes/project-channel.test.ts": {
@@ -2816,28 +2772,6 @@
       "count": 5
     }
   },
-  "src/projects/routes/secret-requests.ts": {
-    "@typescript-eslint/no-unsafe-argument": {
-      "count": 1
-    },
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 1
-    },
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 2
-    }
-  },
-  "src/projects/routes/tree-types.ts": {
-    "@typescript-eslint/no-unsafe-argument": {
-      "count": 3
-    },
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 1
-    },
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 3
-    }
-  },
   "src/projects/routes/trees.test.ts": {
     "@typescript-eslint/no-unsafe-assignment": {
       "count": 5
@@ -2847,14 +2781,6 @@
     },
     "@typescript-eslint/no-unsafe-return": {
       "count": 5
-    }
-  },
-  "src/projects/routes/trees.ts": {
-    "@typescript-eslint/no-unsafe-argument": {
-      "count": 1
-    },
-    "@typescript-eslint/no-unsafe-member-access": {
-      "count": 1
     }
   },
   "src/projects/services/PlanService.ts": {
@@ -2888,14 +2814,6 @@
   "src/projects/services/TreeWorkspaceService.test.ts": {
     "@typescript-eslint/no-unsafe-assignment": {
       "count": 4
-    }
-  },
-  "src/projects/store.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 13
-    },
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 27
     }
   },
   "src/releases/lib/infisical-sync.test.ts": {
@@ -2934,11 +2852,6 @@
   "src/releases/services/OdooReleaseService.ts": {
     "no-restricted-syntax": {
       "count": 1
-    }
-  },
-  "src/releases/store.ts": {
-    "@typescript-eslint/no-unsafe-assignment": {
-      "count": 3
     }
   },
   "src/releases/wiring/releases.ts": {

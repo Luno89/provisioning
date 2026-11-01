@@ -1,6 +1,7 @@
 import { Router, type Request } from 'express';
 import { asyncRoute } from '../../platform/index.js';
 import type { PlanService } from '../services/PlanService.js';
+import { fieldsOf } from '../lib/request-fields.js';
 
 export interface PlansRouterDeps {
   plans: PlanService;
@@ -34,8 +35,8 @@ export function plansRouter(deps: PlansRouterDeps): Router {
   }));
 
   router.post('/:id/reject', asyncRoute(async (req, res) => {
-    const reason = typeof req.body?.reason === 'string' ? req.body.reason : undefined;
-    const decided = await deps.plans.reject(userOf(req).id, idOf(req), reason);
+    const { reason } = fieldsOf(req.body);
+    const decided = await deps.plans.reject(userOf(req).id, idOf(req), typeof reason === 'string' ? reason : undefined);
     if (!decided.ok) return res.status(decided.status).json({ error: decided.error });
     res.json(decided.proposal);
   }));
