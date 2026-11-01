@@ -1,4 +1,6 @@
+import { ignore } from '@koala/engine-core/failures';
 import { BaseService } from '../../platform/index.js';
+import { textAt } from '../lib/json-reading.js';
 import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -109,19 +111,21 @@ export class GitModuleService extends BaseService {
                 version: this.extractManifestValue(content, 'version') || '1.0',
                 depends: this.extractManifestList(content, 'depends') || []
               });
-            } catch { /* ignored */ }
+            } catch (failure) {
+              ignore('a folder without a readable manifest is not an Odoo module')(failure);
+            }
           } else {
             const metaPath = path.join(repoPath, item.name, 'manifest.json');
             try {
               const content = await fs.readFile(metaPath, 'utf-8');
-              const data = JSON.parse(content);
+              const data: unknown = JSON.parse(content);
               modules.push({
                 id: item.name,
-                name: data.name || item.name,
-                summary: data.summary || '',
-                description: data.description || '',
-                author: data.author || 'Unknown',
-                version: data.version || '1.0'
+                name: textAt(data, 'name') || item.name,
+                summary: textAt(data, 'summary') || '',
+                description: textAt(data, 'description') || '',
+                author: textAt(data, 'author') || 'Unknown',
+                version: textAt(data, 'version') || '1.0'
               });
             } catch {
               const matchedMock = MOCK_MODULES[sanitizedAppType]?.find(m => m.id === item.name);
@@ -140,7 +144,7 @@ export class GitModuleService extends BaseService {
 
       if (modules.length > 0) return modules;
       return MOCK_MODULES[sanitizedAppType] || [];
-    } catch (err: any) {
+    } catch {
       return MOCK_MODULES[sanitizedAppType] || [];
     }
   }

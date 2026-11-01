@@ -2,6 +2,7 @@ import { BaseService, type Database } from '../../platform/index.js';
 import axios from 'axios';
 import { exec } from 'child_process';
 import { promisify } from 'util';
+import { listAt, textAt } from '../lib/json-reading.js';
 import { normalizeTags, nextPageUrl, pageOf, type TagPage, type TagPageRequest } from '../lib/registry-tags.js';
 
 const execAsync = promisify(exec);
@@ -35,21 +36,22 @@ export class RegistryService extends BaseService {
     'ghcr.io/advplyr/audiobookshelf': ['latest'],
   };
 
-  async search(query: string) {
-    const response = await axios.get(`https://hub.docker.com/v2/search/repositories/?query=${query}&page_size=10`);
-    return response.data.results;
+  async search(query: string): Promise<unknown[]> {
+    const response = await axios.get<unknown>(`https://hub.docker.com/v2/search/repositories/?query=${query}&page_size=10`);
+    return listAt(response.data, 'results');
   }
 
   private async fetchGhcrTags(repoPath: string): Promise<string[]> {
-    const tokenResp = await axios.get(`https://ghcr.io/token?scope=repository:${repoPath}:pull&service=ghcr.io`);
-    const headers = { Authorization: `Bearer ${tokenResp.data.token}` };
+    const tokenResp = await axios.get<unknown>(`https://ghcr.io/token?scope=repository:${repoPath}:pull&service=ghcr.io`);
+    const headers = { Authorization: `Bearer ${textAt(tokenResp.data, 'token') ?? ''}` };
 
     const collected: string[] = [];
     let url: string | undefined = `https://ghcr.io/v2/${repoPath}/tags/list?n=1000`;
     for (let page = 0; url && page < GHCR_MAX_PAGES; page++) {
-      const resp: any = await axios.get(url, { headers });
-      collected.push(...(resp.data?.tags ?? []));
-      url = nextPageUrl(resp.headers?.link, 'https://ghcr.io');
+      const resp = await axios.get<unknown>(url, { headers });
+      collected.push(...listAt(resp.data, 'tags').filter((tag): tag is string => typeof tag === 'string'));
+      const link: unknown = resp.headers.link;
+      url = nextPageUrl(typeof link === 'string' ? link : undefined, 'https://ghcr.io');
     }
     return collected;
   }
@@ -59,18 +61,18 @@ export class RegistryService extends BaseService {
     let url: string | undefined =
       `https://hub.docker.com/v2/repositories/${hubRepo}/tags?page_size=${HUB_PAGE_SIZE}`;
     for (let page = 0; url && page < HUB_MAX_PAGES; page++) {
-      const resp: any = await axios.get(url);
-      collected.push(...(resp.data?.results ?? []).map((t: any) => t.name));
-      url = resp.data?.next ?? undefined;
+      const resp = await axios.get<unknown>(url);
+      collected.push(...listAt(resp.data, 'results').map((tag) => textAt(tag, 'name')).filter((name): name is string => name !== undefined));
+      url = textAt(resp.data, 'next');
     }
     return collected;
   }
 
   private async fetchEcrTags(repoName: string): Promise<string[]> {
-    const response = await axios.get(
+    const response = await axios.get<unknown>(
       `https://api.gallery.ecr.aws/v1/repository/public/tags?repositoryName=${repoName}&registryAlias=bitnami`,
     );
-    return (response.data?.tags ?? []).map((t: any) => t.tagName);
+    return listAt(response.data, 'tags').map((tag) => textAt(tag, 'tagName')).filter((name): name is string => name !== undefined);
   }
 
   async getTags(repo: string): Promise<string[]> {
@@ -104,8 +106,8 @@ export class RegistryService extends BaseService {
       if (tags.length > 0) return tags;
 
       return this.FALLBACK_TAGS[repo] ?? ['latest'];
-    } catch (err: any) {
-      this.logger.warn(`Failed to fetch tags for ${repo}: ${err.message}`);
+    } catch (err) {
+      this.logger.warn(`Failed to fetch tags for ${repo}: ${(err as Error).message}`);
       return this.FALLBACK_TAGS[repo] ?? ['latest'];
     }
   }
@@ -119,8 +121,8 @@ export class RegistryService extends BaseService {
       const safeRepo = repo.replace(/(["'$`\\])/g, '\\$1');
       const { stdout } = await execAsync(`docker images --format "{{.Tag}}" "${safeRepo}"`);
       return [...new Set(stdout.split('\n').map(t => t.trim()).filter(t => t && t !== '<none>'))];
-    } catch (err: any) {
-      this.logger.warn(`Failed to list local image tags for ${repo}: ${err.message}`);
+    } catch (err) {
+      this.logger.warn(`Failed to list local image tags for ${repo}: ${(err as Error).message}`);
       return [];
     }
   }
