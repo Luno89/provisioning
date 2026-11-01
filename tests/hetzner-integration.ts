@@ -64,7 +64,7 @@ async function loginAsCredentialedAdmin(): Promise<string> {
   const callbackUrl = initial.headers.get('location');
   if (!callbackUrl) throw new Error(`/api/auth/google did not redirect: HTTP ${initial.status}`);
   const cookie = extractCookie(await fetch(callbackUrl, { redirect: 'manual' }));
-  const me = await fetch(`${BASE}/api/auth/me`, { headers: { Cookie: cookie } }).then((r) => r.json());
+  const me = await fetch(`${BASE}/api/auth/me`, { headers: { Cookie: cookie } }).then((r) => r.json() as Promise<{ id: string }>);
   if (!me?.id) throw new Error('Mock-OAuth login did not yield a user');
   return cookie;
 }
@@ -120,7 +120,7 @@ async function run() {
     if (cookie && deploymentId) {
       await fetch(`${BASE}/api/deployments/${deploymentId}`, { method: 'DELETE', headers: { Cookie: cookie } })
         .then(() => pollUntil('deployment to be destroyed', 5 * 60 * 1000, async () => {
-          const d = await fetch(`${BASE}/api/deployments`, { headers: { Cookie: cookie! } }).then((r) => r.json());
+          const d = await fetch(`${BASE}/api/deployments`, { headers: { Cookie: cookie! } }).then((r) => r.json() as Promise<Array<Record<string, any>>>);
           return d.some((x: any) => x.id === deploymentId) ? undefined : true;
         }))
         .catch((e: any) => console.warn(`  ⚠ deployment cleanup: ${e.message}`));
@@ -129,7 +129,7 @@ async function run() {
     if (cookie && clusterId) {
       await fetch(`${BASE}/api/clusters/${clusterId}`, { method: 'DELETE', headers: { Cookie: cookie } })
         .then(() => pollUntil('cluster to be destroyed', 10 * 60 * 1000, async () => {
-          const c = await fetch(`${BASE}/api/clusters`, { headers: { Cookie: cookie! } }).then((r) => r.json());
+          const c = await fetch(`${BASE}/api/clusters`, { headers: { Cookie: cookie! } }).then((r) => r.json() as Promise<Array<Record<string, any>>>);
           const still = c.find((x: any) => x.id === clusterId);
           if (still) console.log(`  ⏱  cluster status: ${still.status}`);
           return still && still.status !== 'destroyed' ? undefined : true;
@@ -212,13 +212,13 @@ async function run() {
       }),
     });
     if (!res.ok) throw new Error(`Provision request failed: HTTP ${res.status} ${await res.text()}`);
-    clusterId = (await res.json()).id;
+    clusterId = ((await res.json()) as { id: string }).id;
     console.log(`⏳ Provisioning started (cluster id ${clusterId}). Polling...`);
 
     // 25 min: VM create and boot are fast (~1 min), but k3s plus the full observability stack is
     // a real install over the network on a machine with no image cache.
     await pollUntil('cluster to become healthy', 25 * 60 * 1000, async () => {
-      const clusters = await fetch(`${BASE}/api/clusters`, { headers: { Cookie: cookie! } }).then((r) => r.json());
+      const clusters = await fetch(`${BASE}/api/clusters`, { headers: { Cookie: cookie! } }).then((r) => r.json() as Promise<Array<Record<string, any>>>);
       const current = clusters.find((c: any) => c.id === clusterId);
       console.log(`  ⏱  status: ${current?.status ?? 'missing'}${current?.progress?.step ? ` (${current.progress.step})` : ''}`);
       if (current?.status === 'healthy') return current;
@@ -259,10 +259,10 @@ async function run() {
       body: JSON.stringify({ clusterId, name: `hetzner-it-app-${Date.now()}`, appType: 'audiobookshelf', strategy: 'native' }),
     });
     if (!deployRes.ok) throw new Error(`Deploy request failed: HTTP ${deployRes.status} ${await deployRes.text()}`);
-    deploymentId = (await deployRes.json()).id;
+    deploymentId = ((await deployRes.json()) as { id: string }).id;
 
     await pollUntil('deployment to become running', 20 * 60 * 1000, async () => {
-      const d = await fetch(`${BASE}/api/deployments`, { headers: { Cookie: cookie! } }).then((r) => r.json());
+      const d = await fetch(`${BASE}/api/deployments`, { headers: { Cookie: cookie! } }).then((r) => r.json() as Promise<Array<Record<string, any>>>);
       const current = d.find((x: any) => x.id === deploymentId);
       console.log(`  ⏱  deployment status: ${current?.status ?? 'missing'}`);
       if (current?.status === 'running') return current;

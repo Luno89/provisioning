@@ -1,3 +1,5 @@
+import { UPGRADE_WORDS } from '../../apps/backend/src/instances/lib/self-upgrade.js';
+
 export const imageTagOf = (commit: string): string => commit.slice(0, 12);
 
 export const labHostsLine = (domain: string, address: string): string => `${address} app.${domain} mesh.${domain}`;
@@ -13,20 +15,23 @@ export function noted(trail: Report[], next: Report): Report[] {
   return [...trail, { status: next.status, detail: next.detail }];
 }
 
-export const upgradeReports = (from: string, to: string): Report[] => [
-  { status: 'installing', detail: `Upgrading from ${from} to ${to}` },
-  { status: 'ready', detail: `Upgraded to ${to}` },
+export interface Expected { status: string; detail: string; why?: true }
+
+export const upgradeReports = (from: string, to: string): Expected[] => [
+  { status: 'installing', detail: UPGRADE_WORDS.upgrading(from, to) },
+  { status: 'ready', detail: UPGRADE_WORDS.upgraded(to) },
 ];
 
-export const failedUpgradeReports = (from: string, to: string): Report[] => [
-  { status: 'installing', detail: `Upgrading from ${from} to ${to}` },
-  { status: 'failed', detail: `The upgrade to ${to} failed, so it was rolled back to ${from}` },
+export const failedUpgradeReports = (from: string, to: string): Expected[] => [
+  { status: 'installing', detail: UPGRADE_WORDS.upgrading(from, to) },
+  { status: 'failed', detail: UPGRADE_WORDS.rolledBack(to, from), why: true },
 ];
 
-export function endsWith(trail: Report[], wanted: Report[]): boolean {
+export function endsWith(trail: Report[], wanted: Expected[]): boolean {
   if (wanted.length > trail.length) return false;
   const tail = trail.slice(trail.length - wanted.length);
-  return wanted.every((report, index) => tail[index]?.status === report.status && tail[index]?.detail === report.detail);
+  return wanted.every((report, index) => tail[index]?.status === report.status
+    && (report.why ? (tail[index]?.detail ?? '').startsWith(`${report.detail}: `) : tail[index]?.detail === report.detail));
 }
 
 export const unsignedRefusal = (tag: string, signers: string): string => `Refusing ${tag}: root moves only onto a release signed by a key in ${signers}`;

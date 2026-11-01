@@ -34,8 +34,11 @@ describe('the release lab', () => {
     expect(endsWith([{ status: 'ready', detail: 'Upgraded to b' }], upgradeReports('a', 'b'))).toBe(false);
     expect(failedUpgradeReports('a', 'nothing')).toEqual([
       { status: 'installing', detail: 'Upgrading from a to nothing' },
-      { status: 'failed', detail: 'The upgrade to nothing failed, so it was rolled back to a' },
+      { status: 'failed', detail: 'The upgrade to nothing failed, so it was rolled back to a', why: true },
     ]);
+    const failed = noted(noted([], { status: 'installing', detail: 'Upgrading from a to nothing' }), { status: 'failed', detail: 'The upgrade to nothing failed, so it was rolled back to a: instance-backend-x: ImagePullBackOff' });
+    expect(endsWith(failed, failedUpgradeReports('a', 'nothing'))).toBe(true);
+    expect(endsWith([...failed.slice(0, 1), { status: 'failed', detail: 'The upgrade to nothing failed, so it was rolled back to a' }], failedUpgradeReports('a', 'nothing'))).toBe(false);
   });
 
   it('says what update.sh refuses with', () => {

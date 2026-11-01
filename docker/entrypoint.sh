@@ -41,7 +41,7 @@ case "${1:-backend}" in
   platform-services) exec bash /app/scripts/instance/platform-services.sh ;;
   move-data) exec npx tsx src/scripts/move-import.ts data ;;
   move-restore) exec npx tsx src/scripts/move-import.ts restore ;;
-  self-upgrade) exec bash /app/scripts/instance/self-upgrade.sh ;;
+  self-upgrade) exec npx tsx src/scripts/self-upgrade.ts ;;
   temporal-keys) exec npx tsx src/scripts/temporal-keys.ts "${2:-/keys/temporal-jwks.json}" ;;
   *) exec "$@" ;;
 esac

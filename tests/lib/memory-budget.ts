@@ -24,7 +24,7 @@
  */
 import { execFileSync } from 'child_process';
 import path from 'path';
-import { LOKI_VALUES, PROMTAIL_VALUES } from '../../packages/cdktf-infra/constructs/logging.js';
+import { LOKI_VALUES, PROMTAIL_VALUES } from '../../packages/cdktf-infra/lib/logging-values.js';
 
 const HELM = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..', '..', 'bin', 'helm');
 

@@ -63,7 +63,7 @@ async function loginAsExistingAdmin(): Promise<string> {
 async function mintInvite(adminCookie: string): Promise<string> {
   const res = await fetch(`${BASE}/api/admin/invites`, { method: 'POST', headers: { Cookie: adminCookie, 'Content-Type': 'application/json' }, body: '{}' });
   if (!res.ok) throw new Error(`Failed to mint invite: HTTP ${res.status}`);
-  const body = await res.json();
+  const body = await res.json() as { code: string };
   return body.code;
 }
 
@@ -121,13 +121,13 @@ async function run() {
       }),
     });
     if (!provisionRes.ok) throw new Error(`Provision request failed: HTTP ${provisionRes.status} ${await provisionRes.text()}`);
-    const provisionBody = await provisionRes.json();
+    const provisionBody = await provisionRes.json() as { id: string };
     clusterId = provisionBody.id;
     console.log(`⏳ Provisioning started (cluster id ${clusterId}). Polling for healthy...`);
 
     const cluster = await pollUntil('cluster to become healthy', 15 * 60 * 1000, async () => {
       const res = await fetch(`${BASE}/api/clusters`, { headers: { Cookie: userCookie! } });
-      const clusters = await res.json();
+      const clusters = await res.json() as Array<Record<string, any>>;
       const current = clusters.find((c: any) => c.id === clusterId);
       console.log(`  ⏱  status: ${current?.status ?? 'missing'}${current?.progress?.step ? ` (${current.progress.step})` : ''}`);
       if (current?.status === 'healthy') return current;
@@ -161,7 +161,7 @@ async function run() {
       body: JSON.stringify({ clusterId, name: `remote-it-app-${Date.now()}`, appType: 'audiobookshelf', strategy: 'native' }),
     });
     if (!deployRes.ok) throw new Error(`Deploy request failed: HTTP ${deployRes.status} ${await deployRes.text()}`);
-    const deployBody = await deployRes.json();
+    const deployBody = await deployRes.json() as { id: string };
     deploymentId = deployBody.id;
 
     // Confirmed live: 10 min was too tight — the deploy was genuinely still progressing (app
@@ -171,7 +171,7 @@ async function run() {
     // matches the generosity already given to cluster provisioning itself (15 min) plus margin.
     await pollUntil('deployment to become running', 20 * 60 * 1000, async () => {
       const res = await fetch(`${BASE}/api/deployments`, { headers: { Cookie: userCookie! } });
-      const deployments = await res.json();
+      const deployments = await res.json() as Array<Record<string, any>>;
       const current = deployments.find((d: any) => d.id === deploymentId);
       console.log(`  ⏱  deployment status: ${current?.status ?? 'missing'}`);
       if (current?.status === 'running') return current;
@@ -193,7 +193,7 @@ async function run() {
         await fetch(`${BASE}/api/deployments/${deploymentId}`, { method: 'DELETE', headers: { Cookie: userCookie } });
         await pollUntil('deployment to be destroyed', 5 * 60 * 1000, async () => {
           const res = await fetch(`${BASE}/api/deployments`, { headers: { Cookie: userCookie! } });
-          const deployments = await res.json();
+          const deployments = await res.json() as Array<Record<string, any>>;
           return deployments.some((d: any) => d.id === deploymentId) ? undefined : true;
         }).catch((e) => console.warn(`  ⚠ deployment cleanup: ${e.message}`));
       } catch (e: any) {
@@ -205,7 +205,7 @@ async function run() {
         await fetch(`${BASE}/api/clusters/${clusterId}`, { method: 'DELETE', headers: { Cookie: userCookie } });
         await pollUntil('cluster to be destroyed', 5 * 60 * 1000, async () => {
           const res = await fetch(`${BASE}/api/clusters`, { headers: { Cookie: userCookie! } });
-          const clusters = await res.json();
+          const clusters = await res.json() as Array<Record<string, any>>;
           return clusters.some((c: any) => c.id === clusterId) ? undefined : true;
         }).catch((e) => console.warn(`  ⚠ cluster cleanup: ${e.message}`));
       } catch (e: any) {

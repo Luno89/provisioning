@@ -58,8 +58,8 @@ async function main() {
     // cluster ("no matches for kind PrometheusRule in group monitoring.coreos.com") even with an
     // explicit CDKTF-level dependency declared — confirmed live. See main.ts's ObservabilityStack
     // docstring for the full explanation.
-    await infra.deploy(CLUSTER_NAME, { logFile, env, timeout: 10 * 60 * 1000 });
-    await infra.deploy(`${CLUSTER_NAME}-observability`, { logFile, env, timeout: 10 * 60 * 1000 });
+    await infra.deploy(CLUSTER_NAME, { logFile, env });
+    await infra.deploy(`${CLUSTER_NAME}-observability`, { logFile, env });
     console.log('  ✅ Monitoring/logging/ingress stack installed');
   } catch (err: any) {
     console.warn(`  ⚠️  Failed to install monitoring/logging/ingress stack: ${err.message}`);

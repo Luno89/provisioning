@@ -155,7 +155,7 @@ async function main(): Promise<void> {
       if (deployment) {
         console.log(`    destroying ${deployment.name}: ${(await http.delete(`/deployments/${deployment.id}`)).status}`);
         for (let tries = 0; tries < 60; tries += 1) {
-          if (!(await db.infrastructure.getDeployments()).some((entry) => entry.id === deployment.id && entry.status !== 'destroyed')) break;
+          if (!(await db.infrastructure.getDeployments()).some((entry) => entry.id === deployment.id)) break;
           await sleep(5_000);
         }
       }

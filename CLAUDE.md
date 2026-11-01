@@ -1225,7 +1225,7 @@ once when it is back; a pool instance always, also telling root's operators; an 
 Settings → "When this instance cannot be reached", `/api/instance-watch` → root's `PUT /api/instances/watch` with a service token, or
 root's page through `PUT /api/instances/mine/watch`). When root starts every watched instance gets the whole grace again
 (`reachAtStart`). Root watches only an instance that has connected (`presence` on its watch record), and forgets that when a check-in
-comes without `presence: true` while it is not connected (`install.sh` and `self-upgrade.sh` send it), so an instance rolled back past
+comes without `presence: true` while it is not connected (`install.sh` and the self-upgrade, `src/scripts/self-upgrade.ts`, send it), so an instance rolled back past
 this release is never called down for speaking an older protocol. Watch state lives in `instanceWatches` (`reach`, `presence`,
 `notifyWhenUnreachable`), apart from the instance record, which other writers replace whole. Root's page says the instance is down
 instead of sending the owner on (`unreachableSince` on `/api/identity/instance`), and People shows it. On the instance the same
@@ -2063,7 +2063,7 @@ instance, without passing its gates first (owner, 2026-10-23: "all those checks 
   every release it has run (`ReleaseCatalogue`: recorded at boot from its checkout's tag and message, `instanceReleases`,
   with that release's chart in `data/instance-charts/`, served at `/api/instances/chart/<image tag>.tgz`, and the image
   digest and chart sha256 it was released with, which `/api/instances/release` and the install bundle hand on; `install.sh`
-  and `self-upgrade.sh` refuse a chart whose sha256 differs and pull the image by digest, `image.digest` in the chart; a
+  and the self-upgrade refuse a chart whose sha256 differs and pull the image by digest, `image.digest` in the chart; a
   release from before digests moves by its tag). Each instance
   record has `updates` (`auto`, on by default, or a `picked` release), `running` (the image tag its check-in reports) and
   `previous`; `GET /api/instances/release` answers per instance (`updateTarget`): on auto, root's release when it is newer
@@ -2076,7 +2076,11 @@ instance, without passing its gates first (owner, 2026-10-23: "all those checks 
   marks it. The instance's Settings → Updates (`InstanceUpdates`, `/api/instance-updates` →
   root's `/api/instances/updates` with its credential) switches auto and picks, and a change that moves it starts the
   check-in at once (`kubectl create job --from=cronjob/<release>-self-upgrade`, never beside one already running). Root's
-  People shows each instance's version and how it updates. Release channels (rc, LTS) are a later conversation.
+  People shows each instance's version and how it updates. **The self-upgrade** (`apps/backend/src/scripts/self-upgrade.ts`, the
+  chart's `self-upgrade` CronJob, rules in `instances/lib/self-upgrade.ts`) applies root's chart without helm's wait and watches the
+  release's Deployments and StatefulSets roll out (`rolloutOf`), with no deadline: it rolls back the moment a pod of the new revision is
+  in a state that does not recover (`assessWorkload`: CrashLoopBackOff, ImagePullBackOff, a restart loop) and tells root why; the words it
+  reports are `UPGRADE_WORDS`, which the rehearsal and byo-live wait for. Release channels (rc, LTS) are a later conversation.
   **An upgrade drops no request** (owner 2026-10-27: drain on events): told to stop in its pod (`POD_IP`, `POD_NAMESPACE` from the
   chart), the backend keeps serving until no EndpointSlice in its namespace lists its pod ready, nor its pod beside only a
   replacement still starting, which kube-proxy would not yet send to (`stillRoutedTo` in `platform/lib/drain.ts`, read with its service account), then answers everything with `Connection: close`, tells socket.io

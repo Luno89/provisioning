@@ -62,7 +62,7 @@ async function run() {
 
   // Sanity check up front: does the synthetic system-cluster entry actually resolve, and is it
   // healthy? If this fails, nothing downstream will work either — fail fast with a clear reason.
-  const systemCluster = await clusterService.getById(SYSTEM_CLUSTER_ID);
+  const systemCluster = await clusterService.getByIdUnscoped(SYSTEM_CLUSTER_ID);
   if (!systemCluster || systemCluster.status !== 'healthy') {
     console.error(`🔴 FAIL: system cluster entry is not healthy (status=${systemCluster?.status}). Is native k3s running? Check: systemctl is-active k3s-provisioning-lunorica`);
     process.exit(1);

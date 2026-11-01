@@ -62,7 +62,7 @@ async function main(): Promise<void> {
     }
   })();
   const proposal = (await db.projects.getPlanProposals(OWNER, conversationId)).find((entry) => entry.status === 'proposed');
-  assert.ok(proposal, `the planner left no plan (${planned.outcome}${planned.reason ? `: ${planned.reason}` : ''})`);
+  assert.ok(proposal?.plan, `the planner left no plan (${planned.outcome}${planned.reason ? `: ${planned.reason}` : ''})`);
   for (const branch of proposal.plan.branches) {
     for (const leaf of branch.leaves) console.log(`      leaf ${leaf.key}: ${leaf.title}${leaf.dependsOn.length ? ` (after ${leaf.dependsOn.join(', ')})` : ''} — ${leaf.tasks.length} tasks`);
   }

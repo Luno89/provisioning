@@ -64,7 +64,7 @@ async function main(): Promise<void> {
   await db.init();
   const admin = await db.accounts.getUserById(ADMIN);
   await db.close();
-  assert.ok(admin?.roles?.includes('operator'), `${ADMIN} is not an admin`);
+  assert.ok(admin && admin.roles?.includes('operator'), `${ADMIN} is not an admin`);
   const api = client(`session=${sessionToken(admin, loadKeys(process.env).session, { seconds: 3600 })}`);
   let id: string | undefined;
   let forward: ReturnType<typeof spawn> | undefined;

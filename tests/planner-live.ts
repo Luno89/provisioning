@@ -58,11 +58,13 @@ async function main(): Promise<void> {
   assert.equal(result.outcome, 'ok');
   const open = proposals.filter((proposal) => proposal.status === 'proposed');
   assert.equal(open.length, 1, `the planner should leave exactly one plan waiting for approval, left ${open.length}`);
-  assert.ok(open[0]!.plan.branches.some((branch) => branch.leaves.some((leaf) => leaf.tasks.length > 0)), 'the open plan has no tasks');
-  for (const branch of open[0]!.plan.branches) {
+  const plan = open[0]?.plan;
+  assert.ok(plan, 'the open plan holds no plan');
+  assert.ok(plan.branches.some((branch) => branch.leaves.some((leaf) => leaf.tasks.length > 0)), 'the open plan has no tasks');
+  for (const branch of plan.branches) {
     for (const leaf of branch.leaves) console.log(`  leaf ${leaf.key}: ${leaf.title}${leaf.dependsOn.length ? ` (after ${leaf.dependsOn.join(', ')})` : ''} — ${leaf.tasks.length} tasks`);
   }
-  const fog = /^#{1,3}\s*Not yet specified\s*$([\s\S]*?)(^#{1,3}\s|$(?![\s\S]))/im.exec(open[0]!.plan.planDoc)?.[1]?.trim();
+  const fog = /^#{1,3}\s*Not yet specified\s*$([\s\S]*?)(^#{1,3}\s|$(?![\s\S]))/im.exec(plan.planDoc)?.[1]?.trim();
   console.log(`  not yet specified: ${fog ?? '(missing)'}`);
   console.log('planner live: the real model proposed a plan through the real tool gate — PASS');
 }

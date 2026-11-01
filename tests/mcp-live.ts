@@ -117,7 +117,7 @@ async function main(): Promise<void> {
     console.log(`  denied ${answered.size}: none ran, and the agent was told each time`);
 
     for (const tool of readTools) {
-      const set = await http.put(`/mcp/servers/${encodeURIComponent(server.name)}/tools/${tool}/hint`, { choice: 'read-only' });
+      const set: { status: number; data: unknown } = await http.put(`/mcp/servers/${encodeURIComponent(server.name)}/tools/${tool}/hint`, { choice: 'read-only' });
       assert.equal(set.status, 200, `could not mark ${tool} read-only: ${JSON.stringify(set.data)}`);
     }
     console.log(`  marked ${readTools.length} of its tools read-only`);

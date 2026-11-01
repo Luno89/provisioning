@@ -452,7 +452,7 @@ async function main(): Promise<void> {
     target = await createDisposableVm('pool-live-target', { memoryMB: 12288, cpus: 4, diskGB: 60, network: GUEST_NETWORK });
     let movedSaid = '';
     const follow = setInterval(() => {
-      void asOwner('/api/instances/mine').then((answer) => answer.json()).then((body: { instance?: { move?: { detail?: string } } }) => {
+      void asOwner('/api/instances/mine').then((answer) => answer.json() as Promise<{ instance?: { move?: { detail?: string } } }>).then((body) => {
         const detail = body.instance?.move?.detail;
         if (detail && detail !== movedSaid) { movedSaid = detail; console.log(`  moving: ${detail}`); }
       }).catch(() => undefined);

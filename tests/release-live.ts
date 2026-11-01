@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { createDisposableVm, findFreePort, type DisposableVm } from './lib/disposable-vm.js';
 import { buildAppImage } from './lib/gate-runs.js';
+import { UPGRADE_WORDS } from '../apps/backend/src/instances/lib/self-upgrade.js';
 import { endsWith, failedUpgradeReports, imageTagOf, inFlightRefusal, unsignedRefusal, labDnsmasq, labHostsLine, noted, revisionRunning, STAND_IN_REF, unhostable, upgradeReports, type Report } from './lib/release-lab.js';
 import { handOff, sessionFrom, type Side, signedInLanding } from './lib/handoff.js';
 
@@ -66,8 +67,8 @@ function inVm(vm: DisposableVm, command: string, stream = false, input?: NodeJS.
     const child = spawn('ssh', [...sshArgs(vm), command], { stdio: [input ? 'pipe' : 'ignore', 'pipe', 'pipe'] });
     if (input) input.pipe(child.stdin!);
     let out = '';
-    child.stdout.on('data', (chunk) => { out += chunk; if (stream) process.stdout.write(`    ${String(chunk).replace(/\n(?!$)/g, '\n    ')}`); });
-    child.stderr.on('data', (chunk) => { out += chunk; if (stream) process.stderr.write(`    ${chunk}`); });
+    child.stdout!.on('data', (chunk) => { out += chunk; if (stream) process.stdout.write(`    ${String(chunk).replace(/\n(?!$)/g, '\n    ')}`); });
+    child.stderr!.on('data', (chunk) => { out += chunk; if (stream) process.stderr.write(`    ${chunk}`); });
     child.on('close', (code) => resolveP({ code: code ?? 1, out }));
   });
 }
@@ -394,7 +395,7 @@ async function main(): Promise<void> {
   assert.ok(temporal, 'root has no Temporal container');
   await sh(root, `sudo docker exec ${temporal} sh -c 'for address in 127.0.0.1:7236 temporal:7233; do temporal workflow start --address $address --task-queue release-live-in-flight --type ReleaseRehearsalInFlight --workflow-id release-live-in-flight >/dev/null && exit 0; done; exit 1'`);
   await until('root\'s Temporal listing the workflow in flight', async () => {
-    const listed = await sh(root, `sudo docker exec ${temporal} temporal workflow list --address 127.0.0.1:7236 --query 'WorkflowId="release-live-in-flight" AND ExecutionStatus="Running"'`);
+    const listed = await sh(root!, `sudo docker exec ${temporal} temporal workflow list --address 127.0.0.1:7236 --query 'WorkflowId="release-live-in-flight" AND ExecutionStatus="Running"'`);
     return /\brelease-live-in-flight\b/.test(listed) ? true : undefined;
   });
   const refused = await inVm(root, `sudo bash ${UPDATE_SH} ${candidate}`);
@@ -482,7 +483,7 @@ async function main(): Promise<void> {
   await sh(root, `sudo sed -i 's|^INSTANCE_IMAGE_TAG=.*|INSTANCE_IMAGE_TAG=${nothing}|' ${REPO_DIR}/apps/backend/.env && sudo systemctl restart nowrinkles`);
   await until('root answering with the newer release', async () => ((await rootAnswers()) ? true : undefined));
   await sh(instance, `curl -fsSL ${ROOT_URL}/api/instances/chart.tgz -o /tmp/current-chart.tgz`);
-  await helm('upgrade instance /tmp/current-chart.tgz --reuse-values --set selfUpgrade.timeout=4m --wait --timeout 720h');
+  await helm('upgrade instance /tmp/current-chart.tgz --reuse-values --wait --timeout 720h');
   const stayed = await checkIn('check-in-held');
   assert.deepEqual(stayed.trail[stayed.trail.length - 1], { status: 'ready', detail: `Running ${candidateTag}` }, 'the instance moved with automatic updates off');
   const offered = updatesNow().releases.find((row) => row.imageTag === nothing);
@@ -502,7 +503,8 @@ async function main(): Promise<void> {
   assert.ok(endsWith(broken.trail, failedUpgradeReports(candidateTag, nothing)), 'root did not hear installing then failed');
   await allOn(candidateTag);
   assert.equal(https(instanceHost, '/api/auth/sign-in').status, 200, 'the instance stopped answering at its address after the failed upgrade');
-  assert.deepEqual({ status: mine().status, detail: mine().detail }, { status: 'failed', detail: `The upgrade to ${nothing} failed, so it was rolled back to ${candidateTag}` });
+  assert.equal(mine().status, 'failed');
+  assert.ok(mine().detail?.startsWith(`${UPGRADE_WORDS.rolledBack(nothing, candidateTag)}: `), `root shows ${mine().detail}`);
   cookie = await handoff();
   await appAnswers();
   note(`after the failed upgrade: root shows it failed and rolled back, and sign-in through root, the handoff and the app's address still work`);

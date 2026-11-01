@@ -51,7 +51,7 @@ async function main(): Promise<void> {
   const db = createDatabase();
   await db.init();
   const admin = await db.accounts.getUserById(ADMIN);
-  assert.ok(admin?.roles?.includes('operator'), `${ADMIN} is not an admin`);
+  assert.ok(admin && admin.roles?.includes('operator'), `${ADMIN} is not an admin`);
   const session = (user: { id: string; email: string }) => `session=${sessionToken(user, loadKeys(process.env).session, { seconds: 3600 })}`;
   const as = (cookie: string) => axios.create({ baseURL: BASE, proxy: false, headers: { Cookie: cookie }, validateStatus: () => true });
   const adminHttp = as(session(admin));

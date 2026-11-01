@@ -1,0 +1,27 @@
+{
+  "extends": "../apps/backend/tsconfig.json",
+  "compilerOptions": {
+    "types": [
+      "node"
+    ],
+    "rootDir": "..",
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "typeRoots": [
+      "../apps/backend/node_modules/@types",
+      "../node_modules/@types"
+    ],
+    "allowJs": true,
+    "checkJs": false
+  },
+  "include": [
+    "**/*.ts",
+    "../scripts/**/*.ts",
+    "../scripts/**/*.mts"
+  ],
+  "exclude": [
+    "e2e.spec.ts",
+    "playwright.config.ts",
+    "../scripts/**/node_modules"
+  ]
+}

@@ -35,7 +35,7 @@ describe('the inventory of a release', () => {
       'pkg:npm/%40scope/thing@3.0.0', 'pkg:npm/ms@2.1.3', 'pkg:npm/proto@7.5.0', 'pkg:npm/proto@8.0.1', 'pkg:npm/worker@1.2.0',
     ]);
     expect(found[0]).toMatchObject({ scope: 'excluded' });
-    expect(props(found[0])).toMatchObject({ 'koala:dev': 'true', 'koala:in': 'koala' });
+    expect(props(found[0]!)).toMatchObject({ 'koala:dev': 'true', 'koala:in': 'koala' });
     expect(found[1]).toMatchObject({ scope: 'required' });
   });
 
@@ -56,7 +56,7 @@ describe('the inventory of a release', () => {
   });
 
   it('is a CycloneDX 1.5 document naming the release', () => {
-    const bom = inventory({ lock, pins, release: 'v2026.10.29', now: new Date('2026-10-29T00:00:00Z'), serial: '00000000-0000-4000-8000-000000000000' });
+    const bom = inventory({ lock, machineLock: undefined, pins, release: 'v2026.10.29', now: new Date('2026-10-29T00:00:00Z'), serial: '00000000-0000-4000-8000-000000000000' });
     expect(bom).toMatchObject({ bomFormat: 'CycloneDX', specVersion: '1.5', serialNumber: 'urn:uuid:00000000-0000-4000-8000-000000000000', metadata: { timestamp: '2026-10-29T00:00:00.000Z', component: { name: 'koala', version: 'v2026.10.29' } } });
     const refs = bom.components.map((component: { 'bom-ref': string }) => component['bom-ref']);
     expect(new Set(refs).size).toBe(refs.length);

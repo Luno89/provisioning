@@ -341,7 +341,7 @@ function formatWorkflowLine(line: string): string {
   if (!trimmed || trimmed.startsWith('Status') || trimmed.startsWith('Error')) return trimmed;
   const parts = trimmed.split(/\s{2,}/);
   if (parts.length >= 2) {
-    return `${wfStatusColor(parts[0])}  ${DIM + parts.slice(1).join(' ').substring(0, 60) + RESET}`;
+    return `${wfStatusColor(parts[0] ?? "")}  ${DIM + parts.slice(1).join(' ').substring(0, 60) + RESET}`;
   }
   return trimmed;
 }
@@ -386,7 +386,7 @@ async function runTest(testDef: TestDef) {
     for (let i = 0; i < visibleLines.length; i++) {
       const r = 1 + i;
       out += moveCursor(r, 1) + clearFromCursor();
-      out += visibleLines[i].substring(0, terminalCols - 2) + '\n';
+      out += (visibleLines[i] ?? "").substring(0, terminalCols - 2) + '\n';
     }
     process.stdout.write(out);
   };
@@ -489,7 +489,7 @@ function showLogs() {
   let out = '';
   for (let i = 0; i < Math.min(lines.length, terminalRows - 3); i++) {
     out += moveCursor(startRow + i, 1) + clearFromCursor();
-    out += lines[i].substring(0, terminalCols - 2) + '\n';
+    out += (lines[i] ?? "").substring(0, terminalCols - 2) + '\n';
   }
   process.stdout.write(out);
   renderDashboard();
@@ -584,7 +584,6 @@ function stopDashboard() {
 function setupInput() {
   const rl = createInterface({
     input: process.stdin,
-    output: null,
     terminal: false,
   });
 

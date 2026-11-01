@@ -4,6 +4,7 @@ import { join, resolve } from 'node:path';
 import dotenv from 'dotenv';
 import { createDisposableVm, type DisposableVm } from './lib/disposable-vm.js';
 import { loadKeys } from '../apps/backend/src/platform/lib/keys.js';
+import { UPGRADE_WORDS } from '../apps/backend/src/instances/lib/self-upgrade.js';
 import { sessionToken } from '../apps/backend/src/platform/lib/auth.js';
 import { devDataMounts, devTemporalCa } from './lib/dev-temporal.js';
 import { fetchSide, handOff, sessionFrom, signedInLanding } from './lib/handoff.js';
@@ -179,7 +180,7 @@ async function main(): Promise<void> {
   const reported = async () => (await (await asOwner('/api/instances/mine')).json() as { instance: { status: string; detail?: string } }).instance;
 
   step('root publishes a new release, and the instance upgrades itself to it');
-  await inVm(vm, 'sudo helm upgrade instance /tmp/instance-chart.tgz -n nowrinkles --reuse-values --set selfUpgrade.timeout=8m --kubeconfig /etc/rancher/k3s/k3s.yaml --wait --timeout 10m');
+  await inVm(vm, 'sudo helm upgrade instance /tmp/instance-chart.tgz -n nowrinkles --reuse-values --kubeconfig /etc/rancher/k3s/k3s.yaml --wait --timeout 10m');
   run('docker', ['tag', IMAGE, '127.0.0.1:5000/nowrinkles/app:upgrade-ok']);
   run('docker', ['push', '-q', '127.0.0.1:5000/nowrinkles/app:upgrade-ok']);
   await startRoot('upgrade-ok');
@@ -197,7 +198,7 @@ async function main(): Promise<void> {
     console.log(`  the new backend's start:\n    ${(await kubectl('logs deploy/instance-backend -c backend --timestamps')).trim().split('\n').slice(0, 40).join('\n    ')}`);
   }
   assert.deepEqual(good.misses, [], 'the instance stopped answering during a good upgrade');
-  expect(await reported(), { status: 'ready', detail: 'Upgraded to upgrade-ok' });
+  expect(await reported(), { status: 'ready', detail: UPGRADE_WORDS.upgraded('upgrade-ok') });
   assert.match(await backendImage(), /:upgrade-ok$/, 'the backend is not running the new release');
   assert.ok(await until('the upgraded instance answering', 5, async () => ((await answers()) ? true : undefined)));
 
@@ -212,7 +213,9 @@ async function main(): Promise<void> {
   const broken = duringBroken();
   console.log(`  answered ${broken.checks - broken.misses.length} of ${broken.checks} checks while the broken release failed and was rolled back`);
   assert.deepEqual(broken.misses, [], 'the instance stopped answering while a broken release failed');
-  expect(await reported(), { status: 'failed', detail: 'The upgrade to upgrade-broken failed, so it was rolled back to upgrade-ok' });
+  const brokenReport = await reported();
+  assert.equal(brokenReport.status, 'failed');
+  assert.ok(brokenReport.detail?.startsWith(`${UPGRADE_WORDS.rolledBack('upgrade-broken', 'upgrade-ok')}: `), `root heard ${brokenReport.detail}`);
   assert.match(await backendImage(), /:upgrade-ok$/, 'the rollback did not put the working release back');
   assert.ok(await until('the rolled-back instance answering', 5, async () => ((await answers()) ? true : undefined)));
   const history = await inVm(vm, 'sudo helm history instance -n nowrinkles --kubeconfig /etc/rancher/k3s/k3s.yaml');
