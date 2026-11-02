@@ -1,3 +1,6 @@
 eba2ca52bc1f39d65d7bd7a49dbefb25ec32df5d:apps/backend/src/infrastructure/services/InfisicalService.test.ts:generic-api-key:130
 9cb2b38cd3fdeef285c10941e9a2ca68fd49d652:apps/backend/src/infrastructure/lib/server-orders.test.ts:generic-api-key:10
 252b50465e2bb1ace49e347aab414659f28177bd:apps/backend/src/accounts/services/breached-passwords.test.ts:generic-api-key:9
+1cbe1784fdab7d85e8b5f44b6cef50dd9d4b6c84:apps/backend/src/hub/services/HubRepoSync.integration.test.ts:generic-api-key:87
+c487162659c79a1283b2e9497b079bcb409dd94d:apps/backend/src/infrastructure/services/AppDeploy.test.ts:generic-api-key:9
+a5c31cf0cc22b1584e3f7f561d0509aba4b17e1f:apps/backend/src/files/testing/store-contract.ts:generic-api-key:7
