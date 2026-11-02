@@ -1,8 +1,8 @@
-import { spawnSync } from 'node:child_process';
 import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
+import { spawnScript } from '../coupling/shell-trace.js';
 
 const SCRIPT = new URL('../../scripts/root-node/join-mesh.sh', import.meta.url).pathname;
 const SERVER = 'https://mesh.koala.test';
@@ -27,7 +27,7 @@ function joinMesh(up: string, journal: string[] = []) {
   chmodSync(join(stub, 'journalctl'), 0o755);
   writeFileSync(join(stub, 'up'), up);
   writeFileSync(join(stub, 'journal'), journal.map((line) => `${line}\n`).join(''));
-  const ran = spawnSync('bash', [SCRIPT, SERVER, 'nowrinkles-root'], {
+  const ran = spawnScript(SCRIPT, [SERVER, 'nowrinkles-root'], {
     encoding: 'utf8',
     env: { ...process.env, PATH: `${stub}:${process.env.PATH}`, STUB: stub, MESH_AUTHKEY: 'hskey-test' },
   });

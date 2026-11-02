@@ -1,10 +1,11 @@
-import { execFileSync, spawnSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { dropEnvValues } from '../../scripts/root-node/root-env.js';
 import { tagMessage } from './gates.js';
+import { spawnScript } from '../coupling/shell-trace.js';
 
 const ROOT_NODE = new URL('../../scripts/root-node/', import.meta.url).pathname;
 const dirs: string[] = [];
@@ -28,7 +29,7 @@ function stubs(scripts: Record<string, string>): string {
 }
 
 const lab = (certificates: string, rootTls: string, domain: string) =>
-  spawnSync('bash', [join(ROOT_NODE, 'lab.sh'), certificates, rootTls, domain], { encoding: 'utf8' });
+  spawnScript(join(ROOT_NODE, 'lab.sh'), [certificates, rootTls, domain], { encoding: 'utf8' });
 
 describe('whether a root is a lab', () => {
   it('is a lab only when its settings say so and its domain is one nothing public resolves', () => {
@@ -58,7 +59,7 @@ describe('update.sh on a root whose .env still says it is a lab', () => {
 
   it('refuses before it touches anything when the domain is real', () => {
     const repo = rootWith('DOMAIN=nowrinkles.dev\nCERTIFICATES=acme\nROOT_TLS=internal\n');
-    const ran = spawnSync('bash', [join(ROOT_NODE, 'update.sh'), 'v2026.10.30'], { encoding: 'utf8', env: { ...process.env, PATH: `${stubs({})}:${process.env.PATH}`, REPO_DIR: repo } });
+    const ran = spawnScript(join(ROOT_NODE, 'update.sh'), ['v2026.10.30'], { encoding: 'utf8', env: { ...process.env, PATH: `${stubs({})}:${process.env.PATH}`, REPO_DIR: repo } });
     expect(ran.status).toBe(1);
     expect(ran.stdout).toMatch(/This root's settings say ROOT_TLS=internal, a lab, but DOMAIN is nowrinkles\.dev, a real domain\./);
     expect(ran.stdout).not.toMatch(/▶/);
@@ -69,7 +70,7 @@ describe('update.sh on a root whose .env still says it is a lab', () => {
 describe('bootstrap.sh asked for a lab', () => {
   it('refuses on a real domain before it installs anything', () => {
     for (const env of [{ CERTIFICATES: 'internal', DOMAIN: 'nowrinkles.dev' }, { ROOT_TLS: 'internal' }]) {
-      const ran = spawnSync('bash', [join(ROOT_NODE, 'bootstrap.sh')], { encoding: 'utf8', env: { ...process.env, PATH: `${stubs({})}:${process.env.PATH}`, REPO_DIR: scratch('root-lab-none-'), ...env } });
+      const ran = spawnScript(join(ROOT_NODE, 'bootstrap.sh'), [], { encoding: 'utf8', env: { ...process.env, PATH: `${stubs({})}:${process.env.PATH}`, REPO_DIR: scratch('root-lab-none-'), ...env } });
       expect(ran.status, JSON.stringify(env)).toBe(1);
       expect(ran.stdout).toMatch(/This root's settings say CERTIFICATES=internal, a lab, but DOMAIN is nowrinkles\.dev, a real domain\./);
       expect(ran.stdout).not.toMatch(/Bootstrapping/);
@@ -102,7 +103,7 @@ describe('the hourly release watch', () => {
   }
 
   const watch = (root: { repo: string; stub: string }, ...args: string[]) =>
-    spawnSync('bash', [join(ROOT_NODE, 'release-watch.sh'), ...args], { encoding: 'utf8', env: { ...process.env, PATH: `${root.stub}:${process.env.PATH}`, REPO_DIR: root.repo } });
+    spawnScript(join(ROOT_NODE, 'release-watch.sh'), args, { encoding: 'utf8', env: { ...process.env, PATH: `${root.stub}:${process.env.PATH}`, REPO_DIR: root.repo } });
 
   it('moves root onto a newer release made through the gates', () => {
     const moved = watch(rootOn('v2026.10.30'));

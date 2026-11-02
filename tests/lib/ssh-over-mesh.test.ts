@@ -1,8 +1,8 @@
-import { spawnSync } from 'node:child_process';
 import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
+import { spawnScript } from '../coupling/shell-trace.js';
 
 const SCRIPT = new URL('../../scripts/root-node/ssh-over-mesh.sh', import.meta.url).pathname;
 const dirs: string[] = [];
@@ -21,7 +21,7 @@ function closeSsh(sessions: string[], meshIp = '100.64.0.1', args: string[] = []
     chmodSync(join(stub, name), 0o755);
   }
   writeFileSync(join(stub, 'sessions'), sessions.map((line) => `${line}\n`).join(''));
-  const ran = spawnSync('bash', [SCRIPT, ...args], { encoding: 'utf8', env: { ...process.env, PATH: `${stub}:${process.env.PATH}`, STUB: stub, KOALA_ETC: join(stub, 'etc') } });
+  const ran = spawnScript(SCRIPT, args, { encoding: 'utf8', env: { ...process.env, PATH: `${stub}:${process.env.PATH}`, STUB: stub, KOALA_ETC: join(stub, 'etc') } });
   const ufw = existsSync(join(stub, 'ufw.log')) ? readFileSync(join(stub, 'ufw.log'), 'utf8').trim().split('\n') : [];
   return { code: ran.status, said: ran.stdout + ran.stderr, ufw, recorded: existsSync(join(stub, 'etc', 'ssh-over-mesh')) };
 }

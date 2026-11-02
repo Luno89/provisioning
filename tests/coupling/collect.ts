@@ -1,8 +1,9 @@
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { Session } from 'node:inspector/promises';
 import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { originalPositionFor, TraceMap, type SourceMapInput } from '@jridgewell/trace-mapping';
+import { shellRan } from './shell-trace.js';
 
 export interface Position { line: number; column: number }
 export interface RanRange { start: Position; end: Position; count: number; fn?: string }
@@ -33,7 +34,7 @@ function generatedAt(starts: number[], offset: number): Position {
 
 export interface Collector { take(testFile: string): Promise<void> }
 
-export async function startCollecting(options: { dir: string; root: string; keep: (file: string) => boolean }): Promise<Collector> {
+export async function startCollecting(options: { dir: string; root: string; keep: (file: string) => boolean; shellTrace?: string }): Promise<Collector> {
   const session = new Session();
   session.connect();
   await session.post('Profiler.enable');
@@ -69,6 +70,10 @@ export async function startCollecting(options: { dir: string; root: string; keep
           });
         }
         files[file] = ranges;
+      }
+      if (options.shellTrace) {
+        Object.assign(files, shellRan(options.shellTrace, options.root));
+        rmSync(options.shellTrace, { force: true });
       }
       const ran: Ran = { testFile: relative(options.root, testFile), files };
       writeFileSync(join(options.dir, `${relative(options.root, testFile).replace(/[^A-Za-z0-9.-]+/g, '_')}.json`), JSON.stringify(ran));

@@ -1,8 +1,9 @@
-import { execFileSync, spawnSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
+import { spawnScript } from '../coupling/shell-trace.js';
 
 const SCRIPT = new URL('../../scripts/root-node/verify-release.sh', import.meta.url).pathname;
 const dirs: string[] = [];
@@ -34,7 +35,7 @@ const tag = (dir: string, name: string, key?: string) => run(dir, 'git', '-c', '
 function verify(dir: string, name: string, signers: string) {
   const file = join(scratch('release-signers-'), 'signers');
   writeFileSync(file, `${signers}\n`);
-  return spawnSync('bash', [SCRIPT, 'tag', dir, name], { encoding: 'utf8', env: { ...process.env, RELEASE_SIGNERS: file } });
+  return spawnScript(SCRIPT, ['tag', dir, name], { encoding: 'utf8', env: { ...process.env, RELEASE_SIGNERS: file } });
 }
 
 afterEach(() => {

@@ -13,18 +13,20 @@ import { bundleAsEnv, instancesRouter } from './instances.js';
 import { mountRouter, TEST_USER, type Harness } from '../../platform/routes/test-harness.js';
 import { InstanceService, hashCredential } from '../services/InstanceService.js';
 import { PoolMonitoringService } from '../services/PoolMonitoringService.js';
+import { excerptEnv, scriptExcerpt } from '../../../../../tests/coupling/shell-trace.js';
 
 const including = (items: unknown[]): unknown => expect.arrayContaining(items);
 
+const INSTALLER = join(process.cwd(), '../../scripts/instance/install.sh');
+
 describe('what the installer reads from root', () => {
-  const installer = readFileSync(join(process.cwd(), '../../scripts/instance/install.sh'), 'utf8');
-  const reader = /^read_joined\(\) \{[\s\S]*?^\}$/m.exec(installer)![0];
+  const installer = readFileSync(INSTALLER, 'utf8');
   const bundle = {
     instanceId: 'inst-1', ownerId: 'u1', rootUrl: 'https://app.example.com', rootPublicKeys: "-----BEGIN PUBLIC KEY-----\nab'c$(touch ran)\n-----END PUBLIC KEY-----",
     meshLoginServer: 'https://mesh.example.com', preAuthKey: "key'with`touch ran`", registry: '100.64.0.1:5001', image: '100.64.0.1:5001/nowrinkles/app',
     imageTag: 'abc', chartUrl: 'https://app.example.com/api/instances/chart.tgz', credential: "c$HOME'$(touch ran)", name: 'luno', domain: 'example.com',
   };
-  const readIn = (dir: string, print: string) => spawnSync('sh', ['-c', `die() { echo "refused: $1"; exit 1; }\n${reader}\nread_joined ./join.env\n${print}`], { cwd: dir, encoding: 'utf8' });
+  const readIn = (dir: string, print: string) => spawnSync('sh', ['-c', scriptExcerpt(INSTALLER, ['read_joined'], `die() { echo "refused: $1"; exit 1; }\nread_joined ./join.env\n${print}`)], { cwd: dir, encoding: 'utf8', env: { ...process.env, ...excerptEnv() } });
 
   it('reads back every value exactly, whatever characters it holds, and runs none of them', () => {
     const dir = mkdtempSync(join(tmpdir(), 'bundle-'));
@@ -54,9 +56,7 @@ describe('what the installer reads from root', () => {
 });
 
 describe('what the installer tells root as it installs', () => {
-  const installer = readFileSync(join(process.cwd(), '../../scripts/instance/install.sh'), 'utf8');
-  const fn = (name: string) => new RegExp(`^${name}\\(\\) \\{[\\s\\S]*?^\\}$`, 'm').exec(installer)![0];
-  const reporting = ['json_string', 'report_body', 'send_report', 'report', 'report_failure'].map(fn).join('\n');
+  const reporting = ['json_string', 'report_body', 'send_report', 'report', 'report_failure'];
   let harness: Harness | undefined;
   let rootDown: http.Server | undefined;
   afterEach(async () => {
@@ -85,7 +85,7 @@ describe('what the installer tells root as it installs', () => {
   function installerReports(calls: string[], env: Record<string, string>): Promise<{ status: number | null; stdout: string; stderr: string }> {
     const bin = mkdtempSync(join(tmpdir(), 'installer-bin-'));
     writeFileSync(join(bin, 'sleep'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
-    const child = spawn('sh', ['-c', `set -eu\ndie() { echo "refused: $1"; exit 1; }\n${reporting}\n${calls.join('\n')}\necho finished`], { env: { PATH: `${bin}:${process.env.PATH}`, ...env } });
+    const child = spawn('sh', ['-c', scriptExcerpt(INSTALLER, reporting, `set -eu\ndie() { echo "refused: $1"; exit 1; }\n${calls.join('\n')}\necho finished`)], { env: { PATH: `${bin}:${process.env.PATH}`, ...env, ...excerptEnv() } });
     let stdout = '';
     let stderr = '';
     child.stdout.on('data', (chunk: Buffer) => { stdout += chunk.toString(); });
