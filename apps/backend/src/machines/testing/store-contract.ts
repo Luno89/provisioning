@@ -1,0 +1,66 @@
+import { describe, expect, it } from 'vitest';
+import type { MachinesStore } from '../store.js';
+
+const device = { id: 'desk', ownerId: 'owner-1', name: 'desk', rootDir: '/home/person/koala', createdAt: '2026-10-10T00:00:00.000Z', tokenHash: 'old' };
+
+export function machinesStoreContract(make: () => Promise<MachinesStore>): void {
+  describe('a person\'s machines', () => {
+    it('keeps a machine as it was saved, replaces it whole when saved again, and forgets it when deleted', async () => {
+      const store = await make();
+      await store.saveLocalAgentDevice(device);
+      await store.saveLocalAgentDevice({ ...device, id: 'laptop', name: 'laptop' });
+      expect(await store.getLocalAgentDevices()).toEqual(expect.arrayContaining([device, { ...device, id: 'laptop', name: 'laptop' }]));
+      await store.saveLocalAgentDevice({ id: 'desk', ownerId: 'owner-1', name: 'renamed', rootDir: '/home/person/koala', createdAt: device.createdAt });
+      expect((await store.getLocalAgentDevices()).find((stored) => stored.id === 'desk')).toEqual({ id: 'desk', ownerId: 'owner-1', name: 'renamed', rootDir: '/home/person/koala', createdAt: device.createdAt });
+      await store.deleteLocalAgentDevice('desk');
+      expect((await store.getLocalAgentDevices()).map((stored) => stored.id)).toEqual(['laptop']);
+    });
+
+    it('hands back a copy, so changing what it read changes nothing stored', async () => {
+      const store = await make();
+      await store.saveLocalAgentDevice(device);
+      const [read] = await store.getLocalAgentDevices();
+      read!.name = 'changed';
+      expect((await store.getLocalAgentDevices())[0]?.name).toBe('desk');
+    });
+
+    it('changes only the fields named, so two changes at once both land', async () => {
+      const store = await make();
+      await store.saveLocalAgentDevice(device);
+      await Promise.all([
+        store.updateLocalAgentDevice('desk', { set: { lastSeenAt: '2026-10-29T00:00:00.000Z' } }),
+        store.updateLocalAgentDevice('desk', { set: { nextTokenHash: 'new' }, when: { nextTokenHash: null } }),
+        store.updateLocalAgentDevice('desk', { set: { meshIp: '100.64.0.9' } }),
+      ]);
+      expect((await store.getLocalAgentDevices())[0]).toMatchObject({ tokenHash: 'old', nextTokenHash: 'new', lastSeenAt: '2026-10-29T00:00:00.000Z', meshIp: '100.64.0.9' });
+    });
+
+    it('applies a change only while its condition holds, and says whether it did', async () => {
+      const store = await make();
+      await store.saveLocalAgentDevice({ ...device, nextTokenHash: 'new' });
+      expect(await store.updateLocalAgentDevice('desk', { set: { nextTokenHash: 'another' }, when: { nextTokenHash: null } })).toBe(false);
+      expect(await store.updateLocalAgentDevice('desk', { set: { tokenHash: 'new' }, unset: ['nextTokenHash'], when: { nextTokenHash: 'stale' } })).toBe(false);
+      expect(await store.updateLocalAgentDevice('desk', { set: { tokenHash: 'new' }, unset: ['nextTokenHash'], when: { nextTokenHash: 'new' } })).toBe(true);
+      const [stored] = await store.getLocalAgentDevices();
+      expect(stored).toMatchObject({ tokenHash: 'new' });
+      expect(stored).not.toHaveProperty('nextTokenHash');
+    });
+
+    it('changes nothing, and says so, for a machine it does not have or a change that names nothing', async () => {
+      const store = await make();
+      expect(await store.updateLocalAgentDevice('gone', { set: { name: 'x' } })).toBe(false);
+      await store.saveLocalAgentDevice(device);
+      expect(await store.updateLocalAgentDevice('desk', {})).toBe(false);
+      expect(await store.getLocalAgentDevices()).toEqual([device]);
+    });
+
+    it('hands a join code out once', async () => {
+      const store = await make();
+      const code = { hash: 'h1', ownerId: 'owner-1', expiresAt: '2030-01-01T00:00:00.000Z' };
+      await store.saveMachineJoinCode(code);
+      expect(await store.takeMachineJoinCode('h1')).toEqual(code);
+      expect(await store.takeMachineJoinCode('h1')).toBeUndefined();
+      expect(await store.takeMachineJoinCode('never')).toBeUndefined();
+    });
+  });
+}

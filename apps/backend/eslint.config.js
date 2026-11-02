@@ -85,6 +85,8 @@ const ACCESS = [
 ]
 
 
+const TESTING_ONLY = { group: ['**/testing/*'], message: 'a testing/ folder holds mocks and contract suites for tests; production code never imports them' };
+
 export default defineConfig([
   globalIgnores(['dist', 'data', 'node_modules']),
   {
@@ -95,18 +97,26 @@ export default defineConfig([
       '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_', varsIgnorePattern: '^_', caughtErrors: 'none', ignoreRestSiblings: true }],
     },
   },
+  {
+    files: ['src/**/*.ts'],
+    ignores: ['**/*.test.ts', 'src/**/testing/**'],
+    languageOptions: { parser: tseslint.parser },
+    rules: {
+      'no-restricted-imports': ['error', { patterns: [TESTING_ONLY] }],
+    },
+  },
   ...LAYERS.map((layer) => ({
     files: layer.files,
-    ignores: ['**/*.test.ts'],
+    ignores: ['**/*.test.ts', 'src/**/testing/**'],
     languageOptions: { parser: tseslint.parser },
     plugins: { '@typescript-eslint': tseslint.plugin },
     rules: {
-      'no-restricted-imports': ['error', { patterns: [{ group: upward(layer.above), message: layer.message }] }],
+      'no-restricted-imports': ['error', { patterns: [{ group: upward(layer.above), message: layer.message }, TESTING_ONLY] }],
     },
   })),
   {
     files: ['src/**/*.ts'],
-    ignores: ['**/*.test.ts'],
+    ignores: ['**/*.test.ts', 'src/**/testing/**'],
     languageOptions: { parser: tseslint.parser },
     plugins: { boundaries },
     rules: { 'boundaries/areas': 'error' },
