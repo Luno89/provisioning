@@ -230,8 +230,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   const authService = new AuthService(db, { mail, production: process.env.NODE_ENV === 'production', push });
   const passwords = new PasswordService({ db, auth: authService, breached: loadBreachedPasswords(), revocations });
   const sessionEnds = new SessionEnds(db.platform);
-  await sessionEnds.load();
-  sessionEnds.keepReading((message) => console.warn(message));
+  await sessionEnds.follow();
   const sessionSockets = new SessionSockets();
   sessionEnds.onEnd((sessionId) => sessionSockets.end({ kind: 'session', sessionId }));
   revocations.listen(async (revoked) => { if (endsSessions(revoked)) sessionSockets.end({ kind: 'person', personId: revoked.personId, before: Date.parse(revoked.at) }); });

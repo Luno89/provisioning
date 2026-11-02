@@ -2,6 +2,7 @@ import type { AreaStore } from './lib/collection.js';
 import type { Db } from 'mongodb';
 import type { MigrationRecord } from './lib/migrations.js';
 import type { EndedSession } from './lib/ended-sessions.js';
+import { watchWrites, type Watching } from './lib/change-streams.js';
 import { attemptsKeptUntil, type LockoutRule, type SignInAttempts } from './lib/http-limits.js';
 
 export interface PlatformStore extends AreaStore {
@@ -9,6 +10,7 @@ export interface PlatformStore extends AreaStore {
   recordMigration(record: MigrationRecord): Promise<void>;
   endSession(ended: EndedSession): Promise<void>;
   sessionsEndedSince(at: number): Promise<EndedSession[]>;
+  watchSessionEnds(on: (ended: EndedSession) => void): Watching;
   attemptsOf(key: string): Promise<SignInAttempts | undefined>;
   countFailure(key: string, now: number, rule: LockoutRule): Promise<{ before: SignInAttempts | undefined; after: SignInAttempts }>;
   clearAttempts(key: string): Promise<void>;
@@ -51,6 +53,10 @@ export class MongoPlatformStore implements PlatformStore {
   async sessionsEndedSince(at: number): Promise<EndedSession[]> {
     const docs = await this.endedSessions.find({ at: { $gte: new Date(at) }, until: { $gt: new Date() } }).toArray();
     return docs.map((doc) => ({ id: String(doc._id), until: (doc.until as Date).getTime(), at: (doc.at as Date).getTime() }));
+  }
+
+  watchSessionEnds(on: (ended: EndedSession) => void): Watching {
+    return watchWrites(() => this.endedSessions, {}, (doc) => on({ id: String(doc._id), until: (doc.until as Date).getTime(), at: (doc.at as Date).getTime() }));
   }
 
   async attemptsOf(key: string): Promise<SignInAttempts | undefined> {

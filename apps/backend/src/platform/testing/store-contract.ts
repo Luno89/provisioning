@@ -25,6 +25,23 @@ export function platformStoreContract(make: () => Promise<PlatformStore>): void 
   });
 
   describe('sessions that were signed out', () => {
+    it('tells whoever listens of each session signed out of, from any write, once it is listening', async () => {
+      const store = await make();
+      const now = Date.now();
+      const heard: string[] = [];
+      let both!: () => void;
+      const done = new Promise<void>((resolve) => { both = resolve; });
+      const watching = store.watchSessionEnds((ended) => { heard.push(`${ended.id} ${ended.until - now}`); if (heard.length === 2) both(); });
+      await watching.ready;
+
+      await store.endSession({ id: 's1', until: now + 60_000, at: now });
+      await store.endSession({ id: 's2', until: now + 90_000, at: now });
+      await done;
+      await watching.close();
+
+      expect(heard).toEqual(['s1 60000', 's2 90000']);
+    });
+
     it('lists the sessions ended at or after a moment that have not yet expired', async () => {
       const store = await make();
       const now = Date.now();

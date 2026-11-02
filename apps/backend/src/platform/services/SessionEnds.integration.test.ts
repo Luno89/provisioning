@@ -16,16 +16,16 @@ describe('the sessions signed out of', () => {
     expect(restarted.ended('jti-1')).toBe(true);
   });
 
-  it('are taken up by a process that runs beside the one that ended them, and forgotten once they would have expired', async () => {
+  it('are taken up as they are written by a process that runs beside the one that ended them, and forgotten once they would have expired', async () => {
     const db = await testDatabase();
     let clock = Date.now();
     const one = new SessionEnds(db.platform, () => clock);
     const other = new SessionEnds(db.platform, () => clock);
-    await other.load();
-    other.keepReading(() => undefined, 20);
+    await other.follow();
+    const heard = new Promise<string>((done) => other.onEnd(done));
     await one.end('jti-3', clock + 120_000);
-    await new Promise((resolve) => setTimeout(resolve, 200));
-    other.stop();
+    expect(await heard).toBe('jti-3');
+    await other.stop();
     expect(other.ended('jti-3')).toBe(true);
     clock += 121_000;
     expect(other.ended('jti-3')).toBe(false);

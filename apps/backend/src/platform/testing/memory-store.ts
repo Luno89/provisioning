@@ -2,6 +2,7 @@ import type { EndedSession } from '../lib/ended-sessions.js';
 import { attemptsKeptUntil, type LockoutRule, type SignInAttempts } from '../lib/http-limits.js';
 import type { MigrationRecord } from '../lib/migrations.js';
 import type { PlatformStore } from '../store.js';
+import type { Watching } from '../lib/change-streams.js';
 import { asStored } from './as-stored.js';
 import { copied } from './memory-records.js';
 
@@ -29,6 +30,14 @@ export class MemoryPlatformStore implements PlatformStore {
   async endSession(ended: EndedSession): Promise<void> {
     const until = Math.max(this.endedSessions.get(ended.id)?.until ?? ended.until, ended.until);
     this.endedSessions.set(ended.id, { until, at: ended.at });
+    for (const watcher of this.sessionWatchers) queueMicrotask(() => watcher({ id: ended.id, until, at: ended.at }));
+  }
+
+  private readonly sessionWatchers = new Set<(ended: EndedSession) => void>();
+
+  watchSessionEnds(on: (ended: EndedSession) => void): Watching {
+    this.sessionWatchers.add(on);
+    return { ready: Promise.resolve(), close: async () => { this.sessionWatchers.delete(on); } };
   }
 
   async sessionsEndedSince(at: number): Promise<EndedSession[]> {
