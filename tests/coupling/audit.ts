@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { commitOf, gatheredIn, OUT, ROOT, runsOf, sourceOf, usableIn, type Artifact } from './artifacts.js';
@@ -6,7 +7,7 @@ import { judge, unitLevels } from './join.js';
 import { renderPage } from './render.js';
 import { levelOf, runsIn, summary } from './report.js';
 import { resultOf, type Result } from './result.js';
-import { against, breaches, counted, judging, layerBreaches, pruned, RULES, type Baseline } from './rules.js';
+import { against, breaches, counted, introducedBy, judging, layerBreaches, pruned, RULES, type Baseline } from './rules.js';
 import { MATCHES, outsideEnds, projectsOf, workspaceOf } from './workspaces.js';
 
 const BASELINE = join(ROOT, 'tests', 'coupling', 'baseline.json');
@@ -24,6 +25,13 @@ function optionsFrom(args: readonly string[]): Options {
 }
 
 const seconds = (since: number) => Math.round((Date.now() - since) / 100) / 10;
+
+function changedSinceBaseline(): Set<string> {
+  const run = (args: string[]) => execFileSync('git', args, { cwd: ROOT, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 });
+  const recorded = run(['log', '-1', '--format=%H', '--', 'tests/coupling/baseline.json']).trim();
+  if (!recorded) return new Set(run(['ls-files']).split('\n').filter(Boolean));
+  return new Set([...run(['diff', '--name-only', recorded, '--']).split('\n'), ...run(['ls-files', '--others', '--exclude-standard']).split('\n')].filter(Boolean));
+}
 
 const options = optionsFrom(process.argv.slice(2));
 mkdirSync(options.out, { recursive: true });
@@ -76,8 +84,10 @@ else if (held.kind === 'none') {
   console.log(`${BASELINE} does not exist: run once with --seed-baseline, every rule judged, to record today's breaches`);
   process.exitCode = 1;
 } else {
-  for (const breach of held.added) console.log(`new ${breach.rule} at ${breach.at}: ${breach.key} (${breach.why})`);
+  const { introduced, flickered } = introducedBy(held.added, changedSinceBaseline());
+  for (const breach of flickered) console.log(`came back in code unchanged since the baseline, not counted: ${breach.rule} at ${breach.at}: ${breach.key} (${breach.why})`);
+  for (const breach of introduced) console.log(`new ${breach.rule} at ${breach.at}: ${breach.key} (${breach.why})`);
   for (const entry of held.fixed) console.log(`fixed, prune it: ${entry.key} (${entry.was} -> ${entry.now})`);
-  if (held.added.length > 0 || held.fixed.length > 0) process.exitCode = 1;
+  if (introduced.length > 0 || held.fixed.length > 0) process.exitCode = 1;
 }
 console.log(`report: ${join(options.out, 'report.html')}`);

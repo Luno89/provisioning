@@ -80,6 +80,13 @@ export function breaches(judged: readonly Judged[], graph: Graph, rules: readonl
   return found.filter((breach) => rules.includes(breach.rule));
 }
 
+export const fileOf = (at: string): string => at.slice(0, at.lastIndexOf(':'));
+
+export function introducedBy(added: readonly Breach[], changed: ReadonlySet<string>): { introduced: Breach[]; flickered: Breach[] } {
+  const introduced = added.filter((breach) => changed.has(fileOf(breach.at)));
+  return { introduced, flickered: added.filter((breach) => !changed.has(fileOf(breach.at))) };
+}
+
 export function counted(found: readonly Breach[]): Baseline {
   const counts: Baseline = {};
   for (const breach of found) counts[breach.key] = (counts[breach.key] ?? 0) + 1;

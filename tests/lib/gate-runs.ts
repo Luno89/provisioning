@@ -152,10 +152,18 @@ export function runSteps(repo: string, commit: string, steps: GateStep[], env: R
   const passed: StepPassed[] = [];
   const measured = liveProcesses().length > 0;
   const sampled: string[] = [];
+  let recorded = 0;
+  const recordSampled = () => {
+    if (sampled.length === recorded) return;
+    console.log(`the dev stack's coverage: ${convert()} live suites`);
+    recordLive(sampled);
+    recorded = sampled.length;
+  };
   steps.forEach((step, index) => {
     console.log(`\n━━ ${index + 1}/${steps.length} ${step.name} (npm run ${step.script})`);
     const started = Date.now();
     const live = measured && /-live$/.test(step.script);
+    if (!live) recordSampled();
     if (live) liveCoverage(repo, 'discard');
     const result = spawnSync('npm', ['run', step.script, '--silent'], { cwd: repo, stdio: 'inherit', env: { ...process.env, ...env } });
     if (live) {
@@ -169,10 +177,7 @@ export function runSteps(repo: string, commit: string, steps: GateStep[], env: R
     console.log(`━━ ✓ ${step.name} in ${minutes} min`);
     passed.push({ name: step.name, script: step.script, minutes });
   });
-  if (sampled.length > 0) {
-    console.log(`the dev stack's coverage: ${convert()} live suites`);
-    recordLive(sampled);
-  }
+  recordSampled();
   return passed;
 }
 

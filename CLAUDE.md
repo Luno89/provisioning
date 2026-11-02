@@ -2017,6 +2017,8 @@ real. It works like Lighthouse, gather apart from audit:
 - **The baseline only shrinks** (`tests/coupling/baseline.json`, seeded with every rule judged): a breach it does not list fails.
   Ship's last step runs with `--prune`, which lowers the count of every breach that is gone (never raises one), and the smaller
   baseline is committed on top with the live ledger (`LEDGER_FILES`). Run by hand without `--prune`, a gone breach fails too.
+  A new breach fails only in a file changed since the baseline was last committed (`introducedBy`): what the live suites reach
+  depends on timing (a timer that did or did not fire), so a breach that comes back in untouched code is named, not counted.
 - **What the live suites run is measured too** (the `live` artifact): `COUPLING_LIVE=1 npm run dev` starts the dev stack with
   `NODE_V8_COVERAGE` and `tests/coupling/live-hook.mjs` (the backend and each worker record their pid and, when the sampler writes a
   new request id to `tests/.coupling/live/request`, write what ran since the last time with `v8.takeCoverage()`; never a signal,
