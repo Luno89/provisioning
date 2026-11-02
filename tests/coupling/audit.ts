@@ -2,11 +2,11 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { commitOf, gatheredIn, OUT, ROOT, runsOf, sourceOf, usableIn, type Artifact } from './artifacts.js';
 import { buildGraph, isTest } from './graph.js';
-import { judge } from './join.js';
+import { judge, unitLevels } from './join.js';
 import { renderPage } from './render.js';
 import { levelOf, runsIn, summary } from './report.js';
 import { resultOf, type Result } from './result.js';
-import { against, breaches, counted, judging, pruned, RULES, type Baseline } from './rules.js';
+import { against, breaches, counted, judging, layerBreaches, pruned, RULES, type Baseline } from './rules.js';
 import { MATCHES, outsideEnds, projectsOf, workspaceOf } from './workspaces.js';
 
 const BASELINE = join(ROOT, 'tests', 'coupling', 'baseline.json');
@@ -44,7 +44,7 @@ const runs = [...(usable.artifacts.has('in-process') ? runsIn(runsOf(options.out
 const judged = judge(graph, runs, levelOf);
 const joinSeconds = seconds(joinStarted);
 
-const found = breaches(judged, graph, rules.judged);
+const found = [...breaches(judged, graph, rules.judged.filter((rule) => rule !== 'R5')), ...(rules.judged.includes('R5') ? layerBreaches(graph, unitLevels(graph, runs, levelOf)) : [])];
 const write = (baseline: Baseline) => writeFileSync(BASELINE, `${JSON.stringify(baseline, null, 1)}\n`);
 let held: Result['baseline'];
 if (!existsSync(BASELINE) && !options.seed) {

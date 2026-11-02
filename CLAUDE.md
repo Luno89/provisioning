@@ -2008,7 +2008,11 @@ real. It works like Lighthouse, gather apart from audit:
   - **R1**: an edge within a process is run for real only by live suites, or by none;
   - **R2**: an edge between areas or processes is never run together with what calls it (an entry point: by no test);
   - **R3**: an edge between processes is run only by live suites, or by none;
-  - **R4**: a call with no implementation found, or one made through `any`.
+  - **R4**: a call with no implementation found, or one made through `any`;
+  - **R5**: a function in a backend service, route or activity is not run both by a unit test (its dependencies mocked) and by an
+    integration or live test (its real ones); pure logic belongs in `lib/`, which R5 does not hold. It needs the `live` artifact, so
+    it is judged by ship's last step, `npm run test:coupling:live`, after the live suites have run on a dev stack started with
+    `COUPLING_LIVE=1` (ship refuses to start on one that was not).
 - **The baseline only shrinks** (`tests/coupling/baseline.json`, seeded once with every rule judged): a breach it does not list
   fails, and so does one it lists that is gone, until `tsx tests/coupling/audit.ts --prune` lowers it and the change is
   committed with the fix.
@@ -2031,7 +2035,7 @@ instance, without passing its gates first (owner, 2026-10-23: "all those checks 
   uncommitted, that gitleaks finds no secret in what it carries, and that osv-scanner finds no known vulnerability in what Koala
   runs whose fix is due: production packages in `package-lock.json`; a fix published under 14 days ago waits and is listed with the day it
   can be taken, one 14 days old or more fails ship until `npm run deps:update -- <package>` takes it (the newest version two weeks old in
-  the major it is on, an override when no workspace names it), and those with no fix yet are kept in `osv-scanner.toml` with why), then **G1** (typecheck and the unit tier, lint, then the integration tier with the coupling rules) and **G2** (`SHIP_STEPS` in `tests/lib/gates.ts`: routes,
+  the major it is on, an override when no workspace names it), and those with no fix yet are kept in `osv-scanner.toml` with why), then **G1** (typecheck and the unit tier, lint, then the integration tier with the coupling rules) and, after G2, the coupling rules again with what the live suites ran (R5) and **G2** (`SHIP_STEPS` in `tests/lib/gates.ts`: routes,
   sign-in across a root, an instance and a hub of the suite's own, passwords, codes, sign-out and lockout on a root of its own, Connect OpenRouter, a project shared from that instance and
   worked on that hub, account removal, hub, project sharing,
   telemetry, app names, files, the Odoo release and every mechanics check, each through its npm script against the dev stack), failing at the first that fails. Every mechanics check has to pass

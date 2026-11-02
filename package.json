@@ -44,6 +44,7 @@
     "test:integration": "npm run test:integration -w packages/context-engine -w packages/engine-core -w packages/agent-engine -w apps/frontend -w apps/backend -w apps/local-agent -w packages/cdktf-infra",
     "test:integration:coupled": "tsx tests/coupling/gather.ts && tsx tests/coupling/audit.ts --require in-process",
     "test:e2e": "tsx tests/e2e.ts",
+    "test:coupling:live": "tsx tests/coupling/audit.ts --require in-process,live",
     "test:browser": "npm run test:alive && npm run test:test:e2e:setup && npx playwright test tests/e2e.spec.ts && npm run test:test:e2e:teardown",
     "test:infra:integration": "tsx tests/lib/run-live.ts infra-integration",
     "test:remote-integration": "tsx tests/lib/run-live.ts remote-host-integration",

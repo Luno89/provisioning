@@ -124,10 +124,16 @@ export function recordLive(suites: readonly string[]): void {
   record(OUT, { artifact: 'live', source: sourceOf(), commit: commitOf(), at: new Date().toISOString(), workspaces: [...suites], complete: true, timings: {} });
 }
 
-if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
-  const [command, label] = process.argv.slice(2);
+async function main(command: string | undefined, label: string | undefined): Promise<void> {
   if (command === 'discard') await sample(undefined);
   else if (command === 'sample' && label) await sample(label);
   else if (command === 'convert') console.log(`${convert()} live suites converted`);
   else throw new Error('usage: live.ts discard | sample <label> | convert');
+}
+
+if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+  main(process.argv[2], process.argv[3]).catch((err: Error) => {
+    console.error(err.message);
+    process.exit(1);
+  });
 }

@@ -28,6 +28,22 @@ function unitRan(ranges: readonly RanRange[] | undefined, unit: Unit): boolean {
   return nearest.count > 0;
 }
 
+export function unitLevels(graph: Graph, runs: readonly Ran[], levelOf: (testFile: string) => Level): Map<string, Set<Level>> {
+  const byFile = new Map<string, Unit[]>();
+  for (const unit of Object.values(graph.units)) if (!unit.inTest) byFile.set(unit.file, [...(byFile.get(unit.file) ?? []), unit]);
+  const levels = new Map<string, Set<Level>>();
+  for (const run of runs) {
+    const level = levelOf(run.testFile);
+    for (const [file, ranges] of Object.entries(run.files)) {
+      for (const unit of byFile.get(file) ?? []) {
+        if (!unitRan(ranges, unit)) continue;
+        levels.set(unit.id, (levels.get(unit.id) ?? new Set<Level>()).add(level));
+      }
+    }
+  }
+  return levels;
+}
+
 export function judge(graph: Graph, runs: readonly Ran[], levelOf: (testFile: string) => Level): Judged[] {
   const intoUnit = new Map<string, number[]>();
   const bySiteFile = new Map<string, number[]>();

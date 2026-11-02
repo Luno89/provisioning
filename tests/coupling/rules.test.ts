@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Edge, Graph, Unit } from './graph.js';
 import type { Covered, Judged } from './join.js';
-import { against, breaches, counted, judging, pruned } from './rules.js';
+import { against, breaches, counted, judging, layerBreaches, pruned } from './rules.js';
 
 const unit = (id: string, file: string): Unit => ({ id, file, name: id, line: 1, column: 1, start: 0, end: 0, inTest: false });
 const edge = (from: string, to: string[], through: Edge['through'], line: number): Edge => ({ from, to, through, site: { file: `apps/backend/src/x/${from}.ts`, line, column: 1, start: 0, end: 0 } });
@@ -88,8 +88,9 @@ describe('the baseline', () => {
 
 describe('what each rule needs', () => {
   it('judges R4 from the graph alone and skips the rest, naming what is missing', () => {
-    expect(judging(new Set())).toEqual({ judged: ['R4'], skipped: [{ rule: 'R1', missing: ['in-process'] }, { rule: 'R2', missing: ['in-process'] }, { rule: 'R3', missing: ['in-process'] }] });
+    expect(judging(new Set())).toEqual({ judged: ['R4'], skipped: [{ rule: 'R1', missing: ['in-process'] }, { rule: 'R2', missing: ['in-process'] }, { rule: 'R3', missing: ['in-process'] }, { rule: 'R5', missing: ['in-process', 'live'] }] });
     expect(judging(new Set(['in-process'])).judged).toEqual(['R1', 'R2', 'R3', 'R4']);
+    expect(judging(new Set(['in-process', 'live'])).judged).toEqual(['R1', 'R2', 'R3', 'R4', 'R5']);
   });
 
   it('holds only the rules it judged against the baseline, and prunes nothing else', () => {
@@ -99,5 +100,34 @@ describe('what each rule needs', () => {
     expect(onlyR4.every((breach) => breach.rule === 'R4')).toBe(true);
     expect(against(onlyR4, baseline, ['R4'])).toEqual({ added: [], fixed: [] });
     expect(pruned(baseline, onlyR4, ['R4'])).toEqual(baseline);
+  });
+});
+
+describe('R5, the layers a service, route or activity is tested at', () => {
+  const layered: Graph = {
+    units: Object.fromEntries([
+      ['both', 'apps/backend/src/hub/services/Both.ts'],
+      ['mocked', 'apps/backend/src/hub/services/Mocked.ts'],
+      ['real', 'apps/backend/src/hub/routes/real.ts'],
+      ['lived', 'apps/backend/src/activities/Lived.ts'],
+      ['never', 'apps/backend/src/hub/services/Never.ts'],
+      ['pure', 'apps/backend/src/hub/lib/pure.ts'],
+    ].map(([id, file]) => [id!, unit(id!, file!)])),
+    edges: [], unresolved: [], unmatched: [],
+  };
+  const levels = new Map<string, Set<Covered['level']>>([
+    ['both', new Set(['unit', 'component'])],
+    ['mocked', new Set(['unit'])],
+    ['real', new Set(['component'])],
+    ['lived', new Set(['unit', 'live'])],
+    ['pure', new Set(['unit'])],
+  ]);
+
+  it('passes code run by a unit test and by an integration or live one, and holds lib to neither', () => {
+    expect(layerBreaches(layered, levels).map((breach) => [breach.key, breach.why])).toEqual([
+      ['R5 apps/backend/src/hub/services/Mocked.ts#mocked', 'no integration or live test runs it with its real dependencies'],
+      ['R5 apps/backend/src/hub/routes/real.ts#real', 'no unit test runs it with its dependencies mocked'],
+      ['R5 apps/backend/src/hub/services/Never.ts#never', 'no test runs it'],
+    ]);
   });
 });

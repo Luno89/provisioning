@@ -32,7 +32,11 @@ export const E2E_STEPS: GateStep[] = [
   { name: 'the mechanics checks', script: 'test:checks-live' },
 ];
 
-export const SHIP_STEPS: GateStep[] = [...UNIT_STEPS, ...INTEGRATION_STEPS, ...E2E_STEPS];
+export const LAYER_STEPS: GateStep[] = [
+  { name: 'every service, route and activity tested in units and against what is real', script: 'test:coupling:live' },
+];
+
+export const SHIP_STEPS: GateStep[] = [...UNIT_STEPS, ...INTEGRATION_STEPS, ...E2E_STEPS, ...LAYER_STEPS];
 
 export const RELEASE_STEPS: GateStep[] = [
   { name: 'the mail server signs and refuses to relay', script: 'test:mail-live', memoryMB: 512 },

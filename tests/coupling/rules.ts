@@ -2,10 +2,27 @@ import type { Artifact } from './artifacts.js';
 import type { Edge, Graph } from './graph.js';
 import type { Judged, Level } from './join.js';
 
-export type Rule = 'R1' | 'R2' | 'R3' | 'R4';
-export const RULES: readonly Rule[] = ['R1', 'R2', 'R3', 'R4'];
+export type Rule = 'R1' | 'R2' | 'R3' | 'R4' | 'R5';
+export const RULES: readonly Rule[] = ['R1', 'R2', 'R3', 'R4', 'R5'];
 
-export const NEEDS: Record<Rule, readonly Artifact[]> = { R1: ['in-process'], R2: ['in-process'], R3: ['in-process'], R4: [] };
+export const NEEDS: Record<Rule, readonly Artifact[]> = { R1: ['in-process'], R2: ['in-process'], R3: ['in-process'], R4: [], R5: ['in-process', 'live'] };
+
+const LAYERED = /^apps\/backend\/src\/([a-z-]+\/(services|routes)\/|activities\/)/;
+const REAL: ReadonlySet<Level> = new Set(['component', 'contract', 'container', 'live', 'vm']);
+
+export function layerBreaches(graph: Graph, levels: ReadonlyMap<string, ReadonlySet<Level>>): Breach[] {
+  const found: Breach[] = [];
+  for (const unit of Object.values(graph.units)) {
+    if (unit.inTest || unit.name === '(module)' || !LAYERED.test(unit.file)) continue;
+    const ran = levels.get(unit.id) ?? new Set<Level>();
+    const unitTested = ran.has('unit');
+    const real = [...ran].some((level) => REAL.has(level));
+    if (unitTested && real) continue;
+    const why = !unitTested && !real ? 'no test runs it' : !unitTested ? 'no unit test runs it with its dependencies mocked' : 'no integration or live test runs it with its real dependencies';
+    found.push({ rule: 'R5', key: `R5 ${unit.file}#${unit.name}`, at: `${unit.file}:${unit.line}`, why });
+  }
+  return found;
+}
 
 export interface Judging { judged: Rule[]; skipped: Array<{ rule: Rule; missing: Artifact[] }> }
 
