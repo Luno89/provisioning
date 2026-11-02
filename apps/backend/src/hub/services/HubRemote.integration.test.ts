@@ -54,7 +54,7 @@ describe('the owner\'s instance reaching the hub through root', () => {
     const { root, keys, instanceId, credential } = await rootWithAHub(() => hubSite!.url(''));
     const store = memoryHubStore();
     const hub = new HubService({ store, invites: { send: async () => ({ link: 'l', emailed: false }) }, now: () => '2026-10-21T00:00:00Z' });
-    hubSite = await mountRouter({ prefix: '/api/hub-instance', router: async (db) => hubInstanceRouter({ hub, trusted: trustedKeys([publicKeyPem(keys.publicKey)]), claim: (jti, expiresAt) => db.instances.claimHandoff(jti, expiresAt) }) });
+    hubSite = await mountRouter({ db: 'own', prefix: '/api/hub-instance', router: async (db) => hubInstanceRouter({ hub, trusted: trustedKeys([publicKeyPem(keys.publicKey)]), claim: (jti, expiresAt) => db.instances.claimHandoff(jti, expiresAt) }) });
     harnesses.push(hubSite);
     const remote = new RemoteHub(new RootHubAccess({ rootUrl: root.url(''), instanceId, token: async () => credential }));
 

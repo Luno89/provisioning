@@ -26,7 +26,7 @@ vi.mock('http', async (importOriginal) => {
   };
 });
 
-vi.mock('../lib/test-database.js', () => ({ testDatabase: async () => memoryDatabase() }));
+vi.mock('../lib/test-database.js', () => ({ testDatabase: async () => memoryDatabase(), emptiedEachTime: async () => async () => memoryDatabase() }));
 
 interface Answer { status: number; body: unknown }
 

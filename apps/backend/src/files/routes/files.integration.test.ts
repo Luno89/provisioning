@@ -117,7 +117,7 @@ describe('/api/files', () => {
     const page = (await axios.post(harness.url('/api/files/projects/p1/shares'), { path: 'page.html', days: 1 })).data as { id: string; token: string };
     expect(((await axios.get(harness.url('/api/files/shares'))).data as { id: string }[]).map((share) => share.id).sort()).toEqual([made.id, page.id].sort());
 
-    const publicSite = await mountRouter({ prefix: '/api/share', user: { ...TEST_USER, id: 'a-stranger', email: 'stranger@example.com' }, router: async () => shareRouter({ files: shared! }) });
+    const publicSite = await mountRouter({ db: harness.db, prefix: '/api/share', user: { ...TEST_USER, id: 'a-stranger', email: 'stranger@example.com' }, router: async () => shareRouter({ files: shared! }) });
     try {
       const opened = await axios.get(publicSite.url(`/api/share/${made.token}`), { responseType: 'arraybuffer' });
       expect(Buffer.from(opened.data)).toEqual(Buffer.from('%PDF'));

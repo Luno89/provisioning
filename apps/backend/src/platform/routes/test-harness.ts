@@ -1,7 +1,7 @@
 import express, { type Express, type Router, type Request, type Response, type NextFunction } from 'express';
 import http from 'http';
 import axios from 'axios';
-import { testDatabase } from '../lib/test-database.js';
+import { emptiedEachTime, testDatabase } from '../lib/test-database.js';
 import type { Database } from '../lib/db-interface.js';
 import { errorResponder } from '../middleware/async-route.js';
 import { principalOf, type ClaimSettings } from '../lib/permissions.js';
@@ -17,6 +17,7 @@ export interface HarnessOptions {
   user?: HarnessUser | null;
   claims?: ClaimSettings | undefined;
   open?: boolean | undefined;
+  db?: Database | 'own' | undefined;
 }
 
 export interface Harness {
@@ -41,9 +42,11 @@ export async function harnessApp(opts: HarnessOptions, db: Database, user: (req:
   return app;
 }
 
+let fileDatabase: ReturnType<typeof emptiedEachTime> | undefined;
+
 export async function mountRouter(opts: HarnessOptions): Promise<Harness> {
   axios.defaults.proxy = false;
-  const db = await testDatabase();
+  const db = opts.db === 'own' ? await testDatabase() : opts.db ?? await (await (fileDatabase ??= emptiedEachTime()))();
 
   let current: HarnessUser | null = opts.user === undefined ? TEST_USER : opts.user;
   const app = await harnessApp(opts, db, () => current);
@@ -58,7 +61,6 @@ export async function mountRouter(opts: HarnessOptions): Promise<Harness> {
     setUser: (user) => { current = user; },
     close: async () => {
       await new Promise<void>((resolve) => server.close(() => resolve()));
-      await db.close?.();
     },
   };
 }

@@ -25,6 +25,7 @@ export async function rootWithAnInstance(options: { pool?: boolean } = {}): Prom
     ] },
   };
   const harness = await mountRouter({
+    db: 'own',
     prefix: '/api/instances',
     router: (db) => {
       service = new InstanceService(db, settings, {
