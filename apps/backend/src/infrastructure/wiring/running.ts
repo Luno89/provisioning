@@ -1,9 +1,9 @@
 import {
-  type Database, servesTenants, type RoleConfig, ownedQuery, ownerIn, getTemporalClient, type MetricsService,
+  type Database, type RoleConfig, ownedQuery, getTemporalClient, type MetricsService,
 } from '../../platform/index.js';
 import { DEFAULT_BENCH_SETTINGS, type Level2Service, type BenchService } from '../../checks/index.js';
 import type { RunningRecords, RunningWorkflow } from '../lib/running.js';
-import { WorkFailureService, type ClosedWorkflow } from '../services/WorkFailureService.js';
+import { WorkFailureService } from '../services/WorkFailureService.js';
 import { RunningService } from '../services/RunningService.js';
 import { ClusterContentsService } from '../services/ClusterContentsService.js';
 import { InfrastructureViewService, type InfrastructureViewDeps, type RootReach } from '../services/InfrastructureViewService.js';
@@ -35,33 +35,6 @@ export function workFailuresFor(deps: WorkFailuresDeps): WorkFailureService {
     store: db.infrastructure,
     onFailure: (failure) => deps.metrics.failed(failure.kind),
     workflows: {
-      closedSince: async (since) => {
-        if (!temporalBridge.isReady()) return [];
-        const found: ClosedWorkflow[] = [];
-        const query = `(ExecutionStatus = "Failed" OR ExecutionStatus = "TimedOut") AND CloseTime > "${since.toISOString()}"`;
-        for await (const workflow of temporalBridge.client.workflow.list({ query })) {
-          found.push({
-            workflowId: workflow.workflowId,
-            temporalRunId: workflow.runId,
-            type: workflow.type,
-            startedAt: workflow.startTime.toISOString(),
-            closedAt: (workflow.closeTime ?? new Date()).toISOString(),
-            status: workflow.status.name === 'TIMED_OUT' ? 'TIMED_OUT' : 'FAILED',
-            ownerId: ownerIn(workflow.typedSearchAttributes),
-            ...(workflow.parentExecution?.workflowId ? { parent: workflow.parentExecution.workflowId } : {}),
-            ...(workflow.memo ? { memo: workflow.memo } : {}),
-          });
-        }
-        return found;
-      },
-      failureOf: async (workflowId, temporalRunId) => {
-        try {
-          await temporalBridge.client.workflow.getHandle(workflowId, temporalRunId).result();
-          return undefined;
-        } catch (err) {
-          return { message: (err as Error).message, cause: { message: (err as { cause?: Error }).cause?.message } };
-        }
-      },
       describeRun: async (runId) => {
         if (!temporalBridge.isReady()) return undefined;
         const described = await temporalBridge.client.workflow.getHandle(workflowOfRun(runId)).describe();
@@ -99,7 +72,7 @@ export interface RunningWiringDeps {
 }
 
 export function wireRunning(deps: RunningWiringDeps): { running: RunningService } {
-  const { tenant, db, role, temporalBridge, monitoring, workFailures } = deps;
+  const { tenant, db, temporalBridge, monitoring, workFailures } = deps;
   const waitingOf = runWaitingVia(() => getTemporalClient());
   const running = new RunningService({
     workflows: {
@@ -141,6 +114,5 @@ export function wireRunning(deps: RunningWiringDeps): { running: RunningService 
   tenant.use('/api/infrastructure', infrastructureRouter({
     infrastructure: new InfrastructureViewService({ monitoring, contents: clusterContents, running, failures: workFailures, root: deps.root, signals: deps.signals }),
   }));
-  if (servesTenants(role)) workFailures.start();
   return { running };
 }

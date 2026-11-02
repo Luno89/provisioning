@@ -39,7 +39,7 @@ import type {
   ToolAllowedArgs, AutoModeArgs,
   ProcedureRunInput,
 } from './contracts.js';
-import { type HandoverArgs, type LifecycleEvent, type BenchIdleOutcome, type ConcludeWorkspaceArgs, groveRunId, runStamp } from './contracts.js';
+import { type HandoverArgs, type LifecycleEvent, type WorkflowFailedReport, type BenchIdleOutcome, type ConcludeWorkspaceArgs, groveRunId, runStamp } from './contracts.js';
 import { HANDOVER_TOOL, handoverPrompt, type Handover } from '../../engine/lib/run-grants.js';
 import { HANDOVER_TOOLS } from '../tools/handover-tools-catalogue.js';
 import type { ConversationWorkspaces } from '../sandboxes/conversation-workspaces.js';
@@ -75,6 +75,7 @@ export interface StreamServices {
   post?: ((ownerId: string, notice: Readonly<Record<string, unknown>>) => Promise<void>) | undefined;
   asking?: ((ownerId: string, tool: string) => Promise<void>) | undefined;
   groveChanged?: ((ownerId: string) => void) | undefined;
+  workflowFailed?: ((report: WorkflowFailedReport) => Promise<void>) | undefined;
 }
 
 export interface TraceRecorder {
@@ -120,6 +121,7 @@ export interface StreamActivities {
   EngineLifecycleActivity(event: LifecycleEvent): Promise<void>;
   EngineBenchIdleActivity(args: { ownerId: string }): Promise<BenchIdleOutcome>;
   EngineGroveChangedActivity(args: { ownerId: string }): Promise<void>;
+  EngineWorkflowFailedActivity(report: WorkflowFailedReport): Promise<void>;
 }
 
 export const NODE_HEARTBEAT_MS = 1_000;
@@ -442,6 +444,10 @@ export function createStreamActivities(services: StreamServices): StreamActiviti
 
     async EngineBenchIdleActivity({ ownerId }: { ownerId: string }): Promise<BenchIdleOutcome> {
       return (await services.benchIdle?.(ownerId)) ?? 'nothing';
+    },
+
+    async EngineWorkflowFailedActivity(report: WorkflowFailedReport): Promise<void> {
+      await services.workflowFailed?.(report);
     },
 
     async EngineGroveChangedActivity({ ownerId }: { ownerId: string }): Promise<void> {

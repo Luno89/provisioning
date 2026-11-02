@@ -5,11 +5,17 @@ import {
   type WorkFailure,
 } from '../lib/work-failures.js';
 
-export interface ClosedWorkflow extends RunningWorkflow {
+export interface FailedWorkflow {
+  workflowId: string;
   temporalRunId: string;
-  ownerId: string | undefined;
-  closedAt: string;
-  status: 'FAILED' | 'TIMED_OUT';
+  type: string;
+  ownerId?: string | undefined;
+  parent?: string | undefined;
+  startedAt: string;
+  failedAt: string;
+  memo?: Record<string, unknown> | undefined;
+  message?: string | undefined;
+  cause?: string | undefined;
 }
 
 export interface WorkFailureDeps {
@@ -21,8 +27,6 @@ export interface WorkFailureDeps {
     pruneWorkFailures(before: string): Promise<void>;
   };
   workflows: {
-    closedSince(since: Date): Promise<ClosedWorkflow[]>;
-    failureOf(workflowId: string, temporalRunId: string): Promise<{ message?: string | undefined; cause?: { message?: string | undefined } } | undefined>;
     describeRun(runId: string): Promise<RunningWorkflow | undefined>;
   };
   records(ownerId: string): Promise<RunningRecords>;
@@ -40,34 +44,13 @@ export interface RunEnded {
   revoked?: { reason: string; handover?: string | undefined } | undefined;
 }
 
-export const POLL_MS = 30_000;
-
 const NO_RECORDS: RunningRecords = { trees: [], projects: [], conversations: [], checkRuns: [], releases: [], agentName: () => undefined };
-export const TEMPORAL_KEEPS_MS = 24 * 3_600_000;
-export const VISIBILITY_LAG_MS = 5 * 60_000;
 
 export class WorkFailureService {
   private readonly now: () => Date;
-  private watermark: Date;
-  private timer: NodeJS.Timeout | undefined;
-  private polling = false;
 
   constructor(private readonly deps: WorkFailureDeps) {
     this.now = deps.now ?? (() => new Date());
-    this.watermark = new Date(this.now().getTime() - TEMPORAL_KEEPS_MS);
-  }
-
-  start(): void {
-    if (this.timer) return;
-    const tick = () => { void this.poll().catch((err: Error) => this.deps.log?.(`[failures] ${err.message}`)); };
-    tick();
-    this.timer = setInterval(tick, POLL_MS);
-    this.timer.unref?.();
-  }
-
-  stop(): void {
-    if (this.timer) clearInterval(this.timer);
-    this.timer = undefined;
   }
 
   private recordsOf(ownerId: string): Promise<RunningRecords> {
@@ -78,6 +61,7 @@ export class WorkFailureService {
     const known = (await this.deps.store.getWorkFailures(failure.ownerId)).some((entry) => entry.id === failure.id);
     if (known) return;
     await this.deps.store.addWorkFailure(failure);
+    await this.deps.store.pruneWorkFailures(new Date(this.now().getTime() - KEPT_FOR_MS).toISOString());
     this.deps.onFailure?.(failure);
   }
 
@@ -97,33 +81,21 @@ export class WorkFailureService {
     return failure;
   }
 
-  async poll(): Promise<number> {
-    if (this.polling) return 0;
-    this.polling = true;
-    try {
-      const since = this.watermark;
-      const closed = await this.deps.workflows.closedSince(since);
-      let added = 0;
-      for (const workflow of closed) {
-        if (workflow.parent || FAILURE_SHOWN_ON_RECORD.includes(workflow.type)) continue;
-        if (!workflow.ownerId || !(await this.deps.isPerson(workflow.ownerId))) continue;
-        const id = workflowFailureId(workflow.workflowId, workflow.temporalRunId);
-        if ((await this.deps.store.getWorkFailures(workflow.ownerId)).some((entry) => entry.id === id)) continue;
-        const cause = await this.deps.workflows.failureOf(workflow.workflowId, workflow.temporalRunId).catch(ignore('without its failure the reason is told from how the workflow closed'));
-        await this.record(describeFailure(workflow, await this.recordsOf(workflow.ownerId), {
-          id,
-          ownerId: workflow.ownerId,
-          reason: temporalFailureReason(cause, workflow.status),
-          failedAt: workflow.closedAt,
-        }));
-        added += 1;
-      }
-      this.watermark = new Date(this.now().getTime() - VISIBILITY_LAG_MS);
-      await this.deps.store.pruneWorkFailures(new Date(this.now().getTime() - KEPT_FOR_MS).toISOString());
-      return added;
-    } finally {
-      this.polling = false;
-    }
+  async workflowFailed(failed: FailedWorkflow): Promise<WorkFailure | undefined> {
+    if (failed.parent || FAILURE_SHOWN_ON_RECORD.includes(failed.type)) return undefined;
+    if (!failed.ownerId || !(await this.deps.isPerson(failed.ownerId))) return undefined;
+    const failure = describeFailure(
+      { workflowId: failed.workflowId, type: failed.type, startedAt: failed.startedAt, ...(failed.memo ? { memo: failed.memo } : {}) },
+      await this.recordsOf(failed.ownerId),
+      {
+        id: workflowFailureId(failed.workflowId, failed.temporalRunId),
+        ownerId: failed.ownerId,
+        reason: temporalFailureReason({ message: failed.message, cause: failed.cause ? { message: failed.cause } : undefined }, 'FAILED'),
+        failedAt: failed.failedAt,
+      },
+    );
+    await this.record(failure);
+    return failure;
   }
 
   async shown(ownerId: string): Promise<WorkFailure[]> {

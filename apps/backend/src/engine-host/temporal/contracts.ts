@@ -212,6 +212,21 @@ export {
 export const DEFAULT_STREAM_TASK_QUEUE = 'engine-stream-queue';
 export const GROVE_CHANGED_PATCH = 'grove-changed';
 
+export const FAILURES_REPORTED_PATCH = 'failures-reported';
+
+export interface WorkflowFailedReport {
+  workflowId: string;
+  temporalRunId: string;
+  type: string;
+  ownerId?: string | undefined;
+  parent?: string | undefined;
+  startedAt: string;
+  failedAt: string;
+  memo?: Record<string, unknown> | undefined;
+  message?: string | undefined;
+  cause?: string | undefined;
+}
+
 export type TerminalOutcome = RunOutcome;
 
 export interface ProcedureRunInput {

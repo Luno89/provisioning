@@ -1,17 +1,15 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { memoryDatabase } from '../../platform/testing/memory-database.js';
-import { POLL_MS, WorkFailureService, type ClosedWorkflow, type WorkFailureDeps } from './WorkFailureService.js';
+import { WorkFailureService, type FailedWorkflow } from './WorkFailureService.js';
 
 const NOW = new Date('2026-10-17T12:00:00Z');
 
-async function setUp(closed: ClosedWorkflow[] = []) {
+async function setUp() {
   const db = memoryDatabase();
   let now = NOW;
   const service = new WorkFailureService({
     store: db.infrastructure,
     workflows: {
-      closedSince: async (since) => closed.filter((workflow) => workflow.closedAt > since.toISOString()),
-      failureOf: async (workflowId) => ({ message: 'Workflow execution failed', cause: { message: `${workflowId} could not reach its cluster` } }),
       describeRun: async (runId) => ({ workflowId: runId.split('~')[0]!, type: 'AgentRunWorkflow', startedAt: NOW.toISOString(), memo: { runId } }),
     },
     records: async () => ({ trees: [{ id: 't1', name: 'Shop' }], projects: [{ id: 'p1', name: 'Books' }], conversations: [{ id: 'c1', title: 'Labels' }], checkRuns: [], releases: [], agentName: (slug) => (slug === 'koala' ? 'Koala' : undefined) }),
@@ -21,9 +19,9 @@ async function setUp(closed: ClosedWorkflow[] = []) {
   return { db, service, later: (ms: number) => { now = new Date(now.getTime() + ms); } };
 }
 
-const closedWorkflow = (over: Partial<ClosedWorkflow>): ClosedWorkflow => ({
+const failedWorkflow = (over: Partial<FailedWorkflow>): FailedWorkflow => ({
   workflowId: 'remove-project-p1', temporalRunId: 'r1', type: 'RemoveProjectWorkflow', startedAt: '2026-10-17T11:00:00Z',
-  closedAt: '2026-10-17T11:30:00Z', status: 'FAILED', ownerId: 'u1', ...over,
+  failedAt: '2026-10-17T11:30:00Z', ownerId: 'u1', message: 'Activity task failed', cause: 'remove-project-p1 could not reach its cluster', ...over,
 });
 
 describe('work that failed', () => {
@@ -44,18 +42,24 @@ describe('work that failed', () => {
     expect(await service.shown('space-1')).toEqual([]);
   });
 
-  it('finds workflows Temporal closed as failed, once each, with the cause, but not deploys or platform work', async () => {
-    const { service } = await setUp([
-      closedWorkflow({}),
-      closedWorkflow({ workflowId: 'deploy-1', type: 'executeDeployAppWorkflow' }),
-      closedWorkflow({ workflowId: 'sweep', type: 'SweepWorkflow', ownerId: 'platform' }),
-      closedWorkflow({ workflowId: 'child', parent: 'remove-project-p1' }),
-    ]);
-    expect(await service.poll()).toBe(1);
-    expect(await service.poll()).toBe(0);
+  it('records a workflow that reports it failed, once, with its cause, but not deploys, provisioning, children or platform work', async () => {
+    const { service } = await setUp();
+    for (const failed of [
+      failedWorkflow({}),
+      failedWorkflow({}),
+      failedWorkflow({ workflowId: 'deploy-1', type: 'executeDeployAppWorkflow' }),
+      failedWorkflow({ workflowId: 'provision-1', type: 'ClusterProvisionWorkflow' }),
+      failedWorkflow({ workflowId: 'sweep', type: 'SweepWorkflow', ownerId: 'platform' }),
+      failedWorkflow({ workflowId: 'child', parent: 'remove-project-p1' }),
+    ]) await service.workflowFailed(failed);
     expect(await service.shown('u1')).toEqual([expect.objectContaining({
       id: 'workflow:remove-project-p1:r1', kind: 'removal', title: 'Deleting the project Books', reason: 'remove-project-p1 could not reach its cluster', failedAt: '2026-10-17T11:30:00Z',
     })]);
+  });
+
+  it('says how it failed from its own message when it reports no cause', async () => {
+    const { service } = await setUp();
+    expect(await service.workflowFailed(failedWorkflow({ cause: undefined }))).toMatchObject({ reason: 'Activity task failed' });
   });
 
   it('clears one or all, keeps a cleared one cleared, and shows only the last 7 days', async () => {
@@ -72,80 +76,31 @@ describe('work that failed', () => {
     expect(await service.clear('u1', 'all')).toBe(1);
   });
 
-  it('forgets failures after 30 days', async () => {
+  it('forgets failures after 30 days, when it next records one', async () => {
     const { service, db, later } = await setUp();
     await service.runEnded({ ownerId: 'u1', runId: 'run-a', outcome: 'failed', depth: 0 });
     later(31 * 86_400_000);
-    await service.poll();
-    expect(await db.infrastructure.getWorkFailures('u1')).toEqual([]);
+    await service.runEnded({ ownerId: 'u1', runId: 'run-b', outcome: 'failed', depth: 0 });
+    expect((await db.infrastructure.getWorkFailures('u1')).map((failure) => failure.id)).toEqual(['run:run-b']);
   });
 });
 
-describe('watching for failed work', () => {
-  afterEach(() => { vi.useRealTimers(); });
-
-  const watching = async (closed: ClosedWorkflow[]) => {
+describe('telling about failed work', () => {
+  it('tells whoever listens about each failure it records, once, and describes it without the records when they cannot be read', async () => {
     const { db } = await setUp();
-    const log: string[] = [];
     const failed: string[] = [];
-    const closedSince = vi.fn<WorkFailureDeps['workflows']['closedSince']>(async () => closed);
     const service = new WorkFailureService({
       store: db.infrastructure,
-      workflows: {
-        closedSince,
-        failureOf: async () => undefined,
-        describeRun: async () => undefined,
-      },
+      workflows: { describeRun: async () => undefined },
       records: async () => { throw new Error('records are down'); },
       isPerson: async (ownerId) => ownerId === 'u1',
       now: () => NOW,
-      log: (message) => log.push(message),
       onFailure: (failure) => failed.push(failure.id),
     });
-    return { db, service, log, failed, closedSince };
-  };
-
-  it('polls at once when started and then every half minute, until stopped, and starts only once', async () => {
-    vi.useFakeTimers();
-    const { service, closedSince } = await watching([]);
-    service.start();
-    service.start();
-    await vi.advanceTimersByTimeAsync(0);
-    expect(closedSince).toHaveBeenCalledTimes(1);
-    await vi.advanceTimersByTimeAsync(POLL_MS);
-    expect(closedSince).toHaveBeenCalledTimes(2);
-    service.stop();
-    await vi.advanceTimersByTimeAsync(POLL_MS * 3);
-    expect(closedSince).toHaveBeenCalledTimes(2);
-  });
-
-  it('logs a poll that fails instead of stopping', async () => {
-    vi.useFakeTimers();
-    const { service, log, closedSince } = await watching([]);
-    closedSince.mockRejectedValueOnce(new Error('temporal is away'));
-    service.start();
-    await vi.advanceTimersByTimeAsync(0);
-    expect(log).toEqual(['[failures] temporal is away']);
-    service.stop();
-  });
-
-  it('tells whoever listens about each failure it records, once, and describes it without the records when they cannot be read', async () => {
-    const { service, failed } = await watching([closedWorkflow({})]);
-    await service.poll();
-    await service.poll();
+    await service.workflowFailed(failedWorkflow({}));
+    await service.workflowFailed(failedWorkflow({}));
     expect(failed).toEqual(['workflow:remove-project-p1:r1']);
     expect(await service.shown('u1')).toHaveLength(1);
-  });
-
-  it('does not poll twice at once', async () => {
-    const { service, closedSince } = await watching([]);
-    let release: () => void = () => undefined;
-    closedSince.mockImplementationOnce(() => new Promise((resolve) => { release = () => resolve([]); }));
-    const first = service.poll();
-    expect(await service.poll()).toBe(0);
-    release();
-    await first;
-    expect(closedSince).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -154,7 +109,7 @@ describe('a service with no clock of its own', () => {
     const { db } = await setUp();
     const service = new WorkFailureService({
       store: db.infrastructure,
-      workflows: { closedSince: async () => [], failureOf: async () => undefined, describeRun: async () => undefined },
+      workflows: { describeRun: async () => undefined },
       records: async () => ({ trees: [], projects: [], conversations: [], checkRuns: [], releases: [], agentName: () => undefined }),
       isPerson: async () => true,
     });

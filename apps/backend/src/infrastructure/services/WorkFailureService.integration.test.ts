@@ -1,17 +1,22 @@
-import { describe, expect, it } from 'vitest';
+import { resolve } from 'node:path';
+import { Worker } from '@temporalio/worker';
+import type { TestWorkflowEnvironment } from '@temporalio/testing';
+import { WORKER_DEFAULTS } from '@koala/engine-core';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { testDatabase } from '../../platform/lib/test-database.js';
-import { WorkFailureService, type ClosedWorkflow } from './WorkFailureService.js';
+import { startedFor } from '../../platform/lib/workflow-owner.js';
+import { DEFAULT_STREAM_TASK_QUEUE, type WorkflowFailedReport } from '../../engine-host/temporal/contracts.js';
+import { temporalTestEnvironment } from '../../workflows/temporal-test-env.js';
+import { WorkFailureService } from './WorkFailureService.js';
 
 const NOW = new Date('2026-10-17T12:00:00Z');
 
-async function setUp(closed: ClosedWorkflow[] = []) {
+async function setUp() {
   const db = await testDatabase();
   let now = NOW;
   const service = new WorkFailureService({
     store: db.infrastructure,
     workflows: {
-      closedSince: async (since) => closed.filter((workflow) => workflow.closedAt > since.toISOString()),
-      failureOf: async (workflowId) => ({ message: 'Workflow execution failed', cause: { message: `${workflowId} could not reach its cluster` } }),
       describeRun: async (runId) => ({ workflowId: runId.split('~')[0]!, type: 'AgentRunWorkflow', startedAt: NOW.toISOString(), memo: { runId } }),
     },
     records: async () => ({ trees: [{ id: 't1', name: 'Shop' }], projects: [{ id: 'p1', name: 'Books' }], conversations: [{ id: 'c1', title: 'Labels' }], checkRuns: [], releases: [], agentName: (slug) => (slug === 'koala' ? 'Koala' : undefined) }),
@@ -20,11 +25,6 @@ async function setUp(closed: ClosedWorkflow[] = []) {
   });
   return { db, service, later: (ms: number) => { now = new Date(now.getTime() + ms); } };
 }
-
-const closedWorkflow = (over: Partial<ClosedWorkflow>): ClosedWorkflow => ({
-  workflowId: 'remove-project-p1', temporalRunId: 'r1', type: 'RemoveProjectWorkflow', startedAt: '2026-10-17T11:00:00Z',
-  closedAt: '2026-10-17T11:30:00Z', status: 'FAILED', ownerId: 'u1', ...over,
-});
 
 describe('work that failed', () => {
   it('records a top-level run that ended failed, described the way Running describes it', async () => {
@@ -44,20 +44,6 @@ describe('work that failed', () => {
     expect(await service.shown('space-1')).toEqual([]);
   });
 
-  it('finds workflows Temporal closed as failed, once each, with the cause, but not deploys or platform work', async () => {
-    const { service } = await setUp([
-      closedWorkflow({}),
-      closedWorkflow({ workflowId: 'deploy-1', type: 'executeDeployAppWorkflow' }),
-      closedWorkflow({ workflowId: 'sweep', type: 'SweepWorkflow', ownerId: 'platform' }),
-      closedWorkflow({ workflowId: 'child', parent: 'remove-project-p1' }),
-    ]);
-    expect(await service.poll()).toBe(1);
-    expect(await service.poll()).toBe(0);
-    expect(await service.shown('u1')).toEqual([expect.objectContaining({
-      id: 'workflow:remove-project-p1:r1', kind: 'removal', title: 'Deleting the project Books', reason: 'remove-project-p1 could not reach its cluster', failedAt: '2026-10-17T11:30:00Z',
-    })]);
-  });
-
   it('clears one or all, keeps a cleared one cleared, and shows only the last 7 days', async () => {
     const { service, db, later } = await setUp();
     await service.runEnded({ ownerId: 'u1', runId: 'run-a', outcome: 'failed', depth: 0 });
@@ -72,43 +58,47 @@ describe('work that failed', () => {
     expect(await service.clear('u1', 'all')).toBe(1);
   });
 
-  it('forgets failures after 30 days', async () => {
+  it('forgets failures after 30 days, when it next records one', async () => {
     const { service, db, later } = await setUp();
     await service.runEnded({ ownerId: 'u1', runId: 'run-a', outcome: 'failed', depth: 0 });
     later(31 * 86_400_000);
-    await service.poll();
-    expect(await db.infrastructure.getWorkFailures('u1')).toEqual([]);
+    await service.runEnded({ ownerId: 'u1', runId: 'run-b', outcome: 'failed', depth: 0 });
+    expect((await db.infrastructure.getWorkFailures('u1')).map((failure) => failure.id)).toEqual(['run:run-b']);
   });
 });
 
-describe('watching for failed work', () => {
-  const until = async (done: () => Promise<boolean> | boolean): Promise<void> => {
-    while (!(await done())) await new Promise((resolve) => setTimeout(resolve, 10));
-  };
+describe('a workflow that fails tells the backend itself', () => {
+  let env: TestWorkflowEnvironment;
+  beforeAll(async () => { env = await temporalTestEnvironment(); }, 120_000);
+  afterAll(async () => { await env?.teardown(); });
 
-  it('polls at once when started, records what it finds, and can be started again once stopped', async () => {
-    const db = await testDatabase();
-    let polls = 0;
-    const service = new WorkFailureService({
-      store: db.infrastructure,
-      workflows: {
-        closedSince: async () => { polls += 1; return polls === 1 ? [closedWorkflow({})] : []; },
-        failureOf: async () => ({ message: 'Workflow execution failed' }),
-        describeRun: async () => undefined,
-      },
-      records: async () => ({ trees: [], projects: [{ id: 'p1', name: 'Books' }], conversations: [], checkRuns: [], releases: [], agentName: () => undefined }),
-      isPerson: async (ownerId) => ownerId === 'u1',
-      now: () => NOW,
+  it('is recorded before it closes, with its reason, while one that is cancelled is not', async () => {
+    const { service } = await setUp();
+    const namespace = env.namespace ?? 'default';
+    const taskQueue = `failures-${Math.random().toString(36).slice(2, 8)}`;
+    const reports: WorkflowFailedReport[] = [];
+    const workflows = await Worker.create({
+      ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace, taskQueue,
+      workflowsPath: resolve(__dirname, 'failure.fixture-workflow.ts'),
+      interceptors: { workflowModules: [resolve(__dirname, '../../workflows/failure-reports.ts')] },
     });
-    service.start();
-    service.start();
-    await until(async () => (await db.infrastructure.getWorkFailures('u1')).length === 1);
-    expect(polls).toBe(1);
-    service.stop();
-    service.stop();
-    service.start();
-    await until(() => polls === 2);
-    service.stop();
-    expect(await service.shown('u1')).toHaveLength(1);
-  });
+    const stream = await Worker.create({
+      ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace, taskQueue: DEFAULT_STREAM_TASK_QUEUE,
+      activities: { EngineWorkflowFailedActivity: async (report: WorkflowFailedReport) => { reports.push(report); await service.workflowFailed(report); } },
+    });
+
+    await stream.runUntil(workflows.runUntil(async () => {
+      const failing = await env.client.workflow.start('RemoveProjectWorkflow', { taskQueue, workflowId: `remove-project-p1-${taskQueue}`, ...startedFor('u1') });
+      await expect(failing.result()).rejects.toThrow();
+      expect(await service.shown('u1')).toEqual([expect.objectContaining({
+        id: `workflow:remove-project-p1-${taskQueue}:${failing.firstExecutionRunId}`, kind: 'removal', reason: 'the project\'s cluster could not be reached',
+      })]);
+
+      const cancelled = await env.client.workflow.start('waitsToBeCancelled', { taskQueue, workflowId: `cancelled-${taskQueue}`, ...startedFor('u1') });
+      await cancelled.cancel();
+      await expect(cancelled.result()).rejects.toThrow();
+    }));
+
+    expect(reports.map((report) => report.type)).toEqual(['RemoveProjectWorkflow']);
+  }, 60_000);
 });

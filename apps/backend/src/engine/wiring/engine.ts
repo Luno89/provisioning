@@ -641,7 +641,7 @@ export interface EngineStreamDeps {
   models: ModelService;
   notices: Pick<ConversationNoticeService, 'post' | 'postTo'>;
   postNotice: (what: string, posting: Promise<unknown>) => void;
-  workFailures: Pick<WorkFailureService, 'runEnded'>;
+  workFailures: Pick<WorkFailureService, 'runEnded' | 'workflowFailed'>;
 }
 
 export function startEngineStream(deps: EngineStreamDeps): void {
@@ -703,6 +703,7 @@ export function startEngineStream(deps: EngineStreamDeps): void {
           reportMemory(event.kind)(await memoryKeeper.handle(event));
           await bench.service?.activity(event);
         },
+        workflowFailed: async (report) => { await deps.workFailures.workflowFailed(report); },
         benchIdle: async (ownerId) => (bench.service ? bench.service.idle(ownerId) : 'nothing'),
         post: async (ownerId, posted) => {
           const notice = postedNotice(posted);

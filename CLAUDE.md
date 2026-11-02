@@ -1136,8 +1136,9 @@ GPUs and Helm releases. Whoever owns the cluster sees all of it; anyone else see
 in as admin) and `/api/clusters/:id/gpu-status`: anyone but the owner gets the 404 an unknown cluster gets, and Open in Grafana shows only to the owner.
 
 **Failed work** (`WorkFailureService`, `workFailures`): a top-level run that ends `failed` (from `run-ended`, never a
-check's space), and any workflow Temporal closes as Failed or TimedOut (polled every 30 s; deploys and provisioning are
-left out since their failure shows on the app or cluster), described the way Running describes it, shown 7 days, kept
+check's space), and any workflow that fails, which reports itself as it fails (`workflows/failure-reports.ts`, a workflow interceptor
+registered where tenants are served, behind the `failures-reported` patch; deploys and provisioning are left out since their
+failure shows on the app or cluster), described the way Running describes it, shown 7 days, kept
 30. `GET /api/infrastructure` puts the overview together (`InfrastructureViewService`); `POST /api/infrastructure/failures/clear`.
 
 Each app and cluster also keeps its **Health** tab in AppDashboard: charts over an hour, a day, a week or a month
