@@ -2017,8 +2017,9 @@ real. It works like Lighthouse, gather apart from audit:
   fails, and so does one it lists that is gone, until `tsx tests/coupling/audit.ts --prune` lowers it and the change is
   committed with the fix.
 - **What the live suites run is measured too** (the `live` artifact): `COUPLING_LIVE=1 npm run dev` starts the dev stack with
-  `NODE_V8_COVERAGE` and `tests/coupling/live-hook.mjs` (each Node process records its pid, and on `SIGUSR2` writes what ran since
-  the last time with `v8.takeCoverage()`). `runSteps` then samples the stack around every `*-live` step (`tests/coupling/live.ts`:
+  `NODE_V8_COVERAGE` and `tests/coupling/live-hook.mjs` (the backend and each worker record their pid and, when the sampler writes a
+  new request id to `tests/.coupling/live/request`, write what ran since the last time with `v8.takeCoverage()`; never a signal,
+  since Temporal's workers take `SIGUSR2` as an order to shut down). `runSteps` then samples the stack around every `*-live` step (`tests/coupling/live.ts`:
   `discard` before, `sample tests/<suite>.ts` after, `convert` mapping each file back to TypeScript through the source maps the
   coverage carries) and records it, so the audit counts those edges at the `live` level. A dev stack started without it changes
   nothing.

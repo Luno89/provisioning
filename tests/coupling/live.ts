@@ -31,19 +31,20 @@ export function liveProcesses(dir = LIVE): number[] {
 }
 
 const coverageFiles = (dir: string): string[] => (existsSync(raw(dir)) ? readdirSync(raw(dir)).filter((name) => name.startsWith('coverage-') && name.endsWith('.json')) : []);
-const takenAt = (dir: string, pid: number): number => {
+const answeredWith = (dir: string, pid: number): string => {
   const file = join(pids(dir), `${pid}.taken`);
-  return existsSync(file) ? Number(readFileSync(file, 'utf8')) : 0;
+  return existsSync(file) ? readFileSync(file, 'utf8') : '';
 };
 
 export const labelFile = (label: string): string => label.replace(/[^A-Za-z0-9.-]+/g, '_');
 
 export async function sample(label: string | undefined, dir = LIVE): Promise<void> {
   const before = new Set(coverageFiles(dir));
-  const asked = liveProcesses(dir).map((pid) => ({ pid, was: takenAt(dir, pid) }));
-  for (const { pid } of asked) process.kill(pid, 'SIGUSR2');
+  const asked = liveProcesses(dir);
+  const id = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  writeFileSync(join(dir, 'request'), id);
   for (;;) {
-    const waiting = asked.filter(({ pid, was }) => alive(pid) && takenAt(dir, pid) === was);
+    const waiting = asked.filter((pid) => alive(pid) && answeredWith(dir, pid) !== id);
     if (waiting.length === 0) break;
     await new Promise((done) => setTimeout(done, 100));
   }
