@@ -44,7 +44,7 @@ npm run test:workflows # actionlint, then the Release workflow run here under ac
 npm run test         # the three tiers in order, each only once the one below passes: test:unit → test:integration → test:e2e (Test tiers, below)
 npm run test:all     # test → test:synth:palworld → test:infra:integration → test:remote-integration
 npm run test:unit    # typecheck + every workspace's unit tier: *.test.ts, nothing outside the process, ~1.5 min
-npm run test:integration # every workspace's integration tier: *.integration.test.ts, real Mongo, Temporal's test server, sockets, git and sh on this machine, ~3 min
+npm run test:integration # every workspace's integration tier: *.integration.test.ts, real Mongo, a Temporal dev server, sockets, git and sh on this machine, ~5.5 min
 npm run test:integration:coupled # both tiers again, gathering what each test file runs (Coupling coverage, below); ship's third step
 npm run test:coupling:live # the coupling rules R1-R5 over both tiers and the live suites, against their baseline; ship's last step
 npm run test:e2e     # the e2e tier: the live suites ship runs (E2E_STEPS in tests/lib/gates.ts) against the running dev stack, with MECHANICS_ADMIN set
@@ -2184,7 +2184,10 @@ dependency mocked, again in the integration tier with the real ones, and its flo
 - `npm run test:alive` (`scripts/alive.sh`) checks the dev stack before anything live: Docker, the management cluster, the K8s API,
   Temporal, workers. Cluster existence is decided by whether the K8s API answers on context `k3d-<name>`, **not** by
   `k3d cluster list`, which returns nothing on a native-k3s host.
-- Workflows run on Temporal's test server with their activities (integration), and `src/worker-activities.test.ts` reads every
+- Workflows run with their activities (integration) on one real Temporal dev server the tier shares (`vitest.temporal-setup.ts`,
+  a namespace claimed per file, `temporalTestEnvironment`); the time-skipping test server only where a durable timer must be skipped
+  (`timeSkippingTestEnvironment`), since it once lost a workflow task a real server would have handed out again
+  (`tests/audits/…grove-run…md`). And `src/worker-activities.test.ts` reads every
   workflow's activity types and every worker's map from the compiler (unit).
 - `npm run test:remote-integration` (`tests/remote-host-integration.ts`) boots a disposable QEMU/KVM VM and provisions it as a
   `provider: 'remote'` cluster over real SSH, ~10-15 min, in the release gate.

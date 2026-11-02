@@ -56,6 +56,7 @@ export interface ToolCallArgs {
   environment?: EnvironmentHandleRef | undefined;
   granted?: string[] | undefined;
   hearsStops?: boolean | undefined;
+  stoppedBecause?: string | undefined;
 }
 
 export interface EnvironmentHandleRef {
@@ -266,6 +267,7 @@ export interface RemoteNodeRequest {
   execution: number;
   run: Pick<RunContext, 'identity' | 'launch' | 'inputs' | 'counters' | 'budget' | 'cleaningUp' | 'ending' | 'handles'>;
   hearsStops?: boolean | undefined;
+  stoppedBecause?: string | undefined;
 }
 
 export interface CarriedNotice {

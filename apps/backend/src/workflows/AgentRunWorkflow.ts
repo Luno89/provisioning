@@ -302,7 +302,7 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
       };
 
       const hearsStops = patched(TOOL_CALLS_HEAR_STOPS);
-      const sent: ToolCallArgs = hearsStops ? { ...args, hearsStops: true } : args;
+      const sent: ToolCallArgs = hearsStops ? { ...args, hearsStops: true, ...(signal.aborted ? { stoppedBecause: signal.reason as string } : {}) } : args;
       if (environment?.kind === 'machine') {
         const onDevice = proxyActivities<Pick<EngineRemote, 'EngineToolActivity'>>({
           cancellationType: hearsStops ? TRY_CANCEL : ABANDON,
@@ -669,7 +669,7 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
       const call = async (request: NodeRequest): Promise<RemoteNodeResult> => {
         const retryable = (definitionFor(catalogue, request.node) ?? definition).idempotent;
         const hears = patched(NODES_HEAR_STOPS);
-        const sent = hears ? { ...toRemote(request), hearsStops: true } : toRemote(request);
+        const sent = hears ? { ...toRemote(request), hearsStops: true, ...(signal.aborted ? { stoppedBecause: signal.reason as string } : {}) } : toRemote(request);
         if (definition.runs === 'stream') {
           return cancellable(() => (hears ? (retryable ? heardStream : heardStreamOnce) : (retryable ? stream : streamOnce)).EngineStreamNodeActivity(sent));
         }

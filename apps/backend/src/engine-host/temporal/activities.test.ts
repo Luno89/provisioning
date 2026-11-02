@@ -131,6 +131,34 @@ describe('the remaining engine activities', () => {
     }
   });
 
+  it('hands a call started after its run was stopped the stop at once, and still answers with what it returned', async () => {
+    const { services: svc } = services();
+    let seen: AbortSignal | undefined;
+    svc.tools.run = vi.fn(async (_args, _attempt, signal?: AbortSignal) => {
+      seen = signal;
+      return { ok: true, digest: 'cleaned up' };
+    }) as never;
+    const outcome = await createEngineActivities(svc).EngineToolActivity({ ticket: ticket(), nodeId: 'work', name: 'run_command', arguments: '{}', hearsStops: true, stoppedBecause: 'the run was cancelled' });
+    expect(outcome).toEqual({ ok: true, digest: 'cleaned up' });
+    expect(seen?.aborted).toBe(true);
+    expect(seen?.reason).toBe('the run was cancelled');
+  });
+
+  it('never asks a run that hears its stops through cancellation whether it was stopped', async () => {
+    const { services: svc } = services();
+    svc.runCancelled = vi.fn(async () => true);
+    svc.tools.run = vi.fn(async () => ({ ok: true, digest: 'done' })) as never;
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+    try {
+      const running = createEngineActivities(svc).EngineToolActivity({ ticket: ticket(), nodeId: 'work', name: 'read_file', arguments: '{}', hearsStops: true });
+      vi.advanceTimersByTime(CANCEL_POLL_MS * 3);
+      expect(await running).toEqual({ ok: true, digest: 'done' });
+      expect(svc.runCancelled).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('delegates a custom merge strategy to its runtime', async () => {
     const { services: svc } = services();
     const activities = createEngineActivities(svc);

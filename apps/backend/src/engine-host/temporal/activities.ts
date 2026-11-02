@@ -152,6 +152,7 @@ export function createNodeRunner(
     const context = currentActivity();
     const stop = new AbortController();
     context?.cancellationSignal.addEventListener('abort', () => stop.abort('the run was cancelled'));
+    if (request.stoppedBecause) stop.abort(request.stoppedBecause);
     const runId = request.run.identity.runId;
     const watching = options.runCancelled && !request.hearsStops
       ? setInterval(() => {
@@ -261,6 +262,7 @@ export function createEngineActivities(services: EngineServices): EngineActiviti
       const context = currentActivity();
       const stop = new AbortController();
       context?.cancellationSignal.addEventListener('abort', () => stop.abort('the run was stopped'));
+      if (args.stoppedBecause) stop.abort(args.stoppedBecause);
       const watching = services.runCancelled && !args.hearsStops
         ? setInterval(() => {
           void services.runCancelled!(args.ticket.runId).then((cancelled) => { if (cancelled) stop.abort('the run was stopped'); });
