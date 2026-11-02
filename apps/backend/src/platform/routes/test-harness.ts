@@ -1,4 +1,4 @@
-import express, { type Router, type Request, type Response, type NextFunction } from 'express';
+import express, { type Express, type Router, type Request, type Response, type NextFunction } from 'express';
 import http from 'http';
 import axios from 'axios';
 import { testDatabase } from '../lib/test-database.js';
@@ -25,25 +25,27 @@ export interface Harness {
   close: () => Promise<void>;
 }
 
-export async function mountRouter(opts: HarnessOptions): Promise<Harness> {
-  axios.defaults.proxy = false;
-  const db = await testDatabase();
-
-  let current: HarnessUser | null = opts.user === undefined ? TEST_USER : opts.user;
-
+export async function harnessApp(opts: HarnessOptions, db: Database, user: () => HarnessUser | null): Promise<Express> {
   const app = express();
   app.use(express.json({ limit: '20mb' }));
-
   app.use((req: Request, res: Response, next: NextFunction) => {
+    const current = user();
     if (!current) return res.status(401).json({ error: 'Session missing' });
     (req as unknown as { user: HarnessUser }).user = current;
     (req as unknown as { principal: ReturnType<typeof principalOf> }).principal = principalOf(current, opts.claims ?? { role: 'combined' });
     next();
   });
-
   app.use(opts.prefix, await opts.router(db));
-
   app.use(errorResponder);
+  return app;
+}
+
+export async function mountRouter(opts: HarnessOptions): Promise<Harness> {
+  axios.defaults.proxy = false;
+  const db = await testDatabase();
+
+  let current: HarnessUser | null = opts.user === undefined ? TEST_USER : opts.user;
+  const app = await harnessApp(opts, db, () => current);
 
   const server = http.createServer(app);
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));

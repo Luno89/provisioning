@@ -70,6 +70,7 @@
     "@types/oidc-provider": "9.12.1",
     "@types/uuid": "^10.0.0",
     "@types/web-push": "3.6.4",
+    "light-my-request": "6.8.0",
     "mailauth": "8.0.4",
     "mongodb-memory-server": "^11.3.0",
     "msw": "3.0.3",
