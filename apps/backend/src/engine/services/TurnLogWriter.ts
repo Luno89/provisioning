@@ -44,12 +44,16 @@ export class TurnLogWriter {
   }
 
   async drain(): Promise<void> {
-    for (const turn of this.pending.values()) {
-      if (turn.timer) clearTimeout(turn.timer);
-      turn.timer = undefined;
+    for (;;) {
+      for (const turn of this.pending.values()) {
+        if (turn.timer) clearTimeout(turn.timer);
+        turn.timer = undefined;
+      }
+      await Promise.all([...this.pending.keys()].map((turnId) => this.flush(turnId)));
+      await Promise.all(this.writing.values());
+      if (![...this.pending.values()].some((turn) => turn.events.length > 0)) return;
+      await new Promise((retry) => setTimeout(retry, this.flushMs * 4));
     }
-    await Promise.all([...this.pending.keys()].map((turnId) => this.flush(turnId)));
-    await Promise.all(this.writing.values());
   }
 
   private flush(turnId: string): Promise<void> {

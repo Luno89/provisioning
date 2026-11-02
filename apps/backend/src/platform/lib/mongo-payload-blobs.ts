@@ -1,7 +1,8 @@
 import { Binary, MongoClient, type Collection, type Filter } from 'mongodb';
 import { mongoTarget } from './mongo-db.js';
 import type { PayloadBlobs, StoredBlob } from './payload-storage.js';
-import { CLIENT_OPTIONS } from './collection.js';
+import { clientOptionsFor } from './collection.js';
+import { ensureReplicaSet } from './replica-set.js';
 
 const CHUNK_BYTES = 8 * 1024 * 1024;
 
@@ -20,8 +21,9 @@ export function mongoPayloadBlobs(env: Readonly<Record<string, string | undefine
   const chunks = (): Promise<Collection<ChunkDoc>> => {
     ready ??= (async () => {
       const { uri, dbName } = mongoTarget(env);
-      const client = new MongoClient(uri, CLIENT_OPTIONS);
+      const client = new MongoClient(uri, clientOptionsFor(uri));
       await client.connect();
+      await ensureReplicaSet(client);
       const collection = client.db(dbName).collection<ChunkDoc>('temporal_payload_chunks');
       await collection.createIndex({ blobId: 1, index: 1 });
       await collection.createIndex({ workflowId: 1, storedAt: 1 });

@@ -46,6 +46,12 @@ async function world(over: { builtIn?: Scenario[]; onFinished?: (run: Level2Run)
   const fake = fakeRunner();
   let ids = 0;
   let ticks = 0;
+  const finishing = new Map<string, (run: Level2Run) => void>();
+  const finishings = new Map<string, Promise<Level2Run>>();
+  const finishingOf = (id: string): Promise<Level2Run> => {
+    if (!finishings.has(id)) finishings.set(id, new Promise((done) => finishing.set(id, done)));
+    return finishings.get(id)!;
+  };
   const service = new Level2Service({
     checks: over.runner ?? fake.runner,
     tools: async () => [...BUILDER_TOOLS, ...ENGINE_TOOL_SEEDS],
@@ -55,20 +61,15 @@ async function world(over: { builtIn?: Scenario[]; onFinished?: (run: Level2Run)
     builtIn: over.builtIn ?? [SCENARIO],
     newId: () => `run-${(ids += 1)}`,
     now: () => new Date(Date.parse('2026-10-03T12:00:00Z') + (ticks += 1) * 1000).toISOString(),
-    ...(over.onFinished ? { onFinished: over.onFinished } : {}),
+    onFinished: async (run) => {
+      await over.onFinished?.(run);
+      void finishingOf(run.id);
+      finishing.get(run.id)!(run);
+    },
     fingerprints: async (_ownerId, agents) => Object.fromEntries(agents.map((agent) => [agent, `${agent}-v1`])),
   });
-  return { service, db, fake };
+  return { service, db, fake, settled: finishingOf };
 }
-
-const settled = async (service: Level2Service, id: string): Promise<Level2Run> => {
-  for (let tries = 0; tries < 400; tries += 1) {
-    const run = await service.get('user-1', id);
-    if (run && run.state !== 'running') return run;
-    await new Promise((done) => setTimeout(done, 5));
-  }
-  throw new Error('the run never settled');
-};
 
 describe('Level 2 scenarios run as checks', () => {
   it('hands the chosen scenarios to the check runner, with the model, temperature, trial and only the tools a provocation or a turn needs', async () => {
@@ -102,15 +103,15 @@ describe('Level 2 scenarios run as checks', () => {
 
   it('settles the run with what the checks found, names a regression against the last full run, and reports it', async () => {
     const finished: Level2Run[] = [];
-    const { service, fake } = await world({ onFinished: async (run) => { finished.push(run); } });
+    const { service, fake, settled } = await world({ onFinished: async (run) => { finished.push(run); } });
 
     const first = await service.start({ ownerId: 'user-1' }) as Level2Run;
     fake.finish(`check-run-${first.id}`, { cancelled: false, results: [result('builder-saves', true)] });
-    expect(await settled(service, first.id)).toMatchObject({ state: 'done', finished: 1, regressions: [] });
+    expect(await settled(first.id)).toMatchObject({ state: 'done', finished: 1, regressions: [] });
 
     const second = await service.start({ ownerId: 'user-1', trigger: { kind: 'full' } }) as Level2Run;
     fake.finish(`check-run-${second.id}`, { cancelled: false, results: [result('builder-saves', false)] });
-    const done = await settled(service, second.id);
+    const done = await settled(second.id);
     expect(done).toMatchObject({ state: 'done', regressions: ['builder-saves'], trigger: { kind: 'full' } });
     expect(finished.map((run) => run.id)).toEqual([first.id, second.id]);
     expect((await service.list('user-1')).map((run) => run.id).sort()).toEqual([first.id, second.id]);
@@ -118,13 +119,13 @@ describe('Level 2 scenarios run as checks', () => {
   });
 
   it('cancels through the runner, and settles as cancelled', async () => {
-    const { service, fake } = await world();
+    const { service, fake, settled } = await world();
     const run = await service.start({ ownerId: 'user-1' }) as Level2Run;
 
     expect(await service.cancel('user-1', run.id)).toBe(true);
     expect(fake.cancelled).toEqual([`check-run-${run.id}`]);
     fake.finish(`check-run-${run.id}`, { cancelled: true, results: [] });
-    expect(await settled(service, run.id)).toMatchObject({ state: 'cancelled' });
+    expect(await settled(run.id)).toMatchObject({ state: 'cancelled' });
     expect(await service.cancel('user-1', run.id)).toBe(false);
   });
 
@@ -133,27 +134,27 @@ describe('Level 2 scenarios run as checks', () => {
     const refused = await (await world({ runner: failing })).service.start({ ownerId: 'user-1' }) as Level2Run;
     expect(refused).toMatchObject({ state: 'failed', error: 'the checks could not start: Temporal is not reachable' });
 
-    const { service, fake } = await world();
+    const { service, fake, settled } = await world();
     const run = await service.start({ ownerId: 'user-1' }) as Level2Run;
     fake.finish(`check-run-${run.id}`, { failed: 'a step could not finish' });
-    expect(await settled(service, run.id)).toMatchObject({ state: 'failed', error: 'a step could not finish' });
+    expect(await settled(run.id)).toMatchObject({ state: 'failed', error: 'a step could not finish' });
   });
 
   it('follows runs still going after the server restarts, rather than marking them interrupted', async () => {
-    const { service, db, fake } = await world();
+    const { service, db, fake, settled } = await world();
     await db.checks.saveEvalRecord('evalScenarioRuns', { id: 'old', ownerId: 'user-1', state: 'running', startedAt: '2026-10-03T00:00:00Z', scenarios: ['builder-saves'], finished: 0, results: [] });
 
     expect(await service.recover()).toBe(1);
     fake.finish('check-run-old', { cancelled: false, results: [result('builder-saves', true)] });
-    expect(await settled(service, 'old')).toMatchObject({ state: 'done', finished: 1 });
+    expect(await settled('old')).toMatchObject({ state: 'done', finished: 1 });
   });
 
   it('marks a run whose checks can no longer be found as interrupted', async () => {
-    const { service, db, fake } = await world();
+    const { service, db, fake, settled } = await world();
     await db.checks.saveEvalRecord('evalScenarioRuns', { id: 'lost', ownerId: 'user-1', state: 'running', startedAt: '2026-10-03T00:00:00Z', scenarios: ['builder-saves'], finished: 0, results: [] });
     await service.recover();
     fake.finish('check-run-lost', { missing: true });
-    expect(await settled(service, 'lost')).toMatchObject({ state: 'interrupted' });
+    expect(await settled('lost')).toMatchObject({ state: 'interrupted' });
   });
 });
 

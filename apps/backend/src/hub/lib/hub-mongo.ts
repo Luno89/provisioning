@@ -3,7 +3,8 @@ import { projectDatabase, type HubInvite, type HubMember, type SharedProject } f
 import type { HubStore, SharedProjectStore } from './hub-store.js';
 import type { HubChange, SyncedDoc } from './hub-sync.js';
 import type { HubRequest, HubStatus } from './hub-board.js';
-import { CLIENT_OPTIONS } from '../../platform/lib/collection.js';
+import { clientOptionsFor } from '../../platform/lib/collection.js';
+import { ensureReplicaSet } from '../../platform/lib/replica-set.js';
 
 const without = <T>(doc: Record<string, unknown> | null, key: string, as: string): T | undefined => {
   if (!doc) return undefined;
@@ -12,7 +13,7 @@ const without = <T>(doc: Record<string, unknown> | null, key: string, as: string
 };
 
 export function mongoHubStore(uri: string, registry: string): HubStore {
-  const client = new MongoClient(uri, CLIENT_OPTIONS);
+  const client = new MongoClient(uri, clientOptionsFor(uri));
   let db: Db | undefined;
   const reg = () => {
     if (!db) throw new Error('the hub store is not open');
@@ -77,6 +78,7 @@ export function mongoHubStore(uri: string, registry: string): HubStore {
   return {
     async init() {
       await client.connect();
+      await ensureReplicaSet(client);
       db = client.db(registry);
       await db.collection('shared_memberships').createIndex({ personId: 1, projectId: 1 }, { unique: true });
     },

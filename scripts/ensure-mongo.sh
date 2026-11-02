@@ -27,7 +27,11 @@ check_mongo() {
   return 1
 }
 
-if check_mongo; then
+mongo_container="$(docker ps -aq --filter label=com.docker.compose.project=provisioning --filter label=com.docker.compose.service=mongodb | head -n1)"
+if check_mongo && [ -n "$mongo_container" ] && ! docker inspect -f '{{json .Config.Entrypoint}}' "$mongo_container" | grep -q -- '--replSet'; then
+  echo "  ▶  MongoDB runs on its own; starting it again as a replica set (its data stays)"
+  $DOCKER_COMPOSE -f "$COMPOSE_FILE" up -d --wait
+elif check_mongo; then
   echo "  ▶  MongoDB already running on port ${MONGO_PORT} — skipping startup"
 else
   echo "  ▶  Starting MongoDB..."

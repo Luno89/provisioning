@@ -5,6 +5,14 @@ services:
   mongodb:
     image: mongo:7
     restart: unless-stopped
+    entrypoint:
+      - sh
+      - -c
+      - |
+        umask 077
+        printf '%s' "$$MONGO_INITDB_ROOT_PASSWORD" | sha256sum | cut -c1-64 > /tmp/mongo-keyfile
+        chown mongodb:mongodb /tmp/mongo-keyfile
+        exec docker-entrypoint.sh mongod --replSet rs0 --keyFile /tmp/mongo-keyfile --bind_ip_all
     ports:
       - "${PLATFORM_BIND:-127.0.0.1}:27017:27017"
     environment:

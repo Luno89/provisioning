@@ -12,10 +12,12 @@ const fresh = await emptiedEachTime();
 let db: MongoDB;
 let heard: TurnLogEntry[];
 let failNext: number;
+let failed: () => void;
+let firstFailure: Promise<void>;
 
 const store = () => ({
   appendTurnLog: async (entry: TurnLogEntry) => {
-    if (failNext > 0) { failNext -= 1; throw new Error('mongo is away'); }
+    if (failNext > 0) { failNext -= 1; failed(); throw new Error('mongo is away'); }
     await db.engine.appendTurnLog(entry);
   },
   lastTurnLogSeq: (turnId: string) => db.engine.lastTurnLogSeq(turnId),
@@ -29,6 +31,7 @@ beforeEach(async () => {
   db = await fresh();
   heard = [];
   failNext = 0;
+  firstFailure = new Promise((done) => { failed = done; });
 });
 
 describe('writing a turn\'s log to the database', () => {
@@ -68,7 +71,7 @@ describe('writing a turn\'s log to the database', () => {
     failNext = 1;
     const w = writer();
     w.accept(ev({ type: 'content', nodeId: 'turn', delta: 'a' }));
-    await settle(60);
+    await firstFailure;
     expect(heard).toEqual([]);
     expect(await stored('t1')).toEqual([]);
 
@@ -78,6 +81,17 @@ describe('writing a turn\'s log to the database', () => {
     const entries = await stored('t1');
     expect(entries.map((entry) => [entry.seq, (entry.events[0] as { delta: string }).delta])).toEqual([[1, 'ab']]);
     expect(heard).toEqual(entries);
+  });
+
+  it('does not stop draining at a write that fails, but writes everything it was given before it returns', async () => {
+    failNext = 1;
+    const w = writer();
+    w.accept(ev({ type: 'content', nodeId: 'turn', delta: 'only' }));
+
+    await w.drain();
+
+    expect((await stored('t1')).map((entry) => [entry.seq, (entry.events[0] as { delta: string }).delta])).toEqual([[1, 'only']]);
+    expect(heard).toHaveLength(1);
   });
 
   it('ignores an event that names no turn or no owner', async () => {

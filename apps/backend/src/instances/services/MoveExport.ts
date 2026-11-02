@@ -6,6 +6,7 @@ import zlib from 'zlib';
 import { spawn as spawnProcess, type ChildProcess } from 'child_process';
 import { PassThrough, type Readable } from 'stream';
 import { MongoClient } from 'mongodb';
+import { clientOptionsFor } from '../../platform/index.js';
 import { exportLines } from '../lib/mongo-move.js';
 import { moveTokenOnce, type UsedTokenClaim } from '../lib/identity-token.js';
 import { GITEA_DATA, MOVED_POSTGRES, PG_DUMP, keysEnv, type MovePart } from '../lib/instance-move.js';
@@ -182,7 +183,7 @@ export class MoveExport {
     const gzip = zlib.createGzip();
     gzip.pipe(out);
     const done = (async () => {
-      const client = new MongoClient(this.deps.mongo.uri);
+      const client = new MongoClient(this.deps.mongo.uri, clientOptionsFor(this.deps.mongo.uri));
       await client.connect();
       try {
         for await (const line of exportLines(client.db(this.deps.mongo.dbName))) {

@@ -121,7 +121,8 @@ describe('the instance chart', () => {
 
   it('runs its own Mongo and Temporal, and points the app at them', () => {
     const docs = render();
-    find(docs, 'StatefulSet', 'luno-mongo');
+    const mongo = podOf(find(docs, 'StatefulSet', 'luno-mongo')).containers[0]!;
+    expect(mongo.args?.join('\n')).toMatch(/exec docker-entrypoint\.sh mongod --replSet rs0 --keyFile \/tmp\/mongo-keyfile --bind_ip_all/);
     find(docs, 'StatefulSet', 'luno-temporal-db');
     find(docs, 'Deployment', 'luno-temporal');
     const env = podOf(find(docs, 'Deployment', 'luno-backend')).containers[0]!.env;

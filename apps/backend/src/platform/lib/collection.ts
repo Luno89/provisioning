@@ -1,8 +1,22 @@
-import type { Collection as DriverCollection, Db, Document, Filter, IndexDescription, Sort } from 'mongodb';
+import type { Collection as DriverCollection, Db, Document, Filter, IndexDescription, MongoClientOptions, Sort } from 'mongodb';
 
 export type Identified = { id: string };
 
 export const CLIENT_OPTIONS = { ignoreUndefined: true } as const;
+
+export function connectsDirectly(uri: string): boolean {
+  if (!uri.startsWith('mongodb://')) return false;
+  const rest = uri.slice('mongodb://'.length);
+  const query = rest.includes('?') ? rest.slice(rest.indexOf('?') + 1) : '';
+  const params = new URLSearchParams(query);
+  if (['replicaSet', 'directConnection', 'loadBalanced'].some((name) => params.has(name))) return false;
+  const authority = rest.split(/[/?]/, 1)[0] ?? '';
+  return !authority.slice(authority.lastIndexOf('@') + 1).includes(',');
+}
+
+export function clientOptionsFor(uri: string): MongoClientOptions {
+  return connectsDirectly(uri) ? { ...CLIENT_OPTIONS, directConnection: true } : { ...CLIENT_OPTIONS };
+}
 
 export function fromDoc<T extends Identified>(doc: Document | null | undefined): T {
   if (!doc) return null as unknown as T;

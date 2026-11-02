@@ -374,6 +374,10 @@ ensure_platform_keys
 update_temporal || die "Temporal did not come back with this release's settings. Check: docker compose -f docker-compose.temporal.yml logs"
 ok "Temporal answers only what this release's processes sign"
 
+step "Updating Mongo"
+docker compose -f docker-compose.mongo.yml up -d --wait || die "Mongo did not come back with this release's settings. Check: docker compose -f docker-compose.mongo.yml logs"
+ok "Mongo runs as a replica set, so Koala can follow its records as they change"
+
 step "Restarting ${SERVICE}"
 systemctl restart "$SERVICE"
 

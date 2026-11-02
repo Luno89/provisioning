@@ -2,6 +2,7 @@ export { CLI_CEILING } from './lib/activity-liveness.js';
 export { arrivedOverHttps, cookieNamed, DEVICE_COOKIE, deviceOf, deviceToken, DEVICE_SECONDS, e2eProblem, generateOTP, hashPassword, passwordMatches, SESSION_COOKIE, SESSION_SECONDS, sessionEnded, sessionToken, signedSession, signJWT, signsEveryoneIn, verifyJWT, verifyPassword } from './lib/auth.js';
 export type { SignedSession, TokenPurpose } from './lib/auth.js';
 export { trustProxyFor } from './lib/client-address.js';
+export { clientOptionsFor } from './lib/collection.js';
 export type { AreaStore } from './lib/collection.js';
 export { CommandFailedError } from './lib/command-error.js';
 export { decryptValue, encryptValue, keyId, maskSecret, ringOf } from './lib/crypto.js';

@@ -2184,10 +2184,7 @@ dependency mocked, again in the integration tier with the real ones, and its flo
 - `npm run test:alive` (`scripts/alive.sh`) checks the dev stack before anything live: Docker, the management cluster, the K8s API,
   Temporal, workers. Cluster existence is decided by whether the K8s API answers on context `k3d-<name>`, **not** by
   `k3d cluster list`, which returns nothing on a native-k3s host.
-- Workflows run with their activities (integration) on one real Temporal dev server the tier shares (`vitest.temporal-setup.ts`,
-  a namespace claimed per file, `temporalTestEnvironment`); the time-skipping test server only where a durable timer must be skipped
-  (`timeSkippingTestEnvironment`), since it once lost a workflow task a real server would have handed out again
-  (`tests/audits/…grove-run…md`). And `src/worker-activities.test.ts` reads every
+- Workflows run with their activities (integration) on a real Temporal dev server; the time-skipping one only where a durable timer must be skipped. And `src/worker-activities.test.ts` reads every
   workflow's activity types and every worker's map from the compiler (unit).
 - `npm run test:remote-integration` (`tests/remote-host-integration.ts`) boots a disposable QEMU/KVM VM and provisions it as a
   `provider: 'remote'` cluster over real SSH, ~10-15 min, in the release gate.
@@ -2247,6 +2244,8 @@ own, and the startup migration `share-tokens-sealed` moved the links stored unde
 - Deleting a project deletes its files (`RemoveProjectFilesActivity`, behind the `project-files` patch; listed in the popup).
 
 ## Data
+
+**Mongo must be a replica set** (one node is enough; change streams need it): the backend refuses a standalone one, and `bash scripts/ensure-mongo.sh` converts a dev box's, keeping its data.
 
 **A field left undefined is not stored** (`CLIENT_OPTIONS` in `platform/lib/collection.ts`, `ignoreUndefined`, on every client; before 2026-11-02 the driver stored it as `null`, so an invite saved with `usedBy: undefined` could never be spent), and a partial write goes through `fieldChanges`, which unsets a field patched to `undefined`. Default persistence is MongoDB (`apps/backend/src/platform/lib/mongo-db.ts` connects and composes one store per area, `src/<area>/store.ts`, split on 2026-10-22), managed via `docker-compose.mongo.yml` / `scripts/ensure-mongo.sh`. Unit tests run on a real Mongo in memory (`testDatabase()` in `platform/lib/test-database.ts`; the in-memory fake `MemoryDB` was deleted on 2026-10-22, so the suite proves the database and not a copy of it). A deployment's passwords, keys and tokens (`DEPLOYMENT_SECRET_FIELDS` in `infrastructure/lib/deployment-secrets.ts`) are
 sealed with `DATA_KEY` at the store boundary (`MongoInfrastructureStore` seals on save and unseals on read, so every reader sees plain

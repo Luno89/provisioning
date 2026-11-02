@@ -13,7 +13,7 @@ import { ensureClusterMonitoring } from '../activities/cluster-monitoring.js';
 import { SYSTEM_CLUSTER } from '../monitoring/index.js';
 import { InfrastructureService } from '../infrastructure/index.js';
 import { GiteaService } from '../projects/index.js';
-import { loadKeys, mongoTarget } from '../platform/index.js';
+import { clientOptionsFor, loadKeys, mongoTarget } from '../platform/index.js';
 import { ignore } from '@koala/engine-core/failures';
 import { waitingOn } from '../activities/failure-reasons.js';
 import type { ReadableStream as WebReadableStream } from 'stream/web';
@@ -81,7 +81,7 @@ async function untilTrue(what: string, probe: () => Promise<boolean>): Promise<v
 
 async function restoreMongo(): Promise<void> {
   const target = mongoTarget(process.env);
-  const client = new MongoClient(target.uri);
+  const client = new MongoClient(target.uri, clientOptionsFor(target.uri));
   for (;;) {
     const unreachable = await client.connect().then(() => undefined, (err: Error) => err.message);
     if (unreachable === undefined) break;
