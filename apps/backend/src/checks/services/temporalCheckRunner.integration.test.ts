@@ -1,3 +1,4 @@
+import { WORKER_DEFAULTS } from '@koala/engine-core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Worker } from '@temporalio/worker';
 import { Context } from '@temporalio/activity';
@@ -48,7 +49,7 @@ async function working(runScenario: CheckRunActivities['CheckRunScenarioActivity
     RemoveAccountRecordsActivity: async () => ({}),
   };
   const worker = await Worker.create({
-    connection: env.nativeConnection,
+    ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: env.namespace ?? 'default',
     taskQueue,
     workflowsPath: resolve(here, '../../workflows/index.ts'),
     activities: { ...check, ...removal, CheckProgressActivity: async (_args: CheckProgressArgs) => undefined },

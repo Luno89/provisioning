@@ -106,6 +106,10 @@ const engineNodes = proxyActivities<EngineRemote>({ retry: ACTIVITY_RETRY, ...LI
 const engineNodesOnce = proxyActivities<EngineRemote>({ retry: { maximumAttempts: 1 }, ...LIVE_ACTIVITY, cancellationType: ABANDON });
 const stream = proxyActivities<StreamRemote>({ taskQueue: DEFAULT_STREAM_TASK_QUEUE, retry: ACTIVITY_RETRY, ...LIVE_ACTIVITY, cancellationType: ABANDON });
 const streamOnce = proxyActivities<StreamRemote>({ taskQueue: DEFAULT_STREAM_TASK_QUEUE, retry: { maximumAttempts: 1 }, ...LIVE_ACTIVITY, cancellationType: ABANDON });
+const heardNodes = proxyActivities<EngineRemote>({ retry: ACTIVITY_RETRY, ...LIVE_ACTIVITY, cancellationType: TRY_CANCEL });
+const heardNodesOnce = proxyActivities<EngineRemote>({ retry: { maximumAttempts: 1 }, ...LIVE_ACTIVITY, cancellationType: TRY_CANCEL });
+const heardStream = proxyActivities<StreamRemote>({ taskQueue: DEFAULT_STREAM_TASK_QUEUE, retry: ACTIVITY_RETRY, ...LIVE_ACTIVITY, cancellationType: TRY_CANCEL });
+const heardStreamOnce = proxyActivities<StreamRemote>({ taskQueue: DEFAULT_STREAM_TASK_QUEUE, retry: { maximumAttempts: 1 }, ...LIVE_ACTIVITY, cancellationType: TRY_CANCEL });
 
 const { EngineRecordTracesActivity, EngineRunLimitsActivity, EngineRecordEffortActivity, EngineSettleClaimsActivity, EngineToolAllowedActivity, EngineAutoModeActivity } = proxyActivities<{
   EngineToolAllowedActivity(args: ToolAllowedArgs): Promise<boolean>;
@@ -132,6 +136,7 @@ const CONCLUSIONS = 'conclusion-events';
 const CONVERSATION_APPROVALS = 'conversation-approvals';
 const HAND_OFFS_TOGETHER = 'hand-offs-together';
 const TOOL_CALLS_HEAR_STOPS = 'tool-calls-hear-stops';
+const NODES_HEAR_STOPS = 'nodes-hear-stops';
 const SANDBOX_CALLS_UNASKED = 'sandbox-calls-unasked';
 const AUTO_MODE = 'auto-mode';
 const ANSWERS_TAKEN_ONCE = 'answers-taken-once';
@@ -297,6 +302,7 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
       };
 
       const hearsStops = patched(TOOL_CALLS_HEAR_STOPS);
+      const sent: ToolCallArgs = hearsStops ? { ...args, hearsStops: true } : args;
       if (environment?.kind === 'machine') {
         const onDevice = proxyActivities<Pick<EngineRemote, 'EngineToolActivity'>>({
           cancellationType: hearsStops ? TRY_CANCEL : ABANDON,
@@ -304,12 +310,12 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
           retry: ACTIVITY_RETRY,
           ...LIVE_ACTIVITY,
         });
-        const outcome = placedOnly(await cancellable(() => onDevice.EngineToolActivity(args)));
+        const outcome = placedOnly(await cancellable(() => onDevice.EngineToolActivity(sent)));
         keep(outcome.artifacts);
         return outcome;
       }
 
-      const outcome = await cancellable(() => (hearsStops ? toolCalls : engine).EngineToolActivity(args));
+      const outcome = await cancellable(() => (hearsStops ? toolCalls : engine).EngineToolActivity(sent));
       keep(outcome.artifacts);
       return outcome;
     },
@@ -662,10 +668,12 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
     .map((definition) => {
       const call = async (request: NodeRequest): Promise<RemoteNodeResult> => {
         const retryable = (definitionFor(catalogue, request.node) ?? definition).idempotent;
+        const hears = patched(NODES_HEAR_STOPS);
+        const sent = hears ? { ...toRemote(request), hearsStops: true } : toRemote(request);
         if (definition.runs === 'stream') {
-          return cancellable(() => (retryable ? stream : streamOnce).EngineStreamNodeActivity(toRemote(request)));
+          return cancellable(() => (hears ? (retryable ? heardStream : heardStreamOnce) : (retryable ? stream : streamOnce)).EngineStreamNodeActivity(sent));
         }
-        const { notices, ...result } = await cancellable(() => (retryable ? engineNodes : engineNodesOnce).EngineNodeActivity(toRemote(request)));
+        const { notices, ...result } = await cancellable(() => (hears ? (retryable ? heardNodes : heardNodesOnce) : (retryable ? engineNodes : engineNodesOnce)).EngineNodeActivity(sent));
         for (const notice of notices ?? []) {
           bus.emit({ type: 'notice', runId: ticket.runId, at: new Date(Date.now()).toISOString(), level: notice.level, message: notice.message, nodeId: notice.nodeId ?? request.node.id, ...(notice.post ? { post: notice.post } : {}) } as EngineEvent);
         }

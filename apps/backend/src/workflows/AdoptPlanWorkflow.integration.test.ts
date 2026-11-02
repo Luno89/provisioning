@@ -1,3 +1,4 @@
+import { WORKER_DEFAULTS } from '@koala/engine-core';
 import { DEFAULT_STREAM_TASK_QUEUE } from '../engine-host/temporal/contracts.js';
 import { ApplicationFailure } from '@temporalio/common';
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
@@ -214,7 +215,7 @@ function world(start: PlanProposal[], options: { saved?: string[]; homes?: boole
 async function adopt(w: ReturnType<typeof world>, proposalId = 'p1', growing?: () => never): Promise<AdoptPlanResult> {
   const taskQueue = `adopt-test-${Math.random().toString(36).slice(2, 8)}`;
   const worker = await Worker.create({
-    connection: env.nativeConnection,
+    ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: env.namespace ?? 'default',
     taskQueue,
     workflowsPath: resolve(__dirname),
     activities: {
@@ -230,7 +231,7 @@ async function adopt(w: ReturnType<typeof world>, proposalId = 'p1', growing?: (
     },
   });
   const streamWorker = await Worker.create({
-    connection: env.nativeConnection,
+    ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: env.namespace ?? 'default',
     taskQueue: DEFAULT_STREAM_TASK_QUEUE,
     activities: { EngineGroveChangedActivity: async ({ ownerId }: { ownerId: string }) => { w.told.push(ownerId); } },
   });

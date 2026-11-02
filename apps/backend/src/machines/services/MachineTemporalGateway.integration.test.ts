@@ -1,3 +1,4 @@
+import { WORKER_DEFAULTS } from '@koala/engine-core';
 import http2 from 'node:http2';
 import { resolve } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -85,24 +86,26 @@ const refusedWith = async (attempt: Promise<unknown>, said: RegExp) => {
 describe('a machine reaching Temporal through the gateway', () => {
   it('takes its own work, heartbeats and answers it, as if it spoke to Temporal itself', async () => {
     const machine = await Worker.create({
-      connection: await asMachine('token-d1'),
+      ...WORKER_DEFAULTS, connection: await asMachine('token-d1'),
+      namespace: env.namespace ?? 'default',
       taskQueue: 'device-d1',
       activities: { Echo: async (text: string) => { Context.current().heartbeat(); return `machine says ${text}`; } },
     });
-    const workflows = await Worker.create({ connection: env.nativeConnection, taskQueue: 'gateway-test', workflowsPath: resolve(__dirname, 'MachineTemporalGateway.fixture-workflow.ts') });
+    const workflows = await Worker.create({ ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: env.namespace ?? 'default', taskQueue: 'gateway-test', workflowsPath: resolve(__dirname, 'MachineTemporalGateway.fixture-workflow.ts') });
     const answer = await workflows.runUntil(machine.runUntil(env.client.workflow.execute(askMachine, { taskQueue: 'gateway-test', workflowId: `ask-${Date.now()}`, args: ['d1', 'hello'] })));
     expect(answer).toBe('machine says hello');
   }, 120_000);
 
   it('lets a machine read the large payloads of the tasks it was handed, and no other machine', async () => {
     const machine = await Worker.create({
-      connection: await asMachine('token-d1'),
+      ...WORKER_DEFAULTS, connection: await asMachine('token-d1'),
+      namespace: env.namespace ?? 'default',
       taskQueue: 'device-d1',
       dataConverter: buildDataConverter(PAYLOAD_KEY, asDevice('d1')),
       activities: { Echo: async (text: string) => `machine says ${text}` },
     });
     const converter = buildDataConverter(PAYLOAD_KEY, blobs);
-    const workflows = await Worker.create({ connection: env.nativeConnection, taskQueue: 'gateway-big', dataConverter: converter, workflowsPath: resolve(__dirname, 'MachineTemporalGateway.fixture-workflow.ts') });
+    const workflows = await Worker.create({ ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: env.namespace ?? 'default', taskQueue: 'gateway-big', dataConverter: converter, workflowsPath: resolve(__dirname, 'MachineTemporalGateway.fixture-workflow.ts') });
     const client = new Client({ connection: env.connection, namespace: env.namespace ?? 'default', dataConverter: converter });
     const pasted = 'a'.repeat(100) + Buffer.alloc(200_000).map(() => Math.floor(Math.random() * 26) + 97).toString();
     const before = new Set((await stored()).map((blob) => blob.id));
@@ -122,7 +125,7 @@ describe('a machine reaching Temporal through the gateway', () => {
   });
 
   it('never lets a machine take another machine\'s work', async () => {
-    const thief = await Worker.create({ connection: await asMachine('token-d2'), taskQueue: 'device-d1', activities: { Echo: async () => 'stolen' } });
+    const thief = await Worker.create({ ...WORKER_DEFAULTS, connection: await asMachine('token-d2'), namespace: env.namespace ?? 'default', taskQueue: 'device-d1', activities: { Echo: async () => 'stolen' } });
     await thief.runUntil(new Promise((done) => setTimeout(done, 3_000)));
     expect(refusals.some((line) => line.includes('refused PollActivityTaskQueue from d2: a machine takes work only from its own queue, device-d2'))).toBe(true);
   }, 60_000);

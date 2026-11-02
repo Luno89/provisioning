@@ -1,3 +1,4 @@
+import { WORKER_DEFAULTS } from '@koala/engine-core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Client } from '@temporalio/client';
 import { Worker } from '@temporalio/worker';
@@ -40,7 +41,7 @@ const probeWorker = (taskQueue: string, seen: Map<string, string | undefined>): 
     Probe: async (label) => { seen.set(label, currentTraceId()); },
   };
   return Worker.create({
-    connection: env.nativeConnection,
+    ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: env.namespace ?? 'default',
     taskQueue,
     workflowsPath: resolve(__dirname, 'testing/trace-probe-workflow.ts'),
     interceptors: { activity: [traceActivities()], workflowModules: [resolve(__dirname, 'telemetry-interceptors.ts')] },

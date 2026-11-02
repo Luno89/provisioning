@@ -1,3 +1,4 @@
+import { WORKER_DEFAULTS } from '@koala/engine-core';
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { TestWorkflowEnvironment } from '@temporalio/testing';
 import { Worker } from '@temporalio/worker';
@@ -23,9 +24,9 @@ afterAll(async () => {
 async function scenario(answers: BenchIdleOutcome[], drive: (signal: (idleMs: number) => Promise<void>, asked: string[]) => Promise<void>) {
   const taskQueue = `bench-test-${Math.random().toString(36).slice(2, 8)}`;
   const asked: string[] = [];
-  const timers = await Worker.create({ connection: env.nativeConnection, taskQueue, workflowsPath: resolve(__dirname, 'BenchIdleWorkflow.ts') });
+  const timers = await Worker.create({ ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: env.namespace ?? 'default', taskQueue, workflowsPath: resolve(__dirname, 'BenchIdleWorkflow.ts') });
   const backend = await Worker.create({
-    connection: env.nativeConnection,
+    ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: env.namespace ?? 'default',
     taskQueue: DEFAULT_STREAM_TASK_QUEUE,
     activities: { EngineBenchIdleActivity: async ({ ownerId }: { ownerId: string }) => { asked.push(ownerId); return answers.shift() ?? 'nothing'; } },
   });

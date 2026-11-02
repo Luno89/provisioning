@@ -1,3 +1,4 @@
+import { WORKER_DEFAULTS } from '@koala/engine-core';
 import { DEFAULT_STREAM_TASK_QUEUE } from '../engine-host/temporal/contracts.js';
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { TestWorkflowEnvironment } from '@temporalio/testing';
@@ -26,7 +27,7 @@ describe('deleting a project through Temporal', () => {
     const seen: string[] = [];
     const clusterQueue = `remove-project-apps-${Math.random().toString(36).slice(2, 8)}`;
     const clusterWorker = await Worker.create({
-      connection: env.nativeConnection,
+      ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: env.namespace ?? 'default',
       taskQueue: clusterQueue,
       workflowsPath: resolve(__dirname, 'DestroyAppWorkflow.ts'),
       activities: { DestroyAppActivity: async (args: { name: string; namespace?: string }) => { seen.push(`destroy ${args.name} in ${args.namespace}`); return { status: 'destroyed', msg: '' }; } },
@@ -46,11 +47,11 @@ describe('deleting a project through Temporal', () => {
       RemoveProjectRecordsActivity: async () => { seen.push('records'); return { projects: 1 }; },
     };
     const taskQueue = `remove-project-test-${Math.random().toString(36).slice(2, 8)}`;
-    const worker = await Worker.create({ connection: env.nativeConnection, taskQueue, workflowsPath: resolve(__dirname, 'RemoveProjectWorkflow.ts'), activities });
+    const worker = await Worker.create({ ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: env.namespace ?? 'default', taskQueue, workflowsPath: resolve(__dirname, 'RemoveProjectWorkflow.ts'), activities });
 
     const told: string[] = [];
     const streamWorker = await Worker.create({
-      connection: env.nativeConnection,
+      ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: env.namespace ?? 'default',
       taskQueue: DEFAULT_STREAM_TASK_QUEUE,
       activities: { EngineGroveChangedActivity: async ({ ownerId }: { ownerId: string }) => { told.push(ownerId); } },
     });

@@ -1,3 +1,4 @@
+import { WORKER_DEFAULTS } from '@koala/engine-core';
 import { resolve } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Client } from '@temporalio/client';
@@ -19,7 +20,7 @@ const start = (runId: string, owner = 'owner-1') =>
 
 beforeAll(async () => {
   env = await temporalTestEnvironment();
-  worker = await Worker.create({ connection: env.nativeConnection, taskQueue: QUEUE, workflowsPath: resolve(__dirname, 'run-cancellation.fixture-workflow.ts') });
+  worker = await Worker.create({ ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: env.namespace ?? 'default', taskQueue: QUEUE, workflowsPath: resolve(__dirname, 'run-cancellation.fixture-workflow.ts') });
   running = worker.run();
   client = async () => env.client;
 }, 120_000);

@@ -1,3 +1,4 @@
+import { WORKER_DEFAULTS } from '@koala/engine-core';
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { TestWorkflowEnvironment } from '@temporalio/testing';
 import { Worker } from '@temporalio/worker';
@@ -26,7 +27,7 @@ describe('a pool instance\'s trial', () => {
     const done: Array<{ step: TrialStep; day: number }> = [];
     const taskQueue = `trial-${Math.random().toString(36).slice(2, 8)}`;
     const worker = await Worker.create({
-      connection: env.nativeConnection,
+      ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: env.namespace ?? 'default',
       taskQueue,
       workflowsPath: resolve(__dirname, 'PoolTrialWorkflow.ts'),
       activities: {
@@ -52,7 +53,7 @@ describe('a pool instance\'s trial', () => {
     const done: TrialStep[] = [];
     const taskQueue = `trial-${Math.random().toString(36).slice(2, 8)}`;
     const worker = await Worker.create({
-      connection: env.nativeConnection,
+      ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: env.namespace ?? 'default',
       taskQueue,
       workflowsPath: resolve(__dirname, 'PoolTrialWorkflow.ts'),
       activities: {
@@ -87,7 +88,7 @@ describe('a pool instance\'s trial', () => {
     const done: TrialStep[] = [];
     const taskQueue = `trial-${Math.random().toString(36).slice(2, 8)}`;
     const worker = await Worker.create({
-      connection: env.nativeConnection,
+      ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: env.namespace ?? 'default',
       taskQueue,
       workflowsPath: resolve(__dirname, 'PoolTrialWorkflow.ts'),
       activities: {

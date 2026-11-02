@@ -15,7 +15,7 @@ import { CrawlBatchActivity, NextBatchActivity, SeedFrontierActivity, DiscardFro
 import { createWorkerLogger, buildDataConverter, connectTemporalWorker, temporalTlsProblem, sharedPayloadBlobs, loadKeys, SYSTEM_KUBECONFIG, telemetrySettings, temporalNamespaceFrom } from './platform/index.js';
 import { healthPort, serveHealth, sharedClusterProxy } from './infrastructure/index.js';
 import { collectorSink } from './monitoring/index.js';
-import { heartbeatWhileRunning } from '@koala/engine-core';
+import { heartbeatWhileRunning, WORKER_DEFAULTS } from '@koala/engine-core';
 import { traceActivities } from '@koala/engine-core/telemetry';
 import { startTelemetry } from '@koala/engine-core/telemetry-sdk';
 
@@ -52,6 +52,7 @@ async function main() {
       const connection = await connectTemporalWorker(address, 'koala-worker-host', process.env);
       const dataConverter = buildDataConverter(loadKeys(process.env).payload, sharedPayloadBlobs());
       worker = await Worker.create({
+    ...WORKER_DEFAULTS,
         connection,
         namespace: temporalNamespaceFrom(process.env),
         ...(dataConverter ? { dataConverter } : {}),

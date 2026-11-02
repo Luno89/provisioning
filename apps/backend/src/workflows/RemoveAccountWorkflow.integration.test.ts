@@ -1,3 +1,4 @@
+import { WORKER_DEFAULTS } from '@koala/engine-core';
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { TestWorkflowEnvironment } from '@temporalio/testing';
 import { Worker } from '@temporalio/worker';
@@ -36,7 +37,7 @@ const fakeSteps = (seen: string[], over: Partial<AccountRemovalActivities> = {})
 const withWorker = async (activities: AccountRemovalActivities, body: (workflows: ReturnType<typeof temporalRemovalWorkflows>) => Promise<void>) => {
   const taskQueue = `remove-account-test-${Math.random().toString(36).slice(2, 8)}`;
   const worker = await Worker.create({
-    connection: env.nativeConnection,
+    ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: env.namespace ?? 'default',
     taskQueue,
     workflowsPath: resolve(__dirname, 'RemoveAccountWorkflow.ts'),
     activities,
@@ -94,7 +95,7 @@ describe('removing an account through Temporal', () => {
     const clusterQueue = `remove-account-apps-${Math.random().toString(36).slice(2, 8)}`;
     const destroyed: string[] = [];
     const clusterWorker = await Worker.create({
-      connection: env.nativeConnection,
+      ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: env.namespace ?? 'default',
       taskQueue: clusterQueue,
       workflowsPath: resolve(__dirname, 'DestroyAppWorkflow.ts'),
       activities: { DestroyAppActivity: async (args: { name: string; namespace?: string }) => { destroyed.push(`${args.name} in ${args.namespace}`); seen.push('destroyed'); return { status: 'destroyed', msg: '' }; } },

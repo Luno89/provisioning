@@ -1,6 +1,8 @@
 import { koalaMetrics } from './telemetry.js';
 
-export const LIVENESS_EVERY_MS = 10_000;
+export const LIVENESS_EVERY_MS = 1_000;
+export const STOPS_ARRIVE_WITHIN_MS = 2_000;
+export const WORKER_DEFAULTS = { maxHeartbeatThrottleInterval: STOPS_ARRIVE_WITHIN_MS } as const;
 export const LATE_BEAT_SHARE = 0.5;
 
 interface Beating {

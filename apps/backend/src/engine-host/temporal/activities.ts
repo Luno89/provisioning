@@ -122,7 +122,7 @@ export interface StreamActivities {
   EngineGroveChangedActivity(args: { ownerId: string }): Promise<void>;
 }
 
-export const NODE_HEARTBEAT_MS = 10_000;
+export const NODE_HEARTBEAT_MS = 1_000;
 
 function currentActivity(): Context | undefined {
   try {
@@ -153,7 +153,7 @@ export function createNodeRunner(
     const stop = new AbortController();
     context?.cancellationSignal.addEventListener('abort', () => stop.abort('the run was cancelled'));
     const runId = request.run.identity.runId;
-    const watching = options.runCancelled
+    const watching = options.runCancelled && !request.hearsStops
       ? setInterval(() => {
         void options.runCancelled!(runId).then((cancelled) => { if (cancelled) stop.abort('the run was cancelled'); });
       }, CANCEL_POLL_MS)
@@ -261,7 +261,7 @@ export function createEngineActivities(services: EngineServices): EngineActiviti
       const context = currentActivity();
       const stop = new AbortController();
       context?.cancellationSignal.addEventListener('abort', () => stop.abort('the run was stopped'));
-      const watching = services.runCancelled
+      const watching = services.runCancelled && !args.hearsStops
         ? setInterval(() => {
           void services.runCancelled!(args.ticket.runId).then((cancelled) => { if (cancelled) stop.abort('the run was stopped'); });
         }, CANCEL_POLL_MS)

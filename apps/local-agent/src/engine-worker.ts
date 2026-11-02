@@ -1,7 +1,7 @@
 import { Context } from '@temporalio/activity';
 import { Worker, NativeConnection } from '@temporalio/worker';
 import { buildDataConverter, type BlobReach, type Keyring } from '@koala/engine-core/payloads';
-import { executeTool, heartbeatWhileRunning, type ExternalAgentStepArgs, type ExternalAgentStepResult, type MachineGitOp, type MachineGitResult, type ToolContract } from '@koala/engine-core';
+import { executeTool, heartbeatWhileRunning, WORKER_DEFAULTS, type ExternalAgentStepArgs, type ExternalAgentStepResult, type MachineGitOp, type MachineGitResult, type ToolContract } from '@koala/engine-core';
 import { traceActivities } from '@koala/engine-core/telemetry';
 import { createLocalFsDriver } from './local-fs-driver.js';
 import type { ExternalAgentSessions } from './external-agents.js';
@@ -130,6 +130,7 @@ export async function startDeviceWorker(options: DeviceWorkerOptions): Promise<D
   const taskQueue = deviceQueue(options.deviceId);
 
   const worker = await Worker.create({
+    ...WORKER_DEFAULTS,
     connection,
     taskQueue,
     dataConverter: buildDataConverter(options.payloads.ring, options.payloads.blobs),

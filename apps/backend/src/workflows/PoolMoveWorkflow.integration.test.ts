@@ -1,3 +1,4 @@
+import { WORKER_DEFAULTS } from '@koala/engine-core';
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { TestWorkflowEnvironment } from '@temporalio/testing';
 import { Worker } from '@temporalio/worker';
@@ -17,7 +18,7 @@ const run = async (signal: (handle: { signal: (name: string, ...args: unknown[])
   const seen: string[] = [];
   const taskQueue = `pool-move-test-${Math.random().toString(36).slice(2, 8)}`;
   const worker = await Worker.create({
-    connection: env.nativeConnection,
+    ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: env.namespace ?? 'default',
     taskQueue,
     workflowsPath: resolve(__dirname, 'PoolMoveWorkflow.ts'),
     activities: {

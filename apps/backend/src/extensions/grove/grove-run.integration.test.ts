@@ -1,3 +1,4 @@
+import { WORKER_DEFAULTS } from '@koala/engine-core';
 import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from 'vitest';
 import { createCompactContextNode } from '../../engine-host/nodes/model-nodes.js';
 import { TestWorkflowEnvironment } from '@temporalio/testing';
@@ -473,7 +474,7 @@ async function runGroveWorld(options: {
 
     const taskQueue = `grove-test-${Math.random().toString(36).slice(2, 8)}`;
     const engineWorker = await Worker.create({
-      connection: env.nativeConnection,
+      ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: env.namespace ?? 'default',
       taskQueue,
       workflowsPath: resolve(__dirname, '../../workflows'),
       activities: {
@@ -520,7 +521,7 @@ async function runGroveWorld(options: {
     });
 
     const streamWorker = await Worker.create({
-      connection: env.nativeConnection,
+      ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: env.namespace ?? 'default',
       taskQueue: DEFAULT_STREAM_TASK_QUEUE,
       activities: {
         EngineStreamNodeActivity: createNodeRunner([scriptModel(rounds, options.hang), decideModel, createCompactContextNode({ models: noSummaries })], undefined, { runCancelled: runCancelledVia(async () => env.client) }),

@@ -1,3 +1,4 @@
+import { WORKER_DEFAULTS } from '@koala/engine-core';
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { TestWorkflowEnvironment } from '@temporalio/testing';
 import { Worker } from '@temporalio/worker';
@@ -26,13 +27,13 @@ describe('a conversation\'s countdown to concluding', () => {
     const concluded: LifecycleEvent[] = [];
     const workspaces: ConcludeWorkspaceArgs[] = [];
     const timers = await Worker.create({
-      connection: env.nativeConnection,
+      ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: env.namespace ?? 'default',
       taskQueue,
       workflowsPath: resolve(__dirname, 'index.ts'),
       activities: { ConcludeWorkspaceActivity: async (args: ConcludeWorkspaceArgs) => { workspaces.push(args); return { saved: true, owner: 'koala-u1', repo: 'research-c1', commit: 'c0ffee' }; } },
     });
     const backend = await Worker.create({
-      connection: env.nativeConnection,
+      ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: env.namespace ?? 'default',
       taskQueue: DEFAULT_STREAM_TASK_QUEUE,
       activities: { EngineLifecycleActivity: async (event: LifecycleEvent) => { concluded.push(event); } },
     });
@@ -67,13 +68,13 @@ describe('a conversation\'s countdown to concluding', () => {
     const concluded: LifecycleEvent[] = [];
     const workspaces: ConcludeWorkspaceArgs[] = [];
     const timers = await Worker.create({
-      connection: env.nativeConnection,
+      ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: env.namespace ?? 'default',
       taskQueue,
       workflowsPath: resolve(__dirname, 'index.ts'),
       activities: { ConcludeWorkspaceActivity: async (args: ConcludeWorkspaceArgs) => { workspaces.push(args); return { saved: true, owner: 'koala-u1', repo: 'research-c1', commit: 'c0ffee' }; } },
     });
     const backend = await Worker.create({
-      connection: env.nativeConnection,
+      ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: env.namespace ?? 'default',
       taskQueue: DEFAULT_STREAM_TASK_QUEUE,
       activities: { EngineLifecycleActivity: async (event: LifecycleEvent) => { concluded.push(event); } },
     });

@@ -1,3 +1,4 @@
+import { WORKER_DEFAULTS } from '@koala/engine-core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import axios from 'axios';
 import express from 'express';
@@ -60,7 +61,7 @@ describe('one trace from the request through the workflow to the activity', () =
     const client = new Client({ connection: env.connection, namespace: env.namespace ?? 'default', interceptors: { workflow: [traceWorkflowStarts()] } });
     const inActivity: (string | undefined)[] = [];
     const worker = await Worker.create({
-      connection: env.nativeConnection,
+      ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: env.namespace ?? 'default',
       taskQueue,
       workflowsPath: resolve(__dirname, '../../workflows/ConcludeWorkspaceWorkflow.ts'),
       interceptors: { activity: [traceActivities()], workflowModules: [resolve(__dirname, '../../workflows/telemetry-interceptors.ts')] },

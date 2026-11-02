@@ -9,7 +9,7 @@ import { loadKeys } from '../../platform/lib/keys.js';
 import { temporalNamespaceFrom } from '../../platform/lib/temporal-auth.js';
 import { connectTemporalWorker } from '../../platform/lib/temporal-connection.js';
 import { TurnLogWriter, type TurnLogEntry } from '../../engine/index.js';
-import { heartbeatWhileRunning } from '@koala/engine-core';
+import { heartbeatWhileRunning, WORKER_DEFAULTS } from '@koala/engine-core';
 import { traceActivities } from '@koala/engine-core/telemetry';
 
 export interface SocketLike {
@@ -58,6 +58,7 @@ export async function startStreamWorker(options: StreamWorkerOptions): Promise<W
   const dataConverter = buildDataConverter(options.encryptionKey ?? loadKeys(process.env).payload, sharedPayloadBlobs());
 
   return Worker.create({
+    ...WORKER_DEFAULTS,
     connection,
     ...(dataConverter ? { dataConverter } : {}),
     taskQueue: options.taskQueue ?? DEFAULT_STREAM_TASK_QUEUE,
