@@ -119,6 +119,25 @@ describe('a machine\'s agent and the bundle Koala serves', () => {
       .toMatchObject({ state: 'failed', current: B, running: A, reason: 'npm ci failed: npm error network' });
   }, 30_000);
 
+  it('keeps the last thing the agent said when recording an earlier one is slower', async () => {
+    const { socket } = await agent({ bundle: A });
+    const record = machines.recordAgentUpdate.bind(machines);
+    let slowOne: () => void = () => undefined;
+    const held = new Promise<void>((done) => { slowOne = done; });
+    let sent = 0;
+    machines.recordAgentUpdate = async (deviceId, raw) => {
+      if ((raw as { state?: string }).state === 'updating') await held;
+      await record(deviceId, raw);
+      sent += 1;
+    };
+    socket.emit('machine:update', { state: 'updating', bundle: B });
+    socket.emit('machine:update', { state: 'failed', bundle: B, reason: 'npm ci failed' });
+    await new Promise((done) => setTimeout(done, 200));
+    slowOne();
+    await until(async () => (sent === 2 ? true : undefined));
+    expect(await shown()).toMatchObject({ state: 'failed', reason: 'npm ci failed' });
+  }, 30_000);
+
   it('is behind once Koala serves a newer agent than the one it last reported', async () => {
     await agent({ bundle: A });
     served = A;

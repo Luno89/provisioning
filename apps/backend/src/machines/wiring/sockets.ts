@@ -101,8 +101,9 @@ export function wireSockets(deps: SocketsWiringDeps): void {
     socket.on('agents:found', (report: { agents?: unknown } | undefined) => {
       deps.machines.recordAgents(device.id, report?.agents).catch((err: Error) => console.warn(`[machines] ${device.id}: its agents could not be recorded: ${err.message}`));
     });
+    let updates = Promise.resolve();
     socket.on('machine:update', (report: unknown) => {
-      deps.machines.recordAgentUpdate(device.id, report).catch((err: Error) => console.warn(`[machines] ${device.id}: how its agent's update goes could not be recorded: ${err.message}`));
+      updates = updates.then(() => deps.machines.recordAgentUpdate(device.id, report)).catch((err: Error) => console.warn(`[machines] ${device.id}: how its agent's update goes could not be recorded: ${err.message}`));
     });
     socket.on('machine:mesh', (report: { ip?: unknown } | undefined) => {
       deps.machines.recordMeshIp(device.id, report?.ip).catch((err: Error) => console.warn(`[machines] ${device.id}: its mesh address could not be recorded: ${err.message}`));
