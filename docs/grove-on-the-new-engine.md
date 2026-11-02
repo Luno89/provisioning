@@ -344,7 +344,7 @@ The leaf level mirrors it; the executor does **not** settle its own leaf.
    each pass crash-safe — a re-judge after a crash re-runs judgment, not
    work, and a settled claim stays settled. It also *is* fork (a): work
    runs and judge runs share nothing. Proven in-process
-   (`grove-run.test.ts`: two independent leaves plus one dependent leaf,
+   (`grove-run.integration.test.ts`: two independent leaves plus one dependent leaf,
    each with one task, scripted model): pass 1 fans both independents out
    inside the same work run (two child runs) and judges both claims inside
    its own judge run; the dependent leaf appears only in pass 2, after its
@@ -368,7 +368,7 @@ The leaf level mirrors it; the executor does **not** settle its own leaf.
    run ends `quiet` after exactly two passes with five partition reads, all
    three leaves `succeeded` + `verified`, every task `done` through executor
    and task judge, and the dependent leaf's claim stamps after both
-   independents'. The in-process `grove-run.test.ts` stays the fast proof of
+   independents'. The in-process `grove-run.integration.test.ts` stays the fast proof of
    the same shape; the Temporal test is the lane proof.
 4. The TaskChecks verification implementations (legacy matrix, gap #2) land
    when the judge needs them, per-leaf, never a batch port.
@@ -407,7 +407,7 @@ parks for human review; the volume lives and the pod is started on demand.
    pass and parks the pod when it stops. Release: deleting the tree, or the board's
    *Sandbox → Release* action (`GET/DELETE /api/trees/:id/workspace`). Proofs:
    `run-environments`/`environments`/`cluster-backend` unit tests, the orchestration
-   hand-down tests, a Temporal delegation test in `AgentRunWorkflow.test.ts`, the
+   hand-down tests, a Temporal delegation test in `AgentRunWorkflow.integration.test.ts`, the
    `GroveRunWorkflow` proof (every tool call of the whole tree in one sandbox, no run
    describing its own, the pod parked at the end; six sandboxes without the handoff),
    and **live** `npm run test:tree-sandbox` against the cluster (two runs share one pod,
@@ -435,7 +435,7 @@ parks for human review; the volume lives and the pod is started on demand.
    registry credentials the backend host had — without them any workspace image first built
    on the worker failed to push. Proofs: unit tests (validator, renderer, tool, ownership,
    routes, card), the planner test through the real tool gate (nothing in the grove before
-   approval, supersede), `AdoptPlanWorkflow.test.ts` on Temporal, live
+   approval, supersede), `AdoptPlanWorkflow.integration.test.ts` on Temporal, live
    `npm run test:plan-adoption` and `npm run test:planner-live` (real model on tabbyapi), and
    the full flow in the browser: koala → planner → card → Approve → adopted tree with
    `PLAN.md` and both briefs committed on its volume. Live runs caught three things the

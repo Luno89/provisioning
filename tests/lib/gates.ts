@@ -6,9 +6,16 @@ export const LEDGER_FILES = ['tests/last-passed.json', 'tests/LAST-PASSED.md'];
 
 export interface GateStep { name: string; script: string; memoryMB?: number; alone?: true }
 
-export const SHIP_STEPS: GateStep[] = [
-  { name: 'typecheck, the unit suites and the coupling rules', script: 'test:unit:coupled' },
+export const UNIT_STEPS: GateStep[] = [
+  { name: 'typecheck and the unit tier', script: 'test:unit' },
   { name: 'lint', script: 'lint' },
+];
+
+export const INTEGRATION_STEPS: GateStep[] = [
+  { name: 'the integration tier, and the coupling rules over both tiers', script: 'test:integration:coupled' },
+];
+
+export const E2E_STEPS: GateStep[] = [
   { name: 'every router answers', script: 'test:routes-live' },
   { name: 'sign-in across root, an instance and the hub', script: 'test:dev-split-live' },
   { name: 'production refuses what only a dev box allows, and sees each visitor', script: 'test:hardening-live' },
@@ -24,6 +31,8 @@ export const SHIP_STEPS: GateStep[] = [
   { name: 'an Odoo release cut over and rolled back', script: 'test:odoo-release-live' },
   { name: 'the mechanics checks', script: 'test:checks-live' },
 ];
+
+export const SHIP_STEPS: GateStep[] = [...UNIT_STEPS, ...INTEGRATION_STEPS, ...E2E_STEPS];
 
 export const RELEASE_STEPS: GateStep[] = [
   { name: 'the mail server signs and refuses to relay', script: 'test:mail-live', memoryMB: 512 },

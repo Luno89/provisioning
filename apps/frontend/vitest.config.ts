@@ -2,6 +2,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
+import { tiers } from '../../tests/tiers/projects.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -22,7 +23,7 @@ export default defineConfig({
     environment: 'jsdom',
     env: { VITE_API_BASE: 'http://127.0.0.1:9/api' },
     globals: true,
-    setupFiles: ['./src/test/setup.ts', '../../tests/coupling/vitest-setup.ts'],
+    projects: tiers({ include: ['src/**/*.test.{ts,tsx}'], setupFiles: ['./src/test/setup.ts'] }),
     testTimeout: 30000,
   },
 });

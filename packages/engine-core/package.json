@@ -43,7 +43,9 @@
     "@temporalio/common": "^1.23.0"
   },
   "scripts": {
-    "test": "vitest run",
+    "test": "npm run test:unit && npm run test:integration",
+    "test:unit": "vitest run --project unit",
+    "test:integration": "vitest run --project integration --maxWorkers=50% --passWithNoTests",
     "lint": "eslint ."
   }
 }

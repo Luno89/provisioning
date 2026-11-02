@@ -4,7 +4,7 @@ import { commitOf, gatheredIn, OUT, ROOT, runsOf, sourceOf, usableIn, type Artif
 import { buildGraph, isTest } from './graph.js';
 import { judge } from './join.js';
 import { renderPage } from './render.js';
-import { levelFrom, runsIn, summary } from './report.js';
+import { levelOf, runsIn, summary } from './report.js';
 import { resultOf, type Result } from './result.js';
 import { against, breaches, counted, judging, pruned, RULES, type Baseline } from './rules.js';
 import { MATCHES, outsideEnds, projectsOf, workspaceOf } from './workspaces.js';
@@ -41,7 +41,7 @@ const graph = buildGraph({ projects: projectsOf(ROOT), root: ROOT, matches: MATC
 const graphSeconds = seconds(graphStarted);
 const joinStarted = Date.now();
 const runs = usable.artifacts.has('in-process') ? runsIn(runsOf(options.out, 'in-process')) : [];
-const judged = judge(graph, runs, levelFrom(ROOT));
+const judged = judge(graph, runs, levelOf);
 const joinSeconds = seconds(joinStarted);
 
 const found = breaches(judged, graph, rules.judged);

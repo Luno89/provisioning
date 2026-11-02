@@ -5,18 +5,8 @@ import type { Graph } from './graph.js';
 import type { Judged, Level } from './join.js';
 import { areaOf } from './workspaces.js';
 
-const OPENS_SOMETHING = /testDatabase|testPayloadBlobs|temporalTestEnvironment|TestWorkflowEnvironment|mountRouter|createServer|\bspawn\(|spawnSync|execFile|socket\.io-client|new Server\(/;
 
-export function levelFrom(root: string): (testFile: string) => Level {
-  const seen = new Map<string, Level>();
-  return (testFile) => {
-    if (!seen.has(testFile)) {
-      const text = readFileSync(join(root, testFile), 'utf8');
-      seen.set(testFile, /-live\.ts$/.test(testFile) ? 'live' : OPENS_SOMETHING.test(text) ? 'component' : 'unit');
-    }
-    return seen.get(testFile)!;
-  };
-}
+export const levelOf = (testFile: string): Level => (/-live\.ts$/.test(testFile) ? 'live' : /\.integration\.test\.[a-z]+$/.test(testFile) ? 'component' : 'unit');
 
 export function runsIn(dir: string): Ran[] {
   return readdirSync(dir).filter((file) => file.endsWith('.json')).map((file) => JSON.parse(readFileSync(join(dir, file), 'utf8')) as Ran);

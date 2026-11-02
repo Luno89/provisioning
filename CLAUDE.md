@@ -41,12 +41,14 @@ npm run clean-dev    # kill all dev processes, delete k3d clusters, clean DBs (s
 npm run ship         # G1 + G2 against the dev stack on this commit, then push main (Releases, below)
 npm run release      # G3 + G4 on a shipped commit, then tag it; GitHub builds and publishes the image (Releases, below)
 npm run test:workflows # actionlint, then the Release workflow run here under act, publishing nothing
-npm run test         # test:unit → test:e2e:sync (alive check → unit → tests/e2e.spec.ts via Playwright)
+npm run test         # the three tiers in order, each only once the one below passes: test:unit → test:integration → test:e2e (Test tiers, below)
 npm run test:all     # test → test:synth:palworld → test:infra:integration → test:remote-integration
-npm run test:unit    # typecheck + every package's Vitest suite (frontend, backend, local-agent, the engine packages, cdktf-infra)
-npm run test:unit:coupled # the same, the suites gathering V8 coverage, then the coupling rules against their baseline (Coupling coverage, below); ship's first step
+npm run test:unit    # typecheck + every workspace's unit tier: *.test.ts, nothing outside the process, ~1.5 min
+npm run test:integration # every workspace's integration tier: *.integration.test.ts, real Mongo, Temporal's test server, sockets, git and sh on this machine, ~3 min
+npm run test:integration:coupled # both tiers again gathering V8 coverage, then the coupling rules against their baseline (Coupling coverage, below); ship's third step
+npm run test:e2e     # the e2e tier: the live suites ship runs (E2E_STEPS in tests/lib/gates.ts) against the running dev stack, with MECHANICS_ADMIN set
 npm run test:alive   # scripts/alive.sh — Docker/k3d/K8s API/Temporal/worker pod health, fails fast with fix hints
-npm run test:e2e     # test:alive → Playwright (skips the unit preflight `npm test` does)
+npm run test:browser # test:alive → Playwright on tests/e2e.spec.ts, whose selectors have rotted (plans/testing-pyramid.md); in no gate
 npm run test:infra:integration    # full cluster provision → verify → destroy, ~5 min (tests/infra-integration.ts)
 npm run test:routing-live         # root's Caddy on the mesh (local CA, koala.localhost) → a named instance installs on a VM → <name>.<domain> answers through Caddy and sign-in lands there → an app on the instance at <app>-<name>.<domain> → a group the instance claims is routed by root to its edge (the edge's 404 names the instance in X-Koala-Edge) and freed again → nested addresses issued and shown, the flat ones still answering → root emails the owner when the instance's connection to it is gone and when it is back, and the instance shows root down under Needs attention and clears it (a 1-minute threshold, `WATCH_UNREACHABLE_MINUTES`) → signing out everywhere at root ends the instance's session at once, ~9 min, cleans up
 npm run test:mail-live            # the send-only mail server is built and run beside a test mailbox → the backend's mailer sends an alert through it → it arrives DKIM-signed and the signature verifies against the key the DNS script publishes → root's mail check asks Spamhaus ZEN, Barracuda and UCEPROTECT through this computer's resolver: each list's own test address 127.0.0.2 is listed, loopback is on none → a host it does not trust is refused, ~2 min
@@ -97,10 +99,8 @@ npm run test:remote-integration   # boots a disposable QEMU VM, provisions it as
 Every `test:*-live` script runs through `tests/lib/run-live.ts`, which records when it last passed and last failed in
 `tests/last-passed.json` and the table `tests/LAST-PASSED.md`; a script nobody has run for weeks shows there.
 
-Note: there is ONE Playwright suite, `tests/e2e.spec.ts` (11 tests, `testDir: './tests'`).
-`npm test` reaches it via `test:e2e:sync` (unit preflight first), `npm run test:e2e` runs it
-directly. The `e2e/` directory this used to describe was deleted — it sat outside `testDir`
-and never ran.
+Note: there is ONE Playwright suite, `tests/e2e.spec.ts` (11 tests, `testDir: './tests'`), run by `npm run test:browser`
+and by no gate.
 
 Per-workspace scripts (`test`, `lint`, `dev`, `dev:worker`, `dev:worker:cluster`) run the standard
 way: `npm run <script> -w apps/backend`. See each workspace's `package.json` for what they invoke.
@@ -552,7 +552,7 @@ work that left it busy puts the worker back to polling and the update waits for 
 only when its contents do**: `bundle-machine.mjs` writes its lockfile from the repository's own (`machine-lock.mjs`: the versions the
 local-agent workspace resolves in `package-lock.json`, laid out from the workspace, the repository's dev and peer marks dropped,
 refusing a layout it cannot keep), and archives in name order with owner, group, modes and times fixed and gzip carrying no
-timestamp, so the same commit gives the same bundle on any day (`machine-lock.test.mjs` builds it twice). It restarts itself only under the service the install made
+timestamp, so the same commit gives the same bundle on any day (`machine-lock.integration.test.mjs` builds it twice). It restarts itself only under the service the install made
 (`serviceManagerOf`: systemd's `INVOCATION_ID` with `koala-machine.service` in its cgroup, or launchd's `XPC_SERVICE_NAME` of
 `dev.koala.machine`); started any other way it changes nothing and logs once how to get the newer one. A failure at any step changes
 nothing, is logged and reported (`machine:update`, kept as `agentUpdate`), and is tried again only when the backend next names a
@@ -629,7 +629,7 @@ first says **how it works there** (`describeOnMachine` in `runtime/context.ts`):
 folder at the same commit; the project runs in the workspace, reached with run_in_workspace; the workspace text that follows
 is written for an agent inside it, so its commands are run_in_workspace's; what is in the folder goes back when the turn
 ends; Koala's tools are on the MCP server `koala`. Describe Tools lists what is served (the persona's tools not bound to an
-environment, and run_in_workspace) and names the environment tools it has for itself on the machine. `AgentRunWorkflow.test.ts`
+environment, and run_in_workspace) and names the environment tools it has for itself on the machine. `AgentRunWorkflow.integration.test.ts`
 ("what an agent on a machine is told") checks every section and that the MCP server serves exactly the tools listed.
 
 **Asks from an agent on a machine** are checked against the tree's workspace, so a tree on auto mode lets them through. The
@@ -1240,7 +1240,7 @@ Notifications → "Notify this device" subscribes the browser (`/api/notificatio
 configured, and sends straight to the browser's push service, so an instance needs no root to push. What is pushed: alerts the
 person chose to hear about (the same choice as email), a run asking before a call (the tool's name only, never its arguments), a
 release waiting for Cut over, and root not answering. A device the push service says is gone (404, 410) is forgotten.
-`monitoring/routes/push-delivery.test.ts` proves a push end to end in ship's unit step: the real route and `PushService` send
+`monitoring/routes/push-delivery.integration.test.ts` proves a push end to end in ship's unit step: the real route and `PushService` send
 through web-push over TLS to a local push service, whose request carries a VAPID JWT that verifies against the instance's key and
 a body the device's key decrypts to the notice.
 
@@ -1623,7 +1623,7 @@ webServer (`engine/lib/browser-tests.ts`); `mechanics-workspace-needs` proves th
   the same run a push would. Workspace notices open it (`open-workspace`). Check stages `editWorkspace` and
   `waitWorkspace` do the same through the API.
 - Extension tools reach the tool runtime through the same runtimes as their operations (`extensionRuntimes` once in
-  the host); `engine-host/host.test.ts` fails if a grove or workspace tool has no handler there.
+  the host); `engine-host/host.integration.test.ts` fails if a grove or workspace tool has no handler there.
   `mechanics-workspace-change` proves the whole path, with the check stage `settleTree` waiting for the story the
   build puts back in line.
 
@@ -2012,8 +2012,8 @@ real. It works like Lighthouse, gather apart from audit:
 - **The baseline only shrinks** (`tests/coupling/baseline.json`, seeded once with every rule judged): a breach it does not list
   fails, and so does one it lists that is gone, until `tsx tests/coupling/audit.ts --prune` lowers it and the change is
   committed with the fix.
-- Ship's first step is `npm run test:unit:coupled`, about a minute more than the suites alone (253 s against 196 s on
-  2026-11-01). Not measured yet: workflow code (Temporal runs it from its own bundle, so `backend/workflows` shows almost
+- Ship runs it as `npm run test:integration:coupled`, after the unit tier and lint; with coverage the suites took 253 s against
+  196 s without on 2026-11-01. Not measured yet: workflow code (Temporal runs it from its own bundle, so `backend/workflows` shows almost
   nothing covered), the live suites' and the VMs' coverage.
 
 ## Releases: every gate before what it protects
@@ -2025,7 +2025,7 @@ instance, without passing its gates first (owner, 2026-10-23: "all those checks 
   uncommitted, that gitleaks finds no secret in what it carries, and that osv-scanner finds no known vulnerability in what Koala
   runs whose fix is due: production packages in `package-lock.json`; a fix published under 14 days ago waits and is listed with the day it
   can be taken, one 14 days old or more fails ship until `npm run deps:update -- <package>` takes it (the newest version two weeks old in
-  the major it is on, an override when no workspace names it), and those with no fix yet are kept in `osv-scanner.toml` with why), then **G1** (typecheck, the unit suites with the coupling rules, lint) and **G2** (`SHIP_STEPS` in `tests/lib/gates.ts`: routes,
+  the major it is on, an override when no workspace names it), and those with no fix yet are kept in `osv-scanner.toml` with why), then **G1** (typecheck and the unit tier, lint, then the integration tier with the coupling rules) and **G2** (`SHIP_STEPS` in `tests/lib/gates.ts`: routes,
   sign-in across a root, an instance and a hub of the suite's own, passwords, codes, sign-out and lockout on a root of its own, Connect OpenRouter, a project shared from that instance and
   worked on that hub, account removal, hub, project sharing,
   telemetry, app names, files, the Odoo release and every mechanics check, each through its npm script against the dev stack), failing at the first that fails. Every mechanics check has to pass
@@ -2127,16 +2127,35 @@ instance, without passing its gates first (owner, 2026-10-23: "all those checks 
 - `exactOptionalPropertyTypes: true` → auto-generated `.gen/` CDKTF files have pre-existing type errors; skip them
 - `noUncheckedIndexedAccess: true` → array/tuple access returns `T | undefined`
 
-## Testing escalation path
+## Test tiers
 
-1. **Alive** (`npm run test:alive`, `scripts/alive.sh`) — Docker, management cluster, K8s API, Temporal, workers. Fails fast with specific fix instructions. Runs automatically before E2E.
-   - Cluster existence is decided by whether the K8s API answers on context `k3d-<name>`, **not**
-     by `k3d cluster list` — that returns nothing on a native-k3s host and used to report a
-     healthy machine as broken, which then suppressed every later check.
-2. **Unit** (`npm run test:unit`) — typecheck + Vitest, frontend + backend. ~80s (20s typecheck, 29s frontend, 29s backend). The `<5s` this used to claim has not been true for a long time.
-3. **Workflows** (in the unit step) — each workflow runs on Temporal's test server (`workflows/temporal-test-env.ts`) with its activities, and `src/worker-activities.test.ts` reads every workflow's activity types and every worker's map from the compiler, so an activity a workflow calls is always registered on the queue it runs on.
-4. **Full E2E** (`npm run test:e2e`) — Playwright driving the React UI; starts host and cluster workers on the host network to support all deployment types.
-5. **Remote-host integration** (`npm run test:remote-integration`, `tests/remote-host-integration.ts`) — boots a real disposable QEMU/KVM VM (`tests/lib/disposable-vm.ts`) and drives the actual `POST /api/clusters` (`provider: 'remote'`) → Temporal → SSH-bootstrap-k3s path against it, the same way a user adding their own GPU workstation or a Phase-3 VPS would. Slow (~10-15 min, includes a one-time ~600MB cloud image download cached in `tests/.vm-cache/`) — not in the default `npm test` chain, only `npm run test:all`.
+Owner, 2026-11-02: three tiers, run in order, each over the same concepts: a service is tested in the unit tier with every real
+dependency mocked, again in the integration tier with the real ones, and its flow once more end to end. Plan:
+`~/.claude/plans/testing-pyramid.md`.
+
+- **Unit** (`*.test.ts`, `npm run test:unit`, ~1.5 min with the typecheck): one process, nothing outside it. Every Mongo store,
+  Temporal client, kubectl and helm, fetch, socket and process is a mock. `tests/tiers/unit-guard.ts` is the unit project's first
+  setup file: it makes opening a connection, listening and starting a process throw, and fails the file afterwards even when the code
+  caught the throw, saying to name it `*.integration.test.ts`. So a unit test cannot quietly reach the dev stack.
+- **Integration** (`*.integration.test.ts`, `npm run test:integration`, ~3 min): the same concepts with their real dependencies on
+  this machine, nothing else: a Mongo of its own (`mongodb-memory-server`, `testDatabase()`), Temporal's test server, real sockets
+  and HTTP on loopback, real git and sh. Never the dev stack, its cluster, `apps/backend/.env` or `data/` (the backend loads `.env`
+  only when it starts itself, and `routes.integration.test.ts` boots it from an empty folder and home). It runs on half the cores
+  (`--maxWorkers=50%`): each file starts its own servers, and seven at once starve tests on eight.
+- **E2E** (`npm run test:e2e`, the live suites in `E2E_STEPS`; the VM suites in `RELEASE_STEPS`): real Koala processes, the dev stack
+  or a VM, driven over HTTP as a person would.
+- Each workspace's `vitest.config.ts` builds its two projects with `tiers()` (`tests/tiers/projects.ts`); `npm run test:unit -w <ws>`
+  and `npm run test:integration -w <ws>` run one. The coupling report takes a test's level from its name.
+- **A mock is held to the real thing** (being built, plans/testing-pyramid.md step 2): each mocked dependency has one contract suite, run in the unit tier against the mock and in
+  the integration tier against the real dependency, so a mock that drifts fails (the in-memory `MemoryDB` was deleted on 2026-10-22
+  for drifting).
+- `npm run test:alive` (`scripts/alive.sh`) checks the dev stack before anything live: Docker, the management cluster, the K8s API,
+  Temporal, workers. Cluster existence is decided by whether the K8s API answers on context `k3d-<name>`, **not** by
+  `k3d cluster list`, which returns nothing on a native-k3s host.
+- Workflows run on Temporal's test server with their activities (integration), and `src/worker-activities.test.ts` reads every
+  workflow's activity types and every worker's map from the compiler (unit).
+- `npm run test:remote-integration` (`tests/remote-host-integration.ts`) boots a disposable QEMU/KVM VM and provisions it as a
+  `provider: 'remote'` cluster over real SSH, ~10-15 min, in the release gate.
 
 ## Playwright / k3d gotchas
 

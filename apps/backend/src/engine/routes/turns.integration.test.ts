@@ -6,8 +6,8 @@ const at = '2026-10-05T00:00:00.000Z';
 const before = '2026-10-02T00:00:00.000Z';
 const harness: Harness = await mountRouter({
   prefix: '/api/turns',
-  router: (db) => {
-    void Promise.all([
+  router: async (db) => {
+    await Promise.all([
       db.engine.appendTurnLog({ turnId: 'r1', ownerId: TEST_USER.id, seq: 1, at, events: [{ type: 'run.started', runId: 'r1', at, agentId: 'koala', loopId: 'interactive-chat' } as never] }),
       db.engine.appendTurnLog({ turnId: 'r-old', ownerId: TEST_USER.id, seq: 1, at: '2026-10-03T00:00:00.000Z', events: [] }),
       db.engine.appendTurnLog({ turnId: 'r1', ownerId: TEST_USER.id, seq: 2, at, events: [] }),

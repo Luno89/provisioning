@@ -14,6 +14,7 @@ describe('Auth Endpoints & Route Protection Integration', () => {
   let session = '';
   const SETUP_CODE = 'routes-test-setup-code';
   const from = process.cwd();
+  const homeWas = process.env.HOME;
   let home = '';
 
   beforeAll(async () => {
@@ -21,6 +22,7 @@ describe('Auth Endpoints & Route Protection Integration', () => {
     process.env.ADMIN_SETUP_CODE = SETUP_CODE;
     home = await mkdtemp(join(tmpdir(), 'koala-routes-'));
     process.chdir(home);
+    process.env.HOME = home;
     const { bootstrap } = await import('./index.js');
     const res = await bootstrap();
     app = res.app;
@@ -44,6 +46,7 @@ describe('Auth Endpoints & Route Protection Integration', () => {
       server.close();
     }
     process.chdir(from);
+    process.env.HOME = homeWas;
     await rm(home, { recursive: true, force: true });
   });
 

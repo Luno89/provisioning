@@ -1,7 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import { resolve } from 'node:path';
-import { MECHANICS_CHECKS } from '../apps/backend/src/eval/level2/mechanics.js';
 import { HOTFIX, HOTFIX_STEPS, SHIP_STEPS, ignoredRefusal, judgeVulnerabilities, leaksRefusal, shippedThrough, vulnerableRefusal, waitingLines } from './lib/gates.js';
+import { e2eEnv } from './lib/e2e-env.js';
 import { changedNow, commitLedger, devStackProblem, git, ignoredIn, leaksIn, minutesSince, npmPublishTimes, pushedGates, readRecord, runSteps, vulnerabilitiesIn, writeRecord } from './lib/gate-runs.js';
 
 const REPO = resolve(new URL('.', import.meta.url).pathname, '..');
@@ -41,14 +41,7 @@ async function main(): Promise<void> {
   } else {
     console.log(`ship ${commit.slice(0, 12)}: the first two gates against the dev stack, which runs this checkout. Leave it as it is until this ends; work elsewhere.`);
     const started = Date.now();
-    const steps = runSteps(REPO, commit, SHIP_STEPS, {
-      GROVE_LIVE_OWNER: admin ?? '',
-      CHECKS_LIVE_OWNER: admin ?? '',
-      INSTANCE_LIVE_OWNER: admin ?? '',
-      CHECKS_LIVE_SCENARIOS: MECHANICS_CHECKS().map((scenario) => scenario.id).join(','),
-      CHECKS_LIVE_ALL_PASS: 'true',
-      CHECKS_LIVE_TOGETHER: '3',
-    });
+    const steps = runSteps(REPO, commit, SHIP_STEPS, e2eEnv(admin ?? ''));
     writeRecord(REPO, { ...record, shipped: { at: new Date().toISOString(), steps } });
     console.log(`\n✓ ${commit.slice(0, 12)} shipped: ${steps.length} steps in ${minutesSince(started)} min`);
   }

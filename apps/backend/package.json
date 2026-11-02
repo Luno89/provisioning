@@ -7,7 +7,9 @@
   "scripts": {
     "dev": "tsx watch --exclude data src/index.ts",
     "start": "tsx src/index.ts",
-    "test": "vitest run",
+    "test": "npm run test:unit && npm run test:integration",
+    "test:unit": "vitest run --project unit",
+    "test:integration": "vitest run --project integration --maxWorkers=50% --passWithNoTests",
     "test:watch": "vitest",
     "dev:worker": "tsx watch --exclude data --include 'src/workflows/**' src/worker-host.ts",
     "dev:worker:cluster": "tsx watch --exclude data --include 'src/workflows/**' src/worker-cluster.ts",
