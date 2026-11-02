@@ -44,6 +44,7 @@ npm run test:workflows # actionlint, then the Release workflow run here under ac
 npm run test         # test:unit → test:e2e:sync (alive check → unit → tests/e2e.spec.ts via Playwright)
 npm run test:all     # test → test:synth:palworld → test:infra:integration → test:remote-integration
 npm run test:unit    # typecheck + every package's Vitest suite (frontend, backend, local-agent, the engine packages, cdktf-infra)
+npm run test:unit:coupled # the same, the suites gathering V8 coverage, then the coupling rules against their baseline (Coupling coverage, below); ship's first step
 npm run test:alive   # scripts/alive.sh — Docker/k3d/K8s API/Temporal/worker pod health, fails fast with fix hints
 npm run test:e2e     # test:alive → Playwright (skips the unit preflight `npm test` does)
 npm run test:infra:integration    # full cluster provision → verify → destroy, ~5 min (tests/infra-integration.ts)
@@ -1989,6 +1990,32 @@ typechecking.
 git config core.hooksPath .githooks
 ```
 
+## Coupling coverage
+
+Line coverage says code ran; it does not say two pieces that call each other ran together. `tests/coupling/` builds the
+**coupling graph** (every call from one function to another across the workspaces, structural implementations of an
+interface included, and the edges between processes: a workflow's activity calls, socket.io events, HTTP calls from the
+browser, between processes and from scripts, and env names the instance chart sets) and judges which edges a test runs for
+real. It works like Lighthouse, gather apart from audit:
+- **Gather** (`tests/coupling/gather.ts`, `--only <workspaces>`, `--cost` times each suite without coverage too) runs every
+  workspace's Vitest suite with `COUPLING_COVERAGE` set: `tests/coupling/vitest-setup.ts` takes V8's precise coverage after
+  each test file, and every script a test runs through `spawnScript`/`scriptExcerpt` (`shell-trace.ts`) is traced line by line
+  with bash's xtrace. What it gathered goes to `tests/.coupling/` (ignored), stamped with the commit and a hash of the code;
+  code that changed since is not used.
+- **Audit** (`tests/coupling/audit.ts`, `--require in-process`) builds the graph, joins it with what was gathered, and writes
+  `result.json`, `report.html` (breaches, areas and edges, filtered and sorted) and `summary.txt`. Each rule says what it needs
+  and is skipped, saying so, without it:
+  - **R1**: an edge within a process is run for real only by live suites, or by none;
+  - **R2**: an edge between areas or processes is never run together with what calls it (an entry point: by no test);
+  - **R3**: an edge between processes is run only by live suites, or by none;
+  - **R4**: a call with no implementation found, or one made through `any`.
+- **The baseline only shrinks** (`tests/coupling/baseline.json`, seeded once with every rule judged): a breach it does not list
+  fails, and so does one it lists that is gone, until `tsx tests/coupling/audit.ts --prune` lowers it and the change is
+  committed with the fix.
+- Ship's first step is `npm run test:unit:coupled`, about a minute more than the suites alone (253 s against 196 s on
+  2026-11-01). Not measured yet: workflow code (Temporal runs it from its own bundle, so `backend/workflows` shows almost
+  nothing covered), the live suites' and the VMs' coverage.
+
 ## Releases: every gate before what it protects
 
 Plan: `~/.claude/plans/release-pipeline.md`. Nothing reaches `main` on GitHub, and no release reaches root or anyone's
@@ -1998,7 +2025,7 @@ instance, without passing its gates first (owner, 2026-10-23: "all those checks 
   uncommitted, that gitleaks finds no secret in what it carries, and that osv-scanner finds no known vulnerability in what Koala
   runs whose fix is due: production packages in `package-lock.json`; a fix published under 14 days ago waits and is listed with the day it
   can be taken, one 14 days old or more fails ship until `npm run deps:update -- <package>` takes it (the newest version two weeks old in
-  the major it is on, an override when no workspace names it), and those with no fix yet are kept in `osv-scanner.toml` with why), then **G1** (typecheck, the unit suites, lint) and **G2** (`SHIP_STEPS` in `tests/lib/gates.ts`: routes,
+  the major it is on, an override when no workspace names it), and those with no fix yet are kept in `osv-scanner.toml` with why), then **G1** (typecheck, the unit suites with the coupling rules, lint) and **G2** (`SHIP_STEPS` in `tests/lib/gates.ts`: routes,
   sign-in across a root, an instance and a hub of the suite's own, passwords, codes, sign-out and lockout on a root of its own, Connect OpenRouter, a project shared from that instance and
   worked on that hub, account removal, hub, project sharing,
   telemetry, app names, files, the Odoo release and every mechanics check, each through its npm script against the dev stack), failing at the first that fails. Every mechanics check has to pass

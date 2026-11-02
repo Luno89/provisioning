@@ -7,7 +7,7 @@ export const LEDGER_FILES = ['tests/last-passed.json', 'tests/LAST-PASSED.md'];
 export interface GateStep { name: string; script: string; memoryMB?: number; alone?: true }
 
 export const SHIP_STEPS: GateStep[] = [
-  { name: 'typecheck and the unit suites', script: 'test:unit' },
+  { name: 'typecheck, the unit suites and the coupling rules', script: 'test:unit:coupled' },
   { name: 'lint', script: 'lint' },
   { name: 'every router answers', script: 'test:routes-live' },
   { name: 'sign-in across root, an instance and the hub', script: 'test:dev-split-live' },
