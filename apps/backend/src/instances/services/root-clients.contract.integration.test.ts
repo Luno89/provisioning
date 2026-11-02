@@ -1,47 +1,21 @@
-import type { NextFunction, Request, Response } from 'express';
 import { afterEach, describe, expect, it } from 'vitest';
-import { mountRouter, TEST_USER, type Harness } from '../../platform/routes/test-harness.js';
-import { instancesRouter } from '../routes/instances.js';
-import { InstanceService } from './InstanceService.js';
+import { TEST_USER } from '../../platform/routes/test-harness.js';
+import { rootWithAnInstance as openRoot, type RootWithAnInstance } from '../testing/root-with-an-instance.js';
 import { InstanceGroups } from './InstanceGroups.js';
 import { InstanceWatchSetting } from './InstanceWatchSetting.js';
 import { InstanceUpdates } from './InstanceUpdates.js';
-import { InstanceTrial } from './InstanceTrial.js';
+import { InstanceTrial, RootRefused } from './InstanceTrial.js';
+import { InstanceAddresses } from './InstanceAddresses.js';
 import { RootMeshKeys } from './RootMeshKeys.js';
 
-let harness: Harness | undefined;
-afterEach(async () => { await harness?.close(); harness = undefined; });
+const roots: RootWithAnInstance[] = [];
+afterEach(async () => { await Promise.all(roots.splice(0).map((root) => root.close())); });
 
-async function rootWithAnInstance() {
-  let service: InstanceService | undefined;
-  const meshAsked: string[] = [];
-  const settings = {
-    rootUrl: '', rootPublicKeys: () => ['PEM'], registry: 'r', imageTag: 'new222', domain: 'koala.dev', meshLoginServer: 'https://mesh.koala.dev',
-    releases: { hasChart: () => false, releases: async () => [
-      { imageTag: 'old111', version: 'v2026.10.29', servedAt: '2026-10-29T00:00:00Z' },
-      { imageTag: 'new222', version: 'v2026.10.30', servedAt: '2026-10-30T00:00:00Z' },
-    ] },
-  };
-  harness = await mountRouter({
-    prefix: '/api/instances',
-    router: (db) => {
-      service = new InstanceService(db, settings, {
-        createPreAuthKey: async (ownerId) => { meshAsked.push(`key for ${ownerId}`); return { key: `key-of-${ownerId}` }; },
-        listUserDevices: async () => [{ ipAddresses: ['100.64.0.9'] }],
-        removeNode: async (ownerId, meshIp) => { meshAsked.push(`remove ${meshIp} of ${ownerId}`); },
-      });
-      return instancesRouter({ instances: service, chart: async () => '', operatorOnly: (_req: Request, _res: Response, next: NextFunction) => next() });
-    },
-  });
-  settings.rootUrl = harness.url('');
-  const made = await service!.createJoinToken(TEST_USER.id, 'luno');
-  if (!made.ok) throw new Error(made.error);
-  const joined = await service!.join(made.value.token, 'box');
-  if (!joined.ok) throw new Error(joined.error);
-  await service!.report(joined.value.instanceId, joined.value.credential, { status: 'ready', detail: 'Installed', imageTag: 'old111', meshIp: '100.64.0.9', presence: true });
-  const instance = { rootUrl: harness.url(''), instanceId: joined.value.instanceId, token: async () => joined.value.credential };
-  return { instance, meshAsked, record: async () => (await harness!.db.instances.getInstances()).find((entry) => entry.id === joined.value.instanceId)! };
-}
+const rootWithAnInstance = async (options: { pool?: boolean } = {}): Promise<RootWithAnInstance> => {
+  const root = await openRoot(options);
+  roots.push(root);
+  return root;
+};
 
 describe('an instance\'s clients against root\'s own routes', () => {
   it('claims, checks and frees a group, and root keeps exactly what the instance holds', async () => {
@@ -95,5 +69,53 @@ describe('an instance\'s clients against root\'s own routes', () => {
     await keys.removeNode('ignored', '100.64.0.20');
     await expect(keys.removeNode('ignored', '100.64.0.9')).rejects.toThrow('root would not take the machine off the mesh (400): that is the instance itself, not one of its machines');
     expect(meshAsked).toEqual([`key for ${TEST_USER.id}`, `key for ${TEST_USER.id}`, `remove 100.64.0.20 of ${TEST_USER.id}`]);
+  });
+
+  it('is refused a move by root when it is on its owner\'s own machine, and is told nothing is moving', async () => {
+    const { instance } = await rootWithAnInstance();
+    const trial = new InstanceTrial(instance);
+    const refusal = await trial.startMove().catch((err: unknown) => err);
+    expect(refusal).toBeInstanceOf(RootRefused);
+    expect(refusal).toMatchObject({ status: 409, message: 'only an instance on Koala\'s servers moves to a machine of its own' });
+    expect(await trial.moveState()).toBeNull();
+    await expect(trial.stopMove()).rejects.toMatchObject({ status: 404, message: 'nothing is moving' });
+  });
+
+  it('starts a move on Koala\'s servers, sees how far it has got, and stops it, root starting and stopping the work', async () => {
+    const { instance, poolAsked } = await rootWithAnInstance({ pool: true });
+    const trial = new InstanceTrial(instance);
+    const started = await trial.startMove();
+    expect(started.command).toMatch(/\/install\.sh \| sudo sh -s -- \S+$/);
+    expect(Date.parse(started.expiresAt)).toBeGreaterThan(Date.now());
+    expect(await trial.moveState()).toMatchObject({ state: 'waiting' });
+    await trial.stopMove();
+    expect(poolAsked).toEqual([`move ${instance.instanceId}`, `stop ${instance.instanceId}: you stopped the move`]);
+  });
+
+  it('reads and switches nested addresses through root, republishing the apps only when they become ready or stop, and asking again while they are issued', async () => {
+    const { instance, harness, record } = await rootWithAnInstance();
+    let republished = 0;
+    const addresses = new InstanceAddresses({ ...instance, name: 'luno' }, async () => { republished += 1; }, undefined, 25);
+    try {
+      expect(await addresses.refresh()).toMatchObject({ nested: false, name: 'luno', domain: 'koala.dev' });
+      expect(addresses.nestedReady()).toBe(false);
+      expect(await addresses.set(true)).toMatchObject({ nested: true, state: 'issuing' });
+      expect(republished).toBe(0);
+      await harness.db.instances.saveInstance({ ...(await record()), addresses: { nested: true, state: 'ready' } });
+      for (let waited = 0; republished === 0 && waited < 200; waited += 1) await new Promise((resolve) => setTimeout(resolve, 25));
+      expect(addresses.nestedReady()).toBe(true);
+      expect(republished).toBe(1);
+      expect(await addresses.set(false)).toMatchObject({ nested: false });
+      expect(addresses.nestedReady()).toBe(false);
+      expect(republished).toBe(2);
+    } finally {
+      addresses.stop();
+    }
+  });
+
+  it('says what root said when it will not answer about addresses', async () => {
+    const { instance } = await rootWithAnInstance();
+    const addresses = new InstanceAddresses({ ...instance, name: 'box', token: async () => 'not-the-credential' }, async () => undefined);
+    await expect(addresses.refresh()).rejects.toThrow('root did not answer about this instance\'s addresses (401): unknown instance or credential');
   });
 });

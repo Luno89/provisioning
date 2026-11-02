@@ -12,6 +12,7 @@ import { hashCredential } from '../../instances/services/InstanceService.js';
 import type { InviteMetadata } from '../../platform/lib/types.js';
 import { inviteCodeHash } from '../../platform/lib/invite-codes.js';
 import { principalOf } from '../../platform/lib/permissions.js';
+import { HubRootClient } from '../services/HubRootClient.js';
 
 const harnesses: Harness[] = [];
 afterEach(async () => { for (const harness of harnesses.splice(0)) await harness.close(); });
@@ -260,6 +261,51 @@ describe('relaying a member\'s file to and from the owner\'s instance over HTTP'
     stop.abort();
     await instance;
     relay.stop();
+  });
+});
+
+describe('a member inviting through the hub, which asks root to send it', () => {
+  async function hubAndRoot(perHour: number) {
+    const invites: InviteMetadata[] = [];
+    const rootSite = await mountRouter({
+      prefix: '/api/hub-link',
+      router: async () => hubLinkRouter({
+        invites: new ProjectInviteService({ principalFor: (user) => principalOf(user, { role: 'combined' }), invites: { getInviteByCode: async (code) => invites.find((invite) => invite.codeHash === inviteCodeHash(code)), saveInvite: async (invite) => { invites.push(invite); }, getInvites: async () => invites }, people: { getUserById: async (id) => ({ id }), getUserByEmail: async () => undefined }, limits: async () => ({ perHour }), rootUrl: 'http://root' }),
+        credentialHash: hashCredential('the-hub'),
+        hash: hashCredential,
+        personAtHub: async (token) => (token === 'ann-at-the-hub' ? 'ann' : undefined),
+        people: { getUserById: async (id) => (id === 'ann' ? { id, email: 'ann@example.com' } : undefined) },
+      }),
+    });
+    harnesses.push(rootSite);
+    const hub = new HubService({ store: memoryHubStore(), invites: new HubRootClient({ rootUrl: rootSite.url(''), token: async () => 'the-hub' }) });
+    const site = await mountRouter({ prefix: '/api/hub', user: { ...TEST_USER, id: 'ann', email: 'ann@example.com' }, router: async () => hubRouter({ hub, vouch: async (req) => String(req.headers['x-person-token'] ?? '') || undefined }) });
+    harnesses.push(site);
+    const made = await hub.create({ id: 'ann', email: 'ann@example.com' }, { name: 'Shop' });
+    if (!made.ok) throw new Error(made.why);
+    return { site, invites, id: made.value.project.id, hub };
+  }
+
+  it('has root make the invite for the person the request vouches for, and shows it on the project', async () => {
+    const { site, invites, id, hub } = await hubAndRoot(5);
+    const sent = await axios.post(site.url(`/api/hub/projects/${id}/invites`), { email: 'cy@example.com', role: 'client' }, { headers: { 'x-person-token': 'ann-at-the-hub' } });
+    expect(sent.status).toBe(201);
+    expect(sent.data).toMatchObject({ email: 'cy@example.com', role: 'client', emailed: false });
+    expect(invites).toHaveLength(1);
+    expect(invites[0]).toMatchObject({ createdBy: 'ann', project: { name: 'Shop', role: 'client' } });
+    expect(((await hub.view('ann', id)) as { ok: true; value: { invites: unknown[] } }).value.invites).toHaveLength(1);
+  });
+
+  it('keeps no invite when root refuses it for the limit, and root makes none when nobody vouched for the person', async () => {
+    const { site, invites, id, hub } = await hubAndRoot(0);
+    const refused = await axios.post(site.url(`/api/hub/projects/${id}/invites`), { email: 'cy@example.com', role: 'client' }, { ...ask, headers: { 'x-person-token': 'ann-at-the-hub' } });
+    expect(refused.status).toBe(429);
+    expect((refused.data as { error: string }).error).toMatch(/invites/);
+    expect(invites).toEqual([]);
+    expect(((await hub.view('ann', id)) as { ok: true; value: { invites: unknown[] } }).value.invites).toEqual([]);
+    const unvouched = await axios.post(site.url(`/api/hub/projects/${id}/invites`), { email: 'dee@example.com', role: 'client' }, ask);
+    expect(unvouched.status).toBeGreaterThanOrEqual(500);
+    expect(invites).toEqual([]);
   });
 });
 

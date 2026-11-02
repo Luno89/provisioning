@@ -1,9 +1,10 @@
 import { arrayWith, matching } from '../../platform/lib/test-matchers.js';
 import { describe, expect, it } from 'vitest';
-import { testDatabase } from '../../platform/lib/test-database.js';
+import { emptiedEachTime, testDatabase } from '../../platform/lib/test-database.js';
 import { memoryHubStore } from '../../hub/lib/hub-store.js';
 import { HubService } from '../../hub/services/HubService.js';
 import { HubSyncService, localHubSync } from '../../hub/services/HubSyncService.js';
+import { sharedProjectRecordsBehaviour } from '../testing/project-sharing-behaviour.js';
 import { localHubSharing, localProjectGroups, ProjectSharingService, type ProjectGroups } from './ProjectSharingService.js';
 
 const now = '2026-10-21T00:00:00Z';
@@ -117,3 +118,7 @@ describe('the group a shared project\'s apps are addressed under', () => {
     expect(calls).toEqual(['claim p1 globex', 'claim p1 acme', 'release p1']);
   });
 });
+
+const fresh = await emptiedEachTime();
+
+sharedProjectRecordsBehaviour(() => fresh());

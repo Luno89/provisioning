@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, inject, it } from 'vitest';
 import ts from 'typescript';
 import { clientCallsIn, served, type Route } from '../../../tests/coupling/http-edges.js';
+import { isTest } from '../../../tests/coupling/graph.js';
 import { httpChannels } from '../../../tests/coupling/http-routes.js';
 import { devSplitPlan, generateIdentityKey, hashCredential, publicKeyPem } from './instances/index.js';
 import { identityKeysFrom } from './instances/lib/identity-token.js';
@@ -69,7 +70,7 @@ describe('every call the frontend makes is one some backend serves', () => {
     const ends = httpChannels(program, []);
     const read = new Set<string>();
     for (const source of program.getSourceFiles()) {
-      if (source.isDeclarationFile || source.fileName.includes('/node_modules/') || /\.test\.ts$/.test(source.fileName)) continue;
+      if (source.isDeclarationFile || source.fileName.includes('/node_modules/') || isTest(source.fileName)) continue;
       const visit = (node: ts.Node) => {
         if (ts.isCallExpression(node)) for (const end of ends(node) ?? []) if (end.side === 'hears') read.add(end.name);
         ts.forEachChild(node, visit);

@@ -28,6 +28,8 @@ let port: number;
 let presence: InstancePresence;
 let mailed: Array<{ to: string; subject: string }>;
 let operators: string[];
+let logged: string[];
+let mailFails: boolean;
 const clients: RootPresence[] = [];
 
 async function startRoot(onPort = 0): Promise<void> {
@@ -35,10 +37,13 @@ async function startRoot(onPort = 0): Promise<void> {
   io = new Server(server, { pingInterval: 10_000, pingTimeout: 10_000 });
   presence = new InstancePresence({
     store: db.instances,
-    tellOwner: async (to, message) => { mailed.push({ to, subject: message.subject }); },
+    tellOwner: async (to, message) => {
+      if (mailFails) throw new Error('mail is away');
+      mailed.push({ to, subject: message.subject });
+    },
     tellOperators: async (message) => { operators.push(message.subject); },
     afterMs: GRACE,
-    log: () => undefined,
+    log: (message) => { logged.push(message); },
   });
   wireInstancePresence(io, presence, async (instanceId, token) =>
     token === `good-${instanceId}` ? (await db.instances.getInstances()).find((entry) => entry.id === instanceId) : undefined);
@@ -76,6 +81,8 @@ beforeEach(async () => {
   db = await testDatabase();
   mailed = [];
   operators = [];
+  logged = [];
+  mailFails = false;
   await db.instances.saveInstance(own);
   await db.instances.saveInstance(pooled);
   await startRoot();
@@ -178,5 +185,20 @@ describe('an instance holding a connection to root', () => {
     expect(pushed[1]).toBe('Koala\'s root answers again');
     expect(client.view()).toMatchObject({ reachable: true, down: false });
     await until(() => presence.connected(own.id));
+  });
+
+  it('says in its log, and carries on, when it cannot tell the owner', async () => {
+    mailFails = true;
+    const { client } = instanceDialing(own);
+    await until(() => presence.connected(own.id));
+    client.stop();
+    await until(() => logged.length === 1);
+    expect(logged[0]).toBe('[instance-presence] could not tell the owner of inst-own: mail is away');
+    expect(mailed).toEqual([]);
+    mailFails = false;
+    instanceDialing(own);
+    await until(() => presence.connected(own.id));
+    await until(() => mailed.length === 1);
+    expect(mailed[0]!.subject).toBe('Your instance own (inst-own) answers again');
   });
 });

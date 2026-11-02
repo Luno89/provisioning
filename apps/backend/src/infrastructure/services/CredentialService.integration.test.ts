@@ -1,5 +1,7 @@
 import { containing, matching } from '../../platform/lib/test-matchers.js';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { http, HttpResponse } from 'msw';
+import { interceptHttp } from '../../platform/testing/http.js';
 import { CredentialService } from './CredentialService.js';
 import { decryptValue } from '../../platform/lib/crypto.js';
 import { testDatabase } from '../../platform/lib/test-database.js';
@@ -9,6 +11,8 @@ import { FAKE_OVH_KEYS, fakeOvh } from './fake-ovh.js';
 import { fakePorkbun } from './dns/fake-dns.js';
 
 const TEST_KEY = 'test-master-key-for-credential-tests';
+
+const server = interceptHttp();
 
 describe('CredentialService', () => {
   let db: MongoDB;
@@ -243,6 +247,24 @@ describe('CredentialService', () => {
       expect(shown?.subsidiary).toBe('AU');
       expect(shown?.applicationSecret).toContain('****');
       expect((await service.resolveCredentials('user-1', 'ovh')).env).toEqual({ OVH_APPLICATION_KEY: 'AK-test', OVH_APPLICATION_SECRET: 'AS-test', OVH_CONSUMER_KEY: 'CK-test', OVH_SUBSIDIARY: 'AU' });
+    });
+  });
+  describe('Google Drive', () => {
+    it('tests the refresh token stored for the person against Google', async () => {
+      expect((await service.testGoogleDriveConnection('user-1')).message).toMatch(/Not connected/);
+      await service.saveCredentials('user-1', 'googledrive', { refreshToken: 'r-stored', email: 'me@example.com' });
+      process.env.GOOGLE_CLIENT_ID = 'id';
+      process.env.GOOGLE_CLIENT_SECRET = 'secret';
+      server.use(
+        http.post('https://oauth2.googleapis.com/token', async ({ request }) => ((await request.text()).includes('refresh_token=r-stored') ? HttpResponse.json({ access_token: 'a1' }) : new HttpResponse(null, { status: 400 }))),
+        http.get('https://www.googleapis.com/drive/v3/about', () => HttpResponse.json({ user: { emailAddress: 'me@example.com' } })),
+      );
+      try {
+        expect(await service.testGoogleDriveConnection('user-1')).toMatchObject({ valid: true, message: 'Connected to Google Drive as me@example.com' });
+      } finally {
+        delete process.env.GOOGLE_CLIENT_ID;
+        delete process.env.GOOGLE_CLIENT_SECRET;
+      }
     });
   });
 });

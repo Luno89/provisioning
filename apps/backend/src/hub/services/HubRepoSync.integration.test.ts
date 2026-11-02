@@ -73,3 +73,26 @@ describe('keeping the owner\'s main and the hub\'s main together', () => {
     expect(await read(owner, 'a.txt', 'hub/main-1')).toBe('member');
   });
 });
+
+describe('when git cannot reach a repository', () => {
+  it('says what git said when a main cannot be asked for', async () => {
+    const owner = await bare();
+    const missing = path.join(os.tmpdir(), 'hub-sync-test-nowhere', 'project.git');
+    await expect(mainHeads({ url: owner }, { url: missing })).rejects.toThrow(/does not appear to be a git repository/);
+  });
+
+  it('fails a sync with the reason, leaves both repositories as they were, and never says the credential it was given', async () => {
+    const owner = await bare();
+    const first = await commit(owner, 'a.txt', 'one');
+    const token = 'tkn-5f3a9c1e77d2';
+    const missing = path.join(os.tmpdir(), `hub-sync-test-${token}`, 'project.git');
+    const failure = await syncMain({ url: owner }, { url: missing, auth: { username: 'bot', token } }, () => 'x').catch((err: Error) => err);
+    expect(failure).toBeInstanceOf(Error);
+    const said = (failure as Error).message;
+    expect(said).toMatch(/^syncing main with the hub failed: /);
+    expect(said).toMatch(/does not appear to be a git repository/);
+    expect(said).toContain('***');
+    expect(said).not.toContain(token);
+    expect(await mainHeads({ url: owner }, { url: owner })).toEqual({ owner: first, hub: first });
+  });
+});

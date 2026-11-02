@@ -2,6 +2,7 @@ import ts from 'typescript';
 import { isTestFile, type ChannelEnd } from './graph.js';
 import { localsOf, pathsOf, served, type Locals } from './http-edges.js';
 
+const TESTING_FOLDER = /\/testing\//;
 const EXPRESS_TYPES = /\/node_modules\/@types\/(express|express-serve-static-core)\//;
 const AXIOS_TYPES = /\/node_modules\/axios\//;
 const VERBS = new Set(['get', 'post', 'put', 'patch', 'delete']);
@@ -88,7 +89,7 @@ export function httpChannels(program: ts.Program, clients: readonly KoalaClient[
 
   const mounts: Array<{ inside: ts.Node | undefined; prefix: string; factory: ts.Node }> = [];
   for (const source of program.getSourceFiles()) {
-    if (source.fileName.includes('/node_modules/') || source.isDeclarationFile || isTestFile(source.fileName)) continue;
+    if (source.fileName.includes('/node_modules/') || source.isDeclarationFile || isTestFile(source.fileName) || TESTING_FOLDER.test(source.fileName)) continue;
     const visit = (node: ts.Node) => {
       const mounted = ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression) && node.expression.name.text === 'use' ? node.arguments[node.arguments.length - 1] : undefined;
       if (ts.isCallExpression(node) && mounted && declaredIn(checker.getTypeAtLocation(mounted), EXPRESS_TYPES)) {

@@ -4,6 +4,7 @@ import { homedir, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { changedBesidesLedger, LEDGER_FILES, onlyLedger, RELEASE_SIGNERS, type GateRecord, type GateStep, type PushedGates, type StepPassed, productionVulnerabilities, type Vulnerability } from './gates.js';
 import { imageTagOf } from './release-lab.js';
+import { convert, liveProcesses, recordLive } from '../coupling/live.js';
 
 const gitOut = (repo: string, args: string[]): string =>
   execFileSync('git', args, { cwd: repo, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
@@ -139,12 +140,28 @@ export function checkoutProblem(repo: string, commit: string): string | undefine
 
 export const minutesSince = (started: number): number => Math.round((Date.now() - started) / 6000) / 10;
 
+const LIVE_SCRIPT = resolve(import.meta.dirname, '..', 'coupling', 'live.ts');
+const liveLabelOf = (script: string): string => `tests/${script.replace(/^test:/, '')}.ts`;
+
+function liveCoverage(repo: string, ...args: string[]): void {
+  const done = spawnSync('npx', ['tsx', LIVE_SCRIPT, ...args], { cwd: repo, stdio: 'inherit' });
+  if (done.status !== 0) throw new Error(`the dev stack's coverage could not be read (${args.join(' ')})`);
+}
+
 export function runSteps(repo: string, commit: string, steps: GateStep[], env: Record<string, string>): StepPassed[] {
   const passed: StepPassed[] = [];
+  const measured = liveProcesses().length > 0;
+  const sampled: string[] = [];
   steps.forEach((step, index) => {
     console.log(`\n━━ ${index + 1}/${steps.length} ${step.name} (npm run ${step.script})`);
     const started = Date.now();
+    const live = measured && /-live$/.test(step.script);
+    if (live) liveCoverage(repo, 'discard');
     const result = spawnSync('npm', ['run', step.script, '--silent'], { cwd: repo, stdio: 'inherit', env: { ...process.env, ...env } });
+    if (live) {
+      liveCoverage(repo, 'sample', liveLabelOf(step.script));
+      sampled.push(liveLabelOf(step.script));
+    }
     const minutes = minutesSince(started);
     if (result.status !== 0) throw new Error(`${step.name} failed after ${minutes} min (npm run ${step.script})`);
     const moved = checkoutProblem(repo, commit);
@@ -152,6 +169,10 @@ export function runSteps(repo: string, commit: string, steps: GateStep[], env: R
     console.log(`━━ ✓ ${step.name} in ${minutes} min`);
     passed.push({ name: step.name, script: step.script, minutes });
   });
+  if (sampled.length > 0) {
+    console.log(`the dev stack's coverage: ${convert()} live suites`);
+    recordLive(sampled);
+  }
   return passed;
 }
 

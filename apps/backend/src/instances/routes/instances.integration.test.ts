@@ -494,3 +494,32 @@ describe('root\'s mail on its admin page', () => {
     expect((await axios.get(harness.url('/api/instances/mail-reputation'), { validateStatus: () => true })).status).toBe(404);
   });
 });
+
+describe('the pool\'s administration, on a root given no operator gate', () => {
+  let harness: Harness | undefined;
+  afterEach(async () => { await harness?.close(); });
+
+  it('turns everyone away, whatever the stored records say, and changes nothing', async () => {
+    harness = await mountRouter({
+      prefix: '/api/instances',
+      router: async (db) => {
+        await db.instances.saveInstance({
+          id: 'inst-1', ownerId: 'u1', name: 'alice', status: 'ready', createdAt: 'then', updatedAt: 'then', credentialHash: hashCredential('secret'),
+          pool: { ports: { backend: 35000, edge: 35001, registry: 35002 }, startedAt: 'then', trialEndsAt: '2026-11-03T00:00:00.000Z' },
+        } as never);
+        return instancesRouter({
+          instances: new InstanceService(db, { rootUrl: 'https://app.koala.dev', rootPublicKeys: () => ['PEM'], registry: 'r', imageTag: 't', domain: 'koala.dev', pool: { slots: 1, trialDays: 14 } }, undefined),
+          chart: async () => '',
+        });
+      },
+    });
+    const quiet = { validateStatus: () => true };
+    for (const answer of [
+      await axios.get(harness.url('/api/instances/pool/admin'), quiet),
+      await axios.put(harness.url('/api/instances/pool/admin/trial-days'), { days: 30 }, quiet),
+      await axios.put(harness.url('/api/instances/pool/admin/instances/inst-1/trial'), { trialEndsAt: '2027-01-01T00:00:00.000Z' }, quiet),
+      await axios.delete(harness.url('/api/instances/pool/admin/instances/inst-1'), { ...quiet, data: { confirm: 'alice' } }),
+    ]) expect([answer.status, answer.data]).toEqual([403, { error: 'Admin only' }]);
+    expect((await harness.db.instances.getInstances()).map((entry) => entry.pool?.trialEndsAt)).toEqual(['2026-11-03T00:00:00.000Z']);
+  });
+});

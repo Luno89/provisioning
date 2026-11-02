@@ -85,6 +85,13 @@ describe('the bench', () => {
     expect(timers).toEqual([30 * 60_000, 30 * 60_000]);
   });
 
+  it('restarts the countdown when something the bench judges changed, and not when a conversation merely went quiet', async () => {
+    await db.checks.saveBenchSettings('u1', { enabled: true, idleMinutes: 5, fullEveryHours: 24 });
+    await bench().changed('u1');
+    await bench().activity({ kind: 'conversation-quiet', ownerId: 'u1', conversationId: 'c1' } as never);
+    expect(timers).toEqual([5 * 60_000]);
+  });
+
   it('counts nothing down when it is switched off', async () => {
     await db.checks.saveBenchSettings('u1', { enabled: false, idleMinutes: 30, fullEveryHours: 24 });
     await bench().activity({ kind: 'run-started', ownerId: 'u1', runId: 'r', agentSlug: 'koala', depth: 0 });

@@ -4,7 +4,8 @@ import type { Database } from '../../platform/lib/db-interface.js';
 import type { ProjectMetadata } from '../../platform/lib/types.js';
 import type { SecretRequest } from '../lib/secret-requests.js';
 import type { TreeTypeSpec } from '../lib/tree-types.js';
-import { ProjectSecretsService, projectSecretsFor, type DeclaredSecretVault } from './ProjectSecretsService.js';
+import { secretsFromTheDatabaseBehaviour } from '../testing/project-secrets-behaviour.js';
+import { ProjectSecretsService, type DeclaredSecretVault } from './ProjectSecretsService.js';
 
 const at = 'then';
 let db: Database;
@@ -143,41 +144,4 @@ describe('the sign-ins of a project', () => {
   });
 });
 
-describe('the secrets service built from the database and the vault backend', () => {
-  it('mints, reads and keeps through the backend, and asks the person through the store', async () => {
-    const held = new Map<string, string>();
-    const backendCalls: string[] = [];
-    const secrets = projectSecretsFor({
-      db: db.projects,
-      backend: {
-        hasSecret: async (projectId, key) => held.has(`${projectId}/${key}`),
-        getSecret: async (projectId, key) => held.get(`${projectId}/${key}`) ?? null,
-        listSecrets: async () => [],
-        setSecret: async (projectId, key, value, comment) => { backendCalls.push(`${key}: ${comment ?? ''}`); held.set(`${projectId}/${key}`, value); return { secretReference: `secret://${projectId}/${key}` }; },
-      },
-      readToken: async () => 'tok',
-      asked: (request) => { asked.push(request); },
-    });
-    await db.projects.saveTreeType(shop);
-    const ensured = await secrets.ensure(project);
-    expect(ensured.waiting).toEqual(['STRIPE_KEY']);
-    expect(held.get('p1/POSTGRES_PASSWORD')).toMatch(/^[A-Za-z0-9]{32}$/);
-    expect(backendCalls).toEqual(['POSTGRES_PASSWORD: Provisioned automatically: a random value the platform made', 'ODOO_ADMIN_PASSWORD: Provisioned automatically: a random value the platform made']);
-    expect(asked.map((request) => request.key)).toEqual(['STRIPE_KEY']);
-    expect((await db.projects.getSecretRequests('bo', { projectId: 'p1' })).map((request) => request.key)).toEqual(['STRIPE_KEY']);
-
-    await secrets.keep('p1', 'POSTGRES_PASSWORD', 'running');
-    expect(held.get('p1/POSTGRES_PASSWORD')).toBe('running');
-    expect(await secrets.signIns(project)).toEqual([{ login: 'admin', password: held.get('p1/ODOO_ADMIN_PASSWORD'), describe: 'The admin password.' }]);
-  });
-
-  it('works without anyone to tell when a secret is asked for', async () => {
-    const secrets = projectSecretsFor({
-      db: db.projects,
-      backend: { hasSecret: async () => false, getSecret: async () => null, listSecrets: async () => [], setSecret: async (projectId, key) => ({ secretReference: `secret://${projectId}/${key}` }) },
-      readToken: async () => 'tok',
-    });
-    await db.projects.saveTreeType(shop);
-    expect((await secrets.ensure(project)).waiting).toEqual(['STRIPE_KEY']);
-  });
-});
+secretsFromTheDatabaseBehaviour(async () => memoryDatabase());

@@ -1,10 +1,17 @@
 import { anyOf } from '../../platform/lib/test-matchers.js';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Readable } from 'node:stream';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import type { ProcessRun } from '../../platform/lib/processes.js';
+import { nodeProcesses } from '../../platform/services/processes.js';
 import { testDatabase } from '../../platform/lib/test-database.js';
 import { memoryHubStore } from '../lib/hub-store.js';
 import { CHANGES_PAGE, HubService } from './HubService.js';
-import { HubSyncService, localHubSync } from './HubSyncService.js';
+import { HubSyncService, localHubSync, type HubRepoSides } from './HubSyncService.js';
 import { HubRelay } from './HubRelay.js';
 import { HubInstanceWork } from './HubInstanceWork.js';
 import type { Leaf } from '../../projects/lib/leaves.js';
@@ -300,5 +307,157 @@ describe('members working a shared project from the hub', () => {
     expect(elsewhere.ok && elsewhere.value.kind === 'json' && elsewhere.value.status).toBe(404);
     sync.stop();
     relay.stop();
+  });
+});
+
+const run = promisify(execFile);
+
+describe('keeping main in step with the hub\'s, with real git', () => {
+  const dirs: string[] = [];
+  afterEach(async () => { for (const dir of dirs.splice(0)) await fs.rm(dir, { recursive: true, force: true }); });
+
+  async function bare(): Promise<string> {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'hub-sync-svc-'));
+    dirs.push(dir);
+    await run('git', ['init', '--bare', '--quiet', '--initial-branch=main', dir]);
+    return dir;
+  }
+
+  async function commit(repo: string, file: string, content: string): Promise<string> {
+    const work = await fs.mkdtemp(path.join(os.tmpdir(), 'hub-sync-svc-work-'));
+    dirs.push(work);
+    const git = (...args: string[]) => run('git', ['-C', work, '-c', 'user.name=t', '-c', 'user.email=t@t', ...args]);
+    await run('git', ['clone', '--quiet', repo, work]);
+    if (!(await git('rev-parse', '--verify', '--quiet', 'HEAD').then(() => true, () => false))) await git('checkout', '--quiet', '-b', 'main');
+    await fs.writeFile(path.join(work, file), content);
+    await git('add', file);
+    await git('commit', '--quiet', '-m', `${file}: ${content}`);
+    await git('push', '--quiet', 'origin', 'HEAD:refs/heads/main');
+    return (await git('rev-parse', 'HEAD')).stdout.trim();
+  }
+
+  async function withRepos() {
+    const db = await testDatabase();
+    const owner = await bare();
+    const hub = await bare();
+    const conflicts: { files: string[]; kept: string }[] = [];
+    const ran: ProcessRun[] = [];
+    const repos: HubRepoSides = { ends: async () => ({ owner: { url: owner }, hub: { url: hub } }), conflicted: async (_link, conflict) => { conflicts.push(conflict); } };
+    const lines: string[] = [];
+    const sync = new HubSyncService({
+      store: db.hub, transport: localHubSync(new HubService({ store: memoryHubStore(), invites: { send: async () => ({ link: 'l', emailed: false }) } }), 'combined'), origin: 'instance:combined', repos,
+      git: { run: (given) => { ran.push(given); return nodeProcesses.run(given); } }, log: (line) => lines.push(line),
+    });
+    await db.hub.saveHubLink({ projectId: 'p1', ownerId: 'ann', hubProjectId: 'hub-1', pulledThrough: 0, sharedAt: now, repo: { url: 'http://gitea/p1.git', username: 'bot', tokenEnc: 'sealed' } });
+    return { db, owner, hub, sync, conflicts, ran, lines };
+  }
+
+  const heads = async (repo: string) => (await run('git', ['-C', repo, 'rev-parse', 'main'])).stdout.trim();
+
+  it('copies main across when only one side has it, remembers both heads, and leaves it alone until a side moves', async () => {
+    const { db, owner, hub, sync, ran } = await withRepos();
+    const first = await commit(owner, 'a.txt', 'one');
+    expect(await sync.syncRepos()).toBe(1);
+    expect(await heads(hub)).toBe(first);
+    expect((await db.hub.getHubLinks())[0]?.repoHeads).toEqual({ owner: first, hub: first });
+
+    const before = ran.length;
+    expect(await sync.syncRepos()).toBe(0);
+    expect(ran.length).toBe(before + 2);
+
+    const fromMember = await commit(hub, 'b.txt', 'member');
+    expect(await sync.syncRepos()).toBe(1);
+    expect(await heads(owner)).toBe(fromMember);
+    expect((await db.hub.getHubLinks())[0]?.repoHeads).toEqual({ owner: fromMember, hub: fromMember });
+  });
+
+  it('keeps the hub\'s main beside the owner\'s on a conflict, tells the project once, and leaves it alone until a side moves', async () => {
+    const { db, owner, hub, sync, conflicts, ran } = await withRepos();
+    await commit(owner, 'a.txt', 'one');
+    await sync.syncRepos();
+    const ownerHead = await commit(owner, 'a.txt', 'owner');
+    const hubHead = await commit(hub, 'a.txt', 'member');
+
+    expect(await sync.syncRepos()).toBe(0);
+    const [saved] = await db.hub.getHubLinks();
+    expect(saved?.repoConflict).toMatchObject({ owner: ownerHead, hub: hubHead });
+    expect(conflicts).toEqual([{ files: ['a.txt'], kept: saved!.repoConflict!.kept }]);
+    expect(saved!.repoConflict!.kept).toMatch(/^hub\/main-\d{14}$/);
+    expect([await heads(owner), await heads(hub)]).toEqual([ownerHead, hubHead]);
+
+    const before = ran.length;
+    await sync.syncRepos();
+    expect(conflicts).toHaveLength(1);
+    expect(ran.length).toBe(before + 2);
+
+    const moved = await commit(hub, 'c.txt', 'more');
+    await sync.syncRepos();
+    expect(conflicts).toHaveLength(2);
+    expect((await db.hub.getHubLinks())[0]?.repoConflict).toMatchObject({ hub: moved });
+  });
+
+  it('clears an old conflict once both mains are the same commit, and says why a main could not be synced and goes on', async () => {
+    const { db, owner, hub, sync, lines } = await withRepos();
+    const same = await commit(owner, 'a.txt', 'one');
+    await run('git', ['-C', owner, 'push', '--quiet', hub, 'main:main']);
+    await db.hub.saveHubLink({ ...(await db.hub.getHubLinks())[0]!, repoConflict: { owner: 'x', hub: 'y', kept: 'hub/main-0' } });
+    expect(await sync.syncRepos()).toBe(0);
+    const [saved] = await db.hub.getHubLinks();
+    expect(saved?.repoHeads).toEqual({ owner: same, hub: same });
+    expect(saved).not.toHaveProperty('repoConflict');
+
+    await fs.rm(hub, { recursive: true, force: true });
+    await db.hub.saveHubLink({ ...saved!, repoHeads: { owner: 'x', hub: 'y' } });
+    expect(await sync.syncRepos()).toBe(0);
+    expect(lines).toEqual([expect.stringMatching(/^hub sync: p1's main not synced yet: .*does not appear to be a git repository/) as string]);
+  });
+});
+
+describe('listening for the hub\'s calls through the hub in the same process', () => {
+  async function unknownToTheHub() {
+    const db = await testDatabase();
+    const hub = new HubService({ store: memoryHubStore(), invites: { send: async () => ({ link: 'l', emailed: false }) }, relay: new HubRelay(Date.now, 60_000) });
+    await db.hub.saveHubLink({ projectId: 'p1', ownerId: 'ann', hubProjectId: 'nobody-made-this-one', pulledThrough: 0, sharedAt: now });
+    const lines: string[] = [];
+    const transport = localHubSync(hub, 'combined');
+    const asked = { count: 0 };
+    const sync = (retryMs: number) => new HubSyncService({
+      store: db.hub, origin: 'instance:combined', transport: { ...transport, take: (link, signal) => { asked.count += 1; return transport.take(link, signal); } },
+      work: () => ({}) as never, retryMs, log: (line) => lines.push(line),
+    });
+    return { sync, asked, lines };
+  }
+
+  it('says why the hub would not be listened to and tries again after a pause', async () => {
+    const { sync, asked, lines } = await unknownToTheHub();
+    const listening = sync(20);
+    await listening.followRelays();
+    await vi.waitFor(() => expect(asked.count).toBeGreaterThanOrEqual(3));
+    listening.stop();
+    expect(new Set(lines)).toEqual(new Set(['hub sync: p1 is not taking the hub\'s calls yet: There is no such project, or you are not on it.']));
+  });
+
+  it('stops waiting out the pause the moment it is told to stop, instead of holding its timer for the rest of it', async () => {
+    const { sync, asked } = await unknownToTheHub();
+    const real = globalThis.setTimeout;
+    const waits: unknown[] = [];
+    const setting = vi.spyOn(globalThis, 'setTimeout').mockImplementation(((handler: () => void, ms?: number) => {
+      const timer = real(handler, ms);
+      if (ms === 600_000) waits.push(timer);
+      return timer;
+    }) as typeof setTimeout);
+    const clearing = vi.spyOn(globalThis, 'clearTimeout');
+    try {
+      const listening = sync(600_000);
+      await listening.followRelays();
+      await vi.waitFor(() => expect(waits).toHaveLength(1));
+      expect(clearing).not.toHaveBeenCalledWith(waits[0]);
+      listening.stop();
+      expect(clearing).toHaveBeenCalledWith(waits[0]);
+      expect(asked.count).toBe(1);
+    } finally {
+      setting.mockRestore();
+      clearing.mockRestore();
+    }
   });
 });

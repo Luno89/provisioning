@@ -253,6 +253,25 @@ describe('watching alerts', () => {
     expect(told.filter((line) => line.includes('resolved')).sort()).toEqual(['me resolved Books is not answering', 'me resolved Memory is nearly full', 'someone resolved Theirs is not answering']);
   });
 
+  it('watches on its own timer until it is stopped', async () => {
+    const pause = (ms: number) => new Promise((done) => setTimeout(done, ms));
+    const until = async (done: () => boolean) => { for (let tries = 0; tries < 200 && !done(); tries += 1) await pause(10); };
+    const watch = watcher();
+    prom.firing = [{ labels: { alertname: 'AppProbeDown', namespace: 'books' }, state: 'firing', activeAt: '2026-10-17T11:58:00Z' }];
+    watch.start(20);
+    watch.start(20);
+    await until(() => told.some((line) => line.includes('fired')));
+    prom.firing = [];
+    await until(() => told.some((line) => line.includes('resolved')));
+    watch.stop();
+    expect(told.filter((line) => line.includes('Books is not answering'))).toEqual(['me fired Books is not answering', 'me resolved Books is not answering']);
+
+    await pause(60);
+    const asked = prom.asked.length;
+    await pause(100);
+    expect(prom.asked.length).toBe(asked);
+  });
+
   it('tells only the rule\'s owner about it', async () => {
     await db.monitoring.saveAlertRule({ id: 'r1', ownerId: 'me', deploymentId: 'books', clusterId: system.id, namespace: 'books', appName: 'Books', spec: alertSpec('down') as AlertSpec, summary: 'Books: down', createdAt: 'then' });
     prom.firing = [{ labels: { alertname: 'Koala_down', namespace: 'books', [RULE_LABEL]: 'r1' }, annotations: { summary: 'Books: down' }, state: 'firing' }];

@@ -113,6 +113,8 @@ describe('Level 2 scenarios run as checks', () => {
     const done = await settled(service, second.id);
     expect(done).toMatchObject({ state: 'done', regressions: ['builder-saves'], trigger: { kind: 'full' } });
     expect(finished.map((run) => run.id)).toEqual([first.id, second.id]);
+    expect((await service.list('user-1')).map((run) => run.id).sort()).toEqual([first.id, second.id]);
+    expect(await service.list('someone-else')).toEqual([]);
   });
 
   it('cancels through the runner, and settles as cancelled', async () => {

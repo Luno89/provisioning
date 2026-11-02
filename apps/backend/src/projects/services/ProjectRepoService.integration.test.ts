@@ -1,7 +1,8 @@
 import { anyOf, matching } from '../../platform/lib/test-matchers.js';
 import { describe, it, expect } from 'vitest';
-import { testDatabase } from '../../platform/lib/test-database.js';
+import { emptiedEachTime, testDatabase } from '../../platform/lib/test-database.js';
 import type { MongoDB } from '../../platform/lib/mongo-db.js';
+import { documentsThroughAnAccountBehaviour } from '../testing/project-repo-behaviour.js';
 import { ProjectRepoService } from './ProjectRepoService.js';
 
 const KEY = 'a'.repeat(64);
@@ -144,3 +145,7 @@ describe('making a project with a repository', () => {
     await expect(new ProjectRepoService(db, gitea as never, KEY as never).createProject('u1', { name: 'x', repo: 'x', autoDeployOnBuild: true })).rejects.toThrow('nothing says where their pushes are sent');
   });
 });
+
+const fresh = await emptiedEachTime();
+
+documentsThroughAnAccountBehaviour(() => fresh());

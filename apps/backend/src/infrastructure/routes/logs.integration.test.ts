@@ -39,3 +39,19 @@ describe('/api/logs/cluster', () => {
     await fs.rm(dir, { recursive: true });
   });
 });
+
+describe('/api/logs/app', () => {
+  it('shows the log of an app of the person\'s, waiting while its file is not there yet', async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'app-logs-'));
+    await fs.writeFile(path.join(dir, 'a1.log'), 'deployed');
+    const appService = { getAll: async (ownerId: string) => (ownerId === TEST_USER.id ? [{ id: 'a1', lastLogPath: path.join(dir, 'a1.log') }, { id: 'a2', lastLogPath: path.join(dir, 'a2.log') }, { id: 'a3' }] : []) };
+    const harness = await mountRouter({ prefix: '/api/logs', router: async (db) => logsRouter({ db, clusterService: { getById: async () => undefined }, appService: appService as never }) });
+    expect((await axios.get(harness.url('/api/logs/app/a1'))).data).toEqual({ content: 'deployed' });
+    expect((await axios.get(harness.url('/api/logs/app/a2'))).data).toEqual({ content: 'Waiting for logs...' });
+    expect((await axios.get(harness.url('/api/logs/app/a3'))).data).toEqual({ content: 'Initializing...' });
+    harness.setUser({ id: 'someone-else', email: 'else@example.com' });
+    expect((await axios.get(harness.url('/api/logs/app/a1'))).data).toEqual({ content: 'Initializing...' });
+    await harness.close();
+    await fs.rm(dir, { recursive: true });
+  });
+});

@@ -43,4 +43,32 @@ describe('metrics about Koala itself', () => {
       server.close();
     }
   });
+
+  it('serves gauges and counters over HTTP as text a Prometheus scraper reads', async () => {
+    const metrics = new MetricsService({ token: 'secret', role: 'root' });
+    metrics.gauge('koala_things', 'How many things', ['kind']).set({ kind: 'a' }, 3);
+    expect(metrics.gauge('koala_things', 'ignored')).toBe(metrics.gauge('koala_things', 'again'));
+    metrics.failed('chat');
+    const app = express();
+    app.get('/metrics', async (req, res) => {
+      if (!metrics.allowed(req.headers.authorization)) { res.status(401).end(); return; }
+      res.type(metrics.contentType).send(await metrics.text());
+    });
+    const server = app.listen(0, '127.0.0.1');
+    await new Promise<void>((listening) => server.once('listening', listening));
+    const port = (server.address() as { port: number }).port;
+    try {
+      expect((await fetch(`http://127.0.0.1:${port}/metrics`)).status).toBe(401);
+      const scraped = await fetch(`http://127.0.0.1:${port}/metrics`, { headers: { authorization: 'Bearer secret' } });
+      expect(scraped.status).toBe(200);
+      expect(scraped.headers.get('content-type')).toMatch(/^text\/plain.*version=0\.0\.4/);
+      const text = await scraped.text();
+      expect(text).toContain('# HELP koala_things How many things');
+      expect(text).toContain('# TYPE koala_things gauge');
+      expect(text).toContain('koala_things{kind="a",role="root"} 3');
+      expect(text).toContain('koala_work_failures_total{kind="chat",role="root"} 1');
+    } finally {
+      server.close();
+    }
+  });
 });

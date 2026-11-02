@@ -2,7 +2,7 @@ import { matching } from '../../platform/lib/test-matchers.js';
 import { describe, it, expect, beforeEach } from 'vitest';
 import { testDatabase } from '../../platform/lib/test-database.js';
 import type { MongoDB } from '../../platform/lib/mongo-db.js';
-import { ExtensionService } from './ExtensionService.js';
+import { ExtensionService, extensionServiceFor } from './ExtensionService.js';
 import { INSTALLED_EXTENSIONS, platformCatalogue, platformGroups } from '../../extensions/installed.js';
 import { PROCEDURE_SCHEMA, defineGroup, type Procedure } from '@koala/agent-engine/procedure';
 import type { ProcedureSource } from '../lib/procedure-source.js';
@@ -153,5 +153,19 @@ describe('an extension of the owner\'s own', () => {
 
     expect(await service.removeOperation('u1', 'loud', 'shout')).toMatchObject({ ok: false, status: 409, error: matching(/greeter still uses it/) });
     expect(await service.remove('u1', 'loud')).toMatchObject({ ok: false, status: 409 });
+  });
+});
+
+describe('the extensions service built for a database', () => {
+  it('lets an extension bundle only the owner\'s own agents, tools and procedures, and lists the installed ones beside it', async () => {
+    const own = extensionServiceFor(db);
+    await db.engine.saveProcedure({ id: 'greeter', ownerId: 'u1', version: '1', source: '{}', updatedAt: 'then' });
+    await db.engine.saveProcedure({ id: 'theirs', ownerId: 'u2', version: '1', source: '{}', updatedAt: 'then' });
+
+    expect((await own.list('u1')).map((state) => state.extension.id)).toEqual(INSTALLED_EXTENSIONS.map((extension) => extension.id));
+    await own.create('u1', { id: 'loud', title: 'Loud' });
+    expect(await own.update('u1', 'loud', { procedures: ['greeter'] })).toMatchObject({ ok: true });
+    expect(await own.update('u1', 'loud', { procedures: ['theirs'] })).toMatchObject({ ok: false, status: 400, error: 'theirs is not procedures of your own' });
+    expect(await own.update('u1', 'loud', { personas: ['koala'] })).toMatchObject({ ok: false, status: 400 });
   });
 });

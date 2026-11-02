@@ -21,8 +21,11 @@ describe('reading what a push changes', () => {
 
   it('refuses a body that is not git\'s push commands', () => {
     expect(pushCommands(Buffer.from('PACK')).ok).toBe(false);
-    expect(pushCommands(Buffer.from('0000')).ok).toBe(false);
     expect(pushCommands(Buffer.from('00ffshort')).ok).toBe(false);
+  });
+
+  it('takes the empty probe git sends before a push larger than one request, which names no branch', () => {
+    expect(pushCommands(Buffer.from('0000'))).toEqual({ ok: true, updates: [], end: 4 });
   });
 });
 

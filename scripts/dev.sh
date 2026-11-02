@@ -107,6 +107,15 @@ if [ -n "$STALE_WORKERS" ]; then
   sleep 0.3
 fi
 
+if [ "${COUPLING_LIVE:-}" = 1 ]; then
+  export COUPLING_LIVE_DIR="${ROOT}/tests/.coupling/live"
+  rm -rf "${COUPLING_LIVE_DIR}"
+  mkdir -p "${COUPLING_LIVE_DIR}/raw"
+  export NODE_V8_COVERAGE="${COUPLING_LIVE_DIR}/raw"
+  export NODE_OPTIONS="--enable-source-maps --import ${ROOT}/tests/coupling/live-hook.mjs ${NODE_OPTIONS:-}"
+  echo "  measuring what the live suites run on this stack (tests/.coupling/live)"
+fi
+
 # ── 3. DEV PROCESS ORCHESTRATION ────────────────────────────────────
 if [ "$SPLIT" = true ]; then
   echo "▶ [3/3] Starting root and your instance..."

@@ -134,4 +134,14 @@ describe('root\'s daily check of what its running releases are made of', () => {
     expect(check!.problems).toEqual(['no inventory is kept for cccccccccccc, so it was not checked']);
     expect(check!.releases.find((release) => release.release === 'cccccccccccc')).toMatchObject({ inventory: false, instances: ['old'] });
   });
+
+  it('shows the last check and the findings it kept without asking anyone', async () => {
+    const asked: Asked[] = [];
+    const watcher = watch(asked, '2026-10-29T12:00:00Z');
+    expect(await watcher.view()).toEqual({ check: undefined, findings: [] });
+    const { check, findings } = await watcher.check();
+    asked.length = 0;
+    expect(await watcher.view()).toEqual({ check, findings });
+    expect(asked).toEqual([]);
+  });
 });

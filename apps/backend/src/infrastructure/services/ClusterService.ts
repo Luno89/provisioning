@@ -588,7 +588,6 @@ export class ClusterService extends BaseService {
 
         const isMock = this.isMockCloud(cluster);
         const physicalName = this.getPhysicalClusterName(cluster);
-        const kubeconfigPath = await this.getKubeconfigPath(cluster);
 
         if (cluster.gpuEnabled) {
           await fs.rm(this.writtenKubeconfig(cluster), { force: true }).catch((err: unknown) => {

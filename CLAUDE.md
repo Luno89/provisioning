@@ -2012,6 +2012,12 @@ real. It works like Lighthouse, gather apart from audit:
 - **The baseline only shrinks** (`tests/coupling/baseline.json`, seeded once with every rule judged): a breach it does not list
   fails, and so does one it lists that is gone, until `tsx tests/coupling/audit.ts --prune` lowers it and the change is
   committed with the fix.
+- **What the live suites run is measured too** (the `live` artifact): `COUPLING_LIVE=1 npm run dev` starts the dev stack with
+  `NODE_V8_COVERAGE` and `tests/coupling/live-hook.mjs` (each Node process records its pid, and on `SIGUSR2` writes what ran since
+  the last time with `v8.takeCoverage()`). `runSteps` then samples the stack around every `*-live` step (`tests/coupling/live.ts`:
+  `discard` before, `sample tests/<suite>.ts` after, `convert` mapping each file back to TypeScript through the source maps the
+  coverage carries) and records it, so the audit counts those edges at the `live` level. A dev stack started without it changes
+  nothing.
 - Ship runs it as `npm run test:integration:coupled`, after the unit tier and lint; with coverage the suites took 253 s against
   196 s without on 2026-11-01. Not measured yet: workflow code (Temporal runs it from its own bundle, so `backend/workflows` shows almost
   nothing covered), the live suites' and the VMs' coverage.

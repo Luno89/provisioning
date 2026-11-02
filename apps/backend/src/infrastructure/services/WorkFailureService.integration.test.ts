@@ -80,3 +80,35 @@ describe('work that failed', () => {
     expect(await db.infrastructure.getWorkFailures('u1')).toEqual([]);
   });
 });
+
+describe('watching for failed work', () => {
+  const until = async (done: () => Promise<boolean> | boolean): Promise<void> => {
+    while (!(await done())) await new Promise((resolve) => setTimeout(resolve, 10));
+  };
+
+  it('polls at once when started, records what it finds, and can be started again once stopped', async () => {
+    const db = await testDatabase();
+    let polls = 0;
+    const service = new WorkFailureService({
+      store: db.infrastructure,
+      workflows: {
+        closedSince: async () => { polls += 1; return polls === 1 ? [closedWorkflow({})] : []; },
+        failureOf: async () => ({ message: 'Workflow execution failed' }),
+        describeRun: async () => undefined,
+      },
+      records: async () => ({ trees: [], projects: [{ id: 'p1', name: 'Books' }], conversations: [], checkRuns: [], releases: [], agentName: () => undefined }),
+      isPerson: async (ownerId) => ownerId === 'u1',
+      now: () => NOW,
+    });
+    service.start();
+    service.start();
+    await until(async () => (await db.infrastructure.getWorkFailures('u1')).length === 1);
+    expect(polls).toBe(1);
+    service.stop();
+    service.stop();
+    service.start();
+    await until(() => polls === 2);
+    service.stop();
+    expect(await service.shown('u1')).toHaveLength(1);
+  });
+});

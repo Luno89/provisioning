@@ -40,7 +40,7 @@ const graphStarted = Date.now();
 const graph = buildGraph({ projects: projectsOf(ROOT), root: ROOT, matches: MATCHES, extraEnds: outsideEnds(ROOT), calledFrom: (file) => !isTest(file) && workspaceOf(file) !== undefined });
 const graphSeconds = seconds(graphStarted);
 const joinStarted = Date.now();
-const runs = usable.artifacts.has('in-process') ? runsIn(runsOf(options.out, 'in-process')) : [];
+const runs = [...(usable.artifacts.has('in-process') ? runsIn(runsOf(options.out, 'in-process')) : []), ...(usable.artifacts.has('live') ? runsIn(runsOf(options.out, 'live')) : [])];
 const judged = judge(graph, runs, levelOf);
 const joinSeconds = seconds(joinStarted);
 

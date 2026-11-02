@@ -6,8 +6,8 @@ import { join, resolve } from 'node:path';
 export const ROOT = resolve(import.meta.dirname, '..', '..');
 export const OUT = join(ROOT, 'tests', '.coupling');
 
-export type Artifact = 'in-process';
-export const ARTIFACTS: readonly Artifact[] = ['in-process'];
+export type Artifact = 'in-process' | 'live';
+export const ARTIFACTS: readonly Artifact[] = ['in-process', 'live'];
 
 export interface Timing { seconds: number; plainSeconds?: number; passed: boolean }
 

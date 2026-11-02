@@ -4,6 +4,7 @@ import { containing, matching } from '../../platform/lib/test-matchers.js';
 import { decryptValue } from '../../platform/lib/crypto.js';
 import { memoryDatabase } from '../../platform/testing/memory-database.js';
 import type { HubService } from '../../hub/index.js';
+import { sharedProjectRecordsBehaviour } from '../testing/project-sharing-behaviour.js';
 import { localHubSharing, localProjectGroups, ProjectSharingService, type HubSharing, type ProjectGroups } from './ProjectSharingService.js';
 
 const now = '2026-10-21T00:00:00Z';
@@ -255,45 +256,9 @@ describe('taking a project back', () => {
     expect(sharing.unshare).toHaveBeenCalledWith('ann', 'hub-p1');
     expect(await db.hub.getHubLinks()).toEqual([]);
   });
-
-  it('tells whether a project is shared', async () => {
-    const { service } = await sharedSetUp();
-    expect(await service.shared('p1')).toBe(true);
-    expect(await service.shared('p2')).toBe(false);
-  });
 });
 
-describe('the two ends of a shared project\'s repository', () => {
-  it('are the owner\'s repository and the hub\'s, opened with the sealed token', async () => {
-    const { db, sharing, service } = await setUp();
-    sharing.share.mockResolvedValue({ hubProjectId: 'hub-1', repo: { url: 'http://hub/shared-1/project.git', username: 'bot', token: 'tok-secret' } });
-    await service.share(ann, 'p1', 'acme');
-    const link = (await db.hub.getHubLinks())[0]!;
-    expect(await service.repoSides().ends(link)).toEqual({
-      owner: { url: 'http://gitea/koala-ann/shop.git' },
-      hub: { url: 'http://hub/shared-1/project.git', auth: { username: 'bot', token: 'tok-secret' } },
-    });
-  });
-
-  it('are none when the link has no repository or the project has none', async () => {
-    const { db, service } = await setUp();
-    expect(await service.repoSides().ends({ projectId: 'p1', ownerId: 'ann', hubProjectId: 'h', pulledThrough: 0, sharedAt: now })).toBeUndefined();
-    await db.projects.deleteTree('t2');
-    expect(await service.repoSides().ends({ projectId: 'p2', ownerId: 'ann', hubProjectId: 'h', pulledThrough: 0, sharedAt: now, repo: { url: 'u', username: 'b', tokenEnc: 'x' } })).toBeUndefined();
-  });
-
-  it('tell the project\'s channel when main conflicted, naming its tree', async () => {
-    const { notices, service } = await setUp();
-    await service.repoSides().conflicted({ projectId: 'p1', ownerId: 'ann', hubProjectId: 'h', pulledThrough: 0, sharedAt: now }, { files: ['a.txt'], kept: 'hub/main-1' });
-    expect(notices).toEqual([[{ projectId: 'p1', treeId: 't1' }, expect.objectContaining({ kind: 'hub-main-conflict' })]]);
-  });
-
-  it('tell nobody about a project that is gone', async () => {
-    const { notices, service } = await setUp();
-    await service.repoSides().conflicted({ projectId: 'gone', ownerId: 'ann', hubProjectId: 'h', pulledThrough: 0, sharedAt: now }, { files: [], kept: 'x' });
-    expect(notices).toEqual([]);
-  });
-});
+sharedProjectRecordsBehaviour(async () => memoryDatabase());
 
 describe('sharing through a hub in the same process', () => {
   const view = { project: { id: 'hub-1' } };

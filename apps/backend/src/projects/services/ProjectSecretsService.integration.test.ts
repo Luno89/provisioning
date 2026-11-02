@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { testDatabase } from '../../platform/lib/test-database.js';
+import { emptiedEachTime, testDatabase } from '../../platform/lib/test-database.js';
 import type { MongoDB } from '../../platform/lib/mongo-db.js';
+import { secretsFromTheDatabaseBehaviour } from '../testing/project-secrets-behaviour.js';
 import { ProjectSecretsService } from './ProjectSecretsService.js';
 import type { TreeTypeSpec } from '../lib/tree-types.js';
 import type { ProjectMetadata } from '../../platform/lib/types.js';
@@ -91,3 +92,7 @@ describe('the secrets a tree type declares for its project', () => {
     expect(await service().signIns({ ...project, id: 'p9' })).toEqual([]);
   });
 });
+
+const fresh = await emptiedEachTime();
+
+secretsFromTheDatabaseBehaviour(() => fresh());

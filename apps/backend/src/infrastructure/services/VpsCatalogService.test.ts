@@ -1,18 +1,8 @@
 import { describe, it, expect } from 'vitest';
+import { memoryDatabase } from '../../platform/testing/memory-database.js';
 import { applyFilters, VpsCatalogService, type VpsCatalogDb } from './VpsCatalogService.js';
-import type { AdapterResult } from '../lib/vps-catalog/types.js';
-import { withDerived } from '../lib/vps-catalog/types.js';
-import type { VpsCatalogAdapter, VpsOffer } from '../lib/vps-catalog/types.js';
-
-const offer = (o: Partial<Parameters<typeof withDerived>[0]> = {}): VpsOffer =>
-  withDerived({
-    provider: 'test', planId: 'p1', label: 'P1',
-    vcpu: 2, cpuType: 'shared', arch: 'x86',
-    ramGb: 4, diskGb: 80,
-    priceMonthly: 20, currency: 'USD', taxIncluded: false,
-    hourlyBilling: true, locations: ['us-east'], provisionable: false,
-    ...o,
-  });
+import type { VpsCatalogAdapter } from '../lib/vps-catalog/types.js';
+import { good, offer, vpsCatalogBehaviour } from '../testing/vps-catalog-behaviour.js';
 
 describe('applyFilters', () => {
   it('filters on the resource dimensions', () => {
@@ -192,86 +182,6 @@ describe('GPU is kept separate from system RAM', () => {
   });
 });
 
-describe('one bad provider must not empty the whole catalogue', () => {
-  const stubDb: VpsCatalogDb = { accounts: { getUserById: async () => undefined } };
-
-  const good = (provider: string): VpsCatalogAdapter => ({
-    provider, requiresCredentials: false, provisionable: false,
-    fetch: async () => ({ offers: [offer({ provider, planId: `${provider}-1` })], skippedNoPrice: 0 }),
-  });
-
-  const svc = (adapters: VpsCatalogAdapter[]) =>
-    new VpsCatalogService(stubDb, 'test-key', adapters);
-
-  it('still returns healthy providers when one adapter throws', async () => {
-    const boom: VpsCatalogAdapter = {
-      provider: 'boom', requiresCredentials: false, provisionable: false,
-      fetch: async () => { throw new Error('upstream 503'); },
-    };
-    const r = await svc([good('linode'), boom, good('vultr')]).search('u1', {});
-    expect(r.offers.map((o) => o.provider).sort()).toEqual(['linode', 'vultr']);
-    expect(r.sources.find((s) => s.provider === 'boom')).toMatchObject({
-      status: 'error', offerCount: 0, message: 'upstream 503',
-    });
-  });
-
-  it('survives an adapter whose result shape is wrong, and does not poison the cache', async () => {
-    const malformed: VpsCatalogAdapter = {
-      provider: 'malformed', requiresCredentials: false, provisionable: false,
-      fetch: async () => JSON.parse(JSON.stringify([offer({ provider: 'malformed' })])) as AdapterResult,
-    };
-    const s = svc([good('linode'), malformed]);
-
-    const first = await s.search('u1', {});
-    expect(first.offers.map((o) => o.provider)).toEqual(['linode']);
-    expect(first.sources.find((x) => x.provider === 'malformed')?.status).toBe('error');
-
-    const second = await s.search('u1', {});
-    expect(second.offers.map((o) => o.provider)).toEqual(['linode']);
-    expect(second.sources.find((x) => x.provider === 'malformed')?.status).toBe('error');
-  });
-
-  it('does not reject when token resolution blows up for a credentialed provider', async () => {
-    const failingDb: VpsCatalogDb = { accounts: { getUserById: async () => { throw new Error('mongo unavailable'); } } };
-    const gated: VpsCatalogAdapter = {
-      provider: 'hetzner', requiresCredentials: true, provisionable: true,
-      fetch: async () => ({ offers: [], skippedNoPrice: 0 }),
-    };
-    const r = await new VpsCatalogService(failingDb, 'test-key', [good('vultr'), gated]).search('u1', {});
-    expect(r.offers.map((o) => o.provider)).toEqual(['vultr']);
-    expect(r.sources.find((s) => s.provider === 'hetzner')?.status).toBe('error');
-  });
-});
-
-describe('the market a provider was read for', () => {
-  const stubDb: VpsCatalogDb = { accounts: { getUserById: async () => undefined } };
-  const au: VpsCatalogAdapter = {
-    provider: 'ovh', requiresCredentials: false, provisionable: false,
-    fetch: async () => ({
-      offers: [offer({ provider: 'ovh', planId: 'vps-2027-model2', currency: 'AUD' })],
-      skippedNoPrice: 0,
-      market: { subsidiary: 'AU', currency: 'AUD', taxRate: 10 },
-    }),
-  };
-
-  it('is carried on the source, fresh and from the cache', async () => {
-    const s = new VpsCatalogService(stubDb, 'test-key', [au]);
-    const fresh = await s.search('u1', {});
-    expect(fresh.sources[0]).toMatchObject({ provider: 'ovh', cached: false, market: { subsidiary: 'AU', currency: 'AUD', taxRate: 10 } });
-    const cached = await s.search('u1', {});
-    expect(cached.sources[0]).toMatchObject({ cached: true, market: { subsidiary: 'AU', currency: 'AUD' } });
-  });
-
-  it('is left out for a provider that names none', async () => {
-    const plain: VpsCatalogAdapter = {
-      provider: 'vultr', requiresCredentials: false, provisionable: false,
-      fetch: async () => ({ offers: [offer({ provider: 'vultr' })], skippedNoPrice: 0 }),
-    };
-    const r = await new VpsCatalogService(stubDb, 'test-key', [plain]).search('u1', {});
-    expect(r.sources[0]).not.toHaveProperty('market');
-  });
-});
-
 describe('per-location pricing', () => {
   const eu = offer({
     planId: 'cpx11', idSuffix: 'fsn1', priceMonthly: 5.99, bandwidthTb: 20,
@@ -322,5 +232,20 @@ describe('withDerived', () => {
 
   it('does not divide by zero on a 0-RAM plan', () => {
     expect(offer({ ramGb: 0 }).pricePerGbRam).toBe(0);
+  });
+});
+
+vpsCatalogBehaviour(async () => memoryDatabase());
+
+describe('a store that cannot be read', () => {
+  it('does not reject when token resolution blows up for a credentialed provider', async () => {
+    const failingDb: VpsCatalogDb = { accounts: { getUserById: async () => { throw new Error('mongo unavailable'); } } };
+    const gated: VpsCatalogAdapter = {
+      provider: 'hetzner', requiresCredentials: true, provisionable: true,
+      fetch: async () => ({ offers: [], skippedNoPrice: 0 }),
+    };
+    const r = await new VpsCatalogService(failingDb, 'test-key', [good('vultr'), gated]).search('u1', {});
+    expect(r.offers.map((o) => o.provider)).toEqual(['vultr']);
+    expect(r.sources.find((s) => s.provider === 'hetzner')?.status).toBe('error');
   });
 });

@@ -32,7 +32,10 @@ function generatedAt(starts: number[], offset: number): Position {
   return { line: low + 1, column: offset - starts[low]! };
 }
 
-export interface Collector { take(testFile: string): Promise<void> }
+export interface Collector {
+  take(testFile: string): Promise<void>;
+  sample(label: string, out: string): Promise<void>;
+}
 
 export async function startCollecting(options: { dir: string; root: string; keep: (file: string) => boolean; shellTrace?: string }): Promise<Collector> {
   const session = new Session();
@@ -41,44 +44,49 @@ export async function startCollecting(options: { dir: string; root: string; keep
   await session.post('Debugger.enable');
   await session.post('Profiler.startPreciseCoverage', { callCount: true, detailed: true });
   mkdirSync(options.dir, { recursive: true });
+  const write = async (label: string, out: string): Promise<void> => {
+    const { result } = await session.post('Profiler.takePreciseCoverage') as { result: V8Script[] };
+    const files: Record<string, RanRange[]> = {};
+    for (const script of result) {
+      if (!script.url.startsWith('file://')) continue;
+      const path = fileURLToPath(script.url);
+      const file = relative(options.root, path);
+      if (!options.keep(file)) continue;
+      const { scriptSource } = await session.post('Debugger.getScriptSource', { scriptId: script.scriptId }) as { scriptSource: string };
+      const inline = INLINE_MAP.exec(scriptSource)?.[1];
+      if (!inline) continue;
+      const map = new TraceMap(JSON.parse(Buffer.from(inline, 'base64').toString('utf8')) as SourceMapInput);
+      const starts = lineStarts(scriptSource);
+      const original = (offset: number): Position | undefined => {
+        const at = generatedAt(starts, offset);
+        const found = originalPositionFor(map, { line: at.line, column: at.column });
+        return found.line === null ? undefined : { line: found.line, column: found.column + 1 };
+      };
+      const ranges: RanRange[] = [];
+      for (const fn of script.functions) {
+        fn.ranges.forEach((range, index) => {
+          const start = original(range.startOffset);
+          const end = original(Math.max(range.startOffset, range.endOffset - 1));
+          if (!start || !end) return;
+          ranges.push({ start, end, count: range.count, ...(index === 0 ? { fn: fn.functionName } : {}) });
+        });
+      }
+      files[file] = ranges;
+    }
+    if (options.shellTrace) {
+      Object.assign(files, shellRan(options.shellTrace, options.root));
+      rmSync(options.shellTrace, { force: true });
+    }
+    const ran: Ran = { testFile: label, files };
+    writeFileSync(join(options.dir, out), JSON.stringify(ran));
+  };
   return {
     async take(testFile) {
-      const { result } = await session.post('Profiler.takePreciseCoverage') as { result: V8Script[] };
-      const files: Record<string, RanRange[]> = {};
-      for (const script of result) {
-        if (!script.url.startsWith('file://')) continue;
-        const path = fileURLToPath(script.url);
-        const file = relative(options.root, path);
-        if (!options.keep(file)) continue;
-        const { scriptSource } = await session.post('Debugger.getScriptSource', { scriptId: script.scriptId }) as { scriptSource: string };
-        const inline = INLINE_MAP.exec(scriptSource)?.[1];
-        if (!inline) continue;
-        const map = new TraceMap(JSON.parse(Buffer.from(inline, 'base64').toString('utf8')) as SourceMapInput);
-        const starts = lineStarts(scriptSource);
-        const original = (offset: number): Position | undefined => {
-          const at = generatedAt(starts, offset);
-          const found = originalPositionFor(map, { line: at.line, column: at.column });
-          return found.line === null ? undefined : { line: found.line, column: found.column + 1 };
-        };
-        const ranges: RanRange[] = [];
-        for (const fn of script.functions) {
-          fn.ranges.forEach((range, index) => {
-            const start = original(range.startOffset);
-            const end = original(Math.max(range.startOffset, range.endOffset - 1));
-            if (!start || !end) return;
-            ranges.push({ start, end, count: range.count, ...(index === 0 ? { fn: fn.functionName } : {}) });
-          });
-        }
-        files[file] = ranges;
-      }
-      if (options.shellTrace) {
-        Object.assign(files, shellRan(options.shellTrace, options.root));
-        rmSync(options.shellTrace, { force: true });
-      }
-      const ran: Ran = { testFile: relative(options.root, testFile), files };
-      writeFileSync(join(options.dir, `${relative(options.root, testFile).replace(/[^A-Za-z0-9.-]+/g, '_')}.json`), JSON.stringify(ran));
+      const label = relative(options.root, testFile);
+      await write(label, `${label.replace(/[^A-Za-z0-9.-]+/g, '_')}.json`);
       await session.post('Profiler.stopPreciseCoverage');
       session.disconnect();
     },
+    sample: write,
   };
 }
