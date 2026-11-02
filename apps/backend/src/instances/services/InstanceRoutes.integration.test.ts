@@ -2,10 +2,12 @@ import { describe, expect, it, beforeEach } from 'vitest';
 import fs from 'fs/promises';
 import os from 'os';
 import path from 'path';
-import { testDatabase } from '../../platform/lib/test-database.js';
+import { emptiedEachTime } from '../../platform/lib/test-database.js';
 import type { MongoDB } from '../../platform/lib/mongo-db.js';
 import { InstanceRoutes, type CaddyControl } from './InstanceRoutes.js';
 import type { InstanceRecord } from '../lib/instances.js';
+
+const fresh = await emptiedEachTime();
 
 const matching = (pattern: RegExp): unknown => expect.stringMatching(pattern);
 
@@ -19,7 +21,7 @@ let log: string;
 let routes: InstanceRoutes;
 
 beforeEach(async () => {
-  db = await testDatabase();
+  db = await fresh();
   dir = await fs.mkdtemp(path.join(os.tmpdir(), 'routes-'));
   reloads = 0;
   served = undefined;

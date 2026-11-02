@@ -1,15 +1,17 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { AuthService } from './AuthService.js';
 import { hashPassword } from '../../platform/lib/auth.js';
-import { testDatabase } from '../../platform/lib/test-database.js';
+import { emptiedEachTime } from '../../platform/lib/test-database.js';
 import type { MongoDB } from '../../platform/lib/mongo-db.js';
 import type { UserMetadata } from '../../platform/lib/types.js';
+
+const fresh = await emptiedEachTime();
 
 describe('AuthService', () => {
   let dbMock: MongoDB;
 
   beforeEach(async () => {
-    dbMock = await testDatabase();
+    dbMock = await fresh();
   });
 
   const codeMail = () => {

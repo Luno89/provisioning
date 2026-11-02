@@ -1,9 +1,11 @@
 import { anyOf } from '../../platform/lib/test-matchers.js';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { testDatabase } from '../../platform/lib/test-database.js';
+import { emptiedEachTime } from '../../platform/lib/test-database.js';
 import type { MongoDB } from '../../platform/lib/mongo-db.js';
 import { PushError, PushService } from './PushService.js';
 import { vapidKeysFrom } from '../lib/web-push.js';
+
+const fresh = await emptiedEachTime();
 
 const browser = (n: number) => ({ endpoint: `https://push.example/send/${n}`, keys: { p256dh: `key${n}`, auth: `auth${n}` } });
 const CHROME = 'Mozilla/5.0 (X11; Linux x86_64) Chrome/130.0 Safari/537.36';
@@ -14,7 +16,7 @@ let failing: Map<string, number>;
 let service: PushService;
 
 beforeEach(async () => {
-  db = await testDatabase();
+  db = await fresh();
   await db.monitoring.ensureIndexes();
   sent = [];
   failing = new Map();

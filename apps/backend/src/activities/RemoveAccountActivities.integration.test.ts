@@ -1,7 +1,9 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { testDatabase } from '../platform/lib/test-database.js';
+import { emptiedEachTime } from '../platform/lib/test-database.js';
 import type { MongoDB } from '../platform/lib/mongo-db.js';
 import { createAccountRemovalActivities, type AccountRemovalDeps } from './RemoveAccountActivities.js';
+
+const fresh = await emptiedEachTime();
 
 let db: MongoDB;
 let terminated: string[];
@@ -29,7 +31,7 @@ const seed = async (ownerId: string) => {
 };
 
 beforeEach(async () => {
-  db = await testDatabase();
+  db = await fresh();
   terminated = [];
   kubectl = [];
   deletedUsers = [];

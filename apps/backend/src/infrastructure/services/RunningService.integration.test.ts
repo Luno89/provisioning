@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Client } from '@temporalio/client';
 import type { TestWorkflowEnvironment } from '@temporalio/testing';
-import { testDatabase } from '../../platform/lib/test-database.js';
+import { emptiedEachTime } from '../../platform/lib/test-database.js';
 import type { MongoDB } from '../../platform/lib/mongo-db.js';
 import { ownedQuery, startedFor } from '../../platform/lib/workflow-owner.js';
 import { temporalTestEnvironment } from '../../workflows/temporal-test-env.js';
@@ -10,6 +10,8 @@ import { MemoryKeeperService } from '../../memory/services/MemoryKeeperService.j
 import type { RunningWorkflow } from '../lib/running.js';
 import { RunningService } from './RunningService.js';
 import { TemporalBridge } from './TemporalBridge.js';
+
+const fresh = await emptiedEachTime();
 
 let env: TestWorkflowEnvironment;
 let client: Client;
@@ -46,7 +48,7 @@ describe('what runs, for the person, against Temporal and the stored settings', 
   const done: string[] = [];
 
   beforeEach(async () => {
-    db = await testDatabase();
+    db = await fresh();
     timers = [];
     done.length = 0;
     const bridge = new TemporalBridge(db);

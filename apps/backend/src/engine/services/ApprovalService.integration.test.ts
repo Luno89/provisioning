@@ -1,13 +1,15 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { testDatabase } from '../../platform/lib/test-database.js';
+import { emptiedEachTime } from '../../platform/lib/test-database.js';
 import type { MongoDB } from '../../platform/lib/mongo-db.js';
 import { ApprovalService } from './ApprovalService.js';
+
+const fresh = await emptiedEachTime();
 
 let db: MongoDB;
 const approve = vi.fn(async () => undefined);
 
 beforeEach(async () => {
-  db = await testDatabase();
+  db = await fresh();
   approve.mockClear();
   await db.engine.saveConversation({ id: 'c1', ownerId: 'bo', title: 'chat', messages: [], createdAt: 'now', updatedAt: 'now' });
   await db.engine.appendTurnLog({ turnId: 'run-1', ownerId: 'bo', seq: 1, at: 'now', events: [{ type: 'run.started', runId: 'run-1-check-writer-1' } as never] });

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import crypto from 'crypto';
-import { testDatabase } from '../../platform/lib/test-database.js';
+import { emptiedEachTime } from '../../platform/lib/test-database.js';
 import type { MongoDB } from '../../platform/lib/mongo-db.js';
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -8,6 +8,8 @@ import { IdentityService } from './IdentityService.js';
 import { InstanceReach } from './InstanceReach.js';
 import { generateIdentityKey, identityKeysFrom } from '../lib/identity-token.js';
 import type { RoleConfig } from '../../platform/lib/platform-role.js';
+
+const fresh = await emptiedEachTime();
 
 const matching = (pattern: RegExp): unknown => expect.stringMatching(pattern);
 
@@ -29,7 +31,7 @@ let rootDb: MongoDB;
 let now: number;
 
 beforeEach(async () => {
-  rootDb = await testDatabase();
+  rootDb = await fresh();
   now = 1_800_000_000;
 });
 

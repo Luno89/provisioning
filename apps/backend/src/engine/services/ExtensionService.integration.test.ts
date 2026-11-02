@@ -1,17 +1,19 @@
 import { matching } from '../../platform/lib/test-matchers.js';
 import { describe, it, expect, beforeEach } from 'vitest';
-import { testDatabase } from '../../platform/lib/test-database.js';
+import { emptiedEachTime } from '../../platform/lib/test-database.js';
 import type { MongoDB } from '../../platform/lib/mongo-db.js';
 import { ExtensionService, extensionServiceFor } from './ExtensionService.js';
 import { INSTALLED_EXTENSIONS, platformCatalogue, platformGroups } from '../../extensions/installed.js';
 import { PROCEDURE_SCHEMA, defineGroup, type Procedure } from '@koala/agent-engine/procedure';
 import type { ProcedureSource } from '../lib/procedure-source.js';
 
+const fresh = await emptiedEachTime();
+
 let db: MongoDB;
 let service: ExtensionService;
 
 beforeEach(async () => {
-  db = await testDatabase();
+  db = await fresh();
   service = new ExtensionService({ store: db.engine, installed: INSTALLED_EXTENSIONS, now: () => 'now' });
 });
 

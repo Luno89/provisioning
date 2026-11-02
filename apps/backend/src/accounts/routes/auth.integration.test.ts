@@ -10,11 +10,13 @@ import { PasswordService } from '../services/PasswordService.js';
 import { breachedFrom } from '../lib/passwords.js';
 import type { CodeMail } from '../services/AuthService.js';
 import type { AccessRevoked } from '../../platform/lib/revocations.js';
-import { testDatabase } from '../../platform/lib/test-database.js';
+import { emptiedEachTime } from '../../platform/lib/test-database.js';
 import type { Database } from '../../platform/lib/db-interface.js';
 import { AuthService } from '../services/AuthService.js';
 import { inviteCodeHash } from '../../platform/lib/invite-codes.js';
 import { deviceToken, hashPassword, sessionToken } from '../../platform/lib/auth.js';
+
+const fresh = await emptiedEachTime();
 
 const JWT_SECRET = 'test-secret';
 const SETUP_CODE = 'the-setup-code';
@@ -53,7 +55,7 @@ describe('auth router', () => {
 
   beforeEach(async () => {
     delete process.env.IS_E2E;
-    db = await testDatabase();
+    db = await fresh();
     await db.init();
     ctx = await serve(db);
   });

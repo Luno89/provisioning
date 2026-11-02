@@ -1,7 +1,9 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { testDatabase } from '../../platform/lib/test-database.js';
+import { emptiedEachTime } from '../../platform/lib/test-database.js';
 import type { Database } from '../../platform/lib/db-interface.js';
 import { DependencyWatch } from './DependencyWatch.js';
+
+const fresh = await emptiedEachTime();
 
 const npm = (name: string, version: string, extra: { name: string; value: string }[] = []) =>
   ({ 'bom-ref': `koala:pkg:npm/${name}@${version}`, name, version, properties: [{ name: 'koala:kind', value: 'npm' }, { name: 'koala:in', value: 'koala' }, ...extra] });
@@ -52,7 +54,7 @@ let db: Database;
 let told: { subject: string; text: string }[];
 
 beforeEach(async () => {
-  db = await testDatabase();
+  db = await fresh();
   told = [];
   await db.instances.recordRelease({ imageTag: 'aaaaaaaaaaaa', version: 'v2026.10.23', servedAt: '2026-10-23T00:00:00Z' });
   await db.instances.recordRelease({ imageTag: 'bbbbbbbbbbbb', version: 'v2026.10.29', servedAt: '2026-10-29T00:00:00Z' });

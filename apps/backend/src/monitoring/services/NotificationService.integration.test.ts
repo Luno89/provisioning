@@ -1,9 +1,11 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { testDatabase } from '../../platform/lib/test-database.js';
+import { emptiedEachTime } from '../../platform/lib/test-database.js';
 import type { MongoDB } from '../../platform/lib/mongo-db.js';
 import type { AlertEpisode } from '../lib/monitoring-records.js';
 import { MailService } from '../../platform/services/MailService.js';
 import { NotificationService } from './NotificationService.js';
+
+const fresh = await emptiedEachTime();
 
 const episode: AlertEpisode = { id: 'e1', ownerId: 'o', clusterId: 'c', key: 'k', name: 'NodeMemoryHighUtilization', summary: 'Memory is nearly full', about: { kind: 'cluster' }, startedAt: 'then' };
 
@@ -16,7 +18,7 @@ const service = (way: ConstructorParameters<typeof MailService>[0]['way']) => {
 };
 
 beforeEach(async () => {
-  db = await testDatabase();
+  db = await fresh();
   sent = [];
 });
 

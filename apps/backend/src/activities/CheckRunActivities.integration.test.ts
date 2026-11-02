@@ -1,11 +1,13 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { testDatabase } from '../platform/lib/test-database.js';
+import { emptiedEachTime } from '../platform/lib/test-database.js';
 import type { MongoDB } from '../platform/lib/mongo-db.js';
 import { toolsOf } from '@koala/agent-engine';
 import { seededAgents, seededGrants } from '../extensions/seeds.js';
 import { createCheckRunActivities, observedCalls, observedHandOffs, pendingCalls } from './CheckRunActivities.js';
 import type { Scenario } from '../eval/level2/scenario.js';
 import { WORKSPACE_IMAGE_SEEDS } from '../engine/lib/workspace-image-seeds.js';
+
+const fresh = await emptiedEachTime();
 
 const SCENARIO: Scenario = {
   id: 'executor-does-one-task',
@@ -25,7 +27,7 @@ const SCENARIO: Scenario = {
 let db: MongoDB;
 
 beforeEach(async () => {
-  db = await testDatabase();
+  db = await fresh();
 });
 
 const activities = () => createCheckRunActivities({

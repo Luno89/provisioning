@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import express from 'express';
 import http from 'http';
 import type { AddressInfo } from 'net';
-import { testDatabase } from '../../platform/lib/test-database.js';
+import { emptiedEachTime } from '../../platform/lib/test-database.js';
 import type { MongoDB } from '../../platform/lib/mongo-db.js';
 import { createAuth, type Auth } from '../../platform/middleware/auth.js';
 import { SessionEnds } from '../../platform/services/SessionEnds.js';
@@ -19,6 +19,10 @@ import { InstanceService, hashCredential } from './InstanceService.js';
 import { oidcProviderRouter } from '../routes/oidc-provider.js';
 import { signInRouter } from '../routes/sign-in.js';
 import { IdentityService } from './IdentityService.js';
+
+const freshHubDb = await emptiedEachTime();
+const freshInstanceDb = await emptiedEachTime();
+const freshRootDb = await emptiedEachTime();
 
 const matching = (pattern: RegExp): unknown => expect.stringMatching(pattern);
 const having = (fields: Record<string, unknown>): unknown => expect.objectContaining(fields);
@@ -67,8 +71,8 @@ let offset: number;
 const heard: AccessRevoked[] = [];
 
 beforeEach(async () => {
-  rootDb = await testDatabase();
-  instanceDb = await testDatabase();
+  rootDb = await freshRootDb();
+  instanceDb = await freshInstanceDb();
   root = await serve();
   instance = await serve();
   hub = await serve();
@@ -115,7 +119,7 @@ beforeEach(async () => {
     res.json({ id, claims, permissions });
   });
 
-  const hubDb = await testDatabase();
+  const hubDb = await freshHubDb();
   hubSignIn = new RootSignIn({
     kind: 'hub',
     clientId: 'hub',

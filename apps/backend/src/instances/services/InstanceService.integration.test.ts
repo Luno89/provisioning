@@ -1,8 +1,10 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { testDatabase } from '../../platform/lib/test-database.js';
+import { emptiedEachTime } from '../../platform/lib/test-database.js';
 import type { MongoDB } from '../../platform/lib/mongo-db.js';
 import { InstanceService, JOIN_TOKEN_TTL_SECONDS, hashCredential, instanceIdFor } from './InstanceService.js';
 import { InstanceReach } from './InstanceReach.js';
+
+const fresh = await emptiedEachTime();
 
 const matching = (pattern: RegExp): unknown => expect.stringMatching(pattern);
 const containing = (text: string): unknown => expect.stringContaining(text);
@@ -31,7 +33,7 @@ const tokenFor = async (ownerId: string, name: string = 'luno') => {
 };
 
 beforeEach(async () => {
-  db = await testDatabase();
+  db = await fresh();
   now = new Date('2026-10-02T12:00:00Z');
   routeChanges = 0;
   service = new InstanceService(db, settings, mesh, () => now, () => { routeChanges += 1; });

@@ -8,7 +8,7 @@ import { createAuth } from '../../platform/middleware/auth.js';
 import { SessionEnds } from '../../platform/services/SessionEnds.js';
 import { PasswordService } from '../services/PasswordService.js';
 import { breachedFrom } from '../lib/passwords.js';
-import { testDatabase } from '../../platform/lib/test-database.js';
+import { emptiedEachTime } from '../../platform/lib/test-database.js';
 import type { Database } from '../../platform/lib/db-interface.js';
 import { AuthService } from '../services/AuthService.js';
 import { SignInProviders } from '../services/sign-in/SignInProviders.js';
@@ -16,6 +16,8 @@ import { GITHUB_ISSUER, providerCallbackUrl, signInProvidersFrom, type SignInPro
 import { inviteCodeHash } from '../../platform/lib/invite-codes.js';
 import { signJWT } from '../../platform/lib/auth.js';
 import { startStandInIssuer, type StandInIssuer } from '../services/sign-in/stand-in-issuer.js';
+
+const fresh = await emptiedEachTime();
 
 const SESSION_KEY = 'provider-test-secret';
 const SETUP_CODE = 'the-setup-code';
@@ -99,7 +101,7 @@ describe('signing in with an OpenID provider and with GitHub', () => {
 
   beforeEach(async () => {
     delete process.env.IS_E2E;
-    db = await testDatabase();
+    db = await fresh();
     await db.init();
     github = await standInGithub();
     const place = await listening();

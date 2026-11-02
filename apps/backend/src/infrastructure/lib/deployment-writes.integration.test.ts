@@ -1,7 +1,9 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { testDatabase } from '../../platform/lib/test-database.js';
+import { emptiedEachTime } from '../../platform/lib/test-database.js';
 import type { MongoDB } from '../../platform/lib/mongo-db.js';
 import type { DeploymentMetadata } from '../../platform/lib/types.js';
+
+const fresh = await emptiedEachTime();
 
 const dep = (id: string, over: Partial<DeploymentMetadata> = {}): DeploymentMetadata => ({
   id,
@@ -13,7 +15,7 @@ const dep = (id: string, over: Partial<DeploymentMetadata> = {}): DeploymentMeta
 });
 
 let db: MongoDB;
-beforeEach(async () => { db = await testDatabase(); });
+beforeEach(async () => { db = await fresh(); });
 
 describe('deleteDeployment', () => {
   it('removes one row and leaves the rest alone', async () => {

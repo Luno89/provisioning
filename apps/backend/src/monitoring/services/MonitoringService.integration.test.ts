@@ -1,7 +1,7 @@
 import { containing } from '../../platform/lib/test-matchers.js';
 import { at } from '../../platform/lib/json-shapes.js';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { testDatabase } from '../../platform/lib/test-database.js';
+import { emptiedEachTime } from '../../platform/lib/test-database.js';
 import { asPerson, principalOf } from '../../platform/lib/permissions.js';
 import type { MongoDB } from '../../platform/lib/mongo-db.js';
 import type { ClusterMetadata, DeploymentMetadata } from '../../platform/lib/types.js';
@@ -9,6 +9,8 @@ import { appQuery, appWindowQuery, clusterQuery, koalaQuery, koalaServicesQuery,
 import { RULE_LABEL, alertSpec, koalaAlertExpression, type AlertSpec, type PromAlert } from '../lib/monitoring-alerts.js';
 import { MonitoringService, type MonitoringDeps, type PrometheusClient, type Sample } from './MonitoringService.js';
 import { AlertWatchService } from './AlertWatchService.js';
+
+const fresh = await emptiedEachTime();
 
 const NOW = new Date('2026-10-17T12:00:00Z');
 const ME = principalOf({ id: 'me' }, { role: 'instance', instanceOwnerId: 'me' });
@@ -58,7 +60,7 @@ let monitoring: MonitoringService;
 let deps: () => MonitoringDeps;
 
 beforeEach(async () => {
-  db = await testDatabase();
+  db = await fresh();
   prom = new FakePrometheus().set('vector(1)', 1);
   remoteProm = undefined;
   kubectl = [];

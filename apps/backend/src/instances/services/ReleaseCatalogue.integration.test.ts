@@ -4,9 +4,11 @@ import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { testDatabase } from '../../platform/lib/test-database.js';
+import { emptiedEachTime } from '../../platform/lib/test-database.js';
 import type { MongoDB } from '../../platform/lib/mongo-db.js';
 import { ReleaseCatalogue } from './ReleaseCatalogue.js';
+
+const fresh = await emptiedEachTime();
 
 let db: MongoDB;
 let repo: string;
@@ -24,7 +26,7 @@ const commit = (name: string) => {
 
 beforeEach(async () => {
   inventoried = [];
-  db = await testDatabase();
+  db = await fresh();
   const root = mkdtempSync(join(tmpdir(), 'release-catalogue-'));
   repo = join(root, 'repo');
   chartsDir = join(root, 'charts');

@@ -1,8 +1,10 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { testDatabase } from '../../platform/lib/test-database.js';
+import { emptiedEachTime } from '../../platform/lib/test-database.js';
 import type { MongoDB } from '../../platform/lib/mongo-db.js';
 import { MemoryKeeperService, type ConversationTimer, type StartMemoryRun } from './MemoryKeeperService.js';
 import type { LifecycleEvent } from '../../engine-host/temporal/contracts.js';
+
+const fresh = await emptiedEachTime();
 
 let db: MongoDB;
 let started: Parameters<StartMemoryRun>[0][];
@@ -37,7 +39,7 @@ const turnEnded = (over: Partial<Extract<LifecycleEvent, { kind: 'run-ended' }>>
 });
 
 beforeEach(async () => {
-  db = await testDatabase();
+  db = await fresh();
   started = [];
   timers = [];
   refuse = undefined;

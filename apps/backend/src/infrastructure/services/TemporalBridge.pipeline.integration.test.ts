@@ -1,9 +1,11 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { testDatabase } from '../../platform/lib/test-database.js';
+import { emptiedEachTime } from '../../platform/lib/test-database.js';
 import type { MongoDB } from '../../platform/lib/mongo-db.js';
 import { TemporalBridge } from './TemporalBridge.js';
 import { buildPlanAt } from '../../releases/lib/build-plan.js';
 import type { ProjectMetadata } from '../../platform/lib/types.js';
+
+const fresh = await emptiedEachTime();
 
 const project = { id: 'proj-1', name: 'notes', ownerId: 'u1', giteaOwner: 'acme', giteaRepo: 'notes', appType: 'gitapp', createdAt: 'then' } as ProjectMetadata;
 
@@ -12,7 +14,7 @@ describe('a push to a project', () => {
   let bridge: TemporalBridge;
 
   beforeEach(async () => {
-    db = await testDatabase();
+    db = await fresh();
     bridge = new TemporalBridge(db);
   });
 

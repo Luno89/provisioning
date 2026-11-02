@@ -1,8 +1,10 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { testDatabase } from '../../platform/lib/test-database.js';
+import { emptiedEachTime } from '../../platform/lib/test-database.js';
 import type { MongoDB } from '../../platform/lib/mongo-db.js';
 import type { MemoryItem } from '../lib/memory-store.js';
 import { PracticeService } from './PracticeService.js';
+
+const fresh = await emptiedEachTime();
 
 let db: MongoDB;
 const practices = () => new PracticeService({ store: db.memory, now: () => 'now' });
@@ -11,7 +13,7 @@ const practice = (over: Partial<MemoryItem>): MemoryItem => ({
 });
 
 beforeEach(async () => {
-  db = await testDatabase();
+  db = await fresh();
   await db.memory.saveMemory(practice({}));
   await db.memory.saveMemory(practice({ id: 'fact', category: 'environment_facts', status: 'active' }));
   await db.memory.saveMemory(practice({ id: 'theirs', ownerId: 'someone-else' }));

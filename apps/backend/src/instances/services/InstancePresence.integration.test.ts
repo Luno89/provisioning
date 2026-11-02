@@ -2,12 +2,14 @@ import http from 'http';
 import type { AddressInfo } from 'net';
 import { Server } from 'socket.io';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { testDatabase } from '../../platform/lib/test-database.js';
+import { emptiedEachTime } from '../../platform/lib/test-database.js';
 import type { MongoDB } from '../../platform/lib/mongo-db.js';
 import type { InstanceRecord } from '../lib/instances.js';
 import { InstancePresence } from './InstancePresence.js';
 import { RootPresence } from './RootPresence.js';
 import { wireInstancePresence } from '../wiring/instances.js';
+
+const fresh = await emptiedEachTime();
 
 const GRACE = 300;
 const own: InstanceRecord = { id: 'inst-own', ownerId: 'person', url: 'https://own.example', createdAt: '', updatedAt: '', status: 'ready', name: 'own' };
@@ -78,7 +80,7 @@ function instanceDialing(instance: InstanceRecord, token = `good-${instance.id}`
 const watchOf = async (id: string) => db.instances.getWatch(id);
 
 beforeEach(async () => {
-  db = await testDatabase();
+  db = await fresh();
   mailed = [];
   operators = [];
   logged = [];

@@ -7,11 +7,13 @@ import { IdleGate } from '../../../../local-agent/src/idle-gate.js';
 import { SelfUpdate } from '../../../../local-agent/src/self-update.js';
 import { loadKeys } from '../../platform/lib/keys.js';
 import { roleFromEnv } from '../../platform/lib/platform-role.js';
-import { testDatabase } from '../../platform/lib/test-database.js';
+import { emptiedEachTime } from '../../platform/lib/test-database.js';
 import type { MongoDB } from '../../platform/lib/mongo-db.js';
 import { deviceTokenHash, tokenLifetime } from '../lib/device-tokens.js';
 import { MachineService } from '../services/MachineService.js';
 import { wireSockets, type SocketsWiringDeps } from './sockets.js';
+
+const fresh = await emptiedEachTime();
 
 const A = 'a'.repeat(64);
 const B = 'b'.repeat(64);
@@ -48,7 +50,7 @@ async function until<T>(probe: () => Promise<T | undefined>): Promise<T> {
 const shown = async () => (await machines.list('owner-1'))[0]?.agentUpdate;
 
 beforeEach(async () => {
-  db = await testDatabase();
+  db = await fresh();
   served = B;
   ending = new Map();
   machines = new MachineService({

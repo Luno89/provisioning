@@ -1,8 +1,10 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { testDatabase } from '../platform/lib/test-database.js';
+import { emptiedEachTime } from '../platform/lib/test-database.js';
 import type { MongoDB } from '../platform/lib/mongo-db.js';
 import { createProjectRemovalActivities, type ProjectRemovalDeps } from './RemoveProjectActivities.js';
 import { ArtifactService } from '../files/services/ArtifactService.js';
+
+const fresh = await emptiedEachTime();
 
 let db: MongoDB;
 let terminated: string[];
@@ -26,7 +28,7 @@ const deps = (): ProjectRemovalDeps => ({
 const at = 'then';
 
 beforeEach(async () => {
-  db = await testDatabase();
+  db = await fresh();
   terminated = [];
   kubectl = [];
   repos = [];

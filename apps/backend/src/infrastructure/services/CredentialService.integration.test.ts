@@ -4,11 +4,13 @@ import { http, HttpResponse } from 'msw';
 import { interceptHttp } from '../../platform/testing/http.js';
 import { CredentialService } from './CredentialService.js';
 import { decryptValue } from '../../platform/lib/crypto.js';
-import { testDatabase } from '../../platform/lib/test-database.js';
+import { emptiedEachTime } from '../../platform/lib/test-database.js';
 import type { MongoDB } from '../../platform/lib/mongo-db.js';
 import type { UserMetadata } from '../../platform/lib/types.js';
 import { FAKE_OVH_KEYS, fakeOvh } from './fake-ovh.js';
 import { fakePorkbun } from './dns/fake-dns.js';
+
+const fresh = await emptiedEachTime();
 
 const TEST_KEY = 'test-master-key-for-credential-tests';
 
@@ -26,7 +28,7 @@ describe('CredentialService', () => {
   };
 
   beforeEach(async () => {
-    db = await testDatabase();
+    db = await fresh();
     await db.accounts.saveUser({ ...testUser });
     service = new CredentialService(db, TEST_KEY);
   });

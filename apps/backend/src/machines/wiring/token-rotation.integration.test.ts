@@ -10,7 +10,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { saveDeviceToken, tokenAnswer } from '../../../../local-agent/src/machine-token.js';
 import { loadKeys } from '../../platform/lib/keys.js';
 import { roleFromEnv } from '../../platform/lib/platform-role.js';
-import { testDatabase } from '../../platform/lib/test-database.js';
+import { emptiedEachTime } from '../../platform/lib/test-database.js';
 import type { MongoDB } from '../../platform/lib/mongo-db.js';
 import { deviceTokenHash, TOKEN_EXPIRED_SAID } from '../lib/device-tokens.js';
 import { MachineGitService } from '../services/MachineGitService.js';
@@ -18,6 +18,8 @@ import { MachineService } from '../services/MachineService.js';
 import { MachineTemporalGateway } from '../services/MachineTemporalGateway.js';
 import { deviceByToken } from './machines.js';
 import { wireSockets, type SocketsWiringDeps } from './sockets.js';
+
+const fresh = await emptiedEachTime();
 
 const DAY = 24 * 60 * 60 * 1000;
 const ISSUED = new Date('2026-10-10T00:00:00Z');
@@ -94,7 +96,7 @@ const git = () => new MachineGitService({
 const gitAnswer = async (token: string) => (await git().serve({ token, repo: 'nowhere', route: 'info/refs', service: 'git-upload-pack' } as never)).status;
 
 beforeEach(async () => {
-  db = await testDatabase();
+  db = await fresh();
   clock = new Date(ISSUED.getTime() + 65 * DAY);
   folder = await mkdtemp(path.join(tmpdir(), 'koala-machine-'));
   machines = new MachineService({

@@ -1,6 +1,6 @@
 import { arrayWith, matching } from '../../platform/lib/test-matchers.js';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { testDatabase } from '../../platform/lib/test-database.js';
+import { emptiedEachTime } from '../../platform/lib/test-database.js';
 import type { MongoDB } from '../../platform/lib/mongo-db.js';
 import { MAIL_CHECK_MARK } from '../../platform/lib/mail-reputation.js';
 import { FAKE_OVH_KEYS, fakeOvh, type FakeOvhState } from './fake-ovh.js';
@@ -8,6 +8,8 @@ import type { FetchLike } from './OvhClient.js';
 import { DnsProviders } from './dns/DnsProviders.js';
 import { fakeCloudflare, fakePorkbun, type FakeDns } from './dns/fake-dns.js';
 import { ServerOrderService } from './ServerOrderService.js';
+
+const fresh = await emptiedEachTime();
 
 const ASK = { planCode: 'vps-2027-model2', planLabel: 'VPS-2 2027', datacenter: 'SYD', domain: 'nowrinkles.dev', ingressDomain: 'nowrinkles.app', acmeEmail: 'me@example.com' };
 const NAMESERVERS: Record<string, string[]> = {
@@ -34,7 +36,7 @@ describe('root\'s mail once its server is bought', () => {
   const mailRecord = (content: string) => cf.zones.get('nowrinkles.dev')!.records.push({ id: `r-mail-${content}`, type: 'A', name: 'mail.nowrinkles.dev', content });
 
   beforeEach(async () => {
-    db = await testDatabase();
+    db = await fresh();
     ovh = fakeOvh();
     cf = fakeCloudflare(['nowrinkles.dev']);
     pb = fakePorkbun(['nowrinkles.app']);
