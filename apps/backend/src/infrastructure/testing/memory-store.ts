@@ -1,0 +1,270 @@
+import { asStored } from '../../platform/testing/as-stored.js';
+import { randomUUID } from 'node:crypto';
+import type { AccessRequest, EgressGrantRecord, EgressRequest } from '@koala/harness-types';
+import { loadKeys } from '../../platform/lib/keys.js';
+import { mergeRecord } from '../../platform/lib/merge-record.js';
+import type {
+  ClusterMetadata, ClusterProgress, DeploymentMetadata, PartialInfo, PendingApprovalMetadata, SecretKey,
+} from '../../platform/index.js';
+import { copied, MemoryRecords } from '../../platform/testing/memory-records.js';
+import type { StoredAppSpec } from '../lib/app-spec.js';
+import type { ClusterProviderSpec } from '../lib/cluster-providers.js';
+import { hasPlainSecret, sealDeployment, unsealDeployment } from '../lib/deployment-secrets.js';
+import type { BindingTypeRecord } from '../lib/service-binding.js';
+import { SERVER_ORDER_LOG_LINES, type ServerOrder } from '../lib/server-orders.js';
+import type { WorkFailure } from '../lib/work-failures.js';
+import type { InfrastructureStore } from '../store.js';
+
+const TEST_KEY = loadKeys({ DATA_KEY: 'k'.repeat(64) }).data;
+
+const stored = <T extends object>(record: T): T => asStored(copied(record));
+
+const earlier = (a: unknown, b: unknown): number => {
+  const missingA = a === undefined || a === null;
+  const missingB = b === undefined || b === null;
+  if (missingA || missingB) return Number(!missingA) - Number(!missingB);
+  return (a as string) < (b as string) ? -1 : (a as string) > (b as string) ? 1 : 0;
+};
+
+const duplicate = (collection: string, key: string): Error =>
+  Object.assign(new Error(`E11000 duplicate key error collection: ${collection} dup key: ${key}`), { code: 11000 });
+
+export class MemoryInfrastructureStore implements InfrastructureStore {
+  private readonly clusters = new MemoryRecords<ClusterMetadata>();
+  private readonly deployments = new MemoryRecords<DeploymentMetadata>();
+  private readonly appSpecs = new MemoryRecords<StoredAppSpec>();
+  private readonly clusterProviders = new Map<string, ClusterProviderSpec>();
+  private readonly pendingApprovals = new MemoryRecords<PendingApprovalMetadata>();
+  private readonly workFailures = new MemoryRecords<WorkFailure>();
+  private readonly egressGrants = new MemoryRecords<EgressGrantRecord>();
+  private readonly egressRequests = new MemoryRecords<EgressRequest>();
+  private readonly accessRequests = new MemoryRecords<AccessRequest>();
+  private readonly bindingTypes = new MemoryRecords<BindingTypeRecord>();
+  private readonly serverOrders = new MemoryRecords<ServerOrder>();
+
+  constructor(private readonly dataKey: SecretKey = TEST_KEY) {}
+
+  async ensureIndexes(): Promise<void> {}
+
+  async getClusters(): Promise<ClusterMetadata[]> {
+    return this.clusters.all();
+  }
+
+  async saveCluster(cluster: ClusterMetadata): Promise<void> {
+    const name = asStored(cluster.name);
+    if (this.clusters.all().some((other) => other.id !== cluster.id && asStored(other.name) === name)) throw duplicate('clusters', `{ name: ${JSON.stringify(name)} }`);
+    this.clusters.put(stored(cluster));
+  }
+
+  async deleteCluster(id: string): Promise<void> {
+    this.clusters.delete(id);
+  }
+
+  async patchCluster(id: string, patch: Partial<ClusterMetadata>): Promise<void> {
+    const { id: _id, ...fields } = patch;
+    if (Object.keys(fields).length === 0) return;
+    this.clusters.change(id, (cluster) => ({ ...cluster, ...fields }));
+  }
+
+  async saveClusterInfo(cluster: PartialInfo<ClusterMetadata>): Promise<ClusterMetadata> {
+    const id = cluster.id || randomUUID();
+    const previous = (await this.getClusters()).find((x) => x.id === id);
+    const merged = mergeRecord(previous, cluster as Partial<ClusterMetadata>);
+    const next: ClusterMetadata = {
+      ...merged,
+      id,
+      name: merged.name || '',
+      provider: merged.provider || 'k3d',
+      status: merged.status || 'provisioning',
+    };
+    await this.saveCluster(next);
+    return next;
+  }
+
+  async updateClusterProgress(clusterId: string, progress: ClusterProgress): Promise<void> {
+    this.clusters.change(clusterId, (cluster) => ({ ...cluster, progress: stored(progress) }));
+  }
+
+  async getDeployments(): Promise<DeploymentMetadata[]> {
+    return this.deployments.all().map((deployment) => unsealDeployment(deployment, this.dataKey));
+  }
+
+  async saveDeployment(deployment: DeploymentMetadata): Promise<void> {
+    const sealed = stored(sealDeployment(deployment, this.dataKey));
+    const clash = this.deployments.all().some((other) => other.id !== deployment.id
+      && asStored(other.ownerId) === asStored(sealed.ownerId) && asStored(other.name) === asStored(sealed.name));
+    if (clash) throw duplicate('deployments', `{ ownerId: ${JSON.stringify(asStored(sealed.ownerId))}, name: ${JSON.stringify(asStored(sealed.name))} }`);
+    this.deployments.put(sealed);
+  }
+
+  async deleteDeploymentsOfCluster(clusterId: string): Promise<number> {
+    let removed = 0;
+    for (const deployment of this.deployments.all()) {
+      if (deployment.clusterId === clusterId && this.deployments.delete(deployment.id)) removed += 1;
+    }
+    return removed;
+  }
+
+  async deleteDeployment(id: string): Promise<void> {
+    this.deployments.delete(id);
+  }
+
+  async saveDeploymentInfo(deployment: PartialInfo<DeploymentMetadata>): Promise<DeploymentMetadata> {
+    const id = deployment.id || randomUUID();
+    const previous = (await this.getDeployments()).find((x) => x.id === id);
+    const merged = mergeRecord(previous, deployment as Partial<DeploymentMetadata>);
+    const next: DeploymentMetadata = {
+      ...merged,
+      id,
+      name: merged.name || '',
+      clusterId: merged.clusterId || '',
+      strategy: merged.strategy || 'helm',
+      status: merged.status || 'deploying',
+    };
+    await this.saveDeployment(next);
+    return next;
+  }
+
+  async sealDeploymentSecrets(): Promise<number> {
+    const plain = this.deployments.all().filter((deployment) => hasPlainSecret(deployment));
+    for (const deployment of plain) await this.saveDeployment(deployment);
+    return plain.length;
+  }
+
+  async getAppSpecs(): Promise<StoredAppSpec[]> {
+    return this.appSpecs.all();
+  }
+
+  async saveAppSpec(spec: StoredAppSpec): Promise<void> {
+    this.appSpecs.put(stored(spec));
+  }
+
+  async deleteAppSpec(id: string): Promise<void> {
+    this.appSpecs.delete(id);
+  }
+
+  async getClusterProviders(): Promise<ClusterProviderSpec[]> {
+    return [...this.clusterProviders.values()].map(copied);
+  }
+
+  async saveClusterProvider(provider: ClusterProviderSpec): Promise<void> {
+    this.clusterProviders.set(provider.value, stored(provider));
+  }
+
+  async getPendingApprovals(): Promise<PendingApprovalMetadata[]> {
+    return this.pendingApprovals.all();
+  }
+
+  async savePendingApproval(approval: PendingApprovalMetadata): Promise<void> {
+    this.pendingApprovals.put(stored(approval));
+  }
+
+  async deletePendingApproval(id: string): Promise<void> {
+    this.pendingApprovals.delete(id);
+  }
+
+  async getWorkFailures(ownerId?: string): Promise<WorkFailure[]> {
+    return this.workFailures.all()
+      .filter((failure) => ownerId === undefined || failure.ownerId === ownerId)
+      .sort((a, b) => earlier(b.failedAt, a.failedAt));
+  }
+
+  async addWorkFailure(failure: WorkFailure): Promise<void> {
+    if (this.workFailures.get(failure.id)) return;
+    this.workFailures.put(stored(failure));
+  }
+
+  async clearWorkFailures(ownerId: string, ids: readonly string[] | 'all', at: string): Promise<number> {
+    let cleared = 0;
+    for (const failure of this.workFailures.all()) {
+      if (failure.ownerId !== ownerId || 'clearedAt' in failure) continue;
+      if (ids !== 'all' && !ids.includes(failure.id)) continue;
+      this.workFailures.change(failure.id, (row) => ({ ...row, clearedAt: at }));
+      cleared += 1;
+    }
+    return cleared;
+  }
+
+  async pruneWorkFailures(before: string): Promise<void> {
+    for (const failure of this.workFailures.all()) {
+      if (typeof failure.failedAt === 'string' && failure.failedAt < before) this.workFailures.delete(failure.id);
+    }
+  }
+
+  async getEgressGrants(ownerId?: string): Promise<EgressGrantRecord[]> {
+    return this.egressGrants.all().filter((grant) => ownerId === undefined || grant.ownerId === ownerId);
+  }
+
+  async saveEgressGrant(grant: EgressGrantRecord): Promise<void> {
+    this.egressGrants.put(stored(grant));
+  }
+
+  async getEgressRequests(ownerId: string, filter: { conversationId?: string | undefined; treeId?: string | undefined } = {}): Promise<EgressRequest[]> {
+    return this.egressRequests.all()
+      .filter((request) => request.ownerId === ownerId
+        && (filter.conversationId === undefined || request.conversationId === filter.conversationId)
+        && (filter.treeId === undefined || request.treeId === filter.treeId))
+      .sort((a, b) => earlier(a.createdAt, b.createdAt));
+  }
+
+  async getEgressRequest(ownerId: string, id: string): Promise<EgressRequest | undefined> {
+    const request = this.egressRequests.get(id);
+    return request && request.ownerId === ownerId ? request : undefined;
+  }
+
+  async saveEgressRequest(request: EgressRequest): Promise<void> {
+    this.egressRequests.put(stored(request));
+  }
+
+  async getAccessRequests(ownerId: string, conversationId?: string): Promise<AccessRequest[]> {
+    return this.accessRequests.all()
+      .filter((request) => request.ownerId === ownerId && (conversationId === undefined || request.conversationId === conversationId))
+      .sort((a, b) => earlier(a.createdAt, b.createdAt));
+  }
+
+  async getAccessRequest(ownerId: string, id: string): Promise<AccessRequest | undefined> {
+    const request = this.accessRequests.get(id);
+    return request && request.ownerId === ownerId ? request : undefined;
+  }
+
+  async saveAccessRequest(request: AccessRequest): Promise<void> {
+    this.accessRequests.put(stored(request));
+  }
+
+  async getBindingTypes(): Promise<BindingTypeRecord[]> {
+    return this.bindingTypes.all();
+  }
+
+  async saveBindingType(record: BindingTypeRecord): Promise<void> {
+    this.bindingTypes.put(stored(record));
+  }
+
+  async deleteBindingType(id: string): Promise<void> {
+    this.bindingTypes.delete(id);
+  }
+
+  async getServerOrders(ownerId: string): Promise<ServerOrder[]> {
+    return this.serverOrders.all()
+      .filter((order) => order.ownerId === ownerId)
+      .sort((a, b) => earlier(b.createdAt, a.createdAt))
+      .map(({ log: _log, ...order }) => order);
+  }
+
+  async getServerOrder(id: string): Promise<ServerOrder | undefined> {
+    return this.serverOrders.get(id);
+  }
+
+  async saveServerOrder(order: ServerOrder): Promise<void> {
+    this.serverOrders.put(stored(order));
+  }
+
+  async patchServerOrder(id: string, patch: Partial<Omit<ServerOrder, 'id' | 'ownerId'>>): Promise<ServerOrder | undefined> {
+    this.serverOrders.change(id, (order) => ({ ...order, ...patch, updatedAt: new Date().toISOString() }));
+    return this.serverOrders.get(id);
+  }
+
+  async appendServerOrderLog(id: string, lines: readonly string[]): Promise<void> {
+    if (lines.length === 0) return;
+    this.serverOrders.change(id, (order) => ({ ...order, log: [...(order.log ?? []), ...lines].slice(-SERVER_ORDER_LOG_LINES) }));
+  }
+}

@@ -1,4 +1,5 @@
 import type { Identified } from '../lib/collection.js';
+import { asStored } from './as-stored.js';
 
 export const copied = <T>(value: T): T => structuredClone(value);
 
@@ -15,7 +16,7 @@ export class MemoryRecords<T extends Identified> {
   }
 
   put(row: T): void {
-    this.rows.set(row.id, copied(row));
+    this.rows.set(row.id, asStored(row));
   }
 
   delete(id: string): boolean {
@@ -27,7 +28,7 @@ export class MemoryRecords<T extends Identified> {
     if (!row) return false;
     const next = change(copied(row));
     if (next === undefined) return false;
-    this.rows.set(id, copied(next));
+    this.rows.set(id, asStored(next));
     return true;
   }
 

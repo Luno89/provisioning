@@ -3,8 +3,14 @@ import { MongoClient, type Db } from 'mongodb';
 import { afterAll, beforeAll, describe, expect, it, inject } from 'vitest';
 import { looksEncrypted } from '../platform/lib/crypto.js';
 import { loadKeys } from '../platform/lib/keys.js';
+import { emptiedEachTime } from '../platform/lib/test-database.js';
 import type { DeploymentMetadata } from '../platform/lib/types.js';
 import { MongoInfrastructureStore } from './store.js';
+import { infrastructureStoreContract } from './testing/store-contract.js';
+
+const fresh = await emptiedEachTime();
+
+infrastructureStoreContract(async () => (await fresh()).infrastructure);
 
 const key = loadKeys({ DATA_KEY: 'k'.repeat(64) }).data;
 

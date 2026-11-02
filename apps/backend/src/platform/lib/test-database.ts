@@ -4,6 +4,7 @@ import { inject } from 'vitest';
 import { MongoDB, mongoTarget } from './mongo-db.js';
 import { mongoPayloadBlobs } from './mongo-payload-blobs.js';
 import type { PayloadBlobs } from './payload-storage.js';
+import { CLIENT_OPTIONS } from './collection.js';
 
 declare module 'vitest' {
   export interface ProvidedContext {
@@ -19,7 +20,7 @@ export interface StoredPayload { id: string; workflowId?: string | undefined; st
 export function testPayloadBlobs(): { blobs: PayloadBlobs; stored: () => Promise<StoredPayload[]> } {
   const uri = `${inject('mongoUri')}t_${randomUUID().replace(/-/g, '').slice(0, 20)}`;
   const { dbName } = mongoTarget({ MONGO_URI: uri });
-  const client = new MongoClient(uri);
+  const client = new MongoClient(uri, CLIENT_OPTIONS);
   readers.push({ client, dbName });
   return {
     blobs: mongoPayloadBlobs({ MONGO_URI: uri }),
@@ -56,4 +57,20 @@ export async function closeTestDatabases(): Promise<void> {
     await db.dropDatabase();
     await db.close();
   }
+}
+
+export async function emptiedEachTime(): Promise<() => Promise<MongoDB>> {
+  const base = inject('mongoUri');
+  const dbName = `t_${randomUUID().replace(/-/g, '').slice(0, 20)}`;
+  const db = new MongoDB({ MONGO_URI: `${base}${dbName}` });
+  await db.init();
+  open.push(db);
+  const client = new MongoClient(base, CLIENT_OPTIONS);
+  readers.push({ client, dbName });
+  return async () => {
+    await client.connect();
+    const collections = await client.db(dbName).collections();
+    await Promise.all(collections.map((collection) => collection.deleteMany({})));
+    return db;
+  };
 }

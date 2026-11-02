@@ -6,4 +6,4 @@ process.env.MONGO_URI = `${inject('mongoUri')}t_${randomUUID().replace(/-/g, '')
 
 afterAll(async () => {
   await closeTestDatabases();
-});
+}, 0);

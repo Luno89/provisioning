@@ -1,5 +1,6 @@
 import type { AreaStore } from '../platform/index.js';
 import type { Collection, Db } from 'mongodb';
+import { fieldChanges } from '../platform/lib/collection.js';
 import { stampServed, type InstanceRecord, type JoinToken } from './lib/instances.js';
 import type { PoolPolicy } from './lib/pool.js';
 import type { InstanceRelease, Withdrawal } from './lib/instance-updates.js';
@@ -201,10 +202,9 @@ export class MongoInstancesStore implements InstancesStore {
 
   async recordRelease(release: InstanceRelease): Promise<InstanceRelease> {
     const { imageTag, servedAt, ...rest } = release;
-    const unset = Object.fromEntries((['notes', 'hotfix', 'digest', 'chartSha256'] as const).filter((field) => rest[field] === undefined).map((field) => [field, '']));
     const doc = await this.releases.findOneAndUpdate(
       { _id: imageTag as never },
-      { $set: rest, $setOnInsert: { servedAt }, ...(Object.keys(unset).length ? { $unset: unset } : {}) },
+      { ...fieldChanges({ notes: undefined, hotfix: undefined, digest: undefined, chartSha256: undefined, ...rest }), $setOnInsert: { servedAt } },
       { upsert: true, returnDocument: 'after' },
     );
     const { _id, ...stored } = doc as Record<string, unknown>;

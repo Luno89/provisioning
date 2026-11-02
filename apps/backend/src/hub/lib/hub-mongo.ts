@@ -3,6 +3,7 @@ import { projectDatabase, type HubInvite, type HubMember, type SharedProject } f
 import type { HubStore, SharedProjectStore } from './hub-store.js';
 import type { HubChange, SyncedDoc } from './hub-sync.js';
 import type { HubRequest, HubStatus } from './hub-board.js';
+import { CLIENT_OPTIONS } from '../../platform/lib/collection.js';
 
 const without = <T>(doc: Record<string, unknown> | null, key: string, as: string): T | undefined => {
   if (!doc) return undefined;
@@ -11,7 +12,7 @@ const without = <T>(doc: Record<string, unknown> | null, key: string, as: string
 };
 
 export function mongoHubStore(uri: string, registry: string): HubStore {
-  const client = new MongoClient(uri);
+  const client = new MongoClient(uri, CLIENT_OPTIONS);
   let db: Db | undefined;
   const reg = () => {
     if (!db) throw new Error('the hub store is not open');

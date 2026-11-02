@@ -1,4 +1,4 @@
-import { type AreaStore, fromDoc, toDoc } from '../platform/lib/collection.js';
+import { type AreaStore, fieldChanges, fromDoc, toDoc } from '../platform/lib/collection.js';
 import type { Collection, Db, Document } from 'mongodb';
 import type { LocalAgentDeviceMetadata } from '../platform/index.js';
 import type { MachineJoinCode } from './lib/machines.js';
@@ -45,10 +45,8 @@ export class MongoMachinesStore implements MachinesStore {
   async updateLocalAgentDevice(id: string, change: DeviceChange): Promise<boolean> {
     const filter: Record<string, unknown> = { _id: id };
     for (const [field, value] of Object.entries(change.when ?? {})) filter[field] = value === null ? { $exists: false } : value;
-    const update: Record<string, unknown> = {};
-    if (change.set && Object.keys(change.set).length) update.$set = change.set;
-    if (change.unset?.length) update.$unset = Object.fromEntries(change.unset.map((field) => [field, '']));
-    if (!Object.keys(update).length) return false;
+    const update = fieldChanges({ ...(change.set ?? {}), ...Object.fromEntries((change.unset ?? []).map((field) => [field, undefined])) });
+    if (!update.$set && !update.$unset) return false;
     const result = await this.localAgentDevices.updateOne(filter as never, update);
     return result.matchedCount === 1;
   }

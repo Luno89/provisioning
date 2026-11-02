@@ -2,6 +2,8 @@ import type { Collection as DriverCollection, Db, Document, Filter, IndexDescrip
 
 export type Identified = { id: string };
 
+export const CLIENT_OPTIONS = { ignoreUndefined: true } as const;
+
 export function fromDoc<T extends Identified>(doc: Document | null | undefined): T {
   if (!doc) return null as unknown as T;
   const result: Document = { ...doc };
@@ -18,6 +20,17 @@ export function fromDoc<T extends Identified>(doc: Document | null | undefined):
 export function toDoc<T extends Identified>(entity: T): Document {
   const { id, ...rest } = entity;
   return { ...rest, _id: id };
+}
+
+export interface FieldChanges {
+  $set?: Document;
+  $unset?: Record<string, ''>;
+}
+
+export function fieldChanges(fields: Record<string, unknown>): FieldChanges {
+  const set = Object.entries(fields).filter(([, value]) => value !== undefined);
+  const unset = Object.entries(fields).filter(([, value]) => value === undefined).map(([field]) => [field, ''] as const);
+  return { ...(set.length ? { $set: Object.fromEntries(set) } : {}), ...(unset.length ? { $unset: Object.fromEntries(unset) } : {}) };
 }
 
 export class Records<T extends Identified> {
@@ -48,7 +61,8 @@ export class Records<T extends Identified> {
   }
 
   async patch(id: string, fields: Partial<T>): Promise<void> {
-    await this.raw.updateOne({ _id: id as never }, { $set: fields as Document });
+    const changes = fieldChanges(fields);
+    if (changes.$set || changes.$unset) await this.raw.updateOne({ _id: id as never }, changes);
   }
 
   async remove(id: string): Promise<void> {

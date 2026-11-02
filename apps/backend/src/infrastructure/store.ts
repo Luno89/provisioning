@@ -1,6 +1,6 @@
 import type { AccessRequest, EgressGrantRecord, EgressRequest } from '@koala/harness-types';
 import { ignore } from '@koala/engine-core/failures';
-import { type AreaStore, fromDoc, type Identified } from '../platform/lib/collection.js';
+import { type AreaStore, fieldChanges, fromDoc, type Identified } from '../platform/lib/collection.js';
 import type { BindingTypeRecord } from './lib/service-binding.js';
 import type {
   ClusterMetadata, ClusterProgress, DeploymentMetadata, PartialInfo, PendingApprovalMetadata, SecretKey,
@@ -136,7 +136,8 @@ export class MongoInfrastructureStore implements InfrastructureStore {
 
   async patchCluster(id: string, patch: Partial<ClusterMetadata>): Promise<void> {
     const { id: _id, ...fields } = patch;
-    if (Object.keys(fields).length > 0) await this.clusters.updateOne({ _id: id }, { $set: fields });
+    const changes = fieldChanges(fields);
+    if (changes.$set || changes.$unset) await this.clusters.updateOne({ _id: id }, changes);
   }
 
   async saveClusterInfo(cluster: PartialInfo<ClusterMetadata>): Promise<ClusterMetadata> {
@@ -288,7 +289,7 @@ export class MongoInfrastructureStore implements InfrastructureStore {
   }
 
   async patchServerOrder(id: string, patch: Partial<Omit<ServerOrder, 'id' | 'ownerId'>>): Promise<ServerOrder | undefined> {
-    const doc = await this.serverOrders.findOneAndUpdate({ _id: id }, { $set: { ...patch, updatedAt: new Date().toISOString() } }, { returnDocument: 'after' });
+    const doc = await this.serverOrders.findOneAndUpdate({ _id: id }, fieldChanges({ ...patch, updatedAt: new Date().toISOString() }), { returnDocument: 'after' });
     return doc ? fromDoc<ServerOrder>(doc) : undefined;
   }
 

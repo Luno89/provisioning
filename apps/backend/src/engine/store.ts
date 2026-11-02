@@ -1,5 +1,5 @@
 import type { ActionProposal, McpRequest } from '@koala/harness-types';
-import { type AreaStore, type Identified, fromDoc } from '../platform/lib/collection.js';
+import { type AreaStore, type Identified, fieldChanges, fromDoc } from '../platform/lib/collection.js';
 import type { AuthoredExtension } from './lib/authored-extensions.js';
 import type { AutoModeSettings } from './lib/auto-mode.js';
 import { type Collection, type Db, MongoBulkWriteError, MongoServerError } from 'mongodb';
@@ -333,7 +333,7 @@ export class MongoEngineStore implements EngineStore {
 
   async saveRunEnded(ending: RunEnding): Promise<void> {
     const { runId, ownerId, ...rest } = ending;
-    await this.runEndings.updateOne({ _id: runId as never }, { $set: { runId, ownerId, ...rest } }, { upsert: true });
+    await this.runEndings.updateOne({ _id: runId as never }, fieldChanges({ runId, ownerId, ...rest }), { upsert: true });
   }
 
   async saveRunHandover(ownerId: string, runId: string, handover: Handover): Promise<void> {

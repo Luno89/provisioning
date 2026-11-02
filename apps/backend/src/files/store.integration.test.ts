@@ -5,6 +5,12 @@ import { looksEncrypted } from '../platform/lib/crypto.js';
 import { loadKeys } from '../platform/lib/keys.js';
 import { shareTokenHash, type FileShare } from './lib/file-shares.js';
 import { MongoFilesStore } from './store.js';
+import { emptiedEachTime } from '../platform/lib/test-database.js';
+import { filesStoreContract } from './testing/store-contract.js';
+
+const fresh = await emptiedEachTime();
+
+filesStoreContract(async () => (await fresh()).files);
 
 const key = loadKeys({ DATA_KEY: 'k'.repeat(64) }).data;
 const TOKEN = 'abcdefghijklmnopqrstuvwxyz012345';

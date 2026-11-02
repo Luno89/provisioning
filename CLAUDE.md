@@ -2146,9 +2146,12 @@ dependency mocked, again in the integration tier with the real ones, and its flo
   or a VM, driven over HTTP as a person would.
 - Each workspace's `vitest.config.ts` builds its two projects with `tiers()` (`tests/tiers/projects.ts`); `npm run test:unit -w <ws>`
   and `npm run test:integration -w <ws>` run one. The coupling report takes a test's level from its name.
-- **A mock is held to the real thing** (being built, plans/testing-pyramid.md step 2): each mocked dependency has one contract suite, run in the unit tier against the mock and in
-  the integration tier against the real dependency, so a mock that drifts fails (the in-memory `MemoryDB` was deleted on 2026-10-22
-  for drifting).
+- **A mock is held to the real thing**: each mocked dependency has one contract suite, run in the unit tier against the mock and in the
+  integration tier against the real dependency, so a mock that drifts fails (the in-memory `MemoryDB` was deleted on 2026-10-22 for
+  drifting). Every area store has its twin: `src/<area>/testing/memory-store.ts` (`Memory<Area>Store`) and
+  `testing/store-contract.ts`, run by `store.test.ts` on the twin and by `store.integration.test.ts` on Mongo
+  (`emptiedEachTime()`: one database per file, emptied before each test). A `testing/` folder is for tests only: production code
+  importing one fails lint. Temporal, kubectl and helm, fetch, processes and sockets are next (plans/testing-pyramid.md step 2).
 - `npm run test:alive` (`scripts/alive.sh`) checks the dev stack before anything live: Docker, the management cluster, the K8s API,
   Temporal, workers. Cluster existence is decided by whether the K8s API answers on context `k3d-<name>`, **not** by
   `k3d cluster list`, which returns nothing on a native-k3s host.
@@ -2213,7 +2216,7 @@ own, and the startup migration `share-tokens-sealed` moved the links stored unde
 
 ## Data
 
-Default persistence is MongoDB (`apps/backend/src/platform/lib/mongo-db.ts` connects and composes one store per area, `src/<area>/store.ts`, split on 2026-10-22), managed via `docker-compose.mongo.yml` / `scripts/ensure-mongo.sh`. Unit tests run on a real Mongo in memory (`testDatabase()` in `platform/lib/test-database.ts`; the in-memory fake `MemoryDB` was deleted on 2026-10-22, so the suite proves the database and not a copy of it). A deployment's passwords, keys and tokens (`DEPLOYMENT_SECRET_FIELDS` in `infrastructure/lib/deployment-secrets.ts`) are
+**A field left undefined is not stored** (`CLIENT_OPTIONS` in `platform/lib/collection.ts`, `ignoreUndefined`, on every client; before 2026-11-02 the driver stored it as `null`, so an invite saved with `usedBy: undefined` could never be spent), and a partial write goes through `fieldChanges`, which unsets a field patched to `undefined`. Default persistence is MongoDB (`apps/backend/src/platform/lib/mongo-db.ts` connects and composes one store per area, `src/<area>/store.ts`, split on 2026-10-22), managed via `docker-compose.mongo.yml` / `scripts/ensure-mongo.sh`. Unit tests run on a real Mongo in memory (`testDatabase()` in `platform/lib/test-database.ts`; the in-memory fake `MemoryDB` was deleted on 2026-10-22, so the suite proves the database and not a copy of it). A deployment's passwords, keys and tokens (`DEPLOYMENT_SECRET_FIELDS` in `infrastructure/lib/deployment-secrets.ts`) are
 sealed with `DATA_KEY` at the store boundary (`MongoInfrastructureStore` seals on save and unseals on read, so every reader sees plain
 values), and the startup migration `deployment-secrets-sealed` seals records stored plain before.
 

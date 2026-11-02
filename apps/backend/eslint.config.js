@@ -123,7 +123,7 @@ export default defineConfig([
   },
   {
     files: ['src/**/*.ts'],
-    ignores: ['**/*.test.ts', 'src/platform/lib/permissions.ts', 'src/*/store.ts'],
+    ignores: ['**/*.test.ts', 'src/platform/lib/permissions.ts', 'src/*/store.ts', 'src/*/testing/memory-store.ts'],
     languageOptions: { parser: tseslint.parser },
     rules: {
       'no-restricted-syntax': ['error', ...ACCESS, ...SWALLOWING, UNAWAITED_HANDLER],

@@ -9,7 +9,7 @@ const DECIDES = new Set(['platform/lib/permissions.ts']);
 function sources(dir: string): string[] {
   return readdirSync(dir).flatMap((name) => {
     const path = join(dir, name);
-    if (statSync(path).isDirectory()) return sources(path);
+    if (statSync(path).isDirectory()) return name === 'testing' ? [] : sources(path);
     return name.endsWith('.ts') && !name.endsWith('.test.ts') ? [path] : [];
   });
 }

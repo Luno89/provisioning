@@ -16,6 +16,7 @@ import { MongoEngineStore } from '../../engine/store.js';
 import { MongoClient, type Db } from 'mongodb';
 import type { Database } from './db-interface.js';
 import { loadKeys } from './keys.js';
+import { CLIENT_OPTIONS } from './collection.js';
 
 export const databaseOf = (uri: string): string => {
   const name = uri.replace(/^mongodb(\+srv)?:\/\/[^/]+\/?/, '').split('?')[0]?.trim();
@@ -67,7 +68,7 @@ export class MongoDB implements Database {
   async init(): Promise<void> {
     const { uri, dbName, e2e: isE2E } = mongoTarget(this.env);
 
-    this.client = new MongoClient(uri);
+    this.client = new MongoClient(uri, CLIENT_OPTIONS);
     await this.client.connect();
     this.db = this.client.db(dbName);
 
