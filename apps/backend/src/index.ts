@@ -55,7 +55,8 @@ import { seedAll } from './scripts/seed-all.js';
 import { collectorSink, NotificationService, PushService, vapidKeysFrom, vapidSubject, webPushSend } from './monitoring/index.js';
 import { artifactsRouter, createArtifactService } from './files/index.js';
 
-dotenv.config();
+const startsHere = process.env.NODE_ENV !== 'test' || process.env.IS_E2E === 'true';
+if (startsHere) dotenv.config();
 
 const telemetry = startTelemetry(telemetrySettings(process.env, 'koala-backend'));
 
@@ -514,7 +515,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   return { app, io, temporalBridge, db };
 }
 
-if (process.env.NODE_ENV !== 'test' || process.env.IS_E2E === 'true') {
+if (startsHere) {
   bootstrap().catch((err) => {
     console.error('[bootstrap] the backend could not start, so it stops rather than staying up without serving:', err);
     process.exit(1);

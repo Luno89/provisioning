@@ -1,8 +1,10 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import express from 'express';
-import { bootstrap } from './index.js';
 import axios from 'axios';
 import http from 'http';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { AddressInfo } from 'net';
 
 describe('Auth Endpoints & Route Protection Integration', () => {
@@ -11,10 +13,15 @@ describe('Auth Endpoints & Route Protection Integration', () => {
   let port: number;
   let session = '';
   const SETUP_CODE = 'routes-test-setup-code';
+  const from = process.cwd();
+  let home = '';
 
   beforeAll(async () => {
     axios.defaults.proxy = false;
     process.env.ADMIN_SETUP_CODE = SETUP_CODE;
+    home = await mkdtemp(join(tmpdir(), 'koala-routes-'));
+    process.chdir(home);
+    const { bootstrap } = await import('./index.js');
     const res = await bootstrap();
     app = res.app;
 
@@ -32,10 +39,12 @@ describe('Auth Endpoints & Route Protection Integration', () => {
     });
   }, 30_000);
 
-  afterAll(() => {
+  afterAll(async () => {
     if (server) {
       server.close();
     }
+    process.chdir(from);
+    await rm(home, { recursive: true, force: true });
   });
 
   const getUrl = (path: string) => `http://127.0.0.1:${port}${path}`;
