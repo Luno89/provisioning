@@ -117,6 +117,22 @@ export function releasesStoreContract(make: () => Promise<ReleasesStore>): void 
   });
 
   describe('Odoo releases', () => {
+    it('tells whoever listens of each release as it is written, once it is listening', async () => {
+      const store = await make();
+      const heard: string[] = [];
+      let both!: () => void;
+      const done = new Promise<void>((resolve) => { both = resolve; });
+      const watching = store.watchOdooReleases((written) => { heard.push(`${written.id} ${written.state}`); if (heard.length === 2) both(); });
+      await watching.ready;
+
+      await store.saveOdooRelease(release('r1'));
+      await store.saveOdooRelease(release('r1', { state: 'live' }));
+      await done;
+      await watching.close();
+
+      expect(heard).toEqual(['r1 preview', 'r1 live']);
+    });
+
     it('lists a person\'s releases newest first, and only theirs', async () => {
       const store = await make();
       await store.saveOdooRelease(release('old', { startedAt: '2026-10-01T00:00:00.000Z' }));

@@ -11,6 +11,7 @@ export interface ReleasesStore extends AreaStore {
   getPipelineRuns(): Promise<PipelineRunMetadata[]>;
   watchLiveRuns(on: (run: PipelineRunMetadata) => void): Watching;
   watchReleaseWork(on: () => void): Watching;
+  watchOdooReleases(on: (release: OdooRelease) => void): Watching;
   savePipelineRun(run: PipelineRunMetadata): Promise<void>;
   savePipelineRunInfo(run: PartialInfo<PipelineRunMetadata>): Promise<PipelineRunMetadata>;
   getOdooReleases(ownerId: string, projectId?: string): Promise<OdooRelease[]>;
@@ -44,6 +45,10 @@ export class MongoReleasesStore implements ReleasesStore {
 
   watchLiveRuns(on: (run: PipelineRunMetadata) => void): Watching {
     return watchWrites(() => this.pipelineRuns, workflowMatch(FOLLOWED_RUN_STATUSES), (doc) => on(fromDoc<PipelineRunMetadata>(doc)));
+  }
+
+  watchOdooReleases(on: (release: OdooRelease) => void): Watching {
+    return watchWrites(() => this.odooReleases, {}, (doc) => on(fromDoc<OdooRelease>(doc)));
   }
 
   watchReleaseWork(on: () => void): Watching {

@@ -1,6 +1,7 @@
 import type { WorkflowClient } from '@temporalio/client';
 import type { StartRunRequest, StartedRun } from './registries/run-starter.js';
 import { runStamp } from './temporal/contracts.js';
+import { closedAs } from '../platform/lib/workflow-close.js';
 import { DECISION_NODE, releaseRunId, releaseRunWorkflowId } from '../releases/lib/release-run.js';
 import type { ReleaseRuns } from '../releases/index.js';
 
@@ -35,6 +36,10 @@ export function engineReleaseRuns(deps: {
         if (notFound(err)) return false;
         throw err;
       }
+    },
+
+    async closed(projectId) {
+      await closedAs(handle(projectId));
     },
 
     async answer(projectId, choice, nodeId = DECISION_NODE) {

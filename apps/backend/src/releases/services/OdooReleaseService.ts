@@ -12,12 +12,14 @@ import {
   CUT_OVER, CUT_OVER_LOSING, DECISION_NODE, DEFAULT_RELEASE_APP, DISCARD, LOSING_DECISION_NODE, RELEASE_AGENT, RETEST, ROLL_BACK_AGENT, UNSETTLED_STATES,
   type ReleaseBuildInput, type ReleaseHow, type ReleaseRunInput, type RollBackRunInput,
 } from '../lib/release-run.js';
+import { REOPEN_FIRST_MS, REOPEN_MOST_MS, type Watching } from '../../platform/index.js';
 
 export interface OdooReleaseStore {
   releases: {
     getOdooReleases(ownerId: string, projectId?: string): Promise<OdooRelease[]>;
     saveOdooRelease(release: OdooRelease): Promise<void>;
     markOdooReleaseTold(id: string, updatedAt: string): Promise<boolean>;
+    watchOdooReleases(on: (release: OdooRelease) => void): Watching;
     savePipelineRunInfo(run: Partial<PipelineRunMetadata> & { id: string }): Promise<PipelineRunMetadata>;
     getPipelineRuns(): Promise<PipelineRunMetadata[]>;
   };
@@ -35,6 +37,7 @@ export interface OdooReleaseStore {
 export interface ReleaseRuns {
   start(request: { projectId: string; ownerId: string; agent: string; inputs: ReleaseRunInput | RollBackRunInput }): Promise<void>;
   running(projectId: string): Promise<boolean>;
+  closed(projectId: string): Promise<void>;
   answer(projectId: string, choice: string, nodeId?: string): Promise<void>;
   stop(projectId: string): Promise<void>;
 }
@@ -62,7 +65,7 @@ export interface OdooReleaseDeps {
   awaiting?: ((ownerId: string, project: ProjectMetadata, run: PipelineRunMetadata) => void) | undefined;
   now?: (() => string) | undefined;
   newId?: (() => string) | undefined;
-  pollMs?: number | undefined;
+  log?: ((line: string) => void) | undefined;
 }
 
 export type ReleaseRefusal = { status: number; error: string; losing?: string[] | undefined };
@@ -87,6 +90,7 @@ const ESTABLISHED: readonly ReleaseState[] = ['live', 'superseded', 'rolled-back
 
 export class OdooReleaseService {
   private readonly following = new Map<string, Promise<void>>();
+  private watching: Watching | undefined;
 
   constructor(private readonly deps: OdooReleaseDeps) {}
 
@@ -434,45 +438,77 @@ export class OdooReleaseService {
     this.deps.notify?.(release.ownerId, release);
   }
 
+  async start(): Promise<void> {
+    if (this.watching) return;
+    this.watching = this.deps.store.releases.watchOdooReleases((release) => {
+      if (untold(release)) void this.tellUntold(release.ownerId, release.projectId).catch((err: Error) => this.log(`${release.projectId}'s release was not told yet: ${err.message}`));
+    });
+    await this.watching.ready;
+  }
+
+  async stop(): Promise<void> {
+    await this.watching?.close();
+    this.watching = undefined;
+  }
+
+  private log(line: string): void {
+    (this.deps.log ?? ((said: string) => console.warn(`[releases] ${said}`)))(line);
+  }
+
+  private async tellUntold(ownerId: string, projectId: string): Promise<OdooRelease[]> {
+    const releases = await this.deps.store.releases.getOdooReleases(ownerId, projectId);
+    for (const release of releases) {
+      if (!untold(release)) continue;
+      if (!(await this.deps.store.releases.markOdooReleaseTold(release.id, release.updatedAt))) continue;
+      await this.told({ ...release, toldAt: release.updatedAt });
+      if (release.state === 'live') await this.deploymentState(projectId, 'running', release.image);
+      if (release.state === 'failed' && !releases.some((other) => other.state === 'live' || other.state === 'superseded')) await this.deploymentState(projectId, 'failed');
+    }
+    return releases;
+  }
+
   private async watch(ownerId: string, projectId: string): Promise<void> {
-    let unsure = false;
+    let wait = REOPEN_FIRST_MS;
+    const lost = async (err: unknown): Promise<void> => {
+      this.log(`cannot follow ${projectId}'s release run (${(err as Error).message}); following it again in ${Math.round(wait / 1000)} s`);
+      await new Promise((resume) => setTimeout(resume, wait));
+      wait = Math.min(wait * 2, REOPEN_MOST_MS);
+    };
     for (;;) {
-      const running = await this.deps.runs.running(projectId).then((answer) => {
-        unsure = false;
-        return answer;
-      }, (err: unknown) => {
-        if (!unsure) console.warn(`[releases] cannot tell whether ${projectId}'s release still runs, so it is watched as running: ${(err as Error).message}`);
-        unsure = true;
-        return true;
-      });
-      const releases = await this.deps.store.releases.getOdooReleases(ownerId, projectId);
-      for (const release of releases) {
-        if (!untold(release)) continue;
-        if (!(await this.deps.store.releases.markOdooReleaseTold(release.id, release.updatedAt))) continue;
-        await this.told({ ...release, toldAt: release.updatedAt });
-        if (release.state === 'live') await this.deploymentState(projectId, 'running', release.image);
-        if (release.state === 'failed' && !releases.some((other) => other.state === 'live' || other.state === 'superseded')) await this.deploymentState(projectId, 'failed');
+      let running: boolean;
+      try {
+        running = await this.deps.runs.running(projectId);
+      } catch (err) {
+        await lost(err);
+        continue;
       }
-      if (!running) {
-        for (const release of releases.filter((entry) => IN_FLIGHT.includes(entry.state))) {
-          await this.save({ ...release, state: 'failed', reason: 'the release stopped before it said how it went', updatedAt: this.now() });
+      wait = REOPEN_FIRST_MS;
+      const releases = await this.tellUntold(ownerId, projectId);
+      if (running) {
+        try {
+          await this.deps.runs.closed(projectId);
+        } catch (err) {
+          await lost(err);
         }
-        const queued = releases.filter((entry) => entry.state === 'queued').sort((a, b) => b.startedAt.localeCompare(a.startedAt));
-        for (const older of queued.slice(1)) {
-          await this.save({ ...older, state: 'superseded', reason: 'a newer build took its place', updatedAt: this.now() });
-        }
-        const next = queued[0];
-        if (!next) return;
-        const project = (await this.deps.store.projects.getProjects()).find((entry) => entry.id === projectId);
-        const cluster = project ? await this.clusterOf(project) : undefined;
-        if (!project || !cluster) {
-          await this.save({ ...next, state: 'failed', reason: project ? 'the project\'s cluster is gone' : 'the project is gone', updatedAt: this.now() });
-          return;
-        }
-        const started = await this.startRelease(project, cluster, next);
-        if ('error' in started) return;
+        continue;
       }
-      await new Promise((done) => setTimeout(done, this.deps.pollMs ?? 3_000));
+      for (const release of releases.filter((entry) => IN_FLIGHT.includes(entry.state))) {
+        await this.save({ ...release, state: 'failed', reason: 'the release stopped before it said how it went', updatedAt: this.now() });
+      }
+      const queued = releases.filter((entry) => entry.state === 'queued').sort((a, b) => b.startedAt.localeCompare(a.startedAt));
+      for (const older of queued.slice(1)) {
+        await this.save({ ...older, state: 'superseded', reason: 'a newer build took its place', updatedAt: this.now() });
+      }
+      const next = queued[0];
+      if (!next) return;
+      const project = (await this.deps.store.projects.getProjects()).find((entry) => entry.id === projectId);
+      const cluster = project ? await this.clusterOf(project) : undefined;
+      if (!project || !cluster) {
+        await this.save({ ...next, state: 'failed', reason: project ? 'the project\'s cluster is gone' : 'the project is gone', updatedAt: this.now() });
+        return;
+      }
+      const started = await this.startRelease(project, cluster, next);
+      if ('error' in started) return;
     }
   }
 
