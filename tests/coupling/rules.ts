@@ -1,7 +1,26 @@
+import type { Artifact } from './artifacts.js';
 import type { Edge, Graph } from './graph.js';
 import type { Judged, Level } from './join.js';
 
 export type Rule = 'R1' | 'R2' | 'R3' | 'R4';
+export const RULES: readonly Rule[] = ['R1', 'R2', 'R3', 'R4'];
+
+export const NEEDS: Record<Rule, readonly Artifact[]> = { R1: ['in-process'], R2: ['in-process'], R3: ['in-process'], R4: [] };
+
+export interface Judging { judged: Rule[]; skipped: Array<{ rule: Rule; missing: Artifact[] }> }
+
+export function judging(have: ReadonlySet<Artifact>): Judging {
+  const judged: Rule[] = [];
+  const skipped: Judging['skipped'] = [];
+  for (const rule of RULES) {
+    const missing = NEEDS[rule].filter((artifact) => !have.has(artifact));
+    if (missing.length === 0) judged.push(rule);
+    else skipped.push({ rule, missing });
+  }
+  return { judged, skipped };
+}
+
+const ruleOf = (key: string): string => key.slice(0, key.indexOf(' '));
 
 export interface Breach { rule: Rule; key: string; at: string; why: string }
 
@@ -12,7 +31,7 @@ const CROSS_PROCESS: ReadonlySet<Edge['through']> = new Set(['temporal', 'socket
 
 export const crossesProcess = (edge: Edge): boolean => CROSS_PROCESS.has(edge.through);
 
-export function breaches(judged: readonly Judged[], graph: Graph): Breach[] {
+export function breaches(judged: readonly Judged[], graph: Graph, rules: readonly Rule[] = RULES): Breach[] {
   const name = (id: string) => { const unit = graph.units[id]; return unit ? `${unit.file}#${unit.name}` : id; };
   const callers = new Map<string, number>();
   for (const edge of graph.edges) for (const to of edge.to) callers.set(to, (callers.get(to) ?? 0) + 1);
@@ -41,7 +60,7 @@ export function breaches(judged: readonly Judged[], graph: Graph): Breach[] {
   for (const call of graph.unresolved) {
     found.push({ rule: 'R4', key: `R4 ${name(call.from)} -> ${call.text} (${call.why})`, at: `${call.site.file}:${call.site.line}`, why: call.why });
   }
-  return found;
+  return found.filter((breach) => rules.includes(breach.rule));
 }
 
 export function counted(found: readonly Breach[]): Baseline {
@@ -52,7 +71,8 @@ export function counted(found: readonly Breach[]): Baseline {
 
 export interface Against { added: Breach[]; fixed: Array<{ key: string; was: number; now: number }> }
 
-export function against(found: readonly Breach[], baseline: Baseline): Against {
+export function against(found: readonly Breach[], whole: Baseline, rules: readonly Rule[] = RULES): Against {
+  const baseline = Object.fromEntries(Object.entries(whole).filter(([key]) => (rules as readonly string[]).includes(ruleOf(key))));
   const now = counted(found);
   const added: Breach[] = [];
   for (const [key, count] of Object.entries(now)) {
@@ -63,7 +83,8 @@ export function against(found: readonly Breach[], baseline: Baseline): Against {
   return { added, fixed };
 }
 
-export function pruned(baseline: Baseline, found: readonly Breach[]): Baseline {
+export function pruned(baseline: Baseline, found: readonly Breach[], rules: readonly Rule[] = RULES): Baseline {
   const now = counted(found);
-  return Object.fromEntries(Object.entries(baseline).map(([key, was]): [string, number] => [key, Math.min(was, now[key] ?? 0)]).filter(([, count]) => count > 0));
+  const judgedNow = (key: string) => (rules as readonly string[]).includes(ruleOf(key));
+  return Object.fromEntries(Object.entries(baseline).map(([key, was]): [string, number] => [key, judgedNow(key) ? Math.min(was, now[key] ?? 0) : was]).filter(([, count]) => count > 0));
 }
