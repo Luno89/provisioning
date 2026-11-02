@@ -12,6 +12,8 @@ export interface MachineTemporalGatewayDeps {
   deviceOf: (token: string) => Promise<{ id: string } | undefined>;
   handed: (workflowId: string, deviceId: string) => Promise<void>;
   log?: ((line: string) => void) | undefined;
+  createServer?: (() => http2.Http2Server) | undefined;
+  connect?: ((authority: string, options?: http2.SecureClientSessionOptions) => http2.ClientHttp2Session) | undefined;
 }
 
 const GRPC = { ok: 0, permissionDenied: 7, unimplemented: 12, unavailable: 14, unauthenticated: 16 } as const;
@@ -45,7 +47,7 @@ export class MachineTemporalGateway {
   constructor(private readonly deps: MachineTemporalGatewayDeps) {}
 
   listen(port: number, host: string): Promise<number> {
-    const server = http2.createServer();
+    const server = (this.deps.createServer ?? (() => http2.createServer()))();
     server.on('stream', (stream, headers) => { void this.handle(stream, headers); });
     server.on('session', (session) => {
       this.sessions.add(session);
@@ -66,9 +68,10 @@ export class MachineTemporalGateway {
 
   private upstream(): http2.ClientHttp2Session {
     if (!this.session || this.session.closed || this.session.destroyed) {
+      const connect = this.deps.connect ?? ((authority, options) => http2.connect(authority, options));
       const session = this.deps.upstreamCa
-        ? http2.connect(`https://${this.deps.upstream}`, { ca: this.deps.upstreamCa })
-        : http2.connect(`http://${this.deps.upstream}`);
+        ? connect(`https://${this.deps.upstream}`, { ca: this.deps.upstreamCa })
+        : connect(`http://${this.deps.upstream}`);
       session.on('error', (err: Error) => this.deps.log?.(`[machine-gateway] Temporal connection: ${err.message}`));
       this.session = session;
     }
@@ -89,7 +92,7 @@ export class MachineTemporalGateway {
     return device.id;
   }
 
-  private async handle(stream: http2.ServerHttp2Stream, headers: http2.IncomingHttpHeaders): Promise<void> {
+  async handle(stream: http2.ServerHttp2Stream, headers: http2.IncomingHttpHeaders): Promise<void> {
     try {
       const path = header(headers[':path']) ?? '';
       const call = gatewayCallOf(path);

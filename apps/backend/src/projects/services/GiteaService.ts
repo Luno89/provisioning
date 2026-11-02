@@ -1,9 +1,7 @@
 import crypto from 'crypto';
-import { execFile, spawn } from 'child_process';
 import os from 'os';
 import path from 'path';
 import fs from 'fs/promises';
-import { promisify } from 'util';
 import { encryptValue, decryptValue, unpromptedGit, type SecretKey } from '../../platform/index.js';
 import type { InfrastructureService } from '../../infrastructure/index.js';
 import { registryHosts, type RegistryHosts, type RegistryLogin } from '../../instances/index.js';
@@ -11,37 +9,14 @@ import { privatePatches, type GiteaListedUser } from '../lib/gitea-visibility.js
 import { blockedDropPath, dropPathQueries } from '../lib/drop-paths.js';
 import { nodePortOf, pullBetween, pullsFrom, type GiteaPull } from '../lib/gitea-answers.js';
 import { ignore } from '@koala/engine-core/failures';
-
-const run = promisify(execFile);
-
-function gitWithInput(args: string[], env: NodeJS.ProcessEnv, input: string): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const child = spawn('git', args, { env });
-    const out: Buffer[] = [];
-    const err: Buffer[] = [];
-    child.stdout.on('data', (chunk: Buffer) => out.push(chunk));
-    child.stderr.on('data', (chunk: Buffer) => err.push(chunk));
-    child.on('error', reject);
-    child.on('close', (code) => {
-      const stderr = Buffer.concat(err).toString();
-      if (code === 0) resolve(Buffer.concat(out).toString());
-      else reject(Object.assign(new Error(`git ${args.find((arg) => !arg.startsWith('-') && !arg.startsWith('/')) ?? ''} exited ${code}`), { stderr }));
-    });
-    child.stdin.on('error', () => undefined);
-    child.stdin.end(input);
-  });
-}
+import { gitOnThisMachine, type GitProcesses } from './git-processes.js';
 
 const detailOf = async (res: Response): Promise<string> =>
   (await res.text().catch(ignore('the failure is still reported by its status when its body cannot be read'))) ?? '';
 
 const NAMESPACE = 'gitea';
 const ADMIN_USERNAME = 'provisioning-bot';
-const DATA_DIR = path.join(process.cwd(), 'data');
-const PASSWORD_FILE = path.join(DATA_DIR, '.gitea-admin-password');
-const TOKEN_FILE = path.join(DATA_DIR, '.gitea-admin-token');
-const TOKEN_SCOPES_FILE = path.join(DATA_DIR, '.gitea-admin-token.scopes');
-const PULL_TOKEN_FILE = path.join(DATA_DIR, '.gitea-pull-token');
+const DEFAULT_DATA_DIR = path.join(process.cwd(), 'data');
 const USERS_PAGE = 50;
 const TOKEN_SCOPES = ['write:repository', 'write:package', 'write:admin', 'write:user', 'write:organization'];
 
@@ -67,11 +42,28 @@ export class GiteaService {
   private tokenCache: string | null = null;
   private pullLogin: Promise<RegistryLogin> | null = null;
 
+  private readonly processes: GitProcesses;
+  private readonly dataDir: string;
+
   constructor(
     private readonly infra: Pick<InfrastructureService, 'runKubectl' | 'getK3dServerIp'>,
     private readonly masterKey: SecretKey,
     private readonly kubeconfigPath: string,
-  ) {}
+    options: { processes?: GitProcesses | undefined; dataDir?: string | undefined } = {},
+  ) {
+    this.processes = options.processes ?? gitOnThisMachine;
+    this.dataDir = options.dataDir ?? DEFAULT_DATA_DIR;
+  }
+
+  private dataFile(name: string): string {
+    return path.join(this.dataDir, name);
+  }
+
+  private async execGit(args: readonly string[], env: NodeJS.ProcessEnv, input?: string): Promise<string> {
+    const result = await this.processes.run({ command: 'git', args, env, ...(input === undefined ? {} : { input }) });
+    if (result.code !== 0) throw Object.assign(new Error(`git ${args.find((arg) => !arg.startsWith('-') && !arg.startsWith('/')) ?? ''} exited ${result.code}`), { stderr: result.stderr });
+    return result.stdout;
+  }
 
   private async resolveBaseUrl(): Promise<string> {
     if (this.baseUrlCache) return this.baseUrlCache;
@@ -107,7 +99,7 @@ export class GiteaService {
   }
 
   private async readAdminPassword(): Promise<string> {
-    const raw = await fs.readFile(PASSWORD_FILE, 'utf8');
+    const raw = await fs.readFile(this.dataFile('.gitea-admin-password'), 'utf8');
     return raw.trim();
   }
 
@@ -115,13 +107,13 @@ export class GiteaService {
     if (this.tokenCache) return this.tokenCache;
 
     try {
-      const encrypted = await fs.readFile(TOKEN_FILE, 'utf8');
+      const encrypted = await fs.readFile(this.dataFile('.gitea-admin-token'), 'utf8');
       this.tokenCache = decryptValue(encrypted.trim(), this.masterKey);
       const baseUrl = await this.resolveBaseUrl();
       const res = await fetch(`${baseUrl}/api/v1/user`, {
         headers: { Authorization: `token ${this.tokenCache}` },
       });
-      const scoped = await fs.readFile(TOKEN_SCOPES_FILE, 'utf8').then((raw) => JSON.parse(raw) as string[], () => [] as string[]);
+      const scoped = await fs.readFile(this.dataFile('.gitea-admin-token.scopes'), 'utf8').then((raw) => JSON.parse(raw) as string[], () => [] as string[]);
       if (res.ok && TOKEN_SCOPES.every((scope) => scoped.includes(scope))) return this.tokenCache;
     } catch (failure) {
       ignore('a stored token that cannot be read or no longer answers is replaced by the one minted below')(failure);
@@ -144,9 +136,9 @@ export class GiteaService {
     const body = await res.json() as { sha1: string };
     this.tokenCache = body.sha1;
 
-    await fs.mkdir(DATA_DIR, { recursive: true });
-    await fs.writeFile(TOKEN_FILE, encryptValue(this.tokenCache, this.masterKey), { mode: 0o600 });
-    await fs.writeFile(TOKEN_SCOPES_FILE, JSON.stringify(TOKEN_SCOPES), { mode: 0o600 });
+    await fs.mkdir(this.dataDir, { recursive: true });
+    await fs.writeFile(this.dataFile('.gitea-admin-token'), encryptValue(this.tokenCache, this.masterKey), { mode: 0o600 });
+    await fs.writeFile(this.dataFile('.gitea-admin-token.scopes'), JSON.stringify(TOKEN_SCOPES), { mode: 0o600 });
 
     await this.ensureClusterSecret(this.tokenCache);
 
@@ -528,11 +520,15 @@ export class GiteaService {
   }
 
   private gitAuthEnv(auth: { username: string; token: string }): NodeJS.ProcessEnv {
-    return unpromptedGit(process.env, {
-      'http.extraHeader': `Authorization: Basic ${Buffer.from(`${auth.username}:${auth.token}`).toString('base64')}`,
-      'maintenance.auto': 'false',
-      'gc.auto': '0',
-    });
+    return {
+      ...unpromptedGit(process.env, {
+        'http.extraHeader': `Authorization: Basic ${Buffer.from(`${auth.username}:${auth.token}`).toString('base64')}`,
+        'maintenance.auto': 'false',
+        'gc.auto': '0',
+      }),
+      SSH_ASKPASS: undefined,
+      GIT_ASKPASS: undefined,
+    };
   }
 
   private async withBareRepo<T>(auth: { username: string; token: string }, owner: string, name: string, what: string, work: (bare: string, url: string, env: NodeJS.ProcessEnv) => Promise<T>): Promise<T> {
@@ -557,38 +553,38 @@ export class GiteaService {
 
   async pushBundle(auth: { username: string; token: string }, owner: string, name: string, bundle: string): Promise<string> {
     return this.withBareRepo(auth, owner, name, 'Pushing to', async (bare, url, env) => {
-      await run('git', ['clone', '--bare', '--quiet', bundle, bare], { env });
-      await run('git', ['-C', bare, 'push', '--quiet', '--all', url], { env });
-      await run('git', ['-C', bare, 'push', '--quiet', '--tags', url], { env });
-      return (await run('git', ['-C', bare, 'rev-parse', 'HEAD'], { env })).stdout.trim();
+      await this.execGit(['clone', '--bare', '--quiet', bundle, bare], env);
+      await this.execGit(['-C', bare, 'push', '--quiet', '--all', url], env);
+      await this.execGit(['-C', bare, 'push', '--quiet', '--tags', url], env);
+      return (await this.execGit(['-C', bare, 'rev-parse', 'HEAD'], env)).trim();
     });
   }
 
   async pushBranchBundle(auth: { username: string; token: string }, owner: string, name: string, bundle: string, branch: string, options: { asMain?: boolean } = {}): Promise<string> {
     return this.withBareRepo(auth, owner, name, 'Pushing to', async (bare, url, env) => {
-      await run('git', ['clone', '--bare', '--quiet', bundle, bare], { env });
-      if (options.asMain) await run('git', ['-C', bare, 'push', '--quiet', url, `refs/heads/${branch}:refs/heads/main`], { env });
-      await run('git', ['-C', bare, 'push', '--quiet', '--force', url, `refs/heads/${branch}:refs/heads/${branch}`], { env });
-      return (await run('git', ['-C', bare, 'rev-parse', `refs/heads/${branch}`], { env })).stdout.trim();
+      await this.execGit(['clone', '--bare', '--quiet', bundle, bare], env);
+      if (options.asMain) await this.execGit(['-C', bare, 'push', '--quiet', url, `refs/heads/${branch}:refs/heads/main`], env);
+      await this.execGit(['-C', bare, 'push', '--quiet', '--force', url, `refs/heads/${branch}:refs/heads/${branch}`], env);
+      return (await this.execGit(['-C', bare, 'rev-parse', `refs/heads/${branch}`], env)).trim();
     });
   }
 
   async pullBranchBundle(auth: { username: string; token: string }, owner: string, name: string, branch: string, destination: string): Promise<boolean> {
     return this.withBareRepo(auth, owner, name, 'Fetching', async (bare, url, env) => {
-      await run('git', ['init', '--bare', '--quiet', bare], { env });
-      const listed = (await run('git', ['ls-remote', '--heads', url, `refs/heads/${branch}`], { env })).stdout.trim();
+      await this.execGit(['init', '--bare', '--quiet', bare], env);
+      const listed = (await this.execGit(['ls-remote', '--heads', url, `refs/heads/${branch}`], env)).trim();
       if (!listed) return false;
-      await run('git', ['-C', bare, 'fetch', '--quiet', url, `refs/heads/${branch}:refs/heads/${branch}`], { env });
-      await run('git', ['-C', bare, 'bundle', 'create', destination, `refs/heads/${branch}`], { env });
+      await this.execGit(['-C', bare, 'fetch', '--quiet', url, `refs/heads/${branch}:refs/heads/${branch}`], env);
+      await this.execGit(['-C', bare, 'bundle', 'create', destination, `refs/heads/${branch}`], env);
       return true;
     });
   }
 
   async diffBetween(auth: { username: string; token: string }, owner: string, name: string, base: string, head: string): Promise<string> {
     return this.withBareRepo(auth, owner, name, 'Comparing', async (bare, url, env) => {
-      await run('git', ['init', '--bare', '--quiet', bare], { env });
-      await run('git', ['-C', bare, 'fetch', '--quiet', url, '+refs/heads/*:refs/heads/*'], { env });
-      return (await run('git', ['-C', bare, 'diff', '-M', '--no-color', '--no-ext-diff', base, head], { env, maxBuffer: 256 * 1024 * 1024 })).stdout;
+      await this.execGit(['init', '--bare', '--quiet', bare], env);
+      await this.execGit(['-C', bare, 'fetch', '--quiet', url, '+refs/heads/*:refs/heads/*'], env);
+      return await this.execGit(['-C', bare, 'diff', '-M', '--no-color', '--no-ext-diff', base, head], env);
     });
   }
 
@@ -603,10 +599,10 @@ export class GiteaService {
 
   async pullBundle(auth: { username: string; token: string }, owner: string, name: string, destination: string): Promise<boolean> {
     return this.withBareRepo(auth, owner, name, 'Fetching', async (bare, url, env) => {
-      await run('git', ['clone', '--bare', '--quiet', url, bare], { env });
-      const refs = (await run('git', ['-C', bare, 'for-each-ref', '--count=1'], { env })).stdout.trim();
+      await this.execGit(['clone', '--bare', '--quiet', url, bare], env);
+      const refs = (await this.execGit(['-C', bare, 'for-each-ref', '--count=1'], env)).trim();
       if (!refs) return false;
-      await run('git', ['-C', bare, 'bundle', 'create', destination, '--all'], { env });
+      await this.execGit(['-C', bare, 'bundle', 'create', destination, '--all'], env);
       return true;
     });
   }
@@ -791,26 +787,26 @@ export class GiteaService {
   ): Promise<{ commit: string }> {
     const author = await this.authorOf(auth.username);
     return this.withBareRepo(auth, owner, name, 'Committing to', async (repo, url, env) => {
-      await run('git', ['init', '--quiet', repo], { env });
-      const git = (...args: string[]) => run('git', ['-C', repo, ...args], { env, maxBuffer: 256 * 1024 * 1024 });
-      const head = branch ? undefined : /^ref: refs\/heads\/(\S+)\tHEAD$/m.exec((await git('ls-remote', '--symref', url, 'HEAD')).stdout)?.[1];
+      await this.execGit(['init', '--quiet', repo], env);
+      const git = (...args: string[]) => this.execGit(['-C', repo, ...args], env);
+      const head = branch ? undefined : /^ref: refs\/heads\/(\S+)\tHEAD$/m.exec(await git('ls-remote', '--symref', url, 'HEAD'))?.[1];
       const base = branch ?? head ?? 'main';
-      const listed = (await git('ls-remote', '--heads', url, `refs/heads/${base}`)).stdout.trim();
+      const listed = (await git('ls-remote', '--heads', url, `refs/heads/${base}`)).trim();
       if (branch && !listed) throw new Error(`there is no branch ${branch}`);
       let parent: string | undefined;
       if (listed) {
         await git('fetch', '--quiet', '--depth', '1', '--no-tags', url, `refs/heads/${base}`);
-        parent = (await git('rev-parse', 'FETCH_HEAD')).stdout.trim();
+        parent = (await git('rev-parse', 'FETCH_HEAD')).trim();
         await git('read-tree', parent);
-        const blocked = blockedDropPath(files.map((file) => file.path), await gitWithInput(['-C', repo, 'cat-file', '--batch-check'], env, dropPathQueries(parent, files.map((file) => file.path))));
+        const blocked = blockedDropPath(files.map((file) => file.path), await this.execGit(['-C', repo, 'cat-file', '--batch-check'], env, dropPathQueries(parent, files.map((file) => file.path))));
         if (blocked) throw new GiteaConflictError(`"${blocked.path}" is a ${blocked.is} in "${owner}/${name}", so ${blocked.is === 'folder' ? 'a file cannot go there' : `"${blocked.dropped}" cannot go under it`}.`);
       }
-      const shas = (await gitWithInput(['-C', repo, 'hash-object', '-w', '--no-filters', '--stdin-paths'], env, files.map((file) => `${file.source}\n`).join(''))).trim().split('\n');
-      await gitWithInput(['-C', repo, 'update-index', '--add', '-z', '--index-info'], env, files.map((file, index) => `100644 ${shas[index]}\t${file.path}\0`).join(''));
-      const tree = (await git('write-tree')).stdout.trim();
-      const commit = (await run('git', ['-C', repo, 'commit-tree', tree, ...(parent ? ['-p', parent] : []), '-m', message], {
-        env: { ...env, GIT_AUTHOR_NAME: author.name, GIT_AUTHOR_EMAIL: author.email, GIT_COMMITTER_NAME: author.name, GIT_COMMITTER_EMAIL: author.email },
-      })).stdout.trim();
+      const shas = (await this.execGit(['-C', repo, 'hash-object', '-w', '--no-filters', '--stdin-paths'], env, files.map((file) => `${file.source}\n`).join(''))).trim().split('\n');
+      await this.execGit(['-C', repo, 'update-index', '--add', '-z', '--index-info'], env, files.map((file, index) => `100644 ${shas[index]}\t${file.path}\0`).join(''));
+      const tree = (await git('write-tree')).trim();
+      const commit = (await this.execGit(['-C', repo, 'commit-tree', tree, ...(parent ? ['-p', parent] : []), '-m', message], {
+        ...env, GIT_AUTHOR_NAME: author.name, GIT_AUTHOR_EMAIL: author.email, GIT_COMMITTER_NAME: author.name, GIT_COMMITTER_EMAIL: author.email,
+      })).trim();
       try {
         await git('push', '--quiet', url, `${commit}:refs/heads/${newBranch ?? base}`);
       } catch (err) {
@@ -976,11 +972,11 @@ export class GiteaService {
 
   private async loadRegistryLogin(): Promise<RegistryLogin> {
     const hosts = await this.getRegistryHosts();
-    const stored = await fs.readFile(PULL_TOKEN_FILE, 'utf8').then((raw) => decryptValue(raw.trim(), this.masterKey), ignore('with no stored pull token one is minted below'));
+    const stored = await fs.readFile(this.dataFile('.gitea-pull-token'), 'utf8').then((raw) => decryptValue(raw.trim(), this.masterKey), ignore('with no stored pull token one is minted below'));
     if (stored && await this.registryAccepts(stored)) return { hosts, username: ADMIN_USERNAME, password: stored };
     const minted = await this.mintUserToken(ADMIN_USERNAME, await this.readAdminPassword(), 'registry-pull', ['read:package']);
-    await fs.mkdir(DATA_DIR, { recursive: true });
-    await fs.writeFile(PULL_TOKEN_FILE, encryptValue(minted.token, this.masterKey), { mode: 0o600 });
+    await fs.mkdir(this.dataDir, { recursive: true });
+    await fs.writeFile(this.dataFile('.gitea-pull-token'), encryptValue(minted.token, this.masterKey), { mode: 0o600 });
     return { hosts, username: ADMIN_USERNAME, password: minted.token };
   }
 

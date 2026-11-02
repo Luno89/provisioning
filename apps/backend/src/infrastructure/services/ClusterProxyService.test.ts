@@ -323,3 +323,12 @@ describe('ClusterProxyService', () => {
     });
   });
 });
+
+describe('sharedClusterProxy', () => {
+  it('hands every caller the one proxy, so a forward one opens is the one another stops', async () => {
+    const { sharedClusterProxy, ClusterProxyService: Class } = await import('./ClusterProxyService.js');
+    const first = sharedClusterProxy();
+    expect(first).toBeInstanceOf(Class);
+    expect(sharedClusterProxy()).toBe(first);
+  });
+});

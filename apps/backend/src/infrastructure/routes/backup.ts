@@ -1,17 +1,19 @@
 import { Router } from 'express';
-import { spawn } from 'child_process';
+import { startProcess, type StartProcess } from '../lib/shell.js';
 import path from 'path';
 
 export interface BackupRouterDeps {
   repoRoot: string;
+  startScript?: StartProcess | undefined;
 }
 
 export function backupRouter(deps: BackupRouterDeps): Router {
   const router = Router();
+  const startScript = deps.startScript ?? startProcess;
 
   router.post('/run', (_req, res) => {
     const script = path.join(deps.repoRoot, 'scripts/backup-to-drive.sh');
-    const child = spawn('bash', [script], { cwd: deps.repoRoot });
+    const child = startScript('bash', [script], { cwd: deps.repoRoot });
 
     let output = '';
     child.stdout.on('data', (d: Buffer) => { output += d.toString(); });

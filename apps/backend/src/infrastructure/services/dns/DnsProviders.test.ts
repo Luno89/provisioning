@@ -30,4 +30,12 @@ describe('the DNS provider registry service', () => {
     expect(done).toBe(false);
     expect(lines).toEqual([matching(/^left as it is: .*198\.51\.100\.1/)]);
   });
+
+  it('validates credentials with the provider named, and refuses a provider it does not know', async () => {
+    const fake = fakePorkbun(['koala.test']);
+    const dns = new DnsProviders(fake.fetch, async () => []);
+    expect(await dns.validate('porkbun', fake.good)).toMatchObject({ valid: true });
+    expect(await dns.validate('porkbun', fake.bad)).toMatchObject({ valid: false, message: containing('Invalid API key') });
+    expect(() => dns.validate('route53', fake.good)).toThrow(/knows cloudflare, porkbun/);
+  });
 });

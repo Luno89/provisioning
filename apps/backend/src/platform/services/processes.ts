@@ -18,6 +18,8 @@ export const nodeProcesses: Processes = {
       stdout: Buffer.concat(stdout).toString('utf8'),
       stderr: Buffer.concat(stderr).toString('utf8'),
     }));
-    child.stdin.end(run.input ?? '');
+    child.stdin.on('error', (err: NodeJS.ErrnoException) => { if (err.code !== 'EPIPE') failed(err); });
+    if (run.input === undefined) child.stdin.end();
+    else child.stdin.end(run.input);
   }),
 };

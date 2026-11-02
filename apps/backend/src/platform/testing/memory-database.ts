@@ -13,10 +13,12 @@ import { MemoryMonitoringStore } from '../../monitoring/testing/memory-store.js'
 import { MemoryProjectsStore } from '../../projects/testing/memory-store.js';
 import { MemoryReleasesStore } from '../../releases/testing/memory-store.js';
 import type { Database } from '../lib/db-interface.js';
+import type { Collections } from './memory-records.js';
 import { MemoryPlatformStore } from './memory-store.js';
 
 export function memoryDatabase(): Database {
-  const hub = new MemoryHubStore();
+  const shared: Collections = new Map();
+  const hub = new MemoryHubStore(shared);
   return {
     init: async () => undefined,
     close: async () => undefined,
@@ -24,7 +26,7 @@ export function memoryDatabase(): Database {
     accounts: new MemoryAccountsStore(),
     instances: new MemoryInstancesStore(),
     hub,
-    projects: markingHubWrites(new MemoryProjectsStore(), hub),
+    projects: markingHubWrites(new MemoryProjectsStore(shared), hub),
     releases: new MemoryReleasesStore(),
     files: new MemoryFilesStore(),
     machines: new MemoryMachinesStore(),
@@ -33,6 +35,6 @@ export function memoryDatabase(): Database {
     memory: new MemoryMemoryStore(),
     checks: new MemoryChecksStore(),
     infrastructure: new MemoryInfrastructureStore(),
-    engine: markingHubWrites(new MemoryEngineStore(), hub),
+    engine: markingHubWrites(new MemoryEngineStore(shared), hub),
   };
 }

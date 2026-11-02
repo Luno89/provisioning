@@ -22,7 +22,7 @@ export const CLUSTER_QUEUE = 'cluster-ops-queue';
 
 export interface AppDeployDeps {
   db: Database;
-  client: () => Pick<Client, 'workflow'>;
+  client: () => { workflow: Pick<Client['workflow'], 'start'> };
   masterKey: SecretKey;
   clusterById: (id: string) => Promise<ClusterMetadata | undefined>;
   logDir: string;

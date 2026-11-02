@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { PoolMonitoringService } from './PoolMonitoringService.js';
+import { PoolMonitoringError, PoolMonitoringService } from './PoolMonitoringService.js';
 
 const place = { hostNamespace: 'pool-alice' };
 
@@ -56,5 +56,32 @@ describe('root watching one pool instance', () => {
       apply: async () => {},
     });
     expect((await monitoring.alerts(place)).map((alert) => alert.labels)).toEqual([{ alertname: 'KubePodCrashLooping', namespace: 'shop', pod: 'web-x-shop-x-alice' }]);
+  });
+});
+
+describe('root setting an alert for a pool instance\'s app', () => {
+  const rule = (kind: string) => ({ id: 'r1', namespace: 'shop', spec: { kind, threshold: 1, forMinutes: 5 }, summary: 'Shop is down' }) as never;
+
+  it('writes the alert into the instance\'s namespace on the node', async () => {
+    const applied: string[] = [];
+    const monitoring = new PoolMonitoringService({ kubectl: async () => '', apply: async (manifest) => { applied.push(manifest); } });
+    await monitoring.setRule(place as never, { id: 'r1', namespace: 'shop', spec: { kind: 'down', threshold: 0, forMinutes: 5 }, summary: 'Shop is down' } as never);
+    expect(JSON.parse(applied[0]!)).toMatchObject({ kind: 'PrometheusRule', metadata: { namespace: 'pool-alice' }, spec: { groups: [{ rules: [{ annotations: { summary: 'Shop is down' } }] }] } });
+  });
+
+  it('refuses an alert it cannot measure there, with a 400, writing nothing', async () => {
+    const applied: string[] = [];
+    const monitoring = new PoolMonitoringService({ kubectl: async () => '', apply: async (manifest) => { applied.push(manifest); } });
+    const refused = await monitoring.setRule(place as never, rule('errors')).catch((err: unknown) => err);
+    expect(refused).toBeInstanceOf(PoolMonitoringError);
+    expect(refused).toMatchObject({ status: 400 });
+    expect(applied).toEqual([]);
+  });
+
+  it('removes an alert from the instance\'s namespace', async () => {
+    const calls: string[][] = [];
+    const monitoring = new PoolMonitoringService({ kubectl: async (args) => { calls.push(args); return ''; }, apply: async () => undefined });
+    await monitoring.removeRule(place as never, 'r1');
+    expect(calls).toEqual([['delete', 'prometheusrule', expect.stringContaining('r1'), '-n', 'pool-alice', '--ignore-not-found']]);
   });
 });

@@ -25,6 +25,7 @@ export interface ClustersRouterDeps {
   db: Pick<InfrastructureStore, 'getClusters' | 'deleteCluster'>;
   io: SocketServer;
   dataKey: SecretKey;
+  generateKeypair?: typeof generateSshKeypair | undefined;
 }
 
 const idOf = (req: Request): string => String(req.params.id ?? '');
@@ -38,6 +39,7 @@ export function clustersRouter(deps: ClustersRouterDeps): Router {
     temporalBridge, db, io, giteaService, infisicalService,
   } = deps;
   const DATA_KEY = deps.dataKey;
+  const generateKeypair = deps.generateKeypair ?? generateSshKeypair;
   const router = Router();
 
   const PROXY_SERVICES = ['prometheus', 'grafana', 'traefik', 'gitea', 'alertmanager', 'infisical'] as const;
@@ -107,7 +109,7 @@ export function clustersRouter(deps: ClustersRouterDeps): Router {
       }
 
       if (remote && !remote.privateKey) {
-        const pair = await generateSshKeypair(`nowrinkles-${name}`);
+        const pair = await generateKeypair(`nowrinkles-${name}`);
         const saved = await clusterService.createAwaitingKey({
           name,
           ownerId: userOf(req).id,

@@ -21,3 +21,17 @@ describe('the open connections and the sessions they were made with', () => {
     expect(two.closed).toBe(0);
   });
 });
+
+describe('how many connections are open', () => {
+  it('counts the ones tracked and not the ones closed or forgotten', () => {
+    const sockets = new SessionSockets();
+    expect(sockets.size).toBe(0);
+    sockets.track(fake('a'), { sessionId: 's1', personId: 'ann', sessionAt: 1 });
+    sockets.track(fake('b'), { sessionId: 's2', personId: 'bo', sessionAt: 1 });
+    expect(sockets.size).toBe(2);
+    sockets.end({ kind: 'session', sessionId: 's1' });
+    expect(sockets.size).toBe(1);
+    sockets.forget('b');
+    expect(sockets.size).toBe(0);
+  });
+});

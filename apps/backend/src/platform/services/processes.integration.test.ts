@@ -11,6 +11,10 @@ describe('running a program on this machine', () => {
     expect(await nodeProcesses.run({ command: 'sh', args: ['-c', 'cat; pwd; printf "$WHO"'], input: 'in\n', cwd: '/tmp', env: { WHO: 'koala' } })).toMatchObject({ code: 0, stdout: 'in\n/tmp\nkoala' });
   });
 
+  it('answers with the exit of a program that stops before reading what it was given', async () => {
+    expect(await nodeProcesses.run({ command: 'sh', args: ['-c', 'exit 4'], input: 'x'.repeat(1 << 20) })).toMatchObject({ code: 4 });
+  });
+
   it('rejects when the program cannot be started at all', async () => {
     await expect(nodeProcesses.run({ command: 'no-such-program-koala', args: [] })).rejects.toThrow(/ENOENT/);
   });

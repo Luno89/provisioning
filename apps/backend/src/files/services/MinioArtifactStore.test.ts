@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { Readable } from 'node:stream';
-import { MinioArtifactStores, type MinioClient } from './MinioArtifactStore.js';
+import { matches, mock } from 'vitest-mock-extended';
+import { MinioArtifactStores, minioReachFrom, type ClusterReachDeps, type MinioClient } from './MinioArtifactStore.js';
 import type { ClusterMetadata, DeploymentMetadata } from '../../platform/lib/types.js';
 
 const deployment = { id: 'm1', name: 'Team Store', appType: 'minio', status: 'running', clusterId: 'c1', ownerId: 'bo', minioRootUser: 'koala', minioRootPassword: 'pw' } as unknown as DeploymentMetadata;
@@ -43,5 +44,52 @@ describe('the owner\'s MinIO as an artifact store', () => {
     const stores = new MinioArtifactStores({ deployments: async () => [deployment], clusterById: async () => cluster, service: async () => ({}), nodeIp: async () => undefined });
     expect(await stores.storeFor('al')).toBeUndefined();
     expect(await stores.hasMinio('al')).toBe(false);
+  });
+});
+
+describe('reaching the MinIO of a cluster', () => {
+  const k3d = { id: 'c1', name: 'dev', provider: 'k3d' } as ClusterMetadata;
+  const system = { id: 'provisioning-lunorica', name: 'provisioning-lunorica', provider: 'k3d' } as ClusterMetadata;
+
+  function reachOf(clusters: ClusterMetadata[] = [k3d], deployments: DeploymentMetadata[] = [deployment]) {
+    const deps = mock<ClusterReachDeps>();
+    deps.db = { getDeployments: async () => deployments, getClusters: async () => clusters };
+    deps.systemCluster.mockResolvedValue(system);
+    deps.kubeconfigOf.mockImplementation(async (cluster) => `/kube/${cluster.id}`);
+    deps.isMockCloud.mockReturnValue(false);
+    return { deps, reach: minioReachFrom(deps) };
+  }
+
+  it('lists the deployments the database holds', async () => {
+    const { reach } = reachOf();
+    expect(await reach.deployments()).toEqual([deployment]);
+  });
+
+  it('finds a cluster by its id, and the system cluster through the platform rather than the stored ones', async () => {
+    const { deps, reach } = reachOf();
+    expect(await reach.clusterById('c1')).toBe(k3d);
+    expect(await reach.clusterById('missing')).toBeUndefined();
+    expect(await reach.clusterById('provisioning-lunorica')).toBe(system);
+    expect(deps.systemCluster).toHaveBeenCalledOnce();
+  });
+
+  it('reads a service with kubectl against the cluster\'s own kubeconfig', async () => {
+    const { deps, reach } = reachOf();
+    deps.kubectl.calledWith(matches<string[]>((args) => args.join(' ') === 'get svc minio -n team-store -o json'), '/kube/c1').mockResolvedValue('{"spec":{"ports":[{"name":"s3","port":9000,"nodePort":30900}]}}');
+    expect(await reach.service(k3d, 'team-store', 'minio')).toEqual({ spec: { ports: [{ name: 's3', port: 9000, nodePort: 30900 }] } });
+  });
+
+  it('reaches a GPU cluster through the host\'s gateway, a k3d or mocked cloud cluster through its server container, and any other through its mesh address', async () => {
+    const { deps, reach } = reachOf();
+    deps.hostGatewayIp.mockResolvedValue('172.17.0.1');
+    deps.k3dServerIp.calledWith('dev').mockResolvedValue('172.18.0.2');
+    deps.k3dServerIp.calledWith('mocked').mockResolvedValue('172.18.0.9');
+    expect(await reach.nodeIp({ ...k3d, gpuEnabled: true })).toBe('172.17.0.1');
+    expect(await reach.nodeIp(k3d)).toBe('172.18.0.2');
+    deps.isMockCloud.mockReturnValue(true);
+    expect(await reach.nodeIp({ id: 'c2', name: 'mocked', provider: 'aws' } as ClusterMetadata)).toBe('172.18.0.9');
+    deps.isMockCloud.mockReturnValue(false);
+    expect(await reach.nodeIp({ id: 'c3', name: 'far', provider: 'hetzner', meshIp: '100.64.0.7' } as ClusterMetadata)).toBe('100.64.0.7');
+    expect(await reach.nodeIp({ id: 'c4', name: 'bare', provider: 'hetzner' } as ClusterMetadata)).toBeUndefined();
   });
 });

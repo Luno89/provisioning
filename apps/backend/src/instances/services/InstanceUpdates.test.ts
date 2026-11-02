@@ -1,4 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { http, HttpResponse } from 'msw';
+import { describe, expect, it, vi } from 'vitest';
+import { interceptHttp } from '../../platform/testing/http.js';
 import { InstanceUpdates, UpdatesRefused } from './InstanceUpdates.js';
 
 const view = (over: Record<string, unknown> = {}) => ({ auto: true, running: 'a1', current: 'b2', target: 'b2', releases: [], ...over });
@@ -54,5 +56,50 @@ describe('an instance\'s updates, kept on root', () => {
     expect(await updates.findings()).toEqual(answer);
     expect(calls[0]).toMatchObject({ url: 'https://root/api/instances/release-findings', headers: { 'x-instance-id': 'inst-1', authorization: 'Bearer secret' } });
     await expect(rig({ status: 401, body: { error: 'unknown instance or credential' } }).updates.findings()).rejects.toBeInstanceOf(UpdatesRefused);
+  });
+});
+
+describe('an instance\'s updates with the real fetch and the real clock', () => {
+  const kubectlCalls: string[][] = [];
+  const server = interceptHttp(
+    http.put('https://root/api/instances/updates', () => HttpResponse.json(view({ auto: false, picked: 'b2' }))),
+  );
+
+  it('names the check-in it starts after the moment it is started', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date(1_800_000_000_000));
+    try {
+      const updates = new InstanceUpdates(
+        { rootUrl: 'https://root', instanceId: 'inst-1', token: async () => 'secret', cronJob: 'instance-self-upgrade', namespace: 'koala' },
+        async (args) => {
+          kubectlCalls.push(args);
+          return args[0] === 'get' ? JSON.stringify({ items: [] }) : '';
+        },
+      );
+      expect(await updates.set({ version: 'v2' })).toMatchObject({ checking: 'instance-self-upgrade-mywpiww0' });
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(kubectlCalls.at(-1)).toEqual(['create', 'job', '--from=cronjob/instance-self-upgrade', 'instance-self-upgrade-mywpiww0', '-n', 'koala']);
+  });
+
+  it('refuses to start a check-in on an instance installed without a credential from root', async () => {
+    const updates = new InstanceUpdates({ rootUrl: 'https://root', instanceId: 'inst-1', token: async () => 'secret' }, async () => '');
+    await expect(updates.checkNow()).rejects.toMatchObject({ status: 409 });
+  });
+
+  it('shows the updates without a running check-in when the jobs cannot be read', async () => {
+    const warned = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      server.use(http.get('https://root/api/instances/updates', () => HttpResponse.json(view())));
+      const updates = new InstanceUpdates(
+        { rootUrl: 'https://root', instanceId: 'inst-1', token: async () => 'secret', cronJob: 'instance-self-upgrade', namespace: 'koala' },
+        async () => { throw new Error('the cluster is not answering'); },
+      );
+      expect(await updates.view()).not.toHaveProperty('checking');
+      expect(warned).toHaveBeenCalledWith(expect.stringContaining('the cluster is not answering'));
+    } finally {
+      warned.mockRestore();
+    }
   });
 });

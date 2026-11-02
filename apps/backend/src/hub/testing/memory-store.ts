@@ -1,6 +1,6 @@
 import { asStored } from '../../platform/testing/as-stored.js';
-import { copied } from '../../platform/testing/memory-records.js';
-import { fieldUpdate, messageUpdates, SYNCED_KINDS, type HubDirty, type HubLink, type MessageMatch, type RecordPatch, type SyncedDoc, type SyncedKind } from '../lib/hub-sync.js';
+import { copied, collectionIn, type Collections } from '../../platform/testing/memory-records.js';
+import { fieldUpdate, messageUpdates, type HubDirty, type HubLink, type MessageMatch, type RecordPatch, type SyncedDoc, type SyncedKind } from '../lib/hub-sync.js';
 import type { HubStore } from '../store.js';
 
 type Row = Record<string, unknown>;
@@ -43,10 +43,10 @@ export class MemoryHubStore implements HubStore {
   private readonly links = new Map<string, StoredLink>();
   private readonly dirty = new Map<string, HubDirty>();
   private readonly snapshots = new Map<string, Snapshot>();
-  private readonly synced = new Map<SyncedKind, Map<string, Row>>(SYNCED_KINDS.map((kind) => [kind, new Map()]));
+  constructor(private readonly collections: Collections = new Map()) {}
 
   private rows(kind: SyncedKind): Map<string, Row> {
-    return this.synced.get(kind)!;
+    return collectionIn<Row>(this.collections, kind);
   }
 
   async ensureIndexes(): Promise<void> {}
@@ -93,7 +93,7 @@ export class MemoryHubStore implements HubStore {
     const fields = fieldUpdate(patch);
     const messages = messageUpdates(patch);
     if (fields) {
-      const row = rows.get(id) ?? {};
+      const row = rows.get(id) ?? { id };
       for (const [field, value] of Object.entries(asStored(fields.$set ?? {}))) setPath(row, field, value);
       for (const field of Object.keys(fields.$unset ?? {})) unsetPath(row, field);
       rows.set(id, row);
@@ -106,7 +106,7 @@ export class MemoryHubStore implements HubStore {
       }
     }
     if (messages.push) {
-      const row = rows.get(id) ?? {};
+      const row = rows.get(id) ?? { id };
       const existing: unknown[] = Array.isArray(row.messages) ? row.messages : [];
       row.messages = [...existing, ...asStored(messages.push)].sort(byAt);
       rows.set(id, row);

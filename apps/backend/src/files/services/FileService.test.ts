@@ -163,3 +163,47 @@ describe('where a project\'s files go', () => {
     expect(await world.files.shared(made.value.token)).toMatchObject({ ok: false, status: 404 });
   });
 });
+
+describe('changing the files in a place', () => {
+  const inProject = (world: ReturnType<typeof setUp>) => ({ kind: 'project' as const, project: world.project() });
+
+  it('removes a file or folder and says which path went', async () => {
+    const world = setUp([deployment({})], { ownerId: 'u1', deploymentId: 'm1' });
+    expect(await world.files.remove('u1', inProject(world), 'docs/a.pdf')).toEqual({ ok: true, value: { path: 'docs/a.pdf' } });
+    expect(world.store.remove).toHaveBeenCalledWith('docs/a.pdf');
+  });
+
+  it('moves a file or folder and says where it went', async () => {
+    const world = setUp([deployment({})], { ownerId: 'u1', deploymentId: 'm1' });
+    expect(await world.files.move('u1', inProject(world), 'a.pdf', 'docs/a.pdf')).toEqual({ ok: true, value: { path: 'docs/a.pdf' } });
+    expect(world.store.move).toHaveBeenCalledWith('a.pdf', 'docs/a.pdf');
+  });
+
+  it('makes an empty folder', async () => {
+    const world = setUp([deployment({})], { ownerId: 'u1', deploymentId: 'm1' });
+    expect(await world.files.makeFolder('u1', { kind: 'mine' }, 'chats')).toEqual({ ok: true, value: { path: 'chats' } });
+    expect(world.store.makeFolder).toHaveBeenCalledWith('chats');
+    expect(world.opened.at(-1)).toEqual({ kind: 'minio', deploymentId: 'm1', folder: 'personal' });
+  });
+
+  it('searches the place by name, and answers an empty search without opening it', async () => {
+    const world = setUp([deployment({})], { ownerId: 'u1', deploymentId: 'm1' });
+    expect(await world.files.search('u1', inProject(world), 'pdf')).toEqual({ ok: true, value: [{ name: 'a.pdf', path: 'a.pdf', type: 'file' }] });
+    expect(world.store.search).toHaveBeenCalledWith('pdf');
+    expect(await world.files.search('u1', inProject(world), '   ')).toEqual({ ok: true, value: [] });
+    expect(world.store.search).toHaveBeenCalledOnce();
+  });
+
+  it('refuses every change while the person has no file server, and touches nothing', async () => {
+    const world = setUp([]);
+    const none = { ok: false, status: 409, why: 'This project has no file server yet.' };
+    expect(await world.files.remove('u1', inProject(world), 'a.pdf')).toEqual(none);
+    expect(await world.files.move('u1', inProject(world), 'a.pdf', 'b.pdf')).toEqual(none);
+    expect(await world.files.makeFolder('u1', inProject(world), 'docs')).toEqual(none);
+    expect(await world.files.search('u1', inProject(world), 'pdf')).toEqual(none);
+    expect(world.store.remove).not.toHaveBeenCalled();
+    expect(world.store.move).not.toHaveBeenCalled();
+    expect(world.store.makeFolder).not.toHaveBeenCalled();
+    expect(world.store.search).not.toHaveBeenCalled();
+  });
+});

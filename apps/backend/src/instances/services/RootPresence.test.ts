@@ -1,0 +1,237 @@
+import { EventEmitter } from 'node:events';
+import type { ManagerOptions, Socket, SocketOptions } from 'socket.io-client';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { RootPresence, presenceUrl, type RootPresenceDeps } from './RootPresence.js';
+
+const GRACE = 300_000;
+const START = new Date('2026-11-02T12:00:00.000Z');
+
+class FakeSocket extends EventEmitter {
+  connected = false;
+  active = true;
+  connects = 0;
+  closed = false;
+  connect(): this {
+    this.connects += 1;
+    return this;
+  }
+  close(): this {
+    this.closed = true;
+    this.connected = false;
+    return this;
+  }
+  arrive(): void {
+    this.connected = true;
+    this.emit('connect');
+  }
+  leave(reason = 'transport close'): void {
+    this.connected = false;
+    this.emit('disconnect', reason);
+  }
+}
+
+let socket: FakeSocket;
+let dialed: Array<{ url: string; options: Partial<ManagerOptions & SocketOptions> }>;
+let pushed: Array<{ ownerId: string; title: string; path: string; tag: string }>;
+let said: string[];
+let tokens: () => Promise<string>;
+
+const rootPresence = (over: { [K in keyof RootPresenceDeps]?: RootPresenceDeps[K] | undefined } = {}): RootPresence => new RootPresence({
+  rootUrl: 'https://app.example.com/',
+  instanceId: 'inst-1',
+  ownerId: 'owner-1',
+  token: () => tokens(),
+  tell: async (ownerId, message) => { pushed.push({ ownerId, title: message.title, path: message.path, tag: message.tag }); },
+  afterMs: GRACE,
+  retryMs: 1000,
+  connect: (url, options) => {
+    dialed.push({ url, options });
+    return socket as unknown as Socket;
+  },
+  log: (message) => said.push(message),
+  ...(over as Partial<RootPresenceDeps>),
+});
+
+const pass = (ms: number) => vi.advanceTimersByTimeAsync(ms);
+
+beforeEach(() => {
+  vi.useFakeTimers();
+  vi.setSystemTime(START);
+  socket = new FakeSocket();
+  dialed = [];
+  pushed = [];
+  said = [];
+  tokens = async () => 'service-token';
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+});
+
+describe('an instance keeping a connection to root', () => {
+  it('dials root\'s presence namespace over a websocket, presenting a fresh service token every attempt', async () => {
+    const presence = rootPresence();
+    presence.start();
+    expect(dialed).toHaveLength(1);
+    expect(dialed[0]!.url).toBe('https://app.example.com/instances');
+    expect(dialed[0]!.options).toMatchObject({ transports: ['websocket'], reconnectionDelayMax: 1000 });
+    const sent = vi.fn();
+    (dialed[0]!.options.auth as (send: (data: object) => void) => void)(sent);
+    await pass(0);
+    expect(sent).toHaveBeenCalledWith({ instanceId: 'inst-1', token: 'service-token' });
+    presence.stop();
+  });
+
+  it('presents no token, saying why once, when it cannot get one', async () => {
+    tokens = async () => { throw new Error('no credential yet'); };
+    const presence = rootPresence();
+    presence.start();
+    const sent = vi.fn();
+    const auth = dialed[0]!.options.auth as (send: (data: object) => void) => void;
+    auth(sent);
+    auth(sent);
+    await pass(0);
+    expect(sent).toHaveBeenCalledWith({ instanceId: 'inst-1', token: '' });
+    expect(said).toEqual(['[root-presence] a token for root could not be had: no credential yet']);
+    presence.stop();
+  });
+
+  it('dials only once however often it is started', () => {
+    const presence = rootPresence();
+    presence.start();
+    presence.start();
+    expect(dialed).toHaveLength(1);
+    presence.stop();
+  });
+
+  it('is reachable while connected and says so', () => {
+    const presence = rootPresence();
+    expect(presence.view()).toEqual({ rootUrl: 'https://app.example.com/', reachable: true, down: false });
+    expect(presence.connected()).toBe(false);
+    presence.start();
+    socket.arrive();
+    expect(presence.connected()).toBe(true);
+    expect(presence.view()).toMatchObject({ reachable: true, down: false, lastSeenAt: START.toISOString() });
+    presence.stop();
+    expect(presence.connected()).toBe(false);
+    expect(socket.closed).toBe(true);
+  });
+
+  it('tells its owner once that root is not answering after the whole grace, and once when it answers again', async () => {
+    const presence = rootPresence();
+    presence.start();
+    socket.arrive();
+    socket.leave();
+    expect(presence.view()).toMatchObject({ reachable: false, down: false });
+    await pass(GRACE - 1000);
+    expect(pushed).toEqual([]);
+    await pass(2000);
+    expect(pushed).toEqual([{ ownerId: 'owner-1', title: 'Koala\'s root is not answering', path: '/#/infrastructure', tag: 'koala-root' }]);
+    expect(presence.view()).toMatchObject({ reachable: false, down: true });
+    await pass(GRACE * 2);
+    expect(pushed).toHaveLength(1);
+    socket.arrive();
+    await pass(0);
+    expect(pushed.map((entry) => entry.title)).toEqual(['Koala\'s root is not answering', 'Koala\'s root answers again']);
+    expect(presence.view()).toMatchObject({ reachable: true, down: false });
+    presence.stop();
+  });
+
+  it('counts the grace from the start when it never reaches root at all', async () => {
+    const presence = rootPresence();
+    presence.start();
+    await pass(GRACE + 1000);
+    expect(pushed.map((entry) => entry.title)).toEqual(['Koala\'s root is not answering']);
+    presence.stop();
+  });
+
+  it('does not call root down when it is connected by the time the grace is up', async () => {
+    const presence = rootPresence();
+    presence.start();
+    await pass(GRACE - 1000);
+    socket.arrive();
+    await pass(GRACE);
+    expect(pushed).toEqual([]);
+    presence.stop();
+  });
+
+  it('asks again by itself after root closes the connection, and says so when root refuses it', async () => {
+    const presence = rootPresence();
+    presence.start();
+    socket.arrive();
+    socket.leave('io server disconnect');
+    expect(socket.connects).toBe(0);
+    await pass(1000);
+    expect(socket.connects).toBe(1);
+    socket.active = false;
+    socket.emit('connect_error', new Error('Unauthorized'));
+    socket.emit('connect_error', new Error('Unauthorized'));
+    expect(said).toEqual(['[root-presence] root refused this instance\'s connection: Unauthorized']);
+    await pass(1000);
+    expect(socket.connects).toBe(2);
+    presence.stop();
+  });
+
+  it('leaves the retrying to the socket while it is still trying itself, and does not retry a connection that came back', async () => {
+    const presence = rootPresence();
+    presence.start();
+    socket.active = true;
+    socket.emit('connect_error', new Error('websocket error'));
+    await pass(5000);
+    expect(socket.connects).toBe(0);
+    socket.active = false;
+    socket.emit('connect_error', new Error('Unauthorized'));
+    socket.arrive();
+    await pass(1000);
+    expect(socket.connects).toBe(0);
+    presence.stop();
+  });
+
+  it('does not retry once stopped', async () => {
+    const presence = rootPresence();
+    presence.start();
+    socket.leave('io server disconnect');
+    presence.stop();
+    await pass(5000);
+    expect(socket.connects).toBe(0);
+  });
+
+  it('says so when it cannot tell its owner', async () => {
+    const presence = rootPresence({ tell: async () => { throw new Error('push service is down'); } });
+    presence.start();
+    await pass(GRACE + 1000);
+    expect(said).toEqual(['[root-presence] could not tell the owner: push service is down']);
+    presence.stop();
+  });
+
+  it('retries every five seconds, and logs to the console, when given neither', async () => {
+    const warned = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      const presence = rootPresence({ retryMs: undefined, log: undefined });
+      presence.start();
+      expect(dialed[0]!.options.reconnectionDelayMax).toBe(5000);
+      socket.active = false;
+      socket.emit('connect_error', new Error('Unauthorized'));
+      expect(warned).toHaveBeenCalledWith('[root-presence] root refused this instance\'s connection: Unauthorized');
+      await pass(5000);
+      expect(socket.connects).toBe(1);
+      presence.stop();
+    } finally {
+      warned.mockRestore();
+    }
+  });
+
+  it('reads the real clock when it is not given one', () => {
+    const presence = rootPresence({ now: undefined });
+    presence.start();
+    socket.arrive();
+    expect(presence.view().lastSeenAt).toBe(START.toISOString());
+    presence.stop();
+  });
+});
+
+describe('the address of root\'s presence namespace', () => {
+  it('is root\'s address without its trailing slashes, then the namespace', () => {
+    expect(presenceUrl('https://app.example.com///')).toBe('https://app.example.com/instances');
+  });
+});

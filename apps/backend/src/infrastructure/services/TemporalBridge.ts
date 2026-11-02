@@ -104,8 +104,10 @@ export interface WorkflowDeal {
   readonly event: string
 }
 
-async function getDefaultClient(address?: string): Promise<Client> {
-  return getTemporalClient({ ...(address !== undefined ? { address } : {}) })
+export type TemporalConnect = (options?: { address?: string }) => Promise<Client>
+
+async function getDefaultClient(address?: string, connect: TemporalConnect = getTemporalClient): Promise<Client> {
+  return connect({ ...(address !== undefined ? { address } : {}) })
 }
 
 async function updateUserStatus(
@@ -193,8 +195,8 @@ async function maybeSetDefaultModel(
   await db.accounts.saveUser({ ...user, defaultModelId: deploymentId })
 }
 
-export const connectToTemporal = async (address: string): Promise<Client> => {
-  const c = await getDefaultClient(address)
+export const connectToTemporal = async (address: string, connect: TemporalConnect = getTemporalClient): Promise<Client> => {
+  const c = await getDefaultClient(address, connect)
   return c
 }
 
@@ -261,6 +263,7 @@ export class TemporalBridge {
     clusterService?: ClusterService,
     headscale?: { createPreAuthKey(userId: string, opts?: { reusable?: boolean; expirySeconds?: number }): Promise<{ key: string }> },
     private readonly claims: ClaimSettings = COMBINED_CLAIMS,
+    private readonly seams: { connect?: TemporalConnect | undefined; generateKeypair?: typeof generateSshKeypair | undefined } = {},
   ) {
     this.db = db
     this.io = io
@@ -288,7 +291,7 @@ export class TemporalBridge {
   }
 
   async start(address?: string): Promise<this> {
-    const c = await getDefaultClient(address)
+    const c = await getDefaultClient(address, this.seams.connect)
     this.client = c
     return this
   }
@@ -483,7 +486,7 @@ export class TemporalBridge {
   async startActiveWorkflowRecovery(): Promise<void> {
     if (!this.client) {
       try {
-        this.client = await getDefaultClient()
+        this.client = await getDefaultClient(undefined, this.seams.connect)
       } catch (err) {
         console.warn(`[TemporalBridge] Skipping recovery, Temporal client not ready: ${(err as Error).message}`)
         return
@@ -808,7 +811,7 @@ export class TemporalBridge {
     const createsVm = provider === 'hetzner' || provider === 'do'
 
     const vmKeypair = createsVm
-      ? await generateSshKeypair(`provisioning-${clusterName}`)
+      ? await (this.seams.generateKeypair ?? generateSshKeypair)(`provisioning-${clusterName}`)
       : undefined
 
     const meshLoginServer = process.env.MESH_LOGIN_SERVER

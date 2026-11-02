@@ -1,7 +1,9 @@
 import { objectWith } from '../../platform/lib/test-matchers.js';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { mock } from 'vitest-mock-extended';
 import { HubService } from './HubService.js';
 import { memoryHubStore } from '../lib/hub-store.js';
+import { HubRelay } from './HubRelay.js';
 
 const ann = { id: 'ann', email: 'ann@example.com' };
 const bo = { id: 'bo', email: 'bo@example.com' };
@@ -225,5 +227,181 @@ describe('taking someone off a shared project ends what Koala was doing for them
     const waiting = await store.project(id).requests();
     expect(waiting).toEqual([objectWith({ kind: 'member-removed', input: { personId: 'bo' }, by: objectWith({ personId: 'ann' }), state: 'waiting' })]);
     expect(valueOf(await hub.boardView('ann', id)).requests).toEqual([]);
+  });
+});
+
+describe('a member working a project shared from the owner\'s instance', () => {
+  const fromAnn = { kind: 'instance' as const, personId: 'ann', instanceId: 'i-ann', email: 'ann@example.com' };
+  const now = '2026-10-21T00:00:00Z';
+  const relays: HubRelay[] = [];
+  afterEach(() => { for (const relay of relays.splice(0)) relay.stop(); });
+
+  async function shared(withRelay = true) {
+    const store = memoryHubStore();
+    const relay = withRelay ? new HubRelay(Date.now, 60_000) : undefined;
+    if (relay) relays.push(relay);
+    const hub = new HubService({ store, invites: { send: async () => ({ link: 'l', emailed: false }) }, ...(relay ? { relay } : {}), now: () => now });
+    const id = valueOf(await hub.share(fromAnn, { name: 'Shop', projectId: 'p1' })).view.project.id;
+    for (const [personId, role] of [['cy', 'client'], ['bo', 'collaborator']] as const) {
+      await store.project(id).saveMember({ personId, email: `${personId}@example.com`, role, joinedAt: now });
+      await store.addMembership(personId, id);
+    }
+    const onHub = store.project(id);
+    await onHub.putRecord('conversations', { id: 'channel-p1', kind: 'channel', messages: [] });
+    await onHub.putRecord('conversations', { id: 'story-l1', kind: 'item', messages: [] });
+    await onHub.putRecord('branches', { id: 'b1', treeId: 't1' });
+    await onHub.putRecord('leaves', { id: 'l1', branchId: 'b1' });
+    await onHub.putRecord('leaves', { id: 'l2', branchId: 'b1' });
+    return { hub, store, relay, id, onHub };
+  }
+
+  describe('what the owner\'s instance reads and settles', () => {
+    it('lists only the requests still waiting, to the owner\'s own instance', async () => {
+      const { hub, id, onHub } = await shared();
+      const waiting = valueOf(await hub.request(bo, id, { kind: 'order-stories', branchId: 'b1', leafIds: ['l2', 'l1'] }));
+      await onHub.saveRequest({ ...waiting, id: 'old', state: 'done' });
+      expect(valueOf(await hub.waitingRequests(fromAnn, id)).map((request) => request.id)).toEqual([waiting.id]);
+      expect(await hub.waitingRequests({ ...fromAnn, instanceId: 'i-other' }, id)).toMatchObject({ ok: false, status: 403 });
+      expect(await hub.waitingRequests({ ...fromAnn, personId: 'eve' }, id)).toMatchObject({ ok: false, status: 404 });
+    });
+
+    it('settles a request as done or refused with a reason, and only one that exists', async () => {
+      const { hub, id, onHub } = await shared();
+      const waiting = valueOf(await hub.request(bo, id, { kind: 'order-stories', branchId: 'b1', leafIds: ['l2', 'l1'] }));
+      expect(valueOf(await hub.settleRequest(fromAnn, id, waiting.id, { state: 'refused', why: 'the story moved' }))).toMatchObject({ state: 'refused', why: 'the story moved', settledAt: now });
+      expect((await onHub.requests())[0]).toMatchObject({ state: 'refused', why: 'the story moved' });
+      const another = valueOf(await hub.request(bo, id, { kind: 'order-stories', branchId: 'b1', leafIds: ['l1', 'l2'] }));
+      expect(valueOf(await hub.settleRequest(fromAnn, id, another.id, { state: 'done', why: '' }))).not.toHaveProperty('why');
+      expect(await hub.settleRequest(fromAnn, id, waiting.id, { state: 'maybe' })).toMatchObject({ ok: false, status: 400 });
+      expect(await hub.settleRequest(fromAnn, id, 'nope', { state: 'done' })).toMatchObject({ ok: false, status: 404 });
+      expect(await hub.settleRequest({ ...fromAnn, instanceId: 'i-other' }, id, waiting.id, { state: 'done' })).toMatchObject({ ok: false, status: 403 });
+    });
+
+    it('keeps what is live as the instance reports it, stamped with when the hub heard', async () => {
+      const { hub, id, onHub } = await shared();
+      expect(valueOf(await hub.putStatus(fromAnn, id, { releases: [{ id: 'r1' }], runs: [], treeRuns: { t1: { state: 'idle' } }, addresses: { app: 'x' }, at: 'ignored' }))).toEqual({ at: now });
+      expect(await onHub.status()).toEqual({ at: now, releases: [{ id: 'r1' }], runs: [], treeRuns: { t1: { state: 'idle' } }, addresses: { app: 'x' } });
+      await hub.putStatus(fromAnn, id, { releases: [], runs: [], treeRuns: {} });
+      expect(await onHub.status()).not.toHaveProperty('addresses');
+    });
+
+    it('turns away a status that does not carry the releases, builds and tree runs', async () => {
+      const { hub, id } = await shared();
+      for (const status of [undefined, {}, { releases: [], runs: [] }, { releases: [], runs: [], treeRuns: 'x' }]) {
+        expect(await hub.putStatus(fromAnn, id, status)).toMatchObject({ ok: false, status: 400 });
+      }
+      expect(await hub.putStatus({ ...fromAnn, instanceId: 'i-other' }, id, { releases: [], runs: [], treeRuns: {} })).toMatchObject({ ok: false, status: 403 });
+    });
+  });
+
+  describe('what a member posts', () => {
+    it('posts a message in a chat of the project as the member, whoever they are on it', async () => {
+      const { hub, id, onHub } = await shared();
+      const posted = valueOf(await hub.post(cy, id, 'channel-p1', { content: 'hello' }));
+      expect(posted.message).toMatchObject({ role: 'user', content: 'hello', author: { kind: 'person', id: 'cy' } });
+      expect(posted.asked).toBeUndefined();
+      expect(((await onHub.record('conversations', 'channel-p1'))!.messages as unknown[]).length).toBe(1);
+      expect((await onHub.changes(0, 10)).at(-1)).toMatchObject({ origin: 'person:cy', change: { kind: 'conversations', id: 'channel-p1' } });
+    });
+
+    it('asks Koala for a client who asks, naming the message, and waits for the owner\'s instance to start the turn', async () => {
+      const { hub, id, onHub } = await shared();
+      const posted = valueOf(await hub.post(cy, id, 'channel-p1', { content: 'green?', askKoala: true }));
+      expect(posted.asked).toMatchObject({ kind: 'ask-koala', state: 'waiting', input: { conversationId: 'channel-p1', at: posted.message.at, content: 'green?' }, by: { personId: 'cy', role: 'client' }, after: 1 });
+      expect(await onHub.requests()).toHaveLength(1);
+    });
+
+    it('asks Koala for a story\'s chat without being asked to, and for a message that names Koala', async () => {
+      const { hub, id } = await shared();
+      expect(valueOf(await hub.post(cy, id, 'story-l1', { content: 'status?' })).asked).toBeDefined();
+      expect(valueOf(await hub.post(cy, id, 'channel-p1', { content: 'hey @koala, status?' })).asked).toBeDefined();
+    });
+
+    it('posts a collaborator\'s message but leaves Koala to answer them from their own instance', async () => {
+      const { hub, id, onHub } = await shared();
+      const posted = valueOf(await hub.post(bo, id, 'channel-p1', { content: '@koala what is left?' }));
+      expect(posted.asked).toBeUndefined();
+      expect(posted.notAsked).toMatch(/from their own instance/);
+      expect(await onHub.requests()).toEqual([]);
+    });
+
+    it('refuses someone not on the project, an empty message and a chat that does not exist', async () => {
+      const { hub, id } = await shared();
+      expect(await hub.post(eve, id, 'channel-p1', { content: 'hi' })).toMatchObject({ ok: false, status: 404 });
+      expect(await hub.post(cy, id, 'nope', { content: 'hi' })).toMatchObject({ ok: false, status: 404 });
+      expect(await hub.post(cy, id, 'channel-p1', { content: '   ' })).toMatchObject({ ok: false, status: 400 });
+    });
+  });
+
+  describe('what a member asks the owner\'s instance to do', () => {
+    it('keeps a collaborator\'s request for the owner\'s instance, and does not make it twice', async () => {
+      const { hub, id, onHub } = await shared();
+      const first = valueOf(await hub.request(bo, id, { kind: 'order-stories', branchId: 'b1', leafIds: ['l2', 'l1'], extra: 'ignored' }));
+      expect(first).toMatchObject({ kind: 'order-stories', input: { branchId: 'b1', leafIds: ['l2', 'l1'] }, by: { personId: 'bo', role: 'collaborator' }, state: 'waiting' });
+      expect(first.input).not.toHaveProperty('extra');
+      expect(valueOf(await hub.request(bo, id, { kind: 'order-stories', branchId: 'b1', leafIds: ['l2', 'l1'] })).id).toBe(first.id);
+      expect(await onHub.requests()).toHaveLength(1);
+    });
+
+    it('refuses what the member\'s role may not do, what is not part of the project and what is not a request', async () => {
+      const { hub, id } = await shared();
+      expect(await hub.request(cy, id, { kind: 'order-stories', branchId: 'b1', leafIds: ['l1'] })).toMatchObject({ ok: false, status: 403 });
+      expect(await hub.request(bo, id, { kind: 'order-stories', branchId: 'b1', leafIds: ['zz'] })).toMatchObject({ ok: false, status: 400 });
+      expect(await hub.request(bo, id, { kind: 'shell' })).toMatchObject({ ok: false, status: 400 });
+      expect(await hub.request(eve, id, { kind: 'order-stories', branchId: 'b1', leafIds: ['l1'] })).toMatchObject({ ok: false, status: 404 });
+    });
+  });
+
+  describe('what the owner\'s instance relays for a member', () => {
+    it('relays nothing when the hub has no relay', async () => {
+      const { hub, id } = await shared(false);
+      expect(await hub.takeRelay(fromAnn, id, new Promise(() => undefined))).toMatchObject({ ok: false, status: 404, why: 'This hub relays nothing.' });
+      expect(await hub.relay(cy, id, 'extensions', {})).toMatchObject({ ok: false, status: 409, why: 'This hub cannot reach the owner\'s instance.' });
+      expect(await hub.relayed(fromAnn, 'c1')).toMatchObject({ ok: false, status: 404 });
+    });
+
+    it('takes a member\'s call to the instance that is listening and brings the instance\'s answer back to the member', async () => {
+      const { hub, id, relay } = await shared();
+      const taking = hub.takeRelay(fromAnn, id, new Promise(() => undefined));
+      await vi.waitFor(() => expect(relay!.online(id)).toBe(true));
+      const asked = hub.relay(cy, id, 'files.list', { dir: '' });
+      const taken = valueOf(await taking);
+      expect(taken).toMatchObject({ projectId: id, op: 'files.list', as: { personId: 'cy', email: 'cy@example.com', role: 'client' } });
+      expect(valueOf(await hub.relayed(fromAnn, taken!.id)).id).toBe(taken!.id);
+      expect(valueOf(await hub.answerRelay(fromAnn, taken!.id, { kind: 'json', status: 200, body: [] }))).toEqual({ answered: taken!.id });
+      expect(valueOf(await asked)).toEqual({ kind: 'json', status: 200, body: [] });
+    });
+
+    it('lets only the instance the project is worked on hand over or answer its calls', async () => {
+      const { hub, id, relay } = await shared();
+      expect(await hub.takeRelay({ ...fromAnn, instanceId: 'i-other' }, id, new Promise(() => undefined))).toMatchObject({ ok: false, status: 403 });
+      const taking = hub.takeRelay(fromAnn, id, new Promise(() => undefined));
+      await vi.waitFor(() => expect(relay!.online(id)).toBe(true));
+      void hub.relay(cy, id, 'extensions', {});
+      const taken = valueOf(await taking);
+      expect(await hub.relayed({ ...fromAnn, instanceId: 'i-other' }, taken!.id)).toMatchObject({ ok: false, status: 403 });
+      expect(await hub.answerRelay({ ...fromAnn, personId: 'eve' }, taken!.id, { kind: 'json', status: 200, body: null })).toMatchObject({ ok: false, status: 404 });
+      expect(await hub.answerRelay(fromAnn, 'unknown', { kind: 'json', status: 200, body: null })).toMatchObject({ ok: false, status: 404, why: 'That call is no longer waiting.' });
+    });
+
+    it('says the owner\'s instance is offline when nobody is listening', async () => {
+      const { hub, id } = await shared();
+      expect(await hub.relay(cy, id, 'extensions', {})).toMatchObject({ ok: false, status: 409, why: 'The owner\'s instance is offline, so this cannot be read until it is back.' });
+    });
+
+    it('turns away a client who would move files, and someone not on the project', async () => {
+      const { hub, id } = await shared();
+      expect(await hub.relay(cy, id, 'files.move', { from: 'a', to: 'b' })).toMatchObject({ ok: false, status: 403, why: 'only an owner or a collaborator can move or remove files' });
+      expect(await hub.relay(eve, id, 'extensions', {})).toMatchObject({ ok: false, status: 404 });
+    });
+
+    it('lets a failure that is not the instance being offline through', async () => {
+      const store = memoryHubStore();
+      const failing = mock<HubRelay>();
+      failing.call.mockRejectedValue(new Error('relay broke'));
+      const hub = new HubService({ store, invites: { send: async () => ({ link: 'l', emailed: false }) }, relay: failing });
+      const id = valueOf(await hub.create(ann, { name: 'Shop' })).project.id;
+      await expect(hub.relay(ann, id, 'extensions', {})).rejects.toThrow('relay broke');
+    });
   });
 });

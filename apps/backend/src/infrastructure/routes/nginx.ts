@@ -1,13 +1,16 @@
 import { asyncRoute, at } from '../../platform/index.js';
 import { Router } from 'express';
 import fs from 'fs/promises';
+import { execShell, type Shell } from '../lib/shell.js';
 
 export interface NginxRouterDeps {
   nginxConfPath: string;
+  shell?: Shell | undefined;
 }
 
 export function nginxRouter(deps: NginxRouterDeps): Router {
   const { nginxConfPath } = deps;
+  const shell = deps.shell ?? execShell;
   const router = Router();
 
   router.get('/config', asyncRoute(async (req, res) => {
@@ -21,8 +24,7 @@ export function nginxRouter(deps: NginxRouterDeps): Router {
       if (typeof content !== 'string') return res.status(400).json({ error: 'Config content must be a string' });
       await fs.writeFile(nginxConfPath, content);
 
-      const execAsync = (await import('util')).promisify((await import('child_process')).exec);
-      await execAsync('docker exec provisioner-nginx nginx -s reload');
+      await shell('docker exec provisioner-nginx nginx -s reload');
       res.json({ message: 'Nginx config updated and reloaded successfully' });
     } catch (err) { res.status(500).json({ error: `Failed to update nginx config: ${(err as Error).message}` }); }
   }));

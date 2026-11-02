@@ -49,6 +49,8 @@ export type { Actions, Claim, ClaimedUser, ClaimSettings, Decision, Principal, R
 export { claimSettingsFrom, holdsAccounts, roleFromEnv, servesHub, servesTenants, signsInThroughRoot } from './lib/platform-role.js';
 export type { RoleConfig } from './lib/platform-role.js';
 export { writePrivate } from './lib/private-file.js';
+export { ProcessFailed, succeeded } from './lib/processes.js';
+export type { ProcessResult, ProcessRun, Processes } from './lib/processes.js';
 export { addressProblem } from './lib/public-address.js';
 export { K3S_TRAEFIK_CONFIG, k3sConfigState, ourTraefikArgs, servicesLabelled, traefikOf } from './lib/request-metrics.js';
 export type { HelmRelease } from './lib/request-metrics.js';
@@ -72,6 +74,7 @@ export type { CloudCredentials, CloudProvider, ClusterMetadata, ClusterProgress,
 export { createWorkerLogger } from './lib/worker-logger.js';
 export type { ConcludedWorkspace } from './lib/workflow-ids.js';
 export { mayTouch, ownedQuery, ownerIn, PLATFORM_OWNER, seesEverything, startedFor, withinQuery, workflowScope } from './lib/workflow-owner.js';
+export type { WorkflowRun, Workflows } from './lib/workflows.js';
 export { asyncRoute } from './middleware/async-route.js';
 export { createAuth, parseCookie, principalFrom, requireAllowed } from './middleware/auth.js';
 export type { Auth, ClientSession, ClientSessions } from './middleware/auth.js';
@@ -90,4 +93,5 @@ export { PayloadStorageService } from './services/PayloadStorageService.js';
 export { SessionEnds } from './services/SessionEnds.js';
 export { SessionSockets } from './services/SessionSockets.js';
 export { SignInAttemptLog } from './services/SignInAttemptLog.js';
+export { nodeProcesses } from './services/processes.js';
 export { NotPublicError, publicAddressProblem, publicFetch } from './services/public-fetch.js';

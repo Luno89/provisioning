@@ -101,6 +101,19 @@ describe('the MCP server catalogue', () => {
     expect(await after.get('u1', 's1')).toMatchObject({ status: { state: 'captured', tools: 1 } });
   });
 
+  it('captures a server again once its last capture is over, and refuses while one is running or the server is not theirs', async () => {
+    const { service, records, started } = world();
+    await service.add('u1', { name: 'docs', runs: { where: 'hosted', url: 'http://docs.test/mcp' } });
+    expect(await service.recapture('u1', 's1')).toEqual({ ok: false, status: 409, error: 'docs is being captured already' });
+    expect(await service.recapture('u2', 's1')).toEqual({ ok: false, status: 404, error: 'Server not found' });
+
+    const saved = records.get('s1')!;
+    records.set('s1', { ...saved, captured: { tools: [{ name: 'search' }], at: '2026-10-12T13:00:00Z', fingerprint: runsFingerprint(saved.runs) } });
+    const after = new McpServerService({ ...(service as unknown as { deps: object }).deps, finished: async () => ({ outcome: 'ok' }) } as never);
+    expect(await after.recapture('u1', 's1')).toMatchObject({ ok: true, server: { name: 'docs', status: { state: 'capturing' } } });
+    expect(started).toHaveLength(2);
+  });
+
   it('lists the person\'s running MCP deployments as hosted servers, once each, named after their tree', async () => {
     const { service, started } = world({ deployments: [{ gitappProjectId: 'p1' }] });
     const first = await service.catalogue('u1');

@@ -15,10 +15,17 @@ export interface CaddyControl {
   recentLog(): Promise<string>;
 }
 
-function certificateAt(tlsAddress: string): CaddyControl['certificateFor'] {
+export interface CaddyAdminTransport {
+  request: typeof http.request;
+  connect: typeof tls.connect;
+}
+
+const THIS_MACHINE: CaddyAdminTransport = { request: http.request, connect: tls.connect };
+
+function certificateAt(tlsAddress: string, connect: typeof tls.connect = tls.connect): CaddyControl['certificateFor'] {
   const [host, port] = tlsAddress.split(':') as [string, string];
   return (serverName) => new Promise((resolve) => {
-    const socket = tls.connect({ host, port: Number(port), servername: serverName, rejectUnauthorized: false }, () => {
+    const socket = connect({ host, port: Number(port), servername: serverName, rejectUnauthorized: false }, () => {
       const san = socket.getPeerCertificate().subjectaltname;
       socket.end();
       resolve(san);
@@ -55,12 +62,12 @@ export const linesSince = (log: string, sinceSeconds: number): string =>
     }
   }).join('\n');
 
-export function socketCaddy(socket: string, caddyfile: string, logFile: string, tlsAddress: string): CaddyControl {
+export function socketCaddy(socket: string, caddyfile: string, logFile: string, tlsAddress: string, transport: CaddyAdminTransport = THIS_MACHINE): CaddyControl {
   return {
     async reload() {
       const body = await fs.readFile(caddyfile);
       await new Promise<void>((resolve, reject) => {
-        const request = http.request({
+        const request = transport.request({
           socketPath: socket, method: 'POST', path: '/load',
           headers: { host: 'caddy', 'content-type': 'text/caddyfile', 'cache-control': 'must-revalidate', 'content-length': body.length },
         }, (response) => {
@@ -72,7 +79,7 @@ export function socketCaddy(socket: string, caddyfile: string, logFile: string, 
         request.end(body);
       });
     },
-    certificateFor: certificateAt(tlsAddress),
+    certificateFor: certificateAt(tlsAddress, transport.connect),
     async recentLog() {
       return linesSince(await tailOf(logFile), Date.now() / 1000 - 15 * 60);
     },

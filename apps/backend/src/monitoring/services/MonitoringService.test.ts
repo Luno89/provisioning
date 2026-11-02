@@ -1,0 +1,408 @@
+import { containing } from '../../platform/lib/test-matchers.js';
+import { at } from '../../platform/lib/json-shapes.js';
+import { beforeEach, describe, expect, it } from 'vitest';
+import { mock, type MockProxy } from 'vitest-mock-extended';
+import { memoryDatabase } from '../../platform/testing/memory-database.js';
+import type { Database } from '../../platform/lib/db-interface.js';
+import { asPerson, principalOf } from '../../platform/lib/permissions.js';
+import type { ClusterMetadata, DeploymentMetadata } from '../../platform/lib/types.js';
+import { appQuery, appWindowQuery, clusterQuery, koalaQuery, koalaServicesQuery, type AppSubject } from '../lib/monitoring-questions.js';
+import { RULE_LABEL, alertSpec, koalaAlertExpression, type AlertSpec, type PromAlert } from '../lib/monitoring-alerts.js';
+import { MonitoringService, type MonitoringDeps, type PoolMonitor, type PrometheusClient, type Sample } from './MonitoringService.js';
+
+const NOW = new Date('2026-10-17T12:00:00Z');
+const ME = principalOf({ id: 'me' }, { role: 'instance', instanceOwnerId: 'me' });
+const SOMEONE = asPerson('someone');
+
+const system: ClusterMetadata = { id: 'provisioning-lunorica', name: 'provisioning-lunorica', provider: 'k3d', status: 'healthy', isSystem: true } as ClusterMetadata;
+const remote: ClusterMetadata = { id: 'c-remote', name: 'shop-box', provider: 'remote', status: 'healthy', ownerId: 'me' } as ClusterMetadata;
+
+const dep = (fields: Partial<DeploymentMetadata> & { id: string; name: string }): DeploymentMetadata =>
+  ({ clusterId: system.id, strategy: 'native', appType: 'audiobookshelf', ownerId: 'me', status: 'running', createdAt: 'then', ...fields }) as DeploymentMetadata;
+
+interface ScriptedPrometheus {
+  client: MockProxy<PrometheusClient>;
+  answers: Map<string, Sample[]>;
+  series: Map<string, Array<[number, number]>>;
+  firing: PromAlert[];
+  set(query: string | undefined, value: number, metric?: Record<string, string>): ScriptedPrometheus;
+}
+
+function scriptedPrometheus(): ScriptedPrometheus {
+  const client = mock<PrometheusClient>();
+  const script: ScriptedPrometheus = {
+    client,
+    answers: new Map<string, Sample[]>(),
+    series: new Map<string, Array<[number, number]>>(),
+    firing: [],
+    set(query, value, metric = {}) {
+      if (query) script.answers.set(query, [{ metric, value }]);
+      return script;
+    },
+  };
+  client.query.mockImplementation(async (query) => script.answers.get(query) ?? []);
+  client.range.mockImplementation(async (query) => script.series.get(query) ?? []);
+  client.alerts.mockImplementation(async () => script.firing);
+  return script;
+}
+
+const healthyApp = (prom: ScriptedPrometheus, subject: AppSubject) => {
+  prom.set(`kube_service_info{namespace=${JSON.stringify(subject.namespace)}}`, 1, { service: subject.services?.[0] ?? 'web' });
+  prom.set(appQuery('probed', subject), 1).set(appQuery('up', subject), 1).set(appQuery('responseSeconds', subject), 0.2)
+    .set(appQuery('podsRunning', subject), 1).set(appQuery('memoryBytes', subject), 100).set(appQuery('memoryLimitBytes', subject), 1000)
+    .set(appWindowQuery('uptime', subject, 86_400), 1).set(appWindowQuery('restarts', subject, 86_400), 0);
+};
+
+let db: Database;
+let prom: ScriptedPrometheus;
+let remoteProm: ScriptedPrometheus | undefined;
+let kubectl: string[][];
+let applied: string[];
+let helm: string[][];
+let prometheusResource: Record<string, unknown>;
+let releases: Array<Record<string, string>>;
+let traefikValues: Record<string, unknown>;
+let helmChartConfig: string;
+let telemetryInstalled: boolean;
+let monitoring: MonitoringService;
+let deps: () => MonitoringDeps;
+
+beforeEach(() => {
+  db = memoryDatabase();
+  prom = scriptedPrometheus().set('vector(1)', 1);
+  remoteProm = undefined;
+  kubectl = [];
+  applied = [];
+  helm = [];
+  prometheusResource = { spec: { retention: '10d' } };
+  releases = [{ name: 'kube-prometheus-stack', namespace: 'monitoring', chart: 'kube-prometheus-stack-79.1.0' }];
+  traefikValues = {};
+  helmChartConfig = '';
+  telemetryInstalled = true;
+  deps = (): MonitoringDeps => ({
+    store: db,
+    systemCluster: async () => system,
+    prometheus: async (cluster) => {
+      if (cluster.id === system.id) return prom.client;
+      if (remoteProm) return remoteProm.client;
+      throw new Error('connection refused');
+    },
+    kubectl: async (cluster, args) => {
+      kubectl.push([cluster.id, ...args]);
+      if (args[0] === 'get' && args[1] === 'prometheus') return JSON.stringify(prometheusResource);
+      if (args[0] === 'get' && args[1] === 'service') return cluster.id === remote.id || !telemetryInstalled && args[2] !== 'kube-prometheus-stack-prometheus' ? '' : `service/${args[2]}`;
+      if (args[0] === 'get' && args[1] === 'helmchartconfig') return helmChartConfig;
+      return '';
+    },
+    apply: async (_cluster, manifest) => { applied.push(manifest); },
+    helm: async (_cluster, args) => {
+      helm.push(args);
+      if (args[0] === 'list') return JSON.stringify(releases);
+      if (args[0] === 'get') return JSON.stringify(traefikValues);
+      return '';
+    },
+    now: () => NOW,
+    newId: () => 'rule-1',
+  });
+  monitoring = new MonitoringService(deps());
+});
+
+describe('the overview', () => {
+  it('lists the person\'s apps worst first, with what needs attention', async () => {
+    await db.infrastructure.saveDeploymentInfo(dep({ id: 'books', name: 'Books', namespace: 'books' }));
+    await db.infrastructure.saveDeploymentInfo(dep({ id: 'shop', name: 'Shop', namespace: 'shop' }));
+    await db.infrastructure.saveDeploymentInfo(dep({ id: 'theirs', name: 'Theirs', namespace: 'theirs', ownerId: 'someone' }));
+    healthyApp(prom, { namespace: 'books', services: ['audiobookshelf'] });
+    healthyApp(prom, { namespace: 'shop', services: ['web'] });
+    prom.set(appQuery('up', { namespace: 'shop' }), 0);
+
+    const overview = await monitoring.overview(ME);
+
+    expect(overview.apps.map((app) => [app.name, app.state])).toEqual([['Shop', 'down'], ['Books', 'ok']]);
+    expect(overview.attention).toEqual([{ subject: { kind: 'app', id: 'shop', name: 'Shop' }, state: 'down', reasons: ['it does not answer'] }]);
+    expect(overview.apps[1]?.memoryShare).toBe(0.1);
+  });
+
+  it('shows a cluster without monitoring as getting it, and one that does not answer as unreachable', async () => {
+    await db.infrastructure.saveCluster(remote);
+    await db.infrastructure.saveDeploymentInfo(dep({ id: 'erp', name: 'ERP', namespace: 'erp', clusterId: remote.id }));
+    const overview = await monitoring.overview(ME);
+    expect(overview.clusters.find((row) => row.id === remote.id)).toMatchObject({ state: 'installing', reasons: ['its monitoring is installed before its next app is deployed'] });
+    expect(overview.apps[0]).toMatchObject({ name: 'ERP', state: 'installing' });
+  });
+
+  it('hides the shared system cluster from someone with no apps on it who does not own it', async () => {
+    expect((await monitoring.overview(SOMEONE)).clusters).toEqual([]);
+    expect((await monitoring.overview(ME)).clusters.map((row) => row.id)).toEqual([system.id]);
+  });
+
+  it('puts a firing alert among the app\'s reasons', async () => {
+    await db.infrastructure.saveDeploymentInfo(dep({ id: 'books', name: 'Books', namespace: 'books' }));
+    healthyApp(prom, { namespace: 'books', services: ['audiobookshelf'] });
+    prom.firing = [{ labels: { alertname: 'KubePodCrashLooping', namespace: 'books' }, state: 'firing' }];
+    const overview = await monitoring.overview(ME);
+    expect(overview.apps[0]).toMatchObject({ state: 'warning', reasons: ['Books has a container that keeps restarting'] });
+    expect(overview.firing).toHaveLength(1);
+  });
+
+  it('counts a cluster\'s machines and use', async () => {
+    prom.set(clusterQuery('nodes'), 1).set(clusterQuery('diskShare'), 0.95);
+    const row = (await monitoring.overview(ME)).clusters[0]!;
+    expect(row).toMatchObject({ state: 'warning', reasons: ['the disk is 95% full'], numbers: { nodes: 1, nodesNotReady: 0, diskShare: 0.95 } });
+  });
+});
+
+describe('an app\'s health', () => {
+  it('charts it over the range, marks its releases and lists its alerts and rules', async () => {
+    await db.infrastructure.saveDeploymentInfo(dep({ id: 'books', name: 'Books', namespace: 'books' }));
+    healthyApp(prom, { namespace: 'books', services: ['audiobookshelf'] });
+    prom.series.set(appQuery('up', { namespace: 'books', services: ['audiobookshelf'] })!, [[1, 1], [2, 1]]);
+    await db.releases.savePipelineRun({ id: 'run-1', projectId: 'p', deploymentId: 'books', commitSha: 'abcdef1234567', status: 'success', startedAt: '2026-10-17T10:00:00Z', promotedAt: '2026-10-17T11:00:00Z' } as never);
+    await db.releases.savePipelineRun({ id: 'run-0', projectId: 'p', deploymentId: 'books', commitSha: 'old', status: 'success', startedAt: '2026-10-10T10:00:00Z', promotedAt: '2026-10-10T11:00:00Z' } as never);
+
+    const view = await monitoring.appHealth(ME, 'books', '24h');
+
+    expect(view.series).toEqual([{ chart: 'up', points: [[1, 1], [2, 1]] }]);
+    expect(view.markers).toEqual([{ at: '2026-10-17T11:00:00Z', label: 'deployed abcdef12' }]);
+    expect(view.lines[0]).toBe('Books is healthy.');
+    expect(view.history).toMatchObject({ days: 10, kept: 10, applied: false, can: ['change'] });
+  });
+
+  it('is refused for someone else\'s app', async () => {
+    await db.infrastructure.saveDeploymentInfo(dep({ id: 'books', name: 'Books', namespace: 'books' }));
+    await expect(monitoring.appHealth(SOMEONE, 'books', '24h')).rejects.toMatchObject({ status: 404 });
+  });
+});
+
+describe('history', () => {
+  it('is set by whoever owns the cluster and applied with Helm at the chart\'s version', async () => {
+    const history = await monitoring.setHistory(ME, system.id, 30);
+    expect(helm[1]).toContain('prometheus.prometheusSpec.retention=30d');
+    expect(helm[1]).toContain('79.1.0');
+    expect(history.days).toBe(30);
+    expect((await db.monitoring.getMonitoringSettings())[0]).toMatchObject({ clusterId: system.id, historyDays: 30, appliedAt: NOW.toISOString() });
+  });
+
+  it('refuses days out of range and people who do not own the cluster', async () => {
+    await expect(monitoring.setHistory(ME, system.id, 0)).rejects.toMatchObject({ status: 400 });
+    await expect(monitoring.setHistory(SOMEONE, system.id, 20)).rejects.toMatchObject({ status: 403 });
+  });
+
+  it('does nothing when Prometheus already keeps it on a volume', async () => {
+    prometheusResource = { spec: { retention: '10d', retentionSize: '5GB', storage: { volumeClaimTemplate: {} } } };
+    expect(await monitoring.applyHistory(system)).toBe(false);
+    expect(helm).toEqual([]);
+  });
+
+  it('records why it could not be applied', async () => {
+    monitoring = new MonitoringService({ ...deps(), helm: async () => { throw new Error('no route to the chart repository'); } });
+    expect(await monitoring.applyHistory(system)).toBe(false);
+    expect((await db.monitoring.getMonitoringSettings())[0]?.problem).toBe('no route to the chart repository');
+  });
+});
+
+describe('alert rules', () => {
+  beforeEach(async () => {
+    await db.infrastructure.saveDeploymentInfo(dep({ id: 'books', name: 'Books', namespace: 'books' }));
+    healthyApp(prom, { namespace: 'books', services: ['audiobookshelf'] });
+  });
+
+  it('becomes a PrometheusRule on the app\'s cluster and a record', async () => {
+    const rule = await monitoring.addRule(ME, 'books', alertSpec('down') as AlertSpec, 'conv-1');
+    expect(rule).toMatchObject({ id: 'rule-1', summary: 'Books has not answered for 5 minutes', conversationId: 'conv-1' });
+    expect(at(JSON.parse(applied[0]!), 'spec', 'groups', 0, 'rules', 0, 'expr')).toBe('max(probe_success{namespace="books"}) < 1');
+    expect(await db.monitoring.getAlertRules('me')).toHaveLength(1);
+  });
+
+  it('is removed from the cluster and the records', async () => {
+    await monitoring.addRule(ME, 'books', alertSpec('down') as AlertSpec);
+    await monitoring.removeRule(ME, 'rule-1');
+    expect(kubectl.at(-1)).toEqual([system.id, 'delete', 'prometheusrule', 'koala-alert-rule-1', '-n', 'books', '--ignore-not-found']);
+    expect(await db.monitoring.getAlertRules('me')).toEqual([]);
+    await expect(monitoring.removeRule(SOMEONE, 'rule-1')).rejects.toMatchObject({ status: 404 });
+  });
+
+  it('says why one cannot be proposed', async () => {
+    expect(await monitoring.proposeAlertProblem(ME, 'Nope', alertSpec('down') as AlertSpec)).toEqual({ error: 'no app called Nope; yours are: Books' });
+    expect(await monitoring.proposeAlertProblem(ME, 'books', alertSpec('errors') as AlertSpec)).toMatchObject({ summary: containing('of its requests') });
+  });
+});
+
+describe('counting each app\'s requests', () => {
+  it('switches our Traefik\'s service labels on once', async () => {
+    releases.push({ name: 'traefik', namespace: 'traefik', chart: 'traefik-41.4.0' });
+    expect(await monitoring.applyRequestMetrics(system)).toBe('applied');
+    expect(helm.at(-1)).toContain('metrics.prometheus.addServicesLabels=true');
+    traefikValues = { metrics: { prometheus: { addServicesLabels: true } } };
+    expect(await monitoring.applyRequestMetrics(system)).toBe('already');
+  });
+
+  it('configures k3s\'s Traefik, and leaves one the person configured alone', async () => {
+    releases.push({ name: 'traefik', namespace: 'kube-system', chart: 'traefik-34.2.1' });
+    expect(await monitoring.applyRequestMetrics(system)).toBe('applied');
+    expect(JSON.parse(applied[0]!)).toMatchObject({ kind: 'HelmChartConfig', metadata: { name: 'traefik', namespace: 'kube-system' } });
+    helmChartConfig = JSON.stringify({ metadata: { labels: {} }, spec: { valuesContent: 'ports: {}' } });
+    expect(await monitoring.applyRequestMetrics(system)).toEqual({ problem: 'k3s\'s Traefik has settings of its own here, so request counting was not switched on' });
+    expect(applied).toHaveLength(1);
+  });
+});
+
+describe('a cluster on Koala\'s servers', () => {
+  let pool: MockProxy<PoolMonitor>;
+  let probesJson: string;
+  const answerWith = (answers: Record<string, number>) => {
+    pool.ask.mockImplementation(async (ask) => {
+      const question = 'question' in ask ? ask.question : undefined;
+      const value = question === undefined ? undefined : answers[question];
+      return value === undefined ? [] : [{ metric: {}, value }];
+    });
+  };
+
+  beforeEach(() => {
+    pool = mock<PoolMonitor>();
+    answerWith({ up: 1, probed: 1, podsRunning: 1, nodes: 1 });
+    pool.askRange.mockResolvedValue([[1, 1]]);
+    pool.alerts.mockResolvedValue([]);
+    pool.history.mockResolvedValue({ days: 10, kept: 10 });
+    probesJson = JSON.stringify({ items: [{ metadata: { namespace: 'shop' }, spec: { module: 'http_2xx', targets: { staticConfig: { static: ['web.shop.svc.cluster.local:80/health'] } } } }] });
+    const base = deps();
+    monitoring = new MonitoringService({
+      ...base,
+      pool: (cluster) => (cluster.isSystem ? pool : undefined),
+      prometheus: async () => { throw new Error('a pool instance has no Prometheus of its own'); },
+      kubectl: async (cluster, args) => {
+        kubectl.push([cluster.id, ...args]);
+        return args[1] === 'probes.monitoring.coreos.com' ? probesJson : '';
+      },
+    });
+  });
+
+  it('asks root its named questions, never a query, and reads the app as healthy', async () => {
+    await db.infrastructure.saveDeploymentInfo(dep({ id: 'shop', name: 'Shop', namespace: 'shop' }));
+    const view = await monitoring.appHealth(ME, 'shop', '1h');
+    expect(view.app.state).toBe('ok');
+    expect(pool.ask).toHaveBeenCalledWith({ kind: 'app', question: 'up', subject: { namespace: 'shop', services: [] } });
+    expect(pool.ask.mock.calls.every(([ask]) => !('query' in ask))).toBe(true);
+    expect(view.series.map((entry) => entry.chart)).toContain('up');
+  });
+
+  it('keeps the history Koala\'s servers keep, which the person cannot change', async () => {
+    const view = await monitoring.clusterHealth(ME, system.id, '1h');
+    expect(view.cluster.history).toEqual({ days: 10, kept: 10, applied: true, can: [], byKoala: true });
+    await expect(monitoring.setHistory(ME, system.id, 20)).rejects.toThrow('Koala\'s servers keep this history');
+    expect(await monitoring.applyHistory(system)).toBe(false);
+  });
+
+  it('hands an alert to root to set, and refuses one on requests, which are not counted there', async () => {
+    await db.infrastructure.saveDeploymentInfo(dep({ id: 'shop', name: 'Shop', namespace: 'shop' }));
+    const rule = await monitoring.addRule(ME, 'shop', alertSpec('down') as AlertSpec);
+    expect(pool.setRule.mock.calls).toEqual([[{ id: rule.id, namespace: 'shop', spec: rule.spec, summary: rule.summary }]]);
+    expect(applied).toEqual([]);
+    await expect(monitoring.addRule(ME, 'shop', alertSpec('errors') as AlertSpec)).rejects.toThrow('requests are not counted on Koala\'s servers');
+    await monitoring.removeRule(ME, rule.id);
+    expect(pool.removeRule.mock.calls).toEqual([[rule.id]]);
+  });
+
+  it('hands its apps\' probes to root, and only again when they change', async () => {
+    await monitoring.syncPoolProbes(system);
+    await monitoring.syncPoolProbes(system);
+    expect(pool.setProbes.mock.calls).toEqual([[[{ namespace: 'shop', service: 'web', port: 80, path: '/health', module: 'http_2xx' }]]]);
+    probesJson = JSON.stringify({ items: [] });
+    await monitoring.syncPoolProbes(system);
+    expect(pool.setProbes).toHaveBeenCalledTimes(2);
+    await monitoring.syncPoolProbes(remote);
+    expect(pool.setProbes).toHaveBeenCalledTimes(2);
+  });
+
+  it('says how much of its place it uses', async () => {
+    answerWith({ nodes: 1, memoryShare: 0.5 });
+    const view = await monitoring.clusterHealth(ME, system.id, '1h');
+    expect(view.lines).toContain('In use of its place on Koala\'s servers: memory 50%.');
+    answerWith({ nodes: 1, diskShare: 0.95 });
+    const full = await monitoring.clusterHealth(ME, system.id, '1h');
+    expect(full.cluster.reasons).toContain('95% of its place\'s storage is claimed');
+    expect(full.lines).toContain('In use of its place on Koala\'s servers: storage claimed 95%.');
+  });
+});
+
+describe('Koala itself', () => {
+  const reporting = () => {
+    prom.answers.set(koalaServicesQuery(), [{ metric: { service_name: 'koala-worker-engine' }, value: 1 }, { metric: { service_name: 'koala-backend' }, value: 1 }]);
+    prom.set(koalaQuery('requestsPerSecond'), 1.5).set(koalaQuery('requestErrorShare'), 0).set(koalaQuery('requestSeconds'), 0.1)
+      .set(koalaQuery('modelCallsPerMinute'), 2).set(koalaQuery('modelErrorShare'), 0).set(koalaQuery('modelSeconds'), 8).set(koalaQuery('modelQueued'), 0)
+      .set(koalaQuery('workflowsStartedHour'), 4).set(koalaQuery('activityFailuresHour'), 0).set(koalaQuery('workFailuresDay'), 0).set(koalaQuery('reporting'), 2);
+  };
+
+  it('is read from the system cluster\'s Prometheus through the same named questions as an app, for anyone', async () => {
+    reporting();
+    const view = await monitoring.koala(SOMEONE);
+    expect(view).toMatchObject({ state: 'ok', reasons: [], services: ['koala-backend', 'koala-worker-engine'], telemetry: { collector: true, tempo: true } });
+    expect(view.numbers).toMatchObject({ requestsPerSecond: 1.5, modelCallsPerMinute: 2, workflowsStartedHour: 4 });
+    expect(view.lines[0]).toBe('Koala is healthy.');
+    expect(view.lines[1]).toBe('2 processes report: koala-backend, koala-worker-engine.');
+    expect(prom.client.query).toHaveBeenCalledWith(koalaQuery('modelQueued'));
+    expect((await monitoring.describeOverview(ME))).toContain('Koala itself: Koala is healthy. 2 processes report');
+  });
+
+  it('is down when nothing of Koala reports, and getting its monitoring while the collector or Tempo is missing', async () => {
+    expect(await monitoring.koala(ME)).toMatchObject({ state: 'down', reasons: ['no part of Koala is reporting'], services: [] });
+    telemetryInstalled = false;
+    expect(await monitoring.koala(ME)).toMatchObject({ state: 'installing', telemetry: { collector: false, tempo: false }, numbers: {} });
+  });
+
+  it('takes its own alerts, set on "koala" by whoever runs it, as a PrometheusRule in the monitoring namespace', async () => {
+    reporting();
+    const spec = alertSpec('model_errors') as AlertSpec;
+    expect(await monitoring.proposeAlertProblem(ME, 'koala', spec)).toEqual({ subject: { id: 'koala', name: 'Koala' }, summary: 'Tell me when over 20% of Koala\'s model calls fail for 10 minutes' });
+    expect(await monitoring.proposeAlertProblem(SOMEONE, 'koala', spec)).toEqual({ error: 'only whoever runs this Koala can set alerts on Koala itself' });
+    expect(await monitoring.proposeAlertProblem(ME, 'koala', alertSpec('down') as AlertSpec)).toEqual({ error: 'down is an alert about an app; on Koala itself the kinds are koala_down, model_errors and workflow_failures' });
+    expect(await monitoring.proposeAlertProblem(ME, 'books', spec)).toEqual({ error: 'model_errors is an alert about Koala itself; name "koala", not an app' });
+
+    const rule = await monitoring.addRule(ME, 'koala', spec, 'conv-1');
+    expect(rule).toMatchObject({ deploymentId: 'koala', namespace: 'monitoring', appName: 'Koala', clusterId: system.id, conversationId: 'conv-1' });
+    const manifest = JSON.parse(applied[0]!) as { metadata: { namespace: string }; spec: { groups: { rules: { expr: string }[] }[] } };
+    expect(manifest.metadata.namespace).toBe('monitoring');
+    expect(manifest.spec.groups[0]!.rules[0]!.expr).toBe(koalaAlertExpression(spec));
+    await expect(monitoring.addRule(ME, 'books', spec)).rejects.toMatchObject({ status: 400 });
+
+    prom.firing = [{ labels: { alertname: 'Koala_model_errors', [RULE_LABEL]: rule.id, namespace: 'monitoring' }, annotations: { summary: rule.summary }, state: 'firing' }];
+    expect(await monitoring.koala(ME)).toMatchObject({ state: 'warning', reasons: [rule.summary] });
+    expect((await monitoring.alerts(ME)).firing).toEqual([expect.objectContaining({ ruleId: rule.id, about: { kind: 'koala' } })]);
+
+    await monitoring.removeRule(ME, rule.id);
+    expect(kubectl.at(-1)).toEqual([system.id, 'delete', 'prometheusrule', `koala-alert-${rule.id}`, '-n', 'monitoring', '--ignore-not-found']);
+  });
+});
+
+describe('which clusters are read', () => {
+  it('reads the system cluster and every healthy one, and not one being made or destroyed', async () => {
+    await db.infrastructure.saveCluster(remote);
+    await db.infrastructure.saveCluster({ ...remote, id: 'c-making', name: 'making', status: 'provisioning' });
+    await db.infrastructure.saveCluster({ ...remote, id: 'c-gone', name: 'gone', status: 'destroying' });
+    expect((await monitoring.allClusters()).map((cluster) => cluster.id)).toEqual([system.id, remote.id]);
+  });
+
+  it('leaves out the system cluster where there is none', async () => {
+    monitoring = new MonitoringService({ ...deps(), systemCluster: async () => undefined });
+    await db.infrastructure.saveCluster(remote);
+    expect((await monitoring.allClusters()).map((cluster) => cluster.id)).toEqual([remote.id]);
+    expect((await monitoring.clustersOf(ME)).map((cluster) => cluster.id)).toEqual([remote.id]);
+  });
+
+  it('shows a person the system cluster and their own, and not one being destroyed', async () => {
+    await db.infrastructure.saveCluster(remote);
+    await db.infrastructure.saveCluster({ ...remote, id: 'c-gone', name: 'gone', status: 'destroying' });
+    await db.infrastructure.saveCluster({ ...remote, id: 'c-theirs', name: 'theirs', ownerId: 'someone' });
+    expect((await monitoring.clustersOf(ME)).map((cluster) => cluster.id)).toEqual([system.id, remote.id]);
+    expect(monitoring.ownsCluster(ME, system)).toBe(true);
+    expect(monitoring.ownsCluster(SOMEONE, system)).toBe(false);
+  });
+
+  it('tells the time from the clock when none is given', async () => {
+    const before = Date.now();
+    const withoutClock = deps();
+    delete withoutClock.now;
+    const view = await new MonitoringService(withoutClock).overview(ME);
+    expect(Date.parse(view.checkedAt)).toBeGreaterThanOrEqual(before);
+  });
+});

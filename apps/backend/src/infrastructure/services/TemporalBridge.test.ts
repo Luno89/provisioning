@@ -1,0 +1,295 @@
+import { WorkflowNotFoundError, type Client, type WorkflowClient, type WorkflowExecutionDescription, type WorkflowExecutionInfo } from '@temporalio/client';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { mock } from 'vitest-mock-extended';
+import type { Server as SocketServer } from 'socket.io';
+import { encryptValue, type ClusterMetadata, type DeploymentMetadata, type ProjectMetadata } from '../../platform/index.js';
+import { memoryDatabase } from '../../platform/testing/memory-database.js';
+import { startedFor } from '../../platform/lib/workflow-owner.js';
+import { buildPlanAt } from '../../releases/lib/build-plan.js';
+import { ProvisionRefused } from '../lib/cluster-topology.js';
+import type { ClusterService } from './ClusterService.js';
+import { connectToTemporal, TemporalBridge, type TemporalConnect } from './TemporalBridge.js';
+
+const KEY = 'temporal-bridge-test-key';
+const SHA = '8c646f4f20f5fb217793c11ebbab0779f7d26757';
+const project = { id: 'proj-1', name: 'notes', ownerId: 'u1', giteaOwner: 'acme', giteaRepo: 'notes', appType: 'gitapp', createdAt: 'then' } as ProjectMetadata;
+const envKeys = ['NODE_ENV', 'HCLOUD_TOKEN', 'DIGITALOCEAN_TOKEN', 'MESH_LOGIN_SERVER'] as const;
+const originalEnv = Object.fromEntries(envKeys.map((key) => [key, process.env[key]]));
+
+type Headscale = NonNullable<TemporalBridge['headscale']>;
+
+function bridge(options: { headscale?: Headscale; io?: SocketServer; clusterService?: ClusterService } = {}) {
+  const db = memoryDatabase();
+  const workflow = mock<WorkflowClient>();
+  const client = mock<Client>({ workflow });
+  const generateKeypair = vi.fn(async (comment: string) => ({ privateKey: `PRIVATE-${comment}`, publicKey: `PUBLIC-${comment}` }));
+  const connect = vi.fn<TemporalConnect>(async () => client);
+  const instance = new TemporalBridge(db, options.io, KEY, options.clusterService, options.headscale, undefined, { connect, generateKeypair });
+  return { db, workflow, client, connect, generateKeypair, instance, ready: () => { instance.client = client; return instance; } };
+}
+
+const startedWith = (workflow: ReturnType<typeof mock<WorkflowClient>>) => {
+  const [, options] = workflow.start.mock.calls.at(-1) ?? [];
+  return options as { workflowId: string; taskQueue: string; args: [Record<string, unknown>]; typedSearchAttributes: unknown } | undefined;
+};
+
+beforeEach(() => {
+  process.env.NODE_ENV = 'development';
+  delete process.env.HCLOUD_TOKEN;
+  delete process.env.DIGITALOCEAN_TOKEN;
+  delete process.env.MESH_LOGIN_SERVER;
+  vi.useFakeTimers();
+});
+afterEach(() => {
+  vi.useRealTimers();
+  for (const [key, value] of Object.entries(originalEnv)) { if (value === undefined) delete process.env[key]; else process.env[key] = value; }
+});
+
+describe('connecting to Temporal', () => {
+  it('is not ready until it has a client, and connects to the address given', async () => {
+    const { instance, client, connect } = bridge();
+    expect(instance.isReady()).toBe(false);
+    expect(await instance.start('temporal.test:7233')).toBe(instance);
+    expect(connect).toHaveBeenCalledWith({ address: 'temporal.test:7233' });
+    expect(instance.client).toBe(client);
+    expect(instance.isReady()).toBe(true);
+  });
+
+  it('connects to the default address when none is given', async () => {
+    const { instance, connect } = bridge();
+    await instance.start();
+    expect(connect).toHaveBeenCalledWith({});
+  });
+
+  it('connects through the same path for anyone who needs a client of their own', async () => {
+    const connect = vi.fn<TemporalConnect>(async () => mock<Client>());
+    await connectToTemporal('other.test:7233', connect);
+    expect(connect).toHaveBeenCalledWith({ address: 'other.test:7233' });
+  });
+});
+
+describe('reading workflows for the Temporal page', () => {
+  const info = (over: Partial<WorkflowExecutionInfo> = {}): WorkflowExecutionInfo => ({
+    workflowId: 'w1', runId: 'r1', type: 'AgentRunWorkflow', taskQueue: 'engine', status: { name: 'RUNNING', code: 1 },
+    startTime: new Date('2026-11-02T00:00:00Z'), closeTime: undefined, historyLength: 7,
+    typedSearchAttributes: startedFor('ann').typedSearchAttributes as never, ...over,
+  }) as WorkflowExecutionInfo;
+
+  it('says Temporal is not reachable when the bridge has no client, rather than answering that nothing runs', async () => {
+    const { instance } = bridge();
+    await expect(instance.listWorkflows()).rejects.toMatchObject({ message: 'Temporal is not reachable', status: 503 });
+    await expect(instance.countWorkflows()).rejects.toMatchObject({ status: 503 });
+    await expect(instance.describeWorkflow('w1')).rejects.toMatchObject({ status: 503 });
+    await expect(instance.getWorkflowHistory('w1')).rejects.toMatchObject({ status: 503 });
+  });
+
+  it('lists workflows as summaries, with whose they are, asking for the page size and query given', async () => {
+    const { workflow, ready } = bridge();
+    workflow.list.mockImplementation((() => (async function* () { yield info(); yield info({ workflowId: 'w2', status: { name: 'COMPLETED', code: 2 }, closeTime: new Date('2026-11-02T01:00:00Z'), typedSearchAttributes: undefined as never }); })()) as never);
+    expect(await ready().listWorkflows('KoalaOwner = "ann"', 10)).toEqual([
+      { workflowId: 'w1', runId: 'r1', type: 'AgentRunWorkflow', taskQueue: 'engine', status: 'RUNNING', startTime: '2026-11-02T00:00:00.000Z', closeTime: undefined, historyLength: 7, owner: 'ann' },
+      expect.objectContaining({ workflowId: 'w2', status: 'COMPLETED', closeTime: '2026-11-02T01:00:00.000Z', owner: undefined }),
+    ]);
+    expect(workflow.list).toHaveBeenCalledWith({ query: 'KoalaOwner = "ann"', pageSize: 10 });
+  });
+
+  it('lists fifty at a time with no query unless told otherwise', async () => {
+    const { workflow, ready } = bridge();
+    workflow.list.mockImplementation((() => (async function* () { /* none */ })()) as never);
+    await ready().listWorkflows();
+    expect(workflow.list).toHaveBeenCalledWith({ pageSize: 50 });
+  });
+
+  it('counts workflows for a query', async () => {
+    const { workflow, ready } = bridge();
+    workflow.count.mockResolvedValue({ count: 12 } as never);
+    expect(await ready().countWorkflows('ExecutionStatus="Running"')).toBe(12);
+    expect(workflow.count).toHaveBeenCalledWith('ExecutionStatus="Running"');
+  });
+
+  it('raises a failure to count or describe with its reason instead of a zero or a missing workflow', async () => {
+    const { workflow, ready } = bridge();
+    workflow.count.mockRejectedValue(new Error('the visibility store did not answer'));
+    workflow.getHandle.mockReturnValue(mock<ReturnType<WorkflowClient['getHandle']>>({
+      describe: vi.fn().mockRejectedValue(new Error('deadline on the frontend')),
+      fetchHistory: vi.fn().mockRejectedValue(new Error('deadline on the frontend')),
+    }));
+    const instance = ready();
+    await expect(instance.countWorkflows()).rejects.toThrow('the visibility store did not answer');
+    await expect(instance.describeWorkflow('w1')).rejects.toThrow('deadline on the frontend');
+    await expect(instance.getWorkflowHistory('w1')).rejects.toThrow('deadline on the frontend');
+  });
+
+  it('describes a workflow, and answers a workflow Temporal does not have as missing', async () => {
+    const { workflow, ready } = bridge();
+    const found = mock<ReturnType<WorkflowClient['getHandle']>>();
+    found.describe.mockResolvedValue(info() as unknown as WorkflowExecutionDescription);
+    workflow.getHandle.calledWith('w1').mockReturnValue(found);
+    const gone = mock<ReturnType<WorkflowClient['getHandle']>>();
+    gone.describe.mockRejectedValue(new WorkflowNotFoundError('not found', 'w9', undefined));
+    gone.fetchHistory.mockRejectedValue(new WorkflowNotFoundError('not found', 'w9', undefined));
+    workflow.getHandle.calledWith('w9').mockReturnValue(gone);
+    const instance = ready();
+    expect(await instance.describeWorkflow('w1')).toMatchObject({ workflowId: 'w1', owner: 'ann' });
+    expect(await instance.describeWorkflow('w9')).toBeNull();
+    expect(await instance.getWorkflowHistory('w9')).toBeNull();
+  });
+
+  it('shows a workflow\'s history as events with the attributes of each, shortened', async () => {
+    const { workflow, ready } = bridge();
+    const handle = mock<ReturnType<WorkflowClient['getHandle']>>();
+    handle.fetchHistory.mockResolvedValue({ events: [
+      { eventId: 1, eventType: 1, eventTime: { seconds: 1 }, workflowExecutionStartedEventAttributes: { workflowType: { name: 'AgentRunWorkflow' } } },
+      { eventId: 2, eventType: 5, eventTime: { seconds: 2 }, workflowExecutionCompletedEventAttributes: { result: 'x'.repeat(900) } },
+      { eventId: 3, eventType: 9 },
+    ] } as never);
+    workflow.getHandle.mockReturnValue(handle);
+    const events = await ready().getWorkflowHistory('w1') as { id: number; type: number; attributes: string | null }[];
+    expect(events.map((event) => event.id)).toEqual([1, 2, 3]);
+    expect(events[0]?.attributes).toBe('{"workflowType":{"name":"AgentRunWorkflow"}}');
+    expect(events[1]?.attributes).toHaveLength(500);
+    expect(events[2]?.attributes).toBeNull();
+  });
+});
+
+describe('a push to a project', () => {
+  it('records no build when the commit has nothing to build', async () => {
+    const { instance, db, workflow } = bridge();
+    instance.planBuild = (_project, sha) => buildPlanAt(async () => null, sha);
+    expect(await instance.runPipeline(project, SHA, 'main')).toEqual({ id: '', event: 'nothing-to-build' });
+    expect(await db.releases.getPipelineRuns()).toEqual([]);
+    expect(workflow.start).not.toHaveBeenCalled();
+  });
+
+  it('refuses anything but a commit hash, or a project with no repository, before it records or runs anything', async () => {
+    const { instance, db } = bridge();
+    await expect(instance.runPipeline(project, 'main; reboot', 'main')).rejects.toThrow('"main; reboot" is not a commit to build');
+    await expect(instance.runPipeline({ ...project, giteaRepo: undefined } as unknown as ProjectMetadata, SHA, 'main')).rejects.toThrow('Project proj-1 has no repository to run a pipeline for.');
+    expect(await db.releases.getPipelineRuns()).toEqual([]);
+  });
+
+  it('records the build as queued, starts its workflow on the cluster queue as the project\'s owner and tells the browsers', async () => {
+    const io = mock<SocketServer>();
+    const { ready, db, workflow } = bridge({ io });
+    const deal = await ready().runPipeline(project, SHA, 'refs/heads/main');
+    expect(deal.event).toBe('pipeline-run');
+    expect(deal.id).toMatch(/^pipeline-run-notes-/);
+    const [run] = await db.releases.getPipelineRuns();
+    expect(run).toMatchObject({ projectId: 'proj-1', commitSha: SHA, ref: 'refs/heads/main', status: 'queued', temporalWorkflowId: deal.id });
+    expect(deal.resourceId).toBe(run?.id);
+    const started = startedWith(workflow);
+    expect(started).toMatchObject({ workflowId: deal.id, taskQueue: 'cluster-ops-queue', args: [{ projectId: 'proj-1', giteaOwner: 'acme', giteaRepo: 'notes', commitSha: SHA, ref: 'refs/heads/main', runId: run?.id }], typedSearchAttributes: startedFor('u1').typedSearchAttributes });
+    expect(io.emit).toHaveBeenCalledWith('pipeline-run-updated');
+  });
+
+  it('marks the project\'s last build queued', async () => {
+    const { ready, db } = bridge();
+    await db.projects.saveProjectInfo(project);
+    await ready().runPipeline(project, SHA, 'main');
+    expect((await db.projects.getProjects()).find((entry) => entry.id === 'proj-1')?.lastBuildStatus).toBe('queued');
+  });
+});
+
+describe('changing an app\'s config', () => {
+  const stored = (over: Partial<DeploymentMetadata> = {}): DeploymentMetadata => ({ id: 'd1', name: 'model', clusterId: 'c1', strategy: 'helm', status: 'running', appType: 'tabbyapi', ownerId: 'ann', ...over });
+
+  it('says the deployment is not found when there is none', async () => {
+    const { ready } = bridge();
+    await expect(ready().updateConfigAndSync('nope', {})).rejects.toThrow('DeploymentMetadata not found (updateConfigAndSync)');
+  });
+
+  it('saves the patch with storage and settings merged into what the app had, then starts the sync workflow as its owner', async () => {
+    const { ready, db, workflow } = bridge();
+    await db.infrastructure.saveCluster({ id: 'c1', name: 'shared', provider: 'k3d', status: 'healthy' } as ClusterMetadata);
+    await db.infrastructure.saveDeploymentInfo(stored({ storage: { data: '10Gi', cache: '5Gi' }, appSettings: { a: '1', b: '2' }, tabbyMaxSeqLen: 4096 }));
+    const deal = await ready().updateConfigAndSync('d1', { storage: { data: '20Gi' }, appSettings: { b: '3' }, tabbyMaxSeqLen: 8192 });
+    expect(deal.event).toBe('config-sync');
+    expect(deal.id).toMatch(/^sync-config-model-/);
+    const [saved] = await db.infrastructure.getDeployments();
+    expect(saved).toMatchObject({ storage: { data: '20Gi', cache: '5Gi' }, appSettings: { a: '1', b: '3' }, tabbyMaxSeqLen: 8192, status: 'deploying', temporalWorkflowId: deal.id });
+    expect(startedWith(workflow)).toMatchObject({ workflowId: deal.id, taskQueue: 'cluster-ops-queue', args: [{ name: 'model', clusterName: 'shared', provider: 'k3d', tabbyMaxSeqLen: 8192, storage: { data: '20Gi', cache: '5Gi' } }], typedSearchAttributes: startedFor('ann').typedSearchAttributes });
+  });
+});
+
+describe('provisioning a cluster', () => {
+  it('starts the provision workflow on the host queue, recording the cluster as provisioning for its owner', async () => {
+    const { ready, db, workflow } = bridge();
+    const deal = await ready().provision('lab', 'k3d', 'ann');
+    expect(deal.event).toBe('cluster-provision');
+    expect(deal.id).toMatch(/^cluster-provision-lab-/);
+    const [cluster] = await db.infrastructure.getClusters();
+    expect(cluster).toMatchObject({ name: 'lab', provider: 'k3d', status: 'provisioning', ownerId: 'ann', temporalWorkflowId: deal.id });
+    expect(deal.resourceId).toBe(cluster?.id);
+    expect(startedWith(workflow)).toMatchObject({ workflowId: deal.id, taskQueue: 'host-ops-queue', args: [{ name: 'lab', provider: 'k3d' }], typedSearchAttributes: startedFor('ann').typedSearchAttributes });
+  });
+
+  it('runs a provider that is not built as a local cluster on a dev box, and refuses it in production', async () => {
+    const { ready, workflow } = bridge();
+    await expect(ready().provision('lab', 'aws', 'ann')).resolves.toBeTruthy();
+    expect(startedWith(workflow)?.args[0]).toMatchObject({ provider: 'aws' });
+    process.env.NODE_ENV = 'production';
+    await expect(ready().provision('lab2', 'aws', 'ann')).rejects.toBeInstanceOf(ProvisionRefused);
+    await expect(ready().provision('lab3', 'aws', 'ann')).rejects.toThrow('Amazon Web Services is not available yet');
+  });
+
+  it('hands the machine\'s connection details to the workflow and keeps its key sealed on the record', async () => {
+    const { ready, db, workflow } = bridge();
+    await ready().provision('box', 'remote', 'ann', { host: '10.0.0.5', username: 'ubuntu', privateKey: 'SECRET', port: 2222, k3sApiPort: 6444 });
+    expect(startedWith(workflow)?.args[0]).toMatchObject({ remoteHost: '10.0.0.5', remoteUsername: 'ubuntu', remoteSshPrivateKey: 'SECRET', remoteSshPort: 2222, remoteK3sApiPort: 6444 });
+    const [cluster] = await db.infrastructure.getClusters();
+    expect(cluster).toMatchObject({ remoteHost: '10.0.0.5', remoteSshPort: 2222, remoteK3sApiPort: 6444 });
+    expect(JSON.stringify(cluster)).not.toContain('SECRET');
+  });
+
+  it('refuses a Hetzner cluster with no token, and gives one the person stored or the operator\'s to the workflow, with a key pair made for the VM', async () => {
+    const { ready, db, workflow, generateKeypair } = bridge();
+    await expect(ready().provision('vm', 'hetzner', 'ann', undefined, undefined)).rejects.toThrow('No Hetzner Cloud API token configured — add one under Cloud providers first');
+    await db.accounts.saveUser({ id: 'ann', email: 'a@b.c', twoFactorEnabled: false, emailVerified: true, createdAt: 'x', credentials: { hetzner: { token: encryptValue('hcloud-mine', KEY) } } } as never);
+    await ready().provision('vm', 'hetzner', 'ann', undefined, { serverType: 'cx22', location: 'fsn1', image: 'ubuntu-24.04' });
+    expect(generateKeypair).toHaveBeenCalledWith('provisioning-vm');
+    expect(startedWith(workflow)?.args[0]).toMatchObject({ hcloudToken: 'hcloud-mine', hetznerServerType: 'cx22', hetznerLocation: 'fsn1', hetznerImage: 'ubuntu-24.04', hetznerSshPrivateKey: 'PRIVATE-provisioning-vm', hetznerSshPublicKey: 'PUBLIC-provisioning-vm' });
+    const [cluster] = await db.infrastructure.getClusters();
+    expect(cluster?.remoteSshPrivateKeyEnc).toMatch(/^v2:/);
+    expect(cluster).toMatchObject({ hetznerServerType: 'cx22' });
+  });
+
+  it('gives an operator the Hetzner token from the environment', async () => {
+    const { ready, db, workflow } = bridge();
+    await db.accounts.saveUser({ id: 'op', email: 'o@b.c', twoFactorEnabled: false, emailVerified: true, createdAt: 'x', roles: ['operator'] } as never);
+    process.env.HCLOUD_TOKEN = 'hcloud-operator';
+    await ready().provision('vm', 'hetzner', 'op');
+    expect(startedWith(workflow)?.args[0]).toMatchObject({ hcloudToken: 'hcloud-operator' });
+  });
+
+  it('refuses a DigitalOcean cluster with no token, and makes a Droplet with the token the person stored', async () => {
+    const { ready, db, workflow, generateKeypair } = bridge();
+    await expect(ready().provision('drop', 'do', 'ann')).rejects.toThrow('No DigitalOcean API token configured — add one under Cloud providers first');
+    await db.accounts.saveUser({ id: 'ann', email: 'a@b.c', twoFactorEnabled: false, emailVerified: true, createdAt: 'x', credentials: { do: { token: encryptValue('do-mine', KEY) } } } as never);
+    await ready().provision('drop', 'do', 'ann', undefined, { serverType: 's-2vcpu-4gb', location: 'syd1', image: 'ubuntu-24-04-x64' });
+    expect(generateKeypair).toHaveBeenCalledWith('provisioning-drop');
+    expect(startedWith(workflow)?.args[0]).toMatchObject({ doToken: 'do-mine', doSize: 's-2vcpu-4gb', doRegion: 'syd1', doImage: 'ubuntu-24-04-x64', doSshPrivateKey: 'PRIVATE-provisioning-drop', doSshPublicKey: 'PUBLIC-provisioning-drop' });
+  });
+
+  it('counts a stored token that can no longer be decrypted as none', async () => {
+    const { ready, db } = bridge();
+    await db.accounts.saveUser({ id: 'ann', email: 'a@b.c', twoFactorEnabled: false, emailVerified: true, createdAt: 'x', credentials: { do: { token: encryptValue('do-old', 'another-key') } } } as never);
+    await expect(ready().provision('drop', 'do', 'ann')).rejects.toThrow('No DigitalOcean API token configured');
+  });
+
+  it('joins a new VM to the mesh with a key made for the person when the mesh is configured, and carries on without one when it cannot', async () => {
+    const headscale = mock<Headscale>();
+    headscale.createPreAuthKey.mockResolvedValue({ key: 'tskey-1' });
+    const { ready, db, workflow } = bridge({ headscale });
+    process.env.HCLOUD_TOKEN = 'hcloud-operator';
+    await db.accounts.saveUser({ id: 'op', email: 'o@b.c', twoFactorEnabled: false, emailVerified: true, createdAt: 'x', roles: ['operator'] } as never);
+    process.env.MESH_LOGIN_SERVER = 'https://mesh.example.com';
+    await ready().provision('vm', 'hetzner', 'op');
+    expect(headscale.createPreAuthKey).toHaveBeenCalledWith('op', { reusable: true, expirySeconds: 7200 });
+    expect(startedWith(workflow)?.args[0]).toMatchObject({ meshLoginServer: 'https://mesh.example.com', meshPreAuthKey: 'tskey-1' });
+    headscale.createPreAuthKey.mockRejectedValue(new Error('headscale down'));
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    await ready().provision('vm2', 'hetzner', 'op');
+    logged.mockRestore();
+    expect(startedWith(workflow)?.args[0]).not.toHaveProperty('meshPreAuthKey');
+  });
+});

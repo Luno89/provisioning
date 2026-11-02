@@ -3,7 +3,7 @@ import type { ActionProposal, McpRequest } from '@koala/harness-types';
 import type { PersonaRecord as EnginePersona, ToolDefinition as EngineTool, GrantKind, ToolGrant, WorkspaceDependency } from '@koala/agent-engine';
 import type { RunEffort } from '@koala/agent-engine/procedure';
 import type { FrontierClaim, FrontierUrl } from '../../platform/index.js';
-import { copied } from '../../platform/testing/memory-records.js';
+import { collectionIn, copied, type Collections } from '../../platform/testing/memory-records.js';
 import type { AuthoredExtension } from '../lib/authored-extensions.js';
 import type { AutoModeSettings } from '../lib/auto-mode.js';
 import type { Conversation, ConversationMessage } from '../lib/conversations.js';
@@ -59,7 +59,7 @@ const withValues = (existing: readonly string[] | undefined, adding: readonly st
 };
 
 class Rows<T extends object> {
-  private readonly rows = new Map<string, T>();
+  constructor(private readonly rows: Map<string, T> = new Map<string, T>()) {}
 
   all(): T[] {
     return [...this.rows.values()].map(copied);
@@ -124,10 +124,14 @@ const turnOut = ({ at, ...rest }: StoredTurn): TurnLogEntry => ({ ...rest, at: a
 const readsOut = (key: string, row: StoredReads): RunReads => ({ key, ...row });
 
 export class MemoryEngineStore implements EngineStore {
+  constructor(collections: Collections = new Map()) {
+    this.conversations = new Rows(collectionIn<Conversation>(collections, 'conversations'));
+  }
+
   private readonly actionProposals = new Rows<ActionProposal>();
   private readonly authoredExtensions = new Rows<AuthoredExtension>();
   private readonly autoModeSettings = new Rows<AutoModeSettings>();
-  private readonly conversations = new Rows<Conversation>();
+  private readonly conversations: Rows<Conversation>;
   private readonly corpus = new Rows<CorpusPage>();
   private readonly enginePersonas = new Rows<EnginePersona>();
   private readonly engineTools = new Rows<EngineTool>();

@@ -3,8 +3,15 @@ import { asStored } from './as-stored.js';
 
 export const copied = <T>(value: T): T => structuredClone(value);
 
+export type Collections = Map<string, Map<string, unknown>>;
+
+export function collectionIn<T>(collections: Collections, name: string): Map<string, T> {
+  if (!collections.has(name)) collections.set(name, new Map<string, unknown>());
+  return collections.get(name) as Map<string, T>;
+}
+
 export class MemoryRecords<T extends Identified> {
-  private readonly rows = new Map<string, T>();
+  constructor(private readonly rows: Map<string, T> = new Map<string, T>()) {}
 
   all(): T[] {
     return [...this.rows.values()].map(copied);

@@ -2,7 +2,7 @@ import { asStored } from '../../platform/testing/as-stored.js';
 import { randomUUID } from 'node:crypto';
 import type { PartialInfo, ProjectMetadata } from '../../platform/index.js';
 import { mergeRecord } from '../../platform/lib/merge-record.js';
-import { copied, MemoryRecords } from '../../platform/testing/memory-records.js';
+import { copied, MemoryRecords, collectionIn, type Collections } from '../../platform/testing/memory-records.js';
 import type { Branch, Leaf } from '../lib/leaves.js';
 import type { PlanProposal } from '../lib/plan-proposals.js';
 import type { GiteaAccount } from '../lib/projects.js';
@@ -26,12 +26,20 @@ export class MemoryProjectsStore implements ProjectsStore {
   private readonly projects = new MemoryRecords<ProjectMetadata>();
   private readonly treeTypes = new Map<string, TreeTypeSpec>();
   private readonly giteaAccounts = new Map<string, GiteaAccount>();
-  private readonly trees = new MemoryRecords<Tree>();
-  private readonly branches = new MemoryRecords<Branch>();
-  private readonly leaves = new MemoryRecords<Leaf>();
-  private readonly tasks = new MemoryRecords<Task>();
-  private readonly planProposals = new MemoryRecords<PlanProposal>();
+  private readonly trees: MemoryRecords<Tree>;
+  private readonly branches: MemoryRecords<Branch>;
+  private readonly leaves: MemoryRecords<Leaf>;
+  private readonly tasks: MemoryRecords<Task>;
+  private readonly planProposals: MemoryRecords<PlanProposal>;
   private readonly secretRequests = new MemoryRecords<SecretRequest>();
+
+  constructor(collections: Collections = new Map()) {
+    this.trees = new MemoryRecords(collectionIn<Tree>(collections, 'trees'));
+    this.branches = new MemoryRecords(collectionIn<Branch>(collections, 'branches'));
+    this.leaves = new MemoryRecords(collectionIn<Leaf>(collections, 'leaves'));
+    this.tasks = new MemoryRecords(collectionIn<Task>(collections, 'tasks'));
+    this.planProposals = new MemoryRecords(collectionIn<PlanProposal>(collections, 'planProposals'));
+  }
 
   async ensureIndexes(): Promise<void> {}
 

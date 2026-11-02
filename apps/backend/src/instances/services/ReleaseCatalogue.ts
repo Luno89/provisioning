@@ -11,6 +11,10 @@ import type { ReleaseSource } from './InstanceService.js';
 import { inventoryFileFor } from './release-files.js';
 
 const run = promisify(execFile);
+
+export type GitOnThisMachine = (args: string[], cwd: string) => Promise<string>;
+
+const gitOnThisMachine: GitOnThisMachine = async (args, cwd) => (await run('git', args, { cwd })).stdout;
 const IMAGE_TAG = /^[A-Za-z0-9._-]{1,128}$/;
 const DIGEST = /^sha256:[0-9a-f]{64}$/;
 
@@ -21,6 +25,7 @@ export interface ReleaseCatalogueSettings {
   imageDigest?: string | undefined;
   chart: () => Promise<string>;
   inventory: (release: string, out: string) => Promise<void>;
+  git?: GitOnThisMachine | undefined;
 }
 
 export class ReleaseCatalogue implements ReleaseSource {
@@ -34,7 +39,7 @@ export class ReleaseCatalogue implements ReleaseSource {
 
   private async git(args: string[]): Promise<string | undefined> {
     try {
-      return (await run('git', args, { cwd: this.settings.repoRoot })).stdout.trim() || undefined;
+      return (await (this.settings.git ?? gitOnThisMachine)(args, this.settings.repoRoot)).trim() || undefined;
     } catch {
       return undefined;
     }

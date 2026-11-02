@@ -1,6 +1,6 @@
 import { applyPatch, diffRecord, type HubChange, type HubDirty, type HubLink, type HubSyncStore, type RecordChange, type SyncedDoc, type SyncedKind } from '../lib/hub-sync.js';
 import { CHANGES_PAGE, type HubService } from './HubService.js';
-import { mainHeads, syncMain, type GitEnd } from './HubRepoSync.js';
+import { mainHeads, syncMain, type GitEnd, type GitProcesses } from './HubRepoSync.js';
 import type { HubMemberName } from '../lib/hub-sync.js';
 import type { HubRequest, HubStatus } from '../lib/hub-board.js';
 import type { HubInstanceWork, InstanceAnswer, InstanceCall } from './HubInstanceWork.js';
@@ -28,6 +28,7 @@ export interface HubSyncDeps {
   transport: HubSyncTransport;
   origin: string;
   repos?: HubRepoSides | undefined;
+  git?: GitProcesses | undefined;
   work?: (() => HubInstanceWork | undefined) | undefined;
   log?: ((line: string) => void) | undefined;
   retryMs?: number | undefined;
@@ -182,10 +183,10 @@ export class HubSyncService {
       try {
         const ends = await this.deps.repos.ends(link);
         if (!ends) continue;
-        const heads = await mainHeads(ends.owner, ends.hub);
+        const heads = await mainHeads(ends.owner, ends.hub, this.deps.git);
         const unchanged = (known: { owner?: string | undefined; hub?: string | undefined } | undefined) => known?.owner === heads.owner && known?.hub === heads.hub;
         if (unchanged(link.repoHeads) || unchanged(link.repoConflict)) continue;
-        const synced = await syncMain(ends.owner, ends.hub, () => `hub/main-${new Date().toISOString().replace(/[^0-9]/g, '').slice(0, 14)}`);
+        const synced = await syncMain(ends.owner, ends.hub, () => `hub/main-${new Date().toISOString().replace(/[^0-9]/g, '').slice(0, 14)}`, this.deps.git);
         const fresh = (await this.deps.store.getHubLinks()).find((entry) => entry.projectId === link.projectId);
         if (!fresh) continue;
         if (synced.outcome === 'conflict') {

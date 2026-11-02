@@ -31,6 +31,7 @@ export interface SignInProvidersSettings {
   publicUrl: string;
   sessionKey: SecretKey;
   accounts: Pick<AuthService, 'signInWithProvider'>;
+  clients?: Readonly<Record<SignInProviderKind, (provider: SignInProvider) => SignInClient>> | undefined;
 }
 
 const NOT_STARTED_HERE = 'This sign-in did not start here, or took longer than ten minutes; start it again';
@@ -58,7 +59,7 @@ export class SignInProviders {
     if (!provider) return undefined;
     let made = this.clients.get(id);
     if (!made) {
-      made = SIGN_IN_CLIENTS[provider.kind](provider);
+      made = (this.settings.clients ?? SIGN_IN_CLIENTS)[provider.kind](provider);
       this.clients.set(id, made);
     }
     return { provider, client: made };

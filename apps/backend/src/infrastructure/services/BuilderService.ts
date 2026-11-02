@@ -11,11 +11,14 @@ const PROJECT_ROOT = path.resolve(__dirname, '../../../../../');
 
 export class BuilderService extends BaseService {
   private infra: InfrastructureService;
-  private buildContext = '/tmp/app-build';
+  private readonly buildContext: string;
+  private readonly sourceRoot: string;
 
-  constructor(db: Database, infra: InfrastructureService) {
+  constructor(db: Database, infra: InfrastructureService, places: { buildContext?: string | undefined; sourceRoot?: string | undefined } = {}) {
     super(db);
     this.infra = infra;
+    this.buildContext = places.buildContext ?? '/tmp/app-build';
+    this.sourceRoot = places.sourceRoot ?? path.join(PROJECT_ROOT, '..');
   }
 
   async buildCustomImage(baseImage: string, modules: string[], appType: string = 'odoo', options: ExecuteOptions = {}): Promise<string> {
@@ -25,7 +28,7 @@ export class BuilderService extends BaseService {
     const tag = `${sanitizedAppType}-custom:${(resourceId ?? 'build').slice(0, 8)}-${buildId}`;
     
     const folderName = sanitizedAppType === 'odoo' ? 'odoo-custom-modules' : `${sanitizedAppType}-custom-plugins`;
-    const sourceRepo = path.join(PROJECT_ROOT, '..', folderName);
+    const sourceRepo = path.join(this.sourceRoot, folderName);
 
     this.logger.info(`Building custom ${sanitizedAppType} image ${tag} from ${baseImage}`);
     if (io && resourceId) io.to(resourceId).emit('log', `\n--- STARTING BUILD: ${tag} ---\n`);

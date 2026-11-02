@@ -5,12 +5,37 @@ import os from 'node:os';
 import path from 'node:path';
 import { unpromptedGit } from '../../platform/index.js';
 
-const run = promisify(execFile);
+const execute = promisify(execFile);
 
-const exitedWith = (code: number) => (err: unknown): false => {
-  if ((err as { code?: unknown }).code === code) return false;
-  throw err;
+export interface GitResult {
+  code: number;
+  stdout: string;
+  stderr: string;
+}
+
+export interface GitProcesses {
+  run(run: { command: string; args: readonly string[]; env?: Readonly<Record<string, string | undefined>> | undefined }): Promise<GitResult>;
+}
+
+export const gitOnThisMachine: GitProcesses = {
+  async run({ command, args, env }) {
+    try {
+      const done = await execute(command, [...args], { env: env as NodeJS.ProcessEnv, maxBuffer: 64 * 1024 * 1024 });
+      return { code: 0, stdout: done.stdout, stderr: done.stderr };
+    } catch (err) {
+      const failed = err as { code?: unknown; stdout?: unknown; stderr?: unknown };
+      if (typeof failed.code !== 'number') throw err;
+      return { code: failed.code, stdout: String(failed.stdout ?? ''), stderr: String(failed.stderr ?? '') };
+    }
+  },
 };
+
+class GitFailed extends Error {
+  constructor(result: GitResult) {
+    super(result.stderr.trim() || `git exited ${result.code}`);
+    this.name = 'GitFailed';
+  }
+}
 
 export interface GitEnd {
   url: string;
@@ -34,27 +59,35 @@ function envFor(ends: readonly GitEnd[]): NodeJS.ProcessEnv {
 
 const masked = (text: string, ends: readonly GitEnd[]): string => ends.reduce((said, end) => (end.auth ? said.replaceAll(end.auth.token, '***') : said), text);
 
-async function headOf(end: GitEnd, env: NodeJS.ProcessEnv): Promise<string | undefined> {
-  const listed = (await run('git', ['ls-remote', end.url, 'refs/heads/main'], { env })).stdout.trim();
+async function headOf(end: GitEnd, env: NodeJS.ProcessEnv, processes: GitProcesses): Promise<string | undefined> {
+  const result = await processes.run({ command: 'git', args: ['ls-remote', end.url, 'refs/heads/main'], env });
+  if (result.code !== 0) throw new GitFailed(result);
+  const listed = result.stdout.trim();
   return listed ? listed.split(/\s+/)[0] : undefined;
 }
 
-export async function mainHeads(owner: GitEnd, hub: GitEnd): Promise<{ owner: string | undefined; hub: string | undefined }> {
+export async function mainHeads(owner: GitEnd, hub: GitEnd, processes: GitProcesses = gitOnThisMachine): Promise<{ owner: string | undefined; hub: string | undefined }> {
   const env = envFor([owner, hub]);
-  return { owner: await headOf(owner, env), hub: await headOf(hub, env) };
+  return { owner: await headOf(owner, env, processes), hub: await headOf(hub, env, processes) };
 }
 
-export async function syncMain(owner: GitEnd, hub: GitEnd, keptName: () => string): Promise<MainSync> {
+export async function syncMain(owner: GitEnd, hub: GitEnd, keptName: () => string, processes: GitProcesses = gitOnThisMachine): Promise<MainSync> {
   const ends = [owner, hub];
   const env = envFor(ends);
   const scratch = await fs.mkdtemp(path.join(os.tmpdir(), 'koala-hub-sync-'));
   const work = path.join(scratch, 'work');
-  const git = (...args: string[]) => run('git', ['-C', work, ...BOT, ...args], { env, maxBuffer: 64 * 1024 * 1024 });
+  const attempt = (...args: string[]) => processes.run({ command: 'git', args: ['-C', work, ...BOT, ...args], env });
+  const git = async (...args: string[]) => {
+    const result = await attempt(...args);
+    if (result.code !== 0) throw new GitFailed(result);
+    return result;
+  };
   try {
-    await run('git', ['init', '--quiet', work], { env });
+    const init = await processes.run({ command: 'git', args: ['init', '--quiet', work], env });
+    if (init.code !== 0) throw new GitFailed(init);
     await git('remote', 'add', 'owner', owner.url);
     await git('remote', 'add', 'hub', hub.url);
-    const [ownerHead, hubHead] = [await headOf(owner, env), await headOf(hub, env)];
+    const [ownerHead, hubHead] = [await headOf(owner, env, processes), await headOf(hub, env, processes)];
     if (ownerHead) await git('fetch', '--quiet', 'owner', '+refs/heads/main:refs/remotes/owner/main');
     if (hubHead) await git('fetch', '--quiet', 'hub', '+refs/heads/main:refs/remotes/hub/main');
     if (ownerHead === hubHead) return { outcome: 'same', head: ownerHead };
@@ -66,7 +99,12 @@ export async function syncMain(owner: GitEnd, hub: GitEnd, keptName: () => strin
       await git('push', '--quiet', 'owner', 'refs/remotes/hub/main:refs/heads/main');
       return { outcome: 'from-hub', head: hubHead };
     }
-    const contains = async (ancestor: string, of: string) => git('merge-base', '--is-ancestor', ancestor, of).then(() => true, exitedWith(1));
+    const contains = async (ancestor: string, of: string) => {
+      const result = await attempt('merge-base', '--is-ancestor', ancestor, of);
+      if (result.code === 0) return true;
+      if (result.code === 1) return false;
+      throw new GitFailed(result);
+    };
     if (await contains(hubHead, ownerHead)) {
       await git('push', '--quiet', 'hub', 'refs/remotes/owner/main:refs/heads/main');
       return { outcome: 'to-hub', head: ownerHead };
@@ -76,8 +114,9 @@ export async function syncMain(owner: GitEnd, hub: GitEnd, keptName: () => strin
       return { outcome: 'from-hub', head: hubHead };
     }
     await git('checkout', '--quiet', '-b', 'main', 'refs/remotes/owner/main');
-    const merged = await git('merge', '--quiet', '--no-edit', '-m', 'Merge the shared project\'s main from the hub', 'refs/remotes/hub/main').then(() => true, exitedWith(1));
-    if (!merged) {
+    const merge = await attempt('merge', '--quiet', '--no-edit', '-m', 'Merge the shared project\'s main from the hub', 'refs/remotes/hub/main');
+    if (merge.code !== 0 && merge.code !== 1) throw new GitFailed(merge);
+    if (merge.code === 1) {
       const files = (await git('diff', '--name-only', '--diff-filter=U')).stdout.split('\n').map((line) => line.trim()).filter(Boolean);
       const kept = keptName();
       await git('merge', '--abort');
@@ -89,7 +128,7 @@ export async function syncMain(owner: GitEnd, hub: GitEnd, keptName: () => strin
     await git('push', '--quiet', 'owner', 'HEAD:refs/heads/main');
     return { outcome: 'merged', head };
   } catch (err) {
-    throw new Error(`syncing main with the hub failed: ${masked(((err as { stderr?: string }).stderr || (err as Error).message).trim(), ends)}`);
+    throw new Error(`syncing main with the hub failed: ${masked((err as Error).message.trim(), ends)}`);
   } finally {
     await fs.rm(scratch, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
   }

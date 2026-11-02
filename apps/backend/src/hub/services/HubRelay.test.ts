@@ -55,3 +55,19 @@ describe('relaying a member\'s call to the owner\'s instance', () => {
     vi.useRealTimers();
   });
 });
+
+describe('looking up a call that is waiting for its answer', () => {
+  it('finds a call from the moment it is made until it is answered', async () => {
+    const relay = new HubRelay(Date.now, 60_000);
+    const taking = relay.take('p', new Promise(() => undefined));
+    const answered = relay.call('p', 'extensions', {}, bo);
+    const call = await taking;
+    expect(relay.callOf(call!.id)).toBe(call);
+    relay.answer(call!.id, { kind: 'json', status: 200, body: null });
+    await answered;
+    expect(relay.callOf(call!.id)).toBeUndefined();
+    expect(relay.callOf('never-made')).toBeUndefined();
+    expect(relay.answer('never-made', { kind: 'json', status: 200, body: null })).toBe(false);
+    relay.stop();
+  });
+});

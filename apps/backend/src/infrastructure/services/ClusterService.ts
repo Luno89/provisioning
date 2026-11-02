@@ -6,10 +6,7 @@ import { hasCloudCredentials, isMockCloudProvider } from './cloud-credentials.js
 import { v4 as uuidv4 } from 'uuid';
 import { capacityFromNodes, type ClusterCapacity } from '../lib/cluster-capacity.js';
 import { parseNvidiaSmiVram } from '../lib/gpu-vram.js';
-import { exec } from 'child_process';
-import { promisify } from 'util';
-
-const execAsync = promisify(exec);
+import { execShell, type Shell } from '../lib/shell.js';
 import { Server as SocketServer } from 'socket.io';
 import os from 'os';
 import path from 'path';
@@ -24,10 +21,15 @@ export class ClusterService extends BaseService {
   private masterKey: SecretKey;
   private temporalBridge?: Pick<TemporalBridge, 'terminateWorkflow'>;
 
-  constructor(db: Database, infra: InfrastructureService, masterKey?: SecretKey) {
+  private readonly kubeconfigDir: string;
+  private readonly shell: Shell;
+
+  constructor(db: Database, infra: InfrastructureService, masterKey?: SecretKey, places: { kubeconfigDir?: string | undefined; shell?: Shell | undefined } = {}) {
     super(db);
     this.infra = infra;
     this.masterKey = masterKey || '';
+    this.kubeconfigDir = places.kubeconfigDir ?? '/tmp';
+    this.shell = places.shell ?? execShell;
   }
 
   setTemporalBridge(temporalBridge: Pick<TemporalBridge, 'terminateWorkflow'>) {
@@ -104,7 +106,7 @@ export class ClusterService extends BaseService {
     const isMock = this.isMockCloud(cluster);
     if (cluster.gpuEnabled || cluster.provider === 'k3d' || isMock) {
       const physicalName = this.getPhysicalClusterName(cluster);
-      const dynamicPath = `/tmp/kubeconfig-${physicalName}`;
+      const dynamicPath = `${this.kubeconfigDir}/kubeconfig-${physicalName}`;
       let exists = false;
       try {
         await fs.access(dynamicPath);
@@ -153,7 +155,7 @@ export class ClusterService extends BaseService {
     try {
       const content = await this.infra.getManagementClusterKubeconfig(SYSTEM_CLUSTER_ID);
       status = 'healthy';
-      const kubeconfigPath = `/tmp/kubeconfig-${SYSTEM_CLUSTER_ID}`;
+      const kubeconfigPath = `${this.kubeconfigDir}/kubeconfig-${SYSTEM_CLUSTER_ID}`;
       await writePrivate(kubeconfigPath, content).catch((err: unknown) => {
         this.logger.warn(`Could not write the system cluster's kubeconfig to ${kubeconfigPath}, so its capacity is read from what is there: ${(err as Error).message}`);
       });
@@ -184,7 +186,7 @@ export class ClusterService extends BaseService {
     if (!capacity || capacity.gpuVramMib || !capacity.gpuCount) return capacity;
 
     try {
-      const { stdout } = await execAsync('nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits');
+      const { stdout } = await this.shell('nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits');
       const mib = parseNvidiaSmiVram(stdout);
       if (mib) capacity = { ...capacity, gpuVramMib: mib };
     } catch (failure) {
@@ -195,7 +197,7 @@ export class ClusterService extends BaseService {
 
   async ensureSystemClusterGpuReady(): Promise<void> {
     try {
-      const kubeconfigPath = `/tmp/kubeconfig-${SYSTEM_CLUSTER_ID}`;
+      const kubeconfigPath = `${this.kubeconfigDir}/kubeconfig-${SYSTEM_CLUSTER_ID}`;
       const content = await this.infra.getManagementClusterKubeconfig(SYSTEM_CLUSTER_ID);
       await writePrivate(kubeconfigPath, content);
       await this.infra.checkGpuToolkit('nvidia');
@@ -241,7 +243,7 @@ export class ClusterService extends BaseService {
       }
       await this.db.infrastructure.deleteDeploymentsOfCluster(cluster.id);
       await this.db.infrastructure.deleteCluster(cluster.id);
-      await fs.rm(`/tmp/kubeconfig-${physicalName}`, { force: true }).catch((err: unknown) => {
+      await fs.rm(`${this.kubeconfigDir}/kubeconfig-${physicalName}`, { force: true }).catch((err: unknown) => {
         this.logger.warn(`Could not remove the kubeconfig of ${physicalName}, deleted outside the system: ${(err as Error).message}`);
       });
     }
@@ -272,7 +274,7 @@ export class ClusterService extends BaseService {
     }
 
     try {
-      const kubeconfigPath = `/tmp/kubeconfig-${physicalName}`;
+      const kubeconfigPath = `${this.kubeconfigDir}/kubeconfig-${physicalName}`;
       const helmOutput = await this.infra.runHelm(['list', '-A', '-o', 'json'], kubeconfigPath);
       const releaseNames = listAt(JSON.parse(helmOutput) as unknown).map((release) => textAt(release, 'name'));
       const hasMonitoring = releaseNames.includes('kube-prometheus-stack');
@@ -303,7 +305,7 @@ export class ClusterService extends BaseService {
       );
       if (existing || k3dName === SYSTEM_CLUSTER_ID) continue;
 
-      const kubeconfigPath = `/tmp/kubeconfig-${k3dName}`;
+      const kubeconfigPath = `${this.kubeconfigDir}/kubeconfig-${k3dName}`;
       let kubeconfigContent: string;
       try {
         kubeconfigContent = await this.infra.getKubeconfig(k3dName);
@@ -378,7 +380,7 @@ export class ClusterService extends BaseService {
           await this.infra.createLocalCluster(physicalName, { logFile, io, resourceId: id });
 
           const kubeconfigContent = await this.infra.getKubeconfig(physicalName);
-          kubeconfigPath = `/tmp/kubeconfig-${physicalName}`;
+          kubeconfigPath = `${this.kubeconfigDir}/kubeconfig-${physicalName}`;
           await writePrivate(kubeconfigPath, kubeconfigContent);
 
           let ready = false;
@@ -490,7 +492,7 @@ export class ClusterService extends BaseService {
 
           await new Promise(resolve => setTimeout(resolve, 5000));
         } else {
-          kubeconfigPath = `/tmp/kubeconfig-${name}`;
+          kubeconfigPath = `${this.kubeconfigDir}/kubeconfig-${name}`;
         }
 
         const env: Record<string, string> = { 

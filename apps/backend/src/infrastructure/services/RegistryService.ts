@@ -1,10 +1,7 @@
 import { BaseService, type Database, listAt, textAt } from '../../platform/index.js';
 import axios from 'axios';
-import { exec } from 'child_process';
-import { promisify } from 'util';
+import { execShell, type Shell } from '../lib/shell.js';
 import { normalizeTags, nextPageUrl, pageOf, type TagPage, type TagPageRequest } from '../lib/registry-tags.js';
-
-const execAsync = promisify(exec);
 
 const GHCR_MAX_PAGES = 10;
 const HUB_MAX_PAGES = 10;
@@ -12,7 +9,7 @@ const HUB_PAGE_SIZE = 100;
 const TAG_CACHE_TTL_MS = 5 * 60 * 1000;
 
 export class RegistryService extends BaseService {
-  constructor(db: Database) {
+  constructor(db: Database, private readonly shell: Shell = execShell) {
     super(db);
   }
 
@@ -118,7 +115,7 @@ export class RegistryService extends BaseService {
   async getLocalTags(repo: string): Promise<string[]> {
     try {
       const safeRepo = repo.replace(/(["'$`\\])/g, '\\$1');
-      const { stdout } = await execAsync(`docker images --format "{{.Tag}}" "${safeRepo}"`);
+      const { stdout } = await this.shell(`docker images --format "{{.Tag}}" "${safeRepo}"`);
       return [...new Set(stdout.split('\n').map(t => t.trim()).filter(t => t && t !== '<none>'))];
     } catch (err) {
       this.logger.warn(`Failed to list local image tags for ${repo}: ${(err as Error).message}`);

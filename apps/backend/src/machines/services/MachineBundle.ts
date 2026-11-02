@@ -5,14 +5,22 @@ import { promisify } from 'util';
 
 const run = promisify(execFile);
 
+export type BundleBuild = (args: { script: string; outDir: string; cwd: string }) => Promise<{ stdout: string }>;
+
+const buildWithNode: BundleBuild = ({ script, outDir, cwd }) => run(process.execPath, [script, outDir], { cwd });
+
 export class MachineBundle {
   private building: Promise<string> | undefined;
 
-  constructor(private readonly repoRoot: string, private readonly outDir: string = path.join(repoRoot, 'apps/local-agent/dist')) {}
+  constructor(
+    private readonly repoRoot: string,
+    private readonly outDir: string = path.join(repoRoot, 'apps/local-agent/dist'),
+    private readonly build: BundleBuild = buildWithNode,
+  ) {}
 
   path(): Promise<string> {
     if (!this.building) {
-      this.building = run(process.execPath, [path.join(this.repoRoot, 'apps/local-agent/scripts/bundle-machine.mjs'), this.outDir], { cwd: this.repoRoot })
+      this.building = this.build({ script: path.join(this.repoRoot, 'apps/local-agent/scripts/bundle-machine.mjs'), outDir: this.outDir, cwd: this.repoRoot })
         .then(({ stdout }) => stdout.trim().split('\n').pop()!)
         .catch((err: Error & { stderr?: string }) => {
           this.building = undefined;

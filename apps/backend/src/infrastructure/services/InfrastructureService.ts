@@ -1,9 +1,8 @@
 import { lostCreateRace } from '../lib/apply-races.js';
-import { spawn, ChildProcess, exec } from 'child_process';
+import { spawn, ChildProcess } from 'child_process';
 import path from 'path';
 import fs from 'fs/promises';
 import { existsSync } from 'fs';
-import { promisify } from 'util';
 import { fileURLToPath } from 'url';
 import { Server as SocketServer } from 'socket.io';
 
@@ -11,8 +10,8 @@ import os from 'os';
 import { CommandFailedError, listAt, textAt } from '../../platform/index.js';
 import { ignore } from '@koala/engine-core/failures';
 import { assessWorkload } from '../lib/workload-health.js';
+import { execShell, type Shell } from '../lib/shell.js';
 
-const execAsync = promisify(exec);
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -39,6 +38,8 @@ function escapeShellArg(arg: string): string {
 
 export class InfrastructureService {
   private activeStreams: Map<string, ChildProcess> = new Map();
+
+  constructor(private readonly shell: Shell = execShell) {}
 
   getLogPath(logId: string) {
     return path.join(LOG_DIR, `${logId}-${Date.now()}.log`);
@@ -95,7 +96,7 @@ export class InfrastructureService {
 
   private async dockerContainerExists(containerName: string): Promise<boolean> {
     try {
-      await execAsync(`docker inspect ${escapeShellArg(containerName)}`);
+      await this.shell(`docker inspect ${escapeShellArg(containerName)}`);
       return true;
     } catch {
       return false;
@@ -121,13 +122,13 @@ export class InfrastructureService {
         }
 
         const escapedArgs = cleanArgs.map(escapeShellArg).join(' ');
-        const { stdout } = await execAsync(`docker exec ${containerName} kubectl ${escapedArgs}`);
+        const { stdout } = await this.shell(`docker exec ${containerName} kubectl ${escapedArgs}`);
         return stdout;
       }
     }
 
     const escapedArgs = args.map(escapeShellArg).join(' ');
-    const { stdout } = await execAsync(`${escapeShellArg(path.join(BIN_DIR, 'kubectl'))} ${escapedArgs}`, {
+    const { stdout } = await this.shell(`${escapeShellArg(path.join(BIN_DIR, 'kubectl'))} ${escapedArgs}`, {
       env: { ...process.env, KUBECONFIG: kubeconfig || DEFAULT_KUBECONFIG }
     });
     return stdout;
@@ -188,14 +189,14 @@ export class InfrastructureService {
 
       if (await this.dockerContainerExists(containerName)) {
         try {
-          await execAsync(`docker exec ${containerName} ls /bin/helm`);
+          await this.shell(`docker exec ${containerName} ls /bin/helm`);
         } catch {
           try {
             const hostHelmPath = existsSync(path.join(BIN_DIR, 'helm-linux'))
               ? path.join(BIN_DIR, 'helm-linux')
               : path.join(BIN_DIR, 'helm');
-            await execAsync(`docker cp ${escapeShellArg(hostHelmPath)} ${containerName}:/bin/helm`);
-            await execAsync(`docker exec ${containerName} chmod +x /bin/helm`);
+            await this.shell(`docker cp ${escapeShellArg(hostHelmPath)} ${containerName}:/bin/helm`);
+            await this.shell(`docker exec ${containerName} chmod +x /bin/helm`);
           } catch (err) {
             console.error(`Failed to copy helm to container ${containerName}: ${(err as Error).message}`);
           }
@@ -213,13 +214,13 @@ export class InfrastructureService {
         }
 
         const escapedArgs = cleanArgs.map(escapeShellArg).join(' ');
-        const { stdout } = await execAsync(`docker exec -e KUBECONFIG=/etc/rancher/k3s/k3s.yaml ${containerName} helm ${escapedArgs}`);
+        const { stdout } = await this.shell(`docker exec -e KUBECONFIG=/etc/rancher/k3s/k3s.yaml ${containerName} helm ${escapedArgs}`);
         return stdout;
       }
     }
 
     const escapedArgs = args.map(escapeShellArg).join(' ');
-    const { stdout } = await execAsync(`${escapeShellArg(path.join(BIN_DIR, 'helm'))} ${escapedArgs}`, {
+    const { stdout } = await this.shell(`${escapeShellArg(path.join(BIN_DIR, 'helm'))} ${escapedArgs}`, {
       env: { ...process.env, KUBECONFIG: kubeconfig || DEFAULT_KUBECONFIG }
     });
     return stdout;
@@ -230,21 +231,21 @@ export class InfrastructureService {
     const containerName = match ? `k3d-${match[1] ?? 'unknown'}-server-0` : undefined;
     if (containerName && await this.dockerContainerExists(containerName)) {
       const inside = `/tmp/charts/${path.basename(chartDir)}`;
-      await execAsync(`docker exec ${containerName} sh -c ${escapeShellArg(`rm -rf ${inside} && mkdir -p /tmp/charts`)}`);
-      await execAsync(`docker cp ${escapeShellArg(chartDir)} ${containerName}:${inside}`);
+      await this.shell(`docker exec ${containerName} sh -c ${escapeShellArg(`rm -rf ${inside} && mkdir -p /tmp/charts`)}`);
+      await this.shell(`docker cp ${escapeShellArg(chartDir)} ${containerName}:${inside}`);
       return this.runHelm(args(inside), kubeconfig);
     }
     return this.runHelm(args(chartDir), kubeconfig);
   }
 
   async getKubeconfig(name: string) {
-    const { stdout } = await execAsync(`${path.join(BIN_DIR, 'k3d')} kubeconfig get ${name}`);
+    const { stdout } = await this.shell(`${path.join(BIN_DIR, 'k3d')} kubeconfig get ${name}`);
     return stdout;
   }
 
   async getManagementClusterKubeconfig(physicalName: string): Promise<string> {
     const managementContext = 'k3d-provisioning-lunorica';
-    const { stdout } = await execAsync(
+    const { stdout } = await this.shell(
       `${path.join(BIN_DIR, 'kubectl')} config view --minify --raw --context=${managementContext} --kubeconfig=${DEFAULT_KUBECONFIG}`,
     );
     if (!stdout.includes(managementContext)) {
@@ -258,7 +259,7 @@ export class InfrastructureService {
 
   async listLocalClusters(): Promise<string[]> {
     try {
-      const { stdout } = await execAsync(`${path.join(BIN_DIR, 'k3d')} cluster list --no-headers`);
+      const { stdout } = await this.shell(`${path.join(BIN_DIR, 'k3d')} cluster list --no-headers`);
       return stdout
         .split('\n')
         .map(line => (line.split(/\s+/)[0] ?? ''))
@@ -315,7 +316,7 @@ export class InfrastructureService {
     });
 
     try {
-      await execAsync(`docker network connect k3d-${name} provisioner-nginx`);
+      await this.shell(`docker network connect k3d-${name} provisioner-nginx`);
     } catch {
       console.warn(`[InfrastructureService] Could not connect provisioner-nginx to k3d-${name} network`);
     }
@@ -328,14 +329,14 @@ export class InfrastructureService {
   }
 
   async getK3dServerIp(clusterName: string): Promise<string> {
-    const { stdout } = await execAsync(
+    const { stdout } = await this.shell(
       `docker inspect -f '{{range.NetworkSettings.Networks}}{{.IPAddress}}{{end}}' k3d-${clusterName}-server-0`
     );
     return stdout.trim();
   }
 
   async getHostGatewayIp(): Promise<string> {
-    const { stdout } = await execAsync(
+    const { stdout } = await this.shell(
       `docker inspect provisioner-nginx --format '{{with index .NetworkSettings.Networks "bridge"}}{{.Gateway}}{{end}}'`
     );
     const gateway = stdout.trim();
@@ -345,7 +346,7 @@ export class InfrastructureService {
 
   async disconnectNginxFromNetwork(clusterName: string): Promise<void> {
     try {
-      await execAsync(`docker network disconnect k3d-${clusterName} provisioner-nginx`);
+      await this.shell(`docker network disconnect k3d-${clusterName} provisioner-nginx`);
     } catch {
       console.warn(`[InfrastructureService] Could not disconnect provisioner-nginx from k3d-${clusterName} network`);
     }
@@ -400,7 +401,7 @@ export class InfrastructureService {
     if (vendor === 'nvidia') {
       let nvidiaSmiOk = false;
       try {
-        await execAsync('nvidia-smi');
+        await this.shell('nvidia-smi');
         nvidiaSmiOk = true;
       } catch {
         throw new Error(
@@ -411,7 +412,7 @@ export class InfrastructureService {
 
       let dockerInfo = '';
       try {
-        const { stdout } = await execAsync('docker info');
+        const { stdout } = await this.shell('docker info');
         dockerInfo = stdout;
       } catch {
         throw new Error(
@@ -435,7 +436,7 @@ export class InfrastructureService {
     } else {
       let rocminfoOk = false;
       try {
-        await execAsync('rocminfo');
+        await this.shell('rocminfo');
         rocminfoOk = true;
       } catch {
         throw new Error(
@@ -446,7 +447,7 @@ export class InfrastructureService {
 
       let dockerInfo = '';
       try {
-        const { stdout } = await execAsync('docker info');
+        const { stdout } = await this.shell('docker info');
         dockerInfo = stdout;
       } catch {
         throw new Error(
@@ -532,7 +533,7 @@ export class InfrastructureService {
     if (vendor === 'nvidia') {
       const runtimeClassPath = path.join(PROJECT_ROOT, 'k8s', 'gpu-device-plugin', 'nvidia-runtimeclass.yaml');
       try {
-        await execAsync(
+        await this.shell(
           `${escapeShellArg(path.join(BIN_DIR, 'kubectl'))} apply -f ${escapeShellArg(runtimeClassPath)}`,
           { env: { ...process.env, KUBECONFIG: kubeconfigPath } },
         );
@@ -547,7 +548,7 @@ export class InfrastructureService {
     } catch {
       console.log(`[InfrastructureService] Installing GPU device plugin (${vendor}) DaemonSet...`);
       const escapedArgs = ['apply', '-f', manifestPath].map(escapeShellArg).join(' ');
-      const { stdout } = await execAsync(
+      const { stdout } = await this.shell(
         `${escapeShellArg(path.join(BIN_DIR, 'kubectl'))} ${escapedArgs}`,
         {
           env: { ...process.env, KUBECONFIG: kubeconfigPath }

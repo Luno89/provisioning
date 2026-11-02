@@ -9,17 +9,25 @@ export interface ReachFetchers {
   viaCaddy: (url: URL, init: RequestInit | undefined, to: ThroughCaddy) => Promise<Response>;
 }
 
-export function caddyFetch(tls: { ca?: string | Buffer } = {}): ReachFetchers['viaCaddy'] {
+export interface CaddyTransport {
+  Agent: typeof Agent;
+  buildConnector: typeof buildConnector;
+  fetch: typeof undiciFetch;
+}
+
+const UNDICI: CaddyTransport = { Agent, buildConnector, fetch: undiciFetch };
+
+export function caddyFetch(tls: { ca?: string | Buffer } = {}, transport: CaddyTransport = UNDICI): ReachFetchers['viaCaddy'] {
   const agents = new Map<string, Agent>();
   return async (url, init, to) => {
     const key = `${to.host}:${to.port}/${to.servername}`;
     let agent = agents.get(key);
     if (!agent) {
-      const connect = buildConnector({ ...(tls.ca ? { ca: tls.ca } : {}) });
-      agent = new Agent({ connect: (options, callback) => connect({ ...options, hostname: to.host, port: String(to.port), servername: to.servername }, callback) });
+      const connect = transport.buildConnector({ ...(tls.ca ? { ca: tls.ca } : {}) });
+      agent = new transport.Agent({ connect: (options, callback) => connect({ ...options, hostname: to.host, port: String(to.port), servername: to.servername }, callback) });
       agents.set(key, agent);
     }
-    const answered = await undiciFetch(url.href, { ...(init as UndiciInit | undefined), dispatcher: agent });
+    const answered = await transport.fetch(url.href, { ...(init as UndiciInit | undefined), dispatcher: agent });
     return answered as unknown as Response;
   };
 }
