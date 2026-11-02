@@ -26,7 +26,11 @@ const where = (args: unknown[]): string => {
   return `${typeof second === 'string' ? second : 'localhost'}:${String(first)}`;
 };
 
-net.Socket.prototype.connect = function connect(...args: unknown[]): never {
+const realConnect = net.Socket.prototype.connect;
+const answeredByMsw = (socket: object): boolean => Object.getOwnPropertySymbols(socket).some((symbol) => symbol.description === 'kPatched');
+
+net.Socket.prototype.connect = function connect(this: net.Socket, ...args: unknown[]): net.Socket {
+  if (answeredByMsw(this)) return Reflect.apply(realConnect, this, args) as net.Socket;
   throw refusal(`opened a connection to ${where(args)}`);
 } as never;
 

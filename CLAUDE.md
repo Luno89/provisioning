@@ -2151,7 +2151,12 @@ dependency mocked, again in the integration tier with the real ones, and its flo
   drifting). Every area store has its twin: `src/<area>/testing/memory-store.ts` (`Memory<Area>Store`) and
   `testing/store-contract.ts`, run by `store.test.ts` on the twin and by `store.integration.test.ts` on Mongo
   (`emptiedEachTime()`: one database per file, emptied before each test). A `testing/` folder is for tests only: production code
-  importing one fails lint. Temporal, kubectl and helm, fetch, processes and sockets are next (plans/testing-pyramid.md step 2).
+  importing one fails lint. **Every other dependency is mocked with a library**: HTTP with msw (`interceptHttp` in
+  `platform/testing/http.ts`, `onUnhandledFrame: 'error'`, so a request no handler expects fails; the unit guard lets only msw's own
+  sockets connect), and any interface with vitest-mock-extended's `mock<T>()` answering by arguments (`calledWith`): `Processes`
+  (`platform/lib/processes.ts`; real `nodeProcesses`, no shell, `succeeded` throwing `ProcessFailed`), `Workflows`
+  (`platform/lib/workflows.ts`, the Temporal client calls Koala makes, typed from Temporal's own; the real one is `client.workflow`)
+  and any service a unit takes as a `Pick<>`. `platform/testing/mocks.test.ts` shows each.
 - `npm run test:alive` (`scripts/alive.sh`) checks the dev stack before anything live: Docker, the management cluster, the K8s API,
   Temporal, workers. Cluster existence is decided by whether the K8s API answers on context `k3d-<name>`, **not** by
   `k3d cluster list`, which returns nothing on a native-k3s host.

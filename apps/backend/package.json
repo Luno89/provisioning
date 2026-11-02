@@ -72,7 +72,9 @@
     "@types/web-push": "3.6.4",
     "mailauth": "8.0.4",
     "mongodb-memory-server": "^11.3.0",
+    "msw": "3.0.3",
     "typescript": "^5.0.0",
-    "vitest": "^4.1.9"
+    "vitest": "^4.1.9",
+    "vitest-mock-extended": "5.1.1"
   }
 }
