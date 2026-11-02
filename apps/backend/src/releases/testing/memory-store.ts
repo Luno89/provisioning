@@ -19,6 +19,11 @@ export class MemoryReleasesStore implements ReleasesStore {
 
   async ensureIndexes(): Promise<void> {}
 
+  watchReleaseWork(on: () => void): Watching {
+    const stops = [this.pipelineRuns.watch(() => on()), this.odooReleases.watch(() => on())];
+    return { ready: Promise.resolve(), close: async () => { for (const stop of stops) stop(); } };
+  }
+
   watchLiveRuns(on: (run: PipelineRunMetadata) => void): Watching {
     const stop = this.pipelineRuns.watch((run) => { if (namesWorkflow(run, FOLLOWED_RUN_STATUSES)) on(run); });
     return { ready: Promise.resolve(), close: async () => { stop(); } };

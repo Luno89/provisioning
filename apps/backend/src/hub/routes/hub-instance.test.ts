@@ -2,7 +2,6 @@ import { Readable } from 'node:stream';
 import { describe, expect, it } from 'vitest';
 import { matches, mock } from 'vitest-mock-extended';
 import { generateIdentityKey, identityKeysFrom, issueMoveToken, publicKeyPem, trustedKeys } from '../../instances/lib/identity-token.js';
-import { objectWith } from '../../platform/lib/test-matchers.js';
 import { HUB_AUDIENCE, hubInstancePart } from '../lib/hub.js';
 import { RELAY_NAME_HEADER, RELAY_STATUS_HEADER, RELAY_TYPE_HEADER } from '../lib/hub-board.js';
 import type { RelayAnswer, RelayCall } from '../services/HubRelay.js';
@@ -113,35 +112,6 @@ describe('/api/hub-instance, sharing and syncing', () => {
 
 describe('/api/hub-instance, the relay', () => {
   const asked: RelayCall = { id: 'c1', projectId: 'abc', op: 'files.list', args: { dir: '' }, as: { personId: 'bo', email: 'bo@example.com', role: 'collaborator' } };
-
-  it('hands the instance the call a member made', async () => {
-    const { hub, call } = site();
-    hub.takeRelay.mockResolvedValue(succeeded(asked));
-    const answer = await call({ path: '/projects/abc/relay' });
-    expect([answer.status, answer.data]).toEqual([200, asked]);
-    expect(hub.takeRelay).toHaveBeenCalledWith(ofAnn, 'abc', objectWith({}));
-  });
-
-  it('hands over a call that carries an upload by its type and size, never the bytes', async () => {
-    const { hub, call, headersFor } = site();
-    hub.takeRelay.mockResolvedValue(succeeded({ ...asked, op: 'files.upload', upload: { stream: Readable.from(['x']), type: 'text/plain', size: 1 } }));
-    expect((await call({ path: '/projects/abc/relay' })).data).toEqual({ ...asked, op: 'files.upload', upload: { type: 'text/plain', size: 1 } });
-    hub.takeRelay.mockResolvedValue(succeeded({ ...asked, op: 'files.upload', upload: { stream: Readable.from(['x']), type: 'text/plain' } }));
-    expect((await call({ path: '/projects/abc/relay' }, headersFor())).data).toEqual({ ...asked, op: 'files.upload', upload: { type: 'text/plain' } });
-  });
-
-  it('answers that no call is waiting once the instance hangs up its wait', async () => {
-    const { hub, call } = site();
-    hub.takeRelay.mockImplementation(async (_origin, _id, closed) => { await closed; return succeeded(undefined); });
-    const answer = await call({ path: '/projects/abc/relay', hangUp: Promise.resolve() });
-    expect([answer.status, answer.text]).toEqual([204, '']);
-  });
-
-  it('turns away the instance that is not the one the project is worked on', async () => {
-    const { hub, call } = site();
-    hub.takeRelay.mockResolvedValue({ ok: false, status: 403, why: 'This project is worked on another instance.' });
-    expect(await call({ path: '/projects/abc/relay' })).toMatchObject({ status: 403, data: { error: 'This project is worked on another instance.' } });
-  });
 
   it('streams the upload of a waiting call to the instance', async () => {
     const { hub, call } = site();

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { matches, mock } from 'vitest-mock-extended';
 import type { InfrastructureService } from '../../infrastructure/index.js';
-import { webhookAddress } from './webhook-address.js';
+import { backendAddress, webhookAddress } from './webhook-address.js';
 
 function setUp() {
   const infra = mock<Pick<InfrastructureService, 'runKubectl'>>();
@@ -37,6 +37,12 @@ describe('the address Gitea sends a project\'s pushes to', () => {
   it('is refused when the cluster gives no node address', async () => {
     const { infra, nodeIp } = setUp();
     infra.runKubectl.calledWith(nodeIp, 'kube').mockResolvedValue('  \n');
-    await expect(webhookAddress(infra, 'kube', 3001)('p1')).rejects.toThrow('the cluster gave no node address for the build webhook');
+    await expect(webhookAddress(infra, 'kube', 3001)('p1')).rejects.toThrow('the cluster gave no node address for Gitea to send pushes to');
+  });
+
+  it('gives the backend\'s own address on the node, for other webhooks Gitea sends it', async () => {
+    const { infra, nodeIp } = setUp();
+    infra.runKubectl.calledWith(nodeIp, 'kube').mockResolvedValue('10.0.0.2 fd00::2\n');
+    expect(await backendAddress(infra, 'kube', 3003)()).toBe('http://10.0.0.2:3003');
   });
 });

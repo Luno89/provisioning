@@ -32,5 +32,5 @@ export type { HubSharing, SharingOutcome } from './services/ProjectSharingServic
 export { createSecretVault, SecretRequestService } from './services/SecretRequestService.js';
 export { TreeHomeService } from './services/TreeHomeService.js';
 export { TreeTypeDescriptions } from './services/TreeTypeDescriptions.js';
-export { webhookAddress } from './services/webhook-address.js';
+export { backendAddress, webhookAddress } from './services/webhook-address.js';
 export type { ProjectsStore } from './store.js';

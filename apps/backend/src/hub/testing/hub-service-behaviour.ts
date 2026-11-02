@@ -1,8 +1,8 @@
 import { objectWith } from '../../platform/lib/test-matchers.js';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { mock } from 'vitest-mock-extended';
 import { HubService } from '../services/HubService.js';
-import { HubRelay } from '../services/HubRelay.js';
+import { HubRelay, type RelayCall } from '../services/HubRelay.js';
 import type { HubStore } from '../lib/hub-store.js';
 
 export function hubServiceBehaviour(make: () => Promise<HubStore>): void {
@@ -243,13 +243,17 @@ export function hubServiceBehaviour(make: () => Promise<HubStore>): void {
   describe('a member working a project shared from the owner\'s instance', () => {
     const fromAnn = { kind: 'instance' as const, personId: 'ann', instanceId: 'i-ann', email: 'ann@example.com' };
     const now = '2026-10-21T00:00:00Z';
-    const relays: HubRelay[] = [];
-    afterEach(() => { for (const relay of relays.splice(0)) relay.stop(); });
+    const lineOf = () => {
+      const calls: RelayCall[] = [];
+      const changed: string[] = [];
+      let handed!: (call: RelayCall) => void;
+      const first = new Promise<RelayCall>((resolve) => { handed = resolve; });
+      return { calls, changed, first, line: { call: (call: RelayCall) => { calls.push(call); handed(call); }, changed: (projectId: string) => { changed.push(projectId); } } };
+    };
 
     async function shared(withRelay = true) {
       const store = await make();
-      const relay = withRelay ? new HubRelay(Date.now, 60_000) : undefined;
-      if (relay) relays.push(relay);
+      const relay = withRelay ? new HubRelay() : undefined;
       const hub = new HubService({ store, invites: { send: async () => ({ link: 'l', emailed: false }) }, ...(relay ? { relay } : {}), now: () => now });
       const id = valueOf(await hub.share(fromAnn, { name: 'Shop', projectId: 'p1' })).view.project.id;
       for (const [personId, role] of [['cy', 'client'], ['bo', 'collaborator']] as const) {
@@ -365,33 +369,51 @@ export function hubServiceBehaviour(make: () => Promise<HubStore>): void {
     describe('what the owner\'s instance relays for a member', () => {
       it('relays nothing when the hub has no relay', async () => {
         const { hub, id } = await shared(false);
-        expect(await hub.takeRelay(fromAnn, id, new Promise(() => undefined))).toMatchObject({ ok: false, status: 404, why: 'This hub relays nothing.' });
+        expect(hub.connectInstance(fromAnn, lineOf().line)).toMatchObject({ ok: false, status: 404, why: 'This hub relays nothing.' });
         expect(await hub.relay(cy, id, 'extensions', {})).toMatchObject({ ok: false, status: 409, why: 'This hub cannot reach the owner\'s instance.' });
         expect(await hub.relayed(fromAnn, 'c1')).toMatchObject({ ok: false, status: 404 });
       });
 
-      it('takes a member\'s call to the instance that is listening and brings the instance\'s answer back to the member', async () => {
-        const { hub, id, relay } = await shared();
-        const taking = hub.takeRelay(fromAnn, id, new Promise(() => undefined));
-        await vi.waitFor(() => expect(relay!.online(id)).toBe(true));
+      it('takes a member\'s call to the connected instance the project is worked on, and brings its answer back to the member', async () => {
+        const { hub, id } = await shared();
+        const ann = lineOf();
+        valueOf(hub.connectInstance(fromAnn, ann.line));
         const asked = hub.relay(cy, id, 'files.list', { dir: '' });
-        const taken = valueOf(await taking);
+        const taken = await ann.first;
         expect(taken).toMatchObject({ projectId: id, op: 'files.list', as: { personId: 'cy', email: 'cy@example.com', role: 'client' } });
         expect(valueOf(await hub.relayed(fromAnn, taken!.id)).id).toBe(taken!.id);
         expect(valueOf(await hub.answerRelay(fromAnn, taken!.id, { kind: 'json', status: 200, body: [] }))).toEqual({ answered: taken!.id });
         expect(valueOf(await asked)).toEqual({ kind: 'json', status: 200, body: [] });
       });
 
-      it('lets only the instance the project is worked on hand over or answer its calls', async () => {
-        const { hub, id, relay } = await shared();
-        expect(await hub.takeRelay({ ...fromAnn, instanceId: 'i-other' }, id, new Promise(() => undefined))).toMatchObject({ ok: false, status: 403 });
-        const taking = hub.takeRelay(fromAnn, id, new Promise(() => undefined));
-        await vi.waitFor(() => expect(relay!.online(id)).toBe(true));
+      it('hands a project\'s calls only to the instance it is worked on, and lets only that instance answer them', async () => {
+        const { hub, id } = await shared();
+        const [ann, other] = [lineOf(), lineOf()];
+        valueOf(hub.connectInstance({ ...fromAnn, instanceId: 'i-other' }, other.line));
+        expect(await hub.relay(cy, id, 'extensions', {})).toMatchObject({ ok: false, status: 409 });
+        valueOf(hub.connectInstance(fromAnn, ann.line));
         void hub.relay(cy, id, 'extensions', {});
-        const taken = valueOf(await taking);
+        const taken = await ann.first;
+        expect(other.calls).toEqual([]);
         expect(await hub.relayed({ ...fromAnn, instanceId: 'i-other' }, taken!.id)).toMatchObject({ ok: false, status: 403 });
         expect(await hub.answerRelay({ ...fromAnn, personId: 'eve' }, taken!.id, { kind: 'json', status: 200, body: null })).toMatchObject({ ok: false, status: 404 });
         expect(await hub.answerRelay(fromAnn, 'unknown', { kind: 'json', status: 200, body: null })).toMatchObject({ ok: false, status: 404, why: 'That call is no longer waiting.' });
+      });
+
+      it('tells the instance the project is worked on when a member posts, asks, joins, changes role or leaves, never of its own pushes', async () => {
+        const { hub, id } = await shared();
+        const ann = lineOf();
+        valueOf(hub.connectInstance(fromAnn, ann.line));
+        const tells = async (act: () => Promise<unknown>): Promise<boolean> => {
+          const before = ann.changed.length;
+          await act();
+          return ann.changed.slice(before).length > 0 && ann.changed.slice(before).every((told) => told === id);
+        };
+        expect(await tells(async () => valueOf(await hub.receive(fromAnn, id, [{ kind: 'leaves', id: 'l1', patch: { set: { title: 'mine' } } }])))).toBe(false);
+        expect(await tells(async () => valueOf(await hub.post(bo, id, 'channel-p1', { content: 'is it live?' })))).toBe(true);
+        expect(await tells(async () => valueOf(await hub.request(bo, id, { kind: 'order-stories', branchId: 'b1', leafIds: ['l2', 'l1'] })))).toBe(true);
+        expect(await tells(async () => valueOf(await hub.changeRole('ann', id, 'cy', 'collaborator')))).toBe(true);
+        expect(await tells(async () => valueOf(await hub.remove('bo', id, 'bo')))).toBe(true);
       });
 
       it('says the owner\'s instance is offline when nobody is listening', async () => {

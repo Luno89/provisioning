@@ -14,7 +14,7 @@ import {
   type HubBoard, type HubRequest, type HubRequestKind, type HubStatus, type Plain, type RelayOp,
 } from '../lib/hub-board.js';
 import { mentionsKoala, personMessage, withAuthorNames, type ConversationMessage } from '../../engine/index.js';
-import { InstanceOffline, type HubRelay, type RelayAnswer, type RelayCall } from './HubRelay.js';
+import { InstanceOffline, type HubRelay, type InstanceLine, type RelayAnswer, type RelayCall } from './HubRelay.js';
 
 export type SyncOrigin = { kind: 'instance'; personId: string; instanceId: string; email?: string | undefined } | { kind: 'person'; personId: string };
 
@@ -130,8 +130,26 @@ export class HubService {
         else await access.store.putRecord(change.kind, applyPatch(await access.store.record(change.kind, change.id), change.id, change.patch));
         through = (await access.store.logChange({ origin, change, at: this.now() })).seq;
       }
+      if (origin !== `instance:${access.project.origin?.instanceId ?? ''}`) this.told(access.project);
       return { ok: true as const, value: { through } };
     });
+  }
+
+  private told(project: SharedProject): void {
+    this.deps.relay?.changed(project.origin?.instanceId, project.id);
+  }
+
+  async repoMoved(projectId: string): Promise<boolean> {
+    const project = await this.deps.store.getProject(projectId);
+    if (!project) return false;
+    this.told(project);
+    return true;
+  }
+
+  connectInstance(origin: SyncOrigin, line: InstanceLine): HubOutcome<() => void> {
+    if (origin.kind !== 'instance') return refuse('Only an instance connects to the hub.');
+    if (!this.deps.relay) return { ok: false, status: 404, why: 'This hub relays nothing.' };
+    return { ok: true, value: this.deps.relay.connect(origin.instanceId, line) };
   }
 
   async changesSince(origin: SyncOrigin, projectId: string, after: number): Promise<HubOutcome<{ changes: HubChange[]; through: number; members: { personId: string; email: string; role: HubRole }[] }>> {
@@ -168,13 +186,6 @@ export class HubService {
     return { ok: true, value: { at: kept.at } };
   }
 
-  async takeRelay(origin: SyncOrigin, projectId: string, closed: Promise<void>): Promise<HubOutcome<RelayCall | undefined>> {
-    const sharer = await this.fromOwnerInstance(origin, projectId);
-    if (!sharer.ok) return sharer;
-    if (!this.deps.relay) return { ok: false, status: 404, why: 'This hub relays nothing.' };
-    return { ok: true, value: await this.deps.relay.take(projectId, closed) };
-  }
-
   async relayed(origin: SyncOrigin, callId: string): Promise<HubOutcome<RelayCall>> {
     const call = this.deps.relay?.callOf(callId);
     if (!call) return { ok: false, status: 404, why: 'That call is no longer waiting.' };
@@ -204,7 +215,7 @@ export class HubService {
         project: access.project,
         role,
         can: sharedActionsOf(access.principal, access.project.id),
-        online: this.deps.relay?.online(projectId) ?? false,
+        online: this.deps.relay?.online(access.project.origin?.instanceId) ?? false,
         members: access.members.map(({ personId: id, email, role: theirs }) => ({ personId: id, email, role: theirs })),
         board: { trees: trees!, branches: branches!, leaves: leaves!, tasks: tasks!, planProposals: planProposals!, ...(status ? { status } : {}) },
         chats: conversations!.map((doc) => ({ id: doc.id, title: String(doc.title ?? ''), ...(doc.kind ? { kind: doc.kind as 'channel' | 'item' } : {}), ...(doc.leafId ? { leafId: String(doc.leafId) } : {}), ...(doc.branchId ? { branchId: String(doc.branchId) } : {}) })),
@@ -262,6 +273,7 @@ export class HubService {
   private async saveRequest(access: Access, person: Person, kind: HubRequest['kind'], input: Plain, after: number): Promise<HubRequest> {
     const request: HubRequest = { id: randomBytes(12).toString('hex'), kind, input, by: { personId: person.id, email: person.email, role: access.member.role }, at: this.now(), after, state: 'waiting' };
     await access.store.saveRequest(request);
+    this.told(access.project);
     return request;
   }
 
@@ -287,7 +299,7 @@ export class HubService {
     if (problem) return refuse(problem);
     if (!this.deps.relay) return { ok: false, status: 409, why: 'This hub cannot reach the owner\'s instance.' };
     try {
-      return { ok: true, value: await this.deps.relay.call(projectId, op, args, { personId: person.id, email: person.email, role: access.member.role }, upload) };
+      return { ok: true, value: await this.deps.relay.call(access.project.origin?.instanceId, projectId, op, args, { personId: person.id, email: person.email, role: access.member.role }, upload) };
     } catch (err) {
       if (err instanceof InstanceOffline) return { ok: false, status: 409, why: err.message };
       throw err;
@@ -428,6 +440,7 @@ export class HubService {
     const store = this.deps.store.project(found.project.id);
     const already = (await store.members()).find((entry) => entry.personId === person.id);
     if (!already) await store.saveMember({ personId: person.id, email: person.email, role: found.invite.role, joinedAt: this.now(), invitedBy: found.invite.invitedBy });
+    if (!already) this.told(found.project);
     await store.deleteInvite(token);
     await this.deps.store.forgetInvite(token);
     await this.deps.store.addMembership(person.id, found.project.id);
@@ -442,6 +455,7 @@ export class HubService {
     if (problem) return wrong(problem);
     const member = access.members.find((entry) => entry.personId === memberId)!;
     await access.store.saveMember({ ...member, role: role as HubRole });
+    this.told(access.project);
     return this.view(personId, projectId);
   }
 
@@ -477,6 +491,7 @@ export class HubService {
     for (const member of access.members) await this.deps.store.removeMembership(member.personId, access.project.id);
     await this.deps.store.deleteProject(access.project.id);
     await access.store.drop();
+    this.told(access.project);
   }
 
   private async everywhere(personId: string): Promise<{ access: Access; leaving: ReturnType<typeof leavingAll> }[]> {
@@ -514,6 +529,7 @@ export class HubService {
         }
         await access.store.deleteMember(personId);
         await this.deps.store.removeMembership(personId, access.project.id);
+        this.told(access.project);
         done.left.push(access.project.id);
       }
     }
@@ -529,6 +545,7 @@ export class HubService {
     await access.store.deleteMember(memberId);
     await this.deps.store.removeMembership(memberId, projectId);
     await this.memberRemoved(access, memberId);
+    this.told(access.project);
     return { ok: true, value: { removed: memberId } };
   }
 }

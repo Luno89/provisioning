@@ -49,7 +49,8 @@ import {
 import { TemporalBridge } from './infrastructure/services/TemporalBridge.js';
 import net from 'net';
 import { spawn } from 'child_process';
-import { GiteaService, pushToBuild } from './projects/index.js';
+import { backendAddress, GiteaService, pushToBuild } from './projects/index.js';
+import { HUB_REPO_HOOK_PATH, hubRepoHookSecret, hubRepoHookSecrets, hubRepoHookUrl } from './hub/index.js';
 
 import { seedAll } from './scripts/seed-all.js';
 import { collectorSink, NotificationService, PushService, vapidKeysFrom, vapidSubject, webPushSend } from './monitoring/index.js';
@@ -255,6 +256,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
         return res.status(401).json({ error: 'Invalid webhook signature' });
       }
 
+      void hub.repoPushed(project.id).catch((err: Error) => console.warn(`[webhook] the hub was not told ${project.id}'s repository moved: ${err.message}`));
       const decided = pushToBuild(JSON.parse(rawBody.toString('utf8')));
       if ('ignored' in decided) return res.status(200).json({ status: 'ignored', reason: decided.ignored });
       const payload = decided.build;
@@ -270,6 +272,16 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
       console.error(`[webhook] Gitea webhook error: ${(err as Error).message}`);
       res.status(500).json({ error: 'Internal error processing webhook' });
     }
+  }));
+
+  app.post(`${HUB_REPO_HOOK_PATH}/:projectId`, express.raw({ type: 'application/json' }), asyncRoute(async (req, res) => {
+    const projectId = String(req.params.projectId);
+    const signature = req.header('X-Gitea-Signature');
+    if (!hubRepoHookSecrets(keys.data, projectId).some((secret) => giteaService.verifyWebhookSignature(req.body as Buffer, signature, secret))) {
+      return res.status(401).json({ error: 'Invalid webhook signature' });
+    }
+    const told = hub.hubService ? await hub.hubService.repoMoved(projectId) : false;
+    return told ? res.status(202).json({ status: 'accepted' }) : res.status(404).json({ error: 'Unknown shared project' });
   }));
 
   app.use(metrics.middleware());
@@ -329,8 +341,13 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     providers: new SignInProviders({ providers: signInWith.providers, publicUrl: PUBLIC_URL, sessionKey: keys.session, accounts: authService }), passwords,
   }));
   if (holdsAccounts(role)) app.use('/api/auth/password', passwordRouter({ passwords, auth, devices, sessionKey: keys.session }));
+  const hubBackend = backendAddress(infraService, '/tmp/kubeconfig-provisioning-lunorica', port);
   const hub = await wireHub({
-    role, env: process.env, app, tenant, db, mail, publicUrl: PUBLIC_URL, dataKey: keys.data, gitea: giteaService,
+    role, env: process.env, app, tenant, db, mail, publicUrl: PUBLIC_URL, dataKey: keys.data, gitea: giteaService, io,
+    hubRepoHook: {
+      url: async (projectId) => hubRepoHookUrl(await hubBackend(), projectId),
+      secret: (projectId) => hubRepoHookSecret(typeof keys.data === 'string' ? keys.data : keys.data.current, projectId),
+    },
     notify: (ownerId, scope, notice) => notices.post(ownerId, scope, notice),
     republish: () => appExposureService.syncExposedApps(),
     revocations,

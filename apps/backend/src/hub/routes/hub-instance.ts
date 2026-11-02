@@ -11,20 +11,31 @@ const answer = <T>(res: Response, outcome: HubOutcome<T>) => (
   outcome.ok ? res.json(outcome.value) : res.status(outcome.status).json({ error: outcome.why })
 );
 
-export type InstanceHub = Pick<HubService, 'share' | 'unshare' | 'receive' | 'changesSince' | 'waitingRequests' | 'settleRequest' | 'putStatus' | 'takeRelay' | 'relayed' | 'answerRelay'>;
+export type InstanceHub = Pick<HubService, 'share' | 'unshare' | 'receive' | 'changesSince' | 'waitingRequests' | 'settleRequest' | 'putStatus' | 'relayed' | 'answerRelay'>;
 
 import { RELAY_NAME_HEADER, RELAY_STATUS_HEADER, RELAY_TYPE_HEADER } from '../lib/hub-board.js';
 
+export interface InstanceCredentials {
+  instanceId: string;
+  personId: string;
+  email: string;
+  token: string;
+}
+
+export async function instanceOrigin(given: InstanceCredentials, trusted: ReadonlyMap<string, crypto.KeyObject>, claim: UsedTokenClaim): Promise<SyncOrigin | undefined> {
+  const { instanceId, personId, email, token } = given;
+  if (!instanceId || !personId || !email || !token) return undefined;
+  return (await moveTokenOnce(token, trusted, HUB_AUDIENCE, hubInstancePart(instanceId, personId, email), claim)).ok ? { kind: 'instance', instanceId, personId, email } : undefined;
+}
+
 export function hubInstanceRouter(deps: { hub: InstanceHub; trusted: ReadonlyMap<string, crypto.KeyObject>; claim: UsedTokenClaim }): Router {
   const router = Router();
-  const originOf = async (req: Request): Promise<SyncOrigin | undefined> => {
-    const instanceId = header(req, 'x-koala-instance');
-    const personId = header(req, 'x-koala-person');
-    const email = header(req, 'x-koala-email');
-    const token = header(req, 'authorization').replace(/^Bearer\s+/i, '');
-    if (!instanceId || !personId || !email) return undefined;
-    return (await moveTokenOnce(token, deps.trusted, HUB_AUDIENCE, hubInstancePart(instanceId, personId, email), deps.claim)).ok ? { kind: 'instance', instanceId, personId, email } : undefined;
-  };
+  const originOf = (req: Request): Promise<SyncOrigin | undefined> => instanceOrigin({
+    instanceId: header(req, 'x-koala-instance'),
+    personId: header(req, 'x-koala-person'),
+    email: header(req, 'x-koala-email'),
+    token: header(req, 'authorization').replace(/^Bearer\s+/i, ''),
+  }, deps.trusted, deps.claim);
   const withOrigin = (work: (origin: SyncOrigin, req: Request, res: Response) => Promise<unknown>) => asyncRoute(async (req, res) => {
     const origin = await originOf(req);
     if (!origin) return res.status(401).json({ error: 'only an instance root vouches for reaches this' });
@@ -38,16 +49,6 @@ export function hubInstanceRouter(deps: { hub: InstanceHub; trusted: ReadonlyMap
   router.get('/projects/:id/requests', withOrigin(async (origin, req, res) => answer(res, await deps.hub.waitingRequests(origin, String(req.params.id)))));
   router.post('/projects/:id/requests/:requestId', withOrigin(async (origin, req, res) => answer(res, await deps.hub.settleRequest(origin, String(req.params.id), String(req.params.requestId), { state: fieldsOf(req.body).state, why: fieldsOf(req.body).why }))));
   router.put('/projects/:id/status', withOrigin(async (origin, req, res) => answer(res, await deps.hub.putStatus(origin, String(req.params.id), fieldsOf(req.body).status))));
-
-  router.get('/projects/:id/relay', withOrigin(async (origin, req, res) => {
-    const closed = new Promise<void>((resolve) => res.on('close', () => resolve()));
-    const taken = await deps.hub.takeRelay(origin, String(req.params.id), closed);
-    if (!taken.ok) return res.status(taken.status).json({ error: taken.why });
-    if (!taken.value) return res.status(204).end();
-    const { upload, ...call } = taken.value;
-    if (res.writableEnded || res.destroyed) return;
-    res.json({ ...call, ...(upload ? { upload: { type: upload.type, ...(upload.size !== undefined ? { size: upload.size } : {}) } } : {}) });
-  }));
 
   router.get('/relay/:callId/upload', withOrigin(async (origin, req, res) => {
     const call = await deps.hub.relayed(origin, String(req.params.callId));

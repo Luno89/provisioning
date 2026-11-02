@@ -170,7 +170,7 @@ describe('carrying out what a member asked for', () => {
 });
 
 describe('answering what the hub relays for a member', () => {
-  const call = (op: InstanceCall['op'], args: Record<string, unknown> = {}, role: HubRole = 'collaborator', upload?: InstanceCall['upload']): InstanceCall => ({ id: 'c1', op, args, as: { personId: 'bo', email: 'bo@example.com', role }, ...(upload ? { upload } : {}) });
+  const call = (op: InstanceCall['op'], args: Record<string, unknown> = {}, role: HubRole = 'collaborator', upload?: InstanceCall['upload']): InstanceCall => ({ id: 'c1', projectId: 'abc123', op, args, as: { personId: 'bo', email: 'bo@example.com', role }, ...(upload ? { upload } : {}) });
   const json = (status: number, body: unknown) => ({ kind: 'json', status, body });
 
   it('refuses an operation the hub may not ask', async () => {
@@ -245,7 +245,7 @@ describe('answering what the hub relays for a member', () => {
 });
 
 describe('answering a member\'s files', () => {
-  const call = (op: InstanceCall['op'], args: Record<string, unknown> = {}, role: HubRole = 'collaborator', upload?: InstanceCall['upload']): InstanceCall => ({ id: 'c1', op, args, as: { personId: 'bo', email: 'bo@example.com', role }, ...(upload ? { upload } : {}) });
+  const call = (op: InstanceCall['op'], args: Record<string, unknown> = {}, role: HubRole = 'collaborator', upload?: InstanceCall['upload']): InstanceCall => ({ id: 'c1', projectId: 'abc123', op, args, as: { personId: 'bo', email: 'bo@example.com', role }, ...(upload ? { upload } : {}) });
   const entry = (path: string) => ({ name: path.split('/').pop()!, path, type: 'file' as const });
   const refused = (status: 400 | 404 | 409, why: string) => ({ ok: false as const, status, why });
   const inProject = matches<FileScope>((scope) => scope.kind === 'project' && scope.project.id === 'p1');

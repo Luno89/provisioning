@@ -2,6 +2,7 @@ import { asStored } from '../../platform/testing/as-stored.js';
 import { copied, collectionIn, type Collections } from '../../platform/testing/memory-records.js';
 import { fieldUpdate, messageUpdates, type HubDirty, type HubLink, type MessageMatch, type RecordPatch, type SyncedDoc, type SyncedKind } from '../lib/hub-sync.js';
 import type { HubStore } from '../store.js';
+import type { Watching } from '../../platform/index.js';
 
 type Row = Record<string, unknown>;
 type StoredLink = Omit<HubLink, 'projectId'>;
@@ -42,6 +43,7 @@ const byAt = (a: unknown, b: unknown): number => {
 export class MemoryHubStore implements HubStore {
   private readonly links: Map<string, StoredLink>;
   private readonly dirty = new Map<string, HubDirty>();
+  private readonly dirtyWatchers = new Set<() => void>();
   private readonly snapshots: Map<string, Snapshot>;
 
   constructor(private readonly collections: Collections = new Map()) {
@@ -72,6 +74,12 @@ export class MemoryHubStore implements HubStore {
     if (this.links.size === 0) return;
     const at = `${String(Date.now()).padStart(15, '0')}-${Math.random().toString(36).slice(2, 10)}`;
     this.dirty.set(`${kind}/${id}`, { kind, id, deleted, at });
+    for (const watcher of this.dirtyWatchers) queueMicrotask(watcher);
+  }
+
+  watchHubDirty(on: () => void): Watching {
+    this.dirtyWatchers.add(on);
+    return { ready: Promise.resolve(), close: async () => { this.dirtyWatchers.delete(on); } };
   }
 
   async hubDirty(limit: number): Promise<HubDirty[]> {

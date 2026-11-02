@@ -1,4 +1,5 @@
 import { Readable } from 'node:stream';
+import { io, type ManagerOptions, type Socket, type SocketOptions } from 'socket.io-client';
 import type { ReadableStream as WebReadable } from 'node:stream/web';
 import type { HubAccess } from '../lib/hub.js';
 import type { HubSyncTransport } from './HubSyncService.js';
@@ -6,6 +7,11 @@ import type { HubSharing } from '../../projects/index.js';
 import type { InstanceCall } from './HubInstanceWork.js';
 import { RELAY_NAME_HEADER, RELAY_STATUS_HEADER, RELAY_TYPE_HEADER } from '../lib/hub-board.js';
 import { refusalOf } from './hub-answers.js';
+import { HUB_LINES_NAMESPACE } from '../lib/hub.js';
+import type { DescribedCall } from '../lib/hub-lines.js';
+import { REOPEN_FIRST_MS, REOPEN_MOST_MS } from '../../platform/index.js';
+
+export type HubLineConnect = (url: string, options: Partial<ManagerOptions & SocketOptions>) => Socket;
 
 export class RootHubAccess {
   constructor(private readonly settings: { rootUrl: string; instanceId: string; token: () => Promise<string> }, private readonly fetchImpl: typeof fetch = fetch) {}
@@ -22,7 +28,12 @@ export class RootHubAccess {
 }
 
 export class RemoteHub implements HubSyncTransport, HubSharing {
-  constructor(private readonly root: Pick<RootHubAccess, 'access'>, private readonly fetchImpl: typeof fetch = fetch) {}
+  constructor(
+    private readonly root: Pick<RootHubAccess, 'access'>,
+    private readonly fetchImpl: typeof fetch = fetch,
+    private readonly socketTo: HubLineConnect = io,
+    private readonly log: (line: string) => void = (line) => console.warn(`[hub] ${line}`),
+  ) {}
 
   private async send(method: 'GET' | 'POST' | 'PUT' | 'DELETE', path: string, init: { headers?: Record<string, string>; body?: RequestInit['body']; signal?: AbortSignal; duplex?: 'half' } = {}): Promise<Response> {
     const access = await this.root.access();
@@ -60,10 +71,8 @@ export class RemoteHub implements HubSyncTransport, HubSharing {
     await this.call('PUT', `${this.projectPath(link.hubProjectId)}/status`, { status });
   };
 
-  take: HubSyncTransport['take'] = async (link, signal) => {
-    const response = await this.send('GET', `${this.projectPath(link.hubProjectId)}/relay`, { signal });
-    if (response.status === 204) return undefined;
-    const { upload, ...call } = await response.json() as Omit<InstanceCall, 'upload'> & { upload?: { type: string; size?: number } };
+  private callFrom(described: DescribedCall): InstanceCall {
+    const { upload, ...call } = described;
     return {
       ...call,
       ...(upload ? {
@@ -77,6 +86,60 @@ export class RemoteHub implements HubSyncTransport, HubSharing {
           },
         },
       } : {}),
+    };
+  }
+
+  connect: HubSyncTransport['connect'] = (line) => {
+    let socket: Socket | undefined;
+    let stopped = false;
+    let wait = REOPEN_FIRST_MS;
+    let retry: NodeJS.Timeout | undefined;
+    const again = (why: string) => {
+      if (stopped) return;
+      this.log(`the hub is not connected (${why}); connecting again in ${Math.round(wait / 1000)} s`);
+      retry = setTimeout(open, wait);
+      wait = Math.min(wait * 2, REOPEN_MOST_MS);
+    };
+    const open = () => {
+      this.root.access().then((first) => {
+        if (stopped) return;
+        let unused: HubAccess | undefined = first;
+        const opened = this.socketTo(`${first.hubUrl.replace(/\/+$/, '')}${HUB_LINES_NAMESPACE}`, {
+          transports: ['websocket'],
+          reconnectionDelayMax: REOPEN_MOST_MS,
+          auth: (send) => {
+            const given = unused;
+            unused = undefined;
+            (given ? Promise.resolve(given) : this.root.access()).then(
+              (access) => send({ instanceId: access.instanceId, personId: access.personId, email: access.email, token: access.token }),
+              (err: Error) => { this.log(`root gave no way to the hub: ${err.message}`); send({}); },
+            );
+          },
+        });
+        socket = opened;
+        opened.on('connect', () => { wait = REOPEN_FIRST_MS; line.connected(); });
+        opened.on('call', (described: DescribedCall) => line.call(this.callFrom(described)));
+        opened.on('changed', (hubProjectId: unknown) => line.changed(String(hubProjectId)));
+        opened.on('connect_error', (err) => {
+          if (opened.active) return;
+          opened.close();
+          socket = undefined;
+          again(err.message);
+        });
+        opened.on('disconnect', (reason) => {
+          if (reason !== 'io server disconnect') return;
+          opened.close();
+          socket = undefined;
+          again('the hub closed the connection');
+        });
+      }, (err: Error) => again(err.message));
+    };
+    open();
+    return () => {
+      stopped = true;
+      if (retry) clearTimeout(retry);
+      socket?.close();
+      socket = undefined;
     };
   };
 

@@ -149,7 +149,7 @@ describe('members working a shared project from the hub', () => {
   async function shared() {
     const db = await testDatabase();
     const store = memoryHubStore();
-    const relay = new HubRelay(Date.now, 60_000);
+    const relay = new HubRelay();
     const hub = new HubService({ store, invites: { send: async () => ({ link: 'l', emailed: false }) }, relay });
     const made = await hub.create(ann, { name: 'Shop', origin: { instanceId: 'combined', projectId: 'p1' } });
     if (!made.ok) throw new Error(made.why);
@@ -191,7 +191,7 @@ describe('members working a shared project from the hub', () => {
         remove: async () => ({ ok: true, value: { path: 'x' } }),
       },
     });
-    const sync = new HubSyncService({ store: db.hub, transport: localHubSync(hub, 'combined'), origin: 'instance:combined', work: () => work, retryMs: 10 });
+    const sync = new HubSyncService({ store: db.hub, transport: localHubSync(hub, 'combined'), origin: 'instance:combined', work: () => work });
     await db.projects.saveProject({ id: 'p1', name: 'Shop', ownerId: 'ann', createdAt: now } as never);
     await db.hub.saveHubLink({ projectId: 'p1', ownerId: 'ann', hubProjectId: hubId, pulledThrough: 0, sharedAt: now });
     await db.projects.saveTree({ id: 't1', ownerId: 'ann', name: 'Shop', type: 'odoo' as never, projectIds: ['p1'], createdAt: now, updatedAt: now });
@@ -199,13 +199,14 @@ describe('members working a shared project from the hub', () => {
     await db.projects.saveLeaf(leaf());
     await db.projects.saveLeaf(leaf({ id: 'l2', title: 'Refund' }));
     await db.engine.saveConversation({ id: 'channel-p1', ownerId: 'ann', kind: 'channel', treeId: 't1', projectId: 'p1', messages: [], createdAt: now, updatedAt: now } as never);
+    await sync.start();
     await sync.once();
-    await vi.waitFor(() => expect(relay.online(hubId)).toBe(true));
+    expect(relay.online('combined')).toBe(true);
     return { db, hub, hubId, sync, did, relay, store };
   }
 
   it('brings a client\'s question to Koala on the owner\'s instance once the message itself has arrived, naming who asked', async () => {
-    const { db, hub, hubId, sync, did, relay } = await shared();
+    const { db, hub, hubId, sync, did } = await shared();
     const posted = await hub.post({ id: 'cy', email: 'cy@example.com' }, hubId, 'channel-p1', { content: 'can the button be green?', askKoala: true });
     if (!posted.ok) throw new Error(posted.why);
     expect(posted.value.asked?.state).toBe('waiting');
@@ -216,22 +217,20 @@ describe('members working a shared project from the hub', () => {
     expect((await db.hub.getHubLinks())[0]!.members?.map((member) => member.email).sort()).toEqual(['ann@example.com', 'bo@example.com', 'cy@example.com']);
     const board = await hub.boardView('cy', hubId);
     expect(board.ok && board.value.requests.map((request) => request.state)).toEqual(['done']);
-    sync.stop();
-    relay.stop();
+    await sync.stop();
   });
 
   it('posts a collaborator\'s message without asking Koala, which answers them from their own instance', async () => {
-    const { hub, hubId, sync, did, relay } = await shared();
+    const { hub, hubId, sync, did } = await shared();
     const posted = await hub.post({ id: 'bo', email: 'bo@example.com' }, hubId, 'channel-p1', { content: '@koala what is left?' });
     expect(posted.ok && [posted.value.asked, posted.value.notAsked !== undefined]).toEqual([undefined, true]);
     await sync.once();
     expect(did).toEqual([]);
-    sync.stop();
-    relay.stop();
+    await sync.stop();
   });
 
   it('carries out a collaborator\'s new order of stories as the owner, refuses a client\'s, and refuses one the instance does not know', async () => {
-    const { hub, hubId, sync, did, relay, store } = await shared();
+    const { hub, hubId, sync, did, store } = await shared();
     const ordered = await hub.request({ id: 'bo', email: 'bo@example.com' }, hubId, { kind: 'order-stories', branchId: 'b1', leafIds: ['l2', 'l1'] });
     expect(ordered.ok).toBe(true);
     const refused = await hub.request({ id: 'cy', email: 'cy@example.com' }, hubId, { kind: 'order-stories', branchId: 'b1', leafIds: ['l2', 'l1'] });
@@ -241,12 +240,11 @@ describe('members working a shared project from the hub', () => {
     expect(did).toEqual([['orderStories', 'ann', 'b1', ['l2', 'l1']]]);
     const settled = await store.project(hubId).requests();
     expect(settled.map((request) => [request.kind, request.state]).sort()).toEqual([['accept-task', 'refused'], ['order-stories', 'done']]);
-    sync.stop();
-    relay.stop();
+    await sync.stop();
   });
 
   it('carries out a member\'s removal on the owner\'s instance as a revocation of that shared project, and takes it from nobody but the hub', async () => {
-    const { hub, hubId, sync, did, relay, store } = await shared();
+    const { hub, hubId, sync, did, store } = await shared();
     expect(await hub.request({ id: 'bo', email: 'bo@example.com' }, hubId, { kind: 'member-removed', personId: 'cy' })).toMatchObject({ ok: false, status: 400 });
     expect((await hub.remove('ann', hubId, 'cy')).ok).toBe(true);
     await store.project(hubId).saveRequest({ id: 'forged', kind: 'member-removed', input: { personId: 'ann' }, by: { personId: 'bo', email: 'bo@example.com', role: 'collaborator' }, at: now, after: 0, state: 'waiting' });
@@ -254,24 +252,22 @@ describe('members working a shared project from the hub', () => {
     expect(did).toEqual([['memberRemoved', { personId: 'cy', because: 'removed-from-shared-project', at: anyOf(String), sharedProjectId: hubId }]]);
     const settled = await store.project(hubId).requests();
     expect(settled.map((request) => [request.id === 'forged' ? 'forged' : request.kind, request.state]).sort()).toEqual([['forged', 'refused'], ['member-removed', 'done']]);
-    sync.stop();
-    relay.stop();
+    await sync.stop();
   });
 
   it('sends what is live once, shows a client all of it, and nothing again until it changes', async () => {
-    const { hub, hubId, sync, relay, store } = await shared();
+    const { hub, hubId, sync, store } = await shared();
     const first = await store.project(hubId).status();
     expect(first?.treeRuns).toEqual({ t1: { state: 'idle' } });
     await sync.once();
     expect((await store.project(hubId).status())?.at).toBe(first?.at);
     const seen = await hub.boardView('cy', hubId);
     expect(seen.ok && seen.value.board.status).toEqual({ at: first!.at, releases: [{ id: 'r1', state: 'live', commit: 'abc', startedAt: '1' }], runs: [], treeRuns: { t1: { state: 'idle' } }, addresses: { owner: 'ann', project: 'p1' } });
-    sync.stop();
-    relay.stop();
+    await sync.stop();
   });
 
   it('answers every member\'s file listing and the run feed through the relay, and lets only owners and collaborators move or remove files', async () => {
-    const { hub, hubId, sync, relay } = await shared();
+    const { hub, hubId, sync } = await shared();
     const cy = { id: 'cy', email: 'cy@example.com' };
     for (const who of [{ id: 'ann', email: 'ann@example.com' }, cy]) {
       const listed = await hub.relay(who, hubId, 'files.list', { dir: '' });
@@ -305,8 +301,7 @@ describe('members working a shared project from the hub', () => {
     ] });
     const elsewhere = await hub.relay(cy, hubId, 'endings', { turnId: 'grove-run-other~1', ids: ['grove-run-other~1'] } as never);
     expect(elsewhere.ok && elsewhere.value.kind === 'json' && elsewhere.value.status).toBe(404);
-    sync.stop();
-    relay.stop();
+    await sync.stop();
   });
 });
 
@@ -413,51 +408,16 @@ describe('keeping main in step with the hub\'s, with real git', () => {
   });
 });
 
-describe('listening for the hub\'s calls through the hub in the same process', () => {
-  async function unknownToTheHub() {
+describe('the line to the hub in the same process', () => {
+  it('connects when the sync starts, so members reach the instance, and hangs up when it stops', async () => {
     const db = await testDatabase();
-    const hub = new HubService({ store: memoryHubStore(), invites: { send: async () => ({ link: 'l', emailed: false }) }, relay: new HubRelay(Date.now, 60_000) });
-    await db.hub.saveHubLink({ projectId: 'p1', ownerId: 'ann', hubProjectId: 'nobody-made-this-one', pulledThrough: 0, sharedAt: now });
-    const lines: string[] = [];
-    const transport = localHubSync(hub, 'combined');
-    const asked = { count: 0 };
-    const sync = (retryMs: number) => new HubSyncService({
-      store: db.hub, origin: 'instance:combined', transport: { ...transport, take: (link, signal) => { asked.count += 1; return transport.take(link, signal); } },
-      work: () => ({}) as never, retryMs, log: (line) => lines.push(line),
-    });
-    return { sync, asked, lines };
-  }
-
-  it('says why the hub would not be listened to and tries again after a pause', async () => {
-    const { sync, asked, lines } = await unknownToTheHub();
-    const listening = sync(20);
-    await listening.followRelays();
-    await vi.waitFor(() => expect(asked.count).toBeGreaterThanOrEqual(3));
-    listening.stop();
-    expect(new Set(lines)).toEqual(new Set(['hub sync: p1 is not taking the hub\'s calls yet: There is no such project, or you are not on it.']));
-  });
-
-  it('stops waiting out the pause the moment it is told to stop, instead of holding its timer for the rest of it', async () => {
-    const { sync, asked } = await unknownToTheHub();
-    const real = globalThis.setTimeout;
-    const waits: unknown[] = [];
-    const setting = vi.spyOn(globalThis, 'setTimeout').mockImplementation(((handler: () => void, ms?: number) => {
-      const timer = real(handler, ms);
-      if (ms === 600_000) waits.push(timer);
-      return timer;
-    }) as typeof setTimeout);
-    const clearing = vi.spyOn(globalThis, 'clearTimeout');
-    try {
-      const listening = sync(600_000);
-      await listening.followRelays();
-      await vi.waitFor(() => expect(waits).toHaveLength(1));
-      expect(clearing).not.toHaveBeenCalledWith(waits[0]);
-      listening.stop();
-      expect(clearing).toHaveBeenCalledWith(waits[0]);
-      expect(asked.count).toBe(1);
-    } finally {
-      setting.mockRestore();
-      clearing.mockRestore();
-    }
+    const relay = new HubRelay();
+    const hub = new HubService({ store: memoryHubStore(), invites: { send: async () => ({ link: 'l', emailed: false }) }, relay });
+    const sync = new HubSyncService({ store: db.hub, transport: localHubSync(hub, 'combined'), origin: 'instance:combined', work: () => ({}) as never });
+    expect(relay.online('combined')).toBe(false);
+    await sync.start();
+    expect(relay.online('combined')).toBe(true);
+    await sync.stop();
+    expect(relay.online('combined')).toBe(false);
   });
 });

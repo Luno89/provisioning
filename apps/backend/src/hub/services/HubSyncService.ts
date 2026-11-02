@@ -8,6 +8,7 @@ import type { HubInstanceWork, InstanceAnswer, InstanceCall } from './HubInstanc
 import type { RelayAnswer, RelayCall } from './HubRelay.js';
 import { elapsedSeconds, koalaMetrics } from '@koala/engine-core/telemetry';
 import { ignore } from '@koala/engine-core/failures';
+import type { Watching } from '../../platform/index.js';
 
 export interface HubSyncTransport {
   push(link: HubLink, changes: RecordChange[]): Promise<{ through: number }>;
@@ -15,8 +16,14 @@ export interface HubSyncTransport {
   requests(link: HubLink): Promise<HubRequest[]>;
   settle(link: HubLink, requestId: string, outcome: { state: 'done' | 'refused'; why?: string | undefined }): Promise<void>;
   status(link: HubLink, status: HubStatus): Promise<void>;
-  take(link: HubLink, signal: AbortSignal): Promise<InstanceCall | undefined>;
+  connect(line: HubLineHandlers): () => void;
   answer(link: HubLink, callId: string, answer: InstanceAnswer): Promise<void>;
+}
+
+export interface HubLineHandlers {
+  connected(): void;
+  call(call: InstanceCall): void;
+  changed(hubProjectId: string): void;
 }
 
 export interface HubRepoSides {
@@ -32,13 +39,7 @@ export interface HubSyncDeps {
   git?: Processes | undefined;
   work?: (() => HubInstanceWork | undefined) | undefined;
   log?: ((line: string) => void) | undefined;
-  retryMs?: number | undefined;
 }
-
-const sleep = (ms: number, signal: AbortSignal) => new Promise<void>((resolve) => {
-  const timer = setTimeout(resolve, ms);
-  signal.addEventListener('abort', () => { clearTimeout(timer); resolve(); }, { once: true });
-});
 
 const sameStatus = (a: HubStatus | undefined, b: HubStatus): boolean => {
   if (!a) return false;
@@ -49,19 +50,18 @@ const sameStatus = (a: HubStatus | undefined, b: HubStatus): boolean => {
 
 const DIRTY_PAGE = 200;
 const PULL_PAGES = 20;
-export const STATUS_EVERY_MS = 15_000;
 
 type Pending = { entry: HubDirty; link: HubLink; change: RecordChange; after: SyncedDoc | undefined };
 
 export class HubSyncService {
-  private timer: ReturnType<typeof setInterval> | undefined;
   private running: Promise<void> | undefined;
   private next: Promise<void> | undefined;
   private readonly sentStatus = new Map<string, HubStatus>();
-  private readonly statusDue = new Map<string, number>();
+  private statusOfAll = false;
   private moved = new Set<string>();
   private parents = new Map<string, SyncedDoc | undefined>();
-  private readonly relays = new Map<string, AbortController>();
+  private watching: Watching | undefined;
+  private disconnect: (() => void) | undefined;
 
   constructor(private readonly deps: HubSyncDeps) {}
 
@@ -234,12 +234,12 @@ export class HubSyncService {
     const work = this.deps.work?.();
     if (!work) return 0;
     let sent = 0;
-    const now = Date.now();
     const moved = this.moved;
+    const all = this.statusOfAll;
     this.moved = new Set();
+    this.statusOfAll = false;
     for (const link of await this.deps.store.getHubLinks()) {
-      if (!moved.has(link.projectId) && (this.statusDue.get(link.projectId) ?? 0) > now) continue;
-      this.statusDue.set(link.projectId, now + STATUS_EVERY_MS);
+      if (!all && !moved.has(link.projectId)) continue;
       try {
         const status = await work.statusOf(link);
         if (!status || sameStatus(this.sentStatus.get(link.projectId), status)) continue;
@@ -253,39 +253,15 @@ export class HubSyncService {
     return sent;
   }
 
-  async followRelays(): Promise<void> {
-    if (!this.deps.work?.()) return;
-    const linked = new Set((await this.deps.store.getHubLinks()).map((link) => link.projectId));
-    for (const [projectId, controller] of this.relays) {
-      if (linked.has(projectId)) continue;
-      controller.abort();
-      this.relays.delete(projectId);
-      this.sentStatus.delete(projectId);
+  private async answerFor(call: InstanceCall): Promise<void> {
+    const work = this.deps.work?.();
+    const link = (await this.deps.store.getHubLinks()).find((entry) => entry.hubProjectId === call.projectId);
+    if (!work || !link) {
+      await this.deps.transport.answer({ hubProjectId: call.projectId } as HubLink, call.id, { kind: 'json', status: 503, body: { error: 'The owner\'s instance is not sharing this project any more.' } })
+        .catch((err: Error) => this.deps.log?.(`hub sync: an answer to the hub was lost: ${err.message}`));
+      return;
     }
-    for (const projectId of linked) {
-      if (this.relays.has(projectId)) continue;
-      const controller = new AbortController();
-      this.relays.set(projectId, controller);
-      void this.relayLoop(projectId, controller.signal).finally(() => {
-        if (this.relays.get(projectId) === controller) this.relays.delete(projectId);
-      });
-    }
-  }
-
-  private async relayLoop(projectId: string, signal: AbortSignal): Promise<void> {
-    while (!signal.aborted) {
-      const link = (await this.deps.store.getHubLinks()).find((entry) => entry.projectId === projectId);
-      const work = this.deps.work?.();
-      if (!link || !work) return;
-      try {
-        const call = await this.deps.transport.take(link, signal);
-        if (call) void this.answerCall(work, link, call);
-      } catch (err) {
-        if (signal.aborted) return;
-        this.deps.log?.(`hub sync: ${projectId} is not taking the hub's calls yet: ${(err as Error).message}`);
-        await sleep(this.deps.retryMs ?? 2_000, signal);
-      }
-    }
+    await this.answerCall(work, link, call);
   }
 
   private async answerCall(work: HubInstanceWork, link: HubLink, call: InstanceCall): Promise<void> {
@@ -320,27 +296,46 @@ export class HubSyncService {
     await this.timed('repos', () => this.syncRepos());
     await this.timed('requests', () => this.carryOutRequests());
     await this.timed('status', () => this.sendStatus());
-    await this.timed('relays', () => this.followRelays());
   }
 
-  start(everyMs: number): void {
-    if (this.timer) return;
-    this.timer = setInterval(() => { this.once().catch((err: Error) => this.deps.log?.(`hub sync: ${err.message}`)); }, everyMs);
-    this.timer.unref?.();
+  private kick(): void {
+    this.once().catch((err: Error) => this.deps.log?.(`hub sync: ${err.message}`));
   }
 
-  stop(): void {
-    if (this.timer) clearInterval(this.timer);
-    this.timer = undefined;
-    for (const controller of this.relays.values()) controller.abort();
-    this.relays.clear();
+  repoMoved(): void {
+    this.kick();
+  }
+
+  statusMoved(): void {
+    this.statusOfAll = true;
+    this.kick();
+  }
+
+  async start(): Promise<void> {
+    if (this.watching) return;
+    this.watching = this.deps.store.watchHubDirty(() => this.kick());
+    await this.watching.ready;
+    this.disconnect = this.deps.transport.connect({
+      connected: () => this.statusMoved(),
+      changed: () => this.kick(),
+      call: (call) => { void this.answerFor(call); },
+    });
+    this.kick();
+  }
+
+  async stop(): Promise<void> {
+    this.disconnect?.();
+    this.disconnect = undefined;
+    await this.watching?.close();
+    this.watching = undefined;
   }
 }
 
-type LocalHub = Pick<HubService, 'receive' | 'changesSince' | 'waitingRequests' | 'settleRequest' | 'putStatus' | 'takeRelay' | 'answerRelay'>;
+type LocalHub = Pick<HubService, 'receive' | 'changesSince' | 'waitingRequests' | 'settleRequest' | 'putStatus' | 'connectInstance' | 'answerRelay'>;
 
 const fromRelay = (call: RelayCall): InstanceCall => ({
   id: call.id,
+  projectId: call.projectId,
   op: call.op,
   args: call.args,
   as: call.as,
@@ -364,11 +359,14 @@ export function localHubSync(hub: LocalHub, instanceId: string): HubSyncTranspor
       const outcome = await hub.putStatus(origin(link), link.hubProjectId, status);
       if (!outcome.ok) throw failed(outcome);
     },
-    async take(link, signal) {
-      const closed = new Promise<void>((resolve) => { if (signal.aborted) resolve(); else signal.addEventListener('abort', () => resolve(), { once: true }); });
-      const outcome = await hub.takeRelay(origin(link), link.hubProjectId, closed);
-      if (!outcome.ok) throw failed(outcome);
-      return outcome.value ? fromRelay(outcome.value) : undefined;
+    connect(line) {
+      const connected = hub.connectInstance({ kind: 'instance', personId: '', instanceId }, {
+        call: (call) => line.call(fromRelay(call)),
+        changed: (projectId) => line.changed(projectId),
+      });
+      if (!connected.ok) throw failed(connected);
+      queueMicrotask(() => line.connected());
+      return connected.value;
     },
     async answer(link, callId, answer) {
       const outcome = await hub.answerRelay(origin(link), callId, answer as RelayAnswer);

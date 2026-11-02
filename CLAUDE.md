@@ -774,7 +774,8 @@ project), and `addressScope` in `instances/lib/edge-addresses.ts` decides the sc
 recomputed. A group's addresses are flat only; nested addresses cover the owner's own name. A project shared before groups
 has none and keeps the owner's addressing. **The owner's instance keeps a working copy** and the engine is
 unchanged: every write to a tree, branch, leaf, task, conversation or plan proposal marks it (`markingHubWrites` wraps
-`createDatabase()`, so every process does; `hubDirty`, only while anything is shared), and `HubSyncService` (every 3 s)
+`createDatabase()`, so every process does; `hubDirty`, only while anything is shared), and `HubSyncService` (on events: a record marked, heard
+through a change stream on `hubDirty`; the hub saying a project changed; a push to either repository's `main`, by webhook)
 sends a shared project's records as field patches against what the hub last agreed (`hubSnapshots`; chat messages one by
 one, `hub/lib/hub-sync.ts`), pulls what others changed (applied without marking), and syncs `main` with git (`HubRepoSync`:
 fast-forward whichever is behind, merge when both moved, on a conflict neither changes, the hub's main is kept as
@@ -788,8 +789,9 @@ the board the same screens as the instance's (`ProjectBoard` reads through a `Wo
 the hub's is `features/hub/lib/hub-work-source.ts`, polling `GET /api/hub/projects/:id/board` every 3 s). Every member
 sees every record whole (`recordFor` in `hub/lib/hub-board.ts` drops only the owner's id), the status as the owner's
 instance sent it, and the run feed, relayed from the owner's instance (`HubRelay`: the instance
-long-polls `GET /api/hub-instance/projects/:id/relay`, answers `POST /api/hub-instance/relay/:callId[/stream]`; a call
-fails cleanly when the instance is offline). Members' writes are **requests** (`POST /api/hub/projects/:id/requests`:
+holds one socket.io connection to the hub's `/hub-instances` namespace, dialled as it dials root for presence, over which the
+hub hands it calls and tells it a project changed; it answers `POST /api/hub-instance/relay/:callId[/stream]`; a call fails at once
+when its connection closes). Members' writes are **requests** (`POST /api/hub/projects/:id/requests`:
 approve or reject a plan, order stories or features, accept or drop a task, open a story or feature chat, ask Koala)
 that `HubSyncService` on the owner's instance carries out as the owner once the messages they refer to have synced
 (`HubInstanceWork`), and settles done or refused; the board shows what waits and why. Posting in a chat
@@ -812,7 +814,8 @@ allowances do not apply to it (agent and tree auto mode do), and an ask names wh
 memories and nothing is saved from the turn. The memory keeper, concluding a conversation people other than the owner talked
 in (`heardOthers`), runs `keptTo` that project: project memories only, nothing replaced or forgotten, nothing proposed
 (`keptToProblem`), and such a conversation with no project is not remembered. `mechanics-member-asks` proves it. The owner's instance sends a
-**status** (`PUT .../status`: releases, builds, tree runs) every 15 s or when the project moved. **Files**: the hub
+**status** (`PUT .../status`: releases, builds, tree runs) when it connects, when the project moved, and when a release or build
+record changes (`watchReleaseWork`). **Files**: the hub
 relays the owner's MinIO (`FileScope` `{kind: 'hub'}`): every member sees and adds every file, reads only the procedures a run of the
 project used (`procedureRanIn` over that run's turn log), and only owners and
 collaborators move, remove or replace one (`change-files`, `relayProblem`; a client's upload onto a name already taken is refused). The hub's repository is read-only to every member

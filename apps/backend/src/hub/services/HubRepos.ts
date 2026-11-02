@@ -1,5 +1,10 @@
 import type { GiteaService } from '../../projects/index.js';
 
+export interface HubRepoHook {
+  url(projectId: string): Promise<string>;
+  secret(projectId: string): string;
+}
+
 export interface HubRepoAccess {
   url: string;
   username: string;
@@ -17,13 +22,14 @@ export const hubOrgOf = (projectId: string): string => `shared-${projectId}`;
 export const hubBotOf = (projectId: string): string => `shared-${projectId}-bot`;
 export const HUB_REPO = 'project';
 
-export function giteaHubRepos(gitea: Pick<GiteaService, 'ensureOrg' | 'ensureOrgRepo' | 'letWrite' | 'createUserAccount' | 'createPushToken' | 'deleteUser' | 'deleteRepo' | 'deleteOrg' | 'repoGitUrl' | 'listPaths' | 'getRawFile'>): HubRepos {
+export function giteaHubRepos(gitea: Pick<GiteaService, 'ensureOrg' | 'ensureOrgRepo' | 'letWrite' | 'createUserAccount' | 'createPushToken' | 'deleteUser' | 'deleteRepo' | 'deleteOrg' | 'repoGitUrl' | 'listPaths' | 'getRawFile' | 'replaceWebhook'>, hook?: HubRepoHook): HubRepos {
   return {
     async create(projectId) {
       const org = hubOrgOf(projectId);
       const bot = hubBotOf(projectId);
       await gitea.ensureOrg(org);
       await gitea.ensureOrgRepo(org, HUB_REPO);
+      if (hook) await gitea.replaceWebhook(org, HUB_REPO, await hook.url(projectId), hook.secret(projectId));
       await gitea.deleteUser(bot);
       const { password } = await gitea.createUserAccount(bot, `${bot}@hub.koala.invalid`);
       await gitea.letWrite(org, HUB_REPO, bot);

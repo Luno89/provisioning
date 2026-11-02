@@ -1,5 +1,7 @@
 import { http, HttpResponse } from 'msw';
+import { EventEmitter } from 'node:events';
 import { Readable } from 'node:stream';
+import type { ManagerOptions, Socket, SocketOptions } from 'socket.io-client';
 import { describe, expect, it, vi } from 'vitest';
 import { mock } from 'vitest-mock-extended';
 import { interceptHttp } from '../../platform/testing/http.js';
@@ -7,7 +9,9 @@ import { objectWith } from '../../platform/lib/test-matchers.js';
 import type { HubAccess } from '../lib/hub.js';
 import type { HubLink } from '../lib/hub-sync.js';
 import { RELAY_NAME_HEADER, RELAY_STATUS_HEADER, RELAY_TYPE_HEADER } from '../lib/hub-board.js';
-import { RemoteHub, RootHubAccess } from './HubRemote.js';
+import { RemoteHub, RootHubAccess, type HubLineConnect } from './HubRemote.js';
+import type { InstanceCall } from './HubInstanceWork.js';
+import { REOPEN_FIRST_MS } from '../../platform/index.js';
 
 const HUB = 'https://hub.test';
 const link: HubLink = { projectId: 'p1', ownerId: 'ann', hubProjectId: 'abc123', pulledThrough: 0, sharedAt: '2026-10-21T00:00:00Z' };
@@ -151,40 +155,79 @@ describe('the owner\'s instance talking to the hub', () => {
 });
 
 describe('the hub handing the owner\'s instance what members asked of it', () => {
-  const relay = '/api/hub-instance/projects/abc123/relay';
 
-  it('hands over nothing when no call came while it listened', async () => {
-    server.use(answering('get', relay, () => new HttpResponse(null, { status: 204 })));
-    const { hub } = remote();
-    expect(await hub.take(link, new AbortController().signal)).toBeUndefined();
+  const fakeSocket = () => {
+    const socket = Object.assign(new EventEmitter(), { active: true, closed: 0, close() { socket.closed += 1; } });
+    return socket;
+  };
+  const connecting = () => {
+    const opened: { url: string; options: Partial<ManagerOptions & SocketOptions>; socket: ReturnType<typeof fakeSocket> }[] = [];
+    const socketTo: HubLineConnect = (url, options) => {
+      const socket = fakeSocket();
+      opened.push({ url, options, socket });
+      return socket as unknown as Socket;
+    };
+    const root = mock<Pick<RootHubAccess, 'access'>>();
+    let minted = 0;
+    root.access.mockImplementation(async () => ({ ...access, token: `token-${(minted += 1)}` }));
+    const line = { connected: vi.fn(), call: vi.fn<(call: InstanceCall) => void>(), changed: vi.fn() };
+    return { hub: new RemoteHub(root, fetch, socketTo, () => undefined), opened, line, root };
+  };
+  const tokenOf = (options: Partial<ManagerOptions & SocketOptions>) => new Promise<unknown>((resolve) => (options.auth as (send: (auth: unknown) => void) => void)(resolve));
+  const settled = () => new Promise((resolve) => setImmediate(resolve));
+
+  it('connects to the hub\'s namespace with a token root mints for each attempt, the first one already in hand', async () => {
+    const { hub, opened, line } = connecting();
+    const disconnect = hub.connect(line);
+    await settled();
+    expect(opened.map((entry) => entry.url)).toEqual(['https://hub.test/hub-instances']);
+    expect(await tokenOf(opened[0]!.options)).toEqual({ instanceId: 'inst-1', personId: 'ann', email: 'ann@example.com', token: 'token-1' });
+    expect(await tokenOf(opened[0]!.options)).toEqual({ instanceId: 'inst-1', personId: 'ann', email: 'ann@example.com', token: 'token-2' });
+    disconnect();
+    expect(opened[0]!.socket.closed).toBe(1);
   });
 
-  it('hands over a call as the hub took it from a member', async () => {
-    const call = { id: 'c1', op: 'files.list', args: { dir: '' }, as: { personId: 'bo', email: 'bo@example.com', role: 'collaborator' } };
-    server.use(answering('get', relay, () => HttpResponse.json(call)));
-    const { hub } = remote();
-    expect(await hub.take(link, new AbortController().signal)).toEqual(call);
-  });
-
-  it('hands over a call with an upload that is fetched from the hub when opened', async () => {
-    const call = { id: 'c/1', op: 'files.upload', args: { path: 'a.txt' }, as: { personId: 'bo', email: 'bo@example.com', role: 'collaborator' }, upload: { type: 'text/plain', size: 5 } };
-    server.use(
-      answering('get', relay, () => HttpResponse.json(call)),
-      answering('get', '/api/hub-instance/relay/c%2F1/upload', () => new HttpResponse('hello', { headers: { 'content-type': 'application/octet-stream' } })),
-    );
-    const { hub } = remote();
-    const taken = await hub.take(link, new AbortController().signal);
-    expect(taken?.upload).toMatchObject({ type: 'text/plain', size: 5 });
+  it('tells of each connection and each project that changed, and hands over a call whose upload is fetched from the hub when opened', async () => {
+    server.use(answering('get', '/api/hub-instance/relay/c%2F1/upload', () => new HttpResponse('hello', { headers: { 'content-type': 'application/octet-stream' } })));
+    const { hub, opened, line } = connecting();
+    hub.connect(line);
+    await settled();
+    const { socket } = opened[0]!;
+    socket.emit('connect');
+    socket.emit('changed', 'abc123');
+    socket.emit('call', { id: 'c/1', projectId: 'abc123', op: 'files.upload', args: { path: 'a.txt' }, as: { personId: 'bo', email: 'bo@example.com', role: 'collaborator' }, upload: { type: 'text/plain', size: 5 } });
+    expect(line.connected).toHaveBeenCalledTimes(1);
+    expect(line.changed).toHaveBeenCalledWith('abc123');
+    const handed = line.call.mock.calls[0]![0];
+    expect(handed).toMatchObject({ id: 'c/1', projectId: 'abc123', op: 'files.upload', upload: { type: 'text/plain', size: 5 } });
     const chunks: Buffer[] = [];
-    for await (const chunk of await taken!.upload!.open()) chunks.push(Buffer.from(chunk as Buffer));
+    for await (const chunk of await handed.upload!.open()) chunks.push(Buffer.from(chunk as Buffer));
     expect(Buffer.concat(chunks).toString()).toBe('hello');
   });
 
-  it('hands over an upload of unknown size without one', async () => {
-    server.use(answering('get', relay, () => HttpResponse.json({ id: 'c1', op: 'files.upload', args: {}, as: { personId: 'bo', email: 'bo@example.com', role: 'collaborator' }, upload: { type: 'text/plain' } })));
-    const { hub } = remote();
-    const taken = await hub.take(link, new AbortController().signal);
-    expect(taken?.upload).not.toHaveProperty('size');
+  it('connects again when the hub refuses or drops it, waiting longer each time, and not once it is told to stop', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const { hub, opened, line } = connecting();
+      const disconnect = hub.connect(line);
+      await vi.advanceTimersByTimeAsync(0);
+      opened[0]!.socket.active = false;
+      opened[0]!.socket.emit('connect_error', new Error('Unauthorized'));
+      expect(opened[0]!.socket.closed).toBe(1);
+      await vi.advanceTimersByTimeAsync(REOPEN_FIRST_MS);
+      expect(opened).toHaveLength(2);
+      opened[1]!.socket.emit('disconnect', 'io server disconnect');
+      await vi.advanceTimersByTimeAsync(REOPEN_FIRST_MS);
+      expect(opened, 'the second wait is twice the first').toHaveLength(2);
+      await vi.advanceTimersByTimeAsync(REOPEN_FIRST_MS);
+      expect(opened).toHaveLength(3);
+      opened[2]!.socket.emit('disconnect', 'transport close');
+      disconnect();
+      await vi.advanceTimersByTimeAsync(REOPEN_FIRST_MS * 20);
+      expect(opened).toHaveLength(3);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('answers a call with json', async () => {

@@ -12,6 +12,7 @@ export type Done = { ok: true } | { ok: false; why: string };
 
 export interface InstanceCall {
   id: string;
+  projectId: string;
   op: RelayOp;
   args: Plain;
   as: { personId: string; email: string; role: HubRole };

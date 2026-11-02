@@ -37,6 +37,7 @@ export interface HubInvite {
 export const HUB_DATABASE_PREFIX = 'hub_';
 export const SHARED_PROJECT_ID = /^[a-f0-9]{24}$/;
 export const INVITE_TOKEN = /^[A-Za-z0-9_-]{32}$/;
+export const HUB_LINES_NAMESPACE = '/hub-instances';
 export const HUB_AUDIENCE = 'hub';
 
 export const projectDatabase = (projectId: string): string => {

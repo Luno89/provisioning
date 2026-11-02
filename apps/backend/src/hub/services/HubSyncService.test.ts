@@ -11,7 +11,7 @@ import { CHANGES_PAGE, HubService, type SyncOrigin } from './HubService.js';
 import { HubRelay, type RelayCall } from './HubRelay.js';
 import type { Processes } from '../../platform/lib/processes.js';
 import type { GitEnd } from './HubRepoSync.js';
-import { HubSyncService, localHubSync, STATUS_EVERY_MS, type HubRepoSides, type HubSyncTransport } from './HubSyncService.js';
+import { HubSyncService, localHubSync, type HubLineHandlers, type HubRepoSides, type HubSyncTransport } from './HubSyncService.js';
 import { HubInstanceWork, type HubInstanceWorkDeps, type InstanceCall } from './HubInstanceWork.js';
 
 const ann = { id: 'ann', email: 'ann@example.com' };
@@ -25,7 +25,7 @@ const withId = <T extends { id: string }>(id: string) => matches<T>((given) => g
 const branch = { id: 'b1', ownerId: 'ann', treeId: 't1', title: 'Pay', createdAt: now, updatedAt: now };
 
 const syncs: HubSyncService[] = [];
-afterEach(() => { for (const sync of syncs.splice(0)) sync.stop(); });
+afterEach(async () => { for (const sync of syncs.splice(0)) await sync.stop(); });
 const made = (sync: HubSyncService): HubSyncService => { syncs.push(sync); return sync; };
 
 async function shared() {
@@ -496,6 +496,8 @@ describe('telling the hub what is live', () => {
   async function setUp() {
     const db = memoryDatabase();
     const transport = mock<HubSyncTransport>();
+    transport.pull.mockResolvedValue({ changes: [], through: 0 });
+    transport.requests.mockResolvedValue([]);
     const work = mock<HubInstanceWork>();
     const lines: string[] = [];
     await db.hub.saveHubLink(link());
@@ -503,38 +505,32 @@ describe('telling the hub what is live', () => {
     return { db, transport, work, sync, lines };
   }
 
-  it('sends it once, and not again while only its time has changed', async () => {
+  it('sends it to every shared project when told something moved, and not again while only its time has changed', async () => {
     const { transport, work, sync } = await setUp();
     work.statusOf.mockResolvedValueOnce(status({ at: '1' })).mockResolvedValue(status({ at: '2' }));
-    expect(await sync.sendStatus()).toBe(1);
-    vi.useFakeTimers({ now: Date.now() + STATUS_EVERY_MS + 1 });
-    try {
-      expect(await sync.sendStatus()).toBe(0);
-    } finally {
-      vi.useRealTimers();
-    }
+    sync.statusMoved();
+    await sync.once();
+    expect(transport.status).toHaveBeenCalledTimes(1);
+    sync.statusMoved();
+    await sync.once();
     expect(transport.status).toHaveBeenCalledTimes(1);
   });
 
-  it('sends it again when something in it changed, once its turn has come', async () => {
+  it('sends it again when something in it changed', async () => {
     const { transport, work, sync } = await setUp();
     work.statusOf.mockResolvedValueOnce(status()).mockResolvedValue(status({ releases: [{ id: 'r1' }] }));
-    await sync.sendStatus();
-    vi.useFakeTimers({ now: Date.now() + STATUS_EVERY_MS + 1 });
-    try {
-      expect(await sync.sendStatus()).toBe(1);
-    } finally {
-      vi.useRealTimers();
-    }
+    sync.statusMoved();
+    await sync.once();
+    sync.statusMoved();
+    await sync.once();
     expect(transport.status).toHaveBeenCalledTimes(2);
   });
 
-  it('waits its turn when nothing was sent to the hub since', async () => {
+  it('does not look while nothing moved', async () => {
     const { work, sync } = await setUp();
-    work.statusOf.mockResolvedValueOnce(status()).mockResolvedValue(status({ releases: [{ id: 'r1' }] }));
-    await sync.sendStatus();
+    work.statusOf.mockResolvedValue(status());
     expect(await sync.sendStatus()).toBe(0);
-    expect(work.statusOf).toHaveBeenCalledTimes(1);
+    expect(work.statusOf).not.toHaveBeenCalled();
   });
 
   it('looks at once after changes went up to the hub', async () => {
@@ -556,142 +552,122 @@ describe('telling the hub what is live', () => {
     expect(transport.status).not.toHaveBeenCalled();
   });
 
-  it('says so when the hub does not take it, and sends it again next time', async () => {
+  it('says so when the hub does not take it, and sends it the next time it is told something moved', async () => {
     const { transport, work, sync, lines } = await setUp();
     work.statusOf.mockResolvedValue(status());
     transport.status.mockRejectedValueOnce(new Error('hub down'));
-    expect(await sync.sendStatus()).toBe(0);
+    sync.statusMoved();
+    await sync.once();
     expect(lines).toEqual(['hub sync: p1\'s status not sent yet: hub down']);
-    vi.useFakeTimers({ now: Date.now() + STATUS_EVERY_MS + 1 });
-    try {
-      expect(await sync.sendStatus()).toBe(1);
-    } finally {
-      vi.useRealTimers();
-    }
+    sync.statusMoved();
+    await sync.once();
+    expect(transport.status).toHaveBeenCalledTimes(2);
   });
 });
 
 describe('answering what the hub asks of the owner\'s instance', () => {
-  const call = (fields: Partial<InstanceCall> = {}): InstanceCall => ({ id: 'c1', op: 'extensions', args: {}, as: { personId: 'bo', email: 'bo@example.com', role: 'collaborator' }, ...fields });
+  const call = (fields: Partial<InstanceCall> = {}): InstanceCall => ({ id: 'c1', projectId: 'hub-1', op: 'extensions', args: {}, as: { personId: 'bo', email: 'bo@example.com', role: 'collaborator' }, ...fields });
 
-  async function setUp(retryMs = 5) {
+  async function setUp(withWork = true) {
     const db = memoryDatabase();
     const transport = mock<HubSyncTransport>();
     const work = mock<HubInstanceWork>();
     transport.answer.mockResolvedValue(undefined);
+    transport.pull.mockResolvedValue({ changes: [], through: 0 });
+    transport.requests.mockResolvedValue([]);
+    let line: HubLineHandlers | undefined;
+    transport.connect.mockImplementation((given) => { line = given; return () => { line = undefined; }; });
     const lines: string[] = [];
     await db.hub.saveHubLink(link());
-    const sync = made(new HubSyncService({ store: db.hub, transport, origin: 'instance:combined', work: () => work, retryMs, log: (line) => lines.push(line) }));
-    const idle = () => transport.take.mockImplementation((_to, signal) => new Promise((resolve) => { signal.addEventListener('abort', () => resolve(undefined), { once: true }); }));
-    return { db, transport, work, sync, lines, idle };
+    const sync = made(new HubSyncService({ store: db.hub, transport, origin: 'instance:combined', ...(withWork ? { work: () => work } : {}), log: (logged) => lines.push(logged) }));
+    await sync.start();
+    return { db, transport, work, sync, lines, line: () => line };
   }
 
-  it('does not listen without an instance to answer', async () => {
-    const db = memoryDatabase();
-    await db.hub.saveHubLink(link());
-    const transport = mock<HubSyncTransport>();
-    const sync = made(new HubSyncService({ store: db.hub, transport, origin: 'instance:combined' }));
-    await sync.followRelays();
-    expect(transport.take).not.toHaveBeenCalled();
-  });
-
-  it('takes a call the hub hands over, has the instance answer it, and gives the answer back', async () => {
-    const { transport, work, sync, idle } = await setUp();
+  it('takes a call the hub hands over, has the instance answer it for the project the call names, and gives the answer back', async () => {
+    const { transport, work, line } = await setUp();
     const answer = { kind: 'json' as const, status: 200, body: [] };
-    transport.take.mockResolvedValueOnce(call());
-    idle();
     work.handle.calledWith(forProject('p1'), withId<InstanceCall>('c1')).mockResolvedValue(answer);
-    await sync.followRelays();
+    line()!.call(call());
     await vi.waitFor(() => expect(transport.answer).toHaveBeenCalledWith(objectWith({ projectId: 'p1' }), 'c1', answer));
   });
 
   it('answers a call the instance could not handle with what went wrong, as a bad gateway', async () => {
-    const { transport, work, sync, idle } = await setUp();
-    transport.take.mockResolvedValueOnce(call());
-    idle();
+    const { transport, work, line } = await setUp();
     work.handle.mockRejectedValue(new Error('files are down'));
-    await sync.followRelays();
+    line()!.call(call());
     await vi.waitFor(() => expect(transport.answer).toHaveBeenCalledWith(objectWith({ projectId: 'p1' }), 'c1', { kind: 'json', status: 502, body: { error: 'The owner\'s instance could not answer: files are down' } }));
   });
 
+  it('answers a call for a project it no longer shares, or with no instance to answer it, as unavailable', async () => {
+    const unshared = await setUp();
+    unshared.line()!.call(call({ projectId: 'gone' }));
+    await vi.waitFor(() => expect(unshared.transport.answer).toHaveBeenCalledWith(objectWith({ hubProjectId: 'gone' }), 'c1', { kind: 'json', status: 503, body: { error: 'The owner\'s instance is not sharing this project any more.' } }));
+    const workless = await setUp(false);
+    workless.line()!.call(call());
+    await vi.waitFor(() => expect(workless.transport.answer).toHaveBeenCalledWith(objectWith({ hubProjectId: 'hub-1' }), 'c1', objectWith({ status: 503 })));
+  });
+
   it('says so when the hub does not take the answer', async () => {
-    const { transport, work, sync, lines, idle } = await setUp();
-    transport.take.mockResolvedValueOnce(call());
-    idle();
+    const { transport, work, lines, line } = await setUp();
     work.handle.mockResolvedValue({ kind: 'json', status: 200, body: null });
     transport.answer.mockRejectedValue(new Error('hub down'));
-    await sync.followRelays();
+    line()!.call(call());
     await vi.waitFor(() => expect(lines).toEqual(['hub sync: an answer to the hub was lost: hub down']));
   });
 
-  it('tries again after a pause when the hub cannot be listened to', async () => {
-    const { transport, sync, lines, idle } = await setUp(1);
-    transport.take.mockRejectedValueOnce(new Error('hub down'));
-    idle();
-    await sync.followRelays();
-    await vi.waitFor(() => expect(transport.take).toHaveBeenCalledTimes(2));
-    expect(lines).toEqual(['hub sync: p1 is not taking the hub\'s calls yet: hub down']);
-  });
-
-  it('listens once per project however often it is asked, and stops for a project no longer shared', async () => {
-    const { db, transport, sync, idle } = await setUp();
-    idle();
-    await sync.followRelays();
-    await sync.followRelays();
-    await vi.waitFor(() => expect(transport.take).toHaveBeenCalledTimes(1));
-    const signal = transport.take.mock.calls[0]![1];
-    await db.hub.deleteHubLink('p1');
-    await sync.followRelays();
-    expect(signal.aborted).toBe(true);
-  });
-
-  it('stops listening when told to stop', async () => {
-    const { transport, sync, idle } = await setUp();
-    idle();
-    await sync.followRelays();
-    await vi.waitFor(() => expect(transport.take).toHaveBeenCalledTimes(1));
-    const signal = transport.take.mock.calls[0]![1];
-    sync.stop();
-    expect(signal.aborted).toBe(true);
+  it('hangs up the line when told to stop', async () => {
+    const { sync, line } = await setUp();
+    expect(line()).toBeDefined();
+    await sync.stop();
+    expect(line()).toBeUndefined();
   });
 });
 
-describe('running on a timer', () => {
-  it('runs a pass on every beat, says when one fails, and stops when told to', async () => {
-    vi.useFakeTimers();
-    try {
-      const db = memoryDatabase();
-      const transport = mock<HubSyncTransport>();
-      transport.pull.mockRejectedValue(new Error('hub down'));
-      await db.hub.saveHubLink(link());
-      const lines: string[] = [];
-      const sync = made(new HubSyncService({ store: db.hub, transport, origin: 'instance:combined', log: (line) => lines.push(line) }));
-      sync.start(1_000);
-      sync.start(1_000);
-      await vi.advanceTimersByTimeAsync(2_500);
-      expect(transport.pull).toHaveBeenCalledTimes(2);
-      sync.stop();
-      await vi.advanceTimersByTimeAsync(5_000);
-      expect(transport.pull).toHaveBeenCalledTimes(2);
-    } finally {
-      vi.useRealTimers();
-    }
+describe('running on what happens', () => {
+  async function running() {
+    const db = memoryDatabase();
+    const transport = mock<HubSyncTransport>();
+    transport.pull.mockResolvedValue({ changes: [], through: 0 });
+    transport.push.mockResolvedValue({ through: 1 });
+    let line: HubLineHandlers | undefined;
+    const order: string[] = [];
+    transport.connect.mockImplementation((given) => { order.push('connect'); line = given; return () => undefined; });
+    const watch = db.hub.watchHubDirty.bind(db.hub);
+    vi.spyOn(db.hub, 'watchHubDirty').mockImplementation((on) => { order.push('watch'); return watch(on); });
+    await db.hub.saveHubLink(link());
+    const lines: string[] = [];
+    const sync = made(new HubSyncService({ store: db.hub, transport, origin: 'instance:combined', log: (logged) => lines.push(logged) }));
+    return { db, transport, sync, lines, order, line: () => line! };
+  }
+  const pulls = (transport: ReturnType<typeof mock<HubSyncTransport>>, times: number) => vi.waitFor(() => expect(transport.pull).toHaveBeenCalledTimes(times));
+
+  it('listens for marked records before it connects, runs a pass at once, and starts only once', async () => {
+    const { transport, sync, order } = await running();
+    await sync.start();
+    await sync.start();
+    expect(order).toEqual(['watch', 'connect']);
+    await pulls(transport, 1);
+  });
+
+  it('runs a pass when a record is marked, when the hub says a project changed, and when it connects again', async () => {
+    const { db, transport, sync, line } = await running();
+    await sync.start();
+    await pulls(transport, 1);
+    await db.projects.saveTree(tree());
+    await vi.waitFor(() => expect(transport.push).toHaveBeenCalledTimes(1));
+    const before = transport.pull.mock.calls.length;
+    line().changed('hub-1');
+    await pulls(transport, before + 1);
+    line().connected();
+    await pulls(transport, before + 2);
   });
 
   it('logs a pass that fails outright', async () => {
-    vi.useFakeTimers();
-    try {
-      const db = memoryDatabase();
-      const transport = mock<HubSyncTransport>();
-      const lines: string[] = [];
-      vi.spyOn(db.hub, 'hubDirty').mockRejectedValue(new Error('database down'));
-      const sync = made(new HubSyncService({ store: db.hub, transport, origin: 'instance:combined', log: (line) => lines.push(line) }));
-      sync.start(1_000);
-      await vi.advanceTimersByTimeAsync(1_200);
-      expect(lines).toEqual(['hub sync: database down']);
-    } finally {
-      vi.useRealTimers();
-    }
+    const { db, sync, lines } = await running();
+    vi.spyOn(db.hub, 'hubDirty').mockRejectedValue(new Error('database down'));
+    await sync.start();
+    await vi.waitFor(() => expect(lines).toContain('hub sync: database down'));
   });
 });
 
@@ -726,7 +702,7 @@ describe('the hub in the same process', () => {
     hub.waitingRequests.mockResolvedValue(refusal);
     hub.settleRequest.mockResolvedValue(refusal);
     hub.putStatus.mockResolvedValue(refusal);
-    hub.takeRelay.mockResolvedValue(refusal);
+    hub.connectInstance.mockReturnValue(refusal);
     hub.answerRelay.mockResolvedValue(refusal);
     hub.receive.mockResolvedValue(refusal);
     hub.changesSince.mockResolvedValue(refusal);
@@ -736,7 +712,7 @@ describe('the hub in the same process', () => {
       transport.requests(theLink),
       transport.settle(theLink, 'r1', { state: 'done' }),
       transport.status(theLink, status),
-      transport.take(theLink, new AbortController().signal),
+      Promise.resolve().then(() => transport.connect({ connected: () => undefined, call: () => undefined, changed: () => undefined })),
       transport.answer(theLink, 'c1', { kind: 'json', status: 200, body: null }),
       transport.push(theLink, []),
       transport.pull(theLink, 0),
@@ -744,38 +720,31 @@ describe('the hub in the same process', () => {
     for (const attempt of attempts) await expect(attempt).rejects.toMatchObject({ message: 'no', status: 403 });
   });
 
-  it('hands over nothing when the hub has no call waiting, and a call with a stream it can be uploaded from', async () => {
+  it('connects as the instance, hands over a call with the stream it can be uploaded from, tells of a project that changed, and says it is connected', async () => {
     const hub = mock<LocalHub>();
     const stream = Readable.from(['bytes']);
     const waiting: RelayCall = { id: 'c1', projectId: 'p', op: 'files.upload', args: { path: 'a' }, as: { personId: 'bo', email: 'bo@example.com', role: 'collaborator' }, upload: { stream, type: 'text/plain', size: 5 } };
-    hub.takeRelay.mockResolvedValueOnce(outcomeOf(undefined)).mockResolvedValueOnce(outcomeOf(waiting)).mockResolvedValueOnce(outcomeOf({ ...waiting, upload: { stream, type: 'text/plain' } })).mockResolvedValueOnce(outcomeOf({ ...waiting, upload: undefined }));
+    let given: { call(call: RelayCall): void; changed(projectId: string): void } | undefined;
+    const hangUp = vi.fn();
+    hub.connectInstance.calledWith(matches<SyncOrigin>((origin) => origin.kind === 'instance' && origin.instanceId === 'inst'), matches(() => true)).mockImplementation((_origin, line) => { given = line; return outcomeOf(hangUp); });
     const transport = localHubSync(hub, 'inst');
-    const signal = new AbortController().signal;
-    expect(await transport.take(theLink, signal)).toBeUndefined();
-    const withSize = await transport.take(theLink, signal);
-    expect(withSize).toMatchObject({ id: 'c1', op: 'files.upload', upload: { type: 'text/plain', size: 5 } });
-    expect(await withSize?.upload?.open()).toBe(stream);
-    const withoutSize = await transport.take(theLink, signal);
-    expect(withoutSize?.upload).not.toHaveProperty('size');
-    expect(await transport.take(theLink, signal)).not.toHaveProperty('upload');
-  });
-
-  it('tells the hub the listening is over when it is stopped, or was already', async () => {
-    const hub = mock<LocalHub>();
-    const closing: Promise<void>[] = [];
-    hub.takeRelay.mockImplementation(async (_origin, _id, closed) => { closing.push(closed); return outcomeOf(undefined); });
-    const transport = localHubSync(hub, 'inst');
-    const controller = new AbortController();
-    await transport.take(theLink, controller.signal);
-    let closedYet = false;
-    void closing[0]!.then(() => { closedYet = true; });
-    await Promise.resolve();
-    expect(closedYet).toBe(false);
-    controller.abort();
-    await closing[0];
-    expect(closedYet).toBe(true);
-    await transport.take(theLink, controller.signal);
-    await closing[1];
+    const calls: InstanceCall[] = [];
+    const changed: string[] = [];
+    let connected!: () => void;
+    const said = new Promise<void>((resolve) => { connected = resolve; });
+    const disconnect = transport.connect({ connected: () => connected(), call: (call) => calls.push(call), changed: (projectId) => changed.push(projectId) });
+    await said;
+    given!.call(waiting);
+    given!.call({ ...waiting, upload: { stream, type: 'text/plain' } });
+    given!.call({ ...waiting, upload: undefined });
+    given!.changed('p');
+    expect(calls[0]).toMatchObject({ id: 'c1', projectId: 'p', op: 'files.upload', upload: { type: 'text/plain', size: 5 } });
+    expect(await calls[0]!.upload!.open()).toBe(stream);
+    expect(calls[1]!.upload).not.toHaveProperty('size');
+    expect(calls[2]).not.toHaveProperty('upload');
+    expect(changed).toEqual(['p']);
+    disconnect();
+    expect(hangUp).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -783,7 +752,7 @@ describe('members working a shared project from the hub', () => {
   async function working() {
     const db = memoryDatabase();
     const store = memoryHubStore();
-    const relay = new HubRelay(Date.now, 60_000);
+    const relay = new HubRelay();
     const hub = new HubService({ store, invites: { send: async () => ({ link: 'l', emailed: false }) }, relay });
     const created = await hub.create(ann, { name: 'Shop', origin: { instanceId: 'combined', projectId: 'p1' } });
     if (!created.ok) throw new Error(created.why);
@@ -803,7 +772,7 @@ describe('members working a shared project from the hub', () => {
     act.openChat.mockResolvedValue(ok);
     const status = vi.fn<HubInstanceWorkDeps['status']>(async (ownerId, project, treeIds) => ({ at: 'now', releases: [{ id: 'r1', state: 'live', commit: 'abc', startedAt: '1' }], runs: [], treeRuns: Object.fromEntries(treeIds.map((id) => [id, { state: 'idle' }])), addresses: { owner: ownerId, project: project.id } }));
     const work = new HubInstanceWork({ store: db, status, act, live: mock<HubInstanceWorkDeps['live']>(), files: mock<HubInstanceWorkDeps['files']>() });
-    const sync = made(new HubSyncService({ store: db.hub, transport: localHubSync(hub, 'combined'), origin: 'instance:combined', work: () => work, retryMs: 10 }));
+    const sync = made(new HubSyncService({ store: db.hub, transport: localHubSync(hub, 'combined'), origin: 'instance:combined', work: () => work }));
     await db.projects.saveProject({ id: 'p1', name: 'Shop', ownerId: 'ann', createdAt: now } as never);
     await db.hub.saveHubLink(link({ hubProjectId: hubId }));
     await db.projects.saveTree(tree());
@@ -811,13 +780,14 @@ describe('members working a shared project from the hub', () => {
     await db.projects.saveLeaf(leaf());
     await db.projects.saveLeaf(leaf({ id: 'l2', title: 'Refund' }));
     await db.engine.saveConversation({ id: 'channel-p1', ownerId: 'ann', kind: 'channel', treeId: 't1', projectId: 'p1', messages: [], createdAt: now, updatedAt: now } as never);
+    await sync.start();
     await sync.once();
-    await vi.waitFor(() => expect(relay.online(hubId)).toBe(true));
+    expect(relay.online('combined')).toBe(true);
     return { db, hub, hubId, sync, act, relay, store, status };
   }
 
   it('brings a client\'s question to Koala on the owner\'s instance once the message itself has arrived, naming who asked', async () => {
-    const { db, hub, hubId, sync, act, relay } = await working();
+    const { db, hub, hubId, sync, act } = await working();
     const posted = await hub.post({ id: 'cy', email: 'cy@example.com' }, hubId, 'channel-p1', { content: 'can the button be green?', askKoala: true });
     if (!posted.ok) throw new Error(posted.why);
     expect(posted.value.asked?.state).toBe('waiting');
@@ -829,20 +799,18 @@ describe('members working a shared project from the hub', () => {
     expect((await db.hub.getHubLinks())[0]!.members?.map((member) => member.email).sort()).toEqual(['ann@example.com', 'bo@example.com', 'cy@example.com']);
     const board = await hub.boardView('cy', hubId);
     expect(board.ok && board.value.requests.map((request) => request.state)).toEqual(['done']);
-    relay.stop();
   });
 
   it('posts a collaborator\'s message without asking Koala, which answers them from their own instance', async () => {
-    const { hub, hubId, sync, act, relay } = await working();
+    const { hub, hubId, sync, act } = await working();
     const posted = await hub.post({ id: 'bo', email: 'bo@example.com' }, hubId, 'channel-p1', { content: '@koala what is left?' });
     expect(posted.ok && [posted.value.asked, posted.value.notAsked !== undefined]).toEqual([undefined, true]);
     await sync.once();
     expect(act.askKoala).not.toHaveBeenCalled();
-    relay.stop();
   });
 
   it('carries out a collaborator\'s new order of stories as the owner, refuses a client\'s, and refuses one the instance does not know', async () => {
-    const { hub, hubId, sync, act, relay, store } = await working();
+    const { hub, hubId, sync, act, store } = await working();
     expect((await hub.request({ id: 'bo', email: 'bo@example.com' }, hubId, { kind: 'order-stories', branchId: 'b1', leafIds: ['l2', 'l1'] })).ok).toBe(true);
     expect(await hub.request({ id: 'cy', email: 'cy@example.com' }, hubId, { kind: 'order-stories', branchId: 'b1', leafIds: ['l2', 'l1'] })).toMatchObject({ ok: false, status: 403 });
     await store.project(hubId).saveRequest({ id: 'forged', kind: 'accept-task', input: { taskId: 'not-here' }, by: { personId: 'bo', email: 'bo@example.com', role: 'collaborator' }, at: now, after: 0, state: 'waiting' });
@@ -852,11 +820,10 @@ describe('members working a shared project from the hub', () => {
     expect(act.decideTask).not.toHaveBeenCalled();
     const settled = await store.project(hubId).requests();
     expect(settled.map((request) => [request.kind, request.state]).sort()).toEqual([['accept-task', 'refused'], ['order-stories', 'done']]);
-    relay.stop();
   });
 
   it('carries out a member\'s removal on the owner\'s instance as a revocation of that shared project, and takes it from nobody but the hub', async () => {
-    const { hub, hubId, sync, act, relay, store } = await working();
+    const { hub, hubId, sync, act, store } = await working();
     expect(await hub.request({ id: 'bo', email: 'bo@example.com' }, hubId, { kind: 'member-removed', personId: 'cy' })).toMatchObject({ ok: false, status: 400 });
     expect((await hub.remove('ann', hubId, 'cy')).ok).toBe(true);
     await store.project(hubId).saveRequest({ id: 'forged', kind: 'member-removed', input: { personId: 'ann' }, by: { personId: 'bo', email: 'bo@example.com', role: 'collaborator' }, at: now, after: 0, state: 'waiting' });
@@ -865,11 +832,10 @@ describe('members working a shared project from the hub', () => {
     expect(act.memberRemoved).toHaveBeenCalledWith({ personId: 'cy', because: 'removed-from-shared-project', at: anyOf(String), sharedProjectId: hubId });
     const settled = await store.project(hubId).requests();
     expect(settled.map((request) => [request.id === 'forged' ? 'forged' : request.kind, request.state]).sort()).toEqual([['forged', 'refused'], ['member-removed', 'done']]);
-    relay.stop();
   });
 
   it('sends what is live once, shows a client all of it, and nothing again until it changes', async () => {
-    const { hub, hubId, sync, relay, store, status } = await working();
+    const { hub, hubId, sync, store, status } = await working();
     const first = await store.project(hubId).status();
     expect(first?.treeRuns).toEqual({ t1: { state: 'idle' } });
     await sync.once();
@@ -877,6 +843,5 @@ describe('members working a shared project from the hub', () => {
     expect(status).toHaveBeenCalledTimes(1);
     const seen = await hub.boardView('cy', hubId);
     expect(seen.ok && seen.value.board.status).toEqual({ at: first!.at, releases: [{ id: 'r1', state: 'live', commit: 'abc', startedAt: '1' }], runs: [], treeRuns: { t1: { state: 'idle' } }, addresses: { owner: 'ann', project: 'p1' } });
-    relay.stop();
   });
 });

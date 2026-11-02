@@ -53,6 +53,23 @@ export function hubStoreContract(make: () => Promise<HubStore>): void {
   });
 
   describe('records waiting to be sent to the hub', () => {
+    it('tells whoever listens each time a record is marked, once it is listening', async () => {
+      const store = await make();
+      await store.saveHubLink(link('p1'));
+      let heard = 0;
+      let twice!: () => void;
+      const done = new Promise<void>((resolve) => { twice = resolve; });
+      const watching = store.watchHubDirty(() => { heard += 1; if (heard === 2) twice(); });
+      await watching.ready;
+
+      await store.markForHub('trees', 't1', false);
+      await store.markForHub('leaves', 'l1', true);
+      await done;
+      await watching.close();
+
+      expect(heard).toBe(2);
+    });
+
     it('marks nothing while no project is shared', async () => {
       const store = await make();
       await store.markForHub('trees', 't1', false);

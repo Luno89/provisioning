@@ -7,11 +7,11 @@ import { memoryHubStore } from '../lib/hub-store.js';
 import { mongoHubStore } from '../lib/hub-mongo.js';
 import { HUB_STATUS_BUILDS } from '../lib/hub-board.js';
 import { runsUnder, type ConversationNotice } from '../../engine/index.js';
-import { hashCredential, InstanceGroups } from '../../instances/index.js';
+import { hashCredential, InstanceGroups, type UsedTokenClaim } from '../../instances/index.js';
 import { HubService } from '../services/HubService.js';
 import { HubRootClient } from '../services/HubRootClient.js';
 import { HubRelay } from '../services/HubRelay.js';
-import { giteaHubRepos } from '../services/HubRepos.js';
+import { giteaHubRepos, type HubRepoHook } from '../services/HubRepos.js';
 import { RemoteHub, RootHubAccess } from '../services/HubRemote.js';
 import { HubSyncService, localHubSync } from '../services/HubSyncService.js';
 import { HubInstanceWork, type HubInstanceWorkDeps } from '../services/HubInstanceWork.js';
@@ -23,7 +23,9 @@ import { extensionSummary } from '../../engine/routes/engine.js';
 import { hubRouter } from '../routes/hub.js';
 import { hubLinkRouter } from '../routes/hub-link.js';
 import { hubRootRouter } from '../routes/hub-root.js';
-import { hubInstanceRouter } from '../routes/hub-instance.js';
+import { hubInstanceRouter, instanceOrigin } from '../routes/hub-instance.js';
+import { wireHubLines } from './hub-lines.js';
+import type { Server as SocketServer } from 'socket.io';
 import { projectSharingRouter } from '../routes/project-sharing.js';
 
 export type Mounts = { use(path: string, router: express.Router): unknown };
@@ -37,10 +39,11 @@ export interface HubWiringDeps {
   mail: MailService;
   publicUrl: string;
   dataKey: SecretKey;
-  gitea: Pick<GiteaService, 'ensureOrg' | 'ensureOrgRepo' | 'letWrite' | 'createUserAccount' | 'createPushToken' | 'deleteUser' | 'deleteRepo' | 'deleteOrg' | 'repoGitUrl' | 'listPaths' | 'getRawFile' | 'getAdminCredentials'>;
+  gitea: Pick<GiteaService, 'ensureOrg' | 'ensureOrgRepo' | 'letWrite' | 'createUserAccount' | 'createPushToken' | 'deleteUser' | 'deleteRepo' | 'deleteOrg' | 'repoGitUrl' | 'listPaths' | 'getRawFile' | 'getAdminCredentials' | 'replaceWebhook'>;
+  hubRepoHook?: HubRepoHook | undefined;
   notify: (ownerId: string, scope: { projectId: string; treeId?: string | undefined }, notice: ConversationNotice) => Promise<unknown>;
   republish: () => Promise<void>;
-  syncEveryMs?: number | undefined;
+  io?: Pick<SocketServer, 'of'> | undefined;
   revocations?: Pick<AccessRevocations, 'revoked'> | undefined;
   serviceCaller?: ((token: string) => Promise<{ clientId: string; kind: 'instance' | 'hub' } | undefined>) | undefined;
   rootToken?: (() => Promise<string>) | undefined;
@@ -54,6 +57,7 @@ export interface HubWiring {
   sharingService: ProjectSharingService | undefined;
   reaches: boolean;
   setWork(work: HubInstanceWork): void;
+  repoPushed(projectId: string): Promise<void>;
 }
 
 export async function wireHub(deps: HubWiringDeps): Promise<HubWiring> {
@@ -69,9 +73,14 @@ export async function wireHub(deps: HubWiringDeps): Promise<HubWiring> {
     await hubStore.init();
     const sender = role.hub && deps.rootToken ? new HubRootClient({ rootUrl: role.hub.rootUrl, token: deps.rootToken }) : projectInvites;
     if (!sender) throw new Error('a hub needs root to send its invites');
-    hubService = new HubService({ store: hubStore, invites: sender, repos: giteaHubRepos(deps.gitea), relay: new HubRelay(), ...(deps.revocations && servesTenants(deps.role) ? { revocations: deps.revocations } : {}) });
+    hubService = new HubService({ store: hubStore, invites: sender, repos: giteaHubRepos(deps.gitea, deps.hubRepoHook), relay: new HubRelay(), ...(deps.revocations && servesTenants(deps.role) ? { revocations: deps.revocations } : {}) });
     app.use('/api/hub', hubRouter({ hub: hubService, vouch: deps.vouch }));
-    if (role.role === 'hub' && role.trusted) app.use('/api/hub-instance', hubInstanceRouter({ hub: hubService, trusted: role.trusted, claim: (jti, expiresAt) => db.instances.claimHandoff(jti, expiresAt) }));
+    if (role.role === 'hub' && role.trusted) {
+      const trusted = role.trusted;
+      const claim: UsedTokenClaim = (jti, expiresAt) => db.instances.claimHandoff(jti, expiresAt);
+      app.use('/api/hub-instance', hubInstanceRouter({ hub: hubService, trusted, claim }));
+      if (deps.io) wireHubLines(deps.io, hubService, (given) => instanceOrigin(given, trusted, claim));
+    }
     if (role.role === 'hub' && role.trusted) app.use('/api/hub-root', hubRootRouter({ hub: hubService, trusted: role.trusted, forget: (id) => db.accounts.deleteUser(id), claim: (jti, expiresAt) => db.instances.claimHandoff(jti, expiresAt) }));
   }
 
@@ -87,6 +96,7 @@ export async function wireHub(deps: HubWiringDeps): Promise<HubWiring> {
 
   let work: HubInstanceWork | undefined;
   let sharingService: ProjectSharingService | undefined;
+  let hubSyncing: HubSyncService | undefined;
   if (reach) {
     const hubSync = new HubSyncService({
       store: db.hub,
@@ -115,7 +125,9 @@ export async function wireHub(deps: HubWiringDeps): Promise<HubWiring> {
       },
       domain: env.INGRESS_DOMAIN || undefined,
     });
-    hubSync.start(deps.syncEveryMs ?? 3_000);
+    hubSyncing = hubSync;
+    db.releases.watchReleaseWork(() => hubSync.statusMoved());
+    await hubSync.start();
     tenant.use('/api/project-sharing', projectSharingRouter({ sharing: sharingService }));
   }
 
@@ -129,6 +141,9 @@ export async function wireHub(deps: HubWiringDeps): Promise<HubWiring> {
     sharingService,
     reaches: reach !== undefined,
     setWork: (given) => { work = given; },
+    repoPushed: async (projectId) => {
+      if (hubSyncing && (await db.hub.getHubLinks()).some((link) => link.projectId === projectId)) hubSyncing.repoMoved();
+    },
   };
 }
 

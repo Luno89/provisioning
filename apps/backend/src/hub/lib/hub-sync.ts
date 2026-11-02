@@ -1,4 +1,5 @@
 import type { ConversationMessage } from '../../engine/index.js';
+import type { Watching } from '../../platform/index.js';
 
 export const SYNCED_KINDS = ['trees', 'branches', 'leaves', 'tasks', 'conversations', 'planProposals'] as const;
 export type SyncedKind = typeof SYNCED_KINDS[number];
@@ -159,6 +160,7 @@ export interface HubSyncStore {
   markForHub(kind: SyncedKind, id: string, deleted: boolean): Promise<void>;
   hubDirty(limit: number): Promise<HubDirty[]>;
   clearHubDirty(entries: readonly HubDirty[]): Promise<void>;
+  watchHubDirty(on: () => void): Watching;
   syncedRecord(kind: SyncedKind, id: string): Promise<SyncedDoc | undefined>;
   patchSyncedRecord(kind: SyncedKind, id: string, patch: RecordPatch): Promise<void>;
   deleteSyncedRecord(kind: SyncedKind, id: string): Promise<void>;

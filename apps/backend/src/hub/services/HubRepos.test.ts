@@ -30,6 +30,13 @@ describe('the hub\'s repository for a shared project', () => {
     expect(server.createPushToken).toHaveBeenCalledWith('shared-abc-bot', 'pw');
   });
 
+  it('sends its pushes to the hub, signed with the project\'s own secret, so the owner\'s instance hears its main moved', async () => {
+    const server = gitea();
+    await giteaHubRepos(server, { url: async (projectId) => `http://10.0.0.2:3001/webhooks/hub-repo/${projectId}`, secret: (projectId) => `secret-of-${projectId}` }).create('abc');
+    expect(server.replaceWebhook).toHaveBeenCalledWith('shared-abc', 'project', 'http://10.0.0.2:3001/webhooks/hub-repo/abc', 'secret-of-abc');
+    await giteaHubRepos(gitea()).create('abc');
+  });
+
   it('takes the repository, the bot and the organisation away', async () => {
     const server = gitea();
     await giteaHubRepos(server).remove('abc');

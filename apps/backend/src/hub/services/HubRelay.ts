@@ -22,6 +22,11 @@ export type RelayAnswer =
   | { kind: 'json'; status: number; body: unknown }
   | { kind: 'stream'; status: number; type: string; name?: string | undefined; size?: number | undefined; stream: Readable };
 
+export interface InstanceLine {
+  call(call: RelayCall): void;
+  changed(projectId: string): void;
+}
+
 export class InstanceOffline extends Error {
   constructor(why = 'The owner\'s instance is offline, so this cannot be read until it is back.') {
     super(why);
@@ -31,72 +36,49 @@ export class InstanceOffline extends Error {
 
 interface Pending {
   call: RelayCall;
+  line: InstanceLine;
   resolve: (answer: RelayAnswer) => void;
   reject: (err: Error) => void;
 }
 
-interface Place {
-  pollers: ((call: RelayCall | undefined) => void)[];
-  queue: Pending[];
-  lastSeen: number;
-}
-
-export const OFFLINE_AFTER_MS = 10_000;
-
 export class HubRelay {
-  private readonly places = new Map<string, Place>();
+  private readonly lines = new Map<string, Set<InstanceLine>>();
   private readonly pending = new Map<string, Pending>();
-  private readonly watch: ReturnType<typeof setInterval>;
 
-  constructor(private readonly now: () => number = Date.now, checkEveryMs = 2_000) {
-    this.watch = setInterval(() => this.check(), checkEveryMs);
-    this.watch.unref?.();
+  connect(instanceId: string, line: InstanceLine): () => void {
+    const lines = this.lines.get(instanceId) ?? new Set<InstanceLine>();
+    lines.add(line);
+    this.lines.set(instanceId, lines);
+    return () => this.disconnect(instanceId, line);
   }
 
-  private place(projectId: string): Place {
-    let place = this.places.get(projectId);
-    if (!place) { place = { pollers: [], queue: [], lastSeen: 0 }; this.places.set(projectId, place); }
-    return place;
+  private disconnect(instanceId: string, line: InstanceLine): void {
+    const lines = this.lines.get(instanceId);
+    lines?.delete(line);
+    if (lines?.size === 0) this.lines.delete(instanceId);
+    for (const [callId, entry] of this.pending) {
+      if (entry.line !== line) continue;
+      this.pending.delete(callId);
+      entry.reject(new InstanceOffline('The owner\'s instance went offline before it answered.'));
+    }
   }
 
-  online(projectId: string): boolean {
-    const place = this.places.get(projectId);
-    return Boolean(place && (place.pollers.length > 0 || this.now() - place.lastSeen < OFFLINE_AFTER_MS));
+  online(instanceId: string | undefined): boolean {
+    return Boolean(instanceId && this.lines.get(instanceId)?.size);
   }
 
-  call(projectId: string, op: RelayOp, args: Record<string, unknown>, as: RelayCaller, upload?: RelayCall['upload']): Promise<RelayAnswer> {
-    if (!this.online(projectId)) return Promise.reject(new InstanceOffline());
-    const place = this.place(projectId);
+  call(instanceId: string | undefined, projectId: string, op: RelayOp, args: Record<string, unknown>, as: RelayCaller, upload?: RelayCall['upload']): Promise<RelayAnswer> {
+    const line = instanceId ? this.lines.get(instanceId)?.values().next().value : undefined;
+    if (!line) return Promise.reject(new InstanceOffline());
     return new Promise<RelayAnswer>((resolve, reject) => {
       const call: RelayCall = { id: randomBytes(12).toString('hex'), projectId, op, args, as, ...(upload ? { upload } : {}) };
-      const entry: Pending = { call, resolve, reject };
-      this.pending.set(call.id, entry);
-      const poller = place.pollers.shift();
-      if (poller) poller(call);
-      else place.queue.push(entry);
+      this.pending.set(call.id, { call, line, resolve, reject });
+      line.call(call);
     });
   }
 
-  take(projectId: string, closed: Promise<void>): Promise<RelayCall | undefined> {
-    const place = this.place(projectId);
-    place.lastSeen = this.now();
-    const queued = place.queue.shift();
-    if (queued) return Promise.resolve(queued.call);
-    return new Promise<RelayCall | undefined>((resolve) => {
-      const poller = (call: RelayCall | undefined) => {
-        place.lastSeen = this.now();
-        resolve(call);
-      };
-      place.pollers.push(poller);
-      void closed.then(() => {
-        const at = place.pollers.indexOf(poller);
-        if (at >= 0) {
-          place.pollers.splice(at, 1);
-          place.lastSeen = this.now();
-          resolve(undefined);
-        }
-      });
-    });
+  changed(instanceId: string | undefined, projectId: string): void {
+    for (const line of (instanceId ? this.lines.get(instanceId) : undefined) ?? []) line.changed(projectId);
   }
 
   callOf(callId: string): RelayCall | undefined {
@@ -109,21 +91,5 @@ export class HubRelay {
     this.pending.delete(callId);
     entry.resolve(answer);
     return true;
-  }
-
-  private check(): void {
-    for (const [projectId, place] of this.places) {
-      if (this.online(projectId)) continue;
-      for (const entry of [...this.pending.values()].filter((candidate) => candidate.call.projectId === projectId)) {
-        this.pending.delete(entry.call.id);
-        entry.reject(new InstanceOffline('The owner\'s instance went offline before it answered.'));
-      }
-      place.queue = [];
-      if (place.pollers.length === 0) this.places.delete(projectId);
-    }
-  }
-
-  stop(): void {
-    clearInterval(this.watch);
   }
 }

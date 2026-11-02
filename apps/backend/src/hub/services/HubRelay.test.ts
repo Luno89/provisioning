@@ -1,73 +1,68 @@
-import { describe, expect, it, vi } from 'vitest';
-import { HubRelay, InstanceOffline, OFFLINE_AFTER_MS } from './HubRelay.js';
+import { describe, expect, it } from 'vitest';
+import { HubRelay, InstanceOffline, type InstanceLine, type RelayCall } from './HubRelay.js';
 
 const bo = { personId: 'bo', email: 'bo@example.com', role: 'collaborator' as const };
 
+const line = () => {
+  const calls: RelayCall[] = [];
+  const changed: string[] = [];
+  const held: InstanceLine = { call: (call) => calls.push(call), changed: (projectId) => changed.push(projectId) };
+  return { held, calls, changed };
+};
+
 describe('relaying a member\'s call to the owner\'s instance', () => {
-  it('refuses at once while the owner\'s instance is not listening', async () => {
-    const relay = new HubRelay(Date.now, 60_000);
-    await expect(relay.call('p', 'files.list', { dir: '' }, bo)).rejects.toBeInstanceOf(InstanceOffline);
-    relay.stop();
+  it('refuses at once while the owner\'s instance is not connected', async () => {
+    const relay = new HubRelay();
+    expect(relay.online('inst-1')).toBe(false);
+    await expect(relay.call('inst-1', 'p', 'extensions', {}, bo)).rejects.toBeInstanceOf(InstanceOffline);
+    await expect(relay.call(undefined, 'p', 'extensions', {}, bo)).rejects.toBeInstanceOf(InstanceOffline);
   });
 
-  it('hands a call to the instance that is waiting for one, and its answer back', async () => {
-    const relay = new HubRelay(Date.now, 60_000);
-    const taking = relay.take('p', new Promise(() => undefined));
-    const answered = relay.call('p', 'files.list', { dir: '' }, bo);
-    const call = await taking;
-    expect(call).toMatchObject({ op: 'files.list', args: { dir: '' }, as: bo });
-    relay.answer(call!.id, { kind: 'json', status: 200, body: [] });
-    expect(await answered).toEqual({ kind: 'json', status: 200, body: [] });
-    relay.stop();
-  });
-
-  it('queues a call made between two polls and hands it to the next one', async () => {
-    const relay = new HubRelay(Date.now, 60_000);
-    let close!: () => void;
-    const polling = relay.take('p', new Promise<void>((resolve) => { close = resolve; }));
-    close();
-    expect(await polling).toBeUndefined();
-    expect(relay.online('p')).toBe(true);
-    const answered = relay.call('p', 'turns', { turnId: 't' }, bo);
-    const call = await relay.take('p', new Promise(() => undefined));
-    expect(call?.op).toBe('turns');
-    relay.answer(call!.id, { kind: 'json', status: 200, body: { entries: [] } });
-    expect(await answered).toMatchObject({ status: 200 });
-    relay.stop();
-  });
-
-  it('fails calls the instance took but never answered once it stops polling', async () => {
-    vi.useFakeTimers();
-    let now = 0;
-    const relay = new HubRelay(() => now, 1_000);
-    let close!: () => void;
-    const polling = relay.take('p', new Promise<void>((resolve) => { close = resolve; }));
-    const taken = relay.call('p', 'turns', { turnId: 't' }, bo).catch((err: Error) => err);
-    expect((await polling)?.op).toBe('turns');
-    const queued = relay.call('p', 'extensions', {}, bo).catch((err: Error) => err);
-    close();
-    now += OFFLINE_AFTER_MS + 1;
-    await vi.advanceTimersByTimeAsync(1_000);
-    expect(await taken).toBeInstanceOf(InstanceOffline);
-    expect(await queued).toBeInstanceOf(InstanceOffline);
-    expect(relay.online('p')).toBe(false);
-    relay.stop();
-    vi.useRealTimers();
-  });
-});
-
-describe('looking up a call that is waiting for its answer', () => {
-  it('finds a call from the moment it is made until it is answered', async () => {
-    const relay = new HubRelay(Date.now, 60_000);
-    const taking = relay.take('p', new Promise(() => undefined));
-    const answered = relay.call('p', 'extensions', {}, bo);
-    const call = await taking;
+  it('hands a call to the instance\'s line and its answer back, and finds the call until it is answered', async () => {
+    const relay = new HubRelay();
+    const one = line();
+    relay.connect('inst-1', one.held);
+    const asked = relay.call('inst-1', 'p', 'turns', { turnId: 't' }, bo);
+    const [call] = one.calls;
+    expect(call).toMatchObject({ projectId: 'p', op: 'turns', args: { turnId: 't' }, as: bo });
     expect(relay.callOf(call!.id)).toBe(call);
-    relay.answer(call!.id, { kind: 'json', status: 200, body: null });
-    await answered;
+    expect(relay.answer(call!.id, { kind: 'json', status: 200, body: ['x'] })).toBe(true);
+    expect(await asked).toEqual({ kind: 'json', status: 200, body: ['x'] });
     expect(relay.callOf(call!.id)).toBeUndefined();
-    expect(relay.callOf('never-made')).toBeUndefined();
-    expect(relay.answer('never-made', { kind: 'json', status: 200, body: null })).toBe(false);
-    relay.stop();
+    expect(relay.answer(call!.id, { kind: 'json', status: 200, body: [] })).toBe(false);
+  });
+
+  it('tells every line of the instance that a project changed, and no other instance', () => {
+    const relay = new HubRelay();
+    const [first, second, other] = [line(), line(), line()];
+    relay.connect('inst-1', first.held);
+    relay.connect('inst-1', second.held);
+    relay.connect('inst-2', other.held);
+    relay.changed('inst-1', 'p');
+    relay.changed(undefined, 'q');
+    expect(first.changed).toEqual(['p']);
+    expect(second.changed).toEqual(['p']);
+    expect(other.changed).toEqual([]);
+  });
+
+  it('fails at once the calls a line took and never answered when that line closes, and is offline once its last line has', async () => {
+    const relay = new HubRelay();
+    const [first, second] = [line(), line()];
+    const closeFirst = relay.connect('inst-1', first.held);
+    const asked = relay.call('inst-1', 'p', 'turns', {}, bo).catch((err: Error) => err);
+    const closeSecond = relay.connect('inst-1', second.held);
+
+    closeFirst();
+    const lost = await asked;
+    expect(lost).toBeInstanceOf(InstanceOffline);
+    expect((lost as Error).message).toBe('The owner\'s instance went offline before it answered.');
+    expect(relay.online('inst-1')).toBe(true);
+
+    const kept = relay.call('inst-1', 'p', 'extensions', {}, bo);
+    relay.answer(second.calls[0]!.id, { kind: 'json', status: 200, body: [] });
+    expect(await kept).toEqual({ kind: 'json', status: 200, body: [] });
+
+    closeSecond();
+    expect(relay.online('inst-1')).toBe(false);
   });
 });
