@@ -199,6 +199,15 @@ export function hubServiceBehaviour(make: () => Promise<HubStore>): void {
       expect(await store.project(id).invites()).toEqual([]);
       expect(valueOf(await hub.view('ann', id)).invites).toEqual([]);
     });
+
+    it('leaves no invite behind when root cannot be asked, and says why', async () => {
+      const store = await make();
+      const hub = new HubService({ store, invites: { send: async () => { throw new Error('root did not answer'); } }, now: () => 'now' });
+      const id = valueOf(await hub.create(ann, { name: 'Shop' })).project.id;
+      await expect(hub.invite(ann, id, { email: 'cy@example.com', role: 'client' })).rejects.toThrow('root did not answer');
+      expect(await store.project(id).invites()).toEqual([]);
+      expect(valueOf(await hub.view('ann', id)).invites).toEqual([]);
+    });
   });
 
   describe('taking someone off a shared project ends what Koala was doing for them', () => {

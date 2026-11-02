@@ -122,7 +122,7 @@ export function convert(dir = LIVE, root = ROOT): number {
 }
 
 export function recordLive(suites: readonly string[]): void {
-  record(OUT, { artifact: 'live', source: sourceOf(), commit: commitOf(), at: new Date().toISOString(), workspaces: [...suites], complete: true, timings: {} });
+  record(OUT, { artifact: 'live', source: sourceOf(ROOT, 'production'), commit: commitOf(), at: new Date().toISOString(), workspaces: [...suites], complete: true, timings: {} });
 }
 
 async function main(command: string | undefined, label: string | undefined): Promise<void> {

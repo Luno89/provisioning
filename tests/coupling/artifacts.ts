@@ -27,15 +27,22 @@ const git = (root: string, args: readonly string[]): string => execFileSync('git
 
 export const commitOf = (root = ROOT): string => git(root, ['rev-parse', '--short=12', 'HEAD']).trim();
 
-export function sourceOf(root = ROOT): string {
+export type SourceScope = 'all' | 'production';
+
+const NOT_PRODUCTION = [':(exclude,glob)**/*.test.ts', ':(exclude,glob)**/*.test.tsx', ':(exclude,glob)**/*.test.mjs', ':(exclude,glob)**/testing/**'];
+
+export function sourceOf(root = ROOT, scope: SourceScope = 'all'): string {
   const hash = createHash('sha256');
-  hash.update(git(root, ['rev-parse', ...SOURCE_PATHS.map((path) => `HEAD:${path}`)]));
-  hash.update(git(root, ['diff', 'HEAD', '--', ...SOURCE_PATHS]));
-  for (const file of git(root, ['ls-files', '--others', '--exclude-standard', '--', ...SOURCE_PATHS]).split('\n').filter(Boolean)) {
+  const paths = scope === 'all' ? SOURCE_PATHS : [...SOURCE_PATHS, ...NOT_PRODUCTION];
+  hash.update(scope === 'all' ? git(root, ['rev-parse', ...SOURCE_PATHS.map((path) => `HEAD:${path}`)]) : git(root, ['ls-files', '-s', '--', ...paths]));
+  hash.update(git(root, ['diff', 'HEAD', '--', ...paths]));
+  for (const file of git(root, ['ls-files', '--others', '--exclude-standard', '--', ...paths]).split('\n').filter(Boolean)) {
     hash.update(file).update(readFileSync(join(root, file)));
   }
   return hash.digest('hex').slice(0, 16);
 }
+
+export const SCOPE_OF: Record<Artifact, SourceScope> = { 'in-process': 'all', live: 'production' };
 
 export const runsOf = (out: string, artifact: Artifact): string => join(out, artifact, 'runs');
 const gatheredFile = (out: string, artifact: Artifact): string => join(out, artifact, 'gathered.json');
@@ -56,13 +63,13 @@ export function record(out: string, gathered: Gathered): void {
 
 export interface Usable { artifacts: Set<Artifact>; problems: string[] }
 
-export function usableIn(gathered: Partial<Record<Artifact, Gathered>>, source: string): Usable {
+export function usableIn(gathered: Partial<Record<Artifact, Gathered>>, sources: Record<SourceScope, string>): Usable {
   const artifacts = new Set<Artifact>();
   const problems: string[] = [];
   for (const artifact of ARTIFACTS) {
     const entry = gathered[artifact];
     if (!entry) continue;
-    if (entry.source !== source) problems.push(`${artifact} was gathered from other code (${entry.commit}, ${entry.at}): gather it again`);
+    if (entry.source !== sources[SCOPE_OF[artifact]]) problems.push(`${artifact} was gathered from other code (${entry.commit}, ${entry.at}): gather it again`);
     else if (!entry.complete) problems.push(`${artifact} was gathered for ${entry.workspaces.join(', ')} only, so it judges nothing`);
     else {
       const failed = Object.entries(entry.timings).filter(([, timing]) => !timing.passed).map(([name]) => name);

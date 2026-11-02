@@ -380,10 +380,17 @@ export class HubService {
     };
     await access.store.saveInvite(invite);
     await this.deps.store.indexInvite(invite.token, projectId);
-    const sent = await this.deps.invites.send({ email: invite.email, inviterId: person.id, inviterEmail: person.email, projectName: access.project.name, role: invite.role, join: invite.token }, person);
-    if ('refused' in sent) {
+    const unsent = async (): Promise<void> => {
       await access.store.deleteInvite(invite.token);
       await this.deps.store.forgetInvite(invite.token);
+    };
+    const sent = await this.deps.invites.send({ email: invite.email, inviterId: person.id, inviterEmail: person.email, projectName: access.project.name, role: invite.role, join: invite.token }, person)
+      .catch(async (err: unknown) => {
+        await unsent();
+        throw err;
+      });
+    if ('refused' in sent) {
+      await unsent();
       return { ok: false, status: 429, why: sent.refused };
     }
     return { ok: true, value: { email: invite.email, role: invite.role, ...sent } };

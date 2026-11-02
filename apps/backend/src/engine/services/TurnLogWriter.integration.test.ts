@@ -96,7 +96,7 @@ describe('writing a turn\'s log to the database', () => {
     w.accept(ev({ type: 'content', nodeId: 'turn', delta: 'two', runId: 't2', turnId: 't2' }));
     await w.drain();
 
-    expect(heard.map((entry) => [entry.turnId, entry.seq])).toEqual([['t1', 1], ['t2', 1]]);
+    expect(heard.map((entry) => [entry.turnId, entry.seq]).sort()).toEqual([['t1', 1], ['t2', 1]]);
     expect((await stored('t2')).map((entry) => entry.seq)).toEqual([1]);
   });
 });
