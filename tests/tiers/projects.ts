@@ -5,6 +5,7 @@ const here = (file: string): string => fileURLToPath(new URL(file, import.meta.u
 
 export const INTEGRATION = '**/*.integration.test.{ts,tsx,mjs}';
 const UNIT_GUARD = here('./unit-guard.ts');
+const OWN_HOME = here('./home.ts');
 const COUPLING = here('../coupling/vitest-setup.ts');
 
 export interface Tiers {
@@ -21,7 +22,7 @@ export function tiers(options: Tiers): TestProjectInlineConfiguration[] {
   return [
     {
       extends: true,
-      test: { name: 'unit', include: options.include, exclude: [...exclude, INTEGRATION, ...integration], setupFiles: [UNIT_GUARD, ...setup, COUPLING] },
+      test: { name: 'unit', include: options.include, exclude: [...exclude, INTEGRATION, ...integration], setupFiles: [OWN_HOME, UNIT_GUARD, ...setup, COUPLING] },
     },
     {
       extends: true,
@@ -30,7 +31,7 @@ export function tiers(options: Tiers): TestProjectInlineConfiguration[] {
         include: integration,
         exclude,
         globalSetup: options.integration?.globalSetup ?? [],
-        setupFiles: [...setup, ...(options.integration?.setupFiles ?? []), COUPLING],
+        setupFiles: [OWN_HOME, ...setup, ...(options.integration?.setupFiles ?? []), COUPLING],
       },
     },
   ];

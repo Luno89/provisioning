@@ -1,5 +1,5 @@
-import { existsSync, mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mock, mockFn } from 'vitest-mock-extended';
@@ -216,5 +216,38 @@ describe('aborting a cluster', () => {
     await vi.waitFor(async () => expect(await db.infrastructure.getClusters()).toEqual([]));
     expect(bridge.terminateWorkflow).toHaveBeenCalledWith('wf-1', 'User aborted cluster provisioning');
     expect(infra.deleteLocalCluster).toHaveBeenCalled();
+  });
+});
+
+describe('the kubeconfig a deleted cluster leaves', () => {
+  const own = () => {
+    const kube = join(homedir(), '.kube');
+    mkdirSync(kube, { recursive: true });
+    writeFileSync(join(kube, 'config'), 'the operator keeps every cluster here');
+    return join(kube, 'config');
+  };
+
+  it('removes only the file Koala wrote for that cluster, even when its own kubeconfig cannot be fetched', async () => {
+    const { service, db, infra, kubeconfigDir } = setup();
+    const operators = own();
+    infra.getLogPath.mockReturnValue('/tmp/delete.log');
+    await db.infrastructure.saveCluster(k3d('gpu', 'healthy', { gpuEnabled: true }));
+    writeFileSync(join(kubeconfigDir, 'kubeconfig-other'), 'another cluster');
+    await service.delete('gpu', asPerson('bo'));
+    await vi.waitFor(async () => expect(await db.infrastructure.getClusters()).toEqual([]));
+    expect(readFileSync(operators, 'utf8')).toBe('the operator keeps every cluster here');
+    expect(existsSync(join(kubeconfigDir, 'kubeconfig-other'))).toBe(true);
+  });
+
+  it('removes the file it wrote for a cluster it aborts, and nothing of the operator\'s', async () => {
+    const { service, db, infra, kubeconfigDir } = setup();
+    const operators = own();
+    infra.getLogPath.mockReturnValue('/tmp/abort.log');
+    await db.infrastructure.saveCluster(k3d('gpu', 'provisioning', { gpuEnabled: true }));
+    writeFileSync(join(kubeconfigDir, 'kubeconfig-gpu'), 'written for it');
+    await service.abort('gpu', asPerson('bo'));
+    await vi.waitFor(async () => expect(await db.infrastructure.getClusters()).toEqual([]));
+    expect(existsSync(join(kubeconfigDir, 'kubeconfig-gpu'))).toBe(false);
+    expect(readFileSync(operators, 'utf8')).toBe('the operator keeps every cluster here');
   });
 });

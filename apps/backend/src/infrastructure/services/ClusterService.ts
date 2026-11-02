@@ -131,6 +131,10 @@ export class ClusterService extends BaseService {
     return cluster.kubeconfigPath || DEFAULT_KUBECONFIG;
   }
 
+  private writtenKubeconfig(cluster: ClusterMetadata): string {
+    return `${this.kubeconfigDir}/kubeconfig-${this.getPhysicalClusterName(cluster)}`;
+  }
+
   private async getOwnKubeconfigPath(cluster: ClusterMetadata): Promise<string> {
     const resolved = await this.getKubeconfigPath(cluster);
     const selfManaged = cluster.provider === 'hetzner' || cluster.provider === 'remote';
@@ -535,8 +539,8 @@ export class ClusterService extends BaseService {
         const kubeconfigPath = await this.getKubeconfigPath(cluster);
 
         if (cluster.gpuEnabled) {
-          await fs.rm(kubeconfigPath, { force: true }).catch((err: unknown) => {
-            this.logger.warn(`Could not remove the kubeconfig at ${kubeconfigPath}, so a new cluster of this name would find it: ${(err as Error).message}`);
+          await fs.rm(this.writtenKubeconfig(cluster), { force: true }).catch((err: unknown) => {
+            this.logger.warn(`Could not remove the kubeconfig at ${this.writtenKubeconfig(cluster)}, so a new cluster of this name would find it: ${(err as Error).message}`);
           });
           await this.db.infrastructure.deleteCluster(id);
           if (io) io.to(`user:${cluster.ownerId}`).emit('resource-destroyed', { id, type: 'cluster', name: cluster.name });
@@ -556,8 +560,8 @@ export class ClusterService extends BaseService {
         if (cluster.provider === 'k3d' || isMock) {
             await this.infra.deleteLocalCluster(physicalName, { logFile, io, resourceId: id });
             await this.infra.disconnectNginxFromNetwork(physicalName);
-            await fs.rm(kubeconfigPath, { force: true }).catch((err: unknown) => {
-              this.logger.warn(`Could not remove the kubeconfig at ${kubeconfigPath}, so a new cluster of this name would find it: ${(err as Error).message}`);
+            await fs.rm(this.writtenKubeconfig(cluster), { force: true }).catch((err: unknown) => {
+              this.logger.warn(`Could not remove the kubeconfig at ${this.writtenKubeconfig(cluster)}, so a new cluster of this name would find it: ${(err as Error).message}`);
             });
         }
 
@@ -587,14 +591,14 @@ export class ClusterService extends BaseService {
         const kubeconfigPath = await this.getKubeconfigPath(cluster);
 
         if (cluster.gpuEnabled) {
-          await fs.rm(kubeconfigPath, { force: true }).catch((err: unknown) => {
-            this.logger.warn(`Could not remove the kubeconfig at ${kubeconfigPath} during abort: ${(err as Error).message}`);
+          await fs.rm(this.writtenKubeconfig(cluster), { force: true }).catch((err: unknown) => {
+            this.logger.warn(`Could not remove the kubeconfig at ${this.writtenKubeconfig(cluster)} during abort: ${(err as Error).message}`);
           });
         } else if (cluster.provider === 'k3d' || isMock) {
           try {
             await this.infra.deleteLocalCluster(physicalName, { logFile, io, resourceId: id });
             await this.infra.disconnectNginxFromNetwork(physicalName);
-            await fs.rm(kubeconfigPath, { force: true });
+            await fs.rm(this.writtenKubeconfig(cluster), { force: true });
           } catch (err) {
             this.logger.warn(`Error deleting physical cluster during abort: ${(err as Error).message}`);
           }
