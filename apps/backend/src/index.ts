@@ -341,7 +341,8 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     providers: new SignInProviders({ providers: signInWith.providers, publicUrl: PUBLIC_URL, sessionKey: keys.session, accounts: authService }), passwords,
   }));
   if (holdsAccounts(role)) app.use('/api/auth/password', passwordRouter({ passwords, auth, devices, sessionKey: keys.session }));
-  const hubBackend = backendAddress(infraService, '/tmp/kubeconfig-provisioning-lunorica', port);
+  const giteaReachesUs = process.env.GITEA_REACHES_KOALA_AT?.trim();
+  const hubBackend = giteaReachesUs ? async () => giteaReachesUs : backendAddress(infraService, '/tmp/kubeconfig-provisioning-lunorica', port);
   const hub = await wireHub({
     role, env: process.env, app, tenant, db, mail, publicUrl: PUBLIC_URL, dataKey: keys.data, gitea: giteaService, io,
     hubRepoHook: {

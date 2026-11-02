@@ -122,13 +122,14 @@ export const answers = async (url: string): Promise<true | undefined> => {
 const DEV_KUBECONFIG = '/tmp/kubeconfig-provisioning-lunorica';
 const GITEA_SECRETS = ['.gitea-admin-password'];
 
-function devGitea(): { url: string; mounts: string[] } {
+function devGitea(): { url: string; host: string; mounts: string[] } {
   const kubectl = (args: string[]) => execFileSync(devFile('bin/kubectl'), ['--kubeconfig', DEV_KUBECONFIG, ...args], { encoding: 'utf8' }).trim();
   const port = kubectl(['-n', 'gitea', 'get', 'svc', 'gitea-http', '-o', 'jsonpath={.spec.ports[0].nodePort}']);
   const host = kubectl(['get', 'nodes', '-o', 'jsonpath={.items[0].status.addresses[?(@.type=="InternalIP")].address}']).split(/\s+/)[0];
   if (!port || !host) throw new Error('the dev stack\'s Gitea has no address this suite can find');
   return {
     url: `http://${host}:${port}`,
+    host,
     mounts: devDataMounts(GITEA_SECRETS),
   };
 }
@@ -220,7 +221,7 @@ export async function startSplitStack(options: { engine?: boolean; hubGitea?: bo
     backend('instance', { ...plan.instanceEnv, ...shared(ports.instanceGateway) });
     if (options.engine) backend('instance-engine', { ...plan.instanceEnv, ...shared(ports.instanceGateway), HEALTH_PORT: '0', TEMPORAL_ENGINE_METRICS_PORT: String(ports.engineMetrics) }, 'worker-engine');
     const gitea = options.hubGitea ? devGitea() : undefined;
-    backend('hub', { ...plan.hubEnv, ...shared(ports.hubGateway), ...(gitea ? { GITEA_URL: gitea.url } : {}) }, 'backend', gitea?.mounts ?? []);
+    backend('hub', { ...plan.hubEnv, ...shared(ports.hubGateway), ...(gitea ? { GITEA_URL: gitea.url, GITEA_REACHES_KOALA_AT: `http://${gitea.host}:${ports.hub}` } : {}) }, 'backend', gitea?.mounts ?? []);
     await until('the instance answering', () => answers(`${place.instanceUrl}/api/auth/sign-in`), () => logs('instance'));
     await until('the hub answering', () => answers(`${place.hubUrl}/api/auth/sign-in`), () => logs('hub'));
     const asOwner = fetchSide(place.rootUrl, owner.cookie);
