@@ -5,6 +5,7 @@ import { stillRoutedTo, type EndpointSlices, type PodPlace } from '../lib/drain.
 
 const ACCOUNT = '/var/run/secrets/kubernetes.io/serviceaccount';
 const LOOK_AGAIN_MS = 500;
+export const PROXIES_CATCH_UP_MS = 10_000;
 
 export interface Reconnectable {
   disconnectSockets(close: boolean): unknown;
@@ -16,6 +17,7 @@ export interface DrainDeps {
   server: Server;
   sockets: Reconnectable;
   log: (line: string) => void;
+  wait?: ((ms: number) => Promise<void>) | undefined;
 }
 
 export async function inClusterSlices(namespace: string): Promise<EndpointSlices> {
@@ -46,6 +48,8 @@ export async function drainThenStop(deps: DrainDeps): Promise<void> {
       if (!routed) break;
       await new Promise((done) => setTimeout(done, LOOK_AGAIN_MS));
     }
+    deps.log(`[drain] no service lists ${deps.place.ip} as ready, so it serves ${PROXIES_CATCH_UP_MS / 1000} s more while every node's proxy catches up`);
+    await (deps.wait ?? ((ms) => new Promise<void>((done) => setTimeout(done, ms))))(PROXIES_CATCH_UP_MS);
   }
   deps.log('[drain] answering what still comes with Connection: close, until no connection is left');
   deps.server.prependListener('request', (_request, answer) => answer.setHeader('Connection', 'close'));

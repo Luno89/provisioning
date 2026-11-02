@@ -2084,7 +2084,7 @@ instance, without passing its gates first (owner, 2026-10-23: "all those checks 
   reports are `UPGRADE_WORDS`, which the rehearsal and byo-live wait for. Release channels (rc, LTS) are a later conversation.
   **An upgrade drops no request** (owner 2026-10-27: drain on events): told to stop in its pod (`POD_IP`, `POD_NAMESPACE` from the
   chart), the backend keeps serving until no EndpointSlice in its namespace lists its pod ready, nor its pod beside only a
-  replacement still starting, which kube-proxy would not yet send to (`stillRoutedTo` in `platform/lib/drain.ts`, read with its service account), then answers everything with `Connection: close`, tells socket.io
+  replacement still starting, which kube-proxy would not yet send to (`stillRoutedTo` in `platform/lib/drain.ts`, read with its service account), then serves as before for `PROXIES_CATCH_UP_MS` (10 s) more, since Kubernetes gives no signal that every node's kube-proxy has dropped it and byo-live once caught a request sent to the old pod 1.5 s after it was unlisted (the pre-stop wait Kubernetes' own sleep action, KEP-3960, exists for, counted here from the unlisting), then answers everything with `Connection: close`, tells socket.io
   clients to reconnect, and exits once no connection is left (`drainThenStop`), never closing a connection a client may be reusing
   (that race lost a request through byo-live's tunnel); the pod's grace is a week (`backend.terminationGraceSeconds`) so
   Kubernetes never cuts that short, and the edge's pre-stop waits until the backend stops listening. Off a cluster it stops at
