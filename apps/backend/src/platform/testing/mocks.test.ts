@@ -1,7 +1,7 @@
 import { http, HttpResponse } from 'msw';
 import { describe, expect, it } from 'vitest';
-import { mock } from 'vitest-mock-extended';
-import { succeeded, type Processes } from '../lib/processes.js';
+import { matches, mock } from 'vitest-mock-extended';
+import { succeeded, type ProcessRun, type Processes } from '../lib/processes.js';
 import type { WorkflowRun, Workflows } from '../lib/workflows.js';
 import { interceptHttp } from './http.js';
 
@@ -21,7 +21,7 @@ describe('the mocks a unit test stands in for real dependencies with', () => {
 
   it('answers a program by the arguments it was given, and only those', async () => {
     const processes = mock<Processes>();
-    processes.run.calledWith(expect.objectContaining({ command: 'kubectl', args: ['get', 'ns'] })).mockResolvedValue({ code: 0, stdout: 'default\n', stderr: '' });
+    processes.run.calledWith(matches<ProcessRun>((run) => run.command === 'kubectl' && run.args.join(' ') === 'get ns')).mockResolvedValue({ code: 0, stdout: 'default\n', stderr: '' });
     expect(await succeeded(processes, { command: 'kubectl', args: ['get', 'ns'] })).toBe('default\n');
     expect(await processes.run({ command: 'kubectl', args: ['delete', 'ns', 'default'] })).toBeUndefined();
     expect(processes.run).toHaveBeenCalledTimes(2);
