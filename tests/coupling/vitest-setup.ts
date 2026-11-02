@@ -14,5 +14,5 @@ if (dir) {
   const collector = await startCollecting({ dir, root, shellTrace, keep: (file) => !file.startsWith('..') && !file.includes('node_modules') && !/\.test\.tsx?$/.test(file) });
   afterAll(async () => {
     await collector.take(expect.getState().testPath ?? 'unknown');
-  });
+  }, 0);
 }
