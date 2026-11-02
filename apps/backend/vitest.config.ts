@@ -1,8 +1,9 @@
 import { defineConfig } from 'vitest/config';
-import { tiers } from '../../tests/tiers/projects.js';
+import { REPORTERS, tiers } from '../../tests/tiers/projects.js';
 
 export default defineConfig({
   test: {
+    reporters: REPORTERS,
     globals: true,
     environment: 'node',
     projects: tiers({

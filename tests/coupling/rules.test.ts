@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Edge, Graph, Unit } from './graph.js';
 import type { Covered, Judged } from './join.js';
-import { against, breaches, counted, introducedBy, judging, layerBreaches, pruned } from './rules.js';
+import { against, breaches, counted, judging, layerBreaches, pruned } from './rules.js';
 
 const unit = (id: string, file: string): Unit => ({ id, file, name: id, line: 1, column: 1, start: 0, end: 0, inTest: false });
 const edge = (from: string, to: string[], through: Edge['through'], line: number): Edge => ({ from, to, through, site: { file: `apps/backend/src/x/${from}.ts`, line, column: 1, start: 0, end: 0 } });
@@ -129,17 +129,5 @@ describe('R5, the layers a service, route or activity is tested at', () => {
       ['R5 apps/backend/src/hub/routes/real.ts#real', 'no unit test runs it with its dependencies mocked'],
       ['R5 apps/backend/src/hub/services/Never.ts#never', 'no test runs it'],
     ]);
-  });
-});
-
-describe('a breach that comes back in code nobody changed', () => {
-  it('fails only where the code changed since the baseline, and names the rest', () => {
-    const added = [
-      { rule: 'R2' as const, key: 'R2 a', at: 'apps/backend/src/hub/services/Changed.ts:12', why: '' },
-      { rule: 'R5' as const, key: 'R5 b', at: 'apps/backend/src/hub/services/Untouched.ts:3', why: '' },
-    ];
-    const { introduced, flickered } = introducedBy(added, new Set(['apps/backend/src/hub/services/Changed.ts']));
-    expect(introduced.map((breach) => breach.key)).toEqual(['R2 a']);
-    expect(flickered.map((breach) => breach.key)).toEqual(['R5 b']);
   });
 });

@@ -1991,6 +1991,16 @@ typechecking.
 git config core.hooksPath .githooks
 ```
 
+## A test that fails twice
+
+Owner, 2026-11-02: "tests should be the signal something is wrong, if we have flaky tests we have flaky code, if a test suite
+fails twice that should trigger an audit and research around how to implement the code better". During ship and release
+(`runSteps`), a failing live suite and every failing unit or integration test file (`tests/tiers/failure-reporter.ts`) is
+recorded with its time in `tests/test-failures.json`, committed with the ledger. Once one has failed twice since its audit was
+last committed, `runSteps` refuses to start (`auditsOwed`, rules in `tests/lib/audits.ts`) until `tests/audits/<name>.md` is
+committed with the fix: what failed, the cause in the code, how it is now built. Never a rerun, a longer limit, fewer workers or
+a list of things not counted.
+
 ## Coupling coverage
 
 Line coverage says code ran; it does not say two pieces that call each other ran together. `tests/coupling/` builds the
@@ -2017,8 +2027,8 @@ real. It works like Lighthouse, gather apart from audit:
 - **The baseline only shrinks** (`tests/coupling/baseline.json`, seeded with every rule judged): a breach it does not list fails.
   Ship's last step runs with `--prune`, which lowers the count of every breach that is gone (never raises one), and the smaller
   baseline is committed on top with the live ledger (`LEDGER_FILES`). Run by hand without `--prune`, a gone breach fails too.
-  A new breach fails only in a file changed since the baseline was last committed (`introducedBy`): what the live suites reach
-  depends on timing (a timer that did or did not fire), so a breach that comes back in untouched code is named, not counted.
+  A breach that comes and goes between runs of the same code is a fault in the code, not noise (owner, 2026-11-02: flaky tests
+  mean flaky code); it fails ship like any other until the race or timer behind it is gone (`~/.claude/plans/event-driven.md`).
 - **What the live suites run is measured too** (the `live` artifact): `COUPLING_LIVE=1 npm run dev` starts the dev stack with
   `NODE_V8_COVERAGE` and `tests/coupling/live-hook.mjs` (the backend and each worker record their pid and, when the sampler writes a
   new request id to `tests/.coupling/live/request`, write what ran since the last time with `v8.takeCoverage()`; never a signal,

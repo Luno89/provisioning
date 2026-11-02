@@ -5,6 +5,7 @@ import { join, resolve } from 'node:path';
 import { changedBesidesLedger, LEDGER_FILES, onlyLedger, RELEASE_SIGNERS, type GateRecord, type GateStep, type PushedGates, type StepPassed, productionVulnerabilities, type Vulnerability } from './gates.js';
 import { imageTagOf } from './release-lab.js';
 import { convert, liveProcesses, recordLive } from '../coupling/live.js';
+import { auditFileOf, auditRefusal, FAILURES_FILE, owedAudits, withFailure, type Failures } from './audits.js';
 
 const gitOut = (repo: string, args: string[]): string =>
   execFileSync('git', args, { cwd: repo, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
@@ -148,7 +149,22 @@ function liveCoverage(repo: string, ...args: string[]): void {
   if (done.status !== 0) throw new Error(`the dev stack's coverage could not be read (${args.join(' ')})`);
 }
 
+function failuresIn(repo: string): Failures {
+  const file = join(repo, FAILURES_FILE);
+  return existsSync(file) ? JSON.parse(readFileSync(file, 'utf8')) as Failures : {};
+}
+
+export function auditsOwed(repo: string): string | undefined {
+  return auditRefusal(owedAudits(failuresIn(repo), (name) => git(repo, ['log', '-1', '--format=%cI', '--', auditFileOf(name)]).trim() || undefined));
+}
+
+function recordFailure(repo: string, name: string): void {
+  writeFileSync(join(repo, FAILURES_FILE), `${JSON.stringify(withFailure(failuresIn(repo), name, new Date().toISOString()), null, 1)}\n`);
+}
+
 export function runSteps(repo: string, commit: string, steps: GateStep[], env: Record<string, string>): StepPassed[] {
+  const owed = auditsOwed(repo);
+  if (owed) throw new Error(owed);
   const passed: StepPassed[] = [];
   const measured = liveProcesses().length > 0;
   const sampled: string[] = [];
@@ -165,7 +181,8 @@ export function runSteps(repo: string, commit: string, steps: GateStep[], env: R
     const live = measured && /-live$/.test(step.script);
     if (!live) recordSampled();
     if (live) liveCoverage(repo, 'discard');
-    const result = spawnSync('npm', ['run', step.script, '--silent'], { cwd: repo, stdio: 'inherit', env: { ...process.env, ...env } });
+    const result = spawnSync('npm', ['run', step.script, '--silent'], { cwd: repo, stdio: 'inherit', env: { ...process.env, ...env, KOALA_GATE_FAILURES: join(repo, FAILURES_FILE) } });
+    if (result.status !== 0 && /-live$/.test(step.script)) recordFailure(repo, step.script);
     if (live) {
       liveCoverage(repo, 'sample', liveLabelOf(step.script));
       sampled.push(liveLabelOf(step.script));

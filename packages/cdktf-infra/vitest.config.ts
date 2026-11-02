@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { defineConfig, type Plugin } from "vitest/config";
-import { tiers } from "../../tests/tiers/projects.js";
+import { REPORTERS, tiers } from "../../tests/tiers/projects.js";
 
 const sourceOverBuilt: Plugin = {
   name: "source-over-built",
@@ -15,5 +15,5 @@ const sourceOverBuilt: Plugin = {
 
 export default defineConfig({
   plugins: [sourceOverBuilt],
-  test: { projects: tiers({ include: ["**/*.test.ts"], exclude: [".gen/**", "cdktf.out/**"] }) },
+  test: { reporters: REPORTERS, projects: tiers({ include: ["**/*.test.ts"], exclude: [".gen/**", "cdktf.out/**"] }) },
 });

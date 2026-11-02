@@ -4,6 +4,7 @@ import type { TestProjectInlineConfiguration } from 'vitest/config';
 const here = (file: string): string => fileURLToPath(new URL(file, import.meta.url));
 
 export const INTEGRATION = '**/*.integration.test.{ts,tsx,mjs}';
+export const REPORTERS = ['default', here('./failure-reporter.ts')];
 const UNIT_GUARD = here('./unit-guard.ts');
 const OWN_HOME = here('./home.ts');
 const COUPLING = here('../coupling/vitest-setup.ts');
