@@ -1,20 +1,22 @@
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, openSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { buildGraph, isTest } from './graph.js';
 import { judge } from './join.js';
 import { levelFrom, runsIn, summary } from './report.js';
+import { against, breaches, counted, pruned, type Baseline } from './rules.js';
 import { MATCHES, outsideEnds, projectsOf, WORKSPACES, workspaceOf, type Workspace } from './workspaces.js';
 
 const ROOT = resolve(import.meta.dirname, '..', '..');
+const BASELINE = join(ROOT, 'tests', 'coupling', 'baseline.json');
 
-interface Options { only: Workspace[]; out: string; cost: boolean; reuse: boolean }
+interface Options { only: Workspace[]; out: string; cost: boolean; reuse: boolean; seed: boolean; prune: boolean }
 
 function optionsFrom(args: readonly string[]): Options {
   const value = (flag: string) => { const at = args.indexOf(flag); return at >= 0 ? args[at + 1] : undefined; };
   const names = value('--only')?.split(',');
   const only = names ? names.map((name) => WORKSPACES.find((workspace) => workspace.name === name) ?? (() => { throw new Error(`no workspace ${name}: ${WORKSPACES.map((workspace) => workspace.name).join(', ')}`); })()) : [...WORKSPACES];
-  return { only, out: resolve(value('--out') ?? join(ROOT, 'tests', '.coupling')), cost: args.includes('--cost'), reuse: args.includes('--reuse') };
+  return { only, out: resolve(value('--out') ?? join(ROOT, 'tests', '.coupling')), cost: args.includes('--cost'), reuse: args.includes('--reuse'), seed: args.includes('--seed-baseline'), prune: args.includes('--prune') };
 }
 
 function timed(workspace: Workspace, log: string, coverage: string | undefined): { seconds: number; passed: boolean } {
@@ -59,3 +61,20 @@ writeFileSync(join(options.out, 'report.json'), JSON.stringify({
 }));
 console.log(`graph ${graphSeconds}s, join ${joinSeconds}s`);
 console.log(text.split('\n').slice(0, 40).join('\n'));
+
+const found = breaches(judged, graph);
+writeFileSync(join(options.out, 'breaches.json'), JSON.stringify(found, null, 1));
+const write = (baseline: Baseline) => writeFileSync(BASELINE, `${JSON.stringify(baseline, null, 1)}\n`);
+if (!existsSync(BASELINE)) {
+  if (!options.seed) throw new Error(`${BASELINE} does not exist: run once with --seed-baseline to record today's breaches`);
+  write(counted(found));
+  console.log(`baseline written: ${found.length} breaches`);
+} else {
+  if (options.seed) throw new Error(`${BASELINE} exists: the baseline only shrinks, so it is never seeded again; use --prune`);
+  const baseline = JSON.parse(readFileSync(BASELINE, 'utf8')) as Baseline;
+  if (options.prune) write(pruned(baseline, found));
+  const { added, fixed } = against(found, options.prune ? pruned(baseline, found) : baseline);
+  for (const breach of added) console.log(`new ${breach.rule} at ${breach.at}: ${breach.key} (${breach.why})`);
+  for (const entry of fixed) console.log(`fixed, prune it: ${entry.key} (${entry.was} -> ${entry.now})`);
+  if (added.length > 0 || fixed.length > 0) process.exitCode = 1;
+}
