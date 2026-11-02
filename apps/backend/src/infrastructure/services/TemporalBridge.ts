@@ -1,17 +1,17 @@
 import path from 'path';
 import { isCommitSha, type BuildPlan } from '../../releases/index.js'
 import {
-  stopIfRunning, getTemporalClient, pollWorkflowRun, decryptValue, encryptValue, type SecretKey, type Database,
+  stopIfRunning, getTemporalClient, closedAs, REOPEN_FIRST_MS, REOPEN_MOST_MS, type ClosedAs, type Watching, decryptValue, encryptValue, type SecretKey, type Database,
   type CloudCredentials, type ClusterMetadata, type ClusterProgress, type DeploymentMetadata, type ProjectMetadata,
   type PipelineRunMetadata, type ClaimSettings, PLATFORM_OWNER, ownerIn, startedFor,
 } from '../../platform/index.js'
 import {
-  looksLikeMcp, namespaceOfDeployment, cachedProbes, reconcileRun, reconcileMissingWorkflow, LIVE_RUN_STATUSES,
-  type RunStatus, corpusEndpointsWith, webToolsDepsFrom, type WaitingAsk,
+  looksLikeMcp, namespaceOfDeployment, cachedProbes, corpusEndpointsWith, webToolsDepsFrom, type WaitingAsk,
 } from '../../engine/index.js'
 import { namespaceOf } from '../lib/app-namespace.js'
 import { healthFromProbe } from '../lib/service-health.js'
 import { clusterFieldsFrom } from '../lib/provisioned-cluster.js'
+import { followedAction, type FollowedAction, type FollowedRecord } from '../lib/followed-work.js'
 import { fileURLToPath } from 'url';
 import fs from 'fs';
 import { WorkflowNotFoundError, type Client, type WorkflowExecutionInfo } from '@temporalio/client'
@@ -59,11 +59,9 @@ import type { Server as SocketServer } from 'socket.io'
 
 const HOST_QUEUE = 'host-ops-queue'
 const CLUSTER_QUEUE = 'cluster-ops-queue'
-const WORKFLOW_POLL_INTERVAL = 5000
 const RECONCILE_INTERVAL = 30000
 
 const CONSOLIDATE_INTERVAL = 1_800_000
-const MAX_POLL_FAILURES = 12
 
 const DEEP_MERGE_FIELDS = ['storage', 'appSettings'] as const
 
@@ -250,7 +248,8 @@ export class TemporalBridge {
   io: SocketServer | undefined
   client!: Client
   masterKey: SecretKey
-  private readonly following = new Set<string>()
+  private readonly following = new Map<string, Promise<void>>()
+  private watching: Watching[] = []
   clusterService?: ClusterService
   headscale?: { createPreAuthKey(userId: string, opts?: { reusable?: boolean; expirySeconds?: number }): Promise<{ key: string }> }
 
@@ -300,6 +299,7 @@ export class TemporalBridge {
   }
 
   async stop(): Promise<void> {
+    await Promise.all(this.watching.splice(0).map((watching) => watching.close()))
     try {
       await this.client.connection.close()
     } catch (failure) {
@@ -339,135 +339,164 @@ export class TemporalBridge {
     }
   }
 
-  trackWorkflow(
+  follow(
     wfId: string,
-    action: 'cluster-provision' | 'cluster-destroy' | 'app-deploy' | 'app-destroy' | 'app-resize' | 'app-sync-config' | 'pipeline-run',
+    action: FollowedAction,
     resourceId: string,
     resourceName: string,
     provider: ClusterMetadata['provider'] | '',
     meta?: TrackedDeployment
-  ) {
-    if (this.following.has(wfId)) return
-    this.following.add(wfId)
-    let consecutiveFailures = 0
+  ): Promise<void> {
+    if (!wfId) return Promise.resolve()
+    const already = this.following.get(wfId)
+    if (already) return already
+    const following = this.followUntilClosed(wfId, action, resourceId, resourceName, provider, meta)
+      .catch((err: Error) => console.error(`[TemporalBridge] what ${wfId} ended as could not be recorded: ${err.message}`))
+      .finally(() => this.following.delete(wfId))
+    this.following.set(wfId, following)
+    return following
+  }
+
+  private followRecord(followed: FollowedRecord): void {
+    const action = followedAction(followed)
+    const wfId = followed.record.temporalWorkflowId
+    if (!action || !wfId) return
+    if (followed.kind === 'cluster') void this.follow(wfId, action, followed.record.id, followed.record.name, followed.record.provider)
+    else if (followed.kind === 'deployment') void this.follow(wfId, action, followed.record.id, followed.record.name, '', followed.record)
+    else void this.follow(wfId, action, followed.record.id, followed.record.projectId, '')
+  }
+
+  private async followUntilClosed(
+    wfId: string,
+    action: FollowedAction,
+    resourceId: string,
+    resourceName: string,
+    provider: ClusterMetadata['provider'] | '',
+    meta?: TrackedDeployment
+  ): Promise<void> {
+    let wait = REOPEN_FIRST_MS
+    for (;;) {
+      let closed: ClosedAs
+      try {
+        closed = await closedAs(this.client.workflow.getHandle(wfId))
+      } catch (err) {
+        console.warn(`[TemporalBridge] lost ${wfId} while following it (${(err as Error).message}); following it again in ${Math.round(wait / 1000)} s`)
+        await new Promise((resume) => setTimeout(resume, wait))
+        wait = Math.min(wait * 2, REOPEN_MOST_MS)
+        continue
+      }
+      if (closed === 'RUNNING') continue
+      if (closed === 'NOT_FOUND') console.warn(`[TemporalBridge] ${action} ${wfId} of ${resourceId} is not in Temporal, so it is taken as failed`)
+      await this.settle(wfId, action, resourceId, resourceName, provider, meta, closed === 'COMPLETED' || closed === 'TERMINATED' || closed === 'CANCELLED' ? closed : 'FAILED')
+      return
+    }
+  }
+
+  private async settle(
+    wfId: string,
+    action: FollowedAction,
+    resourceId: string,
+    resourceName: string,
+    provider: ClusterMetadata['provider'] | '',
+    meta: TrackedDeployment | undefined,
+    name: 'COMPLETED' | 'FAILED' | 'TERMINATED' | 'CANCELLED',
+  ): Promise<void> {
     const deployment = (): TrackedDeployment => {
       if (!meta) throw new Error(`${action} ${wfId} of ${resourceId} is followed without its deployment`)
       return meta
     }
     const applied = async () => this.appliedOutcome(wfId, deployment())
-    const poll = async () => {
+    let kubeconfig: string | undefined
+    if (name === 'COMPLETED' && action === 'cluster-provision') {
+      kubeconfig = await this.recordProvisioned(wfId, { id: resourceId, name: resourceName, provider })
+    }
+
+    let pipelineImageTag: string | undefined
+    if (name === 'COMPLETED' && action === 'pipeline-run') {
       try {
-        const status = await pollWorkflowRun(wfId)
-        consecutiveFailures = 0
-
-        if (status && status.status?.name !== 'RUNNING') {
-          clearInterval(timer)
-          this.following.delete(wfId)
-          const name = status.status?.name
-          let kubeconfig: string | undefined
-          if (name === 'COMPLETED' && action === 'cluster-provision') {
-            kubeconfig = await this.recordProvisioned(wfId, { id: resourceId, name: resourceName, provider })
-          }
-
-          let pipelineImageTag: string | undefined
-          if (name === 'COMPLETED' && action === 'pipeline-run') {
-            try {
-              pipelineImageTag = (await this.client.workflow.getHandle<typeof executePipelineRunWorkflow>(wfId).result()).imageTag
-            } catch (err) {
-              console.error(`[TemporalBridge] Build ${resourceId} finished, but its image could not be read: ${(err as Error).message}`)
-            }
-          }
-
-          if (action === 'cluster-provision') {
-            if (name === 'FAILED') {
-              await updateUserStatus(this.db, resourceId, resourceName, provider, 'failed', kubeconfig)
-            } else if (name === 'TERMINATED' || name === 'CANCELLED') {
-              await updateUserStatus(this.db, resourceId, resourceName, provider, 'destroyed')
-            } else {
-              await updateUserStatus(this.db, resourceId, resourceName, provider, 'healthy', kubeconfig)
-            }
-            if (this.io) this.io.emit('cluster-updated')
-          } else if (action === 'cluster-destroy') {
-            if (name === 'FAILED') {
-              await updateUserStatus(this.db, resourceId, resourceName, provider, 'failed')
-            } else {
-              await updateUserStatus(this.db, resourceId, resourceName, provider, 'destroyed')
-            }
-            if (this.io) this.io.emit('cluster-updated')
-          } else if (action === 'app-deploy') {
-            if (name === 'FAILED') {
-              await updateDeploymentStatus(this.db, resourceId, deployment(), 'failed', meta?.storage)
-            } else if (name === 'TERMINATED' || name === 'CANCELLED') {
-              await updateDeploymentStatus(this.db, resourceId, deployment(), 'failed', meta?.storage)
-            } else if (name === 'COMPLETED') {
-              const done = await applied()
-              await updateDeploymentStatus(this.db, resourceId, done.meta, done.status, meta?.storage)
-              if (done.status === 'running') {
-                await maybeSetDefaultModel(this.db, resourceId, done.meta.ownerId, done.meta.appType)
-              }
-            }
-            if (this.io) this.io.emit('deployment-updated')
-          } else if (action === 'app-destroy') {
-            if (name === 'FAILED') {
-              await updateDeploymentStatus(this.db, resourceId, deployment(), 'failed', meta?.storage)
-            } else if (name === 'TERMINATED' || name === 'CANCELLED' || name === 'COMPLETED') {
-              await this.db.infrastructure.deleteDeployment(resourceId)
-            }
-            if (this.io) this.io.emit('deployment-updated')
-          } else if (action === 'app-resize') {
-            const newStorage = { ...meta?.storage, ...meta?.newStorage }
-            if (name === 'FAILED') {
-              await updateDeploymentStatus(this.db, resourceId, deployment(), 'failed', meta?.storage)
-            } else if (name === 'TERMINATED' || name === 'CANCELLED') {
-              await updateDeploymentStatus(this.db, resourceId, deployment(), 'failed', meta?.storage)
-            } else if (name === 'COMPLETED') {
-              const done = await applied()
-              await updateDeploymentStatus(this.db, resourceId, done.meta, done.status, newStorage)
-            }
-            if (this.io) this.io.emit('deployment-updated')
-          } else if (action === 'app-sync-config') {
-            if (name === 'FAILED' || name === 'TERMINATED' || name === 'CANCELLED') {
-              await updateDeploymentStatus(this.db, resourceId, deployment(), 'failed', meta?.storage)
-            } else if (name === 'COMPLETED') {
-              const done = await applied()
-              await updateDeploymentStatus(this.db, resourceId, done.meta, done.status, meta?.storage)
-            }
-            if (this.io) this.io.emit('deployment-updated')
-          } else if (action === 'pipeline-run') {
-            if (name === 'FAILED' || name === 'TERMINATED' || name === 'CANCELLED') {
-              await updatePipelineRunStatus(this.db, resourceId, 'failed', { errorMessage: `Workflow ${name}` })
-            } else if (name === 'COMPLETED') {
-              await updatePipelineRunStatus(this.db, resourceId, 'succeeded', pipelineImageTag !== undefined ? { imageTag: pipelineImageTag } : {})
-              try {
-                const [projects, runs] = await Promise.all([this.db.projects.getProjects(), this.db.releases.getPipelineRuns()])
-                const run = runs.find((r) => r.id === resourceId)
-                const project = run && projects.find((p) => p.id === run.projectId)
-                const released = project && run && this.onBuilt ? await this.onBuilt(project, run) : false
-                if (!released && project?.autoDeployOnBuild && run) {
-                  const since = deploymentForProject(project, await this.db.infrastructure.getDeployments())?.gitappImageTag?.split(':').pop()
-                  const decision = since && this.decideRelease ? await this.decideRelease(project, since, run.commitSha) : { release: true as const }
-                  if (decision.release) await this.promoteProjectBuild(project, run)
-                  else await this.db.releases.savePipelineRunInfo({ id: run.id, releaseSkipped: decision.reason })
-                }
-              } catch (err) {
-                console.error(`[TemporalBridge] Auto-deploy-on-build failed for pipeline run ${resourceId}: ${(err as Error).message}`)
-              }
-            }
-            if (this.io) this.io.emit('pipeline-run-updated')
-          }
-        }
+        pipelineImageTag = (await this.client.workflow.getHandle<typeof executePipelineRunWorkflow>(wfId).result()).imageTag
       } catch (err) {
-        consecutiveFailures++
-        if (consecutiveFailures >= MAX_POLL_FAILURES) {
-          clearInterval(timer)
-          this.following.delete(wfId)
-          console.error(`[TemporalBridge] Workflow ${wfId} polling failed ${consecutiveFailures} times — giving up`)
-        } else {
-          console.warn(`[TemporalBridge] Failed polling workflow ${wfId} (${consecutiveFailures}/${MAX_POLL_FAILURES}): ${(err as Error).message}`)
-        }
+        console.error(`[TemporalBridge] Build ${resourceId} finished, but its image could not be read: ${(err as Error).message}`)
       }
     }
-    const timer = setInterval(() => { void poll() }, WORKFLOW_POLL_INTERVAL)
+
+    if (action === 'cluster-provision') {
+      if (name === 'FAILED') {
+        await updateUserStatus(this.db, resourceId, resourceName, provider, 'failed', kubeconfig)
+      } else if (name === 'TERMINATED' || name === 'CANCELLED') {
+        await updateUserStatus(this.db, resourceId, resourceName, provider, 'destroyed')
+      } else {
+        await updateUserStatus(this.db, resourceId, resourceName, provider, 'healthy', kubeconfig)
+      }
+      if (this.io) this.io.emit('cluster-updated')
+    } else if (action === 'cluster-destroy') {
+      if (name === 'FAILED') {
+        await updateUserStatus(this.db, resourceId, resourceName, provider, 'failed')
+      } else {
+        await updateUserStatus(this.db, resourceId, resourceName, provider, 'destroyed')
+      }
+      if (this.io) this.io.emit('cluster-updated')
+    } else if (action === 'app-deploy') {
+      if (name === 'FAILED') {
+        await updateDeploymentStatus(this.db, resourceId, deployment(), 'failed', meta?.storage)
+      } else if (name === 'TERMINATED' || name === 'CANCELLED') {
+        await updateDeploymentStatus(this.db, resourceId, deployment(), 'failed', meta?.storage)
+      } else if (name === 'COMPLETED') {
+        const done = await applied()
+        await updateDeploymentStatus(this.db, resourceId, done.meta, done.status, meta?.storage)
+        if (done.status === 'running') {
+          await maybeSetDefaultModel(this.db, resourceId, done.meta.ownerId, done.meta.appType)
+        }
+      }
+      if (this.io) this.io.emit('deployment-updated')
+    } else if (action === 'app-destroy') {
+      if (name === 'FAILED') {
+        await updateDeploymentStatus(this.db, resourceId, deployment(), 'failed', meta?.storage)
+      } else if (name === 'TERMINATED' || name === 'CANCELLED' || name === 'COMPLETED') {
+        await this.db.infrastructure.deleteDeployment(resourceId)
+      }
+      if (this.io) this.io.emit('deployment-updated')
+    } else if (action === 'app-resize') {
+      const newStorage = { ...meta?.storage, ...meta?.newStorage }
+      if (name === 'FAILED') {
+        await updateDeploymentStatus(this.db, resourceId, deployment(), 'failed', meta?.storage)
+      } else if (name === 'TERMINATED' || name === 'CANCELLED') {
+        await updateDeploymentStatus(this.db, resourceId, deployment(), 'failed', meta?.storage)
+      } else if (name === 'COMPLETED') {
+        const done = await applied()
+        await updateDeploymentStatus(this.db, resourceId, done.meta, done.status, newStorage)
+      }
+      if (this.io) this.io.emit('deployment-updated')
+    } else if (action === 'app-sync-config') {
+      if (name === 'FAILED' || name === 'TERMINATED' || name === 'CANCELLED') {
+        await updateDeploymentStatus(this.db, resourceId, deployment(), 'failed', meta?.storage)
+      } else if (name === 'COMPLETED') {
+        const done = await applied()
+        await updateDeploymentStatus(this.db, resourceId, done.meta, done.status, meta?.storage)
+      }
+      if (this.io) this.io.emit('deployment-updated')
+    } else if (action === 'pipeline-run') {
+      if (name === 'FAILED' || name === 'TERMINATED' || name === 'CANCELLED') {
+        await updatePipelineRunStatus(this.db, resourceId, 'failed', { errorMessage: `Workflow ${name}` })
+      } else if (name === 'COMPLETED') {
+        await updatePipelineRunStatus(this.db, resourceId, 'succeeded', pipelineImageTag !== undefined ? { imageTag: pipelineImageTag } : {})
+        try {
+          const [projects, runs] = await Promise.all([this.db.projects.getProjects(), this.db.releases.getPipelineRuns()])
+          const run = runs.find((r) => r.id === resourceId)
+          const project = run && projects.find((p) => p.id === run.projectId)
+          const released = project && run && this.onBuilt ? await this.onBuilt(project, run) : false
+          if (!released && project?.autoDeployOnBuild && run) {
+            const since = deploymentForProject(project, await this.db.infrastructure.getDeployments())?.gitappImageTag?.split(':').pop()
+            const decision = since && this.decideRelease ? await this.decideRelease(project, since, run.commitSha) : { release: true as const }
+            if (decision.release) await this.promoteProjectBuild(project, run)
+            else await this.db.releases.savePipelineRunInfo({ id: run.id, releaseSkipped: decision.reason })
+          }
+        } catch (err) {
+          console.error(`[TemporalBridge] Auto-deploy-on-build failed for pipeline run ${resourceId}: ${(err as Error).message}`)
+        }
+      }
+      if (this.io) this.io.emit('pipeline-run-updated')
+    }
   }
 
   async adoptPlan(ownerId: string, proposalId: string): Promise<string | undefined> {
@@ -493,85 +522,33 @@ export class TemporalBridge {
       }
     }
 
-    console.log('[TemporalBridge] Running active workflow recovery check...')
-
-    const clusters = await this.db.infrastructure.getClusters()
-    for (const cluster of clusters) {
-      if (cluster.status === 'provisioning' || cluster.status === 'destroying') {
-        const wfId = cluster.temporalWorkflowId
-        if (wfId) {
-          const action = cluster.status === 'provisioning' ? 'cluster-provision' : 'cluster-destroy'
-          console.log(`[TemporalBridge] Resuming polling for cluster workflow: ${wfId}`)
-          this.trackWorkflow(wfId, action, cluster.id, cluster.name, cluster.provider)
-        }
-      }
-    }
-
-    const deployments = await this.db.infrastructure.getDeployments()
-    for (const dep of deployments) {
-      if (dep.status === 'deploying' || dep.status === 'destroying') {
-        const wfId = dep.temporalWorkflowId
-        if (wfId) {
-          const action = dep.status === 'deploying' ? 'app-deploy' : 'app-destroy'
-          console.log(`[TemporalBridge] Resuming polling for deployment workflow: ${wfId}`)
-          this.trackWorkflow(wfId, action, dep.id, dep.name, '', dep)
-        }
-      }
-    }
-
+    await this.followWork()
     this.startReconciliationLoop()
+  }
+
+  async followWork(): Promise<void> {
+    if (this.watching.length > 0) return
+    this.watching = [
+      this.db.infrastructure.watchFollowed((followed) => this.followRecord(followed)),
+      this.db.releases.watchLiveRuns((record) => this.followRecord({ kind: 'pipeline-run', record })),
+    ]
+    await Promise.all(this.watching.map((watching) => watching.ready))
+    for (const record of await this.db.infrastructure.getClusters()) this.followRecord({ kind: 'cluster', record })
+    for (const record of await this.db.infrastructure.getDeployments()) this.followRecord({ kind: 'deployment', record })
+    for (const record of await this.db.releases.getPipelineRuns()) this.followRecord({ kind: 'pipeline-run', record })
   }
 
   private startReconciliationLoop(): void {
     const reconcile = async () => {
       if (!this.client) return
       try {
-        const clusters = await this.db.infrastructure.getClusters()
-        for (const cluster of clusters) {
-          if (cluster.status !== 'provisioning' && cluster.status !== 'destroying') continue
-          const wfId = cluster.temporalWorkflowId
-          if (!wfId) continue
-
-          const wfStatus = await pollWorkflowRun(wfId)
-          const statusName = wfStatus?.status?.name
-          if (!statusName) continue
-
-          if (statusName !== 'RUNNING') {
-            console.log(`[Reconcile] Cluster ${cluster.name} workflow is ${statusName} but DB says ${cluster.status} — fixing`)
-            const action = cluster.status === 'provisioning' ? 'cluster-provision' : 'cluster-destroy'
-            if (action === 'cluster-provision') {
-              if (statusName === 'FAILED') {
-                await updateUserStatus(this.db, cluster.id, cluster.name, cluster.provider, 'failed')
-              } else if (statusName === 'TERMINATED' || statusName === 'CANCELLED') {
-                await updateUserStatus(this.db, cluster.id, cluster.name, cluster.provider, 'destroyed')
-              } else {
-                const kubeconfig = await this.recordProvisioned(wfId, cluster)
-                await updateUserStatus(this.db, cluster.id, cluster.name, cluster.provider, 'healthy', kubeconfig)
-              }
-            } else {
-              if (statusName === 'FAILED') {
-                await updateUserStatus(this.db, cluster.id, cluster.name, cluster.provider, 'failed')
-              } else {
-                await updateUserStatus(this.db, cluster.id, cluster.name, cluster.provider, 'destroyed')
-              }
-            }
-            if (this.io) this.io.emit('cluster-updated')
-          }
-
-          if (statusName === 'RUNNING' && cluster.lastLogPath) {
-            const progress = inferProgressFromLog(cluster.lastLogPath)
-            if (progress) {
-              await this.db.infrastructure.updateClusterProgress(cluster.id, progress)
-            }
-          }
+        for (const cluster of await this.db.infrastructure.getClusters()) {
+          if (cluster.status !== 'provisioning' || !cluster.lastLogPath) continue
+          const progress = inferProgressFromLog(cluster.lastLogPath)
+          if (progress) await this.db.infrastructure.updateClusterProgress(cluster.id, progress)
         }
 
         const deployments = await this.db.infrastructure.getDeployments()
-        for (const dep of deployments) {
-          if ((dep.status === 'deploying' || dep.status === 'destroying') && dep.temporalWorkflowId) {
-            this.trackWorkflow(dep.temporalWorkflowId, dep.status === 'deploying' ? 'app-deploy' : 'app-destroy', dep.id, dep.name, '', dep)
-          }
-        }
 
         const kubeconfigForCluster = new Map<string, string | undefined>()
         const resolveKubeconfig = async (clusterId: string): Promise<string | undefined> => {
@@ -618,63 +595,10 @@ export class TemporalBridge {
           }
         }
 
-        for (const dep of deployments) {
-          if (dep.status !== 'deploying' && dep.status !== 'destroying') continue
-          const depWfId = dep.temporalWorkflowId
-          if (!depWfId) continue
-
-          const depWfStatus = await pollWorkflowRun(depWfId)
-          const depStatusName = depWfStatus?.status?.name
-          if (!depStatusName) continue
-
-          if (depStatusName !== 'RUNNING') {
-            console.log(`[Reconcile] Deployment ${dep.name} workflow is ${depStatusName} but DB says ${dep.status} — fixing`)
-            const depAction = dep.status === 'deploying' ? 'app-deploy' : 'app-destroy'
-            if (depAction === 'app-deploy') {
-              if (depStatusName === 'FAILED' || depStatusName === 'TERMINATED' || depStatusName === 'CANCELLED') {
-                await updateDeploymentStatus(this.db, dep.id, dep, 'failed', dep.storage)
-              } else {
-                const applied = await this.appliedOutcome(depWfId, dep)
-                await updateDeploymentStatus(this.db, dep.id, applied.meta, applied.status, dep.storage)
-              }
-            } else {
-              await this.db.infrastructure.deleteDeployment(dep.id)
-            }
-            if (this.io) this.io.emit('deployment-updated')
-          }
-        }
       } catch (err) {
         console.warn(`[Reconcile] Error: ${(err as Error).message}`)
       }
 
-    }
-
-    const reconcileRuns = async () => {
-      if (!this.client) return
-      try {
-        const runs = await this.db.releases.getPipelineRuns()
-        for (const run of runs) {
-          const current = run.status as RunStatus
-          if (!(LIVE_RUN_STATUSES as readonly string[]).includes(current)) continue
-
-          let next: RunStatus | undefined
-          try {
-            const described = await pollWorkflowRun(run.temporalWorkflowId!)
-            next = reconcileRun(current, described?.status?.name)
-          } catch (err) {
-            const missing = /not\s*found/i.test(String((err as Error | undefined)?.message ?? err))
-            if (!missing) continue
-            next = reconcileMissingWorkflow(current, run.startedAt)
-          }
-
-          if (!next) continue
-          await this.db.releases.savePipelineRunInfo({ ...run, status: next })
-          console.warn(`[Reconcile] pipeline run ${String(run.commitSha).slice(0, 8)}: ${current} -> ${next} (its workflow had already ended)`)
-          if (this.io) this.io.emit('pipeline-run-updated')
-        }
-      } catch (err) {
-        console.warn(`[Reconcile] Could not reconcile pipeline runs: ${(err as Error).message}`)
-      }
     }
 
     let consolidating = false
@@ -714,7 +638,7 @@ export class TemporalBridge {
       }
     }
 
-    for (const [pass, every] of [[reconcile, RECONCILE_INTERVAL], [consolidate, CONSOLIDATE_INTERVAL], [reconcileRuns, RECONCILE_INTERVAL]] as const) {
+    for (const [pass, every] of [[reconcile, RECONCILE_INTERVAL], [consolidate, CONSOLIDATE_INTERVAL]] as const) {
       void pass()
       setInterval(() => { void pass() }, every)
     }
@@ -858,7 +782,7 @@ export class TemporalBridge {
       name: clusterName,
       provider,
       status: 'provisioning',
-      temporalWorkflowId: wfId,
+      temporalWorkflowId: '',
       lastLogPath: absoluteLogPath,
       createdAt: new Date().toISOString(),
       ownerId: userId,
@@ -884,7 +808,8 @@ export class TemporalBridge {
       ...startedFor(userId ?? PLATFORM_OWNER),
     })
 
-    this.trackWorkflow(wfId, 'cluster-provision', savedCluster.id, clusterName, provider)
+    void this.follow(wfId, 'cluster-provision', savedCluster.id, clusterName, provider)
+    await this.db.infrastructure.saveClusterInfo({ id: savedCluster.id, temporalWorkflowId: wfId })
 
     return {
       id: wfId,
@@ -930,7 +855,7 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
     await this.db.infrastructure.saveClusterInfo({
       id: cluster.id,
       status: 'destroying',
-      temporalWorkflowId: wfId,
+      temporalWorkflowId: '',
       lastLogPath: absoluteLogPath,
     })
 
@@ -941,7 +866,8 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
       ...startedFor(cluster.ownerId ?? PLATFORM_OWNER),
     })
 
-    this.trackWorkflow(wfId, 'cluster-destroy', cluster.id, cluster.name, cluster.provider)
+    void this.follow(wfId, 'cluster-destroy', cluster.id, cluster.name, cluster.provider)
+    await this.db.infrastructure.saveClusterInfo({ id: cluster.id, temporalWorkflowId: wfId })
 
     return {
       id: wfId,
@@ -952,7 +878,7 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
 
   async deployApp(config: Record<string, unknown>, userId?: string): Promise<WorkflowDeal> {
     const { workflowId, deployment } = await startAppDeploy(this.appDeployDeps(), deployRequestOf(config), userId)
-    this.trackWorkflow(workflowId, 'app-deploy', deployment.id, deployment.name, '', deployment)
+    void this.follow(workflowId, 'app-deploy', deployment.id, deployment.name, '', deployment)
     return {
       id: workflowId,
       resourceId: deployment.id,
@@ -979,7 +905,7 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
     await this.db.infrastructure.saveDeploymentInfo({
       id: dep.id,
       status: 'destroying',
-      temporalWorkflowId: wfId,
+      temporalWorkflowId: '',
       lastLogPath: absoluteLogPath,
     })
 
@@ -990,7 +916,8 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
       ...startedFor(dep.ownerId ?? PLATFORM_OWNER),
     })
 
-    this.trackWorkflow(wfId, 'app-destroy', dep.id, dep.name, '', dep)
+    void this.follow(wfId, 'app-destroy', dep.id, dep.name, '', dep)
+    await this.db.infrastructure.saveDeploymentInfo({ id: dep.id, temporalWorkflowId: wfId })
 
     return {
       id: wfId,
@@ -1026,7 +953,7 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
       storage: { ...dep.storage, ...storage },
       status: 'deploying',
       healthReason: '',
-      temporalWorkflowId: wfId,
+      temporalWorkflowId: '',
       lastLogPath: absoluteLogPath,
     })
 
@@ -1037,7 +964,8 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
       ...startedFor(dep.ownerId ?? PLATFORM_OWNER),
     })
 
-    this.trackWorkflow(wfId, 'app-resize', dep.id, dep.name, '', { ...dep, newStorage: storage })
+    void this.follow(wfId, 'app-resize', dep.id, dep.name, '', { ...dep, newStorage: storage })
+    await this.db.infrastructure.saveDeploymentInfo({ id: dep.id, temporalWorkflowId: wfId })
 
     return {
       id: wfId,
@@ -1148,7 +1076,7 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
       id: dep.id,
       status: 'deploying',
       healthReason: '',
-      temporalWorkflowId: wfId,
+      temporalWorkflowId: '',
       lastLogPath: absoluteLogPath,
     })
 
@@ -1159,7 +1087,8 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
       ...startedFor(dep.ownerId ?? PLATFORM_OWNER),
     })
 
-    this.trackWorkflow(wfId, 'app-sync-config', dep.id, dep.name, '', dep)
+    void this.follow(wfId, 'app-sync-config', dep.id, dep.name, '', dep)
+    await this.db.infrastructure.saveDeploymentInfo({ id: dep.id, temporalWorkflowId: wfId })
 
     return {
       id: wfId,
@@ -1264,7 +1193,7 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
       ref,
       status: 'queued',
       logFile: absoluteLogPath,
-      temporalWorkflowId: wfId,
+      temporalWorkflowId: '',
       startedAt: new Date().toISOString(),
     })
     await this.db.projects.saveProjectInfo({ ...project, lastBuildStatus: 'queued' })
@@ -1276,7 +1205,8 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
       ...startedFor(project.ownerId ?? PLATFORM_OWNER),
     })
 
-    this.trackWorkflow(wfId, 'pipeline-run', runId, project.giteaRepo, '')
+    void this.follow(wfId, 'pipeline-run', runId, project.giteaRepo, '')
+    await this.db.releases.savePipelineRunInfo({ id: runId, temporalWorkflowId: wfId })
     if (this.io) this.io.emit('pipeline-run-updated')
 
     return { id: wfId, resourceId: runId, event: 'pipeline-run' }
@@ -1304,8 +1234,7 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
 
   async ingestStatus(workflowId: string): Promise<{ state: string; receipt?: unknown; error?: string }> {
     try {
-      const status = await pollWorkflowRun(workflowId)
-      const name = status?.status?.name
+      const name = (await this.client.workflow.getHandle(workflowId).describe()).status.name
       if (name === 'RUNNING') return { state: 'running' }
       if (name === 'COMPLETED') {
         const receipt: unknown = await this.client.workflow.getHandle<typeof executeIngestWorkflow>(workflowId).result()
@@ -1321,7 +1250,7 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
     const secrets = await this.ensureSecrets?.(project)
     if (secrets?.waiting.length) throw new Error(`waiting for the person to enter ${secrets.waiting.join(', ')}`)
     const { workflowId, deployment } = await deployProjectBuild(this.appDeployDeps(), project, run, userId)
-    this.trackWorkflow(workflowId, 'app-deploy', deployment.id, deployment.name, '', deployment)
+    void this.follow(workflowId, 'app-deploy', deployment.id, deployment.name, '', deployment)
     return { id: workflowId, resourceId: deployment.id, event: 'app-deploy' }
   }
 }

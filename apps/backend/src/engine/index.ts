@@ -24,8 +24,6 @@ export { installText, stageText } from './lib/published-workspace.js';
 export type { Parking, PublishedWorkspace } from './lib/published-workspace.js';
 export type { GrantRequest, GrantStartedBy, Handover, RevokedBecause, RunEnded } from './lib/run-grants.js';
 export { samplingAt, temperatureProblem } from './lib/run-knobs.js';
-export { LIVE_RUN_STATUSES, reconcileMissingWorkflow, reconcileRun } from './lib/run-reconcile.js';
-export type { RunStatus } from './lib/run-reconcile.js';
 export { modelsOf } from './lib/run-traces.js';
 export type { ModelThinkingProfile } from './lib/thinking-classifier.js';
 export { migrateAgentTools } from './lib/tool-grant-migration.js';

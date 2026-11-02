@@ -1507,9 +1507,12 @@ In-cluster worker lifecycle: `ensure-cluster.sh` creates the k3d management clus
 
 ## Temporal sync architecture
 
-MongoDB stays in sync with Temporal via two mechanisms:
-1. **`trackWorkflow()` polling** — every 5s per workflow; retries transient Temporal errors up to 12 times before giving up (avoids clusters getting stuck "provisioning" during brief Temporal outages).
-2. **Background reconciliation loop** — every 30s, scans clusters in intermediate states (`provisioning`, `destroying`), checks Temporal directly, and updates MongoDB if the workflow finished but the DB missed it. Also parses log files to update `ClusterMetadata.progress` (e.g. `creating-cluster`, `patching-storage`, `deploying-cdktf`, `installing-traefik`).
+A record that runs on a workflow (a cluster provisioning or being destroyed, an app deploying or being destroyed, a build)
+names it in `temporalWorkflowId` **only once the workflow has started**, so a follower never asks Temporal about one that does
+not exist yet. The backend follows every such record to its workflow's end, whichever process wrote it: at start it follows what
+is in flight, then change streams (`watchFollowed`, `watchLiveRuns`) hand it each record that comes to name one. Following is
+`result()` then one `describe()` (`closedAs`); a lost connection is followed again after 5 s doubling to a minute. A 30 s pass
+still reads a provisioning cluster's progress from its log and checks running apps' pods (`~/.claude/plans/event-driven.md`).
 
 **Nothing has a deadline; things end when they finish, fail, or are stopped.** Every activity takes `LIVE_ACTIVITY`
 (`platform/lib/activity-liveness.ts`): the 30-day `startToCloseTimeout` Temporal requires, and a one-minute `heartbeatTimeout`.

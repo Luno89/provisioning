@@ -13,9 +13,12 @@ import { SERVER_ORDER_LOG_LINES, type ServerOrder } from './lib/server-orders.js
 import { mergeRecord } from '../platform/lib/merge-record.js';
 import { v4 as uuidv4 } from 'uuid';
 import { hasPlainSecret, sealDeployment, unsealDeployment } from './lib/deployment-secrets.js';
+import { watchingAll, watchWrites, type Watching } from '../platform/lib/change-streams.js';
+import { FOLLOWED_CLUSTER_STATUSES, FOLLOWED_DEPLOYMENT_STATUSES, workflowMatch, type FollowedRecord } from './lib/followed-work.js';
 
 export interface InfrastructureStore extends AreaStore {
   getClusters(): Promise<ClusterMetadata[]>;
+  watchFollowed(on: (followed: FollowedRecord) => void): Watching;
   saveCluster(cluster: ClusterMetadata): Promise<void>;
   deleteCluster(id: string): Promise<void>;
   patchCluster(id: string, patch: Partial<ClusterMetadata>): Promise<void>;
@@ -124,6 +127,13 @@ export class MongoInfrastructureStore implements InfrastructureStore {
 
   async getClusters(): Promise<ClusterMetadata[]> {
     return (await this.clusters.find({}).toArray()).map(doc => fromDoc<ClusterMetadata>(doc));
+  }
+
+  watchFollowed(on: (followed: FollowedRecord) => void): Watching {
+    return watchingAll([
+      watchWrites(() => this.clusters, workflowMatch(FOLLOWED_CLUSTER_STATUSES), (doc) => on({ kind: 'cluster', record: fromDoc<ClusterMetadata>(doc) })),
+      watchWrites(() => this.deployments, workflowMatch(FOLLOWED_DEPLOYMENT_STATUSES), (doc) => on({ kind: 'deployment', record: unsealDeployment(fromDoc<DeploymentMetadata>(doc), this.dataKey) })),
+    ]);
   }
 
   async saveCluster(cluster: ClusterMetadata): Promise<void> {

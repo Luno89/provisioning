@@ -166,7 +166,9 @@ describe('the steps that delete a project', () => {
     });
     expect(planned[0]!.workflowId).toMatch(/^app-destroy-shop-p1-/);
     const marked = (await db.infrastructure.getDeployments()).find((deployment) => deployment.id === 'odoo-p1');
-    expect(marked).toMatchObject({ status: 'destroying', temporalWorkflowId: planned[0]!.workflowId, lastLogPath: '/logs/destroy.log' });
+    expect(marked, 'nothing names a destroy before it has started, or a follower would find no such workflow').toMatchObject({ status: 'destroying', temporalWorkflowId: '', lastLogPath: '/logs/destroy.log' });
+    await steps().RemoveProjectAppStartedActivity({ deploymentId: 'odoo-p1', workflowId: planned[0]!.workflowId });
+    expect((await db.infrastructure.getDeployments()).find((deployment) => deployment.id === 'odoo-p1')).toMatchObject({ status: 'destroying', temporalWorkflowId: planned[0]!.workflowId });
 
     expect(await steps().RemoveProjectRecordsActivity({ projectId: 'p1' })).toMatchObject({ deployments: 1 });
     expect((await db.infrastructure.getDeployments()).map((deployment) => deployment.id)).toEqual(['odoo-p2']);

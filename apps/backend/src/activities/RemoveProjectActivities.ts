@@ -84,6 +84,7 @@ export interface ProjectRemovalDeps {
 export interface ProjectRemovalActivities {
   RemoveProjectWorkflowsActivity(args: RemoveProjectArgs): Promise<number>;
   RemoveProjectAppsActivity(args: RemoveProjectArgs): Promise<AppToDestroy[]>;
+  RemoveProjectAppStartedActivity(args: { deploymentId: string; workflowId: string }): Promise<void>;
   RemoveProjectWorkspacesActivity(args: RemoveProjectArgs): Promise<number>;
   RemoveProjectSecretsActivity(args: RemoveProjectArgs): Promise<{ workspace: boolean; readers: number }>;
   RemoveProjectRepositoriesActivity(args: RemoveProjectArgs): Promise<string[]>;
@@ -122,8 +123,12 @@ export function createProjectRemovalActivities(deps: ProjectRemovalDeps): Projec
       const found = await scopeOf(projectId);
       if (!found || found.scope.apps.length === 0) return [];
       const planned = await planAppDestroys(await store.infrastructure.getDeployments(), found.scope.apps.map((app) => app.id), deps.apps, () => Math.random().toString(36).slice(2, 8));
-      for (const app of planned) await store.infrastructure.saveDeploymentInfo({ id: app.deploymentId, status: 'destroying', temporalWorkflowId: app.workflowId, lastLogPath: app.args.logFile });
+      for (const app of planned) await store.infrastructure.saveDeploymentInfo({ id: app.deploymentId, status: 'destroying', temporalWorkflowId: '', lastLogPath: app.args.logFile });
       return planned;
+    },
+
+    async RemoveProjectAppStartedActivity({ deploymentId, workflowId }) {
+      await store.infrastructure.saveDeploymentInfo({ id: deploymentId, temporalWorkflowId: workflowId });
     },
 
     async RemoveProjectWorkspacesActivity({ projectId }) {

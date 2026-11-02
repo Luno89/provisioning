@@ -48,7 +48,34 @@ const SECRET_FIELDS = {
   nextcloudDbPassword: 'nc-db', nextcloudDbRootPassword: 'nc-root', hermesDashboardPassword: 'hermes-pw', qdrantApiKey: 'q-key', quickwitS3SecretKey: 'qw', webuiWebSearchApiKey: 'web',
 } satisfies Partial<DeploymentMetadata>;
 
+function hearing<T>(until: (heard: T[]) => boolean): { heard: T[]; on: (item: T) => void; done: Promise<void> } {
+  const heard: T[] = [];
+  let finish!: () => void;
+  const done = new Promise<void>((resolve) => { finish = resolve; });
+  return { heard, on: (item) => { heard.push(item); if (until(heard)) finish(); }, done };
+}
+
 export function infrastructureStoreContract(make: () => Promise<InfrastructureStore>): void {
+  describe('following work', () => {
+    it('hears a cluster or an app come to name a workflow it is waiting on, from any write, and never one that names none or has finished', async () => {
+      const store = await make();
+      const listening = hearing<string>((heard) => heard.includes('deployment d2 deploying') && heard.includes('cluster c1 provisioning'));
+      const watching = store.watchFollowed((followed) => listening.on(`${followed.kind} ${followed.record.id} ${followed.record.status}`));
+      await watching.ready;
+
+      await store.saveCluster(cluster('c1', { status: 'provisioning' }));
+      await store.saveClusterInfo({ id: 'c1', temporalWorkflowId: 'wf-c1' });
+      await store.saveDeploymentInfo({ id: 'd1', name: 'shop', clusterId: 'c1', status: 'deploying', temporalWorkflowId: 'wf-d1' });
+      await store.saveDeploymentInfo({ id: 'd1', status: 'running' });
+      await store.saveDeploymentInfo({ id: 'd2', name: 'blog', clusterId: 'c1', status: 'deploying', temporalWorkflowId: 'wf-d2' });
+      await listening.done;
+      await watching.close();
+
+      expect(listening.heard.filter((line) => line.startsWith('deployment'))).toEqual(['deployment d1 deploying', 'deployment d2 deploying']);
+      expect(listening.heard.filter((line) => line.startsWith('cluster'))).toEqual(['cluster c1 provisioning']);
+    });
+  });
+
   describe('clusters', () => {
     it('keeps a cluster as it was saved, replaces it whole when saved again, and forgets it when deleted', async () => {
       const store = await make();

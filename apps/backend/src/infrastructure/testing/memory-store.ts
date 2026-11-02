@@ -14,6 +14,8 @@ import type { BindingTypeRecord } from '../lib/service-binding.js';
 import { SERVER_ORDER_LOG_LINES, type ServerOrder } from '../lib/server-orders.js';
 import type { WorkFailure } from '../lib/work-failures.js';
 import type { InfrastructureStore } from '../store.js';
+import type { Watching } from '../../platform/lib/change-streams.js';
+import { FOLLOWED_CLUSTER_STATUSES, FOLLOWED_DEPLOYMENT_STATUSES, namesWorkflow, type FollowedRecord } from '../lib/followed-work.js';
 
 const TEST_KEY = loadKeys({ DATA_KEY: 'k'.repeat(64) }).data;
 
@@ -57,6 +59,17 @@ export class MemoryInfrastructureStore implements InfrastructureStore {
   }
 
   async ensureIndexes(): Promise<void> {}
+
+  watchFollowed(on: (followed: FollowedRecord) => void): Watching {
+    const stops = [
+      this.clusters.watch((record) => { if (namesWorkflow(record, FOLLOWED_CLUSTER_STATUSES)) on({ kind: 'cluster', record }); }),
+      this.deployments.watch((stored) => {
+        const record = unsealDeployment(stored, this.dataKey);
+        if (namesWorkflow(record, FOLLOWED_DEPLOYMENT_STATUSES)) on({ kind: 'deployment', record });
+      }),
+    ];
+    return { ready: Promise.resolve(), close: async () => { for (const stop of stops) stop(); } };
+  }
 
   async getClusters(): Promise<ClusterMetadata[]> {
     return this.clusters.all();

@@ -5,6 +5,8 @@ import { asStored } from '../../platform/testing/as-stored.js';
 import { collectionIn, MemoryRecords, type Collections } from '../../platform/testing/memory-records.js';
 import type { OdooRelease } from '../lib/odoo-release.js';
 import type { ReleasesStore } from '../store.js';
+import type { Watching } from '../../platform/lib/change-streams.js';
+import { FOLLOWED_RUN_STATUSES, namesWorkflow } from '../../infrastructure/lib/followed-work.js';
 
 export class MemoryReleasesStore implements ReleasesStore {
   private readonly pipelineRuns: MemoryRecords<PipelineRunMetadata>;
@@ -16,6 +18,11 @@ export class MemoryReleasesStore implements ReleasesStore {
   }
 
   async ensureIndexes(): Promise<void> {}
+
+  watchLiveRuns(on: (run: PipelineRunMetadata) => void): Watching {
+    const stop = this.pipelineRuns.watch((run) => { if (namesWorkflow(run, FOLLOWED_RUN_STATUSES)) on(run); });
+    return { ready: Promise.resolve(), close: async () => { stop(); } };
+  }
 
   async getPipelineRuns(): Promise<PipelineRunMetadata[]> {
     return this.pipelineRuns.all();

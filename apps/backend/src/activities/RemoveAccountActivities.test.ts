@@ -99,7 +99,9 @@ describe('the steps that remove an account', () => {
     await db.infrastructure.saveDeploymentInfo({ id: 'odoo-ana', name: 'ana-shop', clusterId: 'system', strategy: 'helm', appType: 'odoo-project', ownerId: 'ana', status: 'running' });
     const planned = await steps().RemoveAccountAppsActivity({ ownerId: 'bo' });
     expect(planned.map((app) => [app.deploymentId, app.args.namespace, app.taskQueue])).toEqual([['odoo-bo', 'shop-1a2b3c', 'cluster-ops-queue']]);
-    expect((await db.infrastructure.getDeployments()).map((deployment) => [deployment.id, deployment.status])).toEqual([['odoo-bo', 'destroying'], ['odoo-ana', 'running']]);
+    expect((await db.infrastructure.getDeployments()).map((deployment) => [deployment.id, deployment.status, deployment.temporalWorkflowId ?? ''])).toEqual([['odoo-bo', 'destroying', ''], ['odoo-ana', 'running', '']]);
+    await steps().RemoveAccountAppStartedActivity({ deploymentId: 'odoo-bo', workflowId: planned[0]!.workflowId });
+    expect((await db.infrastructure.getDeployments()).find((deployment) => deployment.id === 'odoo-bo')?.temporalWorkflowId).toBe(planned[0]!.workflowId);
   });
 
   it('plans nothing for an account with no apps', async () => {

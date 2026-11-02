@@ -44,8 +44,24 @@ export function updateWhere(collections: Collections, name: string, matches: (ro
   return keys.length;
 }
 
+const watchers = new WeakMap<Map<string, unknown>, Set<(row: unknown) => void>>();
+
+function heard(rows: Map<string, unknown>, row: unknown): void {
+  for (const watcher of watchers.get(rows) ?? []) {
+    const seen = copied(row);
+    queueMicrotask(() => watcher(seen));
+  }
+}
+
 export class MemoryRecords<T extends Identified> {
   constructor(private readonly rows: Map<string, T> = new Map<string, T>()) {}
+
+  watch(watcher: (row: T) => void): () => void {
+    const set = watchers.get(this.rows) ?? new Set();
+    watchers.set(this.rows, set);
+    set.add(watcher as (row: unknown) => void);
+    return () => { set.delete(watcher as (row: unknown) => void); };
+  }
 
   all(): T[] {
     return [...this.rows.values()].map(copied);
@@ -58,6 +74,7 @@ export class MemoryRecords<T extends Identified> {
 
   put(row: T): void {
     this.rows.set(row.id, asStored(row));
+    heard(this.rows, this.rows.get(row.id));
   }
 
   delete(id: string): boolean {
@@ -70,6 +87,7 @@ export class MemoryRecords<T extends Identified> {
     const next = change(copied(row));
     if (next === undefined) return false;
     this.rows.set(id, asStored(next));
+    heard(this.rows, this.rows.get(id));
     return true;
   }
 

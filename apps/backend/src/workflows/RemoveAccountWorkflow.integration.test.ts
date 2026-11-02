@@ -22,10 +22,11 @@ afterAll(async () => {
   await env?.teardown();
 });
 
-const fakeSteps = (seen: string[], over: Partial<AccountRemovalActivities> = {}): AccountRemovalActivities => ({
+const fakeSteps = (seen: string[], over: Partial<AccountRemovalActivities> = {}, named: string[] = []): AccountRemovalActivities => ({
   RemoveAccountWorkflowsActivity: async () => { seen.push('workflows'); return 0; },
   RemoveAccountKeepRunsActivity: async ({ keepRunsFor }) => { seen.push(`keep for ${keepRunsFor}`); return 3; },
   RemoveAccountAppsActivity: async () => { seen.push('apps'); return []; },
+  RemoveAccountAppStartedActivity: async ({ deploymentId, workflowId }) => { named.push(`${deploymentId} ${workflowId}`); },
   RemoveAccountWorkspacesActivity: async () => { seen.push('workspaces'); return 'deleted'; },
   RemoveAccountSecretsActivity: async () => { seen.push('secrets'); return 0; },
   RemoveAccountMeshActivity: async () => { seen.push('mesh'); return { devices: 1, user: true }; },
@@ -94,6 +95,7 @@ describe('removing an account through Temporal', () => {
     const seen: string[] = [];
     const clusterQueue = `remove-account-apps-${Math.random().toString(36).slice(2, 8)}`;
     const destroyed: string[] = [];
+    const named: string[] = [];
     const clusterWorker = await Worker.create({
       ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: env.namespace ?? 'default',
       taskQueue: clusterQueue,
@@ -103,11 +105,12 @@ describe('removing an account through Temporal', () => {
     const app = { name: 'shop', clusterId: 'c', clusterName: 'system', provider: 'k3d', strategy: 'helm', logFile: '/tmp/x.log', appType: 'odoo-project', namespace: 'shop-1a2b3c' };
     await clusterWorker.runUntil(withWorker(fakeSteps(seen, {
       RemoveAccountAppsActivity: async () => { seen.push('apps'); return [{ deploymentId: 'd1', workflowId: `app-destroy-shop-${clusterQueue}`, taskQueue: clusterQueue, args: app }]; },
-    }), async (workflows) => {
+    }, named), async (workflows) => {
       await workflows.start(REMOVE_ACCOUNT_WORKFLOW, removeAccountWorkflowId('eve'), [{ ownerId: 'eve' }], 'eve');
       expect(await env.client.workflow.getHandle(removeAccountWorkflowId('eve')).result()).toMatchObject({ apps: 1 });
     }));
     expect(destroyed).toEqual(['shop in shop-1a2b3c']);
+    expect(named, 'the app names its destroy only once that destroy has started').toEqual([`d1 app-destroy-shop-${clusterQueue}`]);
     expect(seen.slice(0, 4)).toEqual(['workflows', 'apps', 'destroyed', 'workspaces']);
   }, 60_000);
 

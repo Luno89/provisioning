@@ -224,7 +224,7 @@ describe('which providers Koala makes a cluster on', () => {
     const bridge = new TemporalBridge(db, undefined, KEY);
     const start = vi.fn(async (..._args: unknown[]) => undefined);
     bridge.client = { workflow: { start } } as never;
-    vi.spyOn(bridge, 'trackWorkflow').mockImplementation(() => undefined as never);
+    vi.spyOn(bridge, 'follow').mockImplementation(() => undefined as never);
     const mounted = await mount({ ...services(), temporalBridge: bridge } as never, { ...TEST_USER, roles });
     return { ...mounted, db, start };
   }

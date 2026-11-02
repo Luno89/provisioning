@@ -42,6 +42,7 @@ async function working(runScenario: CheckRunActivities['CheckRunScenarioActivity
     RemoveAccountWorkflowsActivity: async () => 0,
     RemoveAccountKeepRunsActivity: async () => 0,
     RemoveAccountAppsActivity: async () => [],
+    RemoveAccountAppStartedActivity: async () => undefined,
     RemoveAccountWorkspacesActivity: async () => '',
     RemoveAccountSecretsActivity: async () => 0,
     RemoveAccountMeshActivity: async () => ({ devices: 0, user: false }),

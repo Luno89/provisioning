@@ -39,6 +39,7 @@ export interface AccountRemovalActivities {
   RemoveAccountWorkflowsActivity(args: RemoveAccountArgs): Promise<number>;
   RemoveAccountKeepRunsActivity(args: { ownerId: string; keepRunsFor: string }): Promise<number>;
   RemoveAccountAppsActivity(args: RemoveAccountArgs): Promise<AppToDestroy[]>;
+  RemoveAccountAppStartedActivity(args: { deploymentId: string; workflowId: string }): Promise<void>;
   RemoveAccountWorkspacesActivity(args: RemoveAccountArgs): Promise<string>;
   RemoveAccountSecretsActivity(args: RemoveAccountArgs): Promise<number>;
   RemoveAccountMeshActivity(args: RemoveAccountArgs): Promise<{ devices: number; user: boolean }>;
@@ -79,8 +80,12 @@ export function createAccountRemovalActivities(deps: AccountRemovalDeps): Accoun
       const owned = deployments.filter((deployment) => deployment.ownerId === ownerId).map((deployment) => deployment.id);
       if (owned.length === 0) return [];
       const planned = await planAppDestroys(deployments, owned, deps.apps, () => Math.random().toString(36).slice(2, 8));
-      for (const app of planned) await deps.store.infrastructure.saveDeploymentInfo({ id: app.deploymentId, status: 'destroying', temporalWorkflowId: app.workflowId, lastLogPath: app.args.logFile });
+      for (const app of planned) await deps.store.infrastructure.saveDeploymentInfo({ id: app.deploymentId, status: 'destroying', temporalWorkflowId: '', lastLogPath: app.args.logFile });
       return planned;
+    },
+
+    async RemoveAccountAppStartedActivity({ deploymentId, workflowId }) {
+      await deps.store.infrastructure.saveDeploymentInfo({ id: deploymentId, temporalWorkflowId: workflowId });
     },
 
     async RemoveAccountWorkspacesActivity({ ownerId }) {

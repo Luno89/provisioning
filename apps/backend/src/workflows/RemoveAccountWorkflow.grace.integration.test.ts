@@ -21,10 +21,11 @@ afterAll(async () => {
   await env?.teardown();
 });
 
-const fakeSteps = (seen: string[], over: Partial<AccountRemovalActivities> = {}): AccountRemovalActivities => ({
+const fakeSteps = (seen: string[], over: Partial<AccountRemovalActivities> = {}, named: string[] = []): AccountRemovalActivities => ({
   RemoveAccountWorkflowsActivity: async () => { seen.push('workflows'); return 0; },
   RemoveAccountKeepRunsActivity: async ({ keepRunsFor }) => { seen.push(`keep for ${keepRunsFor}`); return 3; },
   RemoveAccountAppsActivity: async () => { seen.push('apps'); return []; },
+  RemoveAccountAppStartedActivity: async ({ deploymentId, workflowId }) => { named.push(`${deploymentId} ${workflowId}`); },
   RemoveAccountWorkspacesActivity: async () => { seen.push('workspaces'); return 'deleted'; },
   RemoveAccountSecretsActivity: async () => { seen.push('secrets'); return 0; },
   RemoveAccountMeshActivity: async () => { seen.push('mesh'); return { devices: 1, user: true }; },

@@ -1,6 +1,6 @@
-import { defineQuery, executeChild, patched, proxyActivities, setHandler, sleep, workflowInfo } from '@temporalio/workflow';
+import { defineQuery, executeChild, patched, proxyActivities, setHandler, sleep, startChild, workflowInfo } from '@temporalio/workflow';
 import { DESTROY_RETRY } from '../platform/lib/activity-retry.js';
-import { ACTIVITY_STOP_GRACE_MS } from '../accounts/lib/account-removal.js';
+import { ACTIVITY_STOP_GRACE_MS, DESTROYS_NAMED_ONCE_STARTED } from '../accounts/lib/account-removal.js';
 import { executeDestroyAppWorkflow } from './DestroyAppWorkflow.js';
 import { PROJECT_FILES_PATCH, PROJECT_REMOVAL_PROGRESS_QUERY, type ProjectRemovalStep } from '../projects/lib/project-removal.js';
 import type { ProjectRemovalActivities, RemoveProjectArgs } from '../activities/RemoveProjectActivities.js';
@@ -40,7 +40,15 @@ export async function RemoveProjectWorkflow(args: RemoveProjectArgs): Promise<Pr
   if (stoppedWorkflows > 0) await sleep(ACTIVITY_STOP_GRACE_MS);
   done.push('workflows');
   const apps = await steps.RemoveProjectAppsActivity(args);
-  for (const app of apps) await executeChild(executeDestroyAppWorkflow, { workflowId: app.workflowId, taskQueue: app.taskQueue, args: [app.args] });
+  for (const app of apps) {
+    if (patched(DESTROYS_NAMED_ONCE_STARTED)) {
+      const destroy = await startChild(executeDestroyAppWorkflow, { workflowId: app.workflowId, taskQueue: app.taskQueue, args: [app.args] });
+      await steps.RemoveProjectAppStartedActivity({ deploymentId: app.deploymentId, workflowId: app.workflowId });
+      await destroy.result();
+    } else {
+      await executeChild(executeDestroyAppWorkflow, { workflowId: app.workflowId, taskQueue: app.taskQueue, args: [app.args] });
+    }
+  }
   done.push('apps');
   const workspaces = await steps.RemoveProjectWorkspacesActivity(args);
   done.push('workspaces');

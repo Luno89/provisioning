@@ -4,9 +4,12 @@ import type { OdooRelease } from './lib/odoo-release.js';
 import type { PartialInfo, PipelineRunMetadata } from '../platform/index.js';
 import { mergeRecord } from '../platform/lib/merge-record.js';
 import { v4 as uuidv4 } from 'uuid';
+import { watchWrites, type Watching } from '../platform/lib/change-streams.js';
+import { FOLLOWED_RUN_STATUSES, workflowMatch } from '../infrastructure/lib/followed-work.js';
 
 export interface ReleasesStore extends AreaStore {
   getPipelineRuns(): Promise<PipelineRunMetadata[]>;
+  watchLiveRuns(on: (run: PipelineRunMetadata) => void): Watching;
   savePipelineRun(run: PipelineRunMetadata): Promise<void>;
   savePipelineRunInfo(run: PartialInfo<PipelineRunMetadata>): Promise<PipelineRunMetadata>;
   getOdooReleases(ownerId: string, projectId?: string): Promise<OdooRelease[]>;
@@ -36,6 +39,10 @@ export class MongoReleasesStore implements ReleasesStore {
   async ensureIndexes(): Promise<void> {
     await this.pipelineRuns.createIndex({ projectId: 1 });
     await this.odooReleases.createIndex({ ownerId: 1, projectId: 1 });
+  }
+
+  watchLiveRuns(on: (run: PipelineRunMetadata) => void): Watching {
+    return watchWrites(() => this.pipelineRuns, workflowMatch(FOLLOWED_RUN_STATUSES), (doc) => on(fromDoc<PipelineRunMetadata>(doc)));
   }
 
   async getPipelineRuns(): Promise<PipelineRunMetadata[]> {

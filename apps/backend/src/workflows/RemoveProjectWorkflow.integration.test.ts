@@ -32,6 +32,7 @@ describe('deleting a project through Temporal', () => {
       workflowsPath: resolve(__dirname, 'DestroyAppWorkflow.ts'),
       activities: { DestroyAppActivity: async (args: { name: string; namespace?: string }) => { seen.push(`destroy ${args.name} in ${args.namespace}`); return { status: 'destroyed', msg: '' }; } },
     });
+    const named: string[] = [];
     let release: () => void = () => undefined;
     const held = new Promise<void>((done) => { release = done; });
     const activities: ProjectRemovalActivities = {
@@ -40,6 +41,7 @@ describe('deleting a project through Temporal', () => {
         seen.push('apps');
         return [{ deploymentId: 'd1', workflowId: `app-destroy-shop-${clusterQueue}`, taskQueue: clusterQueue, args: { name: 'shop', clusterId: 'c', clusterName: 'system', provider: 'k3d', strategy: 'helm', logFile: '/tmp/x.log', appType: 'odoo-project', namespace: 'shop-1a2b3c' } }];
       },
+      RemoveProjectAppStartedActivity: async ({ deploymentId, workflowId }) => { named.push(`${deploymentId} ${workflowId}`); },
       RemoveProjectWorkspacesActivity: async () => { seen.push('workspaces'); return 2; },
       RemoveProjectSecretsActivity: async () => { seen.push('secrets'); await held; return { workspace: true, readers: 1 }; },
       RemoveProjectRepositoriesActivity: async () => { seen.push('repositories'); return ['koala-bo/shop']; },
@@ -71,6 +73,7 @@ describe('deleting a project through Temporal', () => {
       });
     })));
     expect(seen).toEqual(['workflows', 'apps', 'destroy shop in shop-1a2b3c', 'workspaces', 'secrets', 'repositories', 'files', 'records']);
+    expect(named, 'the app names its destroy only once that destroy has started').toEqual([`d1 app-destroy-shop-${clusterQueue}`]);
     expect(told, 'the owner\'s browsers are told the grove changed').toEqual(['bo']);
   }, 60_000);
 });

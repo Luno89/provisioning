@@ -1,8 +1,8 @@
-import { WorkflowNotFoundError, type Client, type WorkflowClient, type WorkflowExecutionDescription, type WorkflowExecutionInfo } from '@temporalio/client';
+import { WorkflowNotFoundError, type Client, type WorkflowClient, type WorkflowExecutionDescription, type WorkflowExecutionInfo, type WorkflowHandle } from '@temporalio/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mock } from 'vitest-mock-extended';
 import type { Server as SocketServer } from 'socket.io';
-import { encryptValue, type ClusterMetadata, type DeploymentMetadata, type ProjectMetadata } from '../../platform/index.js';
+import { encryptValue, REOPEN_FIRST_MS, type ClusterMetadata, type DeploymentMetadata, type ProjectMetadata } from '../../platform/index.js';
 import { memoryDatabase } from '../../platform/testing/memory-database.js';
 import { startedFor } from '../../platform/lib/workflow-owner.js';
 import { buildPlanAt } from '../../releases/lib/build-plan.js';
@@ -291,5 +291,100 @@ describe('provisioning a cluster', () => {
     await ready().provision('vm2', 'hetzner', 'op');
     logged.mockRestore();
     expect(startedWith(workflow)?.args[0]).not.toHaveProperty('meshPreAuthKey');
+  });
+});
+
+describe('following work to its end', () => {
+  const closing = (ends: () => Promise<unknown>, status: string) => {
+    const run = mock<WorkflowHandle>();
+    run.result.mockImplementation(ends);
+    run.describe.mockResolvedValue({ status: { name: status } } as WorkflowExecutionDescription);
+    return run;
+  };
+  const deploying = { id: 'd1', name: 'shop', clusterId: 'c1', strategy: 'helm', status: 'deploying', temporalWorkflowId: 'wf-1', ownerId: 'u1' } as DeploymentMetadata;
+  const statusOf = async (db: ReturnType<typeof bridge>['db'], id: string) => (await db.infrastructure.getDeployments()).find((dep) => dep.id === id)?.status;
+  const firstFollowed = (instance: TemporalBridge) => {
+    const original = instance.follow.bind(instance);
+    let heard!: (first: { following: Promise<void> }) => void;
+    const followed = new Promise<{ following: Promise<void> }>((resolve) => { heard = resolve; });
+    const spy = vi.spyOn(instance, 'follow').mockImplementation((...args) => { const following = original(...args); heard({ following }); return following; });
+    return { followed, spy };
+  };
+
+  it('marks an app running once Temporal says the workflow deploying it completed, and tells the browsers', async () => {
+    const io = mock<SocketServer>();
+    const { db, workflow, ready } = bridge({ io });
+    workflow.getHandle.mockReturnValue(closing(async () => ({}), 'COMPLETED') as never);
+    await db.infrastructure.saveDeployment(deploying);
+
+    await ready().follow('wf-1', 'app-deploy', 'd1', 'shop', '', deploying);
+
+    expect(await statusOf(db, 'd1')).toBe('running');
+    expect(io.emit).toHaveBeenCalledWith('deployment-updated');
+  });
+
+  it('takes a workflow Temporal does not have as failed', async () => {
+    const { db, workflow, ready } = bridge();
+    workflow.getHandle.mockReturnValue(closing(async () => { throw new WorkflowNotFoundError('not found', 'wf-1', undefined); }, 'COMPLETED') as never);
+    await db.infrastructure.saveDeployment(deploying);
+
+    await ready().follow('wf-1', 'app-deploy', 'd1', 'shop', '', deploying);
+
+    expect(await statusOf(db, 'd1')).toBe('failed');
+  });
+
+  it('follows a workflow again after losing Temporal, waiting longer each time, and records how it ended once Temporal answers', async () => {
+    const { db, workflow, ready } = bridge();
+    const lost = vi.fn<() => Promise<unknown>>()
+      .mockRejectedValueOnce(new Error('14 UNAVAILABLE: connection refused'))
+      .mockRejectedValueOnce(new Error('14 UNAVAILABLE: connection refused'))
+      .mockResolvedValue({});
+    workflow.getHandle.mockReturnValue(closing(lost, 'FAILED') as never);
+    await db.infrastructure.saveDeployment(deploying);
+
+    const following = ready().follow('wf-1', 'app-deploy', 'd1', 'shop', '', deploying);
+    await vi.advanceTimersByTimeAsync(REOPEN_FIRST_MS);
+    expect(lost).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(REOPEN_FIRST_MS);
+    expect(lost, 'the second wait is twice the first').toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(REOPEN_FIRST_MS);
+    await following;
+
+    expect(lost).toHaveBeenCalledTimes(3);
+    expect(await statusOf(db, 'd1')).toBe('failed');
+  });
+
+  it('follows an app another process starts deploying as soon as its record names the workflow', async () => {
+    const { db, workflow, ready } = bridge();
+    workflow.getHandle.mockReturnValue(closing(async () => ({}), 'COMPLETED') as never);
+    const instance = ready();
+    const { followed } = firstFollowed(instance);
+    await instance.followWork();
+
+    await db.infrastructure.saveDeployment({ ...deploying, temporalWorkflowId: '' });
+    await db.infrastructure.saveDeploymentInfo({ id: 'd1', temporalWorkflowId: 'wf-1' });
+    await (await followed).following;
+
+    expect(workflow.getHandle).toHaveBeenCalledWith('wf-1');
+    expect(await statusOf(db, 'd1')).toBe('running');
+    await instance.stop();
+  });
+
+  it('follows what was already going when it starts, and nothing that names no workflow or has ended', async () => {
+    const { db, workflow, ready } = bridge();
+    workflow.getHandle.mockReturnValue(closing(async () => ({}), 'COMPLETED') as never);
+    await db.infrastructure.saveDeployment(deploying);
+    await db.infrastructure.saveDeployment({ ...deploying, id: 'd2', name: 'blog', temporalWorkflowId: '' });
+    await db.infrastructure.saveDeployment({ ...deploying, id: 'd3', name: 'wiki', status: 'running', temporalWorkflowId: 'wf-3' });
+    const instance = ready();
+    const { followed, spy } = firstFollowed(instance);
+
+    await instance.followWork();
+    await (await followed).following;
+
+    expect(spy.mock.calls.map((call) => call[0])).toEqual(['wf-1']);
+    expect(await statusOf(db, 'd1')).toBe('running');
+    expect(await statusOf(db, 'd2')).toBe('deploying');
+    await instance.stop();
   });
 });

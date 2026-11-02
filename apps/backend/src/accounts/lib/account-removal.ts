@@ -14,6 +14,7 @@ export const ROOT_REMOVAL_WORKFLOW = 'RootAccountRemovalWorkflow';
 export const ROOT_REMOVAL_STEPS: readonly RemovalStep[] = ['instance', 'mesh', 'records'];
 
 export const ACTIVITY_STOP_GRACE_MS = 30_000;
+export const DESTROYS_NAMED_ONCE_STARTED = 'destroys-named-once-started';
 
 export interface RemovalRequest {
   ownerId: string;

@@ -28,6 +28,26 @@ const release = (id: string, extra: Partial<OdooRelease> = {}): OdooRelease => (
 });
 
 export function releasesStoreContract(make: () => Promise<ReleasesStore>): void {
+  describe('following builds', () => {
+    it('hears a build come to name the workflow running it, and never one that names none or has ended', async () => {
+      const store = await make();
+      const heard: string[] = [];
+      let finish!: () => void;
+      const done = new Promise<void>((resolve) => { finish = resolve; });
+      const watching = store.watchLiveRuns((live) => { heard.push(`${live.id} ${live.status}`); if (live.id === 'r2') finish(); });
+      await watching.ready;
+
+      await store.savePipelineRun(run('r1'));
+      await store.savePipelineRunInfo({ id: 'r1', temporalWorkflowId: 'wf-r1' });
+      await store.savePipelineRunInfo({ id: 'r1', status: 'succeeded' });
+      await store.savePipelineRun(run('r2', { status: 'running', temporalWorkflowId: 'wf-r2' }));
+      await done;
+      await watching.close();
+
+      expect(heard).toEqual(['r1 queued', 'r2 running']);
+    });
+  });
+
   describe('pipeline builds', () => {
     it('keeps a build as it was saved, replaces it whole when saved again, and lists them all', async () => {
       const store = await make();

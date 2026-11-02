@@ -284,7 +284,7 @@ export async function startAppDeploy(deps: AppDeployDeps, config: DeployRequest,
       id: dep.id || dep.name,
       status: 'deploying',
       healthReason: '',
-      temporalWorkflowId: wfId,
+      temporalWorkflowId: '',
       lastLogPath: absoluteLogPath,
     })
 
@@ -294,6 +294,8 @@ export async function startAppDeploy(deps: AppDeployDeps, config: DeployRequest,
       args: [activityArgs],
       ...startedFor(dep.ownerId ?? userId ?? PLATFORM_OWNER),
     })
+
+    await deps.db.infrastructure.saveDeploymentInfo({ id: dep.id || dep.name, temporalWorkflowId: wfId })
 
 
   return { workflowId: wfId, deployment: dep as DeploymentMetadata };
