@@ -2,7 +2,7 @@ import { COOLING_OFF_DAYS, devOnly, type JudgedVulnerability, type Vulnerability
 
 export { COOLING_OFF_DAYS, compareVersions, devOnly, fixOf, judgeVulnerabilities, type JudgedVulnerability, type Vulnerability } from '../../apps/backend/src/platform/lib/dependency-rule.js';
 
-export const LEDGER_FILES = ['tests/last-passed.json', 'tests/LAST-PASSED.md'];
+export const LEDGER_FILES = ['tests/last-passed.json', 'tests/LAST-PASSED.md', 'tests/coupling/baseline.json'];
 
 export interface GateStep { name: string; script: string; memoryMB?: number; alone?: true }
 
@@ -12,7 +12,7 @@ export const UNIT_STEPS: GateStep[] = [
 ];
 
 export const INTEGRATION_STEPS: GateStep[] = [
-  { name: 'the integration tier, and the coupling rules over both tiers', script: 'test:integration:coupled' },
+  { name: 'the integration tier, both tiers gathering what they run', script: 'test:integration:coupled' },
 ];
 
 export const E2E_STEPS: GateStep[] = [
@@ -33,7 +33,7 @@ export const E2E_STEPS: GateStep[] = [
 ];
 
 export const LAYER_STEPS: GateStep[] = [
-  { name: 'every service, route and activity tested in units and against what is real', script: 'test:coupling:live' },
+  { name: 'the coupling rules, over both tiers and the live suites', script: 'test:coupling:live' },
 ];
 
 export const SHIP_STEPS: GateStep[] = [...UNIT_STEPS, ...INTEGRATION_STEPS, ...E2E_STEPS, ...LAYER_STEPS];

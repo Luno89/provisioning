@@ -45,7 +45,8 @@ npm run test         # the three tiers in order, each only once the one below pa
 npm run test:all     # test → test:synth:palworld → test:infra:integration → test:remote-integration
 npm run test:unit    # typecheck + every workspace's unit tier: *.test.ts, nothing outside the process, ~1.5 min
 npm run test:integration # every workspace's integration tier: *.integration.test.ts, real Mongo, Temporal's test server, sockets, git and sh on this machine, ~3 min
-npm run test:integration:coupled # both tiers again gathering V8 coverage, then the coupling rules against their baseline (Coupling coverage, below); ship's third step
+npm run test:integration:coupled # both tiers again, gathering what each test file runs (Coupling coverage, below); ship's third step
+npm run test:coupling:live # the coupling rules R1-R5 over both tiers and the live suites, against their baseline; ship's last step
 npm run test:e2e     # the e2e tier: the live suites ship runs (E2E_STEPS in tests/lib/gates.ts) against the running dev stack, with MECHANICS_ADMIN set
 npm run test:alive   # scripts/alive.sh — Docker/k3d/K8s API/Temporal/worker pod health, fails fast with fix hints
 npm run test:browser # test:alive → Playwright on tests/e2e.spec.ts, whose selectors have rotted (plans/testing-pyramid.md); in no gate
@@ -2013,9 +2014,9 @@ real. It works like Lighthouse, gather apart from audit:
     integration or live test (its real ones); pure logic belongs in `lib/`, which R5 does not hold. It needs the `live` artifact, so
     it is judged by ship's last step, `npm run test:coupling:live`, after the live suites have run on a dev stack started with
     `COUPLING_LIVE=1` (ship refuses to start on one that was not).
-- **The baseline only shrinks** (`tests/coupling/baseline.json`, seeded once with every rule judged): a breach it does not list
-  fails, and so does one it lists that is gone, until `tsx tests/coupling/audit.ts --prune` lowers it and the change is
-  committed with the fix.
+- **The baseline only shrinks** (`tests/coupling/baseline.json`, seeded with every rule judged): a breach it does not list fails.
+  Ship's last step runs with `--prune`, which lowers the count of every breach that is gone (never raises one), and the smaller
+  baseline is committed on top with the live ledger (`LEDGER_FILES`). Run by hand without `--prune`, a gone breach fails too.
 - **What the live suites run is measured too** (the `live` artifact): `COUPLING_LIVE=1 npm run dev` starts the dev stack with
   `NODE_V8_COVERAGE` and `tests/coupling/live-hook.mjs` (the backend and each worker record their pid and, when the sampler writes a
   new request id to `tests/.coupling/live/request`, write what ran since the last time with `v8.takeCoverage()`; never a signal,
@@ -2023,8 +2024,8 @@ real. It works like Lighthouse, gather apart from audit:
   `discard` before, `sample tests/<suite>.ts` after, `convert` mapping each file back to TypeScript through the source maps the
   coverage carries) and records it, so the audit counts those edges at the `live` level. A dev stack started without it changes
   nothing.
-- Ship runs it as `npm run test:integration:coupled`, after the unit tier and lint; with coverage the suites took 253 s against
-  196 s without on 2026-11-01. Not measured yet: workflow code (Temporal runs it from its own bundle, so `backend/workflows` shows almost
+- Ship gathers with `npm run test:integration:coupled` after the unit tier and lint, and judges once, last, with
+  `npm run test:coupling:live`, after the live suites; with coverage the suites took 253 s against 196 s without on 2026-11-01. Not measured yet: workflow code (Temporal runs it from its own bundle, so `backend/workflows` shows almost
   nothing covered), the live suites' and the VMs' coverage.
 
 ## Releases: every gate before what it protects
@@ -2036,7 +2037,7 @@ instance, without passing its gates first (owner, 2026-10-23: "all those checks 
   uncommitted, that gitleaks finds no secret in what it carries, and that osv-scanner finds no known vulnerability in what Koala
   runs whose fix is due: production packages in `package-lock.json`; a fix published under 14 days ago waits and is listed with the day it
   can be taken, one 14 days old or more fails ship until `npm run deps:update -- <package>` takes it (the newest version two weeks old in
-  the major it is on, an override when no workspace names it), and those with no fix yet are kept in `osv-scanner.toml` with why), then **G1** (typecheck and the unit tier, lint, then the integration tier with the coupling rules) and, after G2, the coupling rules again with what the live suites ran (R5) and **G2** (`SHIP_STEPS` in `tests/lib/gates.ts`: routes,
+  the major it is on, an override when no workspace names it), and those with no fix yet are kept in `osv-scanner.toml` with why), then **G1** (typecheck and the unit tier, lint, then the integration tier gathering its coverage) and, after G2, the coupling rules over both tiers and what the live suites ran (R1-R5) and **G2** (`SHIP_STEPS` in `tests/lib/gates.ts`: routes,
   sign-in across a root, an instance and a hub of the suite's own, passwords, codes, sign-out and lockout on a root of its own, Connect OpenRouter, a project shared from that instance and
   worked on that hub, account removal, hub, project sharing,
   telemetry, app names, files, the Odoo release and every mechanics check, each through its npm script against the dev stack), failing at the first that fails. Every mechanics check has to pass
