@@ -1,20 +1,14 @@
-import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { copyFile, mkdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { promisify } from 'node:util';
 import { ignore } from '@koala/engine-core/failures';
+import { nodeProcesses, succeeded, type Processes } from '../../platform/index.js';
 import { releaseFromTag, rolledBackTo, withdrawnBy, type InstanceRelease } from '../lib/instance-updates.js';
 import type { InstancesStore } from '../store.js';
 import type { ReleaseSource } from './InstanceService.js';
 import { inventoryFileFor } from './release-files.js';
 
-const run = promisify(execFile);
-
-export type GitOnThisMachine = (args: string[], cwd: string) => Promise<string>;
-
-const gitOnThisMachine: GitOnThisMachine = async (args, cwd) => (await run('git', args, { cwd })).stdout;
 const IMAGE_TAG = /^[A-Za-z0-9._-]{1,128}$/;
 const DIGEST = /^sha256:[0-9a-f]{64}$/;
 
@@ -25,7 +19,7 @@ export interface ReleaseCatalogueSettings {
   imageDigest?: string | undefined;
   chart: () => Promise<string>;
   inventory: (release: string, out: string) => Promise<void>;
-  git?: GitOnThisMachine | undefined;
+  processes?: Processes | undefined;
 }
 
 export class ReleaseCatalogue implements ReleaseSource {
@@ -39,7 +33,7 @@ export class ReleaseCatalogue implements ReleaseSource {
 
   private async git(args: string[]): Promise<string | undefined> {
     try {
-      return (await (this.settings.git ?? gitOnThisMachine)(args, this.settings.repoRoot)).trim() || undefined;
+      return (await succeeded(this.settings.processes ?? nodeProcesses, { command: 'git', args, cwd: this.settings.repoRoot })).trim() || undefined;
     } catch {
       return undefined;
     }

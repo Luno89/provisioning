@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { mock } from 'vitest-mock-extended';
 import type { AgentChange, AgentChangeService } from '../../engine/index.js';
-import { mountInProcess, PERSON, type InProcess } from '../../engine/testing/in-process.js';
+import { TEST_USER } from '../../platform/routes/test-harness.js';
+import { routesInProcess, type InProcessRoutes } from '../../platform/testing/routes.js';
 import type { Scenario } from '../../eval/level2/scenario.js';
 import type { MemoryItem, PracticeService } from '../../memory/index.js';
 import type { BenchService } from '../services/BenchService.js';
@@ -21,8 +22,8 @@ let practices: ReturnType<typeof mock<PracticeService>>;
 let notes: ReturnType<typeof mock<PracticeService>>;
 let changes: ReturnType<typeof mock<AgentChangeService>>;
 
-const mounted = (over: Partial<Level2RouterDeps> = {}): Promise<InProcess> =>
-  mountInProcess({ prefix: PREFIX, router: () => evalsLevel2Router({ level2, bench, practices, notes, changes, ...over }) });
+const mounted = (over: Partial<Level2RouterDeps> = {}): Promise<InProcessRoutes> =>
+  routesInProcess({ prefix: PREFIX, router: () => evalsLevel2Router({ level2, bench, practices, notes, changes, ...over }) });
 
 beforeEach(() => {
   level2 = mock<Level2Service>();
@@ -32,21 +33,21 @@ beforeEach(() => {
   changes = mock<AgentChangeService>();
 });
 
-const item = (id: string): MemoryItem => ({ id, ownerId: PERSON.id, title: id, text: id, createdAt: 'a', updatedAt: 'a' } as MemoryItem);
+const item = (id: string): MemoryItem => ({ id, ownerId: TEST_USER.id, title: id, text: id, createdAt: 'a', updatedAt: 'a' } as MemoryItem);
 
 describe('the bench routes', () => {
   it('reads the bench\'s settings and state for the signed-in person', async () => {
     bench.settings.mockResolvedValue({ enabled: true, idleMinutes: 15, fullEveryHours: 24 });
-    bench.state.mockResolvedValue({ ownerId: PERSON.id, benched: {} });
+    bench.state.mockResolvedValue({ ownerId: TEST_USER.id, benched: {} });
     expect(await (await mounted()).get(`${PREFIX}/bench`)).toMatchObject({ status: 200, data: { settings: { idleMinutes: 15 }, state: { benched: {} } } });
-    expect(bench.settings).toHaveBeenCalledWith(PERSON.id);
+    expect(bench.settings).toHaveBeenCalledWith(TEST_USER.id);
   });
 
   it('saves good settings and answers the problems of bad ones with a 400', async () => {
     const app = await mounted();
     bench.saveSettings.mockResolvedValueOnce({ saved: true, settings: { enabled: false, idleMinutes: 30, fullEveryHours: 48 } });
     expect(await app.put(`${PREFIX}/bench`, { enabled: false, idleMinutes: 30, fullEveryHours: 48 })).toMatchObject({ status: 200, data: { settings: { idleMinutes: 30 } } });
-    expect(bench.saveSettings).toHaveBeenCalledWith(PERSON.id, { enabled: false, idleMinutes: 30, fullEveryHours: 48 });
+    expect(bench.saveSettings).toHaveBeenCalledWith(TEST_USER.id, { enabled: false, idleMinutes: 30, fullEveryHours: 48 });
     bench.saveSettings.mockResolvedValueOnce({ saved: false, problems: ['idleMinutes has to be positive'] });
     expect(await app.put(`${PREFIX}/bench`, {})).toMatchObject({ status: 400, data: { problems: ['idleMinutes has to be positive'] } });
   });
@@ -69,7 +70,7 @@ describe('the prompt change routes', () => {
     const app = await mounted();
     changes.accept.mockResolvedValueOnce({ accepted: true, change: { id: 'c1', status: 'accepted' } as AgentChange });
     expect(await app.post(`${PREFIX}/changes/c1/accept`, { prompt: 'edited' })).toMatchObject({ status: 200, data: { change: { id: 'c1' } } });
-    expect(changes.accept).toHaveBeenCalledWith(PERSON.id, 'c1', 'edited');
+    expect(changes.accept).toHaveBeenCalledWith(TEST_USER.id, 'c1', 'edited');
     changes.accept.mockResolvedValueOnce({ accepted: false, status: 409, problems: ['it is comparing'] });
     expect(await app.post(`${PREFIX}/changes/c1/accept`, {})).toMatchObject({ status: 409, data: { problems: ['it is comparing'] } });
     expect(await (await mounted({ changes: undefined })).post(`${PREFIX}/changes/c1/accept`)).toMatchObject({ status: 404 });
@@ -79,7 +80,7 @@ describe('the prompt change routes', () => {
     const app = await mounted();
     changes.handOver.mockResolvedValueOnce({ accepted: true, change: { id: 'c2' } as AgentChange });
     expect(await app.post(`${PREFIX}/changes/c2/hand-over`)).toMatchObject({ status: 200, data: { change: { id: 'c2' } } });
-    expect(changes.handOver).toHaveBeenCalledWith(PERSON.id, 'c2');
+    expect(changes.handOver).toHaveBeenCalledWith(TEST_USER.id, 'c2');
     changes.handOver.mockResolvedValueOnce({ accepted: false, status: 404, problems: ['no such request'] });
     expect(await app.post(`${PREFIX}/changes/c2/hand-over`)).toMatchObject({ status: 404, data: { problems: ['no such request'] } });
     expect(await (await mounted({ changes: undefined })).post(`${PREFIX}/changes/c2/hand-over`)).toMatchObject({ status: 404 });
@@ -109,7 +110,7 @@ describe.each([
     const app = await mounted();
     service().makeLive.mockResolvedValueOnce(item('a'));
     expect(await app.post(`${PREFIX}/${path}/a/live`)).toMatchObject({ status: 200, data: { [field]: { id: 'a' } } });
-    expect(service().makeLive).toHaveBeenCalledWith(PERSON.id, 'a');
+    expect(service().makeLive).toHaveBeenCalledWith(TEST_USER.id, 'a');
     service().makeLive.mockResolvedValueOnce(undefined);
     expect(await app.post(`${PREFIX}/${path}/a/live`)).toMatchObject({ status: 404 });
     expect(await (await mounted({ practices: undefined, notes: undefined })).post(`${PREFIX}/${path}/a/live`)).toMatchObject({ status: 404 });
@@ -133,9 +134,9 @@ describe('the proposal routes', () => {
 
   it('accepts one with the scenario as edited, refuses one that does not check out, and says when none is waiting', async () => {
     const app = await mounted();
-    level2.acceptProposal.mockResolvedValueOnce({ saved: true, scenario: { ...SCENARIO, ownerId: PERSON.id, updatedAt: 't' } });
+    level2.acceptProposal.mockResolvedValueOnce({ saved: true, scenario: { ...SCENARIO, ownerId: TEST_USER.id, updatedAt: 't' } });
     expect(await app.post(`${PREFIX}/proposals/p1/accept`, { scenario: SCENARIO })).toMatchObject({ status: 200, data: { scenario: { id: 'builder-saves' } } });
-    expect(level2.acceptProposal).toHaveBeenCalledWith(PERSON.id, 'p1', SCENARIO);
+    expect(level2.acceptProposal).toHaveBeenCalledWith(TEST_USER.id, 'p1', SCENARIO);
     level2.acceptProposal.mockResolvedValueOnce({ saved: false, problems: ['there is no agent called "nobody"'] });
     expect(await app.post(`${PREFIX}/proposals/p1/accept`, {})).toMatchObject({ status: 400, data: { problems: ['there is no agent called "nobody"'] } });
     level2.acceptProposal.mockResolvedValueOnce({ missing: true });
@@ -162,9 +163,9 @@ describe('the scenario routes', () => {
 
   it('saves a scenario under the id in the address, refuses a body that names another, and reports what is wrong with a broken one', async () => {
     const app = await mounted();
-    level2.saveScenario.mockResolvedValueOnce({ saved: true, scenario: { ...SCENARIO, id: 'mine', ownerId: PERSON.id } });
+    level2.saveScenario.mockResolvedValueOnce({ saved: true, scenario: { ...SCENARIO, id: 'mine', ownerId: TEST_USER.id } });
     expect(await app.put(`${PREFIX}/scenarios/mine`, { ...SCENARIO, id: 'mine' })).toMatchObject({ status: 200, data: { scenario: { id: 'mine' } } });
-    expect(level2.saveScenario).toHaveBeenCalledWith(PERSON.id, { ...SCENARIO, id: 'mine' });
+    expect(level2.saveScenario).toHaveBeenCalledWith(TEST_USER.id, { ...SCENARIO, id: 'mine' });
     expect(await app.put(`${PREFIX}/scenarios/mine`, { ...SCENARIO, id: 'other' })).toMatchObject({ status: 400, data: { error: 'the scenario in the body is not called "mine"' } });
     level2.saveScenario.mockResolvedValueOnce({ saved: false, problems: ['there is no procedure called "ghost"'] });
     expect(await app.put(`${PREFIX}/scenarios/mine`, { ...SCENARIO, id: 'mine' })).toMatchObject({ status: 400, data: { error: 'The scenario has problems', problems: ['there is no procedure called "ghost"'] } });
@@ -174,7 +175,7 @@ describe('the scenario routes', () => {
     const app = await mounted();
     level2.checkProcedure.mockResolvedValueOnce({ id: 'turn-check' } as never);
     expect(await app.get(`${PREFIX}/scenarios/turn-reads/procedure`)).toMatchObject({ status: 200, data: { procedure: { id: 'turn-check' } } });
-    expect(level2.checkProcedure).toHaveBeenCalledWith(PERSON.id, 'turn-reads');
+    expect(level2.checkProcedure).toHaveBeenCalledWith(TEST_USER.id, 'turn-reads');
     level2.checkProcedure.mockResolvedValueOnce(undefined);
     expect(await app.get(`${PREFIX}/scenarios/builder-saves/procedure`)).toMatchObject({ status: 404 });
   });
@@ -189,7 +190,7 @@ describe('the scenario routes', () => {
 });
 
 describe('the run routes', () => {
-  const run = { id: 'run-1', ownerId: PERSON.id, state: 'running' } as Level2Run;
+  const run = { id: 'run-1', ownerId: TEST_USER.id, state: 'running' } as Level2Run;
 
   it('lists the person\'s runs and reads one, or says there is none', async () => {
     const app = await mounted();
@@ -206,14 +207,14 @@ describe('the run routes', () => {
     const reply = await (await mounted()).post(`${PREFIX}/runs`, { only: ['builder-saves'], modelId: 'tabby', modelLabel: 'Tabby', temperature: 0.4 });
     expect(reply).toMatchObject({ status: 202, data: { id: 'run-1' } });
     expect(level2.start).toHaveBeenCalledWith({
-      ownerId: PERSON.id, only: ['builder-saves'], modelId: 'tabby', modelLabel: 'Tabby', sampling: { toolTurn: { temperature: 0.4 }, conversation: { temperature: 0.4 } },
+      ownerId: TEST_USER.id, only: ['builder-saves'], modelId: 'tabby', modelLabel: 'Tabby', sampling: { toolTurn: { temperature: 0.4 }, conversation: { temperature: 0.4 } },
     });
   });
 
   it('starts a run on everything when it is told nothing', async () => {
     level2.start.mockResolvedValue(run);
     await (await mounted()).post(`${PREFIX}/runs`);
-    expect(level2.start).toHaveBeenCalledWith({ ownerId: PERSON.id });
+    expect(level2.start).toHaveBeenCalledWith({ ownerId: TEST_USER.id });
   });
 
   it('refuses a list of scenarios that is not ids, a temperature out of range, and a scenario that does not exist', async () => {
@@ -229,7 +230,7 @@ describe('the run routes', () => {
     const app = await mounted();
     level2.compare.mockResolvedValueOnce({ before: 'a', after: 'b', differences: [], checks: [], tools: [] });
     expect(await app.get(`${PREFIX}/compare?before=a&after=b`)).toMatchObject({ status: 200, data: { before: 'a', after: 'b' } });
-    expect(level2.compare).toHaveBeenCalledWith(PERSON.id, 'a', 'b');
+    expect(level2.compare).toHaveBeenCalledWith(TEST_USER.id, 'a', 'b');
     expect(await app.get(`${PREFIX}/compare`)).toMatchObject({ status: 400 });
     level2.compare.mockResolvedValueOnce(undefined);
     expect(await app.get(`${PREFIX}/compare?before=a&after=ghost`)).toMatchObject({ status: 404 });
@@ -239,7 +240,7 @@ describe('the run routes', () => {
     const app = await mounted();
     level2.cancel.mockResolvedValueOnce(true);
     expect(await app.post(`${PREFIX}/runs/run-1/cancel`)).toMatchObject({ status: 202, data: { cancelling: true } });
-    expect(level2.cancel).toHaveBeenCalledWith(PERSON.id, 'run-1');
+    expect(level2.cancel).toHaveBeenCalledWith(TEST_USER.id, 'run-1');
     level2.cancel.mockResolvedValueOnce(false);
     expect(await app.post(`${PREFIX}/runs/run-1/cancel`)).toMatchObject({ status: 409 });
   });

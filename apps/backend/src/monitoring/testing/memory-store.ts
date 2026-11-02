@@ -1,16 +1,24 @@
 import type { NotificationSettings } from '../../platform/index.js';
-import { copied, MemoryRecords } from '../../platform/testing/memory-records.js';
+import { collectionIn, copied, MemoryRecords, type Collections } from '../../platform/testing/memory-records.js';
 import type { AlertRuleRecord } from '../lib/monitoring-alerts.js';
 import type { AlertEpisode, MonitoringSetting } from '../lib/monitoring-records.js';
 import type { PushSubscriptionRecord } from '../lib/web-push.js';
 import type { MonitoringStore } from '../store.js';
 
 export class MemoryMonitoringStore implements MonitoringStore {
-  private readonly monitoringSettings = new Map<string, MonitoringSetting>();
-  private readonly notificationSettings = new Map<string, NotificationSettings>();
-  private readonly rules = new MemoryRecords<AlertRuleRecord>();
-  private readonly episodes = new MemoryRecords<AlertEpisode>();
-  private readonly subscriptions = new MemoryRecords<PushSubscriptionRecord>();
+  private readonly monitoringSettings: Map<string, MonitoringSetting>;
+  private readonly notificationSettings: Map<string, NotificationSettings>;
+  private readonly rules: MemoryRecords<AlertRuleRecord>;
+  private readonly episodes: MemoryRecords<AlertEpisode>;
+  private readonly subscriptions: MemoryRecords<PushSubscriptionRecord>;
+
+  constructor(collections: Collections = new Map()) {
+    this.monitoringSettings = collectionIn<MonitoringSetting>(collections, 'monitoringSettings');
+    this.notificationSettings = collectionIn<NotificationSettings>(collections, 'notificationSettings');
+    this.rules = new MemoryRecords(collectionIn<AlertRuleRecord>(collections, 'monitoringAlertRules'));
+    this.episodes = new MemoryRecords(collectionIn<AlertEpisode>(collections, 'monitoringAlertEpisodes'));
+    this.subscriptions = new MemoryRecords(collectionIn<PushSubscriptionRecord>(collections, 'pushSubscriptions'));
+  }
 
   async ensureIndexes(): Promise<void> {}
 

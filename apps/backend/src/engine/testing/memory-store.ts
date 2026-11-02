@@ -124,33 +124,64 @@ const turnOut = ({ at, ...rest }: StoredTurn): TurnLogEntry => ({ ...rest, at: a
 const readsOut = (key: string, row: StoredReads): RunReads => ({ key, ...row });
 
 export class MemoryEngineStore implements EngineStore {
+
+  private readonly actionProposals: Rows<ActionProposal>;
+  private readonly authoredExtensions: Rows<AuthoredExtension>;
+  private readonly autoModeSettings: Rows<AutoModeSettings>;
+  private readonly conversations: Rows<Conversation>;
+  private readonly corpus: Rows<CorpusPage>;
+  private readonly enginePersonas: Rows<EnginePersona>;
+  private readonly engineTools: Rows<EngineTool>;
+  private readonly extensionSettings: Rows<ExtensionSettings>;
+  private readonly frontier: Rows<FrontierUrl>;
+  private readonly mcpRequests: Rows<McpRequest>;
+  private readonly mcpServers: Rows<McpServerRecord>;
+  private readonly procedures: Rows<ProcedureSource>;
+  private readonly publishedWorkspaces: Rows<PublishedWorkspace>;
+  private readonly runEffort: Rows<RunEffort>;
+  private readonly runGrants: Rows<RunGrant>;
+  private readonly runEndings: Rows<RunEnding>;
+  private readonly runReads: Rows<StoredReads>;
+  private readonly poisoningSignals: Rows<PoisoningSignal>;
+  private readonly runTraces: Rows<StoredNodeTrace>;
+  private readonly toolGrants: Rows<ToolGrant>;
+  private readonly turnLogs: Map<string, StoredTurn>;
+  private readonly artifacts: Map<string, { ownerId?: string; runId?: string }>;
+  private readonly artifactChunks: Map<string, { artifactId?: string; ownerId?: string }>;
+  private readonly workspaceDependencies: Rows<WorkspaceDependency & { ownerId: string }>;
+  private readonly workspaceImages: Rows<WorkspaceImageSpec>;
+
   constructor(collections: Collections = new Map()) {
     this.conversations = new Rows(collectionIn<Conversation>(collections, 'conversations'));
+    this.actionProposals = new Rows(collectionIn<ActionProposal>(collections, 'actionProposals'));
+    this.authoredExtensions = new Rows(collectionIn<AuthoredExtension>(collections, 'authoredExtensions'));
+    this.autoModeSettings = new Rows(collectionIn<AutoModeSettings>(collections, 'autoModeSettings'));
+    this.corpus = new Rows(collectionIn<CorpusPage>(collections, 'corpus'));
+    this.enginePersonas = new Rows(collectionIn<EnginePersona>(collections, 'enginePersonas'));
+    this.engineTools = new Rows(collectionIn<EngineTool>(collections, 'engineTools'));
+    this.extensionSettings = new Rows(collectionIn<ExtensionSettings>(collections, 'extensionSettings'));
+    this.frontier = new Rows(collectionIn<FrontierUrl>(collections, 'crawl_frontier'));
+    this.mcpRequests = new Rows(collectionIn<McpRequest>(collections, 'mcpRequests'));
+    this.mcpServers = new Rows(collectionIn<McpServerRecord>(collections, 'mcpServers'));
+    this.procedures = new Rows(collectionIn<ProcedureSource>(collections, 'procedures'));
+    this.publishedWorkspaces = new Rows(collectionIn<PublishedWorkspace>(collections, 'publishedWorkspaces'));
+    this.runEffort = new Rows(collectionIn<RunEffort>(collections, 'engineRunEffort'));
+    this.runGrants = new Rows(collectionIn<RunGrant>(collections, 'runGrants'));
+    this.runEndings = new Rows(collectionIn<RunEnding>(collections, 'runEndings'));
+    this.runReads = new Rows(collectionIn<StoredReads>(collections, 'runReads'));
+    this.poisoningSignals = new Rows(collectionIn<PoisoningSignal>(collections, 'poisoningSignals'));
+    this.runTraces = new Rows(collectionIn<StoredNodeTrace>(collections, 'engineRunTraces'));
+    this.toolGrants = new Rows(collectionIn<ToolGrant>(collections, 'toolGrants'));
+    this.workspaceDependencies = new Rows(collectionIn<WorkspaceDependency & { ownerId: string }>(collections, 'workspaceDependencies'));
+    this.workspaceImages = new Rows(collectionIn<WorkspaceImageSpec>(collections, 'workspaceImages'));
+    this.turnLogs = collectionIn<StoredTurn>(collections, 'turnLogs');
+    this.artifacts = collectionIn(collections, 'artifacts');
+    this.artifactChunks = collectionIn(collections, 'artifactChunks');
   }
 
-  private readonly actionProposals = new Rows<ActionProposal>();
-  private readonly authoredExtensions = new Rows<AuthoredExtension>();
-  private readonly autoModeSettings = new Rows<AutoModeSettings>();
-  private readonly conversations: Rows<Conversation>;
-  private readonly corpus = new Rows<CorpusPage>();
-  private readonly enginePersonas = new Rows<EnginePersona>();
-  private readonly engineTools = new Rows<EngineTool>();
-  private readonly extensionSettings = new Rows<ExtensionSettings>();
-  private readonly frontier = new Rows<FrontierUrl>();
-  private readonly mcpRequests = new Rows<McpRequest>();
-  private readonly mcpServers = new Rows<McpServerRecord>();
-  private readonly procedures = new Rows<ProcedureSource>();
-  private readonly publishedWorkspaces = new Rows<PublishedWorkspace>();
-  private readonly runEffort = new Rows<RunEffort>();
-  private readonly runGrants = new Rows<RunGrant>();
-  private readonly runEndings = new Rows<RunEnding>();
-  private readonly runReads = new Rows<StoredReads>();
-  private readonly poisoningSignals = new Rows<PoisoningSignal>();
-  private readonly runTraces = new Rows<StoredNodeTrace>();
-  private readonly toolGrants = new Rows<ToolGrant>();
-  private readonly turnLogs: StoredTurn[] = [];
-  private readonly workspaceDependencies = new Rows<WorkspaceDependency & { ownerId: string }>();
-  private readonly workspaceImages = new Rows<WorkspaceImageSpec>();
+  private get turnRows(): StoredTurn[] {
+    return [...this.turnLogs.values()];
+  }
 
   async ensureIndexes(): Promise<void> {}
 
@@ -331,12 +362,12 @@ export class MemoryEngineStore implements EngineStore {
   }
 
   async ownsRun(ownerId: string, runId: string): Promise<boolean> {
-    return this.turnLogs.some((entry) => entry.ownerId === ownerId && (entry.turnId === runId || (entry.events ?? []).some((event) => event.runId === runId)));
+    return this.turnRows.some((entry) => entry.ownerId === ownerId && (entry.turnId === runId || (entry.events ?? []).some((event) => event.runId === runId)));
   }
 
   async runOrigin(ownerId: string, runId: string): Promise<{ agentId?: string | undefined; turnId: string } | undefined> {
     const started = (event: Readonly<Record<string, unknown>>): boolean => event.runId === runId && event.type === 'run.started';
-    const found = this.turnLogs.find((entry) => entry.ownerId === ownerId && (entry.events ?? []).some(started));
+    const found = this.turnRows.find((entry) => entry.ownerId === ownerId && (entry.events ?? []).some(started));
     if (!found?.turnId) return undefined;
     const agentId = found.events.find(started)?.agentId;
     return { turnId: found.turnId, ...(agentId ? { agentId: agentId as string } : {}) };
@@ -371,17 +402,27 @@ export class MemoryEngineStore implements EngineStore {
     const moving = <T extends { ownerId?: string | undefined }>(rows: Rows<T>, runOf: (row: T) => string): number =>
       rows.changeWhere((row) => row.ownerId === from && row.ownerId !== to && named(runOf(row)), (row) => ({ ...row, ownerId: to }));
     let turns = 0;
-    for (const entry of this.turnLogs) {
+    for (const entry of this.turnRows) {
       if (entry.ownerId !== from || entry.ownerId === to || !named(entry.turnId)) continue;
       entry.ownerId = to;
       turns += 1;
     }
     return turns
+      + this.reownArtifacts(from, to, runIds)
       + moving(this.runTraces, (trace) => trace.runId)
       + moving(this.runEffort, (effort) => effort.runId)
       + moving(this.runEndings, (ending) => ending.runId)
       + moving(this.runGrants, (grant) => grant.runId)
       + moving(this.poisoningSignals, (signal) => signal.runId);
+  }
+
+  private reownArtifacts(from: string, to: string, runIds?: readonly string[] | undefined): number {
+    if (from === to) return 0;
+    const moving = [...this.artifacts].filter(([, artifact]) => artifact.ownerId === from && (!runIds || (typeof artifact.runId === 'string' && runIds.includes(artifact.runId))));
+    const ids = new Set(moving.map(([id]) => id));
+    for (const chunk of this.artifactChunks.values()) if (typeof chunk.artifactId === 'string' && ids.has(chunk.artifactId)) chunk.ownerId = to;
+    for (const [, artifact] of moving) artifact.ownerId = to;
+    return moving.length;
   }
 
   async getMcpToolHints(_ownerId: string): Promise<McpToolHint[]> {
@@ -477,19 +518,19 @@ export class MemoryEngineStore implements EngineStore {
   }
 
   async appendTurnLog(entry: TurnLogEntry): Promise<void> {
-    if (this.turnLogs.some((logged) => logged.turnId === entry.turnId && logged.seq === entry.seq)) {
+    if (this.turnRows.some((logged) => logged.turnId === entry.turnId && logged.seq === entry.seq)) {
       throw new Error(`E11000 duplicate key error collection: turnLogs index: turnId_1_seq_1 dup key: { turnId: "${entry.turnId}", seq: ${entry.seq} }`);
     }
-    this.turnLogs.push(stored({ ...entry, at: new Date(entry.at) }) as unknown as StoredTurn);
+    this.turnLogs.set(`${entry.turnId}:${entry.seq}`, stored({ ...entry, at: new Date(entry.at) }) as unknown as StoredTurn);
   }
 
   async getTurnLog(ownerId: string, turnId: string, after: number): Promise<TurnLogEntry[]> {
-    const found = this.turnLogs.filter((entry) => entry.ownerId === ownerId && entry.turnId === turnId && entry.seq > after);
+    const found = this.turnRows.filter((entry) => entry.ownerId === ownerId && entry.turnId === turnId && entry.seq > after);
     return sorted(found, [(entry) => entry.seq, 1]).map((entry) => turnOut(copied(entry)));
   }
 
   async getTurnLogMarks(ownerId: string, turnId: string, types: readonly string[]): Promise<RunMark[]> {
-    const entries = sorted(this.turnLogs.filter((entry) => entry.ownerId === ownerId && entry.turnId === turnId), [(entry) => entry.seq, 1]);
+    const entries = sorted(this.turnRows.filter((entry) => entry.ownerId === ownerId && entry.turnId === turnId), [(entry) => entry.seq, 1]);
     const marks: RunMark[] = [];
     for (const entry of entries) {
       for (const event of entry.events ?? []) {
@@ -509,12 +550,12 @@ export class MemoryEngineStore implements EngineStore {
 
   async recentTurns(ownerId: string, since: string, limit: number): Promise<TurnLogEntry[]> {
     const from = new Date(since).getTime();
-    const found = sorted(this.turnLogs.filter((entry) => entry.ownerId === ownerId && entry.seq === 1 && entry.at.getTime() >= from), [(entry) => entry.at, -1]);
+    const found = sorted(this.turnRows.filter((entry) => entry.ownerId === ownerId && entry.seq === 1 && entry.at.getTime() >= from), [(entry) => entry.at, -1]);
     return (limit === 0 ? found : found.slice(0, Math.abs(limit))).map((entry) => turnOut(copied(entry)));
   }
 
   async lastTurnLogSeq(turnId: string): Promise<number> {
-    const [last] = sorted(this.turnLogs.filter((entry) => entry.turnId === turnId), [(entry) => entry.seq, -1]);
+    const [last] = sorted(this.turnRows.filter((entry) => entry.turnId === turnId), [(entry) => entry.seq, -1]);
     return last?.seq ?? 0;
   }
 

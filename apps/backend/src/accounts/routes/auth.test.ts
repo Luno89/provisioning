@@ -11,7 +11,8 @@ import { signUpCodeHash, SIGN_UP_WRONG_CODES } from '../lib/sign-up.js';
 import type { AuthService } from '../services/AuthService.js';
 import type { PasswordService } from '../services/PasswordService.js';
 import type { SignInProviders } from '../services/sign-in/SignInProviders.js';
-import { callRouter, type CallingUser, type RouterAnswer } from '../testing/call-router.js';
+import type { HarnessUser } from '../../platform/routes/test-harness.js';
+import { routesInProcess, type RouteAnswer } from '../../platform/testing/routes.js';
 import { authRouter } from './auth.js';
 
 const KEY = 'test-secret';
@@ -32,17 +33,18 @@ function set(options: { accounts?: boolean; hub?: boolean; withProviders?: boole
     revocations: { revoked: async (event) => { revoked.push(event); } },
     providers: options.withProviders === false ? undefined : providers,
   });
-  const post = (path: string, body: unknown, extra: { user?: CallingUser | null; headers?: Record<string, string> } = {}) =>
-    callRouter(router, PREFIX, { method: 'POST', path, body, user: null, ...extra });
-  const get = (path: string, extra: { user?: CallingUser | null; headers?: Record<string, string> } = {}) =>
-    callRouter(router, PREFIX, { path, user: null, ...extra });
+  const routes = routesInProcess({ prefix: PREFIX, router: () => router, user: null, open: true, db });
+  const post = async (path: string, body: unknown, extra: { user?: HarnessUser | null; headers?: Record<string, string> } = {}) =>
+    (await routes).post(`${PREFIX}${path}`, body, extra);
+  const get = async (path: string, extra: { user?: HarnessUser | null; headers?: Record<string, string> } = {}) =>
+    (await routes).get(`${PREFIX}${path}`, extra);
   return { db, auth, authService, passwords, providers, revoked, post, get };
 }
 
 type Set = ReturnType<typeof set>;
 
-const cookiesOf = (answer: RouterAnswer): string[] => [answer.headers['set-cookie'] ?? []].flat().map(String);
-const cookieOf = (answer: RouterAnswer, name: string): string | undefined => cookiesOf(answer).map((line) => line.split(';')[0]!).find((pair) => pair.startsWith(`${name}=`));
+const cookiesOf = (answer: RouteAnswer): string[] => [answer.headers['set-cookie'] ?? []].flat().map(String);
+const cookieOf = (answer: RouteAnswer, name: string): string | undefined => cookiesOf(answer).map((line) => line.split(';')[0]!).find((pair) => pair.startsWith(`${name}=`));
 
 const member = (extra: Partial<UserMetadata> = {}): UserMetadata => ({ id: 'ann', email: 'ann@example.com', twoFactorEnabled: false, emailVerified: true, createdAt: '2026-01-01', ...extra });
 
@@ -54,7 +56,7 @@ async function signUp(s: Set, email: string, invite: string) {
   await withInvite(s, invite).catch(() => undefined);
   s.authService.sendSignUpCode.mockImplementation(async (_to, code) => ({ kind: 'shown', code }));
   const answer = await s.post('/register', { email, password: 'hunter2hunter2', inviteCode: invite });
-  const body = answer.body as { verify?: string; devCode?: string; error?: string };
+  const body = answer.data as { verify?: string; devCode?: string; error?: string };
   return { answer, id: body.verify!, code: body.devCode! };
 }
 
@@ -66,7 +68,7 @@ describe('signing up', () => {
   it('makes the first account with the setup code at once, an operator whose address is not yet confirmed', async () => {
     const s = set();
     const answer = await s.post('/register', { email: ' Owner@Example.com ', password: 'hunter2hunter2', inviteCode: SETUP });
-    expect(answer.body).toEqual({ success: true, message: 'User registered successfully' });
+    expect(answer.data).toEqual({ success: true, message: 'User registered successfully' });
     const owner = await s.db.accounts.getUserByEmail('owner@example.com');
     expect(owner).toMatchObject({ roles: ['operator'], emailVerified: false, twoFactorEnabled: false });
     expect(owner?.passwordHash).toEqual(expect.any(String));
@@ -78,7 +80,7 @@ describe('signing up', () => {
     const s = set();
     const answer = await s.post('/register', { email: 'stranger@example.com', password: 'hunter2hunter2' });
     expect(answer.status).toBe(403);
-    expect(answer.body).toEqual({ error: 'This Koala has no account yet: the first sign-up needs its setup code, which its installer printed' });
+    expect(answer.data).toEqual({ error: 'This Koala has no account yet: the first sign-up needs its setup code, which its installer printed' });
     expect(await s.db.accounts.getUsers()).toEqual([]);
   });
 
@@ -89,11 +91,11 @@ describe('signing up', () => {
     expect((await s.post('/register', { email: 'ann@example.com', password: '' })).status).toBe(400);
     const malformed = await s.post('/register', { email: 'no-at-sign', password: 'hunter2hunter2' });
     expect(malformed.status).toBe(400);
-    expect(malformed.body).toEqual({ error: 'That is not an email address; check it and try again' });
+    expect(malformed.data).toEqual({ error: 'That is not an email address; check it and try again' });
     s.passwords.newPasswordProblem.mockReturnValue('Use a password of at least 12 characters');
     const weak = await s.post('/register', { email: 'ann@example.com', password: 'short' });
     expect(weak.status).toBe(400);
-    expect(weak.body).toEqual({ error: 'Use a password of at least 12 characters' });
+    expect(weak.data).toEqual({ error: 'Use a password of at least 12 characters' });
     expect(s.passwords.newPasswordProblem).toHaveBeenCalledWith('short', 'ann@example.com');
   });
 
@@ -102,7 +104,7 @@ describe('signing up', () => {
     await withFirstUser(s);
     const { answer, id, code } = await signUp(s, 'Pending@Example.com', 'CODE');
     expect(answer.status).toBe(200);
-    expect(answer.body).toEqual({ verify: id, devCode: code });
+    expect(answer.data).toEqual({ verify: id, devCode: code });
     expect(await s.db.accounts.getUserByEmail('pending@example.com')).toBeUndefined();
     expect((await s.db.accounts.getInviteByCode('CODE'))?.usedBy).toBeUndefined();
     const pending = await s.db.accounts.getPendingSignUp(id);
@@ -117,7 +119,7 @@ describe('signing up', () => {
     await withInvite(s, 'MAILED');
     s.authService.sendSignUpCode.mockResolvedValue({ kind: 'sent' });
     const answer = await s.post('/register', { email: 'mailed@example.com', password: 'hunter2hunter2', inviteCode: 'MAILED' });
-    expect(Object.keys(answer.body as object)).toEqual(['verify']);
+    expect(Object.keys(answer.data as object)).toEqual(['verify']);
   });
 
   it('refuses a later sign-up with no invite, a wrong one or one already spent', async () => {
@@ -125,12 +127,12 @@ describe('signing up', () => {
     await withFirstUser(s);
     const nobody = await s.post('/register', { email: 'second@example.com', password: 'hunter2hunter2' });
     expect(nobody.status).toBe(403);
-    expect((nobody.body as { error: string }).error).toMatch(/invite code is required/i);
+    expect((nobody.data as { error: string }).error).toMatch(/invite code is required/i);
     expect((await s.post('/register', { email: 'second@example.com', password: 'hunter2hunter2', inviteCode: 'WRONG' })).status).toBe(403);
     await s.db.accounts.saveInvite({ id: 'used', codeHash: inviteCodeHash('USED'), createdBy: 'first', createdAt: new Date().toISOString(), usedBy: 'someone' });
     const spent = await s.post('/register', { email: 'second@example.com', password: 'hunter2hunter2', inviteCode: 'USED' });
     expect(spent.status).toBe(403);
-    expect((spent.body as { error: string }).error).toMatch(/already been used/i);
+    expect((spent.data as { error: string }).error).toMatch(/already been used/i);
     expect(s.authService.sendSignUpCode).not.toHaveBeenCalled();
   });
 
@@ -141,7 +143,7 @@ describe('signing up', () => {
     s.authService.sendSignUpCode.mockResolvedValue({ kind: 'refused', why: 'This server cannot send email yet' });
     const answer = await s.post('/register', { email: 'nomail@example.com', password: 'hunter2hunter2', inviteCode: 'NOMAIL' });
     expect(answer.status).toBe(503);
-    expect(answer.body).toEqual({ error: 'This server cannot send email yet' });
+    expect(answer.data).toEqual({ error: 'This server cannot send email yet' });
     expect(await s.db.accounts.getPendingSignUp('anything')).toBeUndefined();
   });
 
@@ -153,8 +155,8 @@ describe('signing up', () => {
     s.authService.emailCode.mockResolvedValue({ kind: 'sent' });
     const answer = await s.post('/register', { email: 'taken@example.com', password: 'hunter2hunter2', inviteCode: 'TAKEN' });
     expect(answer.status).toBe(200);
-    const id = (answer.body as { verify: string }).verify;
-    expect(Object.keys(answer.body as object)).toEqual(['verify']);
+    const id = (answer.data as { verify: string }).verify;
+    expect(Object.keys(answer.data as object)).toEqual(['verify']);
     expect(s.authService.sendSignUpCode).not.toHaveBeenCalled();
     const [to, mail, code] = s.authService.emailCode.mock.calls[0] ?? [];
     expect(to).toBe('taken@example.com');
@@ -170,7 +172,7 @@ describe('signing up', () => {
     s.authService.sendSignUpCode.mockRejectedValue(new Error('mail exploded'));
     const answer = await s.post('/register', { email: 'boom@example.com', password: 'hunter2hunter2', inviteCode: 'BOOM' });
     expect(answer.status).toBe(500);
-    expect(answer.body).toEqual({ error: 'mail exploded' });
+    expect(answer.data).toEqual({ error: 'mail exploded' });
   });
 });
 
@@ -181,7 +183,7 @@ describe('confirming a sign-up', () => {
     const { id, code } = await signUp(s, 'new@example.com', 'CODE');
     const done = await s.post('/register/verify', { id, code: ` ${code} ` });
     expect(done.status).toBe(200);
-    const body = done.body as { success: boolean; user: { email: string; permissions: Record<string, boolean>; confirmWith: string; hasPassword: boolean } };
+    const body = done.data as { success: boolean; user: { email: string; permissions: Record<string, boolean>; confirmWith: string; hasPassword: boolean } };
     expect(body).toMatchObject({ success: true, user: { email: 'new@example.com', confirmWith: 'password', hasPassword: true } });
     expect(body.user.permissions.administer).toBe(false);
     const user = await s.db.accounts.getUserByEmail('new@example.com');
@@ -199,7 +201,7 @@ describe('confirming a sign-up', () => {
     expect((await s.post('/register/verify', { id: 'x' })).status).toBe(400);
     const gone = await s.post('/register/verify', { id: 'no-such', code: '123456' });
     expect(gone.status).toBe(410);
-    expect(gone.body).toEqual({ error: 'This sign-up has ended; sign up again' });
+    expect(gone.data).toEqual({ error: 'This sign-up has ended; sign up again' });
     expect((await s.post('/register/verify', { code: '123456' })).status).toBe(410);
   });
 
@@ -211,11 +213,11 @@ describe('confirming a sign-up', () => {
     for (let n = 1; n < SIGN_UP_WRONG_CODES; n += 1) {
       const refused = await s.post('/register/verify', { id, code: wrong });
       expect(refused.status).toBe(401);
-      expect(refused.body).toEqual({ error: 'That code is not the one we sent; check the email and try again' });
+      expect(refused.data).toEqual({ error: 'That code is not the one we sent; check the email and try again' });
     }
     const last = await s.post('/register/verify', { id, code: wrong });
     expect(last.status).toBe(410);
-    expect(last.body).toEqual({ error: 'That code was wrong too many times; sign up again' });
+    expect(last.data).toEqual({ error: 'That code was wrong too many times; sign up again' });
     expect((await s.post('/register/verify', { id, code })).status).toBe(410);
     expect(await s.db.accounts.getUserByEmail('guess@example.com')).toBeUndefined();
   });
@@ -256,7 +258,7 @@ describe('confirming a sign-up', () => {
     await withInvite(s, 'TAKEN');
     s.authService.emailCode.mockResolvedValue({ kind: 'sent' });
     const started = await s.post('/register', { email: 'taken@example.com', password: 'hunter2hunter2', inviteCode: 'TAKEN' });
-    const id = (started.body as { verify: string }).verify;
+    const id = (started.data as { verify: string }).verify;
     for (const guess of ['000000', '123456', '999999']) expect((await s.post('/register/verify', { id, code: guess })).status).toBe(401);
   });
 });
@@ -268,14 +270,14 @@ describe('asking for a new sign-up code', () => {
     const { id, code } = await signUp(s, 'again@example.com', 'AGAIN');
     const resent = await s.post('/register/resend', { id });
     expect(resent.status).toBe(200);
-    const fresh = (resent.body as { verify: string; devCode: string });
+    const fresh = (resent.data as { verify: string; devCode: string });
     expect(fresh.verify).toBe(id);
     expect((await s.db.accounts.getPendingSignUp(id))?.codeHash).toBe(signUpCodeHash(id, fresh.devCode));
     if (fresh.devCode !== code) expect((await s.post('/register/verify', { id, code })).status).toBe(401);
     for (let n = 0; n < 3; n += 1) expect((await s.post('/register/resend', { id })).status).toBe(200);
     const enough = await s.post('/register/resend', { id });
     expect(enough.status).toBe(429);
-    expect(enough.body).toEqual({ error: 'We have sent this sign-up enough codes; sign up again' });
+    expect(enough.data).toEqual({ error: 'We have sent this sign-up enough codes; sign up again' });
   });
 
   it('says a sign-up that is not there has ended', async () => {
@@ -291,7 +293,7 @@ describe('asking for a new sign-up code', () => {
     s.authService.sendSignUpCode.mockResolvedValue({ kind: 'refused', why: 'no email here' });
     const refused = await s.post('/register/resend', { id });
     expect(refused.status).toBe(503);
-    expect(refused.body).toEqual({ error: 'no email here' });
+    expect(refused.data).toEqual({ error: 'no email here' });
   });
 
   it('emails the address that it has an account when the sign-up was for a taken one, and no code', async () => {
@@ -301,10 +303,10 @@ describe('asking for a new sign-up code', () => {
     await withInvite(s, 'TAKEN');
     s.authService.emailCode.mockResolvedValue({ kind: 'sent' });
     const started = await s.post('/register', { email: 'taken@example.com', password: 'hunter2hunter2', inviteCode: 'TAKEN' });
-    const id = (started.body as { verify: string }).verify;
+    const id = (started.data as { verify: string }).verify;
     s.authService.emailCode.mockClear();
     const resent = await s.post('/register/resend', { id });
-    expect(resent.body).toEqual({ verify: id });
+    expect(resent.data).toEqual({ verify: id });
     expect(s.authService.emailCode).toHaveBeenCalledTimes(1);
     expect(s.authService.sendSignUpCode).not.toHaveBeenCalled();
   });
@@ -327,10 +329,10 @@ describe('signing in', () => {
     s.authService.checkPassword.mockResolvedValue({ kind: 'ok' });
     const answer = await s.post('/login', { email: ' ANN@example.com ', password: 'the-password' });
     expect(answer.status).toBe(200);
-    expect(answer.body).toMatchObject({ success: true, user: { email: 'ann@example.com', twoFactorEnabled: false } });
+    expect(answer.data).toMatchObject({ success: true, user: { email: 'ann@example.com', twoFactorEnabled: false } });
     expect(verifyJWT(cookieOf(answer, 'session')!.split('=')[1]!, 'session', KEY)).toMatchObject({ userId: 'ann' });
     expect(cookieOf(answer, 'device')).toBeDefined();
-    expect(s.authService.checkPassword).toHaveBeenCalledWith('ann@example.com', expect.objectContaining({ id: 'ann' }), 'the-password', undefined, undefined);
+    expect(s.authService.checkPassword).toHaveBeenCalledWith('ann@example.com', expect.objectContaining({ id: 'ann' }), 'the-password', undefined, '127.0.0.1');
   });
 
   it('passes the browser it knows to the password check', async () => {
@@ -338,7 +340,7 @@ describe('signing in', () => {
     await login(s);
     s.authService.checkPassword.mockResolvedValue({ kind: 'ok' });
     await s.post('/login', { email: 'ann@example.com', password: 'p' }, { headers: { cookie: `device=${deviceToken('ann@example.com', KEY, 'phone')}` } });
-    expect(s.authService.checkPassword).toHaveBeenCalledWith('ann@example.com', expect.anything(), 'p', { account: 'ann@example.com', id: 'phone' }, undefined);
+    expect(s.authService.checkPassword).toHaveBeenCalledWith('ann@example.com', expect.anything(), 'p', { account: 'ann@example.com', id: 'phone' }, '127.0.0.1');
   });
 
   it('answers a wrong password and an unknown account alike', async () => {
@@ -347,11 +349,11 @@ describe('signing in', () => {
     s.authService.checkPassword.mockResolvedValue({ kind: 'wrong' });
     const wrong = await s.post('/login', { email: 'ann@example.com', password: 'nope' });
     expect(wrong.status).toBe(401);
-    expect(wrong.body).toEqual({ error: 'Invalid email or password' });
+    expect(wrong.data).toEqual({ error: 'Invalid email or password' });
     s.authService.checkPassword.mockResolvedValue({ kind: 'ok' });
     const nobody = await s.post('/login', { email: 'nobody@example.com', password: 'nope' });
     expect(nobody.status).toBe(401);
-    expect(nobody.body).toEqual({ error: 'Invalid email or password' });
+    expect(nobody.data).toEqual({ error: 'Invalid email or password' });
   });
 
   it('says an account is locked and why', async () => {
@@ -360,7 +362,7 @@ describe('signing in', () => {
     s.authService.checkPassword.mockResolvedValue({ kind: 'locked', said: 'Too many wrong passwords; try again in 15 minutes' });
     const locked = await s.post('/login', { email: 'ann@example.com', password: 'p' });
     expect(locked.status).toBe(429);
-    expect(locked.body).toEqual({ error: 'Too many wrong passwords; try again in 15 minutes' });
+    expect(locked.data).toEqual({ error: 'Too many wrong passwords; try again in 15 minutes' });
     expect(cookieOf(locked, 'session')).toBeUndefined();
   });
 
@@ -370,7 +372,7 @@ describe('signing in', () => {
     s.authService.checkPassword.mockResolvedValue({ kind: 'ok' });
     const answer = await s.post('/login', { email: 'ann@example.com', password: 'p' });
     expect(answer.status).toBe(403);
-    expect(answer.body).toEqual({ error: 'This account is being removed' });
+    expect(answer.data).toEqual({ error: 'This account is being removed' });
   });
 
   it('sends a code and answers a signed challenge, never a session, when two-factor is on', async () => {
@@ -379,7 +381,7 @@ describe('signing in', () => {
     s.authService.checkPassword.mockResolvedValue({ kind: 'ok' });
     s.authService.sendCode.mockResolvedValue({ kind: 'sent' });
     const answer = await s.post('/login', { email: 'ann@example.com', password: 'p' });
-    const body = answer.body as { twoFactorRequired: boolean; challenge: string };
+    const body = answer.data as { twoFactorRequired: boolean; challenge: string };
     expect(body.twoFactorRequired).toBe(true);
     expect(verifyJWT(body.challenge, 'two-factor', KEY)).toMatchObject({ twoFactorFor: 'ann' });
     expect(verifyJWT(body.challenge, 'session', KEY)).toBeNull();
@@ -394,7 +396,7 @@ describe('signing in', () => {
     s.authService.sendCode.mockResolvedValue({ kind: 'locked', said: 'Too many wrong codes' });
     const answer = await s.post('/login', { email: 'ann@example.com', password: 'p' });
     expect(answer.status).toBe(429);
-    expect(answer.body).toEqual({ error: 'Too many wrong codes' });
+    expect(answer.data).toEqual({ error: 'Too many wrong codes' });
   });
 
   it('answers 500 with the reason when something fails', async () => {
@@ -403,7 +405,7 @@ describe('signing in', () => {
     s.authService.checkPassword.mockRejectedValue(new Error('store gone'));
     const answer = await s.post('/login', { email: 'ann@example.com', password: 'p' });
     expect(answer.status).toBe(500);
-    expect(answer.body).toEqual({ error: 'store gone' });
+    expect(answer.data).toEqual({ error: 'store gone' });
   });
 });
 
@@ -414,11 +416,11 @@ describe('the second step of signing in', () => {
     s.authService.sendCode.mockResolvedValue({ kind: 'sent' });
     s.authService.checkPassword.mockResolvedValue({ kind: 'ok' });
     const issued = await s.post('/login', { email: 'ann@example.com', password: 'p' });
-    const { challenge: token } = issued.body as { challenge: string };
+    const { challenge: token } = issued.data as { challenge: string };
     s.authService.checkCode.mockResolvedValue({ kind: 'ok' });
     const answer = await s.post('/2fa/verify', { challenge: token, code: '123456' });
     expect(answer.status).toBe(200);
-    expect(answer.body).toMatchObject({ success: true, user: { email: 'ann@example.com', twoFactorEnabled: true } });
+    expect(answer.data).toMatchObject({ success: true, user: { email: 'ann@example.com', twoFactorEnabled: true } });
     expect(cookieOf(answer, 'session')).toBeDefined();
     expect(cookieOf(answer, 'device')).toBeDefined();
     expect(s.authService.checkCode).toHaveBeenCalledWith('ann', 'sign-in', '123456');
@@ -436,14 +438,14 @@ describe('the second step of signing in', () => {
     const expired = 'This sign-in has expired; sign in again';
     const forged = await s.post('/2fa/verify', { challenge: 'not-a-challenge', code: '123456' });
     expect(forged.status).toBe(400);
-    expect(forged.body).toEqual({ error: expired });
+    expect(forged.data).toEqual({ error: expired });
     const asSession = sessionToken({ id: 'ann', email: 'ann@example.com' }, KEY);
     expect((await s.post('/2fa/verify', { challenge: asSession, code: '123456' })).status).toBe(400);
     const gone = set();
     await gone.db.accounts.saveUser(member({ twoFactorEnabled: true }));
     gone.authService.checkPassword.mockResolvedValue({ kind: 'ok' });
     gone.authService.sendCode.mockResolvedValue({ kind: 'sent' });
-    const { challenge: token } = (await gone.post('/login', { email: 'ann@example.com', password: 'p' })).body as { challenge: string };
+    const { challenge: token } = (await gone.post('/login', { email: 'ann@example.com', password: 'p' })).data as { challenge: string };
     await gone.db.accounts.saveUser(member({ twoFactorEnabled: true, removal: { startedAt: 't', requestedBy: 'ann' } }));
     expect((await gone.post('/2fa/verify', { challenge: token, code: '123456' })).status).toBe(400);
     expect(gone.authService.checkCode).not.toHaveBeenCalled();
@@ -454,15 +456,15 @@ describe('the second step of signing in', () => {
     await s.db.accounts.saveUser(member({ twoFactorEnabled: true }));
     s.authService.sendCode.mockResolvedValue({ kind: 'sent' });
     s.authService.checkPassword.mockResolvedValue({ kind: 'ok' });
-    const { challenge: token } = (await s.post('/login', { email: 'ann@example.com', password: 'p' })).body as { challenge: string };
+    const { challenge: token } = (await s.post('/login', { email: 'ann@example.com', password: 'p' })).data as { challenge: string };
     s.authService.checkCode.mockResolvedValue({ kind: 'wrong' });
     const wrong = await s.post('/2fa/verify', { challenge: token, code: '000000' });
     expect(wrong.status).toBe(400);
-    expect(wrong.body).toEqual({ error: 'Invalid or expired 2FA code' });
+    expect(wrong.data).toEqual({ error: 'Invalid or expired 2FA code' });
     s.authService.checkCode.mockResolvedValue({ kind: 'locked', said: 'Too many wrong codes' });
     const locked = await s.post('/2fa/verify', { challenge: token, code: '000000' });
     expect(locked.status).toBe(429);
-    expect(locked.body).toEqual({ error: 'Too many wrong codes' });
+    expect(locked.data).toEqual({ error: 'Too many wrong codes' });
     expect(cookieOf(locked, 'session')).toBeUndefined();
   });
 });
@@ -471,33 +473,33 @@ describe('who is signed in', () => {
   it('says nobody is when no one is', async () => {
     const answer = await set().get('/me');
     expect(answer.status).toBe(401);
-    expect(answer.body).toEqual({ error: 'Not authenticated' });
+    expect(answer.data).toEqual({ error: 'Not authenticated' });
   });
 
   it('shows the person signed in with what they may do, and no pretend admin flag', async () => {
     const s = set();
     const answer = await s.get('/me', { user: member({ twoFactorPhone: '+15550100', twoFactorPreferredMethod: 'sms', passwordHash: 'h' }) });
-    expect(answer.body).toMatchObject({
+    expect(answer.data).toMatchObject({
       email: 'ann@example.com', twoFactorPhone: '+15550100', twoFactorPreferredMethod: 'sms', emailVerified: true, createdAt: '2026-01-01',
       confirmWith: 'password', hasPassword: true, twoFactorEnabled: false,
       permissions: { 'manage-own-account': true, administer: false },
     });
-    expect('isAdmin' in (answer.body as object)).toBe(false);
+    expect('isAdmin' in (answer.data as object)).toBe(false);
   });
 
   it('tells an operator what an operator may do', async () => {
     const answer = await set().get('/me', { user: member({ roles: ['operator'] }) });
-    expect(answer.body).toMatchObject({ claims: [{ role: 'person' }, { role: 'operator' }], permissions: { administer: true, 'manage-accounts': true } });
+    expect(answer.data).toMatchObject({ claims: [{ role: 'person' }, { role: 'operator' }], permissions: { administer: true, 'manage-accounts': true } });
   });
 
   it('says it is on the hub where it is one', async () => {
-    expect((await set({ hub: true }).get('/me', { user: member() })).body).toMatchObject({ onHub: true });
-    expect('onHub' in ((await set().get('/me', { user: member() })).body as object)).toBe(false);
+    expect((await set({ hub: true }).get('/me', { user: member() })).data).toMatchObject({ onHub: true });
+    expect('onHub' in ((await set().get('/me', { user: member() })).data as object)).toBe(false);
   });
 
   it('holds no accounts where accounts are root\'s: no confirmation or password in what it shows, and no sign-up or sign-in routes', async () => {
     const s = set({ accounts: false });
-    const me = (await s.get('/me', { user: member({ passwordHash: 'h' }) })).body as Record<string, unknown>;
+    const me = (await s.get('/me', { user: member({ passwordHash: 'h' }) })).data as Record<string, unknown>;
     expect('confirmWith' in me || 'hasPassword' in me).toBe(false);
     expect((await s.post('/register', { email: 'a@example.com', password: 'hunter2hunter2' })).status).toBe(404);
     expect((await s.post('/login', { email: 'a@example.com', password: 'p' })).status).toBe(404);
@@ -511,13 +513,13 @@ describe('signing out', () => {
     await s.db.accounts.saveUser(member());
     const token = sessionToken(member(), KEY);
     const answer = await s.post('/logout', {}, { headers: { cookie: `session=${token}` } });
-    expect(answer.body).toEqual({ success: true });
+    expect(answer.data).toEqual({ success: true });
     expect(cookiesOf(answer).some((line) => line.startsWith('session=;'))).toBe(true);
     expect(await s.auth.userFromSessionCookie(`session=${token}`, false)).toBeUndefined();
   });
 
   it('signs out a browser with no session without complaint', async () => {
-    expect((await set().post('/logout', {})).body).toEqual({ success: true });
+    expect((await set().post('/logout', {})).data).toEqual({ success: true });
   });
 });
 
@@ -527,7 +529,7 @@ describe('signing out everywhere else', () => {
     const user = member();
     await s.db.accounts.saveUser(user);
     const answer = await s.post('/sessions/end-others', {}, { user });
-    expect(answer.body).toEqual({ ended: true });
+    expect(answer.data).toEqual({ ended: true });
     const saved = await s.db.accounts.getUserById('ann');
     expect(saved?.sessionsEndedAt).toEqual(expect.any(String));
     expect(s.revoked).toEqual([{ personId: 'ann', because: 'signed-out-everywhere', at: saved?.sessionsEndedAt }]);
@@ -555,8 +557,8 @@ describe('asking for a code to confirm a risky change', () => {
   it('sends one to an account with two-factor on or no password', async () => {
     const s = set();
     s.authService.sendConfirmCode.mockResolvedValue({ kind: 'sent' });
-    expect((await s.post('/confirm/code', {}, { user: member({ twoFactorEnabled: true, passwordHash: 'h' }) })).body).toEqual({ sent: true });
-    expect((await s.post('/confirm/code', {}, { user: member() })).body).toEqual({ sent: true });
+    expect((await s.post('/confirm/code', {}, { user: member({ twoFactorEnabled: true, passwordHash: 'h' }) })).data).toEqual({ sent: true });
+    expect((await s.post('/confirm/code', {}, { user: member() })).data).toEqual({ sent: true });
     expect(s.authService.sendConfirmCode).toHaveBeenCalledTimes(2);
   });
 
@@ -565,7 +567,7 @@ describe('asking for a code to confirm a risky change', () => {
     s.authService.sendConfirmCode.mockResolvedValue({ kind: 'limited', said: 'You can have 5 confirmation codes in the last 15 minutes' });
     const limited = await s.post('/confirm/code', {}, { user: member() });
     expect(limited.status).toBe(429);
-    expect(limited.body).toEqual({ error: 'You can have 5 confirmation codes in the last 15 minutes' });
+    expect(limited.data).toEqual({ error: 'You can have 5 confirmation codes in the last 15 minutes' });
     s.authService.sendConfirmCode.mockResolvedValue({ kind: 'locked', said: 'Too many wrong codes' });
     expect((await s.post('/confirm/code', {}, { user: member() })).status).toBe(429);
   });
@@ -588,13 +590,13 @@ describe('two-factor settings', () => {
     await s.db.accounts.saveUser(user);
     const answer = await s.post('/2fa/settings', { enabled: true, phone: '+15550100', preferredMethod: 'sms', password: 'p' }, { user });
     expect(answer.status).toBe(200);
-    expect(answer.body).toEqual({ id: 'ann', email: 'ann@example.com', twoFactorEnabled: true, twoFactorPhone: '+15550100', twoFactorPreferredMethod: 'sms', confirmWith: 'two-factor' });
+    expect(answer.data).toEqual({ id: 'ann', email: 'ann@example.com', twoFactorEnabled: true, twoFactorPhone: '+15550100', twoFactorPreferredMethod: 'sms', confirmWith: 'two-factor' });
     const saved = await s.db.accounts.getUserById('ann');
     expect(saved).toMatchObject({ twoFactorEnabled: true, twoFactorPhone: '+15550100', twoFactorPreferredMethod: 'sms' });
     expect(s.revoked).toEqual([{ personId: 'ann', because: 'password-or-2fa', at: saved?.sessionsEndedAt }]);
     expect(cookieOf(answer, 'session')).toBeDefined();
     expect(s.authService.sendingProblem).toHaveBeenCalledWith('sms');
-    expect(s.authService.confirmProblem).toHaveBeenCalledWith(expect.objectContaining({ id: 'ann' }), { password: 'p' }, undefined, undefined);
+    expect(s.authService.confirmProblem).toHaveBeenCalledWith(expect.objectContaining({ id: 'ann' }), { password: 'p' }, undefined, '127.0.0.1');
   });
 
   it('turns it off, asking nothing of the way codes are sent', async () => {
@@ -603,7 +605,7 @@ describe('two-factor settings', () => {
     const user = member({ twoFactorEnabled: true, passwordHash: 'h' });
     await s.db.accounts.saveUser(user);
     const answer = await s.post('/2fa/settings', { enabled: false, code: '123456' }, { user });
-    expect((answer.body as { twoFactorEnabled: boolean }).twoFactorEnabled).toBe(false);
+    expect((answer.data as { twoFactorEnabled: boolean }).twoFactorEnabled).toBe(false);
     expect(s.authService.sendingProblem).not.toHaveBeenCalled();
   });
 
@@ -614,7 +616,7 @@ describe('two-factor settings', () => {
     await s.db.accounts.saveUser(user);
     const answer = await s.post('/2fa/settings', { enabled: true, preferredMethod: 'sms' }, { user });
     expect(answer.status).toBe(400);
-    expect(answer.body).toEqual({ error: 'Two-factor sign-in stays off: sign-in codes by SMS need Twilio, which this server does not have set up.' });
+    expect(answer.data).toEqual({ error: 'Two-factor sign-in stays off: sign-in codes by SMS need Twilio, which this server does not have set up.' });
     expect(s.authService.confirmProblem).not.toHaveBeenCalled();
     expect((await s.db.accounts.getUserById('ann'))?.twoFactorEnabled).toBe(false);
   });
@@ -639,7 +641,7 @@ describe('two-factor settings', () => {
     await s.db.accounts.saveUser(user);
     const answer = await s.post('/2fa/settings', { enabled: true }, { user });
     expect(answer.status).toBe(403);
-    expect(answer.body).toEqual({ error: 'Enter your password to do this' });
+    expect(answer.data).toEqual({ error: 'Enter your password to do this' });
     expect((await s.db.accounts.getUserById('ann'))?.twoFactorEnabled).toBe(false);
     expect(s.revoked).toEqual([]);
   });
@@ -656,8 +658,8 @@ describe('signing in with a provider', () => {
   it('offers the providers this server has, or none', async () => {
     const s = set();
     s.providers.offered.mockReturnValue([{ id: 'google', label: 'Google' }]);
-    expect((await s.get('/sign-in')).body).toEqual({ url: null, providers: [{ id: 'google', label: 'Google' }] });
-    expect((await set({ withProviders: false }).get('/sign-in')).body).toEqual({ url: null, providers: [] });
+    expect((await s.get('/sign-in')).data).toEqual({ url: null, providers: [{ id: 'google', label: 'Google' }] });
+    expect((await set({ withProviders: false }).get('/sign-in')).data).toEqual({ url: null, providers: [] });
   });
 
   it('sends the browser to the provider, holding the state in a cookie, never cached', async () => {
@@ -683,7 +685,7 @@ describe('signing in with a provider', () => {
     s.providers.start.mockResolvedValue({ kind: 'unknown' });
     const answer = await s.get('/provider/nowhere');
     expect(answer.status).toBe(404);
-    expect(answer.body).toEqual({ error: 'This server does not offer that way to sign in' });
+    expect(answer.data).toEqual({ error: 'This server does not offer that way to sign in' });
     expect((await set({ withProviders: false }).get('/provider/google')).status).toBe(404);
   });
 

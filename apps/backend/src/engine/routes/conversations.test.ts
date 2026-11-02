@@ -1,21 +1,22 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { mock } from 'vitest-mock-extended';
 import type { Conversation } from '../lib/conversations.js';
-import { mountInProcess, PERSON, type InProcess } from '../testing/in-process.js';
+import { TEST_USER } from '../../platform/routes/test-harness.js';
+import { routesInProcess, type InProcessRoutes } from '../../platform/testing/routes.js';
 import { conversationsRouter, type ConversationsRouterDeps } from './conversations.js';
 
 type Workspaces = NonNullable<ConversationsRouterDeps['workspaces']>;
 type Turns = NonNullable<ConversationsRouterDeps['turns']>;
 
-const chat = (over: Partial<Conversation> = {}): Conversation => ({ id: 'c1', ownerId: PERSON.id, title: 'Chat', messages: [], createdAt: 'a', updatedAt: 'a', ...over });
+const chat = (over: Partial<Conversation> = {}): Conversation => ({ id: 'c1', ownerId: TEST_USER.id, title: 'Chat', messages: [], createdAt: 'a', updatedAt: 'a', ...over });
 
-let app: InProcess;
+let app: InProcessRoutes;
 let workspaces: ReturnType<typeof mock<Required<Workspaces>>>;
 let turns: ReturnType<typeof mock<Turns>>;
 let posted: string[];
 let binding: Record<string, string> | undefined;
 
-const mount = (drop: readonly (keyof ConversationsRouterDeps)[] = []) => mountInProcess({
+const mount = (drop: readonly (keyof ConversationsRouterDeps)[] = []) => routesInProcess({
   prefix: '/api/conversations',
   router: (db) => {
     const deps: ConversationsRouterDeps = {
@@ -45,8 +46,8 @@ beforeEach(async () => {
 describe('creating, listing and reading conversations', () => {
   it('creates a conversation of the person\'s own, titled from what they said', async () => {
     const created = await app.post<Conversation>('/api/conversations', { title: 'My Custom Thread' });
-    expect(created).toMatchObject({ status: 200, data: { ownerId: PERSON.id, title: 'My Custom Thread', messages: [] } });
-    expect(await app.db.engine.getConversation(PERSON.id, created.data.id)).toMatchObject({ title: 'My Custom Thread' });
+    expect(created).toMatchObject({ status: 200, data: { ownerId: TEST_USER.id, title: 'My Custom Thread', messages: [] } });
+    expect(await app.db.engine.getConversation(TEST_USER.id, created.data.id)).toMatchObject({ title: 'My Custom Thread' });
   });
 
   it('lists the person\'s conversations newest first with how many messages each holds, and none of anyone else\'s', async () => {
@@ -82,7 +83,7 @@ describe('creating, listing and reading conversations', () => {
 
 describe('a conversation bound to something', () => {
   it('binds to a tree the person owns, and refuses one they do not', async () => {
-    await app.db.projects.saveTree({ id: 'mine', ownerId: PERSON.id, name: 'Mine', type: 'software', projectIds: [], createdAt: 'a', updatedAt: 'a' });
+    await app.db.projects.saveTree({ id: 'mine', ownerId: TEST_USER.id, name: 'Mine', type: 'software', projectIds: [], createdAt: 'a', updatedAt: 'a' });
     await app.db.projects.saveTree({ id: 'theirs', ownerId: 'someone-else', name: 'Theirs', type: 'software', projectIds: [], createdAt: 'a', updatedAt: 'a' });
     expect(await app.post('/api/conversations', { title: 'Grow it', treeId: 'mine' })).toMatchObject({ status: 200, data: { treeId: 'mine' } });
     expect((await app.post('/api/conversations', { treeId: 'theirs' })).status).toBe(404);
@@ -90,7 +91,7 @@ describe('a conversation bound to something', () => {
   });
 
   it('binds to a project the person owns, never to one they do not, and never to a tree and a project at once', async () => {
-    await app.db.projects.saveProjectInfo({ id: 'p-mine', name: 'mine', ownerId: PERSON.id, appType: 'local', createdAt: 'now' } as never);
+    await app.db.projects.saveProjectInfo({ id: 'p-mine', name: 'mine', ownerId: TEST_USER.id, appType: 'local', createdAt: 'now' } as never);
     await app.db.projects.saveProjectInfo({ id: 'p-theirs', name: 'theirs', ownerId: 'someone-else', appType: 'local', createdAt: 'now' } as never);
     expect(await app.post('/api/conversations', { projectId: 'p-mine' })).toMatchObject({ status: 200, data: { projectId: 'p-mine' } });
     expect((await app.post('/api/conversations', { projectId: 'p-theirs' })).status).toBe(404);
@@ -109,8 +110,8 @@ describe('posting in a channel', () => {
     await app.db.engine.saveConversation(chat({ kind: 'channel' }));
     const sent = await app.post<{ message: { content: string } }>('/api/conversations/c1/messages', { content: 'ship it' });
     expect(sent).toMatchObject({ status: 201, data: { message: { content: 'ship it' } } });
-    expect(posted).toEqual([`${PERSON.id}/c1`]);
-    expect((await app.db.engine.getConversation(PERSON.id, 'c1'))?.messages).toHaveLength(1);
+    expect(posted).toEqual([`${TEST_USER.id}/c1`]);
+    expect((await app.db.engine.getConversation(TEST_USER.id, 'c1'))?.messages).toHaveLength(1);
   });
 
   it('refuses a conversation that is not a channel, one that is not theirs, and a message with nothing in it', async () => {
@@ -133,7 +134,7 @@ describe('posting in a channel', () => {
 describe('attaching files in a channel', () => {
   it('keeps an attachment from a project the person owns, named with the project', async () => {
     await app.db.engine.saveConversation(chat({ kind: 'channel' }));
-    await app.db.projects.saveProjectInfo({ id: 'p-mine', name: 'Shop', ownerId: PERSON.id, appType: 'local', createdAt: 'now' } as never);
+    await app.db.projects.saveProjectInfo({ id: 'p-mine', name: 'Shop', ownerId: TEST_USER.id, appType: 'local', createdAt: 'now' } as never);
     const sent = await app.post<{ message: { attachments?: unknown[] } }>('/api/conversations/c1/messages', { content: 'see', attachments: [{ projectId: 'p-mine', path: 'docs/a.md', name: 'a.md', size: 1, type: 'text/markdown' }] });
     expect(sent).toMatchObject({ status: 201, data: { message: { attachments: [{ name: 'a.md', path: 'docs/a.md', project: { id: 'p-mine', name: 'Shop' } }] } } });
   });
@@ -143,15 +144,15 @@ describe('deleting a conversation', () => {
   it('saves its workspace first, then deletes it', async () => {
     await app.db.engine.saveConversation(chat());
     expect(await app.delete('/api/conversations/c1')).toMatchObject({ status: 200, data: { success: true } });
-    expect(workspaces.conclude).toHaveBeenCalledWith(PERSON.id, 'c1');
-    expect(await app.db.engine.getConversation(PERSON.id, 'c1')).toBeUndefined();
+    expect(workspaces.conclude).toHaveBeenCalledWith(TEST_USER.id, 'c1');
+    expect(await app.db.engine.getConversation(TEST_USER.id, 'c1')).toBeUndefined();
   });
 
   it('keeps the conversation when its workspace could not be saved', async () => {
     await app.db.engine.saveConversation(chat());
     workspaces.conclude.mockRejectedValue(new Error('Pushing to koala-u1/research-x failed: Gitea is down'));
     expect(await app.delete('/api/conversations/c1')).toMatchObject({ status: 500, data: { error: 'Pushing to koala-u1/research-x failed: Gitea is down' } });
-    expect(await app.db.engine.getConversation(PERSON.id, 'c1')).toBeDefined();
+    expect(await app.db.engine.getConversation(TEST_USER.id, 'c1')).toBeDefined();
   });
 
   it('says when it is not theirs', async () => {
@@ -166,7 +167,7 @@ describe('the picks a chat keeps', () => {
     await app.db.engine.saveConversation(chat());
     const patched = await app.patch<Conversation>('/api/conversations/c1', { modelId: 'heron-70b', agentSlug: 'heron', modelReach: 'chat' });
     expect(patched.data).toMatchObject({ modelId: 'heron-70b', agentSlug: 'heron', modelReach: 'chat' });
-    expect(await app.db.engine.getConversation(PERSON.id, 'c1')).toMatchObject({ modelId: 'heron-70b', agentSlug: 'heron' });
+    expect(await app.db.engine.getConversation(TEST_USER.id, 'c1')).toMatchObject({ modelId: 'heron-70b', agentSlug: 'heron' });
 
     const cleared = await app.patch<Record<string, unknown>>('/api/conversations/c1', { modelId: null, agentSlug: null, modelReach: null });
     expect(cleared.data).not.toHaveProperty('modelId');

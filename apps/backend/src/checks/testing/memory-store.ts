@@ -1,4 +1,4 @@
-import { copied } from '../../platform/testing/memory-records.js';
+import { collectionIn, copied, type Collections } from '../../platform/testing/memory-records.js';
 import type { BenchSettings, BenchState } from '../lib/bench.js';
 import type { ScriptedRequestRecord } from '../lib/check-script.js';
 import { type EvalCollection, type EvalRecord, evalRecordKey } from '../lib/eval-run.js';
@@ -14,28 +14,29 @@ const compared = (a: unknown, b: unknown): number => {
 };
 
 export class MemoryChecksStore implements ChecksStore {
-  private readonly requests: ScriptedRequestRecord[] = [];
-  private readonly benchSettings = new Map<string, BenchSettings>();
-  private readonly benchStates = new Map<string, BenchState>();
-  private readonly evalRecords = new Map<EvalCollection, Map<string, EvalRecord>>();
+  private readonly requests: Map<string, ScriptedRequestRecord>;
+  private readonly benchSettings: Map<string, BenchSettings>;
+  private readonly benchStates: Map<string, BenchState>;
+  private nextRequest = 0;
+
+  constructor(private readonly collections: Collections = new Map()) {
+    this.requests = collectionIn<ScriptedRequestRecord>(collections, 'scriptedRequests');
+    this.benchSettings = collectionIn<BenchSettings>(collections, 'benchSettings');
+    this.benchStates = collectionIn<BenchState>(collections, 'benchStates');
+  }
 
   async ensureIndexes(): Promise<void> {}
 
   private records(collection: EvalCollection): Map<string, EvalRecord> {
-    let records = this.evalRecords.get(collection);
-    if (!records) {
-      records = new Map();
-      this.evalRecords.set(collection, records);
-    }
-    return records;
+    return collectionIn<EvalRecord>(this.collections, collection);
   }
 
   async saveScriptedRequest(request: ScriptedRequestRecord): Promise<void> {
-    this.requests.push(copied(request));
+    this.requests.set(String(this.nextRequest++), copied(request));
   }
 
   async getScriptedRequests(ownerId: string): Promise<ScriptedRequestRecord[]> {
-    return this.requests
+    return [...this.requests.values()]
       .filter((request) => request.ownerId === ownerId)
       .sort((a, b) => compared(a.at, b.at))
       .map(copied);

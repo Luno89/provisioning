@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { matches, mock } from 'vitest-mock-extended';
-import { mainHeads, syncMain, type GitProcesses } from './HubRepoSync.js';
+import type { Processes } from '../../platform/lib/processes.js';
+import { mainHeads, syncMain } from './HubRepoSync.js';
 
-type GitRun = Parameters<GitProcesses['run']>[0];
+type GitRun = Parameters<Processes['run']>[0];
 
 const owner = { url: 'https://git.example/owner.git', auth: { username: 'koala', token: 'owner-secret' } };
 const hub = { url: 'https://git.example/hub.git', auth: { username: 'bot', token: 'hub-secret' } };
@@ -16,7 +17,7 @@ const exited = (code: number, stderr = '') => ({ code, stdout: '', stderr });
 type Scripted = [ReturnType<typeof said>, ReturnType<typeof ok>][];
 
 function remotes(heads: { owner?: string; hub?: string }, scripted: Scripted = []) {
-  const git = mock<GitProcesses>();
+  const git = mock<Processes>();
   git.run.calledWith(matches<GitRun>(() => true)).mockResolvedValue(ok());
   git.run.calledWith(said('ls-remote', owner.url)).mockResolvedValue(ok(heads.owner ? `${heads.owner}\trefs/heads/main\n` : ''));
   git.run.calledWith(said('ls-remote', hub.url)).mockResolvedValue(ok(heads.hub ? `${heads.hub}\trefs/heads/main\n` : ''));
@@ -48,13 +49,13 @@ describe('reading the two mains', () => {
   });
 
   it('fails with what git said when a remote cannot be asked', async () => {
-    const git = mock<GitProcesses>();
+    const git = mock<Processes>();
     git.run.mockResolvedValue(exited(128, 'fatal: unable to access\n'));
     await expect(mainHeads(owner, hub, git)).rejects.toThrow('fatal: unable to access');
   });
 
   it('says the exit status when git failed without a word', async () => {
-    const git = mock<GitProcesses>();
+    const git = mock<Processes>();
     git.run.mockResolvedValue(exited(2));
     await expect(mainHeads(owner, hub, git)).rejects.toThrow('git exited 2');
   });
@@ -147,7 +148,7 @@ describe('keeping the owner\'s main and the hub\'s main together', () => {
   });
 
   it('fails when the scratch repository cannot be made', async () => {
-    const git = mock<GitProcesses>();
+    const git = mock<Processes>();
     git.run.mockResolvedValue(exited(1, 'no git here'));
     await expect(syncMain(owner, hub, () => 'x', git)).rejects.toThrow('no git here');
   });

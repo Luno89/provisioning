@@ -1,19 +1,27 @@
+import type { ServerResponse } from 'node:http';
+import type { Readable } from 'node:stream';
 import { inject } from 'light-my-request';
 import type { Database } from '../lib/db-interface.js';
 import { harnessApp, TEST_USER, type HarnessOptions, type HarnessUser } from '../routes/test-harness.js';
 import { memoryDatabase } from './memory-database.js';
 
+export const PERSON: HarnessUser = { id: 'person-1', email: 'person@example.com' };
+export const OPERATOR: HarnessUser = { id: 'operator-1', email: 'operator@example.com', roles: ['operator'] };
+
 export interface RouteAnswer<T = unknown> {
   status: number;
   headers: Record<string, string | string[] | number | undefined>;
   text: string;
+  bytes: Buffer;
   data: T;
 }
 
 export interface RouteRequest {
   body?: unknown;
-  raw?: string | Buffer | undefined;
+  raw?: string | Buffer | Readable | undefined;
   headers?: Record<string, string> | undefined;
+  user?: HarnessUser | null | undefined;
+  hangUp?: Promise<void> | undefined;
 }
 
 export interface InProcessRoutes {
@@ -43,19 +51,35 @@ const parsed = (text: string): unknown => {
   }
 };
 
+const hangUpWhen = (res: ServerResponse, hangUp: Promise<void>): void => {
+  const lightMyRequestsOwn = res.rawListeners('close') as Array<() => void>;
+  res.removeAllListeners('close');
+  void hangUp.then(() => setTimeout(() => {
+    res.emit('close');
+    for (const listener of lightMyRequestsOwn) res.once('close', listener);
+  }, 0));
+};
+
 export async function routesInProcess(opts: HarnessOptions & { db?: Database }): Promise<InProcessRoutes> {
   const db = opts.db ?? memoryDatabase();
   let current: HarnessUser | null = opts.user === undefined ? TEST_USER : opts.user;
-  const app = await harnessApp(opts, db, () => current);
+  const askedAs = new WeakMap<object, HarnessUser | null>();
+  const app = await harnessApp(opts, db, (req) => (askedAs.has(req) ? askedAs.get(req) ?? null : current));
   const request = async <T>(method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE', path: string, sent: RouteRequest = {}): Promise<RouteAnswer<T>> => {
     const json = sent.body !== undefined && sent.raw === undefined;
-    const answer = await inject((req, res) => { keptThroughExpress(req); keptThroughExpress(res); app(req, res); }, {
+    const answer = await inject((req, res) => {
+      keptThroughExpress(req);
+      keptThroughExpress(res);
+      if (sent.user !== undefined) askedAs.set(req, sent.user);
+      if (sent.hangUp) hangUpWhen(res, sent.hangUp);
+      app(req, res);
+    }, {
       method,
       url: path,
-      headers: { host: 'koala.test', ...(json ? { 'content-type': 'application/json' } : {}), ...sent.headers },
+      headers: { host: 'koala.test', ...(typeof sent.raw === 'object' && !Buffer.isBuffer(sent.raw) ? { 'transfer-encoding': 'chunked' } : {}), ...(json ? { 'content-type': 'application/json' } : {}), ...sent.headers },
       ...(json ? { payload: JSON.stringify(sent.body) } : sent.raw !== undefined ? { payload: sent.raw } : {}),
     });
-    return { status: answer.statusCode, headers: answer.headers, text: answer.payload, data: parsed(answer.payload) as T };
+    return { status: answer.statusCode, headers: answer.headers, text: answer.payload, bytes: answer.rawPayload, data: parsed(answer.payload) as T };
   };
   return {
     db,

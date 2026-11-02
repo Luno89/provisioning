@@ -5,9 +5,9 @@ import { testDatabase } from '../lib/test-database.js';
 import type { Database } from '../lib/db-interface.js';
 import { errorResponder } from '../middleware/async-route.js';
 import { principalOf, type ClaimSettings } from '../lib/permissions.js';
-import type { PlatformGrant } from '../lib/types.js';
+import type { UserMetadata } from '../lib/types.js';
 
-export interface HarnessUser { id: string; email: string; roles?: PlatformGrant[] | undefined }
+export type HarnessUser = Pick<UserMetadata, 'id' | 'email'> & Partial<UserMetadata>;
 
 export const TEST_USER: HarnessUser = { id: 'test-user', email: 'test@example.com' };
 
@@ -16,6 +16,7 @@ export interface HarnessOptions {
   prefix: string;
   user?: HarnessUser | null;
   claims?: ClaimSettings | undefined;
+  open?: boolean | undefined;
 }
 
 export interface Harness {
@@ -25,12 +26,12 @@ export interface Harness {
   close: () => Promise<void>;
 }
 
-export async function harnessApp(opts: HarnessOptions, db: Database, user: () => HarnessUser | null): Promise<Express> {
+export async function harnessApp(opts: HarnessOptions, db: Database, user: (req: Request) => HarnessUser | null): Promise<Express> {
   const app = express();
   app.use(express.json({ limit: '20mb' }));
   app.use((req: Request, res: Response, next: NextFunction) => {
-    const current = user();
-    if (!current) return res.status(401).json({ error: 'Session missing' });
+    const current = user(req);
+    if (!current) return opts.open ? next() : res.status(401).json({ error: 'Session missing' });
     (req as unknown as { user: HarnessUser }).user = current;
     (req as unknown as { principal: ReturnType<typeof principalOf> }).principal = principalOf(current, opts.claims ?? { role: 'combined' });
     next();

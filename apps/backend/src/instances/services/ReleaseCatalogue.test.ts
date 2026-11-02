@@ -3,10 +3,11 @@ import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { matches, mockFn } from 'vitest-mock-extended';
+import { matches, mock } from 'vitest-mock-extended';
 import { memoryDatabase } from '../../platform/testing/memory-database.js';
 import type { Database } from '../../platform/index.js';
-import { ReleaseCatalogue, type GitOnThisMachine } from './ReleaseCatalogue.js';
+import type { ProcessRun, Processes } from '../../platform/lib/processes.js';
+import { ReleaseCatalogue } from './ReleaseCatalogue.js';
 
 let db: Database;
 let repo: string;
@@ -16,16 +17,17 @@ let inventoried: { release: string; out: string }[];
 
 const FULL = (short: string): string => `${short}${'0'.repeat(40 - short.length)}\n`;
 
-const asked = (...words: string[]) => matches<string[]>((args) => args.join(' ') === words.join(' '));
+const asked = (...words: string[]) => matches<ProcessRun>((run) => run.command === 'git' && run.cwd === repo && run.args.join(' ') === words.join(' '));
+const printed = (stdout: string) => ({ code: 0, stdout, stderr: '' });
 
-function checkout(head: string, tag?: { name: string; message: string }): GitOnThisMachine {
-  const git = mockFn<GitOnThisMachine>();
-  git.calledWith(asked('rev-parse', 'HEAD'), repo).mockResolvedValue(FULL(head));
+function checkout(head: string, tag?: { name: string; message: string }): Processes {
+  const git = mock<Processes>();
+  git.run.calledWith(asked('rev-parse', 'HEAD')).mockResolvedValue(printed(FULL(head)));
   if (tag) {
-    git.calledWith(asked('describe', '--exact-match', '--tags', '--match', 'v*', 'HEAD'), repo).mockResolvedValue(`${tag.name}\n`);
-    git.calledWith(asked('tag', '--list', '--format=%(contents)', tag.name), repo).mockResolvedValue(`${tag.message}\n`);
+    git.run.calledWith(asked('describe', '--exact-match', '--tags', '--match', 'v*', 'HEAD')).mockResolvedValue(printed(`${tag.name}\n`));
+    git.run.calledWith(asked('tag', '--list', '--format=%(contents)', tag.name)).mockResolvedValue(printed(`${tag.message}\n`));
   } else {
-    git.calledWith(asked('describe', '--exact-match', '--tags', '--match', 'v*', 'HEAD'), repo).mockRejectedValue(new Error('no tag'));
+    git.run.calledWith(asked('describe', '--exact-match', '--tags', '--match', 'v*', 'HEAD')).mockResolvedValue({ code: 128, stdout: '', stderr: 'fatal: no tag exactly matches' });
   }
   return git;
 }
@@ -40,12 +42,12 @@ beforeEach(() => {
   writeFileSync(chart, 'the chart');
 });
 
-const catalogue = (imageTag: string, at: string, git: GitOnThisMachine, imageDigest?: string) => new ReleaseCatalogue(db.instances, {
+const catalogue = (imageTag: string, at: string, processes: Processes, imageDigest?: string) => new ReleaseCatalogue(db.instances, {
   repoRoot: repo,
   chartsDir,
   imageTag,
   imageDigest,
-  git,
+  processes,
   chart: async () => chart,
   inventory: async (release, out) => {
     inventoried.push({ release, out });
@@ -79,7 +81,7 @@ describe('the releases root has run', () => {
   });
 
   it('records the release even when its inventory cannot be written, so instances are still offered it', async () => {
-    const failing = new ReleaseCatalogue(db.instances, { repoRoot: repo, chartsDir, imageTag: ONE, git: checkout(ONE), chart: async () => chart, inventory: async () => { throw new Error('dependencies.pins.json is missing'); } }, () => new Date('2026-10-30T00:00:00.000Z'));
+    const failing = new ReleaseCatalogue(db.instances, { repoRoot: repo, chartsDir, imageTag: ONE, processes: checkout(ONE), chart: async () => chart, inventory: async () => { throw new Error('dependencies.pins.json is missing'); } }, () => new Date('2026-10-30T00:00:00.000Z'));
     expect((await failing.recordCurrent()).imageTag).toBe(ONE);
     expect((await failing.releases()).map((release) => release.imageTag)).toContain(ONE);
     expect(failing.inventoryFile(ONE)).toBeUndefined();
@@ -104,8 +106,8 @@ describe('the releases root has run', () => {
   });
 
   it('names a build by its image tag when git cannot be asked at all', async () => {
-    const git = mockFn<GitOnThisMachine>();
-    git.mockRejectedValue(new Error('git is not installed'));
+    const git = mock<Processes>();
+    git.run.mockRejectedValue(new Error('git is not installed'));
     expect(await catalogue(ONE, '2026-10-26T00:00:00.000Z', git).recordCurrent()).toMatchObject({ imageTag: ONE, version: ONE });
   });
 
@@ -142,7 +144,7 @@ describe('the releases root has run', () => {
 describe('the releases root has run, on the real clock', () => {
   it('stamps a release with the moment it was first served when it is given no clock', async () => {
     const before = Date.now();
-    const recorded = await new ReleaseCatalogue(db.instances, { repoRoot: repo, chartsDir, imageTag: ONE, git: checkout(ONE), chart: async () => chart, inventory: async () => undefined }).recordCurrent();
+    const recorded = await new ReleaseCatalogue(db.instances, { repoRoot: repo, chartsDir, imageTag: ONE, processes: checkout(ONE), chart: async () => chart, inventory: async () => undefined }).recordCurrent();
     expect(Date.parse(recorded.servedAt ?? '')).toBeGreaterThanOrEqual(before);
   });
 });

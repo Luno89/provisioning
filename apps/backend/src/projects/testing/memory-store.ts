@@ -2,7 +2,7 @@ import { asStored } from '../../platform/testing/as-stored.js';
 import { randomUUID } from 'node:crypto';
 import type { PartialInfo, ProjectMetadata } from '../../platform/index.js';
 import { mergeRecord } from '../../platform/lib/merge-record.js';
-import { copied, MemoryRecords, collectionIn, type Collections } from '../../platform/testing/memory-records.js';
+import { copied, MemoryRecords, collectionIn, removeWhere, updateWhere, type Collections } from '../../platform/testing/memory-records.js';
 import type { Branch, Leaf } from '../lib/leaves.js';
 import type { PlanProposal } from '../lib/plan-proposals.js';
 import type { GiteaAccount } from '../lib/projects.js';
@@ -23,17 +23,21 @@ const claimedRepository = (project: ProjectMetadata): string | undefined =>
     : undefined;
 
 export class MemoryProjectsStore implements ProjectsStore {
-  private readonly projects = new MemoryRecords<ProjectMetadata>();
-  private readonly treeTypes = new Map<string, TreeTypeSpec>();
-  private readonly giteaAccounts = new Map<string, GiteaAccount>();
+  private readonly projects: MemoryRecords<ProjectMetadata>;
+  private readonly treeTypes: Map<string, TreeTypeSpec>;
+  private readonly giteaAccounts: Map<string, GiteaAccount>;
   private readonly trees: MemoryRecords<Tree>;
   private readonly branches: MemoryRecords<Branch>;
   private readonly leaves: MemoryRecords<Leaf>;
   private readonly tasks: MemoryRecords<Task>;
   private readonly planProposals: MemoryRecords<PlanProposal>;
-  private readonly secretRequests = new MemoryRecords<SecretRequest>();
+  private readonly secretRequests: MemoryRecords<SecretRequest>;
 
-  constructor(collections: Collections = new Map()) {
+  constructor(private readonly collections: Collections = new Map()) {
+    this.projects = new MemoryRecords(collectionIn<ProjectMetadata>(collections, 'projects'));
+    this.treeTypes = collectionIn<TreeTypeSpec>(collections, 'treeTypes');
+    this.giteaAccounts = collectionIn<GiteaAccount>(collections, 'giteaAccounts');
+    this.secretRequests = new MemoryRecords(collectionIn<SecretRequest>(collections, 'secretRequests'));
     this.trees = new MemoryRecords(collectionIn<Tree>(collections, 'trees'));
     this.branches = new MemoryRecords(collectionIn<Branch>(collections, 'branches'));
     this.leaves = new MemoryRecords(collectionIn<Leaf>(collections, 'leaves'));
@@ -45,12 +49,16 @@ export class MemoryProjectsStore implements ProjectsStore {
 
   async removeProjectRecords(projectId: string): Promise<Record<string, number>> {
     const removed: Record<string, number> = {};
-    const requests = this.secretRequests.all().filter((request) => request.projectId === projectId);
-    for (const request of requests) this.secretRequests.delete(request.id);
-    if (requests.length) removed.secretRequests = requests.length;
-    const tasks = this.tasks.all().filter((task) => task.projectId === projectId);
-    for (const task of tasks) this.tasks.delete(task.id);
-    if (tasks.length) removed.tasks = tasks.length;
+    for (const name of ['pipelineRuns', 'odooReleases', 'corpus', 'secretRequests', 'pendingApprovals', 'tasks', 'fileShares']) {
+      const deleted = removeWhere(this.collections, name, (row) => row.projectId === projectId);
+      if (deleted) removed[name] = deleted;
+    }
+    for (const name of ['conversations', 'memories']) {
+      const modified = updateWhere(this.collections, name, (row) => row.projectId === projectId, (row) => {
+        delete row.projectId;
+      });
+      if (modified) removed[`${name} unlinked`] = modified;
+    }
     if (this.projects.delete(projectId)) removed.projects = 1;
     return removed;
   }

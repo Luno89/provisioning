@@ -12,7 +12,8 @@ import type { ClusterService } from '../services/ClusterService.js';
 import type { InfrastructureService } from '../services/InfrastructureService.js';
 import type { TemporalBridge, WorkflowDeal } from '../services/TemporalBridge.js';
 import { deploymentsRouter } from './deployments.js';
-import { callRouter, PERSON, type CallingUser, type RouterAnswer } from '../testing/call-router.js';
+import type { HarnessUser } from '../../platform/routes/test-harness.js';
+import { PERSON, routesInProcess, type RouteAnswer } from '../../platform/testing/routes.js';
 
 const server = interceptHttp();
 
@@ -28,8 +29,8 @@ function setup() {
   const db = memoryDatabase();
   const router = deploymentsRouter({ appService, clusterService, appExposureService, infraService, temporalBridge, db, io: mock<SocketServer>() });
   appService.getById.calledWith('d1', PERSON.id).mockResolvedValue(deployment());
-  const call = (path: string, method: 'GET' | 'POST' | 'PATCH' | 'DELETE' = 'GET', body?: unknown, user?: CallingUser): Promise<RouterAnswer> =>
-    callRouter(router, '/api/deployments', { path, method, ...(body !== undefined ? { body } : {}), ...(user ? { user } : {}) });
+  const call = (path: string, method: 'GET' | 'POST' | 'PATCH' | 'DELETE' = 'GET', body?: unknown, user?: HarnessUser): Promise<RouteAnswer> =>
+    routesInProcess({ prefix: '/api/deployments', router: () => router, user: PERSON }).then((routes) => routes.request(method, `/api/deployments${path}`, { ...(body !== undefined ? { body } : {}), ...(user ? { user } : {}) }));
   return { appService, clusterService, appExposureService, infraService, temporalBridge, db, call };
 }
 
@@ -37,7 +38,7 @@ describe('listing deployments', () => {
   it('scopes to the caller', async () => {
     const { appService, call } = setup();
     appService.getAll.calledWith(PERSON.id, matches<SocketServer | undefined>(() => true)).mockResolvedValue([deployment()]);
-    expect((await call('')).body).toEqual([deployment()]);
+    expect((await call('')).data).toEqual([deployment()]);
   });
 
   it('never rides a sealed field along in a listing or anything else it sends', async () => {
@@ -47,15 +48,15 @@ describe('listing deployments', () => {
     appService.updateModules.mockResolvedValue({ deployment: { ...deployment(), ...sealed } } as never);
     const listed = await call('');
     const changed = await call('/d1/modules', 'PATCH', { modules: [] });
-    expect(listed.body).toMatchObject([{ id: 'd1', appType: 'nextcloud' }]);
-    for (const body of [listed.body, changed.body]) for (const value of Object.values(sealed)) expect(JSON.stringify(body)).not.toContain(value);
+    expect(listed.data).toMatchObject([{ id: 'd1', appType: 'nextcloud' }]);
+    for (const body of [listed.data, changed.data]) for (const value of Object.values(sealed)) expect(JSON.stringify(body)).not.toContain(value);
   });
 
   it('lists what is deployable, built-ins and the person\'s own', async () => {
     const { db, call } = setup();
     await db.infrastructure.saveAppSpec({ id: 'mine', name: 'mine', ownerId: PERSON.id, spec: { image: 'x' } } as never);
     await db.infrastructure.saveAppSpec({ id: 'theirs', name: 'theirs', ownerId: 'someone-else', spec: { image: 'y' } } as never);
-    const ids = ((await call('/catalogue')).body as { id: string; deploysFromSpec: boolean }[]);
+    const ids = ((await call('/catalogue')).data as { id: string; deploysFromSpec: boolean }[]);
     expect(ids.map((spec) => spec.id)).toContain('mine');
     expect(ids.map((spec) => spec.id)).not.toContain('theirs');
     expect(ids.find((spec) => spec.id === 'mine')?.deploysFromSpec).toBe(true);
@@ -71,7 +72,7 @@ describe('deploying', () => {
     temporalBridge.deployApp.calledWith(matches<Record<string, unknown>>((request) => request.name === 'shop'), PERSON.id).mockResolvedValue({ id: 'w1', resourceId: 'd9', event: 'app-deploy' });
     const answer = await call('', 'POST', asked);
     expect(answer.status).toBe(202);
-    expect(answer.body).toEqual({ message: 'Deployment started', deploymentName: 'shop', id: 'd9', workflowId: 'w1', state: 'running' });
+    expect(answer.data).toEqual({ message: 'Deployment started', deploymentName: 'shop', id: 'd9', workflowId: 'w1', state: 'running' });
   });
 
   it('refuses a request that names a project\'s app or a namespace it should not', async () => {
@@ -85,7 +86,7 @@ describe('deploying', () => {
     const { call } = setup();
     const answer = await call('', 'POST', asked);
     expect(answer.status).toBe(404);
-    expect(answer.body).toEqual({ error: 'Cluster not found' });
+    expect(answer.data).toEqual({ error: 'Cluster not found' });
   });
 
   it('answers 400 with the reason when the cluster cannot fit the app', async () => {
@@ -94,7 +95,7 @@ describe('deploying', () => {
     temporalBridge.deployApp.mockRejectedValue(new CapacityError('vLLM needs about 6 GiB of RAM but this cluster has 2 GiB'));
     const answer = await call('', 'POST', asked);
     expect(answer.status).toBe(400);
-    expect(answer.body).toEqual({ error: 'vLLM needs about 6 GiB of RAM but this cluster has 2 GiB' });
+    expect(answer.data).toEqual({ error: 'vLLM needs about 6 GiB of RAM but this cluster has 2 GiB' });
   });
 
   it('answers 503 when Temporal genuinely is unavailable', async () => {
@@ -103,7 +104,7 @@ describe('deploying', () => {
     temporalBridge.deployApp.mockRejectedValue(new Error('connection refused'));
     const answer = await call('', 'POST', asked);
     expect(answer.status).toBe(503);
-    expect((answer.body as { error: string }).error).toMatch(/Temporal app deploy unavailable: connection refused/);
+    expect((answer.data as { error: string }).error).toMatch(/Temporal app deploy unavailable: connection refused/);
   });
 });
 
@@ -113,13 +114,13 @@ describe('destroying', () => {
     temporalBridge.destroyApp.calledWith('d1').mockResolvedValue(deal('w2'));
     const answer = await call('/d1', 'DELETE');
     expect(answer.status).toBe(202);
-    expect(answer.body).toEqual({ message: 'Destroying app', deploymentId: 'd1', workflowId: 'w2', state: 'running' });
+    expect(answer.data).toEqual({ message: 'Destroying app', deploymentId: 'd1', workflowId: 'w2', state: 'running' });
   });
 
   it('aborts a deployment that is still deploying instead of destroying it', async () => {
     const { appService, temporalBridge, call } = setup();
     appService.getById.mockResolvedValue(deployment({ status: 'deploying' }));
-    expect((await call('/d1', 'DELETE')).body).toEqual({ success: true, message: 'Deployment aborted' });
+    expect((await call('/d1', 'DELETE')).data).toEqual({ success: true, message: 'Deployment aborted' });
     expect(temporalBridge.destroyApp).not.toHaveBeenCalled();
   });
 
@@ -131,11 +132,11 @@ describe('destroying', () => {
   it('deletes the record when Temporal cannot be asked, and says both reasons when that fails too', async () => {
     const { appService, temporalBridge, call } = setup();
     temporalBridge.destroyApp.mockRejectedValue(new Error('no worker'));
-    expect((await call('/d1', 'DELETE')).body).toEqual({ success: true, message: 'Deployment deleted' });
+    expect((await call('/d1', 'DELETE')).data).toEqual({ success: true, message: 'Deployment deleted' });
     appService.abort.mockRejectedValue(new Error('database down'));
     const both = await call('/d1', 'DELETE');
     expect(both.status).toBe(503);
-    expect((both.body as { error: string }).error).toBe('Deployment destruction unavailable: no worker; deleting its record failed too: database down');
+    expect((both.data as { error: string }).error).toBe('Deployment destruction unavailable: no worker; deleting its record failed too: database down');
   });
 });
 
@@ -145,7 +146,7 @@ describe('an app\'s details', () => {
     appService.signIns.calledWith('d1', PERSON.id).mockResolvedValue([{ describe: 'The Hermes dashboard', login: 'admin', password: 'generated' }] as never);
     const answer = await call('/d1/sign-in');
     expect(answer.headers['cache-control']).toBe('no-store');
-    expect(answer.body).toEqual({ signIns: [{ describe: 'The Hermes dashboard', login: 'admin', password: 'generated' }] });
+    expect(answer.data).toEqual({ signIns: [{ describe: 'The Hermes dashboard', login: 'admin', password: 'generated' }] });
     expect((await call('/elsewhere/sign-in')).status).toBe(404);
   });
 
@@ -153,22 +154,22 @@ describe('an app\'s details', () => {
     const { appService, call } = setup();
     appService.getHelmStatus.calledWith('d1', PERSON.id).mockResolvedValue('deployed');
     appService.getDiagnostics.calledWith('d1', PERSON.id).mockResolvedValue('all good');
-    expect((await call('/d1/helm')).body).toEqual({ content: 'deployed' });
-    expect((await call('/d1/diagnostics')).body).toEqual({ content: 'all good' });
+    expect((await call('/d1/helm')).data).toEqual({ content: 'deployed' });
+    expect((await call('/d1/diagnostics')).data).toEqual({ content: 'all good' });
     appService.getHelmStatus.mockRejectedValue(new Error('cluster unreachable'));
     const down = await call('/d1/helm');
     expect(down.status).toBe(500);
-    expect(down.body).toEqual({ error: 'cluster unreachable' });
+    expect(down.data).toEqual({ error: 'cluster unreachable' });
   });
 
   it('lists the app\'s pods, and says so when they cannot be listed', async () => {
     const { appService, call } = setup();
     appService.listPods.mockResolvedValueOnce([{ metadata: { name: 'p1' } }] as never);
-    expect((await call('/d1/pods')).body).toEqual([{ metadata: { name: 'p1' } }]);
+    expect((await call('/d1/pods')).data).toEqual([{ metadata: { name: 'p1' } }]);
     appService.listPods.mockRejectedValueOnce(new Error('kubectl timeout'));
     const failed = await call('/d1/pods');
     expect(failed.status).toBe(500);
-    expect(failed.body).toEqual({ error: 'Failed to list pods' });
+    expect(failed.data).toEqual({ error: 'Failed to list pods' });
   });
 });
 
@@ -177,8 +178,8 @@ describe('exposing an app', () => {
     const { appExposureService, call } = setup();
     appExposureService.exposePublic.calledWith('d1').mockResolvedValue({ url: 'https://x' } as never);
     appExposureService.exposeLocal.calledWith('d1').mockResolvedValue({ url: 'http://local' } as never);
-    expect((await call('/d1/expose', 'POST', {})).body).toEqual({ url: 'https://x' });
-    expect((await call('/d1/expose', 'POST', { mode: 'local' })).body).toEqual({ url: 'http://local' });
+    expect((await call('/d1/expose', 'POST', {})).data).toEqual({ url: 'https://x' });
+    expect((await call('/d1/expose', 'POST', { mode: 'local' })).data).toEqual({ url: 'http://local' });
   });
 
   it('says a game server has no web interface to expose', async () => {
@@ -186,7 +187,7 @@ describe('exposing an app', () => {
     appService.getById.mockResolvedValue(deployment({ appType: 'palworld' }));
     const answer = await call('/d1/expose', 'POST', {});
     expect(answer.status).toBe(400);
-    expect((answer.body as { error: string }).error).toMatch(/"palworld" has no HTTP interface to expose/);
+    expect((answer.data as { error: string }).error).toMatch(/"palworld" has no HTTP interface to expose/);
   });
 
   it('says the deployment is not found, or why exposing failed', async () => {
@@ -195,15 +196,15 @@ describe('exposing an app', () => {
     appExposureService.exposePublic.mockRejectedValue(new Error('no tunnel'));
     const failed = await call('/d1/expose', 'POST', {});
     expect(failed.status).toBe(500);
-    expect(failed.body).toEqual({ error: 'no tunnel' });
+    expect(failed.data).toEqual({ error: 'no tunnel' });
   });
 
   it('stops exposing it publicly or locally', async () => {
     const { appExposureService, call } = setup();
     appExposureService.unexposePublic.mockResolvedValue({ ok: true } as never);
     appExposureService.unexposeLocal.mockResolvedValue({ local: true } as never);
-    expect((await call('/d1/unexpose', 'POST', {})).body).toEqual({ ok: true });
-    expect((await call('/d1/unexpose', 'POST', { mode: 'local' })).body).toEqual({ local: true });
+    expect((await call('/d1/unexpose', 'POST', {})).data).toEqual({ ok: true });
+    expect((await call('/d1/unexpose', 'POST', { mode: 'local' })).data).toEqual({ local: true });
     expect((await call('/elsewhere/unexpose', 'POST', {})).status).toBe(404);
     appExposureService.unexposePublic.mockRejectedValue(new Error('gone'));
     expect((await call('/d1/unexpose', 'POST', {})).status).toBe(500);
@@ -212,7 +213,7 @@ describe('exposing an app', () => {
   it('changes the path an app is exposed at, only to text', async () => {
     const { appExposureService, call } = setup();
     appExposureService.updateExposurePath.calledWith('d1', '/admin').mockResolvedValue({ path: '/admin' } as never);
-    expect((await call('/d1/exposure-path', 'PATCH', { path: '/admin' })).body).toEqual({ path: '/admin' });
+    expect((await call('/d1/exposure-path', 'PATCH', { path: '/admin' })).data).toEqual({ path: '/admin' });
     expect((await call('/d1/exposure-path', 'PATCH', { path: 5 })).status).toBe(400);
     expect((await call('/elsewhere/exposure-path', 'PATCH', { path: '/x' })).status).toBe(404);
     appExposureService.updateExposurePath.mockRejectedValue(new Error('bad path'));
@@ -235,7 +236,7 @@ describe('changing a deployment', () => {
     temporalBridge.resizeDisk.calledWith('d1', matches<Record<string, string>>((storage) => storage.data === '20Gi')).mockResolvedValue(deal('w3'));
     const answer = await call('/d1/storage', 'PATCH', { storage: { data: '20Gi' } });
     expect(answer.status).toBe(202);
-    expect(answer.body).toEqual({ message: 'Resize started', deploymentId: 'd1', workflowId: 'w3', state: 'running' });
+    expect(answer.data).toEqual({ message: 'Resize started', deploymentId: 'd1', workflowId: 'w3', state: 'running' });
     expect((await call('/d1/storage', 'PATCH', { storage: 5 })).status).toBe(400);
     expect((await call('/elsewhere/storage', 'PATCH', { storage: { data: '1Gi' } })).status).toBe(404);
     temporalBridge.resizeDisk.mockRejectedValue(new Error('no worker'));
@@ -248,17 +249,17 @@ describe('changing a deployment', () => {
     temporalBridge.updateConfigAndSync.mockResolvedValue(deal('w4'));
     const answer = await call('/d1/config', 'PATCH', { vllmGpuCount: 2 });
     expect(answer.status).toBe(202);
-    expect(answer.body).toEqual({ message: 'Config updated, sync started', deploymentId: 'd1', workflowId: 'w4', state: 'running' });
+    expect(answer.data).toEqual({ message: 'Config updated, sync started', deploymentId: 'd1', workflowId: 'w4', state: 'running' });
   });
 
   it('refuses a config that is not one, settings for an app without a schema, and settings the schema rejects', async () => {
     const { appService, call } = setup();
     expect((await call('/d1/config', 'PATCH', { vllmGpuCount: 'many' })).status).toBe(400);
-    expect((await call('/d1/config', 'PATCH', { appSettings: { a: 1 } })).body).toEqual({ error: 'App type "odoo" has no settings schema' });
+    expect((await call('/d1/config', 'PATCH', { appSettings: { a: 1 } })).data).toEqual({ error: 'App type "odoo" has no settings schema' });
     appService.getById.calledWith('d1', PERSON.id).mockResolvedValue(deployment({ appType: 'palworld' }));
     const invalid = await call('/d1/config', 'PATCH', { appSettings: { serverName: 12345, maxPlayers: 'many' } });
     expect(invalid.status).toBe(400);
-    expect(invalid.body).toMatchObject({ error: 'Invalid settings' });
+    expect(invalid.data).toMatchObject({ error: 'Invalid settings' });
     expect((await call('/elsewhere/config', 'PATCH', { vllmGpuCount: 1 })).status).toBe(404);
   });
 
@@ -279,7 +280,7 @@ describe('a TabbyAPI deployment\'s resource plan', () => {
 
   it('says the plan does not apply to any other app', async () => {
     const { call } = setup();
-    expect((await call('/d1/resource-plan')).body).toEqual({ applicable: false });
+    expect((await call('/d1/resource-plan')).data).toEqual({ applicable: false });
     expect((await call('/elsewhere/resource-plan')).status).toBe(404);
   });
 
@@ -287,22 +288,22 @@ describe('a TabbyAPI deployment\'s resource plan', () => {
     const { infraService, call } = tabby();
     infraService.runCommand.mockResolvedValue({ stdout: '4Gi 64Gi', logFile: 'plan.log' });
     const answer = await call('/d1/resource-plan');
-    expect(answer.body).toMatchObject({ applicable: true, cpuLimit: '10' });
-    expect((answer.body as { refusal?: string }).refusal).toMatch(/allocatable/);
+    expect(answer.data).toMatchObject({ applicable: true, cpuLimit: '10' });
+    expect((answer.data as { refusal?: string }).refusal).toMatch(/allocatable/);
   });
 
   it('plans without a budget when the nodes\' memory cannot be read, and refuses nothing', async () => {
     const { infraService, call } = tabby();
     infraService.runCommand.mockRejectedValue(new Error('the cluster did not answer'));
     const answer = await call('/d1/resource-plan');
-    expect((answer.body as { applicable: boolean }).applicable).toBe(true);
-    expect((answer.body as { refusal?: string }).refusal).toBeUndefined();
+    expect((answer.data as { applicable: boolean }).applicable).toBe(true);
+    expect((answer.data as { refusal?: string }).refusal).toBeUndefined();
   });
 
   it('assumes a large model when its size cannot be looked up, and says so', async () => {
     const { infraService, call } = tabby();
     server.use(http.get('https://huggingface.co/api/models/org/model/tree/main', () => new HttpResponse(null, { status: 500 })));
     infraService.runCommand.mockResolvedValue({ stdout: '64Gi', logFile: 'plan.log' });
-    expect(((await call('/d1/resource-plan')).body as { basis: string }).basis).toMatch(/assumed — size lookup failed/);
+    expect(((await call('/d1/resource-plan')).data as { basis: string }).basis).toMatch(/assumed — size lookup failed/);
   });
 });

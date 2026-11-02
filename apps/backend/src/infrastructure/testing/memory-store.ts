@@ -6,7 +6,7 @@ import { mergeRecord } from '../../platform/lib/merge-record.js';
 import type {
   ClusterMetadata, ClusterProgress, DeploymentMetadata, PartialInfo, PendingApprovalMetadata, SecretKey,
 } from '../../platform/index.js';
-import { copied, MemoryRecords } from '../../platform/testing/memory-records.js';
+import { collectionIn, copied, MemoryRecords, type Collections } from '../../platform/testing/memory-records.js';
 import type { StoredAppSpec } from '../lib/app-spec.js';
 import type { ClusterProviderSpec } from '../lib/cluster-providers.js';
 import { hasPlainSecret, sealDeployment, unsealDeployment } from '../lib/deployment-secrets.js';
@@ -30,19 +30,31 @@ const duplicate = (collection: string, key: string): Error =>
   Object.assign(new Error(`E11000 duplicate key error collection: ${collection} dup key: ${key}`), { code: 11000 });
 
 export class MemoryInfrastructureStore implements InfrastructureStore {
-  private readonly clusters = new MemoryRecords<ClusterMetadata>();
-  private readonly deployments = new MemoryRecords<DeploymentMetadata>();
-  private readonly appSpecs = new MemoryRecords<StoredAppSpec>();
-  private readonly clusterProviders = new Map<string, ClusterProviderSpec>();
-  private readonly pendingApprovals = new MemoryRecords<PendingApprovalMetadata>();
-  private readonly workFailures = new MemoryRecords<WorkFailure>();
-  private readonly egressGrants = new MemoryRecords<EgressGrantRecord>();
-  private readonly egressRequests = new MemoryRecords<EgressRequest>();
-  private readonly accessRequests = new MemoryRecords<AccessRequest>();
-  private readonly bindingTypes = new MemoryRecords<BindingTypeRecord>();
-  private readonly serverOrders = new MemoryRecords<ServerOrder>();
+  private readonly clusters: MemoryRecords<ClusterMetadata>;
+  private readonly deployments: MemoryRecords<DeploymentMetadata>;
+  private readonly appSpecs: MemoryRecords<StoredAppSpec>;
+  private readonly clusterProviders: Map<string, ClusterProviderSpec>;
+  private readonly pendingApprovals: MemoryRecords<PendingApprovalMetadata>;
+  private readonly workFailures: MemoryRecords<WorkFailure>;
+  private readonly egressGrants: MemoryRecords<EgressGrantRecord>;
+  private readonly egressRequests: MemoryRecords<EgressRequest>;
+  private readonly accessRequests: MemoryRecords<AccessRequest>;
+  private readonly bindingTypes: MemoryRecords<BindingTypeRecord>;
+  private readonly serverOrders: MemoryRecords<ServerOrder>;
 
-  constructor(private readonly dataKey: SecretKey = TEST_KEY) {}
+  constructor(private readonly dataKey: SecretKey = TEST_KEY, collections: Collections = new Map()) {
+    this.clusters = new MemoryRecords(collectionIn<ClusterMetadata>(collections, 'clusters'));
+    this.deployments = new MemoryRecords(collectionIn<DeploymentMetadata>(collections, 'deployments'));
+    this.appSpecs = new MemoryRecords(collectionIn<StoredAppSpec>(collections, 'appSpecs'));
+    this.clusterProviders = collectionIn<ClusterProviderSpec>(collections, 'clusterProviders');
+    this.pendingApprovals = new MemoryRecords(collectionIn<PendingApprovalMetadata>(collections, 'pendingApprovals'));
+    this.workFailures = new MemoryRecords(collectionIn<WorkFailure>(collections, 'workFailures'));
+    this.egressGrants = new MemoryRecords(collectionIn<EgressGrantRecord>(collections, 'egressGrants'));
+    this.egressRequests = new MemoryRecords(collectionIn<EgressRequest>(collections, 'egressRequests'));
+    this.accessRequests = new MemoryRecords(collectionIn<AccessRequest>(collections, 'accessRequests'));
+    this.bindingTypes = new MemoryRecords(collectionIn<BindingTypeRecord>(collections, 'bindingTypes'));
+    this.serverOrders = new MemoryRecords(collectionIn<ServerOrder>(collections, 'serverOrders'));
+  }
 
   async ensureIndexes(): Promise<void> {}
 

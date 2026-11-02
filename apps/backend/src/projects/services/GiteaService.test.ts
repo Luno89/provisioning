@@ -9,14 +9,14 @@ import { decryptValue, encryptValue } from '../../platform/lib/crypto.js';
 import { containing } from '../../platform/lib/test-matchers.js';
 import { interceptHttp } from '../../platform/testing/http.js';
 import { GiteaConflictError, GiteaService } from './GiteaService.js';
-import type { GitProcesses, GitResult } from './git-processes.js';
+import type { ProcessResult, Processes } from '../../platform/lib/processes.js';
 
 const KEY = 'test-master-key-for-unit-tests-only' as never;
 const BASE = 'http://gitea.test';
 const ADMIN = `Basic ${Buffer.from('provisioning-bot:admin-pass').toString('base64')}`;
 const ALL_SCOPES = ['write:repository', 'write:package', 'write:admin', 'write:user', 'write:organization'];
 
-type GitRun = Parameters<GitProcesses['run']>[0];
+type GitRun = Parameters<Processes['run']>[0];
 type Infra = Pick<InfrastructureService, 'runKubectl' | 'getK3dServerIp'>;
 
 let dataDir: string;
@@ -37,7 +37,7 @@ const server = interceptHttp();
 
 function setUp() {
   const infra = mock<Infra>();
-  const processes = mock<GitProcesses>();
+  const processes = mock<Processes>();
   const gitea = new GiteaService(infra, KEY, '/tmp/kubeconfig', { processes, dataDir });
   return { infra, processes, gitea };
 }
@@ -213,10 +213,10 @@ describe('calling Gitea\'s API as the bot', () => {
 });
 
 describe('running git against a repository on Gitea', () => {
-  const ok = (stdout = ''): GitResult => ({ code: 0, stdout, stderr: '' });
+  const ok = (stdout = ''): ProcessResult => ({ code: 0, stdout, stderr: '' });
   const auth = { username: 'koala-u1', token: 'tok-secret' };
 
-  function scripted(steps: [words: string, answer: GitResult | Error][]) {
+  function scripted(steps: [words: string, answer: ProcessResult | Error][]) {
     const made = setUp();
     const seen: GitRun[] = [];
     made.processes.run.mockImplementation(async (run) => {
@@ -304,11 +304,11 @@ describe('running git against a repository on Gitea', () => {
 });
 
 describe('committing a drop of files from disk', () => {
-  const ok = (stdout = ''): GitResult => ({ code: 0, stdout, stderr: '' });
+  const ok = (stdout = ''): ProcessResult => ({ code: 0, stdout, stderr: '' });
   const auth = { username: 'koala-u1', token: 'tok-secret' };
   const sources = [{ path: 'README.md', source: '/drops/0' }, { path: 'public/logo.png', source: '/drops/1' }];
 
-  function setUpDrop(steps: [words: string, answer: GitResult][], user: unknown = { full_name: 'Ada', email: 'ada@example.com' }) {
+  function setUpDrop(steps: [words: string, answer: ProcessResult][], user: unknown = { full_name: 'Ada', email: 'ada@example.com' }) {
     const made = setUp();
     const seen: GitRun[] = [];
     made.processes.run.mockImplementation(async (run) => {

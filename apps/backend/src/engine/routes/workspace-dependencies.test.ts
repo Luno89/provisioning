@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { matches, mock } from 'vitest-mock-extended';
 import type { DependencyView, WorkspaceDependencyService } from '../services/WorkspaceDependencyService.js';
-import { mountInProcess, PERSON, type InProcess } from '../testing/in-process.js';
+import { TEST_USER } from '../../platform/routes/test-harness.js';
+import { routesInProcess, type InProcessRoutes } from '../../platform/testing/routes.js';
 import { workspaceDependenciesRouter } from './workspace-dependencies.js';
 
 type Service = Pick<WorkspaceDependencyService, 'list' | 'save' | 'remove'>;
@@ -10,21 +11,21 @@ const body = { name: 'pdf-tools', summary: 'PDF tools.', provides: ['pdftotext']
 const view: DependencyView = { name: 'pdf-tools', summary: 'PDF tools.', provides: ['pdftotext'], install: [{ via: 'dnf', packages: ['poppler-utils'] }], mine: true, script: false, usedBy: { tools: [], servers: [], dependencies: [], steps: [], trees: [] } };
 
 let dependencies: ReturnType<typeof mock<Service>>;
-let app: InProcess;
+let app: InProcessRoutes;
 
 beforeEach(async () => {
   dependencies = mock<Service>();
-  app = await mountInProcess({ prefix: '/api/workspace-dependencies', router: () => workspaceDependenciesRouter({ dependencies }) });
+  app = await routesInProcess({ prefix: '/api/workspace-dependencies', router: () => workspaceDependenciesRouter({ dependencies }) });
 });
 
 describe('/api/workspace-dependencies', () => {
   it('lists the signed-in person\'s catalogue', async () => {
-    dependencies.list.calledWith(PERSON.id).mockResolvedValue([view]);
+    dependencies.list.calledWith(TEST_USER.id).mockResolvedValue([view]);
     expect(await app.get('/api/workspace-dependencies')).toMatchObject({ status: 200, data: { dependencies: [{ name: 'pdf-tools' }] } });
   });
 
   it('saves a dependency that names itself in the address, as the person', async () => {
-    dependencies.save.calledWith(PERSON.id, matches((saved) => (saved as { name?: string }).name === 'pdf-tools')).mockResolvedValue({ saved: true, dependency: view });
+    dependencies.save.calledWith(TEST_USER.id, matches((saved) => (saved as { name?: string }).name === 'pdf-tools')).mockResolvedValue({ saved: true, dependency: view });
     expect(await app.put('/api/workspace-dependencies/pdf-tools', body)).toMatchObject({ status: 200, data: { dependency: { name: 'pdf-tools', mine: true } } });
   });
 
@@ -42,8 +43,8 @@ describe('/api/workspace-dependencies', () => {
   });
 
   it('removes one nothing needs, and keeps one something does, saying why', async () => {
-    dependencies.remove.calledWith(PERSON.id, 'free').mockResolvedValue({ removed: true });
-    dependencies.remove.calledWith(PERSON.id, 'pdf-tools').mockResolvedValue({ removed: false, why: 'pdf-tools is still needed by the tool fetch_pdf' });
+    dependencies.remove.calledWith(TEST_USER.id, 'free').mockResolvedValue({ removed: true });
+    dependencies.remove.calledWith(TEST_USER.id, 'pdf-tools').mockResolvedValue({ removed: false, why: 'pdf-tools is still needed by the tool fetch_pdf' });
     expect(await app.delete('/api/workspace-dependencies/free')).toMatchObject({ status: 200, data: { ok: true } });
     expect(await app.delete('/api/workspace-dependencies/pdf-tools')).toMatchObject({ status: 409, data: { error: 'pdf-tools is still needed by the tool fetch_pdf' } });
   });

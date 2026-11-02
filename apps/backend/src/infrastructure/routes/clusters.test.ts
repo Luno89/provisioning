@@ -12,13 +12,14 @@ import type { InfrastructureService } from '../services/InfrastructureService.js
 import type { TemporalBridge, WorkflowDeal } from '../services/TemporalBridge.js';
 import type { InfrastructureStore } from '../store.js';
 import { clustersRouter } from './clusters.js';
-import { callRouter, OPERATOR, PERSON, type CallingUser } from '../testing/call-router.js';
+import type { HarnessUser } from '../../platform/routes/test-harness.js';
+import { OPERATOR, PERSON, routesInProcess } from '../../platform/testing/routes.js';
 
 const KEY = 'clusters-route-test-key';
 const cluster = (over: Partial<ClusterMetadata> = {}): ClusterMetadata => ({ id: 'c1', name: 'lab', provider: 'k3d', status: 'healthy', ownerId: PERSON.id, ...over }) as ClusterMetadata;
 const systemCluster = (): ClusterMetadata => ({ id: 'provisioning-lunorica', name: 'system', provider: 'k3d', status: 'healthy', isSystem: true }) as ClusterMetadata;
 const deal = (id: string, resourceId?: string): WorkflowDeal => ({ id, event: 'x', ...(resourceId ? { resourceId } : {}) });
-const by = (user: CallingUser) => matches<Principal>((who) => who.id === user.id);
+const by = (user: HarnessUser) => matches<Principal>((who) => who.id === user.id);
 
 function setup() {
   const clusterService = mock<ClusterService>();
@@ -34,8 +35,8 @@ function setup() {
     clusterService, appService, clusterProxyService, giteaService, infisicalService, infraService, temporalBridge, db,
     io: mock<SocketServer>(), dataKey: KEY, generateKeypair,
   });
-  const call = (path: string, method: 'GET' | 'POST' | 'DELETE' = 'GET', body?: unknown, user?: CallingUser) =>
-    callRouter(router, '/api/clusters', { path, method, ...(body !== undefined ? { body } : {}), ...(user ? { user } : {}) });
+  const call = (path: string, method: 'GET' | 'POST' | 'DELETE' = 'GET', body?: unknown, user?: HarnessUser) =>
+    routesInProcess({ prefix: '/api/clusters', router: () => router, user: PERSON }).then((routes) => routes.request(method, `/api/clusters${path}`, { ...(body !== undefined ? { body } : {}), ...(user ? { user } : {}) }));
   return { clusterService, appService, clusterProxyService, giteaService, infisicalService, infraService, temporalBridge, db, generateKeypair, call };
 }
 
@@ -43,7 +44,7 @@ describe('listing clusters', () => {
   it('lists the clusters the person may see', async () => {
     const { clusterService, call } = setup();
     clusterService.getAll.calledWith(by(PERSON), matches<SocketServer | undefined>(() => true)).mockResolvedValue([cluster()]);
-    expect((await call('')).body).toEqual([cluster()]);
+    expect((await call('')).data).toEqual([cluster()]);
   });
 });
 
@@ -53,7 +54,7 @@ describe('provisioning a cluster', () => {
     temporalBridge.provision.calledWith('lab', 'k3d', PERSON.id, undefined, undefined).mockResolvedValue(deal('w1', 'c1'));
     const answer = await call('', 'POST', { name: 'lab', provider: 'k3d' });
     expect(answer.status).toBe(202);
-    expect(answer.body).toEqual({ message: 'Provisioning started', clusterName: 'lab', provider: 'k3d', id: 'c1', workflowId: 'w1', state: 'running' });
+    expect(answer.data).toEqual({ message: 'Provisioning started', clusterName: 'lab', provider: 'k3d', id: 'c1', workflowId: 'w1', state: 'running' });
   });
 
   it('hands a VM provider the server type, location and image asked for', async () => {
@@ -67,7 +68,7 @@ describe('provisioning a cluster', () => {
     const { call } = setup();
     const answer = await call('', 'POST', { name: 'My Lab', provider: 'k3d' });
     expect(answer.status).toBe(400);
-    expect(answer.body).toMatchObject({ error: 'Cluster names cannot contain spaces.', suggestion: 'my-lab' });
+    expect(answer.data).toMatchObject({ error: 'Cluster names cannot contain spaces.', suggestion: 'my-lab' });
   });
 
   it('refuses a provider Koala does not make clusters on', async () => {
@@ -82,7 +83,7 @@ describe('provisioning a cluster', () => {
     temporalBridge.provision.mockRejectedValue(new ProvisionRefused('aws is not available yet'));
     const answer = await call('', 'POST', { name: 'lab', provider: 'aws' });
     expect(answer.status).toBe(400);
-    expect(answer.body).toEqual({ error: 'aws is not available yet' });
+    expect(answer.data).toEqual({ error: 'aws is not available yet' });
   });
 
   it('answers 503 when Temporal cannot provision', async () => {
@@ -90,14 +91,14 @@ describe('provisioning a cluster', () => {
     temporalBridge.provision.mockRejectedValue(new Error('no worker'));
     const answer = await call('', 'POST', { name: 'lab', provider: 'k3d' });
     expect(answer.status).toBe(503);
-    expect(answer.body).toEqual({ error: 'Temporal cluster provisioning unavailable: no worker' });
+    expect(answer.data).toEqual({ error: 'Temporal cluster provisioning unavailable: no worker' });
   });
 
   it('asks for a host and a user when a machine is added', async () => {
     const { call } = setup();
     const answer = await call('', 'POST', { name: 'box', provider: 'remote', remoteHost: '10.0.0.5' });
     expect(answer.status).toBe(400);
-    expect(answer.body).toEqual({ error: 'remoteHost and remoteUsername are required for provider "remote"' });
+    expect(answer.data).toEqual({ error: 'remoteHost and remoteUsername are required for provider "remote"' });
   });
 
   it('makes a key for a machine added without one and waits for the person to authorise it', async () => {
@@ -107,7 +108,7 @@ describe('provisioning a cluster', () => {
     expect(generateKeypair).toHaveBeenCalledWith('nowrinkles-box');
     expect(clusterService.createAwaitingKey).toHaveBeenCalledWith({ name: 'box', ownerId: PERSON.id, host: '10.0.0.5', username: 'ubuntu', privateKey: 'PRIVATE', port: 2222 });
     expect(answer.status).toBe(201);
-    expect(answer.body).toEqual({ id: 'c7', status: 'awaiting-key', publicKey: 'ssh-ed25519 AAAA koala', message: 'Authorise this key on the machine, then start provisioning.' });
+    expect(answer.data).toEqual({ id: 'c7', status: 'awaiting-key', publicKey: 'ssh-ed25519 AAAA koala', message: 'Authorise this key on the machine, then start provisioning.' });
   });
 
   it('provisions a machine straight away when its key came with it', async () => {
@@ -129,7 +130,7 @@ describe('starting a machine that was waiting for its key', () => {
     temporalBridge.provision.mockResolvedValue(deal('w4', 'c9'));
     const answer = await call('/c1/start', 'POST');
     expect(answer.status).toBe(202);
-    expect(answer.body).toEqual({ message: 'Provisioning started', id: 'c9', workflowId: 'w4' });
+    expect(answer.data).toEqual({ message: 'Provisioning started', id: 'c9', workflowId: 'w4' });
     expect(temporalBridge.provision).toHaveBeenCalledWith('lab', 'remote', PERSON.id, { host: '10.0.0.5', username: 'ubuntu', privateKey: 'SECRET-KEY', port: 2222 });
     expect(db.deleteCluster).toHaveBeenCalledWith('c1');
   });
@@ -140,7 +141,7 @@ describe('starting a machine that was waiting for its key', () => {
     clusterService.getById.mockResolvedValue(cluster({ status: 'healthy' }));
     const notWaiting = await call('/c1/start', 'POST');
     expect(notWaiting.status).toBe(409);
-    expect(notWaiting.body).toEqual({ error: 'Cluster "lab" is healthy, not awaiting a key.' });
+    expect(notWaiting.data).toEqual({ error: 'Cluster "lab" is healthy, not awaiting a key.' });
     const { remoteHost: _host, ...withoutHost } = waiting();
     clusterService.getById.mockResolvedValue(withoutHost);
     expect((await call('/c1/start', 'POST')).status).toBe(400);
@@ -152,7 +153,7 @@ describe('starting a machine that was waiting for its key', () => {
     temporalBridge.provision.mockRejectedValue(new Error('no worker'));
     const answer = await call('/c1/start', 'POST');
     expect(answer.status).toBe(500);
-    expect(answer.body).toEqual({ error: 'no worker' });
+    expect(answer.data).toEqual({ error: 'no worker' });
   });
 });
 
@@ -164,13 +165,13 @@ describe('destroying a cluster', () => {
     const answer = await call('/c1', 'DELETE');
     expect(clusterProxyService.stopForCluster).toHaveBeenCalledWith('c1');
     expect(answer.status).toBe(202);
-    expect(answer.body).toEqual({ message: 'Destroying cluster', clusterId: 'c1', workflowId: 'w5', state: 'running' });
+    expect(answer.data).toEqual({ message: 'Destroying cluster', clusterId: 'c1', workflowId: 'w5', state: 'running' });
   });
 
   it('aborts a cluster that is still provisioning', async () => {
     const { clusterService, temporalBridge, call } = setup();
     clusterService.getById.mockResolvedValue(cluster({ status: 'provisioning' }));
-    expect((await call('/c1', 'DELETE')).body).toEqual({ success: true, message: 'Cluster provisioning aborted' });
+    expect((await call('/c1', 'DELETE')).data).toEqual({ success: true, message: 'Cluster provisioning aborted' });
     expect(clusterService.abort).toHaveBeenCalledWith('c1', matches<Principal>((who) => who.id === PERSON.id), expect.anything());
     expect(temporalBridge.destroyCluster).not.toHaveBeenCalled();
   });
@@ -188,11 +189,11 @@ describe('destroying a cluster', () => {
     const { clusterService, temporalBridge, call } = setup();
     clusterService.getById.mockResolvedValue(cluster());
     temporalBridge.destroyCluster.mockRejectedValue(new Error('no worker'));
-    expect((await call('/c1', 'DELETE')).body).toEqual({ success: true, message: 'Cluster deleted' });
+    expect((await call('/c1', 'DELETE')).data).toEqual({ success: true, message: 'Cluster deleted' });
     clusterService.abort.mockRejectedValue(new Error('database down'));
     const both = await call('/c1', 'DELETE');
     expect(both.status).toBe(503);
-    expect(both.body).toEqual({ error: 'Cluster destruction unavailable: no worker; deleting its record failed too: database down' });
+    expect(both.data).toEqual({ error: 'Cluster destruction unavailable: no worker; deleting its record failed too: database down' });
   });
 });
 
@@ -201,9 +202,9 @@ describe('discovering', () => {
     const { clusterService, call } = setup();
     clusterService.discoverClusters.calledWith(OPERATOR.id).mockResolvedValue([cluster({ status: 'discovered' })]);
     expect((await call('/discover', 'POST', {})).status).toBe(403);
-    expect((await call('/discover', 'POST', {}, OPERATOR)).body).toEqual({ clusters: [cluster({ status: 'discovered' })] });
+    expect((await call('/discover', 'POST', {}, OPERATOR)).data).toEqual({ clusters: [cluster({ status: 'discovered' })] });
     clusterService.discoverClusters.mockRejectedValue(new Error('k3d not found'));
-    expect((await call('/discover', 'POST', {}, OPERATOR)).body).toEqual({ error: 'k3d not found' });
+    expect((await call('/discover', 'POST', {}, OPERATOR)).data).toEqual({ error: 'k3d not found' });
   });
 
   it('discovers the deployments on a cluster the person may see', async () => {
@@ -211,7 +212,7 @@ describe('discovering', () => {
     expect((await call('/c1/discover-deployments', 'POST')).status).toBe(404);
     clusterService.getById.calledWith('c1', by(PERSON), 'see-everything').mockResolvedValue(cluster());
     appService.discoverDeployments.calledWith('c1', by(PERSON)).mockResolvedValue([]);
-    expect((await call('/c1/discover-deployments', 'POST')).body).toEqual({ deployments: [] });
+    expect((await call('/c1/discover-deployments', 'POST')).data).toEqual({ deployments: [] });
     appService.discoverDeployments.mockRejectedValue(new Error('no kubectl'));
     expect((await call('/c1/discover-deployments', 'POST')).status).toBe(500);
   });
@@ -221,7 +222,7 @@ describe('discovering', () => {
     expect((await call('/c1/gpu-status')).status).toBe(404);
     clusterService.getById.calledWith('c1', by(PERSON), 'see-everything').mockResolvedValue(cluster());
     clusterService.getGpuStatus.calledWith('c1', by(PERSON)).mockResolvedValue({ gpus: 1 } as never);
-    expect((await call('/c1/gpu-status')).body).toEqual({ gpus: 1 });
+    expect((await call('/c1/gpu-status')).data).toEqual({ gpus: 1 });
   });
 });
 
@@ -282,6 +283,6 @@ describe('opening a cluster\'s dashboards', () => {
     clusterProxyService.ensurePortForward.mockRejectedValue(new Error('port-forward died'));
     const answer = await call('/provisioning-lunorica/proxy/prometheus', 'GET', undefined, OPERATOR);
     expect(answer.status).toBe(502);
-    expect(answer.body).toEqual({ error: 'Service unavailable: port-forward died' });
+    expect(answer.data).toEqual({ error: 'Service unavailable: port-forward died' });
   });
 });

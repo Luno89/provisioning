@@ -2,13 +2,18 @@ import { randomUUID } from 'node:crypto';
 import type { PartialInfo, PipelineRunMetadata } from '../../platform/index.js';
 import { mergeRecord } from '../../platform/lib/merge-record.js';
 import { asStored } from '../../platform/testing/as-stored.js';
-import { MemoryRecords } from '../../platform/testing/memory-records.js';
+import { collectionIn, MemoryRecords, type Collections } from '../../platform/testing/memory-records.js';
 import type { OdooRelease } from '../lib/odoo-release.js';
 import type { ReleasesStore } from '../store.js';
 
 export class MemoryReleasesStore implements ReleasesStore {
-  private readonly pipelineRuns = new MemoryRecords<PipelineRunMetadata>();
-  private readonly odooReleases = new MemoryRecords<OdooRelease>();
+  private readonly pipelineRuns: MemoryRecords<PipelineRunMetadata>;
+  private readonly odooReleases: MemoryRecords<OdooRelease>;
+
+  constructor(collections: Collections = new Map()) {
+    this.pipelineRuns = new MemoryRecords(collectionIn<PipelineRunMetadata>(collections, 'pipelineRuns'));
+    this.odooReleases = new MemoryRecords(collectionIn<OdooRelease>(collections, 'odooReleases'));
+  }
 
   async ensureIndexes(): Promise<void> {}
 

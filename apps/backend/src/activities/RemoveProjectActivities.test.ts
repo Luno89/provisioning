@@ -133,11 +133,14 @@ describe('the steps that delete a project', () => {
   it('deletes its records, unlinks what only mentions it, and leaves the other project whole', async () => {
     const removed = await steps().RemoveProjectRecordsActivity({ projectId: 'p1' });
 
-    expect(removed).toMatchObject({ trees: 1, branches: 1, leaves: 1, conversations: 1, 'trees unlinked': 1 });
+    expect(removed).toMatchObject({ trees: 1, branches: 1, leaves: 1, conversations: 1, 'trees unlinked': 1, pipelineRuns: 1, 'conversations unlinked': 1, projects: 1 });
+    expect((await db.projects.getProjects()).map((project) => project.id)).toEqual(['p2']);
     expect((await db.projects.getTrees()).map((tree) => [tree.id, tree.projectIds])).toEqual([['t2', ['p2']]]);
     expect((await db.projects.getTasks('bo')).map((task) => task.id)).toEqual([]);
     expect(await db.engine.getConversation('bo', 'c1')).toBeUndefined();
+    expect((await db.engine.getConversation('bo', 'c2'))?.projectId).toBeUndefined();
     expect((await db.projects.getLeaves())).toEqual([]);
+    expect((await db.releases.getPipelineRuns()).map((run) => run.id)).toEqual(['r2']);
   });
 
   it('removes what its releases\' browser tests kept, and nothing of another project\'s', async () => {

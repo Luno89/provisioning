@@ -1,12 +1,13 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { mock } from 'vitest-mock-extended';
-import { mountInProcess, PERSON, type InProcess } from '../../engine/testing/in-process.js';
+import { TEST_USER } from '../../platform/routes/test-harness.js';
+import { routesInProcess, type InProcessRoutes } from '../../platform/testing/routes.js';
 import type { ScriptAnswer } from '../lib/check-script.js';
 import type { ScriptedModelService } from '../services/ScriptedModelService.js';
 import { checksRouter, SCRIPTED_MODEL } from './checks.js';
 
 let scripted: ReturnType<typeof mock<ScriptedModelService>>;
-let app: InProcess;
+let app: InProcessRoutes;
 
 const chunks = (body: unknown): Array<{ choices: Array<{ delta: Record<string, unknown>; finish_reason: string | null }>; usage?: Record<string, number>; model: string }> =>
   String(body).split('\n\n').filter((line) => line.startsWith('data: {')).map((line) => JSON.parse(line.slice('data: '.length)) as never);
@@ -15,7 +16,7 @@ const answering = (answer: ScriptAnswer) => scripted.answer.mockResolvedValue({ 
 
 beforeEach(async () => {
   scripted = mock<ScriptedModelService>();
-  app = await mountInProcess({ prefix: '/api/checks', router: () => checksRouter({ scripted }) });
+  app = await routesInProcess({ prefix: '/api/checks', router: () => checksRouter({ scripted }) });
 });
 
 describe('/api/checks/scripted', () => {
@@ -69,8 +70,8 @@ describe('/api/checks/scripted', () => {
   });
 
   it('lists the requests the signed-in person\'s check was sent', async () => {
-    scripted.requests.mockResolvedValue([{ ownerId: PERSON.id, at: 't', text: '[user] hi', tools: [], rule: 0 }]);
+    scripted.requests.mockResolvedValue([{ ownerId: TEST_USER.id, at: 't', text: '[user] hi', tools: [], rule: 0 }]);
     expect(await app.get('/api/checks/model-requests')).toMatchObject({ status: 200, data: { requests: [{ text: '[user] hi' }] } });
-    expect(scripted.requests).toHaveBeenCalledWith(PERSON.id);
+    expect(scripted.requests).toHaveBeenCalledWith(TEST_USER.id);
   });
 });

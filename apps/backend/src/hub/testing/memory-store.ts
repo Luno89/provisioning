@@ -40,10 +40,14 @@ const byAt = (a: unknown, b: unknown): number => {
 };
 
 export class MemoryHubStore implements HubStore {
-  private readonly links = new Map<string, StoredLink>();
+  private readonly links: Map<string, StoredLink>;
   private readonly dirty = new Map<string, HubDirty>();
-  private readonly snapshots = new Map<string, Snapshot>();
-  constructor(private readonly collections: Collections = new Map()) {}
+  private readonly snapshots: Map<string, Snapshot>;
+
+  constructor(private readonly collections: Collections = new Map()) {
+    this.links = collectionIn<StoredLink>(collections, 'hubLinks');
+    this.snapshots = collectionIn<Snapshot>(collections, 'hubSnapshots');
+  }
 
   private rows(kind: SyncedKind): Map<string, Row> {
     return collectionIn<Row>(this.collections, kind);

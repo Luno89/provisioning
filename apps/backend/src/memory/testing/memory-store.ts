@@ -1,14 +1,21 @@
 import { asStored } from '../../platform/testing/as-stored.js';
-import { copied, MemoryRecords } from '../../platform/testing/memory-records.js';
+import { collectionIn, copied, MemoryRecords, type Collections } from '../../platform/testing/memory-records.js';
 import type { DeferredConclusion, KeeperSettings } from '../lib/conclusions.js';
 import type { MemoryItem } from '../lib/memory-store.js';
 import type { MemoryStore } from '../store.js';
 
 export class MemoryMemoryStore implements MemoryStore {
-  private readonly memories = new MemoryRecords<MemoryItem>();
-  private readonly keeperSettings = new Map<string, KeeperSettings>();
-  private readonly deferred = new MemoryRecords<DeferredConclusion>();
-  private readonly watermarks = new Map<string, string>();
+  private readonly memories: MemoryRecords<MemoryItem>;
+  private readonly keeperSettings: Map<string, KeeperSettings>;
+  private readonly deferred: MemoryRecords<DeferredConclusion>;
+  private readonly watermarks: Map<string, string>;
+
+  constructor(collections: Collections = new Map()) {
+    this.memories = new MemoryRecords(collectionIn<MemoryItem>(collections, 'memories'));
+    this.keeperSettings = collectionIn<KeeperSettings>(collections, 'keeperSettings');
+    this.deferred = new MemoryRecords(collectionIn<DeferredConclusion>(collections, 'deferredConclusions'));
+    this.watermarks = collectionIn<string>(collections, 'memoryWatermarks');
+  }
 
   async ensureIndexes(): Promise<void> {}
 

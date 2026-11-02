@@ -1,6 +1,7 @@
 import { applyPatch, diffRecord, type HubChange, type HubDirty, type HubLink, type HubSyncStore, type RecordChange, type SyncedDoc, type SyncedKind } from '../lib/hub-sync.js';
 import { CHANGES_PAGE, type HubService } from './HubService.js';
-import { mainHeads, syncMain, type GitEnd, type GitProcesses } from './HubRepoSync.js';
+import type { Processes } from '../../platform/index.js';
+import { mainHeads, syncMain, type GitEnd } from './HubRepoSync.js';
 import type { HubMemberName } from '../lib/hub-sync.js';
 import type { HubRequest, HubStatus } from '../lib/hub-board.js';
 import type { HubInstanceWork, InstanceAnswer, InstanceCall } from './HubInstanceWork.js';
@@ -28,7 +29,7 @@ export interface HubSyncDeps {
   transport: HubSyncTransport;
   origin: string;
   repos?: HubRepoSides | undefined;
-  git?: GitProcesses | undefined;
+  git?: Processes | undefined;
   work?: (() => HubInstanceWork | undefined) | undefined;
   log?: ((line: string) => void) | undefined;
   retryMs?: number | undefined;

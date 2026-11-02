@@ -1,11 +1,16 @@
 import type { LocalAgentDeviceMetadata } from '../../platform/index.js';
-import { copied, MemoryRecords } from '../../platform/testing/memory-records.js';
+import { collectionIn, copied, MemoryRecords, type Collections } from '../../platform/testing/memory-records.js';
 import type { MachineJoinCode } from '../lib/machines.js';
 import type { DeviceChange, MachinesStore } from '../store.js';
 
 export class MemoryMachinesStore implements MachinesStore {
-  private readonly devices = new MemoryRecords<LocalAgentDeviceMetadata>();
-  private readonly joinCodes = new Map<string, MachineJoinCode>();
+  private readonly devices: MemoryRecords<LocalAgentDeviceMetadata>;
+  private readonly joinCodes: Map<string, MachineJoinCode>;
+
+  constructor(collections: Collections = new Map()) {
+    this.devices = new MemoryRecords(collectionIn<LocalAgentDeviceMetadata>(collections, 'localAgentDevices'));
+    this.joinCodes = collectionIn<MachineJoinCode>(collections, 'machineJoinCodes');
+  }
 
   async ensureIndexes(): Promise<void> {}
 

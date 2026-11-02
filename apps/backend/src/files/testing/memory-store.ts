@@ -1,4 +1,4 @@
-import { copied, MemoryRecords } from '../../platform/testing/memory-records.js';
+import { collectionIn, copied, MemoryRecords, type Collections } from '../../platform/testing/memory-records.js';
 import type { ArtifactChunk, StoredArtifact } from '../lib/artifacts.js';
 import type { FileSettings } from '../lib/file-places.js';
 import type { FileShare } from '../lib/file-shares.js';
@@ -9,10 +9,17 @@ const chunkKey = (artifactId: string, n: number): string => `${artifactId}:${n}`
 const ascending = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
 
 export class MemoryFilesStore implements FilesStore {
-  private readonly artifacts = new MemoryRecords<StoredArtifact>();
-  private readonly chunks = new Map<string, ArtifactChunk>();
-  private readonly settings = new Map<string, FileSettings>();
-  private readonly shares = new MemoryRecords<FileShare>();
+  private readonly artifacts: MemoryRecords<StoredArtifact>;
+  private readonly chunks: Map<string, ArtifactChunk>;
+  private readonly settings: Map<string, FileSettings>;
+  private readonly shares: MemoryRecords<FileShare>;
+
+  constructor(collections: Collections = new Map()) {
+    this.artifacts = new MemoryRecords(collectionIn<StoredArtifact>(collections, 'artifacts'));
+    this.chunks = collectionIn<ArtifactChunk>(collections, 'artifactChunks');
+    this.settings = collectionIn<FileSettings>(collections, 'fileSettings');
+    this.shares = new MemoryRecords(collectionIn<FileShare>(collections, 'fileShares'));
+  }
 
   async ensureIndexes(): Promise<void> {}
 

@@ -6,7 +6,7 @@ import type { Database } from '../../platform/lib/db-interface.js';
 import type { ModelEndpointMetadata } from '../../platform/lib/types.js';
 import { interceptHttp } from '../../platform/testing/http.js';
 import { memoryDatabase } from '../../platform/testing/memory-database.js';
-import { callRouter, PERSON } from '../../monitoring/testing/call-router.js';
+import { PERSON, routesInProcess } from '../../platform/testing/routes.js';
 import type { CredentialService } from '../../infrastructure/index.js';
 import { challengeOf, CONNECT_COOKIE, OPENROUTER_KEYS_URL } from '../lib/openrouter-connect.js';
 import { llmCredentialsRouter, pricingOf } from './llm-credentials.js';
@@ -28,18 +28,21 @@ const cookiesOf = (headers: Record<string, unknown>): string[] => [headers['set-
 let db: Database;
 let credentials: MockProxy<Pick<CredentialService, 'resolveCredentials'>>;
 
-const call = (path: string, options: { method?: 'GET' | 'POST' | 'DELETE'; body?: unknown; cookie?: string; userId?: string; publicUrl?: string; withCredentials?: boolean } = {}) =>
-  callRouter(
-    llmCredentialsRouter({
+const call = async (path: string, options: { method?: 'GET' | 'POST' | 'DELETE'; body?: unknown; cookie?: string; userId?: string; publicUrl?: string; withCredentials?: boolean } = {}) => {
+  const routes = await routesInProcess({
+    prefix: '/api/credentials',
+    router: () => llmCredentialsRouter({
       db,
       dataKey: DATA_KEY,
       ...(options.withCredentials === false ? {} : { credentialService: credentials }),
       publicUrl: options.publicUrl ?? 'https://api.example.com',
       appUrl: 'https://app.example.com',
     }),
-    '/api/credentials',
-    { method: options.method ?? 'GET', path, body: options.body, user: { id: options.userId ?? PERSON.id, email: PERSON.email }, ...(options.cookie ? { headers: { cookie: options.cookie } } : {}) },
-  );
+    user: { id: options.userId ?? PERSON.id, email: PERSON.email },
+    db,
+  });
+  return routes.request(options.method ?? 'GET', `/api/credentials${path}`, { body: options.body, ...(options.cookie ? { headers: { cookie: options.cookie } } : {}) });
+};
 
 const mine = async (userId = PERSON.id) => (await db.models.getModelEndpoints()).filter((row) => row.ownerId === userId);
 const endpoint = (fields: Partial<ModelEndpointMetadata> & { id: string }): ModelEndpointMetadata =>
@@ -57,8 +60,8 @@ describe('the gateways a person can connect', () => {
     await db.models.saveModelEndpoint(endpoint({ id: 'a', name: 'OpenRouter · m1', apiKeyEnc: 'sealed' }));
     await db.models.saveModelEndpoint(endpoint({ id: 'b', name: 'OpenRouter · m2' }));
     await db.models.saveModelEndpoint(endpoint({ id: 'c', ownerId: 'someone', name: 'Groq · m', baseUrl: 'https://api.groq.com/openai/v1' }));
-    const { body } = await call('/llm');
-    const providers = (body as { providers: Array<{ provider: string; modelCount: number; hasKey: boolean; label: string }> }).providers;
+    const { data } = await call('/llm');
+    const providers = (data as { providers: Array<{ provider: string; modelCount: number; hasKey: boolean; label: string }> }).providers;
     expect(providers.map((entry) => entry.provider)).toEqual(['openrouter', 'groq', 'together', 'mistral']);
     expect(providers[0]).toMatchObject({ label: 'OpenRouter', modelCount: 2, hasKey: true });
     expect(providers[1]).toMatchObject({ modelCount: 0, hasKey: false });
@@ -76,7 +79,7 @@ describe('connecting a gateway with a key', () => {
     expect(rows.every((row) => row.apiKeyEnc && decryptValue(row.apiKeyEnc, DATA_KEY) === 'sk-key')).toBe(true);
     expect(rows.find((row) => row.model === 'anthropic/claude-sonnet-4')?.pricing).toEqual({ promptPerMTok: 3, completionPerMTok: 15 });
     expect(rows.find((row) => row.model?.startsWith('meta-llama'))).toMatchObject({ contextTokens: 131072, name: 'OpenRouter · meta-llama/llama-3.3-70b-instruct:free' });
-    expect((answer.body as { endpoints: unknown[] }).endpoints).toHaveLength(2);
+    expect((answer.data as { endpoints: unknown[] }).endpoints).toHaveLength(2);
   });
 
   it('leaves another person\'s endpoints for the same gateway alone', async () => {
@@ -87,7 +90,7 @@ describe('connecting a gateway with a key', () => {
   });
 
   it('asks for the key where the gateway lists its models only to those who have one', async () => {
-    expect(await call('/llm', { method: 'POST', body: { provider: 'mistral' } })).toMatchObject({ status: 400, body: { error: 'API key is required for this provider' } });
+    expect(await call('/llm', { method: 'POST', body: { provider: 'mistral' } })).toMatchObject({ status: 400, data: { error: 'API key is required for this provider' } });
     let authorization: string | null = null;
     network.use(http.get(MISTRAL_MODELS, ({ request }) => {
       authorization = request.headers.get('authorization');
@@ -110,9 +113,9 @@ describe('connecting a gateway with a key', () => {
     network.use(http.get(OPENROUTER_MODELS, () => new HttpResponse('nope'.repeat(100), { status: 503 })));
     const refused = await call('/llm', { method: 'POST', body: { provider: 'openrouter' } });
     expect(refused.status).toBe(400);
-    expect((refused.body as { error: string }).error).toBe(`Provider returned 503: ${'nope'.repeat(100).slice(0, 200)}`);
+    expect((refused.data as { error: string }).error).toBe(`Provider returned 503: ${'nope'.repeat(100).slice(0, 200)}`);
     network.use(http.get(OPENROUTER_MODELS, () => HttpResponse.json({ data: [] })));
-    expect(await call('/llm', { method: 'POST', body: { provider: 'openrouter' } })).toMatchObject({ status: 400, body: { error: 'No models returned from provider' } });
+    expect(await call('/llm', { method: 'POST', body: { provider: 'openrouter' } })).toMatchObject({ status: 400, data: { error: 'No models returned from provider' } });
     expect(await mine()).toEqual([]);
   });
 
@@ -120,12 +123,12 @@ describe('connecting a gateway with a key', () => {
     network.use(http.get(OPENROUTER_MODELS, () => HttpResponse.error()));
     const answer = await call('/llm', { method: 'POST', body: { provider: 'openrouter' } });
     expect(answer.status).toBe(400);
-    expect((answer.body as { error: string }).error).toMatch(/fetch failed|Failed to fetch|network/i);
+    expect((answer.data as { error: string }).error).toMatch(/fetch failed|Failed to fetch|network/i);
   });
 
   it('refuses a request that names no provider or an unknown one', async () => {
-    expect(await call('/llm', { method: 'POST', body: {} })).toMatchObject({ status: 400, body: { error: 'provider is required' } });
-    expect(await call('/llm', { method: 'POST', body: { provider: 'acme' } })).toMatchObject({ status: 400, body: { error: 'Unknown provider: acme' } });
+    expect(await call('/llm', { method: 'POST', body: {} })).toMatchObject({ status: 400, data: { error: 'provider is required' } });
+    expect(await call('/llm', { method: 'POST', body: { provider: 'acme' } })).toMatchObject({ status: 400, data: { error: 'Unknown provider: acme' } });
   });
 });
 
@@ -143,12 +146,12 @@ describe('connecting a custom endpoint', () => {
     await call('/llm', { method: 'POST', body });
     const again = await call('/llm', { method: 'POST', body });
     expect((await mine()).map((row) => row.name)).toEqual(['qwen']);
-    expect((again.body as { endpoints: unknown[] }).endpoints).toHaveLength(1);
+    expect((again.data as { endpoints: unknown[] }).endpoints).toHaveLength(1);
   });
 
   it('needs an address and a model', async () => {
-    expect(await call('/llm', { method: 'POST', body: { provider: 'custom', model: 'qwen' } })).toMatchObject({ status: 400, body: { error: 'baseUrl is required for custom endpoints' } });
-    expect(await call('/llm', { method: 'POST', body: { provider: 'custom', baseUrl: 'https://x.example.com' } })).toMatchObject({ status: 400, body: { error: 'model is required for custom endpoints' } });
+    expect(await call('/llm', { method: 'POST', body: { provider: 'custom', model: 'qwen' } })).toMatchObject({ status: 400, data: { error: 'baseUrl is required for custom endpoints' } });
+    expect(await call('/llm', { method: 'POST', body: { provider: 'custom', baseUrl: 'https://x.example.com' } })).toMatchObject({ status: 400, data: { error: 'model is required for custom endpoints' } });
   });
 });
 
@@ -161,7 +164,7 @@ describe('refreshing a gateway\'s models', () => {
 
   it('updates the window and prices on the rows already stored, keeping their ids and keys, and counts what no longer matches', async () => {
     const answer = await call('/llm/openrouter/refresh', { method: 'POST' });
-    expect(answer.body).toEqual({ updated: 1, unmatched: 1, total: 2, scored: 0, scoresAvailable: 0 });
+    expect(answer.data).toEqual({ updated: 1, unmatched: 1, total: 2, scored: 0, scoresAvailable: 0 });
     expect((await mine()).find((row) => row.id === 'llama')).toMatchObject({ contextTokens: 131072, pricing: { promptPerMTok: 0, completionPerMTok: 0 }, apiKeyEnc: 'sealed' });
   });
 
@@ -174,24 +177,24 @@ describe('refreshing a gateway\'s models', () => {
     }));
     const answer = await call('/llm/openrouter/refresh', { method: 'POST' });
     expect(sent).toBe('aa');
-    expect((answer.body as { scoresAvailable: number }).scoresAvailable).toBeGreaterThan(0);
+    expect((answer.data as { scoresAvailable: number }).scoresAvailable).toBeGreaterThan(0);
     expect(credentials.resolveCredentials).toHaveBeenCalledWith(PERSON.id, 'artificialanalysis');
   });
 
   it('still refreshes when the scores cannot be had', async () => {
     credentials.resolveCredentials.mockResolvedValue({ mode: 'user', env: { ARTIFICIALANALYSIS_API_KEY: 'aa' } } as never);
     network.use(http.get(AA_MODELS, () => new HttpResponse(null, { status: 500 })));
-    expect((await call('/llm/openrouter/refresh', { method: 'POST' })).body).toMatchObject({ updated: 1, scoresAvailable: 0 });
+    expect((await call('/llm/openrouter/refresh', { method: 'POST' })).data).toMatchObject({ updated: 1, scoresAvailable: 0 });
     credentials.resolveCredentials.mockRejectedValue(new Error('no credentials'));
-    expect((await call('/llm/openrouter/refresh', { method: 'POST' })).body).toMatchObject({ updated: 1, scoresAvailable: 0 });
-    expect((await call('/llm/openrouter/refresh', { method: 'POST', withCredentials: false })).body).toMatchObject({ updated: 1, scoresAvailable: 0 });
+    expect((await call('/llm/openrouter/refresh', { method: 'POST' })).data).toMatchObject({ updated: 1, scoresAvailable: 0 });
+    expect((await call('/llm/openrouter/refresh', { method: 'POST', withCredentials: false })).data).toMatchObject({ updated: 1, scoresAvailable: 0 });
   });
 
   it('refuses a gateway the person has not set up, an unknown one, and a list that cannot be read', async () => {
-    expect(await call('/llm/groq/refresh', { method: 'POST' })).toMatchObject({ status: 404, body: { error: 'Groq is not set up on this account' } });
-    expect(await call('/llm/acme/refresh', { method: 'POST' })).toMatchObject({ status: 400, body: { error: 'Unknown provider: acme' } });
+    expect(await call('/llm/groq/refresh', { method: 'POST' })).toMatchObject({ status: 404, data: { error: 'Groq is not set up on this account' } });
+    expect(await call('/llm/acme/refresh', { method: 'POST' })).toMatchObject({ status: 400, data: { error: 'Unknown provider: acme' } });
     network.use(http.get(OPENROUTER_MODELS, () => new HttpResponse('down', { status: 502 })));
-    expect(await call('/llm/openrouter/refresh', { method: 'POST' })).toMatchObject({ status: 400, body: { error: 'Provider returned 502: down' } });
+    expect(await call('/llm/openrouter/refresh', { method: 'POST' })).toMatchObject({ status: 400, data: { error: 'Provider returned 502: down' } });
   });
 });
 
@@ -200,18 +203,18 @@ describe('removing a gateway', () => {
     await db.models.saveModelEndpoint(endpoint({ id: 'a' }));
     await db.models.saveModelEndpoint(endpoint({ id: 'b', baseUrl: 'https://api.groq.com/openai/v1' }));
     await db.models.saveModelEndpoint(endpoint({ id: 'c', ownerId: 'someone' }));
-    expect(await call('/llm/openrouter', { method: 'DELETE' })).toMatchObject({ status: 200, body: { removed: 1 } });
+    expect(await call('/llm/openrouter', { method: 'DELETE' })).toMatchObject({ status: 200, data: { removed: 1 } });
     expect((await db.models.getModelEndpoints()).map((row) => row.id).sort()).toEqual(['b', 'c']);
   });
 
   it('removes every custom endpoint of the person with custom', async () => {
     await db.models.saveModelEndpoint(endpoint({ id: 'a', baseUrl: 'https://x.example.com/v1' }));
     await db.models.saveModelEndpoint(endpoint({ id: 'b', baseUrl: 'https://y.example.com/v1' }));
-    expect(await call('/llm/custom', { method: 'DELETE' })).toMatchObject({ body: { removed: 2 } });
+    expect(await call('/llm/custom', { method: 'DELETE' })).toMatchObject({ data: { removed: 2 } });
   });
 
   it('refuses an unknown provider', async () => {
-    expect(await call('/llm/acme', { method: 'DELETE' })).toMatchObject({ status: 400, body: { error: 'Unknown provider: acme' } });
+    expect(await call('/llm/acme', { method: 'DELETE' })).toMatchObject({ status: 400, data: { error: 'Unknown provider: acme' } });
   });
 });
 

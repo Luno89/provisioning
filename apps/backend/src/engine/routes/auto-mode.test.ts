@@ -1,25 +1,26 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { matches, mock } from 'vitest-mock-extended';
-import { mountInProcess, PERSON, type InProcess } from '../testing/in-process.js';
+import { TEST_USER } from '../../platform/routes/test-harness.js';
+import { routesInProcess, type InProcessRoutes } from '../../platform/testing/routes.js';
 import { autoModeRouter } from './auto-mode.js';
 import type { AutoModeService } from '../services/AutoModeService.js';
 
 let autoMode: ReturnType<typeof mock<Pick<AutoModeService, 'agents' | 'setAgent' | 'setTree' | 'setConversation'>>>;
-let app: InProcess;
+let app: InProcessRoutes;
 
 beforeEach(async () => {
   autoMode = mock<Pick<AutoModeService, 'agents' | 'setAgent' | 'setTree' | 'setConversation'>>();
-  app = await mountInProcess({ prefix: '/api/auto-mode', router: () => autoModeRouter({ autoMode }) });
+  app = await routesInProcess({ prefix: '/api/auto-mode', router: () => autoModeRouter({ autoMode }) });
 });
 
 describe('/api/auto-mode', () => {
   it('lists the signed-in person\'s agents that are on', async () => {
-    autoMode.agents.calledWith(PERSON.id).mockResolvedValue(['executor']);
+    autoMode.agents.calledWith(TEST_USER.id).mockResolvedValue(['executor']);
     expect(await app.get('/api/auto-mode')).toMatchObject({ status: 200, data: { agents: ['executor'] } });
   });
 
   it('hands the service the agent, the person and the body, and answers with its value', async () => {
-    autoMode.setAgent.calledWith(PERSON.id, 'executor', matches((body) => JSON.stringify(body) === '{"on":true}')).mockResolvedValue({ ok: true, value: { agents: ['executor'] } });
+    autoMode.setAgent.calledWith(TEST_USER.id, 'executor', matches((body) => JSON.stringify(body) === '{"on":true}')).mockResolvedValue({ ok: true, value: { agents: ['executor'] } });
     expect(await app.put('/api/auto-mode/agents/executor', { on: true })).toMatchObject({ status: 200, data: { agents: ['executor'] } });
   });
 
@@ -33,8 +34,8 @@ describe('/api/auto-mode', () => {
   });
 
   it('switches a tree and a chat through the service', async () => {
-    autoMode.setTree.calledWith(PERSON.id, 't1', matches(() => true)).mockResolvedValue({ ok: true, value: { autoMode: true } });
-    autoMode.setConversation.calledWith(PERSON.id, 'c1', matches(() => true)).mockResolvedValue({ ok: true, value: { autoMode: false } });
+    autoMode.setTree.calledWith(TEST_USER.id, 't1', matches(() => true)).mockResolvedValue({ ok: true, value: { autoMode: true } });
+    autoMode.setConversation.calledWith(TEST_USER.id, 'c1', matches(() => true)).mockResolvedValue({ ok: true, value: { autoMode: false } });
     expect((await app.put('/api/auto-mode/trees/t1', { on: true })).data).toEqual({ autoMode: true });
     expect((await app.put('/api/auto-mode/conversations/c1', { on: false })).data).toEqual({ autoMode: false });
   });

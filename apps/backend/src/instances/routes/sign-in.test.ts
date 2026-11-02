@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { mock } from 'vitest-mock-extended';
 import type { Auth } from '../../platform/index.js';
-import { callRouter } from '../testing/call-router.js';
+import type { Router } from 'express';
+import { routesInProcess } from '../../platform/testing/routes.js';
 import { signInRouter } from './sign-in.js';
 import { SIGN_IN_COOKIE, type RootSignIn } from '../services/RootSignIn.js';
 import type { IdentityService } from '../services/IdentityService.js';
@@ -9,6 +10,7 @@ import type { IdentityService } from '../services/IdentityService.js';
 type SignIn = Pick<RootSignIn, 'start' | 'callback' | 'backchannel' | 'startCookieSeconds'>;
 
 const prefix = '/api/auth';
+const on = (router: Router) => routesInProcess({ prefix, router: () => router, user: null, open: true });
 
 function rig(over: { hubUrl?: string | undefined; removalUrl?: string | undefined } = {}) {
   const signIn = mock<SignIn>({ startCookieSeconds: 600 });
@@ -23,19 +25,19 @@ function rig(over: { hubUrl?: string | undefined; removalUrl?: string | undefine
 
 describe('signing in on an instance or the hub through root', () => {
   it('points the browser at the instance\'s own start, and at the hub when root has one', async () => {
-    expect((await callRouter(rig().router, prefix, { path: '/sign-in', user: null })).body).toEqual({ url: '/api/auth/oidc/start', hub: null });
-    expect((await callRouter(rig({ hubUrl: 'https://app.example.com/api/identity/go?to=hub' }).router, prefix, { path: '/sign-in', user: null })).body).toEqual({ url: '/api/auth/oidc/start', hub: 'https://app.example.com/api/identity/go?to=hub' });
+    expect((await (await on(rig().router)).get(`${prefix}/sign-in`)).data).toEqual({ url: '/api/auth/oidc/start', hub: null });
+    expect((await (await on(rig({ hubUrl: 'https://app.example.com/api/identity/go?to=hub' }).router)).get(`${prefix}/sign-in`)).data).toEqual({ url: '/api/auth/oidc/start', hub: 'https://app.example.com/api/identity/go?to=hub' });
   });
 
   it('points the browser at root for removing an account, or at nothing', async () => {
-    expect((await callRouter(rig({ removalUrl: 'https://app.example.com/#/remove-account' }).router, prefix, { path: '/account-removal', user: null })).body).toEqual({ url: 'https://app.example.com/#/remove-account' });
-    expect((await callRouter(rig().router, prefix, { path: '/account-removal', user: null })).body).toEqual({ url: null });
+    expect((await (await on(rig({ removalUrl: 'https://app.example.com/#/remove-account' }).router)).get(`${prefix}/account-removal`)).data).toEqual({ url: 'https://app.example.com/#/remove-account' });
+    expect((await (await on(rig().router)).get(`${prefix}/account-removal`)).data).toEqual({ url: null });
   });
 
   it('sends the person to root, keeping what began the sign-in in a cookie that lasts ten minutes', async () => {
     const { signIn, router } = rig();
     signIn.start.calledWith('/chat').mockResolvedValue({ url: 'https://app.example.com/oidc/auth?x=1', cookie: 'held' });
-    const answer = await callRouter(router, prefix, { path: '/oidc/start?next=%2Fchat', user: null });
+    const answer = await (await on(router)).get(`${prefix}/oidc/start?next=%2Fchat`);
     expect(answer.status).toBe(302);
     expect(answer.headers.location).toBe('https://app.example.com/oidc/auth?x=1');
     expect(answer.headers['cache-control']).toBe('no-store');
@@ -49,7 +51,7 @@ describe('signing in on an instance or the hub through root', () => {
     const { signIn, auth, router } = rig();
     auth.getCookie.mockReturnValue('held');
     signIn.callback.mockResolvedValue({ ok: true, token: 'session-token', session: {} as never, next: '/projects' });
-    const answer = await callRouter(router, prefix, { path: '/oidc/callback?code=c&state=s', user: null });
+    const answer = await (await on(router)).get(`${prefix}/oidc/callback?code=c&state=s`);
     expect([answer.status, answer.headers.location]).toEqual([302, '/#/projects']);
     expect(signIn.callback).toHaveBeenCalledWith(new URL('https://instance.example.com/api/auth/oidc/callback?code=c&state=s'), 'held');
     expect(auth.setSessionCookie).toHaveBeenCalledWith(expect.anything(), 'session-token', expect.anything());
@@ -59,13 +61,13 @@ describe('signing in on an instance or the hub through root', () => {
   it('lands on the instance\'s landing page when the person named none', async () => {
     const { signIn, router } = rig();
     signIn.callback.mockResolvedValue({ ok: true, token: 't', session: {} as never });
-    expect((await callRouter(router, prefix, { path: '/oidc/callback', user: null })).headers.location).toBe('/#/chat');
+    expect((await (await on(router)).get(`${prefix}/oidc/callback`)).headers.location).toBe('/#/chat');
   });
 
   it('says in a page, with the reason escaped, why root\'s answer was refused', async () => {
     const { signIn, auth, router } = rig();
     signIn.callback.mockResolvedValue({ ok: false, status: 403, error: 'this instance belongs to <someone> else & "more"' });
-    const answer = await callRouter(router, prefix, { path: '/oidc/callback', user: null });
+    const answer = await (await on(router)).get(`${prefix}/oidc/callback`);
     expect(answer.status).toBe(403);
     expect(String(answer.headers['content-type'])).toContain('text/html');
     expect(answer.text).toContain('Koala could not sign you in: this instance belongs to &#60;someone&#62; else &#38; &#34;more&#34;');
@@ -77,9 +79,9 @@ describe('signing in on an instance or the hub through root', () => {
     const { signIn, router } = rig();
     signIn.backchannel.calledWith('good').mockResolvedValue({ ok: true });
     signIn.backchannel.calledWith('bad').mockResolvedValue({ ok: false, error: 'that is not a logout token' });
-    const taken = await callRouter(router, prefix, { method: 'POST', path: '/oidc/backchannel-logout', rawBody: 'logout_token=good', headers: { 'content-type': 'application/x-www-form-urlencoded' }, user: null });
+    const taken = await (await on(router)).post(`${prefix}/oidc/backchannel-logout`, undefined, { headers: { 'content-type': 'application/x-www-form-urlencoded' }, raw: 'logout_token=good' });
     expect([taken.status, taken.headers['cache-control']]).toEqual([200, 'no-store']);
-    const refused = await callRouter(router, prefix, { method: 'POST', path: '/oidc/backchannel-logout', rawBody: 'logout_token=bad', headers: { 'content-type': 'application/x-www-form-urlencoded' }, user: null });
-    expect([refused.status, refused.body]).toEqual([400, { error: 'invalid_request', error_description: 'that is not a logout token' }]);
+    const refused = await (await on(router)).post(`${prefix}/oidc/backchannel-logout`, undefined, { headers: { 'content-type': 'application/x-www-form-urlencoded' }, raw: 'logout_token=bad' });
+    expect([refused.status, refused.data]).toEqual([400, { error: 'invalid_request', error_description: 'that is not a logout token' }]);
   });
 });

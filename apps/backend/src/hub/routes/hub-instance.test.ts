@@ -7,7 +7,7 @@ import { HUB_AUDIENCE, hubInstancePart } from '../lib/hub.js';
 import { RELAY_NAME_HEADER, RELAY_STATUS_HEADER, RELAY_TYPE_HEADER } from '../lib/hub-board.js';
 import type { RelayAnswer, RelayCall } from '../services/HubRelay.js';
 import type { SyncOrigin } from '../services/HubService.js';
-import { callRouter } from '../testing/call-router.js';
+import { routesInProcess } from '../../platform/testing/routes.js';
 import { hubInstanceRouter, type InstanceHub } from './hub-instance.js';
 
 const root = identityKeysFrom(generateIdentityKey());
@@ -15,17 +15,32 @@ const stranger = identityKeysFrom(generateIdentityKey());
 const succeeded = <T>(value: T) => ({ ok: true as const, value });
 const ofAnn = matches<SyncOrigin>((origin) => origin.kind === 'instance' && origin.instanceId === 'inst-1' && origin.personId === 'ann' && origin.email === 'ann@example.com');
 
+interface Call {
+  method?: 'GET' | 'POST' | 'PUT' | 'DELETE';
+  path: string;
+  json?: unknown;
+  bytes?: Buffer;
+  headers?: Record<string, string>;
+  hangUp?: Promise<void>;
+}
+
 function site() {
   const hub = mock<InstanceHub>();
   const used = new Set<string>();
-  const router = hubInstanceRouter({ hub, trusted: trustedKeys([publicKeyPem(root.publicKey)]), claim: async (jti) => (used.has(jti) ? false : Boolean(used.add(jti))) });
+  const routes = routesInProcess({
+    prefix: '/api/hub-instance',
+    router: () => hubInstanceRouter({ hub, trusted: trustedKeys([publicKeyPem(root.publicKey)]), claim: async (jti) => (used.has(jti) ? false : Boolean(used.add(jti))) }),
+    user: null,
+    open: true,
+  });
   const headersFor = (keys = root, who = { instance: 'inst-1', person: 'ann', email: 'ann@example.com' }, vouched = who): Record<string, string> => ({
     authorization: `Bearer ${issueMoveToken(keys, HUB_AUDIENCE, hubInstancePart(vouched.instance, vouched.person, vouched.email))}`,
     'x-koala-instance': who.instance,
     'x-koala-person': who.person,
     'x-koala-email': who.email,
   });
-  const call = (route: Parameters<typeof callRouter>[2], headers = headersFor()) => callRouter(router, '/api/hub-instance', { ...route, headers: { ...headers, ...route.headers } });
+  const call = async (route: Call, headers = headersFor()) =>
+    (await routes).request(route.method ?? 'GET', `/api/hub-instance${route.path}`, { body: route.json, raw: route.bytes, headers: { ...headers, ...route.headers }, hangUp: route.hangUp });
   return { hub, call, headersFor };
 }
 
@@ -41,7 +56,7 @@ describe('/api/hub-instance, who may ask', () => {
       call({ path: '/projects/abc/requests' }, headersFor(root, me, { ...me, email: 'eve@example.com' })),
       call({ path: '/projects/abc/requests' }, { ...headersFor(), 'x-koala-person': '' }),
     ];
-    for (const answer of await Promise.all(attempts)) expect([answer.status, answer.body]).toEqual([401, { error: 'only an instance root vouches for reaches this' }]);
+    for (const answer of await Promise.all(attempts)) expect([answer.status, answer.data]).toEqual([401, { error: 'only an instance root vouches for reaches this' }]);
     const once = headersFor();
     expect((await call({ path: '/projects/abc/requests' }, once)).status).toBe(200);
     expect((await call({ path: '/projects/abc/requests' }, once)).status).toBe(401);
@@ -54,14 +69,14 @@ describe('/api/hub-instance, sharing and syncing', () => {
     const { hub, call } = site();
     hub.share.mockResolvedValue(succeeded({ view: { project: { id: 'abc' } } } as never));
     const answer = await call({ method: 'POST', path: '/share', json: { name: 'Shop', projectId: 'p1', group: 'acme' } });
-    expect([answer.status, answer.body]).toEqual([200, { view: { project: { id: 'abc' } } }]);
+    expect([answer.status, answer.data]).toEqual([200, { view: { project: { id: 'abc' } } }]);
     expect(hub.share).toHaveBeenCalledWith(ofAnn, { name: 'Shop', projectId: 'p1', group: 'acme' });
   });
 
   it('takes a project back', async () => {
     const { hub, call } = site();
     hub.unshare.mockResolvedValue(succeeded({ deleted: 'abc' }));
-    expect((await call({ method: 'DELETE', path: '/projects/abc' })).body).toEqual({ deleted: 'abc' });
+    expect((await call({ method: 'DELETE', path: '/projects/abc' })).data).toEqual({ deleted: 'abc' });
     expect(hub.unshare).toHaveBeenCalledWith(ofAnn, 'abc');
   });
 
@@ -69,7 +84,7 @@ describe('/api/hub-instance, sharing and syncing', () => {
     const { hub, call, headersFor } = site();
     hub.receive.mockResolvedValue(succeeded({ through: 2 }));
     hub.changesSince.mockResolvedValue(succeeded({ changes: [], through: 9, members: [] }));
-    expect((await call({ method: 'POST', path: '/projects/abc/changes', json: { changes: [{ kind: 'trees', id: 't1', deleted: true }] } })).body).toEqual({ through: 2 });
+    expect((await call({ method: 'POST', path: '/projects/abc/changes', json: { changes: [{ kind: 'trees', id: 't1', deleted: true }] } })).data).toEqual({ through: 2 });
     expect(hub.receive).toHaveBeenCalledWith(ofAnn, 'abc', [{ kind: 'trees', id: 't1', deleted: true }]);
     await call({ path: '/projects/abc/changes?after=7' }, headersFor());
     expect(hub.changesSince).toHaveBeenLastCalledWith(ofAnn, 'abc', 7);
@@ -80,7 +95,7 @@ describe('/api/hub-instance, sharing and syncing', () => {
   it('answers with the hub\'s refusal and its status', async () => {
     const { hub, call } = site();
     hub.receive.mockResolvedValue({ ok: false, status: 403, why: 'This project is worked on another instance.' });
-    expect(await call({ method: 'POST', path: '/projects/abc/changes', json: { changes: [] } })).toMatchObject({ status: 403, body: { error: 'This project is worked on another instance.' } });
+    expect(await call({ method: 'POST', path: '/projects/abc/changes', json: { changes: [] } })).toMatchObject({ status: 403, data: { error: 'This project is worked on another instance.' } });
   });
 
   it('gives the requests waiting, takes them settled, and takes what is live', async () => {
@@ -88,7 +103,7 @@ describe('/api/hub-instance, sharing and syncing', () => {
     hub.waitingRequests.mockResolvedValue(succeeded([]));
     hub.settleRequest.mockResolvedValue(succeeded({ id: 'r1' } as never));
     hub.putStatus.mockResolvedValue(succeeded({ at: 'now' }));
-    expect((await call({ path: '/projects/abc/requests' })).body).toEqual([]);
+    expect((await call({ path: '/projects/abc/requests' })).data).toEqual([]);
     await call({ method: 'POST', path: '/projects/abc/requests/r1', json: { state: 'refused', why: 'no' } }, headersFor());
     expect(hub.settleRequest).toHaveBeenCalledWith(ofAnn, 'abc', 'r1', { state: 'refused', why: 'no' });
     await call({ method: 'PUT', path: '/projects/abc/status', json: { status: { at: '1', releases: [], runs: [], treeRuns: {} } } }, headersFor());
@@ -103,16 +118,16 @@ describe('/api/hub-instance, the relay', () => {
     const { hub, call } = site();
     hub.takeRelay.mockResolvedValue(succeeded(asked));
     const answer = await call({ path: '/projects/abc/relay' });
-    expect([answer.status, answer.body]).toEqual([200, asked]);
+    expect([answer.status, answer.data]).toEqual([200, asked]);
     expect(hub.takeRelay).toHaveBeenCalledWith(ofAnn, 'abc', objectWith({}));
   });
 
   it('hands over a call that carries an upload by its type and size, never the bytes', async () => {
     const { hub, call, headersFor } = site();
     hub.takeRelay.mockResolvedValue(succeeded({ ...asked, op: 'files.upload', upload: { stream: Readable.from(['x']), type: 'text/plain', size: 1 } }));
-    expect((await call({ path: '/projects/abc/relay' })).body).toEqual({ ...asked, op: 'files.upload', upload: { type: 'text/plain', size: 1 } });
+    expect((await call({ path: '/projects/abc/relay' })).data).toEqual({ ...asked, op: 'files.upload', upload: { type: 'text/plain', size: 1 } });
     hub.takeRelay.mockResolvedValue(succeeded({ ...asked, op: 'files.upload', upload: { stream: Readable.from(['x']), type: 'text/plain' } }));
-    expect((await call({ path: '/projects/abc/relay' }, headersFor())).body).toEqual({ ...asked, op: 'files.upload', upload: { type: 'text/plain' } });
+    expect((await call({ path: '/projects/abc/relay' }, headersFor())).data).toEqual({ ...asked, op: 'files.upload', upload: { type: 'text/plain' } });
   });
 
   it('answers that no call is waiting once the instance hangs up its wait', async () => {
@@ -125,7 +140,7 @@ describe('/api/hub-instance, the relay', () => {
   it('turns away the instance that is not the one the project is worked on', async () => {
     const { hub, call } = site();
     hub.takeRelay.mockResolvedValue({ ok: false, status: 403, why: 'This project is worked on another instance.' });
-    expect(await call({ path: '/projects/abc/relay' })).toMatchObject({ status: 403, body: { error: 'This project is worked on another instance.' } });
+    expect(await call({ path: '/projects/abc/relay' })).toMatchObject({ status: 403, data: { error: 'This project is worked on another instance.' } });
   });
 
   it('streams the upload of a waiting call to the instance', async () => {
@@ -145,15 +160,15 @@ describe('/api/hub-instance, the relay', () => {
   it('says there is nothing to upload for a call that carries nothing, or that is no longer waiting', async () => {
     const { hub, call, headersFor } = site();
     hub.relayed.mockResolvedValueOnce(succeeded(asked));
-    expect(await call({ path: '/relay/c1/upload' })).toMatchObject({ status: 404, body: { error: 'That call carries nothing to upload.' } });
+    expect(await call({ path: '/relay/c1/upload' })).toMatchObject({ status: 404, data: { error: 'That call carries nothing to upload.' } });
     hub.relayed.mockResolvedValueOnce({ ok: false, status: 404, why: 'That call is no longer waiting.' });
-    expect(await call({ path: '/relay/c1/upload' }, headersFor())).toMatchObject({ status: 404, body: { error: 'That call is no longer waiting.' } });
+    expect(await call({ path: '/relay/c1/upload' }, headersFor())).toMatchObject({ status: 404, data: { error: 'That call is no longer waiting.' } });
   });
 
   it('takes the instance\'s json answer with its status, and a bad gateway when it names none', async () => {
     const { hub, call, headersFor } = site();
     hub.answerRelay.mockResolvedValue(succeeded({ answered: 'c1' }));
-    expect((await call({ method: 'POST', path: '/relay/c1', json: { status: 200, body: [1] } })).body).toEqual({ answered: 'c1' });
+    expect((await call({ method: 'POST', path: '/relay/c1', json: { status: 200, body: [1] } })).data).toEqual({ answered: 'c1' });
     expect(hub.answerRelay).toHaveBeenLastCalledWith(ofAnn, 'c1', { kind: 'json', status: 200, body: [1] });
     await call({ method: 'POST', path: '/relay/c1', json: { status: 'x' } }, headersFor());
     expect(hub.answerRelay).toHaveBeenLastCalledWith(ofAnn, 'c1', { kind: 'json', status: 502, body: null });
@@ -169,7 +184,7 @@ describe('/api/hub-instance, the relay', () => {
       return succeeded({ answered: 'c1' });
     });
     const answer = await call({ method: 'POST', path: '/relay/c1/stream', bytes: Buffer.from('%PDF'), headers: { [RELAY_STATUS_HEADER]: '200', [RELAY_TYPE_HEADER]: 'application/pdf', [RELAY_NAME_HEADER]: 'my%20nda.pdf' } });
-    expect([answer.status, answer.body]).toEqual([200, { answered: 'c1' }]);
+    expect([answer.status, answer.data]).toEqual([200, { answered: 'c1' }]);
     expect(Buffer.concat(received).toString()).toBe('%PDF');
     expect(seen).toMatchObject({ kind: 'stream', status: 200, type: 'application/pdf', name: 'my nda.pdf', size: 4 });
   });
@@ -190,6 +205,6 @@ describe('/api/hub-instance, the relay', () => {
   it('refuses a file for a call that is not waiting', async () => {
     const { hub, call } = site();
     hub.answerRelay.mockResolvedValue({ ok: false, status: 404, why: 'That call is no longer waiting.' });
-    expect(await call({ method: 'POST', path: '/relay/c1/stream', bytes: Buffer.from('x') })).toMatchObject({ status: 404, body: { error: 'That call is no longer waiting.' } });
+    expect(await call({ method: 'POST', path: '/relay/c1/stream', bytes: Buffer.from('x') })).toMatchObject({ status: 404, data: { error: 'That call is no longer waiting.' } });
   });
 });

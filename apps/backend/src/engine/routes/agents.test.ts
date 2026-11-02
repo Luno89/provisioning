@@ -2,7 +2,8 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { matches, mock } from 'vitest-mock-extended';
 import { LANGUAGE_IDS, type Persona } from '@koala/agent-engine';
 import type { AgentService, EditableAgent } from '../services/AgentService.js';
-import { mountInProcess, PERSON, type InProcess } from '../testing/in-process.js';
+import { TEST_USER } from '../../platform/routes/test-harness.js';
+import { routesInProcess, type InProcessRoutes } from '../../platform/testing/routes.js';
 import { agentsRouter } from './agents.js';
 
 const persona = (over: Partial<Persona> = {}): Persona => ({
@@ -13,32 +14,32 @@ const persona = (over: Partial<Persona> = {}): Persona => ({
 const editable = (over: Partial<Persona> = {}): EditableAgent => ({ ...persona(over), mine: false, recallsMemories: false, usedBy: [], toolSources: [], serverSources: [] });
 
 let agents: ReturnType<typeof mock<AgentService>>;
-let app: InProcess;
+let app: InProcessRoutes;
 
 beforeEach(async () => {
   agents = mock<AgentService>();
-  app = await mountInProcess({ prefix: '/api/agents', router: () => agentsRouter({ agents }) });
+  app = await routesInProcess({ prefix: '/api/agents', router: () => agentsRouter({ agents }) });
 });
 
 describe('/api/agents', () => {
   it('lists the agents the signed-in person can see', async () => {
-    agents.list.calledWith(PERSON.id).mockResolvedValue([]);
+    agents.list.calledWith(TEST_USER.id).mockResolvedValue([]);
     expect(await app.get('/api/agents')).toMatchObject({ status: 200, data: { agents: [] } });
   });
 
   it('lists the tools an agent can be granted with the languages a workspace can be in', async () => {
-    agents.grantable.calledWith(PERSON.id).mockResolvedValue([]);
+    agents.grantable.calledWith(TEST_USER.id).mockResolvedValue([]);
     expect(await app.get('/api/agents/tools')).toMatchObject({ status: 200, data: { tools: [], languages: [...LANGUAGE_IDS] } });
   });
 
   it('reads one agent, and says when there is none', async () => {
-    agents.get.calledWith(PERSON.id, 'executor').mockResolvedValue(editable());
+    agents.get.calledWith(TEST_USER.id, 'executor').mockResolvedValue(editable());
     expect(await app.get('/api/agents/executor')).toMatchObject({ status: 200, data: { agent: { slug: 'executor' } } });
     expect(await app.get('/api/agents/ghost')).toMatchObject({ status: 404, data: { error: 'There is no agent with that slug' } });
   });
 
   it('saves the body as the person, with who they are, when it names the agent in the address', async () => {
-    agents.save.calledWith(PERSON.id, matches((body) => (body as { slug?: string }).slug === 'executor'), matches((principal) => (principal as { id?: string }).id === PERSON.id)).mockResolvedValue({ saved: true, agent: editable({ name: 'Mine' }) });
+    agents.save.calledWith(TEST_USER.id, matches((body) => (body as { slug?: string }).slug === 'executor'), matches((principal) => (principal as { id?: string }).id === TEST_USER.id)).mockResolvedValue({ saved: true, agent: editable({ name: 'Mine' }) });
     expect(await app.put('/api/agents/executor', persona())).toMatchObject({ status: 200, data: { agent: { name: 'Mine' } } });
   });
 
@@ -54,8 +55,8 @@ describe('/api/agents', () => {
   });
 
   it('deletes the person\'s own copy, and says when they have none', async () => {
-    agents.remove.calledWith(PERSON.id, 'executor').mockResolvedValue(true);
-    agents.remove.calledWith(PERSON.id, 'ghost').mockResolvedValue(false);
+    agents.remove.calledWith(TEST_USER.id, 'executor').mockResolvedValue(true);
+    agents.remove.calledWith(TEST_USER.id, 'ghost').mockResolvedValue(false);
     expect(await app.delete('/api/agents/executor')).toMatchObject({ status: 200, data: { ok: true } });
     expect(await app.delete('/api/agents/ghost')).toMatchObject({ status: 404, data: { error: 'You have no copy of that agent to delete' } });
   });

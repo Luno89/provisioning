@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { mock } from 'vitest-mock-extended';
 import type { GitAsk, MachineGitService } from '../services/MachineGitService.js';
 import type { MachineService } from '../services/MachineService.js';
-import { callRouter, type RouterCall } from '../testing/call-router.js';
+import { routesInProcess } from '../../platform/testing/routes.js';
 import { machinesRouter, type AgentBundle } from './machines.js';
 
 type Git = Pick<MachineGitService, 'serve'>;
@@ -20,7 +20,12 @@ let dir: string;
 
 const asked = (): GitAsk => git.serve.mock.calls[0]![0];
 
-const call = (over: RouterCall, withGit = true) => callRouter(machinesRouter({ machines, bundle, ...(withGit ? { git } : {}) }), '/api/machines', { user: null, ...over });
+interface Call { method?: 'GET' | 'POST'; path: string; body?: unknown; headers?: Record<string, string> }
+
+const call = async (over: Call, withGit = true) => {
+  const routes = await routesInProcess({ prefix: '/api/machines', router: () => machinesRouter({ machines, bundle, ...(withGit ? { git } : {}) }), user: null, open: true });
+  return routes.request(over.method ?? 'GET', `/api/machines${over.path}`, { body: over.body, headers: over.headers });
+};
 
 beforeEach(async () => {
   machines = mock<Pick<MachineService, 'join'>>();
@@ -39,7 +44,7 @@ describe('/api/machines/join', () => {
     machines.join.mockResolvedValue({ ok: true, value: { deviceId: 'dev-1', env: { KOALA_DEVICE_ID: 'dev-1' } } });
     const answer = await call({ method: 'POST', path: '/join', body: { code: 'abc', hostname: 'laptop', rootDir: '/home/me', os: 'Linux', replaces: 'old-token', ignored: 'x' } });
     expect(answer.status).toBe(200);
-    expect(answer.body).toEqual({ deviceId: 'dev-1', env: { KOALA_DEVICE_ID: 'dev-1', KOALA_AGENT_SHA256: SHA } });
+    expect(answer.data).toEqual({ deviceId: 'dev-1', env: { KOALA_DEVICE_ID: 'dev-1', KOALA_AGENT_SHA256: SHA } });
     expect(machines.join).toHaveBeenCalledWith('abc', { hostname: 'laptop', rootDir: '/home/me', os: 'Linux', replaces: 'old-token' });
   });
 

@@ -2,14 +2,13 @@ import crypto from 'crypto';
 import os from 'os';
 import path from 'path';
 import fs from 'fs/promises';
-import { encryptValue, decryptValue, unpromptedGit, type SecretKey } from '../../platform/index.js';
+import { encryptValue, decryptValue, nodeProcesses, unpromptedGit, type Processes, type SecretKey } from '../../platform/index.js';
 import type { InfrastructureService } from '../../infrastructure/index.js';
 import { registryHosts, type RegistryHosts, type RegistryLogin } from '../../instances/index.js';
 import { privatePatches, type GiteaListedUser } from '../lib/gitea-visibility.js';
 import { blockedDropPath, dropPathQueries } from '../lib/drop-paths.js';
 import { nodePortOf, pullBetween, pullsFrom, type GiteaPull } from '../lib/gitea-answers.js';
 import { ignore } from '@koala/engine-core/failures';
-import { gitOnThisMachine, type GitProcesses } from './git-processes.js';
 
 const detailOf = async (res: Response): Promise<string> =>
   (await res.text().catch(ignore('the failure is still reported by its status when its body cannot be read'))) ?? '';
@@ -42,16 +41,16 @@ export class GiteaService {
   private tokenCache: string | null = null;
   private pullLogin: Promise<RegistryLogin> | null = null;
 
-  private readonly processes: GitProcesses;
+  private readonly processes: Processes;
   private readonly dataDir: string;
 
   constructor(
     private readonly infra: Pick<InfrastructureService, 'runKubectl' | 'getK3dServerIp'>,
     private readonly masterKey: SecretKey,
     private readonly kubeconfigPath: string,
-    options: { processes?: GitProcesses | undefined; dataDir?: string | undefined } = {},
+    options: { processes?: Processes | undefined; dataDir?: string | undefined } = {},
   ) {
-    this.processes = options.processes ?? gitOnThisMachine;
+    this.processes = options.processes ?? nodeProcesses;
     this.dataDir = options.dataDir ?? DEFAULT_DATA_DIR;
   }
 

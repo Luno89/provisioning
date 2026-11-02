@@ -1,37 +1,10 @@
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { unpromptedGit } from '../../platform/index.js';
-
-const execute = promisify(execFile);
-
-export interface GitResult {
-  code: number;
-  stdout: string;
-  stderr: string;
-}
-
-export interface GitProcesses {
-  run(run: { command: string; args: readonly string[]; env?: Readonly<Record<string, string | undefined>> | undefined }): Promise<GitResult>;
-}
-
-export const gitOnThisMachine: GitProcesses = {
-  async run({ command, args, env }) {
-    try {
-      const done = await execute(command, [...args], { env: env as NodeJS.ProcessEnv, maxBuffer: 64 * 1024 * 1024 });
-      return { code: 0, stdout: done.stdout, stderr: done.stderr };
-    } catch (err) {
-      const failed = err as { code?: unknown; stdout?: unknown; stderr?: unknown };
-      if (typeof failed.code !== 'number') throw err;
-      return { code: failed.code, stdout: String(failed.stdout ?? ''), stderr: String(failed.stderr ?? '') };
-    }
-  },
-};
+import { nodeProcesses, unpromptedGit, type ProcessResult, type Processes } from '../../platform/index.js';
 
 class GitFailed extends Error {
-  constructor(result: GitResult) {
+  constructor(result: ProcessResult) {
     super(result.stderr.trim() || `git exited ${result.code}`);
     this.name = 'GitFailed';
   }
@@ -49,29 +22,32 @@ export type MainSync =
 
 const BOT = ['-c', 'user.name=Koala', '-c', 'user.email=koala@localhost'];
 
+const onlyWhatItNames = (env: NodeJS.ProcessEnv): NodeJS.ProcessEnv =>
+  ({ ...Object.fromEntries(Object.keys(process.env).map((key) => [key, undefined])), ...env });
+
 function envFor(ends: readonly GitEnd[]): NodeJS.ProcessEnv {
-  return unpromptedGit(process.env, {
+  return onlyWhatItNames(unpromptedGit(process.env, {
     'maintenance.auto': 'false',
     'gc.auto': '0',
     ...Object.fromEntries(ends.filter((end) => end.auth).map((end) => [`http.${end.url}.extraHeader`, `Authorization: Basic ${Buffer.from(`${end.auth!.username}:${end.auth!.token}`).toString('base64')}`])),
-  });
+  }));
 }
 
 const masked = (text: string, ends: readonly GitEnd[]): string => ends.reduce((said, end) => (end.auth ? said.replaceAll(end.auth.token, '***') : said), text);
 
-async function headOf(end: GitEnd, env: NodeJS.ProcessEnv, processes: GitProcesses): Promise<string | undefined> {
+async function headOf(end: GitEnd, env: NodeJS.ProcessEnv, processes: Processes): Promise<string | undefined> {
   const result = await processes.run({ command: 'git', args: ['ls-remote', end.url, 'refs/heads/main'], env });
   if (result.code !== 0) throw new GitFailed(result);
   const listed = result.stdout.trim();
   return listed ? listed.split(/\s+/)[0] : undefined;
 }
 
-export async function mainHeads(owner: GitEnd, hub: GitEnd, processes: GitProcesses = gitOnThisMachine): Promise<{ owner: string | undefined; hub: string | undefined }> {
+export async function mainHeads(owner: GitEnd, hub: GitEnd, processes: Processes = nodeProcesses): Promise<{ owner: string | undefined; hub: string | undefined }> {
   const env = envFor([owner, hub]);
   return { owner: await headOf(owner, env, processes), hub: await headOf(hub, env, processes) };
 }
 
-export async function syncMain(owner: GitEnd, hub: GitEnd, keptName: () => string, processes: GitProcesses = gitOnThisMachine): Promise<MainSync> {
+export async function syncMain(owner: GitEnd, hub: GitEnd, keptName: () => string, processes: Processes = nodeProcesses): Promise<MainSync> {
   const ends = [owner, hub];
   const env = envFor(ends);
   const scratch = await fs.mkdtemp(path.join(os.tmpdir(), 'koala-hub-sync-'));

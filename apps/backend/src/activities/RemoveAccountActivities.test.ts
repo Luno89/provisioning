@@ -10,22 +10,20 @@ type Workflows = AccountRemovalDeps['workflows'];
 type Repositories = AccountRemovalDeps['repositories'];
 type Mesh = AccountRemovalDeps['mesh'];
 type Secrets = AccountRemovalDeps['secrets'];
-type Accounts = AccountRemovalDeps['store']['accounts'];
 
-const BO_IDS = { runIds: ['run-live'], treeIds: ['bo-t1'], conversationIds: ['bo-c1'], proposalIds: ['prop-1'], projectIds: ['bo-shop', 'bo-blog'], buildWorkflowIds: ['pipeline-r1'], ingestIds: ['ing-1'] };
+const at = 'then';
 
 let db: Database;
 let workflows: ReturnType<typeof mock<Workflows>>;
 let kube: ReturnType<typeof mockFn<KubeRunner>>;
 let repositories: ReturnType<typeof mock<Repositories>>;
 let mesh: ReturnType<typeof mock<Mesh>>;
-let accounts: ReturnType<typeof mock<Accounts>>;
 let secrets: ReturnType<typeof mock<Secrets>>;
 
 const done = (over: Partial<KubeResult> = {}): KubeResult => ({ stdout: 'namespace "koala-run-conversation-c1" deleted', stderr: '', exitCode: 0, ...over });
 
 const steps = (over: Partial<AccountRemovalDeps> = {}): AccountRemovalActivities => createAccountRemovalActivities({
-  store: { accounts, projects: db.projects, engine: db.engine, infrastructure: db.infrastructure },
+  store: { accounts: db.accounts, projects: db.projects, engine: db.engine, infrastructure: db.infrastructure },
   workflows,
   kube,
   repositories,
@@ -47,10 +45,19 @@ beforeEach(async () => {
   mesh.removeUser.mockResolvedValue({ devices: 2, user: true });
   secrets = mock<Secrets>();
   secrets.removeProject.mockResolvedValue({ workspace: true, readers: 1 });
-  accounts = mock<Accounts>();
-  accounts.accountIds.calledWith('bo').mockResolvedValue(BO_IDS);
-  accounts.accountIds.calledWith('nobody').mockResolvedValue({ runIds: [], treeIds: [], conversationIds: [], proposalIds: [], projectIds: [], buildWorkflowIds: [], ingestIds: [] });
-  await db.projects.saveGiteaAccount({ ownerId: 'bo', username: 'koala-bo', passwordEnc: 'x', createdAt: 'then' });
+  await db.accounts.saveUser({ id: 'bo', email: 'bo@example.com', twoFactorEnabled: false, emailVerified: true, createdAt: at });
+  await db.accounts.saveUser({ id: 'ana', email: 'ana@example.com', twoFactorEnabled: false, emailVerified: true, createdAt: at });
+  await db.projects.saveGiteaAccount({ ownerId: 'bo', username: 'koala-bo', passwordEnc: 'x', createdAt: at });
+  await db.engine.saveConversation({ id: 'bo-c1', ownerId: 'bo', title: 'chat', messages: [], liveTurn: { runId: 'run-live', startedAt: at }, createdAt: at, updatedAt: at } as never);
+  await db.engine.saveConversation({ id: 'ana-c1', ownerId: 'ana', title: 'chat', messages: [], createdAt: at, updatedAt: at } as never);
+  await db.projects.saveTree({ id: 'bo-t1', ownerId: 'bo', name: 'tree', projectIds: [], createdAt: at, updatedAt: at } as never);
+  await db.projects.savePlanProposal({ id: 'prop-1', ownerId: 'bo', conversationId: 'bo-c1', createdAt: at } as never);
+  for (const id of ['bo-shop', 'bo-blog']) await db.projects.saveProject({ id, name: id, ownerId: 'bo', appType: 'gitapp', createdAt: at });
+  await db.releases.savePipelineRun({ id: 'r1', projectId: 'bo-shop', status: 'running', temporalWorkflowId: 'pipeline-r1', startedAt: at } as never);
+  await db.releases.savePipelineRun({ id: 'r2', projectId: 'bo-shop', status: 'succeeded', temporalWorkflowId: 'pipeline-r2', startedAt: at } as never);
+  await db.engine.saveCorpusPages([{ id: 'page-1', ownerId: 'bo', ingestId: 'ing-1', url: 'https://example.com', host: 'example.com', text: 't', bytes: 1, fetchedAt: at }]);
+  await db.memory.saveMemoryWatermark('conversation:bo-c1', '4');
+  await db.memory.saveMemoryWatermark('conversation:ana-c1', '4');
 });
 
 describe('the steps that remove an account', () => {
@@ -63,11 +70,13 @@ describe('the steps that remove an account', () => {
       'bench-idle-bo', 'run-live', 'grove-run-bo-t1', 'conclude-conversation-bo-c1', 'conclude-workspace-conversation-bo-c1', 'release-bo-shop', 'release-bo-blog', 'pipeline-r1',
     ]));
     expect(workflows.stopIfRunning).toHaveBeenCalledWith('run-live', 'the account was removed');
+    expect(asked).not.toContain('pipeline-r2');
   });
 
   it('stops them in batches and heartbeats after each', async () => {
-    const many = Array.from({ length: 45 }, (_, index) => `build-${index}`);
-    accounts.accountIds.calledWith('bo').mockResolvedValue({ ...BO_IDS, buildWorkflowIds: many });
+    for (let index = 0; index < 45; index += 1) {
+      await db.releases.savePipelineRun({ id: `build-${index}`, projectId: 'bo-shop', status: 'queued', temporalWorkflowId: `build-${index}`, startedAt: at } as never);
+    }
     const env = new MockActivityEnvironment();
     let beats = 0;
     env.on('heartbeat', () => { beats += 1; });
@@ -130,9 +139,22 @@ describe('the steps that remove an account', () => {
     expect(repositories.deleteUser).toHaveBeenCalledTimes(1);
   });
 
-  it('removes every record it owns, naming the conversations\' watermarks, the ingests and the projects that go with them', async () => {
-    accounts.removeAccountRecords.mockResolvedValue({ conversations: 1, users: 1 });
-    expect(await steps().RemoveAccountRecordsActivity({ ownerId: 'bo' })).toEqual({ conversations: 1, users: 1 });
-    expect(accounts.removeAccountRecords).toHaveBeenCalledWith('bo', { watermarkKeys: ['conversation:bo-c1'], ingestIds: ['ing-1'], projectIds: ['bo-shop', 'bo-blog'] });
+  it('removes every record it owns, with the conversations\' watermarks, the ingests and the projects\' builds that go with them, and leaves everyone else\'s', async () => {
+    const removed = await steps().RemoveAccountRecordsActivity({ ownerId: 'bo' });
+
+    expect(removed).toMatchObject({ users: 1, conversations: 1, trees: 1, planProposals: 1, projects: 2, giteaAccounts: 1, corpus: 1, memoryWatermarks: 1, pipelineRuns: 2 });
+    expect(await db.accounts.getUserById('bo')).toBeUndefined();
+    expect(await db.engine.getConversation('bo', 'bo-c1')).toBeUndefined();
+    expect(await db.memory.getMemoryWatermark('conversation:bo-c1')).toBeUndefined();
+    expect(await db.releases.getPipelineRuns()).toEqual([]);
+    expect(await db.accounts.getUserById('ana')).toBeDefined();
+    expect(await db.engine.getConversation('ana', 'ana-c1')).toBeDefined();
+    expect(await db.memory.getMemoryWatermark('conversation:ana-c1')).toBe('4');
+    expect(await db.accounts.accountLeftovers('bo')).toEqual({});
+  });
+
+  it('can run again after it has finished, finding nothing left', async () => {
+    await steps().RemoveAccountRecordsActivity({ ownerId: 'bo' });
+    expect(await steps().RemoveAccountRecordsActivity({ ownerId: 'bo' })).toEqual({});
   });
 });

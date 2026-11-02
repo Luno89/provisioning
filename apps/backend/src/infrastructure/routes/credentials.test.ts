@@ -5,7 +5,8 @@ import { CLOUD_PROVIDERS } from '../../platform/lib/types.js';
 import { interceptHttp } from '../../platform/testing/http.js';
 import type { CredentialService } from '../services/CredentialService.js';
 import { credentialsRouter } from './credentials.js';
-import { callRouter, PERSON, type CallingUser, type RouterAnswer } from '../testing/call-router.js';
+import type { HarnessUser } from '../../platform/routes/test-harness.js';
+import { PERSON, routesInProcess, type RouteAnswer } from '../../platform/testing/routes.js';
 
 type Service = Pick<CredentialService, 'getConfiguredProviders' | 'getCredentials' | 'saveCredentials' | 'deleteCredentials' | 'validateCredentials' | 'testGoogleDriveConnection'>;
 
@@ -20,8 +21,9 @@ const service = (): ReturnType<typeof mock<Service>> => {
   return credentialService;
 };
 
-const call = (credentialService: Service, path: string, init: { method?: 'GET' | 'PUT' | 'POST' | 'DELETE'; body?: unknown; user?: CallingUser; headers?: Record<string, string> } = {}): Promise<RouterAnswer> =>
-  callRouter(credentialsRouter({ credentialService, publicUrl: 'https://api.example.com', appUrl: 'https://app.example.com', sessionKey: 'test-session-key' }), '/api/credentials', { path, ...init });
+const call = (credentialService: Service, path: string, init: { method?: 'GET' | 'PUT' | 'POST' | 'DELETE'; body?: unknown; user?: HarnessUser; headers?: Record<string, string> } = {}): Promise<RouteAnswer> =>
+  routesInProcess({ prefix: '/api/credentials', router: () => credentialsRouter({ credentialService, publicUrl: 'https://api.example.com', appUrl: 'https://app.example.com', sessionKey: 'test-session-key' }), user: PERSON })
+    .then((routes) => routes.request(init.method ?? 'GET', `/api/credentials${path}`, { ...(init.body !== undefined ? { body: init.body } : {}), ...(init.user ? { user: init.user } : {}), ...(init.headers ? { headers: init.headers } : {}) }));
 
 const originalClientId = process.env.GOOGLE_CLIENT_ID;
 const originalClientSecret = process.env.GOOGLE_CLIENT_SECRET;
@@ -34,7 +36,7 @@ describe('listing configured providers', () => {
   it('returns them under `providers`, which is the shape the UI reads', async () => {
     const credentialService = service();
     const answer = await call(credentialService, '');
-    expect(answer.body).toEqual({ providers: [{ provider: 'aws', configured: true }] });
+    expect(answer.data).toEqual({ providers: [{ provider: 'aws', configured: true }] });
     expect(credentialService.getConfiguredProviders).toHaveBeenCalledWith(PERSON.id);
   });
 
@@ -43,7 +45,7 @@ describe('listing configured providers', () => {
     credentialService.getConfiguredProviders.mockRejectedValue(new Error('vault unreachable'));
     const answer = await call(credentialService, '');
     expect(answer.status).toBe(500);
-    expect(answer.body).toEqual({ error: 'vault unreachable' });
+    expect(answer.data).toEqual({ error: 'vault unreachable' });
   });
 });
 
@@ -56,14 +58,14 @@ describe('provider validation', () => {
   ] as const)('rejects an unknown provider on %s', async (_label, path, method) => {
     const answer = await call(service(), path, { method, body: {} });
     expect(answer.status).toBe(400);
-    expect(answer.body).toEqual({ error: 'Invalid provider: not-a-cloud' });
+    expect(answer.data).toEqual({ error: 'Invalid provider: not-a-cloud' });
   });
 
   it('accepts every provider the platform actually supports', async () => {
     for (const provider of CLOUD_PROVIDERS) {
       const answer = await call(service(), `/${provider}`);
       expect(answer.status, provider).toBe(200);
-      expect((answer.body as { provider: string }).provider, provider).toBe(provider);
+      expect((answer.data as { provider: string }).provider, provider).toBe(provider);
     }
   });
 });
@@ -73,8 +75,8 @@ describe('reading and writing one provider', () => {
     const credentialService = service();
     const answer = await call(credentialService, '/aws', { method: 'PUT', body: { accessKeyId: 'AKIAREAL', secret: 's' } });
     expect(credentialService.saveCredentials).toHaveBeenCalledWith(PERSON.id, 'aws', { accessKeyId: 'AKIAREAL', secret: 's' });
-    expect((answer.body as { credentials: unknown }).credentials).toEqual({ accessKeyId: 'AKIA••••' });
-    expect(JSON.stringify(answer.body)).not.toContain('AKIAREAL');
+    expect((answer.data as { credentials: unknown }).credentials).toEqual({ accessKeyId: 'AKIA••••' });
+    expect(JSON.stringify(answer.data)).not.toContain('AKIAREAL');
   });
 
   it('refuses values that are not text', async () => {
@@ -87,7 +89,7 @@ describe('reading and writing one provider', () => {
   it('deletes for the calling user only', async () => {
     const credentialService = service();
     const answer = await call(credentialService, '/hetzner', { method: 'DELETE' });
-    expect(answer.body).toEqual({ success: true, provider: 'hetzner' });
+    expect(answer.data).toEqual({ success: true, provider: 'hetzner' });
     expect(credentialService.deleteCredentials).toHaveBeenCalledWith(PERSON.id, 'hetzner');
   });
 
@@ -120,7 +122,7 @@ describe('validating credentials', () => {
 });
 
 describe('connecting Google Drive', () => {
-  const connect = async (credentialService: Service, user?: CallingUser) => {
+  const connect = async (credentialService: Service, user?: HarnessUser) => {
     const started = await call(credentialService, '/googledrive/connect', user ? { user } : {});
     const state = new URL(String(started.headers.location)).searchParams.get('state');
     const cookie = String(started.headers['set-cookie']).split(';')[0] ?? '';

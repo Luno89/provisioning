@@ -1,12 +1,16 @@
 import type { ModelThinkingProfile } from '../../engine/index.js';
 import type { ModelEndpointMetadata } from '../../platform/index.js';
 import { asStored } from '../../platform/testing/as-stored.js';
-import { copied, MemoryRecords } from '../../platform/testing/memory-records.js';
+import { collectionIn, copied, MemoryRecords, type Collections } from '../../platform/testing/memory-records.js';
 import type { ModelsStore } from '../store.js';
 
 export class MemoryModelsStore implements ModelsStore {
-  private readonly endpoints = new MemoryRecords<ModelEndpointMetadata>();
+  private readonly endpoints: MemoryRecords<ModelEndpointMetadata>;
   private readonly thinkingProfiles = new Map<string, ModelThinkingProfile>();
+
+  constructor(collections: Collections = new Map()) {
+    this.endpoints = new MemoryRecords(collectionIn<ModelEndpointMetadata>(collections, 'modelEndpoints'));
+  }
 
   async ensureIndexes(): Promise<void> {}
 

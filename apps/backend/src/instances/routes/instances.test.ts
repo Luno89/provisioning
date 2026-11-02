@@ -7,7 +7,8 @@ import type { NextFunction, Request, RequestHandler, Response } from 'express';
 import { describe, expect, it, vi } from 'vitest';
 import { matches, mock } from 'vitest-mock-extended';
 import { MailError, type MailReputation, type MailService } from '../../platform/index.js';
-import { callRouter, PERSON } from '../testing/call-router.js';
+import { PERSON, routesInProcess } from '../../platform/testing/routes.js';
+import type { Router } from 'express';
 import { bundleAsEnv, instancesRouter } from './instances.js';
 import { PoolMonitoringError, type PoolMonitoringService } from '../services/PoolMonitoringService.js';
 import type { JoinBundle, Outcome } from '../services/InstanceService.js';
@@ -18,6 +19,7 @@ import type { InstanceMailLimit } from '../services/InstanceMailLimit.js';
 type Instances = Parameters<typeof instancesRouter>[0]['instances'];
 
 const prefix = '/api/instances';
+const on = (router: Router) => routesInProcess({ prefix, router: () => router, user: PERSON });
 const asInstance = { 'x-instance-id': 'inst-1', authorization: 'Bearer secret' };
 const ok = <T,>(value: T): Outcome<T> => ({ ok: true, value });
 const no = (status: 400 | 401 | 404 | 409 | 503, error: string): Outcome<never> => ({ ok: false, status, error });
@@ -56,16 +58,16 @@ describe('a person making their instance', () => {
   it('checks a name, and passes on what the query asked', async () => {
     const { instances, router } = route();
     instances.nameCheck.calledWith(PERSON.id, 'luno').mockResolvedValue({ ok: true } as never);
-    expect((await callRouter(router, prefix, { path: '/name-check?name=luno' })).body).toEqual({ ok: true });
+    expect((await (await on(router)).get(`${prefix}/name-check?name=luno`)).data).toEqual({ ok: true });
   });
 
   it('gives the command to run on their machine, or says why not', async () => {
     const { instances, router } = route();
     instances.createJoinToken.calledWith(PERSON.id, 'luno').mockResolvedValue(ok({ token: 't', command: 'curl ...', expiresAt: 'later' }) as never);
     instances.createJoinToken.calledWith(PERSON.id, 'taken').mockResolvedValue(no(409, 'taken'));
-    expect((await callRouter(router, prefix, { method: 'POST', path: '/join-tokens', body: { name: 'luno' } })).body).toEqual({ token: 't', command: 'curl ...', expiresAt: 'later' });
-    const refused = await callRouter(router, prefix, { method: 'POST', path: '/join-tokens', body: { name: 'taken' } });
-    expect([refused.status, refused.body]).toEqual([409, { error: 'taken' }]);
+    expect((await (await on(router)).post(`${prefix}/join-tokens`, { name: 'luno' })).data).toEqual({ token: 't', command: 'curl ...', expiresAt: 'later' });
+    const refused = await (await on(router)).post(`${prefix}/join-tokens`, { name: 'taken' });
+    expect([refused.status, refused.data]).toEqual([409, { error: 'taken' }]);
   });
 
   it('offers a trial on Koala\'s servers and starts one, saying 202 for it', async () => {
@@ -73,10 +75,10 @@ describe('a person making their instance', () => {
     instances.poolOffer.calledWith(PERSON.id).mockResolvedValue({ available: true, trialDays: 14 });
     instances.createPoolInstance.calledWith(PERSON.id, 'alice').mockResolvedValue(ok({ name: 'alice' }) as never);
     instances.createPoolInstance.calledWith(PERSON.id, 'no-dashes').mockResolvedValue(no(400, 'no dashes'));
-    expect((await callRouter(router, prefix, { path: '/pool' })).body).toEqual({ available: true, trialDays: 14 });
-    const made = await callRouter(router, prefix, { method: 'POST', path: '/pool', body: { name: 'alice' } });
-    expect([made.status, made.body]).toEqual([202, { name: 'alice' }]);
-    expect((await callRouter(router, prefix, { method: 'POST', path: '/pool', body: { name: 'no-dashes' } })).status).toBe(400);
+    expect((await (await on(router)).get(`${prefix}/pool`)).data).toEqual({ available: true, trialDays: 14 });
+    const made = await (await on(router)).post(`${prefix}/pool`, { name: 'alice' });
+    expect([made.status, made.data]).toEqual([202, { name: 'alice' }]);
+    expect((await (await on(router)).post(`${prefix}/pool`, { name: 'no-dashes' })).status).toBe(400);
   });
 
   it('shows their instance and switches whether root emails them when it is unreachable', async () => {
@@ -84,9 +86,9 @@ describe('a person making their instance', () => {
     instances.mine.calledWith(PERSON.id).mockResolvedValue({ id: 'inst-1' } as never);
     instances.setWatchOf.calledWith(PERSON.id, false).mockResolvedValue(ok({ notifyWhenUnreachable: false, alwaysTold: false }) as never);
     instances.setWatchOf.calledWith(PERSON.id, 'no').mockResolvedValue(no(400, 'send true or false'));
-    expect((await callRouter(router, prefix, { path: '/mine' })).body).toEqual({ instance: { id: 'inst-1' } });
-    expect((await callRouter(router, prefix, { method: 'PUT', path: '/mine/watch', body: { notifyWhenUnreachable: false } })).body).toEqual({ notifyWhenUnreachable: false, alwaysTold: false });
-    expect((await callRouter(router, prefix, { method: 'PUT', path: '/mine/watch', body: { notifyWhenUnreachable: 'no' } })).status).toBe(400);
+    expect((await (await on(router)).get(`${prefix}/mine`)).data).toEqual({ instance: { id: 'inst-1' } });
+    expect((await (await on(router)).put(`${prefix}/mine/watch`, { notifyWhenUnreachable: false })).data).toEqual({ notifyWhenUnreachable: false, alwaysTold: false });
+    expect((await (await on(router)).put(`${prefix}/mine/watch`, { notifyWhenUnreachable: 'no' })).status).toBe(400);
   });
 });
 
@@ -94,8 +96,8 @@ describe('the pool, for the operator only', () => {
   it('turns anyone else away', async () => {
     const { instances, router } = route();
     for (const call of [{ path: '/pool/admin' }, { method: 'PUT' as const, path: '/pool/admin/trial-days', body: { days: 30 } }, { method: 'PUT' as const, path: '/pool/admin/instances/i1/trial', body: { trialEndsAt: 'x' } }, { method: 'DELETE' as const, path: '/pool/admin/instances/i1', body: { confirm: 'alice' } }]) {
-      const answer = await callRouter(router, prefix, call);
-      expect([answer.status, answer.body]).toEqual([403, { error: 'Admin only' }]);
+      const answer = await (await on(router)).request(call.method ?? 'GET', `${prefix}${call.path}`, { body: call.body });
+      expect([answer.status, answer.data]).toEqual([403, { error: 'Admin only' }]);
     }
     expect(instances.poolAdmin).not.toHaveBeenCalled();
   });
@@ -107,12 +109,12 @@ describe('the pool, for the operator only', () => {
     instances.setTrialEnd.calledWith('i1', '2026-12-01T00:00:00.000Z').mockResolvedValue(ok({ trialEndsAt: '2026-12-01T00:00:00.000Z' }) as never);
     instances.removePoolInstance.calledWith('i1', 'alice').mockResolvedValue(ok({ removing: true }) as never);
     instances.removePoolInstance.calledWith('i1', undefined).mockResolvedValue(no(400, 'type the name'));
-    expect((await callRouter(router, prefix, { path: '/pool/admin' })).body).toEqual({ slots: 1, instances: [] });
-    expect((await callRouter(router, prefix, { method: 'PUT', path: '/pool/admin/trial-days', body: { days: 30 } })).body).toEqual({ trialDays: 30 });
-    expect((await callRouter(router, prefix, { method: 'PUT', path: '/pool/admin/instances/i1/trial', body: { trialEndsAt: '2026-12-01T00:00:00.000Z' } })).body).toEqual({ trialEndsAt: '2026-12-01T00:00:00.000Z' });
-    const removed = await callRouter(router, prefix, { method: 'DELETE', path: '/pool/admin/instances/i1', body: { confirm: 'alice' } });
-    expect([removed.status, removed.body]).toEqual([202, { removing: true }]);
-    expect((await callRouter(router, prefix, { method: 'DELETE', path: '/pool/admin/instances/i1' })).status).toBe(400);
+    expect((await (await on(router)).get(`${prefix}/pool/admin`)).data).toEqual({ slots: 1, instances: [] });
+    expect((await (await on(router)).put(`${prefix}/pool/admin/trial-days`, { days: 30 })).data).toEqual({ trialDays: 30 });
+    expect((await (await on(router)).put(`${prefix}/pool/admin/instances/i1/trial`, { trialEndsAt: '2026-12-01T00:00:00.000Z' })).data).toEqual({ trialEndsAt: '2026-12-01T00:00:00.000Z' });
+    const removed = await (await on(router)).delete(`${prefix}/pool/admin/instances/i1`, { body: { confirm: 'alice' } });
+    expect([removed.status, removed.data]).toEqual([202, { removing: true }]);
+    expect((await (await on(router)).delete(`${prefix}/pool/admin/instances/i1`)).status).toBe(400);
   });
 
   it('says why when a pool change is refused', async () => {
@@ -120,9 +122,9 @@ describe('the pool, for the operator only', () => {
     instances.poolAdmin.mockResolvedValue(no(503, 'this root runs no pool'));
     instances.setTrialDays.mockResolvedValue(no(400, 'days are 1 to 365'));
     instances.setTrialEnd.mockResolvedValue(no(404, 'no such trial'));
-    expect((await callRouter(router, prefix, { path: '/pool/admin' })).status).toBe(503);
-    expect((await callRouter(router, prefix, { method: 'PUT', path: '/pool/admin/trial-days', body: { days: 0 } })).status).toBe(400);
-    expect((await callRouter(router, prefix, { method: 'PUT', path: '/pool/admin/instances/x/trial', body: {} })).status).toBe(404);
+    expect((await (await on(router)).get(`${prefix}/pool/admin`)).status).toBe(503);
+    expect((await (await on(router)).put(`${prefix}/pool/admin/trial-days`, { days: 0 })).status).toBe(400);
+    expect((await (await on(router)).put(`${prefix}/pool/admin/instances/x/trial`, {})).status).toBe(404);
   });
 });
 
@@ -132,15 +134,15 @@ describe('an instance talking to root as itself', () => {
     instances.watchAs.calledWith('inst-1', 'secret').mockResolvedValue(ok({ notifyWhenUnreachable: true, alwaysTold: false }) as never);
     instances.watchAs.calledWith('inst-1', 'wrong').mockResolvedValue(no(401, 'unknown instance or credential'));
     instances.setWatchAs.calledWith('inst-1', 'secret', false).mockResolvedValue(ok({ notifyWhenUnreachable: false, alwaysTold: false }) as never);
-    expect((await callRouter(router, prefix, { path: '/watch', headers: asInstance })).body).toEqual({ notifyWhenUnreachable: true, alwaysTold: false });
-    expect((await callRouter(router, prefix, { path: '/watch', headers: { ...asInstance, authorization: 'bearer wrong' } })).status).toBe(401);
-    expect((await callRouter(router, prefix, { method: 'PUT', path: '/watch', headers: asInstance, body: { notifyWhenUnreachable: false } })).body).toEqual({ notifyWhenUnreachable: false, alwaysTold: false });
+    expect((await (await on(router)).get(`${prefix}/watch`, { headers: asInstance })).data).toEqual({ notifyWhenUnreachable: true, alwaysTold: false });
+    expect((await (await on(router)).get(`${prefix}/watch`, { headers: { ...asInstance, authorization: 'bearer wrong' } })).status).toBe(401);
+    expect((await (await on(router)).put(`${prefix}/watch`, { notifyWhenUnreachable: false }, { headers: asInstance })).data).toEqual({ notifyWhenUnreachable: false, alwaysTold: false });
   });
 
   it('reads no credential from a request that sends none', async () => {
     const { instances, router } = route();
     instances.watchAs.mockResolvedValue(no(401, 'unknown instance or credential'));
-    await callRouter(router, prefix, { path: '/watch' });
+    await (await on(router)).get(`${prefix}/watch`);
     expect(instances.watchAs).toHaveBeenCalledWith('', '');
   });
 
@@ -150,38 +152,38 @@ describe('an instance talking to root as itself', () => {
     instances.release.calledWith('inst-1', 'secret').mockResolvedValue(ok({ imageTag: 'old111', chartUrl: 'u' }) as never);
     instances.setUpdates.calledWith('inst-1', 'secret', matches<{ version?: unknown }>((change) => change.version === 'v1')).mockResolvedValue(no(409, 'withdrawn'));
     instances.runningOf.calledWith('inst-1', 'secret').mockResolvedValue(ok({ running: 'new222' }) as never);
-    expect((await callRouter(router, prefix, { path: '/updates', headers: asInstance })).body).toEqual({ auto: true });
-    expect((await callRouter(router, prefix, { path: '/release', headers: asInstance })).body).toEqual({ imageTag: 'old111', chartUrl: 'u' });
-    expect((await callRouter(router, prefix, { method: 'PUT', path: '/updates', headers: asInstance, body: { version: 'v1' } })).status).toBe(409);
+    expect((await (await on(router)).get(`${prefix}/updates`, { headers: asInstance })).data).toEqual({ auto: true });
+    expect((await (await on(router)).get(`${prefix}/release`, { headers: asInstance })).data).toEqual({ imageTag: 'old111', chartUrl: 'u' });
+    expect((await (await on(router)).put(`${prefix}/updates`, { version: 'v1' }, { headers: asInstance })).status).toBe(409);
     instances.updates.mockResolvedValue(no(401, 'unknown instance or credential'));
     instances.release.mockResolvedValue(no(401, 'unknown instance or credential'));
-    expect((await callRouter(router, prefix, { path: '/updates', headers: asInstance })).status).toBe(401);
-    expect((await callRouter(router, prefix, { path: '/release', headers: asInstance })).status).toBe(401);
+    expect((await (await on(router)).get(`${prefix}/updates`, { headers: asInstance })).status).toBe(401);
+    expect((await (await on(router)).get(`${prefix}/release`, { headers: asInstance })).status).toBe(401);
   });
 
   it('reports its progress and gets back the status root holds', async () => {
     const { instances, router } = route();
     instances.report.mockResolvedValue(ok({ status: 'ready' }) as never);
-    const answer = await callRouter(router, prefix, { method: 'POST', path: '/status', headers: asInstance, body: { status: 'ready', detail: 'Installed' } });
-    expect(answer.body).toEqual({ status: 'ready' });
+    const answer = await (await on(router)).post(`${prefix}/status`, { status: 'ready', detail: 'Installed' }, { headers: asInstance });
+    expect(answer.data).toEqual({ status: 'ready' });
     expect(instances.report).toHaveBeenCalledWith('inst-1', 'secret', { status: 'ready', detail: 'Installed' });
     instances.report.mockResolvedValue(no(401, 'unknown instance or credential'));
-    expect((await callRouter(router, prefix, { method: 'POST', path: '/status', headers: asInstance })).status).toBe(401);
+    expect((await (await on(router)).post(`${prefix}/status`, undefined, { headers: asInstance })).status).toBe(401);
   });
 
   it('asks for a mesh key for a machine and to take one off, never cached', async () => {
     const { instances, router } = route();
     instances.machineKey.mockResolvedValue(ok({ preAuthKey: 'k' }) as never);
     instances.removeMachineNode.calledWith('inst-1', 'secret', '100.64.0.9').mockResolvedValue(ok({ removed: true }) as never);
-    const key = await callRouter(router, prefix, { method: 'POST', path: '/machine-key', headers: asInstance, body: {} });
-    expect(key.body).toEqual({ preAuthKey: 'k' });
+    const key = await (await on(router)).post(`${prefix}/machine-key`, {}, { headers: asInstance });
+    expect(key.data).toEqual({ preAuthKey: 'k' });
     expect(key.headers['cache-control']).toBe('no-store');
-    expect((await callRouter(router, prefix, { method: 'DELETE', path: '/machine-node', headers: asInstance, body: { meshIp: '100.64.0.9' } })).body).toEqual({ removed: true });
+    expect((await (await on(router)).delete(`${prefix}/machine-node`, { headers: asInstance, body: { meshIp: '100.64.0.9' } })).data).toEqual({ removed: true });
     instances.machineKey.mockResolvedValue(no(409, 'not an instance on its own machine'));
-    const refused = await callRouter(router, prefix, { method: 'POST', path: '/machine-key', headers: asInstance, body: {} });
+    const refused = await (await on(router)).post(`${prefix}/machine-key`, {}, { headers: asInstance });
     expect([refused.status, refused.headers['cache-control']]).toEqual([409, 'no-store']);
     instances.removeMachineNode.mockResolvedValue(no(404, 'no such node'));
-    expect((await callRouter(router, prefix, { method: 'DELETE', path: '/machine-node', headers: asInstance })).status).toBe(404);
+    expect((await (await on(router)).delete(`${prefix}/machine-node`, { headers: asInstance })).status).toBe(404);
   });
 
   it('asks about its trial, its addresses, and names its sign-in key', async () => {
@@ -190,16 +192,16 @@ describe('an instance talking to root as itself', () => {
     instances.addresses.mockResolvedValue(ok({ nested: false }) as never);
     instances.setAddresses.calledWith('inst-1', 'secret', true).mockResolvedValue(ok({ nested: true }) as never);
     instances.announceSignIn.calledWith('inst-1', 'secret', matches<{ kid?: string }>((jwk) => jwk.kid === 'k')).mockResolvedValue(ok({ announced: true }) as never);
-    expect((await callRouter(router, prefix, { path: '/trial', headers: asInstance })).body).toEqual({ trialEndsAt: 'x' });
-    expect((await callRouter(router, prefix, { path: '/addresses', headers: asInstance })).body).toEqual({ nested: false });
-    expect((await callRouter(router, prefix, { method: 'PUT', path: '/addresses', headers: asInstance, body: { nested: true } })).body).toEqual({ nested: true });
-    expect((await callRouter(router, prefix, { method: 'PUT', path: '/sign-in-key', headers: asInstance, body: { jwk: { kid: 'k' } } })).body).toEqual({ announced: true });
+    expect((await (await on(router)).get(`${prefix}/trial`, { headers: asInstance })).data).toEqual({ trialEndsAt: 'x' });
+    expect((await (await on(router)).get(`${prefix}/addresses`, { headers: asInstance })).data).toEqual({ nested: false });
+    expect((await (await on(router)).put(`${prefix}/addresses`, { nested: true }, { headers: asInstance })).data).toEqual({ nested: true });
+    expect((await (await on(router)).put(`${prefix}/sign-in-key`, { jwk: { kid: 'k' } }, { headers: asInstance })).data).toEqual({ announced: true });
     instances.trialOf.mockResolvedValue(no(401, 'x'));
     instances.addresses.mockResolvedValue(no(401, 'x'));
     instances.setAddresses.mockResolvedValue(no(401, 'x'));
     instances.announceSignIn.mockResolvedValue(no(401, 'x'));
     for (const call of [{ path: '/trial' }, { path: '/addresses' }, { method: 'PUT' as const, path: '/addresses', body: {} }, { method: 'PUT' as const, path: '/sign-in-key', body: {} }]) {
-      expect((await callRouter(router, prefix, { ...call, headers: asInstance })).status).toBe(401);
+      expect((await (await on(router)).request(call.method ?? 'GET', `${prefix}${call.path}`, { body: call.body, headers: asInstance })).status).toBe(401);
     }
   });
 
@@ -209,11 +211,11 @@ describe('an instance talking to root as itself', () => {
     instances.claimGroup.calledWith('inst-1', 'secret', 'p1', 'acme').mockResolvedValue(ok({ projectId: 'p1', name: 'acme' }) as never);
     instances.claimGroup.calledWith('inst-1', 'secret', 'p2', 'acme').mockResolvedValue(no(409, '"acme" is taken'));
     instances.releaseGroup.calledWith('inst-1', 'secret', 'p1').mockResolvedValue(ok({ released: true }) as never);
-    expect((await callRouter(router, prefix, { path: '/groups/check?name=acme', headers: asInstance })).body).toEqual({ ok: true });
-    expect((await callRouter(router, prefix, { method: 'PUT', path: '/groups', headers: asInstance, body: { projectId: 'p1', name: 'acme' } })).body).toEqual({ projectId: 'p1', name: 'acme' });
-    const taken = await callRouter(router, prefix, { method: 'PUT', path: '/groups', headers: asInstance, body: { projectId: 'p2', name: 'acme' } });
-    expect([taken.status, taken.body]).toEqual([409, { error: '"acme" is taken' }]);
-    expect((await callRouter(router, prefix, { method: 'DELETE', path: '/groups/p1', headers: asInstance })).body).toEqual({ released: true });
+    expect((await (await on(router)).get(`${prefix}/groups/check?name=acme`, { headers: asInstance })).data).toEqual({ ok: true });
+    expect((await (await on(router)).put(`${prefix}/groups`, { projectId: 'p1', name: 'acme' }, { headers: asInstance })).data).toEqual({ projectId: 'p1', name: 'acme' });
+    const taken = await (await on(router)).put(`${prefix}/groups`, { projectId: 'p2', name: 'acme' }, { headers: asInstance });
+    expect([taken.status, taken.data]).toEqual([409, { error: '"acme" is taken' }]);
+    expect((await (await on(router)).delete(`${prefix}/groups/p1`, { headers: asInstance })).data).toEqual({ released: true });
   });
 });
 
@@ -221,10 +223,10 @@ describe('how an instance joins', () => {
   it('hands the bundle as JSON, or as the installer\'s shell-safe text, never cached', async () => {
     const { instances, router } = route();
     instances.join.calledWith('tok', 'box').mockResolvedValue(ok(bundle));
-    const json = await callRouter(router, prefix, { method: 'POST', path: '/join', body: { token: 'tok', machine: 'box' } });
-    expect(json.body).toMatchObject({ instanceId: 'inst-1', credential: bundle.credential });
+    const json = await (await on(router)).post(`${prefix}/join`, { token: 'tok', machine: 'box' });
+    expect(json.data).toMatchObject({ instanceId: 'inst-1', credential: bundle.credential });
     expect(json.headers['cache-control']).toBe('no-store');
-    const text = await callRouter(router, prefix, { method: 'POST', path: '/join?format=env', body: { token: 'tok', machine: 'box' } });
+    const text = await (await on(router)).post(`${prefix}/join?format=env`, { token: 'tok', machine: 'box' });
     expect(text.headers['content-type']).toContain('text/plain');
     expect(text.text).toBe(bundleAsEnv(bundle));
   });
@@ -232,8 +234,8 @@ describe('how an instance joins', () => {
   it('refuses a token that does not work, still never cached', async () => {
     const { instances, router } = route();
     instances.join.mockResolvedValue(no(401, 'that token is not valid'));
-    const refused = await callRouter(router, prefix, { method: 'POST', path: '/join', body: { token: 'bad' } });
-    expect([refused.status, refused.body, refused.headers['cache-control']]).toEqual([401, { error: 'that token is not valid' }, 'no-store']);
+    const refused = await (await on(router)).post(`${prefix}/join`, { token: 'bad' });
+    expect([refused.status, refused.data, refused.headers['cache-control']]).toEqual([401, { error: 'that token is not valid' }, 'no-store']);
   });
 });
 
@@ -242,7 +244,7 @@ describe('the chart root serves', () => {
     const dir = mkdtempSync(join(tmpdir(), 'chart-'));
     writeFileSync(join(dir, 'chart.tgz'), 'the chart');
     const { router } = route({ chart: async () => join(dir, 'chart.tgz') });
-    const answer = await callRouter(router, prefix, { path: '/chart.tgz' });
+    const answer = await (await on(router)).get(`${prefix}/chart.tgz`);
     expect(answer.status).toBe(200);
     expect(answer.headers['content-type']).toContain('application/gzip');
     expect(answer.text).toBe('the chart');
@@ -252,11 +254,11 @@ describe('the chart root serves', () => {
     const dir = mkdtempSync(join(tmpdir(), 'chart-'));
     writeFileSync(join(dir, 'old111.tgz'), 'old chart');
     const { router } = route({ chartOf: (tag) => (tag === 'old111' ? join(dir, 'old111.tgz') : undefined) });
-    expect((await callRouter(router, prefix, { path: '/chart/old111.tgz' })).text).toBe('old chart');
-    const missing = await callRouter(router, prefix, { path: '/chart/nothing.tgz' });
-    expect([missing.status, missing.body]).toEqual([404, { error: 'root keeps no chart for that release' }]);
-    expect((await callRouter(router, prefix, { path: '/chart/old111' })).status).toBe(404);
-    expect((await callRouter(instancesRouter({ instances: mock<Instances>(), chart: async () => '' }), prefix, { path: '/chart/old111.tgz' })).status).toBe(404);
+    expect((await (await on(router)).get(`${prefix}/chart/old111.tgz`)).text).toBe('old chart');
+    const missing = await (await on(router)).get(`${prefix}/chart/nothing.tgz`);
+    expect([missing.status, missing.data]).toEqual([404, { error: 'root keeps no chart for that release' }]);
+    expect((await (await on(router)).get(`${prefix}/chart/old111`)).status).toBe(404);
+    expect((await (await on(instancesRouter({ instances: mock<Instances>(), chart: async () => '' }))).get(`${prefix}/chart/old111.tgz`)).status).toBe(404);
   });
 });
 
@@ -272,43 +274,43 @@ describe('Koala\'s dependencies on root', () => {
   it('shows the findings and runs the check only for who administers', async () => {
     const dependencies = watch();
     const refused = route({ administers: refuse, dependencies });
-    expect((await callRouter(refused.router, prefix, { path: '/dependencies' })).status).toBe(403);
-    expect((await callRouter(refused.router, prefix, { method: 'POST', path: '/dependencies/check' })).status).toBe(403);
+    expect((await (await on(refused.router)).get(`${prefix}/dependencies`)).status).toBe(403);
+    expect((await (await on(refused.router)).post(`${prefix}/dependencies/check`)).status).toBe(403);
     const { router } = route({ administers: allow, dependencies });
-    const seen = await callRouter(router, prefix, { path: '/dependencies' });
+    const seen = await (await on(router)).get(`${prefix}/dependencies`);
     expect([seen.status, seen.headers['cache-control']]).toEqual([200, 'no-store']);
-    expect((await callRouter(router, prefix, { method: 'POST', path: '/dependencies/check' })).body).toEqual({ findings: [] });
+    expect((await (await on(router)).post(`${prefix}/dependencies/check`)).data).toEqual({ findings: [] });
   });
 
   it('falls back to the pool\'s operator check when nobody is named to administer', async () => {
     const { router } = route({ dependencies: watch() });
-    expect((await callRouter(router, prefix, { path: '/dependencies' })).status).toBe(403);
+    expect((await (await on(router)).get(`${prefix}/dependencies`)).status).toBe(403);
   });
 
   it('says so where it keeps no record, and when a check cannot finish', async () => {
     const none = route({ administers: allow });
-    expect((await callRouter(none.router, prefix, { path: '/dependencies' })).status).toBe(404);
-    expect((await callRouter(none.router, prefix, { method: 'POST', path: '/dependencies/check' })).status).toBe(404);
+    expect((await (await on(none.router)).get(`${prefix}/dependencies`)).status).toBe(404);
+    expect((await (await on(none.router)).post(`${prefix}/dependencies/check`)).status).toBe(404);
     const dependencies = watch();
     dependencies.check.mockRejectedValue(new Error('OSV answered 503'));
-    const failing = await callRouter(route({ administers: allow, dependencies }).router, prefix, { method: 'POST', path: '/dependencies/check' });
-    expect([failing.status, failing.body]).toEqual([502, { error: 'the check could not finish: OSV answered 503' }]);
+    const failing = await (await on(route({ administers: allow, dependencies }).router)).post(`${prefix}/dependencies/check`);
+    expect([failing.status, failing.data]).toEqual([502, { error: 'the check could not finish: OSV answered 503' }]);
   });
 
   it('tells an instance what the release it runs carries', async () => {
     const { instances, router } = route({ dependencies: watch() });
     instances.runningOf.calledWith('inst-1', 'secret').mockResolvedValue(ok({ running: 'new222' }) as never);
-    expect((await callRouter(router, prefix, { path: '/release-findings', headers: asInstance })).body).toEqual({ release: 'v2026.10.25', findings: [] });
+    expect((await (await on(router)).get(`${prefix}/release-findings`, { headers: asInstance })).data).toEqual({ release: 'v2026.10.25', findings: [] });
     instances.runningOf.calledWith('inst-1', 'secret').mockResolvedValue(ok({ running: undefined }) as never);
-    expect((await callRouter(router, prefix, { path: '/release-findings', headers: asInstance })).body).toEqual({ findings: [] });
+    expect((await (await on(router)).get(`${prefix}/release-findings`, { headers: asInstance })).data).toEqual({ findings: [] });
     instances.runningOf.mockResolvedValue(no(401, 'unknown instance or credential'));
-    expect((await callRouter(router, prefix, { path: '/release-findings', headers: asInstance })).status).toBe(401);
+    expect((await (await on(router)).get(`${prefix}/release-findings`, { headers: asInstance })).status).toBe(401);
   });
 
   it('gives an empty list where it keeps no record of dependencies', async () => {
     const { instances, router } = route();
     instances.runningOf.mockResolvedValue(ok({ running: 'new222' }) as never);
-    expect((await callRouter(router, prefix, { path: '/release-findings', headers: asInstance })).body).toEqual({ findings: [] });
+    expect((await (await on(router)).get(`${prefix}/release-findings`, { headers: asInstance })).data).toEqual({ findings: [] });
   });
 });
 
@@ -318,13 +320,13 @@ describe('root\'s mail on its admin page', () => {
     mailReputation.view.mockReturnValue({ checking: false } as never);
     mailReputation.check.mockResolvedValue(undefined as never);
     const refused = route({ administers: refuse, mailReputation });
-    expect((await callRouter(refused.router, prefix, { path: '/mail-reputation' })).status).toBe(403);
+    expect((await (await on(refused.router)).get(`${prefix}/mail-reputation`)).status).toBe(403);
     expect(mailReputation.view).not.toHaveBeenCalled();
     const { router } = route({ administers: allow, mailReputation });
-    const seen = await callRouter(router, prefix, { path: '/mail-reputation' });
-    expect([seen.body, seen.headers['cache-control']]).toEqual([{ checking: false }, 'no-store']);
-    const started = await callRouter(router, prefix, { method: 'POST', path: '/mail-reputation/check' });
-    expect([started.status, started.body]).toEqual([202, { checking: false }]);
+    const seen = await (await on(router)).get(`${prefix}/mail-reputation`);
+    expect([seen.data, seen.headers['cache-control']]).toEqual([{ checking: false }, 'no-store']);
+    const started = await (await on(router)).post(`${prefix}/mail-reputation/check`);
+    expect([started.status, started.data]).toEqual([202, { checking: false }]);
     expect(mailReputation.check).toHaveBeenCalledTimes(1);
   });
 
@@ -334,7 +336,7 @@ describe('root\'s mail on its admin page', () => {
       const mailReputation = mock<Pick<MailReputation, 'view' | 'check'>>();
       mailReputation.view.mockReturnValue({ checking: true } as never);
       mailReputation.check.mockRejectedValue(new Error('no resolver'));
-      const started = await callRouter(route({ administers: allow, mailReputation }).router, prefix, { method: 'POST', path: '/mail-reputation/check' });
+      const started = await (await on(route({ administers: allow, mailReputation }).router)).post(`${prefix}/mail-reputation/check`);
       expect(started.status).toBe(202);
       await new Promise((resolve) => setImmediate(resolve));
       expect(warned).toHaveBeenCalledWith(expect.stringContaining('no resolver'));
@@ -345,8 +347,8 @@ describe('root\'s mail on its admin page', () => {
 
   it('says so where this server sends no mail itself', async () => {
     const { router } = route({ administers: allow });
-    expect((await callRouter(router, prefix, { path: '/mail-reputation' })).status).toBe(404);
-    expect((await callRouter(router, prefix, { method: 'POST', path: '/mail-reputation/check' })).status).toBe(404);
+    expect((await (await on(router)).get(`${prefix}/mail-reputation`)).status).toBe(404);
+    expect((await (await on(router)).post(`${prefix}/mail-reputation/check`)).status).toBe(404);
   });
 });
 
@@ -359,13 +361,13 @@ describe('an instance sending mail through root', () => {
     instances.ownerOf.calledWith('inst-1', 'secret').mockResolvedValue(ok({ ownerId: 'owner-1' }) as never);
     return { instances, mail, router };
   };
-  const send = (router: ReturnType<typeof mailing>['router'], body: unknown) => callRouter(router, prefix, { method: 'POST', path: '/mail', headers: asInstance, body });
+  const send = (router: ReturnType<typeof mailing>['router'], body: unknown) => on(router).then((routes) => routes.post(`${prefix}/mail`, body, { headers: asInstance }));
 
   it('sends only to the instance\'s owner, in one line and a text', async () => {
     const { mail, router } = mailing();
     mail.toOwner.mockResolvedValue(undefined);
     const answer = await send(router, { subject: 'Alert', text: 'Something fired' });
-    expect(answer.body).toEqual({ sent: true });
+    expect(answer.data).toEqual({ sent: true });
     expect(mail.toOwner).toHaveBeenCalledWith('owner-1', { subject: 'Alert', text: 'Something fired' });
   });
 
@@ -386,7 +388,7 @@ describe('an instance sending mail through root', () => {
     const { instances } = route();
     instances.ownerOf.mockResolvedValue(ok({ ownerId: 'owner-1' }) as never);
     const answer = await send(instancesRouter({ instances, chart: async () => '' }), { subject: 'a', text: 'b' });
-    expect([answer.status, answer.body]).toEqual([503, { error: 'this root sends no email' }]);
+    expect([answer.status, answer.data]).toEqual([503, { error: 'this root sends no email' }]);
   });
 
   it('holds mail back past the hourly allowance, telling the owner once', async () => {
@@ -394,7 +396,7 @@ describe('an instance sending mail through root', () => {
     const { mail, router } = mailing({ send: false, tell: true, until, window: { sent: [] } });
     mail.toOwner.mockResolvedValue(undefined);
     const held = await send(router, { subject: 'a', text: 'b' });
-    expect([held.status, held.body]).toEqual([429, { error: 'this instance has sent as many emails as an hour allows; more are held back until 2026-11-02T13:00:00.000Z' }]);
+    expect([held.status, held.data]).toEqual([429, { error: 'this instance has sent as many emails as an hour allows; more are held back until 2026-11-02T13:00:00.000Z' }]);
     expect(mail.toOwner).toHaveBeenCalledTimes(1);
     expect(mail.toOwner).toHaveBeenCalledWith('owner-1', expect.objectContaining({ subject: 'Koala is holding back email from your instance' }));
   });
@@ -418,17 +420,17 @@ describe('an instance sending mail through root', () => {
   it('sends while the allowance lasts', async () => {
     const { mail, router } = mailing({ send: true, window: { sent: [1] } });
     mail.toOwner.mockResolvedValue(undefined);
-    expect((await send(router, { subject: 'a', text: 'b' })).body).toEqual({ sent: true });
+    expect((await send(router, { subject: 'a', text: 'b' })).data).toEqual({ sent: true });
   });
 
   it('passes on what the mailer says, and calls any other failure a bad gateway', async () => {
     const { mail, router } = mailing();
     mail.toOwner.mockRejectedValueOnce(new MailError(422, 'that address does not take mail'));
     const refused = await send(router, { subject: 'a', text: 'b' });
-    expect([refused.status, refused.body]).toEqual([422, { error: 'that address does not take mail' }]);
+    expect([refused.status, refused.data]).toEqual([422, { error: 'that address does not take mail' }]);
     mail.toOwner.mockRejectedValueOnce(new Error('connection reset'));
     const failed = await send(router, { subject: 'a', text: 'b' });
-    expect([failed.status, failed.body]).toEqual([502, { error: 'it could not be sent: connection reset' }]);
+    expect([failed.status, failed.data]).toEqual([502, { error: 'it could not be sent: connection reset' }]);
   });
 });
 
@@ -437,17 +439,17 @@ describe('a hub asking root for access on an instance\'s behalf', () => {
     const hubAccess = vi.fn(async (_instanceId: string, ownerId: string) => ({ token: `for-${ownerId}` }) as never);
     const { instances, router } = route({ hubAccess });
     instances.ownerOf.calledWith('inst-1', 'secret').mockResolvedValue(ok({ ownerId: 'owner-1' }) as never);
-    expect((await callRouter(router, prefix, { method: 'POST', path: '/hub-token', headers: asInstance })).body).toEqual({ token: 'for-owner-1' });
+    expect((await (await on(router)).post(`${prefix}/hub-token`, undefined, { headers: asInstance })).data).toEqual({ token: 'for-owner-1' });
     expect(hubAccess).toHaveBeenCalledWith('inst-1', 'owner-1');
   });
 
   it('says there is no hub where root has none, and refuses an instance it does not know', async () => {
     const { instances, router } = route();
     instances.ownerOf.mockResolvedValueOnce(ok({ ownerId: 'owner-1' }) as never);
-    const none = await callRouter(router, prefix, { method: 'POST', path: '/hub-token', headers: asInstance });
-    expect([none.status, none.body]).toEqual([404, { error: 'this root has no hub' }]);
+    const none = await (await on(router)).post(`${prefix}/hub-token`, undefined, { headers: asInstance });
+    expect([none.status, none.data]).toEqual([404, { error: 'this root has no hub' }]);
     instances.ownerOf.mockResolvedValueOnce(no(401, 'unknown instance or credential'));
-    expect((await callRouter(router, prefix, { method: 'POST', path: '/hub-token', headers: asInstance })).status).toBe(401);
+    expect((await (await on(router)).post(`${prefix}/hub-token`, undefined, { headers: asInstance })).status).toBe(401);
   });
 });
 
@@ -457,10 +459,10 @@ describe('moving a pool instance to its owner\'s machine', () => {
     instances.startMove.calledWith(PERSON.id).mockResolvedValue(ok({ command: 'curl ...' }) as never);
     instances.moveOf.calledWith(PERSON.id).mockResolvedValue({ state: 'copying' } as never);
     instances.stopMove.calledWith(PERSON.id).mockResolvedValue(no(409, 'nothing is moving'));
-    expect((await callRouter(router, prefix, { method: 'POST', path: '/move' })).body).toEqual({ command: 'curl ...' });
-    expect((await callRouter(router, prefix, { path: '/move' })).body).toEqual({ move: { state: 'copying' } });
-    const stopped = await callRouter(router, prefix, { method: 'DELETE', path: '/move' });
-    expect([stopped.status, stopped.body]).toEqual([409, { error: 'nothing is moving' }]);
+    expect((await (await on(router)).post(`${prefix}/move`)).data).toEqual({ command: 'curl ...' });
+    expect((await (await on(router)).get(`${prefix}/move`)).data).toEqual({ move: { state: 'copying' } });
+    const stopped = await (await on(router)).delete(`${prefix}/move`);
+    expect([stopped.status, stopped.data]).toEqual([409, { error: 'nothing is moving' }]);
   });
 
   it('starts, reads and stops it for an instance asking as itself', async () => {
@@ -468,11 +470,11 @@ describe('moving a pool instance to its owner\'s machine', () => {
     instances.startMoveAs.calledWith('inst-1', 'secret').mockResolvedValue(ok({ command: 'curl ...' }) as never);
     instances.moveOfAs.calledWith('inst-1', 'secret').mockResolvedValue(ok({ state: 'joined' }) as never);
     instances.stopMoveAs.calledWith('inst-1', 'secret').mockResolvedValue(ok({ stopping: true }) as never);
-    expect((await callRouter(router, prefix, { method: 'POST', path: '/move/self', headers: asInstance })).body).toEqual({ command: 'curl ...' });
-    expect((await callRouter(router, prefix, { path: '/move/self', headers: asInstance })).body).toEqual({ move: { state: 'joined' } });
-    expect((await callRouter(router, prefix, { method: 'DELETE', path: '/move/self', headers: asInstance })).body).toEqual({ stopping: true });
+    expect((await (await on(router)).post(`${prefix}/move/self`, undefined, { headers: asInstance })).data).toEqual({ command: 'curl ...' });
+    expect((await (await on(router)).get(`${prefix}/move/self`, { headers: asInstance })).data).toEqual({ move: { state: 'joined' } });
+    expect((await (await on(router)).delete(`${prefix}/move/self`, { headers: asInstance })).data).toEqual({ stopping: true });
     instances.moveOfAs.mockResolvedValue(no(401, 'unknown instance or credential'));
-    expect((await callRouter(router, prefix, { path: '/move/self', headers: asInstance })).status).toBe(401);
+    expect((await (await on(router)).get(`${prefix}/move/self`, { headers: asInstance })).status).toBe(401);
   });
 });
 
@@ -485,7 +487,7 @@ describe('the new machine reading a moving instance through root', () => {
     const { instances, router } = route({ moveRelay });
     instances.moveSource.calledWith('inst-1', 'secret').mockResolvedValue(ok({ name: 'alice', instanceId: 'inst-1' }) as never);
     moveRelay.open.calledWith(matches<{ name: string }>((source) => source.name === 'alice'), 'mongo').mockResolvedValue(upstream(200, 'the mongo of alice', { 'content-type': 'application/gzip' }));
-    const answer = await callRouter(router, prefix, { path: '/move/parts/mongo', headers: asInstance });
+    const answer = await (await on(router)).get(`${prefix}/move/parts/mongo`, { headers: asInstance });
     expect([answer.status, answer.text, answer.headers['content-type'], answer.headers['cache-control']]).toEqual([200, 'the mongo of alice', 'application/gzip', 'no-store']);
   });
 
@@ -494,7 +496,7 @@ describe('the new machine reading a moving instance through root', () => {
     const { instances, router } = route({ moveRelay });
     instances.moveSource.mockResolvedValue(ok({ name: 'alice', instanceId: 'inst-1' }) as never);
     moveRelay.open.mockResolvedValue(upstream(409, '{"error":"work is running"}'));
-    const answer = await callRouter(router, prefix, { path: '/move/parts/volume:books:data-web-0', headers: asInstance });
+    const answer = await (await on(router)).get(`${prefix}/move/parts/volume:books:data-web-0`, { headers: asInstance });
     expect([answer.status, answer.text]).toEqual([409, '{"error":"work is running"}']);
     expect(moveRelay.open).toHaveBeenCalledWith(expect.anything(), 'volume:books:data-web-0');
   });
@@ -504,23 +506,23 @@ describe('the new machine reading a moving instance through root', () => {
     const { instances, router } = route({ moveRelay });
     instances.moveSource.mockResolvedValue(ok({ name: 'alice', instanceId: 'inst-1' }) as never);
     moveRelay.open.mockResolvedValue(upstream(undefined, ''));
-    expect((await callRouter(router, prefix, { path: '/move/parts/mongo', headers: asInstance })).status).toBe(502);
+    expect((await (await on(router)).get(`${prefix}/move/parts/mongo`, { headers: asInstance })).status).toBe(502);
   });
 
   it('says so when it is not a part, when the credential is wrong, when root moves nothing, and when the pool cannot be reached', async () => {
     const moveRelay = mock<MoveRelay>();
     const { instances, router } = route({ moveRelay });
-    expect((await callRouter(router, prefix, { path: '/move/parts/everything', headers: asInstance })).status).toBe(404);
+    expect((await (await on(router)).get(`${prefix}/move/parts/everything`, { headers: asInstance })).status).toBe(404);
     instances.moveSource.mockResolvedValueOnce(no(401, 'unknown instance or credential'));
-    expect((await callRouter(router, prefix, { path: '/move/parts/mongo', headers: asInstance })).status).toBe(401);
+    expect((await (await on(router)).get(`${prefix}/move/parts/mongo`, { headers: asInstance })).status).toBe(401);
     instances.moveSource.mockResolvedValue(ok({ name: 'alice', instanceId: 'inst-1' }) as never);
     moveRelay.open.mockRejectedValue(new Error('connect ECONNREFUSED'));
-    const down = await callRouter(router, prefix, { path: '/move/parts/mongo', headers: asInstance });
-    expect([down.status, down.body]).toEqual([502, { error: 'Koala\'s servers could not be reached: connect ECONNREFUSED' }]);
+    const down = await (await on(router)).get(`${prefix}/move/parts/mongo`, { headers: asInstance });
+    expect([down.status, down.data]).toEqual([502, { error: 'Koala\'s servers could not be reached: connect ECONNREFUSED' }]);
     const bare = route();
     bare.instances.moveSource.mockResolvedValue(ok({ name: 'alice', instanceId: 'inst-1' }) as never);
-    const nothing = await callRouter(bare.router, prefix, { path: '/move/parts/mongo', headers: asInstance });
-    expect([nothing.status, nothing.body]).toEqual([503, { error: 'this root moves no instances' }]);
+    const nothing = await (await on(bare.router)).get(`${prefix}/move/parts/mongo`, { headers: asInstance });
+    expect([nothing.status, nothing.data]).toEqual([503, { error: 'this root moves no instances' }]);
   });
 });
 
@@ -536,59 +538,59 @@ describe('a pool instance asking root about its own apps', () => {
   it('answers only a named question about the instance\'s own place', async () => {
     const { poolMonitoring, router } = watching();
     poolMonitoring.ask.mockResolvedValue([{ metric: {}, value: 1 }]);
-    const answer = await callRouter(router, prefix, { method: 'POST', path: '/monitoring/ask', headers: asInstance, body: { ask: { kind: 'app', question: 'up', subject: { namespace: 'shop' } } } });
-    expect(answer.body).toEqual({ samples: [{ metric: {}, value: 1 }] });
+    const answer = await (await on(router)).post(`${prefix}/monitoring/ask`, { ask: { kind: 'app', question: 'up', subject: { namespace: 'shop' } } }, { headers: asInstance });
+    expect(answer.data).toEqual({ samples: [{ metric: {}, value: 1 }] });
     expect(poolMonitoring.ask).toHaveBeenCalledWith(expect.objectContaining({ hostNamespace: 'pool-alice' }), { kind: 'app', question: 'up', subject: { namespace: 'shop' } });
-    const raw = await callRouter(router, prefix, { method: 'POST', path: '/monitoring/ask', headers: asInstance, body: { ask: { kind: 'query', query: 'up' } } });
-    expect([raw.status, raw.body]).toEqual([400, { error: 'that is not a question Koala answers' }]);
+    const raw = await (await on(router)).post(`${prefix}/monitoring/ask`, { ask: { kind: 'query', query: 'up' } }, { headers: asInstance });
+    expect([raw.status, raw.data]).toEqual([400, { error: 'that is not a question Koala answers' }]);
   });
 
   it('answers a question over a time range, and refuses a range it does not answer', async () => {
     const { poolMonitoring, router } = watching();
     poolMonitoring.askRange.mockResolvedValue([[1, 2]]);
     const ask = { kind: 'app', question: 'up', subject: { namespace: 'shop' } };
-    const answer = await callRouter(router, prefix, { method: 'POST', path: '/monitoring/ask', headers: asInstance, body: { ask, range: { start: 0, end: 600, step: 60 } } });
-    expect(answer.body).toEqual({ points: [[1, 2]] });
-    const bad = await callRouter(router, prefix, { method: 'POST', path: '/monitoring/ask', headers: asInstance, body: { ask, range: { start: 10, end: 5, step: 60 } } });
-    expect([bad.status, bad.body]).toEqual([400, { error: 'that is not a time range Koala answers for' }]);
+    const answer = await (await on(router)).post(`${prefix}/monitoring/ask`, { ask, range: { start: 0, end: 600, step: 60 } }, { headers: asInstance });
+    expect(answer.data).toEqual({ points: [[1, 2]] });
+    const bad = await (await on(router)).post(`${prefix}/monitoring/ask`, { ask, range: { start: 10, end: 5, step: 60 } }, { headers: asInstance });
+    expect([bad.status, bad.data]).toEqual([400, { error: 'that is not a time range Koala answers for' }]);
   });
 
   it('turns away an instance it does not know, and says when root watches no pool', async () => {
     const { instances, router } = watching();
     instances.poolPlaceOf.calledWith('inst-1', 'wrong').mockResolvedValue(no(401, 'unknown instance or credential'));
-    expect((await callRouter(router, prefix, { path: '/monitoring', headers: { ...asInstance, authorization: 'Bearer wrong' } })).status).toBe(401);
+    expect((await (await on(router)).get(`${prefix}/monitoring`, { headers: { ...asInstance, authorization: 'Bearer wrong' } })).status).toBe(401);
     const bare = route();
     bare.instances.poolPlaceOf.mockResolvedValue(ok(place) as never);
-    const none = await callRouter(bare.router, prefix, { path: '/monitoring', headers: asInstance });
-    expect([none.status, none.body]).toEqual([503, { error: 'this root watches no pool' }]);
+    const none = await (await on(bare.router)).get(`${prefix}/monitoring`, { headers: asInstance });
+    expect([none.status, none.data]).toEqual([503, { error: 'this root watches no pool' }]);
   });
 
   it('shows how long history is kept, and its alerts', async () => {
     const { poolMonitoring, router } = watching();
     poolMonitoring.history.mockReturnValue({ days: 10, kept: 10 });
     poolMonitoring.alerts.mockResolvedValue([{ labels: { alertname: 'x' } }] as never);
-    expect((await callRouter(router, prefix, { path: '/monitoring', headers: asInstance })).body).toEqual({ days: 10, kept: 10 });
-    expect((await callRouter(router, prefix, { path: '/monitoring/alerts', headers: asInstance })).body).toEqual({ alerts: [{ labels: { alertname: 'x' } }] });
+    expect((await (await on(router)).get(`${prefix}/monitoring`, { headers: asInstance })).data).toEqual({ days: 10, kept: 10 });
+    expect((await (await on(router)).get(`${prefix}/monitoring/alerts`, { headers: asInstance })).data).toEqual({ alerts: [{ labels: { alertname: 'x' } }] });
   });
 
   it('sets the probes the instance wants, and refuses ones that are not probes', async () => {
     const { poolMonitoring, router } = watching();
     poolMonitoring.setProbes.mockResolvedValue({ probed: 1, missing: [] });
     const probes = [{ namespace: 'shop', service: 'web', port: 80, path: '', module: 'http_2xx' }];
-    expect((await callRouter(router, prefix, { method: 'PUT', path: '/monitoring/probes', headers: asInstance, body: { probes } })).body).toEqual({ probed: 1, missing: [] });
+    expect((await (await on(router)).put(`${prefix}/monitoring/probes`, { probes }, { headers: asInstance })).data).toEqual({ probed: 1, missing: [] });
     expect(poolMonitoring.setProbes).toHaveBeenCalledWith('alice', expect.objectContaining({ hostNamespace: 'pool-alice' }), probes);
-    expect((await callRouter(router, prefix, { method: 'PUT', path: '/monitoring/probes', headers: asInstance, body: { probes: 'all' } })).status).toBe(400);
+    expect((await (await on(router)).put(`${prefix}/monitoring/probes`, { probes: 'all' }, { headers: asInstance })).status).toBe(400);
   });
 
   it('sets and removes an alert, and refuses one it cannot set', async () => {
     const { poolMonitoring, router } = watching();
     poolMonitoring.setRule.mockResolvedValue(undefined);
     poolMonitoring.removeRule.mockResolvedValue(undefined);
-    const set = await callRouter(router, prefix, { method: 'PUT', path: '/monitoring/rules/r1', headers: asInstance, body: { namespace: 'shop', spec: { kind: 'down' }, summary: 'Shop is down' } });
-    expect(set.body).toEqual({ set: 'r1' });
-    const bad = await callRouter(router, prefix, { method: 'PUT', path: '/monitoring/rules/r1', headers: asInstance, body: { namespace: 'shop', spec: { kind: 'nonsense' }, summary: 's' } });
+    const set = await (await on(router)).put(`${prefix}/monitoring/rules/r1`, { namespace: 'shop', spec: { kind: 'down' }, summary: 'Shop is down' }, { headers: asInstance });
+    expect(set.data).toEqual({ set: 'r1' });
+    const bad = await (await on(router)).put(`${prefix}/monitoring/rules/r1`, { namespace: 'shop', spec: { kind: 'nonsense' }, summary: 's' }, { headers: asInstance });
     expect(bad.status).toBe(400);
-    expect((await callRouter(router, prefix, { method: 'DELETE', path: '/monitoring/rules/r1', headers: asInstance })).body).toEqual({ removed: true });
+    expect((await (await on(router)).delete(`${prefix}/monitoring/rules/r1`, { headers: asInstance })).data).toEqual({ removed: true });
     expect(poolMonitoring.removeRule).toHaveBeenCalledWith(expect.objectContaining({ hostNamespace: 'pool-alice' }), 'r1');
   });
 
@@ -600,14 +602,14 @@ describe('a pool instance asking root about its own apps', () => {
     poolMonitoring.removeRule.mockRejectedValueOnce(new Error('kubectl failed'));
     poolMonitoring.setProbes.mockRejectedValueOnce(new Error('kubectl failed'));
     poolMonitoring.ask.mockRejectedValueOnce(new Error('kubectl failed'));
-    const refused = await callRouter(router, prefix, { path: '/monitoring/alerts', headers: asInstance });
-    expect([refused.status, refused.body]).toEqual([400, { error: 'that alert cannot be measured here' }]);
-    const down = await callRouter(router, prefix, { path: '/monitoring/alerts', headers: asInstance });
-    expect([down.status, down.body]).toEqual([502, { error: 'Koala\'s servers could not answer: Prometheus is down' }]);
-    expect((await callRouter(router, prefix, { method: 'PUT', path: '/monitoring/rules/r1', headers: asInstance, body: { namespace: 'shop', spec: { kind: 'down' }, summary: 'x' } })).status).toBe(400);
-    expect((await callRouter(router, prefix, { method: 'DELETE', path: '/monitoring/rules/r1', headers: asInstance })).status).toBe(502);
-    expect((await callRouter(router, prefix, { method: 'PUT', path: '/monitoring/probes', headers: asInstance, body: { probes: [] } })).status).toBe(502);
-    expect((await callRouter(router, prefix, { method: 'POST', path: '/monitoring/ask', headers: asInstance, body: { ask: { kind: 'cluster', question: 'nodes' } } })).status).toBe(502);
+    const refused = await (await on(router)).get(`${prefix}/monitoring/alerts`, { headers: asInstance });
+    expect([refused.status, refused.data]).toEqual([400, { error: 'that alert cannot be measured here' }]);
+    const down = await (await on(router)).get(`${prefix}/monitoring/alerts`, { headers: asInstance });
+    expect([down.status, down.data]).toEqual([502, { error: 'Koala\'s servers could not answer: Prometheus is down' }]);
+    expect((await (await on(router)).put(`${prefix}/monitoring/rules/r1`, { namespace: 'shop', spec: { kind: 'down' }, summary: 'x' }, { headers: asInstance })).status).toBe(400);
+    expect((await (await on(router)).delete(`${prefix}/monitoring/rules/r1`, { headers: asInstance })).status).toBe(502);
+    expect((await (await on(router)).put(`${prefix}/monitoring/probes`, { probes: [] }, { headers: asInstance })).status).toBe(502);
+    expect((await (await on(router)).post(`${prefix}/monitoring/ask`, { ask: { kind: 'cluster', question: 'nodes' } }, { headers: asInstance })).status).toBe(502);
   });
 });
 

@@ -1,6 +1,6 @@
 import { asStored } from '../../platform/testing/as-stored.js';
 import type { InviteMetadata, UserMetadata } from '../../platform/index.js';
-import { copied, MemoryRecords } from '../../platform/testing/memory-records.js';
+import { collectionIn, copied, keysWhere, MemoryRecords, ownedKeys, removeKeys, removeWhere, type Collections } from '../../platform/testing/memory-records.js';
 import { inviteCodeHash } from '../../platform/lib/invite-codes.js';
 import { ACCOUNT_DATA, type AccountIds, type AccountRelated } from '../lib/account-removal.js';
 import type { InviteLimits } from '../lib/project-invite-limits.js';
@@ -17,12 +17,18 @@ type Loose = Record<string, unknown>;
 interface LegacyAdmin { isAdmin?: boolean }
 
 export class MemoryAccountsStore implements AccountsStore {
-  private readonly users = new MemoryRecords<UserMetadata>();
+  private readonly users: MemoryRecords<UserMetadata>;
   private readonly invites = new MemoryRecords<InviteMetadata>();
   private readonly pendingSignUps = new Map<string, Omit<PendingSignUp, 'id'>>();
-  private readonly passwordResets = new Map<string, Omit<PasswordReset, 'id'>>();
-  private readonly twoFactorCodes = new Map<string, Omit<TwoFactorCode, 'id'>>();
+  private readonly passwordResets: Map<string, Omit<PasswordReset, 'id'>>;
+  private readonly twoFactorCodes: Map<string, Omit<TwoFactorCode, 'id'>>;
   private limits: InviteLimits | undefined;
+
+  constructor(private readonly collections: Collections = new Map()) {
+    this.users = new MemoryRecords(collectionIn<UserMetadata>(collections, 'users'));
+    this.passwordResets = collectionIn<Omit<PasswordReset, 'id'>>(collections, 'passwordResets');
+    this.twoFactorCodes = collectionIn<Omit<TwoFactorCode, 'id'>>(collections, 'twoFactorCodes');
+  }
 
   async ensureIndexes(): Promise<void> {}
 
@@ -95,8 +101,32 @@ export class MemoryAccountsStore implements AccountsStore {
     return moved;
   }
 
-  async accountIds(): Promise<AccountIds> {
-    return { runIds: [], treeIds: [], conversationIds: [], proposalIds: [], projectIds: [], buildWorkflowIds: [], ingestIds: [] };
+  private ids(name: string, ownerId: string): string[] {
+    return ownedKeys(this.collections, name, ownerId);
+  }
+
+  private distinct(name: string, ownerId: string, field: string): string[] {
+    const values = keysWhere(this.collections, name, (row) => row.ownerId === ownerId).map((key) => (this.collections.get(name)?.get(key) as Record<string, unknown>)[field]);
+    return [...new Set(values.filter((value): value is string => typeof value === 'string'))];
+  }
+
+  async accountIds(ownerId: string): Promise<AccountIds> {
+    const conversations = this.ids('conversations', ownerId);
+    const live = conversations
+      .map((id) => ((this.collections.get('conversations')?.get(id) as { liveTurn?: { runId?: unknown } }).liveTurn?.runId))
+      .filter((id): id is string => typeof id === 'string');
+    const projectIds = this.ids('projects', ownerId);
+    return {
+      runIds: [...new Set([...this.distinct('turnLogs', ownerId, 'turnId'), ...live])],
+      treeIds: this.ids('trees', ownerId),
+      conversationIds: conversations,
+      proposalIds: this.ids('planProposals', ownerId),
+      projectIds,
+      buildWorkflowIds: keysWhere(this.collections, 'pipelineRuns', (row) => typeof row.projectId === 'string' && projectIds.includes(row.projectId) && (row.status === 'queued' || row.status === 'running'))
+        .map((key) => (this.collections.get('pipelineRuns')?.get(key) as Record<string, unknown>).temporalWorkflowId)
+        .filter((id): id is string => typeof id === 'string'),
+      ingestIds: this.distinct('corpus', ownerId, 'ingestId'),
+    };
   }
 
   async accountLeftovers(ownerId: string): Promise<Record<string, number>> {
@@ -104,32 +134,30 @@ export class MemoryAccountsStore implements AccountsStore {
     const count = (name: string, found: number) => {
       if (found) left[name] = (left[name] ?? 0) + found;
     };
-    for (const name of ACCOUNT_DATA.byOwner) count(name, this.ownedBy(name, ownerId).length);
-    count(ACCOUNT_DATA.last, this.users.get(ownerId) ? 1 : 0);
+    for (const name of ACCOUNT_DATA.byOwner) count(name, this.ids(name, ownerId).length);
+    for (const name of [...ACCOUNT_DATA.byId, ACCOUNT_DATA.last]) count(name, this.collections.get(name)?.has(ownerId) ? 1 : 0);
     return left;
   }
 
-  async removeAccountRecords(ownerId: string, _related: AccountRelated): Promise<Record<string, number>> {
+  async removeAccountRecords(ownerId: string, related: AccountRelated): Promise<Record<string, number>> {
     const removed: Record<string, number> = {};
-    for (const name of ACCOUNT_DATA.byOwner) {
-      const ids = this.ownedBy(name, ownerId);
-      if (ids.length === 0) continue;
-      for (const id of ids) this.owned(name)?.delete(id);
-      removed[name] = ids.length;
-    }
-    if (this.users.delete(ownerId)) removed[ACCOUNT_DATA.last] = 1;
+    const count = (name: string, deleted: number) => {
+      if (deleted) removed[name] = (removed[name] ?? 0) + deleted;
+    };
+    const inList = (list: readonly string[], value: unknown): boolean => typeof value === 'string' && list.includes(value);
+    if (related.watermarkKeys.length) count('memoryWatermarks', removeKeys(this.collections, 'memoryWatermarks', related.watermarkKeys));
+    if (related.ingestIds.length) count('crawl_frontier', removeWhere(this.collections, 'crawl_frontier', (row) => inList(related.ingestIds, row.ingestId)));
+    if (related.projectIds.length) count('pipelineRuns', removeWhere(this.collections, 'pipelineRuns', (row) => inList(related.projectIds, row.projectId)));
+    if (related.projectIds.length) count('hubSnapshots', removeWhere(this.collections, 'hubSnapshots', (row) => inList(related.projectIds, row.projectId)));
+    count('oidcArtifacts', removeWhere(this.collections, 'oidcArtifacts', (row) => row.accountId === ownerId));
+    for (const name of ACCOUNT_DATA.byOwner) count(name, removeKeys(this.collections, name, this.ids(name, ownerId)));
+    for (const name of ACCOUNT_DATA.byId) count(name, removeKeys(this.collections, name, [ownerId]));
+    count(ACCOUNT_DATA.last, removeKeys(this.collections, ACCOUNT_DATA.last, [ownerId]));
     return removed;
   }
 
-  private owned(name: string): Map<string, { ownerId?: string | undefined }> | undefined {
-    if (name === 'passwordResets') return this.passwordResets;
-    if (name === 'twoFactorCodes') return this.twoFactorCodes;
-    return undefined;
-  }
-
   private ownedBy(name: string, ownerId: string): string[] {
-    const rows = this.owned(name);
-    return rows ? [...rows].filter(([, row]) => row.ownerId === ownerId).map(([id]) => id) : [];
+    return this.ids(name, ownerId);
   }
 
   async getInvites(): Promise<InviteMetadata[]> {

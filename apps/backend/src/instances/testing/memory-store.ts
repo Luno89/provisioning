@@ -1,5 +1,5 @@
 import { asStored } from '../../platform/testing/as-stored.js';
-import { copied } from '../../platform/testing/memory-records.js';
+import { collectionIn, copied, type Collections } from '../../platform/testing/memory-records.js';
 import { stampServed, type InstanceRecord, type JoinToken } from '../lib/instances.js';
 import type { PoolPolicy } from '../lib/pool.js';
 import type { InstanceRelease, Withdrawal } from '../lib/instance-updates.js';
@@ -32,19 +32,28 @@ const RELEASE_FIELDS = ['notes', 'hotfix', 'digest', 'chartSha256'] as const;
 
 export class MemoryInstancesStore implements InstancesStore {
   private readonly handoffs = new Map<string, Date>();
-  private readonly joinTokens = new Map<string, StoredToken>();
-  private readonly instances = new Map<string, InstanceRecord>();
-  private readonly watches = new Map<string, StoredWatch>();
+  private readonly joinTokens: Map<string, StoredToken>;
+  private readonly instances: Map<string, InstanceRecord>;
+  private readonly watches: Map<string, StoredWatch>;
   private poolPolicy: PoolPolicy | undefined;
   private readonly releases = new Map<string, Fields>();
   private hubKey: SignInKey | undefined;
-  private readonly artifacts = new Map<string, Artifact>();
+  private readonly artifacts: Map<string, Artifact>;
   private readonly logouts = new Map<string, LogoutDelivery>();
-  private readonly sessions = new Map<string, StoredSession>();
+  private readonly sessions: Map<string, StoredSession>;
   private readonly revocations = new Map<string, string>();
   private readonly findings = new Map<string, Omit<DependencyFinding, 'key'>>();
   private check: DependencyCheck | undefined;
-  private readonly withdrawalNotices = new Map<string, { ownerId: string; at: string }>();
+  private readonly withdrawalNotices: Map<string, { ownerId: string; at: string }>;
+
+  constructor(collections: Collections = new Map()) {
+    this.joinTokens = collectionIn<StoredToken>(collections, 'instanceJoinTokens');
+    this.instances = collectionIn<InstanceRecord>(collections, 'instances');
+    this.watches = collectionIn<StoredWatch>(collections, 'instanceWatches');
+    this.artifacts = collectionIn<Artifact>(collections, 'oidcArtifacts');
+    this.sessions = collectionIn<StoredSession>(collections, 'clientSessions');
+    this.withdrawalNotices = collectionIn<{ ownerId: string; at: string }>(collections, 'releaseWithdrawalNotices');
+  }
 
   async ensureIndexes(): Promise<void> {}
 

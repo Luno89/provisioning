@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { mock } from 'vitest-mock-extended';
-import { callRouter, PERSON } from '../testing/call-router.js';
+import { PERSON, routesInProcess } from '../../platform/testing/routes.js';
 import type { MachineService, MachineView } from '../services/MachineService.js';
 import { localAgentsRouter } from './local-agents.js';
 
@@ -20,8 +20,9 @@ const app = {
 };
 
 async function call(method: 'GET' | 'POST' | 'PUT' | 'DELETE', path: string, body?: unknown) {
-  const answer = await callRouter(localAgentsRouter({ machines }), PREFIX, { method, path: path.slice(PREFIX.length), body });
-  return { status: answer.status, data: answer.body };
+  const routes = await routesInProcess({ prefix: PREFIX, router: () => localAgentsRouter({ machines }), user: PERSON });
+  const answer = await routes.request(method, path, { body });
+  return { status: answer.status, data: answer.data };
 }
 
 beforeEach(() => {
