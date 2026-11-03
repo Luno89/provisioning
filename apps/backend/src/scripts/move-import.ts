@@ -76,20 +76,23 @@ async function untilTrue(what: string, probe: () => Promise<boolean>): Promise<v
   }
 }
 
-async function restoreMongo(): Promise<void> {
-  const target = mongoTarget(process.env);
+export async function restoreMongoInto(target: { uri: string; dbName: string }, gzipped: Readable, log: (line: string) => void): Promise<number> {
   const client = mongoClientFor(target.uri);
   for (;;) {
     const unreachable = await client.connect().then(() => undefined, (err: Error) => err.message);
     if (unreachable === undefined) break;
-    console.log(`  waiting for this machine's Mongo: ${unreachable}`);
+    log(`  waiting for this machine's Mongo: ${unreachable}`);
     await new Promise((resolve) => setTimeout(resolve, 3000));
   }
   try {
-    console.log(`  ${await restoreMongoFrom(client, target.dbName, await part('mongo'))} records`);
+    return await restoreMongoFrom(client, target.dbName, gzipped);
   } finally {
     await client.close();
   }
+}
+
+async function restoreMongo(): Promise<void> {
+  console.log(`  ${await restoreMongoInto(mongoTarget(process.env), await part('mongo'), (line) => console.log(line))} records`);
 }
 
 async function restorePostgres(name: 'gitea-db' | 'infisical-db'): Promise<void> {
@@ -189,8 +192,10 @@ async function main(): Promise<void> {
   throw new Error('usage: move-import data | restore');
 }
 
-main().catch(async (err: Error) => {
-  console.error(err.message);
-  await report('failed', `The move stopped: ${err.message}`.slice(0, 500));
-  process.exit(1);
-});
+if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+  main().catch(async (err: Error) => {
+    console.error(err.message);
+    await report('failed', `The move stopped: ${err.message}`.slice(0, 500));
+    process.exit(1);
+  });
+}
