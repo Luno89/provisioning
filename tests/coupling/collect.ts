@@ -13,6 +13,7 @@ interface V8Range { startOffset: number; endOffset: number; count: number }
 interface V8Function { functionName: string; ranges: V8Range[] }
 interface V8Script { scriptId: string; url: string; functions: V8Function[] }
 
+const WORKFLOW_BUNDLE = /\/workflow-bundle-[0-9a-f]+\.js$/;
 const INLINE_MAP = /\/\/# sourceMappingURL=data:application\/json;(?:charset=utf-8;)?base64,([A-Za-z0-9+/=]+)\s*$/m;
 
 function lineStarts(text: string): number[] {
@@ -48,30 +49,31 @@ export async function startCollecting(options: { dir: string; root: string; keep
     const { result } = await session.post('Profiler.takePreciseCoverage') as { result: V8Script[] };
     const files: Record<string, RanRange[]> = {};
     for (const script of result) {
-      if (!script.url.startsWith('file://')) continue;
-      const path = fileURLToPath(script.url);
-      const file = relative(options.root, path);
-      if (!options.keep(file)) continue;
+      const bundled = WORKFLOW_BUNDLE.test(script.url);
+      if (!bundled && !script.url.startsWith('file://')) continue;
+      const own = bundled ? undefined : relative(options.root, fileURLToPath(script.url));
+      if (own !== undefined && !options.keep(own)) continue;
       const { scriptSource } = await session.post('Debugger.getScriptSource', { scriptId: script.scriptId }) as { scriptSource: string };
       const inline = INLINE_MAP.exec(scriptSource)?.[1];
       if (!inline) continue;
       const map = new TraceMap(JSON.parse(Buffer.from(inline, 'base64').toString('utf8')) as SourceMapInput);
       const starts = lineStarts(scriptSource);
-      const original = (offset: number): Position | undefined => {
+      const original = (offset: number): (Position & { file: string }) | undefined => {
         const at = generatedAt(starts, offset);
         const found = originalPositionFor(map, { line: at.line, column: at.column });
-        return found.line === null ? undefined : { line: found.line, column: found.column + 1 };
+        if (found.line === null) return undefined;
+        const file = own ?? (found.source ? relative(options.root, found.source.replace(/^webpack:\/\/[^/]*/, '')) : undefined);
+        return file === undefined ? undefined : { file, line: found.line, column: found.column + 1 };
       };
-      const ranges: RanRange[] = [];
       for (const fn of script.functions) {
         fn.ranges.forEach((range, index) => {
           const start = original(range.startOffset);
           const end = original(Math.max(range.startOffset, range.endOffset - 1));
-          if (!start || !end) return;
-          ranges.push({ start, end, count: range.count, ...(index === 0 ? { fn: fn.functionName } : {}) });
+          if (!start || !end || start.file !== end.file) return;
+          if (own === undefined && !options.keep(start.file)) return;
+          (files[start.file] ??= []).push({ start: { line: start.line, column: start.column }, end: { line: end.line, column: end.column }, count: range.count, ...(index === 0 ? { fn: fn.functionName } : {}) });
         });
       }
-      files[file] = ranges;
     }
     if (options.shellTrace) {
       Object.assign(files, shellRan(options.shellTrace, options.root));

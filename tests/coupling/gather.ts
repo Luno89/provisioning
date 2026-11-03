@@ -16,7 +16,7 @@ function optionsFrom(args: readonly string[]): Options {
 function suite(workspace: Workspace, log: string, coverage: string | undefined): { seconds: number; passed: boolean } {
   const started = Date.now();
   const output = openSync(log, 'w');
-  const env = { ...process.env, ...(coverage ? { COUPLING_COVERAGE: coverage } : {}) };
+  const env = { ...process.env, ...(coverage ? { COUPLING_COVERAGE: coverage, TEMPORAL_DEBUG: '1' } : {}) };
   if (!coverage) delete env.COUPLING_COVERAGE;
   const ran = spawnSync('npm', ['run', 'test'], { cwd: join(ROOT, workspace.folder), env, stdio: ['ignore', output, output] });
   return { seconds: Math.round((Date.now() - started) / 100) / 10, passed: ran.status === 0 };
