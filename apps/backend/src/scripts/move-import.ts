@@ -10,7 +10,7 @@ import { ensureClusterMonitoring } from '../activities/cluster-monitoring.js';
 import { SYSTEM_CLUSTER } from '../monitoring/index.js';
 import { InfrastructureService } from '../infrastructure/index.js';
 import { GiteaService } from '../projects/index.js';
-import { loadKeys, mongoTarget } from '../platform/index.js';
+import { loadKeys, mongoClientFor, mongoTarget } from '../platform/index.js';
 import { ignore } from '@koala/engine-core/failures';
 import { waitingOn } from '../activities/failure-reasons.js';
 import type { ReadableStream as WebReadableStream } from 'stream/web';
@@ -77,8 +77,19 @@ async function untilTrue(what: string, probe: () => Promise<boolean>): Promise<v
 }
 
 async function restoreMongo(): Promise<void> {
-  const restored = await restoreMongoFrom(mongoTarget(process.env), await part('mongo'), (why) => console.log(`  waiting for this machine's Mongo: ${why}`));
-  console.log(`  ${restored} records`);
+  const target = mongoTarget(process.env);
+  const client = mongoClientFor(target.uri);
+  for (;;) {
+    const unreachable = await client.connect().then(() => undefined, (err: Error) => err.message);
+    if (unreachable === undefined) break;
+    console.log(`  waiting for this machine's Mongo: ${unreachable}`);
+    await new Promise((resolve) => setTimeout(resolve, 3000));
+  }
+  try {
+    console.log(`  ${await restoreMongoFrom(client, target.dbName, await part('mongo'))} records`);
+  } finally {
+    await client.close();
+  }
 }
 
 async function restorePostgres(name: 'gitea-db' | 'infisical-db'): Promise<void> {

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { mongoClientFor } from '../../platform/lib/collection.js';
 import { testDatabaseAt } from '../../platform/lib/test-database.js';
 import { MoveExport } from './MoveExport.js';
 import { restoreMongo } from './mongo-restore.js';
@@ -11,7 +12,9 @@ describe('moving an instance\'s Mongo', () => {
     await from.infrastructure.saveDeployment({ id: 'd1', name: 'shop', clusterId: 'c1', strategy: 'helm', status: 'running', ownerId: 'bo' } as never);
     const exporter = new MoveExport({ instanceId: 'i1', trusted: new Map(), dataDir: '/nowhere', mongo: { uri: fromUri, dbName: fromName }, env: {}, running: async () => [], claim: async () => true });
     const part = exporter.open('mongo');
-    const restored = await restoreMongo({ uri: intoUri, dbName: intoName }, part.out);
+    const client = mongoClientFor(intoUri);
+    await client.connect();
+    const restored = await restoreMongo(client, intoName, part.out).finally(() => client.close());
     await part.done;
     expect(restored).toBeGreaterThanOrEqual(2);
     expect((await into.projects.getProjects()).map((project) => project.id)).toEqual(['p1']);
