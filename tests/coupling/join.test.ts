@@ -80,4 +80,12 @@ describe('which functions a test ran', () => {
     const levels = unitLevels(graph, [{ testFile: 'component.test.ts', files: { [FILE]: [copy(0), copy(2), copy(0)] } }], levelOf);
     expect([...(levels.get('removeAll') ?? [])]).toEqual(['component']);
   });
+
+  it('judges a call site in each copy of its function apart, since V8 leaves out a block that ran as often as its function', () => {
+    const graph: Graph = { units: { caller: { ...unit('caller', FILE, 'caller', 10), ends: at(20, 2) }, callee: unit('callee', CALLEE, 'callee', 1) }, edges: [{ from: 'caller', site: { file: FILE, line: 15, column: 5, start: 0, end: 0 }, to: ['callee'], through: 'call' }], unresolved: [], unmatched: [] };
+    const caller = (count: number, loop?: number): RanRange[] => [{ start: at(10, 1), end: at(20, 1), count, fn: 'caller' }, ...(loop === undefined ? [] : [{ start: at(13, 3), end: at(17, 3), count: loop }])];
+    const files = { [FILE]: [...caller(1, 0), ...caller(1), ...caller(1, 0)], [CALLEE]: [{ start: at(1, 1), end: at(5, 1), count: 1, fn: 'callee' }] };
+    const [judged] = judge(graph, [{ testFile: 'component.test.ts', files }], levelOf);
+    expect(judged!.covered.map((entry) => entry.test)).toEqual(['component.test.ts']);
+  });
 });

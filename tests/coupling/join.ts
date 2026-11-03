@@ -18,8 +18,27 @@ const anyRan = (ranges: readonly RanRange[], distance: (range: RanRange) => numb
   return ranges.some((range) => distance(range) === best && range.count > 0);
 };
 
+interface FunctionRecord { own: RanRange; blocks: RanRange[] }
+
+function recordsOf(ranges: readonly RanRange[]): { records: FunctionRecord[]; loose: RanRange[] } {
+  const records: FunctionRecord[] = [];
+  const loose: RanRange[] = [];
+  for (const range of ranges) {
+    if (range.fn !== undefined) records.push({ own: range, blocks: [] });
+    else (records.at(-1)?.blocks ?? loose).push(range);
+  }
+  return { records, loose };
+}
+
 function siteRan(ranges: readonly RanRange[] | undefined, at: Position): boolean {
-  return anyRan((ranges ?? []).filter((range) => contains(range, at)), size);
+  const { records, loose } = recordsOf(ranges ?? []);
+  const around = records.filter((record) => contains(record.own, at));
+  if (around.length === 0) return anyRan(loose.filter((range) => contains(range, at)), size);
+  const innermost = Math.min(...around.map((record) => size(record.own)));
+  return around.filter((record) => size(record.own) === innermost).some((record) => {
+    const block = record.blocks.filter((range) => contains(range, at)).reduce<RanRange | undefined>((best, range) => (!best || size(range) < size(best) ? range : best), undefined);
+    return (block ?? record.own).count > 0;
+  });
 }
 
 function unitRan(ranges: readonly RanRange[] | undefined, unit: Unit): boolean {
