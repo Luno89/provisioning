@@ -37,6 +37,11 @@ describe('the edge graph', () => {
     expect(graph.edges.every((edge) => edge.to.every((id) => graph.units[id]!.file !== graph.units[edge.from]!.file))).toBe(true);
   });
 
+  it('takes what an async function returns as an implementation of the interface it promises', () => {
+    const start = graph.edges.find((edge) => edge.site.file === 'src/wiring.ts' && edge.through === 'interface' && named(graph, edge.to).some((name) => name.startsWith('src/lib/made.ts')));
+    expect(start && named(graph, start.to)).toEqual(['src/lib/made.ts#start']);
+  });
+
   it('keeps a call whose result another call is chained on', () => {
     const loud = graph.edges.find((edge) => graph.units[edge.from]?.name === 'loud');
     expect(loud && named(graph, loud.to)).toEqual(['src/lib/shout.ts#shout']);

@@ -204,9 +204,13 @@ export function buildGraph(options: GraphOptions): Graph {
       const made = body ?? actual.getCallSignatures().map((signature) => signature.getDeclaration()).find((declaration) => declaration && (FUNCTION_KINDS.has(declaration.kind) || ts.isCallSignatureDeclaration(declaration)));
       if (made) for (const signature of signatures) implement(signature, made);
     };
-    const handedTo = (target: ts.Type | undefined, value: ts.Node) => {
+    const handedTo = (target: ts.Type | undefined, value: ts.Node): void => {
       if (!target) return;
       const wanted = target.getNonNullableType();
+      if (wanted.isUnion()) {
+        for (const part of wanted.types) handedTo(part, value);
+        return;
+      }
       const actual = checker.getTypeAtLocation(value).getNonNullableType();
       callsInto(wanted, actual, functionOf(value));
       if (membersWanted(wanted).length === 0) return;

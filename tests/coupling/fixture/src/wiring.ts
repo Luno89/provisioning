@@ -1,3 +1,4 @@
+import { make } from './lib/made.js';
 import { quiet } from './lib/quiet.js';
 import { shout } from './lib/shout.js';
 import { formatAll, readOne } from './reader/reader.js';
@@ -11,3 +12,5 @@ export const kept = new MemoryStore();
 export const formatted = formatAll(quiet, ['A']);
 
 export const loud = (id: string): string => shout(id).trim();
+
+export const started = async (id: string): Promise<string> => (await make()).start(id);
