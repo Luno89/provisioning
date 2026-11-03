@@ -11,7 +11,9 @@ import { memoryHubStore } from '../lib/hub-store.js';
 import { diffRecord, type HubLink } from '../lib/hub-sync.js';
 import { hubInstanceRouter, instanceOrigin } from '../routes/hub-instance.js';
 import { hubRouter } from '../routes/hub.js';
-import type { InstanceCall } from '../services/HubInstanceWork.js';
+import { mock } from 'vitest-mock-extended';
+import type { HubInstanceWork, InstanceCall } from '../services/HubInstanceWork.js';
+import { HubSyncService } from '../services/HubSyncService.js';
 import { HubRelay } from '../services/HubRelay.js';
 import { RemoteHub } from '../services/HubRemote.js';
 import { HubService } from '../services/HubService.js';
@@ -119,5 +121,35 @@ describe('the owner\'s instance and the hub, over one socket', () => {
       'the hub is not connected (Unauthorized); connecting again in 0 s',
     ]);
     expect(answers).toEqual([]);
+  });
+
+  it('carries the hub\'s calls to the instance\'s own sync, which answers them and pulls what members changed', async () => {
+    const { url, access } = await hubServer();
+    const db = await testDatabase();
+    const remote = new RemoteHub({ access }, fetch, undefined, () => undefined, 1);
+    const shared = await remote.share({ id: 'ann', email: ann.email }, { id: 'p1', name: 'Shop', group: 'acme' });
+    const link: HubLink = { projectId: 'p1', ownerId: 'ann', hubProjectId: shared.hubProjectId, pulledThrough: 0, sharedAt: 't' };
+    await db.hub.saveHubLink(link);
+    await remote.push(link, [{ kind: 'conversations', id: 'c1', patch: diffRecord(undefined, { id: 'c1', kind: 'channel', title: 'Shop', messages: [] })! }]);
+
+    const work = mock<HubInstanceWork>();
+    work.handle.mockResolvedValue({ kind: 'json', status: 200, body: ['grove'] });
+    const sync = new HubSyncService({ store: db.hub, transport: remote, origin: 'instance:inst-ann', work: () => work, log: () => undefined });
+    closing.push(async () => { await sync.stop(); });
+    const pulled = next<void>();
+    const pull = remote.pull.bind(remote);
+    remote.pull = async (asked, after) => { const answer = await pull(asked, after); if (answer.changes.length > 0) pulled.hand(); return answer; };
+    const connected = next<void>();
+    const connect = remote.connect.bind(remote);
+    remote.connect = (line) => connect({ ...line, connected: () => { line.connected(); connected.hand(); } });
+    await sync.start();
+    await connected.promise;
+
+    const live = await axios.get(`${url}/api/hub/projects/${shared.hubProjectId}/live/extensions`, { validateStatus: () => true });
+    expect([live.status, live.data]).toEqual([200, ['grove']]);
+    expect(work.handle).toHaveBeenCalledWith(expect.objectContaining({ hubProjectId: shared.hubProjectId }), expect.objectContaining({ op: 'extensions' }));
+
+    await axios.post(`${url}/api/hub/projects/${shared.hubProjectId}/conversations/c1/messages`, { content: 'is it live yet?' });
+    await pulled.promise;
   });
 });

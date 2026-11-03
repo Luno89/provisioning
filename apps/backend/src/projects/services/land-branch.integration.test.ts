@@ -90,3 +90,9 @@ describe('landing a story\'s branch on main with git', () => {
     expect(git('-C', remote, 'show', 'main:pay.txt')).toBe('pay');
   });
 });
+
+describe('landing when git cannot', () => {
+  it('fails with git\'s own words when the repository cannot be reached', async () => {
+    await expect(landBranch({ ...request(), url: `file://${root}/nowhere.git` })).rejects.toThrow(/does not appear to be a git repository|not found|No such/i);
+  });
+});

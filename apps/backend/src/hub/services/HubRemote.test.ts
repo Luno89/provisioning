@@ -230,6 +230,33 @@ describe('the hub handing the owner\'s instance what members asked of it', () =>
     }
   });
 
+  it('connects again when root cannot give a way to the hub, and sends no token when root fails socket.io\'s own reconnect', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const said: string[] = [];
+      const { opened, line, root } = connecting();
+      const hub = new RemoteHub(root, fetch, (url, options) => {
+        const socket = Object.assign(new EventEmitter(), { active: true, closed: 0, close() { socket.closed += 1; } });
+        opened.push({ url, options, socket });
+        return socket as unknown as Socket;
+      }, (text) => said.push(text));
+      root.access.mockRejectedValueOnce(new Error('root is away'));
+      const disconnect = hub.connect(line);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(said).toEqual(['the hub is not connected (root is away); connecting again in 5 s']);
+      expect(opened).toHaveLength(0);
+      await vi.advanceTimersByTimeAsync(REOPEN_FIRST_MS);
+      expect(opened).toHaveLength(1);
+      await tokenOf(opened[0]!.options);
+      root.access.mockRejectedValueOnce(new Error('root is away again'));
+      expect(await tokenOf(opened[0]!.options)).toEqual({});
+      expect(said.at(-1)).toBe('root gave no way to the hub: root is away again');
+      disconnect();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('answers a call with json', async () => {
     server.use(answering('post', '/api/hub-instance/relay/c1', () => HttpResponse.json({ answered: 'c1' })));
     const { hub } = remote();
