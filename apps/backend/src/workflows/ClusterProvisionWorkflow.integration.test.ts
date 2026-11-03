@@ -5,7 +5,7 @@ import { WorkflowFailedError } from '@temporalio/client';
 import { Worker } from '@temporalio/worker';
 import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
-import { temporalTestEnvironment } from './temporal-test-env.js';
+import { bundled, temporalTestEnvironment } from './temporal-test-env.js';
 import type { ProvisionClusterResult } from '../activities/ProvisionClusterActivity.js';
 import { clusterFieldsFrom } from '../infrastructure/lib/provisioned-cluster.js';
 
@@ -21,7 +21,7 @@ const provision = async (activity: () => Promise<ProvisionClusterResult>) => {
   const worker = await Worker.create({
     ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: env.namespace ?? 'default',
     taskQueue,
-    workflowsPath: resolve(__dirname, 'ClusterProvisionWorkflow.ts'),
+    workflowBundle: await bundled(resolve(__dirname, 'ClusterProvisionWorkflow.ts')),
     activities: { ProvisionClusterActivity: async () => { attempts += 1; return activity(); } },
   });
   const outcome = await worker.runUntil(async () => {

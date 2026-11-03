@@ -5,7 +5,7 @@ import { Worker } from '@temporalio/worker';
 import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
 import { MOVE_FINISHED, MOVE_STOPPED, poolMoveWorkflowId } from '../instances/lib/instance-move.js';
-import { temporalTestEnvironment } from './temporal-test-env.js';
+import { bundled, temporalTestEnvironment } from './temporal-test-env.js';
 import type { PoolMoveWorkflow } from './PoolMoveWorkflow.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -20,7 +20,7 @@ const run = async (signal: (handle: { signal: (name: string, ...args: unknown[])
   const worker = await Worker.create({
     ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: env.namespace ?? 'default',
     taskQueue,
-    workflowsPath: resolve(__dirname, 'PoolMoveWorkflow.ts'),
+    workflowBundle: await bundled(resolve(__dirname, 'PoolMoveWorkflow.ts')),
     activities: {
       PoolMoveStartActivity: async () => { seen.push('start'); },
       PoolMoveSwitchActivity: async () => { seen.push('switch'); return { name: 'bo' }; },

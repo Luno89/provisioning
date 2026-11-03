@@ -5,7 +5,7 @@ import { Worker } from '@temporalio/worker';
 import { ApplicationFailure } from '@temporalio/common';
 import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
-import { temporalTestEnvironment } from './temporal-test-env.js';
+import { bundled, temporalTestEnvironment } from './temporal-test-env.js';
 import { startedFor } from '../platform/lib/workflow-owner.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -22,7 +22,7 @@ afterAll(async () => {
 
 const run = async (activities: Record<string, (...args: never[]) => Promise<unknown>>) => {
   const taskQueue = `pool-${Math.random().toString(36).slice(2, 8)}`;
-  const worker = await Worker.create({ ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: env.namespace ?? 'default', taskQueue, workflowsPath: resolve(__dirname, 'index.ts'), activities: { PoolTrialNextActivity: async () => null, PoolTrialStepActivity: async () => {}, ...activities } });
+  const worker = await Worker.create({ ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: env.namespace ?? 'default', taskQueue, workflowBundle: await bundled(resolve(__dirname, 'index.ts')), activities: { PoolTrialNextActivity: async () => null, PoolTrialStepActivity: async () => {}, ...activities } });
   return worker.runUntil(env.client.workflow.execute('PoolInstanceWorkflow', {
     workflowId: `pool-instance-${taskQueue}`, taskQueue, args: [{ instanceId: 'inst-1' }], ...startedFor('u1'),
   }).then(() => 'done', (error: Error) => error));

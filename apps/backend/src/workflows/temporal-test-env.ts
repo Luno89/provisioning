@@ -1,4 +1,5 @@
 import { TestWorkflowEnvironment } from '@temporalio/testing';
+import { bundleWorkflowCode, type WorkflowBundle } from '@temporalio/worker';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { inject } from 'vitest';
@@ -37,4 +38,16 @@ export async function timeSkippingTestEnvironment(): Promise<TestWorkflowEnviron
   const env = await TestWorkflowEnvironment.createTimeSkipping();
   await registerOwnerAttribute(env.connection, env.namespace ?? 'default');
   return env;
+}
+
+const bundles = new Map<string, Promise<WorkflowBundle>>();
+
+export function bundled(workflowsPath: string, workflowInterceptorModules: string[] = []): Promise<WorkflowBundle> {
+  const key = [workflowsPath, ...workflowInterceptorModules].join('\n');
+  let bundle = bundles.get(key);
+  if (!bundle) {
+    bundle = bundleWorkflowCode({ workflowsPath, workflowInterceptorModules });
+    bundles.set(key, bundle);
+  }
+  return bundle;
 }

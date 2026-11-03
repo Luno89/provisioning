@@ -23,7 +23,7 @@ import type { Tree } from '../projects/lib/trees.js';
 import type { Task } from '../engine-host/tools/tasks.js';
 import type { AdoptPlanResult } from '../engine-host/temporal/contracts.js';
 import { seededProcedures } from '../extensions/seeds.js';
-import { timeSkippingTestEnvironment } from './temporal-test-env.js';
+import { bundled, timeSkippingTestEnvironment } from './temporal-test-env.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -217,7 +217,7 @@ async function adopt(w: ReturnType<typeof world>, proposalId = 'p1', growing?: (
   const worker = await Worker.create({
     ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: env.namespace ?? 'default',
     taskQueue,
-    workflowsPath: resolve(__dirname),
+    workflowBundle: await bundled(resolve(__dirname)),
     activities: {
       PlanAdoptStopActivity: w.activities.PlanAdoptStopActivity,
       PlanAdoptRecordsActivity: w.activities.PlanAdoptRecordsActivity,

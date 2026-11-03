@@ -10,7 +10,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { currentTraceId, traceActivities, traceWorkflowStarts, withSpan, type TelemetrySignal, type TelemetrySink } from '@koala/engine-core/telemetry';
 import { startTelemetry, type Telemetry } from '@koala/engine-core/telemetry-sdk';
-import { temporalTestEnvironment } from '../../workflows/temporal-test-env.js';
+import { bundled, temporalTestEnvironment } from '../../workflows/temporal-test-env.js';
 import { WorkspaceConclusionService } from '../../memory/services/WorkspaceConclusionService.js';
 import { MetricsService, TRACE_ID_HEADER } from '../services/MetricsService.js';
 import { carryingTrace, telemetrySettings } from './telemetry.js';
@@ -63,8 +63,8 @@ describe('one trace from the request through the workflow to the activity', () =
     const worker = await Worker.create({
       ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: env.namespace ?? 'default',
       taskQueue,
-      workflowsPath: resolve(__dirname, '../../workflows/ConcludeWorkspaceWorkflow.ts'),
-      interceptors: { activity: [traceActivities()], workflowModules: [resolve(__dirname, '../../workflows/telemetry-interceptors.ts')] },
+      workflowBundle: await bundled(resolve(__dirname, '../../workflows/ConcludeWorkspaceWorkflow.ts'), [resolve(__dirname, '../../workflows/telemetry-interceptors.ts')]),
+      interceptors: { activity: [traceActivities()] },
       activities: { ConcludeWorkspaceActivity: async () => { inActivity.push(currentTraceId()); return { saved: true, owner: 'koala-u1', repo: 'tree-t1', commit: 'c0ffee' }; } },
     });
 

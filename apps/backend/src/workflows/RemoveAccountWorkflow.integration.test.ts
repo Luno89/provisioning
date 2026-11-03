@@ -8,7 +8,7 @@ import { fileURLToPath } from 'url';
 import { REMOVE_ACCOUNT_WORKFLOW, removeAccountWorkflowId } from '../accounts/lib/account-removal.js';
 import { temporalRemovalWorkflows } from '../accounts/services/AccountRemovalService.js';
 import type { AccountRemovalActivities } from '../activities/RemoveAccountActivities.js';
-import { temporalTestEnvironment } from './temporal-test-env.js';
+import { bundled, temporalTestEnvironment } from './temporal-test-env.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -40,7 +40,7 @@ const withWorker = async (activities: AccountRemovalActivities, body: (workflows
   const worker = await Worker.create({
     ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: env.namespace ?? 'default',
     taskQueue,
-    workflowsPath: resolve(__dirname, 'RemoveAccountWorkflow.ts'),
+    workflowBundle: await bundled(resolve(__dirname, 'RemoveAccountWorkflow.ts')),
     activities,
   });
   await worker.runUntil(() => body(temporalRemovalWorkflows(() => env.client, taskQueue)));
@@ -99,7 +99,7 @@ describe('removing an account through Temporal', () => {
     const clusterWorker = await Worker.create({
       ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: env.namespace ?? 'default',
       taskQueue: clusterQueue,
-      workflowsPath: resolve(__dirname, 'DestroyAppWorkflow.ts'),
+      workflowBundle: await bundled(resolve(__dirname, 'DestroyAppWorkflow.ts')),
       activities: { DestroyAppActivity: async (args: { name: string; namespace?: string }) => { destroyed.push(`${args.name} in ${args.namespace}`); seen.push('destroyed'); return { status: 'destroyed', msg: '' }; } },
     });
     const app = { name: 'shop', clusterId: 'c', clusterName: 'system', provider: 'k3d', strategy: 'helm', logFile: '/tmp/x.log', appType: 'odoo-project', namespace: 'shop-1a2b3c' };

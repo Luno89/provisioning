@@ -5,7 +5,7 @@ import { Worker } from '@temporalio/worker';
 import { ApplicationFailure } from '@temporalio/common';
 import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
-import { timeSkippingTestEnvironment } from './temporal-test-env.js';
+import { bundled, timeSkippingTestEnvironment } from './temporal-test-env.js';
 import { startedFor } from '../platform/lib/workflow-owner.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -55,7 +55,7 @@ function activities(script: Script, done: string[]) {
 async function run(script: Script): Promise<string[]> {
   const done: string[] = [];
   const taskQueue = `root-node-${Math.random().toString(36).slice(2, 8)}`;
-  const worker = await Worker.create({ ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: env.namespace ?? 'default', taskQueue, workflowsPath: resolve(__dirname, 'RootNodeWorkflow.ts'), activities: activities(script, done) });
+  const worker = await Worker.create({ ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: env.namespace ?? 'default', taskQueue, workflowBundle: await bundled(resolve(__dirname, 'RootNodeWorkflow.ts')), activities: activities(script, done) });
   await worker.runUntil(env.client.workflow.execute('RootNodeWorkflow', { workflowId: `root-node-${taskQueue}`, taskQueue, args: ['order-1'], ...startedFor('op') }));
   return done;
 }
@@ -83,7 +83,7 @@ describe('following a bought server until root runs on it', () => {
   it('records that it stopped following when cancelled, and says the server is still bought', async () => {
     const done: string[] = [];
     const taskQueue = `root-node-${Math.random().toString(36).slice(2, 8)}`;
-    const worker = await Worker.create({ ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: env.namespace ?? 'default', taskQueue, workflowsPath: resolve(__dirname, 'RootNodeWorkflow.ts'), activities: activities({ undelivered: 1_000_000 }, done) });
+    const worker = await Worker.create({ ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: env.namespace ?? 'default', taskQueue, workflowBundle: await bundled(resolve(__dirname, 'RootNodeWorkflow.ts')), activities: activities({ undelivered: 1_000_000 }, done) });
     await worker.runUntil(async () => {
       const handle = await env.client.workflow.start('RootNodeWorkflow', { workflowId: `root-node-${taskQueue}`, taskQueue, args: ['order-1'], ...startedFor('op') });
       while (done.filter((step) => step === 'follow').length < 2) await new Promise((wait) => setTimeout(wait, 50));

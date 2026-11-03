@@ -7,7 +7,7 @@ import { fileURLToPath } from 'url';
 import { ApplicationFailure } from '@temporalio/common';
 import type { ConcludeWorkspaceArgs } from '../engine-host/temporal/contracts.js';
 import { WorkspaceConclusionService, WorkspaceNotConcludedError } from '../memory/services/WorkspaceConclusionService.js';
-import { temporalTestEnvironment } from './temporal-test-env.js';
+import { bundled, temporalTestEnvironment } from './temporal-test-env.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -26,7 +26,7 @@ const withWorker = async (activity: (args: ConcludeWorkspaceArgs) => Promise<unk
   const worker = await Worker.create({
     ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: env.namespace ?? 'default',
     taskQueue,
-    workflowsPath: resolve(__dirname, 'ConcludeWorkspaceWorkflow.ts'),
+    workflowBundle: await bundled(resolve(__dirname, 'ConcludeWorkspaceWorkflow.ts')),
     activities: { ConcludeWorkspaceActivity: activity },
   });
   await worker.runUntil(() => body(new WorkspaceConclusionService({ workflows: async () => env.client.workflow, taskQueue })));

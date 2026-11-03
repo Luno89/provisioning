@@ -42,7 +42,7 @@ import { buildDataConverter } from '../platform/lib/temporal-codec.js';
 import { testPayloadBlobs } from '../platform/lib/test-database.js';
 import { loadKeys } from '../platform/lib/keys.js';
 import { PAPER_WRITING } from '../extensions/grove/procedures.js';
-import { timeSkippingTestEnvironment } from './temporal-test-env.js';
+import { bundled, timeSkippingTestEnvironment } from './temporal-test-env.js';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import type { ExternalAgentStepArgs, MachineGitOp, MachineGitResult } from '@koala/engine-core';
@@ -220,7 +220,7 @@ async function runWorkflow(
   const engineWorker = await Worker.create({
     ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: env.namespace ?? 'default',
     taskQueue,
-    workflowsPath: resolve(__dirname, 'AgentRunWorkflow.ts'),
+    workflowBundle: await bundled(resolve(__dirname, 'AgentRunWorkflow.ts')),
     activities: acts.engine,
     ...converted,
   });

@@ -10,7 +10,7 @@ import type { AccountRemovalActivities } from '../../activities/RemoveAccountAct
 import type { Scenario } from '../../eval/level2/scenario.js';
 import type { ScenarioResult } from '../../eval/level2/results.js';
 import type { CheckRunInput } from '../../workflows/CheckRunWorkflow.js';
-import { temporalTestEnvironment } from '../../workflows/temporal-test-env.js';
+import { bundled, temporalTestEnvironment } from '../../workflows/temporal-test-env.js';
 import { ownerIn } from '../../platform/lib/workflow-owner.js';
 import { temporalCheckRunner } from './Level2Service.js';
 
@@ -52,7 +52,7 @@ async function working(runScenario: CheckRunActivities['CheckRunScenarioActivity
   const worker = await Worker.create({
     ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: env.namespace ?? 'default',
     taskQueue,
-    workflowsPath: resolve(here, '../../workflows/index.ts'),
+    workflowBundle: await bundled(resolve(here, '../../workflows/index.ts')),
     activities: { ...check, ...removal, CheckProgressActivity: async (_args: CheckProgressArgs) => undefined },
   });
   await worker.runUntil(() => body(taskQueue));

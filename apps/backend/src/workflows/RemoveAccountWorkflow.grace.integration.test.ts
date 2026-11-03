@@ -7,7 +7,7 @@ import { fileURLToPath } from 'url';
 import { ACTIVITY_STOP_GRACE_MS, REMOVE_ACCOUNT_WORKFLOW, removeAccountWorkflowId } from '../accounts/lib/account-removal.js';
 import { temporalRemovalWorkflows } from '../accounts/services/AccountRemovalService.js';
 import type { AccountRemovalActivities } from '../activities/RemoveAccountActivities.js';
-import { timeSkippingTestEnvironment } from './temporal-test-env.js';
+import { bundled, timeSkippingTestEnvironment } from './temporal-test-env.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -39,7 +39,7 @@ const withWorker = async (activities: AccountRemovalActivities, body: (workflows
   const worker = await Worker.create({
     ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: env.namespace ?? 'default',
     taskQueue,
-    workflowsPath: resolve(__dirname, 'RemoveAccountWorkflow.ts'),
+    workflowBundle: await bundled(resolve(__dirname, 'RemoveAccountWorkflow.ts')),
     activities,
   });
   await worker.runUntil(() => body(temporalRemovalWorkflows(() => env.client, taskQueue)));

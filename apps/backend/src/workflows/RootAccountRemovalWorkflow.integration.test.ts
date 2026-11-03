@@ -5,7 +5,7 @@ import { Worker } from '@temporalio/worker';
 import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
 import { ROOT_REMOVAL_WORKFLOW, removeAccountWorkflowId } from '../accounts/lib/account-removal.js';
-import { temporalTestEnvironment } from './temporal-test-env.js';
+import { bundled, temporalTestEnvironment } from './temporal-test-env.js';
 import type { RootAccountRemovalWorkflow } from './RootAccountRemovalWorkflow.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -26,7 +26,7 @@ const run = async (poolInstanceId: string | undefined) => {
   const worker = await Worker.create({
     ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: env.namespace ?? 'default',
     taskQueue,
-    workflowsPath: resolve(__dirname, 'RootAccountRemovalWorkflow.ts'),
+    workflowBundle: await bundled(resolve(__dirname, 'RootAccountRemovalWorkflow.ts')),
     activities: {
       RootRemovalInstanceActivity: async () => { seen.push('find instance'); return poolInstanceId ? { poolInstanceId } : {}; },
       PoolRemoveActivity: async ({ instanceId }: { instanceId: string }) => { seen.push(`remove pool instance ${instanceId}`); },

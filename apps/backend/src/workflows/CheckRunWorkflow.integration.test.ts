@@ -12,7 +12,7 @@ import type { ScenarioResult } from '../eval/level2/results.js';
 import type { CheckRunOutcome } from './CheckRunWorkflow.js';
 import { ownerIn, startedFor } from '../platform/lib/workflow-owner.js';
 import { removeAccountWorkflowId } from '../accounts/lib/account-removal.js';
-import { temporalTestEnvironment } from './temporal-test-env.js';
+import { bundled, temporalTestEnvironment } from './temporal-test-env.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -54,7 +54,7 @@ function harness(runScenario: CheckRunActivities['CheckRunScenarioActivity'], le
     const worker = await Worker.create({
       ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: env.namespace ?? 'default',
       taskQueue,
-      workflowsPath: resolve(__dirname, 'index.ts'),
+      workflowBundle: await bundled(resolve(__dirname, 'index.ts')),
       activities: { ...check, ...removal, CheckProgressActivity: async (args: CheckProgressArgs) => { progress.push(args); } },
     });
     await worker.runUntil(() => body(taskQueue));

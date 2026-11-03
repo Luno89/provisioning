@@ -4,7 +4,7 @@ import { TestWorkflowEnvironment } from '@temporalio/testing';
 import { Worker } from '@temporalio/worker';
 import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
-import { timeSkippingTestEnvironment } from './temporal-test-env.js';
+import { bundled, timeSkippingTestEnvironment } from './temporal-test-env.js';
 import { startedFor } from '../platform/lib/workflow-owner.js';
 import { afterStep, DAY_MS, extendedTrial, nextTrialStep, type TrialState, type TrialStep } from '../instances/lib/pool-trial.js';
 
@@ -29,7 +29,7 @@ describe('a pool instance\'s trial', () => {
     const worker = await Worker.create({
       ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: env.namespace ?? 'default',
       taskQueue,
-      workflowsPath: resolve(__dirname, 'PoolTrialWorkflow.ts'),
+      workflowBundle: await bundled(resolve(__dirname, 'PoolTrialWorkflow.ts')),
       activities: {
         PoolTrialNextActivity: async ({ now }: { instanceId: string; now: number }) => (state ? nextTrialStep(state, now) : null),
         PoolTrialStepActivity: async ({ step, now }: { instanceId: string; step: TrialStep; now: number }) => {
@@ -55,7 +55,7 @@ describe('a pool instance\'s trial', () => {
     const worker = await Worker.create({
       ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: env.namespace ?? 'default',
       taskQueue,
-      workflowsPath: resolve(__dirname, 'PoolTrialWorkflow.ts'),
+      workflowBundle: await bundled(resolve(__dirname, 'PoolTrialWorkflow.ts')),
       activities: {
         PoolTrialNextActivity: async ({ now }: { instanceId: string; now: number }) => (state ? nextTrialStep(state, now) : null),
         PoolTrialStepActivity: async ({ step, now }: { instanceId: string; step: TrialStep; now: number }) => {
@@ -90,7 +90,7 @@ describe('a pool instance\'s trial', () => {
     const worker = await Worker.create({
       ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: env.namespace ?? 'default',
       taskQueue,
-      workflowsPath: resolve(__dirname, 'PoolTrialWorkflow.ts'),
+      workflowBundle: await bundled(resolve(__dirname, 'PoolTrialWorkflow.ts')),
       activities: {
         PoolTrialNextActivity: async ({ now }: { instanceId: string; now: number }) => {
           if (moved) return null;

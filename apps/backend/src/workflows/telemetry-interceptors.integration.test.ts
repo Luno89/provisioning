@@ -7,7 +7,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { currentTraceId, traceActivities, traceWorkflowStarts, withSpan, type TelemetrySignal, type TelemetrySink } from '@koala/engine-core/telemetry';
 import { startTelemetry, type Telemetry } from '@koala/engine-core/telemetry-sdk';
-import { temporalTestEnvironment } from './temporal-test-env.js';
+import { bundled, temporalTestEnvironment } from './temporal-test-env.js';
 import type { TraceProbeActivities } from './testing/trace-probe-workflow.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -36,15 +36,15 @@ afterAll(async () => {
   await telemetry?.shutdown();
 });
 
-const probeWorker = (taskQueue: string, seen: Map<string, string | undefined>): Promise<Worker> => {
+const probeWorker = async (taskQueue: string, seen: Map<string, string | undefined>): Promise<Worker> => {
   const activities: TraceProbeActivities = {
     Probe: async (label) => { seen.set(label, currentTraceId()); },
   };
   return Worker.create({
     ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: env.namespace ?? 'default',
     taskQueue,
-    workflowsPath: resolve(__dirname, 'testing/trace-probe-workflow.ts'),
-    interceptors: { activity: [traceActivities()], workflowModules: [resolve(__dirname, 'telemetry-interceptors.ts')] },
+    workflowBundle: await bundled(resolve(__dirname, 'testing/trace-probe-workflow.ts'), [resolve(__dirname, 'telemetry-interceptors.ts')]),
+    interceptors: { activity: [traceActivities()] },
     activities,
   });
 };

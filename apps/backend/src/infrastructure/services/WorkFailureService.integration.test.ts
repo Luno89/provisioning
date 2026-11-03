@@ -6,7 +6,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { testDatabase } from '../../platform/lib/test-database.js';
 import { startedFor } from '../../platform/lib/workflow-owner.js';
 import { DEFAULT_STREAM_TASK_QUEUE, type WorkflowFailedReport } from '../../engine-host/temporal/contracts.js';
-import { temporalTestEnvironment } from '../../workflows/temporal-test-env.js';
+import { bundled, temporalTestEnvironment } from '../../workflows/temporal-test-env.js';
 import { WorkFailureService } from './WorkFailureService.js';
 
 const NOW = new Date('2026-10-17T12:00:00Z');
@@ -79,8 +79,7 @@ describe('a workflow that fails tells the backend itself', () => {
     const reports: WorkflowFailedReport[] = [];
     const workflows = await Worker.create({
       ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace, taskQueue,
-      workflowsPath: resolve(__dirname, '../testing/failure.fixture-workflow.ts'),
-      interceptors: { workflowModules: [resolve(__dirname, '../../workflows/failure-reports.ts')] },
+      workflowBundle: await bundled(resolve(__dirname, '../testing/failure.fixture-workflow.ts'), [resolve(__dirname, '../../workflows/failure-reports.ts')]),
     });
     const stream = await Worker.create({
       ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace, taskQueue: DEFAULT_STREAM_TASK_QUEUE,
