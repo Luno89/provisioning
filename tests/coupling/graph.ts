@@ -149,8 +149,12 @@ export function buildGraph(options: GraphOptions): Graph {
     };
 
     const implementations = new Map<ts.Node, Set<ts.Node>>();
+    const implementedOutside = new Set<ts.Node>();
     const implement = (member: ts.Node, body: ts.Node) => {
-      if (!ownCode(body.getSourceFile().fileName)) return;
+      if (!ownCode(body.getSourceFile().fileName)) {
+        implementedOutside.add(member);
+        return;
+      }
       const known = implementations.get(member) ?? new Set<ts.Node>();
       known.add(body);
       implementations.set(member, known);
@@ -282,7 +286,7 @@ export function buildGraph(options: GraphOptions): Graph {
               } else if (isMember(declaration) || ts.isCallSignatureDeclaration(declaration)) {
                 const real = implementationsOf(declaration).map(unitOf).filter((unit) => !unit.inTest);
                 const elsewhere = real.filter((unit) => unit.file !== from.file);
-                if (real.length === 0 || elsewhere.length > 0) edges.push({ from: from.id, site, to: elsewhere.map((unit) => unit.id), through: 'interface' });
+                if ((real.length === 0 && !implementedOutside.has(declaration)) || elsewhere.length > 0) edges.push({ from: from.id, site, to: elsewhere.map((unit) => unit.id), through: 'interface' });
               } else if (ts.isVariableDeclaration(declaration)) {
                 const body = functionOf(declaration);
                 if (body && target !== from.file) edges.push({ from: from.id, site, to: [unitOf(body).id], through: 'call' });

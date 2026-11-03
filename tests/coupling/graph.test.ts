@@ -42,8 +42,9 @@ describe('the edge graph', () => {
     expect(start && named(graph, start.to)).toEqual(['src/lib/made.ts#start']);
   });
 
-  it('never takes a library\'s own declaration as what implements an interface', () => {
+  it('never takes a library\'s own declaration as what implements an interface, and leaves out a call only a library implements', () => {
     expect(Object.values(graph.units).some((unit) => unit.file.includes('node_modules') || unit.file.endsWith('.d.ts'))).toBe(false);
+    expect(graph.edges.filter((edge) => edge.site.file === 'src/wiring.ts' && edge.to.length === 0)).toEqual([]);
   });
 
   it('keeps a call whose result another call is chained on', () => {
