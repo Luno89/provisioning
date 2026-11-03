@@ -8,10 +8,12 @@ import * as deploymentsApi from '../features/infrastructure/api/deployments';
 import * as nginxApi from '../features/infrastructure/api/nginx';
 import * as authApi from '../features/platform/api';
 import * as credentialsApi from '../features/infrastructure/api/credentials';
+import * as identityApi from '../features/instances/api/identity';
 
 vi.mock('../features/infrastructure/api/clusters', async (o) => ({ ...(await o<typeof clustersApi>()), listClusters: vi.fn() }));
 vi.mock('../features/infrastructure/api/deployments', async (o) => ({ ...(await o<typeof deploymentsApi>()), listDeployments: vi.fn() }));
 vi.mock('../features/infrastructure/api/credentials', async (o) => ({ ...(await o<typeof credentialsApi>()), listProviders: vi.fn() }));
+vi.mock('../features/instances/api/identity', async (o) => ({ ...(await o<typeof identityApi>()), getMyInstance: vi.fn() }));
 vi.mock('../features/platform/api', async (o) => ({ ...(await o<typeof authApi>()), getMe: vi.fn(), logout: vi.fn() }));
 vi.mock('../features/infrastructure/api/nginx', async (o) => ({
   ...(await o<typeof nginxApi>()), getNginxConfig: vi.fn(), saveNginxConfig: vi.fn(),
@@ -38,6 +40,7 @@ describe('Nginx Ingress Proxy Wizard', () => {
     vi.clearAllMocks();
     vi.mocked(authApi.getMe).mockResolvedValue({ id: 'u1', email: 'u@example.com' });
     vi.mocked(credentialsApi.listProviders).mockResolvedValue([]);
+    vi.mocked(identityApi.getMyInstance).mockResolvedValue(null);
     vi.mocked(clustersApi.listClusters).mockResolvedValue(
       [{ id: 'c1', name: 'Dev-Cluster', status: 'healthy', provider: 'k3d' }] as never,
     );

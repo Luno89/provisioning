@@ -298,7 +298,7 @@ export default function Login({ onSuccess, invite }: LoginProps) {
           <>
             <form onSubmit={handleNativeSubmit} className="space-y-6">
               <div>
-                <label className="block text-xs font-semibold text-[#8c94a6] uppercase tracking-wider mb-2">
+                <label htmlFor="sign-in-email" className="block text-xs font-semibold text-[#8c94a6] uppercase tracking-wider mb-2">
                   Email Address
                 </label>
                 <div className="relative">
@@ -306,7 +306,9 @@ export default function Login({ onSuccess, invite }: LoginProps) {
                     <Mail className="h-5 w-5 text-gray-500" />
                   </div>
                   <input
+                    id="sign-in-email"
                     type="email"
+                    autoComplete="email"
                     required
                     placeholder="you@example.com"
                     value={email}
@@ -317,7 +319,7 @@ export default function Login({ onSuccess, invite }: LoginProps) {
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-[#8c94a6] uppercase tracking-wider mb-2">
+                <label htmlFor="sign-in-password" className="block text-xs font-semibold text-[#8c94a6] uppercase tracking-wider mb-2">
                   Password
                 </label>
                 <div className="relative">
@@ -325,7 +327,9 @@ export default function Login({ onSuccess, invite }: LoginProps) {
                     <Lock className="h-5 w-5 text-gray-500" />
                   </div>
                   <input
+                    id="sign-in-password"
                     type="password"
+                    autoComplete={isRegister ? 'new-password' : 'current-password'}
                     required
                     placeholder="••••••••"
                     value={password}
@@ -352,7 +356,7 @@ export default function Login({ onSuccess, invite }: LoginProps) {
 
               {isRegister && (
                 <div>
-                  <label className="block text-xs font-semibold text-[#8c94a6] uppercase tracking-wider mb-2">
+                  <label htmlFor="sign-up-invite" className="block text-xs font-semibold text-[#8c94a6] uppercase tracking-wider mb-2">
                     Invite Code
                   </label>
                   <div className="relative">
@@ -360,6 +364,7 @@ export default function Login({ onSuccess, invite }: LoginProps) {
                       <ShieldCheck className="h-5 w-5 text-gray-500" />
                     </div>
                     <input
+                      id="sign-up-invite"
                       type="text"
                       placeholder="From an admin, or the setup code for the first account"
                       value={inviteCode}

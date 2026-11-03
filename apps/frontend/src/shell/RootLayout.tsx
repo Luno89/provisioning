@@ -128,9 +128,10 @@ export function RootLayout() {
     if (placement.data && !placement.data.servesTenants && placement.data.instance && !placement.data.instance.unreachableSince && !adminPage && !removalPage && !joinPage) window.location.assign(INSTANCE_GO_URL);
   }, [placement.data, adminPage, removalPage, joinPage]);
 
-  const { data: clusters = [] } = useQuery({ queryKey: clusterKeys.list(), queryFn: listClusters, refetchInterval: 3000 });
-  const { data: deployments = [] } = useQuery({ queryKey: deploymentKeys.list(), queryFn: listDeployments, refetchInterval: 3000 });
-  const { data: providers = [] } = useQuery({ queryKey: credentialKeys.list(), queryFn: listProviders });
+  const tenant = Boolean(user) && !user?.onHub && placement.isSuccess && (placement.data?.servesTenants ?? true);
+  const { data: clusters = [] } = useQuery({ queryKey: clusterKeys.list(), queryFn: listClusters, refetchInterval: 3000, enabled: tenant });
+  const { data: deployments = [] } = useQuery({ queryKey: deploymentKeys.list(), queryFn: listDeployments, refetchInterval: 3000, enabled: tenant });
+  const { data: providers = [] } = useQuery({ queryKey: credentialKeys.list(), queryFn: listProviders, enabled: tenant });
 
   const currentDeployment = showLogModal?.type === 'app' ? deployments.find((d) => d.id === showLogModal.id) : null;
   const currentCluster = showLogModal?.type === 'cluster' ? clusters.find((c) => c.id === showLogModal.id) : null;

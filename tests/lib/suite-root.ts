@@ -17,6 +17,7 @@ export interface SuiteRoot {
 export interface FirstAdmin {
   id: string;
   email: string;
+  password: string;
   cookie: string;
 }
 
@@ -52,7 +53,7 @@ export async function firstAdmin(rootUrl: string, root: SuiteRoot): Promise<Firs
   if (signedIn.status !== 200 || !body.user) throw new Error(`the first admin could not sign in on ${rootUrl}: ${signedIn.status} ${body.error ?? ''}`);
   const cookie = signedIn.headers.getSetCookie().map((line) => line.split(';')[0]!).find((pair) => /^(__Host-)?session=/.test(pair));
   if (!cookie) throw new Error(`signing in on ${rootUrl} set no session cookie`);
-  return { id: body.user.id, email: body.user.email, cookie };
+  return { id: body.user.id, email: body.user.email, password, cookie };
 }
 
 export function forgetMeshUser(ownerId: string): void {
