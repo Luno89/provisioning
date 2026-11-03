@@ -5,7 +5,7 @@ export { watchingAll, watchWrites } from './lib/change-streams.js';
 export { REOPEN_FIRST_MS, REOPEN_MOST_MS, reopening, type Reopening } from './lib/reopening.js';
 export type { Watching } from './lib/change-streams.js';
 export { trustProxyFor } from './lib/client-address.js';
-export { clientOptionsFor } from './lib/collection.js';
+export { clientOptionsFor, mongoClientFor } from './lib/collection.js';
 export type { AreaStore } from './lib/collection.js';
 export { CommandFailedError } from './lib/command-error.js';
 export { decryptValue, encryptValue, keyId, maskSecret, ringOf } from './lib/crypto.js';

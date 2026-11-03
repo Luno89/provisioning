@@ -1,4 +1,4 @@
-import type { Collection as DriverCollection, Db, Document, Filter, IndexDescription, MongoClientOptions, Sort } from 'mongodb';
+import { MongoClient, type Collection as DriverCollection, type Db, type Document, type Filter, type IndexDescription, type MongoClientOptions, type Sort } from 'mongodb';
 
 export type Identified = { id: string };
 
@@ -16,6 +16,10 @@ export function connectsDirectly(uri: string): boolean {
 
 export function clientOptionsFor(uri: string): MongoClientOptions {
   return connectsDirectly(uri) ? { ...CLIENT_OPTIONS, directConnection: true } : { ...CLIENT_OPTIONS };
+}
+
+export function mongoClientFor(uri: string): MongoClient {
+  return new MongoClient(uri, clientOptionsFor(uri));
 }
 
 export function fromDoc<T extends Identified>(doc: Document | null | undefined): T {
