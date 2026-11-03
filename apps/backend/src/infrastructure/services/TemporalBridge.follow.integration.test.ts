@@ -32,7 +32,7 @@ describe('following work Koala started anywhere to its end', () => {
       return following;
     });
     const taskQueue = `follow-${Math.random().toString(36).slice(2, 8)}`;
-    const worker = await Worker.create({ ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace, taskQueue, workflowsPath: resolve(__dirname, 'follow.fixture-workflow.ts') });
+    const worker = await Worker.create({ ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace, taskQueue, workflowsPath: resolve(__dirname, '../testing/follow.fixture-workflow.ts') });
     const app = (id: string, extra: Partial<DeploymentMetadata> = {}): DeploymentMetadata => ({ id, name: id, clusterId: 'c1', strategy: 'helm', status: 'deploying', ownerId: 'u1', temporalWorkflowId: '', ...extra });
 
     await worker.runUntil(async () => {

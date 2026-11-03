@@ -79,7 +79,7 @@ describe('a workflow that fails tells the backend itself', () => {
     const reports: WorkflowFailedReport[] = [];
     const workflows = await Worker.create({
       ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace, taskQueue,
-      workflowsPath: resolve(__dirname, 'failure.fixture-workflow.ts'),
+      workflowsPath: resolve(__dirname, '../testing/failure.fixture-workflow.ts'),
       interceptors: { workflowModules: [resolve(__dirname, '../../workflows/failure-reports.ts')] },
     });
     const stream = await Worker.create({

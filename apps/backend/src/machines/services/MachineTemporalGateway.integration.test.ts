@@ -10,7 +10,7 @@ import { buildDataConverter, type BlobReach } from '@koala/engine-core/payloads'
 import { temporalTestEnvironment } from '../../workflows/temporal-test-env.js';
 import { testPayloadBlobs } from '../../platform/lib/test-database.js';
 import { MachineTemporalGateway } from './MachineTemporalGateway.js';
-import { askMachine } from './MachineTemporalGateway.fixture-workflow.js';
+import { askMachine } from '../testing/MachineTemporalGateway.fixture-workflow.js';
 
 let env: TestWorkflowEnvironment;
 let gateway: MachineTemporalGateway;
@@ -91,7 +91,7 @@ describe('a machine reaching Temporal through the gateway', () => {
       taskQueue: 'device-d1',
       activities: { Echo: async (text: string) => { Context.current().heartbeat(); return `machine says ${text}`; } },
     });
-    const workflows = await Worker.create({ ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: env.namespace ?? 'default', taskQueue: 'gateway-test', workflowsPath: resolve(__dirname, 'MachineTemporalGateway.fixture-workflow.ts') });
+    const workflows = await Worker.create({ ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: env.namespace ?? 'default', taskQueue: 'gateway-test', workflowsPath: resolve(__dirname, '../testing/MachineTemporalGateway.fixture-workflow.ts') });
     const answer = await workflows.runUntil(machine.runUntil(env.client.workflow.execute(askMachine, { taskQueue: 'gateway-test', workflowId: `ask-${Date.now()}`, args: ['d1', 'hello'] })));
     expect(answer).toBe('machine says hello');
   }, 120_000);
@@ -105,7 +105,7 @@ describe('a machine reaching Temporal through the gateway', () => {
       activities: { Echo: async (text: string) => `machine says ${text}` },
     });
     const converter = buildDataConverter(PAYLOAD_KEY, blobs);
-    const workflows = await Worker.create({ ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: env.namespace ?? 'default', taskQueue: 'gateway-big', dataConverter: converter, workflowsPath: resolve(__dirname, 'MachineTemporalGateway.fixture-workflow.ts') });
+    const workflows = await Worker.create({ ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: env.namespace ?? 'default', taskQueue: 'gateway-big', dataConverter: converter, workflowsPath: resolve(__dirname, '../testing/MachineTemporalGateway.fixture-workflow.ts') });
     const client = new Client({ connection: env.connection, namespace: env.namespace ?? 'default', dataConverter: converter });
     const pasted = 'a'.repeat(100) + Buffer.alloc(200_000).map(() => Math.floor(Math.random() * 26) + 97).toString();
     const before = new Set((await stored()).map((blob) => blob.id));

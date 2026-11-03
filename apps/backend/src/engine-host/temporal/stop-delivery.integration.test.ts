@@ -19,7 +19,7 @@ beforeAll(async () => {
   worker = await Worker.create({
     ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: env.namespace ?? 'default',
     taskQueue: QUEUE,
-    workflowsPath: resolve(__dirname, 'stop-delivery.fixture-workflow.ts'),
+    workflowsPath: resolve(__dirname, 'testing/stop-delivery.fixture-workflow.ts'),
     maxHeartbeatThrottleInterval: STOPS_ARRIVE_WITHIN_MS,
     interceptors: { activity: [heartbeatWhileRunning()] },
     activities: {
