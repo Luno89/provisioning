@@ -2023,7 +2023,9 @@ real. It works like Lighthouse, gather apart from audit:
 - **Audit** (`tests/coupling/audit.ts`, `--require in-process`) builds the graph, joins it with what was gathered, and writes
   `result.json`, `report.html` (breaches, areas and edges, filtered and sorted) and `summary.txt`. Each rule says what it needs
   and is skipped, saying so, without it:
-  - **R1**: an edge within a process is run for real only by live suites, or by none;
+  - **R1**: an edge within a process is run for real only by live suites, or by none; an edge whose caller is startup code
+    (`apps/backend/src/index.ts`, `worker-*.ts`, an area's `wiring/`; `isStartupCode`) counts as run for real when the live stack
+    ran it (owner, 2026-11-03), since nothing below live starts a process;
   - **R2**: an edge between areas or processes is never run together with what calls it (an entry point: by no test);
   - **R3**: an edge between processes is run only by live suites, or by none;
   - **R4**: a call with no implementation found, or one made through `any`;
@@ -2040,7 +2042,8 @@ real. It works like Lighthouse, gather apart from audit:
   `NODE_V8_COVERAGE` and `tests/coupling/live-hook.mjs` (the backend and each worker record their pid and, when the sampler writes a
   new request id to `tests/.coupling/live/request`, write what ran since the last time with `v8.takeCoverage()`; never a signal,
   since Temporal's workers take `SIGUSR2` as an order to shut down). `runSteps` then samples the stack around every `*-live` step (`tests/coupling/live.ts`:
-  `discard` before, `sample tests/<suite>.ts` after, `convert` mapping each file back to TypeScript through the source maps the
+  `discard` before, `sample tests/<suite>.ts` after, each suite's sample replacing its last; a process's first sample, which holds
+  everything it ran while starting, is kept as the `startup` run, a live one, for as long as that process runs, `convert` mapping each file back to TypeScript through the source maps the
   coverage carries) and records it, so the audit counts those edges at the `live` level. A dev stack started without it changes
   nothing.
 - Ship gathers with `npm run test:integration:coupled` after the unit tier and lint, and judges once, last, with

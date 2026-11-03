@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { originalPositionFor, TraceMap, type SourceMapInput } from '@jridgewell/trace-mapping';
 import { commitOf, OUT, record, ROOT, runsOf, sourceOf } from './artifacts.js';
 import type { Position, Ran, RanRange } from './collect.js';
+import { STARTUP } from './report.js';
 
 export const LIVE = join(OUT, 'live');
 
@@ -38,6 +39,16 @@ const answeredWith = (dir: string, pid: number): string => {
 
 export const labelFile = (label: string): string => label.replace(/[^A-Za-z0-9.-]+/g, '_');
 
+const pidOf = (coverageFile: string): number | undefined => {
+  const found = /^coverage-(\d+)-/.exec(coverageFile)?.[1];
+  return found === undefined ? undefined : Number(found);
+};
+
+const firstAnswerOf = (dir: string, pid: number): string => {
+  const file = join(pids(dir), `${pid}.first`);
+  return existsSync(file) ? readFileSync(file, 'utf8') : '';
+};
+
 export async function sample(label: string | undefined, dir = LIVE): Promise<void> {
   const before = new Set(coverageFiles(dir));
   const asked = liveProcesses(dir);
@@ -49,14 +60,27 @@ export async function sample(label: string | undefined, dir = LIVE): Promise<voi
     await new Promise((done) => setTimeout(done, 100));
   }
   const taken = coverageFiles(dir).filter((name) => !before.has(name));
-  if (label === undefined) {
-    for (const name of taken) rmSync(join(raw(dir), name), { force: true });
-    return;
+  const startup = join(raw(dir), STARTUP);
+  mkdirSync(startup, { recursive: true });
+  writeFileSync(join(startup, 'label'), STARTUP);
+  const running = new Set(liveProcesses(dir));
+  for (const kept of readdirSync(startup).filter((name) => name.endsWith('.json'))) {
+    if (!running.has(pidOf(kept) ?? -1)) rmSync(join(startup, kept), { force: true });
   }
-  const into = join(raw(dir), labelFile(label));
-  mkdirSync(into, { recursive: true });
-  writeFileSync(join(into, 'label'), label);
-  for (const name of taken) renameSync(join(raw(dir), name), join(into, name));
+  let into: string | undefined;
+  if (label !== undefined) {
+    into = join(raw(dir), labelFile(label));
+    rmSync(into, { recursive: true, force: true });
+    mkdirSync(into, { recursive: true });
+    writeFileSync(join(into, 'label'), label);
+  }
+  for (const name of taken) {
+    const pid = pidOf(name);
+    const first = pid !== undefined && firstAnswerOf(dir, pid) === id;
+    if (first) renameSync(join(raw(dir), name), join(startup, name));
+    else if (into) renameSync(join(raw(dir), name), join(into, name));
+    else rmSync(join(raw(dir), name), { force: true });
+  }
 }
 
 function generatedAt(lineLengths: readonly number[], offset: number): Position {

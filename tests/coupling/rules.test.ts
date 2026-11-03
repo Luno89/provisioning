@@ -130,4 +130,23 @@ describe('R5, the layers a service, route or activity is tested at', () => {
       ['R5 apps/backend/src/hub/services/Never.ts#never', 'no test runs it'],
     ]);
   });
+
+  it('takes an edge from startup code as run for real when the live stack ran it, and nothing else', () => {
+    const started: Graph = {
+      units: {
+        main: unit('main', 'apps/backend/src/worker-engine.ts'),
+        wire: unit('wire', 'apps/backend/src/hub/wiring/hub.ts'),
+        service: unit('service', 'apps/backend/src/x/service.ts'),
+        store: unit('store', 'apps/backend/src/x/store.ts'),
+      },
+      edges: [edge('main', ['service'], 'call', 1), edge('wire', ['service'], 'temporal', 2), edge('service', ['store'], 'interface', 3)],
+      unresolved: [],
+      unmatched: [],
+    };
+    const live = [by('live', true)];
+    const found = breaches(started.edges.map((entry) => ({ edge: entry, crosses: 'area' as const, covered: live, lowest: 'live' as const, withCallerAt: 'live' as const })), started);
+    expect(rulesOf(found)).toEqual(['R1 apps/backend/src/x/service.ts:3']);
+    const unrun = breaches(started.edges.map((entry) => ({ edge: entry, crosses: 'area' as const, covered: [], lowest: undefined, withCallerAt: undefined })), started);
+    expect(rulesOf(unrun).filter((line) => !line.startsWith('R2'))).toEqual(['R1 apps/backend/src/x/main.ts:1', 'R3 apps/backend/src/x/wire.ts:2', 'R1 apps/backend/src/x/service.ts:3']);
+  });
 });

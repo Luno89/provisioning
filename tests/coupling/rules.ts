@@ -48,6 +48,10 @@ const CROSS_PROCESS: ReadonlySet<Edge['through']> = new Set(['temporal', 'socket
 
 export const crossesProcess = (edge: Edge): boolean => CROSS_PROCESS.has(edge.through);
 
+const STARTUP_CODE = /^apps\/backend\/src\/((index|worker-[a-z]+)\.ts$|[a-z-]+\/wiring\/)/;
+
+export const isStartupCode = (file: string): boolean => STARTUP_CODE.test(file);
+
 export function breaches(judged: readonly Judged[], graph: Graph, rules: readonly Rule[] = RULES): Breach[] {
   const name = (id: string) => { const unit = graph.units[id]; return unit ? `${unit.file}#${unit.name}` : id; };
   const callers = new Map<string, number>();
@@ -63,7 +67,8 @@ export function breaches(judged: readonly Judged[], graph: Graph, rules: readonl
     }
     const crossing = crossesProcess(edge);
     const below = entry.covered.some((covered) => BELOW_LIVE.has(covered.level));
-    if (!below) {
+    const startedLive = isStartupCode(graph.units[edge.from]?.file ?? '') && entry.covered.some((covered) => covered.level === 'live');
+    if (!below && !startedLive) {
       const rule: Rule = crossing ? 'R3' : 'R1';
       const why = entry.covered.length > 0 ? `covered only at ${entry.lowest}` : 'no test runs both sides for real';
       found.push({ rule, key: `${rule} ${pair}`, at, why });

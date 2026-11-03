@@ -6,7 +6,9 @@ import type { Judged, Level } from './join.js';
 import { areaOf } from './workspaces.js';
 
 
-export const levelOf = (testFile: string): Level => (/-live\.ts$/.test(testFile) ? 'live' : /\.integration\.test\.[a-z]+$/.test(testFile) ? 'component' : 'unit');
+export const STARTUP = 'startup';
+
+export const levelOf = (testFile: string): Level => (/-live\.ts$/.test(testFile) || testFile === STARTUP ? 'live' : /\.integration\.test\.[a-z]+$/.test(testFile) ? 'component' : 'unit');
 
 export function runsIn(dir: string): Ran[] {
   return readdirSync(dir).filter((file) => file.endsWith('.json')).map((file) => JSON.parse(readFileSync(join(dir, file), 'utf8')) as Ran);

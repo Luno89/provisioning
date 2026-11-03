@@ -21,6 +21,7 @@ if (dir && process.env.NODE_V8_COVERAGE && isMainThread && koala) {
       return;
     }
     if (!asked || asked === answered) return;
+    if (!answered) writeFileSync(join(pids, `${process.pid}.first`), asked);
     answered = asked;
     v8.takeCoverage();
     writeFileSync(join(pids, `${process.pid}.taken`), asked);
