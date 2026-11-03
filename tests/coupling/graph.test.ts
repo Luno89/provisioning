@@ -42,6 +42,10 @@ describe('the edge graph', () => {
     expect(start && named(graph, start.to)).toEqual(['src/lib/made.ts#start']);
   });
 
+  it('never takes a library\'s own declaration as what implements an interface', () => {
+    expect(Object.values(graph.units).some((unit) => unit.file.includes('node_modules') || unit.file.endsWith('.d.ts'))).toBe(false);
+  });
+
   it('keeps a call whose result another call is chained on', () => {
     const loud = graph.edges.find((edge) => graph.units[edge.from]?.name === 'loud');
     expect(loud && named(graph, loud.to)).toEqual(['src/lib/shout.ts#shout']);

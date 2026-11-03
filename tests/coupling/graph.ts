@@ -150,6 +150,7 @@ export function buildGraph(options: GraphOptions): Graph {
 
     const implementations = new Map<ts.Node, Set<ts.Node>>();
     const implement = (member: ts.Node, body: ts.Node) => {
+      if (!ownCode(body.getSourceFile().fileName)) return;
       const known = implementations.get(member) ?? new Set<ts.Node>();
       known.add(body);
       implementations.set(member, known);
