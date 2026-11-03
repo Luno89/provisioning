@@ -51,7 +51,10 @@ async function chats(watching: Watched, model: ModelStandIn): Promise<void> {
   await custom.getByRole('button', { name: 'Connect' }).click();
   await custom.getByLabel('Base URL').fill(model.baseUrl);
   await custom.getByLabel('Model Name').fill(model.model);
+  const saved = page.waitForResponse((response) => response.url().endsWith('/api/llm') && response.request().method() === 'POST');
   await custom.getByRole('button', { name: 'Connect and fetch models' }).click();
+  const answer = await saved;
+  console.log(`  saving the endpoint answered ${answer.status()}: ${(await answer.text()).slice(0, 300)}`);
   await page.getByLabel('Filter models').first().fill(model.model);
   await page.getByRole('button', { name: new RegExp(model.model) }).first().click();
   await expect(page.getByText(/^Currently:/)).toContainText(model.model);
