@@ -5,7 +5,7 @@ import { Worker } from '@temporalio/worker';
 import type { TestWorkflowEnvironment } from '@temporalio/testing';
 import { WORKER_DEFAULTS } from '@koala/engine-core';
 import { afterAll, beforeAll, describe, expect, inject, it, vi } from 'vitest';
-import type { DeploymentMetadata } from '../../platform/index.js';
+import type { ClusterMetadata, DeploymentMetadata, ProjectMetadata } from '../../platform/index.js';
 import { testDatabase } from '../../platform/lib/test-database.js';
 import { bundled, temporalTestEnvironment } from '../../workflows/temporal-test-env.js';
 import { TemporalBridge } from './TemporalBridge.js';
@@ -82,3 +82,50 @@ describe('cancelling and reading work in Temporal', () => {
     });
   }, 60_000);
 });
+
+describe('settling the work the bridge itself starts', () => {
+  it('destroys a cluster and an app, resizes and syncs an app, and records a build, each settled from its workflow\'s end', async () => {
+    const db = await testDatabase();
+    const namespace = env.namespace ?? 'default';
+    const connection = await Connection.connect({ address: inject('temporalAddress') });
+    const bridge = new TemporalBridge(db);
+    bridge.client = new Client({ connection, namespace });
+    const decided: string[] = [];
+    bridge.decideRelease = async (project, since, commit) => { decided.push(`${project.id} ${since} ${commit}`); return { release: false, reason: 'nothing the app is built from changed' }; };
+    const followings: Promise<void>[] = [];
+    const follow = bridge.follow.bind(bridge);
+    vi.spyOn(bridge, 'follow').mockImplementation((...args) => { const following = follow(...args); followings.push(following); return following; });
+    const app = (id: string, extra: Partial<DeploymentMetadata> = {}): DeploymentMetadata => ({ id, name: id, clusterId: 'c1', strategy: 'helm', status: 'running', ownerId: 'u1', temporalWorkflowId: 'done', ...extra });
+
+    await db.infrastructure.saveClusterInfo({ id: 'c1', name: 'spare', provider: 'k3d', status: 'healthy', ownerId: 'u1' } as ClusterMetadata);
+    await db.infrastructure.saveClusterInfo({ id: 'c2', name: 'old', provider: 'k3d', status: 'healthy', ownerId: 'u1' } as ClusterMetadata);
+    for (const id of ['gone', 'grown', 'synced']) await db.infrastructure.saveDeployment(app(id));
+    const project = { id: 'p1', name: 'Shop', ownerId: 'u1', giteaOwner: 'bo', giteaRepo: 'shop', autoDeployOnBuild: true, createdAt: 't' } as ProjectMetadata;
+    await db.projects.saveProject(project);
+    await db.infrastructure.saveDeployment(app('shop', { appType: 'gitapp', gitappProjectId: 'p1', gitappImageTag: 'reg/bo/shop:aaa' }));
+
+    const bundle = await bundled(resolve(__dirname, '../testing/bridge.fixture-workflow.ts'));
+    const workers = await Promise.all(['host-ops-queue', 'cluster-ops-queue'].map((taskQueue) => Worker.create({ ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace, taskQueue, workflowBundle: bundle })));
+    await workers[0]!.runUntil(workers[1]!.runUntil(async () => {
+      await bridge.destroyCluster('c2');
+      await bridge.destroyApp('gone');
+      await bridge.resizeDisk('grown', { data: '20Gi' });
+      await bridge.syncConfig('synced');
+      const build = await bridge.runPipeline(project, 'b'.repeat(40), 'refs/heads/main');
+      expect(build).toMatchObject({ event: 'pipeline-run' });
+      await Promise.all(followings);
+    }));
+    await bridge.stop();
+    await connection.close();
+
+    expect((await db.infrastructure.getClusters()).map((cluster) => cluster.id)).toEqual(['c1']);
+    const deployments = new Map((await db.infrastructure.getDeployments()).map((dep) => [dep.id, dep]));
+    expect(deployments.has('gone')).toBe(false);
+    expect(deployments.get('grown')).toMatchObject({ status: 'running', storage: { data: '20Gi' } });
+    expect(deployments.get('synced')).toMatchObject({ status: 'unhealthy', healthReason: 'its pod cannot pull its image' });
+    const [run] = await db.releases.getPipelineRuns();
+    expect(run).toMatchObject({ projectId: 'p1', status: 'succeeded', imageTag: 'reg/bo/shop:bbb', releaseSkipped: 'nothing the app is built from changed' });
+    expect(decided).toEqual([`p1 aaa ${'b'.repeat(40)}`]);
+  }, 60_000);
+});
+
