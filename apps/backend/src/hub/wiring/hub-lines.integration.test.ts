@@ -42,7 +42,7 @@ async function hubServer() {
   const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   closing.push(async () => { await io.close(); });
   const access = async () => ({ token: issueMoveToken(root, HUB_AUDIENCE, hubInstancePart('inst-ann', 'ann', ann.email)), hubUrl: url, personId: 'ann', email: ann.email, instanceId: 'inst-ann' });
-  return { url, access, hub };
+  return { url, access, hub, io };
 }
 
 describe('the owner\'s instance and the hub, over one socket', () => {
@@ -88,5 +88,36 @@ describe('the owner\'s instance and the hub, over one socket', () => {
     probe.on('connect_error', (err) => { expect(err.message).toBe('Unauthorized'); refused.hand(); });
     await refused.promise;
     probe.close();
+  });
+
+  it('connects again by itself whenever root or the hub cannot be reached, each time with a fresh token from root', async () => {
+    const { access, io } = await hubServer();
+    const answers: Array<'away' | 'made-up' | 'good'> = ['away', 'made-up', 'good', 'away', 'good'];
+    const asking = async () => {
+      const answer = answers.shift() ?? 'good';
+      if (answer === 'away') throw new Error('root is away');
+      const given = await access();
+      return answer === 'made-up' ? { ...given, token: 'made-up' } : given;
+    };
+    const said: string[] = [];
+    const remote = new RemoteHub({ access: asking }, fetch, undefined, (line) => said.push(line), 1);
+    let connected = next<void>();
+    const disconnect = remote.connect({ connected: () => connected.hand(), call: () => undefined, changed: () => undefined });
+    closing.push(async () => { disconnect(); });
+
+    await connected.promise;
+    expect(said).toEqual([
+      'the hub is not connected (root is away); connecting again in 0 s',
+      'the hub is not connected (Unauthorized); connecting again in 0 s',
+    ]);
+
+    connected = next<void>();
+    for (const [, socket] of io.of('/hub-instances').sockets) socket.conn.close();
+    await connected.promise;
+    expect(said.slice(2)).toEqual([
+      'root gave no way to the hub: root is away',
+      'the hub is not connected (Unauthorized); connecting again in 0 s',
+    ]);
+    expect(answers).toEqual([]);
   });
 });

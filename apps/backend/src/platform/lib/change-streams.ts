@@ -1,5 +1,6 @@
 import type { ChangeStream, Collection, Document } from 'mongodb';
 import { ignore } from '@koala/engine-core/failures';
+import { REOPEN_FIRST_MS, reopening } from './reopening.js';
 
 export interface Watching {
   ready: Promise<void>;
@@ -13,8 +14,6 @@ export function watchingAll(watchings: Watching[]): Watching {
   };
 }
 
-export const REOPEN_FIRST_MS = 5_000;
-export const REOPEN_MOST_MS = 60_000;
 
 export function watchWrites<T extends Document>(
   collection: () => Collection<T>,
@@ -25,7 +24,7 @@ export function watchWrites<T extends Document>(
   let stream: ChangeStream<T> | undefined;
   let closed = false;
   let after: unknown;
-  let wait = reopenMs;
+  const again = reopening(reopenMs);
   let timer: ReturnType<typeof setTimeout> | undefined;
   let opened!: () => void;
   const ready = new Promise<void>((done) => { opened = done; });
@@ -35,9 +34,8 @@ export function watchWrites<T extends Document>(
     stream = undefined;
     void failed?.close().catch(ignore('a stream that already failed has nothing left to close'));
     if (closed) return;
-    console.warn(`[change-streams] following ${collection().collectionName} stopped (${(err as Error).message}); opening it again in ${Math.round(wait / 1000)} s`);
-    timer = setTimeout(open, wait);
-    wait = Math.min(wait * 2, REOPEN_MOST_MS);
+    console.warn(`[change-streams] following ${collection().collectionName} stopped (${(err as Error).message}); opening it again in ${again.seconds} s`);
+    timer = again.later(open);
   };
 
   function open(): void {
@@ -52,7 +50,7 @@ export function watchWrites<T extends Document>(
       reopen(err);
       return;
     }
-    stream.on('resumeTokenChanged', (token: unknown) => { after = token; wait = reopenMs; opened(); });
+    stream.on('resumeTokenChanged', (token: unknown) => { after = token; again.reset(); opened(); });
     stream.on('change', (change) => {
       if ('fullDocument' in change && change.fullDocument) on(change.fullDocument as T);
     });

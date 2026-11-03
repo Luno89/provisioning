@@ -9,7 +9,7 @@ import { RELAY_NAME_HEADER, RELAY_STATUS_HEADER, RELAY_TYPE_HEADER } from '../li
 import { refusalOf } from './hub-answers.js';
 import { HUB_LINES_NAMESPACE } from '../lib/hub.js';
 import type { DescribedCall } from '../lib/hub-lines.js';
-import { REOPEN_FIRST_MS, REOPEN_MOST_MS } from '../../platform/index.js';
+import { REOPEN_FIRST_MS, REOPEN_MOST_MS, reopening } from '../../platform/index.js';
 
 export type HubLineConnect = (url: string, options: Partial<ManagerOptions & SocketOptions>) => Socket;
 
@@ -33,6 +33,7 @@ export class RemoteHub implements HubSyncTransport, HubSharing {
     private readonly fetchImpl: typeof fetch = fetch,
     private readonly socketTo: HubLineConnect = io,
     private readonly log: (line: string) => void = (line) => console.warn(`[hub] ${line}`),
+    private readonly reopenMs = REOPEN_FIRST_MS,
   ) {}
 
   private async send(method: 'GET' | 'POST' | 'PUT' | 'DELETE', path: string, init: { headers?: Record<string, string>; body?: RequestInit['body']; signal?: AbortSignal; duplex?: 'half' } = {}): Promise<Response> {
@@ -92,13 +93,12 @@ export class RemoteHub implements HubSyncTransport, HubSharing {
   connect: HubSyncTransport['connect'] = (line) => {
     let socket: Socket | undefined;
     let stopped = false;
-    let wait = REOPEN_FIRST_MS;
+    const reopen = reopening(this.reopenMs);
     let retry: NodeJS.Timeout | undefined;
     const again = (why: string) => {
       if (stopped) return;
-      this.log(`the hub is not connected (${why}); connecting again in ${Math.round(wait / 1000)} s`);
-      retry = setTimeout(open, wait);
-      wait = Math.min(wait * 2, REOPEN_MOST_MS);
+      this.log(`the hub is not connected (${why}); connecting again in ${reopen.seconds} s`);
+      retry = reopen.later(open);
     };
     const open = () => {
       this.root.access().then((first) => {
@@ -117,7 +117,7 @@ export class RemoteHub implements HubSyncTransport, HubSharing {
           },
         });
         socket = opened;
-        opened.on('connect', () => { wait = REOPEN_FIRST_MS; line.connected(); });
+        opened.on('connect', () => { reopen.reset(); line.connected(); });
         opened.on('call', (described: DescribedCall) => line.call(this.callFrom(described)));
         opened.on('changed', (hubProjectId: unknown) => line.changed(String(hubProjectId)));
         opened.on('connect_error', (err) => {

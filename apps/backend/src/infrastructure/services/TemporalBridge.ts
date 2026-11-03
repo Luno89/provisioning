@@ -1,7 +1,7 @@
 import path from 'path';
 import { isCommitSha, type BuildPlan } from '../../releases/index.js'
 import {
-  stopIfRunning, getTemporalClient, closedAs, REOPEN_FIRST_MS, REOPEN_MOST_MS, type ClosedAs, type Watching, decryptValue, encryptValue, type SecretKey, type Database,
+  stopIfRunning, getTemporalClient, closedAs, reopening, type ClosedAs, type Watching, decryptValue, encryptValue, type SecretKey, type Database,
   type CloudCredentials, type ClusterMetadata, type ClusterProgress, type DeploymentMetadata, type ProjectMetadata,
   type PipelineRunMetadata, type ClaimSettings, PLATFORM_OWNER, ownerIn, startedFor,
 } from '../../platform/index.js'
@@ -14,7 +14,7 @@ import { clusterFieldsFrom } from '../lib/provisioned-cluster.js'
 import { followedAction, type FollowedAction, type FollowedRecord } from '../lib/followed-work.js'
 import { fileURLToPath } from 'url';
 import fs from 'fs';
-import { WorkflowNotFoundError, type Client, type WorkflowExecutionInfo } from '@temporalio/client'
+import { isGrpcServiceError, WorkflowNotFoundError, type Client, type WorkflowExecutionInfo } from '@temporalio/client'
 import type { temporal } from '@temporalio/proto'
 import { ignore } from '@koala/engine-core/failures'
 import { textAt } from '../../platform/index.js'
@@ -56,6 +56,8 @@ import { resolveVllmDefaults, resolveTabbyDefaults, resolveCrawl4aiDefaults, res
   resolveHermesDefaults, resolveMinioDefaults, resolveNextcloudDefaults, resolveQdrantDefaults, resolveQuickwitDefaults } from '../lib/app-env.js'
 import { resolveAppSettingsDefaults } from '../lib/app-schemas.js'
 import type { Server as SocketServer } from 'socket.io'
+
+const GRPC_NOT_FOUND = 5
 
 const HOST_QUEUE = 'host-ops-queue'
 const CLUSTER_QUEUE = 'cluster-ops-queue'
@@ -374,15 +376,14 @@ export class TemporalBridge {
     provider: ClusterMetadata['provider'] | '',
     meta?: TrackedDeployment
   ): Promise<void> {
-    let wait = REOPEN_FIRST_MS
+    const again = reopening()
     for (;;) {
       let closed: ClosedAs
       try {
         closed = await closedAs(this.client.workflow.getHandle(wfId))
       } catch (err) {
-        console.warn(`[TemporalBridge] lost ${wfId} while following it (${(err as Error).message}); following it again in ${Math.round(wait / 1000)} s`)
-        await new Promise((resume) => setTimeout(resume, wait))
-        wait = Math.min(wait * 2, REOPEN_MOST_MS)
+        console.warn(`[TemporalBridge] lost ${wfId} while following it (${(err as Error).message}); following it again in ${again.seconds} s`)
+        await again.after()
         continue
       }
       if (closed === 'RUNNING') continue
@@ -1148,7 +1149,7 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
         attributes: attributesOf(e),
       }))
     } catch (err) {
-      if (err instanceof WorkflowNotFoundError) return null
+      if (err instanceof WorkflowNotFoundError || (isGrpcServiceError(err) && err.code === GRPC_NOT_FOUND)) return null
       throw err
     }
   }

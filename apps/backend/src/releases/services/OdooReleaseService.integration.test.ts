@@ -1,5 +1,5 @@
 import { containing } from '../../platform/lib/test-matchers.js';
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { emptiedEachTime } from '../../platform/lib/test-database.js';
 import type { MongoDB } from '../../platform/lib/mongo-db.js';
 import { OdooReleaseService, type ReleaseRuns } from './OdooReleaseService.js';
@@ -255,6 +255,24 @@ describe('one release at a time per project', () => {
     await svc.release(project, run('b1', 'abc'));
     await runEnds(svc);
     expect(await stateOf('r1')).toMatchObject({ state: 'failed', reason: 'the release stopped before it said how it went' });
+  });
+
+  it('follows its run again while Temporal cannot say whether it runs, and settles it once Temporal answers', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      let away = 0;
+      const unsure: ReleaseRuns = { ...runs, running: async (projectId) => { if (away > 0) { away -= 1; throw new Error('temporal is away'); } return runs.running(projectId); } };
+      const svc = new OdooReleaseService({ store: db, runs: unsure, chartAt: async () => true, now, newId: () => `r${(ids += 1)}`, reopenMs: 1 });
+      await svc.release(project, run('b1', 'abc'));
+      away = 2;
+      const following = svc.follow('bo', 'p1');
+      endRun();
+      await following;
+      expect(warn.mock.calls.filter(([line]) => String(line).includes('cannot follow p1\'s release run (temporal is away)'))).toHaveLength(2);
+      expect(await stateOf('r1')).toMatchObject({ state: 'failed', reason: 'the release stopped before it said how it went' });
+    } finally {
+      warn.mockRestore();
+    }
   });
 });
 

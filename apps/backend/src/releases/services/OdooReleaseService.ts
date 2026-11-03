@@ -12,7 +12,7 @@ import {
   CUT_OVER, CUT_OVER_LOSING, DECISION_NODE, DEFAULT_RELEASE_APP, DISCARD, LOSING_DECISION_NODE, RELEASE_AGENT, RETEST, ROLL_BACK_AGENT, UNSETTLED_STATES,
   type ReleaseBuildInput, type ReleaseHow, type ReleaseRunInput, type RollBackRunInput,
 } from '../lib/release-run.js';
-import { REOPEN_FIRST_MS, REOPEN_MOST_MS, type Watching } from '../../platform/index.js';
+import { reopening, type Watching } from '../../platform/index.js';
 
 export interface OdooReleaseStore {
   releases: {
@@ -65,7 +65,7 @@ export interface OdooReleaseDeps {
   awaiting?: ((ownerId: string, project: ProjectMetadata, run: PipelineRunMetadata) => void) | undefined;
   now?: (() => string) | undefined;
   newId?: (() => string) | undefined;
-  log?: ((line: string) => void) | undefined;
+  reopenMs?: number | undefined;
 }
 
 export type ReleaseRefusal = { status: number; error: string; losing?: string[] | undefined };
@@ -452,7 +452,7 @@ export class OdooReleaseService {
   }
 
   private log(line: string): void {
-    (this.deps.log ?? ((said: string) => console.warn(`[releases] ${said}`)))(line);
+    console.warn(`[releases] ${line}`);
   }
 
   private async tellUntold(ownerId: string, projectId: string): Promise<OdooRelease[]> {
@@ -468,11 +468,10 @@ export class OdooReleaseService {
   }
 
   private async watch(ownerId: string, projectId: string): Promise<void> {
-    let wait = REOPEN_FIRST_MS;
+    const again = reopening(this.deps.reopenMs);
     const lost = async (err: unknown): Promise<void> => {
-      this.log(`cannot follow ${projectId}'s release run (${(err as Error).message}); following it again in ${Math.round(wait / 1000)} s`);
-      await new Promise((resume) => setTimeout(resume, wait));
-      wait = Math.min(wait * 2, REOPEN_MOST_MS);
+      this.log(`cannot follow ${projectId}'s release run (${(err as Error).message}); following it again in ${again.seconds} s`);
+      await again.after();
     };
     for (;;) {
       let running: boolean;
@@ -482,7 +481,7 @@ export class OdooReleaseService {
         await lost(err);
         continue;
       }
-      wait = REOPEN_FIRST_MS;
+      again.reset();
       const releases = await this.tellUntold(ownerId, projectId);
       if (running) {
         try {

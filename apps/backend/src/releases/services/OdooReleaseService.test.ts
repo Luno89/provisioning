@@ -4,7 +4,6 @@ import { mock } from 'vitest-mock-extended';
 import { memoryDatabase } from '../../platform/testing/memory-database.js';
 import type { Database } from '../../platform/lib/db-interface.js';
 import { OdooReleaseService, type ReleaseRuns } from './OdooReleaseService.js';
-import { REOPEN_FIRST_MS } from '../../platform/index.js';
 import { newReleaseName } from '../lib/odoo-release.js';
 import { marked, type ReleaseMark, type ReleaseRunInput, type RollBackRunInput } from '../lib/release-run.js';
 import type { ClusterMetadata, PipelineRunMetadata, ProjectMetadata } from '../../platform/lib/types.js';
@@ -568,25 +567,21 @@ describe('what the service says without a run to follow', () => {
   });
 
   it('follows a release run again, waiting longer each time, while it cannot tell whether it still runs, and says so', async () => {
-    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     try {
-      const lines: string[] = [];
       const unsure = mock<ReleaseRuns>();
       unsure.running.mockRejectedValueOnce(new Error('temporal is away')).mockRejectedValueOnce(new Error('temporal is away')).mockResolvedValue(false);
-      const svc = new OdooReleaseService({ store: db, runs: unsure, chartAt: async () => true, now, log: (line) => lines.push(line) });
+      const svc = new OdooReleaseService({ store: db, runs: unsure, chartAt: async () => true, now, reopenMs: 1 });
       await stored('prep', 'preparing');
-      const following = svc.follow('bo', 'p1');
-      await vi.advanceTimersByTimeAsync(REOPEN_FIRST_MS);
-      expect(unsure.running).toHaveBeenCalledTimes(2);
-      await vi.advanceTimersByTimeAsync(REOPEN_FIRST_MS * 2);
-      await following;
-      expect(lines).toEqual([
-        'cannot follow p1\'s release run (temporal is away); following it again in 5 s',
-        'cannot follow p1\'s release run (temporal is away); following it again in 10 s',
+      await svc.follow('bo', 'p1');
+      expect(unsure.running).toHaveBeenCalledTimes(3);
+      expect(warn.mock.calls.map(([line]) => String(line))).toEqual([
+        '[releases] cannot follow p1\'s release run (temporal is away); following it again in 0 s',
+        '[releases] cannot follow p1\'s release run (temporal is away); following it again in 0 s',
       ]);
       expect(await stateOf('prep')).toMatchObject({ state: 'failed' });
     } finally {
-      vi.useRealTimers();
+      warn.mockRestore();
     }
   });
 

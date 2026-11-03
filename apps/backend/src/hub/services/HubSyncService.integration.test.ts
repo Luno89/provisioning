@@ -421,3 +421,23 @@ describe('the line to the hub in the same process', () => {
     expect(relay.online('combined')).toBe(false);
   });
 });
+
+describe('the hub in the same process refusing', () => {
+  it('fails each call with the hub\'s own reason and status, so the sync says why and tries again on the next pass', async () => {
+    const { hub } = await setUp();
+    const transport = localHubSync(hub, 'combined');
+    const nowhere = { projectId: 'p9', ownerId: 'ann', hubProjectId: 'not-on-the-hub', pulledThrough: 0, sharedAt: now };
+    const refusals: string[] = [];
+    for (const asked of [
+      () => transport.requests(nowhere),
+      () => transport.settle(nowhere, 'q1', { state: 'done' }),
+      () => transport.status(nowhere, { releases: [], builds: [], runs: [] } as never),
+      () => transport.answer(nowhere, 'call-1', { kind: 'json', status: 200, body: [] }),
+    ]) refusals.push(await asked().then(() => 'answered', (err: Error & { status?: number }) => `${err.status} ${err.message}`));
+    expect(refusals).toEqual([
+      ...Array<string>(3).fill('404 There is no such project, or you are not on it.'),
+      '404 That call is no longer waiting.',
+    ]);
+    expect(() => localHubSync(hub, 'combined').connect({ connected: () => undefined, changed: () => undefined, call: () => undefined })).toThrow('This hub relays nothing.');
+  });
+});

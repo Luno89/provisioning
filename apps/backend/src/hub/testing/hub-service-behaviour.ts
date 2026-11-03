@@ -366,6 +366,18 @@ export function hubServiceBehaviour(make: () => Promise<HubStore>): void {
       });
     });
 
+    describe('a push to the hub\'s repository', () => {
+      it('tells the owner\'s instance its project moved, and nothing for a project the hub does not have', async () => {
+        const { hub, id } = await shared();
+        const owner = lineOf();
+        const disconnect = valueOf(hub.connectInstance(fromAnn, owner.line));
+        expect(await hub.repoMoved(id)).toBe(true);
+        expect(await hub.repoMoved('nowhere')).toBe(false);
+        expect(owner.changed).toEqual([id]);
+        disconnect();
+      });
+    });
+
     describe('what the owner\'s instance relays for a member', () => {
       it('relays nothing when the hub has no relay', async () => {
         const { hub, id } = await shared(false);

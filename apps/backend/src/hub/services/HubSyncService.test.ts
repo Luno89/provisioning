@@ -340,6 +340,19 @@ describe('keeping main in step with the hub\'s', () => {
 
   const repo = { url: 'https://git.example/p1.git', username: 'bot', tokenEnc: 'sealed' };
 
+  it('compares both mains as soon as either repository is pushed to', async () => {
+    let asked!: () => void;
+    const comparing = new Promise<void>((done) => { asked = done; });
+    const transport = mock<HubSyncTransport>();
+    transport.pull.mockResolvedValue({ changes: [], through: 0 });
+    transport.requests.mockResolvedValue([]);
+    const db = memoryDatabase();
+    const sync = made(new HubSyncService({ store: db.hub, transport, origin: 'instance:combined', repos: mock<HubRepoSides>({ ends: async () => { asked(); return ends; } }), git: remotes({ owner: OWNER_HEAD }), log: () => undefined }));
+    await db.hub.saveHubLink(link({ repo }));
+    sync.repoMoved();
+    await comparing;
+  });
+
   it('does nothing without repositories to compare', async () => {
     const { sync, db } = setUp(remotes({}), undefined);
     await db.hub.saveHubLink(link({ repo }));
