@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { chromium, expect, type BrowserContext, type Page } from '@playwright/test';
+import { startModelStandIn, type ModelStandIn } from './lib/model-stand-in.js';
 import { startSplitStack, type SplitStack } from './lib/split-stack.js';
 
 const step = (message: string) => console.log(`\n▶ ${message}`);
@@ -40,16 +41,43 @@ async function signsIn(stack: SplitStack, watching: Watched): Promise<void> {
   nothingWentWrong(watching, 'signing in');
 }
 
+const ANSWER = 'The stand-in heard you and answers through the engine.';
+
+async function chats(watching: Watched, model: ModelStandIn): Promise<void> {
+  step('the owner gives Koala a model through Studio → Models, makes it the default, and Koala answers in a chat');
+  const { page } = watching;
+  await page.getByRole('link', { name: 'Or paste a key for any OpenAI-compatible provider' }).click();
+  const custom = page.locator('div').filter({ has: page.getByText('Custom Endpoint', { exact: true }) }).filter({ has: page.getByRole('button', { name: 'Connect' }) }).last();
+  await custom.getByRole('button', { name: 'Connect' }).click();
+  await custom.getByLabel('Base URL').fill(model.baseUrl);
+  await custom.getByLabel('Model Name').fill(model.model);
+  await custom.getByRole('button', { name: 'Connect and fetch models' }).click();
+  await page.getByLabel('Filter models').first().fill(model.model);
+  await page.getByRole('button', { name: new RegExp(model.model) }).first().click();
+  await expect(page.getByText(/^Currently:/)).toContainText(model.model);
+  console.log(`  ${model.model} at ${model.baseUrl} is the default`);
+
+  await page.goto(`${new URL(page.url()).origin}/#/chat`);
+  await page.getByPlaceholder(/^Message/).fill('Are you there, Koala?');
+  await page.getByRole('button', { name: 'Send message' }).click();
+  await expect(page.getByText(ANSWER)).toBeVisible({ timeout: 60_000 });
+  assert.ok(model.asked.some((text) => text.includes('Are you there, Koala?')), `the model was asked ${JSON.stringify(model.asked)}`);
+  console.log('  the answer streamed back from the model through the engine');
+  nothingWentWrong(watching, 'chatting');
+}
+
 async function main(): Promise<void> {
   step('a root, an instance with its engine worker and a hub start in containers from this commit\'s image');
   const stack = await startSplitStack({ engine: true });
   console.log(`  root ${stack.rootUrl}, instance ${stack.instanceUrl}`);
+  const model = await startModelStandIn(ANSWER);
   const browser = await chromium.launch();
   let watching: Watched | undefined;
   try {
     const context = await browser.newContext();
     watching = await watched(context);
     await signsIn(stack, watching);
+    await chats(watching, model);
   } catch (err) {
     if (watching) {
       const shot = `${process.env.BROWSER_LIVE_SHOTS ?? '/tmp'}/browser-live-${Date.now()}.png`;
@@ -61,6 +89,7 @@ async function main(): Promise<void> {
     throw err;
   } finally {
     await browser.close();
+    await model.close();
     await stack.stop();
   }
   console.log('\nbrowser live — PASS');
