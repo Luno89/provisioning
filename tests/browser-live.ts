@@ -72,7 +72,7 @@ async function chats(watching: Watched, model: ModelStandIn): Promise<void> {
 async function seesInfrastructure(watching: Watched): Promise<void> {
   step('Infrastructure shows every section and what needs attention, asking nothing that fails');
   const { page } = watching;
-  await page.getByRole('link', { name: 'Infrastructure' }).click();
+  await page.getByRole('button', { name: 'Infrastructure' }).first().click();
   await expect(page.getByTestId('infrastructure-overview')).toBeVisible();
   await expect(page.getByText(/^checked /)).toBeVisible({ timeout: 60_000 });
   for (const title of ['Needs attention', 'Your own hardware', 'Model traffic', 'Alerts set', 'Alert history']) {
@@ -86,7 +86,7 @@ async function settingsThenSignsOut(stack: SplitStack, watching: Watched): Promi
   step('Settings shows the account and the instance\'s own settings, and logging out ends the session');
   const { page } = watching;
   const instance = new URL(stack.instanceUrl).origin;
-  await page.getByRole('link', { name: 'Settings' }).click();
+  await page.getByRole('button', { name: 'Settings' }).first().click();
   await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible();
   await expect(page.getByText(stack.owner.email).first()).toBeVisible();
   for (const section of ['Addresses', 'Updates', 'Notifications']) await expect(page.getByText(section, { exact: true }).first()).toBeVisible();
