@@ -69,6 +69,37 @@ async function chats(watching: Watched, model: ModelStandIn): Promise<void> {
   nothingWentWrong(watching, 'chatting');
 }
 
+async function seesInfrastructure(watching: Watched): Promise<void> {
+  step('Infrastructure shows every section and what needs attention, asking nothing that fails');
+  const { page } = watching;
+  await page.getByRole('link', { name: 'Infrastructure' }).click();
+  await expect(page.getByTestId('infrastructure-overview')).toBeVisible();
+  await expect(page.getByText(/^checked /)).toBeVisible({ timeout: 60_000 });
+  for (const title of ['Needs attention', 'Your own hardware', 'Model traffic', 'Alerts set', 'Alert history']) {
+    await expect(page.getByText(title, { exact: true }).first()).toBeVisible();
+  }
+  console.log('  every section rendered');
+  nothingWentWrong(watching, 'Infrastructure');
+}
+
+async function settingsThenSignsOut(stack: SplitStack, watching: Watched): Promise<void> {
+  step('Settings shows the account and the instance\'s own settings, and logging out ends the session');
+  const { page } = watching;
+  const instance = new URL(stack.instanceUrl).origin;
+  await page.getByRole('link', { name: 'Settings' }).click();
+  await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible();
+  await expect(page.getByText(stack.owner.email).first()).toBeVisible();
+  for (const section of ['Addresses', 'Updates', 'Notifications']) await expect(page.getByText(section, { exact: true }).first()).toBeVisible();
+  console.log('  the account, its addresses, updates and notifications');
+  nothingWentWrong(watching, 'Settings');
+
+  await page.getByRole('button', { name: 'Log Out' }).click();
+  await page.waitForURL((url) => url.origin !== instance || url.hash.includes('signed-out'), { timeout: 30_000 }).catch(() => undefined);
+  const me = await page.request.get(`${instance}/api/auth/me`);
+  assert.equal(me.status(), 401, 'the instance still took the browser\'s session after logging out');
+  console.log(`  signed out: the instance answers 401, the page is at ${page.url()}`);
+}
+
 async function main(): Promise<void> {
   step('a root, an instance with its engine worker and a hub start in containers from this commit\'s image');
   const stack = await startSplitStack({ engine: true });
@@ -81,6 +112,8 @@ async function main(): Promise<void> {
     watching = await watched(context);
     await signsIn(stack, watching);
     await chats(watching, model);
+    await seesInfrastructure(watching);
+    await settingsThenSignsOut(stack, watching);
   } catch (err) {
     if (watching) {
       const shot = `${process.env.BROWSER_LIVE_SHOTS ?? '/tmp'}/browser-live-${Date.now()}.png`;
