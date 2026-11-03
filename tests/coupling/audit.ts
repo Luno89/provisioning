@@ -3,10 +3,11 @@ import { join, resolve } from 'node:path';
 import { commitOf, gatheredIn, OUT, ROOT, runsOf, sourceOf, usableIn, type Artifact } from './artifacts.js';
 import { buildGraph, isTest } from './graph.js';
 import { judge, unitLevels } from './join.js';
+import type { Ran } from './collect.js';
 import { renderPage } from './render.js';
 import { levelOf, runsIn, summary } from './report.js';
 import { resultOf, type Result } from './result.js';
-import { against, breaches, counted, judging, layerBreaches, pruned, RULES, type Baseline } from './rules.js';
+import { against, breaches, counted, judging, layerBreaches, pruned, RULES, type Baseline, type Breach } from './rules.js';
 import { MATCHES, outsideEnds, projectsOf, workspaceOf } from './workspaces.js';
 
 const BASELINE = join(ROOT, 'tests', 'coupling', 'baseline.json');
@@ -46,7 +47,12 @@ const runs = [...(usable.artifacts.has('in-process') ? runsIn(runsOf(options.out
 const judged = judge(graph, runs, levelOf);
 const joinSeconds = seconds(joinStarted);
 
-const found = [...breaches(judged, graph, rules.judged.filter((rule) => rule !== 'R5')), ...(rules.judged.includes('R5') ? layerBreaches(graph, unitLevels(graph, runs, levelOf)) : [])];
+const breachesIn = (counted: readonly Ran[]) => [
+  ...breaches(counted === runs ? judged : judge(graph, counted, levelOf), graph, rules.judged.filter((rule) => rule !== 'R5')),
+  ...(rules.judged.includes('R5') ? layerBreaches(graph, unitLevels(graph, counted, levelOf)) : []),
+];
+const found = breachesIn(runs);
+const belowLive = (): Breach[] => breachesIn(runs.filter((run) => levelOf(run.testFile) !== 'live'));
 const write = (baseline: Baseline) => writeFileSync(BASELINE, `${JSON.stringify(baseline, null, 1)}\n`);
 let held: Result['baseline'];
 if (!existsSync(BASELINE) && !options.seed) {
@@ -58,7 +64,7 @@ if (!existsSync(BASELINE) && !options.seed) {
 } else {
   if (options.seed) throw new Error(`${BASELINE} exists: the baseline only shrinks, so it is never seeded again; use --prune`);
   const before = JSON.parse(readFileSync(BASELINE, 'utf8')) as Baseline;
-  const baseline = options.prune ? pruned(before, found, rules.judged) : before;
+  const baseline = options.prune ? pruned(before, belowLive(), rules.judged) : before;
   if (options.prune) write(baseline);
   held = { kind: 'held', ...against(found, baseline, rules.judged) };
 }

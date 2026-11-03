@@ -2035,7 +2035,10 @@ real. It works like Lighthouse, gather apart from audit:
     `COUPLING_LIVE=1` (ship refuses to start on one that was not).
 - **The baseline only shrinks** (`tests/coupling/baseline.json`, seeded with every rule judged): a breach it does not list fails.
   Ship's last step runs with `--prune`, which lowers the count of every breach that is gone (never raises one), and the smaller
-  baseline is committed on top with the live ledger (`LEDGER_FILES`). Run by hand without `--prune`, a gone breach fails too.
+  baseline is committed on top with the live ledger (`LEDGER_FILES`). A run is judged with everything, live included, but only what
+  the unit and integration tiers cover lowers the baseline (owner, 2026-11-03): the live suites reach different paths from run to run
+  as the dev stack's state differs (a cached workspace image builds nothing), so an edge only they covered came back as new the next
+  time; the baseline was rebuilt that day on this rule, the old one having written off debt on live coverage. Run by hand without `--prune`, a gone breach fails too.
   A breach that comes and goes between runs of the same code is a fault in the code, not noise (owner, 2026-11-02: flaky tests
   mean flaky code); it fails ship like any other until the race or timer behind it is gone (`~/.claude/plans/event-driven.md`).
 - **What the live suites run is measured too** (the `live` artifact): `COUPLING_LIVE=1 npm run dev` starts the dev stack with
