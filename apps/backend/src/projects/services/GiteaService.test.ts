@@ -418,3 +418,89 @@ describe('committing a drop of files from disk', () => {
     await expect(broken.gitea.commitDropFromDisk(auth, 'koala-u1', 'shop', [sources[0]!], 'm')).rejects.toThrow('Committing to koala-u1/shop failed: fatal: unable to access with ***');
   });
 });
+
+describe('landing a story\'s branch on main', () => {
+  const REPO = `${BASE}/api/v1/repos/koala-bo/shop`;
+  const yes: ProcessResult = { code: 0, stdout: '', stderr: '' };
+  const not: ProcessResult = { code: 1, stdout: '', stderr: '' };
+
+  function landing(git: { already?: boolean; conflict?: boolean; fails?: string } = {}) {
+    const { gitea, processes } = setUp();
+    vi.spyOn(gitea as unknown as { getToken(): Promise<string> }, 'getToken').mockResolvedValue('bot-token');
+    const runs: string[] = [];
+    processes.run.mockImplementation(async (run) => {
+      const own = run.args.slice(2);
+      runs.push(own[0] ?? '');
+      if (own[0] === 'rev-parse') return { ...yes, stdout: own[1] === 'refs/koala/base' ? 'b'.repeat(40) : 'h'.repeat(40) };
+      if (own[0] === 'merge-base') return own[2] === 'h'.repeat(40) ? (git.already ? yes : not) : (git.conflict ? not : yes);
+      if (own[0] === 'merge-tree') return { code: 1, stdout: `${'t'.repeat(40)}\nREADME.md\n`, stderr: '' };
+      if (own[0] === 'push' && git.fails) return { code: 128, stdout: '', stderr: git.fails };
+      return yes;
+    });
+    const seen: string[] = [];
+    const record = (what: string) => async ({ request }: { request: Request }) => { seen.push(`${what} ${request.method === 'GET' ? '' : await request.text()}`.trim()); };
+    return { gitea, runs, seen, record };
+  }
+
+  it('opens a pull request as the record, lands the branch with git, then marks the pull request merged at the commit that landed', async () => {
+    const { gitea, runs, seen, record } = landing();
+    server.use(
+      http.get(`${REPO}/pulls`, async (info) => { await record('list')(info); return HttpResponse.json([]); }),
+      http.post(`${REPO}/pulls`, async (info) => { await record('open')(info); return HttpResponse.json({ number: 7 }); }),
+      http.patch(REPO, async (info) => { await record('repo')(info); return HttpResponse.json({}); }),
+      http.post(`${REPO}/pulls/7/merge`, async (info) => { await record('mark')(info); return HttpResponse.json({}); }),
+    );
+    expect(await gitea.mergeBranch('koala-bo', 'shop', 'leaf/l1', 'main', { title: 'Land Checkout', body: 'Goal: pay' })).toBe('merged');
+    expect(seen).toEqual(['list', 'open {"head":"leaf/l1","base":"main","title":"Land Checkout","body":"Goal: pay"}', 'repo {"allow_manual_merge":true}', `mark {"Do":"manually-merged","MergeCommitID":"${'h'.repeat(40)}"}`]);
+    expect(runs).toContain('push');
+  });
+
+  it('lands through the pull request already open, and lands even when Gitea will not record it merged, saying so', async () => {
+    const { gitea, seen, record } = landing();
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    server.use(
+      http.get(`${REPO}/pulls`, () => HttpResponse.json([{ number: 3, head: { ref: 'leaf/l1' }, base: { ref: 'main' } }])),
+      http.post(`${REPO}/pulls`, async (info) => { await record('open')(info); return HttpResponse.json({ number: 9 }); }),
+      http.patch(REPO, () => HttpResponse.json({ message: 'not allowed' }, { status: 403 })),
+      http.post(`${REPO}/pulls/3/merge`, () => HttpResponse.json({ message: 'not allowed' }, { status: 405 })),
+    );
+    expect(await gitea.mergeBranch('koala-bo', 'shop', 'leaf/l1', 'main')).toBe('merged');
+    expect(seen).toEqual([]);
+    expect(warn).toHaveBeenCalledWith(containing('koala-bo/shop will not let its pull requests be marked merged (HTTP 403)'));
+    expect(warn).toHaveBeenCalledWith(containing('its pull request #3 was not marked merged (HTTP 405)'));
+  });
+
+  it('says there is nothing to land when Gitea finds no difference, running no git', async () => {
+    const { gitea, runs } = landing();
+    server.use(
+      http.get(`${REPO}/pulls`, () => HttpResponse.json([])),
+      http.post(`${REPO}/pulls`, () => HttpResponse.json({ message: 'There are no changes: nothing to compare' }, { status: 422 })),
+    );
+    expect(await gitea.mergeBranch('koala-bo', 'shop', 'leaf/l1', 'main')).toBe('nothing');
+    expect(runs).toEqual([]);
+  });
+
+  it('closes the pull request of a branch main already holds, and says there was nothing to land', async () => {
+    const { gitea, runs, seen, record } = landing({ already: true });
+    server.use(
+      http.get(`${REPO}/pulls`, () => HttpResponse.json([{ number: 3, head: { ref: 'leaf/l1' }, base: { ref: 'main' } }])),
+      http.patch(REPO, () => HttpResponse.json({})),
+      http.patch(`${REPO}/pulls/3`, async (info) => { await record('close')(info); return HttpResponse.json({}); }),
+    );
+    expect(await gitea.mergeBranch('koala-bo', 'shop', 'leaf/l1', 'main')).toBe('nothing');
+    expect(seen).toEqual(['close {"state":"closed"}']);
+    expect(runs).not.toContain('push');
+  });
+
+  it('answers a conflict, and a failure without the bot\'s token in what it logs', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const handlers = [http.get(`${REPO}/pulls`, () => HttpResponse.json([{ number: 3, head: { ref: 'leaf/l1' }, base: { ref: 'main' } }])), http.patch(REPO, () => HttpResponse.json({}))];
+    server.use(...handlers);
+    expect(await landing({ conflict: true }).gitea.mergeBranch('koala-bo', 'shop', 'leaf/l1', 'main')).toBe('conflict');
+    expect(warn).toHaveBeenCalledWith(containing('conflicts with koala-bo/shop main in README.md'));
+    expect(await landing({ fails: 'fatal: could not read from bot-token@gitea' }).gitea.mergeBranch('koala-bo', 'shop', 'leaf/l1', 'main')).toBe('failed');
+    const said = warn.mock.calls.map(([line]) => String(line)).join('\n');
+    expect(said).toContain('leaf/l1 did not land on koala-bo/shop main');
+    expect(said).not.toContain('bot-token');
+  });
+});

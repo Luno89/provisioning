@@ -8,6 +8,7 @@ import { registryHosts, type RegistryHosts, type RegistryLogin } from '../../ins
 import { privatePatches, type GiteaListedUser } from '../lib/gitea-visibility.js';
 import { blockedDropPath, dropPathQueries } from '../lib/drop-paths.js';
 import { nodePortOf, pullBetween, pullsFrom, type GiteaPull } from '../lib/gitea-answers.js';
+import { landBranch, type Landing } from './land-branch.js';
 import { ignore } from '@koala/engine-core/failures';
 
 const detailOf = async (res: Response): Promise<string> =>
@@ -34,7 +35,6 @@ export interface RepoFileContent {
   sha: string;
 }
 
-const MERGEABILITY_TRIES = 15;
 
 export class GiteaService {
   private baseUrlCache: string | null = null;
@@ -854,59 +854,47 @@ export class GiteaService {
     describe: { title?: string; body?: string } = {},
   ): Promise<'merged' | 'conflict' | 'nothing' | 'failed'> {
     const repoPath = `/api/v1/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`;
+    const title = describe.title ?? `Land ${head}`;
+    const pull = await this.pullRequestFor(repoPath, head, base, title, describe.body);
+    if (pull === 'nothing' || pull === 'failed') return pull;
 
+    const recording = await this.apiFetch(repoPath, { method: 'PATCH', body: JSON.stringify({ allow_manual_merge: true }) });
+    if (!recording.ok) console.warn(`[GiteaService] ${owner}/${repo} will not let its pull requests be marked merged (HTTP ${recording.status}): ${(await detailOf(recording)).slice(0, 200)}`);
+
+    let landing: Landing;
+    try {
+      landing = await this.withBareRepo({ username: ADMIN_USERNAME, token: await this.getToken() }, owner, repo, 'Landing on', (bare, url, env) =>
+        landBranch({ bare, url, env, base, head, message: [title, describe.body].filter(Boolean).join('\n\n') }, this.processes));
+    } catch (err) {
+      console.warn(`[GiteaService] ${head} did not land on ${owner}/${repo} ${base}: ${(err as Error).message}`);
+      return 'failed';
+    }
+    if (landing.outcome === 'conflict') {
+      console.warn(`[GiteaService] ${head} conflicts with ${owner}/${repo} ${base} in ${landing.files.join(', ')}`);
+      return 'conflict';
+    }
+    if (!landing.already) {
+      const marked = await this.apiFetch(`${repoPath}/pulls/${pull}/merge`, { method: 'POST', body: JSON.stringify({ Do: 'manually-merged', MergeCommitID: landing.commit }) });
+      if (!marked.ok) console.warn(`[GiteaService] ${head} landed on ${owner}/${repo} ${base} but its pull request #${pull} was not marked merged (HTTP ${marked.status}): ${(await detailOf(marked)).slice(0, 200)}`);
+      return 'merged';
+    }
+    await this.apiFetch(`${repoPath}/pulls/${pull}`, { method: 'PATCH', body: JSON.stringify({ state: 'closed' }) });
+    return 'nothing';
+  }
+
+  private async pullRequestFor(repoPath: string, head: string, base: string, title: string, body: string | undefined): Promise<number | 'nothing' | 'failed'> {
     const existing = await this.apiFetch(`${repoPath}/pulls?state=open&limit=50`);
-    if (existing.ok) {
-      const already = pullBetween(pullsFrom(await existing.json()), head, base);
-      if (already !== undefined) return this.mergePull(repoPath, already);
-    }
+    const already = existing.ok ? pullBetween(pullsFrom(await existing.json()), head, base) : undefined;
+    if (already !== undefined) return already;
 
-    const created = await this.apiFetch(`${repoPath}/pulls`, {
-      method: 'POST',
-      body: JSON.stringify({ head, base, title: describe.title ?? `Land ${head}`, ...(describe.body ? { body: describe.body } : {}) }),
-    });
-
-    let index: number | undefined;
-    if (created.ok) {
-      index = ((await created.json()) as { number?: number }).number;
-    } else {
-      const detail = await detailOf(created);
-      if (/already exists/i.test(detail)) {
-        const open = await this.apiFetch(`${repoPath}/pulls?state=open&limit=50`);
-        index = open.ok ? pullBetween(pullsFrom(await open.json()), head, base) : undefined;
-      } else if (/no merge base|identical|nothing to compare|not different/i.test(detail)) {
-        return 'nothing';
-      }
-      if (index === undefined) return 'failed';
-    }
-    if (index === undefined) return 'failed';
-    return this.mergePull(repoPath, index);
+    const created = await this.apiFetch(`${repoPath}/pulls`, { method: 'POST', body: JSON.stringify({ head, base, title, ...(body ? { body } : {}) }) });
+    if (created.ok) return ((await created.json()) as { number?: number }).number ?? 'failed';
+    const detail = await detailOf(created);
+    if (/no merge base|identical|nothing to compare|not different/i.test(detail)) return 'nothing';
+    if (!/already exists/i.test(detail)) return 'failed';
+    const open = await this.apiFetch(`${repoPath}/pulls?state=open&limit=50`);
+    return (open.ok ? pullBetween(pullsFrom(await open.json()), head, base) : undefined) ?? 'failed';
   }
-
-  private async mergePull(repoPath: string, index: number): Promise<'merged' | 'conflict' | 'nothing' | 'failed'> {
-    const commits = await this.apiFetch(`${repoPath}/pulls/${index}/commits?limit=1`);
-    if (commits.ok && ((await commits.json()) as unknown[]).length === 0) {
-      await this.apiFetch(`${repoPath}/pulls/${index}`, { method: 'PATCH', body: JSON.stringify({ state: 'closed' }) });
-      return 'nothing';
-    }
-
-    for (let attempt = 0; ; attempt += 1) {
-      const merged = await this.apiFetch(`${repoPath}/pulls/${index}/merge`, {
-        method: 'POST',
-        body: JSON.stringify({ Do: 'merge' }),
-      });
-      if (merged.ok) return 'merged';
-      if (merged.status !== 405) return 'failed';
-
-      const pull = await this.apiFetch(`${repoPath}/pulls/${index}`);
-      const state = pull.ok ? (await pull.json()) as { mergeable?: boolean; merged?: boolean } : {};
-      if (state.merged) return 'merged';
-      if (state.mergeable === false) return 'conflict';
-      if (attempt >= MERGEABILITY_TRIES) return 'failed';
-      await new Promise((resolve) => setTimeout(resolve, 2_000));
-    }
-  }
-
 
   async ensureOrg(org: string): Promise<void> {
     const found = await this.apiFetch(`/api/v1/orgs/${encodeURIComponent(org)}`);
