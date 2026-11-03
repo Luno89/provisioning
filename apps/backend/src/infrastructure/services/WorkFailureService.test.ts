@@ -1,11 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { memoryDatabase } from '../../platform/testing/memory-database.js';
 import { WorkFailureService, type FailedWorkflow } from './WorkFailureService.js';
+import type { UserMetadata } from '../../platform/lib/types.js';
 
 const NOW = new Date('2026-10-17T12:00:00Z');
 
 async function setUp() {
   const db = memoryDatabase();
+  await db.accounts.saveUser({ id: 'u1', email: 'u1@example.com', createdAt: 't', twoFactorEnabled: false, emailVerified: true } as UserMetadata);
+  await db.accounts.saveUser({ id: 'space-1', email: 'space-1@koala.local', createdAt: 't', twoFactorEnabled: false, emailVerified: false, space: { person: 'u1', checkRunId: 'k1', scenarioId: 's1' } } as UserMetadata);
   let now = NOW;
   const service = new WorkFailureService({
     store: db.infrastructure,
@@ -13,7 +16,7 @@ async function setUp() {
       describeRun: async (runId) => ({ workflowId: runId.split('~')[0]!, type: 'AgentRunWorkflow', startedAt: NOW.toISOString(), memo: { runId } }),
     },
     records: async () => ({ trees: [{ id: 't1', name: 'Shop' }], projects: [{ id: 'p1', name: 'Books' }], conversations: [{ id: 'c1', title: 'Labels' }], checkRuns: [], releases: [], agentName: (slug) => (slug === 'koala' ? 'Koala' : undefined) }),
-    isPerson: async (ownerId) => ownerId === 'u1',
+    accounts: db.accounts,
     now: () => now,
   });
   return { db, service, later: (ms: number) => { now = new Date(now.getTime() + ms); } };
@@ -93,7 +96,7 @@ describe('telling about failed work', () => {
       store: db.infrastructure,
       workflows: { describeRun: async () => undefined },
       records: async () => { throw new Error('records are down'); },
-      isPerson: async (ownerId) => ownerId === 'u1',
+      accounts: db.accounts,
       now: () => NOW,
       onFailure: (failure) => failed.push(failure.id),
     });
@@ -111,7 +114,7 @@ describe('a service with no clock of its own', () => {
       store: db.infrastructure,
       workflows: { describeRun: async () => undefined },
       records: async () => ({ trees: [], projects: [], conversations: [], checkRuns: [], releases: [], agentName: () => undefined }),
-      isPerson: async () => true,
+      accounts: db.accounts,
     });
     const failure = await service.runEnded({ ownerId: 'u1', runId: 'run-a', outcome: 'failed', depth: 0 });
     expect(Date.parse(failure?.failedAt ?? '')).toBeGreaterThan(Date.parse('2026-01-01'));

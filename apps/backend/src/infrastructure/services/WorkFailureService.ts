@@ -1,5 +1,6 @@
 import { ignore } from '@koala/engine-core/failures';
 import type { RunningRecords, RunningWorkflow } from '../lib/running.js';
+import type { AccountsStore } from '../../accounts/index.js';
 import {
   FAILURE_SHOWN_ON_RECORD, KEPT_FOR_MS, describeFailure, runFailureId, shownFailures, temporalFailureReason, workflowFailureId,
   type WorkFailure,
@@ -30,7 +31,7 @@ export interface WorkFailureDeps {
     describeRun(runId: string): Promise<RunningWorkflow | undefined>;
   };
   records(ownerId: string): Promise<RunningRecords>;
-  isPerson(ownerId: string): Promise<boolean>;
+  accounts: Pick<AccountsStore, 'getUserById'>;
   now?: () => Date;
   log?: (message: string) => void;
 }
@@ -53,6 +54,11 @@ export class WorkFailureService {
     this.now = deps.now ?? (() => new Date());
   }
 
+  private async isPerson(ownerId: string): Promise<boolean> {
+    const user = await this.deps.accounts.getUserById(ownerId);
+    return Boolean(user) && !user?.space && !user?.removal;
+  }
+
   private recordsOf(ownerId: string): Promise<RunningRecords> {
     return this.deps.records(ownerId).catch(() => NO_RECORDS);
   }
@@ -67,7 +73,7 @@ export class WorkFailureService {
 
   async runEnded(event: RunEnded): Promise<WorkFailure | undefined> {
     if (event.depth !== 0 || (event.outcome !== 'failed' && !event.revoked)) return undefined;
-    if (!(await this.deps.isPerson(event.ownerId))) return undefined;
+    if (!(await this.isPerson(event.ownerId))) return undefined;
     const workflow = await this.deps.workflows.describeRun(event.runId).catch(ignore('a run Temporal no longer describes is recorded from what the event says'))
       ?? { workflowId: event.runId, type: 'AgentRunWorkflow', startedAt: this.now().toISOString() };
     const failure = describeFailure(workflow, await this.recordsOf(event.ownerId), {
@@ -83,7 +89,7 @@ export class WorkFailureService {
 
   async workflowFailed(failed: FailedWorkflow): Promise<WorkFailure | undefined> {
     if (failed.parent || FAILURE_SHOWN_ON_RECORD.includes(failed.type)) return undefined;
-    if (!failed.ownerId || !(await this.deps.isPerson(failed.ownerId))) return undefined;
+    if (!failed.ownerId || !(await this.isPerson(failed.ownerId))) return undefined;
     const failure = describeFailure(
       { workflowId: failed.workflowId, type: failed.type, startedAt: failed.startedAt, ...(failed.memo ? { memo: failed.memo } : {}) },
       await this.recordsOf(failed.ownerId),
