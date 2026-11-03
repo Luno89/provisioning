@@ -1,117 +1,33 @@
-import { describe, it, expect } from 'vitest';
-import { ArtifactService, type ObjectStore } from './ArtifactService.js';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import type { ClusterMetadata, DeploymentMetadata } from '../../platform/lib/types.js';
 import { testDatabase } from '../../platform/lib/test-database.js';
-import type { MongoDB } from '../../platform/lib/mongo-db.js';
-import { MAX_RUN_BYTES, CHUNK_BYTES, objectKey } from '../lib/artifacts.js';
+import { s3StandIn, type S3StandIn } from '../testing/s3-stand-in.js';
+import { ArtifactService } from './ArtifactService.js';
+import { MinioArtifactStores } from './MinioArtifactStore.js';
 
-const bucket = () => {
-  const objects = new Map<string, Buffer>();
-  const store: ObjectStore = {
-    put: async (key, bytes) => { objects.set(key, Buffer.from(bytes)); },
-    get: async (key) => {
-      const found = objects.get(key);
-      if (!found) throw new Error(`no ${key}`);
-      return found;
-    },
-    remove: async (key) => { objects.delete(key); },
-  };
-  return { objects, store };
-};
+let s3: S3StandIn;
+beforeAll(async () => { s3 = await s3StandIn(); });
+afterAll(async () => { await s3.close(); });
 
-let clock = '2026-10-08T12:00:00.000Z';
-let ids = 0;
-const service = (records: MongoDB, minio?: ObjectStore) => new ArtifactService({
-  records: records.files,
-  minioFor: async () => minio,
-  now: () => clock,
-  newId: () => `a${++ids}`,
-});
-
-describe('keeping a run\'s failure artifacts', () => {
-  it('goes to Mongo in chunks when the owner has no MinIO, and says MinIO was missing', async () => {
+describe('keeping a run\'s artifacts on the person\'s MinIO', () => {
+  it('puts each file there through the real S3 client, reads it back whole, and removes it with its run', async () => {
     const db = await testDatabase();
-    const big = Buffer.alloc(CHUNK_BYTES * 2 + 10, 7);
-    const kept = await service(db).put('bo', 'run-1', [{ name: 'test-failed-1.png', bytes: big }]);
+    const minio = { id: 'm1', name: 'files', appType: 'minio', status: 'running', ownerId: 'bo', clusterId: 'c1', minioRootPassword: 'secret-pass' } as DeploymentMetadata;
+    const stores = new MinioArtifactStores({
+      deployments: async () => [minio],
+      clusterById: async () => ({ id: 'c1', name: 'own' }) as ClusterMetadata,
+      service: async () => ({ spec: { ports: [{ name: 's3', port: 9000, nodePort: s3.port }] } }),
+      nodeIp: async () => '127.0.0.1',
+    });
+    const artifacts = new ArtifactService({ records: db.files, minioFor: (ownerId) => stores.storeFor(ownerId) });
+    const report = Buffer.from('<html>passed</html>');
 
-    expect(kept.place).toBe('mongo');
-    expect(kept.minioMissing).toBe(true);
-    expect(kept.stored[0]).toMatchObject({ name: 'test-failed-1.png', contentType: 'image/png', size: big.length, expiresAt: '2026-10-22T12:00:00.000Z' });
-    expect(await db.files.getArtifactChunks(kept.stored[0]!.id)).toHaveLength(3);
-
-    const read = await service(db).get('bo', kept.stored[0]!.id);
-    expect(read!.bytes.equals(big)).toBe(true);
-  });
-
-  it('goes to the owner\'s MinIO when one is there, leaving no chunks', async () => {
-    const db = await testDatabase();
-    const { objects, store } = bucket();
-    const kept = await service(db, store).put('bo', 'run-1', [{ name: 'trace.zip', bytes: Buffer.from('zip') }]);
-
-    expect(kept).toMatchObject({ place: 'minio', minioMissing: false });
-    expect([...objects.keys()]).toEqual([objectKey(kept.stored[0]!)]);
-    expect(await db.files.getArtifactChunks(kept.stored[0]!.id)).toEqual([]);
-    expect((await service(db, store).get('bo', kept.stored[0]!.id))!.bytes.toString()).toBe('zip');
-  });
-
-  it('keeps a run under its budget, dropping what does not fit and saying so', async () => {
-    const db = await testDatabase();
-    const half = Buffer.alloc(MAX_RUN_BYTES / 2 + 1);
-    const first = await service(db).put('bo', 'run-1', [{ name: 'a.webm', bytes: half }]);
-    const second = await service(db).put('bo', 'run-1', [{ name: 'b.webm', bytes: half }, { name: 'c.png', bytes: Buffer.from('png') }]);
-
-    expect(first.stored).toHaveLength(1);
-    expect(second.stored.map((a) => a.name)).toEqual(['c.png']);
-    expect(second.dropped).toEqual(['b.webm']);
-  });
-
-  it('never hands one owner another\'s artifact', async () => {
-    const db = await testDatabase();
-    const kept = await service(db).put('bo', 'run-1', [{ name: 'a.png', bytes: Buffer.from('x') }]);
-    expect(await service(db).get('al', kept.stored[0]!.id)).toBeUndefined();
-    expect(await service(db).list('al', 'run-1')).toEqual([]);
-  });
-
-  it('sweeps what has expired from wherever it was kept', async () => {
-    const db = await testDatabase();
-    const { objects, store } = bucket();
-    const inMongo = await service(db).put('bo', 'run-1', [{ name: 'a.png', bytes: Buffer.from('x') }]);
-    const inMinio = await service(db, store).put('bo', 'run-2', [{ name: 'b.png', bytes: Buffer.from('y') }]);
-
-    clock = '2026-10-21T12:00:00.000Z';
-    expect(await service(db, store).sweep()).toBe(0);
-    clock = '2026-10-23T12:00:00.000Z';
-    expect(await service(db, store).sweep()).toBe(2);
-
-    expect(await db.files.getArtifactChunks(inMongo.stored[0]!.id)).toEqual([]);
-    expect(objects.size).toBe(0);
-    expect(await service(db).list('bo', 'run-2')).toEqual([]);
-    expect(inMinio.stored).toHaveLength(1);
-  });
-
-  it('keeps an expired artifact whose MinIO does not answer, so a later sweep removes it rather than leaving its bytes behind', async () => {
-    const db = await testDatabase();
-    const { objects, store } = bucket();
-    await service(db, store).put('bo', 'run-3', [{ name: 'c.png', bytes: Buffer.from('z') }]);
-    clock = '2026-11-23T12:00:00.000Z';
-    const unreachable = new ArtifactService({ records: db.files, minioFor: async () => { throw new Error('connect ECONNREFUSED'); }, now: () => clock });
-    expect(await unreachable.sweep()).toBe(0);
-    expect(await db.files.getArtifacts('bo', 'run-3')).toHaveLength(1);
-    expect(await service(db, store).sweep()).toBe(1);
-    expect(objects.size).toBe(0);
-  });
-});
-
-describe('a check\'s space handing its runs to the person', () => {
-  it('hands over the runs\' artifacts too, so they outlive the space', async () => {
-    const db = await testDatabase();
-    const kept = await service(db).put('space-1', 'run-9', [{ name: 'a.png', bytes: Buffer.from('shot') }]);
-    await db.engine.reownRuns('space-1', 'bo');
-    const before = await service(db).put('space-1', 'run-10', [{ name: 'b.png', bytes: Buffer.from('gone') }]);
-    const removed = await db.accounts.removeAccountRecords('space-1', { watermarkKeys: [], ingestIds: [], projectIds: [] });
-    expect(removed).toMatchObject({ artifacts: 1, artifactChunks: 1 });
-    expect(await db.files.getArtifactChunks(before.stored[0]!.id)).toEqual([]);
-
-    expect(await service(db).list('space-1', 'run-9')).toEqual([]);
-    expect((await service(db).get('bo', kept.stored[0]!.id))!.bytes.toString()).toBe('shot');
+    const kept = await artifacts.put('bo', 'run-1', [{ name: 'report.html', bytes: report, contentType: 'text/html' }]);
+    expect(kept).toMatchObject({ place: 'minio', minioMissing: false, dropped: [] });
+    expect([...s3.objects.values()]).toEqual([report]);
+    const read = await artifacts.get('bo', kept.stored[0]!.id);
+    expect(read?.bytes).toEqual(report);
+    expect(await artifacts.removeRun('bo', 'run-1')).toBe(1);
+    expect(s3.objects.size).toBe(0);
   });
 });
