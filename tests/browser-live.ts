@@ -6,11 +6,20 @@ const step = (message: string) => console.log(`\n▶ ${message}`);
 
 interface Watched { page: Page; problems: string[] }
 
+const EXPECTED = [/^401 GET \/api\/auth\/me$/];
+
 async function watched(context: BrowserContext): Promise<Watched> {
   const page = await context.newPage();
   const problems: string[] = [];
   page.on('pageerror', (err) => problems.push(`uncaught: ${err.message}`));
-  page.on('console', (message) => { if (message.type() === 'error') problems.push(`console: ${message.text()}`); });
+  page.on('console', (message) => {
+    if (message.type() === 'error' && !message.text().startsWith('Failed to load resource')) problems.push(`console: ${message.text()}`);
+  });
+  page.on('response', (response) => {
+    if (response.status() < 400) return;
+    const said = `${response.status()} ${response.request().method()} ${new URL(response.url()).pathname}`;
+    if (!EXPECTED.some((expected) => expected.test(said))) problems.push(said);
+  });
   return { page, problems };
 }
 
@@ -26,8 +35,8 @@ async function signsIn(stack: SplitStack, watching: Watched): Promise<void> {
   await page.getByLabel('Password').fill(stack.owner.password);
   await page.getByRole('button', { name: /^sign in$/i }).click();
   await page.waitForURL((url) => url.origin === new URL(stack.instanceUrl).origin);
-  await expect(page.getByRole('link', { name: 'Infrastructure' })).toBeVisible();
-  console.log(`  on ${new URL(page.url()).origin}, the instance's sidebar showing`);
+  await expect(page.getByRole('heading', { name: 'Give Koala a model to think with' })).toBeVisible();
+  console.log(`  on ${new URL(page.url()).origin}, asked first for a model to think with`);
   nothingWentWrong(watching, 'signing in');
 }
 
