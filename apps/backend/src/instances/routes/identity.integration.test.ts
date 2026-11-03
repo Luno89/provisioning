@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import axios from 'axios';
 import { mountRouter, TEST_USER } from '../../platform/routes/test-harness.js';
-import { identityRouter } from './identity.js';
+import { identityRouter, placeRouter } from './identity.js';
 import { IdentityService } from '../services/IdentityService.js';
 import { generateIdentityKey, identityKeysFrom, publicKeyPem } from '../lib/identity-token.js';
 
@@ -43,5 +43,12 @@ describe('root\'s identity routes', () => {
     const moved = await axios.get(h.url(`/api/identity/go?nonce=${'n'.repeat(32)}`), signedIn);
     expect([moved.status, moved.headers.location]).toEqual([302, 'https://test.example.com/api/auth/oidc/start']);
     await h.close();
+  });
+});
+
+describe('an instance\'s identity route', () => {
+  it('answers where a signed-in person is: here, serving tenants', async () => {
+    const h = await mountRouter({ prefix: '/api/identity', router: () => placeRouter(true) });
+    expect((await axios.get(h.url('/api/identity/instance'))).data).toEqual({ instance: null, servesTenants: true });
   });
 });

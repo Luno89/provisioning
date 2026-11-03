@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { matches, mock } from 'vitest-mock-extended';
 import type { Router } from 'express';
 import { PERSON, routesInProcess } from '../../platform/testing/routes.js';
-import { identityRouter } from './identity.js';
+import { identityRouter, placeRouter } from './identity.js';
 import type { IdentityService } from '../services/IdentityService.js';
 import type { InstanceRecord } from '../lib/instances.js';
 
@@ -75,5 +75,12 @@ describe('root\'s identity routes', () => {
     expect([noInstance.status, noInstance.data]).toEqual([404, { error: 'you have no instance yet' }]);
     const noHub = await get(router, '/go?to=hub', { cookie: 'session=ok' });
     expect([noHub.status, noHub.data]).toEqual([404, { error: 'this root has no hub' }]);
+  });
+});
+
+describe('where a person is, on a backend that holds no accounts', () => {
+  it('says there is no instance of theirs elsewhere, and whether this place serves tenants', async () => {
+    expect((await get(placeRouter(true), '/instance')).data).toEqual({ instance: null, servesTenants: true });
+    expect((await get(placeRouter(false), '/instance')).data).toEqual({ instance: null, servesTenants: false });
   });
 });

@@ -39,3 +39,11 @@ export function identityRouter(deps: {
 
   return router;
 }
+
+export function placeRouter(servesTenants: boolean): Router {
+  const router = Router();
+  router.get('/instance', (_req: Request, res: Response) => {
+    res.json({ instance: null, servesTenants });
+  });
+  return router;
+}

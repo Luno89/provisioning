@@ -37,7 +37,7 @@ import { RootPresence, type RootReachView } from '../services/RootPresence.js';
 import { instanceWatchRouter } from '../routes/instance-watch.js';
 import { PRESENCE_NAMESPACE, presenceAuth, unreachableAfterMs } from '../lib/instance-watch.js';
 import type { InstanceEdge, HeadscaleService, InfrastructureService } from '../../infrastructure/index.js';
-import { identityRouter } from '../routes/identity.js';
+import { identityRouter, placeRouter } from '../routes/identity.js';
 import { signInRouter } from '../routes/sign-in.js';
 import { oidcProviderRouter } from '../routes/oidc-provider.js';
 import type { RootProvider } from '../services/RootProvider.js';
@@ -161,6 +161,7 @@ export async function wireInstances(deps: InstancesWiringDeps): Promise<Instance
   const { role, env, app, tenant, db, identity, publicUrl } = deps;
   deps.side.follow(deps.syncExposedApps);
 
+  if (!holdsAccounts(role)) app.use('/api/identity', placeRouter(servesTenants(role)));
   if (holdsAccounts(role)) {
     app.use('/api/identity', identityRouter({ identity, servesTenants: servesTenants(role), signedIn: (req) => deps.auth.userFromSessionCookie(req.headers.cookie, deps.auth.securedFor(req)), reachOf: async (instanceId) => (await db.instances.getWatch(instanceId))?.reach }));
   }
