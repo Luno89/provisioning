@@ -12,20 +12,27 @@ const before = (a: Position, b: Position): boolean => a.line < b.line || (a.line
 const contains = (range: RanRange, at: Position): boolean => before(range.start, at) && before(at, range.end);
 const size = (range: RanRange): number => (range.end.line - range.start.line) * 10_000 + (range.end.column - range.start.column);
 
+const anyRan = (ranges: readonly RanRange[], distance: (range: RanRange) => number): boolean => {
+  if (ranges.length === 0) return false;
+  const best = Math.min(...ranges.map(distance));
+  return ranges.some((range) => distance(range) === best && range.count > 0);
+};
+
 function siteRan(ranges: readonly RanRange[] | undefined, at: Position): boolean {
-  if (!ranges) return false;
-  let innermost: RanRange | undefined;
-  for (const range of ranges) if (contains(range, at) && (!innermost || size(range) <= size(innermost))) innermost = range;
-  return (innermost?.count ?? 0) > 0;
+  return anyRan((ranges ?? []).filter((range) => contains(range, at)), size);
 }
 
 function unitRan(ranges: readonly RanRange[] | undefined, unit: Unit): boolean {
   if (!ranges) return false;
   if (unit.name === '(module)') return ranges.some((range) => range.count > 0);
-  const onLine = ranges.filter((range) => range.fn !== undefined && range.start.line === unit.line);
-  if (onLine.length === 0) return false;
-  const nearest = onLine.reduce((best, range) => (Math.abs(range.start.column - unit.column) < Math.abs(best.start.column - unit.column) ? range : best));
-  return nearest.count > 0;
+  const functions = ranges.filter((range) => range.fn !== undefined);
+  const ends = unit.ends;
+  if (ends) {
+    const closing = functions.filter((range) => range.end.line === ends.line && range.start.line >= unit.line - 1 && range.start.line <= unit.line);
+    if (closing.length > 0) return anyRan(closing, (range) => Math.abs(range.end.column - ends.column));
+  }
+  const onLine = functions.filter((range) => range.start.line === unit.line);
+  return anyRan(onLine, (range) => Math.abs(range.start.column - unit.column));
 }
 
 export function unitLevels(graph: Graph, runs: readonly Ran[], levelOf: (testFile: string) => Level): Map<string, Set<Level>> {

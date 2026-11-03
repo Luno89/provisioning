@@ -9,6 +9,7 @@ export interface Unit {
   column: number;
   start: number;
   end: number;
+  ends?: { line: number; column: number } | undefined;
   inTest: boolean;
 }
 
@@ -98,7 +99,8 @@ export function buildGraph(options: GraphOptions): Graph {
     const start = node.getStart(source);
     const { line, character } = source.getLineAndCharacterOfPosition(start);
     const id = `${file}:${line + 1}:${character + 1}`;
-    units[id] ??= { id, file, name: functionName(node), line: line + 1, column: character + 1, start, end: node.getEnd(), inTest: isTest(file) };
+    const last = source.getLineAndCharacterOfPosition(node.getEnd());
+    units[id] ??= { id, file, name: functionName(node), line: line + 1, column: character + 1, start, end: node.getEnd(), ends: { line: last.line + 1, column: last.character + 1 }, inTest: isTest(file) };
     return units[id];
   };
 
