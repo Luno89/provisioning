@@ -38,12 +38,16 @@ export function testPayloadBlobs(): { blobs: PayloadBlobs; stored: () => Promise
   };
 }
 
-export async function testDatabase(): Promise<MongoDB> {
-  const base = inject('mongoUri');
-  const db = new MongoDB({ MONGO_URI: `${base}t_${randomUUID().replace(/-/g, '').slice(0, 20)}` });
+export async function testDatabaseAt(): Promise<{ db: MongoDB; uri: string; dbName: string }> {
+  const uri = `${inject('mongoUri')}t_${randomUUID().replace(/-/g, '').slice(0, 20)}`;
+  const db = new MongoDB({ MONGO_URI: uri });
   await db.init();
   open.push(db);
-  return db;
+  return { db, uri, dbName: mongoTarget({ MONGO_URI: uri }).dbName };
+}
+
+export async function testDatabase(): Promise<MongoDB> {
+  return (await testDatabaseAt()).db;
 }
 
 export async function closeTestDatabases(): Promise<void> {

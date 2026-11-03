@@ -1,0 +1,20 @@
+import { describe, expect, it } from 'vitest';
+import { testDatabaseAt } from '../../platform/lib/test-database.js';
+import { MoveExport } from './MoveExport.js';
+import { restoreMongo } from './mongo-restore.js';
+
+describe('moving an instance\'s Mongo', () => {
+  it('exports every record of one database and restores them into another, the way a move carries them', async () => {
+    const { db: from, uri: fromUri, dbName: fromName } = await testDatabaseAt();
+    const { db: into, uri: intoUri, dbName: intoName } = await testDatabaseAt();
+    await from.projects.saveProject({ id: 'p1', name: 'Shop', ownerId: 'bo', createdAt: 't' } as never);
+    await from.infrastructure.saveDeployment({ id: 'd1', name: 'shop', clusterId: 'c1', strategy: 'helm', status: 'running', ownerId: 'bo' } as never);
+    const exporter = new MoveExport({ instanceId: 'i1', trusted: new Map(), dataDir: '/nowhere', mongo: { uri: fromUri, dbName: fromName }, env: {}, running: async () => [], claim: async () => true });
+    const part = exporter.open('mongo');
+    const restored = await restoreMongo({ uri: intoUri, dbName: intoName }, part.out);
+    await part.done;
+    expect(restored).toBeGreaterThanOrEqual(2);
+    expect((await into.projects.getProjects()).map((project) => project.id)).toEqual(['p1']);
+    expect((await into.infrastructure.getDeployments()).map((dep) => dep.id)).toEqual(['d1']);
+  });
+});

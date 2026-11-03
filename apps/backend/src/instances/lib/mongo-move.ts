@@ -16,6 +16,7 @@ export async function* exportLines(db: Db): AsyncGenerator<string> {
 }
 
 export async function importLines(lines: AsyncIterable<string>, db: Db): Promise<number> {
+  const reading = lines[Symbol.asyncIterator]();
   await db.dropDatabase();
   let collection = '';
   let batch: Document[] = [];
@@ -25,7 +26,8 @@ export async function importLines(lines: AsyncIterable<string>, db: Db): Promise
     count += batch.length;
     batch = [];
   };
-  for await (const line of lines) {
+  for (let next = await reading.next(); !next.done; next = await reading.next()) {
+    const line = next.value;
     if (!line.trim()) continue;
     const entry = JSON.parse(line) as { c: string; d: Document };
     if (entry.c !== collection) {

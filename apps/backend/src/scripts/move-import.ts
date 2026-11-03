@@ -1,19 +1,16 @@
 import path from 'path';
-import readline from 'readline';
-import zlib from 'zlib';
 import { spawn } from 'child_process';
 import { Readable } from 'stream';
 import { fileURLToPath } from 'url';
-import { MongoClient } from 'mongodb';
 import {
-  importLines, cleaned, restoreOrder, volumePart, type AppsManifest, type KubeObject, GITEA_DATA, MOVED_POSTGRES,
+  cleaned, restoreOrder, restoreMongo as restoreMongoFrom, volumePart, type AppsManifest, type KubeObject, GITEA_DATA, MOVED_POSTGRES,
   MOVE_STEP_WORDS, PG_RESTORE, drained, type MovePart,
 } from '../instances/index.js';
 import { ensureClusterMonitoring } from '../activities/cluster-monitoring.js';
 import { SYSTEM_CLUSTER } from '../monitoring/index.js';
 import { InfrastructureService } from '../infrastructure/index.js';
 import { GiteaService } from '../projects/index.js';
-import { clientOptionsFor, loadKeys, mongoTarget } from '../platform/index.js';
+import { loadKeys, mongoTarget } from '../platform/index.js';
 import { ignore } from '@koala/engine-core/failures';
 import { waitingOn } from '../activities/failure-reasons.js';
 import type { ReadableStream as WebReadableStream } from 'stream/web';
@@ -80,20 +77,8 @@ async function untilTrue(what: string, probe: () => Promise<boolean>): Promise<v
 }
 
 async function restoreMongo(): Promise<void> {
-  const target = mongoTarget(process.env);
-  const client = new MongoClient(target.uri, clientOptionsFor(target.uri));
-  for (;;) {
-    const unreachable = await client.connect().then(() => undefined, (err: Error) => err.message);
-    if (unreachable === undefined) break;
-    console.log(`  waiting for this machine's Mongo: ${unreachable}`);
-    await new Promise((resolve) => setTimeout(resolve, 3000));
-  }
-  try {
-    const lines = readline.createInterface({ input: (await part('mongo')).pipe(zlib.createGunzip()), crlfDelay: Infinity });
-    console.log(`  ${await importLines(lines, client.db(target.dbName))} records`);
-  } finally {
-    await client.close();
-  }
+  const restored = await restoreMongoFrom(mongoTarget(process.env), await part('mongo'), (why) => console.log(`  waiting for this machine's Mongo: ${why}`));
+  console.log(`  ${restored} records`);
 }
 
 async function restorePostgres(name: 'gitea-db' | 'infisical-db'): Promise<void> {
