@@ -13,9 +13,12 @@ export async function restoreMongo(
 ): Promise<number> {
   const client = clientFor(target.uri);
   for (;;) {
-    const unreachable = await client.connect().then(() => undefined, (err: Error) => err.message);
-    if (unreachable === undefined) break;
-    waiting(unreachable);
+    try {
+      await client.connect();
+      break;
+    } catch (err) {
+      waiting((err as Error).message);
+    }
     await new Promise((resolve) => setTimeout(resolve, 3000));
   }
   try {

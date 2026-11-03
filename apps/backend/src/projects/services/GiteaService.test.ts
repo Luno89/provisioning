@@ -470,6 +470,22 @@ describe('landing a story\'s branch on main', () => {
     expect(warn).toHaveBeenCalledWith(containing('its pull request #3 was not marked merged (HTTP 405)'));
   });
 
+  it('lands through the pull request another landing opened between its look and its open, and fails when that one cannot be found', async () => {
+    let looked = 0;
+    const found = [[], [{ number: 4, head: { ref: 'leaf/l1' }, base: { ref: 'main' } }]];
+    server.use(
+      http.get(`${REPO}/pulls`, () => HttpResponse.json(found[Math.min(looked++, 1)])),
+      http.post(`${REPO}/pulls`, () => HttpResponse.json({ message: 'pull request already exists for these targets' }, { status: 409 })),
+      http.patch(REPO, () => HttpResponse.json({})),
+      http.post(`${REPO}/pulls/4/merge`, () => HttpResponse.json({})),
+    );
+    expect(await landing().gitea.mergeBranch('koala-bo', 'shop', 'leaf/l1', 'main')).toBe('merged');
+    server.use(http.get(`${REPO}/pulls`, () => HttpResponse.json([])));
+    const { gitea, runs } = landing();
+    expect(await gitea.mergeBranch('koala-bo', 'shop', 'leaf/l1', 'main')).toBe('failed');
+    expect(runs).toEqual([]);
+  });
+
   it('says there is nothing to land when Gitea finds no difference, running no git', async () => {
     const { gitea, runs } = landing();
     server.use(

@@ -23,7 +23,7 @@ function commit(branch: string, file: string, content: string): string {
 
 const unused = (): never => { throw new Error('not used by this test'); };
 
-function service(): GiteaService {
+function service(pulls: { listed?: unknown[][]; created?: Response } = {}): GiteaService {
   const gitea = new GiteaService({ runKubectl: unused, getK3dServerIp: unused }, 'master-key' as never, '/tmp/kubeconfig');
   const internals = gitea as unknown as { resolveBaseUrl(): Promise<string>; getToken(): Promise<string> };
   vi.spyOn(internals, 'resolveBaseUrl').mockResolvedValue(`file://${root}`);
@@ -31,8 +31,8 @@ function service(): GiteaService {
   vi.stubGlobal('fetch', vi.fn(async (url: string, init: RequestInit = {}) => {
     const where = url.replace(`file://${root}`, '');
     asked.push(`${init.method ?? 'GET'} ${where}`);
-    if (where.endsWith('/pulls?state=open&limit=50')) return Response.json([]);
-    if (init.method === 'POST' && where.endsWith('/pulls')) return Response.json({ number: 1 });
+    if (where.endsWith('/pulls?state=open&limit=50')) return Response.json(pulls.listed?.shift() ?? []);
+    if (init.method === 'POST' && where.endsWith('/pulls')) return pulls.created ?? Response.json({ number: 1 });
     return Response.json({});
   }));
   return gitea;
@@ -81,4 +81,12 @@ describe('GiteaService.mergeBranch, landing with git', () => {
     expect(asked.at(-1)).toBe('PATCH /api/v1/repos/koala-bo/shop/pulls/1');
     expect(git('-C', remote, 'rev-parse', 'main')).toBe(landed);
   });
+
+  it('lands through the pull request another landing opened between its look and its open', async () => {
+    commit('leaf/l1', 'pay.txt', 'pay\n');
+    const opened = [{ number: 4, head: { ref: 'leaf/l1' }, base: { ref: 'main' } }];
+    expect(await service({ listed: [[], opened], created: Response.json({ message: 'pull request already exists for these targets' }, { status: 409 }) }).mergeBranch('koala-bo', 'shop', 'leaf/l1', 'main')).toBe('merged');
+    expect(asked.at(-1)).toBe('POST /api/v1/repos/koala-bo/shop/pulls/4/merge');
+  });
 });
+
