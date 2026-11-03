@@ -7,7 +7,10 @@ import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
 import { REMOVE_ACCOUNT_WORKFLOW, removeAccountWorkflowId } from '../accounts/lib/account-removal.js';
 import { temporalRemovalWorkflows } from '../accounts/services/AccountRemovalService.js';
-import type { AccountRemovalActivities } from '../activities/RemoveAccountActivities.js';
+import { mock } from 'vitest-mock-extended';
+import { createAccountRemovalActivities, type AccountRemovalActivities, type AccountRemovalDeps } from '../activities/RemoveAccountActivities.js';
+import type { DeploymentMetadata } from '../platform/lib/types.js';
+import { testDatabase } from '../platform/lib/test-database.js';
 import { bundled, temporalTestEnvironment } from './temporal-test-env.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -22,11 +25,11 @@ afterAll(async () => {
   await env?.teardown();
 });
 
-const fakeSteps = (seen: string[], over: Partial<AccountRemovalActivities> = {}, named: string[] = []): AccountRemovalActivities => ({
+const fakeSteps = (seen: string[], over: Partial<AccountRemovalActivities> = {}): AccountRemovalActivities => ({
   RemoveAccountWorkflowsActivity: async () => { seen.push('workflows'); return 0; },
   RemoveAccountKeepRunsActivity: async ({ keepRunsFor }) => { seen.push(`keep for ${keepRunsFor}`); return 3; },
   RemoveAccountAppsActivity: async () => { seen.push('apps'); return []; },
-  RemoveAccountAppStartedActivity: async ({ deploymentId, workflowId }) => { named.push(`${deploymentId} ${workflowId}`); },
+  RemoveAccountAppStartedActivity: async () => undefined,
   RemoveAccountWorkspacesActivity: async () => { seen.push('workspaces'); return 'deleted'; },
   RemoveAccountSecretsActivity: async () => { seen.push('secrets'); return 0; },
   RemoveAccountMeshActivity: async () => { seen.push('mesh'); return { devices: 1, user: true }; },
@@ -46,15 +49,6 @@ const withWorker = async (activities: AccountRemovalActivities, body: (workflows
   await worker.runUntil(() => body(temporalRemovalWorkflows(() => env.client, taskQueue)));
 };
 
-const until = async <T>(probe: () => Promise<T | undefined>): Promise<T> => {
-  for (let tries = 0; tries < 100; tries += 1) {
-    const found = await probe();
-    if (found !== undefined) return found;
-    await new Promise((settle) => setTimeout(settle, 100));
-  }
-  throw new Error('timed out');
-};
-
 describe('removing an account through Temporal', () => {
   it('stops its workflows, then destroys its apps and deletes its workspaces, secrets, mesh, repositories and records, in that order', async () => {
     const seen: string[] = [];
@@ -71,13 +65,12 @@ describe('removing an account through Temporal', () => {
   it('says how far it has got while it runs', async () => {
     let release: () => void = () => undefined;
     const held = new Promise<void>((done) => { release = done; });
-    await withWorker(fakeSteps([], { RemoveAccountMeshActivity: async () => { await held; return { devices: 0, user: false }; } }), async (workflows) => {
+    let reached: () => void = () => undefined;
+    const atMesh = new Promise<void>((done) => { reached = done; });
+    await withWorker(fakeSteps([], { RemoveAccountMeshActivity: async () => { reached(); await held; return { devices: 0, user: false }; } }), async (workflows) => {
       await workflows.start(REMOVE_ACCOUNT_WORKFLOW, removeAccountWorkflowId('cy'), [{ ownerId: 'cy' }], 'cy');
-      const midway = await until(async () => {
-        const state = await workflows.state(removeAccountWorkflowId('cy'));
-        return state.state === 'running' && state.done.length === 4 ? state : undefined;
-      });
-      expect(midway).toEqual({ state: 'running', done: ['workflows', 'apps', 'workspaces', 'secrets'] });
+      await atMesh;
+      expect(await workflows.state(removeAccountWorkflowId('cy'))).toEqual({ state: 'running', done: ['workflows', 'apps', 'workspaces', 'secrets'] });
       release();
       await env.client.workflow.getHandle(removeAccountWorkflowId('cy')).result();
     });
@@ -95,7 +88,9 @@ describe('removing an account through Temporal', () => {
     const seen: string[] = [];
     const clusterQueue = `remove-account-apps-${Math.random().toString(36).slice(2, 8)}`;
     const destroyed: string[] = [];
-    const named: string[] = [];
+    const db = await testDatabase();
+    await db.infrastructure.saveDeployment({ id: 'd1', name: 'shop', clusterId: 'c', strategy: 'helm', status: 'destroying', ownerId: 'eve', temporalWorkflowId: '' } as DeploymentMetadata);
+    const real = createAccountRemovalActivities({ ...mock<AccountRemovalDeps>(), store: db });
     const clusterWorker = await Worker.create({
       ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace: env.namespace ?? 'default',
       taskQueue: clusterQueue,
@@ -105,12 +100,13 @@ describe('removing an account through Temporal', () => {
     const app = { name: 'shop', clusterId: 'c', clusterName: 'system', provider: 'k3d', strategy: 'helm', logFile: '/tmp/x.log', appType: 'odoo-project', namespace: 'shop-1a2b3c' };
     await clusterWorker.runUntil(withWorker(fakeSteps(seen, {
       RemoveAccountAppsActivity: async () => { seen.push('apps'); return [{ deploymentId: 'd1', workflowId: `app-destroy-shop-${clusterQueue}`, taskQueue: clusterQueue, args: app }]; },
-    }, named), async (workflows) => {
+      RemoveAccountAppStartedActivity: real.RemoveAccountAppStartedActivity,
+    }), async (workflows) => {
       await workflows.start(REMOVE_ACCOUNT_WORKFLOW, removeAccountWorkflowId('eve'), [{ ownerId: 'eve' }], 'eve');
       expect(await env.client.workflow.getHandle(removeAccountWorkflowId('eve')).result()).toMatchObject({ apps: 1 });
     }));
     expect(destroyed).toEqual(['shop in shop-1a2b3c']);
-    expect(named, 'the app names its destroy only once that destroy has started').toEqual([`d1 app-destroy-shop-${clusterQueue}`]);
+    expect((await db.infrastructure.getDeployments()).find((dep) => dep.id === 'd1')?.temporalWorkflowId, 'the app names its destroy once that destroy has started').toBe(`app-destroy-shop-${clusterQueue}`);
     expect(seen.slice(0, 4)).toEqual(['workflows', 'apps', 'destroyed', 'workspaces']);
   }, 60_000);
 

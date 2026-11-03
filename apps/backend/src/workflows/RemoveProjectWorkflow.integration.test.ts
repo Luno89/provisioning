@@ -7,7 +7,10 @@ import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
 import { PROJECT_REMOVAL_PROGRESS_QUERY, REMOVE_PROJECT_WORKFLOW, removeProjectWorkflowId, type ProjectRemovalStep } from '../projects/lib/project-removal.js';
 import { temporalRemovalWorkflows } from '../accounts/services/AccountRemovalService.js';
-import type { ProjectRemovalActivities } from '../activities/RemoveProjectActivities.js';
+import { mock } from 'vitest-mock-extended';
+import { createProjectRemovalActivities, type ProjectRemovalActivities, type ProjectRemovalDeps } from '../activities/RemoveProjectActivities.js';
+import type { DeploymentMetadata } from '../platform/lib/types.js';
+import { testDatabase } from '../platform/lib/test-database.js';
 import { bundled, temporalTestEnvironment } from './temporal-test-env.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -32,18 +35,22 @@ describe('deleting a project through Temporal', () => {
       workflowBundle: await bundled(resolve(__dirname, 'DestroyAppWorkflow.ts')),
       activities: { DestroyAppActivity: async (args: { name: string; namespace?: string }) => { seen.push(`destroy ${args.name} in ${args.namespace}`); return { status: 'destroyed', msg: '' }; } },
     });
-    const named: string[] = [];
+    const db = await testDatabase();
+    await db.infrastructure.saveDeployment({ id: 'd1', name: 'shop', clusterId: 'c', strategy: 'helm', status: 'destroying', ownerId: 'bo', temporalWorkflowId: '' } as DeploymentMetadata);
+    const real = createProjectRemovalActivities({ ...mock<ProjectRemovalDeps>(), store: db });
     let release: () => void = () => undefined;
     const held = new Promise<void>((done) => { release = done; });
+    let reached: () => void = () => undefined;
+    const atSecrets = new Promise<void>((done) => { reached = done; });
     const activities: ProjectRemovalActivities = {
       RemoveProjectWorkflowsActivity: async () => { seen.push('workflows'); return 0; },
       RemoveProjectAppsActivity: async () => {
         seen.push('apps');
         return [{ deploymentId: 'd1', workflowId: `app-destroy-shop-${clusterQueue}`, taskQueue: clusterQueue, args: { name: 'shop', clusterId: 'c', clusterName: 'system', provider: 'k3d', strategy: 'helm', logFile: '/tmp/x.log', appType: 'odoo-project', namespace: 'shop-1a2b3c' } }];
       },
-      RemoveProjectAppStartedActivity: async ({ deploymentId, workflowId }) => { named.push(`${deploymentId} ${workflowId}`); },
+      RemoveProjectAppStartedActivity: real.RemoveProjectAppStartedActivity,
       RemoveProjectWorkspacesActivity: async () => { seen.push('workspaces'); return 2; },
-      RemoveProjectSecretsActivity: async () => { seen.push('secrets'); await held; return { workspace: true, readers: 1 }; },
+      RemoveProjectSecretsActivity: async () => { seen.push('secrets'); reached(); await held; return { workspace: true, readers: 1 }; },
       RemoveProjectRepositoriesActivity: async () => { seen.push('repositories'); return ['koala-bo/shop']; },
       RemoveProjectFilesActivity: async () => { seen.push('files'); return 'removed'; },
       RemoveProjectRecordsActivity: async () => { seen.push('records'); return { projects: 1 }; },
@@ -61,11 +68,7 @@ describe('deleting a project through Temporal', () => {
     await streamWorker.runUntil(clusterWorker.runUntil(worker.runUntil(async () => {
       const workflows = temporalRemovalWorkflows<{ projectId: string }, ProjectRemovalStep>(() => env.client, taskQueue, PROJECT_REMOVAL_PROGRESS_QUERY);
       await workflows.start(REMOVE_PROJECT_WORKFLOW, removeProjectWorkflowId('p1'), [{ projectId: 'p1' }], 'bo');
-      for (let tries = 0; tries < 100; tries += 1) {
-        const state = await workflows.state(removeProjectWorkflowId('p1'));
-        if (state.state === 'running' && state.done.length === 3) break;
-        await new Promise((settle) => setTimeout(settle, 100));
-      }
+      await atSecrets;
       expect(await workflows.state(removeProjectWorkflowId('p1'))).toEqual({ state: 'running', done: ['workflows', 'apps', 'workspaces'] });
       release();
       expect(await env.client.workflow.getHandle(removeProjectWorkflowId('p1')).result()).toEqual({
@@ -73,7 +76,7 @@ describe('deleting a project through Temporal', () => {
       });
     })));
     expect(seen).toEqual(['workflows', 'apps', 'destroy shop in shop-1a2b3c', 'workspaces', 'secrets', 'repositories', 'files', 'records']);
-    expect(named, 'the app names its destroy only once that destroy has started').toEqual([`d1 app-destroy-shop-${clusterQueue}`]);
+    expect((await db.infrastructure.getDeployments()).find((dep) => dep.id === 'd1')?.temporalWorkflowId, 'the app names its destroy once that destroy has started').toBe(`app-destroy-shop-${clusterQueue}`);
     expect(told, 'the owner\'s browsers are told the grove changed').toEqual(['bo']);
   }, 60_000);
 });

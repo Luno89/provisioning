@@ -5,7 +5,9 @@ import { WORKER_DEFAULTS } from '@koala/engine-core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { testDatabase } from '../../platform/lib/test-database.js';
 import { startedFor } from '../../platform/lib/workflow-owner.js';
+import { mock } from 'vitest-mock-extended';
 import { DEFAULT_STREAM_TASK_QUEUE, type WorkflowFailedReport } from '../../engine-host/temporal/contracts.js';
+import { createStreamActivities, type StreamServices } from '../../engine-host/temporal/activities.js';
 import { bundled, temporalTestEnvironment } from '../../workflows/temporal-test-env.js';
 import { WorkFailureService } from './WorkFailureService.js';
 
@@ -83,7 +85,7 @@ describe('a workflow that fails tells the backend itself', () => {
     });
     const stream = await Worker.create({
       ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace, taskQueue: DEFAULT_STREAM_TASK_QUEUE,
-      activities: { EngineWorkflowFailedActivity: async (report: WorkflowFailedReport) => { reports.push(report); await service.workflowFailed(report); } },
+      activities: { EngineWorkflowFailedActivity: createStreamActivities({ ...mock<StreamServices>(), workflowFailed: async (report) => { reports.push(report); await service.workflowFailed(report); } }).EngineWorkflowFailedActivity },
     });
 
     await stream.runUntil(workflows.runUntil(async () => {
