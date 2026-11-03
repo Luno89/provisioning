@@ -47,7 +47,7 @@ async function chats(watching: Watched, model: ModelStandIn): Promise<void> {
   step('the owner gives Koala a model through Studio → Models, makes it the default, and Koala answers in a chat');
   const { page } = watching;
   await page.getByRole('link', { name: 'Or paste a key for any OpenAI-compatible provider' }).click();
-  const custom = page.locator('div').filter({ has: page.getByText('Custom Endpoint', { exact: true }) }).filter({ has: page.getByRole('button', { name: 'Connect' }) }).last();
+  const custom = page.getByTestId('model-provider').filter({ hasText: 'Custom Endpoint' });
   await custom.getByRole('button', { name: 'Connect' }).click();
   await custom.getByLabel('Base URL').fill(model.baseUrl);
   await custom.getByLabel('Model Name').fill(model.model);

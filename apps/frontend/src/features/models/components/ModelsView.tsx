@@ -6,6 +6,7 @@ import { errorMessage } from '../../../api/client'
 import { LLM_PROVIDERS } from '../../infrastructure'
 import { openRouterNoticeFrom, withoutOpenRouterNotice } from '../lib/openrouter-notice'
 import { DefaultModelPicker } from './DefaultModelPicker'
+import { providerKeys } from '../api'
 import { safeHref } from '../../../shared/lib/safe-href'
 
 const LLM_KEYS = ['credentials', 'llm'] as const
@@ -19,7 +20,7 @@ function ProviderCard({ provider, status }: { provider: (typeof LLM_PROVIDERS)[n
   const [editing, setEditing] = useState(false)
   const [confirming, setConfirming] = useState(false)
   const [form, setForm] = useState<Record<string, string>>({})
-  const refresh = () => qc.invalidateQueries({ queryKey: LLM_KEYS })
+  const refresh = () => Promise.all([qc.invalidateQueries({ queryKey: LLM_KEYS }), qc.invalidateQueries({ queryKey: providerKeys.list() })])
   const save = useMutation({
     mutationFn: () => saveLlmCredentials({ provider: provider.key, ...form }),
     onSuccess: () => { void refresh(); setEditing(false); setForm({}) },

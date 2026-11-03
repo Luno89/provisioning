@@ -12,8 +12,8 @@ vi.mock('../../infrastructure/api/credentials', async (orig) => ({
 }))
 vi.mock('./DefaultModelPicker', () => ({ DefaultModelPicker: () => <div data-testid="default-model" /> }))
 
-const show = () => render(
-  <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+const show = (client = new QueryClient({ defaultOptions: { queries: { retry: false } } })) => render(
+  <QueryClientProvider client={client}>
     <ModelsView />
   </QueryClientProvider>,
 )
@@ -42,6 +42,18 @@ describe('the Models page', () => {
     fireEvent.change(within(groq).getByPlaceholderText(/./), { target: { value: 'gsk-test' } })
     fireEvent.click(within(groq).getByRole('button', { name: /Connect and fetch models/ }))
     await waitFor(() => expect(credentialsApi.saveLlmCredentials).toHaveBeenCalledWith({ provider: 'groq', apiKey: 'gsk-test' }))
+  })
+
+  it('offers the models a provider brings as soon as it is connected, refreshing the list every model picker reads', async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const invalidated = vi.spyOn(client, 'invalidateQueries')
+    show(client)
+    const custom = await card('Custom Endpoint')
+    fireEvent.click(within(custom).getByRole('button', { name: 'Connect' }))
+    fireEvent.change(within(custom).getByLabelText('Base URL'), { target: { value: 'http://10.0.0.5:5000/v1' } })
+    fireEvent.change(within(custom).getByLabelText('Model Name'), { target: { value: 'qwen' } })
+    fireEvent.click(within(custom).getByRole('button', { name: /Connect and fetch models/ }))
+    await waitFor(() => expect(invalidated.mock.calls.map(([filters]) => filters?.queryKey)).toEqual(expect.arrayContaining([['credentials', 'llm'], ['models']])))
   })
 
   it('connects OpenRouter through the person\'s own OpenRouter account, with pasting a key still there', async () => {
