@@ -277,4 +277,16 @@ export function modelServiceBehaviour(make: () => Promise<Database>): void {
       expect(await new ModelService(db, apps, clusters, proxy, headscale, 'master-key').resolveExtractor('nobody')).toBeUndefined();
     });
   });
+
+  describe('a model endpoint on this machine', () => {
+    const local: ModelEndpointMetadata[] = [{ id: 'local', ownerId: 'u1', name: 'Local stand-in', baseUrl: 'http://127.0.0.1:9/v1', model: 'stand-in', createdAt: 't' }];
+
+    it('is reached in a lab', async () => {
+      expect(await (await build(local, undefined, { lab: true })).resolveBaseUrl('u1')).toMatchObject({ baseUrl: 'http://127.0.0.1:9/v1' });
+    });
+
+    it('is refused anywhere else', async () => {
+      await expect((await build(local)).resolveBaseUrl('u1')).rejects.toThrow(/no longer allowed: 127\.0\.0\.1 is a private, loopback or reserved address/);
+    });
+  });
 }

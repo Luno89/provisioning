@@ -113,13 +113,13 @@ export class ModelService extends BaseService {
     const baseUrl = provider.baseUrl ?? '';
     const owner = await this.db.accounts.getUserById(userId);
     const scripted = owner?.space?.models === 'scripted' && this.endpointRules.scriptedBase !== undefined && baseUrl === `${this.endpointRules.scriptedBase}/${userId}/v1`;
-    const check = scripted ? { ok: true as const } : checkEndpointUrl(baseUrl);
+    const check = scripted ? { ok: true as const } : checkEndpointUrl(baseUrl, this.endpointRules);
     if (!check.ok) throw new Error(`Endpoint "${provider.name}" is no longer allowed: ${check.reason}`);
 
     if (check.literalIp && isMeshAddress(check.literalIp)) {
       await this.assertOwnsMeshAddress(userId, check.literalIp);
     }
-    if (!scripted && !check.literalIp && check.hostname) {
+    if (!scripted && !this.endpointRules.lab && !check.literalIp && check.hostname) {
       const addresses = await dns.lookup(check.hostname, { all: true }).catch((err: Error) => {
         throw new Error(`Endpoint "${provider.name}" cannot be checked: ${check.hostname} does not resolve (${err.message})`);
       });

@@ -155,8 +155,28 @@ describe('normaliseBaseUrl', () => {
 
 describe('the scripted model a check uses', () => {
   it('lives on this backend, at the check runner\'s own address', () => {
-    expect(endpointRulesFromEnv({})).toEqual({ scriptedBase: 'http://localhost:3001/api/checks/scripted' });
-    expect(endpointRulesFromEnv({ CHECKS_API_URL: 'http://backend:3001/api/' })).toEqual({ scriptedBase: 'http://backend:3001/api/checks/scripted' });
+    expect(endpointRulesFromEnv({})).toEqual({ scriptedBase: 'http://localhost:3001/api/checks/scripted', lab: false });
+    expect(endpointRulesFromEnv({ CHECKS_API_URL: 'http://backend:3001/api/' })).toEqual({ scriptedBase: 'http://backend:3001/api/checks/scripted', lab: false });
     expect(checkEndpointUrl('http://localhost:3001/api/checks/scripted/space-1/v1').ok).toBe(false);
+  });
+});
+
+describe('a model endpoint on this machine in a lab', () => {
+  const lab = endpointRulesFromEnv({ CERTIFICATES: 'internal', DOMAIN: 'koala.internal', INGRESS_DOMAIN: 'people.internal' });
+
+  it('is a lab only with internal certificates and names nothing public resolves', () => {
+    expect(lab.lab).toBe(true);
+    expect(endpointRulesFromEnv({ CERTIFICATES: 'internal', DOMAIN: 'example.com' }).lab).toBe(false);
+    expect(endpointRulesFromEnv({ CERTIFICATES: 'acme', DOMAIN: 'koala.internal' }).lab).toBe(false);
+    expect(endpointRulesFromEnv({}).lab).toBe(false);
+  });
+
+  it('allows loopback, private addresses and local names there, and nowhere else', () => {
+    for (const url of ['http://127.0.0.1:8000/v1', 'http://10.0.0.5:5000/v1', 'http://localhost:8000/v1', 'http://tabby:5000/v1', 'http://models.internal/v1']) {
+      expect(checkEndpointUrl(url, lab).ok, url).toBe(true);
+      expect(checkEndpointUrl(url).ok, url).toBe(false);
+    }
+    expect(checkEndpointUrl('ftp://127.0.0.1/v1', lab)).toMatchObject({ ok: false });
+    expect(checkEndpointUrl('http://user:pass@127.0.0.1/v1', lab)).toMatchObject({ ok: false });
   });
 });

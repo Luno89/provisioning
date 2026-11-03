@@ -1,4 +1,5 @@
 import { scriptedModelBase } from '../../checks/lib/check-space.js';
+import { labFrom } from '../../platform/lib/lab.js';
 
 
 function ipv4ToInt(host: string): number | undefined {
@@ -73,13 +74,14 @@ export function normaliseBaseUrl(raw: string): string {
 
 export interface EndpointRules {
   scriptedBase?: string | undefined;
+  lab?: boolean | undefined;
 }
 
 export function endpointRulesFromEnv(env: Readonly<Record<string, string | undefined>>): EndpointRules {
-  return { scriptedBase: scriptedModelBase(env) };
+  return { scriptedBase: scriptedModelBase(env), lab: labFrom(env) };
 }
 
-export function checkEndpointUrl(raw: string): UrlCheck {
+export function checkEndpointUrl(raw: string, rules: EndpointRules = {}): UrlCheck {
   let url: URL;
   try {
     url = new URL(raw);
@@ -100,7 +102,7 @@ export function checkEndpointUrl(raw: string): UrlCheck {
 
   const isLiteral = ipv4ToInt(hostname) !== undefined || hostname.includes(':');
   if (isLiteral) {
-    if (!isAllowedIp(hostname)) {
+    if (!rules.lab && !isAllowedIp(hostname)) {
       return {
         ok: false,
         reason: `${hostname} is a private, loopback or reserved address. Only mesh addresses (${MESH_CIDR}) and public addresses are allowed.`,
@@ -108,6 +110,8 @@ export function checkEndpointUrl(raw: string): UrlCheck {
     }
     return { ok: true, literalIp: hostname, hostname };
   }
+
+  if (rules.lab) return { ok: true, hostname };
 
   if (!hostname.includes('.')) {
     return { ok: false, reason: `"${hostname}" is not a public hostname. Use a mesh IP or a fully-qualified domain.` };
