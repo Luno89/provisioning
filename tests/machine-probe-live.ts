@@ -206,7 +206,7 @@ async function main(): Promise<void> {
   const folder = `/home/${PERSON}/koala/project`;
   const said = await podSays(b.vm, 'as-person', 'id -u; id -g; cat /work/README; echo made > /work/from-pod.txt; ls /work; ls /home 2>&1 || true', { runAs: PERSON_UID, folder });
   assert.match(said, new RegExp(`^${PERSON_UID}\\n${PERSON_UID}\\ntheirs`), `the pod did not run as the person or could not read their folder:\n${said}`);
-  assert.equal((await inVm(b.vm, `stat -c '%U:%G' ${folder}/from-pod.txt`)).trim(), `${PERSON}:${PERSON}`, 'the file the pod wrote is not the person\'s');
+  assert.equal((await inVm(b.vm, `sudo stat -c '%U:%G' ${folder}/from-pod.txt`)).trim(), `${PERSON}:${PERSON}`, 'the file the pod wrote is not the person\'s');
   assert.ok(!said.includes('outside.txt'), 'the pod saw beyond the folder');
   console.log('  the pod ran as the person, read and wrote their folder, and the file it made is theirs');
 }
