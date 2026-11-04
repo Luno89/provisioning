@@ -4,12 +4,10 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import axios from 'axios';
 import { afterEach, describe, expect, it } from 'vitest';
-import { mock } from 'vitest-mock-extended';
 import { mountRouter, type Harness } from '../../platform/routes/test-harness.js';
 import { nodeProcesses } from '../../platform/services/processes.js';
 import { MachineBundle } from '../services/MachineBundle.js';
 import { MachineGitService } from '../services/MachineGitService.js';
-import type { MachineService } from '../services/MachineService.js';
 import { gitHttpRemote, type GitHttpRemote } from '../testing/git-http-remote.js';
 import { machinesRouter } from './machines.js';
 
@@ -55,7 +53,6 @@ async function koala(options: { withGit?: boolean } = {}) {
     user: null,
     open: true,
     router: () => machinesRouter({
-      machines: mock<Pick<MachineService, 'join'>>(),
       bundle: new MachineBundle(REPO_ROOT, bundleDir),
       ...(options.withGit === false ? {} : {
         git: new MachineGitService({

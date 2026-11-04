@@ -78,8 +78,8 @@ export class MachineTemporalGateway {
     return this.session;
   }
 
-  forget(tokenHash: string): void {
-    this.seen.delete(tokenHash);
+  forget(deviceId: string): void {
+    for (const [key, entry] of this.seen) if (entry.deviceId === deviceId) this.seen.delete(key);
   }
 
   private async deviceFor(token: string): Promise<string | undefined> {

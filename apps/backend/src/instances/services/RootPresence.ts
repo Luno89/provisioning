@@ -20,6 +20,7 @@ export interface RootPresenceDeps {
   afterMs: number;
   retryMs?: number | undefined;
   connect?: PresenceConnect | undefined;
+  heard?: Readonly<Record<string, () => void>> | undefined;
   now?: () => Date;
   log?: (message: string) => void;
 }
@@ -50,6 +51,7 @@ export class RootPresence {
       },
     });
     this.socket = socket;
+    for (const [event, handler] of Object.entries(this.deps.heard ?? {})) socket.on(event, handler);
     socket.on('connect', () => this.arrived());
     socket.on('disconnect', (reason) => {
       this.left();

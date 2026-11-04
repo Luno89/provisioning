@@ -1,12 +1,10 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { TEST_USER } from '../../platform/routes/test-harness.js';
 import { rootWithAnInstance as openRoot, type RootWithAnInstance } from '../testing/root-with-an-instance.js';
 import { InstanceGroups } from './InstanceGroups.js';
 import { InstanceWatchSetting } from './InstanceWatchSetting.js';
 import { InstanceUpdates } from './InstanceUpdates.js';
 import { InstanceTrial, RootRefused } from './InstanceTrial.js';
 import { InstanceAddresses } from './InstanceAddresses.js';
-import { RootMeshKeys } from './RootMeshKeys.js';
 
 const roots: RootWithAnInstance[] = [];
 afterEach(async () => { await Promise.all(roots.splice(0).map((root) => root.close())); });
@@ -60,15 +58,6 @@ describe('an instance\'s clients against root\'s own routes', () => {
     const { instance } = await rootWithAnInstance();
     expect(await new InstanceTrial(instance).read()).not.toHaveProperty('trialEndsAt');
     await expect(new InstanceTrial({ ...instance, token: async () => 'not-the-credential' }).read()).rejects.toThrow('root did not answer about this instance\'s trial (401): unknown instance or credential');
-  });
-
-  it('gets a key for a machine to join its owner\'s mesh, and takes a machine off it, never the instance itself', async () => {
-    const { instance, meshAsked } = await rootWithAnInstance();
-    const keys = new RootMeshKeys(instance);
-    expect(await keys.createPreAuthKey('ignored')).toEqual({ key: `key-of-${TEST_USER.id}` });
-    await keys.removeNode('ignored', '100.64.0.20');
-    await expect(keys.removeNode('ignored', '100.64.0.9')).rejects.toThrow('root would not take the machine off the mesh (400): that is the instance itself, not one of its machines');
-    expect(meshAsked).toEqual([`key for ${TEST_USER.id}`, `key for ${TEST_USER.id}`, `remove 100.64.0.20 of ${TEST_USER.id}`]);
   });
 
   it('is refused a move by root when it is on its owner\'s own machine, and is told nothing is moving', async () => {

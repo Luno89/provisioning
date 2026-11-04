@@ -1,24 +1,20 @@
-import { v4 as uuidv4 } from 'uuid';
 import path from 'path';
-import { type SecretKey, type LocalAgentDeviceMetadata, type ProjectMetadata } from '../../platform/index.js';
-import { matchDeviceToken } from '../lib/local-agent-registry.js';
-import { deviceTokenHash, newDeviceToken, promotedNext, rotationDue, tokenExpired, tokenLifetime, withNextToken, type TokenVia } from '../lib/device-tokens.js';
+import { type LocalAgentDeviceMetadata, type ProjectMetadata } from '../../platform/index.js';
+import { tokenExpired } from '../lib/device-tokens.js';
 import type { MachineChoice } from '@koala/agent-engine/procedure';
 import {
-  meshAddress,
-  MACHINE_CODE_TTL_SECONDS, hashMachineCode, machineAgentsFrom, machineChoiceProblem, machineCommand, manualAgentsOf, manualAgentsProblem, newMachineCode,
+  machineAgentsFrom, machineChoiceProblem, manualAgentsOf, manualAgentsProblem,
   type MachineAgent, type ManualMachineAgent,
 } from '../lib/machines.js';
+import type { AccountMachine } from './MachineAccounts.js';
 import { agentUpdateReportFrom, agentUpdateView, reportedBundle, type AgentUpdateView } from '../lib/agent-updates.js';
 import type { MachinesStore } from '../store.js';
 
-type Store = Pick<MachinesStore, 'getLocalAgentDevices' | 'saveMachineJoinCode' | 'takeMachineJoinCode' | 'saveLocalAgentDevice' | 'updateLocalAgentDevice' | 'deleteLocalAgentDevice'>;
+type Store = Pick<MachinesStore, 'getLocalAgentDevices' | 'saveLocalAgentDevice' | 'updateLocalAgentDevice' | 'deleteLocalAgentDevice'>;
 
-export interface MachineSettings {
-  url: string;
-  temporalAddress: string;
-  temporalNamespace: string;
-  meshLoginServer?: string | undefined;
+export interface MachineAccountSide {
+  createJoinCode(ownerId: string): Promise<{ code: string; command: string; expiresAt: string }>;
+  remove(ownerId: string, deviceId: string): Promise<boolean>;
 }
 
 export interface MachineDevices {
@@ -30,18 +26,13 @@ export interface MachineDevices {
 
 export interface MachineDeps {
   store: Store;
-  dataKey: SecretKey;
-  settings: MachineSettings;
   devices: MachineDevices;
+  accounts: MachineAccountSide;
   projects: {
     register(ownerId: string, name: string, opts: { executionTarget?: ProjectMetadata['executionTarget'] }): Promise<ProjectMetadata>;
     removeFor?(ownerId: string, deviceId: string): Promise<void>;
   };
   bundle?: { sha256(): Promise<string> } | undefined;
-  mesh?: {
-    createPreAuthKey(ownerId: string, opts?: { reusable?: boolean; expirySeconds?: number }): Promise<{ key: string }>;
-    removeNode?(ownerId: string, meshIp: string): Promise<void>;
-  } | undefined;
   now?: (() => Date) | undefined;
 }
 
@@ -64,23 +55,13 @@ export interface MachineView {
   agentUpdate?: AgentUpdateView | undefined;
 }
 
-export interface JoinedMachine {
-  deviceId: string;
-  env: Record<string, string>;
-}
-
-const meshUsable = (server: string | undefined): server is string => Boolean(server && !/localhost|127\.0\.0\.1/.test(server));
-
-const text = (value: unknown, limit: number): string | undefined =>
-  typeof value === 'string' && value.trim() ? value.trim().slice(0, limit) : undefined;
-
 export class MachineService {
-  private readonly retiredListeners: ((tokenHash: string) => void)[] = [];
+  private readonly forgottenListeners: ((deviceId: string) => void)[] = [];
 
   constructor(private readonly deps: MachineDeps) {}
 
-  onTokenRetired(listener: (tokenHash: string) => void): void {
-    this.retiredListeners.push(listener);
+  onForgotten(listener: (deviceId: string) => void): void {
+    this.forgottenListeners.push(listener);
   }
 
   private now(): Date {
@@ -131,98 +112,11 @@ export class MachineService {
     return devices.map((device) => this.view(device, current));
   }
 
-  async createJoinCode(ownerId: string): Promise<{ code: string; command: string; expiresAt: string }> {
-    const code = newMachineCode();
-    const expiresAt = new Date(this.now().getTime() + MACHINE_CODE_TTL_SECONDS * 1000).toISOString();
-    await this.deps.store.saveMachineJoinCode({ hash: hashMachineCode(code), ownerId, expiresAt });
-    return { code, expiresAt, command: machineCommand(this.deps.settings.url, code) };
+  createJoinCode(ownerId: string): Promise<{ code: string; command: string; expiresAt: string }> {
+    return this.deps.accounts.createJoinCode(ownerId);
   }
 
-  async join(code: unknown, machine: { hostname?: unknown; rootDir?: unknown; os?: unknown; replaces?: unknown }): Promise<Outcome<JoinedMachine>> {
-    if (typeof code !== 'string' || !code) return { ok: false, status: 400, error: 'send the code from My Machines as "code"' };
-    const rootDir = text(machine.rootDir, 500);
-    if (!rootDir || !path.isAbsolute(rootDir)) return { ok: false, status: 400, error: 'send the folder Koala may work in as "rootDir", a full path' };
-    const { settings } = this.deps;
-    const mesh = meshUsable(settings.meshLoginServer);
-    if (mesh && !this.deps.mesh) return { ok: false, status: 503, error: 'this Koala has a mesh address but cannot reach Headscale to let the machine join it' };
-    const found = await this.deps.store.takeMachineJoinCode(hashMachineCode(code));
-    if (!found || found.expiresAt <= this.now().toISOString()) return { ok: false, status: 401, error: 'that command has expired or was already used: make a new one on My Machines' };
 
-    const replaced = typeof machine.replaces === 'string' && machine.replaces
-      ? matchDeviceToken((await this.deps.store.getLocalAgentDevices()).filter((device) => device.ownerId === found.ownerId), machine.replaces, this.deps.dataKey)?.device
-      : undefined;
-    const id = replaced?.id ?? uuidv4();
-    const token = newDeviceToken();
-    const name = text(machine.hostname, 80) ?? 'machine';
-    const os = text(machine.os, 80);
-    const { os: _formerOs, tokenEnc: _formerToken, nextTokenHash: _next, nextIssuedAt: _nextIssued, nextExpiresAt: _nextExpires, ...kept } = replaced ?? { os: undefined, tokenEnc: undefined, nextTokenHash: undefined, nextIssuedAt: undefined, nextExpiresAt: undefined };
-    await this.deps.store.saveLocalAgentDevice({
-      ...kept,
-      id,
-      ownerId: found.ownerId,
-      name,
-      rootDir,
-      tokenHash: deviceTokenHash(token),
-      ...tokenLifetime(this.now()),
-      createdAt: replaced?.createdAt ?? this.now().toISOString(),
-      ...(os ? { os } : {}),
-    });
-    if (!replaced) {
-      await this.deps.projects.register(found.ownerId, `${name} - ${path.basename(rootDir) || rootDir}`, { executionTarget: { kind: 'local-device', deviceId: id } })
-        .catch((err: Error) => console.warn(`[machines] ${name} joined, but its project could not be made: ${err.message}`));
-    }
-    const preAuthKey = mesh ? (await this.deps.mesh!.createPreAuthKey(found.ownerId, { reusable: false, expirySeconds: MACHINE_CODE_TTL_SECONDS })).key : '';
-    return {
-      ok: true,
-      value: {
-        deviceId: id,
-        env: {
-          KOALA_BACKEND_URL: settings.url,
-          KOALA_DEVICE_ID: id,
-          KOALA_DEVICE_TOKEN: token,
-          KOALA_ROOT_DIR: rootDir,
-          KOALA_TEMPORAL_ADDRESS: settings.temporalAddress,
-          KOALA_TEMPORAL_NAMESPACE: settings.temporalNamespace,
-          MESH_LOGIN_SERVER: mesh ? settings.meshLoginServer! : '',
-          MESH_AUTH_KEY: preAuthKey,
-        },
-      },
-    };
-  }
-
-  async rotationFor(deviceId: string, via: TokenVia): Promise<string | undefined> {
-    const device = (await this.deps.store.getLocalAgentDevices()).find((candidate) => candidate.id === deviceId);
-    if (!device) return undefined;
-    if (via === 'next') {
-      await this.promote(device);
-      return undefined;
-    }
-    if (!rotationDue(device, this.now())) return undefined;
-    const token = newDeviceToken();
-    const next = withNextToken(device, deviceTokenHash(token), this.now());
-    const saved = await this.deps.store.updateLocalAgentDevice(device.id, {
-      set: { nextTokenHash: next.nextTokenHash, nextIssuedAt: next.nextIssuedAt, nextExpiresAt: next.nextExpiresAt },
-      when: { nextTokenHash: null },
-    });
-    return saved ? token : undefined;
-  }
-
-  async tokenTaken(deviceId: string): Promise<void> {
-    const device = (await this.deps.store.getLocalAgentDevices()).find((candidate) => candidate.id === deviceId);
-    if (device?.nextTokenHash) await this.promote(device);
-  }
-
-  private async promote(device: LocalAgentDeviceMetadata): Promise<void> {
-    if (!device.nextTokenHash) return;
-    const retired = device.tokenHash;
-    const promoted = promotedNext(device);
-    const moved = await this.deps.store.updateLocalAgentDevice(device.id, {
-      set: { tokenHash: promoted.tokenHash, issuedAt: promoted.issuedAt, expiresAt: promoted.expiresAt },
-      unset: ['nextTokenHash', 'nextIssuedAt', 'nextExpiresAt'],
-      when: { nextTokenHash: device.nextTokenHash },
-    });
-    if (moved && retired) for (const listener of this.retiredListeners) listener(retired);
-  }
 
   async seen(deviceId: string): Promise<void> {
     await this.deps.store.updateLocalAgentDevice(deviceId, { set: { lastSeenAt: this.now().toISOString() } });
@@ -271,23 +165,18 @@ export class MachineService {
     return { ok: true, value: { ok: answer?.ok === true, output: typeof answer?.output === 'string' ? answer.output : '' } };
   }
 
-  async remove(ownerId: string, deviceId: string): Promise<boolean> {
-    const device = await this.owned(ownerId, deviceId);
-    if (!device) return false;
-    await this.deps.store.deleteLocalAgentDevice(device.id);
-    this.deps.devices.drop(device.id);
-    if (device.meshIp && this.deps.mesh?.removeNode) {
-      await this.deps.mesh.removeNode(ownerId, device.meshIp).catch((err: Error) => console.warn(`[machines] ${device.name} is removed, but its mesh node ${device.meshIp} could not be: ${err.message}`));
-    }
-    await this.deps.projects.removeFor?.(ownerId, device.id).catch((err: Error) => console.warn(`[machines] ${device.name} is removed, but its project could not be: ${err.message}`));
-    return true;
+  remove(ownerId: string, deviceId: string): Promise<boolean> {
+    return this.deps.accounts.remove(ownerId, deviceId);
   }
 
-  async recordMeshIp(deviceId: string, raw: unknown): Promise<void> {
-    const meshIp = meshAddress(raw);
-    if (!meshIp) return;
-    const device = (await this.deps.store.getLocalAgentDevices()).find((candidate) => candidate.id === deviceId);
-    if (!device || device.meshIp === meshIp) return;
-    await this.deps.store.updateLocalAgentDevice(device.id, { set: { meshIp } });
+  async adopt(machine: AccountMachine): Promise<void> {
+    await this.deps.projects.register(machine.ownerId, `${machine.name} - ${path.basename(machine.rootDir) || machine.rootDir}`, { executionTarget: { kind: 'local-device', deviceId: machine.id } });
+  }
+
+  async forget(machine: AccountMachine): Promise<void> {
+    this.deps.devices.tell(machine.id, 'machine:removed');
+    this.deps.devices.drop(machine.id);
+    for (const listener of this.forgottenListeners) listener(machine.id);
+    await this.deps.projects.removeFor?.(machine.ownerId, machine.id).catch((err: Error) => console.warn(`[machines] ${machine.name} is removed, but its project could not be: ${err.message}`));
   }
 }

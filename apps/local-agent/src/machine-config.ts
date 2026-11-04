@@ -12,12 +12,10 @@ export function folderProblem(folder: string, home: string): string | undefined 
 }
 
 export interface MachineConfig {
-  backendUrl: string;
+  rootUrl: string;
   token: string;
   rootDir: string;
   deviceId?: string | undefined;
-  temporalAddress?: string | undefined;
-  temporalNamespace?: string | undefined;
 }
 
 export const configFile = (env: NodeJS.ProcessEnv = process.env): string =>
@@ -26,23 +24,19 @@ export const configFile = (env: NodeJS.ProcessEnv = process.env): string =>
 const text = (value: unknown): string | undefined => (typeof value === 'string' && value.trim() ? value.trim() : undefined);
 
 export function machineConfigFrom(env: NodeJS.ProcessEnv, saved: Record<string, unknown>, cwd: string): MachineConfig {
-  const backendUrl = text(env.KOALA_BACKEND_URL) ?? text(saved.backendUrl);
+  const rootUrl = text(env.KOALA_ROOT_URL) ?? text(saved.rootUrl);
   const token = text(env.KOALA_DEVICE_TOKEN) ?? text(saved.token);
-  if (!backendUrl) throw new Error('this machine has no Koala to connect to: run the command from My Machines, or set KOALA_BACKEND_URL');
+  if (!rootUrl) throw new Error(text(saved.backendUrl) ? 'this machine was added before machines joined through root: run the command from My Machines again' : 'this machine has no root to connect to: run the command from My Machines, or set KOALA_ROOT_URL');
   if (!token) throw new Error('this machine has no device token: run the command from My Machines, or set KOALA_DEVICE_TOKEN');
   const deviceId = text(env.KOALA_DEVICE_ID) ?? text(saved.deviceId);
-  const temporalAddress = text(env.KOALA_TEMPORAL_ADDRESS) ?? text(saved.temporalAddress);
-  const temporalNamespace = text(env.KOALA_TEMPORAL_NAMESPACE) ?? text(saved.temporalNamespace);
   const rootDir = path.resolve(text(env.KOALA_ROOT_DIR) ?? text(saved.rootDir) ?? cwd);
   const tooWide = folderProblem(rootDir, os.homedir());
   if (tooWide) throw new Error(tooWide);
   return {
-    backendUrl,
+    rootUrl,
     token,
     rootDir,
     ...(deviceId ? { deviceId } : {}),
-    ...(temporalAddress ? { temporalAddress } : {}),
-    ...(temporalNamespace ? { temporalNamespace } : {}),
   };
 }
 

@@ -37,8 +37,9 @@ import { workFailuresFor, wireRunning } from './infrastructure/wiring/running.js
 import { wireActions } from './engine/wiring/actions.js';
 import { PRUNE_FIRST_DELAY_MS, PRUNE_INTERVAL_MS } from './engine-host/sandboxes/prune-images.js';
 import { runClosedVia, runLifeVia } from './engine-host/temporal/run-cancellation.js';
-import { askDevice, dropDevice, localAgentStatus, tellDevice, MachineService, machineTelemetry } from './machines/index.js';
-import { RootMeshKeys, IdentityService, instanceReachFrom } from './instances/index.js';
+import { askDevice, dropDevice, localAgentStatus, tellDevice, MachineService, machineTelemetry, MachineAccounts, MachineMirror, COMBINED_AUDIENCE } from './machines/index.js';
+import { wireMachineAccounts, type AccountSockets } from './machines/wiring/accounts.js';
+import { RootMachines, IdentityService, instanceReachFrom } from './instances/index.js';
 import { modelsRouter, ModelService, endpointRulesFromEnv } from './models/index.js';
 
 import {
@@ -185,22 +186,46 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   const MACHINE_GATEWAY_PORT = Number(process.env.MACHINE_GATEWAY_PORT || 7234);
   const machineTemporal = { address: process.env.MACHINE_TEMPORAL_ADDRESS || `localhost:${MACHINE_GATEWAY_PORT}`, namespace: temporalNamespaceFrom(process.env) };
   const machineBundle = newMachineBundle(path.join(__dirname, '../../..'));
-  const machineService = new MachineService({
+  const late: { instances?: Awaited<ReturnType<typeof wireInstances>>; tellMachine?: AccountSockets['tell'] } = {};
+  const ownerInstances = async (ownerId: string, event: string) => {
+    for (const instance of await db.instances.getInstances(ownerId)) late.instances?.tellInstance?.(instance.id, event);
+  };
+  const machineAccounts: MachineAccounts | undefined = holdsAccounts(role) && role.signing ? new MachineAccounts({
+    store: db.machines,
+    dataKey: keys.data,
+    signing: role.signing,
+    settings: { url: PUBLIC_URL, meshLoginServer: process.env.MESH_LOGIN_SERVER },
+    koala: { of: async (ownerId) => (servesTenants(role) ? { url: PUBLIC_URL, audience: COMBINED_AUDIENCE } : late.instances?.instanceService?.koalaOf(ownerId)) },
+    followers: servesTenants(role)
+      ? { joined: (machine) => machineService.adopt(machine), removed: (machine) => machineService.forget(machine), changed: async () => undefined }
+      : { joined: (machine) => ownerInstances(machine.ownerId, 'machines:changed'), removed: (machine) => ownerInstances(machine.ownerId, 'machines:changed'), changed: (ownerId) => ownerInstances(ownerId, 'machines:changed') },
+    tell: (deviceId, event, payload) => late.tellMachine?.(deviceId, event, payload) ?? false,
+    mesh: headscaleService,
+  }) : undefined;
+  const rootMachines = role.instance ? new RootMachines({ rootUrl: role.instance.rootUrl, instanceId: role.instance.id, token: rootToken ?? (async () => '') }) : undefined;
+  const machineService: MachineService = new MachineService({
     store: db.machines,
     bundle: machineBundle,
-    dataKey: keys.data,
-    settings: {
-      url: PUBLIC_URL,
-      temporalAddress: machineTemporal.address,
-      temporalNamespace: machineTemporal.namespace,
-      meshLoginServer: process.env.MESH_LOGIN_SERVER,
-    },
     devices: { status: localAgentStatus, tell: tellDevice, ask: askDevice, drop: dropDevice },
     projects: projectRepoService,
-    mesh: role.instance
-      ? new RootMeshKeys({ rootUrl: role.instance.rootUrl, instanceId: role.instance.id, token: rootToken ?? (async () => '') })
-      : headscaleService,
+    accounts: rootMachines ?? machineAccounts ?? {
+      createJoinCode: async () => { throw new Error('this Koala has no root to add machines through'); },
+      remove: async () => false,
+    },
   });
+  const machineMirror = rootMachines ? new MachineMirror({ store: db.machines, root: rootMachines, machines: machineService }) : undefined;
+  if (machineMirror && rootMachines) {
+    const toRoot = () => runOnce(db.platform, 'machines-to-root', new Date().toISOString(), async () => rootMachines.adopt(await db.machines.getLocalAgentDevices()));
+    let migrated = toRoot();
+    const syncMachines = () => {
+      migrated = migrated.catch(() => toRoot());
+      migrated.then(() => machineMirror.sync()).catch((err: Error) => console.warn(`[machines] this instance could not read its machines from root: ${err.message}`));
+    };
+    instanceSide.hear('machines:changed', syncMachines);
+    instanceSide.hear('connect', syncMachines);
+  }
+  if (machineAccounts) late.tellMachine = wireMachineAccounts({ io, db, dataKey: keys.data, accounts: () => machineAccounts }).tell;
+  const workTokens = servesTenants(role) && role.trusted ? { keys: role.trusted, audience: role.instance?.id ?? COMBINED_AUDIENCE } : undefined;
   const modelService = new ModelService(db, appService, clusterService, clusterProxyService, headscaleService, keys.data, endpointRulesFromEnv(process.env));
 
   if (servesTenants(role)) {
@@ -332,7 +357,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     res.type(metrics.contentType).send(await metrics.text());
   }));
 
-  wireSockets({ io, db, role, env: process.env, sessionSockets, payloadKey: keys.payload, dataKey: keys.data, auth, machines: machineService, clusters: clusterService, apps: appService, infra: infraService, telemetry: machineTelemetry({ sink: () => telemetrySink }), machineTemporal, runs: { life: runLifeVia(() => getTemporalClient()), closed: runClosedVia(() => getTemporalClient()) } });
+  wireSockets({ io, db, role, env: process.env, sessionSockets, payloadKey: keys.payload, dataKey: keys.data, auth, machines: machineService, workTokens, clusters: clusterService, apps: appService, infra: infraService, telemetry: machineTelemetry({ sink: () => telemetrySink }), machineTemporal, runs: { life: runLifeVia(() => getTemporalClient()), closed: runClosedVia(() => getTemporalClient()) } });
 
   const signInWith = holdsAccounts(role) ? signInProvidersFrom(process.env) : { providers: [], problems: [] };
   for (const problem of signInWith.problems) console.warn(`[sign-in] ${problem}`);
@@ -366,11 +391,13 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     return owned ? res.status(200).send('ok') : res.status(404).send('unknown host');
   }));
 
-  await wireInstances({
+  const instancesWiring = await wireInstances({
     role, env: process.env, app, tenant, db, mail, identity, auth, sessionKey: keys.session, publicUrl: PUBLIC_URL,
     repoRoot: path.join(__dirname, '../../..'), dataDir: path.join(__dirname, '../data'), headscale: headscaleService, infra: infraService,
     side: instanceSide, syncExposedApps: () => appExposureService.syncExposedApps(), provider: rootProvider, signIn: rootSignIn, rootToken, io,
+    instanceArrived: (instance) => { void machineAccounts?.tellKoala(instance.ownerId).catch((err: Error) => console.warn(`[machines] ${instance.id}'s owner's machines could not be told where it is: ${err.message}`)); },
   });
+  late.instances = instancesWiring;
   const people = async () => (await db.accounts.getUsers()).filter((user) => !user.space).map((user) => auth.principalFor(user));
   const { monitoring } = wireMonitoring({ tenant, db, role, env: process.env, io, clusters: clusterService, infra: infraService, proxy: clusterProxyService, notices, notifications, push, mail, people, rootToken });
   const workerService = new WorkerService();
@@ -398,7 +425,9 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   setInterval(() => { void sweepArtifacts(); }, 24 * 60 * 60 * 1000).unref();
   void sweepArtifacts();
   wireMachines({
-    tenant, db, dataKey: keys.data, publicUrl: PUBLIC_URL, repoRoot: path.join(__dirname, '../../..'), machines: machineService, bundle: machineBundle, headscale: role.instance ? undefined : headscaleService, projectRepos: projectRepoService,
+    app, tenant, servesTenants: servesTenants(role), accounts: machineAccounts, workTokens,
+    instanceCaller: async (instanceId, credential) => instancesWiring.instanceService?.caller(instanceId, credential),
+    db, dataKey: keys.data, publicUrl: PUBLIC_URL, repoRoot: path.join(__dirname, '../../..'), machines: machineService, bundle: machineBundle, headscale: role.instance ? undefined : headscaleService, projectRepos: projectRepoService,
     ...(servesTenants(role) ? {
       gateway: {
         port: MACHINE_GATEWAY_PORT,

@@ -1,4 +1,5 @@
 import fs from 'fs/promises';
+import type { KeyObject } from 'crypto';
 import path from 'path';
 import { spawn, type ChildProcessWithoutNullStreams } from 'child_process';
 import type { Server as SocketServer } from 'socket.io';
@@ -6,9 +7,8 @@ import {
   sharedPayloadBlobs, type Database, type Keyring, type SecretKey, type UserMetadata, type LocalAgentDeviceMetadata, servesTenants,
   type RoleConfig, allowed, type Principal, type createAuth, signSocketsIn, type SessionSockets,
 } from '../../platform/index.js';
-import { matchDeviceToken, registerDevice, unregisterDevice } from '../lib/local-agent-registry.js';
-import { TOKEN_EXPIRED_SAID, type TokenVia } from '../lib/device-tokens.js';
-import { rotateDeviceToken } from '../lib/device-rotation.js';
+import { registerDevice, unregisterDevice } from '../lib/local-agent-registry.js';
+import { checkWorkToken, WORK_TOKEN_REFUSED } from '../lib/work-tokens.js';
 import { machinePayloads, type GetAnswer, type PutAnswer, type RingAnswer } from '../lib/machine-payloads.js';
 import type { MachineTelemetry, TelemetryAnswer } from '../lib/machine-telemetry.js';
 import { userRoom } from '../../engine-host/temporal/stream-worker.js';
@@ -20,7 +20,11 @@ const LOG_TAIL_LINES = 200;
 
 interface MachineSocketData {
   device: LocalAgentDeviceMetadata;
-  via: TokenVia;
+}
+
+export interface WorkTokenTrust {
+  keys: ReadonlyMap<string, KeyObject>;
+  audience: string;
 }
 
 const signedInUser = (data: unknown): UserMetadata | undefined => {
@@ -47,7 +51,8 @@ export interface SocketsWiringDeps {
   dataKey: SecretKey;
   auth: Pick<ReturnType<typeof createAuth>, 'sessionFromCookie' | 'securedFor' | 'principalFor'>;
   sessionSockets: Pick<SessionSockets, 'track' | 'forget'>;
-  machines: Pick<MachineService, 'seen' | 'recordAgents' | 'manualAgents' | 'recordMeshIp' | 'rotationFor' | 'tokenTaken' | 'recordAgentBundle' | 'recordAgentUpdate' | 'currentBundle'>;
+  machines: Pick<MachineService, 'seen' | 'recordAgents' | 'manualAgents' | 'recordAgentBundle' | 'recordAgentUpdate' | 'currentBundle'>;
+  workTokens?: WorkTokenTrust | undefined;
   clusters: ClusterService;
   apps: AppService;
   infra: InfrastructureService;
@@ -58,7 +63,7 @@ export interface SocketsWiringDeps {
 }
 
 export function wireSockets(deps: SocketsWiringDeps): void {
-  const { io, db, role, env, payloadKey, dataKey, clusters, apps, infra } = deps;
+  const { io, db, role, env, payloadKey, clusters, apps, infra } = deps;
   signSocketsIn(io, { auth: deps.auth, db, env, sessionSockets: deps.sessionSockets });
 
   const agentNamespace = io.of('/agent');
@@ -67,12 +72,14 @@ export function wireSockets(deps: SocketsWiringDeps): void {
   agentNamespace.use((socket, next) => {
     const auth: Record<string, unknown> | undefined = socket.handshake.auth;
     const token = tokenOf(auth);
-    if (!token) return next(new Error('Missing device token'));
+    if (!token) return next(new Error('Missing work token'));
+    if (!deps.workTokens) return next(new Error('this Koala takes no machines'));
+    const check = checkWorkToken(token, deps.workTokens.keys, deps.workTokens.audience, Math.floor((deps.now ?? (() => new Date()))().getTime() / 1000));
+    if (!check.ok) return next(new Error(WORK_TOKEN_REFUSED[check.reason]));
     db.machines.getLocalAgentDevices().then((devices) => {
-      const match = matchDeviceToken(devices, token, dataKey, (deps.now ?? (() => new Date()))());
-      if (!match) return next(new Error('Unauthorized'));
-      if (match.expired) return next(new Error(TOKEN_EXPIRED_SAID));
-      admitted.set(socket, { device: match.device, via: match.via });
+      const device = devices.find((candidate) => candidate.id === check.claims.sub && candidate.ownerId === check.claims.owner);
+      if (!device) return next(new Error('this machine is not one of this Koala\'s: run the command from My Machines again'));
+      admitted.set(socket, { device });
       return next();
     }, (err: Error) => next(new Error(`Koala could not look up this machine just now (${err.message}); it connects again by itself`)));
   });
@@ -83,7 +90,7 @@ export function wireSockets(deps: SocketsWiringDeps): void {
       socket.disconnect(true);
       return;
     }
-    const { device, via } = machine;
+    const { device } = machine;
     const tellRunEnded = (runId: string) => { if (socket.connected) socket.emit('machine:run-ended', { runId }); };
     const auth: Record<string, unknown> | undefined = socket.handshake.auth;
     const containerMode = auth?.containerMode === true;
@@ -91,8 +98,6 @@ export function wireSockets(deps: SocketsWiringDeps): void {
     deps.machines.seen(device.id).catch((err: Error) => console.warn(`[machines] ${device.id}: when it was last seen could not be recorded: ${err.message}`));
     deps.machines.recordAgentBundle(device.id, auth).catch((err: Error) => console.warn(`[machines] ${device.id}: which agent it runs could not be recorded: ${err.message}`));
     deps.machines.currentBundle().then((sha256) => { if (sha256 && socket.connected) socket.emit('machine:bundle', { sha256 }); }, (err: Error) => console.warn(`[machines] ${device.id}: the agent it should run could not be named: ${err.message}`));
-    void rotateDeviceToken(socket, device.id, via, deps.machines)
-      .catch((err: Error) => console.warn(`[machines] ${device.id}: its token could not be rotated: ${err.message}`));
     socket.on('disconnect', () => {
       unregisterDevice(device.id, socket);
       runWatch?.forget(device.id, tellRunEnded);
@@ -104,9 +109,6 @@ export function wireSockets(deps: SocketsWiringDeps): void {
     let updates = Promise.resolve();
     socket.on('machine:update', (report: unknown) => {
       updates = updates.then(() => deps.machines.recordAgentUpdate(device.id, report)).catch((err: Error) => console.warn(`[machines] ${device.id}: how its agent's update goes could not be recorded: ${err.message}`));
-    });
-    socket.on('machine:mesh', (report: { ip?: unknown } | undefined) => {
-      deps.machines.recordMeshIp(device.id, report?.ip).catch((err: Error) => console.warn(`[machines] ${device.id}: its mesh address could not be recorded: ${err.message}`));
     });
     socket.on('agents:manual', (_request: unknown, ack: (agents: unknown) => void) => {
       deps.machines.manualAgents(device.id).then(ack, (err: Error) => {

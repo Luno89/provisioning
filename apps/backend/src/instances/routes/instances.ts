@@ -44,7 +44,7 @@ export function bundleAsEnv(bundle: JoinBundle): string {
 }
 
 export function instancesRouter(deps: {
-  instances: Pick<InstanceService, 'createJoinToken' | 'poolOffer' | 'createPoolInstance' | 'poolAdmin' | 'setTrialDays' | 'setTrialEnd' | 'removePoolInstance' | 'join' | 'release' | 'updates' | 'setUpdates' | 'report' | 'mine' | 'machineKey' | 'removeMachineNode' | 'nameCheck' | 'addresses' | 'setAddresses' | 'checkGroup' | 'claimGroup' | 'releaseGroup' | 'ownerOf' | 'trialOf' | 'runningOf' | 'watchAs' | 'setWatchAs' | 'setWatchOf' | 'poolPlaceOf' | 'startMove' | 'startMoveAs' | 'moveOf' | 'moveOfAs' | 'stopMove' | 'stopMoveAs' | 'moveSource' | 'announceSignIn'>;
+  instances: Pick<InstanceService, 'createJoinToken' | 'poolOffer' | 'createPoolInstance' | 'poolAdmin' | 'setTrialDays' | 'setTrialEnd' | 'removePoolInstance' | 'join' | 'release' | 'updates' | 'setUpdates' | 'report' | 'mine' | 'nameCheck' | 'addresses' | 'setAddresses' | 'checkGroup' | 'claimGroup' | 'releaseGroup' | 'ownerOf' | 'trialOf' | 'runningOf' | 'watchAs' | 'setWatchAs' | 'setWatchOf' | 'poolPlaceOf' | 'startMove' | 'startMoveAs' | 'moveOf' | 'moveOfAs' | 'stopMove' | 'stopMoveAs' | 'moveSource' | 'announceSignIn'>;
   chart: () => Promise<string>;
   mailLimit?: InstanceMailLimit | undefined;
   chartOf?: ((imageTag: string) => string | undefined) | undefined;
@@ -207,20 +207,6 @@ export function instancesRouter(deps: {
     return res.json(outcome.value);
   }));
 
-  router.post('/machine-key', asyncRoute(async (req: Request, res: Response) => {
-    const { instanceId, credential } = credentialOf(req);
-    const outcome = await deps.instances.machineKey(instanceId, credential);
-    res.setHeader('Cache-Control', 'no-store');
-    if (!outcome.ok) return res.status(outcome.status).json({ error: outcome.error });
-    return res.json(outcome.value);
-  }));
-
-  router.delete('/machine-node', asyncRoute(async (req: Request, res: Response) => {
-    const { instanceId, credential } = credentialOf(req);
-    const outcome = await deps.instances.removeMachineNode(instanceId, credential, (req.body as { meshIp?: unknown } | undefined)?.meshIp);
-    if (!outcome.ok) return res.status(outcome.status).json({ error: outcome.error });
-    return res.json(outcome.value);
-  }));
 
   router.get('/trial', asyncRoute(async (req: Request, res: Response) => {
     const { instanceId, credential } = credentialOf(req);

@@ -60,6 +60,7 @@ export class InstanceSide {
   readonly edge: InstanceEdge | undefined;
   private addresses: InstanceAddresses | undefined;
   private rootPresence: RootPresence | undefined;
+  private readonly heard: Record<string, () => void> = {};
 
   constructor(private readonly role: RoleConfig, private readonly env: NodeJS.ProcessEnv, private readonly rootToken: (() => Promise<string>) | undefined) {
     const name = env.INSTANCE_NAME;
@@ -81,6 +82,10 @@ export class InstanceSide {
     return this.addresses;
   }
 
+  hear(event: string, handler: () => void): void {
+    this.heard[event] = handler;
+  }
+
   watchRoot(tell: (ownerId: string, message: { title: string; body: string; path: string; tag: string }) => Promise<unknown>): void {
     if (!this.role.instance || !this.rootToken || this.rootPresence) return;
     this.rootPresence = new RootPresence({
@@ -90,6 +95,7 @@ export class InstanceSide {
       token: this.rootToken,
       tell,
       afterMs: unreachableAfterMs(this.env),
+      heard: this.heard,
     });
     this.rootPresence.start();
   }
@@ -151,10 +157,12 @@ export interface InstancesWiringDeps {
   signIn?: RootSignIn | undefined;
   rootToken?: (() => Promise<string>) | undefined;
   io: SocketServer;
+  instanceArrived?: ((instance: InstanceRecord) => void) | undefined;
 }
 
 export interface InstancesWiring {
   instanceService: InstanceService | undefined;
+  tellInstance?: ((instanceId: string, event: string) => void) | undefined;
 }
 
 export async function wireInstances(deps: InstancesWiringDeps): Promise<InstancesWiring> {
@@ -311,6 +319,7 @@ export async function wireInstances(deps: InstancesWiringDeps): Promise<Instance
     },
   });
   instanceRoutes?.start();
+  let tellInstance: InstancesWiring['tellInstance'];
   if (role.role === 'root') {
     const presence = new InstancePresence({
       store: db.instances,
@@ -322,7 +331,7 @@ export async function wireInstances(deps: InstancesWiringDeps): Promise<Instance
       afterMs: unreachableAfterMs(env),
     });
     presenceOf = (instanceId) => presence.connected(instanceId);
-    wireInstancePresence(deps.io, presence, (instanceId, token) => instanceService.presenceCaller(instanceId, token));
+    tellInstance = wireInstancePresence(deps.io, presence, (instanceId, token) => instanceService.caller(instanceId, token), deps.instanceArrived);
     presence.start().catch((err: Error) => console.warn(`[instance-presence] ${err.message}`));
   }
 
@@ -351,14 +360,17 @@ export async function wireInstances(deps: InstancesWiringDeps): Promise<Instance
   const installer = (await fs.readFile(path.join(deps.repoRoot, 'scripts/instance/install.sh'), 'utf8')).replace('__ROOT_URL__', publicUrl);
   app.get('/install.sh', (_req, res) => res.type('text/x-shellscript').send(installer));
   app.get('/install/setup-gpu.sh', (_req, res) => res.type('text/x-shellscript').sendFile(path.join(deps.repoRoot, 'scripts/setup-gpu.sh')));
-  return { instanceService };
+  return { instanceService, tellInstance };
 }
+
+export const instanceRoom = (instanceId: string): string => `instance:${instanceId}`;
 
 export function wireInstancePresence(
   io: Pick<SocketServer, 'of'>,
   presence: Pick<InstancePresence, 'arrived' | 'left'>,
   caller: (instanceId: string, token: string) => Promise<InstanceRecord | undefined>,
-): void {
+  arrived: (instance: InstanceRecord) => void = () => undefined,
+): (instanceId: string, event: string) => void {
   const namespace = io.of(PRESENCE_NAMESPACE);
   const admitted = new WeakMap<object, InstanceRecord>();
   namespace.use((socket, next) => {
@@ -380,6 +392,9 @@ export function wireInstancePresence(
       return;
     }
     void presence.arrived(instance, socket.id);
+    void socket.join(instanceRoom(instance.id));
+    arrived(instance);
     socket.on('disconnect', () => { void presence.left(instance.id, socket.id); });
   });
+  return (instanceId, event) => { namespace.to(instanceRoom(instanceId)).emit(event); };
 }

@@ -171,21 +171,6 @@ describe('an instance talking to root as itself', () => {
     expect((await (await on(router)).post(`${prefix}/status`, undefined, { headers: asInstance })).status).toBe(401);
   });
 
-  it('asks for a mesh key for a machine and to take one off, never cached', async () => {
-    const { instances, router } = route();
-    instances.machineKey.mockResolvedValue(ok({ preAuthKey: 'k' }) as never);
-    instances.removeMachineNode.calledWith('inst-1', 'secret', '100.64.0.9').mockResolvedValue(ok({ removed: true }) as never);
-    const key = await (await on(router)).post(`${prefix}/machine-key`, {}, { headers: asInstance });
-    expect(key.data).toEqual({ preAuthKey: 'k' });
-    expect(key.headers['cache-control']).toBe('no-store');
-    expect((await (await on(router)).delete(`${prefix}/machine-node`, { headers: asInstance, body: { meshIp: '100.64.0.9' } })).data).toEqual({ removed: true });
-    instances.machineKey.mockResolvedValue(no(409, 'not an instance on its own machine'));
-    const refused = await (await on(router)).post(`${prefix}/machine-key`, {}, { headers: asInstance });
-    expect([refused.status, refused.headers['cache-control']]).toEqual([409, 'no-store']);
-    instances.removeMachineNode.mockResolvedValue(no(404, 'no such node'));
-    expect((await (await on(router)).delete(`${prefix}/machine-node`, { headers: asInstance })).status).toBe(404);
-  });
-
   it('asks about its trial, its addresses, and names its sign-in key', async () => {
     const { instances, router } = route();
     instances.trialOf.mockResolvedValue(ok({ trialEndsAt: 'x' }) as never);

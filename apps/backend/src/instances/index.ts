@@ -32,5 +32,6 @@ export { hashCredential, instanceIdFor } from './services/InstanceService.js';
 export { kubeconfigFile, MoveRelay } from './services/MoveRelay.js';
 export { restoreMongo } from './services/mongo-restore.js';
 export { inventoryFileFor } from './services/release-files.js';
-export { RootMeshKeys } from './services/RootMeshKeys.js';
+export { RootMachines } from './services/RootMachines.js';
+export type { RootMachine } from './services/RootMachines.js';
 export type { InstancesStore } from './store.js';

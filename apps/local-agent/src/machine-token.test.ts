@@ -2,7 +2,7 @@ import { mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promise
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { saveDeviceToken } from './machine-token.js';
+import { saveDeviceToken, workTokenExpiry } from './machine-token.js';
 
 describe('saveDeviceToken', () => {
   let folder: string;
@@ -23,5 +23,19 @@ describe('saveDeviceToken', () => {
     const file = path.join(folder, 'koala', 'machine.json');
     await saveDeviceToken(file, 't');
     expect(JSON.parse(await readFile(file, 'utf8'))).toEqual({ token: 't' });
+  });
+});
+
+describe('workTokenExpiry', () => {
+  const token = (claims: unknown) => `head.${Buffer.from(JSON.stringify(claims)).toString('base64url')}.signature`;
+
+  it('reads when a work token from root runs out, so the agent asks for the next before then', () => {
+    expect(workTokenExpiry(token({ sub: 'm', exp: 1_800_000_000 }))).toBe(1_800_000_000);
+  });
+
+  it('reads nothing from a token without an expiry or that is not one', () => {
+    expect(workTokenExpiry(token({ sub: 'm' }))).toBeUndefined();
+    expect(workTokenExpiry('not-a-token')).toBeUndefined();
+    expect(workTokenExpiry('a.%%%.c')).toBeUndefined();
   });
 });

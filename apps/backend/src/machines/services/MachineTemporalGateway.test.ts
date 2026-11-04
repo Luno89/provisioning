@@ -172,13 +172,15 @@ describe('a machine reaching Temporal through the gateway', () => {
     expect(session.requests).toEqual([]);
   });
 
-  it('asks who a token belongs to once, for a minute, until the gateway is told to forget it', async () => {
+  it('asks who a token belongs to once, for a minute, until the gateway is told the machine is gone', async () => {
     const machine = gateway();
     await call(machine, asMachine(SYSTEM_INFO), Buffer.alloc(0));
     await call(machine, asMachine(SYSTEM_INFO), Buffer.alloc(0));
     expect(deviceLookups).toEqual(['token-d1']);
-    const { createHash } = await import('node:crypto');
-    machine.forget(createHash('sha256').update('token-d1').digest('hex'));
+    machine.forget('other-machine');
+    await call(machine, asMachine(SYSTEM_INFO), Buffer.alloc(0));
+    expect(deviceLookups).toEqual(['token-d1']);
+    machine.forget('d1');
     await call(machine, asMachine(SYSTEM_INFO), Buffer.alloc(0));
     expect(deviceLookups).toEqual(['token-d1', 'token-d1']);
   });

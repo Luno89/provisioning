@@ -5,7 +5,7 @@ import { Readable } from 'node:stream';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { mock } from 'vitest-mock-extended';
 import type { GitAsk, MachineGitService } from '../services/MachineGitService.js';
-import type { MachineService } from '../services/MachineService.js';
+import type { MachineAccounts } from '../services/MachineAccounts.js';
 import { routesInProcess } from '../../platform/testing/routes.js';
 import { machinesRouter, type AgentBundle } from './machines.js';
 
@@ -13,7 +13,7 @@ type Git = Pick<MachineGitService, 'serve'>;
 
 const SHA = 'ab'.repeat(32);
 
-let machines: ReturnType<typeof mock<Pick<MachineService, 'join'>>>;
+let machines: ReturnType<typeof mock<Pick<MachineAccounts, 'join'>>>;
 let git: ReturnType<typeof mock<Git>>;
 let bundle: ReturnType<typeof mock<AgentBundle>>;
 let dir: string;
@@ -22,13 +22,13 @@ const asked = (): GitAsk => git.serve.mock.calls[0]![0];
 
 interface Call { method?: 'GET' | 'POST'; path: string; body?: unknown; headers?: Record<string, string> }
 
-const call = async (over: Call, withGit = true) => {
-  const routes = await routesInProcess({ prefix: '/api/machines', router: () => machinesRouter({ machines, bundle, ...(withGit ? { git } : {}) }), user: null, open: true });
+const call = async (over: Call, withGit = true, withAccounts = true) => {
+  const routes = await routesInProcess({ prefix: '/api/machines', router: () => machinesRouter({ ...(withAccounts ? { accounts: machines } : {}), bundle, ...(withGit ? { git } : {}) }), user: null, open: true });
   return routes.request(over.method ?? 'GET', `/api/machines${over.path}`, { body: over.body, headers: over.headers });
 };
 
 beforeEach(async () => {
-  machines = mock<Pick<MachineService, 'join'>>();
+  machines = mock<Pick<MachineAccounts, 'join'>>();
   git = mock<Git>();
   bundle = mock<AgentBundle>();
   bundle.sha256.mockResolvedValue(SHA);
@@ -54,6 +54,12 @@ describe('/api/machines/join', () => {
     expect(answer.status).toBe(401);
     expect(answer.text).toBe('that command has expired or was already used: make a new one on My Machines');
     expect(answer.headers['content-type']).toContain('text/plain');
+  });
+
+  it('sends a machine to root where this Koala holds no accounts', async () => {
+    const answer = await call({ method: 'POST', path: '/join', body: { code: 'abc' } }, true, false);
+    expect([answer.status, answer.text]).toEqual([404, 'machines join at root, which holds accounts: run the command from My Machines']);
+    expect(machines.join).not.toHaveBeenCalled();
   });
 
   it('treats a request with no body as one with no code', async () => {

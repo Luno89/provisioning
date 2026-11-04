@@ -109,12 +109,10 @@ HTTP_CODE=$(printf '%s' "{\"code\":\"$(json "$CODE")\",\"hostname\":\"$(json "$H
   "${KOALA_URL}/api/machines/join")
 [ "$HTTP_CODE" = 200 ] || die "Koala refused this machine (${HTTP_CODE}): $(cat "$JOINED")"
 joined() { node -e 'const v = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).env?.[process.argv[2]]; process.stdout.write(typeof v === "string" ? v : "")' "$JOINED" "$1"; }
-KOALA_BACKEND_URL=$(joined KOALA_BACKEND_URL)
+KOALA_ROOT_URL=$(joined KOALA_ROOT_URL)
 KOALA_DEVICE_ID=$(joined KOALA_DEVICE_ID)
 KOALA_DEVICE_TOKEN=$(joined KOALA_DEVICE_TOKEN)
 KOALA_ROOT_DIR=$(joined KOALA_ROOT_DIR)
-KOALA_TEMPORAL_ADDRESS=$(joined KOALA_TEMPORAL_ADDRESS)
-KOALA_TEMPORAL_NAMESPACE=$(joined KOALA_TEMPORAL_NAMESPACE)
 KOALA_AGENT_SHA256=$(joined KOALA_AGENT_SHA256)
 MESH_LOGIN_SERVER=$(joined MESH_LOGIN_SERVER)
 joined MESH_AUTH_KEY > "$MESH_KEY_FILE"
@@ -159,12 +157,10 @@ CONFIG="$CONFIG_DIR/machine.json"
   umask 077
   cat > "$CONFIG" <<EOF
 {
-  "backendUrl": "$(json "$KOALA_BACKEND_URL")",
+  "rootUrl": "$(json "$KOALA_ROOT_URL")",
   "token": "$(json "$KOALA_DEVICE_TOKEN")",
   "deviceId": "$(json "$KOALA_DEVICE_ID")",
-  "rootDir": "$(json "$KOALA_ROOT_DIR")",
-  "temporalAddress": "$(json "$KOALA_TEMPORAL_ADDRESS")",
-  "temporalNamespace": "$(json "$KOALA_TEMPORAL_NAMESPACE")"
+  "rootDir": "$(json "$KOALA_ROOT_DIR")"
 }
 EOF
 )

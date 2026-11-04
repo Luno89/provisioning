@@ -9,7 +9,8 @@ import { loadKeys } from '../../platform/lib/keys.js';
 import { roleFromEnv } from '../../platform/lib/platform-role.js';
 import { emptiedEachTime } from '../../platform/lib/test-database.js';
 import type { MongoDB } from '../../platform/lib/mongo-db.js';
-import { deviceTokenHash, tokenLifetime } from '../lib/device-tokens.js';
+import { generateIdentityKey, identityKeysFrom, publicKeyPem, trustedKeys } from '../../instances/lib/identity-token.js';
+import { issueWorkToken } from '../lib/work-tokens.js';
 import { MachineService } from '../services/MachineService.js';
 import { wireSockets, type SocketsWiringDeps } from './sockets.js';
 
@@ -17,7 +18,9 @@ const fresh = await emptiedEachTime();
 
 const A = 'a'.repeat(64);
 const B = 'b'.repeat(64);
-const TOKEN = 'the-token-the-machine-joined-with-0123456789';
+const root = identityKeysFrom(generateIdentityKey());
+const workTokens = { keys: trustedKeys([publicKeyPem(root.publicKey)]), audience: 'inst-1' };
+const TOKEN = issueWorkToken(root, { machineId: 'desk', ownerId: 'owner-1', audience: 'inst-1' });
 const keys = loadKeys({ JWT_SECRET: 'agent-updates-test-secret' });
 
 let db: MongoDB;
@@ -55,15 +58,13 @@ beforeEach(async () => {
   ending = new Map();
   machines = new MachineService({
     store: db.machines,
-    dataKey: keys.data,
-    settings: { url: 'http://koala.test', temporalAddress: 'localhost:7234', temporalNamespace: 'default' },
     devices: { status: () => ({ online: true }) } as never,
+    accounts: { createJoinCode: async () => { throw new Error('not used'); }, remove: async () => false },
     projects: { register: async () => { throw new Error('not used'); } },
     bundle: { sha256: async () => served },
   });
   await db.machines.saveLocalAgentDevice({
     id: 'desk', ownerId: 'owner-1', name: 'desk', rootDir: '/home/person/koala', createdAt: new Date().toISOString(),
-    tokenHash: deviceTokenHash(TOKEN), ...tokenLifetime(new Date()),
   });
   server = http.createServer();
   io = new SocketServer(server);
@@ -71,7 +72,7 @@ beforeEach(async () => {
     io, db, role: roleFromEnv({}), env: {}, payloadKey: keys.payload, dataKey: keys.data,
     auth: { sessionFromCookie: async () => undefined, securedFor: () => false, principalFor: () => undefined } as unknown as SocketsWiringDeps['auth'],
     sessionSockets: { track: () => undefined, forget: () => undefined },
-    machines, clusters: {} as never, apps: {} as never, infra: {} as never,
+    machines, workTokens, clusters: {} as never, apps: {} as never, infra: {} as never,
     telemetry: { relay: async () => ({ ok: true }) } as never,
     runs: {
       life: async (runId) => (runId === 'chat-gone-koala-1' ? 'ended' : 'running'),

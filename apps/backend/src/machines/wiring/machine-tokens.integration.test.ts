@@ -12,11 +12,15 @@ import { loadKeys } from '../../platform/lib/keys.js';
 import { roleFromEnv } from '../../platform/lib/platform-role.js';
 import { emptiedEachTime } from '../../platform/lib/test-database.js';
 import type { MongoDB } from '../../platform/lib/mongo-db.js';
+import { generateIdentityKey, identityKeysFrom, publicKeyPem, trustedKeys } from '../../instances/lib/identity-token.js';
 import { deviceTokenHash, TOKEN_EXPIRED_SAID } from '../lib/device-tokens.js';
+import { issueWorkToken, WORK_TOKEN_REFUSED, WORK_TOKEN_TTL_SECONDS } from '../lib/work-tokens.js';
+import { MachineAccounts } from '../services/MachineAccounts.js';
 import { MachineGitService } from '../services/MachineGitService.js';
 import { MachineService } from '../services/MachineService.js';
 import { MachineTemporalGateway } from '../services/MachineTemporalGateway.js';
-import { deviceByToken } from './machines.js';
+import { wireMachineAccounts } from './accounts.js';
+import { deviceByWorkToken } from './machines.js';
 import { wireSockets, type SocketsWiringDeps } from './sockets.js';
 
 const fresh = await emptiedEachTime();
@@ -26,10 +30,14 @@ const ISSUED = new Date('2026-10-10T00:00:00Z');
 const OLD_TOKEN = 'the-token-the-machine-joined-with-0123456789';
 const POLL_PATH = '/temporal.api.workflowservice.v1.WorkflowService/PollActivityTaskQueue';
 
-const keys = loadKeys({ JWT_SECRET: 'token-rotation-test-secret' });
+const keys = loadKeys({ JWT_SECRET: 'machine-tokens-test-secret' });
+const root = identityKeysFrom(generateIdentityKey());
+const otherRoot = identityKeysFrom(generateIdentityKey());
+const trust = { keys: trustedKeys([publicKeyPem(root.publicKey)]), audience: 'inst-1' };
 
 let db: MongoDB;
 let clock: Date;
+let accounts: MachineAccounts;
 let machines: MachineService;
 let server: http.Server;
 let io: SocketServer;
@@ -51,8 +59,12 @@ const device = (lifetime: { issuedAt: Date; expiresAt: Date }) => ({
   expiresAt: lifetime.expiresAt.toISOString(),
 });
 
-function agent(token: string, onToken?: (token: string, ack: (answer: { taken: boolean }) => void) => void): Promise<{ socket: ClientSocket; error?: string }> {
-  const socket = connect(`${url}/agent`, { auth: { token }, transports: ['websocket'], reconnection: false, forceNew: true });
+const seconds = () => Math.floor(clock.getTime() / 1000);
+const workToken = (over: { by?: typeof root; audience?: string; machineId?: string; at?: number } = {}) =>
+  issueWorkToken(over.by ?? root, { machineId: over.machineId ?? 'desk', ownerId: 'owner-1', audience: over.audience ?? 'inst-1' }, over.at ?? seconds());
+
+function connectTo(namespace: string, token: string, onToken?: (token: string, ack: (answer: { taken: boolean }) => void) => void): Promise<{ socket: ClientSocket; error?: string }> {
+  const socket = connect(`${url}${namespace}`, { auth: { token }, transports: ['websocket'], reconnection: false, forceNew: true });
   clients.push(socket);
   if (onToken) socket.on('machine:token', ({ token: next }: { token: string }, ack: (answer: { taken: boolean }) => void) => onToken(next, ack));
   return new Promise((resolve) => {
@@ -60,6 +72,8 @@ function agent(token: string, onToken?: (token: string, ack: (answer: { taken: b
     socket.once('connect_error', (err: Error) => resolve({ socket, error: err.message }));
   });
 }
+const account = (token: string, onToken?: (token: string, ack: (answer: { taken: boolean }) => void) => void) => connectTo('/machine-account', token, onToken);
+const work = (token: string) => connectTo('/agent', token);
 
 async function until<T>(probe: () => Promise<T | undefined>): Promise<T> {
   for (;;) {
@@ -89,7 +103,7 @@ function gatewayAnswer(token: string): Promise<string | undefined> {
 }
 
 const git = () => new MachineGitService({
-  deviceFor: deviceByToken(db, keys.data, () => clock),
+  deviceFor: deviceByWorkToken(db, trust, () => clock),
   remote: async () => undefined,
 });
 
@@ -99,21 +113,34 @@ beforeEach(async () => {
   db = await fresh();
   clock = new Date(ISSUED.getTime() + 65 * DAY);
   folder = await mkdtemp(path.join(tmpdir(), 'koala-machine-'));
+  const forgotten = { listener: (_deviceId: string) => undefined as void };
   machines = new MachineService({
     store: db.machines,
-    dataKey: keys.data,
-    settings: { url: 'http://koala.test', temporalAddress: 'localhost:7234', temporalNamespace: 'default' },
-    devices: {} as never,
-    projects: { register: async () => { throw new Error('not used'); } },
+    devices: { status: () => ({ online: false }), tell: () => false, ask: async () => undefined as never, drop: () => undefined },
+    projects: { register: async () => { throw new Error('not used'); }, removeFor: async () => undefined },
+    accounts: { createJoinCode: async () => { throw new Error('not used'); }, remove: async () => false },
     now: () => clock,
   });
+  machines.onForgotten((deviceId) => forgotten.listener(deviceId));
   server = http.createServer();
   io = new SocketServer(server);
+  let tell: ReturnType<typeof wireMachineAccounts>['tell'] = () => false;
+  accounts = new MachineAccounts({
+    store: db.machines,
+    dataKey: keys.data,
+    signing: root,
+    settings: { url: 'http://root.test' },
+    koala: { of: async () => ({ url: 'http://inst.test', audience: 'inst-1' }) },
+    followers: { joined: async () => undefined, removed: async () => undefined, changed: async () => undefined },
+    tell: (deviceId, event, payload) => tell(deviceId, event, payload),
+    now: () => clock,
+  });
+  tell = wireMachineAccounts({ io, db, dataKey: keys.data, accounts: () => accounts, now: () => clock }).tell;
   wireSockets({
     io, db, role: roleFromEnv({}), env: {}, payloadKey: keys.payload, dataKey: keys.data,
     auth: { sessionFromCookie: async () => undefined, securedFor: () => false, principalFor: () => undefined } as unknown as SocketsWiringDeps['auth'],
     sessionSockets: { track: () => undefined, forget: () => undefined },
-    machines, clusters: {} as never, apps: {} as never, infra: {} as never,
+    machines, workTokens: trust, clusters: {} as never, apps: {} as never, infra: {} as never,
     telemetry: { relay: async () => ({ ok: true }) } as never,
     now: () => clock,
   });
@@ -130,10 +157,10 @@ beforeEach(async () => {
     upstreamKey: () => 'the-gateway-token',
     namespace: 'default',
     keys: () => ['the-key'],
-    deviceOf: deviceByToken(db, keys.data, () => clock),
+    deviceOf: deviceByWorkToken(db, trust, () => clock),
     handed: async () => undefined,
   });
-  machines.onTokenRetired((hash) => gateway.forget(hash));
+  forgotten.listener = (deviceId) => gateway.forget(deviceId);
   gatewayAddress = `127.0.0.1:${await gateway.listen(0, '127.0.0.1')}`;
 });
 
@@ -146,18 +173,16 @@ afterEach(async () => {
   await rm(folder, { recursive: true, force: true });
 });
 
-describe('a machine token in its last 30 days, with the clock wound forward', () => {
-  it('is replaced over the socket, written by the agent, and the old one is refused by the socket, the git proxy and the gateway', async () => {
+describe('a machine\'s account token at root, in its last 30 days', () => {
+  it('is replaced over root\'s socket, written by the agent, and the old one is refused there', async () => {
     await db.machines.saveLocalAgentDevice(device({ issuedAt: ISSUED, expiresAt: new Date(ISSUED.getTime() + 90 * DAY) }));
     const file = path.join(folder, 'machine.json');
-    expect(await gatewayAnswer(OLD_TOKEN)).not.toMatch(/not known here/);
     let received = '';
-    const first = await agent(OLD_TOKEN, (next, ack) => {
+    const first = await account(OLD_TOKEN, (next, ack) => {
       received = next;
       void saveDeviceToken(file, next).then(() => ack(tokenAnswer(true)));
     });
     expect(first.error).toBeUndefined();
-
     await until(async () => ((await stored()).tokenHash === deviceTokenHash(received) && received ? true : undefined));
     const saved = JSON.parse(await readFile(file, 'utf8')) as { token: string };
     expect(saved.token).toBe(received);
@@ -165,42 +190,74 @@ describe('a machine token in its last 30 days, with the clock wound forward', ()
     const promoted = await stored();
     expect(promoted.nextTokenHash).toBeUndefined();
     expect(Date.parse(promoted.expiresAt!)).toBe(clock.getTime() + 90 * DAY);
-
-    expect((await agent(saved.token)).error).toBeUndefined();
-    expect(await gitAnswer(saved.token)).not.toBe(401);
-    expect(await gatewayAnswer(saved.token)).not.toMatch(/not known here/);
-
-    expect((await agent(OLD_TOKEN)).error).toBe('Unauthorized');
-    expect(await gitAnswer(OLD_TOKEN)).toBe(401);
-    expect(await gatewayAnswer(OLD_TOKEN)).toMatch(/not known here/);
+    expect((await account(saved.token)).error).toBeUndefined();
+    expect((await account(OLD_TOKEN)).error).toBe('Unauthorized');
   });
 
   it('keeps both tokens working when the agent stops between receiving the new one and saying it took it', async () => {
     await db.machines.saveLocalAgentDevice(device({ issuedAt: ISSUED, expiresAt: new Date(ISSUED.getTime() + 90 * DAY) }));
     let received = '';
-    const first = await agent(OLD_TOKEN, (next) => { received = next; });
+    const first = await account(OLD_TOKEN, (next) => { received = next; });
     expect(first.error).toBeUndefined();
     await until(async () => (received && (await stored()).nextTokenHash ? true : undefined));
     first.socket.close();
-
-    expect((await agent(OLD_TOKEN)).error).toBeUndefined();
-    expect(await gitAnswer(OLD_TOKEN)).not.toBe(401);
-    expect(await gitAnswer(received)).not.toBe(401);
-    expect(await gatewayAnswer(received)).not.toMatch(/not known here/);
-
-    expect((await agent(received)).error).toBeUndefined();
+    expect((await account(OLD_TOKEN)).error).toBeUndefined();
+    expect((await account(received)).error).toBeUndefined();
     await until(async () => ((await stored()).tokenHash === deviceTokenHash(received) ? true : undefined));
-    expect((await agent(OLD_TOKEN)).error).toBe('Unauthorized');
-    expect(await gitAnswer(OLD_TOKEN)).toBe(401);
+    expect((await account(OLD_TOKEN)).error).toBe('Unauthorized');
+  }, 30_000);
+
+  it('is refused past its expiry, saying to run the command from My Machines again', async () => {
+    await db.machines.saveLocalAgentDevice(device({ issuedAt: ISSUED, expiresAt: new Date(ISSUED.getTime() + 90 * DAY) }));
+    clock = new Date(ISSUED.getTime() + 91 * DAY);
+    expect((await account(OLD_TOKEN)).error).toBe(TOKEN_EXPIRED_SAID);
+  }, 30_000);
+
+  it('hands the machine its Koala and a work token on connecting, and again when it asks', async () => {
+    await db.machines.saveLocalAgentDevice(device({ issuedAt: ISSUED, expiresAt: new Date(ISSUED.getTime() + 90 * DAY) }));
+    const told: Array<{ url: string; workToken: string } | null> = [];
+    const socket = connect(`${url}/machine-account`, { auth: { token: OLD_TOKEN }, transports: ['websocket'], reconnection: false, forceNew: true });
+    clients.push(socket);
+    socket.on('machine:koala', (koala: { url: string; workToken: string } | null) => told.push(koala));
+    await until(async () => (told.length ? true : undefined));
+    expect(told[0]?.url).toBe('http://inst.test');
+    expect((await work(told[0]!.workToken)).error).toBeUndefined();
+    socket.emit('machine:koala?');
+    await until(async () => (told.length === 2 ? true : undefined));
   }, 30_000);
 });
 
-describe('a machine token past its expiry', () => {
-  it('is refused everywhere, and the socket says to run the command from My Machines again', async () => {
+describe('a machine\'s work token at its Koala', () => {
+  it('lets the machine in at the socket, the git proxy and the gateway', async () => {
     await db.machines.saveLocalAgentDevice(device({ issuedAt: ISSUED, expiresAt: new Date(ISSUED.getTime() + 90 * DAY) }));
-    clock = new Date(ISSUED.getTime() + 91 * DAY);
-    expect((await agent(OLD_TOKEN)).error).toBe(TOKEN_EXPIRED_SAID);
-    expect(await gitAnswer(OLD_TOKEN)).toBe(401);
-    expect(await gatewayAnswer(OLD_TOKEN)).toMatch(/not known here/);
+    const token = workToken();
+    expect((await work(token)).error).toBeUndefined();
+    expect(await gitAnswer(token)).not.toBe(401);
+    expect(await gatewayAnswer(token)).not.toMatch(/not known here/);
+  });
+
+  it('is refused for another Koala, from another root, past its expiry, and for a machine this Koala does not have', async () => {
+    await db.machines.saveLocalAgentDevice(device({ issuedAt: ISSUED, expiresAt: new Date(ISSUED.getTime() + 90 * DAY) }));
+    for (const [token, said] of [
+      [workToken({ audience: 'inst-2' }), WORK_TOKEN_REFUSED['wrong-audience']],
+      [workToken({ by: otherRoot }), WORK_TOKEN_REFUSED['unknown-key']],
+      [workToken({ at: seconds() - WORK_TOKEN_TTL_SECONDS - 1 }), WORK_TOKEN_REFUSED.expired],
+      [OLD_TOKEN, WORK_TOKEN_REFUSED.malformed],
+      [workToken({ machineId: 'other' }), 'this machine is not one of this Koala\'s: run the command from My Machines again'],
+    ] as const) {
+      expect((await work(token)).error).toBe(said);
+      expect(await gitAnswer(token)).toBe(401);
+      expect(await gatewayAnswer(token)).toMatch(/not known here/);
+    }
+  }, 30_000);
+
+  it('stops working at the gateway the moment the machine leaves, though the gateway had just let it in', async () => {
+    await db.machines.saveLocalAgentDevice(device({ issuedAt: ISSUED, expiresAt: new Date(ISSUED.getTime() + 90 * DAY) }));
+    const token = workToken();
+    expect(await gatewayAnswer(token)).not.toMatch(/not known here/);
+    await db.machines.deleteLocalAgentDevice('desk');
+    await machines.forget({ id: 'desk', ownerId: 'owner-1', name: 'desk', rootDir: '/x', createdAt: 'then' });
+    expect(await gatewayAnswer(token)).toMatch(/not known here/);
+    expect(await gitAnswer(token)).toBe(401);
   }, 30_000);
 });

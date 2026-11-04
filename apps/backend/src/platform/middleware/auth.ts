@@ -177,8 +177,8 @@ export function createAuth({ db, sessionKey, publicUrl, role = 'combined', insta
         '/instances/chart.tgz',
         '/instances/release',
         '/instances/status',
-        '/instances/machine-key',
-        '/instances/machine-node',
+        '/instances/machines',
+        '/instances/machines/join-code',
         '/instances/addresses',
         '/instances/updates',
         '/instances/release-findings',
@@ -196,7 +196,7 @@ export function createAuth({ db, sessionKey, publicUrl, role = 'combined', insta
       '/machines/agent.tgz.sha256',
       '/metrics',
     ];
-    const publicPrefixes = role === 'instance' ? [...PUBLIC_PREFIXES, '/move/'] : role === 'hub' ? [...PUBLIC_PREFIXES, '/hub-root/', '/hub-instance/'] : [...PUBLIC_PREFIXES, '/auth/provider/', '/instances/monitoring/', '/instances/move/parts/', '/instances/groups/', '/instances/chart/'];
+    const publicPrefixes = role === 'instance' ? [...PUBLIC_PREFIXES, '/move/'] : role === 'hub' ? [...PUBLIC_PREFIXES, '/hub-root/', '/hub-instance/'] : [...PUBLIC_PREFIXES, '/auth/provider/', '/instances/monitoring/', '/instances/move/parts/', '/instances/groups/', '/instances/chart/', '/instances/machines/'];
     if (publicPaths.includes(req.path) || publicPrefixes.some((prefix) => req.path.startsWith(prefix))) {
       return next();
     }

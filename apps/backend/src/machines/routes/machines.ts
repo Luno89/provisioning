@@ -1,6 +1,6 @@
 import { Router, type Request, type Response } from 'express';
 import { asyncRoute } from '../../platform/index.js';
-import type { MachineService } from '../services/MachineService.js';
+import type { MachineAccounts } from '../services/MachineAccounts.js';
 import { GIT_ROUTES, type GitRoute, type MachineGitService } from '../services/MachineGitService.js';
 
 const bearer = (header: string | undefined): string | undefined => header?.match(/^Bearer\s+(.+)$/i)?.[1]?.trim();
@@ -10,7 +10,7 @@ export interface AgentBundle {
   sha256(): Promise<string>;
 }
 
-export function machinesRouter(deps: { machines: Pick<MachineService, 'join'>; bundle: AgentBundle; git?: Pick<MachineGitService, 'serve'> | undefined }): Router {
+export function machinesRouter(deps: { accounts?: Pick<MachineAccounts, 'join'> | undefined; bundle: AgentBundle; git?: Pick<MachineGitService, 'serve'> | undefined }): Router {
   const router = Router();
 
   router.all(/^\/git\/([^/]+)\.git\/(info\/refs|git-upload-pack|git-receive-pack)$/, asyncRoute(async (req: Request, res: Response) => {
@@ -38,8 +38,9 @@ export function machinesRouter(deps: { machines: Pick<MachineService, 'join'>; b
   }));
 
   router.post('/join', asyncRoute(async (req: Request, res: Response) => {
+    if (!deps.accounts) return res.status(404).type('text/plain').send('machines join at root, which holds accounts: run the command from My Machines');
     const body = (req.body ?? {}) as { code?: unknown; hostname?: unknown; rootDir?: unknown; os?: unknown; replaces?: unknown };
-    const outcome = await deps.machines.join(body.code, { hostname: body.hostname, rootDir: body.rootDir, os: body.os, replaces: body.replaces });
+    const outcome = await deps.accounts.join(body.code, { hostname: body.hostname, rootDir: body.rootDir, os: body.os, replaces: body.replaces });
     if (!outcome.ok) return res.status(outcome.status).type('text/plain').send(outcome.error);
     res.json({ ...outcome.value, env: { ...outcome.value.env, KOALA_AGENT_SHA256: await deps.bundle.sha256() } });
   }));

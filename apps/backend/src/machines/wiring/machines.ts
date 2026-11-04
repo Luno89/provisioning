@@ -2,7 +2,10 @@ import fs from 'fs/promises';
 import path from 'path';
 import type express from 'express';
 import { type Database, type LocalAgentDeviceMetadata, type SecretKey, asyncRoute, ringOf, sharedPayloadBlobs, temporalApiKey } from '../../platform/index.js';
-import { findDeviceByToken } from '../lib/local-agent-registry.js';
+import { checkWorkToken } from '../lib/work-tokens.js';
+import type { WorkTokenTrust } from './sockets.js';
+import type { MachineAccounts } from '../services/MachineAccounts.js';
+import { accountMachinesRouter, type MachineCaller } from '../routes/account-machines.js';
 import { MachineBundle } from '../services/MachineBundle.js';
 import { MachineGitService } from '../services/MachineGitService.js';
 import { MachineTemporalGateway } from '../services/MachineTemporalGateway.js';
@@ -15,7 +18,12 @@ import { machinesRouter } from '../routes/machines.js';
 export type Routes = { use(path: string, router: express.Router | express.RequestHandler): unknown; get(path: string, handler: express.RequestHandler): unknown };
 
 export interface MachinesWiringDeps {
+  app: Routes;
   tenant: Routes;
+  servesTenants: boolean;
+  accounts?: MachineAccounts | undefined;
+  instanceCaller?: ((instanceId: string, credential: string) => Promise<MachineCaller | undefined>) | undefined;
+  workTokens?: WorkTokenTrust | undefined;
   db: Database;
   dataKey: SecretKey;
   publicUrl: string;
@@ -29,8 +37,13 @@ export interface MachinesWiringDeps {
 
 export const machineBundle = (repoRoot: string): MachineBundle => new MachineBundle(repoRoot);
 
-export const deviceByToken = (db: Pick<Database, 'machines'>, dataKey: SecretKey, now: () => Date = () => new Date()) =>
-  async (token: string): Promise<LocalAgentDeviceMetadata | undefined> => findDeviceByToken(await db.machines.getLocalAgentDevices(), token, dataKey, now());
+export const deviceByWorkToken = (db: Pick<Database, 'machines'>, trust: WorkTokenTrust | undefined, now: () => Date = () => new Date()) =>
+  async (token: string): Promise<LocalAgentDeviceMetadata | undefined> => {
+    if (!trust) return undefined;
+    const check = checkWorkToken(token, trust.keys, trust.audience, Math.floor(now().getTime() / 1000));
+    if (!check.ok) return undefined;
+    return (await db.machines.getLocalAgentDevices()).find((device) => device.id === check.claims.sub && device.ownerId === check.claims.owner);
+  };
 
 export function wireMachines(deps: MachinesWiringDeps): void {
   const { tenant, db } = deps;
@@ -38,7 +51,7 @@ export function wireMachines(deps: MachinesWiringDeps): void {
   tenant.use('/api/mesh/local-agents', localAgentsRouter({ machines: deps.machines }));
   const { bundle } = deps;
   const git = new MachineGitService({
-    deviceFor: deviceByToken(db, deps.dataKey),
+    deviceFor: deviceByWorkToken(db, deps.workTokens),
     remote: (ownerId, repo) => deps.projectRepos.gitRemote(ownerId, repo),
   });
   if (deps.gateway) {
@@ -50,19 +63,26 @@ export function wireMachines(deps: MachinesWiringDeps): void {
       upstreamCa: temporalCa,
       namespace,
       keys: () => [ring.current, ...(ring.previous ?? [])],
-      deviceOf: deviceByToken(db, deps.dataKey),
+      deviceOf: deviceByWorkToken(db, deps.workTokens),
       handed: (workflowId, deviceId) => sharedPayloadBlobs().handTo(workflowId, deviceId),
       log: (line) => console.log(line),
     });
-    deps.machines.onTokenRetired((tokenHash) => gateway.forget(tokenHash));
+    deps.machines.onForgotten((deviceId) => gateway.forget(deviceId));
     gateway.listen(port, host).then(
       (listening) => console.log(`[machine-gateway] machines reach Temporal through ${host}:${listening}`),
       (err: Error) => console.error(`[machine-gateway] could not listen on ${host}:${port}: ${err.message}`),
     );
   }
-  tenant.use('/api/machines', machinesRouter({ machines: deps.machines, bundle, git }));
-  tenant.get('/machine.sh', asyncRoute(async (_req, res) => {
-    const installer = await fs.readFile(path.join(deps.repoRoot, 'scripts/machine/machine.sh'), 'utf8');
-    res.type('text/x-shellscript').send(installer.replaceAll('__KOALA_URL__', deps.publicUrl));
-  }));
+  deps.app.use('/api/machines', machinesRouter({ accounts: deps.accounts, bundle, git: deps.servesTenants ? git : undefined }));
+  if (deps.accounts) {
+    const { accounts, instanceCaller } = deps;
+    deps.app.use('/api/instances/machines', accountMachinesRouter({
+      accounts,
+      callerOf: async (req) => instanceCaller?.(String(req.headers['x-instance-id'] ?? ''), String(req.headers.authorization ?? '').replace(/^Bearer\s+/i, '')),
+    }));
+    deps.app.get('/machine.sh', asyncRoute(async (_req, res) => {
+      const installer = await fs.readFile(path.join(deps.repoRoot, 'scripts/machine/machine.sh'), 'utf8');
+      res.type('text/x-shellscript').send(installer.replaceAll('__KOALA_URL__', deps.publicUrl));
+    }));
+  }
 }
