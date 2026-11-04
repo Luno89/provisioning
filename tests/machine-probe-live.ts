@@ -82,10 +82,15 @@ const FIREWALL = [
 
 const kubectlAsPerson = (args: string) => asPerson(`KUBECONFIG=/etc/rancher/k3s/k3s.yaml k3s kubectl ${args}`);
 
-async function nodeReady(vm: DisposableVm): Promise<void> {
+const DNS_READY = `{.items[0].status.conditions[?(@.type=="Ready")].status} {.items[0].status.conditions[?(@.type=="Ready")].lastTransitionTime}`;
+
+async function nodeReady(vm: DisposableVm, since: number): Promise<void> {
   for (let tries = 0; ; tries += 1) {
-    if (await succeeds(vm, `${kubectlAsPerson('wait --for=condition=Ready node --all --timeout=10s')} && ${kubectlAsPerson('-n kube-system wait --for=condition=Available deployment/coredns --timeout=10s')}`)) return;
-    if (tries > 60) throw new Error(`k3s on ${vm.host}:${vm.port} never had a Ready node:\n${await inVm(vm, 'sudo journalctl -u k3s --no-pager | tail -40').catch(() => '')}`);
+    const dns = await inVm(vm, kubectlAsPerson(`-n kube-system get pod -l k8s-app=kube-dns -o jsonpath='${DNS_READY}'`)).catch(() => '');
+    const [status, at] = dns.trim().split(' ');
+    if (status === 'True' && at && Date.parse(at) / 1000 >= since && await succeeds(vm, kubectlAsPerson('wait --for=condition=Ready node --all --timeout=10s'))) return;
+    if (tries > 120) throw new Error(`k3s on ${vm.host}:${vm.port} never answered DNS after its start:\n${await inVm(vm, 'sudo journalctl -u k3s --no-pager | tail -40').catch(() => '')}`);
+    await new Promise((done) => setTimeout(done, 2000));
   }
 }
 
@@ -116,11 +121,13 @@ async function podSays(vm: DisposableVm, name: string, script: string, shape: Po
 }
 
 async function startsK3s(vm: DisposableVm): Promise<void> {
+  const since = Number((await inVm(vm, 'date -u +%s')).trim()) - 1;
   try {
     await inVm(vm, asPerson('sudo -n systemctl start k3s'));
   } catch (err) {
     throw new Error(`${(err as Error).message}\n── k3s said ──\n${await inVm(vm, 'sudo journalctl -u k3s --no-pager | tail -30').catch(() => '')}`);
   }
+  await nodeReady(vm, since);
 }
 
 const vms: DisposableVm[] = [];
@@ -163,14 +170,12 @@ async function main(): Promise<void> {
   assert.equal(await succeeds(b.vm, asPerson('sudo -n true')), false, 'the person could run anything as root');
   assert.equal(await succeeds(b.vm, asPerson('sudo -n systemctl restart sshd')), false, 'the rule let the person touch another service');
   await startsK3s(b.vm);
-  await nodeReady(b.vm);
   console.log('  started by the person; its kubeconfig is readable by the person without sudo, and the node is Ready');
   await inVm(b.vm, asPerson('sudo -n systemctl stop k3s && sudo -n /usr/local/bin/k3s-killall.sh >/dev/null'));
   assert.equal((await inVm(b.vm, 'pgrep -c -x containerd-shim || true')).trim(), '0', 'pods\' containers kept running after the stop');
   assert.equal((await inVm(b.vm, 'systemctl is-active k3s || true')).trim(), 'inactive');
   console.log('  stopped by the person: no containerd shim is left running');
   await startsK3s(b.vm);
-  await nodeReady(b.vm);
   console.log('  started again; the node is Ready');
 
   step('2. the cluster answers only on loopback, the mesh and its own pods, never on the machine\'s network');
@@ -188,7 +193,6 @@ async function main(): Promise<void> {
   step('3. a pod on one machine\'s cluster reaches the other machine\'s Kubernetes API over the mesh');
   await inVm(a.vm, `printf '%s\\n' ${JSON.stringify(START_STOP_RULE)} | sudo tee /etc/sudoers.d/koala-k3s >/dev/null && sudo chmod 440 /etc/sudoers.d/koala-k3s`);
   await startsK3s(a.vm);
-  await nodeReady(a.vm);
   await inVm(b.vm, kubectlAsPerson('create serviceaccount koala-probe') + ' && ' + kubectlAsPerson('create clusterrolebinding koala-probe --clusterrole=view --serviceaccount=default:koala-probe'));
   const token = (await inVm(b.vm, kubectlAsPerson('create token koala-probe --duration=1h'))).trim();
   const across = await podSays(a.vm, 'across-mesh', `${GET} --header "Authorization: Bearer ${token}" https://${b.meshIp}:6443/api/v1/nodes`);
