@@ -6,6 +6,13 @@ import { isDown, type Reach } from '../lib/instance-watch.js';
 const userOf = (req: Request): { id: string; email: string } =>
   (req as unknown as { user: { id: string; email: string } }).user;
 
+function answerInstance(servesTenants: boolean, instanceOf?: (req: Request) => Promise<{ id: string; url: string; unreachableSince?: string | undefined } | undefined>) {
+  return asyncRoute(async (req: Request, res: Response) => {
+    const instance = instanceOf ? await instanceOf(req) : undefined;
+    res.json({ instance: instance ?? null, servesTenants });
+  });
+}
+
 export function identityRouter(deps: {
   identity: Pick<IdentityService, 'publicKeys' | 'instanceOf' | 'goUrl'>;
   servesTenants: boolean;
@@ -18,13 +25,11 @@ export function identityRouter(deps: {
     res.json({ keys: deps.identity.publicKeys() });
   });
 
-  router.get('/instance', asyncRoute(async (req: Request, res: Response) => {
+  router.get('/instance', answerInstance(deps.servesTenants, async (req) => {
     const instance = await deps.identity.instanceOf(userOf(req).id);
-    const reach = instance && deps.reachOf ? await deps.reachOf(instance.id) : undefined;
-    res.json({
-      instance: instance ? { id: instance.id, url: instance.url, ...(isDown(reach) ? { unreachableSince: reach!.unreachableSince } : {}) } : null,
-      servesTenants: deps.servesTenants,
-    });
+    if (!instance) return undefined;
+    const reach = deps.reachOf ? await deps.reachOf(instance.id) : undefined;
+    return { id: instance.id, url: instance.url, ...(isDown(reach) ? { unreachableSince: reach!.unreachableSince } : {}) };
   }));
 
   router.get('/go', asyncRoute(async (req: Request, res: Response) => {
@@ -42,8 +47,6 @@ export function identityRouter(deps: {
 
 export function placeRouter(servesTenants: boolean): Router {
   const router = Router();
-  router.get('/instance', (_req: Request, res: Response) => {
-    res.json({ instance: null, servesTenants });
-  });
+  router.get('/instance', answerInstance(servesTenants));
   return router;
 }

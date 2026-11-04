@@ -11,7 +11,7 @@ import {
   writeFileInContainer, type EgressRule,
 } from './docker-driver.js';
 import { configFile, loadMachineConfig, type MachineConfig } from './machine-config.js';
-import { saveDeviceToken, tokenAnswer, workTokenExpiry } from './machine-token.js';
+import { linkToRoot } from './root-link.js';
 import { KNOWN_AGENTS, discoverAgents, manualAgentsFrom, systemDeps, type FoundAgent, type ManualAgent } from './agent-discovery.js';
 import { probeAcp } from './acp-session.js';
 import { installAgent } from './agent-install.js';
@@ -98,68 +98,34 @@ const forgetAndStop = (closing: () => Promise<unknown>) => {
     .finally(() => process.exit(0));
 };
 
-const RENEW_BEFORE_SECONDS = 7 * 24 * 3600;
-
 async function main() {
   const config = await loadMachineConfig();
   const { rootUrl, rootDir } = config;
   await mkdir(rootDir, { recursive: true });
   const service = serviceManagerOf(process.platform, process.env, await readCgroup());
-  const root = io(`${rootUrl}/machine-account`, { auth: { token: config.token }, reconnection: true });
   let sessionsOf: ExternalAgentSessions | undefined;
   let working: { url: string; setToken(token: string): Promise<void> } | undefined;
-  let renewal: NodeJS.Timeout | undefined;
-  const askKoala = () => { if (root.connected) root.emit('machine:koala?'); };
-  const renewBefore = (token: string) => {
-    if (renewal) clearTimeout(renewal);
-    const exp = workTokenExpiry(token);
-    if (exp === undefined) return;
-    renewal = setTimeout(askKoala, Math.max(0, (exp - RENEW_BEFORE_SECONDS) * 1000 - Date.now()));
-    renewal.unref();
-  };
-
-  root.on('machine:token', ({ token: next }: { token?: unknown }, ack: (answer: { taken: boolean }) => void) => {
-    if (typeof next !== 'string' || !next) return ack(tokenAnswer(false));
-    saveDeviceToken(configFile(), next)
-      .then(() => {
-        config.token = next;
-        root.auth = { ...(root.auth as Record<string, unknown>), token: next };
-        say('this machine took a new token from root');
-        ack(tokenAnswer(true));
-      })
-      .catch((err: Error) => {
-        console.warn(`[koala-local-agent] a new token could not be kept: ${err.message}`);
-        ack(tokenAnswer(false));
-      });
+  const root = linkToRoot({
+    rootUrl,
+    token: config.token,
+    configFile: configFile(),
+    meshIp,
+    say,
+    onRemoved: () => forgetAndStop(() => sessionsOf?.closeAll() ?? Promise.resolve()),
+    onKoala: (koala) => {
+      if (!working) {
+        working = startWork(config, koala.url, koala.workToken, service, () => root.askKoala(), (sessions) => { sessionsOf = sessions; });
+        return;
+      }
+      if (working.url !== koala.url) {
+        say(`this machine's Koala is now at ${koala.url}`);
+        if (service) process.exit(0);
+        say('start the agent again to work for it there');
+        return;
+      }
+      void working.setToken(koala.workToken);
+    },
   });
-  root.on('connect', () => {
-    say(`connected to root at ${rootUrl}`);
-    void meshIp().then((ip) => { if (ip) root.emit('machine:mesh', { ip }); });
-  });
-  root.on('machine:removed', () => {
-    root.io.opts.reconnection = false;
-    forgetAndStop(() => sessionsOf?.closeAll() ?? Promise.resolve());
-  });
-  root.on('machine:koala', (koala: { url?: unknown; workToken?: unknown } | null) => {
-    if (!koala || typeof koala.url !== 'string' || typeof koala.workToken !== 'string') {
-      say('root names no Koala for this machine yet; it waits until there is one');
-      return;
-    }
-    renewBefore(koala.workToken);
-    if (!working) {
-      working = startWork(config, koala.url, koala.workToken, service, askKoala, (sessions) => { sessionsOf = sessions; });
-      return;
-    }
-    if (working.url !== koala.url) {
-      say(`this machine's Koala is now at ${koala.url}`);
-      if (service) process.exit(0);
-      say('start the agent again to work for it there');
-      return;
-    }
-    void working.setToken(koala.workToken);
-  });
-  root.on('disconnect', (reason) => say(`root disconnected: ${reason}`));
-  root.on('connect_error', (err: Error) => console.error(`[koala-local-agent] root refused or could not be reached: ${err.message}`));
 }
 
 function startWork(
@@ -217,10 +183,6 @@ function startWork(
   worker = followEngineWorker(socket, config, koalaUrl, work, sessions, gate);
 
   socket.on('connect', () => say(`connected to its Koala at ${koalaUrl} — root: ${rootDir}, containers: ${containerMode ? 'on' : 'off'}`));
-  socket.on('machine:removed', () => {
-    socket.io.opts.reconnection = false;
-    forgetAndStop(() => sessions.closeAll());
-  });
   socket.on('disconnect', (reason) => say(`disconnected from its Koala: ${reason}`));
   socket.on('connect_error', (err: Error) => {
     console.error(`[koala-local-agent] its Koala refused or could not be reached: ${err.message}`);

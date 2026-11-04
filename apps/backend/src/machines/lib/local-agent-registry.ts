@@ -133,7 +133,6 @@ export function askDevice<T>(deviceId: string, ownerId: string, event: string, p
 export function dropDevice(deviceId: string): void {
   const connection = devices.get(deviceId);
   if (!connection) return;
-  connection.socket.emit('machine:removed');
   connection.socket.disconnect(true);
   devices.delete(deviceId);
 }

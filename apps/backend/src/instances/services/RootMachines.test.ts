@@ -20,6 +20,11 @@ interceptHttp(
     record(request);
     return HttpResponse.json({ code: 'c', command: 'curl -fsSL https://app.example.com/machine.sh | sh -s -- c', expiresAt: 'then' }, { status: 201 });
   }),
+  http.post(`${ROOT}/adopt`, async ({ request }) => {
+    record(request);
+    const { machines } = await request.json() as { machines: unknown[] };
+    return HttpResponse.json({ adopted: machines.length });
+  }),
   http.delete(`${ROOT}/:id`, ({ request, params }) => {
     record(request);
     return params.id === 'm-1' ? HttpResponse.json({ success: true }) : HttpResponse.json({ error: 'no such machine' }, { status: 404 });
@@ -39,6 +44,12 @@ describe('an instance asking root about its owner\'s machines', () => {
       { method: 'POST', path: '/api/instances/machines/join-code', instance: 'inst-1', auth: 'Bearer right' },
       { method: 'DELETE', path: '/api/instances/machines/m-1', instance: 'inst-1', auth: 'Bearer right' },
     ]);
+  });
+
+  it('hands root the machines it had from before, as itself', async () => {
+    seen.length = 0;
+    expect(await machines().adopt([machine, { ...machine, id: 'm-2' }])).toEqual({ adopted: 2 });
+    expect(seen).toEqual([{ method: 'POST', path: '/api/instances/machines/adopt', instance: 'inst-1', auth: 'Bearer right' }]);
   });
 
   it('answers false for a machine root does not have, and says why root refused', async () => {

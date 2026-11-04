@@ -56,6 +56,17 @@ describe('bringing a user\'s own machine in as their instance', () => {
     expect(await service.join(token, 'again')).toMatchObject({ ok: false, status: 401 });
   });
 
+  it('names a person\'s Koala to their machines only once it is in service', async () => {
+    expect(await service.koalaOf('u1')).toBeUndefined();
+    const { token } = await tokenFor('u1');
+    const joined = await service.join(token, 'luno-desktop');
+    if (!joined.ok) throw new Error(joined.error);
+    expect(await service.koalaOf('u1')).toBeUndefined();
+    await service.report(joined.value.instanceId, joined.value.credential, { status: 'ready', url: 'https://luno.koala.dev' });
+    expect(await service.koalaOf('u1')).toEqual({ url: 'https://luno.koala.dev', audience: joined.value.instanceId });
+    expect(await service.koalaOf('someone-else')).toBeUndefined();
+  });
+
   it('refuses a join command that has expired', async () => {
     const { token } = await tokenFor('u1');
     now = new Date(now.getTime() + (JOIN_TOKEN_TTL_SECONDS + 1) * 1000);

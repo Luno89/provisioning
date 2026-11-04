@@ -37,9 +37,9 @@ import { workFailuresFor, wireRunning } from './infrastructure/wiring/running.js
 import { wireActions } from './engine/wiring/actions.js';
 import { PRUNE_FIRST_DELAY_MS, PRUNE_INTERVAL_MS } from './engine-host/sandboxes/prune-images.js';
 import { runClosedVia, runLifeVia } from './engine-host/temporal/run-cancellation.js';
-import { askDevice, dropDevice, localAgentStatus, tellDevice, MachineService, machineTelemetry, MachineAccounts, MachineMirror, COMBINED_AUDIENCE } from './machines/index.js';
-import { wireMachineAccounts, type AccountSockets } from './machines/wiring/accounts.js';
-import { RootMachines, IdentityService, instanceReachFrom } from './instances/index.js';
+import { askDevice, dropDevice, localAgentStatus, tellDevice, machineTelemetry } from './machines/index.js';
+import { machineSides } from './machines/wiring/sides.js';
+import { IdentityService, instanceReachFrom } from './instances/index.js';
 import { modelsRouter, ModelService, endpointRulesFromEnv } from './models/index.js';
 
 import {
@@ -186,46 +186,15 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   const MACHINE_GATEWAY_PORT = Number(process.env.MACHINE_GATEWAY_PORT || 7234);
   const machineTemporal = { address: process.env.MACHINE_TEMPORAL_ADDRESS || `localhost:${MACHINE_GATEWAY_PORT}`, namespace: temporalNamespaceFrom(process.env) };
   const machineBundle = newMachineBundle(path.join(__dirname, '../../..'));
-  const late: { instances?: Awaited<ReturnType<typeof wireInstances>>; tellMachine?: AccountSockets['tell'] } = {};
-  const ownerInstances = async (ownerId: string, event: string) => {
-    for (const instance of await db.instances.getInstances(ownerId)) late.instances?.tellInstance?.(instance.id, event);
-  };
-  const machineAccounts: MachineAccounts | undefined = holdsAccounts(role) && role.signing ? new MachineAccounts({
-    store: db.machines,
-    dataKey: keys.data,
-    signing: role.signing,
-    settings: { url: PUBLIC_URL, meshLoginServer: process.env.MESH_LOGIN_SERVER },
-    koala: { of: async (ownerId) => (servesTenants(role) ? { url: PUBLIC_URL, audience: COMBINED_AUDIENCE } : late.instances?.instanceService?.koalaOf(ownerId)) },
-    followers: servesTenants(role)
-      ? { joined: (machine) => machineService.adopt(machine), removed: (machine) => machineService.forget(machine), changed: async () => undefined }
-      : { joined: (machine) => ownerInstances(machine.ownerId, 'machines:changed'), removed: (machine) => ownerInstances(machine.ownerId, 'machines:changed'), changed: (ownerId) => ownerInstances(ownerId, 'machines:changed') },
-    tell: (deviceId, event, payload) => late.tellMachine?.(deviceId, event, payload) ?? false,
-    mesh: headscaleService,
-  }) : undefined;
-  const rootMachines = role.instance ? new RootMachines({ rootUrl: role.instance.rootUrl, instanceId: role.instance.id, token: rootToken ?? (async () => '') }) : undefined;
-  const machineService: MachineService = new MachineService({
-    store: db.machines,
-    bundle: machineBundle,
+  const late: { instances?: Awaited<ReturnType<typeof wireInstances>> } = {};
+  const { accounts: machineAccounts, machines: machineService, workTokens, instanceArrived } = machineSides({
+    role, db, io, dataKey: keys.data, publicUrl: PUBLIC_URL, meshLoginServer: process.env.MESH_LOGIN_SERVER, mesh: headscaleService,
     devices: { status: localAgentStatus, tell: tellDevice, ask: askDevice, drop: dropDevice },
-    projects: projectRepoService,
-    accounts: rootMachines ?? machineAccounts ?? {
-      createJoinCode: async () => { throw new Error('this Koala has no root to add machines through'); },
-      remove: async () => false,
-    },
+    projects: projectRepoService, bundle: machineBundle, rootToken,
+    hear: (event, handler) => instanceSide.hear(event, handler),
+    koalaOf: async (ownerId) => late.instances?.instanceService?.koalaOf(ownerId),
+    tellInstance: (instanceId, event) => late.instances?.tellInstance?.(instanceId, event),
   });
-  const machineMirror = rootMachines ? new MachineMirror({ store: db.machines, root: rootMachines, machines: machineService }) : undefined;
-  if (machineMirror && rootMachines) {
-    const toRoot = () => runOnce(db.platform, 'machines-to-root', new Date().toISOString(), async () => rootMachines.adopt(await db.machines.getLocalAgentDevices()));
-    let migrated = toRoot();
-    const syncMachines = () => {
-      migrated = migrated.catch(() => toRoot());
-      migrated.then(() => machineMirror.sync()).catch((err: Error) => console.warn(`[machines] this instance could not read its machines from root: ${err.message}`));
-    };
-    instanceSide.hear('machines:changed', syncMachines);
-    instanceSide.hear('connect', syncMachines);
-  }
-  if (machineAccounts) late.tellMachine = wireMachineAccounts({ io, db, dataKey: keys.data, accounts: () => machineAccounts }).tell;
-  const workTokens = servesTenants(role) && role.trusted ? { keys: role.trusted, audience: role.instance?.id ?? COMBINED_AUDIENCE } : undefined;
   const modelService = new ModelService(db, appService, clusterService, clusterProxyService, headscaleService, keys.data, endpointRulesFromEnv(process.env));
 
   if (servesTenants(role)) {
@@ -395,7 +364,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     role, env: process.env, app, tenant, db, mail, identity, auth, sessionKey: keys.session, publicUrl: PUBLIC_URL,
     repoRoot: path.join(__dirname, '../../..'), dataDir: path.join(__dirname, '../data'), headscale: headscaleService, infra: infraService,
     side: instanceSide, syncExposedApps: () => appExposureService.syncExposedApps(), provider: rootProvider, signIn: rootSignIn, rootToken, io,
-    instanceArrived: (instance) => { void machineAccounts?.tellKoala(instance.ownerId).catch((err: Error) => console.warn(`[machines] ${instance.id}'s owner's machines could not be told where it is: ${err.message}`)); },
+    instanceArrived,
   });
   late.instances = instancesWiring;
   const people = async () => (await db.accounts.getUsers()).filter((user) => !user.space).map((user) => auth.principalFor(user));

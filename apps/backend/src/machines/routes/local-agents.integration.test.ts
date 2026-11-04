@@ -211,7 +211,7 @@ describe('a machine\'s agents on My Machines', () => {
     expect(left).toContain('dev-not-mine');
   });
 
-  it('removing a machine closes its connection, tells it to forget its token, takes it off the mesh and deletes the project it was added with', async () => {
+  it('removing a machine closes its connection here, root alone telling it to forget its token, takes it off the mesh and deletes the project it was added with', async () => {
     await harness.db.machines.saveLocalAgentDevice({ id: 'dev-gone', ownerId: TEST_USER.id, name: 'Gone', rootDir: '/x', tokenEnc: 'irrelevant', createdAt: '2026-01-01T00:00:00Z' });
     await harness.db.projects.saveProject({ id: 'proj-of-gone', name: 'Gone - x', ownerId: TEST_USER.id, appType: 'local', executionTarget: { kind: 'local-device', deviceId: 'dev-gone' }, createdAt: '2026-01-01T00:00:00Z' });
     await harness.db.projects.saveProject({ id: 'proj-kept', name: 'Kept', ownerId: TEST_USER.id, appType: 'local', executionTarget: { kind: 'local-device', deviceId: 'dev-other' }, createdAt: '2026-01-01T00:00:00Z' });
@@ -223,7 +223,7 @@ describe('a machine\'s agents on My Machines', () => {
 
     expect((await fetch(harness.url('/api/mesh/local-agents/dev-gone'), { method: 'DELETE' })).status).toBe(200);
 
-    expect(device.emitted.map((entry) => entry.event)).toContain('machine:removed');
+    expect(device.emitted.map((entry) => entry.event)).not.toContain('machine:removed');
     expect(device.disconnected()).toBe(true);
     expect(localAgentStatus('dev-gone').online).toBe(false);
     expect(meshRemoved).toEqual([{ ownerId: TEST_USER.id, meshIp: '100.64.0.9' }]);

@@ -184,7 +184,7 @@ export function machineServiceBehaviour(make: () => Promise<Database>): void {
       expect(await service().remove('bo', 'mine')).toBe(true);
     });
 
-    it('makes a machine that arrives its project, and forgets one that leaves: tells it, closes its connection and deletes its project', async () => {
+    it('makes a machine that arrives its project, and forgets one that leaves: closes its connection and deletes its project, root having told the machine', async () => {
       const machine = { id: 'mine', ownerId: 'bo', name: 'laptop', rootDir: '/home/me/koala', createdAt: '2026-01-01T00:00:00Z' };
       await service().adopt(machine);
       expect(projects.register).toHaveBeenCalledWith('bo', 'laptop - koala', { executionTarget: { kind: 'local-device', deviceId: 'mine' } });
@@ -193,7 +193,7 @@ export function machineServiceBehaviour(make: () => Promise<Database>): void {
       const machines = service();
       machines.onForgotten((id) => forgotten.push(id));
       await machines.forget(machine);
-      expect(devices.tell).toHaveBeenCalledWith('mine', 'machine:removed');
+      expect(devices.tell).not.toHaveBeenCalled();
       expect(devices.drop).toHaveBeenCalledWith('mine');
       expect(forgotten).toEqual(['mine']);
       expect(projects.removeFor).toHaveBeenCalledWith('bo', 'mine');

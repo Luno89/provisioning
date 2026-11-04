@@ -174,7 +174,6 @@ export class MachineService {
   }
 
   async forget(machine: AccountMachine): Promise<void> {
-    this.deps.devices.tell(machine.id, 'machine:removed');
     this.deps.devices.drop(machine.id);
     for (const listener of this.forgottenListeners) listener(machine.id);
     await this.deps.projects.removeFor?.(machine.ownerId, machine.id).catch((err: Error) => console.warn(`[machines] ${machine.name} is removed, but its project could not be: ${err.message}`));
