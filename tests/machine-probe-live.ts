@@ -209,4 +209,12 @@ async function main(): Promise<void> {
 
 main()
   .then(async () => { await teardown(); console.log('\nmachine probe live — PASS'); process.exit(0); })
-  .catch(async (err) => { console.error(err); await teardown(); process.exit(1); });
+  .catch(async (err) => {
+    console.error(err);
+    if (process.env.PROBE_KEEP === '1') {
+      for (const vm of vms) console.error(`kept: ssh -i ${vm.privateKeyPath} -p ${vm.port} ${vm.username}@${vm.host}`);
+      return;
+    }
+    await teardown();
+    process.exit(1);
+  });
