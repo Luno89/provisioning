@@ -114,6 +114,14 @@ async function podSays(vm: DisposableVm, name: string, script: string, shape: Po
   throw new Error(`pod ${name} never finished:\n${await inVm(vm, kubectlAsPerson(`describe pod ${name}`))}`);
 }
 
+async function startsK3s(vm: DisposableVm): Promise<void> {
+  try {
+    await inVm(vm, asPerson('sudo -n systemctl start k3s'));
+  } catch (err) {
+    throw new Error(`${(err as Error).message}\n── k3s said ──\n${await inVm(vm, 'sudo journalctl -u k3s --no-pager | tail -30').catch(() => '')}`);
+  }
+}
+
 const vms: DisposableVm[] = [];
 let meshUserId: string | undefined;
 
@@ -153,14 +161,14 @@ async function main(): Promise<void> {
   await inVm(b.vm, `echo ${JSON.stringify(START_STOP_RULE)} | sudo tee /etc/sudoers.d/koala-k3s >/dev/null && sudo chmod 440 /etc/sudoers.d/koala-k3s && sudo visudo -cf /etc/sudoers.d/koala-k3s`);
   assert.equal(await succeeds(b.vm, asPerson('sudo -n true')), false, 'the person could run anything as root');
   assert.equal(await succeeds(b.vm, asPerson('sudo -n systemctl restart sshd')), false, 'the rule let the person touch another service');
-  await inVm(b.vm, asPerson('sudo -n systemctl start k3s'));
+  await startsK3s(b.vm);
   await nodeReady(b.vm);
   console.log('  started by the person; its kubeconfig is readable by the person without sudo, and the node is Ready');
   await inVm(b.vm, asPerson('sudo -n systemctl stop k3s && sudo -n /usr/local/bin/k3s-killall.sh >/dev/null'));
   assert.equal((await inVm(b.vm, 'pgrep -c -f containerd-shim || true')).trim(), '0', 'pods\' containers kept running after the stop');
   assert.equal((await inVm(b.vm, 'systemctl is-active k3s || true')).trim(), 'inactive');
   console.log('  stopped by the person: no containerd shim is left running');
-  await inVm(b.vm, asPerson('sudo -n systemctl start k3s'));
+  await startsK3s(b.vm);
   await nodeReady(b.vm);
   console.log('  started again; the node is Ready');
 
@@ -178,7 +186,7 @@ async function main(): Promise<void> {
 
   step('3. a pod on one machine\'s cluster reaches the other machine\'s Kubernetes API over the mesh');
   await inVm(a.vm, `printf '%s\\n' ${JSON.stringify(START_STOP_RULE)} | sudo tee /etc/sudoers.d/koala-k3s >/dev/null && sudo chmod 440 /etc/sudoers.d/koala-k3s`);
-  await inVm(a.vm, asPerson('sudo -n systemctl start k3s'));
+  await startsK3s(a.vm);
   await nodeReady(a.vm);
   await inVm(b.vm, kubectlAsPerson('create serviceaccount koala-probe') + ' && ' + kubectlAsPerson('create clusterrolebinding koala-probe --clusterrole=view --serviceaccount=default:koala-probe'));
   const token = (await inVm(b.vm, kubectlAsPerson('create token koala-probe --duration=1h'))).trim();

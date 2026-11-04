@@ -4,32 +4,35 @@ Written by `tests/lib/run-live.ts`, which every `npm run test:*-live` and `test:
 
 | Script | Last passed | Last failed |
 |---|---|---|
-| `account-hardening-live` | 2026-11-02 15:39 | — |
-| `account-removal-live` | 2026-11-02 15:40 | 2026-11-02 13:03 |
-| `app-names-live` | 2026-11-02 15:43 | 2026-10-22 21:33 |
+| `account-hardening-live` | 2026-11-03 20:42 | — |
+| `account-removal-live` | 2026-11-03 20:43 | 2026-11-02 13:03 |
+| `app-names-live` | 2026-11-03 20:46 | 2026-10-22 21:33 |
 | `app-sign-in-live` | 2026-10-27 22:24 | 2026-10-27 22:22 |
+| `browser-live` | 2026-11-04 05:00 | 2026-11-04 04:58 |
 | `byo-machine-live` | 2026-11-02 07:09 | 2026-11-02 03:47 |
-| `checks-live` | 2026-11-02 16:20 | 2026-11-01 07:30 |
-| `dev-split-live` | 2026-11-02 15:38 | 2026-10-29 23:50 |
-| `files-live` | 2026-11-02 15:45 | 2026-10-28 16:23 |
-| `hardening-live` | 2026-11-02 15:39 | — |
-| `hub-live` | 2026-11-02 15:40 | 2026-10-24 18:21 |
-| `hub-split-live` | 2026-11-02 15:40 | — |
+| `checks-live` | 2026-11-03 21:21 | 2026-11-01 07:30 |
+| `dev-split-live` | 2026-11-03 20:41 | 2026-10-29 23:50 |
+| `files-live` | 2026-11-03 20:48 | 2026-10-28 16:23 |
+| `hardening-live` | 2026-11-03 20:42 | — |
+| `hub-live` | 2026-11-03 20:43 | 2026-10-24 18:21 |
+| `hub-split-live` | 2026-11-03 20:43 | 2026-11-02 23:35 |
 | `infra-integration` | 2026-11-02 05:15 | 2026-10-24 14:12 |
-| `instance-live` | 2026-11-02 05:59 | 2026-10-30 01:30 |
+| `instance-live` | 2026-11-02 21:03 | 2026-11-02 20:55 |
 | `machine-chat-live` | 2026-10-28 02:48 | — |
 | `machine-container-live` | 2026-10-27 22:45 | — |
 | `machine-live` | 2026-11-02 07:12 | 2026-10-30 20:00 |
+| `machine-probe-live` | — | 2026-11-04 05:05 |
 | `mail-live` | 2026-11-02 05:52 | 2026-10-31 00:30 |
 | `mesh-live` | 2026-11-02 07:07 | 2026-10-28 02:39 |
 | `odoo-customizations-live` | 2026-11-02 06:53 | 2026-10-29 15:22 |
-| `odoo-release-live` | 2026-11-02 15:57 | 2026-10-28 19:41 |
-| `openrouter-connect-live` | 2026-11-02 15:39 | — |
+| `odoo-release-live` | 2026-11-03 21:00 | 2026-10-28 19:41 |
+| `openrouter-connect-live` | 2026-11-03 20:43 | — |
 | `pool-live` | 2026-11-02 05:52 | 2026-10-31 20:44 |
-| `project-sharing-live` | 2026-11-02 15:41 | 2026-10-22 13:53 |
+| `project-sharing-live` | 2026-11-03 20:44 | 2026-11-02 23:23 |
 | `release-live` | 2026-11-02 06:54 | 2026-11-01 23:08 |
 | `remote-host-integration` | 2026-11-02 07:15 | 2026-10-29 05:04 |
 | `restore-live` | 2026-11-02 06:20 | 2026-10-31 01:51 |
-| `routes-live` | 2026-11-02 15:34 | 2026-10-24 05:15 |
+| `routes-live` | 2026-11-03 20:36 | 2026-10-24 05:15 |
 | `routing-live` | 2026-11-02 07:22 | 2026-11-01 05:35 |
-| `telemetry-live` | 2026-11-02 15:41 | — |
+| `telemetry-live` | 2026-11-03 20:45 | — |
+| `tree-to-release-live` | — | 2026-11-02 21:35 |
