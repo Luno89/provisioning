@@ -101,7 +101,7 @@ async function podSays(vm: DisposableVm, name: string, script: string, shape: Po
       containers: [{ name, image: POD_IMAGE, command: ['sh', '-c', script], ...(shape.folder ? { volumeMounts: [{ name: 'work', mountPath: '/work' }] } : {}) }],
     },
   });
-  await inVm(vm, `echo ${JSON.stringify(manifest)} | ${kubectlAsPerson('apply -f -')}`);
+  await inVm(vm, `echo ${Buffer.from(manifest).toString('base64')} | base64 -d | ${kubectlAsPerson('apply -f -')}`);
   for (let tries = 0; tries < 90; tries += 1) {
     const phase = (await inVm(vm, kubectlAsPerson(`get pod ${name} -o jsonpath={.status.phase}`))).trim();
     if (phase === 'Succeeded' || phase === 'Failed') {
