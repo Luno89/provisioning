@@ -68,6 +68,7 @@
     "test:instance-live": "cd apps/backend && tsx ../../tests/lib/run-live.ts instance-live",
     "test:byo-live": "cd apps/backend && tsx ../../tests/lib/run-live.ts byo-machine-live",
     "test:routing-live": "cd apps/backend && tsx ../../tests/lib/run-live.ts routing-live",
+    "test:machine-probe-live": "cd apps/backend && tsx ../../tests/lib/run-live.ts machine-probe-live",
     "test:machine-live": "cd apps/backend && tsx ../../tests/lib/run-live.ts machine-live",
     "test:mesh-live": "cd apps/backend && tsx ../../tests/lib/run-live.ts mesh-live",
     "test:secrets-live": "cd apps/backend && tsx ../../tests/lib/run-live.ts secrets-live",
