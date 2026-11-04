@@ -51,8 +51,11 @@ export class RootPresence {
       },
     });
     this.socket = socket;
-    for (const [event, handler] of Object.entries(this.deps.heard ?? {})) socket.on(event, handler);
-    socket.on('connect', () => this.arrived());
+    socket.onAny((event: string) => this.deps.heard?.[event]?.());
+    socket.on('connect', () => {
+      this.arrived();
+      this.deps.heard?.connect?.();
+    });
     socket.on('disconnect', (reason) => {
       this.left();
       if (reason === 'io server disconnect') this.again();

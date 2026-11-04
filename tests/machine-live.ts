@@ -5,13 +5,11 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import axios from 'axios';
-import { createDatabase } from '../apps/backend/src/platform/lib/db-interface.js';
 import { createDisposableVm, type DisposableVm } from './lib/disposable-vm.js';
 import { ACP_STUB, HOLD_SESSION, chatsOnTheMachine, type Api } from './lib/machine-chat.js';
-import { startOwnStack, type OwnStack } from './lib/own-stack.js';
+import { ownerOnInstance, startSplitStack, type SplitStack } from './lib/split-stack.js';
 
 const NAME = `machine-live-${Date.now().toString(36)}`;
-const NODE = process.version;
 const REPO = fileURLToPath(new URL('..', import.meta.url));
 const BEFORE_SELF_UPDATE = '4e711811ab8aee66c622007b538453c1e8bf26d7';
 const AGENT_DIR = '~/.local/share/koala/machine';
@@ -72,30 +70,30 @@ const write = (vm: DisposableVm, file: string, content: string, mode = '644', su
   ssh(vm, `${sudo ? 'sudo ' : ''}mkdir -p "$(dirname ${file})" && cat | ${sudo ? 'sudo ' : ''}tee ${file} >/dev/null && ${sudo ? 'sudo ' : ''}chmod ${mode} ${file}`, content);
 
 async function main(): Promise<void> {
-  console.log('[0] a Koala of this suite\'s own, from this commit\'s image: its backend and engine worker, its database and its Temporal namespace');
-  const own = await startOwnStack('machine-live');
-  const db = createDatabase({ ...process.env, MONGO_URI: own.root.mongoUri });
+  console.log('[0] root and an instance of this suite\'s own, as separate containers from this commit\'s image, the instance with its engine worker');
+  const stack = await startSplitStack({ engine: true });
   let vm: DisposableVm | undefined;
   let passed = false;
   try {
-    await db.init();
-    console.log(`    ${own.url}, its machines reaching Temporal through ${own.gatewayPort}, owned by ${own.owner.email}`);
-    await stages(own, db, (made) => { vm = made; });
+    const session = await ownerOnInstance(stack);
+    console.log(`    root ${stack.rootUrl}, the owner's Koala ${stack.instanceUrl} (machines reach its Temporal through ${stack.ports.instanceGateway}), owned by ${stack.owner.email}`);
+    await stages(stack, session, (made) => { vm = made; });
     passed = true;
   } finally {
-    console.log('[13] removing the VM and this suite\'s Koala');
-    if (!passed) console.log(`    the backend said, last:\n${own.logs('backend', 40).split('\n').map((line) => `      ${line}`).join('\n')}`);
+    console.log('[13] removing the VM, root and the instance');
+    if (!passed) {
+      for (const side of ['root', 'instance'] as const) console.log(`    ${side} said, last:\n${stack.logs(side, 40).split('\n').map((line) => `      ${line}`).join('\n')}`);
+    }
     await vm?.destroy();
     console.log('    the VM is gone');
-    await db.close?.();
-    await own.stop();
-    console.log('    its containers, database and namespace are gone');
+    await stack.stop();
+    console.log('    their containers, databases and namespace are gone');
   }
 }
 
-async function stages(own: OwnStack, db: ReturnType<typeof createDatabase>, madeVm: (vm: DisposableVm) => void): Promise<void> {
+async function stages(stack: SplitStack, session: string, madeVm: (vm: DisposableVm) => void): Promise<void> {
   let vm: DisposableVm | undefined;
-  const http = axios.create({ baseURL: own.api, proxy: false, timeout: 0, validateStatus: () => true, headers: { Cookie: own.owner.cookie } });
+  const http = axios.create({ baseURL: `${stack.instanceUrl}/api`, proxy: false, timeout: 0, validateStatus: () => true, headers: { Cookie: session } });
   const machines = async (): Promise<Machine[]> => (await http.get('/mesh/local-agents')).data;
   const mine = async (): Promise<Machine | undefined> => (await machines()).find((machine) => machine.name === NAME);
   const until = async <T>(what: string, minutes: number, check: () => Promise<T | undefined>): Promise<T> => {
@@ -106,6 +104,14 @@ async function stages(own: OwnStack, db: ReturnType<typeof createDatabase>, made
       await sleep(3000);
     }
     throw new Error(`${what} did not happen within ${minutes} minutes`);
+  };
+  const projectOf = async (deviceId: string): Promise<{ id: string } | undefined> => {
+    const { db, close } = await stack.instanceDb();
+    try {
+      return (await db.collection('projects').findOne({ 'executionTarget.kind': 'local-device', 'executionTarget.deviceId': deviceId })) as { id: string } | null ?? undefined;
+    } finally {
+      await close();
+    }
   };
 
   const served = async (): Promise<string> => String((await http.get('/machines/agent.tgz.sha256')).data).trim().split(/\s+/)[0]!;
@@ -126,24 +132,26 @@ async function stages(own: OwnStack, db: ReturnType<typeof createDatabase>, made
     vm = await createDisposableVm(NAME, { memoryMB: 2048, cpus: 2, diskGB: 10, reboots: true });
     madeVm(vm);
 
-    console.log(`[2] it has Node ${NODE}, a coding agent that speaks ACP (gemini), and Claude Code and Codex without their adapters; this computer is its localhost`);
-    await ssh(vm, `mkdir -p ~/.local/node ~/agents && curl -fsSL https://nodejs.org/dist/${NODE}/node-${NODE}-linux-x64.tar.xz | tar -xJf - -C ~/.local/node --strip-components=1`);
-    await ssh(vm, `printf '%s\\n' 'export PATH="$HOME/.local/node/bin:$HOME/agents:$PATH"' >> ~/.profile`);
+    console.log('[2] it has no Node.js, a coding agent that speaks ACP (gemini), and Claude Code and Codex without their adapters; root, its Koala and its Koala\'s gateway are at its localhost');
+    await ssh(vm, 'mkdir -p ~/agents');
+    await ssh(vm, `printf '%s\\n' 'export PATH="$HOME/agents:$PATH"' >> ~/.profile`);
     await write(vm, '~/agents/gemini', ACP_STUB, '755');
     await write(vm, '~/agents/claude', '#!/bin/sh\necho "claude 2.0.0"\n', '755');
     await write(vm, '~/agents/codex', '#!/bin/sh\necho "codex-cli 0.50.0"\n', '755');
-    await write(vm, '/usr/local/sbin/koala-loopback', loopback([own.apiPort, own.gatewayPort]), '755', true);
+    await write(vm, '/usr/local/sbin/koala-loopback', loopback([stack.ports.root, stack.ports.instance, stack.ports.instanceGateway]), '755', true);
     await write(vm, '/etc/systemd/system/koala-loopback.service', LOOPBACK_UNIT, '644', true);
     await ssh(vm, 'sudo systemctl daemon-reload && sudo systemctl enable --now koala-loopback.service');
-    assert.match(await ssh(vm, `node --version && command -v gemini && curl -fsS -o /dev/null -w "%{http_code}" http://localhost:${own.apiPort}/machine.sh`), /200$/);
+    assert.equal((await ssh(vm, 'command -v node || echo none')).trim(), 'none', 'the VM came with Node.js, so the join is not shown to bring its own');
+    assert.match(await ssh(vm, `command -v gemini && curl -fsS -o /dev/null -w "%{http_code}" http://localhost:${stack.ports.root}/machine.sh`), /200$/);
 
-    console.log('[3] the command from My Machines installs it, lists the agents it found without installing an adapter (--adapters none), starts it as a service, and keeps it starting with the machine');
+    console.log('[3] the command from My Machines, made by root, joins the machine to the account at root, brings Koala\'s own Node.js, lists the agents it found without installing an adapter (--adapters none), starts it as a service, and keeps it starting with the machine; root names the owner\'s Koala, which mirrors the machine');
     const made = await http.post('/mesh/local-agents/join-code', {});
     assert.equal(made.status, 201, JSON.stringify(made.data));
     const command = (made.data as { command: string }).command;
-    assert.equal(command.replace(/\S+$/, ''), `curl -fsSL http://localhost:${own.apiPort}/machine.sh | sh -s -- `);
+    assert.equal(command.replace(/\S+$/, ''), `curl -fsSL http://localhost:${stack.ports.root}/machine.sh | sh -s -- `);
     const installed = (await ssh(vm, `${command} --yes --adapters none`)).replace(/\x1b\[[0-9;]*m/g, '');
     console.log(installed.split('\n').filter((line) => line.trim()).map((line) => `    ${line.trim()}`).join('\n'));
+    assert.match(installed, /Node\.js v22\.23\.4 of Koala's own/);
     assert.match(installed, /running as the koala-machine service/);
     assert.match(installed, /it starts when this machine starts, without you logging in/);
     assert.equal((await ssh(vm, 'stat -c %a ~/.config/koala/machine.json')).trim(), '600');
@@ -186,14 +194,17 @@ async function stages(own: OwnStack, db: ReturnType<typeof createDatabase>, made
     assert.equal(claude.state, 'ready', `the adapter installed but ${claude.state}: ${claude.reason ?? ''}`);
     console.log(`    claude ready through its adapter${claude.version ? ` (${claude.version})` : ''}`);
 
-    console.log(`[6] an agent from before agents updated themselves (${BEFORE_SELF_UPDATE.slice(0, 9)}) says nothing about which it is, and My Machines says it is too old to update itself`);
+    console.log(`[6] an agent from before machines joined through root (${BEFORE_SELF_UPDATE.slice(0, 9)}) cannot reach the Koala: it says to run the command again, and My Machines shows the machine offline`);
     const old = agentBefore(BEFORE_SELF_UPDATE);
     await ssh(vm, 'cat > /tmp/old-agent.tgz', old.toString('base64'));
-    await onVm(`systemctl --user stop koala-machine && rm -rf ${AGENT_DIR} && mkdir -p ${AGENT_DIR} && base64 -d /tmp/old-agent.tgz | tar -xz -C ${AGENT_DIR} && cd ${AGENT_DIR} && npm ci --omit=dev --ignore-scripts --no-audit --no-fund --loglevel=error >/dev/null && systemctl --user start koala-machine`);
-    const tooOld = await until('My Machines saying its agent is too old', 3, updateIs('too-old'));
-    assert.deepEqual(tooOld.agentUpdate, { state: 'too-old', current: first });
+    await onVm(`systemctl --user stop koala-machine && rm -rf ${AGENT_DIR} && mkdir -p ${AGENT_DIR} && base64 -d /tmp/old-agent.tgz | tar -xz -C ${AGENT_DIR} && cd ${AGENT_DIR} && PATH="$HOME/.local/share/koala/node-v22.23.4/bin:$PATH" npm ci --omit=dev --ignore-scripts --no-audit --no-fund --loglevel=error >/dev/null && systemctl --user start koala-machine`);
+    const tooOld = await until('My Machines showing the machine offline', 3, async () => ((await mine())?.online === false ? (await mine()) : undefined));
+    const oldSaid = await until('the old agent saying what to do', 2, async () => {
+      const log = await onVm('journalctl --user -u koala-machine --no-pager -o cat -n 40 2>/dev/null || true');
+      return /run the command from My Machines/.test(log) ? log : undefined;
+    });
     assert.equal((await agentOnVm()).bundle, 'none');
-    console.log('    too old to update itself: the person is told to run the command again');
+    console.log(`    offline; it said: ${oldSaid.split('\n').find((line) => /run the command from My Machines/.test(line))?.trim()}`);
 
     console.log('[7] running the command again with --yes installs Codex\'s adapter from the script, and replaces the machine rather than adding a second');
     const remade = await http.post('/mesh/local-agents/join-code', {});
@@ -213,7 +224,7 @@ async function stages(own: OwnStack, db: ReturnType<typeof createDatabase>, made
     console.log('[8] Koala names a bundle its download does not match: the agent refuses it, keeps running as it is, and My Machines says why');
     const installedNow = await agentOnVm();
     const named = 'f'.repeat(64);
-    own.exec('backend', `printf '%s  machine-agent.tgz\\n' ${named} > /app/apps/local-agent/dist/machine-agent.tgz.sha256`);
+    stack.exec('instance', `printf '%s  machine-agent.tgz\\n' ${named} > /app/apps/local-agent/dist/machine-agent.tgz.sha256`);
     await onVm('systemctl --user restart koala-machine');
     const refused = await until('My Machines saying the update failed', 3, updateIs('failed'));
     assert.equal(refused.agentUpdate?.current, named);
@@ -239,8 +250,8 @@ async function stages(own: OwnStack, db: ReturnType<typeof createDatabase>, made
     assert.equal(holding.status, 201, JSON.stringify(holding.data));
     const heldRun = (holding.data as { runId: string }).runId;
     await until('the session holding on the machine', 3, async () => ((await onVm('test -e ~/koala-held && echo held || echo not')) === 'held' ? true : undefined));
-    own.exec('backend', 'sed -i \'s/"version": "1.0.0"/"version": "1.0.1-machine-live"/\' /app/apps/local-agent/package.json');
-    await own.restart('backend');
+    stack.exec('instance', 'sed -i \'s/"version": "1.0.0"/"version": "1.0.1-machine-live"/\' /app/apps/local-agent/package.json');
+    await stack.restart('instance');
     const newer = await served();
     assert.notEqual(newer, first);
     const seen = new Set<string>();
@@ -253,7 +264,7 @@ async function stages(own: OwnStack, db: ReturnType<typeof createDatabase>, made
     console.log(`    waiting, busy with ${waiting.agentUpdate?.busyWith?.join(', ')}; still ${first.slice(0, 12)}`);
 
     console.log('[10] the run is terminated, so it never closes its own session: Koala hears it closed and tells the machine, which closes the session, stops taking work, finds itself idle, updates itself and comes back as its service on the newer agent, up to date');
-    own.terminate(heldRun, 'machine-live ends the run without its ending');
+    stack.terminate(heldRun, 'machine-live ends the run without its ending');
     const updated = await until('the machine on the newer agent', 5, async () => {
       const found = await updateIs('current', seen)();
       return found?.agentUpdate?.running === newer ? found : undefined;
@@ -280,8 +291,8 @@ async function stages(own: OwnStack, db: ReturnType<typeof createDatabase>, made
     const said = await chatsOnTheMachine(api, rejoined.id);
     console.log(said.map((line) => `    ${line}`).join('\n'));
 
-    console.log('[12] removing it on My Machines stops its agent, deletes its token, its service and the project it was added with');
-    const project = (await db.projects.getProjects()).find((candidate) => candidate.executionTarget?.kind === 'local-device' && candidate.executionTarget.deviceId === rejoined.id);
+    console.log('[12] removing it on My Machines removes it at root, which tells the machine: its agent stops, deletes its token and its service, and the Koala forgets it and deletes the project it was added with');
+    const project = await projectOf(rejoined.id);
     assert.ok(project, 'the machine was added without a project');
     assert.equal((await http.delete(`/mesh/local-agents/${rejoined.id}`)).status, 200);
     const stopped = await until('the agent stopping', 2, async () => {
@@ -290,7 +301,7 @@ async function stages(own: OwnStack, db: ReturnType<typeof createDatabase>, made
     });
     assert.match(stopped, /token-gone/, stopped);
     assert.match(stopped, /unit-gone/, stopped);
-    assert.equal((await db.projects.getProjects()).some((candidate) => candidate.id === project.id), false, 'its project is still there');
+    await until('its project deleted', 1, async () => ((await projectOf(rejoined.id)) ? undefined : true));
     assert.equal(await mine(), undefined, 'it is still listed');
     console.log(`    ${stopped.split('\n').join(', ')}; its project and listing gone`);
 

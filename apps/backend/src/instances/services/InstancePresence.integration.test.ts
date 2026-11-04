@@ -34,6 +34,9 @@ let logged: string[];
 let mailFails: boolean;
 const clients: RootPresence[] = [];
 
+let tellInstance: (instanceId: string, event: string) => void = () => undefined;
+let arrivals: string[] = [];
+
 async function startRoot(onPort = 0): Promise<void> {
   server = http.createServer();
   io = new Server(server, { pingInterval: 10_000, pingTimeout: 10_000 });
@@ -47,8 +50,8 @@ async function startRoot(onPort = 0): Promise<void> {
     afterMs: GRACE,
     log: (message) => { logged.push(message); },
   });
-  wireInstancePresence(io, presence, async (instanceId, token) =>
-    token === `good-${instanceId}` ? (await db.instances.getInstances()).find((entry) => entry.id === instanceId) : undefined);
+  tellInstance = wireInstancePresence(io, presence, async (instanceId, token) =>
+    token === `good-${instanceId}` ? (await db.instances.getInstances()).find((entry) => entry.id === instanceId) : undefined, (instance) => { arrivals.push(instance.id); });
   await new Promise<void>((resolve) => server.listen(onPort, '127.0.0.1', resolve));
   port = (server.address() as AddressInfo).port;
   await presence.start();
@@ -60,9 +63,10 @@ async function stopRoot(): Promise<void> {
   await io.close();
 }
 
-function instanceDialing(instance: InstanceRecord, token = `good-${instance.id}`) {
+function instanceDialing(instance: InstanceRecord, token = `good-${instance.id}`, heard: Record<string, () => void> = {}) {
   const pushed: string[] = [];
   const client = new RootPresence({
+    heard,
     rootUrl: `http://127.0.0.1:${port}`,
     instanceId: instance.id,
     ownerId: instance.ownerId,
@@ -85,6 +89,7 @@ beforeEach(async () => {
   operators = [];
   logged = [];
   mailFails = false;
+  arrivals = [];
   await db.instances.saveInstance(own);
   await db.instances.saveInstance(pooled);
   await startRoot();
@@ -93,6 +98,22 @@ beforeEach(async () => {
 afterEach(async () => {
   for (const client of clients.splice(0)) client.stop();
   await stopRoot();
+});
+
+describe('root telling an instance over its connection', () => {
+  it('names the instance to root\'s machines as it arrives, and tells only that instance its machines changed', async () => {
+    const said: string[] = [];
+    const elsewhere: string[] = [];
+    const heard = { connect: () => said.push('connected'), 'machines:changed': () => said.push('changed') };
+    const { client } = instanceDialing(own, undefined, heard);
+    instanceDialing(pooled, undefined, { 'machines:changed': () => elsewhere.push('changed') });
+    await until(() => (client.connected() && arrivals.length === 2 ? true : undefined));
+    expect(arrivals.sort()).toEqual([own.id, pooled.id].sort());
+    tellInstance(own.id, 'machines:changed');
+    await until(() => (said.includes('changed') ? true : undefined));
+    expect(said).toEqual(['connected', 'changed']);
+    expect(elsewhere).toEqual([]);
+  });
 });
 
 describe('an instance holding a connection to root', () => {

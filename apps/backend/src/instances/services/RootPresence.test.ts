@@ -11,9 +11,18 @@ class FakeSocket extends EventEmitter {
   active = true;
   connects = 0;
   closed = false;
+  private readonly any: Array<(event: string) => void> = [];
   connect(): this {
     this.connects += 1;
     return this;
+  }
+  onAny(listener: (event: string) => void): this {
+    this.any.push(listener);
+    return this;
+  }
+  hear(event: string): void {
+    for (const listener of this.any) listener(event);
+    this.emit(event);
   }
   close(): this {
     this.closed = true;
@@ -233,5 +242,22 @@ describe('an instance keeping a connection to root', () => {
 describe('the address of root\'s presence namespace', () => {
   it('is root\'s address without its trailing slashes, then the namespace', () => {
     expect(presenceUrl('https://app.example.com///')).toBe('https://app.example.com/instances');
+  });
+});
+
+describe('what root tells an instance over the same connection', () => {
+  it('hands each event to the instance\'s handler, including one it registered after dialling, and runs its connect handler on every connect', async () => {
+    const heard: Record<string, () => void> = {};
+    const said: string[] = [];
+    const presence = rootPresence({ heard });
+    presence.start();
+    heard['machines:changed'] = () => said.push('changed');
+    heard.connect = () => said.push('connected');
+    socket.arrive();
+    socket.hear('machines:changed');
+    socket.hear('something else');
+    socket.leave();
+    socket.arrive();
+    expect(said).toEqual(['connected', 'changed', 'connected']);
   });
 });

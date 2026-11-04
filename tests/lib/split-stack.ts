@@ -75,6 +75,9 @@ export interface SplitStack {
   instanceCredential: string;
   instanceDb: () => Promise<{ db: import('mongodb').Db; close: () => Promise<void> }>;
   logs: (process: SplitProcess, lines?: number) => string;
+  exec: (process: SplitProcess, command: string) => string;
+  restart: (process: SplitProcess) => Promise<void>;
+  terminate: (workflowId: string, reason: string) => void;
   stop: () => Promise<void>;
 }
 
@@ -235,6 +238,13 @@ export async function startSplitStack(options: { engine?: boolean; hubGitea?: bo
     };
 
     return {
+      exec: (process, command) => docker(['exec', names.containers[process], 'sh', '-c', command]),
+      restart: async (process) => {
+        docker(['restart', names.containers[process]]);
+        const url = process === 'root' ? place.rootUrl : process === 'instance' ? place.instanceUrl : process === 'hub' ? place.hubUrl : undefined;
+        if (url) await until(`${process} answering again`, () => answers(`${url}/api/auth/sign-in`), () => logs(process));
+      },
+      terminate: (workflowId, reason) => { docker(['exec', temporalContainer(), 'temporal', 'workflow', 'terminate', '--namespace', names.namespace, '--workflow-id', workflowId, '--reason', reason, '--address', '127.0.0.1:7236']); },
       names, ports, rootUrl: place.rootUrl, instanceUrl: place.instanceUrl, hubUrl: place.hubUrl,
       mailpitApi: `http://127.0.0.1:${ports.mailApi}`, owner, instanceId: plan.instance.id, instanceCredential,
       instanceDb, logs, stop,
