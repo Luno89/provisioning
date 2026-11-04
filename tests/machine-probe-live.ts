@@ -83,7 +83,7 @@ const kubectlAsPerson = (args: string) => asPerson(`KUBECONFIG=/etc/rancher/k3s/
 
 async function nodeReady(vm: DisposableVm): Promise<void> {
   for (let tries = 0; ; tries += 1) {
-    if (await succeeds(vm, kubectlAsPerson('wait --for=condition=Ready node --all --timeout=10s'))) return;
+    if (await succeeds(vm, `${kubectlAsPerson('wait --for=condition=Ready node --all --timeout=10s')} && ${kubectlAsPerson('-n kube-system wait --for=condition=Available deployment/coredns --timeout=10s')}`)) return;
     if (tries > 60) throw new Error(`k3s on ${vm.host}:${vm.port} never had a Ready node:\n${await inVm(vm, 'sudo journalctl -u k3s --no-pager | tail -40').catch(() => '')}`);
   }
 }
@@ -105,8 +105,8 @@ async function podSays(vm: DisposableVm, name: string, script: string, shape: Po
     const phase = (await inVm(vm, kubectlAsPerson(`get pod ${name} -o jsonpath={.status.phase}`))).trim();
     if (phase === 'Succeeded' || phase === 'Failed') {
       const logs = await inVm(vm, kubectlAsPerson(`logs ${name}`));
-      await inVm(vm, kubectlAsPerson(`delete pod ${name} --wait=false`));
-      if (phase === 'Failed') throw new Error(`pod ${name} failed:\n${logs}`);
+      if (phase === 'Succeeded') await inVm(vm, kubectlAsPerson(`delete pod ${name} --wait=false`));
+      if (phase === 'Failed') throw new Error(`pod ${name} failed:\n${logs}\n── the pod ──\n${await inVm(vm, kubectlAsPerson(`get pod ${name} -o jsonpath={.status.containerStatuses}`)).catch(() => '')}`);
       return logs;
     }
     await new Promise((done) => setTimeout(done, 2000));
@@ -180,7 +180,7 @@ async function main(): Promise<void> {
   await inVm(b.vm, FIREWALL);
   assert.equal(fromLan(), false, 'the API still answers on the machine\'s network');
   for (const port of [80, 443]) assert.equal(await succeeds(b.vm, `sudo ss -ltnH 'sport = :${port}' | grep -q .`), false, `something listens on ${port}`);
-  const own = await podSays(b.vm, 'own-api', 'wget -qO- --no-check-certificate --header "Authorization: Bearer $(cat /var/run/secrets/kubernetes.io/serviceaccount/token)" https://kubernetes.default/version');
+  const own = await podSays(b.vm, 'own-api', 'wget -O- --no-check-certificate --header "Authorization: Bearer $(cat /var/run/secrets/kubernetes.io/serviceaccount/token)" https://kubernetes.default.svc/version 2>&1');
   assert.match(own, /gitVersion/, 'a pod on the machine no longer reaches its own cluster\'s API');
   console.log('  closed from the machine\'s network, nothing on 80/443, and its own pods still reach its API');
 
