@@ -124,7 +124,7 @@ beforeEach(async () => {
   machines.onForgotten((deviceId) => forgotten.listener(deviceId));
   server = http.createServer();
   io = new SocketServer(server);
-  let tell: ReturnType<typeof wireMachineAccounts>['tell'] = () => false;
+  let sockets: ReturnType<typeof wireMachineAccounts> = { removed: () => false, koala: () => false };
   accounts = new MachineAccounts({
     store: db.machines,
     dataKey: keys.data,
@@ -132,10 +132,10 @@ beforeEach(async () => {
     settings: { url: 'http://root.test' },
     koala: { of: async () => ({ url: 'http://inst.test', audience: 'inst-1' }) },
     followers: { joined: async () => undefined, removed: async () => undefined, changed: async () => undefined },
-    tell: (deviceId, event, payload) => tell(deviceId, event, payload),
+    toMachines: { removed: (deviceId) => sockets.removed(deviceId), koala: (deviceId, koala) => sockets.koala(deviceId, koala) },
     now: () => clock,
   });
-  tell = wireMachineAccounts({ io, db, dataKey: keys.data, accounts: () => accounts, now: () => clock }).tell;
+  sockets = wireMachineAccounts({ io, db, dataKey: keys.data, accounts: () => accounts, now: () => clock });
   wireSockets({
     io, db, role: roleFromEnv({}), env: {}, payloadKey: keys.payload, dataKey: keys.data,
     auth: { sessionFromCookie: async () => undefined, securedFor: () => false, principalFor: () => undefined } as unknown as SocketsWiringDeps['auth'],

@@ -35,7 +35,7 @@ async function root(clock: () => Date, koala: { url: string; audience: string } 
     store: db.machines, dataKey: 'root-link-test', signing: identityKeysFrom(generateIdentityKey()), settings: { url: 'http://root.test' },
     koala: { of: async () => koala ?? undefined },
     followers: { joined: async () => undefined, removed: async () => undefined, changed: async () => undefined },
-    tell: (deviceId, event, payload) => sockets.tell(deviceId, event, payload),
+    toMachines: sockets,
     now: clock,
   });
   await new Promise<void>((done) => server.listen(0, '127.0.0.1', done));

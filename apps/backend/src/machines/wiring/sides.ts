@@ -40,7 +40,7 @@ export function machineSides(deps: MachineSidesDeps): MachineSides {
   const ownerInstances = async (ownerId: string) => {
     for (const instance of await db.instances.getInstances(ownerId)) deps.tellInstance(instance.id, 'machines:changed');
   };
-  let tellMachine: AccountSockets['tell'] = () => false;
+  let toMachines: AccountSockets = { removed: () => false, koala: () => false };
   let machines: MachineService | undefined;
   const accounts = holdsAccounts(role) && role.signing ? new MachineAccounts({
     store: db.machines,
@@ -51,7 +51,7 @@ export function machineSides(deps: MachineSidesDeps): MachineSides {
     followers: tenants
       ? { joined: (machine) => machines!.adopt(machine), removed: (machine) => machines!.forget(machine), changed: async () => undefined }
       : { joined: (machine) => ownerInstances(machine.ownerId), removed: (machine) => ownerInstances(machine.ownerId), changed: (ownerId) => ownerInstances(ownerId) },
-    tell: (deviceId, event, payload) => tellMachine(deviceId, event, payload),
+    toMachines: { removed: (deviceId) => toMachines.removed(deviceId), koala: (deviceId, koala) => toMachines.koala(deviceId, koala) },
     mesh: deps.mesh,
   }) : undefined;
   const root = role.instance ? new RootMachines({ rootUrl: role.instance.rootUrl, instanceId: role.instance.id, token: deps.rootToken ?? (async () => '') }) : undefined;
@@ -78,7 +78,7 @@ export function machineSides(deps: MachineSidesDeps): MachineSides {
     deps.hear?.('machines:changed', quietly);
     deps.hear?.('connect', quietly);
   }
-  if (accounts) tellMachine = wireMachineAccounts({ io: deps.io, db, dataKey: deps.dataKey, accounts: () => accounts }).tell;
+  if (accounts) toMachines = wireMachineAccounts({ io: deps.io, db, dataKey: deps.dataKey, accounts: () => accounts });
   return {
     accounts,
     machines,

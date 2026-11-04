@@ -25,7 +25,7 @@ async function root() {
         settings: { url: 'https://app.koala.example' },
         koala: { of: async () => ({ url: 'https://bo.people.example', audience: 'inst-1' }) },
         followers: { joined: async () => undefined, removed: async (machine) => { removed.push(machine); }, changed: async () => undefined },
-        tell: (deviceId, event) => { told.push([deviceId, event]); return true; },
+        toMachines: { removed: (deviceId) => { told.push([deviceId, 'machine:removed']); return true; }, koala: () => true },
       });
       return accountMachinesRouter({
         accounts,

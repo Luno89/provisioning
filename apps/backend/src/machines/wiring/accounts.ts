@@ -8,7 +8,8 @@ import type { MachineAccounts } from '../services/MachineAccounts.js';
 export const ACCOUNT_NAMESPACE = '/machine-account';
 
 export interface AccountSockets {
-  tell(deviceId: string, event: string, payload?: unknown): boolean;
+  removed(deviceId: string): boolean;
+  koala(deviceId: string, koala: { url: string; workToken: string } | null): boolean;
 }
 
 export function wireMachineAccounts(deps: {
@@ -62,12 +63,14 @@ export function wireMachineAccounts(deps: {
     });
   });
 
+  const each = (deviceId: string, send: (socket: Socket) => void): boolean => {
+    const sockets = connected.get(deviceId);
+    if (!sockets?.size) return false;
+    for (const socket of sockets) send(socket);
+    return true;
+  };
   return {
-    tell(deviceId, event, payload) {
-      const sockets = connected.get(deviceId);
-      if (!sockets?.size) return false;
-      for (const socket of sockets) socket.emit(event, payload);
-      return true;
-    },
+    removed: (deviceId) => each(deviceId, (socket) => socket.emit('machine:removed')),
+    koala: (deviceId, koala) => each(deviceId, (socket) => socket.emit('machine:koala', koala)),
   };
 }

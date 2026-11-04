@@ -34,7 +34,7 @@ const machinesOf = (db: Database, mesh?: string, now?: () => Date) => {
     settings: { url: URL_OF_KOALA, meshLoginServer: mesh },
     koala: { of: async () => ({ url: URL_OF_KOALA, audience: 'combined' }) },
     followers: { joined: (machine) => machines.adopt(machine), removed: (machine) => machines.forget(machine), changed: async () => undefined },
-    tell: () => false,
+    toMachines: { removed: () => false, koala: () => false },
     mesh: { createPreAuthKey: async (ownerId) => ({ key: `preauth-for-${ownerId}` }), removeNode: async (ownerId, meshIp) => { meshRemoved.push({ ownerId, meshIp }); } },
   });
   service = machines;

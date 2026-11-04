@@ -28,7 +28,7 @@ export function machineAccountsBehaviour(make: () => Promise<Database>): void {
     settings: { url: ROOT_URL, meshLoginServer },
     koala: { of: async (ownerId) => (ownerId === 'bo' ? { url: 'https://bo.people.example', audience: 'inst-bo' } : undefined) },
     followers,
-    tell: (deviceId, event, payload) => { told.push([deviceId, event, payload]); return true; },
+    toMachines: { removed: (deviceId) => { told.push([deviceId, 'machine:removed', undefined]); return true; }, koala: (deviceId, koala) => { told.push([deviceId, 'machine:koala', koala]); return true; } },
     mesh,
     now: () => clock,
     ...over,

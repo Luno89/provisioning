@@ -28,6 +28,11 @@ export interface KoalaPlace {
   audience: string;
 }
 
+export interface MachineMessages {
+  removed(deviceId: string): boolean;
+  koala(deviceId: string, koala: { url: string; workToken: string } | null): boolean;
+}
+
 export interface MachineFollowers {
   joined(machine: AccountMachine): Promise<void>;
   removed(machine: AccountMachine): Promise<void>;
@@ -41,7 +46,7 @@ export interface MachineAccountsDeps {
   settings: { url: string; meshLoginServer?: string | undefined };
   koala: { of(ownerId: string): Promise<KoalaPlace | undefined> };
   followers: MachineFollowers;
-  tell: (deviceId: string, event: string, payload?: unknown) => boolean;
+  toMachines: MachineMessages;
   mesh?: {
     createPreAuthKey(ownerId: string, opts?: { reusable?: boolean; expirySeconds?: number }): Promise<{ key: string }>;
     removeNode?(ownerId: string, meshIp: string): Promise<void>;
@@ -191,14 +196,14 @@ export class MachineAccounts {
   async tellKoala(ownerId: string): Promise<void> {
     for (const device of (await this.deps.store.getLocalAgentDevices()).filter((candidate) => candidate.ownerId === ownerId)) {
       const koala = await this.koalaFor(device.id);
-      this.deps.tell(device.id, 'machine:koala', koala ?? null);
+      this.deps.toMachines.koala(device.id, koala ?? null);
     }
   }
 
   async remove(ownerId: string, deviceId: string): Promise<boolean> {
     const device = await this.byId(deviceId);
     if (!device || device.ownerId !== ownerId) return false;
-    this.deps.tell(device.id, 'machine:removed');
+    this.deps.toMachines.removed(device.id);
     await this.deps.store.deleteLocalAgentDevice(device.id);
     if (device.meshIp && this.deps.mesh?.removeNode) {
       await this.deps.mesh.removeNode(ownerId, device.meshIp).catch((err: Error) => console.warn(`[machines] ${device.name} is removed, but its mesh node ${device.meshIp} could not be: ${err.message}`));
