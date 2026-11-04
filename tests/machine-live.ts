@@ -13,6 +13,7 @@ const NAME = `machine-live-${Date.now().toString(36)}`;
 const REPO = fileURLToPath(new URL('..', import.meta.url));
 const BEFORE_SELF_UPDATE = '4e711811ab8aee66c622007b538453c1e8bf26d7';
 const AGENT_DIR = '~/.local/share/koala/machine';
+const NODE_ON_VM = '~/.local/share/koala/node-v22.23.4/bin/node';
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const loopback = (ports: number[]) => `#!/bin/sh
@@ -197,7 +198,7 @@ async function stages(stack: SplitStack, session: string, madeVm: (vm: Disposabl
     console.log(`[6] an agent from before machines joined through root (${BEFORE_SELF_UPDATE.slice(0, 9)}) cannot reach the Koala: it says to run the command again, and My Machines shows the machine offline`);
     const old = agentBefore(BEFORE_SELF_UPDATE);
     await ssh(vm, 'cat > /tmp/old-agent.tgz', old.toString('base64'));
-    await onVm(`systemctl --user stop koala-machine && rm -rf ${AGENT_DIR} && mkdir -p ${AGENT_DIR} && base64 -d /tmp/old-agent.tgz | tar -xz -C ${AGENT_DIR} && cd ${AGENT_DIR} && PATH="$HOME/.local/share/koala/node-v22.23.4/bin:$PATH" npm ci --omit=dev --ignore-scripts --no-audit --no-fund --loglevel=error >/dev/null && systemctl --user start koala-machine`);
+    await onVm(`systemctl --user stop koala-machine && rm -rf ${AGENT_DIR} && mkdir -p ${AGENT_DIR} && base64 -d /tmp/old-agent.tgz | tar -xz -C ${AGENT_DIR} && cd ${AGENT_DIR} && PATH="$(dirname ${NODE_ON_VM}):$PATH" npm ci --omit=dev --ignore-scripts --no-audit --no-fund --loglevel=error >/dev/null && systemctl --user start koala-machine`);
     const tooOld = await until('My Machines showing the machine offline', 3, async () => ((await mine())?.online === false ? (await mine()) : undefined));
     const oldSaid = await until('the old agent saying what to do', 2, async () => {
       const log = await onVm('journalctl --user -u koala-machine --no-pager -o cat -n 40 2>/dev/null || true');
@@ -275,7 +276,7 @@ async function stages(stack: SplitStack, session: string, madeVm: (vm: Disposabl
     assert.equal(after.active, 'active');
     assert.notEqual(after.pid, kept.pid, 'the service is still the process that ran before the update');
     assert.equal(await onVm(`cat ${AGENT_DIR}.previous/bundle.sha256`), first, 'the agent before the update was not kept to go back to');
-    const version = JSON.parse(await onVm(`node ${AGENT_DIR}/agent.mjs version`)) as { bundle: string; version: string };
+    const version = JSON.parse(await onVm(`${NODE_ON_VM} ${AGENT_DIR}/agent.mjs version`)) as { bundle: string; version: string };
     assert.deepEqual(version, { bundle: newer, version: '1.0.1-machine-live' });
     assert.equal(await onVm(`test -e ${AGENT_DIR}.next && echo left || echo clean`), 'clean');
     console.log(`    states seen: ${[...seen].join(' → ')}; now ${newer.slice(0, 12)} (1.0.1-machine-live) as pid ${after.pid}, the one before kept in ${AGENT_DIR}.previous`);
