@@ -52,14 +52,17 @@ async function stages(stack: SplitStack): Promise<void> {
   const atInstance = await ownerOnInstance(stack);
   const ownerHub = await hubSession(stack, owner.cookie);
 
-  step('a machine of the owner\'s joins the instance, so a project can run there without a repository');
+  step('a machine of the owner\'s joins the account at root with the command the instance gives, and the instance takes it from root, so a project can run there without a repository');
   const code = await call(`${instanceUrl}/api/mesh/local-agents/join-code`, json(atInstance, 'POST', {}));
   assert.equal(code.status, 201, JSON.stringify(code.body));
-  const joined = await call(`${instanceUrl}/api/machines/join`, { method: 'POST', body: JSON.stringify({ code: (code.body as { code: string }).code, hostname: `split-${names.stamp}`, rootDir: '/home/koala/work', os: 'linux' }) });
+  const { command, code: joinCode } = code.body as { command: string; code: string };
+  assert.ok(command.startsWith(`curl -fsSL ${stack.rootUrl}/machine.sh`), `the command does not join at root: ${command}`);
+  const joined = await call(`${stack.rootUrl}/api/machines/join`, { method: 'POST', body: JSON.stringify({ code: joinCode, hostname: `split-${names.stamp}`, rootDir: '/home/koala/work', os: 'linux' }) });
   assert.equal(joined.status, 200, JSON.stringify(joined.body));
-  const machines = (await call(`${instanceUrl}/api/mesh/local-agents`, { cookie: atInstance })).body as { id: string; name: string }[];
-  const machine = machines.find((entry) => entry.name === `split-${names.stamp}`);
-  assert.ok(machine, `the joined machine is not listed: ${JSON.stringify(machines)}`);
+  const machine = await eventually('the joined machine on the instance', async () => {
+    const machines = (await call(`${instanceUrl}/api/mesh/local-agents`, { cookie: atInstance })).body as { id: string; name: string }[];
+    return Array.isArray(machines) ? machines.find((entry) => entry.name === `split-${names.stamp}`) : undefined;
+  });
 
   step('the owner makes a project and shares it to the hub under a group, the instance calling the hub with a service token');
   const projectName = `split-shop-${names.stamp}`;
