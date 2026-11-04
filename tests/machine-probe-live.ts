@@ -62,7 +62,7 @@ const k3sConfig = (meshIp: string): string => [
 const k3sInstall = (meshIp: string): string => [
   'set -e',
   'sudo mkdir -p /etc/rancher/k3s',
-  `printf '%s\\n' ${JSON.stringify(k3sConfig(meshIp))} | sudo tee /etc/rancher/k3s/config.yaml >/dev/null`,
+  `echo ${Buffer.from(`${k3sConfig(meshIp)}\n`).toString('base64')} | base64 -d | sudo tee /etc/rancher/k3s/config.yaml >/dev/null`,
   `curl -fsSL ${K3S.source} -o /tmp/k3s-install.sh`,
   `echo "${K3S.sha256}  /tmp/k3s-install.sh" | sha256sum -c --quiet -`,
   `sudo INSTALL_K3S_VERSION=${JSON.stringify(K3S.version)} INSTALL_K3S_SKIP_START=true INSTALL_K3S_SKIP_ENABLE=true sh /tmp/k3s-install.sh`,
