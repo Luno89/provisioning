@@ -74,11 +74,12 @@ async function seesInfrastructure(watching: Watched): Promise<void> {
   const { page } = watching;
   await page.getByRole('button', { name: 'Infrastructure' }).first().click();
   await expect(page.getByTestId('infrastructure-overview')).toBeVisible();
-  await expect(page.getByText(/^checked /)).toBeVisible({ timeout: 60_000 });
-  for (const title of ['Needs attention', 'Your own hardware', 'Model traffic', 'Alerts set', 'Alert history']) {
+  await expect(page.getByText(/^checked /).first()).toBeVisible({ timeout: 60_000 });
+  for (const title of ['Needs attention', 'Model traffic', 'Alerts set', 'Alert history']) {
     await expect(page.getByText(title, { exact: true }).first()).toBeVisible();
   }
-  console.log('  every section rendered');
+  await expect(page.getByText('Your own hardware', { exact: true })).toHaveCount(0);
+  console.log('  every section rendered, and none of the mesh that only root has');
   nothingWentWrong(watching, 'Infrastructure');
 }
 
