@@ -165,7 +165,7 @@ async function main(): Promise<void> {
   await nodeReady(b.vm);
   console.log('  started by the person; its kubeconfig is readable by the person without sudo, and the node is Ready');
   await inVm(b.vm, asPerson('sudo -n systemctl stop k3s && sudo -n /usr/local/bin/k3s-killall.sh >/dev/null'));
-  assert.equal((await inVm(b.vm, 'pgrep -c -f containerd-shim || true')).trim(), '0', 'pods\' containers kept running after the stop');
+  assert.equal((await inVm(b.vm, 'pgrep -c -x containerd-shim || true')).trim(), '0', 'pods\' containers kept running after the stop');
   assert.equal((await inVm(b.vm, 'systemctl is-active k3s || true')).trim(), 'inactive');
   console.log('  stopped by the person: no containerd shim is left running');
   await startsK3s(b.vm);
