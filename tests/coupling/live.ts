@@ -17,18 +17,36 @@ interface RawCoverage { result: V8Script[]; 'source-map-cache'?: Record<string, 
 const raw = (dir: string): string => join(dir, 'raw');
 const pids = (dir: string): string => join(dir, 'pids');
 
-const alive = (pid: number): boolean => {
+export type CmdlineOf = (pid: number) => string | undefined;
+
+export const cmdlineOf: CmdlineOf = (pid) => {
   try {
-    process.kill(pid, 0);
-    return true;
+    return readFileSync(`/proc/${pid}/cmdline`, 'utf8').split('\0').join(' ');
   } catch {
-    return false;
+    return undefined;
   }
 };
 
-export function liveProcesses(dir = LIVE): number[] {
+const entryOf = (dir: string, pid: number): string => {
+  try {
+    return readFileSync(join(pids(dir), String(pid)), 'utf8').trim();
+  } catch {
+    return '';
+  }
+};
+
+const isOurs = (dir: string, pid: number, read: CmdlineOf): boolean => {
+  const entry = entryOf(dir, pid);
+  return entry !== '' && (read(pid) ?? '').includes(entry);
+};
+
+export function liveProcesses(dir = LIVE, read: CmdlineOf = cmdlineOf): number[] {
   if (!existsSync(pids(dir))) return [];
-  return readdirSync(pids(dir)).filter((name) => /^\d+$/.test(name)).map(Number).filter(alive);
+  const listed = readdirSync(pids(dir)).filter((name) => /^\d+$/.test(name)).map(Number);
+  for (const gone of listed.filter((pid) => !isOurs(dir, pid, read))) {
+    for (const file of [String(gone), `${gone}.taken`, `${gone}.first`]) rmSync(join(pids(dir), file), { force: true });
+  }
+  return listed.filter((pid) => isOurs(dir, pid, read));
 }
 
 const coverageFiles = (dir: string): string[] => (existsSync(raw(dir)) ? readdirSync(raw(dir)).filter((name) => name.startsWith('coverage-') && name.endsWith('.json')) : []);
@@ -49,13 +67,13 @@ const firstAnswerOf = (dir: string, pid: number): string => {
   return existsSync(file) ? readFileSync(file, 'utf8') : '';
 };
 
-export async function sample(label: string | undefined, dir = LIVE): Promise<void> {
+export async function sample(label: string | undefined, dir = LIVE, read: CmdlineOf = cmdlineOf): Promise<void> {
   const before = new Set(coverageFiles(dir));
-  const asked = liveProcesses(dir);
+  const asked = liveProcesses(dir, read);
   const id = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
   writeFileSync(join(dir, 'request'), id);
   for (;;) {
-    const waiting = asked.filter((pid) => alive(pid) && answeredWith(dir, pid) !== id);
+    const waiting = asked.filter((pid) => isOurs(dir, pid, read) && answeredWith(dir, pid) !== id);
     if (waiting.length === 0) break;
     await new Promise((done) => setTimeout(done, 100));
   }
@@ -63,7 +81,7 @@ export async function sample(label: string | undefined, dir = LIVE): Promise<voi
   const startup = join(raw(dir), STARTUP);
   mkdirSync(startup, { recursive: true });
   writeFileSync(join(startup, 'label'), STARTUP);
-  const running = new Set(liveProcesses(dir));
+  const running = new Set(liveProcesses(dir, read));
   for (const kept of readdirSync(startup).filter((name) => name.endsWith('.json'))) {
     if (!running.has(pidOf(kept) ?? -1)) rmSync(join(startup, kept), { force: true });
   }
