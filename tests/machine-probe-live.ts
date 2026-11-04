@@ -11,6 +11,7 @@ const MESH_USER = `machine-probe-${STAMP}`;
 const PERSON = 'person';
 const PERSON_UID = 1500;
 const POD_IMAGE = 'alpine:3.20';
+const CURL = 'apk add -q --no-cache curl >/dev/null && curl -sSk --fail-with-body';
 
 interface Pin { name: string; version: string; sha256?: string; source?: string; sha256s?: Record<string, string> }
 const pins = (JSON.parse(readFileSync(join(REPO, 'dependencies.pins.json'), 'utf8')) as { components: Pin[] }).components;
@@ -180,7 +181,7 @@ async function main(): Promise<void> {
   await inVm(b.vm, FIREWALL);
   assert.equal(fromLan(), false, 'the API still answers on the machine\'s network');
   for (const port of [80, 443]) assert.equal(await succeeds(b.vm, `sudo ss -ltnH 'sport = :${port}' | grep -q .`), false, `something listens on ${port}`);
-  const own = await podSays(b.vm, 'own-api', 'wget -O- --no-check-certificate --header "Authorization: Bearer $(cat /var/run/secrets/kubernetes.io/serviceaccount/token)" https://kubernetes.default.svc/version 2>&1');
+  const own = await podSays(b.vm, 'own-api', `${CURL} -H "Authorization: Bearer $(cat /var/run/secrets/kubernetes.io/serviceaccount/token)" https://kubernetes.default.svc/version`);
   assert.match(own, /gitVersion/, 'a pod on the machine no longer reaches its own cluster\'s API');
   console.log('  closed from the machine\'s network, nothing on 80/443, and its own pods still reach its API');
 
@@ -190,7 +191,7 @@ async function main(): Promise<void> {
   await nodeReady(a.vm);
   await inVm(b.vm, kubectlAsPerson('create serviceaccount koala-probe') + ' && ' + kubectlAsPerson('create clusterrolebinding koala-probe --clusterrole=view --serviceaccount=default:koala-probe'));
   const token = (await inVm(b.vm, kubectlAsPerson('create token koala-probe --duration=1h'))).trim();
-  const across = await podSays(a.vm, 'across-mesh', `wget -qO- --no-check-certificate --header "Authorization: Bearer ${token}" https://${b.meshIp}:6443/api/v1/nodes`);
+  const across = await podSays(a.vm, 'across-mesh', `${CURL} -H "Authorization: Bearer ${token}" https://${b.meshIp}:6443/api/v1/nodes`);
   assert.match(across, /"kind":\s*"NodeList"/, `a pod on ${a.meshIp} did not list ${b.meshIp}'s nodes`);
   const certNames = await inVm(a.vm, `echo | openssl s_client -connect ${b.meshIp}:6443 2>/dev/null | openssl x509 -noout -ext subjectAltName`);
   assert.ok(certNames.includes(b.meshIp), `${b.meshIp} is not on the API's certificate: ${certNames}`);
