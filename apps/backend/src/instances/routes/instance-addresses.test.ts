@@ -42,11 +42,11 @@ describe('the instance\'s addresses route', () => {
     expect(addresses.set).not.toHaveBeenCalled();
   });
 
-  it('says so on an instance with no addresses', async () => {
+  it('answers none on an instance with no addresses, and refuses to change them', async () => {
     const router = instanceAddressesRouter({ addresses: () => undefined });
     const read = await (await on(router, ownedBy(PERSON.id))).get('/api/instance-addresses');
-    expect(read.status).toBe(404);
-    expect(read.data).toEqual({ error: containing('no addresses of its own') });
-    expect((await (await on(router, ownedBy(PERSON.id))).put('/api/instance-addresses', { nested: true })).status).toBe(404);
+    expect([read.status, read.data]).toEqual([200, null]);
+    const change = await (await on(router, ownedBy(PERSON.id))).put('/api/instance-addresses', { nested: true });
+    expect([change.status, change.data]).toEqual([404, { error: containing('no addresses of its own') }]);
   });
 });

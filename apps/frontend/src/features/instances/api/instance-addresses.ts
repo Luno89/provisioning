@@ -1,4 +1,3 @@
-import { isAxiosError } from 'axios'
 import { api } from '../../../api/client'
 
 export interface InstanceAddressesView {
@@ -14,10 +13,7 @@ export const instanceAddressKeys = {
 }
 
 export const getInstanceAddresses = (): Promise<InstanceAddressesView | null> =>
-  api.get<InstanceAddressesView>('/instance-addresses').then((r) => r.data).catch((err: unknown) => {
-    if (isAxiosError(err) && err.response?.status === 404) return null
-    throw err
-  })
+  api.get<InstanceAddressesView | null>('/instance-addresses').then((r) => r.data)
 
 export const setNestedAddresses = (nested: boolean): Promise<InstanceAddressesView> =>
   api.put<InstanceAddressesView>('/instance-addresses', { nested }).then((r) => r.data)

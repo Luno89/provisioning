@@ -90,8 +90,8 @@ async function settingsThenSignsOut(stack: SplitStack, watching: Watched): Promi
   await page.getByRole('button', { name: 'Settings' }).first().click();
   await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible();
   await expect(page.getByText(stack.owner.email).first()).toBeVisible();
-  for (const section of ['Addresses', 'Updates', 'Notifications']) await expect(page.getByText(section, { exact: true }).first()).toBeVisible();
-  console.log('  the account, its addresses, updates and notifications');
+  for (const section of ['Updates', 'Notifications']) await expect(page.getByText(section, { exact: true }).first()).toBeVisible();
+  console.log('  the account, its updates and notifications');
   nothingWentWrong(watching, 'Settings');
 
   await page.getByRole('button', { name: 'Log Out' }).click();

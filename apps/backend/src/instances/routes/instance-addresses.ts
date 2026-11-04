@@ -16,8 +16,7 @@ export function instanceAddressesRouter(deps: { addresses: () => Pick<InstanceAd
 
   router.get('/', asyncRoute(async (_req: Request, res: Response) => {
     const addresses = deps.addresses();
-    if (!addresses) return res.status(404).json({ error: NONE });
-    return res.json(await addresses.refresh());
+    return res.json(addresses ? await addresses.refresh() : null);
   }));
 
   router.put('/', asyncRoute(async (req: Request, res: Response) => {

@@ -27,10 +27,9 @@ describe('the instance\'s addresses route', () => {
     expect(set).toEqual([]);
   });
 
-  it('says so on an instance with no addresses', async () => {
+  it('answers none on an instance with no addresses', async () => {
     harness = await mountRouter({ prefix: '/api/instance-addresses', claims: { role: 'instance', instanceOwnerId: TEST_USER.id }, router: () => instanceAddressesRouter({ addresses: () => undefined }) });
-    const answer = await axios.get<{ error?: string }>(harness.url('/api/instance-addresses'), { validateStatus: () => true });
-    expect(answer.status).toBe(404);
-    expect(answer.data.error).toMatch(/no addresses of its own/);
+    const answer = await axios.get(harness.url('/api/instance-addresses'), { validateStatus: () => true });
+    expect([answer.status, answer.data]).toEqual([200, null]);
   });
 });
