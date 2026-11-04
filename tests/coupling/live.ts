@@ -1,5 +1,5 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { join, relative } from 'node:path';
+import { existsSync, mkdirSync, readdirSync, readFileSync, readlinkSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { isAbsolute, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { originalPositionFor, TraceMap, type SourceMapInput } from '@jridgewell/trace-mapping';
 import { commitOf, OUT, record, ROOT, runsOf, sourceOf } from './artifacts.js';
@@ -21,7 +21,8 @@ export type CmdlineOf = (pid: number) => string | undefined;
 
 export const cmdlineOf: CmdlineOf = (pid) => {
   try {
-    return readFileSync(`/proc/${pid}/cmdline`, 'utf8').split('\0').join(' ');
+    const cwd = readlinkSync(`/proc/${pid}/cwd`);
+    return readFileSync(`/proc/${pid}/cmdline`, 'utf8').split('\0').filter(Boolean).map((arg) => (arg.startsWith('-') || isAbsolute(arg) ? arg : resolve(cwd, arg))).join(' ');
   } catch {
     return undefined;
   }
@@ -42,11 +43,7 @@ const isOurs = (dir: string, pid: number, read: CmdlineOf): boolean => {
 
 export function liveProcesses(dir = LIVE, read: CmdlineOf = cmdlineOf): number[] {
   if (!existsSync(pids(dir))) return [];
-  const listed = readdirSync(pids(dir)).filter((name) => /^\d+$/.test(name)).map(Number);
-  for (const gone of listed.filter((pid) => !isOurs(dir, pid, read))) {
-    for (const file of [String(gone), `${gone}.taken`, `${gone}.first`]) rmSync(join(pids(dir), file), { force: true });
-  }
-  return listed.filter((pid) => isOurs(dir, pid, read));
+  return readdirSync(pids(dir)).filter((name) => /^\d+$/.test(name)).map(Number).filter((pid) => isOurs(dir, pid, read));
 }
 
 const coverageFiles = (dir: string): string[] => (existsSync(raw(dir)) ? readdirSync(raw(dir)).filter((name) => name.startsWith('coverage-') && name.endsWith('.json')) : []);

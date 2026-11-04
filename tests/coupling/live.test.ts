@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSyn
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { liveProcesses, sample, type CmdlineOf } from './live.js';
+import { cmdlineOf, liveProcesses, sample, type CmdlineOf } from './live.js';
 
 const ENTRY = '/home/me/provisioning/apps/backend/src/worker-cluster.ts';
 let dir = '';
@@ -18,6 +18,11 @@ function liveDir(): string {
 const listed = (pid: number, entry = ENTRY) => writeFileSync(join(dir, 'pids', String(pid)), entry);
 
 describe('which of the dev stack\'s processes the sampler waits for', () => {
+  it('reads this very process\'s command line with its arguments as full paths, as the hook records its entry', () => {
+    expect(cmdlineOf(process.pid)).toContain(process.execPath);
+    expect(cmdlineOf(2 ** 22 + 1)).toBeUndefined();
+  });
+
   it('takes a listed pid as the process it was only while its command line still names the entry it recorded', () => {
     liveDir();
     listed(101);
@@ -29,7 +34,7 @@ describe('which of the dev stack\'s processes the sampler waits for', () => {
     };
     const read: CmdlineOf = (pid) => cmdlines[pid];
     expect(liveProcesses(dir, read)).toEqual([101]);
-    expect(readdirSync(join(dir, 'pids')).sort()).toEqual(['101']);
+    expect(readdirSync(join(dir, 'pids')).sort()).toEqual(['101', '202', '303']);
   });
 
   it('does not wait for a pid now held by another program\'s thread, which never answers, and finishes once the stack\'s own process has', async () => {
