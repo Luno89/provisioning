@@ -10,7 +10,7 @@ export function OwnHardwareSection() {
   const [issuedKey, setIssuedKey] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
   const config = useQuery<MeshConfig>({ queryKey: meshKeys.config(), queryFn: getMeshConfig })
-  const devices = useQuery<MeshDevice[]>({ queryKey: meshKeys.devices(), queryFn: listMeshDevices, refetchInterval: 15_000 })
+  const devices = useQuery<MeshDevice[]>({ queryKey: meshKeys.devices(), queryFn: listMeshDevices, refetchInterval: 15_000, enabled: config.data?.available === true })
   const mintKey = useMutation({
     mutationFn: () => createPreauthKey({ reusable: false, expirySeconds: 3600 }),
     onSuccess: (data) => { setIssuedKey(data.key); setCopied(false) },
@@ -27,6 +27,8 @@ export function OwnHardwareSection() {
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
   }
+
+  if (config.data?.available !== true) return null
 
   return (
     <Section

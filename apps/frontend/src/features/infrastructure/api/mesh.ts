@@ -7,6 +7,7 @@ export const meshKeys = {
 
 export interface MeshConfig {
   loginServer: string | null
+  available: boolean
   configured: boolean
 }
 

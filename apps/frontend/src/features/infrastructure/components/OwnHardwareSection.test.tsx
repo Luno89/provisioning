@@ -18,13 +18,21 @@ const show = (config: unknown, devices: unknown[] = []) => {
   return render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><OwnHardwareSection /></QueryClientProvider>)
 }
 
-const CONFIGURED = { loginServer: 'https://mesh.example.com', configured: true }
+const CONFIGURED = { loginServer: 'https://mesh.example.com', available: true, configured: true }
 
 describe('your own hardware', () => {
   beforeEach(() => { vi.clearAllMocks() })
 
+  it('shows nothing and asks for no devices where Koala has no mesh of its own', async () => {
+    const { container } = show({ loginServer: 'https://mesh.example.com', available: false, configured: false })
+    await waitFor(() => expect(meshApi.getMeshConfig).toHaveBeenCalled())
+    await new Promise((settled) => setTimeout(settled, 0))
+    expect(container).toBeEmptyDOMElement()
+    expect(meshApi.listMeshDevices).not.toHaveBeenCalled()
+  })
+
   it('says the mesh is unreachable when no public login server is set, and gives no command', async () => {
-    show({ loginServer: null, configured: false })
+    show({ loginServer: null, available: true, configured: false })
     expect(await screen.findByText(/mesh isn't reachable yet/i)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /generate join command/i })).toBeDisabled()
   })

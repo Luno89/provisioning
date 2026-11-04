@@ -3,7 +3,7 @@ import { Router, type Request } from 'express';
 import type { HeadscaleService } from '../services/HeadscaleService.js';
 
 export interface MeshRouterDeps {
-  headscaleService: Pick<HeadscaleService, 'listUserDevices' | 'createPreAuthKey' | 'revokeDevice'>;
+  headscaleService?: Pick<HeadscaleService, 'listUserDevices' | 'createPreAuthKey' | 'revokeDevice'> | undefined;
 }
 
 const userOf = (req: Request): { id: string; email: string } =>
@@ -17,9 +17,12 @@ export function meshRouter(deps: MeshRouterDeps): Router {
     const loginServer = process.env.MESH_LOGIN_SERVER || null;
     res.json({
       loginServer,
-      configured: Boolean(loginServer && !/localhost|127\.0\.0\.1/.test(loginServer)),
+      available: Boolean(headscaleService),
+      configured: Boolean(headscaleService && loginServer && !/localhost|127\.0\.0\.1/.test(loginServer)),
     });
   }));
+
+  if (!headscaleService) return router;
 
   router.get('/devices', asyncRoute(async (req, res) => {
     try {

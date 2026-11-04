@@ -22,7 +22,7 @@ export interface MachinesWiringDeps {
   repoRoot: string;
   machines: MachineService;
   bundle: MachineBundle;
-  headscale: HeadscaleService;
+  headscale?: HeadscaleService | undefined;
   projectRepos: ProjectRepoService;
   gateway?: { port: number; host: string; upstream: string; namespace: string; temporalKey: string; temporalCa?: Buffer | undefined } | undefined;
 }

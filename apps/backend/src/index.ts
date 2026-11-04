@@ -398,7 +398,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   setInterval(() => { void sweepArtifacts(); }, 24 * 60 * 60 * 1000).unref();
   void sweepArtifacts();
   wireMachines({
-    tenant, db, dataKey: keys.data, publicUrl: PUBLIC_URL, repoRoot: path.join(__dirname, '../../..'), machines: machineService, bundle: machineBundle, headscale: headscaleService, projectRepos: projectRepoService,
+    tenant, db, dataKey: keys.data, publicUrl: PUBLIC_URL, repoRoot: path.join(__dirname, '../../..'), machines: machineService, bundle: machineBundle, headscale: role.instance ? undefined : headscaleService, projectRepos: projectRepoService,
     ...(servesTenants(role) ? {
       gateway: {
         port: MACHINE_GATEWAY_PORT,

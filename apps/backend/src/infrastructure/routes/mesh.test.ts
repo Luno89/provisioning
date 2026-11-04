@@ -19,11 +19,19 @@ describe('/api/mesh', () => {
   it('says the mesh is configured only when its login server is not this machine', async () => {
     const router = meshRouter({ headscaleService: mock<HeadscaleService>() });
     process.env.MESH_LOGIN_SERVER = 'https://mesh.example.com';
-    expect((await (await on(router)).get('/api/mesh/config')).data).toEqual({ loginServer: 'https://mesh.example.com', configured: true });
+    expect((await (await on(router)).get('/api/mesh/config')).data).toEqual({ loginServer: 'https://mesh.example.com', available: true, configured: true });
     process.env.MESH_LOGIN_SERVER = 'http://localhost:8080';
-    expect((await (await on(router)).get('/api/mesh/config')).data).toEqual({ loginServer: 'http://localhost:8080', configured: false });
+    expect((await (await on(router)).get('/api/mesh/config')).data).toEqual({ loginServer: 'http://localhost:8080', available: true, configured: false });
     delete process.env.MESH_LOGIN_SERVER;
-    expect((await (await on(router)).get('/api/mesh/config')).data).toEqual({ loginServer: null, configured: false });
+    expect((await (await on(router)).get('/api/mesh/config')).data).toEqual({ loginServer: null, available: true, configured: false });
+  });
+
+  it('on an instance, which has no Headscale, says the mesh is not here and serves nothing else', async () => {
+    process.env.MESH_LOGIN_SERVER = 'https://mesh.example.com';
+    const app = await on(meshRouter({}));
+    expect((await app.get('/api/mesh/config')).data).toEqual({ loginServer: 'https://mesh.example.com', available: false, configured: false });
+    expect((await app.get('/api/mesh/devices')).status).toBe(404);
+    expect((await app.post('/api/mesh/preauth-key', {})).status).toBe(404);
   });
 
   it('lists the machines the person has on the mesh, and says the mesh is unavailable when it cannot be read', async () => {
