@@ -195,11 +195,11 @@ async function main(): Promise<void> {
   await startsK3s(a.vm);
   await inVm(b.vm, kubectlAsPerson('create serviceaccount koala-probe') + ' && ' + kubectlAsPerson('create clusterrolebinding koala-probe --clusterrole=view --serviceaccount=default:koala-probe'));
   const token = (await inVm(b.vm, kubectlAsPerson('create token koala-probe --duration=1h'))).trim();
-  const across = await podSays(a.vm, 'across-mesh', `${GET} --header "Authorization: Bearer ${token}" https://${b.meshIp}:6443/api/v1/nodes`);
-  assert.match(across, /"kind":\s*"NodeList"/, `a pod on ${a.meshIp} did not list ${b.meshIp}'s nodes`);
+  const across = await podSays(a.vm, 'across-mesh', `${GET} --header "Authorization: Bearer ${token}" https://${b.meshIp}:6443/api/v1/namespaces/kube-system/pods`);
+  assert.match(across, /"kind":\s*"PodList"/, `a pod on ${a.meshIp} did not list ${b.meshIp}'s pods`);
   const certNames = await inVm(a.vm, `echo | openssl s_client -connect ${b.meshIp}:6443 2>/dev/null | openssl x509 -noout -ext subjectAltName`);
   assert.ok(certNames.includes(b.meshIp), `${b.meshIp} is not on the API's certificate: ${certNames}`);
-  console.log(`  a pod on ${a.meshIp} listed ${b.meshIp}'s nodes with a service account token, and the certificate names the mesh address`);
+  console.log(`  a pod on ${a.meshIp} listed ${b.meshIp}'s pods with a service account token, and the certificate names the mesh address`);
 
   step('4. a workspace pod mounts only the person\'s folder, as the person, and what it writes is theirs');
   await inVm(b.vm, asPerson('mkdir -p ~/koala/project && echo theirs > ~/koala/project/README && echo secret > ~/outside.txt'));
