@@ -14,6 +14,17 @@ export interface K8sProviderConfig {
  * Service class to initialize Kubernetes and Helm providers consistently.
  * This pattern allows for dynamic cluster targeting without local kubeconfig files.
  */
+export const SYSTEM_CLUSTER_NAME = "provisioning-lunorica";
+
+export function providerConfigFrom(env: NodeJS.ProcessEnv): K8sProviderConfig {
+  const inOwnCluster = !env.CLUSTER_NAME || env.CLUSTER_NAME === SYSTEM_CLUSTER_NAME;
+  return {
+    kubeconfigPath: env.KUBECONFIG,
+    kubeconfigContext: env.KUBECONFIG_CONTEXT,
+    ...(inOwnCluster ? { host: env.K8S_HOST, token: env.K8S_TOKEN, clusterCaCertificate: env.K8S_CA_CERT } : {}),
+  };
+}
+
 export class K8sProviderService {
   /**
    * Initializes Kubernetes and Helm providers on the given scope.
@@ -46,12 +57,6 @@ export class K8sProviderService {
    * Factory method to initialize providers from environment variables.
    */
   static fromEnv(scope: Construct): void {
-    this.initialize(scope, {
-      kubeconfigPath: process.env.KUBECONFIG,
-      kubeconfigContext: process.env.KUBECONFIG_CONTEXT,
-      host: process.env.K8S_HOST,
-      token: process.env.K8S_TOKEN,
-      clusterCaCertificate: process.env.K8S_CA_CERT,
-    });
+    this.initialize(scope, providerConfigFrom(process.env));
   }
 }
