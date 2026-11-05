@@ -24,6 +24,9 @@ spec:
         checksum/env: {{ include (print $.Template.BasePath "/configmap-env.yaml") $ | sha256sum }}
     spec:
       serviceAccountName: {{ include "instance.name" $ }}
+      {{- with $.Values.hostAliases }}
+      hostAliases: {{- toYaml . | nindent 8 }}
+      {{- end }}
       {{- if eq $process "backend" }}
       terminationGracePeriodSeconds: {{ $.Values.backend.terminationGraceSeconds }}
       {{- end }}

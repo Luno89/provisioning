@@ -61,5 +61,7 @@ move:
 
 resources: {}
 
+hostAliases: []
+
 dev:
   source: ""

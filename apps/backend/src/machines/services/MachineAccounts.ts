@@ -61,7 +61,7 @@ export interface MachineAccountsDeps {
   now?: (() => Date) | undefined;
 }
 
-export const meshUsable = (server: string | undefined): server is string => Boolean(server && !/localhost|127\.0\.0\.1/.test(server));
+export const meshUsable = (server: string | undefined): server is string => Boolean(server);
 
 const text = (value: unknown, limit: number): string | undefined =>
   typeof value === 'string' && value.trim() ? value.trim().slice(0, limit) : undefined;

@@ -17,7 +17,7 @@ const NODES = JSON.stringify({ items: [{ metadata: { labels: {} }, status: { all
 const k3d = (id: string, status: ClusterMetadata['status'] = 'healthy', extra: Partial<ClusterMetadata> = {}): ClusterMetadata => ({ id, name: id, provider: 'k3d', status, ownerId: 'bo', ...extra });
 const originalEnv = { NODE_ENV: process.env.NODE_ENV, HCLOUD_TOKEN: process.env.HCLOUD_TOKEN };
 
-function setup(places: { shell?: Shell; koalaMachineId?: string } = {}) {
+function setup(places: { shell?: Shell; koalaMachineId?: string | undefined } = {}) {
   const noHostTools = mockFn<Shell>();
   noHostTools.mockRejectedValue(new Error('not on this host'));
   const db: Database = memoryDatabase();

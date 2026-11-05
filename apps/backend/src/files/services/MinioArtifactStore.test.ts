@@ -74,7 +74,8 @@ describe('reaching the MinIO of a cluster', () => {
 
   it('finds the machine cluster Koala runs on as Koala\'s own cluster, by its own id too', async () => {
     const own = { ...system, id: 'machine-desk', provider: 'machine', machineId: 'desk' } as ClusterMetadata;
-    const { deps, reach } = reachOf([k3d, { ...own, isSystem: undefined }]);
+    const { isSystem: _system, ...stored } = own;
+    const { deps, reach } = reachOf([k3d, stored]);
     deps.systemCluster.mockResolvedValue(own);
     expect(await reach.clusterById('machine-desk')).toBe(own);
     expect(await reach.clusterById('provisioning-lunorica')).toBe(own);

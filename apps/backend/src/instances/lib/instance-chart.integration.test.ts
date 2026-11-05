@@ -26,7 +26,8 @@ interface Container {
 interface PodSpec {
   containers: Container[];
   initContainers?: Container[];
-  volumes?: Array<{ name: string; secret?: { items: Array<{ key: string; path?: string }> } }>;
+  volumes?: Array<{ name: string; secret?: { items: Array<{ key: string; path?: string }> }; hostPath?: { path: string; type?: string } }>;
+  hostAliases?: Array<{ ip: string; hostnames: string[] }>;
   hostNetwork?: boolean;
   terminationGracePeriodSeconds?: number;
 }
@@ -228,6 +229,7 @@ describe('the instance chart', () => {
       expect(pod.containers[0]!.env).toContainEqual({ name: 'DEV_WATCH', value: 'true' });
       expect(JSON.stringify(podOf(find(render(), 'Deployment', `luno-${process}`)))).not.toContain('DEV_WATCH');
     }
+    expect(podOf(find(render(['hostAliases[0].ip=10.42.0.1', 'hostAliases[0].hostnames[0]=koala.localhost']), 'Deployment', 'luno-backend')).hostAliases).toEqual([{ ip: '10.42.0.1', hostnames: ['koala.localhost'] }]);
     expect(podOf(find(render(['dev.source=/home/me/koala-src']), 'Job', 'luno-seed')).volumes).toContainEqual({ name: 'source', hostPath: { path: '/home/me/koala-src', type: 'Directory' } });
   });
 

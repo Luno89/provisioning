@@ -18,6 +18,9 @@ spec:
       labels: {{- include "instance.labels" $ | nindent 8 }}
     spec:
       serviceAccountName: {{ include "instance.name" $ }}
+      {{- with $.Values.hostAliases }}
+      hostAliases: {{- toYaml . | nindent 8 }}
+      {{- end }}
       restartPolicy: Never
       containers:
         - name: {{ $step }}
