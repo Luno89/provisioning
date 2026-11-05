@@ -49,6 +49,7 @@ beforeEach(async () => {
   monitoring.syncPoolProbes.mockResolvedValue(undefined);
   monitoring.applyHistory.mockResolvedValue(false);
   monitoring.applyRequestMetrics.mockResolvedValue('already');
+  monitoring.applyReceiver.mockResolvedValue(false);
   await db.infrastructure.saveDeploymentInfo(dep({ id: 'books', name: 'Books', namespace: 'books' }));
   await db.infrastructure.saveDeploymentInfo(dep({ id: 'theirs', name: 'Theirs', namespace: 'theirs', ownerId: 'someone' }));
 });
@@ -183,6 +184,17 @@ describe('keeping a cluster as it was set', () => {
     clock = new Date(clock.getTime() + HISTORY_RETRY_MS);
     await watch.tick();
     expect(monitoring.applyHistory).toHaveBeenCalledTimes(2);
+  });
+
+  it('has the system cluster\'s Prometheus take what machines send, and says when that could not be done', async () => {
+    monitoring.applyReceiver.mockResolvedValue(true);
+    await watcher().tick();
+    expect(logged).toContain('[alerts] provisioning-lunorica now takes the metrics its machines send');
+    logged.length = 0;
+    clock = new Date(clock.getTime() + HISTORY_RETRY_MS);
+    monitoring.applyReceiver.mockRejectedValue(new Error('helm is away'));
+    await watcher().tick();
+    expect(logged).toContain('[alerts] provisioning-lunorica: its Prometheus could not be set to take what machines send (helm is away)');
   });
 
   it('says what stopped the history or the request counting', async () => {

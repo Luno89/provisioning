@@ -31,6 +31,7 @@ export interface PrometheusNow {
   retention?: string | undefined;
   retentionSize?: string | undefined;
   durable: boolean;
+  receives: boolean;
 }
 
 export function prometheusNow(resource: unknown): PrometheusNow {
@@ -39,6 +40,7 @@ export function prometheusNow(resource: unknown): PrometheusNow {
     retention: textAt(spec, 'retention'),
     retentionSize: textAt(spec, 'retentionSize'),
     durable: Boolean(at(at(spec, 'storage'), 'volumeClaimTemplate')),
+    receives: at(spec, 'enableRemoteWriteReceiver') === true,
   };
 }
 
@@ -63,6 +65,11 @@ export function helmHistoryArgs(days: number, chartVersion: string): string[] {
     '--set', `prometheus.prometheusSpec.storageSpec.volumeClaimTemplate.spec.resources.requests.storage=${storage.storageGiB}Gi`,
   ];
 }
+
+export const helmReceiverArgs = (chartVersion: string): string[] => [
+  'upgrade', PROMETHEUS_CHART, PROMETHEUS_CHART, '--repo', PROMETHEUS_CHART_REPO, '--version', chartVersion,
+  '-n', 'monitoring', '--reuse-values', '--set', 'prometheus.prometheusSpec.enableRemoteWriteReceiver=true',
+];
 
 export function chartVersionOf(releases: Array<{ name?: string; chart?: string }>): string | undefined {
   const chart = releases.find((release) => release.name === PROMETHEUS_CHART)?.chart;

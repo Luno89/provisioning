@@ -1,7 +1,8 @@
 import zlib from 'node:zlib';
 import { describe, expect, it } from 'vitest';
 import { temporal } from '@temporalio/proto';
-import { frame, gatewayCallOf, gatewayDecision, handedWorkflowOf, sealedPollAnswer, unframe, unsealToken, withBytesField, wireFields } from './temporal-gateway.js';
+import { frame, gatewayCallOf, gatewayDecision, handedWorkflowOf, sealedPollAnswer, unframe, unsealToken, withBytesField } from './temporal-gateway.js';
+import { wireFields } from './protobuf-wire.js';
 
 const anyOf = (kind: unknown): unknown => expect.any(kind);
 

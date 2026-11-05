@@ -538,3 +538,15 @@ describe('a machine\'s cluster, which sends to the system cluster\'s Prometheus'
     expect(await monitoring.applyHistory(desk)).toBe(false);
   });
 });
+
+describe('the system cluster\'s Prometheus taking what machines send', () => {
+  it('is switched on once, at the chart\'s version, and only on the system cluster', async () => {
+    expect(await monitoring.applyReceiver(system)).toBe(true);
+    expect(helm.at(-1)).toEqual(['upgrade', 'kube-prometheus-stack', 'kube-prometheus-stack', '--repo', 'https://prometheus-community.github.io/helm-charts', '--version', '79.1.0', '-n', 'monitoring', '--reuse-values', '--set', 'prometheus.prometheusSpec.enableRemoteWriteReceiver=true']);
+    prometheusResource = { spec: { retention: '10d', enableRemoteWriteReceiver: true } };
+    const asked = helm.length;
+    expect(await monitoring.applyReceiver(system)).toBe(false);
+    expect(await monitoring.applyReceiver(remote)).toBe(false);
+    expect(helm.length).toBe(asked);
+  });
+});

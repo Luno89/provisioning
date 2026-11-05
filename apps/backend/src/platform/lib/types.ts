@@ -32,6 +32,7 @@ export interface ClusterMetadata {
   ownerId?: string;
   machineId?: string;
   kubeconfigEnc?: string;
+  metricsTokenHash?: string;
   remoteHost?: string;
   remoteUsername?: string;
   remoteSshPort?: number;

@@ -21,7 +21,7 @@ import {
   type AlertRuleRecord, type AlertSpec, type PromAlert, type VisibleAlert,
 } from '../lib/monitoring-alerts.js';
 import {
-  DEFAULT_HISTORY_DAYS, chartVersionOf, helmHistoryArgs, historyApplied, historyProblem, keptDays, prometheusNow,
+  DEFAULT_HISTORY_DAYS, chartVersionOf, helmHistoryArgs, helmReceiverArgs, historyApplied, historyProblem, keptDays, prometheusNow,
 } from '../lib/monitoring-history.js';
 import type { AlertEpisode, MonitoringSetting } from '../lib/monitoring-records.js';
 import { namespaceOf } from '../../infrastructure/index.js';
@@ -621,6 +621,16 @@ export class MonitoringService {
       await this.deps.store.monitoring.saveMonitoringSetting({ clusterId: cluster.id, ownerId: setting?.ownerId ?? cluster.ownerId ?? 'platform', historyDays: days, updatedAt: setting?.updatedAt ?? this.now().toISOString(), problem: message });
       return false;
     }
+  }
+
+  async applyReceiver(cluster: ClusterMetadata): Promise<boolean> {
+    if (!cluster.isSystem || this.isPool(cluster)) return false;
+    const now = await this.prometheusResource(cluster);
+    if (now.receives) return false;
+    const version = chartVersionOf(JSON.parse(await this.deps.helm(cluster, ['list', '-n', 'monitoring', '-o', 'json'])) as Array<{ name?: string; chart?: string }>);
+    if (!version) throw new Error('kube-prometheus-stack is not installed by Helm on this cluster');
+    await this.deps.helm(cluster, helmReceiverArgs(version));
+    return true;
   }
 
   async applyRequestMetrics(cluster: ClusterMetadata): Promise<'applied' | 'already' | { problem: string }> {

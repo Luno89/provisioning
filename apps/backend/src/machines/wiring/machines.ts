@@ -9,6 +9,7 @@ import { accountMachinesRouter, type MachineCaller } from '../routes/account-mac
 import { MachineBundle } from '../services/MachineBundle.js';
 import { MachineGitService } from '../services/MachineGitService.js';
 import { MachineTemporalGateway } from '../services/MachineTemporalGateway.js';
+import { MachineMetricsRelay, type MachineMetricsDeps } from '../services/MachineMetricsRelay.js';
 import type { MachineService } from '../services/MachineService.js';
 import type { ProjectRepoService } from '../../projects/index.js';
 import { localAgentsRouter } from '../routes/local-agents.js';
@@ -30,6 +31,7 @@ export interface MachinesWiringDeps {
   machines: MachineService;
   bundle: MachineBundle;
   projectRepos: ProjectRepoService;
+  metricsWrite?: MachineMetricsDeps['write'] | undefined;
   gateway?: { port: number; host: string; upstream: string; namespace: string; temporalKey: string; temporalCa?: Buffer | undefined } | undefined;
 }
 
@@ -70,7 +72,8 @@ export function wireMachines(deps: MachinesWiringDeps): void {
       (err: Error) => console.error(`[machine-gateway] could not listen on ${host}:${port}: ${err.message}`),
     );
   }
-  deps.app.use('/api/machines', machinesRouter({ accounts: deps.accounts, bundle, git: deps.servesTenants ? git : undefined }));
+  const metrics = deps.servesTenants && deps.metricsWrite ? new MachineMetricsRelay({ clusters: () => db.infrastructure.getClusters(), write: deps.metricsWrite }) : undefined;
+  deps.app.use('/api/machines', machinesRouter({ accounts: deps.accounts, bundle, git: deps.servesTenants ? git : undefined, metrics }));
   if (deps.accounts) {
     const { accounts, instanceCaller } = deps;
     deps.app.use('/api/instances/machines', accountMachinesRouter({

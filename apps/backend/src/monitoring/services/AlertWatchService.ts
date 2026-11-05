@@ -11,7 +11,7 @@ export const HISTORY_RETRY_MS = 10 * 60_000;
 export type AlertChange = 'fired' | 'resolved';
 
 export interface AlertWatchDeps {
-  monitoring: Pick<MonitoringService, 'allClusters' | 'reach' | 'applyHistory' | 'applyRequestMetrics' | 'syncPoolProbes'>;
+  monitoring: Pick<MonitoringService, 'allClusters' | 'reach' | 'applyHistory' | 'applyReceiver' | 'applyRequestMetrics' | 'syncPoolProbes'>;
   store: Pick<Database, 'infrastructure' | 'monitoring'>;
   people(): Promise<Principal[]>;
   tell(episode: AlertEpisode, change: AlertChange, context: { app?: DeploymentMetadata | undefined; rule?: AlertRuleRecord | undefined }): Promise<void>;
@@ -85,6 +85,11 @@ export class AlertWatchService {
       return false;
     });
     if (changed) this.deps.log?.(`[alerts] ${cluster.name} now keeps the history it was set to`);
+    const receiving = await this.deps.monitoring.applyReceiver(cluster).catch((err: Error) => {
+      this.deps.log?.(`[alerts] ${cluster.name}: its Prometheus could not be set to take what machines send (${err.message})`);
+      return false;
+    });
+    if (receiving) this.deps.log?.(`[alerts] ${cluster.name} now takes the metrics its machines send`);
     const counting = await this.deps.monitoring.applyRequestMetrics(cluster).catch((err: Error) => ({ problem: err.message }));
     if (counting === 'applied') this.deps.log?.(`[alerts] ${cluster.name} now counts each app's requests`);
     else if (typeof counting === 'object') this.deps.log?.(`[alerts] ${cluster.name}: ${counting.problem}`);

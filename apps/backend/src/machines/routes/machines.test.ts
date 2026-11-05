@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { mock } from 'vitest-mock-extended';
 import type { GitAsk, MachineGitService } from '../services/MachineGitService.js';
 import type { MachineAccounts } from '../services/MachineAccounts.js';
+import type { MachineMetricsRelay } from '../services/MachineMetricsRelay.js';
 import { routesInProcess } from '../../platform/testing/routes.js';
 import { machinesRouter, type AgentBundle } from './machines.js';
 
@@ -138,5 +139,27 @@ describe('/api/machines/git', () => {
     const answer = await call({ path: '/git/shop.git/objects/info/packs' });
     expect(answer.status).toBe(404);
     expect(git.serve).not.toHaveBeenCalled();
+  });
+});
+
+describe('POST /api/machines/metrics', () => {
+  const metricsCall = async (raw: Buffer, headers: Record<string, string>, relay?: { write: ReturnType<typeof mock<Pick<MachineMetricsRelay, 'write'>>>['write'] }) => {
+    const routes = await routesInProcess({ prefix: '/api/machines', router: () => machinesRouter({ bundle, ...(relay ? { metrics: relay } : {}) }), user: null, open: true });
+    return routes.request('POST', '/api/machines/metrics', { raw, headers });
+  };
+
+  it('hands the relay the token and the body as sent, snappy and all, and answers as it does', async () => {
+    const relay = mock<Pick<MachineMetricsRelay, 'write'>>();
+    relay.write.mockResolvedValue({ status: 204 });
+    const answer = await metricsCall(Buffer.from([1, 2, 3]), { authorization: 'Bearer tok', 'content-encoding': 'snappy', 'content-type': 'application/x-protobuf' }, relay);
+    expect(answer.status).toBe(204);
+    expect(relay.write).toHaveBeenCalledWith('tok', Buffer.from([1, 2, 3]));
+  });
+
+  it('passes on what the relay refused, and is not there where no metrics are taken', async () => {
+    const relay = mock<Pick<MachineMetricsRelay, 'write'>>();
+    relay.write.mockResolvedValue({ status: 401, text: 'no machine\'s cluster sends with that token' });
+    expect(await metricsCall(Buffer.alloc(0), {}, relay)).toMatchObject({ status: 401 });
+    expect((await metricsCall(Buffer.alloc(0), {})).status).toBe(404);
   });
 });

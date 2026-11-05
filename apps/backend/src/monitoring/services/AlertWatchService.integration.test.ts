@@ -26,6 +26,7 @@ const watcher = (tell: AlertWatchDeps['tell'], logged: string[]) => {
   monitoring.syncPoolProbes.mockResolvedValue(undefined);
   monitoring.applyHistory.mockResolvedValue(false);
   monitoring.applyRequestMetrics.mockResolvedValue('already');
+  monitoring.applyReceiver.mockResolvedValue(false);
   let ids = 0;
   return new AlertWatchService({ monitoring, store: db, people: async () => [ME], tell, log: (line) => logged.push(line), now: () => new Date('2026-10-17T12:00:00Z'), newId: () => `ep-${ids++}` });
 };

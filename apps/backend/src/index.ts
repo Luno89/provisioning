@@ -398,6 +398,15 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     instanceCaller,
     db, dataKey: keys.data, publicUrl: PUBLIC_URL, repoRoot: path.join(__dirname, '../../..'), machines: machineService, bundle: machineBundle, projectRepos: projectRepoService,
     ...(tenants ? {
+      metricsWrite: async (body: Buffer) => {
+        const system = await clusterService.getSystemClusterEntry();
+        if (!system) return { status: 503, text: 'this Koala has no system cluster to keep metrics on' };
+        const base = await clusterProxyService.serviceUrl(system.id, 'prometheus', await clusterService.getKubeconfigPath(system));
+        const answer = await fetch(new URL('api/v1/write', base.endsWith('/') ? base : `${base}/`), {
+          method: 'POST', body, headers: { 'content-type': 'application/x-protobuf', 'content-encoding': 'snappy', 'x-prometheus-remote-write-version': '0.1.0' },
+        });
+        return { status: answer.status, text: await answer.text() };
+      },
       gateway: {
         port: MACHINE_GATEWAY_PORT,
         host: process.env.MACHINE_GATEWAY_HOST || '0.0.0.0',

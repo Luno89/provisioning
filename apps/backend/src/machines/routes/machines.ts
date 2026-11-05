@@ -2,16 +2,38 @@ import { Router, type Request, type Response } from 'express';
 import { asyncRoute } from '../../platform/index.js';
 import type { MachineAccounts } from '../services/MachineAccounts.js';
 import { GIT_ROUTES, type GitRoute, type MachineGitService } from '../services/MachineGitService.js';
+import type { MachineMetricsRelay } from '../services/MachineMetricsRelay.js';
+import { METRICS_MAX_BYTES } from '../lib/machine-metrics.js';
 
 const bearer = (header: string | undefined): string | undefined => header?.match(/^Bearer\s+(.+)$/i)?.[1]?.trim();
+
+async function bodyOf(req: Request, limit: number): Promise<Buffer | undefined> {
+  const chunks: Buffer[] = [];
+  let size = 0;
+  for await (const chunk of req as AsyncIterable<Buffer>) {
+    size += chunk.length;
+    if (size > limit) return undefined;
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks);
+}
 
 export interface AgentBundle {
   path(): Promise<string>;
   sha256(): Promise<string>;
 }
 
-export function machinesRouter(deps: { accounts?: Pick<MachineAccounts, 'join'> | undefined; bundle: AgentBundle; git?: Pick<MachineGitService, 'serve'> | undefined }): Router {
+export function machinesRouter(deps: { accounts?: Pick<MachineAccounts, 'join'> | undefined; bundle: AgentBundle; git?: Pick<MachineGitService, 'serve'> | undefined; metrics?: Pick<MachineMetricsRelay, 'write'> | undefined }): Router {
   const router = Router();
+
+  router.post('/metrics', asyncRoute(async (req: Request, res: Response) => {
+    if (!deps.metrics) return res.status(404).type('text/plain').send('this Koala takes no metrics from machines');
+    const body = await bodyOf(req, METRICS_MAX_BYTES);
+    if (!body) return res.status(413).type('text/plain').send('a machine sends its metrics in batches smaller than this');
+    const answer = await deps.metrics.write(bearer(req.headers.authorization), body);
+    if (answer.text === undefined) return res.status(answer.status).end();
+    return res.status(answer.status).type('text/plain').send(answer.text);
+  }));
 
   router.all(/^\/git\/([^/]+)\.git\/(info\/refs|git-upload-pack|git-receive-pack)$/, asyncRoute(async (req: Request, res: Response) => {
     if (!deps.git) return res.status(404).type('text/plain').send('this Koala serves no git to machines');
