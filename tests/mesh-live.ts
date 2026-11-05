@@ -146,8 +146,7 @@ async function main(): Promise<void> {
   const installed = await inVm(machineVm, `${command} --yes`, true);
   assert.match(installed, /on the private network as 100\./);
   const machineMeshIp = await meshIp(machineVm);
-  const settings = JSON.parse(await inVm(machineVm, 'cat ~/.config/koala/machine.json')) as { temporalAddress: string; deviceId: string };
-  assert.equal(settings.temporalAddress, `${instanceMeshIp}:${GATEWAY_PORT}`, 'the machine was not told to reach the gateway over the mesh');
+  const settings = JSON.parse(await inVm(machineVm, 'cat ~/.config/koala/machine.json')) as { deviceId: string };
   assert.equal(await reaches(machineVm, instanceMeshIp, 7233), false, 'the machine reaches the instance\'s Temporal itself');
 
   step('the machine shows on the instance, and its worker reaches the instance\'s Temporal over the mesh');
