@@ -33,6 +33,7 @@ export interface MachineDeps {
     removeFor?(ownerId: string, deviceId: string): Promise<void>;
   };
   bundle?: { sha256(): Promise<string> } | undefined;
+  clusters?: { forget(machine: { id: string; ownerId: string }): Promise<void> } | undefined;
   now?: (() => Date) | undefined;
 }
 
@@ -177,5 +178,6 @@ export class MachineService {
     this.deps.devices.drop(machine.id);
     for (const listener of this.forgottenListeners) listener(machine.id);
     await this.deps.projects.removeFor?.(machine.ownerId, machine.id).catch((err: Error) => console.warn(`[machines] ${machine.name} is removed, but its project could not be: ${err.message}`));
+    await this.deps.clusters?.forget(machine).catch((err: Error) => console.warn(`[machines] ${machine.name} is removed, but its cluster's records could not be: ${err.message}`));
   }
 }

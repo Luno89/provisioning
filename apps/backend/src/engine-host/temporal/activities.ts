@@ -12,7 +12,7 @@ import {
 } from '@koala/agent-engine';
 import { UNRESOLVED_MODEL, type EffortTracker, type RunLimits, type RunLimitsArgs } from '../registries/effort.js';
 import { machineChoice, machineChoiceId, toWireMessages, type MachineChoice, type RunEffort } from '@koala/agent-engine/procedure';
-import { toolSchemas } from '@koala/engine-core';
+import { toolSchemas, type MachineClusterResult } from '@koala/engine-core';
 import {
   type NodeCatalogue,
   type NodeImplementation,
@@ -76,6 +76,20 @@ export interface StreamServices {
   asking?: ((ownerId: string, tool: string) => Promise<void>) | undefined;
   groveChanged?: ((ownerId: string) => void) | undefined;
   workflowFailed?: ((report: WorkflowFailedReport) => Promise<void>) | undefined;
+  machineClusters?: MachineClusterRecords | undefined;
+}
+
+export interface MachineClusterRecords {
+  started(clusterId: string, result: MachineClusterResult): Promise<void>;
+  stopped(clusterId: string): Promise<void>;
+  idle(clusterId: string, leaving?: string): Promise<boolean>;
+}
+
+const NO_MACHINE_CLUSTERS = 'this Koala keeps no machine clusters, so a machine\'s cluster cannot be recorded here';
+
+function machineClustersOf(services: StreamServices): MachineClusterRecords {
+  if (!services.machineClusters) throw ApplicationFailure.nonRetryable(NO_MACHINE_CLUSTERS, 'NoMachineClusters');
+  return services.machineClusters;
 }
 
 export interface TraceRecorder {
@@ -122,6 +136,9 @@ export interface StreamActivities {
   EngineBenchIdleActivity(args: { ownerId: string }): Promise<BenchIdleOutcome>;
   EngineGroveChangedActivity(args: { ownerId: string }): Promise<void>;
   EngineWorkflowFailedActivity(report: WorkflowFailedReport): Promise<void>;
+  EngineMachineClusterStartedActivity(args: { clusterId: string; result: MachineClusterResult }): Promise<void>;
+  EngineMachineClusterStoppedActivity(args: { clusterId: string }): Promise<void>;
+  EngineMachineClusterIdleActivity(args: { clusterId: string; leaving?: string | undefined }): Promise<boolean>;
 }
 
 export const NODE_HEARTBEAT_MS = 1_000;
@@ -452,6 +469,18 @@ export function createStreamActivities(services: StreamServices): StreamActiviti
 
     async EngineGroveChangedActivity({ ownerId }: { ownerId: string }): Promise<void> {
       services.groveChanged?.(ownerId);
+    },
+
+    async EngineMachineClusterStartedActivity({ clusterId, result }: { clusterId: string; result: MachineClusterResult }): Promise<void> {
+      await machineClustersOf(services).started(clusterId, result);
+    },
+
+    async EngineMachineClusterStoppedActivity({ clusterId }: { clusterId: string }): Promise<void> {
+      await machineClustersOf(services).stopped(clusterId);
+    },
+
+    async EngineMachineClusterIdleActivity({ clusterId, leaving }: { clusterId: string; leaving?: string | undefined }): Promise<boolean> {
+      return machineClustersOf(services).idle(clusterId, leaving);
     },
   };
 }

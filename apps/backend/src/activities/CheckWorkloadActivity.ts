@@ -1,10 +1,12 @@
 import { createDatabase } from '../platform/index.js';
 import { InfrastructureService, ClusterService, namespaceOf, assessWorkload, type WorkloadHealth } from '../infrastructure/index.js';
+import { handedKubeconfig } from './cluster-access.js';
 
 export interface CheckWorkloadArgs {
   name: string;
   namespace?: string | undefined;
   clusterId: string;
+  kubeconfig?: string | undefined;
 }
 
 export interface CheckWorkloadResult {
@@ -21,7 +23,7 @@ export async function CheckWorkloadActivity(args: CheckWorkloadArgs): Promise<Ch
     const cluster = await clusters.getByIdUnscoped(args.clusterId);
     if (!cluster) return { health: 'unknown', reason: 'cluster no longer exists' };
 
-    const kubeconfig = await clusters.getKubeconfigPath(cluster);
+    const kubeconfig = args.kubeconfig ? await handedKubeconfig(args.clusterId, args.kubeconfig) : await clusters.getKubeconfigPath(cluster);
     const raw = await infra.runKubectl(
       ['get', 'pods', '-n', namespaceOf(args), '-o', 'json'],
       kubeconfig,

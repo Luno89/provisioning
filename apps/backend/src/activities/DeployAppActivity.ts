@@ -3,15 +3,14 @@ import {
   renderApp, specSecrets, minioStorageFor, specStorageFor, visibleAppSpecs, resolveBindings, bindingFiles, bindingProjection, bindingSecretName,
   type ProjectedBinding, InfrastructureService, BuilderService, StorageAdapter, hasCloudCredentials,
   isMockCloudProvider, isSelfManagedCluster, buildAppEnv, TABBYAPI_DEFAULT_MAX_SEQ_LEN, planHostMemory,
-  parseQuantity, type HostMemoryPlan, deploymentIdFor, isValidImageTag, InfisicalService, sharedClusterProxy, gitappPullSecretArgs,
-} from '../infrastructure/index.js';
+  parseQuantity, type HostMemoryPlan, deploymentIdFor, isValidImageTag, InfisicalService, sharedClusterProxy, gitappPullSecretArgs, type MachineOfCluster } from '../infrastructure/index.js';
 import { readBindingCredentials, GiteaService, sanitiseNamespaceName, syncProjectSecrets } from '../projects/index.js';
 import { createDatabase, type Database, loadKeys } from '../platform/index.js';
 import fs from 'fs/promises';
 import path from 'path';
 import os from 'os';
 
-import { clusterAccess } from './cluster-access.js';
+import { clusterAccess, handedKubeconfig } from './cluster-access.js';
 import { ensureClusterMonitoring } from './cluster-monitoring.js';
 import { appServiceType, placedOnPool } from '../monitoring/index.js';
 import { infisicalHostFor } from '../releases/index.js';
@@ -35,6 +34,8 @@ async function nodeAllocatableBytes(
 
 export interface DeployAppArgs {
   name: string;
+  machine?: MachineOfCluster | undefined;
+  kubeconfig?: string | undefined;
   namespace?: string | undefined;
   clusterId: string;
   clusterName: string;
@@ -159,7 +160,9 @@ export async function DeployAppActivity(
   let finalOdooTag = sentOdooFallback ? appDefault.tag : (args.odooTag || appDefault.tag);
 
   const isMock = isMockCloudProvider(args.provider, hasCloudCredentials);
-  const { physicalName, kubeconfigPath } = clusterAccess({ clusterName: args.clusterName, provider: args.provider });
+  const access = clusterAccess({ clusterName: args.clusterName, provider: args.provider });
+  const { physicalName } = access;
+  const kubeconfigPath = args.kubeconfig ? await handedKubeconfig(args.clusterId, args.kubeconfig) : access.kubeconfigPath;
 
   let customImageTag: string | undefined;
 

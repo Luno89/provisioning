@@ -12,11 +12,18 @@ export interface DestroyAppArgs {
   namespace?: string | undefined;
   gpuEnabled?: boolean | undefined;
   kubeconfigPath?: string | undefined;
+  machine?: MachineOfCluster | undefined;
+  kubeconfig?: string | undefined;
+}
+
+export interface MachineOfCluster {
+  deviceId: string;
+  leaving?: string | undefined;
 }
 
 export function destroyAppArgs(
-  deployment: Pick<DeploymentMetadata, 'name' | 'clusterId' | 'strategy' | 'deploymentId' | 'appType' | 'namespace'>,
-  cluster: Pick<ClusterMetadata, 'name' | 'provider' | 'gpuEnabled' | 'kubeconfigPath'> | undefined,
+  deployment: Pick<DeploymentMetadata, 'name' | 'clusterId' | 'strategy' | 'deploymentId' | 'appType' | 'namespace'> & { id?: string | undefined },
+  cluster: Pick<ClusterMetadata, 'name' | 'provider' | 'gpuEnabled' | 'kubeconfigPath' | 'machineId'> | undefined,
   logFile: string,
 ): DestroyAppArgs {
   return {
@@ -31,6 +38,7 @@ export function destroyAppArgs(
     ...(deployment.namespace ? { namespace: deployment.namespace } : {}),
     ...(cluster?.gpuEnabled ? { gpuEnabled: true } : {}),
     ...(cluster?.kubeconfigPath ? { kubeconfigPath: cluster.kubeconfigPath } : {}),
+    ...(cluster?.provider === 'machine' && cluster.machineId ? { machine: { deviceId: cluster.machineId, ...(deployment.id ? { leaving: deployment.id } : {}) } } : {}),
   };
 }
 

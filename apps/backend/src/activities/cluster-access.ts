@@ -1,4 +1,5 @@
 import fs from 'fs/promises';
+import os from 'os';
 import path from 'path';
 import { type InfrastructureService, hasCloudCredentials, isMockCloudProvider, isSelfManagedCluster } from '../infrastructure/index.js';
 import { type ClusterMetadata, writePrivate } from '../platform/index.js';
@@ -17,6 +18,12 @@ export function clusterAccess(cluster: ClusterRef): { physicalName: string; kube
     ? `/tmp/kubeconfig-${physicalName}`
     : path.join(process.cwd(), '.kube/config');
   return { physicalName, kubeconfigPath };
+}
+
+export async function handedKubeconfig(clusterId: string, kubeconfig: string): Promise<string> {
+  const where = path.join(os.tmpdir(), `kubeconfig-handed-${clusterId}`);
+  await writePrivate(where, kubeconfig);
+  return where;
 }
 
 export async function reachCluster(infra: InfrastructureService, cluster: ClusterRef): Promise<string> {

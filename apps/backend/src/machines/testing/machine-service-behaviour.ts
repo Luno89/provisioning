@@ -184,27 +184,30 @@ export function machineServiceBehaviour(make: () => Promise<Database>): void {
       expect(await service().remove('bo', 'mine')).toBe(true);
     });
 
-    it('makes a machine that arrives its project, and forgets one that leaves: closes its connection and deletes its project, root having told the machine', async () => {
+    it('makes a machine that arrives its project, and forgets one that leaves: closes its connection, deletes its project and its cluster\'s records, root having told the machine', async () => {
       const machine = { id: 'mine', ownerId: 'bo', name: 'laptop', rootDir: '/home/me/koala', createdAt: '2026-01-01T00:00:00Z' };
       await service().adopt(machine);
       expect(projects.register).toHaveBeenCalledWith('bo', 'laptop - koala', { executionTarget: { kind: 'local-device', deviceId: 'mine' } });
       projects.removeFor.mockResolvedValue(undefined);
       const forgotten: string[] = [];
-      const machines = service();
+      const clusters = { forget: vi.fn(async () => undefined) };
+      const machines = service({ clusters });
       machines.onForgotten((id) => forgotten.push(id));
       await machines.forget(machine);
+      expect(clusters.forget).toHaveBeenCalledWith(machine);
       expect(devices.tell).not.toHaveBeenCalled();
       expect(devices.drop).toHaveBeenCalledWith('mine');
       expect(forgotten).toEqual(['mine']);
       expect(projects.removeFor).toHaveBeenCalledWith('bo', 'mine');
     });
 
-    it('forgets a machine whose project cannot be deleted, saying so', async () => {
+    it('forgets a machine whose project or cluster cannot be deleted, saying so', async () => {
       projects.removeFor.mockRejectedValue(new Error('no project'));
       const warned = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-      await service().forget({ id: 'mine', ownerId: 'bo', name: 'laptop', rootDir: '/x', createdAt: 'then' });
+      await service({ clusters: { forget: async () => { throw new Error('no cluster'); } } }).forget({ id: 'mine', ownerId: 'bo', name: 'laptop', rootDir: '/x', createdAt: 'then' });
       expect(devices.drop).toHaveBeenCalledWith('mine');
       expect(warned).toHaveBeenCalledWith(expect.stringContaining('no project'));
+      expect(warned).toHaveBeenCalledWith(expect.stringContaining('no cluster'));
       warned.mockRestore();
     });
   });

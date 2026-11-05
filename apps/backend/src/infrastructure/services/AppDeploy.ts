@@ -200,6 +200,7 @@ export async function startAppDeploy(deps: AppDeployDeps, config: DeployRequest,
       clusterId: dep.clusterId,
       clusterName: targetCluster?.name || 'unknown',
       provider: targetCluster?.provider || 'k3d',
+      ...(targetCluster?.provider === 'machine' && targetCluster.machineId ? { machine: { deviceId: targetCluster.machineId } } : {}),
       ...(dep.appType === 'tabbyapi' && targetCluster?.isSystem
         ? { modelCacheHostPath: resolveTabbyCacheHostPath(dep.tabbyCachePvc) }
         : {}),

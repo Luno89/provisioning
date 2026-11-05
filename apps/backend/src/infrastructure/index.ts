@@ -1,5 +1,5 @@
 export { destroyAppArgs, destroyAppWorkflowId } from './lib/app-destroy.js';
-export type { DestroyAppArgs } from './lib/app-destroy.js';
+export type { DestroyAppArgs, MachineOfCluster } from './lib/app-destroy.js';
 export { buildAppEnv, TABBYAPI_DEFAULT_MAX_SEQ_LEN } from './lib/app-env.js';
 export { namespaceOf, platformNamespaceProblem, podLogTarget } from './lib/app-namespace.js';
 export { explainSpecProblems, validateSpec } from './lib/app-spec-validate.js';
