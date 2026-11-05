@@ -11,7 +11,7 @@ export interface SmtpSink {
 }
 
 export const headerOf = (message: Received, name: string): string | undefined =>
-  new RegExp(`^${name}: (.*)$`, 'mi').exec(message.data)?.[1]?.trim();
+  new RegExp(`^${name}: (.*)$`, 'mi').exec(message.data.replace(/\r?\n[ \t]+/g, ' '))?.[1]?.trim();
 
 export async function smtpSink(): Promise<SmtpSink> {
   const received: Received[] = [];

@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { parse } from 'yaml';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -67,15 +68,6 @@ export function helmArgs(chart: string, valuesFiles: string[], rootKeysFile: str
   ];
 }
 
-export function servedUrl(valuesJson: string): string | undefined {
-  try {
-    const value = (JSON.parse(valuesJson) as { publicUrl?: unknown }).publicUrl;
-    return typeof value === 'string' && value ? value : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
 export interface KoalaInstallDeps {
   cluster: ClusterHost;
   helm: string;
@@ -98,8 +90,15 @@ async function report(placed: PlacedKoala, fetchImpl: typeof fetch, status: Stat
   if (!answer.ok) throw new Error(`root refused the report that Koala is ${status} (${answer.status}): ${(await answer.text()).slice(0, 300)}`);
 }
 
+export function ownPublicUrl(ownValuesYaml: string): string | undefined {
+  const parsed: unknown = parse(ownValuesYaml);
+  const value = parsed && typeof parsed === 'object' ? (parsed as { publicUrl?: unknown }).publicUrl : undefined;
+  return typeof value === 'string' && value ? value : undefined;
+}
+
 export async function installKoala(placed: PlacedKoala, deps: KoalaInstallDeps): Promise<void> {
-  const url = koalaUrlOf(placed);
+  const own = deps.ownValues && await deps.cluster.exists(deps.ownValues) ? deps.ownValues : undefined;
+  const url = (own ? ownPublicUrl(await deps.cluster.read(own)) : undefined) ?? koalaUrlOf(placed);
   const work = await mkdtemp(path.join(os.tmpdir(), 'koala-install-'));
   try {
     await deps.cluster.holdKoala(placed.instanceId);
@@ -119,12 +118,10 @@ export async function installKoala(placed: PlacedKoala, deps: KoalaInstallDeps):
     await writeFile(keysFile, placed.rootPublicKeys, { mode: 0o600 });
     await writeFile(valuesFile, JSON.stringify(koalaValues(placed)), { mode: 0o600 });
     await report(placed, deps.fetch, 'installing', 'installing Koala on this machine', { url });
-    const own = deps.ownValues && await deps.cluster.exists(deps.ownValues) ? [deps.ownValues] : [];
-    if (own.length) deps.say(`Koala takes this machine's own values from ${deps.ownValues}`);
-    await deps.cluster.run(deps.helm, helmArgs(chartFile, [valuesFile, ...own], keysFile));
-    const served = servedUrl(await deps.cluster.run(deps.helm, ['get', 'values', KOALA_RELEASE, '-n', KOALA_NAMESPACE, '--kubeconfig', K3S_KUBECONFIG, '--all', '-o', 'json'])) ?? url;
-    await report(placed, deps.fetch, 'ready', 'Installed', { url: served, imageTag: placed.imageTag });
-    deps.say(`Koala runs on this machine at ${served}`);
+    if (own) deps.say(`Koala takes this machine's own values from ${own}`);
+    await deps.cluster.run(deps.helm, helmArgs(chartFile, [valuesFile, ...(own ? [own] : [])], keysFile));
+    await report(placed, deps.fetch, 'ready', 'Installed', { url, imageTag: placed.imageTag });
+    deps.say(`Koala runs on this machine at ${url}`);
   } catch (err) {
     const message = (err as Error).message.slice(0, 1000);
     deps.say(`Koala could not be put on this machine: ${message}`);

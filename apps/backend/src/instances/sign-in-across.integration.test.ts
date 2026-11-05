@@ -1,17 +1,11 @@
-import { randomBytes } from 'node:crypto';
 import { MongoClient } from 'mongodb';
-import { afterAll, beforeAll, describe, expect, inject, it, onTestFailed } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest';
 import { fetchSide, followSignIn, handOff, sessionFrom, signedInLanding, type Side } from '../platform/testing/handoff.js';
+import { startThreeRoles, until, type ThreeRoles } from '../platform/testing/three-roles.js';
 import { providerCallbackUrl } from '../accounts/lib/sign-in-providers.js';
 import { startStandInIssuer, type StandInIssuer } from '../accounts/services/sign-in/stand-in-issuer.js';
-import { roleFromEnv } from '../platform/lib/platform-role.js';
-import { freePort, startRole, type LoopbackRole } from '../platform/testing/roles-on-loopback.js';
-import { smtpSink, type SmtpSink } from '../platform/testing/smtp-sink.js';
-import { createDatabase } from '../platform/lib/db-interface.js';
-import { devSplitPlan, type SplitPlace } from './lib/dev-split.js';
-import { publicKeyPem } from './lib/identity-token.js';
-import { hashCredential, instanceIdFor } from './services/InstanceService.js';
-import { claimNamespaceFor } from '../workflows/temporal-test-env.js';
+import type { LoopbackRole } from '../platform/testing/roles-on-loopback.js';
+import type { SmtpSink } from '../platform/testing/smtp-sink.js';
 
 interface Answer { status: number; location: string; body: unknown }
 
@@ -28,29 +22,17 @@ async function call(url: string, init: { method?: string; body?: unknown; cookie
   return { status: response.status, location: response.headers.get('location') ?? '', body };
 }
 
-async function until<T>(look: () => Promise<T | undefined>): Promise<T> {
-  for (;;) {
-    const found = await look().catch(() => undefined);
-    if (found !== undefined) return found;
-    await new Promise((done) => setTimeout(done, 250));
-  }
-}
-
 const STAMP = Date.now().toString(36);
-const SECRET = `sign-in-across-${STAMP}`;
-const setupCode = randomBytes(12).toString('base64url');
-const instanceCredential = randomBytes(32).toString('base64url');
-const hubCredential = randomBytes(32).toString('base64url');
-const databases = { root: `across_root_${STAMP}`, instance: `across_instance_${STAMP}`, hub: `across_hub_${STAMP}` };
-
+let roles: ThreeRoles;
+let issuer: StandInIssuer;
 let root: LoopbackRole;
 let instance: LoopbackRole;
 let hub: LoopbackRole;
 let mail: SmtpSink;
-let issuer: StandInIssuer;
-let mongoUri: string;
-let owner: { id: string; email: string; cookie: string };
+let owner: ThreeRoles['owner'];
 let instanceId: string;
+let mongoUri: string;
+let databases: ThreeRoles['databases'];
 
 const mailTo = (subject: RegExp) => until(async () => mail.received.find((message) => subject.test(mail.subjectOf(message) ?? '')));
 
@@ -63,63 +45,18 @@ async function signedInThrough(from: Side, target: Side, first: string): Promise
 }
 
 beforeAll(async () => {
-  mail = await smtpSink();
-  mongoUri = `${inject('mongoUri')}`;
-  const ports = { root: await freePort(), instance: await freePort(), hub: await freePort() };
-  const place: SplitPlace = {
-    rootUrl: `http://localhost:${ports.root}`, instanceUrl: `http://localhost:${ports.instance}`, hubUrl: `http://localhost:${ports.hub}`,
-    rootApiPort: ports.root, instanceApiPort: ports.instance, hubApiPort: ports.hub,
-    rootDatabase: databases.root, hubDatabase: databases.hub, instanceDatabase: databases.instance,
-  };
-  issuer = await startStandInIssuer({ redirectUris: [providerCallbackUrl(place.rootUrl, 'oidc')] });
-  const signing = roleFromEnv({ JWT_SECRET: SECRET, ROLE: 'root' }).signing!;
-  const draft = (person: { id: string; email: string }) => devSplitPlan({
-    name: 'across', owner: { id: person.id, email: person.email, twoFactorEnabled: false, emailVerified: true, createdAt: new Date().toISOString() },
-    instanceId: instanceIdFor(person.id), credential: instanceCredential, credentialHash: hashCredential(instanceCredential),
-    hubCredential, hubCredentialHash: hashCredential(hubCredential), rootPublicKeys: publicKeyPem(signing.publicKey),
-    mongoUri: `${mongoUri}${databases.root}`, now: new Date().toISOString(), place,
+  roles = await startThreeRoles('across', {
+    rootEnv: async (rootUrl) => {
+      issuer = await startStandInIssuer({ redirectUris: [providerCallbackUrl(rootUrl, 'oidc')] });
+      return { OIDC_ISSUER: issuer.issuer, OIDC_CLIENT_ID: issuer.clientId, OIDC_CLIENT_SECRET: issuer.clientSecret, OIDC_LABEL: 'Stand-in' };
+    },
   });
-  const shared = {
-    JWT_SECRET: SECRET,
-    TEMPORAL_CONNECTION_ADDRESS: inject('temporalAddress'),
-    TEMPORAL_NAMESPACE: claimNamespaceFor(inject('temporalClaims')),
-    MAIL_SMTP_URL: mail.url,
-    MAIL_FROM: 'koala@across.test',
-    WATCH_UNREACHABLE_MINUTES: '1',
-    CERTIFICATES: 'internal',
-  };
-  root = await startRole('root', {
-    ...draft({ id: 'pending', email: 'pending@across.test' }).rootEnv, ...shared, ADMIN_SETUP_CODE: setupCode,
-    OIDC_ISSUER: issuer.issuer, OIDC_CLIENT_ID: issuer.clientId, OIDC_CLIENT_SECRET: issuer.clientSecret, OIDC_LABEL: 'Stand-in',
-  }, ports.root);
-  const email = `owner-${STAMP}@across.test`;
-  const password = randomBytes(18).toString('base64url');
-  const made = await call(`${root.url}/api/auth/register`, { method: 'POST', body: { email, password, inviteCode: setupCode } });
-  expect(made.status, JSON.stringify(made.body)).toBe(200);
-  const signedIn = await fetch(`${root.url}/api/auth/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email, password }) });
-  const cookie = signedIn.headers.getSetCookie().map((line) => line.split(';')[0]!).find((pair) => /^(__Host-)?session=/.test(pair))!;
-  owner = { id: ((await signedIn.json()) as { user: { id: string } }).user.id, email, cookie };
-  const plan = draft(owner);
-  instanceId = plan.instance.id;
-  const rootDb = createDatabase({ ...process.env, MONGO_URI: `${mongoUri}${databases.root}` });
-  await rootDb.init();
-  await rootDb.instances.saveInstance(plan.instance);
-  await rootDb.close?.();
-  [instance, hub] = await Promise.all([
-    startRole('instance', { ...plan.instanceEnv, ...shared, MONGO_URI: `${mongoUri}${databases.instance}` }, ports.instance),
-    startRole('hub', { ...plan.hubEnv, ...shared }, ports.hub),
-  ]);
-  await until(async () => ((await call(`${root.url}/api/identity/go?to=hub`, { cookie: owner.cookie })).location === `${hub.url}/api/auth/oidc/start` ? true : undefined));
+  ({ root, instance, hub, mail, owner, instanceId, mongoUri, databases } = roles);
 }, 240_000);
 
 afterAll(async () => {
-  await Promise.all([root, instance, hub].filter(Boolean).map((role) => role.close()));
-  await mail?.close();
+  await roles?.close();
   await issuer?.close();
-  const client = new MongoClient(mongoUri);
-  await client.connect();
-  for (const database of Object.values(databases)) await client.db(database).dropDatabase();
-  await client.close();
 });
 
 describe('signing in across root, an instance and the hub, each its own process', () => {
