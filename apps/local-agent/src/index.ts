@@ -22,6 +22,7 @@ import { LocalMcpServer } from './local-mcp.js';
 import { engineSettingsOver, remoteBlobs } from './remote-blobs.js';
 import { DeviceWorkerHost } from './device-worker-host.js';
 import { forgetThisMachine, meshIp } from './machine-removal.js';
+import { clusterState, hostCluster, runMachineCluster, uninstallMachineCluster } from './machine-cluster.js';
 import { startTelemetry } from '@koala/engine-core/telemetry-sdk';
 import { socketSink } from './telemetry-sink.js';
 import { IdleGate, holding, type Release } from './idle-gate.js';
@@ -78,6 +79,7 @@ function followEngineWorker(socket: Socket, config: MachineConfig, koalaUrl: str
       deviceId,
       externalAgents: sessions,
       git: createMachineGit({ rootDir: config.rootDir, backendUrl: koalaUrl, token: () => work.value }),
+      cluster: (op) => runMachineCluster(hostCluster(meshIp), op),
       address,
       token: work.value,
       payloads: { ring: settings.ring, blobs: remoteBlobs(socket) },
@@ -94,6 +96,7 @@ const say = (line: string) => console.log(`[koala-local-agent] ${line}`);
 
 const forgetAndStop = (closing: () => Promise<unknown>) => {
   void closing()
+    .finally(() => uninstallMachineCluster(hostCluster(meshIp), say))
     .finally(() => forgetThisMachine(say))
     .finally(() => process.exit(0));
 };
@@ -170,6 +173,12 @@ function startWork(
   const sessions = new ExternalAgentSessions({ rootDir, launches: {}, mcp, gate, onRunsChanged: tellRuns });
   sessionsMade(sessions);
   socket.on('connect', () => tellRuns(sessions.openRuns()));
+  socket.on('connect', () => {
+    clusterState(hostCluster(meshIp)).then(
+      (state) => { if (socket.connected) socket.emit('machine:cluster', { state }); },
+      (err: Error) => say(`whether this machine has its cluster could not be read: ${err.message}`),
+    );
+  });
   socket.on('machine:run-ended', ({ runId }: { runId?: unknown } = {}) => {
     if (typeof runId !== 'string') return;
     void sessions.closeRun(runId).then((closed) => {
