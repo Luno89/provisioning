@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { mock } from 'vitest-mock-extended';
 import { MACHINE_CLUSTER_ABSENT, MACHINE_OFF_MESH } from '@koala/engine-core';
-import { K3S_BINARY, K3S_KILLALL, K3S_KUBECONFIG, K3S_MARKER, K3S_UNINSTALL, clusterState, kubeconfigOnMesh, readySince, runMachineCluster, uninstallMachineCluster, type ClusterHost } from './machine-cluster.js';
+import { K3S_BINARY, K3S_KILLALL, K3S_KUBECONFIG, K3S_MARKER, K3S_UNINSTALL, clusterState, kubeconfigOnMesh, readySince, runMachineCluster, startIfWanted, uninstallMachineCluster, type ClusterHost } from './machine-cluster.js';
 
 const START = Date.parse('2026-11-05T10:00:00Z');
 const KUBECONFIG = 'apiVersion: v1\nclusters:\n- cluster:\n    server: https://127.0.0.1:6443\n';
 const at = (ms: number) => new Date(ms).toISOString();
 
-function host(opts: { installed?: boolean; active?: string; meshIp?: string | undefined; readyAt?: number[]; failsAfter?: number } = {}) {
+function host(opts: { installed?: boolean; active?: string; meshIp?: string | undefined; readyAt?: number[]; failsAfter?: number; wanted?: boolean } = {}) {
   const machine = mock<ClusterHost>();
   const calls: string[] = [];
   const readyAt = [...(opts.readyAt ?? [START + 5000])];
@@ -18,6 +18,9 @@ function host(opts: { installed?: boolean; active?: string; meshIp?: string | un
   machine.meshIp.mockResolvedValue('meshIp' in opts ? opts.meshIp : '100.64.0.7');
   machine.now.mockReturnValue(START);
   machine.pause.mockResolvedValue(undefined);
+  let wanted = opts.wanted ?? false;
+  machine.wanted.mockImplementation(async (running) => { wanted = running; calls.push(`wanted ${running}`); });
+  machine.isWanted.mockImplementation(async () => wanted);
   machine.run.mockImplementation(async (file, args) => {
     calls.push([file, ...args].join(' '));
     if (file === 'systemctl' && args[0] === 'show') return `${state}\n`;
@@ -53,7 +56,7 @@ describe('a machine\'s own cluster', () => {
   it('stops k3s and every container it left, and says a machine without k3s has none', async () => {
     const { machine, calls } = host({ active: 'active' });
     expect(await runMachineCluster(machine, { kind: 'stop' })).toEqual({ state: 'stopped' });
-    expect(calls).toEqual(['sudo -n systemctl stop k3s', `sudo -n ${K3S_KILLALL}`]);
+    expect(calls).toEqual(['sudo -n systemctl stop k3s', `sudo -n ${K3S_KILLALL}`, 'wanted false']);
     expect(await runMachineCluster(host({ installed: false }).machine, { kind: 'stop' })).toEqual({ state: 'absent' });
   });
 
@@ -79,8 +82,25 @@ describe('a machine\'s own cluster', () => {
     const { machine, calls } = host();
     const said: string[] = [];
     await uninstallMachineCluster(machine, (line) => said.push(line));
-    expect(calls).toEqual([`sudo -n ${K3S_UNINSTALL}`]);
+    expect(calls).toEqual(['wanted false', `sudo -n ${K3S_UNINSTALL}`]);
     expect(said[0]).toMatch(/removed/);
+  });
+
+  it('remembers it should run, so a machine that restarted starts it again for the apps on it, and one stopped on purpose stays stopped', async () => {
+    const started = host();
+    await runMachineCluster(started.machine, { kind: 'start' });
+    expect(started.calls.indexOf('wanted true')).toBeLessThan(started.calls.indexOf('sudo -n systemctl start k3s'));
+    const rebooted = host({ wanted: true });
+    const said: string[] = [];
+    await startIfWanted(rebooted.machine, (line) => said.push(line));
+    expect(rebooted.calls).toContain('sudo -n systemctl start k3s');
+    expect(said).toHaveLength(2);
+    const quiet = host({ wanted: false });
+    await startIfWanted(quiet.machine, () => undefined);
+    expect(quiet.calls.some((call) => call.includes('start k3s'))).toBe(false);
+    const running = host({ wanted: true, active: 'active' });
+    await startIfWanted(running.machine, () => undefined);
+    expect(running.calls.some((call) => call.includes('start k3s'))).toBe(false);
   });
 
   it('judges readiness only from a transition since the start, and points the kubeconfig at the mesh', () => {

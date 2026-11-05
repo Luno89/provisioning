@@ -22,7 +22,7 @@ import { LocalMcpServer } from './local-mcp.js';
 import { engineSettingsOver, remoteBlobs } from './remote-blobs.js';
 import { DeviceWorkerHost } from './device-worker-host.js';
 import { forgetThisMachine, meshIp } from './machine-removal.js';
-import { clusterState, hostCluster, runMachineCluster, uninstallMachineCluster } from './machine-cluster.js';
+import { clusterState, hostCluster, runMachineCluster, startIfWanted, uninstallMachineCluster } from './machine-cluster.js';
 import { startTelemetry } from '@koala/engine-core/telemetry-sdk';
 import { socketSink } from './telemetry-sink.js';
 import { IdleGate, holding, type Release } from './idle-gate.js';
@@ -174,7 +174,11 @@ function startWork(
   sessionsMade(sessions);
   socket.on('connect', () => tellRuns(sessions.openRuns()));
   socket.on('connect', () => {
-    clusterState(hostCluster(meshIp)).then(
+    const cluster = hostCluster(meshIp);
+    startIfWanted(cluster, say)
+      .catch((err: Error) => say(`this machine's cluster could not start again: ${err.message}`))
+      .then(() => clusterState(cluster))
+      .then(
       (state) => { if (socket.connected) socket.emit('machine:cluster', { state }); },
       (err: Error) => say(`whether this machine has its cluster could not be read: ${err.message}`),
     );
