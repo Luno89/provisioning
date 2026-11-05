@@ -1,8 +1,9 @@
 import type { ClusterMetadata, DeploymentMetadata, LocalAgentDeviceMetadata } from '../../platform/index.js';
+import { machineClusterId } from '../../infrastructure/lib/cluster-name.js';
 
 export type ReportedClusterState = 'absent' | 'stopped' | 'running';
 
-export const machineClusterId = (deviceId: string): string => `machine-${deviceId}`;
+export { machineClusterId };
 
 export const reportedClusterState = (raw: unknown): ReportedClusterState | undefined => {
   const state = (raw as { state?: unknown } | undefined)?.state;

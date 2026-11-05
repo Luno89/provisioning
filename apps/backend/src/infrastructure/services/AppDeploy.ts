@@ -67,13 +67,14 @@ export async function startAppDeploy(deps: AppDeployDeps, config: DeployRequest,
     })
     if (!dep) {
       if (!config.name || !config.clusterId) throw new Error('a new app needs a name and a cluster to deploy to')
+      const target = await deps.clusterById(config.clusterId)
       const id = config.id || randomUUID()
       dep = {
         status: 'deploying',
         id,
         name: config.name,
         namespace: config.namespace || newAppNamespace(config.name, id),
-        clusterId: config.clusterId,
+        clusterId: target?.id ?? config.clusterId,
         strategy: config.strategy || 'helm',
         appType: config.appType || 'odoo',
         modules: config.modules || [],

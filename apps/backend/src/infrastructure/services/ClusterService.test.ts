@@ -17,7 +17,7 @@ const NODES = JSON.stringify({ items: [{ metadata: { labels: {} }, status: { all
 const k3d = (id: string, status: ClusterMetadata['status'] = 'healthy', extra: Partial<ClusterMetadata> = {}): ClusterMetadata => ({ id, name: id, provider: 'k3d', status, ownerId: 'bo', ...extra });
 const originalEnv = { NODE_ENV: process.env.NODE_ENV, HCLOUD_TOKEN: process.env.HCLOUD_TOKEN };
 
-function setup(places: { shell?: Shell } = {}) {
+function setup(places: { shell?: Shell; koalaMachineId?: string } = {}) {
   const noHostTools = mockFn<Shell>();
   noHostTools.mockRejectedValue(new Error('not on this host'));
   const db: Database = memoryDatabase();
@@ -245,5 +245,31 @@ describe('the kubeconfig a deleted cluster leaves', () => {
     await vi.waitFor(async () => expect(await db.infrastructure.getClusters()).toEqual([]));
     expect(existsSync(join(kubeconfigDir, 'kubeconfig-gpu'))).toBe(false);
     expect(readFileSync(operators, 'utf8')).toBe('the operator keeps every cluster here');
+  });
+});
+
+describe('Koala\'s own cluster when Koala runs on one of the person\'s machines', () => {
+  const desk: ClusterMetadata = { id: 'machine-desk', name: 'desk', provider: 'machine', status: 'stopped', ownerId: 'bo', machineId: 'desk' };
+
+  it('is that machine\'s cluster, the one record, running while Koala is on it and reached from Koala\'s own pods', async () => {
+    const { db, infra, service, kubeconfigDir } = setup({ koalaMachineId: 'desk' });
+    infra.getManagementClusterKubeconfig.mockResolvedValue('server: https://kubernetes.default.svc');
+    infra.runKubectl.mockResolvedValue(NODES);
+    await db.infrastructure.saveCluster(desk);
+    await db.infrastructure.saveCluster({ ...desk, id: 'machine-nas', name: 'nas', machineId: 'nas' });
+    const own = await service.getSystemClusterEntry();
+    expect(own).toMatchObject({ id: 'machine-desk', provider: 'machine', status: 'healthy', isSystem: true, machineId: 'desk' });
+    expect((await service.reconcileAllClusters()).map((cluster) => cluster.id)).toEqual(['machine-desk', 'machine-nas']);
+    for (const id of ['machine-desk', 'provisioning-lunorica']) expect((await service.getByIdUnscoped(id))?.id).toBe('machine-desk');
+    expect(service.isKoalasCluster('machine-desk')).toBe(true);
+    expect(service.isKoalasCluster('machine-nas')).toBe(false);
+    expect(readFileSync(await service.getKubeconfigPath(own), 'utf8')).toBe('server: https://kubernetes.default.svc');
+    expect(await service.getKubeconfigPath(own)).toBe(join(kubeconfigDir, 'kubeconfig-provisioning-lunorica'));
+  });
+
+  it('is still the fixed entry where Koala names no machine', async () => {
+    const { service } = setup({ koalaMachineId: undefined });
+    expect(await service.getSystemClusterEntry()).toMatchObject({ id: 'provisioning-lunorica', isSystem: true });
+    expect(service.isKoalasCluster('machine-desk')).toBe(false);
   });
 });

@@ -66,11 +66,18 @@ describe('reaching the MinIO of a cluster', () => {
   });
 
   it('finds a cluster by its id, and the system cluster through the platform rather than the stored ones', async () => {
-    const { deps, reach } = reachOf();
+    const { reach } = reachOf();
     expect(await reach.clusterById('c1')).toBe(k3d);
     expect(await reach.clusterById('missing')).toBeUndefined();
     expect(await reach.clusterById('provisioning-lunorica')).toBe(system);
-    expect(deps.systemCluster).toHaveBeenCalledOnce();
+  });
+
+  it('finds the machine cluster Koala runs on as Koala\'s own cluster, by its own id too', async () => {
+    const own = { ...system, id: 'machine-desk', provider: 'machine', machineId: 'desk' } as ClusterMetadata;
+    const { deps, reach } = reachOf([k3d, { ...own, isSystem: undefined }]);
+    deps.systemCluster.mockResolvedValue(own);
+    expect(await reach.clusterById('machine-desk')).toBe(own);
+    expect(await reach.clusterById('provisioning-lunorica')).toBe(own);
   });
 
   it('reads a service with kubectl against the cluster\'s own kubeconfig', async () => {

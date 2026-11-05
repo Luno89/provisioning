@@ -64,4 +64,10 @@ describe('two people can each have an app called shop', () => {
     await expect(d.db.infrastructure.saveDeployment({ id: 'c', name: 'shop', clusterId: 'c2', strategy: 'helm', status: 'running', ownerId: 'ann' }))
       .rejects.toThrow(/duplicate key/);
   });
+
+  it('stores a new app under the cluster\'s own id, however the request named it', async () => {
+    const { deps: d } = await deps();
+    const named = await startAppDeploy({ ...d, clusterById: async (id) => (id === 'provisioning-lunorica' ? CLUSTER : undefined) }, { name: 'blog', clusterId: 'provisioning-lunorica', appType: 'wordpress' });
+    expect((await d.db.infrastructure.getDeployments()).find((entry) => entry.id === named.deployment.id)?.clusterId).toBe('c1');
+  });
 });

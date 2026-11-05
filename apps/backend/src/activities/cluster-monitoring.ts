@@ -11,6 +11,7 @@ export interface MonitoredCluster {
   pool?: boolean | undefined;
   machine?: MachineMonitoring | undefined;
   nodePortIngress?: boolean | undefined;
+  koala?: boolean | undefined;
 }
 
 export interface MachineMonitoring {

@@ -166,7 +166,7 @@ async function buildActivities() {
   });
   const customizations = new CustomizationsService({
     projects: () => db.projects.getProjects(),
-    clusterById: async (id) => (id === DEFAULT_TARGET_CLUSTER ? clusterService.getSystemClusterEntry() : (await db.infrastructure.getClusters()).find((cluster) => cluster.id === id)),
+    clusterById: (id) => clusterService.getByIdUnscoped(id),
     how: async (project) => releaseHowOf(project, await treeTypeOfProject(db.projects, project), true),
     cluster: createSlotCluster({ infra: kubeInfra, repo: async () => gitea, registry: () => gitea.registryLogin(), syncVault: syncVaultFromProject(kubeInfra) }),
     adapters: { [ODOO_RELEASE_ADAPTER.id]: ODOO_RELEASE_ADAPTER },
@@ -240,7 +240,7 @@ async function buildActivities() {
             db,
             client: () => client,
             masterKey: keys.data,
-            clusterById: async (id) => (id === DEFAULT_TARGET_CLUSTER ? clusterService.getSystemClusterEntry() : (await db.infrastructure.getClusters()).find((cluster) => cluster.id === id)),
+            clusterById: (id) => clusterService.getByIdUnscoped(id),
             logDir: LOG_DIR,
             claims: claimSettingsFrom(engineRole),
           }, project, run);
@@ -310,10 +310,10 @@ async function buildActivities() {
       runs: () => db.releases.getPipelineRuns(),
       deployments: () => db.infrastructure.getDeployments(),
       releases: (ownerId, projectId) => db.releases.getOdooReleases(ownerId, projectId),
-      clusters: async (ownerId) => [
-        await clusterService.getSystemClusterEntry(),
-        ...(await db.infrastructure.getClusters()).filter((cluster) => cluster.ownerId === ownerId && !cluster.isSystem),
-      ],
+      clusters: async (ownerId) => {
+        const system = await clusterService.getSystemClusterEntry();
+        return [system, ...(await db.infrastructure.getClusters()).filter((cluster) => cluster.ownerId === ownerId && !cluster.isSystem && cluster.id !== system.id)];
+      },
       appTypes: async (ownerId) => visibleAppSpecs(await db.infrastructure.getAppSpecs(), ownerId)
         .map((spec) => ({ id: spec.id, builtIn: spec.builtIn, ...(spec.label ? { label: spec.label } : {}), ...(spec.uiDefaults?.strategies ? { strategies: spec.uiDefaults.strategies } : {}) })),
       readPath: (project, path) => projectRepos.readPath(project, path),
@@ -329,10 +329,10 @@ async function buildActivities() {
       proposals: { list: (ownerId) => db.engine.getActionProposals(ownerId), save: (proposal) => db.engine.saveActionProposal(proposal) },
     },
     kube: {
-      clusters: async (ownerId) => [
-        await clusterService.getSystemClusterEntry(),
-        ...(await db.infrastructure.getClusters()).filter((cluster) => cluster.ownerId === ownerId && !cluster.isSystem),
-      ],
+      clusters: async (ownerId) => {
+        const system = await clusterService.getSystemClusterEntry();
+        return [system, ...(await db.infrastructure.getClusters()).filter((cluster) => cluster.ownerId === ownerId && !cluster.isSystem && cluster.id !== system.id)];
+      },
       deployments: () => db.infrastructure.getDeployments(),
       kubectl: async (cluster, argv) => String(await kubeInfra.runKubectl(argv, await clusterService.getKubeconfigPath(cluster))),
       principal: async (ownerId) => principalOf((await db.accounts.getUserById(ownerId)) ?? { id: ownerId }, claimSettingsFrom(engineRole)),
@@ -501,7 +501,7 @@ async function buildActivities() {
     stopIfRunning: async (workflowId: string, reason: string) => (await stopIfRunning(temporal.workflow.getHandle(workflowId), reason)) !== 'not-running',
   };
   const appTeardown: AppTeardown = {
-    clusterById: async (id) => (id === DEFAULT_TARGET_CLUSTER ? clusterService.getSystemClusterEntry() : (await db.infrastructure.getClusters()).find((cluster) => cluster.id === id)),
+    clusterById: (id) => clusterService.getByIdUnscoped(id),
     logFile: () => path.join(LOG_DIR, `${Date.now()}-${Math.random().toString(36).slice(2)}-D4.log`),
     taskQueue: 'cluster-ops-queue',
   };
@@ -553,7 +553,7 @@ async function buildActivities() {
         browser: releaseBrowser,
         cluster: namespacedCluster(kubeInfra, () => gitea.registryLogin()),
         project: async (id) => (await db.projects.getProjects()).find((project) => project.id === id),
-        clusterById: async (id) => (id === DEFAULT_TARGET_CLUSTER ? clusterService.getSystemClusterEntry() : (await db.infrastructure.getClusters()).find((cluster) => cluster.id === id)),
+        clusterById: (id) => clusterService.getByIdUnscoped(id),
       }),
       terminate: async (runId, reason) => {
         await temporal.workflow.getHandle(workflowOfRun(runId)).terminate(reason).catch((err: Error) => {

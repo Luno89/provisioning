@@ -5,6 +5,7 @@ import { ignore } from '@koala/engine-core/failures';
 import { hasCloudCredentials, isMockCloudProvider } from './cloud-credentials.js';
 import { v4 as uuidv4 } from 'uuid';
 import { capacityFromNodes, type ClusterCapacity } from '../lib/cluster-capacity.js';
+import { machineClusterId } from '../lib/cluster-name.js';
 import { parseNvidiaSmiVram } from '../lib/gpu-vram.js';
 import { execShell, type Shell } from '../lib/shell.js';
 import { Server as SocketServer } from 'socket.io';
@@ -23,13 +24,31 @@ export class ClusterService extends BaseService {
 
   private readonly kubeconfigDir: string;
   private readonly shell: Shell;
+  private readonly koalaMachineId: string | undefined;
 
-  constructor(db: Database, infra: InfrastructureService, masterKey?: SecretKey, places: { kubeconfigDir?: string | undefined; shell?: Shell | undefined } = {}) {
+  constructor(db: Database, infra: InfrastructureService, masterKey?: SecretKey, places: { kubeconfigDir?: string | undefined; shell?: Shell | undefined; koalaMachineId?: string | undefined } = {}) {
     super(db);
     this.infra = infra;
     this.masterKey = masterKey || '';
     this.kubeconfigDir = places.kubeconfigDir ?? '/tmp';
     this.shell = places.shell ?? execShell;
+    this.koalaMachineId = 'koalaMachineId' in places ? places.koalaMachineId : process.env.INSTANCE_MACHINE_ID || undefined;
+  }
+
+  private koalaClusterId(): string | undefined {
+    return this.koalaMachineId ? machineClusterId(this.koalaMachineId) : undefined;
+  }
+
+  isKoalasCluster(clusterId: string): boolean {
+    return clusterId === SYSTEM_CLUSTER_ID || clusterId === this.koalaClusterId();
+  }
+
+  private async koalasMachineCluster(machineId: string): Promise<ClusterMetadata> {
+    const id = machineClusterId(machineId);
+    const record = (await this.db.infrastructure.getClusters()).find((cluster) => cluster.id === id);
+    const cluster: ClusterMetadata = { ...(record ?? { id, name: id, provider: 'machine', machineId }), status: 'healthy', isSystem: true, lastSyncedAt: new Date().toISOString() };
+    const capacity = await this.readLiveCapacity(await this.machineKubeconfig(cluster)).catch(ignore('a cluster whose capacity cannot be read now shows without it'));
+    return capacity ? { ...cluster, capacity } : cluster;
   }
 
   setTemporalBridge(temporalBridge: Pick<TemporalBridge, 'terminateWorkflow'>) {
@@ -111,6 +130,11 @@ export class ClusterService extends BaseService {
   }
 
   private async machineKubeconfig(cluster: ClusterMetadata): Promise<string> {
+    if (!cluster.kubeconfigEnc && cluster.machineId && cluster.machineId === this.koalaMachineId) {
+      const own = `${this.kubeconfigDir}/kubeconfig-${SYSTEM_CLUSTER_ID}`;
+      await writePrivate(own, await this.infra.getManagementClusterKubeconfig(SYSTEM_CLUSTER_ID));
+      return own;
+    }
     if (!cluster.kubeconfigEnc) throw new Error(`${cluster.name} has not started yet, so there is no way to reach it`);
     if (!this.masterKey) throw new Error('this Koala holds no data key, so it cannot open a machine\'s kubeconfig');
     const where = `${this.kubeconfigDir}/kubeconfig-machine-${cluster.id}`;
@@ -141,6 +165,7 @@ export class ClusterService extends BaseService {
   }
 
   async getSystemClusterEntry(): Promise<ClusterMetadata> {
+    if (this.koalaMachineId) return this.koalasMachineCluster(this.koalaMachineId);
     let status: ClusterMetadata['status'] = 'failed';
     let capacity: ClusterCapacity | undefined;
     try {
@@ -240,7 +265,7 @@ export class ClusterService extends BaseService {
     }
 
     const systemCluster = await this.getSystemClusterEntry();
-    return [systemCluster, ...cleanClusters];
+    return [systemCluster, ...cleanClusters.filter((cluster) => cluster.id !== systemCluster.id)];
   }
 
   async getAll(principal: Principal, io?: SocketServer) {
@@ -332,7 +357,7 @@ export class ClusterService extends BaseService {
   }
 
   async getByIdUnscoped(id: string): Promise<ClusterMetadata | undefined> {
-    if (id === SYSTEM_CLUSTER_ID) {
+    if (this.isKoalasCluster(id)) {
       return this.getSystemClusterEntry();
     }
     const clusters = await this.db.infrastructure.getClusters();

@@ -70,6 +70,7 @@ describe('the cluster of a pool instance', () => {
     const kept = monitoringStackEnv({ physicalName: SYSTEM_CLUSTER, kubeconfigPath: '/k', local: false, nodePortIngress: true }, false);
     expect(kept).toMatchObject({ INGRESS_SERVICE: 'NodePort' });
     expect(kept).not.toHaveProperty('CLUSTER_MONITORING');
+    expect(monitoringStackEnv({ physicalName: 'desk', kubeconfigPath: '/k', local: false, nodePortIngress: true, koala: true }, false)).toMatchObject({ KOALA_CLUSTER: 'true', INGRESS_SERVICE: 'NodePort' });
   });
 
   it('is only the instance\'s own cluster, and only in pool mode', () => {

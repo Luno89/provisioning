@@ -69,7 +69,7 @@ export class MonitoringStack extends Construct {
           name: "grafana.enabled",
           value: "true",
         },
-        ...(clusterName === MANAGEMENT_CLUSTER_NAME ? [{ name: "prometheus.prometheusSpec.enableRemoteWriteReceiver", value: "true" }] : []),
+        ...(clusterName === MANAGEMENT_CLUSTER_NAME || process.env.KOALA_CLUSTER === "true" ? [{ name: "prometheus.prometheusSpec.enableRemoteWriteReceiver", value: "true" }] : []),
       ],
       // worker-host.ts (:9465) and worker-cluster.ts (:9464), running as bare host processes
       // during local dev — not pods, so no PodMonitor/ServiceMonitor can target them (the

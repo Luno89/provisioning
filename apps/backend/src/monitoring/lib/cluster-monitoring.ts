@@ -46,7 +46,7 @@ export function monitoringPlan(seen: MonitoringSeen, pool = false, machine = fal
   return { stacks, keepIngress: lines(seen.ingressClasses).length > 0 };
 }
 
-export function monitoringStackEnv(cluster: { physicalName: string; kubeconfigPath: string; local: boolean; pool?: boolean | undefined; machine?: { metricsUrl: string } | undefined; nodePortIngress?: boolean | undefined }, keepIngress: boolean): Record<string, string> {
+export function monitoringStackEnv(cluster: { physicalName: string; kubeconfigPath: string; local: boolean; pool?: boolean | undefined; machine?: { metricsUrl: string } | undefined; nodePortIngress?: boolean | undefined; koala?: boolean | undefined }, keepIngress: boolean): Record<string, string> {
   return {
     STACK_TYPE: 'cluster',
     ENV: cluster.local ? 'k3d' : 'remote',
@@ -56,6 +56,7 @@ export function monitoringStackEnv(cluster: { physicalName: string; kubeconfigPa
     ...(cluster.pool ? { CLUSTER_MONITORING: 'crds', INGRESS_SERVICE: 'ClusterIP' } : {}),
     ...(cluster.machine || cluster.nodePortIngress ? { INGRESS_SERVICE: 'NodePort' } : {}),
     ...(cluster.machine ? { CLUSTER_MONITORING: 'agent', REMOTE_WRITE_URL: cluster.machine.metricsUrl } : {}),
+    ...(cluster.koala ? { KOALA_CLUSTER: 'true' } : {}),
   };
 }
 

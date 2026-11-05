@@ -284,7 +284,7 @@ export class TemporalBridge {
   }
 
   private async getClusterById(id: string): Promise<ClusterMetadata | undefined> {
-    if (id === 'provisioning-lunorica' && this.clusterService) {
+    if (this.clusterService?.isKoalasCluster(id)) {
       return this.clusterService.getSystemClusterEntry();
     }
     const clusters = await this.db.infrastructure.getClusters();

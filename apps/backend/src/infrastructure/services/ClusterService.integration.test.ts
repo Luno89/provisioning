@@ -72,3 +72,19 @@ describe('reconciling clusters against k3d', () => {
     expect(clusters.find((cluster) => cluster.id === 'kept')?.meshIp).toBe('100.64.0.9');
   });
 });
+
+describe('Koala\'s own cluster on a machine, stored', () => {
+  it('is the stored machine cluster, listed once, and every id Koala used for its cluster reaches it', async () => {
+    const db = await testDatabase();
+    class OwnCluster extends InfrastructureService {
+      override async listLocalClusters(): Promise<string[]> { return []; }
+      override async getManagementClusterKubeconfig(): Promise<string> { return 'server: https://kubernetes.default.svc'; }
+      override async runKubectl(): Promise<string> { return JSON.stringify({ items: [] }); }
+    }
+    const svc = new ClusterService(db, new OwnCluster(), MASTER, { kubeconfigDir: mkdtempSync(join(tmpdir(), 'cluster-service-')), koalaMachineId: 'desk' });
+    await db.infrastructure.saveCluster({ id: 'machine-desk', name: 'desk', provider: 'machine', status: 'stopped', ownerId: 'bo', machineId: 'desk' });
+    await db.infrastructure.saveCluster({ id: 'machine-nas', name: 'nas', provider: 'machine', status: 'stopped', ownerId: 'bo', machineId: 'nas' });
+    expect((await svc.reconcileAllClusters()).map((cluster) => [cluster.id, cluster.isSystem === true])).toEqual([['machine-desk', true], ['machine-nas', false]]);
+    expect((await svc.getByIdUnscoped('provisioning-lunorica'))?.id).toBe('machine-desk');
+  });
+});

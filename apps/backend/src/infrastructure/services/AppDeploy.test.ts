@@ -71,6 +71,12 @@ describe('starting a deploy', () => {
     expect(started()[0]).toMatchObject({ taskQueue: 'cluster-ops-queue', args: { name: 'shop', clusterName: 'shared', provider: 'k3d', appType: 'wordpress', modules: ['seo'], deploymentId: deployment.deploymentId } });
   });
 
+  it('records a new app under the cluster\'s own id, however the request named it', async () => {
+    const { deps: d } = await deps();
+    const named = await startAppDeploy({ ...d, clusterById: async (id) => (id === 'provisioning-lunorica' ? CLUSTER : undefined) }, { name: 'blog', clusterId: 'provisioning-lunorica', appType: 'wordpress' });
+    expect(named.deployment.clusterId).toBe(CLUSTER.id);
+  });
+
   it('refuses a new app with no name or cluster before it records anything', async () => {
     const { deps: d, db } = await deps();
     await expect(startAppDeploy(d, { clusterId: 'c1' }, 'ann')).rejects.toThrow('a new app needs a name and a cluster to deploy to');

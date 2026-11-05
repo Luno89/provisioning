@@ -77,7 +77,10 @@ export interface ClusterReachDeps {
 export function minioReachFrom(deps: ClusterReachDeps): MinioReach {
   return {
     deployments: () => deps.db.getDeployments(),
-    clusterById: async (id) => (id === 'provisioning-lunorica' ? deps.systemCluster() : (await deps.db.getClusters()).find((cluster) => cluster.id === id)),
+    clusterById: async (id) => {
+      const system = await deps.systemCluster();
+      return id === 'provisioning-lunorica' || id === system.id ? system : (await deps.db.getClusters()).find((cluster) => cluster.id === id);
+    },
     service: async (cluster, namespace, name) => JSON.parse(await deps.kubectl(['get', 'svc', name, '-n', namespace, '-o', 'json'], await deps.kubeconfigOf(cluster))) as ServiceSpec,
     nodeIp: async (cluster) => {
       if (cluster.gpuEnabled) return deps.hostGatewayIp();

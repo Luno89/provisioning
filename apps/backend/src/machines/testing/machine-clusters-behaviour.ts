@@ -75,6 +75,12 @@ export function machineClustersBehaviour(make: () => Promise<Database>): void {
       expect(await clusters.idle('machine-desk', 'shop')).toBe(false);
     });
 
+    it('is never idle while Koala runs on it, apps or none', async () => {
+      const holding = new MachineClusters({ store: db.infrastructure, dataKey: KEY, koalaMachineId: 'desk' });
+      expect(await holding.idle('machine-desk')).toBe(false);
+      expect(await holding.idle('machine-nas')).toBe(true);
+    });
+
     it('is forgotten with its apps\' records when the machine is removed, leaving other clusters\' apps', async () => {
       await clusters.reported(DESK, 'stopped');
       await db.infrastructure.saveDeployment(app('shop'));

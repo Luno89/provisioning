@@ -3,6 +3,8 @@ export const CLUSTER_NAME_MAX_LENGTH = 40;
 
 export const SYSTEM_CLUSTER_ID = 'provisioning-lunorica';
 
+export const machineClusterId = (deviceId: string): string => `machine-${deviceId}`;
+
 const RESERVED_NAMES = new Set([SYSTEM_CLUSTER_ID]);
 
 export const signsInAsPlatform = (serviceKey: string, clusterId: string): boolean =>

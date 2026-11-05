@@ -496,7 +496,8 @@ export async function DeployAppActivity(
 
   await ensureClusterMonitoring(infra, {
     physicalName, kubeconfigPath, local: args.provider === 'k3d' || isMock, pool: placedOnPool(process.env, physicalName),
-    ...(args.provider === 'machine' ? { machine: { metricsUrl: machineMetricsUrl(process.env), remember: (tokenHash: string) => rememberMetricsToken(args.clusterId, tokenHash) } } : {}),
+    ...(args.provider === 'machine' && args.machine?.deviceId === process.env.INSTANCE_MACHINE_ID ? { nodePortIngress: true, koala: true } : {}),
+    ...(args.provider === 'machine' && args.machine?.deviceId !== process.env.INSTANCE_MACHINE_ID ? { machine: { metricsUrl: machineMetricsUrl(process.env), remember: (tokenHash: string) => rememberMetricsToken(args.clusterId, tokenHash) } } : {}),
   }, logFile);
   await infra.deploy(
     `app-${physicalName}-${deploymentId}`,

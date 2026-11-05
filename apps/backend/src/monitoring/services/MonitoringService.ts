@@ -244,7 +244,7 @@ export class MonitoringService {
   async clustersOf(viewer: Viewer): Promise<ClusterMetadata[]> {
     const system = await this.deps.systemCluster();
     const own = (await this.deps.store.infrastructure.getClusters()).filter((cluster) => cluster.status !== 'destroying' && allowed(viewer, 'see', clusterResource(cluster)));
-    return [...(system ? [system] : []), ...own];
+    return [...(system ? [system] : []), ...own.filter((cluster) => cluster.id !== system?.id)];
   }
 
   async appsOf(viewer: Viewer): Promise<DeploymentMetadata[]> {
@@ -253,7 +253,7 @@ export class MonitoringService {
 
   async allClusters(): Promise<ClusterMetadata[]> {
     const system = await this.deps.systemCluster();
-    return [...(system ? [system] : []), ...(await this.deps.store.infrastructure.getClusters()).filter((cluster) => cluster.status === 'healthy')];
+    return [...(system ? [system] : []), ...(await this.deps.store.infrastructure.getClusters()).filter((cluster) => cluster.status === 'healthy' && cluster.id !== system?.id)];
   }
 
   async reach(cluster: ClusterMetadata): Promise<Reached> {

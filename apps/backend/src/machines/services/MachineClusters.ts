@@ -5,6 +5,7 @@ import { appsOn, machineClusterId, newMachineCluster, type ReportedClusterState 
 export interface MachineClustersDeps {
   store: Pick<Database['infrastructure'], 'getClusters' | 'saveCluster' | 'patchCluster' | 'deleteCluster' | 'getDeployments' | 'deleteDeploymentsOfCluster'>;
   dataKey: SecretKey;
+  koalaMachineId?: string | undefined;
   now?: (() => Date) | undefined;
 }
 
@@ -49,6 +50,7 @@ export class MachineClusters {
   }
 
   async idle(clusterId: string, leaving?: string): Promise<boolean> {
+    if (this.deps.koalaMachineId && clusterId === machineClusterId(this.deps.koalaMachineId)) return false;
     return appsOn(await this.deps.store.getDeployments(), clusterId, leaving).length === 0;
   }
 
