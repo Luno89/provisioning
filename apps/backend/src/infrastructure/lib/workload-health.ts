@@ -80,6 +80,20 @@ export function assessWorkload(podListJson: unknown, now: number = Date.now()): 
   return { health: 'healthy', reason: '' };
 }
 
+interface ControllerLike {
+  metadata?: { name?: string };
+  status?: { conditions?: Array<{ type?: string; status?: string; reason?: string; message?: string }> };
+}
+
+export function creationRefused(controllerListJson: unknown): WorkloadStatus | undefined {
+  const items = (controllerListJson as { items?: ControllerLike[] })?.items;
+  for (const controller of Array.isArray(items) ? items : []) {
+    const failure = controller.status?.conditions?.find((condition) => condition.type === 'ReplicaFailure' && condition.status === 'True');
+    if (failure) return { health: 'unhealthy', reason: `${controller.metadata?.name ?? 'its deployment'} cannot make its pods: ${failure.message ?? failure.reason ?? 'refused'}` };
+  }
+  return undefined;
+}
+
 export function reconciledStatus(
   current: string,
   health: WorkloadHealth,

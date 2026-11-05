@@ -40,7 +40,7 @@ export type { ServerOrder, ServerOrderState } from './lib/server-orders.js';
 export { generateSshKeypair } from './lib/ssh-keypair.js';
 export { ovhSubsidiaryFrom, vpsCatalogAdapters } from './lib/vps-catalog/adapters.js';
 export { healthPort, serveHealth } from './lib/worker-health.js';
-export { assessWorkload } from './lib/workload-health.js';
+export { assessWorkload, creationRefused } from './lib/workload-health.js';
 export type { WorkloadHealth } from './lib/workload-health.js';
 export { bindingTypesRouter } from './routes/binding-types.js';
 export { clusterAccessRouter } from './routes/cluster-access.js';
