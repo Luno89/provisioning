@@ -8,6 +8,7 @@ import { asPerson, principalOf } from '../../platform/lib/permissions.js';
 import type { ClusterMetadata, DeploymentMetadata } from '../../platform/lib/types.js';
 import { appQuery, appWindowQuery, clusterQuery, koalaQuery, koalaServicesQuery, type AppSubject } from '../lib/monitoring-questions.js';
 import { RULE_LABEL, alertSpec, koalaAlertExpression, type AlertSpec, type PromAlert } from '../lib/monitoring-alerts.js';
+import { inCluster, OWN_SERIES } from '../lib/cluster-scope.js';
 import { MonitoringService, type MonitoringDeps, type PoolMonitor, type PrometheusClient, type Sample } from './MonitoringService.js';
 
 const NOW = new Date('2026-10-17T12:00:00Z');
@@ -26,17 +27,19 @@ interface ScriptedPrometheus {
   series: Map<string, Array<[number, number]>>;
   firing: PromAlert[];
   set(query: string | undefined, value: number, metric?: Record<string, string>): ScriptedPrometheus;
+  scoped(query: string): string;
 }
 
-function scriptedPrometheus(): ScriptedPrometheus {
+function scriptedPrometheus(scope?: string): ScriptedPrometheus {
   const client = mock<PrometheusClient>();
   const script: ScriptedPrometheus = {
     client,
     answers: new Map<string, Sample[]>(),
     series: new Map<string, Array<[number, number]>>(),
     firing: [],
+    scoped: (query) => (scope === undefined ? query : inCluster(query, scope)),
     set(query, value, metric = {}) {
-      if (query) script.answers.set(query, [{ metric, value }]);
+      if (query) script.answers.set(script.scoped(query), [{ metric, value }]);
       return script;
     },
   };
@@ -69,7 +72,7 @@ let deps: () => MonitoringDeps;
 
 beforeEach(() => {
   db = memoryDatabase();
-  prom = scriptedPrometheus().set('vector(1)', 1);
+  prom = scriptedPrometheus(OWN_SERIES).set('vector(1)', 1);
   remoteProm = undefined;
   kubectl = [];
   applied = [];
@@ -178,7 +181,7 @@ describe('an app\'s health', () => {
   it('charts it over the range, marks its releases and lists its alerts and rules', async () => {
     await db.infrastructure.saveDeploymentInfo(dep({ id: 'books', name: 'Books', namespace: 'books' }));
     healthyApp(prom, { namespace: 'books', services: ['audiobookshelf'] });
-    prom.series.set(appQuery('up', { namespace: 'books', services: ['audiobookshelf'] })!, [[1, 1], [2, 1]]);
+    prom.series.set(prom.scoped(appQuery('up', { namespace: 'books', services: ['audiobookshelf'] })!), [[1, 1], [2, 1]]);
     await db.releases.savePipelineRun({ id: 'run-1', projectId: 'p', deploymentId: 'books', commitSha: 'abcdef1234567', status: 'success', startedAt: '2026-10-17T10:00:00Z', promotedAt: '2026-10-17T11:00:00Z' } as never);
     await db.releases.savePipelineRun({ id: 'run-0', projectId: 'p', deploymentId: 'books', commitSha: 'old', status: 'success', startedAt: '2026-10-10T10:00:00Z', promotedAt: '2026-10-10T11:00:00Z' } as never);
 
@@ -349,7 +352,7 @@ describe('a cluster on Koala\'s servers', () => {
 
 describe('Koala itself', () => {
   const reporting = () => {
-    prom.answers.set(koalaServicesQuery(), [{ metric: { service_name: 'koala-worker-engine' }, value: 1 }, { metric: { service_name: 'koala-backend' }, value: 1 }]);
+    prom.answers.set(prom.scoped(koalaServicesQuery()), [{ metric: { service_name: 'koala-worker-engine' }, value: 1 }, { metric: { service_name: 'koala-backend' }, value: 1 }]);
     prom.set(koalaQuery('requestsPerSecond'), 1.5).set(koalaQuery('requestErrorShare'), 0).set(koalaQuery('requestSeconds'), 0.1)
       .set(koalaQuery('modelCallsPerMinute'), 2).set(koalaQuery('modelErrorShare'), 0).set(koalaQuery('modelSeconds'), 8).set(koalaQuery('modelQueued'), 0)
       .set(koalaQuery('workflowsStartedHour'), 4).set(koalaQuery('activityFailuresHour'), 0).set(koalaQuery('workFailuresDay'), 0).set(koalaQuery('reporting'), 2);
@@ -362,7 +365,7 @@ describe('Koala itself', () => {
     expect(view.numbers).toMatchObject({ requestsPerSecond: 1.5, modelCallsPerMinute: 2, workflowsStartedHour: 4 });
     expect(view.lines[0]).toBe('Koala is healthy.');
     expect(view.lines[1]).toBe('2 processes report: koala-backend, koala-worker-engine.');
-    expect(prom.client.query).toHaveBeenCalledWith(koalaQuery('modelQueued'));
+    expect(prom.client.query).toHaveBeenCalledWith(inCluster(koalaQuery('modelQueued'), OWN_SERIES));
     expect((await monitoring.describeOverview(ME))).toContain('Koala itself: Koala is healthy. 2 processes report');
   });
 
@@ -426,5 +429,57 @@ describe('which clusters are read', () => {
     delete withoutClock.now;
     const view = await new MonitoringService(withoutClock).overview(ME);
     expect(Date.parse(view.checkedAt)).toBeGreaterThanOrEqual(before);
+  });
+});
+
+describe('a machine\'s cluster, which sends to the system cluster\'s Prometheus', () => {
+  const desk = { id: 'machine-desk', name: 'desk', provider: 'machine', status: 'healthy', machineId: 'desk', ownerId: 'me' } as ClusterMetadata;
+  const onDesk = (query: string | undefined, value: number) => { if (query) prom.answers.set(inCluster(query, desk.id), [{ metric: {}, value }]); };
+
+  beforeEach(async () => {
+    await db.infrastructure.saveCluster(desk);
+    await db.infrastructure.saveDeploymentInfo(dep({ id: 'books', name: 'Books', namespace: 'books', clusterId: desk.id }));
+  });
+
+  it('is read there, every question kept to its own series, and the system cluster\'s to the series no machine sent', async () => {
+    const subject = { namespace: 'books', services: [] };
+    onDesk(appQuery('probed', subject), 1);
+    onDesk(appQuery('up', subject), 1);
+    onDesk(appQuery('podsRunning', subject), 1);
+    onDesk(clusterQuery('nodes'), 1);
+    prom.set(clusterQuery('nodes'), 3);
+    const overview = await monitoring.overview(ME);
+    expect(overview.apps.find((row) => row.id === 'books')).toMatchObject({ state: 'ok', numbers: { up: 1, podsRunning: 1 } });
+    expect(overview.clusters.find((row) => row.id === desk.id)?.numbers.nodes).toBe(1);
+    expect(overview.clusters.find((row) => row.id === system.id)?.numbers.nodes).toBe(3);
+    expect(prom.client.query.mock.calls.every(([query]) => query.includes('koala_cluster=') || !/[a-z_]+\{|[a-z_]+\)/.test(query))).toBe(true);
+    expect(kubectl.some((call) => call[0] === desk.id)).toBe(false);
+  });
+
+  it('hands each cluster only the alerts its own series raised', async () => {
+    prom.firing = [
+      { labels: { alertname: 'AppProbeDown', namespace: 'books', koala_cluster: desk.id }, state: 'firing' },
+      { labels: { alertname: 'AppProbeDown', namespace: 'shop' }, state: 'firing' },
+    ];
+    const deskAlerts = await (await monitoring.reach(desk)).metrics!.alerts();
+    const systemAlerts = await (await monitoring.reach(system)).metrics!.alerts();
+    expect(deskAlerts.map((alert) => alert.labels.namespace)).toEqual(['books']);
+    expect(systemAlerts.map((alert) => alert.labels.namespace)).toEqual(['shop']);
+  });
+
+  it('keeps an app\'s alert as a rule on the system cluster, in monitoring, held to the machine\'s series and named for it', async () => {
+    await monitoring.addRule(ME, 'books', alertSpec('down') as AlertSpec);
+    const manifest = JSON.parse(applied[0]!) as Record<string, unknown>;
+    expect(at(manifest, 'metadata', 'namespace')).toBe('monitoring');
+    expect(at(manifest, 'spec', 'groups', 0, 'rules', 0, 'expr')).toBe('max(probe_success{koala_cluster="machine-desk",namespace="books"}) < 1');
+    expect(at(manifest, 'spec', 'groups', 0, 'rules', 0, 'labels')).toMatchObject({ namespace: 'books', koala_cluster: desk.id });
+    await monitoring.removeRule(ME, 'rule-1');
+    expect(kubectl.at(-1)).toEqual([system.id, 'delete', 'prometheusrule', 'koala-alert-rule-1', '-n', 'monitoring', '--ignore-not-found']);
+  });
+
+  it('keeps the system cluster\'s history, which nobody changes from the machine', async () => {
+    expect(await monitoring.historyOf(ME, desk)).toMatchObject({ days: 10, kept: 10, can: [] });
+    await expect(monitoring.setHistory(ME, desk.id, 20)).rejects.toMatchObject({ status: 409 });
+    expect(await monitoring.applyHistory(desk)).toBe(false);
   });
 });

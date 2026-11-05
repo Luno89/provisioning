@@ -1,3 +1,4 @@
+import { CLUSTER_LABEL } from './cluster-scope.js';
 import { appQuery, appWindowQuery, KOALA_UP, trafficSelector, type AppSubject, type PoolPlace } from './monitoring-questions.js';
 
 export interface PromAlert {
@@ -171,13 +172,13 @@ export interface AlertRuleRecord {
 
 export const ruleResourceName = (id: string): string => `koala-alert-${id.toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 40)}`;
 
-export function alertRuleManifest(rule: AlertRuleRecord, expression: string): Record<string, unknown> {
+export function alertRuleManifest(rule: AlertRuleRecord, expression: string, home?: { namespace: string; scope?: string | undefined }): Record<string, unknown> {
   return {
     apiVersion: 'monitoring.coreos.com/v1',
     kind: 'PrometheusRule',
     metadata: {
       name: ruleResourceName(rule.id),
-      namespace: rule.namespace,
+      namespace: home?.namespace ?? rule.namespace,
       labels: { release: 'kube-prometheus-stack', 'koala.dev/owner': rule.ownerId, 'koala.dev/alert-rule': ruleResourceName(rule.id) },
     },
     spec: {
@@ -187,7 +188,7 @@ export function alertRuleManifest(rule: AlertRuleRecord, expression: string): Re
           alert: `Koala_${rule.spec.kind}`,
           expr: expression,
           for: `${rule.spec.forMinutes}m`,
-          labels: { severity: 'warning', [RULE_LABEL]: rule.id, namespace: rule.namespace },
+          labels: { severity: 'warning', [RULE_LABEL]: rule.id, namespace: rule.namespace, ...(home?.scope === undefined ? {} : { [CLUSTER_LABEL]: home.scope }) },
           annotations: { summary: rule.summary },
         }],
       }],

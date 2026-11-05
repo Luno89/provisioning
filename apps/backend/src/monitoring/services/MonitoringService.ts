@@ -9,6 +9,7 @@ import {
 } from '../lib/monitoring-questions.js';
 import { TELEMETRY_SERVICES, type TelemetrySeen } from '../lib/cluster-monitoring.js';
 import { askQuery, type MonitoringAsk, type RangeAsk } from '../lib/monitoring-asks.js';
+import { CLUSTER_LABEL, inCluster, OWN_SERIES } from '../lib/cluster-scope.js';
 import { probesFromCluster, probesKey, type PoolProbe, type PoolRule } from '../lib/pool-monitoring.js';
 import {
   appLines, appVerdict, clusterLines, clusterVerdict, koalaLines, koalaVerdict, share, worstFirst,
@@ -37,6 +38,16 @@ export interface PrometheusClient {
   range(query: string, start: number, end: number, step: number): Promise<Array<[number, number]>>;
   alerts(): Promise<PromAlert[]>;
 }
+
+export function scopedTo(prometheus: PrometheusClient, cluster: string): PrometheusClient {
+  return {
+    query: (query) => prometheus.query(inCluster(query, cluster)),
+    range: (query, start, end, step) => prometheus.range(inCluster(query, cluster), start, end, step),
+    alerts: async () => (await prometheus.alerts()).filter((alert) => (alert.labels[CLUSTER_LABEL] ?? OWN_SERIES) === cluster),
+  };
+}
+
+const onMachine = (cluster: Pick<ClusterMetadata, 'provider'>) => cluster.provider === 'machine';
 
 export interface MetricsClient {
   ask(ask: MonitoringAsk): Promise<Sample[]>;
@@ -259,15 +270,31 @@ export class MonitoringService {
       }
     }
     try {
-      const prometheus = await this.deps.prometheus(cluster);
+      const prometheus = await this.prometheusOf(cluster);
       await prometheus.query('vector(1)');
       return { cluster, state: 'ok', metrics: metricsOf(prometheus) };
     } catch (err) {
+      if (onMachine(cluster)) return { cluster, state: 'unreachable', reason: `the Prometheus its machine sends to does not answer (${(err as Error).message})` };
       const monitoring = await this.deps.kubectl(cluster, ['get', 'service', 'kube-prometheus-stack-prometheus', '-n', 'monitoring', '--ignore-not-found', '-o', 'name']).catch((failure: unknown) => failure as Error);
       if (monitoring instanceof Error) return { cluster, state: 'unreachable', reason: `it does not answer (${monitoring.message})` };
       if (monitoring.trim() === '') return { cluster, state: 'installing', reason: 'its monitoring is installed before its next app is deployed' };
       return { cluster, state: 'unreachable', reason: `its Prometheus does not answer (${(err as Error).message})` };
     }
+  }
+
+  private async prometheusOf(cluster: ClusterMetadata): Promise<PrometheusClient> {
+    if (cluster.isSystem) return scopedTo(await this.deps.prometheus(cluster), OWN_SERIES);
+    if (!onMachine(cluster)) return this.deps.prometheus(cluster);
+    const system = await this.deps.systemCluster();
+    if (!system) throw new Error('there is no system cluster for its machine to send to');
+    return scopedTo(await this.deps.prometheus(system), cluster.id);
+  }
+
+  private async ruleHome(cluster: ClusterMetadata, namespace: string): Promise<{ cluster: ClusterMetadata; namespace: string; scope?: string }> {
+    if (!onMachine(cluster)) return { cluster, namespace };
+    const system = await this.deps.systemCluster();
+    if (!system) throw new MonitoringError(409, 'there is no system cluster for its machine to send to');
+    return { cluster: system, namespace: KOALA_ALERT_NAMESPACE, scope: cluster.id };
   }
 
   private async settingOf(clusterId: string): Promise<MonitoringSetting | undefined> {
@@ -281,6 +308,10 @@ export class MonitoringService {
     if (pool) {
       const kept = await pool.history().catch(ignore('when Koala\'s servers cannot say how long they keep history, how much is kept is shown as not known'));
       return { days: kept?.days ?? DEFAULT_HISTORY_DAYS, kept: kept?.kept, applied: true, can: [], byKoala: true };
+    }
+    if (onMachine(cluster)) {
+      const system = await this.deps.systemCluster();
+      return system ? { ...(await this.historyOf(undefined, system)), can: [] } : { days, applied: false, can: [] };
     }
     const can: HistoryAction[] = viewer && this.ownsCluster(viewer, cluster) ? ['change'] : [];
     if (reached && reached.state !== 'ok') return { days, applied: false, can, ...(setting?.problem ? { problem: setting.problem } : {}) };
@@ -545,6 +576,7 @@ export class MonitoringService {
     if (!cluster) throw new MonitoringError(404, 'no such cluster');
     if (!this.ownsCluster(viewer, cluster)) throw new MonitoringError(403, 'only whoever owns this cluster can change how long it keeps history');
     if (this.deps.pool?.(cluster)) throw new MonitoringError(409, 'Koala\'s servers keep this history, for as long as they keep everyone\'s');
+    if (onMachine(cluster)) throw new MonitoringError(409, 'a machine\'s history is kept with this Koala\'s own, for as long as its system cluster keeps it');
     await this.deps.store.monitoring.saveMonitoringSetting({ clusterId, ownerId: viewer.id, historyDays: days as number, updatedAt: this.now().toISOString() });
     await this.applyHistory(cluster);
     return this.historyOf(viewer, cluster);
@@ -572,7 +604,7 @@ export class MonitoringService {
   }
 
   async applyHistory(cluster: ClusterMetadata): Promise<boolean> {
-    if (this.isPool(cluster)) return false;
+    if (this.isPool(cluster) || onMachine(cluster)) return false;
     const setting = await this.settingOf(cluster.id);
     const days = setting?.historyDays ?? DEFAULT_HISTORY_DAYS;
     const now = await this.prometheusResource(cluster).catch(ignore('a Prometheus that cannot be read now has its history applied on the watcher\'s next pass'));
@@ -731,7 +763,10 @@ export class MonitoringService {
     };
     const pool = this.deps.pool?.(cluster);
     if (pool) await pool.setRule({ id: rule.id, namespace, spec, summary: rule.summary });
-    else await this.deps.apply(cluster, JSON.stringify(alertRuleManifest(rule, expression)));
+    else {
+      const home = await this.ruleHome(cluster, namespace);
+      await this.deps.apply(home.cluster, JSON.stringify(alertRuleManifest(rule, home.scope === undefined ? expression : inCluster(expression, home.scope), home)));
+    }
     await this.deps.store.monitoring.saveAlertRule(rule);
     return rule;
   }
@@ -742,7 +777,10 @@ export class MonitoringService {
     const cluster = (await this.clustersOf(viewer)).find((entry) => entry.id === rule.clusterId);
     const pool = cluster ? this.deps.pool?.(cluster) : undefined;
     if (pool) await pool.removeRule(rule.id);
-    else if (cluster) await this.deps.kubectl(cluster, ['delete', 'prometheusrule', ruleResourceName(rule.id), '-n', rule.namespace, '--ignore-not-found']);
+    else if (cluster) {
+      const home = await this.ruleHome(cluster, rule.namespace);
+      await this.deps.kubectl(home.cluster, ['delete', 'prometheusrule', ruleResourceName(rule.id), '-n', home.namespace, '--ignore-not-found']);
+    }
     await this.deps.store.monitoring.deleteAlertRule(rule.id);
   }
 }

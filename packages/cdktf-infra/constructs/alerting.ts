@@ -48,7 +48,7 @@ export class AlertingStack extends Construct {
                   // the request) to exported_service to avoid colliding with the `service` label
                   // it injects itself to identify the scrape target. Same quirk already
                   // documented in dashboards.ts's App Overview panels, confirmed live there.
-                  expr: 'sum by (exported_service) (rate(traefik_service_requests_total{code=~"5.."}[5m])) / sum by (exported_service) (rate(traefik_service_requests_total[5m])) > 0.05',
+                  expr: 'sum by (koala_cluster, exported_service) (rate(traefik_service_requests_total{code=~"5.."}[5m])) / sum by (koala_cluster, exported_service) (rate(traefik_service_requests_total[5m])) > 0.05',
                   for: "5m",
                   labels: { severity: "warning" },
                   annotations: {
