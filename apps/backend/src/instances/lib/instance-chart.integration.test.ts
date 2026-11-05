@@ -220,6 +220,17 @@ describe('the instance chart', () => {
     }
   });
 
+  it('runs each process and setup step from a checkout on the machine under a watcher only when dev names one, read-only, the data volume still its own', () => {
+    for (const process of ['backend', 'worker-engine', 'worker-cluster', 'worker-host']) {
+      const pod = podOf(find(render(['dev.source=/home/me/koala-src']), 'Deployment', `luno-${process}`));
+      expect(pod.volumes).toContainEqual({ name: 'source', hostPath: { path: '/home/me/koala-src', type: 'Directory' } });
+      expect(pod.containers[0]!.volumeMounts?.slice(0, 2)).toEqual([{ name: 'source', mountPath: '/app', readOnly: true }, { name: 'data', mountPath: '/app/apps/backend/data' }]);
+      expect(pod.containers[0]!.env).toContainEqual({ name: 'DEV_WATCH', value: 'true' });
+      expect(JSON.stringify(podOf(find(render(), 'Deployment', `luno-${process}`)))).not.toContain('DEV_WATCH');
+    }
+    expect(podOf(find(render(['dev.source=/home/me/koala-src']), 'Job', 'luno-seed')).volumes).toContainEqual({ name: 'source', hostPath: { path: '/home/me/koala-src', type: 'Directory' } });
+  });
+
   it('gives no process the machine\'s Docker, names the machine it is on, and exposes the backend on a node port only when given one', () => {
     for (const process of ['backend', 'worker-engine', 'worker-cluster', 'worker-host']) {
       expect(JSON.stringify(podOf(find(render(), 'Deployment', `luno-${process}`)))).not.toContain('docker');

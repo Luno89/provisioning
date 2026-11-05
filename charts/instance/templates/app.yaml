@@ -55,6 +55,10 @@ spec:
                   key: MONGO_ROOT_PASSWORD
             - name: MONGO_URI
               value: mongodb://admin:$(MONGO_ROOT_PASSWORD)@{{ include "instance.name" $ }}-mongo:27017/provisioning?authSource=admin
+            {{- if $.Values.dev.source }}
+            - name: DEV_WATCH
+              value: "true"
+            {{- end }}
             {{- if eq $process "backend" }}
             - name: POD_IP
               valueFrom:
@@ -91,6 +95,11 @@ spec:
             periodSeconds: 10
             {{- end }}
           volumeMounts:
+            {{- if $.Values.dev.source }}
+            - name: source
+              mountPath: /app
+              readOnly: true
+            {{- end }}
             - name: data
               mountPath: /app/apps/backend/data
             - name: temporal-ca
@@ -122,6 +131,12 @@ spec:
               readOnly: true
         {{- end }}
       volumes:
+        {{- if $.Values.dev.source }}
+        - name: source
+          hostPath:
+            path: {{ $.Values.dev.source }}
+            type: Directory
+        {{- end }}
         - name: data
           persistentVolumeClaim:
             claimName: {{ include "instance.name" $ }}-data

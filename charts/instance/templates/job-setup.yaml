@@ -46,9 +46,20 @@ spec:
             - name: MONGO_URI
               value: mongodb://admin:$(MONGO_ROOT_PASSWORD)@{{ include "instance.name" $ }}-mongo:27017/provisioning?authSource=admin
           volumeMounts:
+            {{- if $.Values.dev.source }}
+            - name: source
+              mountPath: /app
+              readOnly: true
+            {{- end }}
             - name: data
               mountPath: /app/apps/backend/data
       volumes:
+        {{- if $.Values.dev.source }}
+        - name: source
+          hostPath:
+            path: {{ $.Values.dev.source }}
+            type: Directory
+        {{- end }}
         - name: data
           persistentVolumeClaim:
             claimName: {{ include "instance.name" $ }}-data

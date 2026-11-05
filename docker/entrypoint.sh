@@ -32,6 +32,12 @@ EOF
 fi
 
 cd /app/apps/backend
+if [ "${DEV_WATCH:-}" = true ]; then
+  case "${1:-backend}" in
+    backend) exec npx tsx watch --exclude data src/index.ts ;;
+    worker-engine|worker-cluster|worker-host) exec npx tsx watch --exclude data --include 'src/workflows/**' "src/$1.ts" ;;
+  esac
+fi
 case "${1:-backend}" in
   backend) exec npx tsx src/index.ts ;;
   worker-engine) exec npx tsx src/worker-engine.ts ;;
