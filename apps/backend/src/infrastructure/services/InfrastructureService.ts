@@ -11,6 +11,7 @@ import { CommandFailedError, listAt, textAt } from '../../platform/index.js';
 import { ignore } from '@koala/engine-core/failures';
 import { assessWorkload } from '../lib/workload-health.js';
 import { execShell, type Shell } from '../lib/shell.js';
+import { stateFilesOf } from '../lib/terraform-state.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -18,6 +19,7 @@ const __dirname = path.dirname(__filename);
 const PROJECT_ROOT = path.resolve(__dirname, '../../../../../');
 const CDKTF_DIR = path.join(PROJECT_ROOT, 'packages/cdktf-infra');
 export const LOG_DIR = path.join(PROJECT_ROOT, 'apps/backend/data/logs');
+const STATE_DIR = path.join(PROJECT_ROOT, 'apps/backend/data/terraform');
 const BIN_DIR = path.join(PROJECT_ROOT, 'bin');
 const DEFAULT_KUBECONFIG = path.join(os.homedir(), '.kube/config');
 const K3D_STORAGE_ROOT = path.join(PROJECT_ROOT, '.k3d-storage');
@@ -36,25 +38,47 @@ function escapeShellArg(arg: string): string {
   return "'" + arg.replace(/'/g, "'\\''") + "'";
 }
 
+export interface TerraformPlaces {
+  cdktfDir: string;
+  stateDir: string;
+}
+
+const cdktfOutput = (dir: string): string[] => ['--output', path.join(dir, 'cdktf.out')];
+
+const withStateDir = (options: ExecuteOptions, stateDir: string): ExecuteOptions => ({ ...options, env: { ...options.env, CDKTF_STATE_DIR: stateDir } });
+
+async function adoptStateFromBefore(stackName: string, places: TerraformPlaces): Promise<void> {
+  await fs.mkdir(places.stateDir, { recursive: true });
+  for (const file of stateFilesOf(stackName)) {
+    const before = path.join(places.cdktfDir, file);
+    const now = path.join(places.stateDir, file);
+    if (!existsSync(before) || existsSync(now)) continue;
+    await fs.copyFile(before, now);
+    await fs.unlink(before).catch(ignore('a checkout mounted read-only keeps its copy; the state folder now holds the one Terraform uses'));
+  }
+}
+
 export class InfrastructureService {
   private activeStreams: Map<string, ChildProcess> = new Map();
 
-  constructor(private readonly shell: Shell = execShell) {}
+  constructor(private readonly shell: Shell = execShell, private readonly terraform: TerraformPlaces = { cdktfDir: CDKTF_DIR, stateDir: STATE_DIR }) {}
 
   getLogPath(logId: string) {
     return path.join(LOG_DIR, `${logId}-${Date.now()}.log`);
   }
 
   async deploy(stackName: string, options: ExecuteOptions = {}) {
-    const args = ['cdktf', 'deploy', stackName, '--auto-approve'];
+    const args = ['cdktf', 'deploy', stackName, '--auto-approve', ...cdktfOutput(this.terraform.stateDir)];
     if (options.outputsFile) {
       args.push('--outputs-file', options.outputsFile, '--outputs-file-include-sensitive-outputs');
     }
-    return this.runCommand('npx', args, stackName, options);
+    await adoptStateFromBefore(stackName, this.terraform);
+    return this.runCommand('npx', args, stackName, withStateDir(options, this.terraform.stateDir));
   }
 
   async destroy(stackName: string, options: ExecuteOptions = {}) {
-    return this.runCommand('npx', ['cdktf', 'destroy', stackName, '--auto-approve'], stackName, options);
+    await adoptStateFromBefore(stackName, this.terraform);
+    return this.runCommand('npx', ['cdktf', 'destroy', stackName, '--auto-approve', ...cdktfOutput(this.terraform.stateDir)], stackName, withStateDir(options, this.terraform.stateDir));
   }
 
   async buildImage(tag: string, dockerfile: string, context: string, options: ExecuteOptions = {}) {
@@ -601,7 +625,7 @@ export class InfrastructureService {
     };
     delete env.TF_PLUGIN_CACHE_DIR;
     const logFile = options.logFile || this.getLogPath(logId);
-    const cwd = options.env?.CD_DIR || CDKTF_DIR;
+    const cwd = options.env?.CD_DIR || this.terraform.cdktfDir;
     await fs.mkdir(LOG_DIR, { recursive: true });
 
     console.log(`[InfrastructureService] Spawning cmd=${cmd} args=${JSON.stringify(args)} (TF_PLUGIN_CACHE_DIR deliberately unset — see the delete above)`);
