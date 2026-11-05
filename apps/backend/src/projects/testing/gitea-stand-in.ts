@@ -25,6 +25,7 @@ export interface GiteaStandIn {
   adminPassword: string;
   unhandled: string[];
   deliveries: Delivery[];
+  logs(): string;
   close(): Promise<void>;
 }
 
@@ -499,6 +500,7 @@ export async function startGiteaStandIn(): Promise<GiteaStandIn> {
     adminPassword,
     unhandled,
     deliveries,
+    logs: () => [...unhandled, ...deliveries.map((delivery) => JSON.stringify(delivery))].join('\n'),
     close: async () => {
       server.closeAllConnections();
       await new Promise<void>((done) => server.close(() => done()));

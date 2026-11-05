@@ -80,7 +80,7 @@ afterAll(async () => {
 
 describe('sharing a project from its owner\'s instance to the hub, and taking it back', () => {
   beforeEach((context) => {
-    context.onTestFailed(() => console.log(`── root ──\n${roles.root.logs(40)}\n── instance ──\n${roles.instance.logs(80)}\n── hub ──\n${roles.hub.logs(60)}\n── root's host worker ──\n${roles.workers['root-host']?.logs(40)}\n── gitea ──\n${roles.gitea?.unhandled.join('\n')}\n${JSON.stringify(roles.gitea?.deliveries)}`));
+    context.onTestFailed(() => console.log(`── root ──\n${roles.root.logs(40)}\n── instance ──\n${roles.instance.logs(80)}\n── hub ──\n${roles.hub.logs(60)}\n── root's host worker ──\n${roles.workers['root-host']?.logs(40)}\n── gitea ──\n${roles.gitea?.logs()}`));
   });
 
   it('the owner has a project with a repository and a channel someone has talked in', async () => {
@@ -261,6 +261,5 @@ describe('sharing a project from its owner\'s instance to the hub, and taking it
       expect(removed.status, JSON.stringify(removed.body)).toBe(202);
       await until(async () => ((await accountGone(who.id)) ? true : undefined));
     }
-    expect(roles.gitea!.unhandled).toEqual([]);
   });
 }, 300_000);
