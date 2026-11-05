@@ -93,7 +93,7 @@ export function counted(found: readonly Breach[]): Baseline {
 
 export interface Against { added: Breach[]; fixed: Array<{ key: string; was: number; now: number }> }
 
-export function against(found: readonly Breach[], whole: Baseline, rules: readonly Rule[] = RULES): Against {
+export function against(found: readonly Breach[], whole: Baseline, rules: readonly Rule[] = RULES, lowering: readonly Breach[] = found): Against {
   const baseline = Object.fromEntries(Object.entries(whole).filter(([key]) => (rules as readonly string[]).includes(ruleOf(key))));
   const now = counted(found);
   const added: Breach[] = [];
@@ -101,7 +101,8 @@ export function against(found: readonly Breach[], whole: Baseline, rules: readon
     const allowed = baseline[key] ?? 0;
     if (count > allowed) added.push(...found.filter((breach) => breach.key === key).slice(allowed));
   }
-  const fixed = Object.entries(baseline).filter(([key, was]) => (now[key] ?? 0) < was).map(([key, was]) => ({ key, was, now: now[key] ?? 0 }));
+  const left = counted(lowering);
+  const fixed = Object.entries(baseline).filter(([key, was]) => (left[key] ?? 0) < was).map(([key, was]) => ({ key, was, now: left[key] ?? 0 }));
   return { added, fixed };
 }
 

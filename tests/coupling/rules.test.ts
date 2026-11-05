@@ -84,6 +84,12 @@ describe('the baseline', () => {
     const after = pruned(baseline, [...better, { rule: 'R1', key: 'R1 new -> edge (call)', at: 'a.ts:1', why: '' }]);
     expect(Object.keys(after)).toEqual(Object.keys(counted(better)));
   });
+
+  it('calls nothing fixed that only a live suite clears, since only the tiers below live lower it', () => {
+    const live = today.filter((breach) => breach.rule !== 'R1');
+    expect(against(live, baseline, undefined, today)).toEqual({ added: [], fixed: [] });
+    expect(against(today, baseline, undefined, live).fixed.map((entry) => entry.now)).toEqual([0]);
+  });
 });
 
 describe('what each rule needs', () => {

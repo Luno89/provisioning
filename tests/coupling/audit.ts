@@ -64,9 +64,10 @@ if (!existsSync(BASELINE) && !options.seed) {
 } else {
   if (options.seed) throw new Error(`${BASELINE} exists: the baseline only shrinks, so it is never seeded again; use --prune`);
   const before = JSON.parse(readFileSync(BASELINE, 'utf8')) as Baseline;
-  const baseline = options.prune ? pruned(before, belowLive(), rules.judged) : before;
+  const lowering = belowLive();
+  const baseline = options.prune ? pruned(before, lowering, rules.judged) : before;
   if (options.prune) write(baseline);
-  held = { kind: 'held', ...against(found, baseline, rules.judged) };
+  held = { kind: 'held', ...against(found, baseline, rules.judged, lowering) };
 }
 
 const result = resultOf({
