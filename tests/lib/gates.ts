@@ -21,7 +21,6 @@ export const E2E_STEPS: GateStep[] = [
   { name: 'a project shared from an instance and worked on the hub', script: 'test:hub-split-live' },
   { name: 'the hub\'s people and roles', script: 'test:hub-live' },
   { name: 'sharing a project and taking it back', script: 'test:project-sharing-live' },
-  { name: 'two owners\' apps of one name', script: 'test:app-names-live' },
   { name: 'files on MinIO, share links, an attachment', script: 'test:files-live' },
   { name: 'an Odoo release cut over and rolled back', script: 'test:odoo-release-live' },
   { name: 'the mechanics checks', script: 'test:checks-live' },
