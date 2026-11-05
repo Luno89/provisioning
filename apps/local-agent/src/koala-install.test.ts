@@ -12,6 +12,8 @@ const PLACED: PlacedKoala = {
   credential: 'cred', name: 'bobby', domain: '',
 };
 
+let served = 'http://100.64.0.7:30320';
+
 function machine() {
   const host = mock<ClusterHost>();
   const ran: string[][] = [];
@@ -27,6 +29,7 @@ function machine() {
     if (file === 'systemctl') return `${state}\n`;
     if (file === 'sudo' && args.includes('start')) state = 'active';
     if (args[0] === 'kubectl') return 'True 2026-11-05T10:00:05Z';
+    if (args[0] === 'get' && args[1] === 'values') return JSON.stringify({ publicUrl: served });
     return '';
   });
   return { host, ran };
@@ -91,6 +94,15 @@ describe('putting Koala on this machine', () => {
     await installKoala(PLACED, { cluster: host, helm: 'helm', fetch: fetchImpl, say: () => undefined, ownValues: '/home/bo/.config/koala/koala-values.yaml' });
     const args = ran.find(([file]) => file === 'helm') ?? [];
     expect(args.slice(args.indexOf('/home/bo/.config/koala/koala-values.yaml') - 3, args.indexOf('/home/bo/.config/koala/koala-values.yaml') + 1)).toEqual(['-f', expect.stringMatching(/koala-values\.json$/), '-f', '/home/bo/.config/koala/koala-values.yaml']);
+  });
+
+  it('tells root the address Koala answers at once installed, the machine\'s own values included', async () => {
+    served = 'http://127.0.0.1:3252';
+    const { host } = machine();
+    const { fetchImpl, reports } = root();
+    await installKoala(PLACED, { cluster: host, helm: 'helm', fetch: fetchImpl, say: () => undefined });
+    served = 'http://100.64.0.7:30320';
+    expect(reports.at(-1)).toMatchObject({ status: 'ready', url: 'http://127.0.0.1:3252' });
   });
 
   it('installs nothing from a chart that is not the one root released, and tells root why', async () => {

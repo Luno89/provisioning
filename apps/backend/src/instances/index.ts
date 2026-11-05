@@ -1,5 +1,6 @@
 export { cleaned, restoreOrder, volumePart } from './lib/app-move.js';
 export type { AppsManifest, KubeObject } from './lib/app-move.js';
+export { DEV, devKoalaValues, devRootPlan } from './lib/dev-root.js';
 export { DEV_SPLIT, devSplitOwner, devSplitPlace, devSplitPlan, envFileText, readEnvFile, withDatabase } from './lib/dev-split.js';
 export type { SplitPlace } from './lib/dev-split.js';
 export { addressScope, appLabel, edgeSite, flatHost, freeLabel, inScope, labelOfFlat, nestedHost, offersNested } from './lib/edge-addresses.js';

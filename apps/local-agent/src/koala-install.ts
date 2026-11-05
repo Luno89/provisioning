@@ -67,6 +67,15 @@ export function helmArgs(chart: string, valuesFiles: string[], rootKeysFile: str
   ];
 }
 
+export function servedUrl(valuesJson: string): string | undefined {
+  try {
+    const value = (JSON.parse(valuesJson) as { publicUrl?: unknown }).publicUrl;
+    return typeof value === 'string' && value ? value : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export interface KoalaInstallDeps {
   cluster: ClusterHost;
   helm: string;
@@ -113,8 +122,9 @@ export async function installKoala(placed: PlacedKoala, deps: KoalaInstallDeps):
     const own = deps.ownValues && await deps.cluster.exists(deps.ownValues) ? [deps.ownValues] : [];
     if (own.length) deps.say(`Koala takes this machine's own values from ${deps.ownValues}`);
     await deps.cluster.run(deps.helm, helmArgs(chartFile, [valuesFile, ...own], keysFile));
-    await report(placed, deps.fetch, 'ready', 'Installed', { url, imageTag: placed.imageTag });
-    deps.say(`Koala runs on this machine at ${url}`);
+    const served = servedUrl(await deps.cluster.run(deps.helm, ['get', 'values', KOALA_RELEASE, '-n', KOALA_NAMESPACE, '--kubeconfig', K3S_KUBECONFIG, '--all', '-o', 'json'])) ?? url;
+    await report(placed, deps.fetch, 'ready', 'Installed', { url: served, imageTag: placed.imageTag });
+    deps.say(`Koala runs on this machine at ${served}`);
   } catch (err) {
     const message = (err as Error).message.slice(0, 1000);
     deps.say(`Koala could not be put on this machine: ${message}`);
