@@ -16,9 +16,7 @@ export const INTEGRATION_STEPS: GateStep[] = [
 ];
 
 export const E2E_STEPS: GateStep[] = [
-  { name: 'production refuses what only a dev box allows, and sees each visitor', script: 'test:hardening-live' },
   { name: 'a person in a browser: sign-in, a first model and a chat, Infrastructure, Settings, sign-out', script: 'test:browser-live' },
-  { name: 'files on MinIO, share links, an attachment', script: 'test:files-live' },
   { name: 'an Odoo release cut over and rolled back', script: 'test:odoo-release-live' },
   { name: 'the mechanics checks', script: 'test:checks-live' },
 ];
@@ -31,6 +29,8 @@ export const SHIP_STEPS: GateStep[] = [...UNIT_STEPS, ...INTEGRATION_STEPS, ...E
 
 export const RELEASE_STEPS: GateStep[] = [
   { name: 'the mail server signs and refuses to relay', script: 'test:mail-live', memoryMB: 512 },
+  { name: 'production refuses what only a dev box allows, and sees each visitor', script: 'test:hardening-live', memoryMB: 2048 },
+  { name: 'files on MinIO, share links, an attachment', script: 'test:files-live', memoryMB: 1024 },
   { name: 'a cluster provisioned, verified and destroyed', script: 'test:infra:integration', memoryMB: 4096, alone: true },
   { name: 'an instance on k3d signs in through root', script: 'test:instance-live', memoryMB: 2048 },
   { name: 'a machine joins and its agents are found', script: 'test:machine-live', memoryMB: 4096 },
