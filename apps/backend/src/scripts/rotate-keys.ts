@@ -32,7 +32,7 @@ function writeMissingKeys(): void {
 
 async function main(): Promise<void> {
   if (args.has('--write-env')) writeMissingKeys();
-  dotenv.config({ path: ENV_FILE, override: true });
+  dotenv.config({ path: ENV_FILE, override: true, quiet: true });
   const keys = loadKeys(process.env);
   const ring = keys.data;
   console.log(`${apply ? 'rewriting' : 'dry run — pass --apply to rewrite'}: data key ${keyId(ring.current)}, ${ring.previous?.length ?? 0} previous key(s)`);

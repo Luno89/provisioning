@@ -9,7 +9,7 @@ describe('dev, run as production runs on this computer', () => {
     expect(plan.rootUrl).toBe('http://koala.localhost:5175');
     expect(plan.instanceUrl).toBe('http://dev.localhost:5173');
     expect(plan.rootEnv).toMatchObject({
-      ROLE: 'root', PORT: '3002', MONGO_URI: 'mongodb://localhost:27017/koala_root?replicaSet=rs0', PUBLIC_URL: 'http://koala.localhost:5175',
+      ROLE: 'root', PORT: '3002', MONGO_URI: 'mongodb://localhost:27017/koala_dev_root?replicaSet=rs0', PUBLIC_URL: 'http://koala.localhost:5175',
       ADMIN_SETUP_CODE: 'setup', MESH_LOGIN_SERVER: 'http://127.0.0.1:8080', INSTANCE_REGISTRY: '127.0.0.1:5001', INSTANCE_IMAGE_TAG: 'dev',
       HUB_URL: 'http://hub.localhost:5176', HUB_CREDENTIAL_HASH: 'hash',
     });

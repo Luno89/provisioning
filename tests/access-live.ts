@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
 
-dotenv.config({ path: fileURLToPath(new URL('../apps/backend/.env', import.meta.url)) });
+dotenv.config({ path: fileURLToPath(new URL('../apps/backend/.env', import.meta.url)), quiet: true });
 
 import axios, { type AxiosInstance } from 'axios';
 import { sessionToken } from '../apps/backend/src/platform/lib/auth.js';

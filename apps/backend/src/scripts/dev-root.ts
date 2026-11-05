@@ -7,7 +7,7 @@ import { mongoTarget, roleFromEnv } from '../platform/index.js';
 import { devRootPlan, envFileText, hashCredential, publicKeyPem, readEnvFile } from '../instances/index.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
-dotenv.config({ path: resolve(here, '../../.env') });
+dotenv.config({ path: resolve(here, '../../.env'), quiet: true });
 const OUT = resolve(here, '../../data/dev');
 
 async function main(): Promise<void> {

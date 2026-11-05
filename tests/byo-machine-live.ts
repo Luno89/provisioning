@@ -12,7 +12,7 @@ import { fetchSide, handOff, sessionFrom, signedInLanding } from './lib/handoff.
 import { dropSuiteDatabase, firstAdmin, forgetMeshUser, suiteRoot, workerEnv } from './lib/suite-root.js';
 
 const REPO = resolve(new URL('.', import.meta.url).pathname, '..');
-dotenv.config({ path: join(REPO, 'apps/backend/.env') });
+dotenv.config({ path: join(REPO, 'apps/backend/.env'), quiet: true });
 
 const ROOT = suiteRoot('byo-live', 9472);
 let ownerId: string | undefined;

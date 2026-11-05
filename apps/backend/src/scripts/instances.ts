@@ -4,7 +4,7 @@ import dotenv from 'dotenv';
 import { createDatabase, roleFromEnv } from '../platform/index.js';
 import { IdentityService } from '../instances/index.js';
 
-dotenv.config({ path: resolve(dirname(fileURLToPath(import.meta.url)), '../../.env') });
+dotenv.config({ path: resolve(dirname(fileURLToPath(import.meta.url)), '../../.env'), quiet: true });
 
 const USAGE = 'usage: npm run instances -w apps/backend -- list | add <id> <owner-user-id> <url> (prints the instance\'s credential) | remove <id>';
 

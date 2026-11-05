@@ -25,7 +25,7 @@ import { workflowInterceptorModules } from './worker-interceptors.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-dotenv.config();
+dotenv.config({ quiet: true });
 
 const telemetry = startTelemetry(telemetrySettings(process.env, 'koala-worker-cluster'));
 telemetry.exportTo(collectorSink({ env: process.env, proxy: sharedClusterProxy(), kubeconfigPath: () => process.env.KUBECONFIG_PATH || SYSTEM_KUBECONFIG }));

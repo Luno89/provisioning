@@ -7,7 +7,7 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
-dotenv.config({ path: fileURLToPath(new URL('../apps/backend/.env', import.meta.url)) });
+dotenv.config({ path: fileURLToPath(new URL('../apps/backend/.env', import.meta.url)), quiet: true });
 import axios, { type AxiosInstance } from 'axios';
 import { createDatabase } from '../apps/backend/src/platform/lib/db-interface.js';
 import { sessionToken } from '../apps/backend/src/platform/lib/auth.js';

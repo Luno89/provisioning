@@ -4,7 +4,7 @@ import dotenv from 'dotenv';
 import { createDatabase } from '../platform/index.js';
 import { emailProblem, normalEmail, readiedForProviderLink } from '../accounts/index.js';
 
-dotenv.config({ path: resolve(dirname(fileURLToPath(import.meta.url)), '../../.env') });
+dotenv.config({ path: resolve(dirname(fileURLToPath(import.meta.url)), '../../.env'), quiet: true });
 
 const USAGE = 'usage: npm run accounts -w apps/backend -- prepare-provider-link <user-id> <email>';
 

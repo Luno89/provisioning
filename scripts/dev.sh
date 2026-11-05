@@ -11,13 +11,16 @@ if [ "$(id -u)" -eq 0 ]; then
   exit 1
 fi
 
-say() { printf '\n\033[1m%s\033[0m\n' "$1"; }
+STEP=0
+say() { STEP=$((STEP + 1)); printf '\n\033[1m[%s] %s\033[0m\n' "${STEP}" "$1"; }
+quietly() { local log; log="$(mktemp)"; if ! "$@" >"${log}" 2>&1; then cat "${log}"; rm -f "${log}"; return 1; fi; rm -f "${log}"; }
 
 say "Root's services: Temporal, Mongo, Headscale, the registry"
-bash "${ROOT}/scripts/ensure-temporal.sh"
-bash "${ROOT}/scripts/ensure-mongo.sh"
-bash "${ROOT}/scripts/ensure-headscale.sh"
-"${ROOT}/bin/docker-compose" -f "${ROOT}/docker-compose.registry.yml" up -d >/dev/null
+quietly bash "${ROOT}/scripts/ensure-temporal.sh"
+quietly bash "${ROOT}/scripts/ensure-mongo.sh"
+quietly bash "${ROOT}/scripts/ensure-headscale.sh"
+quietly "${ROOT}/bin/docker-compose" -f "${ROOT}/docker-compose.registry.yml" up -d
+echo "  running"
 
 if [ -x /usr/local/bin/k3s-provisioning-lunorica-uninstall.sh ]; then
   say "Removing the k3s dev ran before (provisioning-lunorica); this computer gets a machine's k3s instead"
@@ -34,13 +37,15 @@ mkdir -p "${DEV_DATA}"
 IMAGE_INPUTS="$(cat "${ROOT}/Dockerfile" "${ROOT}/package-lock.json" "${ROOT}/docker/entrypoint.sh" | sha256sum | cut -d' ' -f1)"
 if [ "$(cat "${DEV_DATA}/image.sha" 2>/dev/null || true)" != "${IMAGE_INPUTS}" ] || ! curl -fsS -o /dev/null "http://127.0.0.1:5000/v2/nowrinkles/app/manifests/dev" -H 'Accept: application/vnd.docker.distribution.manifest.v2+json'; then
   say "Building the image Koala's pods start from (its tools; they run this checkout)"
-  docker build -t "${IMAGE}" "${ROOT}"
-  docker push "${IMAGE}"
+  quietly docker build -t "${IMAGE}" "${ROOT}"
+  quietly docker push "${IMAGE}"
+  echo "  built and pushed to root's registry"
   printf '%s\n' "${IMAGE_INPUTS}" > "${DEV_DATA}/image.sha"
 fi
 
 say "Root and the hub"
 npx tsx "${ROOT}/apps/backend/src/scripts/dev-root.ts"
+echo "  settings in ${DEV_DATA}"
 set -a; . "${DEV_DATA}/urls.env"; set +a
 with_env() { echo "set -a; . '${DEV_DATA}/$1.env'; set +a; exec $2"; }
 
@@ -60,11 +65,11 @@ fi
 
 ROOT_NAMES="root,root-worker,hub,web-root,web-hub"
 ROOT_PROCESSES=(
-  "bash -c \"$(with_env root 'npm run dev -w apps/backend')\""
-  "bash -c \"$(with_env root 'npm run dev:worker -w apps/backend')\""
-  "bash -c \"$(with_env hub 'npm run dev -w apps/backend')\""
-  "KOALA_BACKEND=http://localhost:3002 VITE_API_BASE=/api npm run dev -w apps/frontend -- --port 5175 --strictPort --host 0.0.0.0"
-  "KOALA_BACKEND=http://localhost:3003 VITE_API_BASE=/api npm run dev -w apps/frontend -- --port 5176 --strictPort --host 0.0.0.0"
+  "bash -c \"$(with_env root 'npm run -s dev -w apps/backend')\""
+  "bash -c \"$(with_env root 'npm run -s dev:worker -w apps/backend')\""
+  "bash -c \"$(with_env hub 'npm run -s dev -w apps/backend')\""
+  "KOALA_BACKEND=http://localhost:3002 VITE_API_BASE=/api npm run -s dev -w apps/frontend -- --logLevel warn --port 5175 --strictPort --host 0.0.0.0"
+  "KOALA_BACKEND=http://localhost:3003 VITE_API_BASE=/api npm run -s dev -w apps/frontend -- --logLevel warn --port 5176 --strictPort --host 0.0.0.0"
 )
 
 MACHINE_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/koala/machine.json"
@@ -79,7 +84,7 @@ if ! node -e 'process.exit(JSON.parse(require("fs").readFileSync(process.argv[1]
   trap - EXIT
 fi
 
-say "Dev runs as production does"
+say "Dev runs as production does; the logs of root, the hub and your Koala's pods follow"
 echo "  Root:        ${ROOT_WEB}   (sign in here)"
 echo "  Your Koala:  ${INSTANCE_WEB}   (pods on this computer's k3s, running this checkout under a watcher)"
 echo "  Hub:         ${HUB_WEB}"
@@ -88,6 +93,6 @@ exec npx concurrently --kill-others-on-fail \
   --names "${ROOT_NAMES},web-koala,machine,koala" \
   --prefix-colors "red,yellow,white,gray,gray,cyan,green,blue" \
   "${ROOT_PROCESSES[@]}" \
-  "KOALA_BACKEND=http://127.0.0.1:30320 VITE_API_BASE=/api npm run dev -w apps/frontend -- --port 5173 --strictPort" \
+  "KOALA_BACKEND=http://127.0.0.1:30320 VITE_API_BASE=/api npm run -s dev -w apps/frontend -- --logLevel warn --port 5173 --strictPort" \
   "npx tsx ${ROOT}/apps/backend/src/scripts/dev-machine.ts" \
   "until k3s kubectl --kubeconfig ${KUBECONFIG_FILE} -n nowrinkles logs -f --prefix --all-containers --max-log-requests 20 -l app.kubernetes.io/part-of=nowrinkles-instance; do sleep 5; done"

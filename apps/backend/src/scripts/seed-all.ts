@@ -68,7 +68,7 @@ async function main() {
 }
 
 if (process.argv[1]?.endsWith('seed-all.ts')) {
-  dotenv.config({ path: resolve(fileURLToPath(import.meta.url), '../../../.env') });
+  dotenv.config({ path: resolve(fileURLToPath(import.meta.url), '../../../.env'), quiet: true });
   main().catch((err) => {
     console.error('[seed] failed:', err);
     process.exit(1);

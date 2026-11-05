@@ -6,7 +6,7 @@ import { createDatabase } from '../apps/backend/src/platform/lib/db-interface.js
 import { liveEngineHost } from './lib/live-engine-host.js';
 import { createProcedureExecutor } from '../apps/backend/src/engine-host/nodes/index.js';
 
-dotenv.config({ path: new URL('../apps/backend/.env', import.meta.url).pathname });
+dotenv.config({ path: new URL('../apps/backend/.env', import.meta.url).pathname, quiet: true });
 
 const OWNER = process.env.PLANNER_LIVE_OWNER ?? 'planner-live';
 const GOAL = process.env.PLANNER_LIVE_GOAL

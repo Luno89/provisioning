@@ -4,7 +4,7 @@ import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import dotenv from 'dotenv';
-dotenv.config({ path: fileURLToPath(new URL('../apps/backend/.env', import.meta.url)) });
+dotenv.config({ path: fileURLToPath(new URL('../apps/backend/.env', import.meta.url)), quiet: true });
 import axios, { type AxiosInstance } from 'axios';
 import { createDatabase } from '../apps/backend/src/platform/lib/db-interface.js';
 import { sessionToken } from '../apps/backend/src/platform/lib/auth.js';

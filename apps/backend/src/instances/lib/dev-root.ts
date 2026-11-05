@@ -1,11 +1,11 @@
 import { webUrl, withDatabase } from './dev-split.js';
 
 export const DEV = {
-  rootDatabase: 'koala_root',
+  rootDatabase: 'koala_dev_root',
   rootHost: 'koala',
   rootApiPort: 3002,
   rootWebPort: 5175,
-  hubDatabase: 'koala_hub',
+  hubDatabase: 'koala_dev_hub',
   hubHost: 'hub',
   hubApiPort: 3003,
   hubWebPort: 5176,

@@ -14,7 +14,7 @@ import { sessionToken } from '../apps/backend/src/platform/lib/auth.js';
 import { createKubeRunner } from '../apps/backend/src/engine-host/sandboxes/kube.js';
 import { workspaceName } from '../apps/backend/src/engine-host/sandboxes/workspace.js';
 
-dotenv.config({ path: new URL('../apps/backend/.env', import.meta.url).pathname });
+dotenv.config({ path: new URL('../apps/backend/.env', import.meta.url).pathname, quiet: true });
 
 const OWNER = process.env.GROVE_LIVE_OWNER;
 const GOAL = process.env.GROVE_LIVE_GOAL

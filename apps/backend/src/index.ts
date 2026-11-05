@@ -58,7 +58,7 @@ import { collectorSink, NotificationService, PushService, vapidKeysFrom, vapidSu
 import { artifactsRouter, createArtifactService } from './files/index.js';
 
 const startsHere = process.env.NODE_ENV !== 'test' || process.env.IS_E2E === 'true';
-if (startsHere) dotenv.config();
+if (startsHere) dotenv.config({ quiet: true });
 
 const telemetry = startTelemetry(telemetrySettings(process.env, 'koala-backend'));
 

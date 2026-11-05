@@ -16,7 +16,7 @@ import { dropSuiteDatabase, firstAdmin, forgetMeshUser, suiteRoot, workerEnv } f
 import { signUp } from './lib/sign-up.js';
 
 const REPO = resolve(new URL('.', import.meta.url).pathname, '..');
-dotenv.config({ path: join(REPO, 'apps/backend/.env') });
+dotenv.config({ path: join(REPO, 'apps/backend/.env'), quiet: true });
 
 const ROOT = suiteRoot('pool-live', 9475);
 let ownerId: string | undefined;

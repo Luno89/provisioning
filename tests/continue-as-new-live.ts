@@ -6,7 +6,7 @@ import { getTemporalClient } from '../apps/backend/src/platform/lib/temporal-cli
 import { startedFor } from '../apps/backend/src/platform/lib/workflow-owner.js';
 import { DEFAULT_ENGINE_TASK_QUEUE, type AgentRunOutcome, type ProcedureRunInput } from '../apps/backend/src/engine-host/temporal/contracts.js';
 
-dotenv.config({ path: new URL('../apps/backend/.env', import.meta.url).pathname });
+dotenv.config({ path: new URL('../apps/backend/.env', import.meta.url).pathname, quiet: true });
 
 const OWNER = process.env.CONTINUE_LIVE_OWNER ?? process.env.GROVE_LIVE_OWNER;
 const AGENT = process.env.CONTINUE_LIVE_AGENT ?? 'research';
