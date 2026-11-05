@@ -23,7 +23,7 @@ Written by `tests/lib/run-live.ts`, which every `npm run test:*-live` and `test:
 | `machine-live` | 2026-11-04 07:41 | 2026-11-04 07:38 |
 | `machine-probe-live` | 2026-11-04 05:28 | 2026-11-04 05:25 |
 | `mail-live` | 2026-11-02 05:52 | 2026-10-31 00:30 |
-| `mesh-live` | 2026-11-04 15:49 | 2026-11-05 16:13 |
+| `mesh-live` | 2026-11-05 17:14 | 2026-11-05 16:53 |
 | `odoo-customizations-live` | 2026-11-02 06:53 | 2026-10-29 15:22 |
 | `odoo-release-live` | 2026-11-05 13:12 | 2026-10-28 19:41 |
 | `openrouter-connect-live` | 2026-11-05 12:54 | — |

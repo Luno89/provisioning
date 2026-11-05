@@ -550,8 +550,20 @@ stream worker seals on the record (`kubeconfigEnc`) and the workflow hands to ea
 worker holds no data key. A destroy starts it too and, once no app is left on it, stops it. The agent remembers that its cluster should run
 and starts it again when it next connects after a reboot (`startIfWanted`). At rest it shows as `stopped` ("stopped until something runs on
 it"), never unreachable, and is neither read for alerts nor in Needs attention. Removing the machine uninstalls k3s and every app with it,
-and the instance forgets the cluster and its apps' records. Not yet: the GPU toolkit offered at join, workspaces and sandboxes on it, the
-registry relay and egress proxy (stage 4). `test:mesh-live` proves it on two VMs.
+and the instance forgets the cluster and its apps' records. Its ingress is Traefik on a NodePort (the join turns servicelb off), which the instance's edge reaches over the mesh. An app's stack reaches
+the cluster its kubeconfig names; the in-cluster worker's own service account (`K8S_HOST`) is used only for the system cluster
+(`providerConfigFrom` in `packages/cdktf-infra/lib/k8s-provider-service.ts`). **A machine is monitored from its instance** (plan stage 2b):
+its cluster gets only collectors, kube-prometheus-stack in agent mode and a blackbox exporter (`CLUSTER_MONITORING=agent`,
+`constructs/monitoring-agent.ts`), remote-writing to the instance's backend at `MACHINE_METRICS_URL` (the chart's mesh address and backend
+node port; combined, `PUBLIC_URL`) with a token made for that cluster (a Secret `koala-metrics` on the machine, only its hash,
+`metricsTokenHash`, on the cluster record). `POST /api/machines/metrics` (`MachineMetricsRelay`, `machines/lib/machine-metrics.ts`) sets
+`koala_cluster=<cluster id>` on every series from the token alone, at the protobuf wire level, and passes it to the system cluster's
+Prometheus, whose remote-write receiver the chart switches on (`applyReceiver` on the alert watcher's pass for an install from before).
+Every query asked of the system cluster's Prometheus is scoped by `koala_cluster` on each selector (`inCluster` in
+`monitoring/lib/cluster-scope.ts`, through Prometheus's own PromQL parser; the system cluster's own series have none), alerts go to the
+cluster whose series raised them, a machine app's alert rule lives in `monitoring` on the system cluster held to its series, and a
+machine keeps the system cluster's history. Not yet: the GPU toolkit offered at join, workspaces and sandboxes on it, the registry relay
+and egress proxy (stage 4). `test:mesh-live` proves it on two VMs.
 
 **A machine's agent updates itself** (owner, 2026-10-30). The install writes the bundle's sha256 beside the agent
 (`bundle.sha256` in `~/.local/share/koala/machine`), and that is the agent's version: it sends it in its socket handshake
@@ -1542,7 +1554,8 @@ Every worker (host, cluster, engine, stream, a machine's device worker) heartbea
 (`heartbeatWhileRunning` in `@koala/engine-core`), so a dead worker is noticed in a minute and the activity runs again
 elsewhere, while a slow one is never cut off. Helm and `kubectl --wait` take `CLI_CEILING` (720h) for the same reason.
 No wait inside an activity watches a clock: it ends on the thing it waits for, on a state that will never recover
-(`assessWorkload` in `infrastructure/lib/workload-health.ts` — `ImagePullBackOff`, `CrashLoopBackOff` and the like), or on a stop. The
+(`assessWorkload` in `infrastructure/lib/workload-health.ts` — `ImagePullBackOff`, `CrashLoopBackOff` and the like, or pods a quota or
+admission refuses to make, `creationRefused`), or on a stop. The
 pieces that used to cut work off and no longer do:
 - **Model calls** go out through `patientFetch` (`agent-engine/src/model/patient-fetch.ts`): Node's `fetch` with an
   undici `Agent` that has no header or body timeout, so a long prefill or a slow stream is never dropped at 300 s. A call
