@@ -15,6 +15,23 @@
     },
     {
       "kind": "binary",
+      "name": "gitea-server",
+      "version": "1.27.0",
+      "sha256": "3b190a162b90e3c94317b3354fca6c1fedd6fe1476e45088368f2ade97a0b01d",
+      "source": "https://dl.gitea.com/gitea/1.27.0/gitea-1.27.0-linux-amd64",
+      "fetch": "binary",
+      "ciTool": true,
+      "usedIn": [
+        "scripts/ci-tools.sh"
+      ],
+      "github": "go-gitea/gitea",
+      "osv": {
+        "ecosystem": "Go",
+        "name": "code.gitea.io/gitea"
+      }
+    },
+    {
+      "kind": "binary",
       "name": "actionlint",
       "version": "1.7.12",
       "sha256": "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8",
