@@ -246,6 +246,7 @@ export class MonitoringService {
 
   async reach(cluster: ClusterMetadata): Promise<Reached> {
     if (cluster.status === 'provisioning') return { cluster, state: 'installing', reason: 'it is being made' };
+    if (cluster.provider === 'machine' && cluster.status === 'stopped') return { cluster, state: 'stopped', reason: 'its machine stops it while nothing runs on it' };
     if (cluster.status !== 'healthy') return { cluster, state: 'unreachable', reason: `it is ${cluster.status}` };
     const pool = this.deps.pool?.(cluster);
     if (pool) {
@@ -427,7 +428,7 @@ export class MonitoringService {
     const appRows = worstFirst(per.flatMap((entry) => entry.rows));
     const clusterRows = worstFirst(per.map((entry) => entry.row).filter((row) => row.apps > 0 || !row.isSystem || allowed(viewer, 'see-everything', { kind: 'system-cluster', id: row.id })));
     const attention = worstFirst([
-      ...clusterRows.filter((row) => row.state !== 'ok').map((row) => ({ subject: { kind: 'cluster' as const, id: row.id, name: row.name }, state: row.state, reasons: row.reasons, name: row.name })),
+      ...clusterRows.filter((row) => row.state !== 'ok' && row.state !== 'stopped').map((row) => ({ subject: { kind: 'cluster' as const, id: row.id, name: row.name }, state: row.state, reasons: row.reasons, name: row.name })),
       ...appRows.filter((row) => row.state !== 'ok').map((row) => ({ subject: { kind: 'app' as const, id: row.id, name: row.name }, state: row.state, reasons: row.reasons, name: row.name })),
     ]).map(({ name: _name, ...entry }) => entry);
     return { attention, apps: appRows, clusters: clusterRows, firing: per.flatMap((entry) => entry.firing), checkedAt: this.now().toISOString() };

@@ -14,7 +14,7 @@ export interface ClusterMetadata {
   id: string;
   name: string;
   provider: ClusterProviderName;
-  status: 'provisioning' | 'healthy' | 'failed' | 'destroying' | 'discovered' | 'destroyed' | 'starting' | 'stopped';
+  status: 'provisioning' | 'healthy' | 'failed' | 'destroying' | 'discovered' | 'destroyed' | 'stopped';
   kubeconfigPath?: string;
   lastLogPath?: string;
   temporalWorkflowId?: string;

@@ -108,6 +108,15 @@ beforeEach(() => {
 });
 
 describe('the overview', () => {
+  it('shows a machine\'s cluster at rest as stopped, reads it for no alerts, and leaves it out of what needs attention', async () => {
+    const resting = { id: 'machine-desk', name: 'desk', provider: 'machine', status: 'stopped', machineId: 'desk', ownerId: 'me' } as ClusterMetadata;
+    await db.infrastructure.saveCluster(resting);
+    const overview = await monitoring.overview(ME);
+    expect(overview.clusters.find((row) => row.id === 'machine-desk')).toMatchObject({ state: 'stopped', reasons: ['its machine stops it while nothing runs on it'] });
+    expect(overview.attention.some((entry) => entry.subject.id === 'machine-desk')).toBe(false);
+    expect((await monitoring.allClusters()).map((cluster) => cluster.id)).not.toContain('machine-desk');
+  });
+
   it('lists the person\'s apps worst first, with what needs attention', async () => {
     await db.infrastructure.saveDeploymentInfo(dep({ id: 'books', name: 'Books', namespace: 'books' }));
     await db.infrastructure.saveDeploymentInfo(dep({ id: 'shop', name: 'Shop', namespace: 'shop' }));

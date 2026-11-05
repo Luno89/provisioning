@@ -6,7 +6,6 @@ export type ClusterStatus =
   | 'destroying'
   | 'discovered'
   | 'destroyed'
-  | 'starting'
   | 'stopped'
 
 export interface Cluster {
