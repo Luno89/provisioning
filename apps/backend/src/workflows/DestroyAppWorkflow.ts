@@ -7,9 +7,8 @@ import { startMachineCluster, stopMachineClusterWhenIdle } from './machine-clust
 const { DestroyAppActivity } = proxyActivities<{ DestroyAppActivity: (args: DestroyAppArgs) => Promise<DestroyAppResult> }>({ retry: DESTROY_RETRY, ...LIVE_ACTIVITY });
 
 export async function executeDestroyAppWorkflow(args: DestroyAppArgs) {
-  if (!args.machine) return DestroyAppActivity(args);
-  const kubeconfig = await startMachineCluster(args.machine, args.clusterId);
-  const destroyed = await DestroyAppActivity({ ...args, kubeconfig });
-  await stopMachineClusterWhenIdle(args.machine, args.clusterId);
+  const handed = args.machine ? { ...args, kubeconfig: await startMachineCluster(args.machine, args.clusterId) } : args;
+  const destroyed = await DestroyAppActivity(handed);
+  if (args.machine) await stopMachineClusterWhenIdle(args.machine, args.clusterId);
   return destroyed;
 }

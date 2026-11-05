@@ -37,7 +37,7 @@ export const hostCluster = (meshIp: () => Promise<string | undefined>, wantedAt:
     await writeFile(wantedAt, `${new Date().toISOString()}\n`);
   },
   isWanted: () => access(wantedAt).then(() => true, (err: NodeJS.ErrnoException) => { if (err.code === 'ENOENT') return false; throw err; }),
-  meshIp,
+  meshIp: () => meshIp(),
   now: () => Date.now(),
   pause: (ms) => new Promise((done) => setTimeout(done, ms)),
 });
@@ -106,6 +106,11 @@ export async function startIfWanted(host: ClusterHost, log: (line: string) => vo
   log('this machine\'s cluster was running before it stopped, so it starts again for the apps on it');
   await runMachineCluster(host, { kind: 'start' });
   log('this machine\'s cluster is running again');
+}
+
+export async function clusterOnConnect(host: ClusterHost, log: (line: string) => void): Promise<'absent' | 'stopped' | 'running'> {
+  await startIfWanted(host, log).catch((err: Error) => log(`this machine's cluster could not start again: ${err.message}`));
+  return clusterState(host);
 }
 
 export async function uninstallMachineCluster(host: ClusterHost, log: (line: string) => void): Promise<void> {

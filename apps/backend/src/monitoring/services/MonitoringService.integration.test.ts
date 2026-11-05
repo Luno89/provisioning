@@ -9,6 +9,8 @@ import { appQuery, appWindowQuery, clusterQuery, koalaQuery, koalaServicesQuery,
 import { RULE_LABEL, alertSpec, koalaAlertExpression, type AlertSpec, type PromAlert } from '../lib/monitoring-alerts.js';
 import { MonitoringService, type MonitoringDeps, type PrometheusClient, type Sample } from './MonitoringService.js';
 import { AlertWatchService } from './AlertWatchService.js';
+import type { Socket } from 'socket.io';
+import { localAgentStatus, registerDevice, unregisterDevice } from '../../machines/lib/local-agent-registry.js';
 
 const fresh = await emptiedEachTime();
 
@@ -104,12 +106,12 @@ describe('the overview', () => {
     const desk = { id: 'machine-desk', name: 'desk', provider: 'machine', status: 'stopped', machineId: 'desk', ownerId: 'me' } as ClusterMetadata;
     await db.infrastructure.saveCluster(desk);
     await db.infrastructure.saveDeploymentInfo(dep({ id: 'notes', name: 'Notes', namespace: 'notes', clusterId: desk.id, status: 'deploying' }));
-    let online = false;
-    monitoring = new MonitoringService({ ...deps(), machineOnline: (deviceId) => deviceId === 'desk' && online });
+    monitoring = new MonitoringService({ ...deps(), machineStatus: localAgentStatus });
     const offline = await monitoring.overview(ME);
     expect(offline.attention).toContainEqual({ subject: { kind: 'app', id: 'notes', name: 'Notes' }, state: 'warning', reasons: ['it waits for desk, which is offline: it deploys when the machine connects again'] });
-    online = true;
-    const connected = await monitoring.overview(ME);
+    const socket = {} as Socket;
+    registerDevice('desk', 'me', '/home/me/koala', socket);
+    const connected = await monitoring.overview(ME).finally(() => unregisterDevice('desk', socket));
     expect(connected.apps.find((row) => row.id === 'notes')).toMatchObject({ state: 'installing', reasons: ['it is being deployed'] });
   });
 

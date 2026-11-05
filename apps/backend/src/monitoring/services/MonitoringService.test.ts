@@ -113,7 +113,7 @@ describe('the overview', () => {
     await db.infrastructure.saveCluster(desk);
     await db.infrastructure.saveDeploymentInfo(dep({ id: 'notes', name: 'Notes', namespace: 'notes', clusterId: desk.id, status: 'deploying' }));
     let online = false;
-    monitoring = new MonitoringService({ ...deps(), machineOnline: (deviceId) => deviceId === 'desk' && online });
+    monitoring = new MonitoringService({ ...deps(), machineStatus: (deviceId) => ({ online: deviceId === 'desk' && online }) });
     const offline = await monitoring.overview(ME);
     expect(offline.attention).toContainEqual({ subject: { kind: 'app', id: 'notes', name: 'Notes' }, state: 'warning', reasons: ['it waits for desk, which is offline: it deploys when the machine connects again'] });
     online = true;

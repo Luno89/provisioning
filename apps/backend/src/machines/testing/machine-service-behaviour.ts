@@ -3,6 +3,7 @@ import { mock } from 'vitest-mock-extended';
 import type { Database } from '../../platform/lib/db-interface.js';
 import type { LocalAgentDeviceMetadata } from '../../platform/index.js';
 import { tokenLifetime } from '../lib/device-tokens.js';
+import { MachineClusters } from '../services/MachineClusters.js';
 import { MachineService, type MachineAccountSide, type MachineDevices, type MachineDeps } from '../services/MachineService.js';
 
 export function machineServiceBehaviour(make: () => Promise<Database>): void {
@@ -190,11 +191,14 @@ export function machineServiceBehaviour(make: () => Promise<Database>): void {
       expect(projects.register).toHaveBeenCalledWith('bo', 'laptop - koala', { executionTarget: { kind: 'local-device', deviceId: 'mine' } });
       projects.removeFor.mockResolvedValue(undefined);
       const forgotten: string[] = [];
-      const clusters = { forget: vi.fn(async () => undefined) };
+      const clusters = new MachineClusters({ store: db.infrastructure, dataKey: 'machine-service-key' });
+      await clusters.reported({ ...machine, meshIp: '100.64.0.7' }, 'stopped');
+      await db.infrastructure.saveDeployment({ id: 'shop', name: 'shop', clusterId: 'machine-mine', ownerId: 'bo', strategy: 'native', status: 'running' });
       const machines = service({ clusters });
       machines.onForgotten((id) => forgotten.push(id));
       await machines.forget(machine);
-      expect(clusters.forget).toHaveBeenCalledWith(machine);
+      expect((await db.infrastructure.getClusters()).some((cluster) => cluster.id === 'machine-mine')).toBe(false);
+      expect((await db.infrastructure.getDeployments()).some((app) => app.id === 'shop')).toBe(false);
       expect(devices.tell).not.toHaveBeenCalled();
       expect(devices.drop).toHaveBeenCalledWith('mine');
       expect(forgotten).toEqual(['mine']);

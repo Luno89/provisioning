@@ -103,7 +103,7 @@ export interface MonitoringDeps {
   kubectl(cluster: ClusterMetadata, args: string[]): Promise<string>;
   apply(cluster: ClusterMetadata, manifest: string): Promise<void>;
   helm(cluster: ClusterMetadata, args: string[]): Promise<string>;
-  machineOnline?(deviceId: string): boolean;
+  machineStatus?(deviceId: string): { online: boolean };
   now?: () => Date;
   newId?: () => string;
 }
@@ -395,9 +395,9 @@ export class MonitoringService {
   }
 
   private waitingOnMachine(dep: DeploymentMetadata, cluster: ClusterMetadata): string | undefined {
-    if (cluster.provider !== 'machine' || !cluster.machineId || !this.deps.machineOnline) return undefined;
+    if (cluster.provider !== 'machine' || !cluster.machineId || !this.deps.machineStatus) return undefined;
     if (dep.status !== 'deploying' && dep.status !== 'destroying') return undefined;
-    if (this.deps.machineOnline(cluster.machineId)) return undefined;
+    if (this.deps.machineStatus(cluster.machineId).online) return undefined;
     return `it waits for ${cluster.name}, which is offline: it ${dep.status === 'deploying' ? 'deploys' : 'is removed'} when the machine connects again`;
   }
 

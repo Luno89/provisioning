@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { mock } from 'vitest-mock-extended';
 import { MACHINE_CLUSTER_ABSENT, MACHINE_OFF_MESH } from '@koala/engine-core';
-import { K3S_BINARY, K3S_KILLALL, K3S_KUBECONFIG, K3S_MARKER, K3S_UNINSTALL, clusterState, kubeconfigOnMesh, readySince, runMachineCluster, startIfWanted, uninstallMachineCluster, type ClusterHost } from './machine-cluster.js';
+import { K3S_BINARY, K3S_KILLALL, K3S_KUBECONFIG, K3S_MARKER, K3S_UNINSTALL, clusterOnConnect, clusterState, kubeconfigOnMesh, readySince, runMachineCluster, startIfWanted, uninstallMachineCluster, type ClusterHost } from './machine-cluster.js';
 
 const START = Date.parse('2026-11-05T10:00:00Z');
 const KUBECONFIG = 'apiVersion: v1\nclusters:\n- cluster:\n    server: https://127.0.0.1:6443\n';
@@ -101,6 +101,16 @@ describe('a machine\'s own cluster', () => {
     const running = host({ wanted: true, active: 'active' });
     await startIfWanted(running.machine, () => undefined);
     expect(running.calls.some((call) => call.includes('start k3s'))).toBe(false);
+  });
+
+  it('on connecting, starts a cluster that should run and says how it stands, and still says how it stands when starting it failed', async () => {
+    const rebooted = host({ wanted: true });
+    expect(await clusterOnConnect(rebooted.machine, () => undefined)).toBe('running');
+    const broken = host({ wanted: true, meshIp: undefined });
+    const said: string[] = [];
+    expect(await clusterOnConnect(broken.machine, (line) => said.push(line))).toBe('stopped');
+    expect(said.at(-1)).toBe(`this machine's cluster could not start again: ${MACHINE_OFF_MESH}`);
+    expect(await clusterOnConnect(host({ installed: false }).machine, () => undefined)).toBe('absent');
   });
 
   it('judges readiness only from a transition since the start, and points the kubeconfig at the mesh', () => {

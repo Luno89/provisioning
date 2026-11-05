@@ -21,7 +21,7 @@ export function clusterAccess(cluster: ClusterRef): { physicalName: string; kube
 }
 
 export async function handedKubeconfig(clusterId: string, kubeconfig: string): Promise<string> {
-  const where = path.join(os.tmpdir(), `kubeconfig-handed-${clusterId}`);
+  const where = path.join(os.tmpdir(), `handed-kubeconfig-${clusterId}`);
   await writePrivate(where, kubeconfig);
   return where;
 }

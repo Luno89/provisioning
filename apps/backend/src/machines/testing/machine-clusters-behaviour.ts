@@ -50,6 +50,16 @@ export function machineClustersBehaviour(make: () => Promise<Database>): void {
       expect((await stored())?.status).toBe('stopped');
     });
 
+    it('takes the time from the clock when it is given none', async () => {
+      const unclocked = new MachineClusters({ store: db.infrastructure, dataKey: KEY });
+      const before = Date.now();
+      await unclocked.reported(DESK, 'stopped');
+      await unclocked.started('machine-desk', { state: 'running', meshIp: DESK.meshIp, kubeconfig: 'k' });
+      const record = (await stored())!;
+      expect(Date.parse(record.createdAt!)).toBeGreaterThanOrEqual(before);
+      expect(Date.parse(record.lastSyncedAt!)).toBeGreaterThanOrEqual(before);
+    });
+
     it('refuses a start of a cluster it does not know or one that did not come up', async () => {
       await expect(clusters.started('machine-nobody', { state: 'running', meshIp: 'x', kubeconfig: 'y' })).rejects.toThrow('machine-nobody is not a machine\'s cluster this Koala knows');
       await clusters.reported(DESK, 'stopped');

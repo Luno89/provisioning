@@ -2,7 +2,7 @@ import { anyOf, matching, objectWith } from '../../platform/lib/test-matchers.js
 import { describe, it, expect, vi } from 'vitest';
 import { MockActivityEnvironment } from '@temporalio/testing';
 import { stepImplementation } from '@koala/agent-engine/procedure';
-import { CANCEL_POLL_MS, createEngineActivities, createNodeRunner, NODE_HEARTBEAT_MS, type EngineServices } from './activities.js';
+import { CANCEL_POLL_MS, createEngineActivities, createNodeRunner, createStreamActivities, NODE_HEARTBEAT_MS, type EngineServices } from './activities.js';
 import type { Task } from '../tools/tasks.js';
 import { createEventBus, type EngineEvent } from '@koala/agent-engine';
 import { createAgentRegistry } from '../registries/registry.js';
@@ -399,5 +399,26 @@ describe('sending a workspace\'s work to a machine', () => {
     expect(exec).toHaveBeenCalledWith({ command: 'true' });
     expect(sendBranch).toHaveBeenCalledWith(objectWith({ repo: 'conversation-c1', folder: '/work', branch: 'machine/d/k' }));
     expect(sent).toEqual({ repo: 'conversation-c1', folder: '/work', commit: 'c0ffee' });
+  });
+});
+
+describe('recording a machine\'s cluster as the workflows start and stop it', () => {
+  const records = () => ({ started: vi.fn(async () => undefined), stopped: vi.fn(async () => undefined), idle: vi.fn(async () => true) });
+  const streamWith = (machineClusters?: ReturnType<typeof records>) => createStreamActivities({ registry: {} as never, endpoints: {} as never, bus: createEventBus(), machineClusters });
+
+  it('hands each step to the cluster records', async () => {
+    const clusters = records();
+    const activities = streamWith(clusters);
+    const result = { state: 'running' as const, meshIp: '100.64.0.7', kubeconfig: 'k' };
+    await activities.EngineMachineClusterStartedActivity({ clusterId: 'machine-desk', result });
+    await activities.EngineMachineClusterStoppedActivity({ clusterId: 'machine-desk' });
+    expect(await activities.EngineMachineClusterIdleActivity({ clusterId: 'machine-desk', leaving: 'shop' })).toBe(true);
+    expect(clusters.started).toHaveBeenCalledWith('machine-desk', result);
+    expect(clusters.stopped).toHaveBeenCalledWith('machine-desk');
+    expect(clusters.idle).toHaveBeenCalledWith('machine-desk', 'shop');
+  });
+
+  it('fails for good where this Koala keeps no machine clusters', async () => {
+    await expect(streamWith().EngineMachineClusterIdleActivity({ clusterId: 'machine-desk' })).rejects.toThrow('keeps no machine clusters');
   });
 });
