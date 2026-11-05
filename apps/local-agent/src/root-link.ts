@@ -13,6 +13,7 @@ export interface RootLinkOptions {
   meshIp: () => Promise<string | undefined>;
   onKoala: (koala: Koala) => void;
   onRemoved: () => void;
+  onPlaceKoala?: ((raw: unknown) => boolean) | undefined;
   say: (line: string) => void;
   renewBeforeSeconds?: number | undefined;
   connect?: ((url: string, options: Parameters<typeof io>[1]) => Socket) | undefined;
@@ -68,6 +69,10 @@ export function linkToRoot(options: RootLinkOptions): RootLink {
   socket.on('machine:removed', () => {
     socket.io.opts.reconnection = false;
     options.onRemoved();
+  });
+  socket.on('machine:place-koala', (raw: unknown, ack?: (answer: { taken: boolean }) => void) => {
+    const taken = options.onPlaceKoala?.(raw) ?? false;
+    if (typeof ack === 'function') ack({ taken });
   });
   socket.on('machine:koala', (raw: unknown) => {
     const koala = koalaFrom(raw);

@@ -571,3 +571,29 @@ describe('whether root tells an owner their instance cannot be reached', () => {
     expect(await pool.setWatchOf('u2', false)).toMatchObject({ ok: false, status: 409 });
   });
 });
+
+describe('putting a person\'s Koala on one of their machines', () => {
+  const desk = { id: 'desk', name: 'desk', meshIp: '100.64.0.7' };
+
+  it('makes their instance on the machine and hands the machine everything to install it, a credential only it holds', async () => {
+    const placed = await service.placeOn('u1', desk, 'luno');
+    expect(placed).toMatchObject({ ok: true, value: {
+      instanceId: instanceIdFor('u1'), ownerId: 'u1', machineId: 'desk', rootUrl: 'https://app.example.com', rootPublicKeys: 'PEM-1',
+      meshLoginServer: 'https://mesh.example.com', meshAddress: '100.64.0.7', image: '100.64.0.1:5001/nowrinkles/app', imageTag: 'abc123',
+      chartUrl: 'https://app.example.com/api/instances/chart.tgz', name: 'luno', domain: 'koala.dev',
+    } });
+    if (!placed.ok) throw new Error(placed.error);
+    expect((await db.instances.getInstances('u1'))[0]).toMatchObject({ status: 'joined', machine: 'desk', machineId: 'desk', name: 'luno', credentialHash: hashCredential(placed.value.credential) });
+  });
+
+  it('puts it again on the same machine with a new credential, and refuses another machine while one holds it, one off the mesh, or a trial on Koala\'s servers', async () => {
+    const first = await service.placeOn('u1', desk, 'luno');
+    const again = await service.placeOn('u1', desk);
+    if (!first.ok || !again.ok) throw new Error('not placed');
+    expect(again.value.credential).not.toBe(first.value.credential);
+    expect(await service.placeOn('u1', { id: 'laptop', name: 'laptop', meshIp: '100.64.0.8' })).toMatchObject({ ok: false, status: 409, error: 'your Koala is on desk; moving it is a step of its own' });
+    expect(await service.placeOn('u2', { id: 'nas', name: 'nas' }, 'nasbox')).toMatchObject({ ok: false, status: 409, error: 'nas is not on your private network yet; Koala is put on it once it is' });
+    await db.instances.saveInstance({ id: instanceIdFor('u3'), ownerId: 'u3', url: '', createdAt: 'then', updatedAt: 'then', status: 'ready', pool: { namespace: 'pool-x' } as never });
+    expect(await service.placeOn('u3', desk, 'trial')).toMatchObject({ ok: false, status: 409 });
+  });
+});

@@ -62,6 +62,6 @@ export class MongoMachinesStore implements MachinesStore {
   async takeMachineJoinCode(hash: string): Promise<MachineJoinCode | undefined> {
     const doc = await this.machineJoinCodes.findOneAndDelete({ _id: hash as never });
     if (!doc) return undefined;
-    return { hash, ownerId: doc.ownerId as string, expiresAt: (doc.expiresAt as Date).toISOString() };
+    return { hash, ownerId: doc.ownerId as string, expiresAt: (doc.expiresAt as Date).toISOString(), ...(typeof doc.koalaName === 'string' ? { koalaName: doc.koalaName } : {}) };
   }
 }

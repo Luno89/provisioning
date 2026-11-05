@@ -1,6 +1,7 @@
 import { createMachineGit } from './machine-git.js';
 import { mkdir } from 'fs/promises';
 import path from 'node:path';
+import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { io, type Socket } from 'socket.io-client';
 import {
@@ -22,7 +23,8 @@ import { LocalMcpServer } from './local-mcp.js';
 import { engineSettingsOver, remoteBlobs } from './remote-blobs.js';
 import { DeviceWorkerHost } from './device-worker-host.js';
 import { forgetThisMachine, meshIp } from './machine-removal.js';
-import { clusterOnConnect, hostCluster, runMachineCluster, uninstallMachineCluster } from './machine-cluster.js';
+import { clusterOnConnect, hostCluster, runMachineCluster, startIfWanted, uninstallMachineCluster } from './machine-cluster.js';
+import { installKoala, placedFrom } from './koala-install.js';
 import { startTelemetry } from '@koala/engine-core/telemetry-sdk';
 import { socketSink } from './telemetry-sink.js';
 import { IdleGate, holding, type Release } from './idle-gate.js';
@@ -96,6 +98,18 @@ const machineCluster = hostCluster(meshIp);
 
 const say = (line: string) => console.log(`[koala-local-agent] ${line}`);
 
+const helmBinary = (env: NodeJS.ProcessEnv = process.env) => path.join(env.XDG_DATA_HOME || path.join(os.homedir(), '.local', 'share'), 'koala', 'bin', 'helm');
+
+let placing = false;
+const placeKoala = (raw: unknown): boolean => {
+  const placed = placedFrom(raw);
+  if (!placed || placing) return false;
+  placing = true;
+  say(`root asks for Koala on this machine (${placed.instanceId})`);
+  void installKoala(placed, { cluster: machineCluster, helm: helmBinary(), fetch, say }).finally(() => { placing = false; });
+  return true;
+};
+
 const forgetAndStop = (closing: () => Promise<unknown>) => {
   void closing()
     .finally(() => uninstallMachineCluster(machineCluster, say))
@@ -108,6 +122,7 @@ async function main() {
   const { rootUrl, rootDir } = config;
   await mkdir(rootDir, { recursive: true });
   const service = serviceManagerOf(process.platform, process.env, await readCgroup());
+  void startIfWanted(machineCluster, say).catch((err: Error) => say(`this machine's cluster could not start again: ${err.message}`));
   let sessionsOf: ExternalAgentSessions | undefined;
   let working: { url: string; setToken(token: string): Promise<void> } | undefined;
   const root = linkToRoot({
@@ -117,6 +132,7 @@ async function main() {
     meshIp,
     say,
     onRemoved: () => forgetAndStop(() => sessionsOf?.closeAll() ?? Promise.resolve()),
+    onPlaceKoala: placeKoala,
     onKoala: (koala) => {
       if (!working) {
         working = startWork(config, koala.url, koala.workToken, service, () => root.askKoala(), (sessions) => { sessionsOf = sessions; });

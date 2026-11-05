@@ -7,7 +7,7 @@ const START = Date.parse('2026-11-05T10:00:00Z');
 const KUBECONFIG = 'apiVersion: v1\nclusters:\n- cluster:\n    server: https://127.0.0.1:6443\n';
 const at = (ms: number) => new Date(ms).toISOString();
 
-function host(opts: { installed?: boolean; active?: string; meshIp?: string | undefined; readyAt?: number[]; failsAfter?: number; wanted?: boolean } = {}) {
+function host(opts: { installed?: boolean; active?: string; meshIp?: string | undefined; readyAt?: number[]; failsAfter?: number; wanted?: boolean; koala?: boolean } = {}) {
   const machine = mock<ClusterHost>();
   const calls: string[] = [];
   const readyAt = [...(opts.readyAt ?? [START + 5000])];
@@ -21,6 +21,7 @@ function host(opts: { installed?: boolean; active?: string; meshIp?: string | un
   let wanted = opts.wanted ?? false;
   machine.wanted.mockImplementation(async (running) => { wanted = running; calls.push(`wanted ${running}`); });
   machine.isWanted.mockImplementation(async () => wanted);
+  machine.holdsKoala.mockResolvedValue(opts.koala ?? false);
   machine.run.mockImplementation(async (file, args) => {
     calls.push([file, ...args].join(' '));
     if (file === 'systemctl' && args[0] === 'show') return `${state}\n`;
@@ -58,6 +59,12 @@ describe('a machine\'s own cluster', () => {
     expect(await runMachineCluster(machine, { kind: 'stop' })).toEqual({ state: 'stopped' });
     expect(calls).toEqual(['sudo -n systemctl stop k3s', `sudo -n ${K3S_KILLALL}`, 'wanted false']);
     expect(await runMachineCluster(host({ installed: false }).machine, { kind: 'stop' })).toEqual({ state: 'absent' });
+  });
+
+  it('keeps running when asked to stop while Koala is on it, answering as a running cluster', async () => {
+    const { machine, calls } = host({ active: 'active', koala: true, readyAt: [START - 3_600_000] });
+    expect(await runMachineCluster(machine, { kind: 'stop' })).toMatchObject({ state: 'running', meshIp: '100.64.0.7' });
+    expect(calls.some((call) => call.includes('stop') || call.includes(K3S_KILLALL))).toBe(false);
   });
 
   it('refuses to start without k3s or off the mesh, and fails with k3s\'s own words when its unit fails while starting', async () => {

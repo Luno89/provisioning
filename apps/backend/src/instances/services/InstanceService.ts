@@ -94,6 +94,30 @@ export interface JoinBundle {
   move?: boolean | undefined;
 }
 
+export interface PlacedKoala {
+  instanceId: string;
+  ownerId: string;
+  machineId: string;
+  rootUrl: string;
+  rootPublicKeys: string;
+  meshLoginServer: string;
+  meshAddress: string;
+  image: string;
+  imageTag: string;
+  imageDigest?: string | undefined;
+  chartUrl: string;
+  chartSha256?: string | undefined;
+  credential: string;
+  name: string;
+  domain: string;
+}
+
+export interface PlacingMachine {
+  id: string;
+  name: string;
+  meshIp?: string | undefined;
+}
+
 export type Outcome<T> = { ok: true; value: T } | { ok: false; status: 400 | 401 | 404 | 409 | 503; error: string };
 
 export const hashCredential = (secret: string): string => crypto.createHash('sha256').update(secret).digest('hex');
@@ -325,6 +349,49 @@ export class InstanceService {
         name: instance?.name ?? '',
         domain: this.settings.domain ?? '',
         ...(found.move ? { move: true } : {}),
+      },
+    };
+  }
+
+  async placeOn(ownerId: string, machine: PlacingMachine, requestedName?: unknown): Promise<Outcome<PlacedKoala>> {
+    if (!this.settings.meshLoginServer) return { ok: false, status: 503, error: 'this root has no mesh configured (MESH_LOGIN_SERVER), so no machine can hold a Koala' };
+    if (!this.settings.registry) return { ok: false, status: 503, error: 'this root has no registry for machines to pull from (INSTANCE_REGISTRY)' };
+    if (!machine.meshIp) return { ok: false, status: 409, error: `${machine.name} is not on your private network yet; Koala is put on it once it is` };
+    const existing = (await this.store.instances.getInstances(ownerId))[0];
+    if (existing?.pool && existing.status !== 'failed') return { ok: false, status: 409, error: 'your Koala runs on Koala\'s servers; moving it to your machine keeps your work, and starting afresh there would not' };
+    if (existing && existing.status !== 'failed' && existing.status !== 'waiting' && existing.machineId && existing.machineId !== machine.id) {
+      return { ok: false, status: 409, error: `your Koala is on ${existing.machine ?? 'another machine'}; moving it is a step of its own` };
+    }
+    const named = await this.nameFor(ownerId, requestedName);
+    if (!named.ok) return { ok: false, status: 400, error: named.error };
+    const credential = crypto.randomBytes(32).toString('base64url');
+    const instanceId = existing?.id ?? instanceIdFor(ownerId);
+    const now = this.now().toISOString();
+    await this.save(existing ?? { id: instanceId, ownerId, url: '', createdAt: now, updatedAt: now }, {
+      status: 'joined',
+      detail: `${machine.name} is putting Koala on itself`,
+      credentialHash: hashCredential(credential),
+      machine: machine.name,
+      machineId: machine.id,
+      name: named.name,
+    });
+    return {
+      ok: true,
+      value: {
+        instanceId,
+        ownerId,
+        machineId: machine.id,
+        rootUrl: this.settings.rootUrl,
+        rootPublicKeys: this.settings.rootPublicKeys().join('\n'),
+        meshLoginServer: this.settings.meshLoginServer,
+        meshAddress: machine.meshIp,
+        image: `${this.settings.registry}/nowrinkles/app`,
+        imageTag: this.settings.imageTag,
+        chartUrl: `${this.settings.rootUrl}/api/instances/chart.tgz`,
+        ...pinned(findRelease(await this.knownReleases(), this.settings.imageTag)),
+        credential,
+        name: named.name,
+        domain: this.settings.domain ?? '',
       },
     };
   }

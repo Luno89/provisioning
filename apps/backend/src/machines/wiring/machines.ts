@@ -14,6 +14,7 @@ import type { MachineService } from '../services/MachineService.js';
 import type { ProjectRepoService } from '../../projects/index.js';
 import { localAgentsRouter } from '../routes/local-agents.js';
 import { machinesRouter } from '../routes/machines.js';
+import { myMachinesRouter } from '../routes/my-machines.js';
 
 export type Routes = { use(path: string, router: express.Router | express.RequestHandler): unknown; get(path: string, handler: express.RequestHandler): unknown };
 
@@ -80,6 +81,15 @@ export function wireMachines(deps: MachinesWiringDeps): void {
       accounts,
       callerOf: async (req) => instanceCaller?.(String(req.headers['x-instance-id'] ?? ''), String(req.headers.authorization ?? '').replace(/^Bearer\s+/i, '')),
     }));
+    if (!deps.servesTenants) {
+      deps.app.use('/api/my-machines', myMachinesRouter({
+        accounts,
+        koalaOf: async (ownerId) => {
+          const instance = (await db.instances.getInstances(ownerId))[0];
+          return instance ? { machineId: instance.machineId, status: instance.status } : undefined;
+        },
+      }));
+    }
     deps.app.get('/machine.sh', asyncRoute(async (_req, res) => {
       const installer = await fs.readFile(path.join(deps.repoRoot, 'scripts/machine/machine.sh'), 'utf8');
       res.type('text/x-shellscript').send(installer.replaceAll('__KOALA_URL__', deps.publicUrl));

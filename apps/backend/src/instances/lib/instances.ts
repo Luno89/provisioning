@@ -32,6 +32,7 @@ export interface InstanceRecord {
   servedAt?: string | undefined;
   credentialHash?: string | undefined;
   machine?: string | undefined;
+  machineId?: string | undefined;
   name?: string | undefined;
   meshIp?: string | undefined;
   addresses?: InstanceAddresses | undefined;

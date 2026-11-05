@@ -2,7 +2,7 @@ import type { Server as SocketServer } from 'socket.io';
 import { holdsAccounts, runOnce, servesTenants, type Database, type RoleConfig, type SecretKey } from '../../platform/index.js';
 import { RootMachines, type InstanceRecord } from '../../instances/index.js';
 import { COMBINED_AUDIENCE } from '../lib/work-tokens.js';
-import { MachineAccounts, type KoalaPlace } from '../services/MachineAccounts.js';
+import { MachineAccounts, type KoalaPlace, type KoalaPlacer } from '../services/MachineAccounts.js';
 import { MachineMirror } from '../services/MachineMirror.js';
 import { MachineService, type MachineDeps } from '../services/MachineService.js';
 import { MachineClusters } from '../services/MachineClusters.js';
@@ -27,7 +27,11 @@ export interface MachineSidesDeps {
 }
 
 export interface InstancesNow {
-  service?: { koalaOf(ownerId: string): Promise<KoalaPlace | undefined>; caller(instanceId: string, credential: string): Promise<{ ownerId: string } | undefined> } | undefined;
+  service?: {
+    koalaOf(ownerId: string): Promise<KoalaPlace | undefined>;
+    caller(instanceId: string, credential: string): Promise<{ ownerId: string } | undefined>;
+    placeOn?: KoalaPlacer['placeOn'] | undefined;
+  } | undefined;
   tellInstance?: ((instanceId: string, event: string) => void) | undefined;
 }
 
@@ -48,7 +52,7 @@ export function machineSides(deps: MachineSidesDeps): MachineSides {
   const ownerInstances = async (ownerId: string) => {
     for (const instance of await db.instances.getInstances(ownerId)) deps.instances()?.tellInstance?.(instance.id, 'machines:changed');
   };
-  let toMachines: AccountSockets = { removed: () => false, koala: () => false };
+  let toMachines: AccountSockets = { removed: () => false, koala: () => false, placeKoala: async () => false, online: () => false };
   let machines: MachineService | undefined;
   const accounts = holdsAccounts(role) && role.signing ? new MachineAccounts({
     store: db.machines,
@@ -59,7 +63,8 @@ export function machineSides(deps: MachineSidesDeps): MachineSides {
     followers: tenants
       ? { joined: (machine) => machines!.adopt(machine), removed: (machine) => machines!.forget(machine), changed: async () => undefined }
       : { joined: (machine) => ownerInstances(machine.ownerId), removed: (machine) => ownerInstances(machine.ownerId), changed: (ownerId) => ownerInstances(ownerId) },
-    toMachines: { removed: (deviceId) => toMachines.removed(deviceId), koala: (deviceId, koala) => toMachines.koala(deviceId, koala) },
+    toMachines: { removed: (deviceId) => toMachines.removed(deviceId), koala: (deviceId, koala) => toMachines.koala(deviceId, koala), placeKoala: (deviceId, placed) => toMachines.placeKoala(deviceId, placed), online: (deviceId) => toMachines.online(deviceId) },
+    placer: { placeOn: async (ownerId, machine, name) => (deps.instances()?.service?.placeOn ? deps.instances()!.service!.placeOn!(ownerId, machine, name) : { ok: false, status: 503, error: 'this Koala holds no instances to put on machines' }) },
     mesh: deps.mesh,
   }) : undefined;
   const clusters = tenants ? new MachineClusters({ store: db.infrastructure, dataKey: deps.dataKey }) : undefined;

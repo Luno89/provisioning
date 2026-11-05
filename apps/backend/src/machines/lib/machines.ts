@@ -7,6 +7,7 @@ export interface MachineJoinCode {
   hash: string;
   ownerId: string;
   expiresAt: string;
+  koalaName?: string | undefined;
 }
 
 export type MachineAgentState = 'checking' | 'ready' | 'needs-adapter' | 'not-answering';

@@ -29,6 +29,7 @@ export { IdentityService } from './services/IdentityService.js';
 export { InstanceGroups } from './services/InstanceGroups.js';
 export { InstanceReach, instanceReachFrom } from './services/InstanceReach.js';
 export { hashCredential, instanceIdFor } from './services/InstanceService.js';
+export type { PlacedKoala, PlacingMachine } from './services/InstanceService.js';
 export { kubeconfigFile, MoveRelay } from './services/MoveRelay.js';
 export { restoreMongo } from './services/mongo-restore.js';
 export { inventoryFileFor } from './services/release-files.js';

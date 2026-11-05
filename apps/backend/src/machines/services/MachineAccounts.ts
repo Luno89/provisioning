@@ -1,7 +1,7 @@
 import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import type { LocalAgentDeviceMetadata, SecretKey } from '../../platform/index.js';
-import type { IdentityKeyPair } from '../../instances/index.js';
+import type { IdentityKeyPair, PlacedKoala, PlacingMachine } from '../../instances/index.js';
 import { matchDeviceToken } from '../lib/local-agent-registry.js';
 import { deviceTokenHash, newDeviceToken, promotedNext, rotationDue, tokenLifetime, withNextToken, type TokenVia } from '../lib/device-tokens.js';
 import { MACHINE_CODE_TTL_SECONDS, hashMachineCode, machineCommand, meshAddress, newMachineCode } from '../lib/machines.js';
@@ -31,6 +31,12 @@ export interface KoalaPlace {
 export interface MachineMessages {
   removed(deviceId: string): boolean;
   koala(deviceId: string, koala: { url: string; workToken: string } | null): boolean;
+  placeKoala?(deviceId: string, placed: PlacedKoala): Promise<boolean>;
+  online?(deviceId: string): boolean;
+}
+
+export interface KoalaPlacer {
+  placeOn(ownerId: string, machine: PlacingMachine, name?: unknown): Promise<Outcome<PlacedKoala>>;
 }
 
 export interface MachineFollowers {
@@ -47,6 +53,7 @@ export interface MachineAccountsDeps {
   koala: { of(ownerId: string): Promise<KoalaPlace | undefined> };
   followers: MachineFollowers;
   toMachines: MachineMessages;
+  placer?: KoalaPlacer | undefined;
   mesh?: {
     createPreAuthKey(ownerId: string, opts?: { reusable?: boolean; expirySeconds?: number }): Promise<{ key: string }>;
     removeNode?(ownerId: string, meshIp: string): Promise<void>;
@@ -116,10 +123,15 @@ export class MachineAccounts {
     return (await this.deps.store.getLocalAgentDevices()).filter((device) => device.ownerId === ownerId).map(accountMachineOf);
   }
 
-  async createJoinCode(ownerId: string): Promise<{ code: string; command: string; expiresAt: string }> {
+  async listOnline(ownerId: string): Promise<Array<AccountMachine & { online: boolean; koalaWanted: boolean }>> {
+    return (await this.deps.store.getLocalAgentDevices()).filter((device) => device.ownerId === ownerId)
+      .map((device) => ({ ...accountMachineOf(device), online: this.deps.toMachines.online?.(device.id) ?? false, koalaWanted: Boolean(device.koalaWanted) }));
+  }
+
+  async createJoinCode(ownerId: string, koalaName?: string): Promise<{ code: string; command: string; expiresAt: string }> {
     const code = newMachineCode();
     const expiresAt = new Date(this.now().getTime() + MACHINE_CODE_TTL_SECONDS * 1000).toISOString();
-    await this.deps.store.saveMachineJoinCode({ hash: hashMachineCode(code), ownerId, expiresAt });
+    await this.deps.store.saveMachineJoinCode({ hash: hashMachineCode(code), ownerId, expiresAt, ...(koalaName ? { koalaName } : {}) });
     return { code, expiresAt, command: machineCommand(this.deps.settings.url, code) };
   }
 
@@ -150,6 +162,7 @@ export class MachineAccounts {
       ...tokenLifetime(this.now()),
       createdAt: replaced?.createdAt ?? this.now().toISOString(),
       ...(os ? { os } : {}),
+      ...(found.koalaName ? { koalaWanted: { name: found.koalaName } } : {}),
     };
     await this.deps.store.saveLocalAgentDevice(device);
     if (!replaced) await this.deps.followers.joined(accountMachineOf(device)).catch((err: Error) => console.warn(`[machines] ${name} joined, but its Koala could not be told: ${err.message}`));
@@ -192,6 +205,28 @@ export class MachineAccounts {
     if (!place) return undefined;
     const workToken = issueWorkToken(this.deps.signing, { machineId: device.id, ownerId: device.ownerId, audience: place.audience }, Math.floor(this.now().getTime() / 1000));
     return { url: place.url, workToken };
+  }
+
+  async putKoalaOn(ownerId: string, deviceId: string, name?: string): Promise<Outcome<{ placing: boolean }>> {
+    const device = await this.byId(deviceId);
+    if (!device || device.ownerId !== ownerId) return { ok: false, status: 404, error: 'no such machine on your account' };
+    if (!this.deps.placer) return { ok: false, status: 503, error: 'this Koala does not put Koala on machines' };
+    await this.deps.store.updateLocalAgentDevice(device.id, { set: { koalaWanted: { name: name ?? device.koalaWanted?.name ?? '' } } });
+    return this.deliverKoala(device.id);
+  }
+
+  async deliverKoala(deviceId: string): Promise<Outcome<{ placing: boolean }>> {
+    const device = await this.byId(deviceId);
+    if (!device?.koalaWanted) return { ok: true, value: { placing: false } };
+    if (!this.deps.placer) return { ok: false, status: 503, error: 'this Koala does not put Koala on machines' };
+    const placed = await this.deps.placer.placeOn(device.ownerId, { id: device.id, name: device.name, ...(device.meshIp ? { meshIp: device.meshIp } : {}) }, device.koalaWanted.name || undefined);
+    if (!placed.ok) {
+      if (placed.status !== 409 || device.meshIp) await this.deps.store.updateLocalAgentDevice(device.id, { unset: ['koalaWanted'] });
+      return placed;
+    }
+    const taken = await this.deps.toMachines.placeKoala?.(device.id, placed.value) ?? false;
+    if (taken) await this.deps.store.updateLocalAgentDevice(device.id, { unset: ['koalaWanted'] });
+    return { ok: true, value: { placing: taken } };
   }
 
   async tellKoala(ownerId: string): Promise<void> {

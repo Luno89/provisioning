@@ -18,6 +18,8 @@ export interface ClusterHost {
   read(path: string): Promise<string>;
   wanted(running: boolean): Promise<void>;
   isWanted(): Promise<boolean>;
+  holdKoala(instanceId: string): Promise<void>;
+  holdsKoala(): Promise<boolean>;
   meshIp(): Promise<string | undefined>;
   now(): number;
   pause(ms: number): Promise<void>;
@@ -27,7 +29,11 @@ const execute = promisify(execFile);
 
 export const wantedFile = (env: NodeJS.ProcessEnv = process.env): string => path.join(env.XDG_DATA_HOME || path.join(os.homedir(), '.local', 'share'), 'koala', 'cluster-wanted');
 
-export const hostCluster = (meshIp: () => Promise<string | undefined>, wantedAt: string = wantedFile()): ClusterHost => ({
+export const koalaHereFile = (env: NodeJS.ProcessEnv = process.env): string => path.join(env.XDG_DATA_HOME || path.join(os.homedir(), '.local', 'share'), 'koala', 'koala-here');
+
+const present = (file: string) => access(file).then(() => true, (err: NodeJS.ErrnoException) => { if (err.code === 'ENOENT') return false; throw err; });
+
+export const hostCluster = (meshIp: () => Promise<string | undefined>, wantedAt: string = wantedFile(), koalaHere: string = koalaHereFile()): ClusterHost => ({
   run: async (file, args) => (await execute(file, args, { maxBuffer: 16 * 1024 * 1024 })).stdout,
   exists: (path) => access(path).then(() => true, (err: NodeJS.ErrnoException) => { if (err.code === 'ENOENT') return false; throw err; }),
   read: (path) => readFile(path, 'utf8'),
@@ -36,7 +42,12 @@ export const hostCluster = (meshIp: () => Promise<string | undefined>, wantedAt:
     await mkdir(path.dirname(wantedAt), { recursive: true });
     await writeFile(wantedAt, `${new Date().toISOString()}\n`);
   },
-  isWanted: () => access(wantedAt).then(() => true, (err: NodeJS.ErrnoException) => { if (err.code === 'ENOENT') return false; throw err; }),
+  isWanted: () => present(wantedAt),
+  holdKoala: async (instanceId) => {
+    await mkdir(path.dirname(koalaHere), { recursive: true });
+    await writeFile(koalaHere, `${instanceId}\n`);
+  },
+  holdsKoala: () => present(koalaHere),
   meshIp: () => meshIp(),
   now: () => Date.now(),
   pause: (ms) => new Promise((done) => setTimeout(done, ms)),
@@ -85,7 +96,7 @@ export async function runMachineCluster(host: ClusterHost, op: MachineClusterOp)
     if (op.kind === 'stop') return { state: 'absent' };
     throw new Error(MACHINE_CLUSTER_ABSENT);
   }
-  if (op.kind === 'stop') {
+  if (op.kind === 'stop' && !await host.holdsKoala()) {
     await host.run('sudo', ['-n', 'systemctl', 'stop', 'k3s']);
     await host.run('sudo', ['-n', K3S_KILLALL]);
     await host.wanted(false);

@@ -229,6 +229,7 @@ export interface LocalAgentDeviceMetadata {
   manualAgents?: ManualMachineAgent[] | undefined;
   agentBundle?: string | undefined;
   agentUpdate?: AgentUpdateReport | undefined;
+  koalaWanted?: { name: string } | undefined;
   [key: string]: unknown;
 }
 
