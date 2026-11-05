@@ -13,7 +13,7 @@ export interface VmSuite {
 export const VM_SUITES: readonly VmSuite[] = [
   { script: 'pool-live', memoryMB: 28672 },
   { script: 'restore-live', memoryMB: 24576 },
-  { script: 'mesh-live', memoryMB: 15360 },
+  { script: 'mesh-live', memoryMB: 19456 },
   { script: 'routing-live', memoryMB: 12288 },
   { script: 'byo-live', memoryMB: 12288 },
   { script: 'instance-live', memoryMB: 2048 },
