@@ -674,7 +674,7 @@ export class GiteaService {
 
   async listPaths(owner: string, name: string, ref: string): Promise<string[]> {
     const res = await this.apiFetch(`/api/v1/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/git/trees/${encodeURIComponent(ref)}?recursive=true&per_page=10000`);
-    if (res.status === 404) return [];
+    if (res.status === 404 || res.status === 400) return [];
     if (!res.ok) throw new Error(`Failed to list the files of "${owner}/${name}" at ${ref}: HTTP ${res.status}`);
     const body = await res.json() as { tree?: { path: string; type: string }[]; truncated?: boolean };
     if (body.truncated) throw new Error(`"${owner}/${name}" at ${ref} has more files than one listing returns`);
@@ -758,7 +758,7 @@ export class GiteaService {
         content: Buffer.from(content).toString('base64'), message, sha, ...(branch ? { branch } : {}),
       }),
     });
-    if (res.status === 409) {
+    if (res.status === 409 || res.status === 422) {
       throw new GiteaConflictError(`"${filePath}" changed since it was loaded — reload and try again.`);
     }
     if (!res.ok) {
@@ -830,7 +830,7 @@ export class GiteaService {
       method: 'DELETE',
       body: JSON.stringify({ message, sha, ...(branch ? { branch } : {}) }),
     });
-    if (res.status === 409) {
+    if (res.status === 409 || res.status === 422) {
       throw new GiteaConflictError(`"${filePath}" changed since it was loaded — reload and try again.`);
     }
     if (!res.ok) {
