@@ -101,10 +101,6 @@ spec:
               mountPath: /etc/edge
               readOnly: true
             {{- end }}
-            {{- if and (eq $process "worker-host") (include "instance.hostDocker" $) }}
-            - name: docker-socket
-              mountPath: /var/run/docker.sock
-            {{- end }}
         {{- if and (eq $process "backend") $.Values.routing.domain }}
         - name: edge
           image: {{ $.Values.edge.image }}
@@ -139,12 +135,6 @@ spec:
         - name: edge-config
           configMap:
             name: {{ include "instance.name" $ }}-edge
-        {{- end }}
-        {{- if and (eq $process "worker-host") (include "instance.hostDocker" $) }}
-        - name: docker-socket
-          hostPath:
-            path: /var/run/docker.sock
-            type: Socket
         {{- end }}
 {{- end }}
 ---

@@ -10,6 +10,9 @@ data:
   ROLE: instance
   INSTANCE_ID: {{ .Values.instance.id | quote }}
   INSTANCE_OWNER_ID: {{ .Values.instance.ownerId | quote }}
+  {{- with .Values.instance.machineId }}
+  INSTANCE_MACHINE_ID: {{ . | quote }}
+  {{- end }}
   ROOT_URL: {{ .Values.instance.rootUrl | quote }}
   ROOT_PUBLIC_KEYS: {{ .Values.instance.rootPublicKeys | quote }}
   PUBLIC_URL: {{ .Values.publicUrl | default "http://localhost:3001" | quote }}

@@ -16,6 +16,7 @@ export interface MachineSidesDeps {
   dataKey: SecretKey;
   publicUrl: string;
   meshLoginServer?: string | undefined;
+  registry?: string | undefined;
   mesh: NonNullable<ConstructorParameters<typeof MachineAccounts>[0]['mesh']>;
   devices: MachineDeps['devices'];
   projects: MachineDeps['projects'];
@@ -53,7 +54,7 @@ export function machineSides(deps: MachineSidesDeps): MachineSides {
     store: db.machines,
     dataKey: deps.dataKey,
     signing: role.signing,
-    settings: { url: deps.publicUrl, meshLoginServer: deps.meshLoginServer },
+    settings: { url: deps.publicUrl, meshLoginServer: deps.meshLoginServer, registry: deps.registry },
     koala: { of: async (ownerId) => (tenants ? { url: deps.publicUrl, audience: COMBINED_AUDIENCE } : deps.instances()?.service?.koalaOf(ownerId)) },
     followers: tenants
       ? { joined: (machine) => machines!.adopt(machine), removed: (machine) => machines!.forget(machine), changed: async () => undefined }

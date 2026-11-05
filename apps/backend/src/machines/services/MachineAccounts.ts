@@ -43,7 +43,7 @@ export interface MachineAccountsDeps {
   store: Store;
   dataKey: SecretKey;
   signing: IdentityKeyPair;
-  settings: { url: string; meshLoginServer?: string | undefined };
+  settings: { url: string; meshLoginServer?: string | undefined; registry?: string | undefined };
   koala: { of(ownerId: string): Promise<KoalaPlace | undefined> };
   followers: MachineFollowers;
   toMachines: MachineMessages;
@@ -165,6 +165,7 @@ export class MachineAccounts {
           KOALA_ROOT_DIR: rootDir,
           MESH_LOGIN_SERVER: mesh ? this.deps.settings.meshLoginServer! : '',
           MESH_AUTH_KEY: preAuthKey,
+          KOALA_REGISTRY: this.deps.settings.registry ?? '',
         },
       },
     };

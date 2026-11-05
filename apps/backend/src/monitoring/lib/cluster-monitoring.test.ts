@@ -67,6 +67,9 @@ describe('the cluster of a pool instance', () => {
     expect(monitoringStackEnv({ physicalName: 'desk', kubeconfigPath: '/k', local: false, machine: { metricsUrl: 'http://100.64.0.7:30320/api/machines/metrics' } }, false))
       .toMatchObject({ ENV: 'remote', INGRESS_SERVICE: 'NodePort', CLUSTER_MONITORING: 'agent', REMOTE_WRITE_URL: 'http://100.64.0.7:30320/api/machines/metrics' });
     expect(monitoringStackEnv({ physicalName: 'hetzner-a', kubeconfigPath: '/k', local: false }, false)).not.toHaveProperty('INGRESS_SERVICE');
+    const kept = monitoringStackEnv({ physicalName: SYSTEM_CLUSTER, kubeconfigPath: '/k', local: false, nodePortIngress: true }, false);
+    expect(kept).toMatchObject({ INGRESS_SERVICE: 'NodePort' });
+    expect(kept).not.toHaveProperty('CLUSTER_MONITORING');
   });
 
   it('is only the instance\'s own cluster, and only in pool mode', () => {

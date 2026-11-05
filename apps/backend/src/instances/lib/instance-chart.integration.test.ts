@@ -220,11 +220,12 @@ describe('the instance chart', () => {
     }
   });
 
-  it('gives the host worker the machine\'s Docker only when asked, and exposes the backend on a node port only when given one', () => {
-    const withDocker = podOf(find(render(), 'Deployment', 'luno-worker-host')).volumes;
-    expect(withDocker?.map((volume) => volume.name)).toContain('docker-socket');
-    const without = podOf(find(render(['hostDocker=false']), 'Deployment', 'luno-worker-host')).volumes;
-    expect(without?.map((volume) => volume.name)).not.toContain('docker-socket');
+  it('gives no process the machine\'s Docker, names the machine it is on, and exposes the backend on a node port only when given one', () => {
+    for (const process of ['backend', 'worker-engine', 'worker-cluster', 'worker-host']) {
+      expect(JSON.stringify(podOf(find(render(), 'Deployment', `luno-${process}`)))).not.toContain('docker');
+    }
+    expect(find(render(['instance.machineId=desk']), 'ConfigMap', 'luno-env').data?.INSTANCE_MACHINE_ID).toBe('desk');
+    expect(find(render(), 'ConfigMap', 'luno-env').data).not.toHaveProperty('INSTANCE_MACHINE_ID');
 
     expect(specOf(find(render(), 'Service', 'luno')).type).toBe('ClusterIP');
     expect(specOf(find(render(['backend.nodePort=30320']), 'Service', 'luno'))).toMatchObject({ type: 'NodePort', ports: [{ nodePort: 30320 }] });

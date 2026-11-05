@@ -22,6 +22,9 @@ K3S_SHA256_AMD64=835873f37245fc615f547a2fe2af9402a347875f13fa64a1f136de644955ea3
 K3S_SHA256_ARM64=c920706346d5ad4e5cd3c7bf1bb09ce71ebe07fec829e513e40f1caf98aed8bb
 K3S_MIRROR="https://github.com/k3s-io/k3s/releases/download"
 K3S_MARKER=/etc/koala/machine-k3s
+HELM_VERSION=v3.15.1
+HELM_SHA256_AMD64=7b20e7791c04ea71e7fe0cbe11f1a8be4a55a692898b57d9db28f3b0c1d52f11
+HELM_SHA256_ARM64=b4c5519b18f01dd2441f5e09497913dc1da1a1eec209033ae792a8d45b9e0e86
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -148,6 +151,7 @@ KOALA_DEVICE_ID=$(joined KOALA_DEVICE_ID)
 KOALA_DEVICE_TOKEN=$(joined KOALA_DEVICE_TOKEN)
 KOALA_ROOT_DIR=$(joined KOALA_ROOT_DIR)
 KOALA_AGENT_SHA256=$(joined KOALA_AGENT_SHA256)
+KOALA_REGISTRY=$(joined KOALA_REGISTRY)
 MESH_LOGIN_SERVER=$(joined MESH_LOGIN_SERVER)
 joined MESH_AUTH_KEY > "$MESH_KEY_FILE"
 rm -f "$JOINED"
@@ -180,6 +184,14 @@ install_k3s() {
     printf 'write-kubeconfig-mode: "0640"\nwrite-kubeconfig-group: %s\n' "$group"
   } | sudo tee /etc/rancher/k3s/config.yaml >/dev/null
   printf 'kube-proxy-arg+:\n  - nodeport-addresses=127.0.0.1/32,100.64.0.0/10\n' | sudo tee /etc/rancher/k3s/config.yaml.d/koala-node-ports.yaml >/dev/null
+  if [ -n "$KOALA_REGISTRY" ] && ! sudo grep -qs "\"${KOALA_REGISTRY}\":" /etc/rancher/k3s/registries.yaml; then
+    entry=$(printf '  "%s":\n    endpoint:\n      - "http://%s"\n' "$KOALA_REGISTRY" "$KOALA_REGISTRY")
+    if sudo grep -qs '^mirrors:' /etc/rancher/k3s/registries.yaml; then
+      printf '%s\n' "$entry" | sudo sed -i '/^mirrors:/r /dev/stdin' /etc/rancher/k3s/registries.yaml
+    else
+      printf 'mirrors:\n%s\n' "$entry" | sudo tee -a /etc/rancher/k3s/registries.yaml >/dev/null
+    fi
+  fi
   sudo tee /usr/local/lib/koala/k3s-firewall.sh >/dev/null <<'FIREWALL'
 #!/bin/sh
 set -e
@@ -242,6 +254,26 @@ if [ "$CLUSTER" = 1 ] && [ "$(uname -s)" = Linux ]; then
   else
     echo "  without it Koala runs only your coding agents here; run this command again to add it"
   fi
+fi
+
+install_helm() {
+  case "$(uname -m)" in
+    aarch64|arm64) arch=arm64; sha="$HELM_SHA256_ARM64" ;;
+    *) arch=amd64; sha="$HELM_SHA256_AMD64" ;;
+  esac
+  work=$(mktemp -d)
+  curl -fsSL "https://get.helm.sh/helm-${HELM_VERSION}-linux-${arch}.tar.gz" -o "$work/helm.tar.gz" || { rm -rf "$work"; die "could not download helm"; }
+  [ "$(sha256_of "$work/helm.tar.gz")" = "$sha" ] || { rm -rf "$work"; die "the helm downloaded is not the one Koala pins (its sha256 differs); nothing was installed"; }
+  tar -xzf "$work/helm.tar.gz" -C "$work"
+  mkdir -p "$KOALA_BIN"
+  install -m 755 "$work/linux-${arch}/helm" "$KOALA_BIN/helm"
+  rm -rf "$work"
+}
+
+KOALA_BIN="${XDG_DATA_HOME:-$HOME/.local/share}/koala/bin"
+if [ -f "$K3S_MARKER" ] && ! "$KOALA_BIN/helm" version --short 2>/dev/null | grep -q "^${HELM_VERSION}+"; then
+  install_helm
+  ok "helm $HELM_VERSION installed in $KOALA_BIN, for putting Koala here"
 fi
 
 say "Installing the machine agent"

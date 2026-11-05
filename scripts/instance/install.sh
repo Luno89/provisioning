@@ -22,9 +22,6 @@ HELM_SHA256_ARM64=b4c5519b18f01dd2441f5e09497913dc1da1a1eec209033ae792a8d45b9e0e
 TAILSCALE_VERSION=1.104.1
 TAILSCALE_SHA256_AMD64=108d1d96ecf410d305571e173516f27038f870919a9b89c914a167c6d33a4528
 TAILSCALE_SHA256_ARM64=f60294374967f3dfd8cf57bbbd474d6cfce32d123e3a8ddeab82a87940daa806
-DOCKER_VERSION=29.9.0
-DOCKER_INSTALL_COMMIT=ada7a567e59b3935bd601bb21e422da50e80e376
-DOCKER_INSTALL_SHA256=2b102d809152ea157a59f171319f489d971273b2d26dd7e9a6d1d737ce89289d
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -61,13 +58,6 @@ arch_of() {
 fetch_checked() {
   curl -fsSL "$1" -o "$3" || die "could not download $1"
   printf '%s  %s\n' "$2" "$3" | sha256sum -c --quiet - >/dev/null 2>&1 || { rm -f "$3"; die "the download from $1 is not the one Koala pins (its sha256 differs); nothing was installed"; }
-}
-
-install_docker() {
-  installer="$(mktemp)"
-  fetch_checked "https://raw.githubusercontent.com/docker/docker-install/${DOCKER_INSTALL_COMMIT}/install.sh" "$DOCKER_INSTALL_SHA256" "$installer"
-  VERSION="$DOCKER_VERSION" sh "$installer"
-  rm -f "$installer"
 }
 
 install_k3s() {
@@ -220,18 +210,6 @@ if [ "$MEM_MB" -lt 6000 ] || [ "$DISK_GB" -lt 20 ]; then
   ask "Carry on anyway?" || die "stopped; nothing was installed"
 fi
 
-HOST_DOCKER=false
-if have docker; then
-  ok "Docker is installed"
-  HOST_DOCKER=true
-elif ask "Docker isn't installed. It lets this instance create local test clusters. Install it?"; then
-  install_docker
-  HOST_DOCKER=true
-  ok "Docker $DOCKER_VERSION installed"
-else
-  ok "carrying on without Docker — local test clusters will not be available"
-fi
-
 if have k3s; then
   ok "k3s is installed"
 else
@@ -347,7 +325,7 @@ helm upgrade --install "$RELEASE" /tmp/instance-chart.tgz --namespace "$NAMESPAC
   --set image.repository="$INSTANCE_IMAGE" --set image.tag="$INSTANCE_IMAGE_TAG" --set-string image.digest="${INSTANCE_IMAGE_DIGEST:-}" \
   --set instance.id="$INSTANCE_ID" --set instance.ownerId="$INSTANCE_OWNER_ID" --set instance.rootUrl="$ROOT_URL" \
   --set-file instance.rootPublicKeys="$KEYS_FILE" --set instance.credential="$INSTANCE_CREDENTIAL" \
-  --set publicUrl="$PUBLIC_URL" --set backend.nodePort="$NODE_PORT" --set hostDocker="$HOST_DOCKER" \
+  --set publicUrl="$PUBLIC_URL" --set backend.nodePort="$NODE_PORT" \
   --set mesh.loginServer="$MESH_LOGIN_SERVER" --set mesh.address="$MESH_IP" $ROUTING $MOVE_ARGS \
   $WAIT --timeout 720h
 rm -f "$KEYS_FILE"

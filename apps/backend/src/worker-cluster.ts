@@ -107,7 +107,7 @@ async function main() {
     throw err;
   });
   if (systemKubeconfig && await present(systemKubeconfig)) {
-    ensureClusterMonitoring(new InfrastructureService(), { physicalName: SYSTEM_CLUSTER, kubeconfigPath: systemKubeconfig, local: !instance, pool: placedOnPool(process.env, SYSTEM_CLUSTER) })
+    ensureClusterMonitoring(new InfrastructureService(), { physicalName: SYSTEM_CLUSTER, kubeconfigPath: systemKubeconfig, local: !instance, pool: placedOnPool(process.env, SYSTEM_CLUSTER), nodePortIngress: Boolean(process.env.INSTANCE_MACHINE_ID) })
       .then(() => logger.info('[ClusterWorker] the system cluster has monitoring and Koala\'s own telemetry stack'))
       .catch((err: Error) => logger.warn(`[ClusterWorker] monitoring could not be installed yet; the next deploy tries again: ${err.message}`));
   }

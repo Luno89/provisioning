@@ -261,7 +261,6 @@ export function poolChartValues(input: PoolChartInput): Record<string, unknown> 
     },
     publicUrl: input.publicUrl,
     ...(input.domain ? { routing: { name: input.name, domain: input.domain } } : {}),
-    hostDocker: false,
     pool: { enabled: true, registryPullHost: `127.0.0.1:${input.ports.registry}` },
     resources: input.resources,
   };

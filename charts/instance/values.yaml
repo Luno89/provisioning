@@ -10,6 +10,7 @@ instance:
   rootUrl: ""
   rootPublicKeys: ""
   credential: ""
+  machineId: ""
 
 selfUpgrade:
   schedule: "17 * * * *"
@@ -47,8 +48,6 @@ temporal:
   image: temporalio/auto-setup:1.24.2
   keysImage: busybox:1.37
   postgresImage: postgres:12-alpine
-
-hostDocker: true
 
 registry:
   pullHost: 127.0.0.1:31737

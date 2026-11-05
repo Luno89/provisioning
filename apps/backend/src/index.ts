@@ -189,7 +189,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   const machineBundle = newMachineBundle(path.join(__dirname, '../../..'));
   const late: { instances?: Awaited<ReturnType<typeof wireInstances>> } = {};
   const { accounts: machineAccounts, machines: machineService, clusters: machineClusters, workTokens, instanceArrived, instanceCaller } = machineSides({
-    role, db, io, dataKey: keys.data, publicUrl: PUBLIC_URL, meshLoginServer: process.env.MESH_LOGIN_SERVER, mesh: headscaleService,
+    role, db, io, dataKey: keys.data, publicUrl: PUBLIC_URL, meshLoginServer: process.env.MESH_LOGIN_SERVER, registry: process.env.INSTANCE_REGISTRY, mesh: headscaleService,
     devices: { status: localAgentStatus, tell: tellDevice, ask: askDevice, drop: dropDevice },
     projects: projectRepoService, bundle: machineBundle, rootToken,
     side: instanceSide,

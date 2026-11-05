@@ -25,7 +25,7 @@ export function machineAccountsBehaviour(make: () => Promise<Database>): void {
     store: db.machines,
     dataKey: KEY,
     signing,
-    settings: { url: ROOT_URL, meshLoginServer },
+    settings: { url: ROOT_URL, meshLoginServer, registry: '100.64.0.1:5001' },
     koala: { of: async (ownerId) => (ownerId === 'bo' ? { url: 'https://bo.people.example', audience: 'inst-bo' } : undefined) },
     followers,
     toMachines: { removed: (deviceId) => { told.push([deviceId, 'machine:removed', undefined]); return true; }, koala: (deviceId, koala) => { told.push([deviceId, 'machine:koala', koala]); return true; } },
@@ -75,7 +75,7 @@ export function machineAccountsBehaviour(make: () => Promise<Database>): void {
       const outcome = await machines.join(code, { hostname: 'laptop', rootDir: '/home/me/koala', os: 'Linux x86_64' });
       if (!outcome.ok) throw new Error(outcome.error);
       const { deviceId, env } = outcome.value;
-      expect(env).toMatchObject({ KOALA_ROOT_URL: ROOT_URL, KOALA_DEVICE_ID: deviceId, KOALA_ROOT_DIR: '/home/me/koala', MESH_LOGIN_SERVER: '', MESH_AUTH_KEY: '' });
+      expect(env).toMatchObject({ KOALA_ROOT_URL: ROOT_URL, KOALA_DEVICE_ID: deviceId, KOALA_ROOT_DIR: '/home/me/koala', MESH_LOGIN_SERVER: '', MESH_AUTH_KEY: '', KOALA_REGISTRY: '100.64.0.1:5001' });
       const saved = (await stored(deviceId))!;
       expect(saved).toMatchObject({ ownerId: 'bo', name: 'laptop', rootDir: '/home/me/koala', os: 'Linux x86_64', createdAt: clock.toISOString() });
       expect(saved.tokenHash).toBe(createHash('sha256').update(env.KOALA_DEVICE_TOKEN!).digest('hex'));

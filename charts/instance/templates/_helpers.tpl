@@ -27,7 +27,6 @@ resources: {{- toYaml . | nindent 2 }}
 {{- end -}}
 {{- end -}}
 
-{{- define "instance.hostDocker" -}}{{ if and .Values.hostDocker (not .Values.pool.enabled) }}true{{ end }}{{- end -}}
 
 {{- define "instance.temporalKeys" -}}
 name: temporal-keys

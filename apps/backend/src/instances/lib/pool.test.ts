@@ -143,7 +143,6 @@ describe('the instance chart\'s values in the pool', () => {
 
   it('installs in pool mode, pulling its own images through its loopback registry port', () => {
     expect(values.pool).toEqual({ enabled: true, registryPullHost: '127.0.0.1:35002' });
-    expect(values.hostDocker).toBe(false);
     expect(values.routing).toEqual({ name: 'alice', domain: 'koala.dev' });
     expect(Buffer.from(String(at(values, 'instance', 'rootPublicKeys')), 'base64').toString('utf8')).toContain('BEGIN PUBLIC KEY');
     expect(values.resources).toEqual({ backend: { requests: { memory: '300Mi' } } });

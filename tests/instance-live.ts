@@ -89,7 +89,7 @@ async function main(): Promise<void> {
   run(bin('helm'), ['install', 'live', 'charts/instance', '--namespace', 'nowrinkles', '--create-namespace',
     '--set', 'instance.id=inst-live', '--set', `instance.ownerId=${OWNER}`, '--set', `instance.rootUrl=${ROOT_FOR_PODS}`, '--set', `instance.credential=${credential}`,
     '--set-file', `instance.rootPublicKeys=${publicKeyFile}`, '--set', `publicUrl=${INSTANCE_URL}`,
-    '--set', 'backend.nodePort=30320', '--set', 'hostDocker=false', '--timeout', '30m'], { KUBECONFIG });
+    '--set', 'backend.nodePort=30320', '--timeout', '30m'], { KUBECONFIG });
 
   step('the owner signs in at root and is handed to their instance');
   const rootSession = sessionToken({ id: OWNER, email: owner.email }, loadKeys(process.env).session, { seconds: 300 });

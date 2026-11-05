@@ -261,6 +261,10 @@
         {
           "file": "scripts/instance/install.sh",
           "pattern": "HELM_VERSION=(v[0-9.]+)"
+        },
+        {
+          "file": "scripts/machine/machine.sh",
+          "pattern": "HELM_VERSION=(v[0-9.]+)"
         }
       ],
       "sha256s": {
@@ -299,6 +303,16 @@
           "file": "scripts/setup.sh",
           "pattern": "HELM_SHA256_DARWIN_ARM64=([0-9a-f]{64})",
           "arch": "darwin-arm64"
+        },
+        {
+          "file": "scripts/machine/machine.sh",
+          "pattern": "HELM_SHA256_AMD64=([0-9a-f]{64})",
+          "arch": "linux-amd64"
+        },
+        {
+          "file": "scripts/machine/machine.sh",
+          "pattern": "HELM_SHA256_ARM64=([0-9a-f]{64})",
+          "arch": "linux-arm64"
         }
       ]
     },
@@ -1150,10 +1164,6 @@
       },
       "uses": [
         {
-          "file": "scripts/instance/install.sh",
-          "pattern": "DOCKER_VERSION=([0-9.]+)"
-        },
-        {
           "file": "scripts/setup-root.sh",
           "pattern": "DOCKER_VERSION=([0-9.]+)"
         },
@@ -1172,19 +1182,11 @@
       "github": "docker/docker-install",
       "uses": [
         {
-          "file": "scripts/instance/install.sh",
-          "pattern": "DOCKER_INSTALL_COMMIT=([0-9a-f]{40})"
-        },
-        {
           "file": "scripts/setup-root.sh",
           "pattern": "DOCKER_INSTALL_COMMIT=([0-9a-f]{40})"
         }
       ],
       "shaUses": [
-        {
-          "file": "scripts/instance/install.sh",
-          "pattern": "DOCKER_INSTALL_SHA256=([0-9a-f]{64})"
-        },
         {
           "file": "scripts/setup-root.sh",
           "pattern": "DOCKER_INSTALL_SHA256=([0-9a-f]{64})"

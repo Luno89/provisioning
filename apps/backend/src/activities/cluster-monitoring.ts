@@ -10,6 +10,7 @@ export interface MonitoredCluster {
   local: boolean;
   pool?: boolean | undefined;
   machine?: MachineMonitoring | undefined;
+  nodePortIngress?: boolean | undefined;
 }
 
 export interface MachineMonitoring {
