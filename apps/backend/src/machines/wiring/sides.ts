@@ -5,6 +5,7 @@ import { COMBINED_AUDIENCE } from '../lib/work-tokens.js';
 import { MachineAccounts, type KoalaPlace } from '../services/MachineAccounts.js';
 import { MachineMirror } from '../services/MachineMirror.js';
 import { MachineService, type MachineDeps } from '../services/MachineService.js';
+import { MachineClusters } from '../services/MachineClusters.js';
 import { wireMachineAccounts, type AccountSockets } from './accounts.js';
 import type { WorkTokenTrust } from './sockets.js';
 
@@ -32,6 +33,7 @@ export interface InstancesNow {
 export interface MachineSides {
   accounts?: MachineAccounts | undefined;
   machines: MachineService;
+  clusters?: MachineClusters | undefined;
   mirror?: MachineMirror | undefined;
   workTokens?: WorkTokenTrust | undefined;
   syncMachines?: (() => Promise<void>) | undefined;
@@ -59,12 +61,14 @@ export function machineSides(deps: MachineSidesDeps): MachineSides {
     toMachines: { removed: (deviceId) => toMachines.removed(deviceId), koala: (deviceId, koala) => toMachines.koala(deviceId, koala) },
     mesh: deps.mesh,
   }) : undefined;
+  const clusters = tenants ? new MachineClusters({ store: db.infrastructure, dataKey: deps.dataKey }) : undefined;
   const root = role.instance ? new RootMachines({ rootUrl: role.instance.rootUrl, instanceId: role.instance.id, token: deps.rootToken ?? (async () => '') }) : undefined;
   machines = new MachineService({
     store: db.machines,
     ...(deps.bundle ? { bundle: deps.bundle } : {}),
     devices: deps.devices,
     projects: deps.projects,
+    ...(clusters ? { clusters } : {}),
     accounts: root ?? accounts ?? {
       createJoinCode: async () => { throw new Error('this Koala has no root to add machines through'); },
       remove: async () => false,
@@ -87,6 +91,7 @@ export function machineSides(deps: MachineSidesDeps): MachineSides {
   return {
     accounts,
     machines,
+    clusters,
     mirror,
     syncMachines,
     workTokens: tenants && role.trusted ? { keys: role.trusted, audience: role.instance?.id ?? COMBINED_AUDIENCE } : undefined,

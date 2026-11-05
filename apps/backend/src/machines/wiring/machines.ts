@@ -9,7 +9,6 @@ import { accountMachinesRouter, type MachineCaller } from '../routes/account-mac
 import { MachineBundle } from '../services/MachineBundle.js';
 import { MachineGitService } from '../services/MachineGitService.js';
 import { MachineTemporalGateway } from '../services/MachineTemporalGateway.js';
-import { type HeadscaleService, meshRouter } from '../../infrastructure/index.js';
 import type { MachineService } from '../services/MachineService.js';
 import type { ProjectRepoService } from '../../projects/index.js';
 import { localAgentsRouter } from '../routes/local-agents.js';
@@ -30,7 +29,6 @@ export interface MachinesWiringDeps {
   repoRoot: string;
   machines: MachineService;
   bundle: MachineBundle;
-  headscale?: HeadscaleService | undefined;
   projectRepos: ProjectRepoService;
   gateway?: { port: number; host: string; upstream: string; namespace: string; temporalKey: string; temporalCa?: Buffer | undefined } | undefined;
 }
@@ -47,7 +45,6 @@ export const deviceByWorkToken = (db: Pick<Database, 'machines'>, trust: WorkTok
 
 export function wireMachines(deps: MachinesWiringDeps): void {
   const { tenant, db } = deps;
-  tenant.use('/api/mesh', meshRouter({ headscaleService: deps.headscale }));
   tenant.use('/api/mesh/local-agents', localAgentsRouter({ machines: deps.machines }));
   const { bundle } = deps;
   const git = new MachineGitService({

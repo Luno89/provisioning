@@ -134,7 +134,7 @@ async function main(): Promise<void> {
   const onInstance = (path: string, init: RequestInit = {}) => fetch(`${INSTANCE_URL}${path}`, { ...init, headers: { 'content-type': 'application/json', Cookie: cookie, ...(init.headers ?? {}) } });
 
   step('a machine of the owner\'s runs the command from the instance\'s My Machines, and joins the mesh with it');
-  const machineVm = await boot(`mesh-mach-${STAMP}`, { memoryMB: 2048, cpus: 2, diskGB: 10 });
+  const machineVm = await boot(`mesh-mach-${STAMP}`, { memoryMB: 6144, cpus: 2, diskGB: 20 });
   const node = process.version;
   await inVm(machineVm, `mkdir -p ~/.local/node ~/agents && curl -fsSL https://nodejs.org/dist/${node}/node-${node}-linux-x64.tar.xz | tar -xJf - -C ~/.local/node --strip-components=1`);
   await inVm(machineVm, `printf '%s\\n' 'export PATH="$HOME/.local/node/bin:$HOME/agents:$PATH"' >> ~/.profile`);
@@ -176,6 +176,68 @@ async function main(): Promise<void> {
   }, machine.id);
   console.log(said.map((line) => `  ${line}`).join('\n'));
 
+  step('the join installed k3s on the machine, stopped, and the instance keeps its cluster as stopped until something runs on it');
+  assert.match(installed, /k3s v[0-9.]+\+k3s[0-9]+ installed, stopped until Koala has work here/);
+  assert.match(await inVm(machineVm, 'systemctl is-active k3s || true'), /inactive|unknown/);
+  const clusterId = `machine-${machine.id}`;
+  const clusterOf = async () => ((await (await onInstance('/api/clusters')).json()) as Array<{ id: string; status: string; provider: string }>).find((entry) => entry.id === clusterId);
+  assert.deepEqual(await until('the instance recording the machine\'s cluster', 2, async () => {
+    const found = await clusterOf();
+    return found ? { provider: found.provider, status: found.status } : undefined;
+  }), { provider: 'machine', status: 'stopped' });
+  const kubectlOnMachine = (args: string) => inVm(machineVm, `k3s kubectl --kubeconfig /etc/rancher/k3s/k3s.yaml ${args}`);
+
+  step('an app deployed to the machine\'s cluster starts its k3s, runs there, and its ingress answers over the mesh where the instance\'s edge reaches it');
+  const deployOn = async (name: string) => {
+    const answer = await onInstance('/api/deployments', { method: 'POST', body: JSON.stringify({ name, clusterId, appType: 'audiobookshelf', strategy: 'native' }) });
+    assert.equal(answer.status, 202, await answer.clone().text());
+    return (await answer.json() as { id: string }).id;
+  };
+  const appOf = async (id: string) => ((await (await onInstance('/api/deployments')).json()) as Array<{ id: string; status: string; namespace?: string }>).find((entry) => entry.id === id);
+  const running = (id: string) => until(`${id} running on the machine`, 30, async () => {
+    const found = await appOf(id);
+    if (found?.status === 'failed') throw new Error(`${id} failed to deploy on the machine`);
+    return found?.status === 'running' ? found : undefined;
+  });
+  const books = await deployOn('books');
+  const booksApp = await running(books);
+  assert.equal((await clusterOf())?.status, 'healthy');
+  assert.match(await inVm(machineVm, 'systemctl is-active k3s'), /^active/);
+  const pods = await kubectlOnMachine(`get pods -n ${booksApp.namespace} -o jsonpath="{.items[*].status.phase}"`);
+  assert.match(pods, /Running/, `the app's pods on the machine are ${pods}`);
+  const nodePort = (await kubectlOnMachine('get service -n traefik traefik -o jsonpath="{.spec.ports[?(@.name==\'web\')].nodePort}"')).trim();
+  assert.match(nodePort, /^\d+$/, 'the machine\'s cluster has no ingress for the edge to reach');
+  const viaMesh = (await inVm(instanceVm, `curl -s -o /dev/null -w "%{http_code}" -H "Host: ${booksApp.namespace}.apps.local" http://${machineMeshIp}:${nodePort}/`)).trim();
+  assert.ok(Number(viaMesh) > 0 && Number(viaMesh) < 400, `the app answered ${viaMesh} over the mesh`);
+  assert.equal(await reaches(instanceVm, machineMeshIp, 6443), true, 'the instance does not reach the machine\'s cluster over the mesh');
+  console.log(`  books runs in ${booksApp.namespace} on ${machineMeshIp}, answering ${viaMesh} through its ingress on :${nodePort}`);
+
+  step('with the machine offline, a deploy waits and Needs attention says so; when it connects again the app deploys');
+  await inVm(machineVm, 'systemctl --user stop koala-machine');
+  await until('the instance seeing the machine offline', 2, async () => {
+    const list = await (await onInstance('/api/mesh/local-agents')).json() as { id: string; online: boolean }[];
+    return list.find((entry) => entry.id === machine.id)?.online === false ? true : undefined;
+  });
+  const notes = await deployOn('notes');
+  const waiting = await until('Needs attention naming the offline machine', 3, async () => {
+    const overview = await (await onInstance('/api/monitoring')).json() as { attention: Array<{ subject: { id: string }; state: string; reasons: string[] }> };
+    return overview.attention.find((entry) => entry.subject.id === notes && entry.reasons.some((reason) => reason.includes('offline')));
+  });
+  console.log(`  ${waiting.state}: ${waiting.reasons.join('; ')}`);
+  await inVm(machineVm, 'systemctl --user start koala-machine');
+  await running(notes);
+
+  step('destroying the apps stops k3s once nothing is left on it');
+  for (const id of [books, notes]) {
+    const destroyed = await onInstance(`/api/deployments/${id}`, { method: 'DELETE' });
+    assert.ok(destroyed.status < 300, await destroyed.clone().text());
+  }
+  await until('both apps gone', 10, async () => ((await appOf(books)) || (await appOf(notes)) ? undefined : true));
+  await until('k3s stopped on the machine', 5, async () => (/inactive|failed/.test(await inVm(machineVm, 'systemctl is-active k3s || true')) ? true : undefined));
+  assert.equal((await clusterOf())?.status, 'stopped');
+  assert.equal(await reaches(instanceVm, machineMeshIp, 6443), false, 'the machine\'s cluster still answers after it was stopped');
+  console.log('  k3s is stopped and the machine\'s cluster shows stopped');
+
   step('someone else\'s machine on the same mesh reaches neither of them, and neither reaches it');
   headscale('users', 'create', OTHER_USER);
   const otherUser = (JSON.parse(headscale('users', 'list', '-o', 'json')) as Array<{ id: number; name: string }>).find((user) => user.name === OTHER_USER)!;
@@ -192,6 +254,7 @@ async function main(): Promise<void> {
     ['someone else → the owner\'s instance', otherVm, instanceMeshIp, 22, false],
     ['someone else → the owner\'s machine', otherVm, machineMeshIp, 22, false],
     ['the owner\'s machine → someone else', machineVm, otherMeshIp, 22, false],
+    ['someone else → the owner\'s machine\'s cluster', otherVm, machineMeshIp, 6443, false],
   ];
   for (const [what, from, address, port, wanted] of matrix) {
     const got = await reaches(from, address, port);
@@ -199,7 +262,7 @@ async function main(): Promise<void> {
     assert.equal(got, wanted, `${what} was ${got ? 'reached' : 'blocked'}`);
   }
 
-  step('removing the machine on the instance takes it off the mesh through root, stops its agent and deletes its token and project');
+  step('removing the machine on the instance takes it off the mesh through root, stops its agent, uninstalls its k3s and deletes its token, project and cluster');
   const projectsBefore = await (await onInstance('/api/projects')).json() as { id: string; executionTarget?: { deviceId?: string } }[];
   assert.ok(projectsBefore.some((project) => project.executionTarget?.deviceId === machine.id), 'the machine was added without a project');
   const removed = await onInstance(`/api/mesh/local-agents/${machine.id}`, { method: 'DELETE' });
@@ -216,6 +279,9 @@ async function main(): Promise<void> {
   assert.match(stopped, /unit-gone/, stopped);
   const projectsAfter = await (await onInstance('/api/projects')).json() as { id: string; executionTarget?: { deviceId?: string } }[];
   assert.ok(!projectsAfter.some((project) => project.executionTarget?.deviceId === machine.id), 'the machine\'s project is still there');
+  const k3sLeft = (await inVm(machineVm, 'for f in /usr/local/bin/k3s /etc/sudoers.d/koala-k3s /etc/koala/machine-k3s /etc/systemd/system/k3s.service.d/koala-firewall.conf; do sudo test -e $f && echo $f; done; true')).trim();
+  assert.equal(k3sLeft, '', `the machine kept ${k3sLeft}`);
+  assert.equal(await clusterOf(), undefined, 'the instance still lists the removed machine\'s cluster');
   await until('the instance dropping the removed machine from the mesh, so it no longer reaches the machine gateway', 2, async () => ((await reaches(machineVm, instanceMeshIp!, GATEWAY_PORT)) ? undefined : true));
   console.log(`  ${machineMeshIp} is off the mesh, its agent ${stopped.split('\n').join(', ')}, its project gone`);
 

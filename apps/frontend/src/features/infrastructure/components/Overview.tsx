@@ -10,7 +10,6 @@ import { AppsSection } from './AppsSection'
 import { ClustersSection } from './ClustersSection'
 import { KoalaSection } from './KoalaSection'
 import { ModelTrafficSection } from './ModelTrafficSection'
-import { OwnHardwareSection } from './OwnHardwareSection'
 import { QuietButton, WorkloadBadge } from './Parts'
 import RunningSection from './RunningSection'
 import { aboutLink, healthHash, sectionAnchor, useClearFailures, useInfrastructure, useRefreshInfrastructure, waitingText, type SectionId } from '../shared'
@@ -122,7 +121,6 @@ export function Overview({ focus }: { focus?: SectionId }) {
       <NeedsAttention />
       <AppsSection />
       <ClustersSection />
-      <OwnHardwareSection />
       <RunningSection />
       <ModelTrafficSection />
       <KoalaSection />

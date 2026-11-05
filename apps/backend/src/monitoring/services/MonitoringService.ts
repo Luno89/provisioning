@@ -103,6 +103,7 @@ export interface MonitoringDeps {
   kubectl(cluster: ClusterMetadata, args: string[]): Promise<string>;
   apply(cluster: ClusterMetadata, manifest: string): Promise<void>;
   helm(cluster: ClusterMetadata, args: string[]): Promise<string>;
+  machineOnline?(deviceId: string): boolean;
   now?: () => Date;
   newId?: () => string;
 }
@@ -246,6 +247,7 @@ export class MonitoringService {
 
   async reach(cluster: ClusterMetadata): Promise<Reached> {
     if (cluster.status === 'provisioning') return { cluster, state: 'installing', reason: 'it is being made' };
+    if (cluster.provider === 'machine' && cluster.status === 'stopped') return { cluster, state: 'stopped', reason: 'its machine stops it while nothing runs on it' };
     if (cluster.status !== 'healthy') return { cluster, state: 'unreachable', reason: `it is ${cluster.status}` };
     const pool = this.deps.pool?.(cluster);
     if (pool) {
@@ -392,8 +394,17 @@ export class MonitoringService {
     return visibleAlerts(alerts, await this.scopeFor(viewer, reached.cluster, apps));
   }
 
+  private waitingOnMachine(dep: DeploymentMetadata, cluster: ClusterMetadata): string | undefined {
+    if (cluster.provider !== 'machine' || !cluster.machineId || !this.deps.machineOnline) return undefined;
+    if (dep.status !== 'deploying' && dep.status !== 'destroying') return undefined;
+    if (this.deps.machineOnline(cluster.machineId)) return undefined;
+    return `it waits for ${cluster.name}, which is offline: it ${dep.status === 'deploying' ? 'deploys' : 'is removed'} when the machine connects again`;
+  }
+
   private async appRow(dep: DeploymentMetadata, reached: Reached, firing: VisibleAlert[], kept: number): Promise<AppRow> {
     const base = { id: dep.id, name: dep.name, ...(dep.appType ? { appType: dep.appType } : {}), clusterId: reached.cluster.id, clusterName: reached.cluster.name, ...(dep.publicExposureUrl ? { url: dep.publicExposureUrl } : {}) };
+    const waiting = this.waitingOnMachine(dep, reached.cluster);
+    if (waiting) return { ...base, state: 'warning', reasons: [waiting], numbers: {} };
     if (dep.status === 'deploying') return { ...base, state: 'installing', reasons: ['it is being deployed'], numbers: {} };
     if (dep.status === 'failed') return { ...base, state: 'down', reasons: ['its deploy failed'], numbers: {} };
     if (!reached.metrics) return { ...base, state: reached.state, reasons: reached.reason ? [`its cluster ${reached.reason}`] : [], numbers: {} };
@@ -427,7 +438,7 @@ export class MonitoringService {
     const appRows = worstFirst(per.flatMap((entry) => entry.rows));
     const clusterRows = worstFirst(per.map((entry) => entry.row).filter((row) => row.apps > 0 || !row.isSystem || allowed(viewer, 'see-everything', { kind: 'system-cluster', id: row.id })));
     const attention = worstFirst([
-      ...clusterRows.filter((row) => row.state !== 'ok').map((row) => ({ subject: { kind: 'cluster' as const, id: row.id, name: row.name }, state: row.state, reasons: row.reasons, name: row.name })),
+      ...clusterRows.filter((row) => row.state !== 'ok' && row.state !== 'stopped').map((row) => ({ subject: { kind: 'cluster' as const, id: row.id, name: row.name }, state: row.state, reasons: row.reasons, name: row.name })),
       ...appRows.filter((row) => row.state !== 'ok').map((row) => ({ subject: { kind: 'app' as const, id: row.id, name: row.name }, state: row.state, reasons: row.reasons, name: row.name })),
     ]).map(({ name: _name, ...entry }) => entry);
     return { attention, apps: appRows, clusters: clusterRows, firing: per.flatMap((entry) => entry.firing), checkedAt: this.now().toISOString() };

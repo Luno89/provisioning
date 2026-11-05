@@ -182,7 +182,7 @@ async function noStubClouds(stack: SplitStack): Promise<void> {
   step('an instance in production makes no cluster on a provider whose clusters are not built yet, and offers none');
   const session = await ownerOnInstance(stack);
   const offered = ((await call(`${stack.instanceUrl}/api/cluster-providers`, { cookie: session })).body as { value: string }[]).map((provider) => provider.value).sort();
-  assert.deepEqual(offered, ['do', 'hetzner', 'k3d', 'remote'], `Provision a cluster offers ${offered.join(', ')}`);
+  assert.deepEqual(offered, ['do', 'hetzner', 'k3d'], `Provision a cluster offers ${offered.join(', ')}`);
   const providers = (await call(`${stack.instanceUrl}/api/credentials`, { cookie: session })).body as { providers: { provider: string; clusters?: string }[] };
   for (const name of ['aws', 'gcp', 'azure']) {
     assert.equal(providers.providers.find((entry) => entry.provider === name)?.clusters, 'not-yet', `${name} as Cloud providers lists it`);

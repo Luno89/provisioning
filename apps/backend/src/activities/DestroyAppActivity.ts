@@ -5,7 +5,7 @@ import {
   InfrastructureService, hasCloudCredentials, isMockCloudProvider, isSelfManagedCluster, type DestroyAppArgs,
   namespaceOf, platformNamespaceProblem, PLATFORM_NAMESPACES,
 } from '../infrastructure/index.js';
-import { reachCluster } from './cluster-access.js';
+import { handedKubeconfig, reachCluster } from './cluster-access.js';
 import { ODOO_PROJECT_APP } from '../releases/index.js';
 import { ignore } from '@koala/engine-core/failures';
 
@@ -27,15 +27,15 @@ export async function DestroyAppActivity(
 
   const isMock = isMockCloudProvider(args.provider, hasCloudCredentials);
   const physicalName = isMock ? `mock-${args.provider}-${args.clusterName}` : args.clusterName;
-  const kubeconfigPath = isSelfManagedCluster(args.provider, isMock)
-    ? `/tmp/kubeconfig-${physicalName}`
-    : undefined;
+  const kubeconfigPath = args.kubeconfig
+    ? await handedKubeconfig(args.clusterId, args.kubeconfig)
+    : isSelfManagedCluster(args.provider, isMock) ? `/tmp/kubeconfig-${physicalName}` : undefined;
 
   const stackName = `app-${physicalName}-${args.deploymentId || 'default'}`;
   const logFile = args.logFile;
 
   if (args.appType === ODOO_PROJECT_APP) {
-    const kubeconfig = await reachCluster(infra, { clusterName: args.clusterName, provider: args.provider, gpuEnabled: args.gpuEnabled, kubeconfigPath: args.kubeconfigPath });
+    const kubeconfig = await reachCluster(infra, { clusterName: args.clusterName, provider: args.provider, gpuEnabled: args.gpuEnabled, kubeconfigPath: kubeconfigPath ?? args.kubeconfigPath });
     const release = namespace;
     await fs.appendFile(logFile, `Uninstalling the Odoo release ${release} and its namespace, databases and attachments with it\n`).catch(ignore('the log only shows progress, and the work goes on without it'));
     await infra.runHelm(['uninstall', release, '-n', release, '--ignore-not-found'], kubeconfig);

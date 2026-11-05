@@ -1,5 +1,5 @@
 export { destroyAppArgs, destroyAppWorkflowId } from './lib/app-destroy.js';
-export type { DestroyAppArgs } from './lib/app-destroy.js';
+export type { DestroyAppArgs, MachineOfCluster } from './lib/app-destroy.js';
 export { buildAppEnv, TABBYAPI_DEFAULT_MAX_SEQ_LEN } from './lib/app-env.js';
 export { namespaceOf, platformNamespaceProblem, podLogTarget } from './lib/app-namespace.js';
 export { explainSpecProblems, validateSpec } from './lib/app-spec-validate.js';
@@ -45,7 +45,6 @@ export type { WorkloadHealth } from './lib/workload-health.js';
 export { bindingTypesRouter } from './routes/binding-types.js';
 export { clusterAccessRouter } from './routes/cluster-access.js';
 export { egressRouter } from './routes/egress.js';
-export { meshRouter } from './routes/mesh.js';
 export { AccessService } from './services/AccessService.js';
 export { deployProjectBuild } from './services/AppDeploy.js';
 export { AppExposureService } from './services/AppExposureService.js';

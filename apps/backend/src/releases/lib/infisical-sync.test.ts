@@ -13,7 +13,7 @@ describe('where a cluster reaches the vault', () => {
   });
 
   it('says so for a cluster that cannot reach it', () => {
-    const remote = infisicalHostFor({ clusterName: 'gpu-box', provider: 'remote', isMock: false });
+    const remote = infisicalHostFor({ clusterName: 'gpu-box', provider: 'machine', isMock: false });
     expect(remote).toEqual({ problem: containing('gpu-box is a machine outside this node') });
     expect(infisicalHostFor({ clusterName: 'eks', provider: 'aws', isMock: false })).toEqual({ problem: containing('a cloud cluster') });
   });

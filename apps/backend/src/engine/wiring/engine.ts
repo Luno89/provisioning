@@ -71,6 +71,7 @@ import type { RequestHandler } from 'express';
 import { askingPush, type PushMessage } from '../../monitoring/index.js';
 import { PoisoningService } from '../services/PoisoningService.js';
 import { poisoningRouter } from '../routes/poisoning.js';
+import type { MachineClusterRecords } from '../../engine-host/temporal/activities.js';
 
 const POISONING_TELL_EVERY_MS = 30_000;
 
@@ -632,6 +633,7 @@ export async function wireEngine(deps: EngineWiringDeps): Promise<EngineWiring> 
 }
 
 export interface EngineStreamDeps {
+  machineClusters?: MachineClusterRecords | undefined;
   role: RoleConfig;
   push?: { toPerson(ownerId: string, message: PushMessage): Promise<number> } | undefined;
   io: SocketServer;
@@ -710,6 +712,7 @@ export function startEngineStream(deps: EngineStreamDeps): void {
           if (notice) await deps.notices.post(ownerId, { treeId: notice.refs.treeId, projectId: notice.refs.projectId }, notice);
         },
         asking: async (ownerId, tool) => { await deps.push?.toPerson(ownerId, askingPush(tool)); },
+        ...(deps.machineClusters ? { machineClusters: deps.machineClusters } : {}),
       },
     });
     void worker.run().catch((err: Error) =>

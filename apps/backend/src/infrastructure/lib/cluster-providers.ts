@@ -7,7 +7,6 @@ export interface ClusterProviderSpec {
   hint?: string;
   credentialKey?: string;
   hasCatalog: boolean;
-  usesMesh: boolean;
 }
 
 export const BUILT_IN_PROVIDERS: ClusterProviderSpec[] = [
@@ -16,7 +15,6 @@ export const BUILT_IN_PROVIDERS: ClusterProviderSpec[] = [
     label: 'Local Datacenter (k3d)',
     hint: 'Runs on this machine. No credentials, no cost.',
     hasCatalog: false,
-    usesMesh: false,
   },
   {
     value: 'hetzner',
@@ -24,7 +22,6 @@ export const BUILT_IN_PROVIDERS: ClusterProviderSpec[] = [
     credentialKey: 'hetzner',
     hint: 'Creates a real VM, installs k3s on it over SSH, and bills to your Hetzner project.',
     hasCatalog: true,
-    usesMesh: false,
   },
   {
     value: 'do',
@@ -32,14 +29,6 @@ export const BUILT_IN_PROVIDERS: ClusterProviderSpec[] = [
     credentialKey: 'do',
     hint: 'Creates a real Droplet, installs k3s on it over SSH, and bills to your DigitalOcean account.',
     hasCatalog: true,
-    usesMesh: false,
-  },
-  {
-    value: 'remote',
-    label: 'One of my machines',
-    hint: 'Use hardware you already own — a GPU workstation, a spare server — once it has joined the mesh under My Machines.',
-    hasCatalog: false,
-    usesMesh: true,
   },
 ];
 

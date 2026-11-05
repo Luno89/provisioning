@@ -152,7 +152,7 @@ describe('reaching the release\'s namespace', () => {
     const { namespacedCluster } = await import('./ReleaseBrowserTestsActivity.js');
     const applied: string[] = [];
     const infra = { applyManifest: async (manifest: string) => { applied.push(manifest); return ''; }, runKubectl: async () => '' };
-    const target = { clusterName: 'box', provider: 'remote', namespace: 'shop', release: 'shop', kubeconfigPath: '/tmp/kubeconfig-box' };
+    const target = { clusterName: 'box', provider: 'hetzner', namespace: 'shop', release: 'shop', kubeconfigPath: '/tmp/kubeconfig-box' };
     const login = { hosts: { push: 'gitea:3000', pull: 'gitea:3000' }, username: 'provisioning-bot', password: 'tok' };
     const reach = namespacedCluster(infra as never, async () => login)(target);
     await reach.apply({ kind: 'Secret', metadata: { name: 'shop-e2e-login' } });

@@ -19,11 +19,6 @@ export interface ProvisionClusterArgs {
   name: string;
   provider: string;
   logFile: string;
-  remoteHost?: string;
-  remoteUsername?: string;
-  remoteSshPort?: number;
-  remoteSshPrivateKey?: string;
-  remoteK3sApiPort?: number;
   hcloudToken?: string;
   hetznerServerType?: string;
   hetznerLocation?: string;
@@ -61,7 +56,6 @@ export async function ProvisionClusterActivity(
   const infra = new InfrastructureService();
   const logFile = args.logFile;
 
-  const isRemote = args.provider === 'remote';
   const isHetzner = args.provider === 'hetzner';
   const isDigitalOcean = args.provider === 'do';
   const isMock = isMockCloudProvider(args.provider, hasCloudCredentials);
@@ -173,18 +167,6 @@ export async function ProvisionClusterActivity(
     }
 
     await new Promise((r) => setTimeout(r, 5000));
-  } else if (isRemote) {
-    if (!args.remoteHost || !args.remoteUsername || !args.remoteSshPrivateKey) {
-      throw new Error('provider "remote" requires remoteHost, remoteUsername, and remoteSshPrivateKey');
-    }
-    await ProvisionRemoteHostActivity({
-      physicalName,
-      host: args.remoteHost,
-      username: args.remoteUsername,
-      privateKey: args.remoteSshPrivateKey,
-      ...(args.remoteSshPort !== undefined ? { port: args.remoteSshPort } : {}),
-      ...(args.remoteK3sApiPort !== undefined ? { k3sApiPort: args.remoteK3sApiPort } : {}),
-    });
   } else if (isHetzner) {
     if (!args.hcloudToken) {
       throw new Error('provider "hetzner" requires a Hetzner Cloud API token — add one under Cloud Accounts');

@@ -91,15 +91,3 @@ export async function ProvisionRemoteHostActivity(
   }
 }
 
-export async function DestroyRemoteHostActivity(args: ProvisionRemoteHostArgs): Promise<void> {
-  const port = args.port ?? 22;
-  const keyPath = path.join(os.tmpdir(), `ssh-key-destroy-${args.physicalName}-${Date.now()}`);
-  await fs.writeFile(keyPath, args.privateKey.endsWith('\n') ? args.privateKey : `${args.privateKey}\n`, { mode: 0o600 });
-
-  try {
-    const prefix = sshPrefix(args.username);
-    await runSsh(args.host, port, args.username, keyPath, `${prefix}/usr/local/bin/k3s-uninstall.sh`);
-  } finally {
-    await fs.rm(keyPath, { force: true });
-  }
-}

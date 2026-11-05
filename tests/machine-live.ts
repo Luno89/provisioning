@@ -150,7 +150,7 @@ async function stages(stack: SplitStack, session: string, madeVm: (vm: Disposabl
     assert.equal(made.status, 201, JSON.stringify(made.data));
     const command = (made.data as { command: string }).command;
     assert.equal(command.replace(/\S+$/, ''), `curl -fsSL http://localhost:${stack.ports.root}/machine.sh | sh -s -- `);
-    const installed = (await ssh(vm, `${command} --yes --adapters none`)).replace(/\x1b\[[0-9;]*m/g, '');
+    const installed = (await ssh(vm, `${command} --yes --adapters none --no-cluster`)).replace(/\x1b\[[0-9;]*m/g, '');
     console.log(installed.split('\n').filter((line) => line.trim()).map((line) => `    ${line.trim()}`).join('\n'));
     assert.match(installed, /Node\.js v22\.23\.4 of Koala's own/);
     assert.match(installed, /running as the koala-machine service/);
@@ -210,7 +210,7 @@ async function stages(stack: SplitStack, session: string, madeVm: (vm: Disposabl
     console.log('[7] running the command again with --yes installs Codex\'s adapter from the script, and replaces the machine rather than adding a second');
     const remade = await http.post('/mesh/local-agents/join-code', {});
     assert.equal(remade.status, 201, JSON.stringify(remade.data));
-    const again = (await ssh(vm, `${(remade.data as { command: string }).command} --yes`)).replace(/\x1b\[[0-9;]*m/g, '');
+    const again = (await ssh(vm, `${(remade.data as { command: string }).command} --yes --no-cluster`)).replace(/\x1b\[[0-9;]*m/g, '');
     assert.match(again, /✓ Codex[^\n]*, through @agentclientprotocol\/codex-acp/, again);
     const rejoined = await until('the machine connecting again', 3, async () => {
       const found = (await machines()).filter((machine) => machine.name === NAME);

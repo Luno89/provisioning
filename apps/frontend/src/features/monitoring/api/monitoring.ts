@@ -7,7 +7,7 @@ import { api } from '../../../api/client'
  * apps/backend/src/monitoring/lib/monitoring-alerts.ts (VisibleAlert, AlertRuleRecord) and
  * apps/backend/src/monitoring/lib/monitoring-records.ts (AlertEpisode).
  */
-export type HealthState = 'ok' | 'warning' | 'down' | 'unreachable' | 'installing'
+export type HealthState = 'ok' | 'warning' | 'down' | 'unreachable' | 'installing' | 'stopped'
 export type Range = '1h' | '24h' | '7d' | '30d'
 export const RANGES: Range[] = ['1h', '24h', '7d', '30d']
 

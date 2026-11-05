@@ -3,6 +3,7 @@ import type { DeployAppArgs, DeployAppResult } from '../activities/DeployAppActi
 import type { DownloadModelArgs } from '../activities/DownloadModelActivity.js';
 import type { VerifyGpuRuntimeArgs } from '../activities/VerifyGpuRuntimeActivity.js';
 import { awaitWorkload } from './await-workload.js';
+import { startMachineCluster } from './machine-cluster.js';
 import { LIVE_ACTIVITY } from '../platform/lib/activity-liveness.js';
 import { ACTIVITY_RETRY } from '../platform/lib/activity-retry.js';
 
@@ -10,7 +11,8 @@ const { DeployAppActivity } = proxyActivities<{ DeployAppActivity: (args: Deploy
 const { DownloadModelActivity } = proxyActivities<{ DownloadModelActivity: (args: DownloadModelArgs) => Promise<unknown> }>({ retry: ACTIVITY_RETRY, ...LIVE_ACTIVITY });
 const { VerifyGpuRuntimeActivity } = proxyActivities<{ VerifyGpuRuntimeActivity: (args: VerifyGpuRuntimeArgs) => Promise<void> }>({ retry: { maximumAttempts: 1 }, ...LIVE_ACTIVITY });
 
-export async function executeDeployAppWorkflow(args: DeployAppArgs) {
+export async function executeDeployAppWorkflow(given: DeployAppArgs) {
+  const args = given.machine ? { ...given, kubeconfig: await startMachineCluster(given.machine, given.clusterId) } : given;
   if (args.appType === 'tabbyapi' && (args.tabbyGpuCount === undefined || args.tabbyGpuCount > 0)) {
     await VerifyGpuRuntimeActivity({ clusterId: args.clusterId, vendor: 'nvidia' });
   } else if (
@@ -38,6 +40,6 @@ export async function executeDeployAppWorkflow(args: DeployAppArgs) {
     });
   }
   const result = await DeployAppActivity(args);
-  const verdict = await awaitWorkload({ name: args.name, namespace: args.namespace, clusterId: args.clusterId });
+  const verdict = await awaitWorkload({ name: args.name, namespace: args.namespace, clusterId: args.clusterId, ...(args.kubeconfig ? { kubeconfig: args.kubeconfig } : {}) });
   return { ...result, ...verdict };
 }

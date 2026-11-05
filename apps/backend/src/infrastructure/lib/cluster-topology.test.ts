@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { NEVER_MOCK_PROVIDERS, clusterAvailability, isMockCloudProviderIn, isSelfManagedCluster, providerReady, provisionRefusal } from './cluster-topology.js';
+import { NEVER_MOCK_PROVIDERS, clusterAvailability, isMockCloudProviderIn, isSelfManagedCluster, providerReady, provisionRefusal, MACHINE_CLUSTER_JOINED } from './cluster-topology.js';
 import { buildAppEnv, type AppEnvArgs } from './app-env.js';
 
 describe('cluster-topology', () => {
@@ -31,8 +31,10 @@ describe('cluster-topology', () => {
   describe('a provider Koala cannot make clusters on yet', () => {
     const production = { NODE_ENV: 'production' };
 
-    it('is AWS, Google Cloud and Azure, whose constructs are stubs; k3d, a machine of the person\'s, Hetzner and DigitalOcean are made for real', () => {
-      expect(['k3d', 'remote', 'hetzner', 'do'].every(providerReady)).toBe(true);
+    it('is AWS, Google Cloud and Azure, whose constructs are stubs; k3d, Hetzner and DigitalOcean are made for real, and a machine\'s own comes with the machine', () => {
+      expect(['k3d', 'hetzner', 'do'].every(providerReady)).toBe(true);
+      expect(providerReady('machine')).toBe(false);
+      expect(clusterAvailability('machine', { NODE_ENV: 'production' })).toBe('available');
       expect(['aws', 'gcp', 'azure'].some(providerReady)).toBe(false);
       expect(providerReady('linode')).toBe(false);
     });
@@ -43,7 +45,9 @@ describe('cluster-topology', () => {
       expect(provisionRefusal('azure', 'env', {})).toBe('Microsoft Azure is not available yet');
       expect(provisionRefusal('aws', 'user', {})).toBe('Amazon Web Services is not available yet');
       expect(provisionRefusal('aws', 'mock', {})).toBeUndefined();
-      for (const provider of ['k3d', 'remote', 'hetzner', 'do']) expect(provisionRefusal(provider, 'user', production), provider).toBeUndefined();
+      for (const provider of ['k3d', 'hetzner', 'do']) expect(provisionRefusal(provider, 'user', production), provider).toBeUndefined();
+      expect(provisionRefusal('machine', 'user', production)).toBe(MACHINE_CLUSTER_JOINED);
+      expect(provisionRefusal('remote', 'user', production)).toBe('remote is not a provider Koala makes clusters on');
     });
 
     it('says so on Cloud providers: mock cloud mode only on a dev box, otherwise not yet', () => {
@@ -99,7 +103,7 @@ describe('buildAppEnv provider handling', () => {
     storageEnv: {},
   } satisfies Omit<AppEnvArgs, 'provider' | 'isMock'>;
 
-  it.each(['k3d', 'remote', 'hetzner'])('sets SELF_MANAGED_K8S=true for %s', (provider) => {
+  it.each(['k3d', 'machine', 'hetzner'])('sets SELF_MANAGED_K8S=true for %s', (provider) => {
     expect(buildAppEnv({ ...base, provider, isMock: false }).SELF_MANAGED_K8S).toBe('true');
   });
 
@@ -111,8 +115,8 @@ describe('buildAppEnv provider handling', () => {
     expect(buildAppEnv({ ...base, provider: 'aws', isMock: false }).SELF_MANAGED_K8S).toBe('false');
   });
 
-  it('leaves KUBECONFIG_CONTEXT empty for remote and hetzner', () => {
-    expect(buildAppEnv({ ...base, provider: 'remote', isMock: false }).KUBECONFIG_CONTEXT).toBe('');
+  it('leaves KUBECONFIG_CONTEXT empty for a machine and hetzner', () => {
+    expect(buildAppEnv({ ...base, provider: 'machine', isMock: false }).KUBECONFIG_CONTEXT).toBe('');
     expect(buildAppEnv({ ...base, provider: 'hetzner', isMock: false }).KUBECONFIG_CONTEXT).toBe('');
     expect(buildAppEnv({ ...base, provider: 'k3d', isMock: false }).KUBECONFIG_CONTEXT).toBe('k3d-c1');
   });

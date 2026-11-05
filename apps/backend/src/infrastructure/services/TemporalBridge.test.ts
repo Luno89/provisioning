@@ -232,20 +232,11 @@ describe('provisioning a cluster', () => {
     await expect(ready().provision('lab3', 'aws', 'ann')).rejects.toThrow('Amazon Web Services is not available yet');
   });
 
-  it('hands the machine\'s connection details to the workflow and keeps its key sealed on the record', async () => {
-    const { ready, db, workflow } = bridge();
-    await ready().provision('box', 'remote', 'ann', { host: '10.0.0.5', username: 'ubuntu', privateKey: 'SECRET', port: 2222, k3sApiPort: 6444 });
-    expect(startedWith(workflow)?.args[0]).toMatchObject({ remoteHost: '10.0.0.5', remoteUsername: 'ubuntu', remoteSshPrivateKey: 'SECRET', remoteSshPort: 2222, remoteK3sApiPort: 6444 });
-    const [cluster] = await db.infrastructure.getClusters();
-    expect(cluster).toMatchObject({ remoteHost: '10.0.0.5', remoteSshPort: 2222, remoteK3sApiPort: 6444 });
-    expect(JSON.stringify(cluster)).not.toContain('SECRET');
-  });
-
   it('refuses a Hetzner cluster with no token, and gives one the person stored or the operator\'s to the workflow, with a key pair made for the VM', async () => {
     const { ready, db, workflow, generateKeypair } = bridge();
-    await expect(ready().provision('vm', 'hetzner', 'ann', undefined, undefined)).rejects.toThrow('No Hetzner Cloud API token configured — add one under Cloud providers first');
+    await expect(ready().provision('vm', 'hetzner', 'ann', undefined)).rejects.toThrow('No Hetzner Cloud API token configured — add one under Cloud providers first');
     await db.accounts.saveUser({ id: 'ann', email: 'a@b.c', twoFactorEnabled: false, emailVerified: true, createdAt: 'x', credentials: { hetzner: { token: encryptValue('hcloud-mine', KEY) } } } as never);
-    await ready().provision('vm', 'hetzner', 'ann', undefined, { serverType: 'cx22', location: 'fsn1', image: 'ubuntu-24.04' });
+    await ready().provision('vm', 'hetzner', 'ann', { serverType: 'cx22', location: 'fsn1', image: 'ubuntu-24.04' });
     expect(generateKeypair).toHaveBeenCalledWith('provisioning-vm');
     expect(startedWith(workflow)?.args[0]).toMatchObject({ hcloudToken: 'hcloud-mine', hetznerServerType: 'cx22', hetznerLocation: 'fsn1', hetznerImage: 'ubuntu-24.04', hetznerSshPrivateKey: 'PRIVATE-provisioning-vm', hetznerSshPublicKey: 'PUBLIC-provisioning-vm' });
     const [cluster] = await db.infrastructure.getClusters();
@@ -265,7 +256,7 @@ describe('provisioning a cluster', () => {
     const { ready, db, workflow, generateKeypair } = bridge();
     await expect(ready().provision('drop', 'do', 'ann')).rejects.toThrow('No DigitalOcean API token configured — add one under Cloud providers first');
     await db.accounts.saveUser({ id: 'ann', email: 'a@b.c', twoFactorEnabled: false, emailVerified: true, createdAt: 'x', credentials: { do: { token: encryptValue('do-mine', KEY) } } } as never);
-    await ready().provision('drop', 'do', 'ann', undefined, { serverType: 's-2vcpu-4gb', location: 'syd1', image: 'ubuntu-24-04-x64' });
+    await ready().provision('drop', 'do', 'ann', { serverType: 's-2vcpu-4gb', location: 'syd1', image: 'ubuntu-24-04-x64' });
     expect(generateKeypair).toHaveBeenCalledWith('provisioning-drop');
     expect(startedWith(workflow)?.args[0]).toMatchObject({ doToken: 'do-mine', doSize: 's-2vcpu-4gb', doRegion: 'syd1', doImage: 'ubuntu-24-04-x64', doSshPrivateKey: 'PRIVATE-provisioning-drop', doSshPublicKey: 'PUBLIC-provisioning-drop' });
   });

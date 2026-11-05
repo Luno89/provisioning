@@ -15,6 +15,8 @@ import { userRoom } from '../../engine-host/temporal/stream-worker.js';
 import type { MachineService } from '../services/MachineService.js';
 import { MachineRunWatch, type RunLiveness } from '../services/MachineRunWatch.js';
 import { podLogTarget, type ClusterService, type AppService, type InfrastructureService } from '../../infrastructure/index.js';
+import type { MachineClusters } from '../services/MachineClusters.js';
+import { reportedClusterState } from '../lib/machine-clusters.js';
 
 const LOG_TAIL_LINES = 200;
 
@@ -53,6 +55,7 @@ export interface SocketsWiringDeps {
   sessionSockets: Pick<SessionSockets, 'track' | 'forget'>;
   machines: Pick<MachineService, 'seen' | 'recordAgents' | 'manualAgents' | 'recordAgentBundle' | 'recordAgentUpdate' | 'currentBundle'>;
   workTokens?: WorkTokenTrust | undefined;
+  machineClusters?: Pick<MachineClusters, 'reported'> | undefined;
   clusters: ClusterService;
   apps: AppService;
   infra: InfrastructureService;
@@ -103,6 +106,11 @@ export function wireSockets(deps: SocketsWiringDeps): void {
       runWatch?.forget(device.id, tellRunEnded);
     });
     socket.on('machine:runs', (report: unknown) => runWatch?.follow(device.id, device.ownerId, report, tellRunEnded));
+    socket.on('machine:cluster', (report: unknown) => {
+      const state = reportedClusterState(report);
+      if (!state || !deps.machineClusters) return;
+      deps.machineClusters.reported(device, state).catch((err: Error) => console.warn(`[machines] ${device.id}: whether it has its own cluster could not be recorded: ${err.message}`));
+    });
     socket.on('agents:found', (report: { agents?: unknown } | undefined) => {
       deps.machines.recordAgents(device.id, report?.agents).catch((err: Error) => console.warn(`[machines] ${device.id}: its agents could not be recorded: ${err.message}`));
     });

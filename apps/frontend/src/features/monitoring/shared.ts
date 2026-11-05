@@ -46,6 +46,7 @@ export const STATE_LOOK: Record<HealthState, { label: string; dot: string; text:
   down: { label: 'Down', dot: 'bg-rose-500', text: 'text-rose-300' },
   unreachable: { label: 'Unreachable', dot: 'bg-slate-500', text: 'text-slate-400' },
   installing: { label: 'Getting monitoring', dot: 'bg-sky-400', text: 'text-sky-300' },
+  stopped: { label: 'Stopped until needed', dot: 'bg-zinc-500', text: 'text-zinc-400' },
 }
 
 export const percent = (value: number | undefined): string => (value === undefined ? '—' : `${Math.round(value * 100)}%`)

@@ -7,3 +7,4 @@ export * from './tool-exec.js';
 export * from './command-tool.js';
 export * from './external-agent.js';
 export * from './liveness.js';
+export * from './machine-cluster.js';

@@ -15,7 +15,7 @@ const ME = principalOf({ id: 'me' }, { role: 'instance', instanceOwnerId: 'me' }
 const SOMEONE = asPerson('someone');
 
 const system: ClusterMetadata = { id: 'provisioning-lunorica', name: 'provisioning-lunorica', provider: 'k3d', status: 'healthy', isSystem: true } as ClusterMetadata;
-const remote: ClusterMetadata = { id: 'c-remote', name: 'shop-box', provider: 'remote', status: 'healthy', ownerId: 'me' } as ClusterMetadata;
+const remote: ClusterMetadata = { id: 'c-remote', name: 'shop-box', provider: 'hetzner', status: 'healthy', ownerId: 'me' } as ClusterMetadata;
 
 const dep = (fields: Partial<DeploymentMetadata> & { id: string; name: string }): DeploymentMetadata =>
   ({ clusterId: system.id, strategy: 'native', appType: 'audiobookshelf', ownerId: 'me', status: 'running', createdAt: 'then', ...fields }) as DeploymentMetadata;
@@ -108,6 +108,28 @@ beforeEach(() => {
 });
 
 describe('the overview', () => {
+  it('says an app waits for its machine while the machine is offline, and only then', async () => {
+    const desk = { id: 'machine-desk', name: 'desk', provider: 'machine', status: 'stopped', machineId: 'desk', ownerId: 'me' } as ClusterMetadata;
+    await db.infrastructure.saveCluster(desk);
+    await db.infrastructure.saveDeploymentInfo(dep({ id: 'notes', name: 'Notes', namespace: 'notes', clusterId: desk.id, status: 'deploying' }));
+    let online = false;
+    monitoring = new MonitoringService({ ...deps(), machineOnline: (deviceId) => deviceId === 'desk' && online });
+    const offline = await monitoring.overview(ME);
+    expect(offline.attention).toContainEqual({ subject: { kind: 'app', id: 'notes', name: 'Notes' }, state: 'warning', reasons: ['it waits for desk, which is offline: it deploys when the machine connects again'] });
+    online = true;
+    const connected = await monitoring.overview(ME);
+    expect(connected.apps.find((row) => row.id === 'notes')).toMatchObject({ state: 'installing', reasons: ['it is being deployed'] });
+  });
+
+  it('shows a machine\'s cluster at rest as stopped, reads it for no alerts, and leaves it out of what needs attention', async () => {
+    const resting = { id: 'machine-desk', name: 'desk', provider: 'machine', status: 'stopped', machineId: 'desk', ownerId: 'me' } as ClusterMetadata;
+    await db.infrastructure.saveCluster(resting);
+    const overview = await monitoring.overview(ME);
+    expect(overview.clusters.find((row) => row.id === 'machine-desk')).toMatchObject({ state: 'stopped', reasons: ['its machine stops it while nothing runs on it'] });
+    expect(overview.attention.some((entry) => entry.subject.id === 'machine-desk')).toBe(false);
+    expect((await monitoring.allClusters()).map((cluster) => cluster.id)).not.toContain('machine-desk');
+  });
+
   it('lists the person\'s apps worst first, with what needs attention', async () => {
     await db.infrastructure.saveDeploymentInfo(dep({ id: 'books', name: 'Books', namespace: 'books' }));
     await db.infrastructure.saveDeploymentInfo(dep({ id: 'shop', name: 'Shop', namespace: 'shop' }));

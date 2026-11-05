@@ -1,7 +1,7 @@
 import { Context } from '@temporalio/activity';
 import { Worker, NativeConnection } from '@temporalio/worker';
 import { buildDataConverter, type BlobReach, type Keyring } from '@koala/engine-core/payloads';
-import { executeTool, heartbeatWhileRunning, WORKER_DEFAULTS, type ExternalAgentStepArgs, type ExternalAgentStepResult, type MachineGitOp, type MachineGitResult, type ToolContract } from '@koala/engine-core';
+import { executeTool, heartbeatWhileRunning, WORKER_DEFAULTS, type ExternalAgentStepArgs, type ExternalAgentStepResult, type MachineClusterOp, type MachineClusterResult, type MachineGitOp, type MachineGitResult, type ToolContract } from '@koala/engine-core';
 import { traceActivities } from '@koala/engine-core/telemetry';
 import { createLocalFsDriver } from './local-fs-driver.js';
 import type { ExternalAgentSessions } from './external-agents.js';
@@ -39,6 +39,7 @@ export interface DeviceActivitiesOptions {
   languages?: string[];
   externalAgents?: ExternalAgentSessions | undefined;
   git?: ((op: MachineGitOp) => Promise<MachineGitResult>) | undefined;
+  cluster?: ((op: MachineClusterOp) => Promise<MachineClusterResult>) | undefined;
   gate?: IdleGate | undefined;
 }
 
@@ -65,6 +66,11 @@ export function createDeviceActivities(options: DeviceActivitiesOptions) {
     async MachineGitActivity(op: MachineGitOp): Promise<MachineGitResult> {
       if (!options.git) return { ok: false, error: 'this machine cannot fetch or push a project\'s work' };
       return options.git(op);
+    },
+
+    async MachineClusterActivity(op: MachineClusterOp): Promise<MachineClusterResult> {
+      if (!options.cluster) return { state: 'absent' };
+      return options.cluster(op);
     },
 
     async EngineToolActivity(args: DeviceToolCall): Promise<DeviceToolOutcome> {
@@ -107,6 +113,7 @@ export function createDeviceActivities(options: DeviceActivitiesOptions) {
   return {
     ExternalAgentActivity: (args: ExternalAgentStepArgs) => holding(gate, 'an external agent step', () => activities.ExternalAgentActivity(args)),
     MachineGitActivity: (op: MachineGitOp) => holding(gate, 'a git fetch or push', () => activities.MachineGitActivity(op)),
+    MachineClusterActivity: (op: MachineClusterOp) => holding(gate, op.kind === 'start' ? 'starting its cluster' : 'stopping its cluster', () => activities.MachineClusterActivity(op)),
     EngineToolActivity: (args: DeviceToolCall) => holding(gate, 'a tool call', () => activities.EngineToolActivity(args)),
   };
 }

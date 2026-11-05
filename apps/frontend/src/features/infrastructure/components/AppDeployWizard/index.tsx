@@ -10,6 +10,7 @@ import { EMPTY_WIZARD_DATA, type WizardData } from '../../lib/wizard-defaults';
 import { nextStep, prevStep, isModelApp } from './steps';
 import type { Cluster } from '../../types/cluster';
 import type { Deployment } from '../../types/deployment';
+import { deployableTo, targetLabel } from '../../lib/deploy-targets'
 
 const BLANK_IMAGE: AppImageDefaults = { webRepo: '', webTag: '', dbRepo: '', dbTag: '' };
 const EMPTY_UI_DEFAULTS: AppUiDefaults = { helm: BLANK_IMAGE, native: BLANK_IMAGE, hasDatabase: false, strategies: [] };
@@ -194,9 +195,9 @@ export default function AppDeployWizard({
               <div>
                 <label htmlFor="wizard-target-cluster" className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">Target Cluster</label>
                 <select id="wizard-target-cluster" value={wizardData.clusterId} onChange={e => setWizardData({...wizardData, clusterId: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-5 py-4 text-sm focus:border-blue-500 transition-all">
-                  <option value="">Select a healthy cluster...</option>
-                  {clusters.filter((c) => c.status === 'healthy' && (currentUiDefaults.gpuOnly !== true || c.gpuEnabled)).map((c) => (
-                    <option key={c.id} value={c.id}>{c.name} ({c.provider}{c.gpuEnabled ? ' • GPU' : ''})</option>
+                  <option value="">Select a cluster...</option>
+                  {clusters.filter((c) => deployableTo(c) && (currentUiDefaults.gpuOnly !== true || c.gpuEnabled)).map((c) => (
+                    <option key={c.id} value={c.id}>{targetLabel(c)}</option>
                   ))}
                 </select>
                 {currentUiDefaults.gpuOnly === true && (

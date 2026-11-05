@@ -3,18 +3,17 @@ import { providersToSeed, BUILT_IN_PROVIDERS, type ClusterProviderSpec } from '.
 
 describe('BUILT_IN_PROVIDERS', () => {
   it('covers the four providers the platform can provision today', () => {
-    expect(BUILT_IN_PROVIDERS.map((p) => p.value).sort()).toEqual(['do', 'hetzner', 'k3d', 'remote']);
+    expect(BUILT_IN_PROVIDERS.map((p) => p.value).sort()).toEqual(['do', 'hetzner', 'k3d']);
   });
 
   it('marks DigitalOcean as catalog-bearing and credentialed, like Hetzner', () => {
     const ocean = BUILT_IN_PROVIDERS.find((p) => p.value === 'do')!;
-    expect(ocean).toMatchObject({ hasCatalog: true, usesMesh: false, credentialKey: 'do' });
+    expect(ocean).toMatchObject({ hasCatalog: true, credentialKey: 'do' });
   });
 
   it('marks hetzner as the catalog-bearing, credentialed provider', () => {
     const hetzner = BUILT_IN_PROVIDERS.find((p) => p.value === 'hetzner')!;
     expect(hetzner.hasCatalog).toBe(true);
-    expect(hetzner.usesMesh).toBe(false);
     expect(hetzner.credentialKey).toBe('hetzner');
   });
 
@@ -24,12 +23,6 @@ describe('BUILT_IN_PROVIDERS', () => {
     expect(k3d.credentialKey).toBeUndefined();
   });
 
-  it('marks remote as mesh-backed without a catalog or stored credential', () => {
-    const remote = BUILT_IN_PROVIDERS.find((p) => p.value === 'remote')!;
-    expect(remote.usesMesh).toBe(true);
-    expect(remote.hasCatalog).toBe(false);
-    expect(remote.credentialKey).toBeUndefined();
-  });
 });
 
 describe('providersToSeed', () => {
@@ -39,10 +32,10 @@ describe('providersToSeed', () => {
 
   it('adds only what is missing from an existing store', () => {
     const stored: ClusterProviderSpec[] = [
-      { value: 'k3d', label: 'Local (renamed by hand)', hasCatalog: false, usesMesh: false },
+      { value: 'k3d', label: 'Local (renamed by hand)', hasCatalog: false },
     ];
     const pending = providersToSeed(stored);
-    expect(pending.map((p) => p.value)).toEqual(['hetzner', 'do', 'remote']);
+    expect(pending.map((p) => p.value)).toEqual(['hetzner', 'do']);
   });
 
   it('leaves an edited built-in alone instead of overwriting it back', () => {

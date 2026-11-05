@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-Multi-cloud provisioning platform (local-first): spin up Kubernetes clusters (k3d locally, a machine of your own over SSH, or a VM Koala buys on Hetzner or DigitalOcean; AWS, Google Cloud and Azure are not built yet and are refused) and deploy apps (Odoo, WordPress, Nextcloud, Audiobookshelf, vLLM, Open WebUI) with public internet access via Nginx + Localtunnel — no port forwarding needed.
+Multi-cloud provisioning platform (local-first): spin up Kubernetes clusters (k3d locally, a machine of your own added under My Machines, or a VM Koala buys on Hetzner or DigitalOcean; AWS, Google Cloud and Azure are not built yet and are refused) and deploy apps (Odoo, WordPress, Nextcloud, Audiobookshelf, vLLM, Open WebUI) with public internet access via Nginx + Localtunnel — no port forwarding needed.
 
 ```
 React UI (Vite :5173) → Express API (:3001) → Temporal.io (workflows) → CDKTF (Terraform) → k3d / AWS / GCP / DO
@@ -42,7 +42,7 @@ npm run ship         # G1 + G2 against the dev stack on this commit, then push m
 npm run release      # G3 + G4 on a shipped commit, then tag it; GitHub builds and publishes the image (Releases, below)
 npm run test:workflows # actionlint, then the Release workflow run here under act, publishing nothing
 npm run test         # the three tiers in order, each only once the one below passes: test:unit → test:integration → test:e2e (Test tiers, below)
-npm run test:all     # test → test:synth:palworld → test:infra:integration → test:remote-integration
+npm run test:all     # test → test:synth:palworld → test:infra:integration
 npm run test:unit    # typecheck + every workspace's unit tier: *.test.ts, nothing outside the process, ~1.5 min
 npm run test:integration # every workspace's integration tier: *.integration.test.ts, real Mongo, a Temporal dev server, sockets, git and sh on this machine, ~5.5 min
 npm run test:integration:coupled # both tiers again, gathering what each test file runs (Coupling coverage, below); ship's third step
@@ -79,7 +79,7 @@ npm run test:release-live         # the release rehearsal (gate G4 of plans/rele
 npm run test:byo-live             # disposable QEMU VM runs the real `curl …/install.sh | sudo sh` from a root container → instance on the VM → sign in → sandboxed run → self-upgrade check-in, ~15 min, cleans up
 npm run test:machine-probe-live  # two disposable VMs of one person on the dev mesh, k3s installed from the pins but not started (plans/machines.md stage 0) → the person starts and stops it through one sudoers rule and nothing else, no shim left after a stop, readiness judged only from conditions changed since the start → 6443 and 10250 closed to the machine's network, nothing on 80/443, its own pods still reach its API → a pod on one machine lists the other's pods over the mesh, the certificate naming its mesh address → a pod mounts only the person's folder as their uid and what it writes is theirs; `PROBE_KEEP=1` keeps the VMs after a failure, ~10 min
 npm run test:machine-live        # its own Koala from this commit's image (a backend and an engine worker, a database and a Temporal namespace of its own, `tests/lib/own-stack.ts`) → a fresh Ubuntu VM runs the command from My Machines → the agent runs as a user service, records its bundle and shows up to date, and finds an ACP agent and two CLIs missing their adapters (`--adapters none`) → after a reboot with nobody logged in it connects again → Install adapter makes Claude Code ready → an agent from before agents updated themselves shows as too old to update itself → the command run again with `--yes` installs Codex's adapter and the current agent → a download that is not the bundle Koala named is refused, the agent left as it was and My Machines saying why → Koala serving a newer agent while a chat turn holds a session on the machine, it waits and says so → the run terminated, Koala tells the machine, which closes the session and, idle, updates itself and comes back as its service on the newer agent, up to date → a two-turn chat runs on it; removes the machine, its project, the VM and its Koala, ~15 min
-npm run test:mesh-live           # the image is built; root starts; the owner's instance installs in a VM and joins the mesh, its Temporal answering only on its mesh address → a second VM runs the command from the instance's My Machines, joins the mesh with a key root mints for the instance, and its worker polls the instance's Temporal over the mesh → a third VM, another person's, reaches neither and neither reaches it; ~30 min, removes everything
+npm run test:mesh-live           # the image is built; root starts; the owner's instance installs in a VM and joins the mesh, its Temporal answering only on its mesh address → a second VM runs the command from the instance's My Machines, joins the mesh with a key root mints for the instance, and its worker polls the instance's Temporal over the mesh → the join installed k3s on the machine, stopped, and the instance shows its cluster stopped → an app deployed to it starts k3s, runs on the machine and its ingress answers over the mesh where the instance's edge reaches it → with the machine offline a deploy waits and Needs attention says so, and goes ahead when it connects → destroying the apps stops k3s → a third VM, another person's, reaches neither, nor the machine's cluster → removing the machine uninstalls its k3s and forgets its cluster; ~35 min, removes everything
 npm run test:big-run-live         # real research run on your model, continuing as new each step; asserts every history event < 512 KB and that big payloads went to Mongo
 npm run test:memory-live          # Koala chat → a second message resets the countdown → keeper runs after the quiet time → a new chat recalls it, ~25 min
 npm run test:bench-live           # throwaway agent passes on an idle-started bench run, is broken, and the next idle bench names the regression, ~10 min
@@ -93,10 +93,6 @@ npm run test:restore-live          # two lab roots on VMs: the first backs up to
 npm run test:tree-to-release-live  # new trees made through the API: an Odoo tree gets its own project and its starter goes live in slot a, an API tree gets one and is built and deployed, a paper tree gets none; ~10 min, removes everything
 npm run test:checks-live          # a Level 2 run on the check runner (CHECKS_LIVE_SCENARIOS picks which; default seven model scenarios on your model): each in a fresh hidden space, driven through the API → every run opens for you afterwards → no space is left behind
 npm run test:instance-live        # k3d cluster + root container + charts/instance → sign in through root → sandboxed run → the instance removes no account and points at root, where a throwaway account removes itself and its instance is let go of, ~10 min, cleans up
-npm run test:remote-integration   # boots a disposable QEMU VM, provisions it as a provider:'remote' cluster over
-                                   # real SSH, verifies kubectl + deploys a real app, tears down VM+cluster — proves
-                                   # the distributed-systems plan's Phase 2 (SSH k3s bootstrap) end-to-end, ~10-15 min.
-                                   # Needs qemu-kvm/cloud-utils/genisoimage + /dev/kvm (tests/remote-host-integration.ts)
 ```
 
 Every `test:*-live` script runs through `tests/lib/run-live.ts`, which records when it last passed and last failed in
@@ -489,10 +485,16 @@ collection has to say how it is removed**.
 
 ## A person's own machines
 
-My Machines → Add a machine gives `curl -fsSL <koala>/machine.sh | sh -s -- <code>` (`scripts/machine/machine.sh`, served
-with the backend's `PUBLIC_URL`; the code is single-use and lasts an hour, `MachineService.createJoinCode`). Run as the
+**A machine is added to the account at root** (plan `~/.claude/plans/machines.md`, stage 1): My Machines → Add a machine gives
+`curl -fsSL <root>/machine.sh | sh -s -- <code>` (`scripts/machine/machine.sh`, served with root's `PUBLIC_URL`; the code is single-use
+and lasts an hour, `MachineAccounts.createJoinCode` on root, reached from an instance through `RootMachines` with a service token). The
+agent holds its account token at root (root's `/machine-account` socket, `wireMachineAccounts`), and root names the person's Koala to it
+with a **work token** (`machines/lib/work-tokens.ts`: EdDSA, `sub` the machine, `owner`, `aud` the instance or `combined`, 30 days) that the
+instance's `/agent` socket, gateway and git proxy check against root's keys; the agent's link to root is `apps/local-agent/src/root-link.ts`.
+An instance mirrors root's list (`MachineMirror`, read again on `machines:changed` over the presence socket), and its machines from before
+were copied to root once (`machines-to-root`). Run as the
 person, it needs Node 20+, asks which folder Koala may work in (never `/`, their home or a folder above it; the agent refuses
-one too, `folderProblem`, and every scope a run names stays inside it, absolute or climbing ones refused by `scopedPath`), trades the code at the public `POST /api/machines/join`
+one too, `folderProblem`, and every scope a run names stays inside it, absolute or climbing ones refused by `scopedPath`), trades the code at root's public `POST /api/machines/join`
 for the device's token and settings (kept in `~/.config/koala/machine.json`, mode 600, never printed; Koala keeps only its SHA-256,
 `tokenHash`, and the startup migration `device-tokens-hashed` turned the encrypted ones from before into hashes). **A device token
 lives 90 days** (`machines/lib/device-tokens.ts`; `device-token-lifetimes` dated the ones from before): in its last 30 days the backend
@@ -527,13 +529,29 @@ the service (`agent.mjs agents`, `agent-setup.ts`): it lists what it found and a
 each missing adapter; `--adapters all|none` answers for every one (`--yes` means all), and with no terminal it installs
 nothing. Running the command again on a machine already
 added replaces that machine (the script sends the old token from `machine.json`, on stdin) instead of adding a second.
-**Removing a machine** (My Machines, confirmed) deletes its record, so its token stops working, then closes its socket after
-telling the agent `machine:removed`: the agent deletes `machine.json` and its service file and disables its own service
-(`machine-removal.ts`). It takes the machine's node off the mesh by the address the agent reports on connect (`machine:mesh`,
-`meshIp` on the device): Headscale directly, or on an instance root's `DELETE /api/instances/machine-node`, which takes only
-the instance owner's nodes and never the instance itself. The project the machine was added with (`appType: 'local'` on that
+**Removing a machine** (My Machines, confirmed) deletes its record at root, so its token stops working, and root tells the agent
+`machine:removed`: the agent uninstalls its k3s (below), deletes `machine.json` and its service file and disables its own service
+(`machine-removal.ts`). Root takes the machine's node off the mesh by the address the agent reports to it (`machine:mesh`, `meshIp`). The project the machine was added with (`appType: 'local'` on that
 device) is deleted, unlinked from any tree. A machine offline when removed keeps its token file and is refused when it next
 connects.
+
+**A machine's own cluster** (plan `~/.claude/plans/machines.md`, stage 2). On Linux the join asks once, with sudo, to install pinned k3s
+**stopped** (`INSTALL_K3S_SKIP_START`/`SKIP_ENABLE`; Traefik and servicelb off, `tls-san` its mesh address, the kubeconfig readable by the
+person's group, NodePorts on loopback and the mesh only), a firewall run before k3s starts (`/usr/local/lib/koala/k3s-firewall.sh` as a
+systemd `ExecStartPre`: 6443 and 10250 answer only on loopback, the mesh and its own pods), a sudo rule for exactly starting, stopping and
+removing it (`/etc/sudoers.d/koala-k3s`, `koala/machine-uninstall.sh` removing everything Koala added), and a marker
+(`/etc/koala/machine-k3s`): a k3s of the person's own, without it, is left alone and Koala runs no apps there (`--no-cluster` skips it all).
+The agent reports its cluster when it connects (`machine:cluster`), and the instance keeps it as a cluster record, provider `machine`,
+`machine-<device>`, `stopped` (`MachineClusters`, rules in `machines/lib/machine-clusters.ts`). **It starts on demand and stops when idle**:
+a deploy to it first runs `MachineClusterActivity` (`start`) on the machine's own `device-<id>` queue (`workflows/machine-cluster.ts`), so
+on an offline machine it simply waits, which Needs attention says (`machineOnline`); the agent starts k3s and judges it ready only from
+conditions changed since that start (`apps/local-agent/src/machine-cluster.ts`), and hands back a kubeconfig on its mesh address, which the
+stream worker seals on the record (`kubeconfigEnc`) and the workflow hands to each cluster activity (`handedKubeconfig`), since the cluster
+worker holds no data key. A destroy starts it too and, once no app is left on it, stops it. The agent remembers that its cluster should run
+and starts it again when it next connects after a reboot (`startIfWanted`). At rest it shows as `stopped` ("stopped until something runs on
+it"), never unreachable, and is neither read for alerts nor in Needs attention. Removing the machine uninstalls k3s and every app with it,
+and the instance forgets the cluster and its apps' records. Not yet: the GPU toolkit offered at join, workspaces and sandboxes on it, the
+registry relay and egress proxy (stage 4). `test:mesh-live` proves it on two VMs.
 
 **A machine's agent updates itself** (owner, 2026-10-30). The install writes the bundle's sha256 beside the agent
 (`bundle.sha256` in `~/.local/share/koala/machine`), and that is the agent's version: it sends it in its socket handshake
@@ -590,7 +608,7 @@ checks the machine is the person's and its agent ready): a run that names no mod
 goes there when it is a chat or its procedure branches at Where It Runs (`accountMachineFor` in `machines/lib/machine-runs.ts`, read by the registry's `runnable`
 through `accountDefault`); anything else that would need a model fails with `MACHINE_DEFAULT_NEEDS_MODEL` from `ModelService.route`. A check's space
 never takes it. **The first-model dialog** (`models/components/FirstModel.tsx`, shown to anyone without a default) offers Connect OpenRouter, a model on their own machine
-(Infrastructure → Your own hardware, then TabbyAPI or vLLM) and a subscription agent through My Machines, and lists ready machine agents to pick.
+(add it under My Machines, then TabbyAPI or vLLM on its cluster) and a subscription agent through My Machines, and lists ready machine agents to pick.
 `npm run test:machine-default-live` proves it. A conversation keeps one
 session per machine, agent and model (`machineSessions`), so the next turn resumes it; a failed turn is saved with its reason.
 
@@ -1120,8 +1138,6 @@ scroll to the matching section:
 - **Clusters**: every cluster as a card (health, use, apps, history kept), Logs and Destroy (the system cluster
   read-only); Provision a cluster.
 - **Running**: what runs, cancel, the bench and memory keeper switches (below), and All workflows (the Temporal page).
-- **Your own hardware**: a machine joining the mesh (a single-use key and the join command), to become a cluster
-  through Provision a cluster, and the machines on the mesh.
 - **Model traffic**: each model's queue, whether it is answering or paused because its server said it is busy, and its totals.
 - **Koala**: what Koala reports about itself (`KoalaSection`, `koala` on `GET /api/infrastructure`): its state, which of its
   processes report, requests and the share failing, model calls, their failures and queue, workflows started, activities
@@ -1465,7 +1481,7 @@ client** (owner, 2026-10-29: Porkbun beside Cloudflare, nothing hardcoded to eit
 
 ## Headscale mesh
 
-Self-managed clusters (`hetzner`, `remote`) are meant to be reached over a WireGuard mesh, not the
+Self-managed clusters (`hetzner`, `do`, a person's `machine`) are meant to be reached over a WireGuard mesh, not the
 public internet — `constructs/hetzner-vm.ts` deliberately opens **no inbound rule for 6443**. A
 tenant's own machine sits behind their NAT, so it must dial out and join; nothing can SSH inward.
 
@@ -1488,8 +1504,8 @@ too-permissive policy still parses cleanly and fails open.
 Per-user credentials for aws/gcp/azure/do/huggingface/github are stored via `CredentialService`, encrypted at rest, and resolved through `credential-resolver.ts`'s chain: user-stored → `process.env` (only for a principal allowed `use-operator-credentials`) → mock mode.
 
 **Which providers Koala makes a cluster on is one table** (`CLUSTER_BUILDS` in `infrastructure/lib/cluster-topology.ts`, owner 2026-10-30:
-a provider whose provisioning is not real is refused until it is): `k3d` is made here (`test:infra:integration`), `remote` (a machine of the
-person's, over SSH or the mesh) gets k3s over SSH (`test:remote-integration`), `hetzner` (a VM through CDKTF, `test:hetzner-integration`, which
+a provider whose provisioning is not real is refused until it is): `k3d` is made here (`test:infra:integration`), `machine` (a person's own, joined under
+My Machines, below) is not made here at all and is refused in Provision a cluster with where it comes from (`MACHINE_CLUSTER_JOINED`), `hetzner` (a VM through CDKTF, `test:hetzner-integration`, which
 spends money and is in no gate) and `do` (a Droplet through DigitalOcean's API, proved by no suite yet) get a VM and then k3s over SSH. `aws`,
 `gcp` and `azure` are stubs (their cluster construct only logs "Cluster logic would be instantiated here"; the roadmap lists them as still to
 build). `providerReady` decides everything offered: `/api/cluster-providers` (Provision a cluster) serves only ready providers, the catalogue's
@@ -2087,7 +2103,7 @@ instance, without passing its gates first (owner, 2026-10-23: "all those checks 
   carries and which newer release fixes it (`/api/instances/release-findings`, a service token).
 - **`npm run release [vYYYY.MM.DD[-n]]`** (`tests/release.ts`) makes a release from a shipped commit `origin/main` has: it
   builds the image from that commit (`buildAppImage` in `tests/lib/gate-runs.ts`, also `nowrinkles/app:dev` for the VM
-  suites), runs **G3** and **G4** (`RELEASE_STEPS`: mail, infra and remote integration, instance, machine, byo, mesh,
+  suites), runs **G3** and **G4** (`RELEASE_STEPS`: mail, infra integration, instance, machine, byo, mesh,
   routing, pool, the Odoo customisations, the restore drill, then `test:release-live` from the previous tag) in rounds packed by free memory (`roundsOf`; a step marked `alone` runs by itself), carrying on past a failure and keeping each step that passed for the commit (`checked` on its gate record, kept for a ledger commit on top), so a second attempt runs only what failed, then **signs** the tag. `npm run release:check` does the same on any commit without tagging, so every step is known to pass before a release is tried. A previous release a hardened root cannot run (`UNHOSTABLE_RELEASES` in `tests/lib/release-lab.ts`, so far only v2026.10.23, whose Temporal health check dials the Docker gateway) is not rehearsed: the candidate's parent commit stands in for it as `v2099.12.29`, root bootstraps on it, and the same updates, refusals, instance upgrade and rollbacks run between it and the candidate with the
   release key (an SSH ed25519 key, `~/.ssh/koala-release` or `KOALA_RELEASE_KEY`, whose public half must be in
   `scripts/root-node/release-signers`, checked before the suites start), pushes it with the ledger, waits for the GitHub
@@ -2201,8 +2217,6 @@ dependency mocked, again in the integration tier with the real ones, and its flo
   `k3d cluster list`, which returns nothing on a native-k3s host.
 - Workflows run with their activities (integration) on a real Temporal dev server; the time-skipping one only where a durable timer must be skipped. And `src/worker-activities.test.ts` reads every
   workflow's activity types and every worker's map from the compiler (unit).
-- `npm run test:remote-integration` (`tests/remote-host-integration.ts`) boots a disposable QEMU/KVM VM and provisions it as a
-  `provider: 'remote'` cluster over real SSH, ~10-15 min, in the release gate.
 
 ## Playwright / k3d gotchas
 

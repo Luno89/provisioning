@@ -1,6 +1,6 @@
-export type HealthState = 'ok' | 'warning' | 'down' | 'unreachable' | 'installing';
+export type HealthState = 'ok' | 'warning' | 'down' | 'unreachable' | 'installing' | 'stopped';
 
-export const STATE_ORDER: Record<HealthState, number> = { down: 0, unreachable: 1, warning: 2, installing: 3, ok: 4 };
+export const STATE_ORDER: Record<HealthState, number> = { down: 0, unreachable: 1, warning: 2, installing: 3, stopped: 4, ok: 5 };
 
 export const NEARLY_FULL = 0.9;
 export const MANY_ERRORS = 0.05;
@@ -97,11 +97,12 @@ export const STATE_WORDS: Record<HealthState, string> = {
   down: 'down',
   unreachable: 'cannot be reached',
   installing: 'getting its monitoring',
+  stopped: 'stopped until something runs on it',
 };
 
 export function appLines(name: string, verdict: Verdict, n: AppNumbers, keptDays: number): string[] {
   const lines = [`${name} is ${STATE_WORDS[verdict.state]}${verdict.reasons.length ? `: ${verdict.reasons.join('; ')}` : ''}.`];
-  if (verdict.state === 'unreachable' || verdict.state === 'installing') return lines;
+  if (verdict.state === 'unreachable' || verdict.state === 'installing' || verdict.state === 'stopped') return lines;
   const uptime = [
     n.uptimeDay !== undefined ? `${percent(n.uptimeDay)} over the last day` : undefined,
     n.uptimeWeek !== undefined ? `${percent(n.uptimeWeek)} over the last week` : undefined,
@@ -125,7 +126,7 @@ export function appLines(name: string, verdict: Verdict, n: AppNumbers, keptDays
 
 export function clusterLines(name: string, verdict: Verdict, n: ClusterNumbers, onPool = false): string[] {
   const lines = [`${name} is ${STATE_WORDS[verdict.state]}${verdict.reasons.length ? `: ${verdict.reasons.join('; ')}` : ''}.`];
-  if (verdict.state === 'unreachable' || verdict.state === 'installing') return lines;
+  if (verdict.state === 'unreachable' || verdict.state === 'installing' || verdict.state === 'stopped') return lines;
   if (n.nodes !== undefined) lines.push(`${n.nodes} machine${n.nodes === 1 ? '' : 's'}${n.nodesNotReady ? `, ${n.nodesNotReady} not ready` : ''}.`);
   const used = [
     n.cpuShare !== undefined ? `CPU ${percent(n.cpuShare)}` : undefined,
@@ -169,7 +170,7 @@ export function koalaVerdict(n: KoalaNumbers, services: readonly string[]): Verd
 
 export function koalaLines(verdict: Verdict, n: KoalaNumbers, services: readonly string[]): string[] {
   const lines = [`Koala is ${STATE_WORDS[verdict.state]}${verdict.reasons.length ? `: ${verdict.reasons.join('; ')}` : ''}.`];
-  if (verdict.state === 'unreachable' || verdict.state === 'installing') return lines;
+  if (verdict.state === 'unreachable' || verdict.state === 'installing' || verdict.state === 'stopped') return lines;
   lines.push(services.length ? `${count(services.length, 'process reports', 'processes report')}: ${[...services].sort().join(', ')}.` : 'Nothing of Koala reports to its collector.');
   if (n.requestsPerSecond !== undefined) {
     const failing = n.requestErrorShare !== undefined ? `, ${percent(n.requestErrorShare)} of them failing` : '';

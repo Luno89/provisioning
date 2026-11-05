@@ -1,7 +1,6 @@
 import fs from 'fs/promises';
 
 import { InfrastructureService, hasCloudCredentials, isMockCloudProvider } from '../infrastructure/index.js';
-import { DestroyRemoteHostActivity } from './ProvisionRemoteHostActivity.js';
 import { DestroyHetznerVmActivity } from './ProvisionHetznerVmActivity.js';
 import { DestroyDigitalOceanVmActivity } from './ProvisionDigitalOceanVmActivity.js';
 import { messageOf } from './failure-reasons.js';
@@ -11,10 +10,6 @@ export interface DestroyClusterArgs {
   provider: string;
   logFile: string;
   gpuEnabled?: boolean;
-  remoteHost?: string;
-  remoteUsername?: string;
-  remoteSshPort?: number;
-  remoteSshPrivateKey?: string;
   hcloudToken?: string;
   hetznerServerId?: string;
   doToken?: string;
@@ -33,7 +28,6 @@ export async function DestroyClusterActivity(
   const infra = new InfrastructureService();
   const logFile = args.logFile;
 
-  const isRemote = args.provider === 'remote';
   const isHetzner = args.provider === 'hetzner';
   const isDigitalOcean = args.provider === 'do';
   const isMock = isMockCloudProvider(args.provider, hasCloudCredentials);
@@ -68,21 +62,6 @@ export async function DestroyClusterActivity(
   if (args.provider === 'k3d' || isMock) {
     await infra.deleteLocalCluster(physicalName, { logFile });
     await infra.disconnectNginxFromNetwork(physicalName);
-    await forgetKubeconfig();
-  } else if (isRemote) {
-    if (args.remoteHost && args.remoteUsername && args.remoteSshPrivateKey) {
-      try {
-        await DestroyRemoteHostActivity({
-          physicalName,
-          host: args.remoteHost,
-          username: args.remoteUsername,
-          privateKey: args.remoteSshPrivateKey,
-          ...(args.remoteSshPort !== undefined ? { port: args.remoteSshPort } : {}),
-        });
-      } catch (err) {
-        console.warn(`[DestroyClusterActivity] Remote k3s uninstall failed (continuing): ${messageOf(err)}`);
-      }
-    }
     await forgetKubeconfig();
   } else if (isHetzner) {
     if (!args.hcloudToken) {
