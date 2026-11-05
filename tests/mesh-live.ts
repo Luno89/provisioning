@@ -79,6 +79,7 @@ async function whatWasThere(): Promise<void> {
     [instanceVm, 'the instance\'s engine worker', 'sudo k3s kubectl -n nowrinkles logs deploy/instance-worker-engine --tail=80'],
     [machineVm, 'the machine\'s agent', 'journalctl --user -u koala-machine --no-pager -n 150'],
     [machineVm, 'the machine\'s k3s', 'systemctl status k3s --no-pager -n 40; sudo k3s kubectl get pods -A 2>&1 | head -40'],
+    [machineVm, 'what the machine\'s cluster did', 'sudo k3s kubectl get deploy,rs,quota,limitrange -A 2>&1 | grep -v kube-system | head -40; sudo k3s kubectl get events -A --sort-by=.lastTimestamp 2>&1 | grep -v Normal | tail -40'],
   ];
   for (const [vm, what, command] of looks) {
     if (!vm) continue;
