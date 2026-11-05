@@ -12,8 +12,6 @@
     "test:integration": "vitest run --project integration --maxWorkers=50% --passWithNoTests",
     "test:watch": "vitest",
     "dev:worker": "tsx watch --exclude data --include 'src/workflows/**' src/worker-host.ts",
-    "dev:worker:cluster": "tsx watch --exclude data --include 'src/workflows/**' src/worker-cluster.ts",
-    "dev:worker:engine": "tsx watch --exclude data --include 'src/workflows/**' src/worker-engine.ts",
     "start:worker": "tsx src/worker-host.ts",
     "start:worker:cluster": "tsx src/worker-cluster.ts",
     "start:worker:engine": "tsx src/worker-engine.ts",
@@ -23,7 +21,6 @@
     "dns:check": "tsx src/scripts/dns-check.ts",
     "dns:issue-check": "tsx src/scripts/dns-issue-check.ts",
     "ovh:quote": "tsx src/scripts/ovh-quote.ts",
-    "dev:split:setup": "tsx src/scripts/dev-split.ts",
     "lint": "eslint ."
   },
   "keywords": [],

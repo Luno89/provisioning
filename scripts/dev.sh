@@ -1,111 +1,54 @@
 #!/usr/bin/env bash
-# dev.sh — Orchestrates the development environment with automatic port collision resolution.
-#
-# 1. Idempotently ensures infrastructure is running (Cluster, Gitea, npm registry mirror, Temporal, Mongo, Headscale, Infisical).
-# 2. Checks target development ports (3001, 8000, 5173) and terminates any stale orphaned dev processes.
-# 3. Terminates any stale Temporal worker processes so workers always run fresh, current code.
-# 4. Concurrently launches backend, frontend, and workers with clean logging.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-SPLIT=false
-[ "${1:-}" = "--split" ] && SPLIT=true
-STEADY=false
-[ "${1:-}" = "--steady" ] && STEADY=true
-if [ "$STEADY" = true ]; then WORKER_HOST="npm run start:worker -w apps/backend"; WORKER_CLUSTER="npm run start:worker:cluster -w apps/backend"; WORKER_ENGINE="npm run start:worker:engine -w apps/backend"; else WORKER_HOST="npm run dev:worker -w apps/backend"; WORKER_CLUSTER="npm run dev:worker:cluster -w apps/backend"; WORKER_ENGINE="npm run dev:worker:engine -w apps/backend"; fi
+DEV_DATA="${ROOT}/apps/backend/data/dev"
+KUBECONFIG_FILE=/etc/rancher/k3s/k3s.yaml
+IMAGE=127.0.0.1:5000/nowrinkles/app:dev
 
-# Never run under sudo
 if [ "$(id -u)" -eq 0 ]; then
-  echo "❌ Do not run 'npm run dev' (or this script) with sudo — it leaves dev-server files"
-  echo "   root-owned. Sudo will be prompted interactively only when strictly required."
+  echo "Run npm run dev as yourself, not with sudo; it asks for sudo itself only where it must."
   exit 1
 fi
 
-echo "═══════════════════════════════════════════════════════════════════════"
-echo "🚀 INITIALIZING PROVISIONING DEV ENVIRONMENT"
-echo "═══════════════════════════════════════════════════════════════════════"
+say() { printf '\n\033[1m%s\033[0m\n' "$1"; }
 
-# ── 1. INFRASTRUCTURE ENSURE ─────────────────────────────────────────
-echo "▶ [1/3] Ensuring platform infrastructure services..."
-bash "${ROOT}/scripts/ensure-cluster.sh"
+say "Root's services: Temporal, Mongo, Headscale, the registry"
 bash "${ROOT}/scripts/ensure-temporal.sh"
 bash "${ROOT}/scripts/ensure-mongo.sh"
 bash "${ROOT}/scripts/ensure-headscale.sh"
-bash "${ROOT}/scripts/instance/platform-services.sh"
+docker compose -f "${ROOT}/docker-compose.registry.yml" up -d >/dev/null
 
-# ── 2. PORT & PROCESS RECLAIM ────────────────────────────────────────
-echo "▶ [2/3] Checking ports and resolving stale processes..."
-
-reclaim_port() {
-  local port="$1"
-  local name="$2"
-  local pids=""
-
-  if command -v lsof >/dev/null 2>&1; then
-    pids="$(lsof -ti :${port} 2>/dev/null || true)"
-  elif command -v fuser >/dev/null 2>&1; then
-    pids="$(fuser ${port}/tcp 2>/dev/null || true)"
-  fi
-
-  if [ -n "$pids" ]; then
-    echo "  ⚠️  Port ${port} (${name}) is currently in use by PID(s): ${pids}"
-    echo "      Reclaiming port for clean foreground session..."
-    for pid in $pids; do
-      if [ "$(ps -o uid= -p "$pid" 2>/dev/null | tr -d ' ')" = "$(id -u)" ]; then
-        kill "$pid" 2>/dev/null || true
-      fi
-    done
-
-    # Wait up to 2 seconds for clean exit
-    local deadline=$(( $(date +%s) + 2 ))
-    while [ "$(date +%s)" -lt "$deadline" ]; do
-      local check=""
-      if command -v lsof >/dev/null 2>&1; then
-        check="$(lsof -ti :${port} 2>/dev/null || true)"
-      else
-        check="$(fuser ${port}/tcp 2>/dev/null || true)"
-      fi
-      if [ -z "$check" ]; then
-        break
-      fi
-      sleep 0.2
-    done
-
-    # Force kill if still lingering
-    local remaining=""
-    if command -v lsof >/dev/null 2>&1; then
-      remaining="$(lsof -ti :${port} 2>/dev/null || true)"
-    else
-      remaining="$(fuser ${port}/tcp 2>/dev/null || true)"
-    fi
-    if [ -n "$remaining" ]; then
-      for pid in $remaining; do
-        if [ "$(ps -o uid= -p "$pid" 2>/dev/null | tr -d ' ')" = "$(id -u)" ]; then
-          kill -9 "$pid" 2>/dev/null || true
-        fi
-      done
-      sleep 0.3
-    fi
-    echo "  ✅  Port ${port} reclaimed"
-  fi
-}
-
-reclaim_port 3001 "Backend API"
-reclaim_port 8000 "Host Tunnel"
-reclaim_port 5173 "Frontend Vite"
-if [ "$SPLIT" = true ]; then
-  reclaim_port 3002 "Root API"
-  reclaim_port 5175 "Root Vite"
+if [ -x /usr/local/bin/k3s-provisioning-lunorica-uninstall.sh ]; then
+  say "Removing the k3s dev ran before (provisioning-lunorica); this computer gets a machine's k3s instead"
+  sudo /usr/local/bin/k3s-provisioning-lunorica-uninstall.sh
 fi
 
-# Also terminate any stale worker processes from previous sessions
-# Workers do not hot-reload and must start fresh
-STALE_WORKERS=$(pgrep -u "$(id -u)" -f "worker-host|worker-cluster|worker-engine" 2>/dev/null || true)
-if [ -n "$STALE_WORKERS" ]; then
-  echo "  ⚠️  Reclaiming stale Temporal workers (PID: ${STALE_WORKERS})..."
-  kill $STALE_WORKERS 2>/dev/null || true
-  sleep 0.3
+if systemctl is-active --quiet firewalld && ! firewall-cmd --zone=trusted --list-sources 2>/dev/null | grep -qw 10.42.0.0/16; then
+  say "Letting the pods on this computer reach root on it (firewalld: 10.42.0.0/16 trusted)"
+  sudo firewall-cmd --permanent --zone=trusted --add-source=10.42.0.0/16 >/dev/null
+  sudo firewall-cmd --reload >/dev/null
 fi
+
+mkdir -p "${DEV_DATA}"
+IMAGE_INPUTS="$(cat "${ROOT}/Dockerfile" "${ROOT}/package-lock.json" "${ROOT}/docker/entrypoint.sh" | sha256sum | cut -d' ' -f1)"
+if [ "$(cat "${DEV_DATA}/image.sha" 2>/dev/null || true)" != "${IMAGE_INPUTS}" ] || ! curl -fsS -o /dev/null "http://127.0.0.1:5000/v2/nowrinkles/app/manifests/dev" -H 'Accept: application/vnd.docker.distribution.manifest.v2+json'; then
+  say "Building the image Koala's pods start from (its tools; they run this checkout)"
+  docker build -t "${IMAGE}" "${ROOT}"
+  docker push "${IMAGE}"
+  printf '%s\n' "${IMAGE_INPUTS}" > "${DEV_DATA}/image.sha"
+fi
+
+say "Root and the hub"
+npx tsx "${ROOT}/apps/backend/src/scripts/dev-root.ts"
+set -a; . "${DEV_DATA}/urls.env"; set +a
+with_env() { echo "set -a; . '${DEV_DATA}/$1.env'; set +a; exec $2"; }
+
+for port in 3002 3003 5173 5175 5176; do
+  for pid in $(lsof -ti ":${port}" 2>/dev/null || true); do
+    if [ "$(ps -o uid= -p "$pid" | tr -d ' ')" = "$(id -u)" ]; then kill "$pid" 2>/dev/null || true; fi
+  done
+done
 
 if [ "${COUPLING_LIVE:-}" = 1 ]; then
   export COUPLING_LIVE_DIR="${ROOT}/tests/.coupling/live"
@@ -113,52 +56,37 @@ if [ "${COUPLING_LIVE:-}" = 1 ]; then
   mkdir -p "${COUPLING_LIVE_DIR}/raw"
   export NODE_V8_COVERAGE="${COUPLING_LIVE_DIR}/raw"
   export NODE_OPTIONS="--enable-source-maps --import ${ROOT}/tests/coupling/live-hook.mjs ${NODE_OPTIONS:-}"
-  echo "  measuring what the live suites run on this stack (tests/.coupling/live)"
 fi
 
-# ── 3. DEV PROCESS ORCHESTRATION ────────────────────────────────────
-if [ "$SPLIT" = true ]; then
-  echo "▶ [3/3] Starting root and your instance..."
-  npm run dev:split:setup -w apps/backend
-  SPLIT_ENV="${ROOT}/apps/backend/data/dev-split"
-  with_env() { echo "set -a; . '${SPLIT_ENV}/$1.env'; set +a; exec $2"; }
-  ROOT_WEB="$(grep '^PUBLIC_URL=' "${SPLIT_ENV}/root.env" | cut -d= -f2-)"
-  INSTANCE_WEB="$(grep '^PUBLIC_URL=' "${SPLIT_ENV}/instance.env" | cut -d= -f2-)"
-  echo "═══════════════════════════════════════════════════════════════════════"
-  echo "  Root:         ${ROOT_WEB}   (sign in here)"
-  echo "  Instance:     ${INSTANCE_WEB}"
-  echo "  Hub:          $(grep '^PUBLIC_URL=' "${SPLIT_ENV}/hub.env" | cut -d= -f2-)   (shared projects)"
-  echo "  APIs:         root :3002, instance :3001, hub :3003"
-  echo "═══════════════════════════════════════════════════════════════════════"
-  exec npx concurrently --kill-others \
-    --names "root,instance,hub,web-root,web-instance,web-hub,worker-host,worker-cluster,worker-engine" \
-    --prefix-colors "red,blue,white,gray,cyan,gray,yellow,magenta,green" \
-    "bash -c \"$(with_env root 'npm run dev -w apps/backend')\"" \
-    "bash -c \"$(with_env instance 'npm run dev -w apps/backend')\"" \
-    "bash -c \"$(with_env hub 'npm run dev -w apps/backend')\"" \
-    "KOALA_BACKEND=http://localhost:3002 VITE_API_BASE=/api npm run dev -w apps/frontend -- --port 5175 --strictPort" \
-    "KOALA_BACKEND=http://localhost:3001 VITE_API_BASE=/api npm run dev -w apps/frontend -- --port 5173 --strictPort" \
-    "KOALA_BACKEND=http://localhost:3003 VITE_API_BASE=/api npm run dev -w apps/frontend -- --port 5176 --strictPort" \
-    "bash -c \"$(with_env instance 'npm run dev:worker -w apps/backend')\"" \
-    "bash -c \"$(with_env instance 'npm run dev:worker:cluster -w apps/backend')\"" \
-    "bash -c \"$(with_env instance 'npm run dev:worker:engine -w apps/backend')\""
+ROOT_NAMES="root,root-worker,hub,web-root,web-hub"
+ROOT_PROCESSES=(
+  "bash -c \"$(with_env root 'npm run dev -w apps/backend')\""
+  "bash -c \"$(with_env root 'npm run dev:worker -w apps/backend')\""
+  "bash -c \"$(with_env hub 'npm run dev -w apps/backend')\""
+  "KOALA_BACKEND=http://localhost:3002 VITE_API_BASE=/api npm run dev -w apps/frontend -- --port 5175 --strictPort --host 0.0.0.0"
+  "KOALA_BACKEND=http://localhost:3003 VITE_API_BASE=/api npm run dev -w apps/frontend -- --port 5176 --strictPort --host 0.0.0.0"
+)
+
+if [ ! -f "${XDG_CONFIG_HOME:-$HOME/.config}/koala/machine.json" ]; then
+  say "This computer joins your account as a machine, and Koala is put on it"
+  npx concurrently --names "${ROOT_NAMES}" "${ROOT_PROCESSES[@]}" > "${DEV_DATA}/first-start.log" 2>&1 &
+  STARTING=$!
+  trap 'kill ${STARTING} 2>/dev/null || true' EXIT
+  npx tsx "${ROOT}/apps/backend/src/scripts/dev-machine.ts"
+  kill "${STARTING}" 2>/dev/null || true
+  wait "${STARTING}" 2>/dev/null || true
+  trap - EXIT
 fi
 
-echo "▶ [3/3] Starting development stack with live log streaming..."
-echo "═══════════════════════════════════════════════════════════════════════"
-echo "  Backend API:  http://localhost:3001"
-echo "  Frontend UI:  http://localhost:5173"
-echo "  Host Tunnel:  http://localhost:8000"
-echo "  Temporal:     http://localhost:7233"
-echo "  MongoDB:      mongodb://localhost:27017"
-echo "  Headscale:    http://localhost:8080"
-echo "═══════════════════════════════════════════════════════════════════════"
+say "Dev runs as production does"
+echo "  Root:        ${ROOT_WEB}   (sign in here)"
+echo "  Your Koala:  ${INSTANCE_WEB}   (pods on this computer's k3s, running this checkout under a watcher)"
+echo "  Hub:         ${HUB_WEB}"
 
-exec npx concurrently --kill-others \
-  --names "backend,frontend,worker-host,worker-cluster,worker-engine" \
-  --prefix-colors "blue,cyan,yellow,magenta,green" \
-  "npm run dev -w apps/backend" \
-  "npm run dev -w apps/frontend" \
-  "$WORKER_HOST" \
-  "$WORKER_CLUSTER" \
-  "$WORKER_ENGINE"
+exec npx concurrently --kill-others-on-fail \
+  --names "${ROOT_NAMES},web-koala,machine,koala" \
+  --prefix-colors "red,yellow,white,gray,gray,cyan,green,blue" \
+  "${ROOT_PROCESSES[@]}" \
+  "KOALA_BACKEND=http://127.0.0.1:30320 VITE_API_BASE=/api npm run dev -w apps/frontend -- --port 5173 --strictPort" \
+  "npx tsx ${ROOT}/apps/backend/src/scripts/dev-machine.ts" \
+  "k3s kubectl --kubeconfig ${KUBECONFIG_FILE} -n nowrinkles logs -f --prefix --all-containers --max-log-requests 20 -l app.kubernetes.io/part-of=nowrinkles-instance"

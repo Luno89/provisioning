@@ -9,7 +9,6 @@
     "build": "npm run build -w apps/frontend",
     "start": "concurrently --kill-others \"npm run start -w apps/backend\" \"npm run start:worker -w apps/backend\" \"npm run start:worker:cluster -w apps/backend\" \"npm run start:worker:engine -w apps/backend\"",
     "dev": "bash scripts/dev.sh",
-    "dev:split": "bash scripts/dev.sh --split",
     "dev:infisical": "bash scripts/ensure-infisical.sh",
     "clean-dev": "bash scripts/cleanup-all.sh",
     "backup": "bash scripts/backup-to-drive.sh",
@@ -107,8 +106,7 @@
     "test:mail-live": "cd apps/backend && tsx ../../tests/lib/run-live.ts mail-live",
     "test:pool-live": "cd apps/backend && tsx ../../tests/lib/run-live.ts pool-live",
     "test:root-smoke": "cd apps/backend && tsx ../../tests/lib/run-live.ts root-smoke",
-    "test:release-live": "cd apps/backend && tsx ../../tests/lib/run-live.ts release-live",
-    "dev:steady": "bash scripts/dev.sh --steady"
+    "test:release-live": "cd apps/backend && tsx ../../tests/lib/run-live.ts release-live"
   },
   "workspaces": [
     "apps/*",
