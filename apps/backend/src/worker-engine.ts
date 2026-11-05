@@ -611,7 +611,11 @@ async function main() {
   }
 }
 
-main().catch((err) => {
+main().then(async () => {
+  logger.info('[EngineWorker] Stopped');
+  await telemetry.shutdown();
+  process.exit(0);
+}, (err) => {
   logger.error(`[EngineWorker] fatal: ${(err as Error).message}`);
   process.exit(1);
 });
