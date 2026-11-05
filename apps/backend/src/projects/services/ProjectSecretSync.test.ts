@@ -71,7 +71,7 @@ describe('syncProjectSecrets', () => {
 
   it('refuses a cluster that cannot reach the vault before touching it', async () => {
     const w = world(true);
-    await expect(syncProjectSecrets({ ...w, masterKey: MASTER }, { project, namespace: 'billing', kubeconfig: 'k', target: { clusterName: 'box', provider: 'remote', isMock: false } }))
+    await expect(syncProjectSecrets({ ...w, masterKey: MASTER }, { project, namespace: 'billing', kubeconfig: 'k', target: { clusterName: 'box', provider: 'machine', isMock: false } }))
       .rejects.toThrow('not reachable');
     expect(w.helm).toHaveLength(0);
     expect(w.applied).toHaveLength(0);

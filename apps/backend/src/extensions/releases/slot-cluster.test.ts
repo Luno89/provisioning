@@ -18,7 +18,7 @@ describe('the namespace a release is installed in', () => {
 
 describe('a release namespace pulls Koala-built images with a login', () => {
   const login = { hosts: { push: '10.0.0.130:31737', pull: '10.0.0.130:31737' }, username: 'provisioning-bot', password: 'tok' };
-  const target = { clusterName: 'own', provider: 'remote', kubeconfigPath: '/kube/own', namespace: 'shop-1a2b3c', release: 'shop-1a2b3c', owner: { ownerId: 'BO_1', projectId: 'project-p1' } };
+  const target = { clusterName: 'own', provider: 'hetzner', kubeconfigPath: '/kube/own', namespace: 'shop-1a2b3c', release: 'shop-1a2b3c', owner: { ownerId: 'BO_1', projectId: 'project-p1' } };
 
   const fakeInfra = () => {
     const applied: Record<string, unknown>[] = [];

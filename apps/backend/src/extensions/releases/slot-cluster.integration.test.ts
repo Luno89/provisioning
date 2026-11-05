@@ -30,7 +30,7 @@ describe('a release slot reading its build\'s files through Gitea', () => {
     expect(await cluster.files(source)).toEqual(Object.keys(FILES));
     expect(await cluster.file(source, 'addons/shop/__manifest__.py')).toBe("{'name': 'Shop'}\n");
     expect(await cluster.file(source, 'missing.txt')).toBeNull();
-    await cluster.apply({ clusterName: 'own', provider: 'remote', kubeconfigPath: '/kube/own', namespace: 'shop-1', release: 'shop-1' } as never, source, ['--set', 'live=a']);
+    await cluster.apply({ clusterName: 'own', provider: 'hetzner', kubeconfigPath: '/kube/own', namespace: 'shop-1', release: 'shop-1' } as never, source, ['--set', 'live=a']);
     expect(charted).toEqual({ 'Chart.yaml': FILES['deploy/chart/Chart.yaml'], 'templates/odoo.yaml': FILES['deploy/chart/templates/odoo.yaml'] });
     expect(gitea.asked.every((line) => line.endsWith('token bot-token'))).toBe(true);
   });
