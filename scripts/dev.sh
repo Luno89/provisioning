@@ -122,4 +122,4 @@ exec npx concurrently --kill-others-on-fail \
   "${ROOT_PROCESSES[@]}" \
   "KOALA_BACKEND=http://127.0.0.1:30320 VITE_API_BASE=/api npm run -s dev -w apps/frontend -- --logLevel warn --port 5173 --strictPort" \
   "npx tsx ${ROOT}/apps/backend/src/scripts/dev-machine.ts" \
-  "until k3s kubectl --kubeconfig ${KUBECONFIG_FILE} -n nowrinkles logs -f --prefix --all-containers --max-log-requests 20 -l app.kubernetes.io/part-of=nowrinkles-instance; do sleep 5; done"
+  "until k3s kubectl --kubeconfig ${KUBECONFIG_FILE} -n nowrinkles logs -f --prefix --all-containers --max-log-requests 20 -l 'app.kubernetes.io/part-of=nowrinkles-instance,app.kubernetes.io/component in (backend,worker-host,worker-cluster,worker-engine)'; do sleep 5; done"
