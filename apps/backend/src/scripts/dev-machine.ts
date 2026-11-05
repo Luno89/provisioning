@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import { spawn } from 'node:child_process';
-import { access, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -14,7 +14,10 @@ const ROOT_API = `http://localhost:${DEV.rootApiPort}`;
 const CONFIG = join(process.env.XDG_CONFIG_HOME || join(os.homedir(), '.config'), 'koala');
 const say = (line: string) => console.log(`  ${line}`);
 const pause = (ms: number) => new Promise((done) => setTimeout(done, ms));
-const exists = async (path: string) => (await access(path).then(() => true).catch(ignore('a file that cannot be read is one this computer does not have yet'))) ?? false;
+const joinedHere = async (rootUrl: string): Promise<boolean> => {
+  const config = await readFile(join(CONFIG, 'machine.json'), 'utf8').then((text) => JSON.parse(text) as { rootUrl?: unknown }).catch(ignore('a computer with no machine file has not joined yet'));
+  return config?.rootUrl === rootUrl;
+};
 
 async function untilRootAnswers(): Promise<void> {
   for (;;) {
@@ -71,7 +74,7 @@ async function main(): Promise<void> {
   const urls = readEnvFile(await readFile(join(DATA, 'urls.env'), 'utf8'));
   await untilRootAnswers();
   const cookie = await owner(root.ADMIN_SETUP_CODE!);
-  if (!await exists(join(CONFIG, 'machine.json'))) await joinThisComputer(cookie, urls.INSTANCE_WEB!);
+  if (!await joinedHere(urls.ROOT_WEB!)) await joinThisComputer(cookie, urls.INSTANCE_WEB!);
   await untilKoalaReady(cookie);
   say(`your Koala runs on this computer: ${urls.INSTANCE_WEB}`);
   process.exit(0);

@@ -67,7 +67,8 @@ ROOT_PROCESSES=(
   "KOALA_BACKEND=http://localhost:3003 VITE_API_BASE=/api npm run dev -w apps/frontend -- --port 5176 --strictPort --host 0.0.0.0"
 )
 
-if [ ! -f "${XDG_CONFIG_HOME:-$HOME/.config}/koala/machine.json" ]; then
+MACHINE_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/koala/machine.json"
+if ! node -e 'process.exit(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).rootUrl === process.argv[2] ? 0 : 1)' "${MACHINE_FILE}" "${ROOT_WEB}" 2>/dev/null; then
   say "This computer joins your account as a machine, and Koala is put on it"
   npx concurrently --names "${ROOT_NAMES}" "${ROOT_PROCESSES[@]}" > "${DEV_DATA}/first-start.log" 2>&1 &
   STARTING=$!
@@ -89,4 +90,4 @@ exec npx concurrently --kill-others-on-fail \
   "${ROOT_PROCESSES[@]}" \
   "KOALA_BACKEND=http://127.0.0.1:30320 VITE_API_BASE=/api npm run dev -w apps/frontend -- --port 5173 --strictPort" \
   "npx tsx ${ROOT}/apps/backend/src/scripts/dev-machine.ts" \
-  "k3s kubectl --kubeconfig ${KUBECONFIG_FILE} -n nowrinkles logs -f --prefix --all-containers --max-log-requests 20 -l app.kubernetes.io/part-of=nowrinkles-instance"
+  "until k3s kubectl --kubeconfig ${KUBECONFIG_FILE} -n nowrinkles logs -f --prefix --all-containers --max-log-requests 20 -l app.kubernetes.io/part-of=nowrinkles-instance; do sleep 5; done"
