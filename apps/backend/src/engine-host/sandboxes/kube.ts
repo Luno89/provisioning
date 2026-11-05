@@ -3,6 +3,7 @@ import { WORKSPACE_STAMP } from '../../engine/lib/published-workspace.js';
 import { assessWorkload } from '../../infrastructure/lib/workload-health.js';
 import { createReadStream, createWriteStream } from 'fs';
 import path from 'path';
+import { fileURLToPath } from 'url';
 
 export interface KubeResult {
   stdout: string;
@@ -28,7 +29,9 @@ export interface KubeStreamer {
 
 export const MAX_OUTPUT_CHARS = 30_000;
 
-const kubectlAt = (binDir?: string): string => path.join(binDir ?? path.join(process.cwd(), '..', '..', 'bin'), 'kubectl');
+const REPO_BIN = fileURLToPath(new URL('../../../../../bin', import.meta.url));
+
+const kubectlAt = (binDir?: string): string => path.join(binDir ?? REPO_BIN, 'kubectl');
 
 export function createKubeStreamer(options: { binDir?: string; kubeconfig?: string | undefined } = {}): KubeStreamer {
   const binary = kubectlAt(options.binDir);

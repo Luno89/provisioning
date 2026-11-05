@@ -73,6 +73,7 @@ import { treeOfGroveRun, workflowOfRun } from './engine-host/temporal/contracts.
 import { TreeModelsService, treeAgentsFrom } from './models/index.js';
 import { platformGroups } from './extensions/installed.js';
 import { heartbeatWhileRunning, WORKER_DEFAULTS } from '@koala/engine-core';
+import { ignore } from '@koala/engine-core/failures';
 import { traceActivities } from '@koala/engine-core/telemetry';
 import { startTelemetry } from '@koala/engine-core/telemetry-sdk';
 import { executeIngestWorkflow } from './workflows/IngestWorkflow.js';
@@ -80,7 +81,7 @@ import { workflowInterceptorModules } from './worker-interceptors.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-dotenv.config({ path: resolve(__dirname, '../.env') });
+dotenv.config();
 
 const telemetry = startTelemetry(telemetrySettings(process.env, 'koala-worker-engine'));
 telemetry.exportTo(collectorSink({ env: process.env, proxy: sharedClusterProxy(), kubeconfigPath: () => process.env.KUBECONFIG_PATH || SYSTEM_KUBECONFIG }));
@@ -611,7 +612,10 @@ async function main() {
   }
 }
 
-main().catch((err) => {
+main().then(async () => {
+  await telemetry.shutdown().catch(ignore('the worker has stopped, and telemetry the collector did not take is dropped as it is whenever the collector is away'));
+  process.exit(0);
+}, (err) => {
   logger.error(`[EngineWorker] fatal: ${(err as Error).message}`);
   process.exit(1);
 });
