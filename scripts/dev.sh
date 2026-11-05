@@ -17,7 +17,7 @@ say "Root's services: Temporal, Mongo, Headscale, the registry"
 bash "${ROOT}/scripts/ensure-temporal.sh"
 bash "${ROOT}/scripts/ensure-mongo.sh"
 bash "${ROOT}/scripts/ensure-headscale.sh"
-docker compose -f "${ROOT}/docker-compose.registry.yml" up -d >/dev/null
+"${ROOT}/bin/docker-compose" -f "${ROOT}/docker-compose.registry.yml" up -d >/dev/null
 
 if [ -x /usr/local/bin/k3s-provisioning-lunorica-uninstall.sh ]; then
   say "Removing the k3s dev ran before (provisioning-lunorica); this computer gets a machine's k3s instead"
