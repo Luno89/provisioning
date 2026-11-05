@@ -580,13 +580,14 @@ async function main() {
   const address = process.env.TEMPORAL_CONNECTION_ADDRESS || 'localhost:7233';
   logger.info(`[EngineWorker] Starting — taskQueue=${queue}, address=${address}`);
 
-  const activities = await buildActivities();
+  let activities: Awaited<ReturnType<typeof buildActivities>> | undefined;
   let current: Worker | undefined;
   const port = healthPort(process.env);
   if (port) serveHealth(port, () => current?.getState() === 'RUNNING');
 
   for (;;) {
     try {
+      activities ??= await buildActivities();
       const connection = await connectTemporalWorker(address, 'koala-worker-engine', process.env);
       const dataConverter = buildDataConverter(keys.payload, sharedPayloadBlobs());
 
