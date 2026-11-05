@@ -69,6 +69,23 @@ const boot = async (name: string, options: Parameters<typeof createDisposableVm>
   return vm;
 };
 
+async function whatWasThere(): Promise<void> {
+  const [instanceVm, machineVm] = vms;
+  const looks: Array<[DisposableVm | undefined, string, string]> = [
+    [instanceVm, 'the instance\'s pods', 'sudo k3s kubectl get pods -A -o wide'],
+    [instanceVm, 'the instance\'s backend', 'sudo k3s kubectl -n nowrinkles logs deploy/instance-backend --tail=150'],
+    [instanceVm, 'the instance\'s cluster worker', 'sudo k3s kubectl -n nowrinkles logs deploy/instance-worker-cluster --tail=150'],
+    [instanceVm, 'the instance\'s engine worker', 'sudo k3s kubectl -n nowrinkles logs deploy/instance-worker-engine --tail=80'],
+    [machineVm, 'the machine\'s agent', 'journalctl --user -u koala-machine --no-pager -n 150'],
+    [machineVm, 'the machine\'s k3s', 'systemctl status k3s --no-pager -n 40; sudo k3s kubectl get pods -A 2>&1 | head -40'],
+  ];
+  for (const [vm, what, command] of looks) {
+    if (!vm) continue;
+    const seen = await inVm(vm, `${command} 2>&1 || true`).catch((err: Error) => err.message);
+    console.error(`\n── ${what} ──\n${seen}`);
+  }
+}
+
 async function teardown(): Promise<void> {
   for (const name of [ROOT_CONTAINER, WORKER_CONTAINER]) try { run('docker', ['rm', '-f', name]); } catch { /* not running */ }
   try {
@@ -289,4 +306,4 @@ async function main(): Promise<void> {
 
 main()
   .then(async () => { await teardown(); process.exit(0); })
-  .catch(async (err) => { console.error(err); await teardown(); process.exit(1); });
+  .catch(async (err) => { console.error(err); await whatWasThere(); await teardown(); process.exit(1); });
