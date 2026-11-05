@@ -35,17 +35,18 @@ export const placedOnPool = (env: NodeJS.ProcessEnv, physicalName: string): bool
 export const appServiceType = (onPool: boolean, selfManaged: boolean): 'ClusterIP' | 'NodePort' | 'LoadBalancer' =>
   (onPool ? 'ClusterIP' : selfManaged ? 'NodePort' : 'LoadBalancer');
 
-export function monitoringPlan(seen: MonitoringSeen, pool = false): MonitoringPlan {
+export function monitoringPlan(seen: MonitoringSeen, pool = false, machine = false): MonitoringPlan {
   const operator = lines(seen.apiResources).includes(PROBE_RESOURCE);
   const keepIngress = lines(seen.ingressClasses).length > 0;
   if (pool) return { stacks: operator && keepIngress ? [] : ['cluster'], keepIngress };
+  if (machine) return { stacks: operator && seen.blackbox ? [] : ['cluster'], keepIngress };
   const stacks: MonitoringStackPart[] = [];
   if (!operator) stacks.push('cluster');
   if (!operator || !seen.blackbox || !telemetryPresent(seen.telemetry)) stacks.push('observability');
   return { stacks, keepIngress: lines(seen.ingressClasses).length > 0 };
 }
 
-export function monitoringStackEnv(cluster: { physicalName: string; kubeconfigPath: string; local: boolean; pool?: boolean | undefined; machine?: boolean | undefined }, keepIngress: boolean): Record<string, string> {
+export function monitoringStackEnv(cluster: { physicalName: string; kubeconfigPath: string; local: boolean; pool?: boolean | undefined; machine?: { metricsUrl: string } | undefined }, keepIngress: boolean): Record<string, string> {
   return {
     STACK_TYPE: 'cluster',
     ENV: cluster.local ? 'k3d' : 'remote',
@@ -53,10 +54,22 @@ export function monitoringStackEnv(cluster: { physicalName: string; kubeconfigPa
     KUBECONFIG_PATH: cluster.kubeconfigPath,
     ...(keepIngress ? { CLUSTER_INGRESS: 'existing' } : {}),
     ...(cluster.pool ? { CLUSTER_MONITORING: 'crds', INGRESS_SERVICE: 'ClusterIP' } : {}),
-    ...(cluster.machine ? { INGRESS_SERVICE: 'NodePort' } : {}),
+    ...(cluster.machine ? { INGRESS_SERVICE: 'NodePort', CLUSTER_MONITORING: 'agent', REMOTE_WRITE_URL: cluster.machine.metricsUrl } : {}),
   };
 }
 
 export function monitoringStackName(physicalName: string, part: MonitoringStackPart): string {
   return part === 'cluster' ? physicalName : `${physicalName}-observability`;
+}
+
+export const METRICS_TOKEN_SECRET = 'koala-metrics';
+
+export const machineMetricsUrl = (env: NodeJS.ProcessEnv): string =>
+  env.MACHINE_METRICS_URL || `${(env.PUBLIC_URL || 'http://localhost:3001').replace(/\/$/, '')}/api/machines/metrics`;
+
+export function metricsTokenManifests(token: string): Array<Record<string, unknown>> {
+  return [
+    { apiVersion: 'v1', kind: 'Namespace', metadata: { name: 'monitoring' } },
+    { apiVersion: 'v1', kind: 'Secret', metadata: { name: METRICS_TOKEN_SECRET, namespace: 'monitoring' }, type: 'Opaque', stringData: { token } },
+  ];
 }

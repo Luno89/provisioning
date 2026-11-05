@@ -4,6 +4,7 @@ import { jsonFrom, renderedAppFrom, settingsFrom } from "./lib/env-json.js";
 import { Construct } from "constructs";
 import { BaseCluster } from "./constructs/cluster.js";
 import { OperatorCrdsStack } from "./constructs/operator-crds.js";
+import { AgentMonitoringStack } from "./constructs/monitoring-agent.js";
 import { OdooApp } from "./constructs/odoo.js";
 import { OdooNativeApp } from "./constructs/odoo-native.js";
 import { WordPressApp } from "./constructs/wordpress.js";
@@ -68,6 +69,12 @@ function initK8sProvider(scope: Construct, config: ClusterStackConfig): void {
  * downstream construct can depend on: the Prometheus Operator CRDs (via MonitoringStack's
  * kube-prometheus-stack release) and the "monitoring" namespace itself.
  */
+function remoteWriteUrl(): string {
+  const url = process.env.REMOTE_WRITE_URL;
+  if (!url) throw new Error("a machine's cluster sends its metrics to REMOTE_WRITE_URL, which is not set");
+  return url;
+}
+
 class ClusterStack extends TerraformStack {
   constructor(scope: Construct, id: string, config: ClusterStackConfig) {
     super(scope, id);
@@ -84,7 +91,9 @@ class ClusterStack extends TerraformStack {
     // IngressStack's constructor doc.
     const monitoring = process.env.CLUSTER_MONITORING === "crds"
       ? new OperatorCrdsStack(this, "monitoring")
-      : new MonitoringStack(this, "monitoring", config.name);
+      : process.env.CLUSTER_MONITORING === "agent"
+        ? new AgentMonitoringStack(this, "monitoring", remoteWriteUrl())
+        : new MonitoringStack(this, "monitoring", config.name);
     if (process.env.CLUSTER_INGRESS !== "existing") new IngressStack(this, "ingress", [monitoring.prometheusRelease]);
   }
 }

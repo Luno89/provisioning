@@ -21,6 +21,9 @@ data:
   {{- if .Values.mesh.address }}
   MACHINE_TEMPORAL_ADDRESS: {{ printf "%s:%v" .Values.mesh.address .Values.machineGateway.nodePort | quote }}
   {{- end }}
+  {{- if and .Values.mesh.address .Values.backend.nodePort }}
+  MACHINE_METRICS_URL: {{ printf "http://%s:%v/api/machines/metrics" .Values.mesh.address .Values.backend.nodePort | quote }}
+  {{- end }}
   {{- if .Values.routing.domain }}
   INGRESS_DOMAIN: {{ .Values.routing.domain | quote }}
   INSTANCE_NAME: {{ required "routing.name is required with routing.domain" .Values.routing.name | quote }}

@@ -1,9 +1,8 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { compress, uncompress } from 'snappyjs';
+import { CLUSTER_LABEL } from '../../monitoring/lib/cluster-scope.js';
 import { encodeVarint, wireFields } from './protobuf-wire.js';
 
-export const METRICS_CLUSTER_LABEL = 'koala_cluster';
-export const METRICS_TOKEN_SECRET = 'koala-metrics';
 export const METRICS_MAX_BYTES = 32 * 1024 * 1024;
 
 const lengthDelimited = (number: number, value: Buffer) => Buffer.concat([encodeVarint(number * 8 + 2), encodeVarint(value.length), value]);
@@ -16,8 +15,8 @@ function stampedSeries(series: Buffer, cluster: string): Buffer {
   const fields = wireFields(series);
   const labels = fields.filter((field) => field.number === 1 && field.value)
     .map((field) => ({ name: nameOf(field.value!), bytes: series.subarray(field.start, field.end) }))
-    .filter((label) => label.name !== METRICS_CLUSTER_LABEL);
-  labels.push({ name: METRICS_CLUSTER_LABEL, bytes: labelOf(METRICS_CLUSTER_LABEL, cluster) });
+    .filter((label) => label.name !== CLUSTER_LABEL);
+  labels.push({ name: CLUSTER_LABEL, bytes: labelOf(CLUSTER_LABEL, cluster) });
   labels.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
   const rest = fields.filter((field) => field.number !== 1).map((field) => series.subarray(field.start, field.end));
   return Buffer.concat([...labels.map((label) => label.bytes), ...rest]);

@@ -1,6 +1,7 @@
 import fs from 'fs/promises';
 import type { InfrastructureService } from '../infrastructure/index.js';
-import { monitoringPlan, monitoringStackEnv, monitoringStackName, TELEMETRY_SERVICES } from '../monitoring/index.js';
+import { metricsTokenManifests, monitoringPlan, monitoringStackEnv, monitoringStackName, TELEMETRY_SERVICES } from '../monitoring/index.js';
+import { newMetricsToken } from '../machines/index.js';
 import { ignore } from '@koala/engine-core/failures';
 
 export interface MonitoredCluster {
@@ -8,7 +9,12 @@ export interface MonitoredCluster {
   kubeconfigPath: string;
   local: boolean;
   pool?: boolean | undefined;
-  machine?: boolean | undefined;
+  machine?: MachineMonitoring | undefined;
+}
+
+export interface MachineMonitoring {
+  metricsUrl: string;
+  remember(tokenHash: string): Promise<void>;
 }
 
 const inFlight = new Map<string, Promise<void>>();
@@ -22,10 +28,15 @@ async function install(infra: InfrastructureService, cluster: MonitoredCluster, 
     serviceExists(TELEMETRY_SERVICES.collector),
     serviceExists(TELEMETRY_SERVICES.tempo),
   ]);
-  const plan = monitoringPlan({ apiResources, blackbox, ingressClasses, telemetry: { collector, tempo } }, cluster.pool);
+  const plan = monitoringPlan({ apiResources, blackbox, ingressClasses, telemetry: { collector, tempo } }, cluster.pool, Boolean(cluster.machine));
   if (plan.stacks.length === 0) return;
+  if (cluster.machine) {
+    const { token, hash } = newMetricsToken();
+    for (const manifest of metricsTokenManifests(token)) await infra.applyManifest(JSON.stringify(manifest), cluster.kubeconfigPath);
+    await cluster.machine.remember(hash);
+  }
   const env = monitoringStackEnv(cluster, plan.keepIngress);
-  if (logFile) await fs.appendFile(logFile, `[monitoring] ${cluster.physicalName} ${cluster.pool ? 'is watched by Koala\'s servers; installing what its apps need' : `has no monitoring yet; installing ${plan.stacks.join(' and ')}`}\n`).catch(ignore('the log only shows progress, and the work goes on without it'));
+  if (logFile) await fs.appendFile(logFile, `[monitoring] ${cluster.physicalName} ${cluster.pool ? 'is watched by Koala\'s servers; installing what its apps need' : cluster.machine ? 'sends its metrics to this Koala; installing what collects them' : `has no monitoring yet; installing ${plan.stacks.join(' and ')}`}\n`).catch(ignore('the log only shows progress, and the work goes on without it'));
   for (const part of plan.stacks) {
     await infra.deploy(monitoringStackName(cluster.physicalName, part), { env, ...(logFile ? { logFile } : {}) });
   }

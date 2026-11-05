@@ -12,7 +12,7 @@ import os from 'os';
 
 import { clusterAccess, handedKubeconfig } from './cluster-access.js';
 import { ensureClusterMonitoring } from './cluster-monitoring.js';
-import { appServiceType, placedOnPool } from '../monitoring/index.js';
+import { appServiceType, machineMetricsUrl, placedOnPool } from '../monitoring/index.js';
 import { infisicalHostFor } from '../releases/index.js';
 import { ignore } from '@koala/engine-core/failures';
 import { messageOf } from './failure-reasons.js';
@@ -122,6 +122,16 @@ export interface DeployAppResult {
 
 
 const SANITIZE = sanitiseNamespaceName;
+
+async function rememberMetricsToken(clusterId: string, tokenHash: string): Promise<void> {
+  const db = createDatabase();
+  await db.init();
+  try {
+    await db.infrastructure.patchCluster(clusterId, { metricsTokenHash: tokenHash });
+  } finally {
+    await db.close().catch(ignore('the token\'s hash is already kept, and a connection that does not close cleanly holds nothing this deploy needs'));
+  }
+}
 
 export async function DeployAppActivity(
   args: DeployAppArgs,
@@ -484,7 +494,10 @@ export async function DeployAppActivity(
     storageEnv,
   });
 
-  await ensureClusterMonitoring(infra, { physicalName, kubeconfigPath, local: args.provider === 'k3d' || isMock, pool: placedOnPool(process.env, physicalName), machine: args.provider === 'machine' }, logFile);
+  await ensureClusterMonitoring(infra, {
+    physicalName, kubeconfigPath, local: args.provider === 'k3d' || isMock, pool: placedOnPool(process.env, physicalName),
+    ...(args.provider === 'machine' ? { machine: { metricsUrl: machineMetricsUrl(process.env), remember: (tokenHash: string) => rememberMetricsToken(args.clusterId, tokenHash) } } : {}),
+  }, logFile);
   await infra.deploy(
     `app-${physicalName}-${deploymentId}`,
     { logFile, env },

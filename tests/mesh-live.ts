@@ -230,6 +230,26 @@ async function main(): Promise<void> {
   assert.equal(await reaches(instanceVm, machineMeshIp, 6443), true, 'the instance does not reach the machine\'s cluster over the mesh');
   console.log(`  books runs in ${booksApp.namespace} on ${machineMeshIp}, answering ${viaMesh} through its ingress on :${nodePort}`);
 
+  step('the machine keeps only collectors, sending to the instance\'s Prometheus, which reads books and alerts when it stops answering');
+  const monitoringPods = await kubectlOnMachine('get pods -n monitoring -o name');
+  assert.match(monitoringPods, /prom-agent/, `the machine runs no Prometheus agent: ${monitoringPods}`);
+  assert.doesNotMatch(monitoringPods, /grafana|alertmanager|pod\/prometheus-/, `the machine runs a monitoring stack of its own: ${monitoringPods}`);
+  const health = await until('the instance reading books from what the machine sends', 5, async () => {
+    const view = await (await onInstance(`/api/monitoring/apps/${books}`)).json() as { app: { state: string; numbers: { probed?: number; up?: number; podsRunning?: number } } };
+    return view.app.numbers.probed && view.app.numbers.up === 1 && view.app.numbers.podsRunning ? view.app : undefined;
+  });
+  const firingOnMachine = async () => ((await (await onInstance('/api/monitoring/alerts')).json()) as { firing: Array<{ clusterId: string; name: string; about: { kind: string; deploymentId?: string } }> }).firing
+    .filter((alert) => alert.clusterId === clusterId && alert.about.kind === 'app' && alert.about.deploymentId === books);
+  await kubectlOnMachine(`scale deployment --all -n ${booksApp.namespace} --replicas=0`);
+  const fired = await until('an alert on the instance about books, stopped on the machine', 8, async () => {
+    const alerts = await firingOnMachine();
+    return alerts.length ? alerts : undefined;
+  });
+  await kubectlOnMachine(`scale deployment --all -n ${booksApp.namespace} --replicas=1`);
+  await until('the alert about books resolving once it answers again', 8, async () => ((await firingOnMachine()).length ? undefined : true));
+  await running(books);
+  console.log(`  books read on the instance as ${health.state} (${JSON.stringify(health.numbers)}); stopped, ${fired.map((alert) => alert.name).join(', ')} fired for it there and resolved once it answered`);
+
   step('with the machine offline, a deploy waits and Needs attention says so; when it connects again the app deploys');
   await inVm(machineVm, 'systemctl --user stop koala-machine');
   await until('the instance seeing the machine offline', 2, async () => {
