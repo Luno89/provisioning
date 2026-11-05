@@ -8,13 +8,12 @@ describe('BUILT_IN_PROVIDERS', () => {
 
   it('marks DigitalOcean as catalog-bearing and credentialed, like Hetzner', () => {
     const ocean = BUILT_IN_PROVIDERS.find((p) => p.value === 'do')!;
-    expect(ocean).toMatchObject({ hasCatalog: true, usesMesh: false, credentialKey: 'do' });
+    expect(ocean).toMatchObject({ hasCatalog: true, credentialKey: 'do' });
   });
 
   it('marks hetzner as the catalog-bearing, credentialed provider', () => {
     const hetzner = BUILT_IN_PROVIDERS.find((p) => p.value === 'hetzner')!;
     expect(hetzner.hasCatalog).toBe(true);
-    expect(hetzner.usesMesh).toBe(false);
     expect(hetzner.credentialKey).toBe('hetzner');
   });
 
@@ -33,7 +32,7 @@ describe('providersToSeed', () => {
 
   it('adds only what is missing from an existing store', () => {
     const stored: ClusterProviderSpec[] = [
-      { value: 'k3d', label: 'Local (renamed by hand)', hasCatalog: false, usesMesh: false },
+      { value: 'k3d', label: 'Local (renamed by hand)', hasCatalog: false },
     ];
     const pending = providersToSeed(stored);
     expect(pending.map((p) => p.value)).toEqual(['hetzner', 'do']);

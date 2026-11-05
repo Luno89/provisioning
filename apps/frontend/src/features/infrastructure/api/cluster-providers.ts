@@ -6,7 +6,6 @@ export interface ClusterProviderSpec {
   hint?: string
   credentialKey?: string
   hasCatalog: boolean
-  usesMesh: boolean
 }
 
 export const clusterProviderKeys = {

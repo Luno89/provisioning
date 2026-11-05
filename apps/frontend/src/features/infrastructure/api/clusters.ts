@@ -40,11 +40,7 @@ export const clusterDashboardUrl = (clusterId: string, serviceName: string): str
 export interface ClusterCreated {
   id: string
   status?: string
-  publicKey?: string
 }
-
-export const startAwaitingCluster = <T,>(id: string): Promise<T> =>
-  api.post<T>(`/clusters/${id}/start`, {}).then((r) => r.data)
 
 export const provisionCluster = <T,>(body: unknown): Promise<T> =>
   api.post<T>('/clusters', body).then((r) => r.data)

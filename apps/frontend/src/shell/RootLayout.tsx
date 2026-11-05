@@ -14,7 +14,6 @@ import { Login } from '../features/accounts';
 import { ClusterWizard } from '../features/infrastructure';
 import { AppDeployWizard } from '../features/infrastructure';
 import { AppDashboard } from '../features/infrastructure';
-import { PendingKeyModal } from '../features/infrastructure';
 import { NginxWizard } from '../features/infrastructure';
 import { errorMessage } from '../api/client';
 import { releaseKeys, type OdooRelease } from '../features/releases';
@@ -28,7 +27,7 @@ import { RemoveAccountPage } from '../features/accounts';
 import { TrialBanner } from '../features/instances';
 import { FirstModel } from '../features/models';
 import { MovingPage } from '../features/instances';
-import { listClusters, clusterKeys, type ClusterCreated, provisionCluster as provisionClusterApi, startAwaitingCluster as startAwaitingClusterApi } from '../features/infrastructure';
+import { listClusters, clusterKeys, type ClusterCreated, provisionCluster as provisionClusterApi } from '../features/infrastructure';
 import { listDeployments, deploymentKeys, deployApp as deployAppApi, destroyResource as destroyResourceApi } from '../features/infrastructure';
 import { listProviders, credentialKeys } from '../features/infrastructure';
 import { getNginxConfig, saveNginxConfig, nginxKeys } from '../features/infrastructure';
@@ -59,7 +58,6 @@ export function RootLayout() {
 
   const [editorContent, setEditorContent] = useState('');
   const [showClusterModal, setShowClusterModal] = useState(false);
-  const [pendingKey, setPendingKey] = useState<{ id: string; publicKey: string } | null>(null);
   const [wizardPreset, setWizardPreset] = useState<WizardPreset | undefined>(undefined);
   const [showAppModal, setShowAppModal] = useState(false);
   const [showLogModal, setShowLogModal] = useState<{ type: 'cluster' | 'app', id: string } | null>(null);
@@ -190,27 +188,12 @@ export function RootLayout() {
       void queryClient.invalidateQueries({ queryKey: ['clusters'] });
       setShowClusterModal(false);
       setWizardPreset(undefined);
-      if (res.status === 'awaiting-key') {
-        setPendingKey({ id: res.id, publicKey: res.publicKey ?? '' });
-        return;
-      }
       setShowLogModal({ type: 'cluster', id: res.id });
       setLogTab('provision');
     },
     onError: reportFailure('Could not provision the cluster'),
   });
 
-  const startAwaitingCluster = useMutation({
-    mutationFn: (id: string) => startAwaitingClusterApi<ClusterCreated>(id),
-    onSuccess: (res) => {
-      void queryClient.invalidateQueries({ queryKey: ['clusters'] });
-      setPendingKey(null);
-      setShowLogModal({ type: 'cluster', id: res.id });
-      setLogTab('provision');
-    },
-    onError: reportFailure('Could not start the cluster'),
-  });
-  
   const deployApp = useMutation({ 
     mutationFn: (newApp: unknown) => deployAppApi<{ id: string }>(newApp),
     onSuccess: (res) => { 
@@ -421,16 +404,6 @@ export function RootLayout() {
           onCredentialsSaved={() => queryClient.invalidateQueries({ queryKey: ['credentials'] })}
           onSubmit={(payload) => provisionCluster.mutate(payload)}
           {...(wizardPreset ? { preset: wizardPreset } : {})}
-        />
-      )}
-
-      {pendingKey && (
-        <PendingKeyModal
-          pending={pendingKey}
-          onDismiss={() => setPendingKey(null)}
-          onStart={(id) => startAwaitingCluster.mutate(id)}
-          starting={startAwaitingCluster.isPending}
-          startError={startAwaitingCluster.error ? errorMessage(startAwaitingCluster.error) : null}
         />
       )}
 

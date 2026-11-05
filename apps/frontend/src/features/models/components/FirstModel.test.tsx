@@ -73,7 +73,7 @@ describe('a person with no model yet', () => {
     renderIt()
     expect(await screen.findByRole('heading', { name: 'A model on your own machine' })).toBeTruthy()
     expect(screen.getByRole('heading', { name: 'A subscription you already have' })).toBeTruthy()
-    expect(screen.getAllByRole('link', { name: 'Add my machine' }).map((link) => link.getAttribute('href'))).toEqual(['#/infrastructure/hardware', '#/mesh'])
+    expect(screen.getAllByRole('link', { name: 'Add my machine' }).map((link) => link.getAttribute('href'))).toEqual(['#/mesh', '#/mesh'])
   })
 
   it('picks a ready agent on their machine as the default, and is satisfied by it', async () => {

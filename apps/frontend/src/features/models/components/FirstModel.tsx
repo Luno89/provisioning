@@ -88,8 +88,8 @@ export function FirstModel() {
               <a href={openRouterConnectUrl()} className={primary}>Connect OpenRouter</a>
             </Way>
             <Way title="A model on your own machine">
-              <p className="text-xs text-slate-400">Join your machine (a GPU helps) under Infrastructure → Your own hardware with one command, make it a cluster, and deploy TabbyAPI or vLLM there with a model. Nothing leaves your machine, and it shows here once it answers.</p>
-              <a href="#/infrastructure/hardware" className={quiet} onClick={putOff}>Add my machine</a>
+              <p className="text-xs text-slate-400">Join your machine (a GPU helps) under My Machines with one command, then deploy TabbyAPI or vLLM there with a model. Nothing leaves your machine, and it shows here once it answers.</p>
+              <a href="#/mesh" className={quiet} onClick={putOff}>Add my machine</a>
             </Way>
             <Way title="A subscription you already have">
               <p className="text-xs text-slate-400">Claude Code, Codex or Gemini CLI, signed in on your machine with your own plan. Add the machine under My Machines with one command; once its agent is ready you pick it here. Chats and the agents that can hand their work to a machine run on it; anything that cannot (checks, the bench) still needs a model.</p>

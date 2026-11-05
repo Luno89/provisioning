@@ -34,7 +34,7 @@ const binding = (id: string, extra: Partial<BindingTypeRecord> = {}): BindingTyp
 
 const spec = (id: string, extra: Partial<StoredAppSpec> = {}): StoredAppSpec => ({ id, label: `App ${id}`, builtIn: false, createdAt: '2026-10-10T00:00:00.000Z', updatedAt: '2026-10-10T00:00:00.000Z', ...extra });
 
-const provider = (value: string, extra: Partial<ClusterProviderSpec> = {}): ClusterProviderSpec => ({ value, label: `Provider ${value}`, hasCatalog: false, usesMesh: false, ...extra });
+const provider = (value: string, extra: Partial<ClusterProviderSpec> = {}): ClusterProviderSpec => ({ value, label: `Provider ${value}`, hasCatalog: false, ...extra });
 
 const order = (id: string, extra: Partial<ServerOrder> = {}): ServerOrder => ({
   id, ownerId: 'owner-1', provider: 'ovh', purpose: 'root', subsidiary: 'FR', planCode: 'vps-1', planLabel: 'VPS 1', datacenter: 'GRA', domain: 'koala.example', ingressDomain: 'people.example', acmeEmail: 'a@koala.example',
@@ -266,8 +266,8 @@ export function infrastructureStoreContract(make: () => Promise<InfrastructureSt
       await store.saveClusterProvider(provider('mine', { hint: 'first', credentialKey: 'k' }));
       await store.saveClusterProvider(provider('other'));
       expect(await store.getClusterProviders()).toEqual([provider('mine', { hint: 'first', credentialKey: 'k' }), provider('other')]);
-      await store.saveClusterProvider(provider('mine', { usesMesh: true }));
-      expect((await store.getClusterProviders()).find((stored) => stored.value === 'mine')).toEqual(provider('mine', { usesMesh: true }));
+      await store.saveClusterProvider(provider('mine', { hasCatalog: true }));
+      expect((await store.getClusterProviders()).find((stored) => stored.value === 'mine')).toEqual(provider('mine', { hasCatalog: true }));
       expect(await store.getClusterProviders()).toHaveLength(2);
     });
 

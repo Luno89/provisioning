@@ -6,18 +6,18 @@ export type ClusterStatus =
   | 'destroying'
   | 'discovered'
   | 'destroyed'
-  | 'awaiting-key'
+  | 'starting'
+  | 'stopped'
 
 export interface Cluster {
   id: string
   name: string
-  provider: string
+  provider: 'k3d' | 'aws' | 'gcp' | 'azure' | 'do' | 'machine' | 'hetzner'
   status: ClusterStatus
   isSystem?: boolean
   gpuEnabled?: boolean
   createdAt?: string
   progress?: { stage?: string; message?: string }
-  publicKey?: string
   remoteHost?: string
 }
 

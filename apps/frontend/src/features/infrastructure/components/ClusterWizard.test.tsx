@@ -13,22 +13,16 @@ vi.mock('../api/vps-catalog', async (importOriginal) => ({
   getVpsCatalog: vi.fn().mockResolvedValue({ offers: [], sources: [], fetchedAt: '' }),
 }));
 
-vi.mock('../api/mesh', () => ({
-  listMeshDevices: vi.fn().mockResolvedValue([]),
-}));
-
 vi.mock('../api/cluster-providers', () => ({
   listClusterProviders: vi.fn().mockResolvedValue([
-    { value: 'k3d', label: 'Local Datacenter (k3d)', hasCatalog: false, usesMesh: false },
+    { value: 'k3d', label: 'Local Datacenter (k3d)', hasCatalog: false },
     {
       value: 'hetzner',
       label: 'Hetzner Cloud (VPS)',
       credentialKey: 'hetzner',
       hint: 'Creates a real VM.',
       hasCatalog: true,
-      usesMesh: false,
     },
-    { value: 'remote', label: 'One of my machines', hasCatalog: false, usesMesh: true },
   ]),
 }));
 

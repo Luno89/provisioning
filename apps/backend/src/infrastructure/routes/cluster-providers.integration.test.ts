@@ -32,7 +32,7 @@ describe('GET /api/cluster-providers', () => {
   });
 
   it('never offers a provider Koala cannot make a cluster on yet, even one stored in the catalogue', async () => {
-    await harness.db.infrastructure.saveClusterProvider({ value: 'aws', label: 'Amazon EKS', credentialKey: 'aws', hasCatalog: false, usesMesh: false });
+    await harness.db.infrastructure.saveClusterProvider({ value: 'aws', label: 'Amazon EKS', credentialKey: 'aws', hasCatalog: false });
     const body = (await (await fetch(harness.url('/api/cluster-providers'))).json()) as Array<Record<string, unknown>>;
     expect(body.map((p) => p.value)).not.toContain('aws');
   });
