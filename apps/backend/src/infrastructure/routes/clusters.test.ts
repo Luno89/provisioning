@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { matches, mock } from 'vitest-mock-extended';
 import type { Server as SocketServer } from 'socket.io';
-import { encryptValue, type ClusterMetadata, type Principal } from '../../platform/index.js';
+import type { ClusterMetadata, Principal } from '../../platform/index.js';
 import type { GiteaService } from '../../projects/index.js';
 import { ProvisionRefused } from '../lib/cluster-topology.js';
 import type { AppService } from '../services/AppService.js';
@@ -10,12 +10,10 @@ import type { ClusterService } from '../services/ClusterService.js';
 import type { InfisicalService } from '../services/InfisicalService.js';
 import type { InfrastructureService } from '../services/InfrastructureService.js';
 import type { TemporalBridge, WorkflowDeal } from '../services/TemporalBridge.js';
-import type { InfrastructureStore } from '../store.js';
 import { clustersRouter } from './clusters.js';
 import type { HarnessUser } from '../../platform/routes/test-harness.js';
 import { OPERATOR, PERSON, routesInProcess } from '../../platform/testing/routes.js';
 
-const KEY = 'clusters-route-test-key';
 const cluster = (over: Partial<ClusterMetadata> = {}): ClusterMetadata => ({ id: 'c1', name: 'lab', provider: 'k3d', status: 'healthy', ownerId: PERSON.id, ...over }) as ClusterMetadata;
 const systemCluster = (): ClusterMetadata => ({ id: 'provisioning-lunorica', name: 'system', provider: 'k3d', status: 'healthy', isSystem: true }) as ClusterMetadata;
 const deal = (id: string, resourceId?: string): WorkflowDeal => ({ id, event: 'x', ...(resourceId ? { resourceId } : {}) });
@@ -29,15 +27,13 @@ function setup() {
   const infisicalService = mock<InfisicalService>();
   const infraService = mock<Pick<InfrastructureService, 'runKubectl'>>();
   const temporalBridge = mock<TemporalBridge>();
-  const db = mock<Pick<InfrastructureStore, 'getClusters' | 'deleteCluster'>>();
-  const generateKeypair = vi.fn(async () => ({ privateKey: 'PRIVATE', publicKey: 'ssh-ed25519 AAAA koala\n' }));
   const router = clustersRouter({
-    clusterService, appService, clusterProxyService, giteaService, infisicalService, infraService, temporalBridge, db,
-    io: mock<SocketServer>(), dataKey: KEY, generateKeypair,
+    clusterService, appService, clusterProxyService, giteaService, infisicalService, infraService, temporalBridge,
+    io: mock<SocketServer>(),
   });
   const call = (path: string, method: 'GET' | 'POST' | 'DELETE' = 'GET', body?: unknown, user?: HarnessUser) =>
     routesInProcess({ prefix: '/api/clusters', router: () => router, user: PERSON }).then((routes) => routes.request(method, `/api/clusters${path}`, { ...(body !== undefined ? { body } : {}), ...(user ? { user } : {}) }));
-  return { clusterService, appService, clusterProxyService, giteaService, infisicalService, infraService, temporalBridge, db, generateKeypair, call };
+  return { clusterService, appService, clusterProxyService, giteaService, infisicalService, infraService, temporalBridge, call };
 }
 
 describe('listing clusters', () => {
@@ -51,7 +47,7 @@ describe('listing clusters', () => {
 describe('provisioning a cluster', () => {
   it('starts provisioning and answers 202 with its workflow', async () => {
     const { temporalBridge, call } = setup();
-    temporalBridge.provision.calledWith('lab', 'k3d', PERSON.id, undefined, undefined).mockResolvedValue(deal('w1', 'c1'));
+    temporalBridge.provision.calledWith('lab', 'k3d', PERSON.id, undefined).mockResolvedValue(deal('w1', 'c1'));
     const answer = await call('', 'POST', { name: 'lab', provider: 'k3d' });
     expect(answer.status).toBe(202);
     expect(answer.data).toEqual({ message: 'Provisioning started', clusterName: 'lab', provider: 'k3d', id: 'c1', workflowId: 'w1', state: 'running' });
@@ -59,7 +55,7 @@ describe('provisioning a cluster', () => {
 
   it('hands a VM provider the server type, location and image asked for', async () => {
     const { temporalBridge, call } = setup();
-    temporalBridge.provision.calledWith('vm', 'hetzner', PERSON.id, undefined, matches<{ serverType?: string; location?: string; image?: string }>((vm) => vm.serverType === 'cx22' && vm.location === 'fsn1' && vm.image === 'ubuntu-24.04')).mockResolvedValue(deal('w2', 'c2'));
+    temporalBridge.provision.calledWith('vm', 'hetzner', PERSON.id, matches<{ serverType?: string; location?: string; image?: string }>((vm) => vm.serverType === 'cx22' && vm.location === 'fsn1' && vm.image === 'ubuntu-24.04')).mockResolvedValue(deal('w2', 'c2'));
     const answer = await call('', 'POST', { name: 'vm', provider: 'hetzner', hetznerServerType: 'cx22', hetznerLocation: 'fsn1', hetznerImage: 'ubuntu-24.04' });
     expect(answer.status).toBe(202);
   });
@@ -94,67 +90,6 @@ describe('provisioning a cluster', () => {
     expect(answer.data).toEqual({ error: 'Temporal cluster provisioning unavailable: no worker' });
   });
 
-  it('asks for a host and a user when a machine is added', async () => {
-    const { call } = setup();
-    const answer = await call('', 'POST', { name: 'box', provider: 'remote', remoteHost: '10.0.0.5' });
-    expect(answer.status).toBe(400);
-    expect(answer.data).toEqual({ error: 'remoteHost and remoteUsername are required for provider "remote"' });
-  });
-
-  it('makes a key for a machine added without one and waits for the person to authorise it', async () => {
-    const { clusterService, generateKeypair, call } = setup();
-    clusterService.createAwaitingKey.mockResolvedValue({ id: 'c7' } as ClusterMetadata);
-    const answer = await call('', 'POST', { name: 'box', provider: 'remote', remoteHost: '10.0.0.5', remoteUsername: 'ubuntu', remoteSshPort: 2222 });
-    expect(generateKeypair).toHaveBeenCalledWith('nowrinkles-box');
-    expect(clusterService.createAwaitingKey).toHaveBeenCalledWith({ name: 'box', ownerId: PERSON.id, host: '10.0.0.5', username: 'ubuntu', privateKey: 'PRIVATE', port: 2222 });
-    expect(answer.status).toBe(201);
-    expect(answer.data).toEqual({ id: 'c7', status: 'awaiting-key', publicKey: 'ssh-ed25519 AAAA koala', message: 'Authorise this key on the machine, then start provisioning.' });
-  });
-
-  it('provisions a machine straight away when its key came with it', async () => {
-    const { temporalBridge, clusterService, call } = setup();
-    temporalBridge.provision.mockResolvedValue(deal('w3', 'c8'));
-    const answer = await call('', 'POST', { name: 'box', provider: 'remote', remoteHost: '10.0.0.5', remoteUsername: 'ubuntu', remoteSshPrivateKey: 'KEY' });
-    expect(answer.status).toBe(202);
-    expect(clusterService.createAwaitingKey).not.toHaveBeenCalled();
-    expect(temporalBridge.provision).toHaveBeenCalledWith('box', 'remote', PERSON.id, { host: '10.0.0.5', username: 'ubuntu', privateKey: 'KEY' }, undefined);
-  });
-});
-
-describe('starting a machine that was waiting for its key', () => {
-  const waiting = (over: Partial<ClusterMetadata> = {}) => cluster({ status: 'awaiting-key', provider: 'remote', remoteHost: '10.0.0.5', remoteUsername: 'ubuntu', remoteSshPrivateKeyEnc: encryptValue('SECRET-KEY', KEY), ...over });
-
-  it('provisions it with the key it kept and removes the waiting record', async () => {
-    const { clusterService, temporalBridge, db, call } = setup();
-    clusterService.getById.calledWith('c1', by(PERSON), 'change').mockResolvedValue(waiting({ remoteSshPort: 2222 }));
-    temporalBridge.provision.mockResolvedValue(deal('w4', 'c9'));
-    const answer = await call('/c1/start', 'POST');
-    expect(answer.status).toBe(202);
-    expect(answer.data).toEqual({ message: 'Provisioning started', id: 'c9', workflowId: 'w4' });
-    expect(temporalBridge.provision).toHaveBeenCalledWith('lab', 'remote', PERSON.id, { host: '10.0.0.5', username: 'ubuntu', privateKey: 'SECRET-KEY', port: 2222 });
-    expect(db.deleteCluster).toHaveBeenCalledWith('c1');
-  });
-
-  it('says the cluster is not found, is not waiting, or lacks its details', async () => {
-    const { clusterService, call } = setup();
-    expect((await call('/c1/start', 'POST')).status).toBe(404);
-    clusterService.getById.mockResolvedValue(cluster({ status: 'healthy' }));
-    const notWaiting = await call('/c1/start', 'POST');
-    expect(notWaiting.status).toBe(409);
-    expect(notWaiting.data).toEqual({ error: 'Cluster "lab" is healthy, not awaiting a key.' });
-    const { remoteHost: _host, ...withoutHost } = waiting();
-    clusterService.getById.mockResolvedValue(withoutHost);
-    expect((await call('/c1/start', 'POST')).status).toBe(400);
-  });
-
-  it('answers 500 with the reason when provisioning cannot start', async () => {
-    const { clusterService, temporalBridge, call } = setup();
-    clusterService.getById.mockResolvedValue(waiting());
-    temporalBridge.provision.mockRejectedValue(new Error('no worker'));
-    const answer = await call('/c1/start', 'POST');
-    expect(answer.status).toBe(500);
-    expect(answer.data).toEqual({ error: 'no worker' });
-  });
 });
 
 describe('destroying a cluster', () => {

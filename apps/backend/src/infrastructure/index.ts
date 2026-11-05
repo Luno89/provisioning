@@ -45,7 +45,6 @@ export type { WorkloadHealth } from './lib/workload-health.js';
 export { bindingTypesRouter } from './routes/binding-types.js';
 export { clusterAccessRouter } from './routes/cluster-access.js';
 export { egressRouter } from './routes/egress.js';
-export { meshRouter } from './routes/mesh.js';
 export { AccessService } from './services/AccessService.js';
 export { deployProjectBuild } from './services/AppDeploy.js';
 export { AppExposureService } from './services/AppExposureService.js';

@@ -1,4 +1,4 @@
-import { type Actions, allowed, authorize, BaseService, type ClusterMetadata, clusterResource, type Database, encryptValue, listAt, numberAt, type Principal, recordAt, type SecretKey, textAt, writePrivate } from '../../platform/index.js';
+import { type Actions, allowed, authorize, BaseService, type ClusterMetadata, clusterResource, type Database, decryptValue, listAt, numberAt, type Principal, recordAt, type SecretKey, textAt, writePrivate } from '../../platform/index.js';
 import { InfrastructureService } from './InfrastructureService.js';
 import type { TemporalBridge } from './TemporalBridge.js';
 import { ignore } from '@koala/engine-core/failures';
@@ -44,28 +44,6 @@ export class ClusterService extends BaseService {
     return isMockCloudProvider(cluster.provider, (p) => this.hasCloudCredentials(p));
   }
 
-  async createAwaitingKey(args: {
-    name: string;
-    ownerId: string;
-    host: string;
-    username: string;
-    privateKey: string;
-    port?: number;
-  }): Promise<ClusterMetadata> {
-    return this.db.infrastructure.saveClusterInfo({
-      id: uuidv4(),
-      name: args.name,
-      provider: 'remote',
-      status: 'awaiting-key',
-      createdAt: new Date().toISOString(),
-      ownerId: args.ownerId,
-      remoteHost: args.host,
-      remoteUsername: args.username,
-      remoteSshPrivateKeyEnc: encryptValue(args.privateKey, this.masterKey),
-      ...(args.port !== undefined ? { remoteSshPort: args.port } : {}),
-    } as ClusterMetadata);
-  }
-
   getPhysicalClusterName(cluster: ClusterMetadata): string {
     return this.isMockCloud(cluster) ? `mock-${cluster.provider}-${cluster.name}` : cluster.name;
   }
@@ -103,6 +81,7 @@ export class ClusterService extends BaseService {
   }
 
   async getKubeconfigPath(cluster: ClusterMetadata): Promise<string> {
+    if (cluster.provider === 'machine') return this.machineKubeconfig(cluster);
     const isMock = this.isMockCloud(cluster);
     if (cluster.gpuEnabled || cluster.provider === 'k3d' || isMock) {
       const physicalName = this.getPhysicalClusterName(cluster);
@@ -131,13 +110,21 @@ export class ClusterService extends BaseService {
     return cluster.kubeconfigPath || DEFAULT_KUBECONFIG;
   }
 
+  private async machineKubeconfig(cluster: ClusterMetadata): Promise<string> {
+    if (!cluster.kubeconfigEnc) throw new Error(`${cluster.name} has not started yet, so there is no way to reach it`);
+    if (!this.masterKey) throw new Error('this Koala holds no data key, so it cannot open a machine\'s kubeconfig');
+    const where = `${this.kubeconfigDir}/kubeconfig-machine-${cluster.id}`;
+    await writePrivate(where, decryptValue(cluster.kubeconfigEnc, this.masterKey));
+    return where;
+  }
+
   private writtenKubeconfig(cluster: ClusterMetadata): string {
     return `${this.kubeconfigDir}/kubeconfig-${this.getPhysicalClusterName(cluster)}`;
   }
 
   private async getOwnKubeconfigPath(cluster: ClusterMetadata): Promise<string> {
     const resolved = await this.getKubeconfigPath(cluster);
-    const selfManaged = cluster.provider === 'hetzner' || cluster.provider === 'remote';
+    const selfManaged = cluster.provider === 'hetzner' || cluster.provider === 'do';
     if (selfManaged && (!cluster.kubeconfigPath || resolved === DEFAULT_KUBECONFIG)) {
       throw new Error(
         `Cluster "${cluster.name}" has no kubeconfig of its own — refusing to fall back to the management cluster, which would report the wrong cluster's resources.`,

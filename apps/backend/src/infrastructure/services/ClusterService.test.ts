@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mock, mockFn } from 'vitest-mock-extended';
 import type { Server as SocketServer } from 'socket.io';
-import { asPerson, decryptValue, principalOf, type ClusterMetadata } from '../../platform/index.js';
+import { asPerson, encryptValue, principalOf, type ClusterMetadata } from '../../platform/index.js';
 import { memoryDatabase } from '../../platform/testing/memory-database.js';
 import type { Database } from '../../platform/lib/db-interface.js';
 import type { Shell } from '../lib/shell.js';
@@ -33,23 +33,19 @@ afterEach(() => {
   for (const [key, value] of Object.entries(originalEnv)) { if (value === undefined) delete process.env[key]; else process.env[key] = value; }
 });
 
-describe('createAwaitingKey', () => {
-  const args = { name: 'gpu-box', ownerId: 'user-1', host: '100.64.0.9', username: 'root', privateKey: '-----BEGIN OPENSSH PRIVATE KEY-----\nsecret-material\n-----END OPENSSH PRIVATE KEY-----' };
+describe('a machine\'s own cluster', () => {
+  const machine = (extra: Partial<ClusterMetadata> = {}): ClusterMetadata => ({ id: 'machine-desk', name: 'desk', provider: 'machine', status: 'healthy', ownerId: 'bo', machineId: 'desk', ...extra });
 
-  it('never stores the private key in plaintext, parks the cluster awaiting its key and records how to reach the machine', async () => {
-    const { service, db } = setup();
-    await service.createAwaitingKey({ ...args, port: 2222 });
-    const [record] = await db.infrastructure.getClusters();
-    expect(JSON.stringify(record)).not.toContain('secret-material');
-    expect(decryptValue(record?.remoteSshPrivateKeyEnc ?? '', MASTER)).toBe(args.privateKey);
-    expect(record).toMatchObject({ provider: 'remote', status: 'awaiting-key', ownerId: 'user-1', remoteHost: '100.64.0.9', remoteUsername: 'root', remoteSshPort: 2222 });
-    expect(record?.id).toBeTruthy();
+  it('opens the kubeconfig its machine handed over, sealed on the record, into a file only this process reads', async () => {
+    const { service, kubeconfigDir } = setup();
+    const where = await service.getKubeconfigPath(machine({ kubeconfigEnc: encryptValue('server: https://100.64.0.7:6443', MASTER) }));
+    expect(where).toBe(join(kubeconfigDir, 'kubeconfig-machine-machine-desk'));
+    expect(readFileSync(where, 'utf8')).toBe('server: https://100.64.0.7:6443');
+    expect(statSync(where).mode & 0o777).toBe(0o600);
   });
 
-  it('omits the port entirely when not given', async () => {
-    const { service, db } = setup();
-    await service.createAwaitingKey(args);
-    expect('remoteSshPort' in ((await db.infrastructure.getClusters())[0] ?? {})).toBe(false);
+  it('says it has not started rather than fall back to another cluster', async () => {
+    await expect(setup().service.getKubeconfigPath(machine())).rejects.toThrow('desk has not started yet, so there is no way to reach it');
   });
 });
 

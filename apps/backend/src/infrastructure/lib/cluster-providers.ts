@@ -34,13 +34,6 @@ export const BUILT_IN_PROVIDERS: ClusterProviderSpec[] = [
     hasCatalog: true,
     usesMesh: false,
   },
-  {
-    value: 'remote',
-    label: 'One of my machines',
-    hint: 'Use hardware you already own — a GPU workstation, a spare server — once it has joined the mesh under My Machines.',
-    hasCatalog: false,
-    usesMesh: true,
-  },
 ];
 
 export const offeredProviders = (stored: readonly ClusterProviderSpec[]): ClusterProviderSpec[] =>

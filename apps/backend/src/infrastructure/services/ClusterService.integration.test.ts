@@ -1,7 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import { ClusterService } from './ClusterService.js';
 import { InfrastructureService } from './InfrastructureService.js';
-import { decryptValue } from '../../platform/lib/crypto.js';
+import { mkdtempSync, readFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { encryptValue } from '../../platform/lib/crypto.js';
 import { testDatabase } from '../../platform/lib/test-database.js';
 import type { MongoDB } from '../../platform/lib/mongo-db.js';
 import type { ClusterMetadata } from '../../platform/lib/types.js';
@@ -10,53 +13,21 @@ const MASTER = 'test-master-key';
 
 async function createService() {
   const db = await testDatabase();
-  const svc = new ClusterService(db, new InfrastructureService(), MASTER);
-  return { svc, saved: () => db.infrastructure.getClusters() };
+  const kubeconfigDir = mkdtempSync(join(tmpdir(), 'cluster-service-'));
+  const svc = new ClusterService(db, new InfrastructureService(), MASTER, { kubeconfigDir });
+  return { svc, db, kubeconfigDir };
 }
 
-describe('createAwaitingKey', () => {
-  const args = {
-    name: 'gpu-box',
-    ownerId: 'user-1',
-    host: '100.64.0.9',
-    username: 'root',
-    privateKey: '-----BEGIN OPENSSH PRIVATE KEY-----\nsecret-material\n-----END OPENSSH PRIVATE KEY-----',
-  };
-
-  it('never stores the private key in plaintext', async () => {
-    const { svc, saved } = await createService();
-    await svc.createAwaitingKey(args);
-
-    const [record] = await saved();
-    expect(JSON.stringify(record)).not.toContain('secret-material');
-    expect(record?.remoteSshPrivateKeyEnc).toBeDefined();
-    expect(decryptValue(record?.remoteSshPrivateKeyEnc ?? '', MASTER)).toBe(args.privateKey);
-  });
-
-  it('parks the cluster in awaiting-key rather than provisioning', async () => {
-    const { svc, saved } = await createService();
-    await svc.createAwaitingKey(args);
-    expect((await saved())[0]?.status).toBe('awaiting-key');
-  });
-
-  it('records the connection details the start route will need', async () => {
-    const { svc, saved } = await createService();
-    await svc.createAwaitingKey({ ...args, port: 2222 });
-    const [record] = await saved();
-    expect(record).toMatchObject({
-      provider: 'remote',
-      ownerId: 'user-1',
-      remoteHost: '100.64.0.9',
-      remoteUsername: 'root',
-      remoteSshPort: 2222,
-    });
-    expect(record?.id).toBeTruthy();
-  });
-
-  it('omits the port entirely when not given, rather than writing undefined', async () => {
-    const { svc, saved } = await createService();
-    await svc.createAwaitingKey(args);
-    expect('remoteSshPort' in ((await saved())[0] ?? {})).toBe(false);
+describe('a machine\'s own cluster, stored', () => {
+  it('opens the kubeconfig sealed on the stored record each time it is reached, so a new one the machine hands over is the one used', async () => {
+    const { svc, db, kubeconfigDir } = await createService();
+    const saved = await db.infrastructure.saveClusterInfo({ id: 'machine-desk', name: 'desk', provider: 'machine', status: 'healthy', ownerId: 'bo', machineId: 'desk', kubeconfigEnc: encryptValue('server: https://100.64.0.7:6443', MASTER) });
+    const where = await svc.getKubeconfigPath(saved);
+    expect(where).toBe(join(kubeconfigDir, 'kubeconfig-machine-machine-desk'));
+    expect(readFileSync(where, 'utf8')).toContain('100.64.0.7');
+    await db.infrastructure.saveClusterInfo({ id: 'machine-desk', kubeconfigEnc: encryptValue('server: https://100.64.0.8:6443', MASTER) });
+    const again = (await db.infrastructure.getClusters()).find((cluster) => cluster.id === 'machine-desk')!;
+    expect(readFileSync(await svc.getKubeconfigPath(again), 'utf8')).toContain('100.64.0.8');
   });
 });
 

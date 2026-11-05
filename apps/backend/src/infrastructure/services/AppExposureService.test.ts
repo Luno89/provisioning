@@ -345,7 +345,7 @@ describe('buildUpstreamTarget on mesh clusters', () => {
   });
 
   it('works the same for a bring-your-own machine', async () => {
-    const r = await target({ name: 'gpu-box', provider: 'remote', meshIp: '100.64.0.9' });
+    const r = await target({ name: 'gpu-box', provider: 'hetzner', meshIp: '100.64.0.9' });
     expect(r.backendTarget).toBe('100.64.0.9:32080');
   });
 

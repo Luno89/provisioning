@@ -396,7 +396,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   wireMachines({
     app, tenant, servesTenants: tenants, accounts: machineAccounts, workTokens,
     instanceCaller,
-    db, dataKey: keys.data, publicUrl: PUBLIC_URL, repoRoot: path.join(__dirname, '../../..'), machines: machineService, bundle: machineBundle, headscale: role.instance ? undefined : headscaleService, projectRepos: projectRepoService,
+    db, dataKey: keys.data, publicUrl: PUBLIC_URL, repoRoot: path.join(__dirname, '../../..'), machines: machineService, bundle: machineBundle, projectRepos: projectRepoService,
     ...(tenants ? {
       gateway: {
         port: MACHINE_GATEWAY_PORT,

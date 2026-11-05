@@ -714,7 +714,6 @@ export class TemporalBridge {
     clusterName: string,
     provider: ClusterMetadata['provider'],
     userId: string,
-    remote?: { host: string; username: string; privateKey: string; port?: number; k3sApiPort?: number },
     hetzner?: { serverType?: string; location?: string; image?: string },
   ): Promise<WorkflowDeal> {
     const wfId = `cluster-provision-${clusterName}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
@@ -753,13 +752,6 @@ export class TemporalBridge {
       name: clusterName,
       provider,
       logFile: absoluteLogPath,
-      ...(remote ? {
-        remoteHost: remote.host,
-        remoteUsername: remote.username,
-        remoteSshPrivateKey: remote.privateKey,
-        ...(remote.port !== undefined ? { remoteSshPort: remote.port } : {}),
-        ...(remote.k3sApiPort !== undefined ? { remoteK3sApiPort: remote.k3sApiPort } : {}),
-      } : {}),
       ...(hcloudToken ? { hcloudToken } : {}),
       ...(hetzner?.serverType ? { hetznerServerType: hetzner.serverType } : {}),
       ...(hetzner?.location ? { hetznerLocation: hetzner.location } : {}),
@@ -787,13 +779,6 @@ export class TemporalBridge {
       lastLogPath: absoluteLogPath,
       createdAt: new Date().toISOString(),
       ownerId: userId,
-      ...(remote ? {
-        remoteHost: remote.host,
-        remoteUsername: remote.username,
-        remoteSshPrivateKeyEnc: encryptValue(remote.privateKey, this.masterKey),
-        ...(remote.port !== undefined ? { remoteSshPort: remote.port } : {}),
-        ...(remote.k3sApiPort !== undefined ? { remoteK3sApiPort: remote.k3sApiPort } : {}),
-      } : {}),
       ...(hetzner?.serverType ? { hetznerServerType: hetzner.serverType } : {}),
       ...(hetzner?.location ? { hetznerLocation: hetzner.location } : {}),
       ...(hetzner?.image ? { hetznerImage: hetzner.image } : {}),
@@ -824,6 +809,9 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
   const [cluster] = clusters.filter((c: ClusterMetadata) => c.id === clusterId)
   if (!cluster) throw new Error('ClusterMetadata not found')
 
+  if (cluster.provider === 'machine') {
+    throw new Error(`"${cluster.name}" is a machine's own cluster: it goes when the machine is removed from My Machines`)
+  }
   if (cluster.status === 'destroying') {
     throw new Error(`Cluster "${cluster.name}" is already being destroyed`)
   }
@@ -840,12 +828,6 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
       provider: cluster.provider,
       logFile: absoluteLogPath,
       ...(cluster.gpuEnabled !== undefined ? { gpuEnabled: cluster.gpuEnabled } : {}),
-      ...(cluster.provider === 'remote' && cluster.remoteHost && cluster.remoteUsername && cluster.remoteSshPrivateKeyEnc ? {
-        remoteHost: cluster.remoteHost,
-        remoteUsername: cluster.remoteUsername,
-        remoteSshPrivateKey: decryptValue(cluster.remoteSshPrivateKeyEnc, this.masterKey),
-        ...(cluster.remoteSshPort !== undefined ? { remoteSshPort: cluster.remoteSshPort } : {}),
-      } : {}),
       ...(hcloudToken ? { hcloudToken } : {}),
       ...(doToken ? { doToken } : {}),
       ...(cluster.doServerId ? { doServerId: cluster.doServerId } : {}),

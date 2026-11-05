@@ -2,7 +2,7 @@ import { DNS_PROVIDER_NAMES, type DnsProviderName } from '../../infrastructure/l
 import type { AgentUpdateReport, MachineAgent, ManualMachineAgent } from '../../machines/index.js';
 export type PartialInfo<T> = { [K in keyof T]?: T[K] | undefined };
 
-export type ClusterProviderName = 'k3d' | 'aws' | 'gcp' | 'azure' | 'do' | 'remote' | 'hetzner';
+export type ClusterProviderName = 'k3d' | 'aws' | 'gcp' | 'azure' | 'do' | 'machine' | 'hetzner';
 
 export interface ClusterProgress {
   step: string;
@@ -14,7 +14,7 @@ export interface ClusterMetadata {
   id: string;
   name: string;
   provider: ClusterProviderName;
-  status: 'provisioning' | 'healthy' | 'failed' | 'destroying' | 'discovered' | 'destroyed' | 'awaiting-key';
+  status: 'provisioning' | 'healthy' | 'failed' | 'destroying' | 'discovered' | 'destroyed' | 'starting' | 'stopped';
   kubeconfigPath?: string;
   lastLogPath?: string;
   temporalWorkflowId?: string;
@@ -30,6 +30,8 @@ export interface ClusterMetadata {
   };
   isSystem?: boolean;
   ownerId?: string;
+  machineId?: string;
+  kubeconfigEnc?: string;
   remoteHost?: string;
   remoteUsername?: string;
   remoteSshPort?: number;

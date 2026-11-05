@@ -148,8 +148,8 @@ export function infrastructureStoreContract(make: () => Promise<InfrastructureSt
 
     it('makes a cluster of an id it has not seen from the information given', async () => {
       const store = await make();
-      const made = await store.saveClusterInfo({ id: 'chosen', name: 'n', provider: 'remote' });
-      expect(made).toEqual({ id: 'chosen', name: 'n', provider: 'remote', status: 'provisioning' });
+      const made = await store.saveClusterInfo({ id: 'chosen', name: 'n', provider: 'hetzner' });
+      expect(made).toEqual({ id: 'chosen', name: 'n', provider: 'hetzner', status: 'provisioning' });
     });
 
     it('leaves out a field saved as undefined, and removes one patched to undefined', async () => {

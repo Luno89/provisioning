@@ -15,7 +15,7 @@ const ME = principalOf({ id: 'me' }, { role: 'instance', instanceOwnerId: 'me' }
 const SOMEONE = asPerson('someone');
 
 const system: ClusterMetadata = { id: 'provisioning-lunorica', name: 'provisioning-lunorica', provider: 'k3d', status: 'healthy', isSystem: true } as ClusterMetadata;
-const remote: ClusterMetadata = { id: 'c-remote', name: 'shop-box', provider: 'remote', status: 'healthy', ownerId: 'me' } as ClusterMetadata;
+const remote: ClusterMetadata = { id: 'c-remote', name: 'shop-box', provider: 'hetzner', status: 'healthy', ownerId: 'me' } as ClusterMetadata;
 
 const dep = (fields: Partial<DeploymentMetadata> & { id: string; name: string }): DeploymentMetadata =>
   ({ clusterId: system.id, strategy: 'native', appType: 'audiobookshelf', ownerId: 'me', status: 'running', createdAt: 'then', ...fields }) as DeploymentMetadata;

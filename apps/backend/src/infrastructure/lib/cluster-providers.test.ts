@@ -3,7 +3,7 @@ import { providersToSeed, BUILT_IN_PROVIDERS, type ClusterProviderSpec } from '.
 
 describe('BUILT_IN_PROVIDERS', () => {
   it('covers the four providers the platform can provision today', () => {
-    expect(BUILT_IN_PROVIDERS.map((p) => p.value).sort()).toEqual(['do', 'hetzner', 'k3d', 'remote']);
+    expect(BUILT_IN_PROVIDERS.map((p) => p.value).sort()).toEqual(['do', 'hetzner', 'k3d']);
   });
 
   it('marks DigitalOcean as catalog-bearing and credentialed, like Hetzner', () => {
@@ -24,12 +24,6 @@ describe('BUILT_IN_PROVIDERS', () => {
     expect(k3d.credentialKey).toBeUndefined();
   });
 
-  it('marks remote as mesh-backed without a catalog or stored credential', () => {
-    const remote = BUILT_IN_PROVIDERS.find((p) => p.value === 'remote')!;
-    expect(remote.usesMesh).toBe(true);
-    expect(remote.hasCatalog).toBe(false);
-    expect(remote.credentialKey).toBeUndefined();
-  });
 });
 
 describe('providersToSeed', () => {
@@ -42,7 +36,7 @@ describe('providersToSeed', () => {
       { value: 'k3d', label: 'Local (renamed by hand)', hasCatalog: false, usesMesh: false },
     ];
     const pending = providersToSeed(stored);
-    expect(pending.map((p) => p.value)).toEqual(['hetzner', 'do', 'remote']);
+    expect(pending.map((p) => p.value)).toEqual(['hetzner', 'do']);
   });
 
   it('leaves an edited built-in alone instead of overwriting it back', () => {

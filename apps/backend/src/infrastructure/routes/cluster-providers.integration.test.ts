@@ -26,7 +26,7 @@ describe('GET /api/cluster-providers', () => {
 
     const res = await fetch(harness.url('/api/cluster-providers'));
     const body = (await res.json()) as Array<Record<string, unknown>>;
-    expect(body.map((p) => p.value).sort()).toEqual(['do', 'hetzner', 'k3d', 'remote']);
+    expect(body.map((p) => p.value).sort()).toEqual(['do', 'hetzner', 'k3d']);
     const hetzner = body.find((p) => p.value === 'hetzner');
     expect(hetzner?.hasCatalog).toBe(true);
   });

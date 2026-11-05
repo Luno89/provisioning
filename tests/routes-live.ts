@@ -70,7 +70,6 @@ const SIGNED_IN: Probe[] = [
   { method: 'post', path: '/api/machines/join', body: { code: 'no-such-code' } },
   { path: '/api/mcp/servers' },
   { path: '/api/memories' },
-  { path: '/api/mesh/config' },
   { path: '/api/mesh/local-agents' },
   { path: '/api/models/rate-limits' },
   { path: '/api/modules' },
