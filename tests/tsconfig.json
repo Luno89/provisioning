@@ -17,7 +17,8 @@
   "include": [
     "**/*.ts",
     "../scripts/**/*.ts",
-    "../scripts/**/*.mts"
+    "../scripts/**/*.mts",
+    "../apps/backend/src/*.d.ts"
   ],
   "exclude": [
     "e2e.spec.ts",
