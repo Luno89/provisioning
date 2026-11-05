@@ -90,6 +90,8 @@ const ESTABLISHED: readonly ReleaseState[] = ['live', 'superseded', 'rolled-back
 
 export class OdooReleaseService {
   private readonly following = new Map<string, Promise<void>>();
+  private readonly ending = new AbortController();
+  private readonly ended = new Promise<void>((done) => this.ending.signal.addEventListener('abort', () => done(), { once: true }));
   private watching: Watching | undefined;
 
   constructor(private readonly deps: OdooReleaseDeps) {}
@@ -419,6 +421,7 @@ export class OdooReleaseService {
     const key = `${ownerId}:${projectId}`;
     const already = this.following.get(key);
     if (already) return already;
+    if (this.ending.signal.aborted) return Promise.resolve();
     const followed = this.watch(ownerId, projectId).finally(() => this.following.delete(key));
     this.following.set(key, followed);
     return followed;
@@ -447,8 +450,10 @@ export class OdooReleaseService {
   }
 
   async stop(): Promise<void> {
+    this.ending.abort();
     await this.watching?.close();
     this.watching = undefined;
+    await Promise.allSettled([...this.following.values()]);
   }
 
   private log(line: string): void {
@@ -471,9 +476,10 @@ export class OdooReleaseService {
     const again = reopening(this.deps.reopenMs);
     const lost = async (err: unknown): Promise<void> => {
       this.log(`cannot follow ${projectId}'s release run (${(err as Error).message}); following it again in ${again.seconds} s`);
-      await again.after();
+      await Promise.race([again.after(), this.ended]);
     };
     for (;;) {
+      if (this.ending.signal.aborted) return;
       let running: boolean;
       try {
         running = await this.deps.runs.running(projectId);
@@ -482,15 +488,17 @@ export class OdooReleaseService {
         continue;
       }
       again.reset();
+      if (this.ending.signal.aborted) return;
       const releases = await this.tellUntold(ownerId, projectId);
       if (running) {
         try {
-          await this.deps.runs.closed(projectId);
+          await Promise.race([this.deps.runs.closed(projectId), this.ended]);
         } catch (err) {
           await lost(err);
         }
         continue;
       }
+      if (this.ending.signal.aborted) return;
       for (const release of releases.filter((entry) => IN_FLIGHT.includes(entry.state))) {
         await this.save({ ...release, state: 'failed', reason: 'the release stopped before it said how it went', updatedAt: this.now() });
       }

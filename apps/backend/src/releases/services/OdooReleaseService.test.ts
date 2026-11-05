@@ -1,5 +1,5 @@
 import { containing } from '../../platform/lib/test-matchers.js';
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { afterEach, describe, it, expect, beforeEach, vi } from 'vitest';
 import { mock } from 'vitest-mock-extended';
 import { memoryDatabase } from '../../platform/testing/memory-database.js';
 import type { Database } from '../../platform/lib/db-interface.js';
@@ -7,6 +7,15 @@ import { OdooReleaseService, type ReleaseRuns } from './OdooReleaseService.js';
 import { newReleaseName } from '../lib/odoo-release.js';
 import { marked, type ReleaseMark, type ReleaseRunInput, type RollBackRunInput } from '../lib/release-run.js';
 import type { ClusterMetadata, PipelineRunMetadata, ProjectMetadata } from '../../platform/lib/types.js';
+
+const made: OdooReleaseService[] = [];
+class Stopped extends OdooReleaseService {
+  constructor(deps: ConstructorParameters<typeof OdooReleaseService>[0]) {
+    super(deps);
+    made.push(this);
+  }
+}
+afterEach(async () => { await Promise.all(made.splice(0).map((svc) => svc.stop())); });
 
 let db: Database;
 let running: boolean;
@@ -48,7 +57,7 @@ let runs: ReleaseRuns;
 let ids = 0;
 let ticks = 0;
 const now = () => new Date(Date.parse('2026-10-08T12:00:00Z') + (ticks += 1) * 1000).toISOString();
-const service = () => new OdooReleaseService({ store: db, runs, chartAt: async (_o, _r, commit) => commit !== 'no-chart', now, newId: () => `r${(ids += 1)}` });
+const service = () => new Stopped({ store: db, runs, chartAt: async (_o, _r, commit) => commit !== 'no-chart', now, newId: () => `r${(ids += 1)}` });
 
 const project = { id: 'p1', name: 'Shop', ownerId: 'bo', giteaOwner: 'bo', giteaRepo: 'shop', targetClusterId: 'c1' } as ProjectMetadata;
 const run = (id: string, commit: string) => ({ id, projectId: 'p1', commitSha: commit, imageTag: `reg/bo/shop:${commit}`, status: 'succeeded' }) as PipelineRunMetadata;
@@ -127,7 +136,7 @@ describe('releasing a project\'s build', () => {
 
   it('hands a new project\'s release its vault: the database and admin passwords the chart and jobs read from it', async () => {
     const ensured: string[] = [];
-    const svc = new OdooReleaseService({
+    const svc = new Stopped({
       store: db, runs, chartAt: async () => true, newId: () => 'r1',
       secrets: {
         ensure: async (entry) => { ensured.push(entry.id); return { declared: [{ key: 'POSTGRES_PASSWORD', source: 'generated', describe: 'd' }, { key: 'ODOO_ADMIN_PASSWORD', source: 'generated', describe: 'a', signInAs: 'admin' }], waiting: [] }; },
@@ -148,7 +157,7 @@ describe('releasing a project\'s build', () => {
     const kept: string[] = [];
     let seeded: string | undefined;
     await db.releases.saveOdooRelease({ id: 'old', ownerId: 'bo', projectId: 'p1', pipelineRunId: 'x', commit: 'c', image: 'i:t', state: 'live', host: 'h', startedAt: 't', updatedAt: 't' });
-    const svc = new OdooReleaseService({
+    const svc = new Stopped({
       store: db, runs, chartAt: async () => true, newId: () => 'r1',
       secrets: {
         ensure: async (_entry, options) => { seeded = await options.seed?.('POSTGRES_PASSWORD'); return { declared: [{ key: 'POSTGRES_PASSWORD', source: 'generated', describe: 'd' }], waiting: [] }; },
@@ -167,7 +176,7 @@ describe('releasing a project\'s build', () => {
     const seeded: Record<string, string | undefined> = {};
     const name = newReleaseName(project);
     const delivered: Record<string, string> = { POSTGRES_PASSWORD: 'db-last-given', ODOO_ADMIN_PASSWORD: 'admin-last-given' };
-    const svc = new OdooReleaseService({
+    const svc = new Stopped({
       store: db, runs, chartAt: async () => true, newId: () => 'r1',
       secrets: {
         ensure: async (_entry, options) => {
@@ -184,7 +193,7 @@ describe('releasing a project\'s build', () => {
   });
 
   it('does not release while a secret the type needs waits for the person, and says which', async () => {
-    const svc = new OdooReleaseService({
+    const svc = new Stopped({
       store: db, runs, chartAt: async () => true, newId: () => 'r1',
       secrets: {
         ensure: async () => ({ declared: [{ key: 'STRIPE_KEY', source: 'person', describe: 'd' }], waiting: ['STRIPE_KEY'] }),
@@ -200,7 +209,7 @@ describe('releasing a project\'s build', () => {
 
   it('releases nothing for a build that changed nothing the app is built from, says why on the build, and still releases the first one', async () => {
     const asked: string[] = [];
-    const svc = new OdooReleaseService({
+    const svc = new Stopped({
       store: db, runs, chartAt: async () => true, newId: () => `r${(ids += 1)}`,
       decide: async (_project, since, commit) => { asked.push(`${since}..${commit}`); return commit === 'docs' ? { release: false, reason: 'only PLAN.md changed since abc' } : { release: true }; },
     });
@@ -294,7 +303,7 @@ describe('a project that starts from a client\'s database', () => {
 
   it('holds the first release while the client\'s database is awaited, saying so on the build and to the channel', async () => {
     const waited: string[] = [];
-    const svc = new OdooReleaseService({ store: db, runs, chartAt: async () => true, now, newId: () => `r${(ids += 1)}`, awaiting: (_owner, entry, built) => { waited.push(`${entry.id} ${built.commitSha}`); } });
+    const svc = new Stopped({ store: db, runs, chartAt: async () => true, now, newId: () => `r${(ids += 1)}`, awaiting: (_owner, entry, built) => { waited.push(`${entry.id} ${built.commitSha}`); } });
     await db.releases.savePipelineRunInfo({ ...run('b1', 'abc'), startedAt: 't' } as never);
     expect(await svc.release({ ...project, clientImport: { state: 'awaited', mode: 'copy', bytes: 0, at: 't' } } as ProjectMetadata, run('b1', 'abc'))).toEqual({ skipped: 'waiting for the client\'s database: upload their backup on the project\'s Settings, or start without it there' });
     expect(started).toEqual([]);
@@ -342,7 +351,7 @@ describe('the person\'s decisions', () => {
     expect(answered).toEqual(['p1: Run tests again', 'p1: Cut over', 'p1: Discard']);
     const idle = mock<ReleaseRuns>();
     idle.running.mockResolvedValue(false);
-    const ended = new OdooReleaseService({ store: db, runs: idle, chartAt: async () => true, now });
+    const ended = new Stopped({ store: db, runs: idle, chartAt: async () => true, now });
     expect(await ended.decide('bo', 'r1', 'cutOver')).toEqual({ status: 409, error: 'no release is waiting for this preview, so it cannot be cut over: push again to release it' });
     expect(await svc.decide('cy', 'r1', 'discard')).toEqual({ status: 404, error: 'You have no release with that id' });
     await engineMarks('r1', { state: 'live' });
@@ -353,7 +362,7 @@ describe('the person\'s decisions', () => {
 describe('what the run records', () => {
   it('tells the person each change, and marks the deployment running with the live image', async () => {
     const seen: string[] = [];
-    const svc = new OdooReleaseService({ store: db, runs, chartAt: async () => true, now, newId: () => `r${(ids += 1)}`, notify: (_owner, release) => seen.push(`${release.id} ${release.state}`) });
+    const svc = new Stopped({ store: db, runs, chartAt: async () => true, now, newId: () => `r${(ids += 1)}`, notify: (_owner, release) => seen.push(`${release.id} ${release.state}`) });
     await svc.release(project, run('b1', 'aaa'));
     await engineMarks('r1', { state: 'live', slot: 'a' });
     await runEnds(svc);
@@ -380,7 +389,7 @@ describe('what the run records', () => {
     const store = new Proxy(db, { get: (target, key) => key === 'releases' ? releases : bound(target, key) });
     let told!: () => void;
     const toldOnce = new Promise<void>((done) => { told = done; });
-    const svc = new OdooReleaseService({ store, runs, chartAt: async () => true, now, newId: () => `r${(ids += 1)}`, notify: (_owner, release) => { seen.push(`${release.id} ${release.state} ${release.e2e?.state}`); told(); } });
+    const svc = new Stopped({ store, runs, chartAt: async () => true, now, newId: () => `r${(ids += 1)}`, notify: (_owner, release) => { seen.push(`${release.id} ${release.state} ${release.e2e?.state}`); told(); } });
     await svc.start();
     await svc.release(project, run('b1', 'aaa'));
     await engineMarks('r1', { state: 'preview', slot: 'b', e2e: { state: 'running', startedAt: 't0' } });
@@ -439,7 +448,7 @@ describe('where the app answers', () => {
 });
 
 describe('releasing a build again', () => {
-  const deciding = () => new OdooReleaseService({
+  const deciding = () => new Stopped({
     store: db, runs, chartAt: async () => true, now, newId: () => `r${(ids += 1)}`,
     decide: async () => ({ release: false, reason: 'nothing changed since abc' }),
   });
@@ -482,7 +491,7 @@ describe('the files a release changes', () => {
     'diff --git a/PLAN.md b/PLAN.md', '--- a/PLAN.md', '+++ b/PLAN.md', '@@ -1 +1 @@', '-a', '+b',
   ].join('\n');
   const asked: string[] = [];
-  const reading = () => new OdooReleaseService({
+  const reading = () => new Stopped({
     store: db, runs, chartAt: async () => true, now,
     diff: async (_project, base, head) => { asked.push(`${base}..${head}`); return DIFF; },
     releaseWhen: async () => ['addons/**'],
@@ -571,7 +580,7 @@ describe('what the service says without a run to follow', () => {
     try {
       const unsure = mock<ReleaseRuns>();
       unsure.running.mockRejectedValueOnce(new Error('temporal is away')).mockRejectedValueOnce(new Error('temporal is away')).mockResolvedValue(false);
-      const svc = new OdooReleaseService({ store: db, runs: unsure, chartAt: async () => true, now, reopenMs: 1 });
+      const svc = new Stopped({ store: db, runs: unsure, chartAt: async () => true, now, reopenMs: 1 });
       await stored('prep', 'preparing');
       await svc.follow('bo', 'p1');
       expect(unsure.running).toHaveBeenCalledTimes(3);
@@ -588,7 +597,7 @@ describe('what the service says without a run to follow', () => {
   it('tells the person of a change the run records while it still runs, from the moment the service starts', async () => {
     let told!: (line: string) => void;
     const heard = new Promise<string>((done) => { told = done; });
-    const svc = new OdooReleaseService({ store: db, runs, chartAt: async () => true, now, newId: () => `r${(ids += 1)}`, notify: (_owner, release) => told(`${release.id} ${release.state}`) });
+    const svc = new Stopped({ store: db, runs, chartAt: async () => true, now, newId: () => `r${(ids += 1)}`, notify: (_owner, release) => told(`${release.id} ${release.state}`) });
     await svc.start();
     await svc.release(project, run('b1', 'aaa'));
     await engineMarks('r1', { state: 'preview', slot: 'b' });
@@ -617,7 +626,7 @@ describe('refusing what cannot be released or rolled back', () => {
 
   it('finds the cluster through the lookup it was given instead of the stored clusters', async () => {
     const asked: string[] = [];
-    const svc = new OdooReleaseService({
+    const svc = new Stopped({
       store: db, runs, chartAt: async () => true, now, newId: () => 'r1',
       clusterById: async (id) => { asked.push(id); return { id, name: 'elsewhere', provider: 'k3d', status: 'healthy' } as ClusterMetadata; },
     });
