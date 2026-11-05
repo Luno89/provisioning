@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import axios from 'axios';
 import { mountRouter, TEST_USER } from '../../platform/routes/test-harness.js';
-import { identityRouter, placeRouter } from './identity.js';
+import { identityRouter } from './identity.js';
 import { IdentityService } from '../services/IdentityService.js';
 import { generateIdentityKey, identityKeysFrom, publicKeyPem } from '../lib/identity-token.js';
 
@@ -15,7 +15,7 @@ describe('root\'s identity routes', () => {
       prefix: '/api/identity',
       router: (db) => {
         identity = new IdentityService({ role: 'root', signing }, db, undefined, async () => ({ url: '/api/auth/oidc/start' }));
-        return identityRouter({ identity, servesTenants: false, signedIn: async (req) => (req.headers.cookie?.includes('session=ok') ? TEST_USER : undefined), reachOf: async (instanceId) => (await db.instances.getWatch(instanceId))?.reach });
+        return identityRouter({ servesTenants: false, accounts: { identity, signedIn: async (req) => (req.headers.cookie?.includes('session=ok') ? TEST_USER : undefined), reachOf: async (instanceId) => (await db.instances.getWatch(instanceId))?.reach } });
       },
     });
 
@@ -48,7 +48,7 @@ describe('root\'s identity routes', () => {
 
 describe('an instance\'s identity route', () => {
   it('answers where a signed-in person is: here, serving tenants', async () => {
-    const h = await mountRouter({ prefix: '/api/identity', router: () => placeRouter(true) });
+    const h = await mountRouter({ prefix: '/api/identity', router: () => identityRouter({ servesTenants: true }) });
     expect((await axios.get(h.url('/api/identity/instance'))).data).toEqual({ instance: null, servesTenants: true });
   });
 });

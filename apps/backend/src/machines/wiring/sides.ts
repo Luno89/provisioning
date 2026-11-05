@@ -20,9 +20,13 @@ export interface MachineSidesDeps {
   projects: MachineDeps['projects'];
   bundle?: MachineDeps['bundle'];
   rootToken?: (() => Promise<string>) | undefined;
-  hear?: ((event: string, handler: () => void) => void) | undefined;
-  koalaOf: (ownerId: string) => Promise<KoalaPlace | undefined>;
-  tellInstance: (instanceId: string, event: string) => void;
+  side?: { hear(event: string, handler: () => void): void } | undefined;
+  instances: () => InstancesNow | undefined;
+}
+
+export interface InstancesNow {
+  service?: { koalaOf(ownerId: string): Promise<KoalaPlace | undefined>; caller(instanceId: string, credential: string): Promise<{ ownerId: string } | undefined> } | undefined;
+  tellInstance?: ((instanceId: string, event: string) => void) | undefined;
 }
 
 export interface MachineSides {
@@ -31,6 +35,7 @@ export interface MachineSides {
   mirror?: MachineMirror | undefined;
   workTokens?: WorkTokenTrust | undefined;
   syncMachines?: (() => Promise<void>) | undefined;
+  instanceCaller: (instanceId: string, credential: string) => Promise<{ ownerId: string } | undefined>;
   instanceArrived: (instance: Pick<InstanceRecord, 'id' | 'ownerId'>) => void;
 }
 
@@ -38,7 +43,7 @@ export function machineSides(deps: MachineSidesDeps): MachineSides {
   const { role, db } = deps;
   const tenants = servesTenants(role);
   const ownerInstances = async (ownerId: string) => {
-    for (const instance of await db.instances.getInstances(ownerId)) deps.tellInstance(instance.id, 'machines:changed');
+    for (const instance of await db.instances.getInstances(ownerId)) deps.instances()?.tellInstance?.(instance.id, 'machines:changed');
   };
   let toMachines: AccountSockets = { removed: () => false, koala: () => false };
   let machines: MachineService | undefined;
@@ -47,7 +52,7 @@ export function machineSides(deps: MachineSidesDeps): MachineSides {
     dataKey: deps.dataKey,
     signing: role.signing,
     settings: { url: deps.publicUrl, meshLoginServer: deps.meshLoginServer },
-    koala: { of: async (ownerId) => (tenants ? { url: deps.publicUrl, audience: COMBINED_AUDIENCE } : deps.koalaOf(ownerId)) },
+    koala: { of: async (ownerId) => (tenants ? { url: deps.publicUrl, audience: COMBINED_AUDIENCE } : deps.instances()?.service?.koalaOf(ownerId)) },
     followers: tenants
       ? { joined: (machine) => machines!.adopt(machine), removed: (machine) => machines!.forget(machine), changed: async () => undefined }
       : { joined: (machine) => ownerInstances(machine.ownerId), removed: (machine) => ownerInstances(machine.ownerId), changed: (ownerId) => ownerInstances(ownerId) },
@@ -75,8 +80,8 @@ export function machineSides(deps: MachineSidesDeps): MachineSides {
       return migrated.then(() => mirror.sync());
     };
     const quietly = () => { syncMachines!().catch((err: Error) => console.warn(`[machines] this instance could not read its machines from root: ${err.message}`)); };
-    deps.hear?.('machines:changed', quietly);
-    deps.hear?.('connect', quietly);
+    deps.side?.hear('machines:changed', quietly);
+    deps.side?.hear('connect', quietly);
   }
   if (accounts) toMachines = wireMachineAccounts({ io: deps.io, db, dataKey: deps.dataKey, accounts: () => accounts });
   return {
@@ -85,6 +90,7 @@ export function machineSides(deps: MachineSidesDeps): MachineSides {
     mirror,
     syncMachines,
     workTokens: tenants && role.trusted ? { keys: role.trusted, audience: role.instance?.id ?? COMBINED_AUDIENCE } : undefined,
+    instanceCaller: async (instanceId, credential) => deps.instances()?.service?.caller(instanceId, credential),
     instanceArrived: (instance) => {
       void accounts?.tellKoala(instance.ownerId).catch((err: Error) => console.warn(`[machines] ${instance.id}'s owner's machines could not be told where it is: ${err.message}`));
     },

@@ -6,47 +6,38 @@ import { isDown, type Reach } from '../lib/instance-watch.js';
 const userOf = (req: Request): { id: string; email: string } =>
   (req as unknown as { user: { id: string; email: string } }).user;
 
-function answerInstance(servesTenants: boolean, instanceOf?: (req: Request) => Promise<{ id: string; url: string; unreachableSince?: string | undefined } | undefined>) {
-  return asyncRoute(async (req: Request, res: Response) => {
-    const instance = instanceOf ? await instanceOf(req) : undefined;
-    res.json({ instance: instance ?? null, servesTenants });
-  });
-}
-
 export function identityRouter(deps: {
-  identity: Pick<IdentityService, 'publicKeys' | 'instanceOf' | 'goUrl'>;
   servesTenants: boolean;
-  signedIn: (req: Request) => Promise<{ id: string; email: string } | undefined>;
-  reachOf?: ((instanceId: string) => Promise<Reach | undefined>) | undefined;
+  accounts?: {
+    identity: Pick<IdentityService, 'publicKeys' | 'instanceOf' | 'goUrl'>;
+    signedIn: (req: Request) => Promise<{ id: string; email: string } | undefined>;
+    reachOf?: ((instanceId: string) => Promise<Reach | undefined>) | undefined;
+  } | undefined;
 }): Router {
   const router = Router();
+  const { accounts } = deps;
+
+  router.get('/instance', asyncRoute(async (req: Request, res: Response) => {
+    const found = accounts ? await accounts.identity.instanceOf(userOf(req).id) : undefined;
+    const reach = found && accounts?.reachOf ? await accounts.reachOf(found.id) : undefined;
+    const instance = found ? { id: found.id, url: found.url, ...(isDown(reach) ? { unreachableSince: reach!.unreachableSince } : {}) } : null;
+    res.json({ instance, servesTenants: deps.servesTenants });
+  }));
+  if (!accounts) return router;
 
   router.get('/keys', (_req: Request, res: Response) => {
-    res.json({ keys: deps.identity.publicKeys() });
+    res.json({ keys: accounts.identity.publicKeys() });
   });
 
-  router.get('/instance', answerInstance(deps.servesTenants, async (req) => {
-    const instance = await deps.identity.instanceOf(userOf(req).id);
-    if (!instance) return undefined;
-    const reach = deps.reachOf ? await deps.reachOf(instance.id) : undefined;
-    return { id: instance.id, url: instance.url, ...(isDown(reach) ? { unreachableSince: reach!.unreachableSince } : {}) };
-  }));
-
   router.get('/go', asyncRoute(async (req: Request, res: Response) => {
-    const user = await deps.signedIn(req);
+    const user = await accounts.signedIn(req);
     res.setHeader('Cache-Control', 'no-store');
     if (!user) return res.redirect(302, '/');
     const toHub = req.query.to === 'hub';
-    const url = await deps.identity.goUrl(user, toHub ? { hub: true, ...(typeof req.query.next === 'string' ? { next: req.query.next } : {}) } : undefined, req.query.nonce);
+    const url = await accounts.identity.goUrl(user, toHub ? { hub: true, ...(typeof req.query.next === 'string' ? { next: req.query.next } : {}) } : undefined, req.query.nonce);
     if (!url) return res.status(404).json({ error: toHub ? 'this root has no hub' : 'you have no instance yet' });
     return res.redirect(302, url);
   }));
 
-  return router;
-}
-
-export function placeRouter(servesTenants: boolean): Router {
-  const router = Router();
-  router.get('/instance', answerInstance(servesTenants));
   return router;
 }

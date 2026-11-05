@@ -48,10 +48,10 @@ async function machine(db: Database, token: string, issued: Date): Promise<void>
 }
 
 describe('a machine agent\'s link to root, against root\'s real socket', () => {
-  it('tells root its mesh address, takes the Koala root names, asks again without asking forever though root\'s clock is a month behind, and writes a token root rotates', async () => {
+  it('tells root its mesh address, takes the Koala root names when it connects and when root tells it, asks again without asking forever though root\'s clock is a month behind, and writes a token root rotates', async () => {
     const issued = new Date('2026-08-01T00:00:00Z');
     const now = new Date(issued.getTime() + 70 * DAY);
-    const { db, url } = await root(() => now);
+    const { db, url, accounts: accountsOf } = await root(() => now);
     await machine(db, 'first-token', issued);
     const folder = await mkdtemp(path.join(tmpdir(), 'root-link-'));
     closers.push(() => rm(folder, { recursive: true, force: true }));
@@ -68,10 +68,13 @@ describe('a machine agent\'s link to root, against root\'s real socket', () => {
     expect(saved.token).not.toBe('first-token');
     expect(await until(async () => ((await db.machines.getLocalAgentDevices())[0]?.tokenHash === deviceTokenHash(saved.token) ? true : undefined))).toBe(true);
     const before = koalas.length;
-    link.askKoala();
+    await accountsOf.tellKoala('bo');
     await until(() => (koalas.length > before ? true : undefined));
+    const asked = koalas.length;
+    link.askKoala();
+    await until(() => (koalas.length > asked ? true : undefined));
     await new Promise((done) => setTimeout(done, 300));
-    expect(koalas.length).toBeLessThanOrEqual(before + 1);
+    expect(koalas.length).toBeLessThanOrEqual(asked + 1);
   });
 
   it('stops trying and tells the agent when root removes the machine, and says when no Koala is named', async () => {

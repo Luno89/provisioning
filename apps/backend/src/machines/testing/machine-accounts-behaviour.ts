@@ -62,6 +62,13 @@ export function machineAccountsBehaviour(make: () => Promise<Database>): void {
       expect(Date.parse(made.expiresAt) - clock.getTime()).toBe(MACHINE_CODE_TTL_SECONDS * 1000);
     });
 
+    it('counts the hour from the time it is now when it is given no clock', async () => {
+      const before = Date.now();
+      const made = await accounts({ now: undefined }).createJoinCode('bo');
+      expect(Date.parse(made.expiresAt)).toBeGreaterThanOrEqual(before + MACHINE_CODE_TTL_SECONDS * 1000);
+      expect(Date.parse(made.expiresAt)).toBeLessThanOrEqual(Date.now() + MACHINE_CODE_TTL_SECONDS * 1000);
+    });
+
     it('joins the machine once, keeping only a hash of its account token, and tells its Koala', async () => {
       const machines = accounts();
       const { code } = await machines.createJoinCode('bo');
@@ -231,8 +238,13 @@ export function machineAccountsBehaviour(make: () => Promise<Database>): void {
       await machines.recordMeshIp(deviceId, undefined);
       expect((await stored(deviceId))?.meshIp).toBe('100.64.0.9');
       expect(followers.changed).toHaveBeenCalledTimes(1);
+      followers.changed.mockRejectedValue(new Error('instance is down'));
+      const warned = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+      await machines.recordMeshIp(deviceId, '100.64.0.10');
+      expect(warned).toHaveBeenCalledWith(expect.stringContaining('instance is down'));
+      warned.mockRestore();
       const updates = vi.spyOn(db.machines, 'updateLocalAgentDevice');
-      await machines.recordMeshIp(deviceId, '100.64.0.9');
+      await machines.recordMeshIp(deviceId, '100.64.0.10');
       await machines.recordMeshIp('gone', '100.64.0.10');
       expect(updates).not.toHaveBeenCalled();
     });

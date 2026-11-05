@@ -144,7 +144,8 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   const vapid = vapidKeysFrom(typeof keys.data === 'string' ? keys.data : keys.data.current);
   const push = new PushService({ store: db.monitoring, vapid, send: webPushSend(vapid, vapidSubject(process.env.MAIL_FROM, PUBLIC_URL)), log: (message) => console.warn(message) });
   const notifications = new NotificationService({ store: db.monitoring, mail, push, publicUrl: PUBLIC_URL, log: (message) => console.warn(message) });
-  const tenant: express.Router = servesTenants(role) ? (app as unknown as express.Router) : express.Router();
+  const tenants = servesTenants(role);
+  const tenant: express.Router = tenants ? (app as unknown as express.Router) : express.Router();
   const identity = new IdentityService(role, db, undefined, undefined, instanceReach);
   console.log(`🧭 Running as ${role.role}${role.instance ? ` (instance ${role.instance.id}, owned by ${role.instance.ownerId})` : ''}`);
   const infraService = new InfrastructureService();
@@ -168,7 +169,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   });
   telemetry.exportTo(telemetrySink);
   const giteaService = new GiteaService(infraService, keys.data, '/tmp/kubeconfig-provisioning-lunorica');
-  if (servesTenants(role)) {
+  if (tenants) {
     await giteaService.ensureClusterSecret().catch((err: Error) =>
       console.warn(`[gitea] could not ensure cluster secret: ${err.message}`),
     );
@@ -187,17 +188,16 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   const machineTemporal = { address: process.env.MACHINE_TEMPORAL_ADDRESS || `localhost:${MACHINE_GATEWAY_PORT}`, namespace: temporalNamespaceFrom(process.env) };
   const machineBundle = newMachineBundle(path.join(__dirname, '../../..'));
   const late: { instances?: Awaited<ReturnType<typeof wireInstances>> } = {};
-  const { accounts: machineAccounts, machines: machineService, workTokens, instanceArrived } = machineSides({
+  const { accounts: machineAccounts, machines: machineService, workTokens, instanceArrived, instanceCaller } = machineSides({
     role, db, io, dataKey: keys.data, publicUrl: PUBLIC_URL, meshLoginServer: process.env.MESH_LOGIN_SERVER, mesh: headscaleService,
     devices: { status: localAgentStatus, tell: tellDevice, ask: askDevice, drop: dropDevice },
     projects: projectRepoService, bundle: machineBundle, rootToken,
-    hear: (event, handler) => instanceSide.hear(event, handler),
-    koalaOf: async (ownerId) => late.instances?.instanceService?.koalaOf(ownerId),
-    tellInstance: (instanceId, event) => late.instances?.tellInstance?.(instanceId, event),
+    side: instanceSide,
+    instances: () => (late.instances ? { service: late.instances.instanceService, tellInstance: late.instances.tellInstance } : undefined),
   });
   const modelService = new ModelService(db, appService, clusterService, clusterProxyService, headscaleService, keys.data, endpointRulesFromEnv(process.env));
 
-  if (servesTenants(role)) {
+  if (tenants) {
     clusterService.ensureSystemClusterGpuReady().catch((err: Error) =>
       console.warn(`[bootstrap] System cluster GPU readiness check failed: ${err.message}`)
     );
@@ -206,7 +206,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   const temporalBridge = new TemporalBridge(db, io, keys.data, clusterService, headscaleService, claimSettings);
   clusterService.setTemporalBridge(temporalBridge);
   appService.setTemporalBridge(temporalBridge);
-  if (servesTenants(role)) {
+  if (tenants) {
     await keepTrying('⚠️ Temporal TS bridge not available yet, routes fall back to the local DB until it is', async () => {
       await temporalBridge.start();
       await temporalBridge.startActiveWorkflowRecovery();
@@ -394,10 +394,10 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   setInterval(() => { void sweepArtifacts(); }, 24 * 60 * 60 * 1000).unref();
   void sweepArtifacts();
   wireMachines({
-    app, tenant, servesTenants: servesTenants(role), accounts: machineAccounts, workTokens,
-    instanceCaller: async (instanceId, credential) => instancesWiring.instanceService?.caller(instanceId, credential),
+    app, tenant, servesTenants: tenants, accounts: machineAccounts, workTokens,
+    instanceCaller,
     db, dataKey: keys.data, publicUrl: PUBLIC_URL, repoRoot: path.join(__dirname, '../../..'), machines: machineService, bundle: machineBundle, headscale: role.instance ? undefined : headscaleService, projectRepos: projectRepoService,
-    ...(servesTenants(role) ? {
+    ...(tenants ? {
       gateway: {
         port: MACHINE_GATEWAY_PORT,
         host: process.env.MACHINE_GATEWAY_HOST || '0.0.0.0',
@@ -416,8 +416,8 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     artifacts: artifactStore, projectRepos: projectRepoService, customizations, releaseSettings, treeModels: () => treeModels, operatorOnly: requireOperator('administer'), push, mail,
   });
   if (evalHost.storyDrops) files.setStoryDrops(storyDropsFor({ db, projectRepos: projectRepoService, gitea: giteaService, work: evalHost.storyDrops }));
-  if (servesTenants(role)) void odooReleases.start().then(() => db.accounts.getUsers()).then((users) => odooReleases.recover(users.map((user) => user.id))).catch((err: Error) => console.warn(`[releases] the releases that were running when the backend stopped could not be followed again: ${err.message}`));
-  if (servesTenants(role)) void releases.letReleasesPull().catch((err: Error) => console.warn(`[releases] could not give release namespaces their registry login: ${err.message}`));
+  if (tenants) void odooReleases.start().then(() => db.accounts.getUsers()).then((users) => odooReleases.recover(users.map((user) => user.id))).catch((err: Error) => console.warn(`[releases] the releases that were running when the backend stopped could not be followed again: ${err.message}`));
+  if (tenants) void releases.letReleasesPull().catch((err: Error) => console.warn(`[releases] could not give release namespaces their registry login: ${err.message}`));
 
   const payloadStorage = new PayloadStorageService(sharedPayloadBlobs(), () => getTemporalClient());
   const sweepPayloads = async (): Promise<void> => {
@@ -431,7 +431,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     }
   };
 
-  if (servesTenants(role)) {
+  if (tenants) {
     setTimeout(() => { void sweepPayloads(); }, PRUNE_FIRST_DELAY_MS).unref();
     setInterval(() => { void sweepPayloads(); }, PRUNE_INTERVAL_MS).unref();
   }
@@ -463,7 +463,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     treeModels, mcpCatalogue, workspaceDependencies, agentDirectory, agentsHolder, concluded, infra: infraService, infisical: infisicalService, clusters: clusterService,
   });
 
-  if (process.env.NODE_ENV !== 'test' && servesTenants(role)) {
+  if (process.env.NODE_ENV !== 'test' && tenants) {
     const systemKubeconfig = '/tmp/kubeconfig-provisioning-lunorica';
     runOnce(db.platform, BUILD_TOKENS_MIGRATION, new Date().toISOString(), () => cleanUpBuildTokens({
       deployments: () => db.infrastructure.getDeployments(),
@@ -502,7 +502,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
 
   if (process.env.NODE_ENV !== 'test' || process.env.IS_E2E === 'true') {
     const hostTunnelPort = process.env.IS_E2E === 'true' ? 8001 : 8000;
-    if (servesTenants(role) && process.env.NODE_ENV !== 'production') startHostTunnel(hostTunnelPort);
+    if (tenants && process.env.NODE_ENV !== 'production') startHostTunnel(hostTunnelPort);
     httpServer.on('error', (err: NodeJS.ErrnoException) => {
       if (err.code === 'EADDRINUSE') {
         console.error(`❌ Port ${port} is already in use by another process. Run 'npm run clean-dev' or free port ${port}.`);

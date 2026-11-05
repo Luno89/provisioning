@@ -12,6 +12,12 @@ import { checkWorkToken } from '../lib/work-tokens.js';
 import type { MachineDevices } from '../services/MachineService.js';
 import { accountMachinesRouter } from '../routes/account-machines.js';
 import { machineSides, type MachineSides } from './sides.js';
+import { ProjectRepoService } from '../../projects/services/ProjectRepoService.js';
+import type { GiteaService } from '../../projects/services/GiteaService.js';
+import { InstanceService } from '../../instances/services/InstanceService.js';
+import { InstanceReach } from '../../instances/services/InstanceReach.js';
+import { InstancePresence } from '../../instances/services/InstancePresence.js';
+import { InstanceSide, wireInstancePresence } from '../../instances/wiring/instances.js';
 
 const KEY = 'sides-test-secret';
 const closers: Array<() => Promise<void>> = [];
@@ -38,21 +44,6 @@ function recordingDevices(): MachineDevices & { dropped: string[]; told: string[
   };
 }
 
-function recordingProjects() {
-  const projects: Array<{ ownerId: string; name: string; deviceId?: string | undefined }> = [];
-  return {
-    projects,
-    register: async (ownerId: string, name: string, opts: { executionTarget?: { kind: string; deviceId?: string } | undefined }) => {
-      projects.push({ ownerId, name, deviceId: opts.executionTarget?.deviceId });
-      return { id: `p-${projects.length}` } as never;
-    },
-    removeFor: async (ownerId: string, deviceId: string) => {
-      const at = projects.findIndex((project) => project.ownerId === ownerId && project.deviceId === deviceId);
-      if (at >= 0) projects.splice(at, 1);
-    },
-  };
-}
-
 async function listening(app: express.Express): Promise<{ url: string; io: SocketServer }> {
   const server = http.createServer(app);
   const io = new SocketServer(server);
@@ -68,66 +59,80 @@ async function rootAndInstance(before?: (instanceDb: Database) => Promise<void>)
   const rootDb = await testDatabase();
   const instanceDb = await testDatabase();
   await before?.(instanceDb);
-  const heard: Record<string, () => void> = {};
   const rootApp = express();
   rootApp.use(express.json());
   const root = await listening(rootApp);
   const instanceApp = express();
   const instance = await listening(instanceApp);
-  await rootDb.instances.saveInstance({ id: 'inst-1', ownerId: 'bo', url: instance.url, status: 'ready', createdAt: '2026-11-04T00:00:00Z' } as never);
-  const rootDevices = recordingDevices();
-  const rootSide: MachineSides = machineSides({
+  const instances = new InstanceService(rootDb, {
+    rootUrl: root.url, rootPublicKeys: () => [publicKeyPem(identityKeysFrom(pem).publicKey)], registry: 'r', imageTag: 't', domain: 'koala.test', meshLoginServer: 'https://mesh.koala.test',
+    reach: new InstanceReach({ open: true, domain: 'koala.test' }),
+  }, mesh);
+  const made = await instances.createJoinToken('bo', 'bobby');
+  if (!made.ok) throw new Error(made.error);
+  const joined = await instances.join(made.value.token, 'bo-desktop');
+  if (!joined.ok) throw new Error(joined.error);
+  const { instanceId, credential } = joined.value;
+  const reported = await instances.report(instanceId, credential, { status: 'ready', url: instance.url });
+  if (!reported.ok) throw new Error(reported.error);
+  const presence = new InstancePresence({ store: rootDb.instances, tellOwner: async () => undefined, tellOperators: async () => undefined, afterMs: 60_000 });
+  closers.push(async () => { presence.stop(); });
+  let rootSide: MachineSides | undefined;
+  const tellInstance = wireInstancePresence(root.io, presence, (id, token) => instances.caller(id, token), (arrived) => rootSide?.instanceArrived(arrived));
+  rootSide = machineSides({
     role: roleFromEnv({ ROLE: 'root', ROOT_IDENTITY_KEY: pem }),
     db: rootDb, io: root.io, dataKey: KEY, publicUrl: root.url, mesh,
-    devices: rootDevices, projects: recordingProjects(),
-    koalaOf: async (ownerId) => (ownerId === 'bo' ? { url: instance.url, audience: 'inst-1' } : undefined),
-    tellInstance: (instanceId, event) => { if (instanceId === 'inst-1') heard[event]?.(); },
+    devices: recordingDevices(), projects: new ProjectRepoService(rootDb, {} as GiteaService, KEY),
+    instances: () => ({ service: instances, tellInstance }),
   });
   rootApp.use('/api/instances/machines', accountMachinesRouter({
     accounts: rootSide.accounts!,
-    callerOf: async (req) => (req.headers['x-instance-id'] === 'inst-1' && req.headers.authorization === 'Bearer service-token' ? { ownerId: 'bo' } : undefined),
+    callerOf: async (req) => rootSide!.instanceCaller(String(req.headers['x-instance-id'] ?? ''), String(req.headers.authorization ?? '').replace(/^Bearer\s+/i, '')),
   }));
+  const role = roleFromEnv({ ROLE: 'instance', INSTANCE_ID: instanceId, INSTANCE_OWNER_ID: 'bo', ROOT_URL: root.url, ROOT_PUBLIC_KEYS: publicKeyPem(identityKeysFrom(pem).publicKey) });
+  const side = new InstanceSide(role, {}, async () => credential);
   const devices = recordingDevices();
-  const projects = recordingProjects();
+  const projects = new ProjectRepoService(instanceDb, {} as GiteaService, KEY);
   const instanceSide: MachineSides = machineSides({
-    role: roleFromEnv({ ROLE: 'instance', INSTANCE_ID: 'inst-1', INSTANCE_OWNER_ID: 'bo', ROOT_URL: root.url, ROOT_PUBLIC_KEYS: publicKeyPem(identityKeysFrom(pem).publicKey) }),
-    db: instanceDb, io: instance.io, dataKey: KEY, publicUrl: instance.url, mesh,
-    devices, projects, rootToken: async () => 'service-token',
-    hear: (event, handler) => { heard[event] = handler; },
-    koalaOf: async () => undefined,
-    tellInstance: () => undefined,
+    role, db: instanceDb, io: instance.io, dataKey: KEY, publicUrl: instance.url, mesh,
+    devices, projects, rootToken: async () => credential, side,
+    instances: () => undefined,
   });
-  return { root, rootDb, rootSide, instanceDb, instanceSide, devices, projects, heard };
+  return { root, rootDb, rootSide, instanceDb, instanceSide, devices, projects, instanceId, watch: () => { side.watchRoot(async () => undefined); closers.push(async () => { (side as unknown as { rootPresence?: { stop(): void } }).rootPresence?.stop(); }); } };
 }
 
 const machinesOn = async (db: Database) => db.machines.getLocalAgentDevices();
 
 describe('a root and an instance wired as they run, against each other', () => {
   it('copies the instance\'s machines from before to root once it connects, keeping their ids', async () => {
-    const { rootDb, heard } = await rootAndInstance(async (db) => {
+    const { rootDb, watch } = await rootAndInstance(async (db) => {
       await db.machines.saveLocalAgentDevice({ id: 'old-desk', ownerId: 'bo', name: 'desk', rootDir: '/home/bo/koala', createdAt: '2026-10-01T00:00:00Z', tokenHash: 'h'.repeat(64) });
     });
-    heard.connect!();
+    watch();
     expect(await until(async () => (await machinesOn(rootDb)).find((machine) => machine.id === 'old-desk'))).toMatchObject({ ownerId: 'bo', tokenHash: 'h'.repeat(64) });
   });
 
-  it('a machine joining at root reaches the instance\'s copy and becomes a project; one removed through the instance leaves both, its connection dropped', async () => {
-    const { rootSide, instanceDb, instanceSide, devices, projects } = await rootAndInstance();
+  it('a machine joining at root reaches the instance\'s copy and becomes a project, its mesh address following; one removed through the instance leaves both, its connection dropped', async () => {
+    const { rootSide, instanceDb, instanceSide, devices, watch } = await rootAndInstance();
+    const projectsOn = async () => (await instanceDb.projects.getProjects()).map((project) => ({ ownerId: project.ownerId, name: project.name, deviceId: project.executionTarget?.kind === 'local-device' ? project.executionTarget.deviceId : undefined }));
+    watch();
     const made = await instanceSide.machines.createJoinCode('bo');
     expect(made.command).toContain('/machine.sh | sh -s -- ');
     const joined = await rootSide.accounts!.join(made.code, { hostname: 'desk', rootDir: '/home/bo/koala' });
     if (!joined.ok) throw new Error(joined.error);
     const id = joined.value.deviceId;
     await until(async () => (await machinesOn(instanceDb)).find((machine) => machine.id === id));
-    expect(projects.projects).toEqual([{ ownerId: 'bo', name: 'desk - koala', deviceId: id }]);
+    expect(await until(async () => ((await projectsOn()).length ? projectsOn() : undefined))).toEqual([{ ownerId: 'bo', name: 'desk - koala', deviceId: id }]);
+    await rootSide.accounts!.recordMeshIp(id, '100.64.0.9');
+    await until(async () => (await machinesOn(instanceDb)).find((machine) => machine.id === id && machine.meshIp === '100.64.0.9'));
     expect(await instanceSide.machines.remove('bo', id)).toBe(true);
     await until(async () => ((await machinesOn(instanceDb)).some((machine) => machine.id === id) ? undefined : true));
     expect(devices.dropped).toEqual([id]);
-    expect(projects.projects).toEqual([]);
+    expect(await projectsOn()).toEqual([]);
   });
 
-  it('root names the instance to a connected machine with a work token the instance takes, once the instance arrives', async () => {
-    const { root, rootSide, instanceSide } = await rootAndInstance();
+  it('root names the instance to a connected machine with a work token the instance takes, once the instance connects to root', async () => {
+    const { root, rootSide, instanceSide, instanceId, watch } = await rootAndInstance();
     const joined = await rootSide.accounts!.join((await rootSide.accounts!.createJoinCode('bo')).code, { hostname: 'desk', rootDir: '/home/bo/koala' });
     if (!joined.ok) throw new Error(joined.error);
     const told: Array<{ url: string; workToken: string } | null> = [];
@@ -135,10 +140,10 @@ describe('a root and an instance wired as they run, against each other', () => {
     closers.push(async () => { socket.close(); });
     socket.on('machine:koala', (koala: { url: string; workToken: string } | null) => told.push(koala));
     await until(async () => (told.length ? true : undefined));
-    rootSide.instanceArrived({ id: 'inst-1', ownerId: 'bo' });
+    watch();
     await until(async () => (told.length === 2 ? true : undefined));
     const trust = instanceSide.workTokens!;
-    expect(checkWorkToken(told[1]!.workToken, trust.keys, trust.audience)).toMatchObject({ ok: true, claims: { sub: joined.value.deviceId, owner: 'bo', aud: 'inst-1' } });
+    expect(checkWorkToken(told[1]!.workToken, trust.keys, trust.audience)).toMatchObject({ ok: true, claims: { sub: joined.value.deviceId, owner: 'bo', aud: instanceId } });
   });
 });
 
@@ -147,20 +152,19 @@ describe('a combined Koala wired as it runs', () => {
     const db = await testDatabase();
     const app = express();
     const { io, url } = await listening(app);
-    const projects = recordingProjects();
     const sides = machineSides({
       role: roleFromEnv({ ROLE: 'combined', JWT_SECRET: 'combined-test' }),
-      db, io, dataKey: KEY, publicUrl: url, mesh, devices: recordingDevices(), projects,
-      koalaOf: async () => undefined, tellInstance: () => undefined,
+      db, io, dataKey: KEY, publicUrl: url, mesh, devices: recordingDevices(), projects: new ProjectRepoService(db, {} as GiteaService, KEY),
+      instances: () => undefined,
     });
     expect(sides.mirror).toBeUndefined();
     const joined = await sides.accounts!.join((await sides.machines.createJoinCode('bo')).code, { hostname: 'desk', rootDir: '/home/bo/koala' });
     if (!joined.ok) throw new Error(joined.error);
-    expect(projects.projects).toEqual([{ ownerId: 'bo', name: 'desk - koala', deviceId: joined.value.deviceId }]);
+    expect((await db.projects.getProjects()).map((project) => [project.name, project.executionTarget])).toEqual([['desk - koala', { kind: 'local-device', deviceId: joined.value.deviceId }]]);
     const koala = (await sides.accounts!.koalaFor(joined.value.deviceId))!;
     expect(koala.url).toBe(url);
     expect(checkWorkToken(koala.workToken, sides.workTokens!.keys, sides.workTokens!.audience)).toMatchObject({ ok: true, claims: { aud: 'combined' } });
     expect(await sides.machines.remove('bo', joined.value.deviceId)).toBe(true);
-    expect(projects.projects).toEqual([]);
+    expect(await db.projects.getProjects()).toEqual([]);
   });
 });
