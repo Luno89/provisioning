@@ -1,8 +1,11 @@
 import crypto from 'node:crypto';
 import { decryptValue, encryptValue, type SecretKey } from '../../platform/lib/crypto.js';
 
-export const OPENROUTER_AUTH_URL = 'https://openrouter.ai/auth';
-export const OPENROUTER_KEYS_URL = 'https://openrouter.ai/api/v1/auth/keys';
+export const OPENROUTER_URL = 'https://openrouter.ai';
+export const openRouterAuthUrl = (base: string = OPENROUTER_URL): string => `${base.replace(/\/+$/, '')}/auth`;
+export const openRouterKeysUrl = (base: string = OPENROUTER_URL): string => `${base.replace(/\/+$/, '')}/api/v1/auth/keys`;
+export const OPENROUTER_AUTH_URL = openRouterAuthUrl();
+export const OPENROUTER_KEYS_URL = openRouterKeysUrl();
 export const CONNECT_COOKIE = 'openrouter_connect';
 export const CONNECT_PATH = '/api/credentials/llm/openrouter';
 export const CONNECT_COOKIE_MS = 15 * 60 * 1000;
@@ -25,7 +28,7 @@ export const newPending = (userId: string): PendingConnect => ({
 export const challengeOf = (verifier: string): string =>
   base64url(crypto.createHash('sha256').update(verifier).digest());
 
-export function authUrl(pending: PendingConnect, callbackUrl: string): string {
+export function authUrl(pending: PendingConnect, callbackUrl: string, base: string = OPENROUTER_URL): string {
   const params = new URLSearchParams({
     callback_url: callbackUrl,
     code_challenge: challengeOf(pending.verifier),
@@ -33,7 +36,7 @@ export function authUrl(pending: PendingConnect, callbackUrl: string): string {
     state: pending.state,
     key_label: KEY_LABEL,
   });
-  return `${OPENROUTER_AUTH_URL}?${params.toString()}`;
+  return `${openRouterAuthUrl(base)}?${params.toString()}`;
 }
 
 export const sealPending = (pending: PendingConnect, key: SecretKey): string =>

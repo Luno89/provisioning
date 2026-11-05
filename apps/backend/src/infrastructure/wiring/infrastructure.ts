@@ -46,6 +46,7 @@ export interface InfrastructureWiringDeps {
   sessionKey: SecretKey;
   publicUrl: string;
   appUrl: string;
+  openRouterUrl?: string | undefined;
   repoRoot: string;
   credentials: CredentialService;
   clusters: ClusterService;
@@ -67,7 +68,7 @@ const adminOnly = (operatorOnly: RequestHandler, router: Router): Router => Rout
 
 export function wireInfrastructure(deps: InfrastructureWiringDeps): void {
   const { tenant, db, io } = deps;
-  tenant.use('/api/credentials', llmCredentialsRouter({ db, dataKey: deps.dataKey, credentialService: deps.credentials, publicUrl: deps.publicUrl, appUrl: deps.appUrl }));
+  tenant.use('/api/credentials', llmCredentialsRouter({ db, dataKey: deps.dataKey, credentialService: deps.credentials, publicUrl: deps.publicUrl, appUrl: deps.appUrl, openRouterUrl: deps.openRouterUrl }));
   tenant.use('/api/dns-providers', dnsProvidersRouter({ dns: new DnsProviders() }));
   tenant.use('/api/credentials', credentialsRouter({ credentialService: deps.credentials, publicUrl: deps.publicUrl, appUrl: deps.appUrl, sessionKey: deps.sessionKey }));
   tenant.use('/api/backup', adminOnly(deps.operatorOnly, backupRouter({ repoRoot: deps.repoRoot })));

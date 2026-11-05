@@ -5,7 +5,7 @@ import type { CredentialService } from '../../infrastructure/index.js';
 import { v4 as uuidv4 } from 'uuid';
 import {
   authUrl, checkCallback, connectedRedirect, CONNECT_COOKIE, CONNECT_COOKIE_MS, CONNECT_PATH, exchangeBody, exchangeProblem,
-  failedRedirect, keyFrom, newPending, OPENROUTER_KEYS_URL, openPending, sealPending,
+  failedRedirect, keyFrom, newPending, OPENROUTER_URL, openPending, openRouterKeysUrl, sealPending,
 } from '../lib/openrouter-connect.js';
 import { buildIntelligenceIndex, intelligenceFor, type AaModel } from '../lib/intelligence-index.js';
 
@@ -235,6 +235,7 @@ export interface LlmCredentialsRouterDeps {
   credentialService?: Credentials | undefined;
   publicUrl?: string | undefined;
   appUrl?: string | undefined;
+  openRouterUrl?: string | undefined;
 }
 
 const ownEndpoints = (endpoints: ModelEndpointMetadata[], userId: string): ModelEndpointMetadata[] =>
@@ -244,6 +245,7 @@ export function llmCredentialsRouter(deps: LlmCredentialsRouterDeps): Router {
   const { db, dataKey, credentialService } = deps;
   const publicUrl: string = deps.publicUrl ?? 'http://localhost:3001';
   const appUrl: string = deps.appUrl ?? publicUrl;
+  const openRouterUrl: string = deps.openRouterUrl || OPENROUTER_URL;
   const router = Router();
 
   router.get('/llm', asyncRoute(async (req, res) => {
@@ -319,7 +321,7 @@ export function llmCredentialsRouter(deps: LlmCredentialsRouterDeps): Router {
     res.cookie(CONNECT_COOKIE, sealPending(pending, dataKey), {
       httpOnly: true, sameSite: 'lax', secure: publicUrl.startsWith('https://'), path: CONNECT_PATH, maxAge: CONNECT_COOKIE_MS, encode: String,
     });
-    res.redirect(authUrl(pending, `${publicUrl}${CONNECT_PATH}/callback`));
+    res.redirect(authUrl(pending, `${publicUrl}${CONNECT_PATH}/callback`, openRouterUrl));
   });
 
   router.get('/llm/openrouter/callback', asyncRoute(async (req, res) => {
@@ -329,7 +331,7 @@ export function llmCredentialsRouter(deps: LlmCredentialsRouterDeps): Router {
     if (!checked.ok) return res.redirect(failedRedirect(appUrl, checked.problem));
     const preset = GATEWAY_PRESETS.openrouter!;
     try {
-      const answer = await fetch(OPENROUTER_KEYS_URL, {
+      const answer = await fetch(openRouterKeysUrl(openRouterUrl), {
         method: 'POST', headers: { 'content-type': 'application/json' }, body: exchangeBody(checked.code, checked.verifier),
       });
       const text = await answer.text();
