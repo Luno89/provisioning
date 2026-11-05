@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react'
-import { Check, Cloud, Copy, HardDrive, Loader2, LogOut, RotateCcw } from 'lucide-react'
-import { useCreateJoinCommand, useInstanceReady, useMySetup, useNameCheck, usePoolOffer, useStartMyMove, useStartPoolInstance, useStopMyMove, type InstanceStatus, type MySetup } from '../api/instances'
+import { Cloud, HardDrive, Loader2, LogOut, RotateCcw } from 'lucide-react'
+import { useInstanceReady, useMySetup, useNameCheck, usePoolOffer, useStartMyMove, useStartPoolInstance, useStopMyMove, type InstanceStatus, type MySetup } from '../api/instances'
 import { errorMessage } from '../../../api/client'
 import { useCan } from '../../platform'
 import { MovePanel } from './MovePanel'
 import { UnreachableSwitch } from './InstanceWatch'
 import { useSetMyWatch } from '../api/instance-watch'
 import { INSTANCE_GO_URL } from '../api/identity'
+import { AccountMachines } from '../../machines'
 
 export interface NoInstanceProps {
   hasInstance: boolean
@@ -15,9 +16,9 @@ export interface NoInstanceProps {
 }
 
 const STEPS: { status: InstanceStatus; label: string }[] = [
-  { status: 'waiting', label: 'Waiting for your machine to run the command' },
-  { status: 'joined', label: 'Your machine joined the mesh' },
-  { status: 'installing', label: 'Installing your instance' },
+  { status: 'waiting', label: 'Waiting for your machine to run the command and connect' },
+  { status: 'joined', label: 'Your machine is putting Koala on itself' },
+  { status: 'installing', label: 'Installing Koala' },
   { status: 'ready', label: 'Ready' },
 ]
 
@@ -108,12 +109,11 @@ function InstanceDown({ since }: { since: string }) {
 
 export default function NoInstance({ hasInstance, unreachableSince, onLogout }: NoInstanceProps) {
   const operator = useCan()('manage-accounts')
-  const [copied, setCopied] = useState(false)
-  const create = useCreateJoinCommand()
+  const [ownMachine, setOwnMachine] = useState(false)
+  const [placing, setPlacing] = useState(false)
   const offer = usePoolOffer()
   const startPool = useStartPoolInstance()
-  const settingUp = Boolean(create.data)
-  const setup = useMySetup(settingUp)
+  const setup = useMySetup(placing)
   const ready = useInstanceReady()
   const status = setup.data?.status
   const fixedName = setup.data?.name
@@ -122,17 +122,11 @@ export default function NoInstance({ hasInstance, unreachableSince, onLogout }: 
   const name = fixedName ?? typed ?? suggestion.data?.suggestion ?? ''
   const check = useNameCheck(name)
   const nameOk = Boolean(name) && (check.data?.ok ?? false)
-  const inPool = Boolean(setup.data?.trialEndsAt) && !create.data
+  const inPool = Boolean(setup.data?.trialEndsAt) && !placing
 
   useEffect(() => {
     if (status === 'ready') ready()
   }, [status, ready])
-
-  const copy = async () => {
-    if (!create.data) return
-    await navigator.clipboard.writeText(create.data.command)
-    setCopied(true)
-  }
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-[var(--bark-900)] p-6 text-slate-100">
@@ -154,7 +148,7 @@ export default function NoInstance({ hasInstance, unreachableSince, onLogout }: 
             {inPool && setup.data ? (
               <PoolProgress setup={setup.data} retrying={startPool.isPending} onRetry={() => startPool.mutate(setup.data!.name ?? name)} />
             ) : null}
-            {!create.data && !inPool && (
+            {!placing && !inPool && (
               <div className="space-y-1">
                 <label className="block text-xs text-slate-300" htmlFor="instance-name">Your name, in your instance's address</label>
                 {fixedName ? (
@@ -175,7 +169,7 @@ export default function NoInstance({ hasInstance, unreachableSince, onLogout }: 
                 ) : null}
               </div>
             )}
-            {inPool ? null : !create.data ? (
+            {inPool ? null : !ownMachine && !placing ? (
               <div className="space-y-2">
                 <div className="flex flex-wrap gap-2">
                   {offer.data?.available && (
@@ -190,11 +184,11 @@ export default function NoInstance({ hasInstance, unreachableSince, onLogout }: 
                   )}
                   <button
                     type="button"
-                    onClick={() => create.mutate(name)}
-                    disabled={create.isPending || !nameOk}
+                    onClick={() => setOwnMachine(true)}
+                    disabled={!nameOk}
                     className={`inline-flex items-center gap-2 rounded-md px-3 py-1.5 text-xs font-medium disabled:opacity-50 ${offer.data?.available ? 'border border-[var(--bark-700)] text-slate-200' : 'bg-[var(--leaf-stem)] text-white'}`}
                   >
-                    {create.isPending ? <Loader2 size={14} className="animate-spin" /> : <HardDrive size={14} />} Use my own machine
+                    <HardDrive size={14} /> Use my own machine
                   </button>
                 </div>
                 {offer.data?.available && offer.data.trialDays ? (
@@ -205,14 +199,9 @@ export default function NoInstance({ hasInstance, unreachableSince, onLogout }: 
               </div>
             ) : (
               <div className="space-y-3">
-                <p className="text-xs text-slate-300">On the Linux machine you want to use, run this. It checks what the machine needs and asks before installing anything.</p>
-                <div className="flex items-start gap-2 rounded-md border border-[var(--bark-700)] bg-[var(--bark-900)] p-2">
-                  <code className="flex-1 break-all font-mono text-[11px] text-emerald-200">{create.data.command}</code>
-                  <button type="button" onClick={() => void copy()} aria-label="Copy the command" className="text-slate-400 hover:text-slate-100">
-                    {copied ? <Check size={14} /> : <Copy size={14} />}
-                  </button>
-                </div>
-                <p className="text-[10px] text-slate-500">The command works once, until {new Date(create.data.expiresAt).toLocaleTimeString()}.</p>
+                <AccountMachines name={name} nameOk={nameOk} hasKoala={placing && status !== 'failed'} onPlacing={() => setPlacing(true)} />
+                {placing && (
+                  <>
                 <ol className="space-y-1">
                   {STEPS.map((step, index) => {
                     const reached = status ? STEPS.findIndex((s) => s.status === status) >= index : index === 0
@@ -225,11 +214,12 @@ export default function NoInstance({ hasInstance, unreachableSince, onLogout }: 
                     )
                   })}
                 </ol>
-                {status === 'failed' && <p role="alert" className="text-xs text-rose-300">{setup.data?.detail ?? 'The install stopped.'} Make a new command and run it again.</p>}
+                {status === 'failed' && <p role="alert" className="text-xs text-rose-300">{setup.data?.detail ?? 'The install stopped.'} Put Koala on the machine again.</p>}
                 {setup.data?.detail && status !== 'failed' && <p className="text-[11px] text-slate-400">{setup.data.detail}</p>}
+                  </>
+                )}
               </div>
             )}
-            {create.isError && <p role="alert" className="text-xs text-rose-300">{errorMessage(create.error)}</p>}
             {startPool.isError && <p role="alert" className="text-xs text-rose-300">{errorMessage(startPool.error)}</p>}
           </>
         )}

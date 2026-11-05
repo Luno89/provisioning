@@ -1,10 +1,11 @@
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { machineChoice } from '@koala/agent-engine/procedure'
 import { api } from '../../api/client'
 import { machineChoiceLabel } from './lib/machine-rows'
 
 export const localAgentKeys = {
   list: () => ['local-agent-devices'] as const,
+  mine: () => ['my-machines'] as const,
 }
 
 export type MachineAgentState = 'checking' | 'ready' | 'needs-adapter' | 'not-answering'
@@ -98,4 +99,47 @@ export function useMachineChoiceLabel(id: string | null | undefined): string | u
 export function useMachineChoiceLabels(): (id: string) => string | undefined {
   const { data: devices = [] } = useLocalAgentDevices()
   return (id) => (machineChoice(id) ? machineChoiceLabel(id, devices) : undefined)
+}
+
+export interface AccountMachine {
+  id: string
+  name: string
+  rootDir: string
+  os?: string
+  meshIp?: string
+  createdAt: string
+  lastSeenAt?: string
+  online: boolean
+  koalaWanted: boolean
+  holdsKoala: boolean
+}
+
+export interface MyMachinesView {
+  machines: AccountMachine[]
+  koala: { machineId?: string; status?: string } | null
+}
+
+export const listMyMachines = (): Promise<MyMachinesView> =>
+  api.get<MyMachinesView>('/my-machines').then((r) => r.data)
+
+export const createMyJoinCode = (koalaName?: string): Promise<MachineJoinCode> =>
+  api.post<MachineJoinCode>('/my-machines/join-code', koalaName ? { koalaName } : {}).then((r) => r.data)
+
+export const putKoalaOn = (machineId: string, name: string): Promise<{ placing: boolean }> =>
+  api.post<{ placing: boolean }>(`/my-machines/${machineId}/koala`, { name }).then((r) => r.data)
+
+export function useMyMachines(following: boolean) {
+  return useQuery({ queryKey: localAgentKeys.mine(), queryFn: listMyMachines, refetchInterval: following ? 3000 : false })
+}
+
+export function useCreateMyJoinCode() {
+  return useMutation({ mutationFn: (koalaName?: string) => createMyJoinCode(koalaName) })
+}
+
+export function usePutKoalaOn() {
+  const queries = useQueryClient()
+  return useMutation({
+    mutationFn: ({ machineId, name }: { machineId: string; name: string }) => putKoalaOn(machineId, name),
+    onSuccess: () => queries.invalidateQueries({ queryKey: localAgentKeys.mine() }),
+  })
 }

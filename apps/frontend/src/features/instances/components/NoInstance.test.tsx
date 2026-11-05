@@ -26,12 +26,13 @@ describe('choosing a name before bringing a machine in', () => {
     vi.mocked(api.get).mockImplementation(async (url: string, config?: { params?: unknown }) => {
       if (url === '/instances/mine') return { data: { instance: null } }
       if (url === '/instances/pool') return { data: { available: false, reason: 'this root has no pool' } }
+      if (url === '/my-machines') return { data: { koala: null, machines: [{ id: 'desk', name: 'desk', rootDir: '/x', createdAt: 't', online: true, meshIp: '100.64.0.7', koalaWanted: false, holdsKoala: false }] } }
       return { data: names[(config?.params as { name?: string } | undefined)?.name ?? ''] ?? { ok: false } }
     })
-    vi.mocked(api.post).mockResolvedValue({ data: { token: 't', command: 'curl … | sudo sh -s -- t', expiresAt: new Date().toISOString() } })
+    vi.mocked(api.post).mockImplementation(async (url: string) => (url.endsWith('/koala') ? { data: { placing: true } } : { data: { code: 'c', command: 'curl -fsSL https://root/machine.sh | sh -s -- c', expiresAt: new Date().toISOString() } }))
   })
 
-  it('suggests a name, refuses a bad one, and makes the command for a good one', async () => {
+  it('suggests a name, refuses a bad one, and for a good one adds a machine that puts Koala on itself', async () => {
     renderPage()
     const field = await screen.findByDisplayValue('luno')
     expect(await screen.findByText('https://luno.koala.dev')).toBeInTheDocument()
@@ -44,7 +45,22 @@ describe('choosing a name before bringing a machine in', () => {
     const make = screen.getByRole('button', { name: /Use my own machine/ })
     await waitFor(() => expect(make).toBeEnabled())
     fireEvent.click(make)
-    await waitFor(() => expect(api.post).toHaveBeenCalledWith('/instances/join-tokens', { name: 'luno' }))
+    expect(await screen.findByRole('checkbox', { name: /Put my Koala on this machine/ })).toBeChecked()
+    fireEvent.click(screen.getByRole('button', { name: /Add a machine/ }))
+    await waitFor(() => expect(api.post).toHaveBeenCalledWith('/my-machines/join-code', { koalaName: 'luno' }))
+    expect(await screen.findByText('curl -fsSL https://root/machine.sh | sh -s -- c')).toBeInTheDocument()
+    expect(await screen.findByText('Waiting for your machine to run the command and connect')).toBeInTheDocument()
+  })
+
+  it('puts Koala on a machine already on the account', async () => {
+    renderPage()
+    await screen.findByText('https://luno.koala.dev')
+    const make = screen.getByRole('button', { name: /Use my own machine/ })
+    await waitFor(() => expect(make).toBeEnabled())
+    fireEvent.click(make)
+    fireEvent.click(await screen.findByRole('button', { name: 'Put Koala here' }))
+    await waitFor(() => expect(api.post).toHaveBeenCalledWith('/my-machines/desk/koala', { name: 'luno' }))
+    expect(await screen.findByText('Your machine is putting Koala on itself')).toBeInTheDocument()
   })
 })
 
