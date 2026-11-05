@@ -7,7 +7,8 @@ import { MACHINE_CLUSTER_ABSENT, MACHINE_OFF_MESH, type MachineClusterOp, type M
 export const K3S_BINARY = '/usr/local/bin/k3s';
 export const K3S_KUBECONFIG = '/etc/rancher/k3s/k3s.yaml';
 export const K3S_KILLALL = '/usr/local/bin/k3s-killall.sh';
-export const K3S_UNINSTALL = '/usr/local/bin/k3s-uninstall.sh';
+export const K3S_UNINSTALL = '/usr/local/lib/koala/machine-uninstall.sh';
+export const K3S_MARKER = '/etc/koala/machine-k3s';
 
 export interface ClusterHost {
   run(file: string, args: string[]): Promise<string>;
@@ -62,13 +63,13 @@ async function readyAfter(host: ClusterHost, since: number): Promise<void> {
 }
 
 export async function clusterState(host: ClusterHost): Promise<'absent' | 'stopped' | 'running'> {
-  if (!await host.exists(K3S_BINARY)) return 'absent';
+  if (!await host.exists(K3S_MARKER)) return 'absent';
   const state = (await host.run('systemctl', ['show', 'k3s', '--property=ActiveState', '--value'])).trim();
   return state === 'active' || state === 'activating' ? 'running' : 'stopped';
 }
 
 export async function runMachineCluster(host: ClusterHost, op: MachineClusterOp): Promise<MachineClusterResult> {
-  if (!await host.exists(K3S_BINARY)) {
+  if (!await host.exists(K3S_MARKER)) {
     if (op.kind === 'stop') return { state: 'absent' };
     throw new Error(MACHINE_CLUSTER_ABSENT);
   }

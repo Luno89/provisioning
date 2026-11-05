@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { mock } from 'vitest-mock-extended';
 import { MACHINE_CLUSTER_ABSENT, MACHINE_OFF_MESH } from '@koala/engine-core';
-import { K3S_BINARY, K3S_KILLALL, K3S_KUBECONFIG, K3S_UNINSTALL, clusterState, kubeconfigOnMesh, readySince, runMachineCluster, uninstallMachineCluster, type ClusterHost } from './machine-cluster.js';
+import { K3S_BINARY, K3S_KILLALL, K3S_KUBECONFIG, K3S_MARKER, K3S_UNINSTALL, clusterState, kubeconfigOnMesh, readySince, runMachineCluster, uninstallMachineCluster, type ClusterHost } from './machine-cluster.js';
 
 const START = Date.parse('2026-11-05T10:00:00Z');
 const KUBECONFIG = 'apiVersion: v1\nclusters:\n- cluster:\n    server: https://127.0.0.1:6443\n';
@@ -13,7 +13,7 @@ function host(opts: { installed?: boolean; active?: string; meshIp?: string | un
   const readyAt = [...(opts.readyAt ?? [START + 5000])];
   let state = opts.active ?? 'inactive';
   let asked = 0;
-  machine.exists.mockImplementation(async (path) => (opts.installed ?? true) && [K3S_BINARY, K3S_UNINSTALL].includes(path));
+  machine.exists.mockImplementation(async (path) => (opts.installed ?? true) && [K3S_MARKER, K3S_UNINSTALL].includes(path));
   machine.read.mockImplementation(async (path) => { if (path !== K3S_KUBECONFIG) throw new Error(path); return KUBECONFIG; });
   machine.meshIp.mockResolvedValue('meshIp' in opts ? opts.meshIp : '100.64.0.7');
   machine.now.mockReturnValue(START);
@@ -61,6 +61,15 @@ describe('a machine\'s own cluster', () => {
     await expect(runMachineCluster(host({ installed: false }).machine, { kind: 'start' })).rejects.toThrow(MACHINE_CLUSTER_ABSENT);
     await expect(runMachineCluster(host({ meshIp: undefined }).machine, { kind: 'start' })).rejects.toThrow(MACHINE_OFF_MESH);
     await expect(runMachineCluster(host({ readyAt: [START - 60_000], failsAfter: 2 }).machine, { kind: 'start' })).rejects.toThrow(/no space left/);
+  });
+
+  it('takes a k3s Koala did not install as none of its own, and never starts or stops it', async () => {
+    const { machine, calls } = host();
+    machine.exists.mockImplementation(async (path) => path === K3S_BINARY);
+    expect(await clusterState(machine)).toBe('absent');
+    expect(await runMachineCluster(machine, { kind: 'stop' })).toEqual({ state: 'absent' });
+    await expect(runMachineCluster(machine, { kind: 'start' })).rejects.toThrow(MACHINE_CLUSTER_ABSENT);
+    expect(calls).toEqual([]);
   });
 
   it('reads its state, and uninstalls k3s when the machine is removed', async () => {

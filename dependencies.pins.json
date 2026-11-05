@@ -468,6 +468,10 @@
         {
           "file": "scripts/root-node/pool-node.sh",
           "pattern": "K3S_VERSION=\"(v[0-9.]+\\+k3s[0-9]+)\""
+        },
+        {
+          "file": "scripts/machine/machine.sh",
+          "pattern": "K3S_VERSION=\"(v[0-9.]+\\+k3s[0-9]+)\""
         }
       ],
       "shaUses": [
@@ -481,6 +485,10 @@
         },
         {
           "file": "scripts/root-node/pool-node.sh",
+          "pattern": "K3S_INSTALLER_SHA256=([0-9a-f]{64})"
+        },
+        {
+          "file": "scripts/machine/machine.sh",
           "pattern": "K3S_INSTALLER_SHA256=([0-9a-f]{64})"
         }
       ]

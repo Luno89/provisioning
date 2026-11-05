@@ -6,6 +6,7 @@ CODE=""
 YES=0
 FOLDER=""
 SERVICE=1
+CLUSTER=1
 ADAPTERS=""
 TAILSCALE_VERSION=1.104.1
 NODE_VERSION=22.23.4
@@ -15,12 +16,16 @@ NODE_SHA256_DARWIN_ARM64=c9e1dbc748b33ed2d14f42445191ecaf14c56259c7a9a26d0042c49
 NODE_SHA256_DARWIN_X64=efcc2b0db6f94bf53eddb038fe2b370277a042bd29e4f19b8f8e23598795b819
 TAILSCALE_SHA256_AMD64=108d1d96ecf410d305571e173516f27038f870919a9b89c914a167c6d33a4528
 TAILSCALE_SHA256_ARM64=f60294374967f3dfd8cf57bbbd474d6cfce32d123e3a8ddeab82a87940daa806
+K3S_VERSION="v1.36.4+k3s1"
+K3S_INSTALLER_SHA256=46177d4c99440b4c0311b67233823a8e8a2fc09693f6c89af1a7161e152fbfad
+K3S_MARKER=/etc/koala/machine-k3s
 
 while [ $# -gt 0 ]; do
   case "$1" in
     --yes) YES=1 ;;
     --folder) FOLDER="$2"; shift ;;
     --no-service) SERVICE=0 ;;
+    --no-cluster) CLUSTER=0 ;;
     --adapters) ADAPTERS="$2"; shift ;;
     --url) KOALA_URL="$2"; shift ;;
     --) ;;
@@ -155,6 +160,75 @@ if [ -n "${MESH_LOGIN_SERVER:-}" ]; then
   sudo tailscale up --login-server="$MESH_LOGIN_SERVER" --auth-key="file:$MESH_KEY_FILE" --accept-dns=false
   rm -f "$MESH_KEY_FILE"
   ok "on the private network as $(tailscale ip -4 | head -n1)"
+fi
+
+install_k3s() {
+  person=$(id -un)
+  group=$(id -gn)
+  mesh_ip=$(tailscale ip -4 2>/dev/null | head -n1 || true)
+  installer=$(mktemp)
+  curl -fsSL "https://raw.githubusercontent.com/k3s-io/k3s/$(printf '%s' "$K3S_VERSION" | sed 's/+/%2B/')/install.sh" -o "$installer"
+  [ "$(sha256_of "$installer")" = "$K3S_INSTALLER_SHA256" ] || { rm -f "$installer"; die "the k3s installer downloaded is not the one Koala pins (its sha256 differs); nothing was installed"; }
+  sudo mkdir -p /etc/rancher/k3s/config.yaml.d /etc/koala /usr/local/lib/koala /etc/systemd/system/k3s.service.d
+  {
+    printf 'disable:\n  - traefik\n  - servicelb\n'
+    [ -n "$mesh_ip" ] && printf 'tls-san:\n  - %s\n' "$mesh_ip"
+    printf 'write-kubeconfig-mode: "0640"\nwrite-kubeconfig-group: %s\n' "$group"
+  } | sudo tee /etc/rancher/k3s/config.yaml >/dev/null
+  printf 'kube-proxy-arg+:\n  - nodeport-addresses=127.0.0.1/32,100.64.0.0/10\n' | sudo tee /etc/rancher/k3s/config.yaml.d/koala-node-ports.yaml >/dev/null
+  sudo tee /usr/local/lib/koala/k3s-firewall.sh >/dev/null <<'FIREWALL'
+#!/bin/sh
+set -e
+for tables in iptables ip6tables; do
+  command -v "$tables" >/dev/null 2>&1 || continue
+  "$tables" -N KOALA-MACHINE 2>/dev/null || "$tables" -F KOALA-MACHINE
+  "$tables" -A KOALA-MACHINE -i lo -j RETURN
+  "$tables" -A KOALA-MACHINE -i tailscale0 -j RETURN
+  [ "$tables" = iptables ] && "$tables" -A KOALA-MACHINE -s 10.42.0.0/16 -j RETURN
+  "$tables" -A KOALA-MACHINE -j DROP
+  "$tables" -C INPUT -p tcp -m multiport --dports 6443,10250 -j KOALA-MACHINE 2>/dev/null || "$tables" -I INPUT -p tcp -m multiport --dports 6443,10250 -j KOALA-MACHINE
+done
+FIREWALL
+  sudo chmod 755 /usr/local/lib/koala/k3s-firewall.sh
+  sudo tee /usr/local/lib/koala/machine-uninstall.sh >/dev/null <<'UNINSTALL'
+#!/bin/sh
+[ -x /usr/local/bin/k3s-uninstall.sh ] && /usr/local/bin/k3s-uninstall.sh
+for tables in iptables ip6tables; do
+  command -v "$tables" >/dev/null 2>&1 || continue
+  while "$tables" -D INPUT -p tcp -m multiport --dports 6443,10250 -j KOALA-MACHINE 2>/dev/null; do :; done
+  "$tables" -F KOALA-MACHINE 2>/dev/null && "$tables" -X KOALA-MACHINE 2>/dev/null
+done
+rm -rf /etc/systemd/system/k3s.service.d/koala-firewall.conf /etc/koala/machine-k3s /usr/local/lib/koala/k3s-firewall.sh /etc/sudoers.d/koala-k3s
+systemctl daemon-reload
+rm -f /usr/local/lib/koala/machine-uninstall.sh
+UNINSTALL
+  sudo chmod 755 /usr/local/lib/koala/machine-uninstall.sh
+  printf '[Service]\nExecStartPre=/usr/local/lib/koala/k3s-firewall.sh\n' | sudo tee /etc/systemd/system/k3s.service.d/koala-firewall.conf >/dev/null
+  if [ ! -x /usr/local/bin/k3s ] || [ "$(cat "$K3S_MARKER" 2>/dev/null)" != "$K3S_VERSION" ]; then
+    sudo env INSTALL_K3S_VERSION="$K3S_VERSION" INSTALL_K3S_SKIP_START=true INSTALL_K3S_SKIP_ENABLE=true sh "$installer" >/dev/null
+  fi
+  rm -f "$installer"
+  sudo systemctl daemon-reload
+  systemctl_bin=$(command -v systemctl)
+  rule="$person ALL=(root) NOPASSWD: $systemctl_bin start k3s, $systemctl_bin stop k3s, /usr/local/bin/k3s-killall.sh, /usr/local/lib/koala/machine-uninstall.sh"
+  rules=$(mktemp)
+  printf '%s\n' "$rule" > "$rules"
+  sudo visudo -cf "$rules" >/dev/null || { rm -f "$rules"; die "the sudo rule for starting k3s did not check out; nothing was changed in sudoers"; }
+  sudo install -m 440 -o root -g root "$rules" /etc/sudoers.d/koala-k3s
+  rm -f "$rules"
+  printf '%s\n' "$K3S_VERSION" | sudo tee "$K3S_MARKER" >/dev/null
+}
+
+if [ "$CLUSTER" = 1 ] && [ "$(uname -s)" = Linux ]; then
+  say "This machine's own cluster"
+  if [ -x /usr/local/bin/k3s ] && [ ! -f "$K3S_MARKER" ]; then
+    echo "  this machine already runs k3s of its own; Koala leaves it alone and runs no apps here"
+  elif ask "Koala runs apps and workspaces here in k3s, started only while there is work and stopped after. Install k3s $K3S_VERSION (asks for sudo once)?"; then
+    install_k3s
+    ok "k3s $K3S_VERSION installed, stopped until Koala has work here; it answers only on this machine and your private network"
+  else
+    echo "  without it Koala runs only your coding agents here; run this command again to add it"
+  fi
 fi
 
 say "Installing the machine agent"
