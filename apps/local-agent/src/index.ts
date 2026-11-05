@@ -24,7 +24,7 @@ import { engineSettingsOver, remoteBlobs } from './remote-blobs.js';
 import { DeviceWorkerHost } from './device-worker-host.js';
 import { forgetThisMachine, meshIp } from './machine-removal.js';
 import { clusterOnConnect, hostCluster, runMachineCluster, startIfWanted, uninstallMachineCluster } from './machine-cluster.js';
-import { installKoala, placedFrom } from './koala-install.js';
+import { installKoala, ownValuesFile, placedFrom } from './koala-install.js';
 import { startTelemetry } from '@koala/engine-core/telemetry-sdk';
 import { socketSink } from './telemetry-sink.js';
 import { IdleGate, holding, type Release } from './idle-gate.js';
@@ -106,7 +106,7 @@ const placeKoala = (raw: unknown): boolean => {
   if (!placed || placing) return false;
   placing = true;
   say(`root asks for Koala on this machine (${placed.instanceId})`);
-  void installKoala(placed, { cluster: machineCluster, helm: helmBinary(), fetch, say }).finally(() => { placing = false; });
+  void installKoala(placed, { cluster: machineCluster, helm: helmBinary(), fetch, say, ownValues: ownValuesFile() }).finally(() => { placing = false; });
   return true;
 };
 

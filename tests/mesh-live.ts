@@ -126,15 +126,27 @@ async function main(): Promise<void> {
   const session = sessionToken(owner, loadKeys(process.env).session, { seconds: 4 * 3600 });
   const asOwner = (path: string, init: RequestInit = {}) => fetch(`${ROOT_FOR_HOST}${path}`, { ...init, headers: { 'content-type': 'application/json', Cookie: `session=${session}`, ...(init.headers ?? {}) } });
 
-  step('the owner\'s instance is installed on a machine of theirs, and joins the mesh');
+  step('the owner adds a machine at root that puts their Koala on itself; it joins the mesh, installs k3s and helm, and the agent installs Koala there');
   const instanceVm = await boot(`mesh-inst-${STAMP}`, { memoryMB: 12288, cpus: 4, diskGB: 60, loopback: [{ host: INSTANCE_PORT, guest: 30320 }] });
-  const joining = await asOwner('/api/instances/join-tokens', { method: 'POST', body: JSON.stringify({ name: `mesh${STAMP}` }) });
-  assert.equal(joining.status, 200, `root did not give a join command: ${await joining.clone().text()}`);
-  const joinToken = await joining.json() as { token: string };
-  instanceId = (await (await asOwner('/api/instances/mine')).json() as { instance: { id: string } }).instance.id;
-  await inVm(instanceVm, `curl -fsSL ${ROOT_FOR_GUEST}/install.sh | sudo sh -s -- ${joinToken.token} --yes --url ${INSTANCE_URL} --k3s-mirror ${k3s.url}`, true);
+  await inVm(instanceVm, `mkdir -p ~/.config/koala && printf 'publicUrl: "%s"\\n' '${INSTANCE_URL}' > ~/.config/koala/koala-values.yaml`);
+  const adding = await asOwner('/api/my-machines/join-code', { method: 'POST', body: JSON.stringify({ koalaName: `mesh${STAMP}` }) });
+  assert.equal(adding.status, 201, `root did not give a machine command: ${await adding.clone().text()}`);
+  const { command: addCommand } = await adding.json() as { command: string };
+  assert.match(addCommand, /\/machine\.sh \| sh -s -- /);
+  const joinedHere = await inVm(instanceVm, `${addCommand} --yes --k3s-mirror ${k3s.url}`, true);
+  assert.match(joinedHere, /helm v[0-9.]+ installed/, 'the join brought no helm');
+  const placed = await until('the owner\'s Koala installed on the machine and reporting ready to root', 30, async () => {
+    const { instance } = await (await asOwner('/api/instances/mine')).json() as { instance: { id: string; status: string; detail?: string; url?: string } | null };
+    if (instance?.status === 'failed') throw new Error(`putting Koala on the machine failed: ${instance.detail}`);
+    return instance?.status === 'ready' ? instance : undefined;
+  });
+  instanceId = placed.id;
+  assert.equal(placed.url, INSTANCE_URL, 'the instance does not answer at the address the machine\'s own values give it');
+  const mine = await (await asOwner('/api/my-machines')).json() as { machines: Array<{ id: string; holdsKoala: boolean; online: boolean }> };
+  assert.equal(mine.machines.filter((machine) => machine.holdsKoala && machine.online).length, 1, `root does not list the machine holding Koala: ${JSON.stringify(mine)}`);
+  assert.doesNotMatch(await inVm(instanceVm, 'sudo k3s kubectl -n nowrinkles get deploy instance-worker-host -o yaml'), /docker\.sock/, 'Koala\'s host worker mounts the machine\'s Docker');
   instanceMeshIp = await meshIp(instanceVm);
-  console.log(`  the instance is ${instanceMeshIp} on the mesh`);
+  console.log(`  the instance is ${instanceMeshIp} on the mesh, put there by its machine's agent`);
   const envOf = JSON.parse(await inVm(instanceVm, 'sudo k3s kubectl -n nowrinkles get configmap instance-env -o jsonpath="{.data}"')) as Record<string, string>;
   assert.equal(envOf.MACHINE_TEMPORAL_ADDRESS, `${instanceMeshIp}:${GATEWAY_PORT}`);
   assert.equal(envOf.MESH_LOGIN_SERVER, MESH);

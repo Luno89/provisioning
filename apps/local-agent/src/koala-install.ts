@@ -43,28 +43,26 @@ export function placedFrom(raw: unknown): PlacedKoala | undefined {
   } as PlacedKoala;
 }
 
-export const koalaUrlOf = (placed: PlacedKoala): string =>
+export const koalaUrlOf = (placed: Pick<PlacedKoala, 'domain' | 'name' | 'meshAddress'>): string =>
   (placed.domain && placed.name ? `https://${placed.name}.${placed.domain}` : `http://${placed.meshAddress}:${BACKEND_NODE_PORT}`);
 
-export function helmArgs(placed: PlacedKoala, chart: string, rootKeysFile: string, helmKubeconfig: string = K3S_KUBECONFIG): string[] {
-  const set = (name: string, value: string) => ['--set-string', `${name}=${value}`];
+export function koalaValues(placed: PlacedKoala): Record<string, unknown> {
   const routed = Boolean(placed.domain && placed.name);
+  return {
+    image: { repository: placed.image, tag: placed.imageTag, ...(placed.imageDigest ? { digest: placed.imageDigest } : {}) },
+    instance: { id: placed.instanceId, ownerId: placed.ownerId, rootUrl: placed.rootUrl, credential: placed.credential, machineId: placed.machineId },
+    publicUrl: koalaUrlOf(placed),
+    backend: { nodePort: BACKEND_NODE_PORT },
+    mesh: { loginServer: placed.meshLoginServer, address: placed.meshAddress },
+    ...(routed ? { routing: { name: placed.name, domain: placed.domain }, edge: { nodePort: EDGE_NODE_PORT } } : {}),
+  };
+}
+
+export function helmArgs(chart: string, valuesFiles: string[], rootKeysFile: string, helmKubeconfig: string = K3S_KUBECONFIG): string[] {
   return [
     'upgrade', '--install', KOALA_RELEASE, chart, '-n', KOALA_NAMESPACE, '--create-namespace', '--kubeconfig', helmKubeconfig,
-    ...set('image.repository', placed.image),
-    ...set('image.tag', placed.imageTag),
-    ...(placed.imageDigest ? set('image.digest', placed.imageDigest) : []),
-    ...set('instance.id', placed.instanceId),
-    ...set('instance.ownerId', placed.ownerId),
-    ...set('instance.rootUrl', placed.rootUrl),
+    ...valuesFiles.flatMap((file) => ['-f', file]),
     '--set-file', `instance.rootPublicKeys=${rootKeysFile}`,
-    ...set('instance.credential', placed.credential),
-    ...set('instance.machineId', placed.machineId),
-    ...set('publicUrl', koalaUrlOf(placed)),
-    '--set', `backend.nodePort=${BACKEND_NODE_PORT}`,
-    ...set('mesh.loginServer', placed.meshLoginServer),
-    ...set('mesh.address', placed.meshAddress),
-    ...(routed ? [...set('routing.name', placed.name), ...set('routing.domain', placed.domain), '--set', `edge.nodePort=${EDGE_NODE_PORT}`] : []),
     '--wait', '--timeout', '720h',
   ];
 }
@@ -74,8 +72,11 @@ export interface KoalaInstallDeps {
   helm: string;
   fetch: typeof fetch;
   say: (line: string) => void;
-  extraHelmArgs?: string[] | undefined;
+  ownValues?: string | undefined;
 }
+
+export const ownValuesFile = (env: NodeJS.ProcessEnv = process.env): string =>
+  path.join(env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config'), 'koala', 'koala-values.yaml');
 
 type Status = 'installing' | 'ready' | 'failed';
 
@@ -104,10 +105,14 @@ export async function installKoala(placed: PlacedKoala, deps: KoalaInstallDeps):
     if (placed.chartSha256 && sha !== placed.chartSha256) throw new Error('the chart root sent is not the one it released (its sha256 differs); nothing was installed');
     const chartFile = path.join(work, 'instance-chart.tgz');
     const keysFile = path.join(work, 'root-keys.pem');
+    const valuesFile = path.join(work, 'koala-values.json');
     await writeFile(chartFile, chart);
     await writeFile(keysFile, placed.rootPublicKeys, { mode: 0o600 });
+    await writeFile(valuesFile, JSON.stringify(koalaValues(placed)), { mode: 0o600 });
     await report(placed, deps.fetch, 'installing', 'installing Koala on this machine', { url });
-    await deps.cluster.run(deps.helm, [...helmArgs(placed, chartFile, keysFile), ...(deps.extraHelmArgs ?? [])]);
+    const own = deps.ownValues && await deps.cluster.exists(deps.ownValues) ? [deps.ownValues] : [];
+    if (own.length) deps.say(`Koala takes this machine's own values from ${deps.ownValues}`);
+    await deps.cluster.run(deps.helm, helmArgs(chartFile, [valuesFile, ...own], keysFile));
     await report(placed, deps.fetch, 'ready', 'Installed', { url, imageTag: placed.imageTag });
     deps.say(`Koala runs on this machine at ${url}`);
   } catch (err) {
