@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { changedBesidesLedger, HOTFIX_STEPS, productionVulnerabilities, vulnerableRefusal, judgeVulnerabilities, compareVersions, fixOf, waitingLines, ignoredRefusal, leaksRefusal, NO_COMMIT, nextVersion, pushedRange, onlyLedger, pushRefusal, RELEASE_SIGNERS, RELEASE_STEPS, SHIP_STEPS, checkedThrough, stillToRun, roundsOf, signingKeyProblem, TAG_SIGNATURE, tagMessage, unsignedTagRefusal } from './gates.js';
 
@@ -78,7 +78,8 @@ describe('the gates', () => {
 
   it('prove sign-in across separate processes before main, not only at release', () => {
     const shipped = SHIP_STEPS.map((step) => step.script);
-    expect(shipped).toContain('test:dev-split-live');
+    expect(shipped).toContain('test:integration:coupled');
+    expect(existsSync(new URL('../../apps/backend/src/instances/sign-in-across.integration.test.ts', import.meta.url))).toBe(true);
     expect(shipped).toContain('test:openrouter-connect-live');
     expect(shipped).toContain('test:hub-split-live');
     expect(shipped).toContain('test:account-hardening-live');
