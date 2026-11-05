@@ -21,7 +21,7 @@ quietly() {
   if [ -t 1 ]; then
     width=$(( $(tput cols 2>/dev/null || echo 100) - 6 ))
     while kill -0 "${pid}" 2>/dev/null; do
-      lines="$(tr '\r' '\n' < "${log}" | sed 's/\x1b\[[0-9;]*[A-Za-z]//g' | grep -v '^[[:space:]]*$' | tail -n 8 | cut -c1-"${width}")"
+      lines="$(tr '\r' '\n' < "${log}" | sed 's/\x1b\[[0-9;]*[A-Za-z]//g' | grep -v '^[[:space:]]*$' | tail -n 8 | cut -c1-"${width}" || true)"
       [ "${shown}" -gt 0 ] && printf '\033[%dA\033[J' "${shown}"
       shown=0
       if [ -n "${lines}" ]; then
