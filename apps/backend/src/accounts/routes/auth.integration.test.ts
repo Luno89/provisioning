@@ -36,7 +36,6 @@ async function serve(db: Database, options: { mail?: CodeMail; production?: bool
     authService,
     auth,
     sessionKey: JWT_SECRET,
-    publicUrl: 'http://localhost:3001',
     appUrl: 'http://localhost:5173',
     revocations,
     passwords,

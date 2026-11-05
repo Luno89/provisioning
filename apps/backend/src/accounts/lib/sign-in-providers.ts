@@ -205,3 +205,24 @@ export function identityFromIdToken(claims: Readonly<Record<string, unknown>>): 
   if (!email) throw new SignInRefusal('it gave no email address');
   return { subject, email, verified: claims.email_verified === true || claims.email_verified === 'true' };
 }
+
+const LOOPBACK_NAMES = new Set(['localhost', '127.0.0.1', '[::1]']);
+
+export function signInReturnUrlFrom(env: Record<string, string | undefined>): { url?: string; problem?: string } {
+  const given = env.SIGN_IN_RETURN_URL?.trim();
+  if (!given) return {};
+  if (env.NODE_ENV === 'production') return { problem: 'SIGN_IN_RETURN_URL is for a dev box only and is ignored in production' };
+  let url: URL;
+  try { url = new URL(given); } catch { return { problem: `SIGN_IN_RETURN_URL is not an address: ${given}` }; }
+  if (url.protocol !== 'http:' || !LOOPBACK_NAMES.has(url.hostname) || url.pathname.replace(/\/+$/, '') !== '') {
+    return { problem: `SIGN_IN_RETURN_URL must be plain http on localhost with no path, as providers accept for a dev box: ${given}` };
+  }
+  return { url: url.origin };
+}
+
+export function returnedElsewhere(publicUrl: string, returnUrl: string | undefined, host: string | undefined, path: string): string | undefined {
+  if (!returnUrl || !host) return undefined;
+  const returnHost = new URL(returnUrl).host;
+  if (host !== returnHost || new URL(publicUrl).host === returnHost) return undefined;
+  return `${publicUrl.replace(/\/+$/, '')}${path}`;
+}

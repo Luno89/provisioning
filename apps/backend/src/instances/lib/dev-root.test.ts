@@ -11,7 +11,7 @@ describe('dev, run as production runs on this computer', () => {
     expect(plan.rootEnv).toMatchObject({
       ROLE: 'root', PORT: '3002', MONGO_URI: 'mongodb://localhost:27017/koala_dev_root?replicaSet=rs0', PUBLIC_URL: 'http://koala.localhost:5175',
       ADMIN_SETUP_CODE: 'setup', MESH_LOGIN_SERVER: 'http://127.0.0.1:8080', INSTANCE_REGISTRY: '127.0.0.1:5001', INSTANCE_IMAGE_TAG: 'dev',
-      HUB_URL: 'http://hub.localhost:5176', HUB_CREDENTIAL_HASH: 'hash',
+      HUB_URL: 'http://hub.localhost:5176', HUB_CREDENTIAL_HASH: 'hash', SIGN_IN_RETURN_URL: 'http://localhost:5175',
     });
     expect(plan.hubEnv).toMatchObject({ ROLE: 'hub', PORT: '3003', ROOT_URL: 'http://koala.localhost:5175', ROOT_PUBLIC_KEYS: Buffer.from('PEM').toString('base64'), HUB_CREDENTIAL: 'hub-secret' });
     expect(Object.keys(plan.rootEnv)).not.toContain('INSTANCE_ID');

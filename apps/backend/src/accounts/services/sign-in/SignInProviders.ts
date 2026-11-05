@@ -1,7 +1,7 @@
 import * as client from 'openid-client';
 import { carriedByOAuthState, newOAuthState, type SecretKey, type UserMetadata } from '../../../platform/index.js';
 import {
-  offeredProviders, providerCallbackUrl,
+  offeredProviders, providerCallbackUrl, returnedElsewhere,
   type OfferedProvider, type SignInClient, type SignInProvider, type SignInProviderKind,
 } from '../../lib/sign-in-providers.js';
 import type { AuthService } from '../AuthService.js';
@@ -29,6 +29,7 @@ export type ProviderFinish =
 export interface SignInProvidersSettings {
   providers: readonly SignInProvider[];
   publicUrl: string;
+  returnUrl?: string | undefined;
   sessionKey: SecretKey;
   accounts: Pick<AuthService, 'signInWithProvider'>;
   clients?: Readonly<Record<SignInProviderKind, (provider: SignInProvider) => SignInClient>> | undefined;
@@ -49,6 +50,18 @@ export class SignInProviders {
   private readonly clients = new Map<string, SignInClient>();
 
   constructor(private readonly settings: SignInProvidersSettings) {}
+
+  private get returnBase(): string {
+    return this.settings.returnUrl ?? this.settings.publicUrl;
+  }
+
+  returnedElsewhere(host: string | undefined, path: string): string | undefined {
+    return returnedElsewhere(this.settings.publicUrl, this.settings.returnUrl, host, path);
+  }
+
+  callbackUrl(path: string): URL {
+    return new URL(path, this.returnBase);
+  }
 
   offered(): OfferedProvider[] {
     return offeredProviders(this.settings.providers);
@@ -72,7 +85,7 @@ export class SignInProviders {
     const nonce = client.randomNonce();
     const { state, cookie } = newOAuthState(invite, this.settings.sessionKey, { provider: id, verifier, nonce });
     try {
-      const url = await found.client.authorizationUrl(providerCallbackUrl(this.settings.publicUrl, id), { state, verifier, nonce });
+      const url = await found.client.authorizationUrl(providerCallbackUrl(this.returnBase, id), { state, verifier, nonce });
       return { kind: 'started', url: url.href, cookie };
     } catch (err) {
       return { kind: 'refused', why: `${found.provider.label} could not be asked to sign you in: ${reasonOf(err)}` };

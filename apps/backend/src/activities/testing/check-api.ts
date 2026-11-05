@@ -210,7 +210,7 @@ export async function mountCheckApi(): Promise<CheckApi> {
   app.use(express.json({ limit: '20mb' }));
   app.use('/api', auth.requireAuth);
   app.use('/api/auth', authRouter({
-    db, authService, auth, sessionKey: SESSION_KEY as never, publicUrl: 'http://localhost:3001', appUrl: 'http://localhost:5173',
+    db, authService, auth, sessionKey: SESSION_KEY as never, appUrl: 'http://localhost:5173',
     passwords: { newPasswordProblem: () => undefined },
   }));
   app.use('/api/engine', engineRouter({

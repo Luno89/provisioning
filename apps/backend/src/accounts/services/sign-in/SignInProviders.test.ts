@@ -15,7 +15,7 @@ const provider = (id: string, kind: SignInProvider['kind'] = 'oidc'): SignInProv
   id, label: id === 'google' ? 'Google' : 'Your organisation', kind, issuer: `https://${id}.example.test`, scopes: ['openid', 'email'], clientId: 'client', clientSecret: 'secret',
 });
 
-function set(providers: SignInProvider[] = [provider('google'), provider('oidc')]) {
+function set(providers: SignInProvider[] = [provider('google'), provider('oidc')], returnUrl?: string) {
   const clients = new Map<string, ReturnType<typeof mock<SignInClient>>>();
   const made: string[] = [];
   const accounts = mock<Pick<AuthService, 'signInWithProvider'>>();
@@ -26,7 +26,7 @@ function set(providers: SignInProvider[] = [provider('google'), provider('oidc')
     clients.set(which.id, one);
     return one;
   };
-  const service = new SignInProviders({ providers, publicUrl: PUBLIC, sessionKey: KEY, accounts, clients: { oidc: build, github: build } });
+  const service = new SignInProviders({ providers, publicUrl: PUBLIC, returnUrl, sessionKey: KEY, accounts, clients: { oidc: build, github: build } });
   return { service, clients, made, accounts };
 }
 
@@ -150,5 +150,22 @@ describe('finishing a sign-in', () => {
     s.clients.get('google')!.identify.mockRejectedValue(Object.assign(new Error('x'), { error_description: 'The code was already used' }));
     expect(await s.service.finish('google', callback, cookie, consume)).toEqual({ kind: 'refused', why: 'Google did not sign you in: The code was already used' });
     expect(s.accounts.signInWithProvider).not.toHaveBeenCalled();
+  });
+});
+
+describe('a dev box whose providers send people back to localhost', () => {
+  it('names the localhost return to the provider, finishes against it, and sends a return reaching it on to its own name', async () => {
+    const { service } = set(undefined, 'http://localhost:5175');
+    const started = await service.start('google', '');
+    if (started.kind !== 'started') throw new Error(started.kind);
+    expect(new URL(started.url).searchParams.get('redirect_uri')).toBe('http://localhost:5175/api/auth/provider/google/callback');
+    expect(service.callbackUrl('/api/auth/provider/google/callback?code=c').href).toBe('http://localhost:5175/api/auth/provider/google/callback?code=c');
+    expect(service.returnedElsewhere('localhost:5175', '/api/auth/provider/google/callback?code=c')).toBe(`${PUBLIC}/api/auth/provider/google/callback?code=c`);
+  });
+
+  it('without one, finishes against its own address and sends nothing on', () => {
+    const { service } = set();
+    expect(service.callbackUrl('/api/auth/provider/google/callback?code=c').href).toBe(`${PUBLIC}/api/auth/provider/google/callback?code=c`);
+    expect(service.returnedElsewhere('localhost:5175', '/x')).toBeUndefined();
   });
 });

@@ -25,10 +25,11 @@ function set(options: { accounts?: boolean; hub?: boolean; withProviders?: boole
   const auth = createAuth({ db, sessionKey: KEY, publicUrl: 'http://localhost:3001', setupCode: SETUP, sessionEnds: new SessionEnds(db.platform) });
   const authService = mock<AuthService>();
   const passwords = mock<Pick<PasswordService, 'newPasswordProblem'>>();
-  const providers = mock<Pick<SignInProviders, 'offered' | 'start' | 'finish'>>();
+  const providers = mock<Pick<SignInProviders, 'offered' | 'start' | 'finish' | 'returnedElsewhere' | 'callbackUrl'>>();
+  providers.callbackUrl.mockImplementation((path) => new URL(path, 'https://koala.example'));
   const revoked: AccessRevoked[] = [];
   const router = authRouter({
-    db, authService, auth, sessionKey: KEY, publicUrl: 'http://localhost:3001', appUrl: APP, passwords,
+    db, authService, auth, sessionKey: KEY, appUrl: APP, passwords,
     accounts: options.accounts, hub: options.hub,
     revocations: { revoked: async (event) => { revoked.push(event); } },
     providers: options.withProviders === false ? undefined : providers,
@@ -709,6 +710,16 @@ describe('signing in with a provider', () => {
     expect(id).toBe('google');
     expect(url.pathname + url.search).toBe('/api/auth/provider/google/callback?code=c&state=s');
     expect(state).toBe('sealed');
+  });
+
+  it('sends a return that reached another name on to the server\'s own, finishing nothing there', async () => {
+    const s = set();
+    s.providers.returnedElsewhere.calledWith('localhost:5175', '/api/auth/provider/google/callback?code=c&state=s').mockReturnValue('http://koala.localhost:5175/api/auth/provider/google/callback?code=c&state=s');
+    const answer = await s.get('/provider/google/callback?code=c&state=s', { headers: { host: 'localhost:5175' } });
+    expect(answer.status).toBe(302);
+    expect(answer.headers.location).toBe('http://koala.localhost:5175/api/auth/provider/google/callback?code=c&state=s');
+    expect(s.providers.finish).not.toHaveBeenCalled();
+    expect(cookieOf(answer, 'session')).toBeUndefined();
   });
 
   it('sends the browser to the app with a signed challenge when the account asks for its second factor', async () => {

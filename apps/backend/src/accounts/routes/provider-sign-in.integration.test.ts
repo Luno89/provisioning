@@ -80,7 +80,7 @@ async function serve(db: Database, { server, url }: { server: http.Server; url: 
   app.use(express.json());
   app.use('/api', auth.requireAuth);
   app.use('/api/auth', authRouter({
-    db, authService, auth, sessionKey: SESSION_KEY, publicUrl: url, appUrl: APP_URL,
+    db, authService, auth, sessionKey: SESSION_KEY, appUrl: APP_URL,
     providers: new SignInProviders({ providers, publicUrl: url, sessionKey: SESSION_KEY, accounts: authService }),
     passwords: new PasswordService({ db, auth: authService, breached: breachedFrom('') }),
   }));
@@ -288,5 +288,62 @@ describe('signing in with an OpenID provider and with GitHub', () => {
     const swapped = await fetch(callback, { redirect: 'manual', headers: { cookie: cookieOf(started) } });
     expect(sessionOf(swapped)).toBeUndefined();
     expect(errorOf(swapped)).toMatch(/^Stand-in did not sign you in: /);
+  });
+});
+
+describe('a dev box whose providers return to localhost while its sign-in lives on another name', () => {
+  let db: Database;
+  let issuer: StandInIssuer;
+  let place: { server: http.Server; url: string };
+  let returnUrl: string;
+
+  beforeEach(async () => {
+    delete process.env.IS_E2E;
+    db = await fresh();
+    await db.init();
+    place = await listening();
+    returnUrl = place.url.replace('127.0.0.1', 'localhost');
+    issuer = await startStandInIssuer({ redirectUris: [providerCallbackUrl(returnUrl, 'oidc')] });
+    const providers = signInProvidersFrom({ OIDC_ISSUER: issuer.issuer, OIDC_CLIENT_ID: issuer.clientId, OIDC_CLIENT_SECRET: issuer.clientSecret, OIDC_LABEL: 'Stand-in' }).providers;
+    const auth = createAuth({ db, sessionKey: SESSION_KEY, publicUrl: place.url, setupCode: SETUP_CODE, sessionEnds: new SessionEnds(db.platform) });
+    const authService = new AuthService(db);
+    const app = express();
+    app.use(express.json());
+    app.use('/api', auth.requireAuth);
+    app.use('/api/auth', authRouter({
+      db, authService, auth, sessionKey: SESSION_KEY, appUrl: APP_URL,
+      providers: new SignInProviders({ providers, publicUrl: place.url, returnUrl, sessionKey: SESSION_KEY, accounts: authService }),
+      passwords: new PasswordService({ db, auth: authService, breached: breachedFrom('') }),
+    }));
+    place.server.on('request', app);
+  });
+
+  afterEach(async () => {
+    await issuer.close();
+    await new Promise<void>((resolve) => { place.server.closeAllConnections(); place.server.close(() => resolve()); });
+  });
+
+  it('asks the provider to return to localhost, sends that return on to its own name where the state cookie is, and signs the person in there', async () => {
+    await db.accounts.saveUser({ id: 'first', email: 'first@example.com', twoFactorEnabled: false, emailVerified: true, createdAt: new Date().toISOString(), roles: ['operator'] });
+    await db.accounts.saveInvite({ id: 'inv', codeHash: inviteCodeHash('INVITE-1'), createdBy: 'first', createdAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 86_400_000).toISOString() });
+    issuer.signInAs({ sub: 'sub-dev', email: 'dev@example.com', email_verified: true });
+
+    const started = await fetch(`${place.url}/api/auth/provider/oidc?invite=INVITE-1`, { redirect: 'manual' });
+    expect(new URL(started.headers.get('location')!).searchParams.get('redirect_uri')).toBe(`${returnUrl}/api/auth/provider/oidc/callback`);
+    const stateCookie = cookieOf(started);
+
+    const callback = await issuer.authorize(started.headers.get('location')!);
+    expect(callback.origin).toBe(returnUrl);
+    const returned = await fetch(callback, { redirect: 'manual' });
+    expect(returned.status).toBe(302);
+    expect(sessionOf(returned)).toBeUndefined();
+    const onward = new URL(returned.headers.get('location')!);
+    expect(onward.origin).toBe(place.url);
+    expect(onward.pathname + onward.search).toBe(callback.pathname + callback.search);
+
+    const finished = await fetch(onward, { redirect: 'manual', headers: { cookie: stateCookie } });
+    expect(finished.headers.get('location')).toBe(`${APP_URL}/`);
+    expect(sessionOf(finished)).toBeTruthy();
+    expect(await db.accounts.getUserByEmail('dev@example.com')).toMatchObject({ signInLinks: [{ issuer: issuer.issuer, subject: 'sub-dev' }] });
   });
 });

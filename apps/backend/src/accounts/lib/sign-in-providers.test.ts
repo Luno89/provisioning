@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { addressProblem, identityFromIdToken, offeredProviders, providerCallbackUrl, SIGN_IN_PROVIDERS, signInProvidersFrom } from './sign-in-providers.js';
+import { addressProblem, identityFromIdToken, offeredProviders, providerCallbackUrl, returnedElsewhere, SIGN_IN_PROVIDERS, signInProvidersFrom, signInReturnUrlFrom } from './sign-in-providers.js';
 
 describe('the ways to sign in a server offers', () => {
   it('offers nothing when no provider is configured, and never a pretend one', () => {
@@ -48,5 +48,32 @@ describe('the ways to sign in a server offers', () => {
     expect(identityFromIdToken({ sub: '1234', email: 'ann@example.com' }).verified).toBe(false);
     expect(() => identityFromIdToken({ sub: '1234' })).toThrow('it gave no email address');
     expect(() => identityFromIdToken({ email: 'ann@example.com' })).toThrow('it named nobody');
+  });
+});
+
+describe('where a dev box\'s providers send people back', () => {
+  it('takes plain http on localhost or a loopback address with no path, and nothing else', () => {
+    expect(signInReturnUrlFrom({})).toEqual({});
+    expect(signInReturnUrlFrom({ SIGN_IN_RETURN_URL: 'http://localhost:5175/' })).toEqual({ url: 'http://localhost:5175' });
+    expect(signInReturnUrlFrom({ SIGN_IN_RETURN_URL: 'http://127.0.0.1:5175' })).toEqual({ url: 'http://127.0.0.1:5175' });
+    expect(signInReturnUrlFrom({ SIGN_IN_RETURN_URL: 'http://koala.localhost:5175' }).problem).toMatch(/localhost/);
+    expect(signInReturnUrlFrom({ SIGN_IN_RETURN_URL: 'https://localhost:5175' }).problem).toMatch(/plain http/);
+    expect(signInReturnUrlFrom({ SIGN_IN_RETURN_URL: 'http://localhost:5175/api' }).problem).toMatch(/no path/);
+    expect(signInReturnUrlFrom({ SIGN_IN_RETURN_URL: 'not an address' }).problem).toMatch(/not an address/);
+  });
+
+  it('is ignored in production, saying so', () => {
+    const answer = signInReturnUrlFrom({ NODE_ENV: 'production', SIGN_IN_RETURN_URL: 'http://localhost:5175' });
+    expect(answer.url).toBeUndefined();
+    expect(answer.problem).toMatch(/production/);
+  });
+
+  it('sends a return that reached the localhost name on to the server\'s own name, path and query kept', () => {
+    const path = '/api/auth/provider/google/callback?code=c&state=s';
+    expect(returnedElsewhere('http://koala.localhost:5175', 'http://localhost:5175', 'localhost:5175', path)).toBe(`http://koala.localhost:5175${path}`);
+    expect(returnedElsewhere('http://koala.localhost:5175', 'http://localhost:5175', 'koala.localhost:5175', path)).toBeUndefined();
+    expect(returnedElsewhere('http://koala.localhost:5175', undefined, 'localhost:5175', path)).toBeUndefined();
+    expect(returnedElsewhere('http://localhost:5175', 'http://localhost:5175', 'localhost:5175', path)).toBeUndefined();
+    expect(returnedElsewhere('http://koala.localhost:5175', 'http://localhost:5175', undefined, path)).toBeUndefined();
   });
 });

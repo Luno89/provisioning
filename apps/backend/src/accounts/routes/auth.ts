@@ -19,19 +19,18 @@ export interface AuthRouterDeps {
   authService: AuthService;
   auth: Auth;
   sessionKey: SecretKey;
-  publicUrl: string;
   appUrl: string;
   accounts?: boolean | undefined;
   hub?: boolean | undefined;
   revocations?: Pick<AccessRevocations, 'revoked'> | undefined;
-  providers?: Pick<SignInProviders, 'offered' | 'start' | 'finish'> | undefined;
+  providers?: Pick<SignInProviders, 'offered' | 'start' | 'finish' | 'returnedElsewhere' | 'callbackUrl'> | undefined;
   passwords: Pick<PasswordService, 'newPasswordProblem'>;
 }
 
 export function authRouter(deps: AuthRouterDeps): Router {
   const router = Router();
   const accountRoutes = deps.accounts === false ? Router() : router;
-  const { db, authService, sessionKey, publicUrl, appUrl } = deps;
+  const { db, authService, sessionKey, appUrl } = deps;
   const { setSessionCookie, clearSession, checkAndConsumeInvite, inviteProblem, claimHeldInvite, sessionCookieOptions, getCookie } = deps.auth;
   const stateCookie = cookieNamed(OAUTH_STATE_COOKIE, sessionCookieOptions.secure);
   const devices = devicesFor({ auth: deps.auth, sessionKey, authService });
@@ -321,8 +320,10 @@ export function authRouter(deps: AuthRouterDeps): Router {
 
   accountRoutes.get('/provider/:id/callback', asyncRoute(async (req, res) => {
     res.setHeader('Cache-Control', 'no-store');
+    const elsewhere = deps.providers?.returnedElsewhere(req.get('host'), req.originalUrl);
+    if (elsewhere) return res.redirect(302, elsewhere);
     const outcome = deps.providers
-      ? await deps.providers.finish(String(req.params.id), new URL(req.originalUrl, publicUrl), getCookie(req, stateCookie), checkAndConsumeInvite)
+      ? await deps.providers.finish(String(req.params.id), deps.providers.callbackUrl(req.originalUrl), getCookie(req, stateCookie), checkAndConsumeInvite)
       : { kind: 'unknown' as const };
     if (outcome.kind === 'unknown') return res.status(404).json({ error: 'This server does not offer that way to sign in' });
     res.clearCookie(stateCookie, sessionCookieOptions);

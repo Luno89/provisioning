@@ -56,6 +56,7 @@ export function devRootPlan(input: DevRootInput): DevRootPlan {
       MESH_LOGIN_SERVER: DEV.meshLoginServer,
       INSTANCE_REGISTRY: DEV.registry,
       INSTANCE_IMAGE_TAG: DEV.imageTag,
+      SIGN_IN_RETURN_URL: `http://localhost:${DEV.rootWebPort}`,
     },
     hubEnv: {
       ROLE: 'hub',
