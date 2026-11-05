@@ -8,6 +8,7 @@ export interface MonitoredCluster {
   kubeconfigPath: string;
   local: boolean;
   pool?: boolean | undefined;
+  machine?: boolean | undefined;
 }
 
 const inFlight = new Map<string, Promise<void>>();

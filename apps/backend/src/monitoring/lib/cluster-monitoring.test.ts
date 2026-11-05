@@ -58,6 +58,8 @@ describe('the cluster of a pool instance', () => {
     expect(monitoringPlan(seen('', ''), true)).toEqual({ stacks: ['cluster'], keepIngress: false });
     expect(monitoringPlan(seen('probes.monitoring.coreos.com', 'ingressclass.networking.k8s.io/traefik'), true)).toEqual({ stacks: [], keepIngress: true });
     expect(monitoringStackEnv({ physicalName: SYSTEM_CLUSTER, kubeconfigPath: '/k', local: false, pool: true }, false)).toMatchObject({ CLUSTER_MONITORING: 'crds', INGRESS_SERVICE: 'ClusterIP' });
+    expect(monitoringStackEnv({ physicalName: 'desk', kubeconfigPath: '/k', local: false, machine: true }, false)).toMatchObject({ ENV: 'remote', INGRESS_SERVICE: 'NodePort' });
+    expect(monitoringStackEnv({ physicalName: 'hetzner-a', kubeconfigPath: '/k', local: false }, false)).not.toHaveProperty('INGRESS_SERVICE');
   });
 
   it('is only the instance\'s own cluster, and only in pool mode', () => {

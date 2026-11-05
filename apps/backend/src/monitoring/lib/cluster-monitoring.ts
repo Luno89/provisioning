@@ -45,7 +45,7 @@ export function monitoringPlan(seen: MonitoringSeen, pool = false): MonitoringPl
   return { stacks, keepIngress: lines(seen.ingressClasses).length > 0 };
 }
 
-export function monitoringStackEnv(cluster: { physicalName: string; kubeconfigPath: string; local: boolean; pool?: boolean | undefined }, keepIngress: boolean): Record<string, string> {
+export function monitoringStackEnv(cluster: { physicalName: string; kubeconfigPath: string; local: boolean; pool?: boolean | undefined; machine?: boolean | undefined }, keepIngress: boolean): Record<string, string> {
   return {
     STACK_TYPE: 'cluster',
     ENV: cluster.local ? 'k3d' : 'remote',
@@ -53,6 +53,7 @@ export function monitoringStackEnv(cluster: { physicalName: string; kubeconfigPa
     KUBECONFIG_PATH: cluster.kubeconfigPath,
     ...(keepIngress ? { CLUSTER_INGRESS: 'existing' } : {}),
     ...(cluster.pool ? { CLUSTER_MONITORING: 'crds', INGRESS_SERVICE: 'ClusterIP' } : {}),
+    ...(cluster.machine ? { INGRESS_SERVICE: 'NodePort' } : {}),
   };
 }
 

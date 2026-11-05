@@ -484,7 +484,7 @@ export async function DeployAppActivity(
     storageEnv,
   });
 
-  await ensureClusterMonitoring(infra, { physicalName, kubeconfigPath, local: args.provider === 'k3d' || isMock, pool: placedOnPool(process.env, physicalName) }, logFile);
+  await ensureClusterMonitoring(infra, { physicalName, kubeconfigPath, local: args.provider === 'k3d' || isMock, pool: placedOnPool(process.env, physicalName), machine: args.provider === 'machine' }, logFile);
   await infra.deploy(
     `app-${physicalName}-${deploymentId}`,
     { logFile, env },
