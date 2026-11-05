@@ -341,4 +341,13 @@ async function main(): Promise<void> {
 
 main()
   .then(async () => { await teardown(); process.exit(0); })
-  .catch(async (err) => { console.error(err); await whatWasThere(); await teardown(); process.exit(1); });
+  .catch(async (err) => {
+    console.error(err);
+    await whatWasThere();
+    if (process.env.MESH_KEEP === '1') {
+      for (const vm of vms) console.error(`kept: ssh -i ${vm.privateKeyPath} -p ${vm.port} ${vm.username}@${vm.host}`);
+      await new Promise(() => undefined);
+    }
+    await teardown();
+    process.exit(1);
+  });
