@@ -44,6 +44,9 @@ k3s_native_kubeconfig()    { echo "$(k3s_native_data_dir "$1")/kubeconfig.yaml";
 # Installed = the systemd unit file exists. Does NOT imply it's running.
 K3S_VERSION="v1.36.4+k3s1"
 K3S_INSTALLER_SHA256=46177d4c99440b4c0311b67233823a8e8a2fc09693f6c89af1a7161e152fbfad
+K3S_SHA256_AMD64=835873f37245fc615f547a2fe2af9402a347875f13fa64a1f136de644955ea3f
+K3S_SHA256_ARM64=c920706346d5ad4e5cd3c7bf1bb09ce71ebe07fec829e513e40f1caf98aed8bb
+K3S_MIRROR="${K3S_MIRROR:-https://github.com/k3s-io/k3s/releases/download}"
 
 native_k3s_installed() {
   local unit; unit="$(k3s_native_unit "$1")"
@@ -70,7 +73,21 @@ native_k3s_install() {
     echo "  ❌ the k3s ${K3S_VERSION} installer does not match its pinned checksum — exiting"
     return 1
   fi
-  if INSTALL_K3S_VERSION="${K3S_VERSION}" \
+  local file sha
+  case "$(uname -m)" in
+    aarch64|arm64) file=k3s-arm64; sha="$K3S_SHA256_ARM64" ;;
+    *) file=k3s; sha="$K3S_SHA256_AMD64" ;;
+  esac
+  local binary; binary="$(mktemp)"
+  if ! curl -fsSL "${K3S_MIRROR}/${K3S_VERSION//+/%2B}/${file}" -o "$binary" || ! echo "${sha}  ${binary}" | sha256sum -c --quiet -; then
+    rm -f "$installer" "$binary"
+    echo "  ❌ k3s ${K3S_VERSION} could not be downloaded, or does not match its pinned checksum — exiting"
+    return 1
+  fi
+  if [ "$(id -u)" = 0 ]; then install -m 755 "$binary" /usr/local/bin/k3s; else sudo install -m 755 "$binary" /usr/local/bin/k3s; fi
+  rm -f "$binary"
+  if INSTALL_K3S_SKIP_DOWNLOAD=true \
+      INSTALL_K3S_VERSION="${K3S_VERSION}" \
       INSTALL_K3S_NAME="${name}" \
       INSTALL_K3S_SKIP_ENABLE=true \
       INSTALL_K3S_SKIP_START=true \

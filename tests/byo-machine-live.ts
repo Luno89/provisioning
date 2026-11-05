@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
 import { join, resolve } from 'node:path';
 import dotenv from 'dotenv';
+import { k3sMirror } from './lib/k3s-mirror.js';
 import { createDisposableVm, type DisposableVm } from './lib/disposable-vm.js';
 import { loadKeys } from '../apps/backend/src/platform/lib/keys.js';
 import { UPGRADE_WORDS } from '../apps/backend/src/instances/lib/self-upgrade.js';
@@ -75,6 +76,7 @@ async function teardown(): Promise<void> {
 }
 
 async function main(): Promise<void> {
+  const k3s = await k3sMirror();
   step('root\'s registry holds the current image');
   run('docker', ['tag', IMAGE, `127.0.0.1:5000/nowrinkles/app:${TAG}`]);
   run('docker', ['push', '-q', `127.0.0.1:5000/nowrinkles/app:${TAG}`]);
@@ -97,7 +99,7 @@ async function main(): Promise<void> {
   const joinCommand = await joining.json() as { token: string; command: string };
   assert.match(joinCommand.command, /\| sudo sh -s -- /);
   instanceId = (await (await asOwner('/api/instances/mine')).json() as { instance: { id: string } }).instance.id;
-  await inVm(vm, `curl -fsSL ${ROOT_FOR_GUEST}/install.sh | sudo sh -s -- ${joinCommand.token} --yes --url ${INSTANCE_URL}`, true);
+  await inVm(vm, `curl -fsSL ${ROOT_FOR_GUEST}/install.sh | sudo sh -s -- ${joinCommand.token} --yes --url ${INSTANCE_URL} --k3s-mirror ${k3s.url}`, true);
 
   step('root sees the instance ready');
   const mine = (await (await asOwner('/api/instances/mine')).json() as { instance: { id: string; status: string; url: string } }).instance;

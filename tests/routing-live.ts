@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import dotenv from 'dotenv';
 import { caddyTlsSnippet } from '../apps/backend/src/infrastructure/lib/dns-providers.js';
+import { k3sMirror } from './lib/k3s-mirror.js';
 import { createDisposableVm, type DisposableVm } from './lib/disposable-vm.js';
 import { loadKeys } from '../apps/backend/src/platform/lib/keys.js';
 import { sessionToken } from '../apps/backend/src/platform/lib/auth.js';
@@ -125,6 +126,7 @@ async function teardown(): Promise<void> {
 }
 
 async function main(): Promise<void> {
+  const k3s = await k3sMirror();
   work = mkdtempSync(join(tmpdir(), 'routing-live-'));
   const caddyDir = join(work, 'caddy');
   for (const folder of ['apps', 'instances', 'instance-sites', 'tls']) mkdirSync(join(caddyDir, folder), { recursive: true });
@@ -195,7 +197,7 @@ async function main(): Promise<void> {
 
   step('a disposable VM plays the owner\'s machine and runs the command');
   vm = await createDisposableVm('routing-live', { memoryMB: 12288, cpus: 4, diskGB: 60 });
-  await inVm(vm, `curl -fsSL ${ROOT_FOR_GUEST}/install.sh | sudo sh -s -- ${joinCommand.token} --yes`, true);
+  await inVm(vm, `curl -fsSL ${ROOT_FOR_GUEST}/install.sh | sudo sh -s -- ${joinCommand.token} --yes --k3s-mirror ${k3s.url}`, true);
   const mine = (await (await asOwner('/api/instances/mine')).json() as { instance: { status: string; url: string; name: string } }).instance;
   assert.equal(mine.status, 'ready');
   assert.equal(mine.url, `https://${NAME}.${DOMAIN}`);

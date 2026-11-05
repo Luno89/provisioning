@@ -4,6 +4,7 @@ import { randomBytes } from 'node:crypto';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { k3sMirror } from './lib/k3s-mirror.js';
 import { createDisposableVm, findFreePort, type DisposableVm } from './lib/disposable-vm.js';
 import { buildAppImage } from './lib/gate-runs.js';
 import { UPGRADE_WORDS } from '../apps/backend/src/instances/lib/self-upgrade.js';
@@ -146,6 +147,7 @@ async function teardown(): Promise<void> {
 }
 
 async function main(): Promise<void> {
+  const k3s = await k3sMirror();
   const begun = Date.now();
   work = mkdtempSync(join(tmpdir(), 'release-live-'));
   const dirty = run('git', ['status', '--porcelain']).trim().split('\n').filter((line) => line && !/last-passed\.json|LAST-PASSED\.md/.test(line));
@@ -199,7 +201,7 @@ async function main(): Promise<void> {
   await sh(root, `sudo mkdir -p $(dirname ${SIGNERS}) && echo ${signer} | base64 -d | sudo tee ${SIGNERS} >/dev/null`);
   note(`${REPO_DIR} is a clone of this repository with ${PREVIOUS_LABEL}, the candidate as ${CANDIDATE_REF} and ${UNSIGNED_REF}; root trusts only the rehearsal's throwaway key, which signed all but ${UNSIGNED_REF}; the candidate's update.sh is kept at ${UPDATE_SH}`);
   const bootstrapped = Date.now();
-  await sh(root, `sudo env ROOT_TLS=internal DOMAIN=${DOMAIN} PUBLIC_URL=${ROOT_URL} bash ${REPO_DIR}/scripts/root-node/bootstrap.sh`, true);
+  await sh(root, `sudo env K3S_MIRROR=${k3s.url} ROOT_TLS=internal DOMAIN=${DOMAIN} PUBLIC_URL=${ROOT_URL} bash ${REPO_DIR}/scripts/root-node/bootstrap.sh`, true);
   note(`bootstrap.sh finished in ${minutes(bootstrapped)}${UNHOSTED ? `, on ${STAND_IN_REF} (${imageTagOf(previous)})` : ''}`);
   writeFileSync(join(work, 'ca.crt'), await sh(root, 'sudo cat /usr/local/share/ca-certificates/koala-lab.crt'));
   const hardened = await sh(root, [
@@ -278,7 +280,7 @@ async function main(): Promise<void> {
   ].join(' && '));
   note('the machine resolves the lab names through root, reaches root on the lan and trusts the lab authority');
   const installed = Date.now();
-  await sh(instance, `curl -fsSL ${ROOT_URL}/install.sh | sudo sh -s -- ${token} --yes`, true);
+  await sh(instance, `curl -fsSL ${ROOT_URL}/install.sh | sudo sh -s -- ${token} --yes --k3s-mirror ${k3s.url}`, true);
   note(`install.sh took ${minutes(installed)}`);
   assert.equal(mine().status, 'ready', `root sees the instance as ${mine().status}: ${mine().detail}`);
   assert.equal(mine().url, `https://${NAME}.${DOMAIN}`);

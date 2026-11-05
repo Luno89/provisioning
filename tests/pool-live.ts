@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import dotenv from 'dotenv';
 import { caddyTlsSnippet } from '../apps/backend/src/infrastructure/lib/dns-providers.js';
+import { k3sMirror } from './lib/k3s-mirror.js';
 import { createDisposableVm, type DisposableVm } from './lib/disposable-vm.js';
 import { loadKeys } from '../apps/backend/src/platform/lib/keys.js';
 import { sessionToken } from '../apps/backend/src/platform/lib/auth.js';
@@ -143,6 +144,7 @@ async function teardown(): Promise<void> {
 }
 
 async function main(): Promise<void> {
+  const k3s = await k3sMirror(HOST_FOR_GUEST);
   assert.ok(existsSync(GVISOR_TARBALL), `the pinned gVisor release is cached at ${GVISOR_TARBALL}`);
   work = mkdtempSync(join(tmpdir(), 'pool-live-'));
   const caddyDir = join(work, 'caddy');
@@ -184,7 +186,7 @@ async function main(): Promise<void> {
   toVm(vm, [join(REPO, 'scripts/root-node/pool-node.sh'), join(REPO, 'scripts/root-node/gvisor.sh'), GVISOR_TARBALL], '/tmp/');
   toVm(vm, [join(REPO, 'k8s/root-backend/account.yaml')], '/tmp/koala-backend-account.yaml');
   await inVm(vm, 'which zstd >/dev/null || sudo apt-get install -y -qq zstd >/dev/null');
-  await inVm(vm, `sudo sh /tmp/pool-node.sh --login-server http://${HOST_FOR_GUEST}:8080 --authkey ${meshKey('tag:pool')} --registry ${HOST_FOR_GUEST}:5001 --gvisor-tarball /tmp/gvisor.tar.zstd --yes`, true);
+  await inVm(vm, `sudo sh /tmp/pool-node.sh --login-server http://${HOST_FOR_GUEST}:8080 --authkey ${meshKey('tag:pool')} --registry ${HOST_FOR_GUEST}:5001 --gvisor-tarball /tmp/gvisor.tar.zstd --k3s-mirror ${k3s.url} --yes`, true);
   const poolIp = (await inVm(vm, 'tailscale ip -4')).trim().split('\n')[0]!;
   const kubeconfig = (await inVm(vm, 'sudo cat /etc/rancher/k3s/k3s.yaml')).replace('server: https://127.0.0.1:6443', `server: https://127.0.0.1:${vm.k3sApiPort}`);
   const kubeconfigPath = join(work, 'pool-kubeconfig.yaml');
@@ -458,7 +460,7 @@ async function main(): Promise<void> {
       }).catch(() => undefined);
     }, 5000);
     try {
-      await inVm(target, `curl -fsSL ${ROOT_FOR_GUEST}/install.sh | sudo sh -s -- ${moveToken} --yes`, true);
+      await inVm(target, `curl -fsSL ${ROOT_FOR_GUEST}/install.sh | sudo sh -s -- ${moveToken} --yes --k3s-mirror ${k3s.url}`, true);
       await until('root switching the instance to the new machine', async () => {
         const mine = (await (await asOwner('/api/instances/mine')).json() as { instance: { status: string; trialEndsAt?: string; move?: { state: string; detail?: string } } }).instance;
         if (mine.move?.state === 'failed') throw new Hopeless(`the move stopped: ${mine.move.detail}`);

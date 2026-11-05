@@ -5,6 +5,7 @@ import dotenv from 'dotenv';
 import { sessionToken } from '../apps/backend/src/platform/lib/auth.js';
 import { loadKeys } from '../apps/backend/src/platform/lib/keys.js';
 import { ACP_STUB, chatsOnTheMachine } from './lib/machine-chat.js';
+import { k3sMirror } from './lib/k3s-mirror.js';
 import { createDisposableVm, type DisposableVm } from './lib/disposable-vm.js';
 import { devDataMounts, devTemporalCa } from './lib/dev-temporal.js';
 import { fetchSide, handOff, sessionFrom, signedInLanding } from './lib/handoff.js';
@@ -105,6 +106,7 @@ async function teardown(): Promise<void> {
 }
 
 async function main(): Promise<void> {
+  const k3s = await k3sMirror();
   step('root\'s registry holds the image');
   run('docker', ['tag', IMAGE, `127.0.0.1:5000/nowrinkles/app:${TAG}`]);
   run('docker', ['push', '-q', `127.0.0.1:5000/nowrinkles/app:${TAG}`]);
@@ -129,7 +131,7 @@ async function main(): Promise<void> {
   assert.equal(joining.status, 200, `root did not give a join command: ${await joining.clone().text()}`);
   const joinToken = await joining.json() as { token: string };
   instanceId = (await (await asOwner('/api/instances/mine')).json() as { instance: { id: string } }).instance.id;
-  await inVm(instanceVm, `curl -fsSL ${ROOT_FOR_GUEST}/install.sh | sudo sh -s -- ${joinToken.token} --yes --url ${INSTANCE_URL}`, true);
+  await inVm(instanceVm, `curl -fsSL ${ROOT_FOR_GUEST}/install.sh | sudo sh -s -- ${joinToken.token} --yes --url ${INSTANCE_URL} --k3s-mirror ${k3s.url}`, true);
   instanceMeshIp = await meshIp(instanceVm);
   console.log(`  the instance is ${instanceMeshIp} on the mesh`);
   const envOf = JSON.parse(await inVm(instanceVm, 'sudo k3s kubectl -n nowrinkles get configmap instance-env -o jsonpath="{.data}"')) as Record<string, string>;
@@ -160,7 +162,7 @@ async function main(): Promise<void> {
   const made = await onInstance('/api/mesh/local-agents/join-code', { method: 'POST', body: '{}' });
   assert.equal(made.status, 201, await made.clone().text());
   const { command } = await made.json() as { command: string };
-  const installed = await inVm(machineVm, `${command} --yes`, true);
+  const installed = await inVm(machineVm, `${command} --yes --k3s-mirror ${k3s.url}`, true);
   assert.match(installed, /on the private network as 100\./);
   const machineMeshIp = await meshIp(machineVm);
   const settings = JSON.parse(await inVm(machineVm, 'cat ~/.config/koala/machine.json')) as { deviceId: string };

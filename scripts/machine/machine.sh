@@ -18,6 +18,9 @@ TAILSCALE_SHA256_AMD64=108d1d96ecf410d305571e173516f27038f870919a9b89c914a167c6d
 TAILSCALE_SHA256_ARM64=f60294374967f3dfd8cf57bbbd474d6cfce32d123e3a8ddeab82a87940daa806
 K3S_VERSION="v1.36.4+k3s1"
 K3S_INSTALLER_SHA256=46177d4c99440b4c0311b67233823a8e8a2fc09693f6c89af1a7161e152fbfad
+K3S_SHA256_AMD64=835873f37245fc615f547a2fe2af9402a347875f13fa64a1f136de644955ea3f
+K3S_SHA256_ARM64=c920706346d5ad4e5cd3c7bf1bb09ce71ebe07fec829e513e40f1caf98aed8bb
+K3S_MIRROR="https://github.com/k3s-io/k3s/releases/download"
 K3S_MARKER=/etc/koala/machine-k3s
 
 while [ $# -gt 0 ]; do
@@ -28,6 +31,7 @@ while [ $# -gt 0 ]; do
     --no-cluster) CLUSTER=0 ;;
     --adapters) ADAPTERS="$2"; shift ;;
     --url) KOALA_URL="$2"; shift ;;
+    --k3s-mirror) K3S_MIRROR="$2"; shift ;;
     --) ;;
     -*) echo "unknown option $1" >&2; exit 2 ;;
     *) CODE="$1" ;;
@@ -205,7 +209,16 @@ UNINSTALL
   sudo chmod 755 /usr/local/lib/koala/machine-uninstall.sh
   printf '[Service]\nExecStartPre=/usr/local/lib/koala/k3s-firewall.sh\n' | sudo tee /etc/systemd/system/k3s.service.d/koala-firewall.conf >/dev/null
   if [ ! -x /usr/local/bin/k3s ] || [ "$(cat "$K3S_MARKER" 2>/dev/null)" != "$K3S_VERSION" ]; then
-    sudo env INSTALL_K3S_VERSION="$K3S_VERSION" INSTALL_K3S_SKIP_START=true INSTALL_K3S_SKIP_ENABLE=true sh "$installer" >/dev/null
+    case "$(uname -m)" in
+      aarch64|arm64) file=k3s-arm64; sha="$K3S_SHA256_ARM64" ;;
+      *) file=k3s; sha="$K3S_SHA256_AMD64" ;;
+    esac
+    binary=$(mktemp)
+    curl -fsSL "$K3S_MIRROR/$(printf '%s' "$K3S_VERSION" | sed 's/+/%2B/')/$file" -o "$binary" || { rm -f "$installer" "$binary"; die "could not download k3s $K3S_VERSION"; }
+    [ "$(sha256_of "$binary")" = "$sha" ] || { rm -f "$installer" "$binary"; die "the k3s downloaded is not the one Koala pins (its sha256 differs); nothing was installed"; }
+    sudo install -m 755 "$binary" /usr/local/bin/k3s
+    rm -f "$binary"
+    sudo env INSTALL_K3S_SKIP_DOWNLOAD=true INSTALL_K3S_VERSION="$K3S_VERSION" INSTALL_K3S_SKIP_START=true INSTALL_K3S_SKIP_ENABLE=true sh "$installer" >/dev/null
   fi
   rm -f "$installer"
   sudo systemctl daemon-reload

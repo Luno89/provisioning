@@ -4,6 +4,7 @@ import { randomBytes } from 'node:crypto';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { k3sMirror, type K3sMirror } from './lib/k3s-mirror.js';
 import { createDisposableVm, findFreePort, type DisposableVm } from './lib/disposable-vm.js';
 import { labDnsmasq, labHostsLine } from './lib/release-lab.js';
 import { answeringIn, answersThrough, nodePortsOf, probeCommand } from './lib/node-ports.js';
@@ -136,7 +137,10 @@ async function signsInWithStandIn(root: Root, ca: string, label: string): Promis
   assert.equal(asked.get('code_challenge_method'), 'S256');
 }
 
+let mirror: Promise<K3sMirror> | undefined;
+
 async function standUpRoot(label: string, commit: string, signInEnv: Record<string, string> = {}): Promise<Root> {
+  const k3s = await (mirror ??= k3sMirror());
   const tlsPort = await findFreePort();
   const vm = await createDisposableVm(label, { memoryMB: 12288, cpus: 4, diskGB: 60, forwards: [{ host: tlsPort, guest: 443 }], lan: { listen: await findFreePort(), address: `${ROOT_LAN}/24` } });
   const root = { vm, tlsPort };
@@ -156,7 +160,7 @@ async function standUpRoot(label: string, commit: string, signInEnv: Record<stri
   const begun = Date.now();
   await sh(vm, 'sudo bash -s', false, [
     'set -euo pipefail',
-    `export ROOT_TLS=internal DOMAIN=${DOMAIN} PUBLIC_URL=${ROOT_URL}`,
+    `export K3S_MIRROR=${k3s.url} ROOT_TLS=internal DOMAIN=${DOMAIN} PUBLIC_URL=${ROOT_URL}`,
     ...Object.entries(signInEnv).map(([name, value]) => `export ${name}=${quoted(value)}`),
     `bash ${REPO_DIR}/scripts/root-node/bootstrap.sh > /tmp/bootstrap.log 2>&1 || { tail -60 /tmp/bootstrap.log; exit 1; }`,
   ].join('\n'));

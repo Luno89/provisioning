@@ -490,8 +490,52 @@
         {
           "file": "scripts/machine/machine.sh",
           "pattern": "K3S_INSTALLER_SHA256=([0-9a-f]{64})"
+        },
+        {
+          "file": "scripts/cluster.sh",
+          "pattern": "K3S_SHA256_AMD64=([0-9a-f]{64})",
+          "arch": "linux-amd64"
+        },
+        {
+          "file": "scripts/cluster.sh",
+          "pattern": "K3S_SHA256_ARM64=([0-9a-f]{64})",
+          "arch": "linux-arm64"
+        },
+        {
+          "file": "scripts/instance/install.sh",
+          "pattern": "K3S_SHA256_AMD64=([0-9a-f]{64})",
+          "arch": "linux-amd64"
+        },
+        {
+          "file": "scripts/instance/install.sh",
+          "pattern": "K3S_SHA256_ARM64=([0-9a-f]{64})",
+          "arch": "linux-arm64"
+        },
+        {
+          "file": "scripts/root-node/pool-node.sh",
+          "pattern": "K3S_SHA256_AMD64=([0-9a-f]{64})",
+          "arch": "linux-amd64"
+        },
+        {
+          "file": "scripts/root-node/pool-node.sh",
+          "pattern": "K3S_SHA256_ARM64=([0-9a-f]{64})",
+          "arch": "linux-arm64"
+        },
+        {
+          "file": "scripts/machine/machine.sh",
+          "pattern": "K3S_SHA256_AMD64=([0-9a-f]{64})",
+          "arch": "linux-amd64"
+        },
+        {
+          "file": "scripts/machine/machine.sh",
+          "pattern": "K3S_SHA256_ARM64=([0-9a-f]{64})",
+          "arch": "linux-arm64"
         }
-      ]
+      ],
+      "sha256s": {
+        "linux-amd64": "835873f37245fc615f547a2fe2af9402a347875f13fa64a1f136de644955ea3f",
+        "linux-arm64": "c920706346d5ad4e5cd3c7bf1bb09ce71ebe07fec829e513e40f1caf98aed8bb"
+      }
     },
     {
       "kind": "binary",

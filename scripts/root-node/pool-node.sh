@@ -3,6 +3,9 @@ set -eu
 
 K3S_VERSION="v1.36.4+k3s1"
 K3S_INSTALLER_SHA256=46177d4c99440b4c0311b67233823a8e8a2fc09693f6c89af1a7161e152fbfad
+K3S_SHA256_AMD64=835873f37245fc615f547a2fe2af9402a347875f13fa64a1f136de644955ea3f
+K3S_SHA256_ARM64=c920706346d5ad4e5cd3c7bf1bb09ce71ebe07fec829e513e40f1caf98aed8bb
+K3S_MIRROR="https://github.com/k3s-io/k3s/releases/download"
 TAILSCALE_VERSION=1.104.1
 TAILSCALE_SHA256_AMD64=108d1d96ecf410d305571e173516f27038f870919a9b89c914a167c6d33a4528
 TAILSCALE_SHA256_ARM64=f60294374967f3dfd8cf57bbbd474d6cfce32d123e3a8ddeab82a87940daa806
@@ -23,6 +26,7 @@ while [ $# -gt 0 ]; do
     --authkey) AUTHKEY="$2"; shift ;;
     --registry) REGISTRY="$2"; shift ;;
     --gvisor-tarball) TARBALL="$2"; shift ;;
+    --k3s-mirror) K3S_MIRROR="$2"; shift ;;
     --yes) YES=1 ;;
     *) echo "unknown option $1" >&2; exit 2 ;;
   esac
@@ -47,10 +51,14 @@ fetch_checked() {
 }
 
 install_k3s() {
+  if [ "$(arch_of)" = amd64 ]; then file=k3s; sha="$K3S_SHA256_AMD64"; else file=k3s-arm64; sha="$K3S_SHA256_ARM64"; fi
   installer="$(mktemp)"
+  binary="$(mktemp)"
   fetch_checked "https://raw.githubusercontent.com/k3s-io/k3s/$(printf '%s' "$K3S_VERSION" | sed 's/+/%2B/')/install.sh" "$K3S_INSTALLER_SHA256" "$installer"
-  INSTALL_K3S_VERSION="$K3S_VERSION" sh "$installer" >/dev/null
-  rm -f "$installer"
+  fetch_checked "$K3S_MIRROR/$(printf '%s' "$K3S_VERSION" | sed 's/+/%2B/')/$file" "$sha" "$binary"
+  install -m 755 "$binary" /usr/local/bin/k3s
+  INSTALL_K3S_SKIP_DOWNLOAD=true INSTALL_K3S_VERSION="$K3S_VERSION" sh "$installer" >/dev/null
+  rm -f "$installer" "$binary"
 }
 
 install_tailscale() {
