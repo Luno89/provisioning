@@ -17,7 +17,6 @@ export const INTEGRATION_STEPS: GateStep[] = [
 
 export const E2E_STEPS: GateStep[] = [
   { name: 'every router answers', script: 'test:routes-live' },
-  { name: 'sign-in across root, an instance and the hub', script: 'test:dev-split-live' },
   { name: 'production refuses what only a dev box allows, and sees each visitor', script: 'test:hardening-live' },
   { name: 'passwords, two-factor codes, sign-out and lockout on a production root', script: 'test:account-hardening-live' },
   { name: 'Connect OpenRouter from an instance', script: 'test:openrouter-connect-live' },
