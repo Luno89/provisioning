@@ -89,7 +89,6 @@
     "test:hub-split-live": "cd apps/backend && tsx ../../tests/lib/run-live.ts hub-split-live",
     "test:browser-live": "cd apps/backend && tsx ../../tests/lib/run-live.ts browser-live",
     "test:hub-live": "cd apps/backend && tsx ../../tests/lib/run-live.ts hub-live",
-    "test:app-names-live": "cd apps/backend && tsx ../../tests/lib/run-live.ts app-names-live",
     "test:app-sign-in-live": "cd apps/backend && tsx ../../tests/lib/run-live.ts app-sign-in-live",
     "test:machine-container-live": "cd apps/backend && tsx ../../tests/lib/run-live.ts machine-container-live",
     "test:project-sharing-live": "cd apps/backend && tsx ../../tests/lib/run-live.ts project-sharing-live",

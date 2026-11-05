@@ -613,6 +613,7 @@ async function main() {
 }
 
 main().then(async () => {
+  logger.info('[EngineWorker] Stopped');
   await telemetry.shutdown().catch(ignore('the worker has stopped, and telemetry the collector did not take is dropped as it is whenever the collector is away'));
   process.exit(0);
 }, (err) => {

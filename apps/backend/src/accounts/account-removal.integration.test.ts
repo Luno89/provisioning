@@ -10,7 +10,7 @@ import { afterAll, beforeAll, describe, expect, inject, it, onTestFailed } from 
 import { ACCOUNT_DATA, removeAccountWorkflowId } from './lib/account-removal.js';
 import { labelValue } from '../engine-host/sandboxes/workspace.js';
 import { claimNamespaceFor } from '../workflows/temporal-test-env.js';
-import { freePort, startRole, type LoopbackRole } from '../platform/testing/roles-on-loopback.js';
+import { freePort, startRole, startWorker, type LoopbackProcess, type LoopbackRole } from '../platform/testing/roles-on-loopback.js';
 import { smtpSink, textOf, type SmtpSink } from '../platform/testing/smtp-sink.js';
 import { until } from '../platform/testing/three-roles.js';
 import { buildDataConverter } from '@koala/engine-core/payloads';
@@ -76,7 +76,7 @@ let mail: SmtpSink;
 let kube: StandIn;
 let headscale: StandIn;
 let backend: LoopbackRole;
-let worker: LoopbackRole;
+let worker: LoopbackProcess;
 let folder: string;
 let mongo: MongoClient;
 let adminCookie: string;
@@ -119,10 +119,7 @@ beforeAll(async () => {
     OTEL_EXPORTER_OTLP_ENDPOINT: `http://127.0.0.1:${await freePort()}`,
   };
   backend = await startRole('combined', { ...shared, ADMIN_SETUP_CODE: SETUP_CODE });
-  const healthPort = await freePort();
-  worker = await startRole('engine-worker', {
-    ...shared, HEALTH_PORT: String(healthPort), TEMPORAL_ENGINE_METRICS_PORT: String(await freePort()),
-  }, healthPort, { entry: 'src/worker-engine.ts', answersAt: '/healthz' });
+  worker = await startWorker('engine-worker', 'src/worker-engine.ts', { ...shared, TEMPORAL_ENGINE_METRICS_PORT: String(await freePort()) });
   const adminEmail = `admin-${STAMP}@removal.test`;
   const adminPassword = randomBytes(18).toString('base64url');
   const made = await api('/auth/register', { body: { email: adminEmail, password: adminPassword, inviteCode: SETUP_CODE } });
