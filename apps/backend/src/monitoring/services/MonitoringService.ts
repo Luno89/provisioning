@@ -103,6 +103,7 @@ export interface MonitoringDeps {
   kubectl(cluster: ClusterMetadata, args: string[]): Promise<string>;
   apply(cluster: ClusterMetadata, manifest: string): Promise<void>;
   helm(cluster: ClusterMetadata, args: string[]): Promise<string>;
+  machineOnline?(deviceId: string): boolean;
   now?: () => Date;
   newId?: () => string;
 }
@@ -393,8 +394,17 @@ export class MonitoringService {
     return visibleAlerts(alerts, await this.scopeFor(viewer, reached.cluster, apps));
   }
 
+  private waitingOnMachine(dep: DeploymentMetadata, cluster: ClusterMetadata): string | undefined {
+    if (cluster.provider !== 'machine' || !cluster.machineId || !this.deps.machineOnline) return undefined;
+    if (dep.status !== 'deploying' && dep.status !== 'destroying') return undefined;
+    if (this.deps.machineOnline(cluster.machineId)) return undefined;
+    return `it waits for ${cluster.name}, which is offline: it ${dep.status === 'deploying' ? 'deploys' : 'is removed'} when the machine connects again`;
+  }
+
   private async appRow(dep: DeploymentMetadata, reached: Reached, firing: VisibleAlert[], kept: number): Promise<AppRow> {
     const base = { id: dep.id, name: dep.name, ...(dep.appType ? { appType: dep.appType } : {}), clusterId: reached.cluster.id, clusterName: reached.cluster.name, ...(dep.publicExposureUrl ? { url: dep.publicExposureUrl } : {}) };
+    const waiting = this.waitingOnMachine(dep, reached.cluster);
+    if (waiting) return { ...base, state: 'warning', reasons: [waiting], numbers: {} };
     if (dep.status === 'deploying') return { ...base, state: 'installing', reasons: ['it is being deployed'], numbers: {} };
     if (dep.status === 'failed') return { ...base, state: 'down', reasons: ['its deploy failed'], numbers: {} };
     if (!reached.metrics) return { ...base, state: reached.state, reasons: reached.reason ? [`its cluster ${reached.reason}`] : [], numbers: {} };

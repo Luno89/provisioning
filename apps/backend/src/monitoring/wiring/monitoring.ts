@@ -13,6 +13,7 @@ import { poolMonitor, poolMonitorFrom } from '../services/PoolMonitor.js';
 import type { Mounts } from '../../hub/index.js';
 
 export interface MonitoringWiringDeps {
+  machineOnline?: ((deviceId: string) => boolean) | undefined;
   tenant: Mounts;
   db: Database;
   role: RoleConfig;
@@ -37,6 +38,7 @@ export function wireMonitoring(deps: MonitoringWiringDeps): { monitoring: Monito
     store: db,
     systemCluster: () => clusters.getSystemClusterEntry(),
     pool: (cluster) => (cluster.isSystem ? onPool : undefined),
+    ...(deps.machineOnline ? { machineOnline: deps.machineOnline } : {}),
     prometheus: async (cluster) => prometheusAt(await deps.proxy.serviceUrl(cluster.id, 'prometheus', await clusters.getKubeconfigPath(cluster))),
     kubectl: async (cluster, args) => String(await infra.runKubectl(args, await clusters.getKubeconfigPath(cluster))),
     apply: async (cluster, manifest) => { await infra.applyManifest(manifest, await clusters.getKubeconfigPath(cluster)); },

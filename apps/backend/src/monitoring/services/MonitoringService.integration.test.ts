@@ -100,6 +100,19 @@ beforeEach(async () => {
 });
 
 describe('the overview', () => {
+  it('says an app waits for its machine while the machine is offline, and only then', async () => {
+    const desk = { id: 'machine-desk', name: 'desk', provider: 'machine', status: 'stopped', machineId: 'desk', ownerId: 'me' } as ClusterMetadata;
+    await db.infrastructure.saveCluster(desk);
+    await db.infrastructure.saveDeploymentInfo(dep({ id: 'notes', name: 'Notes', namespace: 'notes', clusterId: desk.id, status: 'deploying' }));
+    let online = false;
+    monitoring = new MonitoringService({ ...deps(), machineOnline: (deviceId) => deviceId === 'desk' && online });
+    const offline = await monitoring.overview(ME);
+    expect(offline.attention).toContainEqual({ subject: { kind: 'app', id: 'notes', name: 'Notes' }, state: 'warning', reasons: ['it waits for desk, which is offline: it deploys when the machine connects again'] });
+    online = true;
+    const connected = await monitoring.overview(ME);
+    expect(connected.apps.find((row) => row.id === 'notes')).toMatchObject({ state: 'installing', reasons: ['it is being deployed'] });
+  });
+
   it('shows a machine\'s cluster at rest as stopped, reads it for no alerts, and leaves it out of what needs attention', async () => {
     const resting = { id: 'machine-desk', name: 'desk', provider: 'machine', status: 'stopped', machineId: 'desk', ownerId: 'me' } as ClusterMetadata;
     await db.infrastructure.saveCluster(resting);
