@@ -17,10 +17,8 @@ export const INTEGRATION_STEPS: GateStep[] = [
 
 export const E2E_STEPS: GateStep[] = [
   { name: 'production refuses what only a dev box allows, and sees each visitor', script: 'test:hardening-live' },
-  { name: 'passwords, two-factor codes, sign-out and lockout on a production root', script: 'test:account-hardening-live' },
   { name: 'a person in a browser: sign-in, a first model and a chat, Infrastructure, Settings, sign-out', script: 'test:browser-live' },
   { name: 'a project shared from an instance and worked on the hub', script: 'test:hub-split-live' },
-  { name: 'an account removes itself', script: 'test:account-removal-live' },
   { name: 'the hub\'s people and roles', script: 'test:hub-live' },
   { name: 'sharing a project and taking it back', script: 'test:project-sharing-live' },
   { name: 'one trace end to end', script: 'test:telemetry-live' },

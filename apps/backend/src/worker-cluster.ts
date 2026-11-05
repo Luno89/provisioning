@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import dotenv from 'dotenv';
+import { ignore } from '@koala/engine-core/failures';
 import { Worker, Runtime } from '@temporalio/worker';
 import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
@@ -116,7 +117,10 @@ async function main() {
   await worker.run();
 }
 
-main().catch((err: Error) => {
+main().then(async () => {
+  await telemetry.shutdown().catch(ignore('the worker has stopped, and telemetry the collector did not take is dropped as it is whenever the collector is away'));
+  process.exit(0);
+}, (err: Error) => {
   logger.error(`[ClusterWorker] FATAL: ${err.stack || err.message}`);
   process.exit(1);
 });

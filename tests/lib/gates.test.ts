@@ -82,7 +82,7 @@ describe('the gates', () => {
     expect(existsSync(new URL('../../apps/backend/src/instances/sign-in-across.integration.test.ts', import.meta.url))).toBe(true);
     expect(existsSync(new URL('../../apps/backend/src/models/openrouter-connect.integration.test.ts', import.meta.url))).toBe(true);
     expect(shipped).toContain('test:hub-split-live');
-    expect(shipped).toContain('test:account-hardening-live');
+    expect(existsSync(new URL('../../apps/backend/src/accounts/account-hardening.integration.test.ts', import.meta.url))).toBe(true);
   });
 });
 
