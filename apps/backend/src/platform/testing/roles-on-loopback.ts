@@ -1,5 +1,5 @@
 import { spawn, type ChildProcess } from 'node:child_process';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -19,11 +19,6 @@ export async function freePort(): Promise<number> {
   });
 }
 
-const answering = async (url: string): Promise<boolean> => {
-  const answer = await fetch(`${url}/api/auth/sign-in`, { redirect: 'manual' }).catch((err: Error) => err);
-  return !(answer instanceof Error) && answer.status < 500;
-};
-
 export interface LoopbackProcess {
   name: string;
   logs(lines?: number): string;
@@ -37,12 +32,40 @@ export interface LoopbackRole extends LoopbackProcess {
   port: number;
 }
 
-export async function startProcess(name: string, entry: string, env: Record<string, string>, ready: () => Promise<boolean>): Promise<LoopbackProcess> {
+export interface RoleOptions {
+  entry?: string | undefined;
+  files?: Record<string, string> | undefined;
+}
+
+const NO_CLUSTER = `#!/bin/sh
+[ "$1" = inspect ] && exit 0
+echo "a process in the integration tier reaches no Docker and no cluster" >&2
+exit 1
+`;
+
+const answering = async (url: string): Promise<boolean> => {
+  const answer = await fetch(`${url}/api/auth/sign-in`, { redirect: 'manual' }).catch((err: Error) => err);
+  return !(answer instanceof Error) && answer.status < 500;
+};
+
+const healthy = async (port: number): Promise<boolean> => {
+  const answer = await fetch(`http://127.0.0.1:${port}/healthz`).catch((err: Error) => err);
+  return !(answer instanceof Error) && answer.status === 200;
+};
+
+export async function startProcess(name: string, entry: string, env: Record<string, string>, ready: () => Promise<boolean>, files: Record<string, string> = {}): Promise<LoopbackProcess> {
   const home = await mkdtemp(join(tmpdir(), `koala-${name}-`));
+  await mkdir(join(home, 'bin'));
+  await writeFile(join(home, 'bin', 'docker'), NO_CLUSTER);
+  await chmod(join(home, 'bin', 'docker'), 0o755);
+  for (const [file, content] of Object.entries(files)) {
+    await mkdir(dirname(join(home, file)), { recursive: true });
+    await writeFile(join(home, file), content, { mode: 0o600 });
+  }
   const lines: string[] = [];
   let child: ChildProcess | undefined;
   const settings: NodeJS.ProcessEnv = {
-    PATH: process.env.PATH,
+    PATH: `${join(home, 'bin')}:${process.env.PATH ?? ''}`,
     HOME: home,
     NODE_ENV: 'development',
     JWT_SECRET: `${name}-loopback-test-secret`,
@@ -75,17 +98,14 @@ export async function startProcess(name: string, entry: string, env: Record<stri
   };
 }
 
-export async function startRole(name: string, env: Record<string, string>, port?: number): Promise<LoopbackRole> {
+export async function startRole(name: string, env: Record<string, string>, port?: number, options: RoleOptions = {}): Promise<LoopbackRole> {
   const at = port ?? await freePort();
   const url = `http://localhost:${at}`;
-  const started = await startProcess(name, 'src/index.ts', { PORT: String(at), PUBLIC_URL: url, APP_URL: url, ...env }, () => answering(url));
+  const started = options.entry
+    ? await startProcess(name, options.entry, { PORT: String(at), PUBLIC_URL: url, APP_URL: url, HEALTH_PORT: String(at), ...env }, () => healthy(at), options.files)
+    : await startProcess(name, 'src/index.ts', { PORT: String(at), PUBLIC_URL: url, APP_URL: url, ...env }, () => answering(url), options.files);
   return { ...started, url, port: at };
 }
-
-const healthy = async (port: number): Promise<boolean> => {
-  const answer = await fetch(`http://127.0.0.1:${port}/healthz`).catch((err: Error) => err);
-  return !(answer instanceof Error) && answer.status === 200;
-};
 
 export async function startWorker(name: string, entry: string, env: Record<string, string>): Promise<LoopbackProcess> {
   const port = await freePort();

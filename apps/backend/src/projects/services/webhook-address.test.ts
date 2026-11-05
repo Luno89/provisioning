@@ -40,6 +40,12 @@ describe('the address Gitea sends a project\'s pushes to', () => {
     await expect(webhookAddress(infra, 'kube', 3001)('p1')).rejects.toThrow('the cluster gave no node address for Gitea to send pushes to');
   });
 
+  it('is where Gitea is said to reach the backend, when that is given, without asking the cluster', async () => {
+    const { infra } = setUp();
+    expect(await webhookAddress(infra, 'kube', 3001, 'http://127.0.0.1:4001')('p1')).toBe('http://127.0.0.1:4001/webhooks/gitea/p1');
+    expect(infra.runKubectl).not.toHaveBeenCalled();
+  });
+
   it('gives the backend\'s own address on the node, for other webhooks Gitea sends it', async () => {
     const { infra, nodeIp } = setUp();
     infra.runKubectl.calledWith(nodeIp, 'kube').mockResolvedValue('10.0.0.2 fd00::2\n');

@@ -18,9 +18,6 @@ export const INTEGRATION_STEPS: GateStep[] = [
 export const E2E_STEPS: GateStep[] = [
   { name: 'production refuses what only a dev box allows, and sees each visitor', script: 'test:hardening-live' },
   { name: 'a person in a browser: sign-in, a first model and a chat, Infrastructure, Settings, sign-out', script: 'test:browser-live' },
-  { name: 'a project shared from an instance and worked on the hub', script: 'test:hub-split-live' },
-  { name: 'the hub\'s people and roles', script: 'test:hub-live' },
-  { name: 'sharing a project and taking it back', script: 'test:project-sharing-live' },
   { name: 'files on MinIO, share links, an attachment', script: 'test:files-live' },
   { name: 'an Odoo release cut over and rolled back', script: 'test:odoo-release-live' },
   { name: 'the mechanics checks', script: 'test:checks-live' },

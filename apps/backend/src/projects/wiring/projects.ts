@@ -66,7 +66,7 @@ export interface ProjectsCore {
 
 export function projectsCore(deps: ProjectsCoreDeps): ProjectsCore {
   const { db, io, gitea } = deps;
-  const projectRepoService = new ProjectRepoService(db, gitea, deps.dataKey, webhookAddress(deps.infra, deps.kubeconfig, deps.env.PORT || 3001));
+  const projectRepoService = new ProjectRepoService(db, gitea, deps.dataKey, webhookAddress(deps.infra, deps.kubeconfig, deps.env.PORT || 3001, deps.env.GITEA_REACHES_KOALA_AT?.trim() || undefined));
   const channels = new ProjectChannelService({
     conversation: (ownerId, id) => db.engine.getConversation(ownerId, id),
     save: (conversation) => db.engine.saveConversation(conversation),

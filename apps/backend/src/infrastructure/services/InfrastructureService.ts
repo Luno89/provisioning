@@ -156,6 +156,7 @@ export class InfrastructureService {
         }
         reject(new Error(`kubectl apply failed: ${err.trim() || `exit ${code}`}`));
       });
+      child.stdin.on('error', ignore('kubectl that exits before reading the manifest fails, and its exit code and stderr say why'));
       child.stdin.end(manifest);
     });
   }

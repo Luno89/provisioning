@@ -120,7 +120,7 @@ async function buildActivities() {
     undefined,
     sharedClusterProxy(),
   );
-  const projectRepos = new ProjectRepoService(db, gitea, keys.data, webhookAddress(new InfrastructureService(), '/tmp/kubeconfig-provisioning-lunorica', process.env.PORT || 3001));
+  const projectRepos = new ProjectRepoService(db, gitea, keys.data, webhookAddress(new InfrastructureService(), '/tmp/kubeconfig-provisioning-lunorica', process.env.PORT || 3001, process.env.GITEA_REACHES_KOALA_AT?.trim() || undefined));
   const treeHome = new TreeHomeService({
     treeTypes: (ownerId) => db.projects.getTreeTypes(ownerId),
     projects: () => db.projects.getProjects(),
