@@ -29,12 +29,17 @@ export interface LoopbackRole {
   close(): Promise<void>;
 }
 
-const answering = async (url: string): Promise<boolean> => {
-  const answer = await fetch(`${url}/api/auth/sign-in`, { redirect: 'manual' }).catch((err: Error) => err);
+export interface RoleProcess {
+  entry?: string | undefined;
+  answersAt?: string | undefined;
+}
+
+const answering = async (url: string, path: string): Promise<boolean> => {
+  const answer = await fetch(`${url}${path}`, { redirect: 'manual' }).catch((err: Error) => err);
   return !(answer instanceof Error) && answer.status < 500;
 };
 
-export async function startRole(name: string, env: Record<string, string>, port?: number): Promise<LoopbackRole> {
+export async function startRole(name: string, env: Record<string, string>, port?: number, launch: RoleProcess = {}): Promise<LoopbackRole> {
   const at = port ?? await freePort();
   const home = await mkdtemp(join(tmpdir(), `koala-${name}-`));
   const url = `http://localhost:${at}`;
@@ -51,12 +56,12 @@ export async function startRole(name: string, env: Record<string, string>, port?
     ...env,
   };
   const start = async (): Promise<void> => {
-    child = spawn(TSX, [join(BACKEND, 'src/index.ts')], { cwd: home, env: settings, stdio: ['ignore', 'pipe', 'pipe'] });
+    child = spawn(TSX, [join(BACKEND, launch.entry ?? 'src/index.ts')], { cwd: home, env: settings, stdio: ['ignore', 'pipe', 'pipe'] });
     const keep = (chunk: Buffer) => { lines.push(...chunk.toString('utf8').split('\n').filter(Boolean)); if (lines.length > 2000) lines.splice(0, lines.length - 2000); };
     child.stdout?.on('data', keep);
     child.stderr?.on('data', keep);
     const exited = new Promise<never>((_, fail) => child!.once('exit', (code) => fail(new Error(`${name} exited (${code}) before it answered:\n${lines.slice(-40).join('\n')}`))));
-    const ready = (async () => { while (!await answering(url)) await new Promise((done) => setTimeout(done, 250)); })();
+    const ready = (async () => { while (!await answering(url, launch.answersAt ?? '/api/auth/sign-in')) await new Promise((done) => setTimeout(done, 250)); })();
     await Promise.race([ready, exited]);
     child.removeAllListeners('exit');
   };

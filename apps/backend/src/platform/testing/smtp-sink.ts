@@ -13,6 +13,16 @@ export interface SmtpSink {
 export const headerOf = (message: Received, name: string): string | undefined =>
   new RegExp(`^${name}: (.*)$`, 'mi').exec(message.data.replace(/\r?\n[ \t]+/g, ' '))?.[1]?.trim();
 
+export function textOf(message: Received): string {
+  const split = message.data.indexOf('\r\n\r\n');
+  const body = split < 0 ? '' : message.data.slice(split + 4).replace(/^\.\./gm, '.');
+  const encoding = headerOf(message, 'Content-Transfer-Encoding')?.toLowerCase();
+  if (encoding === 'base64') return Buffer.from(body.replace(/\s+/g, ''), 'base64').toString('utf8');
+  if (encoding !== 'quoted-printable') return body;
+  const bytes = body.replace(/=\r?\n/g, '').replace(/=([0-9A-F]{2})/gi, (_, hex: string) => String.fromCharCode(parseInt(hex, 16)));
+  return Buffer.from(bytes, 'latin1').toString('utf8');
+}
+
 export async function smtpSink(): Promise<SmtpSink> {
   const received: Received[] = [];
   const sockets = new Set<net.Socket>();
