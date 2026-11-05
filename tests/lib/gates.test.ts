@@ -80,7 +80,7 @@ describe('the gates', () => {
     const shipped = SHIP_STEPS.map((step) => step.script);
     expect(shipped).toContain('test:integration:coupled');
     expect(existsSync(new URL('../../apps/backend/src/instances/sign-in-across.integration.test.ts', import.meta.url))).toBe(true);
-    expect(shipped).toContain('test:openrouter-connect-live');
+    expect(existsSync(new URL('../../apps/backend/src/models/openrouter-connect.integration.test.ts', import.meta.url))).toBe(true);
     expect(shipped).toContain('test:hub-split-live');
     expect(shipped).toContain('test:account-hardening-live');
   });
