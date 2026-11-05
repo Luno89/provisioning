@@ -1,0 +1,256 @@
+import { randomBytes } from 'node:crypto';
+import { MongoClient } from 'mongodb';
+import { afterAll, beforeAll, describe, expect, inject, it, onTestFailed } from 'vitest';
+import { fetchSide, followSignIn, handOff, sessionFrom, signedInLanding, type Side } from '../platform/testing/handoff.js';
+import { providerCallbackUrl } from '../accounts/lib/sign-in-providers.js';
+import { startStandInIssuer, type StandInIssuer } from '../accounts/services/sign-in/stand-in-issuer.js';
+import { roleFromEnv } from '../platform/lib/platform-role.js';
+import { freePort, startRole, type LoopbackRole } from '../platform/testing/roles-on-loopback.js';
+import { smtpSink, type SmtpSink } from '../platform/testing/smtp-sink.js';
+import { createDatabase } from '../platform/lib/db-interface.js';
+import { devSplitPlan, type SplitPlace } from './lib/dev-split.js';
+import { publicKeyPem } from './lib/identity-token.js';
+import { hashCredential, instanceIdFor } from './services/InstanceService.js';
+import { claimNamespaceFor } from '../workflows/temporal-test-env.js';
+
+interface Answer { status: number; location: string; body: unknown }
+
+async function call(url: string, init: { method?: string; body?: unknown; cookie?: string | undefined; headers?: Record<string, string> } = {}): Promise<Answer> {
+  const response = await fetch(url, {
+    method: init.method ?? 'GET',
+    redirect: 'manual',
+    headers: { ...(init.body !== undefined ? { 'content-type': 'application/json' } : {}), ...(init.cookie ? { Cookie: init.cookie } : {}), ...(init.headers ?? {}) },
+    ...(init.body !== undefined ? { body: JSON.stringify(init.body) } : {}),
+  });
+  const text = await response.text();
+  let body: unknown = text;
+  try { body = JSON.parse(text) as unknown; } catch { body = text; }
+  return { status: response.status, location: response.headers.get('location') ?? '', body };
+}
+
+async function until<T>(look: () => Promise<T | undefined>): Promise<T> {
+  for (;;) {
+    const found = await look().catch(() => undefined);
+    if (found !== undefined) return found;
+    await new Promise((done) => setTimeout(done, 250));
+  }
+}
+
+const STAMP = Date.now().toString(36);
+const SECRET = `sign-in-across-${STAMP}`;
+const setupCode = randomBytes(12).toString('base64url');
+const instanceCredential = randomBytes(32).toString('base64url');
+const hubCredential = randomBytes(32).toString('base64url');
+const databases = { root: `across_root_${STAMP}`, instance: `across_instance_${STAMP}`, hub: `across_hub_${STAMP}` };
+
+let root: LoopbackRole;
+let instance: LoopbackRole;
+let hub: LoopbackRole;
+let mail: SmtpSink;
+let issuer: StandInIssuer;
+let mongoUri: string;
+let owner: { id: string; email: string; cookie: string };
+let instanceId: string;
+
+const mailTo = (subject: RegExp) => until(async () => mail.received.find((message) => subject.test(mail.subjectOf(message) ?? '')));
+
+async function signedInThrough(from: Side, target: Side, first: string): Promise<{ session: string; callback: string; startCookie: string }> {
+  const handed = await handOff(from, target, first);
+  expect(signedInLanding(handed.exchange), `the sign-in did not land: ${handed.exchange.status} ${handed.exchange.body.slice(0, 300)}`).toBe(true);
+  const session = sessionFrom(handed.exchange.setCookies);
+  if (!session || !handed.callback || !handed.startCookie) throw new Error('the sign-in did not go through OpenID Connect');
+  return { session, callback: handed.callback, startCookie: handed.startCookie };
+}
+
+beforeAll(async () => {
+  mail = await smtpSink();
+  mongoUri = `${inject('mongoUri')}`;
+  const ports = { root: await freePort(), instance: await freePort(), hub: await freePort() };
+  const place: SplitPlace = {
+    rootUrl: `http://localhost:${ports.root}`, instanceUrl: `http://localhost:${ports.instance}`, hubUrl: `http://localhost:${ports.hub}`,
+    rootApiPort: ports.root, instanceApiPort: ports.instance, hubApiPort: ports.hub,
+    rootDatabase: databases.root, hubDatabase: databases.hub, instanceDatabase: databases.instance,
+  };
+  issuer = await startStandInIssuer({ redirectUris: [providerCallbackUrl(place.rootUrl, 'oidc')] });
+  const signing = roleFromEnv({ JWT_SECRET: SECRET, ROLE: 'root' }).signing!;
+  const draft = (person: { id: string; email: string }) => devSplitPlan({
+    name: 'across', owner: { id: person.id, email: person.email, twoFactorEnabled: false, emailVerified: true, createdAt: new Date().toISOString() },
+    instanceId: instanceIdFor(person.id), credential: instanceCredential, credentialHash: hashCredential(instanceCredential),
+    hubCredential, hubCredentialHash: hashCredential(hubCredential), rootPublicKeys: publicKeyPem(signing.publicKey),
+    mongoUri: `${mongoUri}${databases.root}`, now: new Date().toISOString(), place,
+  });
+  const shared = {
+    JWT_SECRET: SECRET,
+    TEMPORAL_CONNECTION_ADDRESS: inject('temporalAddress'),
+    TEMPORAL_NAMESPACE: claimNamespaceFor(inject('temporalClaims')),
+    MAIL_SMTP_URL: mail.url,
+    MAIL_FROM: 'koala@across.test',
+    WATCH_UNREACHABLE_MINUTES: '1',
+    CERTIFICATES: 'internal',
+  };
+  root = await startRole('root', {
+    ...draft({ id: 'pending', email: 'pending@across.test' }).rootEnv, ...shared, ADMIN_SETUP_CODE: setupCode,
+    OIDC_ISSUER: issuer.issuer, OIDC_CLIENT_ID: issuer.clientId, OIDC_CLIENT_SECRET: issuer.clientSecret, OIDC_LABEL: 'Stand-in',
+  }, ports.root);
+  const email = `owner-${STAMP}@across.test`;
+  const password = randomBytes(18).toString('base64url');
+  const made = await call(`${root.url}/api/auth/register`, { method: 'POST', body: { email, password, inviteCode: setupCode } });
+  expect(made.status, JSON.stringify(made.body)).toBe(200);
+  const signedIn = await fetch(`${root.url}/api/auth/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email, password }) });
+  const cookie = signedIn.headers.getSetCookie().map((line) => line.split(';')[0]!).find((pair) => /^(__Host-)?session=/.test(pair))!;
+  owner = { id: ((await signedIn.json()) as { user: { id: string } }).user.id, email, cookie };
+  const plan = draft(owner);
+  instanceId = plan.instance.id;
+  const rootDb = createDatabase({ ...process.env, MONGO_URI: `${mongoUri}${databases.root}` });
+  await rootDb.init();
+  await rootDb.instances.saveInstance(plan.instance);
+  await rootDb.close?.();
+  [instance, hub] = await Promise.all([
+    startRole('instance', { ...plan.instanceEnv, ...shared, MONGO_URI: `${mongoUri}${databases.instance}` }, ports.instance),
+    startRole('hub', { ...plan.hubEnv, ...shared }, ports.hub),
+  ]);
+  await until(async () => ((await call(`${root.url}/api/identity/go?to=hub`, { cookie: owner.cookie })).location === `${hub.url}/api/auth/oidc/start` ? true : undefined));
+}, 240_000);
+
+afterAll(async () => {
+  await Promise.all([root, instance, hub].filter(Boolean).map((role) => role.close()));
+  await mail?.close();
+  await issuer?.close();
+  const client = new MongoClient(mongoUri);
+  await client.connect();
+  for (const database of Object.values(databases)) await client.db(database).dropDatabase();
+  await client.close();
+});
+
+describe('signing in across root, an instance and the hub, each its own process', () => {
+  it('root offers only the providers it is configured for, refuses a sign-up through one with no invite, makes the account with an invite and finds it again by its subject', async () => {
+    const person = { sub: `provider-${STAMP}`, email: `provider-${STAMP}@across.test`, email_verified: true };
+    const offered = (await call(`${root.url}/api/auth/sign-in`)).body as { providers: { id: string; label: string }[] };
+    expect(offered.providers.find((provider) => provider.id === 'oidc')).toEqual({ id: 'oidc', label: 'Stand-in' });
+    expect(offered.providers.some((provider) => provider.id === 'github')).toBe(false);
+    expect((await call(`${root.url}/api/auth/provider/github`)).status).toBe(404);
+    const throughProvider = async (invite?: string): Promise<{ session?: string | undefined; landed: string }> => {
+      const started = await fetch(`${root.url}/api/auth/provider/oidc${invite ? `?invite=${encodeURIComponent(invite)}` : ''}`, { redirect: 'manual' });
+      expect(started.status).toBe(302);
+      const sentTo = new URL(started.headers.get('location')!);
+      expect(sentTo.origin).toBe(issuer.issuer);
+      expect(sentTo.searchParams.get('code_challenge_method')).toBe('S256');
+      expect(sentTo.searchParams.get('nonce') && sentTo.searchParams.get('state')).toBeTruthy();
+      const stateCookie = started.headers.getSetCookie().map((line) => line.split(';')[0]!).find((pair) => /^(__Host-)?oauth_state=/.test(pair))!;
+      const back = await issuer.authorize(sentTo.href);
+      expect(`${back.origin}${back.pathname}`).toBe(providerCallbackUrl(root.url, 'oidc'));
+      const finished = await fetch(back, { redirect: 'manual', headers: { cookie: stateCookie } });
+      expect(finished.status).toBe(302);
+      return { session: sessionFrom(finished.headers.getSetCookie()), landed: finished.headers.get('location') ?? '' };
+    };
+    issuer.signInAs(person);
+    const uninvited = await throughProvider();
+    expect(uninvited.session).toBeUndefined();
+    expect(new URL(uninvited.landed).searchParams.get('authError')).toMatch(/invite code is required/);
+    const invite = await call(`${root.url}/api/admin/invites`, { method: 'POST', body: {}, cookie: owner.cookie });
+    const invited = await throughProvider((invite.body as { code: string }).code);
+    expect(invited.session).toBeTruthy();
+    const madeAccount = (await call(`${root.url}/api/auth/me`, { cookie: invited.session })).body as { id: string; email: string; emailVerified: boolean };
+    expect(madeAccount).toMatchObject({ email: person.email, emailVerified: true });
+    issuer.signInAs({ ...person, email: `renamed-${person.email}`, email_verified: false });
+    const again = await throughProvider();
+    expect(((await call(`${root.url}/api/auth/me`, { cookie: again.session })).body as { id: string }).id).toBe(madeAccount.id);
+  });
+
+  it('each answers at its own address, root holds no one\'s work, and the instance starts a sign-in through root', async () => {
+    for (const url of [root.url, instance.url, hub.url]) expect((await call(`${url}/api/auth/sign-in`)).status).toBe(200);
+    expect(((await call(`${instance.url}/api/auth/sign-in`)).body as { url: string }).url).toBe('/api/auth/oidc/start');
+    expect((await call(`${instance.url}/api/conversations`)).status).toBe(401);
+    expect(((await call(`${root.url}/api/auth/me`, { cookie: owner.cookie })).body as { id?: string }).id).toBe(owner.id);
+    expect((await call(`${root.url}/api/identity/instance`, { cookie: owner.cookie })).body).toEqual({ instance: { id: instanceId, url: instance.url }, servesTenants: false });
+    for (const path of ['/api/conversations', '/api/infrastructure', '/api/projects']) expect((await call(`${root.url}${path}`, { cookie: owner.cookie })).status).toBe(404);
+  });
+
+  let session = '';
+  let hubSession = '';
+
+  it('root signs the owner in to the instance by code, PKCE and state, once and only in the browser that started it; the instance makes no accounts', async () => {
+    await until(async () => ((await call(`${root.url}/api/identity/go`, { cookie: owner.cookie })).location === `${instance.url}/api/auth/oidc/start` ? true : undefined));
+    const atInstance = fetchSide(instance.url);
+    const signedIn = await signedInThrough(fetchSide(root.url, owner.cookie), atInstance, '/api/identity/go');
+    expect((await atInstance(signedIn.callback, { cookie: signedIn.startCookie })).status).toBe(401);
+    expect((await atInstance(signedIn.callback)).status).toBe(400);
+    session = signedIn.session;
+    expect((await call(`${instance.url}/api/conversations`, { cookie: session })).status).toBe(200);
+    const me = (await call(`${instance.url}/api/auth/me`, { cookie: session })).body as { id: string; permissions?: Record<string, boolean> };
+    expect(me.id).toBe(owner.id);
+    expect(me.permissions?.['change-instance-settings']).toBe(true);
+    for (const path of ['/api/auth/register', '/api/auth/login']) {
+      expect((await call(`${instance.url}${path}`, { method: 'POST', body: {} })).status).toBe(401);
+      expect((await call(`${instance.url}${path}`, { method: 'POST', body: {}, cookie: session })).status).toBe(404);
+    }
+  });
+
+  it('someone else with a root account is sent nowhere by root and stopped at the instance\'s door', async () => {
+    const invite = await call(`${root.url}/api/admin/invites`, { method: 'POST', body: {}, cookie: owner.cookie });
+    const strangerEmail = `stranger-${STAMP}@across.test`;
+    const asked = await call(`${root.url}/api/auth/register`, { method: 'POST', body: { email: strangerEmail, password: `pw-${STAMP}-stranger-long`, inviteCode: (invite.body as { code: string }).code } });
+    expect(asked.status, JSON.stringify(asked.body)).toBe(200);
+    const codeMail = await until(async () => mail.received.find((message) => message.to.includes(strangerEmail) && /sign-up code/i.test(mail.subjectOf(message) ?? '')));
+    const code = /\b(\d{6})\b/.exec(codeMail.data)?.[1];
+    const verified = await fetch(`${root.url}/api/auth/register/verify`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: (asked.body as { verify: string }).verify, code }) });
+    expect(verified.status, await verified.clone().text()).toBe(200);
+    const strangerCookie = sessionFrom(verified.headers.getSetCookie())!;
+    expect(strangerCookie).toBeTruthy();
+    expect((await call(`${root.url}/api/identity/go`, { cookie: strangerCookie })).status).toBe(404);
+    const atTheDoor = await followSignIn(fetchSide(root.url, strangerCookie), fetchSide(instance.url), new URL(`${instance.url}/api/auth/oidc/start`)).catch((err: Error) => err);
+    if (atTheDoor instanceof Error) expect(atTheDoor.message).toMatch(/root stopped the sign-in/);
+    else expect(sessionFrom(atTheDoor.exchange.setCookies)).toBeUndefined();
+  });
+
+  it('the instance has root send its mail with a service token, and root refuses a wrong credential', async () => {
+    const sent = await call(`${instance.url}/api/notifications/test-email`, { method: 'POST', body: {}, cookie: session });
+    expect(sent.status, JSON.stringify(sent.body)).toBe(200);
+    await until(async () => (mail.received.some((message) => message.to.includes(owner.email)) ? true : undefined));
+    const forged = await call(`${root.url}/api/instances/mail`, { method: 'POST', body: { subject: 'x', text: 'x' }, headers: { 'X-Instance-Id': instanceId, Authorization: 'Bearer not-it' } });
+    expect(forged.status).toBe(401);
+  });
+
+  it('the hub signs the owner in through root too', async () => {
+    hubSession = (await signedInThrough(fetchSide(root.url, owner.cookie), fetchSide(hub.url), '/api/identity/go?to=hub')).session;
+    const hubMe = await call(`${hub.url}/api/auth/me`, { cookie: hubSession });
+    expect(hubMe.status).toBe(200);
+    expect((hubMe.body as { onHub?: boolean }).onHub).toBe(true);
+  });
+
+  it('root emails the owner once its instance has been gone a minute and once it is back; root gone shows on the instance and clears', async () => {
+    onTestFailed(() => console.log(`mail: ${mail.received.map((message) => mail.subjectOf(message)).join(' | ')}\n── root ──\n${root.logs(80)}\n── instance ──\n${instance.logs(40)}`));
+    const rootSeen = async () => ((await call(`${instance.url}/api/infrastructure`, { cookie: session })).body as { root?: { down: boolean; reachable: boolean } }).root;
+    await until(async () => ((await rootSeen())?.reachable ? true : undefined));
+    await instance.stop();
+    const down = await mailTo(new RegExp(`Your instance .*\\(${instanceId}\\) has not answered for \\d+ minutes`));
+    expect(down.to).toEqual([owner.email]);
+    await instance.start();
+    await mailTo(new RegExp(`Your instance .*\\(${instanceId}\\) answers again`));
+    await until(async () => ((await rootSeen())?.reachable ? true : undefined));
+    await root.stop();
+    await until(async () => ((await rootSeen())?.down ? true : undefined));
+    await root.start();
+    await until(async () => ((await rootSeen())?.reachable ? true : undefined));
+  });
+
+  it('signing out everywhere on root ends the instance\'s and the hub\'s sessions at once, and revokes a run\'s grant', async () => {
+    const run = await call(`${instance.url}/api/engine/runs`, { method: 'POST', body: { agent: 'koala', message: 'hello from the sign-in test' }, cookie: session });
+    expect(run.status, JSON.stringify(run.body)).toBe(201);
+    const runId = (run.body as { runId: string }).runId;
+    const client = new MongoClient(`${mongoUri}${databases.instance}`);
+    await client.connect();
+    const grantOf = async () => client.db(databases.instance).collection('runGrants').findOne({ runId }) as Promise<{ state: string; personId: string; revokedBecause?: string } | null>;
+    try {
+      await until(async () => ((await grantOf())?.state === 'live' ? true : undefined));
+      expect((await grantOf())?.personId).toBe(owner.id);
+      expect((await call(`${root.url}/api/auth/sessions/end-others`, { method: 'POST', body: {}, cookie: owner.cookie })).status).toBe(200);
+      await until(async () => ((await call(`${instance.url}/api/auth/me`, { cookie: session })).status === 401 ? true : undefined));
+      await until(async () => ((await call(`${hub.url}/api/auth/me`, { cookie: hubSession })).status === 401 ? true : undefined));
+      await until(async () => ((await grantOf())?.state === 'revoked' ? true : undefined));
+      expect((await grantOf())?.revokedBecause).toBe('signed-out-everywhere');
+    } finally {
+      await client.close();
+    }
+  });
+}, 300_000);

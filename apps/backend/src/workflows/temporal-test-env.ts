@@ -16,7 +16,7 @@ declare module 'vitest' {
 export const TEST_NAMESPACES = 64;
 export const testNamespace = (index: number): string => `koala-test-${index}`;
 
-function claimNamespace(claims: string): string {
+export function claimNamespaceFor(claims: string): string {
   for (let index = 1; index <= TEST_NAMESPACES; index += 1) {
     try {
       mkdirSync(join(claims, String(index)));
@@ -31,7 +31,7 @@ function claimNamespace(claims: string): string {
 export function temporalTestEnvironment(): Promise<TestWorkflowEnvironment> {
   const address = inject('temporalAddress');
   if (!address) return TestWorkflowEnvironment.createLocal({ server: { searchAttributes: [OWNER_ATTRIBUTE] } });
-  return TestWorkflowEnvironment.createFromExistingServer({ address, namespace: claimNamespace(inject('temporalClaims')) });
+  return TestWorkflowEnvironment.createFromExistingServer({ address, namespace: claimNamespaceFor(inject('temporalClaims')) });
 }
 
 export async function timeSkippingTestEnvironment(): Promise<TestWorkflowEnvironment> {

@@ -47,7 +47,7 @@ export function scopedTo(prometheus: PrometheusClient, cluster: string): Prometh
   };
 }
 
-const onMachine = (cluster: Pick<ClusterMetadata, 'provider'>) => cluster.provider === 'machine';
+const onMachine = (cluster: Pick<ClusterMetadata, 'provider' | 'isSystem'>) => cluster.provider === 'machine' && !cluster.isSystem;
 
 export interface MetricsClient {
   ask(ask: MonitoringAsk): Promise<Sample[]>;

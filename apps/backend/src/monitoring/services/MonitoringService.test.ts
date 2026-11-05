@@ -495,3 +495,15 @@ describe('the system cluster\'s Prometheus taking what machines send', () => {
     expect(helm.length).toBe(asked);
   });
 });
+
+describe('Koala\'s own cluster when Koala runs on a machine', () => {
+  const onOwn = (query: string | undefined, value: number) => prom.set(query, value);
+  const own = { id: 'machine-home', name: 'home', provider: 'machine', status: 'healthy', machineId: 'home', isSystem: true } as ClusterMetadata;
+
+  it('keeps its own history and reads its own series, never sending itself to itself', async () => {
+    monitoring = new MonitoringService({ ...deps(), systemCluster: async () => own, prometheus: async () => prom.client });
+    expect(await monitoring.historyOf(ME, own)).toMatchObject({ days: 10, kept: 10 });
+    onOwn(clusterQuery('nodes'), 2);
+    expect((await monitoring.clusterHealth(ME, own.id, '1h')).cluster.numbers.nodes).toBe(2);
+  });
+});
