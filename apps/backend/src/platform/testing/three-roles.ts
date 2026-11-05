@@ -11,25 +11,68 @@ import { claimNamespaceFor } from '../../workflows/temporal-test-env.js';
 import { fetchSide, handOff, sessionFrom, signedInLanding } from './handoff.js';
 import { freePort, startRole, type LoopbackRole } from './roles-on-loopback.js';
 import { smtpSink, type SmtpSink } from './smtp-sink.js';
+import { startGiteaStandIn, type GiteaStandIn } from '../../projects/testing/gitea-stand-in.js';
+import { startHeadscaleStandIn, type HeadscaleStandIn } from '../../infrastructure/testing/headscale-stand-in.js';
+
+export interface Person { id: string; email: string; password: string; cookie: string }
 
 export interface ThreeRoles {
   root: LoopbackRole;
   instance: LoopbackRole;
   hub: LoopbackRole;
   mail: SmtpSink;
-  owner: { id: string; email: string; cookie: string };
+  owner: Person;
+  operator: Person;
+  gitea: GiteaStandIn | undefined;
+  headscale: HeadscaleStandIn | undefined;
+  workers: Record<string, LoopbackRole>;
   instanceId: string;
   instanceCredential: string;
   databases: { root: string; instance: string; hub: string };
   mongoUri: string;
   ownerOnInstance(): Promise<string>;
   ownerOnHub(): Promise<string>;
+  signUp(email: string, inviteCode: string): Promise<Person>;
+  onHub(rootCookie: string, next?: string): Promise<string>;
   close(): Promise<void>;
 }
 
 export interface ThreeRolesOptions {
   rootEnv?: ((rootUrl: string) => Promise<Record<string, string>>) | undefined;
   extra?: Record<string, string> | undefined;
+  gitea?: boolean | undefined;
+  ownerInvited?: boolean | undefined;
+  rootWorkers?: readonly WorkerName[] | undefined;
+  instanceWorkers?: readonly WorkerName[] | undefined;
+}
+
+export type WorkerName = 'host' | 'engine' | 'cluster';
+
+const sessionOf = (headers: Headers): string | undefined =>
+  headers.getSetCookie().map((line) => line.split(';')[0]!).find((pair) => /^(__Host-)?session=./.test(pair));
+
+async function signUpWith(rootUrl: string, mail: SmtpSink, email: string, inviteCode: string): Promise<Person> {
+  const password = randomBytes(18).toString('base64url');
+  const post = (path: string, body: unknown) => fetch(`${rootUrl}/api${path}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  const asked = await post('/auth/register', { email, password, inviteCode });
+  const said = await asked.json() as { verify?: string; user?: { id: string }; error?: string };
+  if (!asked.ok) throw new Error(`${email} could not sign up on root: ${asked.status} ${JSON.stringify(said)}`);
+  if (said.verify) {
+    const sent = await until(async () => mail.received.find((message) => message.to.includes(email) && /sign-up code/i.test(mail.subjectOf(message) ?? '')));
+    const code = /\b(\d{6})\b/.exec(sent.data)?.[1];
+    const verified = await post('/auth/register/verify', { id: said.verify, code });
+    if (!verified.ok) throw new Error(`${email} could not confirm the sign-up: ${verified.status} ${await verified.text()}`);
+  }
+  const login = await post('/auth/login', { email, password });
+  const cookie = sessionOf(login.headers);
+  if (!login.ok || !cookie) throw new Error(`${email} could not sign in on root: ${login.status}`);
+  return { id: ((await login.json()) as { user: { id: string } }).user.id, email, password, cookie };
+}
+
+const WORKER_ENTRY: Record<WorkerName, string> = { host: 'src/worker-host.ts', engine: 'src/worker-engine.ts', cluster: 'src/worker-cluster.ts' };
+
+async function workerEnv(): Promise<Record<string, string>> {
+  return { TEMPORAL_METRICS_PORT: String(await freePort()), TEMPORAL_ENGINE_METRICS_PORT: String(await freePort()) };
 }
 
 export async function until<T>(look: () => Promise<T | undefined>): Promise<T> {
@@ -80,39 +123,59 @@ export async function startThreeRoles(label: string, options: ThreeRolesOptions 
     ...(options.extra ?? {}),
   };
   const started: LoopbackRole[] = [];
+  const gitea = options.gitea ? await startGiteaStandIn() : undefined;
+  const headscale = options.rootWorkers?.includes('host') ? await startHeadscaleStandIn() : undefined;
   const close = async () => {
     await Promise.all(started.map((role) => role.close()));
     await mail.close();
+    await gitea?.close();
+    await headscale?.close();
     const client = new MongoClient(mongoUri);
     await client.connect();
     for (const database of Object.values(databases)) await client.db(database).dropDatabase();
     await client.close();
   };
+  const giteaFor = (url: string) => (gitea ? { GITEA_URL: gitea.url, GITEA_REACHES_KOALA_AT: url } : {});
+  const giteaFiles = gitea ? { files: { 'data/.gitea-admin-password': gitea.adminPassword } } : {};
   try {
-    const root = await startRole('root', {
+    const rootEnv = {
       ...draft({ id: 'pending', email: 'pending@three.test' }).rootEnv, ...shared, ADMIN_SETUP_CODE: setupCode,
+      ...(headscale ? { HEADSCALE_URL: headscale.url, HEADSCALE_API_KEY: headscale.apiKey } : {}),
       ...(options.rootEnv ? await options.rootEnv(place.rootUrl) : {}),
-    }, ports.root);
+    };
+    const root = await startRole('root', rootEnv, ports.root);
     started.push(root);
-    const email = `owner-${stamp}@three.test`.replace(/_/g, '-');
-    const password = randomBytes(18).toString('base64url');
-    const post = (path: string, body: unknown) => fetch(`${root.url}/api${path}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
-    const made = await post('/auth/register', { email, password, inviteCode: setupCode });
-    if (!made.ok) throw new Error(`the owner could not sign up on root: ${made.status} ${await made.text()}`);
-    const login = await post('/auth/login', { email, password });
-    const cookie = login.headers.getSetCookie().map((line) => line.split(';')[0]!).find((pair) => /^(__Host-)?session=/.test(pair));
-    if (!cookie) throw new Error('signing in on root set no session cookie');
-    const owner = { id: ((await login.json()) as { user: { id: string } }).user.id, email, cookie };
+    const workers: Record<string, LoopbackRole> = {};
+    for (const name of options.rootWorkers ?? []) {
+      const worker = await startRole(`root-${name}`, { ...rootEnv, ...await workerEnv() }, undefined, { entry: WORKER_ENTRY[name] });
+      started.push(worker);
+      workers[`root-${name}`] = worker;
+    }
+    const emailOf = (who: string) => `${who}-${stamp}@three.test`.replace(/_/g, '-');
+    const operator = await signUpWith(root.url, mail, emailOf(options.ownerInvited ? 'operator' : 'owner'), setupCode);
+    const ownerInvite = async () => {
+      const made = await fetch(`${root.url}/api/admin/invites`, { method: 'POST', headers: { 'content-type': 'application/json', Cookie: operator.cookie }, body: '{}' });
+      if (!made.ok) throw new Error(`the operator could not make an invite: ${made.status} ${await made.text()}`);
+      return ((await made.json()) as { code: string }).code;
+    };
+    const owner = options.ownerInvited ? await signUpWith(root.url, mail, emailOf('owner'), await ownerInvite()) : operator;
+    const cookie = owner.cookie;
     const plan = draft(owner);
     const rootDb = createDatabase({ ...process.env, MONGO_URI: `${mongoUri}${databases.root}` });
     await rootDb.init();
     await rootDb.instances.saveInstance(plan.instance);
     await rootDb.close?.();
+    const instanceEnv = { ...plan.instanceEnv, ...shared, MONGO_URI: `${mongoUri}${databases.instance}`, ...giteaFor(place.instanceUrl) };
     const [instance, hub] = await Promise.all([
-      startRole('instance', { ...plan.instanceEnv, ...shared, MONGO_URI: `${mongoUri}${databases.instance}` }, ports.instance),
-      startRole('hub', { ...plan.hubEnv, ...shared }, ports.hub),
+      startRole('instance', instanceEnv, ports.instance, giteaFiles),
+      startRole('hub', { ...plan.hubEnv, ...shared, ...giteaFor(place.hubUrl) }, ports.hub, giteaFiles),
     ]);
     started.push(instance, hub);
+    for (const name of options.instanceWorkers ?? []) {
+      const worker = await startRole(`instance-${name}`, { ...instanceEnv, ...await workerEnv() }, undefined, { entry: WORKER_ENTRY[name], ...giteaFiles });
+      started.push(worker);
+      workers[`instance-${name}`] = worker;
+    }
     const goes = async (query: string, to: string) => {
       const answer = await fetch(`${root.url}/api/identity/go${query}`, { redirect: 'manual', headers: { Cookie: cookie } });
       return answer.headers.get('location') === to ? true : undefined;
@@ -120,13 +183,34 @@ export async function startThreeRoles(label: string, options: ThreeRolesOptions 
     await until(() => goes('?to=hub', `${hub.url}/api/auth/oidc/start`));
     await until(() => goes('', `${instance.url}/api/auth/oidc/start`));
     return {
-      root, instance, hub, mail, owner, instanceId: plan.instance.id, instanceCredential, databases, mongoUri,
+      root, instance, hub, mail, owner, operator, gitea, headscale, workers, instanceId: plan.instance.id, instanceCredential, databases, mongoUri,
       ownerOnInstance: () => signedIn(root.url, cookie, instance.url, '/api/identity/go'),
       ownerOnHub: () => signedIn(root.url, cookie, hub.url, '/api/identity/go?to=hub'),
+      signUp: (email, inviteCode) => signUpWith(root.url, mail, email, inviteCode),
+      onHub: (rootCookie, next) => signedIn(root.url, rootCookie, hub.url, `/api/identity/go?to=hub${next ? `&next=${encodeURIComponent(next)}` : ''}`),
       close,
     };
   } catch (err) {
     await close().catch(ignore('the start already failed, and that failure is the one thrown'));
     throw err;
   }
+}
+
+export interface Answer<T> { status: number; location: string; body: T }
+
+export async function call<T = Record<string, unknown>>(url: string, init: { method?: string; body?: unknown; cookie?: string | undefined; headers?: Record<string, string> } = {}): Promise<Answer<T>> {
+  const response = await fetch(url, {
+    method: init.method ?? 'GET',
+    redirect: 'manual',
+    headers: { ...(init.body !== undefined ? { 'content-type': 'application/json' } : {}), ...(init.cookie ? { Cookie: init.cookie } : {}), ...(init.headers ?? {}) },
+    ...(init.body !== undefined ? { body: JSON.stringify(init.body) } : {}),
+  });
+  const text = await response.text();
+  let body: unknown = text;
+  try {
+    body = JSON.parse(text) as unknown;
+  } catch (failure) {
+    ignore('an answer that is not JSON is kept as its text')(failure);
+  }
+  return { status: response.status, location: response.headers.get('location') ?? '', body: body as T };
 }

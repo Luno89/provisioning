@@ -1,5 +1,5 @@
 import type { InfrastructureService } from '../../infrastructure/index.js';
-import { webhookUrlFor } from '../lib/project-shipping.js';
+import { webhookUrlAt, webhookUrlFor } from '../lib/project-shipping.js';
 
 function nodeAddress(infra: Pick<InfrastructureService, 'runKubectl'>, kubeconfig: string): () => Promise<string> {
   let nodeIp: Promise<string> | undefined;
@@ -12,7 +12,8 @@ function nodeAddress(infra: Pick<InfrastructureService, 'runKubectl'>, kubeconfi
   };
 }
 
-export function webhookAddress(infra: Pick<InfrastructureService, 'runKubectl'>, kubeconfig: string, port: string | number): (projectId: string) => Promise<string> {
+export function webhookAddress(infra: Pick<InfrastructureService, 'runKubectl'>, kubeconfig: string, port: string | number, giteaReachesKoalaAt?: string | undefined): (projectId: string) => Promise<string> {
+  if (giteaReachesKoalaAt) return async (projectId) => webhookUrlAt(giteaReachesKoalaAt, projectId);
   const node = nodeAddress(infra, kubeconfig);
   return async (projectId) => webhookUrlFor(await node(), port, projectId);
 }

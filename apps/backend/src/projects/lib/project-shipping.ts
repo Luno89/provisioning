@@ -5,6 +5,8 @@ export function webhookUrlFor(nodeIpRaw: string, port: string | number, projectI
   return `http://${ip}:${port}/webhooks/gitea/${projectId}`;
 }
 
+export const webhookUrlAt = (backend: string, projectId: string): string => `${backend.replace(/\/+$/, '')}/webhooks/gitea/${projectId}`;
+
 export function shippingGaps(
   project: Pick<ProjectMetadata, 'webhookSecretEnc' | 'targetClusterId' | 'autoDeployOnBuild'>,
 ): string[] {

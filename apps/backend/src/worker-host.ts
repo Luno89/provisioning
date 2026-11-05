@@ -22,7 +22,7 @@ import { workflowInterceptorModules } from './worker-interceptors.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-dotenv.config({ path: resolve(__dirname, '../.env') });
+dotenv.config({ path: process.env.KOALA_ENV_FILE || resolve(__dirname, '../.env') });
 
 const telemetry = startTelemetry(telemetrySettings(process.env, 'koala-worker-host'));
 telemetry.exportTo(collectorSink({ env: process.env, proxy: sharedClusterProxy(), kubeconfigPath: () => process.env.KUBECONFIG_PATH || SYSTEM_KUBECONFIG }));
@@ -111,7 +111,7 @@ async function main() {
   await worker.run();
 }
 
-main().catch((err: Error) => {
+main().then(() => process.exit(0), (err: Error) => {
   logger.error(`[HostWorker] FATAL: ${err.stack || err.message}`);
   process.exit(1);
 });
