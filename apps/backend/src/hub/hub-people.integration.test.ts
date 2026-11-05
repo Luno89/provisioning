@@ -70,7 +70,7 @@ afterAll(async () => {
 
 describe('the hub\'s people: who is on a shared project, with which role, invited through root and removed', () => {
   beforeEach((context) => {
-    context.onTestFailed(() => console.log(`── root ──\n${roles.root.logs(60)}\n── instance ──\n${roles.instance.logs(60)}\n── hub ──\n${roles.hub.logs(60)}\n── root's host worker ──\n${roles.workers['root-host']?.logs(60)}\n── gitea ──\n${roles.gitea?.unhandled.join('\n')}`));
+    context.onTestFailed(() => console.log(`── root ──\n${roles.root.logs(60)}\n── instance ──\n${roles.instance.logs(60)}\n── hub ──\n${roles.hub.logs(60)}\n── root's host worker ──\n${roles.workers['root-host']?.logs(60)}\n── gitea ──\n${roles.gitea?.logs()}`));
   });
 
   it('the owner makes two projects with repositories on their instance and shares both; the hub\'s repository holds each project\'s main, and the hub makes no project no instance shared', async () => {
@@ -248,6 +248,5 @@ describe('the hub\'s people: who is on a shared project, with which role, invite
     } finally {
       await client.close();
     }
-    expect(roles.gitea!.unhandled).toEqual([]);
   });
 }, 300_000);

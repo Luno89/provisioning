@@ -11,8 +11,10 @@ import { claimNamespaceFor } from '../../workflows/temporal-test-env.js';
 import { fetchSide, handOff, sessionFrom, signedInLanding } from './handoff.js';
 import { freePort, startRole, type LoopbackRole } from './roles-on-loopback.js';
 import { smtpSink, type SmtpSink } from './smtp-sink.js';
-import { startGiteaStandIn, type GiteaStandIn } from '../../projects/testing/gitea-stand-in.js';
+import { startRealGitea } from '../../projects/testing/real-gitea.js';
 import { startHeadscaleStandIn, type HeadscaleStandIn } from '../../infrastructure/testing/headscale-stand-in.js';
+
+export interface TestGitea { url: string; adminPassword: string; logs(): string; close(): Promise<void> }
 
 export interface Person { id: string; email: string; password: string; cookie: string }
 
@@ -23,7 +25,7 @@ export interface ThreeRoles {
   mail: SmtpSink;
   owner: Person;
   operator: Person;
-  gitea: GiteaStandIn | undefined;
+  gitea: TestGitea | undefined;
   headscale: HeadscaleStandIn | undefined;
   workers: Record<string, LoopbackRole>;
   instanceId: string;
@@ -123,7 +125,7 @@ export async function startThreeRoles(label: string, options: ThreeRolesOptions 
     ...(options.extra ?? {}),
   };
   const started: LoopbackRole[] = [];
-  const gitea = options.gitea ? await startGiteaStandIn() : undefined;
+  const gitea: TestGitea | undefined = options.gitea ? await startRealGitea() : undefined;
   const headscale = options.rootWorkers?.includes('host') ? await startHeadscaleStandIn() : undefined;
   const close = async () => {
     await Promise.all(started.map((role) => role.close()));

@@ -12,7 +12,9 @@ const run = promisify(execFile);
 const ADMIN = 'provisioning-bot';
 const HEADER_END = Buffer.from('\r\n\r\n');
 
-interface Account { login: string; password: string; email: string; admin: boolean; org: boolean; visibility: string; tokens: Map<string, string> }
+interface Token { sha1: string; scopes: string[] }
+interface Account { id: number; login: string; password: string; email: string; admin: boolean; org: boolean; visibility: string; tokens: Map<string, Token> }
+type Scope = 'admin' | 'organization' | 'user' | 'repository' | 'package';
 interface Hook { id: number; url: string; secret: string }
 interface Repo { owner: string; name: string; hooks: Hook[]; writers: Set<string> }
 
@@ -23,12 +25,19 @@ export interface GiteaStandIn {
   adminPassword: string;
   unhandled: string[];
   deliveries: Delivery[];
+  logs(): string;
   close(): Promise<void>;
 }
 
 type Answer = { status: number; body?: unknown; text?: string };
 
 const keyOf = (owner: string, name: string): string => `${owner.toLowerCase()}/${name.toLowerCase()}`;
+
+const allows = (scopes: readonly string[] | undefined, scope: Scope, writing: boolean): boolean =>
+  scopes === undefined || scopes.includes('all') || scopes.includes(`write:${scope}`) || (!writing && scopes.includes(`read:${scope}`));
+
+const scopeOf = (first: string | undefined): Scope | undefined =>
+  first === 'admin' ? 'admin' : first === 'orgs' ? 'organization' : first === 'user' || first === 'users' ? 'user' : first === 'repos' ? 'repository' : undefined;
 
 async function git(bare: string, args: readonly string[], options: { input?: Buffer | string; env?: NodeJS.ProcessEnv } = {}): Promise<string> {
   return new Promise((done, fail) => {
@@ -65,21 +74,39 @@ export async function startGiteaStandIn(): Promise<GiteaStandIn> {
   const unhandled: string[] = [];
   const deliveries: Delivery[] = [];
   let hookIds = 0;
+  let accountIds = 1;
   let baseUrl = '';
-  accounts.set(ADMIN, { login: ADMIN, password: adminPassword, email: 'bot@stand-in.test', admin: true, org: false, visibility: 'public', tokens: new Map() });
+  accounts.set(ADMIN, { id: accountIds, login: ADMIN, password: adminPassword, email: 'bot@stand-in.test', admin: true, org: false, visibility: 'private', tokens: new Map() });
+  const newAccount = (account: Omit<Account, 'id' | 'tokens'>): Account => {
+    accountIds += 1;
+    const made = { ...account, id: accountIds, tokens: new Map<string, Token>() };
+    accounts.set(made.login, made);
+    return made;
+  };
 
   const bareOf = (repo: Pick<Repo, 'owner' | 'name'>): string => path.join(root, repo.owner.toLowerCase(), `${repo.name.toLowerCase()}.git`);
 
-  const whoIs = (header: string | undefined): Account | undefined => {
+  interface Caller { account: Account; scopes: string[] | undefined; by: 'password' | 'token' }
+
+  const byToken = (secret: string): Caller | undefined => {
+    for (const account of accounts.values()) {
+      const token = [...account.tokens.values()].find((entry) => entry.sha1 === secret);
+      if (token) return { account, scopes: token.scopes, by: 'token' };
+    }
+    return undefined;
+  };
+
+  const whoIs = (header: string | undefined): Caller | undefined => {
     if (!header) return undefined;
     const [scheme, value = ''] = header.split(' ');
-    if (scheme?.toLowerCase() === 'token') return [...accounts.values()].find((account) => [...account.tokens.values()].includes(value));
+    if (scheme?.toLowerCase() === 'token') return byToken(value);
     if (scheme?.toLowerCase() !== 'basic') return undefined;
     const decoded = Buffer.from(value, 'base64').toString('utf8');
     const at = decoded.indexOf(':');
     const account = accounts.get(decoded.slice(0, at).toLowerCase());
     const secret = decoded.slice(at + 1);
-    return account && !account.org && (account.password === secret || [...account.tokens.values()].includes(secret)) ? account : undefined;
+    if (account && !account.org && account.password === secret) return { account, scopes: undefined, by: 'password' };
+    return byToken(secret);
   };
 
   const reaches = (who: Account, repo: Repo): boolean => who.admin || who.login === repo.owner.toLowerCase() || repo.writers.has(who.login);
@@ -89,12 +116,23 @@ export async function startGiteaStandIn(): Promise<GiteaStandIn> {
     return new Map(listed.split('\n').filter(Boolean).map((line) => line.split(' ') as [string, string]));
   };
 
+  const messageOf = async (repo: Repo, id: string): Promise<string> => {
+    const raw = await git(bareOf(repo), ['cat-file', 'commit', id]);
+    return raw.slice(raw.indexOf('\n\n') + 2);
+  };
+
+  const authorEnv = (login: string): NodeJS.ProcessEnv => {
+    const account = accounts.get(login.toLowerCase());
+    const email = account?.email || `${login}@noreply.localhost`;
+    return { GIT_AUTHOR_NAME: login, GIT_AUTHOR_EMAIL: email, GIT_COMMITTER_NAME: login, GIT_COMMITTER_EMAIL: email };
+  };
+
   const commitsBetween = async (repo: Repo, before: string | undefined, after: string) => {
     const range = before ? [`${before}..${after}`] : [after];
     const ids = (await git(bareOf(repo), ['rev-list', '--reverse', ...range])).split('\n').filter(Boolean);
     return Promise.all(ids.map(async (id) => {
       const changes = (await git(bareOf(repo), ['diff-tree', '--root', '--no-commit-id', '--name-status', '-r', id])).split('\n').filter(Boolean).map((line) => line.split('\t') as [string, string]);
-      const message = await git(bareOf(repo), ['log', '-1', '--format=%B', id]);
+      const message = await messageOf(repo, id);
       return {
         id, message,
         added: changes.filter(([kind]) => kind === 'A').map(([, file]) => file),
@@ -123,14 +161,14 @@ export async function startGiteaStandIn(): Promise<GiteaStandIn> {
     }
   };
 
-  const makeRepo = async (owner: string, name: string, autoInit: boolean, by: string): Promise<Answer> => {
+  const makeRepo = async (owner: string, name: string, autoInit: boolean, by: string, description = ''): Promise<Answer> => {
     const key = keyOf(owner, name);
     if (repos.has(key)) return { status: 409, body: { message: 'The repository with the same name already exists.' } };
     const repo: Repo = { owner: owner.toLowerCase(), name: name.toLowerCase(), hooks: [], writers: new Set() };
     await fs.mkdir(path.dirname(bareOf(repo)), { recursive: true });
     await run('git', ['init', '--bare', '--quiet', '--initial-branch=main', bareOf(repo)]);
     repos.set(key, repo);
-    if (autoInit) await commitFiles(repo, 'main', [{ path: 'README.md', content: Buffer.from(`# ${name}\n`) }], 'Initial commit', by, false);
+    if (autoInit) await commitFiles(repo, 'main', [{ path: 'README.md', content: Buffer.from(`# ${name}\n\n${description}`) }], 'Initial commit', by, false);
     return { status: 201, body: repoView(repo) };
   };
 
@@ -148,14 +186,14 @@ export async function startGiteaStandIn(): Promise<GiteaStandIn> {
     try {
       await git(bare, parent ? ['read-tree', parent] : ['read-tree', '--empty'], { env });
       for (const change of changes) {
-        if (change.content === undefined) await git(bare, ['update-index', '--force-remove', change.path], { env });
+        if (change.content === undefined) await git(bare, ['update-index', '-z', '--index-info'], { env, input: `0 ${'0'.repeat(40)}\t${change.path}\0` });
         else {
           const blob = (await git(bare, ['hash-object', '-w', '--stdin'], { input: change.content })).trim();
           await git(bare, ['update-index', '--add', '--cacheinfo', `100644,${blob},${change.path}`], { env });
         }
       }
       const tree = (await git(bare, ['write-tree'], { env })).trim();
-      const commit = (await git(bare, ['commit-tree', tree, ...(parent ? ['-p', parent] : []), '-m', message])).trim();
+      const commit = (await git(bare, ['commit-tree', tree, ...(parent ? ['-p', parent] : []), '-m', message], { env: authorEnv(by) })).trim();
       await git(bare, ['update-ref', `refs/heads/${branch}`, commit, ...(parent ? [parent] : [])]);
       if (tell) await deliver(repo, before, by);
       return commit;
@@ -171,60 +209,79 @@ export async function startGiteaStandIn(): Promise<GiteaStandIn> {
     return { sha, type: (await git(bareOf(repo), ['cat-file', '-t', sha])).trim() };
   };
 
-  const entryOf = (file: string, type: string, sha: string, content?: Buffer) => ({
-    path: file, name: path.posix.basename(file), sha, type: type === 'tree' ? 'dir' : 'file', ...(content ? { size: content.length, content: content.toString('base64'), encoding: 'base64' } : {}),
+  const entryOf = (file: string, type: string, sha: string, size: number, content?: Buffer) => ({
+    path: file, name: path.posix.basename(file), sha, type: type === 'tree' ? 'dir' : 'file', size, ...(content ? { content: content.toString('base64'), encoding: 'base64' } : {}),
   });
+
+  const treeEntries = async (repo: Repo, args: string[]): Promise<{ path: string; type: string; sha: string; size: number }[]> => {
+    const listed = await git(bareOf(repo), ['ls-tree', '-l', ...args]);
+    return listed.split('\n').filter(Boolean).map((line) => {
+      const [meta = '', file = ''] = line.split('\t');
+      const [, type = 'blob', sha = '', size = '-'] = meta.split(/\s+/);
+      return { path: file, type, sha, size: size === '-' ? 0 : Number(size) };
+    });
+  };
 
   const contents = async (repo: Repo, file: string, ref: string): Promise<Answer> => {
     if (!(await heads(repo)).size) return { status: 404, body: { message: 'the repository is empty' } };
     const found = file ? await objectAt(repo, ref, file) : { sha: ref, type: 'tree' };
     if (!found) return { status: 404, body: { message: 'object does not exist' } };
-    if (found.type === 'blob') return { status: 200, body: entryOf(file, 'blob', found.sha, await gitBytes(bareOf(repo), ['cat-file', 'blob', found.sha])) };
-    const listed = await git(bareOf(repo), ['ls-tree', file ? `${ref}:${file}` : ref]);
-    return { status: 200, body: listed.split('\n').filter(Boolean).map((line) => {
-      const [meta = '', name = ''] = line.split('\t');
-      const [, type = 'blob', sha = ''] = meta.split(' ');
-      return entryOf(file ? `${file}/${name}` : name, type, sha);
-    }) };
+    if (found.type === 'blob') {
+      const content = await gitBytes(bareOf(repo), ['cat-file', 'blob', found.sha]);
+      return { status: 200, body: entryOf(file, 'blob', found.sha, content.length, content) };
+    }
+    const listed = await treeEntries(repo, [file ? `${ref}:${file}` : ref]);
+    return { status: 200, body: listed.map((entry) => entryOf(file ? `${file}/${entry.path}` : entry.path, entry.type, entry.sha, entry.size)) };
   };
 
-  const api = async (method: string, route: string, query: URLSearchParams, body: Buffer, who: Account | undefined): Promise<Answer | undefined> => {
+  const api = async (method: string, route: string, query: URLSearchParams, body: Buffer, caller: Caller | undefined, signed: boolean): Promise<Answer | undefined> => {
     const json = (): Record<string, unknown> => (body.length ? JSON.parse(body.toString('utf8')) as Record<string, unknown> : {});
     const parts = route.split('/').filter(Boolean).map(decodeURIComponent);
     const [first, second, third, fourth] = parts;
+    const descriptionOf = (given: Record<string, unknown>): string => (typeof given.description === 'string' ? given.description : '');
+    if (!signed) return { status: 403, body: { message: 'Only signed in user is allowed to call APIs.' } };
+    if (!caller) return { status: 401, body: { message: 'user does not exist' } };
+    const who = caller.account;
+    if (first === 'users' && third === 'tokens' && caller.by !== 'password') return { status: 403, body: { message: 'auth method not allowed' } };
+    const scope = scopeOf(first);
+    if (scope && !allows(caller.scopes, scope, method !== 'GET')) return { status: 403, body: { message: `token does not have at least one of required scope(s), required=[${method === 'GET' ? 'read' : 'write'}:${scope}]` } };
     if (method === 'POST' && first === 'users' && third === 'tokens' && parts.length === 3) {
-      if (!who || who.login !== second?.toLowerCase()) return { status: 401, body: { message: 'unauthorized' } };
-      const name = String(json().name);
+      if (who.login !== second?.toLowerCase()) return { status: 403, body: { message: 'user should be the owner of the token' } };
+      const given = json();
+      const name = String(given.name);
       if (who.tokens.has(name)) return { status: 400, body: { message: 'access token name has been used already' } };
       const sha1 = crypto.randomBytes(20).toString('hex');
-      who.tokens.set(name, sha1);
-      return { status: 201, body: { name, sha1 } };
+      const scopes = Array.isArray(given.scopes) ? given.scopes.map(String) : [];
+      who.tokens.set(name, { sha1, scopes });
+      return { status: 201, body: { name, sha1, scopes } };
     }
-    if (!who) return { status: 401, body: { message: 'token is required' } };
-    if (method === 'GET' && route === '/user') return { status: 200, body: { login: who.login, is_admin: who.admin } };
+    if (method === 'GET' && route === '/user') return { status: 200, body: { login: who.login, is_admin: who.admin, email: who.email } };
     if (first === 'users' && third === 'tokens') {
-      const owner = accounts.get(second?.toLowerCase() ?? '');
-      if (!owner || (owner !== who && !who.admin)) return { status: 401, body: { message: 'unauthorized' } };
+      if (accounts.get(second?.toLowerCase() ?? '') !== who) return { status: 403, body: { message: 'user should be the owner of the token' } };
       if (method === 'GET' && parts.length === 3) {
         const limit = Number(query.get('limit') ?? 50);
         const page = Number(query.get('page') ?? 1);
-        return { status: 200, body: [...owner.tokens.keys()].slice((page - 1) * limit, page * limit).map((name) => ({ name })) };
+        return { status: 200, body: [...who.tokens.entries()].slice((page - 1) * limit, page * limit).map(([name, token]) => ({ name, scopes: token.scopes })) };
       }
-      if (method === 'DELETE' && fourth) return owner.tokens.delete(fourth) ? { status: 204 } : { status: 404, body: { message: 'token not found' } };
+      if (method === 'DELETE' && fourth) return who.tokens.delete(fourth) ? { status: 204 } : { status: 404, body: { message: 'token not found' } };
     }
-    if (method === 'GET' && first === 'users' && parts.length === 2) return accounts.has(second!.toLowerCase()) ? { status: 200, body: { login: second } } : { status: 404, body: { message: 'user does not exist' } };
+    if (method === 'GET' && first === 'users' && parts.length === 2) {
+      const account = accounts.get(second!.toLowerCase());
+      return account ? { status: 200, body: { login: account.login, email: account.email, full_name: '' } } : { status: 404, body: { message: 'user does not exist' } };
+    }
     if (first === 'admin' && second === 'users') {
       if (!who.admin) return { status: 403, body: { message: 'must be an admin' } };
       if (method === 'GET' && parts.length === 2) {
         const limit = Number(query.get('limit') ?? 50);
         const page = Number(query.get('page') ?? 1);
-        return { status: 200, body: [...accounts.values()].filter((account) => !account.org).slice((page - 1) * limit, page * limit).map((account) => ({ login: account.login, login_name: account.login, source_id: 0, visibility: account.visibility })) };
+        const people = [...accounts.values()].filter((account) => !account.org).sort((a, b) => a.id - b.id);
+        return { status: 200, body: people.slice((page - 1) * limit, page * limit).map((account) => ({ login: account.login, login_name: '', source_id: 0, visibility: account.visibility })) };
       }
       if (method === 'POST' && parts.length === 2) {
         const given = json();
         const login = String(given.username).toLowerCase();
         if (accounts.has(login)) return { status: 422, body: { message: 'user already exists' } };
-        accounts.set(login, { login, password: String(given.password), email: String(given.email), admin: false, org: false, visibility: String(given.visibility ?? 'public'), tokens: new Map() });
+        newAccount({ login, password: String(given.password), email: String(given.email), admin: false, org: false, visibility: String(given.visibility ?? 'private') });
         return { status: 201, body: { login } };
       }
       const account = accounts.get(third?.toLowerCase() ?? '');
@@ -247,31 +304,32 @@ export async function startGiteaStandIn(): Promise<GiteaStandIn> {
       if (method === 'POST' && fourth === 'repos') {
         if (!account) return { status: 404, body: { message: 'user does not exist' } };
         const given = json();
-        return makeRepo(account.login, String(given.name), given.auto_init === true, who.login);
+        return makeRepo(account.login, String(given.name), given.auto_init === true, who.login, descriptionOf(given));
       }
     }
     if (method === 'POST' && first === 'user' && second === 'repos') {
       const given = json();
-      return makeRepo(who.login, String(given.name), given.auto_init === true, who.login);
+      return makeRepo(who.login, String(given.name), given.auto_init === true, who.login, descriptionOf(given));
     }
     if (first === 'orgs') {
       if (method === 'POST' && parts.length === 1) {
-        const login = String(json().username).toLowerCase();
+        const given = json();
+        const login = String(given.username).toLowerCase();
         if (accounts.has(login)) return { status: 422, body: { message: 'user already exists' } };
-        accounts.set(login, { login, password: crypto.randomBytes(18).toString('hex'), email: '', admin: false, org: true, visibility: 'private', tokens: new Map() });
+        newAccount({ login, password: crypto.randomBytes(18).toString('hex'), email: '', admin: false, org: true, visibility: String(given.visibility ?? 'public') });
         return { status: 201, body: { username: login } };
       }
       const org = accounts.get(second?.toLowerCase() ?? '');
       if (!org?.org) return { status: 404, body: { message: 'org does not exist' } };
       if (method === 'GET' && parts.length === 2) return { status: 200, body: { username: org.login } };
       if (method === 'DELETE' && parts.length === 2) {
-        if ([...repos.values()].some((repo) => repo.owner === org.login)) return { status: 422, body: { message: 'org still owns one or more repositories' } };
+        if ([...repos.values()].some((repo) => repo.owner === org.login)) return { status: 500, body: { message: `user still has ownership of repositories [uid: ${org.id}]` } };
         accounts.delete(org.login);
         return { status: 204 };
       }
       if (method === 'POST' && third === 'repos') {
         const given = json();
-        return makeRepo(org.login, String(given.name), given.auto_init === true, who.login);
+        return makeRepo(org.login, String(given.name), given.auto_init === true, who.login, descriptionOf(given));
       }
     }
     if (first === 'repos' && second && third) {
@@ -300,7 +358,7 @@ export async function startGiteaStandIn(): Promise<GiteaStandIn> {
         }
       }
       if (method === 'PUT' && rest[0] === 'collaborators' && rest[1]) {
-        if (!accounts.has(rest[1].toLowerCase())) return { status: 422, body: { message: 'user does not exist' } };
+        if (!accounts.has(rest[1].toLowerCase())) return { status: 422, body: { message: `user does not exist [uid: 0, name: ${rest[1]}]` } };
         repo.writers.add(rest[1].toLowerCase());
         return { status: 204 };
       }
@@ -315,40 +373,37 @@ export async function startGiteaStandIn(): Promise<GiteaStandIn> {
           return { status: 201, body: { commit: { sha } } };
         }
         const current = (await heads(repo)).has(`refs/heads/${branch}`) ? await objectAt(repo, branch, file) : undefined;
-        if (method === 'POST' && current) return { status: 422, body: { message: 'repository file already exists' } };
-        if (method === 'PUT' && current?.sha !== given.sha) return { status: 409, body: { message: 'sha does not match' } };
+        if (method === 'POST' && current) return { status: 422, body: { message: `repository file already exists [path: ${file}]` } };
+        if ((method === 'PUT' || method === 'DELETE') && !current) return { status: 404, body: { message: `object does not exist [id: , rel_path: ${file}]` } };
+        if ((method === 'PUT' || method === 'DELETE') && current?.sha !== given.sha) return { status: 422, body: { message: `sha does not match [given: ${given.sha}, expected: ${current?.sha}]` } };
         if (method === 'DELETE') {
-          if (!current) return { status: 404, body: { message: 'file does not exist' } };
           const sha = await commitFiles(repo, branch, [{ path: file }], given.message ?? `Delete ${file}`, who.login);
           return { status: 200, body: { commit: { sha } } };
         }
         if (method === 'POST' || method === 'PUT') {
-          const sha = await commitFiles(repo, branch, [{ path: file, content: Buffer.from(given.content ?? '', 'base64') }], given.message ?? `Update ${file}`, who.login);
-          return { status: method === 'POST' ? 201 : 200, body: { commit: { sha }, content: entryOf(file, 'blob', (await objectAt(repo, sha, file))!.sha) } };
+          const content = Buffer.from(given.content ?? '', 'base64');
+          const sha = await commitFiles(repo, branch, [{ path: file, content }], given.message ?? `Update ${file}`, who.login);
+          return { status: method === 'POST' ? 201 : 200, body: { commit: { sha }, content: entryOf(file, 'blob', (await objectAt(repo, sha, file))!.sha, content.length) } };
         }
       }
       if (method === 'GET' && rest[0] === 'raw') {
         const file = decodeURIComponent(tail.replace(/^raw\//, ''));
-        if (!(await heads(repo)).size) return { status: 404, text: 'Not found' };
+        if (!(await heads(repo)).size) return { status: 404, body: { message: 'repository is empty' } };
         const found = await objectAt(repo, query.get('ref') ?? 'main', file);
-        if (found?.type !== 'blob') return { status: 404, text: 'Not found' };
+        if (found?.type !== 'blob') return { status: 404, body: { message: 'object does not exist' } };
         return { status: 200, text: (await gitBytes(bareOf(repo), ['cat-file', 'blob', found.sha])).toString('utf8') };
       }
       if (method === 'GET' && rest[0] === 'git' && rest[1] === 'trees' && rest[2]) {
         const ref = rest.slice(2).join('/');
-        const listed = await git(bareOf(repo), ['ls-tree', '-r', ref]).catch(ignore('a ref the repository does not have is answered 404, as Gitea does'));
-        if (listed === undefined) return { status: 404, body: { message: 'sha not found' } };
-        return { status: 200, body: { truncated: false, tree: listed.split('\n').filter(Boolean).map((line) => {
-          const [meta = '', file = ''] = line.split('\t');
-          const [, type = 'blob', sha = ''] = meta.split(' ');
-          return { path: file, type, sha };
-        }) } };
+        const listed = await treeEntries(repo, [...(query.get('recursive') === 'true' ? ['-r', '-t'] : []), ref]).catch(ignore('a ref the repository does not have is answered 400, as Gitea does'));
+        if (listed === undefined) return { status: 400, body: { message: `sha not found [${ref}]` } };
+        return { status: 200, body: { truncated: false, tree: listed } };
       }
       if (method === 'GET' && rest[0] === 'git' && rest[1] === 'commits' && rest[2]) {
-        const shown = await git(bareOf(repo), ['log', '-1', '--format=%an%x00%aI%x00%B', rest[2]]).catch(ignore('a commit the repository does not have is answered 404, as Gitea does'));
+        const shown = await git(bareOf(repo), ['log', '-1', '--format=%an%x00%aI', rest[2]]).catch(ignore('a commit the repository does not have is answered 404, as Gitea does'));
         if (shown === undefined) return { status: 404, body: { message: 'commit not found' } };
-        const [author, date, message] = shown.split('\0');
-        return { status: 200, body: { sha: rest[2], commit: { message, author: { name: author, date } } } };
+        const [author, date] = shown.trim().split('\0');
+        return { status: 200, body: { sha: rest[2], commit: { message: await messageOf(repo, rest[2]), author: { name: author, date } } } };
       }
       if (rest[0] === 'branches' && rest[1]) {
         const branch = rest.slice(1).join('/');
@@ -406,18 +461,24 @@ export async function startGiteaStandIn(): Promise<GiteaStandIn> {
   const server = http.createServer((req, res) => {
     void (async () => {
       const url = new URL(req.url ?? '/', 'http://gitea.test');
-      const who = whoIs(req.headers.authorization);
+      const caller = whoIs(req.headers.authorization);
       const gitPath = /^\/([^/]+)\/([^/]+?)\.git(\/.*)$/.exec(url.pathname);
       if (gitPath) {
         const repo = repos.get(keyOf(decodeURIComponent(gitPath[1]!), decodeURIComponent(gitPath[2]!)));
-        if (!who) { res.writeHead(401, { 'www-authenticate': 'Basic realm="Gitea"' }).end('Unauthorized'); return; }
-        if (!repo || !reaches(who, repo)) { res.writeHead(404).end('Not found'); return; }
-        serveGit(req, res, url, repo, who);
+        if (!caller) { res.writeHead(401, { 'www-authenticate': 'Basic realm="Gitea"' }).end('Unauthorized'); return; }
+        const pushing = url.pathname.endsWith('/git-receive-pack') || url.searchParams.get('service') === 'git-receive-pack';
+        if (!repo || !reaches(caller.account, repo)) { res.writeHead(404).end('Not found'); return; }
+        if (!allows(caller.scopes, 'repository', pushing)) { res.writeHead(403).end('Forbidden'); return; }
+        serveGit(req, res, url, repo, caller.account);
         return;
       }
       const body = await readBody(req);
-      if (url.pathname === '/v2/' || url.pathname === '/v2') { res.writeHead(401).end(); return; }
-      const answer = url.pathname.startsWith('/api/v1/') ? await api(req.method ?? 'GET', url.pathname.slice('/api/v1'.length), url.searchParams, body, who) : undefined;
+      if (url.pathname === '/v2/' || url.pathname === '/v2') {
+        if (caller) res.writeHead(200).end();
+        else res.writeHead(401, { 'content-type': 'application/json' }).end(JSON.stringify({ errors: [{ code: 'UNAUTHORIZED', message: '' }] }));
+        return;
+      }
+      const answer = url.pathname.startsWith('/api/v1/') ? await api(req.method ?? 'GET', url.pathname.slice('/api/v1'.length), url.searchParams, body, caller, req.headers.authorization !== undefined) : undefined;
       if (!answer) {
         unhandled.push(`${req.method} ${url.pathname}`);
         res.writeHead(404, { 'content-type': 'application/json' }).end(JSON.stringify({ message: `the Gitea stand-in has no ${req.method} ${url.pathname}` }));
@@ -439,6 +500,7 @@ export async function startGiteaStandIn(): Promise<GiteaStandIn> {
     adminPassword,
     unhandled,
     deliveries,
+    logs: () => [...unhandled, ...deliveries.map((delivery) => JSON.stringify(delivery))].join('\n'),
     close: async () => {
       server.closeAllConnections();
       await new Promise<void>((done) => server.close(() => done()));
