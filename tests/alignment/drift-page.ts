@@ -1,3 +1,4 @@
+import type { Answer } from './answers.js';
 import type { Decision } from './decisions.js';
 import type { Finding, FindingKind } from './drift.js';
 import type { Flow } from './flow-spec.js';
@@ -8,6 +9,7 @@ export interface DriftView {
   decisions: readonly Decision[];
   traces: ReadonlyMap<string, StepTrace>;
   findings: readonly Finding[];
+  answers: readonly Answer[];
   commit: string;
 }
 
@@ -31,6 +33,7 @@ export function driftPage(view: DriftView): string {
     decisions: Object.fromEntries(view.decisions.map((decision) => [decision.id, { subject: decision.subject, reading: decision.reading, words: decision.words }])),
     traces: Object.fromEntries(view.traces),
     findings: view.findings,
+    answers: Object.fromEntries(view.answers.map((answer) => [answer.finding, answer])),
     forOwner: [...FOR_THE_OWNER],
     labels: KIND_LABELS,
   };
@@ -101,6 +104,7 @@ ul.plain { list-style: none; margin: 0; padding: 0; display: flex; flex-directio
 </header>
 <section class="summary" id="summary" aria-label="Counts"></section>
 <section class="findings" id="for-owner" aria-label="For you"></section>
+<section class="findings" id="answered" aria-label="Asked or noted"></section>
 <section class="findings" id="work" aria-label="Known work"></section>
 <section aria-label="Flows" class="explorer">
   <nav class="flows" id="flows"></nav>
@@ -121,10 +125,12 @@ const findingsOn = (id) => DATA.findings.filter((finding) => finding.steps.inclu
 const stepChip = (id) => { const chip = el('button', { class: 'chip', type: 'button' }, id); chip.addEventListener('click', () => show(id, true)); return chip; };
 
 document.getElementById('commit').textContent = DATA.commit;
-const asks = DATA.findings.filter((finding) => forOwner.has(finding.kind));
+const asks = DATA.findings.filter((finding) => forOwner.has(finding.kind) && !DATA.answers[finding.id]);
+const answered = DATA.findings.filter((finding) => forOwner.has(finding.kind) && DATA.answers[finding.id]);
 const work = DATA.findings.filter((finding) => !forOwner.has(finding.kind));
 document.getElementById('summary').append(
   el('div', { class: 'count ask' }, el('b', {}, asks.length), 'need you'),
+  el('div', { class: 'count' }, el('b', {}, answered.length), 'asked or noted'),
   el('div', { class: 'count work' }, el('b', {}, work.length), 'decided, not done'),
 );
 
@@ -134,8 +140,10 @@ const findingCard = (finding) => el('div', { class: 'finding' + (forOwner.has(fi
   el('p', {}, finding.detail),
   finding.steps.length ? el('div', { class: 'steps' }, finding.steps.map(stepChip)) : null,
   finding.where.length ? el('details', {}, el('summary', {}, finding.where.length + (finding.where.length === 1 ? ' place' : ' places')), el('pre', {}, finding.where.join('\\n'))) : null,
+  DATA.answers[finding.id] ? el('div', { class: 'mine' }, el('span', { class: 'label' }, DATA.answers[finding.id].state + ' ' + DATA.answers[finding.id].at.replace('T', ' ')), DATA.answers[finding.id].why) : null,
 );
-document.getElementById('for-owner').append(el('h2', {}, 'For you'), ...asks.map(findingCard));
+document.getElementById('for-owner').append(el('h2', {}, 'For you'), asks.length ? asks.map(findingCard) : el('p', { class: 'empty' }, 'Nothing waits on you.'));
+document.getElementById('answered').append(el('h2', {}, 'Asked or noted'), answered.length ? answered.map(findingCard) : el('p', { class: 'empty' }, 'None.'));
 document.getElementById('work').append(el('h2', {}, 'Decided, not done yet'), ...work.map(findingCard));
 
 const nav = document.getElementById('flows');
@@ -144,7 +152,7 @@ for (const flow of DATA.flows) {
     const chip = stepChip(step.id);
     chip.dataset.step = step.id;
     const on = findingsOn(step.id);
-    if (on.some((finding) => forOwner.has(finding.kind))) chip.classList.add('has-ask');
+    if (on.some((finding) => forOwner.has(finding.kind) && !DATA.answers[finding.id])) chip.classList.add('has-ask');
     else if (on.length) chip.classList.add('has-work');
     return chip;
   }));

@@ -2,6 +2,7 @@ export interface Words {
   at: string;
   text: string;
   asked?: string;
+  answering?: string;
 }
 
 export interface Decision {
@@ -81,8 +82,9 @@ export const DECISIONS: Decision[] = [
       { at: '2026-11-06T22:04', text: 'it should be apparent that a user who doesn\'t need to host a gpu workload gets k3d and k3s or which ever way it is I don\'t remember' },
       { at: '2026-11-06T22:29', text: 'avoid docker if you can' },
       { at: '2026-11-06T22:31', asked: '"Avoid docker if you can" meets step B4 (joining a Linux machine without a GPU).', text: 'k3d only if Docker is there' },
+      { at: '2026-11-06T23:42', answering: 'B4: the join asks its one question only when it finds a GPU; without one it asks nothing.', text: 'B4 - yep' },
     ],
-    reading: 'Linux: a GPU found and wanted gets k3s (the only passthrough); otherwise k3d when Docker is already there, else k3s. Koala never installs Docker. A Mac gets Colima with k3s. Koala itself may run on any of them.',
+    reading: 'Linux: a GPU found and wanted gets k3s (the only passthrough); the join asks only when it finds a GPU. Otherwise k3d when Docker is already there, else k3s. Koala never installs Docker. A Mac gets Colima with k3s. Koala itself may run on any of them.',
   },
   {
     id: 'no-koala-made-k3d-clusters',
@@ -354,5 +356,32 @@ export const DECISIONS: Decision[] = [
       { at: '2026-11-06T14:43', text: 'its just allot of info, so maybe make the things that are important stand out more' },
     ],
     reading: 'Never reword a decision. Find what the owner already said before asking; ask about every inconsistency before developing, with enough context to answer; a gap in understanding means re-aligning the plan, not one more question. Important things stand out.',
+  },
+  {
+    id: 'sign-up-at-root',
+    subject: 'Getting an account',
+    terms: ['sign up', 'invite', 'register'],
+    words: [
+      { at: '2026-11-06T23:42', answering: 'A1: sign-up at root with an invite and an emailed code, built before the register; keep it as it is for v1?', text: 'A1 - sounds good' },
+    ],
+    reading: 'An account is made at root with an invite and a code emailed to the invited address, as built.',
+  },
+  {
+    id: 'download-shown',
+    subject: 'A model downloading onto a machine',
+    terms: ['download', 'model cache'],
+    words: [
+      { at: '2026-11-06T23:42', answering: 'E5: while a model downloads onto the machine, the app\'s page shows the download?', text: 'E5 - Yep' },
+    ],
+    reading: 'A model downloads onto the machine it will run on, and the app\'s page shows the download while it happens.',
+  },
+  {
+    id: 'automatic-updates',
+    subject: 'Koala updating itself',
+    terms: ['self-upgrade', 'automatic updates', 'rollback'],
+    words: [
+      { at: '2026-11-06T23:42', answering: 'H1: their Koala moves to root\'s newer release and rolls itself back, telling root why, when a new pod cannot recover; keep it?', text: 'H1 - Yep' },
+    ],
+    reading: 'On automatic updates a person\'s Koala moves to root\'s newer release and rolls itself back, telling root why, when a new pod cannot recover, as built.',
   },
 ];

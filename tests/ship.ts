@@ -4,6 +4,9 @@ import { HOTFIX, HOTFIX_STEPS, SHIP_STEPS, ignoredRefusal, judgeVulnerabilities,
 import { entriesOf, measuringProblem } from './coupling/live.js';
 import { e2eEnv } from './lib/e2e-env.js';
 import { devOwner } from './lib/dev-stack.js';
+import { ANSWERS } from './alignment/answers.js';
+import { currentDrift } from './alignment/drift-run.js';
+import { gateOf, gateRefusal } from './alignment/gate.js';
 import { changedNow, commitLedger, devStackProblem, git, ignoredIn, leaksIn, minutesSince, npmPublishTimes, pushedGates, readRecord, runSteps, vulnerabilitiesIn, writeRecord } from './lib/gate-runs.js';
 
 const REPO = resolve(new URL('.', import.meta.url).pathname, '..');
@@ -27,6 +30,8 @@ async function main(): Promise<void> {
   if (stack) throw new Error(stack);
   const measuring = HOTFIXING ? undefined : measuringProblem(entriesOf());
   if (measuring) throw new Error(measuring);
+  const drifting = HOTFIXING ? undefined : gateRefusal(gateOf((await currentDrift(REPO)).findings, ANSWERS));
+  if (drifting) throw new Error(drifting);
   const owner = HOTFIXING ? undefined : (await devOwner()).id;
 
   const commit = git(REPO, ['rev-parse', 'HEAD']);

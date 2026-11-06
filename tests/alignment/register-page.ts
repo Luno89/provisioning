@@ -4,7 +4,7 @@ const escape = (text: string): string => text.replace(/&/g, '&amp;').replace(/</
 
 const when = (at: string): string => at.slice(0, 16).replace('T', ' ');
 
-const quote = (words: Words): string => `<li><span class="at">${when(words.at)}</span>${words.asked ? `<span class="asked">Asked: ${escape(words.asked)}</span>` : ''}<q>${escape(words.text)}</q></li>`;
+const quote = (words: Words): string => `<li><span class="at">${when(words.at)}</span>${words.asked ? `<span class="asked">Asked: ${escape(words.asked)}</span>` : words.answering ? `<span class="asked">Answering: ${escape(words.answering)}</span>` : ''}<q>${escape(words.text)}</q></li>`;
 
 const card = (steps: ReadonlyMap<string, string[]>) => (decision: Decision): string => `
 <article id="${escape(decision.id)}">

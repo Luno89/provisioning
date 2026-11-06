@@ -30,6 +30,15 @@ right?"
   what they told sub-agents), with date and session. Quote what it finds; never restate a decision in other words. Product
   questions are settled first by "always side with the user and whatever decision makes it easier and less invasive to them"
   (the user being whoever uses Koala). `npm run refs -- <file> <Symbol>` finds every reference to a symbol across the workspaces.
+  What we agreed lives in `tests/alignment/`: `decisions.ts` (each decision once, in the owner's words with when they said them,
+  and a reading marked as mine) and `v1-flows.ts` (each v1 step: what the person does and sees, on which screen, the call its
+  action makes, and the decisions it rests on). `npm run decisions` holds every quote to the transcripts and every step to the
+  register and the repository (`-- --page <file>` writes the register's page). **Before each development step run
+  `npm run drift`**: it traces every step through the code and lists where agreement and code part (no code, two paths for one
+  job, code branching on what a decision removes or on what no decision settles, the owner misquoted, a step resting on my
+  assumption). Every finding for the owner is asked before code, and recorded in `tests/alignment/answers.ts` as `asked`, or
+  as `noted` with why when it is not a question; the owner's answer becomes a decision in the register. Ship refuses while any is
+  neither (`npm run drift -- --check`). "Decided, not done" findings are the work list, not questions.
 
 ## What this is
 

@@ -13,8 +13,7 @@ export const V1_FLOWS: Flow[] = [
         does: 'The person opens root\'s invite link and signs up with the invited address, confirming it with an emailed code.',
         screen: { on: 'root', component: `${UI}/accounts/components/Login.tsx#Login` },
         code: ['apps/frontend/src/features/platform/api.ts#login', 'apps/frontend/src/features/platform/api.ts#verifySignUp'],
-        decisions: [],
-        assumed: 'Built before the register (CLAUDE.md, Auth); no decision of the owner\'s is recorded for it yet.',
+        decisions: ['sign-up-at-root'],
       },
       {
         id: 'A2',
@@ -64,7 +63,6 @@ export const V1_FLOWS: Flow[] = [
           { when: 'No GPU, or they say no, and Docker is already there', outcome: 'k3d in their Docker: no password, nothing installed', decision: 'how-a-machine-cluster-is-made' },
           { when: 'No GPU, or they say no, and no Docker', outcome: 'k3s on the host (password once)', decision: 'how-a-machine-cluster-is-made' },
         ],
-        assumed: 'Asking only when a GPU is found.',
       },
       {
         id: 'B5',
@@ -194,8 +192,7 @@ export const V1_FLOWS: Flow[] = [
         id: 'E5',
         does: 'The model downloads on that machine, into its own cache, and the app\'s page shows the download.',
         screen: { on: 'instance', component: `${UI}/infrastructure/components/AppDashboard/index.tsx#AppDashboard` },
-        decisions: ['gpu-is-core'],
-        assumed: 'The app\'s page showing the download.',
+        decisions: ['gpu-is-core', 'download-shown'],
       },
       {
         id: 'E6',
@@ -280,8 +277,7 @@ export const V1_FLOWS: Flow[] = [
         does: 'On automatic updates, their Koala moves to root\'s newer release and rolls itself back, telling root why, when a new pod cannot recover.',
         screen: { on: 'nowhere' },
         code: ['apps/backend/src/scripts/self-upgrade.ts#selfUpgrade'],
-        decisions: [],
-        assumed: 'Built before the register (CLAUDE.md, Releases); no decision of the owner\'s is recorded for it yet.',
+        decisions: ['automatic-updates'],
       },
       {
         id: 'H2',
