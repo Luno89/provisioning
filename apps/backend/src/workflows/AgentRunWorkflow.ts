@@ -143,6 +143,7 @@ const ANSWERS_TAKEN_ONCE = 'answers-taken-once';
 const READS_TOGETHER = 'reads-together';
 const MACHINE_NAMES = 'machine-names';
 const MACHINE_MERGES = 'machine-merges';
+const HANDED_WORK_MERGED = 'handed-work-merged';
 const RUN_GRANTS = 'run-grants';
 const MACHINE_ANSWER_WAIT_MS = 15_000;
 const MACHINE_GATHER_MS = 1_000;
@@ -446,6 +447,10 @@ export async function AgentRunWorkflow(input: ProcedureRunInput): Promise<AgentR
         const answered = cancelled || !callTool
           ? { ok: false, content: cancelled ? 'the run was cancelled' : 'no tools are offered here' }
           : unsynced ? { ok: false, content: unsynced } : await callTool(call);
+        const handedBack = !cancelled && answered.ok && 'child' in answered && answered.child && merging && patched(HANDED_WORK_MERGED) ? await mergeIn() : undefined;
+        if (handedBack) answered.content = handedBack.ok
+          ? `${answered.content}\n\n${handedBack.conflicts.length ? toMerge(handedBack.conflicts) : 'What that work wrote into the workspace is now in your folder too.'}`
+          : `${answered.content}\n\nWhat that work wrote into the workspace could not be brought into your folder (${handedBack.why}); call ${RUN_IN_WORKSPACE} to read it there.`;
         calls.set(call.callId, {
           callId: call.callId, name: call.name, args: call.arguments, ok: answered.ok, digest: answered.content,
           ...('artifacts' in answered && answered.artifacts?.length ? { artifacts: answered.artifacts } : {}),

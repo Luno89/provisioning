@@ -1,6 +1,5 @@
 import { ignore } from '@koala/engine-core/failures';
 import {
-  machineChoice,
   stepImplementation,
   type EnvironmentValue,
   type NodeImplementation,
@@ -13,8 +12,7 @@ export function createEnvironmentNodes(services: HostNodeServices): NodeImplemen
       const handed = run.launch.environment as EnvironmentValue | undefined;
       if (handed) return { exit: 'ready', outputs: { environment: { ...handed, handedOver: true } } };
 
-      const bareMachine = Boolean(machineChoice(run.launch.modelId)) && !run.launch.inPlace;
-      const conversationId = bareMachine ? undefined : run.launch.conversationId;
+      const conversationId = run.launch.conversationId;
       if (conversationId && services.conversationWorkspaces) {
         try {
           const shared = await services.conversationWorkspaces.describe({ conversationId, ownerId: run.launch.ownerId, agentSlug: run.identity.agentId });

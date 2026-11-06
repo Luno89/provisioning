@@ -58,14 +58,17 @@ describe('provisioning a run\'s environment', () => {
     expect(describe).toHaveBeenCalledWith({ conversationId: 'c1', ownerId: 'u1', agentSlug: 'koala' });
   });
 
-  it('leaves an agent working in its own folder on a machine out of the conversation\'s workspace, and tells the resolver whether a machine run keeps its procedure', async () => {
+  it('gives an agent on a machine the conversation\'s workspace when it works for one, and its own folder on the machine only when it works for none', async () => {
     const describe = vi.fn(async () => SHARED);
     const MACHINE = { kind: 'machine', deviceId: 'desk', deviceName: 'Desk', egressMode: 'declared' };
     const environments = { describe: vi.fn(async (): Promise<unknown> => MACHINE), release: vi.fn(async () => undefined) };
     const provision = provisionWith({ conversationWorkspaces: { describe } as never }, environments);
 
-    expect(await provision({ depth: 0, conversationId: 'c1', modelId: 'machine:desk:antigravity' })).toEqual({ exit: 'ready', outputs: { environment: MACHINE } });
-    expect(describe).not.toHaveBeenCalled();
+    expect(await provision({ depth: 0, conversationId: 'c1', modelId: 'machine:desk:antigravity' })).toEqual({ exit: 'ready', outputs: { environment: SHARED } });
+    expect(describe).toHaveBeenCalledWith(expect.objectContaining({ conversationId: 'c1' }));
+    expect(environments.describe).not.toHaveBeenCalled();
+
+    expect(await provision({ depth: 0, modelId: 'machine:desk:antigravity' })).toEqual({ exit: 'ready', outputs: { environment: MACHINE } });
     expect(environments.describe).toHaveBeenCalledWith(expect.not.objectContaining({ inPlace: true }), undefined);
 
     await provision({ depth: 1, modelId: 'machine:desk:antigravity', inPlace: true });

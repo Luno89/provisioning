@@ -616,11 +616,13 @@ describe('AgentRunWorkflow', () => {
       nodes: [
         place('provision', 'provision-sandbox', {}),
         place('handOff', 'delegate', { agent, inputs: '{"question":"What port does TabbyAPI listen on?"}' }),
+        place('release', 'release-sandbox', {}),
         place('done', 'finish', { outcome: 'ok' }),
         place('failed', 'finish', { outcome: 'failed' }),
       ],
       wires: [
         { from: { node: 'provision', socket: 'environment' }, to: { node: 'handOff', socket: 'environment' } },
+        { from: { node: 'provision', socket: 'environment' }, to: { node: 'release', socket: 'environment' } },
         { from: { node: 'handOff', socket: 'outputs' }, to: { node: 'done', socket: 'result' } },
         { from: { node: 'handOff', socket: 'reason' }, to: { node: 'failed', socket: 'reason' } },
         { from: { node: 'provision', socket: 'reason' }, to: { node: 'failed', socket: 'reason' } },
@@ -628,7 +630,8 @@ describe('AgentRunWorkflow', () => {
       flow: [
         { from: 'provision', exit: 'ready', to: 'handOff' },
         { from: 'provision', exit: 'unavailable', to: 'failed' },
-        { from: 'handOff', exit: 'ok', to: 'done' },
+        { from: 'handOff', exit: 'ok', to: 'release' },
+        { from: 'release', exit: 'done', to: 'done' },
         { from: 'handOff', exit: 'failed', to: 'failed' },
       ],
       groups: [],
@@ -717,7 +720,7 @@ describe('AgentRunWorkflow', () => {
       }
     };
 
-    it('runs research a chat on a machine hands work to on that machine, in the conversation\'s workspace, its served tools there and its work brought back', async () => {
+    it('runs research a chat on a machine hands work to on that machine, in the conversation\'s workspace the chat holds, its served tools there, its work brought back and the documents saved once the chat lets the workspace go', async () => {
       const { result, recorded, machineRoot, sent, saved, brought, resolved, toolCalls, unaskedFor } = await onMachine();
 
       expect(result).toMatchObject({ outcome: 'ok' });
@@ -749,6 +752,90 @@ describe('AgentRunWorkflow', () => {
       expect(resolved.find((call) => call.agentSlug === 'research')).not.toHaveProperty('modelId');
       expect(sent).toEqual([]);
       expect(recorded).toBeUndefined();
+    }, 60_000);
+
+    it('has a chat on a machine work a checkout of the conversation\'s documents, brings what research wrote there into its folder once research answers, and saves the documents when the turn ends', async () => {
+      const here = await mkdtemp(resolve(tmpdir(), 'external-chat-'));
+      const git = (cwd: string, ...args: string[]): string => execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], { cwd, encoding: 'utf8' }).trim();
+      const bare = resolve(here, 'gitea', 'documents.git');
+      const documents = resolve(here, 'pod', 'work');
+      execFileSync('mkdir', ['-p', bare, documents]);
+      git(bare, 'init', '-q', '--bare');
+      const scriptPath = resolve(here, 'script.json');
+      await writeFile(scriptPath, JSON.stringify({ name: 'antigravity-acp', version: '1.4.0', turns: [{ steps: [
+        { mcp: { server: 'koala', tool: 'research', args: { question: 'What port does TabbyAPI listen on?' } } },
+        { read: { path: 'research/r1/findings.md' } },
+      ] }] } satisfies AgentScript));
+      const mcp = new LocalMcpServer();
+      await mcp.start();
+      const machineRoot = resolve(here, 'machine');
+      const sessions = new ExternalAgentSessions({ rootDir: machineRoot, launches: { antigravity: { command: process.execPath, args: ['--import', import.meta.resolve('tsx'), AGENT_SCRIPT, scriptPath] } }, segmentMs: 500, mcp });
+      const registry = createAgentRegistry({
+        agentStore: { list: async () => seededAgents().map((agent) => (agent.slug === 'koala' ? { ...agent, tools: [], agents: ['research'] } : agent)) },
+        toolCatalogue: { list: async () => contractsFor([...BUILDER_TOOLS, ...extensionTools()]) },
+      });
+      const resolver = createEnvironmentResolver({
+        registry,
+        environments: createRunEnvironments({ provision: async () => { throw new Error('nothing in this test starts a pod'); } }),
+        images: { ensure: async (plan) => plan.base, exists: async () => true, start: async (plan) => ({ state: 'ready' as const, reference: plan.base }), standing: async (plan) => ({ state: 'ready' as const, reference: plan.base }) },
+        tools: async () => [],
+        workspaces: createMachineWorkspaces({ list: async () => [{ id: 'desk', ownerId: 'user-1', name: 'Desk' }] }),
+      });
+      const saved: string[] = [];
+      const conversationWorkspaces = createConversationWorkspaces({
+        resolver,
+        registry,
+        kube: async () => { throw new Error('nothing in this test reaches the cluster'); },
+        documents: { save: async (request: { workspaceRunId: string; repo: string }) => { saved.push(request.workspaceRunId); return { saved: true, owner: 'koala-user-1', repo: request.repo, commit: git(documents, 'rev-parse', 'HEAD') }; } } as never,
+      });
+      const conversations = inMemoryConversations();
+      const acts = activities({
+        registry,
+        script: [callsATool('w1', 'write_file', '{"path":"research/r1/findings.md","content":"TabbyAPI listens on 5000."}'), { content: 'It is in research/r1/findings.md.' }],
+        external: sessions,
+        environments: resolver,
+        conversationWorkspaces,
+        conversations,
+        machineWork: {
+          EngineMachineSendActivity: async (args: { branch: string; message: string }) => {
+            if (!existsSync(resolve(documents, '.git'))) git(documents, 'init', '-q', '-b', 'main');
+            git(documents, 'add', '-A');
+            git(documents, 'commit', '-q', '--allow-empty', '-m', args.message);
+            git(documents, 'push', '-q', bare, `HEAD:refs/heads/${args.branch}`);
+            return { repo: 'documents-c1', folder: '/work', commit: git(documents, 'rev-parse', 'HEAD') };
+          },
+          EngineMachineTakeActivity: async (args: { branch: string }) => {
+            git(documents, 'fetch', '-q', bare, `+refs/heads/${args.branch}:refs/koala/machine`);
+            git(documents, 'merge', '-q', '--no-edit', 'refs/koala/machine');
+            return { brought: true, commit: git(documents, 'rev-parse', 'HEAD') };
+          },
+          EngineMachineDropActivity: async (args: { branch: string }) => { git(bare, 'branch', '-D', args.branch); },
+        },
+        machineGit: createMachineGit({ rootDir: machineRoot, backendUrl: 'http://koala.test', token: 'device-token', remote: () => bare }),
+      });
+      acts.engine.EngineToolActivity.mockImplementation(async (call: ToolCallArgs) => {
+        const asked = JSON.parse(call.arguments) as { path: string; content: string };
+        execFileSync('mkdir', ['-p', dirname(resolve(documents, asked.path))]);
+        await writeFile(resolve(documents, asked.path), asked.content);
+        return { ok: true, digest: `wrote ${asked.path}`, content: `wrote ${asked.path}` };
+      });
+      try {
+        const result = await runWorkflow({
+          ticket: { ...ticket('koala'), conversationId: 'c1', modelId: 'machine:desk:antigravity', modelReach: 'chat' },
+          procedure: EXTERNAL_AGENT_CHAT,
+          inputs: { message: 'Ask research which port TabbyAPI listens on.', conversationId: 'c1' },
+        }, acts);
+
+        expect(result).toMatchObject({ outcome: 'ok' });
+        expect(JSON.stringify(result.outputs)).toContain('read: TabbyAPI listens on 5000.');
+        const reply = (await conversations.get('user-1', 'c1'))?.messages.at(-1);
+        expect(reply?.toolCalls?.find((call) => call.name === 'research')?.digest).toContain('What that work wrote into the workspace is now in your folder too.');
+        expect(saved).toEqual(['conversation-c1']);
+      } finally {
+        await sessions.closeAll();
+        await mcp.close();
+        await rm(here, { recursive: true, force: true });
+      }
     }, 60_000);
   });
 

@@ -632,8 +632,13 @@ branch, and `do-one-task` asks its verdict question with **Ask the Machine Agent
 judge, record) is unchanged. An agent on a machine keeps its own procedure when it branches (`machineRunFor`'s `inPlace`,
 carried on the ticket and the run's launch), otherwise it gets `external-agent-task` as before. **Where it works follows
 from that:** a run that keeps its procedure gets the environment it would get on a model (what it was handed, else the
-conversation's workspace in a chat, else its agent's own; `describe` in `environments.ts`, the provision step), and only an
-`external-agent-task` or `-chat` run gets the bare machine folder, which `runChild` never hands to a child. A workspace says
+conversation's workspace in a chat, else its agent's own; `describe` in `environments.ts`, the provision step). An
+`external-agent-task` or `-chat` run for a conversation works the conversation's workspace too (its documents checked out on
+the machine, `run_in_workspace` served, the documents saved when the turn ends by its release step), so what research or any
+other hand-off writes there reaches it: when a served call that handed work on answers, the workspace is merged into the
+agent's folder and it is told so (behind the `handed-work-merged` patch; owner, 2026-11-05, after a machine chat spent 4
+minutes of a turn looking for research's `findings.md`). Only one with no conversation gets the bare machine folder, which
+`runChild` never hands to a child. A workspace says
 what it keeps in git (`repository` on the workspace, `repositoryOf`: a tree's the project's repository, a conversation's its
 documents, made in Gitea the first time work goes to a machine, `pushBranch`). Given a workspace that keeps one,
 External Agent works a checkout of that folder (a story's worktree, a judge's checkout, the repo root): the folder's work is
