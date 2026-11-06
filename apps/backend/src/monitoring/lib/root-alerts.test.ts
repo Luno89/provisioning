@@ -14,14 +14,14 @@ describe('the alerts root sets on its own cluster', () => {
     const ids = ROOT_ALERTS.map((alert) => alert.id);
     for (const process of ROOT_PROCESSES) expect(ids).toContain(`root-${process.service}-down`);
     for (const service of ROOT_SERVICES) expect(ids).toContain(`root-${service}-down`);
-    expect(ids).toEqual(expect.arrayContaining(['root-disk', 'root-memory', 'root-workflow-failures', 'root-backup-stale']));
+    expect(ids).toEqual(expect.arrayContaining(['root-disk', 'root-memory', 'root-workflow-failures', 'root-backup-stale', 'root-backup-none']));
     expect(new Set(ids).size).toBe(ids.length);
     expect(ROOT_RULE_IDS.size).toBe(ids.length);
   });
 
   it('asks only of root\'s own processes, by their role, so nothing else on the cluster counts as root', () => {
     for (const alert of ROOT_ALERTS.filter((entry) => entry.expr.includes('koala_'))) {
-      if (alert.id === 'root-backup-stale') continue;
+      if (alert.id.startsWith('root-backup')) continue;
       expect(alert.expr).toContain('koala_role="root"');
     }
   });

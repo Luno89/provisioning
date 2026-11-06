@@ -40,6 +40,7 @@ export const ROOT_ALERTS: readonly RootAlert[] = [
   { id: 'root-memory', alert: 'Root_memory_low', expr: 'node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes < 0.1', forMinutes: 10, summary: 'Root has less than 10% of its memory free' },
   { id: 'root-workflow-failures', alert: 'Root_workflow_failures', expr: 'sum(increase(koala_work_failures_total{koala_role="root"}[1h])) > 5', forMinutes: 0, summary: 'More than 5 pieces of root\'s work failed in the last hour' },
   { id: 'root-backup-stale', alert: 'Root_backup_stale', expr: `time() - koala_root_backup_last_success_seconds > ${BACKUP_STALE_HOURS * 3600}`, forMinutes: 0, summary: `Root's last good backup is more than ${BACKUP_STALE_HOURS} hours old` },
+  { id: 'root-backup-none', alert: 'Root_backup_none', expr: 'absent(koala_root_backup_last_success_seconds)', forMinutes: BACKUP_STALE_HOURS * 60, summary: `Root has made no good backup in ${BACKUP_STALE_HOURS} hours (is BACKUP_REPOSITORY set?)` },
 ];
 
 export const ROOT_RULE_IDS: ReadonlySet<string> = new Set(ROOT_ALERTS.map((alert) => alert.id));
