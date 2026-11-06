@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
+import { execFile, execFileSync, spawn, type ChildProcess } from 'node:child_process';
 import { readFileSync } from 'node:fs';
+import { promisify } from 'node:util';
+import { Client, Connection } from '@temporalio/client';
+import { buildDataConverter } from '@koala/engine-core/payloads';
 import { createDatabase, type Database } from '../../apps/backend/src/platform/lib/db-interface.js';
+import { loadKeys } from '../../apps/backend/src/platform/lib/keys.js';
+import { temporalApiKey, temporalNamespaceFrom } from '../../apps/backend/src/platform/lib/temporal-auth.js';
 import { DEV } from '../../apps/backend/src/instances/lib/dev-root.js';
 import { fetchSide, handOff, sessionFrom } from './handoff.js';
 import { devFile } from './dev-temporal.js';
@@ -15,6 +20,40 @@ export const devKoalaApi = `http://127.0.0.1:${DEV.instanceNodePort}`;
 
 const kubectl = (...args: string[]): string =>
   execFileSync('k3s', ['kubectl', '--kubeconfig', DEV_KUBECONFIG, '-n', DEV_NAMESPACE, ...args], { encoding: 'utf8' }).trim();
+
+const run = promisify(execFile);
+
+export const devKubectl = async (namespace: string, ...args: string[]): Promise<string> =>
+  (await run('k3s', ['kubectl', '--kubeconfig', DEV_KUBECONFIG, '-n', namespace, ...args], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 })).stdout.trim();
+
+export const devKubectlCluster = async (...args: string[]): Promise<string> =>
+  (await run('k3s', ['kubectl', '--kubeconfig', DEV_KUBECONFIG, ...args], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 })).stdout.trim();
+
+export const devPortForward = (namespace: string, target: string, ports: string): ChildProcess =>
+  spawn('k3s', ['kubectl', '--kubeconfig', DEV_KUBECONFIG, '-n', namespace, 'port-forward', target, ports], { stdio: 'ignore' });
+
+export function devKoalaEnv(): Record<string, string> {
+  return JSON.parse(kubectl('get', 'configmap', `${DEV_RELEASE}-env`, '-o', 'jsonpath={.data}')) as Record<string, string>;
+}
+
+const RESULT = 'KOALA-RESULT ';
+
+export async function devInKoala<T>(source: string): Promise<T> {
+  const program = `process.chdir('/app/apps/backend');\nconst result = await (async () => {\n${source}\n})();\nconsole.log(${JSON.stringify(RESULT)} + JSON.stringify(result ?? null));\nprocess.exit(0);\n`;
+  const said = await new Promise<string>((resolve, reject) => {
+    const child = spawn('k3s', ['kubectl', '--kubeconfig', DEV_KUBECONFIG, '-n', DEV_NAMESPACE, 'exec', '-i', '-c', 'backend', `deploy/${DEV_RELEASE}-backend`, '--', 'node', '--import', 'tsx', '--input-type=module'], { stdio: ['pipe', 'pipe', 'pipe'] });
+    let out = '';
+    let err = '';
+    child.stdout.on('data', (chunk: Buffer) => { out += chunk.toString('utf8'); });
+    child.stderr.on('data', (chunk: Buffer) => { err += chunk.toString('utf8'); });
+    child.on('error', reject);
+    child.on('close', (code) => (code === 0 ? resolve(out) : reject(new Error(`running in your Koala's backend pod ended ${code}: ${err.slice(-600)}`))));
+    child.stdin.end(program);
+  });
+  const line = said.split('\n').find((entry) => entry.startsWith(RESULT));
+  if (!line) throw new Error(`your Koala's backend pod gave no result: ${said.slice(-600)}`);
+  return JSON.parse(line.slice(RESULT.length)) as T;
+}
 
 export function devKoalaCheckout(): string {
   return kubectl('get', 'deployment', `${DEV_RELEASE}-backend`, '-o', 'jsonpath={.spec.template.spec.volumes[?(@.name=="source")].hostPath.path}');
@@ -44,6 +83,26 @@ export async function devOwner(): Promise<DevOwner> {
 function secretOf(name: string): Record<string, string> {
   const data = JSON.parse(kubectl('get', 'secret', name, '-o', 'jsonpath={.data}')) as Record<string, string>;
   return Object.fromEntries(Object.entries(data).map(([key, value]) => [key, Buffer.from(value, 'base64').toString('utf8')]));
+}
+
+export interface DevTemporal {
+  client: Client;
+  close: () => Promise<void>;
+}
+
+export async function devKoalaTemporal(): Promise<DevTemporal> {
+  const keys = loadKeys({ ...secretOf(`${DEV_RELEASE}-keys`), NODE_ENV: 'production' });
+  const ca = secretOf(`${DEV_RELEASE}-temporal-tls`)['ca.crt'];
+  assert.ok(ca, `the Secret ${DEV_RELEASE}-temporal-tls holds no ca.crt`);
+  const service = `${DEV_RELEASE}-temporal`;
+  const address = kubectl('get', 'service', service, '-o', 'jsonpath={.spec.clusterIP}');
+  const namespace = temporalNamespaceFrom(devKoalaEnv());
+  const connection = await Connection.connect({
+    address: `${address}:7233`,
+    tls: { serverRootCACertificate: Buffer.from(ca), serverNameOverride: service },
+    apiKey: temporalApiKey(keys.temporal, { subject: 'koala-live-suite', namespace, role: 'read' }),
+  });
+  return { client: new Client({ connection, namespace, dataConverter: buildDataConverter(keys.payload) }), close: () => connection.close() };
 }
 
 export function devKoalaDatabase(): Database {
