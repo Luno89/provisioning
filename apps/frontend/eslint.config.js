@@ -12,8 +12,9 @@ const SRC = path.join(path.dirname(fileURLToPath(import.meta.url)), 'src')
 
 const placeOf = (file) => {
   const rel = path.relative(SRC, file).split(path.sep)
+  if (rel[0] === '..') return { kind: 'outside' }
   if (rel[0] === 'features' && rel[1]) return { kind: 'feature', name: rel[1], rest: rel.slice(2).join('/') }
-  if (rel[0] === 'shared' || rel[0] === 'shell') return { kind: rel[0] }
+  if (rel[0] === 'shared' || rel[0] === 'shell' || rel[0] === 'test') return { kind: rel[0] }
   if (rel.length === 1 && /^App\.tsx?$/.test(rel[0])) return { kind: 'shell' }
   return { kind: 'other' }
 }
@@ -27,6 +28,10 @@ const boundaries = {
         const check = (node, source) => {
           if (typeof source !== 'string' || !source.startsWith('.')) return
           const to = placeOf(path.resolve(path.dirname(context.filename), source.replace(/\.js$/, '')))
+          if ((to.kind === 'test' || to.kind === 'outside') && from.kind !== 'test') {
+            context.report({ node, message: to.kind === 'test' ? 'src/test/ holds what tests run with, the backend among it; only tests import it' : 'the app imports nothing outside src/ by path; only tests reach the backend\'s source' })
+            return
+          }
           if (to.kind === 'shell' && from.kind !== 'shell' && from.kind !== 'other') {
             context.report({ node, message: 'a feature or shared/ never imports the shell' })
             return
@@ -171,5 +176,5 @@ export default defineConfig([
       ],
     },
   },
-  bugBacked({ files: ['src/**/*.{ts,tsx}'], root: path.dirname(fileURLToPath(import.meta.url)), project: ['./tsconfig.app.json'] }),
+  bugBacked({ files: ['src/**/*.{ts,tsx}'], root: path.dirname(fileURLToPath(import.meta.url)), project: ['./tsconfig.app.json', './tsconfig.integration.json'] }),
 ])

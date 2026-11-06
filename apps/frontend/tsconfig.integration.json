@@ -1,0 +1,21 @@
+{
+  "compilerOptions": {
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.integration.tsbuildinfo",
+    "target": "es2023",
+    "lib": ["ESNext", "DOM"],
+    "module": "esnext",
+    "types": ["vite/client", "node", "vitest/globals"],
+    "skipLibCheck": true,
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": true,
+    "moduleDetection": "force",
+    "strict": true,
+    "exactOptionalPropertyTypes": true,
+    "noUncheckedIndexedAccess": true,
+    "noEmit": true,
+    "jsx": "react-jsx",
+    "noFallthroughCasesInSwitch": true
+  },
+  "include": ["src/**/*.integration.test.ts", "src/**/*.integration.test.tsx", "src/test/backend", "../backend/src/**/*.d.ts"]
+}
