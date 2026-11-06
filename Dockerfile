@@ -12,6 +12,8 @@ RUN ARCH=$(dpkg --print-architecture) && \
     curl -fsSL "https://releases.hashicorp.com/terraform/${TERRAFORM_VERSION}/terraform_${TERRAFORM_VERSION}_linux_${ARCH}.zip" -o terraform.zip && \
     unzip -q terraform.zip terraform && rm terraform.zip && \
     cp helm helm-linux && chmod +x kubectl helm helm-linux k3d terraform
+COPY scripts/terraform-providers.sh /build/terraform-providers.sh
+RUN sh /build/terraform-providers.sh /tools/terraform-providers
 
 FROM node:22-bookworm-slim AS deps
 WORKDIR /app

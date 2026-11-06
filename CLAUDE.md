@@ -1539,6 +1539,18 @@ In-cluster worker lifecycle: `ensure-cluster.sh` creates the k3d management clus
 
 `AppStack.fromEnv()` (CDKTF) reads `KUBECONFIG` or `K8S_HOST`/`K8S_TOKEN`/`K8S_CA_CERT` for cluster auth.
 
+**Terraform's state, output and providers** (`InfrastructureService.deploy|destroy`, rules in `infrastructure/lib/terraform-state.ts`,
+the backend in `packages/cdktf-infra/lib/state.ts`). Root, combined and a dev box keep each stack's state in
+`apps/backend/data/terraform` (the local backend, in root's backup). An instance (`TERRAFORM_STATE=kubernetes` in the chart, with
+`POD_NAMESPACE` on every process) keeps it in Terraform's `kubernetes` backend: a Secret `tfstate-default-<stack>-state` per stack in its
+own namespace on the cluster it runs in, locked by a Lease, reached with the pod's account, whatever cluster the stack targets. A stack
+whose state is still a file in the data folder has it pushed there before its first run (`stateMove`: pushed only when the cluster
+holds nothing, the file removed once the cluster has it, refused when the two disagree). A move from the pool carries those Secrets
+(the `terraform-state` part). Every run synthesizes into a folder of its own under the temp folder, removed however it ends.
+Providers come from a filesystem mirror (`bin/terraform-providers`, made by `scripts/terraform-providers.sh` from the pinned zips in the
+image, `setup.sh` and `dev.sh`), which Terraform links into each run rather than copying; without the mirror each run downloads them.
+Koala's own cluster is monitored under one name, `provisioning-lunorica`, however it is reached (`monitoringOwner`).
+
 ## Temporal sync architecture
 
 A record that runs on a workflow (a cluster provisioning or being destroyed, an app deploying or being destroyed, a build)

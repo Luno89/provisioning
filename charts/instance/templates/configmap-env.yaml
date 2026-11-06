@@ -52,6 +52,7 @@ data:
   {{- end }}
   KUBECONFIG_PATH: /tmp/kubeconfig-provisioning-lunorica
   IN_CLUSTER: "true"
+  TERRAFORM_STATE: kubernetes
 {{- if .Values.routing.domain }}
 ---
 apiVersion: v1

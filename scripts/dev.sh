@@ -42,6 +42,10 @@ quietly() {
   rm -f "${log}"
 }
 
+say "Terraform's providers, pinned, in the mirror every stack installs from"
+quietly sh "${ROOT}/scripts/terraform-providers.sh" "${ROOT}/bin/terraform-providers"
+echo "  ready"
+
 say "Root's services: Temporal, Mongo, Headscale, the registry"
 quietly bash "${ROOT}/scripts/ensure-temporal.sh"
 quietly bash "${ROOT}/scripts/ensure-mongo.sh"

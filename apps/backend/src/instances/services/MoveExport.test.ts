@@ -30,6 +30,10 @@ const kubectlSays = (asked: string): string | undefined => {
   if (asked.startsWith('get serviceaccounts,configmaps')) return JSON.stringify({ items: [{ kind: 'ConfigMap', metadata: { name: 'web-config' } }, { kind: 'ConfigMap', metadata: { name: 'kube-root-ca.crt' } }] });
   if (asked === 'get namespace books -o json') return JSON.stringify({ metadata: { name: 'books', labels: { team: 'a' } } });
   if (asked === 'get pods -n books -o json') return JSON.stringify({ items: [] });
+  if (asked === 'get secrets -n nowrinkles -l tfstate=true -o json') return JSON.stringify({ items: [
+    { apiVersion: 'v1', kind: 'Secret', metadata: { name: 'tfstate-default-shelf-state', namespace: 'nowrinkles', uid: 'u2', resourceVersion: '9', labels: { tfstate: 'true', tfstateSecretSuffix: 'shelf-state' } }, type: 'Opaque', data: { tfstate: 'c2hlbGY=' } },
+    { apiVersion: 'v1', kind: 'Secret', metadata: { name: 'tfstate-default-desk-state', namespace: 'nowrinkles', uid: 'u1', labels: { tfstate: 'true', tfstateSecretSuffix: 'desk-state' }, annotations: { note: 'x' } }, type: 'Opaque', data: { tfstate: 'ZGVzaw==' } },
+  ] });
   return undefined;
 };
 
@@ -221,6 +225,17 @@ describe('the parts of a pool instance root may take', () => {
     await read(files.out);
     expect(files.type).toBe('application/gzip');
     expect(rig.ran.at(-1)?.slice(0, 7)).toEqual(['kubectl', 'exec', '-n', 'gitea', 'deploy/gitea', '-c', 'gitea']);
+  });
+
+  it('hands over the Secrets Terraform keeps its state in, from its own namespace, without what made them its cluster\'s', async () => {
+    const opened = makeMove({ ...KEYS, POD_NAMESPACE: 'nowrinkles' }).open('terraform-state');
+    expect(opened.type).toBe('application/json');
+    expect(JSON.parse(await read(opened.out))).toEqual([
+      { apiVersion: 'v1', kind: 'Secret', metadata: { name: 'tfstate-default-desk-state', labels: { tfstate: 'true', tfstateSecretSuffix: 'desk-state' } }, type: 'Opaque', data: { tfstate: 'ZGVzaw==' } },
+      { apiVersion: 'v1', kind: 'Secret', metadata: { name: 'tfstate-default-shelf-state', labels: { tfstate: 'true', tfstateSecretSuffix: 'shelf-state' } }, type: 'Opaque', data: { tfstate: 'c2hlbGY=' } },
+    ]);
+    await opened.done;
+    expect(() => move.open('terraform-state')).toThrow('does not know its own namespace');
   });
 
   it('fails the part when the program that reads it fails', async () => {

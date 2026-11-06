@@ -433,6 +433,153 @@
     },
     {
       "kind": "binary",
+      "name": "terraform-provider-kubernetes",
+      "version": "2.38.0",
+      "source": "https://releases.hashicorp.com/terraform-provider-kubernetes/2.38.0/terraform-provider-kubernetes_2.38.0_linux_amd64.zip",
+      "github": "hashicorp/terraform-provider-kubernetes",
+      "osv": {
+        "ecosystem": "Go",
+        "name": "github.com/hashicorp/terraform-provider-kubernetes"
+      },
+      "uses": [
+        {
+          "file": "scripts/terraform-providers.sh",
+          "pattern": "KUBERNETES_VERSION=([0-9.]+)"
+        },
+        {
+          "file": "packages/cdktf-infra/.gen/versions.json",
+          "pattern": "\"registry\\.terraform\\.io/hashicorp/kubernetes\": \"([0-9.]+)\""
+        }
+      ],
+      "sha256s": {
+        "linux-amd64": "d39861aa21077f1bc899bc53e7233262e530ba8a3a2d737449b100daeb303e4d",
+        "linux-arm64": "63fab47349852d7802fb032e4f2b6a101ee1ce34b62557a9ad0f0f0f5b6ecfdc",
+        "darwin-amd64": "5136e51765d6a0b9e4dbcc3b38821e9736bd2136cf15e9aac11668f22db117d2",
+        "darwin-arm64": "1be998e67206f7cfc4ffe77c01a09ac91ce725de0abaec9030b22c0a832af44f"
+      },
+      "shaUses": [
+        {
+          "file": "scripts/terraform-providers.sh",
+          "pattern": "KUBERNETES_SHA256_LINUX_AMD64=([0-9a-f]{64})",
+          "arch": "linux-amd64"
+        },
+        {
+          "file": "scripts/terraform-providers.sh",
+          "pattern": "KUBERNETES_SHA256_LINUX_ARM64=([0-9a-f]{64})",
+          "arch": "linux-arm64"
+        },
+        {
+          "file": "scripts/terraform-providers.sh",
+          "pattern": "KUBERNETES_SHA256_DARWIN_AMD64=([0-9a-f]{64})",
+          "arch": "darwin-amd64"
+        },
+        {
+          "file": "scripts/terraform-providers.sh",
+          "pattern": "KUBERNETES_SHA256_DARWIN_ARM64=([0-9a-f]{64})",
+          "arch": "darwin-arm64"
+        }
+      ]
+    },
+    {
+      "kind": "binary",
+      "name": "terraform-provider-helm",
+      "version": "2.17.0",
+      "source": "https://releases.hashicorp.com/terraform-provider-helm/2.17.0/terraform-provider-helm_2.17.0_linux_amd64.zip",
+      "github": "hashicorp/terraform-provider-helm",
+      "osv": {
+        "ecosystem": "Go",
+        "name": "github.com/hashicorp/terraform-provider-helm"
+      },
+      "uses": [
+        {
+          "file": "scripts/terraform-providers.sh",
+          "pattern": "HELM_VERSION=([0-9.]+)"
+        },
+        {
+          "file": "packages/cdktf-infra/.gen/versions.json",
+          "pattern": "\"registry\\.terraform\\.io/hashicorp/helm\": \"([0-9.]+)\""
+        }
+      ],
+      "sha256s": {
+        "linux-amd64": "88644260090aa621e7e8083585c468c8dd5e09a3c01a432fb05da5c4623af940",
+        "linux-arm64": "a248f650d174a883b32c5b94f9e725f4057e623b00f171936dcdcc840fad0b3e",
+        "darwin-amd64": "129345c82359837bb3f0070ce4891ec232697052f7d5ccf61d43d818912cf5f3",
+        "darwin-arm64": "aa498c1f1ab93be5c8fbf6d48af51dc6ef0f10b2ea88d67bcb9f02d1d80d3930"
+      },
+      "shaUses": [
+        {
+          "file": "scripts/terraform-providers.sh",
+          "pattern": "HELM_SHA256_LINUX_AMD64=([0-9a-f]{64})",
+          "arch": "linux-amd64"
+        },
+        {
+          "file": "scripts/terraform-providers.sh",
+          "pattern": "HELM_SHA256_LINUX_ARM64=([0-9a-f]{64})",
+          "arch": "linux-arm64"
+        },
+        {
+          "file": "scripts/terraform-providers.sh",
+          "pattern": "HELM_SHA256_DARWIN_AMD64=([0-9a-f]{64})",
+          "arch": "darwin-amd64"
+        },
+        {
+          "file": "scripts/terraform-providers.sh",
+          "pattern": "HELM_SHA256_DARWIN_ARM64=([0-9a-f]{64})",
+          "arch": "darwin-arm64"
+        }
+      ]
+    },
+    {
+      "kind": "binary",
+      "name": "terraform-provider-hcloud",
+      "version": "1.68.0",
+      "source": "https://github.com/hetznercloud/terraform-provider-hcloud/releases/download/v1.68.0/terraform-provider-hcloud_1.68.0_linux_amd64.zip",
+      "github": "hetznercloud/terraform-provider-hcloud",
+      "osv": {
+        "ecosystem": "Go",
+        "name": "github.com/hetznercloud/terraform-provider-hcloud"
+      },
+      "uses": [
+        {
+          "file": "scripts/terraform-providers.sh",
+          "pattern": "HCLOUD_VERSION=([0-9.]+)"
+        },
+        {
+          "file": "packages/cdktf-infra/.gen/versions.json",
+          "pattern": "\"registry\\.terraform\\.io/hetznercloud/hcloud\": \"([0-9.]+)\""
+        }
+      ],
+      "sha256s": {
+        "linux-amd64": "b825f6500592d30004b6de8547ca1fa7841e16da0571cee8a67782cb84ec65cd",
+        "linux-arm64": "a04f8e12811e000657151cd6eed5eb80ae1042b8123bfea28343147ceda40f96",
+        "darwin-amd64": "73855025066ec55230559296b5c92d441b1b6dc2ce27a1102ab1e17f60cdcf0e",
+        "darwin-arm64": "164012cca257951da2870e9a0a0eb0be2ebde26fd27e30081c8d7e8729467a6e"
+      },
+      "shaUses": [
+        {
+          "file": "scripts/terraform-providers.sh",
+          "pattern": "HCLOUD_SHA256_LINUX_AMD64=([0-9a-f]{64})",
+          "arch": "linux-amd64"
+        },
+        {
+          "file": "scripts/terraform-providers.sh",
+          "pattern": "HCLOUD_SHA256_LINUX_ARM64=([0-9a-f]{64})",
+          "arch": "linux-arm64"
+        },
+        {
+          "file": "scripts/terraform-providers.sh",
+          "pattern": "HCLOUD_SHA256_DARWIN_AMD64=([0-9a-f]{64})",
+          "arch": "darwin-amd64"
+        },
+        {
+          "file": "scripts/terraform-providers.sh",
+          "pattern": "HCLOUD_SHA256_DARWIN_ARM64=([0-9a-f]{64})",
+          "arch": "darwin-arm64"
+        }
+      ]
+    },
+    {
+      "kind": "binary",
       "name": "docker-compose",
       "version": "v2.29.1",
       "source": "https://github.com/docker/compose/releases/download/v2.29.1/docker-compose-linux-x86_64",

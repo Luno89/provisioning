@@ -38,7 +38,7 @@ import { TeiNativeApp } from "./constructs/tei-native.js";
 import { VerdaccioNativeApp } from "./constructs/verdaccio-native.js";
 import { MonitoringStack } from "./constructs/monitoring.js";
 import { IngressStack } from "./constructs/ingress.js";
-import { keepStateIn } from "./lib/state.js";
+import { keepState } from "./lib/state.js";
 import { DashboardsStack } from "./constructs/dashboards.js";
 import { BlackboxExporterStack } from "./constructs/blackbox-exporter.js";
 import { AlertingStack } from "./constructs/alerting.js";
@@ -572,5 +572,5 @@ if (stackType === "cluster") {
   });
 }
 
-keepStateIn(app, process.env.CDKTF_STATE_DIR);
+keepState(app, process.env);
 app.synth();

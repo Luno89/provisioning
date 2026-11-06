@@ -9,7 +9,7 @@ import { MongoClient } from 'mongodb';
 import { clientOptionsFor } from '../../platform/index.js';
 import { exportLines } from '../lib/mongo-move.js';
 import { moveTokenOnce, type UsedTokenClaim } from '../lib/identity-token.js';
-import { GITEA_DATA, MOVED_POSTGRES, PG_DUMP, keysEnv, type MovePart } from '../lib/instance-move.js';
+import { GITEA_DATA, MOVED_POSTGRES, PG_DUMP, TERRAFORM_STATE_SELECTOR, keysEnv, movedStateSecrets, type MovePart } from '../lib/instance-move.js';
 import {
   COPIED_KINDS, REPLICAS_ANNOTATION, SCALED_KINDS, copied, isMovedNamespace, volumesOf,
   type AppsManifest, type KubeObject, type MovedNamespace,
@@ -220,6 +220,15 @@ export class MoveExport {
       }
       case 'gitea-data':
         return { ...this.command(['kubectl', 'exec', '-n', GITEA_DATA.namespace, `deploy/${GITEA_DATA.deployment}`, '-c', GITEA_DATA.container, '--', 'tar', 'czf', '-', '-C', GITEA_DATA.path, '.']), type: 'application/gzip' };
+      case 'terraform-state': {
+        const namespace = this.deps.env.POD_NAMESPACE?.trim();
+        if (!namespace) throw new Error('this instance does not know its own namespace, where Terraform keeps its state');
+        const out = new PassThrough();
+        const done = this.kubectl(['get', 'secrets', '-n', namespace, '-l', TERRAFORM_STATE_SELECTOR, '-o', 'json'])
+          .then((listed) => { out.end(JSON.stringify(movedStateSecrets(JSON.parse(listed) as { items?: KubeObject[] }))); });
+        done.catch((err: Error) => out.destroy(err));
+        return { out, done, type: 'application/json' };
+      }
       case 'apps': {
         const out = new PassThrough();
         const done = this.apps(this.deps.env.REGISTRY_PULL_HOST?.trim() ?? '').then((manifest) => { out.end(JSON.stringify(manifest)); });

@@ -1,8 +1,79 @@
 import { describe, expect, it } from 'vitest';
-import { stateFilesOf } from './terraform-state.js';
+import { cdktfStateEnv, MIRRORED_PROVIDERS, stateFilesOf, stateMove, terraformCliConfig, terraformStateFrom } from './terraform-state.js';
 
 describe('the files a stack keeps its Terraform state in', () => {
   it('is the state and the backup Terraform writes beside it, named for the stack as the CDKTF app names them', () => {
     expect(stateFilesOf('provisioning-lunorica-observability')).toEqual(['terraform.provisioning-lunorica-observability.tfstate', 'terraform.provisioning-lunorica-observability.tfstate.backup']);
+  });
+});
+
+describe('where Terraform keeps a process\'s state', () => {
+  const pod = { KUBERNETES_SERVICE_HOST: '10.43.0.1', POD_NAMESPACE: 'koala' };
+
+  it('is the data folder on root, a combined box and a dev box, which set nothing', () => {
+    expect(terraformStateFrom({}, '/data/terraform')).toEqual({ kind: 'local', dir: '/data/terraform' });
+    expect(terraformStateFrom({ ...pod, TERRAFORM_STATE: 'local' }, '/data/terraform')).toEqual({ kind: 'local', dir: '/data/terraform' });
+    expect(cdktfStateEnv({ kind: 'local', dir: '/data/terraform' })).toEqual({ CDKTF_STATE_DIR: '/data/terraform' });
+  });
+
+  it('is the instance\'s own namespace in its cluster when the chart says kubernetes, the data folder kept to find state from before', () => {
+    const home = terraformStateFrom({ ...pod, TERRAFORM_STATE: 'kubernetes' }, '/data/terraform');
+    expect(home).toEqual({ kind: 'kubernetes', namespace: 'koala', dir: '/data/terraform' });
+    expect(cdktfStateEnv(home)).toEqual({ CDKTF_STATE_NAMESPACE: 'koala' });
+  });
+
+  it('refuses kubernetes outside a pod or without its namespace, and any other kind, rather than keep state somewhere else', () => {
+    expect(() => terraformStateFrom({ TERRAFORM_STATE: 'kubernetes', KUBERNETES_SERVICE_HOST: '10.43.0.1' }, '/d')).toThrow('POD_NAMESPACE is not set');
+    expect(() => terraformStateFrom({ TERRAFORM_STATE: 'kubernetes', POD_NAMESPACE: 'koala' }, '/d')).toThrow('not running in a pod');
+    expect(() => terraformStateFrom({ TERRAFORM_STATE: 's3' }, '/d')).toThrow('either local or in kubernetes');
+  });
+});
+
+describe('the Terraform settings that install providers from the mirror', () => {
+  it('takes the providers Koala pins from the mirror alone, read only, and anything else from its registry', () => {
+    const config = terraformCliConfig('/app/bin/terraform-providers');
+    const list = `[${MIRRORED_PROVIDERS.map((name) => `"${name}"`).join(', ')}]`;
+    expect(config).toBe([
+      'provider_installation {',
+      '  filesystem_mirror {',
+      '    path    = "/app/bin/terraform-providers"',
+      `    include = ${list}`,
+      '  }',
+      '  direct {',
+      `    exclude = ${list}`,
+      '  }',
+      '}',
+      '',
+    ].join('\n'));
+  });
+});
+
+describe('moving a stack\'s state from the data folder into the cluster', () => {
+  const state = (lineage: string, serial: number, resources: number) => JSON.stringify({ version: 4, lineage, serial, resources: Array.from({ length: resources }, (_, at) => ({ name: `r${at}` })) });
+
+  it('pushes it when the cluster holds nothing yet, whether Terraform made an empty state there or none at all', () => {
+    expect(stateMove('desk', state('a', 7, 2), '')).toEqual({ step: 'push' });
+    expect(stateMove('desk', state('a', 7, 2), state('b', 1, 0))).toEqual({ step: 'push' });
+  });
+
+  it('only forgets the file when the cluster already has it or something later from it, or the file holds nothing', () => {
+    expect(stateMove('desk', state('a', 7, 2), state('a', 7, 2))).toEqual({ step: 'forget' });
+    expect(stateMove('desk', state('a', 7, 2), state('a', 9, 3))).toEqual({ step: 'forget' });
+    expect(stateMove('desk', state('a', 7, 0), state('b', 3, 4))).toEqual({ step: 'forget' });
+  });
+
+  it('refuses when the two disagree, naming each by lineage and serial and nothing they hold', () => {
+    const behind = stateMove('desk', state('a', 7, 2), state('a', 5, 2));
+    const other = stateMove('desk', state('a', 7, 2), state('b', 9, 2));
+    for (const move of [behind, other]) {
+      expect(move.step).toBe('refuse');
+      expect(move.step === 'refuse' && move.reason).toMatch(/^desk has a state in the data folder and another in the cluster/);
+      expect(move.step === 'refuse' && move.reason).not.toContain('r0');
+    }
+  });
+
+  it('says which state could not be read rather than guess', () => {
+    expect(() => stateMove('desk', 'not json', '')).toThrow('the state desk kept in the data folder is not a Terraform state');
+    expect(() => stateMove('desk', state('a', 1, 1), '<html>')).toThrow('the state of desk in the cluster is not a Terraform state');
   });
 });
