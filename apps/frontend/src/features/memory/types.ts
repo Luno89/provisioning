@@ -1,6 +1,6 @@
 import type { MemorySources } from './lib/memory-sources'
 
-export type MemoryCategory = 'lessons_learned' | 'environment_facts' | 'prompt_guidance'
+export type MemoryCategory = 'lessons_learned' | 'environment_facts' | 'prompt_guidance' | 'practice'
 export type MemoryScope = 'project' | 'global'
 
 export interface MemoryItem {
@@ -11,7 +11,7 @@ export interface MemoryItem {
   model?: string
   scope?: MemoryScope
   recommendedScope?: MemoryScope
-  status?: 'active' | 'pending_review'
+  status?: 'active' | 'pending_review' | 'trial'
   title: string
   text: string
   source?: 'manual' | 'agent_tool' | 'post_run_extractor'

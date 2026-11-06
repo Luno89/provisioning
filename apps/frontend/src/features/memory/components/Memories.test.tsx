@@ -81,12 +81,23 @@ describe('memories by model', () => {
     await userEvent.type(screen.getByPlaceholderText(/Detailed explanation/), 'Send arguments as an object.')
     await userEvent.selectOptions(screen.getByLabelText('Model'), 'qwen/q')
     await userEvent.click(screen.getByRole('button', { name: 'Save Memory' }))
-    await waitFor(() => expect(createMemory).toHaveBeenCalledWith(expect.objectContaining({ title: 'Tool calls', model: 'qwen/q' })))
+    await waitFor(() => expect(createMemory).toHaveBeenCalledWith(expect.objectContaining({ title: 'Tool calls', model: 'qwen/q', scope: 'global' })))
 
     await userEvent.click(screen.getAllByTitle('Edit memory')[0]!)
     expect(screen.getByLabelText('Model')).toHaveValue('qwen/q')
     await userEvent.selectOptions(screen.getByLabelText('Model'), '')
     await userEvent.click(screen.getByRole('button', { name: 'Save' }))
     await waitFor(() => expect(updateMemory).toHaveBeenCalledWith('m1', expect.objectContaining({ model: null })))
+  })
+})
+
+describe('practices among the memories', () => {
+  it('shows a practice as a practice, and says when it is on trial', async () => {
+    vi.mocked(listMemories).mockResolvedValue([{ ...memory('p1', 'Read the plan first'), category: 'practice', status: 'trial' }])
+    show()
+    expect(await screen.findByText('Read the plan first')).toBeInTheDocument()
+    expect(screen.getByText('Practice')).toBeInTheDocument()
+    expect(screen.getByText('On trial on the bench')).toBeInTheDocument()
+    expect(screen.queryByText('Lessons Learned')).not.toBeInTheDocument()
   })
 })

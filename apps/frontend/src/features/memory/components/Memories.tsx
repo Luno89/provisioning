@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Brain, Plus, Trash2, Edit3, Save, X, Lightbulb, Pin, ScrollText, Check, Globe, Folder, AlertCircle, ArrowUpRight } from 'lucide-react';
+import { Brain, Plus, Trash2, Edit3, Save, X, Lightbulb, Pin, ScrollText, FlaskConical, Check, Globe, Folder, AlertCircle, ArrowUpRight } from 'lucide-react';
 
 import {
   listMemories, getConsolidation, createMemory, updateMemory,
@@ -14,10 +14,11 @@ import type { MemoryCategory, MemoryItem, MemoryScope } from '../types';
 
 const card = 'bg-[var(--bark-800)] border border-[var(--bark-600)] rounded-xl';
 
-const CATEGORY_META = {
+const CATEGORY_META: Record<MemoryCategory, { label: string; icon: typeof Lightbulb; color: string }> = {
   lessons_learned: { label: 'Lessons Learned', icon: Lightbulb, color: 'text-amber-400 border-amber-800 bg-amber-950/40' },
   environment_facts: { label: 'Environment Facts', icon: Pin, color: 'text-blue-400 border-blue-800 bg-blue-950/40' },
   prompt_guidance: { label: 'Prompt Guidance', icon: ScrollText, color: 'text-emerald-400 border-emerald-800 bg-emerald-950/40' },
+  practice: { label: 'Practice', icon: FlaskConical, color: 'text-fuchsia-400 border-fuchsia-800 bg-fuchsia-950/40' },
 };
 
 export default function Memories({ sharedWith }: { sharedWith?: string[] | undefined } = {}) {
@@ -27,7 +28,7 @@ export default function Memories({ sharedWith }: { sharedWith?: string[] | undef
   const [editingId, setEditingId] = useState<string | null>(null);
 
   const [cat, setCat] = useState<MemoryCategory>('lessons_learned');
-  const [scope, setScope] = useState<MemoryScope>('project');
+  const [scope, setScope] = useState<MemoryScope>('global');
   const [title, setTitle] = useState('');
   const [text, setText] = useState('');
   const [model, setModel] = useState('');
@@ -53,7 +54,7 @@ export default function Memories({ sharedWith }: { sharedWith?: string[] | undef
   const invalidate = () => qc.invalidateQueries({ queryKey: memoryKeys.list() });
 
   const createMut = useMutation({
-    mutationFn: () => createMemory({ category: cat, scope, title, text, status: 'active', ...(model ? { model } : {}) }),
+    mutationFn: () => createMemory({ category: cat, scope: 'global', title, text, status: 'active', ...(model ? { model } : {}) }),
     onSuccess: () => {
       setAdding(false);
       setTitle('');
@@ -90,7 +91,7 @@ export default function Memories({ sharedWith }: { sharedWith?: string[] | undef
   const startEdit = (m: MemoryItem) => {
     setEditingId(m.id);
     setCat(m.category);
-    setScope(m.scope || 'project');
+    setScope(m.scope ?? 'global');
     setTitle(m.title);
     setText(m.text);
     setModel(m.model ?? '');
@@ -231,17 +232,6 @@ export default function Memories({ sharedWith }: { sharedWith?: string[] | undef
                 <option value="prompt_guidance">Prompt Guidance</option>
               </select>
             </div>
-            <div>
-              <label className="text-[10px] text-slate-500 uppercase tracking-widest block mb-1">Scope</label>
-              <select
-                value={scope}
-                onChange={(e) => setScope(e.target.value as MemoryScope)}
-                className="w-full bg-[var(--bark-900)] border border-[var(--bark-600)] rounded px-2.5 py-1.5 text-xs text-slate-200"
-              >
-                <option value="project">Project Scope</option>
-                <option value="global">Global User Scope</option>
-              </select>
-            </div>
             <div className="sm:col-span-2">
               <label className="text-[10px] text-slate-500 uppercase tracking-widest block mb-1" htmlFor="new-memory-model">Model</label>
               <select
@@ -299,7 +289,7 @@ export default function Memories({ sharedWith }: { sharedWith?: string[] | undef
       ) : (
         <div className="space-y-3">
           {activeList.map((m) => {
-            const meta = CATEGORY_META[m.category] ?? CATEGORY_META.lessons_learned;
+            const meta = CATEGORY_META[m.category];
             const Icon = meta.icon;
             const isEditing = editingId === m.id;
             const isPending = m.status === 'pending_review';
@@ -429,6 +419,11 @@ export default function Memories({ sharedWith }: { sharedWith?: string[] | undef
                       {isPending && !isRetired && (
                         <span className="text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded bg-amber-900 text-amber-200 border border-amber-700">
                           Never Reached A Prompt
+                        </span>
+                      )}
+                      {m.status === 'trial' && !isRetired && (
+                        <span className="text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded bg-fuchsia-950 text-fuchsia-200 border border-fuchsia-800">
+                          On trial on the bench
                         </span>
                       )}
                       {isRetired && (

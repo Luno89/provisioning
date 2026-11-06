@@ -1,11 +1,16 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, expectTypeOf, it } from 'vitest'
 import { approveMemory, createMemory, deleteMemory, getConsolidation, listMemories, promoteMemory, updateMemory } from './api'
+import type { MemoryItem } from './types'
+import type { Wire } from '../../test/backend/wire'
+import type { MemoryItem as BackendMemoryItem } from '../../../../backend/src/memory/lib/memory-store'
 import { startBackend } from '../../test/backend/site'
 import { mountEngine } from '../../test/backend/engine'
 import { anyOf, objectWith } from '../../../../backend/src/platform/lib/test-matchers'
 
 const backend = await startBackend((site) => { mountEngine(site) })
 const owner = await backend.signIn()
+
+expectTypeOf<Wire<BackendMemoryItem & { category: Exclude<BackendMemoryItem['category'], 'tool_note'> }>>().toExtend<MemoryItem>()
 
 describe('the Memories page, as the browser asks for it', () => {
   it('starts with no memories', async () => {
