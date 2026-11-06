@@ -182,6 +182,17 @@ export class ProjectRepoService {
     return project;
   }
 
+  async repointWebhooks(): Promise<{ repointed: number }> {
+    if (!this.webhookUrl) return { repointed: 0 };
+    let repointed = 0;
+    for (const project of await this.db.projects.getProjects()) {
+      if (project.removal || !project.giteaOwner || !project.giteaRepo || !project.webhookSecretEnc) continue;
+      await this.gitea.replaceWebhook(project.giteaOwner, project.giteaRepo, await this.webhookUrl(project.id), decryptValue(project.webhookSecretEnc, this.masterKey));
+      repointed += 1;
+    }
+    return { repointed };
+  }
+
   /**
    * Commit a document into the project repository over the Gitea contents API.
    *

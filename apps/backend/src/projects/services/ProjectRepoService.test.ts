@@ -143,6 +143,26 @@ describe('a project with no repository', () => {
   });
 });
 
+describe('pointing every project\'s build webhook at where Gitea reaches Koala now', () => {
+  it('moves each project with a repository and a webhook onto the current address, with its own secret, and leaves the rest alone', async () => {
+    const { db, gitea, repos } = setUp();
+    gitea.findRepo.mockResolvedValue(null);
+    const made = await repos.createProject('u1', { id: 'p1', name: 'Shop', repo: 'shop', autoDeployOnBuild: true });
+    await db.projects.saveProject({ id: 'local', name: 'L', ownerId: 'u1', appType: 'local', createdAt: 't' });
+    await db.projects.saveProjectInfo({ ...made, id: 'going', giteaRepo: 'going', removal: { startedAt: 't', requestedBy: 'u1' } });
+    gitea.replaceWebhook.mockClear();
+    expect(await repos.repointWebhooks()).toEqual({ repointed: 1 });
+    expect(gitea.replaceWebhook).toHaveBeenCalledTimes(1);
+    expect(gitea.replaceWebhook).toHaveBeenCalledWith('koala-u1', 'shop', 'http://10.0.0.5:3001/webhooks/gitea/p1', decryptValue(made.webhookSecretEnc!, KEY));
+  });
+
+  it('moves nothing where Koala has no webhook address', async () => {
+    const { gitea, make } = setUp({ webhook: undefined });
+    expect(await make().repointWebhooks()).toEqual({ repointed: 0 });
+    expect(gitea.replaceWebhook).not.toHaveBeenCalled();
+  });
+});
+
 describe('making a project with a repository', () => {
   it('makes the repository, its build webhook and the record, deploying itself to the system cluster unless told otherwise, and lays the starter in last', async () => {
     const { db, gitea, repos } = setUp();

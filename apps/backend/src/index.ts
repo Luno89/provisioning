@@ -473,6 +473,13 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     treeModels, mcpCatalogue, workspaceDependencies, agentDirectory, agentsHolder, concluded, infra: infraService, infisical: infisicalService, clusters: clusterService,
   });
 
+  if (process.env.NODE_ENV !== 'test' && tenants && process.env.GITEA_REACHES_KOALA_AT?.trim()) {
+    runOnce(db.platform, 'project-webhooks-reach-koala', new Date().toISOString(), () => projectRepoService.repointWebhooks()).then(
+      (result) => { if (result.repointed) console.log(`[webhooks] ${result.repointed} projects' build webhooks now reach ${process.env.GITEA_REACHES_KOALA_AT}`); },
+      (err: Error) => console.warn(`[webhooks] the projects' build webhooks are moved at the next start: ${err.message}`),
+    );
+  }
+
   if (process.env.NODE_ENV !== 'test' && tenants) {
     const systemKubeconfig = '/tmp/kubeconfig-provisioning-lunorica';
     runOnce(db.platform, BUILD_TOKENS_MIGRATION, new Date().toISOString(), () => cleanUpBuildTokens({

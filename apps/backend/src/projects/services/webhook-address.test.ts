@@ -17,6 +17,13 @@ describe('the address Gitea sends a project\'s pushes to', () => {
     expect(await addressOf('p1')).toBe('http://10.0.0.5:3001/webhooks/gitea/p1');
   });
 
+  it('is where Gitea reaches the backend when it is given, as an instance\'s chart gives its service, and asks the cluster nothing', async () => {
+    const { infra } = setUp();
+    const addressOf = webhookAddress(infra, 'kube', 3001, 'http://instance.nowrinkles.svc.cluster.local');
+    expect(await addressOf('p1')).toBe('http://instance.nowrinkles.svc.cluster.local/webhooks/gitea/p1');
+    expect(infra.runKubectl).not.toHaveBeenCalled();
+  });
+
   it('asks the cluster once however many projects ask', async () => {
     const { infra, nodeIp } = setUp();
     infra.runKubectl.calledWith(nodeIp, 'kube').mockResolvedValue('10.0.0.5');

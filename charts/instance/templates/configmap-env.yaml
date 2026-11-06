@@ -47,6 +47,7 @@ data:
   SEARXNG_URL: http://searxng.searxng.svc.cluster.local:8080
   CRAWL4AI_URL: http://crawl4ai.crawl4ai.svc.cluster.local:11235
   CHECKS_API_URL: http://{{ include "instance.name" . }}.{{ .Release.Namespace }}.svc.cluster.local/api
+  GITEA_REACHES_KOALA_AT: http://{{ include "instance.name" . }}.{{ .Release.Namespace }}.svc.cluster.local
   {{- if .Values.instance.credential }}
   SELF_UPGRADE_CRONJOB: {{ include "instance.name" . }}-self-upgrade
   INSTANCE_NAMESPACE: {{ .Release.Namespace | quote }}

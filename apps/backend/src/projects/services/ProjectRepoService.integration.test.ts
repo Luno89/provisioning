@@ -137,6 +137,19 @@ describe('making a project with a repository', () => {
     expect(project).toMatchObject({ giteaOwner: username, targetClusterId: 'k3d-mine', autoDeployOnBuild: false });
   });
 
+  it('moves the build webhooks of the projects it stored onto where Gitea reaches Koala now, and makes no project twice', async () => {
+    const { gitea } = fakeGitea();
+    const { db, repos } = await made(gitea);
+    const shop = await repos.createProject('u1', { id: 'p1', name: 'Shop', repo: 'shop', autoDeployOnBuild: true });
+    await db.projects.saveProject({ id: 'local', name: 'On a machine', ownerId: 'u1', appType: 'local', createdAt: new Date().toISOString() });
+    const later = fakeGitea();
+    const moved = new ProjectRepoService(db, later.gitea as never, KEY as never, async (id) => `http://instance.nowrinkles.svc.cluster.local/webhooks/gitea/${id}`);
+
+    expect(await moved.repointWebhooks()).toEqual({ repointed: 1 });
+    expect(later.calls).toEqual([`hook ${shop.giteaOwner}/shop http://instance.nowrinkles.svc.cluster.local/webhooks/gitea/p1`]);
+    expect((await db.projects.getProjects()).map((entry) => entry.id).sort()).toEqual(['local', 'p1']);
+  });
+
   it('refuses a second project on the same repository name, and one with nowhere to send pushes', async () => {
     const { gitea } = fakeGitea();
     const { repos, db } = await made(gitea);

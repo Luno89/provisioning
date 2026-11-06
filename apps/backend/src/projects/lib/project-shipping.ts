@@ -34,6 +34,13 @@ export const koalasClusterFor = (env: Readonly<Record<string, string | undefined
   return machine ? machineClusterId(machine) : DEFAULT_TARGET_CLUSTER;
 };
 
+const pathOf = (url: string): string | undefined => {
+  try { return new URL(url).pathname; } catch { return undefined; }
+};
+
+export const sameHookPath = (url: string | undefined, target: string): boolean =>
+  url === target || (url !== undefined && pathOf(url) !== undefined && pathOf(url) === pathOf(target));
+
 export const namesTargetCluster = (asked: unknown): asked is string => typeof asked === 'string' && asked !== '';
 
 export function targetClusterProblem(asked: unknown, deployable: boolean): string | undefined {
