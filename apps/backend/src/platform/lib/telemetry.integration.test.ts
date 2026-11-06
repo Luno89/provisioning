@@ -52,6 +52,7 @@ describe('the settings every process starts telemetry with', () => {
     const settings = telemetrySettings({ ROLE: 'instance', INSTANCE_ID: 'inst-1', KOALA_VERSION: 'abc123', OTEL_EXPORTER_OTLP_ENDPOINT: 'http://c:4318' }, 'koala-worker-engine');
     expect(settings).toMatchObject({ service: 'koala-worker-engine', role: 'instance', instanceId: 'inst-1', version: 'abc123' });
     expect(settings.sink).toBeDefined();
+    expect(telemetrySettings({ ROLE: 'root', KOALA_TELEMETRY_CLUSTER: 'root' }, 'koala-backend')).toMatchObject({ role: 'root', cluster: 'root' });
   });
 });
 

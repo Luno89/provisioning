@@ -57,6 +57,7 @@ export function devRootPlan(input: DevRootInput): DevRootPlan {
       INSTANCE_REGISTRY: DEV.registry,
       INSTANCE_IMAGE_TAG: DEV.imageTag,
       SIGN_IN_RETURN_URL: `http://localhost:${DEV.rootWebPort}`,
+      KOALA_TELEMETRY_CLUSTER: 'root',
     },
     hubEnv: {
       ROLE: 'hub',
@@ -68,6 +69,7 @@ export function devRootPlan(input: DevRootInput): DevRootPlan {
       ROOT_URL: rootUrl,
       ROOT_PUBLIC_KEYS: rootPublicKeys,
       HUB_CREDENTIAL: input.hubCredential,
+      KOALA_TELEMETRY_CLUSTER: 'hub',
     },
   };
 }

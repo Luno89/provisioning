@@ -16,6 +16,7 @@ export interface TelemetrySettings {
   role?: string | undefined;
   instanceId?: string | undefined;
   machineId?: string | undefined;
+  cluster?: string | undefined;
   sink?: TelemetrySink | undefined;
   log?: ((line: string) => void) | undefined;
   spanDelayMs?: number | undefined;
@@ -169,6 +170,7 @@ export function startTelemetry(settings: TelemetrySettings): Telemetry {
     ...(settings.role ? { 'koala.role': settings.role } : {}),
     ...(settings.instanceId ? { 'koala.instance': settings.instanceId } : {}),
     ...(settings.machineId ? { 'koala.machine': settings.machineId } : {}),
+    ...(settings.cluster ? { 'koala.cluster': settings.cluster } : {}),
   });
   const spans = new SinkSpanExporter(sinkOf, report);
   const measurements = new SinkMetricExporter(sinkOf, report);

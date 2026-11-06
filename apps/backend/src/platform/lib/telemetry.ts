@@ -8,11 +8,13 @@ export const VERSION_VAR = 'KOALA_VERSION';
 export function telemetrySettings(env: Readonly<Record<string, string | undefined>>, service: string): TelemetrySettings {
   const version = env[VERSION_VAR]?.trim();
   const instanceId = env.INSTANCE_ID?.trim();
+  const cluster = env.KOALA_TELEMETRY_CLUSTER?.trim();
   return {
     service,
     role: env.ROLE?.trim() || 'combined',
     ...(version ? { version } : {}),
     ...(instanceId ? { instanceId } : {}),
+    ...(cluster ? { cluster } : {}),
     sink: envSink(env),
   };
 }

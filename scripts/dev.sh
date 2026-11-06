@@ -111,7 +111,16 @@ if ! node -e 'process.exit(JSON.parse(require("fs").readFileSync(process.argv[1]
   trap - EXIT
 fi
 
+COLLECTOR_IP="$(k3s kubectl --kubeconfig "${KUBECONFIG_FILE}" -n monitoring get service otel-collector -o 'jsonpath={.spec.clusterIP}' 2>/dev/null || true)"
+if [ -n "${COLLECTOR_IP}" ] && [ "${COLLECTOR_IP}" != None ]; then
+  export OTEL_EXPORTER_OTLP_ENDPOINT="http://${COLLECTOR_IP}:4318"
+  TELEMETRY_LINE="root's and the hub's telemetry go to the collector on this computer's k3s, beside your Koala's (Grafana: koala_role root and hub)"
+else
+  TELEMETRY_LINE="your Koala has not installed its collector yet; root's and the hub's telemetry go to it from the next start"
+fi
+
 say "Dev runs as production does; the logs of root, the hub and your Koala's pods follow"
+echo "  ${TELEMETRY_LINE}"
 echo "  Root:        ${ROOT_WEB}   (sign in here)"
 echo "  Your Koala:  ${INSTANCE_WEB}   (pods on this computer's k3s, running this checkout under a watcher)"
 echo "  Hub:         ${HUB_WEB}"
