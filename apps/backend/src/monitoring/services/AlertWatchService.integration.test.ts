@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import { mock } from 'vitest-mock-extended';
 import { principalOf } from '../../platform/lib/permissions.js';
 import { emptiedEachTime } from '../../platform/lib/test-database.js';
@@ -6,7 +6,8 @@ import type { MongoDB } from '../../platform/lib/mongo-db.js';
 import type { ClusterMetadata, DeploymentMetadata } from '../../platform/lib/types.js';
 import type { PromAlert } from '../lib/monitoring-alerts.js';
 import { AlertWatchService, type AlertWatchDeps } from './AlertWatchService.js';
-import type { MetricsClient } from './MonitoringService.js';
+import { metricsOf } from './MonitoringService.js';
+import { prometheusStandIn } from '../testing/prometheus-stand-in.js';
 
 const ME = principalOf({ id: 'me' }, { role: 'instance', instanceOwnerId: 'me' });
 const system = { id: 'provisioning-lunorica', name: 'provisioning-lunorica', provider: 'k3d', status: 'healthy', isSystem: true } as ClusterMetadata;
@@ -14,12 +15,12 @@ const books = { id: 'books', name: 'Books', namespace: 'books', clusterId: syste
 const down: PromAlert = { labels: { alertname: 'AppProbeDown', namespace: 'books' }, state: 'firing', activeAt: '2026-10-17T11:58:00Z' };
 
 const fresh = await emptiedEachTime();
+const prom = await prometheusStandIn();
+afterAll(() => prom.close());
 let db: MongoDB;
-let alerts: PromAlert[];
 
 const watcher = (tell: AlertWatchDeps['tell'], logged: string[]) => {
-  const metrics = mock<MetricsClient>();
-  metrics.alerts.mockImplementation(async () => alerts);
+  const metrics = metricsOf(prom.client);
   const monitoring = mock<AlertWatchDeps['monitoring']>();
   monitoring.allClusters.mockResolvedValue([system]);
   monitoring.reach.mockResolvedValue({ cluster: system, state: 'ok', metrics });
@@ -34,7 +35,7 @@ const watcher = (tell: AlertWatchDeps['tell'], logged: string[]) => {
 
 beforeEach(async () => {
   db = await fresh();
-  alerts = [];
+  prom.firing = [];
   await db.infrastructure.saveDeploymentInfo(books);
 });
 
@@ -42,10 +43,10 @@ describe('watching alerts, kept in the database', () => {
   it('keeps one episode while an alert fires and closes it when it resolves, telling the person each time', async () => {
     const told: string[] = [];
     const watch = watcher(async (episode, change) => { told.push(`${episode.ownerId} ${change}`); }, []);
-    alerts = [down];
+    prom.firing = [down];
     await watch.tick();
     await watch.tick();
-    alerts = [];
+    prom.firing = [];
     await watch.tick();
     expect(told).toEqual(['me fired', 'me resolved']);
     const [episode] = await db.monitoring.getAlertEpisodes('me');
@@ -56,7 +57,7 @@ describe('watching alerts, kept in the database', () => {
     const logged: string[] = [];
     let tries = 0;
     const watch = watcher(async () => { tries += 1; throw new Error('mail is down'); }, logged);
-    alerts = [down];
+    prom.firing = [down];
     await watch.tick();
     await watch.tick();
     expect(tries).toBe(1);

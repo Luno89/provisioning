@@ -1,29 +1,27 @@
 import { anyOf } from '../../platform/lib/test-matchers.js';
-import { describe, it, expect, afterEach, vi } from 'vitest';
+import { describe, it, expect, afterEach, afterAll, beforeAll, vi } from 'vitest';
 import axios from 'axios';
 import crypto from 'crypto';
 import type { Socket } from 'socket.io';
-import { projectFilesRouter, type ProjectFilesRouterDeps } from './project-files.js';
+import { mock } from 'vitest-mock-extended';
+import { projectFilesRouter } from './project-files.js';
 import { mountRouter, type Harness, TEST_USER } from '../../platform/routes/test-harness.js';
 import { allowed, type Principal } from '../../platform/lib/permissions.js';
-import { GiteaConflictError } from '../../projects/services/GiteaService.js';
-import { RepositoryDropService, type RepositoryDropDeps } from '../services/RepositoryDropService.js';
+import { GiteaService } from '../../projects/services/GiteaService.js';
+import { startRealGitea, type RealGitea } from '../../projects/testing/real-gitea.js';
+import type { InfrastructureService } from '../../infrastructure/index.js';
+import { RepositoryDropService } from '../services/RepositoryDropService.js';
+import type { StoryDropService } from '../services/StoryDropService.js';
 import { DROP_TYPE, dropBody } from '../lib/drops.js';
-import { readFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { Readable } from 'node:stream';
 import { registerDevice } from '../../machines/lib/local-agent-registry.js';
 import type { Database } from '../../platform/lib/db-interface.js';
 
-const project = {
-  id: 'proj-1',
-  name: 'demo',
-  giteaOwner: 'acme',
-  giteaRepo: 'demo',
-  ownerId: TEST_USER.id,
-  appType: 'gitapp',
-  createdAt: '2026-01-01T00:00:00Z',
-};
+const OWNER = 'acme';
 
 const deviceProject = {
   id: 'proj-device',
@@ -34,12 +32,67 @@ const deviceProject = {
   createdAt: '2026-01-01T00:00:00Z',
 };
 
+let realGitea: RealGitea;
+let gitea: GiteaService;
+let scratch: string;
+let token: string;
+let savedGiteaUrl: string | undefined;
+let repos = 0;
+
+beforeAll(async () => {
+  realGitea = await startRealGitea();
+  savedGiteaUrl = process.env.GITEA_URL;
+  process.env.GITEA_URL = realGitea.url;
+  scratch = await mkdtemp(path.join(tmpdir(), 'project-files-'));
+  const dataDir = path.join(scratch, 'data');
+  await mkdir(dataDir);
+  await writeFile(path.join(dataDir, '.gitea-admin-password'), realGitea.adminPassword);
+  const infra = mock<Pick<InfrastructureService, 'runKubectl' | 'getK3dServerIp'>>();
+  infra.runKubectl.mockRejectedValue(new Error('no cluster here'));
+  gitea = new GiteaService(infra, 'project-files-test-key' as never, '/nowhere', { dataDir });
+  const { password } = await gitea.createUserAccount(OWNER, 'acme@koala.local');
+  token = (await gitea.createPushToken(OWNER, password)).token;
+}, 0);
+
+afterAll(async () => {
+  if (savedGiteaUrl === undefined) delete process.env.GITEA_URL; else process.env.GITEA_URL = savedGiteaUrl;
+  await realGitea.close();
+  await rm(scratch, { recursive: true, force: true });
+});
+
 let h: Harness | undefined;
 afterEach(async () => { await h?.close(); h = undefined; vi.restoreAllMocks(); });
 
-type Fakes = Partial<ProjectFilesRouterDeps['giteaService']> & {
-  commitDropFromDisk?: RepositoryDropDeps['commit'];
-  storyDrop?: ProjectFilesRouterDeps['storyDrops']['drop'];
+const credential = () => ({ token, username: OWNER });
+
+const blobSha = (content: string): string => crypto.createHash('sha1').update(`blob ${Buffer.byteLength(content)}\0`).update(content).digest('hex');
+
+async function onDisk(files: Record<string, string | Buffer>): Promise<{ path: string; source: string }[]> {
+  const dir = await mkdtemp(path.join(scratch, 'seed-'));
+  return Promise.all(Object.entries(files).map(async ([file, content], index) => {
+    const source = path.join(dir, String(index));
+    await writeFile(source, content);
+    return { path: file, source };
+  }));
+}
+
+async function seeded(files: Record<string, string>, branches: string[] = []): Promise<string> {
+  repos += 1;
+  const name = `demo-${repos}`;
+  await gitea.createRepoForUser(OWNER, name);
+  await gitea.commitDropFromDisk(credential(), OWNER, name, await onDisk(files), 'Seed');
+  for (const branch of branches) await gitea.commitDropFromDisk(credential(), OWNER, name, await onDisk({ [`${branch}.txt`]: branch }), `Start ${branch}`, 'main', branch);
+  return name;
+}
+
+const raw = async (repo: string, file: string, ref: string): Promise<{ status: number; bytes: Buffer }> => {
+  const answer = await fetch(`${realGitea.url}/api/v1/repos/${OWNER}/${repo}/raw/${file}?ref=${ref}`, { headers: { Authorization: `token ${token}` } });
+  return { status: answer.status, bytes: Buffer.from(await answer.arrayBuffer()) };
+};
+
+const headOf = async (repo: string, branch: string): Promise<string> => {
+  const answer = await fetch(`${realGitea.url}/api/v1/repos/${OWNER}/${repo}/branches/${branch}`, { headers: { Authorization: `token ${token}` } });
+  return ((await answer.json()) as { commit: { id: string } }).commit.id;
 };
 
 const notCalled = (what: string) => (): never => { throw new Error(`${what} was not expected here`); };
@@ -49,32 +102,34 @@ const ownedBy = (db: Database) => async (id: string, principal: Principal) => {
   return p && allowed(principal, 'see', { kind: 'project', ownerId: p.ownerId }) ? p : undefined;
 };
 
-async function mount(fakes: Fakes, opts: { seedProject?: boolean } = { seedProject: true }): Promise<Harness> {
-  const projectRepoService = { editorCredential: vi.fn(async () => ({ token: 'tok-1', username: 'acme' })) };
+async function mount(repo: string, storyDrop?: StoryDropService['drop']) {
+  const editorCredential = vi.fn(async () => credential());
+  const spies = {
+    listDirectory: vi.spyOn(gitea, 'listDirectory'),
+    getFileContent: vi.spyOn(gitea, 'getFileContent'),
+    updateFile: vi.spyOn(gitea, 'updateFile'),
+    deleteFile: vi.spyOn(gitea, 'deleteFile'),
+    commitDropFromDisk: vi.spyOn(gitea, 'commitDropFromDisk'),
+  };
   const harness = await mountRouter({
     prefix: '/api/projects',
     router: async (db: Database) => {
-      if (opts.seedProject !== false) await db.projects.saveProjectInfo(project);
+      await db.projects.saveProjectInfo({ id: 'proj-1', name: 'demo', giteaOwner: OWNER, giteaRepo: repo, ownerId: TEST_USER.id, appType: 'gitapp', createdAt: '2026-01-01T00:00:00Z' });
       return projectFilesRouter({
-        projectRepoService,
-        giteaService: {
-          listDirectory: fakes.listDirectory ?? notCalled('listDirectory'),
-          getFileContent: fakes.getFileContent ?? notCalled('getFileContent'),
-          updateFile: fakes.updateFile ?? notCalled('updateFile'),
-          deleteFile: fakes.deleteFile ?? notCalled('deleteFile'),
-        },
+        projectRepoService: { editorCredential },
+        giteaService: gitea,
         drops: new RepositoryDropService({
-          credential: projectRepoService.editorCredential,
-          commit: fakes.commitDropFromDisk ?? notCalled('commitDropFromDisk'),
+          credential: editorCredential,
+          commit: (auth, owner, name, files, message, branch) => gitea.commitDropFromDisk(auth, owner, name, files, message, branch),
           writeOnDevice: vi.fn(),
         }),
-        storyDrops: { drop: fakes.storyDrop ?? notCalled('storyDrop') },
+        storyDrops: { drop: storyDrop ?? notCalled('storyDrop') },
         getOwnedProject: ownedBy(db),
       });
     },
   });
   h = harness;
-  return harness;
+  return { harness, repo, editorCredential, ...spies };
 }
 
 function fakeSocket(handler: (event: string, payload: unknown, ack: (...args: unknown[]) => void) => void): Socket {
@@ -116,81 +171,86 @@ const statusOf = async (request: Promise<unknown>): Promise<number | undefined> 
 
 describe('GET /:id/files', () => {
   it('lists a directory using a per-user editor token', async () => {
-    const listDirectory = vi.fn(async () => [{ path: 'src', name: 'src', type: 'dir' as const }]);
-    const harness = await mount({ listDirectory });
+    const { harness, repo, listDirectory } = await mount(await seeded({ 'src/index.ts': 'export {}' }));
     const res = await axios.get<{ entries: unknown }>(harness.url('/api/projects/proj-1/files'));
-    expect(res.data.entries).toEqual([{ path: 'src', name: 'src', type: 'dir' }]);
-    expect(listDirectory).toHaveBeenCalledWith('tok-1', 'acme', 'demo', '', undefined);
+    expect(res.data.entries).toEqual([
+      { path: '.gitignore', name: '.gitignore', type: 'file', size: anyOf(Number) },
+      { path: 'README.md', name: 'README.md', type: 'file', size: anyOf(Number) },
+      { path: 'src', name: 'src', type: 'dir', size: 0 },
+    ]);
+    expect(listDirectory).toHaveBeenCalledWith(token, OWNER, repo, '', undefined);
   });
 
   it('refuses a path that escapes the repo', async () => {
-    const harness = await mount({ listDirectory: vi.fn() });
+    const { harness, listDirectory } = await mount(await seeded({ 'a.txt': 'a' }));
     expect(await statusOf(axios.get(harness.url('/api/projects/proj-1/files?path=../etc')))).toBe(400);
+    expect(listDirectory).not.toHaveBeenCalled();
   });
 
   it('404s a project owned by someone else', async () => {
-    const harness = await mount({ listDirectory: vi.fn() });
+    const { harness } = await mount(await seeded({ 'a.txt': 'a' }));
     expect(await statusOf(axios.get(harness.url('/api/projects/ghost/files')))).toBe(404);
   });
 });
 
 describe('GET /:id/files/content', () => {
   it('returns the file content and sha', async () => {
-    const getFileContent = vi.fn(async () => ({ path: 'README.md', content: '# hi', sha: 'abc123' }));
-    const harness = await mount({ getFileContent });
+    const { harness } = await mount(await seeded({ 'README.md': '# hi' }));
     const res = await axios.get(harness.url('/api/projects/proj-1/files/content?path=README.md'));
-    expect(res.data).toEqual({ path: 'README.md', content: '# hi', sha: 'abc123' });
+    expect(res.data).toEqual({ path: 'README.md', content: '# hi', sha: blobSha('# hi') });
   });
 
   it('404s a missing file', async () => {
-    const harness = await mount({ getFileContent: vi.fn(async () => null) });
+    const { harness } = await mount(await seeded({ 'README.md': '# hi' }));
     expect(await statusOf(axios.get(harness.url('/api/projects/proj-1/files/content?path=ghost.md')))).toBe(404);
   });
 
   it('refuses an empty path', async () => {
-    const harness = await mount({ getFileContent: vi.fn() });
+    const { harness, getFileContent } = await mount(await seeded({ 'README.md': '# hi' }));
     expect(await statusOf(axios.get(harness.url('/api/projects/proj-1/files/content')))).toBe(400);
+    expect(getFileContent).not.toHaveBeenCalled();
   });
 });
 
 describe('PUT /:id/files/content', () => {
   it('saves with the given sha and a default message', async () => {
-    const updateFile = vi.fn(async () => ({ sha: 'def456' }));
-    const harness = await mount({ updateFile });
+    const { harness, repo, updateFile } = await mount(await seeded({ 'src/index.ts': 'old' }));
     const res = await axios.put(harness.url('/api/projects/proj-1/files/content'), {
-      path: 'src/index.ts', content: 'export {}', sha: 'abc123',
+      path: 'src/index.ts', content: 'export {}', sha: blobSha('old'),
     });
-    expect(res.data).toEqual({ sha: 'def456' });
-    expect(updateFile).toHaveBeenCalledWith('tok-1', 'acme', 'demo', 'src/index.ts', 'export {}', 'Update src/index.ts', 'abc123', undefined);
+    expect(res.data).toEqual({ sha: blobSha('export {}') });
+    expect(updateFile).toHaveBeenCalledWith(token, OWNER, repo, 'src/index.ts', 'export {}', 'Update src/index.ts', blobSha('old'), undefined);
+    expect((await raw(repo, 'src/index.ts', 'main')).bytes.toString()).toBe('export {}');
   });
 
   it('requires a sha', async () => {
-    const harness = await mount({ updateFile: vi.fn() });
+    const { harness, updateFile } = await mount(await seeded({ 'a.ts': 'a' }));
     expect(await statusOf(axios.put(harness.url('/api/projects/proj-1/files/content'), { path: 'a.ts', content: 'x' }))).toBe(400);
+    expect(updateFile).not.toHaveBeenCalled();
   });
 
   it('surfaces a stale sha as a 409, not a 500', async () => {
-    const updateFile = vi.fn(async () => { throw new GiteaConflictError('changed since it was loaded'); });
-    const harness = await mount({ updateFile });
+    const { harness, repo } = await mount(await seeded({ 'a.ts': 'a' }));
     expect(await statusOf(axios.put(harness.url('/api/projects/proj-1/files/content'), {
-      path: 'a.ts', content: 'x', sha: 'stale',
+      path: 'a.ts', content: 'x', sha: blobSha('what it was before'),
     }))).toBe(409);
+    expect((await raw(repo, 'a.ts', 'main')).bytes.toString()).toBe('a');
   });
 });
 
 describe('DELETE /:id/files/content', () => {
   it('deletes with the given sha', async () => {
-    const deleteFile = vi.fn(async () => undefined);
-    const harness = await mount({ deleteFile });
-    const res = await axios.delete(harness.url('/api/projects/proj-1/files/content?path=old.ts&sha=abc123'));
+    const { harness, repo, deleteFile } = await mount(await seeded({ 'old.ts': 'bye', 'kept.ts': 'stay' }));
+    const res = await axios.delete(harness.url(`/api/projects/proj-1/files/content?path=old.ts&sha=${blobSha('bye')}`));
     expect(res.data).toEqual({ success: true });
-    expect(deleteFile).toHaveBeenCalledWith('tok-1', 'acme', 'demo', 'old.ts', 'Delete old.ts', 'abc123', undefined);
+    expect(deleteFile).toHaveBeenCalledWith(token, OWNER, repo, 'old.ts', 'Delete old.ts', blobSha('bye'), undefined);
+    expect((await raw(repo, 'old.ts', 'main')).status).toBe(404);
   });
 
   it('surfaces a stale sha as a 409', async () => {
-    const deleteFile = vi.fn(async () => { throw new GiteaConflictError('changed since it was loaded'); });
-    const harness = await mount({ deleteFile });
-    expect(await statusOf(axios.delete(harness.url('/api/projects/proj-1/files/content?path=old.ts&sha=stale')))).toBe(409);
+    const { harness, repo } = await mount(await seeded({ 'old.ts': 'bye', 'kept.ts': 'stay' }));
+    expect(await statusOf(axios.delete(harness.url(`/api/projects/proj-1/files/content?path=old.ts&sha=${blobSha('what it was before')}`)))).toBe(409);
+    expect((await raw(repo, 'old.ts', 'main')).bytes.toString()).toBe('bye');
   });
 });
 
@@ -283,28 +343,25 @@ describe('a project scoped to a local machine', () => {
 
 describe('POST /:id/files/drop', () => {
   const sent = { headers: { 'Content-Type': DROP_TYPE }, validateStatus: () => true };
-  const received = (into: { path: string; bytes: Buffer; source: string }[]) => vi.fn(async (_auth: unknown, _owner: string, _repo: string, files: readonly { path: string; source: string }[]) => {
-    for (const file of files) into.push({ path: file.path, source: file.source, bytes: await readFile(file.source) });
-    return { commit: 'c1' };
-  });
 
   it('commits what was dropped, under the folder it was dropped on, streamed in pieces with its bytes intact', async () => {
-    const got: { path: string; bytes: Buffer; source: string }[] = [];
-    const commitDropFromDisk = received(got);
-    const harness = await mount({ commitDropFromDisk });
+    const { harness, repo, commitDropFromDisk } = await mount(await seeded({ 'README.md': '# hi' }, ['story-1']));
     const png = Buffer.from(Array.from({ length: 200_000 }, (_, index) => (index * 13) % 256));
     const body = dropBody({ dir: 'public', ref: 'story-1' }, [{ path: 'logo.png', bytes: png }]);
     const pieces = Readable.from(Array.from({ length: Math.ceil(body.length / 1000) }, (_, index) => body.subarray(index * 1000, (index + 1) * 1000)));
     const res = await axios.post(harness.url('/api/projects/proj-1/files/drop'), pieces, sent);
     expect(res.status).toBe(201);
-    expect(res.data).toEqual({ ok: true, paths: ['public/logo.png'], commit: 'c1' });
-    expect(commitDropFromDisk).toHaveBeenCalledWith({ token: 'tok-1', username: 'acme' }, 'acme', 'demo', [expect.objectContaining({ path: 'public/logo.png', size: png.length })], 'Add public/logo.png', 'story-1');
-    expect(got.map((file) => [file.path, file.bytes])).toEqual([['public/logo.png', png]]);
-    await vi.waitFor(() => expect(existsSync(got[0]!.source)).toBe(false));
+    expect(res.data).toEqual({ ok: true, paths: ['public/logo.png'], commit: await headOf(repo, 'story-1') });
+    expect(commitDropFromDisk).toHaveBeenCalledWith({ token, username: OWNER }, OWNER, repo, [expect.objectContaining({ path: 'public/logo.png', size: png.length })], 'Add public/logo.png', 'story-1');
+    const stored = await raw(repo, 'public/logo.png', 'story-1');
+    expect([stored.status, stored.bytes]).toEqual([200, png]);
+    expect((await raw(repo, 'public/logo.png', 'main')).status).toBe(404);
+    const source = commitDropFromDisk.mock.calls[0]![3][0]!.source;
+    await vi.waitFor(() => expect(existsSync(source)).toBe(false));
   });
 
   it('refuses a file that would land outside the repository, a drop into someone else\'s project, and a drop sent as anything else', async () => {
-    const harness = await mount({ commitDropFromDisk: vi.fn() });
+    const { harness, commitDropFromDisk } = await mount(await seeded({ 'README.md': '# hi' }));
     const outside = await axios.post(harness.url('/api/projects/proj-1/files/drop'), dropBody({}, [{ path: '../x', bytes: Buffer.from('x') }]), sent);
     expect(outside.status).toBe(400);
     expect(outside.data).toEqual({ error: '../x would land outside the repository' });
@@ -312,16 +369,17 @@ describe('POST /:id/files/drop', () => {
     expect(missing.status).toBe(404);
     const json = await axios.post(harness.url('/api/projects/proj-1/files/drop'), { files: [] }, { validateStatus: () => true });
     expect(json.status).toBe(415);
+    expect(commitDropFromDisk).not.toHaveBeenCalled();
   });
 
   it('hands code dropped on a story to the story, and says what became of it', async () => {
     const storyDrop = vi.fn(async () => ({ ok: true as const, drop: { id: 'd1', branch: 'drop/l1/d1', paths: ['logo.svg'], at: 'now', by: TEST_USER.id, state: 'merged' as const }, said: 'logo.svg merged into the story\'s checkout' }));
-    const commitDropFromDisk = vi.fn();
-    const harness = await mount({ commitDropFromDisk, storyDrop });
+    const { harness, repo, commitDropFromDisk } = await mount(await seeded({ 'README.md': '# hi' }), storyDrop);
     const res = await axios.post(harness.url('/api/projects/proj-1/files/drop'), dropBody({ leafId: 'l1' }, [{ path: 'logo.svg', bytes: Buffer.from('<svg/>') }]), sent);
     expect(res.status).toBe(201);
     expect(res.data).toMatchObject({ said: 'logo.svg merged into the story\'s checkout' });
     expect(storyDrop).toHaveBeenCalledWith(TEST_USER.id, 'proj-1', 'l1', [expect.objectContaining({ path: 'logo.svg', size: 6 })], undefined);
     expect(commitDropFromDisk).not.toHaveBeenCalled();
+    expect((await raw(repo, 'logo.svg', 'main')).status).toBe(404);
   });
 });

@@ -1,13 +1,15 @@
 import { generateIdentityKey, identityKeysFrom } from '../../instances/lib/identity-token.js';
 import { publicJwkOf, type SignInKey } from '../../instances/lib/oidc.js';
-import { afterEach, describe, expect, it } from 'vitest';
+import { randomUUID } from 'node:crypto';
+import { afterAll, afterEach, describe, expect, inject, it } from 'vitest';
 import axios from 'axios';
 import { hubRouter } from './hub.js';
 import { hubLinkRouter } from './hub-link.js';
 import { mountRouter, type Harness, TEST_USER } from '../../platform/routes/test-harness.js';
 import { HubService } from '../services/HubService.js';
 import { ProjectInviteService } from '../services/ProjectInviteService.js';
-import { memoryHubStore } from '../lib/hub-store.js';
+import { mongoHubStore } from '../lib/hub-mongo.js';
+import type { HubStore } from '../lib/hub-store.js';
 import { hashCredential } from '../../instances/services/InstanceService.js';
 import type { InviteMetadata } from '../../platform/lib/types.js';
 import { inviteCodeHash } from '../../platform/lib/invite-codes.js';
@@ -17,12 +19,22 @@ import { HubRootClient } from '../services/HubRootClient.js';
 const harnesses: Harness[] = [];
 afterEach(async () => { for (const harness of harnesses.splice(0)) await harness.close(); });
 
+const stores: HubStore[] = [];
+afterAll(async () => { for (const store of stores.splice(0)) await store.close(); });
+
+async function hubStore(): Promise<HubStore> {
+  const store = mongoHubStore(inject('mongoUri'), `t_${randomUUID().replace(/-/g, '').slice(0, 20)}`);
+  await store.init();
+  stores.push(store);
+  return store;
+}
+
 const ask = { validateStatus: () => true };
 
 async function hubFor(people: { id: string; email: string }[]) {
   const invites: InviteMetadata[] = [];
   const projectInvites = new ProjectInviteService({ principalFor: (user) => principalOf(user, { role: 'combined' }), invites: { getInviteByCode: async (code) => invites.find((invite) => invite.codeHash === inviteCodeHash(code)), saveInvite: async (invite) => { invites.push(invite); }, getInvites: async () => invites }, people: { getUserById: async (id) => ({ id }), getUserByEmail: async () => undefined }, limits: async () => undefined, rootUrl: 'http://root' });
-  const hub = new HubService({ store: memoryHubStore(), invites: projectInvites });
+  const hub = new HubService({ store: await hubStore(), invites: projectInvites });
   const sites = [];
   for (const person of people) {
     const site = await mountRouter({ prefix: '/api/hub', user: { ...TEST_USER, ...person }, router: async () => hubRouter({ hub }) });
@@ -143,7 +155,7 @@ describe('/api/hub-root, on the hub', () => {
     const { hubPersonPart, RemoteHubPeople } = await import('../services/HubPeople.js');
     const root = identityKeysFrom(generateIdentityKey());
     const stranger = identityKeysFrom(generateIdentityKey());
-    const store = memoryHubStore();
+    const store = await hubStore();
     const tokens: string[] = [];
     const hub = new HubService({ store, invites: { send: async (request) => { tokens.push(request.join); return { link: 'l', emailed: false }; } } });
     const forgotten: string[] = [];
@@ -177,7 +189,7 @@ describe('/api/hub-instance, on the hub', () => {
     const { RemoteHub } = await import('../services/HubRemote.js');
     const { HUB_AUDIENCE, hubInstancePart } = await import('../lib/hub.js');
     const root = identityKeysFrom(generateIdentityKey());
-    const store = memoryHubStore();
+    const store = await hubStore();
     const hub = new HubService({ store, invites: { send: async () => ({ link: 'l', emailed: false }) } });
     const site = await mountRouter({ prefix: '/api/hub-instance', router: async (db) => hubInstanceRouter({ hub, trusted: trustedKeys([publicKeyPem(root.publicKey)]), claim: (jti, expiresAt) => db.instances.claimHandoff(jti, expiresAt) }) });
     harnesses.push(site);
@@ -232,7 +244,7 @@ describe('relaying a member\'s file to and from the owner\'s instance', () => {
     const db = await testDatabase();
     const trusted = trustedKeys([publicKeyPem(root.publicKey)]);
     const claim = (jti: string, expiresAt: string) => db.instances.claimHandoff(jti, expiresAt);
-    const hub = new HubService({ store: memoryHubStore(), invites: { send: async () => ({ link: 'l', emailed: false }) }, relay: new HubRelay() });
+    const hub = new HubService({ store: await hubStore(), invites: { send: async () => ({ link: 'l', emailed: false }) }, relay: new HubRelay() });
     const app = await harnessApp({ prefix: '/api/hub', router: () => hubRouter({ hub }) }, db, () => ({ ...TEST_USER, id: 'ann', email: 'ann@example.com' }));
     app.use('/api/hub-instance', hubInstanceRouter({ hub, trusted, claim }));
     const server = http.createServer(app);
@@ -292,7 +304,7 @@ describe('a member inviting through the hub, which asks root to send it', () => 
       }),
     });
     harnesses.push(rootSite);
-    const hub = new HubService({ store: memoryHubStore(), invites: new HubRootClient({ rootUrl: rootSite.url(''), token: async () => 'the-hub' }) });
+    const hub = new HubService({ store: await hubStore(), invites: new HubRootClient({ rootUrl: rootSite.url(''), token: async () => 'the-hub' }) });
     const site = await mountRouter({ prefix: '/api/hub', user: { ...TEST_USER, id: 'ann', email: 'ann@example.com' }, router: async () => hubRouter({ hub, vouch: async (req) => String(req.headers['x-person-token'] ?? '') || undefined }) });
     harnesses.push(site);
     const made = await hub.create({ id: 'ann', email: 'ann@example.com' }, { name: 'Shop' });
