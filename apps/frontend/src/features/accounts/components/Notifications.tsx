@@ -10,7 +10,7 @@ const CHOICES: Array<{ value: EmailChoice; label: string; explain: string }> = [
   { value: 'off', label: 'No email', explain: 'Alerts still show as notices and on the Infrastructure page.' },
 ]
 
-export function Notifications() {
+export function Notifications({ reach = 'Alerts reach you as a notice in the chat they belong to and on the Infrastructure page.' }: { reach?: string }) {
   const notifications = useNotifications()
   const choose = useSetEmailChoice()
   const test = useSendTestEmail()
@@ -21,7 +21,7 @@ export function Notifications() {
     <div className={dangerPanel} data-testid="notifications">
       <h4 className="text-lg font-bold text-white mb-1">Notifications</h4>
       <p className="text-xs text-slate-400">
-        Alerts reach you as a notice in the chat they belong to and on the Infrastructure page.
+        {reach}
         {view.address ? <> They can also be emailed to <span className="font-mono text-slate-200">{view.address}</span>.</> : ' They can also be emailed to your account\'s address.'}
       </p>
       {!view.available.ok && <p className="mt-2 text-xs text-amber-300">Email cannot be sent from here: {view.available.why}.</p>}

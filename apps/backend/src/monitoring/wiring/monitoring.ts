@@ -15,6 +15,7 @@ import type { Mounts } from '../../hub/index.js';
 export interface MonitoringWiringDeps {
   machineStatus?: ((deviceId: string) => { online: boolean }) | undefined;
   tenant: Mounts;
+  app: Mounts;
   db: Database;
   role: RoleConfig;
   env: NodeJS.ProcessEnv;
@@ -32,6 +33,7 @@ export interface MonitoringWiringDeps {
 
 export function wireMonitoring(deps: MonitoringWiringDeps): { monitoring: MonitoringService } {
   const { tenant, db, role, clusters, infra, notices, notifications } = deps;
+  const watchesItself = role.role === 'root';
   const placeOnPool = poolMonitorFrom(deps.env, deps.rootToken);
   const onPool = placeOnPool ? poolMonitor(placeOnPool) : undefined;
   const monitoring = new MonitoringService({
@@ -43,10 +45,11 @@ export function wireMonitoring(deps: MonitoringWiringDeps): { monitoring: Monito
     kubectl: async (cluster, args) => String(await infra.runKubectl(args, await clusters.getKubeconfigPath(cluster))),
     apply: async (cluster, manifest) => { await infra.applyManifest(manifest, await clusters.getKubeconfigPath(cluster)); },
     helm: async (cluster, args) => String(await infra.runHelm(args, await clusters.getKubeconfigPath(cluster))),
+    rootAlerts: watchesItself,
   });
   tenant.use('/api/monitoring', monitoringRouter({ monitoring }));
-  tenant.use('/api/notifications', notificationsRouter({ notifications, mail: deps.mail, push: deps.push }));
-  if (servesTenants(role)) {
+  (watchesItself ? deps.app : tenant).use('/api/notifications', notificationsRouter({ notifications, mail: deps.mail, push: deps.push }));
+  if (servesTenants(role) || watchesItself) {
     new AlertWatchService({
       monitoring,
       store: db,

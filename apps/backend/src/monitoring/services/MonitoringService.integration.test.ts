@@ -562,3 +562,16 @@ describe('Koala\'s own cluster when Koala runs on a machine', () => {
     expect((await monitoring.clusterHealth(ME, own.id, '1h')).cluster.numbers.nodes).toBe(2);
   });
 });
+
+describe('root\'s own alerts', () => {
+  it('are written as one PrometheusRule into the system cluster of a root, and nowhere else', async () => {
+    await monitoring.applyRootRules(system);
+    expect(applied).toEqual([]);
+    monitoring = new MonitoringService({ ...deps(), rootAlerts: true });
+    await monitoring.applyRootRules({ ...system, isSystem: false } as ClusterMetadata);
+    expect(applied).toEqual([]);
+    await monitoring.applyRootRules(system);
+    const written = applied.map((manifest) => JSON.parse(manifest) as { kind: string; metadata: { name: string } });
+    expect(written.map((manifest) => [manifest.kind, manifest.metadata.name])).toEqual([['PrometheusRule', 'koala-root-alerts']]);
+  });
+});

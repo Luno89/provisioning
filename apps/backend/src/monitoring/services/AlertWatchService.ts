@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { allowed, asPerson, clusterResource, type ClusterMetadata, type DeploymentMetadata, type Database, type Principal } from '../../platform/index.js';
-import { visibleAlerts, type AlertRuleRecord, type PromAlert, type VisibleAlert } from '../lib/monitoring-alerts.js';
+import { KOALA_SUBJECT, visibleAlerts, type AlertRuleRecord, type PromAlert, type VisibleAlert } from '../lib/monitoring-alerts.js';
+import { ROOT_RULE_IDS } from '../lib/root-alerts.js';
 import type { AlertEpisode } from '../lib/monitoring-records.js';
 import { namespaceOf } from '../../infrastructure/index.js';
 import type { MonitoringService } from './MonitoringService.js';
@@ -11,7 +12,7 @@ export const HISTORY_RETRY_MS = 10 * 60_000;
 export type AlertChange = 'fired' | 'resolved';
 
 export interface AlertWatchDeps {
-  monitoring: Pick<MonitoringService, 'allClusters' | 'reach' | 'applyHistory' | 'applyReceiver' | 'applyRequestMetrics' | 'syncPoolProbes'>;
+  monitoring: Pick<MonitoringService, 'allClusters' | 'reach' | 'applyHistory' | 'applyReceiver' | 'applyRequestMetrics' | 'applyRootRules' | 'syncPoolProbes'>;
   store: Pick<Database, 'infrastructure' | 'monitoring'>;
   people(): Promise<Principal[]>;
   tell(episode: AlertEpisode, change: AlertChange, context: { app?: DeploymentMetadata | undefined; rule?: AlertRuleRecord | undefined }): Promise<void>;
@@ -90,6 +91,9 @@ export class AlertWatchService {
       return false;
     });
     if (receiving) this.deps.log?.(`[alerts] ${cluster.name} now takes the metrics its machines send`);
+    await this.deps.monitoring.applyRootRules(cluster).catch((err: Error) => {
+      this.deps.log?.(`[alerts] ${cluster.name}: root's own alerts could not be set (${err.message})`);
+    });
     const counting = await this.deps.monitoring.applyRequestMetrics(cluster).catch((err: Error) => ({ problem: err.message }));
     if (counting === 'applied') this.deps.log?.(`[alerts] ${cluster.name} now counts each app's requests`);
     else if (typeof counting === 'object') this.deps.log?.(`[alerts] ${cluster.name}: ${counting.problem}`);
@@ -100,7 +104,9 @@ export class AlertWatchService {
     const mine = onCluster.filter((dep) => allowed(viewer, 'see', { kind: 'deployment', ownerId: dep.ownerId }));
     const visible = visibleAlerts(alerts, {
       appsByNamespace: new Map(mine.map((dep) => [namespaceOf(dep), { deploymentId: dep.id, name: dep.name }])),
-      ownRules: new Set(rules.filter((rule) => rule.ownerId === owner).map((rule) => rule.id)),
+      ownRules: new Set(rules.filter((rule) => rule.ownerId === owner && rule.deploymentId !== KOALA_SUBJECT).map((rule) => rule.id)),
+      koalaRules: new Set(rules.filter((rule) => rule.ownerId === owner && rule.deploymentId === KOALA_SUBJECT).map((rule) => rule.id)),
+      rootRules: ROOT_RULE_IDS,
       ownsCluster: allowed(viewer, 'see-everything', clusterResource(cluster)),
     });
     const open = (await this.deps.store.monitoring.getAlertEpisodes(owner)).filter((episode) => episode.clusterId === cluster.id && !episode.resolvedAt);

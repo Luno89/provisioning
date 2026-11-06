@@ -18,7 +18,7 @@ export const DEFAULT_EMAIL: EmailChoice = 'all';
 
 export const isEmailChoice = (value: unknown): value is EmailChoice => typeof value === 'string' && (EMAIL_CHOICES as readonly string[]).includes(value);
 
-const DOWN_ALERTS: ReadonlySet<string> = new Set(['AppProbeDown', 'Koala_down', 'KubeNodeNotReady', 'KubeNodeUnreachable']);
+const DOWN_ALERTS: ReadonlySet<string> = new Set(['AppProbeDown', 'Koala_down', 'Koala_koala_down', 'Root_process_down', 'Root_service_down', 'KubeNodeNotReady', 'KubeNodeUnreachable']);
 
 export function emailWanted(choice: EmailChoice, episode: Pick<AlertEpisode, 'name'>): boolean {
   if (choice === 'off') return false;

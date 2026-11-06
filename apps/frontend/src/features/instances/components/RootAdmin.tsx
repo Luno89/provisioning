@@ -3,6 +3,7 @@ import { LogOut } from 'lucide-react'
 import { People } from '../../accounts'
 import { Invites } from '../../accounts'
 import { ProjectInvites } from '../../accounts'
+import { Notifications } from '../../accounts'
 import { PoolSection } from './PoolSection'
 import { DependenciesSection } from './DependenciesSection'
 import { MailSection } from './MailSection'
@@ -31,6 +32,7 @@ export default function RootAdmin({ section, onLogout }: { section?: 'pool' | 'd
         <PoolSection />
         <DependenciesSection />
         <MailSection />
+        <Notifications reach="Root's own alerts (its processes, its services, its disk and memory, its backups) reach every operator." />
       </div>
     </div>
   )

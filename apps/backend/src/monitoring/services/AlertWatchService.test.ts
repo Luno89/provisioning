@@ -50,6 +50,7 @@ beforeEach(async () => {
   monitoring.applyHistory.mockResolvedValue(false);
   monitoring.applyRequestMetrics.mockResolvedValue('already');
   monitoring.applyReceiver.mockResolvedValue(false);
+  monitoring.applyRootRules.mockResolvedValue(undefined);
   await db.infrastructure.saveDeploymentInfo(dep({ id: 'books', name: 'Books', namespace: 'books' }));
   await db.infrastructure.saveDeploymentInfo(dep({ id: 'theirs', name: 'Theirs', namespace: 'theirs', ownerId: 'someone' }));
 });
@@ -89,6 +90,30 @@ describe('watching alerts', () => {
     expect(tell.mock.calls[0]?.[1]).toBe('fired');
     expect(tell.mock.calls[0]?.[2].rule?.id).toBe('r1');
     expect(tell.mock.calls[0]?.[2].app?.id).toBe('books');
+  });
+
+  it('tells whoever set an alert on Koala itself when it fires, and nobody else', async () => {
+    await db.monitoring.saveAlertRule({ id: 'k1', ownerId: 'me', deploymentId: 'koala', clusterId: system.id, namespace: 'monitoring', appName: 'Koala', spec: alertSpec('koala_down') as AlertSpec, summary: 'Koala is not answering', createdAt: 'then' });
+    metrics.alerts.mockResolvedValue([{ labels: { alertname: 'Koala_koala_down', namespace: 'monitoring', [RULE_LABEL]: 'k1' }, annotations: { summary: 'Koala is not answering' }, state: 'firing' }]);
+    const OTHER = principalOf({ id: 'other' }, { role: 'instance', instanceOwnerId: 'me' });
+    await watcher({ people: async () => [ME, OTHER] }).tick();
+    expect(told).toEqual(['me fired Koala is not answering']);
+    expect((await db.monitoring.getAlertEpisodes('me'))[0]).toMatchObject({ ruleId: 'k1', about: { kind: 'koala' } });
+  });
+
+  it('tells everyone who runs the cluster about root\'s own alerts, as alerts about Koala itself', async () => {
+    metrics.alerts.mockResolvedValue([{ labels: { alertname: 'Root_service_down', [RULE_LABEL]: 'root-mongo-down' }, annotations: { summary: 'Mongo on root has not answered for 5 minutes' }, state: 'firing' }]);
+    const STRANGER = asPerson('stranger');
+    await watcher({ people: async () => [ME, STRANGER] }).tick();
+    expect(told).toEqual(['me fired Mongo on root has not answered for 5 minutes']);
+    expect((await db.monitoring.getAlertEpisodes('me'))[0]).toMatchObject({ ruleId: 'root-mongo-down', about: { kind: 'koala' } });
+  });
+
+  it('sets root\'s own alerts on each cluster it watches as it reconciles it, and says when that failed', async () => {
+    monitoring.applyRootRules.mockRejectedValueOnce(new Error('kubectl is away'));
+    await watcher().tick();
+    expect(monitoring.applyRootRules).toHaveBeenCalledWith(system);
+    expect(logged).toContain('[alerts] provisioning-lunorica: root\'s own alerts could not be set (kubectl is away)');
   });
 
   it('tells a machine alert without an app or a rule', async () => {

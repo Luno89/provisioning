@@ -10,6 +10,7 @@ import {
 import { TELEMETRY_SERVICES, type TelemetrySeen } from '../lib/cluster-monitoring.js';
 import { askQuery, type MonitoringAsk, type RangeAsk } from '../lib/monitoring-asks.js';
 import { CLUSTER_LABEL, inCluster, OWN_SERIES } from '../lib/cluster-scope.js';
+import { rootAlertsManifest } from '../lib/root-alerts.js';
 import { probesFromCluster, probesKey, type PoolProbe, type PoolRule } from '../lib/pool-monitoring.js';
 import {
   appLines, appVerdict, clusterLines, clusterVerdict, koalaLines, koalaVerdict, share, worstFirst,
@@ -115,6 +116,7 @@ export interface MonitoringDeps {
   apply(cluster: ClusterMetadata, manifest: string): Promise<void>;
   helm(cluster: ClusterMetadata, args: string[]): Promise<string>;
   machineStatus?(deviceId: string): { online: boolean };
+  rootAlerts?: boolean | undefined;
   now?: () => Date;
   newId?: () => string;
 }
@@ -621,6 +623,11 @@ export class MonitoringService {
       await this.deps.store.monitoring.saveMonitoringSetting({ clusterId: cluster.id, ownerId: setting?.ownerId ?? cluster.ownerId ?? 'platform', historyDays: days, updatedAt: setting?.updatedAt ?? this.now().toISOString(), problem: message });
       return false;
     }
+  }
+
+  async applyRootRules(cluster: ClusterMetadata): Promise<void> {
+    if (!this.deps.rootAlerts || !cluster.isSystem) return;
+    await this.deps.apply(cluster, JSON.stringify(rootAlertsManifest()));
   }
 
   async applyReceiver(cluster: ClusterMetadata): Promise<boolean> {

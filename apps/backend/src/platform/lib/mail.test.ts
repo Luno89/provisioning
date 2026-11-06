@@ -10,6 +10,7 @@ describe('which alerts are emailed', () => {
   it('sends every one, only the ones that say something is down, or none', () => {
     expect(emailWanted('all', { name: 'NodeMemoryHighUtilization' })).toBe(true);
     expect(emailWanted('down', { name: 'NodeMemoryHighUtilization' })).toBe(false);
+    for (const name of ['Koala_koala_down', 'Root_process_down', 'Root_service_down']) expect(emailWanted('down', { name })).toBe(true);
     expect(emailWanted('down', { name: 'Koala_down' })).toBe(true);
     expect(emailWanted('down', { name: 'AppProbeDown' })).toBe(true);
     expect(emailWanted('off', { name: 'AppProbeDown' })).toBe(false);

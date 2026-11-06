@@ -29,6 +29,7 @@ export interface AlertScope {
   appsByNamespace: ReadonlyMap<string, { deploymentId: string; name: string }>;
   ownRules: ReadonlySet<string>;
   koalaRules?: ReadonlySet<string> | undefined;
+  rootRules?: ReadonlySet<string> | undefined;
   ownsCluster: boolean;
 }
 
@@ -68,7 +69,9 @@ export function visibleAlerts(alerts: readonly PromAlert[], scope: AlertScope): 
     const app = alert.labels.namespace ? scope.appsByNamespace.get(alert.labels.namespace) : undefined;
     const ruleId = alert.labels[RULE_LABEL];
     const base = { key: alertKey(alert.labels), name, severity: alert.labels.severity ?? 'warning', ...(alert.activeAt ? { since: alert.activeAt } : {}) };
-    if (ruleId && scope.koalaRules?.has(ruleId)) {
+    if (ruleId && scope.ownsCluster && scope.rootRules?.has(ruleId)) {
+      seen.push({ ...base, ruleId, summary: alert.annotations?.summary ?? `${KOALA_NAME}: ${name}`, about: { kind: 'koala' } });
+    } else if (ruleId && scope.koalaRules?.has(ruleId)) {
       seen.push({ ...base, ruleId, summary: alert.annotations?.summary ?? `${KOALA_NAME}: ${name}`, about: { kind: 'koala' } });
     } else if (ruleId) {
       if (!scope.ownRules.has(ruleId) || !app) continue;
