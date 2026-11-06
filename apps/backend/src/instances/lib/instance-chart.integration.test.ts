@@ -81,7 +81,7 @@ const specOf = (doc: Doc): Spec => {
 };
 
 const podOf = (doc: Doc): PodSpec => {
-  const pod = doc.spec?.template?.spec;
+  const pod = doc.spec?.template?.spec ?? doc.spec?.jobTemplate?.spec.template.spec;
   if (!pod) throw new Error(`${doc.kind} ${doc.metadata.name} runs no pods`);
   return pod;
 };
@@ -229,7 +229,11 @@ describe('the instance chart', () => {
       expect(pod.containers[0]!.env).toContainEqual({ name: 'DEV_WATCH', value: 'true' });
       expect(JSON.stringify(podOf(find(render(), 'Deployment', `luno-${process}`)))).not.toContain('DEV_WATCH');
     }
-    expect(podOf(find(render(['hostAliases[0].ip=10.42.0.1', 'hostAliases[0].hostnames[0]=koala.localhost']), 'Deployment', 'luno-backend')).hostAliases).toEqual([{ ip: '10.42.0.1', hostnames: ['koala.localhost'] }]);
+    const aliased = render(['hostAliases[0].ip=10.42.0.1', 'hostAliases[0].hostnames[0]=koala.localhost', 'instance.credential=cred-from-root']);
+    const koalas = ['luno-backend', 'luno-worker-engine', 'luno-worker-cluster', 'luno-worker-host'];
+    const pods = aliased.filter((doc) => doc.kind === 'Job' || doc.kind === 'CronJob' || (doc.kind === 'Deployment' && koalas.includes(doc.metadata.name)));
+    expect(pods.map((doc) => doc.kind)).toEqual(expect.arrayContaining(['Deployment', 'Job', 'CronJob']));
+    for (const doc of pods) expect(podOf(doc).hostAliases, `${doc.kind} ${doc.metadata.name}`).toEqual([{ ip: '10.42.0.1', hostnames: ['koala.localhost'] }]);
     expect(podOf(find(render(['dev.source=/home/me/koala-src']), 'Job', 'luno-seed')).volumes).toContainEqual({ name: 'source', hostPath: { path: '/home/me/koala-src', type: 'Directory' } });
   });
 

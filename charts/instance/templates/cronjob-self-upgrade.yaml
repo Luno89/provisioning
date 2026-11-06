@@ -19,6 +19,9 @@ spec:
         spec:
           serviceAccountName: {{ include "instance.name" . }}
           restartPolicy: Never
+          {{- with $.Values.hostAliases }}
+          hostAliases: {{- toYaml . | nindent 12 }}
+          {{- end }}
           containers:
             - name: self-upgrade
               image: {{ include "instance.image" . }}
