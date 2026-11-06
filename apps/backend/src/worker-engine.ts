@@ -14,9 +14,10 @@ import {
 } from './projects/index.js';
 import {
   stopIfRunning, createDatabase, sharedPayloadBlobs, createWorkerLogger, buildDataConverter, connectTemporalWorker, temporalTlsProblem, failureReason,
-  sessionToken, principalOf, claimSettingsFrom, roleFromEnv, getTemporalClient, resolveOwnersWith, loadKeys, startedFor, carryingTrace, SYSTEM_KUBECONFIG, telemetrySettings, AccessRevocations,
+  sessionToken, principalOf, claimsOf, claimSettingsFrom, roleFromEnv, getTemporalClient, resolveOwnersWith, loadKeys, startedFor, carryingTrace, SYSTEM_KUBECONFIG, telemetrySettings, AccessRevocations,
   publicAddressProblem, encryptValue, temporalNamespaceFrom,
 } from './platform/index.js';
+import type { ClaimedUser } from './platform/index.js';
 import { rootSignInFor } from './instances/wiring/sign-in.js';
 import { createWorkspaceRepoResolver, treeOfWorkspace } from './engine-host/sandboxes/workspace-repos.js';
 import dotenv from 'dotenv';
@@ -150,7 +151,7 @@ async function buildActivities() {
   const checks = httpCheckAccess(async (ownerId) => {
     const person = await db.accounts.getUserById(ownerId);
     if (!person) throw new Error(`there is no account ${ownerId} to act for`);
-    return carryingTrace(axios.create({ baseURL: checksApi, proxy: false, headers: { Cookie: `session=${sessionToken(person, keys.session, { seconds: 60 * 60 })}` } }));
+    return carryingTrace(axios.create({ baseURL: checksApi, proxy: false, headers: { Cookie: actingAs(person, 60 * 60) } }));
   });
   const engineStores = storesFromDatabase(db);
   const growers: { launcher?: GroveRunLauncher } = {};
@@ -181,6 +182,10 @@ async function buildActivities() {
   const engineRole = roleFromEnv(process.env);
   const rootSignIn = rootSignInFor({ role: engineRole, env: process.env, keys, db, revocations: new AccessRevocations(), publicUrl: process.env.PUBLIC_URL ?? '' });
   rootSignIn?.keepAnnouncing((message) => console.warn(`[sign-in] ${message}`));
+  const actingAs = (person: ClaimedUser & { email: string }, seconds?: number): string =>
+    `session=${engineRole.role === 'instance' && rootSignIn
+      ? rootSignIn.madeHere(person, claimsOf(person, claimSettingsFrom(engineRole)), seconds)
+      : sessionToken(person, keys.session, seconds ? { seconds } : {})}`;
   const placeOnPool = poolMonitorFrom(process.env, rootSignIn ? () => rootSignIn.serviceToken() : undefined);
   const onPool = placeOnPool ? poolMonitor(placeOnPool) : undefined;
   const monitoring = new MonitoringService({
@@ -544,7 +549,7 @@ async function buildActivities() {
       api: (space) => carryingTrace(axios.create({
         baseURL: process.env.CHECKS_API_URL || `http://localhost:${process.env.PORT || 3001}/api`,
         proxy: false,
-        headers: { Cookie: `session=${sessionToken(space, keys.session)}` },
+        headers: { Cookie: actingAs(space) },
       })),
       seedFiles: (ownerId, repo, files) => withSeedBundle(files, async (bundle) => {
         await projectRepos.pushDocuments({ ownerId, repo, describe: 'A check\'s conversation workspace', bundle });
