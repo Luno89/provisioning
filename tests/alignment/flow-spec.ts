@@ -17,6 +17,7 @@ export interface Step {
   does: string;
   screen: Screen;
   code?: string[];
+  job?: string;
   decisions: string[];
   branches?: Branch[];
   assumed?: string;

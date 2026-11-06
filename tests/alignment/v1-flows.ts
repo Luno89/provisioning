@@ -20,6 +20,7 @@ export const V1_FLOWS: Flow[] = [
         id: 'A2',
         does: 'Signed in with no Koala yet, root\'s page offers Add a machine (and a trial on Koala\'s servers, outside v1).',
         screen: { on: 'root', component: `${UI}/instances/components/NoInstance.tsx#NoInstance` },
+        code: ['apps/frontend/src/features/machines/api.ts#listMyMachines'],
         decisions: ['adding-a-machine-is-the-product', 'koala-on-a-machine', 'pool'],
       },
     ],
@@ -34,6 +35,7 @@ export const V1_FLOWS: Flow[] = [
         does: 'Add a machine shows one command, with "Put my Koala on this machine" ticked when they have no Koala yet. The code works once and lasts an hour.',
         screen: { on: 'root', component: `${UI}/machines/components/AccountMachines.tsx#AccountMachines` },
         code: ['apps/frontend/src/features/machines/api.ts#createMyJoinCode'],
+        job: 'Add a machine',
         decisions: ['adding-a-machine-is-the-product', 'koala-on-a-machine'],
       },
       {
@@ -82,6 +84,7 @@ export const V1_FLOWS: Flow[] = [
         does: 'The machine shows on My Machines: online, its cluster stopped, its GPUs listed.',
         screen: { on: 'instance', route: '/mesh', component: `${UI}/machines/components/MyMachines.tsx#MyMachines` },
         code: ['apps/frontend/src/features/machines/api.ts#listLocalAgentDevices'],
+        job: 'See their machines',
         decisions: ['adding-a-machine-is-the-product', 'gpu-is-core'],
       },
     ],
@@ -96,12 +99,13 @@ export const V1_FLOWS: Flow[] = [
         does: 'With the box ticked, the agent starts the cluster, installs Koala from root\'s checked chart and reports: waiting, installing, ready or failed with why.',
         screen: { on: 'root', component: `${UI}/instances/components/NoInstance.tsx#NoInstance` },
         code: ['apps/frontend/src/features/machines/api.ts#putKoalaOn', 'apps/local-agent/src/koala-install.ts#installKoala'],
-        decisions: ['koala-on-a-machine'],
+        decisions: ['koala-on-a-machine', 'cluster-on-demand'],
       },
       {
         id: 'C2',
         does: 'When ready, root sends them to their Koala at <name>.<people\'s domain>.',
         screen: { on: 'root', component: `${UI}/instances/components/NoInstance.tsx#NoInstance` },
+        code: ['apps/frontend/src/features/instances/api/identity.ts#getMyInstance'],
         decisions: ['koala-on-a-machine'],
       },
       {
@@ -109,6 +113,7 @@ export const V1_FLOWS: Flow[] = [
         does: 'While Koala is on the machine and it is on power, the agent keeps it from sleeping, and My Machines says so.',
         screen: { on: 'instance', route: '/mesh', component: `${UI}/machines/components/MyMachines.tsx#MyMachines` },
         code: ['apps/frontend/src/features/machines/api.ts#listLocalAgentDevices'],
+        job: 'See their machines',
         decisions: ['machine-lifecycle'],
       },
       {
@@ -130,6 +135,7 @@ export const V1_FLOWS: Flow[] = [
         does: 'Signed out, their Koala sends them to root to sign in, which hands them back.',
         screen: { on: 'instance', component: `${UI}/accounts/components/Login.tsx#Login` },
         code: ['apps/frontend/src/features/platform/api.ts#signInPlace'],
+        job: 'Learn how to sign in',
         decisions: ['v1', 'root'],
       },
       {
@@ -137,6 +143,7 @@ export const V1_FLOWS: Flow[] = [
         does: 'If the sign-in options cannot be loaded, the page says so in one line and nothing of why; the reason is recorded on the server.',
         screen: { on: 'instance', component: `${UI}/accounts/components/Login.tsx#Login` },
         code: ['apps/frontend/src/features/platform/api.ts#signInPlace'],
+        job: 'Learn how to sign in',
         decisions: ['errors-to-people'],
       },
       {
@@ -144,6 +151,7 @@ export const V1_FLOWS: Flow[] = [
         does: 'With no default model yet, they are asked for one; in v1 the way is a model on their own machine.',
         screen: { on: 'instance', component: `${UI}/models/components/FirstModel.tsx#FirstModel` },
         code: ['apps/frontend/src/features/models/api.ts#setDefaultModel'],
+        job: 'Make a model the default',
         decisions: ['v1'],
       },
     ],
@@ -179,6 +187,7 @@ export const V1_FLOWS: Flow[] = [
         does: 'The deploy starts the machine\'s cluster and readies its GPUs, proved by a pod that sees them.',
         screen: { on: 'machine' },
         code: ['apps/local-agent/src/machine-cluster.ts#runMachineCluster'],
+        job: 'Start a machine\'s cluster',
         decisions: ['cluster-on-demand', 'gpu-is-core'],
       },
       {
@@ -227,6 +236,7 @@ export const V1_FLOWS: Flow[] = [
         does: 'The running model is offered as a model; they make it the default.',
         screen: { on: 'instance', route: '/studio/models', component: `${UI}/models/components/ModelsView.tsx#ModelsView` },
         code: ['apps/frontend/src/features/models/api.ts#setDefaultModel'],
+        job: 'Make a model the default',
         decisions: ['v1'],
       },
       {
@@ -248,6 +258,7 @@ export const V1_FLOWS: Flow[] = [
         does: 'A second machine joins the same way with the box unticked, and waits stopped until something is deployed to it.',
         screen: { on: 'instance', route: '/mesh', component: `${UI}/machines/components/MyMachines.tsx#MyMachines` },
         code: ['apps/frontend/src/features/machines/api.ts#createMachineJoinCode'],
+        job: 'Add a machine',
         decisions: ['adding-a-machine-is-the-product', 'cluster-on-demand', 'koala-on-a-machine'],
       },
       {
@@ -268,6 +279,7 @@ export const V1_FLOWS: Flow[] = [
         id: 'H1',
         does: 'On automatic updates, their Koala moves to root\'s newer release and rolls itself back, telling root why, when a new pod cannot recover.',
         screen: { on: 'nowhere' },
+        code: ['apps/backend/src/scripts/self-upgrade.ts#selfUpgrade'],
         decisions: [],
         assumed: 'Built before the register (CLAUDE.md, Releases); no decision of the owner\'s is recorded for it yet.',
       },

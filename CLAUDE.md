@@ -808,7 +808,7 @@ project's own database before anything, and answers 404 to anyone not on it. Rol
 (everything; several allowed, the last cannot leave or be demoted, and whoever shared it from their instance stays one and on it,
 `sharerOf`, since it syncs only from there: they take it back to stop sharing), **collaborator** (works stories, approves, moves and
 removes files), **client** (pins, comments, asks Koala; its changes wait for an owner's or collaborator's approval). Every
-member sees everything in the project, the code and every file included (owner, 2026-10-26: "we can pare it down later").
+member sees everything in the project, the code and every file included (owner, 2026-10-26: "we can pair it down later").
 `/api/hub/*`: projects (made from a project's
 Settings → People, `origin` the project, opened again rather than made twice), invites, roles, remove/leave, delete (typing
 the name drops its database), invitations. **Inviting goes through root**: the hub posts to root's `/api/hub-link/invite`
@@ -887,7 +887,7 @@ its ticket and launch, which every child run keeps. The run is pinned to that pr
 refused, a `project` tool is refused when an argument names a project, tree, feature, story or task outside the shared project
 (`memberScopeOf`), and a refusal names nothing outside it; `resolve-tools` offers only what will be allowed, hand-offs and MCP
 tools included (an MCP server is a tool, owner 2026-10-26). Every member reaches everything in the project and nothing outside
-it (owner 2026-10-26: "we can pare it down later"); `acting-for.test.ts` fails on a shipped tool nobody classified. A
+it (owner 2026-10-26: "we can pair it down later"); `acting-for.test.ts` fails on a shipped tool nobody classified. A
 member's run never goes to the owner's machine: a machine picked for the chat gives way to the owner's default, a default on a
 machine is refused in plain words (`MEMBERS_OFF_MACHINES`), and a child that would run on one fails. Chat auto mode and per-chat
 allowances do not apply to it (agent and tree auto mode do), and an ask names who asked. Recall gives only the project's

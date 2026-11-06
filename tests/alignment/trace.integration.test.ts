@@ -5,6 +5,8 @@ import { ROOT } from '../coupling/artifacts.js';
 import { CONCEPTS } from '../coupling/concepts.js';
 import { touchesIn } from '../coupling/flows.js';
 import { repoGraph } from '../coupling/repo-graph.js';
+import { DECISIONS } from './decisions.js';
+import { driftOf } from './drift.js';
 import { traceStep, type StepTrace } from './trace.js';
 import { V1_FLOWS } from './v1-flows.js';
 
@@ -43,5 +45,15 @@ describe('the v1 steps, traced through this repository from the screen the perso
 
   it('starts nothing for a step that names neither a screen\'s component nor code', () => {
     expect(traced('I2').starts).toEqual([]);
+  });
+
+  it('reports the code still keeping what the decisions remove as known work, and adding a machine as one path with two doors', () => {
+    const sourceOf = (file: string): string | undefined => {
+      const path = join(ROOT, file);
+      return existsSync(path) ? readFileSync(path, 'utf8') : undefined;
+    };
+    const found = driftOf({ flows: V1_FLOWS, decisions: DECISIONS, traces, sourceOf, plans: [], said: [] });
+    expect(found.find((finding) => finding.id === 'decided-not-done:k3d')?.steps).toEqual(expect.arrayContaining(['E2']));
+    expect(found.some((finding) => finding.id === 'two-paths:Add a machine')).toBe(false);
   });
 });
