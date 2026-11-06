@@ -23,6 +23,13 @@ right?"
 - **Much of this file still describes the old topology** (the combined dev on :3001, the `provisioning-lunorica` system
   cluster, k3d as Koala's cluster, `dev:split`, GPUs on the system cluster, ship's old step list). Where it disagrees with the
   plan, the plan wins; this file is rewritten section by section as each phase lands.
+- **Staying aligned** (owner, 2026-11-06: "I feel like its important we don't drift from each others understand, and that you
+  ask me about inconsitances before we keep developing any more"; plan `~/.claude/plans/alignment.md`). Before asking the
+  owner anything, find what they already said: `npm run said -- <words>` searches their own messages in every session
+  transcript of this project (typed, sent while work ran, answers to questions, words given when refusing an action, and
+  what they told sub-agents), with date and session. Quote what it finds; never restate a decision in other words. Product
+  questions are settled first by "always side with the user and whatever decision makes it easier and less invasive to them"
+  (the user being whoever uses Koala). `npm run refs -- <file> <Symbol>` finds every reference to a symbol across the workspaces.
 
 ## What this is
 
