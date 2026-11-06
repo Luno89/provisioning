@@ -7,7 +7,7 @@ import type { Database } from '../../platform/lib/db-interface.js';
 import type { ClusterMetadata, PipelineRunMetadata, ProjectMetadata } from '../../platform/lib/types.js';
 import type { GiteaService } from '../services/GiteaService.js';
 import { ProjectRepoService } from '../services/ProjectRepoService.js';
-import { DEFAULT_TARGET_CLUSTER } from '../lib/project-shipping.js';
+import { DEFAULT_TARGET_CLUSTER, koalasClusterFor } from '../lib/project-shipping.js';
 
 const project = {
   id: 'proj-1',
@@ -46,7 +46,7 @@ async function mountWithGitea(gitea: Pick<GiteaService, 'getCommit'>): Promise<H
   });
 }
 
-async function mountForCreate(): Promise<Harness> {
+async function mountForCreate(defaultCluster?: string): Promise<Harness> {
   return mountRouter({
     prefix: '/api/projects',
     router: (db: Database) => projectsRouter({
@@ -59,7 +59,7 @@ async function mountForCreate(): Promise<Harness> {
         createRepoForUser: async () => ({}),
         replaceWebhook: async () => undefined,
         seedTemplate: async () => [],
-      } as never, 'a'.repeat(64) as never, async (id) => `http://10.0.0.5:3001/webhooks/gitea/${id}`),
+      } as never, 'a'.repeat(64) as never, async (id) => `http://10.0.0.5:3001/webhooks/gitea/${id}`, { defaultCluster }),
       clusterService: {
         getById: async (id, principal, action = 'see') => {
           const found = id === systemCluster.id ? systemCluster : (await db.infrastructure.getClusters()).find((entry) => entry.id === id);
@@ -400,6 +400,15 @@ describe('POST / — where it deploys', () => {
     const res = await axios.post<ProjectMetadata>(harness.url('/api/projects'), { name: 'demo', giteaRepo: 'demo' });
     expect(res.status).toBe(201);
     expect(res.data.targetClusterId).toBe(DEFAULT_TARGET_CLUSTER);
+    await harness.close();
+  });
+
+  it('sends it to the cluster of the machine Koala runs on, on an instance', async () => {
+    const harness = await mountForCreate(koalasClusterFor({ INSTANCE_MACHINE_ID: 'koalas-machine' }));
+    const res = await axios.post<ProjectMetadata>(harness.url('/api/projects'), { name: 'demo', giteaRepo: 'demo' });
+    expect(res.status).toBe(201);
+    expect(res.data.targetClusterId).toBe('machine-koalas-machine');
+    expect((await harness.db.projects.getProjects()).find((entry) => entry.id === res.data.id)?.targetClusterId).toBe('machine-koalas-machine');
     await harness.close();
   });
 

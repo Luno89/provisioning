@@ -33,7 +33,7 @@ export class ProjectRepoService {
     private gitea: GiteaService,
     private masterKey: SecretKey,
     private webhookUrl?: ((projectId: string) => Promise<string>) | undefined,
-    private options: { recordWaitMs?: number | undefined } = {},
+    private options: { recordWaitMs?: number | undefined; defaultCluster?: string | undefined } = {},
   ) {}
 
   async ensureAccountFor(ownerId: string): Promise<{ username: string }> {
@@ -159,7 +159,7 @@ export class ProjectRepoService {
         giteaRepo: repo,
         ...(input.language ? { language: input.language } : {}),
         appType: 'gitapp',
-        targetClusterId: input.targetClusterId ?? DEFAULT_TARGET_CLUSTER,
+        targetClusterId: input.targetClusterId ?? this.options.defaultCluster ?? DEFAULT_TARGET_CLUSTER,
         autoDeployOnBuild: input.autoDeployOnBuild,
         ...input.extra,
         createdAt: new Date().toISOString(),

@@ -7,7 +7,7 @@ import { startOnceQuiet } from './engine-host/grove-launcher.js';
 import { SHIPPED_DEPENDENCIES } from './extensions/workspace-dependencies.js';
 import path from 'path';
 import {
-  DEFAULT_TARGET_CLUSTER, GiteaService, projectSecretsFor, ProjectChannelService, ODOO_TREE_TYPE,
+  DEFAULT_TARGET_CLUSTER, koalasClusterFor, GiteaService, projectSecretsFor, ProjectChannelService, ODOO_TREE_TYPE,
   treeTypeOfProject, giteaUsernameFor, ProjectRepoService, createSecretVault, treeTypeChoices, treeLanguageFrom,
   treeExtrasFrom, dependencyNamespaceFrom, ownNamespacesFrom, renderStarterFiles, groveAgentOf, resolveTreeType, versionVars,
   TreeHomeService, webhookAddress, type GroveRunLauncher,
@@ -120,7 +120,7 @@ async function buildActivities() {
     undefined,
     sharedClusterProxy(),
   );
-  const projectRepos = new ProjectRepoService(db, gitea, keys.data, webhookAddress(new InfrastructureService(), '/tmp/kubeconfig-provisioning-lunorica', process.env.PORT || 3001, process.env.GITEA_REACHES_KOALA_AT?.trim() || undefined));
+  const projectRepos = new ProjectRepoService(db, gitea, keys.data, webhookAddress(new InfrastructureService(), '/tmp/kubeconfig-provisioning-lunorica', process.env.PORT || 3001, process.env.GITEA_REACHES_KOALA_AT?.trim() || undefined), { defaultCluster: koalasClusterFor(process.env) });
   const treeHome = new TreeHomeService({
     treeTypes: (ownerId) => db.projects.getTreeTypes(ownerId),
     projects: () => db.projects.getProjects(),

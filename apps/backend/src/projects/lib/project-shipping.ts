@@ -1,4 +1,5 @@
 import type { ProjectMetadata } from '../../platform/index.js';
+import { machineClusterId } from '../../infrastructure/lib/cluster-name.js';
 
 export function webhookUrlFor(nodeIpRaw: string, port: string | number, projectId: string): string {
   const ip = nodeIpRaw.trim().split(/\s+/)[0] ?? '';
@@ -27,6 +28,11 @@ export function isShippable(project: Pick<ProjectMetadata, 'webhookSecretEnc' | 
 }
 
 export const DEFAULT_TARGET_CLUSTER = 'provisioning-lunorica';
+
+export const koalasClusterFor = (env: Readonly<Record<string, string | undefined>>): string => {
+  const machine = env.INSTANCE_MACHINE_ID?.trim();
+  return machine ? machineClusterId(machine) : DEFAULT_TARGET_CLUSTER;
+};
 
 export const namesTargetCluster = (asked: unknown): asked is string => typeof asked === 'string' && asked !== '';
 
