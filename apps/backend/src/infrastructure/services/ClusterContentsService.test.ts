@@ -16,7 +16,7 @@ const podsJson = JSON.stringify({ items: [
 const namespacesJson = JSON.stringify({ items: [{ metadata: { name: 'shop' } }, { metadata: { name: 'theirs' } }, { metadata: { name: 'monitoring' } }] });
 const nodesJson = JSON.stringify({ items: [{ metadata: { name: 'n1', labels: { 'node-role.kubernetes.io/control-plane': 'true' } }, status: { conditions: [{ type: 'Ready', status: 'True' }], capacity: { cpu: '16', memory: '65536Mi', 'nvidia.com/gpu': '2' }, nodeInfo: { kubeletVersion: 'v1.33.1+k3s1' } } }] });
 
-function setUp(owns: (viewer: Viewer, cluster: ClusterMetadata) => boolean) {
+function setUp(owns: (viewer: Viewer, cluster: ClusterMetadata) => boolean, answers: (cluster: ClusterMetadata) => boolean = () => true) {
   const calls: string[] = [];
   const prometheus: PrometheusClient = {
     query: async (query) => (query.includes('memory') ? [{ metric: { namespace: 'shop', pod: 'shop-0' }, value: 1024 }] : []),
@@ -29,7 +29,8 @@ function setUp(owns: (viewer: Viewer, cluster: ClusterMetadata) => boolean) {
       { id: 'd1', name: 'shop', namespace: 'shop', clusterId: 'sys', ownerId: 'me', status: 'running' },
       { id: 'd2', name: 'theirs', namespace: 'theirs', clusterId: 'sys', ownerId: 'you', status: 'running' },
     ] as DeploymentMetadata[],
-    kubectl: async (_cluster, args) => {
+    kubectl: async (cluster, args) => {
+      if (!answers(cluster)) throw new Error('connection refused\nmore detail');
       calls.push(args.join(' '));
       return args[1] === 'pods' ? podsJson : args[1] === 'namespaces' ? namespacesJson : nodesJson;
     },
@@ -71,7 +72,15 @@ describe('what is on a cluster', () => {
     await service.contents(asPerson('admin'), 'sys');
     expect(calls.filter((call) => call.startsWith('get pods'))).toHaveLength(1);
     const broken = await service.broken(asPerson('admin'));
-    expect(broken.map((workload) => [workload.clusterId, workload.name])).toEqual([['sys', 'theirs-0'], ['c1', 'theirs-0']]);
+    expect(broken.workloads.map((workload) => [workload.clusterId, workload.name])).toEqual([['sys', 'theirs-0'], ['c1', 'theirs-0']]);
+    expect(broken.unread).toEqual([]);
+  });
+
+  it('names a cluster it could not read, rather than counting it as having nothing broken', async () => {
+    const { service } = setUp(() => true, (cluster) => cluster.id !== 'c1');
+    const broken = await service.broken(asPerson('admin'));
+    expect(broken.workloads.map((workload) => workload.clusterId)).toEqual(['sys']);
+    expect(broken.unread).toEqual([{ clusterId: 'c1', clusterName: 'mine', problem: 'it does not answer (connection refused)' }]);
   });
 
   it('refuses a cluster the person cannot see', async () => {

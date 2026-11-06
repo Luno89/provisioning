@@ -1,9 +1,9 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { mock } from 'vitest-mock-extended';
 import type { Overview, Viewer } from '../../monitoring/index.js';
 import type { RunningItem } from '../lib/running.js';
 import type { WorkFailure } from '../lib/work-failures.js';
-import type { BrokenWorkload, ClusterContents } from './ClusterContentsService.js';
+import type { BrokenWorkload, ClusterContents, UnreadCluster } from './ClusterContentsService.js';
 import { idsToClear, InfrastructureViewService, waitingOnPerson, type InfrastructureViewDeps, type RootReach } from './InfrastructureViewService.js';
 import type { RunningView } from './RunningService.js';
 
@@ -11,12 +11,12 @@ const viewer = { id: 'person-1' } as Viewer;
 const item = (workflowId: string, over: Partial<RunningItem> = {}): RunningItem => ({ workflowId, kind: 'tree', title: workflowId, since: 'x', opens: { kind: 'tree', id: 't' }, cancel: { how: 'workflow' }, ...over }) as unknown as RunningItem;
 const broken = (name: string, about: BrokenWorkload['about']): BrokenWorkload => ({ name, about }) as unknown as BrokenWorkload;
 
-function deps(over: { attention?: Overview['attention']; broken?: BrokenWorkload[]; running?: Awaited<ReturnType<InfrastructureViewDeps['running']['view']>>; root?: RootReach | undefined; signals?: boolean } = {}) {
+function deps(over: { attention?: Overview['attention']; broken?: BrokenWorkload[]; unread?: UnreadCluster[]; running?: Awaited<ReturnType<InfrastructureViewDeps['running']['view']>>; root?: RootReach | undefined; signals?: boolean } = {}) {
   const monitoring = mock<InfrastructureViewDeps['monitoring']>();
   monitoring.overview.mockResolvedValue({ attention: over.attention ?? [] } as Overview);
   monitoring.koala.mockResolvedValue({ state: 'ok' } as never);
   const contents = mock<InfrastructureViewDeps['contents']>();
-  contents.broken.mockResolvedValue(over.broken ?? []);
+  contents.broken.mockResolvedValue({ workloads: over.broken ?? [], unread: over.unread ?? [] });
   const running = mock<InfrastructureViewDeps['running']>();
   running.view.mockResolvedValue(over.running ?? { ok: true, value: { items: [] } as unknown as RunningView });
   const failures = mock<InfrastructureViewDeps['failures']>();
@@ -61,13 +61,16 @@ describe('InfrastructureViewService', () => {
     expect((await new InfrastructureViewService(all).overview(viewer)).workloads.map((workload) => workload.name)).toEqual(['w2', 'w3']);
   });
 
-  it('shows no broken workloads, and says why in the log, when they cannot be read', async () => {
+  it('names each cluster whose workloads could not be read', async () => {
+    const unread = [{ clusterId: 'c1', clusterName: 'desk', problem: 'it does not answer (connection refused)' }];
+    const { all } = deps({ unread });
+    expect(await new InfrastructureViewService(all).overview(viewer)).toMatchObject({ workloads: [], unreadClusters: unread });
+  });
+
+  it('fails the overview, saying why, when the clusters to read cannot be listed', async () => {
     const { all, contents } = deps();
-    contents.broken.mockRejectedValue(new Error('kubectl is away'));
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-    expect((await new InfrastructureViewService(all).overview(viewer)).workloads).toEqual([]);
-    expect(warn).toHaveBeenCalledWith('[InfrastructureView] broken workloads could not be read for person-1: kubectl is away');
-    warn.mockRestore();
+    contents.broken.mockRejectedValue(new Error('the database is away'));
+    await expect(new InfrastructureViewService(all).overview(viewer)).rejects.toThrow('the database is away');
   });
 
   it('says why running work could not be read instead of showing none', async () => {

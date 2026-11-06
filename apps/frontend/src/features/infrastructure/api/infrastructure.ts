@@ -129,10 +129,17 @@ export interface KoalaView {
   checkedAt: string
 }
 
+export interface UnreadCluster {
+  clusterId: string
+  clusterName: string
+  problem: string
+}
+
 export interface InfrastructureOverview {
   monitoring: Overview
   koala: KoalaView
   workloads: BrokenWorkload[]
+  unreadClusters: UnreadCluster[]
   waiting: RunningItem[]
   running: number
   runningProblem?: string

@@ -104,6 +104,7 @@ const overview: InfrastructureOverview = {
     services: ['koala-backend', 'koala-worker-engine'], lines: ['Koala is healthy.', '2 processes report: koala-backend, koala-worker-engine.'], telemetry: { collector: true, tempo: true }, checkedAt: new Date().toISOString(),
   },
   workloads: [{ namespace: 'searxng', kind: 'Deployment', name: 'searxng', group: 'other', about: { kind: 'other' }, pods: { total: 1, ready: 0 }, state: 'down', reasons: ['it keeps crashing'], restarts: 12, clusterId: cluster.id, clusterName: cluster.name }],
+  unreadClusters: [{ clusterId: 'machine-desk', clusterName: 'desk', problem: 'it does not answer (connection refused)' }],
   waiting: [{ workflowId: 'release-p1', kind: 'release', title: 'Releasing Books: abc12345 waits for you on its card', since: 'then', opens: { kind: 'project', id: 'p1' }, cancel: { via: 'run' }, waitsFor: ['decide'] }],
   running: 3,
   failures: [
@@ -190,6 +191,7 @@ describe('the Infrastructure page', () => {
     show()
     const attention = await screen.findByRole('list', { name: 'Needs attention' })
     expect(within(attention).getAllByRole('link').map((link) => link.getAttribute('href'))).toEqual([
+      '#/infrastructure/cluster/machine-desk',
       '#/projects/project/p1',
       '#/infrastructure/app/shop',
       '#/infrastructure/cluster/provisioning-lunorica',
@@ -198,6 +200,7 @@ describe('the Infrastructure page', () => {
       '#/temporal',
     ])
     expect(within(attention).getByText('waits for your answer')).toBeInTheDocument()
+    expect(within(attention).getAllByRole('link')[0]).toHaveTextContent('Cluster unavailabledeskWhat runs on it could not be read: it does not answer (connection refused).')
     expect(within(attention).getByTestId('attention-workload')).toHaveTextContent('searxng on provisioning-lunorica')
     expect(within(attention).getAllByTestId('attention-failure')[0]).toHaveTextContent('the executor could not start its sandbox')
     expect(screen.getByRole('list', { name: 'Firing alerts' })).toHaveTextContent('Shop is not answering')
@@ -235,7 +238,7 @@ describe('the Infrastructure page', () => {
   })
 
   it('says when everything is healthy and nothing waits', async () => {
-    vi.mocked(infrastructureApi.getInfrastructure).mockResolvedValue({ ...overview, monitoring: { ...monitoring, attention: [], firing: [] }, workloads: [], waiting: [], failures: [] })
+    vi.mocked(infrastructureApi.getInfrastructure).mockResolvedValue({ ...overview, monitoring: { ...monitoring, attention: [], firing: [] }, workloads: [], unreadClusters: [], waiting: [], failures: [] })
     show()
     expect(await screen.findByText('Everything is healthy, and nothing waits on you.')).toBeInTheDocument()
   })

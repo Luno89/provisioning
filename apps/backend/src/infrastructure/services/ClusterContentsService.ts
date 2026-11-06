@@ -20,11 +20,11 @@ export interface ClusterNode {
 
 export type ClusterContentsAction = 'see-everything';
 
-export interface ClusterContents {
+export type ClusterContents = ClusterContentsRead & ({ reachable: true } | { reachable: false; problem: string });
+
+interface ClusterContentsRead {
   clusterId: string;
   readAt: string;
-  reachable: boolean;
-  problem?: string | undefined;
   can: ClusterContentsAction[];
   workloads: Workload[];
   finishedJobs: number;
@@ -37,6 +37,17 @@ export interface ClusterContents {
 export interface BrokenWorkload extends Workload {
   clusterId: string;
   clusterName: string;
+}
+
+export interface UnreadCluster {
+  clusterId: string;
+  clusterName: string;
+  problem: string;
+}
+
+export interface BrokenAcrossClusters {
+  workloads: BrokenWorkload[];
+  unread: UnreadCluster[];
 }
 
 interface Raw {
@@ -180,12 +191,12 @@ export class ClusterContentsService {
     return this.contentsOf(viewer, cluster);
   }
 
-  async broken(viewer: Viewer): Promise<BrokenWorkload[]> {
+  async broken(viewer: Viewer): Promise<BrokenAcrossClusters> {
     const clusters = (await this.deps.monitoring.clustersOf(viewer)).filter((cluster) => cluster.status === 'healthy');
-    const per = await Promise.all(clusters.map(async (cluster) => {
-      const contents = await this.contentsOf(viewer, cluster);
-      return brokenWorkloads(contents.workloads).map((workload) => ({ ...workload, clusterId: cluster.id, clusterName: cluster.name }));
-    }));
-    return per.flat();
+    const read = await Promise.all(clusters.map(async (cluster) => ({ cluster, contents: await this.contentsOf(viewer, cluster) })));
+    return {
+      workloads: read.flatMap(({ cluster, contents }) => brokenWorkloads(contents.workloads).map((workload) => ({ ...workload, clusterId: cluster.id, clusterName: cluster.name }))),
+      unread: read.flatMap(({ cluster, contents }) => (contents.reachable ? [] : [{ clusterId: cluster.id, clusterName: cluster.name, problem: contents.problem }])),
+    };
   }
 }

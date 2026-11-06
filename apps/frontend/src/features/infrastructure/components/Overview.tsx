@@ -26,9 +26,9 @@ function NeedsAttention() {
   if (view.isPending) return <Section title="Needs attention"><div className="flex items-center gap-2 text-[12px] text-slate-400"><Loader2 size={14} className="animate-spin" /> Reading every cluster and what runs…</div></Section>
   if (view.isError) return <Section title="Needs attention"><p className="text-[12px] text-rose-300">{errorMessage(view.error)}</p></Section>
 
-  const { monitoring, workloads, waiting, failures, runningProblem, root, signals = [] } = view.data
+  const { monitoring, workloads, unreadClusters, waiting, failures, runningProblem, root, signals = [] } = view.data
   const rootDown = root?.down === true
-  const nothing = !rootDown && !signals.length && !waiting.length && !monitoring.attention.length && !workloads.length && !failures.length && !monitoring.firing.length
+  const nothing = !rootDown && !signals.length && !waiting.length && !monitoring.attention.length && !workloads.length && !unreadClusters.length && !failures.length && !monitoring.firing.length
 
   return (
     <Section title="Needs attention" right={<span className="text-[11px] text-slate-500">checked {ago(monitoring.checkedAt)}</span>}>
@@ -47,6 +47,15 @@ function NeedsAttention() {
           )}
           {signals.map((signal) => (
             <SignalRow key={signal.id} signal={signal} className={row} onChanged={refresh} />
+          ))}
+          {unreadClusters.map((cluster) => (
+            <li key={cluster.clusterId}>
+              <a href={`#/infrastructure/cluster/${encodeURIComponent(cluster.clusterId)}`} className={`${row} hover:bg-[var(--bark-800)]`}>
+                <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-rose-300"><XCircle size={11} /> Cluster unavailable</span>
+                <span className="font-semibold text-slate-100">{cluster.clusterName}</span>
+                <span className="text-slate-400">What runs on it could not be read: {cluster.problem}.</span>
+              </a>
+            </li>
           ))}
           {waiting.map((item) => (
             <li key={item.workflowId}>
