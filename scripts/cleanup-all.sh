@@ -63,17 +63,11 @@ rm -rf "$ROOT/.test-e2e-state" "$ROOT/.test-server-state" "$ROOT/.k3d-cluster-st
 echo "  ▶  Clearing cached Gitea credentials..."
 rm -f "$ROOT/apps/backend/data/.gitea-admin-password" "$ROOT/apps/backend/data/.gitea-admin-token" 2>/dev/null || true
 
-# 4. Reset MongoDB test database
-echo "  ▶  Resetting MongoDB test database..."
-DOCKER_COMPOSE="docker-compose"
-if ! command -v docker-compose >/dev/null 2>&1; then
-  if docker compose version >/dev/null 2>&1; then
-    DOCKER_COMPOSE="docker compose"
-  elif [ -f "$ROOT/bin/docker-compose" ]; then
-    DOCKER_COMPOSE="$ROOT/bin/docker-compose"
-  fi
+echo "  ▶  Dropping dev's own databases (koala_dev_root, koala_dev_hub); every other database, the old dev's provisioning among them, is kept..."
+MONGO_CONTAINER="$(docker ps --filter label=com.docker.compose.service=mongodb --format '{{.Names}}' | head -1)"
+if [ -n "$MONGO_CONTAINER" ]; then
+  docker exec "$MONGO_CONTAINER" sh -c 'mongosh --quiet -u "$MONGO_INITDB_ROOT_USERNAME" -p "$MONGO_INITDB_ROOT_PASSWORD" --authenticationDatabase admin --eval "for (const name of [\"koala_dev_root\", \"koala_dev_hub\"]) db.getSiblingDB(name).dropDatabase()"' >/dev/null
 fi
-$DOCKER_COMPOSE -f "$ROOT/docker-compose.mongo.yml" down -v >/dev/null 2>&1 || true
 
 # 4a. Reset Headscale (mesh state — registered users/devices/keys — is dev/test session state,
 # same as Mongo/Temporal, not durable infra like Gitea's cluster-hosted data).
