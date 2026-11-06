@@ -1,14 +1,13 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { commitOf, gatheredIn, OUT, ROOT, runsOf, sourceOf, usableIn, type Artifact } from './artifacts.js';
-import { buildGraph, isTest } from './graph.js';
 import { judge, unitLevels } from './join.js';
+import { repoGraph } from './repo-graph.js';
 import type { Ran } from './collect.js';
 import { renderPage } from './render.js';
 import { levelOf, runsIn, summary } from './report.js';
 import { resultOf, type Result } from './result.js';
 import { against, breaches, counted, judging, layerBreaches, pruned, RULES, type Baseline, type Breach } from './rules.js';
-import { MATCHES, outsideEnds, projectsOf, workspaceOf } from './workspaces.js';
 
 const BASELINE = join(ROOT, 'tests', 'coupling', 'baseline.json');
 
@@ -40,7 +39,7 @@ const unmet = options.require.filter((artifact) => !usable.artifacts.has(artifac
 if (unmet.length > 0) throw new Error(`required and not usable: ${unmet.join(', ')}`);
 
 const graphStarted = Date.now();
-const graph = buildGraph({ projects: projectsOf(ROOT), root: ROOT, matches: MATCHES, extraEnds: outsideEnds(ROOT), calledFrom: (file) => !isTest(file) && workspaceOf(file) !== undefined });
+const graph = repoGraph(ROOT);
 const graphSeconds = seconds(graphStarted);
 const joinStarted = Date.now();
 const runs = [...(usable.artifacts.has('in-process') ? runsIn(runsOf(options.out, 'in-process')) : []), ...(usable.artifacts.has('live') ? runsIn(runsOf(options.out, 'live')) : [])];

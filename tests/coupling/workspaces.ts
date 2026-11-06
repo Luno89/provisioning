@@ -24,8 +24,9 @@ const temporalCalls = (root: string): NonNullable<Project['crossing']> => (progr
   const world = temporalWorld(program, join(root, 'apps/backend/src'));
   return (call): CrossProcess | undefined => {
     const proxied = world.proxied(call);
-    if (!proxied) return undefined;
-    return { to: world.implementations(proxied), through: 'temporal', ...(proxied.device ? { device: true } : {}) };
+    if (proxied) return { to: world.implementations(proxied), through: 'temporal', ...(proxied.device ? { device: true } : {}) };
+    const started = world.started(call);
+    return started ? { to: started, through: 'temporal' } : undefined;
   };
 };
 

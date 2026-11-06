@@ -44,6 +44,7 @@
     "test:integration:coupled": "tsx tests/coupling/gather.ts",
     "test:e2e": "tsx tests/e2e.ts",
     "test:coupling:live": "tsx tests/coupling/audit.ts --require in-process,live --prune",
+    "flows": "tsx tests/coupling/flows-cli.ts",
     "test:browser": "npm run test:alive && npm run test:test:e2e:setup && npx playwright test tests/e2e.spec.ts && npm run test:test:e2e:teardown",
     "test:infra:integration": "tsx tests/lib/run-live.ts infra-integration",
     "test:planner-live": "cd apps/backend && tsx ../../tests/lib/run-live.ts planner-live",

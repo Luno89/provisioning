@@ -54,6 +54,7 @@ export interface GraphOptions {
   calledFrom: (file: string) => boolean;
   matches?: Partial<Record<ChannelEnd['kind'], (sent: string, heard: string) => boolean>>;
   extraEnds?: readonly ExtraEnd[];
+  withinFiles?: boolean;
 }
 
 const TEST_FOLDER = /(^|\/)(tests?|testing|__tests__)\//;
@@ -86,6 +87,13 @@ const FUNCTION_KINDS = new Set([
 ]);
 
 const isMember = (node: ts.Node): boolean => ts.isMethodSignature(node) || ts.isPropertySignature(node);
+
+const declaringMember = (node: ts.Declaration | undefined): ts.Declaration | undefined => {
+  if (!node || !ts.isFunctionTypeNode(node)) return node;
+  let at: ts.Node = node.parent;
+  while (ts.isParenthesizedTypeNode(at) || ts.isUnionTypeNode(at)) at = at.parent;
+  return isMember(at) ? at as ts.Declaration : node;
+};
 
 export function buildGraph(options: GraphOptions): Graph {
   const units: Record<string, Unit> = {};
@@ -272,7 +280,7 @@ export function buildGraph(options: GraphOptions): Graph {
               ends.push({ kind: end.kind, name: end.name, side: end.side, from: from.id, site, ...(handler ? { handler: unitOf(handler).id } : {}) });
             }
             const crossed = crossing && ts.isCallExpression(node) ? crossing(node) : undefined;
-            const declaration = crossed ? undefined : checker.getResolvedSignature(node)?.getDeclaration() as ts.Declaration | undefined;
+            const declaration = crossed ? undefined : declaringMember(checker.getResolvedSignature(node)?.getDeclaration() as ts.Declaration | undefined);
             if (crossed) {
               const to = crossed.to.flatMap((declared) => (isMember(declared) ? implementationsOf(declared) : [functionOf(declared)])).filter((body): body is ts.Node => body !== undefined).map(unitOf).filter((unit) => !unit.inTest);
               edges.push({ from: from.id, site, to: [...new Set(to.map((unit) => unit.id))], through: crossed.through, ...(crossed.device ? { device: true } : {}) });
@@ -281,15 +289,16 @@ export function buildGraph(options: GraphOptions): Graph {
               if (type.flags & ts.TypeFlags.Any) unresolved.push({ from: from.id, site, text: node.expression.getText().slice(0, 80), why: 'called through any' });
             } else if (ownCode(declaration.getSourceFile().fileName) && !GENERATED.test(declaration.getSourceFile().fileName)) {
               const target = at(declaration.getSourceFile().fileName);
+              const counted = (file: string) => options.withinFiles || file !== from.file;
               if (FUNCTION_KINDS.has(declaration.kind)) {
-                if (target !== from.file) edges.push({ from: from.id, site, to: [unitOf(declaration).id], through: 'call' });
+                if (counted(target)) edges.push({ from: from.id, site, to: [unitOf(declaration).id], through: 'call' });
               } else if (isMember(declaration) || ts.isCallSignatureDeclaration(declaration)) {
                 const real = implementationsOf(declaration).map(unitOf).filter((unit) => !unit.inTest);
-                const elsewhere = real.filter((unit) => unit.file !== from.file);
+                const elsewhere = real.filter((unit) => counted(unit.file));
                 if ((real.length === 0 && !implementedOutside.has(declaration)) || elsewhere.length > 0) edges.push({ from: from.id, site, to: elsewhere.map((unit) => unit.id), through: 'interface' });
               } else if (ts.isVariableDeclaration(declaration)) {
                 const body = functionOf(declaration);
-                if (body && target !== from.file) edges.push({ from: from.id, site, to: [unitOf(body).id], through: 'call' });
+                if (body && counted(target)) edges.push({ from: from.id, site, to: [unitOf(body).id], through: 'call' });
               }
             }
           }

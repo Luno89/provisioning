@@ -1,0 +1,84 @@
+[
+  {
+    "name": "add-machine",
+    "title": "Add a machine at root",
+    "entries": [
+      "apps/frontend/src/features/machines/api.ts#createMyJoinCode",
+      "scripts/machine/machine.sh#(script)"
+    ],
+    "concepts": [
+      "work",
+      "calls-out",
+      "config",
+      "kubeconfig",
+      "cluster-command"
+    ]
+  },
+  {
+    "name": "put-koala-here",
+    "title": "Put Koala on a machine",
+    "entries": [
+      "apps/frontend/src/features/machines/api.ts#putKoalaOn"
+    ],
+    "concepts": [
+      "work",
+      "calls-out",
+      "config",
+      "kubeconfig",
+      "cluster-command"
+    ]
+  },
+  {
+    "name": "sign-in",
+    "title": "Sign in through root",
+    "entries": [
+      "apps/frontend/src/features/platform/api.ts#signInPlace",
+      "apps/frontend/src/features/platform/api.ts#login"
+    ],
+    "concepts": [
+      "work",
+      "calls-out",
+      "config"
+    ]
+  },
+  {
+    "name": "deploy-model",
+    "title": "Deploy TabbyAPI or vLLM",
+    "entries": [
+      "apps/frontend/src/features/infrastructure/api/deployments.ts#deployApp"
+    ],
+    "concepts": [
+      "work",
+      "kubeconfig",
+      "cluster-command",
+      "config"
+    ]
+  },
+  {
+    "name": "default-model",
+    "title": "Make a model the default",
+    "entries": [
+      "apps/frontend/src/features/models/api.ts#setDefaultModel"
+    ],
+    "concepts": [
+      "work",
+      "calls-out",
+      "kubeconfig",
+      "cluster-command"
+    ]
+  },
+  {
+    "name": "chat",
+    "title": "Chat on a model (the request, then the run it starts)",
+    "entries": [
+      "apps/frontend/src/features/engine/api/engine.ts#startRun",
+      "apps/backend/src/workflows/AgentRunWorkflow.ts#AgentRunWorkflow"
+    ],
+    "concepts": [
+      "work",
+      "calls-out",
+      "kubeconfig",
+      "cluster-command"
+    ]
+  }
+]

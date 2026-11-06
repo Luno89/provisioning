@@ -5,7 +5,7 @@ import { areaOf } from './workspaces.js';
 
 const ROOT = join(import.meta.dirname, 'fixture');
 
-const fixture = (): Graph => buildGraph({ projects: [{ tsconfig: join(ROOT, 'tsconfig.json'), owns: () => true }], root: ROOT, calledFrom: (file) => !isTest(file) });
+const fixture = (withinFiles = false): Graph => buildGraph({ projects: [{ tsconfig: join(ROOT, 'tsconfig.json'), owns: () => true }], root: ROOT, calledFrom: (file) => !isTest(file), withinFiles });
 
 const named = (graph: Graph, ids: readonly string[]): string[] => ids.map((id) => `${graph.units[id]!.file}#${graph.units[id]!.name}`).sort();
 const callsAt = (graph: Graph, file: string, text: string) => {
@@ -35,6 +35,20 @@ describe('the edge graph', () => {
   it('records plain calls across files and leaves calls inside one file out', () => {
     expect(callsAt(graph, 'src/wiring.ts', '#readOne')?.through).toBe('call');
     expect(graph.edges.every((edge) => edge.to.every((id) => graph.units[id]!.file !== graph.units[edge.from]!.file))).toBe(true);
+  });
+
+  it('follows a callback handed in on an options object to what was handed, whether the property is optional or not', () => {
+    const into = graph.edges.filter((edge) => graph.units[edge.from]?.name === 'finish').map((edge) => ({ through: edge.through, to: named(graph, edge.to) }));
+    expect(into).toEqual(expect.arrayContaining([
+      { through: 'interface', to: ['src/lib/shout.ts#shout'] },
+      { through: 'interface', to: ['src/wiring.ts#onLoud'] },
+    ]));
+  });
+
+  it('records calls inside one file only when asked for them', () => {
+    const local = (built: Graph) => built.edges.filter((edge) => built.units[edge.from]?.name === 'finish').flatMap((edge) => named(built, edge.to)).filter((name) => name === 'src/reader/hooks.ts#local');
+    expect(local(graph)).toEqual([]);
+    expect(local(fixture(true))).toEqual(['src/reader/hooks.ts#local']);
   });
 
   it('takes what an async function returns as an implementation of the interface it promises', () => {

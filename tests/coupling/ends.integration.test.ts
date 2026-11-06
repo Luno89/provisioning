@@ -1,7 +1,8 @@
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { buildGraph, isTest, type Graph } from './graph.js';
-import { MATCHES, outsideEnds, projectsOf, WORKSPACES, workspaceOf } from './workspaces.js';
+import type { Graph } from './graph.js';
+import { repoGraph } from './repo-graph.js';
+import { WORKSPACES } from './workspaces.js';
 
 const ROOT = join(import.meta.dirname, '..', '..');
 
@@ -18,7 +19,7 @@ describe('every end of a channel between processes has the other end', () => {
 
   it('builds the edges between the backend, the browser and the machine agent', () => {
     const sides = WORKSPACES.filter((workspace) => ['backend', 'frontend', 'local-agent'].includes(workspace.name));
-    graph = buildGraph({ projects: projectsOf(ROOT, sides), root: ROOT, matches: MATCHES, extraEnds: outsideEnds(ROOT), calledFrom: (file) => !isTest(file) && workspaceOf(file) !== undefined });
+    graph = repoGraph(ROOT, sides);
     expect(graph.edges.filter((edge) => edge.through === 'socket').length).toBeGreaterThan(50);
     expect(graph.edges.filter((edge) => edge.through === 'http').length).toBeGreaterThan(350);
     expect(graph.edges.filter((edge) => edge.through === 'env').length).toBeGreaterThan(25);

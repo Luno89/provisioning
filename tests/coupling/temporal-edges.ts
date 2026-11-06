@@ -49,7 +49,11 @@ export interface TemporalWorld {
   fileOfWorkflow: (workflow: string) => string;
   proxied: (call: ts.CallExpression) => Proxied | undefined;
   implementations: (proxied: Proxied) => ts.Node[];
+  started: (call: ts.CallExpression) => ts.Node[] | undefined;
 }
+
+const STARTS = new Set(['start', 'execute', 'signalWithStart']);
+const CHILD_STARTS = new Set(['executeChild', 'startChild']);
 
 function visit(node: ts.Node, found: (node: ts.Node) => void): void {
   found(node);
@@ -162,5 +166,34 @@ export function temporalWorld(program: ts.Program, src: string, tables: Temporal
       return { activity: found.activity, queues, device: false };
     },
     implementations: (proxied) => proxied.queues.flatMap((queue) => registered[queue].get(proxied.activity) ?? []),
+    started: (call) => {
+      const callee = call.expression;
+      const method = ts.isPropertyAccessExpression(callee) ? callee.name.text : ts.isIdentifier(callee) ? callee.text : undefined;
+      if (!method || !(STARTS.has(method) || CHILD_STARTS.has(method))) return undefined;
+      const declared = checker.getResolvedSignature(call)?.getDeclaration()?.getSourceFile().fileName ?? '';
+      const fromTemporal = STARTS.has(method) ? declared.includes('/@temporalio/client/') : declared.includes('/@temporalio/workflow/');
+      if (!fromTemporal) return undefined;
+      const first = call.arguments[0];
+      return first ? workflowsNamedBy(first) : [];
+    },
   };
+
+  function workflowsNamedBy(expression: ts.Expression): ts.Node[] {
+    const type = checker.getTypeAtLocation(expression);
+    if (type.isStringLiteral()) return workflowFunction(type.value);
+    if (type.isUnion() && type.types.every((part) => part.isStringLiteral())) return type.types.flatMap((part) => (part.isStringLiteral() ? workflowFunction(part.value) : []));
+    const symbol = checker.getSymbolAtLocation(expression);
+    const declaration = (symbol && symbol.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(symbol) : symbol)?.valueDeclaration;
+    if (declaration && (ts.isFunctionDeclaration(declaration) || ts.isVariableDeclaration(declaration))) return [declaration];
+    return [];
+  }
+
+  function workflowFunction(name: string): ts.Node[] {
+    if (!new RegExp(`export \\{ ${name} \\} from`).test(index)) return [];
+    const found: ts.Node[] = [];
+    visit(sourceOf(fileOfWorkflow(name)), (node) => {
+      if ((ts.isFunctionDeclaration(node) && node.name?.text === name) || (ts.isVariableDeclaration(node) && node.name.getText() === name)) found.push(node);
+    });
+    return found;
+  }
 }
