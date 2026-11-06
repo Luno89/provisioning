@@ -4,10 +4,10 @@ import { Readable } from 'stream';
 import { fileURLToPath } from 'url';
 import {
   cleaned, restoreOrder, restoreMongo as restoreMongoFrom, volumePart, type AppsManifest, type KubeObject, GITEA_DATA, MOVED_POSTGRES,
-  MOVE_STEP_WORDS, PG_RESTORE, drained, type MovePart,
+  MOVE_STEP_WORDS, PG_RESTORE, drained, movedStateSecrets, type MovePart,
 } from '../instances/index.js';
 import { ensureClusterMonitoring } from '../activities/cluster-monitoring.js';
-import { SYSTEM_CLUSTER } from '../monitoring/index.js';
+import { koalaClusterMonitoring } from '../monitoring/index.js';
 import { InfrastructureService } from '../infrastructure/index.js';
 import { GiteaService } from '../projects/index.js';
 import { loadKeys, mongoClientFor, mongoTarget } from '../platform/index.js';
@@ -30,7 +30,9 @@ async function report(status: 'installing' | 'failed', detail: string): Promise<
   }).catch((err: Error) => console.warn(`  root could not be told "${status}: ${detail}": ${err.message}`));
 }
 
-async function part(name: MovePart | string, saying?: string): Promise<Readable> {
+async function part(name: MovePart | string, saying?: string): Promise<Readable>;
+async function part(name: MovePart | string, saying: string | undefined, absentFromOlder: true): Promise<Readable | undefined>;
+async function part(name: MovePart | string, saying?: string, absentFromOlder?: true): Promise<Readable | undefined> {
   const words = saying ?? MOVE_STEP_WORDS[name as MovePart] ?? name;
   await report('installing', words);
   console.log(`▶ ${words}`);
@@ -40,6 +42,11 @@ async function part(name: MovePart | string, saying?: string): Promise<Readable>
     console.log(`  Koala's servers are not ready to give ${name} yet (${response.status}); asking again`);
     await new Promise((resolve) => setTimeout(resolve, 5000));
     response = await fetch(`${rootUrl}/api/instances/move/parts/${encodeURIComponent(name)}`, { headers });
+  }
+  if (absentFromOlder && response.status === 404) {
+    await response.body?.cancel();
+    console.log(`  Koala's servers run a release that keeps no ${name}; there is none to copy`);
+    return undefined;
   }
   if (!response.ok || !response.body) {
     const said = await response.text().catch((err: Error) => `its answer could not be read: ${err.message}`);
@@ -156,10 +163,20 @@ async function restoreVolume(namespace: string, claim: string): Promise<void> {
   await kubectl(['delete', 'pod', helper, '-n', namespace, '--wait=true']);
 }
 
+async function restoreTerraformState(): Promise<void> {
+  const namespace = process.env.POD_NAMESPACE?.trim();
+  if (!namespace) throw new Error('this machine\'s instance does not know its own namespace, where Terraform keeps its state');
+  const given = await part('terraform-state', undefined, true);
+  if (!given) return;
+  const secrets = movedStateSecrets({ items: JSON.parse(await text(given)) as KubeObject[] });
+  console.log(`  ${secrets.length} stacks`);
+  if (secrets.length) await kubectl(['apply', '-n', namespace, '--server-side', '--force-conflicts', '-f', '-'], Readable.from([JSON.stringify({ apiVersion: 'v1', kind: 'List', items: secrets })]));
+}
+
 async function restoreApps(): Promise<void> {
   const kubeconfigPath = process.env.KUBECONFIG_PATH ?? '/tmp/kubeconfig-provisioning-lunorica';
   await report('installing', 'Getting monitoring ready for your apps');
-  await ensureClusterMonitoring(new InfrastructureService(), { physicalName: SYSTEM_CLUSTER, kubeconfigPath, local: false });
+  await ensureClusterMonitoring(new InfrastructureService(), koalaClusterMonitoring(process.env, kubeconfigPath, true));
   const manifest = JSON.parse(await text(await part('apps'))) as AppsManifest;
   const pullHost = await new GiteaService(new InfrastructureService(), loadKeys(process.env).data, kubeconfigPath).getRegistryHost();
   for (const entry of manifest.namespaces) {
@@ -185,6 +202,7 @@ async function main(): Promise<void> {
     await restoreMongo();
     await restoreGiteaData();
     await restoreInfisical();
+    await restoreTerraformState();
     await restoreApps();
     await report('installing', 'Starting your instance on this machine');
     return;

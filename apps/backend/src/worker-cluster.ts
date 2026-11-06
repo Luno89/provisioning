@@ -20,7 +20,7 @@ import { heartbeatWhileRunning, WORKER_DEFAULTS } from '@koala/engine-core';
 import { traceActivities } from '@koala/engine-core/telemetry';
 import { startTelemetry } from '@koala/engine-core/telemetry-sdk';
 import { ensureClusterMonitoring } from './activities/cluster-monitoring.js';
-import { collectorSink, placedOnPool, SYSTEM_CLUSTER } from './monitoring/index.js';
+import { collectorSink, koalaClusterMonitoring } from './monitoring/index.js';
 import { workflowInterceptorModules } from './worker-interceptors.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -108,7 +108,7 @@ async function main() {
     throw err;
   });
   if (systemKubeconfig && await present(systemKubeconfig)) {
-    ensureClusterMonitoring(new InfrastructureService(), { physicalName: SYSTEM_CLUSTER, kubeconfigPath: systemKubeconfig, local: !instance, pool: placedOnPool(process.env, SYSTEM_CLUSTER), nodePortIngress: Boolean(process.env.INSTANCE_MACHINE_ID), koala: true })
+    ensureClusterMonitoring(new InfrastructureService(), koalaClusterMonitoring(process.env, systemKubeconfig, instance))
       .then(() => logger.info('[ClusterWorker] the system cluster has monitoring and Koala\'s own telemetry stack'))
       .catch((err: Error) => logger.warn(`[ClusterWorker] monitoring could not be installed yet; the next deploy tries again: ${err.message}`));
   }

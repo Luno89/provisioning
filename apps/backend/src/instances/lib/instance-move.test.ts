@@ -1,11 +1,27 @@
 import { describe, expect, it } from 'vitest';
 import { generateIdentityKey, identityKeysFrom, issueMoveToken, checkMoveToken, trustedKeys, publicKeyPem, issueHandoff } from './identity-token.js';
-import { answersWhileMoving, keysEnv, keysFromEnv, moveProblem, PG_DUMP, PG_RESTORE } from './instance-move.js';
+import { answersWhileMoving, keysEnv, keysFromEnv, moveProblem, movedStateSecrets, MOVE_PARTS, MOVE_STEP_WORDS, PG_DUMP, PG_RESTORE } from './instance-move.js';
 import { kubeAccessFrom, serviceProxyPath } from './kubeconfig-access.js';
 
 const KEYS = { SESSION_KEY: 'a'.repeat(64), DATA_KEY: 'b'.repeat(64), PAYLOAD_KEY: 'c'.repeat(64), EGRESS_KEY: 'd'.repeat(64) };
 
 describe('what a move carries', () => {
+  it('carries the Secrets Terraform keeps each stack\'s state in, as Secrets of no cluster in particular, and nothing else', () => {
+    expect(MOVE_PARTS).toContain('terraform-state');
+    expect(MOVE_STEP_WORDS['terraform-state']).toBe('Copying what Terraform knows of its apps');
+    expect(movedStateSecrets({ items: [
+      { kind: 'Secret', metadata: { name: 'tfstate-default-b-state', namespace: 'pool', uid: 'u', resourceVersion: '3', ownerReferences: [], labels: { tfstate: 'true', tfstateWorkspace: 'default' }, annotations: { a: 'b' } }, type: 'Opaque', data: { tfstate: 'eA==' } },
+      { kind: 'Secret', metadata: { name: 'tfstate-default-a-state', labels: { tfstate: 'true' } } },
+      { kind: 'Secret', metadata: { name: 'someone-elses', labels: { tfstate: 'false' } }, data: { x: 'eQ==' } },
+      { kind: 'ConfigMap', metadata: { name: 'tfstate-lookalike', labels: { tfstate: 'true' } } },
+      { kind: 'Secret', metadata: { labels: { tfstate: 'true' } } },
+    ] })).toEqual([
+      { apiVersion: 'v1', kind: 'Secret', metadata: { name: 'tfstate-default-a-state', labels: { tfstate: 'true' } }, data: {} },
+      { apiVersion: 'v1', kind: 'Secret', metadata: { name: 'tfstate-default-b-state', labels: { tfstate: 'true', tfstateWorkspace: 'default' } }, type: 'Opaque', data: { tfstate: 'eA==' } },
+    ]);
+    expect(movedStateSecrets({})).toEqual([]);
+  });
+
   it('carries exactly the instance\'s four keys, and takes back only those', () => {
     const text = keysEnv({ ...KEYS, MONGO_ROOT_PASSWORD: 'x'.repeat(40) });
     expect(text).toBe(`SESSION_KEY=${KEYS.SESSION_KEY}\nDATA_KEY=${KEYS.DATA_KEY}\nPAYLOAD_KEY=${KEYS.PAYLOAD_KEY}\nEGRESS_KEY=${KEYS.EGRESS_KEY}\n`);

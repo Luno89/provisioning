@@ -19,6 +19,9 @@ cdktf.out/
 .gen/
 !packages/cdktf-infra/.gen/
 
+# Terraform's providers, unpacked from their pinned downloads by scripts/terraform-providers.sh
+/bin/terraform-providers/
+
 # Logs, wherever a process writes one
 *.log
 

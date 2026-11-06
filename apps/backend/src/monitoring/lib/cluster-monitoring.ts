@@ -32,6 +32,26 @@ export const SYSTEM_CLUSTER = 'provisioning-lunorica';
 
 export const placedOnPool = (env: NodeJS.ProcessEnv, physicalName: string): boolean => env.POOL === 'true' && physicalName === SYSTEM_CLUSTER;
 
+export const monitoringOwner = (cluster: { physicalName: string; koala?: boolean | undefined }): string => (cluster.koala ? SYSTEM_CLUSTER : cluster.physicalName);
+
+export interface KoalaClusterMonitoring {
+  physicalName: string;
+  kubeconfigPath: string;
+  local: boolean;
+  pool: boolean;
+  nodePortIngress: boolean;
+  koala: true;
+}
+
+export const koalaClusterMonitoring = (env: NodeJS.ProcessEnv, kubeconfigPath: string, instance: boolean): KoalaClusterMonitoring => ({
+  physicalName: SYSTEM_CLUSTER,
+  kubeconfigPath,
+  local: !instance,
+  pool: placedOnPool(env, SYSTEM_CLUSTER),
+  nodePortIngress: Boolean(env.INSTANCE_MACHINE_ID),
+  koala: true,
+});
+
 export const appServiceType = (onPool: boolean, selfManaged: boolean): 'ClusterIP' | 'NodePort' | 'LoadBalancer' =>
   (onPool ? 'ClusterIP' : selfManaged ? 'NodePort' : 'LoadBalancer');
 

@@ -1,6 +1,7 @@
 import type { InstanceRecord } from './instances.js';
+import type { KubeObject } from './app-move.js';
 
-export const MOVE_PARTS = ['keys', 'data', 'mongo', 'gitea-db', 'gitea-data', 'infisical-db', 'apps'] as const;
+export const MOVE_PARTS = ['keys', 'data', 'mongo', 'gitea-db', 'gitea-data', 'infisical-db', 'terraform-state', 'apps'] as const;
 export type MovePart = typeof MOVE_PARTS[number];
 export const isMovePart = (value: unknown): value is MovePart => typeof value === 'string' && (MOVE_PARTS as readonly string[]).includes(value);
 
@@ -85,8 +86,24 @@ export const MOVE_STEP_WORDS: Record<MovePart, string> = {
   'gitea-db': 'Copying its repositories\' records',
   'gitea-data': 'Copying its repositories and images',
   'infisical-db': 'Copying its secrets',
+  'terraform-state': 'Copying what Terraform knows of its apps',
   apps: 'Stopping its apps to copy them',
 };
 
 export const answersWhileMoving = (path: string): boolean =>
   path.startsWith('/move/') || path.startsWith('/instance-trial') || path === '/auth/me' || path === '/auth/sign-in';
+
+export const TERRAFORM_STATE_SELECTOR = 'tfstate=true';
+
+export function movedStateSecrets(listed: { items?: KubeObject[] | undefined }): KubeObject[] {
+  return (listed.items ?? [])
+    .filter((item) => item.kind === 'Secret' && item.metadata?.name && item.metadata.labels?.tfstate === 'true')
+    .map((item) => ({
+      apiVersion: 'v1',
+      kind: 'Secret',
+      metadata: { name: item.metadata!.name!, labels: item.metadata!.labels! },
+      ...(item.type ? { type: item.type } : {}),
+      data: item.data ?? {},
+    }))
+    .sort((a, b) => a.metadata.name.localeCompare(b.metadata.name));
+}

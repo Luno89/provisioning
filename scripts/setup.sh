@@ -215,6 +215,9 @@ if [ ! -f "bin/rclone" ]; then
     rm -rf rclone.zip rclone-tmp
 fi
 
+echo "📥 Terraform's providers, pinned, into a mirror every stack installs from..."
+sh scripts/terraform-providers.sh bin/terraform-providers
+
 echo "✅ Binaries ready."
 
 # 4. Install NPM Dependencies
