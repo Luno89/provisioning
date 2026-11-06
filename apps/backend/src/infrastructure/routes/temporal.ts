@@ -1,4 +1,5 @@
 import { Router, type Request } from 'express';
+import type { TemporalReach } from '../services/TemporalBridge.js';
 import { asyncRoute, mayTouch, principalFrom, withinQuery, workflowScope } from '../../platform/index.js';
 
 interface WorkflowRow {
@@ -9,8 +10,7 @@ interface WorkflowRow {
 
 export interface TemporalRouterDeps {
   temporalBridge: {
-    isReady(): boolean;
-    client?: unknown;
+    reach(): Promise<TemporalReach>;
     listWorkflows(query?: string, pageSize?: number): Promise<WorkflowRow[]>;
     countWorkflows(query?: string): Promise<number>;
     describeWorkflow(workflowId: string): Promise<WorkflowRow | null>;
@@ -31,17 +31,7 @@ export function temporalRouter(deps: TemporalRouterDeps): Router {
   };
 
   router.get('/status', asyncRoute(async (_req, res) => {
-    const ready = temporalBridge.isReady();
-    let version: string | undefined;
-    if (ready) {
-      const service = (temporalBridge.client as { workflowService?: { getSystemInfo?: (request: object) => Promise<{ serverVersion?: string | null }> } } | undefined)?.workflowService;
-      try {
-        version = (await service?.getSystemInfo?.({}))?.serverVersion ?? undefined;
-      } catch {
-        version = undefined;
-      }
-    }
-    res.json({ connected: ready, serverVersion: version });
+    res.json(await temporalBridge.reach());
   }));
 
   router.get('/workflows', asyncRoute(async (req, res) => {

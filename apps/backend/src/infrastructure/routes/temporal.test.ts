@@ -13,10 +13,9 @@ const WORKFLOWS = [
   { workflowId: 'bench-idle-space-1', owner: 'platform', status: 'RUNNING' },
 ];
 
-function bridge(options: { cancelled?: 'cancelled' | 'not-running' | 'unreachable'; ready?: boolean; systemInfo?: (request: object) => Promise<{ serverVersion?: string }> } = {}): BridgeMock {
+function bridge(options: { cancelled?: 'cancelled' | 'not-running' | 'unreachable' } = {}): BridgeMock {
   const temporalBridge = mock<Bridge>();
-  temporalBridge.isReady.mockReturnValue(options.ready ?? true);
-  temporalBridge.client = { workflowService: { getSystemInfo: options.systemInfo ?? (async () => ({ serverVersion: '1.25.0' })) } };
+  temporalBridge.reach.mockResolvedValue({ connected: true, serverVersion: '1.25.0' });
   temporalBridge.listWorkflows.mockResolvedValue(WORKFLOWS);
   temporalBridge.countWorkflows.mockResolvedValue(1);
   temporalBridge.describeWorkflow.mockImplementation(async (id) => WORKFLOWS.find((workflow) => workflow.workflowId === id) ?? null);
@@ -30,23 +29,11 @@ const as = (user: HarnessUser | null, temporalBridge: Bridge, claims?: { role: '
     .then((routes) => routes.request(method, `/api/temporal${path}`));
 
 describe('whether the page shows Temporal as connected', () => {
-  it('says connected with the server\'s version, asking the way Temporal\'s client insists on', async () => {
-    const systemInfo = async (request: object) => {
-      if (!request) throw new TypeError('request must be specified');
-      return { serverVersion: '1.25.0' };
-    };
-    expect((await as(PERSON, bridge({ systemInfo }))('/status')).data).toEqual({ connected: true, serverVersion: '1.25.0' });
-  });
-
-  it('still says connected when the version cannot be read, rather than failing', async () => {
-    const answer = await as(PERSON, bridge({ systemInfo: () => { throw new TypeError('request must be specified'); } }))('/status');
-    expect(answer.status).toBe(200);
-    expect(answer.data).toEqual({ connected: true });
-  });
-
-  it('says not connected, without asking for a version, when Temporal is not ready', async () => {
-    const temporalBridge = bridge({ ready: false });
-    expect((await as(PERSON, temporalBridge)('/status')).data).toEqual({ connected: false });
+  it('answers what reaching Temporal found, the reason included when it was not reached', async () => {
+    const temporalBridge = bridge();
+    expect((await as(PERSON, temporalBridge)('/status')).data).toEqual({ connected: true, serverVersion: '1.25.0' });
+    temporalBridge.reach.mockResolvedValue({ connected: false, reason: 'connection refused' });
+    expect((await as(PERSON, temporalBridge)('/status')).data).toEqual({ connected: false, reason: 'connection refused' });
   });
 });
 

@@ -40,6 +40,7 @@ describe('what runs, for the person', () => {
 
   it('says when Temporal cannot be read', async () => {
     expect(await setUp(undefined).service.view('u1')).toEqual({ ok: false, status: 503, error: 'Temporal is not reachable, so what runs cannot be read' });
+    expect(await setUp(undefined).service.cancel('u1', 'anything')).toEqual({ ok: false, status: 503, error: 'Temporal is not reachable, so what runs cannot be cancelled' });
   });
 
   it('cancels each kind of work its own way, refuses what cannot be stopped part way, and touches only the person\'s own', async () => {

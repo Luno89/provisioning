@@ -151,6 +151,11 @@ export default function CloudAccounts() {
                               )}
                             </span>
                           </>
+                        ) : status?.unreadable ? (
+                          <>
+                            <div className="w-2 h-2 rounded-full bg-red-500" />
+                            <span className="text-xs text-red-400 font-semibold">{status.unreadable}</span>
+                          </>
                         ) : (
                           <>
                             <div className="w-2 h-2 rounded-full bg-slate-500" />

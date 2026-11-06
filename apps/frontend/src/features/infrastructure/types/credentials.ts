@@ -6,6 +6,7 @@ export interface ProviderStatus {
   source?: 'user' | 'env'
   summary?: Record<string, string>
   clusters?: 'available' | 'mock-only' | 'not-yet'
+  unreadable?: string
 }
 
 export interface GoogleDriveStatus {

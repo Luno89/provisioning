@@ -5,7 +5,7 @@ import { temporal } from '@temporalio/proto';
 import type { TestWorkflowEnvironment } from '@temporalio/testing';
 import { mountRouter, TEST_USER } from '../../platform/routes/test-harness.js';
 import { PLATFORM_OWNER, startedFor } from '../../platform/lib/workflow-owner.js';
-import { arrayWith } from '../../platform/lib/test-matchers.js';
+import { anyOf, arrayWith } from '../../platform/lib/test-matchers.js';
 import { temporalTestEnvironment } from '../../workflows/temporal-test-env.js';
 import type { Database } from '../../platform/lib/db-interface.js';
 import { TemporalBridge } from '../services/TemporalBridge.js';
@@ -65,14 +65,20 @@ describe('whether the page shows Temporal as connected', () => {
     await h.close();
   });
 
-  it('still says connected when the version cannot be read, rather than failing', async () => {
+  it('says not connected, and why, when Temporal does not answer', async () => {
     const connection = await Connection.connect({ address: env.connection.options.address });
     const client = new Client({ connection, namespace: env.client.options.namespace });
     await connection.close();
     const h = await harness({ client });
     const status = await axios.get(h.url('/api/temporal/status'), quiet);
     expect(status.status).toBe(200);
-    expect(status.data).toEqual({ connected: true });
+    expect(status.data).toEqual({ connected: false, reason: anyOf(String) });
+    await h.close();
+  });
+
+  it('says not connected, and why, before the backend has connected', async () => {
+    const h = await harness({ client: 'none' });
+    expect((await axios.get(h.url('/api/temporal/status'), quiet)).data).toEqual({ connected: false, reason: 'the backend has not connected to Temporal yet' });
     await h.close();
   });
 });

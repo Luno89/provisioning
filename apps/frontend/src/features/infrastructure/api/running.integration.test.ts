@@ -1,6 +1,6 @@
 import { describe, expect, expectTypeOf, it } from 'vitest'
-import { type RunningItem, type RunningView, getRunning, pauseBench, pauseKeeper } from './running'
-import { type WorkflowSummary, cancelWorkflow, getTemporalStatus, getWorkflowCount, listWorkflows } from './temporal'
+import { type RunningItem, type RunningView, cancelRunning, getRunning, pauseBench, pauseKeeper } from './running'
+import { type TemporalStatus, type WorkflowSummary, cancelWorkflow, getTemporalStatus, getWorkflowCount, listWorkflows } from './temporal'
 import { startBackend } from '../../../test/backend/site'
 import { DATA_KEY } from '../../../test/backend/machines'
 import { outsideThisTier } from '../../../test/backend/outside'
@@ -13,7 +13,7 @@ import { BenchService, type BenchDeps } from '../../../../../backend/src/checks/
 import { MemoryKeeperService } from '../../../../../backend/src/memory/services/MemoryKeeperService'
 import type { RunningItem as BackendRunningItem } from '../../../../../backend/src/infrastructure/lib/running'
 import { anyOf } from '../../../../../backend/src/platform/lib/test-matchers'
-import type { WorkflowSummary as BackendWorkflowSummary } from '../../../../../backend/src/infrastructure/services/TemporalBridge'
+import type { TemporalReach, WorkflowSummary as BackendWorkflowSummary } from '../../../../../backend/src/infrastructure/services/TemporalBridge'
 
 const idleTimers: { ownerId: string; idleMs: number }[] = []
 
@@ -50,10 +50,15 @@ const owner = await backend.signIn()
 expectTypeOf<Wire<BackendRunningItem>>().toExtend<RunningItem>()
 expectTypeOf<Wire<BackendRunningView>>().toExtend<RunningView>()
 expectTypeOf<Wire<BackendWorkflowSummary>>().toExtend<WorkflowSummary>()
+expectTypeOf<Wire<TemporalReach>>().toExtend<TemporalStatus>()
 
 describe('Running, while Temporal cannot be reached', () => {
   it('says what runs cannot be read, with 503 and why', async () => {
     await expect(getRunning()).rejects.toMatchObject({ response: { status: 503, data: { error: 'Temporal is not reachable, so what runs cannot be read' } } })
+  })
+
+  it('says work cannot be cancelled, with 503 and why, rather than that nothing runs', async () => {
+    await expect(cancelRunning('anything')).rejects.toMatchObject({ response: { status: 503, data: { error: 'Temporal is not reachable, so what runs cannot be cancelled' } } })
   })
 
   it('pauses the bench and starts it again, its idle count starting once it is on', async () => {
@@ -70,7 +75,7 @@ describe('Running, while Temporal cannot be reached', () => {
 
 describe('All workflows, while Temporal cannot be reached', () => {
   it('reads Temporal as not connected', async () => {
-    expect(await getTemporalStatus()).toEqual({ connected: false })
+    expect(await getTemporalStatus()).toEqual({ connected: false, reason: 'the backend has not connected to Temporal yet' })
   })
 
   it('refuses the workflow list and counts with 503 and why', async () => {

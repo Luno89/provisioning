@@ -206,7 +206,10 @@ export default function TemporalPanel() {
             <div className={`w-2.5 h-2.5 rounded-full ${status?.connected ? 'bg-green-500' : 'bg-red-500'}`} />
             {status?.connected ? 'Connected' : 'Disconnected'}
           </div>
-          {status?.serverVersion && (
+          {status && !status.connected && (
+            <div className="px-4 py-2 rounded-xl text-xs text-red-400 bg-red-500/10">{status.reason}</div>
+          )}
+          {status?.connected && status.serverVersion && (
             <div className="flex items-center gap-2 px-4 py-2 bg-slate-800 rounded-xl text-xs text-slate-400">
               <Server size={14} /> v{status.serverVersion}
             </div>

@@ -1,7 +1,7 @@
 import { containing, matching } from '../../platform/lib/test-matchers.js';
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { http, HttpResponse } from 'msw';
-import { CredentialService } from './CredentialService.js';
+import { CredentialService, UnreadableCredential } from './CredentialService.js';
 import { decryptValue } from '../../platform/lib/crypto.js';
 import { memoryDatabase } from '../../platform/testing/memory-database.js';
 import { interceptHttp } from '../../platform/testing/http.js';
@@ -29,6 +29,17 @@ describe('CredentialService', () => {
     db = memoryDatabase();
     await db.accounts.saveUser({ ...testUser });
     service = new CredentialService(db, TEST_KEY);
+  });
+
+  describe('a secret saved under a key this Koala no longer holds', () => {
+    it('is never shown masked, used as missing or taken from the environment: it says which one to enter again', async () => {
+      await new CredentialService(db, 'a-key-since-rotated-away').saveCredentials('user-1', 'huggingface', { hfToken: 'hf_abcdefghijklmnopqrstuvwxyz' });
+      const said = 'your huggingface hfToken was saved under a key this Koala no longer holds; enter it again under Cloud providers';
+      await expect(service.getCredentials('user-1', 'huggingface')).rejects.toThrow(new UnreadableCredential('huggingface', 'hfToken'));
+      await expect(service.resolveCredentials('user-1', 'huggingface')).rejects.toThrow(said);
+      const listed = (await service.getConfiguredProviders('user-1')).find((status) => status.provider === 'huggingface');
+      expect(listed).toEqual({ provider: 'huggingface', label: 'Hugging Face', configured: false, unreadable: said });
+    });
   });
 
   describe('saveCredentials + getCredentials', () => {

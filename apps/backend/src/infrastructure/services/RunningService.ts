@@ -56,7 +56,9 @@ export class RunningService {
   }
 
   async cancel(ownerId: string, workflowId: string, by?: string): Promise<RunningOutcome<{ cancelling: true }>> {
-    const item = (await this.items(ownerId))?.find((entry) => entry.workflowId === workflowId);
+    const items = await this.items(ownerId);
+    if (!items) return { ok: false, status: 503, error: 'Temporal is not reachable, so what runs cannot be cancelled' };
+    const item = items.find((entry) => entry.workflowId === workflowId);
     if (!item) return { ok: false, status: 404, error: 'Nothing of yours is running under that id' };
     const how = item.cancel;
     switch (how.via) {

@@ -700,7 +700,7 @@ export function startEngineStream(deps: EngineStreamDeps): void {
             await deps.workFailures.runEnded({
               ...event,
               ...(revokedBecause ? { revoked: { reason: `its access was revoked: ${REVOKED_SAID[revokedBecause]}`, ...(event.handover?.note ? { handover: event.handover.note } : {}) } } : {}),
-            }).catch((err: Error) => console.warn(`[failures] ${err.message}`));
+            });
           }
           reportMemory(event.kind)(await memoryKeeper.handle(event));
           await bench.service?.activity(event);

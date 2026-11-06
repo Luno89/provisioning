@@ -107,6 +107,10 @@ export interface ResourceDeal extends WorkflowDeal {
   readonly resourceId: string
 }
 
+export type TemporalReach =
+  | { connected: true; serverVersion?: string }
+  | { connected: false; reason: string }
+
 export interface NothingToBuild {
   readonly event: 'nothing-to-build'
   readonly reason: string
@@ -289,6 +293,16 @@ export class TemporalBridge {
 
   isReady(): boolean {
     return !!this.client
+  }
+
+  async reach(): Promise<TemporalReach> {
+    if (!this.client) return { connected: false, reason: 'the backend has not connected to Temporal yet' }
+    try {
+      const { serverVersion } = await this.client.workflowService.getSystemInfo({})
+      return serverVersion ? { connected: true, serverVersion } : { connected: true }
+    } catch (err) {
+      return { connected: false, reason: (err as Error).message }
+    }
   }
 
   private async getClusterById(id: string): Promise<ClusterMetadata | undefined> {

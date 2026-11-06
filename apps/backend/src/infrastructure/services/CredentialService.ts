@@ -57,6 +57,14 @@ export interface ProviderStatus {
   source?: 'user' | 'env';
   summary?: Record<string, string>;
   clusters?: 'available' | 'mock-only' | 'not-yet';
+  unreadable?: string;
+}
+
+export class UnreadableCredential extends Error {
+  constructor(readonly provider: string, readonly field: string) {
+    super(`your ${provider} ${field} was saved under a key this Koala no longer holds; enter it again under Cloud providers`);
+    this.name = 'UnreadableCredential';
+  }
 }
 
 export class CredentialService {
@@ -320,9 +328,16 @@ export class CredentialService {
     ];
 
     return providers.map(({ key, label }) => {
-      const resolved = resolveCloudCredentials(key, user?.credentials ? this.decryptAll(user.credentials, key) : undefined, usesOperatorCredentials(user, this.claims));
       const clusters = clusterAvailability(key, process.env);
       const unkeyed = clusters ? { clusters } : {};
+      let stored: CloudCredentials | undefined;
+      try {
+        stored = user?.credentials ? this.decryptAll(user.credentials, key) : undefined;
+      } catch (err) {
+        if (!(err instanceof UnreadableCredential)) throw err;
+        return { provider: key, label, configured: false, unreadable: err.message, ...unkeyed };
+      }
+      const resolved = resolveCloudCredentials(key, stored, usesOperatorCredentials(user, this.claims));
 
       if (resolved.mode === 'mock') {
         return { provider: key, label, configured: false, ...unkeyed };
@@ -350,12 +365,7 @@ export class CredentialService {
     for (const [key, value] of Object.entries(providerCreds)) {
       if (typeof value !== 'string') continue;
       if (sensitive.includes(key)) {
-        try {
-          const decrypted = decryptValue(value, this.masterKey);
-          result[key] = maskSecret(decrypted);
-        } catch {
-          result[key] = '****';
-        }
+        result[key] = maskSecret(this.decrypted(value, provider, key));
       } else {
         result[key] = value;
       }
@@ -418,6 +428,14 @@ export class CredentialService {
     return resolveCloudCredentials(provider, decrypted, usesOperatorCredentials(user, this.claims));
   }
 
+  private decrypted(value: string, provider: string, field: string): string {
+    try {
+      return decryptValue(value, this.masterKey);
+    } catch {
+      throw new UnreadableCredential(provider, field);
+    }
+  }
+
   private decryptAll(credentials: CloudCredentials, provider: string): CloudCredentials {
     const providerCreds = at(credentials, provider);
     if (!isRecord(providerCreds)) return {};
@@ -428,11 +446,7 @@ export class CredentialService {
     for (const [key, value] of Object.entries(providerCreds)) {
       if (typeof value !== 'string') continue;
       if (sensitive.includes(key)) {
-        try {
-          decrypted[key] = decryptValue(value, this.masterKey);
-        } catch {
-          continue;
-        }
+        decrypted[key] = this.decrypted(value, provider, key);
       } else {
         decrypted[key] = value;
       }

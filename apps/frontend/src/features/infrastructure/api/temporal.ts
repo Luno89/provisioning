@@ -27,10 +27,9 @@ export interface WorkflowCounts {
   timedOut: number
 }
 
-export interface TemporalStatus {
-  connected: boolean
-  serverVersion?: string
-}
+export type TemporalStatus =
+  | { connected: true; serverVersion?: string }
+  | { connected: false; reason: string }
 
 export const temporalKeys = {
   status: () => ['temporal-status'] as const,

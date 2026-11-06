@@ -45,8 +45,6 @@ export interface RunEnded {
   revoked?: { reason: string; handover?: string | undefined } | undefined;
 }
 
-const NO_RECORDS: RunningRecords = { trees: [], projects: [], conversations: [], checkRuns: [], releases: [], agentName: () => undefined };
-
 export class WorkFailureService {
   private readonly now: () => Date;
 
@@ -57,10 +55,6 @@ export class WorkFailureService {
   private async isPerson(ownerId: string): Promise<boolean> {
     const user = await this.deps.accounts.getUserById(ownerId);
     return Boolean(user) && !user?.space && !user?.removal;
-  }
-
-  private recordsOf(ownerId: string): Promise<RunningRecords> {
-    return this.deps.records(ownerId).catch(() => NO_RECORDS);
   }
 
   private async record(failure: WorkFailure): Promise<void> {
@@ -76,7 +70,7 @@ export class WorkFailureService {
     if (!(await this.isPerson(event.ownerId))) return undefined;
     const workflow = await this.deps.workflows.describeRun(event.runId).catch(ignore('a run Temporal no longer describes is recorded from what the event says'))
       ?? { workflowId: event.runId, type: 'AgentRunWorkflow', startedAt: this.now().toISOString() };
-    const failure = describeFailure(workflow, await this.recordsOf(event.ownerId), {
+    const failure = describeFailure(workflow, await this.deps.records(event.ownerId), {
       id: runFailureId(event.runId),
       ownerId: event.ownerId,
       reason: event.revoked?.reason ?? event.reason ?? 'it failed',
@@ -92,7 +86,7 @@ export class WorkFailureService {
     if (!failed.ownerId || !(await this.isPerson(failed.ownerId))) return undefined;
     const failure = describeFailure(
       { workflowId: failed.workflowId, type: failed.type, startedAt: failed.startedAt, ...(failed.memo ? { memo: failed.memo } : {}) },
-      await this.recordsOf(failed.ownerId),
+      await this.deps.records(failed.ownerId),
       {
         id: workflowFailureId(failed.workflowId, failed.temporalRunId),
         ownerId: failed.ownerId,

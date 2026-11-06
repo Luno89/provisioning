@@ -53,9 +53,10 @@ describe('TemporalPanel', () => {
     expect(screen.queryByText('No workflow executions found')).toBeNull();
   });
 
-  it('renders when Temporal is not connected', async () => {
-    renderPanel([], { connected: false });
-    await waitFor(() => expect(vi.mocked(temporalApi.getTemporalStatus)).toHaveBeenCalled());
+  it('says Temporal is not connected, and why', async () => {
+    renderPanel([], { connected: false, reason: 'connection refused' });
+    await waitFor(() => expect(screen.getByText('connection refused')).toBeDefined());
+    expect(screen.getByText('Disconnected')).toBeDefined();
     expect(screen.queryByText(/app-deploy/)).toBeNull();
   });
 

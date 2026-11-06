@@ -89,7 +89,24 @@ describe('work that failed', () => {
 });
 
 describe('telling about failed work', () => {
-  it('tells whoever listens about each failure it records, once, and describes it without the records when they cannot be read', async () => {
+  it('tells whoever listens about each failure it records, once', async () => {
+    const { db } = await setUp();
+    const failed: string[] = [];
+    const service = new WorkFailureService({
+      store: db.infrastructure,
+      workflows: { describeRun: async () => undefined },
+      records: async () => ({ trees: [], projects: [], conversations: [], checkRuns: [], releases: [], agentName: () => undefined }),
+      accounts: db.accounts,
+      now: () => NOW,
+      onFailure: (failure) => failed.push(failure.id),
+    });
+    await service.workflowFailed(failedWorkflow({}));
+    await service.workflowFailed(failedWorkflow({}));
+    expect(failed).toEqual(['workflow:remove-project-p1:r1']);
+    expect(await service.shown('u1')).toHaveLength(1);
+  });
+
+  it('records nothing half-described when what it names cannot be read, and says why, so the report is made again', async () => {
     const { db } = await setUp();
     const failed: string[] = [];
     const service = new WorkFailureService({
@@ -100,10 +117,10 @@ describe('telling about failed work', () => {
       now: () => NOW,
       onFailure: (failure) => failed.push(failure.id),
     });
-    await service.workflowFailed(failedWorkflow({}));
-    await service.workflowFailed(failedWorkflow({}));
-    expect(failed).toEqual(['workflow:remove-project-p1:r1']);
-    expect(await service.shown('u1')).toHaveLength(1);
+    await expect(service.workflowFailed(failedWorkflow({}))).rejects.toThrow('records are down');
+    await expect(service.runEnded({ ownerId: 'u1', runId: 'run-a', outcome: 'failed', depth: 0 })).rejects.toThrow('records are down');
+    expect(failed).toEqual([]);
+    expect(await service.shown('u1')).toEqual([]);
   });
 });
 
