@@ -47,6 +47,7 @@
     "flows": "tsx tests/coupling/flows-cli.ts",
     "refs": "tsx tests/coupling/refs-cli.ts",
     "said": "tsx tests/alignment/said-cli.ts",
+    "decisions": "tsx tests/alignment/decisions-cli.ts",
     "test:browser": "npm run test:alive && npm run test:test:e2e:setup && npx playwright test tests/e2e.spec.ts && npm run test:test:e2e:teardown",
     "test:infra:integration": "tsx tests/lib/run-live.ts infra-integration",
     "test:planner-live": "cd apps/backend && tsx ../../tests/lib/run-live.ts planner-live",
