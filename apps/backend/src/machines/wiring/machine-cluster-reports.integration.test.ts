@@ -92,5 +92,6 @@ describe('a machine telling Koala about its own cluster', () => {
     await until(desk);
     await reports(machineWith(false));
     await until(async () => ((await desk()) ? undefined : true));
+    expect(await desk()).toBeUndefined();
   }, 30_000);
 });

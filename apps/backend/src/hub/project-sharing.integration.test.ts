@@ -219,6 +219,8 @@ describe('sharing a project from its owner\'s instance to the hub, and taking it
     await until(async () => ((await gitea.getRawFile(hubOrgOf(hubId), HUB_REPO, 'from-owner.txt', 'main')) === 'the owner wrote this\n' ? true : undefined));
     await gitea.putFile(hubOrgOf(hubId), HUB_REPO, 'from-member.txt', 'a member wrote this\n', 'From a member', 'main');
     await until(async () => ((await gitea.getRawFile(project.giteaOwner, project.giteaRepo, 'from-member.txt', 'main')) === 'a member wrote this\n' ? true : undefined));
+    expect(await gitea.getRawFile(hubOrgOf(hubId), HUB_REPO, 'from-owner.txt', 'main')).toBe('the owner wrote this\n');
+    expect(await gitea.getRawFile(project.giteaOwner, project.giteaRepo, 'from-member.txt', 'main')).toBe('a member wrote this\n');
   });
 
   it('taking it back needs its name, then leaves everything on the instance and nothing on the hub', async () => {

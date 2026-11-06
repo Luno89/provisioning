@@ -17,10 +17,10 @@ const fedByRunInputs = (procedure: Procedure): Set<string> => {
 };
 
 export function valuePathsIn(procedure: Procedure): string[] {
-  const groups = new Map(BUILT_IN_GROUPS.map((group) => [group.id, group]));
+  const groups = new Map([...BUILT_IN_GROUPS, ...procedure.groups].map((group) => [group.id, group]));
   const fed = fedByRunInputs(procedure);
   const nodes = procedure.nodes.flatMap((node) => {
-    if (node.kind === 'group' && groups.has(String(node.settings.group))) return [node, ...groups.get(String(node.settings.group))!.nodes];
+    if (node.kind === 'group' && groups.has(String(node.group))) return [node, ...groups.get(String(node.group))!.nodes];
     return fed.has(node.id) ? [node] : [];
   });
 
@@ -58,11 +58,7 @@ describe('what a persona says it needs, and what its procedure actually reads', 
     it(`${persona.slug} declares every input ${procedure.id} reads`, () => {
       const read = [...new Set(valuePathsIn(procedure).map(rootOf))];
       const { names } = declaredOf(persona);
-
-      for (const input of read) {
-        expect(names, `${procedure.id} reads "${input}", which ${persona.slug} never declares, so nothing asking it to work knows to send one`)
-          .toContain(input);
-      }
+      expect(read.filter((input) => !names.includes(input)), `${procedure.id} reads these, which ${persona.slug} never declares, so nothing asking it to work knows to send them`).toEqual([]);
     });
 
   }

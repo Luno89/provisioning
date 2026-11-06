@@ -4,7 +4,6 @@ import { devKoalaApi, devKoalaDatabase, devOwner } from './lib/dev-stack.js';
 
 const BASE = process.env.CHECKS_LIVE_URL ?? `${devKoalaApi}/api`;
 const ONLY = (process.env.CHECKS_LIVE_SCENARIOS ?? 'executor-reads-what-is-there,executor-does-one-task,builder-reads-before-changing,research-writes-its-findings,koala-fans-research-out,judge-checks-then-records-its-verdict,delivery-plans-and-delivers').split(',');
-const EVERY_ONE = process.env.CHECKS_LIVE_ALL_PASS === 'true';
 const TOGETHER = Math.max(1, Math.min(ONLY.length, Number(process.env.CHECKS_LIVE_TOGETHER ?? 1) || 1));
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -50,7 +49,7 @@ async function main(): Promise<void> {
     }
     assert.deepEqual(run.results.map((result) => result.scenarioId).sort(), [...ONLY].sort(), 'not every scenario has a result');
     assert.deepEqual(run.results.filter((result) => !result.runId).map((result) => `${result.scenarioId}: ${result.error}`), [], 'a scenario never got a real run');
-    if (EVERY_ONE) assert.deepEqual(run.results.filter((result) => !result.passed).map((result) => result.scenarioId), [], 'every check has to pass here (CHECKS_LIVE_ALL_PASS)');
+    assert.deepEqual(run.results.filter((result) => !result.passed).map((result) => result.scenarioId), [], 'every check has to pass');
 
     console.log('\n[3] the person can still open every run, and no space is left behind');
     for (const result of run.results) {

@@ -4,18 +4,12 @@ Written by `tests/lib/run-live.ts`, which every `npm run test:*-live` and `test:
 
 | Script | Last passed | Last failed |
 |---|---|---|
-| `account-hardening-live` | 2026-11-05 17:33 | — |
-| `account-removal-live` | 2026-11-05 17:34 | 2026-11-02 13:03 |
-| `app-names-live` | 2026-11-05 17:38 | 2026-10-22 21:33 |
 | `app-sign-in-live` | 2026-10-27 22:24 | 2026-10-27 22:22 |
 | `browser-live` | 2026-11-05 17:34 | 2026-11-04 04:58 |
 | `byo-machine-live` | 2026-11-02 07:09 | 2026-11-02 03:47 |
-| `checks-live` | 2026-11-05 18:14 | 2026-11-01 07:30 |
-| `dev-split-live` | 2026-11-05 17:32 | 2026-10-29 23:50 |
+| `checks-live` | 2026-11-06 03:57 | 2026-11-06 03:47 |
 | `files-live` | 2026-11-05 17:40 | 2026-10-28 16:23 |
 | `hardening-live` | 2026-11-05 17:33 | — |
-| `hub-live` | 2026-11-05 17:35 | 2026-10-24 18:21 |
-| `hub-split-live` | 2026-11-05 17:34 | 2026-11-04 18:33 |
 | `infra-integration` | 2026-11-02 05:15 | 2026-10-24 14:12 |
 | `instance-live` | 2026-11-02 21:03 | 2026-11-02 20:55 |
 | `machine-chat-live` | 2026-10-28 02:48 | — |
@@ -25,15 +19,11 @@ Written by `tests/lib/run-live.ts`, which every `npm run test:*-live` and `test:
 | `mail-live` | 2026-11-02 05:52 | 2026-10-31 00:30 |
 | `mesh-live` | 2026-11-05 19:41 | 2026-11-05 18:44 |
 | `odoo-customizations-live` | 2026-11-02 06:53 | 2026-10-29 15:22 |
-| `odoo-release-live` | 2026-11-05 17:51 | 2026-10-28 19:41 |
-| `openrouter-connect-live` | 2026-11-05 17:34 | — |
+| `odoo-release-live` | 2026-11-05 17:51 | 2026-11-06 04:35 |
 | `pool-live` | 2026-11-02 05:52 | 2026-10-31 20:44 |
-| `project-sharing-live` | 2026-11-05 17:35 | 2026-11-02 23:23 |
 | `release-live` | 2026-11-02 06:54 | 2026-11-01 23:08 |
-| `remote-host-integration` | 2026-11-02 07:15 | 2026-10-29 05:04 |
 | `restore-live` | 2026-11-02 06:20 | 2026-10-31 01:51 |
 | `root-metrics-live` | 2026-11-06 00:36 | 2026-11-06 00:33 |
-| `routes-live` | 2026-11-05 17:28 | 2026-10-24 05:15 |
 | `routing-live` | 2026-11-02 07:22 | 2026-11-01 05:35 |
 | `telemetry-live` | 2026-11-05 17:36 | — |
 | `tree-to-release-live` | — | 2026-11-02 21:35 |

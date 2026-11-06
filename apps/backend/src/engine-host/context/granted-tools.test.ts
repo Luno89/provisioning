@@ -36,20 +36,12 @@ describe('a procedure can only call what the persona running it is allowed to', 
   for (const { persona, procedure } of pairs) {
     it(`${persona.slug} is granted every tool ${procedure.id} calls`, () => {
       const granted = new Set(persona.tools ?? []);
-
-      for (const tool of toolsCalledBy(procedure)) {
-        expect([...granted], `${procedure.id} calls ${tool}, which ${persona.slug} is not granted, so that step can only fail`)
-          .toContain(tool);
-      }
+      expect(toolsCalledBy(procedure).filter((tool) => !granted.has(tool)), `${procedure.id} calls these, which ${persona.slug} is not granted, so those steps can only fail`).toEqual([]);
     });
 
     it(`${persona.slug} may hand work to everyone ${procedure.id} hands work to`, () => {
       const allowed = new Set(persona.agents ?? []);
-
-      for (const agent of agentsHandedWorkBy(procedure)) {
-        expect([...allowed], `${procedure.id} hands work to ${agent}, which ${persona.slug} may not call`)
-          .toContain(agent);
-      }
+      expect(agentsHandedWorkBy(procedure).filter((agent) => !allowed.has(agent)), `${procedure.id} hands work to these, which ${persona.slug} may not call`).toEqual([]);
     });
   }
 });

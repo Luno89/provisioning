@@ -1,7 +1,8 @@
 import path from 'node:path';
 import { spawn } from 'node:child_process';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { FAILURES_FILE, withFailure, type Failures } from './audits.js';
 
 type Record = { passed?: string; failed?: string };
 type Ledger = { [script: string]: Record };
@@ -44,13 +45,22 @@ function record(script: string, passed: boolean): void {
   writeFileSync(TABLE, tableOf(ledger));
 }
 
+const FAILURES = fileURLToPath(new URL(`../../${FAILURES_FILE}`, import.meta.url));
+
+function recordFailure(name: string): void {
+  const failures = existsSync(FAILURES) ? JSON.parse(readFileSync(FAILURES, 'utf8')) as Failures : {};
+  writeFileSync(FAILURES, `${JSON.stringify(withFailure(failures, name, new Date().toISOString()), null, 1)}\n`);
+}
+
 const script = process.argv[2];
 const TSX = fileURLToPath(new URL('../../node_modules/tsx/dist/cli.mjs', import.meta.url));
 if (script && process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const file = fileURLToPath(new URL(`../${script}.ts`, import.meta.url));
   const child = spawn(process.execPath, [TSX, file, ...process.argv.slice(3)], { stdio: 'inherit', env: process.env });
   child.on('exit', (code, signal) => {
-    record(script, code === 0);
+    const passed = code === 0;
+    record(script, passed);
+    if (!passed) recordFailure(`tests/${script}.ts`);
     process.exit(code ?? (signal ? 1 : 0));
   });
 }

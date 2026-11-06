@@ -95,7 +95,7 @@ async function settingsThenSignsOut(stack: SplitStack, watching: Watched): Promi
   nothingWentWrong(watching, 'Settings');
 
   await page.getByRole('button', { name: 'Log Out' }).click();
-  await page.waitForURL((url) => url.origin !== instance || url.hash.includes('signed-out'), { timeout: 30_000 }).catch(() => undefined);
+  await page.waitForURL((url) => url.origin !== instance || url.hash.includes('signed-out'), { timeout: 30_000 });
   const me = await page.request.get(`${instance}/api/auth/me`);
   assert.equal(me.status(), 401, 'the instance still took the browser\'s session after logging out');
   console.log(`  signed out: the instance answers 401, the page is at ${page.url()}`);

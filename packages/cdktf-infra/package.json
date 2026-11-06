@@ -14,7 +14,7 @@
     "watch": "tsc -w",
     "test": "npm run test:unit && npm run test:integration",
     "test:unit": "vitest run --project unit",
-    "test:integration": "vitest run --project integration --maxWorkers=50% --passWithNoTests",
+    "test:integration": "vitest run --project integration --maxWorkers=50%",
     "test:watch": "jest --watch",
     "upgrade": "npm i cdktf@latest cdktf-cli@latest",
     "upgrade:next": "npm i cdktf@next cdktf-cli@next",

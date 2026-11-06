@@ -1,26 +1,10 @@
 {
-  "routes-live": {
-    "passed": "2026-11-05T17:28:18.143Z",
-    "failed": "2026-10-24T05:15:01.807Z"
-  },
-  "hub-live": {
-    "passed": "2026-11-05T17:35:11.510Z",
-    "failed": "2026-10-24T18:21:45.948Z"
-  },
-  "project-sharing-live": {
-    "passed": "2026-11-05T17:35:37.097Z",
-    "failed": "2026-11-02T23:23:05.958Z"
-  },
-  "app-names-live": {
-    "passed": "2026-11-05T17:38:27.368Z",
-    "failed": "2026-10-22T21:33:20.908Z"
-  },
   "routing-live": {
     "failed": "2026-11-01T05:35:27.696Z",
     "passed": "2026-11-02T07:22:14.542Z"
   },
   "odoo-release-live": {
-    "failed": "2026-10-28T19:41:39.708Z",
+    "failed": "2026-11-06T04:35:12.496Z",
     "passed": "2026-11-05T17:51:55.716Z"
   },
   "files-live": {
@@ -30,17 +14,13 @@
   "telemetry-live": {
     "passed": "2026-11-05T17:36:23.489Z"
   },
-  "account-removal-live": {
-    "failed": "2026-11-02T13:03:33.765Z",
-    "passed": "2026-11-05T17:34:51.044Z"
-  },
   "release-live": {
     "failed": "2026-11-01T23:08:38.857Z",
     "passed": "2026-11-02T06:54:44.138Z"
   },
   "checks-live": {
-    "passed": "2026-11-05T18:14:01.497Z",
-    "failed": "2026-11-01T07:30:10.060Z"
+    "passed": "2026-11-06T03:57:55.850Z",
+    "failed": "2026-11-06T03:47:09.555Z"
   },
   "mail-live": {
     "passed": "2026-11-02T05:52:49.829Z",
@@ -80,10 +60,6 @@
     "failed": "2026-10-31T20:44:38.419Z",
     "passed": "2026-11-02T05:52:08.680Z"
   },
-  "remote-host-integration": {
-    "failed": "2026-10-29T05:04:42.568Z",
-    "passed": "2026-11-02T07:15:00.606Z"
-  },
   "odoo-customizations-live": {
     "failed": "2026-10-29T15:22:26.872Z",
     "passed": "2026-11-02T06:53:00.707Z"
@@ -91,20 +67,6 @@
   "restore-live": {
     "passed": "2026-11-02T06:20:21.586Z",
     "failed": "2026-10-31T01:51:15.007Z"
-  },
-  "dev-split-live": {
-    "failed": "2026-10-29T23:50:06.503Z",
-    "passed": "2026-11-05T17:32:50.934Z"
-  },
-  "openrouter-connect-live": {
-    "passed": "2026-11-05T17:34:00.166Z"
-  },
-  "hub-split-live": {
-    "passed": "2026-11-05T17:34:44.664Z",
-    "failed": "2026-11-04T18:33:52.822Z"
-  },
-  "account-hardening-live": {
-    "passed": "2026-11-05T17:33:44.142Z"
   },
   "hardening-live": {
     "passed": "2026-11-05T17:33:22.337Z"

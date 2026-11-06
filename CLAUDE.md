@@ -2098,10 +2098,13 @@ git config core.hooksPath .githooks
 ## A test that fails twice
 
 Owner, 2026-11-02: "tests should be the signal something is wrong, if we have flaky tests we have flaky code, if a test suite
-fails twice that should trigger an audit and research around how to implement the code better". During ship and release
-(`runSteps`), a failing live suite and every failing unit or integration test file (`tests/tiers/failure-reporter.ts`) is
-recorded with its time in `tests/test-failures.json`, committed with the ledger. Once one has failed twice since its audit was
-last committed, `runSteps` refuses to start (`auditsOwed`, rules in `tests/lib/audits.ts`) until `tests/audits/<name>.md` is
+fails twice that should trigger an audit and research around how to implement the code better". A live suite's failure is
+recorded every time it runs, by hand or in a gate (`tests/lib/run-live.ts`, under `tests/<suite>.ts`); a unit or integration test
+file's failure is recorded when it runs inside ship or release (`tests/tiers/failure-reporter.ts`, through `KOALA_GATE_FAILURES`),
+since writing a test means watching it fail first (owner, 2026-11-06: "Gates always, live suites always"). Both go to
+`tests/test-failures.json`, committed with the ledger. Every test must assert something (`expect.requireAssertions` in
+`tests/tiers/projects.ts`), and no tier passes on no files. Once one has failed twice since its audit was
+last committed, ship (`runSteps`) and release (`runRounds`) refuse to start (`auditsOwed`, rules in `tests/lib/audits.ts`) until `tests/audits/<name>.md` is
 committed with the fix: what failed, the cause in the code, how it is now built. Never a rerun, a longer limit, fewer workers or
 a list of things not counted.
 
@@ -2165,8 +2168,8 @@ instance, without passing its gates first (owner, 2026-10-23: "all those checks 
   the major it is on, an override when no workspace names it), and those with no fix yet are kept in `osv-scanner.toml` with why), then **G1** (typecheck and the unit tier, lint, then the integration tier gathering its coverage) and, after G2, the coupling rules over both tiers and what the live suites ran (R1-R5) and **G2** (`SHIP_STEPS` in `tests/lib/gates.ts`: routes,
   sign-in across a root, an instance and a hub of the suite's own, passwords, codes, sign-out and lockout on a root of its own, Connect OpenRouter, a project shared from that instance and
   worked on that hub, account removal, hub, project sharing,
-  telemetry, app names, files, the Odoo release and every mechanics check, each through its npm script against the dev stack), failing at the first that fails. Every mechanics check has to pass
-  (`CHECKS_LIVE_ALL_PASS`), three check runs side by side (`CHECKS_LIVE_TOGETHER`, each check already in a space of its own): on its own `test:checks-live` only proves the check runner, since checks on a model vary. After each step it checks the checkout
+  telemetry, app names, files, the Odoo release and every mechanics check, each through its npm script against the dev stack), failing at the first that fails. Every mechanics check has to pass,
+  three check runs side by side (`CHECKS_LIVE_TOGETHER`, each check already in a space of its own); `test:checks-live` fails whenever a check it runs fails, by hand too (owner, 2026-11-06). After each step it checks the checkout
   is still that commit, since the stack hot-reloads whatever is on disk: work in a worktree while it runs. A pass is
   recorded in `<git common dir>/koala-gates/<commit>.json`, the live ledger is committed on top, and it pushes.
   `-- --no-push` stops before the push.

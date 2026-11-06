@@ -23,7 +23,7 @@ export function tiers(options: Tiers): TestProjectInlineConfiguration[] {
   return [
     {
       extends: true,
-      test: { name: 'unit', include: options.include, exclude: [...exclude, INTEGRATION, ...integration], setupFiles: [OWN_HOME, UNIT_GUARD, ...setup, COUPLING] },
+      test: { name: 'unit', include: options.include, exclude: [...exclude, INTEGRATION, ...integration], setupFiles: [OWN_HOME, UNIT_GUARD, ...setup, COUPLING], expect: { requireAssertions: true } },
     },
     {
       extends: true,
@@ -31,6 +31,7 @@ export function tiers(options: Tiers): TestProjectInlineConfiguration[] {
         name: 'integration',
         include: integration,
         exclude,
+        expect: { requireAssertions: true },
         globalSetup: options.integration?.globalSetup ?? [],
         setupFiles: [OWN_HOME, ...setup, ...(options.integration?.setupFiles ?? []), COUPLING],
       },

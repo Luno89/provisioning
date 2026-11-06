@@ -6,19 +6,20 @@ import { ACTIVITY_ATTEMPTS, DESTROY_ATTEMPTS } from '../platform/lib/activity-re
 
 const here = dirname(fileURLToPath(import.meta.url));
 
-const workflowFiles = readdirSync(here)
-  .filter((f) => f.endsWith('.ts') && !f.endsWith('.test.ts') && f !== 'index.ts');
+const proxyCount = (file: string): number => [...readFileSync(join(here, file), 'utf8').matchAll(/proxyActivities</g)].length;
+
+const proxying = readdirSync(here)
+  .filter((f) => f.endsWith('.ts') && !f.endsWith('.test.ts') && f !== 'index.ts')
+  .filter((f) => proxyCount(f) > 0);
 
 describe('activity retry bounds', () => {
-  it('finds the workflows, so this test is not vacuously passing', () => {
-    expect(workflowFiles.length).toBeGreaterThanOrEqual(8);
+  it('finds the workflows that proxy activities, so this test is not vacuously passing', () => {
+    expect(proxying.length).toBeGreaterThanOrEqual(8);
   });
 
-  it.each(workflowFiles)('%s bounds every activity it proxies', (file) => {
+  it.each(proxying)('%s bounds every activity it proxies', (file) => {
     const source = readFileSync(join(here, file), 'utf8');
-    const proxies = [...source.matchAll(/proxyActivities</g)].length;
-    if (proxies === 0) return;
-
+    const proxies = proxyCount(file);
     const bounded = [...source.matchAll(/retry:\s*\{|retry:\s*[A-Z_]+/g)].length;
     expect(bounded, `${file} proxies ${proxies} activities but bounds ${bounded}`).toBeGreaterThanOrEqual(proxies);
   });

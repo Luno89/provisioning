@@ -347,10 +347,13 @@ describe('keeping main in step with the hub\'s', () => {
     transport.pull.mockResolvedValue({ changes: [], through: 0 });
     transport.requests.mockResolvedValue([]);
     const db = memoryDatabase();
-    const sync = made(new HubSyncService({ store: db.hub, transport, origin: 'instance:combined', repos: mock<HubRepoSides>({ ends: async () => { asked(); return ends; } }), git: remotes({ owner: OWNER_HEAD }), log: () => undefined }));
+    const repos = mock<HubRepoSides>();
+    repos.ends.mockImplementation(async () => { asked(); return ends; });
+    const sync = made(new HubSyncService({ store: db.hub, transport, origin: 'instance:combined', repos, git: remotes({ owner: OWNER_HEAD }), log: () => undefined }));
     await db.hub.saveHubLink(link({ repo }));
     sync.repoMoved();
     await comparing;
+    expect(repos.ends).toHaveBeenCalled();
   });
 
   it('does nothing without repositories to compare', async () => {

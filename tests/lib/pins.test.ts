@@ -59,9 +59,7 @@ describe('the pins file', () => {
   });
 
   it('lists what is still installed without a pin, each with where', () => {
-    for (const entry of pins.unpinned) {
-      expect(entry.usedIn.length, entry.name).toBeGreaterThan(0);
-      for (const file of entry.usedIn) expect(() => read(file), `${entry.name} in ${file}`).not.toThrow();
-    }
+    const readable = (file: string): boolean => { try { read(file); return true; } catch { return false; } };
+    expect(pins.unpinned.filter((entry) => entry.usedIn.length === 0 || !entry.usedIn.every(readable)).map((entry) => entry.name)).toEqual([]);
   });
 });
