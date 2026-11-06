@@ -1,43 +1,107 @@
-import { describe, it, expect, afterAll } from 'vitest';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { describe, it, expect, afterAll, beforeAll } from 'vitest';
+import { mock } from 'vitest-mock-extended';
 import { documentsRouter } from './documents.js';
 import { mountRouter, TEST_USER, type Harness } from '../../platform/routes/test-harness.js';
 import { DocumentService } from '../services/DocumentService.js';
+import { createWorkspaceRepoResolver } from '../../engine-host/sandboxes/workspace-repos.js';
+import { ownedBy } from '../../platform/lib/ownership.js';
+import { GiteaService } from '../../projects/services/GiteaService.js';
+import { ProjectRepoService } from '../../projects/services/ProjectRepoService.js';
+import { startRealGitea, type RealGitea } from '../../projects/testing/real-gitea.js';
+import type { InfrastructureService } from '../../infrastructure/index.js';
 
+const KEY = 'documents-route-test-key' as never;
 const reads: string[] = [];
-const harness: Harness = await mountRouter({
-  prefix: '/api/documents',
-  router: () => documentsRouter({
-    documents: new DocumentService({
-      owns: async (userId, kind, id) => userId === TEST_USER.id && ((kind === 'conversation' && id === 'c1') || (kind === 'tree' && id === 't1')),
-      read: async (_userId, repo, path, ref) => {
-        reads.push(`${repo}:${path}@${ref}`);
-        if (path === 'research/r1/findings.md' && ref === 'main') return { owner: 'koala-u1', repo, content: '# Findings' };
-        if (path === 'src/health.ts' && ref === 'c0ffee1') return { owner: 'koala-u1', repo, content: 'on the branch' };
-        if (path === 'src/health.ts' && ref === 'main') return { owner: 'koala-u1', repo, content: 'merged' };
-        if (path === 'notes.md' && ref === 'c0ffee1') return { owner: 'koala-u1', repo, content: 'only on the branch' };
-        return null;
-      },
-    }),
-  }),
+let gitea: RealGitea;
+let dataDir: string;
+let savedUrl: string | undefined;
+let harness: Harness;
+let owner: string;
+let claimed: string;
+
+const asAdmin = (): Record<string, string> => ({ Authorization: `Basic ${Buffer.from(`provisioning-bot:${gitea.adminPassword}`).toString('base64')}`, 'content-type': 'application/json' });
+
+const giteaApi = async (method: string, route: string, body?: unknown): Promise<unknown> => {
+  const answer = await fetch(`${gitea.url}/api/v1${route}`, { method, headers: asAdmin(), ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
+  if (!answer.ok) throw new Error(`Gitea answered ${method} ${route} with ${answer.status}: ${await answer.text()}`);
+  return answer.status === 204 ? undefined : answer.json();
+};
+
+const headOf = async (repo: string): Promise<string> => ((await giteaApi('GET', `/repos/${owner}/${repo}/branches/main`)) as { commit: { id: string } }).commit.id;
+
+beforeAll(async () => {
+  gitea = await startRealGitea();
+  savedUrl = process.env.GITEA_URL;
+  process.env.GITEA_URL = gitea.url;
+  dataDir = await mkdtemp(path.join(tmpdir(), 'documents-route-gitea-'));
+  await writeFile(path.join(dataDir, '.gitea-admin-password'), gitea.adminPassword);
+  const infra = mock<Pick<InfrastructureService, 'runKubectl' | 'getK3dServerIp'>>();
+  infra.runKubectl.mockRejectedValue(new Error('no cluster here'));
+  const giteaService = new GiteaService(infra, KEY, '/nowhere', { dataDir });
+
+  harness = await mountRouter({
+    prefix: '/api/documents',
+    router: (db) => {
+      const projectRepos = new ProjectRepoService(db, giteaService, KEY);
+      return documentsRouter({
+        documents: new DocumentService({
+          repoFor: createWorkspaceRepoResolver({ trees: () => db.projects.getTrees(), projects: () => db.projects.getProjects(), accountOf: async (ownerId) => (await db.projects.getGiteaAccount(ownerId))?.username }),
+          owns: async (userId, kind, id) => (kind === 'tree'
+            ? ownedBy(await db.projects.getTrees(), userId).some((tree) => tree.id === id)
+            : (await db.engine.getConversations()).some((conversation) => conversation.ownerId === userId && conversation.id === id)),
+          read: (userId, repo, file, ref) => {
+            reads.push(`${repo}:${file}@${ref}`);
+            return projectRepos.readDocument(userId, repo, file, ref);
+          },
+        }),
+      });
+    },
+  });
+
+  const { db } = harness;
+  await db.engine.saveConversation({ id: 'c1', ownerId: TEST_USER.id, title: 'research', messages: [], createdAt: 'then', updatedAt: 'then' } as never);
+  await db.engine.saveConversation({ id: 'c2', ownerId: 'someone-else', title: 'theirs', messages: [], createdAt: 'then', updatedAt: 'then' } as never);
+  await db.projects.saveTree({ id: 't1', ownerId: TEST_USER.id, name: 'Health', type: 'api', createdAt: 'then', updatedAt: 'then' } as never);
+  owner = (await new ProjectRepoService(db, giteaService, KEY).ensureAccountFor(TEST_USER.id)).username;
+
+  await giteaService.createRepoForUser(owner, 'research-c1');
+  await giteaService.commitFiles(owner, 'research-c1', [{ path: 'research/r1/findings.md', content: '# Findings' }], 'Research findings');
+  await giteaService.createRepoForUser(owner, 'research-c2');
+  await giteaService.commitFiles(owner, 'research-c2', [{ path: 'findings.md', content: 'not theirs to read' }], 'Elsewhere');
+
+  await giteaService.createRepoForUser(owner, 'tree-t1');
+  await giteaService.commitFiles(owner, 'tree-t1', [{ path: 'notes.md', content: 'only on the branch' }, { path: 'src/health.ts', content: 'on the branch' }], 'The leaf\'s work');
+  claimed = await headOf('tree-t1');
+  const notes = (await giteaApi('GET', `/repos/${owner}/tree-t1/contents/notes.md`)) as { sha: string };
+  await giteaApi('DELETE', `/repos/${owner}/tree-t1/contents/notes.md`, { message: 'Merged without the notes', sha: notes.sha });
+  await giteaService.commitFiles(owner, 'tree-t1', [{ path: 'src/health.ts', content: 'merged' }, { path: 'research/r1/findings.md', content: '# Findings on main' }], 'Merged');
+}, 0);
+
+afterAll(async () => {
+  await harness?.close();
+  if (savedUrl === undefined) delete process.env.GITEA_URL; else process.env.GITEA_URL = savedUrl;
+  await gitea?.close();
+  if (dataDir) await rm(dataDir, { recursive: true, force: true });
 });
 
-afterAll(async () => { await harness.close(); });
-
-const open = (workspace: string, path: string, at?: string) => fetch(harness.url(`/api/documents/${workspace}?path=${encodeURIComponent(path)}${at ? `&at=${encodeURIComponent(at)}` : ''}`));
+const open = (workspace: string, file: string, at?: string) => fetch(harness.url(`/api/documents/${workspace}?path=${encodeURIComponent(file)}${at ? `&at=${encodeURIComponent(at)}` : ''}`));
 
 describe('opening a document', () => {
   it('reads a file of the person\'s own conversation from its repository', async () => {
     const res = await open('conversation-c1', 'research/r1/findings.md');
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ workspace: 'conversation-c1', path: 'research/r1/findings.md', owner: 'koala-u1', repo: 'research-c1', ref: 'main', content: '# Findings' });
+    expect(await res.json()).toEqual({ workspace: 'conversation-c1', path: 'research/r1/findings.md', owner, repo: 'research-c1', ref: 'main', content: '# Findings' });
   });
 
   it('reads a leaf\'s file at the commit it claimed, and from main once that commit is gone', async () => {
     reads.length = 0;
-    expect(await (await open('tree-t1', 'notes.md', 'c0ffee1')).json()).toMatchObject({ ref: 'c0ffee1', content: 'only on the branch' });
-    expect(await (await open('tree-t1', 'src/health.ts', 'c0ffee1')).json()).toMatchObject({ ref: 'c0ffee1', content: 'on the branch' });
-    expect(await (await open('tree-t1', 'research/r1/findings.md', 'c0ffee1')).json()).toMatchObject({ ref: 'main', repo: 'tree-t1' });
-    expect(reads).toEqual(['tree-t1:notes.md@c0ffee1', 'tree-t1:src/health.ts@c0ffee1', 'tree-t1:research/r1/findings.md@c0ffee1', 'tree-t1:research/r1/findings.md@main']);
+    expect(await (await open('tree-t1', 'notes.md', claimed)).json()).toMatchObject({ ref: claimed, content: 'only on the branch' });
+    expect(await (await open('tree-t1', 'src/health.ts', claimed)).json()).toMatchObject({ ref: claimed, content: 'on the branch' });
+    expect(await (await open('tree-t1', 'research/r1/findings.md', claimed)).json()).toMatchObject({ ref: 'main', repo: 'tree-t1' });
+    expect(reads).toEqual([`tree-t1:notes.md@${claimed}`, `tree-t1:src/health.ts@${claimed}`, `tree-t1:research/r1/findings.md@${claimed}`, 'tree-t1:research/r1/findings.md@main']);
   });
 
   it('takes only a commit as where to read from', async () => {

@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import type { Payload } from '@temporalio/common';
 import { EncryptionCodec, buildDataConverter } from './temporal-codec.js';
-import { CompressionCodec, OFFLOAD_ABOVE_BYTES } from './payload-storage.js';
-import { testPayloadBlobs } from './test-database.js';
+import { mock } from 'vitest-mock-extended';
+import { CompressionCodec, OFFLOAD_ABOVE_BYTES, type PayloadBlobs } from './payload-storage.js';
 
 const KEY = 'test-master-key-for-codec';
 const te = new TextEncoder();
@@ -94,7 +94,7 @@ describe('buildDataConverter', () => {
 
   it('stores large payloads outside Temporal when given somewhere to keep them', () => {
     expect(buildDataConverter(KEY).externalStorage).toBeUndefined();
-    const storage = buildDataConverter(KEY, testPayloadBlobs().blobs).externalStorage;
+    const storage = buildDataConverter(KEY, mock<PayloadBlobs>()).externalStorage;
     expect(storage?.payloadSizeThreshold).toBe(OFFLOAD_ABOVE_BYTES);
     expect(storage?.drivers.map((driver) => driver.name)).toEqual(['blobs']);
   });

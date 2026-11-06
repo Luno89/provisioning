@@ -1,23 +1,43 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import axios from 'axios';
-import { mountRouter, type Harness } from '../../platform/routes/test-harness.js';
+import { mountRouter, TEST_USER, type Harness } from '../../platform/routes/test-harness.js';
+import { authorize, type Principal } from '../../platform/lib/permissions.js';
+import type { Database } from '../../platform/lib/db-interface.js';
+import type { DeploymentMetadata } from '../../platform/lib/types.js';
+import { ProjectAppService } from '../services/ProjectAppService.js';
 import { projectAppRouter } from './project-app.js';
 
 let h: Harness | undefined;
 afterEach(async () => { await h?.close(); h = undefined; });
 
+const ownedProject = (db: Database) => async (id: string, principal: Principal) => {
+  const project = (await db.projects.getProjects()).find((entry) => entry.id === id);
+  return project && authorize(principal, 'see', { kind: 'project', ownerId: project.ownerId }).allowed ? project : undefined;
+};
+
+const exposedAt = (mode: 'local' | 'public'): Partial<DeploymentMetadata> => (mode === 'local'
+  ? { localExposureUrl: 'http://shop.localhost:8000' }
+  : { publicExposureUrl: 'https://shop-x.example.com' });
+
 const mount = async () => {
   const opened: string[] = [];
   h = await mountRouter({
     prefix: '/api/projects',
-    router: () => projectAppRouter({
-      apps: {
-        app: async () => ({ id: 'd1', name: 'Shop', status: 'running', local: {}, public: {} }),
-        open: async (_project, mode) => { opened.push(mode); return { id: 'd1', name: 'Shop', status: 'running', local: { app: 'http://shop.localhost:8000' }, public: {} }; },
-      },
-      getOwnedProject: async (id) => (id === 'p1' ? { id, name: 'Shop' } as never : undefined),
+    router: (db) => projectAppRouter({
+      apps: new ProjectAppService({
+        deployments: () => db.infrastructure.getDeployments(),
+        expose: async (deploymentId, mode) => {
+          opened.push(mode);
+          await db.infrastructure.saveDeploymentInfo({ id: deploymentId, ...exposedAt(mode) });
+        },
+      }),
+      getOwnedProject: ownedProject(db),
     }),
   });
+  await h.db.projects.saveProject({ id: 'p1', name: 'Shop', ownerId: TEST_USER.id, appType: 'gitapp', createdAt: 'then' });
+  await h.db.projects.saveProject({ id: 'p2', name: 'Theirs', ownerId: 'someone-else', appType: 'gitapp', createdAt: 'then' });
+  await h.db.infrastructure.saveDeploymentInfo({ id: 'd1', name: 'Shop', clusterId: 'c1', strategy: 'helm', appType: 'odoo-project', ownerId: TEST_USER.id, gitappProjectId: 'p1', status: 'running', createdAt: 'then' });
+  await h.db.infrastructure.saveDeploymentInfo({ id: 'd2', name: 'Theirs', clusterId: 'c1', strategy: 'helm', appType: 'odoo-project', ownerId: 'someone-else', gitappProjectId: 'p2', status: 'running', createdAt: 'then' });
   return { harness: h, opened };
 };
 

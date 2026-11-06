@@ -2,7 +2,7 @@ import { containing, matching } from '../../../platform/lib/test-matchers.js';
 import { describe, expect, it } from 'vitest';
 import { DNS_PROVIDERS } from '../../lib/dns-providers.js';
 import { DNS_PROVIDER_CLIENTS, DnsProviders } from './DnsProviders.js';
-import { fakePorkbun } from './fake-dns.js';
+import { fakeCloudflare, fakePorkbun } from './fake-dns.js';
 
 describe('the DNS provider registry service', () => {
   it('has a client for every provider described, and describes them without their env names', () => {
@@ -38,4 +38,21 @@ describe('the DNS provider registry service', () => {
     expect(await dns.validate('porkbun', fake.bad)).toMatchObject({ valid: false, message: containing('Invalid API key') });
     expect(() => dns.validate('route53', fake.good)).toThrow(/knows cloudflare, porkbun/);
   });
+});
+
+
+describe('carrying out a zone\'s plan through each provider\'s own client', () => {
+  for (const [provider, fake] of [['cloudflare', fakeCloudflare(['koala.test'])], ['porkbun', fakePorkbun(['koala.test'])]] as const) {
+    it(`adds what is missing and moves a record to its new address on ${provider}`, async () => {
+      const dns = new DnsProviders(fake.fetch, async () => []);
+      const zone = await dns.zone(provider, fake.good, 'koala.test');
+      await zone.create({ type: 'A', name: 'mesh.koala.test', content: '198.51.100.1' });
+      const steps = await dns.plan(zone, [
+        { type: 'A', name: 'mesh.koala.test', content: '203.0.113.7', why: 'the mesh moved', onConflict: 'replace' },
+        { type: 'A', name: 'app.koala.test', content: '203.0.113.7', why: 'root answers here', onConflict: 'refuse' },
+      ]);
+      expect(await dns.apply(zone, steps)).toEqual({ done: true, lines: ['updated A mesh.koala.test: the mesh moved', 'added A app.koala.test: root answers here'] });
+      expect((await zone.all()).map((record) => `${record.name} ${record.content}`).sort()).toEqual(['app.koala.test 203.0.113.7', 'mesh.koala.test 203.0.113.7']);
+    });
+  }
 });

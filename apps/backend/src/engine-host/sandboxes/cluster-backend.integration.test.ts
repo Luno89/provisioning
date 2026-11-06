@@ -1,10 +1,14 @@
 import { anyOf } from '../../platform/lib/test-matchers.js';
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { execFile } from 'child_process';
+import { watch } from 'fs';
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'fs/promises';
+import os from 'os';
+import path from 'path';
 import { promisify } from 'util';
-import { createClusterBackend, GROUPED_EXEC, STOP_GROUPED_EXEC, WorkspaceUnavailableError } from './cluster-backend.js';
+import { createClusterBackend, EXEC_PIDS, GROUPED_EXEC, STOP_GROUPED_EXEC, WorkspaceUnavailableError } from './cluster-backend.js';
 import { workspaceName, type RunWorkspace } from './workspace.js';
-import type { KubeResult, KubeRunner } from './kube.js';
+import { createKubeRunner, type KubeResult, type KubeRunner } from './kube.js';
 import { workspaceStamp } from '../../engine/lib/published-workspace.js';
 
 const workspace: RunWorkspace = {
@@ -22,14 +26,59 @@ const workspace: RunWorkspace = {
 };
 
 const NAMESPACE = workspaceName('run-abc');
+const execFileAsync = promisify(execFile);
 
-function kube(script: Partial<Record<string, KubeResult>> = {}, fallback?: KubeResult) {
+const kubectlInAFolder = (root: string): string => `#!/bin/sh
+root='${root}'
+if [ "$1" != exec ]; then echo "this kubectl only runs exec in a folder, not $1" >&2; exit 2; fi
+shift
+ns=
+while [ "$1" != "--" ]; do
+  if [ "$1" = -n ]; then ns=$2; shift 2; else shift; fi
+done
+shift
+mkdir -p "$root/pods/$ns"
+cd "$root/pods/$ns" || exit 1
+if [ -f "$root/cut" ]; then "$@" | head -c "$(cat "$root/cut")"; exit 0; fi
+exec "$@"
+`;
+
+let root: string;
+let inPod: KubeRunner;
+
+beforeEach(async () => {
+  root = await mkdtemp(path.join(os.tmpdir(), 'koala-cluster-backend-'));
+  await mkdir(path.join(root, 'bin'));
+  await writeFile(path.join(root, 'bin', 'kubectl'), kubectlInAFolder(root));
+  await chmod(path.join(root, 'bin', 'kubectl'), 0o755);
+  inPod = createKubeRunner({ binDir: path.join(root, 'bin') });
+});
+
+afterEach(async () => {
+  await rm(root, { recursive: true, force: true });
+});
+
+const podFolder = (namespace = NAMESPACE): string => path.join(root, 'pods', namespace);
+const inPodFolder = async (files: Record<string, string>): Promise<void> => {
+  for (const [file, content] of Object.entries(files)) {
+    await mkdir(path.dirname(path.join(podFolder(), file)), { recursive: true });
+    if (file.endsWith('/')) await mkdir(path.join(podFolder(), file), { recursive: true });
+    else await writeFile(path.join(podFolder(), file), content);
+  }
+};
+const cutTheStreamAfter = (bytes: number): Promise<void> => writeFile(path.join(root, 'cut'), String(bytes));
+
+const execInPod = (answer: (args: string[]) => Promise<KubeResult>): KubeRunner => async (args, input, timeoutMs, options) =>
+  (args[0] === 'exec' ? inPod(args, input, timeoutMs, options) : answer(args));
+
+function kube(script: Partial<Record<string, KubeResult>> = {}) {
   const calls: { args: string[]; input?: string | undefined }[] = [];
 
-  const run = vi.fn<KubeRunner>(async (args, input) => {
+  const run = vi.fn<KubeRunner>(async (args, input, timeoutMs, options) => {
     calls.push({ args, ...(input === undefined ? {} : { input }) });
     const verb = args[0] === 'get' && args.includes('json') ? 'ready' : args[0] ?? '';
-    return script[verb] ?? (verb === 'ready' ? readyPod : undefined) ?? fallback ?? { stdout: '', stderr: '', exitCode: 0 };
+    if (verb === 'exec') return inPod(args, input, timeoutMs, options);
+    return script[verb] ?? (verb === 'ready' ? readyPod : undefined) ?? { stdout: '', stderr: '', exitCode: 0 };
   });
 
   return { run, calls };
@@ -52,8 +101,8 @@ describe('standing a workspace up', () => {
     const { run, calls } = kube({ get: notRunning });
     const backend = createClusterBackend({ run, workspace });
 
-    await backend.exec({ sandboxId: 'ignored', command: 'echo one' });
-    await backend.exec({ sandboxId: 'ignored', command: 'echo two' });
+    expect((await backend.exec({ sandboxId: 'ignored', command: 'echo one' })).stdout).toBe('one\n');
+    expect((await backend.exec({ sandboxId: 'ignored', command: 'echo two' })).stdout).toBe('two\n');
 
     const verbs = calls.map((call) => call.args[0]);
     expect(verbs.filter((verb) => verb === 'apply')).toHaveLength(1);
@@ -116,14 +165,14 @@ describe('standing a workspace up', () => {
 
   it('keeps waiting for a pod that is still pulling its image, however long that takes', async () => {
     let asked = 0;
-    const run = vi.fn<KubeRunner>(async (args) => {
+    const run = vi.fn<KubeRunner>(execInPod(async (args) => {
       if (args[0] === 'get' && args.includes('json')) {
         asked += 1;
         return asked < 4 ? podSaying({ phase: 'Pending', containerStatuses: [{ ready: false, state: { waiting: { reason: 'ContainerCreating' } } }] }) : readyPod;
       }
       if (args[0] === 'get') return args.includes('json') ? readyPod : notRunning;
       return { stdout: '', stderr: '', exitCode: 0 };
-    });
+    }));
     await createClusterBackend({ run, workspace, readyPollMs: 1 }).exec({ sandboxId: 'x', command: 'echo' });
 
     expect(asked).toBe(4);
@@ -156,18 +205,22 @@ describe('working inside it', () => {
 
   it('runs a command in the directory it was given', async () => {
     const { run, calls } = ready();
-    await createClusterBackend({ run, workspace })
-      .exec({ sandboxId: 'x', command: 'npm test', cwd: 'apps/web' });
+    await inPodFolder({ 'apps/web/': '' });
+    const result = await createClusterBackend({ run, workspace })
+      .exec({ sandboxId: 'x', command: 'pwd', cwd: 'apps/web' });
 
-    expect(calls.at(-1)?.args).toContain("cd 'apps/web' && npm test");
+    expect(calls.at(-1)?.args).toContain("cd 'apps/web' && pwd");
+    expect(result).toMatchObject({ stdout: `${path.join(podFolder(), 'apps/web')}\n`, exitCode: 0 });
   });
 
   it('quotes a path so a quote in it cannot break out of the command', async () => {
     const { run, calls } = ready();
-    await createClusterBackend({ run, workspace })
+    await inPodFolder({ "it's here/inside.txt": 'x' });
+    const result = await createClusterBackend({ run, workspace })
       .exec({ sandboxId: 'x', command: 'ls', cwd: "it's here" });
 
     expect(calls.at(-1)?.args).toContain("cd 'it'\\''s here' && ls");
+    expect(result).toMatchObject({ stdout: 'inside.txt\n', exitCode: 0 });
   });
 
   it('writes a file as base64 so its content cannot be mangled by the shell', async () => {
@@ -178,21 +231,23 @@ describe('working inside it', () => {
     const write = calls.at(-1);
     expect(write?.input).toBe(Buffer.from('const x = "hi";\n', 'utf8').toString('base64'));
     expect(write?.args).toContain('a.ts');
+    expect(await readFile(path.join(podFolder(), 'a.ts'), 'utf8')).toBe('const x = "hi";\n');
   });
 
   it('lists a directory, telling files from folders and hiding .git', async () => {
-    const { run } = kube({ get: running }, { stdout: 'src/\n.git/\npackage.json\n', stderr: '', exitCode: 0 });
+    const { run } = kube({ get: running });
+    await inPodFolder({ 'src/': '', '.git/': '', 'package.json': '{}' });
 
     const entries = await createClusterBackend({ run, workspace }).listDir({ sandboxId: 'x', path: '.' });
 
     expect(entries).toEqual([
-      { name: 'src', type: 'dir' },
       { name: 'package.json', type: 'file' },
+      { name: 'src', type: 'dir' },
     ]);
   });
 
   it('surfaces why a read failed rather than returning nothing', async () => {
-    const { run } = kube({ get: running }, { stdout: '', stderr: 'No such file', exitCode: 1 });
+    const { run } = kube({ get: running });
 
     await expect(createClusterBackend({ run, workspace }).readFile({ sandboxId: 'x', path: 'nope' }))
       .rejects.toThrow(/No such file/);
@@ -201,21 +256,26 @@ describe('working inside it', () => {
   it('reads a file whole, however long it is, with its characters intact', async () => {
     const text = `${'é'.repeat(20_000)}\n${'x'.repeat(40_000)}\n`;
     const bytes = Buffer.from(text, 'utf8');
-    const { run, calls } = kube({ get: running }, { stdout: `${bytes.length}\n${bytes.toString('base64')}`, stderr: '', exitCode: 0 });
+    const { run, calls } = kube({ get: running });
+    await inPodFolder({ 'big.txt': text });
+    expect((await readFile(path.join(podFolder(), 'big.txt'))).length).toBe(bytes.length);
 
     expect(await createClusterBackend({ run, workspace }).readFile({ sandboxId: 'x', path: 'big.txt' })).toBe(text);
     expect(calls.at(-1)?.args.slice(-2)).toEqual(['sh', 'big.txt']);
   });
 
   it('refuses a file that came back short rather than handing over part of it', async () => {
-    const { run } = kube({ get: running }, { stdout: `100000\n${Buffer.from('only some').toString('base64')}`, stderr: '', exitCode: 0 });
+    const { run } = kube({ get: running });
+    await inPodFolder({ 'big.txt': 'only some'.padEnd(100_000, '.') });
+    await cutTheStreamAfter('100000\n'.length + Buffer.from('only some').toString('base64').length);
 
     await expect(createClusterBackend({ run, workspace }).readFile({ sandboxId: 'x', path: 'big.txt' }))
       .rejects.toThrow('big.txt came back as 9 of 100000 bytes, so it was not read whole');
   });
 
   it('reads an empty file as empty', async () => {
-    const { run } = kube({ get: running }, { stdout: '0\n', stderr: '', exitCode: 0 });
+    const { run } = kube({ get: running });
+    await inPodFolder({ empty: '' });
 
     expect(await createClusterBackend({ run, workspace }).readFile({ sandboxId: 'x', path: 'empty' })).toBe('');
   });
@@ -254,12 +314,12 @@ describe('a workspace that outlives its pod', () => {
   it('brings a pod back over the same volume after it was parked or ran out its deadline', async () => {
     let phase: KubeResult = notRunning;
     const calls: string[][] = [];
-    const run = vi.fn<KubeRunner>(async (args) => {
+    const run = vi.fn<KubeRunner>(execInPod(async (args) => {
       calls.push(args);
       if (args[0] === 'get' && args.includes('json')) { phase = running; return readyPod; }
       if (args[0] === 'get') return phase;
       return { stdout: '', stderr: '', exitCode: 0 };
-    });
+    }));
     const backend = createClusterBackend({ run, workspace: kept });
 
     await backend.exec({ sandboxId: 'x', command: 'echo one' });
@@ -308,11 +368,11 @@ describe('a kept workspace whose image was rebuilt', () => {
 describe('a workspace several runs share', () => {
   it('is started once when they all reach for it at the same moment, and its files are restored once', async () => {
     let applied = 0;
-    const run = vi.fn<KubeRunner>(async (args) => {
+    const run = vi.fn<KubeRunner>(execInPod(async (args) => {
       if (args[0] === 'apply') { applied += 1; await new Promise((resolve) => setTimeout(resolve, 30)); }
       if (args[0] === 'get') return args.includes('json') ? readyPod : applied > 0 ? running : notRunning;
       return { stdout: '', stderr: '', exitCode: 0 };
-    });
+    }));
     let restored = 0;
     const shared = { ...workspace, runId: 'conversation-c1', persistent: true };
     const backends = [1, 2, 3].map(() => createClusterBackend({ run, workspace: shared, onStarted: async () => { restored += 1; } }));
@@ -321,18 +381,19 @@ describe('a workspace several runs share', () => {
 
     expect(applied).toBe(1);
     expect(restored).toBe(1);
+    expect(await readFile(path.join(podFolder(workspaceName('conversation-c1')), 'a.md'), 'utf8')).toBe('x');
   });
 
   it('applies again when another process created it first', async () => {
     let attempts = 0;
-    const run = vi.fn<KubeRunner>(async (args) => {
+    const run = vi.fn<KubeRunner>(execInPod(async (args) => {
       if (args[0] === 'apply') {
         attempts += 1;
         return attempts === 1 ? { stdout: '', stderr: 'Error from server (AlreadyExists): persistentvolumeclaims "work" already exists', exitCode: 1 } : { stdout: 'configured', stderr: '', exitCode: 0 };
       }
       if (args[0] === 'get') return args.includes('json') ? readyPod : attempts > 1 ? running : notRunning;
       return { stdout: '', stderr: '', exitCode: 0 };
-    });
+    }));
     await createClusterBackend({ run, workspace: { ...workspace, runId: 'conversation-c2', persistent: true } }).writeFile({ sandboxId: 's', path: 'a.md', content: 'x' });
     expect(attempts).toBe(2);
   });
@@ -342,22 +403,39 @@ describe('a command that may run long', () => {
   it('runs in its own process group with no time limit, and stopping it stops that group in the pod first', async () => {
     const calls: { args: string[]; timeoutMs?: number | undefined; options?: Record<string, unknown> | undefined }[] = [];
     const stop = new AbortController();
-    const run = vi.fn<KubeRunner>(async (args, _input, timeoutMs, options) => {
+    await inPodFolder({ 'app/': '' });
+    await execFileAsync('mkfifo', [path.join(podFolder(), 'app', 'ready')]);
+    await mkdir(EXEC_PIDS, { recursive: true });
+    let groupedRun: Promise<KubeResult> | undefined;
+    const run = vi.fn<KubeRunner>(async (args, input, timeoutMs, options) => {
       calls.push({ args, timeoutMs, options: options as never });
       if (args[0] === 'get') return args.includes('json') ? readyPod : running;
       if (args.includes(GROUPED_EXEC)) {
-        await (options as { onStop: (why: string) => Promise<void> }).onStop('cancelled');
-        return { stdout: 'partial', stderr: '', exitCode: 143, stopped: 'cancelled' as const };
+        const id = args.at(-2)!;
+        const pidWritten = new Promise<void>((resolve) => {
+          const watcher = watch(EXEC_PIDS, (event, file) => {
+            if (event === 'change' && file === id) { watcher.close(); resolve(); }
+          });
+        });
+        void Promise.all([pidWritten, readFile(path.join(podFolder(), 'app', 'ready'))]).then(() => stop.abort());
+        groupedRun = inPod(args, input, timeoutMs, options);
+        return groupedRun;
       }
-      return { stdout: '', stderr: '', exitCode: 0 };
+      if (args.includes(STOP_GROUPED_EXEC)) {
+        const stopped = await inPod(args, input, timeoutMs, options);
+        await groupedRun;
+        return stopped;
+      }
+      return inPod(args, input, timeoutMs, options);
     });
 
-    const result = await createClusterBackend({ run, workspace }).exec({ sandboxId: 'x', command: 'npm run e2e', cwd: 'app', signal: stop.signal });
+    const command = 'printf partial; echo > ready; exec tail -f /dev/null';
+    const result = await createClusterBackend({ run, workspace }).exec({ sandboxId: 'x', command, cwd: 'app', signal: stop.signal });
 
     expect(result).toEqual({ stdout: 'partial', stderr: '', exitCode: 143, stopped: 'cancelled' });
     const grouped = calls.find((call) => call.args.includes(GROUPED_EXEC))!;
     const id = grouped.args.at(-2)!;
-    expect(grouped.args.at(-1)).toBe("cd 'app' && npm run e2e");
+    expect(grouped.args.at(-1)).toBe(`cd 'app' && ${command}`);
     expect(grouped.options).toMatchObject({ signal: stop.signal });
     expect(grouped.timeoutMs).toBeUndefined();
     expect(calls.find((call) => call.args.includes(STOP_GROUPED_EXEC))!.args).toEqual(['exec', 'workspace', '-n', NAMESPACE, '--', 'sh', '-c', STOP_GROUPED_EXEC, 'sh', id]);
@@ -365,12 +443,13 @@ describe('a command that may run long', () => {
 
   it('runs every call in its own process group, so a limit the call set reaches what it started too', async () => {
     const { run, calls } = kube({ get: running });
-    await createClusterBackend({ run, workspace }).exec({ sandboxId: 'x', command: 'ls', timeoutMs: 5_000 });
+    await inPodFolder({ 'listed.txt': '' });
+    expect(await createClusterBackend({ run, workspace }).exec({ sandboxId: 'x', command: 'ls', timeoutMs: 5_000 })).toEqual({ stdout: 'listed.txt\n', stderr: '', exitCode: 0 });
     expect(calls.at(-1)?.args).toEqual(['exec', 'workspace', '-n', NAMESPACE, '-i', '--', 'sh', '-c', GROUPED_EXEC, 'sh', anyOf(String), 'ls']);
   });
 
   it('really stops what a command started when the stop script runs, and leaves the exit code of one that ends on its own', async () => {
-    const run = promisify(execFile);
+    const run = execFileAsync;
     const id = `test-${Date.now()}`;
     const marker = `koala-grandchild-${Date.now()}`;
     const started = run('sh', ['-c', GROUPED_EXEC, 'sh', id, `sh -c 'sleep 30; echo ${marker}' & sleep 30`]).catch((err: { code?: number }) => err);

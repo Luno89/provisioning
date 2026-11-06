@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { WorkflowNotFoundError, type Client } from '@temporalio/client';
-import { testDatabase } from '../../platform/lib/test-database.js';
+import { memoryDatabase } from '../../platform/testing/memory-database.js';
 import { TemporalBridge } from './TemporalBridge.js';
 
 const bridgeWith = async (client?: Partial<Client['workflow']>): Promise<TemporalBridge> => {
-  const bridge = new TemporalBridge(await testDatabase());
+  const bridge = new TemporalBridge(memoryDatabase());
   if (client) Object.assign(bridge, { client: { workflow: client } as unknown as Client });
   return bridge;
 };

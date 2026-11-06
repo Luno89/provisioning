@@ -1,6 +1,6 @@
 import { containing } from '../../platform/lib/test-matchers.js';
 import { at } from '../../platform/lib/json-shapes.js';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import { emptiedEachTime } from '../../platform/lib/test-database.js';
 import { asPerson, principalOf } from '../../platform/lib/permissions.js';
 import type { MongoDB } from '../../platform/lib/mongo-db.js';
@@ -8,12 +8,17 @@ import type { ClusterMetadata, DeploymentMetadata } from '../../platform/lib/typ
 import { appQuery, appWindowQuery, clusterQuery, koalaQuery, koalaServicesQuery, type AppSubject } from '../lib/monitoring-questions.js';
 import { RULE_LABEL, alertSpec, koalaAlertExpression, type AlertSpec, type PromAlert } from '../lib/monitoring-alerts.js';
 import { inCluster, OWN_SERIES } from '../lib/cluster-scope.js';
-import { MonitoringService, type MonitoringDeps, type PrometheusClient, type Sample } from './MonitoringService.js';
+import { MonitoringService, prometheusAt, type MonitoringDeps } from './MonitoringService.js';
+import { prometheusStandIn, type PrometheusStandIn } from '../testing/prometheus-stand-in.js';
+import { freePort } from '../../platform/testing/roles-on-loopback.js';
 import { AlertWatchService } from './AlertWatchService.js';
 import type { Socket } from 'socket.io';
 import { localAgentStatus, registerDevice, unregisterDevice } from '../../machines/lib/local-agent-registry.js';
 
 const fresh = await emptiedEachTime();
+const prom: PrometheusStandIn = await prometheusStandIn(OWN_SERIES);
+const nowhere = `http://127.0.0.1:${await freePort()}`;
+afterAll(() => prom.close());
 
 const NOW = new Date('2026-10-17T12:00:00Z');
 const ME = principalOf({ id: 'me' }, { role: 'instance', instanceOwnerId: 'me' });
@@ -25,29 +30,7 @@ const remote: ClusterMetadata = { id: 'c-remote', name: 'shop-box', provider: 'h
 const dep = (fields: Partial<DeploymentMetadata> & { id: string; name: string }): DeploymentMetadata =>
   ({ clusterId: system.id, strategy: 'native', appType: 'audiobookshelf', ownerId: 'me', status: 'running', createdAt: 'then', ...fields }) as DeploymentMetadata;
 
-class FakePrometheus implements PrometheusClient {
-  answers = new Map<string, Sample[]>();
-  series = new Map<string, Array<[number, number]>>();
-  firing: PromAlert[] = [];
-  asked: string[] = [];
-
-  constructor(private readonly scope?: string) {}
-
-  scoped(query: string): string {
-    return this.scope === undefined ? query : inCluster(query, this.scope);
-  }
-
-  set(query: string | undefined, value: number, metric: Record<string, string> = {}) {
-    if (query) this.answers.set(this.scoped(query), [{ metric, value }]);
-    return this;
-  }
-
-  async query(query: string) { this.asked.push(query); return this.answers.get(query) ?? []; }
-  async range(query: string) { return this.series.get(query) ?? []; }
-  async alerts() { return this.firing; }
-}
-
-const healthyApp = (prom: FakePrometheus, subject: AppSubject) => {
+const healthyApp = (prom: PrometheusStandIn, subject: AppSubject) => {
   prom.set(`kube_service_info{namespace=${JSON.stringify(subject.namespace)}}`, 1, { service: subject.services?.[0] ?? 'web' });
   prom.set(appQuery('probed', subject), 1).set(appQuery('up', subject), 1).set(appQuery('responseSeconds', subject), 0.2)
     .set(appQuery('podsRunning', subject), 1).set(appQuery('memoryBytes', subject), 100).set(appQuery('memoryLimitBytes', subject), 1000)
@@ -55,8 +38,6 @@ const healthyApp = (prom: FakePrometheus, subject: AppSubject) => {
 };
 
 let db: MongoDB;
-let prom: FakePrometheus;
-let remoteProm: FakePrometheus | undefined;
 let kubectl: string[][];
 let applied: string[];
 let helm: string[][];
@@ -70,8 +51,12 @@ let deps: () => MonitoringDeps;
 
 beforeEach(async () => {
   db = await fresh();
-  prom = new FakePrometheus(OWN_SERIES).set('vector(1)', 1);
-  remoteProm = undefined;
+  prom.answers.clear();
+  prom.series.clear();
+  prom.firing = [];
+  prom.asked.length = 0;
+  prom.queriesFail = undefined;
+  prom.set('vector(1)', 1);
   kubectl = [];
   applied = [];
   helm = [];
@@ -84,9 +69,8 @@ beforeEach(async () => {
     store: db,
     systemCluster: async () => system,
     prometheus: async (cluster) => {
-      if (cluster.id === system.id) return prom;
-      if (remoteProm) return remoteProm;
-      throw new Error('connection refused');
+      if (cluster.id === system.id) return prom.client;
+      return prometheusAt(nowhere);
     },
     kubectl: async (cluster, args) => {
       kubectl.push([cluster.id, ...args]);
@@ -317,7 +301,7 @@ describe('watching alerts', () => {
     prom.firing = [{ labels: { alertname: 'AppProbeDown', namespace: 'books' }, state: 'firing' }];
     await watch.tick();
     prom.answers.delete('vector(1)');
-    prom.query = async () => { throw new Error('down'); };
+    prom.queriesFail = 'down';
     prom.firing = [];
     await watch.tick();
     expect(told.filter((line) => line.includes('resolved'))).toEqual([]);
@@ -556,7 +540,7 @@ describe('Koala\'s own cluster when Koala runs on a machine', () => {
   const own = { id: 'machine-home', name: 'home', provider: 'machine', status: 'healthy', machineId: 'home', isSystem: true } as ClusterMetadata;
 
   it('keeps its own history and reads its own series, never sending itself to itself', async () => {
-    monitoring = new MonitoringService({ ...deps(), systemCluster: async () => own, prometheus: async () => prom });
+    monitoring = new MonitoringService({ ...deps(), systemCluster: async () => own, prometheus: async () => prom.client });
     expect(await monitoring.historyOf(ME, own)).toMatchObject({ days: 10, kept: 10 });
     onOwn(clusterQuery('nodes'), 2);
     expect((await monitoring.clusterHealth(ME, own.id, '1h')).cluster.numbers.nodes).toBe(2);
