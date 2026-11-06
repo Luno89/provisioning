@@ -32,6 +32,7 @@ services:
     image: temporalio/auto-setup:1.29.3
     ports:
       - "${PLATFORM_BIND:-127.0.0.1}:7233:7233"
+      - "127.0.0.1:9233:9233"
     restart: unless-stopped
     depends_on:
       postgresql:
@@ -55,6 +56,7 @@ services:
       - TEMPORAL_JWT_KEY_REFRESH=30s
       - TEMPORAL_TLS_FRONTEND_CERT=/etc/temporal/tls/server.crt
       - TEMPORAL_TLS_FRONTEND_KEY=/etc/temporal/tls/server.key
+      - PROMETHEUS_ENDPOINT=0.0.0.0:9233
     volumes:
       - tf-data:/home/temporal/temporal
       - ./apps/backend/data/temporal-tls:/etc/temporal/tls:ro

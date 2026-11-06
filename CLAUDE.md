@@ -53,6 +53,7 @@ npm run test:browser # test:alive → Playwright on tests/e2e.spec.ts, whose sel
 npm run test:browser-live # in ship: its own root, instance (with its engine worker) and hub from this commit's image (split-stack), driven in Chromium → the owner signs in on root's page and lands on their instance, asked for a first model → Studio → Models connects a model stand-in on this machine (allowed in a lab) and makes it the default → a chat answers through the engine → Infrastructure shows its sections, none of the mesh only root has → Settings, then Log Out ends the session; every failed request, console error and uncaught error on the page fails it, ~4 min
 npm run test:infra:integration    # full cluster provision → verify → destroy, ~5 min (tests/infra-integration.ts)
 npm run test:routing-live         # root's Caddy on the mesh (local CA, koala.localhost) → a named instance installs on a VM → <name>.<domain> answers through Caddy and sign-in lands there → an app on the instance at <app>-<name>.<domain> → a group the instance claims is routed by root to its edge (the edge's 404 names the instance in X-Koala-Edge) and freed again → nested addresses issued and shown, the flat ones still answering → root emails the owner when the instance's connection to it is gone and when it is back, and the instance shows root down under Needs attention and clears it (a 1-minute threshold, `WATCH_UNREACHABLE_MINUTES`) → signing out everywhere at root ends the instance's session at once, ~9 min, cleans up
+npm run test:root-metrics-live    # throwaway Mongo, Postgres and registry as root's compose files define them → root-telemetry.sh makes their monitoring accounts, which may watch and not write → the pinned exporters on loopback → root's host collector with its real config relays to a stand-in with the cluster collector's own pipeline: up{service=…} for every service, mail up and down with its port, the backup's last success outliving the one-minute expiry, a stopped Mongo down; ~3 min
 npm run test:mail-live            # the send-only mail server is built and run beside a test mailbox → the backend's mailer sends an alert through it → it arrives DKIM-signed and the signature verifies against the key the DNS script publishes → root's mail check asks Spamhaus ZEN, Barracuda and UCEPROTECT through this computer's resolver: each list's own test address 127.0.0.2 is listed, loopback is on none → a host it does not trust is refused, ~2 min
 npm run test:monitoring-live      # a throwaway app on the system cluster → Monitoring calls it healthy → Koala, on your model, proposes an alert for when it stops answering → the card sets it → the app is stopped until the alert fires and the conversation hears it, started until it resolves → the alert is removed and the app destroyed, ~10 min
 npm run test:telemetry-live       # against the running dev stack: the collector and Tempo are on the system cluster (the cluster worker applied them if they were missing) → a throwaway account signs up with an admin's invite → one scripted turn through the check runner → one trace in Tempo, found by the id the request answered with, spans the request, the check workflow's start, the engine run's request, its workflow start and the model call, with nothing said in it → koala_up, the request, workflow, activity and model-call metrics are in Prometheus by name, labelled with the process → the Koala section on GET /api/infrastructure carries them → the stack stays; removes the scenario and the account, ~3 min
@@ -1310,9 +1311,22 @@ service, Koala: model calls, Koala: Temporal).
   and the instance. Without `OTEL_EXPORTER_OTLP_ENDPOINT` the SDK records but sends nothing; the backend and workers then
   reach the collector the way they reach Prometheus (`collectorSink` in `monitoring/services/CollectorReach.ts`:
   `ClusterProxyService.serviceUrl`, direct ClusterIP or a port-forward, asked again at most once a minute while it
-  fails), so `npm run dev` needs nothing set. On root, `bootstrap.sh` and `update.sh` start a host collector
-  (`docker-compose.otel.yml`, `docker/otel/config.yaml`: OTLP on 127.0.0.1:4318, Caddy's per-host request metrics scraped
-  from its admin port) that relays to the cluster's collector, and set `OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318`.
+  fails), so `npm run dev` needs nothing set. On root, `bootstrap.sh`, `update.sh` (before the restart) and `restore.sh`
+  run `scripts/root-node/root-telemetry.sh`: it applies the system cluster's monitoring the way the cluster worker does at
+  start (`scripts/ensure-cluster-stack.ts` → `ensureClusterMonitoring`), waits with no deadline until the cluster's
+  `otel-collector` is made and rolled out (refusing if its rollout fails), gives Mongo a `koala-metrics` user
+  (clusterMonitor, read on local) and Temporal's Postgres a `koala_metrics` role (pg_monitor) with passwords it keeps in
+  root's compose env (`MONGO_EXPORTER_PASSWORD`, `POSTGRES_EXPORTER_PASSWORD`, mode 600, never printed), starts the pinned
+  exporters (`docker-compose.exporters.yml`) and the host collector (`docker-compose.otel.yml`, `docker/otel/config.yaml`:
+  OTLP on 127.0.0.1:4318), sets `OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318`, and refuses when any metrics port
+  answers beyond loopback. The host collector relays to the cluster's collector every service on root, each scrape
+  labelled `service`: `caddy` (admin :2019), `mongo` (exporter :9216), `postgres` (exporter :9187), `temporal`
+  (`PROMETHEUS_ENDPOINT`, :9233), `headscale` (:9090), `registry` (debug :5005 and :5006), so each has
+  `up{service="…"}` in the cluster's Prometheus, and `mail`, which serves no metrics, gets `up{service="mail"}` from a
+  TCP check of :2525 (`tcpcheck`, renamed by `transform/mail`). `backup.sh` writes its last success as an OTLP gauge
+  file (`/var/lib/koala-backup/metrics/backup.json`) the collector reads again on every poll
+  (`otlpjsonfile`, `replay_file`), so `koala_root_backup_last_success_seconds` never expires. Grafana's "Koala: root"
+  shows them. `npm run test:root-metrics-live` proves it with throwaway containers.
   A machine never reaches a collector: its agent sends batches over its socket (`telemetry:export`, `telemetry-sink.ts`)
   and the backend relays them (`machines/lib/machine-telemetry.ts`, at most 4 MB a batch) to the collector it reports to.
 - **No deadline, never in the way.** The SDK batches (`BatchSpanProcessor`, a metrics reader every 15 s), its sink

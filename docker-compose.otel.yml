@@ -11,3 +11,4 @@ services:
       OTEL_CLUSTER_COLLECTOR: ${OTEL_CLUSTER_COLLECTOR:-127.0.0.1:4317}
     volumes:
       - ./docker/otel/config.yaml:/etc/otelcol/config.yaml:ro
+      - /var/lib/koala-backup/metrics:/koala-backup:ro

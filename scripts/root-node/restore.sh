@@ -132,6 +132,10 @@ else
   warn "the backup holds no mesh identity for this host; run bootstrap.sh again to join the mesh as a new node"
 fi
 
+REPO_DIR="$REPO_DIR" COMPOSE_ENV="$COMPOSE_ENV" BACKEND_ENV="$ENV_FILE" bash "$REPO_DIR/scripts/root-node/root-telemetry.sh" \
+  || die "the restored root cannot be measured; see above, then run: bash ${REPO_DIR}/scripts/root-node/root-telemetry.sh && systemctl start nowrinkles"
+ok "root's services are measured again, the exporters reading with the passwords the restored env holds"
+
 systemctl start nowrinkles.service nowrinkles-workers.service
 rm -rf "$RESTORED"
 ok "Koala started on what snapshot ${SNAPSHOT} held"

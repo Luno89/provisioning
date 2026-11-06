@@ -378,22 +378,20 @@ step "Updating Mongo"
 docker compose -f docker-compose.mongo.yml up -d --wait || die "Mongo did not come back with this release's settings. Check: docker compose -f docker-compose.mongo.yml logs"
 ok "Mongo runs as a replica set, so Koala can follow its records as they change"
 
+step "Measuring root: the cluster's monitoring, the exporters and the host collector"
+if [ -f scripts/root-node/root-telemetry.sh ]; then
+  docker compose -f docker-compose.registry.yml up -d >/dev/null || die "the registry did not come back with this release's settings. Nothing was restarted yet."
+  REPO_DIR="$REPO_DIR" COMPOSE_ENV="$REPO_DIR/.env" BACKEND_ENV="$REPO_DIR/$BACKEND_ENV" bash scripts/root-node/root-telemetry.sh \
+    || die "root cannot be measured with this release; see above. Nothing was restarted yet."
+else
+  warn "this release predates root-telemetry.sh, so the host collector stays as it is"
+fi
+
 step "Restarting ${SERVICE}"
 systemctl restart "$SERVICE"
 
 step "Updating the mail server"
 docker compose -f docker-compose.mail.yml up -d --build
-
-step "Updating Koala's telemetry collector"
-OTEL_IP="$("$REPO_DIR/bin/kubectl" --context k3d-provisioning-lunorica -n monitoring get svc otel-collector -o 'jsonpath={.spec.clusterIP}' 2>/dev/null || true)"
-if [ -n "$OTEL_IP" ] && [ "$OTEL_IP" != "None" ]; then
-  grep -q '^OTEL_CLUSTER_COLLECTOR=' .env && sed -i "s|^OTEL_CLUSTER_COLLECTOR=.*|OTEL_CLUSTER_COLLECTOR=${OTEL_IP}:4317|" .env || echo "OTEL_CLUSTER_COLLECTOR=${OTEL_IP}:4317" >> .env
-  docker compose -f docker-compose.otel.yml up -d
-  grep -q '^OTEL_EXPORTER_OTLP_ENDPOINT=' apps/backend/.env || echo "OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318" >> apps/backend/.env
-  ok "the host collector relays to the cluster's collector at ${OTEL_IP}"
-else
-  warn "the cluster has no collector yet; the cluster worker installs it on start, and the next update.sh starts the host collector"
-fi
 
 # ── 7. Health check ────────────────────────────────────────────────────────────────────────────
 step "Waiting for it to come back"

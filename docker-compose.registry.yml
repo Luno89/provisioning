@@ -5,8 +5,12 @@ services:
     image: registry:2
     container_name: nowrinkles-registry-writer
     restart: unless-stopped
+    environment:
+      REGISTRY_HTTP_DEBUG_ADDR: 0.0.0.0:5002
+      REGISTRY_HTTP_DEBUG_PROMETHEUS_ENABLED: "true"
     ports:
       - "${PLATFORM_BIND:-127.0.0.1}:5000:5000"
+      - "127.0.0.1:5005:5002"
     volumes:
       - registry-data:/var/lib/registry
 
@@ -16,8 +20,11 @@ services:
     restart: unless-stopped
     environment:
       REGISTRY_STORAGE_MAINTENANCE_READONLY: '{"enabled": true}'
+      REGISTRY_HTTP_DEBUG_ADDR: 0.0.0.0:5002
+      REGISTRY_HTTP_DEBUG_PROMETHEUS_ENABLED: "true"
     ports:
       - "${REGISTRY_MESH_BIND:-127.0.0.1}:5001:5000"
+      - "127.0.0.1:5006:5002"
     volumes:
       - registry-data:/var/lib/registry
 

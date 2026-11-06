@@ -732,6 +732,56 @@
     },
     {
       "kind": "image",
+      "name": "percona/mongodb_exporter",
+      "version": "0.54.0",
+      "sha256": "934e9db87e85e0fa63654e73c3504845993a254e898783ca905e65a68848b5a4",
+      "where": "root",
+      "source": "docker.io/percona/mongodb_exporter:0.54.0",
+      "github": "percona/mongodb_exporter",
+      "osv": {
+        "ecosystem": "Go",
+        "name": "github.com/percona/mongodb_exporter"
+      },
+      "uses": [
+        {
+          "file": "docker-compose.exporters.yml",
+          "pattern": "percona/mongodb_exporter:([0-9.]+)@"
+        }
+      ],
+      "shaUses": [
+        {
+          "file": "docker-compose.exporters.yml",
+          "pattern": "percona/mongodb_exporter:[0-9.]+@sha256:([0-9a-f]{64})"
+        }
+      ]
+    },
+    {
+      "kind": "image",
+      "name": "prometheuscommunity/postgres-exporter",
+      "version": "v0.20.1",
+      "sha256": "ac5ec343104fae0e2d84a27bb8d69b38430a11910c5382cad85d478d2bab713e",
+      "where": "root",
+      "source": "docker.io/prometheuscommunity/postgres-exporter:v0.20.1",
+      "github": "prometheus-community/postgres_exporter",
+      "osv": {
+        "ecosystem": "Go",
+        "name": "github.com/prometheus-community/postgres_exporter"
+      },
+      "uses": [
+        {
+          "file": "docker-compose.exporters.yml",
+          "pattern": "prometheuscommunity/postgres-exporter:(v[0-9.]+)@"
+        }
+      ],
+      "shaUses": [
+        {
+          "file": "docker-compose.exporters.yml",
+          "pattern": "prometheuscommunity/postgres-exporter:v[0-9.]+@sha256:([0-9a-f]{64})"
+        }
+      ]
+    },
+    {
+      "kind": "image",
       "name": "axllent/mailpit",
       "version": "v1.21.0",
       "source": "docker.io/axllent/mailpit:v1.21.0",

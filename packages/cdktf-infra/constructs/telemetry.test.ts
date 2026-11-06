@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { COLLECTOR_METRICS_PORT, COLLECTOR_VALUES, TEMPO_VALUES, collectorServiceMonitor } from "./telemetry.js";
-import { koalaModelCallsDashboard, koalaServiceDashboard, koalaTemporalDashboard, tempoDatasource } from "./koala-dashboards.js";
+import { ROOT_SERVICES, koalaModelCallsDashboard, koalaRootDashboard, koalaServiceDashboard, koalaTemporalDashboard, tempoDatasource } from "./koala-dashboards.js";
 
 type Panel = { title: string; targets: { expr: string }[] };
 
@@ -52,5 +52,14 @@ describe("Koala's own dashboards", () => {
       }
       expect(() => { JSON.parse(JSON.stringify(built)); }).not.toThrow();
     }
+  });
+
+  it("show root: whether each of its services answers, by the service label the host collector gives it, and the last good backup", () => {
+    const built = koalaRootDashboard() as { uid: string; title: string; panels: Panel[] };
+    expect(built).toMatchObject({ uid: "koala-root", title: "Koala: root" });
+    expect(built.panels[0]!.targets[0]!.expr).toBe('max by (service) (up{service=~"caddy|mongo|postgres|temporal|headscale|registry|mail"})');
+    expect(built.panels.flatMap((panel) => panel.targets.map((target) => target.expr)).join("\n")).toContain("koala_root_backup_last_success_seconds");
+    for (const panel of built.panels) expect(panel.targets.length, panel.title).toBeGreaterThan(0);
+    expect([...ROOT_SERVICES]).toEqual(["caddy", "mongo", "postgres", "temporal", "headscale", "registry", "mail"]);
   });
 });

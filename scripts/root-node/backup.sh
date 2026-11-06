@@ -9,10 +9,19 @@ TAG=koala-root
 HEADSCALE=provisioning-headscale
 CADDY=nowrinkles-caddy
 MAIL=nowrinkles-mail
+METRICS_DIR=/var/lib/koala-backup/metrics
 
 GREEN='\033[0;32m'; RED='\033[0;31m'; NC='\033[0m'
 ok()  { echo -e "  ${GREEN}✅${NC} $1"; }
 die() { echo -e "  ${RED}❌${NC} $1" >&2; exit 1; }
+
+record_success() {
+  local dir="$1" at="$2"
+  install -d -m 755 "$dir"
+  printf '{"resourceMetrics":[{"resource":{"attributes":[{"key":"service.name","value":{"stringValue":"koala-backup"}}]},"scopeMetrics":[{"scope":{"name":"koala-root-backup"},"metrics":[{"name":"koala_root_backup_last_success_seconds","description":"When root last made a backup, in unix seconds","gauge":{"dataPoints":[{"asInt":"%s","timeUnixNano":"%s000000000"}]}}]}]}]}\n' "$at" "$at" > "$dir/.backup.json.next"
+  chmod 644 "$dir/.backup.json.next"
+  mv -f "$dir/.backup.json.next" "$dir/backup.json"
+}
 
 [ "$(id -u)" -eq 0 ] || die "Run as root: this reads every store root keeps."
 command -v restic >/dev/null || die "restic is not installed; bootstrap.sh and update.sh install the pinned release through harden-host.sh"
@@ -75,6 +84,7 @@ PATHS=("$STAGE" "$REPO_DIR/.env" "$ENV_FILE" "$REPO_DIR/apps/backend/data")
 [ -d /var/lib/tailscale ] && PATHS+=(/var/lib/tailscale)
 restic backup --quiet --host "$TAG" --tag "$TAG" --exclude "$REPO_DIR/apps/backend/data/logs" "${PATHS[@]}"
 SNAPSHOT="$(restic snapshots --tag "$TAG" --latest 1 --json | node -e 'let s="";process.stdin.on("data",(d)=>s+=d).on("end",()=>{const x=JSON.parse(s).at(-1);console.log(`${x.short_id} at ${x.time}`)})')"
+record_success "$METRICS_DIR" "$(date +%s)"
 ok "backed up to ${BACKUP_REPOSITORY}: snapshot ${SNAPSHOT}"
 
 restic forget --quiet --tag "$TAG" --keep-daily 14 --keep-weekly 8 --keep-monthly 12 --prune
