@@ -1,0 +1,28 @@
+version: "3.9"
+
+services:
+  mongodb-exporter:
+    image: percona/mongodb_exporter:0.54.0@sha256:934e9db87e85e0fa63654e73c3504845993a254e898783ca905e65a68848b5a4
+    restart: unless-stopped
+    command:
+      - --mongodb.uri=mongodb://mongodb:27017/admin
+      - --mongodb.direct-connect
+      - --web.listen-address=:9216
+      - --collector.diagnosticdata
+      - --collector.replicasetstatus
+      - --collector.dbstats
+    environment:
+      MONGODB_USER: koala-metrics
+      MONGODB_PASSWORD: ${MONGO_EXPORTER_PASSWORD:?run scripts/root-node/root-telemetry.sh, which makes the exporters' passwords}
+    ports:
+      - "127.0.0.1:9216:9216"
+
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:v0.20.1@sha256:ac5ec343104fae0e2d84a27bb8d69b38430a11910c5382cad85d478d2bab713e
+    restart: unless-stopped
+    environment:
+      DATA_SOURCE_URI: postgresql:5432/temporal?sslmode=disable
+      DATA_SOURCE_USER: koala_metrics
+      DATA_SOURCE_PASS: ${POSTGRES_EXPORTER_PASSWORD:?run scripts/root-node/root-telemetry.sh, which makes the exporters' passwords}
+    ports:
+      - "127.0.0.1:9187:9187"

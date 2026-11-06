@@ -29,6 +29,7 @@ export const SHIP_STEPS: GateStep[] = [...UNIT_STEPS, ...INTEGRATION_STEPS, ...E
 
 export const RELEASE_STEPS: GateStep[] = [
   { name: 'the mail server signs and refuses to relay', script: 'test:mail-live', memoryMB: 512 },
+  { name: 'every service on root measured on loopback and relayed with its service name', script: 'test:root-metrics-live', memoryMB: 1536 },
   { name: 'production refuses what only a dev box allows, and sees each visitor', script: 'test:hardening-live', memoryMB: 2048 },
   { name: 'files on MinIO, share links, an attachment', script: 'test:files-live', memoryMB: 1024 },
   { name: 'a cluster provisioned, verified and destroyed', script: 'test:infra:integration', memoryMB: 4096, alone: true },

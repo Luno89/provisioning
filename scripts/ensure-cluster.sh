@@ -74,19 +74,13 @@ if "$KUBECTL" --context "$CLUSTER_CONTEXT" get deployment provisioning-worker &>
   "$KUBECTL" --context "$CLUSTER_CONTEXT" scale deployment/provisioning-worker --replicas=0 || true
 fi
 
-# Create the worker log directory BEFORE the stack apply below. LoggingStack mounts this exact
+# Create the worker log directory BEFORE root-node/root-telemetry.sh applies the stack. LoggingStack mounts this exact
 # path into promtail as `hostPath: { type: DirectoryOrCreate }` (constructs/logging.ts), and
 # kubelet creates a missing DirectoryOrCreate path as root:root 0755. `clean-dev` wipes data/, so
 # on a fresh setup promtail would win the race and the host workers — which run as the invoking
 # user — then fail with EACCES on their own log file. Creating it here means the mount finds an
 # existing directory and leaves ownership alone.
 mkdir -p "${ROOT}/apps/backend/data/logs/workers"
-
-# Prometheus/Grafana/Traefik: every other cluster gets these automatically via
-# ProvisionClusterActivity's CDKTF apply, but the management cluster bootstraps outside that
-# workflow entirely (this script, plus scripts/cluster.sh — no CDKTF involved), so nothing has
-# ever applied that stack to it. Idempotent — cheap fast-path skip when already installed.
-npx tsx "${ROOT}/scripts/ensure-cluster-stack.ts" || echo "  ⚠️  Monitoring/ingress stack check failed — continuing anyway"
 
 # Point the backend at the in-cluster services. NodePorts are reachable on localhost
 # for both native k3s (binds on host) and k3d (forwards from host). Overwrite any stale

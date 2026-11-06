@@ -84,6 +84,23 @@ export const koalaTemporalDashboard = (): object => dashboard("Koala: Temporal",
   { title: "Workflows Temporal closed as failed", expr: "sum by (task_queue) (rate(temporal_workflow_failed[5m]))", legend: "{{task_queue}}" },
 ]);
 
+export const ROOT_SERVICES = ["caddy", "mongo", "postgres", "temporal", "headscale", "registry", "mail"] as const;
+
+export const koalaRootDashboard = (): object => dashboard("Koala: root", "koala-root", [
+  { title: "Each service on root answering (1 up, 0 down)", expr: `max by (service) (up{service=~"${ROOT_SERVICES.join("|")}"})`, legend: "{{service}}", w: 24 },
+  { title: "Hours since the last good backup", expr: "(time() - max(koala_root_backup_last_success_seconds)) / 3600", legend: "hours", unit: "h" },
+  { title: "Memory each service holds", expr: `sum by (service) (process_resident_memory_bytes{service=~"${ROOT_SERVICES.join("|")}"})`, legend: "{{service}}", unit: "bytes" },
+  { title: "Host disk free on /", expr: 'min(node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"})', legend: "free", unit: "percentunit" },
+  { title: "Host memory available", expr: "min(node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)", legend: "available", unit: "percentunit" },
+  { title: "Caddy requests per second, by host", expr: "sum by (host) (rate(caddy_http_requests_total[5m]))", legend: "{{host}}", unit: "reqps" },
+  { title: "Mongo connections and operations", expr: ['sum(mongodb_ss_connections{conn_type="current"})', "sum by (legacy_op_type) (rate(mongodb_ss_opcounters[5m]))"], legend: ["connections", "{{legacy_op_type}} per second"] },
+  { title: "Postgres backends and size, by database", expr: ["sum by (datname) (pg_stat_database_numbackends)", "sum by (datname) (pg_database_size_bytes) / 1e9"], legend: ["{{datname}} backends", "{{datname}} GB"] },
+  { title: "Temporal requests and errors per second", expr: ["sum(rate(service_requests_total[5m]))", "sum(rate(service_errors_total[5m]))"], legend: ["requests", "errors"], unit: "reqps" },
+  { title: "Temporal backlog, by task queue", expr: "sum by (taskqueue) (approximate_backlog_count)", legend: "{{taskqueue}}" },
+  { title: "Registry requests per second, by handler", expr: "sum by (handler) (rate(registry_http_requests_total[5m]))", legend: "{{handler}}", unit: "reqps" },
+  { title: "Mail server connect time", expr: "max(tcpcheck_duration_milliseconds)", legend: "connect", unit: "ms" },
+]);
+
 export const tempoDatasource = (): string => [
   "apiVersion: 1",
   "datasources:",
@@ -106,7 +123,7 @@ export class KoalaDashboardsStack extends Construct {
   constructor(scope: Construct, id: string, namespace: string) {
     super(scope, id);
 
-    for (const [name, build] of [["koala-service", koalaServiceDashboard], ["koala-model-calls", koalaModelCallsDashboard], ["koala-temporal", koalaTemporalDashboard]] as const) {
+    for (const [name, build] of [["koala-service", koalaServiceDashboard], ["koala-model-calls", koalaModelCallsDashboard], ["koala-temporal", koalaTemporalDashboard], ["koala-root", koalaRootDashboard]] as const) {
       new ConfigMapV1(this, `${name}-dashboard`, {
         metadata: { name: `dashboard-${name}`, namespace, labels: DASHBOARD_LABEL },
         data: { [`${name}.json`]: JSON.stringify(build(), null, 2) },

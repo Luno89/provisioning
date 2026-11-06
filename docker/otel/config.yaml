@@ -13,7 +13,46 @@ receivers:
           static_configs:
             - targets: ["127.0.0.1:2019"]
               labels:
-                service_name: koala-caddy
+                service: caddy
+        - job_name: koala-mongo
+          scrape_interval: 15s
+          static_configs:
+            - targets: ["127.0.0.1:9216"]
+              labels:
+                service: mongo
+        - job_name: koala-postgres
+          scrape_interval: 15s
+          static_configs:
+            - targets: ["127.0.0.1:9187"]
+              labels:
+                service: postgres
+        - job_name: koala-temporal
+          scrape_interval: 15s
+          static_configs:
+            - targets: ["127.0.0.1:9233"]
+              labels:
+                service: temporal
+        - job_name: koala-headscale
+          scrape_interval: 15s
+          static_configs:
+            - targets: ["127.0.0.1:9090"]
+              labels:
+                service: headscale
+        - job_name: koala-registry
+          scrape_interval: 15s
+          static_configs:
+            - targets: ["127.0.0.1:5005", "127.0.0.1:5006"]
+              labels:
+                service: registry
+  tcpcheck/mail:
+    collection_interval: 15s
+    targets:
+      - endpoint: 127.0.0.1:2525
+  otlpjsonfile/backup:
+    include: [/koala-backup/*.json]
+    start_at: beginning
+    replay_file: true
+    poll_interval: 15s
 
 processors:
   memory_limiter:
@@ -21,6 +60,18 @@ processors:
     limit_mib: 256
     spike_limit_mib: 64
   batch: {}
+  transform/mail:
+    metric_statements:
+      - context: resource
+        statements:
+          - set(attributes["service.name"], "koala-mail")
+      - context: datapoint
+        statements:
+          - set(attributes["service"], "mail") where metric.name == "tcpcheck.status"
+      - context: metric
+        statements:
+          - set(unit, "") where name == "tcpcheck.status"
+          - set(name, "up") where name == "tcpcheck.status"
 
 exporters:
   otlp:
@@ -29,12 +80,19 @@ exporters:
       insecure: true
 
 service:
+  telemetry:
+    metrics:
+      level: none
   pipelines:
     traces:
       receivers: [otlp]
       processors: [memory_limiter, batch]
       exporters: [otlp]
     metrics:
-      receivers: [otlp, prometheus]
+      receivers: [otlp, prometheus, otlpjsonfile/backup]
       processors: [memory_limiter, batch]
+      exporters: [otlp]
+    metrics/mail:
+      receivers: [tcpcheck/mail]
+      processors: [memory_limiter, transform/mail, batch]
       exporters: [otlp]
