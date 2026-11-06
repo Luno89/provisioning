@@ -15,11 +15,10 @@ export const devFile = (path: string): string => {
   return existsSync(own) ? own : join(devCheckout(), path);
 };
 
-export const DEV_TEMPORAL_TLS = devFile('apps/backend/data/temporal-tls');
-
 export function devTemporalCa(): string[] {
-  if (!existsSync(`${DEV_TEMPORAL_TLS}/ca.crt`)) throw new Error(`the dev stack's Temporal has no certificate at ${DEV_TEMPORAL_TLS}: run bash scripts/ensure-temporal.sh`);
-  return ['-v', `${DEV_TEMPORAL_TLS}/ca.crt:/etc/koala/temporal-tls/ca.crt:ro`, '-e', 'TEMPORAL_TLS_CA=/etc/koala/temporal-tls/ca.crt'];
+  const tls = devFile('apps/backend/data/temporal-tls');
+  if (!existsSync(`${tls}/ca.crt`)) throw new Error(`the dev stack's Temporal has no certificate at ${tls}: run bash scripts/ensure-temporal.sh`);
+  return ['-v', `${tls}/ca.crt:/etc/koala/temporal-tls/ca.crt:ro`, '-e', 'TEMPORAL_TLS_CA=/etc/koala/temporal-tls/ca.crt'];
 }
 
 export const DEV_SECRET_FILES = ['.gitea-admin-password', '.gitea-admin-token', '.headscale-api-key', '.infisical-admin-password', '.infisical-machine-identity', '.infisical-encryption-key', '.infisical-postgres-password', '.infisical-redis-password'];
