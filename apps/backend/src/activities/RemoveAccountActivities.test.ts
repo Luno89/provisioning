@@ -4,7 +4,8 @@ import { mock, mockFn } from 'vitest-mock-extended';
 import type { KubeResult, KubeRunner } from '../engine-host/sandboxes/kube.js';
 import type { Database } from '../platform/lib/db-interface.js';
 import { memoryDatabase } from '../platform/testing/memory-database.js';
-import { createAccountRemovalActivities, type AccountRemovalActivities, type AccountRemovalDeps } from './RemoveAccountActivities.js';
+import { roleFromEnv, type RoleConfig } from '../platform/index.js';
+import { createAccountRemovalActivities, removalMeshFor, type AccountRemovalActivities, type AccountRemovalDeps } from './RemoveAccountActivities.js';
 
 type Workflows = AccountRemovalDeps['workflows'];
 type Repositories = AccountRemovalDeps['repositories'];
@@ -158,5 +159,23 @@ describe('the steps that remove an account', () => {
   it('can run again after it has finished, finding nothing left', async () => {
     await steps().RemoveAccountRecordsActivity({ ownerId: 'bo' });
     expect(await steps().RemoveAccountRecordsActivity({ ownerId: 'bo' })).toEqual({});
+  });
+});
+
+describe('the mesh a removal clears', () => {
+  const headscale = (): Mesh => ({ removeUser: async () => ({ devices: 2, user: true }) });
+
+  it('is Headscale where accounts are held', async () => {
+    for (const env of [{}, { ROLE: 'root' }]) {
+      expect(await removalMeshFor(roleFromEnv(env), headscale).removeUser('u1')).toEqual({ devices: 2, user: true });
+    }
+  });
+
+  it("is none on an instance, whose people are on root's mesh, so no Headscale is reached", async () => {
+    let reached = false;
+    const instance = { ...roleFromEnv({}), role: 'instance' } as RoleConfig;
+    const mesh = removalMeshFor(instance, () => { reached = true; return headscale(); });
+    expect(await mesh.removeUser('space-1')).toEqual({ devices: 0, user: false });
+    expect(reached).toBe(false);
   });
 });

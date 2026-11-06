@@ -2,7 +2,7 @@ import { Context } from '@temporalio/activity';
 import { memoryWatermarkKeys, ownedWorkflowIds, type AccountIds, type AccountRelated } from '../accounts/index.js';
 import type { KubeRunner } from '../engine-host/sandboxes/kube.js';
 import { labelValue } from '../engine-host/sandboxes/workspace.js';
-import { type DeploymentMetadata, CLI_CEILING } from '../platform/index.js';
+import { type DeploymentMetadata, type RoleConfig, CLI_CEILING, holdsAccounts } from '../platform/index.js';
 import { planAppDestroys, type AppTeardown, type AppToDestroy } from './RemoveProjectActivities.js';
 
 export interface RemoveAccountArgs {
@@ -34,6 +34,13 @@ export interface AccountRemovalDeps {
   mesh: { removeUser(ownerId: string): Promise<{ devices: number; user: boolean }> };
   secrets: { removeProject(projectId: string): Promise<{ workspace: boolean; readers: number }> };
 }
+
+export type RemovalMesh = AccountRemovalDeps['mesh'];
+
+export const NO_MESH_HERE: RemovalMesh = { removeUser: async () => ({ devices: 0, user: false }) };
+
+export const removalMeshFor = (role: RoleConfig, headscale: () => RemovalMesh): RemovalMesh =>
+  holdsAccounts(role) ? headscale() : NO_MESH_HERE;
 
 export interface AccountRemovalActivities {
   RemoveAccountWorkflowsActivity(args: RemoveAccountArgs): Promise<number>;

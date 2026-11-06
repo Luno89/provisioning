@@ -30,7 +30,7 @@ import {
   ClusterService, visibleAppSpecs, resolveBindings, healthPort, serveHealth,
 } from './infrastructure/index.js';
 import { createModelService } from './models/wiring/model-wiring.js';
-import { createAccountRemovalActivities } from './activities/RemoveAccountActivities.js';
+import { createAccountRemovalActivities, removalMeshFor } from './activities/RemoveAccountActivities.js';
 import { createProjectRemovalActivities, type AppTeardown } from './activities/RemoveProjectActivities.js';
 import { createCheckReleases, createReleaseBrowserTestActivities, namespacedCluster } from './activities/ReleaseBrowserTestsActivity.js';
 import { createSlotCluster } from './extensions/releases/slot-cluster.js';
@@ -514,7 +514,7 @@ async function buildActivities() {
       workflows: removalWorkflows,
       kube: createKubeRunner(),
       repositories: gitea,
-      mesh: new HeadscaleService(keys.data, process.env.HEADSCALE_URL || 'http://localhost:8080', process.env.HEADSCALE_API_KEY),
+      mesh: removalMeshFor(engineRole, () => new HeadscaleService(keys.data, process.env.HEADSCALE_URL || 'http://localhost:8080', process.env.HEADSCALE_API_KEY)),
       secrets: infisical,
     }),
     ...createProjectRemovalActivities({
