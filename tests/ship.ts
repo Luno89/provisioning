@@ -1,7 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import { resolve } from 'node:path';
 import { HOTFIX, HOTFIX_STEPS, SHIP_STEPS, ignoredRefusal, judgeVulnerabilities, leaksRefusal, shippedThrough, vulnerableRefusal, waitingLines } from './lib/gates.js';
-import { liveProcesses } from './coupling/live.js';
+import { entriesOf, measuringProblem } from './coupling/live.js';
 import { e2eEnv } from './lib/e2e-env.js';
 import { devOwner } from './lib/dev-stack.js';
 import { changedNow, commitLedger, devStackProblem, git, ignoredIn, leaksIn, minutesSince, npmPublishTimes, pushedGates, readRecord, runSteps, vulnerabilitiesIn, writeRecord } from './lib/gate-runs.js';
@@ -25,7 +25,8 @@ async function main(): Promise<void> {
   for (const line of waitingLines(advisories.waiting)) console.log(`waiting: ${line}`);
   const stack = HOTFIXING ? undefined : await devStackProblem(REPO);
   if (stack) throw new Error(stack);
-  if (!HOTFIXING && liveProcesses().length === 0) throw new Error('the dev stack is not measuring what the live suites run: stop it and start it with COUPLING_LIVE=1 npm run dev');
+  const measuring = HOTFIXING ? undefined : measuringProblem(entriesOf());
+  if (measuring) throw new Error(measuring);
   const owner = HOTFIXING ? undefined : (await devOwner()).id;
 
   const commit = git(REPO, ['rev-parse', 'HEAD']);

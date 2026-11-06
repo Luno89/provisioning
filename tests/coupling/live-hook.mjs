@@ -11,7 +11,7 @@ if (dir && process.env.NODE_V8_COVERAGE && isMainThread && koala) {
   const pids = join(dir, 'pids');
   const request = join(dir, 'request');
   mkdirSync(pids, { recursive: true });
-  writeFileSync(join(pids, String(process.pid)), entry);
+  writeFileSync(join(pids, String(process.pid)), `${entry}\n${process.cwd()}`);
   let answered = '';
   const answer = () => {
     let asked = '';

@@ -7,39 +7,67 @@ import type { Position, Ran, RanRange } from './collect.js';
 import { STARTUP } from './report.js';
 
 export const LIVE = join(OUT, 'live');
+export const POD_SOURCE = '/app';
+
+export const checkoutPathOf = (path: string, root: string): string =>
+  path === POD_SOURCE || path.startsWith(`${POD_SOURCE}/`) ? join(root, path.slice(POD_SOURCE.length)) : path;
+
+export const runsInPod = (entry: string): boolean => entry.startsWith(`${POD_SOURCE}/`);
 
 interface V8Range { startOffset: number; endOffset: number; count: number }
 interface V8Function { functionName: string; ranges: V8Range[] }
 interface V8Script { url: string; functions: V8Function[] }
 interface CachedMap { lineLengths: number[]; data: SourceMapInput }
-interface RawCoverage { result: V8Script[]; 'source-map-cache'?: Record<string, CachedMap> }
+export interface RawCoverage { result: V8Script[]; 'source-map-cache'?: Record<string, CachedMap> }
 
 const raw = (dir: string): string => join(dir, 'raw');
 const pids = (dir: string): string => join(dir, 'pids');
 
-export type CmdlineOf = (pid: number) => string | undefined;
+export type CmdlineOf = (pid: number, recordedCwd?: string) => string | undefined;
 
-export const cmdlineOf: CmdlineOf = (pid) => {
+export const resolvedArgs = (args: readonly string[], cwd: string | undefined): string =>
+  args.filter(Boolean).map((arg) => (arg.startsWith('-') || isAbsolute(arg) || cwd === undefined ? arg : resolve(cwd, arg))).join(' ');
+
+const procCwd = (pid: number): string | undefined => {
   try {
-    const cwd = readlinkSync(`/proc/${pid}/cwd`);
-    return readFileSync(`/proc/${pid}/cmdline`, 'utf8').split('\0').filter(Boolean).map((arg) => (arg.startsWith('-') || isAbsolute(arg) ? arg : resolve(cwd, arg))).join(' ');
+    return readlinkSync(`/proc/${pid}/cwd`);
   } catch {
     return undefined;
   }
 };
 
-const entryOf = (dir: string, pid: number): string => {
+export const cmdlineOf: CmdlineOf = (pid, recordedCwd) => {
+  let args: string[];
   try {
-    return readFileSync(join(pids(dir), String(pid)), 'utf8').trim();
+    args = readFileSync(`/proc/${pid}/cmdline`, 'utf8').split('\0');
   } catch {
-    return '';
+    return undefined;
   }
+  return resolvedArgs(args, procCwd(pid) ?? recordedCwd);
+};
+
+const listedAs = (dir: string, pid: number): { entry: string; cwd?: string } => {
+  let lines: string[];
+  try {
+    lines = readFileSync(join(pids(dir), String(pid)), 'utf8').split('\n').map((line) => line.trim());
+  } catch {
+    return { entry: '' };
+  }
+  return { entry: lines[0] ?? '', ...(lines[1] ? { cwd: lines[1] } : {}) };
 };
 
 const isOurs = (dir: string, pid: number, read: CmdlineOf): boolean => {
-  const entry = entryOf(dir, pid);
-  return entry !== '' && (read(pid) ?? '').includes(entry);
+  const { entry, cwd } = listedAs(dir, pid);
+  return entry !== '' && (read(pid, cwd) ?? '').includes(entry);
 };
+
+export const entriesOf = (dir = LIVE, read: CmdlineOf = cmdlineOf): string[] => liveProcesses(dir, read).map((pid) => listedAs(dir, pid).entry);
+
+export function measuringProblem(entries: readonly string[]): string | undefined {
+  if (entries.length === 0) return 'the dev stack is not measuring what the live suites run: stop it and start it with COUPLING_LIVE=1 npm run dev';
+  if (!entries.some(runsInPod)) return 'the dev stack measures root and the hub but not your Koala\'s pods: stop it and start it again with COUPLING_LIVE=1 npm run dev, which applies the instance chart with dev.coverage';
+  return undefined;
+}
 
 export function liveProcesses(dir = LIVE, read: CmdlineOf = cmdlineOf): number[] {
   if (!existsSync(pids(dir))) return [];
@@ -110,11 +138,11 @@ function generatedAt(lineLengths: readonly number[], offset: number): Position {
 
 const kept = (file: string): boolean => !file.startsWith('..') && !file.includes('node_modules') && !/\.test\.tsx?$/.test(file) && !file.startsWith('tests/');
 
-function ranIn(coverage: RawCoverage, root: string): Record<string, RanRange[]> {
+export function ranIn(coverage: RawCoverage, root: string): Record<string, RanRange[]> {
   const files: Record<string, RanRange[]> = {};
   for (const script of coverage.result) {
     if (!script.url.startsWith('file://')) continue;
-    const file = relative(root, fileURLToPath(script.url));
+    const file = relative(root, checkoutPathOf(fileURLToPath(script.url), root));
     if (!kept(file)) continue;
     const cached = coverage['source-map-cache']?.[script.url];
     if (!cached) continue;

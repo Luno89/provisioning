@@ -2106,7 +2106,10 @@ real. It works like Lighthouse, gather apart from audit:
 - **What the live suites run is measured too** (the `live` artifact): `COUPLING_LIVE=1 npm run dev` starts the dev stack with
   `NODE_V8_COVERAGE` and `tests/coupling/live-hook.mjs` (the backend and each worker record their pid and, when the sampler writes a
   new request id to `tests/.coupling/live/request`, write what ran since the last time with `v8.takeCoverage()`; never a signal,
-  since Temporal's workers take `SIGUSR2` as an order to shut down). `runSteps` then samples the stack around every `*-live` step (`tests/coupling/live.ts`:
+  since Temporal's workers take `SIGUSR2` as an order to shut down). Koala's pods are measured the same way: dev applies the instance
+  chart with `dev.coverage` (only beside `dev.source`), which gives the backend and the three workers the hook, that folder at its own
+  path and `hostPID`, so the pids they record are this computer's, and starts them again; `convert` reads their `/app` as this checkout,
+  and ship refuses a stack that measures no process of theirs (`measuringProblem`). `runSteps` then samples the stack around every `*-live` step (`tests/coupling/live.ts`:
   `discard` before, `sample tests/<suite>.ts` after, each suite's sample replacing its last; a process's first sample, which holds
   everything it ran while starting, is kept as the `startup` run, a live one, for as long as that process runs, `convert` mapping each file back to TypeScript through the source maps the
   coverage carries) and records it, so the audit counts those edges at the `live` level. A dev stack started without it changes

@@ -1,4 +1,6 @@
 {{- $processes := list "backend" "worker-engine" "worker-cluster" "worker-host" -}}
+{{- if and .Values.dev.coverage (not .Values.dev.source) }}{{ fail "dev.coverage measures a dev instance's own checkout: it needs dev.source" }}{{ end -}}
+{{- if and .Values.dev.coverage (not (hasPrefix "/" .Values.dev.coverage)) }}{{ fail "dev.coverage is a folder on the host, named from /" }}{{ end -}}
 {{- range $process := $processes }}
 ---
 apiVersion: apps/v1
@@ -24,6 +26,9 @@ spec:
         checksum/env: {{ include (print $.Template.BasePath "/configmap-env.yaml") $ | sha256sum }}
     spec:
       serviceAccountName: {{ include "instance.name" $ }}
+      {{- if $.Values.dev.coverage }}
+      hostPID: true
+      {{- end }}
       {{- with $.Values.hostAliases }}
       hostAliases: {{- toYaml . | nindent 8 }}
       {{- end }}
@@ -61,6 +66,14 @@ spec:
             {{- if $.Values.dev.source }}
             - name: DEV_WATCH
               value: "true"
+            {{- end }}
+            {{- with $.Values.dev.coverage }}
+            - name: COUPLING_LIVE_DIR
+              value: {{ . | quote }}
+            - name: NODE_V8_COVERAGE
+              value: {{ printf "%s/raw" . | quote }}
+            - name: NODE_OPTIONS
+              value: "--enable-source-maps --import /app/tests/coupling/live-hook.mjs"
             {{- end }}
             - name: POD_NAMESPACE
               valueFrom:
@@ -103,6 +116,10 @@ spec:
               mountPath: /app
               readOnly: true
             {{- end }}
+            {{- with $.Values.dev.coverage }}
+            - name: coverage
+              mountPath: {{ . }}
+            {{- end }}
             - name: data
               mountPath: /app/apps/backend/data
             - name: temporal-ca
@@ -138,6 +155,12 @@ spec:
         - name: source
           hostPath:
             path: {{ $.Values.dev.source }}
+            type: Directory
+        {{- end }}
+        {{- with $.Values.dev.coverage }}
+        - name: coverage
+          hostPath:
+            path: {{ . }}
             type: Directory
         {{- end }}
         - name: data

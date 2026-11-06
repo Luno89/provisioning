@@ -29,6 +29,7 @@ interface PodSpec {
   volumes?: Array<{ name: string; secret?: { items: Array<{ key: string; path?: string }> }; hostPath?: { path: string; type?: string } }>;
   hostAliases?: Array<{ ip: string; hostnames: string[] }>;
   hostNetwork?: boolean;
+  hostPID?: boolean;
   terminationGracePeriodSeconds?: number;
 }
 
@@ -235,6 +236,31 @@ describe('the instance chart', () => {
     expect(pods.map((doc) => doc.kind)).toEqual(expect.arrayContaining(['Deployment', 'Job', 'CronJob']));
     for (const doc of pods) expect(podOf(doc).hostAliases, `${doc.kind} ${doc.metadata.name}`).toEqual([{ ip: '10.42.0.1', hostnames: ['koala.localhost'] }]);
     expect(podOf(find(render(['dev.source=/home/me/koala-src']), 'Job', 'luno-seed')).volumes).toContainEqual({ name: 'source', hostPath: { path: '/home/me/koala-src', type: 'Directory' } });
+  });
+
+  it('measures what Koala\'s own processes run only when dev asks it to, into the host\'s folder at its own path and under the host\'s pids, and refuses it for anything but a dev checkout', () => {
+    const coverage = '/home/me/koala-src/tests/.coupling/live';
+    const measured = render(['dev.source=/home/me/koala-src', `dev.coverage=${coverage}`]);
+    for (const process of ['backend', 'worker-engine', 'worker-cluster', 'worker-host']) {
+      const pod = podOf(find(measured, 'Deployment', `luno-${process}`));
+      expect(pod.hostPID).toBe(true);
+      expect(pod.volumes).toContainEqual({ name: 'coverage', hostPath: { path: coverage, type: 'Directory' } });
+      const container = pod.containers[0]!;
+      expect(container.volumeMounts).toContainEqual({ name: 'coverage', mountPath: coverage });
+      expect(container.env).toEqual(expect.arrayContaining([
+        { name: 'COUPLING_LIVE_DIR', value: coverage },
+        { name: 'NODE_V8_COVERAGE', value: `${coverage}/raw` },
+        { name: 'NODE_OPTIONS', value: '--enable-source-maps --import /app/tests/coupling/live-hook.mjs' },
+      ]));
+      const plain = JSON.stringify(podOf(find(render(['dev.source=/home/me/koala-src']), 'Deployment', `luno-${process}`)));
+      for (const absent of ['hostPID', 'COUPLING_LIVE_DIR', 'NODE_V8_COVERAGE', 'NODE_OPTIONS', '"coverage"']) expect(plain).not.toContain(absent);
+    }
+    const others = measured.filter((doc) => ['Deployment', 'StatefulSet', 'Job', 'CronJob'].includes(doc.kind) && !/^luno-(backend|worker-(engine|cluster|host))$/.test(doc.metadata.name));
+    expect(others.length).toBeGreaterThan(0);
+    for (const doc of others) expect(JSON.stringify(podOf(doc)), `${doc.kind} ${doc.metadata.name}`).not.toMatch(/hostPID|COUPLING_LIVE_DIR|NODE_V8_COVERAGE/);
+    const refused = (values: string[]) => () => execFileSync(HELM, ['template', 'luno', CHART, ...[...required, ...values].flatMap((value) => ['--set', value])], { encoding: 'utf8', stdio: 'pipe' });
+    expect(refused([`dev.coverage=${coverage}`])).toThrow(/dev.coverage measures a dev instance's own checkout: it needs dev.source/);
+    expect(refused(['dev.source=/home/me/koala-src', 'dev.coverage=tests/.coupling/live'])).toThrow(/dev.coverage is a folder on the host, named from \//);
   });
 
   it('gives no process the machine\'s Docker, names the machine it is on, and exposes the backend on a node port only when given one', () => {

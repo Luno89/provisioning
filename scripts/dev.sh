@@ -86,9 +86,12 @@ for port in 3002 3003 5173 5175 5176; do
   done
 done
 
+KOALA_COVERAGE=""
 if [ "${COUPLING_LIVE:-}" = 1 ]; then
   export COUPLING_LIVE_DIR="${ROOT}/tests/.coupling/live"
-  rm -rf "${COUPLING_LIVE_DIR}"
+  KOALA_COVERAGE="${COUPLING_LIVE_DIR}"
+  mkdir -p "${COUPLING_LIVE_DIR}"
+  find "${COUPLING_LIVE_DIR}" -mindepth 1 -delete
   mkdir -p "${COUPLING_LIVE_DIR}/raw"
   export NODE_V8_COVERAGE="${COUPLING_LIVE_DIR}/raw"
   export NODE_OPTIONS="--enable-source-maps --import ${ROOT}/tests/coupling/live-hook.mjs ${NODE_OPTIONS:-}"
@@ -115,12 +118,21 @@ if ! node -e 'process.exit(JSON.parse(require("fs").readFileSync(process.argv[1]
   trap - EXIT
 fi
 
-CHART_INPUTS="$(find "${ROOT}/charts/instance" -type f -print0 | sort -z | xargs -0 cat | sha256sum | cut -d' ' -f1)"
+CHART_INPUTS="$( (find "${ROOT}/charts/instance" -type f -print0 | sort -z | xargs -0 cat; printf 'dev.coverage=%s\n' "${KOALA_COVERAGE}") | sha256sum | cut -d' ' -f1)"
 if [ "$(cat "${DEV_DATA}/chart.sha" 2>/dev/null || true)" != "${CHART_INPUTS}" ]; then
   say "Applying the instance chart's changes to your Koala, with the values it was installed with"
-  quietly "${ROOT}/bin/helm" upgrade instance "${ROOT}/charts/instance" -n nowrinkles --kubeconfig "${KUBECONFIG_FILE}" --reuse-values --wait --timeout 720h
+  quietly "${ROOT}/bin/helm" upgrade instance "${ROOT}/charts/instance" -n nowrinkles --kubeconfig "${KUBECONFIG_FILE}" --reuse-values --set-string "dev.coverage=${KOALA_COVERAGE}" --wait --timeout 720h
   printf '%s\n' "${CHART_INPUTS}" > "${DEV_DATA}/chart.sha"
   echo "  applied"
+fi
+if [ -n "${KOALA_COVERAGE}" ]; then
+  say "Starting your Koala's pods again, so what they run is measured from their start"
+  KOALA_DEPLOYMENTS="deployment/instance-backend deployment/instance-worker-engine deployment/instance-worker-cluster deployment/instance-worker-host"
+  quietly k3s kubectl --kubeconfig "${KUBECONFIG_FILE}" -n nowrinkles rollout restart ${KOALA_DEPLOYMENTS}
+  for deployment in ${KOALA_DEPLOYMENTS}; do
+    quietly k3s kubectl --kubeconfig "${KUBECONFIG_FILE}" -n nowrinkles rollout status "${deployment}" --timeout=0
+  done
+  echo "  started"
 fi
 
 COLLECTOR_IP="$(k3s kubectl --kubeconfig "${KUBECONFIG_FILE}" -n monitoring get service otel-collector -o 'jsonpath={.spec.clusterIP}' 2>/dev/null || true)"
