@@ -9,7 +9,7 @@ import path from 'node:path';
 import type { ProcessRun } from '../../platform/lib/processes.js';
 import { nodeProcesses } from '../../platform/services/processes.js';
 import { testDatabase } from '../../platform/lib/test-database.js';
-import { memoryHubStore } from '../lib/hub-store.js';
+import { memoryHubStore } from '../testing/memory-hub-store.js';
 import { CHANGES_PAGE, HubService } from './HubService.js';
 import { HubSyncService, localHubSync, type HubRepoSides } from './HubSyncService.js';
 import { HubRelay } from './HubRelay.js';

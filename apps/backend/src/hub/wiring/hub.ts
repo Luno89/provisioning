@@ -3,7 +3,6 @@ import {
   type AccessRevocations, type Database, type SecretKey, claimSettingsFrom, holdsAccounts, principalOf, servesHub, servesTenants, type RoleConfig, mongoTarget,
   type ProjectMetadata, type MailService,
 } from '../../platform/index.js';
-import { memoryHubStore } from '../lib/hub-store.js';
 import { mongoHubStore } from '../lib/hub-mongo.js';
 import { HUB_STATUS_BUILDS } from '../lib/hub-board.js';
 import { runsUnder, type ConversationNotice } from '../../engine/index.js';
@@ -67,9 +66,7 @@ export async function wireHub(deps: HubWiringDeps): Promise<HubWiring> {
 
   let hubService: HubService | undefined;
   if (servesHub(role)) {
-    const hubStore = env.NODE_ENV === 'test' && env.IS_E2E !== 'true'
-      ? memoryHubStore()
-      : mongoHubStore(mongoTarget(env).uri, env.HUB_DATABASE?.trim() || 'koala_hub');
+    const hubStore = mongoHubStore(mongoTarget(env).uri, env.HUB_DATABASE?.trim() || 'koala_hub');
     await hubStore.init();
     const sender = role.hub && deps.rootToken ? new HubRootClient({ rootUrl: role.hub.rootUrl, token: deps.rootToken }) : projectInvites;
     if (!sender) throw new Error('a hub needs root to send its invites');

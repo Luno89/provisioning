@@ -7,7 +7,7 @@ import { generateIdentityKey, identityKeysFrom, issueMoveToken, publicKeyPem, tr
 import { testDatabase } from '../../platform/lib/test-database.js';
 import { harnessApp } from '../../platform/routes/test-harness.js';
 import { HUB_AUDIENCE, hubInstancePart } from '../lib/hub.js';
-import { memoryHubStore } from '../lib/hub-store.js';
+import { memoryHubStore } from '../testing/memory-hub-store.js';
 import { diffRecord, type HubLink } from '../lib/hub-sync.js';
 import { hubInstanceRouter, instanceOrigin } from '../routes/hub-instance.js';
 import { hubRouter } from '../routes/hub.js';

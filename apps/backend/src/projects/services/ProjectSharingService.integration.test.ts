@@ -1,7 +1,7 @@
 import { arrayWith, matching } from '../../platform/lib/test-matchers.js';
 import { describe, expect, it } from 'vitest';
 import { emptiedEachTime, testDatabase } from '../../platform/lib/test-database.js';
-import { memoryHubStore } from '../../hub/lib/hub-store.js';
+import { memoryHubStore } from '../../hub/testing/memory-hub-store.js';
 import { HubService } from '../../hub/services/HubService.js';
 import { HubSyncService, localHubSync } from '../../hub/services/HubSyncService.js';
 import { sharedProjectRecordsBehaviour } from '../testing/project-sharing-behaviour.js';

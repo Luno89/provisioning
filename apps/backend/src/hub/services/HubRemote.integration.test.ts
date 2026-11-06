@@ -4,7 +4,7 @@ import { instancesRouter } from '../../instances/routes/instances.js';
 import { InstanceService } from '../../instances/services/InstanceService.js';
 import { mountRouter, TEST_USER, type Harness } from '../../platform/routes/test-harness.js';
 import { HUB_AUDIENCE, hubInstancePart, type HubAccess } from '../lib/hub.js';
-import { memoryHubStore } from '../lib/hub-store.js';
+import { memoryHubStore } from '../testing/memory-hub-store.js';
 import { hubInstanceRouter } from '../routes/hub-instance.js';
 import { HubService } from './HubService.js';
 import { RemoteHub, RootHubAccess } from './HubRemote.js';

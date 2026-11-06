@@ -10,7 +10,7 @@ import type { Database } from '../../platform/lib/db-interface.js';
 import { ROOT_REMOVAL_STEPS, ROOT_REMOVAL_WORKFLOW } from '../lib/account-removal.js';
 import { HubService } from '../../hub/services/HubService.js';
 import { localHubPeople, type HubPeople } from '../../hub/services/HubPeople.js';
-import { memoryHubStore } from '../../hub/lib/hub-store.js';
+import { memoryHubStore } from '../../hub/testing/memory-hub-store.js';
 import { allowed, principalOf, type Principal } from '../../platform/lib/permissions.js';
 
 const ADMIN = { id: 'ana', email: 'ana@example.com', roles: ['operator' as const] };

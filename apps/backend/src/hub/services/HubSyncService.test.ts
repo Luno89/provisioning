@@ -4,7 +4,7 @@ import { Readable } from 'node:stream';
 import { anyOf, matching, objectWith } from '../../platform/lib/test-matchers.js';
 import { memoryDatabase } from '../../platform/testing/memory-database.js';
 import type { Leaf } from '../../projects/lib/leaves.js';
-import { memoryHubStore } from '../lib/hub-store.js';
+import { memoryHubStore } from '../testing/memory-hub-store.js';
 import type { HubLink, RecordChange } from '../lib/hub-sync.js';
 import type { HubRequest, HubStatus } from '../lib/hub-board.js';
 import { CHANGES_PAGE, HubService, type SyncOrigin } from './HubService.js';

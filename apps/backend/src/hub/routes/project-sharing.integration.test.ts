@@ -2,7 +2,7 @@ import axios from 'axios';
 import { afterEach, describe, expect, it } from 'vitest';
 import { mountRouter, type Harness } from '../../platform/routes/test-harness.js';
 import { localHubSharing, localProjectGroups, ProjectSharingService } from '../../projects/services/ProjectSharingService.js';
-import { memoryHubStore } from '../lib/hub-store.js';
+import { memoryHubStore } from '../testing/memory-hub-store.js';
 import { HubService } from '../services/HubService.js';
 import { HubSyncService, localHubSync } from '../services/HubSyncService.js';
 import { projectSharingRouter } from './project-sharing.js';
