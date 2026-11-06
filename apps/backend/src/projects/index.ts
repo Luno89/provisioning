@@ -6,7 +6,7 @@ export type { Branch, Leaf } from './lib/leaves.js';
 export { parsePlan } from './lib/plan-proposals.js';
 export type { AdoptedPlan, ItemChange, PlanProposal, PlanStatus } from './lib/plan-proposals.js';
 export { projectWorkflowIds } from './lib/project-removal.js';
-export { DEFAULT_TARGET_CLUSTER } from './lib/project-shipping.js';
+export { DEFAULT_TARGET_CLUSTER, koalasClusterFor } from './lib/project-shipping.js';
 export { deploymentForProject } from './lib/project-status.js';
 export { giteaUsernameFor, sanitiseNamespaceName } from './lib/projects.js';
 export { serverProgress } from './lib/proposal-progress.js';

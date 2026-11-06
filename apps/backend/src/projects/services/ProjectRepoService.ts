@@ -33,7 +33,7 @@ export class ProjectRepoService {
     private gitea: GiteaService,
     private masterKey: SecretKey,
     private webhookUrl?: ((projectId: string) => Promise<string>) | undefined,
-    private options: { recordWaitMs?: number | undefined } = {},
+    private options: { recordWaitMs?: number | undefined; defaultCluster?: string | undefined } = {},
   ) {}
 
   async ensureAccountFor(ownerId: string): Promise<{ username: string }> {
@@ -159,7 +159,7 @@ export class ProjectRepoService {
         giteaRepo: repo,
         ...(input.language ? { language: input.language } : {}),
         appType: 'gitapp',
-        targetClusterId: input.targetClusterId ?? DEFAULT_TARGET_CLUSTER,
+        targetClusterId: input.targetClusterId ?? this.options.defaultCluster ?? DEFAULT_TARGET_CLUSTER,
         autoDeployOnBuild: input.autoDeployOnBuild,
         ...input.extra,
         createdAt: new Date().toISOString(),
@@ -180,6 +180,17 @@ export class ProjectRepoService {
 
     if (input.starter?.length) await this.gitea.seedTemplate(owner, repo, input.starter);
     return project;
+  }
+
+  async repointWebhooks(): Promise<{ repointed: number }> {
+    if (!this.webhookUrl) return { repointed: 0 };
+    let repointed = 0;
+    for (const project of await this.db.projects.getProjects()) {
+      if (project.removal || !project.giteaOwner || !project.giteaRepo || !project.webhookSecretEnc) continue;
+      await this.gitea.replaceWebhook(project.giteaOwner, project.giteaRepo, await this.webhookUrl(project.id), decryptValue(project.webhookSecretEnc, this.masterKey));
+      repointed += 1;
+    }
+    return { repointed };
   }
 
   /**

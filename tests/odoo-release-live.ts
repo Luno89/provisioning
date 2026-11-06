@@ -1,32 +1,16 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { execFile, spawn } from 'node:child_process';
-import { promisify } from 'node:util';
-import dotenv from 'dotenv';
-import { fileURLToPath } from 'url';
-dotenv.config({ path: fileURLToPath(new URL('../apps/backend/.env', import.meta.url)), quiet: true });
-import axios from 'axios';
-import { createDatabase } from '../apps/backend/src/platform/lib/db-interface.js';
-import { sessionToken } from '../apps/backend/src/platform/lib/auth.js';
-import { loadKeys } from '../apps/backend/src/platform/lib/keys.js';
-import { GiteaService } from '../apps/backend/src/projects/services/GiteaService.js';
-import { InfrastructureService } from '../apps/backend/src/infrastructure/services/InfrastructureService.js';
-import { InfisicalService } from '../apps/backend/src/infrastructure/services/InfisicalService.js';
-import { ClusterProxyService } from '../apps/backend/src/infrastructure/services/ClusterProxyService.js';
+import axios, { type AxiosInstance } from 'axios';
+import { DROP_TYPE, dropBody } from '../apps/backend/src/files/lib/drops.js';
 import { ODOO_ADDONS_FILES } from '../apps/backend/src/projects/lib/project-templates.js';
 import { renderStarterFiles, versionVars } from '../apps/backend/src/projects/lib/tree-types.js';
 import { ODOO_TREE_TYPE, TREE_TYPE_SEEDS } from '../apps/backend/src/projects/lib/tree-type-seeds.js';
 import { newReleaseName, releasePlace } from '../apps/backend/src/releases/lib/odoo-release.js';
 import { releaseRunWorkflowId } from '../apps/backend/src/releases/lib/release-run.js';
-import { getTemporalClient } from '../apps/backend/src/platform/lib/temporal-client.js';
 import { labelValue } from '../apps/backend/src/engine-host/sandboxes/workspace.js';
+import { devInKoala, devKoalaApi, devKoalaDatabase, devKoalaEnv, devKoalaTemporal, devKubectl, devKubectlCluster, devOwner, devPortForward } from './lib/dev-stack.js';
 
-const run = promisify(execFile);
-const BASE = process.env.ODOO_RELEASE_LIVE_URL ?? 'http://localhost:3001/api';
-const OWNER = process.env.ODOO_RELEASE_LIVE_OWNER ?? process.env.CHECKS_LIVE_OWNER ?? process.env.GROVE_LIVE_OWNER;
-const CLUSTER = 'provisioning-lunorica';
-const KUBECONFIG = `/tmp/kubeconfig-${CLUSTER}`;
-const KUBECTL = fileURLToPath(new URL('../bin/kubectl', import.meta.url));
+const BASE = process.env.ODOO_RELEASE_LIVE_URL ?? `${devKoalaApi}/api`;
 const NAME = `odoo-release-check-${Date.now().toString(36)}`;
 const APP_PORT = 18069 + Math.floor(Math.random() * 500);
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -90,36 +74,85 @@ const FAILING = files({
 interface BrowserTests { state: string; summary?: string; reason?: string; tests?: { title: string; status: string; error?: string }[]; artifacts?: { id: string; name: string }[] }
 interface ReleaseFiles { against?: { releaseId: string; commit: string; state: string }; files: { path: string; status: string; added: number; removed: number; patch: string; inApp: boolean }[]; note?: string }
 interface Changes { losing: boolean; lost: string[]; columns: { table: string; column: string; filled: number }[]; items: { kind: string; name: string; state: string }[] }
+interface RepoEntry { path: string; type: 'file' | 'dir' }
+
+async function commit(http: AxiosInstance, projectId: string, entries: { path: string; content: string }[], message: string): Promise<string> {
+  const dropped = await http.post(`/projects/${projectId}/files/drop`, dropBody({ dir: '', message }, entries.map((entry) => ({ path: entry.path, bytes: Buffer.from(entry.content) }))), { headers: { 'Content-Type': DROP_TYPE } });
+  assert.equal(dropped.status, 201, `dropping ${entries.length} files on the repository was refused: ${dropped.status} ${JSON.stringify(dropped.data)}`);
+  const made = (dropped.data as { commit?: string }).commit;
+  assert.ok(made, 'the drop made no commit');
+  return made;
+}
+
+async function repoFile(http: AxiosInstance, projectId: string, path: string, ref: string): Promise<string | null> {
+  const answer = await http.get(`/projects/${projectId}/files/content`, { params: { path, ref } });
+  if (answer.status === 404) return null;
+  assert.equal(answer.status, 200, `reading ${path} at ${ref}: ${answer.status} ${JSON.stringify(answer.data)}`);
+  return (answer.data as { content: string }).content;
+}
+
+async function repoPaths(http: AxiosInstance, projectId: string, dir: string, ref: string): Promise<string[]> {
+  const answer = await http.get(`/projects/${projectId}/files`, { params: { path: dir, ref } });
+  assert.equal(answer.status, 200, `listing ${dir || '.'} at ${ref}: ${answer.status} ${JSON.stringify(answer.data)}`);
+  const found: string[] = [];
+  for (const entry of (answer.data as { entries: RepoEntry[] }).entries) {
+    if (entry.type === 'dir') found.push(...await repoPaths(http, projectId, entry.path, ref));
+    else found.push(entry.path);
+  }
+  return found;
+}
+
+const fingerprint = (data: string) => createHash('sha256').update(data).digest('hex');
+
+interface VaultState { workspace?: boolean; readers?: number; held: Record<string, string | null> }
+
+const vaultOf = (projectId: string, keys: string[], removeFirst: boolean): Promise<VaultState> => devInKoala<VaultState>(`
+  const { createHash } = await import('node:crypto');
+  const { loadKeys } = await import('/app/apps/backend/src/platform/lib/keys.ts');
+  const { InfisicalService } = await import('/app/apps/backend/src/infrastructure/services/InfisicalService.ts');
+  const vault = new InfisicalService({ runKubectl: async () => { throw new Error('Infisical is reached at INFISICAL_URL'); } }, loadKeys(process.env).data, '');
+  const projectId = ${JSON.stringify(projectId)};
+  const removed = ${removeFirst} ? await vault.removeProject(projectId) : {};
+  const held = {};
+  for (const key of ${JSON.stringify(keys)}) {
+    const value = await vault.getSecret(projectId, key);
+    held[key] = value === null ? null : createHash('sha256').update(value).digest('hex');
+  }
+  return { ...removed, held };
+`);
+
 interface Release { id: string; state: string; commit: string; image: string; again?: string; slot?: string; reason?: string; previewHost?: string; e2e?: BrowserTests; changes?: Changes }
 
 async function main(): Promise<void> {
-  assert.ok(OWNER, 'set ODOO_RELEASE_LIVE_OWNER (or CHECKS_LIVE_OWNER) to the person the project is made for');
-  const db = createDatabase();
+  const owner = await devOwner();
+  const OWNER = owner.id;
+  const db = devKoalaDatabase();
   await db.init();
-  const user = await db.accounts.getUserById(OWNER);
-  assert.ok(user, 'no such user');
-  const http = axios.create({ baseURL: BASE, proxy: false, timeout: 60_000, validateStatus: () => true, headers: { Cookie: `session=${sessionToken(user, loadKeys(process.env).session, { seconds: 4 * 3600 })}` } });
-  const gitea = new GiteaService(new InfrastructureService(), loadKeys(process.env).data, KUBECONFIG);
+  const http = axios.create({ baseURL: BASE, proxy: false, timeout: 60_000, validateStatus: () => true, headers: { Cookie: owner.cookie } });
   let place = releasePlace(NAME);
-  const kubectl = async (...args: string[]) => (await run(KUBECTL, ['-n', place.namespace, ...args], { env: { ...process.env, KUBECONFIG } })).stdout.trim();
+  const kubectl = (...args: string[]) => devKubectl(place.namespace, ...args);
+  const namespaceThere = () => devKubectlCluster('get', 'namespace', place.namespace).then(() => true, () => false);
   const psql = (database: string, sql: string) => kubectl('exec', `${place.release}-postgres-0`, '--', 'psql', '-U', 'odoo', '-d', database, '-tAc', sql);
   const columns = (database: string) => psql(database, "select column_name from information_schema.columns where table_name = 'koala_probe' order by 1");
   const health = async (service: string): Promise<string> => {
-    const answer = await run(KUBECTL, ['get', '--raw', `/api/v1/namespaces/${place.namespace}/services/http:${service}:8069/proxy/web/health`], { env: { ...process.env, KUBECONFIG } })
-      .then((out) => out.stdout, (err: Error) => err.message);
+    const answer = await devKubectlCluster('get', '--raw', `/api/v1/namespaces/${place.namespace}/services/http:${service}:8069/proxy/web/health`)
+      .catch((err: Error) => err.message);
     return /"status"\s*:\s*"pass"/.test(answer) ? '200' : answer.trim().slice(0, 200);
   };
 
   let projectId: string | undefined;
   const releaseIds: string[] = [];
   try {
-    console.log(`[1] a project with no cluster picked, so on its own (the system cluster): ${NAME}`);
+    console.log(`[1] a project with no cluster picked, so on Koala's own cluster: ${NAME}`);
+    const clusters = (await http.get('/clusters')).data as { id: string; isSystem?: boolean }[];
+    const koalas = clusters.find((cluster) => cluster.isSystem);
+    assert.ok(koalas, `Koala lists no cluster of its own: ${JSON.stringify(clusters.map((cluster) => cluster.id))}`);
     const made = await http.post('/projects', { name: NAME, giteaRepo: NAME, createRepo: true });
     assert.ok(made.status < 300, JSON.stringify(made.data));
-    assert.equal(made.data.targetClusterId, CLUSTER, 'a project with no cluster picked deploys to its own');
     const project = made.data as { id: string; name: string; giteaOwner: string; giteaRepo: string };
     projectId = project.id;
     place = releasePlace(newReleaseName(project));
+    assert.equal(made.data.targetClusterId, koalas.id, 'a project with no cluster picked deploys to Koala\'s own cluster');
 
     const releases = async (): Promise<Release[]> => (await http.get(`/projects/${projectId}/releases`)).data.releases;
     const waitFor = async (what: string, ok: (all: Release[]) => Release | undefined, minutes: number): Promise<Release> => {
@@ -138,12 +171,14 @@ async function main(): Promise<void> {
       throw new Error(`no ${what} within ${minutes} minutes`);
     };
 
-    console.log('[2] the Odoo starter and a module land on main in one commit: it builds and releases into slot a');
-    await gitea.seedTemplate(project.giteaOwner, project.giteaRepo, [...renderStarterFiles(ODOO_ADDONS_FILES, { projectName: NAME, registryHost: await gitea.getRegistryHost(), ...ODOO_VERSION }), ...PROBE]);
+    console.log('[2] the Odoo starter and a module, dropped on the repository, land on main in one commit: it builds and releases into slot a');
+    const registryHost = devKoalaEnv().REGISTRY_PULL_HOST;
+    assert.ok(registryHost, 'your Koala names no REGISTRY_PULL_HOST for its images');
+    await commit(http, project.id, [...renderStarterFiles(ODOO_ADDONS_FILES, { projectName: NAME, registryHost, ...ODOO_VERSION }), ...PROBE], 'Scaffold the Odoo project with the probe module');
     const first = await waitFor('first release', (all) => all.find((release) => release.state === 'live'), 30);
     assert.equal(first.slot, 'a');
     assert.equal((await db.projects.getProjects()).find((entry) => entry.id === projectId)?.releaseName, place.release, 'the project does not keep the name its release was given');
-    const labels = JSON.parse(await run(KUBECTL, ['get', 'namespace', place.namespace, '-o', 'jsonpath={.metadata.labels}'], { env: { ...process.env, KUBECONFIG } }).then((out) => out.stdout)) as Record<string, string>;
+    const labels = JSON.parse(await devKubectlCluster('get', 'namespace', place.namespace, '-o', 'jsonpath={.metadata.labels}')) as Record<string, string>;
     assert.equal(labels['koala.dev/project'], labelValue(projectId), `the release namespace does not say whose project it is: ${JSON.stringify(labels)}`);
     assert.ok(labels['koala.dev/owner'], 'the release namespace does not say whose it is');
     console.log(`    released as ${place.release}, a name of its own, in a namespace labelled with its owner and project`);
@@ -155,7 +190,7 @@ async function main(): Promise<void> {
     console.log('[2a] someone works in the live app: a field made in the app, the probe form edited in the app, and probes with notes');
     const signIn = ((await http.get(`/projects/${projectId}/sign-in`)).data as { signIns: { login: string; password: string }[] }).signIns[0];
     assert.ok(signIn, 'the project has no sign-in for its app');
-    const forward = spawn(KUBECTL, ['-n', place.namespace, 'port-forward', `svc/${place.release}-live`, `${APP_PORT}:8069`], { env: { ...process.env, KUBECONFIG }, stdio: 'ignore' });
+    const forward = devPortForward(place.namespace, `svc/${place.release}-live`, `${APP_PORT}:8069`);
     try {
       for (let tries = 0; tries < 30 && !(await axios.get(`http://127.0.0.1:${APP_PORT}/web/health`, { proxy: false, timeout: 2_000, validateStatus: () => true }).then((answer) => answer.status === 200, () => false)); tries += 1) await sleep(1_000);
       const rpc = async (service: string, method: string, args: unknown[]): Promise<unknown> => {
@@ -179,20 +214,19 @@ async function main(): Promise<void> {
     console.log('    made through Odoo\'s own API, signed in with the project\'s sign-in');
 
     console.log('[2b] the vault loses the project\'s workspace and its reader, as when Infisical is wiped: the app keeps what it was given, and the next release carries it back');
-    const vault = new InfisicalService(new InfrastructureService(), loadKeys(process.env).data, KUBECONFIG, undefined, new ClusterProxyService());
-    const fingerprint = (data: string) => createHash('sha256').update(data).digest('hex');
     const vaultData = () => kubectl('get', 'secret', `${place.release}-vault`, '-o', 'jsonpath={.data}');
     const given = fingerprint(await vaultData());
     const readerBefore = (await db.projects.getProjects()).find((entry) => entry.id === projectId)?.infisicalReaderEnc;
     assert.ok(readerBefore, 'the project has no reader for its vault');
-    assert.deepEqual(await vault.removeProject(projectId!), { workspace: true, readers: 1 });
-    assert.equal(await vault.hasSecret(projectId!, 'POSTGRES_PASSWORD'), false, 'the vault still holds the database password');
+    const emptied = await vaultOf(projectId!, ['POSTGRES_PASSWORD'], true);
+    assert.deepEqual({ workspace: emptied.workspace, readers: emptied.readers }, { workspace: true, readers: 1 });
+    assert.equal(emptied.held.POSTGRES_PASSWORD, null, 'the vault still holds the database password');
     await sleep(75_000);
     assert.equal(fingerprint(await vaultData()), given, 'the operator changed what the app was given once the vault refused its reader');
     console.log('    the vault is empty and refuses the project\'s reader; a resync later the app still has what it was given');
 
     console.log('[3] a new module adds a field and the probe loses its note: the next build is prepared in slot b, compared with live, and waits in preview');
-    await gitea.commitFiles(project.giteaOwner, project.giteaRepo, [...COLOUR, ...PROBE_WITHOUT_NOTE, ...SAVES], 'Add the colour module and a browser test that saves a contact, and the probe no longer keeps a note');
+    await commit(http, project.id, [...COLOUR, ...PROBE_WITHOUT_NOTE, ...SAVES], 'Add the colour module and a browser test that saves a contact, and the probe no longer keeps a note');
     const preview = await waitFor('preview', (all) => all.find((release) => release.state === 'preview'), 30);
     assert.equal(preview.slot, 'b');
     assert.match(await columns('odoo_b'), /colour/, 'slot b\'s copy has no colour column');
@@ -203,8 +237,9 @@ async function main(): Promise<void> {
     console.log('    preview on slot b: it has the colour field, the live slot does not');
     assert.equal(fingerprint(await vaultData()), given, 'the release gave the app passwords other than the ones it had');
     const keys = JSON.parse(await vaultData()) as Record<string, string>;
+    const carried = await vaultOf(projectId!, ['POSTGRES_PASSWORD', 'ODOO_ADMIN_PASSWORD'], false);
     for (const key of ['POSTGRES_PASSWORD', 'ODOO_ADMIN_PASSWORD']) {
-      assert.equal(await vault.getSecret(projectId!, key), Buffer.from(keys[key]!, 'base64').toString('utf8'), `the vault did not get ${key} back from the app`);
+      assert.equal(carried.held[key], fingerprint(Buffer.from(keys[key]!, 'base64').toString('utf8')), `the vault did not get ${key} back from the app`);
     }
     assert.notEqual((await db.projects.getProjects()).find((entry) => entry.id === projectId)?.infisicalReaderEnc, readerBefore, 'the release kept the reader the vault refuses');
     console.log('    the vault holds the passwords the app had, the release synced them through a new reader, and the preview runs on them');
@@ -254,7 +289,7 @@ async function main(): Promise<void> {
     console.log(`    ${changedFiles.files.length} files since ${first.commit.slice(0, 8)}: the probe's diff drops its note line`);
 
     console.log('[3c] a spec that cannot pass: the next preview shows the failure and what the browser saw, and still offers the cutover');
-    await gitea.seedTemplate(project.giteaOwner, project.giteaRepo, FAILING);
+    await commit(http, project.id, FAILING, 'Add a browser test that cannot pass');
     const failing = await waitFor('the failing preview\'s browser tests', (all) => all.find((release) => release.id !== preview.id && release.state === 'preview' && release.e2e && release.e2e.state !== 'running'), 30);
     assert.equal((await releases()).find((release) => release.id === preview.id)?.state, 'superseded');
     assert.equal(failing.e2e!.state, 'failed', JSON.stringify(failing.e2e));
@@ -295,16 +330,13 @@ async function main(): Promise<void> {
     assert.deepEqual([refusedAgain.status, refusedAgain.data.error], [409, 'the release is live, so its build cannot be released again']);
     console.log(`    ${candidate.e2e!.summary} on slot b, the same image as ${preview.commit.slice(0, 8)}; the live release cannot be released again`);
 
-    console.log('[3b] exposing the app also exposes its preview, each on its own address');
-    const deployment = (await db.infrastructure.getDeployments()).find((entry) => entry.gitappProjectId === projectId)!;
-    const exposed = await http.post(`/deployments/${deployment.id}/expose`, { mode: 'local' });
-    assert.ok(exposed.status < 300, JSON.stringify(exposed.data));
-    assert.equal(exposed.data.localExposureUrl, `http://${place.namespace}.localhost:8000`);
-    assert.equal(exposed.data.previewLocalUrl, `http://${place.namespace}-preview.localhost:8000`);
+    console.log('[3b] the live app and its preview each answer on their own host through the cluster\'s Traefik, which an app address on this Koala forwards to');
+    const traefik = JSON.parse(await devKubectl('traefik', 'get', 'service', 'traefik', '-o', 'json')) as { spec: { clusterIP: string; ports: { name?: string; port: number }[] } };
+    const web = traefik.spec.ports.find((port) => port.name === 'web') ?? traefik.spec.ports[0]!;
     const through = async (host: string, expected: RegExp): Promise<string> => {
       let page = '';
       for (let tries = 0; tries < 20; tries += 1) {
-        page = await axios.get('http://localhost:8000/web/login', { headers: { Host: host }, proxy: false, timeout: 5_000, validateStatus: () => true })
+        page = await axios.get(`http://${traefik.spec.clusterIP}:${web.port}/web/login`, { headers: { Host: host }, proxy: false, timeout: 5_000, validateStatus: () => true })
           .then((answer) => String(answer.data), (err: Error) => err.message);
         if (expected.test(page)) return page;
         await sleep(1_000);
@@ -312,11 +344,9 @@ async function main(): Promise<void> {
       return page.slice(0, 200);
     };
     const LOGIN = /name="login"/;
-    assert.match(await through(`${place.namespace}.localhost`, LOGIN), LOGIN, 'the live address does not reach an Odoo');
-    assert.match(await through(`${place.namespace}-preview.localhost`, LOGIN), LOGIN, 'the preview address does not reach an Odoo');
-    const listed = (await http.get(`/projects/${projectId}/releases`)).data as { addresses: { live?: string; preview?: string } };
-    assert.deepEqual(listed.addresses, { live: exposed.data.localExposureUrl, preview: exposed.data.previewLocalUrl });
-    console.log('    both addresses reach an Odoo through the proxy: the live one, and the preview the Ingress sends to slot b');
+    assert.match(await through(place.host, LOGIN), LOGIN, 'the live host does not reach an Odoo');
+    assert.match(await through(place.previewHost, LOGIN), LOGIN, 'the preview host does not reach an Odoo');
+    console.log(`    ${place.host} and ${place.previewHost} both reach an Odoo through Traefik: the live one, and the preview the Ingress sends to slot b`);
 
     console.log('[4] cutting over waits for the loss to be confirmed, then moves the project to slot b');
     const refused = await http.post(`/projects/${projectId}/releases/${candidate.id}/cut-over`, {});
@@ -389,11 +419,11 @@ async function main(): Promise<void> {
       }
       assert.equal(story?.status, 'succeeded', `the story did not ship: ${JSON.stringify(story)}`);
       assert.equal(story?.landed?.outcome, 'merged', `the story did not land: ${JSON.stringify(story?.landed)}`);
-      assert.ok((await gitea.listPaths(project.giteaOwner, project.giteaRepo, 'main')).includes(`addons/${drift.module}/adopt.json`), 'the module did not land on main');
+      assert.notEqual(await repoFile(http, project.id, `addons/${drift.module}/adopt.json`, 'main'), null, 'the module did not land on main');
       console.log(`    the story shipped: addons/${drift.module} is on main`);
       const holdsModule = new Map<string, boolean>();
       const bringsThemIn = async (commit: string) => {
-        if (!holdsModule.has(commit)) holdsModule.set(commit, (await gitea.getRawFile(project.giteaOwner, project.giteaRepo, `addons/${drift.module}/adopt.json`, commit)) !== null);
+        if (!holdsModule.has(commit)) holdsModule.set(commit, (await repoFile(http, project.id, `addons/${drift.module}/adopt.json`, commit)) !== null);
         return holdsModule.get(commit)!;
       };
       const adopted = await waitFor('the release that brings them in', (all) => {
@@ -403,8 +433,8 @@ async function main(): Promise<void> {
       console.log(`    ${JSON.stringify({ lost: adopted.changes!.lost, items: adopted.changes!.items.map((item) => `${item.kind}: ${item.state}`) })}`);
       const adoptedStates = adopted.changes!.items.map((item) => `${item.kind}: ${item.state}`).sort();
       if (adoptedStates.join() !== 'edited-view: kept,field: kept') {
-        for (const file of (await gitea.listPaths(project.giteaOwner, project.giteaRepo, 'main')).filter((path) => path.startsWith(`addons/${drift.module}/`) || path.startsWith(`addons/${MODULE}/views/`))) {
-          console.log(`    --- ${file}\n${await gitea.getRawFile(project.giteaOwner, project.giteaRepo, file, 'main')}`);
+        for (const file of [...await repoPaths(http, project.id, `addons/${drift.module}`, 'main'), ...await repoPaths(http, project.id, `addons/${MODULE}/views`, 'main')]) {
+          console.log(`    --- ${file}\n${await repoFile(http, project.id, file, 'main')}`);
         }
         console.log(`    slot a probe_form: ${await psql('odoo_a', "select arch_db::text from ir_ui_view v join ir_model_data d on d.res_id = v.id and d.model = 'ir.ui.view' where d.module = 'koala_probe' and d.name = 'probe_form'")}`);
         console.log(`    slot b probe_form: ${await psql('odoo_b', "select arch_db::text from ir_ui_view v join ir_model_data d on d.res_id = v.id and d.model = 'ir.ui.view' where d.module = 'koala_probe' and d.name = 'probe_form'")}`);
@@ -430,15 +460,16 @@ async function main(): Promise<void> {
     assert.equal((await http.get(`/projects/${projectId}/removal`)).status, 404, 'the project was not deleted within five minutes');
     const gone = projectId;
     projectId = undefined;
-    assert.equal(await run(KUBECTL, ['get', 'namespace', place.namespace], { env: { ...process.env, KUBECONFIG } }).then(() => true, () => false), false, 'the app\'s namespace outlived the project');
+    assert.equal(await namespaceThere(), false, 'the app\'s namespace outlived the project');
     assert.equal((await db.infrastructure.getDeployments()).some((entry) => entry.gitappProjectId === gone), false, 'the app\'s record outlived the project');
-    const workflow = await (await getTemporalClient()).workflow.getHandle(releaseRunWorkflowId(gone)).describe();
+    const temporal = await devKoalaTemporal();
+    const workflow = await temporal.client.workflow.getHandle(releaseRunWorkflowId(gone)).describe().finally(() => temporal.close());
     assert.notEqual(workflow.status.name, 'RUNNING', 'the release run outlived the project');
     console.log(`    the app, its namespace ${place.namespace} and its release run (${workflow.status.name.toLowerCase()}) went with the project`);
     if (releaseIds.length > 0) {
       let left = -1;
       for (let tries = 0; tries < 60 && left !== 0; tries += 1) {
-        left = (await Promise.all(releaseIds.map((id) => db.files.getArtifacts(OWNER!, id)))).flat().length;
+        left = (await Promise.all(releaseIds.map((id) => db.files.getArtifacts(OWNER, id)))).flat().length;
         if (left !== 0) await sleep(5_000);
       }
       assert.equal(left, 0, 'the release artifacts outlived the project');
@@ -453,7 +484,7 @@ async function main(): Promise<void> {
       const removed = await http.delete(`/projects/${projectId}`, { data: { confirm: NAME } });
       console.log(`    deleting the project, its app with it: ${removed.status} ${removed.status >= 300 ? JSON.stringify(removed.data) : ''}`);
       for (let tries = 0; tries < 60 && (await http.get(`/projects/${projectId}/removal`)).status !== 404; tries += 1) await sleep(5_000);
-      const namespaceLeft = await run(KUBECTL, ['get', 'namespace', place.namespace], { env: { ...process.env, KUBECONFIG } }).then(() => true, () => false);
+      const namespaceLeft = await namespaceThere();
       console.log(`    namespace ${place.namespace} ${namespaceLeft ? 'is still there' : 'is gone'}`);
     }
     await db.close();

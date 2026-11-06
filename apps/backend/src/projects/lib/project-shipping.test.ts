@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { webhookUrlAt, webhookUrlFor, shippingGaps, isShippable, deploysItself, DEFAULT_TARGET_CLUSTER } from './project-shipping.js';
+import { webhookUrlAt, webhookUrlFor, shippingGaps, isShippable, deploysItself, DEFAULT_TARGET_CLUSTER, koalasClusterFor, sameHookPath } from './project-shipping.js';
 
 describe('where Gitea posts a push', () => {
   it('uses the node address, not localhost', () => {
@@ -44,5 +44,29 @@ describe('whether a push runs all the way to a deployment', () => {
 
   it('is not self-deploying just because the flag is set', () => {
     expect(deploysItself({ autoDeployOnBuild: true })).toBe(false);
+  });
+});
+
+describe('which webhook a new address replaces', () => {
+  it('is the one for the same path, at any address', () => {
+    expect(sameHookPath('http://10.0.0.130:3001/webhooks/gitea/p1', 'http://instance.nowrinkles.svc.cluster.local/webhooks/gitea/p1')).toBe(true);
+    expect(sameHookPath('http://10.0.0.130:3001/webhooks/gitea/p1', 'http://10.0.0.130:3001/webhooks/gitea/p1')).toBe(true);
+  });
+
+  it('is never another project\'s, nor a hook with no address', () => {
+    expect(sameHookPath('http://10.0.0.130:3001/webhooks/gitea/p2', 'http://instance.nowrinkles.svc.cluster.local/webhooks/gitea/p1')).toBe(false);
+    expect(sameHookPath(undefined, 'http://x/webhooks/gitea/p1')).toBe(false);
+    expect(sameHookPath('not a url', 'http://x/webhooks/gitea/p1')).toBe(false);
+  });
+});
+
+describe('the cluster a project deploys to when none is picked', () => {
+  it('is the cluster of the machine Koala runs on, on an instance', () => {
+    expect(koalasClusterFor({ INSTANCE_MACHINE_ID: 'bbdd-1' })).toBe('machine-bbdd-1');
+  });
+
+  it('is the system cluster where Koala runs on no machine', () => {
+    expect(koalasClusterFor({})).toBe(DEFAULT_TARGET_CLUSTER);
+    expect(koalasClusterFor({ INSTANCE_MACHINE_ID: '  ' })).toBe(DEFAULT_TARGET_CLUSTER);
   });
 });

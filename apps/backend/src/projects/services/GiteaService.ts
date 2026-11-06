@@ -8,6 +8,7 @@ import { registryHosts, type RegistryHosts, type RegistryLogin } from '../../ins
 import { privatePatches, type GiteaListedUser } from '../lib/gitea-visibility.js';
 import { blockedDropPath, dropPathQueries } from '../lib/drop-paths.js';
 import { nodePortOf, pullBetween, pullsFrom, type GiteaPull } from '../lib/gitea-answers.js';
+import { sameHookPath } from '../lib/project-shipping.js';
 import { landBranch, type Landing } from './land-branch.js';
 import { ignore } from '@koala/engine-core/failures';
 
@@ -245,7 +246,7 @@ export class GiteaService {
     const listed = await this.apiFetch(`/api/v1/repos/${owner}/${name}/hooks`);
     if (!listed.ok) throw new Error(`Failed to list the webhooks of "${owner}/${name}": HTTP ${listed.status}`);
     const hooks = await listed.json() as { id: number; config?: { url?: string } }[];
-    for (const hook of hooks.filter((entry) => entry.config?.url === targetUrl)) {
+    for (const hook of hooks.filter((entry) => sameHookPath(entry.config?.url, targetUrl))) {
       const gone = await this.apiFetch(`/api/v1/repos/${owner}/${name}/hooks/${hook.id}`, { method: 'DELETE' });
       if (!gone.ok && gone.status !== 404) throw new Error(`Failed to remove an old webhook from "${owner}/${name}": HTTP ${gone.status}`);
     }

@@ -215,6 +215,14 @@ export function giteaContract(start: () => Promise<ContractGitea>): void {
       expect((await api('DELETE', `/repos/ann/shop/hooks/${id + 1000}`, asAdmin())).status).toBe(404);
     });
 
+    it('moves a webhook to a new address for the same path, leaving one hook', async () => {
+      const elsewhere = hookUrl.replace('127.0.0.1', 'localhost');
+      await service.replaceWebhook('ann', 'shop', elsewhere, 'hook-secret');
+      expect(((await api('GET', '/repos/ann/shop/hooks', asAdmin())).body as { config: { url: string } }[]).map((hook) => hook.config.url)).toEqual([elsewhere]);
+      await service.replaceWebhook('ann', 'shop', hookUrl, 'hook-secret');
+      expect(((await api('GET', '/repos/ann/shop/hooks', asAdmin())).body as { config: { url: string } }[]).map((hook) => hook.config.url)).toEqual([hookUrl]);
+    });
+
     it('reads a commit by its id', async () => {
       const head = (await api('GET', '/repos/ann/shop/branches/main', asAdmin())).body as { name: string; commit: { id: string } };
       expect(head.name).toBe('main');
