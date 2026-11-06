@@ -1,9 +1,15 @@
-import { describe, expect, it } from 'vitest'
-import { getMe, login, logout, resendSignUpCode, signInPlace, verifySignUp } from './api'
+import { describe, expect, expectTypeOf, it } from 'vitest'
+import { type SignInPlace, getMe, login, logout, resendSignUpCode, signInPlace, verifySignUp } from './api'
+import type { Wire } from '../../test/backend/wire'
+import type { AccountsSignIn } from '../../../../backend/src/accounts/routes/auth'
+import type { InstanceSignIn } from '../../../../backend/src/instances/routes/sign-in'
 import { PASSWORD, startBackend } from '../../test/backend/site'
 import { anyOf } from '../../../../backend/src/platform/lib/test-matchers'
 
 const backend = await startBackend(() => undefined)
+
+expectTypeOf<Wire<AccountsSignIn>>().toExtend<SignInPlace>()
+expectTypeOf<Wire<InstanceSignIn>>().toExtend<SignInPlace>()
 
 describe('the session the browser holds, against the real sign-in routes', () => {
   it('has no session before signing in, so getMe answers null rather than throwing', async () => {

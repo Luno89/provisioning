@@ -135,7 +135,7 @@ export default function Login({ onSuccess, invite }: LoginProps) {
     }
   };
 
-  const providers = useSignInProviders();
+  const { providers, unreadable: providersUnreadable } = useSignInProviders();
   const handleProviderSignIn = (id: string) => {
     window.location.href = providerSignInUrl(id, isRegister && inviteCode ? inviteCode : undefined);
   };
@@ -387,6 +387,10 @@ export default function Login({ onSuccess, invite }: LoginProps) {
                 {isRegister ? <UserPlus className="w-5 h-5" /> : <LogIn className="w-5 h-5" />}
               </button>
             </form>
+
+            {providersUnreadable && (
+              <p className="mt-6 text-center text-xs text-[#8c94a6]">Other ways to sign in could not be loaded. Reload the page to try again.</p>
+            )}
 
             {providers.length > 0 && (
               <>

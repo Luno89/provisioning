@@ -72,19 +72,16 @@ export interface SignInProvider {
   label: string
 }
 
-export interface SignInPlace {
-  url: string | null
-  providers: SignInProvider[]
-}
+export type SignInPlace =
+  | { url: null; providers: SignInProvider[] }
+  | { url: string; hub: string | null }
 
 export const signInKeys = {
   place: () => ['auth', 'sign-in'] as const,
 }
 
 export const signInPlace = (): Promise<SignInPlace> =>
-  api.get<{ url?: string | null; providers?: SignInProvider[] }>('/auth/sign-in')
-    .then((r) => ({ url: r.data.url ?? null, providers: r.data.providers ?? [] }))
-    .catch(() => ({ url: null, providers: [] }))
+  api.get<SignInPlace>('/auth/sign-in').then((r) => r.data)
 
 export const providerSignInUrl = (id: string, invite?: string): string =>
   `${API_BASE.replace(/\/api$/, '')}/api/auth/provider/${encodeURIComponent(id)}${invite ? `?invite=${encodeURIComponent(invite)}` : ''}`

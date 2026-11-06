@@ -9,6 +9,11 @@ const escaped = (text: string): string => text.replace(/[&<>"']/g, (char) => `&#
 const refusedPage = (error: string): string =>
   `<!doctype html><meta charset="utf-8"><title>Koala could not sign you in</title><body style="font-family:system-ui;padding:2rem"><p>Koala could not sign you in: ${escaped(error)}</p><p><a href="${START_PATH}">Sign in again</a></p></body>`;
 
+export interface InstanceSignIn {
+  url: string;
+  hub: string | null;
+}
+
 export function signInRouter(deps: {
   signIn: Pick<RootSignIn, 'start' | 'callback' | 'backchannel' | 'startCookieSeconds'>;
   identity: Pick<IdentityService, 'hubUrl' | 'removalUrl'>;
@@ -20,7 +25,8 @@ export function signInRouter(deps: {
   const startCookie = (req: Request) => cookieNamed(SIGN_IN_COOKIE, deps.auth.securedFor(req));
 
   router.get('/sign-in', (_req: Request, res: Response) => {
-    res.json({ url: START_PATH, hub: deps.identity.hubUrl() ?? null });
+    const answer: InstanceSignIn = { url: START_PATH, hub: deps.identity.hubUrl() ?? null };
+    res.json(answer);
   });
 
   router.get('/account-removal', (_req: Request, res: Response) => {

@@ -1,6 +1,7 @@
 import { api } from '../../api/client'
 import type { GroupCheck, HubBoardView, HubPosted, HubRequest, HubRequestKind, HubRole, Invitation, InviteSent, RootInvitation, SharedProject, SharedProjectView, SharingPreview } from './types'
 import type { ChatConversation } from '../engine'
+import { signInPlace } from '../platform'
 import type { RunEnding, TurnLogEntry } from '../engine'
 
 export const hubKeys = {
@@ -50,7 +51,7 @@ export const getRootInvitation = (code: string): Promise<RootInvitation> =>
 export const HUB_GO_URL = (next: string): string => `/api/identity/go?to=hub&next=${encodeURIComponent(next)}`
 
 export const hubElsewhere = (): Promise<string | null> =>
-  api.get<{ hub?: string | null }>('/auth/sign-in').then((r) => r.data.hub ?? null)
+  signInPlace().then((place) => ('hub' in place ? place.hub : null))
 
 export const sharingKeys = {
   of: (projectId: string) => ['project-sharing', projectId] as const,

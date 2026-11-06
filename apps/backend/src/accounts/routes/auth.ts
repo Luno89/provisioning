@@ -9,10 +9,16 @@ import type { PasswordService } from '../services/PasswordService.js';
 import type { SignInProviders } from '../services/sign-in/SignInProviders.js';
 import { emailProblem, normalEmail, sameSignUpCode, SIGN_UP_WRONG_CODES, signUpCodeHash, signUpExpiry, signUpLive } from '../lib/sign-up.js';
 import { takenAddressMail } from '../lib/password-reset.js';
+import type { OfferedProvider } from '../lib/sign-in-providers.js';
 import { confirmWith, twoFactorChangeFrom } from '../lib/second-factor.js';
 import { devicesFor } from './device.js';
 
 const TWO_FACTOR_SECONDS = 5 * 60;
+
+export interface AccountsSignIn {
+  url: null;
+  providers: OfferedProvider[];
+}
 
 export interface AuthRouterDeps {
   db: Database;
@@ -306,7 +312,8 @@ export function authRouter(deps: AuthRouterDeps): Router {
   }));
 
   accountRoutes.get('/sign-in', (_req, res) => {
-    res.json({ url: null, providers: deps.providers?.offered() ?? [] });
+    const answer: AccountsSignIn = { url: null, providers: deps.providers ? deps.providers.offered() : [] };
+    res.json(answer);
   });
 
   accountRoutes.get('/provider/:id', asyncRoute(async (req, res) => {

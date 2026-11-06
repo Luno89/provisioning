@@ -182,6 +182,13 @@ describe('Login Component', () => {
     expect(screen.queryByRole('button', { name: /google|github/i })).toBeNull();
   });
 
+  it('says other ways to sign in could not be loaded, without saying why', async () => {
+    vi.mocked(signInPlace).mockRejectedValue(new Error('Request failed with status code 500: database is away'));
+    show(<Login onSuccess={() => {}} />);
+    expect(await screen.findByText('Other ways to sign in could not be loaded. Reload the page to try again.')).toBeInTheDocument();
+    expect(screen.queryByText(/database is away/)).toBeNull();
+  });
+
   it('offers only the providers the server says it has, and starts one with the invite when signing up', async () => {
     vi.mocked(signInPlace).mockResolvedValue({ url: null, providers: [{ id: 'google', label: 'Google' }, { id: 'oidc', label: 'Example Co' }] });
     const assign = vi.fn();
