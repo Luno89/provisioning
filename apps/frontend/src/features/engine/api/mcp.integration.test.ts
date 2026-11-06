@@ -15,12 +15,8 @@ await backend.db.engine.saveConversation({ id: 'chat-1', ownerId: owner.id, titl
 
 const hosted = { where: 'hosted' as const, url: 'https://mcp.koala.test/mcp' }
 
-describe('the shapes the browser reads are the shapes the backend sends', () => {
-  it('reads a server and the catalogue as the backend describes them', () => {
-    expectTypeOf<Wire<McpServerView>>().toExtend<McpServer>()
-    expectTypeOf<Wire<BackendCatalogue>>().toExtend<McpCatalogue>()
-  })
-})
+expectTypeOf<Wire<McpServerView>>().toExtend<McpServer>()
+expectTypeOf<Wire<BackendCatalogue>>().toExtend<McpCatalogue>()
 
 describe('the catalogue of MCP servers, as the Studio asks for it', () => {
   it('offers the known servers as templates, none added yet', async () => {

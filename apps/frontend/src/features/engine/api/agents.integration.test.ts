@@ -9,11 +9,7 @@ import { anyOf, arrayWith, objectWith } from '../../../../../backend/src/platfor
 const backend = await startBackend((site) => { mountEngine(site) })
 await backend.signIn()
 
-describe('the shapes the browser reads are the shapes the backend sends', () => {
-  it('reads an agent as the backend describes one', () => {
-    expectTypeOf<Wire<EditableAgent>>().toExtend<Agent>()
-  })
-})
+expectTypeOf<Wire<EditableAgent>>().toExtend<Agent>()
 
 describe('the Studio\'s agents, as the browser asks for them', () => {
   it('lists the built-in agents, Koala among them, not the person\'s own', async () => {

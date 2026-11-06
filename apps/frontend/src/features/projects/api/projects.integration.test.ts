@@ -19,12 +19,8 @@ const owner = await backend.signIn()
 const desk = await side!.machines.join('desk', (await side!.machines.accounts.createJoinCode(owner.id)).code)
 const now = new Date().toISOString()
 
-describe('the shapes the browser reads are the shapes the backend sends', () => {
-  it('reads a project\'s removal preview and its state as the backend describes them', () => {
-    expectTypeOf<Wire<BackendPreview & { state: BackendState }>>().toExtend<ProjectRemovalPreview>()
-    expectTypeOf<Wire<BackendState>>().toExtend<ProjectRemovalState>()
-  })
-})
+expectTypeOf<Wire<BackendPreview & { state: BackendState }>>().toExtend<ProjectRemovalPreview>()
+expectTypeOf<Wire<BackendState>>().toExtend<ProjectRemovalState>()
 
 describe('a project, as the projects pages ask for it', () => {
   let projectId = ''

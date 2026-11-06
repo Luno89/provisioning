@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, it, expect, vi } from 'vitest';
 import NginxWizard from './NginxWizard';
 import { insertServerBlock } from '../lib/nginx-config';
@@ -33,9 +33,17 @@ describe('the proxy wizard', () => {
 
   it('appends through a function updater, so unsaved edits survive', () => {
     const { onAppend } = setup();
-    if (onAppend.mock.calls.length === 0) return;
-    const updater = onAppend.mock.calls[0]![0] as (c: string) => string;
-    expect(typeof updater).toBe('function');
+    fireEvent.change(screen.getByLabelText(/Application Instance/i), { target: { value: 'd1' } });
+    fireEvent.click(screen.getByRole('button', { name: /Next/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Next/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Inject into config/ }));
+    expect(onAppend).toHaveBeenCalledOnce();
+    const updater = onAppend.mock.calls[0]![0] as (current: string) => string;
+    const edited = 'events {}\nhttp {\n  # an unsaved edit\n}';
+    const appended = updater(edited);
+    expect(appended).toContain('# an unsaved edit');
+    expect(appended).toContain('odoo-prod.vpn.local');
+    expect(appended.indexOf('odoo-prod.vpn.local')).toBeLessThan(appended.lastIndexOf('}'));
   });
 });
 

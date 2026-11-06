@@ -47,13 +47,9 @@ const backend = await startBackend(({ api, db }) => {
 
 const owner = await backend.signIn()
 
-describe('the shapes the browser reads are the shapes the backend sends', () => {
-  it('reads what runs and a workflow as the backend describes them', () => {
-    expectTypeOf<Wire<BackendRunningItem>>().toExtend<RunningItem>()
-    expectTypeOf<Wire<BackendRunningView>>().toExtend<RunningView>()
-    expectTypeOf<Wire<BackendWorkflowSummary>>().toExtend<WorkflowSummary>()
-  })
-})
+expectTypeOf<Wire<BackendRunningItem>>().toExtend<RunningItem>()
+expectTypeOf<Wire<BackendRunningView>>().toExtend<RunningView>()
+expectTypeOf<Wire<BackendWorkflowSummary>>().toExtend<WorkflowSummary>()
 
 describe('Running, while Temporal cannot be reached', () => {
   it('says what runs cannot be read, with 503 and why', async () => {

@@ -61,18 +61,14 @@ await backend.db.infrastructure.saveCluster({ id: 'machine-desk', name: 'desk', 
 await backend.db.infrastructure.addWorkFailure({ id: 'failure-1', ownerId: owner.id, workflowId: 'run-1', kind: 'chat', title: 'A chat turn', opens: { kind: 'chat', id: 'chat-1' }, reason: 'the model went away', failedAt: new Date().toISOString() })
 await backend.db.infrastructure.addWorkFailure({ id: 'failure-2', ownerId: owner.id, workflowId: 'run-2', kind: 'chat', title: 'Another chat turn', opens: { kind: 'chat', id: 'chat-1' }, reason: 'the model went away', failedAt: new Date().toISOString() })
 
-describe('the shapes the browser reads are the shapes the backend sends', () => {
-  it('reads monitoring, Koala\'s own health and the Infrastructure page as the backend describes them', () => {
-    expectTypeOf<Wire<BackendMonitoringOverview>>().toExtend<Overview>()
-    expectTypeOf<Wire<BackendHistoryState>>().toExtend<HistoryState>()
-    expectTypeOf<Wire<BackendAppHealth>>().toExtend<AppHealthView>()
-    expectTypeOf<Wire<BackendClusterHealth>>().toExtend<ClusterHealthView>()
-    expectTypeOf<Wire<BackendKoalaView>>().toExtend<KoalaView>()
-    expectTypeOf<Wire<BackendClusterContents>>().toExtend<ClusterContents>()
-    expectTypeOf<Wire<BackendWorkFailure>>().toExtend<WorkFailure>()
-    expectTypeOf<Wire<BackendOverview>>().toExtend<InfrastructureOverview>()
-  })
-})
+expectTypeOf<Wire<BackendMonitoringOverview>>().toExtend<Overview>()
+expectTypeOf<Wire<BackendHistoryState>>().toExtend<HistoryState>()
+expectTypeOf<Wire<BackendAppHealth>>().toExtend<AppHealthView>()
+expectTypeOf<Wire<BackendClusterHealth>>().toExtend<ClusterHealthView>()
+expectTypeOf<Wire<BackendKoalaView>>().toExtend<KoalaView>()
+expectTypeOf<Wire<BackendClusterContents>>().toExtend<ClusterContents>()
+expectTypeOf<Wire<BackendWorkFailure>>().toExtend<WorkFailure>()
+expectTypeOf<Wire<BackendOverview>>().toExtend<InfrastructureOverview>()
 
 describe('Infrastructure, with a machine that is stopped and no cluster that answers', () => {
   it('reads the overview: the machine stopped rather than unreachable, what failed, and why what runs cannot be read', async () => {

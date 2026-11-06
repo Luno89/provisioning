@@ -63,12 +63,8 @@ const tabbyFromTheWizard = (clusterId: string) => {
 
 interface DeployAccepted { message: string; deploymentName: string; id: string; workflowId: string; state: string }
 
-describe('the shapes the browser reads are the shapes the backend sends', () => {
-  it('reads a catalogue entry and an app schema as the backend describes them', () => {
-    expectTypeOf<Wire<StoredAppSpec & { deploysFromSpec: boolean }>>().toExtend<CatalogueEntry>()
-    expectTypeOf<Wire<BackendSchema>>().toExtend<AppSettingsSchema>()
-  })
-})
+expectTypeOf<Wire<StoredAppSpec & { deploysFromSpec: boolean }>>().toExtend<CatalogueEntry>()
+expectTypeOf<Wire<BackendSchema>>().toExtend<AppSettingsSchema>()
 
 describe('deploying an app, as the deploy wizard asks for it', () => {
   it('reads the catalogue with TabbyAPI and vLLM in it, each saying whether it deploys from its spec', async () => {

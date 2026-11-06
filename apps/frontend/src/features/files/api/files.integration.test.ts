@@ -50,14 +50,10 @@ const owner = await backend.signIn()
 await backend.db.projects.saveProjectInfo({ id: 'shop', name: 'Shop', ownerId: owner.id, createdAt: new Date().toISOString() } as never)
 await backend.db.projects.saveProjectInfo({ id: 'bare', name: 'Bare', ownerId: owner.id, createdAt: new Date().toISOString() } as never)
 
-describe('the shapes the browser reads are the shapes the backend sends', () => {
-  it('reads servers, places, files and links as the backend describes them', () => {
-    expectTypeOf<Wire<BackendFileServer>>().toExtend<FileServer>()
-    expectTypeOf<Wire<BackendPlaceState>>().toExtend<PlaceState>()
-    expectTypeOf<Wire<FileEntry>>().toExtend<StoredFile>()
-    expectTypeOf<Wire<BackendFileShare>>().toExtend<FileShare>()
-  })
-})
+expectTypeOf<Wire<BackendFileServer>>().toExtend<FileServer>()
+expectTypeOf<Wire<BackendPlaceState>>().toExtend<PlaceState>()
+expectTypeOf<Wire<FileEntry>>().toExtend<StoredFile>()
+expectTypeOf<Wire<BackendFileShare>>().toExtend<FileShare>()
 
 describe('a person\'s files on their own MinIO, as the file browser asks for them', () => {
   it('has no file server and nowhere to put files before MinIO runs', async () => {

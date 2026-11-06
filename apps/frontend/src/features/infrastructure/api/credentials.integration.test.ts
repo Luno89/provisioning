@@ -37,12 +37,8 @@ const backend = await startBackend(({ api, db, origin, auth }) => {
 
 await backend.signIn()
 
-describe('the shapes the browser reads are the shapes the backend sends', () => {
-  it('reads a provider\'s status and a DNS provider as the backend describes them', () => {
-    expectTypeOf<Wire<BackendProviderStatus>>().toExtend<ProviderStatus>()
-    expectTypeOf<Wire<ReturnType<typeof describeProvider>>>().toExtend<DnsProviderInfo>()
-  })
-})
+expectTypeOf<Wire<BackendProviderStatus>>().toExtend<ProviderStatus>()
+expectTypeOf<Wire<ReturnType<typeof describeProvider>>>().toExtend<DnsProviderInfo>()
 
 describe('Cloud providers, as its page asks for them', () => {
   it('lists every provider with whether it is set up, and what each offers for clusters', async () => {

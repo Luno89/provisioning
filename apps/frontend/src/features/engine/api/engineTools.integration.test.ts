@@ -24,11 +24,7 @@ const gpuTool: EngineTool = {
   grantedTo: [],
 }
 
-describe('the shapes the browser reads are the shapes the backend sends', () => {
-  it('reads a tool as the backend describes one', () => {
-    expectTypeOf<Wire<EditableTool>>().toExtend<EngineTool>()
-  })
-})
+expectTypeOf<Wire<EditableTool>>().toExtend<EngineTool>()
 
 describe('the Studio\'s tools, as the browser asks for them', () => {
   it('lists the built-in tools, each saying whether it is the person\'s and who holds it', async () => {

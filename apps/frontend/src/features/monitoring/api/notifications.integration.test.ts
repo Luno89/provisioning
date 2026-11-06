@@ -28,12 +28,8 @@ const backend = await startBackend(({ api, db, origin }) => {
 const owner = await backend.signIn()
 const SUBSCRIPTION = { endpoint: 'https://push.example.org/send/abc', keys: { p256dh: 'BNcRdreALRFXTkOOUHK1EtK2wtaz5Ry4YfYCA_0QTpQtUbVlUls0VJXg7A8u-Ts1XbjhazAkj7I99e8QcYP7DkM', auth: 'tBHItJI5svbpez7KI4CCXg' } }
 
-describe('the shapes the browser reads are the shapes the backend sends', () => {
-  it('reads the notification settings and the person\'s devices as the backend describes them', () => {
-    expectTypeOf<Wire<BackendNotificationView & { address: string }>>().toExtend<NotificationView>()
-    expectTypeOf<Wire<BackendPushView>>().toExtend<PushView>()
-  })
-})
+expectTypeOf<Wire<BackendNotificationView & { address: string }>>().toExtend<NotificationView>()
+expectTypeOf<Wire<BackendPushView>>().toExtend<PushView>()
 
 describe('Settings → Notifications, as its page asks for it', () => {
   it('reads every alert by email as the default, with email available and the address it goes to', async () => {

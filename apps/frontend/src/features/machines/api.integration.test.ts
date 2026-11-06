@@ -25,13 +25,9 @@ const backend = await startBackend((site) => {
 
 const joined = async (name: string, codeOf: () => Promise<{ code: string }>): Promise<string> => side!.join(name, (await codeOf()).code)
 
-describe('the shapes the browser reads are the shapes the backend sends', () => {
-  it('reads a machine as the backend describes one', () => {
-    expectTypeOf<Wire<MachineView>>().toExtend<LocalAgentDevice>()
-    expectTypeOf<Wire<RootMachine & { online: boolean; koalaWanted: boolean; holdsKoala: boolean }>>().toExtend<AccountMachine>()
-    expectTypeOf<Wire<Awaited<ReturnType<MachineAccounts['createJoinCode']>>>>().toExtend<MachineJoinCode>()
-  })
-})
+expectTypeOf<Wire<MachineView>>().toExtend<LocalAgentDevice>()
+expectTypeOf<Wire<RootMachine & { online: boolean; koalaWanted: boolean; holdsKoala: boolean }>>().toExtend<AccountMachine>()
+expectTypeOf<Wire<Awaited<ReturnType<MachineAccounts['createJoinCode']>>>>().toExtend<MachineJoinCode>()
 
 describe('My Machines, as the browser asks for it', () => {
   it('makes a join code whose command runs the installer from this Koala', async () => {

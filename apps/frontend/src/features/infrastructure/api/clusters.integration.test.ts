@@ -37,12 +37,8 @@ const MACHINE = { id: 'machine-desk', name: 'desk', provider: 'machine' as const
 await backend.db.infrastructure.saveCluster(MACHINE)
 await backend.db.infrastructure.saveCluster({ ...MACHINE, id: 'machine-theirs', name: 'theirs', machineId: 'theirs', ownerId: 'someone-else' })
 
-describe('the shapes the browser reads are the shapes the backend sends', () => {
-  it('reads a cluster and a cluster provider as the backend describes them', () => {
-    expectTypeOf<Wire<ClusterMetadata>>().toExtend<Cluster>()
-    expectTypeOf<Wire<ReturnType<typeof offeredProviders>[number]>>().toExtend<ClusterProviderSpec>()
-  })
-})
+expectTypeOf<Wire<ClusterMetadata>>().toExtend<Cluster>()
+expectTypeOf<Wire<ReturnType<typeof offeredProviders>[number]>>().toExtend<ClusterProviderSpec>()
 
 describe('clusters, as Infrastructure and Provision a cluster ask for them', () => {
   it('offers only the providers Koala makes clusters on, never a joined machine or one not built', async () => {

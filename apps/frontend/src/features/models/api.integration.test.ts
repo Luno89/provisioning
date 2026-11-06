@@ -28,12 +28,8 @@ const backend = await startBackend((site) => {
 const owner = await backend.signIn()
 await backend.db.models.saveModelEndpoint({ id: 'tabby-qwen', ownerId: owner.id, name: 'Qwen on TabbyAPI', baseUrl: 'http://100.64.0.5:5000/v1', model: 'qwen3-32b', isMesh: true, contextTokens: 32768, createdAt: new Date().toISOString() })
 
-describe('the shapes the browser reads are the shapes the backend sends', () => {
-  it('reads a model provider and the traffic as the backend describes them', () => {
-    expectTypeOf<Wire<BackendModelProvider>>().toExtend<ModelProvider>()
-    expectTypeOf<Wire<ModelRateLimitBucketSnapshot>>().toExtend<ModelTraffic>()
-  })
-})
+expectTypeOf<Wire<BackendModelProvider>>().toExtend<ModelProvider>()
+expectTypeOf<Wire<ModelRateLimitBucketSnapshot>>().toExtend<ModelTraffic>()
 
 describe('the models the browser lists and the account default, against the real models routes', () => {
   it('lists the person\'s own endpoint with what the model picker shows', async () => {

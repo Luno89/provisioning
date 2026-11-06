@@ -55,15 +55,11 @@ const SHARED = made.value.view.project.id
 let join = ''
 let cyId = ''
 
-describe('the shapes the browser reads are the shapes the backend sends', () => {
-  it('reads a shared project, its view, a sharing preview, a group check and a root invitation as the backend describes them', () => {
-    expectTypeOf<Wire<BackendSharedProject>>().toExtend<SharedProject>()
-    expectTypeOf<Wire<ProjectView>>().toExtend<SharedProjectView>()
-    expectTypeOf<Wire<BackendSharingPreview>>().toExtend<SharingPreview>()
-    expectTypeOf<Wire<BackendGroupCheck>>().toExtend<GroupCheck>()
-    expectTypeOf<Wire<NonNullable<Awaited<ReturnType<ProjectInviteService['invitation']>>>>>().toExtend<RootInvitation>()
-  })
-})
+expectTypeOf<Wire<BackendSharedProject>>().toExtend<SharedProject>()
+expectTypeOf<Wire<ProjectView>>().toExtend<SharedProjectView>()
+expectTypeOf<Wire<BackendSharingPreview>>().toExtend<SharingPreview>()
+expectTypeOf<Wire<BackendGroupCheck>>().toExtend<GroupCheck>()
+expectTypeOf<Wire<NonNullable<Awaited<ReturnType<ProjectInviteService['invitation']>>>>>().toExtend<RootInvitation>()
 
 describe('projects shared between people, combined', () => {
   it('lists the shared project as its owner\'s, with everything an owner may do', async () => {

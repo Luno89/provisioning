@@ -34,12 +34,8 @@ await backend.signIn()
 
 const ASK = { planCode: 'vps-2025-model1', planLabel: 'VPS-1', datacenter: 'GRA', domain: 'koala-root.dev', ingressDomain: 'koala-people.app', acmeEmail: 'ops@koala-root.dev', domainDns: 'cloudflare', ingressDns: 'porkbun' }
 
-describe('the shapes the browser reads are the shapes the backend sends', () => {
-  it('reads a server order and a sign-in provider as the backend describes them', () => {
-    expectTypeOf<Wire<ServerOrderView>>().toExtend<ServerOrder>()
-    expectTypeOf<Wire<BackendRootSignInProvider>>().toExtend<RootSignInProvider>()
-  })
-})
+expectTypeOf<Wire<ServerOrderView>>().toExtend<ServerOrder>()
+expectTypeOf<Wire<BackendRootSignInProvider>>().toExtend<RootSignInProvider>()
 
 describe('Host Koala on a server, as its page asks for it', () => {
   it('has no orders to begin with', async () => {

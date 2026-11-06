@@ -14,12 +14,8 @@ const task = (id: string, over: Partial<Task> = {}): Task => ({ id, ownerId: own
 await backend.db.projects.saveTask(task('serve-model'))
 await backend.db.projects.saveTask(task('chat-on-it', { dependsOn: ['serve-model'] }))
 
-describe('the shapes the browser reads are the shapes the backend sends', () => {
-  it('reads a task and an extension as the backend describes them', () => {
-    expectTypeOf<Wire<Task & { ready: boolean; waitingOn: { id: string; title: string; status: Task['status'] }[] }>>().toExtend<EngineTask>()
-    expectTypeOf<Wire<ReturnType<typeof extensionSummary>>>().toExtend<ExtensionSummary>()
-  })
-})
+expectTypeOf<Wire<Task & { ready: boolean; waitingOn: { id: string; title: string; status: Task['status'] }[] }>>().toExtend<EngineTask>()
+expectTypeOf<Wire<ReturnType<typeof extensionSummary>>>().toExtend<ExtensionSummary>()
 
 describe('tasks, as the browser lists and decides them', () => {
   it('lists the person\'s tasks with what each waits on', async () => {

@@ -12,11 +12,7 @@ const now = new Date().toISOString()
 await backend.db.engine.saveConversation({ id: 'chat-1', ownerId: owner.id, title: 'Research', messages: [], createdAt: now, updatedAt: now })
 await backend.db.engine.saveConversation({ id: 'chat-other', ownerId: 'someone-else', title: 'Theirs', messages: [], createdAt: now, updatedAt: now })
 
-describe('the shapes the browser reads are the shapes the backend sends', () => {
-  it('reads an opened document as the backend describes one', () => {
-    expectTypeOf<Wire<BackendDocument>>().toExtend<OpenedDocument>()
-  })
-})
+expectTypeOf<Wire<BackendDocument>>().toExtend<OpenedDocument>()
 
 describe('opening a document a chat saved, as the browser asks for it', () => {
   it('answers 404 for a workspace that is someone else\'s or no workspace at all', async () => {

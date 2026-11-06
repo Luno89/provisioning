@@ -15,11 +15,7 @@ await backend.db.engine.appendTurnLog({ turnId: 'turn-1', ownerId: owner.id, seq
 await backend.db.engine.appendTurnLog({ turnId: 'turn-1', ownerId: owner.id, seq: 3, at, events: [{ type: 'content', runId: 'child-1', at, nodeId: 'model', delta: 'found it' }] })
 await backend.db.engine.appendTurnLog({ turnId: 'turn-1', ownerId: owner.id, seq: 4, at, events: [{ type: 'content', runId: 'turn-1', at, nodeId: 'model', delta: 'hello' }] })
 
-describe('the shapes the browser reads are the shapes the backend sends', () => {
-  it('reads a turn log entry as the backend describes one, without its owner', () => {
-    expectTypeOf<Wire<Omit<BackendEntry, 'ownerId'>>>().toExtend<TurnLogEntry>()
-  })
-})
+expectTypeOf<Wire<Omit<BackendEntry, 'ownerId'>>>().toExtend<TurnLogEntry>()
 
 describe('a turn\'s live log, as the chat and Watch it work read it', () => {
   it('reads the log after a position, never sending whose it is', async () => {

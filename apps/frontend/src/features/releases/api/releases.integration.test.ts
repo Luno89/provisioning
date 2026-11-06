@@ -38,19 +38,15 @@ const release = (id: string, state: BackendRelease['state'], minutes: number, ex
   id, ownerId: owner.id, projectId: 'shop', pipelineRunId: `run-${id}`, commit: `${id}${'0'.repeat(40)}`.slice(0, 40), image: `registry/shop:${id}`, state, host: 'shop.koala.test', startedAt: at(minutes), updatedAt: at(minutes), ...extra,
 })
 
-describe('the shapes the browser reads are the shapes the backend sends', () => {
-  it('reads releases, settings, the project\'s app, what was made in it and the client import as the backend describes them', () => {
-    expectTypeOf<Wire<BackendRelease>>().toExtend<OdooRelease>()
-    expectTypeOf<Wire<BackendOffer>>().toExtend<RollBackOffer>()
-    expectTypeOf<Wire<BackendFiles>>().toExtend<ReleaseFiles>()
-    expectTypeOf<Wire<{ agents: ReleaseAgent[]; apps: readonly ReleaseApp[] }>>().toExtend<ReleaseOptions>()
-    expectTypeOf<Wire<{ how: ReleaseHow; from: 'project' | 'tree type' | 'repository' }>>().toExtend<ProjectRelease>()
-    expectTypeOf<Wire<BackendApp>>().toExtend<ProjectApp>()
-    expectTypeOf<Wire<BackendDrift>>().toExtend<Drift>()
-    expectTypeOf<Wire<BackendImportView>>().toExtend<ImportView>()
-    expectTypeOf<Wire<BackendImport>>().toExtend<ClientImport>()
-  })
-})
+expectTypeOf<Wire<BackendRelease>>().toExtend<OdooRelease>()
+expectTypeOf<Wire<BackendOffer>>().toExtend<RollBackOffer>()
+expectTypeOf<Wire<BackendFiles>>().toExtend<ReleaseFiles>()
+expectTypeOf<Wire<{ agents: ReleaseAgent[]; apps: readonly ReleaseApp[] }>>().toExtend<ReleaseOptions>()
+expectTypeOf<Wire<{ how: ReleaseHow; from: 'project' | 'tree type' | 'repository' }>>().toExtend<ProjectRelease>()
+expectTypeOf<Wire<BackendApp>>().toExtend<ProjectApp>()
+expectTypeOf<Wire<BackendDrift>>().toExtend<Drift>()
+expectTypeOf<Wire<BackendImportView>>().toExtend<ImportView>()
+expectTypeOf<Wire<BackendImport>>().toExtend<ClientImport>()
 
 describe('how a project releases', () => {
   it('offers the release agents and the apps they release', async () => {

@@ -11,11 +11,7 @@ const now = new Date().toISOString()
 await backend.db.infrastructure.savePendingApproval({ id: 'ask-1', ownerId: owner.id, leafId: 'leaf-1', command: 'rm -rf build', status: 'pending', createdAt: now })
 await backend.db.infrastructure.savePendingApproval({ id: 'ask-other', ownerId: 'someone-else', leafId: 'leaf-2', command: 'ls', status: 'pending', createdAt: now })
 
-describe('the shapes the browser reads are the shapes the backend sends', () => {
-  it('reads a pending approval as the backend describes one', () => {
-    expectTypeOf<Wire<PendingApprovalMetadata>>().toExtend<PendingApproval>()
-  })
-})
+expectTypeOf<Wire<PendingApprovalMetadata>>().toExtend<PendingApproval>()
 
 describe('commands waiting for the person, as the browser asks for them', () => {
   it('lists only the person\'s own pending commands', async () => {

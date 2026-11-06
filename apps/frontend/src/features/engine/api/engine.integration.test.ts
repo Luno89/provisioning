@@ -72,12 +72,8 @@ const backend = await startBackend(({ api, db, ...site }) => {
 
 const owner = await backend.signIn()
 
-describe('the shapes the browser reads are the shapes the backend sends', () => {
-  it('reads a conversation and a started run as the backend describes them', () => {
-    expectTypeOf<Wire<Conversation>>().toExtend<ChatConversation>()
-    expectTypeOf<Wire<BackendStartedRun>>().toExtend<StartedRun>()
-  })
-})
+expectTypeOf<Wire<Conversation>>().toExtend<ChatConversation>()
+expectTypeOf<Wire<BackendStartedRun>>().toExtend<StartedRun>()
 
 describe('a chat, as the chat surface asks for it', () => {
   it('lists the agents a chat can run, Koala among them, in the shape the picker reads', async () => {

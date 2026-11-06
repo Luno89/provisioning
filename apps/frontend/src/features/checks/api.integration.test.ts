@@ -76,18 +76,14 @@ const ownCheck: Scenario = {
   expect: { outcome: 'ok' },
 } as Scenario
 
-describe('the shapes the browser reads are the shapes the backend sends', () => {
-  it('reads checks, the bench, proposals, practices, tool notes and agent changes as the backend describes them', () => {
-    expectTypeOf<Wire<BackendScenario>>().toExtend<Scenario>()
-    expectTypeOf<Wire<BackendBenchSettings>>().toExtend<BenchSettings>()
-    expectTypeOf<Wire<BackendBenchState>>().toExtend<BenchState>()
-    expectTypeOf<Wire<BackendGap>>().toExtend<CoverageGap>()
-    expectTypeOf<Wire<BackendProposal>>().toExtend<ScenarioProposal>()
-    expectTypeOf<Wire<BackendChange>>().toExtend<AgentChange>()
-    expectTypeOf<Wire<MemoryItem>>().toExtend<Practice>()
-    expectTypeOf<Wire<MemoryItem>>().toExtend<ToolNote>()
-  })
-})
+expectTypeOf<Wire<BackendScenario>>().toExtend<Scenario>()
+expectTypeOf<Wire<BackendBenchSettings>>().toExtend<BenchSettings>()
+expectTypeOf<Wire<BackendBenchState>>().toExtend<BenchState>()
+expectTypeOf<Wire<BackendGap>>().toExtend<CoverageGap>()
+expectTypeOf<Wire<BackendProposal>>().toExtend<ScenarioProposal>()
+expectTypeOf<Wire<BackendChange>>().toExtend<AgentChange>()
+expectTypeOf<Wire<MemoryItem>>().toExtend<Practice>()
+expectTypeOf<Wire<MemoryItem>>().toExtend<ToolNote>()
 
 describe('checks, as the Studio asks for them', () => {
   it('lists the shipped checks', async () => {

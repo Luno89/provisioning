@@ -33,11 +33,7 @@ await backend.db.infrastructure.saveDeployment(app('qwen', { appType: 'tabbyapi'
 await backend.db.infrastructure.saveDeployment(app('pals', { appType: 'palworld' }))
 await backend.db.infrastructure.saveDeployment(app('theirs', { appType: 'hermes', ownerId: 'someone-else' }))
 
-describe('the shapes the browser reads are the shapes the backend sends', () => {
-  it('reads an app\'s sign-in as the backend describes it', () => {
-    expectTypeOf<Wire<BackendAppSignIn>>().toExtend<AppSignIn>()
-  })
-})
+expectTypeOf<Wire<BackendAppSignIn>>().toExtend<AppSignIn>()
 
 describe('an app\'s page, as it asks the backend', () => {
   it('shows the sign-in Koala made for the app to its owner only', async () => {

@@ -62,16 +62,12 @@ const backend = await startBackend(({ api, db, auth, origin }) => {
   }))
 })
 
-describe('the shapes the browser reads are the shapes the backend sends', () => {
-  it('reads a setup, a name check, the pool, its dependencies and its mail as the backend describes them', () => {
-    expectTypeOf<Wire<NonNullable<Awaited<ReturnType<InstanceService['mine']>>>>>().toExtend<MySetup>()
-    expectTypeOf<Wire<Awaited<ReturnType<InstanceService['nameCheck']>>>>().toExtend<NameCheck>()
-    expectTypeOf<Wire<BackendPoolOffer>>().toExtend<PoolOffer>()
-    expectTypeOf<Wire<Extract<Awaited<ReturnType<InstanceService['poolAdmin']>>, { ok: true }>['value']>>().toExtend<PoolAdmin>()
-    expectTypeOf<Wire<BackendDependencies>>().toExtend<BrowserDependencies>()
-    expectTypeOf<Wire<BackendMailView>>().toExtend<MailReputationView>()
-  })
-})
+expectTypeOf<Wire<NonNullable<Awaited<ReturnType<InstanceService['mine']>>>>>().toExtend<MySetup>()
+expectTypeOf<Wire<Awaited<ReturnType<InstanceService['nameCheck']>>>>().toExtend<NameCheck>()
+expectTypeOf<Wire<BackendPoolOffer>>().toExtend<PoolOffer>()
+expectTypeOf<Wire<Extract<Awaited<ReturnType<InstanceService['poolAdmin']>>, { ok: true }>['value']>>().toExtend<PoolAdmin>()
+expectTypeOf<Wire<BackendDependencies>>().toExtend<BrowserDependencies>()
+expectTypeOf<Wire<BackendMailView>>().toExtend<MailReputationView>()
 
 describe('a person\'s instance, where accounts are held', () => {
   it('has no instance yet, and says this server also serves people\'s work', async () => {

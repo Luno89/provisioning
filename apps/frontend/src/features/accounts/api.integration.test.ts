@@ -18,14 +18,10 @@ const temporal = followedTemporal()
 const backend = await startBackend((site) => mountAccounts(site, temporal))
 const NEW_PASSWORD = 'a different integration password'
 
-describe('the shapes the browser reads are the shapes the backend sends', () => {
-  it('reads invites, people, invite limits and a removal preview as the backend describes them', () => {
-    expectTypeOf<Wire<InviteView>>().toExtend<Invite>()
-    expectTypeOf<Wire<BackendPersonEntry>>().toExtend<PersonEntry>()
-    expectTypeOf<Wire<InviteLimits & { people: ProjectInvitePerson[] }>>().toExtend<ProjectInviteLimits>()
-    expectTypeOf<Wire<{ email: string; blockers: string[] }>>().toExtend<RemovalPreview>()
-  })
-})
+expectTypeOf<Wire<InviteView>>().toExtend<Invite>()
+expectTypeOf<Wire<BackendPersonEntry>>().toExtend<PersonEntry>()
+expectTypeOf<Wire<InviteLimits & { people: ProjectInvitePerson[] }>>().toExtend<ProjectInviteLimits>()
+expectTypeOf<Wire<{ email: string; blockers: string[] }>>().toExtend<RemovalPreview>()
 
 describe('the people and invites an operator manages, combined', () => {
   it('mints an invite with its code once, and lists it afterwards without the code', async () => {

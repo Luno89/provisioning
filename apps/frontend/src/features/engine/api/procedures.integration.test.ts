@@ -9,11 +9,7 @@ import { anyOf, arrayWith, objectWith } from '../../../../../backend/src/platfor
 const backend = await startBackend((site) => { mountEngine(site) })
 await backend.signIn()
 
-describe('the shapes the browser reads are the shapes the backend sends', () => {
-  it('reads a procedure summary as the backend describes one', () => {
-    expectTypeOf<Wire<BackendSummary>>().toExtend<ProcedureSummary>()
-  })
-})
+expectTypeOf<Wire<BackendSummary>>().toExtend<ProcedureSummary>()
 
 describe('the Studio\'s procedures, as the browser asks for them', () => {
   it('lists the built-in procedures, none unreadable', async () => {

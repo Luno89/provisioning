@@ -120,13 +120,9 @@ await rootDb.instances.saveInstance({
   pool: { ports: { backend: 31000, edge: 31001, registry: 31002 }, startedAt: new Date().toISOString(), trialEndsAt },
 })
 
-describe('the shapes the browser reads are the shapes the instance sends', () => {
-  it('reads updates, addresses and the watch as the instance passes them on from root', () => {
-    expectTypeOf<Wire<UpdatesAnswer>>().toExtend<UpdatesView>()
-    expectTypeOf<Wire<AddressesView>>().toExtend<InstanceAddressesView>()
-    expectTypeOf<Wire<BackendWatchView>>().toExtend<WatchView>()
-  })
-})
+expectTypeOf<Wire<UpdatesAnswer>>().toExtend<UpdatesView>()
+expectTypeOf<Wire<AddressesView>>().toExtend<InstanceAddressesView>()
+expectTypeOf<Wire<BackendWatchView>>().toExtend<WatchView>()
 
 describe('an instance\'s settings, as an instance asks root for them with its credential', () => {
   it('reads its updates: automatic, running the newer release, with both releases listed', async () => {

@@ -21,15 +21,11 @@ const backend = await startBackend(async (site) => { side = await projectsOf(sit
 const owner = await backend.signIn()
 const now = new Date().toISOString()
 
-describe('the shapes the browser reads are the shapes the backend sends', () => {
-  it('reads a tree, a feature, a story, a tree\'s models and its run as the backend describes them', () => {
-    expectTypeOf<Wire<BackendTree & { branchCount: number }>>().toExtend<Tree>()
-    expectTypeOf<Wire<BackendBranch>>().toExtend<Branch>()
-    expectTypeOf<Wire<BackendLeaf>>().toExtend<Leaf>()
-    expectTypeOf<Wire<BackendModelRow>>().toExtend<TreeModelRow>()
-    expectTypeOf<Wire<GroveRunStatus>>().toExtend<TreeRunStatus>()
-  })
-})
+expectTypeOf<Wire<BackendTree & { branchCount: number }>>().toExtend<Tree>()
+expectTypeOf<Wire<BackendBranch>>().toExtend<Branch>()
+expectTypeOf<Wire<BackendLeaf>>().toExtend<Leaf>()
+expectTypeOf<Wire<BackendModelRow>>().toExtend<TreeModelRow>()
+expectTypeOf<Wire<GroveRunStatus>>().toExtend<TreeRunStatus>()
 
 describe('trees, features and stories, as the board asks for them', () => {
   let treeId = ''
