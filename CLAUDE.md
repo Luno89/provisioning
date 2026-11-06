@@ -2,6 +2,28 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Read this first: v1 and the backend plan (owner, 2026-11-05)
+
+**The work is `~/.claude/plans/backend.md`** (approved 2026-11-05, every decision answered, evidence in
+`~/.claude/plans/backend-audit/`). Owner: "I'm looking for structual changes in how we work cause its been like three months and
+we haven't really gotten anywhere", then "yes, the GPU machine story is v1, and your going to do all the structural changes first
+right?"
+
+- **v1**: a person joins their GPU machine, Koala runs on it, they deploy TabbyAPI or vLLM and chat with their own model, signed
+  in through root. Everything outside v1 (the hub, Odoo releases, the pool, the marketplace, payments, checks and the bench,
+  memory, telemetry extras) is frozen: no new work, nothing deleted, touched only where v1's flow passes through.
+- **Order**: (1) flow maps generated from the coupling graph, so every flow and every implementation of a concept is visible;
+  (2) tests a signal again; (3) one module per cross-cutting concept (`ClusterAccess` the only way to reach, start, stop or check a
+  cluster and the only caller of kubectl and helm; configuration validated per role with no defaults; where work runs), held by
+  the import boundaries; (4) v1 in vertical slices, each real and checked against its flow map.
+- **The model**: root keeps one k3s cluster of its own; a machine is exactly one cluster (made with native k3s for GPU
+  passthrough, or k3d in Docker without it); an instance is the chart's pods on one of the person's machines or on the pool. There
+  is no other kind of cluster. Hetzner, DigitalOcean, mock cloud mode, the `k3d` provider and the `combined` role are being
+  removed.
+- **Much of this file still describes the old topology** (the combined dev on :3001, the `provisioning-lunorica` system
+  cluster, k3d as Koala's cluster, `dev:split`, GPUs on the system cluster, ship's old step list). Where it disagrees with the
+  plan, the plan wins; this file is rewritten section by section as each phase lands.
+
 ## What this is
 
 Multi-cloud provisioning platform (local-first): spin up Kubernetes clusters (k3d locally, a machine of your own added under My Machines, or a VM Koala buys on Hetzner or DigitalOcean; AWS, Google Cloud and Azure are not built yet and are refused) and deploy apps (Odoo, WordPress, Nextcloud, Audiobookshelf, vLLM, Open WebUI) with public internet access via Nginx + Localtunnel — no port forwarding needed.
@@ -24,11 +46,24 @@ npm workspaces: `apps/*`, `packages/*`.
    - **Data kept only in memory** when the feature is a list of history the user comes back to.
    - **A field sent in a shape its consumer silently ignores.** `{ temperature }` where the model call reads `{ toolTurn, conversation }`.
 
-   Product-level mock modes this file documents (mock cloud mode on a dev box, the Twilio fallback) are features, not stubs. Test doubles belong in tests.
+   Test doubles belong in tests. The product-level mock modes this file used to allow (mock cloud mode on a dev box, the Twilio
+   fallback) are being removed under rule 4.
 2. **Proactive Questioning & Architectural Alignment**: If you are not 100% confident about requirements, terminology, design trade-offs, or system boundaries, STOP and ask the user directly before proceeding. Never guess or assume intent. Check existing plan documents (`~/.claude/plans/`, `CLAUDE.md`) and project history first so questions are informed and focused on unsettled decisions. Any architectural decision, abstraction boundary, or UX paradigm shift MUST be surfaced to the user for explicit review and sign-off.
 3. **Mandatory Live Operational E2E Verification**: Never declare any feature or capability "done" based solely on unit tests or typechecks. You MUST perform a live, end-to-end operational verification against the running application (e.g. authenticating, exercising actual HTTP/WebSocket routes, validating client payload contracts, verifying state mutations) proving the exact user flow succeeds end-to-end before concluding.
 
    A live check must go through the real path. A run in a mock mode proves the mock. When reporting, name what was exercised live and what was not.
+4. **No silent fallbacks** (owner, 2026-11-05): "you need to never do half assed shit like "skip" or fallback without making it
+   explicit to me first, everything needs to be implemted cleanly". No skip, fallback, "else the old way" branch, guessed default
+   for missing config, warn-and-carry-on, quiet degrade (CPU for GPU, missing as empty, an error read as "not running") or second
+   path for one job without asking the owner first. A missing dependency is an error with its reason or a state the person sees.
+5. **Fix the model, not the symptom.** Before fixing what broke, find every other place the same wrong model lives and fix them
+   together; a fix in one place while the same mistake stays elsewhere is the patch this rule forbids. One path per job: a new
+   feature that overlaps an existing one refactors it into one path ("There shouldn't be two paths").
+6. **Map before code.** Read the flow map of the flow you change before changing it, and show the owner the flow before and
+   after. Before each step of the plan the owner gets its exact list of changes and removals.
+7. **Never weaken a test to get green.** No deleted test or suite, removed assertion, relaxed check, dropped gate step, grown
+   coupling baseline or loosened coupling rule without the owner's yes. A test that fails is the code's problem; one that fails
+   twice gets its audit and a code fix.
 
 ## Commands
 
