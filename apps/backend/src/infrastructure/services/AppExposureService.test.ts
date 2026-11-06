@@ -154,6 +154,21 @@ describe('syncExposedApps', () => {
     mockReaddir.mockReset();
   });
 
+  it('takes a data folder with no nginx configs yet as nothing to clean, and still sweeps the stale Caddy ones', async () => {
+    mockGetDeployments.mockResolvedValue([]);
+    mockReaddir.mockImplementation(async (dir: string) => {
+      if (String(dir).includes('caddy')) return ['gone-app.caddy'];
+      throw Object.assign(new Error(`ENOENT: no such file or directory, scandir '${dir}'`), { code: 'ENOENT' });
+    });
+    const svc = createService();
+    const errors = vi.spyOn(svc['logger'], 'error');
+
+    await svc.syncExposedApps();
+    expect(errors).not.toHaveBeenCalled();
+    expect(mockUnlink.mock.calls.map((call) => String(call[0]).split('/').pop())).toEqual(['gone-app.caddy']);
+    mockReaddir.mockReset();
+  });
+
   it('handles missing cluster gracefully', async () => {
     mockGetDeployments.mockResolvedValue([mockDep]);
     mockGetById.mockResolvedValue(undefined);

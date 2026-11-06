@@ -121,7 +121,7 @@ fi
 CHART_INPUTS="$( (find "${ROOT}/charts/instance" -type f -print0 | sort -z | xargs -0 cat; printf 'dev.coverage=%s\n' "${KOALA_COVERAGE}") | sha256sum | cut -d' ' -f1)"
 if [ "$(cat "${DEV_DATA}/chart.sha" 2>/dev/null || true)" != "${CHART_INPUTS}" ]; then
   say "Applying the instance chart's changes to your Koala, with the values it was installed with"
-  quietly "${ROOT}/bin/helm" upgrade instance "${ROOT}/charts/instance" -n nowrinkles --kubeconfig "${KUBECONFIG_FILE}" --reuse-values --set-string "dev.coverage=${KOALA_COVERAGE}" --wait --timeout 720h
+  quietly "${ROOT}/bin/helm" upgrade instance "${ROOT}/charts/instance" -n nowrinkles --kubeconfig "${KUBECONFIG_FILE}" --reset-then-reuse-values --set-string "dev.coverage=${KOALA_COVERAGE}" --wait --timeout 720h
   printf '%s\n' "${CHART_INPUTS}" > "${DEV_DATA}/chart.sha"
   echo "  applied"
 fi

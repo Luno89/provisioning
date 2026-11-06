@@ -414,7 +414,10 @@ export class AppExposureService extends BaseService<AppExposureDb> {
     const publicNamespaces = new Set(exposed.filter(d => d.isExposedPublicly).flatMap(keys));
     const confDir = path.join(this.nginxConfDir, 'conf.d');
     try {
-      const files = await fs.readdir(confDir);
+      const files = await fs.readdir(confDir).catch((err: unknown) => {
+        if (isMissingFile(err)) return [] as string[];
+        throw err;
+      });
       for (const file of files) {
         if (file === 'default.conf') continue;
         const ns = file.replace(/\.conf$/, '');
