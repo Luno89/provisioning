@@ -6,6 +6,11 @@ import { everythingSaid, transcriptsOf } from './transcripts.js';
 
 const USAGE = 'usage: npm run said -- [--since YYYY-MM-DD] [--full] <word> [more words, all must appear]';
 
+process.stdout.on('error', (failure: NodeJS.ErrnoException) => {
+  if (failure.code !== 'EPIPE') throw failure;
+  process.exit(0);
+});
+
 const args = process.argv.slice(2);
 const full = args.includes('--full');
 const sinceAt = args.indexOf('--since');

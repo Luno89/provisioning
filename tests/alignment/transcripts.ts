@@ -7,7 +7,7 @@ export interface Transcript { file: string; session: string; agent?: string }
 interface Read { size: number; said: Said[] }
 interface Cache { version: number; files: Record<string, Read> }
 
-export const SAID_VERSION = 2;
+export const SAID_VERSION = 3;
 
 export const projectFolderName = (repoRoot: string): string => repoRoot.replace(/[^A-Za-z0-9]/g, '-');
 

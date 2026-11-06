@@ -32,7 +32,7 @@ describe('what the owner said, read from one transcript line', () => {
   });
 
   it('takes a message relayed to a sub-agent, without the relay\'s own words, and names the agent', () => {
-    const relayed = typed('The user sent a new message while you were working:\n2 - own label and status', { isMeta: true });
+    const relayed = typed('The user sent a new message while you were working:\n2 - own label and status\n\nThis is how Claude Code surfaces messages the user sends mid-turn — within the running turn.', { isMeta: true });
     expect(saidOnLine(relayed, 's1', 'agent-ae9b')).toEqual([said('2 - own label and status', { how: 'while-working', agent: 'agent-ae9b' })]);
   });
 

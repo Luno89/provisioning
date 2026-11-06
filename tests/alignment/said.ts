@@ -13,6 +13,7 @@ const MAY_HOLD_WORDS = ['"kind":"human"', '"answers":', 'the user said:'];
 const CLARIFY_TEMPLATE = 'The user wants to clarify these questions.';
 const SAID_MARKER = 'To tell you how to proceed, the user said:';
 const SENT_WHILE_WORKING = 'The user sent a new message while you were working:';
+const RELAY_NOTE = 'This is how Claude Code surfaces messages the user sends mid-turn';
 const HARNESS_BLOCKS = /<(system-reminder|local-command-caveat|local-command-stdout|local-command-stderr|command-name|command-message|command-args|bash-input|bash-stdout|bash-stderr)>[\s\S]*?<\/\1>/g;
 
 export const mayHoldWords = (line: string): boolean => MAY_HOLD_WORDS.some((marker) => line.includes(marker));
@@ -74,7 +75,9 @@ export function saidOnLine(line: string, session: string, agent?: string): Said[
   if (fromHuman(record)) {
     const words = ownWords(textOf(content));
     const relayed = words.startsWith(SENT_WHILE_WORKING);
-    const text = relayed ? words.slice(SENT_WHILE_WORKING.length).trim() : words;
+    const relayedText = words.slice(SENT_WHILE_WORKING.length);
+    const noteAt = relayedText.indexOf(RELAY_NOTE);
+    const text = relayed ? (noteAt >= 0 ? relayedText.slice(0, noteAt) : relayedText).trim() : words;
     if (text && (relayed || record.isMeta !== true)) found.push({ ...base, how: relayed ? 'while-working' : howTyped(record.promptSource), text });
   } else if (record.isMeta === true) return [];
   for (const answer of answersIn(record.toolUseResult)) found.push({ ...base, how: 'answer', text: answer.text, question: answer.question });
