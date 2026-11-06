@@ -13,7 +13,8 @@ export interface Tiers {
   include: string[];
   exclude?: string[];
   setupFiles?: string[];
-  integration?: { setupFiles?: string[]; globalSetup?: string[] };
+  unit?: { setupFiles?: string[] };
+  integration?: { setupFiles?: string[]; globalSetup?: string[]; env?: Record<string, string>; environment?: string };
 }
 
 export function tiers(options: Tiers): TestProjectInlineConfiguration[] {
@@ -23,7 +24,7 @@ export function tiers(options: Tiers): TestProjectInlineConfiguration[] {
   return [
     {
       extends: true,
-      test: { name: 'unit', include: options.include, exclude: [...exclude, INTEGRATION, ...integration], setupFiles: [OWN_HOME, UNIT_GUARD, ...setup, COUPLING], expect: { requireAssertions: true } },
+      test: { name: 'unit', include: options.include, exclude: [...exclude, INTEGRATION, ...integration], setupFiles: [OWN_HOME, UNIT_GUARD, ...setup, ...(options.unit?.setupFiles ?? []), COUPLING], expect: { requireAssertions: true } },
     },
     {
       extends: true,
@@ -33,6 +34,8 @@ export function tiers(options: Tiers): TestProjectInlineConfiguration[] {
         exclude,
         expect: { requireAssertions: true },
         globalSetup: options.integration?.globalSetup ?? [],
+        ...(options.integration?.env ? { env: options.integration.env } : {}),
+        ...(options.integration?.environment ? { environment: options.integration.environment } : {}),
         setupFiles: [OWN_HOME, ...setup, ...(options.integration?.setupFiles ?? []), COUPLING],
       },
     },

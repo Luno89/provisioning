@@ -34,7 +34,7 @@
     "typecheck:context-engine": "tsc --noEmit -p packages/context-engine/tsconfig.json",
     "typecheck:engine-core": "tsc --noEmit -p packages/engine-core/tsconfig.json",
     "typecheck:backend": "tsc --noEmit -p apps/backend/tsconfig.json",
-    "typecheck:frontend": "tsc --noEmit -p apps/frontend/tsconfig.app.json",
+    "typecheck:frontend": "tsc --noEmit -p apps/frontend/tsconfig.app.json && tsc --noEmit -p apps/frontend/tsconfig.integration.json",
     "typecheck:infra": "tsc --noEmit -p packages/cdktf-infra/tsconfig.json",
     "typecheck:local-agent": "tsc --noEmit -p apps/local-agent/tsconfig.json",
     "typecheck:agent-engine": "tsc --noEmit -p packages/agent-engine/tsconfig.json",
