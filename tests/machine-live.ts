@@ -225,7 +225,7 @@ async function stages(stack: SplitStack, session: string, madeVm: (vm: Disposabl
     console.log('[8] Koala names a bundle its download does not match: the agent refuses it, keeps running as it is, and My Machines says why');
     const installedNow = await agentOnVm();
     const named = 'f'.repeat(64);
-    stack.exec('instance', `printf '%s  machine-agent.tgz\\n' ${named} > /app/apps/local-agent/dist/machine-agent.tgz.sha256`);
+    stack.exec('instance', `printf '%s  machine-agent.tgz\\n' ${named} > /app/apps/backend/data/machine-agent/machine-agent.tgz.sha256`);
     await onVm('systemctl --user restart koala-machine');
     const refused = await until('My Machines saying the update failed', 3, updateIs('failed'));
     assert.equal(refused.agentUpdate?.current, named);

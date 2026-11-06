@@ -34,7 +34,7 @@ describe('the machine agent bundle', () => {
   it('puts the bundle under the agent\'s dist folder when told no other', async () => {
     processes.run.mockResolvedValue(printed('/x.tgz'));
     await new MachineBundle('/repo', undefined, processes).path();
-    expect(processes.run).toHaveBeenCalledWith(building('/repo/apps/local-agent/dist', '/repo'));
+    expect(processes.run).toHaveBeenCalledWith(building('/repo/apps/backend/data/machine-agent', '/repo'));
   });
 
   it('reads its checksum from beside the tarball', async () => {
