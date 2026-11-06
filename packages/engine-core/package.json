@@ -45,7 +45,15 @@
   "scripts": {
     "test": "npm run test:unit && npm run test:integration",
     "test:unit": "vitest run --project unit",
-    "test:integration": "vitest run --project integration --maxWorkers=50% --passWithNoTests",
+    "test:integration": "vitest run --project integration --maxWorkers=50%",
     "lint": "eslint ."
+  },
+  "devDependencies": {
+    "@temporalio/activity": "^1.23.0",
+    "@temporalio/client": "^1.23.0",
+    "@temporalio/proto": "^1.23.0",
+    "@temporalio/testing": "^1.23.0",
+    "@temporalio/worker": "^1.23.0",
+    "@temporalio/workflow": "^1.23.0"
   }
 }
