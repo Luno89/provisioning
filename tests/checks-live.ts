@@ -1,14 +1,8 @@
 import assert from 'node:assert/strict';
-import dotenv from 'dotenv';
-import { fileURLToPath } from 'url';
-dotenv.config({ path: fileURLToPath(new URL('../apps/backend/.env', import.meta.url)), quiet: true });
 import axios from 'axios';
-import { createDatabase } from '../apps/backend/src/platform/lib/db-interface.js';
-import { sessionToken } from '../apps/backend/src/platform/lib/auth.js';
-import { loadKeys } from '../apps/backend/src/platform/lib/keys.js';
+import { devKoalaApi, devKoalaDatabase, devOwner } from './lib/dev-stack.js';
 
-const BASE = process.env.CHECKS_LIVE_URL ?? 'http://localhost:3001/api';
-const OWNER = process.env.CHECKS_LIVE_OWNER ?? process.env.GROVE_LIVE_OWNER;
+const BASE = process.env.CHECKS_LIVE_URL ?? `${devKoalaApi}/api`;
 const ONLY = (process.env.CHECKS_LIVE_SCENARIOS ?? 'executor-reads-what-is-there,executor-does-one-task,builder-reads-before-changing,research-writes-its-findings,koala-fans-research-out,judge-checks-then-records-its-verdict,delivery-plans-and-delivers').split(',');
 const EVERY_ONE = process.env.CHECKS_LIVE_ALL_PASS === 'true';
 const TOGETHER = Math.max(1, Math.min(ONLY.length, Number(process.env.CHECKS_LIVE_TOGETHER ?? 1) || 1));
@@ -17,12 +11,10 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 interface Result { scenarioId: string; runId: string; passed: boolean; outcome: string; reason?: string; error?: string; checks: { what: string; passed: boolean; detail: string }[]; attempts?: { runId: string; passed: boolean }[] }
 
 async function main(): Promise<void> {
-  assert.ok(OWNER, 'set CHECKS_LIVE_OWNER (or GROVE_LIVE_OWNER) to the person whose model and agents the checks use');
-  const db = createDatabase();
+  const owner = await devOwner();
+  const db = devKoalaDatabase();
   await db.init();
-  const user = await db.accounts.getUserById(OWNER);
-  assert.ok(user, 'no such user');
-  const http = axios.create({ baseURL: BASE, proxy: false, headers: { Cookie: `session=${sessionToken(user, loadKeys(process.env).session, { seconds: 4 * 3600 })}` }, validateStatus: () => true });
+  const http = axios.create({ baseURL: BASE, proxy: false, headers: { Cookie: owner.cookie }, validateStatus: () => true });
   const spacesBefore = (await db.accounts.getUsers()).filter((entry) => entry.space).length;
 
   try {

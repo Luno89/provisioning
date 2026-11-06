@@ -6,6 +6,7 @@ import { changedBesidesLedger, LEDGER_FILES, onlyLedger, RELEASE_SIGNERS, type G
 import { imageTagOf } from './release-lab.js';
 import { convert, liveProcesses, recordLive } from '../coupling/live.js';
 import { auditFileOf, auditRefusal, FAILURES_FILE, owedAudits, withFailure, type Failures } from './audits.js';
+import { devKoalaApi, devKoalaCheckout, devRootApi } from './dev-stack.js';
 
 const gitOut = (repo: string, args: string[]): string =>
   execFileSync('git', args, { cwd: repo, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
@@ -115,19 +116,24 @@ export function verifyPublished(repo: string, version: string, commit: string): 
 
 export const changedNow = (repo: string): string[] => changedBesidesLedger(gitOut(repo, ['status', '--porcelain']));
 
-function servingFrom(): string | undefined {
-  const listening = execFileSync('ss', ['-ltnpH', 'sport = :3001'], { encoding: 'utf8' });
+function servingFrom(port: string): string | undefined {
+  const listening = execFileSync('ss', ['-ltnpH', `sport = :${port}`], { encoding: 'utf8' });
   const pid = /pid=(\d+)/.exec(listening)?.[1];
   if (!pid) return undefined;
   try { return readlinkSync(`/proc/${pid}/cwd`); } catch { return undefined; }
 }
 
 export async function devStackProblem(repo: string): Promise<string | undefined> {
-  const answered = await fetch('http://localhost:3001/api/auth/me').then((res) => res.status, () => 0);
-  if (answered !== 401) return 'the dev stack does not answer on :3001; start it with `npm run dev` from this checkout';
-  const cwd = servingFrom();
-  if (!cwd) return 'cannot tell which checkout the backend on :3001 runs from';
-  if (cwd !== repo && !cwd.startsWith(`${repo}/`)) return `the backend on :3001 runs from ${cwd}, not this checkout (${repo}), so it is not running this commit`;
+  const root = await fetch(`${devRootApi}/api/auth/me`).then((res) => res.status, () => 0);
+  if (root !== 401) return `root does not answer on ${devRootApi}; start the dev stack with \`npm run dev\` from this checkout`;
+  const rootFrom = servingFrom(new URL(devRootApi).port);
+  if (!rootFrom) return `cannot tell which checkout root on ${devRootApi} runs from`;
+  if (rootFrom !== repo && !rootFrom.startsWith(`${repo}/`)) return `root on ${devRootApi} runs from ${rootFrom}, not this checkout (${repo}), so it is not running this commit`;
+  const koala = await fetch(`${devKoalaApi}/api/auth/sign-in`).then((res) => res.status, () => 0);
+  if (koala !== 200) return `your Koala does not answer on ${devKoalaApi}; the dev stack puts it on this computer's k3s`;
+  let koalaFrom: string;
+  try { koalaFrom = devKoalaCheckout(); } catch (err) { return `cannot tell which checkout your Koala's pods run: ${(err as Error).message}`; }
+  if (koalaFrom !== repo) return `your Koala's pods run ${koalaFrom || 'no checkout'}, not this checkout (${repo}), so they are not running this commit`;
   return undefined;
 }
 

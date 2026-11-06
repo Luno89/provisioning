@@ -242,6 +242,7 @@ describe('the instance chart', () => {
       expect(JSON.stringify(podOf(find(render(), 'Deployment', `luno-${process}`)))).not.toContain('docker');
     }
     expect(find(render(['instance.machineId=desk']), 'ConfigMap', 'luno-env').data?.INSTANCE_MACHINE_ID).toBe('desk');
+    expect(find(render(), 'ConfigMap', 'luno-env').data?.CHECKS_API_URL).toMatch(/^http:\/\/luno\.[a-z0-9-]+\.svc\.cluster\.local\/api$/);
     expect(find(render(), 'ConfigMap', 'luno-env').data).not.toHaveProperty('INSTANCE_MACHINE_ID');
 
     expect(specOf(find(render(), 'Service', 'luno')).type).toBe('ClusterIP');

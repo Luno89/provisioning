@@ -3,6 +3,7 @@ import { resolve } from 'node:path';
 import { HOTFIX, HOTFIX_STEPS, SHIP_STEPS, ignoredRefusal, judgeVulnerabilities, leaksRefusal, shippedThrough, vulnerableRefusal, waitingLines } from './lib/gates.js';
 import { liveProcesses } from './coupling/live.js';
 import { e2eEnv } from './lib/e2e-env.js';
+import { devOwner } from './lib/dev-stack.js';
 import { changedNow, commitLedger, devStackProblem, git, ignoredIn, leaksIn, minutesSince, npmPublishTimes, pushedGates, readRecord, runSteps, vulnerabilitiesIn, writeRecord } from './lib/gate-runs.js';
 
 const REPO = resolve(new URL('.', import.meta.url).pathname, '..');
@@ -10,8 +11,6 @@ const PUSH = !process.argv.includes('--no-push');
 const HOTFIXING = process.argv.includes(HOTFIX);
 
 async function main(): Promise<void> {
-  const admin = process.env.MECHANICS_ADMIN;
-  if (!admin && !HOTFIXING) throw new Error('set MECHANICS_ADMIN to the admin whose invites, model and agents the suites use');
   const branch = git(REPO, ['rev-parse', '--abbrev-ref', 'HEAD']);
   if (branch !== 'main') throw new Error(`ship runs on main, and this checkout is on ${branch}`);
   const changed = changedNow(REPO);
@@ -27,6 +26,7 @@ async function main(): Promise<void> {
   const stack = HOTFIXING ? undefined : await devStackProblem(REPO);
   if (stack) throw new Error(stack);
   if (!HOTFIXING && liveProcesses().length === 0) throw new Error('the dev stack is not measuring what the live suites run: stop it and start it with COUPLING_LIVE=1 npm run dev');
+  const owner = HOTFIXING ? undefined : (await devOwner()).id;
 
   const commit = git(REPO, ['rev-parse', 'HEAD']);
   const record = readRecord(REPO, commit) ?? { commit };
@@ -43,7 +43,7 @@ async function main(): Promise<void> {
   } else {
     console.log(`ship ${commit.slice(0, 12)}: the first two gates against the dev stack, which runs this checkout. Leave it as it is until this ends; work elsewhere.`);
     const started = Date.now();
-    const steps = runSteps(REPO, commit, SHIP_STEPS, e2eEnv(admin ?? ''));
+    const steps = runSteps(REPO, commit, SHIP_STEPS, e2eEnv(owner!));
     writeRecord(REPO, { ...record, shipped: { at: new Date().toISOString(), steps } });
     console.log(`\n✓ ${commit.slice(0, 12)} shipped: ${steps.length} steps in ${minutesSince(started)} min`);
   }
