@@ -1,14 +1,19 @@
 {
-  // NOT the project's typecheck entry point. Run `npm run typecheck`, which invokes the three
-  // real per-workspace configs (apps/backend, apps/frontend/tsconfig.app.json,
-  // packages/cdktf-infra) — each with the module resolution and lib/types its own code needs.
-  //
-  // This file is the original scaffold: it has no `include`, so pointing tsc at it sweeps the
-  // whole repo (e2e/, scripts/, tests/) under one set of options that suits none of them, and
-  // `"types": []` means even @types/node is missing. It reports ~140 errors that are almost
-  // entirely artifacts of that mismatch. Kept only as the shared baseline the workspace configs
-  // were derived from.
-  //
+  // NOT the project's typecheck entry point: `npm run typecheck` runs each workspace's own config.
+  // `files` is empty and `references` lists every real config so an editor's language server
+  // finds the config that owns a file (scripts/ through tests/tsconfig.json) instead of this one.
+  // The compilerOptions stay because tsx reads them when a script runs from the repository root.
+  "files": [],
+  "references": [
+    { "path": "./apps/backend" },
+    { "path": "./apps/frontend" },
+    { "path": "./apps/local-agent" },
+    { "path": "./packages/agent-engine" },
+    { "path": "./packages/cdktf-infra" },
+    { "path": "./packages/context-engine" },
+    { "path": "./packages/engine-core" },
+    { "path": "./tests" }
+  ],
   // Visit https://aka.ms/tsconfig to read more about this file
   "compilerOptions": {
     // File Layout
