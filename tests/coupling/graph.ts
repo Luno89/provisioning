@@ -19,7 +19,7 @@ export interface Edge {
   from: string;
   site: Site;
   to: string[];
-  through: 'call' | 'interface' | 'temporal' | ChannelEnd['kind'];
+  through: 'call' | 'interface' | 'temporal' | 'render' | 'reference' | ChannelEnd['kind'];
   device?: boolean;
 }
 
@@ -55,6 +55,7 @@ export interface GraphOptions {
   matches?: Partial<Record<ChannelEnd['kind'], (sent: string, heard: string) => boolean>>;
   extraEnds?: readonly ExtraEnd[];
   withinFiles?: boolean;
+  handOffs?: boolean;
 }
 
 const TEST_FOLDER = /(^|\/)(tests?|testing|__tests__)\//;
@@ -261,6 +262,32 @@ export function buildGraph(options: GraphOptions): Graph {
       index(source);
     }
 
+    const renderedComponent = (tag: ts.JsxTagNameExpression): ts.Node | undefined => {
+      if (ts.isIdentifier(tag) && /^[a-z]/.test(tag.text)) return undefined;
+      const named = checker.getSymbolAtLocation(tag);
+      const symbol = named && named.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(named) : named;
+      const declaration = symbol?.valueDeclaration ?? symbol?.declarations?.[0];
+      if (!declaration || !ownCode(declaration.getSourceFile().fileName)) return undefined;
+      return FUNCTION_KINDS.has(declaration.kind) ? declaration : functionOf(declaration);
+    };
+
+    const handedFunction = (name: ts.Identifier): ts.Node | undefined => {
+      const value = ts.isPropertyAccessExpression(name.parent) && name.parent.name === name ? name.parent : name;
+      const parent = value.parent;
+      if ((ts.isCallExpression(parent) || ts.isNewExpression(parent)) && parent.expression === value) return undefined;
+      if (ts.isPropertyAccessExpression(parent) && parent.expression === value) return undefined;
+      if (ts.isJsxOpeningElement(parent) || ts.isJsxSelfClosingElement(parent) || ts.isJsxClosingElement(parent)) return undefined;
+      if (ts.isImportSpecifier(parent) || ts.isImportClause(parent) || ts.isExportSpecifier(parent) || ts.isNamespaceImport(parent)) return undefined;
+      if (ts.isTypeReferenceNode(parent) || ts.isTypeQueryNode(parent) || ts.isQualifiedName(parent)) return undefined;
+      const named = checker.getSymbolAtLocation(name);
+      const symbol = named && named.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(named) : named;
+      const declaration = symbol?.valueDeclaration;
+      if (!declaration || ts.getNameOfDeclaration(declaration) === name) return undefined;
+      if (!ownCode(declaration.getSourceFile().fileName) || GENERATED.test(declaration.getSourceFile().fileName)) return undefined;
+      if (FUNCTION_KINDS.has(declaration.kind)) return declaration;
+      return ts.isVariableDeclaration(declaration) ? functionOf(declaration) : undefined;
+    };
+
     for (const source of sources) {
       const file = at(source.fileName);
       if (!project.owns(file) || !options.calledFrom(file)) continue;
@@ -302,6 +329,16 @@ export function buildGraph(options: GraphOptions): Graph {
               }
             }
           }
+        }
+        if (options.handOffs && (ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node))) {
+          const rendered = renderedComponent(node.tagName);
+          if (rendered) edges.push({ from: enclosing(node).id, site: siteOf(node), to: [unitOf(rendered).id], through: 'render' });
+        }
+        if (options.handOffs && ts.isIdentifier(node)) {
+          const handed = handedFunction(node);
+          const from = handed ? enclosing(node) : undefined;
+          const to = handed ? unitOf(handed) : undefined;
+          if (from && to && from.id !== to.id && !to.inTest) edges.push({ from: from.id, site: siteOf(node), to: [to.id], through: 'reference' });
         }
         ts.forEachChild(node, visit);
       };

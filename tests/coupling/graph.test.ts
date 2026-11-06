@@ -88,3 +88,26 @@ describe('what is a test and which area a file is in', () => {
     ].map(areaOf)).toEqual(['backend/instances', 'backend', 'frontend/hub', 'frontend/shell', 'apps/local-agent', 'packages/engine-core', 'tests']);
   });
 });
+
+describe('hand-offs: a component rendered, a function handed over as a value', () => {
+  const SCREENS = join(import.meta.dirname, 'fixture-screens');
+  const screens = (handOffs: boolean): Graph => buildGraph({ projects: [{ tsconfig: join(SCREENS, 'tsconfig.json'), owns: () => true }], root: SCREENS, calledFrom: (file) => !isTest(file), handOffs });
+  const kinds = (graph: Graph, through: string): string[] => graph.edges.filter((edge) => edge.through === through)
+    .map((edge) => `${graph.units[edge.from]!.name} -> ${named(graph, edge.to).join(',')}`).sort();
+
+  it('records neither unless asked, so the coupling audit judges the graph it always has', () => {
+    const plain = screens(false);
+    expect(kinds(plain, 'render')).toEqual([]);
+    expect(kinds(plain, 'reference')).toEqual([]);
+  });
+
+  it('follows a component to each of our own components it renders, and not to an HTML element', () => {
+    expect(kinds(screens(true), 'render')).toEqual(['Section -> src/Wizard.tsx#Wizard']);
+  });
+
+  it('follows a function handed over to be called later, but not one called, imported or named only as a type', () => {
+    const graph = screens(true);
+    expect(kinds(graph, 'reference')).toEqual(['useApps -> src/api.ts#getApps']);
+    expect(kinds(graph, 'call')).toEqual(expect.arrayContaining(['useDelete -> src/api.ts#deleteApp', 'Section -> src/hooks.ts#useApps']));
+  });
+});

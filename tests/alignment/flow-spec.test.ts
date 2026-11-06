@@ -54,7 +54,7 @@ describe('a flow, held to the register and the repository', () => {
 });
 
 describe('what a file exports, as TypeScript reads it', () => {
-  it('names default and named exports of every kind, and leaves out what is not exported', () => {
+  it('names default and named exports of every kind, a default function by its name too, and leaves out what is not exported', () => {
     const source = [
       'export default function Login() { return null }',
       'export function AppsSection() { return null }',
@@ -65,7 +65,7 @@ describe('what a file exports, as TypeScript reads it', () => {
       'function helper() {}',
       'const hidden = 1',
     ].join('\n');
-    expect(exportsIn(source, 'x.tsx')).toEqual(new Set(['default', 'AppsSection', 'useApps', 'AppRow', 'Kind', 'renamed']));
+    expect(exportsIn(source, 'x.tsx')).toEqual(new Set(['default', 'Login', 'AppsSection', 'useApps', 'AppRow', 'Kind', 'renamed']));
   });
 
   it('takes export default of an expression as the default export', () => {

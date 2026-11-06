@@ -14,7 +14,10 @@ export function exportsIn(source: string, file: string): Set<string> {
       for (const element of statement.exportClause.elements) names.add(element.name.text);
     }
     if (!exported(statement)) continue;
-    if (isDefault(statement)) names.add('default');
+    if (isDefault(statement)) {
+      names.add('default');
+      if ((ts.isFunctionDeclaration(statement) || ts.isClassDeclaration(statement)) && statement.name) names.add(statement.name.text);
+    }
     if ((ts.isFunctionDeclaration(statement) || ts.isClassDeclaration(statement) || ts.isInterfaceDeclaration(statement) || ts.isTypeAliasDeclaration(statement)) && statement.name && !isDefault(statement)) names.add(statement.name.text);
     if (ts.isVariableStatement(statement)) {
       for (const declaration of statement.declarationList.declarations) if (ts.isIdentifier(declaration.name)) names.add(declaration.name.text);

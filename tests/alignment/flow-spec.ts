@@ -16,6 +16,7 @@ export interface Step {
   id: string;
   does: string;
   screen: Screen;
+  code?: string[];
   decisions: string[];
   branches?: Branch[];
   assumed?: string;
@@ -58,6 +59,12 @@ export function flowProblems(flows: readonly Flow[], known: Known): string[] {
         else if (!known.exportsOf(file).has(name)) problems.push(`${step.id}: ${file} exports no ${name}`);
       }
       if ((step.screen.on === 'root' || step.screen.on === 'instance') && !step.screen.component) problems.push(`${step.id}: a step on ${step.screen.on}'s pages names no component`);
+      for (const code of step.code ?? []) {
+        const [file, name] = code.split('#');
+        if (!file || !name) problems.push(`${step.id}: its code ${code} is not <file>#<function>`);
+        else if (!known.files.has(file)) problems.push(`${step.id}: no file ${file}`);
+        else if (name !== '(script)' && !known.exportsOf(file).has(name)) problems.push(`${step.id}: ${file} exports no ${name}`);
+      }
     }
   }
   return problems;

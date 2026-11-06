@@ -275,7 +275,7 @@ export function mermaidOf(flow: FileFlow, labels: Readonly<Record<string, string
     lines.push(`  ${ids.get(node.file)}["${label(text)}"]${style}`);
   }
   for (const link of flow.links) {
-    const crossing = link.through.filter((through) => through !== 'call' && through !== 'interface');
+    const crossing = link.through.filter((through) => through !== 'call' && through !== 'interface' && through !== 'render' && through !== 'reference');
     lines.push(`  ${ids.get(link.from)} -->${crossing.length > 0 ? `|${crossing.join(', ')}|` : ''} ${ids.get(link.to)}`);
   }
   lines.push('  classDef entry stroke-width:3px', '  classDef touch stroke-dasharray:4 2', '  classDef gap stroke-width:3px,stroke-dasharray:2 2');
