@@ -38,9 +38,13 @@ export const clusterDashboardUrl = (clusterId: string, serviceName: string): str
   `${API_BASE}/clusters/${clusterId}/proxy/${serviceName}/`
 
 export interface ClusterCreated {
+  message: 'Provisioning started'
+  clusterName: string
+  provider: string
   id: string
-  status?: string
+  workflowId: string
+  state: 'running'
 }
 
-export const provisionCluster = <T,>(body: unknown): Promise<T> =>
-  api.post<T>('/clusters', body).then((r) => r.data)
+export const provisionCluster = (body: unknown): Promise<ClusterCreated> =>
+  api.post<ClusterCreated>('/clusters', body).then((r) => r.data)

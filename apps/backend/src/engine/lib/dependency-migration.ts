@@ -2,8 +2,12 @@ import type { Install, ToolDefinition, WorkspaceDependency } from '@koala/agent-
 import { runsFingerprint, type McpServerRecord } from './mcp-servers.js';
 import { catalogueOf, dependencyNameFor } from './workspace-dependencies.js';
 
-type LegacyTool = ToolDefinition & { install?: Install | undefined; needsBinaries?: string[] | undefined; provides?: string[] | undefined };
-type LegacyRuns = Extract<McpServerRecord['runs'], { where: 'workspace' }> & { install?: Install[] | undefined; needsBinaries?: string[] | undefined };
+export type LegacyInstall = Install | { via: 'base' };
+
+const installs = (steps: readonly LegacyInstall[]): Install[] => steps.flatMap((step) => (step.via === 'base' ? [] : [{ ...step }]));
+
+type LegacyTool = ToolDefinition & { install?: LegacyInstall | undefined; needsBinaries?: string[] | undefined; provides?: string[] | undefined };
+type LegacyRuns = Extract<McpServerRecord['runs'], { where: 'workspace' }> & { install?: LegacyInstall[] | undefined; needsBinaries?: string[] | undefined };
 
 export interface DependencyMigrationStore {
   accounts: {
@@ -45,8 +49,8 @@ export async function migrateToDependencies(store: DependencyMigrationStore, shi
     return owned.get(ownerId)!;
   };
 
-  const dependencyFor = async (ownerId: string | undefined, installs: readonly Install[], provides: readonly string[], named: string, summary: string): Promise<string | undefined> => {
-    const real = installs.filter((install) => install.via !== 'base');
+  const dependencyFor = async (ownerId: string | undefined, legacy: readonly LegacyInstall[], provides: readonly string[], named: string, summary: string): Promise<string | undefined> => {
+    const real = installs(legacy);
     if (real.length === 0) return undefined;
     const catalogue = ownerId ? catalogueOf(shipped, await ownOf(ownerId)) : [...shipped];
     const found = catalogue.find((dependency) => sameInstalls(dependency.install, real));
@@ -56,7 +60,7 @@ export async function migrateToDependencies(store: DependencyMigrationStore, shi
     const taken = new Set(catalogue.map((dependency) => dependency.name));
     let name = dependencyNameFor(named);
     for (let n = 2; taken.has(name); n += 1) name = `${dependencyNameFor(named).slice(0, 36)}-${n}`;
-    const made: WorkspaceDependency = { name, summary, provides: [...provides], install: real.map((install) => ({ ...install })) as Install[], ownerId };
+    const made: WorkspaceDependency = { name, summary, provides: [...provides], install: real, ownerId };
     await store.engine.saveWorkspaceDependency({ ...made, ownerId });
     (await ownOf(ownerId)).push(made);
     out.dependenciesMade += 1;

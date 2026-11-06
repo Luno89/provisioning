@@ -15,6 +15,9 @@ export function Scaffold({ value, onChange }: {
   const patchFile = (index: number, patch: Partial<TreeTypeFile>) =>
     onChange({ files: files.map((f, i) => (i === index ? { ...f, ...patch } : f)) });
 
+  const setExecutable = (index: number, executable: boolean) =>
+    onChange({ files: files.map((f, i) => (i !== index ? f : executable ? { ...f, executable } : { path: f.path, content: f.content })) });
+
   const removeFile = (index: number) => onChange({ files: files.filter((_, i) => i !== index) });
 
   const addFile = () => {
@@ -63,7 +66,7 @@ export function Scaffold({ value, onChange }: {
                   />
                 </div>
                 <label className="flex items-center gap-2 text-[12px] text-slate-300">
-                  <input type="checkbox" checked={f.executable ?? false} onChange={(e) => patchFile(i, { executable: e.target.checked || undefined })} />
+                  <input type="checkbox" checked={f.executable ?? false} onChange={(e) => setExecutable(i, e.target.checked)} />
                   Executable
                 </label>
               </div>

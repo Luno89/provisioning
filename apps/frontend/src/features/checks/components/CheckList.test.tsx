@@ -11,7 +11,6 @@ vi.mock('../api', async () => {
   const actual = await vi.importActual<typeof import('../api')>('../api')
   return {
     ...actual,
-    listModels: vi.fn(async () => []),
     listScenarios: vi.fn(),
     listLevel2Runs: vi.fn(async () => []),
     getLevel2Run: vi.fn(),
@@ -26,6 +25,7 @@ vi.mock('../api', async () => {
   }
 })
 
+vi.mock('../../models/api', async () => ({ ...(await vi.importActual<typeof import('../../models/api')>('../../models/api')), listModels: vi.fn(async () => []) }))
 vi.mock('../../models/components/ModelSelector/ModelSelector', () => ({ default: () => <div data-testid="model-selector" /> }))
 vi.mock('./ScenarioTrace', () => ({ default: () => <div data-testid="scenario-trace" /> }))
 

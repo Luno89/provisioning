@@ -92,9 +92,7 @@ function stable(installs: readonly Install[]): string {
     installs
       .map((install) => (install.via === 'script'
         ? { via: install.via, run: install.run }
-        : install.via === 'base'
-          ? { via: install.via }
-          : { via: install.via, packages: [...install.packages].sort() }))
+        : { via: install.via, packages: [...install.packages].sort() }))
       .sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))),
   );
 }
@@ -121,8 +119,7 @@ export function planImage(input: {
   const provides = new Set(base.provides);
   const has = new Set([...(base.has ?? []), base.id]);
   const lines: PlanLine[] = (base.setup ?? []).map((install) => ({ install, from: `base:${base.id}` }));
-  const contributions = (input.contributions ?? []).filter((contribution) => contribution.install.via !== 'base'
-    && !(contribution.provides?.length && contribution.provides.every((binary) => provides.has(binary))));
+  const contributions = (input.contributions ?? []).filter((contribution) => !(contribution.provides?.length && contribution.provides.every((binary) => provides.has(binary))));
 
   const catalogue = input.dependencies ?? LANGUAGE_DEPENDENCIES;
   const needs: Need[] = [
@@ -196,7 +193,6 @@ export function renderDockerfile(plan: ImagePlan): string {
   const lines = [`FROM ${plan.base}`, 'USER root'];
 
   for (const install of plan.installs) {
-    if (install.via === 'base') continue;
     lines.push(`RUN ${install.via === 'script' ? install.run : RUN_FOR[install.via](install.packages)}`);
   }
 

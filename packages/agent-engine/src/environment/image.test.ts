@@ -255,10 +255,6 @@ describe('where each line of a workspace image comes from', () => {
     expect(planImage({ base: 'minimal', tools: [], contributions: [{ from: 'project', install: { via: 'npm', packages: ['left-pad'] } }, { from: 'project', install: { via: 'npm', packages: ['is-odd'] } }] }).lines!.map((line) => line.from)).toEqual(['project', 'project', 'project']);
   });
 
-  it('adds nothing for a contribution the base already provides', () => {
-    expect(planImage({ base: 'node', tools: [], contributions: [{ from: 'project', install: { via: 'base' } }] }).lines).toEqual([]);
-  });
-
   it('leaves out a contribution whose programs the base already has', () => {
     const fonts = { from: 'project', install: { via: 'script' as const, run: 'install fonts' }, provides: ['fc-list'] };
     const bases = [...BASES, { id: 'has-fonts', image: 'fonts:1', provides: ['bash', 'fc-list'] }];

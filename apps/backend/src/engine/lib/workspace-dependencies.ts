@@ -7,7 +7,6 @@ const isTextList = (value: unknown): value is string[] => Array.isArray(value) &
 
 function installFrom(value: unknown): Install | undefined {
   const fields = fieldsOf(value);
-  if (fields.via === 'base') return { via: 'base' };
   if (fields.via === 'script') return typeof fields.run === 'string' ? { via: 'script', run: fields.run } : undefined;
   const via = PACKAGE_MANAGERS.find((manager) => manager === fields.via);
   return via && isTextList(fields.packages) ? { via, packages: fields.packages } : undefined;
@@ -90,7 +89,7 @@ export function hasScript(dependency: Pick<WorkspaceDependency, 'install' | 'onD
 }
 
 export function dependencyFromInstall(name: string, summary: string, install: readonly Install[], provides: readonly string[]): WorkspaceDependency {
-  return { name, summary, provides: [...provides], install: install.filter((step) => step.via !== 'base').map((step) => ({ ...step })) as Install[] };
+  return { name, summary, provides: [...provides], install: install.map((step) => ({ ...step })) };
 }
 
 export const dependencyNameFor = (raw: string): string =>

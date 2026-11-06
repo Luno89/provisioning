@@ -6,7 +6,7 @@ import { startBackend } from '../../../test/backend/site'
 import { infrastructureOf, type Infrastructure } from '../../../test/backend/infrastructure'
 import { outsideThisTier } from '../../../test/backend/outside'
 import type { Wire } from '../../../test/backend/wire'
-import { clustersRouter } from '../../../../../backend/src/infrastructure/routes/clusters'
+import { clustersRouter, type ProvisionStarted } from '../../../../../backend/src/infrastructure/routes/clusters'
 import { clusterProvidersRouter } from '../../../../../backend/src/infrastructure/routes/cluster-providers'
 import type { ClusterProxyService } from '../../../../../backend/src/infrastructure/services/ClusterProxyService'
 import type { GiteaService } from '../../../../../backend/src/projects/services/GiteaService'
@@ -38,6 +38,7 @@ await backend.db.infrastructure.saveCluster(MACHINE)
 await backend.db.infrastructure.saveCluster({ ...MACHINE, id: 'machine-theirs', name: 'theirs', machineId: 'theirs', ownerId: 'someone-else' })
 
 expectTypeOf<Wire<ClusterMetadata>>().toExtend<Cluster>()
+expectTypeOf<Wire<ProvisionStarted>>().toExtend<ClusterCreated>()
 expectTypeOf<Wire<ReturnType<typeof offeredProviders>[number]>>().toExtend<ClusterProviderSpec>()
 
 describe('clusters, as Infrastructure and Provision a cluster ask for them', () => {
@@ -54,8 +55,8 @@ describe('clusters, as Infrastructure and Provision a cluster ask for them', () 
   })
 
   it('starts provisioning a k3d cluster and answers with its id', async () => {
-    const made = await provisionCluster<ClusterCreated & { clusterName: string; provider: string; workflowId: string }>({ name: 'scratch', provider: 'k3d' })
-    expect(made).toMatchObject({ clusterName: 'scratch', provider: 'k3d', id: anyOf(String), workflowId: anyOf(String) })
+    const made = await provisionCluster({ name: 'scratch', provider: 'k3d' })
+    expect(made).toEqual({ message: 'Provisioning started', clusterName: 'scratch', provider: 'k3d', id: anyOf(String), workflowId: anyOf(String), state: 'running' })
     expect(infra!.temporal.started.at(-1)?.options.workflowId).toBe(made.workflowId)
   })
 

@@ -100,8 +100,16 @@ const attributesOf = (event: temporal.api.history.v1.IHistoryEvent): string | nu
 
 export interface WorkflowDeal {
   readonly id: string
-  readonly resourceId?: string
   readonly event: string
+}
+
+export interface ResourceDeal extends WorkflowDeal {
+  readonly resourceId: string
+}
+
+export interface NothingToBuild {
+  readonly event: 'nothing-to-build'
+  readonly reason: string
 }
 
 export type TemporalConnect = (options?: { address?: string }) => Promise<Client>
@@ -715,7 +723,7 @@ export class TemporalBridge {
     provider: ClusterMetadata['provider'],
     userId: string,
     hetzner?: { serverType?: string; location?: string; image?: string },
-  ): Promise<WorkflowDeal> {
+  ): Promise<ResourceDeal> {
     const wfId = `cluster-provision-${clusterName}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
     const logFileName = `${Date.now()}-${Math.random().toString(36).slice(2)}-A1.log`
     const absoluteLogPath = path.join(LOG_DIR, logFileName)
@@ -859,7 +867,7 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
   }
 
 
-  async deployApp(config: Record<string, unknown>, userId?: string): Promise<WorkflowDeal> {
+  async deployApp(config: Record<string, unknown>, userId?: string): Promise<ResourceDeal> {
     const { workflowId, deployment } = await startAppDeploy(this.appDeployDeps(), deployRequestOf(config), userId)
     void this.follow(workflowId, 'app-deploy', deployment.id, deployment.name, '', deployment)
     return {
@@ -1144,7 +1152,7 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
     await this.db.infrastructure.deleteDeploymentsOfCluster(clusterId)
   }
 
-  async runPipeline(project: ProjectMetadata, commitSha: string, ref: string): Promise<WorkflowDeal> {
+  async runPipeline(project: ProjectMetadata, commitSha: string, ref: string): Promise<ResourceDeal | NothingToBuild> {
     if (!project.giteaOwner || !project.giteaRepo) {
       throw new Error(`Project ${project.id} has no repository to run a pipeline for.`)
     }
@@ -1152,7 +1160,7 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
     const plan = this.planBuild ? await this.planBuild(project, commitSha) : undefined
     if (plan && !plan.build) {
       console.log(`[pipeline] ${project.name}: ${plan.reason}; no build recorded`)
-      return { id: '', event: 'nothing-to-build' }
+      return { event: 'nothing-to-build', reason: plan.reason }
     }
     const runId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
     const wfId = `pipeline-run-${project.giteaRepo}-${runId}`
@@ -1229,7 +1237,7 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
     }
   }
 
-  async promoteProjectBuild(project: ProjectMetadata, run: PipelineRunMetadata, userId?: string): Promise<WorkflowDeal> {
+  async promoteProjectBuild(project: ProjectMetadata, run: PipelineRunMetadata, userId?: string): Promise<ResourceDeal> {
     const secrets = await this.ensureSecrets?.(project)
     if (secrets?.waiting.length) throw new Error(`waiting for the person to enter ${secrets.waiting.join(', ')}`)
     const { workflowId, deployment } = await deployProjectBuild(this.appDeployDeps(), project, run, userId)

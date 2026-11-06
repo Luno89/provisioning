@@ -1,6 +1,6 @@
 import { v4 as uuidv4 } from 'uuid';
 import type { ToolDefinition } from '@koala/agent-engine';
-import type { SamplingConfig } from '@koala/harness-types';
+import type { TemperatureSampling } from '../../engine/index.js';
 import { BUILT_IN_SCENARIOS } from '../../eval/level2/scenarios.js';
 import { scenarioProblems, type Scenario } from '../../eval/level2/scenario.js';
 import type { ScenarioResult } from '../../eval/level2/results.js';
@@ -25,7 +25,7 @@ export interface Level2Run extends EvalRecord {
   finishedAt?: string | undefined;
   modelId?: string | undefined;
   modelLabel?: string | undefined;
-  sampling?: SamplingConfig | undefined;
+  sampling?: TemperatureSampling | undefined;
   scenarios: string[];
   finished: number;
   running?: string | undefined;
@@ -174,7 +174,7 @@ export class Level2Service {
     only?: readonly string[] | undefined;
     modelId?: string | undefined;
     modelLabel?: string | undefined;
-    sampling?: SamplingConfig | undefined;
+    sampling?: TemperatureSampling | undefined;
     trigger?: BenchTrigger | undefined;
     trialPractice?: string | undefined;
     promptOverride?: { agent: string; prompt: string } | undefined;
@@ -208,8 +208,7 @@ export class Level2Service {
 
     const contracts = new Set(chosen.flatMap((scenario) => [scenario.expect.provokes?.tool, scenario.expect.chooses?.tool].filter((tool): tool is string => Boolean(tool))));
     const tools = contracts.size > 0 ? (await this.options.tools(run.ownerId)).filter((tool) => contracts.has(tool.name)) : [];
-    const chosenTemperature = input.sampling?.toolTurn?.temperature;
-    const temperature = typeof chosenTemperature === 'number' ? chosenTemperature : undefined;
+    const temperature = input.sampling?.toolTurn.temperature;
     try {
       await this.options.checks.start(checkRunWorkflowId(run.id), {
         checkRunId: run.id,

@@ -22,7 +22,6 @@ import {
   listToolNotes,
   makeToolNoteLive,
   retireToolNote,
-  listModels,
   listScenarios,
   saveBench,
   saveScenario,
@@ -32,6 +31,7 @@ import {
   type Scenario,
   type StartLevel2Input,
 } from './api'
+import { listModels, providerKeys } from '../models'
 
 export const evalKeys = {
   comparison: (before: string, after: string) => ['evals', 'level2', 'compare', before, after] as const,
@@ -40,7 +40,6 @@ export const evalKeys = {
   scenarios: ['evals', 'level2', 'scenarios'] as const,
   level2Runs: ['evals', 'level2', 'runs'] as const,
   level2Run: (id: string) => ['evals', 'level2', 'run', id] as const,
-  models: ['evals', 'models'] as const,
   bench: ['evals', 'level2', 'bench'] as const,
   proposals: ['evals', 'level2', 'proposals'] as const,
   practices: ['evals', 'level2', 'practices'] as const,
@@ -51,7 +50,7 @@ export const evalKeys = {
 const whileRunning = (state: string | undefined, every: number) => (state === 'running' ? every : false)
 
 export function useModels() {
-  return useQuery({ queryKey: evalKeys.models, queryFn: listModels })
+  return useQuery({ queryKey: providerKeys.list(), queryFn: listModels })
 }
 
 export function useCoverage() {

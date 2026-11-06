@@ -1,4 +1,5 @@
 import { WorkflowNotFoundError, type Client, type WorkflowClient, type WorkflowExecutionDescription, type WorkflowExecutionInfo, type WorkflowHandle } from '@temporalio/client';
+import { containing } from '../../platform/lib/test-matchers.js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mock } from 'vitest-mock-extended';
 import type { Server as SocketServer } from 'socket.io';
@@ -156,7 +157,7 @@ describe('a push to a project', () => {
   it('records no build when the commit has nothing to build', async () => {
     const { instance, db, workflow } = bridge();
     instance.planBuild = (_project, sha) => buildPlanAt(async () => null, sha);
-    expect(await instance.runPipeline(project, SHA, 'main')).toEqual({ id: '', event: 'nothing-to-build' });
+    expect(await instance.runPipeline(project, SHA, 'main')).toEqual({ event: 'nothing-to-build', reason: containing('there is no Dockerfile at') });
     expect(await db.releases.getPipelineRuns()).toEqual([]);
     expect(workflow.start).not.toHaveBeenCalled();
   });
@@ -171,7 +172,9 @@ describe('a push to a project', () => {
   it('records the build as queued, starts its workflow on the cluster queue as the project\'s owner and tells the browsers', async () => {
     const io = mock<SocketServer>();
     const { ready, db, workflow } = bridge({ io });
-    const deal = await ready().runPipeline(project, SHA, 'refs/heads/main');
+    const answer = await ready().runPipeline(project, SHA, 'refs/heads/main');
+    if (!('id' in answer)) throw new Error(`no build was started: ${answer.reason}`);
+    const deal = answer;
     expect(deal.event).toBe('pipeline-run');
     expect(deal.id).toMatch(/^pipeline-run-notes-/);
     const [run] = await db.releases.getPipelineRuns();

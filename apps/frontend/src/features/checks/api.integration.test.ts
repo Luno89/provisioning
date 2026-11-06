@@ -1,6 +1,6 @@
 import { describe, expect, expectTypeOf, it } from 'vitest'
 import {
-  type AgentChange, type BenchSettings, type BenchState, type CoverageGap, type Practice, type Scenario, type ScenarioProposal, type ToolNote,
+  type AgentChange, type BenchSettings, type Level2Run, type BenchState, type CoverageGap, type Practice, type Scenario, type ScenarioProposal, type ToolNote,
   cancelLevel2Run, compareCheckRuns, deleteScenario, dismissChange, dismissProposal, getBench, getCheckProcedure, getCoverage, getLevel2Run, listChanges,
   listLevel2Runs, listPractices, listProposals, listScenarios, listToolNotes, makePracticeLive, makeToolNoteLive, retirePractice, retireToolNote, saveBench,
   saveScenario, startLevel2Run, acceptProposal,
@@ -21,6 +21,7 @@ import type { BenchSettings as BackendBenchSettings, BenchState as BackendBenchS
 import type { CoverageGap as BackendGap } from '../../../../backend/src/checks/lib/check-coverage'
 import type { ScenarioProposal as BackendProposal } from '../../../../backend/src/checks/lib/scenario-proposals'
 import type { AgentChange as BackendChange } from '../../../../backend/src/engine/lib/agent-changes'
+import type { Level2Run as BackendLevel2Run } from '../../../../backend/src/checks/services/Level2Service'
 import type { MemoryItem } from '../../../../backend/src/memory/lib/memory-store'
 
 let side: ProjectsSide | undefined
@@ -77,6 +78,7 @@ const ownCheck: Scenario = {
 } as Scenario
 
 expectTypeOf<Wire<BackendScenario>>().toExtend<Scenario>()
+expectTypeOf<Wire<BackendLevel2Run>>().toExtend<Level2Run>()
 expectTypeOf<Wire<BackendBenchSettings>>().toExtend<BenchSettings>()
 expectTypeOf<Wire<BackendBenchState>>().toExtend<BenchState>()
 expectTypeOf<Wire<BackendGap>>().toExtend<CoverageGap>()

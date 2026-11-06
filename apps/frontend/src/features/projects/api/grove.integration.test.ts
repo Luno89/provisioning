@@ -4,11 +4,12 @@ import {
   cancelLeaf, createTree, deleteBranch, deleteLeaf, deleteTree, getTreeModels, getTreeRun, getTreeWorkspace, listBranches, listLeaves,
   listTreeTypes, listTrees, orderFeatures, orderStories, releaseTreeWorkspace, retryLeaf, runTree, setTreeModel, settleLeaf, stopTreeRun, updateTreeType,
 } from './grove'
-import type { Branch, Leaf, Tree } from '../types/grove'
+import type { Branch, Leaf, Tree, TreeType } from '../types/grove'
 import { startBackend } from '../../../test/backend/site'
 import { projectsOf, type ProjectsSide } from '../../../test/backend/projects'
 import type { Wire } from '../../../test/backend/wire'
 import { anyOf, objectWith } from '../../../../../backend/src/platform/lib/test-matchers'
+import type { TreeTypeSpec } from '../../../../../backend/src/projects/lib/tree-types'
 import type { Tree as BackendTree } from '../../../../../backend/src/projects/lib/trees'
 import type { Branch as BackendBranch, Leaf as BackendLeaf } from '../../../../../backend/src/projects/lib/leaves'
 import type { TreeModelRow as BackendModelRow } from '../../../../../backend/src/models/services/TreeModelsService'
@@ -24,6 +25,7 @@ const now = new Date().toISOString()
 expectTypeOf<Wire<BackendTree & { branchCount: number }>>().toExtend<Tree>()
 expectTypeOf<Wire<BackendBranch>>().toExtend<Branch>()
 expectTypeOf<Wire<BackendLeaf>>().toExtend<Leaf>()
+expectTypeOf<Wire<TreeTypeSpec>>().toExtend<TreeType>()
 expectTypeOf<Wire<BackendModelRow>>().toExtend<TreeModelRow>()
 expectTypeOf<Wire<GroveRunStatus>>().toExtend<TreeRunStatus>()
 

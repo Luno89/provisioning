@@ -9,7 +9,7 @@ const REFERENCE_CONFIGS = [
 ];
 
 const [file, symbol] = process.argv.slice(2);
-if (!file || !symbol) throw new Error('usage: npm run refs -- <file> <Symbol or Type.member>');
+if (!file || !symbol) throw new Error('usage: npm run refs -- <file> <Symbol, Type.member or line:column>');
 const started = Date.now();
 const references = referencesOf(ROOT, REFERENCE_CONFIGS, file, symbol);
 for (const reference of references) console.log(`${reference.file}:${reference.line}:${reference.column}  ${reference.kind.padEnd(11)}  ${reference.text}`);

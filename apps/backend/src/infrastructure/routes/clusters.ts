@@ -1,6 +1,6 @@
 import { Router, type Request } from 'express';
 import type { Server as SocketServer } from 'socket.io';
-import { asyncRoute, authorize, clusterResource, principalFrom } from '../../platform/index.js';
+import { asyncRoute, authorize, clusterResource, principalFrom, type ClusterMetadata } from '../../platform/index.js';
 import { signsInAsPlatform, validateClusterName } from '../lib/cluster-name.js';
 import { isClusterProviderName, notAClusterProvider, ProvisionRefused } from '../lib/cluster-topology.js';
 import { provisionRequestOf } from '../lib/cluster-request.js';
@@ -11,6 +11,15 @@ import type { GiteaService } from '../../projects/index.js';
 import type { InfisicalService } from '../services/InfisicalService.js';
 import type { InfrastructureService } from '../services/InfrastructureService.js';
 import type { TemporalBridge } from '../services/TemporalBridge.js';
+
+export interface ProvisionStarted {
+  message: 'Provisioning started';
+  clusterName: string;
+  provider: ClusterMetadata['provider'];
+  id: string;
+  workflowId: string;
+  state: 'running';
+}
 
 export interface ClustersRouterDeps {
   clusterService: ClusterService;
@@ -98,14 +107,15 @@ export function clustersRouter(deps: ClustersRouterDeps): Router {
 
       if (!isClusterProviderName(body.provider)) return res.status(400).json({ error: notAClusterProvider(body.provider) });
       const info = await temporalBridge.provision(name, body.provider, userOf(req).id, body.vm);
-      res.status(202).json({
+      const started: ProvisionStarted = {
         message: 'Provisioning started',
         clusterName: name,
         provider: body.provider,
         id: info.resourceId,
         workflowId: info.id,
         state: 'running',
-      });
+      };
+      res.status(202).json(started);
     } catch (err) {
       if (err instanceof ProvisionRefused) return res.status(400).json({ error: err.message });
       res.status(503).json({ error: `Temporal cluster provisioning unavailable: ${(err as Error).message}` });

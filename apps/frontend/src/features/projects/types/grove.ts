@@ -26,7 +26,7 @@ export interface Branch {
 export interface TreeTypeFile {
   path: string
   content: string
-  executable?: boolean | undefined
+  executable?: boolean
 }
 
 export type WorkspaceLanguage = 'node' | 'python' | 'go' | 'base' | 'odoo' | 'odoo-20'

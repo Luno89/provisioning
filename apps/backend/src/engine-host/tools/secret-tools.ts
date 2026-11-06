@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { ToolHandler, ToolOutcome } from '@koala/engine-core';
 import {
   descriptionProblem, keyProblem, secretReference, sourceFor, withRequired,
-  type SecretRequest, type SecretRequestFilter,
+  type MintedSource, type SecretRequest, type SecretRequestFilter,
 } from '../../projects/lib/secret-requests.js';
 import type { Tree } from '../../projects/index.js';
 import { projectFor as scopedProject } from './project-scope.js';
@@ -11,7 +11,7 @@ import type { ProjectMetadata } from '../../platform/index.js';
 export interface SecretVault {
   has(projectId: string, key: string): Promise<boolean>;
   keys(projectId: string): Promise<string[]>;
-  mint(ownerId: string, projectId: string, key: string, sourceId: string): Promise<void>;
+  mint(ownerId: string, projectId: string, key: string, sourceId: MintedSource): Promise<void>;
 }
 
 export interface SecretToolStores {

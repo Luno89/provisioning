@@ -47,8 +47,10 @@ export function withRequired(
   return [...rest, { key, source }];
 }
 
+export type MintedSource = 'generated' | 'gitea-read-token';
+
 export interface SecretSource {
-  id: string;
+  id: MintedSource;
   label: string;
   matches(key: string): boolean;
 }

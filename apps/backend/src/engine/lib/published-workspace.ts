@@ -35,7 +35,7 @@ export function installText(install: Install): string {
     const first = install.run.split('\n').map((line) => line.trim()).find(Boolean) ?? '';
     return `script: ${first.length > SCRIPT_SHOWN ? `${first.slice(0, SCRIPT_SHOWN)}…` : first}`;
   }
-  return install.via === 'base' ? 'nothing' : `${install.via} ${install.packages.join(', ')}`;
+  return `${install.via} ${install.packages.join(', ')}`;
 }
 
 export function describeLine(line: PlanLine): string {

@@ -56,7 +56,7 @@ export function newDependencies(dependencies: readonly WorkspaceDependency[]): P
   if (!dependencies.length) return [];
   return [section('New dependencies it adds', dependencies.flatMap((dependency) => [
     text(`${dependency.name}: ${dependency.summary} Puts ${[...dependency.provides, ...(dependency.libraries ?? [])].join(', ')} in the workspace${dependency.needs?.length ? `, after ${dependency.needs.join(', ')}` : ''}.`),
-    ...dependency.install.map((install) => (install.via === 'script' ? code(install.run, `${dependency.name} install script`) : fields([`${dependency.name} with ${install.via}`, install.via === 'base' ? '' : install.packages.join(' ')]))),
+    ...dependency.install.map((install) => (install.via === 'script' ? code(install.run, `${dependency.name} install script`) : fields([`${dependency.name} with ${install.via}`, install.packages.join(' ')]))),
   ]), dependencies.map((dependency) => dependency.name).join(', '))];
 }
 

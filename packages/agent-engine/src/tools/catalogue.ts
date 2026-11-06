@@ -13,8 +13,7 @@ export interface JsonSchema {
 
 export type Install =
   | { via: 'dnf' | 'apt' | 'pip' | 'npm'; packages: string[] }
-  | { via: 'script'; run: string }
-  | { via: 'base' };
+  | { via: 'script'; run: string };
 
 export interface Reachability {
   build?: string[] | undefined;

@@ -17,6 +17,7 @@ describe('dependencyFrom', () => {
     expect(dependencyFrom({})).toEqual({ ok: false, problem: 'a dependency needs a name' });
     expect(dependencyFrom({ name: 'x', provides: 'jq' })).toEqual({ ok: false, problem: 'provides has to be a list of names' });
     expect(dependencyFrom({ name: 'x', install: [{ via: 'brew', packages: ['jq'] }] })).toMatchObject({ ok: false });
+    expect(dependencyFrom({ name: 'x', install: [{ via: 'base' }] })).toEqual({ ok: false, problem: 'every entry in install is { via: dnf|apt|pip|npm, packages: [...] } or { via: script, run: "..." }' });
     expect(dependencyFrom({ name: 'x', install: 'dnf install jq' })).toEqual({ ok: false, problem: 'install has to be a list of installs' });
   });
 });

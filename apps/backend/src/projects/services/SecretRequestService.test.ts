@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, expectTypeOf, it } from 'vitest';
 import { mock } from 'vitest-mock-extended';
 import { memoryDatabase } from '../../platform/testing/memory-database.js';
 import type { SecretRequest } from '../lib/secret-requests.js';
@@ -104,11 +104,11 @@ describe('the vault the tools use', () => {
     expect(minters.readToken).not.toHaveBeenCalled();
   });
 
-  it('stores a Gitea read token minted for the person, and refuses a source it cannot mint', async () => {
+  it('stores a Gitea read token minted for the person, and takes only a source it can mint', async () => {
     const { backend, minters, vault } = vaultSetUp();
     minters.readToken.calledWith('ann').mockResolvedValue('tok-123');
     await vault.mint('ann', 'p1', 'GITEA_TOKEN', 'gitea-read-token');
     expect(backend.setSecret).toHaveBeenCalledWith('p1', 'GITEA_TOKEN', 'tok-123', 'Provisioned automatically: a read-only Gitea token minted for this person');
-    await expect(vault.mint('ann', 'p1', 'X', 'person')).rejects.toThrow('no minter for person');
+    expectTypeOf<Parameters<typeof vault.mint>[3]>().toEqualTypeOf<'generated' | 'gitea-read-token'>();
   });
 });

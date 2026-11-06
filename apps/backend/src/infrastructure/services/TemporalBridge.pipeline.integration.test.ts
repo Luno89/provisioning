@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
+import { containing } from '../../platform/lib/test-matchers.js';
 import { emptiedEachTime } from '../../platform/lib/test-database.js';
 import type { MongoDB } from '../../platform/lib/mongo-db.js';
 import { TemporalBridge } from './TemporalBridge.js';
@@ -20,7 +21,7 @@ describe('a push to a project', () => {
 
   it('records no build when the commit has nothing to build', async () => {
     bridge.planBuild = (_project, sha) => buildPlanAt(async () => null, sha);
-    expect(await bridge.runPipeline(project, '8c646f4f20f5fb217793c11ebbab0779f7d26757', 'main')).toEqual({ id: '', event: 'nothing-to-build' });
+    expect(await bridge.runPipeline(project, '8c646f4f20f5fb217793c11ebbab0779f7d26757', 'main')).toEqual({ event: 'nothing-to-build', reason: containing('there is no Dockerfile at') });
     expect(await db.releases.getPipelineRuns()).toEqual([]);
   });
 

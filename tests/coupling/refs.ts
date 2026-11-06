@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { relative, resolve } from 'node:path';
 import ts from 'typescript';
 
-export type ReferenceKind = 'declaration' | 'write' | 'read';
+export type ReferenceKind = 'declaration' | 'import' | 'write' | 'read';
 
 export interface Reference {
   file: string;
@@ -65,6 +65,27 @@ export function declarationsNamed(source: ts.SourceFile, symbol: string): number
   return found;
 }
 
+const POSITION = /^(\d+):(\d+)$/;
+
+function positionsOf(source: ts.SourceFile, symbol: string): number[] {
+  const place = POSITION.exec(symbol);
+  return place ? [source.getPositionOfLineAndCharacter(Number(place[1]) - 1, Number(place[2]) - 1)] : declarationsNamed(source, symbol);
+}
+
+function nodeAt(source: ts.SourceFile, position: number): ts.Node | undefined {
+  let found: ts.Node | undefined;
+  const visit = (node: ts.Node): void => {
+    if (position < node.getStart(source) || position >= node.getEnd()) return;
+    found = node;
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  return found;
+}
+
+const imports = (node: ts.Node | undefined): boolean =>
+  Boolean(node?.parent && (ts.isImportSpecifier(node.parent) || ts.isExportSpecifier(node.parent) || ts.isImportClause(node.parent) || ts.isNamespaceImport(node.parent)));
+
 const lineText = (file: string, line: number, cache: Map<string, string[]>): string => {
   let lines = cache.get(file);
   if (!lines) {
@@ -85,7 +106,7 @@ export function referencesOf(root: string, tsconfigs: readonly string[], file: s
     const program = service.getProgram();
     const source = program?.getSourceFile(target);
     if (!program || !source) continue;
-    const positions = declarationsNamed(source, symbol);
+    const positions = positionsOf(source, symbol);
     if (positions.length === 0) continue;
     declared = true;
     for (const position of positions) {
@@ -94,7 +115,7 @@ export function referencesOf(root: string, tsconfigs: readonly string[], file: s
           const at = program.getSourceFile(entry.fileName);
           if (!at) continue;
           const where = at.getLineAndCharacterOfPosition(entry.textSpan.start);
-          const kind: ReferenceKind = entry.isDefinition ? 'declaration' : entry.isWriteAccess ? 'write' : 'read';
+          const kind: ReferenceKind = entry.isDefinition ? 'declaration' : imports(nodeAt(at, entry.textSpan.start)) ? 'import' : entry.isWriteAccess ? 'write' : 'read';
           const name = relative(root, entry.fileName);
           const key = `${name}:${entry.textSpan.start}`;
           const seen = found.get(key);

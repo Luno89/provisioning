@@ -3,7 +3,7 @@ import type { ProjectMetadata } from '../../platform/index.js';
 import type { Tree } from '../lib/trees.js';
 import { primaryProjectId } from '../lib/trees.js';
 import { resolveTreeType, type TreeTypeSecret, type TreeTypeSpec } from '../lib/tree-types.js';
-import { secretReference, withRequired, type SecretRequest, type SecretRequestFilter } from '../lib/secret-requests.js';
+import { secretReference, withRequired, type MintedSource, type SecretRequest, type SecretRequestFilter } from '../lib/secret-requests.js';
 import { createSecretVault, type VaultBackend } from './SecretRequestService.js';
 import type { ProjectsStore } from '../store.js';
 
@@ -11,7 +11,7 @@ export interface DeclaredSecretVault {
   has(projectId: string, key: string): Promise<boolean>;
   read(projectId: string, key: string): Promise<string | null>;
   put(projectId: string, key: string, value: string, comment: string): Promise<void>;
-  mint(ownerId: string, projectId: string, key: string, sourceId: string): Promise<void>;
+  mint(ownerId: string, projectId: string, key: string, sourceId: MintedSource): Promise<void>;
 }
 
 export interface ProjectSecretsDeps {

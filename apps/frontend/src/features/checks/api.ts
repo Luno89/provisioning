@@ -14,17 +14,9 @@ export interface TurnChoice {
 
 export type RunState = 'running' | 'done' | 'failed' | 'cancelled' | 'interrupted'
 
-export interface ModelChoice {
-  id: string
-  name: string
-  model: string
-  sourceLabel?: string
-  source: 'deployment' | 'endpoint'
-}
-
 export interface Sampling {
-  toolTurn?: Record<string, number | undefined>
-  conversation?: Record<string, number | undefined>
+  toolTurn: { temperature: number }
+  conversation: { temperature: number }
 }
 
 export interface Rate {
@@ -409,7 +401,3 @@ export async function cancelLevel2Run(id: string): Promise<void> {
   await api.post(`/evals/level2/runs/${id}/cancel`, {})
 }
 
-export async function listModels(): Promise<ModelChoice[]> {
-  const { data } = await api.get<ModelChoice[] | { models?: ModelChoice[] }>('/models')
-  return Array.isArray(data) ? data : (data.models ?? [])
-}

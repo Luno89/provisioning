@@ -14,9 +14,8 @@ describe('a workspace dependency', () => {
       'Bad Name has to say which programs it puts on the PATH, or which libraries it adds, so a build can prove it did',
       'Bad Name has to say how it is installed',
     ]);
-    expect(dependencyProblems({ name: 'jq', summary: 'jq.', provides: ['jq'], needs: ['jq'], install: [{ via: 'dnf', packages: [] }, { via: 'base' }] })).toEqual([
+    expect(dependencyProblems({ name: 'jq', summary: 'jq.', provides: ['jq'], needs: ['jq'], install: [{ via: 'dnf', packages: [] }] })).toEqual([
       'jq has an install that installs nothing',
-      'jq cannot install "nothing"; a base image that already has it says so itself',
       'jq cannot need itself',
     ]);
   });

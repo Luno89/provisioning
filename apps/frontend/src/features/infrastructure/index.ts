@@ -1,6 +1,5 @@
 export { accessKeys, dismissAccess, grantAccess, listAccessRequests } from './api/cluster-access'
 export { clusterDashboardUrl, clusterKeys, listClusters, provisionCluster } from './api/clusters'
-export type { ClusterCreated } from './api/clusters'
 export { credentialKeys, deleteLlmCredentials, listLlmProviders, listProviders, openRouterConnectUrl, saveLlmCredentials } from './api/credentials'
 export type { LlmProviderStatus } from './api/credentials'
 export { deployApp, deploymentKeys, destroyResource, listDeployments } from './api/deployments'

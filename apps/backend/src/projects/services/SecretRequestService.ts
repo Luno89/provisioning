@@ -21,7 +21,6 @@ export function createSecretVault(deps: { backend: VaultBackend & { listSecrets(
         await deps.backend.setSecret(projectId, key, generatedValue((size) => randomBytes(size)), `Provisioned automatically: ${GENERATED.label}`);
         return;
       }
-      if (sourceId !== GITEA_READ_TOKEN.id) throw new Error(`no minter for ${sourceId}`);
       const token = await deps.minters.readToken(ownerId);
       await deps.backend.setSecret(projectId, key, token, `Provisioned automatically: ${GITEA_READ_TOKEN.label}`);
     },

@@ -9,14 +9,15 @@ import type { ClusterProxyService } from '../services/ClusterProxyService.js';
 import type { ClusterService } from '../services/ClusterService.js';
 import type { InfisicalService } from '../services/InfisicalService.js';
 import type { InfrastructureService } from '../services/InfrastructureService.js';
-import type { TemporalBridge, WorkflowDeal } from '../services/TemporalBridge.js';
+import type { ResourceDeal, TemporalBridge, WorkflowDeal } from '../services/TemporalBridge.js';
 import { clustersRouter } from './clusters.js';
 import type { HarnessUser } from '../../platform/routes/test-harness.js';
 import { OPERATOR, PERSON, routesInProcess } from '../../platform/testing/routes.js';
 
 const cluster = (over: Partial<ClusterMetadata> = {}): ClusterMetadata => ({ id: 'c1', name: 'lab', provider: 'k3d', status: 'healthy', ownerId: PERSON.id, ...over }) as ClusterMetadata;
 const systemCluster = (): ClusterMetadata => ({ id: 'provisioning-lunorica', name: 'system', provider: 'k3d', status: 'healthy', isSystem: true }) as ClusterMetadata;
-const deal = (id: string, resourceId?: string): WorkflowDeal => ({ id, event: 'x', ...(resourceId ? { resourceId } : {}) });
+const deal = (id: string): WorkflowDeal => ({ id, event: 'x' });
+const started = (id: string, resourceId: string): ResourceDeal => ({ id, event: 'x', resourceId });
 const by = (user: HarnessUser) => matches<Principal>((who) => who.id === user.id);
 
 function setup() {
@@ -47,7 +48,7 @@ describe('listing clusters', () => {
 describe('provisioning a cluster', () => {
   it('starts provisioning and answers 202 with its workflow', async () => {
     const { temporalBridge, call } = setup();
-    temporalBridge.provision.calledWith('lab', 'k3d', PERSON.id, undefined).mockResolvedValue(deal('w1', 'c1'));
+    temporalBridge.provision.calledWith('lab', 'k3d', PERSON.id, undefined).mockResolvedValue(started('w1', 'c1'));
     const answer = await call('', 'POST', { name: 'lab', provider: 'k3d' });
     expect(answer.status).toBe(202);
     expect(answer.data).toEqual({ message: 'Provisioning started', clusterName: 'lab', provider: 'k3d', id: 'c1', workflowId: 'w1', state: 'running' });
@@ -55,7 +56,7 @@ describe('provisioning a cluster', () => {
 
   it('hands a VM provider the server type, location and image asked for', async () => {
     const { temporalBridge, call } = setup();
-    temporalBridge.provision.calledWith('vm', 'hetzner', PERSON.id, matches<{ serverType?: string; location?: string; image?: string }>((vm) => vm.serverType === 'cx22' && vm.location === 'fsn1' && vm.image === 'ubuntu-24.04')).mockResolvedValue(deal('w2', 'c2'));
+    temporalBridge.provision.calledWith('vm', 'hetzner', PERSON.id, matches<{ serverType?: string; location?: string; image?: string }>((vm) => vm.serverType === 'cx22' && vm.location === 'fsn1' && vm.image === 'ubuntu-24.04')).mockResolvedValue(started('w2', 'c2'));
     const answer = await call('', 'POST', { name: 'vm', provider: 'hetzner', hetznerServerType: 'cx22', hetznerLocation: 'fsn1', hetznerImage: 'ubuntu-24.04' });
     expect(answer.status).toBe(202);
   });

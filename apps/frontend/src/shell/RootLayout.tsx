@@ -27,7 +27,7 @@ import { RemoveAccountPage } from '../features/accounts';
 import { TrialBanner } from '../features/instances';
 import { FirstModel } from '../features/models';
 import { MovingPage } from '../features/instances';
-import { listClusters, clusterKeys, type ClusterCreated, provisionCluster as provisionClusterApi } from '../features/infrastructure';
+import { listClusters, clusterKeys, provisionCluster as provisionClusterApi } from '../features/infrastructure';
 import { listDeployments, deploymentKeys, deployApp as deployAppApi, destroyResource as destroyResourceApi } from '../features/infrastructure';
 import { listProviders, credentialKeys } from '../features/infrastructure';
 import { getNginxConfig, saveNginxConfig, nginxKeys } from '../features/infrastructure';
@@ -183,7 +183,7 @@ export function RootLayout() {
     pushNotification({ type: 'error', message: `${what}: ${errorMessage(err)}` });
 
   const provisionCluster = useMutation({
-    mutationFn: (newCluster: unknown) => provisionClusterApi<ClusterCreated>(newCluster),
+    mutationFn: (newCluster: unknown) => provisionClusterApi(newCluster),
     onSuccess: (res) => {
       void queryClient.invalidateQueries({ queryKey: ['clusters'] });
       setShowClusterModal(false);

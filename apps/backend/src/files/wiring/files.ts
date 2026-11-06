@@ -36,7 +36,6 @@ export function wireFiles(deps: FilesWiringDeps): FilesWiring {
     open: (ownerId, place) => fileStores.open(ownerId, place),
     deployMinio: async (ownerId, request) => {
       const started = await deps.temporalBridge.deployApp({ ...request, appType: 'minio', strategy: 'native' }, ownerId);
-      if (!started.resourceId) throw new Error(`MinIO could not be started on ${request.clusterId}.`);
       return { deploymentId: started.resourceId };
     },
     defaultCluster: DEFAULT_TARGET_CLUSTER,

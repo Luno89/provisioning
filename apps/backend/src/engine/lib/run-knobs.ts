@@ -5,7 +5,12 @@ export const MAX_TEMPERATURE = 2;
 export const MIN_REPLY_TOKENS = 256;
 export const MAX_REPLY_TOKENS = 32_000;
 
-export const samplingAt = (temperature: number): SamplingConfig => ({
+export interface TemperatureSampling extends SamplingConfig {
+  toolTurn: { temperature: number };
+  conversation: { temperature: number };
+}
+
+export const samplingAt = (temperature: number): TemperatureSampling => ({
   toolTurn: { temperature },
   conversation: { temperature },
 });
