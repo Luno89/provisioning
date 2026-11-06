@@ -24,6 +24,11 @@ describe('an alert email', () => {
     expect(mail.text).toContain('See its health: https://app.koala.dev/#/monitoring/app/books');
   });
 
+  it('links an alert about Koala itself, or root, to the page that shows its health, and a cluster\'s to the cluster', () => {
+    expect(alertMail({ ...episode, about: { kind: 'koala' } }, 'fired', 'https://app.koala.dev').text).toContain('See its health: https://app.koala.dev/#/monitoring\n');
+    expect(alertMail({ ...episode, about: { kind: 'cluster' }, clusterId: 'c1' }, 'fired', 'https://app.koala.dev').text).toContain('See its health: https://app.koala.dev/#/monitoring/cluster/c1');
+  });
+
   it('says when it resolved', () => {
     expect(alertMail({ ...episode, resolvedAt: '2026-10-17T10:09:00Z' }, 'resolved', undefined)).toMatchObject({ subject: 'Resolved: books has not answered for 5 minutes', text: containing('resolved at 2026-10-17T10:09:00Z') });
   });

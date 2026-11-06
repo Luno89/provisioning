@@ -7,8 +7,9 @@ import { Notifications } from '../../accounts'
 import { PoolSection } from './PoolSection'
 import { DependenciesSection } from './DependenciesSection'
 import { MailSection } from './MailSection'
+import { RootMonitoring } from './RootMonitoring'
 
-export default function RootAdmin({ section, onLogout }: { section?: 'pool' | 'dependencies' | 'mail' | undefined; onLogout: () => void }) {
+export default function RootAdmin({ section, onLogout }: { section?: 'pool' | 'dependencies' | 'mail' | 'monitoring' | undefined; onLogout: () => void }) {
   useEffect(() => {
     if (section) document.getElementById(section)?.scrollIntoView()
   }, [section])
@@ -23,9 +24,11 @@ export default function RootAdmin({ section, onLogout }: { section?: 'pool' | 'd
             <a href="#/pool" className="hover:text-slate-200">Koala's servers</a>
             <a href="#/dependencies" className="hover:text-slate-200">Dependencies</a>
             <a href="#/mail" className="hover:text-slate-200">Mail</a>
+            <a href="#/monitoring" className="hover:text-slate-200">Health</a>
             <button type="button" onClick={onLogout} className="inline-flex items-center gap-1.5 hover:text-slate-200"><LogOut size={12} /> Sign out</button>
           </nav>
         </div>
+        <RootMonitoring />
         <People />
         <Invites />
         <ProjectInvites />

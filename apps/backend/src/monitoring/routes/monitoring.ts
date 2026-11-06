@@ -20,6 +20,10 @@ export function monitoringRouter({ monitoring }: MonitoringRouterDeps): Router {
     res.json(await monitoring.overview(viewerOf(req)));
   }));
 
+  router.get('/koala', asyncRoute(async (req, res) => {
+    res.json(await monitoring.koala(viewerOf(req)));
+  }));
+
   router.get('/alerts', asyncRoute(async (req, res) => {
     res.json(await monitoring.alerts(viewerOf(req)));
   }));

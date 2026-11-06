@@ -8,7 +8,7 @@ import { Chart } from './Chart'
 import { Bar, EpisodeList, FiringList, HistorySetting, RangePicker, Section, StateBadge } from './Parts'
 import { CHARTS, windowOf, healthHash, sectionHash, useClusterHealth } from '../shared'
 
-export function ClusterHealth({ clusterId, standalone = false, actions }: { clusterId: string; standalone?: boolean; actions?: ReactNode }) {
+export function ClusterHealth({ clusterId, standalone = false, actions, grafana = true }: { clusterId: string; standalone?: boolean; actions?: ReactNode; grafana?: boolean }) {
   const [range, setRange] = useState<Range>('24h')
   const can = useCan()
   const health = useClusterHealth(clusterId, range)
@@ -32,7 +32,7 @@ export function ClusterHealth({ clusterId, standalone = false, actions }: { clus
         <div className="flex flex-wrap items-center gap-2">
           {actions}
           <RangePicker range={range} onPick={setRange} />
-          {!cluster.history.byKoala && can('change', cluster.history) && (
+          {grafana && !cluster.history.byKoala && can('change', cluster.history) && (
             <a href={clusterDashboardUrl(cluster.id, 'grafana')} target="_blank" rel="noreferrer" className="flex items-center gap-1 rounded border border-[var(--bark-600)] px-2 py-0.5 text-[11px] text-slate-300 hover:bg-[var(--bark-700)]">
               Open in Grafana <ExternalLink size={11} />
             </a>

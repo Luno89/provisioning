@@ -156,10 +156,15 @@ export const infrastructureKeys = {
   all: () => ['infrastructure'] as const,
   overview: () => ['infrastructure', 'overview'] as const,
   cluster: (id: string) => ['infrastructure', 'cluster', id] as const,
+  koala: () => ['infrastructure', 'koala'] as const,
 }
 
 export async function getInfrastructure(): Promise<InfrastructureOverview> {
   return (await api.get<InfrastructureOverview>('/infrastructure')).data
+}
+
+export async function getKoala(): Promise<KoalaView> {
+  return (await api.get<KoalaView>('/monitoring/koala')).data
 }
 
 export async function getClusterContents(id: string): Promise<ClusterContents> {

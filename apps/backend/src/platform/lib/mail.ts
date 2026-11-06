@@ -27,8 +27,8 @@ export function emailWanted(choice: EmailChoice, episode: Pick<AlertEpisode, 'na
 }
 
 export function alertMail(episode: AlertEpisode, change: 'fired' | 'resolved', publicUrl: string | undefined): MailMessage {
-  const about = episode.about.kind === 'app' ? `app/${episode.about.deploymentId}` : `cluster/${episode.clusterId}`;
-  const link = publicUrl ? `${publicUrl.replace(/\/+$/, '')}/#/monitoring/${about}` : undefined;
+  const about = episode.about.kind === 'app' ? `/app/${episode.about.deploymentId}` : episode.about.kind === 'koala' ? '' : `/cluster/${episode.clusterId}`;
+  const link = publicUrl ? `${publicUrl.replace(/\/+$/, '')}/#/monitoring${about}` : undefined;
   return change === 'fired'
     ? {
       subject: `Alert: ${episode.summary}`,

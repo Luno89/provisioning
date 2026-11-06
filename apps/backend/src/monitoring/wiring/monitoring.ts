@@ -1,3 +1,4 @@
+import { Router, type RequestHandler } from 'express';
 import type { Server as SocketServer } from 'socket.io';
 import { type Database, type MailService, type RoleConfig, servesTenants } from '../../platform/index.js';
 import type { sharedClusterProxy, ClusterService, InfrastructureService } from '../../infrastructure/index.js';
@@ -16,6 +17,7 @@ export interface MonitoringWiringDeps {
   machineStatus?: ((deviceId: string) => { online: boolean }) | undefined;
   tenant: Mounts;
   app: Mounts;
+  operatorOnly: RequestHandler;
   db: Database;
   role: RoleConfig;
   env: NodeJS.ProcessEnv;
@@ -47,7 +49,8 @@ export function wireMonitoring(deps: MonitoringWiringDeps): { monitoring: Monito
     helm: async (cluster, args) => String(await infra.runHelm(args, await clusters.getKubeconfigPath(cluster))),
     rootAlerts: watchesItself,
   });
-  tenant.use('/api/monitoring', monitoringRouter({ monitoring }));
+  if (watchesItself) deps.app.use('/api/monitoring', Router().use(deps.operatorOnly, monitoringRouter({ monitoring })));
+  else tenant.use('/api/monitoring', monitoringRouter({ monitoring }));
   (watchesItself ? deps.app : tenant).use('/api/notifications', notificationsRouter({ notifications, mail: deps.mail, push: deps.push }));
   if (servesTenants(role) || watchesItself) {
     new AlertWatchService({

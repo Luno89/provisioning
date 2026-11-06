@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  clearFailures, getClusterContents, getInfrastructure, infrastructureKeys,
+  clearFailures, getClusterContents, getInfrastructure, getKoala, infrastructureKeys,
   type WorkloadAbout, type WorkloadGroup, type WorkloadState,
 } from './api/infrastructure'
 import type { AppRow, ClusterRow } from '../monitoring'
@@ -29,6 +29,10 @@ export function useRefreshInfrastructure(): () => void {
 
 export function useInfrastructure() {
   return useQuery({ queryKey: infrastructureKeys.overview(), queryFn: getInfrastructure, refetchInterval: INFRASTRUCTURE_POLL_MS })
+}
+
+export function useKoala() {
+  return useQuery({ queryKey: infrastructureKeys.koala(), queryFn: getKoala, refetchInterval: INFRASTRUCTURE_POLL_MS })
 }
 
 export function useClusterContents(id: string) {
