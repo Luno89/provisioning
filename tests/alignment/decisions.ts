@@ -8,7 +8,6 @@ export interface Decision {
   id: string;
   subject: string;
   terms: string[];
-  steps: string[];
   words: Words[];
   reading: string;
   replaced?: Array<{ words: Words; by: string }>;
@@ -19,7 +18,6 @@ export const DECISIONS: Decision[] = [
     id: 'side-with-the-user',
     subject: 'How product questions are settled',
     terms: ['sudo', 'invasive', 'install'],
-    steps: [],
     words: [
       { at: '2026-11-06T22:05', text: 'the idea is to always side with the user and whatever decision makes it easier and less invasive to them' },
       { at: '2026-11-06T22:06', text: 'so if a dependency needs sudo for no reason then we don\'t do it' },
@@ -32,7 +30,6 @@ export const DECISIONS: Decision[] = [
     id: 'v1',
     subject: 'What v1 is and the order of work',
     terms: ['v1', 'structural'],
-    steps: [],
     words: [
       { at: '2026-11-06T05:51', text: 'I\'m looking for structual changes in how we work cause its been like three months and we haven\'t really gotten anywhere' },
       { at: '2026-11-06T05:58', text: 'yes, the GPU machine story is v1, and your going to do all the structural changes first right?' },
@@ -43,7 +40,6 @@ export const DECISIONS: Decision[] = [
     id: 'adding-a-machine-is-the-product',
     subject: 'A machine: what it is and where it is added',
     terms: ['My Machines', 'machine.sh', 'join'],
-    steps: ['A2', 'B1', 'G1'],
     words: [
       { at: '2026-11-04T01:05', text: 'Yeah we need to fix this, this is the whole point of the project, adding a machine is the core product' },
       { at: '2026-11-04T03:44', asked: 'Where does a person add a machine: to their account on root, or inside their Koala (the instance)?', text: 'Account on root (Recommended)' },
@@ -57,7 +53,6 @@ export const DECISIONS: Decision[] = [
     id: 'one-path',
     subject: 'One way to do each job',
     terms: ['two paths', 'second path', 'Your own hardware'],
-    steps: [],
     words: [
       { at: '2026-11-04T00:32', text: 'There shouldn\'t be two paths, you fucked that up, my machines should have been a refactor of the same thing and it should be implemented as a cluster?' },
     ],
@@ -67,7 +62,6 @@ export const DECISIONS: Decision[] = [
     id: 'one-cluster-per-machine',
     subject: 'A machine is one cluster; there is one kind of cluster',
     terms: ['cluster', 'provisioning-lunorica', 'isSystem'],
-    steps: ['B4', 'E4'],
     words: [
       { at: '2026-11-04T03:39', text: 'there should probably only be one cluster on one machine that gets added to a user\'s account' },
       { at: '2026-11-05T17:40', text: 'No we can\'t have different kind of clusters' },
@@ -78,7 +72,6 @@ export const DECISIONS: Decision[] = [
     id: 'how-a-machine-cluster-is-made',
     subject: 'k3s, k3d or Colima',
     terms: ['k3d', 'k3s', 'Colima', 'Docker', 'sudo'],
-    steps: ['B4', 'B6', 'C4'],
     words: [
       { at: '2026-11-04T03:39', text: 'kds instance if the user wants to use a gpu app otherwise the other cluster types, metal on mac' },
       { at: '2026-11-04T03:51', asked: 'On a Mac, what provides the Linux VM and the cluster (which can also hold Koala)?', text: 'Colima with k3s (Recommended)' },
@@ -95,7 +88,6 @@ export const DECISIONS: Decision[] = [
     id: 'no-koala-made-k3d-clusters',
     subject: 'Koala making k3d clusters beside itself',
     terms: ['k3d provider', 'local test clusters', 'discover'],
-    steps: ['E8'],
     words: [
       { at: '2026-11-04T03:51', asked: 'Koala\'s Docker-based extra clusters ("local test clusters": k3d clusters made beside the instance, which is why install.sh installs Docker and mounts its socket). With one cluster per machine:', text: 'Drop them (Recommended)' },
     ],
@@ -105,7 +97,6 @@ export const DECISIONS: Decision[] = [
     id: 'cluster-on-demand',
     subject: 'When a machine\'s cluster runs',
     terms: ['start', 'stop', 'idle'],
-    steps: ['E4', 'E9', 'G1'],
     words: [
       { at: '2026-11-04T00:50', text: 'so maybe dynamically create a cluster ? so if we never need a workspace or an app we don\'t waste resources on a cluster? unless it doesn\'t cost much' },
       { at: '2026-11-04T01:08', asked: 'When the last thing on a machine\'s cluster ends, when does k3s stop?', text: 'At once (Recommended)' },
@@ -116,7 +107,6 @@ export const DECISIONS: Decision[] = [
     id: 'koala-on-a-machine',
     subject: 'Where the person\'s Koala lives',
     terms: ['Put Koala here', 'instance'],
-    steps: ['B1', 'C1', 'C2'],
     words: [
       { at: '2026-11-04T03:44', asked: 'A person with several machines: which one holds their Koala?', text: 'They pick; can move later (Recommended)' },
       { at: '2026-11-04T04:01', asked: 'A person with no Koala yet adds their first machine from root. Does Koala go on it?', text: 'Yes by default, can untick (Recommended)' },
@@ -130,7 +120,6 @@ export const DECISIONS: Decision[] = [
     id: 'agents-on-the-host',
     subject: 'Coding agents and the machine agent run on the host',
     terms: ['bare metal', 'ACP', 'coding agent'],
-    steps: ['B3'],
     words: [
       { at: '2026-11-04T00:42', text: 'I don\'t think its worth making the user sign-in again, so that maybe should stay bare metal' },
       { at: '2026-11-04T00:50', text: 'What we\'re doing is allowed, its just a terminal adapter basically, It would be assumed that adding My Machine entry and kinda the whole point is to be able to run images on it and have their subscriptions be avaliable to use like they are now' },
@@ -145,7 +134,6 @@ export const DECISIONS: Decision[] = [
     id: 'koala-work-in-pods',
     subject: 'Koala\'s own work on a machine',
     terms: ['sandbox', 'host exec', 'pods only'],
-    steps: [],
     words: [
       { at: '2026-11-06T05:33', asked: 'Decision 9, sandboxes on a machine.', text: 'Refuse; pods only (Recommended)' },
       { at: '2026-11-04T01:08', asked: 'A project whose files live on the person\'s machine: how does its workspace pod see that folder?', text: 'Mount it, as them (Recommended)' },
@@ -157,7 +145,6 @@ export const DECISIONS: Decision[] = [
     id: 'gpu-is-core',
     subject: 'Running their own models on their GPUs',
     terms: ['GPU', 'passthrough', 'TabbyAPI', 'vLLM', 'nvidia'],
-    steps: ['B5', 'E1', 'E2', 'E4', 'I2'],
     words: [
       { at: '2026-11-06T04:15', text: 'we need the gpu passthrough to be hooked up' },
       { at: '2026-11-06T04:36', text: 'most of the clusters people will use will need to be capable of the gpu passthrough like the k3s was, being able to host their own models with tabby or vllm is a core feature' },
@@ -170,7 +157,6 @@ export const DECISIONS: Decision[] = [
     id: 'gpu-unusable',
     subject: 'GPUs asked for but unusable',
     terms: ['CPU', 'GPU check', 'refuse'],
-    steps: ['E2'],
     words: [
       { at: '2026-11-06T04:26', asked: 'On a machine\'s cluster, what should happen when GPUs were asked for but can\'t be used?', text: 'Like the dev environment needs the correct dev setup to do the passthrough' },
       { at: '2026-11-06T05:21', asked: 'When someone deploys vLLM or TabbyAPI asking for GPUs on a machine that can\'t give them', text: 'Refuse, say what to fix (Recommended)' },
@@ -181,7 +167,6 @@ export const DECISIONS: Decision[] = [
     id: 'mac-inference-native',
     subject: 'Models on a Mac',
     terms: ['mlx', 'Metal', 'Mac'],
-    steps: ['B6'],
     words: [
       { at: '2026-11-04T00:57', text: '22 percent is allot to pay just to have it on a cluster, maybe we should look at running a native option, how much are we paying having tabby in the cluster' },
       { at: '2026-11-04T03:48', asked: 'Which native inference servers should a Mac offer first? (Linux keeps TabbyAPI and vLLM in its cluster.)', text: 'mlx-lm (Recommended), llama.cpp with Metal, vLLM-Metal' },
@@ -194,7 +179,6 @@ export const DECISIONS: Decision[] = [
     id: 'machine-lifecycle',
     subject: 'Offline, sleep, removal, networks',
     terms: ['offline', 'sleep', 'remove', '6443', 'mesh'],
-    steps: ['C3', 'E3', 'G2'],
     words: [
       { at: '2026-11-04T03:46', asked: 'A machine goes offline (laptop closed, power cut). What happens to work meant for it?', text: 'It waits, and says so (Recommended)' },
       { at: '2026-11-04T03:57', asked: 'When Koala itself lives on a Mac (or a Linux laptop), sleep takes it down. Should the agent keep that machine awake?', text: 'Awake on power (Recommended)' },
@@ -209,7 +193,6 @@ export const DECISIONS: Decision[] = [
     id: 'root',
     subject: 'Root and its one cluster',
     terms: ['root', 'root cluster', 'watcher'],
-    steps: ['D1'],
     words: [
       { at: '2026-11-06T00:08', text: 'there should only be one root cluster, and then a user gets their own cluster and their own monitoring, so I\'m focused on the root node, how is it being monitored?' },
       { at: '2026-11-06T00:13', text: 'yes root keeps its k3s, I believe I said one cluster you need to make sure my intention is understood before decided to reword what I said' },
@@ -222,7 +205,6 @@ export const DECISIONS: Decision[] = [
     id: 'monitoring-per-person',
     subject: 'Monitoring what people deploy',
     terms: ['monitoring', 'metrics', 'Prometheus'],
-    steps: ['E6'],
     words: [
       { at: '2026-11-05T15:24', text: 'well we need to monitor whatever gets deployed there, I\'m not familar enough with those products to know, but can we have one instance of those running in one place and have multiple machines be tracked through it?' },
       { at: '2026-11-05T15:31', text: 'yep build it that way, add it to the plan' },
@@ -234,7 +216,6 @@ export const DECISIONS: Decision[] = [
     id: 'deploy-from-a-catalogue',
     subject: 'Finding the app catalogue',
     terms: ['catalogue', 'catalog', 'Deploy an app', 'Infrastructure page'],
-    steps: ['E1'],
     words: [
       { at: '2026-11-06T04:11', text: 'Its working, I\'m in, where is the catalouge of apps I can click through and deploy, it should have stayed around somewhere' },
       { at: '2026-11-06T22:41', text: 'it existed it just wasn\'t obvious on the infrastructure page the sections aren\'t well divided and when there wasn\'t a app deployed already the whole button wasn\'t abvoius' },
@@ -245,7 +226,6 @@ export const DECISIONS: Decision[] = [
     id: 'what-apps-show',
     subject: 'What the Apps list and the cluster page show',
     terms: ['discover', 'unavailable', 'Apps list'],
-    steps: ['E7', 'E8'],
     words: [
       { at: '2026-11-06T17:34', text: '3 - I mean I feel like we shouldn\'t have apps just showing up on the cluster?' },
       { at: '2026-11-06T17:34', text: '4 - the front-end and back-end should align on what to show.' },
@@ -257,7 +237,6 @@ export const DECISIONS: Decision[] = [
     id: 'saved-only-when-true',
     subject: 'Recording state',
     terms: ['save', 'verified', 'requested'],
-    steps: ['H2'],
     words: [
       { at: '2026-11-06T17:34', text: '14 - root shouldn\'t save anything until its actually true and verified' },
     ],
@@ -267,7 +246,6 @@ export const DECISIONS: Decision[] = [
     id: 'errors-to-people',
     subject: 'What a person is told when something fails',
     terms: ['error', 'login errors', 'errorResponder'],
-    steps: ['D2', 'X1'],
     words: [
       { at: '2026-11-06T17:34', text: '8 - we probably don\'t want to expose any login errors to the user as thats a security thing but we should report that somewhere probably' },
       { at: '2026-11-06T17:34', text: '15 - that all sounds like coding errors, showing it to the user is meaningless, are you asking not to fix it?' },
@@ -278,7 +256,6 @@ export const DECISIONS: Decision[] = [
     id: 'no-silent-fallbacks',
     subject: 'Skips, fallbacks and second paths',
     terms: ['fallback', 'skip', 'warn', '|| \''],
-    steps: [],
     words: [
       { at: '2026-11-06T04:43', text: 'Ok you need to never do half assed shit like "skip" or fallback without making it explicit to me first, everything needs to be implemted cleanly' },
       { at: '2026-11-06T05:33', asked: 'Decision 8, Temporal unreachable.', text: 'Required; say it\'s down (Recommended)' },
@@ -292,7 +269,6 @@ export const DECISIONS: Decision[] = [
     id: 'providers',
     subject: 'Cloud providers and mock cloud',
     terms: ['Hetzner', 'DigitalOcean', 'mock cloud', 'OVH'],
-    steps: [],
     words: [
       { at: '2026-11-06T05:19', text: '2 - we can remove mock cloud mode, I don\'t even know what that is. 3 - we can remove them, they are too expensive.' },
       { at: '2026-11-04T03:51', asked: 'Servers Koala buys or makes for a person (Hetzner, DigitalOcean, the OVH marketplace plan): are they machines too?', text: 'Yes, same join (Recommended)' },
@@ -304,7 +280,6 @@ export const DECISIONS: Decision[] = [
     id: 'pool',
     subject: 'Trial instances on Koala\'s servers',
     terms: ['pool', 'trial'],
-    steps: ['A2'],
     words: [
       { at: '2026-11-05T17:41', text: 'pool is a different concept' },
       { at: '2026-11-06T05:33', asked: 'Decision 6, the pool.', text: 'Keep both, as today' },
@@ -316,7 +291,6 @@ export const DECISIONS: Decision[] = [
     id: 'dev-runs-like-prod',
     subject: 'The dev setup',
     terms: ['dev', 'npm run dev', 'watchers', 'Headscale'],
-    steps: ['I1', 'I2'],
     words: [
       { at: '2026-11-05T17:42', text: 'I mean we need to run dev how it would run in prod' },
       { at: '2026-11-05T17:44', text: 'you need to define what the root node is and separate that from whatever your thinking a machine/instance is, dev should run whatever needs to run at the root, there shouldn\'t be anything special about running it here, that being said we need dev to be fast and be able to iterate quickly and see changes from the watchers' },
@@ -335,7 +309,6 @@ export const DECISIONS: Decision[] = [
     id: 'pins',
     subject: 'Downloads during setup',
     terms: ['pin', 'cache', 'download'],
-    steps: ['B2'],
     words: [
       { at: '2026-11-05T14:52', asked: 'How should install.sh and machine.sh get k3s?', text: 'Pin + local cache (Recommended)' },
     ],
@@ -345,7 +318,6 @@ export const DECISIONS: Decision[] = [
     id: 'tests-are-the-signal',
     subject: 'How Koala is tested',
     terms: ['test', 'integration', 'live suite', 'mock', 'contract'],
-    steps: [],
     words: [
       { at: '2026-11-05T18:46', text: 'we don\'t really want to make a hard and fast rule about how the application should be tested, it sounds like they need refactored, authenitcation should be tested by itself in isolation and we should only need a few e2e live tests like your talking about the existing scripts are doing, thats a super heavy way to test it' },
       { at: '2026-11-06T17:34', text: '13 - there should be different levels of testing, if we\'re testing the connection works and can write to mongo then yes a real mongo but we still need these tests to be quick, so if in memory is enough to test the business logic then thats fine, each test should be testing one concept.' },
@@ -362,7 +334,6 @@ export const DECISIONS: Decision[] = [
     id: 'references-not-questions',
     subject: 'What I settle myself',
     terms: ['references', 'types', 'grep'],
-    steps: [],
     words: [
       { at: '2026-11-06T17:34', text: '5 - Probably? you should be able to answer that kinda thing yourself by tracing how its being used? like an ide would show references, do you have tools to show references? if not thats a huge gap 6 - again, type issues you should be able to determine on how they are being used, they should be tighted to how they are getting written and read, we don\'t need loose types' },
       { at: '2026-11-06T17:37', text: 'grep is not a reasonable approach' },
@@ -374,7 +345,6 @@ export const DECISIONS: Decision[] = [
     id: 'stay-aligned',
     subject: 'Asking before building',
     terms: ['drift', 'inconsistency', 'align'],
-    steps: [],
     words: [
       { at: '2026-11-06T00:13', text: 'you need to make sure my intention is understood before decided to reword what I said' },
       { at: '2026-11-06T21:43', text: 'Don\'t just ask one question after declaring a major difference in understand... that should trigger aligning on the plan...' },

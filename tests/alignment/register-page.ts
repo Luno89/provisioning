@@ -6,16 +6,16 @@ const when = (at: string): string => at.slice(0, 16).replace('T', ' ');
 
 const quote = (words: Words): string => `<li><span class="at">${when(words.at)}</span>${words.asked ? `<span class="asked">Asked: ${escape(words.asked)}</span>` : ''}<q>${escape(words.text)}</q></li>`;
 
-const card = (decision: Decision): string => `
+const card = (steps: ReadonlyMap<string, string[]>) => (decision: Decision): string => `
 <article id="${escape(decision.id)}">
   <header><h2>${escape(decision.subject)}</h2><code>${escape(decision.id)}</code></header>
   <ol class="words">${decision.words.map(quote).join('')}</ol>
   ${decision.replaced?.length ? `<div class="replaced"><h3>Replaced</h3><ol class="words">${decision.replaced.map((entry) => `${quote(entry.words)}<li class="by">${escape(entry.by)}</li>`).join('')}</ol></div>` : ''}
   <div class="reading"><span class="label">My reading</span><p>${escape(decision.reading)}</p></div>
-  ${decision.steps.length ? `<p class="steps">Flow steps: ${decision.steps.map(escape).join(', ')}</p>` : ''}
+  ${steps.get(decision.id)?.length ? `<p class="steps">Flow steps: ${(steps.get(decision.id) ?? []).map(escape).join(', ')}</p>` : '<p class="steps">In no v1 flow step: a rule for how we work, or outside v1.</p>'}
 </article>`;
 
-export function registerPage(decisions: readonly Decision[], commit: string): string {
+export function registerPage(decisions: readonly Decision[], steps: ReadonlyMap<string, string[]>, commit: string): string {
   const quotes = decisions.reduce((count, decision) => count + decision.words.length, 0);
   return `<title>Koala decision register</title>
 <meta name="claude:viewport-fit-sides" content="cover">
@@ -60,7 +60,7 @@ q { quotes: "\\201C" "\\201D"; }
   <p>${decisions.length} decisions, ${quotes} quotes, from <code>${escape(commit)}</code>.</p>
   <nav>${decisions.map((decision) => `<a href="#${escape(decision.id)}">${escape(decision.subject)}</a>`).join('')}</nav>
 </header>
-${decisions.map(card).join('\n')}
+${decisions.map(card(steps)).join('\n')}
 </div>
 `;
 }

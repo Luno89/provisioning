@@ -10,7 +10,7 @@ const said: Said[] = [
 ];
 
 const decision = (overrides: Partial<Decision>): Decision => ({
-  id: 'k3d', subject: 'k3d', terms: ['k3d'], steps: [], reading: 'reading',
+  id: 'k3d', subject: 'k3d', terms: ['k3d'], reading: 'reading',
   words: [{ at: '2026-11-06T05:19', text: 'users who don\'t need gpu workflows might pick k3d' }],
   ...overrides,
 });
