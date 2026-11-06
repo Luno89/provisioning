@@ -989,7 +989,7 @@
       "kind": "image",
       "name": "temporalio/auto-setup",
       "version": "1.29.3",
-      "where": "root and the dev box",
+      "where": "root, the dev box and every instance",
       "source": "docker.io/temporalio/auto-setup:1.29.3",
       "github": "temporalio/temporal",
       "osv": {
@@ -1000,21 +1000,7 @@
         {
           "file": "docker-compose.temporal.yml",
           "pattern": "temporalio/auto-setup:([0-9.]+)"
-        }
-      ]
-    },
-    {
-      "kind": "image",
-      "name": "temporalio/auto-setup",
-      "version": "1.24.2",
-      "where": "an instance",
-      "source": "docker.io/temporalio/auto-setup:1.24.2",
-      "github": "temporalio/temporal",
-      "osv": {
-        "ecosystem": "Go",
-        "name": "go.temporal.io/server"
-      },
-      "uses": [
+        },
         {
           "file": "charts/instance/values.yaml",
           "pattern": "temporalio/auto-setup:([0-9.]+)"
