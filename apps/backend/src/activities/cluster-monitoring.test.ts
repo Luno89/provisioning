@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { mock } from 'vitest-mock-extended';
 import type { InfrastructureService } from '../infrastructure/index.js';
 import { metricsTokenHash } from '../machines/lib/machine-metrics.js';
+import { koalaClusterMonitoring } from '../monitoring/lib/cluster-monitoring.js';
 import { ensureClusterMonitoring } from './cluster-monitoring.js';
 
 const PROBES = 'probes.monitoring.coreos.com\n';
@@ -47,5 +48,29 @@ describe('monitoring a machine\'s cluster', () => {
     await ensureClusterMonitoring(infra, { physicalName: 'shop-box', kubeconfigPath: '/k', local: false });
     expect(infra.applyManifest).not.toHaveBeenCalled();
     expect(infra.deploy.mock.calls.map(([name]) => name)).toEqual(['shop-box', 'shop-box-observability']);
+  });
+});
+
+describe('monitoring Koala\'s own cluster', () => {
+  const fromDeploy = { physicalName: 'machine-desk', kubeconfigPath: '/tmp/handed-kubeconfig-desk', local: false, pool: false, nodePortIngress: true, koala: true };
+
+  it('applies one set of stacks under one name, whether the worker starting or a deploy to the machine Koala runs on asks, and never twice at once', async () => {
+    const infra = cluster({ operator: false, blackbox: false });
+    let open!: () => void;
+    const gate = new Promise<void>((resolve) => { open = resolve; });
+    infra.deploy.mockImplementation(async () => { await gate; return undefined as never; });
+    const worker = ensureClusterMonitoring(infra, koalaClusterMonitoring({ INSTANCE_MACHINE_ID: 'desk' }, '/tmp/kubeconfig-provisioning-lunorica', true));
+    const deploy = ensureClusterMonitoring(infra, fromDeploy);
+    expect(deploy).toBe(worker);
+    open();
+    await Promise.all([worker, deploy]);
+    expect(infra.deploy.mock.calls.map(([name]) => name)).toEqual(['provisioning-lunorica', 'provisioning-lunorica-observability']);
+    expect(infra.deploy.mock.calls[0]![1]).toMatchObject({ env: { CLUSTER_NAME: 'provisioning-lunorica', INGRESS_SERVICE: 'NodePort', KOALA_CLUSTER: 'true' } });
+  });
+
+  it('keeps that name when only a deploy asks, so the stacks the worker applied stay the only ones', async () => {
+    const infra = cluster({ operator: false, blackbox: false });
+    await ensureClusterMonitoring(infra, fromDeploy);
+    expect(infra.deploy.mock.calls.map(([name]) => name)).toEqual(['provisioning-lunorica', 'provisioning-lunorica-observability']);
   });
 });

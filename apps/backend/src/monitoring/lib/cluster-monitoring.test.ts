@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { machineMetricsUrl, metricsTokenManifests, monitoringPlan, monitoringStackEnv, monitoringStackName, placedOnPool, SYSTEM_CLUSTER, telemetryPresent } from './cluster-monitoring.js';
+import { koalaClusterMonitoring, machineMetricsUrl, metricsTokenManifests, monitoringOwner, monitoringPlan, monitoringStackEnv, monitoringStackName, placedOnPool, SYSTEM_CLUSTER, telemetryPresent } from './cluster-monitoring.js';
 
 const operator = 'servicemonitors.monitoring.coreos.com\nprobes.monitoring.coreos.com\n';
 const telemetry = { collector: true, tempo: true };
@@ -77,6 +77,22 @@ describe('the cluster of a pool instance', () => {
     expect(placedOnPool({ POOL: 'true' }, SYSTEM_CLUSTER)).toBe(true);
     expect(placedOnPool({ POOL: 'true' }, 'shop-box')).toBe(false);
     expect(placedOnPool({}, SYSTEM_CLUSTER)).toBe(false);
+  });
+});
+
+describe('the stacks that monitor Koala\'s own cluster', () => {
+  it('are named for the system cluster however Koala reaches it, and any other cluster\'s for itself', () => {
+    expect(monitoringOwner({ physicalName: 'machine-desk', koala: true })).toBe(SYSTEM_CLUSTER);
+    expect(monitoringOwner({ physicalName: SYSTEM_CLUSTER, koala: true })).toBe(SYSTEM_CLUSTER);
+    expect(monitoringOwner({ physicalName: 'machine-desk' })).toBe('machine-desk');
+  });
+
+  it('are applied with the same settings from the worker as from a deploy to the machine Koala runs on', () => {
+    const worker = koalaClusterMonitoring({ INSTANCE_MACHINE_ID: 'desk' }, '/k', true);
+    const deploy = { physicalName: monitoringOwner({ physicalName: 'machine-desk', koala: true }), kubeconfigPath: '/k', local: false, pool: false, nodePortIngress: true, koala: true };
+    expect(monitoringStackEnv(worker, true)).toEqual(monitoringStackEnv(deploy, true));
+    expect(koalaClusterMonitoring({ POOL: 'true' }, '/k', true)).toMatchObject({ pool: true, nodePortIngress: false, local: false });
+    expect(koalaClusterMonitoring({}, '/k', false)).toMatchObject({ physicalName: SYSTEM_CLUSTER, local: true, koala: true });
   });
 });
 
