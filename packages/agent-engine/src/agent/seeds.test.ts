@@ -39,9 +39,7 @@ describe('seeded agents', () => {
 
   it('each only delegates to agents that exist', () => {
     const slugs = seededAgentSlugs();
-    for (const agent of ALL_SEEDED_AGENTS()) {
-      for (const callee of agent.agents ?? []) expect(slugs.has(callee)).toBe(true);
-    }
+    expect(ALL_SEEDED_AGENTS().flatMap((agent) => (agent.agents ?? []).filter((callee) => !slugs.has(callee)).map((callee) => `${agent.slug} -> ${callee}`))).toEqual([]);
   });
 
   it('are the engine\'s own builder and nothing of any product built on it', () => {
