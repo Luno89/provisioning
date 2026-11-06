@@ -26,7 +26,7 @@
   "scripts": {
     "test": "npm run test:unit && npm run test:integration",
     "test:unit": "vitest run --project unit",
-    "test:integration": "vitest run --project integration --maxWorkers=50% --passWithNoTests",
+    "test:integration": "vitest run --project integration --maxWorkers=50%",
     "typecheck": "tsc --noEmit",
     "gen:builder": "tsx scripts/gen-procedure-builder.ts",
     "lint": "eslint ."
