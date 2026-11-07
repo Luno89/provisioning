@@ -1,6 +1,5 @@
-import { clusterAccessFrom } from '../infrastructure/wiring/cluster-access.js';
 import { createDatabase, roleFromEnv } from '../platform/index.js';
-import { InfrastructureService, ClusterService, namespaceOf, assessWorkload, creationRefused, type WorkloadHealth } from '../infrastructure/index.js';
+import { InfrastructureService, ClusterService, clusterAccessFrom, namespaceOf, assessWorkload, creationRefused, type WorkloadHealth } from '../infrastructure/index.js';
 import { handedKubeconfig } from './cluster-access.js';
 
 export interface CheckWorkloadArgs {

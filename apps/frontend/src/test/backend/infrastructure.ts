@@ -8,6 +8,7 @@ import { BuilderService } from '../../../../backend/src/infrastructure/services/
 import { TemporalBridge } from '../../../../backend/src/infrastructure/services/TemporalBridge'
 import type { InfrastructureService } from '../../../../backend/src/infrastructure/services/InfrastructureService'
 import { MonitoringService } from '../../../../backend/src/monitoring/services/MonitoringService'
+import { testClusterAccess } from '../../../../backend/src/infrastructure/testing/cluster-access'
 
 export interface Infrastructure {
   host: InfrastructureService
@@ -21,7 +22,7 @@ export interface Infrastructure {
 
 export async function infrastructureOf({ db }: Site, koalaMachineId?: string): Promise<Infrastructure> {
   const host = outsideThisTier<InfrastructureService>('the host\'s k3d, kubectl and helm', { listLocalClusters: async () => [] })
-  const clusters = new ClusterService(db, host, DATA_KEY, { koalaMachineId })
+  const clusters = new ClusterService(db, host, testClusterAccess(db, { dataKey: DATA_KEY, koalaMachineId }), { koalaMachineId })
   const apps = new AppService(db, host, clusters, new BuilderService(db, host))
   const temporal = recordedTemporal()
   const bridge = new TemporalBridge(db, undefined, DATA_KEY, clusters, undefined, undefined, { connect: async () => temporal.client })

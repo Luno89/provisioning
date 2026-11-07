@@ -1,7 +1,6 @@
 import { roleFromEnv, type SecretKey, type Database } from '../../platform/index.js';
-import { clusterAccessFrom } from '../../infrastructure/wiring/cluster-access.js';
 import {
-  InfrastructureService, BuilderService, ClusterService, AppService, sharedClusterProxy, HeadscaleService,
+  InfrastructureService, BuilderService, ClusterService, AppService, sharedClusterProxy, HeadscaleService, clusterAccessFrom,
 } from '../../infrastructure/index.js';
 import { ModelService } from '../services/ModelService.js';
 import { endpointRulesFromEnv } from '../lib/endpoint-url-safety.js';

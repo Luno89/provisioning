@@ -1,6 +1,5 @@
-import { clusterAccessFrom } from '../infrastructure/wiring/cluster-access.js';
 import { createDatabase, roleFromEnv } from '../platform/index.js';
-import { InfrastructureService, ClusterService } from '../infrastructure/index.js';
+import { InfrastructureService, ClusterService, clusterAccessFrom } from '../infrastructure/index.js';
 
 export interface VerifyGpuRuntimeArgs {
   clusterId: string;

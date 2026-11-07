@@ -25,7 +25,6 @@ import { wireReleases } from './releases/wiring/releases.js';
 import { storyDropsFor, wireFiles } from './files/wiring/files.js';
 import { machineBundle as newMachineBundle, wireMachines } from './machines/wiring/machines.js';
 import { wireMonitoring } from './monitoring/wiring/monitoring.js';
-import { clusterAccessFrom } from './infrastructure/wiring/cluster-access.js';
 import { wireInfrastructure } from './infrastructure/wiring/infrastructure.js';
 import { wireAccounts } from './accounts/wiring/accounts.js';
 import { hubInstanceWork, wireHub } from './hub/wiring/hub.js';
@@ -44,7 +43,7 @@ import { IdentityService, instanceReachFrom } from './instances/index.js';
 import { modelsRouter, ModelService, endpointRulesFromEnv } from './models/index.js';
 
 import {
-  InfrastructureService, ClusterService, AppService, RegistryService, GitModuleService, BuilderService,
+  InfrastructureService, ClusterService, clusterAccessFrom, AppService, RegistryService, GitModuleService, BuilderService,
   AppExposureService, VpsCatalogService, WorkerService, sharedClusterProxy, CredentialService, InfisicalService,
   HeadscaleService, BUILD_TOKENS_MIGRATION, cleanUpBuildTokens, gitappPullSecretArgs, ovhSubsidiaryFrom, vpsCatalogAdapters,
 } from './infrastructure/index.js';

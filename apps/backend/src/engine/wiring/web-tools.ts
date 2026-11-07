@@ -1,8 +1,7 @@
 import { publicAddressProblem, publicFetch, roleFromEnv, type Database } from '../../platform/index.js';
-import { clusterAccessFrom } from '../../infrastructure/wiring/cluster-access.js';
 import { corpusEndpointsWith, crawlEndpointWith, resolveWebTools, webToolsDepsFrom, type CorpusEndpoints, type WebToolsDeps } from '../lib/web-tools-resolver.js';
 import type { WebTools } from '../lib/web-tools.js';
-import { sharedClusterProxy, ClusterService, InfrastructureService } from '../../infrastructure/index.js';
+import { sharedClusterProxy, ClusterService, clusterAccessFrom, InfrastructureService } from '../../infrastructure/index.js';
 
 export type { CorpusEndpoints };
 

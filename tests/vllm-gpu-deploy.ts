@@ -24,6 +24,8 @@
 import { createDatabase } from '../apps/backend/src/platform/lib/db-interface.js';
 import { InfrastructureService } from '../apps/backend/src/infrastructure/services/InfrastructureService.js';
 import { ClusterService } from '../apps/backend/src/infrastructure/services/ClusterService.js';
+import { clusterAccessFrom } from '../apps/backend/src/infrastructure/services/ClusterAccess.js';
+import { roleFromEnv } from '../apps/backend/src/platform/lib/platform-role.js';
 import { TemporalBridge } from '../apps/backend/src/infrastructure/services/TemporalBridge.js';
 import { loadKeys } from '../apps/backend/src/platform/lib/keys.js';
 
@@ -58,7 +60,7 @@ async function run() {
   log(`Found existing deployment: appType=${dep.appType}, model=${dep.vllmModel}, gpuCount=${dep.vllmGpuCount}`);
 
   const infra = new InfrastructureService();
-  const clusterService = new ClusterService(db, infra);
+  const clusterService = new ClusterService(db, infra, clusterAccessFrom(process.env, { role: roleFromEnv(process.env).role, clusters: db.infrastructure, dataKey: loadKeys(process.env).data }));
 
   // Sanity check up front: does the synthetic system-cluster entry actually resolve, and is it
   // healthy? If this fails, nothing downstream will work either — fail fast with a clear reason.

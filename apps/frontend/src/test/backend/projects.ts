@@ -64,6 +64,7 @@ import { releasesRouter } from '../../../../backend/src/releases/routes/releases
 import { engineReleaseRuns } from '../../../../backend/src/engine-host/release-runs'
 import { ODOO_RELEASE_ADAPTER } from '../../../../backend/src/extensions/odoo/release-adapter'
 import type { SlotCluster } from '../../../../backend/src/extensions/releases/slot-cluster'
+import { testClusterAccess } from '../../../../backend/src/infrastructure/testing/cluster-access'
 
 export interface PaperWorkflow {
   workflowType: string
@@ -146,7 +147,7 @@ export async function projectsOf(site: Site): Promise<ProjectsSide> {
   const machines = machinesOf(site)
   const temporal = temporalOnPaper()
   const host = outsideThisTier<InfrastructureService>('the host\'s k3d, kubectl and helm', { listLocalClusters: async () => [] })
-  const clusters = new ClusterService(db, host, DATA_KEY, { koalaMachineId: undefined })
+  const clusters = new ClusterService(db, host, testClusterAccess(db, { dataKey: DATA_KEY }), { koalaMachineId: undefined })
   const bridge = new TemporalBridge(db, undefined, DATA_KEY, clusters, undefined, undefined, { connect: async () => temporal.client })
   await bridge.start()
   const gitea = outsideThisTier<GiteaService>('Gitea')

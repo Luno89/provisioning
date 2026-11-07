@@ -28,9 +28,8 @@ import { fileURLToPath } from 'url';
 import { createPlanAdoption } from './engine-host/plan-adoption.js';
 import {
   InfrastructureService, LOG_DIR, InfisicalService, HeadscaleService, deployProjectBuild, sharedClusterProxy,
-  ClusterService, visibleAppSpecs, resolveBindings, healthPort, serveHealth,
+  ClusterService, clusterAccessFrom, visibleAppSpecs, resolveBindings, healthPort, serveHealth,
 } from './infrastructure/index.js';
-import { clusterAccessFrom } from './infrastructure/wiring/cluster-access.js';
 import { createModelService } from './models/wiring/model-wiring.js';
 import { createAccountRemovalActivities, removalMeshFor } from './activities/RemoveAccountActivities.js';
 import { createProjectRemovalActivities, type AppTeardown } from './activities/RemoveProjectActivities.js';
