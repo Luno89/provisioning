@@ -24,7 +24,7 @@ const released = () => {
   return { release, waiting };
 };
 
-async function working<T>(interceptors: ActivityInterceptorsFactory[], activityRuns: Promise<string> | undefined, test: (taskQueue: string) => Promise<T>): Promise<T> {
+async function working<T>(interceptors: ActivityInterceptorsFactory[], activityRuns: Promise<string> | undefined, test: (taskQueue: string) => Promise<T>, started: () => void = () => {}): Promise<T> {
   const taskQueue = queueFor('liveness');
   const worker = await Worker.create({
     connection: env.nativeConnection,
@@ -34,6 +34,7 @@ async function working<T>(interceptors: ActivityInterceptorsFactory[], activityR
     interceptors: { activity: interceptors },
     activities: {
       async waitForStop(): Promise<string> {
+        started();
         const heard = Context.current().cancelled.then(
           () => 'it was never stopped',
           (err: unknown) => (err instanceof CancelledFailure ? `heard the stop: ${err.message}` : Promise.reject(err)),
@@ -48,11 +49,13 @@ async function working<T>(interceptors: ActivityInterceptorsFactory[], activityR
 
 describe('an activity that never beats its own heart', () => {
   it('hears that its workflow stopped it, because the interceptor beats for it while it runs', async () => {
+    const running = released();
     const said = await working([heartbeatWhileRunning()], undefined, async (taskQueue) => {
       const handle = await env.client.workflow.start(stoppedWhileRunning, { taskQueue, workflowId: queueFor('stopped'), args: ['3s'] });
+      await running.waiting;
       await handle.signal(stop);
       return handle.result();
-    });
+    }, () => running.release('the activity runs'));
 
     expect(said).toBe('heard the stop: CANCELLED');
   });
