@@ -394,4 +394,13 @@ export const DECISIONS: Decision[] = [
     ],
     reading: 'ROLE says which process this is (root, an instance or the hub) and is required, with no default; the combined role goes. Each test runs as the role it tests. Tests reach no real cluster except the one testing the door to a cluster itself.',
   },
+  {
+    id: 'one-reverse-proxy',
+    subject: 'Caddy is the one reverse proxy; the nginx router goes with combined',
+    terms: ['nginx', 'caddy', 'Local router'],
+    words: [
+      { at: '2026-11-07T04:56', text: 'no, caddy is fine, remove it with combined' },
+    ],
+    reading: 'Apps are exposed only through Caddy: root\'s Caddy and each instance\'s edge. The host nginx container, its per-app files, the Local router page and Expose locally go with the combined role.',
+  },
 ];
