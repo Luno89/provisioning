@@ -3,7 +3,7 @@ import { ChevronDown, ChevronRight, ExternalLink, FileText, Loader2, Trash2 } fr
 import type { ClusterContents, Workload } from '../api/infrastructure'
 import { clusterDashboardUrl } from '../api/clusters'
 import { errorMessage } from '../../../api/client'
-import { formatHash, useCan } from '../../platform'
+import { useCan } from '../../platform'
 import { useShellStore } from '../../platform'
 import { ClusterHealth } from '../../monitoring'
 import { Section } from '../../monitoring'
@@ -82,13 +82,11 @@ function Workloads({ contents }: { contents: ClusterContents }) {
   )
 }
 
-function PlatformServices({ contents, system }: { contents: ClusterContents; system: boolean }) {
-  const can = useCan()
+function PlatformServices({ contents }: { contents: ClusterContents }) {
   if (!contents.services) return null
   return (
     <Section
       title="Platform services"
-      right={system && can('administer') ? <a href={formatHash('nginx')} className="text-[11px] text-slate-400 hover:text-slate-200 hover:underline">Local router (Nginx)</a> : undefined}
     >
       <p className="text-[11px] text-slate-500">Opening a dashboard signs you in with a session of its own; no password reaches your browser.</p>
       <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
@@ -173,7 +171,7 @@ export function ClusterPage({ clusterId }: { clusterId: string }) {
       {contents.data && (
         <>
           <Workloads contents={contents.data} />
-          <PlatformServices contents={contents.data} system={Boolean(cluster?.isSystem)} />
+          <PlatformServices contents={contents.data} />
           <Nodes contents={contents.data} />
           {can('see-everything', contents.data) && <GpuPanel clusterId={clusterId} passthrough={Boolean(cluster?.gpuEnabled)} />}
           <Releases contents={contents.data} />

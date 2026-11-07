@@ -343,7 +343,6 @@ export class ClusterService extends BaseService {
         } else if (cluster.provider === 'k3d' || isMock) {
           try {
             await this.infra.deleteLocalCluster(physicalName, { logFile, io, resourceId: id });
-            await this.infra.disconnectNginxFromNetwork(physicalName);
             await fs.rm(this.writtenKubeconfig(cluster), { force: true });
           } catch (err) {
             this.logger.warn(`Error deleting physical cluster during abort: ${(err as Error).message}`);

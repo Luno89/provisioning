@@ -48,8 +48,6 @@ import {
   HeadscaleService, BUILD_TOKENS_MIGRATION, cleanUpBuildTokens, gitappPullSecretArgs, ovhSubsidiaryFrom, vpsCatalogAdapters,
 } from './infrastructure/index.js';
 import { TemporalBridge } from './infrastructure/services/TemporalBridge.js';
-import net from 'net';
-import { spawn } from 'child_process';
 import { backendAddress, GiteaService, pushToBuild } from './projects/index.js';
 import { HUB_REPO_HOOK_PATH, hubRepoHookSecret, hubRepoHookSecrets, hubRepoHookUrl } from './hub/index.js';
 
@@ -61,32 +59,6 @@ const startsHere = process.env.NODE_ENV !== 'test' || process.env.IS_E2E === 'tr
 if (startsHere) dotenv.config({ quiet: true });
 
 const telemetry = startTelemetry(telemetrySettings(process.env, 'koala-backend'));
-
-function startHostTunnel(port = 8000) {
-  const server = net.createServer((socket) => {
-    const child = spawn('docker', ['exec', '-i', 'provisioner-nginx', 'nc', '127.0.0.1', '80']);
-
-    socket.pipe(child.stdin);
-    child.stdout.pipe(socket);
-
-    socket.on('error', () => child.kill());
-    child.on('error', () => socket.destroy());
-    socket.on('close', () => child.kill());
-    child.on('close', () => socket.destroy());
-  });
-
-  server.on('error', (err: NodeJS.ErrnoException) => {
-    if (err.code === 'EADDRINUSE') {
-      console.log(`ℹ️  Host tunnel port ${port} is already bound — reusing existing tunnel.`);
-      return;
-    }
-    console.error(`Host tunnel server error: ${err.message}`);
-  });
-
-  server.listen(port, '::', () => {
-    console.log(`🚀 Host Tunnel Server active on http://[::]:${port}`);
-  });
-}
 
 export async function bootstrap(): Promise<{ app: express.Application; io: SocketServer; temporalBridge?: TemporalBridge; db: Database }> {
   const plaintext = temporalTlsProblem(process.env);
@@ -157,7 +129,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   const gitModuleService = new GitModuleService(db);
   const instanceSide = new InstanceSide(role, process.env, rootToken);
   instanceSide.watchRoot((ownerId, message) => push.toPerson(ownerId, message));
-  const appExposureService = new AppExposureService(db, infraService, clusterService, io, {
+  const appExposureService = new AppExposureService(db, clusterService, io, {
     edge: instanceSide.edge,
     groupOf: async (dep) => (dep.gitappProjectId ? (await db.hub.getHubLinks()).find((link) => link.projectId === dep.gitappProjectId)?.group : undefined),
   });
@@ -375,7 +347,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     tenant, operatorOnly: requireOperator('administer'), db, io, dataKey: keys.data, sessionKey: keys.session, publicUrl: PUBLIC_URL, appUrl: APP_URL, openRouterUrl: process.env.OPENROUTER_URL, repoRoot: path.join(__dirname, '../../..'),
     credentials: credentialService, clusters: clusterService, apps: appService, proxy: clusterProxyService, infra: infraService,
     temporalBridge, gitea: giteaService, infisical: infisicalService, exposure: appExposureService,
-    nginxConfPath: path.join(__dirname, '../data/nginx/nginx.conf'), vpsCatalog: vpsCatalogService, worker: workerService, registry: registryService, gitModules: gitModuleService,
+    vpsCatalog: vpsCatalogService, worker: workerService, registry: registryService, gitModules: gitModuleService,
   });
 
   const getOwnedProject = async (id: string, principal: Principal) => {
@@ -502,7 +474,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     );
     appExposureService.syncExposedApps().catch((e) => {
       const err = e instanceof Error ? e.message : String(e);
-      console.error(`Failed to sync exposed apps to nginx: ${err}`);
+      console.error(`[edge] ${err}`);
     });
   }
 
@@ -518,8 +490,6 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   }
 
   if (process.env.NODE_ENV !== 'test' || process.env.IS_E2E === 'true') {
-    const hostTunnelPort = process.env.IS_E2E === 'true' ? 8001 : 8000;
-    if (tenants && process.env.NODE_ENV !== 'production') startHostTunnel(hostTunnelPort);
     httpServer.on('error', (err: NodeJS.ErrnoException) => {
       if (err.code === 'EADDRINUSE') {
         console.error(`❌ Port ${port} is already in use by another process. Run 'npm run clean-dev' or free port ${port}.`);

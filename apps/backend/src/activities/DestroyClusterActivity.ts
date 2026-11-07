@@ -61,7 +61,6 @@ export async function DestroyClusterActivity(
 
   if (args.provider === 'k3d' || isMock) {
     await infra.deleteLocalCluster(physicalName, { logFile });
-    await infra.disconnectNginxFromNetwork(physicalName);
     await forgetKubeconfig();
   } else if (isHetzner) {
     if (!args.hcloudToken) {

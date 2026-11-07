@@ -395,12 +395,6 @@ export class InfrastructureService {
       }
     });
 
-    try {
-      await this.shell(`docker network connect k3d-${name} provisioner-nginx`);
-    } catch {
-      console.warn(`[InfrastructureService] Could not connect provisioner-nginx to k3d-${name} network`);
-    }
-
     return { stdout: `Cluster ${name} created.`, logFile: this.getLogPath(name) };
   }
 
@@ -422,14 +416,6 @@ export class InfrastructureService {
     const gateway = stdout.trim();
     if (!gateway) throw new Error('provisioner-nginx is not on the docker bridge network, so the host gateway is unknown.');
     return gateway;
-  }
-
-  async disconnectNginxFromNetwork(clusterName: string): Promise<void> {
-    try {
-      await this.shell(`docker network disconnect k3d-${clusterName} provisioner-nginx`);
-    } catch {
-      console.warn(`[InfrastructureService] Could not disconnect provisioner-nginx from k3d-${clusterName} network`);
-    }
   }
 
   async streamLogs(resourceId: string, args: string[], io: SocketServer, room: string, kubeconfig?: string) {

@@ -7,7 +7,7 @@ import {
   type RouterHistory,
 } from '@tanstack/react-router';
 import { RootLayout } from './RootLayout';
-import { NginxRoute, ProjectsRoute, VpsCatalogRoute } from './ShellRoutes';
+import { ProjectsRoute, VpsCatalogRoute } from './ShellRoutes';
 import { ChatPage } from '../features/engine';
 import { TemporalPanel } from '../features/infrastructure';
 import { InfrastructureView } from '../features/infrastructure';
@@ -162,12 +162,6 @@ export const runningRedirect = createRoute({ getParentRoute: () => rootRoute, pa
 export const monitoringRedirect = createRoute({ getParentRoute: () => rootRoute, path: '/monitoring', component: () => <Navigate to="/infrastructure" replace /> });
 
 export const monitoringDetailRedirect = createRoute({ getParentRoute: () => rootRoute, path: '/monitoring/$kind/$id', component: MonitoringDetailRedirect });
-
-export const nginxRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: '/nginx',
-  component: NginxRoute,
-});
 
 export const temporalRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -435,7 +429,6 @@ export const routeTree = rootRoute.addChildren([
   runningRedirect,
   monitoringRedirect,
   monitoringDetailRedirect,
-  nginxRoute,
   temporalRoute,
   accountsRoute,
   meshRoute,

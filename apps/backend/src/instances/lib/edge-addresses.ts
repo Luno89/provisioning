@@ -37,11 +37,18 @@ export function freeLabel(wanted: string, instance: string, taken: ReadonlySet<s
   }
 }
 
-export function edgeSite(hosts: readonly string[], backendTarget: string, appHostname: string): string {
+export const localHost = (label: string, port: number): string => `${label}.localhost:${port}`;
+
+export function labelOfLocal(url: string | undefined, port: number): string | undefined {
+  const found = url ? /^http:\/\/([a-z0-9-]+)\.localhost:(\d+)\/?$/.exec(url) : null;
+  return found && Number(found[2]) === port ? found[1] : undefined;
+}
+
+export function edgeSite(hosts: readonly string[], backendTarget: string, appHostname: string, proto: 'http' | 'https' = 'https'): string {
   return `${hosts.map((host) => `http://${host}`).join(', ')} {
 	reverse_proxy ${backendTarget} {
 		header_up Host ${appHostname}
-		header_up X-Forwarded-Proto https
+		header_up X-Forwarded-Proto ${proto}
 		transport http {
 			read_timeout 0
 			write_timeout 0

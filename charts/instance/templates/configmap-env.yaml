@@ -30,8 +30,12 @@ data:
   {{- if .Values.routing.domain }}
   INGRESS_DOMAIN: {{ .Values.routing.domain | quote }}
   INSTANCE_NAME: {{ required "routing.name is required with routing.domain" .Values.routing.name | quote }}
+  {{- end }}
   EDGE_ADMIN_URL: http://localhost:2019
   EDGE_CADDYFILE: /etc/edge/Caddyfile
+  EDGE_SITES: /app/apps/backend/data/caddy/apps
+  {{- if not .Values.pool.enabled }}
+  EDGE_LOCAL_PORT: {{ .Values.edge.localPort | quote }}
   {{- end }}
   GITEA_URL: http://gitea-http.gitea.svc.cluster.local:3000
   INFISICAL_URL: http://infisical-infisical-standalone-infisical.infisical.svc.cluster.local:8080
@@ -55,7 +59,6 @@ data:
   KUBECONFIG_PATH: /tmp/kubeconfig-provisioning-lunorica
   IN_CLUSTER: "true"
   TERRAFORM_STATE: kubernetes
-{{- if .Values.routing.domain }}
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -77,4 +80,7 @@ data:
     	header X-Koala-Edge {{ .Values.routing.name | quote }}
     	respond 404
     }
-{{- end }}
+
+    :{{ .Values.edge.localPort }} {
+    	respond "No app is exposed at this address on this computer." 404
+    }

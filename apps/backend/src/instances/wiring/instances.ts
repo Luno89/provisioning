@@ -56,6 +56,18 @@ import { PoolMoveWorkflow } from '../../workflows/PoolMoveWorkflow.js';
 
 const POOL_KUBECONFIG = '/tmp/kubeconfig-provisioning-lunorica';
 
+const EDGE_SETTINGS = ['EDGE_ADMIN_URL', 'EDGE_CADDYFILE', 'EDGE_SITES'] as const;
+
+export function edgeOf(env: NodeJS.ProcessEnv, addresses: () => InstanceAddresses | undefined): InstanceEdge | undefined {
+  const missing = EDGE_SETTINGS.filter((key) => !env[key]);
+  if (missing.length === EDGE_SETTINGS.length) return undefined;
+  if (missing.length) throw new Error(`The edge's settings are half given: ${missing.join(', ')} ${missing.length === 1 ? 'is' : 'are'} not set; the instance chart sets them all`);
+  const localPort = env.EDGE_LOCAL_PORT ? Number(env.EDGE_LOCAL_PORT) : undefined;
+  if (localPort !== undefined && !(Number.isInteger(localPort) && localPort > 0 && localPort < 65536)) throw new Error(`EDGE_LOCAL_PORT is not a port: ${env.EDGE_LOCAL_PORT}`);
+  if (env.INGRESS_DOMAIN && !env.INSTANCE_NAME) throw new Error('INGRESS_DOMAIN is set without INSTANCE_NAME, so the instance\'s public addresses have no name to go under');
+  return adminEdge({ name: env.INSTANCE_NAME || undefined, localPort, sites: env.EDGE_SITES!, adminUrl: env.EDGE_ADMIN_URL!, caddyfile: env.EDGE_CADDYFILE! }, addresses);
+}
+
 export class InstanceSide {
   readonly edge: InstanceEdge | undefined;
   private addresses: InstanceAddresses | undefined;
@@ -63,14 +75,11 @@ export class InstanceSide {
   private readonly heard: Record<string, () => void> = {};
 
   constructor(private readonly role: RoleConfig, private readonly env: NodeJS.ProcessEnv, private readonly rootToken: (() => Promise<string>) | undefined) {
-    const name = env.INSTANCE_NAME;
-    this.edge = role.instance && name && env.EDGE_ADMIN_URL && env.EDGE_CADDYFILE
-      ? adminEdge(name, env.EDGE_ADMIN_URL, env.EDGE_CADDYFILE, () => this.addresses)
-      : undefined;
+    this.edge = role.instance ? edgeOf(env, () => this.addresses) : undefined;
   }
 
   follow(republish: () => Promise<void>): void {
-    if (!this.edge || !this.role.instance || !this.rootToken) return;
+    if (!this.edge?.name || !this.role.instance || !this.rootToken) return;
     this.addresses = new InstanceAddresses(
       { rootUrl: this.role.instance.rootUrl, instanceId: this.role.instance.id, token: this.rootToken, name: this.edge.name },
       republish,

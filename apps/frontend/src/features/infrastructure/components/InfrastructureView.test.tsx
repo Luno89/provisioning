@@ -60,13 +60,6 @@ const shell = {
   setShowAppModal: vi.fn(),
   setWizardPreset: vi.fn(),
   openDashboard: vi.fn(),
-  editorContent: '',
-  setEditorContent: vi.fn(),
-  loadingNginxConfig: false,
-  updateNginxConfig: {},
-  vpnDomains: {},
-  setVpnDomains: vi.fn(),
-  setShowNginxWizard: vi.fn(),
 } as unknown as ShellContext
 
 const show = () => render(
@@ -278,15 +271,6 @@ describe('the Infrastructure page', () => {
     expect(shell.setShowClusterModal).toHaveBeenCalledWith(true)
   })
 
-  it('links the local router only for whoever may administer this server', async () => {
-    useShellStore.setState({ user: { id: 'u', email: 'u@example.com', permissions: { administer: false } } as never })
-    params.kind = 'cluster'
-    params.id = cluster.id
-    show()
-    expect(await screen.findAllByTestId('platform-service')).not.toHaveLength(0)
-    expect(screen.queryByRole('link', { name: 'Local router (Nginx)' })).toBeNull()
-  })
-
   it('shows everything on a cluster: workloads by whose they are, platform services, nodes, GPUs and Helm releases', async () => {
     useShellStore.setState({ user: { id: 'op', email: 'op@example.com', permissions: { administer: true } } as never })
     params.kind = 'cluster'
@@ -310,7 +294,6 @@ describe('the Infrastructure page', () => {
     expect(within(services[0]!).getByRole('link', { name: /Open dashboard/ })).toHaveAttribute('href', expect.stringContaining('/clusters/provisioning-lunorica/proxy/grafana/'))
     expect(services[1]).toHaveTextContent('Not installed')
     expect(services[0]).toHaveTextContent('Opens signed in as admin.')
-    expect(screen.getByRole('link', { name: 'Local router (Nginx)' })).toHaveAttribute('href', '#/nginx')
     expect(screen.getByTestId('node-row')).toHaveTextContent('Readylunorica')
     expect(screen.getByTestId('node-row')).toHaveTextContent('16 CPU · 64 GB · 2 GPU')
     expect(screen.getByTestId('gpu-panel')).toHaveTextContent('1 of 2 free')

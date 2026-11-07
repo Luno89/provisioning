@@ -25,7 +25,6 @@ import { appSchemasRouter } from '../routes/app-schemas.js';
 import { clusterProvidersRouter } from '../routes/cluster-providers.js';
 import { logsRouter } from '../routes/logs.js';
 import { modulesRouter } from '../routes/modules.js';
-import { nginxRouter } from '../routes/nginx.js';
 import { pendingApprovalsRouter } from '../routes/pending-approvals.js';
 import { registryRouter } from '../routes/registry.js';
 import { temporalRouter } from '../routes/temporal.js';
@@ -57,7 +56,6 @@ export interface InfrastructureWiringDeps {
   gitea: GiteaService;
   infisical: InfisicalService;
   exposure: AppExposureService;
-  nginxConfPath: string;
   vpsCatalog: VpsCatalogService;
   worker: WorkerService;
   registry: RegistryService;
@@ -109,7 +107,6 @@ export function wireInfrastructure(deps: InfrastructureWiringDeps): void {
   if (roleFromEnv(process.env).role === 'combined') tenant.use('/api/server-orders', serverOrdersRouter({ serverOrders, operatorOnly: deps.operatorOnly }));
   tenant.use('/api/temporal', temporalRouter({ temporalBridge: deps.temporalBridge }));
   tenant.use('/api/worker', workerRouter({ workerService: deps.worker, operatorOnly: deps.operatorOnly }));
-  tenant.use('/api/nginx', adminOnly(deps.operatorOnly, nginxRouter({ nginxConfPath: deps.nginxConfPath })));
   tenant.use('/api/logs', logsRouter({ db, clusterService: deps.clusters, appService: deps.apps }));
   tenant.use('/api/registry', registryRouter({ registryService: deps.registry }));
   tenant.use('/api/modules', modulesRouter({ gitModuleService: deps.gitModules }));

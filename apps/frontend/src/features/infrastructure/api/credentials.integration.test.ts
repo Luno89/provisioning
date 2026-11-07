@@ -1,17 +1,15 @@
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Router } from 'express'
 import { describe, expect, expectTypeOf, it } from 'vitest'
 import { type LlmProviderStatus, deleteCredentials, deleteLlmCredentials, getCredentials, listDnsProviders, listLlmProviders, listProviders, runBackup, saveCredentials, validateCredentials } from './credentials'
-import { getNginxConfig, saveNginxConfig } from './nginx'
 import type { DnsProviderInfo, ProviderStatus } from '../types/credentials'
 import { startBackend } from '../../../test/backend/site'
 import { DATA_KEY } from '../../../test/backend/machines'
 import type { Wire } from '../../../test/backend/wire'
 import { credentialsRouter } from '../../../../../backend/src/infrastructure/routes/credentials'
 import { dnsProvidersRouter } from '../../../../../backend/src/infrastructure/routes/dns-providers'
-import { nginxRouter } from '../../../../../backend/src/infrastructure/routes/nginx'
 import { backupRouter } from '../../../../../backend/src/infrastructure/routes/backup'
 import { llmCredentialsRouter } from '../../../../../backend/src/models/routes/llm-credentials'
 import { CredentialService, type ProviderStatus as BackendProviderStatus } from '../../../../../backend/src/infrastructure/services/CredentialService'
@@ -20,10 +18,7 @@ import type { describeProvider } from '../../../../../backend/src/infrastructure
 import { SESSION_KEY } from '../../../test/backend/site'
 import { arrayWith, objectWith } from '../../../../../backend/src/platform/lib/test-matchers'
 
-const nginxFolder = mkdtempSync(join(tmpdir(), 'koala-nginx-'))
-const nginxConf = join(nginxFolder, 'nginx.conf')
-writeFileSync(nginxConf, 'events {}\n')
-const reloads: string[] = []
+const backupFolder = mkdtempSync(join(tmpdir(), 'koala-backup-'))
 
 const backend = await startBackend(({ api, db, origin, auth }) => {
   const credentials = new CredentialService(db, DATA_KEY)
@@ -31,8 +26,7 @@ const backend = await startBackend(({ api, db, origin, auth }) => {
   api.use('/credentials', llmCredentialsRouter({ db, dataKey: DATA_KEY, credentialService: credentials, publicUrl: origin, appUrl: origin }))
   api.use('/dns-providers', dnsProvidersRouter({ dns: new DnsProviders() }))
   api.use('/credentials', credentialsRouter({ credentialService: credentials, publicUrl: origin, appUrl: origin, sessionKey: SESSION_KEY }))
-  api.use('/nginx', Router().use(operatorOnly, nginxRouter({ nginxConfPath: nginxConf, shell: async (command) => { reloads.push(command); return { stdout: '', stderr: '' } } })))
-  api.use('/backup', Router().use(operatorOnly, backupRouter({ repoRoot: nginxFolder })))
+  api.use('/backup', Router().use(operatorOnly, backupRouter({ repoRoot: backupFolder })))
 })
 
 await backend.signIn()
@@ -94,18 +88,9 @@ describe('model gateways, as Studio → Models asks for them', () => {
   })
 })
 
-describe('the local router\'s nginx config, for the operator', () => {
-  it('reads the config and saves a new one, reloading nginx', async () => {
-    expect(await getNginxConfig()).toEqual({ content: 'events {}\n' })
-    await saveNginxConfig('events {}\nhttp {}\n')
-    expect(readFileSync(nginxConf, 'utf8')).toBe('events {}\nhttp {}\n')
-    expect(reloads).toEqual(['docker exec provisioner-nginx nginx -s reload'])
-  })
-
-  it('refuses the config and a backup to someone who is not the operator', async () => {
+describe('a backup, for the operator', () => {
+  it('is refused to someone who is not the operator', async () => {
     await backend.signInAnother('second@koala.test')
-    await expect(getNginxConfig()).rejects.toMatchObject({ response: { status: 403 } })
-    await expect(saveNginxConfig('events {}\n')).rejects.toMatchObject({ response: { status: 403 } })
     await expect(runBackup()).rejects.toMatchObject({ response: { status: 403 } })
   })
 })

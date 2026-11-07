@@ -35,6 +35,7 @@ routing:
 edge:
   image: caddy:2.10.2-alpine
   nodePort: null
+  localPort: 8000
 
 storage:
   data: 2Gi

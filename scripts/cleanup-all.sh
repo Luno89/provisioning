@@ -80,42 +80,12 @@ echo "  ▶  Cleaning up workspace and backend logs..."
 rm -rf "$ROOT/apps/backend/data/logs"/* 2>/dev/null || true
 rm -f "$ROOT"/*.log 2>/dev/null || true
 
-# 5. Clean up any leftover nginx files or containers if applicable
+# 5. Koala exposes apps through each instance's edge; the host nginx it used before goes
 if docker inspect provisioner-nginx >/dev/null 2>&1; then
-  echo "  ▶  Resetting provisioner-nginx container..."
-  NGINX_CONF="$ROOT/apps/backend/data/nginx/nginx.conf"
-  if [ -f "$NGINX_CONF" ]; then
-    cat << 'EOF' > "$NGINX_CONF"
-user  nginx;
-worker_processes  auto;
-
-error_log  /var/log/nginx/error.log notice;
-pid        /var/run/nginx.pid;
-
-events {
-    worker_connections  1024;
-}
-
-http {
-    include       /etc/nginx/mime.types;
-    default_type  application/octet-stream;
-
-    log_format  main  '$remote_addr - $remote_user [$time_local] "$request" '
-                      '$status $body_bytes_sent "$http_referer" '
-                      '"$http_user_agent" "$http_x_forwarded_for"';
-
-    access_log  /var/log/nginx/access.log  main;
-
-    sendfile        on;
-    keepalive_timeout  65;
-    client_max_body_size 10G;
-
-    include /etc/nginx/conf.d/*.conf;
-}
-EOF
-    docker exec provisioner-nginx nginx -s reload >/dev/null 2>&1 || true
-  fi
+  echo "  ▶  Removing provisioner-nginx, which Koala no longer uses..."
+  docker rm -f provisioner-nginx >/dev/null
 fi
+rm -rf "$ROOT/apps/backend/data/nginx"
 
 # 6. Reset local Temporal server to clear stale workflows
 echo "  ▶  Resetting local Temporal server..."

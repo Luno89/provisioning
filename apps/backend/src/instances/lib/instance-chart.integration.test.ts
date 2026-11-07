@@ -326,26 +326,51 @@ describe('the instance chart', () => {
     expect(() => execFileSync(HELM, ['template', 'x', CHART], { encoding: 'utf8', stdio: 'pipe' })).toThrow(/instance.id is required/);
   });
 
-  it('serves the instance\'s apps through an edge beside the backend, only when root gives it addresses', () => {
+  it('runs its edge beside the backend on every instance, and gives it the public addresses root routes only when root gives it a domain', () => {
     const plain = render();
-    expect(plain.some((doc) => doc.metadata.name === 'luno-edge')).toBe(false);
-    expect(podOf(find(plain, 'Deployment', 'luno-backend')).containers).toHaveLength(1);
-
-    const docs = render(['routing.domain=koala.dev', 'routing.name=luno', 'edge.nodePort=30321']);
-    expect(find(docs, 'ConfigMap', 'luno-env').data).toMatchObject({ INGRESS_DOMAIN: 'koala.dev', INSTANCE_NAME: 'luno', EDGE_ADMIN_URL: 'http://localhost:2019', EDGE_CADDYFILE: '/etc/edge/Caddyfile' });
-    expect(find(docs, 'ConfigMap', 'luno-edge').data!.Caddyfile).toContain('import /app/apps/backend/data/caddy/apps/*.caddy');
-    expect(find(docs, 'ConfigMap', 'luno-edge').data!.Caddyfile).toContain('header X-Koala-Edge "luno"');
-    const [backend, edge] = podOf(find(docs, 'Deployment', 'luno-backend')).containers;
+    const env = find(plain, 'ConfigMap', 'luno-env').data!;
+    expect(env).toMatchObject({ EDGE_ADMIN_URL: 'http://localhost:2019', EDGE_CADDYFILE: '/etc/edge/Caddyfile', EDGE_SITES: '/app/apps/backend/data/caddy/apps', EDGE_LOCAL_PORT: '8000' });
+    expect(env.INGRESS_DOMAIN).toBeUndefined();
+    expect(plain.some((doc) => doc.kind === 'Service' && doc.metadata.name === 'luno-edge')).toBe(false);
+    const caddyfile = find(plain, 'ConfigMap', 'luno-edge').data!.Caddyfile;
+    expect(caddyfile).toContain('import /app/apps/backend/data/caddy/apps/*.caddy');
+    expect(caddyfile).toContain(':8000 {\n\trespond "No app is exposed at this address on this computer." 404');
+    const [backend, edge] = podOf(find(plain, 'Deployment', 'luno-backend')).containers;
     expect(edge?.image).toBe('caddy:2.10.2-alpine');
+    expect(edge?.ports).toEqual([{ name: 'edge', containerPort: 8080 }, { name: 'local-apps', containerPort: 8000 }]);
     expect(edge?.volumeMounts).toEqual(expect.arrayContaining([{ name: 'data', mountPath: '/app/apps/backend/data', readOnly: true }]));
     expect(backend?.volumeMounts).toEqual(expect.arrayContaining([{ name: 'edge-config', mountPath: '/etc/edge', readOnly: true }]));
+    expect(podOf(find(plain, 'Deployment', 'luno-worker-engine')).containers).toHaveLength(1);
+
+    const docs = render(['routing.domain=koala.dev', 'routing.name=luno', 'edge.nodePort=30321']);
+    expect(find(docs, 'ConfigMap', 'luno-env').data).toMatchObject({ INGRESS_DOMAIN: 'koala.dev', INSTANCE_NAME: 'luno' });
+    expect(find(docs, 'ConfigMap', 'luno-edge').data!.Caddyfile).toContain('header X-Koala-Edge "luno"');
     expect(specOf(find(docs, 'Service', 'luno-edge'))).toMatchObject({ type: 'NodePort', ports: [{ name: 'edge', port: 80, targetPort: 'edge', nodePort: 30321 }] });
-    expect(podOf(find(docs, 'Deployment', 'luno-worker-engine')).containers).toHaveLength(1);
+  });
+
+  it('answers for the apps exposed on this computer on its loopback only, through a forwarder of its own that restarts by replacement, so the backend\'s upgrade never waits on the port', () => {
+    const docs = render();
+    expect(specOf(find(docs, 'Service', 'luno-edge-local'))).toMatchObject({ type: 'ClusterIP', ports: [{ name: 'local-apps', port: 8000, targetPort: 'local-apps' }] });
+    const forwarder = find(docs, 'Deployment', 'luno-local-apps');
+    expect(specOf(forwarder).strategy).toEqual({ type: 'Recreate' });
+    const [forward] = podOf(forwarder).containers;
+    expect(forward?.args).toEqual(['caddy', 'reverse-proxy', '--from', ':8000', '--to', 'luno-edge-local.nowrinkles.svc.cluster.local:8000']);
+    expect(forward?.ports).toEqual([{ name: 'local-apps', containerPort: 8000, hostPort: 8000, hostIP: '127.0.0.1' }]);
+    for (const doc of docs) {
+      for (const container of doc.spec?.template?.spec.containers ?? []) {
+        if (doc.metadata.name !== 'luno-local-apps') expect((container.ports ?? []).some((port) => typeof port === 'object' && port !== null && 'hostPort' in port), `${doc.metadata.name}/${container.name}`).toBe(false);
+      }
+    }
+    const elsewhere = render(['edge.localPort=8100']);
+    expect(find(elsewhere, 'ConfigMap', 'luno-env').data!.EDGE_LOCAL_PORT).toBe('8100');
+    expect(podOf(find(elsewhere, 'Deployment', 'luno-local-apps')).containers[0]?.ports).toEqual([{ name: 'local-apps', containerPort: 8100, hostPort: 8100, hostIP: '127.0.0.1' }]);
   });
 
   it('in the pool, never mounts the machine\'s Docker, and reaches Gitea, Infisical and its registry by the addresses a vcluster has', () => {
     expect(() => render(['pool.enabled=true'])).toThrow(/pool.registryPullHost is required/);
     const docs = render(['pool.enabled=true', 'pool.registryPullHost=127.0.0.1:35010']);
+    expect(docs.some((doc) => doc.metadata.name === 'luno-local-apps')).toBe(false);
+    expect(find(docs, 'ConfigMap', 'luno-env').data!.EDGE_LOCAL_PORT).toBeUndefined();
     const host = podOf(find(docs, 'Deployment', 'luno-worker-host'));
     expect(host.volumes?.map((volume) => volume.name)).not.toContain('docker-socket');
     expect(find(docs, 'ConfigMap', 'luno-env').data).toMatchObject({

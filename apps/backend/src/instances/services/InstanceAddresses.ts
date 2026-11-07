@@ -73,12 +73,22 @@ export class InstanceAddresses {
   }
 }
 
-export function adminEdge(name: string, adminUrl: string, caddyfile: string, addresses: () => InstanceAddresses | undefined, fetchImpl: typeof fetch = globalThis.fetch): InstanceEdge {
+export interface EdgeSettings {
+  name: string | undefined;
+  localPort: number | undefined;
+  sites: string;
+  adminUrl: string;
+  caddyfile: string;
+}
+
+export function adminEdge(settings: EdgeSettings, addresses: () => InstanceAddresses | undefined, fetchImpl: typeof fetch = globalThis.fetch): InstanceEdge {
   return {
-    name,
+    name: settings.name,
+    localPort: settings.localPort,
+    sites: settings.sites,
     nestedReady: () => addresses()?.nestedReady() ?? false,
     async reload() {
-      const response = await fetchImpl(`${adminUrl}/load`, { method: 'POST', headers: { 'content-type': 'text/caddyfile' }, body: await fs.readFile(caddyfile, 'utf8') });
+      const response = await fetchImpl(`${settings.adminUrl}/load`, { method: 'POST', headers: { 'content-type': 'text/caddyfile' }, body: await fs.readFile(settings.caddyfile, 'utf8') });
       if (!response.ok) throw new Error(`the edge refused its config (${response.status}): ${(await response.text()).slice(0, 500)}`);
     },
   };

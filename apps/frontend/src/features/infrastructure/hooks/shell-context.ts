@@ -1,5 +1,4 @@
 import React from 'react';
-import type { UseMutationResult } from '@tanstack/react-query';
 import { Cloud, Network, Settings } from 'lucide-react';
 import type { Cluster } from '../types/cluster';
 import type { Deployment } from '../types/deployment';
@@ -27,13 +26,6 @@ export interface ShellContext {
   setShowAppModal: (show: boolean) => void;
   setWizardPreset: (preset: WizardPreset | undefined) => void;
   openDashboard: (type: 'cluster' | 'app', id: string) => void;
-  editorContent: string;
-  setEditorContent: React.Dispatch<React.SetStateAction<string>>;
-  loadingNginxConfig: boolean;
-  updateNginxConfig: UseMutationResult<void, unknown, string>;
-  vpnDomains: Record<string, string>;
-  setVpnDomains: React.Dispatch<React.SetStateAction<Record<string, string>>>;
-  setShowNginxWizard: (show: boolean) => void;
 }
 
 export const ShellContextInstance = React.createContext<ShellContext | null>(null);

@@ -14,7 +14,6 @@ import { Login } from '../features/accounts';
 import { ClusterWizard } from '../features/infrastructure';
 import { AppDeployWizard } from '../features/infrastructure';
 import { AppDashboard } from '../features/infrastructure';
-import { NginxWizard } from '../features/infrastructure';
 import { errorMessage } from '../api/client';
 import { releaseKeys, type OdooRelease } from '../features/releases';
 import { useCan, useShellStore, startHistorySync } from '../features/platform';
@@ -30,7 +29,6 @@ import { MovingPage } from '../features/instances';
 import { listClusters, clusterKeys, provisionCluster as provisionClusterApi } from '../features/infrastructure';
 import { listDeployments, deploymentKeys, deployApp as deployAppApi, destroyResource as destroyResourceApi } from '../features/infrastructure';
 import { listProviders, credentialKeys } from '../features/infrastructure';
-import { getNginxConfig, saveNginxConfig, nginxKeys } from '../features/infrastructure';
 import { useGroveChanges } from '../features/projects';
 import { safeHref } from '../shared/lib/safe-href';
 
@@ -56,7 +54,6 @@ export function RootLayout() {
 
   useEffect(() => startHistorySync(), []);
 
-  const [editorContent, setEditorContent] = useState('');
   const [showClusterModal, setShowClusterModal] = useState(false);
   const [wizardPreset, setWizardPreset] = useState<WizardPreset | undefined>(undefined);
   const [showAppModal, setShowAppModal] = useState(false);
@@ -71,8 +68,6 @@ export function RootLayout() {
   const closeAppDeploy = useShellStore((s) => s.closeAppDeploy);
   
   const [logTab, setLogTab] = useState<'general' | 'provision' | 'helm' | 'app' | 'diagnostics' | 'modules' | 'storage'>('general');
-  const [vpnDomains, setVpnDomains] = useState<Record<string, string>>({});
-  const [showNginxWizard, setShowNginxWizard] = useState(false);
 
   useEffect(() => {
     if (user) reconnectSocket();
@@ -217,27 +212,6 @@ export function RootLayout() {
     onError: reportFailure('Could not destroy that'),
   });
 
-  const isNginx = location.pathname === '/nginx';
-  const { data: nginxConfig, isLoading: loadingNginxConfig } = useQuery({
-    queryKey: nginxKeys.config(),
-    queryFn: getNginxConfig,
-    enabled: isNginx,
-  });
-
-  const updateNginxConfig = useMutation({
-    mutationFn: saveNginxConfig,
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['nginx-config'] });
-    },
-    onError: reportFailure('Could not save the nginx config'),
-  });
-
-  const [syncedNginx, setSyncedNginx] = useState<string>();
-  if (nginxConfig?.content !== undefined && nginxConfig.content !== syncedNginx) {
-    setSyncedNginx(nginxConfig.content);
-    setEditorContent(nginxConfig.content);
-  }
-
   const openDashboard = (type: 'cluster' | 'app', id: string) => {
     setShowLogModal({ type, id });
     setLogTab(type === 'app' ? 'general' : 'provision');
@@ -302,13 +276,6 @@ export function RootLayout() {
     setShowAppModal,
     setWizardPreset,
     openDashboard,
-    editorContent,
-    setEditorContent,
-    loadingNginxConfig,
-    updateNginxConfig,
-    vpnDomains,
-    setVpnDomains,
-    setShowNginxWizard,
   };
 
   return (
@@ -407,14 +374,6 @@ export function RootLayout() {
         />
       )}
 
-      {showNginxWizard && (
-        <NginxWizard
-          clusters={clusters}
-          deployments={deployments}
-          onClose={() => setShowNginxWizard(false)}
-          onAppend={setEditorContent}
-        />
-      )}
     </div>
   );
 }

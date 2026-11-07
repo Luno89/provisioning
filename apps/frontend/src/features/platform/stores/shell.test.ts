@@ -63,9 +63,9 @@ describe('back and forward', () => {
     const stop = startHistorySync()
     try {
       useShellStore.getState().setView('infrastructure')
-      setHash('#/nginx')
+      setHash('#/temporal')
       window.dispatchEvent(new PopStateEvent('popstate'))
-      expect(useShellStore.getState().view).toBe('nginx')
+      expect(useShellStore.getState().view).toBe('temporal')
     } finally {
       stop()
     }

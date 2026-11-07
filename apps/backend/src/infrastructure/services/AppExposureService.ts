@@ -1,23 +1,21 @@
-import { at, BaseService, type ClusterMetadata, type Database, type DeploymentMetadata, listAt, numberAt, textAt } from '../../platform/index.js';
-import type { InfrastructureService } from './InfrastructureService.js';
-import type { ClusterService } from './ClusterService.js';
-import { hasCloudCredentials, isMockCloudProvider } from './cloud-credentials.js';
-import { isSelfManagedCluster } from '../lib/cluster-topology.js';
-import { assertUpstreamTarget } from '../lib/upstream-target.js';
-import { exec } from 'child_process';
-import { promisify } from 'util';
 import fs from 'fs/promises';
 import path from 'path';
-import { fileURLToPath } from 'url';
 import type { Server as SocketServer } from 'socket.io';
+import { BaseService, listAt, numberAt, textAt, type ClusterMetadata, type Database, type DeploymentMetadata } from '../../platform/index.js';
 import { ODOO_PROJECT_APP } from '../../releases/index.js';
 import {
-  addressScope, appLabel, edgeSite, flatHost, freeLabel, inScope, labelOfFlat, nestedHost, offersNested,
+  addressScope, appLabel, edgeSite, flatHost, freeLabel, inScope, labelOfFlat, labelOfLocal, localHost, nestedHost, offersNested,
   type AddressScope,
 } from '../../instances/index.js';
+import { namespaceOf } from '../lib/app-namespace.js';
+import type { Reach } from '../lib/cluster-places.js';
+import { assertUpstreamTarget } from '../lib/upstream-target.js';
+import type { ClusterAccess } from './ClusterAccess.js';
 
 export interface InstanceEdge {
-  name: string;
+  name: string | undefined;
+  localPort: number | undefined;
+  sites: string;
   nestedReady(): boolean;
   reload(): Promise<void>;
 }
@@ -31,502 +29,288 @@ export interface AppExposureDb {
   infrastructure: Pick<Database['infrastructure'], 'getDeployments' | 'saveDeployment'>;
 }
 
-export type ExposureInfra = Pick<InfrastructureService, 'runKubectl' | 'getHostGatewayIp' | 'getK3dServerIp'>;
-export type ExposureClusters = Pick<ClusterService, 'getByIdUnscoped' | 'getKubeconfigPath'>;
+export interface ExposureClusters {
+  access: Pick<ClusterAccess, 'reach' | 'kubectl'>;
+  getByIdUnscoped(id: string): Promise<ClusterMetadata | undefined>;
+}
 
-const execAsync = promisify(exec);
+interface Upstream { namespace: string; backendTarget: string; appHostname: string }
+
+type SiteKind = 'local' | 'public';
+
+const NO_EDGE = 'Apps are exposed through an instance\'s edge, the Caddy beside its backend, and this Koala has none.';
+const NO_LOCAL_PORT = 'This instance runs on Koala\'s servers, so there is no computer of yours for an app to answer on; expose it publicly instead.';
+const NO_DOMAIN = 'This instance has no domain of its own, so an app cannot have a public address here. It can still be exposed on this computer.';
 const isMissingFile = (err: unknown): boolean => textAt(err, 'code') === 'ENOENT';
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+const DATABASE_NAMES = ['db', 'postgres', 'mysql', 'redis', 'mongo', 'memcached', 'mariadb', 'influx', 'cassandra', 'elasticsearch'];
+const DATABASE_PORTS = [5432, 3306, 6379, 27017, 11211, 8086, 9042, 9200];
 
 export class AppExposureService extends BaseService<AppExposureDb> {
-  private infra: ExposureInfra;
-  private clusters: ExposureClusters;
-  private nginxConfDir: string;
-  private io: SocketServer | undefined;
-  private edge: InstanceEdge | undefined;
-  private groupOf: (dep: DeploymentMetadata) => Promise<string | undefined>;
+  private readonly edge: InstanceEdge | undefined;
+  private readonly groupOf: (dep: DeploymentMetadata) => Promise<string | undefined>;
 
-  constructor(db: AppExposureDb, infra: ExposureInfra, clusters: ExposureClusters, io?: SocketServer, addressing: AppAddressing = {}) {
+  constructor(db: AppExposureDb, private readonly clusters: ExposureClusters, private readonly io?: SocketServer, addressing: AppAddressing = {}) {
     super(db);
-    this.infra = infra;
-    this.clusters = clusters;
-    this.nginxConfDir = path.join(__dirname, '../../../data/nginx');
-    this.io = io;
     this.edge = addressing.edge;
     this.groupOf = addressing.groupOf ?? (async () => undefined);
   }
 
-  private sanitize(name: string) {
-    return name.toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
+  private theEdge(): InstanceEdge {
+    if (!this.edge) throw new Error(NO_EDGE);
+    return this.edge;
   }
 
-  private isMockCloud(cluster: ClusterMetadata): boolean {
-    return isMockCloudProvider(cluster.provider, hasCloudCredentials);
+  private async deployment(id: string): Promise<DeploymentMetadata> {
+    const dep = (await this.db.infrastructure.getDeployments()).find((d) => d.id === id);
+    if (!dep) throw new Error('Deployment not found');
+    return dep;
   }
 
-  private async buildUpstreamTarget(dep: DeploymentMetadata, cluster: ClusterMetadata): Promise<{namespace: string, backendTarget: string, appHostname: string}> {
-    const namespace = dep.namespace || this.sanitize(dep.name);
-    const kubeconfigPath = await this.clusters.getKubeconfigPath(cluster);
+  private async traefikOn(reach: Reach): Promise<{ namespace: string; spec: unknown }> {
+    for (const namespace of ['traefik', 'kube-system']) {
+      const found = await this.clusters.access.kubectl(reach, ['get', 'svc', 'traefik', '-n', namespace, '--ignore-not-found', '-o', 'json']);
+      if (found.trim()) return { namespace, spec: JSON.parse(found) as unknown };
+    }
+    throw new Error(`${reach.clusterId} has no Traefik (looked in the traefik and kube-system namespaces), so its apps cannot be reached.`);
+  }
 
-    const output = await this.infra.runKubectl(['get', 'svc', '-n', namespace, '-o', 'json'], kubeconfigPath);
-    const services = listAt(JSON.parse(output) as unknown, 'items');
-
-    const dbKeywords = ['db', 'postgres', 'mysql', 'redis', 'mongo', 'memcached', 'mariadb', 'influx', 'cassandra', 'elasticsearch'];
-    const dbPorts = [5432, 3306, 6379, 27017, 11211, 8086, 9042, 9200];
-
-    const candidateServices = services.filter((svc) => {
+  private async upstream(dep: DeploymentMetadata): Promise<Upstream> {
+    const namespace = namespaceOf(dep);
+    const reach = await this.clusters.access.reach(dep.clusterId);
+    if (reach.kind === 'root') throw new Error(`${dep.clusterId} is root's own cluster, which runs no one's apps.`);
+    const services = listAt(JSON.parse(await this.clusters.access.kubectl(reach, ['get', 'svc', '-n', namespace, '-o', 'json'])) as unknown, 'items');
+    const web = services.some((svc) => {
       const full = textAt(svc, 'metadata', 'name')?.toLowerCase() || '';
       const owned = [namespace, dep.name.toLowerCase()].find((prefix) => full.startsWith(prefix));
       const name = owned ? full.slice(owned.length) : full;
-      if (dbKeywords.some(kw => name.includes(kw))) return false;
-      const ports = listAt(svc, 'spec', 'ports');
-      if (ports.length === 0) return false;
-      return ports.some((p) => !dbPorts.includes(numberAt(p, 'port') ?? 0));
+      if (DATABASE_NAMES.some((word) => name.includes(word))) return false;
+      return listAt(svc, 'spec', 'ports').some((p) => !DATABASE_PORTS.includes(numberAt(p, 'port') ?? 0));
     });
+    if (!web) throw new Error(`No proxyable web services found in namespace "${namespace}".`);
 
-    if (candidateServices.length === 0) {
-      throw new Error(`No proxyable web services found in namespace "${namespace}".`);
-    }
-
+    const traefik = await this.traefikOn(reach);
+    const ports = listAt(traefik.spec, 'spec', 'ports');
+    const webPort = ports.find((p) => textAt(p, 'name') === 'web') ?? ports[0];
     const appHostname = `${namespace}.apps.local`;
-
-    if (this.edge && cluster.isSystem) {
-      for (const traefikNamespace of ['traefik', 'kube-system']) {
-        const found = await this.infra.runKubectl(['get', 'svc', 'traefik', '-n', traefikNamespace, '--ignore-not-found', '-o', 'json'], kubeconfigPath);
-        if (!found.trim()) continue;
-        const ports = listAt(JSON.parse(found) as unknown, 'spec', 'ports');
-        const port = numberAt(ports.find((p) => textAt(p, 'name') === 'web') ?? ports[0], 'port') || 80;
-        return { namespace, backendTarget: assertUpstreamTarget(`traefik.${traefikNamespace}.svc.cluster.local:${port}`, namespace), appHostname };
-      }
-      throw new Error('This instance\'s cluster has no Traefik (looked in the traefik and kube-system namespaces), so its apps cannot be reached.');
+    if (reach.kind === 'koala') {
+      const port = numberAt(webPort, 'port') || 80;
+      return { namespace, appHostname, backendTarget: assertUpstreamTarget(`traefik.${traefik.namespace}.svc.cluster.local:${port}`, namespace) };
     }
-
-    const traefikOutput = await this.infra.runKubectl(['get', 'svc', 'traefik', '-n', 'traefik', '-o', 'json'], kubeconfigPath);
-    const traefikSvc: unknown = JSON.parse(traefikOutput);
-    const traefikPorts = listAt(traefikSvc, 'spec', 'ports');
-    const traefikPortObj = traefikPorts.find((p) => textAt(p, 'name') === 'web') ?? traefikPorts[0];
-    const targetPort = numberAt(traefikPortObj, 'port') || 80;
-
-    const isMock = this.isMockCloud(cluster);
-    let backendTarget = '';
-    if (cluster.gpuEnabled) {
-      const nodePort = numberAt(traefikPortObj, 'nodePort');
-      if (!nodePort) {
-        throw new Error(`Traefik's Service does not have a nodePort assigned. Cannot expose locally.`);
-      }
-      const hostIp = await this.infra.getHostGatewayIp();
-      backendTarget = `${hostIp}:${nodePort}`;
-    } else if (cluster.provider === 'k3d' || isMock) {
-      const nodePort = numberAt(traefikPortObj, 'nodePort');
-      if (!nodePort) {
-        throw new Error(`Traefik's Service does not have a nodePort assigned. Cannot expose locally.`);
-      }
-      const serverIp = await this.infra.getK3dServerIp(cluster.name);
-      backendTarget = `${serverIp}:${nodePort}`;
-    } else if (cluster.meshIp) {
-      const nodePort = numberAt(traefikPortObj, 'nodePort');
-      if (!nodePort) {
-        throw new Error(
-          `Traefik on "${cluster.name}" has no nodePort — the cluster stack predates the NodePort change and needs re-applying.`,
-        );
-      }
-      backendTarget = `${cluster.meshIp}:${nodePort}`;
-    } else {
-      const ingress = at(traefikSvc, 'status', 'loadBalancer', 'ingress', 0);
-      const targetIpOrHost = textAt(ingress, 'ip') || textAt(ingress, 'hostname');
-      if (!targetIpOrHost) {
-        throw new Error(
-          isSelfManagedCluster(cluster.provider, isMock)
-            ? `Cluster "${cluster.name}" has no mesh address, so its apps cannot be reached. Was MESH_LOGIN_SERVER set when it was provisioned?`
-            : `Cloud LoadBalancer for Traefik's Service is still provisioning.`,
-        );
-      }
-      backendTarget = `${targetIpOrHost}:${targetPort}`;
-    }
-
-    return { namespace, backendTarget: assertUpstreamTarget(backendTarget, namespace), appHostname };
-  }
-
-  private buildConfContent(namespace: string, backendTarget: string, appHostname: string, tunnelHost?: string): string {
-    const extraHost = tunnelHost ? ` ${tunnelHost}` : '';
-    return `server {
-    listen 80;
-    server_name ${namespace} ~^${namespace}\\..*$${extraHost};
-
-    location / {
-        resolver 127.0.0.11 valid=10s;
-        set \$upstream "${backendTarget}";
-        proxy_pass http://\$upstream;
-        # Fixed, not $host — the backend is now always Traefik (see buildUpstreamTarget), which
-        # dispatches to the right app purely by Host header. Forwarding the client's original
-        # Host (the tunnel domain, or namespace.localhost) would never match any app's Ingress.
-        proxy_set_header Host ${appHostname};
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-
-        # WebSockets / longpolling settings
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
-    }
-}
-`;
+    const cluster = await this.clusters.getByIdUnscoped(dep.clusterId);
+    if (!cluster?.meshIp) throw new Error(`${dep.clusterId} has no mesh address, so this instance's edge cannot reach its apps.`);
+    const nodePort = numberAt(webPort, 'nodePort');
+    if (!nodePort) throw new Error(`Traefik on ${dep.clusterId} has no node port, so this instance's edge cannot reach its apps.`);
+    return { namespace, appHostname, backendTarget: assertUpstreamTarget(`${cluster.meshIp}:${nodePort}`, namespace) };
   }
 
   private previewOf(dep: DeploymentMetadata): { key: string; appHostname: string } | undefined {
     if (dep.appType !== ODOO_PROJECT_APP) return undefined;
-    const key = `${dep.namespace || this.sanitize(dep.name)}-preview`;
+    const key = `${namespaceOf(dep)}-preview`;
     return { key, appHostname: `${key}.apps.local` };
   }
 
-  private previewPublicHostname(dep: DeploymentMetadata, domain: string, publicHostname: string, scope: AddressScope): string {
-    const label = scope.kind === 'combined' ? undefined : labelOfFlat(publicHostname, scope.name, domain);
-    if (label) return flatHost(`${label}-preview`, scope.name, domain);
-    return `${this.sanitize(dep.name)}-preview-${dep.id.replace(/-/g, '').slice(0, 6)}.${domain}`;
+  private keysOf(dep: DeploymentMetadata): string[] {
+    const preview = this.previewOf(dep);
+    return [namespaceOf(dep), ...(preview ? [preview.key] : [])];
   }
 
-  private syncDerivedFields(dep: DeploymentMetadata) {
+  private previewPublicHostname(dep: DeploymentMetadata, domain: string, publicHostname: string, scope: AddressScope): string {
+    const label = labelOfFlat(publicHostname, scope.name, domain);
+    if (!label) throw new Error(`${dep.name}'s address ${publicHostname} is not under ${scope.name}.${domain}`);
+    return flatHost(`${label}-preview`, scope.name, domain);
+  }
+
+  private syncDerivedFields(dep: DeploymentMetadata): void {
     dep.isExposed = !!(dep.isExposedLocally || dep.isExposedPublicly);
     if (dep.publicExposureUrl) dep.exposureUrl = dep.publicExposureUrl;
     else if (dep.localExposureUrl) dep.exposureUrl = dep.localExposureUrl;
     else delete dep.exposureUrl;
   }
 
-  private confPathFor(namespace: string): string {
-    return path.join(this.nginxConfDir, 'conf.d', `${namespace}.conf`);
+  private sitePath(key: string, kind: SiteKind): string {
+    return path.join(this.theEdge().sites, `${key}.${kind}.caddy`);
   }
 
-  private ingressDomain(): string | undefined {
-    return process.env.INGRESS_DOMAIN || undefined;
+  private async writeSite(key: string, kind: SiteKind, content: string): Promise<void> {
+    const file = this.sitePath(key, kind);
+    await fs.mkdir(path.dirname(file), { recursive: true });
+    await fs.writeFile(file, content);
+  }
+
+  private async removeSite(key: string, kind: SiteKind): Promise<void> {
+    try {
+      await fs.unlink(this.sitePath(key, kind));
+    } catch (err) {
+      if (!isMissingFile(err)) throw err;
+    }
+  }
+
+  private async reload(): Promise<void> {
+    try {
+      await this.theEdge().reload();
+    } catch (err) {
+      throw new Error(`The edge did not take its new sites: ${(err as Error).message}`);
+    }
+  }
+
+  private domain(): string {
+    const domain = process.env.INGRESS_DOMAIN || undefined;
+    if (!domain || !this.theEdge().name) throw new Error(NO_DOMAIN);
+    return domain;
+  }
+
+  private localPort(): number {
+    const port = this.theEdge().localPort;
+    if (!port) throw new Error(NO_LOCAL_PORT);
+    return port;
   }
 
   private async scopeOf(dep: DeploymentMetadata): Promise<AddressScope> {
     return addressScope({ group: await this.groupOf(dep), instance: this.edge?.name, deploymentId: dep.id });
   }
 
-  private async hostnameFor(dep: DeploymentMetadata, domain: string, scope?: AddressScope): Promise<string> {
-    const within = scope ?? await this.scopeOf(dep);
-    if (dep.publicHostname && inScope(dep.publicHostname, within, domain)) return dep.publicHostname;
-    if (within.kind === 'combined') return flatHost(this.sanitize(dep.name), within.name, domain);
+  private async hostnameFor(dep: DeploymentMetadata, domain: string, scope: AddressScope): Promise<string> {
+    if (dep.publicHostname && inScope(dep.publicHostname, scope, domain)) return dep.publicHostname;
     const taken = new Set((await this.db.infrastructure.getDeployments())
       .filter((other) => other.id !== dep.id && other.publicHostname)
-      .map((other) => labelOfFlat(other.publicHostname!, within.name, domain))
+      .map((other) => labelOfFlat(other.publicHostname!, scope.name, domain))
       .filter((label): label is string => Boolean(label)));
-    return flatHost(freeLabel(appLabel(dep.name), within.name, taken), within.name, domain);
+    return flatHost(freeLabel(appLabel(dep.name), scope.name, taken), scope.name, domain);
+  }
+
+  private async localLabelFor(dep: DeploymentMetadata, port: number): Promise<string> {
+    const kept = labelOfLocal(dep.localExposureUrl, port);
+    if (kept) return kept;
+    const taken = new Set((await this.db.infrastructure.getDeployments())
+      .filter((other) => other.id !== dep.id && other.isExposedLocally)
+      .flatMap((other) => {
+        const label = labelOfLocal(other.localExposureUrl, port);
+        return label ? [label, `${label}-preview`] : [];
+      }));
+    return freeLabel(appLabel(dep.name), '', taken);
   }
 
   private publicHosts(flat: string, domain: string, scope: AddressScope): { hosts: string[]; shown: string } {
     const label = labelOfFlat(flat, scope.name, domain);
-    if (!this.edge || !label || !offersNested(scope) || !this.edge.nestedReady()) return { hosts: [flat], shown: flat };
+    if (!label || !offersNested(scope) || !this.theEdge().nestedReady()) return { hosts: [flat], shown: flat };
     const nested = nestedHost(label, scope.name, domain);
     return { hosts: [flat, nested], shown: nested };
   }
 
-  private caddyConfPathFor(namespace: string): string {
-    return path.join(this.nginxConfDir, '..', 'caddy', 'apps', `${namespace}.caddy`);
-  }
-
-  private buildCaddyContent(publicHostname: string, backendTarget: string, appHostname: string): string {
-    return `${publicHostname} {
-	reverse_proxy ${backendTarget} {
-		header_up Host ${appHostname}
-		header_up X-Forwarded-Proto https
-
-		# Apps stream (logs, terminals, live dashboards); the 30s default would sever those.
-		transport http {
-			read_timeout 0
-			write_timeout 0
-		}
-	}
-}
-`;
-  }
-
-  private async reloadCaddy(): Promise<void> {
-    if (this.edge) return this.edge.reload();
-    await execAsync('docker exec nowrinkles-caddy caddy reload --config /etc/caddy/Caddyfile --force');
-  }
-
-  private async writeCaddyConf(namespace: string, publicHostname: string, backendTarget: string, appHostname: string, domain: string, scope: AddressScope): Promise<string> {
-    const confPath = this.caddyConfPathFor(namespace);
-    const { hosts, shown } = this.publicHosts(publicHostname, domain, scope);
-    await fs.mkdir(path.dirname(confPath), { recursive: true });
-    await fs.writeFile(confPath, this.edge ? edgeSite(hosts, backendTarget, appHostname) : this.buildCaddyContent(publicHostname, backendTarget, appHostname));
-    try {
-      await this.reloadCaddy();
-    } catch (err) {
-      throw new Error(`Failed to reload Caddy: ${(err as Error).message}`);
-    }
-    return shown;
-  }
-
-  private async removeCaddyConf(namespace: string) {
-    try {
-      await fs.unlink(this.caddyConfPathFor(namespace));
-    } catch (err) {
-      if (!isMissingFile(err)) throw err;
-    }
-    try {
-      await this.reloadCaddy();
-    } catch (err) {
-      this.logger.error(`Failed to reload Caddy: ${(err as Error).message}`);
-    }
-  }
-
-  private async writeNginxConf(namespace: string, backendTarget: string, appHostname: string, tunnelHost?: string) {
-    const confPath = this.confPathFor(namespace);
-    const confContent = this.buildConfContent(namespace, backendTarget, appHostname, tunnelHost);
-    await fs.mkdir(path.dirname(confPath), { recursive: true });
-    await fs.writeFile(confPath, confContent);
-    try {
-      await execAsync('docker exec provisioner-nginx nginx -s reload');
-    } catch (err) {
-      throw new Error(`Failed to reload Nginx container: ${(err as Error).message}`);
-    }
-  }
-
-  private async removeNginxConf(namespace: string) {
-    try {
-      await fs.unlink(this.confPathFor(namespace));
-    } catch (err) {
-      if (!isMissingFile(err)) throw err;
-    }
-    try {
-      await execAsync('docker exec provisioner-nginx nginx -s reload');
-    } catch (err) {
-      this.logger.error(`Failed to reload Nginx container: ${(err as Error).message}`);
-    }
-  }
-
-  async exposeLocal(id: string) {
-    const deployments = await this.db.infrastructure.getDeployments();
-    const dep = deployments.find(d => d.id === id);
-    if (!dep) throw new Error('Deployment not found');
-
-    const cluster = await this.clusters.getByIdUnscoped(dep.clusterId);
-    if (!cluster) throw new Error('Cluster not found');
-
-    const { namespace, backendTarget, appHostname } = await this.buildUpstreamTarget(dep, cluster);
-
-    dep.isExposedLocally = true;
-    dep.localExposureUrl = `http://${namespace}.localhost:8000`;
-    this.syncDerivedFields(dep);
-
-    const tunnelHost = dep.isExposedPublicly && dep.publicExposureUrl ? dep.publicExposureUrl.replace(/^https?:\/\//, '') : undefined;
-    await this.writeNginxConf(namespace, backendTarget, appHostname, tunnelHost);
+  private async placeLocal(dep: DeploymentMetadata, up: Upstream): Promise<void> {
+    const port = this.localPort();
+    const label = await this.localLabelFor(dep, port);
+    await this.writeSite(up.namespace, 'local', edgeSite([localHost(label, port)], up.backendTarget, up.appHostname, 'http'));
+    dep.localExposureUrl = `http://${localHost(label, port)}`;
     const preview = this.previewOf(dep);
     if (preview) {
-      await this.writeNginxConf(preview.key, backendTarget, preview.appHostname);
-      dep.previewLocalUrl = `http://${preview.key}.localhost:8000`;
+      const previewHost = localHost(`${label}-preview`, port);
+      await this.writeSite(preview.key, 'local', edgeSite([previewHost], up.backendTarget, preview.appHostname, 'http'));
+      dep.previewLocalUrl = `http://${previewHost}`;
     }
-
-    await this.db.infrastructure.saveDeployment(dep);
-    if (this.io) this.io.emit('deployment-updated');
-    return dep;
   }
 
-  async exposePublic(id: string) {
-    const deployments = await this.db.infrastructure.getDeployments();
-    const dep = deployments.find(d => d.id === id);
-    if (!dep) throw new Error('Deployment not found');
-
-    const cluster = await this.clusters.getByIdUnscoped(dep.clusterId);
-    if (!cluster) throw new Error('Cluster not found');
-
-    const domain = this.ingressDomain();
-    if (!domain) {
-      throw new Error(
-        'Public exposure needs INGRESS_DOMAIN set — it is served by the hosted root node, not from here. Local exposure still works.',
-      );
-    }
-
-    const { namespace, backendTarget, appHostname } = await this.buildUpstreamTarget(dep, cluster);
-
+  private async placePublic(dep: DeploymentMetadata, up: Upstream): Promise<void> {
+    const domain = this.domain();
     const scope = await this.scopeOf(dep);
     const publicHostname = await this.hostnameFor(dep, domain, scope);
+    const site = this.publicHosts(publicHostname, domain, scope);
+    await this.writeSite(up.namespace, 'public', edgeSite(site.hosts, up.backendTarget, up.appHostname));
     dep.publicHostname = publicHostname;
-    dep.isExposedPublicly = true;
-    dep.publicExposureUrl = `https://${await this.writeCaddyConf(namespace, publicHostname, backendTarget, appHostname, domain, scope)}`;
-    this.syncDerivedFields(dep);
-
+    dep.publicExposureUrl = `https://${site.shown}`;
     const preview = this.previewOf(dep);
     if (preview) {
-      const previewHostname = this.previewPublicHostname(dep, domain, publicHostname, scope);
-      dep.previewPublicUrl = `https://${await this.writeCaddyConf(preview.key, previewHostname, backendTarget, preview.appHostname, domain, scope)}`;
+      const previewSite = this.publicHosts(this.previewPublicHostname(dep, domain, publicHostname, scope), domain, scope);
+      await this.writeSite(preview.key, 'public', edgeSite(previewSite.hosts, up.backendTarget, preview.appHostname));
+      dep.previewPublicUrl = `https://${previewSite.shown}`;
     }
+  }
 
+  private async saved(dep: DeploymentMetadata): Promise<DeploymentMetadata> {
+    this.syncDerivedFields(dep);
     await this.db.infrastructure.saveDeployment(dep);
-    if (this.io) this.io.emit('deployment-updated');
+    this.io?.emit('deployment-updated');
     return dep;
   }
 
-  async syncExposedApps() {
-    const deployments = await this.db.infrastructure.getDeployments();
-    const exposed = deployments.filter(d => d.isExposedLocally || d.isExposedPublicly);
-    let changed = false;
-
-    for (const dep of exposed) {
-      try {
-        const cluster = await this.clusters.getByIdUnscoped(dep.clusterId);
-        if (!cluster) {
-          this.logger.warn(`Cluster not found for deployment "${dep.name}", skipping sync`);
-          continue;
-        }
-
-        const { namespace, backendTarget, appHostname } = await this.buildUpstreamTarget(dep, cluster);
-
-        const domain = this.ingressDomain();
-        const preview = this.previewOf(dep);
-        if (dep.isExposedPublicly && domain) {
-          const scope = await this.scopeOf(dep);
-          const publicHostname = await this.hostnameFor(dep, domain, scope);
-          dep.publicHostname = publicHostname;
-          dep.publicExposureUrl = `https://${await this.writeCaddyConf(namespace, publicHostname, backendTarget, appHostname, domain, scope)}`;
-          if (preview) {
-            const previewHostname = this.previewPublicHostname(dep, domain, publicHostname, scope);
-            dep.previewPublicUrl = `https://${await this.writeCaddyConf(preview.key, previewHostname, backendTarget, preview.appHostname, domain, scope)}`;
-          }
-        }
-        if (dep.isExposedLocally) {
-          dep.localExposureUrl = `http://${namespace}.localhost:8000`;
-          await this.writeNginxConf(namespace, backendTarget, appHostname);
-          if (preview) {
-            await this.writeNginxConf(preview.key, backendTarget, preview.appHostname);
-            dep.previewLocalUrl = `http://${preview.key}.localhost:8000`;
-          }
-        }
-        this.syncDerivedFields(dep);
-        await this.db.infrastructure.saveDeployment(dep);
-
-        changed = true;
-        const modes = [dep.isExposedPublicly ? `public: ${dep.publicHostname}` : null, dep.isExposedLocally ? 'local' : null].filter(Boolean).join(', ');
-        this.logger.info(`Synced exposure for "${dep.name}" -> ${backendTarget} (${modes})`);
-
-      } catch (err) {
-        this.logger.error(`Failed to sync nginx config for "${dep.name}": ${(err as Error).message}`);
-      }
-    }
-
-    const keys = (d: DeploymentMetadata) => [d.namespace || this.sanitize(d.name), ...(this.previewOf(d) ? [this.previewOf(d)!.key] : [])];
-    const exposedNamespaces = new Set(exposed.filter(d => d.isExposedLocally).flatMap(keys));
-    const publicNamespaces = new Set(exposed.filter(d => d.isExposedPublicly).flatMap(keys));
-    const confDir = path.join(this.nginxConfDir, 'conf.d');
-    try {
-      const files = await fs.readdir(confDir).catch((err: unknown) => {
-        if (isMissingFile(err)) return [] as string[];
-        throw err;
-      });
-      for (const file of files) {
-        if (file === 'default.conf') continue;
-        const ns = file.replace(/\.conf$/, '');
-        if (!exposedNamespaces.has(ns)) {
-          await fs.unlink(path.join(confDir, file));
-          this.logger.info(`Removed stale nginx config: ${file}`);
-          changed = true;
-        }
-      }
-    } catch (err) {
-      this.logger.error(`Failed to clean stale nginx configs: ${(err as Error).message}`);
-    }
-
-    const caddyDir = path.dirname(this.caddyConfPathFor('x'));
-    try {
-      let removed = false;
-      for (const file of await fs.readdir(caddyDir).catch(() => [] as string[])) {
-        if (!file.endsWith('.caddy') || publicNamespaces.has(file.replace(/\.caddy$/, ''))) continue;
-        await fs.unlink(path.join(caddyDir, file));
-        this.logger.info(`Removed stale Caddy config: ${file}`);
-        removed = true;
-      }
-      if (removed) await this.reloadCaddy();
-    } catch (err) {
-      this.logger.error(`Failed to clean stale Caddy configs: ${(err as Error).message}`);
-    }
-
-    if (changed) {
-      try {
-        await execAsync('docker exec provisioner-nginx nginx -s reload');
-        this.logger.info('Nginx reloaded after sync');
-      } catch (err) {
-        this.logger.error(`Failed to reload Nginx after sync: ${(err as Error).message}`);
-      }
-    }
-
-    if (this.io && exposed.length > 0) {
-      this.io.emit('deployment-updated');
-    }
+  async exposeLocal(id: string): Promise<DeploymentMetadata> {
+    const dep = await this.deployment(id);
+    this.localPort();
+    await this.placeLocal(dep, await this.upstream(dep));
+    await this.reload();
+    dep.isExposedLocally = true;
+    return this.saved(dep);
   }
 
-  async unexposeLocal(id: string) {
-    const deployments = await this.db.infrastructure.getDeployments();
-    const dep = deployments.find(d => d.id === id);
-    if (!dep) throw new Error('Deployment not found');
+  async exposePublic(id: string): Promise<DeploymentMetadata> {
+    const dep = await this.deployment(id);
+    this.domain();
+    await this.placePublic(dep, await this.upstream(dep));
+    await this.reload();
+    dep.isExposedPublicly = true;
+    return this.saved(dep);
+  }
 
-    const namespace = dep.namespace || this.sanitize(dep.name);
+  async unexposeLocal(id: string): Promise<DeploymentMetadata> {
+    const dep = await this.deployment(id);
+    for (const key of this.keysOf(dep)) await this.removeSite(key, 'local');
+    await this.reload();
     dep.isExposedLocally = false;
     delete dep.localExposureUrl;
-    this.syncDerivedFields(dep);
-    const preview = this.previewOf(dep);
-    if (preview) {
-      await this.removeNginxConf(preview.key);
-      delete dep.previewLocalUrl;
-    }
-
-    if (dep.isExposedPublicly && dep.publicExposureUrl) {
-      const cluster = await this.clusters.getByIdUnscoped(dep.clusterId);
-      if (cluster) {
-        const { backendTarget, appHostname } = await this.buildUpstreamTarget(dep, cluster);
-        const tunnelHost = dep.publicExposureUrl.replace(/^https?:\/\//, '');
-        await this.writeNginxConf(namespace, backendTarget, appHostname, tunnelHost);
-      }
-    } else {
-      await this.removeNginxConf(namespace);
-    }
-
-    await this.db.infrastructure.saveDeployment(dep);
-    if (this.io) this.io.emit('deployment-updated');
-    return dep;
+    delete dep.previewLocalUrl;
+    return this.saved(dep);
   }
 
-  async unexposePublic(id: string) {
-    const deployments = await this.db.infrastructure.getDeployments();
-    const dep = deployments.find(d => d.id === id);
-    if (!dep) throw new Error('Deployment not found');
-
-    const namespace = dep.namespace || this.sanitize(dep.name);
-
+  async unexposePublic(id: string): Promise<DeploymentMetadata> {
+    const dep = await this.deployment(id);
+    for (const key of this.keysOf(dep)) await this.removeSite(key, 'public');
+    await this.reload();
     dep.isExposedPublicly = false;
     delete dep.publicExposureUrl;
-    this.syncDerivedFields(dep);
-
-    await this.removeCaddyConf(namespace);
-    const preview = this.previewOf(dep);
-    if (preview) {
-      await this.removeCaddyConf(preview.key);
-      delete dep.previewPublicUrl;
-    }
-
-    await this.db.infrastructure.saveDeployment(dep);
-    if (this.io) this.io.emit('deployment-updated');
-    return dep;
+    delete dep.previewPublicUrl;
+    return this.saved(dep);
   }
 
-  async updateExposurePath(id: string, exposurePath: string) {
-    const deployments = await this.db.infrastructure.getDeployments();
-    const dep = deployments.find(d => d.id === id);
-    if (!dep) throw new Error('Deployment not found');
-
-    let formattedPath = exposurePath.trim();
-    if (formattedPath && !formattedPath.startsWith('/')) {
-      formattedPath = '/' + formattedPath;
+  async syncExposedApps(): Promise<void> {
+    const exposed = (await this.db.infrastructure.getDeployments()).filter((d) => d.isExposedLocally || d.isExposedPublicly);
+    if (!this.edge) {
+      if (exposed.length) throw new Error(`${NO_EDGE} These apps are marked exposed and answer nowhere: ${exposed.map((d) => d.name).join(', ')}`);
+      return;
     }
+    const sites = this.edge.sites;
+    const wanted = new Set<string>();
+    const failed: string[] = [];
+    for (const dep of exposed) {
+      for (const key of this.keysOf(dep)) {
+        if (dep.isExposedLocally) wanted.add(`${key}.local.caddy`);
+        if (dep.isExposedPublicly) wanted.add(`${key}.public.caddy`);
+      }
+      try {
+        const up = await this.upstream(dep);
+        if (dep.isExposedLocally) await this.placeLocal(dep, up);
+        if (dep.isExposedPublicly) await this.placePublic(dep, up);
+        await this.saved(dep);
+      } catch (err) {
+        failed.push(`${dep.name}: ${(err as Error).message}`);
+      }
+    }
+    const present = await fs.readdir(sites).catch((err: unknown) => {
+      if (isMissingFile(err)) return [] as string[];
+      throw err;
+    });
+    for (const file of present) {
+      if (file.endsWith('.caddy') && !wanted.has(file)) await fs.unlink(path.join(sites, file));
+    }
+    await this.reload();
+    if (failed.length) throw new Error(`The edge kept these apps' sites as they were, since they could not be placed again: ${failed.join('; ')}`);
+  }
 
-    dep.exposurePath = formattedPath;
+  async updateExposurePath(id: string, exposurePath: string): Promise<DeploymentMetadata> {
+    const dep = await this.deployment(id);
+    const trimmed = exposurePath.trim();
+    dep.exposurePath = trimmed && !trimmed.startsWith('/') ? `/${trimmed}` : trimmed;
     await this.db.infrastructure.saveDeployment(dep);
-    if (this.io) this.io.emit('deployment-updated');
-
+    this.io?.emit('deployment-updated');
     return dep;
   }
 }

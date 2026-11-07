@@ -125,12 +125,12 @@ spec:
             - name: temporal-ca
               mountPath: /etc/koala/temporal-tls
               readOnly: true
-            {{- if and (eq $process "backend") $.Values.routing.domain }}
+            {{- if eq $process "backend" }}
             - name: edge-config
               mountPath: /etc/edge
               readOnly: true
             {{- end }}
-        {{- if and (eq $process "backend") $.Values.routing.domain }}
+        {{- if eq $process "backend" }}
         - name: edge
           image: {{ $.Values.edge.image }}
           args: [caddy, run, --config, /etc/edge/Caddyfile]
@@ -142,6 +142,8 @@ spec:
           ports:
             - name: edge
               containerPort: 8080
+            - name: local-apps
+              containerPort: {{ $.Values.edge.localPort }}
           volumeMounts:
             - name: data
               mountPath: /app/apps/backend/data
@@ -172,7 +174,7 @@ spec:
             items:
               - key: ca.crt
                 path: ca.crt
-        {{- if and (eq $process "backend") $.Values.routing.domain }}
+        {{- if eq $process "backend" }}
         - name: edge-config
           configMap:
             name: {{ include "instance.name" $ }}-edge
@@ -227,4 +229,54 @@ spec:
       {{- if .Values.edge.nodePort }}
       nodePort: {{ .Values.edge.nodePort }}
       {{- end }}
+{{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "instance.name" . }}-edge-local
+  labels: {{- include "instance.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector: {{- include "instance.selector" (dict "root" . "component" "backend") | nindent 4 }}
+  ports:
+    - name: local-apps
+      port: {{ .Values.edge.localPort }}
+      targetPort: local-apps
+{{- if not .Values.pool.enabled }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "instance.name" . }}-local-apps
+  labels: {{- include "instance.labels" . | nindent 4 }}
+spec:
+  replicas: {{ if .Values.move.enabled }}0{{ else }}1{{ end }}
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels: {{- include "instance.selector" (dict "root" . "component" "local-apps") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "instance.labels" . | nindent 8 }}
+        {{- include "instance.selector" (dict "root" . "component" "local-apps") | nindent 8 }}
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: forward
+          image: {{ .Values.edge.image }}
+          args:
+            - caddy
+            - reverse-proxy
+            - --from
+            - {{ printf ":%v" .Values.edge.localPort | quote }}
+            - --to
+            - {{ printf "%s-edge-local.%s.svc.cluster.local:%v" (include "instance.name" .) .Release.Namespace .Values.edge.localPort | quote }}
+          {{- include "instance.resources" (dict "root" . "component" "local-apps") | nindent 10 }}
+          ports:
+            - name: local-apps
+              containerPort: {{ .Values.edge.localPort }}
+              hostPort: {{ .Values.edge.localPort }}
+              hostIP: 127.0.0.1
 {{- end }}

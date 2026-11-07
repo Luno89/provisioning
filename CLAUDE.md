@@ -42,7 +42,7 @@ right?"
 
 ## What this is
 
-Multi-cloud provisioning platform (local-first): spin up Kubernetes clusters (k3d locally, a machine of your own added under My Machines, or a VM Koala buys on Hetzner or DigitalOcean; AWS, Google Cloud and Azure are not built yet and are refused) and deploy apps (Odoo, WordPress, Nextcloud, Audiobookshelf, vLLM, Open WebUI) with public internet access via Nginx + Localtunnel — no port forwarding needed.
+Multi-cloud provisioning platform (local-first): spin up Kubernetes clusters (k3d locally, a machine of your own added under My Machines, or a VM Koala buys on Hetzner or DigitalOcean; AWS, Google Cloud and Azure are not built yet and are refused) and deploy apps (Odoo, WordPress, Nextcloud, Audiobookshelf, vLLM, Open WebUI) exposed through each instance's edge: on this computer at `<app>.localhost:8000`, and publicly at `<app>-<name>.<domain>` through root's Caddy where the instance has a domain.
 
 ```
 React UI (Vite :5173) → Express API (:3001) → Temporal.io (workflows) → CDKTF (Terraform) → k3d / AWS / GCP / DO
@@ -114,7 +114,7 @@ npm run test:dev-split-live        # its own root, instance and hub (tests/lib/s
 npm run test:hub-live              # against the running dev stack (combined): an admin's invite signs up an owner, who makes two shared projects and invites a collaborator and a client to one and someone else to the other → root shows each invite signed out and signs up only the address invited → the outsider reaches nothing of the first project by id, guess or another's invite → each role can do only what it may → roles change, an invite is taken back, people are removed and leave, the last owner cannot → the owner's removal refused while they alone own a project someone else is on, the outsider's removal taking them off it → one project deleted by name and the owner's removal deleting the other, their databases gone, ~1 min
 npm run test:project-sharing-live  # against the running dev stack (combined): a throwaway project with a repository and a channel someone talked in → the group check refuses a dashed and a reserved name and suggests one from the project's name, sharing without a group is refused → the preview says what goes and stays, nothing is on the hub → shared under its group, which the preview and the hub's project carry, and a second project is refused that group → the channel arrives with its history and a new message follows → a commit on the owner's main reaches the hub's and one pushed to the hub's reaches the owner's → taken back by its name: the hub's database and repository are gone, everything stays on the instance → the group is free again and the second project is shared under it and taken back; the account removes itself, ~30 s
 npm run test:account-hardening-live # its own root, instance and hub (split-stack, production containers, a mailbox): a short or leaked password is refused and no sign-up hands a code back → asking a reset answers alike for an address with no account and mails only one that has → signing out on the instance ends that session there and closes the connection made with it → the emailed code resets the owner's password, root's and the instance's sessions ending and the instance's open connection closed → changing a password asks the current one and ends every other session → two-factor goes on only with the password, then turning it off, deleting the account and changing the password are refused without a current code and the emailed one lets the change through → a sixth confirmation code in fifteen minutes is refused → signing out on root makes the cookie useless and closes its connection → wrong codes over two sign-ins lock the account's codes, which a password sign-in does not reset → ten wrong passwords lock it and email its person once, ending none of their sessions or connections, and the lock and the signed-out cookie survive root restarting; in ship, ~3 min
-npm run test:routes-live           # against the running dev stack: signed out, the guard answers before any router, the webhook and /ingress/verify before the guard and /api/metrics wants its token → a throwaway account signs up with an admin's invite → one request to each of the 60 mounted routers answers with the router's own response, never Express's "Cannot GET"; the account removes itself, ~5 s
+npm run test:routes-live           # against the running dev stack: signed out, the guard answers before any router, the webhook and /ingress/verify before the guard and /api/metrics wants its token → a throwaway account signs up with an admin's invite → one request to each of the 59 mounted routers answers with the router's own response, never Express's "Cannot GET"; the account removes itself, ~5 s
 npm run test:app-names-live        # against the running dev stack: two owners each deploy an app called shop on the system cluster → both run, each in a namespace of its own (`<name>-<six of its id>`), each owner sees only theirs → a redeploy by the same owner goes to the same app, not a second one; destroys both and removes the second account, ~5 min
 npm run test:machine-container-live  # this computer's Docker: a workspace container starts the way a machine in container mode starts one → from inside it, changing the egress proxy's allowlist is refused with no token and a guessed one → it reaches only the host its allowlist names; removes the container and the proxy, ~1 min
 npm run test:app-sign-in-live         # against the running dev stack: a Hermes deploys on the system cluster with a password Koala made for it → Show sign-in gives its owner the login, never cached, and the listing carries no password → its Deployment holds only a secretKeyRef → the dashboard lets that password in and refuses admin/hermes123 and none; destroys it, ~5 min
@@ -226,7 +226,7 @@ Services live in their area's `services/` folder (`apps/backend/src/<area>/servi
 - `BuilderService` — image build orchestration
 - `RegistryService` — container registry operations
 - `GitModuleService` — Odoo module git integration
-- `AppExposureService` — Localtunnel/Nginx public exposure of deployed apps, emits socket.io events
+- `AppExposureService` — exposes deployed apps through the instance's edge (a Caddy beside its backend): `<app>.localhost` on this computer's loopback port 8000 (the chart's `<release>-local-apps` forwarder, a hostPort on 127.0.0.1 kept off the backend pod so its rolling upgrade never waits on the port) and `<app>-<name>.<domain>` where the instance has a domain; reaches an app's cluster through `ClusterAccess` (Koala's own cluster: Traefik by service name; another machine: its mesh address and Traefik's node port); emits socket.io events
 - `ClusterProxyService` — proxies requests into cluster-internal dashboards (Traefik/Grafana/Prometheus)
 - `AuthService` — user auth (JWT sessions, 2FA, GitHub/Google OAuth)
 - `CredentialService` — per-user cloud provider credentials, AES-256-GCM encrypted at rest, live validation against provider APIs
@@ -363,7 +363,7 @@ or id and is never a `gitapp` or `odoo-project` (`deployRequestFrom`), and destr
 namespace (`podLogTarget`); a build's log only to its project's owner; a remote host's kubeconfig is rebuilt from its server,
 authority and sign-in (`cleanKubeconfig`); the dashboard proxy signs in as the platform's Gitea and Infisical only on the
 system cluster (`signsInAsPlatform`); the operator's cloud credentials from the environment are used only for an admin; and
-backups, the host's nginx config, binding type changes and adopting the host's k3d clusters are an admin's.
+backups, binding type changes and adopting the host's k3d clusters are an admin's.
 **What Koala fetches for a person stays on the open internet** (W6): `publicFetch` and `publicAddressProblem`
 (`platform/services/public-fetch.ts`) refuse private, loopback, mesh, link-local and tunnelled addresses, at connect time and on
 every redirect; fetch_web_page, a crawl's start, a model endpoint's host (the person's own mesh node excepted, and anything on this machine in a lab, `labFrom`, owner 2026-11-03, so the browser suite chats with a stand-in) and a hosted MCP
@@ -1184,9 +1184,8 @@ key on their own account and bill by OAuth PKCE, `models/lib/openrouter-connect.
 cookie bound to the person, the state checked before OpenRouter is asked, the key stored like a pasted one, which stays
 possible), Infrastructure, My Machines (machines Koala works on),
 Cloud providers (cloud credentials) and Settings (account, 2FA, addresses, notifications, backups, people and invites).
-Three pages are off it and reached where they are used: the VPS catalog through Compare plans in Provision a cluster,
-Nginx through Local router on the system cluster's page, and Temporal through All workflows on Running. Each still
-answers at its old address. The catalog reads OVH's prices for `OVH_SUBSIDIARY` (default `FR`) from the API host that
+Two pages are off it and reached where they are used: the VPS catalog through Compare plans in Provision a cluster,
+and Temporal through All workflows on Running. Each still answers at its old address. The catalog reads OVH's prices for `OVH_SUBSIDIARY` (default `FR`) from the API host that
 serves that subsidiary (`ovhHostFor` in `infrastructure/lib/vps-catalog/adapters.ts`: an Australian account is on
 `ca.api.ovh.com`, and `AU` gives AUD ex GST with Sydney among the datacenters), adds the cheapest priced mandatory option
 of each family (the 2027 models' backup) to the monthly price with the parts kept as `priceParts`, and says which
@@ -1497,7 +1496,7 @@ narrows an older root's blanket rule on update), so no pod reaches the backend's
 address in `X-Forwarded-For`. kube-proxy's rules run before ufw's, so `harden-host.sh` (bootstrap and every update) writes
 `/etc/rancher/k3s/config.yaml.d/koala-node-ports.yaml` (`nodeport-addresses=127.0.0.1/32,100.64.0.0/10`, as `install.sh` does on an
 instance and `pool-node.sh` on a pool server) and restarts k3s when it changed: every NodePort answers on loopback, where root's
-backend and containerd reach them, and on the mesh, never on the public address. The host tunnel on :8000 (the dev box's nginx router) never starts in production.
+backend and containerd reach them, and on the mesh, never on the public address.
 
 **Backups** (`scripts/root-node/backup.sh`, nightly through `koala-backup.timer` once `BACKUP_REPOSITORY` is set): restic, encrypted, of
 Mongo, Temporal's Postgres, Headscale, Caddy's data, the DKIM key, both env files, `apps/backend/data/` and tailscaled's state.
@@ -2025,8 +2024,7 @@ typecheck + lint + both unit suites before anything reaches `main`. Each rule be
   `WorkSourceContext` (`projects/lib/work-source.ts`: the instance's board or the hub's) earns it.
 - **No component contains a URL.** Components import hooks; hooks call their area's `api`; only those
   modules import `api/client.ts`.
-- **`props: any` is banned.** Let the compiler enumerate the interface — `NginxView.tsx`'s docblock
-  describes the method.
+- **`props: any` is banned.** Let the compiler enumerate the interface.
 - **Domain shapes are declared once**, in their area's `types` or from `@koala/harness-types`. Deliberate
   duplication across the wire carries a `── DUPLICATED, KNOWINGLY ──` block naming the backend file
   that wins; see `projects/types/grove.ts`.
@@ -2383,7 +2381,8 @@ sealed with `DATA_KEY` at the store boundary (`MongoInfrastructureStore` seals o
 values), and the startup migration `deployment-secrets-sealed` seals records stored plain before.
 
 `apps/backend/data/` still holds `logs/` (per-resource provisioning/deployment logs, tailed over
-socket.io — see `InfrastructureService`'s `LOG_DIR`) and `nginx/` (proxy config). The `*.json` files
+socket.io — see `InfrastructureService`'s `LOG_DIR`) and, on an instance, `caddy/apps/` (the edge's sites, one
+`<namespace>.local.caddy` and `<namespace>.public.caddy` per exposed app). The `*.json` files
 in there are unused leftovers, **not** the source of truth.
 
 ## Prerequisites

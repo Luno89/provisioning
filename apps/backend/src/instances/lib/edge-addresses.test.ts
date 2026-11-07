@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { addressScope, idFragment, inScope, offersNested, appLabel, edgeSite, flatHost, freeLabel, labelOfFlat, nestedHost } from './edge-addresses.js';
+import { addressScope, idFragment, inScope, offersNested, appLabel, edgeSite, flatHost, freeLabel, labelOfFlat, labelOfLocal, localHost, nestedHost } from './edge-addresses.js';
 
 describe('the addresses an instance gives its apps', () => {
   it('makes flat and nested names from the app\'s name', () => {
@@ -23,6 +23,21 @@ describe('the addresses an instance gives its apps', () => {
     expect(site).toMatch(/^http:\/\/shop-luno\.koala\.dev, http:\/\/shop\.luno\.koala\.dev \{/);
     expect(site).toContain('reverse_proxy 100.64.0.9:31080');
     expect(site).toContain('header_up Host shop.apps.local');
+    expect(site).toContain('header_up X-Forwarded-Proto https');
+  });
+
+  it('serves an app on this computer at <label>.localhost on the edge\'s local port, as plain http', () => {
+    const site = edgeSite([localHost('tabbyapi', 8000)], 'traefik.kube-system.svc.cluster.local:80', 'tabbyapi-ab12cd.apps.local', 'http');
+    expect(site).toMatch(/^http:\/\/tabbyapi\.localhost:8000 \{/);
+    expect(site).toContain('header_up X-Forwarded-Proto http\n');
+  });
+
+  it('reads the label back from a local address only when it is on the same port, so an app keeps the address it had', () => {
+    expect(labelOfLocal('http://tabbyapi-production.localhost:8000', 8000)).toBe('tabbyapi-production');
+    expect(labelOfLocal('http://tabbyapi-production.localhost:8000/', 8000)).toBe('tabbyapi-production');
+    expect(labelOfLocal('http://tabbyapi.localhost:8001', 8000)).toBeUndefined();
+    expect(labelOfLocal('https://shop-luno.koala.dev', 8000)).toBeUndefined();
+    expect(labelOfLocal(undefined, 8000)).toBeUndefined();
   });
 });
 

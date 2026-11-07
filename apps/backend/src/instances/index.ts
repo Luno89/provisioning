@@ -3,7 +3,7 @@ export type { AppsManifest, KubeObject } from './lib/app-move.js';
 export { DEV, devKoalaValues, devRootPlan } from './lib/dev-root.js';
 export { DEV_SPLIT, devSplitOwner, devSplitPlace, devSplitPlan, envFileText, readEnvFile, withDatabase } from './lib/dev-split.js';
 export type { SplitPlace } from './lib/dev-split.js';
-export { addressScope, appLabel, edgeSite, flatHost, freeLabel, inScope, labelOfFlat, nestedHost, offersNested } from './lib/edge-addresses.js';
+export { addressScope, appLabel, edgeSite, flatHost, freeLabel, inScope, labelOfFlat, labelOfLocal, localHost, nestedHost, offersNested } from './lib/edge-addresses.js';
 export type { AddressScope } from './lib/edge-addresses.js';
 export { checkMoveToken, generateIdentityKey, issueMoveToken, MOVE_TOKEN_HEADER, moveTokenOnce, publicKeyPem } from './lib/identity-token.js';
 export type { IdentityKeyPair, UsedTokenClaim } from './lib/identity-token.js';

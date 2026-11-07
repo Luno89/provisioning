@@ -54,7 +54,6 @@ const ROUTERS: Probe[] = [
   { path: '/api/models/rate-limits', on: TENANT },
   { path: '/api/modules', on: TENANT },
   { path: '/api/monitoring', on: TENANT },
-  { path: '/api/nginx/config', on: TENANT },
   { path: '/api/notifications', on: TENANT },
   { path: '/api/pending-approvals', on: TENANT },
   { path: '/api/plans', on: TENANT },

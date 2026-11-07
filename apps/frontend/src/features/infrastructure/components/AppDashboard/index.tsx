@@ -763,7 +763,7 @@ export default function AppDashboard({
                  <div className="bg-gradient-to-r from-blue-950/30 to-indigo-950/30 border border-blue-500/20 rounded-2xl p-8 flex flex-col gap-4">
                    <h4 className="text-xl font-bold flex items-center gap-2"><Zap className="text-blue-400" size={20} /> How players connect</h4>
                    <p className="text-slate-400 text-sm leading-relaxed max-w-2xl">
-                     This is a UDP game server, so it doesn't go through the Nginx/tunnel proxy that
+                     This is a UDP game server, so it doesn't go through the instance's edge that
                      web apps use — players connect straight to the cluster node on the game port.
                    </p>
                    <div className="flex items-center gap-3">
@@ -785,7 +785,7 @@ export default function AppDashboard({
                  <div>
                    <h4 className="text-xl font-bold mb-2 flex items-center gap-2"><Zap className="text-blue-400" size={20} /> Network Exposure</h4>
                    <p className="text-slate-400 text-sm leading-relaxed max-w-2xl">
-                     Expose this application publicly over our dynamic Nginx + tunnel reverse proxy, locally (reachable only from this machine, no tunnel), or both at once — independently toggleable.
+                     Expose this app on this computer at its own .localhost address, with no sign-in in front of it, or publicly at its own address where this instance has a domain. Either or both.
                    </p>
                  </div>
 

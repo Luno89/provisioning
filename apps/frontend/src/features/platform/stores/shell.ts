@@ -3,7 +3,7 @@ import { parseHash, formatHash, shouldReplace, resolveView, type Route } from '.
 
 export const PLATFORM_VIEWS = [
   'projects', 'vps-catalog', 'mesh',
-  'accounts', 'nginx', 'temporal', 'settings',
+  'accounts', 'temporal', 'settings',
 ] as const
 
 export const KOALA_VIEWS = ['chat', 'studio', 'infrastructure'] as const
