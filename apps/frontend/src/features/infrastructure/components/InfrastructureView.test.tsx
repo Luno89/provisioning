@@ -51,9 +51,9 @@ const shell = {
     { id: 'c2', name: 'edge', provider: 'hetzner', status: 'healthy' },
   ],
   deployments: [
-    { id: 'books', name: 'Books', appType: 'audiobookshelf', clusterId: 'provisioning-lunorica', status: 'running', url: 'http://books.local' },
-    { id: 'shop', name: 'Shop', appType: 'odoo', clusterId: 'provisioning-lunorica', status: 'running' },
-    { id: 'new', name: 'New', appType: 'wordpress', clusterId: 'c2', status: 'deploying' },
+    { id: 'books', name: 'Books', appType: 'audiobookshelf', clusterId: 'provisioning-lunorica', status: 'running', url: 'http://books.local', listing: { checked: true, onCluster: true } },
+    { id: 'shop', name: 'Shop', appType: 'odoo', clusterId: 'provisioning-lunorica', status: 'running', listing: { checked: true, onCluster: false } },
+    { id: 'new', name: 'New', appType: 'wordpress', clusterId: 'c2', status: 'deploying', listing: { checked: false, why: 'edge is stopped until something runs on it' } },
   ],
   providers: [],
   setShowClusterModal: vi.fn(),
@@ -252,6 +252,10 @@ describe('the Infrastructure page', () => {
     expect(rows[1]).toHaveTextContent('3.0/s')
     expect(within(rows[1]!).getByRole('link', { name: /Open/ })).toHaveAttribute('href', 'http://books.local')
     expect(rows[2]).toHaveTextContent('deploying')
+    expect(within(rows[0]!).getByTestId('app-not-on-cluster')).toHaveTextContent('Not on its cluster: nothing of it runs there. Destroy it or deploy it again.')
+    expect(within(rows[1]!).queryByTestId('app-not-on-cluster')).toBeNull()
+    expect(within(rows[1]!).queryByTestId('app-not-checked')).toBeNull()
+    expect(within(rows[2]!).getByTestId('app-not-checked')).toHaveTextContent('Not checked just now, so this may be out of date: edge is stopped until something runs on it')
     fireEvent.click(screen.getByRole('button', { name: /Deploy an app/ }))
     expect(shell.setShowAppModal).toHaveBeenCalledWith(true)
     fireEvent.click(within(rows[1]!).getByRole('button', { name: 'Manage Books' }))

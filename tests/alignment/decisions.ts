@@ -232,8 +232,9 @@ export const DECISIONS: Decision[] = [
       { at: '2026-11-06T17:34', text: '3 - I mean I feel like we shouldn\'t have apps just showing up on the cluster?' },
       { at: '2026-11-06T17:34', text: '4 - the front-end and back-end should align on what to show.' },
       { at: '2026-11-06T17:34', text: '10 - I wouldn\'t show a list that hasn\'t been verified, if a cluster is unavalible just show that' },
+      { at: '2026-11-07T06:15', text: 'b, sounds good, I wouldn\'t expect apps to disapear, we just need to make it clear to the user that the list is stale' },
     ],
-    reading: 'Only what Koala deployed is listed as an app. A list shows only what was just read; an unreachable cluster shows as unavailable. Frontend and backend types agree.',
+    reading: 'Only what Koala deployed is listed as an app. Each cluster is read when the list is; an app is never dropped from the list. An app on a cluster that was just read shows what was read (its namespace there or not); an app on a stopped or unreachable cluster stays listed, marked plainly as not checked with why. Frontend and backend types agree.',
   },
   {
     id: 'saved-only-when-true',

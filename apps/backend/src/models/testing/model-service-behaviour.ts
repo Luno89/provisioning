@@ -1,13 +1,13 @@
 import dns from 'node:dns/promises';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mock, type MockProxy } from 'vitest-mock-extended';
-import type { AppService, ClusterService, ClusterProxyService, HeadscaleService } from '../../infrastructure/index.js';
+import type { ClusterService, ClusterProxyService, HeadscaleService } from '../../infrastructure/index.js';
 import { encryptValue } from '../../platform/lib/crypto.js';
 import type { Database } from '../../platform/lib/db-interface.js';
 import { asPerson } from '../../platform/lib/permissions.js';
 import type { ClusterMetadata, DeploymentMetadata, ModelEndpointMetadata, UserMetadata } from '../../platform/lib/types.js';
 import type { EndpointRules } from '../lib/endpoint-url-safety.js';
-import { ModelService } from '../services/ModelService.js';
+import { ModelService, type AppRecords } from '../services/ModelService.js';
 
 const gatewayEndpoints = (ownerId: string, count: number): ModelEndpointMetadata[] =>
   Array.from({ length: count }, (_, i) => ({
@@ -25,7 +25,7 @@ const deployment = (fields: Partial<DeploymentMetadata> = {}): DeploymentMetadat
 const privateNetwork = vi.spyOn(dns, 'lookup');
 
 let db: Database;
-let apps: MockProxy<AppService>;
+let apps: MockProxy<AppRecords>;
 let clusters: MockProxy<ClusterService>;
 let proxy: MockProxy<ClusterProxyService>;
 let headscale: MockProxy<HeadscaleService>;
@@ -42,7 +42,7 @@ const build = async (endpoints: ModelEndpointMetadata[], account?: Partial<UserM
 export function modelServiceBehaviour(make: () => Promise<Database>): void {
   beforeEach(async () => {
     db = await make();
-    apps = mock<AppService>();
+    apps = mock<AppRecords>();
     apps.getAll.mockResolvedValue([]);
     clusters = mock<ClusterService>();
     proxy = mock<ClusterProxyService>();

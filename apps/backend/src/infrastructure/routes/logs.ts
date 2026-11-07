@@ -1,12 +1,11 @@
 import { Router, type Request } from 'express';
 import fs from 'fs/promises';
 import { asyncRoute, allowed, principalFrom, type ClusterMetadata, type Database, type Principal } from '../../platform/index.js';
-import type { AppService } from '../services/AppService.js';
 
 export interface LogsRouterDeps {
   db: Pick<Database, 'releases' | 'projects'>;
   clusterService: { getById(id: string, principal: Principal, action: 'see-everything'): Promise<Pick<ClusterMetadata, 'lastLogPath'> | undefined> };
-  appService: Pick<AppService, 'getAll'>;
+  appService: { getAll(userId: string): Promise<Array<{ id: string; lastLogPath?: string | undefined }>> };
 }
 
 const userOf = (req: Request): { id: string; email: string } =>

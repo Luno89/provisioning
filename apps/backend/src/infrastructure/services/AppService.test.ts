@@ -44,16 +44,29 @@ describe('AppService.getById', () => {
 });
 
 describe('listing apps', () => {
-  it('lists the person\'s own apps as recorded, never asking a cluster and never deleting one it cannot see', async () => {
-    const { db, apps, access, infra } = setup([]);
-    await db.infrastructure.saveDeploymentInfo(app({ id: 'wp', name: 'WordPress', appType: 'wordpress' }));
-    await db.infrastructure.saveDeploymentInfo(app({ id: 'books', name: 'Books', status: 'failed' }));
-    await db.infrastructure.saveDeploymentInfo(app({ id: 'orphan', name: 'Orphan', clusterId: 'never-was' }));
+  it('reads each cluster once as it lists, never drops an app, and says plainly which ones it could not check and why', async () => {
+    const { db, apps, access } = setup([]);
+    access.kubectl.mockImplementation(async (cluster, args) => {
+      expect(args).toEqual(['get', 'namespaces', '-o', 'json']);
+      if (cluster === 'c1') return namespaceList(['wordpress', 'shop-1a2b3c']);
+      throw new Error('machine-desk is stopped until something runs on it');
+    });
+    await db.infrastructure.saveDeploymentInfo(app({ id: 'wp', name: 'WordPress' }));
+    await db.infrastructure.saveDeploymentInfo(app({ id: 'shop', name: 'Shop', namespace: 'shop-1a2b3c' }));
+    await db.infrastructure.saveDeploymentInfo(app({ id: 'gone', name: 'Gone', namespace: 'gone-4d5e6f' }));
+    await db.infrastructure.saveDeploymentInfo(app({ id: 'tabby', name: 'Tabby', clusterId: 'machine-desk' }));
     await db.infrastructure.saveDeploymentInfo(app({ id: 'theirs', name: 'Theirs', ownerId: 'someone-else' }));
-    expect((await apps.getAll('bo')).map((entry) => [entry.id, entry.status])).toEqual([['wp', 'running'], ['books', 'failed'], ['orphan', 'running']]);
-    expect((await db.infrastructure.getDeployments()).map((entry) => entry.id)).toEqual(['wp', 'books', 'orphan', 'theirs']);
-    expect(access.kubectl).not.toHaveBeenCalled();
-    expect(infra.runKubectl).not.toHaveBeenCalled();
+
+    const listed = await apps.getAll('bo');
+
+    expect(listed.map((entry) => [entry.id, entry.listing])).toEqual([
+      ['wp', { checked: true, onCluster: true }],
+      ['shop', { checked: true, onCluster: true }],
+      ['gone', { checked: true, onCluster: false }],
+      ['tabby', { checked: false, why: 'machine-desk is stopped until something runs on it' }],
+    ]);
+    expect(access.kubectl).toHaveBeenCalledTimes(2);
+    expect((await db.infrastructure.getDeployments()).map((entry) => entry.id)).toEqual(['wp', 'shop', 'gone', 'tabby', 'theirs']);
   });
 });
 

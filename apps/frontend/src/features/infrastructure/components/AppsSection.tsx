@@ -63,6 +63,8 @@ export function AppsSection() {
                   <td className="px-3 py-2">
                     {health ? <StateBadge state={health.state} /> : <span title={app.healthReason || undefined} className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${deployStatusClass(app.status)}`}>{app.status}</span>}
                     {health && health.reasons.length > 0 && <div className="mt-0.5 max-w-[16rem] text-[11px] text-slate-500">{health.reasons.join('; ')}</div>}
+                    {app.listing && !app.listing.checked && <div className="mt-0.5 max-w-[16rem] text-[11px] text-amber-300" data-testid="app-not-checked">Not checked just now, so this may be out of date: {app.listing.why}</div>}
+                    {app.listing?.checked && !app.listing.onCluster && (app.status === 'running' || app.status === 'unhealthy') && <div className="mt-0.5 max-w-[16rem] text-[11px] text-red-300" data-testid="app-not-on-cluster">Not on its cluster: nothing of it runs there. Destroy it or deploy it again.</div>}
                   </td>
                   <td className="px-3 py-2 text-slate-300">{percent(health?.numbers.uptimeDay)}</td>
                   <td className="px-3 py-2 text-slate-300">{seconds(health?.numbers.responseSeconds)}</td>

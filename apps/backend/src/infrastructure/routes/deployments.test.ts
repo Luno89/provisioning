@@ -37,14 +37,14 @@ function setup() {
 describe('listing deployments', () => {
   it('scopes to the caller', async () => {
     const { appService, call } = setup();
-    appService.getAll.calledWith(PERSON.id).mockResolvedValue([deployment()]);
-    expect((await call('')).data).toEqual([deployment()]);
+    appService.getAll.calledWith(PERSON.id).mockResolvedValue([{ ...deployment(), listing: { checked: true, onCluster: true } }]);
+    expect((await call('')).data).toEqual([{ ...deployment(), listing: { checked: true, onCluster: true } }]);
   });
 
   it('never rides a sealed field along in a listing or anything else it sends', async () => {
     const { appService, call } = setup();
     const sealed = { nextcloudAdminPassword: 'nc-admin', minioRootPassword: 'minio-root', vllmHfToken: 'hf_x', hermesDashboardPassword: 'hermes-x' };
-    appService.getAll.mockResolvedValue([{ ...deployment({ appType: 'nextcloud' }), ...sealed }]);
+    appService.getAll.mockResolvedValue([{ ...deployment({ appType: 'nextcloud' }), ...sealed, listing: { checked: true, onCluster: true } }]);
     appService.updateModules.mockResolvedValue({ deployment: { ...deployment(), ...sealed } } as never);
     const listed = await call('');
     const changed = await call('/d1/modules', 'PATCH', { modules: [] });

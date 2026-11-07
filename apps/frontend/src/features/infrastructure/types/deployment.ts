@@ -1,3 +1,5 @@
+export type AppListing = { checked: true; onCluster: boolean } | { checked: false; why: string }
+
 export interface Deployment {
   id: string
   name: string
@@ -5,6 +7,7 @@ export interface Deployment {
   clusterId: string
   status: string
   healthReason?: string
+  listing?: AppListing
   strategy?: string
   modules?: string[]
 

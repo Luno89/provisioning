@@ -5,7 +5,9 @@ import { BuilderService } from './BuilderService.js';
 import type { TemporalBridge } from './TemporalBridge.js';
 import { StorageAdapter } from './StorageAdapter.js';
 import { isSelfManagedCluster } from '../lib/cluster-topology.js';
-import { namespaceOf } from '../lib/app-namespace.js';
+import { listingOf, namespaceOf, namespacesByName, type AppListing, type ClusterRead } from '../lib/app-namespace.js';
+
+export type ListedApp = DeploymentMetadata & { listing: AppListing };
 import { appSignIns, PALWORLD_SECRET, secretValues, type AppSignIn } from '../lib/app-sign-in.js';
 import { Server as SocketServer } from 'socket.io';
 
@@ -32,8 +34,17 @@ export class AppService extends BaseService {
     return dep && allowed(asPerson(userId), 'see', { kind: 'deployment', ownerId: dep.ownerId }) ? dep : undefined;
   }
 
-  async getAll(userId: string) {
-    return (await this.db.infrastructure.getDeployments()).filter((dep) => allowed(asPerson(userId), 'see', { kind: 'deployment', ownerId: dep.ownerId }));
+  async getAll(userId: string): Promise<ListedApp[]> {
+    const mine = (await this.db.infrastructure.getDeployments()).filter((dep) => allowed(asPerson(userId), 'see', { kind: 'deployment', ownerId: dep.ownerId }));
+    const reads = new Map<string, ClusterRead>();
+    await Promise.all([...new Set(mine.map((dep) => dep.clusterId))].map(async (clusterId) => {
+      try {
+        reads.set(clusterId, { namespaces: new Set(namespacesByName(await this.clusters.access.kubectl(clusterId, ['get', 'namespaces', '-o', 'json'])).keys()) });
+      } catch (err) {
+        reads.set(clusterId, { unread: (err as Error).message });
+      }
+    }));
+    return mine.map((dep) => ({ ...dep, listing: listingOf(dep, reads.get(dep.clusterId)!) }));
   }
 
   async updateModules(id: string, modules: string[], userId: string, io?: SocketServer) {

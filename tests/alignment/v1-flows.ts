@@ -202,7 +202,7 @@ export const V1_FLOWS: Flow[] = [
       },
       {
         id: 'E7',
-        does: 'Apps lists only what was just read. An unreachable machine shows as unavailable, with why, and its apps are not listed. Reading never deletes or marks synced.',
+        does: 'Apps reads each cluster as it lists. An app on a cluster just read shows what was read, its namespace there or not; an app on a stopped or unreachable machine stays listed, marked as not checked with why. Reading never deletes or marks synced.',
         screen: { on: 'instance', route: '/infrastructure', component: `${UI}/infrastructure/components/AppsSection.tsx#AppsSection` },
         code: ['apps/frontend/src/features/infrastructure/api/deployments.ts#listDeployments'],
         decisions: ['what-apps-show', 'saved-only-when-true'],

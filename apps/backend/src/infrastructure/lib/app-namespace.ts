@@ -16,6 +16,13 @@ export function newAppNamespace(name: string, id: string): string {
 export const namespacesByName = (listJson: string): Map<string, unknown> =>
   new Map(listAt(JSON.parse(listJson) as unknown, 'items').map((item) => [textAt(item, 'metadata', 'name') ?? '', item]));
 
+export type AppListing = { checked: true; onCluster: boolean } | { checked: false; why: string };
+
+export type ClusterRead = { namespaces: ReadonlySet<string> } | { unread: string };
+
+export const listingOf = (dep: { name: string; namespace?: string | undefined }, read: ClusterRead): AppListing =>
+  'unread' in read ? { checked: false, why: read.unread } : { checked: true, onCluster: read.namespaces.has(namespaceOf(dep)) };
+
 export function removalHoldOf(namespace: unknown): string | undefined {
   if (textAt(namespace, 'status', 'phase') !== 'Terminating') return undefined;
   const held = listAt(namespace, 'status', 'conditions')
