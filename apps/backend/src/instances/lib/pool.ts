@@ -249,6 +249,8 @@ export interface PoolChartInput {
   resources: Record<string, unknown>;
 }
 
+export const POOL_STORES_SIZE = '10Gi';
+
 export function poolChartValues(input: PoolChartInput): Record<string, unknown> {
   return {
     image: { repository: input.image.repository, tag: input.image.tag, pullPolicy: 'IfNotPresent' },
@@ -262,6 +264,7 @@ export function poolChartValues(input: PoolChartInput): Record<string, unknown> 
     publicUrl: input.publicUrl,
     ...(input.domain ? { routing: { name: input.name, domain: input.domain } } : {}),
     pool: { enabled: true, registryPullHost: `127.0.0.1:${input.ports.registry}` },
+    storage: { total: POOL_STORES_SIZE },
     resources: input.resources,
   };
 }
@@ -315,6 +318,7 @@ export const COMPONENT_RESOURCES: Record<string, unknown> = {
   temporalDb: { requests: { memory: '128Mi', cpu: '20m' }, limits: { memory: '512Mi' } },
   temporalJwks: { requests: { memory: '128Mi', cpu: '20m' }, limits: { memory: '512Mi' } },
   temporalKeys: { requests: { memory: '8Mi', cpu: '5m' }, limits: { memory: '32Mi' } },
+  minio: { requests: { memory: '128Mi', cpu: '20m' }, limits: { memory: '512Mi' } },
 };
 
 export interface PoolPolicy {

@@ -1,0 +1,61 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "instance.name" . }}-minio
+  labels: {{- include "instance.labels" . | nindent 4 }}
+spec:
+  selector: {{- include "instance.selector" (dict "root" . "component" "minio") | nindent 4 }}
+  ports:
+    - name: s3
+      port: 9000
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "instance.name" . }}-minio
+  labels: {{- include "instance.labels" . | nindent 4 }}
+spec:
+  serviceName: {{ include "instance.name" . }}-minio
+  replicas: 1
+  selector:
+    matchLabels: {{- include "instance.selector" (dict "root" . "component" "minio") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "instance.labels" . | nindent 8 }}
+        {{- include "instance.selector" (dict "root" . "component" "minio") | nindent 8 }}
+    spec:
+      containers:
+        - name: minio
+          image: {{ .Values.minio.image }}
+          args: [server, /data]
+          {{- include "instance.resources" (dict "root" . "component" "minio") | nindent 10 }}
+          ports:
+            - name: s3
+              containerPort: 9000
+          env:
+            - name: MINIO_BROWSER
+              value: "off"
+            - name: MINIO_ROOT_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "instance.name" . }}-keys
+                  key: MINIO_ROOT_USER
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "instance.name" . }}-keys
+                  key: MINIO_ROOT_PASSWORD
+          readinessProbe:
+            httpGet:
+              path: /minio/health/ready
+              port: s3
+            periodSeconds: 10
+          volumeMounts:
+            - name: stores
+              mountPath: /data
+              subPath: stores/minio
+      volumes:
+        - name: stores
+          persistentVolumeClaim:
+            claimName: {{ include "instance.name" . }}-data

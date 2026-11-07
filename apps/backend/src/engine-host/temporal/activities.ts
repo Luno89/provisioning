@@ -1,4 +1,5 @@
 import type { MachineSendRequest, MachineWork, MachineWorkRequest } from '../sandboxes/machine-work.js';
+import type { StoredFilesActivities } from '../../files/index.js';
 import type { BroughtBack } from '../sandboxes/workspace-documents.js';
 import { ApplicationFailure } from '@temporalio/common';
 import { Context } from '@temporalio/activity';
@@ -77,12 +78,20 @@ export interface StreamServices {
   groveChanged?: ((ownerId: string) => void) | undefined;
   workflowFailed?: ((report: WorkflowFailedReport) => Promise<void>) | undefined;
   machineClusters?: MachineClusterRecords | undefined;
+  storedFiles?: StoredFilesActivities | undefined;
 }
 
 export interface MachineClusterRecords {
   started(clusterId: string, result: MachineClusterResult): Promise<void>;
   stopped(clusterId: string): Promise<void>;
   idle(clusterId: string, leaving?: string): Promise<boolean>;
+}
+
+const NO_STORED_FILES = 'this process keeps no stored files, so their work cannot run here';
+
+function storedFilesOf(services: StreamServices): StoredFilesActivities {
+  if (!services.storedFiles) throw ApplicationFailure.nonRetryable(NO_STORED_FILES, 'NoStoredFiles');
+  return services.storedFiles;
 }
 
 const NO_MACHINE_CLUSTERS = 'this Koala keeps no machine clusters, so a machine\'s cluster cannot be recorded here';
@@ -129,7 +138,7 @@ export interface GroveStores {
   treeTypes?: ((ownerId: string) => Promise<TreeTypeChoice[]>) | undefined;
 }
 
-export interface StreamActivities {
+export interface StreamActivities extends StoredFilesActivities {
   EnginePublishActivity(args: PublishArgs): Promise<void>;
   EngineStreamNodeActivity(request: RemoteNodeRequest): Promise<RemoteNodeResult>;
   EngineLifecycleActivity(event: LifecycleEvent): Promise<void>;
@@ -482,5 +491,10 @@ export function createStreamActivities(services: StreamServices): StreamActiviti
     async EngineMachineClusterIdleActivity({ clusterId, leaving }: { clusterId: string; leaving?: string | undefined }): Promise<boolean> {
       return machineClustersOf(services).idle(clusterId, leaving);
     },
+
+    StoredFilesCommitActivity: (args) => storedFilesOf(services).StoredFilesCommitActivity(args),
+    StoredFilesForgetActivity: (args) => storedFilesOf(services).StoredFilesForgetActivity(args),
+    StoredFilesRemoveBytesActivity: (args) => storedFilesOf(services).StoredFilesRemoveBytesActivity(args),
+    StoredFilesSweepActivity: () => storedFilesOf(services).StoredFilesSweepActivity(),
   };
 }

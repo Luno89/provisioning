@@ -2,9 +2,13 @@ import { randomUUID } from 'node:crypto';
 import { type AreaStore, fromDoc } from '../platform/lib/collection.js';
 import { decryptValue, encryptValue, type SecretKey } from '../platform/lib/crypto.js';
 import type { ArtifactChunk, StoredArtifact } from './lib/artifacts.js';
-import type { Collection, Db } from 'mongodb';
+import type { ClientSession, Collection, Db } from 'mongodb';
 import type { FileSettings } from './lib/file-places.js';
 import { shareTokenHash, type FileShare } from './lib/file-shares.js';
+import { commitPlan, folderPlan, movePlan, scopeMovePlan, type CommitPlan, type StoredFileCommit, type StoredFileRecord, type StoredScope } from './lib/stored-files.js';
+
+export type StoredFolderOutcome = { ok: true; made: boolean } | { ok: false; status: 400 | 409; why: string };
+export type StoredMoveOutcome = { ok: true; moved: number } | { ok: false; status: 400 | 404 | 409; why: string };
 
 export interface FilesStore extends AreaStore {
   saveArtifact(artifact: StoredArtifact): Promise<void>;
@@ -22,6 +26,18 @@ export interface FilesStore extends AreaStore {
   saveFileShare(share: FileShare): Promise<void>;
   deleteFileShare(id: string): Promise<void>;
   sealShareTokens(): Promise<number>;
+  beginStoredFile(record: StoredFileRecord): Promise<void>;
+  touchStoredFile(id: string, at: string): Promise<void>;
+  commitStoredFiles(commits: readonly StoredFileCommit[], options: { replace: boolean }, at: string): Promise<CommitPlan>;
+  storedFilesIn(ownerId: string, scope: StoredScope): Promise<StoredFileRecord[]>;
+  storedFileById(id: string): Promise<StoredFileRecord | undefined>;
+  makeStoredFolder(record: StoredFileRecord): Promise<StoredFolderOutcome>;
+  moveStoredFiles(ownerId: string, scope: StoredScope, from: string, to: string, at: string): Promise<StoredMoveOutcome>;
+  moveStoredScope(ownerId: string, from: StoredScope, to: StoredScope, under: string, at: string): Promise<number>;
+  deleteStoredFiles(ids: readonly string[]): Promise<void>;
+  deadStoredUploads(touchedBefore: string): Promise<StoredFileRecord[]>;
+  expiredStoredFiles(now: string): Promise<StoredFileRecord[]>;
+  storedFileIdsAmong(ids: readonly string[]): Promise<string[]>;
 }
 
 export class MongoFilesStore implements FilesStore {
@@ -49,6 +65,10 @@ export class MongoFilesStore implements FilesStore {
     await this.artifacts.createIndex({ expiresAt: 1 });
     await this.artifactChunks.createIndex({ artifactId: 1, n: 1 });
     await this.shares.createIndex({ tokenHash: 1 }, { unique: true, partialFilterExpression: { tokenHash: { $exists: true } } });
+    await this.shares.createIndex({ fileId: 1 });
+    await this.stored.createIndex({ ownerId: 1, 'scope.kind': 1, 'scope.id': 1, path: 1 }, { unique: true, partialFilterExpression: { state: 'stored' } });
+    await this.stored.createIndex({ state: 1, touchedAt: 1 });
+    await this.stored.createIndex({ expiresAt: 1 }, { partialFilterExpression: { expiresAt: { $exists: true } } });
   }
 
   async saveArtifact(artifact: StoredArtifact): Promise<void> {
@@ -127,5 +147,124 @@ export class MongoFilesStore implements FilesStore {
   async saveFileSettings(settings: FileSettings): Promise<void> {
     const { ownerId, ...rest } = settings;
     await this.db().collection('fileSettings').replaceOne({ _id: ownerId as never }, rest, { upsert: true });
+  }
+
+  private get stored(): Collection<{ _id: string }> {
+    return this.db().collection<{ _id: string }>('storedFiles');
+  }
+
+  private inTransaction<T>(work: (session: ClientSession) => Promise<T>): Promise<T> {
+    return this.db().client.withSession((session) => session.withTransaction(() => work(session)));
+  }
+
+  private recordOf(doc: Record<string, unknown>): StoredFileRecord {
+    return fromDoc<StoredFileRecord>(doc);
+  }
+
+  private scopeFilter(ownerId: string, scope: StoredScope): Record<string, unknown> {
+    return { ownerId, 'scope.kind': scope.kind, 'scope.id': scope.id };
+  }
+
+  private async scopeRecords(ownerId: string, scope: StoredScope, session?: ClientSession): Promise<StoredFileRecord[]> {
+    const docs = await this.stored.find(this.scopeFilter(ownerId, scope), session ? { session } : {}).toArray();
+    return docs.map((doc) => this.recordOf(doc));
+  }
+
+  async beginStoredFile(record: StoredFileRecord): Promise<void> {
+    const { id, ...rest } = record;
+    await this.stored.insertOne({ _id: id, ...rest });
+  }
+
+  async touchStoredFile(id: string, at: string): Promise<void> {
+    await this.stored.updateOne({ _id: id, state: 'uploading' }, { $set: { touchedAt: at } });
+  }
+
+  async commitStoredFiles(commits: readonly StoredFileCommit[], options: { replace: boolean }, at: string): Promise<CommitPlan> {
+    return this.inTransaction(async (session) => {
+      const uploading = await Promise.all(commits.map(async (commit) => {
+        const doc = await this.stored.findOne({ _id: commit.id }, { session });
+        return doc ? this.recordOf(doc) : undefined;
+      }));
+      const scopes = new Map<string, StoredFileRecord[]>();
+      for (const record of uploading) {
+        if (!record) continue;
+        const key = `${record.ownerId}|${record.scope.kind}|${record.scope.id}`;
+        if (!scopes.has(key)) scopes.set(key, await this.scopeRecords(record.ownerId, record.scope, session));
+      }
+      const plan = commitPlan(uploading, commits, (record) => scopes.get(`${record.ownerId}|${record.scope.kind}|${record.scope.id}`) ?? [], options, at);
+      if (!plan.ok) return plan;
+      if (plan.replaced.length > 0) await this.stored.deleteMany({ _id: { $in: plan.replaced } }, { session });
+      for (const record of plan.stored) {
+        const { id, ...rest } = record;
+        await this.stored.replaceOne({ _id: id }, rest, { session });
+      }
+      return plan;
+    });
+  }
+
+  async storedFilesIn(ownerId: string, scope: StoredScope): Promise<StoredFileRecord[]> {
+    const docs = await this.stored.find({ ...this.scopeFilter(ownerId, scope), state: 'stored' }).toArray();
+    return docs.map((doc) => this.recordOf(doc));
+  }
+
+  async storedFileById(id: string): Promise<StoredFileRecord | undefined> {
+    const doc = await this.stored.findOne({ _id: id });
+    return doc ? this.recordOf(doc) : undefined;
+  }
+
+  async makeStoredFolder(record: StoredFileRecord): Promise<StoredFolderOutcome> {
+    return this.inTransaction(async (session) => {
+      const plan = folderPlan(await this.scopeRecords(record.ownerId, record.scope, session), record.path);
+      if (!plan.ok) return plan;
+      if (plan.exists) return { ok: true, made: false };
+      const { id, ...rest } = record;
+      await this.stored.insertOne({ _id: id, ...rest }, { session });
+      return { ok: true, made: true };
+    });
+  }
+
+  async moveStoredFiles(ownerId: string, scope: StoredScope, from: string, to: string, at: string): Promise<StoredMoveOutcome> {
+    return this.inTransaction(async (session) => {
+      const plan = movePlan(await this.scopeRecords(ownerId, scope, session), from, to);
+      if (!plan.ok) return plan;
+      for (const move of plan.moves) await this.stored.updateOne({ _id: move.id }, { $set: { path: move.path, changedAt: at } }, { session });
+      const ids = plan.moves.map((move) => move.id);
+      if (ids.length > 0) await this.shares.deleteMany({ fileId: { $in: ids } }, { session });
+      return { ok: true, moved: ids.length };
+    });
+  }
+
+  async moveStoredScope(ownerId: string, from: StoredScope, to: StoredScope, under: string, at: string): Promise<number> {
+    return this.inTransaction(async (session) => {
+      const moves = scopeMovePlan(await this.scopeRecords(ownerId, from, session), under);
+      for (const move of moves) await this.stored.updateOne({ _id: move.id }, { $set: { scope: to, path: move.path, changedAt: at } }, { session });
+      const ids = moves.map((move) => move.id);
+      if (ids.length > 0) await this.shares.deleteMany({ fileId: { $in: ids } }, { session });
+      return ids.length;
+    });
+  }
+
+  async deleteStoredFiles(ids: readonly string[]): Promise<void> {
+    if (ids.length === 0) return;
+    await this.inTransaction(async (session) => {
+      await this.stored.deleteMany({ _id: { $in: [...ids] } }, { session });
+      await this.shares.deleteMany({ fileId: { $in: [...ids] } }, { session });
+    });
+  }
+
+  async deadStoredUploads(touchedBefore: string): Promise<StoredFileRecord[]> {
+    const docs = await this.stored.find({ state: 'uploading', touchedAt: { $lte: touchedBefore } }).toArray();
+    return docs.map((doc) => this.recordOf(doc));
+  }
+
+  async expiredStoredFiles(now: string): Promise<StoredFileRecord[]> {
+    const docs = await this.stored.find({ expiresAt: { $lte: now } }).toArray();
+    return docs.map((doc) => this.recordOf(doc));
+  }
+
+  async storedFileIdsAmong(ids: readonly string[]): Promise<string[]> {
+    if (ids.length === 0) return [];
+    const docs = await this.stored.find({ _id: { $in: [...ids] } }).project<{ _id: string }>({ _id: 1 }).toArray();
+    return docs.map((doc) => doc._id);
   }
 }

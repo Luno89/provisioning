@@ -36,6 +36,8 @@ export const STARTED_ON: Record<string, Queue> = {
   RemoveAccountWorkflow: 'engine',
   RemoveProjectWorkflow: 'engine',
   CheckRunWorkflow: 'engine',
+  StoredFilesWorkflow: 'engine',
+  StoredFilesSweepWorkflow: 'engine',
 };
 
 export interface Proxy { file: string; call: ts.CallExpression; activities: string[]; queue: ProxyQueue }

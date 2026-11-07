@@ -37,7 +37,7 @@ export interface RunningItem {
   waitsFor?: string[] | undefined;
 }
 
-export const HIDDEN_TYPES: readonly string[] = ['ConversationConclusionWorkflow', 'BenchIdleWorkflow'];
+export const HIDDEN_TYPES: readonly string[] = ['ConversationConclusionWorkflow', 'BenchIdleWorkflow', 'StoredFilesWorkflow', 'StoredFilesSweepWorkflow'];
 
 const text = (value: unknown): string | undefined => (typeof value === 'string' && value ? value : undefined);
 const count = (n: number, one: string): string => `${n} ${one}${n === 1 ? '' : 's'}`;

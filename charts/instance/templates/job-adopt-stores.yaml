@@ -1,0 +1,74 @@
+{{- $mongo := lookup "apps/v1" "StatefulSet" .Release.Namespace (printf "%s-mongo" (include "instance.name" .)) }}
+{{- $temporalDb := lookup "apps/v1" "StatefulSet" .Release.Namespace (printf "%s-temporal-db" (include "instance.name" .)) }}
+{{- if or $mongo $temporalDb }}
+{{- $name := include "instance.name" . }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ $name }}-adopt-stores
+  labels: {{- include "instance.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/hook: pre-upgrade
+    helm.sh/hook-weight: "-10"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 3
+  template:
+    metadata:
+      labels: {{- include "instance.labels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ $name }}
+      restartPolicy: Never
+      containers:
+        - name: adopt-stores
+          image: {{ include "instance.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            runAsUser: 0
+          command: [sh, -ec]
+          args:
+            - |
+              adopt() {
+                set="$1"; from="$2"; to="/stores/stores/$3"
+                if kubectl get statefulset "$set" -n {{ .Release.Namespace }} >/dev/null 2>&1; then
+                  kubectl scale statefulset "$set" -n {{ .Release.Namespace }} --replicas=0
+                  while kubectl get pod "$set-0" -n {{ .Release.Namespace }} >/dev/null 2>&1; do sleep 1; done
+                fi
+                mkdir -p "$to"
+                if [ ! -e "$to/.adopted" ]; then
+                  cp -a "$from/." "$to/"
+                  touch "$to/.adopted"
+                fi
+              }
+              {{- if $mongo }}
+              adopt {{ $name }}-mongo /old/mongo mongo
+              {{- end }}
+              {{- if $temporalDb }}
+              adopt {{ $name }}-temporal-db /old/temporal-db temporal-db
+              {{- end }}
+          volumeMounts:
+            - name: stores
+              mountPath: /stores
+            {{- if $mongo }}
+            - name: old-mongo
+              mountPath: /old/mongo
+            {{- end }}
+            {{- if $temporalDb }}
+            - name: old-temporal-db
+              mountPath: /old/temporal-db
+            {{- end }}
+      volumes:
+        - name: stores
+          persistentVolumeClaim:
+            claimName: {{ $name }}-data
+        {{- if $mongo }}
+        - name: old-mongo
+          persistentVolumeClaim:
+            claimName: data-{{ $name }}-mongo-0
+        {{- end }}
+        {{- if $temporalDb }}
+        - name: old-temporal-db
+          persistentVolumeClaim:
+            claimName: data-{{ $name }}-temporal-db-0
+        {{- end }}
+{{- end }}

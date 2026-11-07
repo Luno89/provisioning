@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { StoredArtifact } from '../lib/artifacts.js';
 import type { FileShare } from '../lib/file-shares.js';
+import type { StoredFileRecord } from '../lib/stored-files.js';
 import type { FilesStore } from '../store.js';
 
 const TOKEN = 'abcdefghijklmnopqrstuvwxyz012345';
@@ -15,7 +16,152 @@ const share = (id: string, token: string, extra: Partial<FileShare> = {}): FileS
   id, token, ownerId: 'u1', path: 'a.pdf', name: 'a.pdf', createdAt: '2026-10-27T00:00:00.000Z', expiresAt: '2026-11-03T00:00:00.000Z', ...extra,
 });
 
+const AT = '2026-11-07T10:00:00.000Z';
+const LATER = '2026-11-07T11:00:00.000Z';
+const PROJECT = { kind: 'project', id: 'p1' } as const;
+
+const upload = (id: string, path: string, extra: Partial<StoredFileRecord> = {}): StoredFileRecord => ({
+  id, ownerId: 'u1', scope: { ...PROJECT }, path, kind: 'file', size: 0, contentType: 'text/plain', version: 0,
+  madeAt: AT, changedAt: AT, state: 'uploading', touchedAt: AT, ...extra,
+});
+
+const folder = (id: string, path: string): StoredFileRecord => ({ ...upload(id, path), kind: 'folder', contentType: 'inode/directory', state: 'stored', version: 1 });
+
+const kept = async (store: FilesStore, id: string, path: string, size = 1, extra: Partial<StoredFileRecord> = {}): Promise<void> => {
+  await store.beginStoredFile(upload(id, path, extra));
+  const done = await store.commitStoredFiles([{ id, size }], { replace: true }, AT);
+  if (!done.ok) throw new Error(done.why);
+};
+
+const paths = async (store: FilesStore, scope: StoredFileRecord['scope'] = PROJECT): Promise<string[]> => (await store.storedFilesIn('u1', scope)).map((record) => record.path).sort();
+
 export function filesStoreContract(make: () => Promise<FilesStore>): void {
+  describe('the records of stored files', () => {
+    it('keeps an upload out of sight until it is committed, then shows it stored with its size and first version', async () => {
+      const store = await make();
+      await store.beginStoredFile(upload('f1', 'notes/a.txt'));
+      expect(await store.storedFilesIn('u1', PROJECT)).toEqual([]);
+      expect((await store.storedFileById('f1'))?.state).toBe('uploading');
+      const done = await store.commitStoredFiles([{ id: 'f1', size: 12 }], { replace: false }, LATER);
+      expect(done).toMatchObject({ ok: true, replaced: [] });
+      expect(await store.storedFilesIn('u1', PROJECT)).toEqual([{ ...upload('f1', 'notes/a.txt'), state: 'stored', size: 12, version: 1, changedAt: LATER, touchedAt: LATER }]);
+    });
+
+    it('replaces a file at the same path in one step: the old record goes, the new one is its next version and keeps when it was first made', async () => {
+      const store = await make();
+      await kept(store, 'old', 'a.txt');
+      await store.beginStoredFile(upload('new', 'a.txt', { madeAt: LATER }));
+      expect(await store.commitStoredFiles([{ id: 'new', size: 5 }], { replace: true }, LATER)).toMatchObject({ ok: true, replaced: ['old'] });
+      const records = await store.storedFilesIn('u1', PROJECT);
+      expect(records.map((record) => [record.id, record.version, record.madeAt, record.size])).toEqual([['new', 2, AT, 5]]);
+      expect(await store.storedFileById('old')).toBeUndefined();
+    });
+
+    it('refuses to replace a file when told it may not, and changes nothing', async () => {
+      const store = await make();
+      await kept(store, 'old', 'a.txt');
+      await store.beginStoredFile(upload('new', 'a.txt'));
+      expect(await store.commitStoredFiles([{ id: 'new', size: 5 }], { replace: false }, LATER)).toMatchObject({ ok: false, status: 409 });
+      expect((await store.storedFilesIn('u1', PROJECT)).map((record) => record.id)).toEqual(['old']);
+      expect((await store.storedFileById('new'))?.state).toBe('uploading');
+    });
+
+    it('commits a drop of several files all together, or none of them when one cannot be', async () => {
+      const store = await make();
+      await kept(store, 'there', 'taken.txt');
+      await store.beginStoredFile(upload('a', 'a.txt'));
+      await store.beginStoredFile(upload('b', 'taken.txt'));
+      expect(await store.commitStoredFiles([{ id: 'a', size: 1 }, { id: 'b', size: 1 }], { replace: false }, LATER)).toMatchObject({ ok: false, status: 409 });
+      expect(await paths(store)).toEqual(['taken.txt']);
+      expect(await store.commitStoredFiles([{ id: 'a', size: 1 }, { id: 'b', size: 2 }], { replace: true }, LATER)).toMatchObject({ ok: true, replaced: ['there'] });
+      expect(await paths(store)).toEqual(['a.txt', 'taken.txt']);
+    });
+
+    it('takes committing a kept file again as done, and refuses an upload it does not hold, the same path twice at once, or a file where a folder is', async () => {
+      const store = await make();
+      expect(await store.commitStoredFiles([{ id: 'never', size: 1 }], { replace: true }, AT)).toMatchObject({ ok: false, status: 404 });
+      await kept(store, 'done', 'done.txt', 7);
+      expect(await store.commitStoredFiles([{ id: 'done', size: 99 }], { replace: false }, LATER)).toMatchObject({ ok: true, replaced: [] });
+      expect((await store.storedFileById('done'))).toMatchObject({ size: 7, version: 1, changedAt: AT });
+      await store.beginStoredFile(upload('x', 'same.txt'));
+      await store.beginStoredFile(upload('y', 'same.txt'));
+      expect(await store.commitStoredFiles([{ id: 'x', size: 1 }, { id: 'y', size: 1 }], { replace: true }, AT)).toMatchObject({ ok: false, status: 409 });
+      await store.makeStoredFolder(folder('dir', 'docs'));
+      await store.beginStoredFile(upload('z', 'docs'));
+      expect(await store.commitStoredFiles([{ id: 'z', size: 1 }], { replace: true }, AT)).toMatchObject({ ok: false, status: 409 });
+    });
+
+    it('keeps each place apart: the same path in another scope or for another person is another file', async () => {
+      const store = await make();
+      await kept(store, 'p', 'a.txt');
+      await kept(store, 'q', 'a.txt', 1, { scope: { kind: 'person', id: 'u1' } });
+      await kept(store, 'r', 'a.txt', 1, { ownerId: 'u2' });
+      expect(await paths(store)).toEqual(['a.txt']);
+      expect(await paths(store, { kind: 'person', id: 'u1' })).toEqual(['a.txt']);
+      expect((await store.storedFilesIn('u2', PROJECT)).map((record) => record.id)).toEqual(['r']);
+    });
+
+    it('makes a folder once, says when it was already there, and refuses one where a file is', async () => {
+      const store = await make();
+      expect(await store.makeStoredFolder(folder('d1', 'docs'))).toEqual({ ok: true, made: true });
+      expect(await store.makeStoredFolder(folder('d2', 'docs'))).toEqual({ ok: true, made: false });
+      await kept(store, 'f', 'a.txt');
+      expect(await store.makeStoredFolder(folder('d3', 'a.txt/inner'))).toMatchObject({ ok: false, status: 409 });
+      expect(await paths(store)).toEqual(['a.txt', 'docs']);
+    });
+
+    it('moves a folder with everything under it, drops the share links of what moved, and leaves the rest', async () => {
+      const store = await make();
+      await kept(store, 'a', 'docs/a.txt');
+      await kept(store, 'b', 'docs/deep/b.txt');
+      await kept(store, 'c', 'docsish.txt');
+      await store.saveFileShare({ id: 's1', token: 'abcdefghijklmnopqrstuvwxyz012345', ownerId: 'u1', fileId: 'a', path: 'docs/a.txt', name: 'a.txt', createdAt: AT, expiresAt: LATER });
+      await store.saveFileShare({ id: 's2', token: 'ZYXWVUTSRQPONMLKJIHGFEDCBA987654', ownerId: 'u1', fileId: 'c', path: 'docsish.txt', name: 'docsish.txt', createdAt: AT, expiresAt: LATER });
+      expect(await store.moveStoredFiles('u1', PROJECT, 'docs', 'archive/docs', LATER)).toEqual({ ok: true, moved: 2 });
+      expect(await paths(store)).toEqual(['archive/docs/a.txt', 'archive/docs/deep/b.txt', 'docsish.txt']);
+      expect((await store.getFileShares('u1')).map((share) => share.id)).toEqual(['s2']);
+    });
+
+    it('refuses a move onto something already there and moves nothing', async () => {
+      const store = await make();
+      await kept(store, 'a', 'a.txt');
+      await kept(store, 'b', 'b.txt');
+      expect(await store.moveStoredFiles('u1', PROJECT, 'a.txt', 'b.txt', LATER)).toMatchObject({ ok: false, status: 409 });
+      expect(await store.moveStoredFiles('u1', PROJECT, 'gone.txt', 'c.txt', LATER)).toMatchObject({ ok: false, status: 404 });
+      expect(await paths(store)).toEqual(['a.txt', 'b.txt']);
+    });
+
+    it('moves a whole scope under a folder of another, dropping the moved files\' share links', async () => {
+      const store = await make();
+      const chat = { kind: 'conversation', id: 'c9' } as const;
+      await kept(store, 'a', 'a.png', 1, { scope: { ...chat } });
+      await kept(store, 'b', 'x/b.png', 1, { scope: { ...chat } });
+      await store.saveFileShare({ id: 's1', token: 'abcdefghijklmnopqrstuvwxyz012345', ownerId: 'u1', fileId: 'a', path: 'a.png', name: 'a.png', createdAt: AT, expiresAt: LATER });
+      expect(await store.moveStoredScope('u1', chat, PROJECT, 'chats/c9', LATER)).toBe(2);
+      expect(await paths(store, chat)).toEqual([]);
+      expect(await paths(store)).toEqual(['chats/c9/a.png', 'chats/c9/x/b.png']);
+      expect(await store.getFileShares('u1')).toEqual([]);
+    });
+
+    it('deletes records with their share links, says which ids it still holds, and finds dead uploads and expired files', async () => {
+      const store = await make();
+      await kept(store, 'a', 'a.txt');
+      await kept(store, 'run', 'out.png', 1, { scope: { kind: 'run', id: 'r1' }, expiresAt: AT });
+      await store.beginStoredFile(upload('stale', 'stale.txt', { touchedAt: AT }));
+      await store.beginStoredFile(upload('live', 'live.txt', { touchedAt: LATER }));
+      await store.touchStoredFile('a', LATER);
+      expect((await store.deadStoredUploads(AT)).map((record) => record.id)).toEqual(['stale']);
+      expect((await store.expiredStoredFiles(AT)).map((record) => record.id)).toEqual(['run']);
+      expect((await store.storedFileIdsAmong(['a', 'nope', 'live'])).sort()).toEqual(['a', 'live']);
+      await store.saveFileShare({ id: 's1', token: 'abcdefghijklmnopqrstuvwxyz012345', ownerId: 'u1', fileId: 'a', path: 'a.txt', name: 'a.txt', createdAt: AT, expiresAt: LATER });
+      await store.deleteStoredFiles(['a', 'stale']);
+      await store.deleteStoredFiles([]);
+      expect(await store.storedFileIdsAmong(['a', 'stale', 'live'])).toEqual(['live']);
+      expect(await store.getFileShares('u1')).toEqual([]);
+      expect((await store.storedFileById('run'))?.changedAt).toBe(AT);
+    });
+  });
+
   describe('a run\'s artifacts', () => {
     it('keeps an artifact as saved, replaces it whole when saved again, and forgets it when deleted', async () => {
       const store = await make();

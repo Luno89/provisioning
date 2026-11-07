@@ -38,12 +38,14 @@ edge:
   localPort: 8000
 
 storage:
-  data: 2Gi
-  mongo: 5Gi
-  temporalDb: 5Gi
+  total: ""
 
 mongo:
   image: mongo:7
+
+minio:
+  image: pgsty/minio:RELEASE.2026-03-14T12-00-00Z@sha256:72e9a7386b009a5d068c12775bc4ebcc4a0e1f58022cf06da9f26b6955fb56d3
+  bucket: koala
 
 temporal:
   image: temporalio/auto-setup:1.29.3

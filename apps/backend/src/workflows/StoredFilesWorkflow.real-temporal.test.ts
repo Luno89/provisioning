@@ -1,0 +1,98 @@
+import { randomUUID } from 'node:crypto';
+import { resolve } from 'node:path';
+import { Readable } from 'node:stream';
+import { WORKER_DEFAULTS } from '@koala/engine-core';
+import type { TestWorkflowEnvironment } from '@temporalio/testing';
+import { Worker } from '@temporalio/worker';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { DEFAULT_STREAM_TASK_QUEUE } from '../engine-host/temporal/contracts.js';
+import type { StoredFilesActivities } from '../files/lib/stored-files-work.js';
+import { createStoredFilesActivities } from '../files/services/stored-files-activities.js';
+import { temporalStoredFileCommits } from '../files/services/StoredFileCommits.js';
+import { MemoryFilesStore } from '../files/testing/memory-store.js';
+import { MemoryObjectStore } from '../files/testing/memory-object-store.js';
+import { bundled, temporalTestEnvironment } from './temporal-test-env.js';
+
+let env: TestWorkflowEnvironment;
+const AT = '2026-11-07T10:00:00.000Z';
+const scope = { kind: 'project', id: 'p1' } as const;
+
+beforeAll(async () => {
+  env = await temporalTestEnvironment();
+}, 120_000);
+
+afterAll(async () => {
+  await env?.teardown();
+});
+
+const begun = async (records: MemoryFilesStore, objects: MemoryObjectStore, id: string, path: string, text: string): Promise<void> => {
+  await records.beginStoredFile({ id, ownerId: 'u1', scope: { ...scope }, path, kind: 'file', size: 0, contentType: 'text/plain', version: 0, madeAt: AT, changedAt: AT, state: 'uploading', touchedAt: AT });
+  await objects.put(id, Readable.from([Buffer.from(text)]), text.length, 'text/plain');
+};
+
+async function running<T>(activities: StoredFilesActivities, work: (queue: string) => Promise<T>): Promise<T> {
+  const queue = `stored-files-${randomUUID().slice(0, 8)}`;
+  const namespace = env.namespace ?? 'default';
+  const workflows = await Worker.create({ ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace, taskQueue: queue, workflowBundle: await bundled(resolve(import.meta.dirname, 'StoredFilesWorkflow.ts')) });
+  const stream = await Worker.create({ ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace, taskQueue: DEFAULT_STREAM_TASK_QUEUE, activities });
+  return workflows.runUntil(stream.runUntil(work(queue)));
+}
+
+describe('the stored files workflow on Temporal', () => {
+  it('commits an upload, and removes the bytes of the file it replaced', async () => {
+    const records = new MemoryFilesStore();
+    const objects = new MemoryObjectStore();
+    await begun(records, objects, 'old', 'a.txt', 'old');
+    await records.commitStoredFiles([{ id: 'old', size: 3 }], { replace: true }, AT);
+    await begun(records, objects, 'new', 'a.txt', 'newer');
+    const plan = await running(createStoredFilesActivities({ records, objects }), (queue) => temporalStoredFileCommits(async () => env.client.workflow, queue).commit('u1', [{ id: 'new', size: 5 }], { replace: true }));
+    expect(plan).toMatchObject({ ok: true, replaced: ['old'] });
+    expect([...objects.kept.keys()]).toEqual(['new']);
+    expect((await records.storedFilesIn('u1', scope)).map((record) => [record.id, record.version])).toEqual([['new', 2]]);
+  });
+
+  it('commits exactly once when the worker dies after committing and before it could answer', async () => {
+    const records = new MemoryFilesStore();
+    const objects = new MemoryObjectStore();
+    await begun(records, objects, 'f1', 'once.txt', 'once');
+    const real = createStoredFilesActivities({ records, objects });
+    let attempts = 0;
+    const dying: StoredFilesActivities = {
+      ...real,
+      async StoredFilesCommitActivity(args) {
+        attempts += 1;
+        const plan = await real.StoredFilesCommitActivity(args);
+        if (attempts === 1) throw new Error('the worker died before it answered');
+        return plan;
+      },
+    };
+    const plan = await running(dying, (queue) => temporalStoredFileCommits(async () => env.client.workflow, queue).commit('u1', [{ id: 'f1', size: 4 }], { replace: false }));
+    expect(attempts).toBe(2);
+    expect(plan).toMatchObject({ ok: true });
+    expect((await records.storedFilesIn('u1', scope)).map((record) => [record.id, record.version, record.state])).toEqual([['f1', 1, 'stored']]);
+    expect([...objects.kept.keys()]).toEqual(['f1']);
+  });
+
+  it('forgets a refused upload and its bytes, and removes files record first, then bytes', async () => {
+    const records = new MemoryFilesStore();
+    const objects = new MemoryObjectStore();
+    await begun(records, objects, 'mine', 'a.txt', 'mine');
+    await records.commitStoredFiles([{ id: 'mine', size: 4 }], { replace: true }, AT);
+    await begun(records, objects, 'theirs', 'a.txt', 'theirs');
+    const order: string[] = [];
+    const real = createStoredFilesActivities({ records, objects });
+    const watched: StoredFilesActivities = {
+      ...real,
+      StoredFilesForgetActivity: async (args) => { order.push(`forget ${args.ids.join(',')}`); return real.StoredFilesForgetActivity(args); },
+      StoredFilesRemoveBytesActivity: async (args) => { order.push(`bytes ${args.ids.join(',')}`); return real.StoredFilesRemoveBytesActivity(args); },
+    };
+    await running(watched, async (queue) => {
+      const commits = temporalStoredFileCommits(async () => env.client.workflow, queue);
+      expect(await commits.commit('u1', [{ id: 'theirs', size: 6 }], { replace: false })).toMatchObject({ ok: false, status: 409 });
+      await commits.remove('u1', ['mine']);
+    });
+    expect(order).toEqual(['forget theirs', 'bytes theirs', 'forget mine', 'bytes mine']);
+    expect(objects.kept.size).toBe(0);
+    expect(await records.storedFileById('theirs')).toBeUndefined();
+  });
+});

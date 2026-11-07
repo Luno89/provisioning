@@ -11,7 +11,7 @@ spec:
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
-  name: {{ include "instance.name" . }}-mongo
+  name: {{ include "instance.name" . }}-mongo-stores
   labels: {{- include "instance.labels" . | nindent 4 }}
 spec:
   serviceName: {{ include "instance.name" . }}-mongo
@@ -54,13 +54,10 @@ spec:
             periodSeconds: 10
             timeoutSeconds: 10
           volumeMounts:
-            - name: data
+            - name: stores
               mountPath: /data/db
-  volumeClaimTemplates:
-    - metadata:
-        name: data
-      spec:
-        accessModes: [ReadWriteOnce]
-        resources:
-          requests:
-            storage: {{ .Values.storage.mongo }}
+              subPath: stores/mongo
+      volumes:
+        - name: stores
+          persistentVolumeClaim:
+            claimName: {{ include "instance.name" . }}-data

@@ -80,5 +80,66 @@
       "kubeconfig",
       "cluster-command"
     ]
+  },
+  {
+    "name": "files-store",
+    "title": "Store, list, move and remove a file",
+    "entries": [
+      "apps/frontend/src/features/files/api/files.ts#uploadStoredFile",
+      "apps/frontend/src/features/files/api/files.ts#listStoredFiles",
+      "apps/frontend/src/features/files/api/files.ts#moveStoredFile",
+      "apps/frontend/src/features/files/api/files.ts#removeStoredFile"
+    ],
+    "concepts": [
+      "work",
+      "calls-out",
+      "config",
+      "kubeconfig",
+      "cluster-command"
+    ]
+  },
+  {
+    "name": "files-share",
+    "title": "Share a file by link and open it",
+    "entries": [
+      "apps/frontend/src/features/files/api/files.ts#shareStoredFile",
+      "apps/frontend/src/features/files/api/files.ts#revokeFileShare"
+    ],
+    "concepts": [
+      "work",
+      "calls-out",
+      "config",
+      "kubeconfig",
+      "cluster-command"
+    ]
+  },
+  {
+    "name": "plan-adopted",
+    "title": "A chat becomes a project (plan approved)",
+    "entries": [
+      "apps/frontend/src/features/projects/api/plans.ts#approvePlan",
+      "apps/backend/src/workflows/AdoptPlanWorkflow.ts#AdoptPlanWorkflow"
+    ],
+    "concepts": [
+      "work",
+      "calls-out",
+      "config",
+      "kubeconfig",
+      "cluster-command"
+    ]
+  },
+  {
+    "name": "project-removed",
+    "title": "A project is deleted",
+    "entries": [
+      "apps/backend/src/workflows/RemoveProjectWorkflow.ts#RemoveProjectWorkflow"
+    ],
+    "concepts": [
+      "work",
+      "calls-out",
+      "config",
+      "kubeconfig",
+      "cluster-command"
+    ]
   }
 ]

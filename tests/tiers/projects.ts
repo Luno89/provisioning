@@ -4,6 +4,7 @@ import type { TestProjectInlineConfiguration } from 'vitest/config';
 const here = (file: string): string => fileURLToPath(new URL(file, import.meta.url));
 
 export const INTEGRATION = '**/*.integration.test.{ts,tsx,mjs}';
+export const ONE_REAL = '**/*.real-*.test.{ts,tsx,mjs}';
 export const REPORTERS = ['default', here('./failure-reporter.ts')];
 const UNIT_GUARD = here('./unit-guard.ts');
 const OWN_HOME = here('./home.ts');
@@ -20,11 +21,11 @@ export interface Tiers {
 export function tiers(options: Tiers): TestProjectInlineConfiguration[] {
   const exclude = ['**/node_modules/**', ...(options.exclude ?? [])];
   const setup = options.setupFiles ?? [];
-  const integration = options.include.map((pattern) => pattern.replace(/\*\.test\.([^/]+)$/, '*.integration.test.$1'));
+  const integration = options.include.flatMap((pattern) => [pattern.replace(/\*\.test\.([^/]+)$/, '*.integration.test.$1'), pattern.replace(/\*\.test\.([^/]+)$/, '*.real-*.test.$1')]);
   return [
     {
       extends: true,
-      test: { name: 'unit', include: options.include, exclude: [...exclude, INTEGRATION, ...integration], setupFiles: [OWN_HOME, UNIT_GUARD, ...setup, ...(options.unit?.setupFiles ?? []), COUPLING], expect: { requireAssertions: true } },
+      test: { name: 'unit', include: options.include, exclude: [...exclude, INTEGRATION, ONE_REAL, ...integration], setupFiles: [OWN_HOME, UNIT_GUARD, ...setup, ...(options.unit?.setupFiles ?? []), COUPLING], expect: { requireAssertions: true } },
     },
     {
       extends: true,

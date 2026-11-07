@@ -2,12 +2,13 @@ import { describe, it, expect } from 'vitest';
 import { execFileSync } from 'node:child_process';
 import { resolve } from 'node:path';
 import { parseAllDocuments } from 'yaml';
+import { minioSettingsFrom } from '../../files/lib/minio-settings.js';
 
 const REPO = resolve(__dirname, '../../../../..');
 const HELM = resolve(REPO, 'bin/helm');
 const CHART = resolve(REPO, 'charts/instance');
 
-const required = ['instance.id=inst-u1', 'instance.ownerId=u1', 'instance.rootUrl=https://app.example.com', 'instance.rootPublicKeys=PEM'];
+const required = ['instance.id=inst-u1', 'instance.ownerId=u1', 'instance.rootUrl=https://app.example.com', 'instance.rootPublicKeys=PEM', 'storage.total=100Gi'];
 
 interface Container {
   name: string;
@@ -115,7 +116,7 @@ describe('the instance chart', () => {
       ROLE: 'instance', INSTANCE_ID: 'inst-u1', INSTANCE_OWNER_ID: 'u1', ROOT_URL: 'https://app.example.com', ROOT_PUBLIC_KEYS: 'PEM', NODE_ENV: 'production',
     });
     const keys = find(docs, 'Secret', 'luno-keys');
-    expect(Object.keys(keys.data ?? {}).sort()).toEqual(['DATA_KEY', 'EGRESS_KEY', 'MONGO_ROOT_PASSWORD', 'PAYLOAD_KEY', 'SESSION_KEY', 'TEMPORAL_DB_PASSWORD', 'TEMPORAL_KEY']);
+    expect(Object.keys(keys.data ?? {}).sort()).toEqual(['DATA_KEY', 'EGRESS_KEY', 'MINIO_ROOT_PASSWORD', 'MINIO_ROOT_USER', 'MONGO_ROOT_PASSWORD', 'PAYLOAD_KEY', 'SESSION_KEY', 'TEMPORAL_DB_PASSWORD', 'TEMPORAL_KEY']);
     expect(Buffer.from(keys.data!.DATA_KEY!, 'base64').toString().length).toBeGreaterThanOrEqual(32);
     expect(keys.metadata.annotations?.['helm.sh/resource-policy']).toBe('keep');
     expect(Object.keys(keys.data ?? {})).not.toContain('ROOT_IDENTITY_KEY');
@@ -123,9 +124,9 @@ describe('the instance chart', () => {
 
   it('runs its own Mongo and Temporal, and points the app at them', () => {
     const docs = render();
-    const mongo = podOf(find(docs, 'StatefulSet', 'luno-mongo')).containers[0]!;
+    const mongo = podOf(find(docs, 'StatefulSet', 'luno-mongo-stores')).containers[0]!;
     expect(mongo.args?.join('\n')).toMatch(/exec docker-entrypoint\.sh mongod --replSet rs0 --keyFile \/tmp\/mongo-keyfile --bind_ip_all/);
-    find(docs, 'StatefulSet', 'luno-temporal-db');
+    find(docs, 'StatefulSet', 'luno-temporal-db-stores');
     find(docs, 'Deployment', 'luno-temporal');
     const env = podOf(find(docs, 'Deployment', 'luno-backend')).containers[0]!.env;
     expect(env?.find((entry) => entry.name === 'MONGO_URI')?.value).toBe('mongodb://admin:$(MONGO_ROOT_PASSWORD)@luno-mongo:27017/provisioning?authSource=admin');
@@ -194,7 +195,7 @@ describe('the instance chart', () => {
     expect(policy.policyTypes).toEqual(['Ingress']);
     expect(policy.podSelector?.matchExpressions).toEqual([
       { key: 'app.kubernetes.io/instance', operator: 'In', values: ['luno'] },
-      { key: 'app.kubernetes.io/component', operator: 'In', values: ['temporal-db', 'mongo'] },
+      { key: 'app.kubernetes.io/component', operator: 'In', values: ['temporal-db', 'mongo', 'minio'] },
     ]);
     const ownPods = { 'app.kubernetes.io/part-of': 'nowrinkles-instance', 'app.kubernetes.io/instance': 'luno' };
     expect(policy.ingress).toEqual([{ from: [{ podSelector: { matchLabels: ownPods } }] }]);
@@ -323,7 +324,64 @@ describe('the instance chart', () => {
   });
 
   it('refuses to render without knowing whose instance it is', () => {
-    expect(() => execFileSync(HELM, ['template', 'x', CHART], { encoding: 'utf8', stdio: 'pipe' })).toThrow(/instance.id is required/);
+    expect(() => execFileSync(HELM, ['template', 'x', CHART, '--set', 'storage.total=1Gi'], { encoding: 'utf8', stdio: 'pipe' })).toThrow(/instance.id is required/);
+  });
+
+  it('refuses to render without the size of the volume its stores share', () => {
+    const args = ['template', 'x', CHART, ...required.filter((value) => !value.startsWith('storage.')).flatMap((value) => ['--set', value])];
+    expect(() => execFileSync(HELM, args, { encoding: 'utf8', stdio: 'pipe' })).toThrow(/storage.total is the size of the volume/);
+  });
+
+  it('keeps its data folder, Mongo, Temporal\'s database and MinIO on one volume of the size it is given, each in a folder of its own', () => {
+    const docs = render(['storage.total=10Gi']);
+    const volume = find(docs, 'PersistentVolumeClaim', 'luno-data') as Doc & { spec: { resources: { requests: { storage: string } } } };
+    expect(volume.spec.resources.requests.storage).toBe('10Gi');
+    expect(volume.metadata.annotations?.['helm.sh/resource-policy']).toBe('keep');
+    expect(docs.filter((doc) => doc.kind === 'PersistentVolumeClaim').map((doc) => doc.metadata.name)).toEqual(['luno-data']);
+    const mounts = (name: string) => podOf(find(docs, 'StatefulSet', name)).containers[0]!.volumeMounts;
+    expect(mounts('luno-mongo-stores')).toEqual([{ name: 'stores', mountPath: '/data/db', subPath: 'stores/mongo' }]);
+    expect(mounts('luno-temporal-db-stores')).toEqual([{ name: 'stores', mountPath: '/var/lib/postgresql/data', subPath: 'stores/temporal-db' }]);
+    expect(mounts('luno-minio')).toEqual([{ name: 'stores', mountPath: '/data', subPath: 'stores/minio' }]);
+    for (const name of ['luno-mongo-stores', 'luno-temporal-db-stores', 'luno-minio']) {
+      const doc = find(docs, 'StatefulSet', name) as Doc & { spec: { volumeClaimTemplates?: unknown } };
+      expect(doc.spec.volumeClaimTemplates).toBeUndefined();
+      expect(podOf(doc).volumes).toEqual([{ name: 'stores', persistentVolumeClaim: { claimName: 'luno-data' } }]);
+    }
+  });
+
+  it('runs its MinIO from the pinned image with its console off, answering only S3 inside the cluster, ready when MinIO says so', () => {
+    const docs = render();
+    const service = specOf(find(docs, 'Service', 'luno-minio'));
+    expect(service.type).toBeUndefined();
+    expect(service.ports).toEqual([{ name: 's3', port: 9000 }]);
+    const minio = podOf(find(docs, 'StatefulSet', 'luno-minio')).containers[0]!;
+    expect(minio.image).toMatch(/^pgsty\/minio:RELEASE\.[0-9TZ-]+@sha256:[0-9a-f]{64}$/);
+    expect(minio.args).toEqual(['server', '/data']);
+    expect(minio.readinessProbe?.httpGet?.path).toBe('/minio/health/ready');
+    expect(minio.env).toEqual([
+      { name: 'MINIO_BROWSER', value: 'off' },
+      { name: 'MINIO_ROOT_USER', valueFrom: { secretKeyRef: { name: 'luno-keys', key: 'MINIO_ROOT_USER' } } },
+      { name: 'MINIO_ROOT_PASSWORD', valueFrom: { secretKeyRef: { name: 'luno-keys', key: 'MINIO_ROOT_PASSWORD' } } },
+    ]);
+    expect(find(docs, 'ConfigMap', 'luno-env').data).toMatchObject({ MINIO_ENDPOINT: 'luno-minio:9000', MINIO_BUCKET: 'koala' });
+  });
+
+  it('gives every process exactly what the backend reads its MinIO settings from, as the processes see it', () => {
+    const docs = render();
+    const keys = Object.fromEntries(Object.entries(find(docs, 'Secret', 'luno-keys').data ?? {}).map(([key, value]) => [key, Buffer.from(value, 'base64').toString('utf8')]));
+    const env = { ...find(docs, 'ConfigMap', 'luno-env').data, ...keys };
+    const settings = minioSettingsFrom(env);
+    expect(settings).toMatchObject({ endPoint: 'luno-minio', port: 9000, useSSL: false, bucket: 'koala', accessKey: keys.MINIO_ROOT_USER, secretKey: keys.MINIO_ROOT_PASSWORD });
+    expect(settings.accessKey).toHaveLength(20);
+    expect(settings.secretKey).toHaveLength(40);
+    for (const name of ['luno-backend', 'luno-worker-engine']) {
+      const from = podOf(find(docs, 'Deployment', name)).containers[0]!.envFrom;
+      expect(from).toEqual(expect.arrayContaining([{ configMapRef: { name: 'luno-env' } }, { secretRef: { name: 'luno-keys' } }]));
+    }
+  });
+
+  it('moves nothing on a fresh install: the hook that brings an older instance\'s Mongo and Postgres onto the shared volume renders only beside them', () => {
+    expect(render().some((doc) => doc.metadata.name === 'luno-adopt-stores')).toBe(false);
   });
 
   it('runs its edge beside the backend on every instance, and gives it the public addresses root routes only when root gives it a domain', () => {
@@ -397,8 +455,8 @@ describe('the instance chart', () => {
   it('gives each component the memory and CPU it is given, and none when it is given none', () => {
     const docs = render(['resources.backend.limits.memory=1Gi', 'resources.mongo.requests.memory=300Mi', 'resources.temporalDb.limits.memory=256Mi', 'resources.temporal.requests.cpu=100m']);
     expect(podOf(find(docs, 'Deployment', 'luno-backend')).containers[0]!.resources).toEqual({ limits: { memory: '1Gi' } });
-    expect(podOf(find(docs, 'StatefulSet', 'luno-mongo')).containers[0]!.resources).toEqual({ requests: { memory: '300Mi' } });
-    expect(podOf(find(docs, 'StatefulSet', 'luno-temporal-db')).containers[0]!.resources).toEqual({ limits: { memory: '256Mi' } });
+    expect(podOf(find(docs, 'StatefulSet', 'luno-mongo-stores')).containers[0]!.resources).toEqual({ requests: { memory: '300Mi' } });
+    expect(podOf(find(docs, 'StatefulSet', 'luno-temporal-db-stores')).containers[0]!.resources).toEqual({ limits: { memory: '256Mi' } });
     expect(podOf(find(docs, 'Deployment', 'luno-temporal')).containers[0]!.resources).toEqual({ requests: { cpu: '100m' } });
     expect(podOf(find(render(), 'Deployment', 'luno-worker-engine')).containers[0]!.resources).toBeUndefined();
   });

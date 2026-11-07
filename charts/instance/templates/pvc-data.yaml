@@ -1,7 +1,9 @@
+{{- $name := printf "%s-data" (include "instance.name" .) }}
+{{- $existing := lookup "v1" "PersistentVolumeClaim" .Release.Namespace $name }}
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: {{ include "instance.name" . }}-data
+  name: {{ $name }}
   labels: {{- include "instance.labels" . | nindent 4 }}
   annotations:
     helm.sh/resource-policy: keep
@@ -9,4 +11,8 @@ spec:
   accessModes: [ReadWriteOnce]
   resources:
     requests:
-      storage: {{ .Values.storage.data }}
+      {{- if $existing }}
+      storage: {{ $existing.spec.resources.requests.storage }}
+      {{- else }}
+      storage: {{ required "storage.total is the size of the volume an instance keeps its data, Mongo, Temporal's database and MinIO on; local-path storage does not enforce it, the pool's quota does" .Values.storage.total }}
+      {{- end }}

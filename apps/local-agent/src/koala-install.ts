@@ -47,6 +47,8 @@ export function placedFrom(raw: unknown): PlacedKoala | undefined {
 export const koalaUrlOf = (placed: Pick<PlacedKoala, 'domain' | 'name' | 'meshAddress'>): string =>
   (placed.domain && placed.name ? `https://${placed.name}.${placed.domain}` : `http://${placed.meshAddress}:${BACKEND_NODE_PORT}`);
 
+export const MACHINE_STORES_SIZE = '100Gi';
+
 export function koalaValues(placed: PlacedKoala): Record<string, unknown> {
   const routed = Boolean(placed.domain && placed.name);
   return {
@@ -55,6 +57,7 @@ export function koalaValues(placed: PlacedKoala): Record<string, unknown> {
     publicUrl: koalaUrlOf(placed),
     backend: { nodePort: BACKEND_NODE_PORT },
     mesh: { loginServer: placed.meshLoginServer, address: placed.meshAddress },
+    storage: { total: MACHINE_STORES_SIZE },
     ...(routed ? { routing: { name: placed.name, domain: placed.domain }, edge: { nodePort: EDGE_NODE_PORT } } : {}),
   };
 }

@@ -12,3 +12,4 @@ export type { FileScope, FilesOutcome } from './services/FileService.js';
 export { FileServerUnreachableError, FileStores } from './services/FileStores.js';
 export { createArtifactService } from './services/artifact-service-factory.js';
 export type { FilesStore } from './store.js';
+export type { StoredFilesActivities } from './lib/stored-files-work.js';

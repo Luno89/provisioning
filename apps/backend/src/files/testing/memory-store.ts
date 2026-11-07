@@ -2,7 +2,8 @@ import { collectionIn, copied, MemoryRecords, type Collections } from '../../pla
 import type { ArtifactChunk, StoredArtifact } from '../lib/artifacts.js';
 import type { FileSettings } from '../lib/file-places.js';
 import type { FileShare } from '../lib/file-shares.js';
-import type { FilesStore } from '../store.js';
+import { commitPlan, folderPlan, movePlan, sameScope, scopeMovePlan, type CommitPlan, type StoredFileCommit, type StoredFileRecord, type StoredScope } from '../lib/stored-files.js';
+import type { FilesStore, StoredFolderOutcome, StoredMoveOutcome } from '../store.js';
 
 const chunkKey = (artifactId: string, n: number): string => `${artifactId}:${n}`;
 
@@ -13,12 +14,14 @@ export class MemoryFilesStore implements FilesStore {
   private readonly chunks: Map<string, ArtifactChunk>;
   private readonly settings: Map<string, FileSettings>;
   private readonly shares: MemoryRecords<FileShare>;
+  private readonly stored: MemoryRecords<StoredFileRecord>;
 
   constructor(collections: Collections = new Map()) {
     this.artifacts = new MemoryRecords(collectionIn<StoredArtifact>(collections, 'artifacts'));
     this.chunks = collectionIn<ArtifactChunk>(collections, 'artifactChunks');
     this.settings = collectionIn<FileSettings>(collections, 'fileSettings');
     this.shares = new MemoryRecords(collectionIn<FileShare>(collections, 'fileShares'));
+    this.stored = new MemoryRecords(collectionIn<StoredFileRecord>(collections, 'storedFiles'));
   }
 
   async ensureIndexes(): Promise<void> {}
@@ -94,5 +97,80 @@ export class MemoryFilesStore implements FilesStore {
 
   async sealShareTokens(): Promise<number> {
     return 0;
+  }
+
+  private scopeRecords(ownerId: string, scope: StoredScope): StoredFileRecord[] {
+    return this.stored.all().filter((record) => record.ownerId === ownerId && sameScope(record.scope, scope));
+  }
+
+  private dropSharesOf(ids: readonly string[]): void {
+    for (const share of this.shares.all()) if (share.fileId && ids.includes(share.fileId)) this.shares.delete(share.id);
+  }
+
+  async beginStoredFile(record: StoredFileRecord): Promise<void> {
+    if (this.stored.get(record.id)) throw new Error(`E11000 duplicate key error: a stored file already has the id ${record.id}`);
+    this.stored.put(record);
+  }
+
+  async touchStoredFile(id: string, at: string): Promise<void> {
+    const record = this.stored.get(id);
+    if (record?.state === 'uploading') this.stored.put({ ...record, touchedAt: at });
+  }
+
+  async commitStoredFiles(commits: readonly StoredFileCommit[], options: { replace: boolean }, at: string): Promise<CommitPlan> {
+    const uploading = commits.map((commit) => this.stored.get(commit.id));
+    const plan = commitPlan(uploading, commits, (record) => this.scopeRecords(record.ownerId, record.scope), options, at);
+    if (!plan.ok) return plan;
+    for (const id of plan.replaced) this.stored.delete(id);
+    for (const record of plan.stored) this.stored.put(record);
+    return plan;
+  }
+
+  async storedFilesIn(ownerId: string, scope: StoredScope): Promise<StoredFileRecord[]> {
+    return this.scopeRecords(ownerId, scope).filter((record) => record.state === 'stored');
+  }
+
+  async storedFileById(id: string): Promise<StoredFileRecord | undefined> {
+    return this.stored.get(id);
+  }
+
+  async makeStoredFolder(record: StoredFileRecord): Promise<StoredFolderOutcome> {
+    const plan = folderPlan(this.scopeRecords(record.ownerId, record.scope), record.path);
+    if (!plan.ok) return plan;
+    if (plan.exists) return { ok: true, made: false };
+    this.stored.put(record);
+    return { ok: true, made: true };
+  }
+
+  async moveStoredFiles(ownerId: string, scope: StoredScope, from: string, to: string, at: string): Promise<StoredMoveOutcome> {
+    const plan = movePlan(this.scopeRecords(ownerId, scope), from, to);
+    if (!plan.ok) return plan;
+    for (const move of plan.moves) this.stored.put({ ...this.stored.get(move.id)!, path: move.path, changedAt: at });
+    this.dropSharesOf(plan.moves.map((move) => move.id));
+    return { ok: true, moved: plan.moves.length };
+  }
+
+  async moveStoredScope(ownerId: string, from: StoredScope, to: StoredScope, under: string, at: string): Promise<number> {
+    const moves = scopeMovePlan(this.scopeRecords(ownerId, from), under);
+    for (const move of moves) this.stored.put({ ...this.stored.get(move.id)!, scope: { ...to }, path: move.path, changedAt: at });
+    this.dropSharesOf(moves.map((move) => move.id));
+    return moves.length;
+  }
+
+  async deleteStoredFiles(ids: readonly string[]): Promise<void> {
+    for (const id of ids) this.stored.delete(id);
+    this.dropSharesOf(ids);
+  }
+
+  async deadStoredUploads(touchedBefore: string): Promise<StoredFileRecord[]> {
+    return this.stored.all().filter((record) => record.state === 'uploading' && record.touchedAt <= touchedBefore);
+  }
+
+  async expiredStoredFiles(now: string): Promise<StoredFileRecord[]> {
+    return this.stored.all().filter((record) => record.expiresAt !== undefined && record.expiresAt <= now);
+  }
+
+  async storedFileIdsAmong(ids: readonly string[]): Promise<string[]> {
+    return ids.filter((id) => this.stored.get(id) !== undefined);
   }
 }

@@ -58,6 +58,7 @@ describe('putting Koala on this machine', () => {
       publicUrl: 'http://100.64.0.7:30320',
       backend: { nodePort: 30320 },
       mesh: { loginServer: 'https://mesh.koala.test', address: '100.64.0.7' },
+      storage: { total: '100Gi' },
     });
     expect(JSON.stringify(koalaValues(PLACED))).not.toContain('hostDocker');
     expect(helmArgs('/tmp/chart.tgz', ['/tmp/koala.json', '/home/bo/own.yaml'], '/tmp/keys.pem')).toEqual([

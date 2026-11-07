@@ -16,6 +16,7 @@ import {
 } from '../lib/app-move.js';
 
 export const MOVING_FILE = '.moving';
+export const STORES_FOLDER = 'stores';
 
 export interface MoveExportDeps {
   instanceId: string;
@@ -208,7 +209,7 @@ export class MoveExport {
         return { out, done: Promise.resolve(), type: 'text/plain' };
       }
       case 'data': {
-        const entries = readdirSync(this.deps.dataDir).filter((name) => name !== MOVING_FILE && name !== 'logs').sort();
+        const entries = readdirSync(this.deps.dataDir).filter((name) => name !== MOVING_FILE && name !== 'logs' && name !== STORES_FOLDER).sort();
         return { ...this.command(['tar', 'czf', '-', '-C', this.deps.dataDir, '--', ...entries]), type: 'application/gzip' };
       }
       case 'mongo':

@@ -5,6 +5,7 @@ export interface FileShare {
   token: string;
   ownerId: string;
   projectId?: string | undefined;
+  fileId?: string | undefined;
   path: string;
   etag?: string | undefined;
   name: string;

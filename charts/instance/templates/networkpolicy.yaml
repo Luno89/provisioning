@@ -11,7 +11,7 @@ spec:
         values: [{{ .Release.Name | quote }}]
       - key: app.kubernetes.io/component
         operator: In
-        values: [temporal-db, mongo]
+        values: [temporal-db, mongo, minio]
   policyTypes: [Ingress]
   ingress:
     - from:

@@ -11,7 +11,7 @@ spec:
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
-  name: {{ include "instance.name" . }}-temporal-db
+  name: {{ include "instance.name" . }}-temporal-db-stores
   labels: {{- include "instance.labels" . | nindent 4 }}
 spec:
   serviceName: {{ include "instance.name" . }}-temporal-db
@@ -48,16 +48,13 @@ spec:
             periodSeconds: 10
             timeoutSeconds: 10
           volumeMounts:
-            - name: data
+            - name: stores
               mountPath: /var/lib/postgresql/data
-  volumeClaimTemplates:
-    - metadata:
-        name: data
-      spec:
-        accessModes: [ReadWriteOnce]
-        resources:
-          requests:
-            storage: {{ .Values.storage.temporalDb }}
+              subPath: stores/temporal-db
+      volumes:
+        - name: stores
+          persistentVolumeClaim:
+            claimName: {{ include "instance.name" . }}-data
 ---
 apiVersion: v1
 kind: Service

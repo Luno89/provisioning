@@ -23,6 +23,19 @@ export const CONCEPTS: readonly Concept[] = [
   { id: 'config', label: 'reads configuration', marks: [/\bprocess\.env\b/, /\benv\.[A-Z][A-Z0-9_]{2,}\b/, /\benv\[['"`][A-Z][A-Z0-9_]{2,}['"`]\]/] },
   { id: 'store', label: 'reads or writes stored records', inFile: /(^|\/)store\.ts$/ },
   { id: 'calls-out', label: 'calls a service over the network', marks: [/\bfetch\(/, /\baxios\.(get|post|put|patch|delete|create|request)\b/, /\bpublicFetch\(/] },
+  {
+    id: 'files',
+    label: 'keeps, reads, shares or removes a person\'s files',
+    marks: [
+      /from ['"]minio['"]/, /\b(putObject|getObject|statObject|removeObjects?|listObjects(V2)?|fPutObject|fGetObject|copyObject|makeBucket|bucketExists|presigned\w*)\(/,
+      /koala-files|koala-artifacts|\bARTIFACT_BUCKET\b|\bFILES_BUCKET\b/, /['"`]minio['"`]/i, /\bS3\b|\bs3[A-Z]\w*/,
+      /\b(FileService|FileStores|FileStore|ArtifactService|ArtifactStore|StoredArtifact|FileShare|FilePlace|FileScope|MessageAttachment|StoryDrop\w*|RepositoryDrop\w*)\b/,
+      /\b(fileSettings|fileShares|artifactChunks|storedFiles)\b/, /['"`]artifacts['"`]/,
+      /\b(list_files|read_stored_file|store_file|remove_stored_file)\b/,
+      /\/files\/|\/artifacts\b|\/share\//, /\battachments?\b/i,
+      /\b(uploadStoredFile|listStoredFiles|moveStoredFile|removeStoredFile|downloadStoredFile|shareStoredFile|storedFileUrl)\b/,
+    ],
+  },
 ];
 
 export const conceptNamed = (id: string): Concept => {

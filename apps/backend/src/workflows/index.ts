@@ -21,3 +21,5 @@ export { PoolRemoveWorkflow } from './PoolRemoveWorkflow.js';
 export { RootAccountRemovalWorkflow } from './RootAccountRemovalWorkflow.js';
 export { PoolMoveWorkflow } from './PoolMoveWorkflow.js';
 export { RootNodeWorkflow } from './RootNodeWorkflow.js';
+export { StoredFilesWorkflow } from './StoredFilesWorkflow.js';
+export { StoredFilesSweepWorkflow } from './StoredFilesWorkflow.js';

@@ -1669,6 +1669,34 @@
           "pattern": "rancher/k3s:v[0-9a-z.+-]+@sha256:([0-9a-f]{64})"
         }
       ]
+    },
+    {
+      "kind": "image",
+      "name": "minio",
+      "version": "RELEASE.2026-03-14T12-00-00Z",
+      "sha256": "72e9a7386b009a5d068c12775bc4ebcc4a0e1f58022cf06da9f26b6955fb56d3",
+      "source": "docker.io/pgsty/minio:RELEASE.2026-03-14T12-00-00Z",
+      "github": "pgsty/minio",
+      "uses": [
+        {
+          "file": "apps/backend/src/infrastructure/lib/app-spec.ts",
+          "pattern": "pgsty/minio:(RELEASE\\.[0-9TZ-]+)"
+        },
+        {
+          "file": "apps/backend/src/activities/DeployAppActivity.ts",
+          "pattern": "tag: .(RELEASE\\.[0-9TZ-]+)."
+        },
+        {
+          "file": "charts/instance/values.yaml",
+          "pattern": "pgsty/minio:(RELEASE\\.[0-9TZ-]+)@sha256"
+        }
+      ],
+      "shaUses": [
+        {
+          "file": "charts/instance/values.yaml",
+          "pattern": "pgsty/minio:RELEASE\\.[0-9TZ-]+@sha256:([0-9a-f]{64})"
+        }
+      ]
     }
   ],
   "unpinned": []

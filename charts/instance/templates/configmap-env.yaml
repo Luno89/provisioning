@@ -18,6 +18,8 @@ data:
   PUBLIC_URL: {{ .Values.publicUrl | default "http://localhost:3001" | quote }}
   TEMPORAL_CONNECTION_ADDRESS: {{ include "instance.name" . }}-temporal:7233
   TEMPORAL_TLS_CA: /etc/koala/temporal-tls/ca.crt
+  MINIO_ENDPOINT: {{ include "instance.name" . }}-minio:9000
+  MINIO_BUCKET: {{ .Values.minio.bucket | quote }}
   {{- if .Values.mesh.loginServer }}
   MESH_LOGIN_SERVER: {{ .Values.mesh.loginServer | quote }}
   {{- end }}
