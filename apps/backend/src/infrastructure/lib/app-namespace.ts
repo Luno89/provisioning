@@ -1,5 +1,6 @@
 import { sanitizeNamespace } from '../../models/lib/model-registry.js';
 import { cacheFolderProblem } from '../../models/lib/tabby-cache-path.js';
+import { listAt, textAt } from '../../platform/lib/json-shapes.js';
 
 const NAMESPACE_MAX = 63;
 
@@ -11,6 +12,12 @@ export function newAppNamespace(name: string, id: string): string {
   const base = sanitizeNamespace(name).slice(0, room).replace(/-+$/, '') || 'app';
   return `${base}-${tag}`;
 }
+
+export const namespaceNamesOf = (listJson: string): string[] =>
+  listAt(JSON.parse(listJson) as unknown, 'items').map((item) => textAt(item, 'metadata', 'name') ?? '');
+
+export const missingNamespaceReason = (namespace: string): string =>
+  `its namespace ${namespace} is not on its cluster, so nothing of it runs there; destroy the app or deploy it again`;
 
 export const sameOwner = (a: { ownerId?: string | undefined }, ownerId: string | undefined): boolean => (a.ownerId ?? undefined) === (ownerId ?? undefined);
 

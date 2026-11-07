@@ -115,6 +115,15 @@ describe('the overview', () => {
     expect((await monitoring.allClusters()).map((cluster) => cluster.id)).not.toContain('machine-desk');
   });
 
+  it('puts an app the health pass found unhealthy under what needs attention, with why, whatever its numbers say', async () => {
+    await db.infrastructure.saveDeploymentInfo(dep({ id: 'gone', name: 'Gone', namespace: 'gone', status: 'unhealthy', healthReason: 'its namespace gone is not on its cluster, so nothing of it runs there; destroy the app or deploy it again' }));
+    healthyApp(prom, { namespace: 'gone', services: ['web'] });
+
+    const overview = await monitoring.overview(ME);
+
+    expect(overview.attention).toEqual([{ subject: { kind: 'app', id: 'gone', name: 'Gone' }, state: 'down', reasons: ['its namespace gone is not on its cluster, so nothing of it runs there; destroy the app or deploy it again'] }]);
+  });
+
   it('lists the person\'s apps worst first, with what needs attention', async () => {
     await db.infrastructure.saveDeploymentInfo(dep({ id: 'books', name: 'Books', namespace: 'books' }));
     await db.infrastructure.saveDeploymentInfo(dep({ id: 'shop', name: 'Shop', namespace: 'shop' }));

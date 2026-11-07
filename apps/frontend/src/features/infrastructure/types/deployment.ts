@@ -22,7 +22,6 @@ export interface Deployment {
   dbRepo?: string
   dbTag?: string
 
-  lastSyncedAt?: string
   lastLogPath?: string
   temporalWorkflowId?: string
   storage?: Record<string, unknown>

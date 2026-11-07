@@ -37,7 +37,7 @@ function setup() {
 describe('listing deployments', () => {
   it('scopes to the caller', async () => {
     const { appService, call } = setup();
-    appService.getAll.calledWith(PERSON.id, matches<SocketServer | undefined>(() => true)).mockResolvedValue([deployment()]);
+    appService.getAll.calledWith(PERSON.id).mockResolvedValue([deployment()]);
     expect((await call('')).data).toEqual([deployment()]);
   });
 

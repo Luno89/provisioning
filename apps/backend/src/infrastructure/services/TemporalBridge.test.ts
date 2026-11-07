@@ -8,6 +8,7 @@ import { memoryDatabase } from '../../platform/testing/memory-database.js';
 import { startedFor } from '../../platform/lib/workflow-owner.js';
 import { buildPlanAt } from '../../releases/lib/build-plan.js';
 import { ProvisionRefused } from '../lib/cluster-topology.js';
+import type { ClusterAccess } from './ClusterAccess.js';
 import type { ClusterService } from './ClusterService.js';
 import { connectToTemporal, TemporalBridge, type TemporalConnect } from './TemporalBridge.js';
 
@@ -380,5 +381,48 @@ describe('following work to its end', () => {
     expect(await statusOf(db, 'd1')).toBe('running');
     expect(await statusOf(db, 'd2')).toBe('deploying');
     await instance.stop();
+  });
+});
+
+describe('checking each app on its cluster', () => {
+  const machine: ClusterMetadata = { id: 'machine-desk', name: 'machine-desk', provider: 'machine', machineId: 'desk', status: 'healthy', ownerId: 'u1' };
+  const running = (over: Partial<DeploymentMetadata> & Pick<DeploymentMetadata, 'id' | 'name'>): DeploymentMetadata =>
+    ({ clusterId: 'machine-desk', strategy: 'helm', appType: 'wordpress', ownerId: 'u1', status: 'running', createdAt: 'then', ...over }) as DeploymentMetadata;
+  const listOf = (items: unknown[]): string => JSON.stringify({ items });
+  const readyPod = { metadata: { name: 'web' }, status: { phase: 'Running', containerStatuses: [{ name: 'web', ready: true, restartCount: 0, state: { running: {} } }] } };
+
+  function checking(namespaces: string[]) {
+    const access = mock<ClusterAccess>();
+    const reach = { clusterId: 'machine-desk', kind: 'machine' as const, kubeconfig: 'k' };
+    access.reach.mockResolvedValue(reach);
+    access.kubectl.mockImplementation(async (_reach, args) => (args[1] === 'namespaces' ? listOf(namespaces.map((name) => ({ metadata: { name } }))) : listOf([readyPod])));
+    const clusterService = mock<ClusterService>();
+    Object.assign(clusterService, { access });
+    const io = mock<SocketServer>();
+    const made = bridge({ clusterService, io });
+    return { ...made, access, io };
+  }
+
+  it('marks an app whose namespace is not on its cluster unhealthy with why, keeping its record, and reads the namespaces once a cluster', async () => {
+    const { db, instance, access, io } = checking(['shop-1a2b3c']);
+    await db.infrastructure.saveCluster(machine);
+    await db.infrastructure.saveDeploymentInfo(running({ id: 'shop', name: 'Shop', namespace: 'shop-1a2b3c' }));
+    await db.infrastructure.saveDeploymentInfo(running({ id: 'gone', name: 'Gone', namespace: 'gone-4d5e6f' }));
+    await instance.checkApps();
+    const byId = Object.fromEntries((await db.infrastructure.getDeployments()).map((dep) => [dep.id, [dep.status, dep.healthReason]]));
+    expect(byId).toEqual({ shop: ['running', undefined], gone: ['unhealthy', 'its namespace gone-4d5e6f is not on its cluster, so nothing of it runs there; destroy the app or deploy it again'] });
+    expect(access.kubectl.mock.calls.filter(([, args]) => args[1] === 'namespaces')).toHaveLength(1);
+    expect(io.emit).toHaveBeenCalledWith('deployment-updated');
+  });
+
+  it('says nothing again for an app already marked missing, and judges it by its pods once its namespace is back', async () => {
+    const missing = checking([]);
+    await missing.db.infrastructure.saveDeploymentInfo(running({ id: 'gone', name: 'Gone', namespace: 'gone-4d5e6f', status: 'unhealthy', healthReason: 'its namespace gone-4d5e6f is not on its cluster, so nothing of it runs there; destroy the app or deploy it again' }));
+    await missing.instance.checkApps();
+    expect(missing.io.emit).not.toHaveBeenCalled();
+    const back = checking(['gone-4d5e6f']);
+    await back.db.infrastructure.saveDeploymentInfo(running({ id: 'gone', name: 'Gone', namespace: 'gone-4d5e6f', status: 'unhealthy', healthReason: 'its namespace gone-4d5e6f is not on its cluster' }));
+    await back.instance.checkApps();
+    expect((await back.db.infrastructure.getDeployments())[0]?.status).toBe('running');
   });
 });

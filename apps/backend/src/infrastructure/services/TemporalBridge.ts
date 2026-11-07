@@ -8,7 +8,7 @@ import {
 import {
   looksLikeMcp, namespaceOfDeployment, cachedProbes, corpusEndpointsWith, webToolsDepsFrom, type WaitingAsk,
 } from '../../engine/index.js'
-import { namespaceOf } from '../lib/app-namespace.js'
+import { missingNamespaceReason, namespaceNamesOf, namespaceOf } from '../lib/app-namespace.js'
 import { healthFromProbe } from '../lib/service-health.js'
 import { clusterFieldsFrom } from '../lib/provisioned-cluster.js'
 import { followedAction, type FollowedAction, type FollowedRecord } from '../lib/followed-work.js'
@@ -566,6 +566,71 @@ export class TemporalBridge {
     for (const record of await this.db.releases.getPipelineRuns()) this.followRecord({ kind: 'pipeline-run', record })
   }
 
+  async checkApps(): Promise<void> {
+    const deployments = await this.db.infrastructure.getDeployments()
+
+    const access = this.clustersForConsolidation().access
+    const reaches = new Map<string, Reach | undefined>()
+    const reachOf = async (clusterId: string): Promise<Reach | undefined> => {
+      if (reaches.has(clusterId)) return reaches.get(clusterId)
+      let reach: Reach | undefined
+      try {
+        reach = await access.reach(clusterId)
+      } catch (err) {
+        console.warn(`[Reconcile] the apps on cluster ${clusterId} are not checked this pass, since it cannot be reached: ${(err as Error).message}`)
+      }
+      reaches.set(clusterId, reach)
+      return reach
+    }
+
+    const namespaces = new Map<string, string[]>()
+    const namespacesOn = async (reach: Reach): Promise<string[]> => {
+      const known = namespaces.get(reach.clusterId)
+      if (known) return known
+      const names = namespaceNamesOf(await access.kubectl(reach, ['get', 'namespaces', '-o', 'json']))
+      namespaces.set(reach.clusterId, names)
+      return names
+    }
+
+    for (const dep of deployments) {
+      if (dep.status !== 'running' && dep.status !== 'unhealthy') continue
+      try {
+        const reach = await reachOf(dep.clusterId)
+        if (!reach) continue
+        if (!(await namespacesOn(reach)).includes(namespaceOf(dep))) {
+          const missing = missingNamespaceReason(namespaceOf(dep))
+          if (dep.status !== 'unhealthy' || dep.healthReason !== missing) {
+            await updateDeploymentStatus(this.db, dep.id, { ...dep, healthReason: missing }, 'unhealthy', dep.storage)
+            if (this.io) this.io.emit('deployment-updated')
+          }
+          continue
+        }
+        const raw = await access.kubectl(reach, ['get', 'pods', '-n', namespaceOf(dep), '-o', 'json'])
+        const { health, reason } = assessWorkload(JSON.parse(raw) as unknown)
+
+        let serviceReason = ''
+        if (health === 'healthy' && looksLikeMcp(dep) && dep.ownerId) {
+          try {
+            const verdict = healthFromProbe(await this.mcpProbes(namespaceOfDeployment(dep)))
+            if (verdict) serviceReason = verdict.reason
+          } catch (err) {
+            console.warn(`[Reconcile] ${dep.name}'s MCP server could not be asked how it is, so only its pods are judged: ${(err as Error).message}`)
+          }
+        }
+
+        const effective = serviceReason ? 'unhealthy' as const : health
+        const next = reconciledStatus(dep.status, effective)
+        if (next) {
+          console.warn(`[Reconcile] ${dep.name} is ${dep.status} but the workload is ${effective}${(serviceReason || reason) ? ` (${serviceReason || reason})` : ''} — marking ${next}`)
+          await updateDeploymentStatus(this.db, dep.id, { ...dep, healthReason: serviceReason || reason }, next, dep.storage)
+          if (this.io) this.io.emit('deployment-updated')
+        }
+      } catch (err) {
+        console.warn(`[Reconcile] ${dep.name} is not checked this pass: ${(err as Error).message}`)
+      }
+    }
+  }
+
   private startReconciliationLoop(): void {
     const reconcile = async () => {
       if (!this.client) return
@@ -576,52 +641,7 @@ export class TemporalBridge {
           if (progress) await this.db.infrastructure.updateClusterProgress(cluster.id, progress)
         }
 
-        const deployments = await this.db.infrastructure.getDeployments()
-
-        const access = this.clustersForConsolidation().access
-        const reaches = new Map<string, Reach | undefined>()
-        const reachOf = async (clusterId: string): Promise<Reach | undefined> => {
-          if (reaches.has(clusterId)) return reaches.get(clusterId)
-          let reach: Reach | undefined
-          try {
-            reach = await access.reach(clusterId)
-          } catch (err) {
-            console.warn(`[Reconcile] the apps on cluster ${clusterId} are not checked this pass, since it cannot be reached: ${(err as Error).message}`)
-          }
-          reaches.set(clusterId, reach)
-          return reach
-        }
-
-        for (const dep of deployments) {
-          if (dep.status !== 'running' && dep.status !== 'unhealthy') continue
-          try {
-            const reach = await reachOf(dep.clusterId)
-            if (!reach) continue
-            const raw = await access.kubectl(reach, ['get', 'pods', '-n', namespaceOf(dep), '-o', 'json'])
-            const { health, reason } = assessWorkload(JSON.parse(raw) as unknown)
-
-            let serviceReason = ''
-            if (health === 'healthy' && looksLikeMcp(dep) && dep.ownerId) {
-              try {
-                const verdict = healthFromProbe(await this.mcpProbes(namespaceOfDeployment(dep)))
-                if (verdict) serviceReason = verdict.reason
-              } catch (err) {
-                console.warn(`[Reconcile] ${dep.name}'s MCP server could not be asked how it is, so only its pods are judged: ${(err as Error).message}`)
-              }
-            }
-
-            const effective = serviceReason ? 'unhealthy' as const : health
-            const next = reconciledStatus(dep.status, effective)
-            if (next) {
-              console.warn(`[Reconcile] ${dep.name} is ${dep.status} but the workload is ${effective}${(serviceReason || reason) ? ` (${serviceReason || reason})` : ''} — marking ${next}`)
-              await updateDeploymentStatus(this.db, dep.id, { ...dep, healthReason: serviceReason || reason }, next, dep.storage)
-              if (this.io) this.io.emit('deployment-updated')
-            }
-          } catch (err) {
-            console.warn(`[Reconcile] ${dep.name} is not checked this pass: ${(err as Error).message}`)
-          }
-        }
-
+        await this.checkApps()
       } catch (err) {
         console.warn(`[Reconcile] Error: ${(err as Error).message}`)
       }

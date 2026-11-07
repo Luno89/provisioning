@@ -4,60 +4,16 @@ import { AppService } from './AppService.js';
 
 const at = 'then';
 
-const serviceOn = async (namespaces: string[]) => {
-  const db = await testDatabase();
-  const cluster = { id: 'c1', name: 'system', provider: 'k3d', status: 'healthy', ownerId: 'bo' };
-  const clusters = {
-    reconcileAllClusters: async () => [cluster],
-    getById: async () => cluster,
-    getKubeconfigPath: async () => '/tmp/kubeconfig',
-    isMockCloud: () => false,
-    getPhysicalClusterName: () => cluster.name,
-  };
-  const infra = { runKubectl: async () => JSON.stringify({ items: namespaces.map((name) => ({ metadata: { name } })) }) };
-  return { db, apps: new AppService(db, infra as never, clusters as never, {} as never) };
-};
-
-describe('listing apps against the cluster', () => {
-  it('keeps an app whose release lives in a namespace of its own name, and drops one whose namespace is gone', async () => {
-    const { db, apps } = await serviceOn(['shop-1a2b3c', 'wordpress']);
-    await db.infrastructure.saveDeploymentInfo({ id: 'odoo-p1', name: 'Shop', namespace: 'shop-1a2b3c', clusterId: 'c1', strategy: 'helm', appType: 'odoo-project', ownerId: 'bo', status: 'running', createdAt: at });
-    await db.infrastructure.saveDeploymentInfo({ id: 'wp', name: 'WordPress', clusterId: 'c1', strategy: 'helm', appType: 'wordpress', ownerId: 'bo', status: 'running', createdAt: at });
-    await db.infrastructure.saveDeploymentInfo({ id: 'gone', name: 'Gone', clusterId: 'c1', strategy: 'helm', appType: 'wordpress', ownerId: 'bo', status: 'running', createdAt: at });
-
-    expect((await apps.getAll('bo')).map((app) => app.id)).toEqual(['odoo-p1', 'wp']);
-    expect((await db.infrastructure.getDeployments()).map((app) => app.id)).toEqual(['odoo-p1', 'wp']);
-  });
-
-  it('keeps an app that failed before its namespace was made, so the person still sees it failed', async () => {
-    const { db, apps } = await serviceOn([]);
-    await db.infrastructure.saveDeploymentInfo({ id: 'books', name: 'Books', clusterId: 'c1', strategy: 'native', appType: 'audiobookshelf', ownerId: 'bo', status: 'failed', createdAt: at });
-
-    expect((await apps.getAll('bo')).map((app) => [app.id, app.status])).toEqual([['books', 'failed']]);
-  });
-
-});
-
-describe('the listing pass never removes what it did not judge', () => {
-  it('keeps an app made while it read the cluster, and the apps of a cluster being destroyed', async () => {
+describe('listing apps', () => {
+  it('lists the person\'s own apps from Mongo as recorded, deleting none, whatever their cluster', async () => {
     const db = await testDatabase();
-    const cluster = { id: 'c1', name: 'system', provider: 'k3d', status: 'healthy', ownerId: 'bo' };
-    await db.infrastructure.saveCluster({ id: 'leaving', name: 'leaving', provider: 'k3d', status: 'destroying', ownerId: 'bo' });
-    const clusters = { reconcileAllClusters: async () => [cluster], getKubeconfigPath: async () => '/tmp/kubeconfig' };
-    const infra = {
-      runKubectl: async () => {
-        await db.infrastructure.saveDeploymentInfo({ id: 'new', name: 'New', clusterId: 'c1', strategy: 'helm', appType: 'wordpress', ownerId: 'bo', status: 'deploying', createdAt: at });
-        return JSON.stringify({ items: [{ metadata: { name: 'wordpress' } }] });
-      },
-    };
-    const apps = new AppService(db, infra as never, clusters as never, {} as never);
+    const apps = new AppService(db, {} as never, {} as never, {} as never);
     await db.infrastructure.saveDeploymentInfo({ id: 'wp', name: 'WordPress', clusterId: 'c1', strategy: 'helm', appType: 'wordpress', ownerId: 'bo', status: 'running', createdAt: at });
-    await db.infrastructure.saveDeploymentInfo({ id: 'gone', name: 'Gone', clusterId: 'c1', strategy: 'helm', appType: 'wordpress', ownerId: 'bo', status: 'running', createdAt: at });
-    await db.infrastructure.saveDeploymentInfo({ id: 'on-leaving', name: 'OnLeaving', clusterId: 'leaving', strategy: 'helm', appType: 'wordpress', ownerId: 'bo', status: 'running', createdAt: at });
+    await db.infrastructure.saveDeploymentInfo({ id: 'books', name: 'Books', clusterId: 'c1', strategy: 'native', appType: 'audiobookshelf', ownerId: 'bo', status: 'failed', createdAt: at });
     await db.infrastructure.saveDeploymentInfo({ id: 'orphan', name: 'Orphan', clusterId: 'never-was', strategy: 'helm', appType: 'wordpress', ownerId: 'bo', status: 'running', createdAt: at });
+    await db.infrastructure.saveDeploymentInfo({ id: 'theirs', name: 'Theirs', clusterId: 'c1', strategy: 'helm', appType: 'wordpress', ownerId: 'someone-else', status: 'running', createdAt: at });
 
-    await apps.getAll('bo');
-
-    expect((await db.infrastructure.getDeployments()).map((app) => app.id).sort()).toEqual(['new', 'on-leaving', 'wp']);
+    expect((await apps.getAll('bo')).map((app) => [app.id, app.status]).sort()).toEqual([['books', 'failed'], ['orphan', 'running'], ['wp', 'running']]);
+    expect((await db.infrastructure.getDeployments()).map((app) => app.id).sort()).toEqual(['books', 'orphan', 'theirs', 'wp']);
   });
 });

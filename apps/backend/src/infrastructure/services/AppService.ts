@@ -1,4 +1,4 @@
-import { allowed, asPerson, BaseService, type Database, type DeploymentMetadata, listAt, textAt } from '../../platform/index.js';
+import { allowed, asPerson, BaseService, type Database, type DeploymentMetadata, listAt } from '../../platform/index.js';
 import { InfrastructureService } from './InfrastructureService.js';
 import { ClusterService } from './ClusterService.js';
 import { BuilderService } from './BuilderService.js';
@@ -8,9 +8,6 @@ import { isSelfManagedCluster } from '../lib/cluster-topology.js';
 import { namespaceOf } from '../lib/app-namespace.js';
 import { appSignIns, PALWORLD_SECRET, secretValues, type AppSignIn } from '../lib/app-sign-in.js';
 import { Server as SocketServer } from 'socket.io';
-
-const namesOf = (listJson: string): string[] =>
-  listAt(JSON.parse(listJson) as unknown, 'items').map((item) => textAt(item, 'metadata', 'name') ?? '');
 
 export class AppService extends BaseService {
   private infra: InfrastructureService;
@@ -35,68 +32,8 @@ export class AppService extends BaseService {
     return dep && allowed(asPerson(userId), 'see', { kind: 'deployment', ownerId: dep.ownerId }) ? dep : undefined;
   }
 
-  async getAll(userId: string, io?: SocketServer) {
-    const clusters = await this.clusters.reconcileAllClusters(io);
-
-    const deployments = await this.db.infrastructure.getDeployments();
-    const now = new Date().toISOString();
-
-    const deploymentsByCluster = new Map<string, typeof deployments>();
-    for (const dep of deployments) {
-      if (!deploymentsByCluster.has(dep.clusterId)) {
-        deploymentsByCluster.set(dep.clusterId, []);
-      }
-      deploymentsByCluster.get(dep.clusterId)!.push(dep);
-    }
-
-    const recorded = new Set((await this.db.infrastructure.getClusters()).map((cluster) => cluster.id));
-    const gone: string[] = [];
-    const cleanDeployments: typeof deployments = [];
-
-    for (const [clusterId, deps] of deploymentsByCluster.entries()) {
-      const cluster = clusters.find(c => c.id === clusterId);
-      if (!cluster) {
-        if (recorded.has(clusterId)) cleanDeployments.push(...deps);
-        else gone.push(...deps.map((dep) => dep.id));
-        continue;
-      }
-
-      if (cluster.status === 'provisioning') {
-        cleanDeployments.push(...deps.map(d => ({ ...d, lastSyncedAt: now })));
-        continue;
-      }
-
-      try {
-        const kubeconfigPath = await this.clusters.getKubeconfigPath(cluster);
-        const output = await this.infra.runKubectl(['get', 'ns', '-o', 'json'], kubeconfigPath);
-        const namespaces = namesOf(output);
-
-        for (const dep of deps) {
-          if (dep.status === 'deploying' || dep.status === 'destroying' || dep.status === 'failed') {
-            cleanDeployments.push({ ...dep, lastSyncedAt: now });
-            continue;
-          }
-
-          const ns = namespaceOf(dep);
-          if (namespaces.includes(ns)) {
-            cleanDeployments.push({ ...dep, lastSyncedAt: now });
-          } else {
-            gone.push(dep.id);
-            this.logger.info(`Detected deployment ${dep.name} namespace ${ns} deleted outside the system. Syncing...`);
-            if (io) {
-              io.to(`user:${dep.ownerId}`).emit('resource-destroyed', { id: dep.id, type: 'deployment', name: dep.name, outOfBand: true });
-            }
-          }
-        }
-      } catch (err) {
-        this.logger.warn(`Failed to sync deployments for cluster ${cluster.name}: ${(err as Error).message}. Keeping existing metadata.`);
-        cleanDeployments.push(...deps.map(d => ({ ...d, lastSyncedAt: now })));
-      }
-    }
-
-    for (const id of gone) await this.db.infrastructure.deleteDeployment(id);
-
-    return cleanDeployments.filter((d) => d.ownerId === userId);
+  async getAll(userId: string) {
+    return (await this.db.infrastructure.getDeployments()).filter((dep) => allowed(asPerson(userId), 'see', { kind: 'deployment', ownerId: dep.ownerId }));
   }
 
   async updateModules(id: string, modules: string[], userId: string, io?: SocketServer) {

@@ -52,7 +52,7 @@ describe('listing deployments', () => {
     const { h, svc } = await mount();
     const res = await axios.get(h.url('/api/deployments'));
     expect(res.status).toBe(200);
-    expect(svc.appService.getAll).toHaveBeenCalledWith(TEST_USER.id, expect.anything());
+    expect(svc.appService.getAll).toHaveBeenCalledWith(TEST_USER.id);
   });
 
   it('refuses an unauthenticated caller', async () => {

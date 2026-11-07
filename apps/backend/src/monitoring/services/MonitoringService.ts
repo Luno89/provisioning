@@ -444,7 +444,8 @@ export class MonitoringService {
     const namespace = namespaceOf(dep);
     const numbers = await this.appNumbers(reached.metrics, { namespace, services: await this.servicesOf(reached.metrics, namespace) }, kept);
     const verdict = appVerdict(numbers, firing.filter((alert) => alert.about.kind === 'app' && alert.about.deploymentId === dep.id).map((alert) => alert.summary));
-    return { ...base, ...verdict, numbers, memoryShare: share(numbers.memoryBytes, numbers.memoryLimitBytes), cpuShare: share(numbers.cpuCores, numbers.cpuLimitCores) };
+    const judged = dep.status === 'unhealthy' ? { state: 'down' as const, reasons: [...(dep.healthReason ? [dep.healthReason] : []), ...verdict.reasons] } : verdict;
+    return { ...base, ...judged, numbers, memoryShare: share(numbers.memoryBytes, numbers.memoryLimitBytes), cpuShare: share(numbers.cpuCores, numbers.cpuLimitCores) };
   }
 
   private async clusterRow(viewer: Viewer, reached: Reached, firing: VisibleAlert[], apps: number): Promise<ClusterRow> {

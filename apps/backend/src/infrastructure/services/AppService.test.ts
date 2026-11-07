@@ -1,6 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
 import { mock } from 'vitest-mock-extended';
-import type { Server as SocketServer } from 'socket.io';
 import { type ClusterMetadata, type DeploymentMetadata } from '../../platform/index.js';
 import { memoryDatabase } from '../../platform/testing/memory-database.js';
 import { containing } from '../../platform/lib/test-matchers.js';
@@ -44,63 +43,17 @@ describe('AppService.getById', () => {
   });
 });
 
-describe('listing apps against the cluster', () => {
-  it('keeps an app whose release lives in a namespace of its own name, and drops one whose namespace is gone', async () => {
-    const { db, apps } = setup(['shop-1a2b3c', 'wordpress']);
-    await db.infrastructure.saveDeploymentInfo(app({ id: 'odoo-p1', name: 'Shop', namespace: 'shop-1a2b3c', appType: 'odoo-project' }));
+describe('listing apps', () => {
+  it('lists the person\'s own apps as recorded, never asking a cluster and never deleting one it cannot see', async () => {
+    const { db, apps, access, infra } = setup([]);
     await db.infrastructure.saveDeploymentInfo(app({ id: 'wp', name: 'WordPress', appType: 'wordpress' }));
-    await db.infrastructure.saveDeploymentInfo(app({ id: 'gone', name: 'Gone', appType: 'wordpress' }));
-    expect((await apps.getAll('bo')).map((entry) => entry.id)).toEqual(['odoo-p1', 'wp']);
-    expect((await db.infrastructure.getDeployments()).map((entry) => entry.id)).toEqual(['odoo-p1', 'wp']);
-  });
-
-  it('tells the owner\'s browsers about an app deleted outside Koala', async () => {
-    const { db, apps } = setup([]);
-    await db.infrastructure.saveDeploymentInfo(app({ id: 'gone', name: 'Gone' }));
-    const io = mock<SocketServer>();
-    const room = mock<{ emit: (event: string, payload: unknown) => void }>();
-    io.to.calledWith('user:bo').mockReturnValue(room as never);
-    await apps.getAll('bo', io);
-    expect(room.emit).toHaveBeenCalledWith('resource-destroyed', { id: 'gone', type: 'deployment', name: 'Gone', outOfBand: true });
-  });
-
-  it('keeps an app that failed before its namespace was made, so the person still sees it failed', async () => {
-    const { db, apps } = setup([]);
-    await db.infrastructure.saveDeploymentInfo(app({ id: 'books', name: 'Books', strategy: 'native', appType: 'audiobookshelf', status: 'failed' }));
-    expect((await apps.getAll('bo')).map((entry) => [entry.id, entry.status])).toEqual([['books', 'failed']]);
-  });
-
-  it('lists only the person\'s own apps', async () => {
-    const { db, apps } = setup(['a', 'b']);
-    await db.infrastructure.saveDeploymentInfo(app({ id: 'mine', name: 'a' }));
-    await db.infrastructure.saveDeploymentInfo(app({ id: 'theirs', name: 'b', ownerId: 'someone-else' }));
-    expect((await apps.getAll('bo')).map((entry) => entry.id)).toEqual(['mine']);
-  });
-
-  it('keeps what it knows, and stamps it, when the cluster cannot be read or is still provisioning', async () => {
-    const { db, infra, apps } = setup(['wordpress']);
-    await db.infrastructure.saveDeploymentInfo(app({ id: 'wp', name: 'WordPress' }));
-    infra.runKubectl.mockRejectedValue(new Error('cluster unreachable'));
-    expect((await apps.getAll('bo')).map((entry) => entry.id)).toEqual(['wp']);
-    const still = setup([], [{ ...cluster, status: 'provisioning' }]);
-    await still.db.infrastructure.saveDeploymentInfo(app({ id: 'wp', name: 'WordPress' }));
-    expect((await still.apps.getAll('bo')).map((entry) => entry.id)).toEqual(['wp']);
-    expect(still.infra.runKubectl).not.toHaveBeenCalled();
-  });
-
-  it('never removes what it did not judge: an app made while it read the cluster, and the apps of a cluster being destroyed', async () => {
-    const { db, infra, apps } = setup([]);
-    await db.infrastructure.saveCluster({ id: 'leaving', name: 'leaving', provider: 'k3d', status: 'destroying', ownerId: 'bo' });
-    infra.runKubectl.mockImplementation(async () => {
-      await db.infrastructure.saveDeploymentInfo(app({ id: 'new', name: 'New', status: 'deploying' }));
-      return namespaceList(['wordpress']);
-    });
-    await db.infrastructure.saveDeploymentInfo(app({ id: 'wp', name: 'WordPress', appType: 'wordpress' }));
-    await db.infrastructure.saveDeploymentInfo(app({ id: 'gone', name: 'Gone', appType: 'wordpress' }));
-    await db.infrastructure.saveDeploymentInfo(app({ id: 'on-leaving', name: 'OnLeaving', clusterId: 'leaving' }));
+    await db.infrastructure.saveDeploymentInfo(app({ id: 'books', name: 'Books', status: 'failed' }));
     await db.infrastructure.saveDeploymentInfo(app({ id: 'orphan', name: 'Orphan', clusterId: 'never-was' }));
-    await apps.getAll('bo');
-    expect((await db.infrastructure.getDeployments()).map((entry) => entry.id).sort()).toEqual(['new', 'on-leaving', 'wp']);
+    await db.infrastructure.saveDeploymentInfo(app({ id: 'theirs', name: 'Theirs', ownerId: 'someone-else' }));
+    expect((await apps.getAll('bo')).map((entry) => [entry.id, entry.status])).toEqual([['wp', 'running'], ['books', 'failed'], ['orphan', 'running']]);
+    expect((await db.infrastructure.getDeployments()).map((entry) => entry.id)).toEqual(['wp', 'books', 'orphan', 'theirs']);
+    expect(access.kubectl).not.toHaveBeenCalled();
+    expect(infra.runKubectl).not.toHaveBeenCalled();
   });
 });
 
