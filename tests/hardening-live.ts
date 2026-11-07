@@ -4,7 +4,7 @@ import { randomBytes } from 'node:crypto';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import http from 'node:http';
 import https from 'node:https';
-import { createServer, type AddressInfo } from 'node:net';
+import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -19,6 +19,7 @@ import { buildAppImage } from './lib/gate-runs.js';
 import { devFile, devTemporalCa } from './lib/dev-temporal.js';
 import { call, envArgs, ownerOnInstance, startSplitStack, type SplitStack } from './lib/split-stack.js';
 import { firstAdmin, withDatabase } from './lib/suite-root.js';
+import { portToHandOn } from '@koala/engine-core/testing/ports';
 
 const REPO = fileURLToPath(new URL('..', import.meta.url));
 const STAMP = Date.now().toString(36);
@@ -52,17 +53,6 @@ async function until<T>(what: string, probe: () => Promise<T | undefined>, logs?
     if (tries === 600) throw new Error(`${what} never happened${last ? `: ${last}` : ''}${logs ? `\n${logs()}` : ''}`);
     await new Promise((resolveWait) => setTimeout(resolveWait, 500));
   }
-}
-
-async function freePort(): Promise<number> {
-  return new Promise((resolvePort, reject) => {
-    const server = createServer();
-    server.once('error', reject);
-    server.listen(0, '127.0.0.1', () => {
-      const address = server.address() as AddressInfo;
-      server.close(() => resolvePort(address.port));
-    });
-  });
 }
 
 interface Seen { ip: string; forwardedFor: string | null; peer: string }
@@ -116,7 +106,7 @@ async function clientAddresses(image: string): Promise<void> {
     ];
     for (const instance of routed) writeFileSync(join(caddyDir, 'instances', `${instance.name}.caddy`), instanceRouteFiles(instance, DOMAIN).handles);
     try { docker(['image', 'inspect', ROOT_CADDY_IMAGE]); } catch { docker(['build', '-q', '-t', ROOT_CADDY_IMAGE, join(REPO, 'docker/caddy')]); }
-    const tlsPort = await freePort();
+    const tlsPort = await portToHandOn();
     run(NAMES.caddy, ['--network', NAMES.network, '--ip', `${SUBNET}.2`, '-p', `127.0.0.1:${tlsPort}:443`,
       '-e', `INGRESS_DOMAIN=${DOMAIN}`, '-e', 'APP_DOMAIN=app.koala.localhost', '-e', 'MESH_DOMAIN=mesh.koala.localhost',
       '-v', `${join(REPO, 'Caddyfile')}:/etc/caddy/Caddyfile:ro`, '-v', `${join(caddyDir, 'tls')}:/etc/caddy/tls:ro`,
@@ -163,9 +153,9 @@ async function refusesToStart(image: string, what: string, env: Record<string, s
 
 async function plaintextRefusals(image: string): Promise<void> {
   step('production refuses to talk to Temporal in plaintext: the backend and a worker stop without the CA');
-  const port = String(await freePort());
+  const port = String(await portToHandOn());
   await refusesToStart(image, 'the backend without Temporal\'s CA', { TEMPORAL_TLS_CA: '/nowhere/ca.crt', PORT: port }, [], 'backend', /Temporal's certificate authority is not at \/nowhere\/ca\.crt \(TEMPORAL_TLS_CA\)\. In production Koala never talks to Temporal in plaintext/);
-  await refusesToStart(image, 'the host worker without Temporal\'s CA', { TEMPORAL_TLS_CA: '/nowhere/ca.crt', HEALTH_PORT: '0', TEMPORAL_METRICS_PORT: String(await freePort()) }, [], 'worker-host', /In production Koala never talks to Temporal in plaintext/);
+  await refusesToStart(image, 'the host worker without Temporal\'s CA', { TEMPORAL_TLS_CA: '/nowhere/ca.crt', HEALTH_PORT: '0', TEMPORAL_METRICS_PORT: String(await portToHandOn()) }, [], 'worker-host', /In production Koala never talks to Temporal in plaintext/);
 
   step('an instance in production refuses to sign in through root over plain http to the open internet');
   dotenv.config({ path: devFile('apps/backend/.env'), quiet: true });
@@ -174,7 +164,7 @@ async function plaintextRefusals(image: string): Promise<void> {
   databases.push(database);
   await refusesToStart(image, 'an instance whose ROOT_URL is http://app.nowrinkles.dev', {
     ROLE: 'instance', INSTANCE_ID: 'inst-hardening', INSTANCE_OWNER_ID: 'nobody', ROOT_URL: 'http://app.nowrinkles.dev',
-    ROOT_PUBLIC_KEYS: Buffer.from(publicKeyPem(signing.publicKey)).toString('base64'), MONGO_URI: withDatabase(process.env.MONGO_URI || DEV_MONGO, database), PORT: String(await freePort()),
+    ROOT_PUBLIC_KEYS: Buffer.from(publicKeyPem(signing.publicKey)).toString('base64'), MONGO_URI: withDatabase(process.env.MONGO_URI || DEV_MONGO, database), PORT: String(await portToHandOn()),
   }, devTemporalCa(), 'backend', /ROOT_URL is http:\/\/app\.nowrinkles\.dev: plain http to an address on the open internet/);
 }
 
@@ -199,7 +189,7 @@ async function noStubClouds(stack: SplitStack): Promise<void> {
 
 async function rootNeverCallsMadeUpAddresses(stack: SplitStack, image: string): Promise<void> {
   step('a root that is not a lab starts in production on a database of its own');
-  const port = await freePort();
+  const port = await portToHandOn();
   const rootUrl = `http://localhost:${port}`;
   const database = `koala_hardening_${STAMP}_root`;
   databases.push(database);
@@ -207,7 +197,7 @@ async function rootNeverCallsMadeUpAddresses(stack: SplitStack, image: string): 
   const setupCode = randomBytes(12).toString('base64url');
   run(NAMES.root, ['--network', 'host', '--env-file', devFile('apps/backend/.env'), ...devTemporalCa(), ...envArgs({
     ROLE: 'root', PORT: String(port), PUBLIC_URL: rootUrl, MONGO_URI: mongoUri, ADMIN_SETUP_CODE: setupCode, TEMPORAL_NAMESPACE: stack.names.namespace,
-    MACHINE_GATEWAY_PORT: String(await freePort()), MAIL_SMTP_URL: `smtp://127.0.0.1:${stack.ports.smtp}`, MAIL_FROM: 'koala@hardening.test',
+    MACHINE_GATEWAY_PORT: String(await portToHandOn()), MAIL_SMTP_URL: `smtp://127.0.0.1:${stack.ports.smtp}`, MAIL_FROM: 'koala@hardening.test',
   }), image, 'backend']);
   const logs = () => { try { return execFileSync('sh', ['-c', `docker logs --tail 40 ${NAMES.root} 2>&1`], { encoding: 'utf8' }); } catch { return ''; } };
   await until('the root answering', async () => ((await fetch(`${rootUrl}/api/identity/keys`).catch(() => undefined))?.ok ? true : undefined), logs);

@@ -1,23 +1,12 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
-import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { portToHandOn } from '@koala/engine-core/testing/ports';
 
 const BACKEND = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 const TSX = resolve(BACKEND, '../../node_modules/.bin/tsx');
-
-export async function freePort(): Promise<number> {
-  return new Promise((done, fail) => {
-    const server = createServer();
-    server.once('error', fail);
-    server.listen(0, '127.0.0.1', () => {
-      const address = server.address();
-      server.close(() => (typeof address === 'object' && address ? done(address.port) : fail(new Error('no port'))));
-    });
-  });
-}
 
 export interface LoopbackProcess {
   name: string;
@@ -99,7 +88,7 @@ export async function startProcess(name: string, entry: string, env: Record<stri
 }
 
 export async function startRole(name: string, env: Record<string, string>, port?: number, options: RoleOptions = {}): Promise<LoopbackRole> {
-  const at = port ?? await freePort();
+  const at = port ?? await portToHandOn();
   const url = `http://localhost:${at}`;
   const started = options.entry
     ? await startProcess(name, options.entry, { PORT: String(at), PUBLIC_URL: url, APP_URL: url, HEALTH_PORT: String(at), ...env }, () => healthy(at), options.files)
@@ -108,6 +97,6 @@ export async function startRole(name: string, env: Record<string, string>, port?
 }
 
 export async function startWorker(name: string, entry: string, env: Record<string, string>): Promise<LoopbackProcess> {
-  const port = await freePort();
+  const port = await portToHandOn();
   return startProcess(name, entry, { HEALTH_PORT: String(port), ...env }, () => healthy(port));
 }

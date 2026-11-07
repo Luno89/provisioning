@@ -157,12 +157,3 @@ export async function modelServer(options: { port?: number; listening?: boolean 
   };
 }
 
-export async function freePort(): Promise<number> {
-  const probe = http.createServer();
-  probe.listen(0, '127.0.0.1');
-  await once(probe, 'listening');
-  const { port } = probe.address() as AddressInfo;
-  probe.close();
-  await once(probe, 'close');
-  return port;
-}

@@ -4,7 +4,8 @@ import { callModel, ModelCallError, type EngineEndpoint } from './model-call.js'
 import { getModelRateLimiterSnapshot } from './model-rate-limiter.js';
 import { overthinkMonitor } from '../runtime/monitors.js';
 import { createRunState } from '../runtime/run.js';
-import { cutAfter, delta, freePort, held, leftOpen, modelServer, refused, streamed, type ModelServer } from '../../testing/model-server.js';
+import { cutAfter, delta, held, leftOpen, modelServer, refused, streamed, type ModelServer } from '../../testing/model-server.js';
+import { portToHandOn } from '@koala/engine-core/testing/ports';
 
 const servers: ModelServer[] = [];
 
@@ -117,7 +118,7 @@ describe('a model call whose connection is lost', () => {
   });
 
   it('waits for a server that refuses connections to come up and then asks it', async () => {
-    const port = await freePort();
+    const port = await portToHandOn();
     const server = await serving({ port, listening: false });
     server.answerNext(answering('up ', 'now'));
     const lost: string[] = [];
@@ -138,7 +139,7 @@ describe('a model call whose connection is lost', () => {
   });
 
   it('stops waiting the moment the run is stopped, never asking again', async () => {
-    const port = await freePort();
+    const port = await portToHandOn();
     const server = await serving({ port, listening: false });
     const stop = new AbortController();
 

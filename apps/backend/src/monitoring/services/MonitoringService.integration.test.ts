@@ -10,14 +10,15 @@ import { RULE_LABEL, alertSpec, koalaAlertExpression, type AlertSpec, type PromA
 import { inCluster, OWN_SERIES } from '../lib/cluster-scope.js';
 import { MonitoringService, prometheusAt, type MonitoringDeps } from './MonitoringService.js';
 import { prometheusStandIn, type PrometheusStandIn } from '../testing/prometheus-stand-in.js';
-import { freePort } from '../../platform/testing/roles-on-loopback.js';
+
 import { AlertWatchService } from './AlertWatchService.js';
 import type { Socket } from 'socket.io';
 import { localAgentStatus, registerDevice, unregisterDevice } from '../../machines/lib/local-agent-registry.js';
+import { portToHandOn } from '@koala/engine-core/testing/ports';
 
 const fresh = await emptiedEachTime();
 const prom: PrometheusStandIn = await prometheusStandIn(OWN_SERIES);
-const nowhere = `http://127.0.0.1:${await freePort()}`;
+const nowhere = `http://127.0.0.1:${await portToHandOn()}`;
 afterAll(() => prom.close());
 
 const NOW = new Date('2026-10-17T12:00:00Z');
@@ -122,6 +123,14 @@ describe('the overview', () => {
     const overview = await monitoring.overview(ME);
 
     expect(overview.attention).toEqual([{ subject: { kind: 'app', id: 'gone', name: 'Gone' }, state: 'down', reasons: ['its namespace gone is not on its cluster, so nothing of it runs there; destroy the app or deploy it again'] }]);
+  });
+
+  it('puts an app whose removal Kubernetes holds under what needs attention, with what it waits on', async () => {
+    await db.infrastructure.saveDeploymentInfo(dep({ id: 'leaving', name: 'Leaving', namespace: 'leaving', status: 'destroying', healthReason: 'it is being removed, and Kubernetes is waiting on: example.com/hold' }));
+
+    const overview = await monitoring.overview(ME);
+
+    expect(overview.attention).toEqual([{ subject: { kind: 'app', id: 'leaving', name: 'Leaving' }, state: 'warning', reasons: ['it is being removed, and Kubernetes is waiting on: example.com/hold'] }]);
   });
 
   it('lists the person\'s apps worst first, with what needs attention', async () => {

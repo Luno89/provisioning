@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { koalaMetrics, withSpan } from './telemetry.js';
 import { envSink, NEVER_MS, OTLP_ENDPOINT_VAR, otlpHttpSink, startTelemetry, type Telemetry, type TelemetrySettings } from './telemetry-sdk.js';
-import { collector, freePort, type Collector, type Received } from '../testing/collector.js';
+import { collector, type Collector, type Received } from '../testing/collector.js';
+import { portToHandOn } from '@koala/engine-core/testing/ports';
 
 interface Attribute { key: string; value: { stringValue?: string } }
 interface ResourceOf { resource: { attributes: Attribute[] } }
@@ -74,7 +75,7 @@ describe('telemetry sent to a collector over HTTP', () => {
   });
 
   it('drops what a collector that is not there would get, says so once, and says so again when it answers', async () => {
-    const port = await freePort();
+    const port = await portToHandOn();
     const otel = await collecting({ port, listening: false });
     const said: string[] = [];
     const sending = started({ service: 'koala-integration', sink: otlpHttpSink(() => otel.url), log: (line) => said.push(line) });

@@ -30,6 +30,10 @@
     "./failures": {
       "types": "./src/failures.ts",
       "default": "./src/failures.ts"
+    },
+    "./testing/ports": {
+      "types": "./testing/ports.ts",
+      "default": "./testing/ports.ts"
     }
   },
   "dependencies": {

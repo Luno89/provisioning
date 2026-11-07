@@ -2,11 +2,12 @@ import { randomBytes } from 'node:crypto';
 import { MongoClient } from 'mongodb';
 import { afterAll, beforeAll, describe, expect, inject, it, onTestFailed } from 'vitest';
 import { claimNamespaceFor } from '../workflows/temporal-test-env.js';
-import { freePort, startRole, startWorker, type LoopbackProcess, type LoopbackRole } from '../platform/testing/roles-on-loopback.js';
+import { startRole, startWorker, type LoopbackProcess, type LoopbackRole } from '../platform/testing/roles-on-loopback.js';
 import { otlpSink, type OtlpSink, type OtlpSpan } from '../platform/testing/otlp-sink.js';
 import { until } from '../platform/testing/three-roles.js';
 import { TRACE_ID_HEADER } from '../platform/services/MetricsService.js';
 import { TURN_PROCEDURE_ID } from '../checks/lib/turn-check.js';
+import { portToHandOn } from '@koala/engine-core/testing/ports';
 
 const STAMP = Date.now().toString(36);
 const DATABASE = `telemetry_${STAMP}`;
@@ -33,7 +34,7 @@ async function call(path: string, init: { method?: string; body?: unknown } = {}
 beforeAll(async () => {
   mongoUri = inject('mongoUri');
   collector = await otlpSink();
-  const port = await freePort();
+  const port = await portToHandOn();
   const setupCode = randomBytes(12).toString('base64url');
   const shared = {
     JWT_SECRET: `telemetry-${STAMP}`,
@@ -44,8 +45,8 @@ beforeAll(async () => {
     CHECKS_API_URL: `http://localhost:${port}/api`,
     PORT: String(port),
   };
-  backend = await startRole('telemetry-backend', { ...shared, ADMIN_SETUP_CODE: setupCode, MACHINE_GATEWAY_PORT: String(await freePort()) }, port);
-  worker = await startWorker('telemetry-engine', 'src/worker-engine.ts', { ...shared, TEMPORAL_ENGINE_METRICS_PORT: String(await freePort()) });
+  backend = await startRole('telemetry-backend', { ...shared, ADMIN_SETUP_CODE: setupCode, MACHINE_GATEWAY_PORT: String(await portToHandOn()) }, port);
+  worker = await startWorker('telemetry-engine', 'src/worker-engine.ts', { ...shared, TEMPORAL_ENGINE_METRICS_PORT: String(await portToHandOn()) });
   const email = `owner-${STAMP}@telemetry.test`;
   const password = randomBytes(18).toString('base64url');
   const post = (path: string, body: unknown) => fetch(`${backend.url}/api${path}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });

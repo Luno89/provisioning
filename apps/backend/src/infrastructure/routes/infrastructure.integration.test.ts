@@ -10,7 +10,7 @@ import { mountRouter, TEST_USER, type Harness } from '../../platform/routes/test
 import type { Database } from '../../platform/lib/db-interface.js';
 import type { ClusterMetadata, DeploymentMetadata } from '../../platform/lib/types.js';
 import { ownedQuery, startedFor } from '../../platform/lib/workflow-owner.js';
-import { freePort } from '../../platform/testing/roles-on-loopback.js';
+
 import { bundled, temporalTestEnvironment } from '../../workflows/temporal-test-env.js';
 import { InfrastructureViewService } from '../services/InfrastructureViewService.js';
 import { ClusterContentsService } from '../services/ClusterContentsService.js';
@@ -29,6 +29,7 @@ import { RootPresence } from '../../instances/services/RootPresence.js';
 import { labelValue } from '../../engine-host/sandboxes/workspace.js';
 import { runWaitingVia } from '../../engine-host/temporal/run-cancellation.js';
 import { workflowOfRun } from '../../engine-host/temporal/contracts.js';
+import { portToHandOn } from '@koala/engine-core/testing/ports';
 
 const system = { id: 'provisioning-lunorica', name: 'provisioning-lunorica', provider: 'k3d', status: 'healthy', isSystem: true } as ClusterMetadata;
 const shop = { id: 'd1', name: 'Shop', namespace: 'shop', clusterId: system.id, strategy: 'native', appType: 'audiobookshelf', ownerId: TEST_USER.id, status: 'running', createdAt: 'then' } as DeploymentMetadata;
@@ -237,7 +238,7 @@ describe('/api/infrastructure', () => {
   });
 
   it('says when the instance cannot reach root, and says nothing where it is not an instance', async () => {
-    const rootPort = await freePort();
+    const rootPort = await portToHandOn();
     await app({ rootPort });
     expect((await axios.get<InfrastructureAnswer>(harness.url('/api/infrastructure'))).data.root).toEqual({ rootUrl: `http://127.0.0.1:${rootPort}`, reachable: false, down: true, unreachableSince: '2026-10-29T10:00:00.000Z' });
     presence?.stop();

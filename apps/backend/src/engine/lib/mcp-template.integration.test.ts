@@ -4,25 +4,14 @@ import { writeFileSync, mkdtempSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { spawn, type ChildProcess } from 'node:child_process';
-import net from 'node:net';
 import { MCP_SERVER_FILES } from '../../projects/lib/project-templates.js';
 import { renderStarterFiles } from '../../projects/lib/tree-types.js';
 import { TREE_TYPE_SEEDS } from '../../projects/lib/tree-type-seeds.js';
 import { McpClient } from './mcp-client.js';
+import { portToHandOn } from '@koala/engine-core/testing/ports';
 
 let child: ChildProcess | undefined;
 afterEach(() => { child?.kill(); child = undefined; });
-
-/** A port nothing is listening on. The old `8000 + random(900)` pick collided under the full suite,
- * and the failure said only "never started listening" because the child's stderr was thrown away. */
-const freePort = async (): Promise<number> => new Promise((resolve, reject) => {
-  const probe = net.createServer();
-  probe.once('error', reject);
-  probe.listen(0, '127.0.0.1', () => {
-    const { port } = probe.address() as net.AddressInfo;
-    probe.close(() => resolve(port));
-  });
-});
 
 const startScaffold = async (): Promise<string> => {
   const dir = mkdtempSync(join(tmpdir(), 'mcp-template-'));
@@ -31,7 +20,7 @@ const startScaffold = async (): Promise<string> => {
     mkdirSync(dirname(full), { recursive: true });
     writeFileSync(full, file.content);
   }
-  const port = await freePort();
+  const port = await portToHandOn();
   let said = '';
   let ended: string | undefined;
   child = spawn('node', [join(dir, 'src/server.js')], {

@@ -2,16 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import net from 'net';
 import http from 'http';
 import { EgressProxy } from './egress-proxy.js';
-
-async function freePort(): Promise<number> {
-  return new Promise((resolve) => {
-    const srv = net.createServer();
-    srv.listen(0, '127.0.0.1', () => {
-      const port = (srv.address() as net.AddressInfo).port;
-      srv.close(() => resolve(port));
-    });
-  });
-}
+import { portToHandOn } from '@koala/engine-core/testing/ports';
 
 function connectSocket(port: number): Promise<net.Socket> {
   return new Promise((resolve) => {
@@ -52,8 +43,8 @@ describe('EgressProxy', () => {
       upstreamCalls.push({ port, host });
       return net.connect(fakeUpstreamPort, '127.0.0.1', onConnect);
     });
-    proxyPort = await freePort();
-    await proxy.listen(proxyPort, await freePort());
+    proxyPort = await portToHandOn();
+    await proxy.listen(proxyPort, await portToHandOn());
   });
 
   afterEach(async () => {
@@ -111,8 +102,8 @@ describe('EgressProxy control API', () => {
 
   beforeEach(async () => {
     proxy = new EgressProxy(TOKEN);
-    controlPort = await freePort();
-    await proxy.listen(await freePort(), controlPort);
+    controlPort = await portToHandOn();
+    await proxy.listen(await portToHandOn(), controlPort);
   });
 
   afterEach(async () => { await proxy.close(); });

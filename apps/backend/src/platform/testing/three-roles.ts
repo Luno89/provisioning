@@ -9,10 +9,11 @@ import { publicKeyPem } from '../../instances/lib/identity-token.js';
 import { hashCredential, instanceIdFor } from '../../instances/services/InstanceService.js';
 import { claimNamespaceFor } from '../../workflows/temporal-test-env.js';
 import { fetchSide, handOff, sessionFrom, signedInLanding } from './handoff.js';
-import { freePort, startRole, type LoopbackRole } from './roles-on-loopback.js';
+import { startRole, type LoopbackRole } from './roles-on-loopback.js';
 import { smtpSink, type SmtpSink } from './smtp-sink.js';
 import { startRealGitea } from '../../projects/testing/real-gitea.js';
 import { startHeadscaleStandIn, type HeadscaleStandIn } from '../../infrastructure/testing/headscale-stand-in.js';
+import { portToHandOn } from '@koala/engine-core/testing/ports';
 
 export interface TestGitea { url: string; adminPassword: string; logs(): string; close(): Promise<void> }
 
@@ -74,7 +75,7 @@ async function signUpWith(rootUrl: string, mail: SmtpSink, email: string, invite
 const WORKER_ENTRY: Record<WorkerName, string> = { host: 'src/worker-host.ts', engine: 'src/worker-engine.ts', cluster: 'src/worker-cluster.ts' };
 
 async function workerEnv(): Promise<Record<string, string>> {
-  return { TEMPORAL_METRICS_PORT: String(await freePort()), TEMPORAL_ENGINE_METRICS_PORT: String(await freePort()) };
+  return { TEMPORAL_METRICS_PORT: String(await portToHandOn()), TEMPORAL_ENGINE_METRICS_PORT: String(await portToHandOn()) };
 }
 
 export async function until<T>(look: () => Promise<T | undefined>): Promise<T> {
@@ -101,7 +102,7 @@ export async function startThreeRoles(label: string, options: ThreeRolesOptions 
   const databases = { root: `${stamp}_root`, instance: `${stamp}_instance`, hub: `${stamp}_hub` };
   const mongoUri = inject('mongoUri');
   const mail = await smtpSink();
-  const ports = { root: await freePort(), instance: await freePort(), hub: await freePort() };
+  const ports = { root: await portToHandOn(), instance: await portToHandOn(), hub: await portToHandOn() };
   const place: SplitPlace = {
     rootUrl: `http://localhost:${ports.root}`, instanceUrl: `http://localhost:${ports.instance}`, hubUrl: `http://localhost:${ports.hub}`,
     rootApiPort: ports.root, instanceApiPort: ports.instance, hubApiPort: ports.hub,

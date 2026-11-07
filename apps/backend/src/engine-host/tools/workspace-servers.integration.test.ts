@@ -3,11 +3,11 @@ import { spawn } from 'node:child_process';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createServer } from 'node:net';
 import type { EnvironmentDriver, ExecRequest, ExecResult } from '@koala/engine-core';
 import { MCP_SERVER_FILES } from '../../projects/lib/project-templates.js';
 import { createWorkspaceServers, parseCurlReply, startScript, type ServedServer } from './workspace-servers.js';
 import type { RunTicket } from '../temporal/contracts.js';
+import { portToHandOn } from '@koala/engine-core/testing/ports';
 
 const where = mkdtempSync(join(tmpdir(), 'workspace-server-'));
 const ticket: RunTicket = { runId: 'run-1', depth: 0, ownerId: 'user-1', agentSlug: 'executor' } as RunTicket;
@@ -25,18 +25,11 @@ const local: EnvironmentDriver = {
   }),
 } as unknown as EnvironmentDriver;
 
-const freePort = () => new Promise<number>((resolve) => {
-  const probe = createServer().listen(0, () => {
-    const { port } = probe.address() as { port: number };
-    probe.close(() => resolve(port));
-  });
-});
-
 let port = 0;
 let echo: ServedServer;
 
 beforeAll(async () => {
-  port = await freePort();
+  port = await portToHandOn();
   const source = MCP_SERVER_FILES.find((file) => file.path === 'src/server.js')!.content.replaceAll('{{projectName}}', 'echoes');
   writeFileSync(join(where, 'server.mjs'), source);
   echo = { name: 'echoes', start: `PORT=${port} exec node ${join(where, 'server.mjs')}`, port };
@@ -58,7 +51,7 @@ describe('a server that runs in the workspace', () => {
   });
 
   it('says why when its server will not start, with the end of its log', async () => {
-    const broken = { name: 'broken', start: 'echo cannot start this; exit 3', port: await freePort() };
+    const broken = { name: 'broken', start: 'echo cannot start this; exit 3', port: await portToHandOn() };
     const out = await servers().call({ ticket, environment, server: broken, tool: 'echo', args: {} });
     expect(out.ok).toBe(false);
     expect(out.digest).toContain('broken could not be started in the workspace');

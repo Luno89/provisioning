@@ -6,7 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { ignore } from '@koala/engine-core/failures';
-import { freePort } from '../../platform/testing/roles-on-loopback.js';
+import { portToHandOn } from '@koala/engine-core/testing/ports';
 
 const run = promisify(execFile);
 const ADMIN = 'provisioning-bot';
@@ -101,7 +101,7 @@ async function answers(url: string): Promise<boolean> {
 export async function startRealGitea(): Promise<RealGitea> {
   const gitea = await giteaBinary();
   const work = await fs.mkdtemp(path.join(os.tmpdir(), 'koala-real-gitea-'));
-  const port = await freePort();
+  const port = await portToHandOn();
   const config = path.join(work, 'app.ini');
   const adminPassword = crypto.randomBytes(18).toString('base64url');
   const env = { PATH: process.env.PATH, HOME: work, USER: os.userInfo().username, GITEA_WORK_DIR: work };

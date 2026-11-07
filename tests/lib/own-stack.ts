@@ -3,8 +3,9 @@ import { fileURLToPath } from 'node:url';
 import dotenv from 'dotenv';
 import { buildAppImage } from './gate-runs.js';
 import { devFile, devTemporalCa } from './dev-temporal.js';
-import { answers, envArgs, freePort, temporal, temporalContainer } from './split-stack.js';
+import { answers, envArgs, temporal, temporalContainer } from './split-stack.js';
 import { dropSuiteDatabase, firstAdmin, suiteRoot, type FirstAdmin, type SuiteRoot } from './suite-root.js';
+import { portToHandOn } from '@koala/engine-core/testing/ports';
 
 const REPO = fileURLToPath(new URL('../..', import.meta.url));
 
@@ -37,10 +38,10 @@ async function until(what: string, probe: () => Promise<true | undefined>, logs:
 
 export async function startOwnStack(suite: string, log: (line: string) => void = console.log): Promise<OwnStack> {
   dotenv.config({ path: devFile('apps/backend/.env'), quiet: true });
-  const apiPort = await freePort();
-  const gatewayPort = await freePort();
-  const engineMetrics = await freePort();
-  const root = suiteRoot(suite, await freePort());
+  const apiPort = await portToHandOn();
+  const gatewayPort = await portToHandOn();
+  const engineMetrics = await portToHandOn();
+  const root = suiteRoot(suite, await portToHandOn());
   const namespace = root.queue;
   const url = `http://localhost:${apiPort}`;
   const image = buildAppImage(REPO, execFileSync('git', ['-C', REPO, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(), (line) => log(`    ${line}`));

@@ -10,11 +10,12 @@ import { afterAll, beforeAll, describe, expect, inject, it, onTestFailed } from 
 import { ACCOUNT_DATA, removeAccountWorkflowId } from './lib/account-removal.js';
 import { labelValue } from '../engine-host/sandboxes/workspace.js';
 import { claimNamespaceFor } from '../workflows/temporal-test-env.js';
-import { freePort, startRole, startWorker, type LoopbackProcess, type LoopbackRole } from '../platform/testing/roles-on-loopback.js';
+import { startRole, startWorker, type LoopbackProcess, type LoopbackRole } from '../platform/testing/roles-on-loopback.js';
 import { smtpSink, textOf, type SmtpSink } from '../platform/testing/smtp-sink.js';
 import { until } from '../platform/testing/three-roles.js';
 import { buildDataConverter } from '@koala/engine-core/payloads';
 import { loadKeys } from '../platform/lib/keys.js';
+import { portToHandOn } from '@koala/engine-core/testing/ports';
 
 interface Answer { status: number; cookies: string[]; body: unknown }
 
@@ -116,10 +117,10 @@ beforeAll(async () => {
     KUBECONFIG_PATH: kubeconfig,
     HEADSCALE_URL: headscale.url,
     HEADSCALE_API_KEY: 'stand-in',
-    OTEL_EXPORTER_OTLP_ENDPOINT: `http://127.0.0.1:${await freePort()}`,
+    OTEL_EXPORTER_OTLP_ENDPOINT: `http://127.0.0.1:${await portToHandOn()}`,
   };
   backend = await startRole('combined', { ...shared, ADMIN_SETUP_CODE: SETUP_CODE });
-  worker = await startWorker('engine-worker', 'src/worker-engine.ts', { ...shared, TEMPORAL_ENGINE_METRICS_PORT: String(await freePort()) });
+  worker = await startWorker('engine-worker', 'src/worker-engine.ts', { ...shared, TEMPORAL_ENGINE_METRICS_PORT: String(await portToHandOn()) });
   const adminEmail = `admin-${STAMP}@removal.test`;
   const adminPassword = randomBytes(18).toString('base64url');
   const made = await api('/auth/register', { body: { email: adminEmail, password: adminPassword, inviteCode: SETUP_CODE } });

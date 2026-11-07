@@ -1,6 +1,5 @@
 import { execFileSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { createServer } from 'node:net';
 import { fileURLToPath } from 'node:url';
 import dotenv from 'dotenv';
 import { MongoClient } from 'mongodb';
@@ -10,6 +9,7 @@ import { buildAppImage } from './gate-runs.js';
 import { fetchSide, handOff, sessionFrom, signedInLanding } from './handoff.js';
 import { devDataMounts, devFile, devTemporalCa } from './dev-temporal.js';
 import { firstAdmin, withDatabase, type FirstAdmin } from './suite-root.js';
+import { portToHandOn } from '@koala/engine-core/testing/ports';
 
 export const MAILPIT_IMAGE = 'axllent/mailpit:v1.21.0';
 const DEV_MONGO = 'mongodb://admin:admin@localhost:27017/provisioning?authSource=admin';
@@ -81,17 +81,6 @@ export interface SplitStack {
   stop: () => Promise<void>;
 }
 
-export async function freePort(): Promise<number> {
-  return new Promise((resolvePort, reject) => {
-    const server = createServer();
-    server.once('error', reject);
-    server.listen(0, '127.0.0.1', () => {
-      const address = server.address();
-      server.close(() => (typeof address === 'object' && address ? resolvePort(address.port) : reject(new Error('no port'))));
-    });
-  });
-}
-
 const docker = (args: string[]): string => execFileSync('docker', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
 
 export function temporalContainer(): string {
@@ -141,9 +130,9 @@ export async function startSplitStack(options: { engine?: boolean; hubGitea?: bo
   dotenv.config({ path: devFile('apps/backend/.env'), quiet: true });
   const names = splitNames(Date.now().toString(36));
   const ports: SplitPorts = {
-    root: await freePort(), instance: await freePort(), hub: await freePort(),
-    instanceGateway: await freePort(), rootGateway: await freePort(), hubGateway: await freePort(),
-    smtp: await freePort(), mailApi: await freePort(), metrics: await freePort(), engineMetrics: await freePort(),
+    root: await portToHandOn(), instance: await portToHandOn(), hub: await portToHandOn(),
+    instanceGateway: await portToHandOn(), rootGateway: await portToHandOn(), hubGateway: await portToHandOn(),
+    smtp: await portToHandOn(), mailApi: await portToHandOn(), metrics: await portToHandOn(), engineMetrics: await portToHandOn(),
   };
   const place = splitPlace(names, ports);
   const started: string[] = [];
