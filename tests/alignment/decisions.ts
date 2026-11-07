@@ -384,4 +384,14 @@ export const DECISIONS: Decision[] = [
     ],
     reading: 'On automatic updates a person\'s Koala moves to root\'s newer release and rolls itself back, telling root why, when a new pod cannot recover, as built.',
   },
+  {
+    id: 'roles',
+    subject: 'What each Koala process is, and no combined role',
+    terms: ['ROLE', 'combined', 'role'],
+    words: [
+      { at: '2026-11-07T00:30', text: 'Yeah didn\'t we already decide how dev would work? we just need to look at what each test is testing and fill out the ROLE' },
+      { at: '2026-11-07T00:30', text: 'I wouldn\'t expect us needed to create clusters that often in a test suite?' },
+    ],
+    reading: 'ROLE says which process this is (root, an instance or the hub) and is required, with no default; the combined role goes. Each test runs as the role it tests. Tests reach no real cluster except the one testing the door to a cluster itself.',
+  },
 ];
