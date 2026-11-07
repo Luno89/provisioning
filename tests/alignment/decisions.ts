@@ -401,6 +401,17 @@ export const DECISIONS: Decision[] = [
     words: [
       { at: '2026-11-07T04:56', text: 'no, caddy is fine, remove it with combined' },
     ],
-    reading: 'Apps are exposed only through Caddy: root\'s Caddy and each instance\'s edge. The host nginx container, its per-app files, the Local router page and Expose locally go with the combined role.',
+    reading: 'Apps are exposed only through Caddy: root\'s Caddy and each instance\'s edge. The host nginx container, its per-app files, the Local router page and the :8000 docker tunnel go with the combined role. Expose locally stays, moved onto Caddy (decision exposing-apps).',
+  },
+  {
+    id: 'exposing-apps',
+    subject: 'Exposing the apps Koala hosts is a first-class feature, on Caddy, locally and publicly',
+    terms: ['expose', 'Expose locally', 'edge', 'localhost', 'address'],
+    words: [
+      { at: '2026-10-01T16:09', text: 'also can you make sure the expose locally is still working? I\'m gettting a 502 on http://tabbyapi-production.localhost:8000/' },
+      { at: '2026-11-07T06:07', text: 'can we use it locally to expose tabbyapi or any other app? exposing the apps we host is a first class feature....' },
+      { at: '2026-11-07T06:12', text: 'I don\'t know what edge means but if that works sounds good' },
+    ],
+    reading: 'Every instance runs its edge, the Caddy beside its backend, whether or not it has a domain. Expose locally is an edge site for <app>.localhost, answering on this computer\'s loopback at port 8000 only, with no sign-in in front of it, as before. Expose publicly is <app>-<name>.<domain> through root\'s Caddy, only where the instance has a domain; without one Koala refuses and says why. No Docker on the way.',
   },
 ];

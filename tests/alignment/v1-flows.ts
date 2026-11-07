@@ -198,7 +198,7 @@ export const V1_FLOWS: Flow[] = [
         id: 'E6',
         does: 'The app runs and answers; its page shows its health and address.',
         screen: { on: 'instance', component: `${UI}/infrastructure/components/AppDashboard/index.tsx#AppDashboard` },
-        decisions: ['monitoring-per-person'],
+        decisions: ['monitoring-per-person', 'exposing-apps'],
       },
       {
         id: 'E7',
