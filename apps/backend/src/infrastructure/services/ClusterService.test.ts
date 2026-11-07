@@ -11,6 +11,7 @@ import type { Shell } from '../lib/shell.js';
 import { ClusterService } from './ClusterService.js';
 import type { InfrastructureService } from './InfrastructureService.js';
 import type { TemporalBridge } from './TemporalBridge.js';
+import { testClusterAccess } from '../testing/cluster-access.js';
 
 const MASTER = 'cluster-service-test-key';
 const NODES = JSON.stringify({ items: [{ metadata: { labels: {} }, status: { allocatable: { cpu: '8', memory: '32Gi', 'nvidia.com/gpu': '1' } } }] });
@@ -25,7 +26,7 @@ function setup(places: { shell?: Shell; koalaMachineId?: string | undefined } = 
   infra.getManagementClusterKubeconfig.mockRejectedValue(new Error('no management cluster here'));
   infra.listLocalClusters.mockResolvedValue([]);
   const kubeconfigDir = mkdtempSync(join(tmpdir(), 'cluster-service-'));
-  return { db, infra, kubeconfigDir, service: new ClusterService(db, infra, MASTER, { kubeconfigDir, shell: noHostTools, ...places }) };
+  return { db, infra, kubeconfigDir, service: new ClusterService(db, infra, testClusterAccess(db, { dataKey: MASTER, koalaMachineId: places.koalaMachineId, folder: kubeconfigDir, serviceAccount: { host: 'kubernetes.default.svc', port: '443', caFile: '/sa/ca.crt', tokenFile: '/sa/token' } }), { kubeconfigDir, shell: noHostTools, ...places }) };
 }
 
 beforeEach(() => { process.env.NODE_ENV = 'development'; delete process.env.HCLOUD_TOKEN; });
@@ -37,15 +38,19 @@ describe('a machine\'s own cluster', () => {
   const machine = (extra: Partial<ClusterMetadata> = {}): ClusterMetadata => ({ id: 'machine-desk', name: 'desk', provider: 'machine', status: 'healthy', ownerId: 'bo', machineId: 'desk', ...extra });
 
   it('opens the kubeconfig its machine handed over, sealed on the record, into a file only this process reads', async () => {
-    const { service, kubeconfigDir } = setup();
-    const where = await service.getKubeconfigPath(machine({ kubeconfigEnc: encryptValue('server: https://100.64.0.7:6443', MASTER) }));
+    const { db, service, kubeconfigDir } = setup();
+    const sealed = machine({ kubeconfigEnc: encryptValue('server: https://100.64.0.7:6443', MASTER) });
+    await db.infrastructure.saveCluster(sealed);
+    const where = await service.getKubeconfigPath(sealed);
     expect(where).toBe(join(kubeconfigDir, 'kubeconfig-machine-machine-desk'));
     expect(readFileSync(where, 'utf8')).toBe('server: https://100.64.0.7:6443');
     expect(statSync(where).mode & 0o777).toBe(0o600);
   });
 
   it('says it has not started rather than fall back to another cluster', async () => {
-    await expect(setup().service.getKubeconfigPath(machine())).rejects.toThrow('desk has not started yet, so there is no way to reach it');
+    const { db, service } = setup();
+    await db.infrastructure.saveCluster(machine());
+    await expect(service.getKubeconfigPath(machine())).rejects.toThrow('desk has not started yet, so there is no way to reach it');
   });
 });
 
@@ -253,7 +258,6 @@ describe('Koala\'s own cluster when Koala runs on one of the person\'s machines'
 
   it('is that machine\'s cluster, the one record, running while Koala is on it and reached from Koala\'s own pods', async () => {
     const { db, infra, service, kubeconfigDir } = setup({ koalaMachineId: 'desk' });
-    infra.getManagementClusterKubeconfig.mockResolvedValue('server: https://kubernetes.default.svc');
     infra.runKubectl.mockResolvedValue(NODES);
     await db.infrastructure.saveCluster(desk);
     await db.infrastructure.saveCluster({ ...desk, id: 'machine-nas', name: 'nas', machineId: 'nas' });
@@ -263,8 +267,10 @@ describe('Koala\'s own cluster when Koala runs on one of the person\'s machines'
     for (const id of ['machine-desk', 'provisioning-lunorica']) expect((await service.getByIdUnscoped(id))?.id).toBe('machine-desk');
     expect(service.isKoalasCluster('machine-desk')).toBe(true);
     expect(service.isKoalasCluster('machine-nas')).toBe(false);
-    expect(readFileSync(await service.getKubeconfigPath(own), 'utf8')).toBe('server: https://kubernetes.default.svc');
-    expect(await service.getKubeconfigPath(own)).toBe(join(kubeconfigDir, 'kubeconfig-provisioning-lunorica'));
+    const reached = await service.getKubeconfigPath(own);
+    expect(reached).toBe(join(kubeconfigDir, 'kubeconfig-koala'));
+    expect(readFileSync(reached, 'utf8')).toContain('server: https://kubernetes.default.svc:443');
+    expect(readFileSync(reached, 'utf8')).toContain('tokenFile: /sa/token');
   });
 
   it('is still the fixed entry where Koala names no machine', async () => {

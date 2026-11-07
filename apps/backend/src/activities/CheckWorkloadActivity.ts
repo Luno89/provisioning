@@ -1,4 +1,5 @@
-import { createDatabase } from '../platform/index.js';
+import { clusterAccessFrom } from '../infrastructure/wiring/cluster-access.js';
+import { createDatabase, roleFromEnv } from '../platform/index.js';
 import { InfrastructureService, ClusterService, namespaceOf, assessWorkload, creationRefused, type WorkloadHealth } from '../infrastructure/index.js';
 import { handedKubeconfig } from './cluster-access.js';
 
@@ -19,7 +20,7 @@ export async function CheckWorkloadActivity(args: CheckWorkloadArgs): Promise<Ch
   await db.init();
   try {
     const infra = new InfrastructureService();
-    const clusters = new ClusterService(db, infra);
+    const clusters = new ClusterService(db, infra, clusterAccessFrom(process.env, { role: roleFromEnv(process.env).role, clusters: db.infrastructure }));
     const cluster = await clusters.getByIdUnscoped(args.clusterId);
     if (!cluster) return { health: 'unknown', reason: 'cluster no longer exists' };
 

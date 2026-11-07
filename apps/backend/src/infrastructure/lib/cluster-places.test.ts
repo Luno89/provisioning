@@ -13,6 +13,10 @@ describe('where a cluster is, as ClusterAccess sees it', () => {
     expect(placeOf('machine-dev1', unsealed({ id: 'machine-dev1', machineId: 'dev1', status: 'stopped' }), instance)).toEqual({ kind: 'koala', clusterId: 'machine-dev1' });
   });
 
+  it('knows the cluster Koala runs on by its machine\'s id before any record of it exists', () => {
+    expect(placeOf('machine-dev1', undefined, instance)).toEqual({ kind: 'koala', clusterId: 'machine-dev1' });
+  });
+
   it('finds another of the person\'s machines by the kubeconfig sealed on its record', () => {
     expect(placeOf('machine-dev2', machine(), instance)).toEqual({ kind: 'machine', clusterId: 'machine-dev2', sealed: 'v2:k:sealed' });
   });

@@ -25,6 +25,7 @@ import { wireReleases } from './releases/wiring/releases.js';
 import { storyDropsFor, wireFiles } from './files/wiring/files.js';
 import { machineBundle as newMachineBundle, wireMachines } from './machines/wiring/machines.js';
 import { wireMonitoring } from './monitoring/wiring/monitoring.js';
+import { clusterAccessFrom } from './infrastructure/wiring/cluster-access.js';
 import { wireInfrastructure } from './infrastructure/wiring/infrastructure.js';
 import { wireAccounts } from './accounts/wiring/accounts.js';
 import { hubInstanceWork, wireHub } from './hub/wiring/hub.js';
@@ -150,7 +151,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   console.log(`🧭 Running as ${role.role}${role.instance ? ` (instance ${role.instance.id}, owned by ${role.instance.ownerId})` : ''}`);
   const infraService = new InfrastructureService();
   const builderService = new BuilderService(db, infraService);
-  const clusterService = new ClusterService(db, infraService, keys.data);
+  const clusterService = new ClusterService(db, infraService, clusterAccessFrom(process.env, { role: role.role, clusters: db.infrastructure, dataKey: keys.data }));
   const artifactStore = createArtifactService(db, infraService, clusterService);
   const appService = new AppService(db, infraService, clusterService, builderService);
   const registryService = new RegistryService(db);

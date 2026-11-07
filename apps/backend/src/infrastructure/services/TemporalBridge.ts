@@ -285,6 +285,11 @@ export class TemporalBridge {
     if (headscale !== undefined) this.headscale = headscale
   }
 
+  private clustersForConsolidation(): ClusterService {
+    if (!this.clusterService) throw new Error('memories are consolidated through the cluster service, and this bridge was given none')
+    return this.clusterService
+  }
+
   onBuilt?: (project: ProjectMetadata, run: PipelineRunMetadata) => Promise<boolean>
 
   ensureSecrets?: (project: ProjectMetadata) => Promise<{ waiting: string[] }>
@@ -631,7 +636,7 @@ export class TemporalBridge {
       try {
         const owners = [...new Set((await this.db.memory.getMemories()).map((memory) => memory.ownerId))]
         for (const ownerId of owners) {
-          const ends = await corpusEndpointsWith(webToolsDepsFrom(this.db.infrastructure, this.clusterService ?? new ClusterService(this.db, new InfrastructureService()), sharedClusterProxy()), ownerId).catch(ignore('an owner with no search service has their memories consolidated without an index'))
+          const ends = await corpusEndpointsWith(webToolsDepsFrom(this.db.infrastructure, this.clustersForConsolidation(), sharedClusterProxy()), ownerId).catch(ignore('an owner with no search service has their memories consolidated without an index'))
           const report = await consolidateMemories({
             db: this.db,
             ownerId,

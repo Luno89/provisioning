@@ -8,13 +8,14 @@ import { encryptValue } from '../../platform/lib/crypto.js';
 import { testDatabase } from '../../platform/lib/test-database.js';
 import type { MongoDB } from '../../platform/lib/mongo-db.js';
 import type { ClusterMetadata } from '../../platform/lib/types.js';
+import { testClusterAccess } from '../testing/cluster-access.js';
 
 const MASTER = 'test-master-key';
 
 async function createService() {
   const db = await testDatabase();
   const kubeconfigDir = mkdtempSync(join(tmpdir(), 'cluster-service-'));
-  const svc = new ClusterService(db, new InfrastructureService(), MASTER, { kubeconfigDir });
+  const svc = new ClusterService(db, new InfrastructureService(), testClusterAccess(db, { dataKey: MASTER, folder: kubeconfigDir }), { kubeconfigDir });
   return { svc, db, kubeconfigDir };
 }
 
@@ -40,7 +41,7 @@ describe('reconciling clusters against k3d', () => {
       override async listLocalClusters(): Promise<string[]> { await during(db); return running; }
       override async getManagementClusterKubeconfig(): Promise<string> { throw new Error('no management cluster here'); }
     }
-    return { db, svc: new ClusterService(db, new K3dHere(), MASTER) };
+    return { db, svc: new ClusterService(db, new K3dHere(), testClusterAccess(db, { dataKey: MASTER })) };
   }
 
   it('removes a cluster deleted outside Koala with its deployments, and nothing else', async () => {
@@ -81,7 +82,7 @@ describe('Koala\'s own cluster on a machine, stored', () => {
       override async getManagementClusterKubeconfig(): Promise<string> { return 'server: https://kubernetes.default.svc'; }
       override async runKubectl(): Promise<string> { return JSON.stringify({ items: [] }); }
     }
-    const svc = new ClusterService(db, new OwnCluster(), MASTER, { kubeconfigDir: mkdtempSync(join(tmpdir(), 'cluster-service-')), koalaMachineId: 'desk' });
+    const svc = new ClusterService(db, new OwnCluster(), testClusterAccess(db, { dataKey: MASTER, koalaMachineId: 'desk', serviceAccount: { host: 'kubernetes.default.svc', port: '443', caFile: '/sa/ca.crt', tokenFile: '/sa/token' } }), { kubeconfigDir: mkdtempSync(join(tmpdir(), 'cluster-service-')), koalaMachineId: 'desk' });
     await db.infrastructure.saveCluster({ id: 'machine-desk', name: 'desk', provider: 'machine', status: 'stopped', ownerId: 'bo', machineId: 'desk' });
     await db.infrastructure.saveCluster({ id: 'machine-nas', name: 'nas', provider: 'machine', status: 'stopped', ownerId: 'bo', machineId: 'nas' });
     expect((await svc.reconcileAllClusters()).map((cluster) => [cluster.id, cluster.isSystem === true])).toEqual([['machine-desk', true], ['machine-nas', false]]);

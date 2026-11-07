@@ -1,4 +1,5 @@
-import { type Actions, allowed, authorize, BaseService, type ClusterMetadata, clusterResource, type Database, decryptValue, listAt, numberAt, type Principal, recordAt, type SecretKey, textAt, writePrivate } from '../../platform/index.js';
+import { type Actions, allowed, authorize, BaseService, type ClusterMetadata, clusterResource, type Database, listAt, numberAt, type Principal, recordAt, textAt, writePrivate } from '../../platform/index.js';
+import type { ClusterAccess } from './ClusterAccess.js';
 import { InfrastructureService } from './InfrastructureService.js';
 import type { TemporalBridge } from './TemporalBridge.js';
 import { ignore } from '@koala/engine-core/failures';
@@ -19,17 +20,17 @@ const SYSTEM_CLUSTER_ID = 'provisioning-lunorica';
 
 export class ClusterService extends BaseService {
   private infra: InfrastructureService;
-  private masterKey: SecretKey;
+  private readonly access: ClusterAccess;
   private temporalBridge?: Pick<TemporalBridge, 'terminateWorkflow'>;
 
   private readonly kubeconfigDir: string;
   private readonly shell: Shell;
   private readonly koalaMachineId: string | undefined;
 
-  constructor(db: Database, infra: InfrastructureService, masterKey?: SecretKey, places: { kubeconfigDir?: string | undefined; shell?: Shell | undefined; koalaMachineId?: string | undefined } = {}) {
+  constructor(db: Database, infra: InfrastructureService, access: ClusterAccess, places: { kubeconfigDir?: string | undefined; shell?: Shell | undefined; koalaMachineId?: string | undefined } = {}) {
     super(db);
     this.infra = infra;
-    this.masterKey = masterKey || '';
+    this.access = access;
     this.kubeconfigDir = places.kubeconfigDir ?? '/tmp';
     this.shell = places.shell ?? execShell;
     this.koalaMachineId = 'koalaMachineId' in places ? places.koalaMachineId : process.env.INSTANCE_MACHINE_ID || undefined;
@@ -130,16 +131,7 @@ export class ClusterService extends BaseService {
   }
 
   private async machineKubeconfig(cluster: ClusterMetadata): Promise<string> {
-    if (!cluster.kubeconfigEnc && cluster.machineId && cluster.machineId === this.koalaMachineId) {
-      const own = `${this.kubeconfigDir}/kubeconfig-${SYSTEM_CLUSTER_ID}`;
-      await writePrivate(own, await this.infra.getManagementClusterKubeconfig(SYSTEM_CLUSTER_ID));
-      return own;
-    }
-    if (!cluster.kubeconfigEnc) throw new Error(`${cluster.name} has not started yet, so there is no way to reach it`);
-    if (!this.masterKey) throw new Error('this Koala holds no data key, so it cannot open a machine\'s kubeconfig');
-    const where = `${this.kubeconfigDir}/kubeconfig-machine-${cluster.id}`;
-    await writePrivate(where, decryptValue(cluster.kubeconfigEnc, this.masterKey));
-    return where;
+    return this.access.kubeconfigOf(cluster.id);
   }
 
   private writtenKubeconfig(cluster: ClusterMetadata): string {
@@ -631,158 +623,117 @@ export class ClusterService extends BaseService {
   }
 
   async listAllPods(id: string, principal: Principal): Promise<unknown[]> {
-    try {
-        const cluster = await this.getById(id, principal, 'see-everything');
-        if (!cluster) throw new Error('Cluster not found');
-        const physicalName = this.getPhysicalClusterName(cluster);
-        const context = (cluster.provider === 'k3d' || this.isMockCloud(cluster)) ? `k3d-${physicalName}` : undefined;
-        const args = ['get', 'pods', '--all-namespaces', '-o', 'json'];
-        if (context) args.push('--context', context);
-        
-        const kubeconfigPath = await this.getOwnKubeconfigPath(cluster);
-        const output = await this.infra.runKubectl(args, kubeconfigPath);
-        return listAt(JSON.parse(output) as unknown, 'items');
-    } catch (err) {
-        this.logger.error(`Failed to list all pods: ${(err as Error).message}`);
-        return [];
-    }
+    const cluster = await this.getById(id, principal, 'see-everything');
+    if (!cluster) throw new Error('Cluster not found');
+    const physicalName = this.getPhysicalClusterName(cluster);
+    const context = (cluster.provider === 'k3d' || this.isMockCloud(cluster)) ? `k3d-${physicalName}` : undefined;
+    const args = ['get', 'pods', '--all-namespaces', '-o', 'json'];
+    if (context) args.push('--context', context);
+    const output = await this.infra.runKubectl(args, await this.getOwnKubeconfigPath(cluster));
+    return listAt(JSON.parse(output) as unknown, 'items');
   }
 
   async getGpuStatus(id: string, principal: Principal) {
-    try {
-      const cluster = await this.getById(id, principal, 'see-everything');
-      if (!cluster) throw new Error('Cluster not found');
+    const cluster = await this.getById(id, principal, 'see-everything');
+    if (!cluster) throw new Error('Cluster not found');
 
-      const kubeconfigPath = await this.getOwnKubeconfigPath(cluster);
-      
-      let nodes: unknown[] = [];
-      try {
-        const nodesOutput = await this.infra.runKubectl(['get', 'nodes', '-o', 'json'], kubeconfigPath);
-        nodes = listAt(JSON.parse(nodesOutput) as unknown, 'items');
-      } catch (err) {
-        this.logger.warn(`Failed to fetch nodes for GPU status on cluster ${id}: ${(err as Error).message}`);
+    const kubeconfigPath = await this.getOwnKubeconfigPath(cluster);
+    const nodes = listAt(JSON.parse(await this.infra.runKubectl(['get', 'nodes', '-o', 'json'], kubeconfigPath)) as unknown, 'items');
+    const pods = await this.listAllPods(id, principal);
+
+    const devicePlugins: { vendor: string; name: string; status: string; readyPods: number; desiredPods: number }[] = [];
+    const dsOutput = await this.infra.runKubectl(['get', 'daemonsets', '-n', 'kube-system', '-o', 'json'], kubeconfigPath);
+    const dsItems = listAt(JSON.parse(dsOutput) as unknown, 'items');
+    for (const ds of dsItems) {
+      const name = textAt(ds, 'metadata', 'name') || '';
+      if (name.includes('nvidia-device-plugin') || name.includes('amdgpu-device-plugin')) {
+        const vendor = name.includes('nvidia') ? 'NVIDIA' : 'AMD';
+        const readyPods = numberAt(ds, 'status', 'numberReady') || 0;
+        const desiredPods = numberAt(ds, 'status', 'desiredNumberScheduled') || 0;
+        devicePlugins.push({
+          vendor,
+          name,
+          status: readyPods > 0 && readyPods >= desiredPods ? 'active' : 'degraded',
+          readyPods,
+          desiredPods,
+        });
       }
-
-      let pods: unknown[] = [];
-      try {
-        pods = await this.listAllPods(id, principal);
-      } catch (err) {
-        this.logger.warn(`Failed to fetch pods for GPU status on cluster ${id}: ${(err as Error).message}`);
-      }
-
-      const devicePlugins: { vendor: string; name: string; status: string; readyPods: number; desiredPods: number }[] = [];
-      try {
-        const dsOutput = await this.infra.runKubectl(['get', 'daemonsets', '-n', 'kube-system', '-o', 'json'], kubeconfigPath);
-        const dsItems = listAt(JSON.parse(dsOutput) as unknown, 'items');
-        for (const ds of dsItems) {
-          const name = textAt(ds, 'metadata', 'name') || '';
-          if (name.includes('nvidia-device-plugin') || name.includes('amdgpu-device-plugin')) {
-            const vendor = name.includes('nvidia') ? 'NVIDIA' : 'AMD';
-            const readyPods = numberAt(ds, 'status', 'numberReady') || 0;
-            const desiredPods = numberAt(ds, 'status', 'desiredNumberScheduled') || 0;
-            devicePlugins.push({
-              vendor,
-              name,
-              status: readyPods > 0 && readyPods >= desiredPods ? 'active' : 'degraded',
-              readyPods,
-              desiredPods,
-            });
-          }
-        }
-      } catch (err) {
-        this.logger.warn(`Failed to fetch the GPU device plugins on cluster ${id}: ${(err as Error).message}`);
-      }
-
-      let totalCapacity = 0;
-      let totalAllocatable = 0;
-      let vendor = 'none';
-
-      const nodeSummaries = nodes.map((node) => {
-        const nodeName = textAt(node, 'metadata', 'name') || 'unknown';
-        const capacityOf = (resource: string) => parseInt(textAt(node, 'status', 'capacity', resource) || '0', 10);
-        const allocatableOf = (resource: string) => parseInt(textAt(node, 'status', 'allocatable', resource) || '0', 10);
-
-        const nvidiaCap = capacityOf('nvidia.com/gpu');
-        const amdCap = capacityOf('amd.com/gpu');
-
-        const nvidiaAlloc = allocatableOf('nvidia.com/gpu');
-        const amdAlloc = allocatableOf('amd.com/gpu');
-
-        const nodeCap = nvidiaCap + amdCap;
-        const nodeAlloc = nvidiaAlloc + amdAlloc;
-
-        if (nvidiaCap > 0) vendor = 'NVIDIA';
-        else if (amdCap > 0 && vendor === 'none') vendor = 'AMD';
-
-        totalCapacity += nodeCap;
-        totalAllocatable += nodeAlloc;
-
-        return {
-          name: nodeName,
-          gpuCapacity: nodeCap,
-          gpuAllocatable: nodeAlloc,
-          nvidiaGpus: nvidiaCap,
-          amdGpus: amdCap,
-        };
-      });
-
-      let totalAllocated = 0;
-      const gpuPods: { name: string; namespace: string; gpus: number; status: string }[] = [];
-
-      for (const pod of pods) {
-        const phase = textAt(pod, 'status', 'phase');
-        if (phase === 'Succeeded' || phase === 'Failed') continue;
-
-        let podGpuCount = 0;
-
-        for (const container of listAt(pod, 'spec', 'containers')) {
-          const limit = (resource: string) => textAt(container, 'resources', 'limits', resource);
-          const request = (resource: string) => textAt(container, 'resources', 'requests', resource);
-          const gpuReq = parseInt(limit('nvidia.com/gpu') || request('nvidia.com/gpu') || limit('amd.com/gpu') || request('amd.com/gpu') || '0', 10);
-          podGpuCount += gpuReq;
-        }
-
-        if (podGpuCount > 0) {
-          totalAllocated += podGpuCount;
-          gpuPods.push({
-            name: textAt(pod, 'metadata', 'name') || 'unknown',
-            namespace: textAt(pod, 'metadata', 'namespace') || 'default',
-            gpus: podGpuCount,
-            status: phase || 'Unknown',
-          });
-        }
-      }
-
-      const availableGpus = Math.max(0, totalAllocatable - totalAllocated);
-      const passthroughEnabled = cluster.gpuEnabled ?? false;
-
-      return {
-        passthroughEnabled,
-        hasGpu: totalCapacity > 0 || passthroughEnabled,
-        vendor,
-        totalCapacity,
-        totalAllocatable,
-        totalAllocated,
-        availableGpus,
-        nodes: nodeSummaries,
-        devicePlugins,
-        gpuPods,
-      };
-    } catch (err) {
-      this.logger.error(`Failed to get GPU status for cluster ${id}: ${(err as Error).message}`);
-      return {
-        passthroughEnabled: false,
-        hasGpu: false,
-        vendor: 'none',
-        totalCapacity: 0,
-        totalAllocatable: 0,
-        totalAllocated: 0,
-        availableGpus: 0,
-        nodes: [],
-        devicePlugins: [],
-        gpuPods: [],
-        error: (err as Error).message,
-      };
     }
+
+    let totalCapacity = 0;
+    let totalAllocatable = 0;
+    let vendor = 'none';
+
+    const nodeSummaries = nodes.map((node) => {
+      const nodeName = textAt(node, 'metadata', 'name') || 'unknown';
+      const capacityOf = (resource: string) => parseInt(textAt(node, 'status', 'capacity', resource) || '0', 10);
+      const allocatableOf = (resource: string) => parseInt(textAt(node, 'status', 'allocatable', resource) || '0', 10);
+
+      const nvidiaCap = capacityOf('nvidia.com/gpu');
+      const amdCap = capacityOf('amd.com/gpu');
+
+      const nvidiaAlloc = allocatableOf('nvidia.com/gpu');
+      const amdAlloc = allocatableOf('amd.com/gpu');
+
+      const nodeCap = nvidiaCap + amdCap;
+      const nodeAlloc = nvidiaAlloc + amdAlloc;
+
+      if (nvidiaCap > 0) vendor = 'NVIDIA';
+      else if (amdCap > 0 && vendor === 'none') vendor = 'AMD';
+
+      totalCapacity += nodeCap;
+      totalAllocatable += nodeAlloc;
+
+      return {
+        name: nodeName,
+        gpuCapacity: nodeCap,
+        gpuAllocatable: nodeAlloc,
+        nvidiaGpus: nvidiaCap,
+        amdGpus: amdCap,
+      };
+    });
+
+    let totalAllocated = 0;
+    const gpuPods: { name: string; namespace: string; gpus: number; status: string }[] = [];
+
+    for (const pod of pods) {
+      const phase = textAt(pod, 'status', 'phase');
+      if (phase === 'Succeeded' || phase === 'Failed') continue;
+
+      let podGpuCount = 0;
+
+      for (const container of listAt(pod, 'spec', 'containers')) {
+        const limit = (resource: string) => textAt(container, 'resources', 'limits', resource);
+        const request = (resource: string) => textAt(container, 'resources', 'requests', resource);
+        const gpuReq = parseInt(limit('nvidia.com/gpu') || request('nvidia.com/gpu') || limit('amd.com/gpu') || request('amd.com/gpu') || '0', 10);
+        podGpuCount += gpuReq;
+      }
+
+      if (podGpuCount > 0) {
+        totalAllocated += podGpuCount;
+        gpuPods.push({
+          name: textAt(pod, 'metadata', 'name') || 'unknown',
+          namespace: textAt(pod, 'metadata', 'namespace') || 'default',
+          gpus: podGpuCount,
+          status: phase || 'Unknown',
+        });
+      }
+    }
+
+    const availableGpus = Math.max(0, totalAllocatable - totalAllocated);
+    const passthroughEnabled = cluster.gpuEnabled ?? false;
+
+    return {
+      passthroughEnabled,
+      hasGpu: totalCapacity > 0 || passthroughEnabled,
+      vendor,
+      totalCapacity,
+      totalAllocatable,
+      totalAllocated,
+      availableGpus,
+      nodes: nodeSummaries,
+      devicePlugins,
+      gpuPods,
+    };
   }
 }

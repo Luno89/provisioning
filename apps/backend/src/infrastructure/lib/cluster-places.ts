@@ -1,4 +1,5 @@
 import type { ClusterMetadata } from '../../platform/index.js';
+import { machineClusterId } from './cluster-name.js';
 
 export const ROOT_CLUSTER_ID = 'root';
 
@@ -31,6 +32,7 @@ export function placeOf(clusterId: string, cluster: KnownCluster | undefined, he
   if (clusterId === ROOT_CLUSTER_ID) {
     return here.root ? { kind: 'root', clusterId } : unreachable(clusterId, 'not-root', 'only root reaches root\'s own cluster');
   }
+  if (here.koalaMachineId && clusterId === machineClusterId(here.koalaMachineId)) return { kind: 'koala', clusterId };
   if (!cluster) return unreachable(clusterId, 'unknown', `there is no cluster ${clusterId}`);
   if (cluster.provider !== 'machine') return unreachable(clusterId, 'other-kind', `${cluster.name} is a ${cluster.provider} cluster, and every cluster Koala reaches is a machine's`);
   if (here.koalaMachineId && cluster.machineId === here.koalaMachineId) return { kind: 'koala', clusterId };

@@ -51,7 +51,7 @@ export { ownedBy, withBuiltIns } from './lib/ownership.js';
 export { allowed, asPerson, authorize, claimsOf, clusterResource, holds, memberPrincipal, operatorsAmong, PERMISSIONS, principalOf, rolePrincipal, SESSION_PERMISSIONS, sessionPermissions, sessionView, SHARED_ROLES, sharedActionsOf, sharedRoleOf, withSharedRole } from './lib/permissions.js';
 export type { Actions, Claim, ClaimedUser, ClaimSettings, Decision, Principal, Resource, SessionPermission, SessionPlace, SessionView, SharedAction, SharedRole } from './lib/permissions.js';
 export { claimSettingsFrom, holdsAccounts, roleFromEnv, servesHub, servesTenants, signsInThroughRoot } from './lib/platform-role.js';
-export type { RoleConfig } from './lib/platform-role.js';
+export type { PlatformRole, RoleConfig } from './lib/platform-role.js';
 export { writePrivate } from './lib/private-file.js';
 export { ProcessFailed, succeeded } from './lib/processes.js';
 export type { Followed, ProcessResult, ProcessRun, Processes, Streams } from './lib/processes.js';

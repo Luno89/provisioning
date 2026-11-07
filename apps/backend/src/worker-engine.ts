@@ -30,6 +30,7 @@ import {
   InfrastructureService, LOG_DIR, InfisicalService, HeadscaleService, deployProjectBuild, sharedClusterProxy,
   ClusterService, visibleAppSpecs, resolveBindings, healthPort, serveHealth,
 } from './infrastructure/index.js';
+import { clusterAccessFrom } from './infrastructure/wiring/cluster-access.js';
 import { createModelService } from './models/wiring/model-wiring.js';
 import { createAccountRemovalActivities, removalMeshFor } from './activities/RemoveAccountActivities.js';
 import { createProjectRemovalActivities, type AppTeardown } from './activities/RemoveProjectActivities.js';
@@ -139,7 +140,7 @@ async function buildActivities() {
     }).ensure(project),
   });
   const kubeInfra = new InfrastructureService();
-  const clusterService = new ClusterService(db, kubeInfra, keys.data);
+  const clusterService = new ClusterService(db, kubeInfra, clusterAccessFrom(process.env, { role: roleFromEnv(process.env).role, clusters: db.infrastructure, dataKey: keys.data }));
   const artifactStore = createArtifactService(db, kubeInfra, clusterService);
   const fileStores = new FileStores(artifactStore.reach);
   const vault = createSecretVault({

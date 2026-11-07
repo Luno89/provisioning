@@ -21,6 +21,7 @@ import { ClusterProxyService } from '../services/ClusterProxyService.js';
 import { InfisicalService } from '../services/InfisicalService.js';
 import type { InfrastructureService } from '../services/InfrastructureService.js';
 import { GiteaService } from '../../projects/services/GiteaService.js';
+import { testClusterAccess } from '../testing/cluster-access.js';
 
 const ANY_STATUS = { validateStatus: () => true };
 const KEY = 'test-secret';
@@ -75,6 +76,7 @@ const infraOnHost = (unreachable?: string) => {
   infra.listLocalClusters.mockResolvedValue([]);
   infra.runHelm.mockResolvedValue('[]');
   infra.runKubectl.mockImplementation(async (args) => {
+    if (unreachable) throw new Error(unreachable);
     if (args[0] === 'get' && args[1] === 'secret') return Buffer.from('grafana-admin-password').toString('base64');
     return JSON.stringify({ items: [] });
   });
@@ -130,7 +132,7 @@ const mount = async (options: MountOptions = {}): Promise<Mounted> => {
       await seedOwnCluster(db);
       await options.seed?.(db);
       const infra = infraOnHost(options.unreachable);
-      const clusterService = new ClusterService(db, infra, KEY, { kubeconfigDir, koalaMachineId: options.koalaMachineId });
+      const clusterService = new ClusterService(db, infra, testClusterAccess(db, { dataKey: KEY, koalaMachineId: options.koalaMachineId, folder: kubeconfigDir, serviceAccount: { host: 'kubernetes.default.svc', port: '443', caFile: '/sa/ca.crt', tokenFile: '/sa/token' } }), { kubeconfigDir, koalaMachineId: options.koalaMachineId });
       const appService = new AppService(db, infra, clusterService, new BuilderService(db, infra));
       const clusterProxyService = new ClusterProxyService();
       const bridge = new TemporalBridge(db, undefined, KEY, clusterService);
@@ -295,7 +297,7 @@ describe('what only whoever owns a cluster may open', () => {
 
 describe('when the cluster cannot be reached', () => {
   it('answers rather than hanging', async () => {
-    const { h } = await mount({ koalaMachineId: 'koala-box', unreachable: 'dial tcp: i/o timeout' });
+    const { h } = await mount({ koalaMachineId: 'koala-box', instanceOwner: TEST_USER.id, unreachable: 'dial tcp: i/o timeout' });
     await expect(axios.get(h.url('/api/clusters/machine-koala-box/gpu-status'), { timeout: 3000 })).rejects.toMatchObject({
       response: { status: 500, data: { error: 'dial tcp: i/o timeout' } },
     });
