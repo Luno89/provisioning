@@ -5,7 +5,6 @@ import { signsInAsPlatform, validateClusterName } from '../lib/cluster-name.js';
 import { isClusterProviderName, notAClusterProvider, ProvisionRefused } from '../lib/cluster-topology.js';
 import { provisionRequestOf } from '../lib/cluster-request.js';
 import type { ClusterService } from '../services/ClusterService.js';
-import type { AppService } from '../services/AppService.js';
 import type { ClusterProxyService } from '../services/ClusterProxyService.js';
 import type { GiteaService } from '../../projects/index.js';
 import type { InfisicalService } from '../services/InfisicalService.js';
@@ -23,7 +22,6 @@ export interface ProvisionStarted {
 
 export interface ClustersRouterDeps {
   clusterService: ClusterService;
-  appService: Pick<AppService, 'discoverDeployments'>;
   clusterProxyService: Pick<ClusterProxyService, 'ensurePortForward' | 'stopForCluster' | 'getAutoLoginCookies'>;
   giteaService: GiteaService;
   infisicalService: InfisicalService;
@@ -39,7 +37,7 @@ const userOf = (req: Request): { id: string; email: string } =>
 
 export function clustersRouter(deps: ClustersRouterDeps): Router {
   const {
-    clusterService, appService, clusterProxyService, infraService,
+    clusterService, clusterProxyService, infraService,
     temporalBridge, io, giteaService, infisicalService,
   } = deps;
   const router = Router();
@@ -148,27 +146,6 @@ export function clustersRouter(deps: ClustersRouterDeps): Router {
       } catch (fallbackErr) {
         res.status(503).json({ error: `Cluster destruction unavailable: ${(err as Error).message}; deleting its record failed too: ${(fallbackErr as Error).message}` });
       }
-    }
-  }));
-
-  router.post('/discover', asyncRoute(async (req, res) => {
-    const decision = authorize(principalFrom(req), 'administer', { kind: 'install' });
-    if (!decision.allowed) return res.status(decision.status).json({ error: decision.error });
-    try {
-      const discovered = await clusterService.discoverClusters(userOf(req).id);
-      res.json({ clusters: discovered });
-    } catch (err) {
-      res.status(500).json({ error: (err as Error).message });
-    }
-  }));
-
-  router.post('/:id/discover-deployments', asyncRoute(async (req, res) => {
-    if (!(await ownedCluster(req))) return res.status(404).json({ error: 'Cluster not found' });
-    try {
-      const discovered = await appService.discoverDeployments(idOf(req), principalFrom(req));
-      res.json({ deployments: discovered });
-    } catch (err) {
-      res.status(500).json({ error: (err as Error).message });
     }
   }));
 

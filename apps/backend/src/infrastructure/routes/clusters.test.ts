@@ -4,7 +4,6 @@ import type { Server as SocketServer } from 'socket.io';
 import type { ClusterMetadata, Principal } from '../../platform/index.js';
 import type { GiteaService } from '../../projects/index.js';
 import { ProvisionRefused } from '../lib/cluster-topology.js';
-import type { AppService } from '../services/AppService.js';
 import type { ClusterProxyService } from '../services/ClusterProxyService.js';
 import type { ClusterService } from '../services/ClusterService.js';
 import type { InfisicalService } from '../services/InfisicalService.js';
@@ -22,19 +21,18 @@ const by = (user: HarnessUser) => matches<Principal>((who) => who.id === user.id
 
 function setup() {
   const clusterService = mock<ClusterService>();
-  const appService = mock<Pick<AppService, 'discoverDeployments'>>();
   const clusterProxyService = mock<Pick<ClusterProxyService, 'ensurePortForward' | 'stopForCluster' | 'getAutoLoginCookies'>>();
   const giteaService = mock<GiteaService>();
   const infisicalService = mock<InfisicalService>();
   const infraService = mock<Pick<InfrastructureService, 'runKubectl'>>();
   const temporalBridge = mock<TemporalBridge>();
   const router = clustersRouter({
-    clusterService, appService, clusterProxyService, giteaService, infisicalService, infraService, temporalBridge,
+    clusterService, clusterProxyService, giteaService, infisicalService, infraService, temporalBridge,
     io: mock<SocketServer>(),
   });
   const call = (path: string, method: 'GET' | 'POST' | 'DELETE' = 'GET', body?: unknown, user?: HarnessUser) =>
     routesInProcess({ prefix: '/api/clusters', router: () => router, user: PERSON }).then((routes) => routes.request(method, `/api/clusters${path}`, { ...(body !== undefined ? { body } : {}), ...(user ? { user } : {}) }));
-  return { clusterService, appService, clusterProxyService, giteaService, infisicalService, infraService, temporalBridge, call };
+  return { clusterService, clusterProxyService, giteaService, infisicalService, infraService, temporalBridge, call };
 }
 
 describe('listing clusters', () => {
@@ -130,35 +128,6 @@ describe('destroying a cluster', () => {
     const both = await call('/c1', 'DELETE');
     expect(both.status).toBe(503);
     expect(both.data).toEqual({ error: 'Cluster destruction unavailable: no worker; deleting its record failed too: database down' });
-  });
-});
-
-describe('discovering', () => {
-  it('lets only the operator adopt the host\'s clusters', async () => {
-    const { clusterService, call } = setup();
-    clusterService.discoverClusters.calledWith(OPERATOR.id).mockResolvedValue([cluster({ status: 'discovered' })]);
-    expect((await call('/discover', 'POST', {})).status).toBe(403);
-    expect((await call('/discover', 'POST', {}, OPERATOR)).data).toEqual({ clusters: [cluster({ status: 'discovered' })] });
-    clusterService.discoverClusters.mockRejectedValue(new Error('k3d not found'));
-    expect((await call('/discover', 'POST', {}, OPERATOR)).data).toEqual({ error: 'k3d not found' });
-  });
-
-  it('discovers the deployments on a cluster the person may see', async () => {
-    const { clusterService, appService, call } = setup();
-    expect((await call('/c1/discover-deployments', 'POST')).status).toBe(404);
-    clusterService.getById.calledWith('c1', by(PERSON), 'see-everything').mockResolvedValue(cluster());
-    appService.discoverDeployments.calledWith('c1', by(PERSON)).mockResolvedValue([]);
-    expect((await call('/c1/discover-deployments', 'POST')).data).toEqual({ deployments: [] });
-    appService.discoverDeployments.mockRejectedValue(new Error('no kubectl'));
-    expect((await call('/c1/discover-deployments', 'POST')).status).toBe(500);
-  });
-
-  it('reports the GPUs of a cluster the person may see', async () => {
-    const { clusterService, call } = setup();
-    expect((await call('/c1/gpu-status')).status).toBe(404);
-    clusterService.getById.calledWith('c1', by(PERSON), 'see-everything').mockResolvedValue(cluster());
-    clusterService.getGpuStatus.calledWith('c1', by(PERSON)).mockResolvedValue({ gpus: 1 } as never);
-    expect((await call('/c1/gpu-status')).data).toEqual({ gpus: 1 });
   });
 });
 

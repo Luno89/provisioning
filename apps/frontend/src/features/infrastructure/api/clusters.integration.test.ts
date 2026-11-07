@@ -21,7 +21,6 @@ const backend = await startBackend(async (site) => {
   infra = await infrastructureOf(site)
   site.api.use('/clusters', clustersRouter({
     clusterService: infra.clusters,
-    appService: infra.apps,
     clusterProxyService: outsideThisTier<ClusterProxyService>('the cluster dashboard proxy', { stopForCluster: () => undefined }),
     giteaService: outsideThisTier<GiteaService>('Gitea'),
     infisicalService: outsideThisTier<InfisicalService>('Infisical'),

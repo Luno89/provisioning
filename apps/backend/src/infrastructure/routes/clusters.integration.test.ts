@@ -15,8 +15,6 @@ import { temporalTestEnvironment } from '../../workflows/temporal-test-env.js';
 import { TemporalBridge } from '../services/TemporalBridge.js';
 import { CredentialService } from '../services/CredentialService.js';
 import { ClusterService } from '../services/ClusterService.js';
-import { AppService } from '../services/AppService.js';
-import { BuilderService } from '../services/BuilderService.js';
 import { ClusterProxyService } from '../services/ClusterProxyService.js';
 import { InfisicalService } from '../services/InfisicalService.js';
 import type { InfrastructureService } from '../services/InfrastructureService.js';
@@ -83,12 +81,10 @@ const infraOnHost = (unreachable?: string) => {
   return infra;
 };
 
-const spiesOn = (clusterService: ClusterService, appService: AppService, clusterProxyService: ClusterProxyService, bridge: TemporalBridge) => ({
+const spiesOn = (clusterService: ClusterService, clusterProxyService: ClusterProxyService, bridge: TemporalBridge) => ({
   getAll: vi.spyOn(clusterService, 'getAll'),
   getById: vi.spyOn(clusterService, 'getById'),
   getGpuStatus: vi.spyOn(clusterService, 'getGpuStatus'),
-  discoverClusters: vi.spyOn(clusterService, 'discoverClusters'),
-  discoverDeployments: vi.spyOn(appService, 'discoverDeployments'),
   ensurePortForward: vi.spyOn(clusterProxyService, 'ensurePortForward').mockImplementation(async (clusterId, serviceKey) => (serviceKey === 'grafana' ? grafanaUrl : `${grafanaUrl}${clusterId}/${serviceKey}/`)),
   getAutoLoginCookies: vi.spyOn(clusterProxyService, 'getAutoLoginCookies'),
   provision: vi.spyOn(bridge, 'provision'),
@@ -133,7 +129,6 @@ const mount = async (options: MountOptions = {}): Promise<Mounted> => {
       await options.seed?.(db);
       const infra = infraOnHost(options.unreachable);
       const clusterService = new ClusterService(db, infra, testClusterAccess(db, { dataKey: KEY, koalaMachineId: options.koalaMachineId, folder: kubeconfigDir, serviceAccount: { host: 'kubernetes.default.svc', port: '443', caFile: '/sa/ca.crt', tokenFile: '/sa/token' } }), { kubeconfigDir, koalaMachineId: options.koalaMachineId });
-      const appService = new AppService(db, infra, clusterService, new BuilderService(db, infra));
       const clusterProxyService = new ClusterProxyService();
       const bridge = new TemporalBridge(db, undefined, KEY, clusterService);
       if (options.temporal) bridge.client = env.client;
@@ -141,11 +136,10 @@ const mount = async (options: MountOptions = {}): Promise<Mounted> => {
         infra,
         clusterService,
         bridge,
-        spies: spiesOn(clusterService, appService, clusterProxyService, bridge),
+        spies: spiesOn(clusterService, clusterProxyService, bridge),
       };
       return clustersRouter({
         clusterService,
-        appService,
         clusterProxyService,
         infraService: infra,
         temporalBridge: bridge,
@@ -265,25 +259,14 @@ describe('what only whoever owns a cluster may open', () => {
     h = undefined;
   });
 
-  it('lets only the operator make records of the system cluster\'s apps, and nobody delete it', async () => {
-    const { h, spies } = await mount({ user: someone });
-    const discover = await axios.post<unknown>(h.url(`/api/clusters/${SYSTEM}/discover-deployments`), undefined, ANY_STATUS);
-    expect([discover.status, discover.data]).toEqual([404, { error: 'Cluster not found' }]);
-    expect(spies.discoverDeployments).not.toHaveBeenCalled();
+  it('lets nobody delete the system cluster, the operator included', async () => {
+    const { h } = await mount({ user: someone });
     const deleted = await axios.delete<unknown>(h.url(`/api/clusters/${SYSTEM}`), ANY_STATUS);
     expect([deleted.status, deleted.data]).toEqual([403, { error: 'The system cluster cannot be deleted' }]);
     await h.close();
     const asOperator = await mount({ user: admin });
-    expect((await axios.post(asOperator.h.url(`/api/clusters/${SYSTEM}/discover-deployments`))).status).toBe(200);
     const operatorDeletes = await axios.delete<unknown>(asOperator.h.url(`/api/clusters/${SYSTEM}`), ANY_STATUS);
     expect(operatorDeletes.status).toBe(403);
-  });
-
-  it('lets only the operator adopt the host\'s clusters', async () => {
-    const { h, spies } = await mount({ user: someone });
-    const refused = await axios.post<unknown>(h.url('/api/clusters/discover'), undefined, ANY_STATUS);
-    expect([refused.status, refused.data]).toEqual([403, { error: 'Only the operator of this server can do that.' }]);
-    expect(spies.discoverClusters).not.toHaveBeenCalled();
   });
 
   it('opens a cluster of the caller\'s own', async () => {
@@ -301,18 +284,6 @@ describe('when the cluster cannot be reached', () => {
     await expect(axios.get(h.url('/api/clusters/machine-koala-box/gpu-status'), { timeout: 3000 })).rejects.toMatchObject({
       response: { status: 500, data: { error: 'dial tcp: i/o timeout' } },
     });
-  });
-});
-
-describe('adopting the clusters left on the host', () => {
-  it('is an admin\'s to do', async () => {
-    const { h, spies } = await mount();
-    expect((await axios.post(h.url('/api/clusters/discover'), {}, { validateStatus: () => true })).status).toBe(403);
-    expect(spies.discoverClusters).not.toHaveBeenCalled();
-    await h.close();
-    const admin = await mount({ user: { ...TEST_USER, roles: ['operator' as const] } as typeof TEST_USER });
-    expect((await axios.post(admin.h.url('/api/clusters/discover'), {})).status).toBe(200);
-    expect(admin.spies.discoverClusters).toHaveBeenCalledWith(TEST_USER.id);
   });
 });
 

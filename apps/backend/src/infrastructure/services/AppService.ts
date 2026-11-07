@@ -1,29 +1,13 @@
-import { allowed, asPerson, BaseService, type Database, type DeploymentMetadata, listAt, type Principal, textAt } from '../../platform/index.js';
+import { allowed, asPerson, BaseService, type Database, type DeploymentMetadata, listAt, textAt } from '../../platform/index.js';
 import { InfrastructureService } from './InfrastructureService.js';
 import { ClusterService } from './ClusterService.js';
 import { BuilderService } from './BuilderService.js';
 import type { TemporalBridge } from './TemporalBridge.js';
-import { definedFields, type DeployRequest } from '../lib/deploy-request.js';
-import { ignore } from '@koala/engine-core/failures';
 import { StorageAdapter } from './StorageAdapter.js';
 import { isSelfManagedCluster } from '../lib/cluster-topology.js';
-import { sanitizeNamespace, llmAppSpec, specFromTag, inClusterBaseUrl } from '../../models/index.js';
 import { namespaceOf } from '../lib/app-namespace.js';
 import { appSignIns, PALWORLD_SECRET, secretValues, type AppSignIn } from '../lib/app-sign-in.js';
-import { v4 as uuidv4 } from 'uuid';
-import { appTypeFromName } from '../lib/app-spec.js';
 import { Server as SocketServer } from 'socket.io';
-import os from 'os';
-import path from 'path';
-
-const DEFAULT_KUBECONFIG = path.join(os.homedir(), '.kube/config');
-
-type AppDeployConfig = DeployRequest & {
-  vpnEnabled?: boolean;
-  vpnProtocol?: 'wireguard' | 'openvpn';
-  vpnConfig?: string;
-  vpnDedicatedIp?: string;
-};
 
 const namesOf = (listJson: string): string[] =>
   listAt(JSON.parse(listJson) as unknown, 'items').map((item) => textAt(item, 'metadata', 'name') ?? '');
@@ -115,264 +99,15 @@ export class AppService extends BaseService {
     return cleanDeployments.filter((d) => d.ownerId === userId);
   }
 
-  async discoverDeployments(clusterId: string, principal: Principal): Promise<DeploymentMetadata[]> {
-    const cluster = await this.clusters.getById(clusterId, principal, 'see-everything');
-    if (!cluster) throw new Error('Cluster not found');
-
-    const kubeconfigPath = await this.clusters.getKubeconfigPath(cluster);
-    const dbDeployments = await this.db.infrastructure.getDeployments();
-    const clusterDeployments = dbDeployments.filter(d => d.clusterId === clusterId);
-    const now = new Date().toISOString();
-
-    const nsOutput = await this.infra.runKubectl(['get', 'ns', '-o', 'json'], kubeconfigPath);
-    const userNamespaces = namesOf(nsOutput)
-      .filter((n) => !n.startsWith('kube-') && n !== 'default' && n !== 'kube-node-lease');
-
-    let helmReleases: unknown[] = [];
-    try {
-      const isMock = this.clusters.isMockCloud(cluster);
-      const physicalName = this.clusters.getPhysicalClusterName(cluster);
-      const context = (cluster.provider === 'k3d' || isMock) ? `k3d-${physicalName}` : undefined;
-      const args = ['list', '-A', '-o', 'json'];
-      if (context) args.push('--kube-context', context);
-      const helmOutput = await this.infra.runHelm(args, kubeconfigPath);
-      helmReleases = listAt(JSON.parse(helmOutput) as unknown);
-    } catch (failure) {
-      ignore('without helm\'s releases each namespace is told apart by its pods instead')(failure);
-    }
-
-    const discovered: DeploymentMetadata[] = [];
-    const catalogueIds = (await this.db.infrastructure.getAppSpecs()).map((s) => s.id);
-
-    for (const ns of userNamespaces) {
-      const alreadyTracked = clusterDeployments.some(d => namespaceOf(d) === ns);
-      if (alreadyTracked) continue;
-
-      const nsReleases = helmReleases.filter((r) => textAt(r, 'Namespace') === ns);
-      let appType: DeploymentMetadata['appType'] | undefined;
-      let strategy: 'helm' | 'native' = 'native';
-      let webRepo: string | undefined;
-      let webTag: string | undefined;
-      let dbRepo: string | undefined;
-      let dbTag: string | undefined;
-
-      if (nsReleases.length > 0) {
-        strategy = 'helm';
-        const releaseName = textAt(nsReleases[0], 'Chart')?.split(':')[0]?.toLowerCase() ?? '';
-        appType = appTypeFromName(releaseName, catalogueIds);
-      } else {
-        try {
-          const podsOutput = await this.infra.runKubectl(['get', 'pods', '-n', ns, '-o', 'json'], kubeconfigPath);
-          const podNames = namesOf(podsOutput).map((n) => n.split('-')[0] ?? '');
-          appType = podNames.map((p) => appTypeFromName(p, catalogueIds)).find(Boolean);
-        } catch (failure) {
-          ignore('a namespace whose pods cannot be listed is discovered without an app type')(failure);
-        }
-      }
-
-      const entry: DeploymentMetadata = {
-        id: uuidv4(),
-        name: ns,
-        clusterId,
-        strategy,
-        status: 'running',
-        lastSyncedAt: now,
-        ...(cluster.ownerId !== undefined ? { ownerId: cluster.ownerId } : {}),
-      };
-      if (appType) entry.appType = appType;
-      if (webRepo) entry.webRepo = webRepo;
-      if (webTag) entry.webTag = webTag;
-      if (dbRepo) entry.dbRepo = dbRepo;
-      if (dbTag) entry.dbTag = dbTag;
-      discovered.push(entry);
-    }
-
-    for (const deployment of discovered) await this.db.infrastructure.saveDeployment(deployment);
-
-    return discovered;
-  }
-
-  async deploy(config: AppDeployConfig, userId: string, io?: SocketServer) {
-    const {
-      name, clusterId, odooRepo, odooTag, pgRepo, pgTag, modules = [], appType = 'odoo', storage = {},
-      vpnEnabled = false, vpnProtocol = 'wireguard', vpnConfig = '', vpnDedicatedIp = ''
-    } = config;
-    if (!name || !clusterId) throw new Error('an app needs a name and a cluster to deploy to');
-    let strategy = config.strategy || 'helm';
-    if (appType === 'odoo') {
-      strategy = 'native';
-    }
-    const cluster = await this.clusters.getById(clusterId, asPerson(userId), 'deploy-to');
-    if (!cluster) throw new Error('Cluster not found');
-
-    const id = uuidv4();
-    const logFile = this.infra.getLogPath(`${name}-deploy`);
-    const metadata: DeploymentMetadata = { 
-      id, 
-      name, 
-      clusterId, 
-      strategy, 
-      appType,
-      status: 'deploying', 
-      lastLogPath: logFile, 
-      modules,
-      ...definedFields({ webRepo: odooRepo, webTag: odooTag, dbRepo: pgRepo, dbTag: pgTag }),
-      storage,
-      vpnEnabled,
-      vpnProtocol,
-      vpnConfig,
-      vpnDedicatedIp,
-      ownerId: userId,
-    };
-    await this.db.infrastructure.saveDeployment(metadata);
-
-    const sanitizedName = sanitizeNamespace(name);
-
-    (async () => {
-      try {
-        let finalOdooRepo = odooRepo;
-        let finalOdooTag = odooTag;
-
-        const isMock = this.clusters.isMockCloud(cluster);
-        const physicalName = this.clusters.getPhysicalClusterName(cluster);
-        const kubeconfigPath = await this.clusters.getKubeconfigPath(cluster);
-
-        let effectiveDevice = process.env.VLLM_DEVICE || (config.vllmGpuCount === 0 ? 'cpu' : (config.vllmGpuVendor === 'amd' ? 'rocm' : 'cuda'));
-        let effectiveGpuCount = config.vllmGpuCount !== undefined ? config.vllmGpuCount : 1;
-
-        if (appType === 'vllm' && (cluster.provider === 'k3d' || isMock)) {
-          if (effectiveGpuCount > 0 && effectiveDevice !== 'cpu') {
-            const gpuVendor = config.vllmGpuVendor || 'nvidia';
-            try {
-              await this.infra.checkGpuToolkit(gpuVendor);
-              await this.infra.installGpuDevicePlugin(gpuVendor, kubeconfigPath);
-            } catch (err) {
-              this.logger.warn(`[AppService] GPU toolkit check or device plugin install failed (${(err as Error).message}). Falling back to CPU mode.`);
-              effectiveDevice = 'cpu';
-              effectiveGpuCount = 0;
-            }
-          }
-        }
-
-        if (modules.length > 0) {
-            const baseImage = `${odooRepo}:${odooTag}`;
-            const customTag = await this.builder.buildCustomImage(baseImage, modules, appType, { io, resourceId: id, logFile });
-
-            if (cluster.gpuEnabled) {
-                if (io) io.to(id).emit('log', `\n--- SKIPPING K3D IMPORT (GPU-attached cluster runs native k3s) — custom image "${customTag}" must be pushed to a registry to be pullable here ---\n`);
-            } else if (cluster.provider === 'k3d' || isMock) {
-                if (io) io.to(id).emit('log', `\n--- IMPORTING IMAGE INTO K3D: ${customTag} ---\n`);
-                await this.infra.importImage(physicalName, customTag, { logFile, io, resourceId: id });
-            }
-
-            finalOdooRepo = customTag.split(':')[0] ?? '';
-            finalOdooTag = customTag.split(':')[1] ?? '';
-        } else {
-            if ((cluster.provider === 'k3d' || isMock) && !cluster.gpuEnabled) {
-                if (appType === 'vllm') {
-                    const gpuVendor = config.vllmGpuVendor || 'nvidia';
-                    const vllmImageTag = (finalOdooTag && finalOdooTag !== 'latest') ? finalOdooTag : 'v0.7.2';
-                    const vllmImage = gpuVendor === 'amd'
-                        ? `vllm/vllm-openai-rocm:${vllmImageTag}`
-                        : `vllm/vllm-openai:${vllmImageTag}`;
-                    if (io) io.to(id).emit('log', `\n--- PULLING & IMPORTING VLLM IMAGE INTO K3D: ${vllmImage} ---\n`);
-                    await this.infra.pullAndImportImage(physicalName, vllmImage, { logFile, io, resourceId: id });
-                } else if (finalOdooRepo && finalOdooTag) {
-                    const appImage = `${finalOdooRepo}:${finalOdooTag}`;
-                    if (io) io.to(id).emit('log', `\n--- PULLING & IMPORTING APP IMAGE INTO K3D: ${appImage} ---\n`);
-                    await this.infra.pullAndImportImage(physicalName, appImage, { logFile, io, resourceId: id });
-                }
-                if (pgRepo && pgTag) {
-                    const dbImage = `${pgRepo}:${pgTag}`;
-                    if (io) io.to(id).emit('log', `\n--- PULLING & IMPORTING DB IMAGE INTO K3D: ${dbImage} ---\n`);
-                    await this.infra.pullAndImportImage(physicalName, dbImage, { logFile, io, resourceId: id });
-                }
-            }
-        }
-
-        let openaiApiBaseUrl = '';
-        const targetId = appType === 'hermes' ? config.hermesTargetId : (appType === 'openwebui' ? config.openWebuiTargetId : undefined);
-        if (targetId) {
-          const allDeployments = await this.db.infrastructure.getDeployments();
-          const target = allDeployments.find((d: DeploymentMetadata) => d.id === targetId);
-          if (target && target.clusterId === clusterId) {
-            const spec = llmAppSpec(target.appType)
-              ?? (target.llmApi ? specFromTag(target.llmApi, target.appType ?? 'custom') : undefined);
-            if (spec) {
-              openaiApiBaseUrl = inClusterBaseUrl(spec, namespaceOf(target));
-            } else {
-              this.logger.warn(`[AppService] ${appType} deployment "${name}" targets "${target.name}" (${target.appType}), which serves no OpenAI-compatible API — skipping OPENAI_API_BASE_URL.`);
-            }
-          } else if (target) {
-            this.logger.warn(`[AppService] ${appType} deployment "${name}" targets LLM deployment "${target.name}" on a different cluster — skipping OPENAI_API_BASE_URL.`);
-          }
-        }
-
-        const storageEnv = StorageAdapter.getStorageEnv(appType, strategy, storage);
-        const env: Record<string, string> = {
-          STACK_TYPE: 'app',
-          CLUSTER_NAME: physicalName,
-          DEPLOYMENT_STRATEGY: strategy,
-          DEPLOYMENT_NAME: sanitizedName,
-          DEPLOYMENT_ID: id.slice(0, 8),
-          KUBECONFIG: kubeconfigPath,
-          KUBECONFIG_CONTEXT: (cluster.provider === 'k3d' || isMock) ? `k3d-${physicalName}` : '',
-          SELF_MANAGED_K8S: isSelfManagedCluster(cluster.provider, isMock) ? 'true' : 'false',
-          APP_TYPE: appType,
-          WEB_IMAGE_REPO: finalOdooRepo || '',
-          WEB_IMAGE_TAG: finalOdooTag || '',
-          DB_IMAGE_REPO: pgRepo || '',
-          DB_IMAGE_TAG: pgTag || '',
-          VLLM_MODEL: config.vllmModel || '',
-          VLLM_GPU_COUNT: String(effectiveGpuCount),
-          VLLM_GPU_VENDOR: config.vllmGpuVendor || 'nvidia',
-          VLLM_CACHE_PVC: config.vllmCachePvc || '',
-          VLLM_IMAGE_TAG: (finalOdooTag && finalOdooTag !== 'latest') ? finalOdooTag : 'v0.7.2',
-          VLLM_DEVICE: effectiveDevice,
-          VLLM_HF_TOKEN: config.vllmHfToken || process.env.HF_TOKEN || '',
-          HF_TOKEN: config.vllmHfToken || process.env.HF_TOKEN || '',
-          VLLM_MAX_MODEL_LEN: config.vllmMaxModelLen !== undefined ? String(config.vllmMaxModelLen) : '',
-          VLLM_GPU_MEM_UTIL: config.vllmGpuMemUtil !== undefined ? String(config.vllmGpuMemUtil) : '',
-          VLLM_EXTRA_ARGS: config.vllmExtraArgs || '',
-          VLLM_TOOL_CALLING_ENABLED: config.vllmToolCallingEnabled ? 'true' : 'false',
-          VLLM_TOOL_CALL_PARSER: config.vllmToolCallParser || '',
-          VLLM_SERVED_MODEL_NAME: config.vllmServedModelName || '',
-          VLLM_MAX_NUM_SEQS: config.vllmMaxNumSeqs !== undefined ? String(config.vllmMaxNumSeqs) : '',
-          VLLM_DTYPE: config.vllmDtype || '',
-          VLLM_ENABLE_PREFIX_CACHING: config.vllmEnablePrefixCaching ? 'true' : 'false',
-          OPENAI_API_BASE_URL: openaiApiBaseUrl,
-          VPN_ENABLED: vpnEnabled ? 'true' : 'false',
-          VPN_PROTOCOL: vpnProtocol,
-          VPN_CONFIG: vpnConfig,
-          VPN_DEDICATED_IP: vpnDedicatedIp,
-          ODOO_IMAGE_REPO: finalOdooRepo || '',
-          ODOO_IMAGE_TAG: finalOdooTag || '',
-          POSTGRES_IMAGE_REPO: pgRepo || '',
-          POSTGRES_IMAGE_TAG: pgTag || '',
-          ...storageEnv
-        };
-
-        await this.infra.deploy(`app-${physicalName}-${id.slice(0, 8)}`, { logFile, io, resourceId: id, env });
-        const defaultPort = appType === 'odoo' ? '8069' : '80';
-        const displayUrl = vpnEnabled && vpnDedicatedIp ? `http://${vpnDedicatedIp}:${defaultPort}` : `http://localhost:${defaultPort}`;
-        await this.db.infrastructure.saveDeployment({ ...metadata, status: 'running', url: displayUrl });
-      } catch (err) {
-        this.logger.error(`App deployment failed: ${(err as Error).message}`);
-        await this.db.infrastructure.saveDeployment({ ...metadata, status: 'failed' });
-      }
-    })().catch((err: unknown) => this.logger.error(`Unhandled error during app deployment: ${(err as Error).message}`));
-
-    return metadata;
-  }
-
   async updateModules(id: string, modules: string[], userId: string, io?: SocketServer) {
-    const dep = (await this.getAll(userId)).find(d => d.id === id);
+    const dep = await this.getById(id, userId);
     if (!dep) throw new Error('Deployment not found');
+    const cluster = await this.clusters.getById(dep.clusterId, asPerson(userId));
+    if (!cluster) throw new Error('Cluster not found');
 
     const updatedMetadata = { ...dep, modules, status: 'deploying' as const };
     await this.db.infrastructure.saveDeployment(updatedMetadata);
 
-    const cluster = await this.clusters.getById(dep.clusterId, asPerson(userId));
     const sanitizedName = namespaceOf(dep);
     const logFile = this.infra.getLogPath(`${dep.name}-update-modules`);
 
@@ -387,13 +122,8 @@ export class AppService extends BaseService {
           const baseImage = `${webRepo}:${webTag}`;
           const customTag = await this.builder.buildCustomImage(baseImage, modules, appType, { io, resourceId: id, logFile });
           
-          const isMock = cluster ? this.clusters.isMockCloud(cluster) : false;
-          const physicalName = cluster ? this.clusters.getPhysicalClusterName(cluster) : '';
-          if (cluster && !cluster.gpuEnabled && (cluster.provider === 'k3d' || isMock)) {
-              await this.infra.importImage(physicalName, customTag, { logFile, io, resourceId: id });
-          }
-
-          const kubeconfigPath = cluster ? await this.clusters.getKubeconfigPath(cluster) : DEFAULT_KUBECONFIG;
+          const physicalName = cluster.name;
+          const kubeconfigPath = await this.clusters.access.kubeconfigOf(cluster.id);
           const storageEnv = StorageAdapter.getStorageEnv(appType, dep.strategy, dep.storage || {});
           const env: Record<string, string> = {
             STACK_TYPE: 'app',
@@ -402,8 +132,8 @@ export class AppService extends BaseService {
             DEPLOYMENT_NAME: sanitizedName,
             DEPLOYMENT_ID: id.slice(0, 8),
             KUBECONFIG: kubeconfigPath,
-            KUBECONFIG_CONTEXT: (cluster && (cluster.provider === 'k3d' || isMock)) ? `k3d-${physicalName}` : '',
-            SELF_MANAGED_K8S: (cluster && isSelfManagedCluster(cluster.provider, isMock)) ? 'true' : 'false',
+            KUBECONFIG_CONTEXT: '',
+            SELF_MANAGED_K8S: isSelfManagedCluster(cluster.provider, false) ? 'true' : 'false',
             APP_TYPE: appType,
             WEB_IMAGE_REPO: customTag.split(':')[0] || '',
             WEB_IMAGE_TAG: customTag.split(':')[1] || '',
@@ -431,134 +161,42 @@ export class AppService extends BaseService {
       return updatedMetadata;
   }
 
+  private async onItsCluster(id: string, userId: string): Promise<{ dep: DeploymentMetadata; namespace: string }> {
+    const dep = await this.getById(id, userId);
+    if (!dep) throw new Error('Deployment not found');
+    return { dep, namespace: namespaceOf(dep) };
+  }
+
   async listPods(id: string, userId: string) {
-    try {
-        const dep = (await this.getAll(userId)).find((d) => d.id === id);
-        if (!dep) throw new Error('Deployment not found');
-        const cluster = await this.clusters.getById(dep.clusterId, asPerson(userId));
-        if (!cluster) throw new Error('Cluster not found');
-
-        const namespace = namespaceOf(dep);
-        const isMock = this.clusters.isMockCloud(cluster);
-        const physicalName = this.clusters.getPhysicalClusterName(cluster);
-        const context = (cluster.provider === 'k3d' || isMock) ? `k3d-${physicalName}` : undefined;
-        const args = ['get', 'pods', '-n', namespace, '-o', 'json'];
-        if (context) args.push('--context', context);
-
-        const kubeconfigPath = await this.clusters.getKubeconfigPath(cluster);
-        const output = await this.infra.runKubectl(args, kubeconfigPath);
-        return { pods: listAt(JSON.parse(output) as unknown, 'items'), namespace };
-    } catch (err) {
-        this.logger.error(`Failed to list pods: ${(err as Error).message}`);
-        return { pods: [], namespace: 'default' };
-    }
+    const { dep, namespace } = await this.onItsCluster(id, userId);
+    const output = await this.clusters.access.kubectl(dep.clusterId, ['get', 'pods', '-n', namespace, '-o', 'json']);
+    return { pods: listAt(JSON.parse(output) as unknown, 'items'), namespace };
   }
 
   async signIns(id: string, userId: string): Promise<AppSignIn[] | undefined> {
     const dep = await this.getById(id, userId);
     if (!dep) return undefined;
     if (dep.appType !== 'palworld') return appSignIns(dep);
-    const cluster = await this.clusters.getById(dep.clusterId, asPerson(userId));
-    if (!cluster) return [];
-    const kubeconfigPath = await this.clusters.getKubeconfigPath(cluster);
-    const raw = await this.infra.runKubectl(['get', 'secret', PALWORLD_SECRET, '-n', namespaceOf(dep), '-o', 'jsonpath={.data}', '--ignore-not-found'], kubeconfigPath);
+    const raw = await this.clusters.access.kubectl(dep.clusterId, ['get', 'secret', PALWORLD_SECRET, '-n', namespaceOf(dep), '-o', 'jsonpath={.data}', '--ignore-not-found']);
     return appSignIns(dep, secretValues(raw));
   }
 
   async getHelmStatus(id: string, userId: string) {
-    try {
-        const dep = (await this.getAll(userId)).find((d) => d.id === id);
-        if (!dep) throw new Error('Deployment not found');
-        if (dep.strategy === 'native') return 'Native deployments do not use Helm. Use Diagnostics or Pod Inspector for status.';
-
-        const cluster = await this.clusters.getById(dep.clusterId, asPerson(userId));
-        if (!cluster) throw new Error('Cluster not found');
-
-        const namespace = namespaceOf(dep);
-        const isMock = this.clusters.isMockCloud(cluster);
-        const physicalName = this.clusters.getPhysicalClusterName(cluster);
-        const context = (cluster.provider === 'k3d' || isMock) ? `k3d-${physicalName}` : undefined;
-        const releaseName = dep.appType || 'odoo';
-        const args = ['status', releaseName, '-n', namespace];
-        if (context) args.push('--kube-context', context);
-
-        const kubeconfigPath = await this.clusters.getKubeconfigPath(cluster);
-        return await this.infra.runHelm(args, kubeconfigPath);
-    } catch (err) {
-        this.logger.error(`Helm status error: ${(err as Error).message}`);
-        return 'Helm release not found or not initialized yet.';
-    }
+    const { dep, namespace } = await this.onItsCluster(id, userId);
+    if (dep.strategy === 'native') return 'Native deployments do not use Helm. Use Diagnostics or Pod Inspector for status.';
+    if (!dep.appType) throw new Error(`${dep.name} records no app type, so its Helm release cannot be named`);
+    return this.clusters.access.helm(dep.clusterId, ['status', dep.appType, '-n', namespace]);
   }
 
   async getDiagnostics(id: string, userId: string) {
-    try {
-        const dep = (await this.getAll(userId)).find((d) => d.id === id);
-        if (!dep) throw new Error('Deployment not found');
-        const cluster = await this.clusters.getById(dep.clusterId, asPerson(userId));
-        if (!cluster) throw new Error('Cluster not found');
-
-        const namespace = namespaceOf(dep);
-        const isMock = this.clusters.isMockCloud(cluster);
-        const physicalName = this.clusters.getPhysicalClusterName(cluster);
-        const context = (cluster.provider === 'k3d' || isMock) ? `k3d-${physicalName}` : undefined;
-        
-        const podsArgs = ['get', 'pods', '-n', namespace, '-o', 'wide'];
-        const eventsArgs = ['get', 'events', '-n', namespace, '--sort-by=.lastTimestamp', '-o', 'wide'];
-        if (context) {
-            podsArgs.push('--context', context);
-            eventsArgs.push('--context', context);
-        }
-
-        const kubeconfigPath = await this.clusters.getKubeconfigPath(cluster);
-        const pods = await this.infra.runKubectl(podsArgs, kubeconfigPath);
-        const events = await this.infra.runKubectl(eventsArgs, kubeconfigPath);
-
-        return `--- POD STATUS (Namespace: ${namespace}) ---\n${pods}\n\n--- RECENT EVENTS ---\n${events}`;
-    } catch (err) {
-        this.logger.error(`Diagnostics error: ${(err as Error).message}`);
-        return 'Failed to fetch diagnostics.';
-    }
-  }
-
-  async delete(id: string, userId: string, io?: SocketServer) {
-    const dep = (await this.getAll(userId)).find((d) => d.id === id);
-    if (!dep) throw new Error('Deployment not found');
-    const cluster = await this.clusters.getById(dep.clusterId, asPerson(userId));
-    
-    const logFile = this.infra.getLogPath(`${dep.name}-destroy`);
-    await this.db.infrastructure.saveDeployment({ ...dep, status: 'destroying', lastLogPath: logFile });
-
-    (async () => {
-      try {
-        const isMock = cluster ? this.clusters.isMockCloud(cluster) : false;
-        const physicalName = cluster ? this.clusters.getPhysicalClusterName(cluster) : '';
-        const kubeconfigPath = cluster ? await this.clusters.getKubeconfigPath(cluster) : DEFAULT_KUBECONFIG;
-        const env: Record<string, string> = {
-          STACK_TYPE: 'app',
-          DEPLOYMENT_STRATEGY: dep.strategy,
-          DEPLOYMENT_NAME: namespaceOf(dep),
-          DEPLOYMENT_ID: id.slice(0, 8),
-          CLUSTER_NAME: physicalName,
-          KUBECONFIG: kubeconfigPath,
-          KUBECONFIG_CONTEXT: (cluster && (cluster.provider === 'k3d' || isMock)) ? `k3d-${physicalName}` : '',
-          SELF_MANAGED_K8S: (cluster && isSelfManagedCluster(cluster.provider, isMock)) ? 'true' : 'false',
-        };
-
-        await this.infra.destroy(`app-${physicalName}-${id.slice(0, 8)}`, { logFile, io, resourceId: id, env });
-        
-        await this.infra.waitForNamespaceDeletion(namespaceOf(dep), kubeconfigPath);
-
-        await this.db.infrastructure.deleteDeployment(id);
-        if (io) io.to(`user:${dep.ownerId}`).emit('resource-destroyed', { id, type: 'deployment', name: dep.name });
-      } catch (err) {
-        this.logger.error(`App destruction failed: ${(err as Error).message}`);
-        await this.db.infrastructure.saveDeployment({ ...dep, status: 'failed' });
-      }
-    })().catch((err: unknown) => this.logger.error(`Unhandled error during app destruction: ${(err as Error).message}`));
+    const { dep, namespace } = await this.onItsCluster(id, userId);
+    const pods = await this.clusters.access.kubectl(dep.clusterId, ['get', 'pods', '-n', namespace, '-o', 'wide']);
+    const events = await this.clusters.access.kubectl(dep.clusterId, ['get', 'events', '-n', namespace, '--sort-by=.lastTimestamp', '-o', 'wide']);
+    return `--- POD STATUS (Namespace: ${namespace}) ---\n${pods}\n\n--- RECENT EVENTS ---\n${events}`;
   }
 
   async abort(id: string, userId: string, io?: SocketServer) {
-    const dep = (await this.getAll(userId)).find((d) => d.id === id);
+    const dep = await this.getById(id, userId);
     if (!dep) throw new Error('Deployment not found');
 
     const logFile = this.infra.getLogPath(`${dep.name}-abort`);
@@ -566,89 +204,23 @@ export class AppService extends BaseService {
 
     (async () => {
       try {
-        if (dep.temporalWorkflowId && this.temporalBridge) {
+        if (dep.temporalWorkflowId) {
+          if (!this.temporalBridge) throw new Error('this app service was given no Temporal bridge, so the deploy\'s workflow cannot be stopped');
           await this.temporalBridge.terminateWorkflow(dep.temporalWorkflowId, 'User aborted deployment');
         }
-
-        const cluster = await this.clusters.getById(dep.clusterId, asPerson(userId));
-        if (cluster) {
-          const kubeconfigPath = await this.clusters.getKubeconfigPath(cluster);
-          try {
-            await this.infra.waitForNamespaceDeletion(namespaceOf(dep), kubeconfigPath);
-          } catch (err) {
-            this.logger.warn(`Error deleting namespace during app abort: ${(err as Error).message}`);
-          }
-        }
-
+        await this.infra.waitForNamespaceDeletion(namespaceOf(dep), await this.clusters.access.kubeconfigOf(dep.clusterId));
         await this.db.infrastructure.deleteDeployment(id);
-
         if (io) {
           io.to(id).emit('log', '\n--- DEPLOYMENT ABORTED AND CLEANED UP ---\n');
           io.to(`user:${dep.ownerId}`).emit('resource-destroyed', { id, type: 'deployment', name: dep.name });
           io.emit('deployment:updated');
         }
       } catch (err) {
-        this.logger.error(`Abort failed for deployment ${dep.name}: ${(err as Error).message}`);
-        await this.db.infrastructure.deleteDeployment(id);
+        const reason = (err as Error).message;
+        this.logger.error(`Abort failed for deployment ${dep.name}: ${reason}`);
+        await this.db.infrastructure.saveDeployment({ ...dep, status: 'failed', healthReason: `stopping it failed: ${reason}`, lastLogPath: logFile });
         if (io) io.emit('deployment:updated');
       }
     })().catch((err: unknown) => this.logger.error(`Unhandled error during deployment abort: ${(err as Error).message}`));
-  }
-
-  async resizeDisk(id: string, storage: Record<string, string>, userId: string, io?: SocketServer) {
-    const dep = (await this.getAll(userId)).find(d => d.id === id);
-    if (!dep) throw new Error('Deployment not found');
-
-    const updatedMetadata = { ...dep, storage: { ...dep.storage, ...storage }, status: 'deploying' as const };
-    await this.db.infrastructure.saveDeployment(updatedMetadata);
-
-    const cluster = await this.clusters.getById(dep.clusterId, asPerson(userId));
-    const sanitizedName = namespaceOf(dep);
-    const logFile = this.infra.getLogPath(`${dep.name}-resize-disk`);
-
-    const appType = dep.appType || 'odoo';
-    const webRepo = dep.webRepo || (appType === 'odoo' ? 'library/odoo' : `library/${appType}`);
-    const webTag = dep.webTag || (appType === 'odoo' ? '18.0' : 'latest');
-    const dbRepo = dep.dbRepo || 'library/postgres';
-    const dbTag = dep.dbTag || 'latest';
-
-    (async () => {
-        try {
-          const isMock = cluster ? this.clusters.isMockCloud(cluster) : false;
-          const physicalName = cluster ? this.clusters.getPhysicalClusterName(cluster) : '';
-          const kubeconfigPath = cluster ? await this.clusters.getKubeconfigPath(cluster) : DEFAULT_KUBECONFIG;
-          
-          const storageEnv = StorageAdapter.getStorageEnv(appType, dep.strategy, updatedMetadata.storage);
-
-          const env: Record<string, string> = {
-            STACK_TYPE: 'app',
-            CLUSTER_NAME: physicalName,
-            DEPLOYMENT_STRATEGY: dep.strategy,
-            DEPLOYMENT_NAME: sanitizedName,
-            DEPLOYMENT_ID: id.slice(0, 8),
-            KUBECONFIG: kubeconfigPath,
-            KUBECONFIG_CONTEXT: (cluster && (cluster.provider === 'k3d' || isMock)) ? `k3d-${physicalName}` : '',
-            SELF_MANAGED_K8S: (cluster && isSelfManagedCluster(cluster.provider, isMock)) ? 'true' : 'false',
-            APP_TYPE: appType,
-            WEB_IMAGE_REPO: webRepo,
-            WEB_IMAGE_TAG: webTag,
-            DB_IMAGE_REPO: dbRepo,
-            DB_IMAGE_TAG: dbTag,
-            ODOO_IMAGE_REPO: webRepo,
-            ODOO_IMAGE_TAG: webTag,
-            POSTGRES_IMAGE_REPO: dbRepo,
-            POSTGRES_IMAGE_TAG: dbTag,
-            ...storageEnv
-          };
-  
-          await this.infra.deploy(`app-${physicalName}-${id.slice(0, 8)}`, { logFile, io, resourceId: id, env });
-          await this.db.infrastructure.saveDeployment({ ...updatedMetadata, status: 'running' });
-        } catch (err) {
-          this.logger.error(`Disk resize failed: ${(err as Error).message}`);
-          await this.db.infrastructure.saveDeployment({ ...updatedMetadata, status: 'failed' });
-        }
-      })().catch((err: unknown) => this.logger.error(`Unhandled error during disk resize: ${(err as Error).message}`));
-
-      return updatedMetadata;
   }
 }

@@ -20,7 +20,7 @@ const SYSTEM_CLUSTER_ID = 'provisioning-lunorica';
 
 export class ClusterService extends BaseService {
   private infra: InfrastructureService;
-  private readonly access: ClusterAccess;
+  readonly access: ClusterAccess;
   private temporalBridge?: Pick<TemporalBridge, 'terminateWorkflow'>;
 
   private readonly kubeconfigDir: string;
@@ -299,53 +299,6 @@ export class ClusterService extends BaseService {
       this.logger.warn(`Failed to verify helm releases for stuck cluster ${cluster.name}: ${(err as Error).message}`);
       return null;
     }
-  }
-
-  async discoverClusters(userId: string): Promise<ClusterMetadata[]> {
-    const k3dNames = await this.infra.listLocalClusters();
-    const dbClusters = await this.db.infrastructure.getClusters();
-    const now = new Date().toISOString();
-    const discovered: ClusterMetadata[] = [];
-
-    for (const k3dName of k3dNames) {
-      const existing = dbClusters.find(
-        c => c.name === k3dName || this.getPhysicalClusterName(c) === k3dName
-      );
-      if (existing || k3dName === SYSTEM_CLUSTER_ID) continue;
-
-      const kubeconfigPath = `${this.kubeconfigDir}/kubeconfig-${k3dName}`;
-      let kubeconfigContent: string;
-      try {
-        kubeconfigContent = await this.infra.getKubeconfig(k3dName);
-        await writePrivate(kubeconfigPath, kubeconfigContent);
-      } catch (err) {
-        this.logger.warn(`Cannot fetch kubeconfig for discovered cluster ${k3dName}: ${(err as Error).message}`);
-        continue;
-      }
-
-      let status: 'healthy' | 'failed' = 'failed';
-      try {
-        await this.infra.runKubectl(['get', 'nodes'], kubeconfigPath);
-        status = 'healthy';
-      } catch (err) {
-        this.logger.warn(`K8s API ping failed for discovered cluster ${k3dName}: ${(err as Error).message}`);
-      }
-
-      const metadata: ClusterMetadata = {
-        id: uuidv4(),
-        name: k3dName,
-        provider: 'k3d',
-        status,
-        kubeconfigPath,
-        lastSyncedAt: now,
-        ownerId: userId,
-      };
-      discovered.push(metadata);
-    }
-
-    for (const cluster of discovered) await this.db.infrastructure.saveCluster(cluster);
-
-    return discovered;
   }
 
   async getByIdUnscoped(id: string): Promise<ClusterMetadata | undefined> {
