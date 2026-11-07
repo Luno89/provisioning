@@ -7,7 +7,14 @@ export type ClusterPlace =
   | { kind: 'machine'; clusterId: string; sealed: string }
   | { kind: 'root'; clusterId: string };
 
-export type WhyUnreachable = 'unknown' | 'stopped' | 'not-started' | 'other-kind' | 'not-root' | 'no-account' | 'no-key' | 'not-configured';
+export type WhyUnreachable = 'unknown' | 'stopped' | 'not-started' | 'other-kind' | 'not-root' | 'no-account' | 'no-key' | 'not-configured' | 'no-records';
+
+export type Reach =
+  | { clusterId: string; kind: 'koala' }
+  | { clusterId: string; kind: 'machine'; kubeconfig: string }
+  | { clusterId: string; kind: 'root' };
+
+export const startedMachine = (clusterId: string, kubeconfig: string): Reach => ({ clusterId, kind: 'machine', kubeconfig });
 
 export interface Unreachable { kind: 'unreachable'; clusterId: string; why: WhyUnreachable; reason: string }
 

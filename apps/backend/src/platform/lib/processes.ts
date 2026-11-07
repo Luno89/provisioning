@@ -28,3 +28,13 @@ export async function succeeded(processes: Processes, run: ProcessRun): Promise<
   if (result.code !== 0) throw new ProcessFailed(run, result);
   return result.stdout;
 }
+
+export interface Followed {
+  stop(): void;
+  ended: Promise<ProcessResult>;
+}
+
+export interface Streams {
+  pipe(run: ProcessRun, input: NodeJS.ReadableStream): Promise<ProcessResult>;
+  follow(run: ProcessRun, onOutput: (chunk: string) => void): Followed;
+}

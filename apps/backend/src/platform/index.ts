@@ -54,7 +54,7 @@ export { claimSettingsFrom, holdsAccounts, roleFromEnv, servesHub, servesTenants
 export type { RoleConfig } from './lib/platform-role.js';
 export { writePrivate } from './lib/private-file.js';
 export { ProcessFailed, succeeded } from './lib/processes.js';
-export type { ProcessResult, ProcessRun, Processes } from './lib/processes.js';
+export type { Followed, ProcessResult, ProcessRun, Processes, Streams } from './lib/processes.js';
 export { addressProblem } from './lib/public-address.js';
 export { K3S_TRAEFIK_CONFIG, k3sConfigState, ourTraefikArgs, servicesLabelled, traefikOf } from './lib/request-metrics.js';
 export type { HelmRelease } from './lib/request-metrics.js';
@@ -99,5 +99,5 @@ export { PayloadStorageService } from './services/PayloadStorageService.js';
 export { SessionEnds } from './services/SessionEnds.js';
 export { SessionSockets } from './services/SessionSockets.js';
 export { SignInAttemptLog } from './services/SignInAttemptLog.js';
-export { nodeProcesses } from './services/processes.js';
+export { nodeProcesses, nodeStreams } from './services/processes.js';
 export { NotPublicError, publicAddressProblem, publicFetch } from './services/public-fetch.js';

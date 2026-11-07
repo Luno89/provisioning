@@ -1,11 +1,13 @@
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { Readable } from 'node:stream';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { encryptValue, nodeProcesses, type ClusterMetadata } from '../../platform/index.js';
+import { encryptValue, nodeProcesses, nodeStreams, type ClusterMetadata } from '../../platform/index.js';
 import { testDatabase } from '../../platform/lib/test-database.js';
+import { startedMachine } from '../lib/cluster-places.js';
 import { startK3s, TOOLS, type RealK3s } from '../testing/real-k3s.js';
-import { ClusterAccess } from './ClusterAccess.js';
+import { ClusterAccess, type ClusterAccessDeps } from './ClusterAccess.js';
 
 const KEY = 'test-key' as never;
 
@@ -16,7 +18,7 @@ afterAll(async () => { await k3s?.stop(); });
 const machine = (overrides: Partial<ClusterMetadata>): ClusterMetadata =>
   ({ name: overrides.id, provider: 'machine', status: 'healthy', ownerId: 'owner', createdAt: 't', ...overrides }) as ClusterMetadata;
 
-async function door(records: ClusterMetadata[], overrides: { dataKey?: never } = {}): Promise<ClusterAccess> {
+async function door(records: ClusterMetadata[], overrides: Partial<ClusterAccessDeps> = {}): Promise<ClusterAccess> {
   const db = await testDatabase();
   for (const record of records) await db.infrastructure.saveCluster(record);
   return new ClusterAccess({
@@ -24,6 +26,7 @@ async function door(records: ClusterMetadata[], overrides: { dataKey?: never } =
     here: { koalaMachineId: 'dev1', root: false },
     folder: mkdtempSync(join(tmpdir(), 'koala-cluster-access-')),
     processes: nodeProcesses,
+    streams: nodeStreams,
     tools: TOOLS,
     dataKey: KEY,
     serviceAccount: k3s.account,
@@ -40,24 +43,41 @@ describe('ClusterAccess against a real k3s', () => {
 
   it('reaches another machine through the kubeconfig sealed on its record, kubectl and helm alike', async () => {
     const access = await door([machine({ id: 'machine-dev2', machineId: 'dev2', kubeconfigEnc: encryptValue(k3s.admin, KEY) })]);
-    await access.kubectl('machine-dev2', ['create', 'configmap', 'shop', '-n', 'default', '--from-literal=a=b']);
-    expect(await access.kubectl('machine-dev2', ['get', 'configmap', 'shop', '-n', 'default', '-o', 'jsonpath={.data.a}'])).toBe('b');
-    expect(await access.helm('machine-dev2', ['list', '-A', '-o', 'json'])).toBe('[]\n');
+    const reach = await access.reach('machine-dev2');
+    await access.kubectl(reach, ['create', 'configmap', 'shop', '-n', 'default', '--from-literal=a=b']);
+    expect(await access.kubectl(reach, ['get', 'configmap', 'shop', '-n', 'default', '-o', 'jsonpath={.data.a}'])).toBe('b');
+    expect(await access.helm(reach, ['list', '-A', '-o', 'json'])).toBe('[]\n');
   });
 
-  it('applies what it is handed on stdin', async () => {
-    const access = await door([machine({ id: 'machine-dev2', machineId: 'dev2', kubeconfigEnc: encryptValue(k3s.admin, KEY) })]);
-    await access.kubectl('machine-dev2', ['apply', '-f', '-'], { input: 'apiVersion: v1\nkind: Namespace\nmetadata:\n  name: from-stdin\n' });
-    expect(await access.kubectl('machine-dev2', ['get', 'namespace', 'from-stdin', '-o', 'name'])).toBe('namespace/from-stdin\n');
+  it('works a machine from the reach a workflow hands over, in a process holding no records and no key', async () => {
+    const access = await door([], { clusters: undefined, dataKey: undefined });
+    const reach = startedMachine('machine-dev3', k3s.admin);
+    await access.apply(reach, 'apiVersion: v1\nkind: Namespace\nmetadata:\n  name: from-a-workflow\n');
+    expect(await access.kubectl(reach, ['get', 'namespace', 'from-a-workflow', '-o', 'name'])).toBe('namespace/from-a-workflow\n');
   });
 
-  it('works a machine another step started with the kubeconfig that step hands over, holding no data key itself', async () => {
-    const access = await door([machine({ id: 'machine-dev3', machineId: 'dev3', status: 'stopped' })], { dataKey: undefined as never });
-    expect(await access.kubectl('machine-dev3', ['get', 'namespace', 'default', '-o', 'name'], { handed: k3s.admin })).toBe('namespace/default\n');
+  it('applies the same new thing twice at once, the loser of the race applying again', async () => {
+    const access = await door([], { clusters: undefined });
+    const reach = startedMachine('machine-dev3', k3s.admin);
+    const manifest = 'apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: raced\n  namespace: default\ndata:\n  a: b\n';
+    await Promise.all([access.apply(reach, manifest), access.apply(reach, manifest), access.apply(reach, manifest)]);
+    expect(await access.kubectl(reach, ['get', 'configmap', 'raced', '-n', 'default', '-o', 'jsonpath={.data.a}'])).toBe('b');
+  });
+
+  it('pipes a stream into a pod and follows what kubectl prints', async () => {
+    const access = await door([], { clusters: undefined });
+    const reach = startedMachine('machine-dev3', k3s.admin);
+    const manifest = ['apiVersion: v1\n', 'kind: ConfigMap\n', 'metadata:\n  name: piped\n  namespace: default\n', 'data:\n  data: streamed\n'];
+    const piped = await access.pipe(reach, ['apply', '-f', '-', '-o', 'name'], Readable.from(manifest));
+    expect(piped).toBe('configmap/piped\n');
+    let printed = '';
+    const followed = await access.follow(reach, ['get', 'configmap', 'piped', '-n', 'default', '-o', 'jsonpath={.data.data}'], (chunk) => { printed += chunk; });
+    expect((await followed.ended).code).toBe(0);
+    expect(printed).toBe('streamed');
   });
 
   it('passes on what kubectl said when the cluster refuses', async () => {
-    const access = await door([machine({ id: 'machine-dev2', machineId: 'dev2', kubeconfigEnc: encryptValue(k3s.admin, KEY) })]);
-    await expect(access.kubectl('machine-dev2', ['get', 'namespace', 'nowhere'])).rejects.toThrow('namespaces "nowhere" not found');
+    const access = await door([], { clusters: undefined });
+    await expect(access.kubectl(startedMachine('machine-dev3', k3s.admin), ['get', 'namespace', 'nowhere'])).rejects.toThrow('namespaces "nowhere" not found');
   });
 });
