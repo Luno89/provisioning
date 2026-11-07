@@ -42,7 +42,7 @@ import { generateSshKeypair } from '../lib/ssh-keypair.js'
 import { consolidateMemories, type ConsolidationReport, indexMemories, similarTo } from '../../memory/index.js'
 import { sharedClusterProxy } from './ClusterProxyService.js'
 import { assessWorkload, reconciledStatus } from '../lib/workload-health.js'
-import { InfrastructureService } from './InfrastructureService.js'
+import type { Reach } from '../lib/cluster-places.js'
 import { isModelKind } from '../../models/index.js'
 import { ClusterService } from './ClusterService.js'
 import { ClusterProvisionWorkflow } from '../../workflows/ClusterProvisionWorkflow.js'
@@ -578,27 +578,26 @@ export class TemporalBridge {
 
         const deployments = await this.db.infrastructure.getDeployments()
 
-        const kubeconfigForCluster = new Map<string, string | undefined>()
-        const resolveKubeconfig = async (clusterId: string): Promise<string | undefined> => {
-          if (kubeconfigForCluster.has(clusterId)) return kubeconfigForCluster.get(clusterId)
-          let path: string | undefined
+        const access = this.clustersForConsolidation().access
+        const reaches = new Map<string, Reach | undefined>()
+        const reachOf = async (clusterId: string): Promise<Reach | undefined> => {
+          if (reaches.has(clusterId)) return reaches.get(clusterId)
+          let reach: Reach | undefined
           try {
-            const cluster = await this.clusterService?.getByIdUnscoped(clusterId)
-            if (cluster) path = await this.clusterService!.getKubeconfigPath(cluster)
+            reach = await access.reach(clusterId)
           } catch (err) {
             console.warn(`[Reconcile] the apps on cluster ${clusterId} are not checked this pass, since it cannot be reached: ${(err as Error).message}`)
           }
-          kubeconfigForCluster.set(clusterId, path)
-          return path
+          reaches.set(clusterId, reach)
+          return reach
         }
 
         for (const dep of deployments) {
           if (dep.status !== 'running' && dep.status !== 'unhealthy') continue
           try {
-            const kubeconfig = await resolveKubeconfig(dep.clusterId)
-            if (!kubeconfig) continue
-            const namespace = namespaceOf(dep)
-            const raw = await new InfrastructureService().runKubectl(['get', 'pods', '-n', namespace, '-o', 'json'], kubeconfig)
+            const reach = await reachOf(dep.clusterId)
+            if (!reach) continue
+            const raw = await access.kubectl(reach, ['get', 'pods', '-n', namespaceOf(dep), '-o', 'json'])
             const { health, reason } = assessWorkload(JSON.parse(raw) as unknown)
 
             let serviceReason = ''
