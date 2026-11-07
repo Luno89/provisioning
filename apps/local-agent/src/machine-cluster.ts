@@ -50,7 +50,10 @@ export const hostCluster = (meshIp: () => Promise<string | undefined>, wantedAt:
   holdsKoala: () => present(koalaHere),
   meshIp: () => meshIp(),
   now: () => Date.now(),
-  pause: (ms) => new Promise((done) => setTimeout(done, ms)),
+  pause: async (ms) => {
+    const until = Date.now() + ms;
+    while (Date.now() < until) await new Promise((done) => setTimeout(done, until - Date.now()));
+  },
 });
 
 const kubectl = (host: ClusterHost, args: string[]) => host.run(K3S_BINARY, ['kubectl', '--kubeconfig', K3S_KUBECONFIG, ...args]);
