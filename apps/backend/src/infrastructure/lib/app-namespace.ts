@@ -13,8 +13,17 @@ export function newAppNamespace(name: string, id: string): string {
   return `${base}-${tag}`;
 }
 
-export const namespaceNamesOf = (listJson: string): string[] =>
-  listAt(JSON.parse(listJson) as unknown, 'items').map((item) => textAt(item, 'metadata', 'name') ?? '');
+export const namespacesByName = (listJson: string): Map<string, unknown> =>
+  new Map(listAt(JSON.parse(listJson) as unknown, 'items').map((item) => [textAt(item, 'metadata', 'name') ?? '', item]));
+
+export function removalHoldOf(namespace: unknown): string | undefined {
+  if (textAt(namespace, 'status', 'phase') !== 'Terminating') return undefined;
+  const held = listAt(namespace, 'status', 'conditions')
+    .filter((condition) => textAt(condition, 'status') === 'True')
+    .map((condition) => textAt(condition, 'message') || textAt(condition, 'type') || '')
+    .filter(Boolean);
+  return held.length > 0 ? `it is being removed, and Kubernetes is waiting on: ${held.join('; ')}` : undefined;
+}
 
 export const missingNamespaceReason = (namespace: string): string =>
   `its namespace ${namespace} is not on its cluster, so nothing of it runs there; destroy the app or deploy it again`;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { namespaceOf, newAppNamespace, sameOwner, deployRequestFrom, MADE_BY_KOALA_APP_TYPES, platformNamespaceProblem, podLogTarget } from './app-namespace.js';
+import { namespaceOf, newAppNamespace, sameOwner, deployRequestFrom, MADE_BY_KOALA_APP_TYPES, platformNamespaceProblem, podLogTarget, removalHoldOf } from './app-namespace.js';
 import { ODOO_PROJECT_APP } from '../../releases/lib/odoo-release.js';
 
 const containing = (text: string): unknown => expect.stringContaining(text);
@@ -70,5 +70,23 @@ describe('following a pod\'s logs', () => {
     expect(podLogTarget(shop, { podName: 'shop-web', namespace: 'shop-1a2b3c' })).toEqual({ namespace: 'shop-1a2b3c', podName: 'shop-web' });
     expect(podLogTarget(shop, { podName: 'gitea-0', namespace: 'gitea' })).toBeUndefined();
     for (const podName of ['--selector=app=gitea', '-n', 'a b', '', undefined, 'UPPER']) expect(podLogTarget(shop, { podName }), String(podName)).toBeUndefined();
+  });
+});
+
+describe('what holds a namespace being removed', () => {
+  const terminating = (conditions: unknown[]) => ({ metadata: { name: 'shop' }, status: { phase: 'Terminating', conditions } });
+
+  it('names every condition Kubernetes holds true, by its message or else its type', () => {
+    expect(removalHoldOf(terminating([
+      { type: 'NamespaceDeletionDiscoveryFailure', status: 'False' },
+      { type: 'NamespaceContentRemaining', status: 'True', message: 'Some resources are remaining: configmaps. has 1 resource instances' },
+      { type: 'NamespaceFinalizersRemaining', status: 'True', message: 'Some content in the namespace has finalizers remaining: koala.test/hold in 1 resource instances' },
+      { type: 'NamespaceDeletionContentFailure', status: 'True' },
+    ]))).toBe('it is being removed, and Kubernetes is waiting on: Some resources are remaining: configmaps. has 1 resource instances; Some content in the namespace has finalizers remaining: koala.test/hold in 1 resource instances; NamespaceDeletionContentFailure');
+  });
+
+  it('says nothing of a namespace that is not being removed, or one Kubernetes holds for nothing yet', () => {
+    expect(removalHoldOf({ status: { phase: 'Active', conditions: [{ type: 'NamespaceContentRemaining', status: 'True', message: 'x' }] } })).toBeUndefined();
+    expect(removalHoldOf(terminating([{ type: 'NamespaceContentRemaining', status: 'False' }]))).toBeUndefined();
   });
 });

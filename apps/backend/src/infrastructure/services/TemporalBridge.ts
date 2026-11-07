@@ -8,7 +8,8 @@ import {
 import {
   looksLikeMcp, namespaceOfDeployment, cachedProbes, corpusEndpointsWith, webToolsDepsFrom, type WaitingAsk,
 } from '../../engine/index.js'
-import { missingNamespaceReason, namespaceNamesOf, namespaceOf } from '../lib/app-namespace.js'
+import type { DeploymentHealth } from '../store.js'
+import { missingNamespaceReason, namespacesByName, namespaceOf, removalHoldOf } from '../lib/app-namespace.js'
 import { healthFromProbe } from '../lib/service-health.js'
 import { clusterFieldsFrom } from '../lib/provisioned-cluster.js'
 import { followedAction, type FollowedAction, type FollowedRecord } from '../lib/followed-work.js'
@@ -583,26 +584,33 @@ export class TemporalBridge {
       return reach
     }
 
-    const namespaces = new Map<string, string[]>()
-    const namespacesOn = async (reach: Reach): Promise<string[]> => {
+    const namespaces = new Map<string, Map<string, unknown>>()
+    const namespacesOn = async (reach: Reach): Promise<Map<string, unknown>> => {
       const known = namespaces.get(reach.clusterId)
       if (known) return known
-      const names = namespaceNamesOf(await access.kubectl(reach, ['get', 'namespaces', '-o', 'json']))
-      namespaces.set(reach.clusterId, names)
-      return names
+      const found = namespacesByName(await access.kubectl(reach, ['get', 'namespaces', '-o', 'json']))
+      namespaces.set(reach.clusterId, found)
+      return found
+    }
+    const tell = async (dep: DeploymentMetadata, health: DeploymentHealth): Promise<void> => {
+      await this.db.infrastructure.patchDeploymentHealth(dep.id, health)
+      if (this.io) this.io.emit('deployment-updated')
     }
 
     for (const dep of deployments) {
-      if (dep.status !== 'running' && dep.status !== 'unhealthy') continue
+      if (dep.status !== 'running' && dep.status !== 'unhealthy' && dep.status !== 'destroying') continue
       try {
         const reach = await reachOf(dep.clusterId)
         if (!reach) continue
-        if (!(await namespacesOn(reach)).includes(namespaceOf(dep))) {
+        const namespace = (await namespacesOn(reach)).get(namespaceOf(dep))
+        if (dep.status === 'destroying') {
+          const hold = namespace ? removalHoldOf(namespace) : undefined
+          if ((hold ?? '') !== (dep.healthReason ?? '')) await tell(dep, { healthReason: hold })
+          continue
+        }
+        if (!namespace) {
           const missing = missingNamespaceReason(namespaceOf(dep))
-          if (dep.status !== 'unhealthy' || dep.healthReason !== missing) {
-            await updateDeploymentStatus(this.db, dep.id, { ...dep, healthReason: missing }, 'unhealthy', dep.storage)
-            if (this.io) this.io.emit('deployment-updated')
-          }
+          if (dep.status !== 'unhealthy' || dep.healthReason !== missing) await tell(dep, { status: 'unhealthy', healthReason: missing })
           continue
         }
         const raw = await access.kubectl(reach, ['get', 'pods', '-n', namespaceOf(dep), '-o', 'json'])
@@ -622,8 +630,7 @@ export class TemporalBridge {
         const next = reconciledStatus(dep.status, effective)
         if (next) {
           console.warn(`[Reconcile] ${dep.name} is ${dep.status} but the workload is ${effective}${(serviceReason || reason) ? ` (${serviceReason || reason})` : ''} — marking ${next}`)
-          await updateDeploymentStatus(this.db, dep.id, { ...dep, healthReason: serviceReason || reason }, next, dep.storage)
-          if (this.io) this.io.emit('deployment-updated')
+          await tell(dep, { status: next, healthReason: serviceReason || reason })
         }
       } catch (err) {
         console.warn(`[Reconcile] ${dep.name} is not checked this pass: ${(err as Error).message}`)

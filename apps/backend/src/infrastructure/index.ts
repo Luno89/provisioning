@@ -77,5 +77,5 @@ export type { GroveRunStatus, TemporalBridge } from './services/TemporalBridge.j
 export { VpsCatalogService } from './services/VpsCatalogService.js';
 export type { WorkFailureService } from './services/WorkFailureService.js';
 export { default as WorkerService } from './services/WorkerService.js';
-export type { InfrastructureStore } from './store.js';
+export type { DeploymentHealth, InfrastructureStore } from './store.js';
 export { pushOpenWebUiWebSearchConfig } from './wiring/openwebui-admin.js';

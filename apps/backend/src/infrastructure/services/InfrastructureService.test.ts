@@ -68,3 +68,17 @@ describe('InfrastructureService.listLocalClusters', () => {
     expect(await new InfrastructureService(shell).listLocalClusters()).toEqual([]);
   });
 });
+
+describe('InfrastructureService.waitForNamespaceDeletion', () => {
+  it('asks the cluster to delete the namespace and waits for it to be gone, with no deadline and never clearing its finalizers', async () => {
+    const shell = mockFn<Shell>();
+    shell.mockResolvedValue(output(''));
+    await new InfrastructureService(shell).waitForNamespaceDeletion('shop-1a2b3c', '/home/me/kube.yaml');
+    const commands = shell.mock.calls.map(([command]) => command);
+    expect(commands).toEqual([
+      expect.stringContaining("'delete' 'namespace' 'shop-1a2b3c' '--ignore-not-found=true' '--wait=false'"),
+      expect.stringContaining("'wait' '--for=delete' 'namespace/shop-1a2b3c' '--timeout=720h'"),
+    ]);
+    expect(commands.some((command) => command.includes('finalizers'))).toBe(false);
+  });
+});

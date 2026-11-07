@@ -250,7 +250,7 @@ export class MonitoringService {
   }
 
   async appsOf(viewer: Viewer): Promise<DeploymentMetadata[]> {
-    return (await this.deps.store.infrastructure.getDeployments()).filter((dep) => dep.status !== 'destroying' && allowed(viewer, 'see', { kind: 'deployment', ownerId: dep.ownerId }));
+    return (await this.deps.store.infrastructure.getDeployments()).filter((dep) => (dep.status !== 'destroying' || Boolean(dep.healthReason)) && allowed(viewer, 'see', { kind: 'deployment', ownerId: dep.ownerId }));
   }
 
   async allClusters(): Promise<ClusterMetadata[]> {
@@ -440,6 +440,7 @@ export class MonitoringService {
     if (waiting) return { ...base, state: 'warning', reasons: [waiting], numbers: {} };
     if (dep.status === 'deploying') return { ...base, state: 'installing', reasons: ['it is being deployed'], numbers: {} };
     if (dep.status === 'failed') return { ...base, state: 'down', reasons: ['its deploy failed'], numbers: {} };
+    if (dep.status === 'destroying' && dep.healthReason) return { ...base, state: 'warning', reasons: [dep.healthReason], numbers: {} };
     if (!reached.metrics) return { ...base, state: reached.state, reasons: reached.reason ? [`its cluster ${reached.reason}`] : [], numbers: {} };
     const namespace = namespaceOf(dep);
     const numbers = await this.appNumbers(reached.metrics, { namespace, services: await this.servicesOf(reached.metrics, namespace) }, kept);

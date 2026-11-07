@@ -16,6 +16,8 @@ import { hasPlainSecret, sealDeployment, unsealDeployment } from './lib/deployme
 import { watchingAll, watchWrites, type Watching } from '../platform/lib/change-streams.js';
 import { FOLLOWED_CLUSTER_STATUSES, FOLLOWED_DEPLOYMENT_STATUSES, workflowMatch, type FollowedRecord } from './lib/followed-work.js';
 
+export interface DeploymentHealth { status?: DeploymentMetadata['status']; healthReason?: string | undefined }
+
 export interface InfrastructureStore extends AreaStore {
   getClusters(): Promise<ClusterMetadata[]>;
   watchFollowed(on: (followed: FollowedRecord) => void): Watching;
@@ -26,6 +28,7 @@ export interface InfrastructureStore extends AreaStore {
   updateClusterProgress(clusterId: string, progress: ClusterProgress): Promise<void>;
   getDeployments(): Promise<DeploymentMetadata[]>;
   saveDeployment(deployment: DeploymentMetadata): Promise<void>;
+  patchDeploymentHealth(id: string, health: DeploymentHealth): Promise<void>;
   deleteDeploymentsOfCluster(clusterId: string): Promise<number>;
   deleteDeployment(id: string): Promise<void>;
   saveDeploymentInfo(deployment: PartialInfo<DeploymentMetadata>): Promise<DeploymentMetadata>;
@@ -179,6 +182,11 @@ export class MongoInfrastructureStore implements InfrastructureStore {
 
   async saveDeployment(deployment: DeploymentMetadata): Promise<void> {
     await this.deployments.replaceOne({ _id: deployment.id }, fieldsOf(sealDeployment(deployment, this.dataKey)), { upsert: true });
+  }
+
+  async patchDeploymentHealth(id: string, health: DeploymentHealth): Promise<void> {
+    const changes = fieldChanges({ ...health });
+    if (changes.$set || changes.$unset) await this.deployments.updateOne({ _id: id }, changes);
   }
 
   async deleteDeploymentsOfCluster(clusterId: string): Promise<number> {

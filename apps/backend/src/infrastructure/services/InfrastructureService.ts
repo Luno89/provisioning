@@ -7,7 +7,7 @@ import { fileURLToPath } from 'url';
 import { Server as SocketServer } from 'socket.io';
 
 import os from 'os';
-import { CommandFailedError, listAt, textAt } from '../../platform/index.js';
+import { CLI_CEILING, CommandFailedError, listAt, textAt } from '../../platform/index.js';
 import { ignore } from '@koala/engine-core/failures';
 import { assessWorkload } from '../lib/workload-health.js';
 import { execShell, type Shell } from '../lib/shell.js';
@@ -170,20 +170,7 @@ export class InfrastructureService {
 
   async waitForNamespaceDeletion(namespace: string, kubeconfigPath?: string): Promise<void> {
     await this.runKubectl(['delete', 'namespace', namespace, '--ignore-not-found=true', '--wait=false'], kubeconfigPath);
-
-    const startTime = Date.now();
-    for (;;) {
-      const output = await this.runKubectl(['get', 'namespace', namespace, '--ignore-not-found', '-o', 'json'], kubeconfigPath);
-      if (!output.trim()) return;
-      const nsObj: unknown = JSON.parse(output);
-      if (textAt(nsObj, 'status', 'phase') === 'Terminating' && Date.now() - startTime > 30000) {
-        await this.runKubectl(
-          ['patch', 'namespace', namespace, '-p', '{"spec":{"finalizers":[]}}', '--type=merge'],
-          kubeconfigPath
-        ).catch(ignore('a namespace whose finalizers cannot be cleared yet is tried again on the next pass'));
-      }
-      await new Promise((r) => setTimeout(r, 2000));
-    }
+    await this.runKubectl(['wait', '--for=delete', `namespace/${namespace}`, `--timeout=${CLI_CEILING}`], kubeconfigPath);
   }
 
   private async dockerContainerExists(containerName: string): Promise<boolean> {

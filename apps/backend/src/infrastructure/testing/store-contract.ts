@@ -164,6 +164,16 @@ export function infrastructureStoreContract(make: () => Promise<InfrastructureSt
   });
 
   describe('deployments', () => {
+    it('patches only an app\'s status and health reason, and never makes an app it does not have', async () => {
+      const store = await make();
+      await store.saveDeployment(deployment('a', { modules: ['x'], minioRootPassword: 'pw', healthReason: 'was down' }));
+      await store.patchDeploymentHealth('a', { status: 'unhealthy', healthReason: 'its namespace is gone' });
+      await store.patchDeploymentHealth('gone', { status: 'unhealthy', healthReason: 'its namespace is gone' });
+      expect(await store.getDeployments()).toEqual([deployment('a', { modules: ['x'], minioRootPassword: 'pw', status: 'unhealthy', healthReason: 'its namespace is gone' })]);
+      await store.patchDeploymentHealth('a', { healthReason: undefined });
+      expect((await store.getDeployments())[0]).not.toHaveProperty('healthReason');
+    });
+
     it('keeps a deployment as it was saved, replaces it whole when saved again, and forgets it when deleted', async () => {
       const store = await make();
       await store.saveDeployment(deployment('a', { namespace: 'ns-a', modules: ['x'] }));

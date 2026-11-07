@@ -142,6 +142,14 @@ describe('the overview', () => {
     expect(overview.attention).toEqual([{ subject: { kind: 'app', id: 'gone', name: 'Gone' }, state: 'down', reasons: ['its namespace gone is not on its cluster, so nothing of it runs there; destroy the app or deploy it again'] }]);
   });
 
+  it('puts an app whose removal Kubernetes holds under what needs attention, with what it waits on', async () => {
+    await db.infrastructure.saveDeploymentInfo(dep({ id: 'leaving', name: 'Leaving', namespace: 'leaving', status: 'destroying', healthReason: 'it is being removed, and Kubernetes is waiting on: example.com/hold' }));
+
+    const overview = await monitoring.overview(ME);
+
+    expect(overview.attention).toEqual([{ subject: { kind: 'app', id: 'leaving', name: 'Leaving' }, state: 'warning', reasons: ['it is being removed, and Kubernetes is waiting on: example.com/hold'] }]);
+  });
+
   it('lists the person\'s apps worst first, with what needs attention', async () => {
     await db.infrastructure.saveDeploymentInfo(dep({ id: 'books', name: 'Books', namespace: 'books' }));
     await db.infrastructure.saveDeploymentInfo(dep({ id: 'shop', name: 'Shop', namespace: 'shop' }));

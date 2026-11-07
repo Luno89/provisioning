@@ -13,7 +13,7 @@ import { hasPlainSecret, sealDeployment, unsealDeployment } from '../lib/deploym
 import type { BindingTypeRecord } from '../lib/service-binding.js';
 import { SERVER_ORDER_LOG_LINES, type ServerOrder } from '../lib/server-orders.js';
 import type { WorkFailure } from '../lib/work-failures.js';
-import type { InfrastructureStore } from '../store.js';
+import type { DeploymentHealth, InfrastructureStore } from '../store.js';
 import type { Watching } from '../../platform/lib/change-streams.js';
 import { FOLLOWED_CLUSTER_STATUSES, FOLLOWED_DEPLOYMENT_STATUSES, namesWorkflow, type FollowedRecord } from '../lib/followed-work.js';
 
@@ -120,6 +120,15 @@ export class MemoryInfrastructureStore implements InfrastructureStore {
       && asStored(other.ownerId) === asStored(sealed.ownerId) && asStored(other.name) === asStored(sealed.name));
     if (clash) throw duplicate('deployments', `{ ownerId: ${JSON.stringify(asStored(sealed.ownerId))}, name: ${JSON.stringify(asStored(sealed.name))} }`);
     this.deployments.put(sealed);
+  }
+
+  async patchDeploymentHealth(id: string, health: DeploymentHealth): Promise<void> {
+    if (Object.keys(health).length === 0) return;
+    this.deployments.change(id, (deployment) => {
+      const next: Record<string, unknown> = { ...deployment, ...health };
+      for (const [field, value] of Object.entries(health)) if (value === undefined) delete next[field];
+      return next as unknown as DeploymentMetadata;
+    });
   }
 
   async deleteDeploymentsOfCluster(clusterId: string): Promise<number> {

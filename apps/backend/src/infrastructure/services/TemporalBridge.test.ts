@@ -391,11 +391,11 @@ describe('checking each app on its cluster', () => {
   const listOf = (items: unknown[]): string => JSON.stringify({ items });
   const readyPod = { metadata: { name: 'web' }, status: { phase: 'Running', containerStatuses: [{ name: 'web', ready: true, restartCount: 0, state: { running: {} } }] } };
 
-  function checking(namespaces: string[]) {
+  function checking(namespaces: Array<string | Record<string, unknown>>) {
     const access = mock<ClusterAccess>();
     const reach = { clusterId: 'machine-desk', kind: 'machine' as const, kubeconfig: 'k' };
     access.reach.mockResolvedValue(reach);
-    access.kubectl.mockImplementation(async (_reach, args) => (args[1] === 'namespaces' ? listOf(namespaces.map((name) => ({ metadata: { name } }))) : listOf([readyPod])));
+    access.kubectl.mockImplementation(async (_reach, args) => (args[1] === 'namespaces' ? listOf(namespaces.map((name) => (typeof name === 'string' ? { metadata: { name } } : name))) : listOf([readyPod])));
     const clusterService = mock<ClusterService>();
     Object.assign(clusterService, { access });
     const io = mock<SocketServer>();
@@ -424,5 +424,30 @@ describe('checking each app on its cluster', () => {
     await back.db.infrastructure.saveDeploymentInfo(running({ id: 'gone', name: 'Gone', namespace: 'gone-4d5e6f', status: 'unhealthy', healthReason: 'its namespace gone-4d5e6f is not on its cluster' }));
     await back.instance.checkApps();
     expect((await back.db.infrastructure.getDeployments())[0]?.status).toBe('running');
+  });
+
+  it('says on an app being removed what Kubernetes waits on to delete its namespace, and clears it once that is gone', async () => {
+    const held = { metadata: { name: 'shop-1a2b3c' }, status: { phase: 'Terminating', conditions: [{ type: 'NamespaceFinalizersRemaining', status: 'True', message: 'Some content in the namespace has finalizers remaining: example.com/hold in 1 resource instances' }] } };
+    const holding = checking([held]);
+    await holding.db.infrastructure.saveDeploymentInfo(running({ id: 'shop', name: 'Shop', namespace: 'shop-1a2b3c', status: 'destroying' }));
+    await holding.instance.checkApps();
+    expect((await holding.db.infrastructure.getDeployments())[0]).toMatchObject({ status: 'destroying', healthReason: 'it is being removed, and Kubernetes is waiting on: Some content in the namespace has finalizers remaining: example.com/hold in 1 resource instances' });
+    const gone = checking([]);
+    await gone.db.infrastructure.saveDeploymentInfo(running({ id: 'shop', name: 'Shop', namespace: 'shop-1a2b3c', status: 'destroying', healthReason: 'it is being removed, and Kubernetes is waiting on: x' }));
+    await gone.instance.checkApps();
+    expect((await gone.db.infrastructure.getDeployments())[0]).toMatchObject({ status: 'destroying' });
+    expect((await gone.db.infrastructure.getDeployments())[0]).not.toHaveProperty('healthReason');
+  });
+
+  it('never makes again an app deleted while the pass read its cluster', async () => {
+    const { db, instance, access } = checking([]);
+    await db.infrastructure.saveDeploymentInfo(running({ id: 'gone', name: 'Gone', namespace: 'gone-4d5e6f' }));
+    const list = access.kubectl.getMockImplementation()!;
+    access.kubectl.mockImplementation(async (reach, args, input) => {
+      await db.infrastructure.deleteDeployment('gone');
+      return list(reach, args, input);
+    });
+    await instance.checkApps();
+    expect(await db.infrastructure.getDeployments()).toEqual([]);
   });
 });
