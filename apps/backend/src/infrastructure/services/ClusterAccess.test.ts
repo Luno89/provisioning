@@ -38,6 +38,11 @@ describe('ClusterAccess: how to reach a cluster, worked out where the records ar
     expect(await access.reach('machine-dev1')).toEqual({ clusterId: 'machine-dev1', kind: 'koala' });
   });
 
+  it('names Koala\'s own cluster by its id in a process that holds no cluster records', async () => {
+    const { access } = await door({ clusters: undefined, dataKey: undefined });
+    expect(await access.reach('machine-dev1')).toEqual({ clusterId: 'machine-dev1', kind: 'koala' });
+  });
+
   it('refuses, saying why, a stopped machine, another kind of cluster, one it has no record of, and anything without the records or the key', async () => {
     const { access } = await door({}, [cluster({ status: 'stopped' }), cluster({ id: 'old', name: 'old', provider: 'k3d' })]);
     await expect(access.reach('machine-dev2')).rejects.toMatchObject({ name: 'ClusterUnreachable', why: 'stopped', message: 'machine-dev2 is stopped until something runs on it' });

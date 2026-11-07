@@ -31,9 +31,9 @@ export class ClusterAccess {
   constructor(private readonly deps: ClusterAccessDeps) {}
 
   async reach(clusterId: string): Promise<Reach> {
-    if (!this.deps.clusters) throw new ClusterUnreachable(clusterId, 'no-records', 'this process holds no cluster records; the workflow that sent the work hands over how to reach the cluster');
-    const record = (await this.deps.clusters.getClusters()).find((cluster) => cluster.id === clusterId);
+    const record = this.deps.clusters ? (await this.deps.clusters.getClusters()).find((cluster) => cluster.id === clusterId) : undefined;
     const place = placeOf(clusterId, record, this.deps.here);
+    if (place.kind === 'unreachable' && place.why === 'unknown' && !this.deps.clusters) throw new ClusterUnreachable(clusterId, 'no-records', 'this process holds no cluster records; the workflow that sent the work hands over how to reach the cluster');
     switch (place.kind) {
       case 'unreachable':
         throw new ClusterUnreachable(clusterId, place.why, place.reason);
