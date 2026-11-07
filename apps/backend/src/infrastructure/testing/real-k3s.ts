@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { nodeProcesses, succeeded, type Processes } from '../../platform/index.js';
@@ -31,12 +31,32 @@ export async function startK3s(processes: Processes = nodeProcesses): Promise<Re
   const docker = (...args: string[]): Promise<string> => succeeded(processes, { command: 'docker', args });
   await docker('run', '-d', '--name', name, '--privileged', '-p', '127.0.0.1::6443', K3S_TEST_IMAGE, 'server', '--disable=traefik,servicelb,metrics-server', '--tls-san', '127.0.0.1');
   const stop = async (): Promise<void> => { await docker('rm', '-f', name); };
+  const stillRunning = async (what: string): Promise<void> => {
+    if ((await docker('inspect', '-f', '{{.State.Running}}', name)).trim() === 'true') return;
+    const said = await processes.run({ command: 'docker', args: ['logs', '--tail', '20', name] });
+    throw new Error(`the throwaway k3s ${name} stopped while ${what}:\n${said.stdout}${said.stderr}`);
+  };
   try {
     const port = (await docker('port', name, '6443')).split('\n')[0]!.split(':').pop()!.trim();
-    while (!/\sReady\s/.test((await processes.run({ command: 'docker', args: ['exec', name, 'kubectl', 'get', 'nodes', '--no-headers'] })).stdout)) await pause(250);
     const folder = mkdtempSync(join(tmpdir(), 'koala-k3s-'));
-    const admin = (await docker('exec', name, 'cat', '/etc/rancher/k3s/k3s.yaml')).replace('https://127.0.0.1:6443', `https://127.0.0.1:${port}`);
-    const inside = (...args: string[]): Promise<string> => docker('exec', name, 'kubectl', ...args);
+    const written = join(folder, 'k3s.yaml');
+    while ((await processes.run({ command: 'docker', args: ['cp', `${name}:/etc/rancher/k3s/k3s.yaml`, written] })).code !== 0) {
+      await stillRunning('writing its kubeconfig');
+      await pause(250);
+    }
+    const admin = readFileSync(written, 'utf8').replace('https://127.0.0.1:6443', `https://127.0.0.1:${port}`);
+    const adminFile = join(folder, 'admin.yaml');
+    writeFileSync(adminFile, admin, { mode: 0o600 });
+    const outside = (...args: string[]) => processes.run({ command: TOOLS.kubectl, args: ['--kubeconfig', adminFile, ...args] });
+    while (!/\sReady\s/.test((await outside('get', 'nodes', '--no-headers')).stdout)) {
+      await stillRunning('starting');
+      await pause(250);
+    }
+    while ((await outside('get', 'serviceaccount', 'default', '-n', 'default')).code !== 0) {
+      await stillRunning('making its default service account');
+      await pause(250);
+    }
+    const inside = (...args: string[]): Promise<string> => succeeded(processes, { command: TOOLS.kubectl, args: ['--kubeconfig', adminFile, ...args] });
     await inside('create', 'serviceaccount', 'koala', '-n', 'default');
     await inside('create', 'clusterrolebinding', 'koala', '--clusterrole=cluster-admin', '--serviceaccount=default:koala');
     const token = (await inside('create', 'token', 'koala', '-n', 'default', '--duration=1h')).trim();
