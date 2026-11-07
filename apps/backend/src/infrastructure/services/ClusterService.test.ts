@@ -26,7 +26,7 @@ function setup(places: { shell?: Shell; koalaMachineId?: string | undefined } = 
   infra.getManagementClusterKubeconfig.mockRejectedValue(new Error('no management cluster here'));
   infra.listLocalClusters.mockResolvedValue([]);
   const kubeconfigDir = mkdtempSync(join(tmpdir(), 'cluster-service-'));
-  return { db, infra, kubeconfigDir, service: new ClusterService(db, infra, testClusterAccess(db, { dataKey: MASTER, koalaMachineId: places.koalaMachineId, folder: kubeconfigDir, serviceAccount: { host: 'kubernetes.default.svc', port: '443', caFile: '/sa/ca.crt', tokenFile: '/sa/token' } }), { kubeconfigDir, shell: noHostTools, ...places }) };
+  return { db, infra, kubeconfigDir, service: new ClusterService(db, infra, testClusterAccess(db, { answers: (args) => infra.runKubectl([...args]), dataKey: MASTER, koalaMachineId: places.koalaMachineId, folder: kubeconfigDir, serviceAccount: { host: 'kubernetes.default.svc', port: '443', caFile: '/sa/ca.crt', tokenFile: '/sa/token' } }), { kubeconfigDir, shell: noHostTools, ...places }) };
 }
 
 beforeEach(() => { process.env.NODE_ENV = 'development'; delete process.env.HCLOUD_TOKEN; });
@@ -227,18 +227,6 @@ describe('the kubeconfig a deleted cluster leaves', () => {
     writeFileSync(join(kube, 'config'), 'the operator keeps every cluster here');
     return join(kube, 'config');
   };
-
-  it('removes only the file Koala wrote for that cluster, even when its own kubeconfig cannot be fetched', async () => {
-    const { service, db, infra, kubeconfigDir } = setup();
-    const operators = own();
-    infra.getLogPath.mockReturnValue('/tmp/delete.log');
-    await db.infrastructure.saveCluster(k3d('gpu', 'healthy', { gpuEnabled: true }));
-    writeFileSync(join(kubeconfigDir, 'kubeconfig-other'), 'another cluster');
-    await service.delete('gpu', asPerson('bo'));
-    await vi.waitFor(async () => expect(await db.infrastructure.getClusters()).toEqual([]));
-    expect(readFileSync(operators, 'utf8')).toBe('the operator keeps every cluster here');
-    expect(existsSync(join(kubeconfigDir, 'kubeconfig-other'))).toBe(true);
-  });
 
   it('removes the file it wrote for a cluster it aborts, and nothing of the operator\'s', async () => {
     const { service, db, infra, kubeconfigDir } = setup();

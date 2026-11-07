@@ -11,6 +11,12 @@ const REPO = resolve(import.meta.dirname, '../../../../../');
 
 export const TOOLS = { kubectl: join(REPO, 'bin', 'kubectl'), helm: join(REPO, 'bin', 'helm') };
 
+declare module 'vitest' {
+  export interface ProvidedContext {
+    k3s: { admin: string; account: ServiceAccount };
+  }
+}
+
 export interface RealK3s {
   admin: string;
   account: ServiceAccount;

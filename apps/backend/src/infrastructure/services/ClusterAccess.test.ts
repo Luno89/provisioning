@@ -108,9 +108,12 @@ describe('ClusterAccess: running kubectl and helm with a reach, wherever it was 
     expect(seen).toEqual(['line']);
   });
 
-  it('passes on what kubectl said when a command fails', async () => {
+  it('passes on what kubectl said when a command fails, and nothing of the command line or where its kubeconfig is', async () => {
     const { access, processes } = await door();
-    processes.run.mockResolvedValue({ code: 1, stdout: '', stderr: 'Error from server (NotFound): namespaces "shop" not found' });
-    await expect(access.kubectl(startedMachine('machine-dev2', ADMIN), ['get', 'ns', 'shop'])).rejects.toThrow('namespaces "shop" not found');
+    processes.run.mockResolvedValue({ code: 1, stdout: '', stderr: 'Error from server (NotFound): namespaces "shop" not found\n' });
+    const failed = access.kubectl(startedMachine('machine-dev2', ADMIN), ['get', 'ns', 'shop']);
+    await expect(failed).rejects.toMatchObject({ name: 'ClusterCommandFailed', clusterId: 'machine-dev2', message: 'Error from server (NotFound): namespaces "shop" not found' });
+    processes.run.mockResolvedValue({ code: 137, stdout: '', stderr: '' });
+    await expect(access.helm(startedMachine('machine-dev2', ADMIN), ['--namespace', 'shop', 'status', 'shop'])).rejects.toThrow('helm on machine-dev2 exited 137');
   });
 });

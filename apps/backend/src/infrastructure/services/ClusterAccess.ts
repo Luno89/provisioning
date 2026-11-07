@@ -1,7 +1,7 @@
 import { mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
-import { decryptValue, nodeProcesses, nodeStreams, ProcessFailed, succeeded, writePrivate, type Followed, type PlatformRole, type ProcessRun, type Processes, type SecretKey, type Streams } from '../../platform/index.js';
+import { basename, join, resolve } from 'node:path';
+import { decryptValue, nodeProcesses, nodeStreams, writePrivate, type Followed, type PlatformRole, type ProcessResult, type ProcessRun, type Processes, type SecretKey, type Streams } from '../../platform/index.js';
 import { lostCreateRace } from '../lib/apply-races.js';
 import { placeOf, serviceAccountFrom, serviceAccountKubeconfig, type Here, type Reach, type ServiceAccount, type WhyUnreachable } from '../lib/cluster-places.js';
 import type { InfrastructureStore } from '../store.js';
@@ -10,6 +10,13 @@ export class ClusterUnreachable extends Error {
   constructor(readonly clusterId: string, readonly why: WhyUnreachable, message: string) {
     super(message);
     this.name = 'ClusterUnreachable';
+  }
+}
+
+export class ClusterCommandFailed extends Error {
+  constructor(readonly clusterId: string, readonly run: ProcessRun, readonly result: ProcessResult) {
+    super(result.stderr.trim() || result.stdout.trim() || `${basename(run.command)} on ${clusterId} exited ${result.code}`);
+    this.name = 'ClusterCommandFailed';
   }
 }
 
@@ -26,6 +33,8 @@ export interface ClusterAccessDeps {
 }
 
 export type Target = Reach | string;
+
+const clusterIdOf = (target: Target): string => (typeof target === 'string' ? target : target.clusterId);
 
 export class ClusterAccess {
   constructor(private readonly deps: ClusterAccessDeps) {}
@@ -62,25 +71,31 @@ export class ClusterAccess {
   }
 
   async kubectl(target: Target, args: readonly string[], input?: string): Promise<string> {
-    return succeeded(this.deps.processes, await this.run(target, this.deps.tools.kubectl, args, input));
+    return this.ran(target, await this.run(target, this.deps.tools.kubectl, args, input));
   }
 
   async helm(target: Target, args: readonly string[]): Promise<string> {
-    return succeeded(this.deps.processes, await this.run(target, this.deps.tools.helm, args));
+    return this.ran(target, await this.run(target, this.deps.tools.helm, args));
   }
 
   async apply(target: Target, manifest: string): Promise<string> {
     const run = await this.run(target, this.deps.tools.kubectl, ['apply', '-f', '-'], manifest);
     const first = await this.deps.processes.run(run);
     if (first.code === 0) return first.stdout;
-    if (!lostCreateRace(first.stderr)) throw new ProcessFailed(run, first);
-    return succeeded(this.deps.processes, run);
+    if (!lostCreateRace(first.stderr)) throw new ClusterCommandFailed(clusterIdOf(target), run, first);
+    return this.ran(target, run);
   }
 
   async pipe(target: Target, args: readonly string[], input: NodeJS.ReadableStream): Promise<string> {
     const run = await this.run(target, this.deps.tools.kubectl, args);
     const result = await this.deps.streams.pipe(run, input);
-    if (result.code !== 0) throw new ProcessFailed(run, result);
+    if (result.code !== 0) throw new ClusterCommandFailed(clusterIdOf(target), run, result);
+    return result.stdout;
+  }
+
+  private async ran(target: Target, run: ProcessRun): Promise<string> {
+    const result = await this.deps.processes.run(run);
+    if (result.code !== 0) throw new ClusterCommandFailed(clusterIdOf(target), run, result);
     return result.stdout;
   }
 

@@ -2,18 +2,16 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Readable } from 'node:stream';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { describe, expect, inject, it } from 'vitest';
 import { encryptValue, nodeProcesses, nodeStreams, type ClusterMetadata } from '../../platform/index.js';
 import { testDatabase } from '../../platform/lib/test-database.js';
 import { startedMachine } from '../lib/cluster-places.js';
-import { startK3s, TOOLS, type RealK3s } from '../testing/real-k3s.js';
+import { TOOLS } from '../testing/real-k3s.js';
 import { ClusterAccess, type ClusterAccessDeps } from './ClusterAccess.js';
 
 const KEY = 'test-key' as never;
 
-let k3s: RealK3s;
-beforeAll(async () => { k3s = await startK3s(); });
-afterAll(async () => { await k3s?.stop(); });
+const k3s = inject('k3s');
 
 const machine = (overrides: Partial<ClusterMetadata>): ClusterMetadata =>
   ({ name: overrides.id, provider: 'machine', status: 'healthy', ownerId: 'owner', createdAt: 't', ...overrides }) as ClusterMetadata;

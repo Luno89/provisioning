@@ -1,10 +1,9 @@
-import { type Actions, allowed, authorize, BaseService, type ClusterMetadata, clusterResource, type Database, listAt, numberAt, type Principal, recordAt, textAt, writePrivate } from '../../platform/index.js';
+import { type Actions, allowed, authorize, BaseService, type ClusterMetadata, clusterResource, type Database, listAt, numberAt, type Principal, textAt, writePrivate } from '../../platform/index.js';
 import type { ClusterAccess } from './ClusterAccess.js';
 import { InfrastructureService } from './InfrastructureService.js';
 import type { TemporalBridge } from './TemporalBridge.js';
 import { ignore } from '@koala/engine-core/failures';
 import { hasCloudCredentials, isMockCloudProvider } from './cloud-credentials.js';
-import { v4 as uuidv4 } from 'uuid';
 import { capacityFromNodes, type ClusterCapacity } from '../lib/cluster-capacity.js';
 import { machineClusterId } from '../lib/cluster-name.js';
 import { parseNvidiaSmiVram } from '../lib/gpu-vram.js';
@@ -48,7 +47,7 @@ export class ClusterService extends BaseService {
     const id = machineClusterId(machineId);
     const record = (await this.db.infrastructure.getClusters()).find((cluster) => cluster.id === id);
     const cluster: ClusterMetadata = { ...(record ?? { id, name: id, provider: 'machine', machineId }), status: 'healthy', isSystem: true, lastSyncedAt: new Date().toISOString() };
-    const capacity = await this.readLiveCapacity(await this.machineKubeconfig(cluster)).catch(ignore('a cluster whose capacity cannot be read now shows without it'));
+    const capacity = await this.readLiveCapacity(() => this.access.kubectl(cluster.id, ['get', 'nodes', '-o', 'json'])).catch(ignore('a cluster whose capacity cannot be read now shows without it'));
     return capacity ? { ...cluster, capacity } : cluster;
   }
 
@@ -167,7 +166,7 @@ export class ClusterService extends BaseService {
       await writePrivate(kubeconfigPath, content).catch((err: unknown) => {
         this.logger.warn(`Could not write the system cluster's kubeconfig to ${kubeconfigPath}, so its capacity is read from what is there: ${(err as Error).message}`);
       });
-      capacity = await this.readLiveCapacity(kubeconfigPath);
+      capacity = await this.readLiveCapacity(() => this.infra.runKubectl(['get', 'nodes', '-o', 'json'], kubeconfigPath));
     } catch {
       status = 'failed';
     }
@@ -183,10 +182,10 @@ export class ClusterService extends BaseService {
     };
   }
 
-  private async readLiveCapacity(kubeconfigPath: string): Promise<ClusterCapacity | undefined> {
+  private async readLiveCapacity(readNodes: () => Promise<string>): Promise<ClusterCapacity | undefined> {
     let capacity: ClusterCapacity | undefined;
     try {
-      const nodesJson = await this.infra.runKubectl(['get', 'nodes', '-o', 'json'], kubeconfigPath);
+      const nodesJson = await readNodes();
       capacity = capacityFromNodes(JSON.parse(nodesJson));
     } catch {
       return undefined;
@@ -314,221 +313,12 @@ export class ClusterService extends BaseService {
     return cluster && allowed(principal, action, clusterResource(cluster)) ? cluster : undefined;
   }
 
-  async provision(name: string, provider: ClusterMetadata['provider'], userId: string, io?: SocketServer) {
-    const id = uuidv4();
-    const logFile = this.infra.getLogPath(name);
-    const metadata: ClusterMetadata = { id, name, provider, status: 'provisioning', lastLogPath: logFile, ownerId: userId };
-    await this.db.infrastructure.saveCluster(metadata);
-
-    (async () => {
-      try {
-        let kubeconfigPath = DEFAULT_KUBECONFIG;
-        const isMock = this.isMockCloud(metadata);
-        const physicalName = this.getPhysicalClusterName(metadata);
-
-        if (provider === 'k3d' || isMock) {
-          if (isMock && io) {
-            io.to(id).emit('log', `\n--- RUNNING IN MOCK CLOUD MODE (${provider.toUpperCase()}) ---\n`);
-            io.to(id).emit('log', `No credentials found for ${provider.toUpperCase()}. Falling back to local k3d cluster "${physicalName}".\n\n`);
-          }
-
-          try {
-            await this.infra.runKubectl(['config', 'unset', 'clusters.k3d-' + physicalName]);
-          } catch (failure) {
-            ignore('a kubeconfig entry from an earlier cluster of this name may not be there to unset')(failure);
-          }
-
-          await this.infra.createLocalCluster(physicalName, { logFile, io, resourceId: id });
-
-          const kubeconfigContent = await this.infra.getKubeconfig(physicalName);
-          kubeconfigPath = `${this.kubeconfigDir}/kubeconfig-${physicalName}`;
-          await writePrivate(kubeconfigPath, kubeconfigContent);
-
-          let ready = false;
-          for (let i = 0; i < 45; i++) {
-            try {
-              const nodesJson = await this.infra.runKubectl(['get', 'nodes', '-o', 'json'], kubeconfigPath);
-              const nodes = listAt(JSON.parse(nodesJson) as unknown, 'items');
-              const hasReadyNode = nodes.some((node) =>
-                listAt(node, 'status', 'conditions').some((c) => textAt(c, 'type') === 'Ready' && textAt(c, 'status') === 'True')
-              );
-              if (hasReadyNode) {
-                ready = true;
-                break;
-              }
-            } catch (err) {
-              this.logger.info(`Waiting for cluster ${physicalName} API server: ${(err as Error).message}`);
-            }
-
-            if (i > 0 && i % 5 === 0) {
-              try {
-                const containerName = `k3d-${physicalName}-server-0`;
-                const { exec } = await import('child_process');
-                const { promisify } = await import('util');
-                const execAsync = promisify(exec);
-                const { stdout, stderr } = await execAsync(`docker logs --tail 200 ${containerName}`);
-                const logs = stdout + '\n' + stderr;
-                if (logs.includes('too many open files') || logs.includes('fsnotify')) {
-                  throw new Error(`Docker/Colima VM resource limit exhausted: 'too many open files' in K3s file watcher. Please run 'colima restart' in your terminal to reset the VM limits.`);
-                }
-              } catch (logErr) {
-                if ((logErr as Error).message.includes('VM resource limit')) {
-                  throw logErr;
-                }
-              }
-            }
-
-            await new Promise(resolve => setTimeout(resolve, 2000));
-          }
-          if (!ready) {
-            throw new Error(`Cluster ${physicalName} did not get a Ready control plane node in time.`);
-          }
-
-          try {
-            this.logger.info(`Enabling volume expansion on local-path storage class...`);
-            let scPatched = false;
-            for (let attempt = 0; attempt < 30; attempt++) {
-              try {
-                await this.infra.runKubectl(['patch', 'storageclass', 'local-path', '-p', '\'{"allowVolumeExpansion": true}\''], kubeconfigPath);
-                this.logger.info(`Successfully enabled volume expansion on local-path storage class`);
-                scPatched = true;
-                break;
-              } catch (err) {
-                this.logger.info(`Waiting for local-path storage class to be available: ${(err as Error).message}`);
-                await new Promise(resolve => setTimeout(resolve, 2000));
-              }
-            }
-            if (!scPatched) {
-              this.logger.error(`local-path StorageClass was not available or could not be patched.`);
-            }
-          } catch (err) {
-            this.logger.error(`Failed to patch local-path storage class: ${(err as Error).message}`);
-          }
-
-          try {
-            const dnsList = await this.getRealNameservers();
-            this.logger.info(`Patching coredns ConfigMap with nameservers: ${dnsList.join(', ')}`);
-            
-            let patched = false;
-            for (let attempt = 0; attempt < 30; attempt++) {
-              try {
-                const configMapJson = await this.infra.runKubectl(
-                  ['get', 'configmap', 'coredns', '-n', 'kube-system', '-o', 'json'],
-                  kubeconfigPath
-                );
-                const cm: unknown = JSON.parse(configMapJson);
-                const cmData = recordAt(cm, 'data');
-                const originalCorefile = cmData.Corefile;
-                if (typeof originalCorefile === 'string' && originalCorefile) {
-                  const updatedCorefile = originalCorefile.replace(
-                    /forward\s+\.\s+\/etc\/resolv\.conf/g,
-                    `forward . ${dnsList.join(' ')}`
-                  );
-                  if (updatedCorefile !== originalCorefile) {
-                    cmData.Corefile = updatedCorefile;
-                    const execAsync = (await import('util')).promisify((await import('child_process')).exec);
-                    const containerName = `k3d-${physicalName}-server-0`;
-                    const cmJsonString = JSON.stringify(cm).replace(/'/g, "'\\''");
-                    await execAsync(`echo '${cmJsonString}' | docker exec -i ${containerName} kubectl replace -f -`);
-                    this.logger.info(`Successfully patched coredns ConfigMap`);
-                    await this.infra.runKubectl(
-                      ['rollout', 'restart', 'deployment/coredns', '-n', 'kube-system'],
-                      kubeconfigPath
-                    );
-                  }
-                  patched = true;
-                  break;
-                }
-              } catch (err) {
-                this.logger.info(`Waiting for coredns configmap to be available: ${(err as Error).message}`);
-                await new Promise(resolve => setTimeout(resolve, 2000));
-              }
-            }
-            if (!patched) {
-              this.logger.error(`CoreDNS ConfigMap was not available or could not be patched.`);
-            }
-          } catch (dnsErr) {
-            this.logger.error(`Failed to patch coredns: ${(dnsErr as Error).message}`);
-          }
-
-          await new Promise(resolve => setTimeout(resolve, 5000));
-        } else {
-          kubeconfigPath = `${this.kubeconfigDir}/kubeconfig-${name}`;
-        }
-
-        const env: Record<string, string> = { 
-          STACK_TYPE: 'cluster', 
-          ENV: isMock ? 'local' : provider, 
-          CLUSTER_NAME: physicalName,
-          KUBECONFIG_PATH: kubeconfigPath
-        };
-
-        await this.infra.deploy(physicalName, { logFile, io, resourceId: id, env });
-
-        await this.db.infrastructure.saveCluster({ ...metadata, status: 'healthy', kubeconfigPath });
-      } catch (err) {
-        this.logger.error(`Provisioning failed: ${(err as Error).message}`);
-        await this.db.infrastructure.saveCluster({ ...metadata, status: 'failed' });
-      }
-    })().catch((err: unknown) => this.logger.error(`Unhandled error during cluster provisioning: ${(err as Error).message}`));
-
-    return metadata;
-  }
-
   private async deletable(id: string, principal: Principal): Promise<ClusterMetadata> {
     const cluster = await this.getByIdUnscoped(id);
     if (!cluster) throw new Error('Cluster not found');
     const decision = authorize(principal, 'delete', clusterResource(cluster));
     if (!decision.allowed) throw new Error(decision.error);
     return cluster;
-  }
-
-  async delete(id: string, principal: Principal, io?: SocketServer) {
-    const cluster = await this.deletable(id, principal);
-
-    const logFile = this.infra.getLogPath(`${cluster.name}-destroy`);
-    await this.db.infrastructure.saveCluster({ ...cluster, status: 'destroying', lastLogPath: logFile });
-
-    (async () => {
-      try {
-        const isMock = this.isMockCloud(cluster);
-        const physicalName = this.getPhysicalClusterName(cluster);
-        const kubeconfigPath = await this.getKubeconfigPath(cluster);
-
-        if (cluster.gpuEnabled) {
-          await fs.rm(this.writtenKubeconfig(cluster), { force: true }).catch((err: unknown) => {
-            this.logger.warn(`Could not remove the kubeconfig at ${this.writtenKubeconfig(cluster)}, so a new cluster of this name would find it: ${(err as Error).message}`);
-          });
-          await this.db.infrastructure.deleteCluster(id);
-          if (io) io.to(`user:${cluster.ownerId}`).emit('resource-destroyed', { id, type: 'cluster', name: cluster.name });
-          return;
-        }
-
-        await this.infra.destroy(physicalName, {
-          logFile, io, resourceId: id,
-          env: {
-            STACK_TYPE: 'cluster',
-            ENV: isMock ? 'local' : cluster.provider,
-            CLUSTER_NAME: physicalName,
-            KUBECONFIG_PATH: kubeconfigPath
-          }
-        });
-
-        if (cluster.provider === 'k3d' || isMock) {
-            await this.infra.deleteLocalCluster(physicalName, { logFile, io, resourceId: id });
-            await this.infra.disconnectNginxFromNetwork(physicalName);
-            await fs.rm(this.writtenKubeconfig(cluster), { force: true }).catch((err: unknown) => {
-              this.logger.warn(`Could not remove the kubeconfig at ${this.writtenKubeconfig(cluster)}, so a new cluster of this name would find it: ${(err as Error).message}`);
-            });
-        }
-
-        await this.db.infrastructure.deleteCluster(id);
-        if (io) io.to(`user:${cluster.ownerId}`).emit('resource-destroyed', { id, type: 'cluster', name: cluster.name });
-      } catch (err) {
-        this.logger.error(`Destruction failed: ${(err as Error).message}`);
-        await this.db.infrastructure.saveCluster({ ...cluster, status: 'failed' });
-      }
-    })().catch((err: unknown) => this.logger.error(`Unhandled error during cluster destruction: ${(err as Error).message}`));
   }
 
   async abort(id: string, principal: Principal, io?: SocketServer) {
@@ -575,27 +365,19 @@ export class ClusterService extends BaseService {
     })().catch((err: unknown) => this.logger.error(`Unhandled error during cluster abort: ${(err as Error).message}`));
   }
 
-  async listAllPods(id: string, principal: Principal): Promise<unknown[]> {
-    const cluster = await this.getById(id, principal, 'see-everything');
-    if (!cluster) throw new Error('Cluster not found');
-    const physicalName = this.getPhysicalClusterName(cluster);
-    const context = (cluster.provider === 'k3d' || this.isMockCloud(cluster)) ? `k3d-${physicalName}` : undefined;
-    const args = ['get', 'pods', '--all-namespaces', '-o', 'json'];
-    if (context) args.push('--context', context);
-    const output = await this.infra.runKubectl(args, await this.getOwnKubeconfigPath(cluster));
-    return listAt(JSON.parse(output) as unknown, 'items');
+  private async listAllPods(clusterId: string): Promise<unknown[]> {
+    return listAt(JSON.parse(await this.access.kubectl(clusterId, ['get', 'pods', '--all-namespaces', '-o', 'json'])) as unknown, 'items');
   }
 
   async getGpuStatus(id: string, principal: Principal) {
     const cluster = await this.getById(id, principal, 'see-everything');
     if (!cluster) throw new Error('Cluster not found');
 
-    const kubeconfigPath = await this.getOwnKubeconfigPath(cluster);
-    const nodes = listAt(JSON.parse(await this.infra.runKubectl(['get', 'nodes', '-o', 'json'], kubeconfigPath)) as unknown, 'items');
-    const pods = await this.listAllPods(id, principal);
+    const nodes = listAt(JSON.parse(await this.access.kubectl(cluster.id, ['get', 'nodes', '-o', 'json'])) as unknown, 'items');
+    const pods = await this.listAllPods(cluster.id);
 
     const devicePlugins: { vendor: string; name: string; status: string; readyPods: number; desiredPods: number }[] = [];
-    const dsOutput = await this.infra.runKubectl(['get', 'daemonsets', '-n', 'kube-system', '-o', 'json'], kubeconfigPath);
+    const dsOutput = await this.access.kubectl(cluster.id, ['get', 'daemonsets', '-n', 'kube-system', '-o', 'json']);
     const dsItems = listAt(JSON.parse(dsOutput) as unknown, 'items');
     for (const ds of dsItems) {
       const name = textAt(ds, 'metadata', 'name') || '';

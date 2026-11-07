@@ -12,12 +12,23 @@ export interface TestClusterAccess {
   folder?: string | undefined;
   processes?: Processes | undefined;
   streams?: Streams | undefined;
+  answers?: ((args: readonly string[]) => Promise<string>) | undefined;
 }
+
+const answering = (answers: (args: readonly string[]) => Promise<string>): Processes => ({
+  run: async (run) => {
+    try {
+      return { code: 0, stdout: await answers(run.args.slice(2)), stderr: '' };
+    } catch (failure) {
+      return { code: 1, stdout: '', stderr: (failure as Error).message };
+    }
+  },
+});
 
 export const testClusterAccess = (db: Pick<Database, 'infrastructure'>, options: TestClusterAccess = {}): ClusterAccess => new ClusterAccess({
   here: { koalaMachineId: options.koalaMachineId, root: false },
   folder: options.folder ?? mkdtempSync(join(tmpdir(), 'koala-test-clusters-')),
-  processes: options.processes ?? nodeProcesses,
+  processes: options.processes ?? (options.answers ? answering(options.answers) : nodeProcesses),
   streams: options.streams ?? nodeStreams,
   tools: { kubectl: 'kubectl', helm: 'helm' },
   clusters: db.infrastructure,

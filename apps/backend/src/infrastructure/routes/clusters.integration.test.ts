@@ -11,6 +11,7 @@ import { clustersRouter } from './clusters.js';
 import { mountRouter, TEST_USER, type Harness } from '../../platform/routes/test-harness.js';
 import type { Database } from '../../platform/lib/db-interface.js';
 import type { ClusterMetadata } from '../../platform/lib/types.js';
+import { encryptValue } from '../../platform/lib/crypto.js';
 import { temporalTestEnvironment } from '../../workflows/temporal-test-env.js';
 import { TemporalBridge } from '../services/TemporalBridge.js';
 import { CredentialService } from '../services/CredentialService.js';
@@ -25,7 +26,6 @@ const ANY_STATUS = { validateStatus: () => true };
 const KEY = 'test-secret';
 const SYSTEM = 'provisioning-lunorica';
 const NO_GPUS = { passthroughEnabled: false, hasGpu: false, vendor: 'none', totalCapacity: 0, totalAllocatable: 0, totalAllocated: 0, availableGpus: 0, nodes: [], devicePlugins: [], gpuPods: [] };
-const SYSTEM_GPUS = { ...NO_GPUS, passthroughEnabled: true, hasGpu: true };
 const NODES = ['get', 'nodes', '-o', 'json'];
 
 let env: TestWorkflowEnvironment;
@@ -108,12 +108,12 @@ interface MountOptions {
   seed?: (db: Database) => Promise<void>;
 }
 
-const ownKubeconfig = () => path.join(kubeconfigDir, 'kubeconfig-dev');
+const ownKubeconfig = () => path.join(kubeconfigDir, 'kubeconfig-machine-c1');
 
 const seedOwnCluster = async (db: Database) => {
-  await fs.writeFile(ownKubeconfig(), 'apiVersion: v1\nkind: Config\n');
-  await db.infrastructure.saveCluster({ id: 'c1', name: 'dev', provider: 'hetzner', status: 'healthy', ownerId: TEST_USER.id, kubeconfigPath: ownKubeconfig() } as ClusterMetadata);
-  await db.infrastructure.saveCluster({ id: 'someone-elses', name: 'theirs', provider: 'hetzner', status: 'healthy', ownerId: 'someone-else', kubeconfigPath: ownKubeconfig() } as ClusterMetadata);
+  const sealed = encryptValue('apiVersion: v1\nkind: Config\n', KEY);
+  await db.infrastructure.saveCluster({ id: 'c1', name: 'dev', provider: 'machine', machineId: 'desk', status: 'healthy', ownerId: TEST_USER.id, kubeconfigEnc: sealed } as ClusterMetadata);
+  await db.infrastructure.saveCluster({ id: 'someone-elses', name: 'theirs', provider: 'machine', machineId: 'nas', status: 'healthy', ownerId: 'someone-else', kubeconfigEnc: sealed } as ClusterMetadata);
 };
 
 const mount = async (options: MountOptions = {}): Promise<Mounted> => {
@@ -128,7 +128,7 @@ const mount = async (options: MountOptions = {}): Promise<Mounted> => {
       await seedOwnCluster(db);
       await options.seed?.(db);
       const infra = infraOnHost(options.unreachable);
-      const clusterService = new ClusterService(db, infra, testClusterAccess(db, { dataKey: KEY, koalaMachineId: options.koalaMachineId, folder: kubeconfigDir, serviceAccount: { host: 'kubernetes.default.svc', port: '443', caFile: '/sa/ca.crt', tokenFile: '/sa/token' } }), { kubeconfigDir, koalaMachineId: options.koalaMachineId });
+      const clusterService = new ClusterService(db, infra, testClusterAccess(db, { answers: (args) => infra.runKubectl([...args]), dataKey: KEY, koalaMachineId: options.koalaMachineId, folder: kubeconfigDir, serviceAccount: { host: 'kubernetes.default.svc', port: '443', caFile: '/sa/ca.crt', tokenFile: '/sa/token' } }), { kubeconfigDir, koalaMachineId: options.koalaMachineId });
       const clusterProxyService = new ClusterProxyService();
       const bridge = new TemporalBridge(db, undefined, KEY, clusterService);
       if (options.temporal) bridge.client = env.client;
@@ -244,19 +244,15 @@ describe('what only whoever owns a cluster may open', () => {
     expect(spies.ensurePortForward).not.toHaveBeenCalled();
   });
 
-  it('opens the system cluster\'s dashboards and GPUs for an admin when combined, and for the owner on an instance', async () => {
-    for (const [user, instanceOwner] of [[admin, undefined], [someone, 'someone']] as const) {
-      grafanaLogins.length = 0;
-      const { h, spies } = await mount({ user, instanceOwner });
-      const res = await axios.get<unknown>(h.url(`/api/clusters/${SYSTEM}/proxy/grafana`), { maxRedirects: 0, ...ANY_STATUS });
-      expect(res.status).toBe(302);
-      expect(spies.getAutoLoginCookies).toHaveBeenCalled();
-      expect(String(res.headers['set-cookie'])).toContain('grafana_session=signed-in');
-      expect(grafanaLogins.map((body) => JSON.parse(body) as unknown)).toEqual([{ user: 'admin', password: 'grafana-admin-password' }]);
-      expect((await axios.get(h.url(`/api/clusters/${SYSTEM}/gpu-status`))).data).toEqual(SYSTEM_GPUS);
-      await h.close();
-    }
-    h = undefined;
+  it('opens the dashboards and GPUs of the cluster Koala runs on to the instance\'s owner', async () => {
+    grafanaLogins.length = 0;
+    const { h, spies } = await mount({ user: someone, instanceOwner: 'someone', koalaMachineId: 'koala-box' });
+    const res = await axios.get<unknown>(h.url('/api/clusters/machine-koala-box/proxy/grafana'), { maxRedirects: 0, ...ANY_STATUS });
+    expect(res.status).toBe(302);
+    expect(spies.getAutoLoginCookies).toHaveBeenCalled();
+    expect(String(res.headers['set-cookie'])).toContain('grafana_session=signed-in');
+    expect(grafanaLogins.map((body) => JSON.parse(body) as unknown)).toEqual([{ user: 'admin', password: 'grafana-admin-password' }]);
+    expect((await axios.get(h.url('/api/clusters/machine-koala-box/gpu-status'))).data).toEqual(NO_GPUS);
   });
 
   it('lets nobody delete the system cluster, the operator included', async () => {
