@@ -58,6 +58,12 @@ describe('the pins file', () => {
     expect(ciToolLine(pins, 'nothing-by-that-name')).toBeUndefined();
   });
 
+  it('tests against the k3s that machines run', () => {
+    const binary = pins.components.find((component) => component.kind === 'binary' && component.name === 'k3s');
+    const image = pins.components.find((component) => component.name === 'k3s-test-image');
+    expect(image?.version.replace('-k3s', '+k3s')).toBe(binary?.version);
+  });
+
   it('lists what is still installed without a pin, each with where', () => {
     const readable = (file: string): boolean => { try { read(file); return true; } catch { return false; } };
     expect(pins.unpinned.filter((entry) => entry.usedIn.length === 0 || !entry.usedIn.every(readable)).map((entry) => entry.name)).toEqual([]);

@@ -1649,6 +1649,26 @@
           "arch": "darwin-x64"
         }
       ]
+    },
+    {
+      "kind": "image",
+      "name": "k3s-test-image",
+      "version": "v1.36.4-k3s1",
+      "sha256": "edad48e12bf81c3a09ac1c05c0c0ffaaa22145980b989d6fae84543a76b83657",
+      "source": "docker.io/rancher/k3s:v1.36.4-k3s1",
+      "github": "k3s-io/k3s",
+      "uses": [
+        {
+          "file": "apps/backend/src/infrastructure/testing/real-k3s.ts",
+          "pattern": "rancher/k3s:(v[0-9a-z.+-]+)@sha256"
+        }
+      ],
+      "shaUses": [
+        {
+          "file": "apps/backend/src/infrastructure/testing/real-k3s.ts",
+          "pattern": "rancher/k3s:v[0-9a-z.+-]+@sha256:([0-9a-f]{64})"
+        }
+      ]
     }
   ],
   "unpinned": []

@@ -2295,7 +2295,8 @@ dependency mocked, again in the integration tier with the real ones, and its flo
   caught the throw, saying to name it `*.integration.test.ts`. So a unit test cannot quietly reach the dev stack.
 - **Integration** (`*.integration.test.ts`, `npm run test:integration`, ~3 min): the same concepts with their real dependencies on
   this machine, nothing else: a Mongo of its own (`mongodb-memory-server`, `testDatabase()`), Temporal's test server, real sockets
-  and HTTP on loopback, real git and sh. Never the dev stack, its cluster, `apps/backend/.env` or `data/` (the backend loads `.env`
+  and HTTP on loopback, real git and sh, and a throwaway k3s in Docker where a test needs a Kubernetes API (`startK3s` in
+  `infrastructure/testing/real-k3s.ts`, the pinned `k3s-test-image`, the same k3s machines run; ready in about 8 s). Never the dev stack, its cluster, `apps/backend/.env` or `data/` (the backend loads `.env`
   only when it starts itself, and `routes.integration.test.ts` boots it from an empty folder and home). It runs on half the cores
   (`--maxWorkers=50%`): each file starts its own servers, and seven at once starve tests on eight.
 - **E2E** (`npm run test:e2e`, the live suites in `E2E_STEPS`; the VM suites in `RELEASE_STEPS`): real Koala processes, the dev stack
