@@ -43,7 +43,7 @@ import { ApprovalService } from '../services/ApprovalService.js';
 import { DocumentService } from '../services/DocumentService.js';
 import { WorkspaceImageService } from '../services/WorkspaceImageService.js';
 import type { ConversationNoticeService } from '../services/ConversationNoticeService.js';
-import type { createArtifactService } from '../../files/index.js';
+import type { ArtifactService, FileService, StoredFilesActivities } from '../../files/index.js';
 import {
   createStoredToolCatalogue, createEngineHost, storesFromDatabase, createStoredAgentRegistry, directoryFromDatabase, createEndpointResolver, createRunStarter, startStreamWorker,
 } from '../../engine-host/index.js';
@@ -274,7 +274,8 @@ export interface EngineWiringDeps {
   temporalBridge: TemporalBridge;
   models: ModelService;
   gitea: GiteaService;
-  artifacts: ReturnType<typeof createArtifactService>;
+  artifacts?: ArtifactService | undefined;
+  files?: FileService | undefined;
   projectRepos: ProjectRepoService;
   customizations: Releases['customizations'];
   releaseSettings: Releases['releaseSettings'];
@@ -294,6 +295,9 @@ export interface EngineWiring {
 }
 
 export async function wireEngine(deps: EngineWiringDeps): Promise<EngineWiring> {
+  const keptArtifacts = deps.artifacts;
+  const keptFiles = deps.files;
+  const attachable = keptFiles ? { attachable: (ownerId: string, fileId: string) => keptFiles.attachable(ownerId, fileId) } : {};
   const { tenant, db, io, env, role, core, temporalBridge, gitea, projectRepos } = deps;
   const { extensions, dependenciesOf, agentDirectory, engineRegistry, engineRuns, workspaceBuilds, bench, agentsHolder, workspaceRepos, workspaceConclusions, conversationTurns } = core;
   const engineQueue = env.TEMPORAL_ENGINE_TASK_QUEUE || DEFAULT_ENGINE_TASK_QUEUE;
@@ -336,7 +340,7 @@ export async function wireEngine(deps: EngineWiringDeps): Promise<EngineWiring> 
     workspaceBuild: (ownerId, treeId, commit) => workspaceBuilds.start(ownerId, treeId, commit),
     treeLanguage: treeLanguageFrom(db.projects),
     treeExtras: treeExtrasFrom(db.projects, dependencyNamespaceFrom(db.infrastructure), ownNamespacesFrom(db.infrastructure)),
-    artifacts: { keep: (ownerId, runId, files) => deps.artifacts.artifacts.put(ownerId, runId, files) },
+    ...(keptArtifacts ? { artifacts: { keep: (ownerId: string, runId: string, files: { name: string; bytes: Buffer }[]) => keptArtifacts.put(ownerId, runId, files) } } : {}),
     checks: httpCheckAccess(async (ownerId) => {
       const person = await db.accounts.getUserById(ownerId);
       if (!person) throw new Error(`there is no account ${ownerId} to act for`);
@@ -498,6 +502,7 @@ export async function wireEngine(deps: EngineWiringDeps): Promise<EngineWiring> 
   tenant.use('/api/engine', engineRouter({
     runs: engineRuns,
     projects: async (ownerId) => (await db.projects.getProjects()).filter((project) => project.ownerId === ownerId).map((project) => ({ id: project.id, name: project.name })),
+    ...attachable,
     approvals: new ApprovalService({ store: db.engine, runs: engineRuns, autoMode: autoModeService, treeOfRun: treeOfGroveRun }),
     registry: engineRegistry,
     admin: deps.operatorOnly,
@@ -561,6 +566,7 @@ export async function wireEngine(deps: EngineWiringDeps): Promise<EngineWiring> 
     turns: conversationTurns,
     posted: (ownerId, conversationId) => { io.to(`user:${ownerId}`).emit('conversation-message', { conversationId }); },
     binding: conversationBinding(db),
+    ...attachable,
     ownedConversations,
     ownedTrees,
     ownedProjects: async (userId: string) => (await db.projects.getProjects()).filter((project) => project.ownerId === userId),
@@ -644,12 +650,15 @@ export interface EngineStreamDeps {
   notices: Pick<ConversationNoticeService, 'post' | 'postTo'>;
   postNotice: (what: string, posting: Promise<unknown>) => void;
   workFailures: Pick<WorkFailureService, 'runEnded' | 'workflowFailed'>;
+  storedFiles: StoredFilesActivities | undefined;
 }
 
 export function startEngineStream(deps: EngineStreamDeps): void {
   const { role, io, db, core } = deps;
   const { engineRegistry, memoryKeeper, bench, reportMemory } = core;
   if (!servesTenants(role)) return;
+  const { storedFiles } = deps;
+  if (!storedFiles) throw new Error('the stream worker keeps the instance\'s stored files, and this backend was given none to keep');
   void keepTrying('[engine] stream worker not started yet, runs do not stream until it is', async () => {
     const worker = await startStreamWorker({
       io,
@@ -713,6 +722,7 @@ export function startEngineStream(deps: EngineStreamDeps): void {
         },
         asking: async (ownerId, tool) => { await deps.push?.toPerson(ownerId, askingPush(tool)); },
         ...(deps.machineClusters ? { machineClusters: deps.machineClusters } : {}),
+        storedFiles,
       },
     });
     void worker.run().catch((err: Error) =>

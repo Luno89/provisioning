@@ -104,7 +104,7 @@ export default function HubChat({ projectId, chat, view, hub, me }: { projectId:
       <div className="min-h-0 flex-1 overflow-y-auto px-3">
         {messages.map((message, index) => message.role === 'notice' && message.notice
           ? <ChatNotice key={`${message.at ?? ''}-${index}`} notice={message.notice} at={message.at} onItsPage />
-          : <ChatMessageRow key={`${message.at ?? ''}-${index}`} message={message} />)}
+          : <ChatMessageRow key={`${message.at ?? ''}-${index}`} message={message} conversationId={conversationId} hubProjectId={projectId} />)}
         {live && <p className="py-3 text-[12px] italic text-slate-400" data-testid="hub-live-turn">Koala is answering…</p>}
         {proposals.map((proposal) => (
           <div key={proposal.id} className="my-3">

@@ -2,7 +2,10 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { emptiedEachTime } from '../platform/lib/test-database.js';
 import type { MongoDB } from '../platform/lib/mongo-db.js';
 import { createProjectRemovalActivities, type ProjectRemovalDeps } from './RemoveProjectActivities.js';
+import { Readable } from 'node:stream';
 import { ArtifactService } from '../files/services/ArtifactService.js';
+import { FileService } from '../files/services/FileService.js';
+import { storedFilesOn } from '../files/testing/stored-files-twin.js';
 
 const fresh = await emptiedEachTime();
 
@@ -11,6 +14,8 @@ let terminated: string[];
 let kubectl: string[][];
 let repos: string[];
 let secrets: string[];
+let storedFiles: ReturnType<typeof storedFilesOn> | undefined;
+const stored = (): ReturnType<typeof storedFilesOn> => (storedFiles ??= storedFilesOn(db.files));
 
 const deps = (): ProjectRemovalDeps => ({
   store: db,
@@ -18,6 +23,7 @@ const deps = (): ProjectRemovalDeps => ({
   kube: async (args) => { kubectl.push(args); return { stdout: '', stderr: '', exitCode: 0 }; },
   repositories: { deleteRepo: async (owner, name) => { repos.push(`${owner}/${name}`); } },
   secrets: { removeProject: async (projectId) => { secrets.push(projectId); return { workspace: true, readers: 1 }; } },
+  files: new FileService({ files: stored().files, shares: db.files }),
   apps: {
     clusterById: async (id) => (id === 'system' ? { id: 'system', name: 'provisioning-lunorica', provider: 'k3d', status: 'running' } as never : undefined),
     logFile: () => '/logs/destroy.log',
@@ -33,6 +39,7 @@ beforeEach(async () => {
   kubectl = [];
   repos = [];
   secrets = [];
+  storedFiles = undefined;
   for (const id of ['p1', 'p2']) {
     await db.projects.saveProject({ id, name: `shop-${id}`, ownerId: 'bo', giteaOwner: 'koala-bo', giteaRepo: `shop-${id}`, appType: 'gitapp', createdAt: at });
   }
@@ -64,27 +71,18 @@ describe('the steps that delete a project', () => {
     expect(await steps.RemoveProjectRepositoriesActivity({ projectId: 'p1' })).toEqual(['koala-bo/shop-p1', 'koala-bo/tree-t1', 'koala-bo/research-c1']);
   });
 
-  it('deletes its files on its file server, and does nothing for a project that never kept any', async () => {
-    const removed: string[] = [];
-    const files = { removeAll: async (ownerId: string, place: { folder: string }) => { removed.push(`${ownerId}:${place.folder}`); return 'removed' as const; }, personalServer: async () => 'm1' };
-    await db.projects.saveProjectInfo({ id: 'p1', files: { kind: 'minio', deploymentId: 'm1', folder: 'shop' } } as never);
-    const steps = createProjectRemovalActivities({ ...deps(), files });
-    expect(await steps.RemoveProjectFilesActivity({ projectId: 'p1' })).toBe('removed');
-    expect(await steps.RemoveProjectFilesActivity({ projectId: 'p2' })).toBe('none');
-    expect(removed).toEqual(['bo:shop']);
-  });
-
-  it('keeps a folder another of the person\'s projects or their own files also use, rather than delete what is not the project\'s', async () => {
-    const removed: string[] = [];
-    const files = { removeAll: async (ownerId: string, place: { folder: string }) => { removed.push(`${ownerId}:${place.folder}`); return 'removed' as const; }, personalServer: async () => 'm1' };
-    const steps = createProjectRemovalActivities({ ...deps(), files });
-    await db.projects.saveProjectInfo({ id: 'p1', files: { kind: 'minio', deploymentId: 'm1', folder: 'shop' } } as never);
-    await db.projects.saveProjectInfo({ id: 'p2', files: { kind: 'minio', deploymentId: 'm1', folder: 'shop' } } as never);
-    expect(await steps.RemoveProjectFilesActivity({ projectId: 'p1' })).toBe('shared');
-    await db.projects.saveProjectInfo({ id: 'p1', files: { kind: 'minio', deploymentId: 'm1', folder: 'personal' } } as never);
-    await db.projects.saveProjectInfo({ id: 'p2', files: { kind: 'minio', deploymentId: 'm1', folder: 'books' } } as never);
-    expect(await steps.RemoveProjectFilesActivity({ projectId: 'p1' })).toBe('shared');
-    expect(removed).toEqual([]);
+  it('removes every file the project keeps, its chats\' included, and nothing of another project or the person\'s own', async () => {
+    const files = stored().files;
+    for (const [scope, path] of [[{ kind: 'project', id: 'p1' }, 'brief.pdf'], [{ kind: 'project', id: 'p1' }, 'chats/c2/shot.png'], [{ kind: 'project', id: 'p2' }, 'other.pdf'], [{ kind: 'person', id: 'bo' }, 'mine.txt']] as const) {
+      const kept = await files.at('bo', scope).upload(path, Readable.from([Buffer.from('x')]), 1, 'text/plain', { replace: true });
+      if (!kept.ok) throw new Error(kept.why);
+    }
+    const steps = createProjectRemovalActivities(deps());
+    expect(await steps.RemoveProjectFilesActivity({ projectId: 'p1' })).toBe(2);
+    expect(await db.files.storedFilesIn('bo', { kind: 'project', id: 'p1' })).toEqual([]);
+    expect((await db.files.storedFilesIn('bo', { kind: 'project', id: 'p2' })).map((record) => record.path)).toEqual(['other.pdf']);
+    expect((await db.files.storedFilesIn('bo', { kind: 'person', id: 'bo' })).map((record) => record.path)).toEqual(['mine.txt']);
+    expect(await steps.RemoveProjectFilesActivity({ projectId: 'nope' })).toBe(0);
   });
 
     it('deletes its records, unlinks what only mentions it, and leaves the other project whole', async () => {
@@ -100,7 +98,7 @@ describe('the steps that delete a project', () => {
   });
 
   it('removes what its releases\' browser tests kept, and nothing of another project\'s', async () => {
-    const artifacts = new ArtifactService({ records: db.files, minioFor: async () => undefined });
+    const artifacts = new ArtifactService({ files: stored().files });
     for (const [id, projectId] of [['rel1', 'p1'], ['rel2', 'p2']] as const) {
       await db.releases.saveOdooRelease({ id, ownerId: 'bo', projectId, pipelineRunId: 'x', commit: 'c', image: 'i:t', state: 'preview', host: 'h', startedAt: at, updatedAt: at });
       await artifacts.put('bo', id, [{ name: 'shot.png', bytes: Buffer.from('png') }]);

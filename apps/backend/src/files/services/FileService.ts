@@ -1,227 +1,176 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import type { Readable } from 'node:stream';
-import { type DeploymentMetadata, type ProjectMetadata, allowed, asPerson } from '../../platform/index.js';
-import { fileServersOf, folderFor, PERSONAL_FOLDER, sharedFolder, type FileEntry, type FilePlace, type FileServer, type FileSettings } from '../lib/file-places.js';
-import type { Download, FileStore } from './FileStores.js';
+import { allowed, asPerson } from '../../platform/index.js';
+import { inside, outside, storedPlaceOf, type FileEntry, type FileScope, type StoredPlace } from '../lib/file-places.js';
 import { shareExpires, shareLive, SHARE_TOKEN, type FileShare, type ShareDays } from '../lib/file-shares.js';
+import { nameOf, sameScope } from '../lib/stored-files.js';
+import type { FilesStore } from '../store.js';
+import type { Folder, StoredFiles } from './StoredFiles.js';
 
-export const FILES_APP_NAME = 'koala-files';
+export type { FileScope };
 
 export interface FileServiceDeps {
-  store: {
-    infrastructure: {
-      getDeployments(): Promise<DeploymentMetadata[]>;
-    };
-    files: {
-      getFileSettings(ownerId: string): Promise<FileSettings | undefined>;
-      getFileShares(ownerId: string): Promise<FileShare[]>;
-      getFileShare(id: string): Promise<FileShare | undefined>;
-      getFileShareByToken(token: string): Promise<FileShare | undefined>;
-      saveFileShare(share: FileShare): Promise<void>;
-      deleteFileShare(id: string): Promise<void>;
-      saveFileSettings(settings: FileSettings): Promise<void>;
-    };
-    projects: {
-      getProjects(): Promise<ProjectMetadata[]>;
-      saveProjectInfo(project: Partial<ProjectMetadata> & { id: string }): Promise<ProjectMetadata>;
-    };
-  };
-  open: (ownerId: string, place: FilePlace) => Promise<FileStore>;
-  deployMinio?: ((ownerId: string, request: { name: string; clusterId: string }) => Promise<{ deploymentId: string }>) | undefined;
-  defaultCluster: string;
+  files: Pick<StoredFiles, 'at' | 'byId' | 'recordById'>;
+  shares: Pick<FilesStore, 'getFileShares' | 'getFileShare' | 'getFileShareByToken' | 'saveFileShare' | 'deleteFileShare'>;
   now?: (() => string) | undefined;
 }
 
-export type FileScope = { kind: 'project'; project: ProjectMetadata } | { kind: 'mine' };
+export interface Download {
+  stream: Readable;
+  size?: number | undefined;
+  contentType: string;
+}
 
-export type PlaceState =
-  | { state: 'ready'; place: FilePlace; server: FileServer; chosen: boolean }
-  | { state: 'starting'; place: FilePlace; server: string }
-  | { state: 'gone'; place: FilePlace; why: string }
-  | { state: 'none' };
+export interface AttachableFile {
+  id: string;
+  path: string;
+  size: number;
+  contentType: string;
+  projectId?: string | undefined;
+}
 
 export type FilesOutcome<T> = { ok: true; value: T } | { ok: false; status: 400 | 404 | 409; why: string };
 
-const STARTING = new Set(['deploying', 'pending', 'queued', 'provisioning']);
+const refused = <T>(status: 400 | 404 | 409, why: string): FilesOutcome<T> => ({ ok: false, status, why });
+
+const gone = refused<never>(404, 'This link does not exist, or it has expired.');
 
 export class FileService {
   constructor(private readonly deps: FileServiceDeps) {}
-
-  async servers(ownerId: string): Promise<{ servers: FileServer[]; defaultId?: string | undefined }> {
-    const [deployments, settings] = await Promise.all([this.deps.store.infrastructure.getDeployments(), this.deps.store.files.getFileSettings(ownerId)]);
-    const servers = fileServersOf(deployments, ownerId);
-    const defaultId = settings?.deploymentId && servers.some((server) => server.deploymentId === settings.deploymentId) ? settings.deploymentId : undefined;
-    return { servers, ...(defaultId ? { defaultId } : {}) };
-  }
-
-  async setDefault(ownerId: string, deploymentId: string | null): Promise<FilesOutcome<{ defaultId?: string | undefined }>> {
-    if (deploymentId !== null && !(await this.servers(ownerId)).servers.some((server) => server.deploymentId === deploymentId)) {
-      return { ok: false, status: 400, why: 'That is not one of your running file servers.' };
-    }
-    await this.deps.store.files.saveFileSettings({ ownerId, ...(deploymentId ? { deploymentId } : {}) });
-    return { ok: true, value: deploymentId ? { defaultId: deploymentId } : {} };
-  }
-
-  async placeOf(ownerId: string, scope: FileScope): Promise<PlaceState> {
-    const deployments = await this.deps.store.infrastructure.getDeployments();
-    const servers = fileServersOf(deployments, ownerId);
-    const recorded = scope.kind === 'project' ? scope.project.files : undefined;
-    if (recorded) {
-      const server = servers.find((entry) => entry.deploymentId === recorded.deploymentId);
-      if (server) return { state: 'ready', place: recorded, server, chosen: true };
-      const deployment = deployments.find((entry) => entry.id === recorded.deploymentId && entry.ownerId === ownerId);
-      if (deployment && STARTING.has(deployment.status)) return { state: 'starting', place: recorded, server: deployment.name };
-      return { state: 'gone', place: recorded, why: deployment ? `${deployment.name} is ${deployment.status}` : 'its file server was removed' };
-    }
-    const { defaultId } = await this.servers(ownerId);
-    const server = servers.find((entry) => entry.deploymentId === defaultId);
-    if (!server) return { state: 'none' };
-    const folder = scope.kind === 'project' ? folderFor(scope.project.name) : PERSONAL_FOLDER;
-    return { state: 'ready', place: { kind: server.kind, deploymentId: server.deploymentId, folder }, server, chosen: false };
-  }
-
-  async choose(ownerId: string, project: ProjectMetadata, deploymentId: string): Promise<FilesOutcome<PlaceState>> {
-    const server = (await this.servers(ownerId)).servers.find((entry) => entry.deploymentId === deploymentId);
-    if (!server) return { ok: false, status: 400, why: 'That is not one of your running file servers.' };
-    const place: FilePlace = { kind: server.kind, deploymentId, folder: project.files?.folder ?? folderFor(project.name) };
-    const saved = await this.deps.store.projects.saveProjectInfo({ id: project.id, files: place });
-    return { ok: true, value: await this.placeOf(ownerId, { kind: 'project', project: saved }) };
-  }
-
-  async startMinio(ownerId: string, project: ProjectMetadata): Promise<FilesOutcome<PlaceState>> {
-    const current = await this.placeOf(ownerId, { kind: 'project', project });
-    if (current.state === 'ready' || current.state === 'starting') return { ok: true, value: current };
-    if (!this.deps.deployMinio) return { ok: false, status: 409, why: 'A file server can only be started from the project\'s Settings.' };
-    const taken = new Set((await this.deps.store.infrastructure.getDeployments()).map((entry) => entry.name));
-    let name = FILES_APP_NAME;
-    for (let n = 2; taken.has(name); n += 1) name = `${FILES_APP_NAME}-${n}`;
-    const { deploymentId } = await this.deps.deployMinio(ownerId, { name, clusterId: project.targetClusterId ?? this.deps.defaultCluster });
-    const place: FilePlace = { kind: 'minio', deploymentId, folder: project.files?.folder ?? folderFor(project.name) };
-    const saved = await this.deps.store.projects.saveProjectInfo({ id: project.id, files: place });
-    return { ok: true, value: await this.placeOf(ownerId, { kind: 'project', project: saved }) };
-  }
-
-  private async storeFor(ownerId: string, scope: FileScope): Promise<FilesOutcome<FileStore>> {
-    const state = await this.placeOf(ownerId, scope);
-    if (state.state === 'none') {
-      return { ok: false, status: 409, why: scope.kind === 'project' ? 'This project has no file server yet.' : 'You have no default file server yet.' };
-    }
-    if (state.state === 'starting') return { ok: false, status: 409, why: `${state.server} is still starting.` };
-    if (state.state === 'gone') return { ok: false, status: 409, why: `This project's files cannot be reached: ${state.why}.` };
-    if (scope.kind === 'project' && !state.chosen) await this.deps.store.projects.saveProjectInfo({ id: scope.project.id, files: state.place });
-    return { ok: true, value: await this.deps.open(ownerId, state.place) };
-  }
-
-  async list(ownerId: string, scope: FileScope, dir: string): Promise<FilesOutcome<FileEntry[]>> {
-    const store = await this.storeFor(ownerId, scope);
-    return store.ok ? { ok: true, value: await store.value.list(dir) } : store;
-  }
-
-  async download(ownerId: string, scope: FileScope, path: string): Promise<FilesOutcome<Download>> {
-    const store = await this.storeFor(ownerId, scope);
-    if (!store.ok) return store;
-    const found = await store.value.download(path);
-    return found ? { ok: true, value: found } : { ok: false, status: 404, why: `There is no file ${path}.` };
-  }
-
-  async upload(ownerId: string, scope: FileScope, path: string, body: Readable, size: number | undefined, contentType: string): Promise<FilesOutcome<{ path: string }>> {
-    const store = await this.storeFor(ownerId, scope);
-    if (!store.ok) return store;
-    await store.value.upload(path, body, size, contentType);
-    return { ok: true, value: { path } };
-  }
-
-  async remove(ownerId: string, scope: FileScope, path: string): Promise<FilesOutcome<{ path: string }>> {
-    const store = await this.storeFor(ownerId, scope);
-    if (!store.ok) return store;
-    await store.value.remove(path);
-    return { ok: true, value: { path } };
-  }
-
-  async move(ownerId: string, scope: FileScope, from: string, to: string): Promise<FilesOutcome<{ path: string }>> {
-    const store = await this.storeFor(ownerId, scope);
-    if (!store.ok) return store;
-    await store.value.move(from, to);
-    return { ok: true, value: { path: to } };
-  }
-
-  async makeFolder(ownerId: string, scope: FileScope, path: string): Promise<FilesOutcome<{ path: string }>> {
-    const store = await this.storeFor(ownerId, scope);
-    if (!store.ok) return store;
-    await store.value.makeFolder(path);
-    return { ok: true, value: { path } };
-  }
-
-  async search(ownerId: string, scope: FileScope, query: string): Promise<FilesOutcome<FileEntry[]>> {
-    if (!query.trim()) return { ok: true, value: [] };
-    const store = await this.storeFor(ownerId, scope);
-    return store.ok ? { ok: true, value: await store.value.search(query) } : store;
-  }
 
   private now(): string {
     return this.deps.now?.() ?? new Date().toISOString();
   }
 
+  private open(ownerId: string, scope: FileScope): { folder: Folder; place: StoredPlace } {
+    const place = storedPlaceOf(ownerId, scope);
+    return { folder: this.deps.files.at(ownerId, place.scope), place };
+  }
+
+  private shown(under: string, entries: readonly FileEntry[]): FileEntry[] {
+    return entries.flatMap((entry) => {
+      const path = outside(under, entry.path);
+      return path ? [{ ...entry, path }] : [];
+    });
+  }
+
+  async list(ownerId: string, scope: FileScope, dir: string): Promise<FilesOutcome<FileEntry[]>> {
+    const { folder, place } = this.open(ownerId, scope);
+    const listed = await folder.list(inside(place.under, dir));
+    if (!listed.ok) return place.under && !dir && listed.status === 404 ? { ok: true, value: [] } : listed;
+    return { ok: true, value: this.shown(place.under, listed.value) };
+  }
+
+  async search(ownerId: string, scope: FileScope, query: string): Promise<FilesOutcome<FileEntry[]>> {
+    if (!query.trim()) return { ok: true, value: [] };
+    const { folder, place } = this.open(ownerId, scope);
+    return { ok: true, value: this.shown(place.under, await folder.search(query)) };
+  }
+
+  async download(ownerId: string, scope: FileScope, path: string): Promise<FilesOutcome<Download>> {
+    const { folder, place } = this.open(ownerId, scope);
+    const found = await folder.download(inside(place.under, path));
+    if (!found.ok) return found.status === 404 ? refused(404, `There is no file ${path}.`) : found;
+    return { ok: true, value: { stream: found.value.body, size: found.value.record.size, contentType: found.value.record.contentType } };
+  }
+
+  async downloadById(ownerId: string, fileId: string): Promise<FilesOutcome<Download & { name: string }>> {
+    const found = await this.deps.files.byId(ownerId, fileId);
+    if (!found) return refused(404, 'You keep no file with that id.');
+    return { ok: true, value: { stream: found.body, size: found.record.size, contentType: found.record.contentType, name: nameOf(found.record.path) } };
+  }
+
+  async downloadIn(ownerId: string, scope: FileScope, fileId: string): Promise<FilesOutcome<Download & { path: string }>> {
+    const place = storedPlaceOf(ownerId, scope);
+    const record = await this.deps.files.recordById(ownerId, fileId);
+    const path = record && record.kind === 'file' && sameScope(record.scope, place.scope) ? outside(place.under, record.path) : undefined;
+    if (!path) return refused(404, `There is no file ${fileId} here.`);
+    const found = await this.deps.files.byId(ownerId, fileId);
+    if (!found) return refused(404, `There is no file ${fileId} here.`);
+    return { ok: true, value: { stream: found.body, size: found.record.size, contentType: found.record.contentType, path } };
+  }
+
+  async attachable(ownerId: string, fileId: string): Promise<AttachableFile | undefined> {
+    const record = await this.deps.files.recordById(ownerId, fileId);
+    if (!record || record.kind !== 'file') return undefined;
+    return {
+      id: record.id, path: record.path, size: record.size, contentType: record.contentType,
+      ...(record.scope.kind === 'project' ? { projectId: record.scope.id } : {}),
+    };
+  }
+
+  async upload(ownerId: string, scope: FileScope, path: string, body: Readable, size: number | undefined, contentType: string, options: { replace: boolean } = { replace: true }): Promise<FilesOutcome<{ path: string; id: string }>> {
+    const { folder, place } = this.open(ownerId, scope);
+    const stored = await folder.upload(inside(place.under, path), body, size, contentType, { replace: options.replace });
+    if (!stored.ok) return stored;
+    return { ok: true, value: { path: outside(place.under, stored.value.path) ?? path, id: stored.value.id } };
+  }
+
+  async remove(ownerId: string, scope: FileScope, path: string): Promise<FilesOutcome<{ path: string }>> {
+    const { folder, place } = this.open(ownerId, scope);
+    const removed = await folder.remove(inside(place.under, path));
+    return removed.ok ? { ok: true, value: { path } } : removed;
+  }
+
+  async move(ownerId: string, scope: FileScope, from: string, to: string): Promise<FilesOutcome<{ path: string }>> {
+    const { folder, place } = this.open(ownerId, scope);
+    const moved = await folder.move(inside(place.under, from), inside(place.under, to));
+    return moved.ok ? { ok: true, value: { path: to } } : moved;
+  }
+
+  async makeFolder(ownerId: string, scope: FileScope, path: string): Promise<FilesOutcome<{ path: string }>> {
+    const { folder, place } = this.open(ownerId, scope);
+    const made = await folder.makeFolder(inside(place.under, path));
+    return made.ok ? { ok: true, value: { path } } : made;
+  }
+
   async share(ownerId: string, scope: FileScope, path: string, days: ShareDays): Promise<FilesOutcome<FileShare>> {
-    const found = await this.download(ownerId, scope, path);
-    if (!found.ok) return found;
-    found.value.stream.destroy();
+    const { folder, place } = this.open(ownerId, scope);
+    const record = await folder.find(inside(place.under, path));
+    if (!record) return refused(404, `There is no file ${path}.`);
     const now = this.now();
     const share: FileShare = {
       id: randomUUID(),
       token: randomBytes(24).toString('base64url'),
       ownerId,
-      ...(scope.kind === 'project' ? { projectId: scope.project.id } : {}),
+      ...(place.scope.kind === 'project' ? { projectId: place.scope.id } : {}),
+      fileId: record.id,
       path,
-      ...(found.value.etag ? { etag: found.value.etag } : {}),
-      name: path.split('/').pop() ?? path,
+      name: nameOf(record.path),
       createdAt: now,
       expiresAt: shareExpires(now, days),
     };
-    await this.deps.store.files.saveFileShare(share);
+    await this.deps.shares.saveFileShare(share);
     return { ok: true, value: share };
   }
 
   async shares(ownerId: string): Promise<FileShare[]> {
     const now = this.now();
-    return (await this.deps.store.files.getFileShares(ownerId)).filter((share) => shareLive(share, now));
+    return (await this.deps.shares.getFileShares(ownerId)).filter((share) => shareLive(share, now));
   }
 
   async unshare(ownerId: string, id: string): Promise<FilesOutcome<{ id: string }>> {
-    const share = await this.deps.store.files.getFileShare(id);
-    if (!share || !allowed(asPerson(ownerId), 'change', { kind: 'record', noun: 'share link', ownerId: share.ownerId })) return { ok: false, status: 404, why: 'There is no such link.' };
-    await this.deps.store.files.deleteFileShare(id);
+    const share = await this.deps.shares.getFileShare(id);
+    if (!share || !allowed(asPerson(ownerId), 'change', { kind: 'record', noun: 'share link', ownerId: share.ownerId })) return refused(404, 'There is no such link.');
+    await this.deps.shares.deleteFileShare(id);
     return { ok: true, value: { id } };
   }
 
   async shared(token: string): Promise<FilesOutcome<Download & { name: string }>> {
-    const gone = { ok: false as const, status: 404 as const, why: 'This link does not exist, or it has expired.' };
     if (!SHARE_TOKEN.test(token)) return gone;
-    const share = await this.deps.store.files.getFileShareByToken(token);
+    const share = await this.deps.shares.getFileShareByToken(token);
     if (!share) return gone;
     if (!shareLive(share, this.now())) {
-      await this.deps.store.files.deleteFileShare(share.id);
+      await this.deps.shares.deleteFileShare(share.id);
       return gone;
     }
-    const project = share.projectId ? (await this.deps.store.projects.getProjects()).find((entry) => entry.id === share.projectId && entry.ownerId === share.ownerId) : undefined;
-    if (share.projectId && !project) return gone;
-    const found = await this.download(share.ownerId, project ? { kind: 'project', project } : { kind: 'mine' }, share.path);
-    if (!found.ok) return gone;
-    if (share.etag && found.value.etag !== share.etag) {
-      found.value.stream.destroy();
-      return { ok: false, status: 404, why: 'The file this link was made for has been replaced or removed, so the link opens nothing.' };
-    }
-    if (!share.etag && found.value.etag) await this.deps.store.files.saveFileShare({ ...share, etag: found.value.etag });
-    return { ok: true, value: { ...found.value, name: share.name } };
+    if (!share.fileId) return refused(404, 'This link was made for a file Koala no longer keeps, so it opens nothing.');
+    const found = await this.deps.files.byId(share.ownerId, share.fileId);
+    if (!found) return refused(404, 'The file this link was made for has been removed, so the link opens nothing.');
+    return { ok: true, value: { stream: found.body, size: found.record.size, contentType: found.record.contentType, name: share.name } };
   }
 
-  async removeProjectFiles(ownerId: string, project: ProjectMetadata): Promise<'removed' | 'none' | 'unreachable' | 'shared'> {
-    if (!project.files) return 'none';
-    const state = await this.placeOf(ownerId, { kind: 'project', project });
-    if (state.state !== 'ready') return 'unreachable';
-    const others = (await this.deps.store.projects.getProjects()).filter((other) => other.id !== project.id && other.ownerId === ownerId);
-    if (sharedFolder(state.place, others, (await this.servers(ownerId)).defaultId)) return 'shared';
-    await (await this.deps.open(ownerId, state.place)).removeAll();
-    return 'removed';
+  async removeProjectFiles(ownerId: string, projectId: string): Promise<number> {
+    return this.deps.files.at(ownerId, { kind: 'project', id: projectId }).removeAll();
   }
 }

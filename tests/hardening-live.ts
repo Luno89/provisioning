@@ -17,7 +17,7 @@ import { PROXY_IMAGE, proxyCaddyfile } from '../apps/backend/src/instances/lib/p
 import { hashCredential, publicKeyPem } from '../apps/backend/src/instances/index.js';
 import { buildAppImage } from './lib/gate-runs.js';
 import { devFile, devTemporalCa } from './lib/dev-temporal.js';
-import { call, envArgs, ownerOnInstance, startSplitStack, type SplitStack } from './lib/split-stack.js';
+import { call, envArgs, minioRun, ownerOnInstance, startSplitStack, type SplitStack } from './lib/split-stack.js';
 import { firstAdmin, withDatabase } from './lib/suite-root.js';
 import { portToHandOn } from '@koala/engine-core/testing/ports';
 
@@ -163,6 +163,7 @@ async function plaintextRefusals(image: string): Promise<void> {
   const database = `koala_hardening_${STAMP}_plain`;
   databases.push(database);
   await refusesToStart(image, 'an instance whose ROOT_URL is http://app.nowrinkles.dev', {
+    ...minioRun(await portToHandOn()).env,
     ROLE: 'instance', INSTANCE_ID: 'inst-hardening', INSTANCE_OWNER_ID: 'nobody', ROOT_URL: 'http://app.nowrinkles.dev',
     ROOT_PUBLIC_KEYS: Buffer.from(publicKeyPem(signing.publicKey)).toString('base64'), MONGO_URI: withDatabase(process.env.MONGO_URI || DEV_MONGO, database), PORT: String(await portToHandOn()),
   }, devTemporalCa(), 'backend', /ROOT_URL is http:\/\/app\.nowrinkles\.dev: plain http to an address on the open internet/);

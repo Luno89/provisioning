@@ -13,6 +13,7 @@ export type StoredFileState = 'uploading' | 'stored';
 
 export interface StoredFileRecord {
   id: string;
+  objectId: string;
   ownerId: string;
   scope: StoredScope;
   path: string;
@@ -159,8 +160,11 @@ export interface StoredFileCommit {
 }
 
 export type CommitPlan =
-  | { ok: true; stored: StoredFileRecord[]; replaced: string[] }
+  | { ok: true; stored: StoredFileRecord[]; replaced: string[]; absorbed: string[] }
   | { ok: false; status: 404 | 409 | 400; why: string };
+
+export const committedAs = (record: StoredFileRecord | undefined, commit: StoredFileCommit): boolean =>
+  record !== undefined && (record.id === commit.id || record.objectId === commit.id);
 
 export function commitPlan(
   uploading: readonly (StoredFileRecord | undefined)[],
@@ -171,10 +175,11 @@ export function commitPlan(
 ): CommitPlan {
   const stored: StoredFileRecord[] = [];
   const replaced: string[] = [];
+  const absorbed: string[] = [];
   const claimed = new Set<string>();
   for (const [index, commit] of commits.entries()) {
     const record = uploading[index];
-    if (!record || record.id !== commit.id) return { ok: false, status: 404, why: `the upload ${commit.id} is not waiting to be kept` };
+    if (!record || !committedAs(record, commit)) return { ok: false, status: 404, why: `the upload ${commit.id} is not waiting to be kept` };
     if (record.state === 'stored') {
       stored.push(record);
       continue;
@@ -184,12 +189,18 @@ export function commitPlan(
     claimed.add(where);
     const others = inScope(record);
     const batch = stored.filter((planned) => planned.ownerId === record.ownerId && sameScope(planned.scope, record.scope));
-    const plan = uploadPlan([...others.filter((other) => other.id !== record.id), ...batch], record.path);
+    const plan = uploadPlan([...others.filter((other) => other.id !== record.id && !batch.some((planned) => planned.id === other.id)), ...batch], record.path);
     if (!plan.ok) return plan;
     const old = others.find((other) => other.state === 'stored' && other.kind === 'file' && other.path === record.path);
     if (old && !options.replace) return { ok: false, status: 409, why: `${record.path} is already there, and it may not be replaced` };
-    if (old) replaced.push(old.id);
-    stored.push({ ...record, state: 'stored', size: commit.size, changedAt: at, touchedAt: at, version: old ? old.version + 1 : 1, madeAt: old ? old.madeAt : record.madeAt });
+    if (old) {
+      replaced.push(old.objectId);
+      absorbed.push(record.id);
+      const { expiresAt: _was, ...kept } = old;
+      stored.push({ ...kept, objectId: record.objectId, size: commit.size, contentType: record.contentType, version: old.version + 1, changedAt: at, touchedAt: at, ...(record.expiresAt ? { expiresAt: record.expiresAt } : {}) });
+    } else {
+      stored.push({ ...record, state: 'stored', size: commit.size, changedAt: at, touchedAt: at, version: 1 });
+    }
   }
-  return { ok: true, stored, replaced };
+  return { ok: true, stored, replaced, absorbed };
 }

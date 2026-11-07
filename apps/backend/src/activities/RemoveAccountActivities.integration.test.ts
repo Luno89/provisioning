@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { emptiedEachTime } from '../platform/lib/test-database.js';
 import type { MongoDB } from '../platform/lib/mongo-db.js';
+import { Readable } from 'node:stream';
+import { storedFilesOn } from '../files/testing/stored-files-twin.js';
 import { createAccountRemovalActivities, type AccountRemovalDeps } from './RemoveAccountActivities.js';
 
 const fresh = await emptiedEachTime();
@@ -17,6 +19,7 @@ const deps = (over: Partial<AccountRemovalDeps> = {}): AccountRemovalDeps => ({
   repositories: { deleteUser: async (username) => { deletedUsers.push(username); return true; } },
   mesh: { removeUser: async () => ({ devices: 0, user: false }) },
   secrets: { removeProject: async () => ({ workspace: true, readers: 1 }) },
+  files: storedFilesOn(db.files).files,
   apps: { clusterById: async () => undefined, logFile: () => '/logs/destroy.log', taskQueue: 'cluster-ops-queue' },
   ...over,
 });
@@ -96,6 +99,19 @@ describe('the steps that remove an account', () => {
     expect((await db.projects.getTrees()).map((tree) => tree.id)).toEqual(['ana-t1']);
     expect(await db.projects.getGiteaAccount('ana')).not.toBeNull();
     expect(await db.memory.getMemoryWatermark('conversation:ana-c1')).toBe('4');
+  });
+
+  it('removes every file the account keeps, in every place, and leaves everyone else\'s', async () => {
+    const { files, objects } = storedFilesOn(db.files);
+    for (const [owner, scope, path] of [['bo', { kind: 'project', id: 'p1' }, 'a.pdf'], ['bo', { kind: 'person', id: 'bo' }, 'b.txt'], ['bo', { kind: 'run', id: 'r1' }, 'shot.png'], ['ana', { kind: 'person', id: 'ana' }, 'c.txt']] as const) {
+      const kept = await files.at(owner, scope).upload(path, Readable.from([Buffer.from('x')]), 1, 'text/plain', { replace: true });
+      if (!kept.ok) throw new Error(kept.why);
+    }
+    const removed = await createAccountRemovalActivities(deps({ files })).RemoveAccountRecordsActivity({ ownerId: 'bo' });
+    expect(removed).toMatchObject({ storedFiles: 3 });
+    expect(await db.files.storedFilesOwnedBy('bo')).toEqual([]);
+    expect((await db.files.storedFilesOwnedBy('ana')).map((record) => record.path)).toEqual(['c.txt']);
+    expect(objects.kept.size).toBe(1);
   });
 
   it('can run again after it has finished, finding nothing left', async () => {

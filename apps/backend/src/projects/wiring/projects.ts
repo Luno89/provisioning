@@ -1,3 +1,4 @@
+import { bindChatWithItsFiles } from '../../files/index.js';
 import type { Server as SocketServer } from 'socket.io';
 import { type Database, type SecretKey, type ProjectMetadata, secretNotice, getTemporalClient, roleFromEnv, servesTenants, type Principal } from '../../platform/index.js';
 import { groveAgentOf, resolveTreeType, renderStarterFiles, versionVars } from '../lib/tree-types.js';
@@ -71,7 +72,7 @@ export function projectsCore(deps: ProjectsCoreDeps): ProjectsCore {
   const channels = new ProjectChannelService({
     conversation: (ownerId, id) => db.engine.getConversation(ownerId, id),
     save: (conversation) => db.engine.saveConversation(conversation),
-    bind: (ownerId, conversationId, binding) => db.engine.bindConversation(ownerId, conversationId, binding),
+    bind: bindChatWithItsFiles(db),
     trees: () => db.projects.getTrees(),
     saveProjectInfo: (project) => db.projects.saveProjectInfo(project),
   });

@@ -74,7 +74,7 @@ const activity = (made: ReturnType<typeof cluster>, files: Record<string, string
   specs: async () => repo(files),
   keep: async (ownerId, runId, given) => {
     kept.push({ ownerId, runId, names: given.map((file) => file.name), sizes: given.map((file) => file.bytes.length) });
-    return { stored: given.map((file, n) => ({ id: `a${n}`, name: file.name })), dropped: [], minioMissing: true };
+    return { stored: given.map((file, n) => ({ id: `a${n}`, name: file.name })), dropped: [] };
   },
   password: () => 'pw-from-test',
   now: () => 't',

@@ -64,7 +64,7 @@ describe('the records an account leaves', () => {
     const src = fileURLToPath(new URL('../..', import.meta.url));
     const stores = readdirSync(src).map((area) => join(src, area, 'store.ts')).filter((file) => existsSync(file));
     const source = [join(src, 'platform/lib/mongo-db.ts'), ...stores].map((file) => readFileSync(file, 'utf8')).join('\n');
-    const used = new Set([...source.matchAll(/collection\('([A-Za-z_]+)'\)|new Records\(\w+, '([A-Za-z_]+)'\)/g)].map((match) => (match[1] ?? match[2])!));
+    const used = new Set([...source.matchAll(/collection(?:<[^()]*>)?\('([A-Za-z_]+)'\)|new Records\(\w+, '([A-Za-z_]+)'\)/g)].map((match) => (match[1] ?? match[2])!));
     for (const name of EVAL_COLLECTIONS) used.add(name);
     const classified = new Set<string>([...ACCOUNT_DATA.byOwner, ...ACCOUNT_DATA.byId, ...Object.keys(ACCOUNT_DATA.related), ACCOUNT_DATA.last, ...ACCOUNT_DATA.shared]);
 

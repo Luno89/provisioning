@@ -1,73 +1,21 @@
-import { collectionIn, copied, MemoryRecords, type Collections } from '../../platform/testing/memory-records.js';
-import type { ArtifactChunk, StoredArtifact } from '../lib/artifacts.js';
-import type { FileSettings } from '../lib/file-places.js';
+import { collectionIn, MemoryRecords, type Collections } from '../../platform/testing/memory-records.js';
 import type { FileShare } from '../lib/file-shares.js';
 import { commitPlan, folderPlan, movePlan, sameScope, scopeMovePlan, type CommitPlan, type StoredFileCommit, type StoredFileRecord, type StoredScope } from '../lib/stored-files.js';
+import type { OldArtifact } from '../lib/files-archive.js';
 import type { FilesStore, StoredFolderOutcome, StoredMoveOutcome } from '../store.js';
-
-const chunkKey = (artifactId: string, n: number): string => `${artifactId}:${n}`;
 
 const ascending = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
 
 export class MemoryFilesStore implements FilesStore {
-  private readonly artifacts: MemoryRecords<StoredArtifact>;
-  private readonly chunks: Map<string, ArtifactChunk>;
-  private readonly settings: Map<string, FileSettings>;
   private readonly shares: MemoryRecords<FileShare>;
   private readonly stored: MemoryRecords<StoredFileRecord>;
 
   constructor(collections: Collections = new Map()) {
-    this.artifacts = new MemoryRecords(collectionIn<StoredArtifact>(collections, 'artifacts'));
-    this.chunks = collectionIn<ArtifactChunk>(collections, 'artifactChunks');
-    this.settings = collectionIn<FileSettings>(collections, 'fileSettings');
     this.shares = new MemoryRecords(collectionIn<FileShare>(collections, 'fileShares'));
     this.stored = new MemoryRecords(collectionIn<StoredFileRecord>(collections, 'storedFiles'));
   }
 
   async ensureIndexes(): Promise<void> {}
-
-  async saveArtifact(artifact: StoredArtifact): Promise<void> {
-    this.artifacts.put(artifact);
-  }
-
-  async getArtifacts(ownerId: string, runId?: string): Promise<StoredArtifact[]> {
-    return this.artifacts
-      .all()
-      .filter((artifact) => artifact.ownerId === ownerId && (!runId || artifact.runId === runId))
-      .sort((a, b) => ascending(a.createdAt, b.createdAt));
-  }
-
-  async getExpiredArtifacts(now: string): Promise<StoredArtifact[]> {
-    return this.artifacts.all().filter((artifact) => artifact.expiresAt <= now);
-  }
-
-  async deleteArtifact(id: string): Promise<void> {
-    this.artifacts.delete(id);
-  }
-
-  async saveArtifactChunk(chunk: ArtifactChunk): Promise<void> {
-    this.chunks.set(chunkKey(chunk.artifactId, chunk.n), { artifactId: chunk.artifactId, ownerId: chunk.ownerId, n: chunk.n, data: Buffer.from(chunk.data) });
-  }
-
-  async getArtifactChunks(artifactId: string): Promise<ArtifactChunk[]> {
-    return [...this.chunks.values()]
-      .filter((chunk) => chunk.artifactId === artifactId)
-      .sort((a, b) => a.n - b.n)
-      .map((chunk) => ({ ...chunk, data: Buffer.from(chunk.data) }));
-  }
-
-  async deleteArtifactChunks(artifactId: string): Promise<void> {
-    for (const [key, chunk] of this.chunks) if (chunk.artifactId === artifactId) this.chunks.delete(key);
-  }
-
-  async getFileSettings(ownerId: string): Promise<FileSettings | undefined> {
-    const stored = this.settings.get(ownerId);
-    return stored ? copied(stored) : undefined;
-  }
-
-  async saveFileSettings(settings: FileSettings): Promise<void> {
-    this.settings.set(settings.ownerId, copied(settings));
-  }
 
   async getFileShares(ownerId: string): Promise<FileShare[]> {
     return this.shares
@@ -118,10 +66,10 @@ export class MemoryFilesStore implements FilesStore {
   }
 
   async commitStoredFiles(commits: readonly StoredFileCommit[], options: { replace: boolean }, at: string): Promise<CommitPlan> {
-    const uploading = commits.map((commit) => this.stored.get(commit.id));
+    const uploading = commits.map((commit) => this.stored.get(commit.id) ?? this.byObject(commit.id));
     const plan = commitPlan(uploading, commits, (record) => this.scopeRecords(record.ownerId, record.scope), options, at);
     if (!plan.ok) return plan;
-    for (const id of plan.replaced) this.stored.delete(id);
+    for (const id of plan.absorbed) this.stored.delete(id);
     for (const record of plan.stored) this.stored.put(record);
     return plan;
   }
@@ -132,6 +80,14 @@ export class MemoryFilesStore implements FilesStore {
 
   async storedFileById(id: string): Promise<StoredFileRecord | undefined> {
     return this.stored.get(id);
+  }
+
+  private byObject(objectId: string): StoredFileRecord | undefined {
+    return this.stored.all().find((record) => record.objectId === objectId);
+  }
+
+  async storedFileByObject(objectId: string): Promise<StoredFileRecord | undefined> {
+    return this.byObject(objectId);
   }
 
   async makeStoredFolder(record: StoredFileRecord): Promise<StoredFolderOutcome> {
@@ -150,7 +106,7 @@ export class MemoryFilesStore implements FilesStore {
     return { ok: true, moved: plan.moves.length };
   }
 
-  async moveStoredScope(ownerId: string, from: StoredScope, to: StoredScope, under: string, at: string): Promise<number> {
+  async moveStoredScope(ownerId: string, from: StoredScope, to: StoredScope, under: string, at: string, _tx?: unknown): Promise<number> {
     const moves = scopeMovePlan(this.scopeRecords(ownerId, from), under);
     for (const move of moves) this.stored.put({ ...this.stored.get(move.id)!, scope: { ...to }, path: move.path, changedAt: at });
     this.dropSharesOf(moves.map((move) => move.id));
@@ -170,7 +126,29 @@ export class MemoryFilesStore implements FilesStore {
     return this.stored.all().filter((record) => record.expiresAt !== undefined && record.expiresAt <= now);
   }
 
-  async storedFileIdsAmong(ids: readonly string[]): Promise<string[]> {
-    return ids.filter((id) => this.stored.get(id) !== undefined);
+  async storedObjectIdsAmong(objectIds: readonly string[]): Promise<string[]> {
+    const named = new Set(this.stored.all().map((record) => record.objectId));
+    return [...new Set(objectIds.filter((objectId) => named.has(objectId)))];
+  }
+
+  async storedFilesOwnedBy(ownerId: string): Promise<StoredFileRecord[]> {
+    return this.stored.all().filter((record) => record.ownerId === ownerId);
+  }
+
+  async reownRunFiles(from: string, to: string, runIds?: readonly string[] | undefined): Promise<number> {
+    if (from === to || (runIds && runIds.length === 0)) return 0;
+    const moving = this.stored.all().filter((record) => record.ownerId === from && record.scope.kind === 'run' && (!runIds || runIds.includes(record.scope.id)));
+    for (const record of moving) this.stored.put({ ...record, ownerId: to });
+    return moving.length;
+  }
+
+  readonly old: OldArtifact[] = [];
+
+  async *oldArtifacts(): AsyncIterable<OldArtifact> {
+    for (const artifact of [...this.old]) yield { ...artifact, bytes: Buffer.from(artifact.bytes) };
+  }
+
+  async forgetOldArtifacts(): Promise<number> {
+    return this.old.splice(0, this.old.length).length;
   }
 }

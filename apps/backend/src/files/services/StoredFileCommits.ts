@@ -19,8 +19,8 @@ export function temporalStoredFileCommits(workflows: () => Promise<Pick<Workflow
       if (done.op !== 'commit') throw new Error(`a commit came back as ${done.op}`);
       return done.plan;
     },
-    async remove(ownerId, ids) {
-      await run({ op: 'remove', ownerId, ids: [...ids] });
+    async remove(ownerId, files) {
+      await run({ op: 'remove', ownerId, ids: files.map((file) => file.id), objectIds: files.map((file) => file.objectId) });
     },
   };
 }

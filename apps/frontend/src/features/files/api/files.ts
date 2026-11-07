@@ -1,44 +1,35 @@
 import { api, API_BASE } from '../../../api/client'
-import type { FileScope, FileServer, FileShare, PlaceState, ShareableScope, ShareDays, StoredFile } from '../types'
+import type { FileScope, FileShare, ShareableScope, ShareDays, StoredFile } from '../types'
 
 export const FILE_TYPE_HEADER = 'X-File-Type'
 
-const base = (scope: FileScope): string =>
-  scope.kind === 'project' ? `/files/projects/${encodeURIComponent(scope.projectId)}`
-    : scope.kind === 'hub' ? `/hub/projects/${encodeURIComponent(scope.projectId)}/files`
-      : '/files/mine'
+const ownBase = (scope: ShareableScope): string =>
+  scope.kind === 'mine' ? '/files/mine'
+    : `/files/${scope.kind === 'conversation' ? 'conversations' : 'projects'}/${encodeURIComponent(scope.kind === 'conversation' ? scope.conversationId : scope.projectId)}`
 
-const scopeKey = (scope: FileScope): string => (scope.kind === 'mine' ? 'mine' : `${scope.kind}:${scope.projectId}`)
+const base = (scope: FileScope): string =>
+  scope.kind === 'mine' ? '/files/mine'
+    : scope.kind === 'hub' ? `/hub/projects/${encodeURIComponent(scope.projectId)}/files`
+      : `/files/${scope.kind === 'conversation' ? 'conversations' : 'projects'}/${encodeURIComponent(scope.kind === 'conversation' ? scope.conversationId : scope.projectId)}`
+
+export const scopeKey = (scope: FileScope): string => {
+  if (scope.kind === 'mine') return 'mine'
+  if (scope.kind === 'conversation') return `conversation:${scope.conversationId}`
+  return `${scope.kind}:${scope.projectId}`
+}
 
 export const fileKeys = {
-  servers: ['files', 'servers'] as const,
-  place: (projectId: string) => ['files', 'place', projectId] as const,
   list: (scope: FileScope, dir: string) => ['files', 'list', scopeKey(scope), dir] as const,
   all: ['files'] as const,
   search: (scope: FileScope, query: string) => ['files', 'search', scopeKey(scope), query] as const,
   shares: ['files', 'shares'] as const,
 }
 
-export const getFileServers = (): Promise<{ servers: FileServer[]; defaultId?: string }> =>
-  api.get<{ servers: FileServer[]; defaultId?: string }>('/files/servers').then((r) => r.data)
-
-export const setDefaultFileServer = (deploymentId: string | null): Promise<{ defaultId?: string }> =>
-  api.put<{ defaultId?: string }>('/files/default', { deploymentId }).then((r) => r.data)
-
-export const getFilePlace = (projectId: string): Promise<PlaceState> =>
-  api.get<PlaceState>(`/files/projects/${encodeURIComponent(projectId)}/place`).then((r) => r.data)
-
-export const chooseFileServer = (projectId: string, deploymentId: string): Promise<PlaceState> =>
-  api.put<PlaceState>(`/files/projects/${encodeURIComponent(projectId)}/place`, { deploymentId }).then((r) => r.data)
-
-export const startProjectMinio = (projectId: string): Promise<PlaceState> =>
-  api.post<PlaceState>(`/files/projects/${encodeURIComponent(projectId)}/minio`).then((r) => r.data)
-
 export const listStoredFiles = (scope: FileScope, dir: string): Promise<StoredFile[]> =>
   api.get<StoredFile[]>(`${base(scope)}/list`, { params: { dir } }).then((r) => r.data)
 
-export const uploadStoredFile = (scope: FileScope, path: string, file: Blob, onProgress?: (share: number) => void): Promise<{ path: string }> =>
-  api.put<{ path: string }>(`${base(scope)}/content`, file, {
+export const uploadStoredFile = (scope: FileScope, path: string, file: Blob, onProgress?: (share: number) => void): Promise<{ path: string; id: string }> =>
+  api.put<{ path: string; id: string }>(`${base(scope)}/content`, file, {
     params: { path },
     headers: { 'Content-Type': 'application/octet-stream', [FILE_TYPE_HEADER]: file.type || 'application/octet-stream' },
     timeout: 0,
@@ -61,11 +52,8 @@ export const makeStoredFolder = (scope: FileScope, path: string): Promise<{ path
 export const searchStoredFiles = (scope: FileScope, query: string): Promise<StoredFile[]> =>
   api.get<StoredFile[]>(`${base(scope)}/search`, { params: { q: query } }).then((r) => r.data)
 
-const shareBase = (scope: ShareableScope): string =>
-  scope.kind === 'project' ? `/files/projects/${encodeURIComponent(scope.projectId)}` : '/files/mine'
-
 export const shareStoredFile = (scope: ShareableScope, path: string, days: ShareDays): Promise<FileShare> =>
-  api.post<FileShare>(`${shareBase(scope)}/shares`, { path, days }).then((r) => r.data)
+  api.post<FileShare>(`${ownBase(scope)}/shares`, { path, days }).then((r) => r.data)
 
 export const listFileShares = (): Promise<FileShare[]> =>
   api.get<FileShare[]>('/files/shares').then((r) => r.data)

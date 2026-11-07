@@ -146,8 +146,6 @@ export class MemoryEngineStore implements EngineStore {
   private readonly runTraces: Rows<StoredNodeTrace>;
   private readonly toolGrants: Rows<ToolGrant>;
   private readonly turnLogs: Map<string, StoredTurn>;
-  private readonly artifacts: Map<string, { ownerId?: string; runId?: string }>;
-  private readonly artifactChunks: Map<string, { artifactId?: string; ownerId?: string }>;
   private readonly workspaceDependencies: Rows<WorkspaceDependency & { ownerId: string }>;
   private readonly workspaceImages: Rows<WorkspaceImageSpec>;
 
@@ -175,8 +173,6 @@ export class MemoryEngineStore implements EngineStore {
     this.workspaceDependencies = new Rows(collectionIn<WorkspaceDependency & { ownerId: string }>(collections, 'workspaceDependencies'));
     this.workspaceImages = new Rows(collectionIn<WorkspaceImageSpec>(collections, 'workspaceImages'));
     this.turnLogs = collectionIn<StoredTurn>(collections, 'turnLogs');
-    this.artifacts = collectionIn(collections, 'artifacts');
-    this.artifactChunks = collectionIn(collections, 'artifactChunks');
   }
 
   private get turnRows(): StoredTurn[] {
@@ -341,7 +337,7 @@ export class MemoryEngineStore implements EngineStore {
     });
   }
 
-  async bindConversation(ownerId: string, conversationId: string, binding: { treeId: string; projectId?: string | undefined }): Promise<boolean> {
+  async bindConversation(ownerId: string, conversationId: string, binding: { treeId: string; projectId?: string | undefined }, _tx?: unknown): Promise<boolean> {
     const conversation = this.conversations.get(conversationId);
     if (!conversation || conversation.ownerId !== ownerId || 'treeId' in conversation) return false;
     const set = { treeId: binding.treeId, ...(binding.projectId ? { projectId: binding.projectId } : {}), updatedAt: new Date().toISOString() };
@@ -408,21 +404,11 @@ export class MemoryEngineStore implements EngineStore {
       turns += 1;
     }
     return turns
-      + this.reownArtifacts(from, to, runIds)
       + moving(this.runTraces, (trace) => trace.runId)
       + moving(this.runEffort, (effort) => effort.runId)
       + moving(this.runEndings, (ending) => ending.runId)
       + moving(this.runGrants, (grant) => grant.runId)
       + moving(this.poisoningSignals, (signal) => signal.runId);
-  }
-
-  private reownArtifacts(from: string, to: string, runIds?: readonly string[] | undefined): number {
-    if (from === to) return 0;
-    const moving = [...this.artifacts].filter(([, artifact]) => artifact.ownerId === from && (!runIds || (typeof artifact.runId === 'string' && runIds.includes(artifact.runId))));
-    const ids = new Set(moving.map(([id]) => id));
-    for (const chunk of this.artifactChunks.values()) if (typeof chunk.artifactId === 'string' && ids.has(chunk.artifactId)) chunk.ownerId = to;
-    for (const [, artifact] of moving) artifact.ownerId = to;
-    return moving.length;
   }
 
   async getMcpToolHints(_ownerId: string): Promise<McpToolHint[]> {

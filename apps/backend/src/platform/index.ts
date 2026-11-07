@@ -101,3 +101,4 @@ export { SessionSockets } from './services/SessionSockets.js';
 export { SignInAttemptLog } from './services/SignInAttemptLog.js';
 export { nodeProcesses, nodeStreams } from './services/processes.js';
 export { NotPublicError, publicAddressProblem, publicFetch } from './services/public-fetch.js';
+export type { Tx } from './lib/transaction.js';

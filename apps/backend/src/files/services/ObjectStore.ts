@@ -82,3 +82,32 @@ export function minioObjectStore(settings: MinioSettings, client: MinioClient = 
     },
   };
 }
+
+export interface OldBucketObject {
+  key: string;
+  size: number;
+}
+
+export interface OldBucketReader {
+  has(bucket: string): Promise<boolean>;
+  keys(bucket: string): AsyncIterable<OldBucketObject>;
+  get(bucket: string, key: string): Promise<{ body: Readable; contentType: string }>;
+}
+
+export function minioBucketReader(settings: Omit<MinioSettings, 'bucket'>, client: Pick<Client, 'bucketExists' | 'listObjectsV2' | 'getObject' | 'statObject'> = new Client({
+  endPoint: settings.endPoint, port: settings.port, useSSL: settings.useSSL, accessKey: settings.accessKey, secretKey: settings.secretKey,
+})): OldBucketReader {
+  return {
+    has: (bucket) => client.bucketExists(bucket),
+    async *keys(bucket) {
+      const listed = client.listObjectsV2(bucket, '', true) as AsyncIterable<{ name?: string; size?: number }>;
+      for await (const item of listed) if (item.name) yield { key: item.name, size: item.size ?? 0 };
+    },
+    async get(bucket, key) {
+      const stat = await client.statObject(bucket, key);
+      const metaData: Record<string, unknown> = (stat.metaData as Record<string, unknown> | undefined) ?? {};
+      const contentType = Object.entries(metaData).find(([name]) => name.toLowerCase() === 'content-type')?.[1];
+      return { body: await client.getObject(bucket, key), contentType: typeof contentType === 'string' && contentType ? contentType : 'application/octet-stream' };
+    },
+  };
+}

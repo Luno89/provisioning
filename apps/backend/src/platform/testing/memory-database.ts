@@ -22,6 +22,18 @@ export function memoryDatabase(): Database {
   return {
     init: async () => undefined,
     close: async () => undefined,
+    async transaction(work) {
+      const before = new Map([...shared].map(([name, rows]) => [name, new Map([...rows].map(([key, row]) => [key, structuredClone(row)]))]));
+      try {
+        return await work({});
+      } catch (failure) {
+        for (const [name, rows] of shared) {
+          rows.clear();
+          for (const [key, row] of before.get(name) ?? []) rows.set(key, row);
+        }
+        throw failure;
+      }
+    },
     platform: new MemoryPlatformStore(),
     accounts: new MemoryAccountsStore(shared),
     instances: new MemoryInstancesStore(shared),

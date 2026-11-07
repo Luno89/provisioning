@@ -1,49 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { Readable } from 'node:stream';
 import { mock } from 'vitest-mock-extended';
-import { MinioArtifactStores, minioReachFrom, type ClusterReachDeps, type MinioClient } from './MinioArtifactStore.js';
+import { minioReachFrom, type ClusterReachDeps } from './MinioArtifactStore.js';
 import type { ClusterMetadata, DeploymentMetadata } from '../../platform/lib/types.js';
 
 const deployment = { id: 'm1', name: 'Team Store', appType: 'minio', status: 'running', clusterId: 'c1', ownerId: 'bo', minioRootUser: 'koala', minioRootPassword: 'pw' } as unknown as DeploymentMetadata;
-
-const fakeMinio = () => {
-  const objects = new Map<string, Buffer>();
-  const buckets = new Set<string>();
-  const client = {
-    bucketExists: async (name: string) => buckets.has(name),
-    makeBucket: async (name: string) => { buckets.add(name); },
-    putObject: async (_bucket: string, key: string, bytes: Buffer) => { objects.set(key, bytes); return { etag: 'x', versionId: null }; },
-    getObject: async (_bucket: string, key: string) => Readable.from([objects.get(key)!]),
-    removeObject: async (_bucket: string, key: string) => { objects.delete(key); },
-  } as unknown as MinioClient;
-  return { objects, buckets, client };
-};
-
-describe('the owner\'s MinIO as an artifact store', () => {
-  it('reaches it where its reach says, with its stored keys, and makes the bucket', async () => {
-    const minio = fakeMinio();
-    const seen: unknown[] = [];
-    const stores = new MinioArtifactStores({
-      deployments: async () => [deployment],
-      endpoint: async (dep) => { seen.push(dep.id); return { host: 'minio.team-store-m10000.svc.cluster.local', port: 9000 }; },
-      connect: (endpoint) => { seen.push(endpoint); return minio.client; },
-    });
-
-    const store = (await stores.storeFor('bo'))!;
-    await store.put('bo/run/a.png', Buffer.from('png'), 'image/png');
-
-    expect(seen).toEqual(['m1', { host: 'minio.team-store-m10000.svc.cluster.local', port: 9000, accessKey: 'koala', secretKey: 'pw' }]);
-    expect([...minio.buckets]).toEqual(['koala-artifacts']);
-    expect((await store.get('bo/run/a.png')).toString()).toBe('png');
-  });
-
-  it('has none for someone without a MinIO, and says why when theirs cannot be reached', async () => {
-    const stores = new MinioArtifactStores({ deployments: async () => [deployment], endpoint: async () => { throw new Error('c1 is stopped until something runs on it'); } });
-    expect(await stores.storeFor('al')).toBeUndefined();
-    expect(await stores.hasMinio('al')).toBe(false);
-    await expect(stores.storeFor('bo')).rejects.toThrow('c1 is stopped until something runs on it');
-  });
-});
 
 describe('reaching the MinIO of a cluster', () => {
   const desk = { id: 'machine-desk', name: 'desk', provider: 'machine', meshIp: '100.64.0.7' } as ClusterMetadata;

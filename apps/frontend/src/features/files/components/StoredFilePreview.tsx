@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { Download, X } from 'lucide-react'
-import { fileKeys, readStoredText, storedFileUrl } from '../api/files'
+import { fileKeys, readStoredText, scopeKey, storedFileUrl } from '../api/files'
 import { previewKind } from '../lib/file-browser'
 import type { FileScope } from '../types'
 import ShareFile from './ShareFile'
@@ -8,7 +8,7 @@ import ShareFile from './ShareFile'
 const TEXT_LIMIT = 200_000
 
 function TextPreview({ scope, path }: { scope: FileScope; path: string }) {
-  const text = useQuery({ queryKey: [...fileKeys.all, 'text', scope.kind === 'mine' ? 'mine' : `${scope.kind}:${scope.projectId}`, path], queryFn: () => readStoredText(scope, path) })
+  const text = useQuery({ queryKey: [...fileKeys.all, 'text', scopeKey(scope), path], queryFn: () => readStoredText(scope, path) })
   if (text.isPending) return <p className="p-3 text-[12px] text-slate-500">Reading…</p>
   if (text.isError) return <p className="p-3 text-[12px] text-red-300">It could not be read.</p>
   const shown = text.data.length > TEXT_LIMIT ? `${text.data.slice(0, TEXT_LIMIT)}\n…` : text.data

@@ -1,23 +1,28 @@
 import { describe, expect, it } from 'vitest';
-import { cleanPath, fileServersOf, folderFor, isFolderMark, matchesSearch, placeProblem, within } from './file-places.js';
+import { chatFolder, cleanPath, inside, outside, storedPlaceOf, storyFolder } from './file-places.js';
 
-describe('the file servers a person has', () => {
-  const deployments = [
-    { id: 'm1', name: 'minio', appType: 'minio', status: 'running', clusterId: 'c', ownerId: 'u1', minioRootPassword: 'pw' },
-    { id: 'n1', name: 'cloud', appType: 'nextcloud', status: 'running', clusterId: 'c', ownerId: 'u1' },
-    { id: 'm2', name: 'theirs', appType: 'minio', status: 'running', clusterId: 'c', ownerId: 'u2', minioRootPassword: 'pw' },
-    { id: 'm3', name: 'stopped', appType: 'minio', status: 'failed', clusterId: 'c', ownerId: 'u1', minioRootPassword: 'pw' },
-    { id: 'm4', name: 'unknown', appType: 'minio', status: 'running', clusterId: 'c', ownerId: 'u1' },
-  ];
-
-  it('are their running MinIOs that Koala holds the credentials of, and nothing else', () => {
-    expect(fileServersOf(deployments, 'u1')).toEqual([{ kind: 'minio', deploymentId: 'm1', name: 'minio', clusterId: 'c' }]);
+describe('where a scope\'s files are kept', () => {
+  it('keeps a project\'s files in the project, a person\'s own in theirs, and a chat\'s in the chat unless it belongs to a project', () => {
+    expect(storedPlaceOf('u1', { kind: 'project', project: { id: 'p1' } })).toEqual({ scope: { kind: 'project', id: 'p1' }, under: '' });
+    expect(storedPlaceOf('u1', { kind: 'person' })).toEqual({ scope: { kind: 'person', id: 'u1' }, under: '' });
+    expect(storedPlaceOf('u1', { kind: 'conversation', conversationId: 'c1' })).toEqual({ scope: { kind: 'conversation', id: 'c1' }, under: '' });
   });
 
-  it('says when a project\'s server is gone', () => {
-    const servers = fileServersOf(deployments, 'u1');
-    expect(placeProblem({ kind: 'minio', deploymentId: 'm1', folder: 'shop' }, servers)).toBeUndefined();
-    expect(placeProblem({ kind: 'minio', deploymentId: 'm3', folder: 'shop' }, servers)).toBe('its file server is not running any more');
+  it('keeps a chat bound to a project in that project\'s files, under the chat\'s own folder', () => {
+    expect(storedPlaceOf('u1', { kind: 'conversation', conversationId: 'channel-p1', projectId: 'p1' })).toEqual({ scope: { kind: 'project', id: 'p1' }, under: 'chats/channel-p1' });
+    expect(chatFolder('story-l1')).toBe('chats/story-l1');
+    expect(storyFolder('l1')).toBe('stories/l1');
+  });
+
+  it('puts a path under a folder and takes it back out, refusing one from outside it', () => {
+    expect(inside('', 'a.pdf')).toBe('a.pdf');
+    expect(inside('chats/c1', 'a.pdf')).toBe('chats/c1/a.pdf');
+    expect(inside('chats/c1', '')).toBe('chats/c1');
+    expect(outside('', 'docs/a.pdf')).toBe('docs/a.pdf');
+    expect(outside('chats/c1', 'chats/c1/docs/a.pdf')).toBe('docs/a.pdf');
+    expect(outside('chats/c1', 'chats/c1')).toBe('');
+    expect(outside('chats/c1', 'chats/c10/a.pdf')).toBeUndefined();
+    expect(outside('chats/c1', 'a.pdf')).toBeUndefined();
   });
 });
 
@@ -28,26 +33,5 @@ describe('paths in a project\'s files', () => {
     expect(cleanPath('')).toEqual({ ok: false, why: 'a file needs a name' });
     expect(cleanPath('', { allowRoot: true })).toEqual({ ok: true, path: '' });
     expect(cleanPath('a\\b')).toMatchObject({ ok: false });
-  });
-
-  it('sit under the project\'s folder, named once from the project', () => {
-    expect(folderFor('Axial Concepts — Web Portal!')).toBe('axial-concepts-web-portal');
-    expect(folderFor('???')).toBe('files');
-    expect(within('shop', 'docs/a.pdf')).toBe('shop/docs/a.pdf');
-    expect(within('shop', '')).toBe('shop');
-  });
-
-  it('are found by a part of their name, never the mark that keeps an empty folder', () => {
-    expect(matchesSearch('docs/Client Brief.pdf', 'brief')).toBe(true);
-    expect(matchesSearch('brief/notes.txt', 'brief')).toBe(false);
-    expect(matchesSearch('docs/.keep', 'keep')).toBe(false);
-    expect(matchesSearch('docs/a.pdf', '  ')).toBe(false);
-    expect([isFolderMark('.keep'), isFolderMark('a/.keep'), isFolderMark('a/keep')]).toEqual([true, true, false]);
-  });
-
-  it('never names a project\'s folder as the person\'s own files', () => {
-    expect(folderFor('Personal')).toBe('personal-project');
-    expect(folderFor(' personal ')).toBe('personal-project');
-    expect(folderFor('Personal Site')).toBe('personal-site');
   });
 });

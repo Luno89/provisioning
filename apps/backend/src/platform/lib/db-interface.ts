@@ -1,3 +1,4 @@
+import type { Tx } from './transaction.js';
 import { MongoDB } from './mongo-db.js';
 import { mongoPayloadBlobs } from './mongo-payload-blobs.js';
 import type { PayloadBlobs } from './payload-storage.js';
@@ -19,6 +20,7 @@ import type { EngineStore } from '../../engine/index.js';
 export interface Database {
   init(): Promise<void>;
   close(): Promise<void>;
+  transaction<T>(work: (tx: Tx) => Promise<T>): Promise<T>;
   platform: PlatformStore;
   accounts: AccountsStore;
   instances: InstancesStore;

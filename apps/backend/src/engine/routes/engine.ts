@@ -1,5 +1,5 @@
 import type { ExtensionService, ExtensionState } from '../services/ExtensionService.js';
-import { readAttachments } from '../lib/attachments.js';
+import { readAttachments, type AttachableFile } from '../lib/attachments.js';
 import { Router, type Request, type RequestHandler, type Response } from 'express';
 import { asyncRoute, fieldsOf } from '../../platform/index.js';
 import { NoNoteToAskError } from '../lib/conversations.js';
@@ -42,6 +42,7 @@ export interface WorkspaceImageAccess {
 export interface EngineRouterDeps {
   runs: RunStarter;
   projects?: ((ownerId: string) => Promise<{ id: string; name: string }[]>) | undefined;
+  attachable?: ((ownerId: string, fileId: string) => Promise<AttachableFile | undefined>) | undefined;
   approvals: Pick<ApprovalService, 'approve' | 'answer' | 'cancel'>;
   registry: AgentRegistry;
   traces?: TraceAccess | undefined;
@@ -205,7 +206,9 @@ export function engineRouter(deps: EngineRouterDeps): Router {
       return res.status(400).json({ error: 'asks names the time of a posted message, and needs its conversationId' });
     }
 
-    const attached = readAttachments(attachments, attachments === undefined || !deps.projects ? [] : await deps.projects(userOf(req).id));
+    const find = deps.attachable;
+    const ownerId = userOf(req).id;
+    const attached = await readAttachments(attachments, find ? (fileId) => find(ownerId, fileId) : undefined, attachments === undefined || !deps.projects ? [] : await deps.projects(ownerId));
     if (!attached.ok) return res.status(400).json({ error: attached.why });
 
     try {

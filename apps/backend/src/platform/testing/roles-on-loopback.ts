@@ -4,6 +4,8 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { portToHandOn } from '@koala/engine-core/testing/ports';
+import { inject } from 'vitest';
+import { testBucket } from '../../files/testing/real-minio.js';
 
 const BACKEND = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 const TSX = resolve(BACKEND, '../../node_modules/.bin/tsx');
@@ -42,6 +44,13 @@ const healthy = async (port: number): Promise<boolean> => {
   return !(answer instanceof Error) && answer.status === 200;
 };
 
+const MINIO_BUCKET = testBucket();
+
+const minioEnv = (): Record<string, string> => {
+  const minio = inject('minio');
+  return { MINIO_ENDPOINT: `${minio.endPoint}:${minio.port}`, MINIO_ROOT_USER: minio.accessKey, MINIO_ROOT_PASSWORD: minio.secretKey, MINIO_BUCKET };
+};
+
 export async function startProcess(name: string, entry: string, env: Record<string, string>, ready: () => Promise<boolean>, files: Record<string, string> = {}): Promise<LoopbackProcess> {
   const home = await mkdtemp(join(tmpdir(), `koala-${name}-`));
   await mkdir(join(home, 'bin'));
@@ -58,6 +67,7 @@ export async function startProcess(name: string, entry: string, env: Record<stri
     HOME: home,
     NODE_ENV: 'development',
     JWT_SECRET: `${name}-loopback-test-secret`,
+    ...minioEnv(),
     ...env,
   };
   const start = async (): Promise<void> => {

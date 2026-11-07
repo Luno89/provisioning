@@ -1,7 +1,7 @@
 import { useCallback, useState } from 'react'
 import { errorMessage } from '../../../api/client'
 import { uploadStoredFile } from '../../files'
-import { attachmentPath, type PickedFile } from '../../files'
+import { attachmentPlace, type PickedFile } from '../../files'
 import type { MessageAttachment } from '../../files'
 
 export interface ChatAttachment {
@@ -16,7 +16,7 @@ export interface ChatAttachment {
 
 let counter = 0
 
-export function useChatAttachments(project: { id: string; name: string } | undefined) {
+export function useChatAttachments(project: { id: string; name: string } | undefined, conversation: () => Promise<string>) {
   const [attached, setAttached] = useState<ChatAttachment[]>([])
   const change = (key: string, patch: Partial<ChatAttachment>) => setAttached((all) => all.map((one) => (one.key === key ? { ...one, ...patch } : one)))
 
@@ -24,18 +24,20 @@ export function useChatAttachments(project: { id: string; name: string } | undef
     for (const one of picked) {
       counter += 1
       const key = `${Date.now()}-${counter}`
-      const path = attachmentPath(Boolean(project), one.file.name, new Date())
       setAttached((all) => [...all, { key, name: one.file.name, size: one.file.size, state: 'uploading', share: 0 }])
-      const scope = project ? { kind: 'project' as const, projectId: project.id } : { kind: 'mine' as const }
-      uploadStoredFile(scope, path, one.file, (share) => change(key, { share }))
-        .then(() => change(key, {
+      conversation()
+        .then((conversationId) => {
+          const place = attachmentPlace(conversationId, project?.id, one.file.name)
+          return uploadStoredFile(place.scope, place.path, one.file, (share) => change(key, { share }))
+        })
+        .then(({ id }) => change(key, {
           state: 'ready',
           share: 1,
-          stored: { name: one.file.name, path, size: one.file.size, ...(one.file.type ? { type: one.file.type } : {}), ...(project ? { project } : {}) },
+          stored: { fileId: id, name: one.file.name, size: one.file.size, ...(one.file.type ? { type: one.file.type } : {}), ...(project ? { project } : {}) },
         }))
         .catch((err: unknown) => change(key, { state: 'failed', why: errorMessage(err) }))
     }
-  }, [project])
+  }, [project, conversation])
 
   const remove = useCallback((key: string) => setAttached((all) => all.filter((one) => one.key !== key)), [])
   const ready = attached.flatMap((one) => (one.state === 'ready' && one.stored ? [one.stored] : []))

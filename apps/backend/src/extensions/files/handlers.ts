@@ -8,7 +8,7 @@ import { LIST_FILES, READ_STORED_FILE, REMOVE_STORED_FILE, STORE_FILE } from './
 export const READ_LIMIT = 100_000;
 
 export interface FilesToolDeps {
-  files: Pick<FileService, 'list' | 'download' | 'upload' | 'remove'>;
+  files: Pick<FileService, 'list' | 'download' | 'downloadIn' | 'upload' | 'remove'>;
   projects: (ownerId: string) => Promise<ProjectMetadata[]>;
   projectOfTree: (ownerId: string, treeId: string) => Promise<string | undefined>;
   projectOfConversation: (ownerId: string, conversationId: string) => Promise<string | undefined>;
@@ -25,7 +25,7 @@ const sizeText = (bytes: number): string => (bytes < 1024 ? `${bytes} bytes` : b
 
 export function createFilesTools(deps: FilesToolDeps | undefined): Record<string, ToolHandler> {
   if (!deps) {
-    const unreachable = async (): Promise<ToolOutcome> => refuse('the person\'s file servers cannot be reached from here');
+    const unreachable = async (): Promise<ToolOutcome> => refuse('the person\'s files cannot be reached from here');
     return { [LIST_FILES]: unreachable, [READ_STORED_FILE]: unreachable, [STORE_FILE]: unreachable, [REMOVE_STORED_FILE]: unreachable };
   }
   const scopeOf = async (args: Record<string, unknown>, caller: Caller): Promise<{ scope: FileScope; named: string } | { refused: ToolOutcome }> => {
@@ -41,7 +41,9 @@ export function createFilesTools(deps: FilesToolDeps | undefined): Record<string
       ?? (caller.treeId ? await deps.projectOfTree(caller.ownerId, caller.treeId) : undefined)
       ?? (caller.conversationId ? await deps.projectOfConversation(caller.ownerId, caller.conversationId) : undefined);
     const project = id ? projects.find((entry) => entry.id === id) : undefined;
-    return project ? { scope: { kind: 'project', project }, named: project.name } : { scope: { kind: 'mine' }, named: 'your own files' };
+    if (project) return { scope: { kind: 'project', project }, named: project.name };
+    if (caller.conversationId) return { scope: { kind: 'conversation', conversationId: caller.conversationId }, named: 'this chat\'s files' };
+    return { scope: { kind: 'person' }, named: 'your own files' };
   };
 
   const pathOf = (value: unknown, allowRoot = false): { path: string } | { refused: ToolOutcome } => {
@@ -67,14 +69,23 @@ export function createFilesTools(deps: FilesToolDeps | undefined): Record<string
       const args = (parsed ?? {}) as Record<string, unknown>;
       const where = await scopeOf(args, caller);
       if ('refused' in where) return where.refused;
-      const path = pathOf(args.path);
-      if ('refused' in path) return path.refused;
-      const found = await deps.files.download(caller.ownerId!, where.scope, path.path);
+      const fileId = text(args.fileId);
+      let found;
+      let named: string;
+      if (fileId) {
+        found = await deps.files.downloadIn(caller.ownerId!, where.scope, fileId);
+        named = found.ok ? found.value.path : fileId;
+      } else {
+        const path = pathOf(args.path);
+        if ('refused' in path) return path.refused;
+        found = await deps.files.download(caller.ownerId!, where.scope, path.path);
+        named = path.path;
+      }
       if (!found.ok) return refuse(found.why);
-      const readable = TEXTUAL.test(found.value.contentType) || TEXT_NAMES.test(path.path);
+      const readable = TEXTUAL.test(found.value.contentType) || TEXT_NAMES.test(named);
       if (!readable) {
         found.value.stream.destroy();
-        const said = `${path.path} is ${found.value.contentType}${found.value.size !== undefined ? `, ${sizeText(found.value.size)}` : ''}; it is not text, so it is described rather than read.`;
+        const said = `${named} is ${found.value.contentType}${found.value.size !== undefined ? `, ${sizeText(found.value.size)}` : ''}; it is not text, so it is described rather than read.`;
         return { ok: true, digest: said, content: said };
       }
       const parts: Buffer[] = [];
@@ -86,8 +97,8 @@ export function createFilesTools(deps: FilesToolDeps | undefined): Record<string
       }
       found.value.stream.destroy();
       const whole = Buffer.concat(parts).toString('utf8');
-      const content = whole.length > READ_LIMIT ? `${whole.slice(0, READ_LIMIT)}\n…(the rest of ${path.path} is longer than ${READ_LIMIT} characters)` : whole;
-      return { ok: true, digest: `read ${path.path}`, content };
+      const content = whole.length > READ_LIMIT ? `${whole.slice(0, READ_LIMIT)}\n…(the rest of ${named} is longer than ${READ_LIMIT} characters)` : whole;
+      return { ok: true, digest: `read ${named}`, content };
     },
 
     async [STORE_FILE]({ parsed, caller }) {

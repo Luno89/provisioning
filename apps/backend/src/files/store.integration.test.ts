@@ -68,7 +68,7 @@ describe('the records of stored files on a real Mongo replica set', () => {
   let store: MongoFilesStore;
   const AT = '2026-11-07T10:00:00.000Z';
   const scope = { kind: 'project', id: 'p1' } as const;
-  const upload = (id: string, path: string) => ({ id, ownerId: 'u1', scope: { ...scope }, path, kind: 'file' as const, size: 0, contentType: 'text/plain', version: 0, madeAt: AT, changedAt: AT, state: 'uploading' as const, touchedAt: AT });
+  const upload = (id: string, path: string) => ({ id, objectId: id, ownerId: 'u1', scope: { ...scope }, path, kind: 'file' as const, size: 0, contentType: 'text/plain', version: 0, madeAt: AT, changedAt: AT, state: 'uploading' as const, touchedAt: AT });
 
   beforeAll(async () => {
     client = await MongoClient.connect(inject('mongoUri'));
@@ -107,5 +107,33 @@ describe('the records of stored files on a real Mongo replica set', () => {
     }
     const paths = (await store.storedFilesIn('u1', scope)).map((record) => record.path).filter((path) => !path.startsWith('race')).sort();
     expect(paths).toEqual(['dir/a.txt', 'dir/b.txt', 'dir/c.txt']);
+  });
+});
+
+describe('the artifacts Koala kept in Mongo before, read once for the Archive', () => {
+  it('hands each back whole with its owner and run, its pieces in order, then forgets them all', async () => {
+    const client = await MongoClient.connect(inject('mongoUri'));
+    const db = client.db(`t_${randomUUID().replace(/-/g, '').slice(0, 20)}`);
+    const store = new MongoFilesStore(() => db, key);
+    try {
+      await db.collection('artifacts').insertMany([
+        { _id: 'a1' as never, ownerId: 'bo', runId: 'run-1', name: 'shot.png', contentType: 'image/png' },
+        { _id: 'a2' as never, runId: 'run-2', name: 'orphan.txt' },
+      ]);
+      await db.collection('artifactChunks').insertMany([
+        { _id: 'a1:1' as never, artifactId: 'a1', n: 1, data: Buffer.from('world') },
+        { _id: 'a1:0' as never, artifactId: 'a1', n: 0, data: Buffer.from('hello ') },
+      ]);
+      const read = [];
+      for await (const artifact of store.oldArtifacts()) read.push({ ...artifact, bytes: artifact.bytes.toString() });
+      expect(read).toEqual([{ ownerId: 'bo', runId: 'run-1', name: 'shot.png', contentType: 'image/png', bytes: 'hello world' }]);
+      expect(await store.forgetOldArtifacts()).toBe(2);
+      expect(await db.collection('artifacts').countDocuments()).toBe(0);
+      expect(await db.collection('artifactChunks').countDocuments()).toBe(0);
+      expect(await store.forgetOldArtifacts()).toBe(0);
+    } finally {
+      await db.dropDatabase();
+      await client.close();
+    }
   });
 });

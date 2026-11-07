@@ -9,8 +9,6 @@ import { STATE_STYLE, STATE_HINT, stateFor, leafDocuments, storyLine, type Leaf 
 import type { DocumentAddress } from '../../engine';
 import { cancelLeaf, retryLeaf, deleteLeaf } from '../api/grove';
 import { errorMessage } from '../../../api/client';
-import { ArtifactStoragePrompt } from '../../files'
-import { mentionsArtifacts } from '../../files'
 import { withArtifactAddresses } from '../../files'
 import { useWorkSource } from '../lib/work-source'
 
@@ -163,7 +161,6 @@ export default function LeafDetail({ leaf, all = [], treeId, tasks }: { leaf: Le
           <div className="text-[13px] text-slate-300 leading-relaxed rounded-xl border border-[var(--bark-600)] bg-[var(--bark-900)]/50 p-4 max-h-[32rem] overflow-y-auto">
             <Markdown>{withArtifactAddresses(leaf.findings)}</Markdown>
           </div>
-          {mentionsArtifacts(leaf.findings) && <ArtifactStoragePrompt />}
         </div>
       )}
 

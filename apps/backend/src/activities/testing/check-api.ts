@@ -232,7 +232,7 @@ export async function mountCheckApi(): Promise<CheckApi> {
   app.use('/api/agents', agentsRouter({ agents: ports.agents }));
   app.use('/api/mcp', mcpRouter({ mcp: ports.mcp, catalogue: ports.catalogue }));
   app.use('/api/documents', documentsRouter({ documents: ports.documents }));
-  app.use('/api/artifacts', artifactsRouter({ artifacts: ports.artifacts, hasMinio: async () => false }));
+  app.use('/api/artifacts', artifactsRouter({ artifacts: ports.artifacts }));
   app.use('/api/checks', checksRouter({ scripted: ports.scripted }));
   app.use('/api/actions', actionsRouter({ actions: ports.actions }));
   app.use('/api/plans', plansRouter({ plans }));

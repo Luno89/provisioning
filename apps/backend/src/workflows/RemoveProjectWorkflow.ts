@@ -28,7 +28,7 @@ export interface ProjectRemoved {
   workspaces: number;
   secrets: { workspace: boolean; readers: number };
   repositories: string[];
-  files: 'removed' | 'unreachable' | 'none' | 'shared';
+  files: number;
   records: Record<string, number>;
 }
 
@@ -56,7 +56,7 @@ export async function RemoveProjectWorkflow(args: RemoveProjectArgs): Promise<Pr
   done.push('secrets');
   const repositories = await steps.RemoveProjectRepositoriesActivity(args);
   done.push('repositories');
-  const files = patched(PROJECT_FILES_PATCH) ? await steps.RemoveProjectFilesActivity(args) : 'none';
+  const files = patched(PROJECT_FILES_PATCH) ? await steps.RemoveProjectFilesActivity(args) : 0;
   if (patched(PROJECT_FILES_PATCH)) done.push('files');
   const records = await steps.RemoveProjectRecordsActivity(args);
   done.push('records');

@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url';
 import dotenv from 'dotenv';
 import { buildAppImage } from './gate-runs.js';
 import { devFile, devTemporalCa } from './dev-temporal.js';
-import { answers, envArgs, temporal, temporalContainer } from './split-stack.js';
+import { answers, envArgs, minioReady, minioRun, temporal, temporalContainer } from './split-stack.js';
 import { dropSuiteDatabase, firstAdmin, suiteRoot, type FirstAdmin, type SuiteRoot } from './suite-root.js';
 import { portToHandOn } from '@koala/engine-core/testing/ports';
 
@@ -41,13 +41,14 @@ export async function startOwnStack(suite: string, log: (line: string) => void =
   const apiPort = await portToHandOn();
   const gatewayPort = await portToHandOn();
   const engineMetrics = await portToHandOn();
+  const filesPort = await portToHandOn();
   const root = suiteRoot(suite, await portToHandOn());
   const namespace = root.queue;
   const url = `http://localhost:${apiPort}`;
   const image = buildAppImage(REPO, execFileSync('git', ['-C', REPO, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(), (line) => log(`    ${line}`));
-  const container: Record<OwnProcess, string> = { backend: `nw-${suite}-backend-${namespace}`, engine: `nw-${suite}-engine-${namespace}` };
+  const container: Record<OwnProcess | 'files', string> = { backend: `nw-${suite}-backend-${namespace}`, engine: `nw-${suite}-engine-${namespace}`, files: `nw-${suite}-files-${namespace}` };
   const started: string[] = [];
-  const logs = (process: OwnProcess, lines = 80): string => {
+  const logs = (process: OwnProcess | 'files', lines = 80): string => {
     try {
       return execFileSync('docker', ['logs', '--tail', String(lines), container[process]], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
     } catch (err) {
@@ -62,7 +63,9 @@ export async function startOwnStack(suite: string, log: (line: string) => void =
     await dropSuiteDatabase(root).catch(() => undefined);
     try { temporal(['namespace', 'delete', '--namespace', namespace, '--yes']); } catch { /* never made */ }
   };
+  const files = minioRun(filesPort);
   const env = {
+    ...files.env,
     PORT: String(apiPort),
     PUBLIC_URL: url,
     APP_URL: url,
@@ -79,6 +82,9 @@ export async function startOwnStack(suite: string, log: (line: string) => void =
   const backendAnswers = () => until('the backend answering', () => answers(`${url}/api/auth/sign-in`), () => logs('backend'));
   try {
     temporal(['namespace', 'create', '--namespace', namespace, '--retention', '24h']);
+    docker(['run', '-d', '--name', container.files, ...files.args]);
+    started.push(container.files);
+    await until('its MinIO being ready', () => minioReady(filesPort), () => logs('files'));
     run('backend', 'backend');
     run('engine', 'worker-engine', { HEALTH_PORT: '0', TEMPORAL_ENGINE_METRICS_PORT: String(engineMetrics) });
     await backendAnswers();

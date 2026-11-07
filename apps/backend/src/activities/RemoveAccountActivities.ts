@@ -22,6 +22,9 @@ export interface AccountRemovalDeps {
     engine: {
       reownRuns(from: string, to: string): Promise<number>;
     };
+    files: {
+      reownRunFiles(from: string, to: string): Promise<number>;
+    };
     infrastructure: {
       getDeployments(): Promise<DeploymentMetadata[]>;
       saveDeploymentInfo(deployment: Partial<DeploymentMetadata> & { id: string }): Promise<DeploymentMetadata>;
@@ -33,6 +36,7 @@ export interface AccountRemovalDeps {
   repositories: { deleteUser(username: string): Promise<boolean> };
   mesh: { removeUser(ownerId: string): Promise<{ devices: number; user: boolean }> };
   secrets: { removeProject(projectId: string): Promise<{ workspace: boolean; readers: number }> };
+  files: { removeOwned(ownerId: string): Promise<number> };
 }
 
 export type RemovalMesh = AccountRemovalDeps['mesh'];
@@ -79,7 +83,7 @@ export function createAccountRemovalActivities(deps: AccountRemovalDeps): Accoun
     },
 
     async RemoveAccountKeepRunsActivity({ ownerId, keepRunsFor }) {
-      return deps.store.engine.reownRuns(ownerId, keepRunsFor);
+      return (await deps.store.engine.reownRuns(ownerId, keepRunsFor)) + (await deps.store.files.reownRunFiles(ownerId, keepRunsFor));
     },
 
     async RemoveAccountAppsActivity({ ownerId }) {
@@ -125,12 +129,14 @@ export function createAccountRemovalActivities(deps: AccountRemovalDeps): Accoun
     },
 
     async RemoveAccountRecordsActivity({ ownerId }) {
+      const files = await deps.files.removeOwned(ownerId);
       const ids = await deps.store.accounts.accountIds(ownerId);
-      return deps.store.accounts.removeAccountRecords(ownerId, {
+      const removed = await deps.store.accounts.removeAccountRecords(ownerId, {
         watermarkKeys: memoryWatermarkKeys(ids),
         ingestIds: ids.ingestIds,
         projectIds: ids.projectIds,
       });
+      return files > 0 ? { ...removed, storedFiles: (removed.storedFiles ?? 0) + files } : removed;
     },
   };
 }

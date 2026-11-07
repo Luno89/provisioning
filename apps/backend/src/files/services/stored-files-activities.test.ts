@@ -9,7 +9,7 @@ const T0 = Date.parse('2026-11-07T10:00:00.000Z');
 const AT = new Date(T0).toISOString();
 
 const record = (id: string, extra: Partial<StoredFileRecord> = {}): StoredFileRecord => ({
-  id, ownerId: 'u1', scope: { kind: 'project', id: 'p1' }, path: `${id}.txt`, kind: 'file', size: 1, contentType: 'text/plain', version: 1,
+  id, objectId: id, ownerId: 'u1', scope: { kind: 'project', id: 'p1' }, path: `${id}.txt`, kind: 'file', size: 1, contentType: 'text/plain', version: 1,
   madeAt: AT, changedAt: AT, state: 'stored', touchedAt: AT, ...extra,
 });
 
@@ -23,18 +23,26 @@ const setUp = (bytes: readonly string[] = []) => {
   objects.ids.mockImplementation(() => listed(bytes));
   records.deadStoredUploads.mockResolvedValue([]);
   records.expiredStoredFiles.mockResolvedValue([]);
-  records.storedFileIdsAmong.mockResolvedValue([]);
+  records.storedObjectIdsAmong.mockResolvedValue([]);
   return { records, objects, activities: createStoredFilesActivities({ records, objects, now: () => T0 }) };
 };
 
 const ids = (count: number, from = 0): string[] => Array.from({ length: count }, (_, index) => `o${index + from}`);
 
 describe('committing stored files', () => {
+  it('checks each upload\'s bytes by the upload\'s own object, which is what a new version takes', async () => {
+    const { records, objects, activities } = setUp();
+    objects.stat.calledWith('upload').mockResolvedValue({ size: 2 });
+    records.commitStoredFiles.mockResolvedValue({ ok: true, stored: [record('file', { objectId: 'upload', version: 2 })], replaced: ['before'], absorbed: ['upload'] });
+    expect(await activities.StoredFilesCommitActivity({ commits: [{ id: 'upload', size: 2 }], replace: true })).toMatchObject({ ok: true, replaced: ['before'] });
+    expect(objects.stat).toHaveBeenCalledExactlyOnceWith('upload');
+  });
+
   it('commits once every upload\'s bytes are there at the size it was kept with, at the time now', async () => {
     const { records, objects, activities } = setUp();
     objects.stat.calledWith('a').mockResolvedValue({ size: 3 });
     objects.stat.calledWith('b').mockResolvedValue({ size: 0 });
-    const plan = { ok: true as const, stored: [record('a'), record('b')], replaced: [] };
+    const plan = { ok: true as const, stored: [record('a'), record('b')], replaced: [], absorbed: [] };
     records.commitStoredFiles.mockResolvedValue(plan);
     const commits = [{ id: 'a', size: 3 }, { id: 'b', size: 0 }];
     expect(await activities.StoredFilesCommitActivity({ commits, replace: true })).toBe(plan);
@@ -73,14 +81,14 @@ describe('committing stored files', () => {
 
   it('hands an empty commit straight to the store', async () => {
     const { records, objects, activities } = setUp();
-    records.commitStoredFiles.mockResolvedValue({ ok: true, stored: [], replaced: [] });
-    expect(await activities.StoredFilesCommitActivity({ commits: [], replace: false })).toEqual({ ok: true, stored: [], replaced: [] });
+    records.commitStoredFiles.mockResolvedValue({ ok: true, stored: [], replaced: [], absorbed: [] });
+    expect(await activities.StoredFilesCommitActivity({ commits: [], replace: false })).toEqual({ ok: true, stored: [], replaced: [], absorbed: [] });
     expect(objects.stat).not.toHaveBeenCalled();
   });
 
   it('reads the time from the clock when none is handed to it', async () => {
     const records = mock<StoredFilesActivityDeps['records']>();
-    records.commitStoredFiles.mockResolvedValue({ ok: true, stored: [], replaced: [] });
+    records.commitStoredFiles.mockResolvedValue({ ok: true, stored: [], replaced: [], absorbed: [] });
     await createStoredFilesActivities({ records, objects: mock<ObjectStore>() }).StoredFilesCommitActivity({ commits: [], replace: true });
     const at = records.commitStoredFiles.mock.calls[0]![2];
     expect(Math.abs(Date.parse(at) - Date.now())).toBeLessThan(60_000);
@@ -95,16 +103,16 @@ describe('forgetting and removing bytes', () => {
     expect(objects.remove).not.toHaveBeenCalled();
   });
 
-  it('removes the bytes of each id named, one after another', async () => {
+  it('removes the bytes of each object named, one after another', async () => {
     const { records, objects, activities } = setUp();
-    await activities.StoredFilesRemoveBytesActivity({ ids: ['a', 'b'] });
+    await activities.StoredFilesRemoveBytesActivity({ objectIds: ['a', 'b'] });
     expect(objects.remove.mock.calls).toEqual([['a'], ['b']]);
     expect(records.deleteStoredFiles).not.toHaveBeenCalled();
   });
 
-  it('removes nothing for no ids', async () => {
+  it('removes nothing for no objects', async () => {
     const { objects, activities } = setUp();
-    await activities.StoredFilesRemoveBytesActivity({ ids: [] });
+    await activities.StoredFilesRemoveBytesActivity({ objectIds: [] });
     expect(objects.remove).not.toHaveBeenCalled();
   });
 });
@@ -117,13 +125,13 @@ describe('the sweep', () => {
     expect(records.expiredStoredFiles).toHaveBeenCalledWith(AT);
   });
 
-  it('forgets and removes the bytes of dead uploads and expired files, and counts each', async () => {
+  it('forgets dead uploads and expired files and removes the bytes each record names, and counts each', async () => {
     const { records, objects, activities } = setUp();
     records.deadStoredUploads.mockResolvedValue([record('dead', { state: 'uploading' })]);
-    records.expiredStoredFiles.mockResolvedValue([record('old1'), record('old2')]);
+    records.expiredStoredFiles.mockResolvedValue([record('old1', { objectId: 'v2-of-old1' }), record('old2')]);
     expect(await activities.StoredFilesSweepActivity()).toEqual({ deadUploads: 1, expired: 2, orphans: 0 });
     expect(records.deleteStoredFiles).toHaveBeenCalledWith(['dead', 'old1', 'old2']);
-    expect(objects.remove.mock.calls).toEqual([['dead'], ['old1'], ['old2']]);
+    expect(objects.remove.mock.calls).toEqual([['dead'], ['v2-of-old1'], ['old2']]);
     expect(records.deleteStoredFiles.mock.invocationCallOrder[0]!).toBeLessThan(objects.remove.mock.invocationCallOrder[0]!);
   });
 
@@ -131,46 +139,46 @@ describe('the sweep', () => {
     const { records, objects, activities } = setUp();
     expect(await activities.StoredFilesSweepActivity()).toEqual({ deadUploads: 0, expired: 0, orphans: 0 });
     expect(records.deleteStoredFiles).toHaveBeenCalledWith([]);
-    expect(records.storedFileIdsAmong).not.toHaveBeenCalled();
+    expect(records.storedObjectIdsAmong).not.toHaveBeenCalled();
     expect(objects.remove).not.toHaveBeenCalled();
   });
 
   it('removes bytes no record names and keeps those a record does', async () => {
     const { records, objects, activities } = setUp(['kept', 'orphan', 'also-kept']);
-    records.storedFileIdsAmong.mockResolvedValue(['kept', 'also-kept']);
+    records.storedObjectIdsAmong.mockResolvedValue(['kept', 'also-kept']);
     expect(await activities.StoredFilesSweepActivity()).toEqual({ deadUploads: 0, expired: 0, orphans: 1 });
-    expect(records.storedFileIdsAmong).toHaveBeenCalledWith(['kept', 'orphan', 'also-kept']);
+    expect(records.storedObjectIdsAmong).toHaveBeenCalledWith(['kept', 'orphan', 'also-kept']);
     expect(objects.remove.mock.calls).toEqual([['orphan']]);
   });
 
   it('asks about a full batch at once and leaves nothing to ask after it', async () => {
     const { records, activities } = setUp(ids(SWEEP_BATCH));
-    records.storedFileIdsAmong.mockImplementation(async (among) => [...among]);
+    records.storedObjectIdsAmong.mockImplementation(async (among) => [...among]);
     expect(await activities.StoredFilesSweepActivity()).toEqual({ deadUploads: 0, expired: 0, orphans: 0 });
-    expect(records.storedFileIdsAmong).toHaveBeenCalledTimes(1);
-    expect(records.storedFileIdsAmong.mock.calls[0]![0]).toHaveLength(SWEEP_BATCH);
+    expect(records.storedObjectIdsAmong).toHaveBeenCalledTimes(1);
+    expect(records.storedObjectIdsAmong.mock.calls[0]![0]).toHaveLength(SWEEP_BATCH);
   });
 
   it('asks about one more than a batch in a full batch and then the one left', async () => {
     const { records, objects, activities } = setUp(ids(SWEEP_BATCH + 1));
-    records.storedFileIdsAmong.mockResolvedValue([]);
+    records.storedObjectIdsAmong.mockResolvedValue([]);
     expect(await activities.StoredFilesSweepActivity()).toEqual({ deadUploads: 0, expired: 0, orphans: SWEEP_BATCH + 1 });
-    expect(records.storedFileIdsAmong.mock.calls.map(([among]) => among.length)).toEqual([SWEEP_BATCH, 1]);
-    expect(records.storedFileIdsAmong.mock.calls[1]![0]).toEqual([`o${SWEEP_BATCH}`]);
+    expect(records.storedObjectIdsAmong.mock.calls.map(([among]) => among.length)).toEqual([SWEEP_BATCH, 1]);
+    expect(records.storedObjectIdsAmong.mock.calls[1]![0]).toEqual([`o${SWEEP_BATCH}`]);
     expect(objects.remove).toHaveBeenCalledTimes(SWEEP_BATCH + 1);
   });
 
   it('asks about one less than a batch once, at the end', async () => {
     const { records, activities } = setUp(ids(SWEEP_BATCH - 1));
-    records.storedFileIdsAmong.mockImplementation(async (among) => [...among]);
+    records.storedObjectIdsAmong.mockImplementation(async (among) => [...among]);
     await activities.StoredFilesSweepActivity();
-    expect(records.storedFileIdsAmong.mock.calls.map(([among]) => among.length)).toEqual([SWEEP_BATCH - 1]);
+    expect(records.storedObjectIdsAmong.mock.calls.map(([among]) => among.length)).toEqual([SWEEP_BATCH - 1]);
   });
 
   it('counts orphans across batches', async () => {
     const { records, activities } = setUp(ids(2 * SWEEP_BATCH + 2));
-    records.storedFileIdsAmong.mockImplementation(async (among) => among.filter((id) => Number(id.slice(1)) % 2 === 0));
+    records.storedObjectIdsAmong.mockImplementation(async (among) => among.filter((id) => Number(id.slice(1)) % 2 === 0));
     expect((await activities.StoredFilesSweepActivity()).orphans).toBe(SWEEP_BATCH + 1);
-    expect(records.storedFileIdsAmong.mock.calls.map(([among]) => among.length)).toEqual([SWEEP_BATCH, SWEEP_BATCH, 2]);
+    expect(records.storedObjectIdsAmong.mock.calls.map(([among]) => among.length)).toEqual([SWEEP_BATCH, SWEEP_BATCH, 2]);
   });
 });

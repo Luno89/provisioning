@@ -4,7 +4,7 @@ import { FILES_TOOLS, LIST_FILES, READ_STORED_FILE, REMOVE_STORED_FILE, STORE_FI
 export const FILES: EngineExtension = {
   id: 'files',
   title: 'Files',
-  describe: 'A project\'s files that are not code, kept on the person\'s own file server (MinIO or Nextcloud): listed, read, stored and removed.',
+  describe: 'A project\'s files that are not code, kept on the instance\'s own MinIO: listed, read, stored and removed.',
   version: '1',
   requires: ['platform'],
   operations: [],

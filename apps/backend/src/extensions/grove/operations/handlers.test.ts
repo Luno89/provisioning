@@ -420,7 +420,7 @@ describe('Check Claims keeping what the browser left', () => {
     const kept: unknown[] = [];
     const withArtifacts: GroveOperationDeps = {
       ...deps(),
-      artifacts: { keep: async (ownerId, runId, files) => { kept.push({ ownerId, runId, files }); return { stored: [{ id: 'a1', name: files[0]!.name }], dropped: [], minioMissing: true }; } },
+      artifacts: { keep: async (ownerId, runId, files) => { kept.push({ ownerId, runId, files }); return { stored: [{ id: 'a1', name: files[0]!.name }], dropped: [] }; } },
     };
 
     const outcome = await createGroveOperations(withArtifacts)['grove.check-claims']!(request({ operation: 'grove.check-claims' }, { tree: TREE, environment: SANDBOX, claimed: [{ id: 'a' }] })) as unknown as { outputs: { settled: { report: string }[] } };
@@ -434,7 +434,7 @@ describe('Check Claims keeping what the browser left', () => {
     tasks = [task('ta', 'a', { status: 'done', checks: { command: 'odoo-e2e koala_probe e2e' } })];
     browserLeft = '4 e2e-results/artifacts/old/test-failed-1.png\n';
     const kept: unknown[] = [];
-    const withArtifacts: GroveOperationDeps = { ...deps(), artifacts: { keep: async (...args) => { kept.push(args); return { stored: [], dropped: [], minioMissing: false }; } } };
+    const withArtifacts: GroveOperationDeps = { ...deps(), artifacts: { keep: async (...args) => { kept.push(args); return { stored: [], dropped: [] }; } } };
 
     await createGroveOperations(withArtifacts)['grove.check-claims']!(request({ operation: 'grove.check-claims' }, { tree: TREE, environment: SANDBOX, claimed: [{ id: 'a' }] }));
     expect(kept).toEqual([]);

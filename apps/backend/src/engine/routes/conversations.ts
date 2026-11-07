@@ -1,4 +1,4 @@
-import { readAttachments } from '../lib/attachments.js';
+import { readAttachments, type AttachableFile } from '../lib/attachments.js';
 import { type Request, Router } from 'express';
 import { asyncRoute, type Database, fieldsOf, trimmedText } from '../../platform/index.js';
 import type { Conversation } from '../lib/conversations.js';
@@ -18,6 +18,7 @@ export interface ConversationsRouterDeps {
   turns?: { settle(conversation: Conversation): Promise<Conversation> } | undefined;
   posted?: ((ownerId: string, conversationId: string) => void) | undefined;
   binding?: ((ownerId: string, conversationId: string) => Promise<Record<string, string> | undefined>) | undefined;
+  attachable?: ((ownerId: string, fileId: string) => Promise<AttachableFile | undefined>) | undefined;
 }
 
 const userOf = (req: Request): { id: string } => (req as unknown as { user: { id: string } }).user;
@@ -91,7 +92,8 @@ export function conversationsRouter(deps: ConversationsRouterDeps): Router {
     if (!found) return res.status(404).json({ error: 'No such conversation' });
     if (found.kind !== 'channel') return res.status(409).json({ error: 'Only a project\'s channel takes messages without a turn; this conversation answers every message' });
     const body = fieldsOf(req.body);
-    const attached = readAttachments(body.attachments, (await db.projects.getProjects()).filter((project: { ownerId?: string }) => project.ownerId === userId));
+    const find = deps.attachable;
+    const attached = await readAttachments(body.attachments, find ? (fileId) => find(userId, fileId) : undefined, (await db.projects.getProjects()).filter((project: { ownerId?: string }) => project.ownerId === userId));
     if (!attached.ok) return res.status(400).json({ error: attached.why });
     const message = personMessage(userId, String(body.content ?? ''), new Date().toISOString(), attached.attachments);
     if ('problem' in message) return res.status(400).json({ error: message.problem });

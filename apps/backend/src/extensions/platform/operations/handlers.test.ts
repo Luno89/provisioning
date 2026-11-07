@@ -56,7 +56,7 @@ function setUp(world: World, driverMissing = false) {
     artifacts: {
       keep: async (ownerId, runId, files) => {
         kept.push({ ownerId, runId, names: files.map((file) => file.name) });
-        return { stored: files.map((file, index) => ({ id: `a${index}`, name: file.name })), dropped: [], minioMissing: true };
+        return { stored: files.map((file, index) => ({ id: `a${index}`, name: file.name })), dropped: [] };
       },
     },
   };

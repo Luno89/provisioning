@@ -2,7 +2,7 @@ import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 import { SEARCH_LIMIT } from './file-places.js';
 import {
-  commitPlan, DEAD_AFTER_MS, expired, folderPlan, FOLDER_TYPE, idOfObjectKey, isUnder, listing, movePlan, nameOf, objectKey, parentOf,
+  commitPlan, committedAs, DEAD_AFTER_MS, expired, folderPlan, FOLDER_TYPE, idOfObjectKey, isUnder, listing, movePlan, nameOf, objectKey, parentOf,
   sameScope, scopeMovePlan, scopeProblem, scopeText, searching, STORED_FILES_BUCKET, STORED_SCOPE_KINDS, TOUCH_EVERY_MS, touchDue,
   uploadIsDead, uploadPlan, type StoredFileRecord, type StoredScope,
 } from './stored-files.js';
@@ -14,7 +14,7 @@ const ms = (iso: string): number => Date.parse(iso);
 const iso = (time: number): string => new Date(time).toISOString();
 
 const file = (id: string, path: string, extra: Partial<StoredFileRecord> = {}): StoredFileRecord => ({
-  id, ownerId: 'u1', scope: { ...PROJECT }, path, kind: 'file', size: 3, contentType: 'text/plain', version: 1,
+  id, objectId: id, ownerId: 'u1', scope: { ...PROJECT }, path, kind: 'file', size: 3, contentType: 'text/plain', version: 1,
   madeAt: AT, changedAt: AT, state: 'stored', touchedAt: AT, ...extra,
 });
 const folder = (id: string, path: string, extra: Partial<StoredFileRecord> = {}): StoredFileRecord => file(id, path, { kind: 'folder', size: 0, contentType: FOLDER_TYPE, ...extra });
@@ -381,7 +381,7 @@ describe('planning a commit', () => {
   it('stores an upload as its first version with its size and the time of the commit, keeping when it was made', () => {
     const record = uploading('u1', 'a.txt', { madeAt: AT });
     expect(commitPlan([record], [{ id: 'u1', size: 42 }], () => [record], { replace: false }, LATER)).toEqual({
-      ok: true, replaced: [],
+      ok: true, replaced: [], absorbed: [],
       stored: [{ ...record, state: 'stored', size: 42, version: 1, madeAt: AT, changedAt: LATER, touchedAt: LATER }],
     });
   });
@@ -395,7 +395,20 @@ describe('planning a commit', () => {
   it('hands back a record already stored as it is, without looking at the place again', () => {
     const record = file('u1', 'a', { version: 4 });
     const plan = commitPlan([record], [{ id: 'u1', size: 99 }], () => { throw new Error('not asked'); }, { replace: false }, LATER);
-    expect(plan).toEqual({ ok: true, stored: [record], replaced: [] });
+    expect(plan).toEqual({ ok: true, stored: [record], replaced: [], absorbed: [] });
+  });
+
+  it('hands back as it is a stored file whose bytes are the upload\'s, so a commit retried after it replaced a file changes nothing', () => {
+    const record = file('f1', 'a', { objectId: 'u1', version: 2 });
+    const plan = commitPlan([record], [{ id: 'u1', size: 99 }], () => { throw new Error('not asked'); }, { replace: true }, LATER);
+    expect(plan).toEqual({ ok: true, stored: [record], replaced: [], absorbed: [] });
+  });
+
+  it('knows a record as the commit\'s by its id or by its bytes, and nothing else', () => {
+    expect(committedAs(file('u1', 'a'), { id: 'u1', size: 1 })).toBe(true);
+    expect(committedAs(file('f1', 'a', { objectId: 'u1' }), { id: 'u1', size: 1 })).toBe(true);
+    expect(committedAs(file('f1', 'a', { objectId: 'o1' }), { id: 'u1', size: 1 })).toBe(false);
+    expect(committedAs(undefined, { id: 'u1', size: 1 })).toBe(false);
   });
 
   it('refuses two uploads to one path in one place at once', () => {
@@ -424,23 +437,58 @@ describe('planning a commit', () => {
       .toEqual({ ok: false, status: 409, why: 'a is already there, and it may not be replaced' });
   });
 
-  it('replaces a stored file as its next version, keeping when the first was made', () => {
-    const record = uploading('u1', 'a', { madeAt: LATER });
-    const old = file('old', 'a', { version: 3, madeAt: '2026-01-01T00:00:00.000Z' });
+  it('gives a stored file the upload\'s bytes as its next version: the file keeps its id and when it was first made, the upload\'s record is absorbed and the old bytes are replaced', () => {
+    const record = uploading('u1', 'a', { madeAt: LATER, contentType: 'text/markdown' });
+    const old = file('old', 'a', { objectId: 'old-bytes', version: 3, madeAt: '2026-01-01T00:00:00.000Z' });
     expect(commitPlan([record], [{ id: 'u1', size: 7 }], () => [record, old], { replace: true }, LATER)).toEqual({
-      ok: true, replaced: ['old'],
-      stored: [{ ...record, state: 'stored', size: 7, version: 4, madeAt: '2026-01-01T00:00:00.000Z', changedAt: LATER, touchedAt: LATER }],
+      ok: true, replaced: ['old-bytes'], absorbed: ['u1'],
+      stored: [{ ...old, objectId: 'u1', size: 7, contentType: 'text/markdown', version: 4, changedAt: LATER, touchedAt: LATER }],
     });
+  });
+
+  it('gives the new version the upload\'s expiry, and none when the upload has none', () => {
+    const old = file('old', 'a', { expiresAt: AT });
+    const later = commitPlan([uploading('u1', 'a', { expiresAt: LATER })], [{ id: 'u1', size: 1 }], () => [old], { replace: true }, LATER);
+    expect(later.ok && later.stored[0]!.expiresAt).toBe(LATER);
+    const never = commitPlan([uploading('u1', 'a')], [{ id: 'u1', size: 1 }], () => [old], { replace: true }, LATER);
+    expect(never.ok && 'expiresAt' in never.stored[0]!).toBe(false);
+  });
+
+  it('keeps every file\'s id through any run of new versions, replacing each version\'s bytes once', () => {
+    holds(fc.property(fc.array(fc.integer({ min: 0, max: 2 }), { minLength: 1, maxLength: 12 }), (choices) => {
+      const paths = ['a', 'b', 'c/d'];
+      let place: StoredFileRecord[] = [];
+      const firstIds = new Map<string, string>();
+      const replaced: string[] = [];
+      for (const [n, choice] of choices.entries()) {
+        const path = paths[choice]!;
+        const upload = uploading(`u${n}`, path);
+        const plan = commitPlan([upload], [{ id: upload.id, size: n }], () => [...place, upload], { replace: true }, LATER);
+        if (!plan.ok) return false;
+        const kept = plan.stored[0]!;
+        if (!firstIds.has(path)) firstIds.set(path, kept.id);
+        if (kept.id !== firstIds.get(path) || kept.objectId !== upload.id || kept.size !== n) return false;
+        replaced.push(...plan.replaced);
+        place = [...place.filter((record) => record.path !== path), kept];
+        const again = commitPlan([kept], [{ id: upload.id, size: n }], () => { throw new Error('not asked'); }, { replace: true }, LATER);
+        if (!again.ok || again.replaced.length > 0 || again.stored[0] !== kept) return false;
+      }
+      const live = new Set(place.map((record) => record.objectId));
+      return new Set(replaced).size === replaced.length
+        && replaced.length === choices.length - place.length
+        && replaced.every((objectId) => !live.has(objectId))
+        && place.every((record) => record.version === choices.filter((choice) => paths[choice] === record.path).length);
+    }));
   });
 
   it('replaces only a stored file at the same path, never an upload in flight there', () => {
     const record = uploading('u1', 'a');
     const plan = commitPlan([record], [{ id: 'u1', size: 1 }], () => [record, uploading('other', 'a', { version: 5 })], { replace: false }, LATER);
-    expect(plan).toEqual({ ok: true, replaced: [], stored: [expect.objectContaining({ id: 'u1', version: 1 })] });
+    expect(plan).toEqual({ ok: true, replaced: [], absorbed: [], stored: [expect.objectContaining({ id: 'u1', version: 1 })] });
   });
 
   it('commits nothing for no commits', () => {
-    expect(commitPlan([], [], none, { replace: false }, LATER)).toEqual({ ok: true, stored: [], replaced: [] });
+    expect(commitPlan([], [], none, { replace: false }, LATER)).toEqual({ ok: true, stored: [], replaced: [], absorbed: [] });
   });
 
   it('never stores a file inside a file committed in the same batch', () => {

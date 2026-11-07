@@ -7,7 +7,7 @@ import { startOnceQuiet } from './engine-host/grove-launcher.js';
 import { SHIPPED_DEPENDENCIES } from './extensions/workspace-dependencies.js';
 import path from 'path';
 import {
-  DEFAULT_TARGET_CLUSTER, koalasClusterFor, GiteaService, projectSecretsFor, ProjectChannelService, ODOO_TREE_TYPE,
+  koalasClusterFor, GiteaService, projectSecretsFor, ProjectChannelService, ODOO_TREE_TYPE,
   treeTypeOfProject, giteaUsernameFor, ProjectRepoService, createSecretVault, treeTypeChoices, treeLanguageFrom,
   treeExtrasFrom, dependencyNamespaceFrom, ownNamespacesFrom, renderStarterFiles, groveAgentOf, resolveTreeType, versionVars,
   TreeHomeService, webhookAddress, type GroveRunLauncher,
@@ -69,7 +69,8 @@ import { buildWebTools } from './engine/wiring/web-tools.js';
 import { createGroveLauncher } from './engine-host/grove-launcher.js';
 import { createRunStarter } from './engine-host/registries/run-starter.js';
 import { conversationBinding } from './engine-host/conversation-binding.js';
-import { createArtifactService, FileServerUnreachableError, FileStores, FileService } from './files/index.js';
+import { storedFilesFor } from './files/wiring/files.js';
+import { bindChatWithItsFiles, minioSettingsFrom } from './files/index.js';
 import { treeOfGroveRun, workflowOfRun } from './engine-host/temporal/contracts.js';
 import { TreeModelsService, treeAgentsFrom } from './models/index.js';
 import { platformGroups } from './extensions/installed.js';
@@ -133,15 +134,14 @@ async function buildActivities() {
     channel: (project) => new ProjectChannelService({
       conversation: (ownerId, id) => db.engine.getConversation(ownerId, id),
       save: (conversation) => db.engine.saveConversation(conversation),
-      bind: (ownerId, conversationId, binding) => db.engine.bindConversation(ownerId, conversationId, binding),
+      bind: bindChatWithItsFiles(db),
       trees: () => db.projects.getTrees(),
       saveProjectInfo: (entry) => db.projects.saveProjectInfo(entry),
     }).ensure(project),
   });
   const kubeInfra = new InfrastructureService();
   const clusterService = new ClusterService(db, kubeInfra, clusterAccessFrom(process.env, { role: roleFromEnv(process.env).role, clusters: db.infrastructure, dataKey: keys.data }));
-  const artifactStore = createArtifactService(db, clusterService);
-  const fileStores = new FileStores(artifactStore.reach);
+  const instanceFiles = storedFilesFor({ db, env: process.env, workflows: async () => (await getTemporalClient()).workflow, engineTaskQueue: process.env.TEMPORAL_ENGINE_TASK_QUEUE || DEFAULT_ENGINE_TASK_QUEUE });
   const vault = createSecretVault({
     backend: infisical,
     minters: { readToken: async (ownerId) => (await projectRepos.mintReadToken(ownerId)).token },
@@ -164,7 +164,7 @@ async function buildActivities() {
   const releaseBrowser = createReleaseBrowserTestActivities({
     cluster: namespacedCluster(kubeInfra, () => gitea.registryLogin()),
     specs: async () => gitea,
-    keep: (ownerId, runId, files) => artifactStore.artifacts.put(ownerId, runId, files),
+    keep: (ownerId, runId, files) => instanceFiles.artifacts.put(ownerId, runId, files),
   });
   const customizations = new CustomizationsService({
     projects: () => db.projects.getProjects(),
@@ -197,7 +197,6 @@ async function buildActivities() {
     apply: async (cluster, manifest) => { await kubeInfra.applyManifest(manifest, await clusterService.getKubeconfigPath(cluster)); },
     helm: async (cluster, args) => String(await kubeInfra.runHelm(args, await clusterService.getKubeconfigPath(cluster))),
   });
-  const engineFiles = new FileService({ store: db, open: (ownerId, place) => fileStores.open(ownerId, place), defaultCluster: DEFAULT_TARGET_CLUSTER });
   const runGrants = new RunGrantService({ store: db.engine });
   const poisoning = new PoisoningWatch({
     store: db.engine,
@@ -214,7 +213,7 @@ async function buildActivities() {
       keepHandover: (ownerId, runId, handover) => runGrants.keepHandover(ownerId, runId, handover),
     },
     files: {
-      files: engineFiles,
+      files: instanceFiles.fileService,
       projects: async (ownerId) => (await db.projects.getProjects()).filter((project) => project.ownerId === ownerId),
       projectOfTree: async (ownerId, treeId) => (await db.projects.getTrees()).find((tree) => tree.id === treeId && tree.ownerId === ownerId)?.projectIds?.[0],
       projectOfConversation: async (ownerId, conversationId) => (await db.engine.getConversation(ownerId, conversationId))?.projectId,
@@ -276,7 +275,7 @@ async function buildActivities() {
     },
     treeLanguage: treeLanguageFrom(db.projects),
     treeExtras: treeExtrasFrom(db.projects, dependencyNamespaceFrom(db.infrastructure), ownNamespacesFrom(db.infrastructure)),
-    artifacts: { keep: (ownerId, runId, files) => artifactStore.artifacts.put(ownerId, runId, files) },
+    artifacts: { keep: (ownerId, runId, files) => instanceFiles.artifacts.put(ownerId, runId, files) },
     checks,
     documents: { push: (request) => projectRepos.pushDocuments(request), pull: (request) => projectRepos.pullDocuments(request), merge: (request) => projectRepos.mergeDocuments(request), pushBranch: (request) => projectRepos.pushBranch(request), pullBranch: (request) => projectRepos.pullBranch(request), deleteBranch: (request) => projectRepos.deleteBranch(request) },
     repoFor: createWorkspaceRepoResolver({ trees: () => db.projects.getTrees(), projects: () => db.projects.getProjects(), accountOf: async (ownerId) => (await db.projects.getGiteaAccount(ownerId))?.username }),
@@ -458,7 +457,7 @@ async function buildActivities() {
         branches: { list: () => db.projects.getBranches(), save: (branch) => db.projects.saveBranch(branch) },
         leaves: { list: () => db.projects.getLeaves(), save: (leaf) => db.projects.saveLeaf(leaf) },
         tasks: { list: (ownerId) => db.projects.getTasks(ownerId), save: (task) => db.projects.saveTask(task) },
-        conversations: { bind: (ownerId, conversationId, binding) => db.engine.bindConversation(ownerId, conversationId, binding) },
+        conversations: { bind: bindChatWithItsFiles(db) },
       },
       treeWorkspaces: host.treeWorkspaces,
       environments: host.environments,
@@ -521,6 +520,7 @@ async function buildActivities() {
       repositories: gitea,
       mesh: removalMeshFor(engineRole, () => new HeadscaleService(keys.data, process.env.HEADSCALE_URL || 'http://localhost:8080', process.env.HEADSCALE_API_KEY)),
       secrets: infisical,
+      files: instanceFiles.storedFiles,
     }),
     ...createProjectRemovalActivities({
       store: db,
@@ -529,19 +529,8 @@ async function buildActivities() {
       kube: createKubeRunner(),
       repositories: gitea,
       secrets: infisical,
-      artifacts: artifactStore.artifacts,
-      files: {
-        personalServer: async (ownerId) => (await db.files.getFileSettings(ownerId))?.deploymentId,
-        removeAll: async (ownerId, place) => {
-          try {
-            await (await fileStores.open(ownerId, place)).removeAll();
-            return 'removed';
-          } catch (err) {
-            if (err instanceof FileServerUnreachableError) return 'unreachable';
-            throw err;
-          }
-        },
-      },
+      artifacts: instanceFiles.artifacts,
+      files: instanceFiles.fileService,
     }),
     ReleaseBrowserTestsActivity: releaseBrowser.ReleaseBrowserTestsActivity,
     ...createCheckRunActivities({
@@ -581,6 +570,7 @@ async function buildActivities() {
 async function main() {
   const plaintext = temporalTlsProblem(process.env);
   if (plaintext) throw new Error(plaintext);
+  minioSettingsFrom(process.env);
   const queue = process.env.TEMPORAL_ENGINE_TASK_QUEUE || DEFAULT_ENGINE_TASK_QUEUE;
   const address = process.env.TEMPORAL_CONNECTION_ADDRESS || 'localhost:7233';
   logger.info(`[EngineWorker] Starting — taskQueue=${queue}, address=${address}`);

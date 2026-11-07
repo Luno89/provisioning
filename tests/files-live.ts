@@ -34,7 +34,6 @@ async function until<T>(what: string, probe: () => Promise<T | undefined>): Prom
 }
 
 interface Project { id: string; name: string; giteaOwner: string; giteaRepo: string }
-interface Server { kind: string; deploymentId: string; name: string }
 
 let api: AxiosInstance | undefined;
 let closeDb: (() => Promise<void>) | undefined;
@@ -44,6 +43,18 @@ const conversations: string[] = [];
 
 const put = (scope: string, path: string, bytes: Buffer, type: string) =>
   api!.put(`/files/${scope}/content`, bytes, { params: { path }, headers: { 'Content-Type': 'application/octet-stream', 'X-File-Type': type }, maxBodyLength: Infinity });
+const stored = async (scope: string, path: string, bytes: Buffer, type: string): Promise<string> => {
+  const answer = await put(scope, path, bytes, type);
+  assert.equal(answer.status, 201, JSON.stringify(answer.data));
+  const body = answer.data as { path: string; id: string };
+  assert.equal(body.path, path);
+  assert.equal(typeof body.id, 'string', `the upload named no stored file: ${JSON.stringify(body)}`);
+  return body.id;
+};
+const opens = async (link: string) => {
+  const answer = await axios.get(link, { proxy: false, responseType: 'arraybuffer', validateStatus: () => true });
+  return { status: answer.status, bytes: Buffer.from(answer.data as ArrayBuffer), headers: answer.headers };
+};
 const read = async (scope: string, path: string) => {
   const answer = await api!.get(`/files/${scope}/content`, { params: { path }, responseType: 'arraybuffer' });
   return { status: answer.status, bytes: Buffer.from(answer.data as ArrayBuffer), type: String(answer.headers['content-type']) };
@@ -78,8 +89,8 @@ async function deleteProject(project: Project): Promise<void> {
 async function exercise(scope: string, label: string): Promise<void> {
   const pdf = Buffer.concat([Buffer.from('%PDF-1.4\n'), Buffer.from([0, 1, 2, 250, 251, 252, 253, 254, 255])]);
   const json = Buffer.from('{ "kept" : "exactly as sent" }\n');
-  assert.equal((await put(scope, 'docs/brief.pdf', pdf, 'application/pdf')).status, 201);
-  assert.equal((await put(scope, 'data.json', json, 'application/json')).status, 201);
+  const pdfId = await stored(scope, 'docs/brief.pdf', pdf, 'application/pdf');
+  await stored(scope, 'data.json', json, 'application/json');
   const back = await read(scope, 'docs/brief.pdf');
   assert.equal(back.status, 200);
   assert.equal(sha(back.bytes), sha(pdf), `${label} gave back different bytes`);
@@ -91,6 +102,7 @@ async function exercise(scope: string, label: string): Promise<void> {
   assert.deepEqual((await list(scope, 'archive/docs')).map((entry) => `${entry.path} ${entry.size}`), [`archive/docs/brief.pdf ${pdf.length}`]);
   assert.equal((await api!.delete(`/files/${scope}/content`, { params: { path: 'data.json' } })).status, 200);
   assert.deepEqual((await list(scope)).map((entry) => entry.path), ['archive']);
+  assert.equal((await read(scope, 'data.json')).status, 404, 'a removed file still opens');
   console.log(`  ${label}: a PDF's bytes and a JSON file came back exactly, a folder moved, a file was removed`);
 
   assert.equal((await api!.post(`/files/${scope}/folder`, { path: 'invoices' })).status, 201);
@@ -103,45 +115,53 @@ async function exercise(scope: string, label: string): Promise<void> {
   const share = await api!.post(`/files/${scope}/shares`, { path: 'archive/docs/brief.pdf', days: 1 });
   assert.equal(share.status, 201, JSON.stringify(share.data));
   const link = `${BASE}/share/${(share.data as { token: string }).token}`;
-  const stranger = await axios.get(link, { proxy: false, responseType: 'arraybuffer', validateStatus: () => true });
+  const stranger = await opens(link);
   assert.equal(stranger.status, 200, 'the link did not open signed out');
-  assert.equal(sha(Buffer.from(stranger.data as ArrayBuffer)), sha(pdf));
-  assert.equal((await api!.delete(`/files/shares/${(share.data as { id: string }).id}`)).status, 200);
-  assert.equal((await axios.get(link, { proxy: false, validateStatus: () => true })).status, 404);
-  console.log('  a link to the PDF opened with no session at all, gave its bytes, and stopped working once revoked');
+  assert.equal(sha(stranger.bytes), sha(pdf));
+  const newer = Buffer.concat([pdf, Buffer.from('\n% a second version\n')]);
+  assert.equal(await stored(scope, 'archive/docs/brief.pdf', newer, 'application/pdf'), pdfId, 'a new version at the same path became another file');
+  const followed = await opens(link);
+  assert.equal(followed.status, 200, 'the link stopped when its file got a new version');
+  assert.equal(sha(followed.bytes), sha(newer), 'the link gave the old version');
+  assert.equal((await api!.post(`/files/${scope}/move`, { from: 'archive/docs/brief.pdf', to: 'archive/brief.pdf' })).status, 200);
+  assert.equal((await opens(link)).status, 404, 'the link still opened once its file was moved');
+  assert.equal((await api!.post(`/files/${scope}/move`, { from: 'archive/brief.pdf', to: 'archive/docs/brief.pdf' })).status, 200);
+  assert.equal((await opens(link)).status, 404, 'moving the file back brought its link back');
+  console.log('  a link to the PDF opened with no session at all, gave its bytes, followed it to a new version, and stopped once the file moved');
+
+  const revoked = await api!.post(`/files/${scope}/shares`, { path: 'archive/docs/brief.pdf', days: 1 });
+  const revokedLink = `${BASE}/share/${(revoked.data as { token: string }).token}`;
+  assert.equal((await opens(revokedLink)).status, 200, 'a fresh link did not open');
+  assert.equal((await api!.delete(`/files/shares/${(revoked.data as { id: string }).id}`)).status, 200);
+  assert.equal((await opens(revokedLink)).status, 404, 'a revoked link still opened');
+  console.log('  a link stopped working once revoked');
 
   const shown = await api!.get(`/files/${scope}/content`, { params: { path: 'archive/docs/brief.pdf', inline: '1' } });
   assert.match(String(shown.headers['content-disposition']), /^inline;/, 'the PDF was not shown in the page');
   assert.equal(shown.headers['content-security-policy'], "frame-ancestors 'self'", `the PDF's policy would stop the page showing it, or sandbox it, which its viewer refuses: ${String(shown.headers['content-security-policy'])}`);
   const svg = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"><script>parent.alert(document.cookie)</script></svg>');
   for (const [path, type] of [['drawn.svg', 'image/svg+xml'], ['feed.rss', 'application/rss+xml'], ['page.txt', 'text/html']] as const) {
-    assert.equal((await put(scope, path, svg, type)).status, 201);
+    await stored(scope, path, svg, type);
     const opened = await api!.get(`/files/${scope}/content`, { params: { path, inline: '1' } });
     assert.match(String(opened.headers['content-disposition']), /^attachment;/, `${path} as ${type} was shown in the page`);
     assert.match(String(opened.headers['content-security-policy']), /sandbox$/, `${path} as ${type} may run script`);
     assert.equal(opened.headers['x-content-type-options'], 'nosniff');
   }
   const svgShare = await api!.post(`/files/${scope}/shares`, { path: 'drawn.svg', days: 1 });
-  const svgLink = await axios.get(`${BASE}/share/${(svgShare.data as { token: string }).token}`, { proxy: false, validateStatus: () => true });
+  const svgLink = await opens(`${BASE}/share/${(svgShare.data as { token: string }).token}`);
   assert.match(String(svgLink.headers['content-disposition']), /^attachment;/, 'a shared SVG opened in the page');
   assert.match(String(svgLink.headers['content-security-policy']), /sandbox$/, 'a shared SVG may run script');
   assert.equal((await api!.delete(`/files/shares/${(svgShare.data as { id: string }).id}`)).status, 200);
-  const tied = await api!.post(`/files/${scope}/shares`, { path: 'page.txt', days: 1 });
-  const tiedLink = `${BASE}/share/${(tied.data as { token: string }).token}`;
-  assert.equal((await axios.get(tiedLink, { proxy: false, validateStatus: () => true })).status, 200, 'a fresh link did not open');
-  assert.equal((await put(scope, 'page.txt', Buffer.from('another file, put at the same name later'), 'text/plain')).status, 201);
-  assert.equal((await axios.get(tiedLink, { proxy: false, validateStatus: () => true })).status, 404, 'a link served a file put at its path after it was made');
-  assert.equal((await api!.delete(`/files/shares/${(tied.data as { id: string }).id}`)).status, 200);
   for (const path of ['drawn.svg', 'feed.rss', 'page.txt']) assert.equal((await api!.delete(`/files/${scope}/content`, { params: { path } })).status, 200);
-  console.log('  the PDF shows in the page, its policy framed only by Koala itself; an SVG, an RSS feed and a file calling itself HTML only download, sandboxed, a share link of one too; a link opens nothing once its file is replaced');
+  console.log('  the PDF shows in the page, its policy framed only by Koala itself; an SVG, an RSS feed and a file calling itself HTML only download, sandboxed, a share link of one too');
 }
 
 async function main(): Promise<void> {
   const db = createDatabase();
   await db.init();
   closeDb = async () => { await db.close?.(); };
-  const owner = process.env.FILES_LIVE_OWNER ?? (await db.infrastructure.getDeployments()).find((entry) => entry.appType === 'minio' && entry.status === 'running' && entry.minioRootPassword)?.ownerId;
-  assert.ok(owner, 'set FILES_LIVE_OWNER, or run MinIO for someone first');
+  const owner = process.env.FILES_LIVE_OWNER ?? process.env.MECHANICS_ADMIN;
+  assert.ok(owner, 'set FILES_LIVE_OWNER (or MECHANICS_ADMIN) to the person whose model reads the attachment');
   const user = await db.accounts.getUserById(owner);
   assert.ok(user, 'no such user');
   api = axios.create({ baseURL: BASE, proxy: false, validateStatus: () => true, headers: { Cookie: `session=${sessionToken(user, loadKeys(process.env).session, { seconds: 4 * 3600 })}` } });
@@ -153,12 +173,6 @@ async function main(): Promise<void> {
     await forgetWhatRunsLeft(db, owner, new Set([...runIds, ...[...runIds].map((id) => `memory-run-${id}`)]));
   };
 
-  step('the person\'s MinIO is one of their file servers');
-  const servers = (await api.get('/files/servers')).data as { servers: Server[] };
-  const minio = servers.servers.find((server) => server.kind === 'minio');
-  assert.ok(minio, `no MinIO among ${JSON.stringify(servers)}`);
-  console.log(`  ${minio.name} (${minio.deploymentId})`);
-
   step('code dropped on a project\'s repository is committed in one commit, its bytes whole');
   const shop = await newProject(`files-live-${STAMP}`);
   const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0xff, 0xfe]);
@@ -169,43 +183,46 @@ async function main(): Promise<void> {
   assert.deepEqual(tree.map((entry) => `${entry.name} ${entry.size}`).sort(), [`logo.png ${png.length}`, 'notes.md 8']);
   console.log(`  committed ${(dropped.data as { commit: string }).commit.slice(0, 8)} with logo.png (${png.length} bytes) and notes.md`);
 
-  step('the project keeps its other files on that MinIO');
-  assert.deepEqual((await api.get(`/files/projects/${shop.id}/place`)).data, { state: 'none' });
-  const chosen = await api.put(`/files/projects/${shop.id}/place`, { deploymentId: minio.deploymentId });
-  assert.equal(chosen.status, 200, JSON.stringify(chosen.data));
-  await exercise(`projects/${shop.id}`, 'MinIO');
+  step('the project keeps its other files on the instance\'s own store, with nothing to choose or start first');
+  await exercise(`projects/${shop.id}`, 'the project\'s files');
 
-  step('a file attached in the project\'s chat is stored there, and Koala, on the person\'s model, reads it with the files tool');
-  const attachment = `attachments/${new Date().toISOString().slice(0, 10)}/live-brief.md`;
-  assert.equal((await put(`projects/${shop.id}`, attachment, Buffer.from(`The code word is ${TOKEN}.\n`), 'text/markdown')).status, 201);
-  const conversationId = ((await api.post('/conversations', { title: `Files live ${STAMP}`, projectId: shop.id })).data as { id: string }).id;
+  step('a file attached in a chat with no project is kept in the chat\'s own files, and Koala reads it with the files tool');
+  const conversationId = ((await api.post('/conversations', { title: `Files live ${STAMP}` })).data as { id: string }).id;
   conversations.push(conversationId);
+  const chatScope = `conversations/${conversationId}`;
+  const fileId = await stored(chatScope, 'live-brief.md', Buffer.from(`The code word is ${TOKEN}.\n`), 'text/markdown');
+  assert.deepEqual((await list(chatScope)).map((entry) => entry.path), ['live-brief.md']);
   const chat = await api.post('/engine/runs', {
     agent: 'koala',
     conversationId,
     ...(process.env.FILES_LIVE_MODEL ? { modelId: process.env.FILES_LIVE_MODEL } : {}),
     message: 'Read the file I attached and tell me the code word in it, exactly as written.',
-    attachments: [{ name: 'live-brief.md', path: attachment, type: 'text/markdown', projectId: shop.id }],
+    attachments: [{ fileId, name: 'live-brief.md', type: 'text/markdown' }],
   });
   assert.equal(chat.status, 201, JSON.stringify(chat.data));
   const runId = (chat.data as { runId: string }).runId;
   runIds.add(runId);
   await temporal.workflow.getHandle(workflowOfRun(runId)).result().catch(() => undefined);
-  const saved = (await api.get(`/conversations/${conversationId}`)).data as { messages: { role: string; content: string; attachments?: { path: string }[]; toolCalls?: { name: string }[] }[] };
+  const saved = (await api.get(`/conversations/${conversationId}`)).data as { messages: { role: string; content: string; attachments?: { fileId?: string; name: string }[]; toolCalls?: { name: string }[] }[] };
   const asked = saved.messages.find((message) => message.role === 'user');
-  assert.deepEqual(asked?.attachments?.map((entry) => entry.path), [attachment], 'the person\'s message keeps what was attached');
+  assert.deepEqual(asked?.attachments?.map((entry) => `${entry.fileId} ${entry.name}`), [`${fileId} live-brief.md`], 'the person\'s message keeps what was attached, by its file');
   const reply = saved.messages.filter((message) => message.role === 'assistant').at(-1);
   assert.ok(reply?.toolCalls?.some((call) => call.name === 'read_stored_file'), `Koala did not read the file: ${JSON.stringify(reply?.toolCalls?.map((call) => call.name))}`);
   assert.ok(reply?.content.includes(TOKEN), `the reply was ${JSON.stringify(reply?.content)}`);
   console.log(`  Koala called read_stored_file and answered with ${TOKEN}`);
 
-  step('deleting the project deletes its files: a new project of the same name finds its folder empty');
+  step('deleting the project deletes its files');
+  const kept = await stored(`projects/${shop.id}`, 'kept/last.txt', Buffer.from('the last file\n'), 'text/plain');
+  const lastShare = await api.post(`/files/projects/${shop.id}/shares`, { path: 'kept/last.txt', days: 1 });
+  assert.equal(lastShare.status, 201, JSON.stringify(lastShare.data));
+  const lastLink = `${BASE}/share/${(lastShare.data as { token: string }).token}`;
+  assert.equal((await opens(lastLink)).status, 200);
+  assert.ok((await db.files.storedFilesIn(owner, { kind: 'project', id: shop.id })).some((record) => record.id === kept));
   await deleteProject(shop);
-  const again = await newProject(shop.name);
-  await api.put(`/files/projects/${again.id}/place`, { deploymentId: minio.deploymentId });
-  assert.deepEqual(await list(`projects/${again.id}`), []);
-  await deleteProject(again);
-  console.log('  nothing of it was left in MinIO');
+  assert.deepEqual(await db.files.storedFilesIn(owner, { kind: 'project', id: shop.id }), [], 'the deleted project\'s files are still recorded');
+  assert.equal(await db.files.storedFileById(kept), undefined, 'a file of the deleted project is still recorded');
+  assert.equal((await opens(lastLink)).status, 404, 'a link to a file of the deleted project still opens');
+  console.log('  nothing of it is left: no record, and its link opens nothing');
 
   console.log('\nfiles live — PASS');
 }

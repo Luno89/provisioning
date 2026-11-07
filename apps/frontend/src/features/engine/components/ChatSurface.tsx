@@ -283,6 +283,7 @@ export default function ChatSurface({
                         : (
                           <ChatMessageRow
                             message={msg}
+                            conversationId={conv.selectedConvId ?? undefined}
                             packLabel={activePack?.label ?? ''}
                             onOpenDocument={showDocument}
                             {...(channel ? {

@@ -27,7 +27,7 @@ export interface InstanceFiles {
   list(ownerId: string, scope: FileScope, dir: string): Promise<FilesOutcome<FileEntry[]>>;
   search(ownerId: string, scope: FileScope, query: string): Promise<FilesOutcome<FileEntry[]>>;
   download(ownerId: string, scope: FileScope, path: string): Promise<FilesOutcome<{ stream: Readable; contentType: string; size?: number | undefined }>>;
-  upload(ownerId: string, scope: FileScope, path: string, body: Readable, size: number | undefined, contentType: string): Promise<FilesOutcome<{ path: string }>>;
+  upload(ownerId: string, scope: FileScope, path: string, body: Readable, size: number | undefined, contentType: string, options: { replace: boolean }): Promise<FilesOutcome<{ path: string }>>;
   makeFolder(ownerId: string, scope: FileScope, path: string): Promise<FilesOutcome<{ path: string }>>;
   move(ownerId: string, scope: FileScope, from: string, to: string): Promise<FilesOutcome<{ path: string }>>;
   remove(ownerId: string, scope: FileScope, path: string): Promise<FilesOutcome<{ path: string }>>;
@@ -182,12 +182,6 @@ export class HubInstanceWork {
     }
   }
 
-  private async exists(ownerId: string, scope: FileScope, path: string): Promise<boolean> {
-    const parent = path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '';
-    const listed = await this.deps.files.list(ownerId, scope, parent);
-    return listed.ok && listed.value.some((entry) => entry.path === path);
-  }
-
   private async file(link: HubLink, project: ProjectMetadata, call: InstanceCall): Promise<InstanceAnswer> {
     const owner = link.ownerId;
     const scope: FileScope = { kind: 'project', project };
@@ -213,9 +207,11 @@ export class HubInstanceWork {
       case 'files.upload': {
         const at = path('path');
         if (at === undefined || !call.upload) return refused(400, 'say where the file goes, and send it');
-        if (!allowed(withSharedRole(asPerson(call.as.personId), link.hubProjectId, call.as.role), 'change-files', { kind: 'shared-project', id: link.hubProjectId }) && await this.exists(owner, scope, at)) return refused(409, 'A file already has that name, and only an owner or a collaborator can replace it; choose another name.');
+        const replace = allowed(withSharedRole(asPerson(call.as.personId), link.hubProjectId, call.as.role), 'change-files', { kind: 'shared-project', id: link.hubProjectId });
         const body = await call.upload.open();
-        return fromFiles(await this.deps.files.upload(owner, scope, at, body, call.upload.size, call.upload.type));
+        const kept = await this.deps.files.upload(owner, scope, at, body, call.upload.size, call.upload.type, { replace });
+        if (!kept.ok && kept.status === 409 && !replace) return refused(409, 'A file already has that name, and only an owner or a collaborator can replace it; choose another name.');
+        return fromFiles(kept);
       }
       case 'files.folder': {
         const at = path('path');

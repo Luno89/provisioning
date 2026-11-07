@@ -124,7 +124,7 @@ npm run test:machine-story-live    # against the running dev stack and this comp
 npm run test:machine-odoo-live     # against the running dev stack and this computer's machine agent: a scripted ACP agent is added to your machine and every agent of an Odoo 20 tree is put on it → the module is written without its test, odoo-check runs as the task check, the judge on the machine says not met, the story fails and the planner, in its checkout on the machine, reads leaves/<story>.failed.md and proposes a replan → approved, the test is met and the browser task's judge ends without a verdict, so that task fails and is never taken as met → replanned again, the browser task is met, the leaf judge verifies, it lands on main with no machine branch left, the starter is live in slot a and the landed build previews in slot b with the module installed; removes the project, the conversation and the agent, ~30 min
 npm run test:machine-chat-live     # against the running dev stack and this computer's machine agent: a scripted ACP agent is added to your machine → a chat in auto mode on it hands work to research, which works a checkout of the chat's documents on the machine, runs run_in_workspace, writes label.md and outlives the cut-off where a served call becomes a job the agent follows with wait_for; nothing asks, label.md is in the chat's workspace, the saved reply keeps research's steps and no machine branch is left → a chat not in auto mode asks before research runs something, naming the machine, and the test declines it → research with no conversation works in its own folder, search_web running for it, no run_in_workspace → two research hand-offs at once write the same file, and the one whose work comes back second is told the conflict in its session and keeps both; removes the chats and the agent, ~6 min
 npm run test:machine-default-live  # against the running dev stack and this computer's machine agent: a scripted ACP agent is added to your machine and made your account default (another machine is refused) → a chat turn with no model picked runs on it and answers from it → a run that cannot be handed to a machine fails saying to add a model; your previous default, the agent and the chat are put back or removed however it ends, ~1 min
-npm run test:files-live            # code dropped on a throwaway project's repository is committed whole (binary bytes included) → the project keeps its other files on your MinIO: a PDF and a JSON file come back byte for byte, a folder moves, a file goes, an empty folder is made, a search finds a file two folders down → a share link opens with no session and stops once revoked → a file attached in the project's chat is stored there and Koala, on FILES_LIVE_MODEL (else your default), reads it with read_stored_file → deleting the project empties its folder, ~5 min
+npm run test:files-live            # code dropped on a throwaway project's repository is committed whole (binary bytes included) → the project's other files are kept on the instance's own MinIO: a PDF and a JSON file come back byte for byte, a folder moves, a file goes, an empty folder is made, a search finds a file two folders down → a share link opens with no session, still opens after a new version of the file, and stops once the file is moved or the link revoked → a file attached in a chat with no project is kept in the chat's own files and Koala, on FILES_LIVE_MODEL (else your default), reads it with read_stored_file → deleting the project leaves none of its files, ~5 min
 npm run test:pool-live            # a VM becomes a pool node through scripts/root-node/pool-node.sh (k3s, the mesh as tag:pool, gVisor) → root and its host worker as containers offer a trial → the person starts one: a vcluster under gVisor, its ports on the node, Koala installed in it → every pod on gVisor, a pod without it refused, no node port → <name>.koala.localhost through root's Caddy over the mesh, sign-in lands there, a sandboxed run inside it, ~40 min, cleans up
 npm run test:root-smoke -- <root domain> <people domain> [--ssh-public]  # read-only, against a live root from outside: certificate, sign-in page and its headers, identity keys, metrics guarded, Headscale, the people wildcard's 404, mail records, the PTR naming `mail.<domain>`, the blocklists (through your resolver), only 80/443 (and 22 if public) answering among the common ports and every NodePort (30000–32767), on IPv6 too when `app.` has an AAAA
 npm run test:release-live         # the release rehearsal (gate G4 of plans/release-pipeline.md): the image is built at the previous tag and at the candidate → root on a disposable VM, bootstrapped by the real bootstrap.sh in lab mode (ROOT_TLS=internal) and moved onto the previous tag by update.sh → an instance on a second VM on the lab network installs from it through install.sh, with an account, a project with a repository, an app at <app>-<name>.<domain> through root's Caddy and a sandboxed run → update.sh refuses with its exact words while a workflow runs on root's Temporal, then updates root to the candidate, which its registry then holds → the instance upgrades itself through its real check-in (root hears installing → ready), and sign-in through root, the handoff, the app's address, the repository, a sandboxed run and the check-in still work → with both on the candidate, a release that does not exist fails on the instance, which rolls itself back, tells root and stays at its addresses with sign-in working → update.sh <previous> rolls root back and helm rollback the instance, everything working again; ~1 h, cleans up
@@ -2324,7 +2324,7 @@ dependency mocked, again in the integration tier with the real ones, and its flo
 - **Worker restarts on failure**: a failed test restarts the Playwright worker process, which reloads the spec file and generates a *new* random `CLUSTER_NAME` (e.g. `e2e-fleet-XXX`) — but already-passed tests aren't rerun. A cascade of timeouts after one failure almost always means the *first* failure is the real bug; look there, not at the timeouts.
 - **Stale k3d containers**: leftover containers from a previous run (e.g. `k3d-isolated-fleet-XXX-server-0`) can make `k3d cluster create/delete` fail. `npm run clean-dev` removes leftover k3d containers/volumes.
 
-## Files: code in git, everything else on the person's MinIO
+## Files: code in git, everything else on the instance's MinIO
 
 Plan: `~/.claude/plans/file-uploads.md`. **Where you drop decides.** A project's Files page shows two roots:
 - **Repository**: code dropped there, or on a folder in it, is committed in one commit as the person (`POST /api/projects/:id/files/drop`,
@@ -2335,25 +2335,42 @@ Plan: `~/.claude/plans/file-uploads.md`. **Where you drop decides.** A project's
   (a shallow fetch of the branch, the files hashed in from disk, one commit pushed; a file onto a folder, or a race, is refused).
   There is no size limit. A project whose files live on the person's machine gets them written there byte for
   byte from that folder, one file at a time (`sandbox:writeFile` with `encoding: 'base64'`, a whole file per message).
-- **Files**: everything else, on the person's own **MinIO** (owner, 2026-10-21: MinIO only; Nextcloud stays a deployable app,
-  not a file server). `FileService`, `FileStores`, `files/lib/file-places.ts`, `/api/files/...`: the project's MinIO and its folder
-  (`files` on the project, a folder named once from the project and kept), else the person's default (Settings → Files,
-  `fileSettings`), else none. Files live in the bucket `koala-files` under the folder; an empty folder is a `.keep` the listing
-  hides. Uploads and downloads stream (`X-File-Type` carries the type; the body is always octet-stream so nothing parses it); no
-  size limit and no quota on a person's own machine, where the disk is theirs (owner, 2026-10-28). On Koala's servers (the pool)
-  a MinIO keeps 10 GB, the volume it is given there whatever was asked (`POOL_MINIO_STORAGE`, `infrastructure/lib/app-storage.ts`,
-  in both the stored spec's and the construct's deploy); a volume is never shrunk, so one made before keeps its size. With no server, a drop waits on the page and Files offers **Start MinIO for this project** (one click, on the
-  project's cluster, `koala-files[-n]`); it goes through once the server runs.
+- **Files**: everything else Koala keeps for a person is a **stored file** on the instance's own MinIO (owner: records in Mongo, code
+  and what agents write while working in Gitea, every other file in MinIO). There is no choice of server, no default server and no
+  Mongo fallback: the instance chart runs MinIO beside Mongo on the one data volume, its keys made once and kept, answering only the
+  instance's own pods, and gives every instance process `MINIO_ENDPOINT`, `MINIO_BUCKET`, `MINIO_ROOT_USER` and `MINIO_ROOT_PASSWORD`.
+  They are required: a backend serving tenants and the engine worker stop at start naming what is missing (`minioSettingsFrom` in
+  `files/lib/minio-settings.ts`); root and the hub serve and read no files. One construction builds it all, `storedFilesFor` in
+  `files/wiring/files.ts`, used by the backend and the engine worker alike: the object store (`minioObjectStore`), `StoredFiles`, the
+  activities, `FileService` and `ArtifactService`.
+  - **Bytes and records.** A file's bytes sit flat in the bucket under its id (`files/<id>`); its owner, scope, path, size, type,
+    version and state are a record in Mongo's `storedFiles` (`files/store.ts`). A scope (`files/lib/stored-files.ts`) is a
+    `project`, a `person` (their own files), a `conversation` with no project, or a `run` (its artifacts). A chat bound to a project
+    (its channel, a story's or feature's chat, one bound by plan adoption) keeps its files in that project under `chats/<chat id>/`
+    (`storedPlaceOf` in `files/lib/file-places.ts`); stories keep theirs under `stories/<story>/`. An empty folder is a folder record.
+  - **Keeping a file is a Temporal workflow.** An upload streams to a new id while its record says `uploading` (touched as bytes
+    arrive), then `StoredFilesWorkflow` (on the engine queue, its activities on the backend's stream worker,
+    `temporalStoredFileCommits`) checks the bytes are there whole and commits in one Mongo transaction: an upload onto a file's
+    path is that file's next version, the old bytes removed after. A move, and a whole scope's move, is one transaction. Removing
+    goes through the same workflow, records then bytes. `StoredFilesSweepWorkflow` (`stored-files-sweep`, started once by the
+    backend where tenants are served, `keepStoredFilesSwept`) runs daily: uploads nobody finished, expired run files and bytes no
+    record names go.
+  - **`FileService`** (`files/services/FileService.ts`) keeps authorization, paths and share links and calls `StoredFiles.at(owner,
+    scope)` for everything else. `/api/files/<scope>/<id>/list|search|folder|shares|content|move` with scopes `mine`,
+    `projects/:id` (the owner's) and `conversations/:id` (the owner's chat, its project's files under its folder when it has
+    one); an upload (`PUT …/content?path=`, the type in `X-File-Type`, the body octet-stream so nothing parses it) answers
+    `{ path, id }`, and `GET /api/files/stored/:fileId` serves a file of the person's by its id. No size limit and no quota.
 - **Koala's own file browser** (`features/files/components/StoredFiles.tsx`, rules in `files/lib/file-browser.ts`): upload, new folder, search by
   name across the project (`/search`), sort by name, size or date, select several to move or remove, drag a file or the selection
   onto a folder, rename, and open a file to preview it (images, PDF, video, audio, text; `StoredFilePreview`, in the Files page's
-  right pane, a dialog elsewhere). A person's own files (chat attachments outside projects) and their links are under Settings → Files.
-- **Share links**: a file shared for a day, a week or a month (`fileShares`, `files/lib/file-shares.ts`) is served by Koala at
-  `/api/share/<token>` with no session, and only the file it was made for (its MinIO ETag, kept as `etag` on the share; a file put
-  at that path later is never served by it, and a link from before is tied to the file it opens first; the token is stored only as
-its SHA-256, `tokenHash`, by which a link is found, and sealed with `DATA_KEY` so Settings can show it again, the share's id being its
-own, and the startup migration `share-tokens-sealed` moved the links stored under their token) (`/share/` in the guard's public prefixes), streamed from MinIO, so MinIO is never exposed.
-  Revoked from Settings → Files; expired ones are removed when opened; a project's go with it. Every person's file and every artifact is served
+  right pane, a dialog elsewhere).
+- **Share links follow the file**: a file shared for a day, a week or a month (`fileShares`, `files/lib/file-shares.ts`) is served by
+  Koala at `/api/share/<token>` with no session, by the file's id (`fileId` on the share): a new version of the file moves the link
+  to it in the same transaction (`nextVersions`), and moving, renaming or removing the file drops the link in the transaction that
+  does it; a link from before files were kept by id opens nothing. The token is stored only as its SHA-256, `tokenHash`, by which a
+  link is found, and sealed with `DATA_KEY` so Settings can show it again, the share's id being its own (the startup migration
+  `share-tokens-sealed` moved the links stored under their token) (`/share/` in the guard's public prefixes), streamed from MinIO,
+  so MinIO is never exposed. Revoked from Settings; expired ones are removed when opened. Every person's file and every artifact is served
   with `nosniff` and a sandboxing CSP, and shown in the page only when it is an image (never SVG), video, audio, plain text, CSV,
   Markdown, JSON or a PDF (which alone goes without the sandbox, which its viewer refuses, its policy only `frame-ancestors 'self'`, so the page's own policy never stops Koala's preview framing it); anything else downloads, whatever type
   its uploader gave it, and the type sent is the one Koala judged, never the uploader's string (`servedType` in `files/lib/file-serving.ts`).
@@ -2362,15 +2379,24 @@ own, and the startup migration `share-tokens-sealed` moved the links stored unde
   exists (`applyDrop`, `git merge --autostash`, so the worker's uncommitted changes stay), otherwise brought into the tree's
   repository (`keepBranch`) or left in Gitea for the next workspace start, and merged when the checkout is made
   (`mergeDrops` in Prepare Worktrees). A conflict changes nothing and names the files. **Files for this story** go under
-  `stories/<story>/` on the project's MinIO. `mechanics-story-drop` proves both code paths on a script.
-- **Chat attachments** (paperclip, drop or paste in any composer) are uploaded first, to the chat's project
-  (`attachments/<day>/<time>-<name>`) or the person's own files (`chats/<day>/...`), then sent with the message
-  (`attachments` on the person's message, `engine/lib/attachments.ts`); the model is told where each is and how to read it, in that turn
-  and every later one (`heardAs`). A channel post can be only attachments.
-- **Agents' tools** (extension `files`): `list_files`, `read_stored_file` (text whole up to 100,000 characters, a binary file
-  described), `store_file`, `remove_stored_file` (both destructive, so they ask), on the project named or the run's or chat's
-  own, else the person's files. Koala holds all four; the executor and research the first three.
-- Deleting a project deletes its files (`RemoveProjectFilesActivity`, behind the `project-files` patch; listed in the popup).
+  `stories/<story>/` in the project's files. `mechanics-story-drop` proves both code paths on a script.
+- **Chat attachments** (paperclip, drop or paste in any composer) are uploaded first, into the chat's files
+  (`/api/files/conversations/<id>/content`), then sent with the message by id (`attachments: [{ fileId }]`); the backend reads each
+  from what the person keeps (`readAttachments` in `engine/lib/attachments.ts`, through `FileService.attachable`) and keeps its
+  `fileId`, name, size, type and project on the message. The model is told each file's id and to read it with `read_stored_file`
+  (`fileId`), in that turn and every later one (`heardAs`). An attachment from before, with a path and no id, is told as no longer
+  kept. A channel post can be only attachments.
+- **A run's artifacts** (`ArtifactService`, what a browser test or a failed task left) are stored files of the run's scope, kept 14
+  days (`expiresAt`, removed by the sweep) within the run's 50 MB; `/api/artifacts/runs/:runId` lists them and
+  `/api/artifacts/:id` (a stored file's id) serves one. A check space's run files are handed to the person with its runs
+  (`reownRunFiles`).
+- **Agents' tools** (extension `files`): `list_files`, `read_stored_file` (by path, or by `fileId` within the scope the call is in;
+  text whole up to 100,000 characters, a binary file described), `store_file`, `remove_stored_file` (both destructive, so they
+  ask), on the project named or the run's or chat's own project, else a chat's own files, else the person's. Koala holds all four;
+  the executor and research the first three.
+- Deleting a project deletes its files, its chats' included (`RemoveProjectFilesActivity` → `FileService.removeProjectFiles`, behind
+  the `project-files` patch), and removing an account removes every file it keeps, in every scope (`StoredFiles.removeOwned` in
+  `RemoveAccountRecordsActivity`).
 
 ## Data
 

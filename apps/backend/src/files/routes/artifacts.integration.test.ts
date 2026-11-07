@@ -3,6 +3,7 @@ import axios from 'axios';
 import { mountRouter, TEST_USER, type Harness } from '../../platform/routes/test-harness.js';
 import { artifactsRouter } from './artifacts.js';
 import { ArtifactService } from '../services/ArtifactService.js';
+import { storedFilesOn } from '../testing/stored-files-twin.js';
 import type { StoredArtifact } from '../lib/artifacts.js';
 
 const get = (url: string) => axios.get(url, { validateStatus: () => true, responseType: 'arraybuffer' });
@@ -10,20 +11,22 @@ const get = (url: string) => axios.get(url, { validateStatus: () => true, respon
 describe('/api/artifacts', () => {
   let harness: Harness;
   let stored: StoredArtifact[];
+  let theirs: StoredArtifact;
   const named = (name: string) => stored.find((artifact) => artifact.name.endsWith(name))!;
 
   beforeEach(async () => {
     harness = await mountRouter({
       prefix: '/api/artifacts',
       router: async (db) => {
-        const artifacts = new ArtifactService({ records: db.files, minioFor: async () => undefined });
+        const artifacts = new ArtifactService({ files: storedFilesOn(db.files).files });
         stored = (await artifacts.put(TEST_USER.id, 'run-1', [
           { name: 'signs-in/test-failed-1.png', bytes: Buffer.from('png-bytes') },
           { name: 'signs-in/trace.zip', bytes: Buffer.from('zip') },
           { name: 'signs-in/drawn.svg', bytes: Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>') },
         ])).stored;
         await artifacts.put('someone-else', 'run-2', [{ name: 'theirs.png', bytes: Buffer.from('x') }]);
-        return artifactsRouter({ artifacts, hasMinio: async () => false });
+        theirs = (await artifacts.put('someone-else', 'run-3', [{ name: 'hidden.png', bytes: Buffer.from('y') }])).stored[0]!;
+        return artifactsRouter({ artifacts });
       },
     });
   });
@@ -51,14 +54,12 @@ describe('/api/artifacts', () => {
     expect(res.headers['content-security-policy']).toMatch(/sandbox$/);
   });
 
-  it('lists a run\'s artifacts and says whether the person has MinIO', async () => {
+  it('lists a run\'s artifacts', async () => {
     const listed = await axios.get<{ artifacts: StoredArtifact[] }>(harness.url('/api/artifacts/runs/run-1'));
     expect(listed.data.artifacts.map((a: StoredArtifact) => a.name).sort()).toEqual(['signs-in/drawn.svg', 'signs-in/test-failed-1.png', 'signs-in/trace.zip']);
-    expect((await axios.get(harness.url('/api/artifacts/storage'))).data).toEqual({ minio: false });
   });
 
   it('never serves or lists someone else\'s', async () => {
-    const theirs = (await harness.db.files.getArtifacts('someone-else'))[0]!;
     expect((await get(harness.url(`/api/artifacts/${theirs.id}`))).status).toBe(404);
     expect((await axios.get<{ artifacts: StoredArtifact[] }>(harness.url('/api/artifacts/runs/run-2'))).data.artifacts).toEqual([]);
   });

@@ -23,7 +23,7 @@ vi.mock('../features/instances', () => ({
   InstanceUpdates: () => <div>Updates</div>,
   InstanceWatch: () => <div>Watch</div>,
 }));
-vi.mock('../features/files', () => ({ DefaultFileServer: () => <div>Files</div> }));
+vi.mock('../features/files', () => ({ OwnFiles: () => <div>Files</div> }));
 vi.mock('../features/infrastructure', () => ({ GoogleDriveCard: () => <div>Backups</div> }));
 
 import SettingsView from './SettingsView';

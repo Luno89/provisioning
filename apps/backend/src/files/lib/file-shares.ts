@@ -7,7 +7,6 @@ export interface FileShare {
   projectId?: string | undefined;
   fileId?: string | undefined;
   path: string;
-  etag?: string | undefined;
   name: string;
   createdAt: string;
   expiresAt: string;

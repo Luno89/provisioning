@@ -12,11 +12,11 @@ export type StoredOutcome<T> = { ok: true; value: T } | { ok: false; status: 400
 
 export interface StoredFileCommits {
   commit(ownerId: string, commits: readonly StoredFileCommit[], options: { replace: boolean }): Promise<CommitPlan>;
-  remove(ownerId: string, ids: readonly string[]): Promise<void>;
+  remove(ownerId: string, files: readonly Pick<StoredFileRecord, 'id' | 'objectId'>[]): Promise<void>;
 }
 
 export type StoredFileRecords = Pick<FilesStore,
-  'beginStoredFile' | 'touchStoredFile' | 'storedFilesIn' | 'storedFileById' | 'makeStoredFolder' | 'moveStoredFiles' | 'moveStoredScope'>;
+  'beginStoredFile' | 'touchStoredFile' | 'storedFilesIn' | 'storedFileById' | 'makeStoredFolder' | 'moveStoredFiles' | 'moveStoredScope' | 'storedFilesOwnedBy'>;
 
 export interface StoredFilesDeps {
   records: StoredFileRecords;
@@ -56,12 +56,18 @@ export class StoredFiles {
   async byId(ownerId: string, id: string): Promise<StoredDownload | undefined> {
     const record = await this.deps.records.storedFileById(id);
     if (!record || record.ownerId !== ownerId || record.state !== 'stored' || record.kind !== 'file') return undefined;
-    return { record, body: await this.deps.objects.get(record.id) };
+    return { record, body: await this.deps.objects.get(record.objectId) };
   }
 
   async recordById(ownerId: string, id: string): Promise<StoredFileRecord | undefined> {
     const record = await this.deps.records.storedFileById(id);
     return record && record.ownerId === ownerId && record.state === 'stored' ? record : undefined;
+  }
+
+  async removeOwned(ownerId: string): Promise<number> {
+    const going = await this.deps.records.storedFilesOwnedBy(ownerId);
+    if (going.length > 0) await this.deps.commits.remove(ownerId, going);
+    return going.length;
   }
 
   async moveScope(ownerId: string, from: StoredScope, to: StoredScope, under: string): Promise<number> {
@@ -97,6 +103,10 @@ export class Folder {
     return { ok: true, value: listing(records, cleaned.path) };
   }
 
+  async files(): Promise<StoredFileRecord[]> {
+    return (await this.records()).filter((record) => record.kind === 'file');
+  }
+
   async search(query: string): Promise<FileEntry[]> {
     return searching(await this.records(), query);
   }
@@ -112,7 +122,7 @@ export class Folder {
     if (!cleaned.ok) return refused(400, cleaned.why);
     const record = await this.find(cleaned.path);
     if (!record) return refused(404, `${cleaned.path} is not here`);
-    return { ok: true, value: { record, body: await this.deps.objects.get(record.id) } };
+    return { ok: true, value: { record, body: await this.deps.objects.get(record.objectId) } };
   }
 
   async upload(path: string, body: Readable, size: number | undefined, contentType: string, options: UploadOptions): Promise<StoredOutcome<StoredFileRecord>> {
@@ -123,14 +133,15 @@ export class Folder {
     if (!plan.ok) return plan;
     if (!options.replace && records.some((record) => record.kind === 'file' && record.path === cleaned.path)) return refused(409, `${cleaned.path} is already there, and it may not be replaced`);
     const at = this.iso();
+    const id = this.newId();
     const record: StoredFileRecord = {
-      id: this.newId(), ownerId: this.ownerId, scope: this.scope, path: cleaned.path, kind: 'file', size: 0, contentType,
+      id, objectId: id, ownerId: this.ownerId, scope: this.scope, path: cleaned.path, kind: 'file', size: 0, contentType,
       version: 0, madeAt: at, changedAt: at, state: 'uploading', touchedAt: at,
       ...(options.expiresAt ? { expiresAt: options.expiresAt } : {}),
     };
     await this.deps.records.beginStoredFile(record);
-    await this.deps.objects.put(record.id, body.pipe(this.touching(record.id)), size, contentType);
-    const stat = await this.deps.objects.stat(record.id);
+    await this.deps.objects.put(record.objectId, body.pipe(this.touching(record.id)), size, contentType);
+    const stat = await this.deps.objects.stat(record.objectId);
     if (!stat) throw new Error(`the bytes of ${cleaned.path} were sent to the instance's MinIO and are not there`);
     const committed = await this.deps.commits.commit(this.ownerId, [{ id: record.id, size: stat.size }], { replace: options.replace });
     if (!committed.ok) return committed;
@@ -158,8 +169,9 @@ export class Folder {
     const cleaned = cleanPath(path);
     if (!cleaned.ok) return refused(400, cleaned.why);
     const at = this.iso();
+    const id = this.newId();
     const made = await this.deps.records.makeStoredFolder({
-      id: this.newId(), ownerId: this.ownerId, scope: this.scope, path: cleaned.path, kind: 'folder', size: 0, contentType: FOLDER_TYPE,
+      id, objectId: id, ownerId: this.ownerId, scope: this.scope, path: cleaned.path, kind: 'folder', size: 0, contentType: FOLDER_TYPE,
       version: 1, madeAt: at, changedAt: at, state: 'stored', touchedAt: at,
     });
     if (!made.ok) return made;
@@ -178,13 +190,13 @@ export class Folder {
     if (!cleaned.ok) return refused(400, cleaned.why);
     const going = (await this.records()).filter((record) => isUnder(record.path, cleaned.path));
     if (going.length === 0) return refused(404, `${cleaned.path} is not here`);
-    await this.deps.commits.remove(this.ownerId, going.map((record) => record.id));
+    await this.deps.commits.remove(this.ownerId, going);
     return { ok: true, value: { path: cleaned.path, removed: going.length } };
   }
 
   async removeAll(): Promise<number> {
     const going = await this.records();
-    if (going.length > 0) await this.deps.commits.remove(this.ownerId, going.map((record) => record.id));
+    if (going.length > 0) await this.deps.commits.remove(this.ownerId, going);
     return going.length;
   }
 }

@@ -1,6 +1,9 @@
-import { emptiedEachTime } from '../../platform/lib/test-database.js';
+import { afterAll, beforeAll } from 'vitest';
 import { fileServiceBehaviour } from '../testing/file-service-behaviour.js';
+import { realStoredFiles, type RealStoredFiles } from '../testing/real-stored-files.js';
 
-const fresh = await emptiedEachTime();
+let real: RealStoredFiles;
+beforeAll(async () => { real = await realStoredFiles(); }, 300_000);
+afterAll(async () => { await real?.stop(); });
 
-fileServiceBehaviour(fresh);
+fileServiceBehaviour(async () => ({ files: real.files, shares: real.db.files }));

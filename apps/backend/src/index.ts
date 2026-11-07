@@ -22,7 +22,7 @@ import { CSP_REPORT_LIMIT, CSP_REPORT_PATH, cspHeader, cspModeFrom, violationLin
 import { startTelemetry } from '@koala/engine-core/telemetry-sdk';
 import { rateLimit } from 'express-rate-limit';
 import { wireReleases } from './releases/wiring/releases.js';
-import { storyDropsFor, wireFiles } from './files/wiring/files.js';
+import { archiveOldFilesOnce, keepStoredFilesSwept, storedFilesFor, storyDropsFor, wireFiles } from './files/wiring/files.js';
 import { machineBundle as newMachineBundle, wireMachines } from './machines/wiring/machines.js';
 import { wireMonitoring } from './monitoring/wiring/monitoring.js';
 import { wireInfrastructure } from './infrastructure/wiring/infrastructure.js';
@@ -37,6 +37,7 @@ import { workFailuresFor, wireRunning } from './infrastructure/wiring/running.js
 import { wireActions } from './engine/wiring/actions.js';
 import { PRUNE_FIRST_DELAY_MS, PRUNE_INTERVAL_MS } from './engine-host/sandboxes/prune-images.js';
 import { runClosedVia, runLifeVia } from './engine-host/temporal/run-cancellation.js';
+import { DEFAULT_ENGINE_TASK_QUEUE } from './engine-host/temporal/contracts.js';
 import { askDevice, dropDevice, localAgentStatus, tellDevice, machineTelemetry } from './machines/index.js';
 import { machineSides } from './machines/wiring/sides.js';
 import { IdentityService, instanceReachFrom } from './instances/index.js';
@@ -53,7 +54,6 @@ import { HUB_REPO_HOOK_PATH, hubRepoHookSecret, hubRepoHookSecrets, hubRepoHookU
 
 import { seedAll } from './scripts/seed-all.js';
 import { collectorSink, NotificationService, PushService, vapidKeysFrom, vapidSubject, webPushSend } from './monitoring/index.js';
-import { artifactsRouter, createArtifactService } from './files/index.js';
 
 const startsHere = process.env.NODE_ENV !== 'test' || process.env.IS_E2E === 'true';
 if (startsHere) dotenv.config({ quiet: true });
@@ -117,13 +117,14 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   const push = new PushService({ store: db.monitoring, vapid, send: webPushSend(vapid, vapidSubject(process.env.MAIL_FROM, PUBLIC_URL)), log: (message) => console.warn(message) });
   const notifications = new NotificationService({ store: db.monitoring, mail, push, publicUrl: PUBLIC_URL, log: (message) => console.warn(message) });
   const tenants = servesTenants(role);
+  const engineTaskQueue = process.env.TEMPORAL_ENGINE_TASK_QUEUE || DEFAULT_ENGINE_TASK_QUEUE;
+  const instanceFiles = tenants ? storedFilesFor({ db, env: process.env, workflows: async () => (await getTemporalClient()).workflow, engineTaskQueue }) : undefined;
   const tenant: express.Router = tenants ? (app as unknown as express.Router) : express.Router();
   const identity = new IdentityService(role, db, undefined, undefined, instanceReach);
   console.log(`🧭 Running as ${role.role}${role.instance ? ` (instance ${role.instance.id}, owned by ${role.instance.ownerId})` : ''}`);
   const infraService = new InfrastructureService();
   const builderService = new BuilderService(db, infraService);
   const clusterService = new ClusterService(db, infraService, clusterAccessFrom(process.env, { role: role.role, clusters: db.infrastructure, dataKey: keys.data }));
-  const artifactStore = createArtifactService(db, clusterService);
   const appService = new AppService(db, infraService, clusterService, builderService);
   const registryService = new RegistryService(db);
   const gitModuleService = new GitModuleService(db);
@@ -192,7 +193,9 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   } = engine;
   const workFailures = workFailuresFor({ db, temporalBridge, metrics, records: runningRecords });
 
-  startEngineStream({ role, push, io, db, payloadKey: keys.payload, core: engine, models: modelService, notices, postNotice, workFailures, machineClusters });
+  startEngineStream({ role, push, io, db, payloadKey: keys.payload, core: engine, models: modelService, notices, postNotice, workFailures, machineClusters, storedFiles: instanceFiles?.activities });
+  if (instanceFiles) keepStoredFilesSwept({ workflows: async () => (await getTemporalClient()).workflow, engineTaskQueue });
+  if (instanceFiles && process.env.NODE_ENV !== 'test') archiveOldFilesOnce({ db, storedFiles: instanceFiles.storedFiles, clusters: clusterService });
 
   const authService = new AuthService(db, { mail, production: process.env.NODE_ENV === 'production', push });
   const passwords = new PasswordService({ db, auth: authService, breached: loadBreachedPasswords(), revocations });
@@ -355,17 +358,13 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     return project && authorize(principal, 'see', { kind: 'project', ownerId: project.ownerId }).allowed ? project : undefined;
   };
 
-  const files = wireFiles({ tenant, db, reach: artifactStore.reach, temporalBridge, projectRepos: projectRepoService, gitea: giteaService, getOwnedProject });
+  const files = instanceFiles ? wireFiles({ tenant, db, files: instanceFiles, projectRepos: projectRepoService, gitea: giteaService, getOwnedProject }) : undefined;
   const releases = wireReleases({
     tenant, db, io, gitea: giteaService, infra: infraService, clusters: clusterService, projectRepos: projectRepoService, temporalBridge,
     runs: engineRuns, notices, postNotice, secrets: projectSecrets, agents: agentDirectory, registry: engineRegistry,
     exposure: appExposureService, channels, getOwnedProject,
   });
   const { odooReleases, releaseSettings, customizations } = releases;
-  tenant.use('/api/artifacts', artifactsRouter({ artifacts: artifactStore.artifacts, hasMinio: (ownerId) => artifactStore.minio.hasMinio(ownerId) }));
-  const sweepArtifacts = () => artifactStore.artifacts.sweep().catch((err: Error) => console.warn(`[artifacts] the sweep failed: ${err.message}`));
-  setInterval(() => { void sweepArtifacts(); }, 24 * 60 * 60 * 1000).unref();
-  void sweepArtifacts();
   wireMachines({
     app, tenant, servesTenants: tenants, accounts: machineAccounts, workTokens,
     instanceCaller,
@@ -395,9 +394,9 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
 
   const { poisoning, evalHost, level2Service, procedureService, mcpCatalogue } = await wireEngine({
     tenant, db, io, env: process.env, role, sessionKey: keys.session, dataKey: keys.data, core: engine, temporalBridge, models: modelService, gitea: giteaService,
-    artifacts: artifactStore, projectRepos: projectRepoService, customizations, releaseSettings, treeModels: () => treeModels, operatorOnly: requireOperator('administer'), push, mail,
+    ...(instanceFiles ? { files: instanceFiles.fileService, artifacts: instanceFiles.artifacts } : {}), projectRepos: projectRepoService, customizations, releaseSettings, treeModels: () => treeModels, operatorOnly: requireOperator('administer'), push, mail,
   });
-  if (evalHost.storyDrops) files.setStoryDrops(storyDropsFor({ db, projectRepos: projectRepoService, gitea: giteaService, work: evalHost.storyDrops }));
+  if (evalHost.storyDrops && files) files.setStoryDrops(storyDropsFor({ db, projectRepos: projectRepoService, gitea: giteaService, work: evalHost.storyDrops }));
   if (tenants) void odooReleases.start().then(() => db.accounts.getUsers()).then((users) => odooReleases.recover(users.map((user) => user.id))).catch((err: Error) => console.warn(`[releases] the releases that were running when the backend stopped could not be followed again: ${err.message}`));
   if (tenants) void releases.letReleasesPull().catch((err: Error) => console.warn(`[releases] could not give release namespaces their registry login: ${err.message}`));
 
@@ -434,6 +433,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     return view.value.items.map((item) => item.title);
   };
   if (hub.reaches) {
+    if (!files) throw new Error('the hub reaches this backend for its projects\' files, and this backend serves none');
     hub.setWork(hubInstanceWork({
       db, releases: odooReleases, treeRuns: groveRuns, plans: planService, order: groveOrder, accepted: evalHost.acceptedNeeds,
       itemChats, runs: engineRuns, procedures: procedureService, extensions, files: files.fileService, revocations,

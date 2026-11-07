@@ -2,6 +2,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { parse } from 'yaml';
+import { inject } from 'vitest';
 import { ignore } from '@koala/engine-core/failures';
 import { nodeProcesses, succeeded, type Processes } from '../../platform/index.js';
 import { STORED_FILES_BUCKET } from '../lib/stored-files.js';
@@ -51,3 +52,8 @@ export async function startMinio(processes: Processes = nodeProcesses): Promise<
 }
 
 export const testBucket = (): string => `${STORED_FILES_BUCKET}-${randomUUID().slice(0, 8)}`;
+
+export function testMinioEnv(bucket: string = testBucket()): Record<string, string> {
+  const minio = inject('minio');
+  return { MINIO_ENDPOINT: `${minio.endPoint}:${minio.port}`, MINIO_ROOT_USER: minio.accessKey, MINIO_ROOT_PASSWORD: minio.secretKey, MINIO_BUCKET: bucket };
+}

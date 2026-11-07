@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { testMinioEnv } from './files/testing/real-minio.js';
 import { randomUUID } from 'node:crypto';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -15,7 +16,7 @@ const FRONTEND = join(BACKEND, '../frontend/src');
 
 function routesFor(env: Record<string, string>): Promise<Route[]> {
   return new Promise((resolve, reject) => {
-    const child = spawn('npx', ['tsx', '../../tests/coupling/print-routes.mts'], { cwd: BACKEND, env: { ...process.env, NODE_ENV: 'development', ...env, PORT: '0', MACHINE_GATEWAY_PORT: '0', TEMPORAL_METRICS_PORT: '0' } });
+    const child = spawn('npx', ['tsx', '../../tests/coupling/print-routes.mts'], { cwd: BACKEND, env: { ...process.env, NODE_ENV: 'development', ...testMinioEnv(), ...env, PORT: '0', MACHINE_GATEWAY_PORT: '0', TEMPORAL_METRICS_PORT: '0' } });
     let out = '';
     let said = '';
     child.stdout.on('data', (chunk: Buffer) => { out += chunk.toString(); });

@@ -1,8 +1,10 @@
 import { execFileSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import dotenv from 'dotenv';
 import { MongoClient } from 'mongodb';
+import { parse } from 'yaml';
 import { createDatabase, roleFromEnv } from '../../apps/backend/src/platform/index.js';
 import { devSplitPlan, hashCredential, instanceIdFor, publicKeyPem, type SplitPlace } from '../../apps/backend/src/instances/index.js';
 import { buildAppImage } from './gate-runs.js';
@@ -23,7 +25,7 @@ export interface SplitNames {
   stamp: string;
   namespace: string;
   databases: Record<SplitSide, string>;
-  containers: Record<SplitProcess | 'mailbox', string>;
+  containers: Record<SplitProcess | 'mailbox' | 'files', string>;
 }
 
 export function splitNames(stamp: string): SplitNames {
@@ -38,11 +40,12 @@ export function splitNames(stamp: string): SplitNames {
       'instance-engine': `nw-split-instance-engine-${stamp}`,
       'root-host': `nw-split-root-host-${stamp}`,
       mailbox: `nw-split-mailbox-${stamp}`,
+      files: `nw-split-files-${stamp}`,
     },
   };
 }
 
-export interface SplitPorts { root: number; instance: number; hub: number; instanceGateway: number; rootGateway: number; hubGateway: number; smtp: number; mailApi: number; metrics: number; engineMetrics?: number }
+export interface SplitPorts { root: number; instance: number; hub: number; instanceGateway: number; rootGateway: number; hubGateway: number; smtp: number; mailApi: number; metrics: number; files: number; engineMetrics?: number }
 
 export const splitPlace = (names: SplitNames, ports: SplitPorts): SplitPlace => ({
   rootUrl: `http://localhost:${ports.root}`,
@@ -111,6 +114,31 @@ export const answers = async (url: string): Promise<true | undefined> => {
   return response && response.status < 500 ? true : undefined;
 };
 
+export const MINIO_BUCKET = 'koala';
+
+export function chartMinioImage(): string {
+  const values = parse(readFileSync(fileURLToPath(new URL('../../charts/instance/values.yaml', import.meta.url)), 'utf8')) as { minio?: { image?: unknown } };
+  const image = values.minio?.image;
+  if (typeof image !== 'string' || !image) throw new Error('charts/instance/values.yaml names no minio.image');
+  return image;
+}
+
+export interface MinioEnv { MINIO_ENDPOINT: string; MINIO_ROOT_USER: string; MINIO_ROOT_PASSWORD: string; MINIO_BUCKET: string }
+
+export function minioRun(port: number): { args: string[]; env: MinioEnv } {
+  const user = randomBytes(15).toString('base64url');
+  const password = randomBytes(30).toString('base64url');
+  return {
+    args: ['-p', `127.0.0.1:${port}:9000`, '-e', 'MINIO_BROWSER=off', '-e', `MINIO_ROOT_USER=${user}`, '-e', `MINIO_ROOT_PASSWORD=${password}`, chartMinioImage(), 'server', '/data'],
+    env: { MINIO_ENDPOINT: `127.0.0.1:${port}`, MINIO_ROOT_USER: user, MINIO_ROOT_PASSWORD: password, MINIO_BUCKET },
+  };
+}
+
+export const minioReady = async (port: number): Promise<true | undefined> => {
+  const response = await fetch(`http://127.0.0.1:${port}/minio/health/ready`).catch(() => undefined);
+  return response?.status === 200 ? true : undefined;
+};
+
 const DEV_KUBECONFIG = '/tmp/kubeconfig-provisioning-lunorica';
 const GITEA_SECRETS = ['.gitea-admin-password'];
 
@@ -132,7 +160,7 @@ export async function startSplitStack(options: { engine?: boolean; hubGitea?: bo
   const ports: SplitPorts = {
     root: await portToHandOn(), instance: await portToHandOn(), hub: await portToHandOn(),
     instanceGateway: await portToHandOn(), rootGateway: await portToHandOn(), hubGateway: await portToHandOn(),
-    smtp: await portToHandOn(), mailApi: await portToHandOn(), metrics: await portToHandOn(), engineMetrics: await portToHandOn(),
+    smtp: await portToHandOn(), mailApi: await portToHandOn(), metrics: await portToHandOn(), files: await portToHandOn(), engineMetrics: await portToHandOn(),
   };
   const place = splitPlace(names, ports);
   const started: string[] = [];
@@ -140,7 +168,7 @@ export async function startSplitStack(options: { engine?: boolean; hubGitea?: bo
   const envFile = devFile('apps/backend/.env');
   const image = buildAppImage(REPO, execFileSync('git', ['-C', REPO, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(), (line) => console.log(`  ${line}`));
 
-  const logs = (process: SplitProcess, lines = 60): string => {
+  const logs = (process: SplitProcess | 'files', lines = 60): string => {
     try {
       return execFileSync('docker', ['logs', '--tail', String(lines), names.containers[process]], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
     } catch (err) {
@@ -165,7 +193,7 @@ export async function startSplitStack(options: { engine?: boolean; hubGitea?: bo
     try { temporal(['namespace', 'delete', '--namespace', names.namespace, '--yes']); } catch { /* never made */ }
   };
 
-  const run = (process: SplitProcess | 'mailbox', args: string[]): void => {
+  const run = (process: SplitProcess | 'mailbox' | 'files', args: string[]): void => {
     docker(['run', '-d', '--name', names.containers[process], ...args]);
     started.push(names.containers[process]);
   };
@@ -173,6 +201,9 @@ export async function startSplitStack(options: { engine?: boolean; hubGitea?: bo
   try {
     temporal(['namespace', 'create', '--namespace', names.namespace, '--retention', '24h']);
     run('mailbox', ['-p', `127.0.0.1:${ports.smtp}:1025`, '-p', `127.0.0.1:${ports.mailApi}:8025`, MAILPIT_IMAGE]);
+    const files = minioRun(ports.files);
+    run('files', files.args);
+    await until('the instance\'s MinIO being ready', () => minioReady(ports.files), () => logs('files'));
 
     const setupCode = randomBytes(12).toString('base64url');
     const instanceCredential = randomBytes(32).toString('base64url');
@@ -210,8 +241,8 @@ export async function startSplitStack(options: { engine?: boolean; hubGitea?: bo
     await rootDb.instances.saveInstance(plan.instance);
     await rootDb.close?.();
 
-    backend('instance', { ...plan.instanceEnv, ...shared(ports.instanceGateway) });
-    if (options.engine) backend('instance-engine', { ...plan.instanceEnv, ...shared(ports.instanceGateway), HEALTH_PORT: '0', TEMPORAL_ENGINE_METRICS_PORT: String(ports.engineMetrics) }, 'worker-engine');
+    backend('instance', { ...plan.instanceEnv, ...shared(ports.instanceGateway), ...files.env });
+    if (options.engine) backend('instance-engine', { ...plan.instanceEnv, ...shared(ports.instanceGateway), ...files.env, HEALTH_PORT: '0', TEMPORAL_ENGINE_METRICS_PORT: String(ports.engineMetrics) }, 'worker-engine');
     const gitea = options.hubGitea ? devGitea() : undefined;
     backend('hub', { ...plan.hubEnv, ...shared(ports.hubGateway), ...(gitea ? { GITEA_URL: gitea.url, GITEA_REACHES_KOALA_AT: `http://${gitea.host}:${ports.hub}` } : {}) }, 'backend', gitea?.mounts ?? []);
     await until('the instance answering', () => answers(`${place.instanceUrl}/api/auth/sign-in`), () => logs('instance'));

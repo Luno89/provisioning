@@ -1,47 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import {
-  chooseFileServer, fileKeys, getFilePlace, getFileServers, listFileShares, listStoredFiles, makeStoredFolder,
-  moveStoredFile, removeStoredFile,
-  revokeFileShare, searchStoredFiles, setDefaultFileServer, shareStoredFile, startProjectMinio, uploadStoredFile,
+  fileKeys, listFileShares, listStoredFiles, makeStoredFolder, moveStoredFile, removeStoredFile,
+  revokeFileShare, searchStoredFiles, shareStoredFile, uploadStoredFile,
 } from './api/files'
 import { dropIntoRepository, projectFileKeys } from '../projects'
 import { groveKeys } from '../projects'
 import { joinPath, type PickedFile } from './lib/file-drop'
-import type { FileScope, PlaceState, ShareableScope, ShareDays } from './types'
-
-export const STARTING_POLL_MS = 3000
-
-export function useFileServers() {
-  return useQuery({ queryKey: fileKeys.servers, queryFn: getFileServers })
-}
-
-export function useSetDefaultFileServer() {
-  const client = useQueryClient()
-  return useMutation({
-    mutationFn: (deploymentId: string | null) => setDefaultFileServer(deploymentId),
-    onSuccess: () => { void client.invalidateQueries({ queryKey: fileKeys.all }) },
-  })
-}
-
-export function useFilePlace(projectId: string) {
-  return useQuery({
-    queryKey: fileKeys.place(projectId),
-    queryFn: () => getFilePlace(projectId),
-    refetchInterval: (query) => ((query.state.data as PlaceState | undefined)?.state === 'starting' ? STARTING_POLL_MS : false),
-  })
-}
-
-export function usePlaceChange(projectId: string) {
-  const client = useQueryClient()
-  const settle = (state: PlaceState) => {
-    client.setQueryData(fileKeys.place(projectId), state)
-    void client.invalidateQueries({ queryKey: fileKeys.all })
-  }
-  const choose = useMutation({ mutationFn: (deploymentId: string) => chooseFileServer(projectId, deploymentId), onSuccess: settle })
-  const startMinio = useMutation({ mutationFn: () => startProjectMinio(projectId), onSuccess: settle })
-  return { choose, startMinio }
-}
+import type { FileScope, ShareableScope, ShareDays } from './types'
 
 export function useStoredFiles(scope: FileScope, dir: string, enabled = true) {
   return useQuery({ queryKey: fileKeys.list(scope, dir), queryFn: () => listStoredFiles(scope, dir), enabled })
@@ -133,12 +99,3 @@ export function useRepositoryDrop(projectId: string, ref?: string | undefined, l
   })
   return { drop, share }
 }
-
-export const placeText = (state: PlaceState | undefined): string => {
-  if (!state) return ''
-  if (state.state === 'ready') return `${state.server.name} (MinIO), in the folder ${state.place.folder}${state.chosen ? '' : ', your default'}`
-  if (state.state === 'starting') return `${state.server} is starting; files can be added once it is running`
-  if (state.state === 'gone') return `its file server cannot be reached: ${state.why}`
-  return 'no file server yet'
-}
-

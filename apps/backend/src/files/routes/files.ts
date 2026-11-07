@@ -10,6 +10,7 @@ export const FILE_TYPE_HEADER = 'x-file-type';
 export interface FilesRouterDeps {
   files: FileService;
   getOwnedProject: (id: string, principal: Principal) => Promise<ProjectMetadata | undefined>;
+  getOwnedConversation: (ownerId: string, id: string) => Promise<{ id: string; projectId?: string | undefined } | undefined>;
 }
 
 const userOf = (req: Request) => (req as unknown as { user: { id: string; email: string } }).user;
@@ -22,7 +23,12 @@ export function filesRouter(deps: FilesRouterDeps): Router {
   const router = Router();
 
   const scopeOf = async (req: Request, res: Response, scope = req.params.scope): Promise<FileScope | undefined> => {
-    if (scope === 'mine') return { kind: 'mine' };
+    if (scope === 'mine') return { kind: 'person' };
+    if (scope === 'conversations') {
+      const conversation = await deps.getOwnedConversation(userOf(req).id, String(req.params.id ?? ''));
+      if (!conversation) { res.status(404).json({ error: 'Conversation not found' }); return undefined; }
+      return { kind: 'conversation', conversationId: conversation.id, ...(conversation.projectId ? { projectId: conversation.projectId } : {}) };
+    }
     if (scope !== 'projects') { res.status(404).json({ error: 'Not found' }); return undefined; }
     const project = await deps.getOwnedProject(String(req.params.id ?? ''), principalFrom(req));
     if (!project) { res.status(404).json({ error: 'Project not found' }); return undefined; }
@@ -38,16 +44,6 @@ export function filesRouter(deps: FilesRouterDeps): Router {
     return cleaned.path;
   };
 
-  router.get('/servers', asyncRoute(async (req, res) => {
-    res.json(await deps.files.servers(userOf(req).id));
-  }));
-
-  router.put('/default', asyncRoute(async (req, res) => {
-    const wanted = at(req.body, 'deploymentId');
-    if (wanted !== null && typeof wanted !== 'string') return res.status(400).json({ error: 'deploymentId must name a file server, or be null.' });
-    answer(res, await deps.files.setDefault(userOf(req).id, wanted));
-  }));
-
   router.get('/shares', asyncRoute(async (req, res) => {
     res.json(await deps.files.shares(userOf(req).id));
   }));
@@ -56,24 +52,12 @@ export function filesRouter(deps: FilesRouterDeps): Router {
     answer(res, await deps.files.unshare(userOf(req).id, String(req.params.shareId ?? '')));
   }));
 
-  router.get('/projects/:id/place', asyncRoute(async (req, res) => {
-    const scope = await scopeOf(req, res, 'projects');
-    if (!scope) return;
-    res.json(await deps.files.placeOf(userOf(req).id, scope));
-  }));
-
-  router.put('/projects/:id/place', asyncRoute(async (req, res) => {
-    const project = await deps.getOwnedProject(String(req.params.id ?? ''), principalFrom(req));
-    if (!project) return res.status(404).json({ error: 'Project not found' });
-    const deploymentId = at(req.body, 'deploymentId');
-    if (typeof deploymentId !== 'string') return res.status(400).json({ error: 'deploymentId must name a file server.' });
-    answer(res, await deps.files.choose(userOf(req).id, project, deploymentId));
-  }));
-
-  router.post('/projects/:id/minio', asyncRoute(async (req, res) => {
-    const project = await deps.getOwnedProject(String(req.params.id ?? ''), principalFrom(req));
-    if (!project) return res.status(404).json({ error: 'Project not found' });
-    answer(res, await deps.files.startMinio(userOf(req).id, project), 202);
+  router.get('/stored/:fileId', asyncRoute(async (req, res) => {
+    const found = await deps.files.downloadById(userOf(req).id, String(req.params.fileId ?? ''));
+    if (!found.ok) return answer(res, found);
+    res.set(servingHeaders(found.value.contentType, found.value.name, req.query.inline === '1'));
+    if (found.value.size !== undefined) res.setHeader('Content-Length', String(found.value.size));
+    found.value.stream.pipe(res);
   }));
 
   router.get('/:scope/:id?/list', asyncRoute(async (req, res) => {

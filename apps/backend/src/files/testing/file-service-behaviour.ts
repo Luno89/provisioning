@@ -1,221 +1,170 @@
-import { matching } from '../../platform/lib/test-matchers.js';
-import { createHash } from 'node:crypto';
-import { describe, expect, it, vi } from 'vitest';
+import { randomUUID } from 'node:crypto';
 import { Readable } from 'node:stream';
+import { describe, expect, it } from 'vitest';
 import { FileService } from '../services/FileService.js';
-import type { FileStore } from '../services/FileStores.js';
-import type { Database } from '../../platform/lib/db-interface.js';
-import type { DeploymentMetadata, ProjectMetadata } from '../../platform/lib/types.js';
-import type { FilePlace, FileSettings } from '../lib/file-places.js';
+import type { StoredFiles } from '../services/StoredFiles.js';
+import type { FilesStore } from '../store.js';
+import type { FileScope } from '../lib/file-places.js';
 
-const deployment = (over: Partial<DeploymentMetadata>): DeploymentMetadata => ({ id: 'm1', name: 'minio', appType: 'minio', status: 'running', clusterId: 'c1', ownerId: 'u1', minioRootPassword: 'pw', strategy: 'native', ...over } as DeploymentMetadata);
-
-const clock = { now: '2026-10-21T10:00:00.000Z' };
-
-async function setUp(db: Database, deployments: DeploymentMetadata[], settings?: FileSettings) {
-  for (const entry of deployments) await db.infrastructure.saveDeployment(entry);
-  await db.projects.saveProject({ id: 'p1', name: 'Web Portal', appType: 'gitapp', giteaOwner: 'u1', giteaRepo: 'web-portal', ownerId: 'u1', createdAt: 'now' } as ProjectMetadata);
-  if (settings) await db.files.saveFileSettings(settings);
-  const opened: FilePlace[] = [];
-  const kept = new Map<string, Buffer>([['a.pdf', Buffer.from('%PDF')]]);
-  const store: FileStore = {
-    list: vi.fn(async () => [{ name: 'a.pdf', path: 'a.pdf', type: 'file' as const }]),
-    search: vi.fn(async () => [{ name: 'a.pdf', path: 'a.pdf', type: 'file' as const }]),
-    makeFolder: vi.fn(async () => undefined),
-    download: vi.fn(async (path: string) => (kept.has(path) ? { stream: Readable.from([kept.get(path)!]), size: kept.get(path)!.length, contentType: 'application/pdf', etag: createHash('md5').update(kept.get(path)!).digest('hex') } : undefined)),
-    upload: vi.fn(async () => undefined),
-    remove: vi.fn(async () => undefined),
-    move: vi.fn(async () => undefined),
-    removeAll: vi.fn(async () => undefined),
-  };
-  const deployMinio = vi.fn(async () => {
-    await db.infrastructure.saveDeployment(deployment({ id: 'new', name: 'koala-files', status: 'deploying', minioRootPassword: 'pw' }));
-    return { deploymentId: 'new' };
-  });
-  const files = new FileService({
-    store: db,
-    open: async (_ownerId, place) => { opened.push(place); return store; },
-    deployMinio,
-    defaultCluster: 'system',
-    now: () => clock.now,
-  });
-  const project = async () => (await db.projects.getProjects()).find((entry) => entry.id === 'p1')!;
-  const setStatus = async (id: string, status: string) => {
-    const found = (await db.infrastructure.getDeployments()).find((entry) => entry.id === id)!;
-    await db.infrastructure.saveDeployment({ ...found, status } as DeploymentMetadata);
-  };
-  return { files, store, opened, deployMinio, kept, project, setStatus, shares: (ownerId: string) => db.files.getFileShares(ownerId), share: (id: string) => db.files.getFileShare(id), saveShare: (share: Parameters<Database['files']['saveFileShare']>[0]) => db.files.saveFileShare(share) };
+export interface FileServiceWorld {
+  files: Pick<StoredFiles, 'at' | 'byId' | 'recordById'>;
+  shares: FilesStore;
 }
 
-type World = Awaited<ReturnType<typeof setUp>>;
+const bytesOf = async (body: Readable): Promise<Buffer> => {
+  const parts: Buffer[] = [];
+  for await (const part of body) parts.push(Buffer.from(part as Buffer));
+  return Buffer.concat(parts);
+};
 
-export function fileServiceBehaviour(make: () => Promise<Database>): void {
-  const world = async (deployments: DeploymentMetadata[], settings?: FileSettings) => setUp(await make(), deployments, settings);
-  const inProject = async (w: World) => ({ kind: 'project' as const, project: await w.project() });
+const body = (text: string): Readable => Readable.from([Buffer.from(text)]);
 
-  describe('where a project\'s files go', () => {
-    it('nowhere until the person has a server, then their default, in a folder named from the project once and kept', async () => {
-      const none = await world([]);
-      expect(await none.files.placeOf('u1', await inProject(none))).toEqual({ state: 'none' });
-      expect(await none.files.list('u1', await inProject(none), '')).toEqual({ ok: false, status: 409, why: 'This project has no file server yet.' });
+export function fileServiceBehaviour(make: () => Promise<FileServiceWorld>): void {
+  const setUp = async () => {
+    const world = await make();
+    const clock = { now: '2026-10-21T10:00:00.000Z' };
+    const me = `u-${randomUUID().slice(0, 8)}`;
+    const project: FileScope = { kind: 'project', project: { id: `p-${randomUUID().slice(0, 8)}` } };
+    const service = new FileService({ files: world.files, shares: world.shares, now: () => clock.now });
+    const kept = async (scope: FileScope, path: string, text: string, type = 'text/plain') => {
+      const stored = await service.upload(me, scope, path, body(text), Buffer.byteLength(text), type);
+      if (!stored.ok) throw new Error(stored.why);
+      return stored.value;
+    };
+    return { world, clock, me, project, service, kept };
+  };
 
-      const ready = await world([deployment({})], { ownerId: 'u1', deploymentId: 'm1' });
-      expect(await ready.files.placeOf('u1', await inProject(ready))).toMatchObject({ state: 'ready', chosen: false, place: { kind: 'minio', deploymentId: 'm1', folder: 'web-portal' } });
-      await ready.files.list('u1', await inProject(ready), '');
-      expect((await ready.project()).files).toEqual({ kind: 'minio', deploymentId: 'm1', folder: 'web-portal' });
-      await ready.files.choose('u1', { ...(await ready.project()), name: 'Renamed' }, 'm1');
-      expect((await ready.project()).files?.folder).toBe('web-portal');
+  describe('a scope\'s files, kept as stored files', () => {
+    it('stores an upload, answering with its path and id, and gives it back by path and by id', async () => {
+      const { service, me, project, kept } = await setUp();
+      const stored = await kept(project, 'docs/brief.pdf', '%PDF', 'application/pdf');
+      expect(stored.path).toBe('docs/brief.pdf');
+      const back = await service.download(me, project, 'docs/brief.pdf');
+      if (!back.ok) throw new Error(back.why);
+      expect([back.value.contentType, back.value.size, (await bytesOf(back.value.stream)).toString()]).toEqual(['application/pdf', 4, '%PDF']);
+      const byId = await service.downloadById(me, stored.id);
+      if (!byId.ok) throw new Error(byId.why);
+      expect([byId.value.name, (await bytesOf(byId.value.stream)).toString()]).toEqual(['brief.pdf', '%PDF']);
+      expect(await service.downloadById('someone-else', stored.id)).toEqual({ ok: false, status: 404, why: 'You keep no file with that id.' });
+      expect(await service.download(me, project, 'missing.pdf')).toEqual({ ok: false, status: 404, why: 'There is no file missing.pdf.' });
     });
 
-    it('takes only the person\'s own running servers as a default or a project\'s choice', async () => {
-      const w = await world([deployment({}), deployment({ id: 'theirs', ownerId: 'u2' })]);
-      expect(await w.files.setDefault('u1', 'theirs')).toMatchObject({ ok: false, status: 400 });
-      expect(await w.files.choose('u1', await w.project(), 'theirs')).toMatchObject({ ok: false, status: 400 });
-      expect(await w.files.setDefault('u1', 'm1')).toEqual({ ok: true, value: { defaultId: 'm1' } });
-      expect(await w.files.servers('u1')).toEqual({ servers: [{ kind: 'minio', deploymentId: 'm1', name: 'minio', clusterId: 'c1' }], defaultId: 'm1' });
+    it('replaces a file uploaded again at its path, keeping its id, so what was attached by it opens the new version', async () => {
+      const { service, me, project, kept } = await setUp();
+      const first = await kept(project, 'a.txt', 'one');
+      const second = await kept(project, 'a.txt', 'second');
+      expect(second.id).toBe(first.id);
+      const listed = await service.list(me, project, '');
+      expect(listed).toMatchObject({ ok: true, value: [{ path: 'a.txt', size: 6 }] });
+      expect((await service.attachable(me, first.id))?.size).toBe(6);
+      const byId = await service.downloadById(me, first.id);
+      if (!byId.ok) throw new Error(byId.why);
+      expect((await bytesOf(byId.value.stream)).toString()).toBe('second');
     });
 
-    it('starts a MinIO on the project\'s cluster when it has none, waits while it starts, then stores there', async () => {
-      const w = await world([deployment({ id: 'other', name: 'koala-files', ownerId: 'u2' })]);
-      const started = await w.files.startMinio('u1', { ...(await w.project()), targetClusterId: 'mine' });
-      expect(w.deployMinio).toHaveBeenCalledWith('u1', { name: 'koala-files-2', clusterId: 'mine' });
-      expect(started).toEqual({ ok: true, value: { state: 'starting', place: { kind: 'minio', deploymentId: 'new', folder: 'web-portal' }, server: 'koala-files' } });
-      expect((await w.project()).files).toEqual({ kind: 'minio', deploymentId: 'new', folder: 'web-portal' });
-      expect(await w.files.upload('u1', await inProject(w), 'a.pdf', Readable.from([]), 0, 'application/pdf')).toEqual({ ok: false, status: 409, why: 'koala-files is still starting.' });
-      await w.setStatus('new', 'running');
-      expect(await w.files.upload('u1', await inProject(w), 'a.pdf', Readable.from([]), 0, 'application/pdf')).toEqual({ ok: true, value: { path: 'a.pdf' } });
-      expect(w.opened.at(-1)).toEqual({ kind: 'minio', deploymentId: 'new', folder: 'web-portal' });
-      await w.files.startMinio('u1', await w.project());
-      expect(w.deployMinio).toHaveBeenCalledOnce();
+    it('lists, searches, makes folders, moves and removes, refusing what is not there', async () => {
+      const { service, me, project, kept } = await setUp();
+      await kept(project, 'docs/brief.pdf', 'b');
+      expect(await service.makeFolder(me, project, 'empty')).toEqual({ ok: true, value: { path: 'empty' } });
+      expect(await service.list(me, project, '')).toMatchObject({ ok: true, value: [{ path: 'docs', type: 'dir' }, { path: 'empty', type: 'dir' }] });
+      expect(await service.search(me, project, 'brief')).toMatchObject({ ok: true, value: [{ path: 'docs/brief.pdf' }] });
+      expect(await service.search(me, project, '   ')).toEqual({ ok: true, value: [] });
+      expect(await service.move(me, project, 'docs/brief.pdf', 'old/brief.pdf')).toEqual({ ok: true, value: { path: 'old/brief.pdf' } });
+      expect(await service.move(me, project, 'nope.pdf', 'b.pdf')).toMatchObject({ ok: false, status: 404 });
+      expect(await service.remove(me, project, 'old')).toEqual({ ok: true, value: { path: 'old' } });
+      expect(await service.remove(me, project, 'old')).toMatchObject({ ok: false, status: 404 });
+      expect(await service.list(me, project, 'nowhere')).toMatchObject({ ok: false, status: 404 });
     });
 
-    it('refuses to start a file server where none can be deployed, and starts none for a project that already has one', async () => {
-      const db = await make();
-      await db.projects.saveProject({ id: 'p1', name: 'Web Portal', appType: 'gitapp', giteaOwner: 'u1', giteaRepo: 'web-portal', ownerId: 'u1', createdAt: 'now' } as ProjectMetadata);
-      const files = new FileService({ store: db, open: async () => { throw new Error('nothing to open'); }, defaultCluster: 'system', now: () => clock.now });
-      const project = (await db.projects.getProjects())[0]!;
-      expect(await files.startMinio('u1', project)).toEqual({ ok: false, status: 409, why: 'A file server can only be started from the project\'s Settings.' });
-      expect(await db.infrastructure.getDeployments()).toEqual([]);
+    it('keeps a person\'s own files, a chat\'s and a project chat\'s each where they belong', async () => {
+      const { service, me, project, kept } = await setUp();
+      const projectId = project.kind === 'project' ? project.project.id : '';
+      const chat: FileScope = { kind: 'conversation', conversationId: 'c1' };
+      const channel: FileScope = { kind: 'conversation', conversationId: 'channel-x', projectId };
+      expect(await service.list(me, channel, '')).toEqual({ ok: true, value: [] });
+      await kept({ kind: 'person' }, 'mine.txt', 'm');
+      await kept(chat, 'chat.txt', 'c');
+      const inChannel = await kept(channel, 'shot.png', 's', 'image/png');
+      expect(inChannel.path).toBe('shot.png');
+      expect(await service.list(me, { kind: 'person' }, '')).toMatchObject({ value: [{ path: 'mine.txt' }] });
+      expect(await service.list(me, chat, '')).toMatchObject({ value: [{ path: 'chat.txt' }] });
+      expect(await service.list(me, channel, '')).toMatchObject({ value: [{ path: 'shot.png' }] });
+      expect(await service.list(me, project, 'chats/channel-x')).toMatchObject({ value: [{ path: 'chats/channel-x/shot.png' }] });
+      expect(await service.search(me, channel, 'shot')).toMatchObject({ value: [{ path: 'shot.png' }] });
+      expect(await service.attachable(me, inChannel.id)).toEqual({ id: inChannel.id, path: 'chats/channel-x/shot.png', size: 1, contentType: 'image/png', projectId });
+      const download = await service.download(me, channel, 'shot.png');
+      expect(download.ok).toBe(true);
+      if (download.ok) download.value.stream.destroy();
     });
 
-    it('says plainly when a project\'s server is gone, and removes a project\'s files only where it can reach them', async () => {
-      const w = await world([deployment({})]);
-      await w.files.choose('u1', await w.project(), 'm1');
-      expect(await w.files.removeProjectFiles('u1', await w.project())).toBe('removed');
-      expect(w.store.removeAll).toHaveBeenCalledOnce();
-      await w.setStatus('m1', 'failed');
-      expect(await w.files.placeOf('u1', await inProject(w))).toEqual({ state: 'gone', place: { kind: 'minio', deploymentId: 'm1', folder: 'web-portal' }, why: 'minio is failed' });
-      expect(await w.files.removeProjectFiles('u1', await w.project())).toBe('unreachable');
+    it('describes only the person\'s own files for attaching', async () => {
+      const { service, me, kept } = await setUp();
+      const mine = await kept({ kind: 'person' }, 'a.txt', 'a');
+      expect(await service.attachable(me, mine.id)).toEqual({ id: mine.id, path: 'a.txt', size: 1, contentType: 'text/plain' });
+      expect(await service.attachable('someone-else', mine.id)).toBeUndefined();
+      expect(await service.attachable(me, 'never')).toBeUndefined();
     });
 
-    it('removes nothing for a project that never kept files, and leaves a folder another project of the person still uses', async () => {
-      const db = await make();
-      const w = await setUp(db, [deployment({})], { ownerId: 'u1', deploymentId: 'm1' });
-      expect(await w.files.removeProjectFiles('u1', await w.project())).toBe('none');
-      await w.files.choose('u1', await w.project(), 'm1');
-      await db.projects.saveProject({ id: 'p2', name: 'Web Portal Twin', appType: 'gitapp', giteaOwner: 'u1', giteaRepo: 'twin', ownerId: 'u1', createdAt: 'now', files: { kind: 'minio', deploymentId: 'm1', folder: 'web-portal' } } as ProjectMetadata);
-      expect(await w.files.removeProjectFiles('u1', await w.project())).toBe('shared');
-      expect(w.store.removeAll).not.toHaveBeenCalled();
-    });
-
-    it('keeps a person\'s own files, outside any project, in their default server\'s personal folder', async () => {
-      const w = await world([deployment({})], { ownerId: 'u1', deploymentId: 'm1' });
-      await w.files.list('u1', { kind: 'mine' }, 'chats/c1');
-      expect(w.opened.at(-1)).toEqual({ kind: 'minio', deploymentId: 'm1', folder: 'personal' });
-    });
-
-    it('shares one file by a link that serves it to anyone until it expires, and only the person can see or revoke it', async () => {
-      clock.now = '2026-10-21T10:00:00.000Z';
-      const w = await world([deployment({})]);
-      await w.files.choose('u1', await w.project(), 'm1');
-      const scope = await inProject(w);
-      expect(await w.files.share('u1', scope, 'nope.pdf', 7)).toMatchObject({ ok: false, status: 404 });
-      const made = await w.files.share('u1', scope, 'a.pdf', 1);
-      if (!made.ok) throw new Error(made.why);
-      expect(made.value).toMatchObject({ ownerId: 'u1', projectId: 'p1', path: 'a.pdf', name: 'a.pdf', expiresAt: '2026-10-22T10:00:00.000Z' });
-      expect(made.value.token).toMatch(/^[A-Za-z0-9_-]{32}$/);
-      expect(made.value.id).not.toBe(made.value.token);
-      expect(await w.files.shared(made.value.id)).toMatchObject({ ok: false, status: 404 });
-      const served = await w.files.shared(made.value.token);
-      expect(served).toMatchObject({ ok: true, value: { name: 'a.pdf', contentType: 'application/pdf' } });
-      expect((await w.files.shares('u1')).map((share) => share.id)).toEqual([made.value.id]);
-      expect(await w.files.shares('u2')).toEqual([]);
-      expect(await w.files.unshare('u2', made.value.id)).toMatchObject({ ok: false, status: 404 });
-
-      clock.now = '2026-10-22T10:00:01.000Z';
-      expect(await w.files.shared(made.value.token)).toMatchObject({ ok: false, status: 404 });
-      expect(await w.shares('u1')).toEqual([]);
-      expect(await w.files.shared('../../etc/passwd')).toMatchObject({ ok: false, status: 404 });
-    });
-
-    it('opens the file a link was made for and nothing else, so a file put at that path later is never served by it', async () => {
-      clock.now = '2026-10-21T10:00:00.000Z';
-      const w = await world([deployment({})]);
-      await w.files.choose('u1', await w.project(), 'm1');
-      const made = await w.files.share('u1', await inProject(w), 'a.pdf', 7);
-      if (!made.ok) throw new Error(made.why);
-      expect(made.value.etag).toMatch(/^[0-9a-f]{32}$/);
-      expect(await w.files.shared(made.value.token)).toMatchObject({ ok: true });
-      w.kept.set('a.pdf', Buffer.from('%PDF a different file put at the same name'));
-      expect(await w.files.shared(made.value.token)).toMatchObject({ ok: false, status: 404, why: matching(/replaced or removed/) });
-    });
-
-    it('ties a link made before links were tied to the file it opens first', async () => {
-      clock.now = '2026-10-21T10:00:00.000Z';
-      const w = await world([deployment({})]);
-      await w.files.choose('u1', await w.project(), 'm1');
-      const made = await w.files.share('u1', await inProject(w), 'a.pdf', 7);
-      if (!made.ok) throw new Error(made.why);
-      const { etag: _etag, ...before } = made.value;
-      await w.saveShare(before);
-      expect((await w.share(made.value.id))?.etag).toBeUndefined();
-      expect(await w.files.shared(made.value.token)).toMatchObject({ ok: true });
-      expect((await w.share(made.value.id))?.etag).toMatch(/^[0-9a-f]{32}$/);
-      w.kept.set('a.pdf', Buffer.from('replaced'));
-      expect(await w.files.shared(made.value.token)).toMatchObject({ ok: false, status: 404 });
+    it('removes everything a project keeps, and nothing of another', async () => {
+      const { service, me, project, kept } = await setUp();
+      await kept(project, 'a.txt', 'a');
+      await kept(project, 'chats/c1/b.txt', 'b');
+      await kept({ kind: 'person' }, 'mine.txt', 'm');
+      const projectId = project.kind === 'project' ? project.project.id : '';
+      expect(await service.removeProjectFiles(me, projectId)).toBe(2);
+      expect(await service.list(me, project, '')).toEqual({ ok: true, value: [] });
+      expect(await service.list(me, { kind: 'person' }, '')).toMatchObject({ value: [{ path: 'mine.txt' }] });
+      expect(await service.removeProjectFiles(me, projectId)).toBe(0);
     });
   });
 
-  describe('changing the files in a place', () => {
-    it('removes a file or folder and says which path went', async () => {
-      const w = await world([deployment({})], { ownerId: 'u1', deploymentId: 'm1' });
-      expect(await w.files.remove('u1', await inProject(w), 'docs/a.pdf')).toEqual({ ok: true, value: { path: 'docs/a.pdf' } });
-      expect(w.store.remove).toHaveBeenCalledWith('docs/a.pdf');
+  describe('share links', () => {
+    it('shares one file by a link that serves it to anyone until it expires, and only the person can see or revoke it', async () => {
+      const { service, me, project, clock, kept } = await setUp();
+      const stored = await kept(project, 'a.pdf', '%PDF', 'application/pdf');
+      expect(await service.share(me, project, 'nope.pdf', 7)).toMatchObject({ ok: false, status: 404 });
+      const made = await service.share(me, project, 'a.pdf', 1);
+      if (!made.ok) throw new Error(made.why);
+      expect(made.value).toMatchObject({ ownerId: me, projectId: project.kind === 'project' ? project.project.id : '', fileId: stored.id, path: 'a.pdf', name: 'a.pdf', expiresAt: '2026-10-22T10:00:00.000Z' });
+      expect(made.value.token).toMatch(/^[A-Za-z0-9_-]{32}$/);
+      expect(made.value.id).not.toBe(made.value.token);
+      expect(await service.shared(made.value.id)).toMatchObject({ ok: false, status: 404 });
+      const served = await service.shared(made.value.token);
+      if (!served.ok) throw new Error(served.why);
+      expect([served.value.name, served.value.contentType, (await bytesOf(served.value.stream)).toString()]).toEqual(['a.pdf', 'application/pdf', '%PDF']);
+      expect((await service.shares(me)).map((share) => share.id)).toEqual([made.value.id]);
+      expect(await service.shares('someone-else')).toEqual([]);
+      expect(await service.unshare('someone-else', made.value.id)).toMatchObject({ ok: false, status: 404 });
+
+      clock.now = '2026-10-22T10:00:01.000Z';
+      expect(await service.shared(made.value.token)).toMatchObject({ ok: false, status: 404 });
+      expect(await service.shares(me)).toEqual([]);
+      expect(await service.shared('../../etc/passwd')).toMatchObject({ ok: false, status: 404 });
     });
 
-    it('moves a file or folder and says where it went', async () => {
-      const w = await world([deployment({})], { ownerId: 'u1', deploymentId: 'm1' });
-      expect(await w.files.move('u1', await inProject(w), 'a.pdf', 'docs/a.pdf')).toEqual({ ok: true, value: { path: 'docs/a.pdf' } });
-      expect(w.store.move).toHaveBeenCalledWith('a.pdf', 'docs/a.pdf');
+    it('follows its file to a new version, and opens nothing once the file is moved or removed', async () => {
+      const { service, me, project, kept } = await setUp();
+      await kept(project, 'a.pdf', 'one');
+      await kept(project, 'b.pdf', 'b');
+      const a = await service.share(me, project, 'a.pdf', 7);
+      const b = await service.share(me, project, 'b.pdf', 7);
+      if (!a.ok || !b.ok) throw new Error('not shared');
+      await kept(project, 'a.pdf', 'second');
+      const served = await service.shared(a.value.token);
+      if (!served.ok) throw new Error(served.why);
+      expect((await bytesOf(served.value.stream)).toString()).toBe('second');
+      await service.move(me, project, 'a.pdf', 'old/a.pdf');
+      expect(await service.shared(a.value.token)).toMatchObject({ ok: false, status: 404 });
+      await service.remove(me, project, 'b.pdf');
+      expect(await service.shared(b.value.token)).toMatchObject({ ok: false, status: 404 });
     });
 
-    it('makes an empty folder', async () => {
-      const w = await world([deployment({})], { ownerId: 'u1', deploymentId: 'm1' });
-      expect(await w.files.makeFolder('u1', { kind: 'mine' }, 'chats')).toEqual({ ok: true, value: { path: 'chats' } });
-      expect(w.store.makeFolder).toHaveBeenCalledWith('chats');
-      expect(w.opened.at(-1)).toEqual({ kind: 'minio', deploymentId: 'm1', folder: 'personal' });
-    });
-
-    it('searches the place by name, and answers an empty search without opening it', async () => {
-      const w = await world([deployment({})], { ownerId: 'u1', deploymentId: 'm1' });
-      expect(await w.files.search('u1', await inProject(w), 'pdf')).toEqual({ ok: true, value: [{ name: 'a.pdf', path: 'a.pdf', type: 'file' }] });
-      expect(w.store.search).toHaveBeenCalledWith('pdf');
-      expect(await w.files.search('u1', await inProject(w), '   ')).toEqual({ ok: true, value: [] });
-      expect(w.store.search).toHaveBeenCalledOnce();
-    });
-
-    it('refuses every change while the person has no file server, and touches nothing', async () => {
-      const w = await world([]);
-      const scope = await inProject(w);
-      const none = { ok: false, status: 409, why: 'This project has no file server yet.' };
-      expect(await w.files.remove('u1', scope, 'a.pdf')).toEqual(none);
-      expect(await w.files.move('u1', scope, 'a.pdf', 'b.pdf')).toEqual(none);
-      expect(await w.files.makeFolder('u1', scope, 'docs')).toEqual(none);
-      expect(await w.files.search('u1', scope, 'pdf')).toEqual(none);
-      expect(w.store.remove).not.toHaveBeenCalled();
-      expect(w.store.move).not.toHaveBeenCalled();
-      expect(w.store.makeFolder).not.toHaveBeenCalled();
-      expect(w.store.search).not.toHaveBeenCalled();
+    it('opens nothing for a link made before links followed their file', async () => {
+      const { world, service, me } = await setUp();
+      const token = 'abcdefghijklmnopqrstuvwxyz012345';
+      await world.shares.saveFileShare({ id: `old-${me}`, token, ownerId: me, path: 'a.pdf', name: 'a.pdf', createdAt: '2026-10-21T09:00:00.000Z', expiresAt: '2026-10-28T09:00:00.000Z' });
+      expect(await service.shared(token)).toEqual({ ok: false, status: 404, why: 'This link was made for a file Koala no longer keeps, so it opens nothing.' });
+      await world.shares.deleteFileShare(`old-${me}`);
     });
   });
 }

@@ -1,25 +1,17 @@
+import type { Tx } from '../platform/index.js';
+import { ignore } from '@koala/engine-core/failures';
 import { randomUUID } from 'node:crypto';
 import { type AreaStore, fromDoc } from '../platform/lib/collection.js';
 import { decryptValue, encryptValue, type SecretKey } from '../platform/lib/crypto.js';
-import type { ArtifactChunk, StoredArtifact } from './lib/artifacts.js';
 import type { ClientSession, Collection, Db } from 'mongodb';
-import type { FileSettings } from './lib/file-places.js';
 import { shareTokenHash, type FileShare } from './lib/file-shares.js';
+import type { OldArtifact } from './lib/files-archive.js';
 import { commitPlan, folderPlan, movePlan, scopeMovePlan, type CommitPlan, type StoredFileCommit, type StoredFileRecord, type StoredScope } from './lib/stored-files.js';
 
 export type StoredFolderOutcome = { ok: true; made: boolean } | { ok: false; status: 400 | 409; why: string };
 export type StoredMoveOutcome = { ok: true; moved: number } | { ok: false; status: 400 | 404 | 409; why: string };
 
 export interface FilesStore extends AreaStore {
-  saveArtifact(artifact: StoredArtifact): Promise<void>;
-  getArtifacts(ownerId: string, runId?: string): Promise<StoredArtifact[]>;
-  getExpiredArtifacts(now: string): Promise<StoredArtifact[]>;
-  deleteArtifact(id: string): Promise<void>;
-  saveArtifactChunk(chunk: ArtifactChunk): Promise<void>;
-  getArtifactChunks(artifactId: string): Promise<ArtifactChunk[]>;
-  deleteArtifactChunks(artifactId: string): Promise<void>;
-  getFileSettings(ownerId: string): Promise<FileSettings | undefined>;
-  saveFileSettings(settings: FileSettings): Promise<void>;
   getFileShares(ownerId: string): Promise<FileShare[]>;
   getFileShare(id: string): Promise<FileShare | undefined>;
   getFileShareByToken(token: string): Promise<FileShare | undefined>;
@@ -31,13 +23,18 @@ export interface FilesStore extends AreaStore {
   commitStoredFiles(commits: readonly StoredFileCommit[], options: { replace: boolean }, at: string): Promise<CommitPlan>;
   storedFilesIn(ownerId: string, scope: StoredScope): Promise<StoredFileRecord[]>;
   storedFileById(id: string): Promise<StoredFileRecord | undefined>;
+  storedFileByObject(objectId: string): Promise<StoredFileRecord | undefined>;
   makeStoredFolder(record: StoredFileRecord): Promise<StoredFolderOutcome>;
   moveStoredFiles(ownerId: string, scope: StoredScope, from: string, to: string, at: string): Promise<StoredMoveOutcome>;
-  moveStoredScope(ownerId: string, from: StoredScope, to: StoredScope, under: string, at: string): Promise<number>;
+  moveStoredScope(ownerId: string, from: StoredScope, to: StoredScope, under: string, at: string, tx?: Tx): Promise<number>;
   deleteStoredFiles(ids: readonly string[]): Promise<void>;
   deadStoredUploads(touchedBefore: string): Promise<StoredFileRecord[]>;
   expiredStoredFiles(now: string): Promise<StoredFileRecord[]>;
-  storedFileIdsAmong(ids: readonly string[]): Promise<string[]>;
+  storedObjectIdsAmong(objectIds: readonly string[]): Promise<string[]>;
+  storedFilesOwnedBy(ownerId: string): Promise<StoredFileRecord[]>;
+  reownRunFiles(from: string, to: string, runIds?: readonly string[] | undefined): Promise<number>;
+  oldArtifacts(): AsyncIterable<OldArtifact>;
+  forgetOldArtifacts(): Promise<number>;
 }
 
 export class MongoFilesStore implements FilesStore {
@@ -52,55 +49,13 @@ export class MongoFilesStore implements FilesStore {
     return { ...(rest as Omit<FileShare, 'id' | 'token'>), id: String(_id), token: decryptValue(String(token), this.dataKey) };
   }
 
-  private get artifactChunks(): Collection {
-    return this.db().collection('artifactChunks');
-  }
-
-  private get artifacts(): Collection<{ _id: string }> {
-    return this.db().collection<{ _id: string }>('artifacts');
-  }
-
   async ensureIndexes(): Promise<void> {
-    await this.artifacts.createIndex({ ownerId: 1, runId: 1 });
-    await this.artifacts.createIndex({ expiresAt: 1 });
-    await this.artifactChunks.createIndex({ artifactId: 1, n: 1 });
     await this.shares.createIndex({ tokenHash: 1 }, { unique: true, partialFilterExpression: { tokenHash: { $exists: true } } });
     await this.shares.createIndex({ fileId: 1 });
     await this.stored.createIndex({ ownerId: 1, 'scope.kind': 1, 'scope.id': 1, path: 1 }, { unique: true, partialFilterExpression: { state: 'stored' } });
+    await this.stored.createIndex({ objectId: 1 });
     await this.stored.createIndex({ state: 1, touchedAt: 1 });
     await this.stored.createIndex({ expiresAt: 1 }, { partialFilterExpression: { expiresAt: { $exists: true } } });
-  }
-
-  async saveArtifact(artifact: StoredArtifact): Promise<void> {
-    const { id, ...rest } = artifact;
-    await this.artifacts.replaceOne({ _id: id }, rest, { upsert: true });
-  }
-
-  async getArtifacts(ownerId: string, runId?: string): Promise<StoredArtifact[]> {
-    const docs = await this.artifacts.find({ ownerId, ...(runId ? { runId } : {}) }).sort({ createdAt: 1 }).toArray();
-    return docs.map((d: Record<string, unknown>) => fromDoc<StoredArtifact>(d));
-  }
-
-  async getExpiredArtifacts(now: string): Promise<StoredArtifact[]> {
-    const docs = await this.artifacts.find({ expiresAt: { $lte: now } }).toArray();
-    return docs.map((d: Record<string, unknown>) => fromDoc<StoredArtifact>(d));
-  }
-
-  async deleteArtifact(id: string): Promise<void> {
-    await this.artifacts.deleteOne({ _id: id as never });
-  }
-
-  async saveArtifactChunk(chunk: ArtifactChunk): Promise<void> {
-    await this.artifactChunks.replaceOne({ _id: `${chunk.artifactId}:${chunk.n}` as never }, { artifactId: chunk.artifactId, ownerId: chunk.ownerId, n: chunk.n, data: chunk.data }, { upsert: true });
-  }
-
-  async getArtifactChunks(artifactId: string): Promise<ArtifactChunk[]> {
-    const docs = await this.artifactChunks.find({ artifactId }).sort({ n: 1 }).toArray();
-    return docs.map((d) => ({ artifactId: d.artifactId as string, ownerId: d.ownerId as string, n: d.n as number, data: Buffer.from((d.data as { buffer: ArrayBuffer }).buffer ?? d.data) }));
-  }
-
-  async deleteArtifactChunks(artifactId: string): Promise<void> {
-    await this.artifactChunks.deleteMany({ artifactId });
   }
 
   async getFileShares(ownerId: string): Promise<FileShare[]> {
@@ -137,23 +92,12 @@ export class MongoFilesStore implements FilesStore {
     return plain.length;
   }
 
-  async getFileSettings(ownerId: string): Promise<FileSettings | undefined> {
-    const doc = await this.db().collection('fileSettings').findOne({ _id: ownerId as never });
-    if (!doc) return undefined;
-    const { _id, ...rest } = doc;
-    return { ...(rest as Omit<FileSettings, 'ownerId'>), ownerId: String(_id) };
-  }
-
-  async saveFileSettings(settings: FileSettings): Promise<void> {
-    const { ownerId, ...rest } = settings;
-    await this.db().collection('fileSettings').replaceOne({ _id: ownerId as never }, rest, { upsert: true });
-  }
-
   private get stored(): Collection<{ _id: string }> {
     return this.db().collection<{ _id: string }>('storedFiles');
   }
 
-  private inTransaction<T>(work: (session: ClientSession) => Promise<T>): Promise<T> {
+  private inTransaction<T>(work: (session: ClientSession) => Promise<T>, tx?: Tx): Promise<T> {
+    if (tx?.session) return work(tx.session);
     return this.db().client.withSession((session) => session.withTransaction(() => work(session)));
   }
 
@@ -182,7 +126,7 @@ export class MongoFilesStore implements FilesStore {
   async commitStoredFiles(commits: readonly StoredFileCommit[], options: { replace: boolean }, at: string): Promise<CommitPlan> {
     return this.inTransaction(async (session) => {
       const uploading = await Promise.all(commits.map(async (commit) => {
-        const doc = await this.stored.findOne({ _id: commit.id }, { session });
+        const doc = await this.stored.findOne({ _id: commit.id }, { session }) ?? await this.stored.findOne({ objectId: commit.id }, { session });
         return doc ? this.recordOf(doc) : undefined;
       }));
       const scopes = new Map<string, StoredFileRecord[]>();
@@ -193,7 +137,7 @@ export class MongoFilesStore implements FilesStore {
       }
       const plan = commitPlan(uploading, commits, (record) => scopes.get(`${record.ownerId}|${record.scope.kind}|${record.scope.id}`) ?? [], options, at);
       if (!plan.ok) return plan;
-      if (plan.replaced.length > 0) await this.stored.deleteMany({ _id: { $in: plan.replaced } }, { session });
+      if (plan.absorbed.length > 0) await this.stored.deleteMany({ _id: { $in: plan.absorbed } }, { session });
       for (const record of plan.stored) {
         const { id, ...rest } = record;
         await this.stored.replaceOne({ _id: id }, rest, { session });
@@ -209,6 +153,11 @@ export class MongoFilesStore implements FilesStore {
 
   async storedFileById(id: string): Promise<StoredFileRecord | undefined> {
     const doc = await this.stored.findOne({ _id: id });
+    return doc ? this.recordOf(doc) : undefined;
+  }
+
+  async storedFileByObject(objectId: string): Promise<StoredFileRecord | undefined> {
+    const doc = await this.stored.findOne({ objectId });
     return doc ? this.recordOf(doc) : undefined;
   }
 
@@ -234,14 +183,14 @@ export class MongoFilesStore implements FilesStore {
     });
   }
 
-  async moveStoredScope(ownerId: string, from: StoredScope, to: StoredScope, under: string, at: string): Promise<number> {
+  async moveStoredScope(ownerId: string, from: StoredScope, to: StoredScope, under: string, at: string, tx?: Tx): Promise<number> {
     return this.inTransaction(async (session) => {
       const moves = scopeMovePlan(await this.scopeRecords(ownerId, from, session), under);
       for (const move of moves) await this.stored.updateOne({ _id: move.id }, { $set: { scope: to, path: move.path, changedAt: at } }, { session });
       const ids = moves.map((move) => move.id);
       if (ids.length > 0) await this.shares.deleteMany({ fileId: { $in: ids } }, { session });
       return ids.length;
-    });
+    }, tx);
   }
 
   async deleteStoredFiles(ids: readonly string[]): Promise<void> {
@@ -262,9 +211,41 @@ export class MongoFilesStore implements FilesStore {
     return docs.map((doc) => this.recordOf(doc));
   }
 
-  async storedFileIdsAmong(ids: readonly string[]): Promise<string[]> {
-    if (ids.length === 0) return [];
-    const docs = await this.stored.find({ _id: { $in: [...ids] } }).project<{ _id: string }>({ _id: 1 }).toArray();
-    return docs.map((doc) => doc._id);
+  async storedObjectIdsAmong(objectIds: readonly string[]): Promise<string[]> {
+    if (objectIds.length === 0) return [];
+    const docs = await this.stored.find({ objectId: { $in: [...objectIds] } }).project<{ objectId: string }>({ _id: 0, objectId: 1 }).toArray();
+    return [...new Set(docs.map((doc) => doc.objectId))];
+  }
+
+  async storedFilesOwnedBy(ownerId: string): Promise<StoredFileRecord[]> {
+    const docs = await this.stored.find({ ownerId }).toArray();
+    return docs.map((doc) => this.recordOf(doc));
+  }
+
+  async reownRunFiles(from: string, to: string, runIds?: readonly string[] | undefined): Promise<number> {
+    if (from === to || (runIds && runIds.length === 0)) return 0;
+    const { modifiedCount } = await this.stored.updateMany(
+      { ownerId: from, 'scope.kind': 'run', ...(runIds ? { 'scope.id': { $in: [...runIds] } } : {}) },
+      { $set: { ownerId: to } },
+    );
+    return modifiedCount;
+  }
+
+  async *oldArtifacts(): AsyncIterable<OldArtifact> {
+    const artifacts = this.db().collection<{ _id: string; ownerId?: string; runId?: string; name?: string; contentType?: string }>('artifacts');
+    const chunks = this.db().collection<{ artifactId: string; n: number; data: { buffer: ArrayBuffer } | Buffer }>('artifactChunks');
+    for await (const artifact of artifacts.find({})) {
+      if (!artifact.ownerId) continue;
+      const parts = await chunks.find({ artifactId: artifact._id }).sort({ n: 1 }).toArray();
+      const bytes = Buffer.concat(parts.map((part) => (Buffer.isBuffer(part.data) ? part.data : Buffer.from(part.data.buffer))));
+      yield { ownerId: artifact.ownerId, runId: artifact.runId ?? '', name: artifact.name ?? '', contentType: artifact.contentType || 'application/octet-stream', bytes };
+    }
+  }
+
+  async forgetOldArtifacts(): Promise<number> {
+    const gone = await this.db().collection('artifacts').countDocuments();
+    await this.db().collection('artifacts').drop().catch(ignore('there were no old artifacts to forget'));
+    await this.db().collection('artifactChunks').drop().catch(ignore('there were no old artifact pieces to forget'));
+    return gone;
   }
 }

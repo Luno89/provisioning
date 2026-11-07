@@ -49,7 +49,7 @@ export class MemoryProjectsStore implements ProjectsStore {
 
   async removeProjectRecords(projectId: string): Promise<Record<string, number>> {
     const removed: Record<string, number> = {};
-    for (const name of ['pipelineRuns', 'odooReleases', 'corpus', 'secretRequests', 'pendingApprovals', 'tasks', 'fileShares']) {
+    for (const name of ['pipelineRuns', 'odooReleases', 'corpus', 'secretRequests', 'pendingApprovals', 'tasks']) {
       const deleted = removeWhere(this.collections, name, (row) => row.projectId === projectId);
       if (deleted) removed[name] = deleted;
     }

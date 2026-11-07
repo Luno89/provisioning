@@ -4,27 +4,16 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ReactNode } from 'react'
 import * as filesApi from '../api/files'
 import * as projectFilesApi from '../../projects/api/project-files'
-import FilePlacePicker from './FilePlacePicker'
 import StoredFiles from './StoredFiles'
 import ProjectStoredFiles from './ProjectStoredFiles'
 import RepositoryFiles from './RepositoryFiles'
-import DefaultFileServer from './DefaultFileServer'
+import OwnFiles from './OwnFiles'
 import FileShares from './FileShares'
-import type { PlaceState } from '../types'
-
-vi.mock('@tanstack/react-router', () => ({
-  Link: ({ children, className }: { children: ReactNode; className?: string }) => <a className={className}>{children}</a>,
-}))
 
 vi.mock('../api/files', async (orig) => ({
   ...(await orig<typeof filesApi>()),
-  getFileServers: vi.fn(),
-  setDefaultFileServer: vi.fn(async (deploymentId: string | null) => (deploymentId ? { defaultId: deploymentId } : {})),
-  getFilePlace: vi.fn(),
-  chooseFileServer: vi.fn(),
-  startProjectMinio: vi.fn(),
   listStoredFiles: vi.fn(),
-  uploadStoredFile: vi.fn(async (_scope: unknown, path: string) => ({ path })),
+  uploadStoredFile: vi.fn(async (_scope: unknown, path: string) => ({ path, id: `id-${path}` })),
   removeStoredFile: vi.fn(async (_scope: unknown, path: string) => ({ path })),
   moveStoredFile: vi.fn(async (_scope: unknown, _from: string, to: string) => ({ path: to })),
   makeStoredFolder: vi.fn(async (_scope: unknown, path: string) => ({ path })),
@@ -40,9 +29,6 @@ vi.mock('../../projects/api/project-files', async (orig) => ({
   dropIntoRepository: vi.fn(async (_id: string, _settings: unknown, files: readonly { path: string }[]) => ({ ok: true, paths: files.map((file) => file.path), commit: 'c1' })),
 }))
 
-const minio = { kind: 'minio' as const, deploymentId: 'm1', name: 'minio', clusterId: 'c1' }
-const ready: PlaceState = { state: 'ready', place: { kind: 'minio', deploymentId: 'm1', folder: 'shop' }, server: minio, chosen: true }
-
 const show = (node: ReactNode) => render(
   <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>{node}</QueryClientProvider>,
 )
@@ -55,32 +41,7 @@ const dropOn = (target: HTMLElement, files: File[]) => {
 
 beforeEach(() => {
   vi.clearAllMocks()
-  vi.mocked(filesApi.getFileServers).mockResolvedValue({ servers: [minio] })
   vi.mocked(filesApi.listStoredFiles).mockResolvedValue([])
-})
-
-describe('where a project\'s files go', () => {
-  it('offers the person\'s servers and starting MinIO when it has none, and says when one is starting', async () => {
-    let state: PlaceState = { state: 'none' }
-    vi.mocked(filesApi.getFilePlace).mockImplementation(async () => state)
-    vi.mocked(filesApi.startProjectMinio).mockImplementation(async () => { state = { state: 'starting', place: { kind: 'minio', deploymentId: 'new', folder: 'shop' }, server: 'koala-files' }; return state })
-    show(<FilePlacePicker projectId="p1" />)
-    expect(await screen.findByText(/no file server yet/)).toBeInTheDocument()
-    expect(screen.getByRole('option', { name: 'minio' })).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: 'Start MinIO for this project' }))
-    expect(await screen.findByText(/koala-files is starting/)).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Start MinIO for this project' })).not.toBeInTheDocument()
-  })
-
-  it('chooses a server for the project', async () => {
-    let state: PlaceState = { state: 'none' }
-    vi.mocked(filesApi.getFilePlace).mockImplementation(async () => state)
-    vi.mocked(filesApi.chooseFileServer).mockImplementation(async () => { state = ready; return ready })
-    show(<FilePlacePicker projectId="p1" />)
-    fireEvent.change(await screen.findByRole('combobox', { name: "The project's file server" }), { target: { value: 'm1' } })
-    await waitFor(() => expect(filesApi.chooseFileServer).toHaveBeenCalledWith('p1', 'm1'))
-    expect(await screen.findByText(/minio \(MinIO\), in the folder shop/)).toBeInTheDocument()
-  })
 })
 
 describe('a project\'s stored files', () => {
@@ -121,18 +82,20 @@ describe('a project\'s stored files', () => {
     await waitFor(() => expect(filesApi.moveStoredFile).toHaveBeenCalledWith({ kind: 'mine' }, 'a.txt', 'b.txt'))
   })
 
-  it('holds a drop while the project has no server, and adds it once one is running', async () => {
-    let state: PlaceState = { state: 'none' }
-    vi.mocked(filesApi.getFilePlace).mockImplementation(async () => state)
-    vi.mocked(filesApi.chooseFileServer).mockImplementation(async () => { state = ready; return ready })
+  it('shows a project\'s files at once, with nothing to choose first', async () => {
+    vi.mocked(filesApi.listStoredFiles).mockResolvedValue([{ name: 'photo.jpg', path: 'photo.jpg', type: 'file', size: 1 }])
     show(<ProjectStoredFiles projectId="p1" />)
-    await screen.findByText(/no file server yet/)
-    const photo = new File(['x'], 'photo.jpg', { type: 'image/jpeg' })
+    expect(await screen.findByText('photo.jpg')).toBeInTheDocument()
+    expect(filesApi.listStoredFiles).toHaveBeenCalledWith({ kind: 'project', projectId: 'p1' }, '')
+    const photo = new File(['x'], 'other.jpg', { type: 'image/jpeg' })
     await act(async () => { dropOn(screen.getAllByTestId('drop-target')[0]!, [photo]) })
-    expect(await screen.findByTestId('held-files')).toHaveTextContent('1 file waiting')
-    expect(filesApi.uploadStoredFile).not.toHaveBeenCalled()
-    fireEvent.change(screen.getByRole('combobox', { name: "The project's file server" }), { target: { value: 'm1' } })
-    await waitFor(() => expect(filesApi.uploadStoredFile).toHaveBeenCalledWith({ kind: 'project', projectId: 'p1' }, 'photo.jpg', photo, expect.any(Function)))
+    await waitFor(() => expect(filesApi.uploadStoredFile).toHaveBeenCalledWith({ kind: 'project', projectId: 'p1' }, 'other.jpg', photo, expect.any(Function)))
+  })
+
+  it('reaches a chat\'s own files under the chat', async () => {
+    vi.mocked(filesApi.listStoredFiles).mockResolvedValue([{ name: 'notes.txt', path: 'notes.txt', type: 'file', size: 4 }])
+    show(<StoredFiles scope={{ kind: 'conversation', conversationId: 'c 1' }} />)
+    expect(await screen.findByRole('link', { name: 'Download notes.txt' })).toHaveAttribute('href', expect.stringContaining('/files/conversations/c%201/content?path=notes.txt'))
   })
 })
 
@@ -243,16 +206,13 @@ describe('code dropped on a story', () => {
   })
 })
 
-describe('the person\'s default file server', () => {
-  it('is chosen from their running servers, or says how to get one', async () => {
-    show(<DefaultFileServer />)
-    fireEvent.change(await screen.findByRole('combobox', { name: 'Your default file server' }), { target: { value: 'm1' } })
-    await waitFor(() => expect(filesApi.setDefaultFileServer).toHaveBeenCalledWith('m1'))
-  })
-
-  it('says there is none yet', async () => {
-    vi.mocked(filesApi.getFileServers).mockResolvedValue({ servers: [] })
-    show(<DefaultFileServer />)
-    expect(await screen.findByText(/You have no file server running yet/)).toBeInTheDocument()
+describe('the person\'s own files in Settings', () => {
+  it('shows their files and the links they shared, with no server to choose', async () => {
+    vi.mocked(filesApi.listStoredFiles).mockResolvedValue([{ name: 'notes.txt', path: 'notes.txt', type: 'file', size: 4 }])
+    show(<OwnFiles />)
+    expect(await screen.findByText('notes.txt')).toBeInTheDocument()
+    expect(filesApi.listStoredFiles).toHaveBeenCalledWith({ kind: 'mine' }, '')
+    expect(filesApi.listFileShares).toHaveBeenCalled()
+    expect(screen.queryByRole('combobox', { name: /file server/ })).toBeNull()
   })
 })

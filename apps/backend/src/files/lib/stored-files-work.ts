@@ -9,7 +9,7 @@ export const storedFilesWorkflowId = (ownerId: string, id: string): string => `s
 
 export type StoredFilesWork =
   | { op: 'commit'; ownerId: string; commits: StoredFileCommit[]; replace: boolean }
-  | { op: 'remove'; ownerId: string; ids: string[] };
+  | { op: 'remove'; ownerId: string; ids: string[]; objectIds: string[] };
 
 export type StoredFilesDone = { op: 'commit'; plan: CommitPlan } | { op: 'remove'; removed: number };
 
@@ -22,23 +22,23 @@ export interface StoredFilesSwept {
 export interface StoredFilesActivities {
   StoredFilesCommitActivity(args: { commits: StoredFileCommit[]; replace: boolean }): Promise<CommitPlan>;
   StoredFilesForgetActivity(args: { ids: string[] }): Promise<void>;
-  StoredFilesRemoveBytesActivity(args: { ids: string[] }): Promise<void>;
+  StoredFilesRemoveBytesActivity(args: { objectIds: string[] }): Promise<void>;
   StoredFilesSweepActivity(): Promise<StoredFilesSwept>;
 }
 
 export async function doStoredFilesWork(work: StoredFilesWork, activities: Omit<StoredFilesActivities, 'StoredFilesSweepActivity'>): Promise<StoredFilesDone> {
   if (work.op === 'remove') {
     await activities.StoredFilesForgetActivity({ ids: work.ids });
-    await activities.StoredFilesRemoveBytesActivity({ ids: work.ids });
+    await activities.StoredFilesRemoveBytesActivity({ objectIds: work.objectIds });
     return { op: 'remove', removed: work.ids.length };
   }
   const plan = await activities.StoredFilesCommitActivity({ commits: work.commits, replace: work.replace });
   if (!plan.ok) {
     const refusedIds = work.commits.map((commit) => commit.id);
     await activities.StoredFilesForgetActivity({ ids: refusedIds });
-    await activities.StoredFilesRemoveBytesActivity({ ids: refusedIds });
+    await activities.StoredFilesRemoveBytesActivity({ objectIds: refusedIds });
   } else if (plan.replaced.length > 0) {
-    await activities.StoredFilesRemoveBytesActivity({ ids: plan.replaced });
+    await activities.StoredFilesRemoveBytesActivity({ objectIds: plan.replaced });
   }
   return { op: 'commit', plan };
 }

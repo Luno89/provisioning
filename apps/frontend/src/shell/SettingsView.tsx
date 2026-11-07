@@ -6,7 +6,7 @@ import { InstanceAddresses } from '../features/accounts';
 import { InstanceMove, InstanceUpdates, InstanceWatch } from '../features/instances';
 import { Notifications } from '../features/accounts';
 import { OtherSessions } from '../features/accounts';
-import { DefaultFileServer } from '../features/files'
+import { OwnFiles } from '../features/files'
 import { GoogleDriveCard } from '../features/infrastructure';
 
 export default function SettingsView() {
@@ -41,7 +41,7 @@ export default function SettingsView() {
       {can('change-instance-settings') && <InstanceMove />}
       <Notifications />
       <InstanceWatch />
-      <DefaultFileServer />
+      <OwnFiles />
       {can('administer') && <GoogleDriveCard />}
 
       {can('manage-accounts') && <People />}

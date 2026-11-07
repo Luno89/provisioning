@@ -1,25 +1,6 @@
-import { v4 as uuidv4 } from 'uuid';
-import { chunksOf, contentTypeOf, expiresFrom, objectKey, withinBudget, type ArtifactPlace, type StoredArtifact } from '../lib/artifacts.js';
-
-import type { ArtifactChunk } from '../lib/artifacts.js';
-
-export type { ArtifactChunk };
-
-export interface ArtifactRecords {
-  saveArtifact(artifact: StoredArtifact): Promise<void>;
-  getArtifacts(ownerId: string, runId?: string): Promise<StoredArtifact[]>;
-  getExpiredArtifacts(now: string): Promise<StoredArtifact[]>;
-  deleteArtifact(id: string): Promise<void>;
-  saveArtifactChunk(chunk: ArtifactChunk): Promise<void>;
-  getArtifactChunks(artifactId: string): Promise<ArtifactChunk[]>;
-  deleteArtifactChunks(artifactId: string): Promise<void>;
-}
-
-export interface ObjectStore {
-  put(key: string, bytes: Buffer, contentType: string): Promise<void>;
-  get(key: string): Promise<Buffer>;
-  remove(key: string): Promise<void>;
-}
+import { Readable } from 'node:stream';
+import { artifactOf, contentTypeOf, expiresFrom, withinBudget, type StoredArtifact } from '../lib/artifacts.js';
+import type { StoredFiles } from './StoredFiles.js';
 
 export interface ArtifactFile {
   name: string;
@@ -30,15 +11,11 @@ export interface ArtifactFile {
 export interface StoredArtifacts {
   stored: StoredArtifact[];
   dropped: string[];
-  place: ArtifactPlace;
-  minioMissing: boolean;
 }
 
 export interface ArtifactDeps {
-  records: ArtifactRecords;
-  minioFor: (ownerId: string) => Promise<ObjectStore | undefined>;
+  files: Pick<StoredFiles, 'at' | 'byId' | 'recordById'>;
   now?: (() => string) | undefined;
-  newId?: (() => string) | undefined;
 }
 
 export class ArtifactService {
@@ -48,80 +25,36 @@ export class ArtifactService {
     return (this.deps.now ?? (() => new Date().toISOString()))();
   }
 
-  async put(ownerId: string, runId: string, files: readonly ArtifactFile[]): Promise<StoredArtifacts> {
-    const used = (await this.deps.records.getArtifacts(ownerId, runId)).reduce((sum, artifact) => sum + artifact.size, 0);
-    const { kept, dropped } = withinBudget(files.map((file) => ({ ...file, size: file.bytes.length })), used);
-    const minio = await this.deps.minioFor(ownerId).catch((err: Error) => {
-      console.warn(`[artifacts] the MinIO of ${ownerId} could not be reached, so these artifacts are kept in Mongo: ${err.message}`);
-      return undefined;
-    });
-    const place: ArtifactPlace = minio ? 'minio' : 'mongo';
-    const stamp = this.now();
-    const stored: StoredArtifact[] = [];
+  private run(ownerId: string, runId: string) {
+    return this.deps.files.at(ownerId, { kind: 'run', id: runId });
+  }
 
+  async put(ownerId: string, runId: string, files: readonly ArtifactFile[]): Promise<StoredArtifacts> {
+    const folder = this.run(ownerId, runId);
+    const used = (await folder.files()).reduce((sum, record) => sum + record.size, 0);
+    const { kept, dropped } = withinBudget(files.map((file) => ({ ...file, size: file.bytes.length })), used);
+    const expiresAt = expiresFrom(this.now());
+    const stored: StoredArtifact[] = [];
     for (const file of kept) {
-      const artifact: StoredArtifact = {
-        id: (this.deps.newId ?? uuidv4)(),
-        ownerId,
-        runId,
-        name: file.name,
-        contentType: file.contentType ?? contentTypeOf(file.name),
-        size: file.size,
-        place,
-        createdAt: stamp,
-        expiresAt: expiresFrom(stamp),
-      };
-      if (minio) await minio.put(objectKey(artifact), file.bytes, artifact.contentType);
-      else {
-        for (const [n, data] of chunksOf(file.bytes).entries()) await this.deps.records.saveArtifactChunk({ artifactId: artifact.id, ownerId, n, data });
-      }
-      await this.deps.records.saveArtifact(artifact);
-      stored.push(artifact);
+      const saved = await folder.upload(file.name, Readable.from([file.bytes]), file.size, file.contentType ?? contentTypeOf(file.name), { replace: true, expiresAt });
+      if (!saved.ok) throw new Error(`${file.name} of run ${runId} could not be kept: ${saved.why}`);
+      stored.push(artifactOf(saved.value));
     }
-    return { stored, dropped: dropped.map((file) => file.name), place, minioMissing: !minio };
+    return { stored, dropped: dropped.map((file) => file.name) };
   }
 
   async list(ownerId: string, runId: string): Promise<StoredArtifact[]> {
-    return this.deps.records.getArtifacts(ownerId, runId);
+    return (await this.run(ownerId, runId).files()).map(artifactOf).sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.name.localeCompare(b.name));
   }
 
-  async get(ownerId: string, id: string): Promise<{ artifact: StoredArtifact; bytes: Buffer } | undefined> {
-    const artifact = (await this.deps.records.getArtifacts(ownerId)).find((entry) => entry.id === id);
-    if (!artifact) return undefined;
-    if (artifact.place === 'minio') {
-      const minio = await this.deps.minioFor(ownerId);
-      if (!minio) throw new Error('this artifact is kept in MinIO, which is not reachable now');
-      return { artifact, bytes: await minio.get(objectKey(artifact)) };
-    }
-    const chunks = (await this.deps.records.getArtifactChunks(id)).sort((a, b) => a.n - b.n);
-    return { artifact, bytes: Buffer.concat(chunks.map((chunk) => Buffer.from(chunk.data))) };
-  }
-
-  private async remove(artifact: StoredArtifact): Promise<boolean> {
-    if (artifact.place === 'minio') {
-      try {
-        const minio = await this.deps.minioFor(artifact.ownerId);
-        await minio?.remove(objectKey(artifact));
-      } catch (err) {
-        console.warn(`[artifacts] ${artifact.name} of run ${artifact.runId} stays until its MinIO answers, when the sweep removes it: ${(err as Error).message}`);
-        return false;
-      }
-    } else await this.deps.records.deleteArtifactChunks(artifact.id);
-    await this.deps.records.deleteArtifact(artifact.id);
-    return true;
-  }
-
-  private async removeAll(artifacts: readonly StoredArtifact[]): Promise<number> {
-    let removed = 0;
-    for (const artifact of artifacts) if (await this.remove(artifact)) removed += 1;
-    return removed;
+  async get(ownerId: string, id: string): Promise<{ artifact: StoredArtifact; body: Readable } | undefined> {
+    const record = await this.deps.files.recordById(ownerId, id);
+    if (record?.scope.kind !== 'run') return undefined;
+    const found = await this.deps.files.byId(ownerId, id);
+    return found ? { artifact: artifactOf(found.record), body: found.body } : undefined;
   }
 
   async removeRun(ownerId: string, runId: string): Promise<number> {
-    return this.removeAll(await this.deps.records.getArtifacts(ownerId, runId));
-  }
-
-  async sweep(): Promise<number> {
-    return this.removeAll(await this.deps.records.getExpiredArtifacts(this.now()));
+    return this.run(ownerId, runId).removeAll();
   }
 }

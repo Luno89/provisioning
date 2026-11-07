@@ -6,7 +6,7 @@ import type { Database } from '../platform/lib/db-interface.js';
 import { memoryDatabase } from '../platform/testing/memory-database.js';
 import { planAppDestroys, createProjectRemovalActivities, type ProjectRemovalActivities, type ProjectRemovalDeps } from './RemoveProjectActivities.js';
 
-type Files = NonNullable<ProjectRemovalDeps['files']>;
+type Files = ProjectRemovalDeps['files'];
 type Artifacts = NonNullable<ProjectRemovalDeps['artifacts']>;
 
 let db: Database;
@@ -25,6 +25,7 @@ const steps = (over: Partial<ProjectRemovalDeps> = {}): ProjectRemovalActivities
   kube,
   repositories,
   secrets,
+  files,
   apps: {
     clusterById: async (id) => (id === 'system' ? { id: 'system', name: 'provisioning-lunorica', provider: 'k3d', status: 'running' } as never : undefined),
     logFile: () => '/logs/destroy.log',
@@ -43,8 +44,7 @@ beforeEach(async () => {
   secrets = mock<ProjectRemovalDeps['secrets']>();
   secrets.removeProject.mockResolvedValue({ workspace: true, readers: 1 });
   files = mock<Files>();
-  files.personalServer.mockResolvedValue('m1');
-  files.removeAll.mockResolvedValue('removed');
+  files.removeProjectFiles.mockResolvedValue(3);
   artifacts = mock<Artifacts>();
   for (const id of ['p1', 'p2']) {
     await db.projects.saveProject({ id, name: `shop-${id}`, ownerId: 'bo', giteaOwner: 'koala-bo', giteaRepo: `shop-${id}`, appType: 'gitapp', createdAt: at });
@@ -111,23 +111,11 @@ describe('the steps that delete a project', () => {
     expect(await steps().RemoveProjectSecretsActivity({ projectId: 'p2' })).toEqual({ workspace: true, readers: 1 });
   });
 
-  it('deletes its files on its file server, and does nothing for a project that never kept any', async () => {
-    await db.projects.saveProjectInfo({ id: 'p1', files: { kind: 'minio', deploymentId: 'm1', folder: 'shop' } } as never);
-    expect(await steps({ files }).RemoveProjectFilesActivity({ projectId: 'p1' })).toBe('removed');
-    expect(await steps({ files }).RemoveProjectFilesActivity({ projectId: 'p2' })).toBe('none');
-    expect(await steps().RemoveProjectFilesActivity({ projectId: 'p1' })).toBe('none');
-    expect(files.removeAll).toHaveBeenCalledTimes(1);
-    expect(files.removeAll).toHaveBeenCalledWith('bo', { kind: 'minio', deploymentId: 'm1', folder: 'shop' });
-  });
-
-  it('keeps a folder another of the person\'s projects or their own files also use, rather than delete what is not the project\'s', async () => {
-    await db.projects.saveProjectInfo({ id: 'p1', files: { kind: 'minio', deploymentId: 'm1', folder: 'shop' } } as never);
-    await db.projects.saveProjectInfo({ id: 'p2', files: { kind: 'minio', deploymentId: 'm1', folder: 'shop' } } as never);
-    expect(await steps({ files }).RemoveProjectFilesActivity({ projectId: 'p1' })).toBe('shared');
-    await db.projects.saveProjectInfo({ id: 'p1', files: { kind: 'minio', deploymentId: 'm1', folder: 'personal' } } as never);
-    await db.projects.saveProjectInfo({ id: 'p2', files: { kind: 'minio', deploymentId: 'm1', folder: 'books' } } as never);
-    expect(await steps({ files }).RemoveProjectFilesActivity({ projectId: 'p1' })).toBe('shared');
-    expect(files.removeAll).not.toHaveBeenCalled();
+  it('removes everything the project keeps as its owner, and nothing for a project that is not there', async () => {
+    expect(await steps().RemoveProjectFilesActivity({ projectId: 'p1' })).toBe(3);
+    expect(files.removeProjectFiles).toHaveBeenCalledExactlyOnceWith('bo', 'p1');
+    expect(await steps().RemoveProjectFilesActivity({ projectId: 'nope' })).toBe(0);
+    expect(files.removeProjectFiles).toHaveBeenCalledOnce();
   });
 
   it('deletes its records, unlinks what only mentions it, and leaves the other project whole', async () => {
@@ -183,7 +171,7 @@ describe('the steps that delete a project', () => {
     await db.projects.saveProject({ id: 'p9', name: 'x', ownerId: 'bo', appType: 'gitapp', createdAt: at });
     expect(await steps().RemoveProjectRecordsActivity({ projectId: 'nope' })).toEqual({});
     expect(await steps().RemoveProjectRepositoriesActivity({ projectId: 'nope' })).toEqual([]);
-    expect(await steps().RemoveProjectFilesActivity({ projectId: 'nope' })).toBe('none');
+    expect(await steps().RemoveProjectFilesActivity({ projectId: 'nope' })).toBe(0);
   });
 });
 

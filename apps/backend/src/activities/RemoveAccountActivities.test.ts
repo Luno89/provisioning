@@ -11,6 +11,7 @@ type Workflows = AccountRemovalDeps['workflows'];
 type Repositories = AccountRemovalDeps['repositories'];
 type Mesh = AccountRemovalDeps['mesh'];
 type Secrets = AccountRemovalDeps['secrets'];
+type Files = AccountRemovalDeps['files'];
 
 const at = 'then';
 
@@ -20,16 +21,18 @@ let kube: ReturnType<typeof mockFn<KubeRunner>>;
 let repositories: ReturnType<typeof mock<Repositories>>;
 let mesh: ReturnType<typeof mock<Mesh>>;
 let secrets: ReturnType<typeof mock<Secrets>>;
+let files: ReturnType<typeof mock<Files>>;
 
 const done = (over: Partial<KubeResult> = {}): KubeResult => ({ stdout: 'namespace "koala-run-conversation-c1" deleted', stderr: '', exitCode: 0, ...over });
 
 const steps = (over: Partial<AccountRemovalDeps> = {}): AccountRemovalActivities => createAccountRemovalActivities({
-  store: { accounts: db.accounts, projects: db.projects, engine: db.engine, infrastructure: db.infrastructure },
+  store: { accounts: db.accounts, projects: db.projects, engine: db.engine, files: db.files, infrastructure: db.infrastructure },
   workflows,
   kube,
   repositories,
   mesh,
   secrets,
+  files,
   apps: { clusterById: async () => undefined, logFile: () => '/logs/destroy.log', taskQueue: 'cluster-ops-queue' },
   ...over,
 });
@@ -46,6 +49,8 @@ beforeEach(async () => {
   mesh.removeUser.mockResolvedValue({ devices: 2, user: true });
   secrets = mock<Secrets>();
   secrets.removeProject.mockResolvedValue({ workspace: true, readers: 1 });
+  files = mock<Files>();
+  files.removeOwned.mockResolvedValue(0);
   await db.accounts.saveUser({ id: 'bo', email: 'bo@example.com', twoFactorEnabled: false, emailVerified: true, createdAt: at });
   await db.accounts.saveUser({ id: 'ana', email: 'ana@example.com', twoFactorEnabled: false, emailVerified: true, createdAt: at });
   await db.projects.saveGiteaAccount({ ownerId: 'bo', username: 'koala-bo', passwordEnc: 'x', createdAt: at });
@@ -91,8 +96,10 @@ describe('the steps that remove an account', () => {
       runId: 'run-1', ownerId: 'bo', agentSlug: 'koala', procedureId: 'chat', procedureVersion: '1', modelKey: 'k', modelLabel: 'l', outcome: 'ok', rounds: 1, toolCalls: 0, totalTokens: 1,
       childRuns: 0, longestReply: 1, cappedAt: 0, steps: 1, wallClockMs: 1, ask: 'a', limits: {} as never, finishedAt: 't',
     });
-    expect(await steps().RemoveAccountKeepRunsActivity({ ownerId: 'bo', keepRunsFor: 'ana' })).toBe(1);
+    await db.files.beginStoredFile({ id: 'shot', objectId: 'shot', ownerId: 'bo', scope: { kind: 'run', id: 'run-1' }, path: 'shot.png', kind: 'file', size: 0, contentType: 'image/png', version: 0, madeAt: at, changedAt: at, state: 'uploading', touchedAt: at });
+    expect(await steps().RemoveAccountKeepRunsActivity({ ownerId: 'bo', keepRunsFor: 'ana' })).toBe(2);
     expect((await db.engine.findRunEffort('run-1'))?.ownerId).toBe('ana');
+    expect((await db.files.storedFileById('shot'))?.ownerId).toBe('ana');
   });
 
   it('plans the destroy of every app it still has, and only its own', async () => {
@@ -154,6 +161,13 @@ describe('the steps that remove an account', () => {
     expect(await db.engine.getConversation('ana', 'ana-c1')).toBeDefined();
     expect(await db.memory.getMemoryWatermark('conversation:ana-c1')).toBe('4');
     expect(await db.accounts.accountLeftovers('bo')).toEqual({});
+    expect(files.removeOwned).toHaveBeenCalledExactlyOnceWith('bo');
+  });
+
+  it('removes every file the account keeps, counted with its records', async () => {
+    files.removeOwned.mockResolvedValue(3);
+    expect(await steps().RemoveAccountRecordsActivity({ ownerId: 'bo' })).toMatchObject({ storedFiles: 3, users: 1 });
+    expect(files.removeOwned).toHaveBeenCalledExactlyOnceWith('bo');
   });
 
   it('can run again after it has finished, finding nothing left', async () => {

@@ -52,7 +52,7 @@ describe('deleting a project through Temporal', () => {
       RemoveProjectWorkspacesActivity: async () => { seen.push('workspaces'); return 2; },
       RemoveProjectSecretsActivity: async () => { seen.push('secrets'); reached(); await held; return { workspace: true, readers: 1 }; },
       RemoveProjectRepositoriesActivity: async () => { seen.push('repositories'); return ['koala-bo/shop']; },
-      RemoveProjectFilesActivity: async () => { seen.push('files'); return 'removed'; },
+      RemoveProjectFilesActivity: async () => { seen.push('files'); return 2; },
       RemoveProjectRecordsActivity: async () => { seen.push('records'); return { projects: 1 }; },
     };
     const taskQueue = `remove-project-test-${Math.random().toString(36).slice(2, 8)}`;
@@ -72,7 +72,7 @@ describe('deleting a project through Temporal', () => {
       expect(await workflows.state(removeProjectWorkflowId('p1'))).toEqual({ state: 'running', done: ['workflows', 'apps', 'workspaces'] });
       release();
       expect(await env.client.workflow.getHandle(removeProjectWorkflowId('p1')).result()).toEqual({
-        stoppedWorkflows: 0, apps: 1, workspaces: 2, secrets: { workspace: true, readers: 1 }, repositories: ['koala-bo/shop'], files: 'removed', records: { projects: 1 },
+        stoppedWorkflows: 0, apps: 1, workspaces: 2, secrets: { workspace: true, readers: 1 }, repositories: ['koala-bo/shop'], files: 2, records: { projects: 1 },
       });
     })));
     expect(seen).toEqual(['workflows', 'apps', 'destroy shop in shop-1a2b3c', 'workspaces', 'secrets', 'repositories', 'files', 'records']);

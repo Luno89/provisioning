@@ -18,10 +18,6 @@ vi.mock('../api/project-app', async (original) => ({
   getProjectApp: vi.fn(async () => ({ id: 'd1', name: 'Shop', status: 'running', local: {}, public: {} })),
 }))
 
-vi.mock('../../files/api/artifacts', async (original) => ({
-  ...(await original<typeof import('../../files/api/artifacts')>()),
-  getArtifactStorage: vi.fn().mockResolvedValue({ minio: true }),
-}))
 const { listReleases, decideRelease, retestRelease, rollBackRelease, releaseFiles, releaseAgain } = await import('../api/releases')
 const { artifactUrl } = await import('../../files/api/artifacts')
 

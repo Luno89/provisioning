@@ -1,3 +1,4 @@
+import { Readable } from 'node:stream';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AxiosInstance } from 'axios';
 import { memberSpaceId, spaceUser } from '../checks/index.js';
@@ -346,7 +347,7 @@ async function releasing(options: { builds?: Record<string, unknown>[]; never?: 
     appGone = true;
     return { id: 'wf-destroy' } as never;
   });
-  api.ports.artifacts.get.mockResolvedValue({ artifact: { id: 'f1', name: 'shot.png', contentType: 'image/png' }, bytes: Buffer.alloc(10, 1) } as never);
+  api.ports.artifacts.get.mockImplementation(async () => ({ artifact: { id: 'f1', ownerId: 'space-1', runId: 'r1', name: 'shot.png', contentType: 'image/png', size: 10, createdAt: 'now' }, body: Readable.from([Buffer.alloc(10, 1)]) }));
   released = {
     browse: async (args) => {
       browsed.push(args);
@@ -754,7 +755,7 @@ describe('what a check observes of its run, through the real routes', () => {
     await api.db.projects.saveTask({ id: 'merge-1', ownerId: 'space-1', title: CONFLICT_TASK_TITLE, doneMeans: 'x', dependsOn: [], status: 'accepted', runs: [], createdAt: at, updatedAt: at } as never);
     await api.db.engine.saveConversation({ id: channelIdFor('p1'), ownerId: 'space-1', title: 'shop', kind: 'channel', projectId: 'p1', messages: [{ role: 'notice', content: 'The build is released', at }], createdAt: at, updatedAt: at } as never);
     api.ports.repos.createProject.mockResolvedValue({ id: 'p1', name: 'shop-space-1', ownerId: 'space-1', giteaOwner: 'space', giteaRepo: 'r', appType: 'gitapp', createdAt: at } as never);
-    api.ports.artifacts.get.mockResolvedValue({ artifact: { id: '00ab-1', name: 'shot.png', contentType: 'image/png' }, bytes: Buffer.alloc(12, 1) } as never);
+    api.ports.artifacts.get.mockImplementation(async () => ({ artifact: { id: '00ab-1', ownerId: 'space-1', runId: 'r1', name: 'shot.png', contentType: 'image/png', size: 12, createdAt: 'now' }, body: Readable.from([Buffer.alloc(12, 1)]) }));
     api.ports.documents.read.mockImplementation(async (_owner, workspace, path) => (workspace === 'tree-t1' && path === 'src/t1.txt' ? { ok: true, document: { content: 'oh hi' } } : { ok: false, status: 404, error: 'none' }) as never);
     api.ports.pullRequests.push({ number: 1, title: 'a', head: 'h', base: 'main', state: 'closed', merged: true }, { number: 2, title: 'b', head: 'h', base: 'main', state: 'open', merged: false }, { number: 3, title: 'c', head: 'h', base: 'main', state: 'closed', merged: false });
     api.ports.workspaceState.conversation = 'running';

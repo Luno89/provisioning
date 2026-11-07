@@ -1,3 +1,5 @@
+import type { FileScope, MessageAttachment } from '../types'
+
 export interface PickedFile {
   path: string
   file: File
@@ -44,12 +46,6 @@ export const pickedFiles = (files: FileList | readonly File[] | null): PickedFil
 
 export const joinPath = (...parts: string[]): string => parts.map((part) => part.replace(/^\/+|\/+$/g, '')).filter(Boolean).join('/')
 
-export function attachmentPath(inProject: boolean, name: string, now: Date): string {
-  const stamp = now.toISOString()
-  const clean = name.replace(/[/\\]/g, '_')
-  return joinPath(inProject ? 'attachments' : 'chats', stamp.slice(0, 10), `${stamp.slice(11, 19).replace(/:/g, '')}-${clean}`)
-}
-
 export function sizeText(bytes: number | undefined): string {
   if (bytes === undefined) return ''
   if (bytes < 1024) return `${bytes} B`
@@ -58,20 +54,49 @@ export function sizeText(bytes: number | undefined): string {
   return `${(bytes / 1024 ** 3).toFixed(2)} GB`
 }
 
-export interface SentAttachment {
-  name: string
+export const storyFolder = (leafId: string): string => `stories/${leafId}`
+
+export const attachmentName = (name: string): string => {
+  const clean = name.replace(/[/\\]/g, '_').trim()
+  return clean === '' || clean === '.' || clean === '..' ? 'file' : clean
+}
+
+export interface AttachmentPlace {
+  scope: Exclude<FileScope, { kind: 'hub' | 'mine' }>
   path: string
+}
+
+export const attachmentPlace = (conversationId: string, projectId: string | undefined, name: string): AttachmentPlace =>
+  projectId
+    ? { scope: { kind: 'project', projectId }, path: joinPath('chats', conversationId, attachmentName(name)) }
+    : { scope: { kind: 'conversation', conversationId }, path: attachmentName(name) }
+
+export const sentAttachmentPlace = (
+  attachment: Pick<MessageAttachment, 'fileId' | 'name' | 'project'>,
+  conversationId: string | undefined,
+  hubProjectId?: string | undefined,
+): { scope: FileScope; path: string } | undefined => {
+  if (!attachment.fileId || !conversationId) return undefined
+  const place = attachmentPlace(conversationId, attachment.project?.id, attachment.name)
+  if (hubProjectId === undefined) return place
+  return place.scope.kind === 'project' ? { scope: { kind: 'hub', projectId: hubProjectId }, path: place.path } : undefined
+}
+
+export interface SentAttachment {
+  fileId: string
+  name: string
   size?: number
   type?: string
   projectId?: string
 }
 
-export const sentAttachment = (attachment: { name: string; path: string; size?: number | undefined; type?: string | undefined; project?: { id: string } | undefined }): SentAttachment => ({
-  name: attachment.name,
-  path: attachment.path,
-  ...(attachment.size !== undefined ? { size: attachment.size } : {}),
-  ...(attachment.type ? { type: attachment.type } : {}),
-  ...(attachment.project ? { projectId: attachment.project.id } : {}),
-})
-
-export const storyFolder = (leafId: string): string => `stories/${leafId}`
+export const sentAttachment = (attachment: MessageAttachment): SentAttachment[] =>
+  attachment.fileId
+    ? [{
+        fileId: attachment.fileId,
+        name: attachment.name,
+        ...(attachment.size !== undefined ? { size: attachment.size } : {}),
+        ...(attachment.type ? { type: attachment.type } : {}),
+        ...(attachment.project ? { projectId: attachment.project.id } : {}),
+      }]
+    : []

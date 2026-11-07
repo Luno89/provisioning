@@ -81,6 +81,8 @@ export const ChatMessageRow = memo(function ChatMessageRow({
   onOpenDocument,
   address,
   onAskKoala,
+  conversationId,
+  hubProjectId,
 }: {
   message: ChatMessageData;
   packLabel?: string;
@@ -88,6 +90,8 @@ export const ChatMessageRow = memo(function ChatMessageRow({
   onOpenDocument?: ((file: FileArtifact) => void) | undefined;
   address?: ChannelAddress | undefined;
   onAskKoala?: (() => void) | undefined;
+  conversationId?: string | undefined;
+  hubProjectId?: string | undefined;
 }) {
   const isUser = message.role === 'user';
   const mascotMood: KoalaMood = isStreaming ? 'thinking' : 'idle';
@@ -180,7 +184,7 @@ export const ChatMessageRow = memo(function ChatMessageRow({
           </div>
         )}
 
-        {message.attachments && message.attachments.length > 0 && <MessageAttachments attachments={message.attachments} />}
+        {message.attachments && message.attachments.length > 0 && <MessageAttachments attachments={message.attachments} conversationId={conversationId} hubProjectId={hubProjectId} />}
 
         {message.interruptedReason && (
           <div className="mt-2 text-xs text-amber-400 bg-amber-950/40 border border-amber-800/60 rounded-lg px-3 py-2 flex items-center gap-2 select-none">

@@ -1,4 +1,4 @@
-export type ArtifactPlace = 'minio' | 'mongo';
+import type { StoredFileRecord } from './stored-files.js';
 
 export interface StoredArtifact {
   id: string;
@@ -7,15 +7,12 @@ export interface StoredArtifact {
   name: string;
   contentType: string;
   size: number;
-  place: ArtifactPlace;
   createdAt: string;
-  expiresAt: string;
+  expiresAt?: string | undefined;
 }
 
-export const ARTIFACT_BUCKET = 'koala-artifacts';
 export const MAX_RUN_BYTES = 50 * 1024 * 1024;
 export const KEEP_DAYS = 14;
-export const CHUNK_BYTES = 255 * 1024;
 export const E2E_RESULTS_DIR = 'e2e-results/artifacts';
 
 const TYPES: Record<string, string> = {
@@ -33,8 +30,16 @@ export const contentTypeOf = (name: string): string => TYPES[name.split('.').pop
 
 export const expiresFrom = (now: string, days = KEEP_DAYS): string => new Date(Date.parse(now) + days * 86_400_000).toISOString();
 
-export const objectKey = (artifact: Pick<StoredArtifact, 'runId' | 'id' | 'name'>): string =>
-  `${artifact.runId}/${artifact.id}-${artifact.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+export const artifactOf = (record: StoredFileRecord): StoredArtifact => ({
+  id: record.id,
+  ownerId: record.ownerId,
+  runId: record.scope.id,
+  name: record.path,
+  contentType: record.contentType,
+  size: record.size,
+  createdAt: record.madeAt,
+  ...(record.expiresAt ? { expiresAt: record.expiresAt } : {}),
+});
 
 export function failureArtifacts(paths: readonly string[]): string[] {
   return paths
@@ -54,30 +59,6 @@ export function withinBudget<T extends { size: number }>(files: readonly T[], us
     } else dropped.push(file);
   }
   return { kept, dropped };
-}
-
-export const chunksOf = (bytes: Buffer, size = CHUNK_BYTES): Buffer[] => {
-  const chunks: Buffer[] = [];
-  for (let at = 0; at < bytes.length; at += size) chunks.push(bytes.subarray(at, at + size));
-  return chunks.length > 0 ? chunks : [Buffer.alloc(0)];
-};
-
-export interface MinioCandidate {
-  id: string;
-  name: string;
-  appType?: string | undefined;
-  status: string;
-  clusterId: string;
-  ownerId?: string | undefined;
-  minioRootUser?: string | undefined;
-  minioRootPassword?: string | undefined;
-}
-
-export function minioOf<T extends MinioCandidate>(deployments: readonly T[], ownerId: string): T | undefined {
-  return deployments.find((entry) => entry.appType === 'minio'
-    && entry.status === 'running'
-    && entry.ownerId === ownerId
-    && Boolean(entry.minioRootPassword));
 }
 
 export interface ServiceSpec {
@@ -152,7 +133,7 @@ export function artifactLines(stored: readonly Pick<StoredArtifact, 'id' | 'name
   ].join('\n');
 }
 
-export type KeepArtifacts = (ownerId: string, runId: string, files: { name: string; bytes: Buffer }[]) => Promise<{ stored: { id: string; name: string }[]; dropped: string[]; minioMissing: boolean }>;
+export type KeepArtifacts = (ownerId: string, runId: string, files: { name: string; bytes: Buffer }[]) => Promise<{ stored: { id: string; name: string }[]; dropped: string[] }>;
 
 export async function keepFailureArtifacts(workspace: WorkspaceExec, keep: KeepArtifacts, ownerId: string, runId: string): Promise<{ lines: string; stored: { id: string; name: string }[] }> {
   try {
@@ -163,11 +144,4 @@ export async function keepFailureArtifacts(workspace: WorkspaceExec, keep: KeepA
   } catch (err) {
     return { lines: `what the browser left behind could not be kept: ${(err as Error).message}`, stored: [] };
   }
-}
-
-export interface ArtifactChunk {
-  artifactId: string;
-  ownerId: string;
-  n: number;
-  data: Buffer;
 }

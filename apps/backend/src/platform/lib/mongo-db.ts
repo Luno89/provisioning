@@ -1,3 +1,4 @@
+import type { Tx } from './transaction.js';
 import { MongoPlatformStore } from '../store.js';
 import { MongoAccountsStore } from '../../accounts/store.js';
 import { MongoInstancesStore } from '../../instances/store.js';
@@ -92,6 +93,11 @@ export class MongoDB implements Database {
     await this.checks.ensureIndexes();
     await this.infrastructure.ensureIndexes();
     await this.engine.ensureIndexes();
+  }
+
+  transaction<T>(work: (tx: Tx) => Promise<T>): Promise<T> {
+    if (!this.client) throw new Error('the database is not connected');
+    return this.client.withSession((session) => session.withTransaction(() => work({ session })));
   }
 
   async dropDatabase(): Promise<void> {

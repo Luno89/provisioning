@@ -185,7 +185,11 @@ describe('members working a shared project from the hub', () => {
         list: async (_owner, _scope, dir) => ({ ok: true, value: Object.keys(files).filter((path) => (dir ? path.startsWith(`${dir}/`) : true)).map((path) => (dir ? { name: path.split('/').pop()!, path, type: 'file' as const } : { name: path.split('/')[0]!, path: path.split('/')[0]!, type: 'dir' as const })) }),
         search: async () => ({ ok: true, value: [] }),
         download: async () => ({ ok: false, status: 404, why: 'none' }),
-        upload: async () => ({ ok: true, value: { path: 'x' } }),
+        upload: async (_owner, _scope, path, _body, _size, _type, options) => {
+          if (files[path] && !options.replace) return { ok: false, status: 409, why: `${path} is already there, and it may not be replaced` };
+          files[path] = 'new';
+          return { ok: true, value: { path } };
+        },
         makeFolder: async () => ({ ok: true, value: { path: 'x' } }),
         move: async () => ({ ok: true, value: { path: 'x' } }),
         remove: async () => ({ ok: true, value: { path: 'x' } }),

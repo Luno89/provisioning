@@ -29,7 +29,7 @@ export function useChatComposer({ conv, binding, channel, externalConvId, autoSe
   const chatProjectId = binding?.projectId ?? conv.activeConversation?.projectId;
   const projects = useQuery({ queryKey: projectKeys.list(), queryFn: () => listProjects<{ id: string; name: string }>(), enabled: Boolean(chatProjectId) });
   const chatProject = chatProjectId ? projects.data?.find((project) => project.id === chatProjectId) : undefined;
-  const attachments = useChatAttachments(chatProject ? { id: chatProject.id, name: chatProject.name } : undefined);
+  const attachments = useChatAttachments(chatProjectId ? { id: chatProjectId, name: chatProject?.name ?? '' } : undefined, conv.ensureConversation);
 
   const { data: agents = [] } = useQuery<Agent[]>({
     queryKey: agentKeys.all,
@@ -83,7 +83,7 @@ export function useChatComposer({ conv, binding, channel, externalConvId, autoSe
     jumpToLatest();
     if (kind === 'post' && conv.selectedConvId) {
       const id = conv.selectedConvId;
-      void postChannelMessage(id, text, ready.map(sentAttachment))
+      void postChannelMessage(id, text, ready.flatMap(sentAttachment))
         .then(() => qc.invalidateQueries({ queryKey: chatPackKeys.conversation(id) }))
         .catch((err: unknown) => setError(errorMessage(err)));
       return;

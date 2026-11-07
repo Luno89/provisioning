@@ -1,14 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { failureArtifacts, minioEndpoint, minioOf, withinBudget, chunksOf } from './artifacts.js';
-
-const minio = (over: Record<string, unknown> = {}) => ({ id: 'm1', name: 'Store', appType: 'minio', status: 'running', clusterId: 'c1', ownerId: 'bo', minioRootPassword: 'pw', ...over });
-
-describe('finding the owner\'s MinIO', () => {
-  it('takes only a running MinIO of theirs whose keys are stored', () => {
-    expect(minioOf([minio({ ownerId: 'al' }), minio({ status: 'deploying' }), minio({ minioRootPassword: undefined }), minio({ appType: 'qdrant' })], 'bo')).toBeUndefined();
-    expect(minioOf([minio({ ownerId: 'al' }), minio({ id: 'm2' })], 'bo')?.id).toBe('m2');
-  });
-});
+import { artifactOf, failureArtifacts, minioEndpoint, withinBudget } from './artifacts.js';
 
 describe('where Koala reaches a MinIO', () => {
   const ports = { spec: { ports: [{ name: 'console', port: 9001, nodePort: 30901 }, { name: 's3', port: 9000, nodePort: 30900 }] } };
@@ -50,11 +41,14 @@ describe('a run\'s budget', () => {
     expect(kept.map((f) => f.name)).toEqual(['shot', 'trace']);
     expect(dropped.map((f) => f.name)).toEqual(['video']);
   });
+});
 
-  it('splits bytes into pieces that rejoin exactly', () => {
-    const bytes = Buffer.from('abcdefghij');
-    expect(Buffer.concat(chunksOf(bytes, 4)).equals(bytes)).toBe(true);
-    expect(chunksOf(bytes, 4)).toHaveLength(3);
+describe('a run\'s artifact as it is shown', () => {
+  it('is the stored file of the run, named by its path, with when it was made and when it goes', () => {
+    expect(artifactOf({
+      id: 'f1', objectId: 'f1', ownerId: 'bo', scope: { kind: 'run', id: 'run-1' }, path: 'signs-in/shot.png', kind: 'file', size: 3, contentType: 'image/png',
+      version: 1, madeAt: '2026-11-07T10:00:00.000Z', changedAt: '2026-11-07T10:00:00.000Z', state: 'stored', touchedAt: '2026-11-07T10:00:00.000Z', expiresAt: '2026-11-21T10:00:00.000Z',
+    })).toEqual({ id: 'f1', ownerId: 'bo', runId: 'run-1', name: 'signs-in/shot.png', contentType: 'image/png', size: 3, createdAt: '2026-11-07T10:00:00.000Z', expiresAt: '2026-11-21T10:00:00.000Z' });
   });
 });
 

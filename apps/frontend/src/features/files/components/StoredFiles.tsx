@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type DragEvent } from 'react'
+import { useRef, useState, type DragEvent } from 'react'
 import { ArrowDownUp, ChevronDown, ChevronRight, Download, File, Folder, FolderPlus, Loader2, Pencil, Search, Trash2, Upload, X } from 'lucide-react'
 import { errorMessage } from '../../../api/client'
 import { storedFileUrl } from '../api/files'
@@ -137,13 +137,11 @@ function Found({ query, browsing }: { query: string; browsing: Browsing }) {
   return <>{sortEntries(found.data, browsing.sort.by, browsing.sort.descending).map((entry) => <Entry key={entry.path} entry={entry} depth={0} browsing={browsing} flat />)}</>
 }
 
-export default function StoredFiles({ scope, dir = '', title = 'Files', waiting, onTaken, onOpen, rearranges = true }: {
+export default function StoredFiles({ scope, dir = '', title = 'Files', onOpen, rearranges = true }: {
   scope: FileScope
   rearranges?: boolean | undefined
   dir?: string | undefined
   title?: string | undefined
-  waiting?: { dir: string; picked: PickedFile[] } | undefined
-  onTaken?: (() => void) | undefined
   onOpen?: ((path: string) => void) | undefined
 }) {
   const { upload, progress } = useStoredUpload(scope)
@@ -156,14 +154,6 @@ export default function StoredFiles({ scope, dir = '', title = 'Files', waiting,
   const [moving, setMoving] = useState<string | undefined>()
   const [removing, setRemoving] = useState(false)
   const [previewing, setPreviewing] = useState<string | undefined>()
-  const { mutate } = upload
-
-  useEffect(() => {
-    if (!waiting) return
-    mutate(waiting)
-    onTaken?.()
-  }, [waiting, mutate, onTaken])
-
   const moveTo = (paths: readonly string[], folder: string) => {
     const moves = paths.flatMap((from) => {
       const to = moveInto(from, folder)

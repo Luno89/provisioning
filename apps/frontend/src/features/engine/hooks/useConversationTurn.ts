@@ -344,22 +344,35 @@ export function useConversationTurn({
   }, [enabled, activeConversation?.id, liveTurnOf, apply]);
 
   // --- sending a turn ----------------------------------------------------------
-  const sendConversationTurn = async (text: string, options: { asks?: string | undefined; attachments?: MessageAttachment[] | undefined } = {}) => {
-    let targetConvId = selectedConvId;
-    if (!targetConvId) {
-      setCreatingConversation(true);
-      try {
-        const created = await createChatConversation('New conversation', binding);
-        targetConvId = created.id;
+  const madeConversationRef = useRef<Promise<string> | null>(null);
+  useEffect(() => { madeConversationRef.current = null; }, [selectedConvId]);
+  const ensureConversation = useCallback((): Promise<string> => {
+    if (selectedConvId) return Promise.resolve(selectedConvId);
+    if (madeConversationRef.current) return madeConversationRef.current;
+    setCreatingConversation(true);
+    const made = createChatConversation('New conversation', binding)
+      .then((created) => {
         setSelectedConvId(created.id);
         onConversationChange?.(created.id);
         void qc.invalidateQueries({ queryKey: chatPackKeys.conversations() });
-      } catch (err) {
-        setError(`Failed to create conversation: ${errorMessage(err)}`);
-        setCreatingConversation(false);
-        return;
-      }
-      setCreatingConversation(false);
+        return created.id;
+      })
+      .catch((err: unknown) => {
+        madeConversationRef.current = null;
+        throw err;
+      })
+      .finally(() => setCreatingConversation(false));
+    madeConversationRef.current = made;
+    return made;
+  }, [selectedConvId, binding, onConversationChange, qc]);
+
+  const sendConversationTurn = async (text: string, options: { asks?: string | undefined; attachments?: MessageAttachment[] | undefined } = {}) => {
+    let targetConvId: string;
+    try {
+      targetConvId = await ensureConversation();
+    } catch (err) {
+      setError(`Failed to create conversation: ${errorMessage(err)}`);
+      return;
     }
 
     const key = conversationTurnKey(targetConvId);
@@ -383,7 +396,7 @@ export function useConversationTurn({
         conversationId: targetConvId,
         ...(pinnedModelId ? { modelId: pinnedModelId, modelReach } : {}),
         ...(options.asks ? { asks: options.asks } : {}),
-        ...(options.attachments?.length ? { attachments: options.attachments.map(sentAttachment) } : {}),
+        ...(options.attachments?.length ? { attachments: options.attachments.flatMap(sentAttachment) } : {}),
       });
       if (options.asks) void qc.invalidateQueries({ queryKey: chatPackKeys.conversation(targetConvId) });
     } catch (err) {
@@ -464,6 +477,7 @@ export function useConversationTurn({
     createMutation,
     deleteMutation,
     sendConversationTurn,
+    ensureConversation,
     handleStop,
     pendingApprovals,
     decideApproval,

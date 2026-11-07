@@ -4,15 +4,15 @@ import type { FilesStore } from '../store.js';
 import type { ObjectStore } from './ObjectStore.js';
 
 export interface StoredFilesActivityDeps {
-  records: Pick<FilesStore, 'commitStoredFiles' | 'deleteStoredFiles' | 'deadStoredUploads' | 'expiredStoredFiles' | 'storedFileIdsAmong'>;
+  records: Pick<FilesStore, 'commitStoredFiles' | 'deleteStoredFiles' | 'deadStoredUploads' | 'expiredStoredFiles' | 'storedObjectIdsAmong'>;
   objects: ObjectStore;
   now?: () => number;
 }
 
 export function createStoredFilesActivities(deps: StoredFilesActivityDeps): StoredFilesActivities {
   const now = deps.now ?? Date.now;
-  const removeBytes = async (ids: readonly string[]): Promise<void> => {
-    for (const id of ids) await deps.objects.remove(id);
+  const removeBytes = async (objectIds: readonly string[]): Promise<void> => {
+    for (const objectId of objectIds) await deps.objects.remove(objectId);
   };
   return {
     async StoredFilesCommitActivity({ commits, replace }) {
@@ -26,20 +26,20 @@ export function createStoredFilesActivities(deps: StoredFilesActivityDeps): Stor
     async StoredFilesForgetActivity({ ids }) {
       await deps.records.deleteStoredFiles(ids);
     },
-    async StoredFilesRemoveBytesActivity({ ids }) {
-      await removeBytes(ids);
+    async StoredFilesRemoveBytesActivity({ objectIds }) {
+      await removeBytes(objectIds);
     },
     async StoredFilesSweepActivity() {
       const at = now();
       const dead = await deps.records.deadStoredUploads(new Date(at - DEAD_AFTER_MS).toISOString());
       const expired = await deps.records.expiredStoredFiles(new Date(at).toISOString());
-      const going = [...dead, ...expired].map((record) => record.id);
-      await deps.records.deleteStoredFiles(going);
-      await removeBytes(going);
+      const going = [...dead, ...expired];
+      await deps.records.deleteStoredFiles(going.map((record) => record.id));
+      await removeBytes(going.map((record) => record.objectId));
       let orphans = 0;
       let batch: string[] = [];
       const settle = async (): Promise<void> => {
-        const known = new Set(await deps.records.storedFileIdsAmong(batch));
+        const known = new Set(await deps.records.storedObjectIdsAmong(batch));
         const unknown = batch.filter((id) => !known.has(id));
         await removeBytes(unknown);
         orphans += unknown.length;

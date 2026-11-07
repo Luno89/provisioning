@@ -1,3 +1,4 @@
+import { sessionOf, type Tx } from '../platform/lib/transaction.js';
 import type { ActionProposal, McpRequest } from '@koala/harness-types';
 import { type AreaStore, type Identified, fieldChanges, fromDoc } from '../platform/lib/collection.js';
 import type { AuthoredExtension } from './lib/authored-extensions.js';
@@ -36,7 +37,7 @@ export interface EngineStore extends AreaStore {
   getConversation(ownerId: string, id: string): Promise<Conversation | undefined>;
   allowToolInConversation(ownerId: string, conversationId: string, tool: string): Promise<boolean>;
   setConversationAutoMode(ownerId: string, conversationId: string, on: boolean): Promise<boolean>;
-  bindConversation(ownerId: string, conversationId: string, binding: { treeId: string; projectId?: string | undefined }): Promise<boolean>;
+  bindConversation(ownerId: string, conversationId: string, binding: { treeId: string; projectId?: string | undefined }, tx?: Tx): Promise<boolean>;
   appendNotice(ownerId: string, conversationId: string, message: ConversationMessage): Promise<boolean>;
   appendMessage(ownerId: string, conversationId: string, message: ConversationMessage): Promise<boolean>;
   ownsRun(ownerId: string, runId: string): Promise<boolean>;
@@ -135,13 +136,7 @@ export class MongoEngineStore implements EngineStore {
     return this.db().collection<Keyed>('actionProposals');
   }
 
-  private get artifactChunks(): Collection<Keyed> {
-    return this.db().collection<Keyed>('artifactChunks');
-  }
 
-  private get artifacts(): Collection<Keyed> {
-    return this.db().collection<Keyed>('artifacts');
-  }
 
   private get authoredExtensions(): Collection<Keyed> {
     return this.db().collection<Keyed>('authoredExtensions');
@@ -427,9 +422,9 @@ export class MongoEngineStore implements EngineStore {
     return result.matchedCount > 0;
   }
 
-  async bindConversation(ownerId: string, conversationId: string, binding: { treeId: string; projectId?: string | undefined }): Promise<boolean> {
+  async bindConversation(ownerId: string, conversationId: string, binding: { treeId: string; projectId?: string | undefined }, tx?: Tx): Promise<boolean> {
     const set = { treeId: binding.treeId, ...(binding.projectId ? { projectId: binding.projectId } : {}), updatedAt: new Date().toISOString() };
-    const result = await this.conversations.updateOne({ _id: conversationId, ownerId, treeId: { $exists: false } }, { $set: set });
+    const result = await this.conversations.updateOne({ _id: conversationId, ownerId, treeId: { $exists: false } }, { $set: set }, sessionOf(tx));
     return result.modifiedCount > 0;
   }
 
@@ -497,14 +492,6 @@ export class MongoEngineStore implements EngineStore {
     return effort as unknown as RunEffort;
   }
 
-  private async reownArtifacts(from: string, to: string, runIds?: readonly string[] | undefined): Promise<{ modifiedCount: number }> {
-    const moving = await this.artifacts.find({ ownerId: from, ...(runIds ? { runId: { $in: [...runIds] } } : {}) }).project<Keyed>({ _id: 1 }).toArray();
-    if (moving.length === 0) return { modifiedCount: 0 };
-    const ids = moving.map((doc) => doc._id);
-    await this.artifactChunks.updateMany({ artifactId: { $in: ids } }, { $set: { ownerId: to } });
-    return this.artifacts.updateMany({ _id: { $in: ids } }, { $set: { ownerId: to } });
-  }
-
   async reownRuns(from: string, to: string, runIds?: readonly string[] | undefined): Promise<number> {
     if (runIds && runIds.length === 0) return 0;
     const runs = runIds ? { runId: { $in: [...runIds] } } : {};
@@ -516,7 +503,6 @@ export class MongoEngineStore implements EngineStore {
       this.runEndings.updateMany({ ownerId: from, ...runs }, { $set: { ownerId: to } }),
       this.runGrants.updateMany({ ownerId: from, ...runs }, { $set: { ownerId: to } }),
       this.poisoningSignals.updateMany({ ownerId: from, ...runs }, { $set: { ownerId: to } }),
-      this.reownArtifacts(from, to, runIds),
     ]);
     return moved.reduce((total, result) => total + result.modifiedCount, 0);
   }

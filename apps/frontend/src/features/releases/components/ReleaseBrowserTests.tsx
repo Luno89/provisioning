@@ -3,7 +3,6 @@ import { CheckCircle2, CircleSlash, Loader2, MonitorPlay, RotateCw, XCircle } fr
 import { releaseKeys, retestRelease, type OdooRelease, type ReleaseE2E } from '../api/releases'
 import { errorMessage } from '../../../api/client'
 import { artifactUrl } from '../../files'
-import { ArtifactStoragePrompt } from '../../files'
 
 const HEADLINE: Record<ReleaseE2E['state'], { text: string; tone: string }> = {
   running: { text: 'Browser tests running against the preview…', tone: 'text-sky-300' },
@@ -90,7 +89,6 @@ export function ReleaseBrowserTests({ projectId, release }: { projectId: string;
             ))}
           </ul>
           {e2e.notKept && e2e.notKept.length > 0 && <p className="text-[10px] text-slate-500">Not kept: {e2e.notKept.join(', ')}</p>}
-          <ArtifactStoragePrompt />
         </div>
       )}
       {again.isError && <p className="text-[11px] text-rose-400">{errorMessage(again.error)}</p>}

@@ -26,7 +26,7 @@ afterAll(async () => {
 });
 
 const begun = async (records: MemoryFilesStore, objects: MemoryObjectStore, id: string, path: string, text: string): Promise<void> => {
-  await records.beginStoredFile({ id, ownerId: 'u1', scope: { ...scope }, path, kind: 'file', size: 0, contentType: 'text/plain', version: 0, madeAt: AT, changedAt: AT, state: 'uploading', touchedAt: AT });
+  await records.beginStoredFile({ id, objectId: id, ownerId: 'u1', scope: { ...scope }, path, kind: 'file', size: 0, contentType: 'text/plain', version: 0, madeAt: AT, changedAt: AT, state: 'uploading', touchedAt: AT });
   await objects.put(id, Readable.from([Buffer.from(text)]), text.length, 'text/plain');
 };
 
@@ -39,16 +39,46 @@ async function running<T>(activities: StoredFilesActivities, work: (queue: strin
 }
 
 describe('the stored files workflow on Temporal', () => {
-  it('commits an upload, and removes the bytes of the file it replaced', async () => {
+  it('commits an upload as the next version of the file at its path, and removes the bytes it replaced', async () => {
     const records = new MemoryFilesStore();
     const objects = new MemoryObjectStore();
     await begun(records, objects, 'old', 'a.txt', 'old');
     await records.commitStoredFiles([{ id: 'old', size: 3 }], { replace: true }, AT);
     await begun(records, objects, 'new', 'a.txt', 'newer');
     const plan = await running(createStoredFilesActivities({ records, objects }), (queue) => temporalStoredFileCommits(async () => env.client.workflow, queue).commit('u1', [{ id: 'new', size: 5 }], { replace: true }));
-    expect(plan).toMatchObject({ ok: true, replaced: ['old'] });
+    expect(plan).toMatchObject({ ok: true, replaced: ['old'], absorbed: ['new'] });
     expect([...objects.kept.keys()]).toEqual(['new']);
-    expect((await records.storedFilesIn('u1', scope)).map((record) => [record.id, record.version])).toEqual([['new', 2]]);
+    expect((await records.storedFilesIn('u1', scope)).map((record) => [record.id, record.objectId, record.version])).toEqual([['old', 'new', 2]]);
+    expect(await records.storedFileById('new')).toBeUndefined();
+  });
+
+  it('replaces exactly once when the worker dies after replacing and before it could answer, the bytes it replaced left for the sweep', async () => {
+    const records = new MemoryFilesStore();
+    const objects = new MemoryObjectStore();
+    await begun(records, objects, 'old', 'a.txt', 'old');
+    await records.commitStoredFiles([{ id: 'old', size: 3 }], { replace: true }, AT);
+    await begun(records, objects, 'new', 'a.txt', 'newer');
+    const real = createStoredFilesActivities({ records, objects });
+    const removed: string[] = [];
+    let attempts = 0;
+    const dying: StoredFilesActivities = {
+      ...real,
+      async StoredFilesCommitActivity(args) {
+        attempts += 1;
+        const plan = await real.StoredFilesCommitActivity(args);
+        if (attempts === 1) throw new Error('the worker died before it answered');
+        return plan;
+      },
+      StoredFilesRemoveBytesActivity: async (args) => { removed.push(...args.objectIds); return real.StoredFilesRemoveBytesActivity(args); },
+    };
+    const plan = await running(dying, (queue) => temporalStoredFileCommits(async () => env.client.workflow, queue).commit('u1', [{ id: 'new', size: 5 }], { replace: true }));
+    expect(attempts).toBe(2);
+    expect(plan).toMatchObject({ ok: true, replaced: [], absorbed: [], stored: [{ id: 'old', objectId: 'new', version: 2 }] });
+    expect(removed).toEqual([]);
+    expect((await records.storedFilesIn('u1', scope)).map((record) => [record.id, record.objectId, record.version])).toEqual([['old', 'new', 2]]);
+    expect([...objects.kept.keys()].sort()).toEqual(['new', 'old']);
+    expect(await real.StoredFilesSweepActivity()).toEqual({ deadUploads: 0, expired: 0, orphans: 1 });
+    expect([...objects.kept.keys()]).toEqual(['new']);
   });
 
   it('commits exactly once when the worker dies after committing and before it could answer', async () => {
@@ -84,12 +114,12 @@ describe('the stored files workflow on Temporal', () => {
     const watched: StoredFilesActivities = {
       ...real,
       StoredFilesForgetActivity: async (args) => { order.push(`forget ${args.ids.join(',')}`); return real.StoredFilesForgetActivity(args); },
-      StoredFilesRemoveBytesActivity: async (args) => { order.push(`bytes ${args.ids.join(',')}`); return real.StoredFilesRemoveBytesActivity(args); },
+      StoredFilesRemoveBytesActivity: async (args) => { order.push(`bytes ${args.objectIds.join(',')}`); return real.StoredFilesRemoveBytesActivity(args); },
     };
     await running(watched, async (queue) => {
       const commits = temporalStoredFileCommits(async () => env.client.workflow, queue);
       expect(await commits.commit('u1', [{ id: 'theirs', size: 6 }], { replace: false })).toMatchObject({ ok: false, status: 409 });
-      await commits.remove('u1', ['mine']);
+      await commits.remove('u1', [(await records.storedFileById('mine'))!]);
     });
     expect(order).toEqual(['forget theirs', 'bytes theirs', 'forget mine', 'bytes mine']);
     expect(objects.kept.size).toBe(0);

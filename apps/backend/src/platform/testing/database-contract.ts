@@ -44,9 +44,7 @@ async function seed(db: Database, world: World): Promise<void> {
   await db.releases.savePipelineRun({ id: `build-${owner}`, projectId: project, status: 'running', temporalWorkflowId: `build-workflow-${owner}`, createdAt: at } as never);
   await db.releases.saveOdooRelease({ id: `release-${owner}`, projectId: project, ownerId: owner } as never);
   await db.files.saveFileShare({ id: `share-${owner}`, token: `token-${owner}`, ownerId: owner, projectId: project, path: 'a.txt', name: 'a.txt', createdAt: at, expiresAt: later.toISOString() });
-  await db.files.saveArtifact({ id: `artifact-${owner}`, ownerId: owner, runId: run, name: 'a.txt', contentType: 'text/plain', size: 1, place: { kind: 'mongo' }, createdAt: at, expiresAt: later.toISOString() } as never);
-  await db.files.saveArtifactChunk({ artifactId: `artifact-${owner}`, ownerId: owner, n: 0, data: Buffer.from('a') });
-  await db.files.saveFileSettings({ ownerId: owner } as never);
+  await db.files.beginStoredFile({ id: `file-${owner}`, objectId: `file-${owner}`, ownerId: owner, scope: { kind: 'run', id: run }, path: 'a.txt', kind: 'file', size: 0, contentType: 'text/plain', version: 0, madeAt: at, changedAt: at, state: 'uploading', touchedAt: at });
   await db.infrastructure.savePendingApproval({ id: `approval-${owner}`, ownerId: owner, projectId: project, createdAt: at } as never);
   await db.infrastructure.saveCluster({ id: `cluster-${owner}`, ownerId: owner, name: `cluster-${owner}`, provider: 'k3d', status: 'destroyed' } as never);
   await db.memory.saveMemory({ id: `memory-${owner}`, ownerId: owner, projectId: project, text: 'kept' } as never);
@@ -63,13 +61,10 @@ async function seed(db: Database, world: World): Promise<void> {
 }
 
 const ONE_ACCOUNT: Record<string, number> = {
-  artifactChunks: 1,
-  artifacts: 1,
   autoModeSettings: 1,
   clusters: 1,
   conversations: 1,
   corpus: 1,
-  fileSettings: 1,
   fileShares: 1,
   giteaAccounts: 1,
   hubLinks: 1,
@@ -86,6 +81,7 @@ const ONE_ACCOUNT: Record<string, number> = {
   planProposals: 1,
   projects: 1,
   secretRequests: 1,
+  storedFiles: 1,
   tasks: 1,
   trees: 1,
   turnLogs: 1,
@@ -181,7 +177,6 @@ export function databaseContract(make: () => Promise<Database>): void {
         secretRequests: 1,
         pendingApprovals: 1,
         tasks: 1,
-        fileShares: 1,
         'conversations unlinked': 1,
         'memories unlinked': 1,
         projects: 1,
@@ -195,28 +190,20 @@ export function databaseContract(make: () => Promise<Database>): void {
       expect((await db.releases.getPipelineRuns()).map((run) => run.id)).toEqual(['build-owner-2']);
       expect(await db.engine.getCorpusPages({ ownerId: 'owner-1' })).toEqual([]);
       expect(await db.engine.getCorpusPages({ ownerId: 'owner-2' })).toHaveLength(1);
-      expect(await db.files.getFileShares('owner-1')).toEqual([]);
-      expect(await db.files.getFileShares('owner-2')).toHaveLength(1);
       expect(await db.infrastructure.getPendingApprovals()).toHaveLength(1);
       expect(await db.projects.removeProjectRecords(one.project)).toEqual({});
     });
 
-    it('moves a run\'s artifacts and chunks to the new owner with the rest of the run', async () => {
+    it('moves a run\'s turn log with the rest of the run, and its files through the files area', async () => {
       const db = await make();
       const one = worldOf('owner-1');
       await seed(db, one);
-      await db.files.saveArtifact({ id: 'artifact-other', ownerId: 'owner-1', runId: 'run-other', name: 'b.txt', contentType: 'text/plain', size: 1, place: { kind: 'mongo' }, createdAt: at, expiresAt: later.toISOString() } as never);
-      await db.files.saveArtifactChunk({ artifactId: 'artifact-other', ownerId: 'owner-1', n: 0, data: Buffer.from('b') });
       expect(await db.engine.reownRuns('owner-1', 'owner-1', [one.run])).toBe(0);
       expect(await db.engine.reownRuns('owner-1', 'owner-2', [])).toBe(0);
-      expect(await db.engine.reownRuns('owner-1', 'owner-2', [one.run])).toBe(3);
-      expect((await db.files.getArtifacts('owner-2')).map((artifact) => artifact.id)).toEqual([`artifact-${one.owner}`]);
-      expect((await db.files.getArtifacts('owner-1')).map((artifact) => artifact.id)).toEqual(['artifact-other']);
-      expect((await db.files.getArtifactChunks(`artifact-${one.owner}`)).map((chunk) => chunk.ownerId)).toEqual(['owner-2']);
-      expect((await db.files.getArtifactChunks('artifact-other')).map((chunk) => chunk.ownerId)).toEqual(['owner-1']);
+      expect(await db.engine.reownRuns('owner-1', 'owner-2', [one.run])).toBe(2);
       expect(await db.engine.getTurnLog('owner-2', one.run, 0)).toHaveLength(1);
-      expect(await db.engine.reownRuns('owner-1', 'owner-2')).toBe(1);
-      expect((await db.files.getArtifacts('owner-2')).map((artifact) => artifact.id).sort()).toEqual(['artifact-other', `artifact-${one.owner}`].sort());
+      expect(await db.files.reownRunFiles('owner-1', 'owner-2', [one.run])).toBe(1);
+      expect((await db.files.storedFileById(`file-${one.owner}`))?.ownerId).toBe('owner-2');
     });
   });
 }

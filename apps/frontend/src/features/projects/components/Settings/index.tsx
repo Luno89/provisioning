@@ -8,7 +8,6 @@ import { TreeModels } from '../Workspace/TreeModels'
 import { ProjectRelease } from '../../../releases'
 import { LiveCustomizations } from '../../../releases'
 import { ClientImport } from '../../../releases'
-import { FilePlacePicker } from '../../../files'
 import { ShareProject } from '../../../hub'
 import { useClientImport } from '../../../releases'
 import { TreeDeletePanel } from '../Workspace/TreeDeletePanel'
@@ -78,11 +77,6 @@ export default function ProjectSettings({ treeId, projectId, onDeleted }: {
         {project && (
           <Section title="MCP servers">
             <ProjectMcpServers projectId={project.id} />
-          </Section>
-        )}
-        {project && (
-          <Section title="Files">
-            <div className="p-3"><FilePlacePicker projectId={project.id} /></div>
           </Section>
         )}
         {project && (

@@ -250,11 +250,15 @@ describe('starting a run', () => {
   it('attaches files from the person\'s own projects, and refuses ones from anyone else\'s', async () => {
     const projects = mockFn<NonNullable<EngineRouterDeps['projects']>>();
     projects.calledWith(TEST_USER.id).mockResolvedValue([{ id: 'p1', name: 'Shop' }]);
-    const withProjects = await mount({ projects });
-    await withProjects.post('/api/engine/runs', { agent: 'koala', message: 'see', attachments: [{ projectId: 'p1', path: 'a.md', name: 'a.md' }] });
-    expect(runs.start).toHaveBeenCalledWith(objectWith({ attachments: [{ name: 'a.md', path: 'a.md', project: { id: 'p1', name: 'Shop' } }] }));
-    expect(await withProjects.post('/api/engine/runs', { agent: 'koala', message: 'see', attachments: [{ projectId: 'p2', path: 'a.md' }] })).toMatchObject({ status: 400, data: { error: 'p2 is not one of your projects' } });
-    expect(await app.post('/api/engine/runs', { agent: 'koala', message: 'see', attachments: [{ projectId: 'p1', path: 'a.md' }] })).toMatchObject({ status: 400 });
+    const attachable = mockFn<NonNullable<EngineRouterDeps['attachable']>>();
+    attachable.calledWith(TEST_USER.id, 'f1').mockResolvedValue({ id: 'f1', path: 'docs/a.md', size: 4, contentType: 'text/markdown', projectId: 'p1' });
+    attachable.calledWith(TEST_USER.id, 'f2').mockResolvedValue({ id: 'f2', path: 'a.md', size: 4, contentType: 'text/markdown', projectId: 'p2' });
+    const withProjects = await mount({ projects, attachable });
+    await withProjects.post('/api/engine/runs', { agent: 'koala', message: 'see', attachments: [{ fileId: 'f1' }] });
+    expect(runs.start).toHaveBeenCalledWith(objectWith({ attachments: [{ fileId: 'f1', name: 'a.md', size: 4, type: 'text/markdown', project: { id: 'p1', name: 'Shop' } }] }));
+    expect(await withProjects.post('/api/engine/runs', { agent: 'koala', message: 'see', attachments: [{ fileId: 'f2' }] })).toMatchObject({ status: 400, data: { error: 'f2 is kept in a project that is not yours' } });
+    expect(await withProjects.post('/api/engine/runs', { agent: 'koala', message: 'see', attachments: [{ fileId: 'f3' }] })).toMatchObject({ status: 400, data: { error: 'f3 is not a file you keep' } });
+    expect(await app.post('/api/engine/runs', { agent: 'koala', message: 'see', attachments: [{ fileId: 'f1' }] })).toMatchObject({ status: 400, data: { error: 'files cannot be attached to a message here' } });
   });
 
   it('says plainly why a run could not start, with the code the browser reads', async () => {

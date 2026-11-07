@@ -1,31 +1,29 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import type { DeploymentMetadata } from '../../platform/lib/types.js';
-import { testDatabase } from '../../platform/lib/test-database.js';
-import { s3StandIn, type S3StandIn } from '../testing/s3-stand-in.js';
+import { realStoredFiles, type RealStoredFiles } from '../testing/real-stored-files.js';
 import { ArtifactService } from './ArtifactService.js';
-import { MinioArtifactStores } from './MinioArtifactStore.js';
 
-let s3: S3StandIn;
-beforeAll(async () => { s3 = await s3StandIn(); });
-afterAll(async () => { await s3.close(); });
+let real: RealStoredFiles;
+beforeAll(async () => { real = await realStoredFiles(); }, 300_000);
+afterAll(async () => { await real?.stop(); });
 
-describe('keeping a run\'s artifacts on the person\'s MinIO', () => {
-  it('puts each file there through the real S3 client, reads it back whole, and removes it with its run', async () => {
-    const db = await testDatabase();
-    const minio = { id: 'm1', name: 'files', appType: 'minio', status: 'running', ownerId: 'bo', clusterId: 'c1', minioRootPassword: 'secret-pass' } as DeploymentMetadata;
-    const stores = new MinioArtifactStores({
-      deployments: async () => [minio],
-      endpoint: async () => ({ host: '127.0.0.1', port: s3.port }),
-    });
-    const artifacts = new ArtifactService({ records: db.files, minioFor: (ownerId) => stores.storeFor(ownerId) });
+const bytesOf = async (body: NodeJS.ReadableStream): Promise<Buffer> => {
+  const parts: Buffer[] = [];
+  for await (const part of body) parts.push(Buffer.from(part as Buffer));
+  return Buffer.concat(parts);
+};
+
+describe('keeping a run\'s artifacts on the instance\'s MinIO, through Temporal', () => {
+  it('keeps each file whole, reads it back by its id, and removes it with its run', async () => {
+    const artifacts = new ArtifactService({ files: real.files });
     const report = Buffer.from('<html>passed</html>');
-
     const kept = await artifacts.put('bo', 'run-1', [{ name: 'report.html', bytes: report, contentType: 'text/html' }]);
-    expect(kept).toMatchObject({ place: 'minio', minioMissing: false, dropped: [] });
-    expect([...s3.objects.values()]).toEqual([report]);
+    expect(kept.dropped).toEqual([]);
+    expect(kept.stored[0]).toMatchObject({ name: 'report.html', contentType: 'text/html', size: report.length, runId: 'run-1' });
+    expect(await real.objects.stat(kept.stored[0]!.id)).toEqual({ size: report.length });
     const read = await artifacts.get('bo', kept.stored[0]!.id);
-    expect(read?.bytes).toEqual(report);
+    expect(await bytesOf(read!.body)).toEqual(report);
     expect(await artifacts.removeRun('bo', 'run-1')).toBe(1);
-    expect(s3.objects.size).toBe(0);
+    expect(await real.objects.stat(kept.stored[0]!.id)).toBeUndefined();
+    expect(await real.db.files.storedFileById(kept.stored[0]!.id)).toBeUndefined();
   });
 });

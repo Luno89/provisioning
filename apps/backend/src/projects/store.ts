@@ -215,7 +215,7 @@ export class MongoProjectsStore implements ProjectsStore {
 
   async removeProjectRecords(projectId: string): Promise<Record<string, number>> {
     const removed: Record<string, number> = {};
-    for (const name of ['pipelineRuns', 'odooReleases', 'corpus', 'secretRequests', 'pendingApprovals', 'tasks', 'fileShares']) {
+    for (const name of ['pipelineRuns', 'odooReleases', 'corpus', 'secretRequests', 'pendingApprovals', 'tasks']) {
       const { deletedCount } = await this.db().collection(name).deleteMany({ projectId });
       if (deletedCount) removed[name] = deletedCount;
     }

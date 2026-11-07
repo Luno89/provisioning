@@ -1,7 +1,6 @@
 import { Readable } from 'node:stream';
 import { describe, expect, it, vi } from 'vitest';
-import { matches, mock } from 'vitest-mock-extended';
-import type { FileScope } from '../../files/index.js';
+import { mock } from 'vitest-mock-extended';
 import { memoryDatabase } from '../../platform/testing/memory-database.js';
 import { objectWith } from '../../platform/lib/test-matchers.js';
 import type { HubLink, SyncedDoc } from '../lib/hub-sync.js';
@@ -248,7 +247,6 @@ describe('answering a member\'s files', () => {
   const call = (op: InstanceCall['op'], args: Record<string, unknown> = {}, role: HubRole = 'collaborator', upload?: InstanceCall['upload']): InstanceCall => ({ id: 'c1', projectId: 'abc123', op, args, as: { personId: 'bo', email: 'bo@example.com', role }, ...(upload ? { upload } : {}) });
   const entry = (path: string) => ({ name: path.split('/').pop()!, path, type: 'file' as const });
   const refused = (status: 400 | 404 | 409, why: string) => ({ ok: false as const, status, why });
-  const inProject = matches<FileScope>((scope) => scope.kind === 'project' && scope.project.id === 'p1');
 
   it('lists a folder, or the top of the project when none is named', async () => {
     const { work, files } = await world();
@@ -307,7 +305,7 @@ describe('answering a member\'s files', () => {
     files.upload.mockResolvedValue({ ok: true, value: { path: 'a.txt' } });
     const upload = { type: 'text/plain', size: 3, open: async () => body };
     expect(await work.handle(link, call('files.upload', { path: 'a.txt' }, 'collaborator', upload))).toEqual({ kind: 'json', status: 200, body: { path: 'a.txt' } });
-    expect(files.upload).toHaveBeenCalledWith('ann', objectWith({ kind: 'project' }), 'a.txt', body, 3, 'text/plain');
+    expect(files.upload).toHaveBeenCalledWith('ann', objectWith({ kind: 'project' }), 'a.txt', body, 3, 'text/plain', { replace: true });
   });
 
   it('refuses an upload that names no place or carries no file', async () => {
@@ -318,25 +316,25 @@ describe('answering a member\'s files', () => {
     expect(files.upload).not.toHaveBeenCalled();
   });
 
-  it('lets a client add a file but not replace one that has the name', async () => {
+  it('lets a client add a file but never replace one, deciding when the file is kept rather than by looking first', async () => {
     const { work, files } = await world();
     const upload = () => ({ type: 'text/plain', size: 3, open: async () => Readable.from(['new']) });
-    files.list.calledWith('ann', inProject, 'contracts').mockResolvedValue({ ok: true, value: [entry('contracts/nda.pdf')] });
-    files.upload.mockResolvedValue({ ok: true, value: { path: 'x' } });
-    expect(await work.handle(link, call('files.upload', { path: 'contracts/nda.pdf' }, 'client', upload()))).toMatchObject({ kind: 'json', status: 409 });
-    expect(files.upload).not.toHaveBeenCalled();
+    files.upload.mockImplementation(async (_owner, _scope, path, _body, _size, _type, options) => (path === 'contracts/nda.pdf' && !options.replace
+      ? refused(409, 'contracts/nda.pdf is already there, and it may not be replaced')
+      : { ok: true, value: { path } }));
+    expect(await work.handle(link, call('files.upload', { path: 'contracts/nda.pdf' }, 'client', upload()))).toEqual({ kind: 'json', status: 409, body: { error: 'A file already has that name, and only an owner or a collaborator can replace it; choose another name.' } });
     expect(await work.handle(link, call('files.upload', { path: 'contracts/brief.pdf' }, 'client', upload()))).toMatchObject({ status: 200 });
     expect(await work.handle(link, call('files.upload', { path: 'contracts/nda.pdf' }, 'collaborator', upload()))).toMatchObject({ status: 200 });
+    expect(files.upload.mock.calls.map((args) => [args[2], args[6]])).toEqual([['contracts/nda.pdf', { replace: false }], ['contracts/brief.pdf', { replace: false }], ['contracts/nda.pdf', { replace: true }]]);
+    expect(files.list).not.toHaveBeenCalled();
   });
 
-  it('looks for a clashing name at the top of the project when the file goes there, and finds none when the folder cannot be listed', async () => {
+  it('passes on any other refusal of an upload as it came, a client\'s included', async () => {
     const { work, files } = await world();
-    const upload = () => ({ type: 'text/plain', open: async () => Readable.from(['new']) });
-    files.list.mockResolvedValueOnce({ ok: true, value: [entry('top.txt')] }).mockResolvedValueOnce(refused(404, 'no folder'));
-    files.upload.mockResolvedValue({ ok: true, value: { path: 'x' } });
-    expect(await work.handle(link, call('files.upload', { path: 'top.txt' }, 'client', upload()))).toMatchObject({ status: 409 });
-    expect(files.list).toHaveBeenCalledWith('ann', objectWith({ kind: 'project' }), '');
-    expect(await work.handle(link, call('files.upload', { path: 'new/top.txt' }, 'client', upload()))).toMatchObject({ status: 200 });
+    files.upload.mockResolvedValue(refused(409, 'docs is a folder'));
+    expect(await work.handle(link, call('files.upload', { path: 'docs' }, 'collaborator', { type: 'text/plain', open: async () => Readable.from(['x']) }))).toMatchObject({ status: 409, body: { error: 'docs is a folder' } });
+    files.upload.mockResolvedValue(refused(400, 'a file needs a name'));
+    expect(await work.handle(link, call('files.upload', { path: 'x' }, 'client', { type: 'text/plain', open: async () => Readable.from(['x']) }))).toMatchObject({ status: 400 });
   });
 
   it('makes a folder, and refuses a name that is not one', async () => {

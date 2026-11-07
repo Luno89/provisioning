@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { mock } from 'vitest-mock-extended';
+import type { AttachableFile } from '../lib/attachments.js';
 import type { Conversation } from '../lib/conversations.js';
 import { TEST_USER } from '../../platform/routes/test-harness.js';
 import { routesInProcess, type InProcessRoutes } from '../../platform/testing/routes.js';
@@ -15,6 +16,7 @@ let workspaces: ReturnType<typeof mock<Required<Workspaces>>>;
 let turns: ReturnType<typeof mock<Turns>>;
 let posted: string[];
 let binding: Record<string, string> | undefined;
+let attachable: Record<string, AttachableFile> = {};
 
 const mount = (drop: readonly (keyof ConversationsRouterDeps)[] = []) => routesInProcess({
   prefix: '/api/conversations',
@@ -28,6 +30,7 @@ const mount = (drop: readonly (keyof ConversationsRouterDeps)[] = []) => routesI
     turns,
     posted: (ownerId, conversationId) => { posted.push(`${ownerId}/${conversationId}`); },
     binding: async () => binding,
+    attachable: async (ownerId, fileId) => attachable[`${ownerId}:${fileId}`],
     };
     for (const key of drop) Reflect.deleteProperty(deps, key);
     return conversationsRouter(deps);
@@ -40,6 +43,7 @@ beforeEach(async () => {
   turns.settle.mockImplementation(async (conversation) => conversation);
   posted = [];
   binding = undefined;
+  attachable = {};
   app = await mount();
 });
 
@@ -124,10 +128,12 @@ describe('posting in a channel', () => {
     expect(posted).toEqual([]);
   });
 
-  it('refuses an attachment from a project that is not theirs', async () => {
+  it('refuses an attachment the person does not keep, or one kept in a project that is not theirs', async () => {
     await app.db.engine.saveConversation(chat({ kind: 'channel' }));
-    const refused = await app.post('/api/conversations/c1/messages', { content: 'see', attachments: [{ projectId: 'nope', path: 'a.md', name: 'a.md', size: 1, type: 'text/plain' }] });
-    expect(refused).toMatchObject({ status: 400, data: { error: 'nope is not one of your projects' } });
+    attachable = { [`${TEST_USER.id}:f9`]: { id: 'f9', path: 'a.md', size: 1, contentType: 'text/plain', projectId: 'nope' } };
+    const refused = await app.post('/api/conversations/c1/messages', { content: 'see', attachments: [{ fileId: 'f9' }] });
+    expect(refused).toMatchObject({ status: 400, data: { error: 'f9 is kept in a project that is not yours' } });
+    expect(await app.post('/api/conversations/c1/messages', { content: 'see', attachments: [{ fileId: 'theirs' }] })).toMatchObject({ status: 400, data: { error: 'theirs is not a file you keep' } });
   });
 });
 
@@ -135,8 +141,15 @@ describe('attaching files in a channel', () => {
   it('keeps an attachment from a project the person owns, named with the project', async () => {
     await app.db.engine.saveConversation(chat({ kind: 'channel' }));
     await app.db.projects.saveProjectInfo({ id: 'p-mine', name: 'Shop', ownerId: TEST_USER.id, appType: 'local', createdAt: 'now' } as never);
-    const sent = await app.post<{ message: { attachments?: unknown[] } }>('/api/conversations/c1/messages', { content: 'see', attachments: [{ projectId: 'p-mine', path: 'docs/a.md', name: 'a.md', size: 1, type: 'text/markdown' }] });
-    expect(sent).toMatchObject({ status: 201, data: { message: { attachments: [{ name: 'a.md', path: 'docs/a.md', project: { id: 'p-mine', name: 'Shop' } }] } } });
+    attachable = { [`${TEST_USER.id}:f1`]: { id: 'f1', path: 'chats/c1/a.md', size: 1, contentType: 'text/markdown', projectId: 'p-mine' } };
+    const sent = await app.post<{ message: { attachments?: unknown[] } }>('/api/conversations/c1/messages', { content: 'see', attachments: [{ fileId: 'f1' }] });
+    expect(sent).toMatchObject({ status: 201, data: { message: { attachments: [{ fileId: 'f1', name: 'a.md', size: 1, type: 'text/markdown', project: { id: 'p-mine', name: 'Shop' } }] } } });
+  });
+
+  it('refuses attachments where no files can be reached', async () => {
+    const without = await mount(['attachable']);
+    await without.db.engine.saveConversation(chat({ kind: 'channel' }));
+    expect(await without.post('/api/conversations/c1/messages', { content: 'see', attachments: [{ fileId: 'f1' }] })).toMatchObject({ status: 400, data: { error: 'files cannot be attached to a message here' } });
   });
 });
 

@@ -1,6 +1,6 @@
 import { PassThrough, Readable } from 'node:stream';
 import { describe, expect, it } from 'vitest';
-import { matches, mock } from 'vitest-mock-extended';
+import { matches, mock, type MockProxy } from 'vitest-mock-extended';
 import { sameScope, TOUCH_EVERY_MS, type StoredFileRecord, type StoredScope } from '../lib/stored-files.js';
 import type { ObjectStore } from './ObjectStore.js';
 import { Folder, StoredFiles, type StoredFileCommits, type StoredFileRecords } from './StoredFiles.js';
@@ -10,10 +10,15 @@ const AT = new Date(T0).toISOString();
 const PROJECT: StoredScope = { kind: 'project', id: 'p1' };
 
 const file = (id: string, path: string, extra: Partial<StoredFileRecord> = {}): StoredFileRecord => ({
-  id, ownerId: 'u1', scope: { ...PROJECT }, path, kind: 'file', size: 3, contentType: 'text/plain', version: 1,
+  id, objectId: id, ownerId: 'u1', scope: { ...PROJECT }, path, kind: 'file', size: 3, contentType: 'text/plain', version: 1,
   madeAt: AT, changedAt: AT, state: 'stored', touchedAt: AT, ...extra,
 });
 const folder = (id: string, path: string): StoredFileRecord => file(id, path, { kind: 'folder', size: 0, contentType: 'inode/directory' });
+
+const removing = (commits: MockProxy<StoredFileCommits>): string[][] => {
+  expect(commits.remove).toHaveBeenCalledWith('u1', expect.anything());
+  return commits.remove.mock.calls[0]![1].map((going) => [going.id, going.objectId]);
+};
 
 const drained = async (stream: Readable): Promise<string> => {
   const parts: Buffer[] = [];
@@ -67,12 +72,12 @@ describe('the stored files service', () => {
   });
 
   describe('by id', () => {
-    it('hands over a stored file of the owner with its bytes', async () => {
+    it('hands over a stored file of the owner with the bytes of its current version', async () => {
       const { service, store, objects } = setUp();
-      const record = file('f1', 'a.txt');
+      const record = file('f1', 'a.txt', { objectId: 'v2', version: 2 });
       const body = Readable.from(['abc']);
       store.storedFileById.calledWith('f1').mockResolvedValue(record);
-      objects.get.calledWith('f1').mockResolvedValue(body);
+      objects.get.calledWith('v2').mockResolvedValue(body);
       expect(await service.byId('u1', 'f1')).toEqual({ record, body });
     });
 
@@ -96,6 +101,23 @@ describe('the stored files service', () => {
       store.storedFileById.calledWith('other').mockResolvedValue(file('other', 'a', { ownerId: 'u2' }));
       store.storedFileById.calledWith('up').mockResolvedValue(file('up', 'a', { state: 'uploading' }));
       for (const id of ['missing', 'other', 'up']) expect(await service.recordById('u1', id)).toBeUndefined();
+    });
+  });
+
+  describe('removing everything a person keeps', () => {
+    it('removes every file of theirs, in every place, in one removal, and says how many', async () => {
+      const { store, commits, service } = setUp();
+      store.storedFilesOwnedBy.calledWith('u1').mockResolvedValue([file('a', 'a.txt', { objectId: 'a2' }), file('b', 'x.png', { scope: { kind: 'run', id: 'r1' } })]);
+      expect(await service.removeOwned('u1')).toBe(2);
+      expect(commits.remove).toHaveBeenCalledOnce();
+      expect(removing(commits)).toEqual([['a', 'a2'], ['b', 'b']]);
+    });
+
+    it('starts no removal for someone who keeps nothing', async () => {
+      const { store, commits, service } = setUp();
+      store.storedFilesOwnedBy.calledWith('u9').mockResolvedValue([]);
+      expect(await service.removeOwned('u9')).toBe(0);
+      expect(commits.remove).not.toHaveBeenCalled();
     });
   });
 
@@ -154,6 +176,11 @@ describe('a folder of stored files', () => {
     });
   });
 
+  it('gives every file kept in the place, never a folder', async () => {
+    const { folder: opened } = setUp([file('a', 'a.txt'), folder('d', 'docs'), file('b', 'docs/b.txt')]);
+    expect((await opened.files()).map((record) => record.id)).toEqual(['a', 'b']);
+  });
+
   it('searches the place\'s files by name', async () => {
     const { folder: place } = setUp([file('1', 'a/report.txt'), file('2', 'b.txt')]);
     expect((await place.search('REP')).map((entry) => entry.path)).toEqual(['a/report.txt']);
@@ -173,11 +200,11 @@ describe('a folder of stored files', () => {
       expect(store.storedFilesIn).not.toHaveBeenCalled();
     });
 
-    it('downloads a file with its bytes', async () => {
-      const { folder: place, objects } = setUp([file('f', 'a.txt')]);
+    it('downloads a file with the bytes of its current version', async () => {
+      const { folder: place, objects } = setUp([file('f', 'a.txt', { objectId: 'v3' })]);
       const body = Readable.from(['x']);
-      objects.get.calledWith('f').mockResolvedValue(body);
-      expect(await place.download('a.txt')).toEqual({ ok: true, value: { record: file('f', 'a.txt'), body } });
+      objects.get.calledWith('v3').mockResolvedValue(body);
+      expect(await place.download('a.txt')).toEqual({ ok: true, value: { record: file('f', 'a.txt', { objectId: 'v3' }), body } });
     });
 
     it('refuses to download a bad path or one nothing is at', async () => {
@@ -193,11 +220,11 @@ describe('a folder of stored files', () => {
       const { folder: place, store, objects, commits } = setUp();
       const { sent } = storing(objects, 5);
       const stored = file('id-1', 'docs/a.txt', { size: 5 });
-      commits.commit.mockResolvedValue({ ok: true, stored: [stored], replaced: [] });
+      commits.commit.mockResolvedValue({ ok: true, stored: [stored], replaced: [], absorbed: [] });
       const outcome = await place.upload('/docs/a.txt', Readable.from([Buffer.from('hello')]), 5, 'text/plain', { replace: false });
       expect(outcome).toEqual({ ok: true, value: stored });
       expect(store.beginStoredFile).toHaveBeenCalledWith({
-        id: 'id-1', ownerId: 'u1', scope: PROJECT, path: 'docs/a.txt', kind: 'file', size: 0, contentType: 'text/plain',
+        id: 'id-1', objectId: 'id-1', ownerId: 'u1', scope: PROJECT, path: 'docs/a.txt', kind: 'file', size: 0, contentType: 'text/plain',
         version: 0, madeAt: AT, changedAt: AT, state: 'uploading', touchedAt: AT,
       });
       expect(store.beginStoredFile.mock.calls[0]![0]).not.toHaveProperty('expiresAt');
@@ -211,7 +238,7 @@ describe('a folder of stored files', () => {
     it('commits the size the bytes really have, not the size it was told', async () => {
       const { folder: place, objects, commits } = setUp();
       storing(objects, 9);
-      commits.commit.mockResolvedValue({ ok: true, stored: [file('id-1', 'a')], replaced: [] });
+      commits.commit.mockResolvedValue({ ok: true, stored: [file('id-1', 'a')], replaced: [], absorbed: [] });
       await place.upload('a', Readable.from(['x']), undefined, 'text/plain', { replace: true });
       expect(objects.put).toHaveBeenCalledWith('id-1', expect.anything(), undefined, 'text/plain');
       expect(commits.commit).toHaveBeenCalledWith('u1', [{ id: 'id-1', size: 9 }], { replace: true });
@@ -220,7 +247,7 @@ describe('a folder of stored files', () => {
     it('keeps when the file expires only when one is given', async () => {
       const { folder: place, store, objects, commits } = setUp();
       storing(objects);
-      commits.commit.mockResolvedValue({ ok: true, stored: [file('id-1', 'a')], replaced: [] });
+      commits.commit.mockResolvedValue({ ok: true, stored: [file('id-1', 'a')], replaced: [], absorbed: [] });
       await place.upload('a', Readable.from(['x']), 1, 'text/plain', { replace: true, expiresAt: '2026-12-01T00:00:00.000Z' });
       await place.upload('b', Readable.from(['x']), 1, 'text/plain', { replace: true, expiresAt: '' });
       await place.upload('c', Readable.from(['x']), 1, 'text/plain', { replace: true, expiresAt: undefined });
@@ -229,11 +256,12 @@ describe('a folder of stored files', () => {
       expect(store.beginStoredFile.mock.calls[2]![0]).not.toHaveProperty('expiresAt');
     });
 
-    it('replaces a file there when replacing is allowed', async () => {
+    it('replaces a file there when replacing is allowed, handing back the file it was with its new version', async () => {
       const { folder: place, objects, commits } = setUp([file('old', 'a')]);
       storing(objects);
-      commits.commit.mockResolvedValue({ ok: true, stored: [file('id-1', 'a', { version: 2 })], replaced: ['old'] });
-      expect(await place.upload('a', Readable.from(['x']), 1, 'text/plain', { replace: true })).toEqual({ ok: true, value: file('id-1', 'a', { version: 2 }) });
+      commits.commit.mockResolvedValue({ ok: true, stored: [file('old', 'a', { objectId: 'id-1', version: 2 })], replaced: ['old'], absorbed: ['id-1'] });
+      expect(await place.upload('a', Readable.from(['x']), 1, 'text/plain', { replace: true })).toEqual({ ok: true, value: file('old', 'a', { objectId: 'id-1', version: 2 }) });
+      expect(objects.put).toHaveBeenCalledWith('id-1', expect.anything(), 1, 'text/plain');
     });
 
     it('refuses a bad path, a folder in the way and a file it may not replace before touching storage', async () => {
@@ -251,7 +279,7 @@ describe('a folder of stored files', () => {
     it('lets a new file in without replacing when only a folder of another name is there', async () => {
       const { folder: place, objects, commits } = setUp([folder('d', 'other')]);
       storing(objects);
-      commits.commit.mockResolvedValue({ ok: true, stored: [file('id-1', 'a')], replaced: [] });
+      commits.commit.mockResolvedValue({ ok: true, stored: [file('id-1', 'a')], replaced: [], absorbed: [] });
       expect((await place.upload('a', Readable.from(['x']), 1, 'text/plain', { replace: false })).ok).toBe(true);
     });
 
@@ -284,7 +312,7 @@ describe('a folder of stored files', () => {
         }
       });
       objects.stat.mockResolvedValue({ size: 4 });
-      commits.commit.mockResolvedValue({ ok: true, stored: [file('id-1', 'a')], replaced: [] });
+      commits.commit.mockResolvedValue({ ok: true, stored: [file('id-1', 'a')], replaced: [], absorbed: [] });
       store.touchStoredFile.mockResolvedValue(undefined);
       const write = async (text: string, at: number): Promise<void> => {
         clock.now = at;
@@ -328,7 +356,7 @@ describe('a folder of stored files', () => {
       store.makeStoredFolder.mockResolvedValue({ ok: true, made: true });
       expect(await place.makeFolder('/a/b/')).toEqual({ ok: true, value: { path: 'a/b', made: true } });
       expect(store.makeStoredFolder).toHaveBeenCalledWith({
-        id: 'id-1', ownerId: 'u1', scope: PROJECT, path: 'a/b', kind: 'folder', size: 0, contentType: 'inode/directory',
+        id: 'id-1', objectId: 'id-1', ownerId: 'u1', scope: PROJECT, path: 'a/b', kind: 'folder', size: 0, contentType: 'inode/directory',
         version: 1, madeAt: AT, changedAt: AT, state: 'stored', touchedAt: AT,
       });
     });
@@ -375,15 +403,15 @@ describe('a folder of stored files', () => {
 
   describe('removing', () => {
     it('removes a folder with everything under it, never a sibling sharing its start', async () => {
-      const { folder: place, commits } = setUp([folder('d', 'a'), file('1', 'a/x'), file('2', 'a/b/y'), file('3', 'ab')]);
+      const { folder: place, commits } = setUp([folder('d', 'a'), file('1', 'a/x', { objectId: '1v2' }), file('2', 'a/b/y'), file('3', 'ab')]);
       expect(await place.remove('/a/')).toEqual({ ok: true, value: { path: 'a', removed: 3 } });
-      expect(commits.remove).toHaveBeenCalledWith('u1', ['d', '1', '2']);
+      expect(removing(commits)).toEqual([['d', 'd'], ['1', '1v2'], ['2', '2']]);
     });
 
     it('removes one file', async () => {
       const { folder: place, commits } = setUp([file('1', 'a'), file('2', 'b')]);
       expect(await place.remove('b')).toEqual({ ok: true, value: { path: 'b', removed: 1 } });
-      expect(commits.remove).toHaveBeenCalledWith('u1', ['2']);
+      expect(removing(commits)).toEqual([['2', '2']]);
     });
 
     it('refuses a bad path and one nothing is at, removing nothing', async () => {
@@ -396,7 +424,7 @@ describe('a folder of stored files', () => {
     it('removes everything in the place and says how much', async () => {
       const { folder: place, commits } = setUp([file('1', 'a'), folder('2', 'b')]);
       expect(await place.removeAll()).toBe(2);
-      expect(commits.remove).toHaveBeenCalledWith('u1', ['1', '2']);
+      expect(removing(commits)).toEqual([['1', '1'], ['2', '2']]);
     });
 
     it('asks nothing to be removed when the place is empty', async () => {

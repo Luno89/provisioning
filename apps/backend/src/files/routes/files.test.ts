@@ -12,13 +12,18 @@ import { filesRouter, FILE_TYPE_HEADER, shareRouter, type FilesRouterDeps } from
 
 const project = { id: 'p1', name: 'Shop', ownerId: TEST_USER.id } as ProjectMetadata;
 const inProject = equalTo({ kind: 'project' as const, project });
-const mine = equalTo({ kind: 'mine' as const });
+const mine = equalTo({ kind: 'person' as const });
+const inChat = equalTo({ kind: 'conversation' as const, conversationId: 'c1' });
+const inChannel = equalTo({ kind: 'conversation' as const, conversationId: 'channel-p1', projectId: 'p1' });
 
 async function setUp() {
   const files = mock<FileService>();
   const deps = mock<FilesRouterDeps>({ files });
   deps.getOwnedProject.calledWith('p1', any()).mockResolvedValue(project);
   deps.getOwnedProject.calledWith('p2', any()).mockResolvedValue(undefined);
+  deps.getOwnedConversation.calledWith(TEST_USER.id, 'c1').mockResolvedValue({ id: 'c1' });
+  deps.getOwnedConversation.calledWith(TEST_USER.id, 'channel-p1').mockResolvedValue({ id: 'channel-p1', projectId: 'p1' });
+  deps.getOwnedConversation.calledWith(TEST_USER.id, 'theirs').mockResolvedValue(undefined);
   const routes = await routesInProcess({ prefix: '/', router: () => filesRouter(deps) });
   return { files, routes };
 }
@@ -26,20 +31,6 @@ async function setUp() {
 const refused = (status: 400 | 404 | 409, why: string) => ({ ok: false as const, status, why });
 
 describe('/api/files', () => {
-  it('lists the person\'s file servers and sets or clears their default', async () => {
-    const { files, routes } = await setUp();
-    files.servers.calledWith(TEST_USER.id).mockResolvedValue({ servers: [{ kind: 'minio', deploymentId: 'm1', name: 'minio', clusterId: 'c1' }], defaultId: 'm1' });
-    files.setDefault.calledWith(TEST_USER.id, 'm1').mockResolvedValue({ ok: true, value: { defaultId: 'm1' } });
-    files.setDefault.calledWith(TEST_USER.id, null).mockResolvedValue({ ok: true, value: {} });
-    files.setDefault.calledWith(TEST_USER.id, 'theirs').mockResolvedValue(refused(400, 'That is not one of your running file servers.'));
-    expect((await routes.get('/servers')).data).toEqual({ servers: [{ kind: 'minio', deploymentId: 'm1', name: 'minio', clusterId: 'c1' }], defaultId: 'm1' });
-    expect((await routes.put('/default', { deploymentId: 'm1' })).data).toEqual({ defaultId: 'm1' });
-    expect((await routes.put('/default', { deploymentId: null })).data).toEqual({});
-    const no = await routes.put('/default', { deploymentId: 'theirs' });
-    expect([no.status, no.data]).toEqual([400, { error: 'That is not one of your running file servers.' }]);
-    expect((await routes.put('/default', { deploymentId: 7 })).status).toBe(400);
-  });
-
   it('lists the person\'s share links and revokes one', async () => {
     const { files, routes } = await setUp();
     const share = { id: 's1', ownerId: TEST_USER.id, path: 'a.pdf' } as FileShare;
@@ -49,20 +40,6 @@ describe('/api/files', () => {
     expect((await routes.get('/shares')).data).toEqual([share]);
     expect((await routes.delete('/shares/s1')).status).toBe(200);
     expect((await routes.delete('/shares/nope')).status).toBe(404);
-  });
-
-  it('says where a project\'s files go, and lets the person choose or start the server for it', async () => {
-    const { files, routes } = await setUp();
-    files.placeOf.calledWith(TEST_USER.id, inProject).mockResolvedValue({ state: 'none' });
-    files.choose.calledWith(TEST_USER.id, project, 'm1').mockResolvedValue({ ok: true, value: { state: 'none' } });
-    files.startMinio.calledWith(TEST_USER.id, project).mockResolvedValue({ ok: true, value: { state: 'none' } });
-    expect((await routes.get('/projects/p1/place')).data).toEqual({ state: 'none' });
-    expect((await routes.put('/projects/p1/place', { deploymentId: 'm1' })).data).toEqual({ state: 'none' });
-    expect((await routes.put('/projects/p1/place', {})).status).toBe(400);
-    expect((await routes.post('/projects/p1/minio')).status).toBe(202);
-    for (const [method, url] of [['GET', '/projects/p2/place'], ['PUT', '/projects/p2/place'], ['POST', '/projects/p2/minio']] as const) {
-      expect((await routes.request(method, url, { body: { deploymentId: 'm1' } })).status).toBe(404);
-    }
   });
 
   it('lists a folder of a project or of the person\'s own files, refusing a path that leaves it', async () => {
@@ -77,11 +54,22 @@ describe('/api/files', () => {
     expect((await routes.get('/everyone/list')).data).toEqual({ error: 'Not found' });
   });
 
-  it('says why a project\'s files cannot be listed yet', async () => {
+  it('lists a chat\'s files, in its project when it belongs to one, and only for the chat\'s owner', async () => {
     const { files, routes } = await setUp();
-    files.list.mockResolvedValue(refused(409, 'This project has no file server yet.'));
-    const none = await routes.get('/projects/p1/list');
-    expect([none.status, none.data]).toEqual([409, { error: 'This project has no file server yet.' }]);
+    files.list.calledWith(TEST_USER.id, inChat, '').mockResolvedValue({ ok: true, value: [{ name: 'a.png', path: 'a.png', type: 'file' }] });
+    files.list.calledWith(TEST_USER.id, inChannel, '').mockResolvedValue({ ok: true, value: [] });
+    expect((await routes.get('/conversations/c1/list')).data).toEqual([{ name: 'a.png', path: 'a.png', type: 'file' }]);
+    expect((await routes.get('/conversations/channel-p1/list')).data).toEqual([]);
+    const theirs = await routes.get('/conversations/theirs/list');
+    expect([theirs.status, theirs.data]).toEqual([404, { error: 'Conversation not found' }]);
+    expect((await routes.put('/conversations/theirs/content?path=a', undefined, { raw: Buffer.from('x') })).status).toBe(404);
+  });
+
+  it('says why a folder cannot be listed', async () => {
+    const { files, routes } = await setUp();
+    files.list.mockResolvedValue(refused(404, 'docs is not a folder here'));
+    const none = await routes.get('/projects/p1/list?dir=docs');
+    expect([none.status, none.data]).toEqual([404, { error: 'docs is not a folder here' }]);
   });
 
   it('finds files by name, answering an empty search for a missing query', async () => {
@@ -122,11 +110,11 @@ describe('/api/files', () => {
       const parts: Buffer[] = [];
       for await (const part of body) parts.push(Buffer.from(part as Buffer));
       received.push({ bytes: Buffer.concat(parts), size, type });
-      return { ok: true, value: { path } };
+      return { ok: true, value: { path, id: `id-${received.length}` } };
     });
     const pdf = Buffer.from([0x25, 0x50, 0x44, 0x46, 0x00, 0xff]);
     const stored = await routes.put('/projects/p1/content?path=docs/brief.pdf', undefined, { raw: pdf, headers: { 'content-type': 'application/octet-stream', [FILE_TYPE_HEADER]: 'application/pdf' } });
-    expect([stored.status, stored.data]).toEqual([201, { path: 'docs/brief.pdf' }]);
+    expect([stored.status, stored.data]).toEqual([201, { path: 'docs/brief.pdf', id: 'id-1' }]);
     expect(received).toEqual([{ bytes: pdf, size: 6, type: 'application/pdf' }]);
     await routes.put('/mine/content?path=a.bin', undefined, { raw: Buffer.from('a') });
     expect(received[1]?.type).toBe('application/octet-stream');
@@ -134,10 +122,25 @@ describe('/api/files', () => {
     expect((await routes.put('/projects/p2/content?path=a', undefined, { raw: Buffer.from('x') })).status).toBe(404);
   });
 
-  it('says a project with no file server cannot take an upload', async () => {
+  it('says why an upload was refused', async () => {
     const { files, routes } = await setUp();
-    files.upload.mockResolvedValue(refused(409, 'This project has no file server yet.'));
-    expect((await routes.put('/projects/p1/content?path=a.pdf', undefined, { raw: Buffer.from('x') })).status).toBe(409);
+    files.upload.mockResolvedValue(refused(409, 'a.pdf is a folder'));
+    const no = await routes.put('/projects/p1/content?path=a.pdf', undefined, { raw: Buffer.from('x') });
+    expect([no.status, no.data]).toEqual([409, { error: 'a.pdf is a folder' }]);
+  });
+
+  it('gives back a file of the person\'s by its id, shown when asked, and says when they keep none', async () => {
+    const { files, routes } = await setUp();
+    files.downloadById.calledWith(TEST_USER.id, 'f1').mockImplementation(async () => ({ ok: true, value: { stream: Readable.from([Buffer.from('png')]), size: 3, contentType: 'image/png', name: 'shot.png' } }));
+    files.downloadById.calledWith(TEST_USER.id, 'nope').mockResolvedValue(refused(404, 'You keep no file with that id.'));
+    const back = await routes.get('/stored/f1?inline=1');
+    expect(back.bytes.toString()).toBe('png');
+    expect(back.headers['content-type']).toBe('image/png');
+    expect(back.headers['content-disposition']).toBe("inline; filename*=UTF-8''shot.png");
+    expect(back.headers['content-length']).toBe('3');
+    expect((await routes.get('/stored/f1')).headers['content-disposition']).toBe("attachment; filename*=UTF-8''shot.png");
+    const none = await routes.get('/stored/nope');
+    expect([none.status, none.data]).toEqual([404, { error: 'You keep no file with that id.' }]);
   });
 
   it('gives a file back as it was stored, as a download unless asked to show it', async () => {

@@ -1,5 +1,4 @@
 import { Context } from '@temporalio/activity';
-import { sharedFolder, type FilePlace } from '../files/index.js';
 import {
   type ClusterMetadata, type ProjectMetadata, type DeploymentMetadata, type PipelineRunMetadata, CLI_CEILING,
 } from '../platform/index.js';
@@ -78,7 +77,7 @@ export interface ProjectRemovalDeps {
   repositories: { deleteRepo(owner: string, name: string): Promise<void> };
   secrets: { removeProject(projectId: string): Promise<{ workspace: boolean; readers: number }> };
   artifacts?: { removeRun(ownerId: string, runId: string): Promise<number> } | undefined;
-  files?: { removeAll(ownerId: string, place: FilePlace): Promise<'removed' | 'unreachable'>; personalServer(ownerId: string): Promise<string | undefined> } | undefined;
+  files: { removeProjectFiles(ownerId: string, projectId: string): Promise<number> };
 }
 
 export interface ProjectRemovalActivities {
@@ -88,7 +87,7 @@ export interface ProjectRemovalActivities {
   RemoveProjectWorkspacesActivity(args: RemoveProjectArgs): Promise<number>;
   RemoveProjectSecretsActivity(args: RemoveProjectArgs): Promise<{ workspace: boolean; readers: number }>;
   RemoveProjectRepositoriesActivity(args: RemoveProjectArgs): Promise<string[]>;
-  RemoveProjectFilesActivity(args: RemoveProjectArgs): Promise<'removed' | 'unreachable' | 'none' | 'shared'>;
+  RemoveProjectFilesActivity(args: RemoveProjectArgs): Promise<number>;
   RemoveProjectRecordsActivity(args: RemoveProjectArgs): Promise<Record<string, number>>;
 }
 
@@ -168,12 +167,8 @@ export function createProjectRemovalActivities(deps: ProjectRemovalDeps): Projec
 
     async RemoveProjectFilesActivity({ projectId }) {
       const found = await scopeOf(projectId);
-      const place = found?.project.files;
-      if (!found || !place || !deps.files) return 'none';
-      const ownerId = found.project.ownerId ?? '';
-      const others = (await store.projects.getProjects()).filter((other) => other.id !== projectId && other.ownerId === ownerId);
-      if (sharedFolder(place, others, await deps.files.personalServer(ownerId))) return 'shared';
-      return deps.files.removeAll(ownerId, place);
+      if (!found?.project.ownerId) return 0;
+      return deps.files.removeProjectFiles(found.project.ownerId, projectId);
     },
 
     async RemoveProjectRecordsActivity({ projectId }) {
