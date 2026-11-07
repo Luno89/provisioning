@@ -123,7 +123,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   const infraService = new InfrastructureService();
   const builderService = new BuilderService(db, infraService);
   const clusterService = new ClusterService(db, infraService, clusterAccessFrom(process.env, { role: role.role, clusters: db.infrastructure, dataKey: keys.data }));
-  const artifactStore = createArtifactService(db, infraService, clusterService);
+  const artifactStore = createArtifactService(db, clusterService);
   const appService = new AppService(db, infraService, clusterService, builderService);
   const registryService = new RegistryService(db);
   const gitModuleService = new GitModuleService(db);

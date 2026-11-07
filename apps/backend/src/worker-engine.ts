@@ -140,7 +140,7 @@ async function buildActivities() {
   });
   const kubeInfra = new InfrastructureService();
   const clusterService = new ClusterService(db, kubeInfra, clusterAccessFrom(process.env, { role: roleFromEnv(process.env).role, clusters: db.infrastructure, dataKey: keys.data }));
-  const artifactStore = createArtifactService(db, kubeInfra, clusterService);
+  const artifactStore = createArtifactService(db, clusterService);
   const fileStores = new FileStores(artifactStore.reach);
   const vault = createSecretVault({
     backend: infisical,

@@ -1,19 +1,16 @@
 import { Client } from 'minio';
 import type { ClusterMetadata, DeploymentMetadata } from '../../platform/index.js';
-import { ARTIFACT_BUCKET, minioOf, s3Address, type ServiceSpec } from '../lib/artifacts.js';
+import { namespaceOf, type ClusterAccess } from '../../infrastructure/index.js';
+import { ARTIFACT_BUCKET, minioEndpoint, minioOf, type ServiceSpec } from '../lib/artifacts.js';
 import type { ObjectStore } from './ArtifactService.js';
 
 export interface MinioReach {
   deployments: () => Promise<DeploymentMetadata[]>;
-  clusterById: (id: string) => Promise<ClusterMetadata | undefined>;
-  service: (cluster: ClusterMetadata, namespace: string, name: string) => Promise<ServiceSpec>;
-  nodeIp: (cluster: ClusterMetadata) => Promise<string | undefined>;
+  endpoint: (deployment: DeploymentMetadata) => Promise<{ host: string; port: number }>;
   connect?: ((endpoint: { host: string; port: number; accessKey: string; secretKey: string }) => MinioClient) | undefined;
 }
 
 export type MinioClient = Pick<Client, 'bucketExists' | 'makeBucket' | 'putObject' | 'getObject' | 'removeObject'>;
-
-const namespaceOf = (name: string) => name.toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
 
 const connectWith = (endpoint: { host: string; port: number; accessKey: string; secretKey: string }): MinioClient =>
   new Client({ endPoint: endpoint.host, port: endpoint.port, useSSL: false, accessKey: endpoint.accessKey, secretKey: endpoint.secretKey });
@@ -44,10 +41,7 @@ export class MinioArtifactStores {
   private async open(ownerId: string): Promise<ObjectStore | undefined> {
     const deployment = minioOf(await this.reach.deployments(), ownerId);
     if (!deployment) return undefined;
-    const cluster = await this.reach.clusterById(deployment.clusterId);
-    if (!cluster) return undefined;
-    const address = s3Address(await this.reach.service(cluster, namespaceOf(deployment.name), 'minio'), await this.reach.nodeIp(cluster));
-    if (!address) return undefined;
+    const address = await this.reach.endpoint(deployment);
 
     const client = (this.reach.connect ?? connectWith)({
       ...address,
@@ -65,27 +59,21 @@ export class MinioArtifactStores {
 }
 
 export interface ClusterReachDeps {
-  db: { getDeployments(): Promise<DeploymentMetadata[]>; getClusters(): Promise<ClusterMetadata[]> };
-  systemCluster: () => Promise<ClusterMetadata>;
-  kubeconfigOf: (cluster: ClusterMetadata) => Promise<string>;
-  kubectl: (args: string[], kubeconfig: string) => Promise<string>;
-  hostGatewayIp: () => Promise<string>;
-  k3dServerIp: (clusterName: string) => Promise<string>;
-  isMockCloud: (cluster: ClusterMetadata) => boolean;
+  deployments: () => Promise<DeploymentMetadata[]>;
+  access: Pick<ClusterAccess, 'reach' | 'kubectl'>;
+  clusterById: (id: string) => Promise<ClusterMetadata | undefined>;
 }
 
 export function minioReachFrom(deps: ClusterReachDeps): MinioReach {
   return {
-    deployments: () => deps.db.getDeployments(),
-    clusterById: async (id) => {
-      const system = await deps.systemCluster();
-      return id === 'provisioning-lunorica' || id === system.id ? system : (await deps.db.getClusters()).find((cluster) => cluster.id === id);
-    },
-    service: async (cluster, namespace, name) => JSON.parse(await deps.kubectl(['get', 'svc', name, '-n', namespace, '-o', 'json'], await deps.kubeconfigOf(cluster))) as ServiceSpec,
-    nodeIp: async (cluster) => {
-      if (cluster.gpuEnabled) return deps.hostGatewayIp();
-      if (cluster.provider === 'k3d' || deps.isMockCloud(cluster)) return deps.k3dServerIp(cluster.name);
-      return cluster.meshIp || undefined;
+    deployments: deps.deployments,
+    endpoint: async (deployment) => {
+      const namespace = namespaceOf(deployment);
+      const reach = await deps.access.reach(deployment.clusterId);
+      if (reach.kind === 'root') throw new Error(`${deployment.clusterId} is root's own cluster, which runs no one's MinIO`);
+      const service = JSON.parse(await deps.access.kubectl(reach, ['get', 'svc', 'minio', '-n', namespace, '-o', 'json'])) as ServiceSpec;
+      if (reach.kind === 'koala') return minioEndpoint(service, namespace, { kind: 'koala' });
+      return minioEndpoint(service, namespace, { kind: 'machine', clusterId: reach.clusterId, meshIp: (await deps.clusterById(reach.clusterId))?.meshIp });
     },
   };
 }

@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { Readable } from 'node:stream';
 import { mock } from 'vitest-mock-extended';
 import { FileServerUnreachableError, FileStores, minioStore, type FileStoreReach } from './FileStores.js';
-import type { ClusterMetadata, DeploymentMetadata } from '../../platform/lib/types.js';
+import type { DeploymentMetadata } from '../../platform/lib/types.js';
 
 const listing = <T>(items: T[]) => Readable.from(items);
 
@@ -97,42 +97,37 @@ describe('a project\'s files in MinIO', () => {
 
 describe('opening a person\'s file server', () => {
   const running = { id: 'm1', name: 'Team Store', appType: 'minio', status: 'running', clusterId: 'c1', ownerId: 'u1', minioRootUser: 'koala', minioRootPassword: 'pw' } as DeploymentMetadata;
-  const cluster = { id: 'c1', name: 'dev', provider: 'k3d' } as ClusterMetadata;
   const place = { kind: 'minio' as const, deploymentId: 'm1', folder: 'shop' };
 
   function reachTo(deployments: DeploymentMetadata[]) {
     const reach = mock<FileStoreReach>();
     reach.deployments.mockResolvedValue(deployments);
-    reach.clusterById.calledWith('c1').mockResolvedValue(cluster);
-    reach.service.calledWith(cluster, 'team-store', 'minio').mockResolvedValue({ spec: { ports: [{ name: 's3', port: 9000, nodePort: 30900 }] } });
-    reach.nodeIp.calledWith(cluster).mockResolvedValue('172.18.0.2');
+    reach.endpoint.mockResolvedValue({ host: 'minio.team-store-m10000.svc.cluster.local', port: 9000 });
     return reach;
   }
 
-  it('reaches the server through its service in the namespace named from its app, and hands back a store for the folder', async () => {
+  it('reaches the server where its reach says, and hands back a store for the folder', async () => {
     const reach = reachTo([running]);
     const store = await new FileStores(reach).open('u1', place);
-    expect(reach.service).toHaveBeenCalledWith(cluster, 'team-store', 'minio');
+    expect(reach.endpoint).toHaveBeenCalledWith(running);
     expect(Object.keys(store).sort()).toEqual(['download', 'list', 'makeFolder', 'move', 'remove', 'removeAll', 'search', 'upload']);
   });
 
-  it('refuses a server that is not the person\'s, not running, or gone from its cluster, saying which', async () => {
+  it('refuses a server that is not the person\'s or not running, saying which', async () => {
     const message = (reach: FileStoreReach) => new FileStores(reach).open('u1', place).catch((err: Error) => err);
     const others = await message(reachTo([{ ...running, ownerId: 'u2' }]));
     expect(others).toBeInstanceOf(FileServerUnreachableError);
     expect((others as Error).message).toBe('The file server m1 is not running.');
     expect(((await message(reachTo([{ ...running, status: 'failed' }]))) as Error).message).toBe('The file server m1 is not running.');
-    const orphan = reachTo([running]);
-    orphan.clusterById.calledWith('c1').mockResolvedValue(undefined);
-    expect(((await message(orphan)) as Error).message).toBe('The cluster Team Store runs on is gone.');
   });
 
-  it('refuses a server with no address Koala can reach or no stored password', async () => {
+  it('refuses a server Koala cannot reach, or holds no password for, saying why', async () => {
     const message = (reach: FileStoreReach) => new FileStores(reach).open('u1', place).catch((err: Error) => err);
-    const unaddressed = reachTo([running]);
-    unaddressed.service.calledWith(cluster, 'team-store', 'minio').mockResolvedValue({});
-    expect(((await message(unaddressed)) as Error).message).toBe('Team Store cannot be reached from Koala.');
-    const passwordless = reachTo([{ ...running, minioRootPassword: '' }]);
-    expect(((await message(passwordless)) as Error).message).toBe('Team Store cannot be reached from Koala.');
+    const stopped = reachTo([running]);
+    stopped.endpoint.mockRejectedValue(new Error('c1 is stopped until something runs on it'));
+    const refused = await message(stopped);
+    expect(refused).toBeInstanceOf(FileServerUnreachableError);
+    expect((refused as Error).message).toBe('Team Store cannot be reached from Koala: c1 is stopped until something runs on it');
+    expect(((await message(reachTo([{ ...running, minioRootPassword: '' }]))) as Error).message).toBe('Koala holds no password for Team Store, so it cannot sign in to it.');
   });
 });

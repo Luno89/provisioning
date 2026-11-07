@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import type { ClusterMetadata, DeploymentMetadata } from '../../platform/lib/types.js';
+import type { DeploymentMetadata } from '../../platform/lib/types.js';
 import { testDatabase } from '../../platform/lib/test-database.js';
 import { s3StandIn, type S3StandIn } from '../testing/s3-stand-in.js';
 import { ArtifactService } from './ArtifactService.js';
@@ -15,9 +15,7 @@ describe('keeping a run\'s artifacts on the person\'s MinIO', () => {
     const minio = { id: 'm1', name: 'files', appType: 'minio', status: 'running', ownerId: 'bo', clusterId: 'c1', minioRootPassword: 'secret-pass' } as DeploymentMetadata;
     const stores = new MinioArtifactStores({
       deployments: async () => [minio],
-      clusterById: async () => ({ id: 'c1', name: 'own' }) as ClusterMetadata,
-      service: async () => ({ spec: { ports: [{ name: 's3', port: 9000, nodePort: s3.port }] } }),
-      nodeIp: async () => '127.0.0.1',
+      endpoint: async () => ({ host: '127.0.0.1', port: s3.port }),
     });
     const artifacts = new ArtifactService({ records: db.files, minioFor: (ownerId) => stores.storeFor(ownerId) });
     const report = Buffer.from('<html>passed</html>');

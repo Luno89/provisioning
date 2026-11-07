@@ -1,18 +1,18 @@
 import { describe, expect, it } from 'vitest';
 import { mock } from 'vitest-mock-extended';
-import type { ClusterService, InfrastructureService } from '../../infrastructure/index.js';
+import type { ClusterService } from '../../infrastructure/index.js';
 import type { ClusterMetadata, DeploymentMetadata } from '../../platform/lib/types.js';
 import { memoryDatabase } from '../../platform/testing/memory-database.js';
 import { createArtifactService } from './artifact-service-factory.js';
 
-const cluster = { id: 'c1', name: 'dev', provider: 'k3d' } as ClusterMetadata;
+const cluster = { id: 'c1', name: 'desk', provider: 'machine', meshIp: '100.64.0.7' } as ClusterMetadata;
 const minio = { id: 'm1', name: 'Team Store', appType: 'minio', status: 'running', clusterId: 'c1', ownerId: 'bo', minioRootPassword: 'pw' } as DeploymentMetadata;
 
 function setUp() {
   const db = memoryDatabase();
-  const infra = mock<InfrastructureService>();
-  const clusters = mock<ClusterService>();
-  return { db, infra, clusters, made: createArtifactService(db, infra, clusters) };
+  const access = mock<ClusterService['access']>();
+  const clusters = mock<Pick<ClusterService, 'access' | 'getByIdUnscoped'>>({ access });
+  return { db, access, clusters, made: createArtifactService(db, clusters) };
 }
 
 describe('the artifact service a process is given', () => {
@@ -31,19 +31,12 @@ describe('the artifact service a process is given', () => {
     expect(await made.minio.hasMinio('al')).toBe(false);
   });
 
-  it('reaches a cluster\'s MinIO through the infrastructure and cluster services', async () => {
-    const { db, infra, clusters, made } = setUp();
-    await db.infrastructure.saveClusterInfo(cluster);
-    clusters.getKubeconfigPath.calledWith(cluster).mockResolvedValue('/kube/dev');
-    clusters.getSystemClusterEntry.mockResolvedValue({ ...cluster, id: 'provisioning-lunorica' });
-    infra.runKubectl.mockResolvedValue('{"spec":{"ports":[{"name":"s3","port":9000,"nodePort":30900}]}}');
-    infra.getK3dServerIp.calledWith('dev').mockResolvedValue('172.18.0.2');
-    expect((await made.reach.clusterById('c1'))?.name).toBe('dev');
-    expect((await made.reach.clusterById('provisioning-lunorica'))?.id).toBe('provisioning-lunorica');
-    expect(await made.reach.service(cluster, 'team-store', 'minio')).toEqual({ spec: { ports: [{ name: 's3', port: 9000, nodePort: 30900 }] } });
-    expect(infra.runKubectl).toHaveBeenCalledWith(['get', 'svc', 'minio', '-n', 'team-store', '-o', 'json'], '/kube/dev');
-    expect(await made.reach.nodeIp(cluster)).toBe('172.18.0.2');
-    infra.getHostGatewayIp.mockResolvedValue('172.17.0.1');
-    expect(await made.reach.nodeIp({ ...cluster, gpuEnabled: true })).toBe('172.17.0.1');
+  it('reaches a cluster\'s MinIO through the cluster service\'s access and records', async () => {
+    const { access, clusters, made } = setUp();
+    access.reach.calledWith('c1').mockResolvedValue({ clusterId: 'c1', kind: 'machine', kubeconfig: 'k' });
+    access.kubectl.mockResolvedValue('{"spec":{"ports":[{"name":"s3","port":9000,"nodePort":30900}]}}');
+    clusters.getByIdUnscoped.calledWith('c1').mockResolvedValue(cluster);
+    expect(await made.reach.endpoint({ ...minio, namespace: 'team-store-m10000' })).toEqual({ host: '100.64.0.7', port: 30900 });
+    expect(access.kubectl).toHaveBeenCalledWith({ clusterId: 'c1', kind: 'machine', kubeconfig: 'k' }, ['get', 'svc', 'minio', '-n', 'team-store-m10000', '-o', 'json']);
   });
 });

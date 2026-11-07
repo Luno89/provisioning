@@ -82,16 +82,17 @@ export function minioOf<T extends MinioCandidate>(deployments: readonly T[], own
 
 export interface ServiceSpec {
   spec?: { ports?: { name?: string; port: number; nodePort?: number }[] };
-  status?: { loadBalancer?: { ingress?: { ip?: string; hostname?: string }[] } };
 }
 
-export function s3Address(service: ServiceSpec, nodeIp: string | undefined): { host: string; port: number } | undefined {
+export type MinioCluster = { kind: 'koala' } | { kind: 'machine'; clusterId: string; meshIp?: string | undefined };
+
+export function minioEndpoint(service: ServiceSpec, namespace: string, cluster: MinioCluster): { host: string; port: number } {
   const port = service.spec?.ports?.find((entry) => entry.name === 's3') ?? service.spec?.ports?.find((entry) => entry.port === 9000);
-  if (!port) return undefined;
-  if (nodeIp && port.nodePort) return { host: nodeIp, port: port.nodePort };
-  const ingress = service.status?.loadBalancer?.ingress?.[0];
-  const host = ingress?.ip ?? ingress?.hostname;
-  return host ? { host, port: port.port } : undefined;
+  if (!port) throw new Error(`MinIO in ${namespace} serves no S3 port`);
+  if (cluster.kind === 'koala') return { host: `minio.${namespace}.svc.cluster.local`, port: port.port };
+  if (!cluster.meshIp) throw new Error(`${cluster.clusterId} has no mesh address, so Koala cannot reach the MinIO on it`);
+  if (!port.nodePort) throw new Error(`MinIO in ${namespace} on ${cluster.clusterId} has no node port, so Koala cannot reach it from its own cluster`);
+  return { host: cluster.meshIp, port: port.nodePort };
 }
 
 export interface WorkspaceExec {

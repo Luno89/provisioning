@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { failureArtifacts, minioOf, s3Address, withinBudget, chunksOf } from './artifacts.js';
+import { failureArtifacts, minioEndpoint, minioOf, withinBudget, chunksOf } from './artifacts.js';
 
 const minio = (over: Record<string, unknown> = {}) => ({ id: 'm1', name: 'Store', appType: 'minio', status: 'running', clusterId: 'c1', ownerId: 'bo', minioRootPassword: 'pw', ...over });
 
@@ -10,19 +10,21 @@ describe('finding the owner\'s MinIO', () => {
   });
 });
 
-describe('reaching MinIO\'s S3 port from the host', () => {
+describe('where Koala reaches a MinIO', () => {
   const ports = { spec: { ports: [{ name: 'console', port: 9001, nodePort: 30901 }, { name: 's3', port: 9000, nodePort: 30900 }] } };
 
-  it('uses the node port on a node the host can reach', () => {
-    expect(s3Address(ports, '172.18.0.2')).toEqual({ host: '172.18.0.2', port: 30900 });
+  it('is its service name on Koala\'s own cluster, on the S3 port', () => {
+    expect(minioEndpoint(ports, 'store-m10000', { kind: 'koala' })).toEqual({ host: 'minio.store-m10000.svc.cluster.local', port: 9000 });
   });
 
-  it('uses the load balancer when there is no such node', () => {
-    expect(s3Address({ ...ports, status: { loadBalancer: { ingress: [{ hostname: 'lb.example' }] } } }, undefined)).toEqual({ host: 'lb.example', port: 9000 });
+  it('is the machine\'s mesh address and the S3 node port on another of the person\'s machines', () => {
+    expect(minioEndpoint(ports, 'store-m10000', { kind: 'machine', clusterId: 'machine-desk', meshIp: '100.64.0.7' })).toEqual({ host: '100.64.0.7', port: 30900 });
   });
 
-  it('has no address while the load balancer is still coming up', () => {
-    expect(s3Address(ports, undefined)).toBeUndefined();
+  it('is refused, saying why, with no S3 port, no mesh address or no node port', () => {
+    expect(() => minioEndpoint({ spec: { ports: [{ name: 'console', port: 9001 }] } }, 'store', { kind: 'koala' })).toThrow('MinIO in store serves no S3 port');
+    expect(() => minioEndpoint(ports, 'store', { kind: 'machine', clusterId: 'machine-desk' })).toThrow('machine-desk has no mesh address');
+    expect(() => minioEndpoint({ spec: { ports: [{ name: 's3', port: 9000 }] } }, 'store', { kind: 'machine', clusterId: 'machine-desk', meshIp: '100.64.0.7' })).toThrow('has no node port');
   });
 });
 

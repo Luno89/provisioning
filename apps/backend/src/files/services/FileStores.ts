@@ -1,9 +1,8 @@
 import { at } from '../../platform/index.js';
 import type { Readable } from 'node:stream';
 import { Client } from 'minio';
-import type { ClusterMetadata, DeploymentMetadata } from '../../platform/index.js';
+import type { DeploymentMetadata } from '../../platform/index.js';
 import { FILES_BUCKET, FOLDER_MARK, SEARCH_LIMIT, isFolderMark, matchesSearch, within, type FileEntry, type FilePlace } from '../lib/file-places.js';
-import { s3Address, type ServiceSpec } from '../lib/artifacts.js';
 
 export interface Download {
   stream: Readable;
@@ -25,12 +24,8 @@ export interface FileStore {
 
 export interface FileStoreReach {
   deployments: () => Promise<DeploymentMetadata[]>;
-  clusterById: (id: string) => Promise<ClusterMetadata | undefined>;
-  service: (cluster: ClusterMetadata, namespace: string, name: string) => Promise<ServiceSpec>;
-  nodeIp: (cluster: ClusterMetadata) => Promise<string | undefined>;
+  endpoint: (deployment: DeploymentMetadata) => Promise<{ host: string; port: number }>;
 }
-
-const namespaceOf = (name: string) => name.toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
 
 export class FileServerUnreachableError extends Error {
   constructor(message: string) {
@@ -45,10 +40,10 @@ export class FileStores {
   async open(ownerId: string, place: FilePlace): Promise<FileStore> {
     const deployment = (await this.reach.deployments()).find((entry) => entry.id === place.deploymentId && entry.ownerId === ownerId);
     if (!deployment || deployment.status !== 'running') throw new FileServerUnreachableError(`The file server ${place.deploymentId} is not running.`);
-    const cluster = await this.reach.clusterById(deployment.clusterId);
-    if (!cluster) throw new FileServerUnreachableError(`The cluster ${deployment.name} runs on is gone.`);
-    const address = s3Address(await this.reach.service(cluster, namespaceOf(deployment.name), 'minio'), await this.reach.nodeIp(cluster));
-    if (!address || !deployment.minioRootPassword) throw new FileServerUnreachableError(`${deployment.name} cannot be reached from Koala.`);
+    if (!deployment.minioRootPassword) throw new FileServerUnreachableError(`Koala holds no password for ${deployment.name}, so it cannot sign in to it.`);
+    const address = await this.reach.endpoint(deployment).catch((err: Error) => {
+      throw new FileServerUnreachableError(`${deployment.name} cannot be reached from Koala: ${err.message}`);
+    });
     const client = new Client({ endPoint: address.host, port: address.port, useSSL: false, accessKey: deployment.minioRootUser || 'koala', secretKey: deployment.minioRootPassword });
     return minioStore(client, place.folder);
   }
