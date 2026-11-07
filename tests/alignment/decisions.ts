@@ -415,4 +415,18 @@ export const DECISIONS: Decision[] = [
     ],
     reading: 'Every instance runs its edge, the Caddy beside its backend, whether or not it has a domain. Expose locally is an edge site for <app>.localhost, answering on this computer\'s loopback at port 8000 only, with no sign-in in front of it, as before. Expose publicly is <app>-<name>.<domain> through root\'s Caddy, only where the instance has a domain; without one Koala refuses and says why. No Docker on the way.',
   },
+  {
+    id: 'instance-stores',
+    subject: 'An instance keeps its data in three stores of its own: records in Mongo, code in Gitea, every other file in MinIO',
+    terms: ['minio', 'files', 'file server', 'artifacts', 'storage', 'store'],
+    words: [
+      { at: '2026-10-21T19:26', text: 'Naw lets just use MinIO and implement enough of an interface integraded in this project to suport whatever we need to' },
+      { at: '2026-11-07T18:04', text: 'yes, make minio part of the instance, but first lets review what an instance is and what different kinds of instances there are' },
+      { at: '2026-11-07T18:16', text: 'I think we might want to provision it in the same place but the files should probably be somewhere were the person can find them and I don\'t think I would limit the sizes of mongo or minio by default' },
+      { at: '2026-11-07T18:26', text: 'I don\'t know that its that important to keep the files as files, we just might need to implement or us the existing minio file ui to get to them, is there any reason not to just use minio everywhere? its already hooked up to the tools' },
+      { at: '2026-11-07T18:30', text: 'I think I\'m struggling to think about where it lives as a concept, also you keep using on a machine like its supposed to actually mean something, I\'m if there\'s not a technical or security reason to have actual folders and files it should all go to minio. you implemented that without saying it would be a different mechanism than everything else.' },
+      { at: '2026-11-07T18:38', text: 'lets punt on that question, I think that would just be a new feature, if users can get the file today then we don\'t need to think it about right now, I think we know what minio\'s role is now' },
+    ],
+    reading: 'MinIO is the instance\'s object store, as Mongo is its record store: the instance chart runs it beside Mongo in the instance\'s namespace, reached only by the instance\'s own pods by its service name, its console not exposed, its credentials made by the chart. Every file the person or Koala keeps (uploads, attachments, a story\'s files, run artifacts) is there; code, and what agents write while they work, is in Gitea, since agents writing at once are merged by git. Files are not kept as plain files in a person\'s folder: a project whose content was a folder on the person\'s computer becomes an ordinary project. Neither Mongo nor MinIO has a size limit by default; the pool keeps its 10 GB for files. A MinIO someone deploys is an app like any other. A finished deliverable also landing in Files is a later feature, not decided.',
+  },
 ];
