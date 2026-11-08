@@ -122,6 +122,12 @@ export class ClusterAccess {
     return result.stdout;
   }
 
+  async packageChart(chartDir: string, out: string): Promise<void> {
+    const run: ProcessRun = { command: this.deps.tools.helm, args: ['package', chartDir, '-d', out] };
+    const result = await this.deps.processes.run(run);
+    if (result.code !== 0) throw new Error(result.stderr.trim() || result.stdout.trim() || `helm package of ${chartDir} exited ${result.code}`);
+  }
+
   async start(target: Target, args: readonly string[], io?: Io): Promise<Followed> {
     return this.deps.streams.start(await this.run(target, this.deps.tools.kubectl, args), io);
   }

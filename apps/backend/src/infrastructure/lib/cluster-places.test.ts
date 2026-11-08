@@ -27,7 +27,7 @@ describe('where a cluster is, as ClusterAccess sees it', () => {
   });
 
   it('refuses a cluster of any other kind and one with no record', () => {
-    expect(placeOf('old', machine({ id: 'old', name: 'old', provider: 'k3d' }), instance)).toMatchObject({ kind: 'unreachable', why: 'other-kind' });
+    expect(placeOf('old', machine({ id: 'old', name: 'old', provider: 'k3d' as never }), instance)).toMatchObject({ kind: 'unreachable', why: 'other-kind' });
     expect(placeOf('gone', undefined, instance)).toMatchObject({ kind: 'unreachable', why: 'unknown', reason: 'there is no cluster gone' });
   });
 
@@ -72,7 +72,7 @@ describe('what a workflow is handed to reach a cluster', () => {
   it('is no machine for a cluster that is not one, which is reached as it is', () => {
     expect(machineToStart('pool-bob', undefined, { poolName: 'bob', root: false })).toBeUndefined();
     expect(machineToStart(ROOT_CLUSTER_ID, undefined, { root: true })).toBeUndefined();
-    expect(machineToStart('old', { id: 'old', name: 'old', provider: 'k3d', status: 'healthy' }, instance)).toBeUndefined();
+    expect(machineToStart('old', { id: 'old', name: 'old', provider: 'k3d' as never, status: 'healthy' }, instance)).toBeUndefined();
   });
 });
 

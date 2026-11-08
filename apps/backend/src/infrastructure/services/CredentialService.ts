@@ -1,7 +1,6 @@
-import { at, type CloudCredentials, type CloudProvider, type Database, decryptValue, encryptValue, isRecord, listAt, maskSecret, type SecretKey, textAt } from '../../platform/index.js';
+import { at, type CloudCredentials, type CloudProvider, type Database, decryptValue, encryptValue, isRecord, maskSecret, type SecretKey, textAt } from '../../platform/index.js';
 import { usesOperatorCredentials, type ResolvedCredentials } from '../lib/credential-resolver.js';
 import { resolveCloudCredentials } from './cloud-credentials.js';
-import { clusterAvailability } from '../lib/cluster-topology.js';
 import { OVH_SUBSIDIARIES } from '../lib/vps-catalog/adapters.js';
 import { credentialsFromEnv, dnsProviderNamed, DNS_PROVIDERS, isDnsProviderName, plainFieldsOf, secretFieldsOf } from '../lib/dns-providers.js';
 import { DnsProviders } from './dns/DnsProviders.js';
@@ -13,16 +12,6 @@ async function readJson(res: Response): Promise<unknown> {
 }
 
 const SENSITIVE_FIELDS: Record<string, string[]> = {
-  aws: ['accessKeyId', 'secretAccessKey'],
-  gcp: ['serviceAccountJson'],
-  azure: ['clientId', 'clientSecret'],
-  do: ['token'],
-  hetzner: ['token'],
-  vultr: ['token'],
-  linode: ['token'],
-  scaleway: ['secretKey'],
-  hostinger: ['token'],
-  contabo: ['clientId', 'clientSecret', 'apiPassword'],
   ovh: ['applicationKey', 'applicationSecret', 'consumerKey'],
   huggingface: ['hfToken'],
   artificialanalysis: ['apiKey'],
@@ -32,16 +21,6 @@ const SENSITIVE_FIELDS: Record<string, string[]> = {
 };
 
 const PLAINTEXT_FIELDS: Record<string, string[]> = {
-  aws: ['region'],
-  gcp: ['projectId'],
-  azure: ['subscriptionId', 'tenantId'],
-  do: [],
-  hetzner: [],
-  vultr: [],
-  linode: [],
-  scaleway: ['accessKey', 'projectId'],
-  hostinger: [],
-  contabo: ['apiUser'],
   ovh: ['subsidiary'],
   huggingface: ['defaultModel'],
   artificialanalysis: [],
@@ -56,7 +35,6 @@ export interface ProviderStatus {
   configured: boolean;
   source?: 'user' | 'env';
   summary?: Record<string, string>;
-  clusters?: 'available' | 'mock-only' | 'not-yet';
   unreadable?: string;
 }
 
@@ -109,116 +87,6 @@ export class CredentialService {
         return { valid: true, message: `Authenticated as GitHub user @${textAt(data, 'login') ?? ''}`, details: data };
       }
 
-      if (provider === 'aws') {
-        if (!creds.accessKeyId || !creds.secretAccessKey) {
-          return { valid: false, message: 'AWS Access Key ID and Secret Access Key are required.' };
-        }
-        if (!creds.accessKeyId.startsWith('AKIA') && !creds.accessKeyId.startsWith('ASIA')) {
-          return { valid: false, message: 'AWS Access Key ID format appears invalid.' };
-        }
-        return { valid: true, message: 'AWS credentials format validated.' };
-      }
-
-      if (provider === 'gcp') {
-        if (!creds.serviceAccountJson) {
-          return { valid: false, message: 'GCP Service Account JSON is required.' };
-        }
-        try {
-          const parsed: unknown = JSON.parse(creds.serviceAccountJson);
-          const projectId = textAt(parsed, 'project_id');
-          if (textAt(parsed, 'type') !== 'service_account' || !projectId) {
-            return { valid: false, message: 'Invalid GCP Service Account JSON structure.' };
-          }
-          return { valid: true, message: `Validated GCP Service Account for project "${projectId}"` };
-        } catch {
-          return { valid: false, message: 'Service Account JSON is not valid JSON.' };
-        }
-      }
-
-      if (provider === 'azure') {
-        if (!creds.clientId || !creds.clientSecret) {
-          return { valid: false, message: 'Azure Client ID and Client Secret are required.' };
-        }
-        return { valid: true, message: 'Azure SP credentials format validated.' };
-      }
-
-      if (provider === 'do') {
-        if (!creds.token) return { valid: false, message: 'DigitalOcean API Token is required.' };
-        const res = await fetch('https://api.digitalocean.com/v2/account', {
-          headers: { Authorization: `Bearer ${creds.token}` },
-        });
-        if (!res.ok) {
-          return { valid: false, message: `Invalid token or unauthorized (HTTP ${res.status}).` };
-        }
-        const data = await readJson(res);
-        return { valid: true, message: `Authenticated as DigitalOcean account (${textAt(data, 'account', 'email') || 'active'})` };
-      }
-
-      if (provider === 'hetzner') {
-        if (!creds.token) return { valid: false, message: 'Hetzner Cloud API Token is required.' };
-        const res = await fetch('https://api.hetzner.cloud/v1/servers?per_page=1', {
-          headers: { Authorization: `Bearer ${creds.token}` },
-        });
-        if (res.status === 401 || res.status === 403) {
-          return { valid: false, message: `Invalid token or unauthorized (HTTP ${res.status}).` };
-        }
-        if (!res.ok) {
-          return { valid: false, message: `Hetzner Cloud API returned HTTP ${res.status}.` };
-        }
-        const data = await readJson(res);
-        const total = at(data, 'meta', 'pagination', 'total_entries');
-        return {
-          valid: true,
-          message: `Authenticated against Hetzner Cloud project${
-            typeof total === 'number' ? ` (${total} existing server${total === 1 ? '' : 's'})` : ''
-          }.`,
-        };
-      }
-
-      if (provider === 'vultr') {
-        if (!creds.token) return { valid: false, message: 'Vultr Personal Access Token is required.' };
-        const res = await fetch('https://api.vultr.com/v2/account', {
-          headers: { Authorization: `Bearer ${creds.token}` },
-        });
-        if (!res.ok) return { valid: false, message: `Invalid token or unauthorized (HTTP ${res.status}).` };
-        const data = await readJson(res);
-        return { valid: true, message: `Authenticated as Vultr account (${textAt(data, 'account', 'email') || 'active'}).` };
-      }
-
-      if (provider === 'linode') {
-        if (!creds.token) return { valid: false, message: 'Linode Personal Access Token is required.' };
-        const res = await fetch('https://api.linode.com/v4/account', {
-          headers: { Authorization: `Bearer ${creds.token}` },
-        });
-        if (!res.ok) return { valid: false, message: `Invalid token or unauthorized (HTTP ${res.status}).` };
-        const data = await readJson(res);
-        return { valid: true, message: `Authenticated as Linode account (${textAt(data, 'email') || 'active'}).` };
-      }
-
-      if (provider === 'scaleway') {
-        if (!creds.secretKey) return { valid: false, message: 'Scaleway Secret Key is required.' };
-        const res = await fetch('https://api.scaleway.com/account/v3/projects', {
-          headers: { 'X-Auth-Token': creds.secretKey },
-        });
-        if (!res.ok) return { valid: false, message: `Invalid secret key or unauthorized (HTTP ${res.status}).` };
-        const data = await readJson(res);
-        const projects = at(data, 'projects');
-        const n = Array.isArray(projects) ? listAt(data, 'projects').length : undefined;
-        return {
-          valid: true,
-          message: `Authenticated against Scaleway${n !== undefined ? ` (${n} project${n === 1 ? '' : 's'})` : ''}.`,
-        };
-      }
-
-      if (provider === 'hostinger') {
-        if (!creds.token) return { valid: false, message: 'Hostinger API token is required.' };
-        const res = await fetch('https://developers.hostinger.com/api/vps/v1/data-centers', {
-          headers: { Authorization: `Bearer ${creds.token}` },
-        });
-        if (!res.ok) return { valid: false, message: `Invalid token or unauthorized (HTTP ${res.status}).` };
-        return { valid: true, message: 'Authenticated against the Hostinger API.' };
-      }
-
       if (provider === 'ovh') {
         const { applicationKey, applicationSecret, consumerKey } = creds;
         const subsidiary = String(creds.subsidiary ?? '').trim().toUpperCase();
@@ -237,33 +105,6 @@ export class CredentialService {
         } catch (error) {
           return { valid: false, message: (error as Error).message };
         }
-      }
-
-      if (provider === 'contabo') {
-        const { clientId, clientSecret, apiUser, apiPassword } = creds;
-        if (!clientId || !clientSecret || !apiUser || !apiPassword) {
-          return { valid: false, message: 'Contabo needs Client ID, Client Secret, API user and API password.' };
-        }
-        const res = await fetch('https://auth.contabo.com/auth/realms/contabo/protocol/openid-connect/token', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-          body: new URLSearchParams({
-            grant_type: 'password',
-            client_id: clientId,
-            client_secret: clientSecret,
-            username: apiUser,
-            password: apiPassword,
-          }),
-        });
-        if (!res.ok) {
-          return { valid: false, message: `Contabo rejected these credentials (HTTP ${res.status}).` };
-        }
-        const data = await readJson(res);
-        if (!textAt(data, 'access_token')) return { valid: false, message: 'Contabo returned no access token.' };
-        return {
-          valid: true,
-          message: 'Authenticated against Contabo. Note: their API exposes no pricing, so Contabo plans will not appear in the VPS catalog.',
-        };
       }
 
       if (provider === 'googledrive') {
@@ -313,34 +154,22 @@ export class CredentialService {
       { key: 'huggingface', label: 'Hugging Face' },
       { key: 'artificialanalysis', label: 'Artificial Analysis' },
       { key: 'github', label: 'GitHub' },
-      { key: 'aws', label: 'Amazon Web Services' },
-      { key: 'gcp', label: 'Google Cloud Platform' },
-      { key: 'azure', label: 'Microsoft Azure' },
-      { key: 'do', label: 'DigitalOcean' },
-      { key: 'hetzner', label: 'Hetzner Cloud' },
-      { key: 'vultr', label: 'Vultr' },
-      { key: 'linode', label: 'Linode / Akamai' },
-      { key: 'scaleway', label: 'Scaleway' },
-      { key: 'hostinger', label: 'Hostinger' },
-      { key: 'contabo', label: 'Contabo' },
       { key: 'ovh', label: 'OVHcloud' },
       ...DNS_PROVIDERS.map((provider) => ({ key: provider.name as CloudProvider, label: provider.label })),
     ];
 
     return providers.map(({ key, label }) => {
-      const clusters = clusterAvailability(key, process.env);
-      const unkeyed = clusters ? { clusters } : {};
       let stored: CloudCredentials | undefined;
       try {
         stored = user?.credentials ? this.decryptAll(user.credentials, key) : undefined;
       } catch (err) {
         if (!(err instanceof UnreadableCredential)) throw err;
-        return { provider: key, label, configured: false, unreadable: err.message, ...unkeyed };
+        return { provider: key, label, configured: false, unreadable: err.message };
       }
       const resolved = resolveCloudCredentials(key, stored, usesOperatorCredentials(user, this.claims));
 
-      if (resolved.mode === 'mock') {
-        return { provider: key, label, configured: false, ...unkeyed };
+      if (resolved.mode === 'none') {
+        return { provider: key, label, configured: false };
       }
 
       const summary: Record<string, string> = {};
@@ -348,7 +177,7 @@ export class CredentialService {
         summary[k] = maskSecret(v);
       }
 
-      return { provider: key, label, configured: true, source: resolved.mode, summary, ...unkeyed };
+      return { provider: key, label, configured: true, source: resolved.mode, summary };
     });
   }
 
@@ -419,7 +248,7 @@ export class CredentialService {
   async dnsCredentialsOf(userId: string, provider: string): Promise<Record<string, string> | undefined> {
     if (!isDnsProviderName(provider)) return undefined;
     const resolved = await this.resolveCredentials(userId, provider);
-    return resolved.mode === 'mock' ? undefined : credentialsFromEnv(dnsProviderNamed(provider), resolved.env);
+    return resolved.mode === 'none' ? undefined : credentialsFromEnv(dnsProviderNamed(provider), resolved.env);
   }
 
   async resolveCredentials(userId: string, provider: string): Promise<ResolvedCredentials> {

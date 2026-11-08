@@ -3,11 +3,12 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { parse } from 'yaml';
 import { nodeProcesses, succeeded, type Processes } from '../../platform/index.js';
+import type { ClusterAccess } from '../../infrastructure/index.js';
 
 export class InstanceChart {
   private packaged: Promise<string> | undefined;
 
-  constructor(private readonly repoRoot: string, private readonly processes: Processes = nodeProcesses) {}
+  constructor(private readonly repoRoot: string, private readonly charts: Pick<ClusterAccess, 'packageChart'>) {}
 
   private get chartDir(): string {
     return resolve(this.repoRoot, 'charts/instance');
@@ -21,7 +22,7 @@ export class InstanceChart {
   path(): Promise<string> {
     this.packaged ??= (async () => {
       const out = await mkdtemp(join(tmpdir(), 'instance-chart-'));
-      await succeeded(this.processes, { command: resolve(this.repoRoot, 'bin/helm'), args: ['package', this.chartDir, '-d', out] });
+      await this.charts.packageChart(this.chartDir, out);
       const [file] = (await readdir(out)).filter((name) => name.endsWith('.tgz'));
       if (!file) throw new Error('helm package wrote no chart');
       return join(out, file);

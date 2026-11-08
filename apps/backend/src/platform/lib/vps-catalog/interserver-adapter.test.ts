@@ -80,10 +80,6 @@ describe('interserverOffersFromSliceXml', () => {
     expect(offers.every((o) => o.currency === 'USD' && o.taxIncluded === false)).toBe(true);
   });
 
-  it('is catalogue-only until an ordering path exists', () => {
-    expect(offers.every((o) => o.provisionable === false)).toBe(true);
-  });
-
   it('counts an unpriced slice type rather than emitting a free plan', () => {
     const r = interserverOffersFromSliceXml(envelope(item('Broken Slice', '0', '1')));
     expect(r.offers).toHaveLength(0);

@@ -11,11 +11,6 @@ HELM_SHA256_LINUX_AMD64=88644260090aa621e7e8083585c468c8dd5e09a3c01a432fb05da5c4
 HELM_SHA256_LINUX_ARM64=a248f650d174a883b32c5b94f9e725f4057e623b00f171936dcdcc840fad0b3e
 HELM_SHA256_DARWIN_AMD64=129345c82359837bb3f0070ce4891ec232697052f7d5ccf61d43d818912cf5f3
 HELM_SHA256_DARWIN_ARM64=aa498c1f1ab93be5c8fbf6d48af51dc6ef0f10b2ea88d67bcb9f02d1d80d3930
-HCLOUD_VERSION=1.68.0
-HCLOUD_SHA256_LINUX_AMD64=b825f6500592d30004b6de8547ca1fa7841e16da0571cee8a67782cb84ec65cd
-HCLOUD_SHA256_LINUX_ARM64=a04f8e12811e000657151cd6eed5eb80ae1042b8123bfea28343147ceda40f96
-HCLOUD_SHA256_DARWIN_AMD64=73855025066ec55230559296b5c92d441b1b6dc2ce27a1102ab1e17f60cdcf0e
-HCLOUD_SHA256_DARWIN_ARM64=164012cca257951da2870e9a0a0eb0be2ebde26fd27e30081c8d7e8729467a6e
 
 MIRROR="${1:?usage: terraform-providers.sh <mirror folder>}"
 OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
@@ -59,5 +54,3 @@ provider hashicorp kubernetes "$KUBERNETES_VERSION" "$(pinned KUBERNETES)" \
   "https://releases.hashicorp.com/terraform-provider-kubernetes/${KUBERNETES_VERSION}/terraform-provider-kubernetes_${KUBERNETES_VERSION}_${PLATFORM}.zip"
 provider hashicorp helm "$HELM_VERSION" "$(pinned HELM)" \
   "https://releases.hashicorp.com/terraform-provider-helm/${HELM_VERSION}/terraform-provider-helm_${HELM_VERSION}_${PLATFORM}.zip"
-provider hetznercloud hcloud "$HCLOUD_VERSION" "$(pinned HCLOUD)" \
-  "https://github.com/hetznercloud/terraform-provider-hcloud/releases/download/v${HCLOUD_VERSION}/terraform-provider-hcloud_${HCLOUD_VERSION}_${PLATFORM}.zip"

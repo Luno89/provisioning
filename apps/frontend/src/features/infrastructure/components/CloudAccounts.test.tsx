@@ -31,7 +31,7 @@ const renderScreen = () => {
 };
 
 const providers = (...rows: Partial<ProviderStatus>[]): ProviderStatus[] =>
-  rows.map((r) => ({ provider: 'aws', label: 'Amazon Web Services', configured: false, ...r }));
+  rows.map((r) => ({ provider: 'ovh', label: 'OVHcloud', configured: false, ...r }));
 
 beforeEach(() => {
   listDnsProviders.mockResolvedValue([PORKBUN]);
@@ -44,23 +44,19 @@ describe('CloudAccounts', () => {
     listProviders.mockResolvedValue(providers(
       { provider: 'huggingface', label: 'Hugging Face' },
       { provider: 'github', label: 'GitHub' },
-      { provider: 'aws', label: 'Amazon Web Services' },
-      { provider: 'gcp', label: 'Google Cloud Platform' },
-      { provider: 'azure', label: 'Microsoft Azure' },
-      { provider: 'do', label: 'DigitalOcean' },
+      { provider: 'ovh', label: 'OVHcloud' },
     ));
     renderScreen();
 
-    for (const label of ['Hugging Face', 'GitHub', 'Amazon Web Services',
-      'Google Cloud Platform', 'Microsoft Azure', 'DigitalOcean']) {
+    for (const label of ['Hugging Face', 'GitHub', 'OVHcloud']) {
       expect(await screen.findByText(label)).toBeDefined();
     }
   });
 
   it('distinguishes a configured provider from an unconfigured one', async () => {
     listProviders.mockResolvedValue(providers(
-      { provider: 'aws', label: 'Amazon Web Services', configured: true, source: 'user' },
-      { provider: 'gcp', label: 'Google Cloud Platform', configured: false },
+      { provider: 'github', label: 'GitHub', configured: true, source: 'user' },
+      { provider: 'ovh', label: 'OVHcloud', configured: false },
     ));
     renderScreen();
 
@@ -69,23 +65,20 @@ describe('CloudAccounts', () => {
   });
 
   it('offers a Configure button for a provider with nothing stored', async () => {
-    listProviders.mockResolvedValue(providers({ provider: 'aws', configured: false }));
+    listProviders.mockResolvedValue(providers({ provider: 'ovh', configured: false }));
     renderScreen();
     expect((await screen.findAllByText('Configure')).length).toBeGreaterThan(0);
   });
 
-  it('explains mock cloud mode where the server runs it, which is the zero-setup path on a dev box', async () => {
-    listProviders.mockResolvedValue(providers({ configured: false, clusters: 'mock-only' }));
+  it('says nothing of clusters or mock cloud mode, and offers no cloud a cluster was once made on', async () => {
+    listProviders.mockResolvedValue(providers({ configured: false }));
     renderScreen();
-    expect((await screen.findAllByText(/Mock Cloud Mode/i)).length).toBeGreaterThan(0);
-    expect(await screen.findByText(/^Amazon Web Services clusters are not available yet\. On this development box/)).toBeDefined();
-  });
-
-  it('in production says a provider whose clusters are not built yet is not available, and never mentions mock cloud mode', async () => {
-    listProviders.mockResolvedValue(providers({ configured: false, clusters: 'not-yet' }));
-    renderScreen();
-    expect(await screen.findByText('Amazon Web Services clusters are not available yet.')).toBeDefined();
+    expect((await screen.findAllByText('Configure')).length).toBeGreaterThan(0);
     expect(screen.queryByText(/Mock Cloud Mode/i)).toBeNull();
+    expect(screen.queryByText(/clusters are not available yet/i)).toBeNull();
+    for (const label of ['Amazon Web Services', 'Google Cloud Platform', 'Microsoft Azure', 'DigitalOcean', 'Hetzner Cloud']) {
+      expect(screen.queryByText(label)).toBeNull();
+    }
   });
 
   it('shows a spinner before the first response arrives', () => {
@@ -96,9 +89,9 @@ describe('CloudAccounts', () => {
 
   it('renders the grid even when the Drive request fails', async () => {
     getDriveStatus.mockRejectedValue(new Error('not supported'));
-    listProviders.mockResolvedValue(providers({ provider: 'aws', label: 'Amazon Web Services' }));
+    listProviders.mockResolvedValue(providers({ provider: 'ovh', label: 'OVHcloud' }));
     renderScreen();
-    expect(await screen.findByText('Amazon Web Services')).toBeDefined();
+    expect(await screen.findByText('OVHcloud')).toBeDefined();
   });
 });
 

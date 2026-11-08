@@ -1,10 +1,10 @@
 import {
-  StorageAdapter, hasCloudCredentials, isMockCloudProvider,
-  buildAppEnv, pushOpenWebUiWebSearchConfig, type MachineOfCluster, type Reach,
+  StorageAdapter, buildAppEnv, pushOpenWebUiWebSearchConfig, type MachineOfCluster, type Reach,
 } from '../infrastructure/index.js';
 import { waitUntilRolledOut } from './cluster-jobs.js';
 import type { ClusterSteps } from './cluster-steps.js';
 import { handedReach } from './handed-reach.js';
+import { appServiceType, placedOnPool } from '../monitoring/index.js';
 import { Context } from '@temporalio/activity';
 import { messageOf } from './failure-reasons.js';
 
@@ -15,7 +15,6 @@ export interface SyncConfigArgs {
   reach?: Reach | undefined;
   machine?: MachineOfCluster | undefined;
   clusterName: string;
-  provider: string;
   strategy: string;
   appType: string;
   webRepo?: string | undefined;
@@ -79,8 +78,7 @@ export async function SyncConfigActivity(args: SyncConfigArgs, steps: ClusterSte
   const logFile = args.logFile;
   const namespace = args.namespace ?? SANITIZE(args.name);
 
-  const isMock = isMockCloudProvider(args.provider, hasCloudCredentials);
-  const physicalName = isMock ? `mock-${args.provider}-${args.clusterName}` : args.clusterName;
+  const physicalName = args.clusterName;
   const kubeconfigPath = await steps.access.kubeconfigOf(reach);
 
   const effectiveDevice = process.env.VLLM_DEVICE || (args.vllmGpuCount === 0 ? 'cpu' : (args.vllmGpuVendor === 'amd' ? 'rocm' : 'cuda'));
@@ -97,8 +95,7 @@ export async function SyncConfigActivity(args: SyncConfigArgs, steps: ClusterSte
     namespace,
     deploymentId,
     kubeconfigPath,
-    provider: args.provider,
-    isMock,
+    serviceType: appServiceType(placedOnPool(process.env, reach)),
     appType: args.appType,
     webRepo: args.webRepo,
     webTag: args.webTag,

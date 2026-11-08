@@ -11,12 +11,11 @@ export type ClusterStatus =
 export interface Cluster {
   id: string
   name: string
-  provider: 'k3d' | 'aws' | 'gcp' | 'azure' | 'do' | 'machine' | 'hetzner' | 'pool' | 'root'
+  provider: 'machine' | 'pool' | 'root'
   status: ClusterStatus
   capacity?: { cpuCores: number; ramGb: number; gpuCount?: number; gpuVendor?: 'nvidia' | 'amd' }
   createdAt?: string
-  progress?: { stage?: string; message?: string }
-  remoteHost?: string
+  meshIp?: string
 }
 
 export interface ClusterPod {

@@ -1,10 +1,9 @@
 import { useState } from 'react'
-import { ChevronDown, ChevronRight, ExternalLink, FileText, Loader2, Trash2 } from 'lucide-react'
+import { ChevronDown, ChevronRight, ExternalLink, FileText, Loader2 } from 'lucide-react'
 import type { ClusterContents, Workload } from '../api/infrastructure'
 import { clusterDashboardUrl } from '../api/clusters'
 import { errorMessage } from '../../../api/client'
-import { useCan } from '../../platform'
-import { useShellStore } from '../../platform'
+import { formatHash, useCan } from '../../platform'
 import { ClusterHealth } from '../../monitoring'
 import { Section } from '../../monitoring'
 import { useShellContext } from '../hooks/shell-context'
@@ -154,7 +153,6 @@ function Releases({ contents }: { contents: ClusterContents }) {
 
 export function ClusterPage({ clusterId }: { clusterId: string }) {
   const ctx = useShellContext()
-  const setConfirmDestroy = useShellStore((s) => s.setConfirmDestroy)
   const contents = useClusterContents(clusterId)
   const can = useCan()
   const cluster = ctx?.clusters.find((entry) => entry.id === clusterId)
@@ -162,7 +160,7 @@ export function ClusterPage({ clusterId }: { clusterId: string }) {
   const actions = cluster && health && !health.own && ctx ? (
     <>
       <QuietButton onClick={() => ctx.openDashboard('cluster', cluster.id)}><FileText size={11} /> Logs</QuietButton>
-      <QuietButton danger onClick={() => setConfirmDestroy({ type: 'cluster', id: cluster.id, name: cluster.name, isAbort: cluster.status === 'provisioning' })}><Trash2 size={11} /> {cluster.status === 'provisioning' ? 'Abort' : 'Destroy'}</QuietButton>
+      <a href={formatHash('mesh')} className="text-[11px] text-blue-300 hover:underline">Goes when its machine is removed under My Machines</a>
     </>
   ) : undefined
 

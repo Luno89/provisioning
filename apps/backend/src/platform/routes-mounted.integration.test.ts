@@ -22,7 +22,6 @@ const ROUTERS: Probe[] = [
   { path: '/api/binding-types', on: TENANT },
   { path: '/api/branches', on: TENANT },
   { path: '/api/cluster-access', on: TENANT },
-  { path: '/api/cluster-providers', on: TENANT },
   { path: '/api/clusters', on: TENANT },
   { path: '/api/conversations', on: TENANT },
   { path: '/api/credentials', on: TENANT },

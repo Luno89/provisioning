@@ -5,6 +5,7 @@ REPO_DIR="${REPO_DIR:-/opt/nowrinkles}"
 COMPOSE_ENV="${COMPOSE_ENV:-$REPO_DIR/.env}"
 BACKEND_ENV="${BACKEND_ENV:-$REPO_DIR/apps/backend/.env}"
 KUBECTL="${KUBECTL:-$REPO_DIR/bin/kubectl}"
+ADMIN_KUBECONFIG="${ADMIN_KUBECONFIG:-/var/lib/rancher/k3s-provisioning-lunorica/kubeconfig.yaml}"
 CONTEXT=k3d-provisioning-lunorica
 METRICS_DIR="${METRICS_DIR:-/var/lib/koala-backup/metrics}"
 METRIC_PORTS="4317 4318 9216 9187 9233 9090 5005 5006"
@@ -91,7 +92,7 @@ main() {
   [ -f "$BACKEND_ENV" ] || die "${BACKEND_ENV} is missing; bootstrap.sh makes it"
 
   bash scripts/root-node/cdktf-bindings.sh "$REPO_DIR" || die "the CDKTF bindings the cluster's monitoring needs could not be generated"
-  npx tsx scripts/ensure-cluster-stack.ts || die "the system cluster's monitoring and telemetry could not be applied; see above"
+  ROOT_KUBECONFIG="$ADMIN_KUBECONFIG" npx tsx scripts/ensure-cluster-stack.ts || die "the system cluster's monitoring and telemetry could not be applied; see above"
 
   local otel_ip
   otel_ip="$(collector_address)" || exit 1

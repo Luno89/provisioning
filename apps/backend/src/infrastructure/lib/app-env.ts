@@ -1,17 +1,14 @@
 import { randomBytes } from 'node:crypto';
 import { clusterUrl } from './cluster-dns.js';
 import type { DeploymentMetadata } from '../../platform/index.js';
-import { isSelfManagedCluster } from './cluster-topology.js';
 
 export interface AppEnvArgs {
-  serviceType?: string | undefined;
+  serviceType: string;
   physicalName: string;
   strategy: string;
   namespace: string;
   deploymentId: string;
   kubeconfigPath: string;
-  provider: string;
-  isMock: boolean;
   appType: string;
   renderedSpec?: unknown;
   bindingsJson?: string | undefined;
@@ -206,8 +203,7 @@ export function buildAppEnv(a: AppEnvArgs): Record<string, string> {
     DEPLOYMENT_NAME: a.namespace,
     DEPLOYMENT_ID: a.deploymentId,
     KUBECONFIG: a.kubeconfigPath,
-    SELF_MANAGED_K8S: isSelfManagedCluster(a.provider, a.isMock) ? 'true' : 'false',
-    ...(a.serviceType ? { APP_SERVICE_TYPE: a.serviceType } : {}),
+    APP_SERVICE_TYPE: a.serviceType,
     APP_TYPE: a.appType,
     WEB_IMAGE_REPO: a.webRepo || '',
     WEB_IMAGE_TAG: a.webTag || '',

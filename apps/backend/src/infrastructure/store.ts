@@ -3,9 +3,8 @@ import { ignore } from '@koala/engine-core/failures';
 import { type AreaStore, fieldChanges, fromDoc, type Identified } from '../platform/lib/collection.js';
 import type { BindingTypeRecord } from './lib/service-binding.js';
 import type {
-  ClusterMetadata, ClusterProgress, DeploymentMetadata, PartialInfo, PendingApprovalMetadata, SecretKey,
+  ClusterMetadata, DeploymentMetadata, PartialInfo, PendingApprovalMetadata, SecretKey,
 } from '../platform/index.js';
-import type { ClusterProviderSpec } from './lib/cluster-providers.js';
 import type { Collection, Db, Document } from 'mongodb';
 import type { StoredAppSpec } from './lib/app-spec.js';
 import type { WorkFailure } from './lib/work-failures.js';
@@ -14,7 +13,7 @@ import { mergeRecord } from '../platform/lib/merge-record.js';
 import { v4 as uuidv4 } from 'uuid';
 import { hasPlainSecret, sealDeployment, unsealDeployment } from './lib/deployment-secrets.js';
 import { watchingAll, watchWrites, type Watching } from '../platform/lib/change-streams.js';
-import { FOLLOWED_CLUSTER_STATUSES, FOLLOWED_DEPLOYMENT_STATUSES, workflowMatch, type FollowedRecord } from './lib/followed-work.js';
+import { FOLLOWED_DEPLOYMENT_STATUSES, workflowMatch, type FollowedRecord } from './lib/followed-work.js';
 
 export interface DeploymentHealth { status?: DeploymentMetadata['status']; healthReason?: string | undefined }
 
@@ -24,8 +23,6 @@ export interface InfrastructureStore extends AreaStore {
   saveCluster(cluster: ClusterMetadata): Promise<void>;
   deleteCluster(id: string): Promise<void>;
   patchCluster(id: string, patch: Partial<ClusterMetadata>): Promise<void>;
-  saveClusterInfo(cluster: PartialInfo<ClusterMetadata>): Promise<ClusterMetadata>;
-  updateClusterProgress(clusterId: string, progress: ClusterProgress): Promise<void>;
   getDeployments(): Promise<DeploymentMetadata[]>;
   saveDeployment(deployment: DeploymentMetadata): Promise<void>;
   patchDeploymentHealth(id: string, health: DeploymentHealth): Promise<void>;
@@ -36,8 +33,6 @@ export interface InfrastructureStore extends AreaStore {
   getAppSpecs(): Promise<StoredAppSpec[]>;
   saveAppSpec(spec: StoredAppSpec): Promise<void>;
   deleteAppSpec(id: string): Promise<void>;
-  getClusterProviders(): Promise<ClusterProviderSpec[]>;
-  saveClusterProvider(provider: ClusterProviderSpec): Promise<void>;
   getPendingApprovals(): Promise<PendingApprovalMetadata[]>;
   savePendingApproval(approval: PendingApprovalMetadata): Promise<void>;
   deletePendingApproval(id: string): Promise<void>;
@@ -85,10 +80,6 @@ export class MongoInfrastructureStore implements InfrastructureStore {
     return this.db().collection<Stored>('bindingTypes');
   }
 
-  private get clusterProviders(): Collection<Stored> {
-    return this.db().collection<Stored>('clusterProviders');
-  }
-
   private get clusters(): Collection<Stored> {
     return this.db().collection<Stored>('clusters');
   }
@@ -134,7 +125,6 @@ export class MongoInfrastructureStore implements InfrastructureStore {
 
   watchFollowed(on: (followed: FollowedRecord) => void): Watching {
     return watchingAll([
-      watchWrites(() => this.clusters, workflowMatch(FOLLOWED_CLUSTER_STATUSES), (doc) => on({ kind: 'cluster', record: fromDoc<ClusterMetadata>(doc) })),
       watchWrites(() => this.deployments, workflowMatch(FOLLOWED_DEPLOYMENT_STATUSES), (doc) => on({ kind: 'deployment', record: unsealDeployment(fromDoc<DeploymentMetadata>(doc), this.dataKey) })),
     ]);
   }
@@ -151,29 +141,6 @@ export class MongoInfrastructureStore implements InfrastructureStore {
     const { id: _id, ...fields } = patch;
     const changes = fieldChanges(fields);
     if (changes.$set || changes.$unset) await this.clusters.updateOne({ _id: id }, changes);
-  }
-
-  async saveClusterInfo(cluster: PartialInfo<ClusterMetadata>): Promise<ClusterMetadata> {
-    const id = cluster.id || uuidv4();
-    const previous = (await this.getClusters()).find((x: ClusterMetadata) => x.id === id);
-    const merged = mergeRecord(previous, cluster as Partial<ClusterMetadata>);
-    const c: ClusterMetadata = {
-      ...merged,
-
-      id: id,
-      name: merged.name || '',
-      provider: merged.provider || 'k3d',
-      status: merged.status || 'provisioning',
-    };
-    await this.saveCluster(c);
-    return c;
-  }
-
-  async updateClusterProgress(clusterId: string, progress: ClusterProgress): Promise<void> {
-    await this.clusters.updateOne(
-      { _id: clusterId },
-      { $set: { progress } }
-    );
   }
 
   async getDeployments(): Promise<DeploymentMetadata[]> {
@@ -226,16 +193,6 @@ export class MongoInfrastructureStore implements InfrastructureStore {
 
   async saveAppSpec(spec: StoredAppSpec): Promise<void> {
     await this.appSpecs.replaceOne({ _id: spec.id }, fieldsOf(spec), { upsert: true });
-  }
-
-  async getClusterProviders(): Promise<ClusterProviderSpec[]> {
-    const docs = await this.clusterProviders.find({}).toArray();
-    return docs.map(({ _id, ...rest }) => rest as ClusterProviderSpec);
-  }
-
-  async saveClusterProvider(provider: ClusterProviderSpec): Promise<void> {
-    const { value } = provider;
-    await this.clusterProviders.replaceOne({ _id: value }, { ...provider }, { upsert: true });
   }
 
   async deleteAppSpec(id: string): Promise<void> {

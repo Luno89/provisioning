@@ -41,7 +41,7 @@ describe('following a project\'s release run in Temporal', () => {
     const db = await testDatabase();
     const taskQueue = `release-${Math.random().toString(36).slice(2, 8)}`;
     const project = { id: `p-${taskQueue}`, name: 'Shop', ownerId: 'bo', giteaOwner: 'bo', giteaRepo: 'shop', targetClusterId: 'c1', appType: 'gitapp', createdAt: 't' } as ProjectMetadata;
-    await db.infrastructure.saveClusterInfo({ id: 'c1', name: 'dev', provider: 'k3d', status: 'healthy', ownerId: 'bo' } as ClusterMetadata);
+    await db.infrastructure.saveCluster({ id: 'c1', name: 'dev', provider: 'machine', machineId: 'dev', status: 'healthy', ownerId: 'bo' } as ClusterMetadata);
     await db.projects.saveProject(project);
     const runs = engineReleaseRuns({
       runs: { start: async (request) => { await env.client.workflow.start('releaseStandIn', { taskQueue, workflowId: releaseRunWorkflowId(String(request.bound?.projectId)), ...startedFor(request.ownerId) }); return { runId: request.runId ?? '' } as never; } },

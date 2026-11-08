@@ -81,10 +81,6 @@ describe('ovhOffersFromCatalog', () => {
     expect(byId('vps-2025-model3')?.currency).toBe('EUR');
   });
 
-  it('marks OVH as not provisionable, because only the catalogue is wired up', () => {
-    expect(offers.every((o) => o.provisionable === false)).toBe(true);
-  });
-
   it('does not claim dedicated vCPU it cannot verify', () => {
     expect(offers.every((o) => o.cpuType === 'shared')).toBe(true);
   });

@@ -17,7 +17,7 @@ describe('the account default', () => {
         return modelsRouter({
           db,
           modelService: { list: async () => [{ id: 'tabby-qwen' }] },
-          credentialService: { resolveCredentials: async () => ({ mode: 'mock' as const, env: {} }) },
+          credentialService: { resolveCredentials: async () => ({ mode: 'none' as const, env: {} }) },
           rateLimits: () => [],
           machines: {
             choiceProblem: async (ownerId: string, choice: { deviceId: string; agent: string }) => {

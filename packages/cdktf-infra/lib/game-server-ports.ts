@@ -74,7 +74,7 @@ export interface GameServiceConfig {
  * Deliberately **TCP-only and ClusterIP-only**: the player-facing UDP ports reach the pod via
  * `hostPort` and never go through a Service at all. That keeps the repo's existing invariant —
  * no Service sets `protocol`, no Service is UDP — intact, and avoids depending on the
- * `SELF_MANAGED_K8S` serviceType heuristic that every other construct branches on.
+ * `APP_SERVICE_TYPE` every other construct reads.
  *
  * What this Service is actually for: giving the blackbox probe (lib/app-probe.ts, `tcp_connect`)
  * and any in-cluster admin tooling a stable DNS name for the control ports.

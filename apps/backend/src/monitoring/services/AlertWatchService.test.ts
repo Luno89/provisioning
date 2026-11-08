@@ -11,7 +11,7 @@ import type { MetricsClient } from './MonitoringService.js';
 
 const ME = principalOf({ id: 'me' }, { role: 'instance', instanceOwnerId: 'me' });
 const koalas = { id: 'machine-koala', name: 'koala', provider: 'machine', machineId: 'koala', status: 'healthy', ownerId: 'me' } as ClusterMetadata;
-const other = { id: 'c-other', name: 'other', provider: 'hetzner', status: 'healthy', ownerId: 'me' } as ClusterMetadata;
+const other = { id: 'c-other', name: 'other', provider: 'machine', machineId: 'other', status: 'healthy', ownerId: 'me' } as ClusterMetadata;
 
 const dep = (fields: Partial<DeploymentMetadata> & { id: string; name: string }): DeploymentMetadata =>
   ({ clusterId: koalas.id, strategy: 'native', appType: 'audiobookshelf', ownerId: 'me', status: 'running', createdAt: 'then', ...fields }) as DeploymentMetadata;

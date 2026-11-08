@@ -83,7 +83,7 @@ beforeEach(async () => {
   generation += 1;
   runs = runsOfThisTest();
   db = await fresh();
-  await db.infrastructure.saveClusterInfo({ id: 'c1', name: 'dev', provider: 'k3d', status: 'healthy', ownerId: 'bo' } as ClusterMetadata);
+  await db.infrastructure.saveCluster({ id: 'c1', name: 'dev', provider: 'machine', machineId: 'dev', status: 'healthy', ownerId: 'bo' } as ClusterMetadata);
   await db.projects.saveProject({ ...project, appType: 'gitapp', createdAt: 't' });
   running = false;
   closing = [];
@@ -121,7 +121,7 @@ describe('releasing a project\'s build', () => {
       projectId: 'p1', ownerId: 'bo', agent: 'release',
       inputs: {
         ownerId: 'bo', projectId: 'p1', adapter: 'odoo',
-        target: { clusterId: 'c1', clusterName: 'dev', provider: 'k3d', namespace: name, release: name, owner: { ownerId: 'bo', projectId: 'p1' } },
+        target: { clusterId: 'c1', clusterName: 'dev', provider: 'machine', namespace: name, release: name, owner: { ownerId: 'bo', projectId: 'p1' } },
         host: `${name}.apps.local`, previewHost: `${name}-preview.apps.local`,
         build: { releaseId: 'r1', image: 'reg/bo/shop:abc', source: { owner: 'bo', repo: 'shop', commit: 'abc' } },
       },

@@ -10,7 +10,7 @@ export function createModelService(db: Database, jwtSecret: SecretKey): ModelSer
   const builder = new BuilderService(db, infra);
   const role = roleFromEnv(process.env);
   const access = clusterAccessFrom(process.env, { role: role.role, clusters: db.infrastructure, dataKey: jwtSecret });
-  const clusters = new ClusterService(db, infra, access, { instanceOwnerId: role.instance?.ownerId });
+  const clusters = new ClusterService(db, access, { instanceOwnerId: role.instance?.ownerId });
   const apps = new AppService(db, infra, clusters, builder);
   const proxy = sharedClusterProxy(access);
   const headscale = new HeadscaleService(jwtSecret, process.env.HEADSCALE_URL || 'http://localhost:8080', process.env.HEADSCALE_API_KEY);

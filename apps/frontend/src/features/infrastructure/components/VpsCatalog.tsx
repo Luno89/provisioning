@@ -13,12 +13,10 @@ const CURRENCY_SYMBOL: Record<string, string> = { USD: '$', EUR: '€', AUD: 'A$
 const hasGpuOffer = (o: VpsOffer) => Boolean(o.gpuCount || o.gpuVramGb || o.gpuModel);
 
 interface VpsCatalogProps {
-  onDeploy?: (offer: { provider: string; planId: string; location?: string }) => void;
   embedded?: boolean;
-  chooseLabel?: string;
 }
 
-export default function VpsCatalog({ onDeploy, embedded = false, chooseLabel = 'Deploy' }: VpsCatalogProps) {
+export default function VpsCatalog({ embedded = false }: VpsCatalogProps) {
   const [minRamGb, setMinRamGb] = useState('');
   const [minVcpu, setMinVcpu] = useState('');
   const [minDiskGb, setMinDiskGb] = useState('');
@@ -26,7 +24,6 @@ export default function VpsCatalog({ onDeploy, embedded = false, chooseLabel = '
   const [location, setLocation] = useState('');
   const [arch, setArch] = useState('x86');
   const [cpuType, setCpuType] = useState('');
-  const [provisionableOnly, setProvisionableOnly] = useState(false);
   const [hourlyOnly, setHourlyOnly] = useState(false);
   const [hasGpu, setHasGpu] = useState('');
   const [sort, setSort] = useState('pricePerGbRam');
@@ -35,7 +32,6 @@ export default function VpsCatalog({ onDeploy, embedded = false, chooseLabel = '
   const params = new URLSearchParams(
     Object.entries({
       minRamGb, minVcpu, minDiskGb, maxPriceMonthly, location, arch, cpuType, sort, sortDir,
-      provisionableOnly: provisionableOnly ? 'true' : '',
       hourlyOnly: hourlyOnly ? 'true' : '',
       hasGpu,
       limit: '60',
@@ -160,10 +156,6 @@ export default function VpsCatalog({ onDeploy, embedded = false, chooseLabel = '
             </select>
           </div>
           <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
-            <input type="checkbox" checked={provisionableOnly} onChange={(e) => setProvisionableOnly(e.target.checked)} className="w-4 h-4 accent-blue-500" />
-            Deployable from here
-          </label>
-          <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
             <input type="checkbox" checked={hourlyOnly} onChange={(e) => setHourlyOnly(e.target.checked)} className="w-4 h-4 accent-blue-500" />
             Hourly billing
           </label>
@@ -187,10 +179,9 @@ export default function VpsCatalog({ onDeploy, embedded = false, chooseLabel = '
               title={s.message ?? ''}
               className={`px-3 py-1.5 rounded-xl text-[11px] font-semibold flex items-center gap-1.5 border ${
                 s.status === 'ok' ? 'bg-green-500/5 border-green-500/20 text-green-400'
-                : s.status === 'no-credentials' ? 'bg-slate-500/5 border-slate-600/30 text-slate-400'
                 : 'bg-red-500/5 border-red-500/20 text-red-400'
               }`}>
-              {s.status === 'ok' ? <Check size={11} /> : s.status === 'no-credentials' ? <Info size={11} /> : <AlertTriangle size={11} />}
+              {s.status === 'ok' ? <Check size={11} /> : <AlertTriangle size={11} />}
               {s.provider}
               {s.status === 'ok' && (
                 <span className="text-slate-500">
@@ -207,7 +198,6 @@ export default function VpsCatalog({ onDeploy, embedded = false, chooseLabel = '
                   )}
                 </span>
               )}
-              {s.status === 'no-credentials' && <span className="text-slate-600">add a token to include</span>}
               {s.status === 'error' && <span className="text-slate-500">{s.message ?? 'unavailable'}</span>}
             </div>
           ))}
@@ -234,17 +224,16 @@ export default function VpsCatalog({ onDeploy, embedded = false, chooseLabel = '
               {sortableHeader('pricePerGbVram', 'Per GB VRAM')}
               {sortableHeader('priceHourly', 'Price / hr')}
               {sortableHeader('price', 'Price / mo', 'right', 'px-5')}
-              <th className="pr-5 py-3" aria-label="Deploy" />
             </tr>
           </thead>
           <tbody>
             {isFetching && !data && (
-              <tr><td colSpan={11} className="px-5 py-10 text-center text-slate-500">
+              <tr><td colSpan={10} className="px-5 py-10 text-center text-slate-500">
                 <Loader2 className="animate-spin inline mr-2" size={16} /> Querying providers…
               </td></tr>
             )}
             {data?.offers.length === 0 && (
-              <tr><td colSpan={11} className="px-5 py-10 text-center text-slate-500 text-xs">
+              <tr><td colSpan={10} className="px-5 py-10 text-center text-slate-500 text-xs">
                 No plans match these filters. Try relaxing the RAM or price limit.
               </td></tr>
             )}
@@ -253,10 +242,6 @@ export default function VpsCatalog({ onDeploy, embedded = false, chooseLabel = '
                 <td className="px-5 py-3">
                   <div className="flex items-center gap-2">
                     <span className="font-mono text-slate-200">{o.planId}</span>
-                    {o.provisionable && (
-                      <span className="text-[9px] font-black px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-300 uppercase tracking-wider"
-                        title="This platform can provision a cluster on this provider">deployable</span>
-                    )}
                     {o.arch === 'arm' && (
                       <span className="text-[9px] font-black px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 uppercase tracking-wider"
                         title="ARM — will not run x86-only images such as SteamCMD game servers">arm</span>
@@ -302,21 +287,6 @@ export default function VpsCatalog({ onDeploy, embedded = false, chooseLabel = '
                     </div>
                   )}
                 </td>
-                <td className="text-right pr-5 py-3">
-                  {onDeploy && o.provisionable && (
-                    <button
-                      onClick={() => onDeploy({
-                        provider: o.provider,
-                        planId: o.planId,
-                        ...(o.locations[0] ? { location: o.locations[0] } : {}),
-                      })}
-                      className="text-[10px] font-black uppercase tracking-wider px-3 py-1.5 rounded-lg bg-blue-500/15 text-blue-300 hover:bg-blue-500/25 transition-colors whitespace-nowrap"
-                      title={`Provision a cluster on this ${o.planId} in ${o.locations[0] ?? 'its default location'}`}
-                    >
-                      {chooseLabel}
-                    </button>
-                  )}
-                </td>
               </tr>
             ))}
           </tbody>
@@ -332,8 +302,8 @@ export default function VpsCatalog({ onDeploy, embedded = false, chooseLabel = '
             the same way a hardcoded price list does. All figures are excluding tax.
           </p>
           <p>
-            <strong className="text-slate-300">"Deployable"</strong> marks providers this platform can
-            actually provision a cluster on. The rest are listed for price comparison only.
+            Every plan here is listed for price comparison. Koala makes no cluster on a server it lists:
+            a cluster comes with a machine you add under My Machines.
           </p>
           {data?.fetchedAt && (
             <p className="text-slate-600">

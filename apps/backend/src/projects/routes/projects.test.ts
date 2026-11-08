@@ -145,10 +145,10 @@ describe('making a project', () => {
 
   it('keeps a cluster that is the person\'s, and refuses one that is not', async () => {
     const { db, repos, routes } = await setUp();
-    await db.infrastructure.saveCluster({ id: 'my-k3d', name: 'my-k3d', provider: 'k3d', status: 'healthy', ownerId: TEST_USER.id });
-    await db.infrastructure.saveCluster({ id: 'their-k3d', name: 'their-k3d', provider: 'k3d', status: 'healthy', ownerId: 'someone-else' });
-    expect((await routes.post('/', { name: 'demo', giteaRepo: 'demo', targetClusterId: 'my-k3d' })).data).toMatchObject({ targetClusterId: 'my-k3d' });
-    expect(plain(await routes.post('/', { name: 'other', giteaRepo: 'other', targetClusterId: 'their-k3d' }))).toEqual({ status: 400, body: { error: 'Deploy to one of your own clusters.' } });
+    await db.infrastructure.saveCluster({ id: 'my-machine', name: 'my-machine', provider: 'machine', machineId: 'my-machine', status: 'healthy', ownerId: TEST_USER.id });
+    await db.infrastructure.saveCluster({ id: 'their-machine', name: 'their-machine', provider: 'machine', machineId: 'their-machine', status: 'healthy', ownerId: 'someone-else' });
+    expect((await routes.post('/', { name: 'demo', giteaRepo: 'demo', targetClusterId: 'my-machine' })).data).toMatchObject({ targetClusterId: 'my-machine' });
+    expect(plain(await routes.post('/', { name: 'other', giteaRepo: 'other', targetClusterId: 'their-machine' }))).toEqual({ status: 400, body: { error: 'Deploy to one of your own clusters.' } });
     expect(repos.createProject).toHaveBeenCalledTimes(1);
   });
 

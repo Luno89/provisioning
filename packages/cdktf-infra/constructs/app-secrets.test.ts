@@ -1,5 +1,5 @@
 import { Testing } from "cdktf";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { HermesAgentApp } from "./hermes-agent.js";
 import { OpenWebUiApp } from "./open-webui.js";
 import { TabbyApiApp } from "./tabbyapi.js";
@@ -16,6 +16,9 @@ const cases = [
   { app: "Open WebUI", secret: "open-webui-secrets", keys: ["OPENAI_API_KEY"], value: "sk-webui-never-in-a-spec", build: (scope: never) => new OpenWebUiApp(scope, "app", { openaiApiKey: "sk-webui-never-in-a-spec" }) },
   { app: "Hermes", secret: "hermes-secrets", keys: ["HERMES_DASHBOARD_BASIC_AUTH_PASSWORD", "OPENAI_API_KEY"], value: "dashboard-password-never-in-a-spec", build: (scope: never) => new HermesAgentApp(scope, "app", { dashboardAuthPassword: "dashboard-password-never-in-a-spec" }) },
 ];
+
+beforeEach(() => { vi.stubEnv("APP_SERVICE_TYPE", "NodePort"); });
+afterEach(() => { vi.unstubAllEnvs(); });
 
 describe("an app's secrets", () => {
   for (const { app, secret, keys, value, build } of cases) {

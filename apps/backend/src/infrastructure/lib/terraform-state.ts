@@ -18,7 +18,6 @@ export const cdktfStateEnv = (home: TerraformStateHome): Record<string, string> 
 export const MIRRORED_PROVIDERS = [
   'registry.terraform.io/hashicorp/kubernetes',
   'registry.terraform.io/hashicorp/helm',
-  'registry.terraform.io/hetznercloud/hcloud',
 ] as const;
 
 const hclList = (items: readonly string[]): string => `[${items.map((item) => JSON.stringify(item)).join(', ')}]`;

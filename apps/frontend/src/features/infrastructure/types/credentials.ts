@@ -5,7 +5,6 @@ export interface ProviderStatus {
   configured: boolean
   source?: 'user' | 'env'
   summary?: Record<string, string>
-  clusters?: 'available' | 'mock-only' | 'not-yet'
   unreadable?: string
 }
 

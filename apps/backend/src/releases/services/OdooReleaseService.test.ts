@@ -83,7 +83,7 @@ beforeEach(async () => {
   generation += 1;
   runs = runsOfThisTest();
   db = memoryDatabase();
-  await db.infrastructure.saveClusterInfo({ id: 'c1', name: 'dev', provider: 'k3d', status: 'healthy', ownerId: 'bo' } as ClusterMetadata);
+  await db.infrastructure.saveCluster({ id: 'c1', name: 'dev', provider: 'machine', machineId: 'dev', status: 'healthy', ownerId: 'bo' } as ClusterMetadata);
   await db.projects.saveProject({ ...project, appType: 'gitapp', createdAt: 't' });
   running = false;
   closing = [];
@@ -110,7 +110,7 @@ describe('releasing a project\'s build', () => {
       projectId: 'p1', ownerId: 'bo', agent: 'release',
       inputs: {
         ownerId: 'bo', projectId: 'p1', adapter: 'odoo',
-        target: { clusterId: 'c1', clusterName: 'dev', provider: 'k3d', namespace: name, release: name, owner: { ownerId: 'bo', projectId: 'p1' } },
+        target: { clusterId: 'c1', clusterName: 'dev', provider: 'machine', namespace: name, release: name, owner: { ownerId: 'bo', projectId: 'p1' } },
         host: `${name}.apps.local`, previewHost: `${name}-preview.apps.local`,
         build: { releaseId: 'r1', image: 'reg/bo/shop:abc', source: { owner: 'bo', repo: 'shop', commit: 'abc' } },
       },
@@ -627,7 +627,7 @@ describe('refusing what cannot be released or rolled back', () => {
     const asked: string[] = [];
     const svc = new Stopped({
       store: db, runs, chartAt: async () => true, now, newId: () => 'r1',
-      clusterById: async (id) => { asked.push(id); return { id, name: 'elsewhere', provider: 'k3d', status: 'healthy' } as ClusterMetadata; },
+      clusterById: async (id) => { asked.push(id); return { id, name: 'elsewhere', provider: 'machine', machineId: 'elsewhere', status: 'healthy' } as ClusterMetadata; },
     });
     await svc.release({ ...project, targetClusterId: 'system' }, run('b1', 'abc'));
     expect(asked).toEqual(['system']);

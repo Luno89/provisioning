@@ -21,7 +21,6 @@ import type { GitModuleService } from '../services/GitModuleService.js';
 import type { RegistryService } from '../services/RegistryService.js';
 import type { VpsCatalogService } from '../services/VpsCatalogService.js';
 import { appSchemasRouter } from '../routes/app-schemas.js';
-import { clusterProvidersRouter } from '../routes/cluster-providers.js';
 import { logsRouter } from '../routes/logs.js';
 import { modulesRouter } from '../routes/modules.js';
 import { pendingApprovalsRouter } from '../routes/pending-approvals.js';
@@ -70,20 +69,19 @@ export function wireInfrastructure(deps: InfrastructureWiringDeps): void {
   tenant.use('/api/backup', adminOnly(deps.operatorOnly, backupRouter({ repoRoot: deps.repoRoot })));
   tenant.use('/api/clusters', clustersRouter({
     clusterService: deps.clusters, clusterProxyService: deps.proxy, access: deps.clusters.access,
-    temporalBridge: deps.temporalBridge, io, giteaService: deps.gitea, infisicalService: deps.infisical,
+    giteaService: deps.gitea, infisicalService: deps.infisical,
   }));
   tenant.use('/api/deployments', deploymentsRouter({
     appService: deps.apps, clusterService: deps.clusters, appExposureService: deps.exposure, access: deps.clusters.access, temporalBridge: deps.temporalBridge, db, io,
   }));
   tenant.use('/api/pending-approvals', pendingApprovalsRouter({ db }));
-  tenant.use('/api/cluster-providers', clusterProvidersRouter({ db }));
   tenant.use('/api/vps-catalog', vpsCatalogRouter({ vpsCatalogService: deps.vpsCatalog, operatorOnly: deps.operatorOnly }));
   const serverOrders = new ServerOrderService({
     store: db.infrastructure,
     dataKey: deps.dataKey,
     ovhAccountOf: async (ownerId) => {
       const resolved = await deps.credentials.resolveCredentials(ownerId, 'ovh');
-      if (resolved.mode === 'mock') return undefined;
+      if (resolved.mode === 'none') return undefined;
       const { OVH_APPLICATION_KEY: applicationKey, OVH_APPLICATION_SECRET: applicationSecret, OVH_CONSUMER_KEY: consumerKey, OVH_SUBSIDIARY: subsidiary } = resolved.env;
       return applicationKey && applicationSecret && consumerKey ? { applicationKey, applicationSecret, consumerKey, subsidiary: subsidiary || 'FR' } : undefined;
     },

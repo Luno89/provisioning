@@ -2,7 +2,6 @@ import { App, TerraformStack } from "cdktf";
 import { SpecApp } from "./constructs/spec-app.js";
 import { jsonFrom, renderedAppFrom, settingsFrom } from "./lib/env-json.js";
 import { Construct } from "constructs";
-import { BaseCluster } from "./constructs/cluster.js";
 import { OperatorCrdsStack } from "./constructs/operator-crds.js";
 import { AgentMonitoringStack } from "./constructs/monitoring-agent.js";
 import { OdooApp } from "./constructs/odoo.js";
@@ -45,14 +44,8 @@ import { AlertingStack } from "./constructs/alerting.js";
 import { LoggingStack } from "./constructs/logging.js";
 import { TelemetryStack } from "./constructs/telemetry.js";
 import { KoalaDashboardsStack } from "./constructs/koala-dashboards.js";
-import { HetznerVmStack } from "./constructs/hetzner-vm.js";
 import { K8sProviderService, kubeconfigFrom } from "./lib/k8s-provider-service.js";
 import { type VpnConfig } from "./lib/vpn-service.js";
-
-export interface ClusterStackConfig {
-  environment: "local" | "k3d" | "aws" | "gcp" | "azure" | "do" | "remote" | "hetzner";
-  name: string;
-}
 
 function initK8sProvider(scope: Construct): void {
   K8sProviderService.initialize(scope, { kubeconfigPath: kubeconfigFrom(process.env, "KUBECONFIG_PATH") });
@@ -70,14 +63,9 @@ function remoteWriteUrl(): string {
 }
 
 class ClusterStack extends TerraformStack {
-  constructor(scope: Construct, id: string, config: ClusterStackConfig) {
+  constructor(scope: Construct, id: string) {
     super(scope, id);
     initK8sProvider(this);
-
-    new BaseCluster(this, "cluster", {
-      environment: config.environment,
-      name: config.name,
-    });
 
     // Ordering is load-bearing, not cosmetic: Traefik's chart renders a ServiceMonitor that needs
     // the monitoring.coreos.com/v1 CRDs kube-prometheus-stack installs. Terraform would otherwise
@@ -536,33 +524,10 @@ const clusterName = process.env.CLUSTER_NAME || "dev-cluster";
 const deploymentId = process.env.DEPLOYMENT_ID || 'default';
 
 if (stackType === "cluster") {
-  const env = process.env.ENV as ClusterStackConfig["environment"];
-  // Two separate stacks, both registered here so `cdktf synth` always generates both — but
-  // `cdktf deploy <name>` only ever *applies* the one it's targeted at, so ProvisionClusterActivity
-  // / ensure-cluster-stack.ts deploying clusterName then `${clusterName}-observability` (in that
-  // order, as two real sequential applies) is what actually matters. See ObservabilityStack's own
-  // comment for why this can't be one apply.
-  new ClusterStack(app, clusterName, { environment: env, name: clusterName });
+  new ClusterStack(app, clusterName);
   new ObservabilityStack(app, `${clusterName}-observability`);
 } else if (stackType === "app") {
-  // Use deploymentId in the stack name to allow multiple deployments on the same cluster
   new AppStack(app, `app-${clusterName}-${deploymentId}`);
-} else if (stackType === "vm") {
-  // The VM a 'hetzner' cluster will live on — applied strictly *before* the "cluster" stack
-  // above, since that one needs a kubeconfig that doesn't exist until k3s is installed on this
-  // machine. Registered under its own stack name so its Terraform state stays separate from the
-  // cluster's, letting the VM outlive a failed cluster deploy (and be destroyed on its own).
-  const sshPublicKey = process.env.VM_SSH_PUBLIC_KEY;
-  if (!sshPublicKey) {
-    throw new Error("STACK_TYPE=vm requires VM_SSH_PUBLIC_KEY");
-  }
-  new HetznerVmStack(app, `vm-${clusterName}`, {
-    name: clusterName,
-    sshPublicKey,
-    ...(process.env.HETZNER_SERVER_TYPE ? { serverType: process.env.HETZNER_SERVER_TYPE } : {}),
-    ...(process.env.HETZNER_LOCATION ? { location: process.env.HETZNER_LOCATION } : {}),
-    ...(process.env.HETZNER_IMAGE ? { image: process.env.HETZNER_IMAGE } : {}),
-  });
 }
 
 keepState(app, process.env);

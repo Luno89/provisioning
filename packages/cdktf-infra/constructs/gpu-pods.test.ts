@@ -1,6 +1,6 @@
 import { Testing } from "cdktf";
 import type { Construct } from "constructs";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TabbyApiApp } from "./tabbyapi.js";
 import { VllmApp } from "./vllm.js";
 
@@ -17,6 +17,9 @@ const podOf = (build: (scope: Construct) => unknown): Pod => {
   if (!deployment) throw new Error("no deployment was synthesized");
   return deployment.spec.template.spec;
 };
+
+beforeEach(() => { vi.stubEnv("APP_SERVICE_TYPE", "NodePort"); });
+afterEach(() => { vi.unstubAllEnvs(); });
 
 describe("a GPU model server's pod", () => {
   it("shares the host's network and IPC on AMD, as ROCm needs, and may trace", () => {

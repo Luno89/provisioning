@@ -15,17 +15,14 @@ const cluster: ClusterMetadata = { id: 'c1', name: 'desk', provider: 'machine', 
 const namespaceList = (names: string[]): string => JSON.stringify({ items: names.map((name) => ({ metadata: { name } })) });
 const app = (over: Partial<DeploymentMetadata> & Pick<DeploymentMetadata, 'id' | 'name'>): DeploymentMetadata => ({ clusterId: 'c1', strategy: 'helm', ownerId: 'bo', status: 'running', createdAt: at, ...over }) as DeploymentMetadata;
 
-function setup(namespaces: string[] = [], clustersSeen: ClusterMetadata[] = [cluster]) {
+function setup(namespaces: string[] = []) {
   const db = memoryDatabase();
   const clusters = mock<ClusterService>();
-  clusters.reconcileAllClusters.mockResolvedValue(clustersSeen);
   clusters.getById.mockResolvedValue(cluster);
   const access = mock<ClusterAccess>();
   access.kubeconfigOf.mockResolvedValue('/tmp/kubeconfig');
   access.kubectl.mockResolvedValue(namespaceList(namespaces));
   Object.assign(clusters, { access });
-  clusters.isMockCloud.mockReturnValue(false);
-  clusters.getPhysicalClusterName.mockReturnValue(cluster.name);
   const infra = mock<InfrastructureService>();
   const apps = new AppService(db, infra, clusters, mock<BuilderService>());
   return { db, clusters, infra, apps, access };

@@ -7,8 +7,6 @@ import { WORKSPACES } from './workspaces.js';
 const ROOT = join(import.meta.dirname, '..', '..');
 
 const UNHEARD: Record<string, string> = {
-  'sends cluster-updated': 'TemporalBridge and ClusterService tell browsers a cluster changed; no page listens, Infrastructure refetches on its own',
-  'sends cluster:updated': 'ClusterService tells browsers a cluster changed; no page listens',
   'sends deployment:updated': 'AppService tells browsers an app changed; pages listen for deployment-updated instead',
   'sends pipeline-run-updated': 'TemporalBridge tells browsers a pipeline run changed; the builds panel refetches on its own',
   'sends room-denied': 'a log room refused; the log views do not listen, so a refused log shows nothing and no reason',

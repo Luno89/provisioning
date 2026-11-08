@@ -13,9 +13,9 @@ const closed: RequestHandler = (_req, res) => { res.status(403).json({ error: 'o
 const result = { offers: [], sources: [], fetchedAt: 'now' } as VpsCatalogResult;
 
 describe('/api/vps-catalog', () => {
-  it('searches with the filters read from the query, as the person asking', async () => {
+  it('searches with the filters read from the query', async () => {
     const vpsCatalogService = mock<VpsCatalogService>();
-    vpsCatalogService.search.calledWith(PERSON.id, matches<VpsCatalogFilters>((filters) => filters.minRamGb === 8 && filters.arch === 'arm')).mockResolvedValue(result);
+    vpsCatalogService.search.calledWith(matches<VpsCatalogFilters>((filters) => filters.minRamGb === 8 && filters.arch === 'arm')).mockResolvedValue(result);
     const answer = await (await on(vpsCatalogRouter({ vpsCatalogService, operatorOnly: open }))).get('/api/vps-catalog?minRamGb=8&arch=arm');
     expect(answer.data).toEqual(result);
   });

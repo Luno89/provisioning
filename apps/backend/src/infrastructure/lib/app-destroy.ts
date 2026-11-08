@@ -5,7 +5,6 @@ export interface DestroyAppArgs {
   name: string;
   clusterId: string;
   clusterName: string;
-  provider: string;
   strategy: string;
   logFile: string;
   deploymentId?: string;
@@ -23,7 +22,7 @@ export interface MachineOfCluster {
 
 export function destroyAppArgs(
   deployment: Pick<DeploymentMetadata, 'name' | 'clusterId' | 'strategy' | 'deploymentId' | 'appType' | 'namespace'> & { id?: string | undefined },
-  cluster: Pick<ClusterMetadata, 'name' | 'provider'> | undefined,
+  cluster: Pick<ClusterMetadata, 'name'> | undefined,
   logFile: string,
   handed: HandOver,
 ): DestroyAppArgs {
@@ -31,7 +30,6 @@ export function destroyAppArgs(
     name: deployment.name,
     clusterId: deployment.clusterId,
     clusterName: cluster?.name || 'unknown',
-    provider: cluster?.provider || 'k3d',
     strategy: deployment.strategy || 'helm',
     logFile,
     deploymentId: deployment.deploymentId || 'default',

@@ -33,8 +33,6 @@ export interface VpsOffer {
 
   readonly locations: readonly string[];
 
-  readonly provisionable: boolean;
-
   readonly pricePerGbRam: number;
   readonly pricePerGbVram?: number;
 }
@@ -84,7 +82,6 @@ export interface VpsCatalogFilters {
   hasGpu?: boolean;
   minGpuVramGb?: number;
   provider?: string;
-  provisionableOnly?: boolean;
   hourlyOnly?: boolean;
   sort?: VpsSortKey;
   sortDir?: 'asc' | 'desc';
@@ -99,10 +96,9 @@ export interface VpsCatalogResult {
 
 export interface VpsCatalogSource {
   provider: string;
-  status: 'ok' | 'no-credentials' | 'error';
+  status: 'ok' | 'error';
   offerCount: number;
   message?: string;
-  requiresCredentials: boolean;
   cached: boolean;
   skippedNoPrice?: number;
   market?: VpsMarket;
@@ -110,9 +106,7 @@ export interface VpsCatalogSource {
 
 export interface VpsCatalogAdapter {
   readonly provider: string;
-  readonly requiresCredentials: boolean;
-  readonly provisionable: boolean;
-  fetch(token?: string): Promise<AdapterResult>;
+  fetch(): Promise<AdapterResult>;
 }
 
 export interface AdapterResult {

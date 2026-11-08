@@ -2,13 +2,13 @@ import fs from 'fs/promises';
 import { ApplicationFailure } from '@temporalio/common';
 
 import {
-  hasCloudCredentials, isMockCloudProvider, isSelfManagedCluster, type DestroyAppArgs,
-  namespaceOf, platformNamespaceProblem, PLATFORM_NAMESPACES, removeNamespace,
+  type DestroyAppArgs, namespaceOf, platformNamespaceProblem, PLATFORM_NAMESPACES, removeNamespace,
 } from '../infrastructure/index.js';
 import { ODOO_PROJECT_APP } from '../releases/index.js';
 import { ignore } from '@koala/engine-core/failures';
 import type { ClusterSteps } from './cluster-steps.js';
 import { handedReach } from './handed-reach.js';
+import { appServiceType, placedOnPool } from '../monitoring/index.js';
 
 export type { DestroyAppArgs } from '../infrastructure/index.js';
 
@@ -33,8 +33,7 @@ export async function DestroyAppActivity(args: DestroyAppArgs, steps: ClusterSte
     return { status: 'destroyed', msg: `App ${args.name} destroyed` };
   }
 
-  const isMock = isMockCloudProvider(args.provider, hasCloudCredentials);
-  const physicalName = isMock ? `mock-${args.provider}-${args.clusterName}` : args.clusterName;
+  const physicalName = args.clusterName;
   await steps.infra.destroy(`app-${physicalName}-${args.deploymentId || 'default'}`, {
     logFile,
     env: {
@@ -44,7 +43,7 @@ export async function DestroyAppActivity(args: DestroyAppArgs, steps: ClusterSte
       DEPLOYMENT_NAME: namespace,
       DEPLOYMENT_ID: args.deploymentId || 'default',
       KUBECONFIG: await steps.access.kubeconfigOf(reach),
-      SELF_MANAGED_K8S: isSelfManagedCluster(args.provider, isMock) ? 'true' : 'false',
+      APP_SERVICE_TYPE: appServiceType(placedOnPool(process.env, reach)),
     },
   });
 

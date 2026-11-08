@@ -25,7 +25,7 @@ const executable = (file: string, body: string): void => {
 const STUBS: Record<string, string> = {
   id: '#!/usr/bin/env bash\necho 0\n',
   sleep: '#!/usr/bin/env bash\nexit 0\n',
-  npx: '#!/usr/bin/env bash\necho "npx $*" >> "$STUB_DIR/calls"\nexit "${STUB_STACK:-0}"\n',
+  npx: '#!/usr/bin/env bash\necho "npx $* with ROOT_KUBECONFIG=${ROOT_KUBECONFIG:-}" >> "$STUB_DIR/calls"\nexit "${STUB_STACK:-0}"\n',
   ss: '#!/usr/bin/env bash\nprintf "%s" "${STUB_SS:-}"\n',
   docker: [
     '#!/usr/bin/env bash',
@@ -85,7 +85,7 @@ describe('root-telemetry.sh', () => {
     const said = calls(root).split('\n');
     const at = (pattern: RegExp): number => said.findIndex((line) => pattern.test(line));
     expect(at(/^bindings /)).toBeGreaterThanOrEqual(0);
-    expect(at(/^npx tsx scripts\/ensure-cluster-stack\.ts$/)).toBeGreaterThan(at(/^bindings /));
+    expect(at(/^npx tsx scripts\/ensure-cluster-stack\.ts with ROOT_KUBECONFIG=\/var\/lib\/rancher\/k3s-provisioning-lunorica\/kubeconfig\.yaml$/)).toBeGreaterThan(at(/^bindings /));
     expect(at(/rollout status deployment\/otel-collector$/)).toBeGreaterThan(at(/^npx tsx/));
     expect(said.filter((line) => /get deployment otel-collector/.test(line))).toHaveLength(4);
     expect(at(/compose --env-file .* -f docker-compose\.exporters\.yml up -d$/)).toBeGreaterThan(at(/rollout status/));

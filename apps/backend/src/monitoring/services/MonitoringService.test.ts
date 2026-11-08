@@ -16,7 +16,7 @@ const ME = principalOf({ id: 'me' }, { role: 'instance', instanceOwnerId: 'me' }
 const SOMEONE = asPerson('someone');
 
 const koalas: ClusterMetadata = { id: 'machine-koala', name: 'koala', provider: 'machine', machineId: 'koala', status: 'healthy', ownerId: 'me' } as ClusterMetadata;
-const remote: ClusterMetadata = { id: 'c-remote', name: 'shop-box', provider: 'hetzner', status: 'healthy', ownerId: 'me' } as ClusterMetadata;
+const remote: ClusterMetadata = { id: 'c-remote', name: 'shop-box', provider: 'machine', machineId: 'shop-box', status: 'healthy', ownerId: 'me' } as ClusterMetadata;
 
 const dep = (fields: Partial<DeploymentMetadata> & { id: string; name: string }): DeploymentMetadata =>
   ({ clusterId: koalas.id, strategy: 'native', appType: 'audiobookshelf', ownerId: 'me', status: 'running', createdAt: 'then', ...fields }) as DeploymentMetadata;
@@ -168,10 +168,12 @@ describe('the overview', () => {
 
   it('shows a cluster without monitoring as getting it, and one that does not answer as unreachable', async () => {
     await db.infrastructure.saveCluster(remote);
-    await db.infrastructure.saveDeploymentInfo(dep({ id: 'erp', name: 'ERP', namespace: 'erp', clusterId: remote.id }));
-    const overview = await monitoring.overview(ME);
-    expect(overview.clusters.find((row) => row.id === remote.id)).toMatchObject({ state: 'installing', reasons: ['its monitoring is installed before its next app is deployed'] });
+    await db.infrastructure.saveDeploymentInfo(dep({ id: 'erp', name: 'ERP', namespace: 'erp' }));
+    const bare = new MonitoringService({ ...deps(), prometheus: async () => { throw new Error('connection refused'); }, kubectl: async () => '' });
+    const overview = await bare.overview(ME);
+    expect(overview.clusters.find((row) => row.id === koalas.id)).toMatchObject({ state: 'installing', reasons: ['its monitoring is installed before its next app is deployed'] });
     expect(overview.apps[0]).toMatchObject({ name: 'ERP', state: 'installing' });
+    expect(overview.clusters.find((row) => row.id === remote.id)).toMatchObject({ state: 'unreachable', reasons: [expect.stringContaining('the Prometheus its machine sends to does not answer')] });
   });
 
   it('shows the cluster this Koala runs in only to its owner', async () => {

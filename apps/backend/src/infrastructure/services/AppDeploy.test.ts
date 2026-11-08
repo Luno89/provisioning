@@ -8,7 +8,7 @@ import { deployProjectBuild, resolveOpenaiApiBaseUrl, startAppDeploy, type AppDe
 import { ClusterUnreachable, type ClusterAccess } from './ClusterAccess.js';
 
 const KEY = 'test-key-that-is-at-least-32-characters-long';
-const CLUSTER: ClusterMetadata = { id: 'c1', name: 'shared', provider: 'k3d', status: 'healthy' } as ClusterMetadata;
+const CLUSTER: ClusterMetadata = { id: 'c1', name: 'shared', provider: 'machine', machineId: 'shared', status: 'healthy' };
 const saved = { HF_TOKEN: process.env.HF_TOKEN, HUGGING_FACE_HUB_TOKEN: process.env.HUGGING_FACE_HUB_TOKEN };
 
 afterEach(() => {
@@ -73,7 +73,7 @@ describe('starting a deploy', () => {
     expect(record?.lastLogPath).toMatch(/^\/tmp\/logs\/\d+-[a-z0-9]+-C3\.log$/);
     expect(workflowId).toMatch(/^app-deploy-shop-\d+-[a-z0-9]{6}$/);
     expect(workflow.start).toHaveBeenCalledTimes(1);
-    expect(started()[0]).toMatchObject({ taskQueue: 'cluster-ops-queue', args: { name: 'shop', clusterName: 'shared', provider: 'k3d', appType: 'wordpress', modules: ['seo'], deploymentId: deployment.deploymentId } });
+    expect(started()[0]).toMatchObject({ taskQueue: 'cluster-ops-queue', args: { name: 'shop', clusterName: 'shared', appType: 'wordpress', modules: ['seo'], deploymentId: deployment.deploymentId } });
   });
 
   it('hands the workflow the reach worked out for the app\'s cluster, and nothing else about reaching it', async () => {

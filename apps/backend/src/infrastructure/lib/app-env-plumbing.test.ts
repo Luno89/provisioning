@@ -16,7 +16,7 @@ function declaredStringFields(): string[] {
 
 const base: AppEnvArgs = {
   physicalName: 'c', strategy: 'native', namespace: 'app', deploymentId: 'd1',
-  kubeconfigPath: '/tmp/k', provider: 'k3d', isMock: false, appType: 'gitapp',
+  kubeconfigPath: '/tmp/k', serviceType: 'NodePort', appType: 'gitapp',
   vllmGpuCount: 0, tabbyGpuCount: 0, vllmDevice: 'cpu', storageEnv: {}, hostHfToken: undefined,
 };
 

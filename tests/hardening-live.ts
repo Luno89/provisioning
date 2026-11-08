@@ -170,22 +170,22 @@ async function plaintextRefusals(image: string): Promise<void> {
 }
 
 async function noStubClouds(stack: SplitStack): Promise<void> {
-  step('an instance in production makes no cluster on a provider whose clusters are not built yet, and offers none');
+  step('an instance in production makes no cluster of its own and offers no cloud to make one on');
   const session = await ownerOnInstance(stack);
-  const offered = ((await call(`${stack.instanceUrl}/api/cluster-providers`, { cookie: session })).body as { value: string }[]).map((provider) => provider.value).sort();
-  assert.deepEqual(offered, ['do', 'hetzner', 'k3d'], `Provision a cluster offers ${offered.join(', ')}`);
+  const offered = await call(`${stack.instanceUrl}/api/cluster-providers`, { cookie: session });
+  assert.equal(offered.status, 404, `the instance still answers for cluster providers: ${JSON.stringify(offered.body)}`);
   const providers = (await call(`${stack.instanceUrl}/api/credentials`, { cookie: session })).body as { providers: { provider: string; clusters?: string }[] };
-  for (const name of ['aws', 'gcp', 'azure']) {
-    assert.equal(providers.providers.find((entry) => entry.provider === name)?.clusters, 'not-yet', `${name} as Cloud providers lists it`);
+  for (const name of ['aws', 'gcp', 'azure', 'do', 'hetzner']) {
+    assert.ok(!providers.providers.some((entry) => entry.provider === name), `Cloud providers still lists ${name}`);
   }
-  for (const [provider, label] of [['aws', 'Amazon Web Services'], ['gcp', 'Google Cloud Platform'], ['azure', 'Microsoft Azure']] as const) {
+  assert.ok(!providers.providers.some((entry) => 'clusters' in entry), 'Cloud providers still says which providers make clusters');
+  for (const provider of ['aws', 'gcp', 'azure', 'k3d', 'hetzner', 'do']) {
     const asked = await call(`${stack.instanceUrl}/api/clusters`, { method: 'POST', cookie: session, body: JSON.stringify({ name: `hardening-${provider}-${STAMP}`, provider }) });
-    assert.equal(asked.status, 400, JSON.stringify(asked.body));
-    assert.equal((asked.body as { error: string }).error, `${label} is not available yet`);
+    assert.equal(asked.status, 404, `asking for a ${provider} cluster: ${JSON.stringify(asked.body)}`);
   }
   const clusters = (await call(`${stack.instanceUrl}/api/clusters`, { cookie: session })).body as { name: string }[];
   assert.ok(!clusters.some((cluster) => cluster.name.includes(STAMP)), 'a cluster was recorded anyway');
-  console.log(`  offered: ${offered.join(', ')}; AWS, Google Cloud and Azure each refused as not available yet, nothing recorded`);
+  console.log('  no cluster providers, no cloud credentials for clusters, and asking for a cluster of any provider finds no route; nothing recorded');
 }
 
 async function rootNeverCallsMadeUpAddresses(stack: SplitStack, image: string): Promise<void> {

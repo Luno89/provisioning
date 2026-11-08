@@ -5,7 +5,7 @@ import { mountRouter, TEST_USER } from '../../platform/routes/test-harness.js';
 import { authorize, type Principal } from '../../platform/lib/permissions.js';
 import type { Database } from '../../platform/lib/db-interface.js';
 import type { ClusterMetadata, PipelineRunMetadata } from '../../platform/lib/types.js';
-import type { ClusterAccess, InfrastructureService } from '../../infrastructure/index.js';
+import type { ClusterAccess } from '../../infrastructure/index.js';
 import { ClusterService } from '../../infrastructure/services/ClusterService.js';
 import { treeTypeOfProject } from '../../projects/lib/tree-types.js';
 import { createSlotCluster } from '../../extensions/releases/slot-cluster.js';
@@ -56,7 +56,7 @@ async function harness() {
   const h = await mountRouter({
     prefix: '/api/projects',
     router: (db) => {
-      const clusters = new ClusterService(db, mock<InfrastructureService>(), seam.access);
+      const clusters = new ClusterService(db, seam.access);
       releases = new OdooReleaseService({
         store: db,
         runs: temporal.runs,
@@ -88,7 +88,7 @@ async function harness() {
       return clientImportRouter({ imports, getOwnedProject: ownedProject(db) });
     },
   });
-  await h.db.infrastructure.saveClusterInfo({ id: 'c1', name: 'shop-machine', provider: 'hetzner', status: 'healthy', kubeconfigPath: '/kube/shop-machine', ownerId: TEST_USER.id } as ClusterMetadata);
+  await h.db.infrastructure.saveCluster({ id: 'c1', name: 'shop-machine', provider: 'machine', machineId: 'shop-machine', status: 'healthy', ownerId: TEST_USER.id } as ClusterMetadata);
   await h.db.projects.saveProject({ id: 'p1', name: 'Shop', ownerId: TEST_USER.id, appType: 'gitapp', giteaOwner: 'koala-test-user', giteaRepo: 'shop', targetClusterId: 'c1', releaseName: 'shop-1a2b3c', createdAt: 'then' });
   await h.db.projects.saveProject({ id: 'p2', name: 'Theirs', ownerId: 'someone-else', appType: 'gitapp', targetClusterId: 'c1', createdAt: 'then' });
   await h.db.projects.saveTree({ id: 't1', ownerId: TEST_USER.id, name: 'Shop', type: 'odoo', version: '20', projectIds: ['p1'], createdAt: 'then', updatedAt: 'then' } as never);

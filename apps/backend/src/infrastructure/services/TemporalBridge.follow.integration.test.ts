@@ -5,12 +5,11 @@ import { Worker } from '@temporalio/worker';
 import type { TestWorkflowEnvironment } from '@temporalio/testing';
 import { WORKER_DEFAULTS } from '@koala/engine-core';
 import { afterAll, beforeAll, describe, expect, inject, it, vi } from 'vitest';
-import { encryptValue, type ClusterMetadata, type DeploymentMetadata, type ProjectMetadata } from '../../platform/index.js';
+import { encryptValue, type DeploymentMetadata, type ProjectMetadata } from '../../platform/index.js';
 import { testDatabase } from '../../platform/lib/test-database.js';
 import { bundled, temporalTestEnvironment } from '../../workflows/temporal-test-env.js';
 import { testClusterAccess } from '../testing/cluster-access.js';
 import { ClusterService } from './ClusterService.js';
-import { InfrastructureService } from './InfrastructureService.js';
 import { TemporalBridge } from './TemporalBridge.js';
 
 let env: TestWorkflowEnvironment;
@@ -87,12 +86,12 @@ describe('cancelling and reading work in Temporal', () => {
 });
 
 describe('settling the work the bridge itself starts', () => {
-  it('destroys a cluster and an app, resizes and syncs an app, and records a build, each settled from its workflow\'s end', async () => {
+  it('destroys an app, resizes and syncs an app, and records a build, each settled from its workflow\'s end', async () => {
     const db = await testDatabase();
     const namespace = env.namespace ?? 'default';
     const connection = await Connection.connect({ address: inject('temporalAddress') });
     const KEY = 'bridge-follow-key' as never;
-    const bridge = new TemporalBridge(db, undefined, KEY, new ClusterService(db, new InfrastructureService(), testClusterAccess(db, { dataKey: KEY })));
+    const bridge = new TemporalBridge(db, undefined, KEY, new ClusterService(db, testClusterAccess(db, { dataKey: KEY })));
     bridge.client = new Client({ connection, namespace });
     const decided: string[] = [];
     bridge.decideRelease = async (project, since, commit) => { decided.push(`${project.id} ${since} ${commit}`); return { release: false, reason: 'nothing the app is built from changed' }; };
@@ -101,8 +100,7 @@ describe('settling the work the bridge itself starts', () => {
     vi.spyOn(bridge, 'follow').mockImplementation((...args) => { const following = follow(...args); followings.push(following); return following; });
     const app = (id: string, extra: Partial<DeploymentMetadata> = {}): DeploymentMetadata => ({ id, name: id, clusterId: 'c1', strategy: 'helm', status: 'running', ownerId: 'u1', temporalWorkflowId: 'done', ...extra });
 
-    await db.infrastructure.saveClusterInfo({ id: 'c1', name: 'spare', provider: 'machine', machineId: 'spare', kubeconfigEnc: encryptValue('apiVersion: v1', KEY), status: 'healthy', ownerId: 'u1' } as ClusterMetadata);
-    await db.infrastructure.saveClusterInfo({ id: 'c2', name: 'old', provider: 'k3d', status: 'healthy', ownerId: 'u1' } as ClusterMetadata);
+    await db.infrastructure.saveCluster({ id: 'c1', name: 'spare', provider: 'machine', machineId: 'spare', kubeconfigEnc: encryptValue('apiVersion: v1', KEY), status: 'healthy', ownerId: 'u1' });
     for (const id of ['gone', 'grown', 'synced']) await db.infrastructure.saveDeployment(app(id));
     const project = { id: 'p1', name: 'Shop', ownerId: 'u1', giteaOwner: 'bo', giteaRepo: 'shop', autoDeployOnBuild: true, createdAt: 't' } as ProjectMetadata;
     await db.projects.saveProject(project);
@@ -111,7 +109,6 @@ describe('settling the work the bridge itself starts', () => {
     const bundle = await bundled(resolve(__dirname, '../testing/bridge.fixture-workflow.ts'));
     const workers = await Promise.all(['host-ops-queue', 'cluster-ops-queue'].map((taskQueue) => Worker.create({ ...WORKER_DEFAULTS, connection: env.nativeConnection, namespace, taskQueue, workflowBundle: bundle })));
     await workers[0]!.runUntil(workers[1]!.runUntil(async () => {
-      await bridge.destroyCluster('c2');
       await bridge.destroyApp('gone');
       await bridge.resizeDisk('grown', { data: '20Gi' });
       await bridge.syncConfig('synced');
@@ -122,7 +119,6 @@ describe('settling the work the bridge itself starts', () => {
     await bridge.stop();
     await connection.close();
 
-    expect((await db.infrastructure.getClusters()).map((cluster) => cluster.id)).toEqual(['c1']);
     const deployments = new Map((await db.infrastructure.getDeployments()).map((dep) => [dep.id, dep]));
     expect(deployments.has('gone')).toBe(false);
     expect(deployments.get('grown')).toMatchObject({ status: 'running', storage: { data: '20Gi' } });

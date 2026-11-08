@@ -20,7 +20,6 @@ import { ClusterHealth } from '../../../monitoring';
 import { NO_WEB_UI_APP_TYPES } from '../../lib/app-ui';
 import { getSupportedVolumes, getFallbackSize, getVolumeDescription } from '../../lib/app-volumes';
 import { safeHref } from '../../../../shared/lib/safe-href';
-import { useInfrastructure } from '../../shared';
 
 export type LogTab = 'general' | 'health' | 'provision' | 'helm' | 'app' | 'diagnostics' | 'modules' | 'storage';
 
@@ -35,14 +34,13 @@ export interface AppDashboardProps {
 }
 
 export default function AppDashboard({
-  target, deployment: currentDeployment, deployments, clusters, cluster: currentCluster, onClose,
+  target, deployment: currentDeployment, deployments, clusters, onClose,
   initialTab = 'general',
 }: AppDashboardProps) {
   const qc = useQueryClient();
   const queryClient = qc;
   const logEndRef = useRef<HTMLDivElement | null>(null);
   const showLogModal = target;
-  const clusterRow = useInfrastructure().data?.monitoring.clusters.find((row) => row.id === currentCluster?.id);
 
   const [logTab, setLogTab] = useState<LogTab>(initialTab);
   const [selectedPod, setSelectedPod] = useState<string | null>(null);
@@ -202,16 +200,14 @@ export default function AppDashboard({
             </div>
           </div>
           <div className="flex items-center gap-3">
-            {!(showLogModal.type === 'cluster' && (!clusterRow || clusterRow.own)) && (
+            {showLogModal.type === 'app' && (
               <button
                 onClick={() => {
-                  const resource = showLogModal.type === 'app' ? currentDeployment : currentCluster;
-                  const status = resource?.status;
                   setConfirmDestroy({
-                    type: showLogModal.type,
+                    type: 'app',
                     id: showLogModal.id,
-                    name: resource?.name || 'this resource',
-                    isAbort: status === 'provisioning' || status === 'deploying',
+                    name: currentDeployment?.name || 'this app',
+                    isAbort: currentDeployment?.status === 'deploying',
                   });
                 }}
                 className="px-4 py-2 bg-slate-700/50 hover:bg-red-600 border border-slate-600 hover:border-red-500 text-slate-300 hover:text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1.5"
@@ -770,16 +766,15 @@ export default function AppDashboard({
                    </p>
                    <div className="flex items-center gap-3">
                      <code className="px-4 py-2 rounded-xl bg-slate-950 border border-slate-800 text-blue-300 font-mono text-sm">
-                       {(clusters.find((c) => c.id === currentDeployment.clusterId)?.remoteHost) || '<node-ip>'}:8211
+                       {(clusters.find((c) => c.id === currentDeployment.clusterId)?.meshIp) || '<node-ip>'}:8211
                      </code>
                      <span className="text-[11px] text-slate-500">
                        Enter this under “Join via IP” in Palworld.
                      </span>
                    </div>
                    <p className="text-[11px] text-slate-600 leading-relaxed">
-                     On a local k3d cluster this port isn't published to your host, so the server
-                     won't be reachable from outside the cluster — that needs a real VM (Hetzner CX53
-                     or larger), where the firewall rule for 8211/udp is created automatically.
+                     This is the machine's address on the mesh. Players outside it reach the server only
+                     where the machine's own network lets 8211/udp in.
                    </p>
                  </div>
                ) : (

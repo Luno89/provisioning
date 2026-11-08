@@ -28,7 +28,7 @@ import { fileURLToPath } from 'url';
 
 import { createPlanAdoption } from './engine-host/plan-adoption.js';
 import {
-  InfrastructureService, LOG_DIR, InfisicalService, infisicalSettingsFrom, HeadscaleService, deployProjectBuild, sharedClusterProxy,
+  LOG_DIR, InfisicalService, infisicalSettingsFrom, HeadscaleService, deployProjectBuild, sharedClusterProxy,
   ClusterService, clusterAccessFrom, visibleAppSpecs, resolveBindings, healthPort, serveHealth,
 } from './infrastructure/index.js';
 import { createModelService } from './models/wiring/model-wiring.js';
@@ -138,9 +138,8 @@ async function buildActivities() {
       saveProjectInfo: (entry) => db.projects.saveProjectInfo(entry),
     }).ensure(project),
   });
-  const kubeInfra = new InfrastructureService();
   const clusterAccess = clusterAccessFrom(process.env, { role: roleFromEnv(process.env).role, clusters: db.infrastructure, dataKey: keys.data });
-  const clusterService = new ClusterService(db, kubeInfra, clusterAccess, { instanceOwnerId: roleFromEnv(process.env).instance?.ownerId });
+  const clusterService = new ClusterService(db, clusterAccess, { instanceOwnerId: roleFromEnv(process.env).instance?.ownerId });
   const onKoala = onKoalasCluster(clusterAccess, () => clusterAccess.own().clusterId);
   const sandboxKube = createKubeRunner(onKoala);
   const instanceFiles = storedFilesFor({ db, env: process.env, workflows: async () => (await getTemporalClient()).workflow, engineTaskQueue: process.env.TEMPORAL_ENGINE_TASK_QUEUE || DEFAULT_ENGINE_TASK_QUEUE, dataDir: resolve(__dirname, '../data') });

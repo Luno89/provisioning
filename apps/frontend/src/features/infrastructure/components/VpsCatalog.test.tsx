@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import type { ComponentProps } from 'react';
 import VpsCatalog from './VpsCatalog';
 import { useShellStore } from '../../platform';
 import * as vpsApi from '../api/vps-catalog';
@@ -15,7 +14,7 @@ vi.mock('../api/vps-catalog', async (importOriginal) => ({
 const base = {
   vcpu: 2, cpuType: 'shared', arch: 'x86',
   diskGb: 80, priceMonthly: 20, currency: 'USD', taxIncluded: false,
-  hourlyBilling: true, locations: ['us-east'], provisionable: false,
+  hourlyBilling: true, locations: ['us-east'],
   pricePerGbRam: 5,
 };
 
@@ -37,16 +36,16 @@ const cpuOnly = {
   label: 'Linode 4GB', ramGb: 4,
 };
 
-const renderWith = (offers: unknown[], onDeploy?: ComponentProps<typeof VpsCatalog>['onDeploy'], sources?: unknown[]) => {
+const renderWith = (offers: unknown[], sources?: unknown[]) => {
   vi.mocked(vpsApi.getVpsCatalog).mockResolvedValue({
     offers,
-    sources: sources ?? [{ provider: 'vultr', status: 'ok', offerCount: offers.length, requiresCredentials: false, cached: false }],
+    sources: sources ?? [{ provider: 'vultr', status: 'ok', offerCount: offers.length, cached: false }],
     fetchedAt: new Date().toISOString(),
   } as never);
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
-      <VpsCatalog {...(onDeploy ? { onDeploy } : {})} />
+      <VpsCatalog />
     </QueryClientProvider>,
   );
 };
@@ -124,33 +123,15 @@ describe('VpsCatalog GPU / VRAM cell', () => {
   });
 });
 
-describe('Deploy button', () => {
+describe('a plan is listed for comparison only', () => {
   beforeEach(() => vi.clearAllMocks());
 
-  const deployable = { ...cpuOnly, provider: 'hetzner', planId: 'cx33', id: 'hetzner:cx33@fsn1', provisionable: true, locations: ['fsn1', 'hel1'] };
-
-  const deployBtn = (planId: string) =>
-    screen.getByText(planId).closest('tr')!.querySelector('button');
-
-  it('offers Deploy only on provisionable rows', async () => {
-    renderWith([deployable, cpuOnly], vi.fn());
-    await waitFor(() => expect(screen.getByText('cx33')).toBeDefined());
-    expect(deployBtn('cx33')?.textContent).toBe('Deploy');
-    expect(deployBtn('g6-standard-2')).toBeNull();
-  });
-
-  it('passes the row\'s own location, not the plan\'s cheapest', async () => {
-    const onDeploy = vi.fn();
-    renderWith([deployable], onDeploy);
-    await waitFor(() => expect(screen.getByText('cx33')).toBeDefined());
-    deployBtn('cx33')!.click();
-    expect(onDeploy).toHaveBeenCalledWith({ provider: 'hetzner', planId: 'cx33', location: 'fsn1' });
-  });
-
-  it('renders no Deploy column content when the host provides no handler', async () => {
-    renderWith([deployable]);
-    await waitFor(() => expect(screen.getByText('cx33')).toBeDefined());
-    expect(deployBtn('cx33')).toBeNull();
+  it('offers no way to provision on a row and no filter for deployable plans', async () => {
+    renderWith([cpuOnly]);
+    await waitFor(() => expect(screen.getByText('g6-standard-2')).toBeDefined());
+    expect(screen.getByText('g6-standard-2').closest('tr')!.querySelector('button')).toBeNull();
+    expect(screen.queryByText('Deployable from here')).toBeNull();
+    expect(screen.queryByText('deployable')).toBeNull();
   });
 });
 
@@ -167,18 +148,18 @@ describe('OVH prices for a subsidiary', () => {
     ],
   };
   const auSource = {
-    provider: 'ovh', status: 'ok', offerCount: 1, requiresCredentials: false, cached: false,
+    provider: 'ovh', status: 'ok', offerCount: 1, cached: false,
     market: { subsidiary: 'AU', currency: 'AUD', taxRate: 10 },
   };
 
   it('says which subsidiary and currency the prices were read for', async () => {
-    renderWith([auPlan], undefined, [auSource]);
+    renderWith([auPlan], [auSource]);
     await waitFor(() => expect(screen.getByText('vps-2027-model2')).toBeDefined());
     expect(screen.getByText(/prices for AU in AUD/).textContent).toContain('prices for AU in AUD');
   });
 
   it('shows the price paid in AUD with its parts', async () => {
-    renderWith([auPlan], undefined, [auSource]);
+    renderWith([auPlan], [auSource]);
     await waitFor(() => expect(screen.getByText('vps-2027-model2')).toBeDefined());
     const priceCell = screen.getByText('vps-2027-model2').closest('tr')!.querySelectorAll('td')[9]!;
     expect(priceCell.textContent).toContain('A$14.90');
@@ -194,8 +175,8 @@ describe('OVH prices for a subsidiary', () => {
   });
 
   it('shows why a provider is unavailable, such as an unknown subsidiary', async () => {
-    renderWith([], undefined, [{
-      provider: 'ovh', status: 'error', offerCount: 0, requiresCredentials: false, cached: false,
+    renderWith([], [{
+      provider: 'ovh', status: 'error', offerCount: 0, cached: false,
       message: 'OVH_SUBSIDIARY=NZ is not an OVHcloud subsidiary; known ones are ASIA, AU, CA',
     }]);
     await waitFor(() => expect(screen.getByText(/OVH_SUBSIDIARY=NZ/)).toBeDefined());

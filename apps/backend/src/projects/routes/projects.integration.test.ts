@@ -415,11 +415,11 @@ describe('POST / — where it deploys', () => {
 
   it('keeps the cluster the person picked, when it is theirs, and refuses someone else\'s', async () => {
     const harness = await mountForCreate();
-    await harness.db.infrastructure.saveCluster({ id: 'my-k3d', name: 'my-k3d', provider: 'k3d', status: 'healthy', ownerId: TEST_USER.id });
-    await harness.db.infrastructure.saveCluster({ id: 'their-k3d', name: 'their-k3d', provider: 'k3d', status: 'healthy', ownerId: 'someone-else' });
-    const res = await axios.post<ProjectMetadata>(harness.url('/api/projects'), { name: 'demo', giteaRepo: 'demo', targetClusterId: 'my-k3d' });
-    expect(res.data.targetClusterId).toBe('my-k3d');
-    const theirs = await axios.post<{ error?: string }>(harness.url('/api/projects'), { name: 'other', giteaRepo: 'other', targetClusterId: 'their-k3d' }, { validateStatus: () => true });
+    await harness.db.infrastructure.saveCluster({ id: 'my-machine', name: 'my-machine', provider: 'machine', machineId: 'my-machine', status: 'healthy', ownerId: TEST_USER.id });
+    await harness.db.infrastructure.saveCluster({ id: 'their-machine', name: 'their-machine', provider: 'machine', machineId: 'their-machine', status: 'healthy', ownerId: 'someone-else' });
+    const res = await axios.post<ProjectMetadata>(harness.url('/api/projects'), { name: 'demo', giteaRepo: 'demo', targetClusterId: 'my-machine' });
+    expect(res.data.targetClusterId).toBe('my-machine');
+    const theirs = await axios.post<{ error?: string }>(harness.url('/api/projects'), { name: 'other', giteaRepo: 'other', targetClusterId: 'their-machine' }, { validateStatus: () => true });
     expect([theirs.status, theirs.data.error]).toEqual([400, 'Deploy to one of your own clusters.']);
     await harness.close();
   });

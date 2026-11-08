@@ -4,7 +4,7 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import dotenv from 'dotenv';
 import { createDatabase, type Database, inviteExpiry, loadKeys, runOnce, type MigrationLedger } from '../platform/index.js';
-import { seedBindingTypes, seedAppSpecs, seedConstructBackedTypes, seedClusterProviders } from '../infrastructure/index.js';
+import { seedBindingTypes, seedAppSpecs, seedConstructBackedTypes } from '../infrastructure/index.js';
 import { seedTreeTypes, stampTreeVersions } from '../projects/index.js';
 import {
   seedWorkspaceImages, retireStoredBuiltInProcedures, retireStoredBuiltInPersonas, seedEngineTools,
@@ -34,7 +34,6 @@ export async function seedAll(db: Database) {
   counts.deviceTokenLifetimes = (await runOnce(ledger, 'device-token-lifetimes', now, async () => ({ given: await giveDeviceTokenLifetimes(db.machines, new Date(now)) }))).given ?? 0;
   counts.appSpecs = await seedAppSpecs(db.infrastructure);
   counts.constructBackedTypes = await seedConstructBackedTypes(db.infrastructure);
-  counts.clusterProviders = await seedClusterProviders(db.infrastructure);
   counts.removedBuiltInProcedures = await retireStoredBuiltInProcedures(db.engine);
   counts.engineTools = await seedEngineTools(db.engine);
   counts.removedBuiltInPersonas = await retireStoredBuiltInPersonas(db.engine);

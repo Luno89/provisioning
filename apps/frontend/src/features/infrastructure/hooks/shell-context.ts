@@ -12,19 +12,11 @@ export const SIDEBAR_PAGES = [
 
 export type SidebarPage = (typeof SIDEBAR_PAGES)[number];
 
-export interface WizardPreset {
-  provider: string;
-  serverType?: string;
-  location?: string;
-}
-
 export interface ShellContext {
   clusters: Cluster[];
   deployments: Deployment[];
   providers: ProviderStatus[];
-  setShowClusterModal: (show: boolean) => void;
   setShowAppModal: (show: boolean) => void;
-  setWizardPreset: (preset: WizardPreset | undefined) => void;
   openDashboard: (type: 'cluster' | 'app', id: string) => void;
 }
 

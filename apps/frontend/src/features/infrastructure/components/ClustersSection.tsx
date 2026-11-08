@@ -1,5 +1,5 @@
-import { Cloud, FileText, Plus, Server, Shield, Trash2 } from 'lucide-react'
-import { formatHash, useCan, useShellStore } from '../../platform'
+import { Cloud, FileText, Network, Server, Shield } from 'lucide-react'
+import { formatHash, useCan } from '../../platform'
 import { Bar, Section, StateBadge } from '../../monitoring'
 import { useShellContext } from '../hooks/shell-context'
 import { QuietButton } from './Parts'
@@ -8,7 +8,6 @@ import { clusterCards, healthHash, useInfrastructure } from '../shared'
 export function ClustersSection() {
   const ctx = useShellContext()
   const view = useInfrastructure()
-  const setConfirmDestroy = useShellStore((s) => s.setConfirmDestroy)
   const can = useCan()
   if (!ctx) return null
   const cards = clusterCards(ctx.clusters, view.data?.monitoring.clusters ?? [])
@@ -24,13 +23,13 @@ export function ClustersSection() {
               <Server size={14} /> Host Koala on a server
             </a>
           )}
-          <button type="button" onClick={() => ctx.setShowClusterModal(true)} className="flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-blue-500">
-            <Plus size={14} /> Provision a cluster
-          </button>
+          <a href={formatHash('mesh')} className="flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-blue-500">
+            <Network size={14} /> My Machines
+          </a>
         </div>
       )}
     >
-      <p className="text-[11px] text-slate-500">Open one to see everything on it.</p>
+      <p className="text-[11px] text-slate-500">A cluster comes with a machine: add one under <a href={formatHash('mesh')} className="text-blue-300 hover:underline">My Machines</a>, and its cluster goes when the machine is removed there. Open one to see everything on it.</p>
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {cards.map(({ cluster, health }) => (
           <div key={cluster.id} className={`space-y-2 rounded-md border p-3 ${health?.own ? 'border-purple-500/40 bg-purple-950/20' : 'border-[var(--bark-700)] bg-[var(--bark-900)]/40'}`} data-testid="cluster-card">
@@ -53,9 +52,6 @@ export function ClustersSection() {
               {!health?.own && (
                 <span className="flex gap-1.5">
                   <QuietButton onClick={() => ctx.openDashboard('cluster', cluster.id)} label={`Logs of ${cluster.name}`}><FileText size={11} /> Logs</QuietButton>
-                  <QuietButton danger onClick={() => setConfirmDestroy({ type: 'cluster', id: cluster.id, name: cluster.name, isAbort: cluster.status === 'provisioning' })} label={`Destroy ${cluster.name}`}>
-                    <Trash2 size={11} /> {cluster.status === 'provisioning' ? 'Abort' : 'Destroy'}
-                  </QuietButton>
                 </span>
               )}
             </div>

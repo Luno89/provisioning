@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Cloud, Check, Trash2, Loader2, AlertTriangle, Key, ExternalLink } from 'lucide-react';
+import { Check, Trash2, Loader2, AlertTriangle, Key, ExternalLink } from 'lucide-react';
 import {
   credentialKeys, listDnsProviders, listProviders, saveCredentials, deleteCredentials, validateCredentials,
 } from '../api/credentials';
@@ -91,7 +91,7 @@ export default function CloudAccounts() {
           Cloud providers
         </h2>
         <p className="text-slate-400 mt-2">
-          Connect your cloud provider credentials to deploy infrastructure beyond local k3d clusters.
+          The keys Koala uses for the services it works with: model downloads, GitHub, buying root's server and your domains' DNS.
         </p>
       </header>
 
@@ -176,14 +176,6 @@ export default function CloudAccounts() {
                 {(provider.capability ?? PROVIDER_CAPABILITY[provider.key]) && !isExpanded && (
                   <p className="text-[11px] text-slate-500 leading-relaxed mb-3">
                     {provider.capability ?? PROVIDER_CAPABILITY[provider.key]}
-                  </p>
-                )}
-
-                {!isExpanded && (status?.clusters === 'mock-only' || status?.clusters === 'not-yet') && (
-                  <p className="text-[11px] text-slate-400 leading-relaxed mb-3">
-                    {status.clusters === 'mock-only'
-                      ? `${provider.label} clusters are not available yet. On this development box, a cluster on it with no keys stored runs in Mock Cloud Mode: local k3d containers on this machine.`
-                      : `${provider.label} clusters are not available yet.`}
                   </p>
                 )}
 
@@ -322,11 +314,7 @@ export default function CloudAccounts() {
                   <AlertTriangle className="text-red-500 mb-3" size={32} />
                   <h4 className="font-bold text-lg mb-1">Remove Credentials?</h4>
                   <p className="text-slate-400 text-sm text-center mb-6">
-                    {status?.clusters === 'mock-only'
-                      ? 'This provider will revert to Mock Cloud Mode.'
-                      : status?.clusters === 'available'
-                        ? 'No new cluster can be made on it until you add keys again.'
-                        : 'Koala will no longer use these credentials.'}
+                    Koala will no longer use these credentials.
                   </p>
                   <div className="flex gap-3 w-full max-w-xs">
                     <button
@@ -350,19 +338,6 @@ export default function CloudAccounts() {
         })}
       </div>
 
-      {statuses.some((s) => s.clusters === 'mock-only') && (
-        <div className="mt-8 max-w-4xl bg-blue-500/5 border border-blue-500/20 rounded-2xl p-5 flex items-start gap-4">
-          <Cloud className="text-blue-500 flex-shrink-0 mt-0.5" size={20} />
-          <div>
-            <h4 className="text-sm font-bold text-blue-400 mb-1">Mock Cloud Mode</h4>
-            <p className="text-xs text-slate-400 leading-relaxed">
-              On this development box, providers without configured credentials run in Mock Cloud Mode,
-              using local k3d containers for zero-setup development. Configure real credentials
-              above to deploy to actual cloud infrastructure.
-            </p>
-          </div>
-        </div>
-      )}
 
 
     </section>

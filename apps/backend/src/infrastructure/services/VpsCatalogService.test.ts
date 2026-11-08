@@ -1,8 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { memoryDatabase } from '../../platform/testing/memory-database.js';
-import { applyFilters, VpsCatalogService, type VpsCatalogDb } from './VpsCatalogService.js';
-import type { VpsCatalogAdapter } from '../lib/vps-catalog/types.js';
-import { good, offer, vpsCatalogBehaviour } from '../testing/vps-catalog-behaviour.js';
+import { applyFilters } from './VpsCatalogService.js';
+import { offer, vpsCatalogBehaviour } from '../testing/vps-catalog-behaviour.js';
 
 describe('applyFilters', () => {
   it('filters on the resource dimensions', () => {
@@ -21,15 +19,14 @@ describe('applyFilters', () => {
     expect(out[0]!.arch).toBe('x86');
   });
 
-  it('filters on cpuType, provider, hourly billing and provisionability', () => {
+  it('filters on cpuType, provider and hourly billing', () => {
     const all = [
-      offer({ provider: 'a', cpuType: 'shared', hourlyBilling: true, provisionable: true }),
-      offer({ provider: 'b', cpuType: 'dedicated', hourlyBilling: false, provisionable: false }),
+      offer({ provider: 'a', cpuType: 'shared', hourlyBilling: true }),
+      offer({ provider: 'b', cpuType: 'dedicated', hourlyBilling: false }),
     ];
     expect(applyFilters(all, { cpuType: 'dedicated' })).toHaveLength(1);
     expect(applyFilters(all, { provider: 'a' })).toHaveLength(1);
     expect(applyFilters(all, { hourlyOnly: true })).toHaveLength(1);
-    expect(applyFilters(all, { provisionableOnly: true })).toHaveLength(1);
   });
 
   it('matches locations case-insensitively by substring', () => {
@@ -235,17 +232,4 @@ describe('withDerived', () => {
   });
 });
 
-vpsCatalogBehaviour(async () => memoryDatabase());
-
-describe('a store that cannot be read', () => {
-  it('does not reject when token resolution blows up for a credentialed provider', async () => {
-    const failingDb: VpsCatalogDb = { accounts: { getUserById: async () => { throw new Error('mongo unavailable'); } } };
-    const gated: VpsCatalogAdapter = {
-      provider: 'hetzner', requiresCredentials: true, provisionable: true,
-      fetch: async () => ({ offers: [], skippedNoPrice: 0 }),
-    };
-    const r = await new VpsCatalogService(failingDb, 'test-key', [good('vultr'), gated]).search('u1', {});
-    expect(r.offers.map((o) => o.provider)).toEqual(['vultr']);
-    expect(r.sources.find((s) => s.provider === 'hetzner')?.status).toBe('error');
-  });
-});
+vpsCatalogBehaviour();

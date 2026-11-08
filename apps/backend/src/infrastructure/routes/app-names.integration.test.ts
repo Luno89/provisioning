@@ -1,6 +1,3 @@
-import { mkdtemp } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import axios from 'axios';
 import { mock } from 'vitest-mock-extended';
@@ -35,10 +32,8 @@ beforeAll(async () => {
   env = await temporalTestEnvironment();
   db = await testDatabase();
   const infra = mock<InfrastructureService>();
-  infra.listLocalClusters.mockResolvedValue([]);
-  infra.runKubectl.mockResolvedValue(JSON.stringify({ items: [] }));
   for (const person of [ANN, BOB]) await db.infrastructure.saveCluster({ id: `machine-${person.id}`, name: person.id, provider: 'machine', machineId: person.id, status: 'stopped', ownerId: person.id });
-  const clusters = new ClusterService(db, infra, testClusterAccess(db, { dataKey: KEY }), { kubeconfigDir: await mkdtemp(join(tmpdir(), 'app-names-')) });
+  const clusters = new ClusterService(db, testClusterAccess(db, { dataKey: KEY }));
   const bridge = new TemporalBridge(db, undefined, KEY, clusters);
   Object.assign(bridge, { client: env.client });
   h = await mountRouter({

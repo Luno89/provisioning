@@ -1,8 +1,3 @@
-import { ignore } from '@koala/engine-core/failures';
-import { type CloudCredentials, type Database, decryptValue, type SecretKey, textAt } from '../../platform/index.js';
-import { usesOperatorCredentials } from '../lib/credential-resolver.js';
-import { resolveCloudCredentials } from './cloud-credentials.js';
-import type { ClaimSettings } from '../../platform/index.js';
 import { NATURAL_SORT_DIR, offerHasGpu } from '../lib/vps-catalog/types.js';
 import type {
   VpsCatalogAdapter,
@@ -23,43 +18,12 @@ interface CacheEntry {
   fetchedAt: number;
 }
 
-export interface VpsCatalogDb {
-  accounts: Pick<Database['accounts'], 'getUserById'>;
-}
-
 export class VpsCatalogService {
   private cache = new Map<string, CacheEntry>();
 
-  constructor(
-    private readonly db: VpsCatalogDb,
-    private readonly masterKey: SecretKey,
-    private readonly adapters: readonly VpsCatalogAdapter[],
-    private readonly claims?: ClaimSettings | undefined,
-  ) {}
+  constructor(private readonly adapters: readonly VpsCatalogAdapter[]) {}
 
-  private cacheKey(provider: string, token?: string): string {
-    if (!token) return `${provider}:public`;
-    let h = 0;
-    for (let i = 0; i < token.length; i++) h = (Math.imul(31, h) + token.charCodeAt(i)) | 0;
-    return `${provider}:${h}`;
-  }
-
-  private async resolveToken(userId: string, provider: string): Promise<string | undefined> {
-    const user = await this.db.accounts.getUserById(userId);
-    const enc = textAt(user?.credentials, provider, 'token');
-    let userCreds: CloudCredentials | undefined;
-    if (enc) {
-      try {
-        userCreds = { [provider]: { token: decryptValue(enc, this.masterKey) } };
-      } catch (failure) {
-        ignore('a stored token that can no longer be decrypted counts as none, so the provider asks for credentials again')(failure);
-      }
-    }
-    const env = resolveCloudCredentials(provider, userCreds, usesOperatorCredentials(user, this.claims)).env;
-    return env.HCLOUD_TOKEN ?? env.DIGITALOCEAN_TOKEN;
-  }
-
-  async search(userId: string, filters: VpsCatalogFilters = {}): Promise<VpsCatalogResult> {
+  async search(filters: VpsCatalogFilters = {}): Promise<VpsCatalogResult> {
     const sources: VpsCatalogSource[] = [];
     const all: VpsOffer[] = [];
 
@@ -67,31 +31,13 @@ export class VpsCatalogService {
       this.adapters.map(async (adapter) => {
         let hit: CacheEntry | undefined;
         try {
-          const token = adapter.requiresCredentials
-            ? await this.resolveToken(userId, adapter.provider)
-            : undefined;
-
-          if (adapter.requiresCredentials && !token) {
-            sources.push({
-              provider: adapter.provider,
-              status: 'no-credentials',
-              offerCount: 0,
-              requiresCredentials: true,
-              cached: false,
-              message: `Add your ${adapter.provider} API token under Cloud providers to include its plans.`,
-            });
-            return;
-          }
-
-          const key = this.cacheKey(adapter.provider, token);
-          hit = this.cache.get(key);
+          hit = this.cache.get(adapter.provider);
           if (hit && Date.now() - hit.fetchedAt < CACHE_TTL_MS) {
             all.push(...hit.offers);
             sources.push({
               provider: adapter.provider,
               status: 'ok',
               offerCount: hit.offers.length,
-              requiresCredentials: adapter.requiresCredentials,
               cached: true,
               ...(hit.skippedNoPrice ? { skippedNoPrice: hit.skippedNoPrice } : {}),
               ...(hit.market ? { market: hit.market } : {}),
@@ -99,12 +45,12 @@ export class VpsCatalogService {
             return;
           }
 
-          const result = await adapter.fetch(token);
+          const result = await adapter.fetch();
           if (!result || !Array.isArray(result.offers)) {
             throw new Error(`${adapter.provider} adapter returned no offers array`);
           }
           const { offers, skippedNoPrice, market } = result;
-          this.cache.set(key, {
+          this.cache.set(adapter.provider, {
             offers,
             skippedNoPrice: skippedNoPrice ?? 0,
             ...(market ? { market } : {}),
@@ -115,7 +61,6 @@ export class VpsCatalogService {
             provider: adapter.provider,
             status: 'ok',
             offerCount: offers.length,
-            requiresCredentials: adapter.requiresCredentials,
             cached: false,
             ...(skippedNoPrice ? { skippedNoPrice } : {}),
             ...(market ? { market } : {}),
@@ -128,7 +73,6 @@ export class VpsCatalogService {
               provider: adapter.provider,
               status: 'ok',
               offerCount: hit.offers.length,
-              requiresCredentials: adapter.requiresCredentials,
               cached: true,
               ...(hit.skippedNoPrice ? { skippedNoPrice: hit.skippedNoPrice } : {}),
               ...(hit.market ? { market: hit.market } : {}),
@@ -140,7 +84,6 @@ export class VpsCatalogService {
             provider: adapter.provider,
             status: 'error',
             offerCount: 0,
-            requiresCredentials: adapter.requiresCredentials,
             cached: false,
             message: err.message,
           });
@@ -173,7 +116,6 @@ export function applyFilters(offers: VpsOffer[], f: VpsCatalogFilters): VpsOffer
     if (f.hasGpu === false && offerHasGpu(o)) return false;
     if (f.minGpuVramGb !== undefined && !(o.gpuVramGb !== undefined && o.gpuVramGb >= f.minGpuVramGb)) return false;
     if (f.provider && o.provider !== f.provider) return false;
-    if (f.provisionableOnly && !o.provisionable) return false;
     if (f.hourlyOnly && !o.hourlyBilling) return false;
     if (f.location) {
       const needle = f.location.toLowerCase();

@@ -2,25 +2,17 @@ import { DNS_PROVIDER_NAMES, type DnsProviderName } from '../../infrastructure/l
 import type { AgentUpdateReport, MachineAgent, ManualMachineAgent } from '../../machines/index.js';
 export type PartialInfo<T> = { [K in keyof T]?: T[K] | undefined };
 
-export type ClusterProviderName = 'k3d' | 'aws' | 'gcp' | 'azure' | 'do' | 'machine' | 'hetzner' | 'pool' | 'root';
-
-export interface ClusterProgress {
-  step: string;
-  message: string;
-  timestamp: string;
-}
+export type ClusterProviderName = 'machine' | 'pool' | 'root';
 
 export interface ClusterMetadata {
   id: string;
   name: string;
   provider: ClusterProviderName;
   status: 'provisioning' | 'healthy' | 'failed' | 'destroying' | 'discovered' | 'destroyed' | 'stopped';
-  kubeconfigPath?: string;
   lastLogPath?: string;
   temporalWorkflowId?: string;
   createdAt?: string;
   lastSyncedAt?: string;
-  progress?: ClusterProgress;
   capacity?: {
     cpuCores: number;
     ramGb: number;
@@ -31,18 +23,7 @@ export interface ClusterMetadata {
   machineId?: string;
   kubeconfigEnc?: string;
   metricsTokenHash?: string;
-  remoteHost?: string;
-  remoteUsername?: string;
-  remoteSshPort?: number;
   meshIp?: string;
-  remoteK3sApiPort?: number;
-  remoteSshPrivateKeyEnc?: string;
-  meshNodeId?: string;
-  hetznerServerType?: string;
-  hetznerLocation?: string;
-  hetznerImage?: string;
-  hetznerServerId?: string;
-  doServerId?: string;
   [key: string]: unknown;
 }
 
@@ -273,145 +254,11 @@ export interface PipelineRunMetadata {
   [key: string]: unknown;
 }
 
-export interface ClusterTaskArgs {
-  name:     string;
-  provider: ClusterProviderName;
-  logFile:  string;
-  activityId?: string;
-}
-
-export interface ClusterTaskResult {
-  status:      'healthy' | 'failed';
-  msg:         string;
-  kubeconfig?: string;
-  logFile:     string;
-}
-
-export interface DestroyClusterTaskArgs {
-  name:       string;
-  provider:   ClusterProviderName;
-  logFile:    string;
-  activityId: string;
-}
-
-export interface DestroyClusterTaskResult {
-  status: string;
-  msg:    string;
-}
-
-export interface DeployAppTaskArgs {
-  name:       string;
-  clusterId:  string;
-  clusterName: string;
-  provider:   ClusterProviderName;
-  strategy:   string;
-  appType?:   string;
-  modules?:   string[];
-  odooRepo:   string;
-  odooTag:    string;
-  dbRepo:     string;
-  dbTag:      string;
-  logFile:    string;
-  activityId: string;
-}
-
-export interface DeployAppTaskResult {
-  status:          string;
-  msg:             string;
-  displayUrl:      string;
-  kubeconfig?:     string;
-  logFile:         string;
-}
-
-export interface DestroyAppTaskArgs {
-  name:          string;
-  clusterId:     string;
-  clusterName:   string;
-  provider:      ClusterProviderName;
-  strategy:      string;
-  logFile:       string;
-  activityId:    string;
-}
-
-export interface DestroyAppTaskResult {
-  status: string;
-  msg:    string;
-}
-
-export interface ResizeDiskTaskArgs {
-  name:         string;
-  clusterId:    string;
-  clusterName:  string;
-  provider:     ClusterProviderName;
-  strategy:     string;
-  appType:      string;
-  storage:      Record<string, string>;
-  logFile:      string;
-  activityId:   string;
-}
-
-export interface ResizeDiskTaskResult {
-  status:  string;
-  msg:     string;
-  logFile: string;
-}
-
-export interface AwsCredentials {
-  accessKeyId: string;
-  secretAccessKey: string;
-  region: string;
-}
-
-export interface GcpCredentials {
-  projectId: string;
-  serviceAccountJson: string;
-}
-
-export interface AzureCredentials {
-  clientId: string;
-  clientSecret: string;
-  subscriptionId: string;
-  tenantId: string;
-}
-
-export interface DoCredentials {
-  token: string;
-}
-
-export interface HetznerCredentials {
-  token: string;
-}
-
-export interface VultrCredentials {
-  token: string;
-}
-
-export interface LinodeCredentials {
-  token: string;
-}
-
-export interface ScalewayCredentials {
-  secretKey: string;
-  accessKey?: string;
-  projectId?: string;
-}
-
-export interface HostingerCredentials {
-  token: string;
-}
-
 export interface OvhCredentials {
   applicationKey: string;
   applicationSecret: string;
   consumerKey: string;
   subsidiary: string;
-}
-
-export interface ContaboCredentials {
-  clientId: string;
-  clientSecret: string;
-  apiUser: string;
-  apiPassword: string;
 }
 
 export interface HuggingFaceCredentials {
@@ -438,16 +285,6 @@ export interface GoogleDriveCredentials {
 export type DnsCredentialRecords = { [K in DnsProviderName]?: Record<string, string> };
 
 export interface CloudCredentials extends DnsCredentialRecords {
-  aws?: AwsCredentials;
-  gcp?: GcpCredentials;
-  azure?: AzureCredentials;
-  do?: DoCredentials;
-  hetzner?: HetznerCredentials;
-  vultr?: VultrCredentials;
-  linode?: LinodeCredentials;
-  scaleway?: ScalewayCredentials;
-  hostinger?: HostingerCredentials;
-  contabo?: ContaboCredentials;
   ovh?: OvhCredentials;
   huggingface?: HuggingFaceCredentials;
   artificialanalysis?: ArtificialAnalysisCredentials;
@@ -456,8 +293,7 @@ export interface CloudCredentials extends DnsCredentialRecords {
 }
 
 export const CLOUD_PROVIDERS = [
-  'aws', 'gcp', 'azure', 'do', 'hetzner',
-  'vultr', 'linode', 'scaleway', 'hostinger', 'contabo', 'ovh',
+  'ovh',
   ...DNS_PROVIDER_NAMES,
   'huggingface', 'artificialanalysis', 'github', 'googledrive',
 ] as const;

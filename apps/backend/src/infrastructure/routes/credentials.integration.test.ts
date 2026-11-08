@@ -30,8 +30,8 @@ const mount = async (user: typeof TEST_USER | null = TEST_USER) => {
     router: async (db) => {
       await db.accounts.saveUser({ id: TEST_USER.id, email: TEST_USER.email, twoFactorEnabled: false, emailVerified: true, createdAt: 'then' } as never);
       const service = new CredentialService(db, KEY);
-      await service.saveCredentials(TEST_USER.id, 'aws', { accessKeyId: 'AKIASTOREDKEY0001', secretAccessKey: 'stored-secret-0001' });
-      await service.saveCredentials(TEST_USER.id, 'hetzner', { token: 'hetzner-token-0001' });
+      await service.saveCredentials(TEST_USER.id, 'ovh', { applicationKey: 'APPKSTOREDKEY0001', applicationSecret: 'stored-secret-0001', consumerKey: 'stored-consumer-0001', subsidiary: 'FR' });
+      await service.saveCredentials(TEST_USER.id, 'github', { token: 'github-token-0001' });
       svc = spied(service);
       return credentialsRouter({
         credentialService: service,
@@ -50,8 +50,8 @@ describe('listing configured providers', () => {
     const res = await axios.get<{ providers: { provider: string; configured: boolean }[] }>(h.url('/api/credentials'));
     expect(res.status).toBe(200);
     expect(res.data.providers.filter((provider) => provider.configured)).toEqual([
-      { provider: 'aws', label: 'Amazon Web Services', configured: true, source: 'user', summary: { AWS_ACCESS_KEY_ID: 'AKIA****0001', AWS_SECRET_ACCESS_KEY: 'stor****0001' }, clusters: 'mock-only' },
-      { provider: 'hetzner', label: 'Hetzner Cloud', configured: true, source: 'user', summary: { HCLOUD_TOKEN: 'hetz****0001' }, clusters: 'available' },
+      { provider: 'github', label: 'GitHub', configured: true, source: 'user', summary: { GITHUB_TOKEN: 'gith****0001', GH_TOKEN: 'gith****0001' } },
+      { provider: 'ovh', label: 'OVHcloud', configured: true, source: 'user', summary: { OVH_APPLICATION_KEY: 'APPK****0001', OVH_APPLICATION_SECRET: 'stor****0001', OVH_CONSUMER_KEY: 'stor****0001', OVH_SUBSIDIARY: '****' } },
     ]);
     expect(svc.getConfiguredProviders).toHaveBeenCalledWith(TEST_USER.id);
   });
@@ -123,26 +123,26 @@ describe('provider validation', () => {
 describe('reading and writing one provider', () => {
   it('saves, then reads back rather than echoing the request', async () => {
     const { h, svc } = await mount();
-    const res = await axios.put<{ credentials: unknown }>(h.url('/api/credentials/aws'), { accessKeyId: 'AKIAREALKEY00042', secret: 's' });
+    const res = await axios.put<{ credentials: unknown }>(h.url('/api/credentials/ovh'), { applicationKey: 'APPKREALKEY00042', secret: 's' });
     expect(res.status).toBe(200);
-    expect(svc.saveCredentials).toHaveBeenCalledWith(TEST_USER.id, 'aws', { accessKeyId: 'AKIAREALKEY00042', secret: 's' });
-    expect(res.data.credentials).toEqual({ accessKeyId: 'AKIA****0042', secretAccessKey: 'stor****0001' });
-    expect(JSON.stringify(res.data)).not.toContain('AKIAREALKEY00042');
+    expect(svc.saveCredentials).toHaveBeenCalledWith(TEST_USER.id, 'ovh', { applicationKey: 'APPKREALKEY00042', secret: 's' });
+    expect(res.data.credentials).toEqual({ applicationKey: 'APPK****0042', applicationSecret: 'stor****0001', consumerKey: 'stor****0001', subsidiary: 'FR' });
+    expect(JSON.stringify(res.data)).not.toContain('APPKREALKEY00042');
   });
 
   it('deletes for the calling user only', async () => {
     const { h, svc, db } = await mount();
-    const res = await axios.delete(h.url('/api/credentials/hetzner'));
-    expect(res.data).toEqual({ success: true, provider: 'hetzner' });
-    expect(svc.deleteCredentials).toHaveBeenCalledWith(TEST_USER.id, 'hetzner');
-    expect(Object.keys((await db.accounts.getUserById(TEST_USER.id))?.credentials ?? {})).toEqual(['aws']);
+    const res = await axios.delete(h.url('/api/credentials/github'));
+    expect(res.data).toEqual({ success: true, provider: 'github' });
+    expect(svc.deleteCredentials).toHaveBeenCalledWith(TEST_USER.id, 'github');
+    expect(Object.keys((await db.accounts.getUserById(TEST_USER.id))?.credentials ?? {})).toEqual(['ovh']);
   });
 
   it('never lets one tenant read another', async () => {
     const { h, svc } = await mount();
     h.setUser({ id: 'someone-else', email: 'other@example.com' });
-    const res = await axios.get<{ credentials: unknown }>(h.url('/api/credentials/aws'));
-    expect(svc.getCredentials).toHaveBeenCalledWith('someone-else', 'aws');
+    const res = await axios.get<{ credentials: unknown }>(h.url('/api/credentials/ovh'));
+    expect(svc.getCredentials).toHaveBeenCalledWith('someone-else', 'ovh');
     expect(res.data.credentials).toBeNull();
   });
 });
@@ -158,8 +158,8 @@ describe('validating credentials', () => {
 
   it('checks the submitted values for every other provider', async () => {
     const { h, svc } = await mount();
-    await axios.post(h.url('/api/credentials/validate/aws'), { accessKeyId: 'k' });
-    expect(svc.validateCredentials).toHaveBeenCalledWith('aws', { accessKeyId: 'k' });
+    await axios.post(h.url('/api/credentials/validate/ovh'), { applicationKey: 'k' });
+    expect(svc.validateCredentials).toHaveBeenCalledWith('ovh', { applicationKey: 'k' });
     expect(svc.testGoogleDriveConnection).not.toHaveBeenCalled();
   });
 });

@@ -4,7 +4,7 @@ import { ClusterService } from './ClusterService.js';
 import { BuilderService } from './BuilderService.js';
 import type { TemporalBridge } from './TemporalBridge.js';
 import { StorageAdapter } from './StorageAdapter.js';
-import { isSelfManagedCluster } from '../lib/cluster-topology.js';
+import { appServiceType, placedOnPool } from '../../monitoring/index.js';
 import { listingOf, namespaceOf, namespacesByName, removeNamespace, type AppListing, type ClusterRead } from '../lib/app-namespace.js';
 
 export type ListedApp = DeploymentMetadata & { listing: AppListing };
@@ -81,7 +81,7 @@ export class AppService extends BaseService {
             DEPLOYMENT_ID: id.slice(0, 8),
             KUBECONFIG: kubeconfigPath,
             KUBECONFIG_CONTEXT: '',
-            SELF_MANAGED_K8S: isSelfManagedCluster(cluster.provider, false) ? 'true' : 'false',
+            APP_SERVICE_TYPE: appServiceType(placedOnPool(process.env, await this.clusters.access.reach(cluster.id))),
             APP_TYPE: appType,
             WEB_IMAGE_REPO: customTag.split(':')[0] || '',
             WEB_IMAGE_TAG: customTag.split(':')[1] || '',

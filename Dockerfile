@@ -3,15 +3,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certifi
 WORKDIR /tools
 ARG KUBECTL_VERSION=v1.36.2
 ARG HELM_VERSION=v3.15.1
-ARG K3D_VERSION=v5.6.3
 ARG TERRAFORM_VERSION=1.9.0
 RUN ARCH=$(dpkg --print-architecture) && \
     curl -fsSL "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${ARCH}/kubectl" -o kubectl && \
     curl -fsSL "https://get.helm.sh/helm-${HELM_VERSION}-linux-${ARCH}.tar.gz" | tar -xz --strip-components=1 "linux-${ARCH}/helm" && \
-    curl -fsSL "https://github.com/k3d-io/k3d/releases/download/${K3D_VERSION}/k3d-linux-${ARCH}" -o k3d && \
     curl -fsSL "https://releases.hashicorp.com/terraform/${TERRAFORM_VERSION}/terraform_${TERRAFORM_VERSION}_linux_${ARCH}.zip" -o terraform.zip && \
     unzip -q terraform.zip terraform && rm terraform.zip && \
-    cp helm helm-linux && chmod +x kubectl helm helm-linux k3d terraform
+    cp helm helm-linux && chmod +x kubectl helm helm-linux terraform
 COPY scripts/terraform-providers.sh /build/terraform-providers.sh
 RUN sh /build/terraform-providers.sh /tools/terraform-providers
 

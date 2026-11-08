@@ -5,8 +5,6 @@ import { Worker, Runtime } from '@temporalio/worker';
 import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
 
-import { ProvisionClusterActivity } from './activities/ProvisionClusterActivity.js';
-import { DestroyClusterActivity } from './activities/DestroyClusterActivity.js';
 import { RootRemovalInstanceActivity, RootRemovalMeshActivity, RootRemovalRecordsActivity } from './activities/RootRemovalActivities.js';
 import { PoolMoveStartActivity, PoolMoveStopActivity, PoolMoveSwitchActivity } from './activities/PoolActivities.js';
 import { PoolChartActivity, PoolFailedActivity, PoolHostActivity, PoolProxyActivity, PoolReadyActivity, PoolRemoveActivity, PoolTrialNextActivity, PoolTrialStepActivity, PoolVclusterActivity } from './activities/PoolActivities.js';
@@ -63,8 +61,6 @@ async function main() {
         workflowsPath: resolve(__dirname, 'workflows'),
         interceptors: { activity: [heartbeatWhileRunning(), traceActivities()], workflowModules: workflowInterceptorModules(process.env) },
         activities: {
-          ProvisionClusterActivity,
-          DestroyClusterActivity,
           PoolHostActivity,
           PoolVclusterActivity,
           PoolProxyActivity,
@@ -107,7 +103,7 @@ async function main() {
     }
   }
 
-  logger.info('[HostWorker] ✅ Listening for cluster provisioning tasks');
+  logger.info('[HostWorker] ✅ Listening for the work of root, the pool and server orders');
   const port = healthPort(process.env);
   if (port) serveHealth(port, () => worker.getState() === 'RUNNING');
   await worker.run();

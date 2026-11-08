@@ -41,7 +41,6 @@ import { createGroveLauncher } from '../../../../backend/src/engine-host/grove-l
 import { accountDefaultOf } from '../../../../backend/src/machines/lib/machine-runs'
 import { TemporalBridge } from '../../../../backend/src/infrastructure/services/TemporalBridge'
 import { ClusterService } from '../../../../backend/src/infrastructure/services/ClusterService'
-import type { InfrastructureService } from '../../../../backend/src/infrastructure/services/InfrastructureService'
 import type { AppService } from '../../../../backend/src/infrastructure/services/AppService'
 import type { GiteaService } from '../../../../backend/src/projects/services/GiteaService'
 import type { ProjectRepoService } from '../../../../backend/src/projects/services/ProjectRepoService'
@@ -146,9 +145,8 @@ export async function projectsOf(site: Site): Promise<ProjectsSide> {
   const { api, db } = site
   const machines = machinesOf(site)
   const temporal = temporalOnPaper()
-  const host = outsideThisTier<InfrastructureService>('the host\'s k3d, kubectl and helm', { listLocalClusters: async () => [] })
-  const clusters = new ClusterService(db, host, testClusterAccess(db, { dataKey: DATA_KEY }))
-  const bridge = new TemporalBridge(db, undefined, DATA_KEY, clusters, undefined, undefined, { connect: async () => temporal.client })
+  const clusters = new ClusterService(db, testClusterAccess(db, { dataKey: DATA_KEY }))
+  const bridge = new TemporalBridge(db, undefined, DATA_KEY, clusters, undefined, { connect: async () => temporal.client })
   await bridge.start()
   const gitea = outsideThisTier<GiteaService>('Gitea')
   const extensions = extensionServiceFor(db)

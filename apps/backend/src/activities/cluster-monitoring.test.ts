@@ -32,7 +32,7 @@ describe('monitoring a machine\'s cluster', () => {
     const { access, infra } = steps;
     const kept: string[] = [];
     await ensureClusterMonitoring(steps, {
-      physicalName: 'machine-desk', reach: DESK, local: false,
+      physicalName: 'machine-desk', reach: DESK,
       machine: { metricsUrl: 'http://100.64.0.7:30320/api/machines/metrics', remember: async (hash) => { kept.push(hash); } },
     });
     expect(access.apply.mock.calls.map(([target]) => target)).toEqual([DESK, DESK]);
@@ -48,21 +48,21 @@ describe('monitoring a machine\'s cluster', () => {
 
   it('changes nothing on a machine whose collectors are already there', async () => {
     const steps = cluster({ operator: true, blackbox: true });
-    await ensureClusterMonitoring(steps, { physicalName: 'machine-desk', reach: DESK, local: false, machine: { metricsUrl: 'u', remember: async () => { throw new Error('no token should be made'); } } });
+    await ensureClusterMonitoring(steps, { physicalName: 'machine-desk', reach: DESK, machine: { metricsUrl: 'u', remember: async () => { throw new Error('no token should be made'); } } });
     expect(steps.access.apply).not.toHaveBeenCalled();
     expect(steps.infra.deploy).not.toHaveBeenCalled();
   });
 
   it('gives any other cluster its whole stack, with no token', async () => {
     const steps = cluster({ operator: false, blackbox: false });
-    await ensureClusterMonitoring(steps, { physicalName: 'shop-box', reach: DESK, local: false });
+    await ensureClusterMonitoring(steps, { physicalName: 'shop-box', reach: DESK });
     expect(steps.access.apply).not.toHaveBeenCalled();
     expect(steps.infra.deploy.mock.calls.map(([name]) => name)).toEqual(['shop-box', 'shop-box-observability']);
   });
 });
 
 describe('monitoring Koala\'s own cluster', () => {
-  const fromDeploy = { physicalName: 'machine-desk', reach: DESK, local: false, pool: false, nodePortIngress: true, koala: true };
+  const fromDeploy = { physicalName: 'machine-desk', reach: OWN, pool: false, koala: true };
 
   it('applies one set of stacks under one name, whether the worker starting or a deploy to the machine Koala runs on asks, and never twice at once', async () => {
     const steps = cluster({ operator: false, blackbox: false });
@@ -70,13 +70,14 @@ describe('monitoring Koala\'s own cluster', () => {
     let open!: () => void;
     const gate = new Promise<void>((resolve) => { open = resolve; });
     infra.deploy.mockImplementation(async () => { await gate; return undefined as never; });
-    const worker = ensureClusterMonitoring(steps, koalaClusterMonitoring({ INSTANCE_MACHINE_ID: 'desk' }, OWN, true));
+    const worker = ensureClusterMonitoring(steps, koalaClusterMonitoring({}, OWN));
     const deploy = ensureClusterMonitoring(steps, fromDeploy);
     expect(deploy).toBe(worker);
     open();
     await Promise.all([worker, deploy]);
     expect(infra.deploy.mock.calls.map(([name]) => name)).toEqual(['machine-desk', 'machine-desk-observability']);
     expect(infra.deploy.mock.calls[0]![1]).toMatchObject({ env: { CLUSTER_NAME: 'machine-desk', KUBECONFIG_PATH: '/clusters/kubeconfig-koala', INGRESS_SERVICE: 'NodePort', KOALA_CLUSTER: 'true' } });
+    expect(infra.deploy.mock.calls[0]![1]?.env).not.toHaveProperty('ENV');
   });
 
   it('keeps that name, the cluster\'s id, when only a deploy asks, so the stacks the worker applied stay the only ones', async () => {
@@ -90,7 +91,7 @@ describe('monitoring a cluster that cannot be reached', () => {
   it('installs nothing and fails with why the cluster could not be reached', async () => {
     const steps = cluster({ operator: false, blackbox: false });
     steps.access.kubectl.mockRejectedValue(new Error('machine-desk is stopped until something runs on it'));
-    await expect(ensureClusterMonitoring(steps, { physicalName: 'stopped-desk', reach: DESK, local: false })).rejects.toThrow('stopped until something runs on it');
+    await expect(ensureClusterMonitoring(steps, { physicalName: 'stopped-desk', reach: DESK })).rejects.toThrow('stopped until something runs on it');
     expect(steps.infra.deploy).not.toHaveBeenCalled();
   });
 });

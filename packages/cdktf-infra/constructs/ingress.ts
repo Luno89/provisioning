@@ -22,20 +22,8 @@ export class IngressStack extends Construct {
       },
     });
 
-    // NOT the KUBECONFIG_CONTEXT-based check app constructs use — that env var is only ever
-    // set by app-deploy activities (app-env.ts, DestroyAppActivity, etc.), never by
-    // ProvisionClusterActivity, which is what actually applies this construct (STACK_TYPE=
-    // cluster). Confirmed live: using it here always fell through to LoadBalancer, even for
-    // k3d/native-k3s. ProvisionClusterActivity sets ENV instead (`isMock ? 'local' :
-    // args.provider`) — the exact same signal constructs/cluster.ts's own BaseCluster already
-    // uses for its identical isLocal check, so mirror that instead.
-    const isLocal = process.env.ENV === "local" || process.env.ENV === "k3d";
-    // Same per-cluster-type decision every app construct makes for its own Service (NodePort
-    // for k3d/native-k3s, LoadBalancer for real cloud) — not ClusterIP. AppExposureService
-    // needs to reach this Service from the HOST the same way it already reaches every app's
-    // own Service, via the identical k3d-server-ip / host-gateway-ip / cloud-LB resolution — a
-    // ClusterIP Service has no NodePort at all and isn't reachable that way.
-    const serviceType = process.env.INGRESS_SERVICE || (isLocal ? "NodePort" : "LoadBalancer");
+    const serviceType = process.env.INGRESS_SERVICE;
+    if (!serviceType) throw new Error("the cluster stack is told how Traefik's Service is reached, in INGRESS_SERVICE, and it was not");
 
     new Release(this, "traefik-release", {
       name: "traefik",

@@ -14,8 +14,6 @@ export type { ClusterCapacity } from './lib/cluster-capacity.js';
 export { ROOT_CLUSTER_ID, koalasClusterId, machineToStart, ownReach, placeOf, serviceAccountFrom, serviceAccountKubeconfig, startedMachine } from './lib/cluster-places.js';
 export type { ClusterPlace, HandOver, Here, Reach, ServiceAccount, WhyUnreachable } from './lib/cluster-places.js';
 export { PLATFORM_NAMESPACES } from './lib/cluster-workloads.js';
-export { seedClusterProviders } from './lib/cluster-providers.js';
-export { isSelfManagedCluster, notAvailableYet, providerReady } from './lib/cluster-topology.js';
 export { declareDependency } from './lib/declare-dependency.js';
 export { deploymentIdFor } from './lib/deployment-id.js';
 export {
@@ -56,7 +54,6 @@ export type { InstanceEdge } from './services/AppExposureService.js';
 export { AppService } from './services/AppService.js';
 export { BuilderService } from './services/BuilderService.js';
 export { BUILD_TOKENS_MIGRATION, cleanUpBuildTokens, pullSecretWriter } from './services/build-token-cleanup.js';
-export { hasCloudCredentials, isMockCloudProvider } from './services/cloud-credentials.js';
 export { PodLogTails, podLogRoom } from './services/PodLogTails.js';
 export type { PodLogTailsDeps, PodToTail } from './services/PodLogTails.js';
 export { ClusterAccess, ClusterCommandFailed, ClusterUnreachable, clusterAccessFrom, runnersByRecord } from './services/ClusterAccess.js';
@@ -74,7 +71,7 @@ export { installGpuDevicePlugin, verifyGpuRuntimeSchedulable } from './services/
 export { HeadscaleService } from './services/HeadscaleService.js';
 export { InfisicalService } from './services/InfisicalService.js';
 export type { InfisicalAt } from './services/InfisicalService.js';
-export { InfrastructureService, K3D_KUBECONFIG, LOG_DIR } from './services/InfrastructureService.js';
+export { InfrastructureService, LOG_DIR } from './services/InfrastructureService.js';
 export { RegistryService } from './services/RegistryService.js';
 export { ServerOrderProblem, ServerOrderService } from './services/ServerOrderService.js';
 export { readOverSsh, runScriptOverSsh, sshAnswers } from './services/ssh-session.js';

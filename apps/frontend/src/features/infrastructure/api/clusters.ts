@@ -12,9 +12,6 @@ export const clusterKeys = {
 export const listClusters = (): Promise<Cluster[]> =>
   api.get<Cluster[]>('/clusters').then((r) => r.data)
 
-export const destroyCluster = (id: string): Promise<void> =>
-  api.delete(`/clusters/${id}`).then(() => undefined)
-
 const GPU_REFETCH_MS = 10_000
 
 export const getGpuStatus = async (id: string): Promise<GpuStatus | null> => {
@@ -36,15 +33,3 @@ export function useGpuStatus(id: string) {
 
 export const clusterDashboardUrl = (clusterId: string, serviceName: string): string =>
   `${API_BASE}/clusters/${clusterId}/proxy/${serviceName}/`
-
-export interface ClusterCreated {
-  message: 'Provisioning started'
-  clusterName: string
-  provider: string
-  id: string
-  workflowId: string
-  state: 'running'
-}
-
-export const provisionCluster = (body: unknown): Promise<ClusterCreated> =>
-  api.post<ClusterCreated>('/clusters', body).then((r) => r.data)

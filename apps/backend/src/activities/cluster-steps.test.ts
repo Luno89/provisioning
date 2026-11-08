@@ -115,12 +115,13 @@ describe('making a GPU runtime ready', () => {
 });
 
 describe('removing an app', () => {
-  const base = { name: 'shop', clusterId: 'machine-desk', clusterName: 'desk', provider: 'machine', strategy: 'native', logFile: LOG, deploymentId: 'd1', namespace: 'shop-1a2b3c', reach: DESK };
+  const base = { name: 'shop', clusterId: 'machine-desk', clusterName: 'desk', strategy: 'native', logFile: LOG, deploymentId: 'd1', namespace: 'shop-1a2b3c', reach: DESK };
 
   it('destroys its stack with the kubeconfig of the cluster it was handed, then waits for its namespace to go', async () => {
     await DestroyAppActivity(base, steps());
-    expect(infra.destroy).toHaveBeenCalledWith('app-desk-d1', { logFile: LOG, env: expect.objectContaining({ KUBECONFIG: '/clusters/kubeconfig-machine', CLUSTER_NAME: 'desk', DEPLOYMENT_NAME: 'shop-1a2b3c', SELF_MANAGED_K8S: 'true' }) as unknown });
+    expect(infra.destroy).toHaveBeenCalledWith('app-desk-d1', { logFile: LOG, env: expect.objectContaining({ KUBECONFIG: '/clusters/kubeconfig-machine', CLUSTER_NAME: 'desk', DEPLOYMENT_NAME: 'shop-1a2b3c', APP_SERVICE_TYPE: 'NodePort' }) as unknown });
     expect(infra.destroy.mock.calls[0]![1]?.env).not.toHaveProperty('KUBECONFIG_CONTEXT');
+    expect(infra.destroy.mock.calls[0]![1]?.env).not.toHaveProperty('SELF_MANAGED_K8S');
     expect(said.map((call) => [call.reach, call.args.slice(0, 3)])).toEqual([
       [DESK, ['delete', 'namespace', 'shop-1a2b3c']],
       [DESK, ['wait', '--for=delete', 'namespace/shop-1a2b3c']],
@@ -149,14 +150,14 @@ describe('removing an app', () => {
 
 describe('resizing an app\'s disk', () => {
   it('applies its stack again with the new sizes, through the kubeconfig of the cluster it was handed', async () => {
-    await ResizeDiskActivity({ name: 'shop', clusterId: 'machine-dev1', reach: KOALA, clusterName: 'koala', provider: 'k3d', strategy: 'native', appType: 'wordpress', storage: { db: '20Gi' }, logFile: LOG, deploymentId: 'd1' }, steps());
+    await ResizeDiskActivity({ name: 'shop', clusterId: 'machine-dev1', reach: KOALA, clusterName: 'koala', strategy: 'native', appType: 'wordpress', storage: { db: '20Gi' }, logFile: LOG, deploymentId: 'd1' }, steps());
     expect(access.kubeconfigOf).toHaveBeenCalledWith(KOALA);
-    expect(infra.deploy).toHaveBeenCalledWith('app-koala-d1', { logFile: LOG, env: expect.objectContaining({ KUBECONFIG: '/clusters/kubeconfig-koala', APP_TYPE: 'wordpress' }) as unknown });
+    expect(infra.deploy).toHaveBeenCalledWith('app-koala-d1', { logFile: LOG, env: expect.objectContaining({ KUBECONFIG: '/clusters/kubeconfig-koala', APP_TYPE: 'wordpress', APP_SERVICE_TYPE: 'NodePort' }) as unknown });
     expect(infra.deploy.mock.calls[0]![1]?.env).not.toHaveProperty('KUBECONFIG_CONTEXT');
   });
 
   it('is refused when it was handed no way to reach the cluster', async () => {
-    await expect(ResizeDiskActivity({ name: 'shop', clusterId: 'c', clusterName: 'c', provider: 'machine', strategy: 'native', appType: 'wordpress', storage: {}, logFile: LOG }, steps())).rejects.toThrow('handed no way to reach c');
+    await expect(ResizeDiskActivity({ name: 'shop', clusterId: 'c', clusterName: 'c', strategy: 'native', appType: 'wordpress', storage: {}, logFile: LOG }, steps())).rejects.toThrow('handed no way to reach c');
     expect(infra.deploy).not.toHaveBeenCalled();
   });
 });
@@ -168,8 +169,8 @@ describe('syncing an app\'s settings', () => {
       if (args.includes('rollout') && args.includes('status')) return 'deployment "open-webui" successfully rolled out';
       return 'OK';
     });
-    await SyncConfigActivity({ name: 'chat', namespace: 'chat-1', clusterId: 'machine-desk', reach: DESK, clusterName: 'desk', provider: 'machine', strategy: 'native', appType: 'openwebui', logFile: LOG, deploymentId: 'd2', webuiEnableWebSearch: true }, steps());
-    expect(infra.deploy.mock.calls[0]![1]?.env).toMatchObject({ KUBECONFIG: '/clusters/kubeconfig-machine' });
+    await SyncConfigActivity({ name: 'chat', namespace: 'chat-1', clusterId: 'machine-desk', reach: DESK, clusterName: 'desk', strategy: 'native', appType: 'openwebui', logFile: LOG, deploymentId: 'd2', webuiEnableWebSearch: true }, steps());
+    expect(infra.deploy.mock.calls[0]![1]?.env).toMatchObject({ KUBECONFIG: '/clusters/kubeconfig-machine', APP_SERVICE_TYPE: 'NodePort' });
     expect(said.every((call) => call.reach === DESK)).toBe(true);
     expect(said.map((call) => call.args.slice(0, 3).join(' '))).toEqual(['rollout restart deployment', '-n chat-1 rollout', 'exec -n chat-1']);
   });

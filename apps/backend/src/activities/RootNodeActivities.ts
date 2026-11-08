@@ -20,7 +20,7 @@ async function withOrders<T>(work: (orders: ServerOrderService) => Promise<T>): 
       dataKey: keys.data,
       ovhAccountOf: async (ownerId) => {
         const resolved = await credentials.resolveCredentials(ownerId, 'ovh');
-        if (resolved.mode === 'mock') return undefined;
+        if (resolved.mode === 'none') return undefined;
         const { OVH_APPLICATION_KEY: applicationKey, OVH_APPLICATION_SECRET: applicationSecret, OVH_CONSUMER_KEY: consumerKey, OVH_SUBSIDIARY: subsidiary } = resolved.env;
         return applicationKey && applicationSecret && consumerKey ? { applicationKey, applicationSecret, consumerKey, subsidiary: subsidiary || 'FR' } : undefined;
       },

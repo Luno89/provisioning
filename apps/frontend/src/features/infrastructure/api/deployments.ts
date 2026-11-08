@@ -148,8 +148,8 @@ export function useInitialLogs(
 export const deployApp = <T,>(body: unknown): Promise<T> =>
   api.post<T>('/deployments', body).then((r) => r.data)
 
-export const destroyResource = (kind: 'cluster' | 'app', id: string): Promise<void> =>
-  api.delete(`/${kind === 'cluster' ? 'clusters' : 'deployments'}/${id}`).then(() => undefined)
+export const destroyResource = (id: string): Promise<void> =>
+  api.delete(`/deployments/${id}`).then(() => undefined)
 
 export type ExposureMode = 'public' | 'local'
 

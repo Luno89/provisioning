@@ -50,7 +50,6 @@ export function vpsFiltersFrom(query: unknown): { filters: VpsCatalogFilters } |
   const location = text('location');
   const provider = text('provider');
   const hasGpu = flag('hasGpu');
-  const provisionableOnly = flag('provisionableOnly');
   const hourlyOnly = flag('hourlyOnly');
   const filters: VpsCatalogFilters = {
     ...numbered('minRamGb'),
@@ -64,7 +63,6 @@ export function vpsFiltersFrom(query: unknown): { filters: VpsCatalogFilters } |
     ...(hasGpu === undefined ? {} : { hasGpu }),
     ...numbered('minGpuVramGb'),
     ...(provider ? { provider } : {}),
-    ...(provisionableOnly ? { provisionableOnly } : {}),
     ...(hourlyOnly ? { hourlyOnly } : {}),
     ...(sort ? { sort } : {}),
     ...(sortDir ? { sortDir } : {}),

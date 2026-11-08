@@ -22,8 +22,7 @@ export interface OpenWebUiConfig {
   readonly enableWebSearch?: boolean;
   // duckduckgo needs no API key/account and no extra infrastructure (unlike searxng, which
   // needs a self-hosted instance, or tavily/brave/serper/google_pse, which need paid keys) —
-  // matches this platform's zero-setup-by-default philosophy elsewhere (mock cloud credentials,
-  // etc.). Still overridable for anyone who wants a more reliable/less rate-limited provider.
+  // matches this platform's zero-setup-by-default philosophy elsewhere. Still overridable for anyone who wants a more reliable/less rate-limited provider.
   readonly webSearchEngine?: string;
   readonly webSearchApiKey?: string;
 }

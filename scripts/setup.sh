@@ -291,24 +291,6 @@ else
         echo "  ▶  cluster provisioning-lunorica already running — skipping creation"
     fi
 fi
-# 9. Check Cloud CLIs (Optional, fallback to Mock Cloud Mode if missing)
-echo "☁️ Checking cloud provider command-line tools..."
-if command -v aws &>/dev/null; then
-    echo "  ✅ aws-cli detected"
-else
-    echo "  ℹ️  aws-cli not found (AWS stacks will run in Mock Cloud Mode)"
-fi
-if command -v gcloud &>/dev/null; then
-    echo "  ✅ gcloud-cli detected"
-else
-    echo "  ℹ️  gcloud-cli not found (GCP stacks will run in Mock Cloud Mode)"
-fi
-if command -v doctl &>/dev/null; then
-    echo "  ✅ doctl detected"
-else
-    echo "  ℹ️  doctl not found (DigitalOcean stacks will run in Mock Cloud Mode)"
-fi
-
 # Initialize .env file
 bash scripts/setup-env.sh
 

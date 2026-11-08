@@ -35,23 +35,18 @@ export const placedOnPool = (env: NodeJS.ProcessEnv, reach: Pick<Reach, 'kind'>)
 export interface KoalaClusterMonitoring {
   physicalName: string;
   reach: Reach;
-  local: boolean;
   pool: boolean;
-  nodePortIngress: boolean;
   koala: true;
 }
 
-export const koalaClusterMonitoring = (env: NodeJS.ProcessEnv, reach: Reach, instance: boolean): KoalaClusterMonitoring => ({
+export const koalaClusterMonitoring = (env: NodeJS.ProcessEnv, reach: Reach): KoalaClusterMonitoring => ({
   physicalName: reach.clusterId,
   reach,
-  local: !instance,
   pool: placedOnPool(env, reach),
-  nodePortIngress: Boolean(env.INSTANCE_MACHINE_ID),
   koala: true,
 });
 
-export const appServiceType = (onPool: boolean, selfManaged: boolean): 'ClusterIP' | 'NodePort' | 'LoadBalancer' =>
-  (onPool ? 'ClusterIP' : selfManaged ? 'NodePort' : 'LoadBalancer');
+export const appServiceType = (onPool: boolean): 'ClusterIP' | 'NodePort' => (onPool ? 'ClusterIP' : 'NodePort');
 
 export function monitoringPlan(seen: MonitoringSeen, pool = false, machine = false): MonitoringPlan {
   const operator = lines(seen.apiResources).includes(PROBE_RESOURCE);
@@ -64,15 +59,14 @@ export function monitoringPlan(seen: MonitoringSeen, pool = false, machine = fal
   return { stacks, keepIngress: lines(seen.ingressClasses).length > 0 };
 }
 
-export function monitoringStackEnv(cluster: { physicalName: string; kubeconfigPath: string; local: boolean; pool?: boolean | undefined; machine?: { metricsUrl: string } | undefined; nodePortIngress?: boolean | undefined; koala?: boolean | undefined }, keepIngress: boolean): Record<string, string> {
+export function monitoringStackEnv(cluster: { physicalName: string; kubeconfigPath: string; pool?: boolean | undefined; machine?: { metricsUrl: string } | undefined; koala?: boolean | undefined }, keepIngress: boolean): Record<string, string> {
   return {
     STACK_TYPE: 'cluster',
-    ENV: cluster.local ? 'k3d' : 'remote',
     CLUSTER_NAME: cluster.physicalName,
     KUBECONFIG_PATH: cluster.kubeconfigPath,
+    INGRESS_SERVICE: appServiceType(Boolean(cluster.pool)),
     ...(keepIngress ? { CLUSTER_INGRESS: 'existing' } : {}),
-    ...(cluster.pool ? { CLUSTER_MONITORING: 'crds', INGRESS_SERVICE: 'ClusterIP' } : {}),
-    ...(cluster.machine || cluster.nodePortIngress ? { INGRESS_SERVICE: 'NodePort' } : {}),
+    ...(cluster.pool ? { CLUSTER_MONITORING: 'crds' } : {}),
     ...(cluster.machine ? { CLUSTER_MONITORING: 'agent', REMOTE_WRITE_URL: cluster.machine.metricsUrl } : {}),
     ...(cluster.koala ? { KOALA_CLUSTER: 'true' } : {}),
   };

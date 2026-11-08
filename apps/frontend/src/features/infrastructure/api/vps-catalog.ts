@@ -9,12 +9,12 @@ export interface VpsOffer {
   ramGb: number; diskGb: number; diskType?: string; bandwidthTb?: number;
   gpuCount?: number; gpuVramGb?: number; gpuModel?: string;
   priceMonthly: number; priceParts?: VpsPricePart[]; priceHourly?: number; currency: string; taxIncluded: boolean;
-  hourlyBilling: boolean; locations: string[]; provisionable: boolean;
+  hourlyBilling: boolean; locations: string[];
   pricePerGbRam: number; pricePerGbVram?: number;
 }
 export interface VpsSource {
-  provider: string; status: 'ok' | 'no-credentials' | 'error';
-  offerCount: number; message?: string; requiresCredentials: boolean; cached: boolean;
+  provider: string; status: 'ok' | 'error';
+  offerCount: number; message?: string; cached: boolean;
   skippedNoPrice?: number;
   market?: VpsMarket;
 }

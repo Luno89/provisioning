@@ -40,7 +40,7 @@ vi.mock('../../../models/api', async (importOriginal) => ({
 }));
 
 const clusters: Cluster[] = [
-  { id: 'c1', name: 'dev', provider: 'k3d', status: 'healthy' },
+  { id: 'c1', name: 'dev', provider: 'machine', status: 'healthy' },
   { id: 'gpu1', name: 'rig', provider: 'machine', status: 'healthy', capacity: { cpuCores: 8, ramGb: 32, gpuCount: 1, gpuVendor: 'nvidia' } },
 ];
 

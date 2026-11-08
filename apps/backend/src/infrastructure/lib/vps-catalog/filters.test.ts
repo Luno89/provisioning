@@ -3,8 +3,8 @@ import { vpsFiltersFrom } from './filters.js';
 
 describe('the catalogue\'s filters as asked in the query', () => {
   it('reads numbers, choices and switches, leaving out what was not asked', () => {
-    expect(vpsFiltersFrom({ minRamGb: '8', maxPriceMonthly: '', arch: 'arm', sort: 'price', sortDir: 'desc', hasGpu: 'false', provisionableOnly: 'true', limit: '60' }))
-      .toEqual({ filters: { minRamGb: 8, arch: 'arm', sort: 'price', sortDir: 'desc', hasGpu: false, provisionableOnly: true, limit: 60 } });
+    expect(vpsFiltersFrom({ minRamGb: '8', maxPriceMonthly: '', arch: 'arm', sort: 'price', sortDir: 'desc', hasGpu: 'false', hourlyOnly: 'true', limit: '60' }))
+      .toEqual({ filters: { minRamGb: 8, arch: 'arm', sort: 'price', sortDir: 'desc', hasGpu: false, hourlyOnly: true, limit: 60 } });
   });
 
   it('refuses a choice the catalogue does not have, naming the ones it does', () => {

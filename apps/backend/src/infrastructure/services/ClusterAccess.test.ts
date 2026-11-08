@@ -44,7 +44,7 @@ describe('ClusterAccess: how to reach a cluster, worked out where the records ar
   });
 
   it('refuses, saying why, a stopped machine, another kind of cluster, one it has no record of, and anything without the records or the key', async () => {
-    const { access } = await door({}, [cluster({ status: 'stopped' }), cluster({ id: 'old', name: 'old', provider: 'k3d' })]);
+    const { access } = await door({}, [cluster({ status: 'stopped' }), cluster({ id: 'old', name: 'old', provider: 'k3d' as never })]);
     await expect(access.reach('machine-dev2')).rejects.toMatchObject({ name: 'ClusterUnreachable', why: 'stopped', message: 'machine-dev2 is stopped until something runs on it' });
     await expect(access.reach('old')).rejects.toMatchObject({ why: 'other-kind' });
     await expect(access.reach('nowhere')).rejects.toMatchObject({ why: 'unknown' });
@@ -130,7 +130,7 @@ describe('ClusterAccess: what a workflow is handed', () => {
   });
 
   it('hands over anything else as its reach, and refuses what cannot be reached with why', async () => {
-    const { access } = await door({ here: { root: true }, rootKubeconfig: '/etc/koala/root.yaml' }, [{ id: 'old', name: 'old', provider: 'k3d', status: 'healthy', ownerId: 'owner', createdAt: 't' } as ClusterMetadata]);
+    const { access } = await door({ here: { root: true }, rootKubeconfig: '/etc/koala/root.yaml' }, [{ id: 'old', name: 'old', provider: 'k3d' as never, status: 'healthy', ownerId: 'owner', createdAt: 't' }]);
     expect(await access.handOver('root')).toEqual({ clusterId: 'root', reach: { clusterId: 'root', kind: 'root' } });
     await expect(access.handOver('old')).rejects.toMatchObject({ name: 'ClusterUnreachable', why: 'other-kind' });
   });
@@ -161,6 +161,20 @@ describe('ClusterAccess: a kubectl it starts and leaves running', () => {
     const { access, streams } = await door({ serviceAccount: undefined });
     await expect(access.start('machine-dev1', ['logs', '-f', 'pod'])).rejects.toMatchObject({ name: 'ClusterUnreachable', why: 'no-account' });
     expect(streams.start).not.toHaveBeenCalled();
+  });
+});
+
+describe('ClusterAccess: packaging a chart, the one helm call that reaches no cluster', () => {
+  it('runs helm package on the chart into the folder it is given, with no kubeconfig', async () => {
+    const { access, processes } = await door();
+    await access.packageChart('/repo/charts/instance', '/out');
+    expect(processes.run).toHaveBeenCalledWith({ command: '/bin/helm', args: ['package', '/repo/charts/instance', '-d', '/out'] });
+  });
+
+  it('fails with what helm said when it cannot package the chart', async () => {
+    const { access, processes } = await door();
+    processes.run.mockResolvedValue({ code: 1, stdout: '', stderr: 'Error: Chart.yaml file is missing' });
+    await expect(access.packageChart('/repo/charts/instance', '/out')).rejects.toThrow('Error: Chart.yaml file is missing');
   });
 });
 

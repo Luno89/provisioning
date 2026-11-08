@@ -61,7 +61,7 @@ describe('App Dashboard', () => {
   it('opens Infrastructure with its apps and clusters on the page', async () => {
     render(<App />, { wrapper });
     fireEvent.click(await screen.findByText('Infrastructure'));
-    expect(await screen.findByRole('button', { name: /Provision a cluster/ })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Deploy an app/ })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: /Deploy an app/ })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Provision a cluster/ })).toBeNull();
   });
 });

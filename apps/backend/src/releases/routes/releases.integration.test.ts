@@ -3,8 +3,6 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, it, expect } from 'vitest';
 import axios from 'axios';
-import { mock } from 'vitest-mock-extended';
-import type { InfrastructureService } from '../../infrastructure/index.js';
 import { mountRouter, TEST_USER, type Harness } from '../../platform/routes/test-harness.js';
 import { authorize, type Principal } from '../../platform/lib/permissions.js';
 import type { Database } from '../../platform/lib/db-interface.js';
@@ -99,9 +97,7 @@ function harness(state: keyof typeof worlds) {
     const h = await mountRouter({
       prefix: '/api/projects',
       router: (db) => {
-        const infra = mock<InfrastructureService>();
-        infra.runKubectl.mockResolvedValue('');
-        const clusters = new ClusterService(db, infra, testClusterAccess(db, { dataKey: KEY }));
+        const clusters = new ClusterService(db, testClusterAccess(db, { dataKey: KEY }));
         const projectRepos = new ProjectRepoService(db, giteaService, KEY);
         const secrets = projectSecretsFor({
           db: db.projects,
@@ -135,7 +131,7 @@ function harness(state: keyof typeof worlds) {
     });
     const { db } = h;
     await db.projects.saveGiteaAccount(account);
-    await db.infrastructure.saveClusterInfo({ id: 'c1', name: 'dev', provider: 'k3d', status: 'healthy', ownerId: TEST_USER.id } as ClusterMetadata);
+    await db.infrastructure.saveCluster({ id: 'c1', name: 'dev', provider: 'machine', machineId: 'dev', status: 'healthy', ownerId: TEST_USER.id } as ClusterMetadata);
     const project: ProjectMetadata = { id: 'p1', name: 'Shop', ownerId: TEST_USER.id, appType: 'gitapp', giteaOwner: owner, giteaRepo: 'shop', targetClusterId: 'c1', releaseName: 'shop-1a2b3c', requiredSecrets: [{ key: 'ODOO_ADMIN_PASSWORD', source: 'generated' }], createdAt: 'then' };
     const world = worlds[state]!();
     await db.projects.saveProject({ ...project, ...world.project });

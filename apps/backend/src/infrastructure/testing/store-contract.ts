@@ -2,13 +2,12 @@ import { describe, expect, it } from 'vitest';
 import type { AccessRequest, EgressGrantRecord, EgressRequest } from '@koala/harness-types';
 import type { ClusterMetadata, DeploymentMetadata } from '../../platform/lib/types.js';
 import type { StoredAppSpec } from '../lib/app-spec.js';
-import type { ClusterProviderSpec } from '../lib/cluster-providers.js';
 import { SERVER_ORDER_LOG_LINES, type ServerOrder } from '../lib/server-orders.js';
 import type { BindingTypeRecord } from '../lib/service-binding.js';
 import type { WorkFailure } from '../lib/work-failures.js';
 import type { InfrastructureStore } from '../store.js';
 
-const cluster = (id: string, extra: Partial<ClusterMetadata> = {}): ClusterMetadata => ({ id, name: `cluster-${id}`, provider: 'k3d', status: 'healthy', ownerId: 'owner-1', ...extra });
+const cluster = (id: string, extra: Partial<ClusterMetadata> = {}): ClusterMetadata => ({ id, name: `cluster-${id}`, provider: 'machine', status: 'healthy', ownerId: 'owner-1', ...extra });
 
 const deployment = (id: string, extra: Partial<DeploymentMetadata> = {}): DeploymentMetadata => ({
   id, name: `app-${id}`, clusterId: 'c1', strategy: 'helm', status: 'running', ownerId: 'owner-1', ...extra,
@@ -34,8 +33,6 @@ const binding = (id: string, extra: Partial<BindingTypeRecord> = {}): BindingTyp
 
 const spec = (id: string, extra: Partial<StoredAppSpec> = {}): StoredAppSpec => ({ id, label: `App ${id}`, builtIn: false, createdAt: '2026-10-10T00:00:00.000Z', updatedAt: '2026-10-10T00:00:00.000Z', ...extra });
 
-const provider = (value: string, extra: Partial<ClusterProviderSpec> = {}): ClusterProviderSpec => ({ value, label: `Provider ${value}`, hasCatalog: false, ...extra });
-
 const order = (id: string, extra: Partial<ServerOrder> = {}): ServerOrder => ({
   id, ownerId: 'owner-1', provider: 'ovh', purpose: 'root', subsidiary: 'FR', planCode: 'vps-1', planLabel: 'VPS 1', datacenter: 'GRA', domain: 'koala.example', ingressDomain: 'people.example', acmeEmail: 'a@koala.example',
   dns: { domain: 'koala.example', ingress: 'people.example' },
@@ -57,14 +54,13 @@ function hearing<T>(until: (heard: T[]) => boolean): { heard: T[]; on: (item: T)
 
 export function infrastructureStoreContract(make: () => Promise<InfrastructureStore>): void {
   describe('following work', () => {
-    it('hears a cluster or an app come to name a workflow it is waiting on, from any write, and never one that names none or has finished', async () => {
+    it('hears an app come to name a workflow it is waiting on, from any write, and never one that names none or has finished, nor a cluster', async () => {
       const store = await make();
-      const listening = hearing<string>((heard) => heard.includes('deployment d2 deploying') && heard.includes('cluster c1 provisioning'));
+      const listening = hearing<string>((heard) => heard.includes('deployment d2 deploying'));
       const watching = store.watchFollowed((followed) => listening.on(`${followed.kind} ${followed.record.id} ${followed.record.status}`));
       await watching.ready;
 
-      await store.saveCluster(cluster('c1', { status: 'provisioning' }));
-      await store.saveClusterInfo({ id: 'c1', temporalWorkflowId: 'wf-c1' });
+      await store.saveCluster(cluster('c1', { status: 'provisioning', temporalWorkflowId: 'wf-c1' }));
       await store.saveDeploymentInfo({ id: 'd1', name: 'shop', clusterId: 'c1', status: 'deploying', temporalWorkflowId: 'wf-d1' });
       await store.saveDeploymentInfo({ id: 'd1', status: 'running' });
       await store.saveDeploymentInfo({ id: 'd2', name: 'blog', clusterId: 'c1', status: 'deploying', temporalWorkflowId: 'wf-d2' });
@@ -72,7 +68,7 @@ export function infrastructureStoreContract(make: () => Promise<InfrastructureSt
       await watching.close();
 
       expect(listening.heard.filter((line) => line.startsWith('deployment'))).toEqual(['deployment d1 deploying', 'deployment d2 deploying']);
-      expect(listening.heard.filter((line) => line.startsWith('cluster'))).toEqual(['cluster c1 provisioning']);
+      expect(listening.heard.filter((line) => line.startsWith('cluster'))).toEqual([]);
     });
   });
 
@@ -120,36 +116,6 @@ export function infrastructureStoreContract(make: () => Promise<InfrastructureSt
       await store.patchCluster('a', { id: 'other' });
       await store.patchCluster('gone', { status: 'failed' });
       expect(await store.getClusters()).toEqual([cluster('a')]);
-    });
-
-    it('sets a cluster\'s progress, whole, and only for a cluster it has', async () => {
-      const store = await make();
-      await store.saveCluster(cluster('a', { progress: { step: 'creating-cluster', message: 'first', timestamp: 't1' } }));
-      await store.updateClusterProgress('a', { step: 'deploying-cdktf', message: 'second', timestamp: 't2' });
-      await store.updateClusterProgress('gone', { step: 'x', message: 'y', timestamp: 't3' });
-      expect(await store.getClusters()).toEqual([cluster('a', { progress: { step: 'deploying-cdktf', message: 'second', timestamp: 't2' } })]);
-    });
-
-    it('makes a cluster from partial information with a new id and the defaults', async () => {
-      const store = await make();
-      const made = await store.saveClusterInfo({ name: 'fresh' });
-      expect(made).toMatchObject({ name: 'fresh', provider: 'k3d', status: 'provisioning' });
-      expect(made.id).toMatch(/\S/);
-      expect(await store.getClusters()).toEqual([made]);
-    });
-
-    it('merges partial information into the cluster it names, skipping fields given as undefined', async () => {
-      const store = await make();
-      await store.saveCluster(cluster('a', { meshIp: '100.64.0.1', provider: 'hetzner' }));
-      const merged = await store.saveClusterInfo({ id: 'a', status: 'failed', meshIp: undefined });
-      expect(merged).toEqual(cluster('a', { meshIp: '100.64.0.1', provider: 'hetzner', status: 'failed' }));
-      expect(await store.getClusters()).toEqual([merged]);
-    });
-
-    it('makes a cluster of an id it has not seen from the information given', async () => {
-      const store = await make();
-      const made = await store.saveClusterInfo({ id: 'chosen', name: 'n', provider: 'hetzner' });
-      expect(made).toEqual({ id: 'chosen', name: 'n', provider: 'hetzner', status: 'provisioning' });
     });
 
     it('leaves out a field saved as undefined, and removes one patched to undefined', async () => {
@@ -267,25 +233,6 @@ export function infrastructureStoreContract(make: () => Promise<InfrastructureSt
       const [read] = await store.getAppSpecs();
       read!.provides!.push('cache');
       expect((await store.getAppSpecs())[0]?.provides).toEqual(['db']);
-    });
-  });
-
-  describe('cluster providers', () => {
-    it('keeps a provider by its value without an id, and replaces it whole when saved again', async () => {
-      const store = await make();
-      await store.saveClusterProvider(provider('mine', { hint: 'first', credentialKey: 'k' }));
-      await store.saveClusterProvider(provider('other'));
-      expect(await store.getClusterProviders()).toEqual([provider('mine', { hint: 'first', credentialKey: 'k' }), provider('other')]);
-      await store.saveClusterProvider(provider('mine', { hasCatalog: true }));
-      expect((await store.getClusterProviders()).find((stored) => stored.value === 'mine')).toEqual(provider('mine', { hasCatalog: true }));
-      expect(await store.getClusterProviders()).toHaveLength(2);
-    });
-
-    it('hands back a copy, so changing what it read changes nothing stored', async () => {
-      const store = await make();
-      await store.saveClusterProvider(provider('mine'));
-      (await store.getClusterProviders())[0]!.label = 'changed';
-      expect((await store.getClusterProviders())[0]?.label).toBe('Provider mine');
     });
   });
 

@@ -76,7 +76,7 @@ export { connectTemporalWorker } from './lib/temporal-connection.js';
 export { temporalCa, temporalTls, temporalTlsProblem } from './lib/temporal-tls.js';
 export { failureReason } from './lib/temporal-failure.js';
 export { isCloudProvider } from './lib/types.js';
-export type { CloudCredentials, CloudProvider, ClusterMetadata, ClusterProgress, DeploymentMetadata, InviteMetadata, LocalAgentDeviceMetadata, LocalEgressRule, ModelEndpointMetadata, PartialInfo, PendingApprovalMetadata, PipelineRunMetadata, PlatformGrant, ProjectMetadata, SignInLink, UserMetadata } from './lib/types.js';
+export type { CloudCredentials, CloudProvider, ClusterMetadata, DeploymentMetadata, InviteMetadata, LocalAgentDeviceMetadata, LocalEgressRule, ModelEndpointMetadata, PartialInfo, PendingApprovalMetadata, PipelineRunMetadata, PlatformGrant, ProjectMetadata, SignInLink, UserMetadata } from './lib/types.js';
 export { createWorkerLogger } from './lib/worker-logger.js';
 export { closedAs } from './lib/workflow-close.js';
 export type { ClosedAs } from './lib/workflow-close.js';

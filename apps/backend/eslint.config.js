@@ -76,6 +76,72 @@ const boundaries = {
   },
 }
 
+const CLUSTER_TOOLS = ['kubectl', 'helm']
+const SPAWNERS = ['spawn', 'spawnSync', 'execFile', 'execFileSync', 'exec', 'execSync', 'execa', 'execShell', 'shell']
+const PATH_BUILDERS = ['join', 'resolve']
+
+const toolNamed = (text) => {
+  if (typeof text !== 'string') return undefined
+  const first = text.trim().split(/\s+/)[0] ?? ''
+  const base = first.split('/').pop()
+  return CLUSTER_TOOLS.includes(base) ? base : undefined
+}
+
+const textOf = (node) => {
+  if (!node) return undefined
+  if (node.type === 'Literal' && typeof node.value === 'string') return node.value
+  if (node.type === 'TemplateLiteral') return node.quasis.map((quasi) => quasi.value.cooked ?? '').join('X')
+  return undefined
+}
+
+const calleeName = (node) => (node.callee.type === 'Identifier' ? node.callee.name : node.callee.type === 'MemberExpression' && node.callee.property.type === 'Identifier' ? node.callee.property.name : undefined)
+
+const builtPathTo = (node) => {
+  if (node?.type !== 'CallExpression' || !PATH_BUILDERS.includes(calleeName(node))) return undefined
+  const parts = node.arguments.map(textOf)
+  const last = parts[parts.length - 1]
+  if (typeof last !== 'string') return undefined
+  const tail = last.split('/').pop()
+  return CLUSTER_TOOLS.includes(tail) && (parts.length > 1 || last.includes('/')) ? tail : undefined
+}
+
+const startsTool = (node) => toolNamed(textOf(node)) ?? builtPathTo(node)
+
+const ONE_DOOR = 'only infrastructure/services/ClusterAccess.ts starts kubectl or helm: reach a cluster through ClusterAccess'
+
+const clusters = {
+  rules: {
+    'one-door': {
+      meta: { type: 'problem', schema: [] },
+      create(context) {
+        const report = (node, tool) => context.report({ node, message: `${tool}: ${ONE_DOOR}` })
+        return {
+          CallExpression(node) {
+            const name = calleeName(node)
+            if (SPAWNERS.includes(name)) {
+              const tool = startsTool(node.arguments[0])
+              if (tool) report(node, tool)
+              return
+            }
+            const tool = builtPathTo(node)
+            if (tool) report(node, tool)
+          },
+          Property(node) {
+            if (node.key.type !== 'Identifier' || node.key.name !== 'command') return
+            const run = node.parent?.type === 'ObjectExpression' && node.parent.properties.some((other) => other.type === 'Property' && other.key.type === 'Identifier' && other.key.name === 'args')
+            if (!run) return
+            const tool = startsTool(node.value)
+            if (tool) report(node, tool)
+          },
+          MemberExpression(node) {
+            if (node.object.type === 'Identifier' && node.object.name === 'TOOLS' && node.property.type === 'Identifier' && CLUSTER_TOOLS.includes(node.property.name)) report(node, node.property.name)
+          },
+        }
+      },
+    },
+  },
+}
+
 const UNAWAITED_HANDLER = { selector: "CallExpression[callee.property.name=/^(get|post|put|patch|delete|use|all)$/] > :matches(ArrowFunctionExpression, FunctionExpression)[async=true]", message: 'Express 4 never awaits a handler, so one that rejects sends no response and the request hangs: wrap it in asyncRoute' }
 
 const ACCESS = [
@@ -136,6 +202,13 @@ export default defineConfig([
     rules: {
       'no-restricted-syntax': ['error', ...ACCESS, ...SWALLOWING, UNAWAITED_HANDLER, { selector: "MemberExpression[object.name='process'][property.name='env']", message: 'lib is pure: it takes settings as arguments and never reads process.env, which may not be loaded yet when it runs' }],
     },
+  },
+  {
+    files: ['src/**/*.ts'],
+    ignores: ['**/*.test.ts', 'src/**/testing/**', 'src/infrastructure/services/ClusterAccess.ts'],
+    languageOptions: { parser: tseslint.parser },
+    plugins: { clusters },
+    rules: { 'clusters/one-door': 'error' },
   },
   bugBacked({ files: ['src/**/*.ts'], root: path.dirname(fileURLToPath(import.meta.url)) }),
 ])

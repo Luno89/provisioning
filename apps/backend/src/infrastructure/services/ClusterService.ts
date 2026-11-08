@@ -1,29 +1,19 @@
-import { type Actions, allowed, authorize, BaseService, type ClusterMetadata, clusterResource, type Database, listAt, numberAt, type Principal, textAt, writePrivate } from '../../platform/index.js';
+import { type Actions, allowed, BaseService, type ClusterMetadata, clusterResource, type Database, listAt, numberAt, type Principal, textAt } from '../../platform/index.js';
 import type { ClusterAccess } from './ClusterAccess.js';
-import { InfrastructureService } from './InfrastructureService.js';
-import type { TemporalBridge } from './TemporalBridge.js';
 import { ignore } from '@koala/engine-core/failures';
-import { hasCloudCredentials, isMockCloudProvider } from './cloud-credentials.js';
 import { capacityFromNodes, type ClusterCapacity } from '../lib/cluster-capacity.js';
 import { parseNvidiaSmiVram } from '../lib/gpu-vram.js';
 import { execShell, type Shell } from '../lib/shell.js';
-import { Server as SocketServer } from 'socket.io';
-import fs from 'fs/promises';
 
 export class ClusterService extends BaseService {
-  private infra: InfrastructureService;
   readonly access: ClusterAccess;
-  private temporalBridge?: Pick<TemporalBridge, 'terminateWorkflow'>;
 
-  private readonly kubeconfigDir: string;
   private readonly shell: Shell;
   private readonly instanceOwnerId: string | undefined;
 
-  constructor(db: Database, infra: InfrastructureService, access: ClusterAccess, places: { kubeconfigDir?: string | undefined; shell?: Shell | undefined; instanceOwnerId?: string | undefined } = {}) {
+  constructor(db: Database, access: ClusterAccess, places: { shell?: Shell | undefined; instanceOwnerId?: string | undefined } = {}) {
     super(db);
-    this.infra = infra;
     this.access = access;
-    this.kubeconfigDir = places.kubeconfigDir ?? '/tmp';
     this.shell = places.shell ?? execShell;
     this.instanceOwnerId = places.instanceOwnerId;
   }
@@ -59,71 +49,6 @@ export class ClusterService extends BaseService {
     return [...(own && own.ownerId === ownerId ? [own] : []), ...records];
   }
 
-  setTemporalBridge(temporalBridge: Pick<TemporalBridge, 'terminateWorkflow'>) {
-    this.temporalBridge = temporalBridge;
-  }
-
-  hasCloudCredentials(provider: string): boolean {
-    return hasCloudCredentials(provider);
-  }
-
-  isMockCloud(cluster: ClusterMetadata): boolean {
-    return isMockCloudProvider(cluster.provider, (p) => this.hasCloudCredentials(p));
-  }
-
-  getPhysicalClusterName(cluster: ClusterMetadata): string {
-    return this.isMockCloud(cluster) ? `mock-${cluster.provider}-${cluster.name}` : cluster.name;
-  }
-
-  private async getRealNameservers(): Promise<string[]> {
-    const paths = [
-      '/run/systemd/resolve/resolv.conf',
-      '/var/run/systemd/resolve/resolv.conf',
-      '/etc/resolv.conf'
-    ];
-    
-    const nameservers: string[] = [];
-    for (const p of paths) {
-      try {
-        const content = await fs.readFile(p, 'utf-8');
-        const lines = content.split('\n');
-        for (const line of lines) {
-          const trimmed = line.trim();
-          if (trimmed.startsWith('nameserver ')) {
-            const ip = trimmed.substring(11).trim();
-            if (ip && !ip.startsWith('127.') && ip !== '::1') {
-              nameservers.push(ip);
-            }
-          }
-        }
-        if (nameservers.length > 0) {
-          return nameservers;
-        }
-      } catch (failure) {
-        ignore('a resolver file this host does not have is passed over for the next')(failure);
-      }
-    }
-    
-    return ['8.8.8.8', '1.1.1.1'];
-  }
-
-  async getKubeconfigPath(cluster: ClusterMetadata): Promise<string> {
-    if (cluster.provider === 'machine') return this.access.kubeconfigOf(cluster.id);
-    if (cluster.provider === 'k3d' || this.isMockCloud(cluster)) {
-      const physicalName = this.getPhysicalClusterName(cluster);
-      const dynamicPath = `${this.kubeconfigDir}/kubeconfig-${physicalName}`;
-      const exists = await fs.access(dynamicPath).then(() => true, ignore('a kubeconfig not written yet is fetched and written below'));
-      if (!exists) await writePrivate(dynamicPath, await this.infra.getKubeconfig(physicalName));
-      return dynamicPath;
-    }
-    if (!cluster.kubeconfigPath) throw new Error(`${cluster.name} has no kubeconfig of its own, so there is no way to reach it`);
-    return cluster.kubeconfigPath;
-  }
-
-  private writtenKubeconfig(cluster: ClusterMetadata): string {
-    return `${this.kubeconfigDir}/kubeconfig-${this.getPhysicalClusterName(cluster)}`;
-  }
-
   private async readLiveCapacity(readNodes: () => Promise<string>): Promise<ClusterCapacity | undefined> {
     let capacity: ClusterCapacity | undefined;
     try {
@@ -144,89 +69,10 @@ export class ClusterService extends BaseService {
     return capacity;
   }
 
-  async reconcileAllClusters(io?: SocketServer): Promise<ClusterMetadata[]> {
-    const dbClusters = await this.db.infrastructure.getClusters();
-    const activeK3dNames = await this.infra.listLocalClusters();
-
-    const cleanClusters: ClusterMetadata[] = [];
-
-    for (const cluster of dbClusters) {
-      const isMock = this.isMockCloud(cluster);
-      if (!(cluster.provider === 'k3d' || isMock)) {
-        cleanClusters.push(cluster);
-        continue;
-      }
-      const physicalName = this.getPhysicalClusterName(cluster);
-      if (cluster.status === 'provisioning') {
-        const recovered = await this.recoverStuckCluster(cluster, physicalName, activeK3dNames);
-        if (recovered) {
-          await this.db.infrastructure.patchCluster(cluster.id, { status: recovered.status, ...(recovered.lastSyncedAt ? { lastSyncedAt: recovered.lastSyncedAt } : {}) });
-          cleanClusters.push(recovered);
-          if (io) io.emit('cluster-updated');
-        } else {
-          cleanClusters.push(cluster);
-        }
-        continue;
-      }
-      if (cluster.status === 'destroying') continue;
-      if (activeK3dNames.includes(physicalName)) {
-        cleanClusters.push(cluster);
-        continue;
-      }
-      this.logger.info(`Detected local cluster ${physicalName} deleted outside the system. Syncing...`);
-      if (io) {
-        io.to(`user:${cluster.ownerId}`).emit('resource-destroyed', { id: cluster.id, type: 'cluster', name: cluster.name, outOfBand: true });
-      }
-      await this.db.infrastructure.deleteDeploymentsOfCluster(cluster.id);
-      await this.db.infrastructure.deleteCluster(cluster.id);
-      await fs.rm(`${this.kubeconfigDir}/kubeconfig-${physicalName}`, { force: true }).catch((err: unknown) => {
-        this.logger.warn(`Could not remove the kubeconfig of ${physicalName}, deleted outside the system: ${(err as Error).message}`);
-      });
-    }
-
+  async getAll(principal: Principal) {
     const own = await this.ownCluster();
-    return [...(own ? [own] : []), ...cleanClusters.filter((cluster) => cluster.id !== own?.id)];
-  }
-
-  async getAll(principal: Principal, io?: SocketServer) {
-    const all = await this.reconcileAllClusters(io);
-    return all.filter((c) => allowed(principal, 'see', clusterResource(c)));
-  }
-
-  private async recoverStuckCluster(
-    cluster: ClusterMetadata,
-    physicalName: string,
-    activeK3dNames: string[],
-  ): Promise<ClusterMetadata | null> {
-    const stuckThreshold = 15 * 60 * 1000;
-    const clusterAge = Date.now() - new Date(cluster.createdAt || cluster.lastSyncedAt || Date.now()).getTime();
-    if (clusterAge < stuckThreshold) return null;
-
-    this.logger.info(`Cluster ${cluster.name} stuck in provisioning for ${Math.round(clusterAge / 60000)}min — recovering...`);
-
-    if (!activeK3dNames.includes(physicalName)) {
-      this.logger.info(`Cluster ${cluster.name} k3d cluster no longer exists — marking as failed`);
-      return { ...cluster, status: 'failed', lastSyncedAt: new Date().toISOString() };
-    }
-
-    try {
-      const kubeconfigPath = `${this.kubeconfigDir}/kubeconfig-${physicalName}`;
-      const helmOutput = await this.infra.runHelm(['list', '-A', '-o', 'json'], kubeconfigPath);
-      const releaseNames = listAt(JSON.parse(helmOutput) as unknown).map((release) => textAt(release, 'name'));
-      const hasMonitoring = releaseNames.includes('kube-prometheus-stack');
-      const hasTraefik = releaseNames.includes('traefik');
-
-      if (hasMonitoring && hasTraefik) {
-        this.logger.info(`Cluster ${cluster.name} has expected helm releases — marking as healthy`);
-        return { ...cluster, status: 'healthy', lastSyncedAt: new Date().toISOString() };
-      }
-
-      this.logger.info(`Cluster ${cluster.name} missing expected helm releases — marking as failed`);
-      return { ...cluster, status: 'failed', lastSyncedAt: new Date().toISOString() };
-    } catch (err) {
-      this.logger.warn(`Failed to verify helm releases for stuck cluster ${cluster.name}: ${(err as Error).message}`);
-      return null;
-    }
+    const records = (await this.db.infrastructure.getClusters()).filter((cluster) => cluster.id !== own?.id);
+    return [...(own ? [own] : []), ...records].filter((c) => allowed(principal, 'see', clusterResource(c)));
   }
 
   async getByIdUnscoped(id: string): Promise<ClusterMetadata | undefined> {
@@ -238,53 +84,6 @@ export class ClusterService extends BaseService {
   async getById(id: string, principal: Principal, action: Actions['cluster'] = 'see') {
     const cluster = await this.getByIdUnscoped(id);
     return cluster && allowed(principal, action, clusterResource(cluster)) ? cluster : undefined;
-  }
-
-  private async deletable(id: string, principal: Principal): Promise<ClusterMetadata> {
-    const cluster = await this.getByIdUnscoped(id);
-    if (!cluster) throw new Error('Cluster not found');
-    const decision = authorize(principal, 'delete', clusterResource(cluster));
-    if (!decision.allowed) throw new Error(decision.error);
-    return cluster;
-  }
-
-  async abort(id: string, principal: Principal, io?: SocketServer) {
-    const cluster = await this.deletable(id, principal);
-
-    const logFile = this.infra.getLogPath(`${cluster.name}-abort`);
-    await this.db.infrastructure.saveCluster({ ...cluster, status: 'destroying', lastLogPath: logFile });
-
-    (async () => {
-      try {
-        if (cluster.temporalWorkflowId && this.temporalBridge) {
-          await this.temporalBridge.terminateWorkflow(cluster.temporalWorkflowId, 'User aborted cluster provisioning');
-        }
-
-        const isMock = this.isMockCloud(cluster);
-        const physicalName = this.getPhysicalClusterName(cluster);
-
-        if (cluster.provider === 'k3d' || isMock) {
-          try {
-            await this.infra.deleteLocalCluster(physicalName, { logFile, io, resourceId: id });
-            await fs.rm(this.writtenKubeconfig(cluster), { force: true });
-          } catch (err) {
-            this.logger.warn(`Error deleting physical cluster during abort: ${(err as Error).message}`);
-          }
-        }
-
-        await this.db.infrastructure.deleteCluster(id);
-
-        if (io) {
-          io.to(id).emit('log', '\n--- CLUSTER PROVISIONING ABORTED AND CLEANED UP ---\n');
-          io.to(`user:${cluster.ownerId}`).emit('resource-destroyed', { id, type: 'cluster', name: cluster.name });
-          io.emit('cluster:updated');
-        }
-      } catch (err) {
-        this.logger.error(`Abort failed for cluster ${cluster.name}: ${(err as Error).message}`);
-        await this.db.infrastructure.deleteCluster(id);
-        if (io) io.emit('cluster:updated');
-      }
-    })().catch((err: unknown) => this.logger.error(`Unhandled error during cluster abort: ${(err as Error).message}`));
   }
 
   private async listAllPods(clusterId: string): Promise<unknown[]> {

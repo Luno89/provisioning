@@ -8,10 +8,9 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, BellRing, Loader2, X } from 'lucide-react';
 import { releaseNotice, toastOf, type ToastKind } from '../features/platform';
 import Sidebar from './Sidebar';
-import { SIDEBAR_PAGES, ShellContextInstance, type ShellContext, type WizardPreset } from '../features/infrastructure';
+import { SIDEBAR_PAGES, ShellContextInstance, type ShellContext } from '../features/infrastructure';
 import { PendingApprovals } from '../features/engine';
 import { Login } from '../features/accounts';
-import { ClusterWizard } from '../features/infrastructure';
 import { AppDeployWizard } from '../features/infrastructure';
 import { AppDashboard } from '../features/infrastructure';
 import { errorMessage } from '../api/client';
@@ -26,7 +25,7 @@ import { RemoveAccountPage } from '../features/accounts';
 import { TrialBanner } from '../features/instances';
 import { FirstModel } from '../features/models';
 import { MovingPage } from '../features/instances';
-import { listClusters, clusterKeys, provisionCluster as provisionClusterApi } from '../features/infrastructure';
+import { listClusters, clusterKeys } from '../features/infrastructure';
 import { listDeployments, deploymentKeys, deployApp as deployAppApi, destroyResource as destroyResourceApi } from '../features/infrastructure';
 import { listProviders, credentialKeys } from '../features/infrastructure';
 import { useGroveChanges } from '../features/projects';
@@ -54,8 +53,6 @@ export function RootLayout() {
 
   useEffect(() => startHistorySync(), []);
 
-  const [showClusterModal, setShowClusterModal] = useState(false);
-  const [wizardPreset, setWizardPreset] = useState<WizardPreset | undefined>(undefined);
   const [showAppModal, setShowAppModal] = useState(false);
   const [showLogModal, setShowLogModal] = useState<{ type: 'cluster' | 'app', id: string } | null>(null);
   const confirmDestroy = useShellStore((s) => s.confirmDestroy);
@@ -177,18 +174,6 @@ export function RootLayout() {
   const reportFailure = (what: string) => (err: unknown) =>
     pushNotification({ type: 'error', message: `${what}: ${errorMessage(err)}` });
 
-  const provisionCluster = useMutation({
-    mutationFn: (newCluster: unknown) => provisionClusterApi(newCluster),
-    onSuccess: (res) => {
-      void queryClient.invalidateQueries({ queryKey: ['clusters'] });
-      setShowClusterModal(false);
-      setWizardPreset(undefined);
-      setShowLogModal({ type: 'cluster', id: res.id });
-      setLogTab('provision');
-    },
-    onError: reportFailure('Could not provision the cluster'),
-  });
-
   const deployApp = useMutation({ 
     mutationFn: (newApp: unknown) => deployAppApi<{ id: string }>(newApp),
     onSuccess: (res) => { 
@@ -201,12 +186,12 @@ export function RootLayout() {
   });
 
   const destroyResource = useMutation({
-    mutationFn: ({ type, id }: { type: 'cluster' | 'app'; id: string }) => destroyResourceApi(type, id),
+    mutationFn: ({ id }: { id: string }) => destroyResourceApi(id),
     onSuccess: (_, variables) => {
       void queryClient.invalidateQueries({ queryKey: ['clusters'] });
       void queryClient.invalidateQueries({ queryKey: ['deployments'] });
       setConfirmDestroy(null);
-      setShowLogModal({ type: variables.type, id: variables.id });
+      setShowLogModal({ type: 'app', id: variables.id });
       setLogTab('provision');
     },
     onError: reportFailure('Could not destroy that'),
@@ -272,9 +257,7 @@ export function RootLayout() {
     clusters,
     deployments,
     providers,
-    setShowClusterModal,
     setShowAppModal,
-    setWizardPreset,
     openDashboard,
   };
 
@@ -319,16 +302,16 @@ export function RootLayout() {
                  <AlertTriangle className={confirmDestroy.isAbort ? 'text-amber-500' : 'text-red-500'} size={40} />
                </div>
              </div>
-             <h3 className="text-2xl font-bold text-center mb-2">{confirmDestroy.isAbort ? 'Abort Provisioning' : 'Confirm Destruction'}</h3>
+             <h3 className="text-2xl font-bold text-center mb-2">{confirmDestroy.isAbort ? 'Abort the deploy' : 'Confirm Destruction'}</h3>
              <p className="text-slate-400 text-center text-sm mb-8 leading-relaxed">
                {confirmDestroy.isAbort
-                 ? <>Are you sure you want to abort provisioning <strong>{confirmDestroy.name}</strong>? Active Temporal workflows will be terminated and partial infrastructure will be cleaned up.</>
+                 ? <>Are you sure you want to abort deploying <strong>{confirmDestroy.name}</strong>? Active Temporal workflows will be terminated and partial infrastructure will be cleaned up.</>
                  : <>Are you absolutely sure you want to destroy <strong>{confirmDestroy.name}</strong>?</>}
              </p>
              <div className="flex gap-4">
                <button onClick={() => setConfirmDestroy(null)} className="flex-1 bg-slate-800 py-3 rounded-xl font-bold hover:bg-slate-700 transition-all cursor-pointer">Cancel</button>
                <button
-                 onClick={() => destroyResource.mutate({ type: confirmDestroy.type, id: confirmDestroy.id })}
+                 onClick={() => destroyResource.mutate({ id: confirmDestroy.id })}
                  className={`flex-1 ${confirmDestroy.isAbort ? 'bg-amber-600 hover:bg-amber-500' : 'bg-red-600 hover:bg-red-500'} py-3 rounded-xl font-bold shadow-lg transition-all cursor-pointer flex items-center justify-center`}
                >
                  {destroyResource.isPending ? <Loader2 className="animate-spin" size={18} /> : (confirmDestroy.isAbort ? 'Abort & Teardown' : 'Confirm Delete')}
@@ -356,23 +339,12 @@ export function RootLayout() {
           key={appDeploy ? `app:${appDeploy.appType}` : 'app'}
           clusters={clusters}
           deployments={deployments}
-          preset={(appDeploy ?? wizardPreset) as never}
+          preset={appDeploy as never}
           onClose={() => { setShowAppModal(false); closeAppDeploy(); }}
           onDeploy={(payload) => deployApp.mutate(payload as never)}
         />
       )}
 
-      {showClusterModal && (
-        <ClusterWizard
-          key={wizardPreset ? `${wizardPreset.provider}:${wizardPreset.serverType}:${wizardPreset.location}` : 'blank'}
-          configuredProviders={providers}
-          submitting={provisionCluster.isPending}
-          onCancel={() => { setShowClusterModal(false); setWizardPreset(undefined); }}
-          onCredentialsSaved={() => queryClient.invalidateQueries({ queryKey: ['credentials'] })}
-          onSubmit={(payload) => provisionCluster.mutate(payload)}
-          {...(wizardPreset ? { preset: wizardPreset } : {})}
-        />
-      )}
 
     </div>
   );

@@ -27,7 +27,7 @@ const backend = await startBackend(({ api, db, auth }) => {
       stopFollowing: outsideThisTier('Temporal'),
     }),
   }))
-  api.use('/vps-catalog', vpsCatalogRouter({ operatorOnly, vpsCatalogService: new VpsCatalogService(db, DATA_KEY, outsideThisTier('the VPS providers\' price lists')) }))
+  api.use('/vps-catalog', vpsCatalogRouter({ operatorOnly, vpsCatalogService: new VpsCatalogService(outsideThisTier('the VPS providers\' price lists')) }))
 })
 
 await backend.signIn()

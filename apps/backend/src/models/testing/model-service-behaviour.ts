@@ -243,7 +243,7 @@ export function modelServiceBehaviour(make: () => Promise<Database>): void {
   });
 
   describe('a model deployed as an app', () => {
-    const cluster = { id: 'c1', name: 'c1', provider: 'k3d', status: 'healthy' } as ClusterMetadata;
+    const cluster = { id: 'c1', name: 'c1', provider: 'machine', machineId: 'c1', status: 'healthy' } as ClusterMetadata;
 
     it('is reached through the cluster\'s proxy at the service it runs as', async () => {
       apps.getAll.mockResolvedValue([deployment()]);

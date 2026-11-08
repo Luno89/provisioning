@@ -8,10 +8,8 @@ import type { ClusterSteps } from './cluster-steps.js';
 export interface MonitoredCluster {
   physicalName: string;
   reach: Reach;
-  local: boolean;
   pool?: boolean | undefined;
   machine?: MachineMonitoring | undefined;
-  nodePortIngress?: boolean | undefined;
   koala?: boolean | undefined;
 }
 

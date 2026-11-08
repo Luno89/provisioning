@@ -32,7 +32,6 @@ export const RELEASE_STEPS: GateStep[] = [
   { name: 'every service on root measured on loopback and relayed with its service name', script: 'test:root-metrics-live', memoryMB: 1536 },
   { name: 'production refuses what only a dev box allows, and sees each visitor', script: 'test:hardening-live', memoryMB: 2048 },
   { name: 'files on MinIO, share links, an attachment', script: 'test:files-live', memoryMB: 1024 },
-  { name: 'a cluster provisioned, verified and destroyed', script: 'test:infra:integration', memoryMB: 4096, alone: true },
   { name: 'an instance on k3d signs in through root', script: 'test:instance-live', memoryMB: 2048 },
   { name: 'a machine joins and its agents are found', script: 'test:machine-live', memoryMB: 4096 },
   { name: 'install.sh on a VM, sign-in and a self-upgrade', script: 'test:byo-live', memoryMB: 12288 },

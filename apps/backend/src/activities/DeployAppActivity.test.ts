@@ -30,7 +30,7 @@ let nodes: string;
 const steps = () => ({ access, infra, gitea: mock<GiteaService>(), infisical: mock<InfisicalService>() });
 
 const deploy = (over: Partial<DeployAppArgs> = {}): DeployAppArgs => ({
-  name: 'blog', namespace: 'blog-1a2b3c', clusterId: 'machine-desk', reach: DESK, clusterName: 'desk', provider: 'machine',
+  name: 'blog', namespace: 'blog-1a2b3c', clusterId: 'machine-desk', reach: DESK, clusterName: 'desk',
   machine: { deviceId: 'desk' }, strategy: 'native', appType: 'wordpress', odooRepo: '', odooTag: '', dbRepo: '', dbTag: '',
   logFile: LOG, deploymentId: 'd1', ...over,
 });
@@ -59,8 +59,9 @@ describe('deploying an app on the cluster it was handed', () => {
   it('applies the app\'s stack with that cluster\'s kubeconfig and no context, and reaches nothing else', async () => {
     const done = await DeployAppActivity(deploy(), steps());
     expect(done.status).toBe('running');
-    expect(infra.deploy).toHaveBeenCalledWith('app-desk-d1', { logFile: LOG, env: expect.objectContaining({ KUBECONFIG: '/clusters/kubeconfig-machine-desk', CLUSTER_NAME: 'desk', DEPLOYMENT_NAME: 'blog-1a2b3c', SELF_MANAGED_K8S: 'true' }) as unknown });
+    expect(infra.deploy).toHaveBeenCalledWith('app-desk-d1', { logFile: LOG, env: expect.objectContaining({ KUBECONFIG: '/clusters/kubeconfig-machine-desk', CLUSTER_NAME: 'desk', DEPLOYMENT_NAME: 'blog-1a2b3c', APP_SERVICE_TYPE: 'NodePort' }) as unknown });
     expect(infra.deploy.mock.calls.at(-1)![1]?.env).not.toHaveProperty('KUBECONFIG_CONTEXT');
+    expect(infra.deploy.mock.calls.at(-1)![1]?.env).not.toHaveProperty('SELF_MANAGED_K8S');
     expect(new Set(reached)).toEqual(new Set([DESK]));
     expect(access.kubeconfigOf.mock.calls.every(([target]) => target === DESK)).toBe(true);
   });
@@ -74,7 +75,9 @@ describe('deploying an app on the cluster it was handed', () => {
     await DeployAppActivity(deploy(), steps());
     expect(access.apply.mock.calls.map(([target, manifest]) => [target, (JSON.parse(manifest) as { kind: string }).kind])).toEqual([[DESK, 'Namespace'], [DESK, 'Secret']]);
     expect(infra.deploy.mock.calls.map(([stack]) => stack)).toEqual(['machine-desk', 'app-desk-d1']);
-    expect(infra.deploy.mock.calls[0]![1]).toMatchObject({ env: { CLUSTER_NAME: 'machine-desk', KUBECONFIG_PATH: '/clusters/kubeconfig-machine-desk', CLUSTER_MONITORING: 'agent' } });
+    expect(infra.deploy.mock.calls[0]![1]).toMatchObject({ env: { CLUSTER_NAME: 'machine-desk', KUBECONFIG_PATH: '/clusters/kubeconfig-machine-desk', CLUSTER_MONITORING: 'agent', INGRESS_SERVICE: 'NodePort' } });
+    expect(infra.deploy.mock.calls[0]![1]?.env).not.toHaveProperty('ENV');
+    expect(infra.deploy.mock.calls[0]![1]?.env).not.toHaveProperty('KOALA_CLUSTER');
     expect((await records.db!.infrastructure.getClusters())[0]?.metricsTokenHash).toMatch(/^[a-f0-9]{64}$/);
   });
 
@@ -108,13 +111,30 @@ describe('deploying an app on the cluster it was handed', () => {
     vi.stubEnv('POOL', 'true');
     try {
       access.kubectl.mockImplementation(async (_target, args) => (args[0] === 'api-resources' || (args[0] === 'get' && args[1] === 'ingressclass') ? '' : ''));
-      await DeployAppActivity(deploy({ clusterId: 'pool-bob', reach: POOL, clusterName: 'pool-bob', provider: 'pool', machine: undefined }), steps());
+      await DeployAppActivity(deploy({ clusterId: 'pool-bob', reach: POOL, clusterName: 'pool-bob', machine: undefined }), steps());
       const [monitoring, app] = infra.deploy.mock.calls;
       expect([monitoring![0], monitoring![1]?.env]).toEqual(['pool-bob', expect.objectContaining({ CLUSTER_NAME: 'pool-bob', CLUSTER_MONITORING: 'crds', INGRESS_SERVICE: 'ClusterIP' })]);
       expect([app![0], app![1]?.env]).toEqual(['app-pool-bob-d1', expect.objectContaining({ APP_SERVICE_TYPE: 'ClusterIP', MINIO_STORAGE: '10Gi' })]);
     } finally {
       vi.unstubAllEnvs();
     }
+  });
+
+  it('gives Koala\'s own cluster its whole monitoring as Koala\'s, behind a NodePort ingress, with no metrics token', async () => {
+    const OWN: Reach = { clusterId: 'machine-home', kind: 'koala' };
+    access.kubectl.mockImplementation(async (target, args) => {
+      reached.push(target as Reach);
+      if (args[0] === 'get' && args[1] === 'nodes') return nodes;
+      return '';
+    });
+    await DeployAppActivity(deploy({ clusterId: 'machine-home', reach: OWN, clusterName: 'home', machine: undefined }), steps());
+    const [monitoring, observability, app] = infra.deploy.mock.calls;
+    expect([monitoring![0], monitoring![1]?.env]).toEqual(['machine-home', expect.objectContaining({ CLUSTER_NAME: 'machine-home', KOALA_CLUSTER: 'true', INGRESS_SERVICE: 'NodePort' })]);
+    expect(monitoring![1]?.env).not.toHaveProperty('CLUSTER_MONITORING');
+    expect(monitoring![1]?.env).not.toHaveProperty('ENV');
+    expect(observability![0]).toBe('machine-home-observability');
+    expect([app![0], app![1]?.env]).toEqual(['app-home-d1', expect.objectContaining({ APP_SERVICE_TYPE: 'NodePort' })]);
+    expect(access.apply).not.toHaveBeenCalled();
   });
 
   it('is refused when it was handed no way to reach the cluster', async () => {

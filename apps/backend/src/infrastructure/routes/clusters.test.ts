@@ -1,135 +1,45 @@
 import { describe, expect, it, vi } from 'vitest';
 import { matches, mock } from 'vitest-mock-extended';
-import type { Server as SocketServer } from 'socket.io';
 import type { ClusterMetadata, Principal } from '../../platform/index.js';
 import type { GiteaService } from '../../projects/index.js';
-import { ProvisionRefused } from '../lib/cluster-topology.js';
 import type { ClusterProxyService } from '../services/ClusterProxyService.js';
 import type { ClusterService } from '../services/ClusterService.js';
 import type { InfisicalService } from '../services/InfisicalService.js';
 import type { ClusterAccess } from '../services/ClusterAccess.js';
-import type { ResourceDeal, TemporalBridge, WorkflowDeal } from '../services/TemporalBridge.js';
 import { clustersRouter } from './clusters.js';
 import type { HarnessUser } from '../../platform/routes/test-harness.js';
 import { OPERATOR, PERSON, routesInProcess } from '../../platform/testing/routes.js';
 
-const cluster = (over: Partial<ClusterMetadata> = {}): ClusterMetadata => ({ id: 'c1', name: 'lab', provider: 'k3d', status: 'healthy', ownerId: PERSON.id, ...over }) as ClusterMetadata;
+const cluster = (over: Partial<ClusterMetadata> = {}): ClusterMetadata => ({ id: 'c1', name: 'lab', provider: 'machine', machineId: 'lab', status: 'healthy', ownerId: PERSON.id, ...over });
 const koalasCluster = (): ClusterMetadata => ({ id: 'machine-koala', name: 'koala', provider: 'machine', machineId: 'koala', status: 'healthy', ownerId: OPERATOR.id }) as ClusterMetadata;
-const deal = (id: string): WorkflowDeal => ({ id, event: 'x' });
-const started = (id: string, resourceId: string): ResourceDeal => ({ id, event: 'x', resourceId });
 const by = (user: HarnessUser) => matches<Principal>((who) => who.id === user.id);
 
 function setup() {
   const clusterService = mock<ClusterService>();
-  const clusterProxyService = mock<Pick<ClusterProxyService, 'ensurePortForward' | 'stopForCluster' | 'getAutoLoginCookies'>>();
+  const clusterProxyService = mock<Pick<ClusterProxyService, 'ensurePortForward' | 'getAutoLoginCookies'>>();
   const giteaService = mock<GiteaService>();
   const infisicalService = mock<InfisicalService>();
   const access = mock<Pick<ClusterAccess, 'kubectl'>>();
-  const temporalBridge = mock<TemporalBridge>();
-  const router = clustersRouter({
-    clusterService, clusterProxyService, giteaService, infisicalService, access, temporalBridge,
-    io: mock<SocketServer>(),
-  });
+  const router = clustersRouter({ clusterService, clusterProxyService, giteaService, infisicalService, access });
   const call = (path: string, method: 'GET' | 'POST' | 'DELETE' = 'GET', body?: unknown, user?: HarnessUser) =>
     routesInProcess({ prefix: '/api/clusters', router: () => router, user: PERSON }).then((routes) => routes.request(method, `/api/clusters${path}`, { ...(body !== undefined ? { body } : {}), ...(user ? { user } : {}) }));
-  return { clusterService, clusterProxyService, giteaService, infisicalService, access, temporalBridge, call };
+  return { clusterService, clusterProxyService, giteaService, infisicalService, access, call };
 }
 
 describe('listing clusters', () => {
-  it('lists the clusters the person may see', async () => {
+  it('lists the clusters the person may see, in the order the service gives them, Koala\'s own first', async () => {
     const { clusterService, call } = setup();
-    clusterService.getAll.calledWith(by(PERSON), matches<SocketServer | undefined>(() => true)).mockResolvedValue([cluster()]);
-    expect((await call('')).data).toEqual([cluster()]);
+    clusterService.getAll.calledWith(by(PERSON)).mockResolvedValue([koalasCluster(), cluster()]);
+    expect((await call('')).data).toEqual([koalasCluster(), cluster()]);
   });
 });
 
-describe('provisioning a cluster', () => {
-  it('starts provisioning and answers 202 with its workflow', async () => {
-    const { temporalBridge, call } = setup();
-    temporalBridge.provision.calledWith('lab', 'k3d', PERSON.id, undefined).mockResolvedValue(started('w1', 'c1'));
-    const answer = await call('', 'POST', { name: 'lab', provider: 'k3d' });
-    expect(answer.status).toBe(202);
-    expect(answer.data).toEqual({ message: 'Provisioning started', clusterName: 'lab', provider: 'k3d', id: 'c1', workflowId: 'w1', state: 'running' });
-  });
-
-  it('hands a VM provider the server type, location and image asked for', async () => {
-    const { temporalBridge, call } = setup();
-    temporalBridge.provision.calledWith('vm', 'hetzner', PERSON.id, matches<{ serverType?: string; location?: string; image?: string }>((vm) => vm.serverType === 'cx22' && vm.location === 'fsn1' && vm.image === 'ubuntu-24.04')).mockResolvedValue(started('w2', 'c2'));
-    const answer = await call('', 'POST', { name: 'vm', provider: 'hetzner', hetznerServerType: 'cx22', hetznerLocation: 'fsn1', hetznerImage: 'ubuntu-24.04' });
-    expect(answer.status).toBe(202);
-  });
-
-  it('refuses a name that is not a cluster name, with a suggestion when there is one', async () => {
-    const { call } = setup();
-    const answer = await call('', 'POST', { name: 'My Lab', provider: 'k3d' });
-    expect(answer.status).toBe(400);
-    expect(answer.data).toMatchObject({ error: 'Cluster names cannot contain spaces.', suggestion: 'my-lab' });
-  });
-
-  it('refuses a provider Koala does not make clusters on', async () => {
-    const { temporalBridge, call } = setup();
-    const answer = await call('', 'POST', { name: 'lab', provider: 'nonsense' });
-    expect(answer.status).toBe(400);
-    expect(temporalBridge.provision).not.toHaveBeenCalled();
-  });
-
-  it('answers 400 with the reason when the provider is refused as not available yet', async () => {
-    const { temporalBridge, call } = setup();
-    temporalBridge.provision.mockRejectedValue(new ProvisionRefused('aws is not available yet'));
-    const answer = await call('', 'POST', { name: 'lab', provider: 'aws' });
-    expect(answer.status).toBe(400);
-    expect(answer.data).toEqual({ error: 'aws is not available yet' });
-  });
-
-  it('answers 503 when Temporal cannot provision', async () => {
-    const { temporalBridge, call } = setup();
-    temporalBridge.provision.mockRejectedValue(new Error('no worker'));
-    const answer = await call('', 'POST', { name: 'lab', provider: 'k3d' });
-    expect(answer.status).toBe(503);
-    expect(answer.data).toEqual({ error: 'Temporal cluster provisioning unavailable: no worker' });
-  });
-
-});
-
-describe('destroying a cluster', () => {
-  it('starts the destroy workflow, stopping the dashboard proxies first', async () => {
-    const { clusterService, clusterProxyService, temporalBridge, call } = setup();
-    clusterService.getById.mockResolvedValue(cluster());
-    temporalBridge.destroyCluster.calledWith('c1').mockResolvedValue(deal('w5'));
-    const answer = await call('/c1', 'DELETE');
-    expect(clusterProxyService.stopForCluster).toHaveBeenCalledWith('c1');
-    expect(answer.status).toBe(202);
-    expect(answer.data).toEqual({ message: 'Destroying cluster', clusterId: 'c1', workflowId: 'w5', state: 'running' });
-  });
-
-  it('aborts a cluster that is still provisioning', async () => {
-    const { clusterService, temporalBridge, call } = setup();
-    clusterService.getById.mockResolvedValue(cluster({ status: 'provisioning' }));
-    expect((await call('/c1', 'DELETE')).data).toEqual({ success: true, message: 'Cluster provisioning aborted' });
-    expect(clusterService.abort).toHaveBeenCalledWith('c1', matches<Principal>((who) => who.id === PERSON.id), expect.anything());
-    expect(temporalBridge.destroyCluster).not.toHaveBeenCalled();
-  });
-
-  it('says the cluster is not found, and refuses the cluster Koala runs in even to its owner, destroying nothing', async () => {
-    const { clusterService, temporalBridge, call } = setup();
+describe('what Koala no longer does', () => {
+  it('makes no cluster and destroys none: POST and DELETE are not routes, and nothing is asked of the clusters', async () => {
+    const { clusterService, call } = setup();
+    expect((await call('', 'POST', { name: 'lab', provider: 'k3d' })).status).toBe(404);
     expect((await call('/c1', 'DELETE')).status).toBe(404);
-    clusterService.getById.mockResolvedValue(koalasCluster());
-    clusterService.isKoalasCluster.calledWith('machine-koala').mockReturnValue(true);
-    const refused = await call('/machine-koala', 'DELETE', undefined, OPERATOR);
-    expect([refused.status, refused.data]).toEqual([409, { error: 'This is the cluster this Koala runs in; it goes only with its machine, removed under My Machines' }]);
-    expect(temporalBridge.destroyCluster).not.toHaveBeenCalled();
-    expect(clusterService.abort).not.toHaveBeenCalled();
-  });
-
-  it('deletes the record when Temporal cannot be asked, and says both reasons when that fails too', async () => {
-    const { clusterService, temporalBridge, call } = setup();
-    clusterService.getById.mockResolvedValue(cluster());
-    temporalBridge.destroyCluster.mockRejectedValue(new Error('no worker'));
-    expect((await call('/c1', 'DELETE')).data).toEqual({ success: true, message: 'Cluster deleted' });
-    clusterService.abort.mockRejectedValue(new Error('database down'));
-    const both = await call('/c1', 'DELETE');
-    expect(both.status).toBe(503);
-    expect(both.data).toEqual({ error: 'Cluster destruction unavailable: no worker; deleting its record failed too: database down' });
+    expect(clusterService.getById).not.toHaveBeenCalled();
   });
 });
 

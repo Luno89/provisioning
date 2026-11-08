@@ -1,44 +1,26 @@
 import { Router, type Request } from 'express';
-import type { Server as SocketServer } from 'socket.io';
-import { asyncRoute, authorize, clusterResource, principalFrom, type ClusterMetadata } from '../../platform/index.js';
-import { signsInAsPlatform, validateClusterName } from '../lib/cluster-name.js';
-import { isClusterProviderName, notAClusterProvider, ProvisionRefused } from '../lib/cluster-topology.js';
-import { provisionRequestOf } from '../lib/cluster-request.js';
+import { asyncRoute, principalFrom } from '../../platform/index.js';
+import { signsInAsPlatform } from '../lib/cluster-name.js';
 import type { ClusterService } from '../services/ClusterService.js';
 import type { ClusterProxyService } from '../services/ClusterProxyService.js';
 import type { GiteaService } from '../../projects/index.js';
 import type { InfisicalService } from '../services/InfisicalService.js';
-import type { TemporalBridge } from '../services/TemporalBridge.js';
 import type { ClusterAccess } from '../services/ClusterAccess.js';
-
-export interface ProvisionStarted {
-  message: 'Provisioning started';
-  clusterName: string;
-  provider: ClusterMetadata['provider'];
-  id: string;
-  workflowId: string;
-  state: 'running';
-}
 
 export interface ClustersRouterDeps {
   clusterService: ClusterService;
-  clusterProxyService: Pick<ClusterProxyService, 'ensurePortForward' | 'stopForCluster' | 'getAutoLoginCookies'>;
+  clusterProxyService: Pick<ClusterProxyService, 'ensurePortForward' | 'getAutoLoginCookies'>;
   giteaService: GiteaService;
   infisicalService: InfisicalService;
   access: Pick<ClusterAccess, 'kubectl'>;
-  temporalBridge: TemporalBridge;
-  io: SocketServer;
 }
 
 const idOf = (req: Request): string => String(req.params.id ?? '');
 
-const userOf = (req: Request): { id: string; email: string } =>
-  (req as unknown as { user: { id: string; email: string } }).user;
-
 export function clustersRouter(deps: ClustersRouterDeps): Router {
   const {
     clusterService, clusterProxyService, access,
-    temporalBridge, io, giteaService, infisicalService,
+    giteaService, infisicalService,
   } = deps;
   const router = Router();
 
@@ -87,66 +69,7 @@ export function clustersRouter(deps: ClustersRouterDeps): Router {
     }));
   }
 
-  router.get('/', asyncRoute(async (req, res) => res.json(await clusterService.getAll(principalFrom(req), io))));
-
-  router.post('/', asyncRoute(async (req, res) => {
-    try {
-      const body = provisionRequestOf(req.body);
-      const nameCheck = validateClusterName(body.name);
-      if (!nameCheck.ok) {
-        return res.status(400).json({
-          error: nameCheck.error,
-          ...(nameCheck.suggestion ? { suggestion: nameCheck.suggestion } : {}),
-        });
-      }
-      const name = String(body.name);
-
-      if (!isClusterProviderName(body.provider)) return res.status(400).json({ error: notAClusterProvider(body.provider) });
-      const info = await temporalBridge.provision(name, body.provider, userOf(req).id, body.vm);
-      const started: ProvisionStarted = {
-        message: 'Provisioning started',
-        clusterName: name,
-        provider: body.provider,
-        id: info.resourceId,
-        workflowId: info.id,
-        state: 'running',
-      };
-      res.status(202).json(started);
-    } catch (err) {
-      if (err instanceof ProvisionRefused) return res.status(400).json({ error: err.message });
-      res.status(503).json({ error: `Temporal cluster provisioning unavailable: ${(err as Error).message}` });
-    }
-  }));
-
-
-  router.delete('/:id', asyncRoute(async (req, res) => {
-    const cluster = await clusterService.getById(idOf(req), principalFrom(req));
-    if (!cluster) return res.status(404).json({ error: 'Cluster not found' });
-    const decision = authorize(principalFrom(req), 'delete', clusterResource(cluster));
-    if (!decision.allowed) return res.status(decision.status).json({ error: decision.error });
-    if (clusterService.isKoalasCluster(cluster.id)) return res.status(409).json({ error: 'This is the cluster this Koala runs in; it goes only with its machine, removed under My Machines' });
-    try {
-      clusterProxyService.stopForCluster(idOf(req));
-      if (cluster.status === 'provisioning') {
-        await clusterService.abort(idOf(req), principalFrom(req), io);
-        return res.json({ success: true, message: 'Cluster provisioning aborted' });
-      }
-      const info = await temporalBridge.destroyCluster(idOf(req));
-      res.status(202).json({
-        message: 'Destroying cluster',
-        clusterId: idOf(req),
-        workflowId: info.id,
-        state: 'running',
-      });
-    } catch (err) {
-      try {
-        await clusterService.abort(idOf(req), principalFrom(req), io);
-        res.json({ success: true, message: 'Cluster deleted' });
-      } catch (fallbackErr) {
-        res.status(503).json({ error: `Cluster destruction unavailable: ${(err as Error).message}; deleting its record failed too: ${(fallbackErr as Error).message}` });
-      }
-    }
-  }));
+  router.get('/', asyncRoute(async (req, res) => res.json(await clusterService.getAll(principalFrom(req)))));
 
   router.get('/:id/gpu-status', asyncRoute(async (req, res) => {
     if (!(await ownedCluster(req))) return res.status(404).json({ error: 'Cluster not found' });

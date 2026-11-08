@@ -57,7 +57,7 @@ beforeAll(async () => {
     'app.synth();',
     '',
   ].join('\n'));
-  steps = { access, infra: new InfrastructureService(undefined, { cdktfDir, stateDir: path.join(root, 'state'), runsDir }), gitea: new GiteaService('integration-key' as never, { none: 'the apps these tests deploy are not built in Gitea' }), infisical: new InfisicalService('integration-key' as never, { none: 'the apps these tests deploy keep no secrets in Infisical' }) };
+  steps = { access, infra: new InfrastructureService({ cdktfDir, stateDir: path.join(root, 'state'), runsDir }), gitea: new GiteaService('integration-key' as never, { none: 'the apps these tests deploy are not built in Gitea' }), infisical: new InfisicalService('integration-key' as never, { none: 'the apps these tests deploy keep no secrets in Infisical' }) };
 });
 
 afterAll(async () => { await rm(root, { recursive: true, force: true }); });
@@ -83,12 +83,12 @@ describe('cluster steps against a real k3s, through ClusterAccess', () => {
 
   it('removes an Odoo release and its namespace on the cluster it was handed', async () => {
     await access.kubectl(DESK, ['create', 'namespace', 'odoo-shop']);
-    await DestroyAppActivity({ name: 'shop', namespace: 'odoo-shop', deploymentId: 'shop', clusterId: DESK.clusterId, clusterName: 'desk', provider: 'machine', strategy: 'native', appType: ODOO_PROJECT_APP, logFile: path.join(root, 'odoo.log'), reach: DESK }, steps);
+    await DestroyAppActivity({ name: 'shop', namespace: 'odoo-shop', deploymentId: 'shop', clusterId: DESK.clusterId, clusterName: 'desk', strategy: 'native', appType: ODOO_PROJECT_APP, logFile: path.join(root, 'odoo.log'), reach: DESK }, steps);
     expect(await exists(DESK, 'odoo-shop')).toBe(false);
   }, 120_000);
 
   it('applies an app\'s stack with Terraform through the kubeconfig Koala\'s own service account makes, then removes it the same way', async () => {
-    const app = { name: 'books', namespace: 'books-1a2b3c', deploymentId: 'd1', clusterId: KOALA.clusterId, clusterName: 'own', provider: 'machine', strategy: 'native', logFile: path.join(root, 'books.log'), reach: KOALA };
+    const app = { name: 'books', namespace: 'books-1a2b3c', deploymentId: 'd1', clusterId: KOALA.clusterId, clusterName: 'own', strategy: 'native', logFile: path.join(root, 'books.log'), reach: KOALA };
     await ResizeDiskActivity({ ...app, appType: 'audiobookshelf', storage: {} }, steps);
     expect(await access.kubectl(KOALA, ['get', 'namespace', 'books-1a2b3c', '-o', 'jsonpath={.metadata.labels.app}'])).toBe('audiobookshelf');
     await DestroyAppActivity({ ...app, appType: 'audiobookshelf' }, steps);
@@ -96,7 +96,7 @@ describe('cluster steps against a real k3s, through ClusterAccess', () => {
   }, 300_000);
 
   it('applies an app\'s stack with Terraform on another machine through the kubeconfig its workflow handed over', async () => {
-    const app = { name: 'notes', namespace: 'notes-4d5e6f', deploymentId: 'd2', clusterId: DESK.clusterId, clusterName: 'desk', provider: 'machine', strategy: 'native', logFile: path.join(root, 'notes.log'), reach: DESK };
+    const app = { name: 'notes', namespace: 'notes-4d5e6f', deploymentId: 'd2', clusterId: DESK.clusterId, clusterName: 'desk', strategy: 'native', logFile: path.join(root, 'notes.log'), reach: DESK };
     await ResizeDiskActivity({ ...app, appType: 'papra', storage: {} }, steps);
     expect(await exists(DESK, 'notes-4d5e6f')).toBe(true);
     await DestroyAppActivity({ ...app, appType: 'papra' }, steps);

@@ -13,8 +13,6 @@ export const WORKERS: Record<Queue, string> = {
 };
 
 export const STARTED_ON: Record<string, Queue> = {
-  ClusterProvisionWorkflow: 'host',
-  executeDestroyClusterWorkflow: 'host',
   executeIngestWorkflow: 'host',
   DependencyWatchWorkflow: 'host',
   PoolInstanceWorkflow: 'host',

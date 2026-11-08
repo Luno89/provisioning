@@ -40,7 +40,7 @@ describe('deploying a project\'s build', () => {
       db,
       client: () => ({ workflow: { start: async (_type: unknown, options: { workflowId: string; taskQueue: string; args: unknown[] }) => { starts.push(options); return { workflowId: options.workflowId }; } } }) as never,
       masterKey: 'k',
-      clusterById: async (id) => (id === 'cluster-1' ? { id, name: 'dev', provider: 'k3d' } as ClusterMetadata : undefined),
+      clusterById: async (id) => (id === 'cluster-1' ? { id, name: 'dev', provider: 'machine', machineId: 'dev2' } as ClusterMetadata : undefined),
       handOver: (clusterId) => testClusterAccess(db).handOver(clusterId),
       ownClusterId: () => undefined,
       logDir: '/tmp',

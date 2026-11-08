@@ -43,16 +43,6 @@ describe('the save*Info functions', () => {
     expect(saved?.giteaRepo).toBe('r');
   });
 
-  it('keeps a cluster field across a progress update', async () => {
-    const db = await testDatabase();
-    await db.infrastructure.saveClusterInfo({ id: 'c1', name: 'c1', provider: 'k3d', status: 'provisioning', ownerId: 'u1' });
-    await db.infrastructure.saveClusterInfo({ id: 'c1', status: 'healthy' });
-
-    const [saved] = await db.infrastructure.getClusters();
-    expect(saved?.ownerId).toBe('u1');
-    expect(saved?.status).toBe('healthy');
-  });
-
   it('still creates a record that did not exist', async () => {
     const db = await testDatabase();
     const made = await db.projects.saveProjectInfo({ name: 'fresh', giteaOwner: 'o', giteaRepo: 'r' });

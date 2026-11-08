@@ -39,8 +39,6 @@ done
 echo "✔ Environment file successfully created at: apps/backend/.env"
 echo "✔ SESSION_KEY, DATA_KEY, PAYLOAD_KEY, EGRESS_KEY and TEMPORAL_KEY generated."
 echo ""
-echo "Note: The platform is fully operational in mock/warning modes for
-Twilio 2FA, Google/GitHub Social Logins, and all cloud providers.
-To configure real credentials (AWS, GCP, Azure, DigitalOcean, Twilio, OAuth),
-simply open and edit the apps/backend/.env file.
+echo "Note: Twilio 2FA and Google/GitHub sign-in stay off until their
+credentials are set in apps/backend/.env.
 ========================================================================"

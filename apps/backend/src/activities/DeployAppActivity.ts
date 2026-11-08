@@ -2,8 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { ApplicationFailure } from '@temporalio/common';
 import {
   renderApp, specSecrets, minioStorageFor, specStorageFor, visibleAppSpecs, resolveBindings, bindingFiles, bindingProjection, bindingSecretName,
-  type ProjectedBinding, StorageAdapter, hasCloudCredentials, installGpuDevicePlugin,
-  isMockCloudProvider, isSelfManagedCluster, buildAppEnv, TABBYAPI_DEFAULT_MAX_SEQ_LEN, planHostMemory,
+  type ProjectedBinding, StorageAdapter, buildAppEnv, TABBYAPI_DEFAULT_MAX_SEQ_LEN, planHostMemory,
   parseQuantity, type HostMemoryPlan, deploymentIdFor, gitappPullSecretArgs, type MachineOfCluster, type Reach } from '../infrastructure/index.js';
 import { readBindingCredentials, sanitiseNamespaceName, syncProjectSecrets } from '../projects/index.js';
 import { createDatabase, loadKeys } from '../platform/index.js';
@@ -32,7 +31,6 @@ export interface DeployAppArgs {
   namespace?: string | undefined;
   clusterId: string;
   clusterName: string;
-  provider: string;
   strategy: string;
   appType: string;
   modules?: string[] | undefined;
@@ -163,36 +161,13 @@ export async function DeployAppActivity(args: DeployAppArgs, steps: ClusterSteps
   const finalOdooRepo = sentOdooFallback ? appDefault.repo : (args.odooRepo || appDefault.repo);
   const finalOdooTag = sentOdooFallback ? appDefault.tag : (args.odooTag || appDefault.tag);
 
-  const isMock = isMockCloudProvider(args.provider, hasCloudCredentials);
-  const physicalName = isMock ? `mock-${args.provider}-${args.clusterName}` : args.clusterName;
+  const physicalName = args.clusterName;
   const kubeconfigPath = await access.kubeconfigOf(reach);
 
-  let effectiveDevice = process.env.VLLM_DEVICE || (args.vllmGpuCount === 0 ? 'cpu' : (args.vllmGpuVendor === 'amd' ? 'rocm' : 'cuda'));
-  let effectiveGpuCount = args.vllmGpuCount !== undefined ? args.vllmGpuCount : 1;
-
-  if (args.appType === 'vllm' && (args.provider === 'k3d' || isMock)) {
-    if (effectiveGpuCount > 0 && effectiveDevice !== 'cpu') {
-      const gpuVendor = args.vllmGpuVendor || 'nvidia';
-      try {
-        await infra.checkGpuToolkit(gpuVendor);
-        await installGpuDevicePlugin(kubectl, gpuVendor);
-      } catch (err) {
-        console.warn(`[DeployAppActivity] GPU toolkit check or device plugin install failed (${messageOf(err)}). Falling back to CPU mode.`);
-        effectiveDevice = 'cpu';
-        effectiveGpuCount = 0;
-      }
-    }
-  }
+  const effectiveDevice = process.env.VLLM_DEVICE || (args.vllmGpuCount === 0 ? 'cpu' : (args.vllmGpuVendor === 'amd' ? 'rocm' : 'cuda'));
+  const effectiveGpuCount = args.vllmGpuCount !== undefined ? args.vllmGpuCount : 1;
 
   const effectiveTabbyGpuCount = args.tabbyGpuCount !== undefined ? args.tabbyGpuCount : 1;
-  if (args.appType === 'tabbyapi' && (args.provider === 'k3d' || isMock) && effectiveTabbyGpuCount > 0) {
-    try {
-      await infra.checkGpuToolkit('nvidia');
-      await installGpuDevicePlugin(kubectl, 'nvidia');
-    } catch (err) {
-      console.warn(`[DeployAppActivity] GPU toolkit check or device plugin install failed (${messageOf(err)}). TabbyAPI requires an NVIDIA GPU and cannot run in CPU mode.`);
-    }
-  }
 
   if (args.appType === 'palworld') {
     const REQUIRED_GI = 12;
@@ -209,7 +184,7 @@ export async function DeployAppActivity(args: DeployAppArgs, steps: ClusterSteps
       if (largest > 0 && largest < REQUIRED_GI) {
         throw new Error(
           `Palworld needs a node with at least ${REQUIRED_GI}Gi allocatable memory; the largest node in this ` +
-          `cluster has ${largest.toFixed(1)}Gi. Deploy to a bigger cluster (Hetzner CX53 or larger).`,
+          `cluster has ${largest.toFixed(1)}Gi. Deploy to a machine with more memory.`,
         );
       }
     } catch (err) {
@@ -293,7 +268,7 @@ export async function DeployAppActivity(args: DeployAppArgs, steps: ClusterSteps
       renderedSpec = renderApp(stored.spec, {
         id: deploymentId,
         namespace: namespace,
-        serviceType: appServiceType(placedOnPool(process.env, reach), isSelfManagedCluster(args.provider, isMock)),
+        serviceType: appServiceType(placedOnPool(process.env, reach)),
         secrets,
         ...(storage ? { storage } : {}),
       });
@@ -355,7 +330,7 @@ export async function DeployAppActivity(args: DeployAppArgs, steps: ClusterSteps
 
   const env = buildAppEnv({
     hostHfToken: process.env.HF_TOKEN,
-    ...(placedOnPool(process.env, reach) ? { serviceType: 'ClusterIP' } : {}),
+    serviceType: appServiceType(placedOnPool(process.env, reach)),
     ...(renderedSpec ? { renderedSpec } : {}),
     ...(bindingsJson ? { bindingsJson } : {}),
     physicalName,
@@ -363,8 +338,6 @@ export async function DeployAppActivity(args: DeployAppArgs, steps: ClusterSteps
     namespace,
     deploymentId,
     kubeconfigPath,
-    provider: args.provider,
-    isMock,
     appType: args.appType,
     webRepo: finalOdooRepo,
     webTag: finalOdooTag,
@@ -439,9 +412,9 @@ export async function DeployAppActivity(args: DeployAppArgs, steps: ClusterSteps
   });
 
   await ensureClusterMonitoring(steps, {
-    physicalName: reach.clusterId, reach, local: args.provider === 'k3d' || isMock, pool: placedOnPool(process.env, reach),
-    ...(args.provider === 'machine' && args.machine?.deviceId === process.env.INSTANCE_MACHINE_ID ? { nodePortIngress: true, koala: true } : {}),
-    ...(args.provider === 'machine' && args.machine?.deviceId !== process.env.INSTANCE_MACHINE_ID ? { machine: { metricsUrl: machineMetricsUrl(process.env), remember: (tokenHash: string) => rememberMetricsToken(args.clusterId, tokenHash) } } : {}),
+    physicalName: reach.clusterId, reach, pool: placedOnPool(process.env, reach),
+    ...(reach.kind === 'koala' ? { koala: true } : {}),
+    ...(reach.kind === 'machine' ? { machine: { metricsUrl: machineMetricsUrl(process.env), remember: (tokenHash: string) => rememberMetricsToken(args.clusterId, tokenHash) } } : {}),
   }, logFile);
   await infra.deploy(
     `app-${physicalName}-${deploymentId}`,

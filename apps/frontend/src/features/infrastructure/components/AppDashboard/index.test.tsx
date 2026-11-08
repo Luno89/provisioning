@@ -40,7 +40,7 @@ const setup = (d: Deployment = deployment(), initialTab: Parameters<typeof AppDa
         target={{ type: 'app', id: d.id }}
         deployment={d}
         deployments={[d]}
-        clusters={[{ id: 'c1', name: 'dev', provider: 'k3d', status: 'healthy' }]}
+        clusters={[{ id: 'c1', name: 'dev', provider: 'machine', status: 'healthy' }]}
         cluster={null}
         initialTab={initialTab}
         onClose={onClose}

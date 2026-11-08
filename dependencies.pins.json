@@ -345,10 +345,6 @@
       },
       "uses": [
         {
-          "file": "Dockerfile",
-          "pattern": "ARG K3D_VERSION=(v[0-9.]+)"
-        },
-        {
           "file": "scripts/setup.sh",
           "pattern": "k3d/releases/download/(v[0-9.]+)/"
         }
@@ -525,55 +521,6 @@
         {
           "file": "scripts/terraform-providers.sh",
           "pattern": "HELM_SHA256_DARWIN_ARM64=([0-9a-f]{64})",
-          "arch": "darwin-arm64"
-        }
-      ]
-    },
-    {
-      "kind": "binary",
-      "name": "terraform-provider-hcloud",
-      "version": "1.68.0",
-      "source": "https://github.com/hetznercloud/terraform-provider-hcloud/releases/download/v1.68.0/terraform-provider-hcloud_1.68.0_linux_amd64.zip",
-      "github": "hetznercloud/terraform-provider-hcloud",
-      "osv": {
-        "ecosystem": "Go",
-        "name": "github.com/hetznercloud/terraform-provider-hcloud"
-      },
-      "uses": [
-        {
-          "file": "scripts/terraform-providers.sh",
-          "pattern": "HCLOUD_VERSION=([0-9.]+)"
-        },
-        {
-          "file": "packages/cdktf-infra/.gen/versions.json",
-          "pattern": "\"registry\\.terraform\\.io/hetznercloud/hcloud\": \"([0-9.]+)\""
-        }
-      ],
-      "sha256s": {
-        "linux-amd64": "b825f6500592d30004b6de8547ca1fa7841e16da0571cee8a67782cb84ec65cd",
-        "linux-arm64": "a04f8e12811e000657151cd6eed5eb80ae1042b8123bfea28343147ceda40f96",
-        "darwin-amd64": "73855025066ec55230559296b5c92d441b1b6dc2ce27a1102ab1e17f60cdcf0e",
-        "darwin-arm64": "164012cca257951da2870e9a0a0eb0be2ebde26fd27e30081c8d7e8729467a6e"
-      },
-      "shaUses": [
-        {
-          "file": "scripts/terraform-providers.sh",
-          "pattern": "HCLOUD_SHA256_LINUX_AMD64=([0-9a-f]{64})",
-          "arch": "linux-amd64"
-        },
-        {
-          "file": "scripts/terraform-providers.sh",
-          "pattern": "HCLOUD_SHA256_LINUX_ARM64=([0-9a-f]{64})",
-          "arch": "linux-arm64"
-        },
-        {
-          "file": "scripts/terraform-providers.sh",
-          "pattern": "HCLOUD_SHA256_DARWIN_AMD64=([0-9a-f]{64})",
-          "arch": "darwin-amd64"
-        },
-        {
-          "file": "scripts/terraform-providers.sh",
-          "pattern": "HCLOUD_SHA256_DARWIN_ARM64=([0-9a-f]{64})",
           "arch": "darwin-arm64"
         }
       ]

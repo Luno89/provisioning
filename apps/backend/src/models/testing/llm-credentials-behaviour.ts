@@ -52,7 +52,7 @@ export function llmCredentialsBehaviour(make: () => Promise<Database>): void {
   beforeEach(async () => {
     db = await make();
     credentials = mock<Pick<CredentialService, 'resolveCredentials'>>();
-    credentials.resolveCredentials.mockResolvedValue({ mode: 'mock', env: {} });
+    credentials.resolveCredentials.mockResolvedValue({ mode: 'none', env: {} });
   });
 
   describe('the gateways a person can connect', () => {

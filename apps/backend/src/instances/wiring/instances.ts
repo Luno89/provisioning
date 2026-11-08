@@ -160,7 +160,7 @@ export interface InstancesWiringDeps {
   repoRoot: string;
   dataDir: string;
   headscale: HeadscaleService;
-  access: Pick<ClusterAccess, 'kubectl' | 'apply' | 'kubeconfigOf' | 'own'>;
+  access: Pick<ClusterAccess, 'kubectl' | 'apply' | 'kubeconfigOf' | 'own' | 'packageChart'>;
   side: InstanceSide;
   syncExposedApps: () => Promise<void>;
   provider?: RootProvider | undefined;
@@ -222,7 +222,7 @@ export async function wireInstances(deps: InstancesWiringDeps): Promise<Instance
 
   if (!holdsAccounts(role)) return { instanceService: undefined };
 
-  const instanceChart = new InstanceChart(deps.repoRoot);
+  const instanceChart = new InstanceChart(deps.repoRoot, deps.access);
   const releaseCatalogue = new ReleaseCatalogue(db.instances, {
     repoRoot: deps.repoRoot,
     chartsDir: path.join(deps.dataDir, 'instance-charts'),

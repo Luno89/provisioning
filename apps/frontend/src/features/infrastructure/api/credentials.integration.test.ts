@@ -35,13 +35,14 @@ expectTypeOf<Wire<BackendProviderStatus>>().toExtend<ProviderStatus>()
 expectTypeOf<Wire<ReturnType<typeof describeProvider>>>().toExtend<DnsProviderInfo>()
 
 describe('Cloud providers, as its page asks for them', () => {
-  it('lists every provider with whether it is set up, and what each offers for clusters', async () => {
+  it('lists every provider with whether it is set up, and no cloud a cluster was once made on', async () => {
     const providers = await listProviders()
     expect(providers).toEqual(arrayWith([
       objectWith({ provider: 'huggingface', label: 'Hugging Face' }),
-      objectWith({ provider: 'hetzner', label: 'Hetzner Cloud', clusters: 'available' }),
-      objectWith({ provider: 'aws', clusters: 'mock-only' }),
+      objectWith({ provider: 'ovh', label: 'OVHcloud' }),
     ]))
+    expect(providers.some((provider) => ['aws', 'gcp', 'azure', 'do', 'hetzner'].includes(provider.provider))).toBe(false)
+    expect(providers.some((provider) => 'clusters' in provider)).toBe(false)
   })
 
   it('saves a Hugging Face token, shows it masked, and lists the provider as set up by the person', async () => {

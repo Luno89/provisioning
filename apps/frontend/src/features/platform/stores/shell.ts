@@ -26,7 +26,7 @@ export interface Notification {
 }
 
 export interface DestroyTarget {
-  type: 'cluster' | 'app'
+  type: 'app'
   id: string
   name: string
   isAbort?: boolean

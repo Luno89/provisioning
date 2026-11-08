@@ -113,7 +113,7 @@ describe('the page', () => {
   it('prices the plan and datacenter picked with both domains', async () => {
     vi.mocked(ordersApi.listServerOrders).mockResolvedValue([])
     vi.mocked(vpsApi.getVpsCatalog).mockResolvedValue({
-      offers: [{ id: 'ovh:vps-2027-model2', provider: 'ovh', planId: 'vps-2027-model2', label: 'VPS-2 2027', vcpu: 4, cpuType: 'shared', arch: 'x86', ramGb: 8, diskGb: 75, priceMonthly: 14, currency: 'AUD', taxIncluded: false, hourlyBilling: false, locations: ['SGP', 'SYD'], provisionable: false, pricePerGbRam: 1.75 }],
+      offers: [{ id: 'ovh:vps-2027-model2', provider: 'ovh', planId: 'vps-2027-model2', label: 'VPS-2 2027', vcpu: 4, cpuType: 'shared', arch: 'x86', ramGb: 8, diskGb: 75, priceMonthly: 14, currency: 'AUD', taxIncluded: false, hourlyBilling: false, locations: ['SGP', 'SYD'], pricePerGbRam: 1.75 }],
       sources: [], fetchedAt: 'x',
     })
     vi.mocked(ordersApi.quoteServer).mockResolvedValue(order)
@@ -132,7 +132,7 @@ describe('the page', () => {
   it('offers every sign-in provider the backend describes, with root\'s redirect URI, and sends those given with the quote', async () => {
     vi.mocked(ordersApi.listServerOrders).mockResolvedValue([])
     vi.mocked(vpsApi.getVpsCatalog).mockResolvedValue({
-      offers: [{ id: 'ovh:vps-2027-model2', provider: 'ovh', planId: 'vps-2027-model2', label: 'VPS-2 2027', vcpu: 4, cpuType: 'shared', arch: 'x86', ramGb: 8, diskGb: 75, priceMonthly: 14, currency: 'AUD', taxIncluded: false, hourlyBilling: false, locations: ['SYD'], provisionable: false, pricePerGbRam: 1.75 }],
+      offers: [{ id: 'ovh:vps-2027-model2', provider: 'ovh', planId: 'vps-2027-model2', label: 'VPS-2 2027', vcpu: 4, cpuType: 'shared', arch: 'x86', ramGb: 8, diskGb: 75, priceMonthly: 14, currency: 'AUD', taxIncluded: false, hourlyBilling: false, locations: ['SYD'], pricePerGbRam: 1.75 }],
       sources: [], fetchedAt: 'x',
     })
     vi.mocked(ordersApi.quoteServer).mockResolvedValue(order)

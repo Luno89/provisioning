@@ -27,7 +27,7 @@ const steps = (over: Partial<ProjectRemovalDeps> = {}): ProjectRemovalActivities
   secrets,
   files,
   apps: {
-    clusterById: async (id) => (id === 'system' ? { id: 'system', name: 'koala', provider: 'k3d', status: 'running' } as never : undefined),
+    clusterById: async (id) => (id === 'system' ? { id: 'system', name: 'koala', provider: 'machine', machineId: 'koala', status: 'running' } as never : undefined),
     handOver: async (clusterId: string) => ({ clusterId, reach: { clusterId, kind: 'koala' as const } }), 
     logFile: () => '/logs/destroy.log',
     taskQueue: 'cluster-ops-queue',
@@ -151,7 +151,7 @@ describe('the steps that delete a project', () => {
     expect(planned[0]).toMatchObject({
       deploymentId: 'odoo-p1',
       taskQueue: 'cluster-ops-queue',
-      args: { name: 'shop-p1', clusterId: 'system', clusterName: 'koala', provider: 'k3d', strategy: 'helm', logFile: '/logs/destroy.log', appType: 'odoo-project', namespace: 'shop-p1-1a2b3c', reach: { clusterId: 'system', kind: 'koala' } },
+      args: { name: 'shop-p1', clusterId: 'system', clusterName: 'koala', strategy: 'helm', logFile: '/logs/destroy.log', appType: 'odoo-project', namespace: 'shop-p1-1a2b3c', reach: { clusterId: 'system', kind: 'koala' } },
     });
     expect(planned[0]!.workflowId).toMatch(/^app-destroy-shop-p1-/);
     const marked = (await db.infrastructure.getDeployments()).find((deployment) => deployment.id === 'odoo-p1');
@@ -196,8 +196,9 @@ describe('planning the destroy of apps', () => {
       logFile: () => '/l',
       taskQueue: 'q',
     }, () => 'abc123');
-    expect(planned[0]!.args).toMatchObject({ clusterId: 'machine-desk', clusterName: 'desk', provider: 'machine', machine: { deviceId: 'desk', leaving: 'books' } });
+    expect(planned[0]!.args).toMatchObject({ clusterId: 'machine-desk', clusterName: 'desk', machine: { deviceId: 'desk', leaving: 'books' } });
     expect(planned[0]!.args).not.toHaveProperty('reach');
+    expect(planned[0]!.args).not.toHaveProperty('provider');
   });
 
   it('plans nothing, and says why, for an app whose cluster cannot be reached', async () => {

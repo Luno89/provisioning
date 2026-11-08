@@ -32,7 +32,7 @@ async function main(): Promise<void> {
       ovhAccountOf: async (ownerId) => {
         const resolved = await credentials.resolveCredentials(ownerId, 'ovh');
         const { OVH_APPLICATION_KEY: applicationKey, OVH_APPLICATION_SECRET: applicationSecret, OVH_CONSUMER_KEY: consumerKey, OVH_SUBSIDIARY: subsidiary } = resolved.env;
-        return resolved.mode !== 'mock' && applicationKey && applicationSecret && consumerKey ? { applicationKey, applicationSecret, consumerKey, subsidiary: subsidiary || 'FR' } : undefined;
+        return resolved.mode !== 'none' && applicationKey && applicationSecret && consumerKey ? { applicationKey, applicationSecret, consumerKey, subsidiary: subsidiary || 'FR' } : undefined;
       },
       dnsCredentialsOf: async () => undefined,
     });

@@ -102,13 +102,13 @@ describe('notifications', () => {
 
 describe('the destroy confirmation', () => {
   it('closes when that resource is destroyed elsewhere', () => {
-    useShellStore.getState().setConfirmDestroy({ type: 'cluster', id: 'c1', name: 'one' })
+    useShellStore.getState().setConfirmDestroy({ type: 'app', id: 'c1', name: 'one' })
     useShellStore.getState().clearDestroyFor('c1')
     expect(useShellStore.getState().confirmDestroy).toBeNull()
   })
 
   it('leaves a confirmation for a different resource alone', () => {
-    useShellStore.getState().setConfirmDestroy({ type: 'cluster', id: 'c1', name: 'one' })
+    useShellStore.getState().setConfirmDestroy({ type: 'app', id: 'c1', name: 'one' })
     useShellStore.getState().clearDestroyFor('c2')
     expect(useShellStore.getState().confirmDestroy?.id).toBe('c1')
   })

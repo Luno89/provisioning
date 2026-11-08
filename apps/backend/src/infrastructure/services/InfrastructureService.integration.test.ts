@@ -79,7 +79,7 @@ describe('applying and destroying a stack with real CDKTF and Terraform', () => 
   afterAll(async () => { await rm(stand.root, { recursive: true, force: true }); });
 
   it('keeps its state in the data folder, synthesizes into a folder of the run\'s own and removes it when the run ends', async () => {
-    const service = new InfrastructureService(undefined, stand.places);
+    const service = new InfrastructureService(stand.places);
     await mkdir(path.join(stand.places.stateDir, 'cdktf.out', 'stacks', 'desk'), { recursive: true });
     await service.deploy('desk', { logFile: path.join(stand.root, 'desk.log') });
     const state = path.join(stand.places.stateDir, 'terraform.desk.tfstate');
@@ -92,7 +92,7 @@ describe('applying and destroying a stack with real CDKTF and Terraform', () => 
   }, 180_000);
 
   it('runs two stacks at once, each in its own output, neither touching the other', async () => {
-    const service = new InfrastructureService(undefined, stand.places);
+    const service = new InfrastructureService(stand.places);
     await Promise.all([
       service.deploy('desk', { logFile: path.join(stand.root, 'desk.log'), env: { INPUT: 'for the desk' } }),
       service.deploy('shelf', { logFile: path.join(stand.root, 'shelf.log'), env: { INPUT: 'for the shelf' } }),
@@ -103,18 +103,18 @@ describe('applying and destroying a stack with real CDKTF and Terraform', () => 
   }, 180_000);
 
   it('removes the run\'s folder when the run fails too', async () => {
-    const service = new InfrastructureService(undefined, stand.places);
+    const service = new InfrastructureService(stand.places);
     await expect(service.deploy('desk', { logFile: path.join(stand.root, 'fail.log'), env: { FAIL_SYNTH: '1' } })).rejects.toThrow();
     expect(await readdir(stand.places.runsDir)).toEqual([]);
   }, 180_000);
 
   it('hands Terraform the mirror\'s settings when the mirror is there, and none when it is not', async () => {
     await rm(stand.capture, { force: true });
-    await new InfrastructureService(undefined, stand.places).deploy('shelf', { logFile: path.join(stand.root, 'shelf.log') });
+    await new InfrastructureService(stand.places).deploy('shelf', { logFile: path.join(stand.root, 'shelf.log') });
     expect(existsSync(stand.capture)).toBe(false);
     const mirrorDir = path.join(stand.root, 'mirror');
     await mkdir(mirrorDir);
-    await new InfrastructureService(undefined, { ...stand.places, mirrorDir }).deploy('shelf', { logFile: path.join(stand.root, 'shelf.log') });
+    await new InfrastructureService({ ...stand.places, mirrorDir }).deploy('shelf', { logFile: path.join(stand.root, 'shelf.log') });
     expect(await readFile(stand.capture, 'utf8')).toBe(terraformCliConfig(mirrorDir));
   }, 180_000);
 
@@ -123,11 +123,11 @@ describe('applying and destroying a stack with real CDKTF and Terraform', () => 
     const now = path.join(stand.places.stateDir, 'terraform.shelf.tfstate');
     await rm(now, { force: true });
     await rm(`${now}.backup`, { force: true });
-    await new InfrastructureService(undefined, stand.places).deploy('shelf', { logFile: path.join(stand.root, 'shelf.log') });
+    await new InfrastructureService(stand.places).deploy('shelf', { logFile: path.join(stand.root, 'shelf.log') });
     const made = await readFile(now, 'utf8');
     await rm(now);
     await writeFile(before, made);
-    await new InfrastructureService(undefined, stand.places).deploy('shelf', { logFile: path.join(stand.root, 'shelf.log') });
+    await new InfrastructureService(stand.places).deploy('shelf', { logFile: path.join(stand.root, 'shelf.log') });
     expect(existsSync(before)).toBe(false);
     expect((await resourcesIn(now))[0]?.instances[0]?.attributes.id).toBe((JSON.parse(made) as { resources: Array<{ instances: Array<{ attributes: { id: string } }> }> }).resources[0]?.instances[0]?.attributes.id);
   }, 180_000);
@@ -141,14 +141,14 @@ describe('moving state kept in the data folder into the backend in the cluster, 
   it('pushes the state into the backend before the first run there, removes the file, and the stack carries on with what it had', async () => {
     const local = await standUp('local');
     try {
-      await new InfrastructureService(undefined, local.places).deploy('desk', { logFile: path.join(local.root, 'desk.log') });
+      await new InfrastructureService(local.places).deploy('desk', { logFile: path.join(local.root, 'desk.log') });
       await mkdir(stand.places.stateDir, { recursive: true });
       const kept = path.join(stand.places.stateDir, 'terraform.desk.tfstate');
       const before = await readFile(path.join(local.places.stateDir, 'terraform.desk.tfstate'), 'utf8');
       await writeFile(kept, before);
       const id = (await resourcesIn(kept))[0]?.instances[0]?.attributes.id;
 
-      await new InfrastructureService(undefined, stand.places).deploy('desk', { logFile: path.join(stand.root, 'desk.log') });
+      await new InfrastructureService(stand.places).deploy('desk', { logFile: path.join(stand.root, 'desk.log') });
       expect(existsSync(kept)).toBe(false);
       expect(existsSync(`${kept}.backup`)).toBe(false);
       const inCluster = path.join(stand.cluster, 'koala-desk.tfstate');
@@ -156,7 +156,7 @@ describe('moving state kept in the data folder into the backend in the cluster, 
       expect((await resourcesIn(inCluster))[0]?.instances[0]?.attributes.id).toBe(id);
       expect(await readdir(stand.places.runsDir)).toEqual([]);
 
-      await new InfrastructureService(undefined, stand.places).deploy('desk', { logFile: path.join(stand.root, 'desk.log'), env: { INPUT: 'changed' } });
+      await new InfrastructureService(stand.places).deploy('desk', { logFile: path.join(stand.root, 'desk.log'), env: { INPUT: 'changed' } });
       expect((await resourcesIn(inCluster))[0]?.instances[0]?.attributes.input.value).toBe('changed');
     } finally {
       await rm(local.root, { recursive: true, force: true });
@@ -164,13 +164,13 @@ describe('moving state kept in the data folder into the backend in the cluster, 
   }, 300_000);
 
   it('refuses, keeping the file, when the backend already holds a state that the file did not lead to', async () => {
-    await new InfrastructureService(undefined, stand.places).deploy('shelf', { logFile: path.join(stand.root, 'shelf.log') });
+    await new InfrastructureService(stand.places).deploy('shelf', { logFile: path.join(stand.root, 'shelf.log') });
     const unrelated = await standUp('local');
     try {
-      await new InfrastructureService(undefined, unrelated.places).deploy('shelf', { logFile: path.join(unrelated.root, 'shelf.log') });
+      await new InfrastructureService(unrelated.places).deploy('shelf', { logFile: path.join(unrelated.root, 'shelf.log') });
       const kept = path.join(stand.places.stateDir, 'terraform.shelf.tfstate');
       await writeFile(kept, await readFile(path.join(unrelated.places.stateDir, 'terraform.shelf.tfstate'), 'utf8'));
-      await expect(new InfrastructureService(undefined, stand.places).deploy('shelf', { logFile: path.join(stand.root, 'shelf.log') }))
+      await expect(new InfrastructureService(stand.places).deploy('shelf', { logFile: path.join(stand.root, 'shelf.log') }))
         .rejects.toThrow(/shelf has a state in the data folder and another in the cluster/);
       expect(existsSync(kept)).toBe(true);
       expect(await readdir(stand.places.runsDir)).toEqual([]);

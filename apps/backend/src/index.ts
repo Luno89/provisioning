@@ -127,7 +127,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   const builderService = new BuilderService(db, infraService);
   const clusterAccess = clusterAccessFrom(process.env, { role: role.role, clusters: db.infrastructure, dataKey: keys.data });
   const koalasCluster = (): string => clusterAccess.own().clusterId;
-  const clusterService = new ClusterService(db, infraService, clusterAccess, { instanceOwnerId: role.instance?.ownerId });
+  const clusterService = new ClusterService(db, clusterAccess, { instanceOwnerId: role.instance?.ownerId });
   const appService = new AppService(db, infraService, clusterService, builderService);
   const registryService = new RegistryService(db);
   const gitModuleService = new GitModuleService(db);
@@ -163,8 +163,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   });
   const modelService = new ModelService(db, appService, clusterService, clusterProxyService, headscaleService, keys.data, endpointRulesFromEnv(process.env));
 
-  const temporalBridge = new TemporalBridge(db, io, keys.data, clusterService, headscaleService, claimSettings);
-  clusterService.setTemporalBridge(temporalBridge);
+  const temporalBridge = new TemporalBridge(db, io, keys.data, clusterService, claimSettings);
   appService.setTemporalBridge(temporalBridge);
   if (tenants) {
     await keepTrying('⚠️ Temporal TS bridge not available yet, routes fall back to the local DB until it is', async () => {
@@ -265,7 +264,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     next();
   });
   const credentialService = new CredentialService(db, keys.data, claimSettings);
-  const vpsCatalogService = new VpsCatalogService(db, keys.data, vpsCatalogAdapters(() => ovhSubsidiaryFrom(process.env)), claimSettings);
+  const vpsCatalogService = new VpsCatalogService(vpsCatalogAdapters(() => ovhSubsidiaryFrom(process.env)));
 
   const setup = holdsAccounts(role) ? firstAdminSetup(process.env, (await db.accounts.getUsers()).length === 0) : undefined;
   if (setup?.say) console.log(`🔑 ${setup.say}`);

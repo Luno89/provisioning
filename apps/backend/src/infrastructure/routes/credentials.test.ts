@@ -14,8 +14,8 @@ const server = interceptHttp();
 
 const service = (): ReturnType<typeof mock<Service>> => {
   const credentialService = mock<Service>();
-  credentialService.getConfiguredProviders.mockResolvedValue([{ provider: 'aws', configured: true }] as never);
-  credentialService.getCredentials.mockResolvedValue({ accessKeyId: 'AKIA••••' } as never);
+  credentialService.getConfiguredProviders.mockResolvedValue([{ provider: 'ovh', configured: true }] as never);
+  credentialService.getCredentials.mockResolvedValue({ applicationKey: 'APPK••••' } as never);
   credentialService.validateCredentials.mockResolvedValue({ valid: true } as never);
   credentialService.testGoogleDriveConnection.mockResolvedValue({ valid: true, message: 'ok' } as never);
   return credentialService;
@@ -36,7 +36,7 @@ describe('listing configured providers', () => {
   it('returns them under `providers`, which is the shape the UI reads', async () => {
     const credentialService = service();
     const answer = await call(credentialService, '');
-    expect(answer.data).toEqual({ providers: [{ provider: 'aws', configured: true }] });
+    expect(answer.data).toEqual({ providers: [{ provider: 'ovh', configured: true }] });
     expect(credentialService.getConfiguredProviders).toHaveBeenCalledWith(PERSON.id);
   });
 
@@ -61,6 +61,12 @@ describe('provider validation', () => {
     expect(answer.data).toEqual({ error: 'Invalid provider: not-a-cloud' });
   });
 
+  it.each(['aws', 'gcp', 'azure', 'do', 'hetzner', 'vultr'])('refuses %s, whose keys Koala no longer keeps', async (provider) => {
+    const answer = await call(service(), `/${provider}`);
+    expect(answer.status).toBe(400);
+    expect(answer.data).toEqual({ error: `Invalid provider: ${provider}` });
+  });
+
   it('accepts every provider the platform actually supports', async () => {
     for (const provider of CLOUD_PROVIDERS) {
       const answer = await call(service(), `/${provider}`);
@@ -73,30 +79,30 @@ describe('provider validation', () => {
 describe('reading and writing one provider', () => {
   it('saves, then reads back rather than echoing the request', async () => {
     const credentialService = service();
-    const answer = await call(credentialService, '/aws', { method: 'PUT', body: { accessKeyId: 'AKIAREAL', secret: 's' } });
-    expect(credentialService.saveCredentials).toHaveBeenCalledWith(PERSON.id, 'aws', { accessKeyId: 'AKIAREAL', secret: 's' });
-    expect((answer.data as { credentials: unknown }).credentials).toEqual({ accessKeyId: 'AKIA••••' });
-    expect(JSON.stringify(answer.data)).not.toContain('AKIAREAL');
+    const answer = await call(credentialService, '/ovh', { method: 'PUT', body: { applicationKey: 'APPKREAL', secret: 's' } });
+    expect(credentialService.saveCredentials).toHaveBeenCalledWith(PERSON.id, 'ovh', { applicationKey: 'APPKREAL', secret: 's' });
+    expect((answer.data as { credentials: unknown }).credentials).toEqual({ applicationKey: 'APPK••••' });
+    expect(JSON.stringify(answer.data)).not.toContain('APPKREAL');
   });
 
   it('refuses values that are not text', async () => {
     const credentialService = service();
-    const answer = await call(credentialService, '/aws', { method: 'PUT', body: { accessKeyId: 5 } });
+    const answer = await call(credentialService, '/ovh', { method: 'PUT', body: { applicationKey: 5 } });
     expect(answer.status).toBe(400);
     expect(credentialService.saveCredentials).not.toHaveBeenCalled();
   });
 
   it('deletes for the calling user only', async () => {
     const credentialService = service();
-    const answer = await call(credentialService, '/hetzner', { method: 'DELETE' });
-    expect(answer.data).toEqual({ success: true, provider: 'hetzner' });
-    expect(credentialService.deleteCredentials).toHaveBeenCalledWith(PERSON.id, 'hetzner');
+    const answer = await call(credentialService, '/github', { method: 'DELETE' });
+    expect(answer.data).toEqual({ success: true, provider: 'github' });
+    expect(credentialService.deleteCredentials).toHaveBeenCalledWith(PERSON.id, 'github');
   });
 
   it('never lets one tenant read another', async () => {
     const credentialService = service();
-    await call(credentialService, '/aws', { user: { id: 'someone-else', email: 'other@example.com' } });
-    expect(credentialService.getCredentials).toHaveBeenCalledWith('someone-else', 'aws');
+    await call(credentialService, '/ovh', { user: { id: 'someone-else', email: 'other@example.com' } });
+    expect(credentialService.getCredentials).toHaveBeenCalledWith('someone-else', 'ovh');
   });
 });
 
@@ -110,13 +116,13 @@ describe('validating credentials', () => {
 
   it('checks the submitted values for every other provider', async () => {
     const credentialService = service();
-    await call(credentialService, '/validate/aws', { method: 'POST', body: { accessKeyId: 'k' } });
-    expect(credentialService.validateCredentials).toHaveBeenCalledWith('aws', { accessKeyId: 'k' });
+    await call(credentialService, '/validate/ovh', { method: 'POST', body: { applicationKey: 'k' } });
+    expect(credentialService.validateCredentials).toHaveBeenCalledWith('ovh', { applicationKey: 'k' });
     expect(credentialService.testGoogleDriveConnection).not.toHaveBeenCalled();
   });
 
   it('refuses submitted values that are not text', async () => {
-    const answer = await call(service(), '/validate/aws', { method: 'POST', body: { accessKeyId: {} } });
+    const answer = await call(service(), '/validate/ovh', { method: 'POST', body: { applicationKey: {} } });
     expect(answer.status).toBe(400);
   });
 });

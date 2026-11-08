@@ -1,7 +1,3 @@
-export async function executeDestroyClusterWorkflow(): Promise<void> {
-  return undefined;
-}
-
 export async function executeDestroyAppWorkflow(): Promise<{ status: string }> {
   return { status: 'destroyed' };
 }

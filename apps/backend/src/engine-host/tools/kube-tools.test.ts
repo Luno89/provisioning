@@ -6,7 +6,7 @@ import { principalOf } from '../../platform/lib/permissions.js';
 
 const CLUSTERS: ClusterMetadata[] = [
   { id: 'machine-koala', name: 'koala', provider: 'machine', machineId: 'koala', status: 'healthy', ownerId: 'u1', capacity: { cpuCores: 16, ramGb: 64 } },
-  { id: 'c2', name: 'dev-1', provider: 'k3d', status: 'healthy', ownerId: 'u1' },
+  { id: 'c2', name: 'dev-1', provider: 'machine', machineId: 'dev-1', status: 'healthy', ownerId: 'u1' },
   { id: 'machine-box', name: 'box', provider: 'machine', machineId: 'box', status: 'healthy', ownerId: 'u2' },
 ];
 const DEPLOYMENTS = [
@@ -38,7 +38,7 @@ describe('cluster diagnostics', () => {
     const out = await call('list_infrastructure');
     expect(out.content).toContain('- koala (the cluster this Koala runs in, healthy, 16 cores, 64 GB)');
     expect(out.content).toContain('  - Billing: gitapp, unhealthy — CrashLoopBackOff');
-    expect(out.content).toContain('- dev-1 (k3d, healthy)\n  - nothing deployed');
+    expect(out.content).toContain('- dev-1 (machine, healthy)\n  - nothing deployed');
     expect(out.content).not.toContain('Theirs');
   });
 

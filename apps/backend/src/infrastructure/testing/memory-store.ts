@@ -4,18 +4,17 @@ import type { AccessRequest, EgressGrantRecord, EgressRequest } from '@koala/har
 import { loadKeys } from '../../platform/lib/keys.js';
 import { mergeRecord } from '../../platform/lib/merge-record.js';
 import type {
-  ClusterMetadata, ClusterProgress, DeploymentMetadata, PartialInfo, PendingApprovalMetadata, SecretKey,
+  ClusterMetadata, DeploymentMetadata, PartialInfo, PendingApprovalMetadata, SecretKey,
 } from '../../platform/index.js';
 import { collectionIn, copied, MemoryRecords, type Collections } from '../../platform/testing/memory-records.js';
 import type { StoredAppSpec } from '../lib/app-spec.js';
-import type { ClusterProviderSpec } from '../lib/cluster-providers.js';
 import { hasPlainSecret, sealDeployment, unsealDeployment } from '../lib/deployment-secrets.js';
 import type { BindingTypeRecord } from '../lib/service-binding.js';
 import { SERVER_ORDER_LOG_LINES, type ServerOrder } from '../lib/server-orders.js';
 import type { WorkFailure } from '../lib/work-failures.js';
 import type { DeploymentHealth, InfrastructureStore } from '../store.js';
 import type { Watching } from '../../platform/lib/change-streams.js';
-import { FOLLOWED_CLUSTER_STATUSES, FOLLOWED_DEPLOYMENT_STATUSES, namesWorkflow, type FollowedRecord } from '../lib/followed-work.js';
+import { FOLLOWED_DEPLOYMENT_STATUSES, namesWorkflow, type FollowedRecord } from '../lib/followed-work.js';
 
 const TEST_KEY = loadKeys({ DATA_KEY: 'k'.repeat(64) }).data;
 
@@ -35,7 +34,6 @@ export class MemoryInfrastructureStore implements InfrastructureStore {
   private readonly clusters: MemoryRecords<ClusterMetadata>;
   private readonly deployments: MemoryRecords<DeploymentMetadata>;
   private readonly appSpecs: MemoryRecords<StoredAppSpec>;
-  private readonly clusterProviders: Map<string, ClusterProviderSpec>;
   private readonly pendingApprovals: MemoryRecords<PendingApprovalMetadata>;
   private readonly workFailures: MemoryRecords<WorkFailure>;
   private readonly egressGrants: MemoryRecords<EgressGrantRecord>;
@@ -48,7 +46,6 @@ export class MemoryInfrastructureStore implements InfrastructureStore {
     this.clusters = new MemoryRecords(collectionIn<ClusterMetadata>(collections, 'clusters'));
     this.deployments = new MemoryRecords(collectionIn<DeploymentMetadata>(collections, 'deployments'));
     this.appSpecs = new MemoryRecords(collectionIn<StoredAppSpec>(collections, 'appSpecs'));
-    this.clusterProviders = collectionIn<ClusterProviderSpec>(collections, 'clusterProviders');
     this.pendingApprovals = new MemoryRecords(collectionIn<PendingApprovalMetadata>(collections, 'pendingApprovals'));
     this.workFailures = new MemoryRecords(collectionIn<WorkFailure>(collections, 'workFailures'));
     this.egressGrants = new MemoryRecords(collectionIn<EgressGrantRecord>(collections, 'egressGrants'));
@@ -62,7 +59,6 @@ export class MemoryInfrastructureStore implements InfrastructureStore {
 
   watchFollowed(on: (followed: FollowedRecord) => void): Watching {
     const stops = [
-      this.clusters.watch((record) => { if (namesWorkflow(record, FOLLOWED_CLUSTER_STATUSES)) on({ kind: 'cluster', record }); }),
       this.deployments.watch((stored) => {
         const record = unsealDeployment(stored, this.dataKey);
         if (namesWorkflow(record, FOLLOWED_DEPLOYMENT_STATUSES)) on({ kind: 'deployment', record });
@@ -89,25 +85,6 @@ export class MemoryInfrastructureStore implements InfrastructureStore {
     const { id: _id, ...fields } = patch;
     if (Object.keys(fields).length === 0) return;
     this.clusters.change(id, (cluster) => ({ ...cluster, ...fields }));
-  }
-
-  async saveClusterInfo(cluster: PartialInfo<ClusterMetadata>): Promise<ClusterMetadata> {
-    const id = cluster.id || randomUUID();
-    const previous = (await this.getClusters()).find((x) => x.id === id);
-    const merged = mergeRecord(previous, cluster as Partial<ClusterMetadata>);
-    const next: ClusterMetadata = {
-      ...merged,
-      id,
-      name: merged.name || '',
-      provider: merged.provider || 'k3d',
-      status: merged.status || 'provisioning',
-    };
-    await this.saveCluster(next);
-    return next;
-  }
-
-  async updateClusterProgress(clusterId: string, progress: ClusterProgress): Promise<void> {
-    this.clusters.change(clusterId, (cluster) => ({ ...cluster, progress: stored(progress) }));
   }
 
   async getDeployments(): Promise<DeploymentMetadata[]> {
@@ -175,14 +152,6 @@ export class MemoryInfrastructureStore implements InfrastructureStore {
 
   async deleteAppSpec(id: string): Promise<void> {
     this.appSpecs.delete(id);
-  }
-
-  async getClusterProviders(): Promise<ClusterProviderSpec[]> {
-    return [...this.clusterProviders.values()].map(copied);
-  }
-
-  async saveClusterProvider(provider: ClusterProviderSpec): Promise<void> {
-    this.clusterProviders.set(provider.value, stored(provider));
   }
 
   async getPendingApprovals(): Promise<PendingApprovalMetadata[]> {

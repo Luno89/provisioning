@@ -65,14 +65,14 @@ describe('an app\'s page, as it asks the backend', () => {
   })
 
   it('starts destroying an app that runs and answers 202', async () => {
-    await destroyResource('app', 'hermes')
+    await destroyResource('hermes')
     expect(infra!.temporal.started.at(-1)?.options.args?.[0]).toMatchObject({ name: 'hermes' })
     expect((await backend.db.infrastructure.getDeployments()).find((dep) => dep.id === 'hermes')?.status).toBe('destroying')
   })
 
   it('answers 404 for every change to someone else\'s app', async () => {
     const missing = { response: { status: 404, data: { error: 'Deployment not found' } } }
-    await expect(destroyResource('app', 'theirs')).rejects.toMatchObject(missing)
+    await expect(destroyResource('theirs')).rejects.toMatchObject(missing)
     await expect(exposeDeployment('theirs', 'local')).rejects.toMatchObject(missing)
     await expect(unexposeDeployment('theirs', 'public')).rejects.toMatchObject(missing)
     await expect(setExposurePath('theirs', '/')).rejects.toMatchObject(missing)

@@ -180,7 +180,7 @@ async function restoreTerraformState(): Promise<void> {
 async function restoreApps(): Promise<void> {
   const cluster = ownCluster();
   await report('installing', 'Getting monitoring ready for your apps');
-  await ensureClusterMonitoring({ access: cluster, infra: new InfrastructureService() }, koalaClusterMonitoring(process.env, cluster.own(), true));
+  await ensureClusterMonitoring({ access: cluster, infra: new InfrastructureService() }, koalaClusterMonitoring(process.env, cluster.own()));
   const manifest = JSON.parse(await text(await part('apps'))) as AppsManifest;
   const pullHost = await new GiteaService(loadKeys(process.env).data, giteaSettingsFrom(process.env)).getRegistryHost();
   for (const entry of manifest.namespaces) {

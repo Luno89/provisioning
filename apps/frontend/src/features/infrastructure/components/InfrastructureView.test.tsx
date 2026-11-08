@@ -48,7 +48,7 @@ const { default: InfrastructureView } = await import('./InfrastructureView')
 const shell = {
   clusters: [
     { id: 'machine-koala', name: 'machine-koala', provider: 'machine', status: 'healthy' },
-    { id: 'c2', name: 'edge', provider: 'hetzner', status: 'healthy' },
+    { id: 'c2', name: 'edge', provider: 'machine', status: 'healthy' },
   ],
   deployments: [
     { id: 'books', name: 'Books', appType: 'audiobookshelf', clusterId: 'machine-koala', status: 'running', url: 'http://books.local', listing: { checked: true, onCluster: true } },
@@ -56,9 +56,7 @@ const shell = {
     { id: 'new', name: 'New', appType: 'wordpress', clusterId: 'c2', status: 'deploying', listing: { checked: false, why: 'edge is stopped until something runs on it' } },
   ],
   providers: [],
-  setShowClusterModal: vi.fn(),
   setShowAppModal: vi.fn(),
-  setWizardPreset: vi.fn(),
   openDashboard: vi.fn(),
 } as unknown as ShellContext
 
@@ -257,7 +255,7 @@ describe('the Infrastructure page', () => {
     expect(useShellStore.getState().confirmDestroy).toEqual({ type: 'app', id: 'new', name: 'New', isAbort: true })
   })
 
-  it('lists every cluster, the one Koala runs in first, provisions a new one, and offers no way to destroy the one Koala runs in', async () => {
+  it('lists every cluster, the one Koala runs in first, sends you to My Machines for a new one, and offers no way to destroy any', async () => {
     show()
     await waitFor(() => expect(screen.getAllByTestId('cluster-card').map((card) => within(card).getAllByRole('link')[0]?.textContent)).toEqual(['machine-koala', 'edge']))
     const cards = screen.getAllByTestId('cluster-card')
@@ -266,10 +264,11 @@ describe('the Infrastructure page', () => {
     expect(within(cards[0]!).queryByRole('button')).toBeNull()
     fireEvent.click(within(cards[1]!).getByRole('button', { name: 'Logs of edge' }))
     expect(shell.openDashboard).toHaveBeenCalledWith('cluster', 'c2')
-    fireEvent.click(within(cards[1]!).getByRole('button', { name: 'Destroy edge' }))
-    expect(useShellStore.getState().confirmDestroy).toMatchObject({ type: 'cluster', id: 'c2' })
-    fireEvent.click(screen.getByRole('button', { name: /Provision a cluster/ }))
-    expect(shell.setShowClusterModal).toHaveBeenCalledWith(true)
+    expect(within(cards[1]!).queryByRole('button', { name: /Destroy|Abort/ })).toBeNull()
+    expect(screen.queryByRole('button', { name: /Provision a cluster/ })).toBeNull()
+    const section = document.getElementById('infrastructure-clusters')!
+    expect(section).toHaveTextContent('A cluster comes with a machine')
+    expect(within(section).getAllByRole('link', { name: 'My Machines' }).map((link) => link.getAttribute('href'))).toEqual(['#/mesh', '#/mesh'])
   })
 
   it('shows everything on a cluster: workloads by whose they are, platform services, nodes, GPUs and Helm releases', async () => {

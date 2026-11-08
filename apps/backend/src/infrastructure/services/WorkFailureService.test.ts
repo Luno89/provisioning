@@ -45,13 +45,12 @@ describe('work that failed', () => {
     expect(await service.shown('space-1')).toEqual([]);
   });
 
-  it('records a workflow that reports it failed, once, with its cause, but not deploys, provisioning, children or platform work', async () => {
+  it('records a workflow that reports it failed, once, with its cause, but not deploys, children or platform work', async () => {
     const { service } = await setUp();
     for (const failed of [
       failedWorkflow({}),
       failedWorkflow({}),
       failedWorkflow({ workflowId: 'deploy-1', type: 'executeDeployAppWorkflow' }),
-      failedWorkflow({ workflowId: 'provision-1', type: 'ClusterProvisionWorkflow' }),
       failedWorkflow({ workflowId: 'sweep', type: 'SweepWorkflow', ownerId: 'platform' }),
       failedWorkflow({ workflowId: 'child', parent: 'remove-project-p1' }),
     ]) await service.workflowFailed(failed);

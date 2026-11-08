@@ -251,8 +251,8 @@ export class MonitoringService {
     return cluster.id === this.deps.ownClusterId();
   }
 
-  private onMachine(cluster: Pick<ClusterMetadata, 'id' | 'provider'>): boolean {
-    return cluster.provider === 'machine' && !this.isOwn(cluster);
+  private onMachine(cluster: Pick<ClusterMetadata, 'id'>): boolean {
+    return !this.isOwn(cluster);
   }
 
   async clustersOf(viewer: Viewer): Promise<ClusterMetadata[]> {
@@ -272,7 +272,7 @@ export class MonitoringService {
 
   async reach(cluster: ClusterMetadata): Promise<Reached> {
     if (cluster.status === 'provisioning') return { cluster, state: 'installing', reason: 'it is being made' };
-    if (cluster.provider === 'machine' && cluster.status === 'stopped') return { cluster, state: 'stopped', reason: 'its machine stops it while nothing runs on it' };
+    if (cluster.status === 'stopped') return { cluster, state: 'stopped', reason: 'its machine stops it while nothing runs on it' };
     if (cluster.status !== 'healthy') return { cluster, state: 'unreachable', reason: `it is ${cluster.status}` };
     const pool = this.deps.pool?.(cluster);
     if (pool) {
@@ -440,7 +440,7 @@ export class MonitoringService {
   }
 
   private waitingOnMachine(dep: DeploymentMetadata, cluster: ClusterMetadata): string | undefined {
-    if (cluster.provider !== 'machine' || !cluster.machineId || !this.deps.machineStatus) return undefined;
+    if (!cluster.machineId || !this.deps.machineStatus) return undefined;
     if (dep.status !== 'deploying' && dep.status !== 'destroying') return undefined;
     if (this.deps.machineStatus(cluster.machineId).online) return undefined;
     return `it waits for ${cluster.name}, which is offline: it ${dep.status === 'deploying' ? 'deploys' : 'is removed'} when the machine connects again`;

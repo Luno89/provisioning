@@ -1,9 +1,9 @@
 import {
-  StorageAdapter, hasCloudCredentials, isMockCloudProvider, isSelfManagedCluster,
-  namespaceOf, type MachineOfCluster, type Reach,
+  StorageAdapter, namespaceOf, type MachineOfCluster, type Reach,
 } from '../infrastructure/index.js';
 import type { ClusterSteps } from './cluster-steps.js';
 import { handedReach } from './handed-reach.js';
+import { appServiceType, placedOnPool } from '../monitoring/index.js';
 
 export interface ResizeDiskArgs {
   name: string;
@@ -12,7 +12,6 @@ export interface ResizeDiskArgs {
   reach?: Reach | undefined;
   machine?: MachineOfCluster | undefined;
   clusterName: string;
-  provider: string;
   strategy: string;
   appType: string;
   storage: Record<string, string>;
@@ -27,8 +26,7 @@ export interface ResizeDiskResult {
 
 export async function ResizeDiskActivity(args: ResizeDiskArgs, steps: ClusterSteps): Promise<ResizeDiskResult> {
   const reach = handedReach(args);
-  const isMock = isMockCloudProvider(args.provider, hasCloudCredentials);
-  const physicalName = isMock ? `mock-${args.provider}-${args.clusterName}` : args.clusterName;
+  const physicalName = args.clusterName;
   const deploymentId = args.deploymentId || 'default';
 
   const env: Record<string, string> = {
@@ -38,7 +36,7 @@ export async function ResizeDiskActivity(args: ResizeDiskArgs, steps: ClusterSte
     DEPLOYMENT_NAME: namespaceOf(args),
     DEPLOYMENT_ID: deploymentId,
     KUBECONFIG: await steps.access.kubeconfigOf(reach),
-    SELF_MANAGED_K8S: isSelfManagedCluster(args.provider, isMock) ? 'true' : 'false',
+    APP_SERVICE_TYPE: appServiceType(placedOnPool(process.env, reach)),
     APP_TYPE: args.appType,
     ...StorageAdapter.getStorageEnv(args.appType, args.strategy, args.storage),
   };

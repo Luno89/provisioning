@@ -42,7 +42,7 @@ export function modelsRoutesBehaviour(make: () => Promise<Database>): void {
     db = await make();
     listed = [{ id: 'tabby-qwen' }];
     credentials = mock<Pick<CredentialService, 'resolveCredentials'>>();
-    credentials.resolveCredentials.mockResolvedValue({ mode: 'mock', env: {} });
+    credentials.resolveCredentials.mockResolvedValue({ mode: 'none', env: {} });
     machines = mock<Machines>();
     rateLimits = vi.fn<ModelsRouterDeps['rateLimits']>(() => []);
     hf.resetHandlers();

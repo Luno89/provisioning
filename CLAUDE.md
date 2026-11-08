@@ -18,8 +18,8 @@ right?"
   the import boundaries; (4) v1 in vertical slices, each real and checked against its flow map.
 - **The model**: root keeps one k3s cluster of its own; a machine is exactly one cluster (made with native k3s for GPU
   passthrough, or k3d in Docker without it); an instance is the chart's pods on one of the person's machines or on the pool. There
-  is no other kind of cluster. Hetzner, DigitalOcean, mock cloud mode and the `k3d` provider are being removed; the `combined`
-  role and the `provisioning-lunorica` system cluster are gone (step 3 B, 2026-11-08).
+  is no other kind of cluster. The `combined` role, the `provisioning-lunorica` system cluster, Hetzner, DigitalOcean, mock
+  cloud mode, the `k3d` provider and Provision a cluster are gone (step 3 B, 2026-11-08): Koala makes no clusters.
 - **Much of this file still describes the old topology** (k3d as Koala's cluster, `dev:split`, the old GPU path, ship's old
   step list, the live suites that still name `provisioning-lunorica`). Where it disagrees with the
   plan, the plan wins; this file is rewritten section by section as each phase lands.
@@ -42,10 +42,11 @@ right?"
 
 ## What this is
 
-Multi-cloud provisioning platform (local-first): spin up Kubernetes clusters (k3d locally, a machine of your own added under My Machines, or a VM Koala buys on Hetzner or DigitalOcean; AWS, Google Cloud and Azure are not built yet and are refused) and deploy apps (Odoo, WordPress, Nextcloud, Audiobookshelf, vLLM, Open WebUI) exposed through each instance's edge: on this computer at `<app>.localhost:8000`, and publicly at `<app>-<name>.<domain>` through root's Caddy where the instance has a domain.
+A person's own Koala on their own machines: every cluster is a machine's own (added under My Machines, made there with native
+k3s, or k3d where the person has Docker and wants no GPU), or the pool's place on Koala's servers; Koala makes no clusters. It deploys apps (Odoo, WordPress, Nextcloud, Audiobookshelf, vLLM, Open WebUI) exposed through each instance's edge: on this computer at `<app>.localhost:8000`, and publicly at `<app>-<name>.<domain>` through root's Caddy where the instance has a domain.
 
 ```
-React UI (Vite :5173) → Express API (:3001) → Temporal.io (workflows) → CDKTF (Terraform) → k3d / AWS / GCP / DO
+React UI (Vite :5173) → Express API (:3001) → Temporal.io (workflows) → CDKTF (Terraform) → a machine's cluster, through ClusterAccess
 ```
 
 npm workspaces: `apps/*`, `packages/*`.
@@ -62,7 +63,7 @@ npm workspaces: `apps/*`, `packages/*`.
    - **Data kept only in memory** when the feature is a list of history the user comes back to.
    - **A field sent in a shape its consumer silently ignores.** `{ temperature }` where the model call reads `{ toolTurn, conversation }`.
 
-   Test doubles belong in tests. The product-level mock modes this file used to allow (mock cloud mode on a dev box, the Twilio
+   Test doubles belong in tests. The product-level mock modes this file used to allow (mock cloud mode on a dev box, now gone, and the Twilio
    fallback) are being removed under rule 4.
 2. **Proactive Questioning & Architectural Alignment**: If you are not 100% confident about requirements, terminology, design trade-offs, or system boundaries, STOP and ask the user directly before proceeding. Never guess or assume intent. Check existing plan documents (`~/.claude/plans/`, `CLAUDE.md`) and project history first so questions are informed and focused on unsettled decisions. Any architectural decision, abstraction boundary, or UX paradigm shift MUST be surfaced to the user for explicit review and sign-off.
 3. **Mandatory Live Operational E2E Verification**: Never declare any feature or capability "done" based solely on unit tests or typechecks. You MUST perform a live, end-to-end operational verification against the running application (e.g. authenticating, exercising actual HTTP/WebSocket routes, validating client payload contracts, verifying state mutations) proving the exact user flow succeeds end-to-end before concluding.
@@ -93,7 +94,7 @@ npm run ship         # G1 + G2 against the dev stack on this commit, then push m
 npm run release      # G3 + G4 on a shipped commit, then tag it; GitHub builds and publishes the image (Releases, below)
 npm run test:workflows # actionlint, then the Release workflow run here under act, publishing nothing
 npm run test         # the three tiers in order, each only once the one below passes: test:unit → test:integration → test:e2e (Test tiers, below)
-npm run test:all     # test → test:synth:palworld → test:infra:integration
+npm run test:all     # test → test:synth:palworld
 npm run test:unit    # typecheck + every workspace's unit tier: *.test.ts, nothing outside the process, ~1.5 min
 npm run test:integration # every workspace's integration tier: *.integration.test.ts, real Mongo, a Temporal dev server, sockets, git and sh on this machine, ~5.5 min
 npm run test:integration:coupled # both tiers again, gathering what each test file runs (Coupling coverage, below); ship's third step
@@ -102,14 +103,13 @@ npm run test:e2e     # the e2e tier: the live suites ship runs (E2E_STEPS in tes
 npm run test:alive   # scripts/alive.sh — Docker/k3d/K8s API/Temporal/worker pod health, fails fast with fix hints
 npm run test:browser # test:alive → Playwright on tests/e2e.spec.ts, whose selectors have rotted (plans/testing-pyramid.md); in no gate
 npm run test:browser-live # in ship: its own root, instance (with its engine worker) and hub from this commit's image (split-stack), driven in Chromium → the owner signs in on root's page and lands on their instance, asked for a first model → Studio → Models connects a model stand-in on this machine (allowed in a lab) and makes it the default → a chat answers through the engine → Infrastructure shows its sections, none of the mesh only root has → Settings, then Log Out ends the session; every failed request, console error and uncaught error on the page fails it, ~4 min
-npm run test:infra:integration    # full cluster provision → verify → destroy, ~5 min (tests/infra-integration.ts)
 npm run test:routing-live         # root's Caddy on the mesh (local CA, koala.localhost) → a named instance installs on a VM → <name>.<domain> answers through Caddy and sign-in lands there → an app on the instance at <app>-<name>.<domain> → a group the instance claims is routed by root to its edge (the edge's 404 names the instance in X-Koala-Edge) and freed again → nested addresses issued and shown, the flat ones still answering → root emails the owner when the instance's connection to it is gone and when it is back, and the instance shows root down under Needs attention and clears it (a 1-minute threshold, `WATCH_UNREACHABLE_MINUTES`) → signing out everywhere at root ends the instance's session at once, ~9 min, cleans up
 npm run test:root-metrics-live    # throwaway Mongo, Postgres and registry as root's compose files define them → root-telemetry.sh makes their monitoring accounts, which may watch and not write → the pinned exporters on loopback → root's host collector with its real config relays to a stand-in with the cluster collector's own pipeline: up{service=…} for every service, mail up and down with its port, the backup's last success outliving the one-minute expiry, a stopped Mongo down; ~3 min
 npm run test:mail-live            # the send-only mail server is built and run beside a test mailbox → the backend's mailer sends an alert through it → it arrives DKIM-signed and the signature verifies against the key the DNS script publishes → root's mail check asks Spamhaus ZEN, Barracuda and UCEPROTECT through this computer's resolver: each list's own test address 127.0.0.2 is listed, loopback is on none → a host it does not trust is refused, ~2 min
 npm run test:monitoring-live      # a throwaway app on the cluster Koala runs in → Monitoring calls it healthy → Koala, on your model, proposes an alert for when it stops answering → the card sets it → the app is stopped until the alert fires and the conversation hears it, started until it resolves → the alert is removed and the app destroyed, ~10 min
 npm run test:telemetry-live       # against the running dev stack: the collector and Tempo are on the cluster Koala runs in (the cluster worker applied them if they were missing) → a throwaway account signs up with an admin's invite → one scripted turn through the check runner → one trace in Tempo, found by the id the request answered with, spans the request, the check workflow's start, the engine run's request, its workflow start and the model call, with nothing said in it → koala_up, the request, workflow, activity and model-call metrics are in Prometheus by name, labelled with the process → the Koala section on GET /api/infrastructure carries them → the stack stays; removes the scenario and the account, ~3 min
 npm run test:infrastructure-live   # Infrastructure reads the cluster Koala runs in → a workload that cannot pull its image, put there by hand, shows in Needs attention and on the cluster page as not deployed through Koala, then leaves once removed → a Koala chat turn on a model that does not exist shows as failed work, opens its chat and clears → whatever the memory keeper keeps from the run and the quiet conversation is retired, ~15 min
-npm run test:hardening-live        # what production refuses and what it passes on: root's Caddy, the pool's proxy and an instance backend from this commit's image on a network of mesh addresses carry each visitor's address (the proxy as it was before made everyone root), and a caller around root's Caddy is taken for who they are whatever they claim → the backend and a worker without Temporal's CA, and an instance whose ROOT_URL is plain http to the open internet, stop with the reason → on a split stack (production containers), Provision a cluster offers k3d, a machine of the person's, Hetzner and DigitalOcean only, and the instance refuses an AWS, Google Cloud or Azure cluster as not available yet, recording nothing → a root that is not a lab refuses an instance's loopback, private and metadata addresses and, given one stored before, neither asks it how it signs in nor sends it a logout; in ship, ~4 min
+npm run test:hardening-live        # what production refuses and what it passes on: root's Caddy, the pool's proxy and an instance backend from this commit's image on a network of mesh addresses carry each visitor's address (the proxy as it was before made everyone root), and a caller around root's Caddy is taken for who they are whatever they claim → the backend and a worker without Temporal's CA, and an instance whose ROOT_URL is plain http to the open internet, stop with the reason → on a split stack (production containers), the instance offers no cluster providers, lists no cloud credentials for making clusters, and finds no route to make or remove a cluster of any provider, recording nothing → a root that is not a lab refuses an instance's loopback, private and metadata addresses and, given one stored before, neither asks it how it signs in nor sends it a logout; in ship, ~4 min
 npm run test:dev-split-live        # its own root, instance and hub (tests/lib/split-stack.ts: containers from this commit's image on spare ports, each on a throwaway database, one Temporal namespace of their own, a mailbox) → root, given a stand-in OpenID provider through OIDC_*, offers it and not GitHub, refuses a sign-up through it without an invite, makes the account with the owner's invite and signs it in again by its subject → signed out, the instance starts its sign-in through root's OpenID provider → the owner, made with root's setup code, is handed to the instance by code, PKCE and state, once and only in the browser that started it → root serves none of the instance's routes and the instance makes no accounts → a stranger with a root account is sent nowhere by root and stopped at the instance's own door → the instance's service token sends mail through root and a wrong credential is refused → the hub signs in through root too → the instance's connection to root: stopped, root emails the owner after a minute and once when it is back, and root stopped shows on the instance under Needs attention and clears → signing out everywhere on root ends the instance's and the hub's sessions at once and revokes a run's grant; in ship, ~6 min
 npm run test:hub-live              # written for the combined dev stack, which is gone, and not yet moved onto `tests/lib/dev-stack.ts`: an admin's invite signs up an owner, who makes two shared projects and invites a collaborator and a client to one and someone else to the other → root shows each invite signed out and signs up only the address invited → the outsider reaches nothing of the first project by id, guess or another's invite → each role can do only what it may → roles change, an invite is taken back, people are removed and leave, the last owner cannot → the owner's removal refused while they alone own a project someone else is on, the outsider's removal taking them off it → one project deleted by name and the owner's removal deleting the other, their databases gone, ~1 min
 npm run test:project-sharing-live  # written for the combined dev stack, which is gone, and not yet moved onto `tests/lib/dev-stack.ts`: a throwaway project with a repository and a channel someone talked in → the group check refuses a dashed and a reserved name and suggests one from the project's name, sharing without a group is refused → the preview says what goes and stays, nothing is on the hub → shared under its group, which the preview and the hub's project carry, and a second project is refused that group → the channel arrives with its history and a new message follows → a commit on the owner's main reaches the hub's and one pushed to the hub's reaches the owner's → taken back by its name: the hub's database and repository are gone, everything stays on the instance → the group is free again and the second project is shared under it and taken back; the account removes itself, ~30 s
@@ -150,7 +150,7 @@ npm run test:instance-live        # k3d cluster + root container + charts/instan
 Every `test:*-live` script runs through `tests/lib/run-live.ts`, which records when it last passed and last failed in
 `tests/last-passed.json` and the table `tests/LAST-PASSED.md`; a script nobody has run for weeks shows there.
 
-Note: there is ONE Playwright suite, `tests/e2e.spec.ts` (11 tests, `testDir: './tests'`), run by `npm run test:browser`
+Note: there is ONE Playwright suite, `tests/e2e.spec.ts` (8 tests, the three that provisioned and destroyed a k3d cluster gone with it, `testDir: './tests'`), run by `npm run test:browser`
 and by no gate.
 
 Per-workspace scripts (`test`, `lint`, `dev`, `dev:worker`, `dev:worker:cluster`) run the standard
@@ -200,10 +200,10 @@ Refreshes every 2s: MongoDB cluster status/progress, live log tail, K8s pod stat
 | `apps/backend/src/<area>/store.ts` | **The area's records**: `interface <Area>Store` and `Mongo<Area>Store`, its collections, indexes (`ensureIndexes`) and every read and write of them. A service reads another area's records through `db.<area>` or a `Pick` of that store, never through the driver. `MongoDB` composes the fourteen stores and wraps the projects and engine stores in the hub-write marker |
 | `apps/backend/src/platform/lib/mongo-db.ts` | The MongoDB implementation, the only one. Unit tests get a real Mongo from `platform/lib/test-database.ts`: `testDatabase()` opens a fresh database on the `mongodb-memory-server` that `vitest.global-setup.ts` starts once per run, and `vitest.setup.ts` drops every database a file opened when it ends |
 | `apps/backend/src/platform/lib/auth.ts`, `crypto.ts` | JWT sign/verify, password hashing; AES-256-GCM encrypt/decrypt/mask for stored secrets |
-| `apps/backend/src/infrastructure/lib/credential-resolver.ts` | Resolution chain for cloud creds: user-stored → `process.env` (the operator only) → mock mode (a dev box only, `cluster-topology.ts`) |
+| `apps/backend/src/infrastructure/lib/credential-resolver.ts` | Resolution chain for stored credentials (OVHcloud, the DNS providers, Hugging Face, GitHub): user-stored → `process.env` (the operator only) → `none` |
 | `apps/backend/src/platform/middleware/` | `asyncRoute` + the error responder, and `auth.ts`'s `createAuth()` — `requireAuth`, `requireAdmin`, the session cookie and the invite gate. Express 4 does not await handlers — an unwrapped async handler that rejects sends NO response and the request hangs |
 | `apps/backend/src/workflows/` + `activities/` | Temporal.io workflow/activity definitions |
-| `apps/backend/src/worker-host.ts` | Host-side Temporal worker — cluster provisioning/destruction activities |
+| `apps/backend/src/worker-host.ts` | Host-side Temporal worker — root's work: the pool, server orders, account removals at root, the dependency watch, the crawl |
 | `apps/backend/src/worker-cluster.ts` | In-cluster Temporal worker — app deploy/destroy/resize activities; reads K8s service account when in-cluster |
 | `apps/frontend/src/main.tsx` / `App.tsx` | React entry / the router provider. Nothing else sits at `src/` root but `index.css` |
 | `apps/frontend/src/shell/` | The shell: the router (`router.tsx`), `RootLayout.tsx` (sign-in, the socket wiring, the modals), the sidebar, the shell routes and Settings, which composes several areas' sections. The only code that may import every feature; nothing imports it but `App.tsx` |
@@ -212,7 +212,7 @@ Refreshes every 2s: MongoDB cluster status/progress, live log tail, K8s pod stat
 | `apps/frontend/src/api/client.ts` | The one axios client. Only a feature's `api` modules call it. **No component contains a URL.** |
 | `packages/cdktf-infra/main.ts` | CDKTF entry — stack type selected via `STACK_TYPE=cluster\|app` env var |
 | `packages/cdktf-infra/constructs/` | Per-app CDKTF constructs, each with a Helm variant and a `-native` (raw K8s manifest) variant |
-| `bin/` | Pre-downloaded k3d, kubectl, helm binaries |
+| `bin/` | Pre-downloaded kubectl, helm and terraform (and k3d, which only dev and `test:instance-live` use on this computer; the image carries none) |
 | `k8s/` | K8s manifests for the in-cluster worker pod (ServiceAccount, ClusterRoleBinding, Deployment) and GPU device plugin DaemonSets |
 | `scripts/` | Setup, cluster lifecycle (`ensure-cluster.sh`, `alive.sh`, `cleanup-all.sh`), GPU setup, E2E monitor |
 
@@ -220,8 +220,9 @@ Refreshes every 2s: MongoDB cluster status/progress, live log tail, K8s pod stat
 
 Services live in their area's `services/` folder (`apps/backend/src/<area>/services/`), most extend `BaseService` (`platform/services/`). Each area's `wiring/` constructs them, called from `bootstrap()` (`apps/backend/src/index.ts`):
 
-- `InfrastructureService` — kubectl/helm/k3d/docker subprocess execution
-- `ClusterService` — cluster CRUD, mock-cloud detection, kubeconfig resolution
+- `InfrastructureService` — Terraform (CDKTF deploy and destroy of a stack, its state), image builds and other commands that reach no cluster
+- `ClusterAccess` — the only way to reach a cluster and the only starter of `kubectl` and `helm` (the backend lint rule `clusters/one-door` refuses either anywhere else; the machine agent, `apps/local-agent`, is a separate program that runs k3s on the person's machine and is not held to it)
+- `ClusterService` — the person's clusters: Koala's own cluster first, then their machines' records; capacity and GPU status, through `ClusterAccess`
 - `AppService` — app deployment CRUD, depends on `ClusterService` + `BuilderService`
 - `BuilderService` — image build orchestration
 - `RegistryService` — container registry operations
@@ -365,7 +366,7 @@ or id and is never a `gitapp` or `odoo-project` (`deployRequestFrom`), and destr
 namespace (`podLogTarget`); a build's log only to its project's owner; a remote host's kubeconfig is rebuilt from its server,
 authority and sign-in (`cleanKubeconfig`); the dashboard proxy signs in as the platform's Gitea and Infisical only on the
 cluster Koala runs in (`signsInAsPlatform`); the operator's cloud credentials from the environment are used only for an admin; and
-backups, binding type changes and adopting the host's k3d clusters are an admin's.
+backups and binding type changes are an admin's.
 **What Koala fetches for a person stays on the open internet** (W6): `publicFetch` and `publicAddressProblem`
 (`platform/services/public-fetch.ts`) refuse private, loopback, mesh, link-local and tunnelled addresses, at connect time and on
 every redirect; fetch_web_page, a crawl's start, a model endpoint's host (the person's own mesh node excepted, and anything on this machine in a lab, `labFrom`, owner 2026-11-03, so the browser suite chats with a stand-in) and a hosted MCP
@@ -1187,7 +1188,7 @@ key on their own account and bill by OAuth PKCE, `models/lib/openrouter-connect.
 cookie bound to the person, the state checked before OpenRouter is asked, the key stored like a pasted one, which stays
 possible), Infrastructure, My Machines (machines Koala works on),
 Cloud providers (cloud credentials) and Settings (account, 2FA, addresses, notifications, backups, people and invites).
-Two pages are off it and reached where they are used: the VPS catalog through Compare plans in Provision a cluster,
+Two pages are off it and reached where they are used: the VPS catalog (a price comparison; Host Koala on a server reads its OVH plans),
 and Temporal through All workflows on Running. Each still answers at its old address. The catalog reads OVH's prices for `OVH_SUBSIDIARY` (default `FR`) from the API host that
 serves that subsidiary (`ovhHostFor` in `infrastructure/lib/vps-catalog/adapters.ts`: an Australian account is on
 `ca.api.ovh.com`, and `AU` gives AUD ex GST with Sydney among the datacenters), adds the cheapest priced mandatory option
@@ -1206,9 +1207,10 @@ scroll to the matching section:
   failed in the last 7 days** with Clear.
 - **Apps**: every deployment with its health numbers, its addresses, Manage (the app's dashboard) and Destroy; Deploy an app.
   **An app's name is unique per owner, not across everyone** (the `deployments` index is `{ ownerId, name }`): a deployment's id is its own, and its namespace is `<name>-<six characters of its id>` (`newAppNamespace`), so two people's `shop` never share a namespace on one cluster. Every read of a deployment's namespace goes through `namespaceOf` in `infrastructure/lib/app-namespace.ts`, which falls back to the sanitized name for apps deployed before namespaces were stored. `npm run test:app-names-live` proves it.
-- **Clusters**: every cluster the person owns as a card (health, use, apps, history kept), Logs and Destroy; the cluster Koala
-  runs in first, marked "this Koala runs here" (`own` on its health row, derived from `INSTANCE_MACHINE_ID`), with no Destroy (the
-  route answers 409: it goes only with its machine, under My Machines); Provision a cluster.
+- **Clusters**: every cluster the person owns as a card (health, use, apps, history kept) and Logs; the cluster Koala runs in
+  first, marked "this Koala runs here" (`own` on its health row, derived from `INSTANCE_MACHINE_ID`). Koala makes no clusters
+  and removes none: a cluster comes with a machine added under My Machines and goes when the machine is removed there, which the
+  section says with a link to My Machines (`GET /api/clusters` lists them; there is no `POST` or `DELETE`).
 - **Running**: what runs, cancel, the bench and memory keeper switches (below), and All workflows (the Temporal page).
 - **Model traffic**: each model's queue, whether it is answering or paused because its server said it is busy, and its totals.
 - **Koala**: what Koala reports about itself (`KoalaSection`, `koala` on `GET /api/infrastructure`): its state, which of its
@@ -1507,7 +1509,7 @@ Mongo, Temporal's Postgres, Headscale, Caddy's data, the DKIM key, both env file
 `restore.sh <snapshot|latest>` goes onto a freshly bootstrapped root and makes it the old one, mesh identity included; then publish the
 instance image again. Pool trials' own volumes are not in it.
 
-**Snapshots are not rollback.** `update.sh` takes a Hetzner snapshot when a token is available, but
+**Snapshots are not rollback.** `update.sh` takes a Hetzner snapshot when root is a Hetzner VM and a token is available (root's own server, apart from the Hetzner provider that is gone), but
 restoring one rolls the whole disk back — including Mongo, Temporal and Headscale, so every cluster
 a tenant created since would vanish. It is disaster recovery for a broken machine, never "undo that
 deploy". Rollback is git-based for exactly this reason.
@@ -1566,18 +1568,10 @@ client** (owner, 2026-10-29: Porkbun beside Cloudflare, nothing hardcoded to eit
 
 ## Headscale mesh
 
-Self-managed clusters (`hetzner`, `do`, a person's `machine`) are meant to be reached over a WireGuard mesh, not the
-public internet — `constructs/hetzner-vm.ts` deliberately opens **no inbound rule for 6443**. A
-tenant's own machine sits behind their NAT, so it must dial out and join; nothing can SSH inward.
-
-**Mesh join is opt-in via `MESH_LOGIN_SERVER`** (the public Headscale URL, e.g.
-`https://mesh.example.com`). Unset, provisioning keeps the old public-IP behaviour — which is what
-a local dev box needs, and what every test to date exercises. Set, `TemporalBridge.provision()`
-mints a pre-auth key under the owner's Headscale user and `JoinMeshActivity` enrols the VM over
-SSH before k3s is installed, so the kubeconfig is written with the mesh address.
-
-The key is passed over **SSH, never cloud-init** — `user_data` would persist a live credential
-into Terraform state and the provider console.
+Every cluster Koala reaches other than its own is a person's machine, reached over a WireGuard mesh, never the public
+internet: a machine sits behind its person's NAT, so it dials out and joins; nothing can SSH inward. A machine joins the mesh
+when `MESH_LOGIN_SERVER` (the public Headscale URL, e.g. `https://mesh.example.com`) is set (the join, under **A person's own
+machines**), and its cluster's kubeconfig names its mesh address.
 
 `headscale/config/acl.hujson` is required: with no policy Headscale defaults to allow-all, so every
 tenant node could reach every other. Validate changes with
@@ -1586,31 +1580,37 @@ too-permissive policy still parses cleanly and fails open.
 
 ## Cloud credentials
 
-Per-user credentials for aws/gcp/azure/do/huggingface/github are stored via `CredentialService`, encrypted at rest, and resolved through `credential-resolver.ts`'s chain: user-stored → `process.env` (only for a principal allowed `use-operator-credentials`) → mock mode.
+Per-user credentials are stored via `CredentialService`, encrypted at rest, and resolved through `credential-resolver.ts`'s chain:
+user-stored → `process.env` (only for a principal allowed `use-operator-credentials`) → `none`. What is kept is only what something
+still uses: OVHcloud (buying root's server, Host Koala on a server), each DNS provider (**DNS providers**), Hugging Face (model
+downloads), Artificial Analysis, GitHub and Google Drive (backups). Cloud providers (the page) lists those.
 
-**Which providers Koala makes a cluster on is one table** (`CLUSTER_BUILDS` in `infrastructure/lib/cluster-topology.ts`, owner 2026-10-30:
-a provider whose provisioning is not real is refused until it is): `k3d` is made here (`test:infra:integration`), `machine` (a person's own, joined under
-My Machines, below) is not made here at all and is refused in Provision a cluster with where it comes from (`MACHINE_CLUSTER_JOINED`), `hetzner` (a VM through CDKTF, `test:hetzner-integration`, which
-spends money and is in no gate) and `do` (a Droplet through DigitalOcean's API, proved by no suite yet) get a VM and then k3s over SSH. `aws`,
-`gcp` and `azure` are stubs (their cluster construct only logs "Cluster logic would be instantiated here"; the roadmap lists them as still to
-build). `providerReady` decides everything offered: `/api/cluster-providers` (Provision a cluster) serves only ready providers, the catalogue's
-`provisionable` is `providerReady`, and `POST /api/clusters` refuses a stub with "<provider> is not available yet" before anything is recorded
-or started (`provisionRefusal`, `ProvisionRefused` → 400; `ProvisionClusterActivity` refuses one too). `tests/lib/cluster-providers-built.test.ts`
-fails when a provider is offered while `constructs/cluster.ts` (`clusterBuilt`) does not build it. **Mock cloud mode is a dev box's only**
-(owner, 2026-10-30): outside production an AWS, Google Cloud or Azure cluster with no credentials anywhere runs as local k3d containers, the
-zero-setup dev path, and with keys it is refused like anywhere else; under `NODE_ENV=production` nothing is ever mocked (`isMockCloudProvider`).
-Cloud providers says each cluster provider's state (`clusters`: `available`, `mock-only` or `not-yet`), showing the Mock Cloud Mode note only
-where it applies. A provider Koala does not make clusters on at all is refused anywhere.
+**Koala makes no clusters** (owner, 2026-11-08). A cluster is a machine's own, made on the machine when it is added under My Machines
+(native k3s, or k3d where the person has Docker and wants no GPU) and removed with it; on the pool an instance's place is the
+vcluster root makes (**the pool**), and root keeps its own k3s. The `k3d` provider, mock cloud mode, Hetzner and DigitalOcean (their
+constructs, activities, credentials and catalogue sources), Provision a cluster (`POST /api/clusters`, `DELETE /api/clusters/:id`,
+`/api/cluster-providers`) and the cluster-making workflows are gone; AWS, Google Cloud and Azure were never built and nothing offers
+them. A cluster record's `provider` is `machine` (`pool` and `root` name the stand-ins for Koala's own cluster there); a record of
+another kind stored before is refused by `ClusterAccess` as another kind of cluster. The VPS catalog stays as a price comparison
+(OVHcloud, Linode, Vultr, Scaleway, InterServer, all public prices, no credentials).
 
 ## Worker architecture
 
 Two Temporal task queues partition operations:
-- `host-ops-queue` → **host worker** (`worker-host.ts`, `npm run dev:worker`). Has Docker/k3d/kubectl/CDKTF access on the host. Handles `ProvisionClusterActivity`, `DestroyClusterActivity`.
+- `host-ops-queue` → **host worker** (`worker-host.ts`, `npm run dev:worker`). Root's work: the pool (`Pool*Activity`), server orders (`ServerOrder*Activity`), removals at root, the dependency watch and the crawl. It makes no clusters.
 - `cluster-ops-queue` → **in-cluster worker** (`worker-cluster.ts`, runs as a pod on the cluster Koala runs in, which it reaches with its service account as `ClusterAccess.own()`). Has the Docker socket mounted, and K8s service-account (in-cluster) or kubeconfig (on host) auth. Handles `DeployAppActivity`, `DestroyAppActivity`, `ResizeDiskActivity`.
 
-In-cluster worker lifecycle: `ensure-cluster.sh` creates the k3d management cluster (`provisioning-lunorica`) → the root `Dockerfile` builds the one app image (`nowrinkles/app`; `docker/entrypoint.sh` picks `backend`, `worker-engine`, `worker-cluster` or `worker-host`) with every workspace, kubectl, helm, k3d and terraform → `kubectl apply -f k8s/` creates ServiceAccount/ClusterRoleBinding/Deployment → the pod reads its service account and sets `K8S_HOST`/`K8S_TOKEN`/`K8S_CA_CERT` for CDKTF → mounts `/var/run/docker.sock` for docker-exec-based kubectl/helm into k3d server containers.
+The root `Dockerfile` builds the one app image (`nowrinkles/app`; `docker/entrypoint.sh` picks `backend`, `worker-engine`,
+`worker-cluster`, `worker-host` or a setup step) with every workspace, kubectl, helm and terraform. Every process reaches a cluster
+only through `ClusterAccess` (Koala's own through its pod's service account, a machine through the kubeconfig sealed on its
+record, root's through root's kubeconfig). The entrypoint still writes a kubeconfig under the context `k3d-provisioning-lunorica`
+(`/tmp/kubeconfig-provisioning-lunorica` and `~/.kube/config`) from the pod's account, because the setup job's shell scripts
+(`scripts/instance/platform-services.sh`, `ensure-gitea.sh`, `ensure-verdaccio.sh`, `ensure-infisical.sh`) still name that context;
+the backend and the workers read neither.
 
-`AppStack.fromEnv()` (CDKTF) reads `KUBECONFIG` or `K8S_HOST`/`K8S_TOKEN`/`K8S_CA_CERT` for cluster auth.
+Terraform's stacks get the kubeconfig `ClusterAccess.kubeconfigOf` writes: `AppStack` reads `KUBECONFIG`, the cluster stack
+`KUBECONFIG_PATH`. An app's Service type is always given (`APP_SERVICE_TYPE`: `ClusterIP` on the pool, `NodePort` everywhere
+else) and so is Traefik's (`INGRESS_SERVICE`); a stack told neither refuses to synthesize.
 
 **Terraform's state, output and providers** (`InfrastructureService.deploy|destroy`, rules in `infrastructure/lib/terraform-state.ts`,
 the backend in `packages/cdktf-infra/lib/state.ts`). Root and a process outside a cluster keep each stack's state in
@@ -2332,7 +2332,7 @@ dependency mocked, again in the integration tier with the real ones, and its flo
 
 ## Playwright / k3d gotchas
 
-- **`workers: 1` only** — E2E tests provision/deprovision real k3d clusters bound to host network ports; parallel workers collide on ports.
+- **`workers: 1` only** — E2E tests deploy real apps bound to host network ports; parallel workers collide on ports.
 - **Worker restarts on failure**: a failed test restarts the Playwright worker process, which reloads the spec file and generates a *new* random `CLUSTER_NAME` (e.g. `e2e-fleet-XXX`) — but already-passed tests aren't rerun. A cascade of timeouts after one failure almost always means the *first* failure is the real bug; look there, not at the timeouts.
 - **Stale k3d containers**: leftover containers from a previous run (e.g. `k3d-isolated-fleet-XXX-server-0`) can make `k3d cluster create/delete` fail. `npm run clean-dev` removes leftover k3d containers/volumes.
 

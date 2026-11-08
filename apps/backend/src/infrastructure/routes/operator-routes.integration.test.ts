@@ -28,7 +28,7 @@ afterEach(async () => { await harness?.close(); harness = undefined; });
 
 describe('what only the operator of this server does', () => {
   it('clears the price cache every person\'s catalogue reads', async () => {
-    harness = await mountRouter({ prefix: '/api/vps-catalog', router: (db) => vpsCatalogRouter({ vpsCatalogService: new VpsCatalogService(db, 'test-key', [vultrAdapter]), operatorOnly: operatorOnly(db) }) });
+    harness = await mountRouter({ prefix: '/api/vps-catalog', router: (db) => vpsCatalogRouter({ vpsCatalogService: new VpsCatalogService([vultrAdapter]), operatorOnly: operatorOnly(db) }) });
     const cachedNow = async () => ((await axios.get(harness!.url('/api/vps-catalog'))).data as { sources: { cached: boolean }[] }).sources[0]?.cached;
     expect(await cachedNow()).toBe(false);
     expect((await axios.post(harness.url('/api/vps-catalog/refresh'), {}, { validateStatus: () => true })).status).toBe(403);
