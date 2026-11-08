@@ -1,3 +1,4 @@
+import { testKeys } from '../../platform/testing/keys.js';
 import http from 'node:http';
 import http2 from 'node:http2';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
@@ -8,7 +9,6 @@ import { Server as SocketServer } from 'socket.io';
 import { io as connect, type Socket as ClientSocket } from 'socket.io-client';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { saveDeviceToken, tokenAnswer } from '../../../../local-agent/src/machine-token.js';
-import { loadKeys } from '../../platform/lib/keys.js';
 import { emptiedEachTime, testPayloadBlobs } from '../../platform/lib/test-database.js';
 import type { MongoDB } from '../../platform/lib/mongo-db.js';
 import { generateIdentityKey, identityKeysFrom, publicKeyPem, trustedKeys } from '../../instances/lib/identity-token.js';
@@ -29,7 +29,7 @@ const ISSUED = new Date('2026-10-10T00:00:00Z');
 const OLD_TOKEN = 'the-token-the-machine-joined-with-0123456789';
 const POLL_PATH = '/temporal.api.workflowservice.v1.WorkflowService/PollActivityTaskQueue';
 
-const keys = loadKeys({ JWT_SECRET: 'machine-tokens-test-secret' });
+const keys = testKeys('machine-tokens-test-secret');
 const root = identityKeysFrom(generateIdentityKey());
 const otherRoot = identityKeysFrom(generateIdentityKey());
 const trust = { keys: trustedKeys([publicKeyPem(root.publicKey)]), audience: 'inst-1' };

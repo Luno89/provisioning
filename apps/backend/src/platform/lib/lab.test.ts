@@ -2,9 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { labFrom, plaintextProblem, staysPrivate } from './lab.js';
 
 describe('a lab', () => {
-  it('is marked as CLAUDE.md\'s Lab mode says, CERTIFICATES=internal or an older root\'s ROOT_TLS=internal', () => {
+  it('is marked as CLAUDE.md\'s Lab mode says, by CERTIFICATES=internal and never by an older root\'s ROOT_TLS', () => {
     expect(labFrom({ CERTIFICATES: 'internal' })).toBe(true);
-    expect(labFrom({ ROOT_TLS: 'internal' })).toBe(true);
+    expect(labFrom({ ROOT_TLS: 'internal' })).toBe(false);
     expect(labFrom({ CERTIFICATES: 'acme', ROOT_TLS: 'internal' })).toBe(false);
     expect(labFrom({})).toBe(false);
   });
@@ -13,7 +13,7 @@ describe('a lab', () => {
     expect(labFrom({ CERTIFICATES: 'internal', DOMAIN: 'koala.internal', INGRESS_DOMAIN: 'koala.internal' })).toBe(true);
     expect(labFrom({ CERTIFICATES: 'internal', DOMAIN: 'koala.localhost', INGRESS_DOMAIN: 'people.localhost' })).toBe(true);
     expect(labFrom({ CERTIFICATES: 'internal', DOMAIN: 'nowrinkles.dev' })).toBe(false);
-    expect(labFrom({ ROOT_TLS: 'internal', DOMAIN: 'koala.internal', INGRESS_DOMAIN: 'nowrinkles.app' })).toBe(false);
+    expect(labFrom({ CERTIFICATES: 'internal', DOMAIN: 'koala.internal', INGRESS_DOMAIN: 'nowrinkles.app' })).toBe(false);
   });
 });
 

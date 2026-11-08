@@ -81,7 +81,7 @@ ok "env and data restored, keeping this host's own Mongo password, collector add
 docker stop "$CADDY" >/dev/null
 docker cp - "$CADDY:/" < "$FROM/caddy-data.tar"
 docker start "$CADDY" >/dev/null
-if [ "$(setting CERTIFICATES "$COMPOSE_ENV")" = internal ] || [ "$(setting ROOT_TLS "$COMPOSE_ENV")" = internal ]; then
+if [ "$(setting CERTIFICATES "$COMPOSE_ENV")" = internal ]; then
   docker cp "$CADDY:/data/caddy/pki/authorities/local/root.crt" /usr/local/share/ca-certificates/koala-lab.crt
   update-ca-certificates >/dev/null
   ok "Caddy's certificates restored, and this lab host trusts the restored authority"

@@ -24,8 +24,6 @@ async function deps(cluster: ClusterMetadata = CLUSTER) {
     handOver: (clusterId) => access.handOver(clusterId),
     ownClusterId: () => 'machine-koala',
     logDir: '/tmp/logs',
-    claims: { role: 'instance', instanceOwnerId: 'ann' },
-    operatorEnv: {},
   };
   return { deps: all, db, workflow, started, access };
 }
@@ -156,21 +154,36 @@ describe('starting a deploy', () => {
     expect(started().map((run) => run.args.modelCacheHostPath)).toEqual([expect.stringContaining('models'), expect.stringContaining('weights'), undefined]);
   });
 
-  it('gives a model the Hugging Face token the person stored, the operator\'s from the settings, or none', async () => {
+  it('gives a model the Hugging Face token the person stored, or none, and never one from the process\'s environment', async () => {
     const { deps: d, db, started } = await deps();
     await db.accounts.saveUser({ id: 'ann', email: 'a@b.c', twoFactorEnabled: false, emailVerified: true, createdAt: 'x', credentials: { huggingface: { hfToken: encryptValue('hf_mine', KEY) } } } as never);
     await db.accounts.saveUser({ id: 'bob', email: 'b@b.c', twoFactorEnabled: false, emailVerified: true, createdAt: 'x' });
-    await startAppDeploy(d, { name: 'm1', clusterId: 'c1', appType: 'vllm' }, 'ann');
-    await startAppDeploy(d, { name: 'm2', clusterId: 'c1', appType: 'tabbyapi' }, 'ann');
-    await startAppDeploy(d, { name: 'm3', clusterId: 'c1', appType: 'vllm' }, 'bob');
-    await startAppDeploy({ ...d, operatorEnv: { HF_TOKEN: 'hf_operator' } }, { name: 'm4', clusterId: 'c1', appType: 'vllm' });
-    expect(started().map((run) => [run.args.vllmHfToken, run.args.tabbyHfToken])).toEqual([['hf_mine', undefined], [undefined, 'hf_mine'], [undefined, undefined], ['hf_operator', undefined]]);
+    process.env.HF_TOKEN = 'hf_from_the_environment';
+    try {
+      await startAppDeploy(d, { name: 'm1', clusterId: 'c1', appType: 'vllm' }, 'ann');
+      await startAppDeploy(d, { name: 'm2', clusterId: 'c1', appType: 'tabbyapi' }, 'ann');
+      await startAppDeploy(d, { name: 'm3', clusterId: 'c1', appType: 'vllm' }, 'bob');
+      await startAppDeploy(d, { name: 'm4', clusterId: 'c1', appType: 'vllm' });
+    } finally {
+      delete process.env.HF_TOKEN;
+    }
+    expect(started().map((run) => [run.args.vllmHfToken, run.args.tabbyHfToken])).toEqual([['hf_mine', undefined], [undefined, 'hf_mine'], [undefined, undefined], [undefined, undefined]]);
   });
 
   it('keeps the token it was given rather than looking one up', async () => {
-    const { deps: d, started } = await deps();
-    await startAppDeploy({ ...d, operatorEnv: { HF_TOKEN: 'hf_operator' } }, { name: 'm1', clusterId: 'c1', appType: 'vllm', vllmHfToken: '  hf_given  ' }, 'ann');
-    expect(started()[0]?.args.vllmHfToken).toBe('hf_given');
+    const { deps: d, db, started } = await deps();
+    await db.accounts.saveUser({ id: 'ann', email: 'a@b.c', twoFactorEnabled: false, emailVerified: true, createdAt: 'x', credentials: { huggingface: { hfToken: encryptValue('hf_mine', KEY) } } } as never);
+    await startAppDeploy(d, { name: 'm1', clusterId: 'c1', appType: 'vllm', vllmHfToken: '  hf_given  ' }, 'ann');
+    await startAppDeploy(d, { name: 'm2', clusterId: 'c1', appType: 'tabbyapi', tabbyHfToken: 'hf_given_tabby' }, 'ann');
+    expect(started().map((run) => [run.args.vllmHfToken, run.args.tabbyHfToken])).toEqual([['hf_given', undefined], [undefined, 'hf_given_tabby']]);
+  });
+
+  it('refuses to deploy a model, saying why, when the saved token can no longer be read', async () => {
+    const { deps: d, db, started } = await deps();
+    await db.accounts.saveUser({ id: 'ann', email: 'a@b.c', twoFactorEnabled: false, emailVerified: true, createdAt: 'x', credentials: { huggingface: { hfToken: encryptValue('hf_mine', 'a-key-since-rotated-away-from-this-koala') } } } as never);
+    await expect(startAppDeploy(d, { name: 'm1', clusterId: 'c1', appType: 'vllm' }, 'ann'))
+      .rejects.toThrow('your huggingface hfToken was saved under a key this Koala no longer holds; enter it again under Cloud providers');
+    expect(started()).toEqual([]);
   });
 });
 

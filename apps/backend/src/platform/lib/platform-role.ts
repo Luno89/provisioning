@@ -1,7 +1,6 @@
 import crypto from 'crypto';
 import {
   identityKeysFrom,
-  identityKeysFromSeed,
   trustedKeys,
   type IdentityKeyPair,
 } from '../../instances/lib/identity-token.js';
@@ -41,7 +40,6 @@ export class RoleConfigError extends Error {
   }
 }
 
-const DEV_SECRET = 'provisioning-platform-secret-12345';
 const ROLES: readonly PlatformRole[] = ['root', 'instance', 'hub'];
 
 const pemOf = (value: string): string => {
@@ -52,11 +50,9 @@ const pemOf = (value: string): string => {
 export const pemList = (value: string): string[] =>
   pemOf(value).split(/(?=-----BEGIN PUBLIC KEY-----)/).map((pem) => pem.trim()).filter(Boolean);
 
-function signingKeys(env: Readonly<Record<string, string | undefined>>, production: boolean): IdentityKeyPair {
+function signingKeys(env: Readonly<Record<string, string | undefined>>): IdentityKeyPair {
   if (env.ROOT_IDENTITY_KEY?.trim()) return identityKeysFrom(pemOf(env.ROOT_IDENTITY_KEY));
-  if (production) throw new RoleConfigError('ROOT_IDENTITY_KEY is not set. Run `npm run keys -w apps/backend -- --write-env` to generate it.');
-  const root = env.JWT_SECRET?.trim() || DEV_SECRET;
-  return identityKeysFromSeed(Buffer.from(crypto.hkdfSync('sha256', root, 'nowrinkles-platform-keys', 'identity', 32)));
+  throw new RoleConfigError('ROOT_IDENTITY_KEY is not set. Run `npm run keys -w apps/backend -- --write-env` to generate it.');
 }
 
 function rootKeysFrom(value: string): ReadonlyMap<string, crypto.KeyObject> {
@@ -76,7 +72,6 @@ export function roleNamed(env: Readonly<Record<string, string | undefined>>): Pl
 
 export function roleFromEnv(env: Readonly<Record<string, string | undefined>>): RoleConfig {
   const role = roleNamed(env);
-  const production = env.NODE_ENV === 'production';
 
   if (role === 'instance') {
     const missing = ['INSTANCE_ID', 'INSTANCE_OWNER_ID', 'ROOT_URL', 'ROOT_PUBLIC_KEYS'].filter((name) => !env[name]?.trim());
@@ -102,7 +97,7 @@ export function roleFromEnv(env: Readonly<Record<string, string | undefined>>): 
     };
   }
 
-  const signing = signingKeys(env, production);
+  const signing = signingKeys(env);
   const hubLink = env.HUB_URL?.trim() && env.HUB_CREDENTIAL_HASH?.trim()
     ? { hubLink: { url: env.HUB_URL.trim().replace(/\/+$/, ''), credentialHash: env.HUB_CREDENTIAL_HASH.trim() } }
     : {};

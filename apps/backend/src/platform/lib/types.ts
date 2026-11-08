@@ -271,11 +271,6 @@ export interface ArtificialAnalysisCredentials {
   apiKey: string;
 }
 
-export interface GitHubCredentials {
-  token: string;
-  username?: string;
-}
-
 export interface GoogleDriveCredentials {
   refreshToken: string;
   backupPassword?: string;
@@ -288,14 +283,13 @@ export interface CloudCredentials extends DnsCredentialRecords {
   ovh?: OvhCredentials;
   huggingface?: HuggingFaceCredentials;
   artificialanalysis?: ArtificialAnalysisCredentials;
-  github?: GitHubCredentials;
   googledrive?: GoogleDriveCredentials;
 }
 
 export const CLOUD_PROVIDERS = [
   'ovh',
   ...DNS_PROVIDER_NAMES,
-  'huggingface', 'artificialanalysis', 'github', 'googledrive',
+  'huggingface', 'artificialanalysis', 'googledrive',
 ] as const;
 
 export type CloudProvider = typeof CLOUD_PROVIDERS[number];

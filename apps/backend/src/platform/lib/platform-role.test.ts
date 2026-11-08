@@ -21,8 +21,10 @@ describe('what this server is', () => {
     expect(config.trusted).toBeUndefined();
   });
 
-  it('as root in production refuses to start without its signing key', () => {
+  it('as root refuses to start without its signing key, in production or not, and never makes one from JWT_SECRET', () => {
     expect(() => roleFromEnv({ ROLE: 'root', NODE_ENV: 'production' })).toThrow(/ROOT_IDENTITY_KEY is not set/);
+    expect(() => roleFromEnv({ ROLE: 'root' })).toThrow(/ROOT_IDENTITY_KEY is not set/);
+    expect(() => roleFromEnv({ ROLE: 'root', JWT_SECRET: 'an-old-single-secret-of-many-characters' })).toThrow(/ROOT_IDENTITY_KEY is not set/);
   });
 
   it('in production signs in through root only over https, but for a lab and an address that stays private', () => {

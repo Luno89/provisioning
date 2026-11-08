@@ -101,6 +101,20 @@ export class MemoryAccountsStore implements AccountsStore {
     return moved;
   }
 
+  async dropGitHubCredentials(): Promise<number> {
+    let dropped = 0;
+    for (const user of this.users.all()) {
+      if (!user.credentials || !('github' in user.credentials)) continue;
+      this.users.change(user.id, (held) => {
+        const credentials = { ...held.credentials } as Loose;
+        delete credentials.github;
+        return { ...held, credentials } as unknown as UserMetadata;
+      });
+      dropped += 1;
+    }
+    return dropped;
+  }
+
   private ids(name: string, ownerId: string): string[] {
     return ownedKeys(this.collections, name, ownerId);
   }

@@ -42,7 +42,7 @@ export class VllmApp extends Construct {
     const gpuCount = config.gpuCount !== undefined ? config.gpuCount : 1;
     const gpuVendor = config.gpuVendor || 'nvidia';
     const device = config.device || process.env.VLLM_DEVICE || process.env.VLLM_TARGET_DEVICE || (gpuCount > 0 ? (gpuVendor === 'amd' ? 'rocm' : 'cuda') : 'cpu');
-    const hfToken = config.hfToken || process.env.HF_TOKEN || process.env.VLLM_HF_TOKEN || "";
+    const hfToken = config.hfToken || "";
     const cacheHostPath = config.cachePvc
       ? (config.cachePvc.startsWith('/') ? config.cachePvc : `/var/lib/rancher/${config.cachePvc}`)
       : "/var/lib/rancher/vllm-model-cache";

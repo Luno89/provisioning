@@ -3,7 +3,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import dotenv from 'dotenv';
 import { MongoClient } from 'mongodb';
-import { KEY_NAMES, generateKey, loadKeys, reencrypt, keyId } from '../platform/index.js';
+import { generateKey, keyId, loadKey, missingKeyLines, reencrypt, sealedBeforeKeys } from '../platform/index.js';
 import { generateIdentityKey } from '../instances/index.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -11,50 +11,56 @@ const ENV_FILE = resolve(here, '../../.env');
 const DATA_DIR = resolve(here, '../../data');
 const KEY_FILES = ['.gitea-admin-token', '.headscale-api-key'];
 
-const args = new Set(process.argv.slice(2));
+const argv = process.argv.slice(2);
+const args = new Set(argv);
 const apply = args.has('--apply');
+const databases = argv.flatMap((arg, index) => (arg === '--database' && argv[index + 1] ? [argv[index + 1]!] : []));
 
 function writeMissingKeys(): void {
   const present = existsSync(ENV_FILE) ? readFileSync(ENV_FILE, 'utf8') : '';
-  const missing: string[] = Object.values(KEY_NAMES).filter((name) => !new RegExp(`^${name}=.{32,}$`, 'm').test(present));
-  const lines = missing.map((name) => `${name}=${generateKey()}`);
-  if (!/^ROOT_IDENTITY_KEY=.+$/m.test(present) && !/^ROLE=instance$/m.test(present)) {
-    lines.push(`ROOT_IDENTITY_KEY=${Buffer.from(generateIdentityKey()).toString('base64')}`);
-    missing.push('ROOT_IDENTITY_KEY');
-  }
+  const jwtSecret = /^JWT_SECRET=(.+)$/m.exec(present)?.[1];
+  const { lines, written } = missingKeyLines(present, { key: generateKey, identity: generateIdentityKey }, jwtSecret);
   if (lines.length === 0) {
     console.log(`keys: all of them are already in ${ENV_FILE}`);
     return;
   }
   appendFileSync(ENV_FILE, `${present.endsWith('\n') || present === '' ? '' : '\n'}${lines.join('\n')}\n`, { mode: 0o600 });
-  console.log(`keys: wrote ${missing.join(', ')} to ${ENV_FILE}`);
+  console.log(`keys: wrote ${written.join(', ')} to ${ENV_FILE}`);
+  if (jwtSecret) console.log('keys: what was sealed under JWT_SECRET moves onto DATA_KEY with --apply; JWT_SECRET is read only by this program now');
 }
 
 async function main(): Promise<void> {
-  if (args.has('--write-env')) writeMissingKeys();
+  if (args.has('--write-env')) {
+    writeMissingKeys();
+    return;
+  }
   dotenv.config({ path: ENV_FILE, override: true, quiet: true });
-  const keys = loadKeys(process.env);
-  const ring = keys.data;
-  console.log(`${apply ? 'rewriting' : 'dry run — pass --apply to rewrite'}: data key ${keyId(ring.current)}, ${ring.previous?.length ?? 0} previous key(s)`);
+  const mongoUri = process.env.MONGO_URI?.trim();
+  if (!mongoUri) throw new Error('MONGO_URI is not set: it names the Mongo server whose databases are re-sealed');
+  if (databases.length === 0) throw new Error('name every database to re-seal with --database <name> (one each); nothing is re-sealed by default, so a database another Koala or an older one keeps is never touched');
+  const ring = sealedBeforeKeys(loadKey(process.env, 'data'), process.env.JWT_SECRET, 'data');
+  console.log(`${apply ? 'rewriting' : 'dry run — pass --apply to rewrite'} ${databases.join(', ')}: onto DATA_KEY ${keyId(ring.current)}, from ${ring.previous?.length ? 'JWT_SECRET and the key derived from it' : 'nothing else, since JWT_SECRET is not set'}`);
 
-  const client = new MongoClient(process.env.MONGO_URI || 'mongodb://admin:admin@localhost:27017/provisioning?authSource=admin');
+  const client = new MongoClient(mongoUri);
   await client.connect();
-  const db = client.db();
   let total = 0;
   const unreadable: string[] = [];
 
-  for (const { name } of await db.listCollections({}, { nameOnly: true }).toArray()) {
-    const collection = db.collection(name);
-    let count = 0;
-    for await (const doc of collection.find({})) {
-      const result = reencrypt(doc, ring);
-      unreadable.push(...result.unreadable.map((path) => `${name}/${String(doc._id)}: ${path}`));
-      if (result.rewritten.length === 0) continue;
-      count += result.rewritten.length;
-      if (apply) await collection.replaceOne({ _id: doc._id }, result.value);
+  for (const database of databases) {
+    const db = client.db(database);
+    for (const { name } of await db.listCollections({}, { nameOnly: true }).toArray()) {
+      const collection = db.collection(name);
+      let count = 0;
+      for await (const doc of collection.find({})) {
+        const result = reencrypt(doc, ring);
+        unreadable.push(...result.unreadable.map((path) => `${database}.${name}/${String(doc._id)}: ${path}`));
+        if (result.rewritten.length === 0) continue;
+        count += result.rewritten.length;
+        if (apply) await collection.replaceOne({ _id: doc._id }, result.value);
+      }
+      if (count > 0) console.log(`  ${database}.${name}: ${count} value(s)`);
+      total += count;
     }
-    if (count > 0) console.log(`  ${name}: ${count} value(s)`);
-    total += count;
   }
   await client.close();
 
@@ -75,7 +81,7 @@ async function main(): Promise<void> {
     for (const line of unreadable) console.log(`  ${line}`);
   }
   if (apply && unreadable.length === 0) {
-    console.log('Every stored secret is on the current key. Remove JWT_SECRET from .env once no Temporal workflow started before now is still running — its history was encrypted with it.');
+    console.log('Every stored secret is on DATA_KEY. Remove JWT_SECRET from .env once no Temporal workflow started before now is still running: no Koala process reads it, so a payload sealed under it can no longer be opened.');
   }
 }
 

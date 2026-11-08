@@ -7,6 +7,7 @@ import { portToHandOn } from '@koala/engine-core/testing/ports';
 import { inject } from 'vitest';
 import { testBucket } from '../../files/testing/real-minio.js';
 import { unreachedPlatformServices } from './platform-services.js';
+import { testIdentityKey, testKeyEnv } from './keys.js';
 
 const BACKEND = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 const TSX = resolve(BACKEND, '../../node_modules/.bin/tsx');
@@ -67,7 +68,8 @@ export async function startProcess(name: string, entry: string, env: Record<stri
     PATH: `${join(home, 'bin')}:${process.env.PATH ?? ''}`,
     HOME: home,
     NODE_ENV: 'development',
-    JWT_SECRET: `${name}-loopback-test-secret`,
+    ...testKeyEnv(`${name}-loopback-test`),
+    ROOT_IDENTITY_KEY: testIdentityKey(),
     ...minioEnv(),
     ...unreachedPlatformServices(),
     ...env,

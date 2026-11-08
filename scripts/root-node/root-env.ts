@@ -22,14 +22,6 @@ export function setEnvValues(path: string, values: Readonly<Record<string, strin
   chmodSync(path, 0o600);
 }
 
-export function dropEnvValues(path: string, keys: readonly string[]): void {
-  if (!existsSync(path)) return;
-  const lines = readFileSync(path, 'utf8').split('\n').filter((line, index, all) => line !== '' || index < all.length - 1);
-  const kept = lines.filter((line) => !keys.some((key) => line.startsWith(`${key}=`)));
-  writeFileSync(path, `${kept.join('\n')}\n`, { mode: 0o600 });
-  chmodSync(path, 0o600);
-}
-
 export function dotenvValue(value: string): string {
   if (/[\r\n']/.test(value)) throw new Error('a value holding a line break or a single quote cannot be kept in .env as it is');
   return /^[A-Za-z0-9._~:/@+=,%-]*$/.test(value) ? value : `'${value}'`;

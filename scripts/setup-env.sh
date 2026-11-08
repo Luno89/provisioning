@@ -26,18 +26,10 @@ cp "$EXAMPLE_FILE" "$ENV_FILE"
 # directory as root — keep the file owned by the current user.
 chown "$(id -u):$(id -g)" "$ENV_FILE"
 
-echo "▶ Generating the five platform keys..."
-for NAME in SESSION_KEY DATA_KEY PAYLOAD_KEY EGRESS_KEY TEMPORAL_KEY; do
-    VALUE=$(node -e "console.log(require('crypto').randomBytes(32).toString('hex'))")
-    if [[ "$OSTYPE" == "darwin"* ]]; then
-        sed -i '' "s/^${NAME}=generate$/${NAME}=${VALUE}/" "$ENV_FILE"
-    else
-        sed -i "s/^${NAME}=generate$/${NAME}=${VALUE}/" "$ENV_FILE"
-    fi
-done
+echo "▶ Generating the five platform keys and root's identity key..."
+(cd "$REPO_ROOT" && npm run -s keys -w apps/backend -- --write-env)
 
 echo "✔ Environment file successfully created at: apps/backend/.env"
-echo "✔ SESSION_KEY, DATA_KEY, PAYLOAD_KEY, EGRESS_KEY and TEMPORAL_KEY generated."
 echo ""
 echo "Note: Twilio 2FA and Google/GitHub sign-in stay off until their
 credentials are set in apps/backend/.env.

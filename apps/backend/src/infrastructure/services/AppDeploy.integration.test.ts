@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { testDatabase } from '../../platform/lib/test-database.js';
 import type { ClusterMetadata } from '../../platform/lib/types.js';
+import { encryptValue } from '../../platform/lib/crypto.js';
 import { startAppDeploy, type AppDeployDeps } from './AppDeploy.js';
 import { testClusterAccess } from '../testing/cluster-access.js';
 
@@ -23,8 +24,6 @@ async function deps(): Promise<{ deps: AppDeployDeps; started: { workflowId: str
       handOver: (clusterId) => testClusterAccess(db).handOver(clusterId),
       logDir: '/tmp',
       ownClusterId: () => undefined,
-      claims: { role: 'instance', instanceOwnerId: 'ann' },
-      operatorEnv: {},
     },
     started,
   };
@@ -74,5 +73,20 @@ describe('two people can each have an app called shop', () => {
     const { deps: d } = await deps();
     const named = await startAppDeploy({ ...d, clusterById: async (id) => (id === 'by-another-name' ? CLUSTER : undefined) }, { name: 'blog', clusterId: 'by-another-name', appType: 'wordpress' });
     expect((await d.db.infrastructure.getDeployments()).find((entry) => entry.id === named.deployment.id)?.clusterId).toBe('c1');
+  });
+});
+
+describe('a model\'s Hugging Face token', () => {
+  it('is the one given with the deploy, else the person\'s saved token read back from the database, else none', async () => {
+    const { deps: d, started } = await deps();
+    await d.db.accounts.saveUser({ id: 'ann', email: 'ann@example.com', twoFactorEnabled: false, emailVerified: true, createdAt: 'x', credentials: { huggingface: { hfToken: encryptValue('hf_saved', d.masterKey) } } });
+    await d.db.accounts.saveUser({ id: 'bob', email: 'bob@example.com', twoFactorEnabled: false, emailVerified: true, createdAt: 'x' });
+    await startAppDeploy(d, { name: 'given', clusterId: 'c1', appType: 'vllm', vllmHfToken: 'hf_given' }, 'ann');
+    await startAppDeploy(d, { name: 'saved', clusterId: 'c1', appType: 'tabbyapi' }, 'ann');
+    await startAppDeploy(d, { name: 'none', clusterId: 'c1', appType: 'vllm' }, 'bob');
+
+    expect(started.map((run) => [run.args.vllmHfToken, run.args.tabbyHfToken])).toEqual([['hf_given', undefined], [undefined, 'hf_saved'], [undefined, undefined]]);
+    const stored = Object.fromEntries((await d.db.infrastructure.getDeployments()).map((dep) => [dep.name, [dep.vllmHfToken, dep.tabbyHfToken]]));
+    expect(stored).toEqual({ given: ['hf_given', undefined], saved: [undefined, 'hf_saved'], none: [undefined, undefined] });
   });
 });

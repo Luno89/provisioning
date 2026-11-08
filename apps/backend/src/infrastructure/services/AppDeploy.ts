@@ -3,11 +3,10 @@ import { randomUUID } from 'node:crypto';
 import type { Client } from '@temporalio/client';
 import { deploymentIdFor } from '../lib/deployment-id.js';
 import { newAppNamespace, sameOwner } from '../lib/app-namespace.js';
-import { usesOperatorCredentials, type OperatorEnv } from '../lib/credential-resolver.js';
-import { resolveCloudCredentials } from './cloud-credentials.js';
+import { UnreadableCredential } from './CredentialService.js';
 import {
   decryptValue, type SecretKey, type Database, type ClusterMetadata, type CloudCredentials, type DeploymentMetadata,
-  type PipelineRunMetadata, type ProjectMetadata, type ClaimSettings, PLATFORM_OWNER, startedFor,
+  type PipelineRunMetadata, type ProjectMetadata, PLATFORM_OWNER, startedFor,
 } from '../../platform/index.js';
 import { CapacityError, checkCapacity, requestedGpuCount } from '../lib/cluster-capacity.js';
 import type { HandOver } from '../lib/cluster-places.js';
@@ -16,7 +15,6 @@ import { resolveVllmDefaults, resolveTabbyDefaults, resolveCrawl4aiDefaults, res
   resolveHermesDefaults, resolveMinioDefaults, resolveNextcloudDefaults, resolveQdrantDefaults, resolveQuickwitDefaults } from '../lib/app-env.js';
 import { resolveAppSettingsDefaults } from '../lib/app-schemas.js';
 import { definedFields, type DeployRequest } from '../lib/deploy-request.js';
-import { ignore } from '@koala/engine-core/failures';
 import { resolveTabbyCacheHostPath, resolveVllmCacheHostPath } from '../../models/index.js';
 
 export const CLUSTER_QUEUE = 'cluster-ops-queue';
@@ -29,8 +27,16 @@ export interface AppDeployDeps {
   handOver: (clusterId: string) => Promise<HandOver>;
   ownClusterId: () => string | undefined;
   logDir: string;
-  claims: ClaimSettings | undefined;
-  operatorEnv: OperatorEnv;
+}
+
+function savedHuggingFaceToken(credentials: CloudCredentials | undefined, key: SecretKey): string | undefined {
+  const sealed = credentials?.huggingface?.hfToken;
+  if (!sealed) return undefined;
+  try {
+    return decryptValue(sealed, key);
+  } catch {
+    throw new UnreadableCredential('huggingface', 'hfToken');
+  }
 }
 
 export interface StartedDeploy {
@@ -167,29 +173,11 @@ export async function startAppDeploy(deps: AppDeployDeps, config: DeployRequest,
 
     const openaiApiBaseUrl = resolveOpenaiApiBaseUrl(dep, unresolved);
 
-    if (!dep.vllmHfToken && !dep.tabbyHfToken && (dep.appType === 'vllm' || config.appType === 'vllm' || dep.appType === 'tabbyapi' || config.appType === 'tabbyapi')) {
-      let userCreds: CloudCredentials | undefined;
-      let asOperator = !userId;
-      if (userId) {
-        const user = await deps.db.accounts.getUserById(userId);
-        asOperator = usesOperatorCredentials(user, deps.claims);
-        const encryptedToken = user?.credentials?.huggingface?.hfToken;
-        if (encryptedToken) {
-          try {
-            userCreds = { huggingface: { hfToken: decryptValue(encryptedToken, deps.masterKey) } };
-          } catch (failure) {
-            ignore('a stored Hugging Face token that can no longer be decrypted counts as none, so the operator\'s or none is used')(failure);
-          }
-        }
-      }
-      const resolved = resolveCloudCredentials('huggingface', userCreds, asOperator ? deps.operatorEnv : undefined);
-      if (resolved.env.HF_TOKEN) {
-        if (dep.appType === 'tabbyapi') {
-          dep.tabbyHfToken = resolved.env.HF_TOKEN;
-        } else {
-          dep.vllmHfToken = resolved.env.HF_TOKEN;
-        }
-      }
+    const servesModel = (type: string | undefined) => type === 'vllm' || type === 'tabbyapi'
+    if (!dep.vllmHfToken && !dep.tabbyHfToken && userId && (servesModel(dep.appType) || servesModel(config.appType))) {
+      const token = savedHuggingFaceToken((await deps.db.accounts.getUserById(userId))?.credentials, deps.masterKey)
+      if (token && dep.appType === 'tabbyapi') dep.tabbyHfToken = token
+      else if (token) dep.vllmHfToken = token
     }
 
   const targetCluster = await deps.clusterById(dep.clusterId)

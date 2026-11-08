@@ -45,11 +45,6 @@ function resolveFromUser(
       if (!hf?.hfToken) return null;
       return { HF_TOKEN: hf.hfToken, HUGGING_FACE_HUB_TOKEN: hf.hfToken };
     }
-    case 'github': {
-      const gh = creds.github;
-      if (!gh?.token) return null;
-      return { GITHUB_TOKEN: gh.token, GH_TOKEN: gh.token };
-    }
     default:
       return null;
   }
@@ -69,16 +64,6 @@ function resolveFromEnv(provider: string, env: OperatorEnv): Record<string, stri
       const subsidiary = env.OVH_SUBSIDIARY;
       if (!key || !secret || !consumer || !subsidiary) return null;
       return { OVH_APPLICATION_KEY: key, OVH_APPLICATION_SECRET: secret, OVH_CONSUMER_KEY: consumer, OVH_SUBSIDIARY: subsidiary };
-    }
-    case 'huggingface': {
-      const token = env.HF_TOKEN || env.VLLM_HF_TOKEN || env.HUGGING_FACE_HUB_TOKEN;
-      if (!token) return null;
-      return { HF_TOKEN: token, HUGGING_FACE_HUB_TOKEN: token };
-    }
-    case 'github': {
-      const token = env.GITHUB_TOKEN || env.GH_TOKEN;
-      if (!token) return null;
-      return { GITHUB_TOKEN: token, GH_TOKEN: token };
     }
     default:
       return null;

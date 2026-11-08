@@ -151,10 +151,13 @@ data (it lives on the person's machine, or in their pool namespace).
   password; both end every other session at once, on their instance too.
 - **`SESSION_KEY`**: put a new value in `apps/backend/.env` and restart. Every session signed with the old one is
   refused: everyone signs in again.
-- **`DATA_KEY` or `PAYLOAD_KEY`**: the keyring keeps a previous key only through `JWT_SECRET`. Move the leaked value to
-  `JWT_SECRET=<old value>`, put a new key in its place, restart, then `npm run keys -w apps/backend -- --apply` to
-  re-encrypt Mongo and the key files (run it without `--apply` first: it reports what would move). Remove `JWT_SECRET`
-  only when `--apply` reports nothing unreadable and no workflow started before the change still runs.
+- **`DATA_KEY`**: a keyring holds only the current key, so the old one is used once, by the re-seal. Wait until no workflow
+  runs, `systemctl stop nowrinkles nowrinkles-workers`, put the leaked value in `apps/backend/.env` as `JWT_SECRET=<old value>`
+  and a new key (`openssl rand -hex 32`) as `DATA_KEY`, run `npm run keys -w apps/backend -- --database provisioning` (a dry
+  run: it reports what would move) and then the same with `--apply`, start root again, and remove `JWT_SECRET` once `--apply`
+  reported nothing unreadable.
+- **`PAYLOAD_KEY`**: wait until no workflow runs (a payload sealed with the old key can no longer be opened), put a new key in
+  `apps/backend/.env` and restart.
 - **The Cloudflare or Porkbun credentials, OVHcloud keys**: revoke them at the provider, make new ones, put them back in
   root's `.env` (DNS) or Cloud providers (OVHcloud), restart Caddy: `docker compose -f docker-compose.caddy.yml up -d`.
 - **The release signing key**: make a new one, replace the line in `scripts/root-node/release-signers` and

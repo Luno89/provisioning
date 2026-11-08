@@ -33,7 +33,7 @@ const access = new ClusterAccess({
   tools: TOOLS,
   serviceAccount: k3s.account,
 });
-const steps: ClusterSteps = { access, infra: new InfrastructureService(terraformPlacesFor({ kind: 'local' })), gitea: new GiteaService('integration-key' as never, { none: 'the apps these tests deploy are not built in Gitea' }), infisical: new InfisicalService('integration-key' as never, { none: 'the apps these tests deploy keep no secrets in Infisical' }), database: { mongo: mongoTarget(process.env), dataKey: 'integration-key' }, hfToken: undefined, machineMetricsUrl: { off: 'these tests deploy to no other machine' } };
+const steps: ClusterSteps = { access, infra: new InfrastructureService(terraformPlacesFor({ kind: 'local' })), gitea: new GiteaService('integration-key' as never, { none: 'the apps these tests deploy are not built in Gitea' }), infisical: new InfisicalService('integration-key' as never, { none: 'the apps these tests deploy keep no secrets in Infisical' }), database: { mongo: mongoTarget(process.env), dataKey: 'integration-key' }, machineMetricsUrl: { off: 'these tests deploy to no other machine' } };
 const KOALA = access.own();
 const LOG = join(mkdtempSync(join(tmpdir(), 'koala-app-deploy-wf-log-')), 'app.log');
 const deployed: Array<{ clusterId: string; reach: unknown }> = [];

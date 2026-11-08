@@ -22,7 +22,7 @@ function bridge(options: { io?: SocketServer; clusterService?: ClusterService } 
   const workflow = mock<WorkflowClient>();
   const client = mock<Client>({ workflow });
   const connect = vi.fn<TemporalConnect>(async () => client);
-  const instance = new TemporalBridge(db, options.io, KEY, options.clusterService, { role: 'instance', instanceOwnerId: 'op' }, { connect });
+  const instance = new TemporalBridge(db, options.io, KEY, options.clusterService, { connect });
   return { db, workflow, client, connect, instance, ready: () => { instance.client = client; return instance; } };
 }
 

@@ -43,16 +43,16 @@ describe('CredentialService', () => {
   });
 
   describe('saveCredentials + getCredentials', () => {
-    it('saves GitHub credentials and returns them masked, the plain fields as they are', async () => {
-      await service.saveCredentials('user-1', 'github', {
-        token: 'ghp_abcdefghijklmnopqrstuvwxyz0123',
-        username: 'octo',
+    it('saves Hugging Face credentials and returns them masked, the plain fields as they are', async () => {
+      await service.saveCredentials('user-1', 'huggingface', {
+        hfToken: 'hf_abcdefghijklmnopqrstuvwxyz0123',
+        defaultModel: 'meta-llama/Llama-3.2-3B-Instruct',
       });
 
-      const result = await service.getCredentials('user-1', 'github');
+      const result = await service.getCredentials('user-1', 'huggingface');
       expect(result).not.toBeNull();
-      expect(result!.username).toBe('octo');
-      expect(result!.token).toContain('****');
+      expect(result!.defaultModel).toBe('meta-llama/Llama-3.2-3B-Instruct');
+      expect(result!.hfToken).toContain('****');
     });
 
     it('encrypts sensitive fields at rest', async () => {
@@ -70,32 +70,32 @@ describe('CredentialService', () => {
 
   describe('deleteCredentials', () => {
     it('removes provider credentials', async () => {
-      await service.saveCredentials('user-1', 'github', {
-        token: 'ghp_example',
-        username: 'octo',
+      await service.saveCredentials('user-1', 'huggingface', {
+        hfToken: 'hf_example',
+        defaultModel: 'meta-llama/Llama-3.2-3B-Instruct',
       });
 
-      await service.deleteCredentials('user-1', 'github');
-      const result = await service.getCredentials('user-1', 'github');
+      await service.deleteCredentials('user-1', 'huggingface');
+      const result = await service.getCredentials('user-1', 'huggingface');
       expect(result).toBeNull();
     });
   });
 
   describe('getConfiguredProviders', () => {
     it('lists all providers with their status', async () => {
-      await service.saveCredentials('user-1', 'github', {
-        token: 'ghp_example_token',
+      await service.saveCredentials('user-1', 'huggingface', {
+        hfToken: 'hf_example_token',
       });
 
       const statuses = await service.getConfiguredProviders('user-1');
       expect(statuses.map((s) => s.provider).sort()).toEqual(
-        ['github', 'huggingface', 'ovh', 'cloudflare', 'porkbun', 'artificialanalysis'].sort(),
+        ['huggingface', 'ovh', 'cloudflare', 'porkbun', 'artificialanalysis'].sort(),
       );
 
-      const github = statuses.find((s) => s.provider === 'github');
-      expect(github?.configured).toBe(true);
-      expect(github?.source).toBe('user');
-      expect(github).not.toHaveProperty('clusters');
+      const huggingface = statuses.find((s) => s.provider === 'huggingface');
+      expect(huggingface?.configured).toBe(true);
+      expect(huggingface?.source).toBe('user');
+      expect(huggingface).not.toHaveProperty('clusters');
 
       const ovh = statuses.find((s) => s.provider === 'ovh');
       expect(ovh?.configured).toBe(false);
@@ -122,13 +122,13 @@ describe('CredentialService', () => {
 
   describe('resolveCredentials', () => {
     it('resolves user credentials first', async () => {
-      await service.saveCredentials('user-1', 'github', {
-        token: 'ghp_user_token',
+      await service.saveCredentials('user-1', 'huggingface', {
+        hfToken: 'hf_user_token',
       });
 
-      const resolved = await service.resolveCredentials('user-1', 'github');
+      const resolved = await service.resolveCredentials('user-1', 'huggingface');
       expect(resolved.mode).toBe('user');
-      expect(resolved.env.GITHUB_TOKEN).toBe('ghp_user_token');
+      expect(resolved.env.HF_TOKEN).toBe('hf_user_token');
     });
 
     it('says there are none when no credentials exist', async () => {
@@ -141,7 +141,7 @@ describe('CredentialService', () => {
   describe('error handling', () => {
     it('throws when user is not found', async () => {
       await expect(
-        service.saveCredentials('nonexistent', 'github', { token: 'test' }),
+        service.saveCredentials('nonexistent', 'huggingface', { hfToken: 'test' }),
       ).rejects.toThrow('User not found');
     });
 
@@ -180,20 +180,18 @@ describe('CredentialService.validateCredentials for each provider', () => {
   const drive = { claims: { role: 'instance' as const }, credentials: { env: {}, ovhSubsidiary: { off: 'OVH_SUBSIDIARY is not set' }, googleDrive: { clientId: 'id', clientSecret: 'secret' } } };
 
   it('asks for the token a provider needs before it asks the provider anything', async () => {
-    for (const [provider, wanted] of [['huggingface', /Hugging Face Access Token is required/], ['github', /GitHub Personal Access Token is required/], ['ovh', /OVHcloud needs the application key/], ['googledrive', /Not connected/]] as const) {
+    for (const [provider, wanted] of [['huggingface', /Hugging Face Access Token is required/], ['ovh', /OVHcloud needs the application key/], ['googledrive', /Not connected/]] as const) {
       const result = await service.validateCredentials(provider, {});
       expect(result.valid, provider).toBe(false);
       expect(result.message, provider).toMatch(wanted);
     }
   });
 
-  it('names the Hugging Face and GitHub accounts a token signs in as, and refuses one they reject', async () => {
+  it('names the Hugging Face account a token signs in as, and refuses one it rejects', async () => {
     ok('https://huggingface.co/api/whoami-v2', { name: 'koala' });
-    ok('https://api.github.com/user', { login: 'octo' });
     expect(await service.validateCredentials('huggingface', { hfToken: 'hf' })).toMatchObject({ valid: true, message: 'Authenticated as Hugging Face user @koala' });
-    expect(await service.validateCredentials('github', { token: 'gh' })).toMatchObject({ valid: true, message: 'Authenticated as GitHub user @octo' });
-    server.use(http.get('https://api.github.com/user', () => new HttpResponse(null, { status: 401 })));
-    expect(await service.validateCredentials('github', { token: 'bad' })).toEqual({ valid: false, message: 'Invalid token or unauthorized (HTTP 401).' });
+    server.use(http.get('https://huggingface.co/api/whoami-v2', () => new HttpResponse(null, { status: 401 })));
+    expect(await service.validateCredentials('huggingface', { hfToken: 'bad' })).toEqual({ valid: false, message: 'Invalid token or unauthorized (HTTP 401).' });
   });
 
   it('checks a Google Drive refresh token against Google', async () => {
@@ -225,7 +223,7 @@ describe('CredentialService.validateCredentials for each provider', () => {
 
   it('accepts a provider it has no check for, and says a network failure is one', async () => {
     expect(await service.validateCredentials('artificialanalysis', { apiKey: 'k' })).toEqual({ valid: true, message: 'Credentials formatted.' });
-    server.use(http.get('https://api.github.com/user', () => HttpResponse.error()));
-    expect((await service.validateCredentials('github', { token: 't' })).message).toMatch(/^Validation failed: /);
+    server.use(http.get('https://huggingface.co/api/whoami-v2', () => HttpResponse.error()));
+    expect((await service.validateCredentials('huggingface', { hfToken: 't' })).message).toMatch(/^Validation failed: /);
   });
 });

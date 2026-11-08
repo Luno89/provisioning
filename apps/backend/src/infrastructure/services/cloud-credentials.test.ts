@@ -3,17 +3,17 @@ import { resolveCloudCredentials } from './cloud-credentials.js';
 
 describe('resolving cloud credentials from the operator\'s settings', () => {
   it('uses the operator\'s keys only for a principal allowed to', () => {
-    const operator = { GITHUB_TOKEN: 'operator-token' };
-    expect(resolveCloudCredentials('github', undefined, operator).env.GITHUB_TOKEN).toBe('operator-token');
-    expect(resolveCloudCredentials('github', undefined, undefined).env.GITHUB_TOKEN).toBeUndefined();
+    const operator = { OVH_APPLICATION_KEY: 'operator-key', OVH_APPLICATION_SECRET: 's', OVH_CONSUMER_KEY: 'c', OVH_SUBSIDIARY: 'FR' };
+    expect(resolveCloudCredentials('ovh', undefined, operator).env.OVH_APPLICATION_KEY).toBe('operator-key');
+    expect(resolveCloudCredentials('ovh', undefined, undefined).env.OVH_APPLICATION_KEY).toBeUndefined();
   });
 
   it('prefers the keys a person stored over the operator\'s', () => {
-    expect(resolveCloudCredentials('github', { github: { token: 'mine' } }, { GITHUB_TOKEN: 'operator-token' }).env.GITHUB_TOKEN).toBe('mine');
+    expect(resolveCloudCredentials('ovh', { ovh: { applicationKey: 'mine', applicationSecret: 's', consumerKey: 'c', subsidiary: 'FR' } }, { OVH_APPLICATION_KEY: 'operator-key', OVH_APPLICATION_SECRET: 's', OVH_CONSUMER_KEY: 'c', OVH_SUBSIDIARY: 'FR' }).env.OVH_APPLICATION_KEY).toBe('mine');
   });
 
   it('says there are none when neither the person nor the operator has keys', () => {
-    expect(resolveCloudCredentials('github', undefined, {})).toEqual({ mode: 'none', env: {} });
+    expect(resolveCloudCredentials('ovh', undefined, {})).toEqual({ mode: 'none', env: {} });
   });
 
   it('takes the operator\'s OVHcloud keys only with the subsidiary they belong to', () => {

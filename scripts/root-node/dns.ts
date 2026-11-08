@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { chmodSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolveNs } from 'node:dns/promises';
 import { join, resolve } from 'node:path';
@@ -5,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import {
   caddyDnsEnv, caddyModules, caddyTlsSnippet, credentialsFromEnv, dnsProviderNamed, providerForNameservers, rootDnsSettingsFrom,
 } from '../../apps/backend/src/infrastructure/lib/dns-providers.js';
-import { dropEnvValues, readEnvFile, setEnvValues } from './root-env.js';
+import { readEnvFile, setEnvValues } from './root-env.js';
 
 const REPO = resolve(fileURLToPath(new URL('.', import.meta.url)), '../..');
 const COMPOSE_ENV = process.env.COMPOSE_ENV ?? join(REPO, '.env');
@@ -30,7 +31,17 @@ async function providerOf(zone: string, setting: string, given: string | undefin
   return found.provider;
 }
 
+function renameRootTls(): void {
+  try {
+    const said = execFileSync('bash', [join(REPO, 'scripts/root-node/root-tls.sh'), COMPOSE_ENV], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+    if (said) console.log(`  ✅ ${said}`);
+  } catch (error) {
+    fail(String((error as { stderr?: string }).stderr ?? (error as Error).message).trim());
+  }
+}
+
 async function setup(): Promise<void> {
+  renameRootTls();
   const env = { ...readEnvFile(COMPOSE_ENV), ...Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => typeof entry[1] === 'string')) };
   const settings = rootDnsSettingsFrom(env);
   if ('problem' in settings) return fail(settings.problem);
@@ -41,7 +52,7 @@ async function setup(): Promise<void> {
     writeFileSync(join(CADDY_DIR, 'caddy-tls', 'koala.caddy'), caddyTlsSnippet('internal'));
     writeFileSync(envFile, '', { mode: 0o600 });
     chmodSync(envFile, 0o600);
-    setEnvValues(COMPOSE_ENV, { CERTIFICATES: 'internal', ROOT_TLS: 'internal' });
+    setEnvValues(COMPOSE_ENV, { CERTIFICATES: 'internal' });
     console.log('  ✅ Caddy signs with its own certificate authority (a lab)');
     return;
   }
@@ -57,8 +68,6 @@ async function setup(): Promise<void> {
     if (!fields) return fail(`Set ${described.credential.filter((field) => !field.optional).map((field) => field.env).join(' and ')}: ${described.setup} Caddy proves the domain with them for the wildcard certificate, and the DNS records are made with them. They stay in ${COMPOSE_ENV}, never in the database.`);
     for (const field of described.credential) if (fields[field.key]) kept[field.env] = fields[field.key]!;
   }
-  if (ingressDns === 'cloudflare') kept.ROOT_TLS = 'cloudflare';
-  else dropEnvValues(COMPOSE_ENV, ['ROOT_TLS']);
   setEnvValues(COMPOSE_ENV, kept);
   const ingressProvider = dnsProviderNamed(ingressDns);
   writeFileSync(join(CADDY_DIR, 'caddy-tls', 'koala.caddy'), caddyTlsSnippet('acme', ingressProvider));

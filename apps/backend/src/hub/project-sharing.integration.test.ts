@@ -48,7 +48,7 @@ const said = async (): Promise<string[]> => withMongo(async (client) => {
 });
 
 async function accountGone(id: string): Promise<boolean> {
-  const db = createDatabase(databaseSettingsFrom({ ...process.env, MONGO_URI: `${roles.mongoUri}${roles.databases.root}` }));
+  const db = createDatabase(databaseSettingsFrom({ ...roles.keys, MONGO_URI: `${roles.mongoUri}${roles.databases.root}` }));
   await db.init();
   try {
     return (await db.accounts.getUserById(id)) === undefined;
@@ -230,7 +230,7 @@ describe('sharing a project from its owner\'s instance to the hub, and taking it
     expect(channel.status, JSON.stringify(channel.body)).toBe(200);
     const contents = ((channel.body.conversation ?? channel.body).messages ?? []).map((message) => message.content);
     expect(contents.includes('said before sharing') && contents.includes('said after sharing'), JSON.stringify(contents)).toBe(true);
-    const instanceDb = createDatabase(databaseSettingsFrom({ ...process.env, MONGO_URI: `${roles.mongoUri}${roles.databases.instance}` }));
+    const instanceDb = createDatabase(databaseSettingsFrom({ ...roles.keys, MONGO_URI: `${roles.mongoUri}${roles.databases.instance}` }));
     await instanceDb.init();
     try {
       expect((await instanceDb.hub.getHubLinks()).filter((link) => link.projectId === project.id)).toHaveLength(0);

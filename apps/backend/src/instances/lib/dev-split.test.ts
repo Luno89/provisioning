@@ -1,3 +1,4 @@
+import { testIdentityKey, testKeyEnv } from '../../platform/testing/keys.js';
 import { describe, expect, it } from 'vitest';
 import { accountOf, devSplitOwner, devSplitPlan, envFileText, readEnvFile, withDatabase, type SplitPlace } from './dev-split.js';
 import type { UserMetadata } from '../../platform/lib/types.js';
@@ -96,7 +97,7 @@ describe('the same split somewhere else, as a suite starts it', () => {
       name: 'dev', owner, instanceId: 'inst-1', credential: 'cred', credentialHash: 'hashed', hubCredential: 'hub-cred', hubCredentialHash: 'hub-hashed', rootPublicKeys: rootKey,
       mongoUri: 'mongodb://admin:admin@localhost:27017/provisioning?authSource=admin', now: '2026-10-29T00:00:00Z', place, temporal: TEMPORAL, release: RELEASE,
     });
-    const keys = { JWT_SECRET: 'a-split-secret-of-at-least-thirty-two-chars' };
+    const keys = { ...testKeyEnv('dev-split'), ROOT_IDENTITY_KEY: testIdentityKey() };
     const minio = { MINIO_ENDPOINT: '127.0.0.1:9000', MINIO_ROOT_USER: 'koala', MINIO_ROOT_PASSWORD: 'koala-minio-secret', MINIO_BUCKET: 'koala' };
     expect(backendSettingsFrom({ ...keys, ...roles.rootEnv })).toMatchObject({ port: 41001, temporal: { namespace: 'koala-split' }, root: { imageTag: 'dev' } });
     expect(backendSettingsFrom({ ...keys, ...roles.instanceEnv, ...minio, ...unreachedPlatformServices(roles.instanceUrl), MACHINE_GATEWAY_PORT: '0' })).toMatchObject({ port: 41002, instance: { credential: 'cred' }, clusters: { here: { root: false } } });

@@ -1,3 +1,4 @@
+import { testKeys } from '../../platform/testing/keys.js';
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { mkdtemp, rm } from 'node:fs/promises';
@@ -7,7 +8,6 @@ import { Server as SocketServer } from 'socket.io';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { linkToRoot, type RootLink } from '../../../../local-agent/src/root-link.js';
 import { placedFrom, type PlacedKoala } from '../../../../local-agent/src/koala-install.js';
-import { loadKeys } from '../../platform/lib/keys.js';
 import { emptiedEachTime } from '../../platform/lib/test-database.js';
 import type { MongoDB } from '../../platform/lib/mongo-db.js';
 import { generateIdentityKey, identityKeysFrom } from '../../instances/lib/identity-token.js';
@@ -17,7 +17,7 @@ import { MachineAccounts } from '../services/MachineAccounts.js';
 import { wireMachineAccounts } from './accounts.js';
 
 const fresh = await emptiedEachTime();
-const keys = loadKeys({ JWT_SECRET: 'koala-placement-test-secret' });
+const keys = testKeys('koala-placement-test-secret');
 const TOKEN = 'the-desk-token-0123456789-0123456789';
 
 let db: MongoDB;

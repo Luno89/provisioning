@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { ApplicationFailure } from '@temporalio/common';
 import {
   renderApp, specSecrets, minioStorageFor, specStorageFor, visibleAppSpecs, resolveBindings, bindingFiles, bindingProjection, bindingSecretName,
-  type ProjectedBinding, StorageAdapter, buildAppEnv, TABBYAPI_DEFAULT_MAX_SEQ_LEN, planHostMemory,
+  type ProjectedBinding, StorageAdapter, buildAppEnv, modelHfToken, TABBYAPI_DEFAULT_MAX_SEQ_LEN, planHostMemory,
   parseQuantity, type HostMemoryPlan, deploymentIdFor, gitappPullSecretArgs, type MachineOfCluster, type Reach } from '../infrastructure/index.js';
 import { readBindingCredentials, sanitiseNamespaceName, syncProjectSecrets } from '../projects/index.js';
 import { createDatabase, type DatabaseSettings } from '../platform/index.js';
@@ -334,7 +334,7 @@ export async function DeployAppActivity(args: DeployAppArgs, steps: ClusterSteps
   }
 
   const env = buildAppEnv({
-    hostHfToken: steps.hfToken,
+    hfToken: modelHfToken(args),
     serviceType: appServiceType(placedOnPool(Boolean(access.here.poolName), reach)),
     ...(renderedSpec ? { renderedSpec } : {}),
     ...(bindingsJson ? { bindingsJson } : {}),
@@ -353,7 +353,6 @@ export async function DeployAppActivity(args: DeployAppArgs, steps: ClusterSteps
     vllmGpuVendor: args.vllmGpuVendor,
     vllmCachePvc: args.vllmCachePvc,
     vllmDevice: effectiveDevice,
-    vllmHfToken: args.vllmHfToken,
     vllmMaxModelLen: args.vllmMaxModelLen,
     vllmGpuMemUtil: args.vllmGpuMemUtil,
     vllmExtraArgs: args.vllmExtraArgs,
@@ -367,7 +366,6 @@ export async function DeployAppActivity(args: DeployAppArgs, steps: ClusterSteps
     tabbyRevision: args.tabbyRevision,
     tabbyGpuCount: effectiveTabbyGpuCount,
     tabbyModelSizeBytes,
-    tabbyHfToken: args.tabbyHfToken,
     tabbyCachePvc: args.tabbyCachePvc,
     tabbyImageTag: args.tabbyImageTag,
     tabbyCacheMode: args.tabbyCacheMode,

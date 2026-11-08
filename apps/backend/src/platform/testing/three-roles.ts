@@ -3,6 +3,7 @@ import { MongoClient } from 'mongodb';
 import { ignore } from '@koala/engine-core/failures';
 import { inject } from 'vitest';
 import { roleFromEnv } from '../lib/platform-role.js';
+import { testIdentityKey, testKeyEnv } from './keys.js';
 import { createDatabase } from '../lib/db-interface.js';
 import { databaseSettingsFrom } from '../lib/settings.js';
 import { devSplitPlan, type SplitPlace } from '../../instances/lib/dev-split.js';
@@ -35,6 +36,7 @@ export interface ThreeRoles {
   instanceCredential: string;
   databases: { root: string; instance: string; hub: string };
   mongoUri: string;
+  keys: Record<string, string>;
   ownerOnInstance(): Promise<string>;
   ownerOnHub(): Promise<string>;
   signUp(email: string, inviteCode: string): Promise<Person>;
@@ -110,7 +112,8 @@ export async function startThreeRoles(label: string, options: ThreeRolesOptions 
     rootApiPort: ports.root, instanceApiPort: ports.instance, hubApiPort: ports.hub,
     rootDatabase: databases.root, hubDatabase: databases.hub, instanceDatabase: databases.instance,
   };
-  const signing = roleFromEnv({ JWT_SECRET: secret, ROLE: 'root' }).signing!;
+  const identityKey = testIdentityKey();
+  const signing = roleFromEnv({ ROOT_IDENTITY_KEY: identityKey, ROLE: 'root' }).signing!;
   const draft = (person: { id: string; email: string }) => devSplitPlan({
     name: label.replace(/[^a-z0-9]/g, '').slice(0, 12) || 'three', owner: { id: person.id, email: person.email, twoFactorEnabled: false, emailVerified: true, createdAt: new Date().toISOString() },
     instanceId: instanceIdFor(person.id), credential: instanceCredential, credentialHash: hashCredential(instanceCredential),
@@ -119,7 +122,8 @@ export async function startThreeRoles(label: string, options: ThreeRolesOptions 
     temporal: { address: inject('temporalAddress'), namespace: claimNamespaceFor(inject('temporalClaims')), ca: PLAINTEXT_TEMPORAL_CA }, release: TEST_RELEASE,
   });
   const shared = {
-    JWT_SECRET: secret,
+    ...testKeyEnv(secret),
+    ROOT_IDENTITY_KEY: identityKey,
     TEMPORAL_CONNECTION_ADDRESS: inject('temporalAddress'),
     TEMPORAL_NAMESPACE: claimNamespaceFor(inject('temporalClaims')),
     MAIL_SMTP_URL: mail.url,
@@ -167,7 +171,7 @@ export async function startThreeRoles(label: string, options: ThreeRolesOptions 
     const owner = options.ownerInvited ? await signUpWith(root.url, mail, emailOf('owner'), await ownerInvite()) : operator;
     const cookie = owner.cookie;
     const plan = draft(owner);
-    const rootDb = createDatabase(databaseSettingsFrom({ ...process.env, MONGO_URI: `${mongoUri}${databases.root}` }));
+    const rootDb = createDatabase(databaseSettingsFrom({ ...testKeyEnv(secret), MONGO_URI: `${mongoUri}${databases.root}` }));
     await rootDb.init();
     await rootDb.instances.saveInstance(plan.instance);
     await rootDb.close?.();
@@ -189,7 +193,7 @@ export async function startThreeRoles(label: string, options: ThreeRolesOptions 
     await until(() => goes('?to=hub', `${hub.url}/api/auth/oidc/start`));
     await until(() => goes('', `${instance.url}/api/auth/oidc/start`));
     return {
-      root, instance, hub, mail, owner, operator, gitea, headscale, workers, instanceId: plan.instance.id, instanceCredential, databases, mongoUri,
+      root, instance, hub, mail, owner, operator, gitea, headscale, workers, instanceId: plan.instance.id, instanceCredential, databases, mongoUri, keys: testKeyEnv(secret),
       ownerOnInstance: () => signedIn(root.url, cookie, instance.url, '/api/identity/go'),
       ownerOnHub: () => signedIn(root.url, cookie, hub.url, '/api/identity/go?to=hub'),
       signUp: (email, inviteCode) => signUpWith(root.url, mail, email, inviteCode),

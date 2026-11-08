@@ -19,8 +19,11 @@ export const KEY_NAMES = {
 
 export type KeyPurpose = keyof typeof KEY_NAMES;
 
+const PURPOSES = Object.keys(KEY_NAMES) as KeyPurpose[];
+
 const MIN_LENGTH = 32;
-const DEV_SECRET = 'provisioning-platform-secret-12345';
+
+type Env = Readonly<Record<string, string | undefined>>;
 
 export class MissingKeysError extends Error {
   constructor(readonly missing: string[]) {
@@ -31,27 +34,23 @@ export class MissingKeysError extends Error {
 
 export const generateKey = (): string => crypto.randomBytes(32).toString('hex');
 
-const derive = (root: string, purpose: KeyPurpose): string =>
-  Buffer.from(crypto.hkdfSync('sha256', root, 'nowrinkles-platform-keys', purpose, 32)).toString('hex');
+const given = (env: Env, purpose: KeyPurpose): string | undefined => {
+  const value = env[KEY_NAMES[purpose]]?.trim();
+  return value && value.length >= MIN_LENGTH ? value : undefined;
+};
 
-export function loadKeys(env: Readonly<Record<string, string | undefined>>, needed: readonly KeyPurpose[] = Object.keys(KEY_NAMES) as KeyPurpose[]): PlatformKeys {
-  const production = env.NODE_ENV === 'production';
-  const legacy = env.JWT_SECRET?.trim() || undefined;
-  const given = (purpose: KeyPurpose): string | undefined => {
-    const value = env[KEY_NAMES[purpose]]?.trim();
-    return value && value.length >= MIN_LENGTH ? value : undefined;
-  };
+const shaped = <P extends KeyPurpose>(purpose: P, value: string): PlatformKeys[P] =>
+  (purpose === 'egress' || purpose === 'temporal' ? value : { current: value }) as PlatformKeys[P];
 
-  const missing = needed.filter((purpose) => !given(purpose));
-  if (production && missing.length > 0) throw new MissingKeysError(missing.map((purpose) => KEY_NAMES[purpose]));
+export function loadKeys(env: Env): PlatformKeys {
+  const missing = PURPOSES.filter((purpose) => !given(env, purpose));
+  if (missing.length > 0) throw new MissingKeysError(missing.map((purpose) => KEY_NAMES[purpose]));
+  const key = <P extends KeyPurpose>(purpose: P): PlatformKeys[P] => shaped(purpose, given(env, purpose)!);
+  return { session: key('session'), data: key('data'), payload: key('payload'), egress: key('egress'), temporal: key('temporal') };
+}
 
-  const old = legacy ?? (production ? undefined : DEV_SECRET);
-  const key = (purpose: KeyPurpose): string => given(purpose) ?? derive(old ?? DEV_SECRET, purpose);
-  const ring = (purpose: KeyPurpose): Keyring => {
-    const current = key(purpose);
-    const previous = old ? [...new Set([old, derive(old, purpose)])].filter((candidate) => candidate !== current) : [];
-    return previous.length > 0 ? { current, previous } : { current };
-  };
-
-  return { session: ring('session'), data: ring('data'), payload: ring('payload'), egress: key('egress'), temporal: key('temporal') };
+export function loadKey<P extends KeyPurpose>(env: Env, purpose: P): PlatformKeys[P] {
+  const value = given(env, purpose);
+  if (!value) throw new MissingKeysError([KEY_NAMES[purpose]]);
+  return shaped(purpose, value);
 }

@@ -44,7 +44,7 @@ export class TabbyApiApp extends Construct {
     const modelRepo = config.model || "bartowski/Llama-3.2-3B-Instruct-exl2";
     const revision = config.revision;
     const gpuCount = config.gpuCount !== undefined ? config.gpuCount : 1;
-    const hfToken = config.hfToken || process.env.HF_TOKEN || process.env.TABBYAPI_HF_TOKEN || "";
+    const hfToken = config.hfToken || "";
     // hostPath, not a PVC — same reasoning as vllm.ts's cacheHostPath: survives app
     // destroy/redeploy (unlike a namespace-scoped PVC, which local-path-provisioner's default
     // reclaimPolicy would delete), shared across every TabbyAPI deployment on the node since a

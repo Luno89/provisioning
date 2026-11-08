@@ -37,17 +37,6 @@ export const PROVIDERS: ProviderMeta[] = [
     ],
   },
   {
-    key: 'github',
-    label: 'GitHub',
-    color: '#2DA44E',
-    icon: '🐙',
-    docsUrl: 'https://github.com/settings/tokens',
-    fields: [
-      { key: 'token', label: 'Personal Access Token', sensitive: true, placeholder: 'ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxx' },
-      { key: 'username', label: 'GitHub Username (Optional)', sensitive: false, placeholder: 'octocat' },
-    ],
-  },
-  {
     key: 'ovh',
     label: 'OVHcloud',
     color: '#123F6D',

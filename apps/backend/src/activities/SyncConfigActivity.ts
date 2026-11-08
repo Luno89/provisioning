@@ -1,5 +1,5 @@
 import {
-  StorageAdapter, buildAppEnv, pushOpenWebUiWebSearchConfig, type MachineOfCluster, type Reach,
+  StorageAdapter, buildAppEnv, modelHfToken, pushOpenWebUiWebSearchConfig, type MachineOfCluster, type Reach,
 } from '../infrastructure/index.js';
 import { waitUntilRolledOut } from './cluster-jobs.js';
 import type { ClusterSteps } from './cluster-steps.js';
@@ -89,7 +89,7 @@ export async function SyncConfigActivity(args: SyncConfigArgs, steps: ClusterSte
   const deploymentId = args.deploymentId || 'default';
 
   const env = buildAppEnv({
-    hostHfToken: steps.hfToken,
+    hfToken: modelHfToken(args),
     physicalName,
     strategy: args.strategy,
     namespace,
@@ -106,7 +106,6 @@ export async function SyncConfigActivity(args: SyncConfigArgs, steps: ClusterSte
     vllmGpuVendor: args.vllmGpuVendor,
     vllmCachePvc: args.vllmCachePvc,
     vllmDevice: effectiveDevice,
-    vllmHfToken: args.vllmHfToken,
     vllmMaxModelLen: args.vllmMaxModelLen,
     vllmGpuMemUtil: args.vllmGpuMemUtil,
     vllmExtraArgs: args.vllmExtraArgs,
@@ -119,7 +118,6 @@ export async function SyncConfigActivity(args: SyncConfigArgs, steps: ClusterSte
     tabbyModel: args.tabbyModel,
     tabbyRevision: args.tabbyRevision,
     tabbyGpuCount: effectiveTabbyGpuCount,
-    tabbyHfToken: args.tabbyHfToken,
     tabbyCachePvc: args.tabbyCachePvc,
     tabbyImageTag: args.tabbyImageTag,
     tabbyCacheMode: args.tabbyCacheMode,

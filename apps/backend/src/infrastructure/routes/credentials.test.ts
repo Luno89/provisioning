@@ -95,9 +95,17 @@ describe('reading and writing one provider', () => {
 
   it('deletes for the calling user only', async () => {
     const credentialService = service();
+    const answer = await call(credentialService, '/huggingface', { method: 'DELETE' });
+    expect(answer.data).toEqual({ success: true, provider: 'huggingface' });
+    expect(credentialService.deleteCredentials).toHaveBeenCalledWith(PERSON.id, 'huggingface');
+  });
+
+  it('knows no GitHub credential', async () => {
+    const credentialService = service();
     const answer = await call(credentialService, '/github', { method: 'DELETE' });
-    expect(answer.data).toEqual({ success: true, provider: 'github' });
-    expect(credentialService.deleteCredentials).toHaveBeenCalledWith(PERSON.id, 'github');
+    expect(answer.status).toBe(400);
+    expect(answer.data).toEqual({ error: 'Invalid provider: github' });
+    expect(credentialService.deleteCredentials).not.toHaveBeenCalled();
   });
 
   it('never lets one tenant read another', async () => {

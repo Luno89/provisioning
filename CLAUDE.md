@@ -127,7 +127,7 @@ npm run test:machine-default-live  # against the running dev stack and this comp
 npm run test:files-live            # code dropped on a throwaway project's repository is committed whole (binary bytes included) → the project's other files are kept on the instance's own MinIO: a PDF and a JSON file come back byte for byte, a folder moves, a file goes, an empty folder is made, a search finds a file two folders down → a share link opens with no session, still opens after a new version of the file, and stops once the file is moved or the link revoked → a file attached in a chat with no project is kept in the chat's own files and Koala, on FILES_LIVE_MODEL (else your default), reads it with read_stored_file → deleting the project leaves none of its files, ~5 min
 npm run test:pool-live            # a VM becomes a pool node through scripts/root-node/pool-node.sh (k3s, the mesh as tag:pool, gVisor) → root and its host worker as containers offer a trial → the person starts one: a vcluster under gVisor, its ports on the node, Koala installed in it → every pod on gVisor, a pod without it refused, no node port → <name>.koala.localhost through root's Caddy over the mesh, sign-in lands there, a sandboxed run inside it, ~40 min, cleans up
 npm run test:root-smoke -- <root domain> <people domain> [--ssh-public]  # read-only, against a live root from outside: certificate, sign-in page and its headers, identity keys, metrics guarded, Headscale, the people wildcard's 404, mail records, the PTR naming `mail.<domain>`, the blocklists (through your resolver), only 80/443 (and 22 if public) answering among the common ports and every NodePort (30000–32767), on IPv6 too when `app.` has an AAAA
-npm run test:release-live         # the release rehearsal (gate G4 of plans/release-pipeline.md): the image is built at the previous tag and at the candidate → root on a disposable VM, bootstrapped by the real bootstrap.sh in lab mode (ROOT_TLS=internal) and moved onto the previous tag by update.sh → an instance on a second VM on the lab network installs from it through install.sh, with an account, a project with a repository, an app at <app>-<name>.<domain> through root's Caddy and a sandboxed run → update.sh refuses with its exact words while a workflow runs on root's Temporal, then updates root to the candidate, which its registry then holds → the instance upgrades itself through its real check-in (root hears installing → ready), and sign-in through root, the handoff, the app's address, the repository, a sandboxed run and the check-in still work → with both on the candidate, a release that does not exist fails on the instance, which rolls itself back, tells root and stays at its addresses with sign-in working → update.sh <previous> rolls root back and helm rollback the instance, everything working again; ~1 h, cleans up
+npm run test:release-live         # the release rehearsal (gate G4 of plans/release-pipeline.md): the image is built at the previous tag and at the candidate → root on a disposable VM, bootstrapped by the real bootstrap.sh in lab mode (CERTIFICATES=internal), the previous release's ROOT_TLS rewritten once by the candidate's update.sh, and moved onto the previous tag by update.sh → an instance on a second VM on the lab network installs from it through install.sh, with an account, a project with a repository, an app at <app>-<name>.<domain> through root's Caddy and a sandboxed run → update.sh refuses with its exact words while a workflow runs on root's Temporal, then updates root to the candidate, which its registry then holds → the instance upgrades itself through its real check-in (root hears installing → ready), and sign-in through root, the handoff, the app's address, the repository, a sandboxed run and the check-in still work → with both on the candidate, a release that does not exist fails on the instance, which rolls itself back, tells root and stays at its addresses with sign-in working → update.sh <previous> rolls root back and helm rollback the instance, everything working again; ~1 h, cleans up
 npm run test:byo-live             # disposable QEMU VM runs the real `curl …/install.sh | sudo sh` from a root container → instance on the VM → sign in → sandboxed run → self-upgrade check-in, ~15 min, cleans up
 npm run test:machine-probe-live  # two disposable VMs of one person on the dev mesh, k3s installed from the pins but not started (plans/machines.md stage 0) → the person starts and stops it through one sudoers rule and nothing else, no shim left after a stop, readiness judged only from conditions changed since the start → 6443 and 10250 closed to the machine's network, nothing on 80/443, its own pods still reach its API → a pod on one machine lists the other's pods over the mesh, the certificate naming its mesh address → a pod mounts only the person's folder as their uid and what it writes is theirs; `PROBE_KEEP=1` keeps the VMs after a failure, ~10 min
 npm run test:machine-live        # its own Koala from this commit's image (a backend and an engine worker, a database and a Temporal namespace of its own, `tests/lib/own-stack.ts`) → a fresh Ubuntu VM runs the command from My Machines → the agent runs as a user service, records its bundle and shows up to date, and finds an ACP agent and two CLIs missing their adapters (`--adapters none`) → after a reboot with nobody logged in it connects again → Install adapter makes Claude Code ready → an agent from before agents updated themselves shows as too old to update itself → the command run again with `--yes` installs Codex's adapter and the current agent → a download that is not the bundle Koala named is refused, the agent left as it was and My Machines saying why → Koala serving a newer agent while a chat turn holds a session on the machine, it waits and says so → the run terminated, Koala tells the machine, which closes the session and, idle, updates itself and comes back as its service on the newer agent, up to date → a two-turn chat runs on it; removes the machine, its project, the VM and its Koala, ~15 min
@@ -200,7 +200,7 @@ Refreshes every 2s: MongoDB cluster status/progress, live log tail, K8s pod stat
 | `apps/backend/src/<area>/store.ts` | **The area's records**: `interface <Area>Store` and `Mongo<Area>Store`, its collections, indexes (`ensureIndexes`) and every read and write of them. A service reads another area's records through `db.<area>` or a `Pick` of that store, never through the driver. `MongoDB` composes the fourteen stores and wraps the projects and engine stores in the hub-write marker |
 | `apps/backend/src/platform/lib/mongo-db.ts` | The MongoDB implementation, the only one. Unit tests get a real Mongo from `platform/lib/test-database.ts`: `testDatabase()` opens a fresh database on the `mongodb-memory-server` that `vitest.global-setup.ts` starts once per run, and `vitest.setup.ts` drops every database a file opened when it ends |
 | `apps/backend/src/platform/lib/auth.ts`, `crypto.ts` | JWT sign/verify, password hashing; AES-256-GCM encrypt/decrypt/mask for stored secrets |
-| `apps/backend/src/infrastructure/lib/credential-resolver.ts` | Resolution chain for stored credentials (OVHcloud, the DNS providers, Hugging Face, GitHub): user-stored → `process.env` (the operator only) → `none` |
+| `apps/backend/src/infrastructure/lib/credential-resolver.ts` | Resolution chain for stored credentials: OVHcloud and the DNS providers user-stored → `process.env` (the operator only) → `none`; a Hugging Face token only user-stored |
 | `apps/backend/src/platform/middleware/` | `asyncRoute` + the error responder, and `auth.ts`'s `createAuth()` — `requireAuth`, `requireAdmin`, the session cookie and the invite gate. Express 4 does not await handlers — an unwrapped async handler that rejects sends NO response and the request hangs |
 | `apps/backend/src/workflows/` + `activities/` | Temporal.io workflow/activity definitions |
 | `apps/backend/src/worker-host.ts` | Host-side Temporal worker — root's work: the pool, server orders, account removals at root, the dependency watch, the crawl |
@@ -764,7 +764,8 @@ the entry points, `src/scripts/**` (the operator's and dev's CLIs read their env
 the one place a child process inherits the OS's environment (`childEnv`, `inheritedEnv`).
 
 A setting is one of four things:
-- **required**: the process stops at start naming it (what the role needs and nothing can stand in for: `MONGO_URI`,
+- **required**: the process stops at start naming it (what the role needs and nothing can stand in for: the five platform keys
+  and root's `ROOT_IDENTITY_KEY` in every mode (**Platform keys**), `MONGO_URI`,
   `TEMPORAL_CONNECTION_ADDRESS`, `TEMPORAL_NAMESPACE`, `TEMPORAL_TLS_CA`, `PORT`, `PUBLIC_URL`, `APP_URL`, `TERRAFORM_STATE`, root's
   `INSTANCE_IMAGE_TAG` and `INSTANCE_REGISTRY`, an instance's services and `INSTANCE_CREDENTIAL`, a worker's `HEALTH_PORT` and
   Temporal metrics port, `HUB_DATABASE`, …). Listen ports are required and set once in the chart, the same value for the process
@@ -779,7 +780,9 @@ A setting is one of four things:
 
 Left as they were: the task-queue names (`TEMPORAL_TASK_QUEUE`, `TEMPORAL_ENGINE_TASK_QUEUE`, `POOL_TASK_QUEUE`, read into
 `settings.queues` raw, each caller keeping its fallback until "where work runs"), and decision 13's `IS_E2E`, `MONGO_TEST_URI` and
-the dev setup code. **Adding a setting**: read it in the role's reader (required, off with a reason, or a test parameter, with a
+the dev setup code. The operator's own credentials (`operatorCredentialsFrom`: OVHcloud's keys and each DNS provider's, read
+into `settings.operator.env` by root's backend and host worker only) are the only cloud credentials a process takes from its
+environment; Hugging Face and GitHub tokens are not among them. **Adding a setting**: read it in the role's reader (required, off with a reason, or a test parameter, with a
 reason a person can act on), add it to the reader's settings type, hand it on through the wiring, set it in every writer (the
 chart's `configmap-env.yaml`, `devRootPlan`, `devSplitPlan`, `scripts/root-node/root-settings.sh` for root, the test stacks), and
 extend the writer tests that feed each writer's environment to its reader (`instance-chart.integration.test.ts`,
@@ -1469,18 +1472,24 @@ Five keys, one per purpose, loaded once by `platform/lib/keys.ts`'s `loadKeys`, 
 - `EGRESS_KEY` derives the egress proxy's passwords;
 - `TEMPORAL_KEY` derives the P-256 key that signs every process's token to Temporal (below).
 
-Production refuses to start without all five. Dev derives any missing one from `JWT_SECRET`, so
-nothing needs setting up. Never pass a raw env var where a key is wanted: take `settings.keys` from the reader.
+No process starts without all five, in production or not, and root none without `ROOT_IDENTITY_KEY` (decision 14, "Migrate
+once, then delete": nothing is derived from `JWT_SECRET` or a secret written in the source any more, and `JWT_SECRET` is on no
+keyring). `loadKeys` takes all five, `loadKey(env, purpose)` one, for a program that needs only that (Temporal's key server,
+`databaseSettingsFrom`). A new dev box gets them from `scripts/setup-env.sh`, which runs `npm run keys -w apps/backend --
+--write-env`; the test stacks hand their containers the dev box's `apps/backend/.env`, and tests take theirs from
+`platform/testing/keys.ts` (`testKeyEnv`, `testKeys`, `testIdentityKey`). Never pass a raw env var where a key is wanted: take
+`settings.keys` from the reader.
 
-Ciphertext carries the id of the key that wrote it (`v2:<keyId>:…`). Each keyring holds the current
-key and any previous ones; previous keys only decrypt, and anything new is written with the
-current key. `JWT_SECRET`, the old single key, stays on the ring as a previous key until it is
-removed from `.env`.
+Ciphertext carries the id of the key that wrote it (`v2:<keyId>:…`). A keyring holds only the current key.
 
-Rotate with `npm run keys -w apps/backend`: a dry run that reports what would move. Add `--write-env`
-to generate missing keys and `--apply` to re-encrypt Mongo and the key files in `data/`. Remove
-`JWT_SECRET` only after `--apply` reports nothing unreadable and no workflow started before the
-rotation is still running.
+`npm run keys -w apps/backend` (`src/scripts/rotate-keys.ts`) is the one program that still reads `JWT_SECRET`, as the old key it
+re-seals from. `--write-env` writes whatever of the five keys `apps/backend/.env` lacks (fresh) and, unless it says `ROLE=instance`,
+`ROOT_IDENTITY_KEY`: the one root signed with from `JWT_SECRET` when that is set, so whatever trusts root keeps trusting it, else a
+new one; it touches no database. Without it, it re-seals onto `DATA_KEY` whatever `JWT_SECRET`, or the key a dev box derived from
+it, sealed, in exactly the databases named with `--database <name>` (on `MONGO_URI`'s server; none by default, so a database
+another or an older Koala keeps is never touched) and the key files in `data/`: a dry run, with `--apply` to rewrite. Remove
+`JWT_SECRET` once `--apply` reports nothing unreadable and no workflow started before it still runs (a payload sealed under it
+can no longer be opened).
 
 ## Root node (hosted deployment)
 
@@ -1553,11 +1562,16 @@ restoring one rolls the whole disk back — including Mongo, Temporal and Headsc
 a tenant created since would vanish. It is disaster recovery for a broken machine, never "undo that
 deploy". Rollback is git-based for exactly this reason.
 
-**Lab mode.** `CERTIFICATES=internal bash scripts/root-node/bootstrap.sh` (an older root's `ROOT_TLS=internal` means the same) makes a root with no public DNS, for the release
+**Lab mode.** `CERTIFICATES=internal bash scripts/root-node/bootstrap.sh` makes a root with no public DNS, for the release
 rehearsal, and only on a domain nothing public resolves (under `.internal`, the rehearsal's `koala.internal`, or `.localhost`):
-`scripts/root-node/lab.sh` decides it for `bootstrap.sh` and `update.sh`, and refuses, changing nothing, when the settings say lab
-(`CERTIFICATES=internal` or `ROOT_TLS=internal` in `.env`) while `DOMAIN` is real, as on a former lab bootstrapped again for real, whose
-`ROOT_TLS=internal` `dns.ts setup` used to leave (it now drops `ROOT_TLS` on acme unless the people's domain is on Cloudflare). A lab: the app and mesh names are checked against this host's own resolver (they must point at this machine; the
+`scripts/root-node/lab.sh` decides it for `bootstrap.sh` and `update.sh`, and refuses, changing nothing, when `.env` says
+`CERTIFICATES=internal` while `DOMAIN` is real. **`ROOT_TLS` is read once, to be rewritten** (decision 14): an older root's
+`ROOT_TLS=internal` becomes `CERTIFICATES=internal`, and `ROOT_TLS=cloudflare` `CERTIFICATES=acme` with `DOMAIN_DNS` and `INGRESS_DNS`
+`cloudflare`, each only where `.env` does not already say it, and `ROOT_TLS` is dropped (`scripts/root-node/root-tls.sh`, which
+`update.sh` runs before anything reads `.env` and `dns.ts setup` runs first, so a root moved onto this release by an older
+`update.sh`, or restored from an older backup, is rewritten too; any other value is refused). Nothing else reads it: `bootstrap.sh`
+refuses to be given one, and `update.sh` no longer moves root onto a release without `dns.ts` (v2026.10.29 and older), which read
+only `ROOT_TLS`. A lab: the app and mesh names are checked against this host's own resolver (they must point at this machine; the
 wildcard is the tester's to resolve), Caddy signs with its own certificate authority, which the host then trusts
 (`/usr/local/share/ca-certificates/koala-lab.crt`), no DNS provider or its credentials are needed, the mail records are printed rather than
 published, and `PUBLIC_URL` may be given (the rehearsal gives `http://app.<domain>:3001`, since the pods of an instance trust
@@ -1585,7 +1599,7 @@ client** (owner, 2026-10-29: Porkbun beside Cloudflare, nothing hardcoded to eit
 - Credentials are stored like any cloud provider's (`CredentialService`, sealed fields from the description, validated by the client,
   `dnsCredentialsOf`), and Settings → Cloud providers lists every provider from `GET /api/dns-providers`.
 - On root, `CERTIFICATES` (`acme` or `internal`) is apart from each zone's provider (`DOMAIN_DNS`, `INGRESS_DNS`, found from the zone's
-  nameservers when unset; an older root's `ROOT_TLS=cloudflare` means acme with Cloudflare for both). `scripts/root-node/dns.ts setup`
+  nameservers when unset; an older root's `ROOT_TLS` is rewritten into them once, **Lab mode** above). `scripts/root-node/dns.ts setup`
   (bootstrap, update, restore) checks the credentials, writes root's `.env`, Caddy's tls snippet (`/etc/koala/caddy-tls/koala.caddy`) and
   the credentials Caddy needs (`/etc/koala/caddy-dns.env`, root-only, never in the data folder the backend's user owns).
 - Caddy is built with every provider's module, listed in `docker/caddy/modules.txt`, generated from the pins file
@@ -1622,7 +1636,18 @@ too-permissive policy still parses cleanly and fails open.
 Per-user credentials are stored via `CredentialService`, encrypted at rest, and resolved through `credential-resolver.ts`'s chain:
 user-stored → `process.env` (only for a principal allowed `use-operator-credentials`) → `none`. What is kept is only what something
 still uses: OVHcloud (buying root's server, Host Koala on a server), each DNS provider (**DNS providers**), Hugging Face (model
-downloads), Artificial Analysis, GitHub and Google Drive (backups). Cloud providers (the page) lists those.
+downloads), Artificial Analysis and Google Drive (backups). Cloud providers (the page) lists those. **A GitHub token is no longer
+kept** (owner, 2026-11-08: "yep remove it and track the mirror for later"): nothing used it; the startup migration
+`github-credentials-dropped` forgot every saved one, and the planned mirror of Gitea to GitHub brings it back. Signing in with GitHub
+(`GITHUB_CLIENT_ID`/`GITHUB_CLIENT_SECRET`) is separate and unchanged.
+
+**A model's Hugging Face token has one path**: the token typed in the deploy wizard (or the app's settings), else the person's
+saved Hugging Face credential (`AppDeploy`'s `savedHuggingFaceToken`; one that can no longer be unsealed refuses the deploy with
+`UnreadableCredential`'s words), else none. No process takes one from its environment (no `HF_TOKEN`, `VLLM_HF_TOKEN` or
+`HUGGING_FACE_HUB_TOKEN`, for the operator or the cluster worker). The deployment keeps it as `vllmHfToken` or `tabbyHfToken`, the
+cluster activities pick the one for the app (`modelHfToken`) and hand it to Terraform as `HF_TOKEN` alone, and the vLLM and
+TabbyAPI constructs read only `config.hfToken`, putting it in the model pod's Secret as `HF_TOKEN` and `HUGGING_FACE_HUB_TOKEN`
+(what Hugging Face's own libraries read).
 
 **Koala makes no clusters** (owner, 2026-11-08). A cluster is a machine's own, made on the machine when it is added under My Machines
 (native k3s, or k3d where the person has Docker and wants no GPU) and removed with it; on the pool an instance's place is the

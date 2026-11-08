@@ -24,6 +24,7 @@ IMAGE_REPO="nowrinkles/app"
 PUBLISHED_IMAGE="${PUBLISHED_IMAGE-ghcr.io/luno89/nowrinkles/app}"
 SIGNERS="${RELEASE_SIGNERS:-/etc/koala/release-signers}"
 LAB_SH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lab.sh"
+ROOT_TLS_SH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/root-tls.sh"
 FORCE=0
 TARGET_REF=""
 
@@ -47,7 +48,11 @@ cd "$REPO_DIR"
 BACKEND_ENV="apps/backend/.env"
 env_value() { grep -E "^$1=" .env 2>/dev/null | tail -n1 | cut -d= -f2- || true; }
 [ -f "$LAB_SH" ] || LAB_SH="scripts/root-node/lab.sh"
-LAB="$(bash "$LAB_SH" "$(env_value CERTIFICATES)" "$(env_value ROOT_TLS)" "$(env_value DOMAIN)" 2>&1)" || die "$LAB"
+[ -f "$ROOT_TLS_SH" ] || ROOT_TLS_SH="scripts/root-node/root-tls.sh"
+[ -f "$ROOT_TLS_SH" ] || die "root-tls.sh is neither beside this update.sh nor in ${REPO_DIR}: it turns an older root's ROOT_TLS into CERTIFICATES before anything reads them"
+RENAMED="$(bash "$ROOT_TLS_SH" .env 2>&1)" || die "$RENAMED"
+[ -n "$RENAMED" ] && ok "$RENAMED"
+LAB="$(bash "$LAB_SH" "$(env_value CERTIFICATES)" "$(env_value DOMAIN)" 2>&1)" || die "$LAB"
 
 set_backend_env() {
   if grep -q "^$1=" "$BACKEND_ENV"; then
@@ -359,7 +364,7 @@ fi
 if [ -f scripts/root-node/dns.ts ]; then
   COMPOSE_ENV="$REPO_DIR/.env" npx tsx scripts/root-node/dns.ts setup || die "Koala cannot set up DNS and certificates for this release; see above. Nothing was restarted yet."
 else
-  ok "this release sets up Caddy's certificates from ROOT_TLS in .env, as it did before DNS providers"
+  die "${REF} predates DNS providers and sets up Caddy's certificates from ROOT_TLS, which this root no longer keeps (it says CERTIFICATES now); root does not move onto it. Nothing was restarted yet."
 fi
 docker compose -f docker-compose.caddy.yml up -d --build
 while ! said="$(docker exec nowrinkles-caddy caddy reload --config /etc/caddy/Caddyfile --force 2>&1)"; do

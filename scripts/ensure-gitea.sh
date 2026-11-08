@@ -33,7 +33,7 @@ fi
 # The admin password stays plaintext on disk (gitignored, mode 600) — same trust level as
 # Mongo/Temporal's own hardcoded dev creds in their compose files. The more powerful, longer-
 # lived Gitea API token minted from it is AES-256-GCM encrypted at rest instead, by
-# GiteaService.ts on first use (needs JWT_SECRET from the backend's own env, not available to
+# GiteaService.ts on first use (needs DATA_KEY from the backend's own env, not available to
 # this shell script without fragile .env parsing).
 DATA_DIR="${ROOT}/apps/backend/data"
 PASSWORD_FILE="${DATA_DIR}/.gitea-admin-password"

@@ -126,7 +126,7 @@ export class EncryptionCodec implements PayloadCodec {
         return deserialize(Buffer.from(decryptValue(td.decode(payload.data), this.masterKey), 'utf8'));
       } catch (err) {
         throw new Error(
-          `Failed to decrypt a Temporal payload — it was written with a key this worker does not hold (PAYLOAD_KEY, or the old JWT_SECRET): ${(err as Error).message}`,
+          `Failed to decrypt a Temporal payload — it was written with a key this worker does not hold (not its PAYLOAD_KEY): ${(err as Error).message}`,
         );
       }
     });

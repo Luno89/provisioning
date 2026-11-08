@@ -167,7 +167,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   });
   const modelService = new ModelService(db, appService, clusterService, clusterProxyService, headscaleService, keys.data, settings.endpointRules);
 
-  const temporalBridge = new TemporalBridge(db, io, keys.data, clusterService, claimSettings, { engineQueue: settings.queues.engine, operatorEnv: settings.operator.env });
+  const temporalBridge = new TemporalBridge(db, io, keys.data, clusterService, { engineQueue: settings.queues.engine });
   appService.setTemporalBridge(temporalBridge);
   if (tenants) {
     await keepTrying('⚠️ Temporal TS bridge not available yet, routes fall back to the local DB until it is', async () => {

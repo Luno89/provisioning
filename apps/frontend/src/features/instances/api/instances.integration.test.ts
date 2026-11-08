@@ -1,3 +1,4 @@
+import { testIdentityKey } from '../../../../../backend/src/platform/testing/keys'
 import { describe, expect, expectTypeOf, it } from 'vitest'
 import {
   type MySetup, type NameCheck, type PoolAdmin, type PoolOffer, checkName, createJoinCommand, getMySetup, getPoolAdmin, getPoolOffer,
@@ -25,7 +26,7 @@ const DOMAIN = 'people.koala.test'
 const poolWork: string[] = []
 
 const backend = await startBackend(({ api, db, auth, origin }) => {
-  const role = roleFromEnv({ ROLE: 'root' })
+  const role = roleFromEnv({ ROLE: 'root', ROOT_IDENTITY_KEY: testIdentityKey() })
   const identity = new IdentityService(role, db)
   const instances = new InstanceService(db, {
     rootUrl: origin,

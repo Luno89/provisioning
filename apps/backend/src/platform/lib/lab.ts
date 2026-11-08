@@ -17,8 +17,7 @@ export function staysPrivate(host: string): boolean {
 }
 
 export function labFrom(env: Env): boolean {
-  const certificates = env.CERTIFICATES?.trim() || (env.ROOT_TLS?.trim() === 'internal' ? 'internal' : '');
-  if (certificates !== 'internal') return false;
+  if (env.CERTIFICATES?.trim() !== 'internal') return false;
   return [env.DOMAIN, env.INGRESS_DOMAIN].every((domain) => !domain?.trim() || labName(domain));
 }
 

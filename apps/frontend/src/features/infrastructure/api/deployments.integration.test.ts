@@ -26,7 +26,7 @@ const backend = await startBackend(async ({ api, db }) => {
   const host = outsideThisTier<InfrastructureService>('the host\'s kubectl and helm')
   const clusters = new ClusterService(db, testClusterAccess(db, { dataKey: DATA_KEY }))
   const apps = new AppService(db, host, clusters, new BuilderService(db, host))
-  const bridge = new TemporalBridge(db, undefined, DATA_KEY, clusters, undefined, { connect: async () => temporal.client })
+  const bridge = new TemporalBridge(db, undefined, DATA_KEY, clusters, { connect: async () => temporal.client })
   await bridge.start()
   api.use('/deployments', deploymentsRouter({
     appService: apps,

@@ -44,8 +44,6 @@ describe('deploying a project\'s build', () => {
       handOver: (clusterId) => testClusterAccess(db).handOver(clusterId),
       ownClusterId: () => undefined,
       logDir: '/tmp',
-      claims: { role: 'instance' },
-      operatorEnv: {},
     };
   });
 

@@ -1,6 +1,6 @@
 import type { TelemetryPlace } from './telemetry.js';
 import { roleFromEnv, type RoleConfig } from './platform-role.js';
-import { loadKeys, type PlatformKeys } from './keys.js';
+import { loadKey, loadKeys, type PlatformKeys } from './keys.js';
 import { mongoTarget, type MongoTarget } from './mongo-target.js';
 import { labFrom } from './lab.js';
 import { cspModeFrom, type CspMode } from './csp.js';
@@ -201,7 +201,6 @@ export interface ClusterWorkerSettings extends CommonSettings, WorkerHealth {
   infisical: InfisicalSettings;
   terraform: TerraformStateKind;
   machineMetricsUrl: string | Off;
-  operator: OperatorCredentials;
 }
 
 export interface EngineWorkerSettings extends CommonSettings, WorkerHealth {
@@ -211,7 +210,6 @@ export interface EngineWorkerSettings extends CommonSettings, WorkerHealth {
   tenant: TenantServices;
   poolMonitor: { rootUrl: string; instanceId: string } | Off;
   mesh: MeshSettings | Off;
-  operator: OperatorCredentials;
 }
 
 class Reading {
@@ -269,7 +267,6 @@ function wholeUrl(name: string, raw: string): string {
 
 const OPERATOR_CREDENTIAL_NAMES = [
   'OVH_APPLICATION_KEY', 'OVH_APPLICATION_SECRET', 'OVH_CONSUMER_KEY', 'OVH_SUBSIDIARY',
-  'HF_TOKEN', 'VLLM_HF_TOKEN', 'HUGGING_FACE_HUB_TOKEN', 'GITHUB_TOKEN', 'GH_TOKEN',
   ...DNS_PROVIDERS.flatMap((provider) => provider.credential.flatMap((field) => [field.env, ...(field.aliases ?? [])])),
 ];
 
@@ -541,7 +538,6 @@ export function clusterWorkerSettingsFrom(env: Env): ClusterWorkerSettings {
   const terraform = terraformFrom(read);
   const registryPullHost = hostPortSetting(read, 'REGISTRY_PULL_HOST', 'it is where the cluster pulls the images Koala builds; the instance chart sets it');
   const metricsUrl = settingIn(read.env, 'MACHINE_METRICS_URL');
-  const operator = operatorCredentials(read);
   if (!base || !health || !gitea || !infisical || !terraform || !registryPullHost) return finish<ClusterWorkerSettings>(read, 'the cluster worker');
   return finish(read, 'the cluster worker', {
     ...base,
@@ -554,7 +550,6 @@ export function clusterWorkerSettingsFrom(env: Env): ClusterWorkerSettings {
     machineMetricsUrl: metricsUrl
       ? (read.take(() => wholeUrl('MACHINE_METRICS_URL', metricsUrl)) ?? metricsUrl)
       : { off: 'MACHINE_METRICS_URL is not set (the instance chart sets it from mesh.address and backend.nodePort), so an app on another machine gets no monitoring and is not deployed' },
-    operator,
   });
 }
 
@@ -567,7 +562,6 @@ export function engineWorkerSettingsFrom(env: Env): EngineWorkerSettings {
   const instanceCredential = required(read, 'INSTANCE_CREDENTIAL', 'it is the instance\'s credential at root, which its runs reach root with');
   const tenant = tenantServices(read);
   if (role && role.role !== 'instance') read.problems.push(`the engine worker runs only in an instance, and ROLE is ${role.role}`);
-  const operator = operatorCredentials(read);
   if (!base || !health || !publicUrl || !instanceCredential || !tenant) return finish<EngineWorkerSettings>(read, 'the engine worker');
   return finish(read, 'the engine worker', {
     ...base,
@@ -580,7 +574,6 @@ export function engineWorkerSettingsFrom(env: Env): EngineWorkerSettings {
       ? { rootUrl: base.role.instance.rootUrl, instanceId: base.role.instance.id }
       : { off: 'this instance is not on Koala\'s servers, so it monitors its own apps' },
     mesh: NO_MESH_HERE('an instance'),
-    operator,
   });
 }
 
@@ -638,14 +631,14 @@ export function moveImportSettingsFrom(env: Env): MoveImportSettings {
   const step = podStep(read);
   const credential = required(read, 'INSTANCE_CREDENTIAL', 'it is the credential this instance fetches its moved parts from root with');
   const mongo = read.take(() => mongoTarget(env));
-  const keys = read.take(() => loadKeys(env, ['data']));
+  const dataKey = read.take(() => loadKey(env, 'data'));
   const gitea = read.take(() => giteaSettingsFrom(env));
   const registryPullHost = hostPortSetting(read, 'REGISTRY_PULL_HOST', 'it is where the cluster pulls the images Koala builds; the instance chart sets it');
   const terraform = terraformFrom(read);
   const podNamespace = required(read, 'POD_NAMESPACE', 'it is this instance\'s own namespace, where Terraform keeps its state');
   const instance = step?.role.instance;
-  return finish(read, 'the move', step && instance && credential && mongo && keys && gitea && registryPullHost && terraform && podNamespace
-    ? { ...step, rootUrl: instance.rootUrl, instanceId: instance.id, credential, mongo, dataKey: keys.data, gitea, registryPullHost, terraform, podNamespace }
+  return finish(read, 'the move', step && instance && credential && mongo && dataKey && gitea && registryPullHost && terraform && podNamespace
+    ? { ...step, rootUrl: instance.rootUrl, instanceId: instance.id, credential, mongo, dataKey, gitea, registryPullHost, terraform, podNamespace }
     : undefined);
 }
 
@@ -678,9 +671,9 @@ export function connectionSettingsFrom(env: Env): ConnectionSettings {
 
 export function databaseSettingsFrom(env: Env): { mongo: MongoTarget; dataKey: PlatformKeys['data'] } {
   const read = new Reading(env);
-  const keys = read.take(() => loadKeys(env, ['data']));
+  const dataKey = read.take(() => loadKey(env, 'data'));
   const mongo = read.take(() => mongoTarget(env));
-  return finish(read, 'this program', keys && mongo ? { mongo, dataKey: keys.data } : undefined);
+  return finish(read, 'this program', dataKey && mongo ? { mongo, dataKey } : undefined);
 }
 
 export const settingProblem = (err: unknown): string | undefined => (err instanceof SettingsError ? err.message : undefined);

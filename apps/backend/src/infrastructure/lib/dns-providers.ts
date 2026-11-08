@@ -137,12 +137,10 @@ export interface RootDnsSettings {
 }
 
 export function rootDnsSettingsFrom(env: Readonly<Record<string, string | undefined>>): RootDnsSettings | { problem: string } {
-  const legacy = env.ROOT_TLS?.trim();
-  const asked = env.CERTIFICATES?.trim() || (legacy === 'internal' ? 'internal' : legacy === 'cloudflare' || !legacy ? 'acme' : legacy);
+  const asked = env.CERTIFICATES?.trim() || 'acme';
   if (asked !== 'acme' && asked !== 'internal') return { problem: `CERTIFICATES is acme (Let's Encrypt, proved over the people's domain's DNS) or internal (a lab: Caddy's own authority, no public DNS), not ${asked}` };
-  const fromLegacy = legacy === 'cloudflare' ? 'cloudflare' : undefined;
-  const domainDns = env.DOMAIN_DNS?.trim() || fromLegacy;
-  const ingressDns = env.INGRESS_DNS?.trim() || fromLegacy;
+  const domainDns = env.DOMAIN_DNS?.trim() || undefined;
+  const ingressDns = env.INGRESS_DNS?.trim() || undefined;
   for (const [setting, value] of [['DOMAIN_DNS', domainDns], ['INGRESS_DNS', ingressDns]] as const) {
     if (value && !DNS_PROVIDERS.some((provider) => provider.name === value)) return { problem: `${setting} is ${value}, which is not a DNS provider Koala knows (${DNS_PROVIDERS.map((provider) => provider.name).join(', ')})` };
   }

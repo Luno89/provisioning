@@ -21,8 +21,7 @@ export interface AppEnvArgs {
   vllmGpuVendor?: 'nvidia' | 'amd' | undefined;
   vllmCachePvc?: string | undefined;
   vllmDevice: string;
-  vllmHfToken?: string | undefined;
-  hostHfToken: string | undefined;
+  hfToken?: string | undefined;
   vllmMaxModelLen?: number | undefined;
   vllmGpuMemUtil?: number | undefined;
   vllmExtraArgs?: string | undefined;
@@ -36,7 +35,6 @@ export interface AppEnvArgs {
   tabbyRevision?: string | undefined;
   tabbyGpuCount: number;
   tabbyModelSizeBytes?: number | undefined;
-  tabbyHfToken?: string | undefined;
   tabbyCachePvc?: string | undefined;
   tabbyImageTag?: string | undefined;
   tabbyCacheMode?: string | undefined;
@@ -195,6 +193,12 @@ export function resolveTabbyDefaults(dep: DeploymentMetadata): DeploymentMetadat
   });
 }
 
+export function modelHfToken(app: { appType?: string | undefined; vllmHfToken?: string | undefined; tabbyHfToken?: string | undefined }): string | undefined {
+  if (app.appType === 'vllm') return app.vllmHfToken;
+  if (app.appType === 'tabbyapi') return app.tabbyHfToken;
+  return undefined;
+}
+
 export function buildAppEnv(a: AppEnvArgs): Record<string, string> {
   return {
     STACK_TYPE: 'app',
@@ -223,8 +227,7 @@ export function buildAppEnv(a: AppEnvArgs): Record<string, string> {
     VLLM_CACHE_PVC: a.vllmCachePvc || '',
     VLLM_IMAGE_TAG: (a.webTag && a.webTag !== 'latest') ? a.webTag : 'v0.7.2',
     VLLM_DEVICE: a.vllmDevice,
-    VLLM_HF_TOKEN: a.vllmHfToken || a.hostHfToken || '',
-    HF_TOKEN: a.vllmHfToken || a.tabbyHfToken || a.hostHfToken || '',
+    HF_TOKEN: a.hfToken || '',
     VLLM_MAX_MODEL_LEN: a.vllmMaxModelLen !== undefined ? String(a.vllmMaxModelLen) : '',
     VLLM_GPU_MEM_UTIL: a.vllmGpuMemUtil !== undefined ? String(a.vllmGpuMemUtil) : '',
     VLLM_EXTRA_ARGS: a.vllmExtraArgs || '',
@@ -238,7 +241,6 @@ export function buildAppEnv(a: AppEnvArgs): Record<string, string> {
     TABBYAPI_REVISION: a.tabbyRevision || '',
     TABBYAPI_GPU_COUNT: String(a.tabbyGpuCount),
     TABBYAPI_MODEL_SIZE_BYTES: a.tabbyModelSizeBytes !== undefined ? String(a.tabbyModelSizeBytes) : '',
-    TABBYAPI_HF_TOKEN: a.tabbyHfToken || a.hostHfToken || '',
     TABBYAPI_CACHE_PVC: a.tabbyCachePvc || '',
     TABBYAPI_IMAGE_TAG: a.tabbyImageTag || 'latest',
     TABBYAPI_CACHE_MODE: a.tabbyCacheMode || '',

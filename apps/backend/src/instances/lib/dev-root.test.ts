@@ -1,3 +1,4 @@
+import { testIdentityKey, testKeyEnv } from '../../platform/testing/keys.js';
 import { describe, expect, it } from 'vitest';
 import { DEV, devKoalaValues, devRootPlan } from './dev-root.js';
 import { giteaSettingsFrom } from '../../projects/lib/gitea-settings.js';
@@ -42,7 +43,7 @@ describe('dev, run as production runs on this computer', () => {
   it('gives root, its host worker and the hub every setting their readers require, and each reader takes them', () => {
     const rootKey = String(generateKeyPairSync('ed25519').publicKey.export({ type: 'spki', format: 'pem' }));
     const plan = devRootPlan({ ...input, rootPublicKeys: rootKey });
-    const keys = { JWT_SECRET: 'a-dev-secret-of-at-least-thirty-two-chars' };
+    const keys = { ...testKeyEnv('dev-root'), ROOT_IDENTITY_KEY: testIdentityKey() };
     const root = backendSettingsFrom({ ...keys, ...plan.rootEnv });
     expect(root).toMatchObject({ port: 3002, publicUrl: 'http://koala.localhost:5175', temporal: { address: '127.0.0.1:7233', namespace: 'default', caPath: '/repo/apps/backend/data/temporal-tls/ca.crt' }, terraform: { kind: 'local' }, mesh: { loginServer: 'http://127.0.0.1:8080', headscaleUrl: 'http://127.0.0.1:8080' } });
     expect(root.root).toMatchObject({ imageTag: 'dev', registry: '127.0.0.1:5001', routing: { off: saying('INGRESS_DOMAIN') }, pool: { off: ANY_TEXT } });

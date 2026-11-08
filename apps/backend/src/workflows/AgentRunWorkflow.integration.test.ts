@@ -1,3 +1,4 @@
+import { testKeys } from '../platform/testing/keys.js';
 import { WORKER_DEFAULTS } from '@koala/engine-core';
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { createCompactContextNode } from '../engine-host/nodes/model-nodes.js';
@@ -40,7 +41,6 @@ import { temporal } from '@temporalio/proto';
 import type { DataConverter } from '@temporalio/common';
 import { buildDataConverter } from '../platform/lib/temporal-codec.js';
 import { testPayloadBlobs } from '../platform/lib/test-database.js';
-import { loadKeys } from '../platform/lib/keys.js';
 import { PAPER_WRITING } from '../extensions/grove/procedures.js';
 import { bundled, timeSkippingTestEnvironment } from './temporal-test-env.js';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
@@ -1084,7 +1084,7 @@ describe('a run bigger than Temporal can carry', () => {
     ] });
     acts.engine.EngineToolActivity.mockImplementation(async (call: ToolCallArgs) => ({ ok: true, digest: `fetched ${call.callId}`, content: `${call.callId}: ${page()}` }));
     const { blobs, stored } = testPayloadBlobs();
-    const converter = buildDataConverter(loadKeys({ JWT_SECRET: 'payload-storage-test' }).payload, blobs);
+    const converter = buildDataConverter(testKeys('payload-storage-test').payload, blobs);
     const args = { ...input('executor', TOOL_ROUNDS_V2), continueAfterEvents: 1 };
     let firstRun = '';
 
@@ -1924,7 +1924,7 @@ describe('an external agent working on someone\'s machine', () => {
     await writeFile(scriptPath, JSON.stringify({ name: 'antigravity-acp', version: '1.4.0', turns: [{ steps: [{ echo: true }] }] } satisfies AgentScript));
     const sessions = new ExternalAgentSessions({ rootDir: resolve(root, 'machine'), launches: { antigravity: { command: process.execPath, args: ['--import', import.meta.resolve('tsx'), AGENT, scriptPath] } }, segmentMs: 500 });
     const acts = activities({ script: [{ content: 'unused' }], external: sessions, environment: MACHINE, conversations: inMemoryConversations() });
-    const ring = loadKeys({ JWT_SECRET: 'machine-payloads-test' }).payload;
+    const ring = testKeys('machine-payloads-test').payload;
     const { blobs, stored } = testPayloadBlobs();
     const instance = machinePayloads({ ring, blobs });
     const asked: string[] = [];

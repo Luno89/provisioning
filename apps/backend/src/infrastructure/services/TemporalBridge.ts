@@ -3,7 +3,7 @@ import { isCommitSha, type BuildPlan } from '../../releases/index.js'
 import {
   stopIfRunning, getTemporalClient, closedAs, reopening, type ClosedAs, type Watching, type SecretKey, type Database,
   type ClusterMetadata, type DeploymentMetadata, type ProjectMetadata,
-  type PipelineRunMetadata, type ClaimSettings, PLATFORM_OWNER, ownerIn, startedFor,
+  type PipelineRunMetadata, PLATFORM_OWNER, ownerIn, startedFor,
 } from '../../platform/index.js'
 import {
   looksLikeMcp, cachedProbes, mcpReachFrom, corpusEndpointsWith, webToolsDepsFrom, type McpProbe, type WaitingAsk,
@@ -40,7 +40,6 @@ import type { Reach } from '../lib/cluster-places.js'
 import { isModelKind } from '../../models/index.js'
 import { ClusterService } from './ClusterService.js'
 import { deployProjectBuild, startAppDeploy, resolveOpenaiApiBaseUrl, type AppDeployDeps } from './AppDeploy.js'
-import type { OperatorEnv } from '../lib/credential-resolver.js'
 import { executeDestroyAppWorkflow } from '../../workflows/DestroyAppWorkflow.js'
 import { executeResizeDiskWorkflow } from '../../workflows/ResizeDiskWorkflow.js'
 import { executeSyncConfigWorkflow } from '../../workflows/SyncConfigWorkflow.js'
@@ -196,8 +195,7 @@ export class TemporalBridge {
     io?: SocketServer,
     masterKey?: SecretKey,
     clusterService?: ClusterService,
-    private readonly claims?: ClaimSettings | undefined,
-    private readonly seams: { connect?: TemporalConnect | undefined; engineQueue?: string | undefined; operatorEnv?: OperatorEnv | undefined } = {},
+    private readonly seams: { connect?: TemporalConnect | undefined; engineQueue?: string | undefined } = {},
   ) {
     this.db = db
     this.io = io
@@ -618,7 +616,7 @@ export class TemporalBridge {
   }
 
   appDeployDeps(): AppDeployDeps {
-    return { db: this.db, client: () => this.client, masterKey: this.masterKey, clusterById: (id) => this.getClusterById(id), handOver: (clusterId) => this.clusterAccess().handOver(clusterId), ownClusterId: () => this.clusterAccess().ownId(), logDir: LOG_DIR, claims: this.claims, operatorEnv: this.seams.operatorEnv ?? {} }
+    return { db: this.db, client: () => this.client, masterKey: this.masterKey, clusterById: (id) => this.getClusterById(id), handOver: (clusterId) => this.clusterAccess().handOver(clusterId), ownClusterId: () => this.clusterAccess().ownId(), logDir: LOG_DIR }
   }
 
   async destroyApp(deploymentId: string): Promise<WorkflowDeal> {

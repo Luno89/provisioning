@@ -33,10 +33,11 @@ describe('who serves a zone, from its nameservers', () => {
 });
 
 describe('root\'s certificate and DNS settings', () => {
-  it('reads an older root\'s ROOT_TLS as the settings it meant', () => {
-    expect(rootDnsSettingsFrom({ ROOT_TLS: 'cloudflare' })).toEqual({ certificates: 'acme', domainDns: 'cloudflare', ingressDns: 'cloudflare' });
-    expect(rootDnsSettingsFrom({ ROOT_TLS: 'internal' })).toEqual({ certificates: 'internal' });
+  it('reads only CERTIFICATES, DOMAIN_DNS and INGRESS_DNS: an older root\'s ROOT_TLS was rewritten into them once by root-tls.sh', () => {
+    expect(rootDnsSettingsFrom({ ROOT_TLS: 'cloudflare' })).toEqual({ certificates: 'acme' });
+    expect(rootDnsSettingsFrom({ ROOT_TLS: 'internal' })).toEqual({ certificates: 'acme' });
     expect(rootDnsSettingsFrom({})).toEqual({ certificates: 'acme' });
+    expect(rootDnsSettingsFrom({ CERTIFICATES: 'internal' })).toEqual({ certificates: 'internal' });
   });
 
   it('lets CERTIFICATES and a provider per zone say it, and refuses what it does not know', () => {

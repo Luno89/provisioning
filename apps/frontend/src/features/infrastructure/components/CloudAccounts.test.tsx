@@ -43,19 +43,19 @@ describe('CloudAccounts', () => {
   it('renders a card for every provider the API reports', async () => {
     listProviders.mockResolvedValue(providers(
       { provider: 'huggingface', label: 'Hugging Face' },
-      { provider: 'github', label: 'GitHub' },
       { provider: 'ovh', label: 'OVHcloud' },
     ));
     renderScreen();
 
-    for (const label of ['Hugging Face', 'GitHub', 'OVHcloud']) {
+    for (const label of ['Hugging Face', 'OVHcloud']) {
       expect(await screen.findByText(label)).toBeDefined();
     }
+    expect(screen.queryByText('GitHub')).toBeNull();
   });
 
   it('distinguishes a configured provider from an unconfigured one', async () => {
     listProviders.mockResolvedValue(providers(
-      { provider: 'github', label: 'GitHub', configured: true, source: 'user' },
+      { provider: 'huggingface', label: 'Hugging Face', configured: true, source: 'user' },
       { provider: 'ovh', label: 'OVHcloud', configured: false },
     ));
     renderScreen();

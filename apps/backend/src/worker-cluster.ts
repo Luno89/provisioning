@@ -56,7 +56,6 @@ async function main() {
     gitea: new GiteaService(dataKey, settings.gitea, { registryPullHost: settings.registryPullHost }),
     infisical: new InfisicalService(dataKey, settings.infisical),
     database: { mongo: settings.mongo, dataKey },
-    hfToken: settings.operator.env.HF_TOKEN,
     machineMetricsUrl: settings.machineMetricsUrl,
   };
 

@@ -146,7 +146,7 @@ export async function projectsOf(site: Site): Promise<ProjectsSide> {
   const machines = machinesOf(site)
   const temporal = temporalOnPaper()
   const clusters = new ClusterService(db, testClusterAccess(db, { dataKey: DATA_KEY }))
-  const bridge = new TemporalBridge(db, undefined, DATA_KEY, clusters, undefined, { connect: async () => temporal.client })
+  const bridge = new TemporalBridge(db, undefined, DATA_KEY, clusters, { connect: async () => temporal.client })
   await bridge.start()
   const gitea = outsideThisTier<GiteaService>('Gitea')
   const extensions = extensionServiceFor(db)

@@ -160,7 +160,7 @@ async function standUpRoot(label: string, commit: string, signInEnv: Record<stri
   const begun = Date.now();
   await sh(vm, 'sudo bash -s', false, [
     'set -euo pipefail',
-    `export K3S_MIRROR=${k3s.url} ROOT_TLS=internal DOMAIN=${DOMAIN} PUBLIC_URL=${ROOT_URL}`,
+    `export K3S_MIRROR=${k3s.url} CERTIFICATES=internal DOMAIN=${DOMAIN} PUBLIC_URL=${ROOT_URL}`,
     ...Object.entries(signInEnv).map(([name, value]) => `export ${name}=${quoted(value)}`),
     `bash ${REPO_DIR}/scripts/root-node/bootstrap.sh > /tmp/bootstrap.log 2>&1 || { tail -60 /tmp/bootstrap.log; exit 1; }`,
   ].join('\n'));

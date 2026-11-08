@@ -1,13 +1,13 @@
+import { testKeys } from '../../platform/testing/keys.js';
 import axios from 'axios';
 import { afterEach, describe, expect, it } from 'vitest';
-import { loadKeys } from '../../platform/lib/keys.js';
 import { mountRouter, TEST_USER, type Harness } from '../../platform/routes/test-harness.js';
 import { generateIdentityKey, identityKeysFrom } from '../../instances/lib/identity-token.js';
 import { InstanceService } from '../../instances/services/InstanceService.js';
 import { MachineAccounts } from '../services/MachineAccounts.js';
 import { myMachinesRouter } from './my-machines.js';
 
-const keys = loadKeys({ JWT_SECRET: 'my-machines-test-secret' });
+const keys = testKeys('my-machines-test-secret');
 const sites: Harness[] = [];
 afterEach(async () => { for (const site of sites.splice(0)) await site.close(); });
 

@@ -1,3 +1,4 @@
+import { testKeys } from '../../platform/testing/keys.js';
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { Server as SocketServer } from 'socket.io';
@@ -5,7 +6,6 @@ import { io as connect, type Socket as ClientSocket } from 'socket.io-client';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { mock } from 'vitest-mock-extended';
 import { clusterOnConnect, K3S_MARKER, type ClusterHost } from '../../../../local-agent/src/machine-cluster.js';
-import { loadKeys } from '../../platform/lib/keys.js';
 import { emptiedEachTime, testPayloadBlobs } from '../../platform/lib/test-database.js';
 import type { MongoDB } from '../../platform/lib/mongo-db.js';
 import { generateIdentityKey, identityKeysFrom, publicKeyPem, trustedKeys } from '../../instances/lib/identity-token.js';
@@ -18,7 +18,7 @@ const fresh = await emptiedEachTime();
 const root = identityKeysFrom(generateIdentityKey());
 const workTokens = { keys: trustedKeys([publicKeyPem(root.publicKey)]), audience: 'inst-1' };
 const TOKEN = issueWorkToken(root, { machineId: 'desk', ownerId: 'owner-1', audience: 'inst-1' });
-const keys = loadKeys({ JWT_SECRET: 'machine-cluster-reports-secret' });
+const keys = testKeys('machine-cluster-reports-secret');
 
 let db: MongoDB;
 let server: http.Server;

@@ -91,7 +91,7 @@ export default function CloudAccounts() {
           Cloud providers
         </h2>
         <p className="text-slate-400 mt-2">
-          The keys Koala uses for the services it works with: model downloads, GitHub, buying root's server and your domains' DNS.
+          The keys Koala uses for the services it works with: model downloads, buying root's server and your domains' DNS.
         </p>
       </header>
 

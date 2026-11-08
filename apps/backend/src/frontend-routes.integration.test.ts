@@ -1,3 +1,4 @@
+import { testKeyEnv } from './platform/testing/keys.js';
 import { spawn } from 'node:child_process';
 import { testMinioEnv } from './files/testing/real-minio.js';
 import { NO_SERVICE_HOST, PLAINTEXT_TEMPORAL_CA, TEST_RELEASE, unreachedPlatformServices } from './platform/testing/platform-services.js';
@@ -40,14 +41,16 @@ const MOUNTED_ONLY_ELSEWHERE: Record<string, string> = {
 
 beforeAll(async () => {
   const mongo = inject('mongoUri');
-  const signing = identityKeysFrom(generateIdentityKey());
+  const identity = generateIdentityKey();
+  const signing = identityKeysFrom(identity);
   const plan = devSplitPlan({
     name: 'dev', owner: { id: 'owner-1', email: 'owner@example.com', createdAt: 'then' } as never, instanceId: 'inst-1', credential: 'c', credentialHash: hashCredential('c'),
     hubCredential: 'h', hubCredentialHash: hashCredential('h'), rootPublicKeys: publicKeyPem(signing.publicKey), mongoUri: `${mongo}t_${randomUUID().slice(0, 8)}`, now: 'then',
     temporal: { address: NO_SERVICE_HOST, namespace: 'default', ca: PLAINTEXT_TEMPORAL_CA }, release: TEST_RELEASE,
   });
   const own = (database: string) => ({ MONGO_URI: `${mongo}${database}_${randomUUID().slice(0, 8)}` });
-  const roles = { root: { ...plan.rootEnv, ...own('root') }, instance: { ...plan.instanceEnv, ...own('instance') }, hub: { ...plan.hubEnv, ...own('hub') } };
+  const keys = { ...testKeyEnv('frontend-routes'), ROOT_IDENTITY_KEY: Buffer.from(identity).toString('base64') };
+  const roles = { root: { ...keys, ...plan.rootEnv, ...own('root') }, instance: { ...keys, ...plan.instanceEnv, ...own('instance') }, hub: { ...keys, ...plan.hubEnv, ...own('hub') } };
   await Promise.all(Object.entries(roles).map(async ([role, env]) => { byRole[role] = await routesFor(env as Record<string, string>); }));
 }, 240_000);
 

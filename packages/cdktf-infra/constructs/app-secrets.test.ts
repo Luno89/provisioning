@@ -32,6 +32,16 @@ describe("an app's secrets", () => {
     });
   }
 
+  for (const [app, build] of [["vLLM", (scope: never) => new VllmApp(scope, "app", {})], ["TabbyAPI", (scope: never) => new TabbyApiApp(scope, "app", {})]] as const) {
+    it(`${app} takes its Hugging Face token only from what it is given, never from the environment`, () => {
+      for (const name of ["HF_TOKEN", "VLLM_HF_TOKEN", "TABBYAPI_HF_TOKEN", "HUGGING_FACE_HUB_TOKEN"]) vi.stubEnv(name, "hf_from_the_environment");
+      const resources = synth(build);
+      expect(JSON.stringify(resources)).not.toContain("hf_from_the_environment");
+      const stored = Object.values(resources.kubernetes_secret ?? {}).find((entry) => entry.metadata?.name === "hf-token-secret");
+      expect(stored).toBeUndefined();
+    });
+  }
+
   it("Hermes never deploys with a default dashboard password", () => {
     expect(() => synth((scope) => new HermesAgentApp(scope, "app", {}))).toThrow(/Hermes needs a dashboard password/);
   });

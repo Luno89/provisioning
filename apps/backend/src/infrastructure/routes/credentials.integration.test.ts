@@ -33,7 +33,7 @@ const mount = async (user: typeof TEST_USER | null = TEST_USER, googleDrive: { c
       await db.accounts.saveUser({ id: TEST_USER.id, email: TEST_USER.email, twoFactorEnabled: false, emailVerified: true, createdAt: 'then' } as never);
       const service = new CredentialService(db, KEY);
       await service.saveCredentials(TEST_USER.id, 'ovh', { applicationKey: 'APPKSTOREDKEY0001', applicationSecret: 'stored-secret-0001', consumerKey: 'stored-consumer-0001', subsidiary: 'FR' });
-      await service.saveCredentials(TEST_USER.id, 'github', { token: 'github-token-0001' });
+      await service.saveCredentials(TEST_USER.id, 'huggingface', { hfToken: 'hf-token-0001' });
       svc = spied(service);
       return credentialsRouter({
         credentialService: service,
@@ -53,7 +53,7 @@ describe('listing configured providers', () => {
     const res = await axios.get<{ providers: { provider: string; configured: boolean }[] }>(h.url('/api/credentials'));
     expect(res.status).toBe(200);
     expect(res.data.providers.filter((provider) => provider.configured)).toEqual([
-      { provider: 'github', label: 'GitHub', configured: true, source: 'user', summary: { GITHUB_TOKEN: 'gith****0001', GH_TOKEN: 'gith****0001' } },
+      { provider: 'huggingface', label: 'Hugging Face', configured: true, source: 'user', summary: { HF_TOKEN: 'hf-t****0001', HUGGING_FACE_HUB_TOKEN: 'hf-t****0001' } },
       { provider: 'ovh', label: 'OVHcloud', configured: true, source: 'user', summary: { OVH_APPLICATION_KEY: 'APPK****0001', OVH_APPLICATION_SECRET: 'stor****0001', OVH_CONSUMER_KEY: 'stor****0001', OVH_SUBSIDIARY: '****' } },
     ]);
     expect(svc.getConfiguredProviders).toHaveBeenCalledWith(TEST_USER.id);
@@ -131,9 +131,9 @@ describe('reading and writing one provider', () => {
 
   it('deletes for the calling user only', async () => {
     const { h, svc, db } = await mount();
-    const res = await axios.delete(h.url('/api/credentials/github'));
-    expect(res.data).toEqual({ success: true, provider: 'github' });
-    expect(svc.deleteCredentials).toHaveBeenCalledWith(TEST_USER.id, 'github');
+    const res = await axios.delete(h.url('/api/credentials/huggingface'));
+    expect(res.data).toEqual({ success: true, provider: 'huggingface' });
+    expect(svc.deleteCredentials).toHaveBeenCalledWith(TEST_USER.id, 'huggingface');
     expect(Object.keys((await db.accounts.getUserById(TEST_USER.id))?.credentials ?? {})).toEqual(['ovh']);
   });
 

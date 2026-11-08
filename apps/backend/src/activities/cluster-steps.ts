@@ -8,6 +8,5 @@ export interface ClusterSteps {
   gitea: GiteaService;
   infisical: InfisicalService;
   database: DatabaseSettings;
-  hfToken: string | undefined;
   machineMetricsUrl: string | { off: string };
 }

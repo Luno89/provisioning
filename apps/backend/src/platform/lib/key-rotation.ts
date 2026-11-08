@@ -1,4 +1,7 @@
+import crypto from 'crypto';
 import { decryptValue, encryptValue, looksEncrypted, needsReencryption, type Keyring } from './crypto.js';
+import { KEY_NAMES } from './keys.js';
+import { identityKeysFromSeed } from '../../instances/lib/identity-token.js';
 
 export interface Reencrypted<T> {
   value: T;
@@ -30,4 +33,34 @@ export function reencrypt<T>(value: T, ring: Keyring, at = ''): Reencrypted<T> {
   };
 
   return { value: walk(value, at) as T, rewritten, unreadable };
+}
+
+const LEGACY_SALT = 'nowrinkles-platform-keys';
+
+const fromLegacy = (secret: string, purpose: string): Buffer => Buffer.from(crypto.hkdfSync('sha256', secret, LEGACY_SALT, purpose, 32));
+
+export function sealedBeforeKeys(current: Keyring, jwtSecret: string | undefined, purpose: 'data'): Keyring {
+  const legacy = jwtSecret?.trim();
+  if (!legacy) return { current: current.current };
+  const previous = [legacy, fromLegacy(legacy, purpose).toString('hex')].filter((key) => key !== current.current);
+  return previous.length > 0 ? { current: current.current, previous } : { current: current.current };
+}
+
+export const identityKeyOf = (jwtSecret: string): string =>
+  identityKeysFromSeed(fromLegacy(jwtSecret.trim(), 'identity')).privateKey.export({ type: 'pkcs8', format: 'pem' }).toString();
+
+export interface KeyLines {
+  lines: string[];
+  written: string[];
+}
+
+export function missingKeyLines(present: string, make: { key: () => string; identity: () => string }, jwtSecret: string | undefined): KeyLines {
+  const written: string[] = Object.values(KEY_NAMES).filter((name) => !new RegExp(`^${name}=.{32,}$`, 'm').test(present));
+  const lines = written.map((name) => `${name}=${make.key()}`);
+  if (!/^ROOT_IDENTITY_KEY=.+$/m.test(present) && !/^ROLE=instance$/m.test(present)) {
+    const legacy = jwtSecret?.trim();
+    lines.push(`ROOT_IDENTITY_KEY=${Buffer.from(legacy ? identityKeyOf(legacy) : make.identity()).toString('base64')}`);
+    written.push(legacy ? 'ROOT_IDENTITY_KEY (the one root signed with from JWT_SECRET, so whatever trusts root keeps trusting it)' : 'ROOT_IDENTITY_KEY');
+  }
+  return { lines, written };
 }

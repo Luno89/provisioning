@@ -1,7 +1,7 @@
 import { asStored } from '../../platform/testing/as-stored.js';
 import { randomUUID } from 'node:crypto';
 import type { AccessRequest, EgressGrantRecord, EgressRequest } from '@koala/harness-types';
-import { loadKeys } from '../../platform/lib/keys.js';
+import { loadKey } from '../../platform/lib/keys.js';
 import { mergeRecord } from '../../platform/lib/merge-record.js';
 import type {
   ClusterMetadata, DeploymentMetadata, PartialInfo, PendingApprovalMetadata, SecretKey,
@@ -16,7 +16,7 @@ import type { DeploymentHealth, InfrastructureStore } from '../store.js';
 import type { Watching } from '../../platform/lib/change-streams.js';
 import { FOLLOWED_DEPLOYMENT_STATUSES, namesWorkflow, type FollowedRecord } from '../lib/followed-work.js';
 
-const TEST_KEY = loadKeys({ DATA_KEY: 'k'.repeat(64) }).data;
+const TEST_KEY = loadKey({ DATA_KEY: 'k'.repeat(64) }, 'data');
 
 const stored = <T extends object>(record: T): T => asStored(copied(record));
 

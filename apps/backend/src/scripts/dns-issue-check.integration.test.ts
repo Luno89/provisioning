@@ -1,3 +1,4 @@
+import { testIdentityKey, testKeyEnv } from '../platform/testing/keys.js';
 import { describe, expect, it } from 'vitest';
 import { challengeNameIn, checkWildcardIn, CredentialService, DnsProviders } from '../infrastructure/index.js';
 import { fakePorkbun } from '../infrastructure/services/dns/fake-dns.js';
@@ -6,7 +7,7 @@ import { testDatabase } from '../platform/lib/test-database.js';
 import type { UserMetadata } from '../platform/lib/types.js';
 import { dnsIssueCheck } from './dns-issue-check.js';
 
-const env = { ROLE: 'root', JWT_SECRET: 'dns-issue-check-test-secret-0123456789' };
+const env = { ROLE: 'root', ...testKeyEnv('dns-issue-check'), ROOT_IDENTITY_KEY: testIdentityKey() };
 const ZONE = 'koala.test';
 
 describe('npm run dns:issue-check', () => {

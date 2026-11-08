@@ -44,7 +44,7 @@ async function toHub(person: Person): Promise<string> {
 }
 
 async function accountGone(id: string): Promise<boolean> {
-  const db = createDatabase(databaseSettingsFrom({ ...process.env, MONGO_URI: `${roles.mongoUri}${roles.databases.root}` }));
+  const db = createDatabase(databaseSettingsFrom({ ...roles.keys, MONGO_URI: `${roles.mongoUri}${roles.databases.root}` }));
   await db.init();
   try {
     return (await db.accounts.getUserById(id)) === undefined;

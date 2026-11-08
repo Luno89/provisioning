@@ -201,7 +201,7 @@ async function main(): Promise<void> {
   await sh(root, `sudo mkdir -p $(dirname ${SIGNERS}) && echo ${signer} | base64 -d | sudo tee ${SIGNERS} >/dev/null`);
   note(`${REPO_DIR} is a clone of this repository with ${PREVIOUS_LABEL}, the candidate as ${CANDIDATE_REF} and ${UNSIGNED_REF}; root trusts only the rehearsal's throwaway key, which signed all but ${UNSIGNED_REF}; the candidate's update.sh is kept at ${UPDATE_SH}`);
   const bootstrapped = Date.now();
-  await sh(root, `sudo env K3S_MIRROR=${k3s.url} ROOT_TLS=internal DOMAIN=${DOMAIN} PUBLIC_URL=${ROOT_URL} bash ${REPO_DIR}/scripts/root-node/bootstrap.sh`, true);
+  await sh(root, `sudo env K3S_MIRROR=${k3s.url} CERTIFICATES=internal DOMAIN=${DOMAIN} PUBLIC_URL=${ROOT_URL} bash ${REPO_DIR}/scripts/root-node/bootstrap.sh`, true);
   note(`bootstrap.sh finished in ${minutes(bootstrapped)}${UNHOSTED ? `, on ${STAND_IN_REF} (${imageTagOf(previous)})` : ''}`);
   writeFileSync(join(work, 'ca.crt'), await sh(root, 'sudo cat /usr/local/share/ca-certificates/koala-lab.crt'));
   const hardened = await sh(root, [

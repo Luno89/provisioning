@@ -15,7 +15,6 @@ const SENSITIVE_FIELDS: Record<string, string[]> = {
   ovh: ['applicationKey', 'applicationSecret', 'consumerKey'],
   huggingface: ['hfToken'],
   artificialanalysis: ['apiKey'],
-  github: ['token'],
   googledrive: ['refreshToken', 'backupPassword'],
   ...Object.fromEntries(DNS_PROVIDERS.map((provider) => [provider.name, secretFieldsOf(provider)])),
 };
@@ -24,7 +23,6 @@ const PLAINTEXT_FIELDS: Record<string, string[]> = {
   ovh: ['subsidiary'],
   huggingface: ['defaultModel'],
   artificialanalysis: [],
-  github: ['username'],
   googledrive: ['email'],
   ...Object.fromEntries(DNS_PROVIDERS.map((provider) => [provider.name, plainFieldsOf(provider)])),
 };
@@ -76,19 +74,6 @@ export class CredentialService {
         }
         const data = await readJson(res);
         return { valid: true, message: `Authenticated as Hugging Face user @${textAt(data, 'name') || textAt(data, 'fullname') || 'user'}`, details: data };
-      }
-
-      if (provider === 'github') {
-        const token = creds.token;
-        if (!token) return { valid: false, message: 'GitHub Personal Access Token is required.' };
-        const res = await fetch('https://api.github.com/user', {
-          headers: { Authorization: `Bearer ${token}`, 'User-Agent': 'Antigravity-Provisioning' },
-        });
-        if (!res.ok) {
-          return { valid: false, message: `Invalid token or unauthorized (HTTP ${res.status}).` };
-        }
-        const data = await readJson(res);
-        return { valid: true, message: `Authenticated as GitHub user @${textAt(data, 'login') ?? ''}`, details: data };
       }
 
       if (provider === 'ovh') {
@@ -157,7 +142,6 @@ export class CredentialService {
     const providers: { key: CloudProvider; label: string }[] = [
       { key: 'huggingface', label: 'Hugging Face' },
       { key: 'artificialanalysis', label: 'Artificial Analysis' },
-      { key: 'github', label: 'GitHub' },
       { key: 'ovh', label: 'OVHcloud' },
       ...DNS_PROVIDERS.map((provider) => ({ key: provider.name as CloudProvider, label: provider.label })),
     ];

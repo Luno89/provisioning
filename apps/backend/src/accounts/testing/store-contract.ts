@@ -188,6 +188,18 @@ export function accountsStoreContract(make: () => Promise<AccountsStore>): void 
       expect((await store.getUserBySignInLink('https://github.com', 'h-1'))?.id).toBe('old');
       expect(await store.moveProviderIdsToLinks()).toBe(0);
     });
+
+    it('forgets the GitHub token an account saved under Cloud providers, keeping its other credentials, once', async () => {
+      const store = await make();
+      await store.saveUser(loose(person('both'), { credentials: { github: { token: 'sealed' }, huggingface: { hfToken: 'sealed-hf' } } }));
+      await store.saveUser(loose(person('only'), { credentials: { github: { token: 'sealed', username: 'octo' } } }));
+      await store.saveUser({ ...person('none'), credentials: { huggingface: { hfToken: 'sealed-hf' } } });
+      expect(await store.dropGitHubCredentials()).toBe(2);
+      expect(await store.getUserById('both')).toEqual({ ...person('both'), credentials: { huggingface: { hfToken: 'sealed-hf' } } });
+      expect(await store.getUserById('only')).toEqual({ ...person('only'), credentials: {} });
+      expect(await store.getUserById('none')).toEqual({ ...person('none'), credentials: { huggingface: { hfToken: 'sealed-hf' } } });
+      expect(await store.dropGitHubCredentials()).toBe(0);
+    });
   });
 
   describe('invites', () => {

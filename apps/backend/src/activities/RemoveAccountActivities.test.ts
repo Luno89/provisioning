@@ -1,3 +1,4 @@
+import { testIdentityKey } from '../platform/testing/keys.js';
 import { MockActivityEnvironment } from '@temporalio/testing';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { mock, mockFn } from 'vitest-mock-extended';
@@ -180,7 +181,7 @@ describe('the mesh a removal clears', () => {
   const headscale = (): Mesh => ({ removeUser: async () => ({ devices: 2, user: true }) });
 
   it('is Headscale where accounts are held', async () => {
-    expect(await removalMeshFor(roleFromEnv({ ROLE: 'root' }), headscale).removeUser('u1')).toEqual({ devices: 2, user: true });
+    expect(await removalMeshFor(roleFromEnv({ ROLE: 'root', ROOT_IDENTITY_KEY: testIdentityKey() }), headscale).removeUser('u1')).toEqual({ devices: 2, user: true });
   });
 
   it("is none on an instance, whose people are on root's mesh, so no Headscale is reached", async () => {

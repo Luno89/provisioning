@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { MongoClient } from 'mongodb';
 import { inject } from 'vitest';
 import { MongoDB, mongoTarget } from './mongo-db.js';
-import { loadKeys } from './keys.js';
+import { loadKey } from './keys.js';
 import { mongoPayloadBlobs } from './mongo-payload-blobs.js';
 import type { PayloadBlobs } from './payload-storage.js';
 import { clientOptionsFor } from './collection.js';
@@ -12,6 +12,8 @@ declare module 'vitest' {
     mongoUri: string;
   }
 }
+
+export const TEST_DATA_KEY = loadKey({ DATA_KEY: 'test-database-data-key-0123456789abcdef' }, 'data');
 
 const open: MongoDB[] = [];
 const readers: Array<{ client: MongoClient; dbName: string }> = [];
@@ -41,7 +43,7 @@ export function testPayloadBlobs(): { blobs: PayloadBlobs; stored: () => Promise
 
 export async function testDatabaseAt(): Promise<{ db: MongoDB; uri: string; dbName: string }> {
   const uri = `${inject('mongoUri')}t_${randomUUID().replace(/-/g, '').slice(0, 20)}`;
-  const db = new MongoDB({ mongo: mongoTarget({ MONGO_URI: uri }), dataKey: loadKeys({}).data });
+  const db = new MongoDB({ mongo: mongoTarget({ MONGO_URI: uri }), dataKey: TEST_DATA_KEY });
   await db.init();
   open.push(db);
   return { db, uri, dbName: mongoTarget({ MONGO_URI: uri }).dbName };
@@ -67,7 +69,7 @@ export async function closeTestDatabases(): Promise<void> {
 export async function emptiedEachTime(): Promise<() => Promise<MongoDB>> {
   const base = inject('mongoUri');
   const dbName = `t_${randomUUID().replace(/-/g, '').slice(0, 20)}`;
-  const db = new MongoDB({ mongo: mongoTarget({ MONGO_URI: `${base}${dbName}` }), dataKey: loadKeys({}).data });
+  const db = new MongoDB({ mongo: mongoTarget({ MONGO_URI: `${base}${dbName}` }), dataKey: TEST_DATA_KEY });
   await db.init();
   open.push(db);
   const client = new MongoClient(base, clientOptionsFor(base));

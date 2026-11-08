@@ -34,16 +34,16 @@ describe('CredentialService', () => {
   });
 
   describe('saveCredentials + getCredentials', () => {
-    it('saves GitHub credentials and returns them masked, the plain fields as they are', async () => {
-      await service.saveCredentials('user-1', 'github', {
-        token: 'ghp_abcdefghijklmnopqrstuvwxyz0123',
-        username: 'octo',
+    it('saves Hugging Face credentials and returns them masked, the plain fields as they are', async () => {
+      await service.saveCredentials('user-1', 'huggingface', {
+        hfToken: 'hf_abcdefghijklmnopqrstuvwxyz0123',
+        defaultModel: 'meta-llama/Llama-3.2-3B-Instruct',
       });
 
-      const result = await service.getCredentials('user-1', 'github');
+      const result = await service.getCredentials('user-1', 'huggingface');
       expect(result).not.toBeNull();
-      expect(result!.username).toBe('octo');
-      expect(result!.token).toContain('****');
+      expect(result!.defaultModel).toBe('meta-llama/Llama-3.2-3B-Instruct');
+      expect(result!.hfToken).toContain('****');
     });
 
     it('encrypts sensitive fields at rest', async () => {
@@ -61,32 +61,32 @@ describe('CredentialService', () => {
 
   describe('deleteCredentials', () => {
     it('removes provider credentials', async () => {
-      await service.saveCredentials('user-1', 'github', {
-        token: 'ghp_example',
-        username: 'octo',
+      await service.saveCredentials('user-1', 'huggingface', {
+        hfToken: 'hf_example',
+        defaultModel: 'meta-llama/Llama-3.2-3B-Instruct',
       });
 
-      await service.deleteCredentials('user-1', 'github');
-      const result = await service.getCredentials('user-1', 'github');
+      await service.deleteCredentials('user-1', 'huggingface');
+      const result = await service.getCredentials('user-1', 'huggingface');
       expect(result).toBeNull();
     });
   });
 
   describe('getConfiguredProviders', () => {
     it('lists all providers with their status', async () => {
-      await service.saveCredentials('user-1', 'github', {
-        token: 'ghp_example_token',
+      await service.saveCredentials('user-1', 'huggingface', {
+        hfToken: 'hf_example_token',
       });
 
       const statuses = await service.getConfiguredProviders('user-1');
       expect(statuses.map((s) => s.provider).sort()).toEqual(
-        ['github', 'huggingface', 'ovh', 'cloudflare', 'porkbun', 'artificialanalysis'].sort(),
+        ['huggingface', 'ovh', 'cloudflare', 'porkbun', 'artificialanalysis'].sort(),
       );
 
-      const github = statuses.find((s) => s.provider === 'github');
-      expect(github?.configured).toBe(true);
-      expect(github?.source).toBe('user');
-      expect(github).not.toHaveProperty('clusters');
+      const huggingface = statuses.find((s) => s.provider === 'huggingface');
+      expect(huggingface?.configured).toBe(true);
+      expect(huggingface?.source).toBe('user');
+      expect(huggingface).not.toHaveProperty('clusters');
 
       const ovh = statuses.find((s) => s.provider === 'ovh');
       expect(ovh?.configured).toBe(false);
@@ -113,13 +113,13 @@ describe('CredentialService', () => {
 
   describe('resolveCredentials', () => {
     it('resolves user credentials first', async () => {
-      await service.saveCredentials('user-1', 'github', {
-        token: 'ghp_user_token',
+      await service.saveCredentials('user-1', 'huggingface', {
+        hfToken: 'hf_user_token',
       });
 
-      const resolved = await service.resolveCredentials('user-1', 'github');
+      const resolved = await service.resolveCredentials('user-1', 'huggingface');
       expect(resolved.mode).toBe('user');
-      expect(resolved.env.GITHUB_TOKEN).toBe('ghp_user_token');
+      expect(resolved.env.HF_TOKEN).toBe('hf_user_token');
     });
 
     it('says there are none when no credentials exist', async () => {
@@ -132,7 +132,7 @@ describe('CredentialService', () => {
   describe('error handling', () => {
     it('throws when user is not found', async () => {
       await expect(
-        service.saveCredentials('nonexistent', 'github', { token: 'test' }),
+        service.saveCredentials('nonexistent', 'huggingface', { hfToken: 'test' }),
       ).rejects.toThrow('User not found');
     });
 

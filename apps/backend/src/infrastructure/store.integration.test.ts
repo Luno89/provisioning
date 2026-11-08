@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { MongoClient, type Db } from 'mongodb';
 import { afterAll, beforeAll, describe, expect, it, inject } from 'vitest';
 import { looksEncrypted } from '../platform/lib/crypto.js';
-import { loadKeys } from '../platform/lib/keys.js';
+import { loadKey } from '../platform/lib/keys.js';
 import { emptiedEachTime } from '../platform/lib/test-database.js';
 import type { DeploymentMetadata } from '../platform/lib/types.js';
 import { MongoInfrastructureStore } from './store.js';
@@ -12,7 +12,7 @@ const fresh = await emptiedEachTime();
 
 infrastructureStoreContract(async () => (await fresh()).infrastructure);
 
-const key = loadKeys({ DATA_KEY: 'k'.repeat(64) }).data;
+const key = loadKey({ DATA_KEY: 'k'.repeat(64) }, 'data');
 
 const deployment = (id: string, extra: Partial<DeploymentMetadata> = {}): DeploymentMetadata => ({
   id, name: id, clusterId: 'c1', strategy: 'helm', status: 'running', ownerId: 'bo', appType: 'minio', minioRootUser: 'koala', ...extra,

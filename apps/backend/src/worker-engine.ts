@@ -224,8 +224,6 @@ async function buildActivities(settings: EngineWorkerSettings) {
             handOver: (id) => clusterService.access.handOver(id),
             ownClusterId: () => clusterService.ownClusterId(),
             logDir: LOG_DIR,
-            claims: claimSettingsFrom(engineRole),
-            operatorEnv: settings.operator.env,
           }, project, run);
           return { workflowId: started.workflowId };
         },

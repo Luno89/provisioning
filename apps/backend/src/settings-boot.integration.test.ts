@@ -1,3 +1,4 @@
+import { testIdentityKey, testKeyEnv } from './platform/testing/keys.js';
 import { spawn } from 'node:child_process';
 import { generateKeyPairSync } from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
@@ -18,7 +19,8 @@ const rootKey = Buffer.from(String(generateKeyPairSync('ed25519').publicKey.expo
 
 const CONNECTION = {
   NODE_ENV: 'development',
-  JWT_SECRET: 'a-boot-test-secret-of-at-least-thirty-two-chars',
+  ...testKeyEnv('settings-boot'),
+  ROOT_IDENTITY_KEY: testIdentityKey(),
   MONGO_URI: 'mongodb://admin:admin@127.0.0.1:1/provisioning?authSource=admin',
   TEMPORAL_CONNECTION_ADDRESS: '127.0.0.1:1',
   TEMPORAL_NAMESPACE: 'default',

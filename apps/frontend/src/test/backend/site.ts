@@ -7,7 +7,7 @@ import { createAuth, type Auth } from '../../../../backend/src/platform/middlewa
 import { errorResponder } from '../../../../backend/src/platform/middleware/async-route'
 import { SessionEnds } from '../../../../backend/src/platform/services/SessionEnds'
 import { AccessRevocations } from '../../../../backend/src/platform/services/AccessRevocations'
-import { testDatabase } from '../../../../backend/src/platform/lib/test-database'
+import { TEST_DATA_KEY, testDatabase } from '../../../../backend/src/platform/lib/test-database'
 import { JSON_LIMITS } from '../../../../backend/src/platform/lib/http-limits'
 import type { Database } from '../../../../backend/src/platform/lib/db-interface'
 import { authRouter } from '../../../../backend/src/accounts/routes/auth'
@@ -18,7 +18,6 @@ import { PasswordService } from '../../../../backend/src/accounts/services/Passw
 import { loadBreachedPasswords } from '../../../../backend/src/accounts/services/breached-passwords'
 import { newInviteCode, inviteCodeHash, inviteExpiry } from '../../../../backend/src/platform/lib/invite-codes'
 import { seedAll } from '../../../../backend/src/scripts/seed-all'
-import { loadKeys } from '../../../../backend/src/platform/lib/keys'
 import { login, verifySignUp, type SessionUser } from '../../features/platform'
 
 export const SESSION_KEY = 'frontend-integration-session-key'
@@ -62,7 +61,7 @@ const moveThePageTo = (origin: string): void => {
 
 export async function startBackend(mount: (site: Site) => void | Promise<void>): Promise<Backend> {
   const db = await testDatabase()
-  await seedAll(db, loadKeys({}).data)
+  await seedAll(db, TEST_DATA_KEY)
   const app = express()
   const server = http.createServer(app)
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()))

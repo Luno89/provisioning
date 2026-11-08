@@ -44,18 +44,13 @@ die()  { echo -e "  ${RED}❌${NC} $1"; exit 1; }
 step() { echo -e "\n${GREEN}▶${NC} $1"; }
 
 [ "$(id -u)" -eq 0 ] || die "Run as root — this installs packages and writes systemd units."
-if [ -z "$CERTIFICATES" ]; then
-  case "${ROOT_TLS:-cloudflare}" in
-    internal) CERTIFICATES=internal ;;
-    cloudflare) CERTIFICATES=acme ;;
-    *) die "ROOT_TLS is cloudflare or internal; set CERTIFICATES=acme|internal instead" ;;
-  esac
-fi
+[ -z "${ROOT_TLS:-}" ] || die "ROOT_TLS is no longer read; set CERTIFICATES=internal (a lab) or CERTIFICATES=acme instead, and DOMAIN_DNS and INGRESS_DNS where a zone's nameservers do not name its DNS provider"
+CERTIFICATES="${CERTIFICATES:-acme}"
 case "$CERTIFICATES" in
   acme|internal) ;;
   *) die "CERTIFICATES is acme (Let's Encrypt, proved over the people's domain's DNS provider) or internal (a lab: Caddy's own authority, no public DNS)" ;;
 esac
-LAB="$(bash "$(dirname "${BASH_SOURCE[0]}")/lab.sh" "$CERTIFICATES" "" "$DOMAIN" 2>&1)" || die "$LAB"
+LAB="$(bash "$(dirname "${BASH_SOURCE[0]}")/lab.sh" "$CERTIFICATES" "$DOMAIN" 2>&1)" || die "$LAB"
 export CERTIFICATES
 if [ -z "${INGRESS_DOMAIN:-}" ]; then
   if [ "$LAB" -eq 1 ]; then INGRESS_DOMAIN="$DOMAIN"; else INGRESS_DOMAIN=nowrinkles.app; fi

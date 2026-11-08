@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { KEY_NAMES, MissingKeysError, loadKeys } from './keys.js';
-import { decryptValue, encryptValue } from './crypto.js';
+import { KEY_NAMES, MissingKeysError, loadKey, loadKeys } from './keys.js';
 
 const full = {
   SESSION_KEY: 's'.repeat(64),
@@ -11,40 +10,26 @@ const full = {
 };
 
 describe('the platform keys', () => {
-  it('refuses to run in production without all five, and names the missing ones', () => {
-    expect(() => loadKeys({ NODE_ENV: 'production', JWT_SECRET: 'x'.repeat(64) })).toThrow(MissingKeysError);
-    expect(() => loadKeys({ NODE_ENV: 'production', ...full, EGRESS_KEY: 'too-short' })).toThrow(/EGRESS_KEY is not set, or shorter than 32/);
-    expect(() => loadKeys({ NODE_ENV: 'production', ...full, TEMPORAL_KEY: undefined })).toThrow(/TEMPORAL_KEY is not set/);
-    expect(loadKeys({ NODE_ENV: 'production', ...full }).data.current).toBe(full.DATA_KEY);
+  it('refuses to run without all five, in production or not, and names the missing ones', () => {
+    for (const mode of [{ NODE_ENV: 'production' }, {}]) {
+      expect(() => loadKeys({ ...mode })).toThrow(MissingKeysError);
+      expect(() => loadKeys({ ...mode, ...full, EGRESS_KEY: 'too-short' })).toThrow(/^EGRESS_KEY is not set, or shorter than 32/);
+      expect(() => loadKeys({ ...mode, ...full, TEMPORAL_KEY: undefined })).toThrow(/^TEMPORAL_KEY is not set/);
+      expect(() => loadKeys({ ...mode, DATA_KEY: full.DATA_KEY })).toThrow(/^SESSION_KEY, PAYLOAD_KEY, EGRESS_KEY, TEMPORAL_KEY are not set/);
+      expect(loadKeys({ ...mode, ...full }).data.current).toBe(full.DATA_KEY);
+    }
   });
 
-  it('lets a process that needs one key, such as Temporal\'s key server, run in production given only that one', () => {
-    expect(loadKeys({ NODE_ENV: 'production', TEMPORAL_KEY: full.TEMPORAL_KEY }, ['temporal']).temporal).toBe(full.TEMPORAL_KEY);
-    expect(() => loadKeys({ NODE_ENV: 'production', DATA_KEY: full.DATA_KEY }, ['temporal'])).toThrow(/^TEMPORAL_KEY is not set/);
-  });
-
-  it('never falls back to the key written in the source when in production', () => {
-    const keys = loadKeys({ NODE_ENV: 'production', ...full });
-    expect(keys.data.previous).toBeUndefined();
-    expect(keys.session.previous).toBeUndefined();
-  });
-
-  it('gives each purpose its own key, even when dev derives them all from one secret', () => {
-    const keys = loadKeys({ JWT_SECRET: 'one-dev-secret' });
-    const all = [keys.session.current, keys.data.current, keys.payload.current, keys.egress, keys.temporal];
-    expect(new Set(all).size).toBe(5);
-    expect(all).not.toContain('one-dev-secret');
+  it('makes no key from JWT_SECRET or from anything written in the source, and keeps no previous key', () => {
+    expect(() => loadKeys({ JWT_SECRET: 'x'.repeat(64) })).toThrow(MissingKeysError);
+    const keys = loadKeys({ ...full, JWT_SECRET: 'x'.repeat(64) });
+    expect(keys).toEqual({ session: { current: full.SESSION_KEY }, data: { current: full.DATA_KEY }, payload: { current: full.PAYLOAD_KEY }, egress: full.EGRESS_KEY, temporal: full.TEMPORAL_KEY });
     expect(Object.keys(KEY_NAMES)).toHaveLength(5);
   });
 
-  it('still opens what the old single secret wrote, and what a derived key wrote before real keys were set', () => {
-    const before = loadKeys({ JWT_SECRET: 'one-dev-secret' });
-    const byOldSecret = encryptValue('stored long ago', 'one-dev-secret');
-    const byDerivedKey = encryptValue('stored last week', before.data);
-
-    const after = loadKeys({ JWT_SECRET: 'one-dev-secret', ...full });
-    expect(decryptValue(byOldSecret, after.data)).toBe('stored long ago');
-    expect(decryptValue(byDerivedKey, after.data)).toBe('stored last week');
-    expect(after.data.current).toBe(full.DATA_KEY);
+  it('gives a program that needs one key, such as Temporal\'s key server, that key alone', () => {
+    expect(loadKey({ TEMPORAL_KEY: full.TEMPORAL_KEY }, 'temporal')).toBe(full.TEMPORAL_KEY);
+    expect(loadKey({ DATA_KEY: full.DATA_KEY }, 'data')).toEqual({ current: full.DATA_KEY });
+    expect(() => loadKey({ DATA_KEY: full.DATA_KEY, JWT_SECRET: 'x'.repeat(64) }, 'temporal')).toThrow(/^TEMPORAL_KEY is not set/);
   });
 });

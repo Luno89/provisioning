@@ -1,6 +1,6 @@
 import { UPGRADE_WORDS } from '../../apps/backend/src/instances/lib/self-upgrade.js';
 
-export const UPDATE_COPIES = ['update.sh', 'cdktf-bindings.sh', 'verify-release.sh', 'lab.sh'] as const;
+export const UPDATE_COPIES = ['update.sh', 'cdktf-bindings.sh', 'verify-release.sh', 'lab.sh', 'root-tls.sh'] as const;
 
 export const imageTagOf = (commit: string): string => commit.slice(0, 12);
 

@@ -1,3 +1,4 @@
+import { testIdentityKey, testKeyEnv } from '../testing/keys.js';
 import { generateKeyPairSync } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import {
@@ -11,7 +12,8 @@ const ANY_TEXT: unknown = expect.any(String);
 const rootKey = Buffer.from(String(generateKeyPairSync('ed25519').publicKey.export({ type: 'spki', format: 'pem' }))).toString('base64');
 
 const CONNECTION = {
-  JWT_SECRET: 'a-test-secret-of-at-least-thirty-two-chars',
+  ...testKeyEnv('settings'),
+  ROOT_IDENTITY_KEY: testIdentityKey(),
   MONGO_URI: 'mongodb://admin:admin@127.0.0.1:27017/provisioning?authSource=admin',
   TEMPORAL_CONNECTION_ADDRESS: '127.0.0.1:7233',
   TEMPORAL_NAMESPACE: 'default',
@@ -66,7 +68,7 @@ describe('the settings a backend reads once, at start', () => {
   });
 
   it('stops naming every setting root lacks or holds malformed, all at once', () => {
-    const problems = problemsOf(() => backendSettingsFrom({ ROLE: 'root', JWT_SECRET: CONNECTION.JWT_SECRET, PORT: 'eighty', TEMPORAL_CONNECTION_ADDRESS: 'http://localhost:7233' }));
+    const problems = problemsOf(() => backendSettingsFrom({ ROLE: 'root', ...testKeyEnv('settings'), ROOT_IDENTITY_KEY: CONNECTION.ROOT_IDENTITY_KEY, PORT: 'eighty', TEMPORAL_CONNECTION_ADDRESS: 'http://localhost:7233' }));
     for (const name of ['MONGO_URI', 'TEMPORAL_NAMESPACE', 'TEMPORAL_TLS_CA', 'PUBLIC_URL', 'APP_URL', 'TERRAFORM_STATE', 'INSTANCE_IMAGE_TAG', 'INSTANCE_REGISTRY']) {
       expect(problems.some((problem) => problem.includes(name)), name).toBe(true);
     }
@@ -170,6 +172,10 @@ describe('the settings of a step run in an instance\'s pod', () => {
 
 describe('the operator\'s own credentials', () => {
   it('hands on only the names Koala resolves credentials from', () => {
-    expect(operatorCredentialsFrom({ HF_TOKEN: 'hf', PORKBUN_API_KEY: 'pk', SESSION_KEY: 'never' }).env).toEqual({ HF_TOKEN: 'hf', PORKBUN_API_KEY: 'pk' });
+    expect(operatorCredentialsFrom({ OVH_APPLICATION_KEY: 'k', OVH_SUBSIDIARY: 'FR', PORKBUN_API_KEY: 'pk', SESSION_KEY: 'never' }).env).toEqual({ OVH_APPLICATION_KEY: 'k', OVH_SUBSIDIARY: 'FR', PORKBUN_API_KEY: 'pk' });
+  });
+
+  it('takes no Hugging Face or GitHub token from the environment', () => {
+    expect(operatorCredentialsFrom({ HF_TOKEN: 'hf', VLLM_HF_TOKEN: 'hf', HUGGING_FACE_HUB_TOKEN: 'hf', GITHUB_TOKEN: 'gh', GH_TOKEN: 'gh' }).env).toEqual({});
   });
 });
