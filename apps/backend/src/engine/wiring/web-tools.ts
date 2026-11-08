@@ -1,21 +1,26 @@
-import { publicAddressProblem, publicFetch, roleFromEnv, type Database } from '../../platform/index.js';
-import { corpusEndpointsWith, crawlEndpointWith, resolveWebTools, webToolsDepsFrom, type CorpusEndpoints, type WebToolsDeps } from '../lib/web-tools-resolver.js';
+import { publicAddressProblem, publicFetch, type Database, type WebToolSettings } from '../../platform/index.js';
+import { corpusEndpointsWith, crawlEndpointWith, resolveWebTools, webToolsDepsFrom, type CorpusEndpoints, type ProxyTarget, type WebToolsDeps } from '../lib/web-tools-resolver.js';
 import type { WebTools } from '../lib/web-tools.js';
-import { sharedClusterProxy, clusterAccessFrom } from '../../infrastructure/index.js';
 
 export type { CorpusEndpoints };
 
-export const webToolsDeps = (db: Pick<Database, 'infrastructure'>): WebToolsDeps => ({
-  ...webToolsDepsFrom(db.infrastructure, sharedClusterProxy(clusterAccessFrom(process.env, { role: roleFromEnv(process.env).role, clusters: db.infrastructure }))),
-  env: process.env,
+export interface WebToolsPlace {
+  db: Pick<Database, 'infrastructure'>;
+  proxy: { serviceUrl(clusterId: string, serviceKey: string, target: ProxyTarget): Promise<string> };
+  settings: WebToolSettings;
+}
+
+export const webToolsDeps = (place: WebToolsPlace): WebToolsDeps => ({
+  ...webToolsDepsFrom(place.db.infrastructure, place.proxy),
+  settings: place.settings,
   pageFetch: publicFetch,
   pageCheck: publicAddressProblem,
 });
 
-export const buildWebTools = (db: Database, ownerId?: string): Promise<WebTools> => resolveWebTools(webToolsDeps(db), ownerId);
+export const buildWebTools = (place: WebToolsPlace, ownerId?: string): Promise<WebTools> => resolveWebTools(webToolsDeps(place), ownerId);
 
-export const crawlEndpoint = (db: Pick<Database, 'infrastructure'>, ownerId?: string): Promise<{ base: string; token: string } | undefined> =>
-  crawlEndpointWith(webToolsDeps(db), ownerId);
+export const crawlEndpoint = (place: WebToolsPlace, ownerId?: string): Promise<{ base: string; token: string } | undefined> =>
+  crawlEndpointWith(webToolsDeps(place), ownerId);
 
-export const corpusEndpoints = (db: Pick<Database, 'infrastructure'>, ownerId?: string): Promise<CorpusEndpoints> =>
-  corpusEndpointsWith(webToolsDeps(db), ownerId);
+export const corpusEndpoints = (place: WebToolsPlace, ownerId?: string): Promise<CorpusEndpoints> =>
+  corpusEndpointsWith(webToolsDeps(place), ownerId);

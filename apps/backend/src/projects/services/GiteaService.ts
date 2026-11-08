@@ -2,7 +2,7 @@ import crypto from 'crypto';
 import os from 'os';
 import path from 'path';
 import fs from 'fs/promises';
-import { encryptValue, decryptValue, nodeProcesses, unpromptedGit, type Processes, type SecretKey } from '../../platform/index.js';
+import { encryptValue, decryptValue, inheritedEnv, nodeProcesses, unpromptedGit, type Processes, type SecretKey } from '../../platform/index.js';
 import { registryHosts, type RegistryHosts, type RegistryLogin } from '../../instances/index.js';
 import { privatePatches, type GiteaListedUser } from '../lib/gitea-visibility.js';
 import { blockedDropPath, dropPathQueries } from '../lib/drop-paths.js';
@@ -44,13 +44,15 @@ export class GiteaService {
   private pullLogin: Promise<RegistryLogin> | null = null;
 
   private readonly processes: Processes;
+  private readonly registryPullHost: string | undefined;
   private readonly dataDir: string;
 
   constructor(
     private readonly masterKey: SecretKey,
     private readonly at: GiteaAt,
-    options: { processes?: Processes | undefined; dataDir?: string | undefined } = {},
+    options: { processes?: Processes | undefined; dataDir?: string | undefined; registryPullHost?: string | undefined } = {},
   ) {
+    this.registryPullHost = options.registryPullHost;
     this.processes = options.processes ?? nodeProcesses;
     this.dataDir = options.dataDir ?? DEFAULT_DATA_DIR;
   }
@@ -457,7 +459,7 @@ export class GiteaService {
 
   private gitAuthEnv(auth: { username: string; token: string }): NodeJS.ProcessEnv {
     return {
-      ...unpromptedGit(process.env, {
+      ...unpromptedGit(inheritedEnv(), {
         'http.extraHeader': `Authorization: Basic ${Buffer.from(`${auth.username}:${auth.token}`).toString('base64')}`,
         'maintenance.auto': 'false',
         'gc.auto': '0',
@@ -883,7 +885,7 @@ export class GiteaService {
   }
 
   async getRegistryHosts(): Promise<RegistryHosts> {
-    return registryHosts(await this.resolveBaseUrl(), process.env.REGISTRY_PULL_HOST);
+    return registryHosts(await this.resolveBaseUrl(), this.registryPullHost);
   }
 
   async registryLogin(): Promise<RegistryLogin> {

@@ -1,5 +1,12 @@
-import { createDatabase } from '../platform/index.js';
+import { createDatabase, databaseSettingsFrom } from '../platform/index.js';
 import { corpusEndpoints } from '../engine/index.js';
+import { clusterAccessFrom, sharedClusterProxy } from '../infrastructure/index.js';
+import { clusterSettingsFrom, type Database } from '../platform/index.js';
+
+const webPlace = (db: Database) => {
+  const place = clusterSettingsFrom(process.env);
+  return { db, proxy: sharedClusterProxy(clusterAccessFrom(place.clusters, { role: place.role.role, clusters: db.infrastructure })), settings: {} };
+};
 import { indexMemories, searchMemories, recallMemories, recallQuery, buildMemoryContext, type MemoryItem } from '../memory/index.js';
 
 const DEFAULT_QUERIES = [
@@ -11,7 +18,7 @@ const DEFAULT_QUERIES = [
 const titles = (items: MemoryItem[]) => items.map((m) => `${m.title} [${m.id.slice(-6)}]`);
 
 async function main(): Promise<void> {
-  const db = createDatabase();
+  const db = createDatabase(databaseSettingsFrom(process.env));
   await db.init();
 
   try {
@@ -39,7 +46,7 @@ async function main(): Promise<void> {
     console.log(`\nUsing owner ${ownerId} (${mine.length} memories), project ${projectId ?? '(none)'} `
       + `(${projectId ? counts.get(projectId) : 0} injectable memories).`);
 
-    const ends = await corpusEndpoints(db, ownerId);
+    const ends = await corpusEndpoints(webPlace(db), ownerId);
     console.log(`Endpoints — vectors: ${ends.vectors ? 'yes' : 'NO'}`
       + `  index: ${ends.index ? 'yes' : 'NO'}  embeddings: ${ends.embeddings ? 'yes' : 'NO'}`);
     if (!ends.vectors && !ends.index) {

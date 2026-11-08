@@ -2,14 +2,20 @@ import assert from 'node:assert/strict';
 import dotenv from 'dotenv';
 import { BUILT_IN_GROUPS, defineGroup, defineProcedure, readProcedure, type Procedure } from '@koala/agent-engine/procedure';
 import { createDatabase } from '../apps/backend/src/platform/lib/db-interface.js';
+import { databaseSettingsFrom } from '../apps/backend/src/platform/lib/settings.js';
 import { liveEngineHost } from './lib/live-engine-host.js';
-import { getTemporalClient } from '../apps/backend/src/platform/lib/temporal-client.js';
+import { connectTemporalAs, getTemporalClient } from '../apps/backend/src/platform/lib/temporal-client.js';
+import { keepPayloadsIn } from '../apps/backend/src/platform/lib/db-interface.js';
+import { connectionSettingsFrom } from '../apps/backend/src/platform/lib/settings.js';
 import { startedFor } from '../apps/backend/src/platform/lib/workflow-owner.js';
 import { extensionServiceFor } from '../apps/backend/src/engine/services/ExtensionService.js';
 import { createProcedureStore } from '../apps/backend/src/engine-host/registries/procedure-store.js';
 import { DEFAULT_ENGINE_TASK_QUEUE, type AgentRunOutcome, type ProcedureRunInput } from '../apps/backend/src/engine-host/temporal/contracts.js';
 
 dotenv.config({ path: new URL('../apps/backend/.env', import.meta.url).pathname, quiet: true });
+const connections = connectionSettingsFrom(process.env);
+connectTemporalAs(connections);
+keepPayloadsIn(connections.mongo);
 
 const OWNER = process.env.EXTENSIONS_LIVE_OWNER ?? process.env.GROVE_LIVE_OWNER;
 const AGENT = process.env.EXTENSIONS_LIVE_AGENT ?? 'executor';
@@ -62,7 +68,7 @@ function greeter(id: string, extension: string, published: readonly Parameters<t
 
 async function main(): Promise<void> {
   assert.ok(OWNER, 'set EXTENSIONS_LIVE_OWNER (or GROVE_LIVE_OWNER) to the user to run as');
-  const db = createDatabase();
+  const db = createDatabase(databaseSettingsFrom(process.env));
   await db.init();
   const extensions = extensionServiceFor(db);
   const host = liveEngineHost(db);

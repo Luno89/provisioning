@@ -1,3 +1,4 @@
+import { movedSettingsFrom } from '../lib/instance-move.js';
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 import fs from 'fs';
@@ -47,7 +48,7 @@ const makeMove = (env: NodeJS.ProcessEnv = KEYS): MoveExport => new MoveExport({
   trusted: trustedKeys([publicKeyPem(root.publicKey)]),
   dataDir,
   mongo: { uri: 'mongodb://unused', dbName: 'provisioning' },
-  env,
+  moved: movedSettingsFrom(env),
   running: async () => running,
   cluster,
   spawn: rig.spawn,
@@ -107,7 +108,7 @@ describe('a pool instance deciding whether root may have a part of it', () => {
 
   it('judges a token by the clock it is given', async () => {
     const later = new MoveExport({
-      instanceId: 'inst-bo', trusted: trustedKeys([publicKeyPem(root.publicKey)]), dataDir, mongo: { uri: 'x', dbName: 'y' }, env: KEYS,
+      instanceId: 'inst-bo', trusted: trustedKeys([publicKeyPem(root.publicKey)]), dataDir, mongo: { uri: 'x', dbName: 'y' }, moved: movedSettingsFrom(KEYS),
       running: async () => [], cluster, spawn: rig.spawn, claim: (jti, expiresAt) => db.instances.claimHandoff(jti, expiresAt), now: () => Date.now() + 24 * 3600 * 1000,
     });
     expect(await later.check(issueMoveToken(root, 'inst-bo', 'keys'), 'keys')).toMatchObject({ status: 401 });
@@ -153,7 +154,7 @@ describe('a pool instance stopping for a move', () => {
   });
 
   it('fails to load when the mark cannot be looked for', async () => {
-    const broken = new MoveExport({ ...{ instanceId: 'inst-bo', trusted: trustedKeys([]), mongo: { uri: 'x', dbName: 'y' }, env: KEYS, running: async () => [], cluster, claim: async () => true }, dataDir: path.join(dataDir, MOVING_FILE, 'inside') });
+    const broken = new MoveExport({ ...{ instanceId: 'inst-bo', trusted: trustedKeys([]), mongo: { uri: 'x', dbName: 'y' }, moved: movedSettingsFrom(KEYS), running: async () => [], cluster, claim: async () => true }, dataDir: path.join(dataDir, MOVING_FILE, 'inside') });
     await fs.promises.writeFile(path.join(dataDir, MOVING_FILE), 'x');
     await expect(broken.load()).rejects.toThrow();
   });
@@ -195,7 +196,7 @@ describe('a pool instance taking work again', () => {
 
   it('reports a program of its own that cannot be started at all', async () => {
     const missing = new MoveExport({
-      instanceId: 'inst-bo', trusted: trustedKeys([]), dataDir, mongo: { uri: 'x', dbName: 'y' }, env: KEYS, running: async () => [], cluster, claim: async () => true,
+      instanceId: 'inst-bo', trusted: trustedKeys([]), dataDir, mongo: { uri: 'x', dbName: 'y' }, moved: movedSettingsFrom(KEYS), running: async () => [], cluster, claim: async () => true,
       spawn: (() => {
         const failing = Object.assign(new EventEmitter(), { stderr: new PassThrough(), stdout: new PassThrough() });
         setImmediate(() => failing.emit('error', new Error('spawn tar ENOENT')));

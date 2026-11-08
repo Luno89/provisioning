@@ -2,14 +2,20 @@ import assert from 'node:assert/strict';
 import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
 dotenv.config({ path: fileURLToPath(new URL('../apps/backend/.env', import.meta.url)), quiet: true });
+const connections = connectionSettingsFrom(process.env);
+connectTemporalAs(connections);
+keepPayloadsIn(connections.mongo);
 import axios, { type AxiosInstance } from 'axios';
 import { sessionToken } from '../apps/backend/src/platform/lib/auth.js';
 import { createDatabase } from '../apps/backend/src/platform/lib/db-interface.js';
+import { databaseSettingsFrom } from '../apps/backend/src/platform/lib/settings.js';
 import { loadKeys } from '../apps/backend/src/platform/lib/keys.js';
 import { forgetWhatRunsLeft } from './lib/forget-test-runs.js';
 import { DEFAULT_CONCLUDE_AFTER_MINUTES } from '../apps/backend/src/memory/lib/conclusions.js';
 import { conversationConclusionId } from '../apps/backend/src/engine-host/temporal/contracts.js';
-import { getTemporalClient } from '../apps/backend/src/platform/lib/temporal-client.js';
+import { connectTemporalAs, getTemporalClient } from '../apps/backend/src/platform/lib/temporal-client.js';
+import { keepPayloadsIn } from '../apps/backend/src/platform/lib/db-interface.js';
+import { connectionSettingsFrom } from '../apps/backend/src/platform/lib/settings.js';
 
 const QUIET_MS = DEFAULT_CONCLUDE_AFTER_MINUTES * 60_000;
 
@@ -49,7 +55,7 @@ async function chat(http: AxiosInstance, conversationId: string, message: string
 
 async function main(): Promise<void> {
   assert.ok(OWNER, 'set MEMORY_LIVE_OWNER (or GROVE_LIVE_OWNER) to the user whose model the runs use');
-  const db = createDatabase();
+  const db = createDatabase(databaseSettingsFrom(process.env));
   await db.init();
   const user = await db.accounts.getUserById(OWNER);
   assert.ok(user, 'no such user');

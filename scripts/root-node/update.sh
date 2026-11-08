@@ -371,6 +371,8 @@ done
 
 step "Updating Temporal"
 ensure_platform_keys
+. scripts/root-node/root-settings.sh
+ensure_root_settings "$BACKEND_ENV" "$REPO_DIR" "$REPO_DIR/.env" || die "root's settings could not be completed; see above. Nothing was restarted yet."
 update_temporal || die "Temporal did not come back with this release's settings. Check: docker compose -f docker-compose.temporal.yml logs"
 ok "Temporal answers only what this release's processes sign"
 

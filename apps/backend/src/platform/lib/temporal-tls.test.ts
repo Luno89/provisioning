@@ -18,18 +18,18 @@ const caFile = (): string => {
 describe('the connection to Temporal', () => {
   it('trusts the CA it is pointed at', () => {
     const file = caFile();
-    expect(temporalTls({ TEMPORAL_TLS_CA: file, NODE_ENV: 'production' })).toEqual({ serverRootCACertificate: Buffer.from('a certificate authority') });
-    expect(temporalTlsProblem({ TEMPORAL_TLS_CA: file, NODE_ENV: 'production' })).toBeUndefined();
+    expect(temporalTls({ caPath: file, production: true })).toEqual({ serverRootCACertificate: Buffer.from('a certificate authority') });
+    expect(temporalTlsProblem({ caPath: file, production: true })).toBeUndefined();
   });
 
   it('in production refuses to go without its CA rather than talking plaintext, and says where it looked', () => {
-    const env = { TEMPORAL_TLS_CA: '/nowhere/ca.crt', NODE_ENV: 'production' };
+    const env = { caPath: '/nowhere/ca.crt', production: true };
     expect(temporalTlsProblem(env)).toMatch(/^Temporal's certificate authority is not at \/nowhere\/ca\.crt \(TEMPORAL_TLS_CA\)\. In production Koala never talks to Temporal in plaintext/);
     expect(() => temporalTls(env)).toThrow(/never talks to Temporal in plaintext/);
   });
 
   it('on a dev box without a CA still connects as before', () => {
-    expect(temporalTlsProblem({ TEMPORAL_TLS_CA: '/nowhere/ca.crt' })).toBeUndefined();
-    expect(temporalTls({ TEMPORAL_TLS_CA: '/nowhere/ca.crt' })).toBe(false);
+    expect(temporalTlsProblem({ caPath: '/nowhere/ca.crt', production: false })).toBeUndefined();
+    expect(temporalTls({ caPath: '/nowhere/ca.crt', production: false })).toBe(false);
   });
 });

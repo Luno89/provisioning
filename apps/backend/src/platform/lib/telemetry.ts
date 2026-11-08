@@ -1,21 +1,23 @@
 import { context, propagation } from '@opentelemetry/api';
 import type { AxiosInstance } from 'axios';
-import { envSink, type TelemetrySettings } from '@koala/engine-core/telemetry-sdk';
-import { roleNamed } from './platform-role.js';
+import { envSink, OTLP_ENDPOINT_VAR, type TelemetrySettings } from '@koala/engine-core/telemetry-sdk';
 
-export const VERSION_VAR = 'KOALA_VERSION';
+export interface TelemetryPlace {
+  version?: string | undefined;
+  instanceId?: string | undefined;
+  cluster?: string | undefined;
+  otlpEndpoint?: string | undefined;
+}
 
-export function telemetrySettings(env: Readonly<Record<string, string | undefined>>, service: string): TelemetrySettings {
-  const version = env[VERSION_VAR]?.trim();
-  const instanceId = env.INSTANCE_ID?.trim();
-  const cluster = env.KOALA_TELEMETRY_CLUSTER?.trim();
+export function telemetrySettings(settings: { role: { role: string }; telemetry: TelemetryPlace }, service: string): TelemetrySettings {
+  const { version, instanceId, cluster, otlpEndpoint } = settings.telemetry;
   return {
     service,
-    role: roleNamed(env),
+    role: settings.role.role,
     ...(version ? { version } : {}),
     ...(instanceId ? { instanceId } : {}),
     ...(cluster ? { cluster } : {}),
-    sink: envSink(env),
+    sink: otlpEndpoint ? envSink({ [OTLP_ENDPOINT_VAR]: otlpEndpoint }) : undefined,
   };
 }
 

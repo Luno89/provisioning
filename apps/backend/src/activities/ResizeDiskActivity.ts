@@ -36,7 +36,7 @@ export async function ResizeDiskActivity(args: ResizeDiskArgs, steps: ClusterSte
     DEPLOYMENT_NAME: namespaceOf(args),
     DEPLOYMENT_ID: deploymentId,
     KUBECONFIG: await steps.access.kubeconfigOf(reach),
-    APP_SERVICE_TYPE: appServiceType(placedOnPool(process.env, reach)),
+    APP_SERVICE_TYPE: appServiceType(placedOnPool(Boolean(steps.access.here.poolName), reach)),
     APP_TYPE: args.appType,
     ...StorageAdapter.getStorageEnv(args.appType, args.strategy, args.storage),
   };

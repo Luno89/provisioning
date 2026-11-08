@@ -1,6 +1,6 @@
 import crypto from 'crypto';
 import { describe, expect, it } from 'vitest';
-import { TEMPORAL_RENEW_SECONDS, TEMPORAL_TOKEN_SECONDS, temporalApiKey, temporalJwks, temporalNamespaceFrom, temporalToken } from './temporal-auth.js';
+import { TEMPORAL_RENEW_SECONDS, TEMPORAL_TOKEN_SECONDS, temporalApiKey, temporalJwks, temporalToken } from './temporal-auth.js';
 
 const SECRET = 'k'.repeat(64);
 const GRANT = { subject: 'koala-worker-engine', namespace: 'default', role: 'write' as const };
@@ -58,10 +58,5 @@ describe('the tokens Koala signs for its Temporal', () => {
     const renewed = apiKey();
     expect(renewed).not.toBe(first);
     expect((decoded(renewed).payload.exp as number) * 1000 - now).toBe(TEMPORAL_TOKEN_SECONDS * 1000);
-  });
-
-  it('reads the namespace from the environment, default when unset', () => {
-    expect(temporalNamespaceFrom({})).toBe('default');
-    expect(temporalNamespaceFrom({ TEMPORAL_NAMESPACE: ' koala ' })).toBe('koala');
   });
 });

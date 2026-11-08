@@ -4,12 +4,18 @@ import { promisify } from 'node:util';
 import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
 dotenv.config({ path: fileURLToPath(new URL('../apps/backend/.env', import.meta.url)), quiet: true });
+const connections = connectionSettingsFrom(process.env);
+connectTemporalAs(connections);
+keepPayloadsIn(connections.mongo);
 import axios, { type AxiosInstance } from 'axios';
 import { createDatabase } from '../apps/backend/src/platform/lib/db-interface.js';
+import { databaseSettingsFrom } from '../apps/backend/src/platform/lib/settings.js';
 import { sessionToken } from '../apps/backend/src/platform/lib/auth.js';
 import { loadKeys } from '../apps/backend/src/platform/lib/keys.js';
 import { memoryRunId } from '../apps/backend/src/memory/lib/conclusions.js';
-import { getTemporalClient } from '../apps/backend/src/platform/lib/temporal-client.js';
+import { connectTemporalAs, getTemporalClient } from '../apps/backend/src/platform/lib/temporal-client.js';
+import { keepPayloadsIn } from '../apps/backend/src/platform/lib/db-interface.js';
+import { connectionSettingsFrom } from '../apps/backend/src/platform/lib/settings.js';
 import { forgetWhatRunsLeft } from './lib/forget-test-runs.js';
 
 const run = promisify(execFile);
@@ -55,7 +61,7 @@ const runIds = new Set<string>();
 
 async function main(): Promise<void> {
   assert.ok(OWNER, 'set INFRASTRUCTURE_LIVE_OWNER (or CHECKS_LIVE_OWNER) to the person whose page this reads');
-  const db = createDatabase();
+  const db = createDatabase(databaseSettingsFrom(process.env));
   await db.init();
   closeDb = async () => { await db.close?.(); };
   const user = await db.accounts.getUserById(OWNER);

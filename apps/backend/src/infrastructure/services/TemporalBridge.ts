@@ -40,6 +40,7 @@ import type { Reach } from '../lib/cluster-places.js'
 import { isModelKind } from '../../models/index.js'
 import { ClusterService } from './ClusterService.js'
 import { deployProjectBuild, startAppDeploy, resolveOpenaiApiBaseUrl, type AppDeployDeps } from './AppDeploy.js'
+import type { OperatorEnv } from '../lib/credential-resolver.js'
 import { executeDestroyAppWorkflow } from '../../workflows/DestroyAppWorkflow.js'
 import { executeResizeDiskWorkflow } from '../../workflows/ResizeDiskWorkflow.js'
 import { executeSyncConfigWorkflow } from '../../workflows/SyncConfigWorkflow.js'
@@ -196,7 +197,7 @@ export class TemporalBridge {
     masterKey?: SecretKey,
     clusterService?: ClusterService,
     private readonly claims?: ClaimSettings | undefined,
-    private readonly seams: { connect?: TemporalConnect | undefined } = {},
+    private readonly seams: { connect?: TemporalConnect | undefined; engineQueue?: string | undefined; operatorEnv?: OperatorEnv | undefined } = {},
   ) {
     this.db = db
     this.io = io
@@ -419,7 +420,7 @@ export class TemporalBridge {
     const workflowId = `adopt-plan-${proposalId}`
     await this.client.workflow.start(AdoptPlanWorkflow, {
       workflowId,
-      taskQueue: process.env.TEMPORAL_ENGINE_TASK_QUEUE || DEFAULT_ENGINE_TASK_QUEUE,
+      taskQueue: this.seams.engineQueue || DEFAULT_ENGINE_TASK_QUEUE,
       args: [{ ownerId, proposalId }],
       ...startedFor(ownerId),
       workflowIdReusePolicy: 'ALLOW_DUPLICATE',
@@ -617,7 +618,7 @@ export class TemporalBridge {
   }
 
   appDeployDeps(): AppDeployDeps {
-    return { db: this.db, client: () => this.client, masterKey: this.masterKey, clusterById: (id) => this.getClusterById(id), handOver: (clusterId) => this.clusterAccess().handOver(clusterId), ownClusterId: () => this.clusterAccess().ownId(), logDir: LOG_DIR, claims: this.claims }
+    return { db: this.db, client: () => this.client, masterKey: this.masterKey, clusterById: (id) => this.getClusterById(id), handOver: (clusterId) => this.clusterAccess().handOver(clusterId), ownClusterId: () => this.clusterAccess().ownId(), logDir: LOG_DIR, claims: this.claims, operatorEnv: this.seams.operatorEnv ?? {} }
   }
 
   async destroyApp(deploymentId: string): Promise<WorkflowDeal> {

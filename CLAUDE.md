@@ -229,7 +229,7 @@ Services live in their area's `services/` folder (`apps/backend/src/<area>/servi
 - `GitModuleService` — Odoo module git integration
 - `AppExposureService` — exposes deployed apps through the instance's edge (a Caddy beside its backend): `<app>.localhost` on this computer's loopback port 8000 (the chart's `<release>-local-apps` forwarder, a hostPort on 127.0.0.1 kept off the backend pod so its rolling upgrade never waits on the port) and `<app>-<name>.<domain>` where the instance has a domain; reaches an app's cluster through `ClusterAccess` (Koala's own cluster: Traefik by service name; another machine: its mesh address and Traefik's node port); emits socket.io events
 - `ClusterProxyService` — proxies requests into cluster-internal dashboards (Traefik/Grafana/Prometheus) and services (models, the collector): a service's ClusterIP when this process reaches it, else a `kubectl port-forward` started through `ClusterAccess.follow`; it asks the cluster through `ClusterAccess` by its id, one proxy per `ClusterAccess` (`sharedClusterProxy(access)`)
-- `GiteaService`, `InfisicalService` — reach Gitea and Infisical only at the address their setting names (`giteaSettingsFrom`: `GITEA_URL`, and `GITEA_REACHES_KOALA_AT`, where Gitea sends pushes; `infisicalSettingsFrom`: `INFISICAL_URL`), read once at start; there is no node-IP, NodePort or loopback lookup. A process that serves tenants needs all three, the hub the Gitea two, and one missing stops it naming it; root reaches neither and its services say so if asked (`{ none: … }`). The instance chart sets them by service name; dev's hub gets `GITEA_URL=http://127.0.0.1:31737` (the instance's Gitea's node port on this computer) and `GITEA_REACHES_KOALA_AT=http://10.42.0.1:3003` (the hub on the pod network), written by `devRootPlan`. Workspace images go to the registry `registrySettingsFrom` reads (`KOALA_REGISTRY` pulled from, `KOALA_REGISTRY_PUSH` pushed to), and a deployed MCP server is found through `ClusterAccess` (`mcpReachFrom`: its `gitapp` Service by name on Koala's own cluster, the machine's mesh address and node port elsewhere)
+- `GiteaService`, `InfisicalService` — reach Gitea and Infisical only at the address their setting names (`GITEA_URL`, and `GITEA_REACHES_KOALA_AT`, where Gitea sends pushes; `INFISICAL_URL`), read once at start by the role's reader (**Configuration**, below), which folds in `giteaSettingsFrom` and `infisicalSettingsFrom`; there is no node-IP, NodePort or loopback lookup. A process that serves tenants needs all three, the hub the Gitea two, and one missing stops it naming it; root reaches neither and its services say so if asked (`{ none: … }`). The instance chart sets them by service name; dev's hub gets `GITEA_URL=http://127.0.0.1:31737` (the instance's Gitea's node port on this computer) and `GITEA_REACHES_KOALA_AT=http://10.42.0.1:3003` (the hub on the pod network), written by `devRootPlan`. Workspace images go to the registry `registrySettingsFrom` reads for the reader (`KOALA_REGISTRY` pulled from, `KOALA_REGISTRY_PUSH` pushed to; `REGISTRY_PULL_HOST` is where a cluster pulls what Koala built, required on an instance), and a deployed MCP server is found through `ClusterAccess` (`mcpReachFrom`: its `gitapp` Service by name on Koala's own cluster, the machine's mesh address and node port elsewhere)
 - `AuthService` — user auth (JWT sessions, 2FA, GitHub/Google OAuth)
 - `CredentialService` — per-user cloud provider credentials, AES-256-GCM encrypted at rest, live validation against provider APIs
 - `TemporalBridge` — bridges Express routes ↔ Temporal workflow execution; mutating routes go through this, reads hit the DB directly
@@ -393,7 +393,7 @@ allows nothing a worker needs; nothing narrower than a namespace exists, which i
 connection to Temporal is TLS (owner, 2026-10-27), to a certificate signed by a CA of the install's own: `scripts/temporal-keys.sh`
 makes it once under `apps/backend/data/temporal-tls/` (the CA's key thrown away after signing, the server's key readable only by
 Temporal's uid 1000), the chart generates it into `<release>-temporal-tls` with `genCA`/`genSignedCert` for its service names and
-keeps it across upgrades; processes trust it through `temporalTls` (`TEMPORAL_TLS_CA`, by default that folder's `ca.crt`), and the
+keeps it across upgrades; processes trust it through `temporalTls` (`TEMPORAL_TLS_CA`, required, naming that file; dev's root and hub are given that folder's `ca.crt`), and the
 machine gateway's upstream too. In production the backend and every worker refuse to start without that CA (`temporalTlsProblem`)
 rather than talk to Temporal in plaintext; a dev box without one still connects as before. Payloads were already sealed by the codec; TLS also hides tokens and workflow names on the wire. Temporal reads the public key (`temporalJwks`, also served at
 `/.well-known/temporal-jwks.json`) from a file beside it, never from the backend, so it has it from its first moment: on an
@@ -564,8 +564,8 @@ be read; the join reply carries the bundle's sha256, also served at `agent.tgz.s
 and starts it as a user
 service (systemd `--user`, launchd). The device worker reaches Temporal only through the **machine gateway**
 (`MachineTemporalGateway`, rules in `machines/lib/temporal-gateway.ts`, port `MACHINE_GATEWAY_PORT`, 7234; on an instance
-the node port 30322 on its mesh address, Temporal itself no longer published), at `MACHINE_TEMPORAL_ADDRESS` (default
-`localhost:7234`), which the backend also hands the agent on every connect with the payload ring, so a machine added before
+the node port 30322 on its mesh address, Temporal itself no longer published), at `MACHINE_TEMPORAL_ADDRESS` (the chart sets it from
+`mesh.address`; without it no machine can take the instance's work, and the backend says so at start), which the backend also hands the agent on every connect with the payload ring, so a machine added before
 moves over. The agent signs the connection with its device token; the gateway serves only the calls an activity worker makes
 (probed in `~/.claude/plans/machine-gateway.md`: start, polling its own `device-<id>` queue, heartbeats, answers, shutdown),
 seals each task token it hands out to that machine (an HMAC under the data key, checked and stripped on every heartbeat and
@@ -746,9 +746,48 @@ do not help, and nothing in ACP sets it). So a served call not answered within 2
 and keeps running in the run; the machine's own `wait_for` tool waits for the job and hands over its result
 (`external-agents.ts`, told to the agent in `TOOLS_LINE`).
 
+## Configuration
+
+What a process is told about its place (root, an instance, the hub, and which worker) comes from one place: **its reader in
+`platform/lib/settings.ts`**, pure (it takes an env object and returns typed settings, or throws `SettingsError` listing every
+problem at once). `backendSettingsFrom` (root, instance and hub: `role.role` decides which parts it reads), `hostWorkerSettingsFrom`,
+`clusterWorkerSettingsFrom`, `engineWorkerSettingsFrom`; for the steps run in an instance's pod `selfUpgradeSettingsFrom`,
+`moveImportSettingsFrom` and `podStepSettingsFrom`; for programs that only need Mongo or Temporal `databaseSettingsFrom`,
+`connectionSettingsFrom`, `clusterSettingsFrom` and `operatorCredentialsFrom`. The reader folds in the area readers it calls
+(`roleFromEnv`, `loadKeys`, `minioSettingsFrom`, `giteaSettingsFrom`, `infisicalSettingsFrom`, `registrySettingsFrom`,
+`poolSettingsFrom`, `edgeSettingsFrom`, `signInProvidersFrom`, `emailWayFrom`, `terraformStateFrom`, …), which nothing else calls.
+Each entry point (`src/index.ts`, `src/worker-*.ts`, the scripts the chart runs: `seed-all`, `self-upgrade`, `move-import`,
+`temporal-keys`) passes `process.env` to its reader once and hands the typed settings on through its wiring; the process-wide
+clients take theirs at start (`connectTemporalAs`, `keepPayloadsIn`, the host worker's `giveHostActivities`). The backend lint
+(`no-restricted-properties`, `apps/backend/eslint.config.js`) refuses `process.env` anywhere else; exempt are tests, `testing/`,
+the entry points, `src/scripts/**` (the operator's and dev's CLIs read their env themselves) and `platform/services/child-env.ts`,
+the one place a child process inherits the OS's environment (`childEnv`, `inheritedEnv`).
+
+A setting is one of four things:
+- **required**: the process stops at start naming it (what the role needs and nothing can stand in for: `MONGO_URI`,
+  `TEMPORAL_CONNECTION_ADDRESS`, `TEMPORAL_NAMESPACE`, `TEMPORAL_TLS_CA`, `PORT`, `PUBLIC_URL`, `APP_URL`, `TERRAFORM_STATE`, root's
+  `INSTANCE_IMAGE_TAG` and `INSTANCE_REGISTRY`, an instance's services and `INSTANCE_CREDENTIAL`, a worker's `HEALTH_PORT` and
+  Temporal metrics port, `HUB_DATABASE`, …). Listen ports are required and set once in the chart, the same value for the process
+  and its `containerPort`; 0 means any free port, or for `HEALTH_PORT` no health endpoint.
+- **off with a reason**: a feature that may be absent is a `{ off }` the person sees (`METRICS_TOKEN`, mail, the mesh without
+  `MESH_LOGIN_SERVER`, root's routing without `INGRESS_DOMAIN`, the pool, Twilio, Google Drive, `OVH_SUBSIDIARY`, an instance's edge,
+  `MACHINE_TEMPORAL_ADDRESS`, `MACHINE_METRICS_URL`, `INSTANCE_MACHINE_ID`: an instance on no machine has no cluster of its own).
+  Half of a feature (one of Twilio's three, Caddy's settings without the rest) is a problem, never off.
+- **a constant** in code, for what no install changes (the Kaniko image, the machine gateway's bind host `MACHINE_GATEWAY_HOST`).
+- **a test parameter**: `WATCH_UNREACHABLE_MINUTES` and `OPENROUTER_URL` (a stand-in OpenRouter), read by the reader into
+  `settings.tests`, the product's own value when unset.
+
+Left as they were: the task-queue names (`TEMPORAL_TASK_QUEUE`, `TEMPORAL_ENGINE_TASK_QUEUE`, `POOL_TASK_QUEUE`, read into
+`settings.queues` raw, each caller keeping its fallback until "where work runs"), and decision 13's `IS_E2E`, `MONGO_TEST_URI` and
+the dev setup code. **Adding a setting**: read it in the role's reader (required, off with a reason, or a test parameter, with a
+reason a person can act on), add it to the reader's settings type, hand it on through the wiring, set it in every writer (the
+chart's `configmap-env.yaml`, `devRootPlan`, `devSplitPlan`, `scripts/root-node/root-settings.sh` for root, the test stacks), and
+extend the writer tests that feed each writer's environment to its reader (`instance-chart.integration.test.ts`,
+`dev-root.test.ts`, `dev-split.test.ts`, `tests/lib/root-settings.integration.test.ts`).
+
 ## Roles: root, instance, hub
 
-`ROLE` (read by `platform/lib/platform-role.ts`) decides what a backend is, and every process needs it: a process started
+`ROLE` (read by `platform/lib/platform-role.ts`, through the role's reader) decides what a backend is, and every process needs it: a process started
 without it, or with anything but these three, stops saying so (`roleNamed`, `RoleConfigError`; the `combined` role, everything
 in one process, was removed on 2026-11-08, owner: "Ok I think those are all good, sweet"). Each role is exactly one thing
 (`servesTenants` is the instance, `holdsAccounts` root, `servesHub` the hub):
@@ -1189,7 +1228,7 @@ cookie bound to the person, the state checked before OpenRouter is asked, the ke
 possible), Infrastructure, My Machines (machines Koala works on),
 Cloud providers (cloud credentials) and Settings (account, 2FA, addresses, notifications, backups, people and invites).
 Two pages are off it and reached where they are used: the VPS catalog (a price comparison; Host Koala on a server reads its OVH plans),
-and Temporal through All workflows on Running. Each still answers at its old address. The catalog reads OVH's prices for `OVH_SUBSIDIARY` (default `FR`) from the API host that
+and Temporal through All workflows on Running. Each still answers at its old address. The catalog reads OVH's prices for `OVH_SUBSIDIARY` (unset, OVHcloud's prices are not read and the catalog says why) from the API host that
 serves that subsidiary (`ovhHostFor` in `infrastructure/lib/vps-catalog/adapters.ts`: an Australian account is on
 `ca.api.ovh.com`, and `AU` gives AUD ex GST with Sydney among the datacenters), adds the cheapest priced mandatory option
 of each family (the 2027 models' backup) to the monthly price with the parts kept as `priceParts`, and says which
@@ -1316,7 +1355,7 @@ relay for anyone else. `test:routing-live` proves an instance's email reaching i
 `/instances` namespace at `ROOT_URL`, a fresh service token on every attempt, reconnecting by itself) and root holds it
 (`InstancePresence`, root role only; `wireInstancePresence` checks the token with `InstanceService.presenceCaller`). An instance is present
 while it holds at least one connection (an upgrade's new pod connects before the old one drains); socket.io's own heartbeat finds a
-frozen machine or a cut network within about 45 s on both ends, and nothing needs the mesh. After `WATCH_UNREACHABLE_MINUTES` (10) gone
+frozen machine or a cut network within about 45 s on both ends, and nothing needs the mesh. After 10 minutes gone (a live suite shortens it with the test parameter `WATCH_UNREACHABLE_MINUTES`)
 (one timer per absent instance, rules in `instances/lib/instance-watch.ts`: `nextReach`, `graceLeftMs`) root emails the owner once, and
 once when it is back; a pool instance always, also telling root's operators; an own machine unless its owner switched it off (instance
 Settings → "When this instance cannot be reached", `/api/instance-watch` → root's `PUT /api/instances/watch` with a service token, or
@@ -1423,7 +1462,7 @@ service, Koala: model calls, Koala: Temporal).
 
 ## Platform keys
 
-Five keys, one per purpose, loaded once by `platform/lib/keys.ts`'s `loadKeys(process.env)`:
+Five keys, one per purpose, loaded once by `platform/lib/keys.ts`'s `loadKeys`, which each role's reader calls (**Configuration**):
 - `SESSION_KEY` signs session cookies;
 - `DATA_KEY` encrypts every stored secret (`crypto.ts`);
 - `PAYLOAD_KEY` encrypts Temporal payloads;
@@ -1431,7 +1470,7 @@ Five keys, one per purpose, loaded once by `platform/lib/keys.ts`'s `loadKeys(pr
 - `TEMPORAL_KEY` derives the P-256 key that signs every process's token to Temporal (below).
 
 Production refuses to start without all five. Dev derives any missing one from `JWT_SECRET`, so
-nothing needs setting up. Never pass a raw env var where a key is wanted: take it from `loadKeys`.
+nothing needs setting up. Never pass a raw env var where a key is wanted: take `settings.keys` from the reader.
 
 Ciphertext carries the id of the key that wrote it (`v2:<keyId>:…`). Each keyring holds the current
 key and any previous ones; previous keys only decrypt, and anything new is written with the
@@ -1614,7 +1653,8 @@ else) and so is Traefik's (`INGRESS_SERVICE`); a stack told neither refuses to s
 
 **Terraform's state, output and providers** (`InfrastructureService.deploy|destroy`, rules in `infrastructure/lib/terraform-state.ts`,
 the backend in `packages/cdktf-infra/lib/state.ts`). Root and a process outside a cluster keep each stack's state in
-`apps/backend/data/terraform` (the local backend, in root's backup). An instance (`TERRAFORM_STATE=kubernetes` in the chart, with
+`apps/backend/data/terraform` (the local backend, in root's backup; `TERRAFORM_STATE=local`, required like every setting, which root's
+`root-settings.sh` and dev write). An instance (`TERRAFORM_STATE=kubernetes` in the chart, with
 `POD_NAMESPACE` on every process) keeps it in Terraform's `kubernetes` backend: a Secret `tfstate-default-<stack>-state` per stack in its
 own namespace on the cluster it runs in, locked by a Lease, reached with the pod's account, whatever cluster the stack targets. A stack
 whose state is still a file in the data folder has it pushed there before its first run (`stateMove`: pushed only when the cluster

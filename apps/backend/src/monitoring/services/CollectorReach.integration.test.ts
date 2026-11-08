@@ -44,7 +44,7 @@ describe('reaching a collector over HTTP', () => {
   it('sends telemetry to the address the cluster proxy hands back, and asks the proxy only once while it answers', async () => {
     let asks = 0;
     const clusters: string[] = [];
-    const sink = collectorSink({ env: {}, proxy: { serviceUrl: async (cluster) => { asks += 1; clusters.push(String(cluster)); return collector; } }, koalasCluster: () => KOALA });
+    const sink = collectorSink({ otlpEndpoint: undefined, proxy: { serviceUrl: async (cluster) => { asks += 1; clusters.push(String(cluster)); return collector; } }, koalasCluster: () => KOALA });
     await sink.send('traces', new TextEncoder().encode('{"resourceSpans":[]}'));
     await waitForPosts(1);
     expect(posted).toEqual([{ path: '/v1/traces', type: 'application/json', body: '{"resourceSpans":[]}' }]);
@@ -53,7 +53,7 @@ describe('reaching a collector over HTTP', () => {
   });
 
   it('prefers the OTLP endpoint named in the environment over the cluster, as on root', async () => {
-    const sink = collectorSink({ env: { OTEL_EXPORTER_OTLP_ENDPOINT: collector }, proxy: { serviceUrl: async () => { throw new Error('never asked'); } }, koalasCluster: () => KOALA });
+    const sink = collectorSink({ otlpEndpoint: collector, proxy: { serviceUrl: async () => { throw new Error('never asked'); } }, koalasCluster: () => KOALA });
     await sink.send('metrics', new TextEncoder().encode('{"resourceMetrics":[]}'));
     await waitForPosts(1);
     expect(posted.map((entry) => entry.path)).toEqual(['/v1/metrics']);
@@ -61,7 +61,7 @@ describe('reaching a collector over HTTP', () => {
 
   it('does not ask the cluster again for a minute after it could not be reached, on the real clock', async () => {
     let asks = 0;
-    const endpoint = collectorEndpoint({ env: {}, proxy: { serviceUrl: async () => { asks += 1; throw new Error('port-forward exited'); } }, koalasCluster: () => KOALA });
+    const endpoint = collectorEndpoint({ proxy: { serviceUrl: async () => { asks += 1; throw new Error('port-forward exited'); } }, koalasCluster: () => KOALA });
     await expect(endpoint()).rejects.toThrow('port-forward exited');
     await expect(endpoint()).rejects.toThrow('port-forward exited');
     expect(asks).toBe(1);
@@ -70,13 +70,13 @@ describe('reaching a collector over HTTP', () => {
   it('says Koala\'s cluster cannot be reached by a process outside it, through the real ClusterAccess', async () => {
     let probes = 0;
     const outside = testClusterAccess(await testDatabase(), { koalaMachineId: 'dev1' });
-    const endpoint = collectorEndpoint({ env: {}, proxy: new ClusterProxyService(outside, async () => { probes += 1; return true; }), koalasCluster: () => KOALA });
+    const endpoint = collectorEndpoint({ proxy: new ClusterProxyService(outside, async () => { probes += 1; return true; }), koalasCluster: () => KOALA });
     await expect(endpoint()).rejects.toThrow('not running inside Koala\'s cluster');
     expect(probes).toBe(0);
   });
 
   it('answers the address of a collector that is really listening', async () => {
-    const endpoint = collectorEndpoint({ env: {}, proxy: { serviceUrl: async () => collector }, koalasCluster: () => KOALA });
+    const endpoint = collectorEndpoint({ proxy: { serviceUrl: async () => collector }, koalasCluster: () => KOALA });
     const url = await endpoint();
     expect((await fetch(`${url}/v1/traces`, { method: 'POST', body: '{}' })).status).toBe(200);
   });

@@ -7,7 +7,7 @@ import { archiveOldFiles } from '../services/FilesArchive.js';
 import { minioReachFrom } from '../services/MinioArtifactStore.js';
 import type { GiteaService, ProjectRepoService } from '../../projects/index.js';
 import { writeFileOnDevice } from '../../machines/index.js';
-import { minioSettingsFrom } from '../lib/minio-settings.js';
+import type { MinioSettings } from '../lib/minio-settings.js';
 import { STORED_FILES_SWEEP_ID, STORED_FILES_SWEEP_WORKFLOW, type StoredFilesActivities } from '../lib/stored-files-work.js';
 import { ArtifactService } from '../services/ArtifactService.js';
 import { FileService } from '../services/FileService.js';
@@ -32,14 +32,14 @@ export interface InstanceFiles {
 
 export interface InstanceFilesDeps {
   db: Pick<Database, 'files'>;
-  env: Readonly<Record<string, string | undefined>>;
+  minio: MinioSettings;
   workflows: () => Promise<Pick<Workflows, 'start'>>;
   engineTaskQueue: string;
   dataDir: string;
 }
 
 export function storedFilesFor(deps: InstanceFilesDeps): InstanceFiles {
-  const objects = minioObjectStore(minioSettingsFrom(deps.env));
+  const objects = minioObjectStore(deps.minio);
   const records = deps.db.files;
   const storedFiles = new StoredFiles({ records, objects, commits: temporalStoredFileCommits(deps.workflows, deps.engineTaskQueue), room: roomOn(deps.dataDir) });
   return {

@@ -25,7 +25,7 @@ const backend = await startBackend(({ api, db, origin, auth }) => {
   const operatorOnly = auth.requireOperator('administer')
   api.use('/credentials', llmCredentialsRouter({ db, dataKey: DATA_KEY, credentialService: credentials, publicUrl: origin, appUrl: origin }))
   api.use('/dns-providers', dnsProvidersRouter({ dns: new DnsProviders() }))
-  api.use('/credentials', credentialsRouter({ credentialService: credentials, publicUrl: origin, appUrl: origin, sessionKey: SESSION_KEY }))
+  api.use('/credentials', credentialsRouter({ credentialService: credentials, publicUrl: origin, appUrl: origin, sessionKey: SESSION_KEY, googleDrive: { off: 'GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET are not set, so backups to Google Drive are off' } }))
   api.use('/backup', Router().use(operatorOnly, backupRouter({ repoRoot: backupFolder })))
 })
 

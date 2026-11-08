@@ -1,18 +1,18 @@
-import { envSink, otlpHttpSink, type TelemetrySink } from '@koala/engine-core/telemetry-sdk';
+import { envSink, OTLP_ENDPOINT_VAR, otlpHttpSink, type TelemetrySink } from '@koala/engine-core/telemetry-sdk';
 import type { ClusterProxyService } from '../../infrastructure/index.js';
 import { TELEMETRY_SERVICES } from '../lib/cluster-monitoring.js';
 
 export const COLLECTOR_RETRY_MS = 60_000;
 
 export interface CollectorReachDeps {
-  env: Readonly<Record<string, string | undefined>>;
+  otlpEndpoint: string | undefined;
   proxy: Pick<ClusterProxyService, 'serviceUrl'>;
   koalasCluster: () => string;
   fetchImpl?: typeof fetch | undefined;
   now?: (() => number) | undefined;
 }
 
-export function collectorEndpoint(deps: CollectorReachDeps): () => Promise<string> {
+export function collectorEndpoint(deps: Omit<CollectorReachDeps, 'otlpEndpoint'>): () => Promise<string> {
   const now = deps.now ?? (() => Date.now());
   let failed: { at: number; why: Error } | undefined;
   return async () => {
@@ -32,5 +32,5 @@ export function collectorEndpoint(deps: CollectorReachDeps): () => Promise<strin
 }
 
 export function collectorSink(deps: CollectorReachDeps): TelemetrySink {
-  return envSink(deps.env, deps.fetchImpl) ?? otlpHttpSink(collectorEndpoint(deps), deps.fetchImpl);
+  return envSink({ [OTLP_ENDPOINT_VAR]: deps.otlpEndpoint }, deps.fetchImpl) ?? otlpHttpSink(collectorEndpoint(deps), deps.fetchImpl);
 }

@@ -22,7 +22,9 @@ const spied = (service: CredentialService) => ({
 
 type Spied = ReturnType<typeof spied>;
 
-const mount = async (user: typeof TEST_USER | null = TEST_USER) => {
+const DRIVE_OFF = { off: 'GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET are not set, so backups to Google Drive are off' };
+
+const mount = async (user: typeof TEST_USER | null = TEST_USER, googleDrive: { clientId: string; clientSecret: string } | { off: string } = DRIVE_OFF) => {
   let svc: Spied | undefined;
   h = await mountRouter({
     prefix: '/api/credentials',
@@ -38,6 +40,7 @@ const mount = async (user: typeof TEST_USER | null = TEST_USER) => {
         publicUrl: 'https://api.example.com',
         appUrl: 'https://app.example.com',
         sessionKey: 'test-session-key',
+        googleDrive,
       });
     },
   });
@@ -103,10 +106,8 @@ describe('provider validation', () => {
   });
 
   it('connects Google Drive only to the person who started connecting it', async () => {
-    const was = process.env.GOOGLE_CLIENT_ID;
-    process.env.GOOGLE_CLIENT_ID = 'drive-client';
-    try {
-      const { h, svc } = await mount();
+    {
+      const { h, svc } = await mount(TEST_USER, { clientId: 'drive-client', clientSecret: 'drive-secret' });
       const started = await axios.get(h.url('/api/credentials/googledrive/connect'), { maxRedirects: 0, validateStatus: () => true });
       const state = new URL(String(started.headers.location)).searchParams.get('state');
       expect(state).toMatch(/^[\w-]{32}$/);
@@ -114,8 +115,6 @@ describe('provider validation', () => {
       const forged = await axios.get(h.url(`/api/credentials/googledrive/callback?code=theirs&state=${state}`), { maxRedirects: 0, validateStatus: () => true });
       expect(forged.headers.location).toBe('https://app.example.com/?driveError=not_started_here#/settings');
       expect(svc.saveCredentials).not.toHaveBeenCalled();
-    } finally {
-      if (was === undefined) delete process.env.GOOGLE_CLIENT_ID; else process.env.GOOGLE_CLIENT_ID = was;
     }
   });
 });

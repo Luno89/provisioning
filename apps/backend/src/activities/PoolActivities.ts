@@ -1,38 +1,62 @@
 import crypto from 'crypto';
 import { ApplicationFailure } from '@temporalio/common';
-import { createDatabase, roleFromEnv, emailWayFrom, loadKeys, MailService } from '../platform/index.js';
-import { clusterAccessFrom, HeadscaleService, ROOT_CLUSTER_ID, type ClusterAccess } from '../infrastructure/index.js';
+import { createDatabase, MailService, type Database } from '../platform/index.js';
+import { HeadscaleService, ROOT_CLUSTER_ID } from '../infrastructure/index.js';
+import { hostAccess, hostSettings } from './host-settings.js';
 import {
   hashCredential, publicKeyPem, afterStep, nextTrialStep, trialMessage, type DueStep, type TrialStep, MoveRelay,
   kubeconfigFile, issueMoveToken, type InstanceRecord, COMPONENT_RESOURCES,
-  PLATFORM_TAG, poolChartValues, poolSettingsFrom, proxyCaddyfile, type PoolSettings,
+  PLATFORM_TAG, poolChartValues, proxyCaddyfile, type PoolSettings,
 } from '../instances/index.js';
 import { PoolNode } from './pool-node.js';
 
+const openDatabase = (): Database => {
+  const { mongo, keys } = hostSettings();
+  return createDatabase({ mongo, dataKey: keys.data });
+};
+
+const rootSettings = () => {
+  const { root } = hostSettings();
+  if (!root) throw ApplicationFailure.nonRetryable('only root makes pool instances', 'NotRoot');
+  return root;
+};
+
+const ingressDomain = (): string => {
+  const domain = rootSettings().ingressDomain;
+  if (typeof domain !== 'string') throw ApplicationFailure.nonRetryable(domain.off, 'NoDomain');
+  return domain;
+};
+
+const rootUrlOf = (): string => {
+  const { publicUrl } = hostSettings();
+  if (!publicUrl) throw ApplicationFailure.nonRetryable('only root makes pool instances', 'NotRoot');
+  return publicUrl;
+};
+
 function rootPublicKey(): string {
-  const role = roleFromEnv(process.env);
+  const { role } = hostSettings();
   if (!role.signing) throw ApplicationFailure.nonRetryable('only root makes pool instances', 'NotRoot');
   return publicKeyPem(role.signing.publicKey);
 }
 
-let access: ClusterAccess | undefined;
-const rootCluster = (): ClusterAccess => (access ??= clusterAccessFrom(process.env, { role: roleFromEnv(process.env).role }));
-const poolNode = (): PoolNode => new PoolNode({ access: rootCluster(), node: ROOT_CLUSTER_ID });
+const poolNode = (): PoolNode => new PoolNode({ access: hostAccess(), node: ROOT_CLUSTER_ID });
 
 function settings(): PoolSettings {
-  const found = poolSettingsFrom(process.env);
+  const found = rootSettings().pool;
   if ('off' in found) throw ApplicationFailure.nonRetryable(found.off, 'PoolOff');
   return found;
 }
 
 async function rootCaddies(): Promise<string[]> {
-  const found = await new HeadscaleService(loadKeys(process.env).data, process.env.HEADSCALE_URL || 'http://localhost:8080', process.env.HEADSCALE_API_KEY).taggedAddresses(PLATFORM_TAG);
+  const { mesh, keys } = hostSettings();
+  if ('off' in mesh) throw ApplicationFailure.nonRetryable(mesh.off, 'NoMesh');
+  const found = await new HeadscaleService(keys.data, mesh).taggedAddresses(PLATFORM_TAG);
   if (found.length === 0) throw ApplicationFailure.retryable(`no ${PLATFORM_TAG} node is on the mesh, so the pool's proxy could not tell root's Caddy from anyone else`, 'NoPlatformNode');
   return found;
 }
 
 async function withInstance<T>(instanceId: string, work: (instance: InstanceRecord, save: (patch: Partial<InstanceRecord>) => Promise<InstanceRecord>) => Promise<T>): Promise<T> {
-  const db = createDatabase();
+  const db = openDatabase();
   await db.init();
   try {
     const instance = (await db.instances.getInstances()).find((entry) => entry.id === instanceId);
@@ -54,7 +78,7 @@ export async function PoolHostActivity(): Promise<void> {
 
 export async function PoolProxyActivity(): Promise<void> {
   const pool = settings();
-  const db = createDatabase();
+  const db = openDatabase();
   await db.init();
   try {
     const instances = (await db.instances.getInstances()).filter((entry) => entry.pool && entry.name);
@@ -77,12 +101,12 @@ export async function PoolChartActivity(args: { instanceId: string }): Promise<v
   const pool = settings();
   await withInstance(args.instanceId, async (instance, save) => {
     const name = instance.name!;
-    const domain = process.env.INGRESS_DOMAIN!.trim();
+    const domain = ingressDomain();
     const credential = crypto.randomBytes(32).toString('base64url');
     const values = poolChartValues({
       instanceId: instance.id,
       ownerId: instance.ownerId,
-      rootUrl: process.env.PUBLIC_URL?.trim() || process.env.ROOT_URL?.trim() || '',
+      rootUrl: rootUrlOf(),
       rootPublicKeys: rootPublicKey(),
       credential,
       name,
@@ -102,7 +126,7 @@ export async function PoolReadyActivity(args: { instanceId: string }): Promise<v
   await withInstance(args.instanceId, async (instance, save) => {
     await save({ detail: 'Starting Koala in your space' });
     await poolNode().backendAnswers(pool.address, instance.pool!.ports.backend, `the pool proxy reaching ${instance.name}'s backend`);
-    await save({ status: 'ready', detail: 'Ready', url: `https://${instance.name}.${process.env.INGRESS_DOMAIN!.trim()}`, meshIp: pool.address });
+    await save({ status: 'ready', detail: 'Ready', url: `https://${instance.name}.${ingressDomain()}`, meshIp: pool.address });
   });
 }
 
@@ -113,7 +137,7 @@ export async function PoolFailedActivity(args: { instanceId: string; reason: str
 }
 
 export async function PoolTrialNextActivity(args: { instanceId: string; now: number }): Promise<DueStep | { hold: true } | null> {
-  const db = createDatabase();
+  const db = openDatabase();
   await db.init();
   try {
     const instance = (await db.instances.getInstances()).find((entry) => entry.id === args.instanceId);
@@ -126,10 +150,10 @@ export async function PoolTrialNextActivity(args: { instanceId: string; now: num
 }
 
 async function tell(ownerId: string, message: { subject: string; text: string }): Promise<void> {
-  const db = createDatabase();
+  const db = openDatabase();
   await db.init();
   try {
-    const mail = new MailService({ way: emailWayFrom(process.env, roleFromEnv(process.env)), emailOf: async (id) => (await db.accounts.getUserById(id))?.email });
+    const mail = new MailService({ way: hostSettings().mail, emailOf: async (id) => (await db.accounts.getUserById(id))?.email });
     await mail.toOwner(ownerId, message);
   } catch (error) {
     console.warn(`[pool] could not email ${ownerId} "${message.subject}": ${(error as Error).message}`);
@@ -140,7 +164,7 @@ async function tell(ownerId: string, message: { subject: string; text: string })
 
 export async function PoolRemoveActivity(args: { instanceId: string }): Promise<void> {
   settings();
-  const db = createDatabase();
+  const db = openDatabase();
   await db.init();
   try {
     const instance = (await db.instances.getInstances()).find((entry) => entry.id === args.instanceId);
@@ -155,8 +179,8 @@ export async function PoolRemoveActivity(args: { instanceId: string }): Promise<
 
 export async function PoolTrialStepActivity(args: { instanceId: string; step: TrialStep; now: number }): Promise<void> {
   settings();
-  const rootUrl = process.env.PUBLIC_URL?.trim() || '';
-  const db = createDatabase();
+  const rootUrl = rootUrlOf();
+  const db = openDatabase();
   await db.init();
   let instance: InstanceRecord | undefined;
   try {
@@ -186,7 +210,7 @@ export async function PoolTrialStepActivity(args: { instanceId: string; step: Tr
 }
 
 async function readInstance(instanceId: string): Promise<InstanceRecord | undefined> {
-  const db = createDatabase();
+  const db = openDatabase();
   await db.init();
   try {
     return (await db.instances.getInstances()).find((entry) => entry.id === instanceId);
@@ -196,7 +220,7 @@ async function readInstance(instanceId: string): Promise<InstanceRecord | undefi
 }
 
 async function writeInstance(instance: InstanceRecord): Promise<void> {
-  const db = createDatabase();
+  const db = openDatabase();
   await db.init();
   try {
     await db.instances.saveInstance({ ...instance, updatedAt: new Date().toISOString() });
@@ -206,10 +230,10 @@ async function writeInstance(instance: InstanceRecord): Promise<void> {
 }
 
 function moveRelay(): MoveRelay {
-  const role = roleFromEnv(process.env);
+  const { role } = hostSettings();
   if (!role.signing) throw ApplicationFailure.nonRetryable('only root moves instances', 'NotRoot');
   const signing = role.signing;
-  return new MoveRelay({ kubeconfig: async () => kubeconfigFile(await rootCluster().kubeconfigOf(ROOT_CLUSTER_ID))(), sign: (instanceId, part) => issueMoveToken(signing, instanceId, part) });
+  return new MoveRelay({ kubeconfig: async () => kubeconfigFile(await hostAccess().kubeconfigOf(ROOT_CLUSTER_ID))(), sign: (instanceId, part) => issueMoveToken(signing, instanceId, part) });
 }
 
 export async function PoolMoveStartActivity(args: { instanceId: string }): Promise<void> {

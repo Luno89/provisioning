@@ -80,4 +80,3 @@ export function temporalApiKey(secret: string, grant: TemporalGrant, clock: () =
   };
 }
 
-export const temporalNamespaceFrom = (env: Readonly<Record<string, string | undefined>>): string => env.TEMPORAL_NAMESPACE?.trim() || 'default';

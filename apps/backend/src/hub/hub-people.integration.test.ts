@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import { MongoClient } from 'mongodb';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { createDatabase } from '../platform/lib/db-interface.js';
+import { databaseSettingsFrom } from '../platform/lib/settings.js';
 import { fetchSide, handOff, sessionFrom, signedInLanding } from '../platform/testing/handoff.js';
 import { call, startThreeRoles, until, type Person, type ThreeRoles } from '../platform/testing/three-roles.js';
 import { HUB_DATABASE_PREFIX } from './lib/hub.js';
@@ -43,7 +44,7 @@ async function toHub(person: Person): Promise<string> {
 }
 
 async function accountGone(id: string): Promise<boolean> {
-  const db = createDatabase({ ...process.env, MONGO_URI: `${roles.mongoUri}${roles.databases.root}` });
+  const db = createDatabase(databaseSettingsFrom({ ...process.env, MONGO_URI: `${roles.mongoUri}${roles.databases.root}` }));
   await db.init();
   try {
     return (await db.accounts.getUserById(id)) === undefined;

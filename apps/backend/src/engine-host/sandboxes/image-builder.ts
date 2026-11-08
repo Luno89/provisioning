@@ -139,7 +139,7 @@ function buildManifests(input: {
             containers: [
               {
                 name: 'kaniko',
-                image: process.env.KOALA_KANIKO_IMAGE ?? KANIKO_IMAGE,
+                image: KANIKO_IMAGE,
                 args: [
                   '--context=dir:///workspace',
                   '--dockerfile=/workspace/Dockerfile',

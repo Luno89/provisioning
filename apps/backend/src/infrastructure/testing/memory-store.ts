@@ -136,6 +136,10 @@ export class MemoryInfrastructureStore implements InfrastructureStore {
     return next;
   }
 
+  async dropClusterProviders(): Promise<number> {
+    return 0;
+  }
+
   async sealDeploymentSecrets(): Promise<number> {
     const plain = this.deployments.all().filter((deployment) => hasPlainSecret(deployment));
     for (const deployment of plain) await this.saveDeployment(deployment);

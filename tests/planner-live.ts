@@ -3,6 +3,7 @@ import dotenv from 'dotenv';
 import { BUILT_IN_GROUPS, builtInCatalogue, runProcedure } from '@koala/agent-engine/procedure';
 import { createEventBus } from '@koala/agent-engine/workflow';
 import { createDatabase } from '../apps/backend/src/platform/lib/db-interface.js';
+import { databaseSettingsFrom } from '../apps/backend/src/platform/lib/settings.js';
 import { liveEngineHost } from './lib/live-engine-host.js';
 import { createProcedureExecutor } from '../apps/backend/src/engine-host/nodes/index.js';
 
@@ -13,7 +14,7 @@ const GOAL = process.env.PLANNER_LIVE_GOAL
   ?? 'New Grove project: a tiny static "hello" web page served by nginx. Keep it deliberately small: exactly one branch, two leaves — (1) write the page, (2) serve it with nginx — with a couple of tasks under each leaf.';
 
 async function main(): Promise<void> {
-  const db = createDatabase();
+  const db = createDatabase(databaseSettingsFrom(process.env));
   await db.init();
   const host = liveEngineHost(db);
 

@@ -5,12 +5,12 @@ import {
   type ProjectedBinding, StorageAdapter, buildAppEnv, TABBYAPI_DEFAULT_MAX_SEQ_LEN, planHostMemory,
   parseQuantity, type HostMemoryPlan, deploymentIdFor, gitappPullSecretArgs, type MachineOfCluster, type Reach } from '../infrastructure/index.js';
 import { readBindingCredentials, sanitiseNamespaceName, syncProjectSecrets } from '../projects/index.js';
-import { createDatabase, loadKeys } from '../platform/index.js';
+import { createDatabase, type DatabaseSettings } from '../platform/index.js';
 
 import { ensureClusterMonitoring } from './cluster-monitoring.js';
 import type { ClusterSteps } from './cluster-steps.js';
 import { handedReach } from './handed-reach.js';
-import { appServiceType, machineMetricsUrl, placedOnPool } from '../monitoring/index.js';
+import { appServiceType, placedOnPool } from '../monitoring/index.js';
 import { infisicalHostFor } from '../releases/index.js';
 import { ignore } from '@koala/engine-core/failures';
 import { messageOf } from './failure-reasons.js';
@@ -113,8 +113,13 @@ export interface DeployAppResult {
 
 const SANITIZE = sanitiseNamespaceName;
 
-async function rememberMetricsToken(clusterId: string, tokenHash: string): Promise<void> {
-  const db = createDatabase();
+const metricsUrlOf = (url: string | { off: string }): string => {
+  if (typeof url !== 'string') throw new Error(url.off);
+  return url;
+};
+
+async function rememberMetricsToken(database: DatabaseSettings, clusterId: string, tokenHash: string): Promise<void> {
+  const db = createDatabase(database);
   await db.init();
   try {
     await db.infrastructure.patchCluster(clusterId, { metricsTokenHash: tokenHash });
@@ -164,7 +169,7 @@ export async function DeployAppActivity(args: DeployAppArgs, steps: ClusterSteps
   const physicalName = args.clusterName;
   const kubeconfigPath = await access.kubeconfigOf(reach);
 
-  const effectiveDevice = process.env.VLLM_DEVICE || (args.vllmGpuCount === 0 ? 'cpu' : (args.vllmGpuVendor === 'amd' ? 'rocm' : 'cuda'));
+  const effectiveDevice = args.vllmGpuCount === 0 ? 'cpu' : (args.vllmGpuVendor === 'amd' ? 'rocm' : 'cuda');
   const effectiveGpuCount = args.vllmGpuCount !== undefined ? args.vllmGpuCount : 1;
 
   const effectiveTabbyGpuCount = args.tabbyGpuCount !== undefined ? args.tabbyGpuCount : 1;
@@ -251,7 +256,7 @@ export async function DeployAppActivity(args: DeployAppArgs, steps: ClusterSteps
 
   let renderedSpec: unknown;
   try {
-    const specDb = createDatabase();
+    const specDb = createDatabase(steps.database);
     await specDb.init();
     const stored = (await specDb.infrastructure.getAppSpecs()).find((s) => s.id === args.appType)
       ?? undefined;
@@ -264,11 +269,11 @@ export async function DeployAppActivity(args: DeployAppArgs, steps: ClusterSteps
         minioRootUser: args.minioRootUser,
         minioRootPassword: args.minioRootPassword,
       }, (kind) => (kind === 'username' ? 'koala' : randomBytes(24).toString('hex')));
-      const storage = specStorageFor(args.appType, placedOnPool(process.env, reach), args);
+      const storage = specStorageFor(args.appType, placedOnPool(Boolean(access.here.poolName), reach), args);
       renderedSpec = renderApp(stored.spec, {
         id: deploymentId,
         namespace: namespace,
-        serviceType: appServiceType(placedOnPool(process.env, reach)),
+        serviceType: appServiceType(placedOnPool(Boolean(access.here.poolName), reach)),
         secrets,
         ...(storage ? { storage } : {}),
       });
@@ -280,7 +285,7 @@ export async function DeployAppActivity(args: DeployAppArgs, steps: ClusterSteps
 
   let bindingsJson = '';
   try {
-    const bindDb = createDatabase();
+    const bindDb = createDatabase(steps.database);
     await bindDb.init();
     const deployments = await bindDb.infrastructure.getDeployments();
     const self = deployments.find((d) => d.name === args.name || d.id === args.name);
@@ -329,8 +334,8 @@ export async function DeployAppActivity(args: DeployAppArgs, steps: ClusterSteps
   }
 
   const env = buildAppEnv({
-    hostHfToken: process.env.HF_TOKEN,
-    serviceType: appServiceType(placedOnPool(process.env, reach)),
+    hostHfToken: steps.hfToken,
+    serviceType: appServiceType(placedOnPool(Boolean(access.here.poolName), reach)),
     ...(renderedSpec ? { renderedSpec } : {}),
     ...(bindingsJson ? { bindingsJson } : {}),
     physicalName,
@@ -389,7 +394,7 @@ export async function DeployAppActivity(args: DeployAppArgs, steps: ClusterSteps
     nextcloudDbPassword: args.nextcloudDbPassword,
     nextcloudDbRootPassword: args.nextcloudDbRootPassword,
     hermesDashboardPassword: args.hermesDashboardPassword,
-    minioStorage: minioStorageFor(placedOnPool(process.env, reach), args.minioStorage),
+    minioStorage: minioStorageFor(placedOnPool(Boolean(access.here.poolName), reach), args.minioStorage),
     qdrantApiKey: args.qdrantApiKey,
     qdrantStorage: args.qdrantStorage,
     qdrantMemoryLimit: args.qdrantMemoryLimit,
@@ -412,9 +417,9 @@ export async function DeployAppActivity(args: DeployAppArgs, steps: ClusterSteps
   });
 
   await ensureClusterMonitoring(steps, {
-    physicalName: reach.clusterId, reach, pool: placedOnPool(process.env, reach),
+    physicalName: reach.clusterId, reach, pool: placedOnPool(Boolean(access.here.poolName), reach),
     ...(reach.kind === 'koala' ? { koala: true } : {}),
-    ...(reach.kind === 'machine' ? { machine: { metricsUrl: machineMetricsUrl(process.env), remember: (tokenHash: string) => rememberMetricsToken(args.clusterId, tokenHash) } } : {}),
+    ...(reach.kind === 'machine' ? { machine: { metricsUrl: metricsUrlOf(steps.machineMetricsUrl), remember: (tokenHash: string) => rememberMetricsToken(steps.database, args.clusterId, tokenHash) } } : {}),
   }, logFile);
   await infra.deploy(
     `app-${physicalName}-${deploymentId}`,
@@ -427,7 +432,7 @@ export async function DeployAppActivity(args: DeployAppArgs, steps: ClusterSteps
     const pull = await gitea.registryLogin();
     await access.apply(reach, await kubectl(gitappPullSecretArgs(namespace, registryHost, pull)));
 
-    const secretDb = createDatabase();
+    const secretDb = createDatabase(steps.database);
     await secretDb.init();
     try {
       const self = (await secretDb.infrastructure.getDeployments()).find((d) => d.name === args.name || d.id === args.name);
@@ -440,7 +445,7 @@ export async function DeployAppActivity(args: DeployAppArgs, steps: ClusterSteps
           if (project.requiredSecrets?.length) throw new Error(reachable.problem);
           console.warn(`[DeployAppActivity] ${project.name} declares no secrets; ${reachable.problem}`);
         } else {
-          const masterKey = loadKeys(process.env).data;
+          const masterKey = steps.database.dataKey;
           const synced = await syncProjectSecrets(
             { infra: { runKubectl: kubectl, runHelm: (argv) => access.helm(reach, argv), applyManifest: (manifest) => access.apply(reach, manifest) }, vault: steps.infisical, projects: secretDb.projects, masterKey },
             { project, namespace: namespace, kubeconfig: kubeconfigPath, reach },

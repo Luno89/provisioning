@@ -1,9 +1,12 @@
 import assert from 'node:assert/strict';
 import dotenv from 'dotenv';
 import { createDatabase } from '../apps/backend/src/platform/lib/db-interface.js';
+import { databaseSettingsFrom } from '../apps/backend/src/platform/lib/settings.js';
 import { liveEngineHost } from './lib/live-engine-host.js';
 import { devKoalasCluster, devGiteaUrl } from './lib/dev-stack.js';
-import { getTemporalClient } from '../apps/backend/src/platform/lib/temporal-client.js';
+import { connectTemporalAs, getTemporalClient } from '../apps/backend/src/platform/lib/temporal-client.js';
+import { keepPayloadsIn } from '../apps/backend/src/platform/lib/db-interface.js';
+import { connectionSettingsFrom } from '../apps/backend/src/platform/lib/settings.js';
 import { DEFAULT_ENGINE_TASK_QUEUE, groveRunWorkflowId, type AgentRunOutcome, type GroveRunResult } from '../apps/backend/src/engine-host/temporal/contracts.js';
 import { GiteaService } from '../apps/backend/src/projects/services/GiteaService.js';
 import { loadKeys } from '../apps/backend/src/platform/lib/keys.js';
@@ -15,6 +18,9 @@ import { createKubeRunner } from '../apps/backend/src/engine-host/sandboxes/kube
 import { workspaceName } from '../apps/backend/src/engine-host/sandboxes/workspace.js';
 
 dotenv.config({ path: new URL('../apps/backend/.env', import.meta.url).pathname, quiet: true });
+const connections = connectionSettingsFrom(process.env);
+connectTemporalAs(connections);
+keepPayloadsIn(connections.mongo);
 
 const OWNER = process.env.GROVE_LIVE_OWNER;
 const GOAL = process.env.GROVE_LIVE_GOAL
@@ -30,7 +36,7 @@ const elapsed = (since: number) => `${Math.round((Date.now() - since) / 1000)}s`
 async function main(): Promise<void> {
   assert.ok(OWNER, 'set GROVE_LIVE_OWNER to the user whose model deployment the run should use');
   const started = Date.now();
-  const db = createDatabase();
+  const db = createDatabase(databaseSettingsFrom(process.env));
   await db.init();
   const host = liveEngineHost(db);
   const client = await getTemporalClient();

@@ -153,6 +153,10 @@ const ACCESS = [
 
 const TESTING_ONLY = { group: ['**/testing/*'], message: 'a testing/ folder holds mocks and contract suites for tests; production code never imports them' };
 
+const SETTINGS_READERS = ['src/index.ts', 'src/worker-*.ts', 'src/scripts/**', 'src/platform/services/child-env.ts']
+
+const ONE_READER = { object: 'process', property: 'env', message: 'a process reads its settings once, in its entry point, through its role\'s reader in platform/lib/settings.ts, and hands them on typed; a child process inherits the environment through platform/services/child-env.ts' }
+
 export default defineConfig([
   globalIgnores(['dist', 'data', 'node_modules']),
   {
@@ -202,6 +206,11 @@ export default defineConfig([
     rules: {
       'no-restricted-syntax': ['error', ...ACCESS, ...SWALLOWING, UNAWAITED_HANDLER, { selector: "MemberExpression[object.name='process'][property.name='env']", message: 'lib is pure: it takes settings as arguments and never reads process.env, which may not be loaded yet when it runs' }],
     },
+  },
+  {
+    files: ['src/**/*.ts'],
+    ignores: ['**/*.test.ts', 'src/**/testing/**', ...SETTINGS_READERS],
+    rules: { 'no-restricted-properties': ['error', ONE_READER] },
   },
   {
     files: ['src/**/*.ts'],

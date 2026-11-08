@@ -30,6 +30,7 @@ export interface InfrastructureStore extends AreaStore {
   deleteDeployment(id: string): Promise<void>;
   saveDeploymentInfo(deployment: PartialInfo<DeploymentMetadata>): Promise<DeploymentMetadata>;
   sealDeploymentSecrets(): Promise<number>;
+  dropClusterProviders(): Promise<number>;
   getAppSpecs(): Promise<StoredAppSpec[]>;
   saveAppSpec(spec: StoredAppSpec): Promise<void>;
   deleteAppSpec(id: string): Promise<void>;
@@ -64,6 +65,8 @@ function fieldsOf<T extends Identified>(entity: T): Document {
   const { id: _id, ...fields } = entity;
   return fields;
 }
+
+export const RETIRED_CLUSTER_PROVIDERS = 'clusterProviders';
 
 export class MongoInfrastructureStore implements InfrastructureStore {
   constructor(private readonly db: () => Db, private readonly dataKey: SecretKey) {}
@@ -158,6 +161,14 @@ export class MongoInfrastructureStore implements InfrastructureStore {
 
   async deleteDeploymentsOfCluster(clusterId: string): Promise<number> {
     return (await this.deployments.deleteMany({ clusterId })).deletedCount;
+  }
+
+  async dropClusterProviders(): Promise<number> {
+    const [found] = await this.db().listCollections({ name: RETIRED_CLUSTER_PROVIDERS }, { nameOnly: true }).toArray();
+    if (!found) return 0;
+    const rows = await this.db().collection(RETIRED_CLUSTER_PROVIDERS).countDocuments();
+    await this.db().dropCollection(RETIRED_CLUSTER_PROVIDERS);
+    return rows;
   }
 
   async sealDeploymentSecrets(): Promise<number> {

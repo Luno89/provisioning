@@ -3,13 +3,19 @@ import dotenv from 'dotenv';
 import { MongoClient } from 'mongodb';
 import { temporal } from '@temporalio/proto';
 import { createDatabase } from '../apps/backend/src/platform/lib/db-interface.js';
+import { databaseSettingsFrom } from '../apps/backend/src/platform/lib/settings.js';
 import { mongoTarget } from '../apps/backend/src/platform/lib/mongo-db.js';
 import { liveEngineHost } from './lib/live-engine-host.js';
-import { getTemporalClient } from '../apps/backend/src/platform/lib/temporal-client.js';
+import { connectTemporalAs, getTemporalClient } from '../apps/backend/src/platform/lib/temporal-client.js';
+import { keepPayloadsIn } from '../apps/backend/src/platform/lib/db-interface.js';
+import { connectionSettingsFrom } from '../apps/backend/src/platform/lib/settings.js';
 import { startedFor } from '../apps/backend/src/platform/lib/workflow-owner.js';
 import { DEFAULT_ENGINE_TASK_QUEUE, type AgentRunOutcome, type ProcedureRunInput } from '../apps/backend/src/engine-host/temporal/contracts.js';
 
 dotenv.config({ path: new URL('../apps/backend/.env', import.meta.url).pathname, quiet: true });
+const connections = connectionSettingsFrom(process.env);
+connectTemporalAs(connections);
+keepPayloadsIn(connections.mongo);
 
 const OWNER = process.env.BIG_RUN_LIVE_OWNER ?? process.env.GROVE_LIVE_OWNER;
 const AGENT = process.env.BIG_RUN_LIVE_AGENT ?? 'research';
@@ -27,7 +33,7 @@ const queue = process.env.TEMPORAL_ENGINE_TASK_QUEUE || DEFAULT_ENGINE_TASK_QUEU
 
 async function main(): Promise<void> {
   assert.ok(OWNER, 'set BIG_RUN_LIVE_OWNER (or GROVE_LIVE_OWNER) to the user whose model deployment the run should use');
-  const db = createDatabase();
+  const db = createDatabase(databaseSettingsFrom(process.env));
   await db.init();
   const host = liveEngineHost(db);
   const client = await getTemporalClient();

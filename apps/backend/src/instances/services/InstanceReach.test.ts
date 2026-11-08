@@ -1,7 +1,7 @@
 import type { Agent } from 'undici';
 import { describe, expect, it } from 'vitest';
 import { matches, mock, mockFn } from 'vitest-mock-extended';
-import { caddyFetch, InstanceReach, instanceReachFrom, type CaddyTransport, type ReachFetchers } from './InstanceReach.js';
+import { caddyFetch, InstanceReach, type CaddyTransport, type ReachFetchers } from './InstanceReach.js';
 import { reachSettingsFrom } from '../lib/instance-reach.js';
 
 const containing = (text: string): unknown => expect.stringContaining(text);
@@ -100,9 +100,9 @@ describe('the address an instance reports for itself', () => {
 
 describe('reaching instances as the environment says', () => {
   it('is open on a dev box and refuses private addresses in production', async () => {
-    const dev = instanceReachFrom({});
+    const dev = new InstanceReach(reachSettingsFrom({}, false));
     expect(await dev.reportedUrl('http://127.0.0.1:3001', {})).toEqual({ ok: true, url: 'http://127.0.0.1:3001' });
-    const production = instanceReachFrom({ NODE_ENV: 'production', INGRESS_DOMAIN: 'people.example' });
+    const production = new InstanceReach(reachSettingsFrom({ NODE_ENV: 'production', INGRESS_DOMAIN: 'people.example' }, false));
     expect(await production.reportedUrl('https://luno.people.example', { name: 'luno' })).toEqual({ ok: true, url: 'https://luno.people.example' });
   });
 });

@@ -6,6 +6,7 @@ import { fileURLToPath } from 'url';
 dotenv.config({ path: fileURLToPath(new URL('../apps/backend/.env', import.meta.url)), quiet: true });
 import axios, { type AxiosInstance } from 'axios';
 import { createDatabase } from '../apps/backend/src/platform/lib/db-interface.js';
+import { databaseSettingsFrom } from '../apps/backend/src/platform/lib/settings.js';
 import { sessionToken } from '../apps/backend/src/platform/lib/auth.js';
 import { loadKeys } from '../apps/backend/src/platform/lib/keys.js';
 import { forgetWhatRunsLeft } from './lib/forget-test-runs.js';
@@ -50,7 +51,7 @@ const runIds = new Set<string>();
 
 async function main(): Promise<void> {
   assert.ok(OWNER, 'set MONITORING_LIVE_OWNER (or CHECKS_LIVE_OWNER) to the person whose throwaway app this is');
-  const db = createDatabase();
+  const db = createDatabase(databaseSettingsFrom(process.env));
   await db.init();
   closeDb = async () => { await db.close?.(); };
   const user = await db.accounts.getUserById(OWNER);

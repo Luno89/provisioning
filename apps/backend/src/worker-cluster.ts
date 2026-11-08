@@ -14,9 +14,9 @@ import { DownloadModelActivity } from './activities/DownloadModelActivity.js';
 import { VerifyGpuRuntimeActivity, type VerifyGpuRuntimeArgs } from './activities/VerifyGpuRuntimeActivity.js';
 import { RunPipelineActivity, type RunPipelineArgs } from './activities/RunPipelineActivity.js';
 import type { ClusterSteps } from './activities/cluster-steps.js';
-import { createWorkerLogger, buildDataConverter, connectTemporalWorker, temporalTlsProblem, sharedPayloadBlobs, loadKeys, roleFromEnv, telemetrySettings, temporalNamespaceFrom } from './platform/index.js';
-import { clusterAccessFrom, healthPort, serveHealth, InfisicalService, infisicalSettingsFrom, InfrastructureService, sharedClusterProxy } from './infrastructure/index.js';
-import { GiteaService, giteaSettingsFrom } from './projects/index.js';
+import { createWorkerLogger, buildDataConverter, clusterWorkerSettingsFrom, connectTemporalWorker, connectTemporalAs, keepPayloadsIn, temporalTlsProblem, sharedPayloadBlobs, SettingsError, telemetrySettings } from './platform/index.js';
+import { clusterAccessFrom, serveHealth, InfisicalService, InfrastructureService, sharedClusterProxy, terraformPlacesFor } from './infrastructure/index.js';
+import { GiteaService } from './projects/index.js';
 import { heartbeatWhileRunning, WORKER_DEFAULTS } from '@koala/engine-core';
 import { traceActivities } from '@koala/engine-core/telemetry';
 import { startTelemetry } from '@koala/engine-core/telemetry-sdk';
@@ -28,46 +28,55 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 
 dotenv.config({ quiet: true });
 
-const telemetry = startTelemetry(telemetrySettings(process.env, 'koala-worker-cluster'));
-const role = roleFromEnv(process.env).role;
-const access = clusterAccessFrom(process.env, { role });
-telemetry.exportTo(collectorSink({ env: process.env, proxy: sharedClusterProxy(access), koalasCluster: () => access.own().clusterId }));
 const logger = createWorkerLogger('cluster-worker');
 
-Runtime.install({
-  logger,
-  telemetryOptions: {
-    metrics: {
-      prometheus: {
-        bindAddress: `0.0.0.0:${process.env.TEMPORAL_METRICS_PORT || '9464'}`,
+async function main() {
+  const settings = clusterWorkerSettingsFrom(process.env);
+  const telemetry = startTelemetry(telemetrySettings(settings, 'koala-worker-cluster'));
+  const access = clusterAccessFrom(settings.clusters, { role: settings.role.role });
+  telemetry.exportTo(collectorSink({ otlpEndpoint: settings.telemetry.otlpEndpoint, proxy: sharedClusterProxy(access), koalasCluster: () => access.own().clusterId }));
+  Runtime.install({
+    logger,
+    telemetryOptions: {
+      metrics: {
+        prometheus: {
+          bindAddress: `0.0.0.0:${settings.temporalMetricsPort}`,
+        },
       },
     },
-  },
-});
-
-async function main() {
-  const plaintext = temporalTlsProblem(process.env);
+  });
+  const plaintext = temporalTlsProblem(settings.temporal);
   if (plaintext) throw new Error(plaintext);
-  const dataKey = loadKeys(process.env).data;
-  const steps: ClusterSteps = { access, infra: new InfrastructureService(), gitea: new GiteaService(dataKey, giteaSettingsFrom(process.env)), infisical: new InfisicalService(dataKey, infisicalSettingsFrom(process.env)) };
+  connectTemporalAs(settings);
+  keepPayloadsIn(settings.mongo);
+  const dataKey = settings.keys.data;
+  const steps: ClusterSteps = {
+    access,
+    infra: new InfrastructureService(terraformPlacesFor(settings.terraform)),
+    gitea: new GiteaService(dataKey, settings.gitea, { registryPullHost: settings.registryPullHost }),
+    infisical: new InfisicalService(dataKey, settings.infisical),
+    database: { mongo: settings.mongo, dataKey },
+    hfToken: settings.operator.env.HF_TOKEN,
+    machineMetricsUrl: settings.machineMetricsUrl,
+  };
 
-  const queue = process.env.TEMPORAL_TASK_QUEUE || 'cluster-ops-queue';
-  const address = process.env.TEMPORAL_CONNECTION_ADDRESS || 'localhost:7233';
+  const queue = settings.queues.own || 'cluster-ops-queue';
+  const { address } = settings.temporal;
   logger.info(`[ClusterWorker] Starting — taskQueue=${queue}, address=${address}`);
 
   let worker;
   while (true) {
     try {
-      const connection = await connectTemporalWorker(address, 'koala-worker-cluster', process.env);
-      const dataConverter = buildDataConverter(loadKeys(process.env).payload, sharedPayloadBlobs());
+      const connection = await connectTemporalWorker('koala-worker-cluster', settings);
+      const dataConverter = buildDataConverter(settings.keys.payload, sharedPayloadBlobs());
       worker = await Worker.create({
     ...WORKER_DEFAULTS,
         connection,
-        namespace: temporalNamespaceFrom(process.env),
+        namespace: settings.temporal.namespace,
         ...(dataConverter ? { dataConverter } : {}),
         taskQueue: queue,
         workflowsPath: resolve(__dirname, 'workflows'),
-        interceptors: { activity: [heartbeatWhileRunning(), traceActivities()], workflowModules: workflowInterceptorModules(process.env) },
+        interceptors: { activity: [heartbeatWhileRunning(), traceActivities()], workflowModules: workflowInterceptorModules(settings.role) },
         activities: {
           DeployAppActivity: (args: DeployAppArgs) => DeployAppActivity(args, steps),
           CheckWorkloadActivity: (args: CheckWorkloadArgs) => CheckWorkloadActivity(args, steps),
@@ -87,18 +96,17 @@ async function main() {
   }
 
   logger.info('[ClusterWorker] ✅ Listening for app deployment tasks');
-  ensureClusterMonitoring(steps, koalaClusterMonitoring(process.env, steps.access.own()))
+  ensureClusterMonitoring(steps, koalaClusterMonitoring(Boolean(settings.clusters.here.poolName), steps.access.own()))
     .then(() => logger.info('[ClusterWorker] the cluster this Koala runs in has monitoring and Koala\'s own telemetry stack'))
     .catch((err: Error) => logger.warn(`[ClusterWorker] monitoring could not be installed yet; the next deploy tries again: ${err.message}`));
-  const port = healthPort(process.env);
-  if (port) serveHealth(port, () => worker.getState() === 'RUNNING');
+  if (settings.healthPort) serveHealth(settings.healthPort, () => worker.getState() === 'RUNNING');
   await worker.run();
+  await telemetry.shutdown().catch(ignore('the worker has stopped, and telemetry the collector did not take is dropped as it is whenever the collector is away'));
 }
 
-main().then(async () => {
-  await telemetry.shutdown().catch(ignore('the worker has stopped, and telemetry the collector did not take is dropped as it is whenever the collector is away'));
+main().then(() => {
   process.exit(0);
 }, (err: Error) => {
-  logger.error(`[ClusterWorker] FATAL: ${err.stack || err.message}`);
+  logger.error(err instanceof SettingsError ? `[ClusterWorker] ${err.message}` : `[ClusterWorker] FATAL: ${err.stack || err.message}`);
   process.exit(1);
 });

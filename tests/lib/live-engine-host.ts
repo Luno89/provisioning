@@ -5,6 +5,8 @@ import { GiteaService } from '../../apps/backend/src/projects/services/GiteaServ
 import type { Database } from '../../apps/backend/src/platform/lib/db-interface.js';
 import { extensionServiceFor } from '../../apps/backend/src/engine/services/ExtensionService.js';
 import { loadKeys } from '../../apps/backend/src/platform/lib/keys.js';
+import { clusterSettingsFrom } from '../../apps/backend/src/platform/lib/settings.js';
+import { InfrastructureService, terraformPlacesFor } from '../../apps/backend/src/infrastructure/services/InfrastructureService.js';
 import { ProjectRepoService } from '../../apps/backend/src/projects/services/ProjectRepoService.js';
 import { createWorkspaceRepoResolver } from '../../apps/backend/src/engine-host/sandboxes/workspace-repos.js';
 
@@ -16,7 +18,7 @@ export function liveEngineHost(db: Database) {
   return createEngineHost({
     documents: { push: (request) => projectRepos.pushDocuments(request), pull: (request) => projectRepos.pullDocuments(request), merge: (request) => projectRepos.mergeDocuments(request) },
     repoFor: createWorkspaceRepoResolver({ trees: () => db.projects.getTrees(), projects: () => db.projects.getProjects(), accountOf: async (ownerId) => (await db.projects.getGiteaAccount(ownerId))?.username }),
-    models: createModelService(db, keys.data),
+    models: createModelService({ db, dataKey: keys.data, ...clusterSettingsFrom(process.env), infra: new InfrastructureService(terraformPlacesFor({ off: 'the live engine host runs no Terraform' })), mesh: { off: 'the live engine host reaches no mesh' }, endpointRules: { lab: false } }),
     stores: storesFromDatabase(db),
     cluster: devKoalasCluster(),
     registry: devRegistry(),

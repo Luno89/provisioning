@@ -22,10 +22,16 @@ mesh:
   address: ""
 
 backend:
+  port: 3001
   nodePort: null
   terminationGraceSeconds: 604800
 
+workers:
+  healthPort: 8090
+  temporalMetricsPort: 9464
+
 machineGateway:
+  port: 7234
   nodePort: 30322
 
 routing:
@@ -48,6 +54,7 @@ minio:
   bucket: koala
 
 temporal:
+  namespace: default
   image: temporalio/auto-setup:1.29.3
   keysImage: busybox:1.37
   postgresImage: postgres:12-alpine

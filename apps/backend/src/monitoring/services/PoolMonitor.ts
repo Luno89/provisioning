@@ -10,11 +10,9 @@ export interface PoolMonitorSettings {
   token: () => Promise<string>;
 }
 
-export function poolMonitorFrom(env: NodeJS.ProcessEnv, token: (() => Promise<string>) | undefined): PoolMonitorSettings | undefined {
-  if (env.POOL !== 'true') return undefined;
-  const rootUrl = env.ROOT_URL?.trim();
-  const instanceId = env.INSTANCE_ID?.trim();
-  return rootUrl && instanceId && token ? { rootUrl: rootUrl.replace(/\/$/, ''), instanceId, token } : undefined;
+export function poolMonitorFrom(place: { rootUrl: string; instanceId: string } | { off: string }, token: (() => Promise<string>) | undefined): PoolMonitorSettings | undefined {
+  if ('off' in place || !token) return undefined;
+  return { rootUrl: place.rootUrl.replace(/\/$/, ''), instanceId: place.instanceId, token };
 }
 
 export function poolMonitor(settings: PoolMonitorSettings, fetchImpl: typeof fetch = globalThis.fetch): PoolMonitor {

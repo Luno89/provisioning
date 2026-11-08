@@ -393,7 +393,8 @@ set_env POOL_SLOTS "$SLOTS"
 set_env POOL_SLOT_MEMORY_MIB "$SLOT_MIB"
 set_env POOL_ADDRESS "$ROOT_MESH_IP"
 set_env POOL_IMAGE "127.0.0.1:5000/nowrinkles/app"
-grep -q '^POOL_TRIAL_DAYS=' "$ENV_FILE" || echo "POOL_TRIAL_DAYS=14" >> "$ENV_FILE"
+. "$REPO_DIR/scripts/root-node/root-settings.sh"
+ensure_root_settings "$ENV_FILE" "$REPO_DIR" "$COMPOSE_ENV" || die "root's settings could not be completed; see above"
 if [ "$SLOTS" -gt 0 ]; then
   ok "${SLOTS} trial instances fit in ${TOTAL_MIB} MiB, ${SLOT_MIB} MiB each after ${ROOT_KEEPS_MIB} MiB for root itself"
 else

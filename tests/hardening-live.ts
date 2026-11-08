@@ -20,6 +20,7 @@ import { devFile, devTemporalCa } from './lib/dev-temporal.js';
 import { call, envArgs, minioRun, ownerOnInstance, startSplitStack, type SplitStack } from './lib/split-stack.js';
 import { firstAdmin, withDatabase } from './lib/suite-root.js';
 import { portToHandOn } from '@koala/engine-core/testing/ports';
+import { databaseSettingsFrom } from '../apps/backend/src/platform/lib/settings.js';
 
 const REPO = fileURLToPath(new URL('..', import.meta.url));
 const STAMP = Date.now().toString(36);
@@ -210,7 +211,7 @@ async function rootNeverCallsMadeUpAddresses(stack: SplitStack, image: string): 
   const madeUp = `http://127.0.0.1:${(listener.address() as AddressInfo).port}`;
   try {
     const credential = randomBytes(24).toString('base64url');
-    const db = createDatabase({ ...process.env, MONGO_URI: mongoUri });
+    const db = createDatabase(databaseSettingsFrom({ ...process.env, MONGO_URI: mongoUri }));
     await db.init();
     try {
       await db.instances.saveInstance({ id: 'inst-hardening', ownerId: owner.id, name: 'hardbox', url: `https://hardbox.${DOMAIN}`, credentialHash: hashCredential(credential), status: 'ready', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });

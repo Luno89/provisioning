@@ -8,9 +8,9 @@ import {
 } from '../instances/index.js';
 import { ensureClusterMonitoring } from '../activities/cluster-monitoring.js';
 import { koalaClusterMonitoring } from '../monitoring/index.js';
-import { clusterAccessFrom, InfrastructureService, type ClusterAccess } from '../infrastructure/index.js';
-import { GiteaService, giteaSettingsFrom } from '../projects/index.js';
-import { loadKeys, mongoClientFor, mongoTarget, roleFromEnv } from '../platform/index.js';
+import { clusterAccessFrom, InfrastructureService, terraformPlacesFor, type ClusterAccess } from '../infrastructure/index.js';
+import { GiteaService } from '../projects/index.js';
+import { mongoClientFor, moveImportSettingsFrom, type MoveImportSettings } from '../platform/index.js';
 import { ignore } from '@koala/engine-core/failures';
 import { waitingOn } from '../activities/failure-reasons.js';
 import type { ReadableStream as WebReadableStream } from 'stream/web';
@@ -19,14 +19,16 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = path.join(__dirname, '../../data');
 const HELPER = 'move-gitea-data';
 
-const rootUrl = (process.env.ROOT_URL ?? '').replace(/\/$/, '');
-const instanceId = process.env.INSTANCE_ID ?? '';
-const credential = process.env.INSTANCE_CREDENTIAL ?? '';
-const headers = { 'x-instance-id': instanceId, authorization: `Bearer ${credential}` };
+let read: MoveImportSettings | undefined;
+const settings = (): MoveImportSettings => {
+  if (!read) throw new Error('the move has not read its settings yet');
+  return read;
+};
+const headers = (): Record<string, string> => ({ 'x-instance-id': settings().instanceId, authorization: `Bearer ${settings().credential}` });
 
 async function report(status: 'installing' | 'failed', detail: string): Promise<void> {
-  await fetch(`${rootUrl}/api/instances/status`, {
-    method: 'POST', headers: { ...headers, 'content-type': 'application/json' }, body: JSON.stringify({ status, detail }),
+  await fetch(`${settings().rootUrl}/api/instances/status`, {
+    method: 'POST', headers: { ...headers(), 'content-type': 'application/json' }, body: JSON.stringify({ status, detail }),
   }).catch((err: Error) => console.warn(`  root could not be told "${status}: ${detail}": ${err.message}`));
 }
 
@@ -36,12 +38,12 @@ async function part(name: MovePart | string, saying?: string, absentFromOlder?: 
   const words = saying ?? MOVE_STEP_WORDS[name as MovePart] ?? name;
   await report('installing', words);
   console.log(`▶ ${words}`);
-  let response = await fetch(`${rootUrl}/api/instances/move/parts/${encodeURIComponent(name)}`, { headers });
+  let response = await fetch(`${settings().rootUrl}/api/instances/move/parts/${encodeURIComponent(name)}`, { headers: headers() });
   while (response.status === 502 || response.status === 503) {
     await response.body?.cancel();
     console.log(`  Koala's servers are not ready to give ${name} yet (${response.status}); asking again`);
     await new Promise((resolve) => setTimeout(resolve, 5000));
-    response = await fetch(`${rootUrl}/api/instances/move/parts/${encodeURIComponent(name)}`, { headers });
+    response = await fetch(`${settings().rootUrl}/api/instances/move/parts/${encodeURIComponent(name)}`, { headers: headers() });
   }
   if (absentFromOlder && response.status === 404) {
     await response.body?.cancel();
@@ -74,7 +76,7 @@ function run(args: string[], input?: Readable): Promise<string> {
 }
 
 let access: ClusterAccess | undefined;
-const ownCluster = (): ClusterAccess => (access ??= clusterAccessFrom(process.env, { role: roleFromEnv(process.env).role }));
+const ownCluster = (): ClusterAccess => (access ??= clusterAccessFrom(settings().clusters, { role: settings().role.role }));
 export const kubectlOn = (cluster: Pick<ClusterAccess, 'kubectl' | 'pipe' | 'own'>) => (args: string[], input?: Readable): Promise<string> =>
   (input ? cluster.pipe(cluster.own(), args, input) : cluster.kubectl(cluster.own(), args));
 const kubectl = (args: string[], input?: Readable): Promise<string> => kubectlOn(ownCluster())(args, input);
@@ -103,7 +105,7 @@ export async function restoreMongoInto(target: { uri: string; dbName: string }, 
 }
 
 async function restoreMongo(): Promise<void> {
-  console.log(`  ${await restoreMongoInto(mongoTarget(process.env), await part('mongo'), (line) => console.log(line))} records`);
+  console.log(`  ${await restoreMongoInto(settings().mongo, await part('mongo'), (line) => console.log(line))} records`);
 }
 
 async function restorePostgres(name: 'gitea-db' | 'infisical-db'): Promise<void> {
@@ -168,8 +170,7 @@ async function restoreVolume(namespace: string, claim: string): Promise<void> {
 }
 
 async function restoreTerraformState(): Promise<void> {
-  const namespace = process.env.POD_NAMESPACE?.trim();
-  if (!namespace) throw new Error('this machine\'s instance does not know its own namespace, where Terraform keeps its state');
+  const namespace = settings().podNamespace;
   const given = await part('terraform-state', undefined, true);
   if (!given) return;
   const secrets = movedStateSecrets({ items: JSON.parse(await text(given)) as KubeObject[] });
@@ -180,9 +181,9 @@ async function restoreTerraformState(): Promise<void> {
 async function restoreApps(): Promise<void> {
   const cluster = ownCluster();
   await report('installing', 'Getting monitoring ready for your apps');
-  await ensureClusterMonitoring({ access: cluster, infra: new InfrastructureService() }, koalaClusterMonitoring(process.env, cluster.own()));
+  await ensureClusterMonitoring({ access: cluster, infra: new InfrastructureService(terraformPlacesFor(settings().terraform)) }, koalaClusterMonitoring(Boolean(settings().clusters.here.poolName), cluster.own()));
   const manifest = JSON.parse(await text(await part('apps'))) as AppsManifest;
-  const pullHost = await new GiteaService(loadKeys(process.env).data, giteaSettingsFrom(process.env)).getRegistryHost();
+  const pullHost = await new GiteaService(settings().dataKey, settings().gitea, { registryPullHost: settings().registryPullHost }).getRegistryHost();
   for (const entry of manifest.namespaces) {
     console.log(`▶ ${entry.namespace}: ${entry.objects.length} objects, ${entry.volumes.length} volumes`);
     await applyJson([{ apiVersion: 'v1', kind: 'Namespace', metadata: { name: entry.namespace, labels: entry.labels } }], false);
@@ -197,7 +198,7 @@ async function restoreApps(): Promise<void> {
 
 async function main(): Promise<void> {
   const step = process.argv[2];
-  if (!rootUrl || !instanceId || !credential) throw new Error('this machine does not know its root, its instance or its credential');
+  read = moveImportSettingsFrom(process.env);
   if (step === 'data') {
     await run(['tar', 'xzf', '-', '--touch', '--no-same-owner', '-C', DATA_DIR], await part('data'));
     return;
@@ -217,7 +218,7 @@ async function main(): Promise<void> {
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   main().catch(async (err: Error) => {
     console.error(err.message);
-    await report('failed', `The move stopped: ${err.message}`.slice(0, 500));
+    if (read) await report('failed', `The move stopped: ${err.message}`.slice(0, 500));
     process.exit(1);
   });
 }

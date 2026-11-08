@@ -20,7 +20,8 @@ export function caddyAddressOf(text: string): CaddyAddress | undefined {
 
 export function reachSettingsFrom(env: Readonly<Record<string, string | undefined>>, lab: boolean): ReachSettings {
   const domain = env.INGRESS_DOMAIN?.trim() || undefined;
-  const ownCaddy = domain ? caddyAddressOf(env.CADDY_TLS_ADDRESS || '127.0.0.1:443') : undefined;
+  const tls = env.CADDY_TLS_ADDRESS?.trim();
+  const ownCaddy = domain && tls ? caddyAddressOf(tls) : undefined;
   return { open: env.NODE_ENV !== 'production' || lab, domain, ...(ownCaddy ? { ownCaddy } : {}) };
 }
 

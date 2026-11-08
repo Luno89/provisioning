@@ -29,7 +29,7 @@ export { abandonedJobs, rolloutOf, stuckHook, UPGRADE_WORDS, withWhy } from './l
 export { DependencyWatch } from './services/DependencyWatch.js';
 export { IdentityService } from './services/IdentityService.js';
 export { InstanceGroups } from './services/InstanceGroups.js';
-export { InstanceReach, instanceReachFrom } from './services/InstanceReach.js';
+export { InstanceReach } from './services/InstanceReach.js';
 export { hashCredential, instanceIdFor } from './services/InstanceService.js';
 export type { PlacedKoala, PlacingMachine } from './services/InstanceService.js';
 export type { ClusterStarts } from './services/MoveExport.js';

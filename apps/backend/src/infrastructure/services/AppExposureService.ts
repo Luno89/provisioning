@@ -23,6 +23,7 @@ export interface InstanceEdge {
 export interface AppAddressing {
   edge?: InstanceEdge | undefined;
   groupOf?: ((dep: DeploymentMetadata) => Promise<string | undefined>) | undefined;
+  domain?: (() => string | undefined) | undefined;
 }
 
 export interface AppExposureDb {
@@ -48,11 +49,13 @@ const DATABASE_PORTS = [5432, 3306, 6379, 27017, 11211, 8086, 9042, 9200];
 export class AppExposureService extends BaseService<AppExposureDb> {
   private readonly edge: InstanceEdge | undefined;
   private readonly groupOf: (dep: DeploymentMetadata) => Promise<string | undefined>;
+  private readonly ingressDomain: () => string | undefined;
 
   constructor(db: AppExposureDb, private readonly clusters: ExposureClusters, private readonly io?: SocketServer, addressing: AppAddressing = {}) {
     super(db);
     this.edge = addressing.edge;
     this.groupOf = addressing.groupOf ?? (async () => undefined);
+    this.ingressDomain = addressing.domain ?? (() => undefined);
   }
 
   private theEdge(): InstanceEdge {
@@ -154,7 +157,7 @@ export class AppExposureService extends BaseService<AppExposureDb> {
   }
 
   private domain(): string {
-    const domain = process.env.INGRESS_DOMAIN || undefined;
+    const domain = this.ingressDomain();
     if (!domain || !this.theEdge().name) throw new Error(NO_DOMAIN);
     return domain;
   }

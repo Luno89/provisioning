@@ -98,8 +98,8 @@ export function generateOTP(): string {
   return val.toString();
 }
 
-export const signsEveryoneIn = (env: Record<string, string | undefined>): boolean =>
-  env.IS_E2E === 'true' && env.NODE_ENV !== 'production';
+export const signsEveryoneIn = (settings: { e2e: boolean; production: boolean }): boolean =>
+  settings.e2e && !settings.production;
 
 export function e2eProblem(env: Record<string, string | undefined>): string | undefined {
   return env.IS_E2E === 'true' && env.NODE_ENV === 'production'

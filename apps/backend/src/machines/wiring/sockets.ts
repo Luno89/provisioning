@@ -4,7 +4,7 @@ import path from 'path';
 import { spawn, type ChildProcessWithoutNullStreams } from 'child_process';
 import type { Server as SocketServer } from 'socket.io';
 import {
-  sharedPayloadBlobs, type Database, type Keyring, type SecretKey, type UserMetadata, type LocalAgentDeviceMetadata, servesTenants,
+  type PayloadBlobs, type Database, type Keyring, type SecretKey, type UserMetadata, type LocalAgentDeviceMetadata, servesTenants,
   type RoleConfig, allowed, type Principal, type createAuth, signSocketsIn, type SessionSockets,
 } from '../../platform/index.js';
 import { registerDevice, unregisterDevice } from '../lib/local-agent-registry.js';
@@ -48,7 +48,8 @@ export interface SocketsWiringDeps {
   io: SocketServer;
   db: Database;
   role: RoleConfig;
-  env: NodeJS.ProcessEnv;
+  signsEveryoneIn: boolean;
+  payloadBlobs: PayloadBlobs;
   payloadKey: Keyring;
   dataKey: SecretKey;
   auth: Pick<ReturnType<typeof createAuth>, 'sessionFromCookie' | 'securedFor' | 'principalFor'>;
@@ -65,13 +66,13 @@ export interface SocketsWiringDeps {
 }
 
 export function wireSockets(deps: SocketsWiringDeps): void {
-  const { io, db, role, env, payloadKey, clusters, apps } = deps;
+  const { io, db, role, payloadKey, clusters, apps } = deps;
   const podLogs = new PodLogTails({ access: clusters.access, say: (room, text) => io.to(room).emit('kube-log', text), log: (message) => console.warn(message) });
-  signSocketsIn(io, { auth: deps.auth, db, env, sessionSockets: deps.sessionSockets });
+  signSocketsIn(io, { auth: deps.auth, db, signsEveryoneIn: deps.signsEveryoneIn, sessionSockets: deps.sessionSockets });
 
   const agentNamespace = io.of('/agent');
   const admitted = new WeakMap<object, MachineSocketData>();
-  const forMachines = machinePayloads({ ring: servesTenants(role) ? payloadKey : undefined, blobs: sharedPayloadBlobs(), ...(deps.machineTemporal ? { temporal: deps.machineTemporal } : {}) });
+  const forMachines = machinePayloads({ ring: servesTenants(role) ? payloadKey : undefined, blobs: deps.payloadBlobs, ...(deps.machineTemporal ? { temporal: deps.machineTemporal } : {}) });
   agentNamespace.use((socket, next) => {
     const auth: Record<string, unknown> | undefined = socket.handshake.auth;
     const token = tokenOf(auth);

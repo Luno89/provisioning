@@ -1,7 +1,7 @@
-import { createDatabase } from '../platform/index.js';
+import { createDatabase, databaseSettingsFrom } from '../platform/index.js';
 
 async function main() {
-  const db = createDatabase();
+  const db = createDatabase(databaseSettingsFrom(process.env));
   await db.init();
   const endpoints = await db.models.getModelEndpoints();
   console.log('Model endpoints:', endpoints.length);

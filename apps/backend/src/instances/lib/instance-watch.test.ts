@@ -53,11 +53,12 @@ describe('one instance watched over time', () => {
     expect(reachAtStart(undefined, at(60))).toEqual({ reachable: false, unreachableSince: at(60).toISOString() });
   });
 
-  it('reads the threshold from the environment, ten minutes by default', () => {
+  it('is ten minutes, which a live suite shortens with WATCH_UNREACHABLE_MINUTES, and refuses a threshold that is no number of minutes', () => {
     expect(unreachableAfterMs({})).toBe(DEFAULT_UNREACHABLE_MINUTES * 60_000);
+    expect(unreachableAfterMs({})).toBe(TEN);
     expect(unreachableAfterMs({ WATCH_UNREACHABLE_MINUTES: '2' })).toBe(120_000);
-    expect(unreachableAfterMs({ WATCH_UNREACHABLE_MINUTES: 'soon' })).toBe(TEN);
-    expect(unreachableAfterMs({ WATCH_UNREACHABLE_MINUTES: '0' })).toBe(TEN);
+    expect(() => unreachableAfterMs({ WATCH_UNREACHABLE_MINUTES: 'soon' })).toThrow('not a number of minutes: soon');
+    expect(() => unreachableAfterMs({ WATCH_UNREACHABLE_MINUTES: '0' })).toThrow('not a number of minutes: 0');
   });
 });
 

@@ -7,6 +7,7 @@ dotenv.config({ path: fileURLToPath(new URL('../apps/backend/.env', import.meta.
 import axios, { type AxiosInstance } from 'axios';
 import { sessionToken } from '../apps/backend/src/platform/lib/auth.js';
 import { createDatabase } from '../apps/backend/src/platform/lib/db-interface.js';
+import { databaseSettingsFrom } from '../apps/backend/src/platform/lib/settings.js';
 import { loadKeys } from '../apps/backend/src/platform/lib/keys.js';
 
 const BASE = process.env.KUBE_LIVE_URL ?? 'http://localhost:3001/api';
@@ -33,7 +34,7 @@ async function turn(http: AxiosInstance, conversationId: string, message: string
 }
 
 async function main(): Promise<void> {
-  const db = createDatabase();
+  const db = createDatabase(databaseSettingsFrom(process.env));
   await db.init();
   const deployments = await db.infrastructure.getDeployments();
   const target = deployments.find((dep) => dep.status === 'unhealthy' && dep.ownerId) ?? deployments.find((dep) => dep.status === 'running' && dep.ownerId);

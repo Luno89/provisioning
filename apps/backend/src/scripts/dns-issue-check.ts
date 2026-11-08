@@ -1,6 +1,6 @@
 import dotenv from 'dotenv';
 import { fileURLToPath } from 'node:url';
-import { claimSettingsFrom, createDatabase, loadKeys, operatorsAmong, roleFromEnv, type Database } from '../platform/index.js';
+import { claimSettingsFrom, createDatabase, databaseSettingsFrom, loadKeys, operatorCredentialsFrom, operatorsAmong, roleFromEnv, type Database } from '../platform/index.js';
 import {
   buildCaddyImage, caddyDnsEnv, caddyEnvLines, certificateProblems, challengeLeftovers, challengeNameIn, checkWildcardIn, credentialEnvOf,
   CredentialService, dnsProviderNamed, DnsProviders, issueCheckCaddyfile, issueCheckTlsSnippet, issueWithCaddy, secretValuesIn, STAGING_CA,
@@ -40,7 +40,7 @@ export async function dnsIssueCheck(argv: readonly string[], deps: DnsIssueCheck
   const role = roleFromEnv(deps.env);
   const owner = arg('owner') ?? operatorsAmong(await db.accounts.getUsers(), claimSettingsFrom(role))[0]?.id;
   if (!owner) throw new Error('no operator on this box; pass --owner <id>');
-  const credentials = new CredentialService(db, loadKeys(deps.env).data, claimSettingsFrom(role));
+  const credentials = new CredentialService(db, loadKeys(deps.env).data, { claims: claimSettingsFrom(role), credentials: operatorCredentialsFrom(deps.env) });
   log(`Building Koala's Caddy (${CADDY_IMAGE}) from docker/caddy, with every pinned DNS module…`);
   await deps.build(CADDY_IMAGE, CADDY_CONTEXT);
 
@@ -125,7 +125,7 @@ export async function dnsIssueCheck(argv: readonly string[], deps: DnsIssueCheck
 
 async function main(): Promise<void> {
   dotenv.config({ path: fileURLToPath(new URL('../../.env', import.meta.url)), quiet: true });
-  const db = createDatabase();
+  const db = createDatabase(databaseSettingsFrom(process.env));
   await db.init();
   try {
     const passed = await dnsIssueCheck(process.argv.slice(2), { dns: new DnsProviders(), db, env: process.env, log: (line) => console.log(line), build: buildCaddyImage, issue: issueWithCaddy });

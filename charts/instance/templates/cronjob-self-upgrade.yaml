@@ -1,4 +1,3 @@
-{{- if .Values.instance.credential }}
 apiVersion: batch/v1
 kind: CronJob
 metadata:
@@ -39,4 +38,3 @@ spec:
                   value: {{ .Release.Namespace }}
                 - name: CURRENT_IMAGE_TAG
                   value: {{ .Values.image.tag | quote }}
-{{- end }}

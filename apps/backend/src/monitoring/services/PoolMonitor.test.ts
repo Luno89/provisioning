@@ -4,9 +4,9 @@ import { poolMonitor, poolMonitorFrom } from './PoolMonitor.js';
 describe('a pool instance\'s monitoring, answered by root', () => {
   it('is on only in a pool instance that knows root and can get a token from it', () => {
     const token = async () => 'c';
-    expect(poolMonitorFrom({ POOL: 'true', ROOT_URL: 'https://app.koala.dev/', INSTANCE_ID: 'inst-1' }, token)).toEqual({ rootUrl: 'https://app.koala.dev', instanceId: 'inst-1', token });
-    expect(poolMonitorFrom({ ROOT_URL: 'https://app.koala.dev', INSTANCE_ID: 'inst-1' }, token)).toBeUndefined();
-    expect(poolMonitorFrom({ POOL: 'true', ROOT_URL: 'https://app.koala.dev', INSTANCE_ID: 'inst-1' }, undefined)).toBeUndefined();
+    expect(poolMonitorFrom({ rootUrl: 'https://app.koala.dev/', instanceId: 'inst-1' }, token)).toEqual({ rootUrl: 'https://app.koala.dev', instanceId: 'inst-1', token });
+    expect(poolMonitorFrom({ off: 'this instance is not on Koala\'s servers' }, token)).toBeUndefined();
+    expect(poolMonitorFrom({ rootUrl: 'https://app.koala.dev', instanceId: 'inst-1' }, undefined)).toBeUndefined();
   });
 
   it('sends root a named question with its service token, and says why root refused', async () => {

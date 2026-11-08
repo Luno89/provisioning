@@ -337,7 +337,6 @@ export function ovhOffersFromCatalog(data: unknown): AdapterResult {
   };
 }
 
-export const OVH_DEFAULT_SUBSIDIARY = 'FR';
 
 export function ovhAdapterFor(subsidiary: string | (() => string)): VpsCatalogAdapter {
   const subsidiaryNow = typeof subsidiary === 'function' ? subsidiary : () => subsidiary;
@@ -349,7 +348,10 @@ export function ovhAdapterFor(subsidiary: string | (() => string)): VpsCatalogAd
   };
 }
 
-export const ovhSubsidiaryFrom = (env: Readonly<Record<string, string | undefined>>): string => env.OVH_SUBSIDIARY?.trim() || OVH_DEFAULT_SUBSIDIARY;
+export const ovhSubsidiaryOf = (subsidiary: string | { off: string }): string => {
+  if (typeof subsidiary !== 'string') throw new Error(subsidiary.off);
+  return subsidiary;
+};
 
 const INTERSERVER_ENDPOINT = 'https://my.interserver.net/api.php';
 

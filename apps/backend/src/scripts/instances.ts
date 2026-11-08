@@ -1,7 +1,7 @@
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import dotenv from 'dotenv';
-import { createDatabase, roleFromEnv } from '../platform/index.js';
+import { createDatabase, databaseSettingsFrom, roleFromEnv } from '../platform/index.js';
 import { IdentityService } from '../instances/index.js';
 
 dotenv.config({ path: resolve(dirname(fileURLToPath(import.meta.url)), '../../.env'), quiet: true });
@@ -10,7 +10,7 @@ const USAGE = 'usage: npm run instances -w apps/backend -- list | add <id> <owne
 
 async function main(): Promise<void> {
   const [command, ...rest] = process.argv.slice(2);
-  const db = createDatabase();
+  const db = createDatabase(databaseSettingsFrom(process.env));
   await db.init();
   const identity = new IdentityService(roleFromEnv(process.env), db);
 

@@ -4,10 +4,8 @@ import { createStreamActivities, type StreamServices } from './activities.js';
 import { DEFAULT_STREAM_TASK_QUEUE } from './contracts.js';
 import { buildDataConverter } from '../../platform/lib/temporal-codec.js';
 import { sharedPayloadBlobs } from '../../platform/lib/db-interface.js';
-import type { SecretKey } from '../../platform/index.js';
-import { loadKeys } from '../../platform/lib/keys.js';
-import { temporalNamespaceFrom } from '../../platform/lib/temporal-auth.js';
-import { connectTemporalWorker } from '../../platform/lib/temporal-connection.js';
+import type { PlatformKeys } from '../../platform/index.js';
+import { connectTemporalWorker, type TemporalPlace } from '../../platform/lib/temporal-connection.js';
 import { TurnLogWriter, type TurnLogEntry } from '../../engine/index.js';
 import { heartbeatWhileRunning, WORKER_DEFAULTS } from '@koala/engine-core';
 import { traceActivities } from '@koala/engine-core/telemetry';
@@ -22,10 +20,8 @@ export interface StreamWorkerOptions {
   services: Omit<StreamServices, 'bus'>;
   io: SocketLike;
   turnLogs: { appendTurnLog(entry: TurnLogEntry): Promise<void>; lastTurnLogSeq(turnId: string): Promise<number> };
-  address?: string | undefined;
-  namespace?: string | undefined;
+  connection: { temporal: TemporalPlace; keys: Pick<PlatformKeys, 'temporal' | 'payload'> };
   taskQueue?: string | undefined;
-  encryptionKey?: SecretKey | undefined;
 }
 
 export const TURN_LOG_CHANNEL = 'turn-log';
@@ -52,10 +48,10 @@ export function createTurnLogBus(options: Pick<StreamWorkerOptions, 'io' | 'turn
 }
 
 export async function startStreamWorker(options: StreamWorkerOptions): Promise<Worker> {
-  const connection = await connectTemporalWorker(options.address ?? process.env.TEMPORAL_CONNECTION_ADDRESS ?? 'localhost:7233', 'koala-stream-worker', process.env);
+  const connection = await connectTemporalWorker('koala-stream-worker', options.connection);
 
   const bus = createTurnLogBus(options);
-  const dataConverter = buildDataConverter(options.encryptionKey ?? loadKeys(process.env).payload, sharedPayloadBlobs());
+  const dataConverter = buildDataConverter(options.connection.keys.payload, sharedPayloadBlobs());
 
   return Worker.create({
     ...WORKER_DEFAULTS,
@@ -63,7 +59,7 @@ export async function startStreamWorker(options: StreamWorkerOptions): Promise<W
     ...(dataConverter ? { dataConverter } : {}),
     taskQueue: options.taskQueue ?? DEFAULT_STREAM_TASK_QUEUE,
     interceptors: { activity: [heartbeatWhileRunning(), traceActivities()] },
-    namespace: options.namespace ?? temporalNamespaceFrom(process.env),
+    namespace: options.connection.temporal.namespace,
     activities: createStreamActivities({ ...options.services, bus, groveChanged: notifyGroveChanged(options.io) }),
   });
 }

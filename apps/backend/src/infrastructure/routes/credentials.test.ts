@@ -21,15 +21,16 @@ const service = (): ReturnType<typeof mock<Service>> => {
   return credentialService;
 };
 
+const DRIVE_OFF = { off: 'GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET are not set, so backups to Google Drive are off' };
+const DRIVE = { clientId: 'drive-client', clientSecret: 'drive-secret' };
+let drive: { clientId: string; clientSecret: string } | { off: string } = DRIVE_OFF;
+
 const call = (credentialService: Service, path: string, init: { method?: 'GET' | 'PUT' | 'POST' | 'DELETE'; body?: unknown; user?: HarnessUser; headers?: Record<string, string> } = {}): Promise<RouteAnswer> =>
-  routesInProcess({ prefix: '/api/credentials', router: () => credentialsRouter({ credentialService, publicUrl: 'https://api.example.com', appUrl: 'https://app.example.com', sessionKey: 'test-session-key' }), user: PERSON })
+  routesInProcess({ prefix: '/api/credentials', router: () => credentialsRouter({ credentialService, publicUrl: 'https://api.example.com', appUrl: 'https://app.example.com', sessionKey: 'test-session-key', googleDrive: drive }), user: PERSON })
     .then((routes) => routes.request(init.method ?? 'GET', `/api/credentials${path}`, { ...(init.body !== undefined ? { body: init.body } : {}), ...(init.user ? { user: init.user } : {}), ...(init.headers ? { headers: init.headers } : {}) }));
 
-const originalClientId = process.env.GOOGLE_CLIENT_ID;
-const originalClientSecret = process.env.GOOGLE_CLIENT_SECRET;
 afterEach(() => {
-  if (originalClientId === undefined) delete process.env.GOOGLE_CLIENT_ID; else process.env.GOOGLE_CLIENT_ID = originalClientId;
-  if (originalClientSecret === undefined) delete process.env.GOOGLE_CLIENT_SECRET; else process.env.GOOGLE_CLIENT_SECRET = originalClientSecret;
+  drive = DRIVE_OFF;
 });
 
 describe('listing configured providers', () => {
@@ -136,14 +137,14 @@ describe('connecting Google Drive', () => {
   };
 
   it('sends the person back to Settings saying the client id is missing when none is configured', async () => {
-    delete process.env.GOOGLE_CLIENT_ID;
+    drive = DRIVE_OFF;
     const answer = await call(service(), '/googledrive/connect');
     expect(answer.status).toBe(302);
     expect(answer.headers.location).toBe('https://app.example.com/?driveError=missing_client_id#/settings');
   });
 
   it('is not mistaken for a provider id, and sends the person to Google with a state kept in a cookie', async () => {
-    process.env.GOOGLE_CLIENT_ID = 'drive-client';
+    drive = DRIVE;
     const { started, state } = await connect(service());
     expect(started.status).toBe(302);
     expect(String(started.headers.location)).toContain('https://accounts.google.com/o/oauth2/v2/auth?client_id=drive-client');
@@ -152,7 +153,7 @@ describe('connecting Google Drive', () => {
   });
 
   it('connects Google Drive only to the person who started connecting it', async () => {
-    process.env.GOOGLE_CLIENT_ID = 'drive-client';
+    drive = DRIVE;
     const credentialService = service();
     const { state, cookie } = await connect(credentialService);
     const forged = await call(credentialService, `/googledrive/callback?code=theirs&state=${state}`, { user: { id: 'someone-else', email: 'o@example.com' }, headers: { cookie } });
@@ -163,8 +164,7 @@ describe('connecting Google Drive', () => {
   });
 
   it('trades the code for a refresh token and keeps it with the account\'s address', async () => {
-    process.env.GOOGLE_CLIENT_ID = 'drive-client';
-    process.env.GOOGLE_CLIENT_SECRET = 'drive-secret';
+    drive = DRIVE;
     server.use(
       http.post('https://oauth2.googleapis.com/token', () => HttpResponse.json({ refresh_token: 'refresh-1', access_token: 'access-1' })),
       http.get('https://www.googleapis.com/drive/v3/about', ({ request }) => (request.headers.get('authorization') === 'Bearer access-1' ? HttpResponse.json({ user: { emailAddress: 'me@example.com' } }) : new HttpResponse(null, { status: 401 }))),
@@ -177,23 +177,21 @@ describe('connecting Google Drive', () => {
   });
 
   it('says so when Google gave no refresh token or the client is not configured', async () => {
-    process.env.GOOGLE_CLIENT_ID = 'drive-client';
-    process.env.GOOGLE_CLIENT_SECRET = 'drive-secret';
+    drive = DRIVE;
     server.use(http.post('https://oauth2.googleapis.com/token', () => HttpResponse.json({ access_token: 'access-1' })));
     const credentialService = service();
     const first = await connect(credentialService);
     const noToken = await call(credentialService, `/googledrive/callback?code=good&state=${first.state}`, { headers: { cookie: first.cookie } });
     expect(noToken.headers.location).toBe('https://app.example.com/?driveError=no_refresh_token#/settings');
     const second = await connect(credentialService);
-    delete process.env.GOOGLE_CLIENT_SECRET;
+    drive = DRIVE_OFF;
     const noSecret = await call(credentialService, `/googledrive/callback?code=good&state=${second.state}`, { headers: { cookie: second.cookie } });
     expect(noSecret.headers.location).toBe('https://app.example.com/?driveError=missing_client_id#/settings');
     expect(credentialService.saveCredentials).not.toHaveBeenCalled();
   });
 
   it('sends the person back to Settings with the reason when Google refuses the code', async () => {
-    process.env.GOOGLE_CLIENT_ID = 'drive-client';
-    process.env.GOOGLE_CLIENT_SECRET = 'drive-secret';
+    drive = DRIVE;
     server.use(http.post('https://oauth2.googleapis.com/token', () => HttpResponse.json({ error: 'invalid_grant' }, { status: 400 })));
     const credentialService = service();
     const { state, cookie } = await connect(credentialService);

@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { nodeProcesses, unpromptedGit, type ProcessResult, type Processes } from '../../platform/index.js';
+import { inheritedEnv, nodeProcesses, unpromptedGit, type ProcessResult, type Processes } from '../../platform/index.js';
 
 class GitFailed extends Error {
   constructor(result: ProcessResult) {
@@ -23,10 +23,10 @@ export type MainSync =
 const BOT = ['-c', 'user.name=Koala', '-c', 'user.email=koala@localhost'];
 
 const onlyWhatItNames = (env: NodeJS.ProcessEnv): NodeJS.ProcessEnv =>
-  ({ ...Object.fromEntries(Object.keys(process.env).map((key) => [key, undefined])), ...env });
+  ({ ...Object.fromEntries(Object.keys(inheritedEnv()).map((key) => [key, undefined])), ...env });
 
 function envFor(ends: readonly GitEnd[]): NodeJS.ProcessEnv {
-  return onlyWhatItNames(unpromptedGit(process.env, {
+  return onlyWhatItNames(unpromptedGit(inheritedEnv(), {
     'maintenance.auto': 'false',
     'gc.auto': '0',
     ...Object.fromEntries(ends.filter((end) => end.auth).map((end) => [`http.${end.url}.extraHeader`, `Authorization: Basic ${Buffer.from(`${end.auth!.username}:${end.auth!.token}`).toString('base64')}`])),

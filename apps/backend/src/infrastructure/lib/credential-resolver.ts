@@ -66,8 +66,9 @@ function resolveFromEnv(provider: string, env: OperatorEnv): Record<string, stri
       const key = env.OVH_APPLICATION_KEY;
       const secret = env.OVH_APPLICATION_SECRET;
       const consumer = env.OVH_CONSUMER_KEY;
-      if (!key || !secret || !consumer) return null;
-      return { OVH_APPLICATION_KEY: key, OVH_APPLICATION_SECRET: secret, OVH_CONSUMER_KEY: consumer, OVH_SUBSIDIARY: env.OVH_SUBSIDIARY || 'FR' };
+      const subsidiary = env.OVH_SUBSIDIARY;
+      if (!key || !secret || !consumer || !subsidiary) return null;
+      return { OVH_APPLICATION_KEY: key, OVH_APPLICATION_SECRET: secret, OVH_CONSUMER_KEY: consumer, OVH_SUBSIDIARY: subsidiary };
     }
     case 'huggingface': {
       const token = env.HF_TOKEN || env.VLLM_HF_TOKEN || env.HUGGING_FACE_HUB_TOKEN;

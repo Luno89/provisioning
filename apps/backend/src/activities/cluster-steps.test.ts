@@ -31,10 +31,11 @@ let access: MockProxy<ClusterAccess>;
 let infra: MockProxy<InfrastructureService>;
 let said: Array<{ reach: Reach; args: readonly string[] }>;
 
-const steps = () => ({ access, infra, gitea: gitea as unknown as GiteaService, infisical: mock<InfisicalService>() });
+const steps = () => ({ access, infra, gitea: gitea as unknown as GiteaService, infisical: mock<InfisicalService>(), database: { mongo: { uri: 'mongodb://unused', dbName: 'unused', e2e: false }, dataKey: 'cluster-steps-test-key' }, hfToken: undefined, machineMetricsUrl: { off: 'these tests deploy to no other machine' } });
 
 beforeEach(() => {
   access = mock<ClusterAccess>();
+  Object.defineProperty(access, 'here', { value: { root: false, koalaMachineId: 'koala' }, configurable: true });
   infra = mock<InfrastructureService>();
   said = [];
   access.kubeconfigOf.mockImplementation(async (target) => `/clusters/kubeconfig-${(target as Reach).kind}`);

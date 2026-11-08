@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { checkEndpointUrl, endpointRulesFromEnv, isAllowedIp, isMeshAddress, normaliseBaseUrl } from './endpoint-url-safety.js';
+import { checkEndpointUrl, isAllowedIp, isMeshAddress, normaliseBaseUrl } from './endpoint-url-safety.js';
+import { scriptedModelBase } from '../../checks/lib/check-space.js';
+import { labFrom } from '../../platform/lib/lab.js';
 
 describe('loopback and the platform control plane', () => {
   it('refuses localhost in every spelling', () => {
@@ -155,20 +157,19 @@ describe('normaliseBaseUrl', () => {
 
 describe('the scripted model a check uses', () => {
   it('lives on this backend, at the check runner\'s own address', () => {
-    expect(endpointRulesFromEnv({})).toEqual({ scriptedBase: 'http://localhost:3001/api/checks/scripted', lab: false });
-    expect(endpointRulesFromEnv({ CHECKS_API_URL: 'http://backend:3001/api/' })).toEqual({ scriptedBase: 'http://backend:3001/api/checks/scripted', lab: false });
+    expect(scriptedModelBase('http://backend:3001/api/')).toBe('http://backend:3001/api/checks/scripted');
     expect(checkEndpointUrl('http://localhost:3001/api/checks/scripted/space-1/v1').ok).toBe(false);
   });
 });
 
 describe('a model endpoint on this machine in a lab', () => {
-  const lab = endpointRulesFromEnv({ CERTIFICATES: 'internal', DOMAIN: 'koala.internal', INGRESS_DOMAIN: 'people.internal' });
+  const lab = { lab: labFrom({ CERTIFICATES: 'internal', DOMAIN: 'koala.internal', INGRESS_DOMAIN: 'people.internal' }) };
 
   it('is a lab only with internal certificates and names nothing public resolves', () => {
     expect(lab.lab).toBe(true);
-    expect(endpointRulesFromEnv({ CERTIFICATES: 'internal', DOMAIN: 'example.com' }).lab).toBe(false);
-    expect(endpointRulesFromEnv({ CERTIFICATES: 'acme', DOMAIN: 'koala.internal' }).lab).toBe(false);
-    expect(endpointRulesFromEnv({}).lab).toBe(false);
+    expect(labFrom({ CERTIFICATES: 'internal', DOMAIN: 'example.com' })).toBe(false);
+    expect(labFrom({ CERTIFICATES: 'acme', DOMAIN: 'koala.internal' })).toBe(false);
+    expect(labFrom({})).toBe(false);
   });
 
   it('allows loopback, private addresses and local names there, and nowhere else', () => {

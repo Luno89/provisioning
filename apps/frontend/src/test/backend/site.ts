@@ -18,6 +18,7 @@ import { PasswordService } from '../../../../backend/src/accounts/services/Passw
 import { loadBreachedPasswords } from '../../../../backend/src/accounts/services/breached-passwords'
 import { newInviteCode, inviteCodeHash, inviteExpiry } from '../../../../backend/src/platform/lib/invite-codes'
 import { seedAll } from '../../../../backend/src/scripts/seed-all'
+import { loadKeys } from '../../../../backend/src/platform/lib/keys'
 import { login, verifySignUp, type SessionUser } from '../../features/platform'
 
 export const SESSION_KEY = 'frontend-integration-session-key'
@@ -61,7 +62,7 @@ const moveThePageTo = (origin: string): void => {
 
 export async function startBackend(mount: (site: Site) => void | Promise<void>): Promise<Backend> {
   const db = await testDatabase()
-  await seedAll(db)
+  await seedAll(db, loadKeys({}).data)
   const app = express()
   const server = http.createServer(app)
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()))

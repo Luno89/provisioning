@@ -12,7 +12,7 @@ import { adminRouter } from '../routes/admin.js';
 export interface AccountsWiringDeps {
   app: Mounts;
   role: RoleConfig;
-  env: NodeJS.ProcessEnv;
+  poolQueue: string | undefined;
   db: Database;
   temporal: () => Client | Promise<Client>;
   hubPeople: HubPeople | undefined;
@@ -23,12 +23,12 @@ export interface AccountsWiringDeps {
 }
 
 export function wireAccounts(deps: AccountsWiringDeps): void {
-  const { app, role, env, db } = deps;
+  const { app, role, db } = deps;
   if (!holdsAccounts(role)) return;
   const principalFor = (user: Pick<UserMetadata, 'id' | 'roles'>) => principalOf(user, claimSettingsFrom(role));
   const removal = new AccountRemovalService({
     store: db,
-    workflows: temporalRemovalWorkflows(deps.temporal, env.POOL_TASK_QUEUE || 'host-ops-queue'),
+    workflows: temporalRemovalWorkflows(deps.temporal, deps.poolQueue || 'host-ops-queue'),
     workflowType: ROOT_REMOVAL_WORKFLOW,
     steps: ROOT_REMOVAL_STEPS,
     instances: () => db.instances.getInstances(),

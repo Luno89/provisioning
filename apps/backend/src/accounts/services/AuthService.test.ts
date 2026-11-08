@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events';
 import https from 'https';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { hashPassword } from '../../platform/lib/auth.js';
 import type { UserMetadata } from '../../platform/lib/types.js';
 import { memoryDatabase } from '../../platform/testing/memory-database.js';
@@ -253,23 +253,14 @@ describe('AuthService', () => {
       const texted = someone('user-20', { twoFactorPreferredMethod: 'sms', twoFactorPhone: '+15550100' });
 
       beforeEach(() => {
-        vi.stubEnv('TWILIO_ACCOUNT_SID', '');
-        vi.stubEnv('TWILIO_AUTH_TOKEN', '');
-        vi.stubEnv('TWILIO_PHONE_NUMBER', '');
         vi.mocked(https.request).mockReset();
       });
-      afterEach(() => vi.unstubAllEnvs());
 
-      const setUpTwilio = () => {
-        vi.stubEnv('TWILIO_ACCOUNT_SID', 'AC123');
-        vi.stubEnv('TWILIO_AUTH_TOKEN', 'token');
-        vi.stubEnv('TWILIO_PHONE_NUMBER', '+15550199');
-      };
+      const twilio = { accountSid: 'AC123', authToken: 'token', phoneNumber: '+15550199' };
 
       it('sends the code through Twilio, signed in as the account', async () => {
-        setUpTwilio();
         const requests = twilioAnswers(201, '{}');
-        await new AuthService(memoryDatabase()).send2FACode(texted, '123456');
+        await new AuthService(memoryDatabase(), { twilio }).send2FACode(texted, '123456');
         expect(requests).toHaveLength(1);
         expect(requests[0]?.options).toMatchObject({ hostname: 'api.twilio.com', path: '/2010-04-01/Accounts/AC123/Messages.json', method: 'POST' });
         expect((requests[0]?.options.headers as Record<string, string>).Authorization).toBe(`Basic ${Buffer.from('AC123:token').toString('base64')}`);
@@ -280,25 +271,22 @@ describe('AuthService', () => {
       });
 
       it('words a confirmation code as one', async () => {
-        setUpTwilio();
         const requests = twilioAnswers(201, '{}');
-        await new AuthService(memoryDatabase()).send2FACode(texted, '654321', 'confirm');
+        await new AuthService(memoryDatabase(), { twilio }).send2FACode(texted, '654321', 'confirm');
         expect(new URLSearchParams(requests[0]?.written.join('')).get('Body')).toBe('Your Koala confirmation code is: 654321');
       });
 
       it('fails with what Twilio said when it refuses', async () => {
-        setUpTwilio();
         twilioAnswers(401, 'bad credentials');
-        await expect(new AuthService(memoryDatabase()).send2FACode(texted, '123456')).rejects.toThrow('Twilio API responded with status 401: bad credentials');
+        await expect(new AuthService(memoryDatabase(), { twilio }).send2FACode(texted, '123456')).rejects.toThrow('Twilio API responded with status 401: bad credentials');
       });
 
       it('fails when the request itself fails', async () => {
-        setUpTwilio();
         vi.mocked(https.request).mockImplementation((() => {
           const req = Object.assign(new EventEmitter(), { write: vi.fn(), end: () => queueMicrotask(() => req.emit('error', new Error('socket hang up'))) });
           return req;
         }) as never);
-        await expect(new AuthService(memoryDatabase()).send2FACode(texted, '123456')).rejects.toThrow('socket hang up');
+        await expect(new AuthService(memoryDatabase(), { twilio }).send2FACode(texted, '123456')).rejects.toThrow('socket hang up');
       });
 
       it('shows the code to the developer when Twilio is not set up, and refuses in production', async () => {
@@ -316,8 +304,7 @@ describe('AuthService', () => {
       it('says in production whether Twilio is set up for SMS', () => {
         const authService = new AuthService(memoryDatabase(), { production: true });
         expect(authService.sendingProblem('sms')).toBe('sign-in codes by SMS need Twilio, which this server does not have set up');
-        setUpTwilio();
-        expect(authService.sendingProblem('sms')).toBeUndefined();
+        expect(new AuthService(memoryDatabase(), { production: true, twilio }).sendingProblem('sms')).toBeUndefined();
         expect(new AuthService(memoryDatabase()).sendingProblem('sms')).toBeUndefined();
       });
     });

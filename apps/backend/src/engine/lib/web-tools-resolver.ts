@@ -13,7 +13,7 @@ export interface ProxyTarget {
 export interface WebToolsDeps {
   db: Pick<InfrastructureStore, 'getDeployments'>;
   serviceUrl: (clusterId: string, serviceKey: string, target: ProxyTarget) => Promise<string>;
-  env?: NodeJS.ProcessEnv;
+  settings?: { searxngUrl?: string | undefined; crawl4aiUrl?: string | undefined; crawl4aiToken?: string | undefined } | undefined;
   pageFetch?: typeof fetch;
   pageCheck?: ((url: string) => Promise<string | undefined>) | undefined;
 }
@@ -55,20 +55,20 @@ async function baseUrlFor(
 }
 
 export async function resolveWebTools(deps: WebToolsDeps, ownerId?: string): Promise<WebTools> {
-  const env = deps.env ?? {};
+  const settings = deps.settings ?? {};
   const deployments = await deps.db.getDeployments().catch(() => [] as DeploymentMetadata[]);
 
   const searxDep = liveDeployment(deployments, 'searxng', ownerId);
   const crawlDep = liveDeployment(deployments, 'crawl4ai', ownerId);
 
   const searxngUrl = (searxDep ? await baseUrlFor(deps, searxDep, 'searxng', 8080) : undefined)
-    || env.SEARXNG_URL || undefined;
+    || settings.searxngUrl || undefined;
 
   const crawl4aiUrl = (crawlDep ? await baseUrlFor(deps, crawlDep, 'crawl4ai', 11235) : undefined)
-    || env.CRAWL4AI_URL || undefined;
+    || settings.crawl4aiUrl || undefined;
 
   const crawl4aiToken = (crawlDep && crawl4aiUrl && crawlDep.crawl4aiApiToken)
-    || (!crawlDep ? env.CRAWL4AI_API_TOKEN : undefined)
+    || (!crawlDep ? settings.crawl4aiToken : undefined)
     || undefined;
 
   const tools = createWebTools({

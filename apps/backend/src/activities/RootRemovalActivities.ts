@@ -1,4 +1,6 @@
-import { createDatabase, loadKeys } from '../platform/index.js';
+import { ApplicationFailure } from '@temporalio/common';
+import { createDatabase } from '../platform/index.js';
+import { hostSettings } from './host-settings.js';
 import { HeadscaleService } from '../infrastructure/index.js';
 
 export interface RootRemovalActivities {
@@ -8,7 +10,8 @@ export interface RootRemovalActivities {
 }
 
 async function withDb<T>(work: (db: ReturnType<typeof createDatabase>) => Promise<T>): Promise<T> {
-  const db = createDatabase();
+  const { mongo, keys } = hostSettings();
+  const db = createDatabase({ mongo, dataKey: keys.data });
   await db.init();
   try {
     return await work(db);
@@ -25,7 +28,9 @@ export async function RootRemovalInstanceActivity({ ownerId }: { ownerId: string
 }
 
 export async function RootRemovalMeshActivity({ ownerId }: { ownerId: string }): Promise<{ devices: number; user: boolean }> {
-  return new HeadscaleService(loadKeys(process.env).data, process.env.HEADSCALE_URL || 'http://localhost:8080', process.env.HEADSCALE_API_KEY).removeUser(ownerId);
+  const { mesh, keys } = hostSettings();
+  if ('off' in mesh) throw ApplicationFailure.nonRetryable(mesh.off, 'NoMesh');
+  return new HeadscaleService(keys.data, mesh).removeUser(ownerId);
 }
 
 export async function RootRemovalRecordsActivity({ ownerId }: { ownerId: string }): Promise<Record<string, number>> {

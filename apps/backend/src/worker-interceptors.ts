@@ -1,8 +1,8 @@
 import { resolve } from 'node:path';
-import { roleFromEnv, servesTenants } from './platform/index.js';
+import { servesTenants, type RoleConfig } from './platform/index.js';
 
-export function workflowInterceptorModules(env: Readonly<Record<string, string | undefined>>): string[] {
+export function workflowInterceptorModules(role: RoleConfig): string[] {
   const modules = [resolve(import.meta.dirname, 'workflows/telemetry-interceptors.ts')];
-  if (servesTenants(roleFromEnv(env))) modules.push(resolve(import.meta.dirname, 'workflows/failure-reports.ts'));
+  if (servesTenants(role)) modules.push(resolve(import.meta.dirname, 'workflows/failure-reports.ts'));
   return modules;
 }

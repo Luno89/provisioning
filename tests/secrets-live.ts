@@ -7,6 +7,7 @@ dotenv.config({ path: fileURLToPath(new URL('../apps/backend/.env', import.meta.
 import axios, { type AxiosInstance } from 'axios';
 import { sessionToken } from '../apps/backend/src/platform/lib/auth.js';
 import { createDatabase } from '../apps/backend/src/platform/lib/db-interface.js';
+import { databaseSettingsFrom } from '../apps/backend/src/platform/lib/settings.js';
 import { InfisicalService } from '../apps/backend/src/infrastructure/services/InfisicalService.js';
 import { infisicalSettingsFrom } from '../apps/backend/src/infrastructure/lib/infisical-settings.js';
 import type { SecretRequest } from '../apps/backend/src/projects/lib/secret-requests.js';
@@ -41,7 +42,7 @@ async function turn(http: AxiosInstance, conversationId: string, message: string
 }
 
 async function main(): Promise<void> {
-  const db = createDatabase();
+  const db = createDatabase(databaseSettingsFrom(process.env));
   await db.init();
   const project = (await db.projects.getProjects()).find((candidate) => (PROJECT ? candidate.id === PROJECT : candidate.appType === 'gitapp' && candidate.ownerId));
   assert.ok(project?.ownerId, 'no project to run against — set SECRETS_LIVE_PROJECT');

@@ -59,6 +59,14 @@ function signingKeys(env: Readonly<Record<string, string | undefined>>, producti
   return identityKeysFromSeed(Buffer.from(crypto.hkdfSync('sha256', root, 'nowrinkles-platform-keys', 'identity', 32)));
 }
 
+function rootKeysFrom(value: string): ReadonlyMap<string, crypto.KeyObject> {
+  try {
+    return trustedKeys(pemList(value));
+  } catch (err) {
+    throw new RoleConfigError(`ROOT_PUBLIC_KEYS holds no public key Koala can read: ${(err as Error).message}`);
+  }
+}
+
 export function roleNamed(env: Readonly<Record<string, string | undefined>>): PlatformRole {
   const given = env.ROLE?.trim();
   if (!given) throw new RoleConfigError(`ROLE is not set; it has to be one of ${ROLES.join(', ')}`);
@@ -77,7 +85,7 @@ export function roleFromEnv(env: Readonly<Record<string, string | undefined>>): 
     if (plaintext) throw new RoleConfigError(plaintext);
     return {
       role,
-      trusted: trustedKeys(pemList(env.ROOT_PUBLIC_KEYS!)),
+      trusted: rootKeysFrom(env.ROOT_PUBLIC_KEYS!),
       instance: { id: env.INSTANCE_ID!.trim(), ownerId: env.INSTANCE_OWNER_ID!.trim(), rootUrl: env.ROOT_URL!.trim().replace(/\/+$/, '') },
     };
   }
@@ -89,7 +97,7 @@ export function roleFromEnv(env: Readonly<Record<string, string | undefined>>): 
     if (plaintext) throw new RoleConfigError(plaintext);
     return {
       role,
-      trusted: trustedKeys(pemList(env.ROOT_PUBLIC_KEYS!)),
+      trusted: rootKeysFrom(env.ROOT_PUBLIC_KEYS!),
       hub: { rootUrl: env.ROOT_URL!.trim().replace(/\/+$/, ''), credential: env.HUB_CREDENTIAL!.trim() },
     };
   }

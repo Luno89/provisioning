@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import { testMinioEnv } from './files/testing/real-minio.js';
-import { unreachedPlatformServices } from './platform/testing/platform-services.js';
+import { NO_SERVICE_HOST, PLAINTEXT_TEMPORAL_CA, TEST_RELEASE, unreachedPlatformServices } from './platform/testing/platform-services.js';
 import express from 'express';
 import axios from 'axios';
 import http from 'http';
@@ -23,7 +23,11 @@ describe('Auth Endpoints & Route Protection Integration', () => {
     axios.defaults.proxy = false;
     process.env.ROLE = 'root';
     process.env.ADMIN_SETUP_CODE = SETUP_CODE;
-    Object.assign(process.env, testMinioEnv(), unreachedPlatformServices());
+    Object.assign(process.env, testMinioEnv(), unreachedPlatformServices(), {
+      PORT: '0', PUBLIC_URL: 'http://127.0.0.1:3001', APP_URL: 'http://127.0.0.1:3001', TERRAFORM_STATE: 'local',
+      TEMPORAL_CONNECTION_ADDRESS: NO_SERVICE_HOST, TEMPORAL_NAMESPACE: 'default', TEMPORAL_TLS_CA: PLAINTEXT_TEMPORAL_CA,
+      INSTANCE_IMAGE_TAG: TEST_RELEASE.imageTag, INSTANCE_REGISTRY: TEST_RELEASE.registry,
+    });
     home = await mkdtemp(join(tmpdir(), 'koala-routes-'));
     process.chdir(home);
     process.env.HOME = home;
@@ -34,7 +38,7 @@ describe('Auth Endpoints & Route Protection Integration', () => {
     // Setup seeds the catalogues; the server no longer does it on start. This is the same call
     // scripts/setup.sh makes, against the database the server actually opened.
     const { seedAll } = await import('./scripts/seed-all.js');
-    await seedAll(res.db);
+    await seedAll(res.db, res.settings.keys.data);
 
     server = http.createServer(app);
     await new Promise<void>((resolve) => {

@@ -22,7 +22,7 @@ describe('the instance chart\'s MinIO on a real cluster', () => {
     const kubectl = (...args: string[]): string => execFileSync(TOOLS.kubectl, ['--kubeconfig', kubeconfig, '-n', namespace, ...args], { encoding: 'utf8' });
     const rendered = (): Doc[] => parseAllDocuments(execFileSync(TOOLS.helm, [
       'template', 'luno', CHART, '--namespace', namespace, '--kubeconfig', kubeconfig, '--dry-run=server',
-      '--set', 'instance.id=i', '--set', 'instance.ownerId=o', '--set', 'instance.rootUrl=https://app.example.com', '--set', 'instance.rootPublicKeys=PEM', '--set', 'storage.total=1Gi',
+      '--set', 'instance.id=i', '--set', 'instance.ownerId=o', '--set', 'instance.rootUrl=https://app.example.com', '--set', 'instance.rootPublicKeys=PEM', '--set', 'instance.credential=c', '--set', 'publicUrl=https://luno.example.com', '--set', 'storage.total=1Gi',
     ], { encoding: 'utf8' })).map((doc) => doc.toJSON() as Doc).filter((doc) => doc?.kind);
     const wanted = (docs: Doc[]) => docs.filter((doc) => (doc.kind === 'PersistentVolumeClaim' && doc.metadata.name === 'luno-data')
       || (doc.kind === 'Secret' && doc.metadata.name === 'luno-keys')
@@ -62,7 +62,7 @@ describe('the instance chart\'s MinIO on a real cluster', () => {
     const kubectl = (...args: string[]): string => execFileSync(TOOLS.kubectl, ['--kubeconfig', kubeconfig, '-n', namespace, ...args], { encoding: 'utf8' });
     const hook = () => parseAllDocuments(execFileSync(TOOLS.helm, [
       'template', 'luno', CHART, '--namespace', namespace, '--kubeconfig', kubeconfig, '--dry-run=server',
-      '--set', 'instance.id=i', '--set', 'instance.ownerId=o', '--set', 'instance.rootUrl=https://app.example.com', '--set', 'instance.rootPublicKeys=PEM', '--set', 'storage.total=1Gi',
+      '--set', 'instance.id=i', '--set', 'instance.ownerId=o', '--set', 'instance.rootUrl=https://app.example.com', '--set', 'instance.rootPublicKeys=PEM', '--set', 'instance.credential=c', '--set', 'publicUrl=https://luno.example.com', '--set', 'storage.total=1Gi',
     ], { encoding: 'utf8' })).map((doc) => doc.toJSON() as Doc & { spec?: { template: { spec: { volumes: unknown[]; containers: Array<{ args: string[] }> } } } })
       .find((doc) => doc?.kind === 'Job' && doc.metadata.name === 'luno-adopt-stores');
     execFileSync(TOOLS.kubectl, ['--kubeconfig', kubeconfig, 'create', 'namespace', namespace]);

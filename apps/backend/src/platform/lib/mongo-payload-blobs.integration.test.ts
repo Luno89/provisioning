@@ -16,7 +16,7 @@ afterAll(async () => {
 
 describe('payloads stored outside Temporal, on Mongo', () => {
   it('gives a machine only what was stored for a workflow it was handed a task of, and what it stored itself', async () => {
-    const blobs = mongoPayloadBlobs(process.env);
+    const blobs = mongoPayloadBlobs(mongoTarget(process.env));
     const big = Buffer.alloc(9 * 1024 * 1024, 7);
     await blobs.put([
       { id: INPUT, data: big, workflowId: 'run-1', storedAt: new Date() },

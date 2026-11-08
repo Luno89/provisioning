@@ -53,6 +53,8 @@ export interface DevSplitInput {
   now: string;
   existing?: InstanceRecord | undefined;
   place?: SplitPlace | undefined;
+  temporal: { address: string; namespace: string; ca: string };
+  release: { imageTag: string; registry: string };
 }
 
 export interface DevSplitPlan {
@@ -80,6 +82,7 @@ export function devSplitPlan(input: DevSplitInput): DevSplitPlan {
   const place = input.place ?? devSplitPlace(input.name);
   const { rootUrl, instanceUrl, hubUrl } = place;
   const rootPublicKeys = Buffer.from(input.rootPublicKeys, 'utf8').toString('base64');
+  const temporal = { TEMPORAL_CONNECTION_ADDRESS: input.temporal.address, TEMPORAL_NAMESPACE: input.temporal.namespace, TEMPORAL_TLS_CA: input.temporal.ca };
 
   return {
     rootUrl,
@@ -93,6 +96,10 @@ export function devSplitPlan(input: DevSplitInput): DevSplitPlan {
       APP_URL: rootUrl,
       HUB_URL: hubUrl,
       HUB_CREDENTIAL_HASH: input.hubCredentialHash,
+      INSTANCE_IMAGE_TAG: input.release.imageTag,
+      INSTANCE_REGISTRY: input.release.registry,
+      TERRAFORM_STATE: 'local',
+      ...temporal,
     },
     instanceEnv: {
       ROLE: 'instance',
@@ -106,6 +113,8 @@ export function devSplitPlan(input: DevSplitInput): DevSplitPlan {
       INSTANCE_CREDENTIAL: input.credential,
       ROOT_URL: rootUrl,
       ROOT_PUBLIC_KEYS: rootPublicKeys,
+      TERRAFORM_STATE: 'local',
+      ...temporal,
     },
     hubEnv: {
       ROLE: 'hub',
@@ -117,6 +126,7 @@ export function devSplitPlan(input: DevSplitInput): DevSplitPlan {
       ROOT_URL: rootUrl,
       ROOT_PUBLIC_KEYS: rootPublicKeys,
       HUB_CREDENTIAL: input.hubCredential,
+      ...temporal,
     },
     rootUser: accountOf(input.owner),
     instance: {

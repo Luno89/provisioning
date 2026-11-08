@@ -9,7 +9,7 @@ import { io as connect, type Socket as ClientSocket } from 'socket.io-client';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { saveDeviceToken, tokenAnswer } from '../../../../local-agent/src/machine-token.js';
 import { loadKeys } from '../../platform/lib/keys.js';
-import { emptiedEachTime } from '../../platform/lib/test-database.js';
+import { emptiedEachTime, testPayloadBlobs } from '../../platform/lib/test-database.js';
 import type { MongoDB } from '../../platform/lib/mongo-db.js';
 import { generateIdentityKey, identityKeysFrom, publicKeyPem, trustedKeys } from '../../instances/lib/identity-token.js';
 import { deviceTokenHash, TOKEN_EXPIRED_SAID } from '../lib/device-tokens.js';
@@ -136,7 +136,7 @@ beforeEach(async () => {
   });
   sockets = wireMachineAccounts({ io, db, dataKey: keys.data, accounts: () => accounts, now: () => clock });
   wireSockets({
-    io, db, role: { role: 'instance', instance: { id: 'inst-1', ownerId: 'owner-1', rootUrl: 'http://root.test' } }, env: {}, payloadKey: keys.payload, dataKey: keys.data,
+    io, db, role: { role: 'instance', instance: { id: 'inst-1', ownerId: 'owner-1', rootUrl: 'http://root.test' } }, signsEveryoneIn: false, payloadBlobs: testPayloadBlobs().blobs, payloadKey: keys.payload, dataKey: keys.data,
     auth: { sessionFromCookie: async () => undefined, securedFor: () => false, principalFor: () => undefined } as unknown as SocketsWiringDeps['auth'],
     sessionSockets: { track: () => undefined, forget: () => undefined },
     machines, workTokens: trust, clusters: {} as never, apps: {} as never,

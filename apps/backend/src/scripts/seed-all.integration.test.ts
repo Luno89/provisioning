@@ -7,13 +7,17 @@ import { findDeviceByToken } from '../machines/lib/local-agent-registry.js';
 import { MongoDB } from '../platform/lib/mongo-db.js';
 import { testDatabase } from '../platform/lib/test-database.js';
 import { seedAll } from './seed-all.js';
+import { mongoTarget } from '../platform/lib/mongo-target.js';
+
+const SEED_KEY = loadKeys({}).data;
 
 describe('seed-all', () => {
   it('fills every catalogue the platform expects to find in the database', async () => {
     const db = await testDatabase();
 
-    const { removedBuiltInProcedures, removedBuiltInPersonas, agentToolListsMoved, toolGrantsWritten, builtInCopiesDropped, agentServerListsMoved, servingToolsMoved, mcpToolKindsMoved, treeVersionsStamped, toolsNamingNeeds, serversNamingNeeds, dependenciesMade, releasesMarkedTold, deploymentSecretsSealed, inviteCodesHashed, clientFilesForgotten, deviceTokensHashed, deviceTokenLifetimes, shareTokensSealed, signInLinksMoved, unkeptAttachmentsDropped, ...counts } = await seedAll(db);
+    const { removedBuiltInProcedures, removedBuiltInPersonas, agentToolListsMoved, toolGrantsWritten, builtInCopiesDropped, agentServerListsMoved, servingToolsMoved, mcpToolKindsMoved, treeVersionsStamped, toolsNamingNeeds, serversNamingNeeds, dependenciesMade, releasesMarkedTold, deploymentSecretsSealed, inviteCodesHashed, clientFilesForgotten, deviceTokensHashed, deviceTokenLifetimes, shareTokensSealed, signInLinksMoved, unkeptAttachmentsDropped, clusterProvidersDropped, ...counts } = await seedAll(db, SEED_KEY);
     expect(signInLinksMoved).toBe(0);
+    expect(clusterProvidersDropped).toBe(0);
     expect(unkeptAttachmentsDropped).toBe(0);
     expect([agentServerListsMoved, servingToolsMoved, mcpToolKindsMoved, treeVersionsStamped, toolsNamingNeeds, serversNamingNeeds, dependenciesMade, releasesMarkedTold, deploymentSecretsSealed, inviteCodesHashed, clientFilesForgotten, deviceTokensHashed, deviceTokenLifetimes, shareTokensSealed]).toEqual([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
     expect(removedBuiltInProcedures).toBe(0);
@@ -35,9 +39,9 @@ describe('seed-all', () => {
       { role: 'user', content: 'and this', at, attachments: [{ name: 'gone.png', path: 'chats/gone.png' } as never] },
     ] });
 
-    expect(await seedAll(db)).toMatchObject({ unkeptAttachmentsDropped: 1 });
+    expect(await seedAll(db, SEED_KEY)).toMatchObject({ unkeptAttachmentsDropped: 1 });
     await db.engine.appendMessage('ann', 'chat', { role: 'user', content: 'later', at, attachments: [{ name: 'after.pdf', path: 'a.pdf' } as never] });
-    expect(await seedAll(db)).toMatchObject({ unkeptAttachmentsDropped: 0 });
+    expect(await seedAll(db, SEED_KEY)).toMatchObject({ unkeptAttachmentsDropped: 0 });
     expect((await db.engine.getConversation('ann', 'chat'))?.messages).toEqual([
       { role: 'user', content: 'see these', at, attachments: [kept] },
       { role: 'user', content: 'and this', at },
@@ -47,11 +51,11 @@ describe('seed-all', () => {
 
   it('keeps only a hash of every machine\'s token, and the machine is still found by its token', async () => {
     const db = await testDatabase();
-    const key = loadKeys(process.env).data;
+    const key = SEED_KEY;
     await db.machines.saveLocalAgentDevice({ id: 'desk', ownerId: 'ann', name: 'desk', rootDir: '/home/ann/koala', createdAt: '2026-01-01T00:00:00.000Z', tokenEnc: encryptValue('the-desk-token', key) });
 
-    expect(await seedAll(db)).toMatchObject({ deviceTokensHashed: 1 });
-    expect(await seedAll(db)).toMatchObject({ deviceTokensHashed: 0 });
+    expect(await seedAll(db, SEED_KEY)).toMatchObject({ deviceTokensHashed: 1 });
+    expect(await seedAll(db, SEED_KEY)).toMatchObject({ deviceTokensHashed: 0 });
     const [stored] = await db.machines.getLocalAgentDevices();
     expect(stored).not.toHaveProperty('tokenEnc');
     expect(stored?.tokenHash).toMatch(/^[0-9a-f]{64}$/);
@@ -64,8 +68,8 @@ describe('seed-all', () => {
     await db.accounts.saveUser({ id: 'ann', email: 'ann@example.com', twoFactorEnabled: false, emailVerified: true, createdAt: '2026-01-01T00:00:00.000Z', googleId: 'g-1', githubId: '42' } as never);
     await db.accounts.saveUser({ id: 'bo', email: 'bo@example.com', twoFactorEnabled: false, emailVerified: true, createdAt: '2026-01-01T00:00:00.000Z' });
 
-    expect(await seedAll(db)).toMatchObject({ signInLinksMoved: 1 });
-    expect(await seedAll(db)).toMatchObject({ signInLinksMoved: 0 });
+    expect(await seedAll(db, SEED_KEY)).toMatchObject({ signInLinksMoved: 1 });
+    expect(await seedAll(db, SEED_KEY)).toMatchObject({ signInLinksMoved: 0 });
     const ann = await db.accounts.getUserById('ann');
     expect(ann).not.toHaveProperty('googleId');
     expect(ann).not.toHaveProperty('githubId');
@@ -80,8 +84,8 @@ describe('seed-all', () => {
     await db.accounts.saveInvite({ id: 'old', code: 'OLDCODE', createdBy: 'ann', createdAt: '2026-01-01T00:00:00.000Z' });
     await db.accounts.saveInvite({ id: 'spent', code: 'SPENT', createdBy: 'ann', createdAt: '2026-01-01T00:00:00.000Z', usedBy: 'bo', usedAt: '2026-01-02T00:00:00.000Z' });
 
-    expect(await seedAll(db)).toMatchObject({ inviteCodesHashed: 2 });
-    expect(await seedAll(db)).toMatchObject({ inviteCodesHashed: 0 });
+    expect(await seedAll(db, SEED_KEY)).toMatchObject({ inviteCodesHashed: 2 });
+    expect(await seedAll(db, SEED_KEY)).toMatchObject({ inviteCodesHashed: 0 });
     const stored = await db.accounts.getInvites();
     expect(stored.some((invite) => invite.code !== undefined)).toBe(false);
     expect((await db.accounts.getInviteByCode('OLDCODE'))?.expiresAt).toBeDefined();
@@ -93,8 +97,8 @@ describe('seed-all', () => {
     const db = await testDatabase();
     await db.engine.saveEnginePersona({ slug: 'helper', ownerId: 'user-1', name: 'Helper', tools: ['read_file'] } as never);
 
-    expect(await seedAll(db)).toMatchObject({ agentToolListsMoved: 1, toolGrantsWritten: 1 });
-    expect(await seedAll(db)).toMatchObject({ agentToolListsMoved: 0, toolGrantsWritten: 0 });
+    expect(await seedAll(db, SEED_KEY)).toMatchObject({ agentToolListsMoved: 1, toolGrantsWritten: 1 });
+    expect(await seedAll(db, SEED_KEY)).toMatchObject({ agentToolListsMoved: 0, toolGrantsWritten: 0 });
     expect((await db.engine.getToolGrants('user-1')).map((grant) => grant.tool)).toEqual(['read_file']);
   });
 
@@ -102,8 +106,8 @@ describe('seed-all', () => {
     const db = await testDatabase();
     await db.engine.saveEnginePersona({ slug: 'helper', ownerId: 'user-1', name: 'Helper', mcp: ['gitea'] } as never);
 
-    expect(await seedAll(db)).toMatchObject({ agentServerListsMoved: 1 });
-    expect(await seedAll(db)).toMatchObject({ agentServerListsMoved: 0 });
+    expect(await seedAll(db, SEED_KEY)).toMatchObject({ agentServerListsMoved: 1 });
+    expect(await seedAll(db, SEED_KEY)).toMatchObject({ agentServerListsMoved: 0 });
     expect(await db.engine.getToolGrants('user-1')).toEqual([expect.objectContaining({ agent: 'helper', tool: 'gitea', kind: 'server' })]);
   });
 
@@ -112,24 +116,24 @@ describe('seed-all', () => {
     await db.releases.saveOdooRelease({ id: 'r1', ownerId: 'bo', projectId: 'p1', pipelineRunId: 'b1', commit: 'aaa', image: 'img', state: 'live', host: 'shop', startedAt: '2026-10-01T00:00:00.000Z', updatedAt: '2026-10-01T00:05:00.000Z' });
     await db.releases.saveOdooRelease({ id: 'r2', ownerId: 'bo', projectId: 'p1', pipelineRunId: 'b2', commit: 'bbb', image: 'img2', state: 'preview', host: 'shop', startedAt: '2026-10-02T00:00:00.000Z', updatedAt: '2026-10-02T00:05:00.000Z', toldAt: '2026-10-02T00:00:00.000Z' });
 
-    expect(await seedAll(db)).toMatchObject({ releasesMarkedTold: 1 });
+    expect(await seedAll(db, SEED_KEY)).toMatchObject({ releasesMarkedTold: 1 });
     expect((await db.releases.getOdooReleases('bo', 'p1')).map((release) => [release.id, release.toldAt])).toEqual([['r2', '2026-10-02T00:00:00.000Z'], ['r1', '2026-10-01T00:05:00.000Z']]);
-    expect(await seedAll(db)).toMatchObject({ releasesMarkedTold: 0 });
+    expect(await seedAll(db, SEED_KEY)).toMatchObject({ releasesMarkedTold: 0 });
   });
 
   it('seals every deployment secret stored plain before sealing, once, and reads it back plain', async () => {
     const name = `t_${randomUUID().replace(/-/g, '').slice(0, 20)}`;
-    const db = new MongoDB({ MONGO_URI: `${inject('mongoUri')}${name}` });
+    const db = new MongoDB({ mongo: mongoTarget({ MONGO_URI: `${inject('mongoUri')}${name}` }), dataKey: SEED_KEY });
     const client = await MongoClient.connect(inject('mongoUri'));
     try {
       await db.init();
       const deployments = client.db(name).collection('deployments');
       await deployments.insertOne({ _id: 'old' as never, name: 'files', clusterId: 'c1', strategy: 'helm', status: 'running', ownerId: 'bo', minioRootPassword: 'from-before' });
 
-      expect(await seedAll(db)).toMatchObject({ deploymentSecretsSealed: 1 });
+      expect(await seedAll(db, SEED_KEY)).toMatchObject({ deploymentSecretsSealed: 1 });
       expect(looksEncrypted(String((await deployments.findOne({ _id: 'old' as never }))?.minioRootPassword))).toBe(true);
       expect((await db.infrastructure.getDeployments()).find((d) => d.id === 'old')?.minioRootPassword).toBe('from-before');
-      expect(await seedAll(db)).toMatchObject({ deploymentSecretsSealed: 0 });
+      expect(await seedAll(db, SEED_KEY)).toMatchObject({ deploymentSecretsSealed: 0 });
     } finally {
       await db.dropDatabase();
       await db.close();
@@ -139,7 +143,7 @@ describe('seed-all', () => {
 
   it('forgets which files a project shared with its clients, now that clients see every file, once', async () => {
     const name = `t_${randomUUID().replace(/-/g, '').slice(0, 20)}`;
-    const db = new MongoDB({ MONGO_URI: `${inject('mongoUri')}${name}` });
+    const db = new MongoDB({ mongo: mongoTarget({ MONGO_URI: `${inject('mongoUri')}${name}` }), dataKey: SEED_KEY });
     const client = await MongoClient.connect(inject('mongoUri'));
     try {
       await db.init();
@@ -149,10 +153,10 @@ describe('seed-all', () => {
         { _id: 'plain' as never, name: 'Blog', ownerId: 'bo', createdAt: '2026-10-01T00:00:00.000Z' },
       ]);
 
-      expect(await seedAll(db)).toMatchObject({ clientFilesForgotten: 1 });
+      expect(await seedAll(db, SEED_KEY)).toMatchObject({ clientFilesForgotten: 1 });
       expect(await projects.countDocuments({ clientFiles: { $exists: true } })).toBe(0);
       expect(await projects.countDocuments({})).toBe(2);
-      expect(await seedAll(db)).toMatchObject({ clientFilesForgotten: 0 });
+      expect(await seedAll(db, SEED_KEY)).toMatchObject({ clientFilesForgotten: 0 });
     } finally {
       await db.dropDatabase();
       await db.close();
@@ -162,9 +166,29 @@ describe('seed-all', () => {
 
   it('writes nothing on a second run', async () => {
     const db = await testDatabase();
-    await seedAll(db);
+    await seedAll(db, SEED_KEY);
 
-    const again = await seedAll(db);
+    const again = await seedAll(db, SEED_KEY);
     expect(Object.values(again).reduce((a, b) => a + b, 0)).toBe(0);
+  });
+
+  it('drops the cluster providers Koala kept before it stopped making clusters, once, keeping everything else', async () => {
+    const name = `t_${randomUUID().replace(/-/g, '').slice(0, 20)}`;
+    const db = new MongoDB({ mongo: mongoTarget({ MONGO_URI: `${inject('mongoUri')}${name}` }), dataKey: SEED_KEY });
+    const client = await MongoClient.connect(inject('mongoUri'));
+    try {
+      await db.init();
+      await client.db(name).collection('clusterProviders').insertMany([{ _id: 'k3d' as never }, { _id: 'hetzner' as never }, { _id: 'digitalocean' as never }]);
+      await client.db(name).collection('clusters').insertOne({ _id: 'machine-desk' as never, name: 'desk', provider: 'machine', status: 'stopped' });
+
+      expect(await seedAll(db, SEED_KEY)).toMatchObject({ clusterProvidersDropped: 3 });
+      expect(await client.db(name).listCollections({ name: 'clusterProviders' }).toArray()).toEqual([]);
+      expect((await db.infrastructure.getClusters()).map((cluster) => cluster.id)).toEqual(['machine-desk']);
+      expect(await seedAll(db, SEED_KEY)).toMatchObject({ clusterProvidersDropped: 0 });
+    } finally {
+      await db.dropDatabase();
+      await db.close();
+      await client.close();
+    }
   });
 });

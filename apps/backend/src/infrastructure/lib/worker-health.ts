@@ -12,8 +12,3 @@ export function serveHealth(port: number, ready: () => boolean): http.Server {
   server.listen(port, '0.0.0.0');
   return server;
 }
-
-export function healthPort(env: Readonly<Record<string, string | undefined>>): number | undefined {
-  const port = Number(env.HEALTH_PORT);
-  return Number.isInteger(port) && port > 0 ? port : undefined;
-}

@@ -1,14 +1,16 @@
 import { describe, it, expect } from 'vitest';
 import { execFileSync } from 'node:child_process';
+import { generateKeyPairSync } from 'node:crypto';
 import { resolve } from 'node:path';
 import { parseAllDocuments } from 'yaml';
 import { minioSettingsFrom } from '../../files/lib/minio-settings.js';
+import { backendSettingsFrom, clusterWorkerSettingsFrom, engineWorkerSettingsFrom, hostWorkerSettingsFrom } from '../../platform/lib/settings.js';
 
 const REPO = resolve(__dirname, '../../../../..');
 const HELM = resolve(REPO, 'bin/helm');
 const CHART = resolve(REPO, 'charts/instance');
 
-const required = ['instance.id=inst-u1', 'instance.ownerId=u1', 'instance.rootUrl=https://app.example.com', 'instance.rootPublicKeys=PEM', 'storage.total=100Gi'];
+const required = ['instance.id=inst-u1', 'instance.ownerId=u1', 'instance.rootUrl=https://app.example.com', 'instance.rootPublicKeys=PEM', 'instance.credential=c', 'publicUrl=https://luno.example.com', 'storage.total=100Gi'];
 
 interface Container {
   name: string;
@@ -271,15 +273,14 @@ describe('the instance chart', () => {
     expect(find(render(['instance.machineId=desk']), 'ConfigMap', 'luno-env').data?.INSTANCE_MACHINE_ID).toBe('desk');
     expect(find(render(), 'ConfigMap', 'luno-env').data?.CHECKS_API_URL).toMatch(/^http:\/\/luno\.[a-z0-9-]+\.svc\.cluster\.local\/api$/);
     expect(find(render(), 'ConfigMap', 'luno-env').data?.GITEA_REACHES_KOALA_AT).toMatch(/^http:\/\/luno\.[a-z0-9-]+\.svc\.cluster\.local$/);
-    expect(find(render(), 'ConfigMap', 'luno-env').data).not.toHaveProperty('INSTANCE_MACHINE_ID');
+    expect(find(render(['instance.machineId=']), 'ConfigMap', 'luno-env').data).not.toHaveProperty('INSTANCE_MACHINE_ID');
 
     expect(specOf(find(render(), 'Service', 'luno')).type).toBe('ClusterIP');
     expect(specOf(find(render(['backend.nodePort=30320']), 'Service', 'luno'))).toMatchObject({ type: 'NodePort', ports: [{ nodePort: 30320 }] });
   });
 
-  it('with a credential from root, keeps it in a Secret, hands it to the app and its setup jobs (which, without one, never wait for it), and checks root hourly for the version to run', () => {
-    const plain = render();
-    expect(plain.find((doc) => doc.kind === 'CronJob')).toBeUndefined();
+  it('takes its credential from root, refusing to render without one, keeps it in a Secret, hands it to the app and its setup jobs, and checks root hourly for the version to run', () => {
+    expect(() => render(['instance.credential='])).toThrow('instance.credential is required');
 
     const joined = render(['instance.credential=cred-from-root']);
     const secret = find(joined, 'Secret', 'luno-instance') as Doc & { stringData?: Record<string, string> };
@@ -297,8 +298,7 @@ describe('the instance chart', () => {
     expect(backend.envFrom).toEqual(expect.arrayContaining([{ secretRef: { name: 'luno-instance' } }]));
     const setupJobs = (docs: Doc[]) => docs.filter((doc) => doc.kind === 'Job').map((doc) => podOf(doc).containers[0]!.envFrom as unknown[]);
     for (const envFrom of setupJobs(joined)) expect(envFrom).toEqual(expect.arrayContaining([{ secretRef: { name: 'luno-instance' } }]));
-    expect(setupJobs(plain).length).toBeGreaterThan(0);
-    for (const envFrom of setupJobs(plain)) expect(envFrom).not.toEqual(expect.arrayContaining([{ secretRef: { name: 'luno-instance' } }]));
+    expect(setupJobs(joined).length).toBeGreaterThan(0);
   });
 
   it('upgrades each process by starting the new one before stopping the old, and only once it is healthy', () => {
@@ -377,6 +377,37 @@ describe('the instance chart', () => {
     for (const name of ['luno-backend', 'luno-worker-engine']) {
       const from = podOf(find(docs, 'Deployment', name)).containers[0]!.envFrom;
       expect(from).toEqual(expect.arrayContaining([{ configMapRef: { name: 'luno-env' } }, { secretRef: { name: 'luno-keys' } }]));
+    }
+  });
+
+  it('gives each process every setting its reader requires, as the process sees them, and each reader takes them', () => {
+    const rootKey = Buffer.from(String(generateKeyPairSync('ed25519').publicKey.export({ type: 'spki', format: 'pem' }))).toString('base64');
+    const docs = render(['mesh.address=100.64.0.7', 'backend.nodePort=30320', 'instance.machineId=desk', `instance.rootPublicKeys=${rootKey}`]);
+    const secretOf = (name: string) => Object.fromEntries(Object.entries(find(docs, 'Secret', name).data ?? {}).map(([key, value]) => [key, Buffer.from(value, 'base64').toString('utf8')]));
+    const fromSecrets = { ...secretOf('luno-keys'), ...((find(docs, 'Secret', 'luno-instance') as Doc & { stringData?: Record<string, string> }).stringData ?? {}) };
+    const given = { POD_NAMESPACE: 'nowrinkles', POD_IP: '10.42.0.9', KUBERNETES_SERVICE_HOST: '10.43.0.1', KUBERNETES_SERVICE_PORT: '443' };
+    const envOf = (process: string): Record<string, string> => {
+      const container = podOf(find(docs, 'Deployment', `luno-${process}`)).containers[0]!;
+      const base: Record<string, string> = { ...find(docs, 'ConfigMap', 'luno-env').data, ...fromSecrets };
+      for (const entry of container.env ?? []) {
+        const value = entry.value ?? (given as Record<string, string>)[entry.name] ?? base[entry.name];
+        if (value !== undefined) base[entry.name] = value.replace(/\$\(([A-Z_]+)\)/g, (_, name: string) => base[name] ?? '');
+      }
+      return { ...base, KUBERNETES_SERVICE_HOST: given.KUBERNETES_SERVICE_HOST, KUBERNETES_SERVICE_PORT: given.KUBERNETES_SERVICE_PORT };
+    };
+    const backend = backendSettingsFrom(envOf('backend'));
+    expect(backend).toMatchObject({ port: 3001, publicUrl: 'https://luno.example.com', appUrl: 'https://luno.example.com', production: true, temporal: { address: 'luno-temporal:7233', namespace: 'default' }, terraform: { kind: 'kubernetes', namespace: 'nowrinkles' } });
+    expect(backend.instance).toMatchObject({ credential: 'c', gatewayPort: 7234, machineTemporalAddress: '100.64.0.7:30322' });
+    expect(backend.clusters.here).toEqual({ koalaMachineId: 'desk', root: false });
+    expect(engineWorkerSettingsFrom(envOf('worker-engine'))).toMatchObject({ healthPort: 8090, temporalMetricsPort: 9464, instanceCredential: 'c' });
+    expect(clusterWorkerSettingsFrom(envOf('worker-cluster'))).toMatchObject({ healthPort: 8090, temporalMetricsPort: 9464, machineMetricsUrl: 'http://100.64.0.7:30320/api/machines/metrics' });
+    expect(hostWorkerSettingsFrom(envOf('worker-host'))).toMatchObject({ healthPort: 8090, temporalMetricsPort: 9464, root: undefined });
+    for (const process of ['backend', 'worker-engine', 'worker-cluster', 'worker-host']) {
+      const container = podOf(find(docs, 'Deployment', `luno-${process}`)).containers[0]!;
+      const ports = (container.ports ?? []) as Array<{ name: string; containerPort: number }>;
+      const env = envOf(process);
+      if (process === 'backend') expect(ports).toEqual(expect.arrayContaining([{ name: 'http', containerPort: Number(env.PORT) }, { name: 'machine-gateway', containerPort: Number(env.MACHINE_GATEWAY_PORT) }]));
+      else expect(ports).toEqual(expect.arrayContaining([{ name: 'health', containerPort: Number(env.HEALTH_PORT) }, { name: 'temporal-metrics', containerPort: Number(env.TEMPORAL_METRICS_PORT ?? env.TEMPORAL_ENGINE_METRICS_PORT) }]));
     }
   });
 

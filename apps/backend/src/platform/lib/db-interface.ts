@@ -1,7 +1,8 @@
 import type { Tx } from './transaction.js';
-import { MongoDB } from './mongo-db.js';
+import { MongoDB, type DatabaseSettings } from './mongo-db.js';
 import { mongoPayloadBlobs } from './mongo-payload-blobs.js';
 import type { PayloadBlobs } from './payload-storage.js';
+import type { MongoTarget } from './mongo-target.js';
 import type { PlatformStore } from '../store.js';
 import type { AccountsStore } from '../../accounts/index.js';
 import type { InstancesStore } from '../../instances/index.js';
@@ -38,12 +39,18 @@ export interface Database {
 }
 
 let payloadBlobs: PayloadBlobs | undefined;
+let payloadMongo: MongoTarget | undefined;
+
+export function keepPayloadsIn(mongo: MongoTarget): void {
+  payloadMongo = mongo;
+}
 
 export function sharedPayloadBlobs(): PayloadBlobs {
-  payloadBlobs ??= mongoPayloadBlobs();
+  if (!payloadMongo) throw new Error('this process was not told where Temporal\'s large payloads are kept: its entry point calls keepPayloadsIn with its settings first');
+  payloadBlobs ??= mongoPayloadBlobs(payloadMongo);
   return payloadBlobs;
 }
 
-export function createDatabase(env: Readonly<Record<string, string | undefined>> = process.env): Database {
-  return new MongoDB(env);
+export function createDatabase(settings: DatabaseSettings): Database {
+  return new MongoDB(settings);
 }

@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { hereFrom } from '../../infrastructure/lib/cluster-places.js';
 import { webhookUrlAt, shippingGaps, isShippable, deploysItself, koalasClusterFor, sameHookPath } from './project-shipping.js';
 
 describe('where Gitea posts a push', () => {
@@ -54,15 +55,15 @@ describe('which webhook a new address replaces', () => {
 
 describe('the cluster a project deploys to when none is picked', () => {
   it('is the cluster of the machine Koala runs on, on an instance', () => {
-    expect(koalasClusterFor({ INSTANCE_MACHINE_ID: 'bbdd-1' })).toBe('machine-bbdd-1');
+    expect(koalasClusterFor(hereFrom({ INSTANCE_MACHINE_ID: 'bbdd-1' }, false))).toBe('machine-bbdd-1');
   });
 
   it('is its place on Koala\'s servers for a pool instance', () => {
-    expect(koalasClusterFor({ POOL: 'true', INSTANCE_NAME: 'bob' })).toBe('pool-bob');
+    expect(koalasClusterFor(hereFrom({ POOL: 'true', INSTANCE_NAME: 'bob' }, false))).toBe('pool-bob');
   });
 
   it('is none where Koala was named neither, so the project shows it has no cluster to go to', () => {
-    expect(koalasClusterFor({})).toBeUndefined();
-    expect(koalasClusterFor({ INSTANCE_MACHINE_ID: '  ' })).toBeUndefined();
+    expect(koalasClusterFor(hereFrom({}, false))).toBeUndefined();
+    expect(koalasClusterFor(hereFrom({ INSTANCE_MACHINE_ID: '  ' }, false))).toBeUndefined();
   });
 });

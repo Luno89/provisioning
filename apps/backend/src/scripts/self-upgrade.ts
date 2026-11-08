@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { abandonedJobs, rolloutOf, stuckHook, UPGRADE_WORDS, withWhy, type ClusterStarts } from '../instances/index.js';
 import { clusterAccessFrom } from '../infrastructure/index.js';
-import { roleFromEnv } from '../platform/index.js';
+import { selfUpgradeSettingsFrom } from '../platform/index.js';
 
 export interface SelfUpgradeCluster {
   kubectl(args: readonly string[]): Promise<string>;
@@ -149,16 +149,11 @@ export async function selfUpgrade(deps: SelfUpgradeDeps): Promise<boolean> {
   }
 }
 
-function required(name: string): string {
-  const value = process.env[name];
-  if (!value) throw new Error(`${name} is not set`);
-  return value;
-}
-
 if (process.argv[1]?.endsWith('self-upgrade.ts')) {
+  const settings = selfUpgradeSettingsFrom(process.env);
   selfUpgrade({
-    root: { url: required('ROOT_URL'), instanceId: required('INSTANCE_ID'), credential: required('INSTANCE_CREDENTIAL') },
-    release: { name: required('RELEASE_NAME'), namespace: required('RELEASE_NAMESPACE'), current: required('CURRENT_IMAGE_TAG') },
-    cluster: selfUpgradeClusterOn(clusterAccessFrom(process.env, { role: roleFromEnv(process.env).role })),
+    root: settings.root,
+    release: settings.release,
+    cluster: selfUpgradeClusterOn(clusterAccessFrom(settings.clusters, { role: settings.role.role })),
   }).then((ok) => { process.exitCode = ok ? 0 : 1; }, (err: Error) => { console.error(err.message); process.exitCode = 1; });
 }

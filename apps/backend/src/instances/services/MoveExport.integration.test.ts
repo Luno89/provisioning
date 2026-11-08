@@ -1,3 +1,4 @@
+import { movedSettingsFrom } from '../lib/instance-move.js';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -43,7 +44,7 @@ describe('a pool instance stopping for a move and taking work again, on a real c
       trusted: trustedKeys([]),
       dataDir: mkdtempSync(join(tmpdir(), 'koala-move-data-')),
       mongo: { uri: 'mongodb://unused', dbName: 'unused' },
-      env: {},
+      moved: movedSettingsFrom({}),
       running: async () => [],
       claim: async () => true,
       cluster: moveClusterOn({

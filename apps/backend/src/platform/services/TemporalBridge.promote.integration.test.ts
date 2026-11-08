@@ -45,6 +45,7 @@ describe('deploying a project\'s build', () => {
       ownClusterId: () => undefined,
       logDir: '/tmp',
       claims: { role: 'instance' },
+      operatorEnv: {},
     };
   });
 

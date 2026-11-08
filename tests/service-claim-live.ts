@@ -8,6 +8,7 @@ import axios from 'axios';
 import { MongoClient } from 'mongodb';
 import { sessionToken } from '../apps/backend/src/platform/lib/auth.js';
 import { createDatabase } from '../apps/backend/src/platform/lib/db-interface.js';
+import { databaseSettingsFrom } from '../apps/backend/src/platform/lib/settings.js';
 import type { PlanProposal } from '../apps/backend/src/projects/lib/plan-proposals.js';
 import { loadKeys } from '../apps/backend/src/platform/lib/keys.js';
 
@@ -15,7 +16,7 @@ const BASE = process.env.CLAIM_LIVE_URL ?? 'http://localhost:3001/api';
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 async function main(): Promise<void> {
-  const db = createDatabase();
+  const db = createDatabase(databaseSettingsFrom(process.env));
   await db.init();
   const ownerId = (await db.projects.getProjects()).find((project) => project.ownerId)?.ownerId;
   assert.ok(ownerId);

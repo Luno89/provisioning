@@ -7,6 +7,7 @@ dotenv.config({ path: fileURLToPath(new URL('../apps/backend/.env', import.meta.
 import axios, { type AxiosInstance } from 'axios';
 import { sessionToken } from '../apps/backend/src/platform/lib/auth.js';
 import { createDatabase } from '../apps/backend/src/platform/lib/db-interface.js';
+import { databaseSettingsFrom } from '../apps/backend/src/platform/lib/settings.js';
 import type { AccessRequest } from '@koala/harness-types';
 import { loadKeys } from '../apps/backend/src/platform/lib/keys.js';
 
@@ -33,7 +34,7 @@ async function turn(http: AxiosInstance, conversationId: string, message: string
 }
 
 async function main(): Promise<void> {
-  const db = createDatabase();
+  const db = createDatabase(databaseSettingsFrom(process.env));
   await db.init();
   const admin = (await db.accounts.getUsers()).find((user) => user.roles?.includes('operator'));
   await db.close();

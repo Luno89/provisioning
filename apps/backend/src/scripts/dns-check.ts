@@ -1,6 +1,6 @@
 import dotenv from 'dotenv';
 import { fileURLToPath } from 'node:url';
-import { claimSettingsFrom, createDatabase, loadKeys, operatorsAmong, roleFromEnv, type Database } from '../platform/index.js';
+import { claimSettingsFrom, createDatabase, databaseSettingsFrom, loadKeys, operatorCredentialsFrom, operatorsAmong, roleFromEnv, type Database } from '../platform/index.js';
 import { CredentialService, dnsProviderNamed, DnsProviders } from '../infrastructure/index.js';
 
 export interface DnsCheckDeps {
@@ -22,7 +22,7 @@ export async function dnsCheck(argv: readonly string[], deps: DnsCheckDeps): Pro
   const role = roleFromEnv(deps.env);
   const owner = arg('owner') ?? operatorsAmong(await deps.db.accounts.getUsers(), claimSettingsFrom(role))[0]?.id;
   if (!owner) throw new Error('no operator on this box; pass --owner <id>');
-  const credentials = new CredentialService(deps.db, loadKeys(deps.env).data, claimSettingsFrom(role));
+  const credentials = new CredentialService(deps.db, loadKeys(deps.env).data, { claims: claimSettingsFrom(role), credentials: operatorCredentialsFrom(deps.env) });
   let failed = false;
   for (const zone of zones) {
     const detected = await deps.dns.detect(zone);
@@ -54,7 +54,7 @@ export async function dnsCheck(argv: readonly string[], deps: DnsCheckDeps): Pro
 
 async function main(): Promise<void> {
   dotenv.config({ path: fileURLToPath(new URL('../../.env', import.meta.url)), quiet: true });
-  const db = createDatabase();
+  const db = createDatabase(databaseSettingsFrom(process.env));
   await db.init();
   try {
     if (!(await dnsCheck(process.argv.slice(2), { dns: new DnsProviders(), db, env: process.env, log: (line) => console.log(line) }))) process.exitCode = 1;

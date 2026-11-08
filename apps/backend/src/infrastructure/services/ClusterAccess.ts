@@ -1,9 +1,9 @@
 import { mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
-import { decryptValue, nodeProcesses, nodeStreams, writePrivate, type Followed, type Io, type PlatformRole, type ProcessResult, type ProcessRun, type Processes, type SecretKey, type Streams } from '../../platform/index.js';
+import { decryptValue, nodeProcesses, nodeStreams, writePrivate, type Followed, type Io, type PlatformRole, type ProcessResult, type ProcessRun, type Processes, type SecretKey, type Streams, type ClusterSettings } from '../../platform/index.js';
 import { lostCreateRace } from '../lib/apply-races.js';
-import { hereFrom, machineToStart, ownReach, placeOf, serviceAccountFrom, serviceAccountKubeconfig, type HandOver, type Here, type Reach, type ServiceAccount, type WhyUnreachable } from '../lib/cluster-places.js';
+import { machineToStart, ownReach, placeOf, serviceAccountKubeconfig, type HandOver, type Here, type Reach, type ServiceAccount, type WhyUnreachable } from '../lib/cluster-places.js';
 import type { InfrastructureStore } from '../store.js';
 
 export class ClusterUnreachable extends Error {
@@ -164,28 +164,25 @@ export const runnersByRecord = (access: Pick<ClusterAccess, 'kubectl' | 'helm' |
 });
 
 const REPO = resolve(import.meta.dirname, '../../../../../');
-const SERVICE_ACCOUNT = '/var/run/secrets/kubernetes.io/serviceaccount';
-
 export interface ClusterAccessFrom {
   role: PlatformRole;
   clusters?: Pick<InfrastructureStore, 'getClusters'> | undefined;
   dataKey?: SecretKey | undefined;
-  rootKubeconfig?: string | undefined;
 }
 
-export function clusterAccessFrom(env: Readonly<Record<string, string | undefined>>, from: ClusterAccessFrom): ClusterAccess {
+export function clusterAccessFrom(settings: ClusterSettings, from: ClusterAccessFrom): ClusterAccess {
   const folder = join(tmpdir(), `koala-clusters-${process.pid}`);
   mkdirSync(folder, { recursive: true, mode: 0o700 });
   const root = from.role === 'root';
   return new ClusterAccess({
-    here: hereFrom(env, root),
+    here: settings.here,
     folder,
     processes: nodeProcesses,
     streams: nodeStreams,
     tools: { kubectl: join(REPO, 'bin', 'kubectl'), helm: join(REPO, 'bin', 'helm') },
     clusters: from.clusters,
     dataKey: from.dataKey,
-    serviceAccount: serviceAccountFrom(env, env.KUBERNETES_SERVICE_ACCOUNT_DIR?.trim() || SERVICE_ACCOUNT),
-    rootKubeconfig: root ? from.rootKubeconfig ?? (env.POOL_KUBECONFIG?.trim() || undefined) : undefined,
+    serviceAccount: settings.serviceAccount,
+    rootKubeconfig: root && typeof settings.rootKubeconfig === 'string' ? settings.rootKubeconfig : undefined,
   });
 }

@@ -43,7 +43,7 @@ export async function DestroyAppActivity(args: DestroyAppArgs, steps: ClusterSte
       DEPLOYMENT_NAME: namespace,
       DEPLOYMENT_ID: args.deploymentId || 'default',
       KUBECONFIG: await steps.access.kubeconfigOf(reach),
-      APP_SERVICE_TYPE: appServiceType(placedOnPool(process.env, reach)),
+      APP_SERVICE_TYPE: appServiceType(placedOnPool(Boolean(steps.access.here.poolName), reach)),
     },
   });
 

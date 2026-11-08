@@ -6,16 +6,18 @@ import dotenv from 'dotenv';
 import { MongoClient } from 'mongodb';
 import { parse } from 'yaml';
 import { createDatabase, roleFromEnv } from '../../apps/backend/src/platform/index.js';
-import { devSplitPlan, hashCredential, instanceIdFor, publicKeyPem, type SplitPlace } from '../../apps/backend/src/instances/index.js';
+import { DEV, devSplitPlan, hashCredential, instanceIdFor, publicKeyPem, type SplitPlace } from '../../apps/backend/src/instances/index.js';
 import { buildAppImage } from './gate-runs.js';
 import { fetchSide, handOff, sessionFrom, signedInLanding } from './handoff.js';
 import { devFile, devTemporalCa } from './dev-temporal.js';
 import { unreachedPlatformServices } from '../../apps/backend/src/platform/testing/platform-services.js';
-import { firstAdmin, withDatabase, type FirstAdmin } from './suite-root.js';
+import { DEV_TEMPORAL_ADDRESS, firstAdmin, withDatabase, type FirstAdmin } from './suite-root.js';
 import { portToHandOn } from '@koala/engine-core/testing/ports';
+import { databaseSettingsFrom } from '../../apps/backend/src/platform/lib/settings.js';
 
 export const MAILPIT_IMAGE = 'axllent/mailpit:v1.21.0';
 const DEV_MONGO = 'mongodb://admin:admin@localhost:27017/provisioning?authSource=admin';
+const CONTAINER_TEMPORAL_CA = '/etc/koala/temporal-tls/ca.crt';
 const SPLIT_PREFIX = 'koala_split_';
 const REPO = fileURLToPath(new URL('../..', import.meta.url));
 
@@ -213,6 +215,7 @@ export async function startSplitStack(options: { engine?: boolean; rootEnv?: (ro
       instanceId: instanceIdFor(owner.id), credential: instanceCredential, credentialHash: hashCredential(instanceCredential),
       hubCredential, hubCredentialHash: hashCredential(hubCredential), rootPublicKeys: publicKeyPem(signing.publicKey),
       mongoUri, now: new Date().toISOString(), place,
+      temporal: { address: DEV_TEMPORAL_ADDRESS, namespace: names.namespace, ca: CONTAINER_TEMPORAL_CA }, release: { imageTag: 'split', registry: DEV.registry },
     });
 
     const rootEnv = { ...draft({ id: 'pending', email: 'pending@split.test' }).rootEnv, ...shared(ports.rootGateway), ADMIN_SETUP_CODE: setupCode, ...(options.rootEnv ? await options.rootEnv(place.rootUrl) : {}) };
@@ -222,7 +225,7 @@ export async function startSplitStack(options: { engine?: boolean; rootEnv?: (ro
 
     const owner = await firstAdmin(place.rootUrl, { suite: 'split', database: names.databases.root, mongoUri: withDatabase(mongoUri, names.databases.root), setupCode, queue: names.namespace, metricsPort: ports.metrics, env: [] });
     const plan = draft(owner);
-    const rootDb = createDatabase({ ...process.env, MONGO_URI: withDatabase(mongoUri, names.databases.root) });
+    const rootDb = createDatabase(databaseSettingsFrom({ ...process.env, MONGO_URI: withDatabase(mongoUri, names.databases.root) }));
     await rootDb.init();
     await rootDb.instances.saveInstance(plan.instance);
     await rootDb.close?.();

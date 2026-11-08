@@ -7,6 +7,7 @@ dotenv.config({ path: fileURLToPath(new URL('../apps/backend/.env', import.meta.
 import axios, { type AxiosInstance } from 'axios';
 import { sessionToken } from '../apps/backend/src/platform/lib/auth.js';
 import { createDatabase } from '../apps/backend/src/platform/lib/db-interface.js';
+import { databaseSettingsFrom } from '../apps/backend/src/platform/lib/settings.js';
 import { slugify } from '../apps/backend/src/engine/lib/mcp-tools.js';
 import { loadKeys } from '../apps/backend/src/platform/lib/keys.js';
 import { io as connect } from 'socket.io-client';
@@ -54,7 +55,7 @@ async function turn(http: AxiosInstance, agent: string, message: string, convers
 interface EngineEvent { type: string; runId: string; callId?: string; name?: string; message?: string }
 
 async function main(): Promise<void> {
-  const db = createDatabase();
+  const db = createDatabase(databaseSettingsFrom(process.env));
   await db.init();
   const ownerId = (await db.infrastructure.getDeployments()).find((dep) => dep.appType === 'gitapp' && dep.status === 'running' && dep.ownerId)?.ownerId;
   assert.ok(ownerId, 'nobody runs an MCP server here');

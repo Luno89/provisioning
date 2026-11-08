@@ -1,6 +1,6 @@
 import { Agent, buildConnector, fetch as undiciFetch, type RequestInit as UndiciInit } from 'undici';
-import { labFrom, publicAddressProblem, publicFetch } from '../../platform/index.js';
-import { instanceOrigin, notReachable, reachOf, reachSettingsFrom, throughOwnCaddy, type ReachedInstance, type ReachSettings, type ThroughCaddy } from '../lib/instance-reach.js';
+import { publicAddressProblem, publicFetch } from '../../platform/index.js';
+import { instanceOrigin, notReachable, reachOf, throughOwnCaddy, type ReachedInstance, type ReachSettings, type ThroughCaddy } from '../lib/instance-reach.js';
 
 export interface ReachFetchers {
   open: typeof fetch;
@@ -61,5 +61,3 @@ export class InstanceReach {
   }
 }
 
-export const instanceReachFrom = (env: Readonly<Record<string, string | undefined>>): InstanceReach =>
-  new InstanceReach(reachSettingsFrom(env, labFrom(env)));

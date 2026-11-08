@@ -277,12 +277,13 @@ export interface PoolSettings {
   trialDays: number;
 }
 
-const positive = (value: string | undefined, fallback: number): number => {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+const positive = (env: Readonly<Record<string, string | undefined>>, name: string): number => {
+  const text = env[name]?.trim();
+  if (!text) throw new Error(`${name} is not set, and a pool slot needs it`);
+  const parsed = Number(text);
+  if (!(Number.isFinite(parsed) && parsed > 0)) throw new Error(`${name} is not a positive number: ${text}`);
+  return parsed;
 };
-
-export const DEFAULT_TRIAL_DAYS = 14;
 
 export function poolSettingsFrom(env: Readonly<Record<string, string | undefined>>): PoolSettings | { off: string } {
   if (!env.INGRESS_DOMAIN?.trim()) return { off: 'this root gives instances no addresses of their own (no INGRESS_DOMAIN)' };
@@ -293,16 +294,18 @@ export function poolSettingsFrom(env: Readonly<Record<string, string | undefined
   const registry = env.INSTANCE_REGISTRY?.trim();
   const repository = env.POOL_IMAGE?.trim() || (registry ? `${registry}/nowrinkles/app` : '');
   if (!repository) return { off: 'this root has no image for pool instances (POOL_IMAGE or INSTANCE_REGISTRY)' };
+  const tag = env.POOL_IMAGE_TAG?.trim() || env.INSTANCE_IMAGE_TAG?.trim();
+  if (!tag) throw new Error('the pool has no image tag to install: POOL_IMAGE_TAG and INSTANCE_IMAGE_TAG are not set');
   return {
     address: env.POOL_ADDRESS.trim(),
     slots,
     slot: {
-      memoryMiB: positive(env.POOL_SLOT_MEMORY_MIB, 10240),
-      cpu: positive(env.POOL_SLOT_CPU, 4),
-      storageGiB: positive(env.POOL_SLOT_STORAGE_GIB, 100),
+      memoryMiB: positive(env, 'POOL_SLOT_MEMORY_MIB'),
+      cpu: positive(env, 'POOL_SLOT_CPU'),
+      storageGiB: positive(env, 'POOL_SLOT_STORAGE_GIB'),
     },
-    image: { repository, tag: env.POOL_IMAGE_TAG?.trim() || env.INSTANCE_IMAGE_TAG?.trim() || 'dev' },
-    trialDays: positive(env.POOL_TRIAL_DAYS, DEFAULT_TRIAL_DAYS),
+    image: { repository, tag },
+    trialDays: positive(env, 'POOL_TRIAL_DAYS'),
   };
 }
 

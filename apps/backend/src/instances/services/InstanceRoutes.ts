@@ -2,12 +2,8 @@ import fs from 'fs/promises';
 import path from 'path';
 import http from 'http';
 import tls from 'tls';
-import { execFile } from 'child_process';
-import { promisify } from 'util';
 import { certificateCovers, issuingProblem, nestedSiteOf, wantedRoutes } from '../lib/instance-routes.js';
 import type { InstancesStore } from '../store.js';
-
-const execFileAsync = promisify(execFile);
 
 export interface CaddyControl {
   reload(): Promise<void>;
@@ -82,19 +78,6 @@ export function socketCaddy(socket: string, caddyfile: string, logFile: string, 
     certificateFor: certificateAt(tlsAddress, transport.connect),
     async recentLog() {
       return linesSince(await tailOf(logFile), Date.now() / 1000 - 15 * 60);
-    },
-  };
-}
-
-export function dockerCaddy(container: string, tlsAddress: string): CaddyControl {
-  return {
-    async reload() {
-      await execFileAsync('docker', ['exec', container, 'caddy', 'reload', '--config', '/etc/caddy/Caddyfile', '--force']);
-    },
-    certificateFor: certificateAt(tlsAddress),
-    async recentLog() {
-      const { stdout, stderr } = await execFileAsync('docker', ['logs', '--since', '15m', container], { maxBuffer: 32 * 1024 * 1024 });
-      return `${stdout}\n${stderr}`;
     },
   };
 }

@@ -4,23 +4,22 @@ import { traceWorkflowStarts } from '@koala/engine-core/telemetry'
 import { buildDataConverter } from './temporal-codec.js'
 import { OWNER_ATTRIBUTE, UnownedWorkflowError, ownerIn, startedFor } from './workflow-owner.js'
 import { sharedPayloadBlobs } from './db-interface.js'
-import { loadKeys } from './keys.js'
-import { temporalApiKey, temporalNamespaceFrom, temporalToken } from './temporal-auth.js'
+import type { PlatformKeys } from './keys.js'
+import { temporalApiKey, temporalToken } from './temporal-auth.js'
 import { temporalTls } from './temporal-tls.js'
+import type { TemporalPlace } from './temporal-connection.js'
 
-const DEFAULT_ADDRESS = 'http://localhost:7233'
-
-function toConnectionAddress(address: string): string {
-  return address.replace(/^https?:\/\//, '')
-}
-
-export interface TemporalClientOptions {
-  readonly address?: string
-  readonly namespace?: string
-  readonly identity?: string
+export interface TemporalClientSettings {
+  temporal: TemporalPlace
+  keys: Pick<PlatformKeys, 'temporal' | 'payload'>
 }
 
 let shared: Client | undefined
+let given: TemporalClientSettings | undefined
+
+export function connectTemporalAs(settings: TemporalClientSettings): void {
+  given = settings
+}
 
 type OwnerResolver = (owner: string) => Promise<string>
 
@@ -78,22 +77,20 @@ export async function registerOwnerAttribute(connection: Connection, namespace: 
   }
 }
 
-export async function getTemporalClient(options?: TemporalClientOptions): Promise<Client> {
+export async function getTemporalClient(): Promise<Client> {
   if (shared) return shared
-  const env = process.env
-  const address = options?.address ?? (env.TEMPORAL_CONNECTION_ADDRESS || DEFAULT_ADDRESS)
-  const namespace = options?.namespace ?? temporalNamespaceFrom(env)
-  const keys = loadKeys(env)
+  if (!given) throw new Error('this process was not given Temporal\'s settings: its entry point calls connectTemporalAs with them first')
+  const { temporal, keys } = given
   const connection = await Connection.connect({
-    address: toConnectionAddress(address),
-    tls: temporalTls(env),
-    apiKey: temporalApiKey(keys.temporal, { subject: 'koala-backend', namespace, role: 'write' }),
+    address: temporal.address,
+    tls: temporalTls(temporal),
+    apiKey: temporalApiKey(keys.temporal, { subject: 'koala-backend', namespace: temporal.namespace, role: 'write' }),
   })
-  await registerOwnerAttribute(connection, namespace, temporalToken(keys.temporal, { subject: 'koala-backend', namespace, role: 'admin' }))
+  await registerOwnerAttribute(connection, temporal.namespace, temporalToken(keys.temporal, { subject: 'koala-backend', namespace: temporal.namespace, role: 'admin' }))
   const dataConverter = buildDataConverter(keys.payload, sharedPayloadBlobs())
   shared = new Client({
     connection,
-    namespace,
+    namespace: temporal.namespace,
     interceptors: { workflow: [requireOwner, traceWorkflowStarts()] },
     ...(dataConverter ? { dataConverter } : {}),
   })

@@ -1,10 +1,10 @@
 import type { CloudCredentials } from '../../platform/index.js';
-import { credentialsFor, type ResolvedCredentials } from '../lib/credential-resolver.js';
+import { credentialsFor, type OperatorEnv, type ResolvedCredentials } from '../lib/credential-resolver.js';
 
 export function resolveCloudCredentials(
   provider: string,
   userCreds: CloudCredentials | undefined,
-  asOperator = true,
+  operatorEnv: OperatorEnv | undefined,
 ): ResolvedCredentials {
-  return credentialsFor(provider, userCreds, asOperator ? process.env : undefined);
+  return credentialsFor(provider, userCreds, operatorEnv);
 }

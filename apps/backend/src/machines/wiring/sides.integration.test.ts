@@ -90,7 +90,7 @@ async function rootAndInstance(before?: (instanceDb: Database) => Promise<void>)
     callerOf: async (req) => rootSide!.instanceCaller(String(req.headers['x-instance-id'] ?? ''), String(req.headers.authorization ?? '').replace(/^Bearer\s+/i, '')),
   }));
   const role = roleFromEnv({ ROLE: 'instance', INSTANCE_ID: instanceId, INSTANCE_OWNER_ID: 'bo', ROOT_URL: root.url, ROOT_PUBLIC_KEYS: publicKeyPem(identityKeysFrom(pem).publicKey) });
-  const side = new InstanceSide(role, {}, async () => credential);
+  const side = new InstanceSide(role, { edge: { off: 'this test runs no edge' }, unreachableAfterMs: 600_000 }, async () => credential);
   const devices = recordingDevices();
   const projects = new ProjectRepoService(instanceDb, {} as GiteaService, KEY);
   const instanceSide: MachineSides = machineSides({

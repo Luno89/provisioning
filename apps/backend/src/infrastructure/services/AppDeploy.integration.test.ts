@@ -24,6 +24,7 @@ async function deps(): Promise<{ deps: AppDeployDeps; started: { workflowId: str
       logDir: '/tmp',
       ownClusterId: () => undefined,
       claims: { role: 'instance', instanceOwnerId: 'ann' },
+      operatorEnv: {},
     },
     started,
   };

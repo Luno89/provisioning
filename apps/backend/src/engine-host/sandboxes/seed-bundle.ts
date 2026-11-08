@@ -3,6 +3,7 @@ import { promisify } from 'node:util';
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, normalize } from 'node:path';
+import { childEnv } from '../../platform/index.js';
 
 const run = promisify(execFile);
 const IDENTITY = { GIT_AUTHOR_NAME: 'Koala checks', GIT_AUTHOR_EMAIL: 'checks@koala.local', GIT_COMMITTER_NAME: 'Koala checks', GIT_COMMITTER_EMAIL: 'checks@koala.local' };
@@ -18,7 +19,7 @@ export async function withSeedBundle<T>(files: Record<string, string>, use: (bun
       await mkdir(dirname(join(repo, safe)), { recursive: true });
       await writeFile(join(repo, safe), content);
     }
-    const env = { ...process.env, ...IDENTITY };
+    const env = childEnv(IDENTITY);
     await run('git', ['init', '-q', '-b', 'main', repo], { env });
     await run('git', ['-C', repo, 'add', '-A'], { env });
     await run('git', ['-C', repo, 'commit', '-q', '-m', 'files the check starts with'], { env });

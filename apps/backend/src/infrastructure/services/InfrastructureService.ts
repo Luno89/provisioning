@@ -6,9 +6,9 @@ import { fileURLToPath } from 'url';
 import { Server as SocketServer } from 'socket.io';
 
 import os from 'os';
-import { CommandFailedError } from '../../platform/index.js';
+import { CommandFailedError, inheritedEnv } from '../../platform/index.js';
 import { ignore } from '@koala/engine-core/failures';
-import { cdktfStateEnv, stateFilesOf, stateMove, terraformCliConfig, terraformStateFrom, type TerraformStateHome } from '../lib/terraform-state.js';
+import { cdktfStateEnv, stateFilesOf, stateHomeIn, stateMove, terraformCliConfig, type TerraformStateHome, type TerraformStateKind } from '../lib/terraform-state.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -31,7 +31,7 @@ export interface ExecuteOptions {
 export interface TerraformPlaces {
   cdktfDir: string;
   stateDir: string;
-  home?: TerraformStateHome | undefined;
+  home: TerraformStateHome | { off: string };
   mirrorDir?: string | undefined;
   runsDir?: string | undefined;
 }
@@ -55,10 +55,11 @@ const dropSharedOutput = (stateDir: string): Promise<void> => {
 };
 
 function commandEnv(extra: Record<string, string> | undefined): NodeJS.ProcessEnv {
+  const inherited = inheritedEnv();
   const env: NodeJS.ProcessEnv = {
-    ...process.env,
+    ...inherited,
     ...extra,
-    PATH: `${process.env.PATH}:${BIN_DIR}`,
+    PATH: `${inherited.PATH}:${BIN_DIR}`,
     CDKTF_DISABLE_PLUGIN_CACHE_ENV: 'true',
   };
   delete env.TF_PLUGIN_CACHE_DIR;
@@ -77,9 +78,12 @@ function terraformQuietly(args: string[], cwd: string, extra: Record<string, str
   });
 }
 
+export const terraformPlacesFor = (state: TerraformStateKind | { off: string }): TerraformPlaces =>
+  ({ cdktfDir: CDKTF_DIR, stateDir: STATE_DIR, home: 'off' in state ? state : stateHomeIn(state, STATE_DIR) });
+
 export class InfrastructureService {
 
-  constructor(private readonly terraform: TerraformPlaces = { cdktfDir: CDKTF_DIR, stateDir: STATE_DIR }) {}
+  constructor(private readonly terraform: TerraformPlaces) {}
 
   getLogPath(logId: string) {
     return path.join(LOG_DIR, `${logId}-${Date.now()}.log`);
@@ -95,7 +99,8 @@ export class InfrastructureService {
   }
 
   private async cdktf(verb: 'deploy' | 'destroy', stackName: string, extra: string[], options: ExecuteOptions) {
-    const home = this.terraform.home ?? terraformStateFrom(process.env, this.terraform.stateDir);
+    if ('off' in this.terraform.home) throw new Error(this.terraform.home.off);
+    const home = this.terraform.home;
     await adoptStateFromBefore(stackName, this.terraform);
     await dropSharedOutput(this.terraform.stateDir);
     const run = await fs.mkdtemp(path.join(this.terraform.runsDir ?? os.tmpdir(), 'koala-cdktf-'));

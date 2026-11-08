@@ -4,6 +4,7 @@ import { ignore } from '@koala/engine-core/failures';
 import { inject } from 'vitest';
 import { roleFromEnv } from '../lib/platform-role.js';
 import { createDatabase } from '../lib/db-interface.js';
+import { databaseSettingsFrom } from '../lib/settings.js';
 import { devSplitPlan, type SplitPlace } from '../../instances/lib/dev-split.js';
 import { publicKeyPem } from '../../instances/lib/identity-token.js';
 import { hashCredential, instanceIdFor } from '../../instances/services/InstanceService.js';
@@ -14,6 +15,7 @@ import { smtpSink, type SmtpSink } from './smtp-sink.js';
 import { startRealGitea } from '../../projects/testing/real-gitea.js';
 import { startHeadscaleStandIn, type HeadscaleStandIn } from '../../infrastructure/testing/headscale-stand-in.js';
 import { portToHandOn } from '@koala/engine-core/testing/ports';
+import { PLAINTEXT_TEMPORAL_CA, TEST_RELEASE } from './platform-services.js';
 
 export interface TestGitea { url: string; adminPassword: string; logs(): string; close(): Promise<void> }
 
@@ -114,6 +116,7 @@ export async function startThreeRoles(label: string, options: ThreeRolesOptions 
     instanceId: instanceIdFor(person.id), credential: instanceCredential, credentialHash: hashCredential(instanceCredential),
     hubCredential, hubCredentialHash: hashCredential(hubCredential), rootPublicKeys: publicKeyPem(signing.publicKey),
     mongoUri: `${mongoUri}${databases.root}`, now: new Date().toISOString(), place,
+    temporal: { address: inject('temporalAddress'), namespace: claimNamespaceFor(inject('temporalClaims')), ca: PLAINTEXT_TEMPORAL_CA }, release: TEST_RELEASE,
   });
   const shared = {
     JWT_SECRET: secret,
@@ -143,7 +146,7 @@ export async function startThreeRoles(label: string, options: ThreeRolesOptions 
   try {
     const rootEnv = {
       ...draft({ id: 'pending', email: 'pending@three.test' }).rootEnv, ...shared, ADMIN_SETUP_CODE: setupCode,
-      ...(headscale ? { HEADSCALE_URL: headscale.url, HEADSCALE_API_KEY: headscale.apiKey } : {}),
+      ...(headscale ? { MESH_LOGIN_SERVER: headscale.url, HEADSCALE_URL: headscale.url, HEADSCALE_API_KEY: headscale.apiKey } : {}),
       ...(options.rootEnv ? await options.rootEnv(place.rootUrl) : {}),
     };
     const root = await startRole('root', rootEnv, ports.root);
@@ -164,11 +167,11 @@ export async function startThreeRoles(label: string, options: ThreeRolesOptions 
     const owner = options.ownerInvited ? await signUpWith(root.url, mail, emailOf('owner'), await ownerInvite()) : operator;
     const cookie = owner.cookie;
     const plan = draft(owner);
-    const rootDb = createDatabase({ ...process.env, MONGO_URI: `${mongoUri}${databases.root}` });
+    const rootDb = createDatabase(databaseSettingsFrom({ ...process.env, MONGO_URI: `${mongoUri}${databases.root}` }));
     await rootDb.init();
     await rootDb.instances.saveInstance(plan.instance);
     await rootDb.close?.();
-    const instanceEnv = { ...plan.instanceEnv, ...shared, MONGO_URI: `${mongoUri}${databases.instance}`, ...giteaFor(place.instanceUrl) };
+    const instanceEnv = { ...plan.instanceEnv, ...shared, MONGO_URI: `${mongoUri}${databases.instance}`, CHECKS_API_URL: `${place.instanceUrl}/api`, ...giteaFor(place.instanceUrl) };
     const [instance, hub] = await Promise.all([
       startRole('instance', instanceEnv, ports.instance, giteaFiles),
       startRole('hub', { ...plan.hubEnv, ...shared, ...giteaFor(place.hubUrl) }, ports.hub, giteaFiles),

@@ -38,7 +38,7 @@ export function mountAccounts(site: Site, temporal: FollowedTemporal): void {
   wireAccounts({
     app: { use: (path, router) => site.api.use(path.replace(/^\/api/, ''), router) },
     role: roleFromEnv({ ROLE: 'root' }),
-    env: {},
+    poolQueue: undefined,
     db: site.db,
     temporal: () => temporal.client,
     hubPeople: undefined,

@@ -44,6 +44,7 @@ async function setUp(deployments: DeploymentMetadata[], options: { edge?: Partia
   const service = new AppExposureService({ infrastructure: store }, { access, getByIdUnscoped: async (id) => (await store.getClusters()).find((c) => c.id === id) }, undefined, {
     edge,
     groupOf: async (dep) => (dep.gitappProjectId ? groups.get(dep.gitappProjectId) : undefined),
+    domain: () => domain,
   });
   const site = (file: string): string => readFileSync(join(sites, file), 'utf8');
   const files = (): string[] => readdirSync(sites).sort();
@@ -51,8 +52,9 @@ async function setUp(deployments: DeploymentMetadata[], options: { edge?: Partia
   return { service, edge, site, files, sites, stored, access };
 }
 
-beforeEach(() => { delete process.env.INGRESS_DOMAIN; });
-afterEach(() => { delete process.env.INGRESS_DOMAIN; });
+let domain: string | undefined;
+beforeEach(() => { domain = undefined; });
+afterEach(() => { domain = undefined; });
 
 describe('exposing an app on this computer, through the instance\'s edge', () => {
   it('serves it at <app>.localhost on the edge\'s local port, through Traefik on Koala\'s own cluster by its service name, and reloads the edge', async () => {
@@ -108,7 +110,7 @@ describe('exposing an app on this computer, through the instance\'s edge', () =>
   });
 
   it('takes the site away again, leaving a public address alone', async () => {
-    process.env.INGRESS_DOMAIN = 'koala.dev';
+    domain = 'koala.dev';
     const { service, files, stored } = await setUp([app()]);
     await service.exposeLocal('d1abcdef');
     await service.exposePublic('d1abcdef');
@@ -128,7 +130,7 @@ describe('exposing an app publicly, at an address root routes to the edge', () =
   });
 
   it('gives an app a flat address under the instance\'s name, free among its other apps, over plain http to the edge', async () => {
-    process.env.INGRESS_DOMAIN = 'koala.dev';
+    domain = 'koala.dev';
     const taken = app({ id: 'other', name: 'shop!', publicHostname: 'shop-luno.koala.dev' });
     const { service, site, edge } = await setUp([app(), taken]);
     expect(await service.exposePublic('d1abcdef')).toMatchObject({ publicHostname: 'shop-2-luno.koala.dev', publicExposureUrl: 'https://shop-2-luno.koala.dev' });
@@ -138,14 +140,14 @@ describe('exposing an app publicly, at an address root routes to the edge', () =
   });
 
   it('shows the nested address once root says it is ready, the flat one still answering', async () => {
-    process.env.INGRESS_DOMAIN = 'koala.dev';
+    domain = 'koala.dev';
     const { service, site } = await setUp([app({ publicHostname: 'shop-luno.koala.dev' })], { edge: { nestedReady: () => true } });
     expect(await service.exposePublic('d1abcdef')).toMatchObject({ publicHostname: 'shop-luno.koala.dev', publicExposureUrl: 'https://shop.luno.koala.dev' });
     expect(site('shop-d1abcd.public.caddy')).toMatch(/^http:\/\/shop-luno\.koala\.dev, http:\/\/shop\.luno\.koala\.dev \{/);
   });
 
   it('addresses a shared project\'s app under its group, never nested, and moves it back once the project is taken back', async () => {
-    process.env.INGRESS_DOMAIN = 'koala.dev';
+    domain = 'koala.dev';
     const groups = new Map([['p1', 'acme']]);
     const { service, stored } = await setUp([app({ gitappProjectId: 'p1', isExposedPublicly: true, publicHostname: 'shop-luno.koala.dev' })], { edge: { nestedReady: () => true }, groups });
     await service.syncExposedApps();
@@ -160,7 +162,7 @@ describe('an Odoo project\'s preview', () => {
   const odoo = () => app({ appType: 'odoo-project' });
 
   it('is served beside the app, on this computer and publicly, and taken away with it', async () => {
-    process.env.INGRESS_DOMAIN = 'koala.dev';
+    domain = 'koala.dev';
     const { service, files, site } = await setUp([odoo()]);
     expect(await service.exposeLocal('d1abcdef')).toMatchObject({ localExposureUrl: 'http://shop.localhost:8000', previewLocalUrl: 'http://shop-preview.localhost:8000' });
     expect(site('shop-d1abcd-preview.local.caddy')).toContain('header_up Host shop-d1abcd-preview.apps.local');

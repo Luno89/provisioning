@@ -164,12 +164,18 @@ describe('root\'s backend in a pool namespace', () => {
 
 describe('the pool a root offers', () => {
   const naming = (setting: string): unknown => expect.stringContaining(setting);
-  const env = { INGRESS_DOMAIN: 'nowrinkles.app', POOL_ADDRESS: '100.64.0.9', POOL_KUBECONFIG: '/etc/koala/pool.yaml', POOL_SLOTS: '2', INSTANCE_REGISTRY: 'reg.test', INSTANCE_IMAGE_TAG: 'v1' };
+  const env = { INGRESS_DOMAIN: 'nowrinkles.app', POOL_ADDRESS: '100.64.0.9', POOL_KUBECONFIG: '/etc/koala/pool.yaml', POOL_SLOTS: '2', POOL_SLOT_MEMORY_MIB: '10240', POOL_SLOT_CPU: '4', POOL_SLOT_STORAGE_GIB: '100', POOL_TRIAL_DAYS: '14', INSTANCE_REGISTRY: 'reg.test', INSTANCE_IMAGE_TAG: 'v1' };
 
   it('is on with every setting it needs, naming no kubeconfig of its own', () => {
     expect(poolSettingsFrom(env)).toEqual({
       address: '100.64.0.9', slots: 2, slot: { memoryMiB: 10240, cpu: 4, storageGiB: 100 }, image: { repository: 'reg.test/nowrinkles/app', tag: 'v1' }, trialDays: 14,
     });
+  });
+
+  it('refuses a slot whose size it is not given, rather than guessing one', () => {
+    expect(() => poolSettingsFrom({ ...env, POOL_SLOT_CPU: undefined })).toThrow('POOL_SLOT_CPU is not set, and a pool slot needs it');
+    expect(() => poolSettingsFrom({ ...env, POOL_TRIAL_DAYS: 'two weeks' })).toThrow('POOL_TRIAL_DAYS is not a positive number: two weeks');
+    expect(() => poolSettingsFrom({ ...env, INSTANCE_IMAGE_TAG: undefined })).toThrow('the pool has no image tag to install');
   });
 
   it('is off, saying why, without a way into its node, and never guesses one', () => {

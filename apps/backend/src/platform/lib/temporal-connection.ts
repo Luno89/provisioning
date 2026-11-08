@@ -1,15 +1,19 @@
 import { NativeConnection } from '@temporalio/worker'
-import { loadKeys } from './keys.js'
-import { TEMPORAL_RENEW_SECONDS, temporalApiKey, temporalNamespaceFrom } from './temporal-auth.js'
-import { temporalTls } from './temporal-tls.js'
+import type { PlatformKeys } from './keys.js'
+import { TEMPORAL_RENEW_SECONDS, temporalApiKey } from './temporal-auth.js'
+import { temporalTls, type TemporalCaPlace } from './temporal-tls.js'
+
+export interface TemporalPlace extends TemporalCaPlace {
+  address: string
+  namespace: string
+}
 
 export async function connectTemporalWorker(
-  address: string,
   subject: string,
-  env: Readonly<Record<string, string | undefined>>,
+  settings: { temporal: TemporalPlace; keys: Pick<PlatformKeys, 'temporal'> },
 ): Promise<NativeConnection> {
-  const apiKey = temporalApiKey(loadKeys(env).temporal, { subject, namespace: temporalNamespaceFrom(env), role: 'write' })
-  const connection = await NativeConnection.connect({ address, tls: temporalTls(env), apiKey: apiKey() })
+  const apiKey = temporalApiKey(settings.keys.temporal, { subject, namespace: settings.temporal.namespace, role: 'write' })
+  const connection = await NativeConnection.connect({ address: settings.temporal.address, tls: temporalTls(settings.temporal), apiKey: apiKey() })
   const renewing: NodeJS.Timeout = setInterval(() => {
     connection.setApiKey(apiKey()).catch(() => clearInterval(renewing))
   }, (TEMPORAL_RENEW_SECONDS * 1000) / 2)

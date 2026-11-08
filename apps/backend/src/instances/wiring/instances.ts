@@ -5,11 +5,9 @@ import type { Server as SocketServer } from 'socket.io';
 import {
   type Database, type SecretKey, allowed, holdsAccounts, servesTenants, signsInThroughRoot, type RoleConfig, startedFor,
   getTemporalClient, type mongoTarget, type MailService, type createAuth, claimSettingsFrom, operatorsAmong, PLATFORM_OWNER, publicFetch, keepTrying,
-  emailWayFrom, mailDomainFrom, MailReputation,
+  MailReputation, isOff, type BackendSettings, type Off,
 } from '../../platform/index.js';
-import { parse as parseEnv } from 'dotenv';
 import { WorkflowExecutionAlreadyStartedError } from '@temporalio/common';
-import { poolSettingsFrom } from '../lib/pool.js';
 import type { InstanceRecord } from '../lib/instances.js';
 import { issueMoveToken, type UsedTokenClaim } from '../lib/identity-token.js';
 import { MOVE_FINISHED, MOVE_STOPPED, answersWhileMoving, poolMoveWorkflowId } from '../lib/instance-move.js';
@@ -17,8 +15,8 @@ import { poolRemoveWorkflowId, poolTrialWorkflowId, TRIAL_CHANGED } from '../lib
 import { HUB_AUDIENCE, hubInstancePart, type Mounts } from '../../hub/index.js';
 import type { IdentityService } from '../services/IdentityService.js';
 import { InstanceService } from '../services/InstanceService.js';
-import { instanceReachFrom } from '../services/InstanceReach.js';
-import { InstanceRoutes, dockerCaddy, socketCaddy } from '../services/InstanceRoutes.js';
+import { InstanceReach } from '../services/InstanceReach.js';
+import { InstanceRoutes, socketCaddy } from '../services/InstanceRoutes.js';
 import { InstanceAddresses, adminEdge } from '../services/InstanceAddresses.js';
 import { InstanceTrial } from '../services/InstanceTrial.js';
 import { InstanceUpdates } from '../services/InstanceUpdates.js';
@@ -35,7 +33,9 @@ import { InstancePresence } from '../services/InstancePresence.js';
 import { InstanceWatchSetting } from '../services/InstanceWatchSetting.js';
 import { RootPresence, type RootReachView } from '../services/RootPresence.js';
 import { instanceWatchRouter } from '../routes/instance-watch.js';
-import { PRESENCE_NAMESPACE, presenceAuth, unreachableAfterMs } from '../lib/instance-watch.js';
+import { PRESENCE_NAMESPACE, presenceAuth } from '../lib/instance-watch.js';
+import type { EdgeSettings } from '../lib/edge-settings.js';
+import type { MovedSettings } from '../lib/instance-move.js';
 import { ROOT_CLUSTER_ID, type ClusterAccess, type InstanceEdge, type HeadscaleService } from '../../infrastructure/index.js';
 import { identityRouter } from '../routes/identity.js';
 import { signInRouter } from '../routes/sign-in.js';
@@ -55,16 +55,18 @@ import { PoolRemoveWorkflow } from '../../workflows/PoolRemoveWorkflow.js';
 import { PoolMoveWorkflow } from '../../workflows/PoolMoveWorkflow.js';
 
 
-const EDGE_SETTINGS = ['EDGE_ADMIN_URL', 'EDGE_CADDYFILE', 'EDGE_SITES'] as const;
+export function edgeOf(edge: EdgeSettings | Off, addresses: () => InstanceAddresses | undefined): InstanceEdge | undefined {
+  return isOff(edge) ? undefined : adminEdge(edge, addresses);
+}
 
-export function edgeOf(env: NodeJS.ProcessEnv, addresses: () => InstanceAddresses | undefined): InstanceEdge | undefined {
-  const missing = EDGE_SETTINGS.filter((key) => !env[key]);
-  if (missing.length === EDGE_SETTINGS.length) return undefined;
-  if (missing.length) throw new Error(`The edge's settings are half given: ${missing.join(', ')} ${missing.length === 1 ? 'is' : 'are'} not set; the instance chart sets them all`);
-  const localPort = env.EDGE_LOCAL_PORT ? Number(env.EDGE_LOCAL_PORT) : undefined;
-  if (localPort !== undefined && !(Number.isInteger(localPort) && localPort > 0 && localPort < 65536)) throw new Error(`EDGE_LOCAL_PORT is not a port: ${env.EDGE_LOCAL_PORT}`);
-  if (env.INGRESS_DOMAIN && !env.INSTANCE_NAME) throw new Error('INGRESS_DOMAIN is set without INSTANCE_NAME, so the instance\'s public addresses have no name to go under');
-  return adminEdge({ name: env.INSTANCE_NAME || undefined, localPort, sites: env.EDGE_SITES!, adminUrl: env.EDGE_ADMIN_URL!, caddyfile: env.EDGE_CADDYFILE! }, addresses);
+const selfUpgradeOf = (settings: BackendSettings): { cronJob?: string; namespace?: string } => {
+  const upgrade = settings.instance?.selfUpgrade;
+  return upgrade && !isOff(upgrade) ? upgrade : {};
+};
+
+export interface InstanceSidePlace {
+  edge: EdgeSettings | Off;
+  unreachableAfterMs: number;
 }
 
 export class InstanceSide {
@@ -73,8 +75,8 @@ export class InstanceSide {
   private rootPresence: RootPresence | undefined;
   private readonly heard: Record<string, () => void> = {};
 
-  constructor(private readonly role: RoleConfig, private readonly env: NodeJS.ProcessEnv, private readonly rootToken: (() => Promise<string>) | undefined) {
-    this.edge = role.instance ? edgeOf(env, () => this.addresses) : undefined;
+  constructor(private readonly role: RoleConfig, private readonly place: InstanceSidePlace, private readonly rootToken: (() => Promise<string>) | undefined) {
+    this.edge = role.instance ? edgeOf(place.edge, () => this.addresses) : undefined;
   }
 
   follow(republish: () => Promise<void>): void {
@@ -102,7 +104,7 @@ export class InstanceSide {
       ownerId: this.role.instance.ownerId,
       token: this.rootToken,
       tell,
-      afterMs: unreachableAfterMs(this.env),
+      afterMs: this.place.unreachableAfterMs,
       heard: this.heard,
     });
     this.rootPresence.start();
@@ -116,7 +118,8 @@ export class InstanceSide {
 export interface MoveExportDeps {
   role: RoleConfig;
   access: Pick<ClusterStarts, 'kubectl' | 'own' | 'start'>;
-  env: NodeJS.ProcessEnv;
+  pool: boolean;
+  moved: MovedSettings | undefined;
   app: Routes;
   dataDir: string;
   mongo: ReturnType<typeof mongoTarget>;
@@ -125,15 +128,15 @@ export interface MoveExportDeps {
 }
 
 export async function wireMoveExport(deps: MoveExportDeps): Promise<MoveExport | undefined> {
-  const { role, env } = deps;
-  if (!(role.role === 'instance' && env.POOL === 'true' && role.trusted && role.instance)) return undefined;
+  const { role, moved } = deps;
+  if (!(role.role === 'instance' && deps.pool && moved && role.trusted && role.instance)) return undefined;
   const moveExport = new MoveExport({
     instanceId: role.instance.id,
     cluster: moveClusterOn(deps.access),
     trusted: role.trusted,
     dataDir: deps.dataDir,
     mongo: deps.mongo,
-    env,
+    moved,
     running: deps.running,
     claim: deps.claim,
   });
@@ -148,7 +151,7 @@ export async function wireMoveExport(deps: MoveExportDeps): Promise<MoveExport |
 
 export interface InstancesWiringDeps {
   role: RoleConfig;
-  env: NodeJS.ProcessEnv;
+  settings: BackendSettings;
   app: Routes;
   tenant: Mounts;
   db: Database;
@@ -176,7 +179,7 @@ export interface InstancesWiring {
 }
 
 export async function wireInstances(deps: InstancesWiringDeps): Promise<InstancesWiring> {
-  const { role, env, app, tenant, db, identity, publicUrl } = deps;
+  const { role, settings, app, tenant, db, identity, publicUrl } = deps;
   deps.side.follow(deps.syncExposedApps);
 
   app.use('/api/identity', identityRouter({
@@ -214,37 +217,37 @@ export async function wireInstances(deps: InstancesWiringDeps): Promise<Instance
   tenant.use('/api/instance-updates', instanceUpdatesRouter({
     updates: role.instance && deps.rootToken
       ? new InstanceUpdates(
-        { rootUrl: role.instance.rootUrl, instanceId: role.instance.id, token: deps.rootToken, cronJob: env.SELF_UPGRADE_CRONJOB, namespace: env.INSTANCE_NAMESPACE },
+        { rootUrl: role.instance.rootUrl, instanceId: role.instance.id, token: deps.rootToken, ...selfUpgradeOf(settings) },
         (args) => deps.access.kubectl(deps.access.own(), args),
       )
       : undefined,
   }));
 
-  if (!holdsAccounts(role)) return { instanceService: undefined };
+  if (!holdsAccounts(role) || !settings.root) return { instanceService: undefined };
+  const root = settings.root;
 
   const instanceChart = new InstanceChart(deps.repoRoot, deps.access);
   const releaseCatalogue = new ReleaseCatalogue(db.instances, {
     repoRoot: deps.repoRoot,
     chartsDir: path.join(deps.dataDir, 'instance-charts'),
-    imageTag: env.INSTANCE_IMAGE_TAG || 'dev',
-    imageDigest: env.INSTANCE_IMAGE_DIGEST,
+    imageTag: root.imageTag,
+    imageDigest: root.imageDigest,
     chart: () => instanceChart.path(),
     inventory: (release, out) => releaseInventory(deps.repoRoot, release, out),
   });
-  const withdrawalNotices = new WithdrawalNotices(db.instances, deps.mail, env.INSTANCE_IMAGE_TAG || 'dev');
+  const withdrawalNotices = new WithdrawalNotices(db.instances, deps.mail, root.imageTag);
   releaseCatalogue.recordCurrent()
     .then(() => withdrawalNotices.tell())
     .catch((err: Error) => console.error(`[releases] could not record the release root runs: ${err.message}`));
-  const routingDomain = env.INGRESS_DOMAIN || undefined;
-  const instanceRoutes = routingDomain
-    ? new InstanceRoutes(db.instances, routingDomain, path.join(deps.dataDir, 'caddy'), (env.CADDY_ADMIN_SOCKET
-      ? socketCaddy(env.CADDY_ADMIN_SOCKET, env.CADDY_CONFIG || path.join(deps.repoRoot, 'Caddyfile'), env.CADDY_LOG || '/var/log/koala-caddy/caddy.log', env.CADDY_TLS_ADDRESS || '127.0.0.1:443')
-      : dockerCaddy(env.CADDY_CONTAINER || 'nowrinkles-caddy', env.CADDY_TLS_ADDRESS || '127.0.0.1:443')), (message) => console.error(message))
+  const routing = isOff(root.routing) ? undefined : root.routing;
+  const routingDomain = routing?.domain;
+  const instanceRoutes = routing
+    ? new InstanceRoutes(db.instances, routing.domain, path.join(deps.dataDir, 'caddy'), socketCaddy(routing.caddy.adminSocket, routing.caddy.config, routing.caddy.log, routing.caddy.tlsAddress), (message) => console.error(message))
     : undefined;
-  const siteNames = [env.APP_DOMAIN, env.MESH_DOMAIN]
-    .filter((site): site is string => Boolean(site && routingDomain && site.endsWith(`.${routingDomain}`)))
-    .map((site) => site.slice(0, -(routingDomain!.length + 1)));
-  const poolTaskQueue = env.POOL_TASK_QUEUE || 'host-ops-queue';
+  const siteNames = routing
+    ? routing.siteDomains.filter((site) => site.endsWith(`.${routing.domain}`)).map((site) => site.slice(0, -(routing.domain.length + 1)))
+    : [];
+  const poolTaskQueue = settings.queues.pool || 'host-ops-queue';
   const dependencyWatch = new DependencyWatch({
     store: db.instances,
     inventoryOf: async (tag) => {
@@ -256,7 +259,7 @@ export async function wireInstances(deps: InstancesWiringDeps): Promise<Instance
         return undefined;
       }
     },
-    currentRelease: env.INSTANCE_IMAGE_TAG || 'dev',
+    currentRelease: root.imageTag,
     fetchImpl: publicFetch,
     tell: async (message) => {
       for (const operator of operatorsAmong(await db.accounts.getUsers(), claimSettingsFrom(role))) {
@@ -279,21 +282,21 @@ export async function wireInstances(deps: InstancesWiringDeps): Promise<Instance
       throw new Error(cause instanceof Error ? `${message}: ${cause.message}` : message);
     }
   }, (message) => console.warn(message));
-  const pool = poolSettingsFrom(env);
+  const { pool } = root;
   let presenceOf: ((instanceId: string) => boolean) | undefined;
   const instanceService = new InstanceService(db, {
     connected: (instanceId) => presenceOf?.(instanceId) ?? false,
     rootUrl: publicUrl,
     rootPublicKeys: () => identity.publicKeys().map((key) => key.publicKey),
-    meshLoginServer: env.MESH_LOGIN_SERVER,
-    registry: env.INSTANCE_REGISTRY ?? '',
-    imageTag: env.INSTANCE_IMAGE_TAG || 'dev',
+    meshLoginServer: isOff(settings.mesh) ? undefined : settings.mesh.loginServer,
+    registry: root.registry,
+    imageTag: root.imageTag,
     releases: releaseCatalogue,
     domain: routingDomain,
     siteNames,
     pool: 'off' in pool ? pool : { slots: pool.slots, trialDays: pool.trialDays },
     serviceCaller: deps.provider ? (token) => deps.provider!.serviceCaller(token) : undefined,
-    reach: instanceReachFrom(env),
+    reach: new InstanceReach(settings.reach),
   }, deps.headscale, () => new Date(), () => instanceRoutes?.changed(), {
     start: async (instanceId, ownerId) => {
       await (await getTemporalClient()).workflow.start(PoolInstanceWorkflow, {
@@ -342,7 +345,7 @@ export async function wireInstances(deps: InstancesWiringDeps): Promise<Instance
         const operators = (await db.accounts.getUsers()).filter((user) => !user.space && allowed(deps.auth.principalFor(user), 'administer', { kind: 'install' }));
         for (const operator of operators) await deps.mail.toOwner(operator.id, message);
       },
-      afterMs: unreachableAfterMs(env),
+      afterMs: settings.tests.unreachableAfterMs,
     });
     presenceOf = (instanceId) => presence.connected(instanceId);
     tellInstance = wireInstancePresence(deps.io, presence, (instanceId, token) => instanceService.caller(instanceId, token), deps.instanceArrived);
@@ -364,11 +367,7 @@ export async function wireInstances(deps: InstancesWiringDeps): Promise<Instance
       return { token: issueMoveToken(role.signing!, HUB_AUDIENCE, hubInstancePart(instanceId, ownerId, owner.email)), hubUrl: role.hubLink!.url, personId: ownerId, email: owner.email, instanceId };
     }
     : undefined;
-  const mailDomain = mailDomainFrom(env);
-  const composeEnv = await fs.readFile(path.join(deps.repoRoot, '.env'), 'utf8').then(parseEnv, () => ({} as Record<string, string>));
-  const mailReputation = mailDomain && emailWayFrom(env, role).kind === 'smtp'
-    ? new MailReputation({ domain: mailDomain, relayhost: (env.MAIL_RELAYHOST || composeEnv.MAIL_RELAYHOST || '').trim() || undefined })
-    : undefined;
+  const mailReputation = isOff(root.mailReputation) ? undefined : new MailReputation(root.mailReputation);
   if (mailReputation && role.role === 'root') void mailReputation.check().catch((err: Error) => console.warn(`[mail] the check of root's mail could not finish: ${err.message}`));
   app.use('/api/instances', instancesRouter({ instances: instanceService, mailLimit: new InstanceMailLimit(), chart: () => instanceChart.path(), chartOf: (imageTag) => releaseCatalogue.chartFile(imageTag), mail: deps.mail, operatorOnly: deps.auth.requireOperator('manage-accounts'), administers: deps.auth.requireOperator('administer'), dependencies: dependencyWatch, mailReputation, poolMonitoring, moveRelay, hubAccess }));
   const installer = (await fs.readFile(path.join(deps.repoRoot, 'scripts/instance/install.sh'), 'utf8')).replace('__ROOT_URL__', publicUrl);

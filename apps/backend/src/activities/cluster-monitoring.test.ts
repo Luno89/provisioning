@@ -70,7 +70,7 @@ describe('monitoring Koala\'s own cluster', () => {
     let open!: () => void;
     const gate = new Promise<void>((resolve) => { open = resolve; });
     infra.deploy.mockImplementation(async () => { await gate; return undefined as never; });
-    const worker = ensureClusterMonitoring(steps, koalaClusterMonitoring({}, OWN));
+    const worker = ensureClusterMonitoring(steps, koalaClusterMonitoring(false, OWN));
     const deploy = ensureClusterMonitoring(steps, fromDeploy);
     expect(deploy).toBe(worker);
     open();

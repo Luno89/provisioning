@@ -6,6 +6,7 @@ import axios from 'axios';
 import { io as connect } from 'socket.io-client';
 import { sessionToken } from '../apps/backend/src/platform/lib/auth.js';
 import { createDatabase } from '../apps/backend/src/platform/lib/db-interface.js';
+import { databaseSettingsFrom } from '../apps/backend/src/platform/lib/settings.js';
 import { loadKeys } from '../apps/backend/src/platform/lib/keys.js';
 import { fingerprintOf } from '../apps/backend/src/checks/lib/bench.js';
 import { liveEngineHost } from './lib/live-engine-host.js';
@@ -29,7 +30,7 @@ interface Run { id: string; state: string; startedAt: string; trigger?: { kind: 
 
 async function main(): Promise<void> {
   assert.ok(OWNER, 'set BENCH_LIVE_OWNER (or GROVE_LIVE_OWNER) to the user whose model the bench uses');
-  const db = createDatabase();
+  const db = createDatabase(databaseSettingsFrom(process.env));
   await db.init();
   const user = await db.accounts.getUserById(OWNER);
   assert.ok(user, 'no such user');

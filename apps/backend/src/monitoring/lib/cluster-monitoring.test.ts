@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { koalaClusterMonitoring, machineMetricsUrl, metricsTokenManifests, monitoringPlan, monitoringStackEnv, monitoringStackName, placedOnPool, telemetryPresent } from './cluster-monitoring.js';
+import { koalaClusterMonitoring, metricsTokenManifests, monitoringPlan, monitoringStackEnv, monitoringStackName, placedOnPool, telemetryPresent } from './cluster-monitoring.js';
 
 const operator = 'servicemonitors.monitoring.coreos.com\nprobes.monitoring.coreos.com\n';
 const telemetry = { collector: true, tempo: true };
@@ -75,31 +75,26 @@ describe('the cluster of a pool instance', () => {
   });
 
   it('is only the instance\'s own cluster, and only in pool mode', () => {
-    expect(placedOnPool({ POOL: 'true' }, { kind: 'koala' })).toBe(true);
-    expect(placedOnPool({ POOL: 'true' }, { kind: 'machine' })).toBe(false);
-    expect(placedOnPool({}, { kind: 'koala' })).toBe(false);
+    expect(placedOnPool(true, { kind: 'koala' })).toBe(true);
+    expect(placedOnPool(true, { kind: 'machine' })).toBe(false);
+    expect(placedOnPool(false, { kind: 'koala' })).toBe(false);
   });
 });
 
 describe('the stacks that monitor Koala\'s own cluster, named for that cluster\'s id', () => {
   it('are applied with the same settings from the worker as from a deploy to the machine Koala runs on', () => {
     const koala = { clusterId: 'machine-desk', kind: 'koala' } as const;
-    const worker = koalaClusterMonitoring({ INSTANCE_MACHINE_ID: 'desk' }, koala);
+    const worker = koalaClusterMonitoring(false, koala);
     const deploy = { physicalName: 'machine-desk', kubeconfigPath: '/k', pool: false, koala: true };
     expect(worker.reach).toBe(koala);
     expect(monitoringStackEnv({ ...worker, kubeconfigPath: '/k' }, true)).toEqual(monitoringStackEnv(deploy, true));
-    expect(koalaClusterMonitoring({ POOL: 'true' }, koala)).toMatchObject({ pool: true, koala: true });
-    expect(koalaClusterMonitoring({ POOL: 'true' }, { clusterId: 'pool-bob', kind: 'koala' })).toMatchObject({ physicalName: 'pool-bob', pool: true });
-    expect(koalaClusterMonitoring({}, { clusterId: 'root', kind: 'root' })).toEqual({ physicalName: 'root', koala: true, pool: false, reach: { clusterId: 'root', kind: 'root' } });
+    expect(koalaClusterMonitoring(true, koala)).toMatchObject({ pool: true, koala: true });
+    expect(koalaClusterMonitoring(true, { clusterId: 'pool-bob', kind: 'koala' })).toMatchObject({ physicalName: 'pool-bob', pool: true });
+    expect(koalaClusterMonitoring(false, { clusterId: 'root', kind: 'root' })).toEqual({ physicalName: 'root', koala: true, pool: false, reach: { clusterId: 'root', kind: 'root' } });
   });
 });
 
 describe('where a machine\'s cluster sends its metrics', () => {
-  it('is the instance\'s backend on its mesh address when the chart names it, otherwise this Koala\'s own address', () => {
-    expect(machineMetricsUrl({ MACHINE_METRICS_URL: 'http://100.64.0.7:30320/api/machines/metrics', PUBLIC_URL: 'https://bo.koala.app' })).toBe('http://100.64.0.7:30320/api/machines/metrics');
-    expect(machineMetricsUrl({ PUBLIC_URL: 'http://localhost:3001/' })).toBe('http://localhost:3001/api/machines/metrics');
-  });
-
   it('is sent with a token kept in a Secret beside the agent, never in the stack', () => {
     expect(metricsTokenManifests('t0k')).toEqual([
       { apiVersion: 'v1', kind: 'Namespace', metadata: { name: 'monitoring' } },

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cdktfStateEnv, MIRRORED_PROVIDERS, stateFilesOf, stateMove, terraformCliConfig, terraformStateFrom } from './terraform-state.js';
+import { cdktfStateEnv, MIRRORED_PROVIDERS, stateFilesOf, stateHomeIn, stateMove, terraformCliConfig, terraformStateFrom } from './terraform-state.js';
 
 describe('the files a stack keeps its Terraform state in', () => {
   it('is the state and the backup Terraform writes beside it, named for the stack as the CDKTF app names them', () => {
@@ -10,22 +10,23 @@ describe('the files a stack keeps its Terraform state in', () => {
 describe('where Terraform keeps a process\'s state', () => {
   const pod = { KUBERNETES_SERVICE_HOST: '10.43.0.1', POD_NAMESPACE: 'koala' };
 
-  it('is the data folder on root, a combined box and a dev box, which set nothing', () => {
-    expect(terraformStateFrom({}, '/data/terraform')).toEqual({ kind: 'local', dir: '/data/terraform' });
-    expect(terraformStateFrom({ ...pod, TERRAFORM_STATE: 'local' }, '/data/terraform')).toEqual({ kind: 'local', dir: '/data/terraform' });
+  it('is the data folder where the settings say local, and nowhere guessed when they say nothing', () => {
+    expect(() => terraformStateFrom({})).toThrow('TERRAFORM_STATE is not set');
+    expect(terraformStateFrom({ TERRAFORM_STATE: 'local' })).toEqual({ kind: 'local' });
+    expect(stateHomeIn(terraformStateFrom({ ...pod, TERRAFORM_STATE: 'local' }), '/data/terraform')).toEqual({ kind: 'local', dir: '/data/terraform' });
     expect(cdktfStateEnv({ kind: 'local', dir: '/data/terraform' })).toEqual({ CDKTF_STATE_DIR: '/data/terraform' });
   });
 
   it('is the instance\'s own namespace in its cluster when the chart says kubernetes, the data folder kept to find state from before', () => {
-    const home = terraformStateFrom({ ...pod, TERRAFORM_STATE: 'kubernetes' }, '/data/terraform');
+    const home = stateHomeIn(terraformStateFrom({ ...pod, TERRAFORM_STATE: 'kubernetes' }), '/data/terraform');
     expect(home).toEqual({ kind: 'kubernetes', namespace: 'koala', dir: '/data/terraform' });
     expect(cdktfStateEnv(home)).toEqual({ CDKTF_STATE_NAMESPACE: 'koala' });
   });
 
   it('refuses kubernetes outside a pod or without its namespace, and any other kind, rather than keep state somewhere else', () => {
-    expect(() => terraformStateFrom({ TERRAFORM_STATE: 'kubernetes', KUBERNETES_SERVICE_HOST: '10.43.0.1' }, '/d')).toThrow('POD_NAMESPACE is not set');
-    expect(() => terraformStateFrom({ TERRAFORM_STATE: 'kubernetes', POD_NAMESPACE: 'koala' }, '/d')).toThrow('not running in a pod');
-    expect(() => terraformStateFrom({ TERRAFORM_STATE: 's3' }, '/d')).toThrow('either local or in kubernetes');
+    expect(() => terraformStateFrom({ TERRAFORM_STATE: 'kubernetes', KUBERNETES_SERVICE_HOST: '10.43.0.1' })).toThrow('POD_NAMESPACE is not set');
+    expect(() => terraformStateFrom({ TERRAFORM_STATE: 'kubernetes', POD_NAMESPACE: 'koala' })).toThrow('not running in a pod');
+    expect(() => terraformStateFrom({ TERRAFORM_STATE: 's3' })).toThrow('either local or in kubernetes');
   });
 });
 

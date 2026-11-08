@@ -1,5 +1,5 @@
 import type { ProjectMetadata } from '../../platform/index.js';
-import { hereFrom, koalasClusterId } from '../../infrastructure/lib/cluster-places.js';
+import { koalasClusterId, type Here } from '../../infrastructure/lib/cluster-places.js';
 
 export const webhookUrlAt = (backend: string, projectId: string): string => `${backend.replace(/\/+$/, '')}/webhooks/gitea/${projectId}`;
 
@@ -22,7 +22,7 @@ export function isShippable(project: Pick<ProjectMetadata, 'webhookSecretEnc' | 
   return shippingGaps(project).length === 0;
 }
 
-export const koalasClusterFor = (env: Readonly<Record<string, string | undefined>>): string | undefined => koalasClusterId(hereFrom(env, false));
+export const koalasClusterFor = (here: Here): string | undefined => koalasClusterId(here);
 
 const pathOf = (url: string): string | undefined => {
   try { return new URL(url).pathname; } catch { return undefined; }

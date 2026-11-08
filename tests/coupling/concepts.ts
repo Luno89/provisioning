@@ -20,7 +20,7 @@ export const CONCEPTS: readonly Concept[] = [
     marks: [/['"`/]kubectl\b/, /['"`/]helm\b/, /['"`/]k3d\b/, /docker exec/, /['"`]exec['"`],\s*['"`-]/],
   },
   { id: 'work', label: 'starts or hands work to another process', through: ['temporal'] },
-  { id: 'config', label: 'reads configuration', marks: [/\bprocess\.env\b/, /\benv\.[A-Z][A-Z0-9_]{2,}\b/, /\benv\[['"`][A-Z][A-Z0-9_]{2,}['"`]\]/] },
+  { id: 'config', label: 'reads configuration', marks: [/\bprocess\.env\b/, /\benv\.[A-Z][A-Z0-9_]{2,}\b/, /\benv\[['"`][A-Z][A-Z0-9_]{2,}['"`]\]/, /\b(?:required|urlSetting|hostPortSetting|portSetting)\(read, ['"`][A-Z][A-Z0-9_]{2,}['"`]/, /\bsettingIn\(read\.env, ['"`][A-Z][A-Z0-9_]{2,}['"`]/] },
   { id: 'store', label: 'reads or writes stored records', inFile: /(^|\/)store\.ts$/ },
   { id: 'calls-out', label: 'calls a service over the network', marks: [/\bfetch\(/, /\baxios\.(get|post|put|patch|delete|create|request)\b/, /\bpublicFetch\(/] },
   {

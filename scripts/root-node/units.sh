@@ -99,6 +99,8 @@ Environment=NODE_ENV=production
 Environment=HOME=/var/lib/koala
 Environment=CADDY_ADMIN_SOCKET=/run/koala-caddy/admin.sock
 Environment=CADDY_LOG=/var/log/koala-caddy/caddy.log
+Environment=CADDY_CONFIG=${REPO_DIR}/Caddyfile
+Environment=CADDY_TLS_ADDRESS=127.0.0.1:443
 Environment=POOL_KUBECONFIG=${BACKEND_POOL}
 Environment=GIT_CONFIG_COUNT=1
 Environment=GIT_CONFIG_KEY_0=safe.directory

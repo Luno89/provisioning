@@ -30,7 +30,7 @@ export interface MonitoringPlan {
 
 const lines = (text: string) => text.split('\n').map((line) => line.trim()).filter(Boolean);
 
-export const placedOnPool = (env: NodeJS.ProcessEnv, reach: Pick<Reach, 'kind'>): boolean => env.POOL === 'true' && reach.kind === 'koala';
+export const placedOnPool = (pool: boolean, reach: Pick<Reach, 'kind'>): boolean => pool && reach.kind === 'koala';
 
 export interface KoalaClusterMonitoring {
   physicalName: string;
@@ -39,10 +39,10 @@ export interface KoalaClusterMonitoring {
   koala: true;
 }
 
-export const koalaClusterMonitoring = (env: NodeJS.ProcessEnv, reach: Reach): KoalaClusterMonitoring => ({
+export const koalaClusterMonitoring = (pool: boolean, reach: Reach): KoalaClusterMonitoring => ({
   physicalName: reach.clusterId,
   reach,
-  pool: placedOnPool(env, reach),
+  pool: placedOnPool(pool, reach),
   koala: true,
 });
 
@@ -78,8 +78,6 @@ export function monitoringStackName(physicalName: string, part: MonitoringStackP
 
 export const METRICS_TOKEN_SECRET = 'koala-metrics';
 
-export const machineMetricsUrl = (env: NodeJS.ProcessEnv): string =>
-  env.MACHINE_METRICS_URL || `${(env.PUBLIC_URL || 'http://localhost:3001').replace(/\/$/, '')}/api/machines/metrics`;
 
 export function metricsTokenManifests(token: string): Array<Record<string, unknown>> {
   return [

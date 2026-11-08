@@ -25,11 +25,20 @@ export class HeadscaleService {
 
   constructor(
     private readonly masterKey: SecretKey,
-    private readonly baseUrl: string = 'http://localhost:8080',
-    private readonly givenApiKey: string | undefined = undefined,
+    private readonly mesh: { headscaleUrl: string; headscaleApiKey?: string | undefined } | { off: string },
   ) {}
 
+  private get baseUrl(): string {
+    if ('off' in this.mesh) throw new Error(this.mesh.off);
+    return this.mesh.headscaleUrl;
+  }
+
+  private get givenApiKey(): string | undefined {
+    return 'off' in this.mesh ? undefined : this.mesh.headscaleApiKey;
+  }
+
   private async getApiKey(): Promise<string> {
+    if ('off' in this.mesh) throw new Error(this.mesh.off);
     if (this.apiKeyCache) return this.apiKeyCache;
     if (this.givenApiKey?.trim()) return (this.apiKeyCache = this.givenApiKey.trim());
 

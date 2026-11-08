@@ -1,7 +1,7 @@
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import dotenv from 'dotenv';
-import { createDatabase } from '../platform/index.js';
+import { createDatabase, databaseSettingsFrom } from '../platform/index.js';
 import { emailProblem, normalEmail, readiedForProviderLink } from '../accounts/index.js';
 
 dotenv.config({ path: resolve(dirname(fileURLToPath(import.meta.url)), '../../.env'), quiet: true });
@@ -18,7 +18,7 @@ async function main(): Promise<void> {
   const email = normalEmail(given);
   const malformed = emailProblem(email);
   if (malformed) throw new Error(`${given}: ${malformed}`);
-  const db = createDatabase();
+  const db = createDatabase(databaseSettingsFrom(process.env));
   await db.init();
   try {
     const user = await db.accounts.getUserById(userId);

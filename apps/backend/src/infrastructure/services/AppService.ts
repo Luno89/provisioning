@@ -81,7 +81,7 @@ export class AppService extends BaseService {
             DEPLOYMENT_ID: id.slice(0, 8),
             KUBECONFIG: kubeconfigPath,
             KUBECONFIG_CONTEXT: '',
-            APP_SERVICE_TYPE: appServiceType(placedOnPool(process.env, await this.clusters.access.reach(cluster.id))),
+            APP_SERVICE_TYPE: appServiceType(placedOnPool(Boolean(this.clusters.access.here.poolName), await this.clusters.access.reach(cluster.id))),
             APP_TYPE: appType,
             WEB_IMAGE_REPO: customTag.split(':')[0] || '',
             WEB_IMAGE_TAG: customTag.split(':')[1] || '',

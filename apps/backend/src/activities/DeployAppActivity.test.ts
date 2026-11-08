@@ -27,7 +27,7 @@ let infra: MockProxy<InfrastructureService>;
 let reached: Reach[];
 let nodes: string;
 
-const steps = () => ({ access, infra, gitea: mock<GiteaService>(), infisical: mock<InfisicalService>() });
+const steps = () => ({ access, infra, gitea: mock<GiteaService>(), infisical: mock<InfisicalService>(), database: { mongo: { uri: 'mongodb://unused', dbName: 'unused', e2e: false }, dataKey: 'cluster-steps-test-key' }, hfToken: undefined, machineMetricsUrl: 'http://100.64.0.7:30320/api/machines/metrics' });
 
 const deploy = (over: Partial<DeployAppArgs> = {}): DeployAppArgs => ({
   name: 'blog', namespace: 'blog-1a2b3c', clusterId: 'machine-desk', reach: DESK, clusterName: 'desk',
@@ -39,6 +39,7 @@ beforeEach(async () => {
   records.db = memoryDatabase();
   await records.db.infrastructure.saveCluster({ id: 'machine-desk', name: 'desk', provider: 'machine', machineId: 'desk', status: 'healthy' } as never);
   access = mock<ClusterAccess>();
+  Object.defineProperty(access, 'here', { value: { root: false, koalaMachineId: 'koala' }, configurable: true });
   infra = mock<InfrastructureService>();
   reached = [];
   nodes = '64Gi';
@@ -108,15 +109,13 @@ describe('deploying an app on the cluster it was handed', () => {
 
   it('on Koala\'s servers, keeps an app on the pool place it runs in behind a ClusterIP with the pool\'s storage, and gives that place only the operator\'s resources', async () => {
     const POOL: Reach = { clusterId: 'pool-bob', kind: 'koala' };
-    vi.stubEnv('POOL', 'true');
-    try {
+    Object.defineProperty(access, 'here', { value: { root: false, poolName: 'bob' }, configurable: true });
+    {
       access.kubectl.mockImplementation(async (_target, args) => (args[0] === 'api-resources' || (args[0] === 'get' && args[1] === 'ingressclass') ? '' : ''));
       await DeployAppActivity(deploy({ clusterId: 'pool-bob', reach: POOL, clusterName: 'pool-bob', machine: undefined }), steps());
       const [monitoring, app] = infra.deploy.mock.calls;
       expect([monitoring![0], monitoring![1]?.env]).toEqual(['pool-bob', expect.objectContaining({ CLUSTER_NAME: 'pool-bob', CLUSTER_MONITORING: 'crds', INGRESS_SERVICE: 'ClusterIP' })]);
       expect([app![0], app![1]?.env]).toEqual(['app-pool-bob-d1', expect.objectContaining({ APP_SERVICE_TYPE: 'ClusterIP', MINIO_STORAGE: '10Gi' })]);
-    } finally {
-      vi.unstubAllEnvs();
     }
   });
 

@@ -1,5 +1,5 @@
 import { Binary, MongoClient, type Collection, type Filter } from 'mongodb';
-import { mongoTarget } from './mongo-db.js';
+import type { MongoTarget } from './mongo-target.js';
 import type { PayloadBlobs, StoredBlob } from './payload-storage.js';
 import { clientOptionsFor } from './collection.js';
 import { ensureReplicaSet } from './replica-set.js';
@@ -16,11 +16,11 @@ interface ChunkDoc {
   data: Binary;
 }
 
-export function mongoPayloadBlobs(env: Readonly<Record<string, string | undefined>> = process.env): PayloadBlobs {
+export function mongoPayloadBlobs(mongo: MongoTarget): PayloadBlobs {
   let ready: Promise<Collection<ChunkDoc>> | undefined;
   const chunks = (): Promise<Collection<ChunkDoc>> => {
     ready ??= (async () => {
-      const { uri, dbName } = mongoTarget(env);
+      const { uri, dbName } = mongo;
       const client = new MongoClient(uri, clientOptionsFor(uri));
       await client.connect();
       await ensureReplicaSet(client);

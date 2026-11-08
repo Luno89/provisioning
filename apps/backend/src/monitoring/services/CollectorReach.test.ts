@@ -9,7 +9,7 @@ describe('reaching the collector on Koala\'s own cluster', () => {
   it('asks the cluster proxy for the collector\'s address on Koala\'s cluster, by its id', async () => {
     const proxy = mock<Pick<ClusterProxyService, 'serviceUrl'>>();
     proxy.serviceUrl.calledWith(KOALA, 'otel-collector').mockResolvedValue('http://10.43.0.7:4318/');
-    const endpoint = collectorEndpoint({ env: {}, proxy, koalasCluster: () => KOALA });
+    const endpoint = collectorEndpoint({ proxy, koalasCluster: () => KOALA });
     expect(await endpoint()).toBe('http://10.43.0.7:4318/');
     expect(proxy.serviceUrl).toHaveBeenCalledTimes(1);
   });
@@ -18,7 +18,7 @@ describe('reaching the collector on Koala\'s own cluster', () => {
     let now = 1_000;
     const proxy = mock<Pick<ClusterProxyService, 'serviceUrl'>>();
     proxy.serviceUrl.mockRejectedValue(new Error('port-forward exited'));
-    const endpoint = collectorEndpoint({ env: {}, proxy, koalasCluster: () => KOALA, now: () => now });
+    const endpoint = collectorEndpoint({ proxy, koalasCluster: () => KOALA, now: () => now });
     await expect(endpoint()).rejects.toThrow(`the collector on ${KOALA} cannot be reached: port-forward exited`);
     await expect(endpoint()).rejects.toThrow('port-forward exited');
     expect(proxy.serviceUrl).toHaveBeenCalledTimes(1);
@@ -30,7 +30,7 @@ describe('reaching the collector on Koala\'s own cluster', () => {
   it('says why when Koala\'s cluster cannot be reached at all', async () => {
     const proxy = mock<Pick<ClusterProxyService, 'serviceUrl'>>();
     proxy.serviceUrl.mockRejectedValue(new Error('this process is not running inside Koala\'s cluster'));
-    const endpoint = collectorEndpoint({ env: {}, proxy, koalasCluster: () => KOALA });
+    const endpoint = collectorEndpoint({ proxy, koalasCluster: () => KOALA });
     await expect(endpoint()).rejects.toThrow(`the collector on ${KOALA} cannot be reached: this process is not running inside Koala's cluster`);
   });
 
@@ -38,7 +38,7 @@ describe('reaching the collector on Koala\'s own cluster', () => {
     let now = 0;
     const proxy = mock<Pick<ClusterProxyService, 'serviceUrl'>>();
     proxy.serviceUrl.mockRejectedValueOnce(new Error('down')).mockResolvedValueOnce('http://10.43.0.7:4318/');
-    const endpoint = collectorEndpoint({ env: {}, proxy, koalasCluster: () => KOALA, now: () => now });
+    const endpoint = collectorEndpoint({ proxy, koalasCluster: () => KOALA, now: () => now });
     await expect(endpoint()).rejects.toThrow('down');
     now += COLLECTOR_RETRY_MS;
     expect(await endpoint()).toBe('http://10.43.0.7:4318/');
@@ -48,7 +48,7 @@ describe('reaching the collector on Koala\'s own cluster', () => {
     const posted: string[] = [];
     const fetchImpl = (async (url: string | URL | Request) => { posted.push(String(url)); return new Response(null, { status: 200 }); }) as typeof fetch;
     const proxy = mock<Pick<ClusterProxyService, 'serviceUrl'>>();
-    const sink = collectorSink({ env: { OTEL_EXPORTER_OTLP_ENDPOINT: 'http://127.0.0.1:4318' }, proxy, koalasCluster: () => KOALA, fetchImpl });
+    const sink = collectorSink({ otlpEndpoint: 'http://127.0.0.1:4318', proxy, koalasCluster: () => KOALA, fetchImpl });
     await sink.send('traces', new TextEncoder().encode('{}'));
     expect(posted).toEqual(['http://127.0.0.1:4318/v1/traces']);
     expect(proxy.serviceUrl).not.toHaveBeenCalled();
@@ -59,11 +59,11 @@ describe('reaching the collector on Koala\'s own cluster', () => {
     const fetchImpl = (async (url: string | URL | Request) => { posted.push(String(url)); return new Response(null, { status: 200 }); }) as typeof fetch;
     const proxy = mock<Pick<ClusterProxyService, 'serviceUrl'>>();
     proxy.serviceUrl.calledWith(KOALA, 'otel-collector').mockResolvedValue('http://10.43.0.7:4318/');
-    await collectorSink({ env: {}, proxy, koalasCluster: () => KOALA, fetchImpl }).send('metrics', new TextEncoder().encode('{}'));
+    await collectorSink({ otlpEndpoint: undefined, proxy, koalasCluster: () => KOALA, fetchImpl }).send('metrics', new TextEncoder().encode('{}'));
     expect(posted).toEqual(['http://10.43.0.7:4318/v1/metrics']);
     const refusing = mock<Pick<ClusterProxyService, 'serviceUrl'>>();
     refusing.serviceUrl.mockRejectedValue(new Error('there is no cluster machine-gone'));
-    const unreachable = collectorSink({ env: {}, proxy: refusing, koalasCluster: () => KOALA, fetchImpl });
+    const unreachable = collectorSink({ otlpEndpoint: undefined, proxy: refusing, koalasCluster: () => KOALA, fetchImpl });
     await expect(unreachable.send('metrics', new TextEncoder().encode('{}'))).rejects.toThrow('there is no cluster machine-gone');
   });
 });
@@ -71,7 +71,7 @@ describe('reaching the collector on Koala\'s own cluster', () => {
 describe('a process that runs in no cluster of its own', () => {
   it('starts, and only a send says why there is no collector to reach', async () => {
     const proxy = mock<Parameters<typeof collectorEndpoint>[0]['proxy']>();
-    const endpoint = collectorEndpoint({ env: {}, proxy, koalasCluster: () => { throw new Error('this process runs in no cluster of its own'); } });
+    const endpoint = collectorEndpoint({ proxy, koalasCluster: () => { throw new Error('this process runs in no cluster of its own'); } });
     await expect(endpoint()).rejects.toThrow('the collector on Koala\'s own cluster cannot be reached: this process runs in no cluster of its own');
     expect(proxy.serviceUrl).not.toHaveBeenCalled();
   });

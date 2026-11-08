@@ -1,6 +1,6 @@
 import type express from 'express';
 import {
-  type AccessRevocations, type Database, type SecretKey, claimSettingsFrom, holdsAccounts, principalOf, servesHub, servesTenants, type RoleConfig, mongoTarget,
+  type AccessRevocations, type Database, type SecretKey, claimSettingsFrom, holdsAccounts, principalOf, servesHub, servesTenants, type RoleConfig,
   type ProjectMetadata, type MailService,
 } from '../../platform/index.js';
 import { mongoHubStore } from '../lib/hub-mongo.js';
@@ -31,7 +31,9 @@ export type Mounts = { use(path: string, router: express.Router): unknown };
 
 export interface HubWiringDeps {
   role: RoleConfig;
-  env: NodeJS.ProcessEnv;
+  mongoUri: string;
+  hubDatabase: string | undefined;
+  ingressDomain: string | undefined;
   app: Mounts;
   tenant: Mounts;
   db: Database;
@@ -59,13 +61,14 @@ export interface HubWiring {
 }
 
 export async function wireHub(deps: HubWiringDeps): Promise<HubWiring> {
-  const { role, env, app, tenant, db } = deps;
+  const { role, app, tenant, db } = deps;
   const projectInvites = holdsAccounts(role) ? new ProjectInviteService({ invites: db.accounts, people: db.accounts, principalFor: (user) => principalOf(user, claimSettingsFrom(role)), limits: () => db.accounts.getInviteLimits(), mail: deps.mail, rootUrl: deps.publicUrl }) : undefined;
   if (projectInvites) app.use('/api/hub-link', hubLinkRouter({ invites: projectInvites, credentialHash: role.hubLink?.credentialHash, hash: hashCredential, signInKeys: { get: () => db.instances.getHubSignInKey(), save: (key) => db.instances.saveHubSignInKey(key) }, serviceCaller: deps.serviceCaller, personAtHub: deps.personAtHub, people: db.accounts }));
 
   let hubService: HubService | undefined;
   if (servesHub(role)) {
-    const hubStore = mongoHubStore(mongoTarget(env).uri, env.HUB_DATABASE?.trim() || 'koala_hub');
+    if (!deps.hubDatabase) throw new Error('HUB_DATABASE is not set: it is the database the hub keeps its registry of shared projects in');
+    const hubStore = mongoHubStore(deps.mongoUri, deps.hubDatabase);
     await hubStore.init();
     if (!role.hub || !deps.rootToken) throw new Error('a hub needs root to send its invites');
     const sender = new HubRootClient({ rootUrl: role.hub.rootUrl, token: deps.rootToken });
@@ -117,7 +120,7 @@ export async function wireHub(deps: HubWiringDeps): Promise<HubWiring> {
       republish: async () => {
         await deps.republish().catch((err: Error) => console.warn(`[sharing] republishing the apps failed: ${err.message}`));
       },
-      domain: env.INGRESS_DOMAIN || undefined,
+      domain: deps.ingressDomain,
     });
     hubSyncing = hubSync;
     db.releases.watchReleaseWork(() => hubSync.statusMoved());

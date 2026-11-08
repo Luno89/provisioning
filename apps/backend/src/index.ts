@@ -12,13 +12,14 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 import { Server as SocketServer } from 'socket.io';
 
-import { authRouter, AuthService, devicesFor, loadBreachedPasswords, passwordRouter, PasswordService, SignInProviders, signInProvidersFrom, signInReturnUrlFrom } from './accounts/index.js';
+import { authRouter, AuthService, devicesFor, loadBreachedPasswords, passwordRouter, PasswordService, SignInProviders } from './accounts/index.js';
 import helmet from 'helmet';
-import { CSP_REPORT_LIMIT, CSP_REPORT_PATH, cspHeader, cspModeFrom, violationLine, crossSiteRefusal, foreignOrigin, ourOrigins, MetricsService, JSON_LIMITS, jsonLimitFor, RATE_LIMITS, ruleFor,
-  getTemporalClient, resolveOwnersWith, PayloadStorageService, createAuth, inFlightLimit, keepTrying, mongoTarget, asyncRoute,
-  TEMPORAL_JWKS_PATH, temporalCa, temporalTlsProblem, temporalKeysRouter, trustProxyFor, temporalNamespaceFrom,
-  authorize, claimSettingsFrom, type Principal, createDatabase, sharedPayloadBlobs, type Database, migrateLegacyOwnership, operatorsFromAdmins, ownUnownedProjects, decryptValue, loadKeys,
-  AccessRevocations, SessionEnds, SessionSockets, endsSessions, roleFromEnv, servesTenants, servesHub, holdsAccounts, MailService, emailWayFrom, telemetrySettings, e2eProblem, firstAdminSetup, drainThenStop, podPlaceFrom, runOnce, } from './platform/index.js';
+import { CSP_REPORT_LIMIT, CSP_REPORT_PATH, cspHeader, violationLine, crossSiteRefusal, foreignOrigin, MetricsService, JSON_LIMITS, jsonLimitFor, RATE_LIMITS, ruleFor,
+  getTemporalClient, resolveOwnersWith, PayloadStorageService, createAuth, inFlightLimit, keepTrying, asyncRoute,
+  TEMPORAL_JWKS_PATH, temporalCa, temporalTlsProblem, temporalKeysRouter,
+  authorize, claimSettingsFrom, type Principal, createDatabase, sharedPayloadBlobs, type Database, migrateLegacyOwnership, operatorsFromAdmins, ownUnownedProjects, decryptValue,
+  AccessRevocations, SessionEnds, SessionSockets, endsSessions, servesTenants, holdsAccounts, MailService, telemetrySettings, firstAdminSetup, drainThenStop, inClusterSlices, runOnce,
+  backendSettingsFrom, connectTemporalAs, isOff, keepPayloadsIn, MACHINE_GATEWAY_HOST, SettingsError, signsEveryoneIn, type BackendSettings } from './platform/index.js';
 import { startTelemetry } from '@koala/engine-core/telemetry-sdk';
 import { rateLimit } from 'express-rate-limit';
 import { wireReleases } from './releases/wiring/releases.js';
@@ -41,16 +42,16 @@ import { runClosedVia, runLifeVia } from './engine-host/temporal/run-cancellatio
 import { DEFAULT_ENGINE_TASK_QUEUE } from './engine-host/temporal/contracts.js';
 import { askDevice, dropDevice, localAgentStatus, tellDevice, machineTelemetry } from './machines/index.js';
 import { machineSides } from './machines/wiring/sides.js';
-import { IdentityService, instanceReachFrom } from './instances/index.js';
-import { modelsRouter, ModelService, endpointRulesFromEnv } from './models/index.js';
+import { IdentityService, InstanceReach } from './instances/index.js';
+import { modelsRouter, ModelService } from './models/index.js';
 
 import {
   InfrastructureService, ClusterService, clusterAccessFrom, AppService, RegistryService, GitModuleService, BuilderService,
-  AppExposureService, VpsCatalogService, WorkerService, sharedClusterProxy, CredentialService, InfisicalService, infisicalSettingsFrom,
-  HeadscaleService, BUILD_TOKENS_MIGRATION, cleanUpBuildTokens, pullSecretWriter, ovhSubsidiaryFrom, vpsCatalogAdapters,
+  AppExposureService, VpsCatalogService, WorkerService, sharedClusterProxy, CredentialService, InfisicalService,
+  HeadscaleService, BUILD_TOKENS_MIGRATION, cleanUpBuildTokens, pullSecretWriter, ovhSubsidiaryOf, terraformPlacesFor, vpsCatalogAdapters,
 } from './infrastructure/index.js';
 import { TemporalBridge } from './infrastructure/services/TemporalBridge.js';
-import { GiteaService, giteaSettingsFrom, pushToBuild } from './projects/index.js';
+import { GiteaService, pushToBuild } from './projects/index.js';
 import { HUB_REPO_HOOK_PATH, hubRepoHookSecret, hubRepoHookSecrets, hubRepoHookUrl } from './hub/index.js';
 
 import { seedAll } from './scripts/seed-all.js';
@@ -59,25 +60,27 @@ import { collectorSink, NotificationService, PushService, vapidKeysFrom, vapidSu
 const startsHere = process.env.NODE_ENV !== 'test' || process.env.IS_E2E === 'true';
 if (startsHere) dotenv.config({ quiet: true });
 
-const telemetry = startTelemetry(telemetrySettings(process.env, 'koala-backend'));
-
-export async function bootstrap(): Promise<{ app: express.Application; io: SocketServer; temporalBridge?: TemporalBridge; db: Database }> {
-  const plaintext = temporalTlsProblem(process.env);
+export async function bootstrap(): Promise<{ app: express.Application; io: SocketServer; temporalBridge?: TemporalBridge; db: Database; settings: BackendSettings }> {
+  const settings = backendSettingsFrom(process.env);
+  const telemetry = startTelemetry(telemetrySettings(settings, 'koala-backend'));
+  const plaintext = temporalTlsProblem(settings.temporal);
   if (plaintext) throw new Error(plaintext);
+  connectTemporalAs(settings);
+  keepPayloadsIn(settings.mongo);
   const app = express();
   const httpServer = createServer(app);
   httpServer.requestTimeout = 0;
-  const port = process.env.PORT || 3001;
+  const { port, production } = settings;
 
-  const PUBLIC_URL = (process.env.PUBLIC_URL || `http://localhost:${port}`).replace(/\/$/, '');
+  const PUBLIC_URL = settings.publicUrl;
 
-  const APP_URL = (process.env.APP_URL || process.env.PUBLIC_URL || 'http://localhost:5173').replace(/\/$/, '');
+  const APP_URL = settings.appUrl;
 
   const corsAllowed = new Set([PUBLIC_URL, APP_URL]);
   const originAllowed = (origin: string | undefined): boolean =>
-    !origin || process.env.NODE_ENV !== 'production' || corsAllowed.has(origin.replace(/\/$/, ''));
+    !origin || !production || corsAllowed.has(origin.replace(/\/$/, ''));
 
-  const ours = ourOrigins(process.env);
+  const ours = settings.origins;
   const io = new SocketServer(httpServer, {
     allowRequest: (req, callback) => {
       const refused = foreignOrigin({ host: req.headers.host, origin: req.headers.origin, fetchSite: req.headers['sec-fetch-site'] as string | undefined }, ours);
@@ -89,81 +92,82 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     },
   });
 
-  const db = createDatabase();
+  const keys = settings.keys;
+  const db = createDatabase({ mongo: settings.mongo, dataKey: keys.data });
   await db.init();
   resolveOwnersWith(async (owner) => (await db.accounts.getUserById(owner))?.space?.person ?? owner);
-  const role = roleFromEnv(process.env);
+  const { role } = settings;
   const claimSettings = claimSettingsFrom(role);
   await operatorsFromAdmins(db, new Date().toISOString());
   await migrateLegacyOwnership(db, claimSettings);
   await runOnce(db.platform, 'projects-owned', new Date().toISOString(), () => ownUnownedProjects(db, claimSettings));
-  await seedAll(db);
+  await seedAll(db, keys.data);
 
-  const e2e = e2eProblem(process.env);
-  if (e2e) throw new Error(e2e);
-  const keys = loadKeys(process.env);
   const revocations = new AccessRevocations();
-  const instanceReach = instanceReachFrom(process.env);
-  const rootProvider = rootProviderFor({ role, publicUrl: PUBLIC_URL, keys, db, proxied: process.env.NODE_ENV === 'production', reach: instanceReach });
+  const instanceReach = new InstanceReach(settings.reach);
+  const rootProvider = rootProviderFor({ role, publicUrl: PUBLIC_URL, keys, db, proxied: production, reach: instanceReach });
   if (rootProvider) revocations.listen((revoked) => rootProvider.revoke(revoked));
-  const rootSignIn = rootSignInFor({ role, env: process.env, keys, db, revocations, publicUrl: PUBLIC_URL });
+  const rootSignIn = rootSignInFor({ role, instanceCredential: settings.instance?.credential, keys, db, revocations, publicUrl: PUBLIC_URL });
   const rootToken = rootSignIn ? () => rootSignIn.serviceToken() : undefined;
-  const metrics = new MetricsService({ token: process.env.METRICS_TOKEN?.trim() || undefined, role: role.role });
+  const metrics = new MetricsService({ token: isOff(settings.metricsToken) ? undefined : settings.metricsToken, role: role.role });
   const mail = new MailService({
-    way: emailWayFrom(process.env, role),
+    way: settings.mail,
     emailOf: async (ownerId) => (await db.accounts.getUserById(ownerId))?.email,
     rootToken,
   });
   const vapid = vapidKeysFrom(typeof keys.data === 'string' ? keys.data : keys.data.current);
-  const push = new PushService({ store: db.monitoring, vapid, send: webPushSend(vapid, vapidSubject(process.env.MAIL_FROM, PUBLIC_URL)), log: (message) => console.warn(message) });
+  const push = new PushService({ store: db.monitoring, vapid, send: webPushSend(vapid, vapidSubject(settings.mail.kind === 'smtp' ? settings.mail.from : undefined, PUBLIC_URL)), log: (message) => console.warn(message) });
   const notifications = new NotificationService({ store: db.monitoring, mail, push, publicUrl: PUBLIC_URL, log: (message) => console.warn(message) });
   const tenants = servesTenants(role);
-  const engineTaskQueue = process.env.TEMPORAL_ENGINE_TASK_QUEUE || DEFAULT_ENGINE_TASK_QUEUE;
-  const instanceFiles = tenants ? storedFilesFor({ db, env: process.env, workflows: async () => (await getTemporalClient()).workflow, engineTaskQueue, dataDir: path.join(__dirname, '../data') }) : undefined;
+  const engineTaskQueue = settings.queues.engine || DEFAULT_ENGINE_TASK_QUEUE;
+  const tenantServices = settings.tenant;
+  const instanceFiles = tenantServices ? storedFilesFor({ db, minio: tenantServices.minio, workflows: async () => (await getTemporalClient()).workflow, engineTaskQueue, dataDir: path.join(__dirname, '../data') }) : undefined;
   const tenant: express.Router = tenants ? (app as unknown as express.Router) : express.Router();
   const identity = new IdentityService(role, db, undefined, undefined, instanceReach);
   console.log(`🧭 Running as ${role.role}${role.instance ? ` (instance ${role.instance.id}, owned by ${role.instance.ownerId})` : ''}`);
-  const infraService = new InfrastructureService();
+  const infraService = new InfrastructureService(terraformPlacesFor(settings.terraform));
   const builderService = new BuilderService(db, infraService);
-  const clusterAccess = clusterAccessFrom(process.env, { role: role.role, clusters: db.infrastructure, dataKey: keys.data });
+  const clusterAccess = clusterAccessFrom(settings.clusters, { role: role.role, clusters: db.infrastructure, dataKey: keys.data });
   const koalasCluster = (): string => clusterAccess.own().clusterId;
   const clusterService = new ClusterService(db, clusterAccess, { instanceOwnerId: role.instance?.ownerId });
   const appService = new AppService(db, infraService, clusterService, builderService);
   const registryService = new RegistryService(db);
   const gitModuleService = new GitModuleService(db);
-  const instanceSide = new InstanceSide(role, process.env, rootToken);
+  const instanceSide = new InstanceSide(role, { edge: settings.instance?.edge ?? { off: `${role.role} runs no edge; an instance does` }, unreachableAfterMs: settings.tests.unreachableAfterMs }, rootToken);
   instanceSide.watchRoot((ownerId, message) => push.toPerson(ownerId, message));
   const appExposureService = new AppExposureService(db, clusterService, io, {
     edge: instanceSide.edge,
     groupOf: async (dep) => (dep.gitappProjectId ? (await db.hub.getHubLinks()).find((link) => link.projectId === dep.gitappProjectId)?.group : undefined),
+    domain: () => (isOff(settings.ingressDomain) ? undefined : settings.ingressDomain),
   });
   const clusterProxyService = sharedClusterProxy(clusterAccess);
   const telemetrySink = collectorSink({
-    env: process.env,
+    otlpEndpoint: settings.telemetry.otlpEndpoint,
     proxy: clusterProxyService,
     koalasCluster,
   });
   telemetry.exportTo(telemetrySink);
-  const gitea = tenants || servesHub(role) ? giteaSettingsFrom(process.env) : undefined;
-  const giteaService = new GiteaService(keys.data, gitea ?? { none: `${role.role} keeps no repositories, so it reaches no Gitea` });
-  const infisicalService = new InfisicalService(keys.data, tenants ? infisicalSettingsFrom(process.env) : { none: `${role.role} keeps no project's secrets, so it reaches no Infisical` });
-  const core = projectsCore({ db, push, io, env: process.env, dataKey: keys.data, gitea: giteaService, webhooksTo: tenants ? gitea?.reachesKoalaAt : undefined, infisical: infisicalService });
+  const gitea = tenantServices?.gitea ?? settings.hubGitea;
+  const giteaService = new GiteaService(keys.data, gitea ?? { none: `${role.role} keeps no repositories, so it reaches no Gitea` }, { registryPullHost: tenantServices?.registryPullHost });
+  const infisicalService = new InfisicalService(keys.data, tenantServices ? tenantServices.infisical : { none: `${role.role} keeps no project's secrets, so it reaches no Infisical` });
+  const core = projectsCore({ db, push, io, here: settings.clusters.here, dataKey: keys.data, gitea: giteaService, webhooksTo: tenants ? gitea?.reachesKoalaAt : undefined, infisical: infisicalService });
   const { projectRepoService, channels, itemChats, notices, postNotice, projectSecrets } = core;
-  const headscaleService = new HeadscaleService(keys.data, process.env.HEADSCALE_URL || 'http://localhost:8080', process.env.HEADSCALE_API_KEY);
-  const MACHINE_GATEWAY_PORT = Number(process.env.MACHINE_GATEWAY_PORT || 7234);
-  const machineTemporal = { address: process.env.MACHINE_TEMPORAL_ADDRESS || `localhost:${MACHINE_GATEWAY_PORT}`, namespace: temporalNamespaceFrom(process.env) };
+  const headscaleService = new HeadscaleService(keys.data, settings.mesh);
+  const machineTemporalAddress = settings.instance?.machineTemporalAddress;
+  const machineTemporal = typeof machineTemporalAddress === 'string' ? { address: machineTemporalAddress, namespace: settings.temporal.namespace } : undefined;
+  if (machineTemporalAddress && isOff(machineTemporalAddress)) console.warn(`[machines] ${machineTemporalAddress.off}`);
   const machineBundle = newMachineBundle(path.join(__dirname, '../../..'));
   const late: { instances?: Awaited<ReturnType<typeof wireInstances>> } = {};
   const { accounts: machineAccounts, machines: machineService, clusters: machineClusters, workTokens, instanceArrived, instanceCaller } = machineSides({
-    role, db, io, dataKey: keys.data, publicUrl: PUBLIC_URL, meshLoginServer: process.env.MESH_LOGIN_SERVER, registry: process.env.INSTANCE_REGISTRY, koalaMachineId: process.env.INSTANCE_MACHINE_ID || undefined, mesh: headscaleService,
+    role, db, io, dataKey: keys.data, publicUrl: PUBLIC_URL, meshLoginServer: isOff(settings.mesh) ? undefined : settings.mesh.loginServer, registry: settings.root?.registry, koalaMachineId: settings.clusters.here.koalaMachineId, mesh: headscaleService,
     devices: { status: localAgentStatus, tell: tellDevice, ask: askDevice, drop: dropDevice },
     projects: projectRepoService, bundle: machineBundle, rootToken,
     side: instanceSide,
     instances: () => (late.instances ? { service: late.instances.instanceService, tellInstance: late.instances.tellInstance } : undefined),
   });
-  const modelService = new ModelService(db, appService, clusterService, clusterProxyService, headscaleService, keys.data, endpointRulesFromEnv(process.env));
+  const modelService = new ModelService(db, appService, clusterService, clusterProxyService, headscaleService, keys.data, settings.endpointRules);
 
-  const temporalBridge = new TemporalBridge(db, io, keys.data, clusterService, claimSettings);
+  const temporalBridge = new TemporalBridge(db, io, keys.data, clusterService, claimSettings, { engineQueue: settings.queues.engine, operatorEnv: settings.operator.env });
   appService.setTemporalBridge(temporalBridge);
   if (tenants) {
     await keepTrying('⚠️ Temporal TS bridge not available yet, routes fall back to the local DB until it is', async () => {
@@ -172,25 +176,25 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     }, (message) => console.warn(message));
   }
 
-  const engine = engineCore({ db, env: process.env, temporalBridge, machines: machineService, checks: () => level2Service, revocations });
+  const engine = engineCore({ db, role, engineQueue: settings.queues.engine, temporalBridge, machines: machineService, checks: () => level2Service, revocations });
   const {
     extensions, agentDirectory, engineRegistry, engineRuns, workspaceBuilds, workspaceRepos, workspaceConclusions,
     memoryKeeper, concluded, runningRecords, bench, agentsHolder, workspaceDependencies,
   } = engine;
   const workFailures = workFailuresFor({ db, temporalBridge, metrics, records: runningRecords });
 
-  startEngineStream({ role, push, io, db, payloadKey: keys.payload, core: engine, models: modelService, notices, postNotice, workFailures, machineClusters, storedFiles: instanceFiles?.activities });
+  startEngineStream({ role, push, io, db, connection: settings, core: engine, models: modelService, notices, postNotice, workFailures, machineClusters, storedFiles: instanceFiles?.activities });
   if (instanceFiles) keepStoredFilesSwept({ workflows: async () => (await getTemporalClient()).workflow, engineTaskQueue });
-  if (instanceFiles && process.env.NODE_ENV !== 'test') archiveOldFilesOnce({ db, storedFiles: instanceFiles.storedFiles, clusters: clusterService });
+  if (instanceFiles && !settings.underTest) archiveOldFilesOnce({ db, storedFiles: instanceFiles.storedFiles, clusters: clusterService });
 
-  const authService = new AuthService(db, { mail, production: process.env.NODE_ENV === 'production', push });
+  const authService = new AuthService(db, { mail, production, push, ...(isOff(settings.twilio) ? {} : { twilio: settings.twilio }) });
   const passwords = new PasswordService({ db, auth: authService, breached: loadBreachedPasswords(), revocations });
   const sessionEnds = new SessionEnds(db.platform);
   await sessionEnds.follow();
   const sessionSockets = new SessionSockets();
   sessionEnds.onEnd((sessionId) => sessionSockets.end({ kind: 'session', sessionId }));
   revocations.listen(async (revoked) => { if (endsSessions(revoked)) sessionSockets.end({ kind: 'person', personId: revoked.personId, before: Date.parse(revoked.at) }); });
-  app.set('trust proxy', trustProxyFor(process.env));
+  app.set('trust proxy', settings.trustProxy);
   app.use(inFlightLimit());
   app.use(cors({
     origin: (origin, callback) => callback(null, originAllowed(origin)),
@@ -240,9 +244,9 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   }));
 
   app.use(metrics.middleware());
-  app.use(helmet({ contentSecurityPolicy: false, crossOriginEmbedderPolicy: false, hsts: process.env.NODE_ENV === 'production' }));
+  app.use(helmet({ contentSecurityPolicy: false, crossOriginEmbedderPolicy: false, hsts: production }));
   app.use(TEMPORAL_JWKS_PATH, temporalKeysRouter({ temporalKey: keys.temporal }));
-  const csp = cspHeader(cspModeFrom(process.env));
+  const csp = cspHeader(settings.csp);
   if (csp) app.use((_req, res, next) => { res.setHeader(csp.name, csp.value); next(); });
   app.post(CSP_REPORT_PATH, rateLimit({ windowMs: CSP_REPORT_LIMIT.windowMs, limit: CSP_REPORT_LIMIT.max, standardHeaders: 'draft-8', legacyHeaders: false, message: '' }), express.json({ type: ['application/csp-report', 'application/reports+json', 'application/json'], limit: '64kb' }), (req, res) => {
     const line = violationLine(req.body);
@@ -263,18 +267,18 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     if (refused) return res.status(403).json({ error: `Refused: ${refused}` });
     next();
   });
-  const credentialService = new CredentialService(db, keys.data, claimSettings);
-  const vpsCatalogService = new VpsCatalogService(vpsCatalogAdapters(() => ovhSubsidiaryFrom(process.env)));
+  const credentialService = new CredentialService(db, keys.data, { claims: claimSettings, credentials: settings.operator });
+  const vpsCatalogService = new VpsCatalogService(vpsCatalogAdapters(() => ovhSubsidiaryOf(settings.operator.ovhSubsidiary)));
 
-  const setup = holdsAccounts(role) ? firstAdminSetup(process.env, (await db.accounts.getUsers()).length === 0) : undefined;
+  const setup = settings.root ? firstAdminSetup({ setupCode: settings.root.setupCode, production }, (await db.accounts.getUsers()).length === 0) : undefined;
   if (setup?.say) console.log(`🔑 ${setup.say}`);
-  const auth = createAuth({ db, sessionKey: keys.session, publicUrl: PUBLIC_URL, role: role.role, instanceOwnerId: claimSettings.instanceOwnerId, setupCode: setup?.code, clientSessions: rootSignIn, sessionEnds });
+  const auth = createAuth({ db, sessionKey: keys.session, publicUrl: PUBLIC_URL, role: role.role, instanceOwnerId: claimSettings.instanceOwnerId, setupCode: setup?.code, clientSessions: rootSignIn, sessionEnds, signsEveryoneIn: signsEveryoneIn(settings) });
   const devices = devicesFor({ auth, sessionKey: keys.session, authService });
   const { requireOperator } = auth;
 
   let runningNow: (() => Promise<string[] | 'unknown'>) | undefined;
   await wireMoveExport({
-    role, env: process.env, app, dataDir: path.join(__dirname, '../data'), mongo: mongoTarget(process.env), access: clusterService.access,
+    role, pool: Boolean(settings.clusters.here.poolName), moved: settings.instance?.move, app, dataDir: path.join(__dirname, '../data'), mongo: settings.mongo, access: clusterService.access,
     running: async () => (runningNow ? runningNow() : 'unknown'),
     claim: (jti, expiresAt) => db.instances.claimHandoff(jti, expiresAt),
   });
@@ -287,10 +291,10 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     res.type(metrics.contentType).send(await metrics.text());
   }));
 
-  wireSockets({ io, db, role, env: process.env, sessionSockets, payloadKey: keys.payload, dataKey: keys.data, auth, machines: machineService, workTokens, machineClusters, clusters: clusterService, apps: appService, telemetry: machineTelemetry({ sink: () => telemetrySink }), machineTemporal, runs: { life: runLifeVia(() => getTemporalClient()), closed: runClosedVia(() => getTemporalClient()) } });
+  wireSockets({ io, db, role, signsEveryoneIn: signsEveryoneIn(settings), payloadBlobs: sharedPayloadBlobs(), sessionSockets, payloadKey: keys.payload, dataKey: keys.data, auth, machines: machineService, workTokens, machineClusters, clusters: clusterService, apps: appService, telemetry: machineTelemetry({ sink: () => telemetrySink }), machineTemporal, runs: { life: runLifeVia(() => getTemporalClient()), closed: runClosedVia(() => getTemporalClient()) } });
 
-  const signInWith = holdsAccounts(role) ? signInProvidersFrom(process.env) : { providers: [], problems: [] };
-  const signInReturn = holdsAccounts(role) ? signInReturnUrlFrom(process.env) : {};
+  const signInWith = settings.root ? settings.root.signIn : { providers: [], problems: [] };
+  const signInReturn = settings.root ? settings.root.signInReturn : {};
   for (const problem of [...signInWith.problems, ...(signInReturn.problem ? [signInReturn.problem] : [])]) console.warn(`[sign-in] ${problem}`);
   app.use('/api/auth', authRouter({
     db, authService, auth, sessionKey: keys.session, appUrl: APP_URL, accounts: holdsAccounts(role), hub: role.role === 'hub', revocations,
@@ -298,7 +302,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   }));
   if (holdsAccounts(role)) app.use('/api/auth/password', passwordRouter({ passwords, auth, devices, sessionKey: keys.session }));
   const hub = await wireHub({
-    role, env: process.env, app, tenant, db, mail, publicUrl: PUBLIC_URL, dataKey: keys.data, gitea: giteaService, io,
+    role, mongoUri: settings.mongo.uri, hubDatabase: settings.hubDatabase, ingressDomain: isOff(settings.ingressDomain) ? undefined : settings.ingressDomain, app, tenant, db, mail, publicUrl: PUBLIC_URL, dataKey: keys.data, gitea: giteaService, io,
     hubRepoHook: {
       url: async (projectId) => {
         if (!gitea) throw new Error(`${role.role} keeps no repositories, so no shared project's repository sends it pushes`);
@@ -323,17 +327,17 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   }));
 
   const instancesWiring = await wireInstances({
-    role, env: process.env, app, tenant, db, mail, identity, auth, sessionKey: keys.session, publicUrl: PUBLIC_URL,
+    role, settings, app, tenant, db, mail, identity, auth, sessionKey: keys.session, publicUrl: PUBLIC_URL,
     repoRoot: path.join(__dirname, '../../..'), dataDir: path.join(__dirname, '../data'), headscale: headscaleService, access: clusterService.access,
     side: instanceSide, syncExposedApps: () => appExposureService.syncExposedApps(), provider: rootProvider, signIn: rootSignIn, rootToken, io,
     instanceArrived,
   });
   late.instances = instancesWiring;
   const people = async () => (await db.accounts.getUsers()).filter((user) => !user.space).map((user) => auth.principalFor(user));
-  const { monitoring } = wireMonitoring({ machineStatus: localAgentStatus, tenant, app, operatorOnly: requireOperator('administer'), db, role, env: process.env, io, clusters: clusterService, proxy: clusterProxyService, notices, notifications, push, mail, people, rootToken });
+  const { monitoring } = wireMonitoring({ machineStatus: localAgentStatus, tenant, app, operatorOnly: requireOperator('administer'), db, role, poolMonitor: settings.instance?.poolMonitor ?? { off: `${role.role} is not an instance` }, io, clusters: clusterService, proxy: clusterProxyService, notices, notifications, push, mail, people, rootToken });
   const workerService = new WorkerService();
   wireInfrastructure({
-    tenant, operatorOnly: requireOperator('administer'), db, io, dataKey: keys.data, sessionKey: keys.session, publicUrl: PUBLIC_URL, appUrl: APP_URL, openRouterUrl: process.env.OPENROUTER_URL, repoRoot: path.join(__dirname, '../../..'),
+    tenant, operatorOnly: requireOperator('administer'), db, io, dataKey: keys.data, sessionKey: keys.session, publicUrl: PUBLIC_URL, appUrl: APP_URL, openRouterUrl: settings.tests.openRouterUrl, googleDrive: settings.operator.googleDrive, poolQueue: settings.queues.pool, repoRoot: path.join(__dirname, '../../..'),
     credentials: credentialService, clusters: clusterService, apps: appService, proxy: clusterProxyService,
     temporalBridge, gitea: giteaService, infisical: infisicalService, exposure: appExposureService,
     vpsCatalog: vpsCatalogService, worker: workerService, registry: registryService, gitModules: gitModuleService,
@@ -346,7 +350,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
 
   const files = instanceFiles ? wireFiles({ tenant, db, files: instanceFiles, projectRepos: projectRepoService, gitea: giteaService, getOwnedProject }) : undefined;
   const releases = wireReleases({
-    tenant, db, io, gitea: giteaService, infisical: infisicalService, clusters: clusterService, projectRepos: projectRepoService, temporalBridge,
+    tenant, db, database: { mongo: settings.mongo, dataKey: keys.data }, io, gitea: giteaService, infisical: infisicalService, clusters: clusterService, projectRepos: projectRepoService, temporalBridge,
     runs: engineRuns, notices, postNotice, secrets: projectSecrets, agents: agentDirectory, registry: engineRegistry,
     exposure: appExposureService, channels, getOwnedProject,
   });
@@ -366,20 +370,21 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
         return { status: answer.status, text: await answer.text() };
       },
       gateway: {
-        port: MACHINE_GATEWAY_PORT,
-        host: process.env.MACHINE_GATEWAY_HOST || '0.0.0.0',
-        upstream: (process.env.TEMPORAL_CONNECTION_ADDRESS || 'localhost:7233').replace(/^https?:\/\//, ''),
-        namespace: temporalNamespaceFrom(process.env),
+        port: settings.instance!.gatewayPort,
+        host: MACHINE_GATEWAY_HOST,
+        upstream: settings.temporal.address,
+        namespace: settings.temporal.namespace,
         temporalKey: keys.temporal,
-        temporalCa: temporalCa(process.env),
+        temporalCa: temporalCa(settings.temporal),
+        payloadBlobs: sharedPayloadBlobs(),
       },
     } : {}),
   });
-  wireAccounts({ app, role, env: process.env, db, temporal: getTemporalClient, hubPeople: hub.hubPeople, operatorOnly: requireOperator('manage-accounts'), clearSession: auth.clearSession, devices, revocations });
+  wireAccounts({ app, role, poolQueue: settings.queues.pool, db, temporal: getTemporalClient, hubPeople: hub.hubPeople, operatorOnly: requireOperator('manage-accounts'), clearSession: auth.clearSession, devices, revocations });
   tenant.use('/api/models', modelsRouter({ modelService, db, credentialService, machines: machineService, rateLimits: getModelRateLimiterSnapshot }));
 
   const { poisoning, evalHost, level2Service, procedureService, mcpCatalogue } = await wireEngine({
-    tenant, db, io, env: process.env, role, sessionKey: keys.session, dataKey: keys.data, core: engine, temporalBridge, models: modelService, gitea: giteaService, koalasCluster: onKoalasCluster(clusterAccess, koalasCluster), access: clusterAccess,
+    tenant, db, io, engineQueue: settings.queues.engine, port, registry: tenantServices ? tenantServices.registry : { none: `${role.role} builds no workspace images, so it pushes to no registry` }, webTools: { db, proxy: clusterProxyService, settings: tenantServices?.webTools ?? {} }, role, sessionKey: keys.session, dataKey: keys.data, core: engine, temporalBridge, models: modelService, gitea: giteaService, koalasCluster: onKoalasCluster(clusterAccess, koalasCluster), access: clusterAccess,
     ...(instanceFiles ? { files: instanceFiles.fileService, artifacts: instanceFiles.artifacts } : {}), projectRepos: projectRepoService, customizations, releaseSettings, treeModels: () => treeModels, operatorOnly: requireOperator('administer'), push, mail,
   });
   if (evalHost.storyDrops && files) files.setStoryDrops(storyDropsFor({ db, projectRepos: projectRepoService, gitea: giteaService, work: evalHost.storyDrops }));
@@ -404,7 +409,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   }
 
   const { treeModels, groveRuns, groveOrder, planService } = wireProjects({
-    tenant, db, io, env: process.env, dataKey: keys.data, core, gitea: giteaService, infra: infraService, clusters: clusterService, apps: appService,
+    tenant, db, io, role, engineQueue: settings.queues.engine, dataKey: keys.data, core, gitea: giteaService, infra: infraService, clusters: clusterService, apps: appService,
     temporalBridge, models: modelService, machines: machineService, registry: engineRegistry, runs: engineRuns, extensions, evalHost,
     workspaceBuilds, workspaceConclusions, workspaceRepos, concluded, sharing: () => hub.sharingService, getOwnedProject,
   });
@@ -427,18 +432,18 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   }
 
   wireActions({
-    tenant, db, env: process.env, egressKey: keys.egress, temporalBridge, monitoring, releaseSettings,
+    tenant, db, role, underTest: settings.underTest, egressKey: keys.egress, temporalBridge, monitoring, releaseSettings,
     treeModels, mcpCatalogue, workspaceDependencies, agentDirectory, agentsHolder, concluded, access: clusterAccess, infisical: infisicalService, clusters: clusterService,
   });
 
-  if (process.env.NODE_ENV !== 'test' && gitea && tenants) {
+  if (!settings.underTest && gitea && tenants) {
     runOnce(db.platform, 'project-webhooks-reach-koala', new Date().toISOString(), () => projectRepoService.repointWebhooks()).then(
       (result) => { if (result.repointed) console.log(`[webhooks] ${result.repointed} projects' build webhooks now reach ${gitea.reachesKoalaAt}`); },
       (err: Error) => console.warn(`[webhooks] the projects' build webhooks are moved at the next start: ${err.message}`),
     );
   }
 
-  if (process.env.NODE_ENV !== 'test' && tenants) {
+  if (!settings.underTest && tenants) {
     runOnce(db.platform, BUILD_TOKENS_MIGRATION, new Date().toISOString(), () => cleanUpBuildTokens({
       deployments: () => db.infrastructure.getDeployments(),
       writePullSecret: pullSecretWriter(clusterAccess, { host: () => giteaService.getRegistryHost(), login: () => giteaService.registryLogin() }),
@@ -458,7 +463,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     });
   }
 
-  if (process.env.NODE_ENV === 'production') {
+  if (production) {
     const distPath = path.resolve(__dirname, '../../frontend/dist');
     if (fsSync.existsSync(distPath)) {
       app.use(express.static(distPath));
@@ -469,7 +474,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     }
   }
 
-  if (process.env.NODE_ENV !== 'test' || process.env.IS_E2E === 'true') {
+  if (!settings.underTest || settings.e2e) {
     httpServer.on('error', (err: NodeJS.ErrnoException) => {
       if (err.code === 'EADDRINUSE') {
         console.error(`❌ Port ${port} is already in use by another process. Run 'npm run clean-dev' or free port ${port}.`);
@@ -481,25 +486,27 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     httpServer.listen(port, () => console.log(`🚀 Provisioning Server Active on http://localhost:${port}`));
   }
 
-  const place = podPlaceFrom(process.env);
+  const place = settings.pod;
+  const account = settings.clusters.serviceAccount;
   let stopping = false;
   const shutdown = () => {
     if (stopping) return;
     stopping = true;
     clusterProxyService.stopAll();
     if (!place) process.exit(0);
-    drainThenStop({ place, server: httpServer, sockets: io, log: (line) => console.log(line) })
+    drainThenStop({ place, ...(account ? { slices: inClusterSlices(account) } : {}), server: httpServer, sockets: io, log: (line) => console.log(line) })
       .then(() => process.exit(0), (err: Error) => { console.error(`[drain] ${err.message}`); process.exit(1); });
   };
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);
 
-  return { app, io, temporalBridge, db };
+  return { app, io, temporalBridge, db, settings };
 }
 
 if (startsHere) {
   bootstrap().catch((err) => {
-    console.error('[bootstrap] the backend could not start, so it stops rather than staying up without serving:', err);
+    if (err instanceof SettingsError) console.error(`[bootstrap] ${err.message}`);
+    else console.error('[bootstrap] the backend could not start, so it stops rather than staying up without serving:', err);
     process.exit(1);
   });
 }

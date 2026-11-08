@@ -1,4 +1,4 @@
-import { claimSettingsFrom, principalOf, roleFromEnv, servesTenants, type Database, type Principal } from '../../platform/index.js';
+import { claimSettingsFrom, principalOf, servesTenants, type Database, type Principal, type RoleConfig } from '../../platform/index.js';
 import { ActionService } from '../services/ActionService.js';
 import {
   EgressService, EgressProxyService, AccessService, type TemporalBridge, type ClusterAccess,
@@ -18,7 +18,8 @@ import type { Mounts } from '../../hub/index.js';
 export interface ActionsWiringDeps {
   tenant: Mounts;
   db: Database;
-  env: NodeJS.ProcessEnv;
+  role: RoleConfig;
+  underTest: boolean;
   egressKey: string;
   temporalBridge: TemporalBridge;
   monitoring: Pick<MonitoringService, 'addRule' | 'removeRule'>;
@@ -35,8 +36,8 @@ export interface ActionsWiringDeps {
 }
 
 export function wireActions(deps: ActionsWiringDeps): void {
-  const { tenant, db, env, agentsHolder } = deps;
-  const viewerOf = async (ownerId: string) => principalOf((await db.accounts.getUserById(ownerId)) ?? { id: ownerId }, claimSettingsFrom(roleFromEnv(env)));
+  const { tenant, db, role, agentsHolder } = deps;
+  const viewerOf = async (ownerId: string) => principalOf((await db.accounts.getUserById(ownerId)) ?? { id: ownerId }, claimSettingsFrom(role));
   tenant.use('/api/secret-requests', secretRequestsRouter({ secrets: new SecretRequestService({ store: db.projects, vault: deps.infisical }) }));
   tenant.use('/api/actions', actionsRouter({ actions: new ActionService({
     store: db,
@@ -66,7 +67,7 @@ export function wireActions(deps: ActionsWiringDeps): void {
   });
   tenant.use('/api/egress', egressRouter({ egress: egressService }));
   tenant.use('/api/cluster-access', clusterAccessRouter({ access: new AccessService({ store: db }) }));
-  if (env.NODE_ENV !== 'test' && servesTenants(roleFromEnv(env))) {
+  if (!deps.underTest && servesTenants(role)) {
     egressService.syncProxy().catch((err: Error) => console.warn(`[egress] could not sync the proxy's grants: ${err.message}`));
   }
 }

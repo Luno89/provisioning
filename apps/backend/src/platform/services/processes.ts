@@ -1,3 +1,4 @@
+import { childEnv } from './child-env.js';
 import { spawn } from 'node:child_process';
 import type { Followed, Io, ProcessResult, ProcessRun, Processes, Streams } from '../lib/processes.js';
 
@@ -5,7 +6,7 @@ export const nodeProcesses: Processes = {
   run: (run: ProcessRun) => new Promise<ProcessResult>((done, failed) => {
     const child = spawn(run.command, [...run.args], {
       cwd: run.cwd,
-      env: run.env ? { ...process.env, ...run.env } : process.env,
+      env: childEnv(run.env),
       stdio: ['pipe', 'pipe', 'pipe'],
     });
     const stdout: Buffer[] = [];
@@ -26,7 +27,7 @@ export const nodeProcesses: Processes = {
 
 export const nodeStreams: Streams = {
   pipe: (run: ProcessRun, input: NodeJS.ReadableStream) => new Promise<ProcessResult>((done, failed) => {
-    const child = spawn(run.command, [...run.args], { cwd: run.cwd, env: run.env ? { ...process.env, ...run.env } : process.env, stdio: ['pipe', 'pipe', 'pipe'] });
+    const child = spawn(run.command, [...run.args], { cwd: run.cwd, env: childEnv(run.env), stdio: ['pipe', 'pipe', 'pipe'] });
     const stdout: Buffer[] = [];
     const stderr: Buffer[] = [];
     child.stdout.on('data', (chunk: Buffer) => stdout.push(chunk));
@@ -38,7 +39,7 @@ export const nodeStreams: Streams = {
     input.pipe(child.stdin);
   }),
   follow: (run: ProcessRun, onOutput: (chunk: string) => void) => {
-    const child = spawn(run.command, [...run.args], { cwd: run.cwd, env: run.env ? { ...process.env, ...run.env } : process.env, stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn(run.command, [...run.args], { cwd: run.cwd, env: childEnv(run.env), stdio: ['ignore', 'pipe', 'pipe'] });
     const stderr: Buffer[] = [];
     child.stdout.setEncoding('utf8');
     child.stdout.on('data', (chunk: string) => onOutput(chunk));
@@ -50,7 +51,7 @@ export const nodeStreams: Streams = {
     return { stop: () => { child.kill(); }, ended };
   },
   start: (run: ProcessRun, io: Io = {}): Followed => {
-    const child = spawn(run.command, [...run.args], { cwd: run.cwd, env: run.env ? { ...process.env, ...run.env } : process.env, stdio: ['pipe', 'pipe', 'pipe'] });
+    const child = spawn(run.command, [...run.args], { cwd: run.cwd, env: childEnv(run.env), stdio: ['pipe', 'pipe', 'pipe'] });
     const stdout: Buffer[] = [];
     const stderr: Buffer[] = [];
     let failed: (err: Error) => void = () => undefined;

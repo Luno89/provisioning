@@ -16,20 +16,16 @@ import { MongoInfrastructureStore } from '../../infrastructure/store.js';
 import { MongoEngineStore } from '../../engine/store.js';
 import { MongoClient, type Db } from 'mongodb';
 import type { Database } from './db-interface.js';
-import { loadKeys } from './keys.js';
+import type { MongoTarget } from './mongo-target.js';
+import type { SecretKey } from './crypto.js';
 import { clientOptionsFor } from './collection.js';
 import { ensureReplicaSet } from './replica-set.js';
 
-export const databaseOf = (uri: string): string => {
-  const name = uri.replace(/^mongodb(\+srv)?:\/\/[^/]+\/?/, '').split('?')[0]?.trim();
-  return name || 'provisioning';
-};
+export { databaseOf, mongoTarget } from './mongo-target.js';
 
-export function mongoTarget(env: Readonly<Record<string, string | undefined>>): { uri: string; dbName: string; e2e: boolean } {
-  const base = env.MONGO_URI || 'mongodb://admin:admin@localhost:27017/provisioning?authSource=admin';
-  const e2e = env.IS_E2E === 'true';
-  if (e2e) return { uri: env.MONGO_TEST_URI || base.replace('/provisioning', '/provisioning_test'), dbName: 'provisioning_test', e2e };
-  return { uri: base, dbName: databaseOf(base), e2e };
+export interface DatabaseSettings {
+  mongo: MongoTarget;
+  dataKey: SecretKey;
 }
 
 export class MongoDB implements Database {
@@ -50,25 +46,25 @@ export class MongoDB implements Database {
   readonly infrastructure: MongoInfrastructureStore;
   readonly engine: MongoEngineStore;
 
-  constructor(private readonly env: Readonly<Record<string, string | undefined>>) {
+  constructor(private readonly settings: DatabaseSettings) {
     this.platform = new MongoPlatformStore(() => this.db!);
     this.accounts = new MongoAccountsStore(() => this.db!);
     this.instances = new MongoInstancesStore(() => this.db!);
     this.hub = new MongoHubStore(() => this.db!);
     this.projects = markingHubWrites(new MongoProjectsStore(() => this.db!), this.hub);
     this.releases = new MongoReleasesStore(() => this.db!);
-    this.files = new MongoFilesStore(() => this.db!, loadKeys(this.env).data);
+    this.files = new MongoFilesStore(() => this.db!, this.settings.dataKey);
     this.machines = new MongoMachinesStore(() => this.db!);
     this.monitoring = new MongoMonitoringStore(() => this.db!);
     this.models = new MongoModelsStore(() => this.db!);
     this.memory = new MongoMemoryStore(() => this.db!);
     this.checks = new MongoChecksStore(() => this.db!);
-    this.infrastructure = new MongoInfrastructureStore(() => this.db!, loadKeys(this.env).data);
+    this.infrastructure = new MongoInfrastructureStore(() => this.db!, this.settings.dataKey);
     this.engine = markingHubWrites(new MongoEngineStore(() => this.db!), this.hub);
   }
 
   async init(): Promise<void> {
-    const { uri, dbName, e2e: isE2E } = mongoTarget(this.env);
+    const { uri, dbName, e2e: isE2E } = this.settings.mongo;
 
     this.client = new MongoClient(uri, clientOptionsFor(uri));
     await this.client.connect();

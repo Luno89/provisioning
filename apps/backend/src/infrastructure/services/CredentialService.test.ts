@@ -1,5 +1,5 @@
 import { containing, matching } from '../../platform/lib/test-matchers.js';
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import { http, HttpResponse } from 'msw';
 import { CredentialService, UnreadableCredential } from './CredentialService.js';
 import { decryptValue } from '../../platform/lib/crypto.js';
@@ -177,9 +177,7 @@ describe('CredentialService.validateCredentials for each provider', () => {
   let service: CredentialService;
   beforeEach(() => { service = new CredentialService(memoryDatabase(), TEST_KEY); });
   const ok = (url: string, body: unknown, status = 200) => server.use(http.all(url, () => HttpResponse.json(body as never, { status })));
-  const googleKeys = ['GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET'] as const;
-  const savedGoogle = Object.fromEntries(googleKeys.map((key) => [key, process.env[key]]));
-  afterEach(() => { for (const key of googleKeys) { if (savedGoogle[key] === undefined) delete process.env[key]; else process.env[key] = savedGoogle[key]; } });
+  const drive = { claims: { role: 'instance' as const }, credentials: { env: {}, ovhSubsidiary: { off: 'OVH_SUBSIDIARY is not set' }, googleDrive: { clientId: 'id', clientSecret: 'secret' } } };
 
   it('asks for the token a provider needs before it asks the provider anything', async () => {
     for (const [provider, wanted] of [['huggingface', /Hugging Face Access Token is required/], ['github', /GitHub Personal Access Token is required/], ['ovh', /OVHcloud needs the application key/], ['googledrive', /Not connected/]] as const) {
@@ -199,29 +197,25 @@ describe('CredentialService.validateCredentials for each provider', () => {
   });
 
   it('checks a Google Drive refresh token against Google', async () => {
-    process.env.GOOGLE_CLIENT_ID = 'id';
-    process.env.GOOGLE_CLIENT_SECRET = 'secret';
+    const withDrive = new CredentialService(memoryDatabase(), TEST_KEY, drive);
     server.use(
       http.post('https://oauth2.googleapis.com/token', () => HttpResponse.json({ access_token: 'a1' })),
       http.get('https://www.googleapis.com/drive/v3/about', () => HttpResponse.json({ user: { emailAddress: 'me@example.com' } })),
     );
-    expect(await service.validateCredentials('googledrive', { refreshToken: 'r' })).toMatchObject({ valid: true, message: 'Connected to Google Drive as me@example.com' });
+    expect(await withDrive.validateCredentials('googledrive', { refreshToken: 'r' })).toMatchObject({ valid: true, message: 'Connected to Google Drive as me@example.com' });
     server.use(http.get('https://www.googleapis.com/drive/v3/about', () => new HttpResponse(null, { status: 403 })));
-    expect((await service.validateCredentials('googledrive', { refreshToken: 'r' })).message).toBe('Drive API check failed (HTTP 403).');
+    expect((await withDrive.validateCredentials('googledrive', { refreshToken: 'r' })).message).toBe('Drive API check failed (HTTP 403).');
     server.use(http.post('https://oauth2.googleapis.com/token', () => new HttpResponse(null, { status: 400 })));
-    expect((await service.validateCredentials('googledrive', { refreshToken: 'r' })).message).toMatch(/no longer valid \(HTTP 400\)/);
-    delete process.env.GOOGLE_CLIENT_ID;
+    expect((await withDrive.validateCredentials('googledrive', { refreshToken: 'r' })).message).toMatch(/no longer valid \(HTTP 400\)/);
     expect((await service.validateCredentials('googledrive', { refreshToken: 'r' })).message).toBe('GOOGLE_CLIENT_ID/GOOGLE_CLIENT_SECRET are not set on the server.');
   });
 
   it('tests Google Drive with the refresh token stored for the person', async () => {
     const db = memoryDatabase();
     await db.accounts.saveUser({ id: 'user-1', email: 'a@b.c', twoFactorEnabled: false, emailVerified: true, createdAt: 'x' });
-    const stored = new CredentialService(db, TEST_KEY);
+    const stored = new CredentialService(db, TEST_KEY, drive);
     expect((await stored.testGoogleDriveConnection('user-1')).message).toMatch(/Not connected/);
     await stored.saveCredentials('user-1', 'googledrive', { refreshToken: 'r-stored', email: 'me@example.com' });
-    process.env.GOOGLE_CLIENT_ID = 'id';
-    process.env.GOOGLE_CLIENT_SECRET = 'secret';
     server.use(
       http.post('https://oauth2.googleapis.com/token', async ({ request }) => ((await request.text()).includes('refresh_token=r-stored') ? HttpResponse.json({ access_token: 'a1' }) : new HttpResponse(null, { status: 400 }))),
       http.get('https://www.googleapis.com/drive/v3/about', () => HttpResponse.json({ user: { emailAddress: 'me@example.com' } })),

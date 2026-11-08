@@ -20,7 +20,7 @@ export interface MonitoringWiringDeps {
   operatorOnly: RequestHandler;
   db: Database;
   role: RoleConfig;
-  env: NodeJS.ProcessEnv;
+  poolMonitor: { rootUrl: string; instanceId: string } | { off: string };
   io: Pick<SocketServer, 'to'>;
   clusters: MonitoredClusters;
   proxy: PrometheusProxy;
@@ -64,7 +64,7 @@ export const monitoringServiceFor = (parts: MonitoringServiceParts): MonitoringS
 export function wireMonitoring(deps: MonitoringWiringDeps): { monitoring: MonitoringService } {
   const { tenant, db, role, notices, notifications } = deps;
   const watchesItself = role.role === 'root';
-  const placeOnPool = poolMonitorFrom(deps.env, deps.rootToken);
+  const placeOnPool = poolMonitorFrom(deps.poolMonitor, deps.rootToken);
   const monitoring = monitoringServiceFor({
     db,
     clusters: deps.clusters,

@@ -13,6 +13,7 @@ export interface CredentialsRouterDeps {
   publicUrl: string;
   appUrl: string;
   sessionKey: SecretKey;
+  googleDrive: { clientId: string; clientSecret: string } | { off: string };
 }
 
 const userOf = (req: Request): { id: string } =>
@@ -77,7 +78,7 @@ export function credentialsRouter(deps: CredentialsRouterDeps): Router {
   const stateName = cookieNamed(OAUTH_STATE_COOKIE, stateCookie.secure);
 
   router.get('/googledrive/connect', (req, res) => {
-    const googleId = process.env.GOOGLE_CLIENT_ID;
+    const googleId = 'off' in deps.googleDrive ? undefined : deps.googleDrive.clientId;
     if (!googleId) {
       return res.redirect(`${appUrl}/?driveError=missing_client_id#/settings`);
     }
@@ -99,8 +100,9 @@ export function credentialsRouter(deps: CredentialsRouterDeps): Router {
       const held = carriedByOAuthState(parseCookie(req.headers.cookie, stateName), req.query.state, deps.sessionKey);
       res.clearCookie(stateName, stateCookie);
       if (!held || held.carried !== userOf(req).id) return res.redirect(`${appUrl}/?driveError=not_started_here#/settings`);
-      const googleId = process.env.GOOGLE_CLIENT_ID;
-      const googleSecret = process.env.GOOGLE_CLIENT_SECRET;
+      const google = 'off' in deps.googleDrive ? undefined : deps.googleDrive;
+      const googleId = google?.clientId;
+      const googleSecret = google?.clientSecret;
       if (!googleId || !googleSecret) {
         return res.redirect(`${appUrl}/?driveError=missing_client_id#/settings`);
       }

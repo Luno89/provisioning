@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { OVH_DEFAULT_SUBSIDIARY, OVH_SUBSIDIARIES, ovhCatalogUrl, ovhHostFor, ovhOffersFromCatalog, ovhSubsidiaryFrom } from './adapters.js';
+import { OVH_SUBSIDIARIES, ovhCatalogUrl, ovhHostFor, ovhOffersFromCatalog, ovhSubsidiaryOf } from './adapters.js';
 
 const auCatalog: unknown = JSON.parse(readFileSync(new URL('./ovh-au-catalog.json', import.meta.url), 'utf8'));
 
@@ -176,10 +176,9 @@ describe('the AU catalogue (ca.api.ovh.com, ovhSubsidiary=AU, fetched 2026-10-23
     expect(labels).not.toContain('storage');
   });
 
-  it('reads the subsidiary from the env when the catalog is fetched, after dotenv has run, and falls back to FR', () => {
-    expect(ovhSubsidiaryFrom({})).toBe(OVH_DEFAULT_SUBSIDIARY);
-    expect(ovhSubsidiaryFrom({ OVH_SUBSIDIARY: '' })).toBe('FR');
-    expect(ovhSubsidiaryFrom({ OVH_SUBSIDIARY: ' AU ' })).toBe('AU');
-    expect(ovhCatalogUrl(ovhSubsidiaryFrom({ OVH_SUBSIDIARY: 'AU' }))).toContain('ca.api.ovh.com');
+  it('reads the subsidiary it is given when the catalog is fetched, and without one says why OVHcloud\'s prices are not read', () => {
+    expect(() => ovhSubsidiaryOf({ off: 'OVH_SUBSIDIARY is not set, so OVHcloud\'s prices are not read' })).toThrow('OVH_SUBSIDIARY is not set');
+    expect(ovhSubsidiaryOf('AU')).toBe('AU');
+    expect(ovhCatalogUrl(ovhSubsidiaryOf('AU'))).toContain('ca.api.ovh.com');
   });
 });

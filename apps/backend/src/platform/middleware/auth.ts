@@ -1,6 +1,6 @@
 import express from 'express';
 import type { IncomingHttpHeaders } from 'node:http';
-import { arrivedOverHttps, cookieNamed, SESSION_COOKIE, sessionEnded, signedSession, signsEveryoneIn, verifyJWT } from '../lib/auth.js';
+import { arrivedOverHttps, cookieNamed, SESSION_COOKIE, sessionEnded, signedSession, verifyJWT } from '../lib/auth.js';
 import type { SessionEnds } from '../services/SessionEnds.js';
 import { inviteCodeHash, inviteExpired } from '../lib/invite-codes.js';
 import { setupCodeProblem } from '../lib/first-admin.js';
@@ -45,6 +45,7 @@ export interface AuthDeps {
   setupCode?: string | undefined;
   clientSessions?: ClientSessions | undefined;
   sessionEnds: Pick<SessionEnds, 'ended' | 'end'>;
+  signsEveryoneIn?: boolean | undefined;
 }
 
 export const requireAllowed = <R extends Resource>(action: Actions[R['kind']], resource: R): express.RequestHandler => (req, res, next) => {
@@ -103,7 +104,7 @@ const userOfSession = (session: ClientSession): UserMetadata => ({
   createdAt: new Date(session.sessionAt).toISOString(),
 });
 
-export function createAuth({ db, sessionKey, publicUrl, role, instanceOwnerId, setupCode, clientSessions, sessionEnds }: AuthDeps): Auth {
+export function createAuth({ db, sessionKey, publicUrl, role, instanceOwnerId, setupCode, clientSessions, sessionEnds, signsEveryoneIn: everyoneIn }: AuthDeps): Auth {
   const principalFor = (user: Pick<UserMetadata, 'id' | 'roles'>): Principal => principalOf(user, { role, instanceOwnerId });
   const getCookie = (req: express.Request, name: string) => parseCookie(req.headers.cookie, name);
 
@@ -201,7 +202,7 @@ export function createAuth({ db, sessionKey, publicUrl, role, instanceOwnerId, s
     if (publicPaths.includes(req.path) || publicPrefixes.some((prefix) => req.path.startsWith(prefix))) {
       return next();
     }
-    if (signsEveryoneIn(process.env)) {
+    if (everyoneIn) {
       const users = await db.accounts.getUsers();
       const mockUser = users[0] || {
         id: 'test-user-id',

@@ -105,8 +105,8 @@ describe('Auth Utilities', () => {
 
   describe('the e2e sign-in', () => {
     it('signs everyone in only outside production, and production refuses to start with it', () => {
-      expect(signsEveryoneIn({ IS_E2E: 'true' })).toBe(true);
-      expect(signsEveryoneIn({ IS_E2E: 'true', NODE_ENV: 'production' })).toBe(false);
+      expect(signsEveryoneIn({ e2e: true, production: false })).toBe(true);
+      expect(signsEveryoneIn({ e2e: true, production: true })).toBe(false);
       expect(e2eProblem({ IS_E2E: 'true', NODE_ENV: 'production' })).toContain('refuses to start');
       expect(e2eProblem({ IS_E2E: 'true' })).toBeUndefined();
       expect(e2eProblem({ NODE_ENV: 'production' })).toBeUndefined();

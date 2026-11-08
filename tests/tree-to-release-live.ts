@@ -6,6 +6,7 @@ import { fileURLToPath } from 'url';
 dotenv.config({ path: fileURLToPath(new URL('../apps/backend/.env', import.meta.url)), quiet: true });
 import axios from 'axios';
 import { createDatabase } from '../apps/backend/src/platform/lib/db-interface.js';
+import { databaseSettingsFrom } from '../apps/backend/src/platform/lib/settings.js';
 import { sessionToken } from '../apps/backend/src/platform/lib/auth.js';
 import { loadKeys } from '../apps/backend/src/platform/lib/keys.js';
 import { devGiteaUrl } from './lib/dev-stack.js';
@@ -29,7 +30,7 @@ interface Project { id: string; name: string; giteaOwner?: string; giteaRepo?: s
 
 async function main(): Promise<void> {
   assert.ok(OWNER, 'set TREE_LIVE_OWNER (or ODOO_RELEASE_LIVE_OWNER) to the person the trees are made for');
-  const db = createDatabase();
+  const db = createDatabase(databaseSettingsFrom(process.env));
   await db.init();
   const user = await db.accounts.getUserById(OWNER);
   assert.ok(user, 'no such user');

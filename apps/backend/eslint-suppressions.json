@@ -1,17 +1,1 @@
-{
-  "src/platform/lib/db-interface.ts": {
-    "no-restricted-syntax": {
-      "count": 1
-    }
-  },
-  "src/platform/lib/mongo-payload-blobs.ts": {
-    "no-restricted-syntax": {
-      "count": 1
-    }
-  },
-  "src/platform/lib/temporal-client.ts": {
-    "no-restricted-syntax": {
-      "count": 1
-    }
-  }
-}
+{}

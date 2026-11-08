@@ -14,6 +14,12 @@ export const DEV = {
   instanceNodePort: 30320,
   giteaNodePort: 31737,
   meshLoginServer: 'http://127.0.0.1:8080',
+  headscale: 'http://127.0.0.1:8080',
+  mongo: 'mongodb://admin:admin@localhost:27017/provisioning?authSource=admin',
+  temporal: '127.0.0.1:7233',
+  temporalNamespace: 'default',
+  rootWorkerMetricsPort: 9465,
+  mailFrom: 'koala@koala.localhost',
   registry: '127.0.0.1:5001',
   registryPush: '127.0.0.1:5000',
   imageTag: 'dev',
@@ -31,6 +37,7 @@ export interface DevRootInput {
   hubCredential: string;
   hubCredentialHash: string;
   rootPublicKeys: string;
+  temporalCa: string;
 }
 
 export interface DevRootPlan {
@@ -40,6 +47,12 @@ export interface DevRootPlan {
   rootEnv: Record<string, string>;
   hubEnv: Record<string, string>;
 }
+
+const devTemporal = (input: Pick<DevRootInput, 'temporalCa'>): Record<string, string> => ({
+  TEMPORAL_CONNECTION_ADDRESS: DEV.temporal,
+  TEMPORAL_NAMESPACE: DEV.temporalNamespace,
+  TEMPORAL_TLS_CA: input.temporalCa,
+});
 
 export function devRootPlan(input: DevRootInput): DevRootPlan {
   const rootUrl = webUrl(DEV.rootHost, DEV.rootWebPort);
@@ -63,6 +76,12 @@ export function devRootPlan(input: DevRootInput): DevRootPlan {
       INSTANCE_IMAGE_TAG: DEV.imageTag,
       SIGN_IN_RETURN_URL: `http://localhost:${DEV.rootWebPort}`,
       KOALA_TELEMETRY_CLUSTER: 'root',
+      ...devTemporal(input),
+      TERRAFORM_STATE: 'local',
+      HEADSCALE_URL: DEV.headscale,
+      MAIL_FROM: DEV.mailFrom,
+      HEALTH_PORT: '0',
+      TEMPORAL_METRICS_PORT: String(DEV.rootWorkerMetricsPort),
     },
     hubEnv: {
       ROLE: 'hub',
@@ -77,6 +96,8 @@ export function devRootPlan(input: DevRootInput): DevRootPlan {
       GITEA_URL: devGiteaOnThisComputer,
       GITEA_REACHES_KOALA_AT: devHubOnThePodNetwork,
       KOALA_TELEMETRY_CLUSTER: 'hub',
+      ...devTemporal(input),
+      MAIL_FROM: DEV.mailFrom,
     },
   };
 }

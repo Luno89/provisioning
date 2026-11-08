@@ -1,3 +1,4 @@
+import { movedSettingsFrom } from '../lib/instance-move.js';
 import { describe, it, expect, afterEach, beforeEach } from 'vitest';
 import axios from 'axios';
 import fs from 'fs';
@@ -66,7 +67,7 @@ beforeEach(async () => {
     router: async (db) => {
       const move = new MoveExport({
         instanceId: 'inst-bo', trusted: trustedKeys([publicKeyPem(root.publicKey)]), dataDir,
-        mongo: { uri: 'mongodb://unused', dbName: 'provisioning' }, env: KEYS, running: async () => running, cluster, spawn: recordingSpawn,
+        mongo: { uri: 'mongodb://unused', dbName: 'provisioning' }, moved: movedSettingsFrom(KEYS), running: async () => running, cluster, spawn: recordingSpawn,
         claim: (jti, expiresAt) => db.instances.claimHandoff(jti, expiresAt),
       });
       await move.load();

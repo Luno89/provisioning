@@ -43,7 +43,9 @@ export interface InfrastructureWiringDeps {
   sessionKey: SecretKey;
   publicUrl: string;
   appUrl: string;
-  openRouterUrl?: string | undefined;
+  openRouterUrl: string;
+  googleDrive: { clientId: string; clientSecret: string } | { off: string };
+  poolQueue: string | undefined;
   repoRoot: string;
   credentials: CredentialService;
   clusters: ClusterService;
@@ -65,7 +67,7 @@ export function wireInfrastructure(deps: InfrastructureWiringDeps): void {
   const { tenant, db, io } = deps;
   tenant.use('/api/credentials', llmCredentialsRouter({ db, dataKey: deps.dataKey, credentialService: deps.credentials, publicUrl: deps.publicUrl, appUrl: deps.appUrl, openRouterUrl: deps.openRouterUrl }));
   tenant.use('/api/dns-providers', dnsProvidersRouter({ dns: new DnsProviders() }));
-  tenant.use('/api/credentials', credentialsRouter({ credentialService: deps.credentials, publicUrl: deps.publicUrl, appUrl: deps.appUrl, sessionKey: deps.sessionKey }));
+  tenant.use('/api/credentials', credentialsRouter({ credentialService: deps.credentials, publicUrl: deps.publicUrl, appUrl: deps.appUrl, sessionKey: deps.sessionKey, googleDrive: deps.googleDrive }));
   tenant.use('/api/backup', adminOnly(deps.operatorOnly, backupRouter({ repoRoot: deps.repoRoot })));
   tenant.use('/api/clusters', clustersRouter({
     clusterService: deps.clusters, clusterProxyService: deps.proxy, access: deps.clusters.access,
@@ -83,14 +85,14 @@ export function wireInfrastructure(deps: InfrastructureWiringDeps): void {
       const resolved = await deps.credentials.resolveCredentials(ownerId, 'ovh');
       if (resolved.mode === 'none') return undefined;
       const { OVH_APPLICATION_KEY: applicationKey, OVH_APPLICATION_SECRET: applicationSecret, OVH_CONSUMER_KEY: consumerKey, OVH_SUBSIDIARY: subsidiary } = resolved.env;
-      return applicationKey && applicationSecret && consumerKey ? { applicationKey, applicationSecret, consumerKey, subsidiary: subsidiary || 'FR' } : undefined;
+      return applicationKey && applicationSecret && consumerKey && subsidiary ? { applicationKey, applicationSecret, consumerKey, subsidiary } : undefined;
     },
     dnsCredentialsOf: (ownerId, provider) => deps.credentials.dnsCredentialsOf(ownerId, provider),
     startFollowing: async (order) => {
       const workflowId = rootNodeWorkflowId(order.id);
       await (await getTemporalClient()).workflow.start(RootNodeWorkflow, {
         workflowId,
-        taskQueue: process.env.POOL_TASK_QUEUE || 'host-ops-queue',
+        taskQueue: deps.poolQueue || 'host-ops-queue',
         args: [order.id],
         ...startedFor(order.ownerId),
       });

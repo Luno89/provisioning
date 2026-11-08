@@ -19,18 +19,18 @@ export function rootProviderFor(deps: { role: RoleConfig; publicUrl: string; key
   }, deps.db);
 }
 
-export function rootSignInFor(deps: { role: RoleConfig; env: NodeJS.ProcessEnv; keys: Pick<PlatformKeys, 'session' | 'data'>; db: Database; revocations: AccessRevocations; publicUrl: string }): RootSignIn | undefined {
+export function rootSignInFor(deps: { role: RoleConfig; instanceCredential: string | undefined; keys: Pick<PlatformKeys, 'session' | 'data'>; db: Database; revocations: AccessRevocations; publicUrl: string }): RootSignIn | undefined {
   const { role } = deps;
   if (!role.trusted) return undefined;
   const common = { rootUrl: '', publicUrl: deps.publicUrl, clientKeys: clientKeysFrom(currentOf(deps.keys.session)), trusted: role.trusted, sessionKey: deps.keys.session, dataKey: deps.keys.data };
-  if (role.role === 'instance' && role.instance && deps.env.INSTANCE_CREDENTIAL) {
+  if (role.role === 'instance' && role.instance && deps.instanceCredential) {
     return new RootSignIn({
       ...common,
       kind: 'instance',
       clientId: role.instance.id,
       rootUrl: role.instance.rootUrl,
       owner: role.instance.ownerId,
-      announce: { path: '/api/instances/sign-in-key', headers: { 'x-instance-id': role.instance.id, authorization: `Bearer ${deps.env.INSTANCE_CREDENTIAL}` } },
+      announce: { path: '/api/instances/sign-in-key', headers: { 'x-instance-id': role.instance.id, authorization: `Bearer ${deps.instanceCredential}` } },
     }, deps.db, deps.revocations);
   }
   if (role.role === 'hub' && role.hub) {

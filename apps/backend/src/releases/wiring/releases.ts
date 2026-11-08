@@ -1,6 +1,6 @@
 import type { Server as SocketServer } from 'socket.io';
 import { ignore } from '@koala/engine-core/failures';
-import { type ClusterMetadata, type Database, type ProjectMetadata, awaitedNotice, releaseNotice, type Principal } from '../../platform/index.js';
+import { type ClusterMetadata, type Database, type DatabaseSettings, type ProjectMetadata, awaitedNotice, releaseNotice, type Principal } from '../../platform/index.js';
 import {
   treeTypeOfProject, ODOO_TREE_TYPE, deploymentForProject, type projectSecretsFor, type ProjectChannelService,
   type ProjectRepoService, type GiteaService,
@@ -36,6 +36,7 @@ import type { Mounts } from '../../hub/index.js';
 export interface ReleasesWiringDeps {
   tenant: Mounts;
   db: Database;
+  database: DatabaseSettings;
   io: Pick<SocketServer, 'to'>;
   gitea: GiteaService;
   infisical: InfisicalService;
@@ -78,7 +79,7 @@ export function wireReleases(deps: ReleasesWiringDeps): ReleasesWiring {
     const namespace = namespaceOf(deployment);
     return secrets.ensure(project, { seed: (key) => onCluster(cluster, namespace, managedSecretName(namespace), key) });
   };
-  const slotCluster = () => createSlotCluster({ access: clusters.access, repo: async () => gitea, registry: () => gitea.registryLogin(), syncVault: syncVaultFromProject(deps.infisical) });
+  const slotCluster = () => createSlotCluster({ access: clusters.access, repo: async () => gitea, registry: () => gitea.registryLogin(), syncVault: syncVaultFromProject(deps.infisical, deps.database) });
 
   const decideRelease = async (project: ProjectMetadata, since: string, commit: string): Promise<ReleaseDecision> => {
     const releaseWhen = (await treeTypeOfProject(db.projects, project))?.releaseWhen;

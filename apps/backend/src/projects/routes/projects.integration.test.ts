@@ -8,6 +8,7 @@ import type { ClusterMetadata, PipelineRunMetadata, ProjectMetadata } from '../.
 import type { GiteaService } from '../services/GiteaService.js';
 import { ProjectRepoService } from '../services/ProjectRepoService.js';
 import { koalasClusterFor } from '../lib/project-shipping.js';
+import { hereFrom } from '../../infrastructure/lib/cluster-places.js';
 
 const project = {
   id: 'proj-1',
@@ -405,7 +406,7 @@ describe('POST / — where it deploys', () => {
   });
 
   it('sends it to the cluster of the machine Koala runs on, on an instance', async () => {
-    const harness = await mountForCreate(koalasClusterFor({ INSTANCE_MACHINE_ID: 'koalas-machine' }));
+    const harness = await mountForCreate(koalasClusterFor(hereFrom({ INSTANCE_MACHINE_ID: 'koalas-machine' }, false)));
     const res = await axios.post<ProjectMetadata>(harness.url('/api/projects'), { name: 'demo', giteaRepo: 'demo' });
     expect(res.status).toBe(201);
     expect(res.data.targetClusterId).toBe('machine-koalas-machine');

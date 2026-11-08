@@ -4,6 +4,7 @@ import path from 'node:path';
 import { MongoClient } from 'mongodb';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { createDatabase } from '../platform/lib/db-interface.js';
+import { databaseSettingsFrom } from '../platform/lib/settings.js';
 import { call, startThreeRoles, until, type Person, type ThreeRoles } from '../platform/testing/three-roles.js';
 import { GiteaService } from '../projects/services/GiteaService.js';
 import { HUB_DATABASE_PREFIX } from './lib/hub.js';
@@ -47,7 +48,7 @@ const said = async (): Promise<string[]> => withMongo(async (client) => {
 });
 
 async function accountGone(id: string): Promise<boolean> {
-  const db = createDatabase({ ...process.env, MONGO_URI: `${roles.mongoUri}${roles.databases.root}` });
+  const db = createDatabase(databaseSettingsFrom({ ...process.env, MONGO_URI: `${roles.mongoUri}${roles.databases.root}` }));
   await db.init();
   try {
     return (await db.accounts.getUserById(id)) === undefined;
@@ -229,7 +230,7 @@ describe('sharing a project from its owner\'s instance to the hub, and taking it
     expect(channel.status, JSON.stringify(channel.body)).toBe(200);
     const contents = ((channel.body.conversation ?? channel.body).messages ?? []).map((message) => message.content);
     expect(contents.includes('said before sharing') && contents.includes('said after sharing'), JSON.stringify(contents)).toBe(true);
-    const instanceDb = createDatabase({ ...process.env, MONGO_URI: `${roles.mongoUri}${roles.databases.instance}` });
+    const instanceDb = createDatabase(databaseSettingsFrom({ ...process.env, MONGO_URI: `${roles.mongoUri}${roles.databases.instance}` }));
     await instanceDb.init();
     try {
       expect((await instanceDb.hub.getHubLinks()).filter((link) => link.projectId === project.id)).toHaveLength(0);

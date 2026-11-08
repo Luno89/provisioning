@@ -164,20 +164,14 @@ describe('CredentialService', () => {
   });
   describe('Google Drive', () => {
     it('tests the refresh token stored for the person against Google', async () => {
-      expect((await service.testGoogleDriveConnection('user-1')).message).toMatch(/Not connected/);
-      await service.saveCredentials('user-1', 'googledrive', { refreshToken: 'r-stored', email: 'me@example.com' });
-      process.env.GOOGLE_CLIENT_ID = 'id';
-      process.env.GOOGLE_CLIENT_SECRET = 'secret';
+      const withDrive = new CredentialService(db, TEST_KEY, { claims: { role: 'instance' }, credentials: { env: {}, ovhSubsidiary: { off: 'OVH_SUBSIDIARY is not set' }, googleDrive: { clientId: 'id', clientSecret: 'secret' } } });
+      expect((await withDrive.testGoogleDriveConnection('user-1')).message).toMatch(/Not connected/);
+      await withDrive.saveCredentials('user-1', 'googledrive', { refreshToken: 'r-stored', email: 'me@example.com' });
       server.use(
         http.post('https://oauth2.googleapis.com/token', async ({ request }) => ((await request.text()).includes('refresh_token=r-stored') ? HttpResponse.json({ access_token: 'a1' }) : new HttpResponse(null, { status: 400 }))),
         http.get('https://www.googleapis.com/drive/v3/about', () => HttpResponse.json({ user: { emailAddress: 'me@example.com' } })),
       );
-      try {
-        expect(await service.testGoogleDriveConnection('user-1')).toMatchObject({ valid: true, message: 'Connected to Google Drive as me@example.com' });
-      } finally {
-        delete process.env.GOOGLE_CLIENT_ID;
-        delete process.env.GOOGLE_CLIENT_SECRET;
-      }
+      expect(await withDrive.testGoogleDriveConnection('user-1')).toMatchObject({ valid: true, message: 'Connected to Google Drive as me@example.com' });
     });
   });
 });

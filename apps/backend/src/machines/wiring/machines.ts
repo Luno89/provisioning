@@ -1,7 +1,7 @@
 import fs from 'fs/promises';
 import path from 'path';
 import type express from 'express';
-import { type Database, type LocalAgentDeviceMetadata, type SecretKey, asyncRoute, ringOf, sharedPayloadBlobs, temporalApiKey } from '../../platform/index.js';
+import { type Database, type LocalAgentDeviceMetadata, type SecretKey, asyncRoute, ringOf, temporalApiKey, type PayloadBlobs } from '../../platform/index.js';
 import { checkWorkToken } from '../lib/work-tokens.js';
 import type { WorkTokenTrust } from './sockets.js';
 import type { MachineAccounts } from '../services/MachineAccounts.js';
@@ -33,7 +33,7 @@ export interface MachinesWiringDeps {
   bundle: MachineBundle;
   projectRepos: ProjectRepoService;
   metricsWrite?: MachineMetricsDeps['write'] | undefined;
-  gateway?: { port: number; host: string; upstream: string; namespace: string; temporalKey: string; temporalCa?: Buffer | undefined } | undefined;
+  gateway?: { port: number; host: string; upstream: string; namespace: string; temporalKey: string; temporalCa?: Buffer | undefined; payloadBlobs: PayloadBlobs } | undefined;
 }
 
 export const machineBundle = (repoRoot: string): MachineBundle => new MachineBundle(repoRoot);
@@ -55,7 +55,7 @@ export function wireMachines(deps: MachinesWiringDeps): void {
     remote: (ownerId, repo) => deps.projectRepos.gitRemote(ownerId, repo),
   });
   if (deps.gateway) {
-    const { port, host, upstream, namespace, temporalKey, temporalCa } = deps.gateway;
+    const { port, host, upstream, namespace, temporalKey, temporalCa, payloadBlobs } = deps.gateway;
     const ring = ringOf(deps.dataKey);
     const gateway = new MachineTemporalGateway({
       upstream,
@@ -64,7 +64,7 @@ export function wireMachines(deps: MachinesWiringDeps): void {
       namespace,
       keys: () => [ring.current, ...(ring.previous ?? [])],
       deviceOf: deviceByWorkToken(db, deps.workTokens),
-      handed: (workflowId, deviceId) => sharedPayloadBlobs().handTo(workflowId, deviceId),
+      handed: (workflowId, deviceId) => payloadBlobs.handTo(workflowId, deviceId),
       log: (line) => console.log(line),
     });
     deps.machines.onForgotten((deviceId) => gateway.forget(deviceId));

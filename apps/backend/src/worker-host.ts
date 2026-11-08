@@ -11,8 +11,9 @@ import { PoolChartActivity, PoolFailedActivity, PoolHostActivity, PoolProxyActiv
 import { DependencyWatchActivity } from './activities/DependencyWatchActivity.js';
 import { ServerOrderBootstrapActivity, ServerOrderDnsActivity, ServerOrderFailedActivity, ServerOrderFollowActivity, ServerOrderMailCheckActivity, ServerOrderRebuildActivity, ServerOrderReleaseActivity, ServerOrderReverseDnsActivity, ServerOrderSshActivity, ServerOrderStoppedActivity } from './activities/RootNodeActivities.js';
 import { CrawlBatchActivity, NextBatchActivity, SeedFrontierActivity, DiscardFrontierActivity, PurgeCorpusActivity, SearchCorpusActivity, NewIngestIdActivity } from './activities/CrawlActivity.js';
-import { createWorkerLogger, buildDataConverter, connectTemporalWorker, temporalTlsProblem, sharedPayloadBlobs, loadKeys, roleFromEnv, telemetrySettings, temporalNamespaceFrom } from './platform/index.js';
-import { clusterAccessFrom, healthPort, serveHealth, sharedClusterProxy } from './infrastructure/index.js';
+import { createWorkerLogger, buildDataConverter, connectTemporalWorker, connectTemporalAs, hostWorkerSettingsFrom, keepPayloadsIn, temporalTlsProblem, sharedPayloadBlobs, SettingsError, telemetrySettings } from './platform/index.js';
+import { giveHostActivities, hostClusterAccess } from './activities/host-settings.js';
+import { serveHealth, sharedClusterProxy } from './infrastructure/index.js';
 import { collectorSink } from './monitoring/index.js';
 import { heartbeatWhileRunning, WORKER_DEFAULTS } from '@koala/engine-core';
 import { traceActivities } from '@koala/engine-core/telemetry';
@@ -23,43 +24,45 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 
 dotenv.config({ quiet: true });
 
-const telemetry = startTelemetry(telemetrySettings(process.env, 'koala-worker-host'));
-const access = clusterAccessFrom(process.env, { role: roleFromEnv(process.env).role });
-telemetry.exportTo(collectorSink({ env: process.env, proxy: sharedClusterProxy(access), koalasCluster: () => access.own().clusterId }));
-
 const logger = createWorkerLogger('host-worker');
 
-Runtime.install({
-  logger,
-  telemetryOptions: {
-    metrics: {
-      prometheus: {
-        bindAddress: `0.0.0.0:${process.env.TEMPORAL_METRICS_PORT || '9465'}`,
+async function main() {
+  const settings = hostWorkerSettingsFrom(process.env);
+  const telemetry = startTelemetry(telemetrySettings(settings, 'koala-worker-host'));
+  const access = hostClusterAccess(settings);
+  telemetry.exportTo(collectorSink({ otlpEndpoint: settings.telemetry.otlpEndpoint, proxy: sharedClusterProxy(access), koalasCluster: () => access.own().clusterId }));
+  Runtime.install({
+    logger,
+    telemetryOptions: {
+      metrics: {
+        prometheus: {
+          bindAddress: `0.0.0.0:${settings.temporalMetricsPort}`,
+        },
       },
     },
-  },
-});
-
-async function main() {
-  const plaintext = temporalTlsProblem(process.env);
+  });
+  const plaintext = temporalTlsProblem(settings.temporal);
   if (plaintext) throw new Error(plaintext);
-  const queue = process.env.TEMPORAL_TASK_QUEUE || 'host-ops-queue';
-  const address = process.env.TEMPORAL_CONNECTION_ADDRESS || 'localhost:7233';
+  connectTemporalAs(settings);
+  keepPayloadsIn(settings.mongo);
+  giveHostActivities(settings, access);
+  const queue = settings.queues.own || 'host-ops-queue';
+  const { address } = settings.temporal;
   logger.info(`[HostWorker] Starting — taskQueue=${queue}, address=${address}`);
 
   let worker;
   while (true) {
     try {
-      const connection = await connectTemporalWorker(address, 'koala-worker-host', process.env);
-      const dataConverter = buildDataConverter(loadKeys(process.env).payload, sharedPayloadBlobs());
+      const connection = await connectTemporalWorker('koala-worker-host', settings);
+      const dataConverter = buildDataConverter(settings.keys.payload, sharedPayloadBlobs());
       worker = await Worker.create({
     ...WORKER_DEFAULTS,
         connection,
-        namespace: temporalNamespaceFrom(process.env),
+        namespace: settings.temporal.namespace,
         ...(dataConverter ? { dataConverter } : {}),
         taskQueue: queue,
         workflowsPath: resolve(__dirname, 'workflows'),
-        interceptors: { activity: [heartbeatWhileRunning(), traceActivities()], workflowModules: workflowInterceptorModules(process.env) },
+        interceptors: { activity: [heartbeatWhileRunning(), traceActivities()], workflowModules: workflowInterceptorModules(settings.role) },
         activities: {
           PoolHostActivity,
           PoolVclusterActivity,
@@ -104,15 +107,14 @@ async function main() {
   }
 
   logger.info('[HostWorker] ✅ Listening for the work of root, the pool and server orders');
-  const port = healthPort(process.env);
-  if (port) serveHealth(port, () => worker.getState() === 'RUNNING');
+  if (settings.healthPort) serveHealth(settings.healthPort, () => worker.getState() === 'RUNNING');
   await worker.run();
+  await telemetry.shutdown().catch(ignore('the worker has stopped, and telemetry the collector did not take is dropped as it is whenever the collector is away'));
 }
 
-main().then(async () => {
-  await telemetry.shutdown().catch(ignore('the worker has stopped, and telemetry the collector did not take is dropped as it is whenever the collector is away'));
+main().then(() => {
   process.exit(0);
 }, (err: Error) => {
-  logger.error(`[HostWorker] FATAL: ${err.stack || err.message}`);
+  logger.error(err instanceof SettingsError ? `[HostWorker] ${err.message}` : `[HostWorker] FATAL: ${err.stack || err.message}`);
   process.exit(1);
 });

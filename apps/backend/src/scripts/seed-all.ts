@@ -3,7 +3,7 @@
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import dotenv from 'dotenv';
-import { createDatabase, type Database, inviteExpiry, loadKeys, runOnce, type MigrationLedger } from '../platform/index.js';
+import { createDatabase, databaseSettingsFrom, type Database, inviteExpiry, runOnce, type MigrationLedger, type SecretKey } from '../platform/index.js';
 import { seedBindingTypes, seedAppSpecs, seedConstructBackedTypes } from '../infrastructure/index.js';
 import { seedTreeTypes, stampTreeVersions } from '../projects/index.js';
 import {
@@ -14,7 +14,7 @@ import { giveDeviceTokenLifetimes, hashDeviceTokens } from '../machines/index.js
 import { SHIPPED_DEPENDENCIES } from '../extensions/workspace-dependencies.js';
 import { seededGrants, seededPersonas } from '../extensions/seeds.js';
 
-export async function seedAll(db: Database) {
+export async function seedAll(db: Database, dataKey: SecretKey) {
   const counts: Record<string, number> = {};
   counts.bindingTypes = await seedBindingTypes(db.infrastructure);
   // Images before tree types: a tree type's language must name one that exists.
@@ -30,7 +30,8 @@ export async function seedAll(db: Database) {
   counts.inviteCodesHashed = (await runOnce(ledger, 'invite-codes-hashed', now, async () => ({ hashed: await db.accounts.hashInviteCodes(inviteExpiry(new Date(now))) }))).hashed ?? 0;
   counts.unkeptAttachmentsDropped = (await runOnce(ledger, 'unkept-attachments-dropped', now, async () => ({ conversations: await db.engine.dropUnkeptAttachments() }))).conversations ?? 0;
   counts.clientFilesForgotten = (await runOnce(ledger, 'client-files-forgotten', now, async () => ({ forgotten: await db.projects.forgetClientFiles() }))).forgotten ?? 0;
-  counts.deviceTokensHashed = (await runOnce(ledger, 'device-tokens-hashed', now, async () => ({ hashed: await hashDeviceTokens(db.machines, loadKeys(process.env).data) }))).hashed ?? 0;
+  counts.deviceTokensHashed = (await runOnce(ledger, 'device-tokens-hashed', now, async () => ({ hashed: await hashDeviceTokens(db.machines, dataKey) }))).hashed ?? 0;
+  counts.clusterProvidersDropped = (await runOnce(ledger, 'cluster-providers-dropped', now, async () => ({ dropped: await db.infrastructure.dropClusterProviders() }))).dropped ?? 0;
   counts.deviceTokenLifetimes = (await runOnce(ledger, 'device-token-lifetimes', now, async () => ({ given: await giveDeviceTokenLifetimes(db.machines, new Date(now)) }))).given ?? 0;
   counts.appSpecs = await seedAppSpecs(db.infrastructure);
   counts.constructBackedTypes = await seedConstructBackedTypes(db.infrastructure);
@@ -54,10 +55,11 @@ export async function seedAll(db: Database) {
 }
 
 async function main() {
-  const db = createDatabase();
+  const database = databaseSettingsFrom(process.env);
+  const db = createDatabase(database);
   await db.init();
   try {
-    const counts = await seedAll(db);
+    const counts = await seedAll(db, database.dataKey);
     const written = Object.entries(counts).filter(([, n]) => n > 0);
     console.log(written.length
       ? `[seed] ${written.map(([k, n]) => `${k}=${n}`).join(' ')}`

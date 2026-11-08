@@ -12,9 +12,8 @@ export interface SpaceOrigin {
   script?: CheckScript | undefined;
 }
 
-export function scriptedModelBase(env: Readonly<Record<string, string | undefined>>): string {
-  const api = env.CHECKS_API_URL?.trim() || `http://localhost:${env.PORT?.trim() || '3001'}/api`;
-  return `${api.replace(/\/+$/, '')}/checks/scripted`;
+export function scriptedModelBase(checksApi: string): string {
+  return `${checksApi.replace(/\/+$/, '')}/checks/scripted`;
 }
 
 export const scriptedEndpointId = (spaceId: string): string => `scripted-${spaceId}`;

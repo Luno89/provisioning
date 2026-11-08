@@ -1,16 +1,23 @@
-import { createDatabase } from '../platform/index.js';
+import { createDatabase, databaseSettingsFrom } from '../platform/index.js';
 import { consolidateMemories, indexMemories, similarTo, type MemoryItem } from '../memory/index.js';
 import { corpusEndpoints } from '../engine/index.js';
+import { clusterAccessFrom, sharedClusterProxy } from '../infrastructure/index.js';
+import { clusterSettingsFrom, type Database } from '../platform/index.js';
+
+const webPlace = (db: Database) => {
+  const place = clusterSettingsFrom(process.env);
+  return { db, proxy: sharedClusterProxy(clusterAccessFrom(place.clusters, { role: place.role.role, clusters: db.infrastructure })), settings: {} };
+};
 
 async function main(): Promise<void> {
   const apply = process.argv.includes('--apply');
-  const db = createDatabase();
+  const db = createDatabase(databaseSettingsFrom(process.env));
   await db.init();
 
   try {
     const before = await db.memory.getMemories();
     const ownerId = before[0]?.ownerId;
-    const ends = ownerId ? await corpusEndpoints(db, ownerId).catch((err: Error) => {
+    const ends = ownerId ? await corpusEndpoints(webPlace(db), ownerId).catch((err: Error) => {
       console.warn(`The corpus services could not be found, so similarity dedupe is off: ${err.message}`);
       return undefined;
     }) : undefined;

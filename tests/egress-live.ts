@@ -7,6 +7,7 @@ dotenv.config({ path: fileURLToPath(new URL('../apps/backend/.env', import.meta.
 import axios, { type AxiosInstance } from 'axios';
 import { sessionToken } from '../apps/backend/src/platform/lib/auth.js';
 import { createDatabase } from '../apps/backend/src/platform/lib/db-interface.js';
+import { databaseSettingsFrom } from '../apps/backend/src/platform/lib/settings.js';
 import type { EgressGrantRecord, EgressRequest } from '@koala/harness-types';
 import { loadKeys } from '../apps/backend/src/platform/lib/keys.js';
 
@@ -39,7 +40,7 @@ const probe = (host: string) =>
 const curlOutput = (results: Result[]) => results.filter((result) => result.name === 'run_command').map((result) => `${result.digest} ${result.content ?? ''}`).join(' | ');
 
 async function main(): Promise<void> {
-  const db = createDatabase();
+  const db = createDatabase(databaseSettingsFrom(process.env));
   await db.init();
   const ownerId = (await db.projects.getProjects()).find((project) => project.ownerId)?.ownerId;
   assert.ok(ownerId);

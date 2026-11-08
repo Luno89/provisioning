@@ -5,6 +5,7 @@ dotenv.config({ path: fileURLToPath(new URL('../apps/backend/.env', import.meta.
 import axios, { type AxiosInstance } from 'axios';
 import { sessionToken } from '../apps/backend/src/platform/lib/auth.js';
 import { createDatabase } from '../apps/backend/src/platform/lib/db-interface.js';
+import { databaseSettingsFrom } from '../apps/backend/src/platform/lib/settings.js';
 import { loadKeys } from '../apps/backend/src/platform/lib/keys.js';
 import { forgetWhatRunsLeft } from './lib/forget-test-runs.js';
 import { fingerprintOf } from '../apps/backend/src/checks/lib/bench.js';
@@ -37,7 +38,7 @@ const finished = (http: AxiosInstance, runId: string) => until(`run ${runId} to 
 
 async function main(): Promise<void> {
   assert.ok(OWNER, 'set PRACTICES_LIVE_OWNER (or GROVE_LIVE_OWNER) to the user whose model the runs use');
-  const db = createDatabase();
+  const db = createDatabase(databaseSettingsFrom(process.env));
   await db.init();
   const user = await db.accounts.getUserById(OWNER);
   assert.ok(user, 'no such user');

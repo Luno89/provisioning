@@ -21,7 +21,7 @@ const NAMESPACE = `shop-${randomUUID().slice(0, 6)}`;
 const docker = (...args: string[]): Promise<string> => succeeded(nodeProcesses, { command: 'docker', args });
 
 function chartEdgeCaddyfile(): string {
-  const rendered = execFileSync(join(REPO, 'bin/helm'), ['template', 'luno', join(REPO, 'charts/instance'), '--set', 'instance.id=i', '--set', 'instance.ownerId=o', '--set', 'instance.rootUrl=https://app.example.com', '--set', 'instance.rootPublicKeys=PEM', '--set', 'storage.total=1Gi'], { encoding: 'utf8' });
+  const rendered = execFileSync(join(REPO, 'bin/helm'), ['template', 'luno', join(REPO, 'charts/instance'), '--set', 'instance.id=i', '--set', 'instance.ownerId=o', '--set', 'instance.rootUrl=https://app.example.com', '--set', 'instance.rootPublicKeys=PEM', '--set', 'instance.credential=c', '--set', 'publicUrl=https://luno.example.com', '--set', 'storage.total=1Gi'], { encoding: 'utf8' });
   const edge = parseAllDocuments(rendered).map((doc) => doc.toJSON() as { kind?: string; metadata?: { name?: string }; data?: Record<string, string> })
     .find((doc) => doc.kind === 'ConfigMap' && doc.metadata?.name === 'luno-edge');
   return edge!.data!.Caddyfile!.replace('admin localhost:2019', 'admin 0.0.0.0:2019');

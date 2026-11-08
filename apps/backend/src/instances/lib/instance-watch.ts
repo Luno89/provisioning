@@ -22,8 +22,11 @@ export interface InstanceWatchRecord {
 }
 
 export function unreachableAfterMs(env: Readonly<Record<string, string | undefined>>): number {
-  const minutes = Number(env.WATCH_UNREACHABLE_MINUTES);
-  return (Number.isFinite(minutes) && minutes > 0 ? minutes : DEFAULT_UNREACHABLE_MINUTES) * 60_000;
+  const given = env.WATCH_UNREACHABLE_MINUTES?.trim();
+  if (!given) return DEFAULT_UNREACHABLE_MINUTES * 60_000;
+  const minutes = Number(given);
+  if (!(Number.isFinite(minutes) && minutes > 0)) throw new Error(`WATCH_UNREACHABLE_MINUTES is not a number of minutes: ${given}`);
+  return minutes * 60_000;
 }
 
 export function nextReach(previous: Reach | undefined, answered: boolean, now: Date, afterMs: number): { reach: Reach; tell?: Tell } {

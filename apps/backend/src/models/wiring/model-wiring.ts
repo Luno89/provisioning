@@ -1,18 +1,26 @@
-import { roleFromEnv, type SecretKey, type Database } from '../../platform/index.js';
+import { type SecretKey, type Database, type MeshSettings, type Off, type ClusterSettings, type RoleConfig } from '../../platform/index.js';
 import {
-  InfrastructureService, BuilderService, ClusterService, AppService, sharedClusterProxy, HeadscaleService, clusterAccessFrom,
+  BuilderService, ClusterService, AppService, sharedClusterProxy, HeadscaleService, clusterAccessFrom, type InfrastructureService,
 } from '../../infrastructure/index.js';
 import { ModelService } from '../services/ModelService.js';
-import { endpointRulesFromEnv } from '../lib/endpoint-url-safety.js';
+import type { EndpointRules } from '../lib/endpoint-url-safety.js';
 
-export function createModelService(db: Database, jwtSecret: SecretKey): ModelService {
-  const infra = new InfrastructureService();
+export interface ModelServicePlace {
+  db: Database;
+  dataKey: SecretKey;
+  role: RoleConfig;
+  clusters: ClusterSettings;
+  infra: InfrastructureService;
+  mesh: MeshSettings | Off;
+  endpointRules: EndpointRules;
+}
+
+export function createModelService(place: ModelServicePlace): ModelService {
+  const { db, dataKey, role, infra } = place;
   const builder = new BuilderService(db, infra);
-  const role = roleFromEnv(process.env);
-  const access = clusterAccessFrom(process.env, { role: role.role, clusters: db.infrastructure, dataKey: jwtSecret });
+  const access = clusterAccessFrom(place.clusters, { role: role.role, clusters: db.infrastructure, dataKey });
   const clusters = new ClusterService(db, access, { instanceOwnerId: role.instance?.ownerId });
   const apps = new AppService(db, infra, clusters, builder);
   const proxy = sharedClusterProxy(access);
-  const headscale = new HeadscaleService(jwtSecret, process.env.HEADSCALE_URL || 'http://localhost:8080', process.env.HEADSCALE_API_KEY);
-  return new ModelService(db, apps, clusters, proxy, headscale, jwtSecret, endpointRulesFromEnv(process.env));
+  return new ModelService(db, apps, clusters, proxy, new HeadscaleService(dataKey, place.mesh), dataKey, place.endpointRules);
 }

@@ -35,9 +35,19 @@ export function suiteRoot(suite: string, metricsPort: number): SuiteRoot {
   const queue = `${suite}-${stamp}`;
   return {
     suite, database, mongoUri, setupCode, queue, metricsPort,
-    env: ['-e', `MONGO_URI=${mongoUri}`, '-e', `ADMIN_SETUP_CODE=${setupCode}`, '-e', `POOL_TASK_QUEUE=${queue}`, '-e', 'CERTIFICATES=internal'],
+    env: [
+      '-e', 'ROLE=root', '-e', `MONGO_URI=${mongoUri}`, '-e', `ADMIN_SETUP_CODE=${setupCode}`, '-e', `POOL_TASK_QUEUE=${queue}`, '-e', 'CERTIFICATES=internal',
+      '-e', `TEMPORAL_CONNECTION_ADDRESS=${DEV_TEMPORAL_ADDRESS}`, '-e', 'TEMPORAL_NAMESPACE=default', '-e', 'TERRAFORM_STATE=local', '-e', `HEADSCALE_URL=${DEV_HEADSCALE}`,
+    ],
   };
 }
+
+export const DEV_TEMPORAL_ADDRESS = '127.0.0.1:7233';
+
+export const DEV_HEADSCALE = 'http://127.0.0.1:8080';
+
+export const rootIdentity = (publicUrl: string, release: { tag: string; registry: string }): string[] =>
+  ['-e', `PUBLIC_URL=${publicUrl}`, '-e', `APP_URL=${publicUrl}`, '-e', `INSTANCE_IMAGE_TAG=${release.tag}`, '-e', `INSTANCE_REGISTRY=${release.registry}`];
 
 export const workerEnv = (root: SuiteRoot): string[] =>
   ['-e', `TEMPORAL_TASK_QUEUE=${root.queue}`, '-e', 'HEALTH_PORT=0', '-e', `TEMPORAL_METRICS_PORT=${root.metricsPort}`];

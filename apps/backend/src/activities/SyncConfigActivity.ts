@@ -81,7 +81,7 @@ export async function SyncConfigActivity(args: SyncConfigArgs, steps: ClusterSte
   const physicalName = args.clusterName;
   const kubeconfigPath = await steps.access.kubeconfigOf(reach);
 
-  const effectiveDevice = process.env.VLLM_DEVICE || (args.vllmGpuCount === 0 ? 'cpu' : (args.vllmGpuVendor === 'amd' ? 'rocm' : 'cuda'));
+  const effectiveDevice = args.vllmGpuCount === 0 ? 'cpu' : (args.vllmGpuVendor === 'amd' ? 'rocm' : 'cuda');
   const effectiveGpuCount = args.vllmGpuCount !== undefined ? args.vllmGpuCount : 1;
   const effectiveTabbyGpuCount = args.tabbyGpuCount !== undefined ? args.tabbyGpuCount : 1;
 
@@ -89,13 +89,13 @@ export async function SyncConfigActivity(args: SyncConfigArgs, steps: ClusterSte
   const deploymentId = args.deploymentId || 'default';
 
   const env = buildAppEnv({
-    hostHfToken: process.env.HF_TOKEN,
+    hostHfToken: steps.hfToken,
     physicalName,
     strategy: args.strategy,
     namespace,
     deploymentId,
     kubeconfigPath,
-    serviceType: appServiceType(placedOnPool(process.env, reach)),
+    serviceType: appServiceType(placedOnPool(Boolean(steps.access.here.poolName), reach)),
     appType: args.appType,
     webRepo: args.webRepo,
     webTag: args.webTag,

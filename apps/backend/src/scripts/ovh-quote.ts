@@ -1,6 +1,6 @@
 import dotenv from 'dotenv';
 import { fileURLToPath } from 'node:url';
-import { claimSettingsFrom, createDatabase, loadKeys, operatorsAmong, roleFromEnv } from '../platform/index.js';
+import { claimSettingsFrom, createDatabase, databaseSettingsFrom, loadKeys, operatorCredentialsFrom, operatorsAmong, roleFromEnv } from '../platform/index.js';
 import { CredentialService, ServerOrderService } from '../infrastructure/index.js';
 
 dotenv.config({ path: fileURLToPath(new URL('../../.env', import.meta.url)), quiet: true });
@@ -18,14 +18,14 @@ async function main(): Promise<void> {
     console.error('Prices the plan in a cart with your stored OVHcloud keys, prints the quote and deletes the cart. It never buys.');
     process.exit(2);
   }
-  const db = createDatabase();
+  const db = createDatabase(databaseSettingsFrom(process.env));
   await db.init();
   try {
     const role = roleFromEnv(process.env);
     const keys = loadKeys(process.env);
     const owner = arg('owner') ?? operatorsAmong(await db.accounts.getUsers(), claimSettingsFrom(role))[0]?.id;
     if (!owner) throw new Error('no operator on this box; pass --owner <id>');
-    const credentials = new CredentialService(db, keys.data, claimSettingsFrom(role));
+    const credentials = new CredentialService(db, keys.data, { claims: claimSettingsFrom(role), credentials: operatorCredentialsFrom(process.env) });
     const orders = new ServerOrderService({
       store: db.infrastructure,
       dataKey: keys.data,

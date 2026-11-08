@@ -1,5 +1,5 @@
 import type { WorkflowClient } from '@temporalio/client';
-import { afterEach, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { mock } from 'vitest-mock-extended';
 import { encryptValue, type ClusterMetadata, type DeploymentMetadata, type PipelineRunMetadata, type ProjectMetadata } from '../../platform/index.js';
 import { memoryDatabase } from '../../platform/testing/memory-database.js';
@@ -9,12 +9,6 @@ import { ClusterUnreachable, type ClusterAccess } from './ClusterAccess.js';
 
 const KEY = 'test-key-that-is-at-least-32-characters-long';
 const CLUSTER: ClusterMetadata = { id: 'c1', name: 'shared', provider: 'machine', machineId: 'shared', status: 'healthy' };
-const saved = { HF_TOKEN: process.env.HF_TOKEN, HUGGING_FACE_HUB_TOKEN: process.env.HUGGING_FACE_HUB_TOKEN };
-
-afterEach(() => {
-  for (const [key, value] of Object.entries(saved)) { if (value === undefined) delete process.env[key]; else process.env[key] = value; }
-});
-
 async function deps(cluster: ClusterMetadata = CLUSTER) {
   const db = memoryDatabase();
   await db.infrastructure.saveCluster(cluster);
@@ -31,6 +25,7 @@ async function deps(cluster: ClusterMetadata = CLUSTER) {
     ownClusterId: () => 'machine-koala',
     logDir: '/tmp/logs',
     claims: { role: 'instance', instanceOwnerId: 'ann' },
+    operatorEnv: {},
   };
   return { deps: all, db, workflow, started, access };
 }
@@ -161,24 +156,20 @@ describe('starting a deploy', () => {
     expect(started().map((run) => run.args.modelCacheHostPath)).toEqual([expect.stringContaining('models'), expect.stringContaining('weights'), undefined]);
   });
 
-  it('gives a model the Hugging Face token the person stored, the operator\'s from the environment, or none', async () => {
-    delete process.env.HF_TOKEN;
-    delete process.env.HUGGING_FACE_HUB_TOKEN;
+  it('gives a model the Hugging Face token the person stored, the operator\'s from the settings, or none', async () => {
     const { deps: d, db, started } = await deps();
     await db.accounts.saveUser({ id: 'ann', email: 'a@b.c', twoFactorEnabled: false, emailVerified: true, createdAt: 'x', credentials: { huggingface: { hfToken: encryptValue('hf_mine', KEY) } } } as never);
     await db.accounts.saveUser({ id: 'bob', email: 'b@b.c', twoFactorEnabled: false, emailVerified: true, createdAt: 'x' });
     await startAppDeploy(d, { name: 'm1', clusterId: 'c1', appType: 'vllm' }, 'ann');
     await startAppDeploy(d, { name: 'm2', clusterId: 'c1', appType: 'tabbyapi' }, 'ann');
     await startAppDeploy(d, { name: 'm3', clusterId: 'c1', appType: 'vllm' }, 'bob');
-    process.env.HF_TOKEN = 'hf_operator';
-    await startAppDeploy(d, { name: 'm4', clusterId: 'c1', appType: 'vllm' });
+    await startAppDeploy({ ...d, operatorEnv: { HF_TOKEN: 'hf_operator' } }, { name: 'm4', clusterId: 'c1', appType: 'vllm' });
     expect(started().map((run) => [run.args.vllmHfToken, run.args.tabbyHfToken])).toEqual([['hf_mine', undefined], [undefined, 'hf_mine'], [undefined, undefined], ['hf_operator', undefined]]);
   });
 
   it('keeps the token it was given rather than looking one up', async () => {
     const { deps: d, started } = await deps();
-    process.env.HF_TOKEN = 'hf_operator';
-    await startAppDeploy(d, { name: 'm1', clusterId: 'c1', appType: 'vllm', vllmHfToken: '  hf_given  ' }, 'ann');
+    await startAppDeploy({ ...d, operatorEnv: { HF_TOKEN: 'hf_operator' } }, { name: 'm1', clusterId: 'c1', appType: 'vllm', vllmHfToken: '  hf_given  ' }, 'ann');
     expect(started()[0]?.args.vllmHfToken).toBe('hf_given');
   });
 });

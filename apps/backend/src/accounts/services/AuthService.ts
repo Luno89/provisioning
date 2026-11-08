@@ -30,6 +30,7 @@ export class AuthService extends BaseService {
   constructor(db: Database, private readonly options: {
     mail?: CodeMail | undefined;
     production?: boolean | undefined;
+    twilio?: { accountSid: string; authToken: string; phoneNumber: string } | undefined;
     push?: { toPerson(ownerId: string, message: { title: string; body: string; path?: string | undefined; tag?: string | undefined }): Promise<number> } | undefined;
     now?: (() => number) | undefined;
   } = {}) {
@@ -174,7 +175,7 @@ export class AuthService extends BaseService {
   sendingProblem(method: string | undefined): string | undefined {
     if (!this.options.production) return undefined;
     if (method === 'sms') {
-      return process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN && process.env.TWILIO_PHONE_NUMBER
+      return this.options.twilio
         ? undefined
         : 'sign-in codes by SMS need Twilio, which this server does not have set up';
     }
@@ -219,13 +220,10 @@ export class AuthService extends BaseService {
         throw new Error('User has no phone number configured for SMS 2FA.');
       }
 
-      const accountSid = process.env.TWILIO_ACCOUNT_SID;
-      const authToken = process.env.TWILIO_AUTH_TOKEN;
-      const fromPhone = process.env.TWILIO_PHONE_NUMBER;
-
-      if (accountSid && authToken && fromPhone) {
+      const twilio = this.options.twilio;
+      if (twilio) {
         this.logger.info('[AuthService] Sending a 2FA code by Twilio SMS');
-        await this.sendTwilioSMS(accountSid, authToken, fromPhone, phone, purpose === 'confirm' ? `Your Koala confirmation code is: ${code}` : `Your Koala sign-in code is: ${code}`);
+        await this.sendTwilioSMS(twilio.accountSid, twilio.authToken, twilio.phoneNumber, phone, purpose === 'confirm' ? `Your Koala confirmation code is: ${code}` : `Your Koala sign-in code is: ${code}`);
       } else {
         this.shownToDeveloper(`by SMS to ${phone}, since Twilio is not set up`, code);
       }

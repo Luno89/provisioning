@@ -5,10 +5,10 @@ export interface FirstAdminSetup {
   say: string | undefined;
 }
 
-export function firstAdminSetup(env: Record<string, string | undefined>, noAccountYet: boolean, generate = () => randomBytes(12).toString('base64url')): FirstAdminSetup {
-  const set = env.ADMIN_SETUP_CODE?.trim();
+export function firstAdminSetup(given: { setupCode?: string | undefined; production: boolean }, noAccountYet: boolean, generate = () => randomBytes(12).toString('base64url')): FirstAdminSetup {
+  const set = given.setupCode?.trim();
   if (set) return { code: set, say: noAccountYet ? 'No account yet: the first sign-up becomes the admin with the setup code in ADMIN_SETUP_CODE' : undefined };
-  if (env.NODE_ENV === 'production') return { code: undefined, say: noAccountYet ? 'No account yet, and ADMIN_SETUP_CODE is not set: nobody can sign up until it is' : undefined };
+  if (given.production) return { code: undefined, say: noAccountYet ? 'No account yet, and ADMIN_SETUP_CODE is not set: nobody can sign up until it is' : undefined };
   const code = generate();
   return { code, say: noAccountYet ? `No account yet: sign up with the setup code ${code} to become the admin` : undefined };
 }

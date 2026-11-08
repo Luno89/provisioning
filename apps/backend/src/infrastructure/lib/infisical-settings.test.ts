@@ -3,7 +3,7 @@ import { infisicalSettingsFrom } from './infisical-settings.js';
 
 describe('the setting a process reaches Infisical with', () => {
   it('reads the address the chart gives', () => {
-    expect(infisicalSettingsFrom({ INFISICAL_URL: 'http://infisical-infisical-standalone-infisical.infisical.svc.cluster.local:8080/' })).toEqual({ url: 'http://infisical-infisical-standalone-infisical.infisical.svc.cluster.local:8080' });
+    expect(infisicalSettingsFrom({ INFISICAL_URL: 'http://infisical-infisical-standalone-infisical.infisical.svc.cluster.local:8080/', NODE_ENV: 'production' })).toEqual({ production: true, url: 'http://infisical-infisical-standalone-infisical.infisical.svc.cluster.local:8080' });
   });
 
   it.each([{}, { INFISICAL_URL: '' }, { INFISICAL_URL: '  ' }])('stops the process naming it when it is missing: %j', (env) => {

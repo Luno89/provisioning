@@ -15,6 +15,7 @@ import { CheckWorkloadActivity } from './CheckWorkloadActivity.js';
 import type { ClusterSteps } from './cluster-steps.js';
 import { DestroyAppActivity } from './DestroyAppActivity.js';
 import { ResizeDiskActivity } from './ResizeDiskActivity.js';
+import { mongoTarget } from '../platform/lib/mongo-target.js';
 
 const REPO = path.resolve(import.meta.dirname, '../../../../');
 const CDKTF = path.join(REPO, 'packages', 'cdktf-infra');
@@ -57,7 +58,7 @@ beforeAll(async () => {
     'app.synth();',
     '',
   ].join('\n'));
-  steps = { access, infra: new InfrastructureService({ cdktfDir, stateDir: path.join(root, 'state'), runsDir }), gitea: new GiteaService('integration-key' as never, { none: 'the apps these tests deploy are not built in Gitea' }), infisical: new InfisicalService('integration-key' as never, { none: 'the apps these tests deploy keep no secrets in Infisical' }) };
+  steps = { access, infra: new InfrastructureService({ cdktfDir, stateDir: path.join(root, 'state'), runsDir, home: { kind: 'local', dir: path.join(root, 'state') } }), gitea: new GiteaService('integration-key' as never, { none: 'the apps these tests deploy are not built in Gitea' }), infisical: new InfisicalService('integration-key' as never, { none: 'the apps these tests deploy keep no secrets in Infisical' }), database: { mongo: mongoTarget(process.env), dataKey: 'integration-key' }, hfToken: undefined, machineMetricsUrl: { off: 'these tests deploy to no other machine' } };
 });
 
 afterAll(async () => { await rm(root, { recursive: true, force: true }); });

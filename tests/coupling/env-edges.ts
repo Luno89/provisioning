@@ -7,7 +7,7 @@ import type { ChannelEnd, ExtraEnd } from './graph.js';
 
 const ENV_NAME = /^[A-Z][A-Z0-9_]+$/;
 const HELM = join(import.meta.dirname, '..', '..', 'bin', 'helm');
-const REQUIRED = ['instance.id=inst-u1', 'instance.ownerId=u1', 'instance.rootUrl=https://app.example.com', 'instance.rootPublicKeys=PEM', 'storage.total=1Gi'];
+const REQUIRED = ['instance.id=inst-u1', 'instance.ownerId=u1', 'instance.rootUrl=https://app.example.com', 'instance.rootPublicKeys=PEM', 'instance.credential=c', 'publicUrl=https://luno.example.com', 'storage.total=1Gi'];
 
 export const CHART_VARIANTS: readonly string[][] = [
   REQUIRED,

@@ -1,4 +1,4 @@
-import { createDatabase, frontierRow, followsLinks, type FrontierClaim } from '../platform/index.js';
+import { createDatabase, frontierRow, followsLinks, type Database, type FrontierClaim } from '../platform/index.js';
 import {
   buildWebTools, corpusEndpoints, crawlEndpoint, liveDeployment, type CorpusEndpoints, ensureIndex, indexPages,
   ensureCollection, embedPages, searchCorpus, purgeCorpus, buildBatchPayload, readCrawlResults, canonical,
@@ -7,12 +7,21 @@ import {
 import { ApplicationFailure } from '@temporalio/common';
 import { v4 as uuidv4 } from 'uuid';
 import { messageOf } from './failure-reasons.js';
+import { sharedClusterProxy } from '../infrastructure/index.js';
+import { hostAccess, hostSettings } from './host-settings.js';
+
+const openDatabase = (): Database => {
+  const { mongo, keys } = hostSettings();
+  return createDatabase({ mongo, dataKey: keys.data });
+};
+
+const webPlace = (db: Database) => ({ db, proxy: sharedClusterProxy(hostAccess()), settings: hostSettings().webTools });
 
 async function endpoint(ownerId: string) {
-  const db = createDatabase();
+  const db = openDatabase();
   await db.init();
   try {
-    const found = await crawlEndpoint(db, ownerId);
+    const found = await crawlEndpoint(webPlace(db), ownerId);
     if (found) return found;
     const deployed = liveDeployment(await db.infrastructure.getDeployments(), 'crawl4ai', ownerId);
     if (!deployed) {
@@ -46,7 +55,7 @@ export interface SeedFrontierArgs {
 }
 
 export async function SeedFrontierActivity(args: SeedFrontierArgs): Promise<{ queued: number }> {
-  const db = createDatabase();
+  const db = openDatabase();
   await db.init();
   try {
     return { queued: await db.engine.enqueueFrontier([frontierRow(args.ingestId, args.seed, 0, args.keywords)]) };
@@ -66,7 +75,7 @@ export interface NextBatchResult {
 }
 
 export async function NextBatchActivity(args: NextBatchArgs): Promise<NextBatchResult> {
-  const db = createDatabase();
+  const db = openDatabase();
   await db.init();
   try {
     const batch = await db.engine.claimFrontier(args.ingestId, args.limit);
@@ -109,7 +118,7 @@ export async function CrawlBatchActivity(args: CrawlBatchArgs): Promise<CrawlBat
   }
   const fetched = readCrawlResults(await res.json());
 
-  const db = createDatabase();
+  const db = openDatabase();
   await db.init();
   try {
     const usable = fetched.filter((p) => !p.error && p.markdown.trim());
@@ -123,7 +132,7 @@ export async function CrawlBatchActivity(args: CrawlBatchArgs): Promise<CrawlBat
     let indexed = 0;
     let embedded = 0;
     try {
-      const ends = await corpusEndpoints(db, args.ownerId);
+      const ends = await corpusEndpoints(webPlace(db), args.ownerId);
       if (ends.index) {
         await ensureIndex(ends.index.base);
         const docs = stored.map((p) => toDoc(p));
@@ -171,10 +180,10 @@ export async function CrawlBatchActivity(args: CrawlBatchArgs): Promise<CrawlBat
 export async function SearchCorpusActivity(
   args: { ownerId: string; query: string; ingestId?: string; projectId?: string },
 ): Promise<{ hits: { url: string; snippet: string }[] }> {
-  const db = createDatabase();
+  const db = openDatabase();
   await db.init();
   try {
-    const ends: CorpusEndpoints = await corpusEndpoints(db, args.ownerId).catch((err: unknown) => {
+    const ends: CorpusEndpoints = await corpusEndpoints(webPlace(db), args.ownerId).catch((err: unknown) => {
       console.warn(`[Crawl] corpus services could not be found, searching the stored pages only: ${messageOf(err)}`);
       return {};
     });
@@ -200,7 +209,7 @@ export async function SearchCorpusActivity(
 }
 
 export async function DiscardFrontierActivity(args: { ingestId: string }): Promise<void> {
-  const db = createDatabase();
+  const db = openDatabase();
   await db.init();
   try {
     await db.engine.deleteFrontier(args.ingestId);
@@ -210,10 +219,10 @@ export async function DiscardFrontierActivity(args: { ingestId: string }): Promi
 }
 
 export async function PurgeCorpusActivity(args: { ownerId: string; ingestId: string }): Promise<void> {
-  const db = createDatabase();
+  const db = openDatabase();
   await db.init();
   try {
-    const ends = await corpusEndpoints(db, args.ownerId);
+    const ends = await corpusEndpoints(webPlace(db), args.ownerId);
     await purgeCorpus(ends, args.ingestId);
     await db.engine.deleteCorpus(args.ingestId);
   } finally {

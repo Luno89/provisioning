@@ -1,6 +1,6 @@
 import { bindChatWithItsFiles } from '../../files/index.js';
 import type { Server as SocketServer } from 'socket.io';
-import { type Database, type SecretKey, type ProjectMetadata, secretNotice, getTemporalClient, roleFromEnv, servesTenants, type Principal } from '../../platform/index.js';
+import { type Database, type SecretKey, type ProjectMetadata, secretNotice, getTemporalClient, servesTenants, type Principal, type RoleConfig } from '../../platform/index.js';
 import { groveAgentOf, resolveTreeType, renderStarterFiles, versionVars } from '../lib/tree-types.js';
 import { PROJECT_REMOVAL_PROGRESS_QUERY, type ProjectRemovalStep } from '../lib/project-removal.js';
 import { ProjectRepoService } from '../services/ProjectRepoService.js';
@@ -19,7 +19,7 @@ import { TreeWorkspaceService } from '../services/TreeWorkspaceService.js';
 import { PlanService } from '../services/PlanService.js';
 import { koalasClusterFor, webhookUrlAt } from '../lib/project-shipping.js';
 import type { GiteaService } from '../services/GiteaService.js';
-import type { InfisicalService, InfrastructureService, ClusterService, AppService, TemporalBridge } from '../../infrastructure/index.js';
+import type { InfisicalService, InfrastructureService, ClusterService, AppService, TemporalBridge, Here } from '../../infrastructure/index.js';
 import type { MachineService } from '../../machines/index.js';
 import type { WorkspaceConclusionService } from '../../memory/index.js';
 import { previewPush, type PushMessage } from '../../monitoring/index.js';
@@ -47,7 +47,7 @@ export interface ProjectsCoreDeps {
   db: Database;
   push?: { toPerson(ownerId: string, message: PushMessage): Promise<number> } | undefined;
   io: SocketServer;
-  env: NodeJS.ProcessEnv;
+  here: Here;
   dataKey: SecretKey;
   gitea: GiteaService;
   webhooksTo: string | undefined;
@@ -69,7 +69,7 @@ const webhooksAt = (backend: string | undefined): ((projectId: string) => Promis
 
 export function projectsCore(deps: ProjectsCoreDeps): ProjectsCore {
   const { db, io, gitea } = deps;
-  const projectRepoService = new ProjectRepoService(db, gitea, deps.dataKey, webhooksAt(deps.webhooksTo), { defaultCluster: koalasClusterFor(deps.env) });
+  const projectRepoService = new ProjectRepoService(db, gitea, deps.dataKey, webhooksAt(deps.webhooksTo), { defaultCluster: koalasClusterFor(deps.here) });
   const channels = new ProjectChannelService({
     conversation: (ownerId, id) => db.engine.getConversation(ownerId, id),
     save: (conversation) => db.engine.saveConversation(conversation),
@@ -123,7 +123,8 @@ export interface ProjectsWiringDeps {
   tenant: Mounts;
   db: Database;
   io: SocketServer;
-  env: NodeJS.ProcessEnv;
+  role: RoleConfig;
+  engineQueue: string | undefined;
   dataKey: SecretKey;
   core: ProjectsCore;
   gitea: GiteaService;
@@ -154,11 +155,11 @@ export interface ProjectsWiring {
 }
 
 export function wireProjects(deps: ProjectsWiringDeps): ProjectsWiring {
-  const { tenant, db, io, env, core, gitea, temporalBridge, evalHost } = deps;
+  const { tenant, db, io, core, gitea, temporalBridge, evalHost } = deps;
   const { projectRepoService, channels, itemChats, treeHome } = core;
-  const engineQueue = env.TEMPORAL_ENGINE_TASK_QUEUE || DEFAULT_ENGINE_TASK_QUEUE;
+  const engineQueue = deps.engineQueue || DEFAULT_ENGINE_TASK_QUEUE;
 
-  if (servesTenants(roleFromEnv(env))) {
+  if (servesTenants(deps.role)) {
     void gitea.makeUsersPrivate()
       .then((changed) => { if (changed.length) console.log(`[gitea] made ${changed.length} user(s) private: ${changed.join(', ')}`); })
       .catch((err: Error) => console.warn(`[gitea] could not make every Gitea user private at startup: ${err.message}`));

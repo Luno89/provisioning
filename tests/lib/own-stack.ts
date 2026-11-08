@@ -4,7 +4,7 @@ import dotenv from 'dotenv';
 import { buildAppImage } from './gate-runs.js';
 import { devFile, devTemporalCa } from './dev-temporal.js';
 import { answers, envArgs, minioReady, minioRun, temporal, temporalContainer } from './split-stack.js';
-import { dropSuiteDatabase, firstAdmin, suiteRoot, type FirstAdmin, type SuiteRoot } from './suite-root.js';
+import { DEV_TEMPORAL_ADDRESS, dropSuiteDatabase, firstAdmin, suiteRoot, type FirstAdmin, type SuiteRoot } from './suite-root.js';
 import { unreachedPlatformServices } from '../../apps/backend/src/platform/testing/platform-services.js';
 import { portToHandOn } from '@koala/engine-core/testing/ports';
 
@@ -72,7 +72,9 @@ export async function startOwnStack(suite: string, log: (line: string) => void =
     APP_URL: url,
     MONGO_URI: root.mongoUri,
     ADMIN_SETUP_CODE: root.setupCode,
+    TEMPORAL_CONNECTION_ADDRESS: DEV_TEMPORAL_ADDRESS,
     TEMPORAL_NAMESPACE: namespace,
+    TERRAFORM_STATE: 'local',
     MACHINE_GATEWAY_PORT: String(gatewayPort),
     MACHINE_TEMPORAL_ADDRESS: `localhost:${gatewayPort}`,
     ...unreachedPlatformServices(url),

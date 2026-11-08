@@ -104,7 +104,7 @@ export async function startRole(name: string, env: Record<string, string>, port?
   const url = `http://localhost:${at}`;
   const started = options.entry
     ? await startProcess(name, options.entry, { PORT: String(at), PUBLIC_URL: url, APP_URL: url, HEALTH_PORT: String(at), GITEA_REACHES_KOALA_AT: url, ...env }, () => healthy(at), options.files)
-    : await startProcess(name, 'src/index.ts', { PORT: String(at), PUBLIC_URL: url, APP_URL: url, GITEA_REACHES_KOALA_AT: url, ...env }, () => answering(url), options.files);
+    : await startProcess(name, 'src/index.ts', { PORT: String(at), PUBLIC_URL: url, APP_URL: url, GITEA_REACHES_KOALA_AT: url, MACHINE_GATEWAY_PORT: '0', ...env }, () => answering(url), options.files);
   return { ...started, url, port: at };
 }
 

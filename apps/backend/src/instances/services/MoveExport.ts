@@ -10,7 +10,7 @@ import { clientOptionsFor, type Followed, type Io } from '../../platform/index.j
 import type { Reach, Target } from '../../infrastructure/index.js';
 import { exportLines } from '../lib/mongo-move.js';
 import { moveTokenOnce, type UsedTokenClaim } from '../lib/identity-token.js';
-import { GITEA_DATA, MOVED_POSTGRES, PG_DUMP, TERRAFORM_STATE_SELECTOR, keysEnv, movedStateSecrets, type MovePart } from '../lib/instance-move.js';
+import { GITEA_DATA, MOVED_POSTGRES, PG_DUMP, TERRAFORM_STATE_SELECTOR, movedStateSecrets, type MovedSettings, type MovePart } from '../lib/instance-move.js';
 import {
   COPIED_KINDS, REPLICAS_ANNOTATION, SCALED_KINDS, copied, isMovedNamespace, volumesOf,
   type AppsManifest, type KubeObject, type MovedNamespace,
@@ -47,7 +47,7 @@ export interface MoveExportDeps {
   trusted: ReadonlyMap<string, crypto.KeyObject>;
   dataDir: string;
   mongo: { uri: string; dbName: string };
-  env: NodeJS.ProcessEnv;
+  moved: MovedSettings;
   running: () => Promise<string[] | 'unknown'>;
   claim: UsedTokenClaim;
   spawn?: typeof spawnProcess;
@@ -228,7 +228,7 @@ export class MoveExport {
   open(part: MovePart): { out: Readable; done: Promise<void>; type: string } {
     switch (part) {
       case 'keys': {
-        const text = keysEnv(this.deps.env);
+        const text = this.deps.moved.keys;
         if (typeof text !== 'string') throw new Error(text.error);
         const out = new PassThrough();
         out.end(text);
@@ -248,7 +248,7 @@ export class MoveExport {
       case 'gitea-data':
         return { ...this.kubectlOut(['exec', '-n', GITEA_DATA.namespace, `deploy/${GITEA_DATA.deployment}`, '-c', GITEA_DATA.container, '--', 'tar', 'czf', '-', '-C', GITEA_DATA.path, '.']), type: 'application/gzip' };
       case 'terraform-state': {
-        const namespace = this.deps.env.POD_NAMESPACE?.trim();
+        const namespace = this.deps.moved.podNamespace;
         if (!namespace) throw new Error('this instance does not know its own namespace, where Terraform keeps its state');
         const out = new PassThrough();
         const done = this.kubectl(['get', 'secrets', '-n', namespace, '-l', TERRAFORM_STATE_SELECTOR, '-o', 'json'])
@@ -258,7 +258,7 @@ export class MoveExport {
       }
       case 'apps': {
         const out = new PassThrough();
-        const done = this.apps(this.deps.env.REGISTRY_PULL_HOST?.trim() ?? '').then((manifest) => { out.end(JSON.stringify(manifest)); });
+        const done = this.apps(this.deps.moved.registryPullHost).then((manifest) => { out.end(JSON.stringify(manifest)); });
         done.catch((err: Error) => out.destroy(err));
         return { out, done, type: 'application/json' };
       }

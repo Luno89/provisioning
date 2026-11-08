@@ -58,8 +58,9 @@ export class InfisicalService {
   }
 
   async getAdminCredentials(): Promise<{ username: string; password: string }> {
+    if ('none' in this.at) throw new Error(this.at.none);
     const stored = await fs.readFile(ADMIN_PASSWORD_FILE, 'utf8').catch(ignore('with no stored password infisicalAdminPassword gives the development one, and refuses in production'));
-    return { username: 'admin', password: infisicalAdminPassword(stored, process.env.NODE_ENV === 'production', ADMIN_PASSWORD_FILE) };
+    return { username: 'admin', password: infisicalAdminPassword(stored, this.at.production, ADMIN_PASSWORD_FILE) };
   }
 
   private async loadAuthCreds(): Promise<{ clientId: string; clientSecret: string; orgId: string } | null> {

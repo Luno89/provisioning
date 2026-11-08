@@ -5,7 +5,7 @@ import { HeadscaleService } from './HeadscaleService.js';
 
 const BASE = 'http://headscale.test';
 const server = interceptHttp();
-const service = () => new HeadscaleService('master-key', BASE, '  api-key  ');
+const service = () => new HeadscaleService('master-key', { headscaleUrl: BASE, headscaleApiKey: '  api-key  ' });
 const authorized = (request: Request): boolean => request.headers.get('authorization') === 'Bearer api-key';
 
 const knowsUser = (name: string, id = '7') => http.get(`${BASE}/api/v1/user`, ({ request }) => (authorized(request) && new URL(request.url).searchParams.get('name') === name ? HttpResponse.json({ users: [{ id, name }] }) : HttpResponse.json({ users: [] })));

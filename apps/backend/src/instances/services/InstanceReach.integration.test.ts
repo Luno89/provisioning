@@ -39,8 +39,9 @@ describe('root calling one of its people\'s instances', () => {
     expect(heard.at(-1)).toEqual({ servername: 'luno.people.example', host: 'luno.people.example', path: '/api/auth/oidc/backchannel-logout' });
   });
 
-  it('defaults to the Caddy on this machine\'s port 443, and leaves names outside the people\'s domain alone', () => {
-    expect(reachSettingsFrom({ INGRESS_DOMAIN: 'people.example' }, false).ownCaddy).toEqual({ host: '127.0.0.1', port: 443 });
+  it('goes through root\'s Caddy at the address it is named, never a guessed one, and leaves names outside the people\'s domain alone', () => {
+    expect(reachSettingsFrom({ INGRESS_DOMAIN: 'people.example', CADDY_TLS_ADDRESS: '127.0.0.1:443' }, false).ownCaddy).toEqual({ host: '127.0.0.1', port: 443 });
+    expect(reachSettingsFrom({ INGRESS_DOMAIN: 'people.example' }, false).ownCaddy).toBeUndefined();
     expect(reachSettingsFrom({}, false).ownCaddy).toBeUndefined();
   });
 });

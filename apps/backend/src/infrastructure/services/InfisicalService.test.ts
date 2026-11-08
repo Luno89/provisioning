@@ -41,7 +41,7 @@ describe('InfisicalService', () => {
     files.clear();
     files.set(IDENTITY_FILE, JSON.stringify({ clientId: 'cid', clientSecret: 'cs', orgId: 'org' }));
     for (const fn of [post, get, patch, del]) fn.mockReset();
-    service = new InfisicalService(MASTER_KEY, { url: 'http://vault:8080' });
+    service = new InfisicalService(MASTER_KEY, { url: 'http://vault:8080', production: false });
   });
 
   it('reaches Infisical only at the address it was given', async () => {

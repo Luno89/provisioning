@@ -7,6 +7,7 @@ import { fileURLToPath } from 'url';
 dotenv.config({ path: fileURLToPath(new URL('../apps/backend/.env', import.meta.url)), quiet: true });
 import axios, { type AxiosInstance } from 'axios';
 import { createDatabase } from '../apps/backend/src/platform/lib/db-interface.js';
+import { databaseSettingsFrom } from '../apps/backend/src/platform/lib/settings.js';
 import { sessionToken } from '../apps/backend/src/platform/lib/auth.js';
 import { loadKeys } from '../apps/backend/src/platform/lib/keys.js';
 import { TRACE_ID_HEADER } from '../apps/backend/src/platform/services/MetricsService.js';
@@ -94,7 +95,7 @@ interface KoalaView { state: string; reasons: string[]; numbers: Record<string, 
 
 async function main(): Promise<void> {
   assert.ok(ADMIN, 'set MECHANICS_ADMIN (or GROVE_LIVE_OWNER) to an admin, who invites this test\'s account');
-  const db = createDatabase();
+  const db = createDatabase(databaseSettingsFrom(process.env));
   await db.init();
   const admin = await db.accounts.getUserById(ADMIN);
   assert.ok(admin && admin.roles?.includes('operator'), `${ADMIN} is not an admin`);

@@ -6,7 +6,8 @@ import { Client, Connection } from '@temporalio/client';
 import { buildDataConverter } from '@koala/engine-core/payloads';
 import { createDatabase, type Database } from '../../apps/backend/src/platform/lib/db-interface.js';
 import { loadKeys } from '../../apps/backend/src/platform/lib/keys.js';
-import { temporalApiKey, temporalNamespaceFrom } from '../../apps/backend/src/platform/lib/temporal-auth.js';
+import { temporalApiKey } from '../../apps/backend/src/platform/lib/temporal-auth.js';
+import { databaseSettingsFrom } from '../../apps/backend/src/platform/lib/settings.js';
 import { DEV, devGiteaOnThisComputer } from '../../apps/backend/src/instances/lib/dev-root.js';
 import { nodeStreams } from '../../apps/backend/src/platform/services/processes.js';
 import type { KoalasCluster } from '../../apps/backend/src/engine-host/sandboxes/kube.js';
@@ -105,7 +106,8 @@ export async function devKoalaTemporal(): Promise<DevTemporal> {
   assert.ok(ca, `the Secret ${DEV_RELEASE}-temporal-tls holds no ca.crt`);
   const service = `${DEV_RELEASE}-temporal`;
   const address = kubectl('get', 'service', service, '-o', 'jsonpath={.spec.clusterIP}');
-  const namespace = temporalNamespaceFrom(devKoalaEnv());
+  const namespace = devKoalaEnv().TEMPORAL_NAMESPACE;
+  assert.ok(namespace, 'dev\'s Koala names no TEMPORAL_NAMESPACE');
   const connection = await Connection.connect({
     address: `${address}:7233`,
     tls: { serverRootCACertificate: Buffer.from(ca), serverNameOverride: service },
@@ -120,10 +122,10 @@ export function devKoalaDatabase(): Database {
   const used = kubectl('get', 'deployment', `${DEV_RELEASE}-backend`, '-o', 'jsonpath={.spec.template.spec.containers[0].env[?(@.name=="MONGO_URI")].value}');
   const database = new URL(used.replace(/^mongodb:/, 'http:')).pathname.slice(1);
   assert.ok(database, 'dev\'s Koala names no database in its MONGO_URI');
-  return createDatabase({
+  return createDatabase(databaseSettingsFrom({
     ...keys,
     MONGO_URI: `mongodb://admin:${encodeURIComponent(keys.MONGO_ROOT_PASSWORD!)}@${address}:27017/${database}?authSource=admin&directConnection=true`,
-  });
+  }));
 }
 
 export function devKoalasCluster(): KoalasCluster {

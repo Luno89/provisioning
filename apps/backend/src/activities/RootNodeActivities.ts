@@ -1,7 +1,8 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { ApplicationFailure } from '@temporalio/common';
-import { claimSettingsFrom, createDatabase, loadKeys, roleFromEnv, type Database } from '../platform/index.js';
+import { claimSettingsFrom, createDatabase, type Database } from '../platform/index.js';
+import { hostSettings } from './host-settings.js';
 import {
   bootstrapScript, CredentialService, generateSshKeypair, KOALA_REPOSITORY, missingFromEnvFile, READY_MARK, readOverSsh, redacted,
   runScriptOverSsh, ServerOrderProblem, ServerOrderService, setupCodeFrom, signInSecretsOf, sshAnswers,
@@ -10,11 +11,12 @@ import {
 const execFileAsync = promisify(execFile);
 
 async function withOrders<T>(work: (orders: ServerOrderService) => Promise<T>): Promise<T> {
-  const db: Database = createDatabase();
+  const settings = hostSettings();
+  const { keys } = settings;
+  const db: Database = createDatabase({ mongo: settings.mongo, dataKey: keys.data });
   await db.init();
   try {
-    const keys = loadKeys(process.env);
-    const credentials = new CredentialService(db, keys.data, claimSettingsFrom(roleFromEnv(process.env)));
+    const credentials = new CredentialService(db, keys.data, { claims: claimSettingsFrom(settings.role), credentials: settings.operator });
     const orders = new ServerOrderService({
       store: db.infrastructure,
       dataKey: keys.data,
@@ -22,7 +24,7 @@ async function withOrders<T>(work: (orders: ServerOrderService) => Promise<T>): 
         const resolved = await credentials.resolveCredentials(ownerId, 'ovh');
         if (resolved.mode === 'none') return undefined;
         const { OVH_APPLICATION_KEY: applicationKey, OVH_APPLICATION_SECRET: applicationSecret, OVH_CONSUMER_KEY: consumerKey, OVH_SUBSIDIARY: subsidiary } = resolved.env;
-        return applicationKey && applicationSecret && consumerKey ? { applicationKey, applicationSecret, consumerKey, subsidiary: subsidiary || 'FR' } : undefined;
+        return applicationKey && applicationSecret && consumerKey && subsidiary ? { applicationKey, applicationSecret, consumerKey, subsidiary } : undefined;
       },
       dnsCredentialsOf: (ownerId, provider) => credentials.dnsCredentialsOf(ownerId, provider),
       lsRemote: async () => (await execFileAsync('git', ['ls-remote', '--tags', KOALA_REPOSITORY], { maxBuffer: 16 * 1024 * 1024 })).stdout,

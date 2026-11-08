@@ -1,11 +1,11 @@
 import { at, type CloudCredentials, type CloudProvider, type Database, decryptValue, encryptValue, isRecord, maskSecret, type SecretKey, textAt } from '../../platform/index.js';
-import { usesOperatorCredentials, type ResolvedCredentials } from '../lib/credential-resolver.js';
+import { usesOperatorCredentials, type OperatorEnv, type ResolvedCredentials } from '../lib/credential-resolver.js';
 import { resolveCloudCredentials } from './cloud-credentials.js';
 import { OVH_SUBSIDIARIES } from '../lib/vps-catalog/adapters.js';
 import { credentialsFromEnv, dnsProviderNamed, DNS_PROVIDERS, isDnsProviderName, plainFieldsOf, secretFieldsOf } from '../lib/dns-providers.js';
 import { DnsProviders } from './dns/DnsProviders.js';
 import { OvhClient, type FetchLike } from './OvhClient.js';
-import type { ClaimSettings } from '../../platform/index.js';
+import type { ClaimedUser, ClaimSettings, OperatorCredentials } from '../../platform/index.js';
 
 async function readJson(res: Response): Promise<unknown> {
   return res.json();
@@ -49,10 +49,14 @@ export class CredentialService {
   constructor(
     private readonly db: Database,
     private readonly masterKey: SecretKey,
-    private readonly claims?: ClaimSettings | undefined,
+    private readonly operator?: { claims: ClaimSettings; credentials: OperatorCredentials } | undefined,
     private readonly fetchImpl: FetchLike = fetch,
     private readonly dns: DnsProviders = new DnsProviders(fetchImpl),
   ) {}
+
+  private operatorEnvFor(user: ClaimedUser | undefined): OperatorEnv | undefined {
+    return this.operator && usesOperatorCredentials(user, this.operator.claims) ? this.operator.credentials.env : undefined;
+  }
 
   async validateCredentials(
     provider: string,
@@ -110,11 +114,11 @@ export class CredentialService {
       if (provider === 'googledrive') {
         const refreshToken = creds.refreshToken;
         if (!refreshToken) return { valid: false, message: 'Not connected — use "Connect with Google" first.' };
-        const clientId = process.env.GOOGLE_CLIENT_ID;
-        const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
-        if (!clientId || !clientSecret) {
-          return { valid: false, message: 'GOOGLE_CLIENT_ID/GOOGLE_CLIENT_SECRET are not set on the server.' };
+        const google = this.operator?.credentials.googleDrive;
+        if (!google || 'off' in google) {
+          return { valid: false, message: google ? google.off : 'GOOGLE_CLIENT_ID/GOOGLE_CLIENT_SECRET are not set on the server.' };
         }
+        const { clientId, clientSecret } = google;
         const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
           method: 'POST',
           headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -166,7 +170,7 @@ export class CredentialService {
         if (!(err instanceof UnreadableCredential)) throw err;
         return { provider: key, label, configured: false, unreadable: err.message };
       }
-      const resolved = resolveCloudCredentials(key, stored, usesOperatorCredentials(user, this.claims));
+      const resolved = resolveCloudCredentials(key, stored, this.operatorEnvFor(user));
 
       if (resolved.mode === 'none') {
         return { provider: key, label, configured: false };
@@ -254,7 +258,7 @@ export class CredentialService {
   async resolveCredentials(userId: string, provider: string): Promise<ResolvedCredentials> {
     const user = await this.db.accounts.getUserById(userId);
     const decrypted = user?.credentials ? this.decryptAll(user.credentials, provider) : undefined;
-    return resolveCloudCredentials(provider, decrypted, usesOperatorCredentials(user, this.claims));
+    return resolveCloudCredentials(provider, decrypted, this.operatorEnvFor(user));
   }
 
   private decrypted(value: string, provider: string, field: string): string {

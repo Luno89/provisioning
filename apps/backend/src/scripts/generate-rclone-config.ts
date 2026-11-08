@@ -11,7 +11,7 @@ const ROOT = path.resolve(__dirname, '../../../../');
 dotenv.config({ path: path.join(ROOT, 'apps/backend/.env'), quiet: true });
 
 async function main() {
-  const { createDatabase } = await import('../platform/index.js');
+  const { createDatabase, databaseSettingsFrom } = await import('../platform/index.js');
   const { decryptValue } = await import('../platform/index.js');
 
   const jwtSecret = (await import('../platform/index.js')).loadKeys(process.env).data;
@@ -19,7 +19,7 @@ async function main() {
   const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
   if (!jwtSecret || !clientId || !clientSecret) process.exit(1);
 
-  const db = createDatabase();
+  const db = createDatabase(databaseSettingsFrom(process.env));
   await db.init();
 
   const users = await db.accounts.getUsers();

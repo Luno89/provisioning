@@ -51,10 +51,8 @@ spec:
                 name: {{ include "instance.name" $ }}-env
             - secretRef:
                 name: {{ include "instance.name" $ }}-keys
-            {{- if $.Values.instance.credential }}
             - secretRef:
                 name: {{ include "instance.name" $ }}-instance
-            {{- end }}
           env:
             - name: MONGO_ROOT_PASSWORD
               valueFrom:
@@ -85,12 +83,14 @@ spec:
                 fieldRef:
                   fieldPath: status.podIP
             - name: PORT
-              value: "3001"
+              value: {{ $.Values.backend.port | quote }}
+            - name: MACHINE_GATEWAY_PORT
+              value: {{ $.Values.machineGateway.port | quote }}
           ports:
             - name: http
-              containerPort: 3001
+              containerPort: {{ $.Values.backend.port }}
             - name: machine-gateway
-              containerPort: 7234
+              containerPort: {{ $.Values.machineGateway.port }}
           readinessProbe:
             httpGet:
               path: /api/auth/sign-in
@@ -99,10 +99,14 @@ spec:
             periodSeconds: 10
             {{- else }}
             - name: HEALTH_PORT
-              value: "8090"
+              value: {{ $.Values.workers.healthPort | quote }}
+            - name: {{ if eq $process "worker-engine" }}TEMPORAL_ENGINE_METRICS_PORT{{ else }}TEMPORAL_METRICS_PORT{{ end }}
+              value: {{ $.Values.workers.temporalMetricsPort | quote }}
           ports:
             - name: health
-              containerPort: 8090
+              containerPort: {{ $.Values.workers.healthPort }}
+            - name: temporal-metrics
+              containerPort: {{ $.Values.workers.temporalMetricsPort }}
           readinessProbe:
             httpGet:
               path: /healthz
@@ -137,7 +141,7 @@ spec:
           lifecycle:
             preStop:
               exec:
-                command: [sh, -c, "until ! wget -q -O /dev/null http://127.0.0.1:3001/api/auth/sign-in; do sleep 0.5; done"]
+                command: [sh, -c, "until ! wget -q -O /dev/null http://127.0.0.1:{{ $.Values.backend.port }}/api/auth/sign-in; do sleep 0.5; done"]
           {{- include "instance.resources" (dict "root" $ "component" "edge") | nindent 10 }}
           ports:
             - name: edge
@@ -208,7 +212,7 @@ spec:
   selector: {{- include "instance.selector" (dict "root" . "component" "backend") | nindent 4 }}
   ports:
     - name: machine-gateway
-      port: 7234
+      port: {{ .Values.machineGateway.port }}
       targetPort: machine-gateway
       nodePort: {{ .Values.machineGateway.nodePort }}
 {{- end }}

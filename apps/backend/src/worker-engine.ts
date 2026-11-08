@@ -10,16 +10,15 @@ import {
   koalasClusterFor, GiteaService, projectSecretsFor, ProjectChannelService, ODOO_TREE_TYPE,
   treeTypeOfProject, giteaUsernameFor, ProjectRepoService, createSecretVault, treeTypeChoices, treeLanguageFrom,
   treeExtrasFrom, dependencyNamespaceFrom, ownNamespacesFrom, renderStarterFiles, groveAgentOf, resolveTreeType, versionVars,
-  TreeHomeService, webhookUrlAt, giteaSettingsFrom, type GroveRunLauncher,
+  TreeHomeService, webhookUrlAt, type GroveRunLauncher,
 } from './projects/index.js';
 import {
   stopIfRunning, createDatabase, sharedPayloadBlobs, createWorkerLogger, buildDataConverter, connectTemporalWorker, temporalTlsProblem, failureReason,
-  sessionToken, principalOf, claimsOf, claimSettingsFrom, roleFromEnv, getTemporalClient, resolveOwnersWith, loadKeys, startedFor, carryingTrace, telemetrySettings, AccessRevocations,
-  publicAddressProblem, encryptValue, temporalNamespaceFrom,
+  sessionToken, principalOf, claimsOf, claimSettingsFrom, getTemporalClient, resolveOwnersWith, startedFor, carryingTrace, telemetrySettings, AccessRevocations,
+  publicAddressProblem, encryptValue, engineWorkerSettingsFrom, connectTemporalAs, keepPayloadsIn, SettingsError, type EngineWorkerSettings,
 } from './platform/index.js';
 import type { ClaimedUser } from './platform/index.js';
 import { rootSignInFor } from './instances/wiring/sign-in.js';
-import { registrySettingsFrom } from './instances/index.js';
 import { createWorkspaceRepoResolver, treeOfWorkspace } from './engine-host/sandboxes/workspace-repos.js';
 import dotenv from 'dotenv';
 import { Worker, Runtime } from '@temporalio/worker';
@@ -28,8 +27,8 @@ import { fileURLToPath } from 'url';
 
 import { createPlanAdoption } from './engine-host/plan-adoption.js';
 import {
-  LOG_DIR, InfisicalService, infisicalSettingsFrom, HeadscaleService, deployProjectBuild, sharedClusterProxy,
-  ClusterService, clusterAccessFrom, visibleAppSpecs, resolveBindings, healthPort, serveHealth,
+  LOG_DIR, InfisicalService, HeadscaleService, deployProjectBuild, sharedClusterProxy, InfrastructureService, terraformPlacesFor,
+  ClusterService, clusterAccessFrom, visibleAppSpecs, resolveBindings, serveHealth,
 } from './infrastructure/index.js';
 import { createModelService } from './models/wiring/model-wiring.js';
 import { createAccountRemovalActivities, removalMeshFor } from './activities/RemoveAccountActivities.js';
@@ -72,7 +71,7 @@ import { createGroveLauncher } from './engine-host/grove-launcher.js';
 import { createRunStarter } from './engine-host/registries/run-starter.js';
 import { conversationBinding } from './engine-host/conversation-binding.js';
 import { storedFilesFor } from './files/wiring/files.js';
-import { bindChatWithItsFiles, minioSettingsFrom } from './files/index.js';
+import { bindChatWithItsFiles } from './files/index.js';
 import { treeOfGroveRun, workflowOfRun } from './engine-host/temporal/contracts.js';
 import { TreeModelsService, treeAgentsFrom } from './models/index.js';
 import { platformGroups } from './extensions/installed.js';
@@ -87,41 +86,26 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 
 dotenv.config({ quiet: true });
 
-const telemetry = startTelemetry(telemetrySettings(process.env, 'koala-worker-engine'));
-const telemetryAccess = clusterAccessFrom(process.env, { role: roleFromEnv(process.env).role });
-telemetry.exportTo(collectorSink({ env: process.env, proxy: sharedClusterProxy(telemetryAccess), koalasCluster: () => telemetryAccess.own().clusterId }));
-
-const keys = loadKeys(process.env);
-
 const logger = createWorkerLogger('engine-worker');
 
-Runtime.install({
-  logger,
-  telemetryOptions: {
-    metrics: {
-      prometheus: {
-        bindAddress: `0.0.0.0:${process.env.TEMPORAL_ENGINE_METRICS_PORT || '9467'}`,
-      },
-    },
-  },
-});
-
-async function buildActivities() {
-  const db = createDatabase();
+async function buildActivities(settings: EngineWorkerSettings) {
+  const { keys, tenant } = settings;
+  const db = createDatabase({ mongo: settings.mongo, dataKey: keys.data });
   await db.init();
   resolveOwnersWith(async (owner) => (await db.accounts.getUserById(owner))?.space?.person ?? owner);
 
-  const models = createModelService(db, keys.data);
-  const web = await buildWebTools(db).catch((err: Error) => {
+  const models = createModelService({ db, dataKey: keys.data, role: settings.role, clusters: settings.clusters, infra: new InfrastructureService(terraformPlacesFor({ off: 'the engine worker runs no Terraform; the cluster worker does' })), mesh: settings.mesh, endpointRules: { scriptedBase: scriptedModelBase(tenant.checksApi), lab: settings.lab } });
+  const clusterAccess = clusterAccessFrom(settings.clusters, { role: settings.role.role, clusters: db.infrastructure, dataKey: keys.data });
+  const web = await buildWebTools({ db, proxy: sharedClusterProxy(clusterAccess), settings: tenant.webTools }).catch((err: Error) => {
     console.warn(`[EngineWorker] the web tools could not be built, so runs on this worker go without them: ${err.message}`);
     return undefined;
   });
 
-  const giteaAt = giteaSettingsFrom(process.env);
-  const imageRegistry = registrySettingsFrom(process.env);
-  const gitea = new GiteaService(keys.data, giteaAt);
-  const infisical = new InfisicalService(keys.data, infisicalSettingsFrom(process.env));
-  const projectRepos = new ProjectRepoService(db, gitea, keys.data, async (projectId) => webhookUrlAt(giteaAt.reachesKoalaAt, projectId), { defaultCluster: koalasClusterFor(process.env) });
+  const giteaAt = tenant.gitea;
+  const imageRegistry = tenant.registry;
+  const gitea = new GiteaService(keys.data, giteaAt, { registryPullHost: tenant.registryPullHost });
+  const infisical = new InfisicalService(keys.data, tenant.infisical);
+  const projectRepos = new ProjectRepoService(db, gitea, keys.data, async (projectId) => webhookUrlAt(giteaAt.reachesKoalaAt, projectId), { defaultCluster: koalasClusterFor(settings.clusters.here) });
   const treeHome = new TreeHomeService({
     treeTypes: (ownerId) => db.projects.getTreeTypes(ownerId),
     projects: () => db.projects.getProjects(),
@@ -138,17 +122,16 @@ async function buildActivities() {
       saveProjectInfo: (entry) => db.projects.saveProjectInfo(entry),
     }).ensure(project),
   });
-  const clusterAccess = clusterAccessFrom(process.env, { role: roleFromEnv(process.env).role, clusters: db.infrastructure, dataKey: keys.data });
-  const clusterService = new ClusterService(db, clusterAccess, { instanceOwnerId: roleFromEnv(process.env).instance?.ownerId });
+  const clusterService = new ClusterService(db, clusterAccess, { instanceOwnerId: settings.role.instance?.ownerId });
   const onKoala = onKoalasCluster(clusterAccess, () => clusterAccess.own().clusterId);
   const sandboxKube = createKubeRunner(onKoala);
-  const instanceFiles = storedFilesFor({ db, env: process.env, workflows: async () => (await getTemporalClient()).workflow, engineTaskQueue: process.env.TEMPORAL_ENGINE_TASK_QUEUE || DEFAULT_ENGINE_TASK_QUEUE, dataDir: resolve(__dirname, '../data') });
+  const instanceFiles = storedFilesFor({ db, minio: tenant.minio, workflows: async () => (await getTemporalClient()).workflow, engineTaskQueue: settings.queues.engine || DEFAULT_ENGINE_TASK_QUEUE, dataDir: resolve(__dirname, '../data') });
   const vault = createSecretVault({
     backend: infisical,
     minters: { readToken: async (ownerId) => (await projectRepos.mintReadToken(ownerId)).token },
   });
   const extensions = extensionServiceFor(db);
-  const checksApi = process.env.CHECKS_API_URL || `http://localhost:${process.env.PORT || 3001}/api`;
+  const checksApi = tenant.checksApi;
   const checks = httpCheckAccess(async (ownerId) => {
     const person = await db.accounts.getUserById(ownerId);
     if (!person) throw new Error(`there is no account ${ownerId} to act for`);
@@ -171,7 +154,7 @@ async function buildActivities() {
     projects: () => db.projects.getProjects(),
     clusterById: (id) => clusterService.getByIdUnscoped(id),
     how: async (project) => releaseHowOf(project, await treeTypeOfProject(db.projects, project), true),
-    cluster: createSlotCluster({ access: clusterService.access, repo: async () => gitea, registry: () => gitea.registryLogin(), syncVault: syncVaultFromProject(infisical) }),
+    cluster: createSlotCluster({ access: clusterService.access, repo: async () => gitea, registry: () => gitea.registryLogin(), syncVault: syncVaultFromProject(infisical, { mongo: settings.mongo, dataKey: keys.data }) }),
     adapters: { [ODOO_RELEASE_ADAPTER.id]: ODOO_RELEASE_ADAPTER },
     trees: () => db.projects.getTrees(),
     branches: () => db.projects.getBranches(),
@@ -180,14 +163,14 @@ async function buildActivities() {
     savePlan: (proposal) => db.projects.savePlanProposal(proposal),
     treeTypeOf: async (project) => (await treeTypeOfProject(db.projects, project))?.id ?? ODOO_TREE_TYPE,
   });
-  const engineRole = roleFromEnv(process.env);
-  const rootSignIn = rootSignInFor({ role: engineRole, env: process.env, keys, db, revocations: new AccessRevocations(), publicUrl: process.env.PUBLIC_URL ?? '' });
+  const engineRole = settings.role;
+  const rootSignIn = rootSignInFor({ role: engineRole, instanceCredential: settings.instanceCredential, keys, db, revocations: new AccessRevocations(), publicUrl: settings.publicUrl });
   rootSignIn?.keepAnnouncing((message) => console.warn(`[sign-in] ${message}`));
   const actingAs = (person: ClaimedUser & { email: string }, seconds?: number): string =>
     `session=${engineRole.role === 'instance' && rootSignIn
       ? rootSignIn.madeHere(person, claimsOf(person, claimSettingsFrom(engineRole)), seconds)
       : sessionToken(person, keys.session, seconds ? { seconds } : {})}`;
-  const placeOnPool = poolMonitorFrom(process.env, rootSignIn ? () => rootSignIn.serviceToken() : undefined);
+  const placeOnPool = poolMonitorFrom(settings.poolMonitor, rootSignIn ? () => rootSignIn.serviceToken() : undefined);
   const monitoring = monitoringServiceFor({ db, clusters: clusterService, proxy: sharedClusterProxy(clusterAccess), pool: placeOnPool ? poolMonitor(placeOnPool) : undefined });
   const runGrants = new RunGrantService({ store: db.engine });
   const poisoning = new PoisoningWatch({
@@ -223,7 +206,7 @@ async function buildActivities() {
       problem: (ownerId, treeId, agent, modelId) => treeModels.problem(ownerId, treeId, agent, modelId),
     },
     releases: {
-      cluster: createSlotCluster({ access: clusterService.access, repo: async () => gitea, registry: () => gitea.registryLogin(), syncVault: syncVaultFromProject(infisical), beat: activityBeat }),
+      cluster: createSlotCluster({ access: clusterService.access, repo: async () => gitea, registry: () => gitea.registryLogin(), syncVault: syncVaultFromProject(infisical, { mongo: settings.mongo, dataKey: keys.data }), beat: activityBeat }),
       adapters: { [ODOO_RELEASE_ADAPTER.id]: ODOO_RELEASE_ADAPTER },
       releases: { list: (ownerId, projectId) => db.releases.getOdooReleases(ownerId, projectId), save: (release) => db.releases.saveOdooRelease(release) },
       browserTests: (request) => releaseBrowser.ReleaseBrowserTestsActivity(request),
@@ -242,6 +225,7 @@ async function buildActivities() {
             ownClusterId: () => clusterService.ownClusterId(),
             logDir: LOG_DIR,
             claims: claimSettingsFrom(engineRole),
+            operatorEnv: settings.operator.env,
           }, project, run);
           return { workflowId: started.workflowId };
         },
@@ -508,7 +492,7 @@ async function buildActivities() {
       workflows: removalWorkflows,
       kube: sandboxKube,
       repositories: gitea,
-      mesh: removalMeshFor(engineRole, () => new HeadscaleService(keys.data, process.env.HEADSCALE_URL || 'http://localhost:8080', process.env.HEADSCALE_API_KEY)),
+      mesh: removalMeshFor(engineRole, () => new HeadscaleService(keys.data, settings.mesh)),
       secrets: infisical,
       files: instanceFiles.storedFiles,
     }),
@@ -526,14 +510,14 @@ async function buildActivities() {
     ...createCheckRunActivities({
       store: db,
       api: (space) => carryingTrace(axios.create({
-        baseURL: process.env.CHECKS_API_URL || `http://localhost:${process.env.PORT || 3001}/api`,
+        baseURL: checksApi,
         proxy: false,
         headers: { Cookie: actingAs(space) },
       })),
       seedFiles: (ownerId, repo, files) => withSeedBundle(files, async (bundle) => {
         await projectRepos.pushDocuments({ ownerId, repo, describe: 'A check\'s conversation workspace', bundle });
       }),
-      scripted: { base: scriptedModelBase(process.env), dataKey: keys.data },
+      scripted: { base: scriptedModelBase(checksApi), dataKey: keys.data },
       ownClusterId: () => clusterService.ownClusterId(),
       releases: createCheckReleases({
         browser: releaseBrowser,
@@ -563,38 +547,53 @@ async function buildActivities() {
 }
 
 async function main() {
-  const plaintext = temporalTlsProblem(process.env);
+  const settings = engineWorkerSettingsFrom(process.env);
+  const telemetry = startTelemetry(telemetrySettings(settings, 'koala-worker-engine'));
+  const telemetryAccess = clusterAccessFrom(settings.clusters, { role: settings.role.role });
+  telemetry.exportTo(collectorSink({ otlpEndpoint: settings.telemetry.otlpEndpoint, proxy: sharedClusterProxy(telemetryAccess), koalasCluster: () => telemetryAccess.own().clusterId }));
+  Runtime.install({
+    logger,
+    telemetryOptions: {
+      metrics: {
+        prometheus: {
+          bindAddress: `0.0.0.0:${settings.temporalMetricsPort}`,
+        },
+      },
+    },
+  });
+  const plaintext = temporalTlsProblem(settings.temporal);
   if (plaintext) throw new Error(plaintext);
-  minioSettingsFrom(process.env);
-  const queue = process.env.TEMPORAL_ENGINE_TASK_QUEUE || DEFAULT_ENGINE_TASK_QUEUE;
-  const address = process.env.TEMPORAL_CONNECTION_ADDRESS || 'localhost:7233';
+  connectTemporalAs(settings);
+  keepPayloadsIn(settings.mongo);
+  const queue = settings.queues.engine || DEFAULT_ENGINE_TASK_QUEUE;
+  const { address } = settings.temporal;
   logger.info(`[EngineWorker] Starting — taskQueue=${queue}, address=${address}`);
 
   let activities: Awaited<ReturnType<typeof buildActivities>> | undefined;
   let current: Worker | undefined;
-  const port = healthPort(process.env);
-  if (port) serveHealth(port, () => current?.getState() === 'RUNNING');
+  if (settings.healthPort) serveHealth(settings.healthPort, () => current?.getState() === 'RUNNING');
 
   for (;;) {
     try {
-      activities ??= await buildActivities();
-      const connection = await connectTemporalWorker(address, 'koala-worker-engine', process.env);
-      const dataConverter = buildDataConverter(keys.payload, sharedPayloadBlobs());
+      activities ??= await buildActivities(settings);
+      const connection = await connectTemporalWorker('koala-worker-engine', settings);
+      const dataConverter = buildDataConverter(settings.keys.payload, sharedPayloadBlobs());
 
       const worker = await Worker.create({
     ...WORKER_DEFAULTS,
         connection,
-        namespace: temporalNamespaceFrom(process.env),
+        namespace: settings.temporal.namespace,
         ...(dataConverter ? { dataConverter } : {}),
         taskQueue: queue,
         workflowsPath: resolve(__dirname, 'workflows'),
-        interceptors: { activity: [heartbeatWhileRunning(), traceActivities()], workflowModules: workflowInterceptorModules(process.env) },
+        interceptors: { activity: [heartbeatWhileRunning(), traceActivities()], workflowModules: workflowInterceptorModules(settings.role) },
         activities,
       });
       current = worker;
 
       logger.info('[EngineWorker] Connected, polling for work');
       await worker.run();
+      await telemetry.shutdown().catch(ignore('the worker has stopped, and telemetry the collector did not take is dropped as it is whenever the collector is away'));
       return;
     } catch (err) {
       logger.error(`[EngineWorker] ${(err as Error).message} — retrying in 5s`);
@@ -603,11 +602,10 @@ async function main() {
   }
 }
 
-main().then(async () => {
+main().then(() => {
   logger.info('[EngineWorker] Stopped');
-  await telemetry.shutdown().catch(ignore('the worker has stopped, and telemetry the collector did not take is dropped as it is whenever the collector is away'));
   process.exit(0);
 }, (err) => {
-  logger.error(`[EngineWorker] fatal: ${(err as Error).message}`);
+  logger.error(err instanceof SettingsError ? `[EngineWorker] ${err.message}` : `[EngineWorker] fatal: ${(err as Error).message}`);
   process.exit(1);
 });

@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import type { Client } from '@temporalio/client';
 import { deploymentIdFor } from '../lib/deployment-id.js';
 import { newAppNamespace, sameOwner } from '../lib/app-namespace.js';
-import { usesOperatorCredentials } from '../lib/credential-resolver.js';
+import { usesOperatorCredentials, type OperatorEnv } from '../lib/credential-resolver.js';
 import { resolveCloudCredentials } from './cloud-credentials.js';
 import {
   decryptValue, type SecretKey, type Database, type ClusterMetadata, type CloudCredentials, type DeploymentMetadata,
@@ -30,6 +30,7 @@ export interface AppDeployDeps {
   ownClusterId: () => string | undefined;
   logDir: string;
   claims: ClaimSettings | undefined;
+  operatorEnv: OperatorEnv;
 }
 
 export interface StartedDeploy {
@@ -181,7 +182,7 @@ export async function startAppDeploy(deps: AppDeployDeps, config: DeployRequest,
           }
         }
       }
-      const resolved = resolveCloudCredentials('huggingface', userCreds, asOperator);
+      const resolved = resolveCloudCredentials('huggingface', userCreds, asOperator ? deps.operatorEnv : undefined);
       if (resolved.env.HF_TOKEN) {
         if (dep.appType === 'tabbyapi') {
           dep.tabbyHfToken = resolved.env.HF_TOKEN;

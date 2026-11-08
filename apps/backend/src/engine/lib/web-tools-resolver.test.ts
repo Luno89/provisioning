@@ -10,7 +10,7 @@ const dep = (over: Partial<DeploymentMetadata> = {}): DeploymentMetadata => ({
 const deps = (deployments: DeploymentMetadata[], over: Partial<WebToolsDeps> = {}) => ({
   db: { getDeployments: vi.fn(async () => deployments) },
   serviceUrl: vi.fn<WebToolsDeps['serviceUrl']>(async (_c, _k, t) => `http://localhost:4${t.remotePort}/`),
-  env: {},
+  settings: {},
   ...over,
 }) satisfies WebToolsDeps;
 
@@ -62,20 +62,20 @@ describe('crawl4ai credentials', () => {
   });
 
   it('never pairs a deployment URL with an env var token', async () => {
-    const d = deps([untokened()], { env: { CRAWL4AI_API_TOKEN: 'unrelated' } });
+    const d = deps([untokened()], { settings: { crawl4aiToken: 'unrelated' } });
 
     expect((await resolveWebTools(d)).sources.fetch).toBe('strip-tags');
   });
 
   it('uses the env pair when nothing is deployed', async () => {
-    const d = deps([], { env: { CRAWL4AI_URL: 'http://c4:11235', CRAWL4AI_API_TOKEN: 'tok' } });
+    const d = deps([], { settings: { crawl4aiUrl: 'http://c4:11235', crawl4aiToken: 'tok' } });
     expect((await resolveWebTools(d)).sources.fetch).toBe('crawl4ai');
   });
 });
 
 describe('precedence', () => {
   it('prefers a running deployment over an environment variable', async () => {
-    const d = deps([dep()], { env: { SEARXNG_URL: 'http://elsewhere:8080' } });
+    const d = deps([dep()], { settings: { searxngUrl: 'http://elsewhere:8080' } });
     await resolveWebTools(d);
 
     expect(d.serviceUrl).toHaveBeenCalled();
@@ -92,7 +92,7 @@ describe('the deps a process builds', () => {
     const proxy = mock<{ serviceUrl: WebToolsDeps['serviceUrl'] }>();
     proxy.serviceUrl.mockResolvedValue('http://127.0.0.1:41000/');
     const built = webToolsDepsFrom({ getDeployments: async () => [dep()] }, proxy);
-    expect((await resolveWebTools({ ...built, env: {} })).sources.search).toBe('searxng');
+    expect((await resolveWebTools({ ...built, settings: {} })).sources.search).toBe('searxng');
     expect(proxy.serviceUrl).toHaveBeenCalledWith('c1', 'searxng-d1', { service: 'searxng', namespace: 'koala-search', remotePort: 8080 });
   });
 
@@ -101,6 +101,6 @@ describe('the deps a process builds', () => {
     proxy.serviceUrl.mockRejectedValue(new Error('there is no cluster c1'));
     const built = webToolsDepsFrom({ getDeployments: async () => [dep()] }, proxy);
     await expect(built.serviceUrl('c1', 'searxng-d1', { service: 'searxng', namespace: 'koala-search', remotePort: 8080 })).rejects.toThrow('there is no cluster c1');
-    expect((await resolveWebTools({ ...built, env: {} })).sources.search).toBe('duckduckgo');
+    expect((await resolveWebTools({ ...built, settings: {} })).sources.search).toBe('duckduckgo');
   });
 });

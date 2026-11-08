@@ -66,6 +66,18 @@ export function keysEnv(env: Readonly<Record<string, string | undefined>>): stri
   return `${lines.join('\n')}\n`;
 }
 
+export interface MovedSettings {
+  keys: string | { error: string };
+  registryPullHost: string;
+  podNamespace: string | undefined;
+}
+
+export const movedSettingsFrom = (env: Readonly<Record<string, string | undefined>>): MovedSettings => ({
+  keys: keysEnv(env),
+  registryPullHost: env.REGISTRY_PULL_HOST?.trim() ?? '',
+  podNamespace: env.POD_NAMESPACE?.trim() || undefined,
+});
+
 export function keysFromEnv(text: string): Record<string, string> | { error: string } {
   const found: Record<string, string> = {};
   for (const line of text.split('\n').map((entry) => entry.trim()).filter(Boolean)) {

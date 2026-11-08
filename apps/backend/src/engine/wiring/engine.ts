@@ -7,7 +7,7 @@ import type { PersonaRecord } from '@koala/agent-engine';
 import {
   type AccessRevocations, type Database, type SecretKey, servesTenants, decryptValue, type RoleConfig, sessionToken, startedFor, getTemporalClient,
   keepTrying, grovedTree, treeNotices, postedNotice, ownedBy,
-  publicAddressProblem, principalOf, claimSettingsFrom, roleFromEnv,
+  publicAddressProblem, principalOf, claimSettingsFrom, type ConnectionSettings,
 } from '../../platform/index.js';
 import { accountDefaultOf, type MachineService } from '../../machines/index.js';
 import { PROCEDURE_CHANGE_AGENT } from '../lib/agent-usage.js';
@@ -17,7 +17,7 @@ import {
 } from '../../checks/index.js';
 import { providerServing, type ModelService, type TreeModelsService } from '../../models/index.js';
 import { restoringApp, type wireReleases } from '../../releases/index.js';
-import { registrySettingsFrom } from '../../instances/index.js';
+import type { RegistryHosts } from '../../instances/index.js';
 import { hostedMcpUrl } from '../lib/mcp-hosted-url.js';
 import { mcpReachFrom } from '../services/McpReach.js';
 import {
@@ -57,7 +57,7 @@ import { PRUNE_FIRST_DELAY_MS, PRUNE_INTERVAL_MS } from '../../engine-host/sandb
 import { runCancelledVia } from '../../engine-host/temporal/run-cancellation.js';
 import { BENCH_IDLE_WORKFLOW, CONVERSATION_CONCLUSION_WORKFLOW, DEFAULT_ENGINE_TASK_QUEUE, benchIdleId, conversationConclusionId, treeOfGroveRun, workflowOfRun } from '../../engine-host/temporal/contracts.js';
 import { MCP_SERVER_TEMPLATES } from '../../extensions/mcp/templates.js';
-import { buildWebTools } from './web-tools.js';
+import { buildWebTools, type WebToolsPlace } from './web-tools.js';
 import type { Mounts } from '../../hub/index.js';
 import { proceduresRouter } from '../routes/procedures.js';
 import { engineRouter } from '../routes/engine.js';
@@ -79,7 +79,8 @@ const POISONING_TELL_EVERY_MS = 30_000;
 
 export interface EngineCoreDeps {
   db: Database;
-  env: NodeJS.ProcessEnv;
+  role: RoleConfig;
+  engineQueue: string | undefined;
   temporalBridge: TemporalBridge;
   machines: Pick<MachineService, 'choiceProblem'>;
   checks: () => Pick<Level2Service, 'list'> | undefined;
@@ -114,8 +115,8 @@ const tellBench = (bench: { service?: BenchService }, ownerId: string): void => 
 };
 
 export function engineCore(deps: EngineCoreDeps): EngineCore {
-  const { db, env, temporalBridge } = deps;
-  const engineQueue = env.TEMPORAL_ENGINE_TASK_QUEUE || DEFAULT_ENGINE_TASK_QUEUE;
+  const { db, temporalBridge } = deps;
+  const engineQueue = deps.engineQueue || DEFAULT_ENGINE_TASK_QUEUE;
   const extensions = extensionServiceFor(db);
   const dependencyFollowers: { tools?: EngineToolService; servers?: McpServerService } = {};
   const workspaceDependencies = new WorkspaceDependencyService({
@@ -180,9 +181,8 @@ export function engineCore(deps: EngineCoreDeps): EngineCore {
   const engineRuns = createRunStarter({
     registry: engineRegistry,
     grants: runGrants,
-    principal: async (ownerId) => principalOf((await db.accounts.getUserById(ownerId)) ?? { id: ownerId }, claimSettingsFrom(roleFromEnv(deps.env))),
+    principal: async (ownerId) => principalOf((await db.accounts.getUserById(ownerId)) ?? { id: ownerId }, claimSettingsFrom(deps.role)),
     turns: conversationTurns,
-    ...(Number(env.ENGINE_CONTINUE_AFTER_EVENTS) > 0 ? { continueAfterEvents: Number(env.ENGINE_CONTINUE_AFTER_EVENTS) } : {}),
     workflows: () => (temporalBridge.isReady()
       ? {
         start: async (type, options) => {
@@ -268,7 +268,10 @@ export interface EngineWiringDeps {
   tenant: Mounts;
   db: Database;
   io: SocketServer;
-  env: NodeJS.ProcessEnv;
+  engineQueue: string | undefined;
+  port: number;
+  registry: RegistryHosts | { none: string };
+  webTools: WebToolsPlace;
   role: RoleConfig;
   sessionKey: SecretKey;
   dataKey: SecretKey;
@@ -302,9 +305,9 @@ export async function wireEngine(deps: EngineWiringDeps): Promise<EngineWiring> 
   const keptArtifacts = deps.artifacts;
   const keptFiles = deps.files;
   const attachable = keptFiles ? { attachable: (ownerId: string, fileId: string) => keptFiles.attachable(ownerId, fileId) } : {};
-  const { tenant, db, io, env, role, core, temporalBridge, gitea, projectRepos } = deps;
+  const { tenant, db, io, role, core, temporalBridge, gitea, projectRepos } = deps;
   const { extensions, dependenciesOf, agentDirectory, engineRegistry, engineRuns, workspaceBuilds, bench, agentsHolder, workspaceRepos, workspaceConclusions, conversationTurns } = core;
-  const engineQueue = env.TEMPORAL_ENGINE_TASK_QUEUE || DEFAULT_ENGINE_TASK_QUEUE;
+  const engineQueue = deps.engineQueue || DEFAULT_ENGINE_TASK_QUEUE;
   const ownedTrees = async (userId: string) => ownedBy(await db.projects.getTrees(), userId);
   const ownedConversations = async (userId: string) => (await db.engine.getConversations()).filter((c) => c.ownerId === userId);
 
@@ -321,7 +324,7 @@ export async function wireEngine(deps: EngineWiringDeps): Promise<EngineWiring> 
     tools: { list: (ownerId?: string) => db.engine.getEngineTools(ownerId) },
   });
 
-  const evalWeb = await buildWebTools(db).catch((err: unknown) => {
+  const evalWeb = await buildWebTools(deps.webTools).catch((err: unknown) => {
     console.warn(`[engine] checks run without web tools, which could not be resolved: ${(err as Error).message}`);
     return undefined;
   });
@@ -348,7 +351,7 @@ export async function wireEngine(deps: EngineWiringDeps): Promise<EngineWiring> 
     checks: httpCheckAccess(async (ownerId) => {
       const person = await db.accounts.getUserById(ownerId);
       if (!person) throw new Error(`there is no account ${ownerId} to act for`);
-      return axios.create({ baseURL: `http://localhost:${env.PORT || 3001}/api`, proxy: false, headers: { Cookie: `session=${sessionToken(person, deps.sessionKey, { seconds: 60 * 60 })}` } });
+      return axios.create({ baseURL: `http://localhost:${deps.port}/api`, proxy: false, headers: { Cookie: `session=${sessionToken(person, deps.sessionKey, { seconds: 60 * 60 })}` } });
     }),
     documents: { push: (request) => projectRepos.pushDocuments(request), pull: (request) => projectRepos.pullDocuments(request), merge: (request) => projectRepos.mergeDocuments(request), pushBranch: (request) => projectRepos.pushBranch(request), pullBranch: (request) => projectRepos.pullBranch(request), deleteBranch: (request) => projectRepos.deleteBranch(request) },
     repoFor: workspaceRepos,
@@ -359,7 +362,7 @@ export async function wireEngine(deps: EngineWiringDeps): Promise<EngineWiring> 
     owners: async () => (await db.accounts.getUsers()).map((user) => user.id),
     ...(evalWeb ? { web: evalWeb } : {}),
     cluster: deps.koalasCluster,
-    registry: servesTenants(deps.role) ? registrySettingsFrom(env) : { none: `${deps.role.role} builds no workspace images, so it pushes to no registry` },
+    registry: deps.registry,
     registryAccount: async () => ({
       owner: gitea.adminUsername,
       ...(await gitea.getAdminCredentials()),
@@ -647,7 +650,7 @@ export interface EngineStreamDeps {
   push?: { toPerson(ownerId: string, message: PushMessage): Promise<number> } | undefined;
   io: SocketServer;
   db: Database;
-  payloadKey: SecretKey;
+  connection: ConnectionSettings;
   core: EngineCore;
   models: ModelService;
   notices: Pick<ConversationNoticeService, 'post' | 'postTo'>;
@@ -666,7 +669,7 @@ export function startEngineStream(deps: EngineStreamDeps): void {
     const worker = await startStreamWorker({
       io,
       turnLogs: db.engine,
-      encryptionKey: deps.payloadKey,
+      connection: deps.connection,
       services: {
         registry: engineRegistry,
         endpoints: createEndpointResolver({ models: deps.models, registry: engineRegistry }),

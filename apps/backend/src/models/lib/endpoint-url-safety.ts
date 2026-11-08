@@ -1,5 +1,3 @@
-import { scriptedModelBase } from '../../checks/lib/check-space.js';
-import { labFrom } from '../../platform/lib/lab.js';
 
 
 function ipv4ToInt(host: string): number | undefined {
@@ -75,10 +73,6 @@ export function normaliseBaseUrl(raw: string): string {
 export interface EndpointRules {
   scriptedBase?: string | undefined;
   lab?: boolean | undefined;
-}
-
-export function endpointRulesFromEnv(env: Readonly<Record<string, string | undefined>>): EndpointRules {
-  return { scriptedBase: scriptedModelBase(env), lab: labFrom(env) };
 }
 
 export function checkEndpointUrl(raw: string, rules: EndpointRules = {}): UrlCheck {

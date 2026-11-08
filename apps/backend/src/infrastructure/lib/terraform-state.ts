@@ -1,16 +1,21 @@
 export const stateFilesOf = (stackName: string): string[] => [`terraform.${stackName}.tfstate`, `terraform.${stackName}.tfstate.backup`];
 
+export type TerraformStateKind = { kind: 'local' } | { kind: 'kubernetes'; namespace: string };
+
 export type TerraformStateHome = { kind: 'local'; dir: string } | { kind: 'kubernetes'; namespace: string; dir: string };
 
-export function terraformStateFrom(env: Readonly<Record<string, string | undefined>>, dir: string): TerraformStateHome {
-  const kind = env.TERRAFORM_STATE?.trim() || 'local';
-  if (kind === 'local') return { kind, dir };
+export function terraformStateFrom(env: Readonly<Record<string, string | undefined>>): TerraformStateKind {
+  const kind = env.TERRAFORM_STATE?.trim();
+  if (!kind) throw new Error('TERRAFORM_STATE is not set: it says where Terraform keeps each stack\'s state, local (in the data folder) or kubernetes (in this pod\'s namespace)');
+  if (kind === 'local') return { kind };
   if (kind !== 'kubernetes') throw new Error(`TERRAFORM_STATE is ${kind}; Koala keeps Terraform's state either local or in kubernetes`);
   const namespace = env.POD_NAMESPACE?.trim();
   if (!namespace) throw new Error('TERRAFORM_STATE is kubernetes, which keeps each stack\'s state in this pod\'s own namespace, but POD_NAMESPACE is not set');
   if (!env.KUBERNETES_SERVICE_HOST?.trim()) throw new Error('TERRAFORM_STATE is kubernetes, which reaches the cluster with the pod\'s own account, but this process is not running in a pod');
-  return { kind, namespace, dir };
+  return { kind, namespace };
 }
+
+export const stateHomeIn = (kind: TerraformStateKind, dir: string): TerraformStateHome => ({ ...kind, dir });
 
 export const cdktfStateEnv = (home: TerraformStateHome): Record<string, string> =>
   (home.kind === 'kubernetes' ? { CDKTF_STATE_NAMESPACE: home.namespace } : { CDKTF_STATE_DIR: home.dir });
