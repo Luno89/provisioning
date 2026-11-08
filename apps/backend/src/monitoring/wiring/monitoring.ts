@@ -1,12 +1,12 @@
 import { Router, type RequestHandler } from 'express';
 import type { Server as SocketServer } from 'socket.io';
 import { type Database, type MailService, type RoleConfig, servesTenants } from '../../platform/index.js';
-import type { sharedClusterProxy, ClusterService, InfrastructureService } from '../../infrastructure/index.js';
+import { runnersByRecord, type sharedClusterProxy, type ClusterService } from '../../infrastructure/index.js';
 import type { ConversationNoticeService } from '../../engine/index.js';
 import type { NotificationService } from '../services/NotificationService.js';
 import type { PushService } from '../services/PushService.js';
 import { AlertWatchService } from '../services/AlertWatchService.js';
-import { MonitoringService, prometheusAt } from '../services/MonitoringService.js';
+import { MonitoringService, prometheusAt, type MonitoringDeps, type MonitoringSources } from '../services/MonitoringService.js';
 import { alertNotice, alertWhere } from '../lib/alert-notices.js';
 import { monitoringRouter } from '../routes/monitoring.js';
 import { notificationsRouter } from '../routes/notifications.js';
@@ -22,9 +22,8 @@ export interface MonitoringWiringDeps {
   role: RoleConfig;
   env: NodeJS.ProcessEnv;
   io: Pick<SocketServer, 'to'>;
-  clusters: ClusterService;
-  infra: InfrastructureService;
-  proxy: ReturnType<typeof sharedClusterProxy>;
+  clusters: MonitoredClusters;
+  proxy: PrometheusProxy;
   notices: ConversationNoticeService;
   notifications: NotificationService;
   push: PushService;
@@ -33,20 +32,44 @@ export interface MonitoringWiringDeps {
   rootToken?: (() => Promise<string>) | undefined;
 }
 
+export type MonitoredClusters = Pick<ClusterService, 'getSystemClusterEntry' | 'access'>;
+export type PrometheusProxy = Pick<ReturnType<typeof sharedClusterProxy>, 'serviceUrl'>;
+
+export interface MonitoringServiceParts {
+  db: MonitoringSources;
+  clusters: MonitoredClusters;
+  proxy: PrometheusProxy;
+  pool?: ReturnType<typeof poolMonitor> | undefined;
+  machineStatus?: ((deviceId: string) => { online: boolean }) | undefined;
+  rootAlerts?: boolean | undefined;
+}
+
+export function monitoringDepsFor(parts: MonitoringServiceParts): MonitoringDeps {
+  const { clusters, proxy } = parts;
+  const { access } = clusters;
+  return {
+    store: parts.db,
+    systemCluster: () => clusters.getSystemClusterEntry(),
+    pool: (cluster) => (cluster.isSystem ? parts.pool : undefined),
+    ...(parts.machineStatus ? { machineStatus: parts.machineStatus } : {}),
+    prometheus: async (cluster) => prometheusAt(await proxy.serviceUrl(cluster.id, 'prometheus', await access.kubeconfigOf(cluster.id))),
+    ...runnersByRecord(access),
+    rootAlerts: parts.rootAlerts,
+  };
+}
+
+export const monitoringServiceFor = (parts: MonitoringServiceParts): MonitoringService => new MonitoringService(monitoringDepsFor(parts));
+
 export function wireMonitoring(deps: MonitoringWiringDeps): { monitoring: MonitoringService } {
-  const { tenant, db, role, clusters, infra, notices, notifications } = deps;
+  const { tenant, db, role, notices, notifications } = deps;
   const watchesItself = role.role === 'root';
   const placeOnPool = poolMonitorFrom(deps.env, deps.rootToken);
-  const onPool = placeOnPool ? poolMonitor(placeOnPool) : undefined;
-  const monitoring = new MonitoringService({
-    store: db,
-    systemCluster: () => clusters.getSystemClusterEntry(),
-    pool: (cluster) => (cluster.isSystem ? onPool : undefined),
-    ...(deps.machineStatus ? { machineStatus: deps.machineStatus } : {}),
-    prometheus: async (cluster) => prometheusAt(await deps.proxy.serviceUrl(cluster.id, 'prometheus', await clusters.getKubeconfigPath(cluster))),
-    kubectl: async (cluster, args) => String(await infra.runKubectl(args, await clusters.getKubeconfigPath(cluster))),
-    apply: async (cluster, manifest) => { await infra.applyManifest(manifest, await clusters.getKubeconfigPath(cluster)); },
-    helm: async (cluster, args) => String(await infra.runHelm(args, await clusters.getKubeconfigPath(cluster))),
+  const monitoring = monitoringServiceFor({
+    db,
+    clusters: deps.clusters,
+    proxy: deps.proxy,
+    pool: placeOnPool ? poolMonitor(placeOnPool) : undefined,
+    machineStatus: deps.machineStatus,
     rootAlerts: watchesItself,
   });
   if (watchesItself) deps.app.use('/api/monitoring', Router().use(deps.operatorOnly, monitoringRouter({ monitoring })));

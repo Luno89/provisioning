@@ -1,7 +1,7 @@
 import dns from 'node:dns/promises';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mock, type MockProxy } from 'vitest-mock-extended';
-import type { ClusterService, ClusterProxyService, HeadscaleService } from '../../infrastructure/index.js';
+import type { ClusterAccess, ClusterService, ClusterProxyService, HeadscaleService } from '../../infrastructure/index.js';
 import { encryptValue } from '../../platform/lib/crypto.js';
 import type { Database } from '../../platform/lib/db-interface.js';
 import { asPerson } from '../../platform/lib/permissions.js';
@@ -27,6 +27,7 @@ const privateNetwork = vi.spyOn(dns, 'lookup');
 let db: Database;
 let apps: MockProxy<AppRecords>;
 let clusters: MockProxy<ClusterService>;
+let access: MockProxy<ClusterAccess>;
 let proxy: MockProxy<ClusterProxyService>;
 let headscale: MockProxy<HeadscaleService>;
 
@@ -44,7 +45,8 @@ export function modelServiceBehaviour(make: () => Promise<Database>): void {
     db = await make();
     apps = mock<AppRecords>();
     apps.getAll.mockResolvedValue([]);
-    clusters = mock<ClusterService>();
+    access = mock<ClusterAccess>();
+    clusters = mock<ClusterService>({ access });
     proxy = mock<ClusterProxyService>();
     headscale = mock<HeadscaleService>();
     privateNetwork.mockReset();
@@ -246,7 +248,7 @@ export function modelServiceBehaviour(make: () => Promise<Database>): void {
     it('is reached through the cluster\'s proxy at the service it runs as', async () => {
       apps.getAll.mockResolvedValue([deployment()]);
       clusters.getById.mockResolvedValue(cluster);
-      clusters.getKubeconfigPath.calledWith(cluster).mockResolvedValue('/kube/c1');
+      access.kubeconfigOf.calledWith('c1').mockResolvedValue('/kube/c1');
       proxy.serviceUrl.mockResolvedValue('http://127.0.0.1:41000/');
       const models = await build([]);
 
@@ -261,6 +263,15 @@ export function modelServiceBehaviour(make: () => Promise<Database>): void {
       apps.getAll.mockResolvedValue([deployment()]);
       clusters.getById.mockResolvedValue(undefined);
       await expect((await build([])).resolveBaseUrl('u1', 'vllm-1')).rejects.toThrow('Cluster for model Qwen not found');
+      expect(access.kubeconfigOf).not.toHaveBeenCalled();
+    });
+
+    it('fails with why when its cluster cannot be reached, asking the proxy for nothing', async () => {
+      apps.getAll.mockResolvedValue([deployment()]);
+      clusters.getById.mockResolvedValue(cluster);
+      access.kubeconfigOf.calledWith('c1').mockRejectedValue(new Error('c1 is stopped until something runs on it'));
+      await expect((await build([])).resolveBaseUrl('u1', 'vllm-1')).rejects.toThrow('c1 is stopped until something runs on it');
+      expect(proxy.serviceUrl).not.toHaveBeenCalled();
     });
   });
 

@@ -137,6 +137,18 @@ export class ClusterAccess {
   }
 }
 
+export interface RecordRunners {
+  kubectl(cluster: { id: string }, args: readonly string[]): Promise<string>;
+  helm(cluster: { id: string }, args: readonly string[]): Promise<string>;
+  apply(cluster: { id: string }, manifest: string): Promise<void>;
+}
+
+export const runnersByRecord = (access: Pick<ClusterAccess, 'kubectl' | 'helm' | 'apply'>): RecordRunners => ({
+  kubectl: (cluster, args) => access.kubectl(cluster.id, args),
+  helm: (cluster, args) => access.helm(cluster.id, args),
+  apply: async (cluster, manifest) => { await access.apply(cluster.id, manifest); },
+});
+
 const REPO = resolve(import.meta.dirname, '../../../../../');
 const SERVICE_ACCOUNT = '/var/run/secrets/kubernetes.io/serviceaccount';
 

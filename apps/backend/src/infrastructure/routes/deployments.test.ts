@@ -9,7 +9,7 @@ import { CapacityError } from '../lib/cluster-capacity.js';
 import type { AppExposureService } from '../services/AppExposureService.js';
 import type { AppService } from '../services/AppService.js';
 import type { ClusterService } from '../services/ClusterService.js';
-import type { InfrastructureService } from '../services/InfrastructureService.js';
+import type { ClusterAccess } from '../services/ClusterAccess.js';
 import type { TemporalBridge, WorkflowDeal } from '../services/TemporalBridge.js';
 import { deploymentsRouter } from './deployments.js';
 import type { HarnessUser } from '../../platform/routes/test-harness.js';
@@ -24,14 +24,14 @@ function setup() {
   const appService = mock<AppService>();
   const clusterService = mock<Pick<ClusterService, 'getById'>>();
   const appExposureService = mock<AppExposureService>();
-  const infraService = mock<Pick<InfrastructureService, 'runKubectl' | 'runCommand'>>();
+  const access = mock<Pick<ClusterAccess, 'kubectl'>>();
   const temporalBridge = mock<TemporalBridge>();
   const db = memoryDatabase();
-  const router = deploymentsRouter({ appService, clusterService, appExposureService, infraService, temporalBridge, db, io: mock<SocketServer>() });
+  const router = deploymentsRouter({ appService, clusterService, appExposureService, access, temporalBridge, db, io: mock<SocketServer>() });
   appService.getById.calledWith('d1', PERSON.id).mockResolvedValue(deployment());
   const call = (path: string, method: 'GET' | 'POST' | 'PATCH' | 'DELETE' = 'GET', body?: unknown, user?: HarnessUser): Promise<RouteAnswer> =>
     routesInProcess({ prefix: '/api/deployments', router: () => router, user: PERSON }).then((routes) => routes.request(method, `/api/deployments${path}`, { ...(body !== undefined ? { body } : {}), ...(user ? { user } : {}) }));
-  return { appService, clusterService, appExposureService, infraService, temporalBridge, db, call };
+  return { appService, clusterService, appExposureService, access, temporalBridge, db, call };
 }
 
 describe('listing deployments', () => {
@@ -285,25 +285,25 @@ describe('a TabbyAPI deployment\'s resource plan', () => {
   });
 
   it('budgets against the smallest node\'s memory, read from the cluster', async () => {
-    const { infraService, call } = tabby();
-    infraService.runCommand.mockResolvedValue({ stdout: '4Gi 64Gi', logFile: 'plan.log' });
+    const { access, call } = tabby();
+    access.kubectl.calledWith('c1', matches((args: string[]) => args.join(' ') === 'get nodes -o jsonpath={.items[*].status.allocatable.memory}')).mockResolvedValue('4Gi 64Gi');
     const answer = await call('/d1/resource-plan');
     expect(answer.data).toMatchObject({ applicable: true, cpuLimit: '10' });
     expect((answer.data as { refusal?: string }).refusal).toMatch(/allocatable/);
   });
 
   it('plans without a budget when the nodes\' memory cannot be read, and refuses nothing', async () => {
-    const { infraService, call } = tabby();
-    infraService.runCommand.mockRejectedValue(new Error('the cluster did not answer'));
+    const { access, call } = tabby();
+    access.kubectl.mockRejectedValue(new Error('the cluster did not answer'));
     const answer = await call('/d1/resource-plan');
     expect((answer.data as { applicable: boolean }).applicable).toBe(true);
     expect((answer.data as { refusal?: string }).refusal).toBeUndefined();
   });
 
   it('assumes a large model when its size cannot be looked up, and says so', async () => {
-    const { infraService, call } = tabby();
+    const { access, call } = tabby();
     server.use(http.get('https://huggingface.co/api/models/org/model/tree/main', () => new HttpResponse(null, { status: 500 })));
-    infraService.runCommand.mockResolvedValue({ stdout: '64Gi', logFile: 'plan.log' });
+    access.kubectl.mockResolvedValue('64Gi');
     expect(((await call('/d1/resource-plan')).data as { basis: string }).basis).toMatch(/assumed — size lookup failed/);
   });
 });

@@ -47,7 +47,7 @@ import { modelsRouter, ModelService, endpointRulesFromEnv } from './models/index
 import {
   InfrastructureService, ClusterService, clusterAccessFrom, AppService, RegistryService, GitModuleService, BuilderService,
   AppExposureService, VpsCatalogService, WorkerService, sharedClusterProxy, CredentialService, InfisicalService,
-  HeadscaleService, BUILD_TOKENS_MIGRATION, cleanUpBuildTokens, gitappPullSecretArgs, ovhSubsidiaryFrom, vpsCatalogAdapters,
+  HeadscaleService, BUILD_TOKENS_MIGRATION, cleanUpBuildTokens, pullSecretWriter, ovhSubsidiaryFrom, vpsCatalogAdapters,
 } from './infrastructure/index.js';
 import { TemporalBridge } from './infrastructure/services/TemporalBridge.js';
 import { backendAddress, GiteaService, pushToBuild } from './projects/index.js';
@@ -305,7 +305,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     res.type(metrics.contentType).send(await metrics.text());
   }));
 
-  wireSockets({ io, db, role, env: process.env, sessionSockets, payloadKey: keys.payload, dataKey: keys.data, auth, machines: machineService, workTokens, machineClusters, clusters: clusterService, apps: appService, infra: infraService, telemetry: machineTelemetry({ sink: () => telemetrySink }), machineTemporal, runs: { life: runLifeVia(() => getTemporalClient()), closed: runClosedVia(() => getTemporalClient()) } });
+  wireSockets({ io, db, role, env: process.env, sessionSockets, payloadKey: keys.payload, dataKey: keys.data, auth, machines: machineService, workTokens, machineClusters, clusters: clusterService, apps: appService, telemetry: machineTelemetry({ sink: () => telemetrySink }), machineTemporal, runs: { life: runLifeVia(() => getTemporalClient()), closed: runClosedVia(() => getTemporalClient()) } });
 
   const signInWith = holdsAccounts(role) ? signInProvidersFrom(process.env) : { providers: [], problems: [] };
   const signInReturn = holdsAccounts(role) ? signInReturnUrlFrom(process.env) : {};
@@ -348,11 +348,11 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   });
   late.instances = instancesWiring;
   const people = async () => (await db.accounts.getUsers()).filter((user) => !user.space).map((user) => auth.principalFor(user));
-  const { monitoring } = wireMonitoring({ machineStatus: localAgentStatus, tenant, app, operatorOnly: requireOperator('administer'), db, role, env: process.env, io, clusters: clusterService, infra: infraService, proxy: clusterProxyService, notices, notifications, push, mail, people, rootToken });
+  const { monitoring } = wireMonitoring({ machineStatus: localAgentStatus, tenant, app, operatorOnly: requireOperator('administer'), db, role, env: process.env, io, clusters: clusterService, proxy: clusterProxyService, notices, notifications, push, mail, people, rootToken });
   const workerService = new WorkerService();
   wireInfrastructure({
     tenant, operatorOnly: requireOperator('administer'), db, io, dataKey: keys.data, sessionKey: keys.session, publicUrl: PUBLIC_URL, appUrl: APP_URL, openRouterUrl: process.env.OPENROUTER_URL, repoRoot: path.join(__dirname, '../../..'),
-    credentials: credentialService, clusters: clusterService, apps: appService, proxy: clusterProxyService, infra: infraService,
+    credentials: credentialService, clusters: clusterService, apps: appService, proxy: clusterProxyService,
     temporalBridge, gitea: giteaService, infisical: infisicalService, exposure: appExposureService,
     vpsCatalog: vpsCatalogService, worker: workerService, registry: registryService, gitModules: gitModuleService,
   });
@@ -377,7 +377,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
       metricsWrite: async (body: Buffer) => {
         const system = await clusterService.getSystemClusterEntry();
         if (!system) return { status: 503, text: 'this Koala has no system cluster to keep metrics on' };
-        const base = await clusterProxyService.serviceUrl(system.id, 'prometheus', await clusterService.getKubeconfigPath(system));
+        const base = await clusterProxyService.serviceUrl(system.id, 'prometheus', await clusterAccess.kubeconfigOf(system.id));
         const answer = await fetch(new URL('api/v1/write', base.endsWith('/') ? base : `${base}/`), {
           method: 'POST', body, headers: { 'content-type': 'application/x-protobuf', 'content-encoding': 'snappy', 'x-prometheus-remote-write-version': '0.1.0' },
         });
@@ -428,7 +428,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   });
   const { running } = wireRunning({
     tenant, db, role, temporalBridge, monitoring, workFailures, records: runningRecords, checks: level2Service, trees: groveRuns, runs: engineRuns,
-    bench, keeper: memoryKeeper, infra: infraService, clusters: clusterService, root: () => instanceSide.rootReach(),
+    bench, keeper: memoryKeeper, access: clusterAccess, root: () => instanceSide.rootReach(),
     signals: { open: (ownerId) => poisoning.list(ownerId, { open: true }) },
   });
   runningNow = async () => {
@@ -445,8 +445,8 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   }
 
   wireActions({
-    tenant, db, env: process.env, egressKey: keys.egress, kubeconfig: '/tmp/kubeconfig-provisioning-lunorica', temporalBridge, monitoring, releaseSettings,
-    treeModels, mcpCatalogue, workspaceDependencies, agentDirectory, agentsHolder, concluded, infra: infraService, infisical: infisicalService, clusters: clusterService,
+    tenant, db, env: process.env, egressKey: keys.egress, temporalBridge, monitoring, releaseSettings,
+    treeModels, mcpCatalogue, workspaceDependencies, agentDirectory, agentsHolder, concluded, access: clusterAccess, infisical: infisicalService, clusters: clusterService,
   });
 
   if (process.env.NODE_ENV !== 'test' && tenants && process.env.GITEA_REACHES_KOALA_AT?.trim()) {
@@ -459,12 +459,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   if (process.env.NODE_ENV !== 'test' && tenants) {
     runOnce(db.platform, BUILD_TOKENS_MIGRATION, new Date().toISOString(), () => cleanUpBuildTokens({
       deployments: () => db.infrastructure.getDeployments(),
-      clusterOf: (id) => clusterService.getByIdUnscoped(id),
-      kubeconfigOf: (cluster) => clusterService.getKubeconfigPath(cluster),
-      writePullSecret: async (namespace, kubeconfig) => {
-        const secret = await infraService.runKubectl(gitappPullSecretArgs(namespace, await giteaService.getRegistryHost(), await giteaService.registryLogin()), kubeconfig);
-        await infraService.applyManifest(String(secret), kubeconfig);
-      },
+      writePullSecret: pullSecretWriter(clusterAccess, { host: () => giteaService.getRegistryHost(), login: () => giteaService.registryLogin() }),
       runningBuilds: async () => {
         const jobs = JSON.parse(await clusterAccess.kubectl(koalasCluster(), ['get', 'jobs', '-n', 'pipeline-builds', '-o', 'json'])) as { items?: { status?: { active?: number } }[] };
         return (jobs.items ?? []).filter((job) => (job.status?.active ?? 0) > 0).length;

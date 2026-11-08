@@ -19,7 +19,7 @@ import type { ProjectSharingService } from '../../projects/services/ProjectShari
 import type { AppService } from '../../infrastructure/services/AppService.js';
 import type { AppExposureService } from '../../infrastructure/services/AppExposureService.js';
 import type { ClusterService } from '../../infrastructure/services/ClusterService.js';
-import type { InfrastructureService } from '../../infrastructure/services/InfrastructureService.js';
+import type { ClusterAccess } from '../../infrastructure/services/ClusterAccess.js';
 import type { TemporalBridge } from '../../infrastructure/services/TemporalBridge.js';
 import type { MonitoringService } from '../../monitoring/services/MonitoringService.js';
 import type { OdooReleaseService } from '../../releases/services/OdooReleaseService.js';
@@ -92,7 +92,7 @@ export interface CheckApiPorts {
   appService: MockProxy<AppService>;
   exposure: MockProxy<AppExposureService>;
   clusters: MockProxy<ClusterService>;
-  infra: MockProxy<InfrastructureService>;
+  access: MockProxy<ClusterAccess>;
   bridge: MockProxy<TemporalBridge>;
   monitoring: MockProxy<MonitoringService>;
   releases: MockProxy<OdooReleaseService>;
@@ -159,7 +159,7 @@ export async function mountCheckApi(): Promise<CheckApi> {
     appService: mock<AppService>(),
     exposure: mock<AppExposureService>(),
     clusters: mock<ClusterService>(),
-    infra: mock<InfrastructureService>(),
+    access: mock<ClusterAccess>(),
     bridge: mock<TemporalBridge>(),
     monitoring: mock<MonitoringService>(),
     releases: mock<OdooReleaseService>(),
@@ -259,7 +259,7 @@ export async function mountCheckApi(): Promise<CheckApi> {
   projects.use(projectsRouter({ db, getOwnedProject, projectRepoService: ports.repos, temporalBridge: ports.bridge, giteaService: ports.gitea, clusterService: ports.clusters, channels, removal: ports.removal }));
   app.use('/api/projects', projects);
   app.use('/api/release-settings', releaseSettingsRouter({ settings: ports.releaseSettings }));
-  app.use('/api/deployments', deploymentsRouter({ appService: ports.appService, clusterService: ports.clusters, appExposureService: ports.exposure, infraService: ports.infra, temporalBridge: ports.bridge, db, io: mock<SocketServer>() }));
+  app.use('/api/deployments', deploymentsRouter({ appService: ports.appService, clusterService: ports.clusters, appExposureService: ports.exposure, access: ports.access, temporalBridge: ports.bridge, db, io: mock<SocketServer>() }));
   app.use('/api/monitoring', monitoringRouter({ monitoring: ports.monitoring }));
   app.use('/api/project-sharing', projectSharingRouter({ sharing: ports.sharing }));
   app.use('/api/hub', hubRouter({ hub: ports.hub }));

@@ -47,7 +47,8 @@ import { labelValue } from './engine-host/sandboxes/workspace.js';
 import { itSays, wasReported } from './eval/level2/reported.js';
 import { createProcedureExecutor } from './engine-host/nodes/index.js';
 import axios from 'axios';
-import { MonitoringService, prometheusAt, poolMonitor, poolMonitorFrom, collectorSink } from './monitoring/index.js';
+import { poolMonitor, poolMonitorFrom, collectorSink } from './monitoring/index.js';
+import { monitoringServiceFor } from './monitoring/wiring/monitoring.js';
 import { runCancelledVia, runEndedVia } from './engine-host/temporal/run-cancellation.js';
 import { createKubeRunner, onKoalasCluster } from './engine-host/sandboxes/kube.js';
 
@@ -191,16 +192,7 @@ async function buildActivities() {
       ? rootSignIn.madeHere(person, claimsOf(person, claimSettingsFrom(engineRole)), seconds)
       : sessionToken(person, keys.session, seconds ? { seconds } : {})}`;
   const placeOnPool = poolMonitorFrom(process.env, rootSignIn ? () => rootSignIn.serviceToken() : undefined);
-  const onPool = placeOnPool ? poolMonitor(placeOnPool) : undefined;
-  const monitoring = new MonitoringService({
-    store: db,
-    systemCluster: () => clusterService.getSystemClusterEntry(),
-    pool: (cluster) => (cluster.isSystem ? onPool : undefined),
-    prometheus: async (cluster) => prometheusAt(await sharedClusterProxy().serviceUrl(cluster.id, 'prometheus', await clusterService.getKubeconfigPath(cluster))),
-    kubectl: async (cluster, args) => String(await kubeInfra.runKubectl(args, await clusterService.getKubeconfigPath(cluster))),
-    apply: async (cluster, manifest) => { await kubeInfra.applyManifest(manifest, await clusterService.getKubeconfigPath(cluster)); },
-    helm: async (cluster, args) => String(await kubeInfra.runHelm(args, await clusterService.getKubeconfigPath(cluster))),
-  });
+  const monitoring = monitoringServiceFor({ db, clusters: clusterService, proxy: sharedClusterProxy(), pool: placeOnPool ? poolMonitor(placeOnPool) : undefined });
   const runGrants = new RunGrantService({ store: db.engine });
   const poisoning = new PoisoningWatch({
     store: db.engine,
@@ -344,7 +336,7 @@ async function buildActivities() {
         return [system, ...(await db.infrastructure.getClusters()).filter((cluster) => cluster.ownerId === ownerId && !cluster.isSystem && cluster.id !== system.id)];
       },
       deployments: () => db.infrastructure.getDeployments(),
-      kubectl: async (cluster, argv) => String(await kubeInfra.runKubectl(argv, await clusterService.getKubeconfigPath(cluster))),
+      kubectl: (cluster, argv) => clusterAccess.kubectl(cluster.id, argv),
       principal: async (ownerId) => principalOf((await db.accounts.getUserById(ownerId)) ?? { id: ownerId }, claimSettingsFrom(engineRole)),
       openNamespaces: async (ownerId, conversationId) => (await db.engine.getConversation(ownerId, conversationId))?.platformNamespaces ?? [],
       accessRequests: {

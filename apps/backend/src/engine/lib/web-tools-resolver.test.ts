@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
-import { resolveWebTools, type WebToolsDeps } from './web-tools-resolver.js';
+import { mock } from 'vitest-mock-extended';
+import { resolveWebTools, webToolsDepsFrom, type WebToolsDeps } from './web-tools-resolver.js';
 import type { DeploymentMetadata } from '../../platform/index.js';
 
 const dep = (over: Partial<DeploymentMetadata> = {}): DeploymentMetadata => ({
@@ -35,9 +36,10 @@ describe('resolving a deployed service', () => {
     await expect(resolveWebTools(d)).resolves.toMatchObject({ sources: { search: 'duckduckgo' } });
   });
 
-  it('falls back when the cluster has no kubeconfig', async () => {
-    const d = deps([dep()], { kubeconfigFor: vi.fn(async () => undefined) });
+  it('falls back when the cluster cannot be reached', async () => {
+    const d = deps([dep()], { kubeconfigFor: vi.fn(async () => { throw new Error('c1 is stopped until something runs on it'); }) });
     expect((await resolveWebTools(d)).sources.search).toBe('duckduckgo');
+    expect(d.serviceUrl).not.toHaveBeenCalled();
   });
 
   it('does not route one owner through another owner\'s service', async () => {
@@ -85,5 +87,25 @@ describe('precedence', () => {
   it('survives the database being unavailable', async () => {
     const d = deps([], { db: { getDeployments: vi.fn(async () => { throw new Error('mongo down'); }) } });
     await expect(resolveWebTools(d)).resolves.toMatchObject({ sources: { search: 'duckduckgo' } });
+  });
+});
+
+describe('the deps a process builds', () => {
+  it('reach a deployment\'s cluster through ClusterAccess by its id, and forward through the proxy with what it gave', async () => {
+    const access = mock<{ kubeconfigOf(clusterId: string): Promise<string> }>();
+    access.kubeconfigOf.calledWith('c1').mockResolvedValue('/run/koala/kubeconfig-machine-c1');
+    const proxy = mock<{ serviceUrl: WebToolsDeps['serviceUrl'] }>();
+    proxy.serviceUrl.mockResolvedValue('http://127.0.0.1:41000/');
+    const built = webToolsDepsFrom({ getDeployments: async () => [dep()] }, access, proxy);
+    expect((await resolveWebTools({ ...built, env: {} })).sources.search).toBe('searxng');
+    expect(proxy.serviceUrl).toHaveBeenCalledWith('c1', 'searxng-d1', '/run/koala/kubeconfig-machine-c1', { service: 'searxng', namespace: 'koala-search', remotePort: 8080 });
+  });
+
+  it('pass on ClusterAccess\'s refusal, which leaves the service out', async () => {
+    const access = mock<{ kubeconfigOf(clusterId: string): Promise<string> }>();
+    access.kubeconfigOf.mockRejectedValue(new Error('there is no cluster c1'));
+    const built = webToolsDepsFrom({ getDeployments: async () => [dep()] }, access, mock<{ serviceUrl: WebToolsDeps['serviceUrl'] }>());
+    await expect(built.kubeconfigFor('c1')).rejects.toThrow('there is no cluster c1');
+    expect((await resolveWebTools({ ...built, env: {} })).sources.search).toBe('duckduckgo');
   });
 });

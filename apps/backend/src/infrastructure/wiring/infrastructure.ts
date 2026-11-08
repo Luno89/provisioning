@@ -8,7 +8,6 @@ import type { ClusterService } from '../services/ClusterService.js';
 import type { CredentialService } from '../services/CredentialService.js';
 import type { GiteaService } from '../../projects/index.js';
 import type { InfisicalService } from '../services/InfisicalService.js';
-import type { InfrastructureService } from '../services/InfrastructureService.js';
 import type { TemporalBridge } from '../services/TemporalBridge.js';
 import { backupRouter } from '../routes/backup.js';
 import { clustersRouter } from '../routes/clusters.js';
@@ -51,7 +50,6 @@ export interface InfrastructureWiringDeps {
   clusters: ClusterService;
   apps: AppService;
   proxy: ReturnType<typeof sharedClusterProxy>;
-  infra: InfrastructureService;
   temporalBridge: TemporalBridge;
   gitea: GiteaService;
   infisical: InfisicalService;
@@ -71,11 +69,11 @@ export function wireInfrastructure(deps: InfrastructureWiringDeps): void {
   tenant.use('/api/credentials', credentialsRouter({ credentialService: deps.credentials, publicUrl: deps.publicUrl, appUrl: deps.appUrl, sessionKey: deps.sessionKey }));
   tenant.use('/api/backup', adminOnly(deps.operatorOnly, backupRouter({ repoRoot: deps.repoRoot })));
   tenant.use('/api/clusters', clustersRouter({
-    clusterService: deps.clusters, clusterProxyService: deps.proxy, infraService: deps.infra,
+    clusterService: deps.clusters, clusterProxyService: deps.proxy, access: deps.clusters.access,
     temporalBridge: deps.temporalBridge, io, giteaService: deps.gitea, infisicalService: deps.infisical,
   }));
   tenant.use('/api/deployments', deploymentsRouter({
-    appService: deps.apps, clusterService: deps.clusters, appExposureService: deps.exposure, infraService: deps.infra, temporalBridge: deps.temporalBridge, db, io,
+    appService: deps.apps, clusterService: deps.clusters, appExposureService: deps.exposure, access: deps.clusters.access, temporalBridge: deps.temporalBridge, db, io,
   }));
   tenant.use('/api/pending-approvals', pendingApprovalsRouter({ db }));
   tenant.use('/api/cluster-providers', clusterProvidersRouter({ db }));

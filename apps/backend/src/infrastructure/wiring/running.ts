@@ -11,8 +11,7 @@ import type { TemporalBridge } from '../services/TemporalBridge.js';
 import type { MonitoringService } from '../../monitoring/index.js';
 import type { GroveRunService } from '../../projects/index.js';
 import type { MemoryKeeperService } from '../../memory/index.js';
-import type { InfrastructureService } from '../services/InfrastructureService.js';
-import type { ClusterService } from '../services/ClusterService.js';
+import { runnersByRecord, type ClusterAccess } from '../services/ClusterAccess.js';
 import type { createRunStarter } from '../../engine-host/index.js';
 import { labelValue } from '../../engine-host/sandboxes/workspace.js';
 import { runWaitingVia } from '../../engine-host/temporal/run-cancellation.js';
@@ -62,8 +61,7 @@ export interface RunningWiringDeps {
   runs: Pick<ReturnType<typeof createRunStarter>, 'cancel'>;
   bench: { service?: BenchService };
   keeper: MemoryKeeperService;
-  infra: InfrastructureService;
-  clusters: ClusterService;
+  access: Pick<ClusterAccess, 'kubectl' | 'helm' | 'apply'>;
   root?: (() => RootReach | undefined) | undefined;
   signals?: InfrastructureViewDeps['signals'];
 }
@@ -104,8 +102,7 @@ export function wireRunning(deps: RunningWiringDeps): { running: RunningService 
   const clusterContents = new ClusterContentsService({
     monitoring,
     deployments: () => db.infrastructure.getDeployments(),
-    kubectl: async (cluster, args) => String(await deps.infra.runKubectl(args, await deps.clusters.getKubeconfigPath(cluster))),
-    helm: async (cluster, args) => String(await deps.infra.runHelm(args, await deps.clusters.getKubeconfigPath(cluster))),
+    ...runnersByRecord(deps.access),
     labelOf: labelValue,
   });
   tenant.use('/api/infrastructure', infrastructureRouter({

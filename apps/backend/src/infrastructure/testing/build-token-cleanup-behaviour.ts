@@ -1,12 +1,15 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import type { ClusterMetadata, DeploymentMetadata } from '../../platform/index.js';
+import { encryptValue, type ClusterMetadata, type DeploymentMetadata, type ProcessRun } from '../../platform/index.js';
 import type { Database } from '../../platform/lib/db-interface.js';
 import { runOnce } from '../../platform/lib/migrations.js';
-import { BUILD_TOKENS_MIGRATION, BuildTokensWait, cleanUpBuildTokens, type BuildTokenCleanupDeps } from '../services/build-token-cleanup.js';
+import { BUILD_TOKENS_MIGRATION, BuildTokensWait, cleanUpBuildTokens, pullSecretWriter, type BuildTokenCleanupDeps } from '../services/build-token-cleanup.js';
+import { testClusterAccess } from './cluster-access.js';
 
 const OWNER = 'owner-1';
+const KEY = 'build-token-key' as never;
 
-const cluster = (id: string) => ({ id, name: id, provider: 'k3d', status: 'healthy', ownerId: OWNER }) as ClusterMetadata;
+const cluster = (id: string, status: ClusterMetadata['status'] = 'healthy') =>
+  ({ id, name: id, provider: 'machine', machineId: id, status, ownerId: OWNER, kubeconfigEnc: encryptValue(`server: https://${id}.mesh:6443`, KEY) }) as ClusterMetadata;
 const app = (name: string, appType: string, clusterId = 'system', extra: Partial<DeploymentMetadata> = {}) =>
   ({ id: name, name, appType, clusterId, strategy: 'helm', status: 'running', ownerId: OWNER, namespace: `${name}-abc123`, ...extra }) as DeploymentMetadata;
 
@@ -23,11 +26,17 @@ export function buildTokenCleanupBehaviour(make: () => Promise<Database>): void 
     function world(over: Partial<BuildTokenCleanupDeps> = {}) {
       const written: string[] = [];
       const revoked: string[] = [];
+      const ran = async (run: ProcessRun) => {
+        const [, kubeconfig, verb, ...rest] = run.args;
+        const on = (kubeconfig ?? '').replace(/^.*kubeconfig-machine-/, '');
+        if (verb === 'create') return { code: 0, stdout: `secret for ${rest[rest.indexOf('-n') + 1]} at ${rest.find((arg) => arg.startsWith('--docker-server='))}`, stderr: '' };
+        written.push(`${String(run.input)}@${on}`);
+        return { code: 0, stdout: 'applied', stderr: '' };
+      };
+      const access = testClusterAccess(db, { dataKey: KEY, processes: { run: ran } });
       const deps: BuildTokenCleanupDeps = {
         deployments: () => db.infrastructure.getDeployments(),
-        clusterOf: async (id) => (await db.infrastructure.getClusters()).find((entry) => entry.id === id),
-        kubeconfigOf: async (entry) => `/tmp/kubeconfig-${entry.id}`,
-        writePullSecret: async (namespace, kubeconfig) => { written.push(`${namespace}@${kubeconfig}`); },
+        writePullSecret: pullSecretWriter(access, { host: async () => 'registry.koala', login: async () => ({ username: 'bot', password: 'read-only' }) }),
         runningBuilds: async () => 0,
         buildTokens: async () => ['build-1a2b', 'build-3c4d'],
         revoke: async (name) => { revoked.push(name); },
@@ -39,7 +48,7 @@ export function buildTokenCleanupBehaviour(make: () => Promise<Database>): void 
     it('move every git-built app onto the read-only pull login first, then are all revoked, once', async () => {
       const { deps, written, revoked } = world();
       expect(await runOnce(db.platform, BUILD_TOKENS_MIGRATION, 'now', () => cleanUpBuildTokens(deps))).toEqual({ pullSecretsRewritten: 2, buildTokensRevoked: 2 });
-      expect([...written].sort()).toEqual(['api-abc123@/tmp/kubeconfig-mine', 'shop-abc123@/tmp/kubeconfig-system']);
+      expect([...written].sort()).toEqual(['secret for api-abc123 at --docker-server=registry.koala@mine', 'secret for shop-abc123 at --docker-server=registry.koala@system']);
       expect(revoked).toEqual(['build-1a2b', 'build-3c4d']);
       expect(await db.platform.hasMigration(BUILD_TOKENS_MIGRATION)).toBe(true);
       expect(await runOnce(db.platform, BUILD_TOKENS_MIGRATION, 'later', () => cleanUpBuildTokens(deps))).toEqual({});
@@ -51,8 +60,9 @@ export function buildTokenCleanupBehaviour(make: () => Promise<Database>): void 
       await expect(cleanUpBuildTokens(busy.deps)).rejects.toThrow(new BuildTokensWait('1 build is running and may hold one'));
       expect([busy.written, busy.revoked]).toEqual([[], []]);
 
-      const unreachable = world({ kubeconfigOf: async (entry) => { if (entry.id === 'mine') throw new Error('unreachable'); return '/tmp/k'; } });
-      await expect(runOnce(db.platform, BUILD_TOKENS_MIGRATION, 'now', () => cleanUpBuildTokens(unreachable.deps))).rejects.toThrow('the pull secret of api (unreachable) could not be rewritten, and it may use one');
+      await db.infrastructure.saveCluster(cluster('mine', 'stopped'));
+      const unreachable = world();
+      await expect(runOnce(db.platform, BUILD_TOKENS_MIGRATION, 'now', () => cleanUpBuildTokens(unreachable.deps))).rejects.toThrow('the pull secret of api (mine is stopped until something runs on it) could not be rewritten, and it may use one');
       expect(unreachable.revoked).toEqual([]);
       expect(await db.platform.hasMigration(BUILD_TOKENS_MIGRATION)).toBe(false);
     });
@@ -60,7 +70,7 @@ export function buildTokenCleanupBehaviour(make: () => Promise<Database>): void 
     it('wait, revoking nothing, for an app whose cluster Koala cannot find, rather than leave it pulling with a revoked token', async () => {
       await db.infrastructure.deleteCluster('mine');
       const orphaned = world();
-      await expect(cleanUpBuildTokens(orphaned.deps)).rejects.toThrow('the pull secret of api (Koala knows no cluster mine) could not be rewritten, and it may use one');
+      await expect(cleanUpBuildTokens(orphaned.deps)).rejects.toThrow('the pull secret of api (there is no cluster mine) could not be rewritten, and it may use one');
       expect(orphaned.revoked).toEqual([]);
     });
   });

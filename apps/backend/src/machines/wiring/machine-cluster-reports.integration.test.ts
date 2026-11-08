@@ -67,7 +67,7 @@ beforeEach(async () => {
     io, db, role: roleFromEnv({}), env: {}, payloadKey: keys.payload, dataKey: keys.data,
     auth: { sessionFromCookie: async () => undefined, securedFor: () => false, principalFor: () => undefined } as unknown as SocketsWiringDeps['auth'],
     sessionSockets: { track: () => undefined, forget: () => undefined },
-    machines, workTokens, clusters: {} as never, apps: {} as never, infra: {} as never,
+    machines, workTokens, clusters: {} as never, apps: {} as never,
     telemetry: { relay: async () => ({ ok: true }) } as never,
     machineClusters: new MachineClusters({ store: db.infrastructure, dataKey: keys.data }),
   });

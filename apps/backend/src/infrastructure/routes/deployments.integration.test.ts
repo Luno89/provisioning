@@ -27,7 +27,7 @@ const services = () => ({
   },
   clusterService: { getById: vi.fn(async () => ({ id: 'c1', name: 'dev' })) },
   appExposureService: { expose: vi.fn(async () => ({ url: 'https://x' })), unexpose: vi.fn(async () => undefined) },
-  infraService: { runKubectl: vi.fn(async () => ''), runCommand: vi.fn(async (): Promise<{ stdout: string; logFile: string }> => ({ stdout: '', logFile: 'x.log' })) },
+  access: { kubectl: vi.fn(async (_clusterId: string, _args: readonly string[]): Promise<string> => '') },
   temporalBridge: {
     deployApp: vi.fn(async () => ({ id: 'w1', resourceId: 'd1' })),
     destroyApp: vi.fn(async () => ({ id: 'w2' })),
@@ -136,7 +136,7 @@ describe('a TabbyAPI deployment\'s resource plan', () => {
 
   it('budgets against the smallest node\'s memory, read from the cluster', async () => {
     const svc = tabby();
-    svc.infraService.runCommand = vi.fn(async () => ({ stdout: '4Gi 64Gi', logFile: 'plan.log' }));
+    svc.access.kubectl = vi.fn(async () => '4Gi 64Gi');
     await mount(svc);
     const res = await axios.get<{ applicable: boolean; refusal?: string }>(h!.url('/api/deployments/d1/resource-plan'));
     expect(res.data.applicable).toBe(true);
@@ -145,7 +145,7 @@ describe('a TabbyAPI deployment\'s resource plan', () => {
 
   it('plans without a budget when the nodes\' memory cannot be read, and says nothing is refused', async () => {
     const svc = tabby();
-    svc.infraService.runCommand = vi.fn(async () => { throw new Error('the cluster did not answer'); });
+    svc.access.kubectl = vi.fn(async () => { throw new Error('the cluster did not answer'); });
     await mount(svc);
     const res = await axios.get<{ applicable: boolean; refusal?: string }>(h!.url('/api/deployments/d1/resource-plan'));
     expect(res.data.applicable).toBe(true);

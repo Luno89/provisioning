@@ -1,7 +1,7 @@
 import fs from 'fs/promises';
 
 import {
-  InfrastructureService, hasCloudCredentials, isMockCloudProvider, notAvailableYet, providerReady, capacityFromNodes, type ClusterCapacity,
+  InfrastructureService, K3D_KUBECONFIG, hasCloudCredentials, isMockCloudProvider, notAvailableYet, providerReady, capacityFromNodes, type ClusterCapacity,
 } from '../infrastructure/index.js';
 import { ApplicationFailure } from '@temporalio/common';
 import { ProvisionRemoteHostActivity } from './ProvisionRemoteHostActivity.js';
@@ -66,7 +66,7 @@ export async function ProvisionClusterActivity(
   let meshIp: string | undefined;
 
   if (args.provider === 'k3d' || isMock) {
-    await infra.runKubectl(['config', 'unset', 'clusters.k3d-' + physicalName]).catch(ignore('a kubeconfig with no entry for this cluster has nothing to unset'));
+    await infra.runKubectl(['config', 'unset', 'clusters.k3d-' + physicalName], K3D_KUBECONFIG).catch(ignore('a kubeconfig with no entry for this cluster has nothing to unset'));
 
     await infra.createLocalCluster(physicalName, { logFile });
 

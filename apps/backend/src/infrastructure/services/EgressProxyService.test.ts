@@ -47,7 +47,7 @@ describe('sha512Crypt', () => {
 });
 
 describe('EgressProxyService', () => {
-  const service = (start: StartProcess, kube: MockProxy<ProxyKube> = mock<ProxyKube>()) => ({ kube, egress: new EgressProxyService({ kube, secret: 'egress-secret', kubeconfig: '/tmp/kubeconfig-system', start }) });
+  const service = (start: StartProcess, kube: MockProxy<ProxyKube> = mock<ProxyKube>()) => ({ kube, egress: new EgressProxyService({ kube, secret: 'egress-secret', start }) });
 
   it('writes a password line for each agent holding a grant, hashed, and the rules that let it through', async () => {
     const { start, asked } = openssl({ stdout: '$6$hashed\n' });
@@ -68,17 +68,29 @@ describe('EgressProxyService', () => {
     expect(asked).toEqual([]);
   });
 
+  it('asks for Koala\'s own cluster when it syncs, and changes nothing where this process has none', async () => {
+    const { start } = openssl({ stdout: '$6$hashed\n' });
+    const { egress, kube } = service(start);
+    kube.own.mockImplementation(() => { throw new Error('this process runs in no cluster of its own'); });
+    await expect(egress.sync([grant()])).rejects.toThrow('this process runs in no cluster of its own');
+    expect(kube.apply).not.toHaveBeenCalled();
+    expect(kube.kubectl).not.toHaveBeenCalled();
+  });
+
   it('puts the grants in a config map and tells the running proxy to reload them', async () => {
     const { start } = openssl({ stdout: '$6$hashed\n' });
     const { egress, kube } = service(start);
+    const koala = { clusterId: 'machine-desk', kind: 'koala' } as const;
+    kube.own.mockReturnValue(koala);
     await egress.sync([grant()]);
-    expect(kube.applyManifest).toHaveBeenCalledTimes(1);
-    const [manifest, kubeconfig] = kube.applyManifest.mock.calls[0]!;
-    expect(kubeconfig).toBe('/tmp/kubeconfig-system');
+    expect(kube.apply).toHaveBeenCalledTimes(1);
+    const [target, manifest] = kube.apply.mock.calls[0]!;
+    expect(target).toBe(koala);
     const applied = JSON.parse(String(manifest)) as { kind: string; metadata: { name: string; namespace: string }; data: { passwd: string; 'acls.conf': string } };
     expect(applied).toMatchObject({ kind: 'ConfigMap', metadata: { name: 'egress-grants', namespace: PROXY_NAMESPACE } });
     expect(applied.data.passwd).toContain('$6$hashed');
-    const [args] = kube.runKubectl.mock.calls[0]!;
+    const [on, args] = kube.kubectl.mock.calls[0]!;
+    expect(on).toBe(koala);
     expect(args.slice(0, 6)).toEqual(['exec', '-n', PROXY_NAMESPACE, 'deploy/egress-proxy', '-c', 'squid']);
     expect(String(args.at(-1))).toContain(Buffer.from(applied.data['acls.conf']).toString('base64'));
     expect(String(args.at(-1))).toContain('squid -k reconfigure');

@@ -9,11 +9,7 @@ import { machineClusterId } from '../lib/cluster-name.js';
 import { parseNvidiaSmiVram } from '../lib/gpu-vram.js';
 import { execShell, type Shell } from '../lib/shell.js';
 import { Server as SocketServer } from 'socket.io';
-import os from 'os';
-import path from 'path';
 import fs from 'fs/promises';
-
-const DEFAULT_KUBECONFIG = path.join(os.homedir(), '.kube/config');
 
 const SYSTEM_CLUSTER_ID = 'provisioning-lunorica';
 
@@ -100,59 +96,25 @@ export class ClusterService extends BaseService {
   }
 
   async getKubeconfigPath(cluster: ClusterMetadata): Promise<string> {
-    if (cluster.provider === 'machine') return this.machineKubeconfig(cluster);
-    const isMock = this.isMockCloud(cluster);
-    if (cluster.gpuEnabled || cluster.provider === 'k3d' || isMock) {
+    if (cluster.provider === 'machine') return this.access.kubeconfigOf(cluster.id);
+    if (cluster.gpuEnabled || cluster.provider === 'k3d' || this.isMockCloud(cluster)) {
       const physicalName = this.getPhysicalClusterName(cluster);
       const dynamicPath = `${this.kubeconfigDir}/kubeconfig-${physicalName}`;
-      let exists = false;
-      try {
-        await fs.access(dynamicPath);
-        exists = true;
-      } catch {
-        exists = false;
-      }
-
+      const exists = await fs.access(dynamicPath).then(() => true, ignore('a kubeconfig not written yet is fetched and written below'));
       if (!exists) {
-        try {
-          const content = cluster.gpuEnabled
-            ? await this.infra.getManagementClusterKubeconfig(physicalName)
-            : await this.infra.getKubeconfig(physicalName);
-          await writePrivate(dynamicPath, content);
-        } catch (err) {
-          this.logger.error(`Failed to dynamically fetch kubeconfig for cluster ${physicalName}: ${(err as Error).message}`);
-          return cluster.kubeconfigPath || DEFAULT_KUBECONFIG;
-        }
+        const content = cluster.gpuEnabled
+          ? await this.infra.getManagementClusterKubeconfig(physicalName)
+          : await this.infra.getKubeconfig(physicalName);
+        await writePrivate(dynamicPath, content);
       }
       return dynamicPath;
     }
-    return cluster.kubeconfigPath || DEFAULT_KUBECONFIG;
-  }
-
-  private async machineKubeconfig(cluster: ClusterMetadata): Promise<string> {
-    return this.access.kubeconfigOf(cluster.id);
+    if (!cluster.kubeconfigPath) throw new Error(`${cluster.name} has no kubeconfig of its own, so there is no way to reach it`);
+    return cluster.kubeconfigPath;
   }
 
   private writtenKubeconfig(cluster: ClusterMetadata): string {
     return `${this.kubeconfigDir}/kubeconfig-${this.getPhysicalClusterName(cluster)}`;
-  }
-
-  private async getOwnKubeconfigPath(cluster: ClusterMetadata): Promise<string> {
-    const resolved = await this.getKubeconfigPath(cluster);
-    const selfManaged = cluster.provider === 'hetzner' || cluster.provider === 'do';
-    if (selfManaged && (!cluster.kubeconfigPath || resolved === DEFAULT_KUBECONFIG)) {
-      throw new Error(
-        `Cluster "${cluster.name}" has no kubeconfig of its own — refusing to fall back to the management cluster, which would report the wrong cluster's resources.`,
-      );
-    }
-    if (selfManaged) {
-      try {
-        await fs.access(resolved);
-      } catch {
-        throw new Error(`Kubeconfig for cluster "${cluster.name}" is missing at ${resolved}.`);
-      }
-    }
-    return resolved;
   }
 
   async getSystemClusterEntry(): Promise<ClusterMetadata> {

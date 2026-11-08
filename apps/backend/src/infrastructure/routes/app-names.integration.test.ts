@@ -45,7 +45,7 @@ beforeAll(async () => {
   h = await mountRouter({
     prefix: '/api/deployments',
     db,
-    router: () => deploymentsRouter({ appService: new AppService(db, infra, clusters, {} as never), clusterService: clusters, appExposureService: {} as never, infraService: infra, temporalBridge: bridge, db, io: undefined as never }),
+    router: () => deploymentsRouter({ appService: new AppService(db, infra, clusters, {} as never), clusterService: clusters, appExposureService: {} as never, access: clusters.access, temporalBridge: bridge, db, io: undefined as never }),
   });
 }, 120_000);
 

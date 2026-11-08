@@ -20,7 +20,6 @@ function setup(namespaces: string[] = [], clustersSeen: ClusterMetadata[] = [clu
   const clusters = mock<ClusterService>();
   clusters.reconcileAllClusters.mockResolvedValue(clustersSeen);
   clusters.getById.mockResolvedValue(cluster);
-  clusters.getKubeconfigPath.mockResolvedValue('/tmp/kubeconfig');
   const access = mock<ClusterAccess>();
   access.kubeconfigOf.mockResolvedValue('/tmp/kubeconfig');
   access.kubectl.mockResolvedValue(namespaceList(namespaces));
@@ -28,7 +27,6 @@ function setup(namespaces: string[] = [], clustersSeen: ClusterMetadata[] = [clu
   clusters.isMockCloud.mockReturnValue(false);
   clusters.getPhysicalClusterName.mockReturnValue(cluster.name);
   const infra = mock<InfrastructureService>();
-  infra.runKubectl.mockResolvedValue(namespaceList(namespaces));
   const apps = new AppService(db, infra, clusters, mock<BuilderService>());
   return { db, clusters, infra, apps, access };
 }
@@ -72,7 +70,7 @@ describe('listing apps', () => {
 
 describe('aborting an app', () => {
   it('stops the workflow that deploys it once a bridge is set, then removes its namespace and record', async () => {
-    const { db, infra, apps } = setup(['wordpress']);
+    const { db, infra, apps, access } = setup(['wordpress']);
     const bridge = mock<Pick<TemporalBridge, 'terminateWorkflow'>>();
     bridge.terminateWorkflow.mockResolvedValue(true);
     apps.setTemporalBridge(bridge);
@@ -81,7 +79,10 @@ describe('aborting an app', () => {
     await apps.abort('wp', 'bo');
     await vi.waitFor(async () => expect(await db.infrastructure.getDeployments()).toEqual([]));
     expect(bridge.terminateWorkflow).toHaveBeenCalledWith('wf-1', 'User aborted deployment');
-    expect(infra.waitForNamespaceDeletion).toHaveBeenCalledWith('wordpress', '/tmp/kubeconfig');
+    expect(access.kubectl.mock.calls).toEqual([
+      ['c1', ['delete', 'namespace', 'wordpress', '--ignore-not-found=true', '--wait=false']],
+      ['c1', ['wait', '--for=delete', 'namespace/wordpress', '--timeout=720h']],
+    ]);
   });
 
   it('says the deployment is not found when it is not the person\'s', async () => {
@@ -90,22 +91,22 @@ describe('aborting an app', () => {
   });
 
   it('keeps the app\'s record, failed with why, when its namespace cannot be removed, rather than deleting it on a guess', async () => {
-    const { db, infra, apps } = setup();
+    const { db, infra, apps, access } = setup();
     apps.setTemporalBridge(mock<Pick<TemporalBridge, 'terminateWorkflow'>>());
     infra.getLogPath.mockReturnValue('/tmp/abort.log');
-    infra.waitForNamespaceDeletion.mockRejectedValue(new Error('the cluster refused: Forbidden'));
+    access.kubectl.mockRejectedValue(new Error('the cluster refused: Forbidden'));
     await db.infrastructure.saveDeploymentInfo(app({ id: 'wp', name: 'WordPress', appType: 'wordpress' }));
     await apps.abort('wp', 'bo');
     await vi.waitFor(async () => expect((await db.infrastructure.getDeployments())[0]).toMatchObject({ id: 'wp', status: 'failed', healthReason: 'stopping it failed: the cluster refused: Forbidden' }));
   });
 
   it('will not stop a deploy\'s workflow it was given no bridge for, and says so on the app', async () => {
-    const { db, infra, apps } = setup();
+    const { db, infra, apps, access } = setup();
     infra.getLogPath.mockReturnValue('/tmp/abort.log');
     await db.infrastructure.saveDeploymentInfo(app({ id: 'wp', name: 'WordPress', temporalWorkflowId: 'wf-1' }));
     await apps.abort('wp', 'bo');
     await vi.waitFor(async () => expect((await db.infrastructure.getDeployments())[0]).toMatchObject({ status: 'failed', healthReason: containing('no Temporal bridge') }));
-    expect(infra.waitForNamespaceDeletion).not.toHaveBeenCalled();
+    expect(access.kubectl).not.toHaveBeenCalled();
   });
 });
 

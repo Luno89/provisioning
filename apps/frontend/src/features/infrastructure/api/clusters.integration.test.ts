@@ -24,7 +24,7 @@ const backend = await startBackend(async (site) => {
     clusterProxyService: outsideThisTier<ClusterProxyService>('the cluster dashboard proxy', { stopForCluster: () => undefined }),
     giteaService: outsideThisTier<GiteaService>('Gitea'),
     infisicalService: outsideThisTier<InfisicalService>('Infisical'),
-    infraService: infra.host,
+    access: infra.clusters.access,
     temporalBridge: infra.bridge,
     io: infra.io,
   }))

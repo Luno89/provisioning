@@ -58,8 +58,8 @@ describe('/api/egress', () => {
 
 describe('EgressProxyService', () => {
   it('writes a sha512-crypt entry per persona and the ACLs, through the real openssl', async () => {
-    const kube = { applyManifest: vi.fn(async () => ''), runKubectl: vi.fn(async () => '') };
-    const proxy = new EgressProxyService({ kube, secret: 's', kubeconfig: 'k' });
+    const kube = { own: vi.fn(), apply: vi.fn(async () => ''), kubectl: vi.fn(async () => '') };
+    const proxy = new EgressProxyService({ kube, secret: 's' });
     const { passwd, acls } = await proxy.files([
       { id: 'g', ownerId: 'u1', agentSlug: 'executor', host: 'api.stripe.com', approvedBy: 'u1', approvedAt: 't' },
       { id: 'h', ownerId: 'u1', agentSlug: 'executor', host: 'old.example.com', approvedBy: 'u1', approvedAt: 't', revokedAt: 't2' },

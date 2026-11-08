@@ -1,5 +1,4 @@
-import { lostCreateRace } from '../lib/apply-races.js';
-import { spawn, ChildProcess } from 'child_process';
+import { spawn } from 'child_process';
 import path from 'path';
 import fs from 'fs/promises';
 import { existsSync } from 'fs';
@@ -10,8 +9,7 @@ import os from 'os';
 import { CommandFailedError } from '../../platform/index.js';
 import { ignore } from '@koala/engine-core/failures';
 import { execShell, type Shell } from '../lib/shell.js';
-import { removeNamespace } from '../lib/app-namespace.js';
-import { installGpuDevicePlugin, verifyGpuRuntimeSchedulable } from './gpu-runtime.js';
+import { installGpuDevicePlugin } from './gpu-runtime.js';
 import { cdktfStateEnv, stateFilesOf, stateMove, terraformCliConfig, terraformStateFrom, type TerraformStateHome } from '../lib/terraform-state.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -23,7 +21,7 @@ export const LOG_DIR = path.join(PROJECT_ROOT, 'apps/backend/data/logs');
 const STATE_DIR = path.join(PROJECT_ROOT, 'apps/backend/data/terraform');
 const BIN_DIR = path.join(PROJECT_ROOT, 'bin');
 const MIRROR_DIR = path.join(BIN_DIR, 'terraform-providers');
-const DEFAULT_KUBECONFIG = path.join(os.homedir(), '.kube/config');
+export const K3D_KUBECONFIG = path.join(os.homedir(), '.kube/config');
 const K3D_STORAGE_ROOT = path.join(PROJECT_ROOT, '.k3d-storage');
 const VLLM_CACHE_HOST_DIR = path.join(PROJECT_ROOT, '.vllm-model-cache');
 const TABBYAPI_CACHE_HOST_DIR = path.join(PROJECT_ROOT, '.tabbyapi-model-cache');
@@ -90,7 +88,6 @@ function terraformQuietly(args: string[], cwd: string, extra: Record<string, str
 }
 
 export class InfrastructureService {
-  private activeStreams: Map<string, ChildProcess> = new Map();
 
   constructor(private readonly shell: Shell = execShell, private readonly terraform: TerraformPlaces = { cdktfDir: CDKTF_DIR, stateDir: STATE_DIR }) {}
 
@@ -156,10 +153,6 @@ export class InfrastructureService {
     return this.runCommand('docker', ['build', '-t', tag, '.'], tag, { ...options, env: { ...options.env, CD_DIR: context } });
   }
 
-  async waitForNamespaceDeletion(namespace: string, kubeconfigPath?: string): Promise<void> {
-    await removeNamespace((args) => this.runKubectl(args, kubeconfigPath), namespace);
-  }
-
   private async dockerContainerExists(containerName: string): Promise<boolean> {
     try {
       await this.shell(`docker inspect ${escapeShellArg(containerName)}`);
@@ -169,8 +162,8 @@ export class InfrastructureService {
     }
   }
 
-  async runKubectl(args: string[], kubeconfig?: string) {
-    const match = kubeconfig?.match(/\/tmp\/kubeconfig-(.+)$/);
+  async runKubectl(args: string[], kubeconfig: string) {
+    const match = kubeconfig.match(/\/tmp\/kubeconfig-(.+)$/);
     if (match) {
       const clusterName = match[1] ?? 'unknown';
       const containerName = `k3d-${clusterName}-server-0`;
@@ -195,61 +188,13 @@ export class InfrastructureService {
 
     const escapedArgs = args.map(escapeShellArg).join(' ');
     const { stdout } = await this.shell(`${escapeShellArg(path.join(BIN_DIR, 'kubectl'))} ${escapedArgs}`, {
-      env: { ...process.env, KUBECONFIG: kubeconfig || DEFAULT_KUBECONFIG }
+      env: { ...process.env, KUBECONFIG: kubeconfig }
     });
     return stdout;
   }
 
-  async applyManifest(manifest: string, kubeconfig?: string, attempt = 1): Promise<string> {
-    const match = kubeconfig?.match(/\/tmp\/kubeconfig-(.+)$/);
-    const containerName = match ? `k3d-${match[1] ?? 'unknown'}-server-0` : undefined;
-    const inContainer = containerName ? await this.dockerContainerExists(containerName) : false;
-    const [command, args, env] = inContainer
-      ? ['docker', ['exec', '-i', containerName!, 'kubectl', 'apply', '-f', '-'], process.env]
-      : [path.join(BIN_DIR, 'kubectl'), ['apply', '-f', '-'], { ...process.env, KUBECONFIG: kubeconfig || DEFAULT_KUBECONFIG }];
-    return new Promise((resolve, reject) => {
-      const child = spawn(command, args, { env, stdio: ['pipe', 'pipe', 'pipe'] });
-      let out = '';
-      let err = '';
-      child.stdout.on('data', (chunk) => { out += chunk; });
-      child.stderr.on('data', (chunk) => { err += chunk; });
-      child.on('error', reject);
-      child.on('close', (code) => {
-        if (code === 0) return resolve(out);
-        if (attempt === 1 && lostCreateRace(err)) {
-          void this.applyManifest(manifest, kubeconfig, 2).then(resolve, reject);
-          return;
-        }
-        reject(new Error(`kubectl apply failed: ${err.trim() || `exit ${code}`}`));
-      });
-      child.stdin.on('error', ignore('kubectl that exits before reading the manifest fails, and its exit code and stderr say why'));
-      child.stdin.end(manifest);
-    });
-  }
-
-  async pipeKubectl(args: string[], kubeconfig: string | undefined, input: NodeJS.ReadableStream): Promise<string> {
-    const match = kubeconfig?.match(/\/tmp\/kubeconfig-(.+)$/);
-    const containerName = match ? `k3d-${match[1] ?? 'unknown'}-server-0` : undefined;
-    const inContainer = containerName ? await this.dockerContainerExists(containerName) : false;
-    const [command, argv, env] = inContainer
-      ? ['docker', ['exec', '-i', containerName!, 'kubectl', ...args], process.env]
-      : [path.join(BIN_DIR, 'kubectl'), args, { ...process.env, KUBECONFIG: kubeconfig || DEFAULT_KUBECONFIG }];
-    return new Promise((resolve, reject) => {
-      const child = spawn(command, argv, { env, stdio: ['pipe', 'pipe', 'pipe'] });
-      let out = '';
-      let err = '';
-      child.stdout.on('data', (chunk) => { out += chunk; });
-      child.stderr.on('data', (chunk) => { err += chunk; });
-      child.on('error', reject);
-      child.stdin.on('error', () => {});
-      input.on('error', (error) => { child.kill(); reject(error); });
-      child.on('close', (code) => (code === 0 ? resolve(out) : reject(new Error(`kubectl ${args[0] ?? ''} failed: ${err.trim() || `exit ${code}`}`))));
-      input.pipe(child.stdin);
-    });
-  }
-
-  async runHelm(args: string[], kubeconfig?: string) {
-    const match = kubeconfig?.match(/\/tmp\/kubeconfig-(.+)$/);
+  async runHelm(args: string[], kubeconfig: string) {
+    const match = kubeconfig.match(/\/tmp\/kubeconfig-(.+)$/);
     if (match) {
       const clusterName = match[1] ?? 'unknown';
       const containerName = `k3d-${clusterName}-server-0`;
@@ -288,21 +233,9 @@ export class InfrastructureService {
 
     const escapedArgs = args.map(escapeShellArg).join(' ');
     const { stdout } = await this.shell(`${escapeShellArg(path.join(BIN_DIR, 'helm'))} ${escapedArgs}`, {
-      env: { ...process.env, KUBECONFIG: kubeconfig || DEFAULT_KUBECONFIG }
+      env: { ...process.env, KUBECONFIG: kubeconfig }
     });
     return stdout;
-  }
-
-  async runHelmWithChart(args: (chart: string) => string[], chartDir: string, kubeconfig?: string): Promise<string> {
-    const match = kubeconfig?.match(/\/tmp\/kubeconfig-(.+)$/);
-    const containerName = match ? `k3d-${match[1] ?? 'unknown'}-server-0` : undefined;
-    if (containerName && await this.dockerContainerExists(containerName)) {
-      const inside = `/tmp/charts/${path.basename(chartDir)}`;
-      await this.shell(`docker exec ${containerName} sh -c ${escapeShellArg(`rm -rf ${inside} && mkdir -p /tmp/charts`)}`);
-      await this.shell(`docker cp ${escapeShellArg(chartDir)} ${containerName}:${inside}`);
-      return this.runHelm(args(inside), kubeconfig);
-    }
-    return this.runHelm(args(chartDir), kubeconfig);
   }
 
   async getKubeconfig(name: string) {
@@ -313,11 +246,11 @@ export class InfrastructureService {
   async getManagementClusterKubeconfig(physicalName: string): Promise<string> {
     const managementContext = 'k3d-provisioning-lunorica';
     const { stdout } = await this.shell(
-      `${path.join(BIN_DIR, 'kubectl')} config view --minify --raw --context=${managementContext} --kubeconfig=${DEFAULT_KUBECONFIG}`,
+      `${path.join(BIN_DIR, 'kubectl')} config view --minify --raw --context=${managementContext} --kubeconfig=${K3D_KUBECONFIG}`,
     );
     if (!stdout.includes(managementContext)) {
       throw new Error(
-        `Management cluster context "${managementContext}" not found in ${DEFAULT_KUBECONFIG}. ` +
+        `Management cluster context "${managementContext}" not found in ${K3D_KUBECONFIG}. ` +
         `Is the management cluster running? (Linux: sudo systemctl start k3s-provisioning-lunorica, or re-run npm run dev)`,
       );
     }
@@ -405,51 +338,6 @@ export class InfrastructureService {
     return gateway;
   }
 
-  async streamLogs(resourceId: string, args: string[], io: SocketServer, room: string, kubeconfig?: string) {
-    this.stopStream(resourceId);
-
-    const match = kubeconfig?.match(/\/tmp\/kubeconfig-(.+)$/);
-    let child;
-    if (match && await this.dockerContainerExists(`k3d-${match[1] ?? 'unknown'}-server-0`)) {
-      const clusterName = match[1] ?? 'unknown';
-      const containerName = `k3d-${clusterName}-server-0`;
-
-      const cleanArgs: string[] = [];
-      for (let i = 0; i < args.length; i++) {
-        const arg = args[i];
-        if (arg === undefined) continue;
-        if (arg === '--context') {
-          i++;
-        } else {
-          cleanArgs.push(arg);
-        }
-      }
-
-      child = spawn('docker', ['exec', '-i', containerName, 'kubectl', ...cleanArgs]);
-    } else {
-      child = spawn(path.join(BIN_DIR, 'kubectl'), args, {
-        env: { ...process.env, KUBECONFIG: kubeconfig || DEFAULT_KUBECONFIG }
-      });
-    }
-
-    this.activeStreams.set(resourceId, child);
-    child.stdout.on('data', (data: Buffer) => io.to(room).emit('kube-log', data.toString()));
-    child.stderr.on('data', (data: Buffer) => io.to(room).emit('kube-log', data.toString()));
-    child.on('error', (err) => {
-      console.warn(`[streamLogs] ${resourceId}: ${err.message}`);
-      this.activeStreams.delete(resourceId);
-    });
-    child.on('close', () => this.activeStreams.delete(resourceId));
-  }
-
-  stopStream(resourceId: string) {
-    const active = this.activeStreams.get(resourceId);
-    if (active) {
-      active.kill();
-      this.activeStreams.delete(resourceId);
-    }
-  }
-
   async checkGpuToolkit(vendor: 'nvidia' | 'amd'): Promise<void> {
     if (vendor === 'nvidia') {
       let nvidiaSmiOk = false;
@@ -522,10 +410,6 @@ export class InfrastructureService {
         );
       }
     }
-  }
-
-  async verifyGpuRuntimeSchedulable(vendor: 'nvidia' | 'amd', kubeconfigPath: string): Promise<void> {
-    await verifyGpuRuntimeSchedulable((args) => this.runKubectl(args, kubeconfigPath), vendor);
   }
 
   async installGpuDevicePlugin(vendor: 'nvidia' | 'amd', kubeconfigPath: string): Promise<void> {

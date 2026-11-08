@@ -8,8 +8,8 @@ import type { ClusterService } from '../services/ClusterService.js';
 import type { ClusterProxyService } from '../services/ClusterProxyService.js';
 import type { GiteaService } from '../../projects/index.js';
 import type { InfisicalService } from '../services/InfisicalService.js';
-import type { InfrastructureService } from '../services/InfrastructureService.js';
 import type { TemporalBridge } from '../services/TemporalBridge.js';
+import type { ClusterAccess } from '../services/ClusterAccess.js';
 
 export interface ProvisionStarted {
   message: 'Provisioning started';
@@ -25,7 +25,7 @@ export interface ClustersRouterDeps {
   clusterProxyService: Pick<ClusterProxyService, 'ensurePortForward' | 'stopForCluster' | 'getAutoLoginCookies'>;
   giteaService: GiteaService;
   infisicalService: InfisicalService;
-  infraService: Pick<InfrastructureService, 'runKubectl'>;
+  access: Pick<ClusterAccess, 'kubectl' | 'kubeconfigOf'>;
   temporalBridge: TemporalBridge;
   io: SocketServer;
 }
@@ -37,17 +37,17 @@ const userOf = (req: Request): { id: string; email: string } =>
 
 export function clustersRouter(deps: ClustersRouterDeps): Router {
   const {
-    clusterService, clusterProxyService, infraService,
+    clusterService, clusterProxyService, access,
     temporalBridge, io, giteaService, infisicalService,
   } = deps;
   const router = Router();
 
   const PROXY_SERVICES = ['prometheus', 'grafana', 'traefik', 'gitea', 'alertmanager', 'infisical'] as const;
 
-  async function getGrafanaAdminCredentials(kubeconfigPath: string): Promise<{ username: string; password: string }> {
-    const raw = await infraService.runKubectl(
+  async function getGrafanaAdminCredentials(clusterId: string): Promise<{ username: string; password: string }> {
+    const raw = await access.kubectl(
+      clusterId,
       ['get', 'secret', 'kube-prometheus-stack-grafana', '-n', 'monitoring', '-o', 'jsonpath={.data.admin-password}'],
-      kubeconfigPath,
     );
     return { username: 'admin', password: Buffer.from(raw.trim(), 'base64').toString('utf8') };
   }
@@ -61,8 +61,7 @@ export function clustersRouter(deps: ClustersRouterDeps): Router {
         const cluster = await ownedCluster(req);
         if (!cluster) return res.status(404).json({ error: 'Cluster not found' });
 
-        const kubeconfigPath = await clusterService.getKubeconfigPath(cluster);
-        const targetUrl = await clusterProxyService.ensurePortForward(clusterId, serviceKey, kubeconfigPath);
+        const targetUrl = await clusterProxyService.ensurePortForward(clusterId, serviceKey, await access.kubeconfigOf(cluster.id));
 
         if (serviceKey === 'gitea' || serviceKey === 'grafana' || serviceKey === 'infisical') {
           if (signsInAsPlatform(serviceKey, cluster.id)) {
@@ -70,7 +69,7 @@ export function clustersRouter(deps: ClustersRouterDeps): Router {
               const credentials = serviceKey === 'gitea'
                 ? await giteaService.getAdminCredentials()
                 : serviceKey === 'grafana'
-                  ? await getGrafanaAdminCredentials(kubeconfigPath)
+                  ? await getGrafanaAdminCredentials(cluster.id)
                   : await infisicalService.getAdminCredentials();
               const cookies = await clusterProxyService.getAutoLoginCookies(serviceKey, targetUrl, credentials);
               for (const cookie of cookies) res.append('Set-Cookie', cookie);

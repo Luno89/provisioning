@@ -26,7 +26,7 @@ function setup(places: { shell?: Shell; koalaMachineId?: string | undefined } = 
   infra.getManagementClusterKubeconfig.mockRejectedValue(new Error('no management cluster here'));
   infra.listLocalClusters.mockResolvedValue([]);
   const kubeconfigDir = mkdtempSync(join(tmpdir(), 'cluster-service-'));
-  return { db, infra, kubeconfigDir, service: new ClusterService(db, infra, testClusterAccess(db, { answers: (args) => infra.runKubectl([...args]), dataKey: MASTER, koalaMachineId: places.koalaMachineId, folder: kubeconfigDir, serviceAccount: { host: 'kubernetes.default.svc', port: '443', caFile: '/sa/ca.crt', tokenFile: '/sa/token' } }), { kubeconfigDir, shell: noHostTools, ...places }) };
+  return { db, infra, kubeconfigDir, service: new ClusterService(db, infra, testClusterAccess(db, { answers: (args) => infra.runKubectl([...args], 'through-cluster-access'), dataKey: MASTER, koalaMachineId: places.koalaMachineId, folder: kubeconfigDir, serviceAccount: { host: 'kubernetes.default.svc', port: '443', caFile: '/sa/ca.crt', tokenFile: '/sa/token' } }), { kubeconfigDir, shell: noHostTools, ...places }) };
 }
 
 beforeEach(() => { process.env.NODE_ENV = 'development'; delete process.env.HCLOUD_TOKEN; });
@@ -51,6 +51,24 @@ describe('a machine\'s own cluster', () => {
     const { db, service } = setup();
     await db.infrastructure.saveCluster(machine());
     await expect(service.getKubeconfigPath(machine())).rejects.toThrow('desk has not started yet, so there is no way to reach it');
+  });
+});
+
+describe('the kubeconfig of a cluster from before machines', () => {
+  it('names no default kubeconfig when a cluster has none of its own, and says so', async () => {
+    const { service } = setup();
+    await expect(service.getKubeconfigPath({ id: 'vm', name: 'vm', provider: 'hetzner', status: 'healthy', ownerId: 'bo' })).rejects.toThrow('vm has no kubeconfig of its own, so there is no way to reach it');
+  });
+
+  it('gives a cluster the kubeconfig it was given', async () => {
+    const { service } = setup();
+    expect(await service.getKubeconfigPath({ id: 'vm', name: 'vm', provider: 'hetzner', status: 'healthy', ownerId: 'bo', kubeconfigPath: '/data/kubeconfig-vm' })).toBe('/data/kubeconfig-vm');
+  });
+
+  it('fails with why when a local cluster\'s kubeconfig cannot be read, rather than falling back to another', async () => {
+    const { service, infra } = setup();
+    infra.getKubeconfig.mockRejectedValue(new Error('k3d: no cluster lab'));
+    await expect(service.getKubeconfigPath(k3d('lab', 'healthy', { kubeconfigPath: '/elsewhere' }))).rejects.toThrow('k3d: no cluster lab');
   });
 });
 

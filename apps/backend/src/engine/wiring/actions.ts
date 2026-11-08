@@ -1,7 +1,7 @@
 import { claimSettingsFrom, principalOf, roleFromEnv, servesTenants, type Database, type Principal } from '../../platform/index.js';
 import { ActionService } from '../services/ActionService.js';
 import {
-  EgressService, EgressProxyService, AccessService, type TemporalBridge, type InfrastructureService,
+  EgressService, EgressProxyService, AccessService, type TemporalBridge, type ClusterAccess,
   type InfisicalService, egressRouter, clusterAccessRouter,
 } from '../../infrastructure/index.js';
 import { SecretRequestService, secretRequestsRouter } from '../../projects/index.js';
@@ -20,7 +20,6 @@ export interface ActionsWiringDeps {
   db: Database;
   env: NodeJS.ProcessEnv;
   egressKey: string;
-  kubeconfig: string;
   temporalBridge: TemporalBridge;
   monitoring: Pick<MonitoringService, 'addRule' | 'removeRule'>;
   releaseSettings: ReturnType<typeof wireReleases>['releaseSettings'];
@@ -30,7 +29,7 @@ export interface ActionsWiringDeps {
   agentDirectory: Pick<ReturnType<typeof directoryFromDatabase>, 'agents'>;
   agentsHolder: { service?: AgentService };
   concluded: (ownerId: string, conversationId: string | undefined) => void;
-  infra: InfrastructureService;
+  access: ClusterAccess;
   infisical: InfisicalService;
   clusters: { getById(id: string, principal: Principal, action: 'deploy-to'): Promise<unknown> };
 }
@@ -63,7 +62,7 @@ export function wireActions(deps: ActionsWiringDeps): void {
   }) }));
   const egressService = new EgressService({
     store: db.infrastructure,
-    proxy: new EgressProxyService({ kube: deps.infra, secret: deps.egressKey, kubeconfig: deps.kubeconfig }),
+    proxy: new EgressProxyService({ kube: deps.access, secret: deps.egressKey }),
   });
   tenant.use('/api/egress', egressRouter({ egress: egressService }));
   tenant.use('/api/cluster-access', clusterAccessRouter({ access: new AccessService({ store: db }) }));

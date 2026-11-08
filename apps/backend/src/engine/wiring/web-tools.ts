@@ -1,12 +1,12 @@
 import { publicAddressProblem, publicFetch, roleFromEnv, type Database } from '../../platform/index.js';
 import { corpusEndpointsWith, crawlEndpointWith, resolveWebTools, webToolsDepsFrom, type CorpusEndpoints, type WebToolsDeps } from '../lib/web-tools-resolver.js';
 import type { WebTools } from '../lib/web-tools.js';
-import { sharedClusterProxy, ClusterService, clusterAccessFrom, InfrastructureService } from '../../infrastructure/index.js';
+import { sharedClusterProxy, clusterAccessFrom } from '../../infrastructure/index.js';
 
 export type { CorpusEndpoints };
 
 export const webToolsDeps = (db: Pick<Database, 'infrastructure'>): WebToolsDeps => ({
-  ...webToolsDepsFrom(db.infrastructure, new ClusterService(db as never, new InfrastructureService(), clusterAccessFrom(process.env, { role: roleFromEnv(process.env).role, clusters: db.infrastructure })), sharedClusterProxy()),
+  ...webToolsDepsFrom(db.infrastructure, clusterAccessFrom(process.env, { role: roleFromEnv(process.env).role, clusters: db.infrastructure }), sharedClusterProxy()),
   env: process.env,
   pageFetch: publicFetch,
   pageCheck: publicAddressProblem,

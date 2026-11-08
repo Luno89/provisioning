@@ -14,7 +14,7 @@ import type { MachineTelemetry, TelemetryAnswer } from '../lib/machine-telemetry
 import { userRoom } from '../../engine-host/temporal/stream-worker.js';
 import type { MachineService } from '../services/MachineService.js';
 import { MachineRunWatch, type RunLiveness } from '../services/MachineRunWatch.js';
-import { podLogTarget, type ClusterService, type AppService, type InfrastructureService } from '../../infrastructure/index.js';
+import { podLogTarget, PodLogTails, type ClusterService, type AppService } from '../../infrastructure/index.js';
 import type { MachineClusters } from '../services/MachineClusters.js';
 import { reportedClusterState } from '../lib/machine-clusters.js';
 
@@ -58,7 +58,6 @@ export interface SocketsWiringDeps {
   machineClusters?: Pick<MachineClusters, 'reported'> | undefined;
   clusters: ClusterService;
   apps: AppService;
-  infra: InfrastructureService;
   telemetry: MachineTelemetry;
   machineTemporal?: { address: string; namespace: string } | undefined;
   runs?: RunLiveness | undefined;
@@ -66,7 +65,8 @@ export interface SocketsWiringDeps {
 }
 
 export function wireSockets(deps: SocketsWiringDeps): void {
-  const { io, db, role, env, payloadKey, clusters, apps, infra } = deps;
+  const { io, db, role, env, payloadKey, clusters, apps } = deps;
+  const podLogs = new PodLogTails({ access: clusters.access, say: (room, text) => io.to(room).emit('kube-log', text), log: (message) => console.warn(message) });
   signSocketsIn(io, { auth: deps.auth, db, env, sessionSockets: deps.sessionSockets });
 
   const agentNamespace = io.of('/agent');
@@ -231,14 +231,7 @@ export function wireSockets(deps: SocketsWiringDeps): void {
         socket.emit('room-denied', { id: resourceId });
         return;
       }
-      let context: string | undefined;
-      const isMock = clusters.isMockCloud(cluster);
-      const physicalName = clusters.getPhysicalClusterName(cluster);
-      if (cluster.provider === 'k3d' || isMock) context = `k3d-${physicalName}`;
-      const kubeconfigPath = await clusters.getKubeconfigPath(cluster);
-      const args = ['logs', '-n', target.namespace, target.podName, '--all-containers=true', '--tail=100', '-f'];
-      if (context) args.push('--context', context);
-      await infra.streamLogs(resourceId, args, io, `${resourceId}-kube`, kubeconfigPath);
+      await podLogs.tail({ resourceId, clusterId: cluster.id, namespace: target.namespace, podName: target.podName });
     };
 
     const refusedRoom = (event: string) => (err: Error) => console.warn(`[sockets] ${connectedUser ?? 'someone'}'s ${event} could not be answered: ${err.message}`);
@@ -259,7 +252,7 @@ export function wireSockets(deps: SocketsWiringDeps): void {
     socket.on('leave-kube-room', (id: unknown) => {
       if (typeof id !== 'string') return;
       void socket.leave(`${id}-kube`);
-      infra.stopStream(id);
+      podLogs.stop(id);
     });
 
     socket.on('disconnect', () => {

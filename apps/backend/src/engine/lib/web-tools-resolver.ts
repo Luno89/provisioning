@@ -1,4 +1,4 @@
-import type { ClusterMetadata, DeploymentMetadata } from '../../platform/index.js';
+import type { DeploymentMetadata } from '../../platform/index.js';
 import { createWebTools, type WebTools } from './web-tools.js';
 import type { InfrastructureStore } from '../../infrastructure/index.js';
 import { namespaceOf } from '../../infrastructure/lib/app-namespace.js';
@@ -13,7 +13,7 @@ export interface ProxyTarget {
 export interface WebToolsDeps {
   db: Pick<InfrastructureStore, 'getDeployments'>;
   serviceUrl: (clusterId: string, serviceKey: string, kubeconfigPath: string, target: ProxyTarget) => Promise<string>;
-  kubeconfigFor: (clusterId: string) => Promise<string | undefined>;
+  kubeconfigFor: (clusterId: string) => Promise<string>;
   env?: NodeJS.ProcessEnv;
   pageFetch?: typeof fetch;
   pageCheck?: ((url: string) => Promise<string | undefined>) | undefined;
@@ -21,16 +21,13 @@ export interface WebToolsDeps {
 
 export function webToolsDepsFrom(
   db: Pick<InfrastructureStore, 'getDeployments'>,
-  clusters: { getByIdUnscoped(id: string): Promise<ClusterMetadata | undefined | null>; getKubeconfigPath(cluster: ClusterMetadata): string | Promise<string | undefined> | undefined },
+  access: { kubeconfigOf(clusterId: string): Promise<string> },
   proxy: { serviceUrl(clusterId: string, serviceKey: string, kubeconfigPath: string, target: ProxyTarget): Promise<string> },
 ): WebToolsDeps {
   return {
     db,
     serviceUrl: (clusterId, serviceKey, kubeconfigPath, target) => proxy.serviceUrl(clusterId, serviceKey, kubeconfigPath, target),
-    kubeconfigFor: async (clusterId) => {
-      const cluster = await clusters.getByIdUnscoped(clusterId);
-      return cluster ? await clusters.getKubeconfigPath(cluster) : undefined;
-    },
+    kubeconfigFor: (clusterId) => access.kubeconfigOf(clusterId),
   };
 }
 
@@ -50,10 +47,6 @@ async function baseUrlFor(
 ): Promise<string | undefined> {
   try {
     const kubeconfig = await deps.kubeconfigFor(dep.clusterId!);
-    if (!kubeconfig) {
-      console.warn(`[web-tools] ${service} deployment "${dep.name}" has no resolvable kubeconfig for cluster ${dep.clusterId}`);
-      return undefined;
-    }
     const ns = namespaceOf(dep);
     const url = await deps.serviceUrl(dep.clusterId!, `${service}-${dep.id}`, kubeconfig, {
       service, namespace: ns, remotePort,

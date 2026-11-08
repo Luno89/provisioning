@@ -14,12 +14,6 @@ describe('InfrastructureService.runKubectl', () => {
     expect(await new InfrastructureService(shell).runKubectl(['get', 'pods', '-n', "it's"], '/home/me/kube.yaml')).toBe('pods');
   });
 
-  it('falls back to the default kubeconfig when none is named', async () => {
-    const shell = mockFn<Shell>();
-    shell.calledWith(commandEnding("/bin/kubectl' 'get' 'ns'"), keptKubeconfig(`${process.env.HOME}/.kube/config`)).mockResolvedValue(output('ns'));
-    expect(await new InfrastructureService(shell).runKubectl(['get', 'ns'])).toBe('ns');
-  });
-
   it('runs kubectl inside the k3d server container when the kubeconfig belongs to a local cluster whose container exists, leaving out --context', async () => {
     const shell = mockFn<Shell>();
     shell.calledWith("docker inspect 'k3d-demo-server-0'").mockResolvedValue(output('{}'));
@@ -37,7 +31,7 @@ describe('InfrastructureService.runKubectl', () => {
   it('fails with kubectl\'s own error', async () => {
     const shell = mockFn<Shell>();
     shell.mockRejectedValue(new Error('the server could not find the requested resource'));
-    await expect(new InfrastructureService(shell).runKubectl(['get', 'nothing'])).rejects.toThrow('the server could not find the requested resource');
+    await expect(new InfrastructureService(shell).runKubectl(['get', 'nothing'], '/home/me/kube.yaml')).rejects.toThrow('the server could not find the requested resource');
   });
 });
 
@@ -69,16 +63,3 @@ describe('InfrastructureService.listLocalClusters', () => {
   });
 });
 
-describe('InfrastructureService.waitForNamespaceDeletion', () => {
-  it('asks the cluster to delete the namespace and waits for it to be gone, with no deadline and never clearing its finalizers', async () => {
-    const shell = mockFn<Shell>();
-    shell.mockResolvedValue(output(''));
-    await new InfrastructureService(shell).waitForNamespaceDeletion('shop-1a2b3c', '/home/me/kube.yaml');
-    const commands = shell.mock.calls.map(([command]) => command);
-    expect(commands).toEqual([
-      expect.stringContaining("'delete' 'namespace' 'shop-1a2b3c' '--ignore-not-found=true' '--wait=false'"),
-      expect.stringContaining("'wait' '--for=delete' 'namespace/shop-1a2b3c' '--timeout=720h'"),
-    ]);
-    expect(commands.some((command) => command.includes('finalizers'))).toBe(false);
-  });
-});

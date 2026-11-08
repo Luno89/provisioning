@@ -23,7 +23,7 @@ export interface SecretSyncProjects {
   saveProject(project: ProjectMetadata): Promise<void>;
 }
 
-export async function ensureInfisicalOperator(infra: SecretSyncInfra, kubeconfig: string): Promise<'present' | 'installed'> {
+export async function ensureInfisicalOperator(infra: Pick<SecretSyncInfra, 'runHelm'>, kubeconfig: string): Promise<'present' | 'installed'> {
   const present = await infra.runHelm(['status', OPERATOR_RELEASE, '-n', OPERATOR_NAMESPACE], kubeconfig)
     .then(() => true, ignore('helm status fails while the operator is not installed, and installing it below fails with the reason when the cluster cannot be reached'));
   if (present) return 'present';

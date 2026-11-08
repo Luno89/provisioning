@@ -5,7 +5,7 @@ import { BuilderService } from './BuilderService.js';
 import type { TemporalBridge } from './TemporalBridge.js';
 import { StorageAdapter } from './StorageAdapter.js';
 import { isSelfManagedCluster } from '../lib/cluster-topology.js';
-import { listingOf, namespaceOf, namespacesByName, type AppListing, type ClusterRead } from '../lib/app-namespace.js';
+import { listingOf, namespaceOf, namespacesByName, removeNamespace, type AppListing, type ClusterRead } from '../lib/app-namespace.js';
 
 export type ListedApp = DeploymentMetadata & { listing: AppListing };
 import { appSignIns, PALWORLD_SECRET, secretValues, type AppSignIn } from '../lib/app-sign-in.js';
@@ -156,7 +156,7 @@ export class AppService extends BaseService {
           if (!this.temporalBridge) throw new Error('this app service was given no Temporal bridge, so the deploy\'s workflow cannot be stopped');
           await this.temporalBridge.terminateWorkflow(dep.temporalWorkflowId, 'User aborted deployment');
         }
-        await this.infra.waitForNamespaceDeletion(namespaceOf(dep), await this.clusters.access.kubeconfigOf(dep.clusterId));
+        await removeNamespace((args) => this.clusters.access.kubectl(dep.clusterId, args), namespaceOf(dep));
         await this.db.infrastructure.deleteDeployment(id);
         if (io) {
           io.to(id).emit('log', '\n--- DEPLOYMENT ABORTED AND CLEANED UP ---\n');

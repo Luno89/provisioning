@@ -32,7 +32,7 @@ const backend = await startBackend(async ({ api, db }) => {
     appService: apps,
     clusterService: clusters,
     appExposureService: outsideThisTier<AppExposureService>('app exposure'),
-    infraService: host,
+    access: clusters.access,
     temporalBridge: bridge,
     db,
     io: new Server(),

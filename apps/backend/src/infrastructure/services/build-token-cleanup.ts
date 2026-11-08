@@ -1,17 +1,27 @@
-import type { ClusterMetadata, DeploymentMetadata } from '../../platform/index.js';
+import type { DeploymentMetadata } from '../../platform/index.js';
 import { namespaceOf } from '../lib/app-namespace.js';
+import { gitappPullSecretArgs, type PullLogin } from '../lib/gitapp-pull.js';
+import type { ClusterAccess } from './ClusterAccess.js';
 
 export const BUILD_TOKENS_MIGRATION = 'build-tokens-revoked';
 
 export interface BuildTokenCleanupDeps {
   deployments(): Promise<DeploymentMetadata[]>;
-  clusterOf(id: string): Promise<ClusterMetadata | undefined>;
-  kubeconfigOf(cluster: ClusterMetadata): Promise<string>;
-  writePullSecret(namespace: string, kubeconfig: string): Promise<void>;
+  writePullSecret(clusterId: string, namespace: string): Promise<void>;
   runningBuilds(): Promise<number>;
   buildTokens(): Promise<string[]>;
   revoke(name: string): Promise<void>;
 }
+
+export interface PullRegistry {
+  host(): Promise<string>;
+  login(): Promise<PullLogin>;
+}
+
+export const pullSecretWriter = (access: Pick<ClusterAccess, 'kubectl' | 'apply'>, registry: PullRegistry) => async (clusterId: string, namespace: string): Promise<void> => {
+  const secret = await access.kubectl(clusterId, gitappPullSecretArgs(namespace, await registry.host(), await registry.login()));
+  await access.apply(clusterId, secret);
+};
 
 export class BuildTokensWait extends Error {}
 
@@ -23,9 +33,7 @@ export async function cleanUpBuildTokens(deps: BuildTokenCleanupDeps): Promise<R
   const unreachable: string[] = [];
   for (const app of apps) {
     try {
-      const cluster = await deps.clusterOf(app.clusterId);
-      if (!cluster) throw new Error(`Koala knows no cluster ${app.clusterId}`);
-      await deps.writePullSecret(namespaceOf(app), await deps.kubeconfigOf(cluster));
+      await deps.writePullSecret(app.clusterId, namespaceOf(app));
     } catch (err) {
       unreachable.push(`${app.name} (${(err as Error).message})`);
     }

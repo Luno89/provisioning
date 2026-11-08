@@ -128,7 +128,7 @@ const mount = async (options: MountOptions = {}): Promise<Mounted> => {
       await seedOwnCluster(db);
       await options.seed?.(db);
       const infra = infraOnHost(options.unreachable);
-      const clusterService = new ClusterService(db, infra, testClusterAccess(db, { answers: (args) => infra.runKubectl([...args]), dataKey: KEY, koalaMachineId: options.koalaMachineId, folder: kubeconfigDir, serviceAccount: { host: 'kubernetes.default.svc', port: '443', caFile: '/sa/ca.crt', tokenFile: '/sa/token' } }), { kubeconfigDir, koalaMachineId: options.koalaMachineId });
+      const clusterService = new ClusterService(db, infra, testClusterAccess(db, { answers: (args) => infra.runKubectl([...args], 'through-cluster-access'), dataKey: KEY, koalaMachineId: options.koalaMachineId, folder: kubeconfigDir, serviceAccount: { host: 'kubernetes.default.svc', port: '443', caFile: '/sa/ca.crt', tokenFile: '/sa/token' } }), { kubeconfigDir, koalaMachineId: options.koalaMachineId });
       const clusterProxyService = new ClusterProxyService();
       const bridge = new TemporalBridge(db, undefined, KEY, clusterService);
       if (options.temporal) bridge.client = env.client;
@@ -141,7 +141,7 @@ const mount = async (options: MountOptions = {}): Promise<Mounted> => {
       return clustersRouter({
         clusterService,
         clusterProxyService,
-        infraService: infra,
+        access: clusterService.access,
         temporalBridge: bridge,
         io: { emit: vi.fn(), to: vi.fn(() => ({ emit: vi.fn() })) } as never,
         giteaService: new GiteaService(infra, KEY, path.join(kubeconfigDir, `kubeconfig-${SYSTEM}`)),

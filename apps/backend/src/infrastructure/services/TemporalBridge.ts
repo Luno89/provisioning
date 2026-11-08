@@ -667,7 +667,7 @@ export class TemporalBridge {
       try {
         const owners = [...new Set((await this.db.memory.getMemories()).map((memory) => memory.ownerId))]
         for (const ownerId of owners) {
-          const ends = await corpusEndpointsWith(webToolsDepsFrom(this.db.infrastructure, this.clustersForConsolidation(), sharedClusterProxy()), ownerId).catch(ignore('an owner with no search service has their memories consolidated without an index'))
+          const ends = await corpusEndpointsWith(webToolsDepsFrom(this.db.infrastructure, this.clusterAccess(), sharedClusterProxy()), ownerId).catch(ignore('an owner with no search service has their memories consolidated without an index'))
           const report = await consolidateMemories({
             db: this.db,
             ownerId,

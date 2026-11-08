@@ -14,14 +14,14 @@ import { ignore } from '@koala/engine-core/failures';
 import type { AppService } from '../services/AppService.js';
 import type { ClusterService } from '../services/ClusterService.js';
 import type { AppExposureService } from '../services/AppExposureService.js';
-import type { InfrastructureService } from '../services/InfrastructureService.js';
+import type { ClusterAccess } from '../services/ClusterAccess.js';
 import type { TemporalBridge } from '../services/TemporalBridge.js';
 
 export interface DeploymentsRouterDeps {
   appService: AppService;
   clusterService: Pick<ClusterService, 'getById'>;
   appExposureService: AppExposureService;
-  infraService: Pick<InfrastructureService, 'runKubectl' | 'runCommand'>;
+  access: Pick<ClusterAccess, 'kubectl'>;
   temporalBridge: TemporalBridge;
   db: Database;
   io: SocketServer;
@@ -33,7 +33,7 @@ const userOf = (req: Request): { id: string; email: string } =>
   (req as unknown as { user: { id: string; email: string } }).user;
 
 export function deploymentsRouter(deps: DeploymentsRouterDeps): Router {
-  const { appService, clusterService, appExposureService, infraService, temporalBridge, db, io } = deps;
+  const { appService, clusterService, appExposureService, access, temporalBridge, db, io } = deps;
   const router = Router();
   router.use((_req, res, next) => {
     const send = res.json.bind(res);
@@ -180,10 +180,8 @@ export function deploymentsRouter(deps: DeploymentsRouterDeps): Router {
 
     let allocatableBytes: number | undefined;
     try {
-      const nodes = await infraService.runCommand("kubectl", [
-        'get', 'nodes', '-o', 'jsonpath={.items[*].status.allocatable.memory}',
-      ], `resource-plan-${dep.id}`);
-      const sizes = nodes.stdout.trim().split(/\s+/).map((q) => parseQuantity(q))
+      const nodes = await access.kubectl(dep.clusterId, ['get', 'nodes', '-o', 'jsonpath={.items[*].status.allocatable.memory}']);
+      const sizes = nodes.trim().split(/\s+/).map((q) => parseQuantity(q))
         .filter((n): n is number => n !== undefined);
       if (sizes.length) allocatableBytes = Math.min(...sizes);
     } catch (failure) {

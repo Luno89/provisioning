@@ -7,7 +7,7 @@ import { mock } from 'vitest-mock-extended';
 import { encryptValue, type ClusterMetadata, type Processes, type Streams } from '../../platform/index.js';
 import { startedMachine } from '../lib/cluster-places.js';
 import { MemoryInfrastructureStore } from '../testing/memory-store.js';
-import { ClusterAccess, type ClusterAccessDeps } from './ClusterAccess.js';
+import { ClusterAccess, runnersByRecord, type ClusterAccessDeps } from './ClusterAccess.js';
 
 const KEY = 'test-key' as never;
 const ADMIN = 'apiVersion: v1\nkind: Config\nclusters: []\n';
@@ -174,5 +174,41 @@ describe('ClusterAccess: the cluster a process runs in', () => {
     const account = { host: '10.43.0.1', port: '443', caFile: '/sa/ca.crt', tokenFile: '/sa/token' };
     expect(new ClusterAccess({ here: { root: false }, folder: '/nowhere', processes: mock<Processes>(), streams: mock<Streams>(), tools: { kubectl: 'k', helm: 'h' }, serviceAccount: account }).own())
       .toEqual({ clusterId: 'provisioning-lunorica', kind: 'koala' });
+  });
+});
+
+describe('runnersByRecord: a cluster record\'s kubectl, helm and apply, each by its id', () => {
+  it('hands each call to ClusterAccess with the record\'s id and what it was asked', async () => {
+    const access = mock<Pick<ClusterAccess, 'kubectl' | 'helm' | 'apply'>>();
+    access.kubectl.mockResolvedValue('pods');
+    access.helm.mockResolvedValue('[]');
+    access.apply.mockResolvedValue('configmap/x created');
+    const runners = runnersByRecord(access);
+    const record = cluster({});
+    expect(await runners.kubectl(record, ['get', 'pods'])).toBe('pods');
+    expect(await runners.helm(record, ['list', '-A'])).toBe('[]');
+    expect(await runners.apply(record, 'kind: ConfigMap')).toBeUndefined();
+    expect(access.kubectl).toHaveBeenCalledWith('machine-dev2', ['get', 'pods']);
+    expect(access.helm).toHaveBeenCalledWith('machine-dev2', ['list', '-A']);
+    expect(access.apply).toHaveBeenCalledWith('machine-dev2', 'kind: ConfigMap');
+  });
+
+  it('fails with ClusterAccess\'s refusal, for a cluster it cannot reach', async () => {
+    const { access } = await door({}, [cluster({ status: 'stopped' })]);
+    const runners = runnersByRecord(access);
+    await expect(runners.kubectl(cluster({}), ['get', 'pods'])).rejects.toThrow('machine-dev2 is stopped until something runs on it');
+    await expect(runners.helm(cluster({}), ['list'])).rejects.toThrow('machine-dev2 is stopped until something runs on it');
+    await expect(runners.apply(cluster({}), 'kind: ConfigMap')).rejects.toThrow('machine-dev2 is stopped until something runs on it');
+  });
+
+  it('runs kubectl and helm on the record\'s kubeconfig through ClusterAccess', async () => {
+    const { access, processes, folder } = await door({}, [cluster({ kubeconfigEnc: encryptValue(ADMIN, KEY) })]);
+    const runners = runnersByRecord(access);
+    await runners.kubectl(cluster({}), ['get', 'pods']);
+    await runners.helm(cluster({}), ['list', '-A']);
+    expect(processes.run.mock.calls.map(([run]) => [run.command, ...run.args])).toEqual([
+      ['/bin/kubectl', '--kubeconfig', join(folder, 'kubeconfig-machine-machine-dev2'), 'get', 'pods'],
+      ['/bin/helm', '--kubeconfig', join(folder, 'kubeconfig-machine-machine-dev2'), 'list', '-A'],
+    ]);
   });
 });

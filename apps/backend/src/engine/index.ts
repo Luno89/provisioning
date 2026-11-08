@@ -56,7 +56,6 @@ export type { WorkspaceBuildStart } from './services/WorkspaceBuildService.js';
 export { WorkspaceFileService } from './services/WorkspaceFileService.js';
 export type { WorkspaceFileRead, WorkspaceFileWrite } from './services/WorkspaceFileService.js';
 export { WorkspaceImageService } from './services/WorkspaceImageService.js';
-export { WorkspaceService } from './services/WorkspaceService.js';
 export type { EngineStore } from './store.js';
 export { ENGINE_TOOL_SEEDS, seedEngineTools } from './wiring/engine-tool-seeds.js';
 export type { EngineToolStore, SeedToolOptions } from './wiring/engine-tool-seeds.js';

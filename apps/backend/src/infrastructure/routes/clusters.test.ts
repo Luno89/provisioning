@@ -7,7 +7,7 @@ import { ProvisionRefused } from '../lib/cluster-topology.js';
 import type { ClusterProxyService } from '../services/ClusterProxyService.js';
 import type { ClusterService } from '../services/ClusterService.js';
 import type { InfisicalService } from '../services/InfisicalService.js';
-import type { InfrastructureService } from '../services/InfrastructureService.js';
+import type { ClusterAccess } from '../services/ClusterAccess.js';
 import type { ResourceDeal, TemporalBridge, WorkflowDeal } from '../services/TemporalBridge.js';
 import { clustersRouter } from './clusters.js';
 import type { HarnessUser } from '../../platform/routes/test-harness.js';
@@ -24,15 +24,15 @@ function setup() {
   const clusterProxyService = mock<Pick<ClusterProxyService, 'ensurePortForward' | 'stopForCluster' | 'getAutoLoginCookies'>>();
   const giteaService = mock<GiteaService>();
   const infisicalService = mock<InfisicalService>();
-  const infraService = mock<Pick<InfrastructureService, 'runKubectl'>>();
+  const access = mock<Pick<ClusterAccess, 'kubectl' | 'kubeconfigOf'>>();
   const temporalBridge = mock<TemporalBridge>();
   const router = clustersRouter({
-    clusterService, clusterProxyService, giteaService, infisicalService, infraService, temporalBridge,
+    clusterService, clusterProxyService, giteaService, infisicalService, access, temporalBridge,
     io: mock<SocketServer>(),
   });
   const call = (path: string, method: 'GET' | 'POST' | 'DELETE' = 'GET', body?: unknown, user?: HarnessUser) =>
     routesInProcess({ prefix: '/api/clusters', router: () => router, user: PERSON }).then((routes) => routes.request(method, `/api/clusters${path}`, { ...(body !== undefined ? { body } : {}), ...(user ? { user } : {}) }));
-  return { clusterService, clusterProxyService, giteaService, infisicalService, infraService, temporalBridge, call };
+  return { clusterService, clusterProxyService, giteaService, infisicalService, access, temporalBridge, call };
 }
 
 describe('listing clusters', () => {
@@ -135,8 +135,8 @@ describe('opening a cluster\'s dashboards', () => {
   const seen = () => {
     const parts = setup();
     parts.clusterService.getById.calledWith('provisioning-lunorica', by(OPERATOR), 'see-everything').mockResolvedValue(systemCluster());
-    parts.clusterService.getKubeconfigPath.mockResolvedValue('/tmp/kubeconfig-system');
-    parts.clusterProxyService.ensurePortForward.mockResolvedValue('http://127.0.0.1:4000');
+    parts.access.kubeconfigOf.calledWith('provisioning-lunorica').mockResolvedValue('/tmp/kubeconfig-system');
+    parts.clusterProxyService.ensurePortForward.calledWith('provisioning-lunorica', matches(() => true), '/tmp/kubeconfig-system').mockResolvedValue('http://127.0.0.1:4000');
     return parts;
   };
 
@@ -163,8 +163,8 @@ describe('opening a cluster\'s dashboards', () => {
   });
 
   it('reads Grafana\'s admin password from the cluster and Infisical\'s from its service', async () => {
-    const { infraService, infisicalService, clusterProxyService, call } = seen();
-    infraService.runKubectl.mockResolvedValue(`${Buffer.from('grafana-pw').toString('base64')}\n`);
+    const { access, infisicalService, clusterProxyService, call } = seen();
+    access.kubectl.calledWith('provisioning-lunorica', matches((args: readonly string[]) => args.join(' ') === 'get secret kube-prometheus-stack-grafana -n monitoring -o jsonpath={.data.admin-password}')).mockResolvedValue(`${Buffer.from('grafana-pw').toString('base64')}\n`);
     infisicalService.getAdminCredentials.mockResolvedValue({ username: 'a@b.c', password: 'infisical-pw' } as never);
     clusterProxyService.getAutoLoginCookies.mockResolvedValue([]);
     await call('/provisioning-lunorica/proxy/grafana', 'GET', undefined, OPERATOR);
@@ -181,6 +181,15 @@ describe('opening a cluster\'s dashboards', () => {
     warn.mockRestore();
     expect(answer.status).toBe(302);
     expect(answer.headers['set-cookie']).toBeUndefined();
+  });
+
+  it('answers 502 with why when the cluster cannot be reached, opening nothing', async () => {
+    const { access, clusterProxyService, call } = seen();
+    access.kubeconfigOf.calledWith('provisioning-lunorica').mockRejectedValue(new Error('this process is not running inside Koala\'s cluster, so it has no account there to reach it with'));
+    const answer = await call('/provisioning-lunorica/proxy/prometheus', 'GET', undefined, OPERATOR);
+    expect(answer.status).toBe(502);
+    expect(answer.data).toEqual({ error: 'Service unavailable: this process is not running inside Koala\'s cluster, so it has no account there to reach it with' });
+    expect(clusterProxyService.ensurePortForward).not.toHaveBeenCalled();
   });
 
   it('answers 502 with the reason when the dashboard cannot be reached', async () => {

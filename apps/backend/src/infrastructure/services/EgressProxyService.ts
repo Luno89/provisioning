@@ -1,13 +1,11 @@
 import type { EgressGrantRecord } from '@koala/harness-types';
 import { renderGrants } from '../lib/egress-proxy.js';
 import { startProcess, type StartProcess } from '../lib/shell.js';
+import type { ClusterAccess } from './ClusterAccess.js';
 
 export const PROXY_NAMESPACE = 'koala-egress';
 
-export interface ProxyKube {
-  applyManifest(manifest: string, kubeconfig?: string): Promise<unknown>;
-  runKubectl(args: string[], kubeconfig?: string): Promise<unknown>;
-}
+export type ProxyKube = Pick<ClusterAccess, 'own' | 'apply' | 'kubectl'>;
 
 export function sha512Crypt(password: string, salt: string, start: StartProcess = startProcess): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -25,7 +23,7 @@ export function sha512Crypt(password: string, salt: string, start: StartProcess 
 const b64 = (text: string): string => Buffer.from(text, 'utf8').toString('base64');
 
 export class EgressProxyService {
-  constructor(private readonly deps: { kube: ProxyKube; secret: string; kubeconfig: string; start?: StartProcess | undefined }) {}
+  constructor(private readonly deps: { kube: ProxyKube; secret: string; start?: StartProcess | undefined }) {}
 
   async files(grants: readonly EgressGrantRecord[]): Promise<{ passwd: string; acls: string }> {
     const active = grants.filter((grant) => !grant.revokedAt);
@@ -36,15 +34,16 @@ export class EgressProxyService {
 
   async sync(grants: readonly EgressGrantRecord[]): Promise<void> {
     const { passwd, acls } = await this.files(grants);
-    await this.deps.kube.applyManifest(JSON.stringify({
+    const koala = this.deps.kube.own();
+    await this.deps.kube.apply(koala, JSON.stringify({
       apiVersion: 'v1',
       kind: 'ConfigMap',
       metadata: { name: 'egress-grants', namespace: PROXY_NAMESPACE },
       data: { passwd, 'acls.conf': acls },
-    }), this.deps.kubeconfig);
-    await this.deps.kube.runKubectl([
+    }));
+    await this.deps.kube.kubectl(koala, [
       'exec', '-n', PROXY_NAMESPACE, 'deploy/egress-proxy', '-c', 'squid', '--', 'sh', '-c',
       `echo ${b64(passwd)} | base64 -d > /etc/squid/grants/passwd && echo ${b64(acls)} | base64 -d > /etc/squid/grants/acls.conf && squid -k reconfigure -f /etc/squid/squid.conf`,
-    ], this.deps.kubeconfig);
+    ]);
   }
 }
