@@ -4,15 +4,12 @@ import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
 dotenv.config({ path: fileURLToPath(new URL('../apps/backend/.env', import.meta.url)), quiet: true });
 import axios, { type AxiosInstance } from 'axios';
-import { createDatabase } from '../apps/backend/src/platform/lib/db-interface.js';
-import { sessionToken } from '../apps/backend/src/platform/lib/auth.js';
-import { loadKeys } from '../apps/backend/src/platform/lib/keys.js';
-import { getTemporalClient } from '../apps/backend/src/platform/lib/temporal-client.js';
+import { devKoalaApi, devKoalaDatabase, devKoalaTemporal, devOwner } from './lib/dev-stack.js';
 import { workflowOfRun } from '../apps/backend/src/engine-host/temporal/contracts.js';
 import { forgetWhatRunsLeft } from './lib/forget-test-runs.js';
 import { DROP_TYPE, dropBody } from '../apps/backend/src/files/lib/drops.js';
 
-const BASE = process.env.FILES_LIVE_URL ?? 'http://localhost:3001/api';
+const BASE = process.env.FILES_LIVE_URL ?? `${devKoalaApi}/api`;
 const STAMP = Date.now().toString(36);
 const TOKEN = `KOALA-FILES-LIVE-${STAMP.toUpperCase()}`;
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -157,15 +154,17 @@ async function exercise(scope: string, label: string): Promise<void> {
 }
 
 async function main(): Promise<void> {
-  const db = createDatabase();
+  const db = devKoalaDatabase();
   await db.init();
-  closeDb = async () => { await db.close?.(); };
-  const owner = process.env.FILES_LIVE_OWNER ?? process.env.MECHANICS_ADMIN;
-  assert.ok(owner, 'set FILES_LIVE_OWNER (or MECHANICS_ADMIN) to the person whose model reads the attachment');
-  const user = await db.accounts.getUserById(owner);
-  assert.ok(user, 'no such user');
-  api = axios.create({ baseURL: BASE, proxy: false, validateStatus: () => true, headers: { Cookie: `session=${sessionToken(user, loadKeys(process.env).session, { seconds: 4 * 3600 })}` } });
-  const temporal = await getTemporalClient();
+  const signedIn = await devOwner();
+  const owner = signedIn.id;
+  api = axios.create({ baseURL: BASE, proxy: false, validateStatus: () => true, headers: { Cookie: signedIn.cookie } });
+  const koalaTemporal = await devKoalaTemporal();
+  const temporal = koalaTemporal.client;
+  closeDb = async () => {
+    await koalaTemporal.close();
+    await db.close?.();
+  };
   const runIds = new Set<string>();
   const began = new Date().toISOString();
   retire = async () => {
