@@ -1,11 +1,6 @@
 import type { ProjectMetadata } from '../../platform/index.js';
 import { machineClusterId } from '../../infrastructure/lib/cluster-name.js';
 
-export function webhookUrlFor(nodeIpRaw: string, port: string | number, projectId: string): string {
-  const ip = nodeIpRaw.trim().split(/\s+/)[0] ?? '';
-  return `http://${ip}:${port}/webhooks/gitea/${projectId}`;
-}
-
 export const webhookUrlAt = (backend: string, projectId: string): string => `${backend.replace(/\/+$/, '')}/webhooks/gitea/${projectId}`;
 
 export function shippingGaps(

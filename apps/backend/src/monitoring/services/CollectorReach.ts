@@ -1,5 +1,5 @@
 import { envSink, otlpHttpSink, type TelemetrySink } from '@koala/engine-core/telemetry-sdk';
-import type { ClusterAccess, ClusterProxyService } from '../../infrastructure/index.js';
+import type { ClusterProxyService } from '../../infrastructure/index.js';
 import { TELEMETRY_SERVICES } from '../lib/cluster-monitoring.js';
 
 export const COLLECTOR_RETRY_MS = 60_000;
@@ -7,7 +7,6 @@ export const COLLECTOR_RETRY_MS = 60_000;
 export interface CollectorReachDeps {
   env: Readonly<Record<string, string | undefined>>;
   proxy: Pick<ClusterProxyService, 'serviceUrl'>;
-  access: Pick<ClusterAccess, 'kubeconfigOf'>;
   koalasCluster: () => string;
   fetchImpl?: typeof fetch | undefined;
   now?: (() => number) | undefined;
@@ -22,7 +21,7 @@ export function collectorEndpoint(deps: CollectorReachDeps): () => Promise<strin
     try {
       const cluster = deps.koalasCluster();
       where = cluster;
-      const url = await deps.proxy.serviceUrl(cluster, TELEMETRY_SERVICES.collector, await deps.access.kubeconfigOf(cluster));
+      const url = await deps.proxy.serviceUrl(cluster, TELEMETRY_SERVICES.collector);
       failed = undefined;
       return url;
     } catch (err) {

@@ -2,7 +2,6 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, it, expect, afterAll, beforeAll } from 'vitest';
-import { mock } from 'vitest-mock-extended';
 import { documentsRouter } from './documents.js';
 import { mountRouter, TEST_USER, type Harness } from '../../platform/routes/test-harness.js';
 import { DocumentService } from '../services/DocumentService.js';
@@ -11,13 +10,11 @@ import { ownedBy } from '../../platform/lib/ownership.js';
 import { GiteaService } from '../../projects/services/GiteaService.js';
 import { ProjectRepoService } from '../../projects/services/ProjectRepoService.js';
 import { startRealGitea, type RealGitea } from '../../projects/testing/real-gitea.js';
-import type { InfrastructureService } from '../../infrastructure/index.js';
 
 const KEY = 'documents-route-test-key' as never;
 const reads: string[] = [];
 let gitea: RealGitea;
 let dataDir: string;
-let savedUrl: string | undefined;
 let harness: Harness;
 let owner: string;
 let claimed: string;
@@ -34,13 +31,9 @@ const headOf = async (repo: string): Promise<string> => ((await giteaApi('GET', 
 
 beforeAll(async () => {
   gitea = await startRealGitea();
-  savedUrl = process.env.GITEA_URL;
-  process.env.GITEA_URL = gitea.url;
   dataDir = await mkdtemp(path.join(tmpdir(), 'documents-route-gitea-'));
   await writeFile(path.join(dataDir, '.gitea-admin-password'), gitea.adminPassword);
-  const infra = mock<Pick<InfrastructureService, 'runKubectl' | 'getK3dServerIp'>>();
-  infra.runKubectl.mockRejectedValue(new Error('no cluster here'));
-  const giteaService = new GiteaService(infra, KEY, '/nowhere', { dataDir });
+  const giteaService = new GiteaService(KEY, { url: gitea.url }, { dataDir });
 
   harness = await mountRouter({
     prefix: '/api/documents',
@@ -82,7 +75,6 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await harness?.close();
-  if (savedUrl === undefined) delete process.env.GITEA_URL; else process.env.GITEA_URL = savedUrl;
   await gitea?.close();
   if (dataDir) await rm(dataDir, { recursive: true, force: true });
 });

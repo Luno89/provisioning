@@ -8,9 +8,10 @@ import { endpointRulesFromEnv } from '../lib/endpoint-url-safety.js';
 export function createModelService(db: Database, jwtSecret: SecretKey): ModelService {
   const infra = new InfrastructureService();
   const builder = new BuilderService(db, infra);
-  const clusters = new ClusterService(db, infra, clusterAccessFrom(process.env, { role: roleFromEnv(process.env).role, clusters: db.infrastructure, dataKey: jwtSecret }));
+  const access = clusterAccessFrom(process.env, { role: roleFromEnv(process.env).role, clusters: db.infrastructure, dataKey: jwtSecret });
+  const clusters = new ClusterService(db, infra, access);
   const apps = new AppService(db, infra, clusters, builder);
-  const proxy = sharedClusterProxy();
+  const proxy = sharedClusterProxy(access);
   const headscale = new HeadscaleService(jwtSecret, process.env.HEADSCALE_URL || 'http://localhost:8080', process.env.HEADSCALE_API_KEY);
   return new ModelService(db, apps, clusters, proxy, headscale, jwtSecret, endpointRulesFromEnv(process.env));
 }

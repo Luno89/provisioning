@@ -322,22 +322,6 @@ export class InfrastructureService {
     return this.runCommand(path.join(BIN_DIR, 'k3d'), ['cluster', 'delete', name], name, options);
   }
 
-  async getK3dServerIp(clusterName: string): Promise<string> {
-    const { stdout } = await this.shell(
-      `docker inspect -f '{{range.NetworkSettings.Networks}}{{.IPAddress}}{{end}}' k3d-${clusterName}-server-0`
-    );
-    return stdout.trim();
-  }
-
-  async getHostGatewayIp(): Promise<string> {
-    const { stdout } = await this.shell(
-      `docker inspect provisioner-nginx --format '{{with index .NetworkSettings.Networks "bridge"}}{{.Gateway}}{{end}}'`
-    );
-    const gateway = stdout.trim();
-    if (!gateway) throw new Error('provisioner-nginx is not on the docker bridge network, so the host gateway is unknown.');
-    return gateway;
-  }
-
   async checkGpuToolkit(vendor: 'nvidia' | 'amd'): Promise<void> {
     if (vendor === 'nvidia') {
       let nvidiaSmiOk = false;

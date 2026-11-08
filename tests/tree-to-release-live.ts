@@ -8,8 +8,8 @@ import axios from 'axios';
 import { createDatabase } from '../apps/backend/src/platform/lib/db-interface.js';
 import { sessionToken } from '../apps/backend/src/platform/lib/auth.js';
 import { loadKeys } from '../apps/backend/src/platform/lib/keys.js';
+import { devGiteaUrl } from './lib/dev-stack.js';
 import { GiteaService } from '../apps/backend/src/projects/services/GiteaService.js';
-import { InfrastructureService } from '../apps/backend/src/infrastructure/services/InfrastructureService.js';
 import { releasePlace } from '../apps/backend/src/releases/lib/odoo-release.js';
 
 const run = promisify(execFile);
@@ -34,7 +34,7 @@ async function main(): Promise<void> {
   const user = await db.accounts.getUserById(OWNER);
   assert.ok(user, 'no such user');
   const http = axios.create({ baseURL: BASE, proxy: false, timeout: 60_000, validateStatus: () => true, headers: { Cookie: `session=${sessionToken(user, loadKeys(process.env).session, { seconds: 4 * 3600 })}` } });
-  const gitea = new GiteaService(new InfrastructureService(), loadKeys(process.env).data, KUBECONFIG);
+  const gitea = new GiteaService(loadKeys(process.env).data, { url: devGiteaUrl });
   const kubectl = async (namespace: string, ...args: string[]) => (await run(KUBECTL, ['-n', namespace, ...args], { env: { ...process.env, KUBECONFIG } })).stdout.trim();
   const projectOf = async (id: string): Promise<Project> => {
     const found = (await db.projects.getProjects()).find((entry) => entry.id === id) as Project | undefined;

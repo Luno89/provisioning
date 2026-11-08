@@ -22,6 +22,8 @@ export type ClusterContentsAction = 'see-everything';
 
 export type ClusterContents = ClusterContentsRead & ({ reachable: true } | { reachable: false; problem: string });
 
+const firstLine = (err: unknown): string => (err instanceof Error ? err.message : String(err)).split('\n')[0]!.trim();
+
 interface ClusterContentsRead {
   clusterId: string;
   readAt: string;
@@ -31,7 +33,9 @@ interface ClusterContentsRead {
   measured: boolean;
   services?: PlatformService[] | undefined;
   releases?: HelmReleaseJson[] | undefined;
+  releasesProblem?: string | undefined;
   nodes?: ClusterNode[] | undefined;
+  nodesProblem?: string | undefined;
 }
 
 export interface BrokenWorkload extends Workload {
@@ -54,8 +58,8 @@ interface Raw {
   readAt: string;
   pods: PodJson[];
   namespaces: NamespaceJson[];
-  nodes?: ClusterNode[] | undefined;
-  releases: HelmReleaseJson[] | undefined;
+  nodes: ClusterNode[] | { problem: string };
+  releases: HelmReleaseJson[] | { problem: string };
   memory?: UsageSample[] | undefined;
   cpu?: UsageSample[] | undefined;
 }
@@ -129,8 +133,8 @@ export class ClusterContentsService {
     const [pods, namespaces, nodes, releases, reached] = await Promise.all([
       this.deps.kubectl(cluster, ['get', 'pods', '--all-namespaces', '-o', 'json']),
       this.deps.kubectl(cluster, ['get', 'namespaces', '-o', 'json']),
-      this.deps.kubectl(cluster, ['get', 'nodes', '-o', 'json']).catch(ignore('nodes that cannot be listed are left out, as they are for anyone but the owner')),
-      this.deps.helm(cluster, ['list', '-A', '-o', 'json']).then((out) => JSON.parse(out) as HelmReleaseJson[]).catch(ignore('releases helm cannot list are left out, and the workloads still show')),
+      this.deps.kubectl(cluster, ['get', 'nodes', '-o', 'json']).then((out) => nodesFrom(out), (err: unknown) => ({ problem: firstLine(err) })),
+      this.deps.helm(cluster, ['list', '-A', '-o', 'json']).then((out) => JSON.parse(out) as HelmReleaseJson[], (err: unknown) => ({ problem: firstLine(err) })),
       this.deps.monitoring.reach(cluster).catch(() => ({ metrics: undefined })),
     ]);
     const metrics = reached.metrics;
@@ -141,7 +145,7 @@ export class ClusterContentsService {
       readAt: this.now().toISOString(),
       pods: (JSON.parse(pods) as { items?: PodJson[] }).items ?? [],
       namespaces: (JSON.parse(namespaces) as { items?: NamespaceJson[] }).items ?? [],
-      ...(nodes === undefined ? {} : { nodes: nodesFrom(nodes) }),
+      nodes,
       releases,
       ...(memory ? { memory } : {}),
       ...(cpu ? { cpu } : {}),
@@ -178,9 +182,9 @@ export class ClusterContentsService {
       finishedJobs,
       measured,
       ...(ownsCluster ? {
-        services: platformServices(workloads, raw.releases ?? []),
-        ...(raw.releases ? { releases: raw.releases } : {}),
-        ...(raw.nodes ? { nodes: raw.nodes } : {}),
+        services: platformServices(workloads, Array.isArray(raw.releases) ? raw.releases : []),
+        ...(Array.isArray(raw.releases) ? { releases: raw.releases } : { releasesProblem: `Helm could not list the releases: ${raw.releases.problem}` }),
+        ...(Array.isArray(raw.nodes) ? { nodes: raw.nodes } : { nodesProblem: `the nodes could not be listed: ${raw.nodes.problem}` }),
       } : {}),
     };
   }

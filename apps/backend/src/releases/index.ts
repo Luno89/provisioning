@@ -4,7 +4,7 @@ export { projectChoicesPatch } from './lib/client-import.js';
 export type { ClientImport, ImportMode } from './lib/client-import.js';
 export type { ExportResult } from './lib/customizations.js';
 export { infisicalHostFor, infisicalSecretManifest, OPERATOR_NAMESPACE, OPERATOR_RELEASE, OPERATOR_REPO, readerSecretManifest } from './lib/infisical-sync.js';
-export type { SecretTarget } from './lib/infisical-sync.js';
+export type { VaultReach } from './lib/infisical-sync.js';
 export { CHART_FILE, databaseOf, databaseSecretFrom, ODOO_PROJECT_APP, releaseTargetOf, vaultDatabaseSecret } from './lib/odoo-release.js';
 export type { OdooRelease, ReleaseState, ReleaseVault, Slot, SlotState } from './lib/odoo-release.js';
 export { buildArgEntries } from './lib/pipeline-config.js';

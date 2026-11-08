@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import { testMinioEnv } from './files/testing/real-minio.js';
+import { unreachedPlatformServices } from './platform/testing/platform-services.js';
 import express from 'express';
 import axios from 'axios';
 import http from 'http';
@@ -21,7 +22,7 @@ describe('Auth Endpoints & Route Protection Integration', () => {
   beforeAll(async () => {
     axios.defaults.proxy = false;
     process.env.ADMIN_SETUP_CODE = SETUP_CODE;
-    Object.assign(process.env, testMinioEnv());
+    Object.assign(process.env, testMinioEnv(), unreachedPlatformServices());
     home = await mkdtemp(join(tmpdir(), 'koala-routes-'));
     process.chdir(home);
     process.env.HOME = home;

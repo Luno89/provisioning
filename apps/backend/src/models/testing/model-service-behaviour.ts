@@ -248,14 +248,13 @@ export function modelServiceBehaviour(make: () => Promise<Database>): void {
     it('is reached through the cluster\'s proxy at the service it runs as', async () => {
       apps.getAll.mockResolvedValue([deployment()]);
       clusters.getById.mockResolvedValue(cluster);
-      access.kubeconfigOf.calledWith('c1').mockResolvedValue('/kube/c1');
       proxy.serviceUrl.mockResolvedValue('http://127.0.0.1:41000/');
       const models = await build([]);
 
       const resolved = await models.resolveBaseUrl('u1', 'vllm-1');
 
       expect(resolved).toMatchObject({ baseUrl: 'http://127.0.0.1:41000/v1', source: 'request', provider: { id: 'vllm-1' } });
-      expect(proxy.serviceUrl).toHaveBeenCalledWith('c1', 'model:vllm-1', '/kube/c1', { service: 'qwen-vllm', namespace: 'qwen', remotePort: 8000 });
+      expect(proxy.serviceUrl).toHaveBeenCalledWith('c1', 'model:vllm-1', { service: 'qwen-vllm', namespace: 'qwen', remotePort: 8000 });
       expect(clusters.getById).toHaveBeenCalledWith('c1', asPerson('u1'));
     });
 
@@ -263,15 +262,14 @@ export function modelServiceBehaviour(make: () => Promise<Database>): void {
       apps.getAll.mockResolvedValue([deployment()]);
       clusters.getById.mockResolvedValue(undefined);
       await expect((await build([])).resolveBaseUrl('u1', 'vllm-1')).rejects.toThrow('Cluster for model Qwen not found');
-      expect(access.kubeconfigOf).not.toHaveBeenCalled();
+      expect(proxy.serviceUrl).not.toHaveBeenCalled();
     });
 
-    it('fails with why when its cluster cannot be reached, asking the proxy for nothing', async () => {
+    it('fails with why when its cluster cannot be reached', async () => {
       apps.getAll.mockResolvedValue([deployment()]);
       clusters.getById.mockResolvedValue(cluster);
-      access.kubeconfigOf.calledWith('c1').mockRejectedValue(new Error('c1 is stopped until something runs on it'));
+      proxy.serviceUrl.mockRejectedValue(new Error('c1 is stopped until something runs on it'));
       await expect((await build([])).resolveBaseUrl('u1', 'vllm-1')).rejects.toThrow('c1 is stopped until something runs on it');
-      expect(proxy.serviceUrl).not.toHaveBeenCalled();
     });
   });
 

@@ -12,6 +12,7 @@ export const DEV = {
   instanceName: 'dev',
   instanceWebPort: 5173,
   instanceNodePort: 30320,
+  giteaNodePort: 31737,
   meshLoginServer: 'http://127.0.0.1:8080',
   registry: '127.0.0.1:5001',
   registryPush: '127.0.0.1:5000',
@@ -19,6 +20,10 @@ export const DEV = {
   podGateway: '10.42.0.1',
   ownerEmail: 'dev@koala.localhost',
 } as const;
+
+export const devGiteaOnThisComputer = `http://127.0.0.1:${DEV.giteaNodePort}`;
+
+export const devHubOnThePodNetwork = `http://${DEV.podGateway}:${DEV.hubApiPort}`;
 
 export interface DevRootInput {
   mongoUri: string;
@@ -69,6 +74,8 @@ export function devRootPlan(input: DevRootInput): DevRootPlan {
       ROOT_URL: rootUrl,
       ROOT_PUBLIC_KEYS: rootPublicKeys,
       HUB_CREDENTIAL: input.hubCredential,
+      GITEA_URL: devGiteaOnThisComputer,
+      GITEA_REACHES_KOALA_AT: devHubOnThePodNetwork,
       KOALA_TELEMETRY_CLUSTER: 'hub',
     },
   };

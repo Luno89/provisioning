@@ -17,8 +17,8 @@ import { ODOO_TREE_TYPE } from '../apps/backend/src/projects/lib/tree-type-seeds
 import { projectIdForTree } from '../apps/backend/src/projects/lib/tree-home.js';
 import { newReleaseName, releasePlace } from '../apps/backend/src/releases/lib/odoo-release.js';
 import { PROBE, PROBE_FILES } from '../apps/backend/src/eval/level2/mechanics.js';
+import { devGiteaUrl } from './lib/dev-stack.js';
 import { GiteaService } from '../apps/backend/src/projects/services/GiteaService.js';
-import { InfrastructureService } from '../apps/backend/src/infrastructure/services/InfrastructureService.js';
 import type { AgentScript } from '../apps/local-agent/src/acp-script-agent.js';
 import { forgetWhatRunsLeft } from './lib/forget-test-runs.js';
 
@@ -272,7 +272,7 @@ async function main(): Promise<void> {
   assert.equal((await leaves()).find((leaf) => leaf.id === leafId)?.status, 'succeeded');
 
   step(`${PROBE} and its test are on main, and no work branch of the machine's is left`);
-  const gitea = new GiteaService(new InfrastructureService(), loadKeys(process.env).data, KUBECONFIG);
+  const gitea = new GiteaService(loadKeys(process.env).data, { url: devGiteaUrl });
   const account = await db.projects.getGiteaAccount(owner);
   const project = (await db.projects.getProjects()).find((entry) => entry.id === projectId);
   assert.ok(project?.giteaRepo, `the tree has no project ${projectId}`);

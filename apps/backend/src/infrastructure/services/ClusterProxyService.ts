@@ -1,17 +1,10 @@
-import { execFile, spawn, type ChildProcess } from 'child_process';
 import { connect } from 'net';
-import path from 'path';
-import { fileURLToPath } from 'url';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const PROJECT_ROOT = path.resolve(__dirname, '../../../../../');
-const BIN_DIR = path.join(PROJECT_ROOT, 'bin');
-const KUBECTL = path.join(BIN_DIR, 'kubectl');
+import { ignore } from '@koala/engine-core/failures';
+import type { Followed } from '../../platform/index.js';
+import type { ClusterAccess, Target } from './ClusterAccess.js';
 
 interface PortForwardEntry {
-  process: ChildProcess;
-  localPort: number;
+  followed: Promise<Followed>;
   ready: Promise<number>;
 }
 
@@ -71,27 +64,19 @@ const SERVICE_TARGETS: Record<string, ServiceTarget> = {
 export const DIRECT_PROBE_MS = 1000;
 export const DIRECT_RETRY_MS = 60_000;
 
-const running = new Set<ChildProcess>();
-let reaping = false;
-const reapOnExit = () => {
-  if (reaping) return;
-  reaping = true;
-  process.once('exit', () => { for (const child of running) child.kill(); });
+export type ProxyAccess = Pick<ClusterAccess, 'kubectl' | 'follow'>;
+
+export type Reachable = (host: string, port: number, timeoutMs: number) => Promise<boolean>;
+
+const following = new Set<Followed>();
+let stopping = false;
+const stopOnExit = () => {
+  if (stopping) return;
+  stopping = true;
+  process.once('exit', () => { for (const followed of following) followed.stop(); });
 };
 
-export interface DirectAccess {
-  clusterIp(kubeconfigPath: string, namespace: string, service: string): Promise<string | undefined>;
-  reachable(host: string, port: number, timeoutMs: number): Promise<boolean>;
-}
-
-const kubectlClusterIp: DirectAccess['clusterIp'] = (kubeconfigPath, namespace, service) => new Promise((resolve) => {
-  execFile(KUBECTL, ['--kubeconfig', kubeconfigPath, '-n', namespace, 'get', 'svc', service, '-o', 'jsonpath={.spec.clusterIP}'], { timeout: 10_000 }, (err, stdout) => {
-    const ip = String(stdout ?? '').trim();
-    resolve(err || !ip || ip === 'None' ? undefined : ip);
-  });
-});
-
-const tcpReachable: DirectAccess['reachable'] = (host, port, timeoutMs) => new Promise((resolve) => {
+export const tcpReachable: Reachable = (host, port, timeoutMs) => new Promise((resolve) => {
   const socket = connect({ host, port });
   const done = (ok: boolean) => { socket.destroy(); resolve(ok); };
   socket.setTimeout(timeoutMs, () => done(false));
@@ -99,45 +84,49 @@ const tcpReachable: DirectAccess['reachable'] = (host, port, timeoutMs) => new P
   socket.once('error', () => done(false));
 });
 
+const clusterIdOf = (target: Target): string => (typeof target === 'string' ? target : target.clusterId);
+
 export class ClusterProxyService {
   private forwards: Map<string, Map<string, PortForwardEntry>> = new Map();
   private readonly direct = new Map<string, Promise<string | undefined>>();
 
-  constructor(private readonly access: DirectAccess = { clusterIp: kubectlClusterIp, reachable: tcpReachable }) {}
+  constructor(private readonly access: ProxyAccess, private readonly reachable: Reachable = tcpReachable) {}
 
-  async directServiceUrl(clusterId: string, serviceKey: string, kubeconfigPath: string, target: ServiceTarget): Promise<string | undefined> {
-    const key = this.key(clusterId, serviceKey);
+  private async clusterIp(cluster: Target, namespace: string, service: string): Promise<string | undefined> {
+    const ip = (await this.access.kubectl(cluster, ['-n', namespace, 'get', 'svc', service, '-o', 'jsonpath={.spec.clusterIP}'])).trim();
+    return !ip || ip === 'None' ? undefined : ip;
+  }
+
+  async directServiceUrl(cluster: Target, serviceKey: string, target: ServiceTarget): Promise<string | undefined> {
+    const key = this.key(clusterIdOf(cluster), serviceKey);
     const known = this.direct.get(key);
     if (known) return known;
     const found = (async () => {
-      const ip = await this.access.clusterIp(kubeconfigPath, target.namespace, target.service);
-      if (!ip || !(await this.access.reachable(ip, target.remotePort, DIRECT_PROBE_MS))) return undefined;
+      const ip = await this.clusterIp(cluster, target.namespace, target.service);
+      if (!ip || !(await this.reachable(ip, target.remotePort, DIRECT_PROBE_MS))) return undefined;
       return `http://${ip}:${target.remotePort}${target.dashboardPath ?? '/'}`;
     })();
     this.direct.set(key, found);
-    if (!(await found)) setTimeout(() => { if (this.direct.get(key) === found) this.direct.delete(key); }, DIRECT_RETRY_MS).unref();
-    return found;
+    const settled = await found.catch((err: unknown) => { this.direct.delete(key); throw err; });
+    if (!settled) setTimeout(() => { if (this.direct.get(key) === found) this.direct.delete(key); }, DIRECT_RETRY_MS).unref();
+    return settled;
   }
 
-  async serviceUrl(clusterId: string, serviceKey: string, kubeconfigPath: string, explicitTarget?: ServiceTarget): Promise<string> {
+  async serviceUrl(cluster: Target, serviceKey: string, explicitTarget?: ServiceTarget): Promise<string> {
     const target = explicitTarget ?? SERVICE_TARGETS[serviceKey];
     if (!target) throw new Error(`Unknown service: ${serviceKey}`);
-    return (await this.directServiceUrl(clusterId, serviceKey, kubeconfigPath, target))
-      ?? this.ensurePortForward(clusterId, serviceKey, kubeconfigPath, target);
+    return (await this.directServiceUrl(cluster, serviceKey, target))
+      ?? this.ensurePortForward(cluster, serviceKey, target);
   }
 
   private key(clusterId: string, serviceKey: string) {
     return `${clusterId}::${serviceKey}`;
   }
 
-  async ensurePortForward(
-    clusterId: string,
-    serviceKey: string,
-    kubeconfigPath: string,
-    explicitTarget?: ServiceTarget,
-  ): Promise<string> {
+  async ensurePortForward(cluster: Target, serviceKey: string, explicitTarget?: ServiceTarget): Promise<string> {
     const target = explicitTarget ?? SERVICE_TARGETS[serviceKey];
     if (!target) throw new Error(`Unknown service: ${serviceKey}`);
+    const clusterId = clusterIdOf(cluster);
 
     const clusterForwards = this.forwards.get(clusterId) ?? new Map<string, PortForwardEntry>();
     this.forwards.set(clusterId, clusterForwards);
@@ -148,68 +137,59 @@ export class ClusterProxyService {
       return `http://localhost:${port}${target.dashboardPath ?? '/'}`;
     }
 
-    const localPort = 0;
-
-    const child = spawn(
-      KUBECTL,
-      [
-        'port-forward',
-        '--address', '127.0.0.1',
-        '--kubeconfig', kubeconfigPath,
-        '-n', target.namespace,
-        target.resource ?? ('svc/' + target.service),
-        `${localPort}:${target.remotePort}`,
-      ],
-      { stdio: ['ignore', 'pipe', 'pipe'] },
-    );
-    running.add(child);
-    reapOnExit();
-
-    let resolvePort: (port: number) => void;
-    let rejectPort: (err: Error) => void;
+    let resolvePort: (port: number) => void = () => undefined;
+    let rejectPort: (err: Error) => void = () => undefined;
     const ready = new Promise<number>((resolve, reject) => {
       resolvePort = resolve;
       rejectPort = reject;
     });
-
-    let stderrBuf = '';
     let resolved = false;
+    let printed = '';
 
-    child.stderr?.on('data', (data: Buffer) => {
-      stderrBuf += data.toString();
-    });
-
-    child.stdout?.on('data', (data: Buffer) => {
-      const text = data.toString();
-      const match = text.match(/Forwarding from 127\.0\.0\.1:(\d+)/);
-      if (match && !resolved) {
+    const followed = this.access.follow(cluster, [
+      'port-forward',
+      '--address', '127.0.0.1',
+      '-n', target.namespace,
+      target.resource ?? ('svc/' + target.service),
+      `0:${target.remotePort}`,
+    ], (chunk) => {
+      if (resolved) return;
+      printed += chunk;
+      const match = printed.match(/Forwarding from 127\.0\.0\.1:(\d+)/);
+      if (match) {
         resolved = true;
         resolvePort(parseInt(match[1] ?? '0', 10));
       }
     });
 
-    child.on('error', (err) => {
-      if (!resolved) {
-        resolved = true;
-        rejectPort(err);
-      }
-    });
-
-    child.on('close', (code) => {
-      running.delete(child);
-      clusterForwards.delete(serviceKey);
-      if (!resolved) {
-        resolved = true;
-        const detail = stderrBuf.trim() || 'no stderr';
-        rejectPort(new Error(`port-forward exited with code ${code}: ${detail}`));
-      }
-    });
-
-    const entry: PortForwardEntry = { process: child, localPort: 0, ready };
+    const entry: PortForwardEntry = { followed, ready };
     clusterForwards.set(serviceKey, entry);
 
+    followed.then((running) => {
+      following.add(running);
+      stopOnExit();
+      running.ended.then((result) => {
+        following.delete(running);
+        if (clusterForwards.get(serviceKey) === entry) clusterForwards.delete(serviceKey);
+        if (!resolved) {
+          resolved = true;
+          rejectPort(new Error(`port-forward exited with code ${result.code}: ${result.stderr.trim() || 'no stderr'}`));
+        }
+      }, (err: unknown) => {
+        following.delete(running);
+        if (clusterForwards.get(serviceKey) === entry) clusterForwards.delete(serviceKey);
+        if (!resolved) {
+          resolved = true;
+          rejectPort(err instanceof Error ? err : new Error(String(err)));
+        }
+      });
+    }, (err: unknown) => {
+      if (clusterForwards.get(serviceKey) === entry) clusterForwards.delete(serviceKey);
+      resolved = true;
+      rejectPort(err instanceof Error ? err : new Error(String(err)));
+    });
+
     const port = await ready;
-    entry.localPort = port;
     return `http://localhost:${port}${target.dashboardPath ?? '/'}`;
   }
 
@@ -266,7 +246,7 @@ export class ClusterProxyService {
     const clusterForwards = this.forwards.get(clusterId);
     if (!clusterForwards) return;
     for (const [serviceKey, entry] of clusterForwards) {
-      entry.process.kill();
+      void entry.followed.then((running) => running.stop(), ignore('a port-forward that never started has no process to stop'));
       clusterForwards.delete(serviceKey);
     }
     this.forwards.delete(clusterId);
@@ -279,9 +259,12 @@ export class ClusterProxyService {
   }
 }
 
-let shared: ClusterProxyService | undefined;
+const shared = new WeakMap<ProxyAccess, ClusterProxyService>();
 
-export const sharedClusterProxy = (): ClusterProxyService => {
-  shared ??= new ClusterProxyService();
-  return shared;
+export const sharedClusterProxy = (access: ProxyAccess): ClusterProxyService => {
+  const known = shared.get(access);
+  if (known) return known;
+  const made = new ClusterProxyService(access);
+  shared.set(access, made);
+  return made;
 };

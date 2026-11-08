@@ -9,7 +9,6 @@ export interface GiteaStandIn {
   close(): Promise<void>;
 }
 
-const unused = (): never => { throw new Error('not used by this test'); };
 
 export async function giteaStandIn(repo: { owner: string; name: string; commit: string; files: Record<string, string> }): Promise<GiteaStandIn> {
   const asked: string[] = [];
@@ -35,9 +34,8 @@ export async function giteaStandIn(repo: { owner: string; name: string; commit: 
   return {
     asked,
     gitea() {
-      const service = new GiteaService({ runKubectl: unused, getK3dServerIp: unused }, 'master-key' as never, '/tmp/kubeconfig');
-      const internals = service as unknown as { resolveBaseUrl(): Promise<string>; getToken(): Promise<string> };
-      vi.spyOn(internals, 'resolveBaseUrl').mockResolvedValue(baseUrl);
+      const service = new GiteaService('master-key' as never, { url: baseUrl });
+      const internals = service as unknown as { getToken(): Promise<string> };
       vi.spyOn(internals, 'getToken').mockResolvedValue('bot-token');
       return service;
     },

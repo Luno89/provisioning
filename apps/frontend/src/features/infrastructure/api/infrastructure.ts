@@ -91,7 +91,9 @@ export interface ClusterContents {
   measured: boolean
   services?: PlatformService[]
   releases?: HelmRelease[]
+  releasesProblem?: string
   nodes?: ClusterNode[]
+  nodesProblem?: string
 }
 
 export interface WorkFailure {

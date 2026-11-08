@@ -65,6 +65,8 @@ export type { OurOrigins } from './lib/same-site.js';
 export { checkedByOsv, inventoryComponents, osvVersion } from './lib/sbom.js';
 export type { ComponentKind, InventoryComponent } from './lib/sbom.js';
 export { sameSeededRow } from './lib/seed-diff.js';
+export { missingSettings, notSetProblem, settingHostPort, settingUrl } from './lib/setting-urls.js';
+export type { Settings } from './lib/setting-urls.js';
 export { stopIfRunning } from './lib/stop-workflow.js';
 export { carryingTrace, telemetrySettings } from './lib/telemetry.js';
 export { TEMPORAL_JWKS_PATH, temporalApiKey, temporalJwks, temporalNamespaceFrom } from './lib/temporal-auth.js';

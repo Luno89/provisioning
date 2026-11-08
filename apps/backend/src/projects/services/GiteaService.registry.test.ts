@@ -7,19 +7,15 @@ const KEY = 'test-master-key-for-unit-tests-only';
 const BASE = 'http://10.0.0.130:31737';
 
 interface GiteaInternals {
-  resolveBaseUrl(): Promise<string>;
   readAdminPassword(): Promise<string>;
   apiFetch(path: string, init?: RequestInit): Promise<Response>;
   mintUserToken(username: string, password: string, namePrefix: string, scopes: string[]): Promise<{ name: string; token: string }>;
 }
 
-const unused = (): never => { throw new Error('not used by this test'); };
-
 const internalsOf = (gitea: GiteaService): GiteaInternals => gitea as unknown as GiteaInternals;
 
 function service() {
-  const gitea = new GiteaService({ runKubectl: unused, getK3dServerIp: unused }, KEY, '/tmp/kubeconfig');
-  vi.spyOn(internalsOf(gitea), 'resolveBaseUrl').mockResolvedValue(BASE);
+  const gitea = new GiteaService(KEY, { url: BASE });
   vi.spyOn(internalsOf(gitea), 'readAdminPassword').mockResolvedValue('admin-pass');
   return gitea;
 }

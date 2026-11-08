@@ -3,8 +3,8 @@ import { hostedMcpUrl } from './mcp-hosted-url.js';
 
 describe('the address of a hosted MCP server', () => {
   const resolve = hostedMcpUrl({
-    deployments: async () => [{ id: 'd1', name: 'tools', namespace: 'tools-1a2b3c', ownerId: 'u1', status: 'running' }],
-    probeUrl: async (namespace) => `http://tools.${namespace}.svc:8080/mcp`,
+    deployments: async () => [{ id: 'd1', name: 'tools', namespace: 'tools-1a2b3c', ownerId: 'u1', status: 'running', clusterId: 'c1' }],
+    probeUrl: async (deployment) => `http://tools.${deployment.namespace ?? ''}.svc:8080/mcp`,
     urlProblem: async (url) => (url.includes('169.254') ? '169.254.169.254 is a private, loopback, mesh or reserved address' : undefined),
   });
 

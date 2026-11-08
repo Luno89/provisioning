@@ -31,39 +31,6 @@ export class ImageBuildError extends Error {
   }
 }
 
-export const REGISTRY_SERVICE = { namespace: 'gitea', service: 'gitea-http' };
-
-export function pickAddress(addresses: string): string | undefined {
-  const all = addresses.trim().split(/\s+/).filter(Boolean);
-  return all.find((address) => !address.includes(':')) ?? all[0];
-}
-
-export async function discoverRegistry(run: KubeRunner): Promise<string> {
-  const port = await run([
-    'get', 'svc', REGISTRY_SERVICE.service, '-n', REGISTRY_SERVICE.namespace,
-    '-o', 'jsonpath={.spec.ports[0].nodePort}',
-  ]);
-
-  if (port.exitCode !== 0 || !port.stdout.trim()) {
-    throw new ImageBuildError(
-      `Could not find the image registry (${REGISTRY_SERVICE.service} in ${REGISTRY_SERVICE.namespace}). `
-      + 'Workspace images cannot be built until it is running.',
-    );
-  }
-
-  const address = await run([
-    'get', 'nodes', '-o',
-    'jsonpath={.items[0].status.addresses[?(@.type=="InternalIP")].address}',
-  ]);
-
-  const reachable = pickAddress(address.stdout);
-  if (address.exitCode !== 0 || !reachable) {
-    throw new ImageBuildError('Could not find the node address the registry is reachable at.');
-  }
-
-  return `${reachable}:${port.stdout.trim()}`;
-}
-
 export interface RegistryAccount {
   owner: string;
   username: string;
@@ -72,8 +39,7 @@ export interface RegistryAccount {
 
 export interface ImageBuilderOptions {
   run: KubeRunner;
-  registry?: string | undefined;
-  pushRegistry?: string | undefined;
+  registry: RegistryHosts | { none: string };
   namespace?: string | undefined;
   pollMs?: number | undefined;
   published?: ((reference: string) => Promise<boolean>) | undefined;
@@ -217,16 +183,12 @@ export function createImageBuilder(options: ImageBuilderOptions): ImageBuilder {
   const pollMs = options.pollMs ?? BUILD_POLL_MS;
   const { run } = options;
 
-  let found: string | undefined = options.registry;
-  const registry = async (): Promise<string> => {
-    found ??= await discoverRegistry(run);
-    return found;
+  const hosts = async (): Promise<RegistryHosts> => {
+    if ('none' in options.registry) throw new ImageBuildError(options.registry.none);
+    return options.registry;
   };
 
-  const hosts = async (): Promise<RegistryHosts> => {
-    const pull = await registry();
-    return { pull, push: options.pushRegistry ?? pull };
-  };
+  const registry = async (): Promise<string> => (await hosts()).pull;
 
   const account = async (): Promise<RegistryAccount | undefined> => options.account?.();
 

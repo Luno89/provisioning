@@ -112,6 +112,7 @@ function PlatformServices({ contents }: { contents: ClusterContents }) {
 }
 
 function Nodes({ contents }: { contents: ClusterContents }) {
+  if (contents.nodesProblem) return <Section title="Nodes"><p className="text-[12px] text-amber-300" data-testid="nodes-problem">{contents.nodesProblem}</p></Section>
   if (!contents.nodes?.length) return null
   return (
     <Section title="Nodes">
@@ -131,6 +132,7 @@ function Nodes({ contents }: { contents: ClusterContents }) {
 
 function Releases({ contents }: { contents: ClusterContents }) {
   const [open, setOpen] = useState(false)
+  if (contents.releasesProblem) return <Section title="Helm releases"><p className="text-[12px] text-amber-300" data-testid="releases-problem">{contents.releasesProblem}</p></Section>
   if (!contents.releases?.length) return null
   const failing = contents.releases.filter((release) => release.status !== 'deployed')
   return (

@@ -4,12 +4,12 @@ import path from 'node:path';
 import { afterAll, beforeAll, describe, it, expect } from 'vitest';
 import axios from 'axios';
 import { mock } from 'vitest-mock-extended';
+import type { InfrastructureService } from '../../infrastructure/index.js';
 import { mountRouter, TEST_USER, type Harness } from '../../platform/routes/test-harness.js';
 import { authorize, type Principal } from '../../platform/lib/permissions.js';
 import type { Database } from '../../platform/lib/db-interface.js';
 import { testDatabase } from '../../platform/lib/test-database.js';
 import type { ClusterMetadata, PipelineRunMetadata, ProjectMetadata } from '../../platform/lib/types.js';
-import type { InfrastructureService } from '../../infrastructure/index.js';
 import { ClusterService } from '../../infrastructure/services/ClusterService.js';
 import { GiteaService } from '../../projects/services/GiteaService.js';
 import { ProjectRepoService } from '../../projects/services/ProjectRepoService.js';
@@ -31,7 +31,6 @@ const NOW = '2026-10-10T09:00:00.000Z';
 let gitea: RealGitea;
 let giteaService: GiteaService;
 let dataDir: string;
-let savedUrl: string | undefined;
 let account: GiteaAccount;
 let owner: string;
 let before: string;
@@ -48,13 +47,9 @@ const headOf = async (repo: string): Promise<string> => ((await giteaApi(`/repos
 beforeAll(async () => {
   temporal = await releaseRunsOnTemporal();
   gitea = await startRealGitea();
-  savedUrl = process.env.GITEA_URL;
-  process.env.GITEA_URL = gitea.url;
   dataDir = await mkdtemp(path.join(tmpdir(), 'releases-route-gitea-'));
   await writeFile(path.join(dataDir, '.gitea-admin-password'), gitea.adminPassword);
-  const giteaInfra = mock<Pick<InfrastructureService, 'runKubectl' | 'getK3dServerIp'>>();
-  giteaInfra.runKubectl.mockRejectedValue(new Error('no cluster here'));
-  giteaService = new GiteaService(giteaInfra, KEY, '/nowhere', { dataDir });
+  giteaService = new GiteaService(KEY, { url: gitea.url }, { dataDir });
   const setUp = await testDatabase();
   owner = (await new ProjectRepoService(setUp, giteaService, KEY).ensureAccountFor(TEST_USER.id)).username;
   account = (await setUp.projects.getGiteaAccount(TEST_USER.id))!;
@@ -66,7 +61,6 @@ beforeAll(async () => {
 }, 0);
 
 afterAll(async () => {
-  if (savedUrl === undefined) delete process.env.GITEA_URL; else process.env.GITEA_URL = savedUrl;
   await gitea?.close();
   if (dataDir) await rm(dataDir, { recursive: true, force: true });
   await temporal?.close();

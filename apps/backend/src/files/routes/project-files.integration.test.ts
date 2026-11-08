@@ -3,13 +3,11 @@ import { describe, it, expect, afterEach, afterAll, beforeAll, vi } from 'vitest
 import axios from 'axios';
 import crypto from 'crypto';
 import type { Socket } from 'socket.io';
-import { mock } from 'vitest-mock-extended';
 import { projectFilesRouter } from './project-files.js';
 import { mountRouter, type Harness, TEST_USER } from '../../platform/routes/test-harness.js';
 import { allowed, type Principal } from '../../platform/lib/permissions.js';
 import { GiteaService } from '../../projects/services/GiteaService.js';
 import { startRealGitea, type RealGitea } from '../../projects/testing/real-gitea.js';
-import type { InfrastructureService } from '../../infrastructure/index.js';
 import { RepositoryDropService } from '../services/RepositoryDropService.js';
 import type { StoryDropService } from '../services/StoryDropService.js';
 import { DROP_TYPE, dropBody } from '../lib/drops.js';
@@ -36,26 +34,20 @@ let realGitea: RealGitea;
 let gitea: GiteaService;
 let scratch: string;
 let token: string;
-let savedGiteaUrl: string | undefined;
 let repos = 0;
 
 beforeAll(async () => {
   realGitea = await startRealGitea();
-  savedGiteaUrl = process.env.GITEA_URL;
-  process.env.GITEA_URL = realGitea.url;
   scratch = await mkdtemp(path.join(tmpdir(), 'project-files-'));
   const dataDir = path.join(scratch, 'data');
   await mkdir(dataDir);
   await writeFile(path.join(dataDir, '.gitea-admin-password'), realGitea.adminPassword);
-  const infra = mock<Pick<InfrastructureService, 'runKubectl' | 'getK3dServerIp'>>();
-  infra.runKubectl.mockRejectedValue(new Error('no cluster here'));
-  gitea = new GiteaService(infra, 'project-files-test-key' as never, '/nowhere', { dataDir });
+  gitea = new GiteaService('project-files-test-key' as never, { url: realGitea.url }, { dataDir });
   const { password } = await gitea.createUserAccount(OWNER, 'acme@koala.local');
   token = (await gitea.createPushToken(OWNER, password)).token;
 }, 0);
 
 afterAll(async () => {
-  if (savedGiteaUrl === undefined) delete process.env.GITEA_URL; else process.env.GITEA_URL = savedGiteaUrl;
   await realGitea.close();
   await rm(scratch, { recursive: true, force: true });
 });

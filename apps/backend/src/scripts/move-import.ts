@@ -9,7 +9,7 @@ import {
 import { ensureClusterMonitoring } from '../activities/cluster-monitoring.js';
 import { koalaClusterMonitoring } from '../monitoring/index.js';
 import { clusterAccessFrom, InfrastructureService, type ClusterAccess } from '../infrastructure/index.js';
-import { GiteaService } from '../projects/index.js';
+import { GiteaService, giteaSettingsFrom } from '../projects/index.js';
 import { loadKeys, mongoClientFor, mongoTarget, roleFromEnv } from '../platform/index.js';
 import { ignore } from '@koala/engine-core/failures';
 import { waitingOn } from '../activities/failure-reasons.js';
@@ -182,7 +182,7 @@ async function restoreApps(): Promise<void> {
   await report('installing', 'Getting monitoring ready for your apps');
   await ensureClusterMonitoring({ access: cluster, infra: new InfrastructureService() }, koalaClusterMonitoring(process.env, cluster.own(), true));
   const manifest = JSON.parse(await text(await part('apps'))) as AppsManifest;
-  const pullHost = await new GiteaService(new InfrastructureService(), loadKeys(process.env).data, process.env.KUBECONFIG_PATH ?? '/tmp/kubeconfig-provisioning-lunorica').getRegistryHost();
+  const pullHost = await new GiteaService(loadKeys(process.env).data, giteaSettingsFrom(process.env)).getRegistryHost();
   for (const entry of manifest.namespaces) {
     console.log(`▶ ${entry.namespace}: ${entry.objects.length} objects, ${entry.volumes.length} volumes`);
     await applyJson([{ apiVersion: 'v1', kind: 'Namespace', metadata: { name: entry.namespace, labels: entry.labels } }], false);

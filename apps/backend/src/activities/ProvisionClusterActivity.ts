@@ -8,7 +8,6 @@ import { ProvisionRemoteHostActivity } from './ProvisionRemoteHostActivity.js';
 import { ProvisionHetznerVmActivity } from './ProvisionHetznerVmActivity.js';
 import { ProvisionDigitalOceanVmActivity } from './ProvisionDigitalOceanVmActivity.js';
 import { JoinMeshActivity } from './JoinMeshActivity.js';
-import { infisicalHostFor } from '../releases/index.js';
 import { ensureInfisicalOperator } from '../projects/index.js';
 import { CLI_CEILING, writePrivate } from '../platform/index.js';
 import { ignore } from '@koala/engine-core/failures';
@@ -266,7 +265,7 @@ export async function ProvisionClusterActivity(
   await infra.deploy(physicalName, { logFile, env: clusterEnv });
   await infra.deploy(`${physicalName}-observability`, { logFile, env: clusterEnv });
 
-  if (!('problem' in infisicalHostFor({ clusterName: args.name, provider: args.provider, isMock }))) {
+  if (args.provider === 'k3d' || isMock) {
     await fs.appendFile(logFile, '[secrets] installing the Infisical secrets operator\n').catch(ignore('the log only shows progress, and the work goes on without it'));
     const operator = await ensureInfisicalOperator(infra, kubeconfigPath);
     await fs.appendFile(logFile, `[secrets] Infisical secrets operator ${operator}\n`).catch(ignore('the log only shows progress, and the work goes on without it'));

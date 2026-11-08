@@ -2,9 +2,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { MongoClient } from 'mongodb';
-import { mock } from 'vitest-mock-extended';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import type { InfrastructureService } from '../infrastructure/index.js';
 import { createDatabase } from '../platform/lib/db-interface.js';
 import { call, startThreeRoles, until, type Person, type ThreeRoles } from '../platform/testing/three-roles.js';
 import { GiteaService } from '../projects/services/GiteaService.js';
@@ -21,7 +19,6 @@ const GROUP = `sl${STAMP}`.slice(0, 20);
 let roles: ThreeRoles;
 let gitea: GiteaService;
 let dataDir: string;
-let savedGiteaUrl: string | undefined;
 let owner: string;
 let ownerHub: string;
 let project: Project;
@@ -63,17 +60,12 @@ beforeAll(async () => {
   roles = await startThreeRoles('sharing', { gitea: true, ownerInvited: true, rootWorkers: ['host'] });
   owner = await roles.ownerOnInstance();
   ownerHub = await roles.ownerOnHub();
-  savedGiteaUrl = process.env.GITEA_URL;
-  process.env.GITEA_URL = roles.gitea!.url;
   dataDir = await mkdtemp(path.join(tmpdir(), 'sharing-gitea-'));
   await writeFile(path.join(dataDir, '.gitea-admin-password'), roles.gitea!.adminPassword);
-  const infra = mock<Pick<InfrastructureService, 'runKubectl' | 'getK3dServerIp'>>();
-  infra.runKubectl.mockRejectedValue(new Error('the integration tier reaches no cluster'));
-  gitea = new GiteaService(infra, 'sharing-test-key' as never, '/nowhere', { dataDir });
+  gitea = new GiteaService('sharing-test-key' as never, { url: roles.gitea!.url }, { dataDir });
 }, 300_000);
 
 afterAll(async () => {
-  if (savedGiteaUrl === undefined) delete process.env.GITEA_URL; else process.env.GITEA_URL = savedGiteaUrl;
   await roles?.close();
   if (dataDir) await rm(dataDir, { recursive: true, force: true });
 }, 120_000);

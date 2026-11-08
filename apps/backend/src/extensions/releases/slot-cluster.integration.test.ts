@@ -67,7 +67,7 @@ describe('a release slot on a real cluster, reading its build\'s files through G
     const put = { ...target, namespace: 'shop-2', release: 'shop-2' };
     await cluster.put(put, { apiVersion: 'v1', kind: 'ConfigMap', metadata: { name: 'step', namespace: 'elsewhere' }, data: { a: 'b' } });
     expect(await access.kubectl(put.clusterId, ['get', 'configmap', 'step', '-n', 'shop-2', '-o', 'jsonpath={.data.a}'])).toBe('b');
-    await cluster.vault(put, { projectId: 'p1', secret: 'shop-2-vault', keys: ['POSTGRES_PASSWORD'] } as never, { clusterName: 'slots', provider: 'machine', isMock: false });
+    await cluster.vault(put, { projectId: 'p1', secret: 'shop-2-vault', keys: ['POSTGRES_PASSWORD'] } as never);
     await cluster.remove(put, 'configmap', 'step', true);
     expect(await access.kubectl(put.clusterId, ['get', 'configmap', '-n', 'shop-2', '--field-selector', 'metadata.name=step', '-o', 'name'])).toBe('');
   });

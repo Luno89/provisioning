@@ -14,14 +14,6 @@ const textOf = (value: unknown): string => (typeof value === 'string' ? value : 
 
 const refOf = (value: unknown): string => textOf(recordOf(value)?.ref);
 
-export function nodePortOf(service: unknown, portName: string): number | undefined {
-  const ports = recordOf(recordOf(service)?.spec)?.ports;
-  if (!Array.isArray(ports)) return undefined;
-  const listed = ports.map(recordOf).filter((port) => port !== undefined);
-  const port = listed.find((entry) => entry.name === portName)?.nodePort ?? listed[0]?.nodePort;
-  return typeof port === 'number' && port > 0 ? port : undefined;
-}
-
 export function pullsFrom(body: unknown): GiteaPull[] {
   if (!Array.isArray(body)) throw new Error('Gitea answered a list of pull requests with something that is not a list');
   return body.flatMap((entry) => {

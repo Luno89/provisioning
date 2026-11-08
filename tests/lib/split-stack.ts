@@ -9,7 +9,8 @@ import { createDatabase, roleFromEnv } from '../../apps/backend/src/platform/ind
 import { devSplitPlan, hashCredential, instanceIdFor, publicKeyPem, type SplitPlace } from '../../apps/backend/src/instances/index.js';
 import { buildAppImage } from './gate-runs.js';
 import { fetchSide, handOff, sessionFrom, signedInLanding } from './handoff.js';
-import { devDataMounts, devFile, devTemporalCa } from './dev-temporal.js';
+import { devFile, devTemporalCa } from './dev-temporal.js';
+import { unreachedPlatformServices } from '../../apps/backend/src/platform/testing/platform-services.js';
 import { firstAdmin, withDatabase, type FirstAdmin } from './suite-root.js';
 import { portToHandOn } from '@koala/engine-core/testing/ports';
 
@@ -139,22 +140,7 @@ export const minioReady = async (port: number): Promise<true | undefined> => {
   return response?.status === 200 ? true : undefined;
 };
 
-const DEV_KUBECONFIG = '/tmp/kubeconfig-provisioning-lunorica';
-const GITEA_SECRETS = ['.gitea-admin-password'];
-
-function devGitea(): { url: string; host: string; mounts: string[] } {
-  const kubectl = (args: string[]) => execFileSync(devFile('bin/kubectl'), ['--kubeconfig', DEV_KUBECONFIG, ...args], { encoding: 'utf8' }).trim();
-  const port = kubectl(['-n', 'gitea', 'get', 'svc', 'gitea-http', '-o', 'jsonpath={.spec.ports[0].nodePort}']);
-  const host = kubectl(['get', 'nodes', '-o', 'jsonpath={.items[0].status.addresses[?(@.type=="InternalIP")].address}']).split(/\s+/)[0];
-  if (!port || !host) throw new Error('the dev stack\'s Gitea has no address this suite can find');
-  return {
-    url: `http://${host}:${port}`,
-    host,
-    mounts: devDataMounts(GITEA_SECRETS),
-  };
-}
-
-export async function startSplitStack(options: { engine?: boolean; hubGitea?: boolean; rootEnv?: (rootUrl: string) => Promise<Record<string, string>> } = {}): Promise<SplitStack> {
+export async function startSplitStack(options: { engine?: boolean; rootEnv?: (rootUrl: string) => Promise<Record<string, string>> } = {}): Promise<SplitStack> {
   dotenv.config({ path: devFile('apps/backend/.env'), quiet: true });
   const names = splitNames(Date.now().toString(36));
   const ports: SplitPorts = {
@@ -241,10 +227,9 @@ export async function startSplitStack(options: { engine?: boolean; hubGitea?: bo
     await rootDb.instances.saveInstance(plan.instance);
     await rootDb.close?.();
 
-    backend('instance', { ...plan.instanceEnv, ...shared(ports.instanceGateway), ...files.env });
-    if (options.engine) backend('instance-engine', { ...plan.instanceEnv, ...shared(ports.instanceGateway), ...files.env, HEALTH_PORT: '0', TEMPORAL_ENGINE_METRICS_PORT: String(ports.engineMetrics) }, 'worker-engine');
-    const gitea = options.hubGitea ? devGitea() : undefined;
-    backend('hub', { ...plan.hubEnv, ...shared(ports.hubGateway), ...(gitea ? { GITEA_URL: gitea.url, GITEA_REACHES_KOALA_AT: `http://${gitea.host}:${ports.hub}` } : {}) }, 'backend', gitea?.mounts ?? []);
+    backend('instance', { ...plan.instanceEnv, ...shared(ports.instanceGateway), ...files.env, ...unreachedPlatformServices(place.instanceUrl) });
+    if (options.engine) backend('instance-engine', { ...plan.instanceEnv, ...shared(ports.instanceGateway), ...files.env, ...unreachedPlatformServices(place.instanceUrl), HEALTH_PORT: '0', TEMPORAL_ENGINE_METRICS_PORT: String(ports.engineMetrics) }, 'worker-engine');
+    backend('hub', { ...plan.hubEnv, ...shared(ports.hubGateway), ...unreachedPlatformServices(place.hubUrl) });
     await until('the instance answering', () => answers(`${place.instanceUrl}/api/auth/sign-in`), () => logs('instance'));
     await until('the hub answering', () => answers(`${place.hubUrl}/api/auth/sign-in`), () => logs('hub'));
     const asOwner = fetchSide(place.rootUrl, owner.cookie);

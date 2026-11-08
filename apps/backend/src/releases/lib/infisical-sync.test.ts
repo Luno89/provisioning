@@ -1,21 +1,19 @@
 import { containing } from '../../platform/lib/test-matchers.js';
 import { describe, it, expect } from 'vitest';
-import { INFISICAL_IN_CLUSTER, infisicalHostFor, infisicalSecretManifest, readerSecretManifest } from './infisical-sync.js';
+import { infisicalHostFor, infisicalSecretManifest, readerSecretManifest } from './infisical-sync.js';
 
 describe('where a cluster reaches the vault', () => {
-  it('uses the in-cluster service on the management cluster', () => {
-    expect(infisicalHostFor({ clusterName: 'provisioning-lunorica', provider: 'k3d', isMock: false })).toEqual({ hostAPI: INFISICAL_IN_CLUSTER });
+  const VAULT = { url: 'http://infisical-infisical-standalone-infisical.infisical.svc.cluster.local:8080' };
+
+  it('is the address the vault setting names, on Koala\'s own cluster', () => {
+    expect(infisicalHostFor({ clusterId: 'machine-dev1', kind: 'koala' }, VAULT)).toEqual({ hostAPI: VAULT.url });
+    expect(infisicalHostFor({ clusterId: 'provisioning-lunorica', kind: 'koala' }, { url: 'http://vault.test:8080' })).toEqual({ hostAPI: 'http://vault.test:8080' });
   });
 
-  it('uses the host NodePort from a k3d or mock cluster', () => {
-    expect(infisicalHostFor({ clusterName: 'dev-1', provider: 'k3d', isMock: false })).toEqual({ hostAPI: 'http://host.k3d.internal:31738' });
-    expect(infisicalHostFor({ clusterName: 'dev-2', provider: 'aws', isMock: true })).toEqual({ hostAPI: 'http://host.k3d.internal:31738' });
-  });
-
-  it('says so for a cluster that cannot reach it', () => {
-    const remote = infisicalHostFor({ clusterName: 'gpu-box', provider: 'machine', isMock: false });
-    expect(remote).toEqual({ problem: containing('gpu-box is a machine outside this node') });
-    expect(infisicalHostFor({ clusterName: 'eks', provider: 'aws', isMock: false })).toEqual({ problem: containing('a cloud cluster') });
+  it('says so for a cluster that cannot reach it, whatever its name', () => {
+    expect(infisicalHostFor({ clusterId: 'machine-gpu-box', kind: 'machine' }, VAULT)).toEqual({ problem: 'machine-gpu-box is a machine outside Koala\'s own cluster, and the vault in Koala\'s own cluster is not reachable from it, so its secrets cannot be delivered' });
+    expect(infisicalHostFor({ clusterId: 'provisioning-lunorica', kind: 'machine' }, VAULT)).toEqual({ problem: containing('provisioning-lunorica is a machine outside Koala\'s own cluster') });
+    expect(infisicalHostFor({ clusterId: 'root', kind: 'root' }, VAULT)).toEqual({ problem: containing('root is root\'s own cluster, which keeps no project\'s secrets') });
   });
 });
 

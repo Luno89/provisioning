@@ -1,5 +1,4 @@
 import type { ImportMode } from './client-import.js';
-import type { SecretTarget } from './infisical-sync.js';
 import type { OdooRelease, ReleaseState, ReleaseVault, Slot } from './odoo-release.js';
 import type { ReleaseE2E } from './release-e2e.js';
 import type { ReleaseChanges } from './release-compare.js';
@@ -40,7 +39,6 @@ export interface ReleaseRunInput {
   target: ReleaseTarget;
   host: string;
   previewHost: string;
-  secretTarget: SecretTarget;
   build: ReleaseBuildInput;
 }
 

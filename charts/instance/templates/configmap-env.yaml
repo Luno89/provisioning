@@ -58,7 +58,6 @@ data:
   SELF_UPGRADE_CRONJOB: {{ include "instance.name" . }}-self-upgrade
   INSTANCE_NAMESPACE: {{ .Release.Namespace | quote }}
   {{- end }}
-  KUBECONFIG_PATH: /tmp/kubeconfig-provisioning-lunorica
   TERRAFORM_STATE: kubernetes
 ---
 apiVersion: v1

@@ -6,7 +6,7 @@ import { sharedClusterProxy, clusterAccessFrom } from '../../infrastructure/inde
 export type { CorpusEndpoints };
 
 export const webToolsDeps = (db: Pick<Database, 'infrastructure'>): WebToolsDeps => ({
-  ...webToolsDepsFrom(db.infrastructure, clusterAccessFrom(process.env, { role: roleFromEnv(process.env).role, clusters: db.infrastructure }), sharedClusterProxy()),
+  ...webToolsDepsFrom(db.infrastructure, sharedClusterProxy(clusterAccessFrom(process.env, { role: roleFromEnv(process.env).role, clusters: db.infrastructure }))),
   env: process.env,
   pageFetch: publicFetch,
   pageCheck: publicAddressProblem,

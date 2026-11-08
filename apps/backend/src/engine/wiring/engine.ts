@@ -17,13 +17,14 @@ import {
 } from '../../checks/index.js';
 import { providerServing, type ModelService, type TreeModelsService } from '../../models/index.js';
 import { restoringApp, type wireReleases } from '../../releases/index.js';
+import { registrySettingsFrom } from '../../instances/index.js';
 import { hostedMcpUrl } from '../lib/mcp-hosted-url.js';
-import { resolveMcpProbeUrl } from '../lib/mcp-probe-url.js';
+import { mcpReachFrom } from '../services/McpReach.js';
 import {
   treeTypeChoices, treeLanguageFrom, treeExtrasFrom, dependencyNamespaceFrom, ownNamespacesFrom, TreeTypeDescriptions,
   type GiteaService, type ProjectRepoService, treeTypesRouter,
 } from '../../projects/index.js';
-import { type RunningRecords, type WorkFailureService, type TemporalBridge, bindingTypesRouter } from '../../infrastructure/index.js';
+import { type ClusterAccess, type RunningRecords, type WorkFailureService, type TemporalBridge, bindingTypesRouter } from '../../infrastructure/index.js';
 import { extensionServiceFor } from '../services/ExtensionService.js';
 import { EngineToolService } from '../services/EngineToolService.js';
 import { McpServerService } from '../services/McpServerService.js';
@@ -276,6 +277,7 @@ export interface EngineWiringDeps {
   models: ModelService;
   gitea: GiteaService;
   koalasCluster: KoalasCluster;
+  access: Pick<ClusterAccess, 'reach' | 'kubectl'>;
   artifacts?: ArtifactService | undefined;
   files?: FileService | undefined;
   projectRepos: ProjectRepoService;
@@ -334,7 +336,7 @@ export async function wireEngine(deps: EngineWiringDeps): Promise<EngineWiring> 
       list: (ownerId) => db.engine.getMcpServers(ownerId),
       get: async (ownerId, id) => (await db.engine.getMcpServers(ownerId)).find((server) => server.id === id),
       save: (server) => db.engine.saveMcpServer(server),
-      hostedUrl: hostedMcpUrl({ deployments: () => db.infrastructure.getDeployments(), probeUrl: resolveMcpProbeUrl, urlProblem: publicAddressProblem }),
+      hostedUrl: hostedMcpUrl({ deployments: () => db.infrastructure.getDeployments(), probeUrl: mcpReachFrom({ access: deps.access, clusterById: async (id) => (await db.infrastructure.getClusters()).find((cluster) => cluster.id === id) }).url, urlProblem: publicAddressProblem }),
     },
     publishedWorkspaces: { get: (ownerId: string, treeId: string) => db.engine.getPublishedWorkspace(ownerId, treeId), save: (workspace) => db.engine.savePublishedWorkspace(workspace) },
     readRepoFile: async (ownerId: string, repo: string, path: string, ref: string) => (await projectRepos.readDocument(ownerId, repo, path, ref))?.content,
@@ -357,8 +359,7 @@ export async function wireEngine(deps: EngineWiringDeps): Promise<EngineWiring> 
     owners: async () => (await db.accounts.getUsers()).map((user) => user.id),
     ...(evalWeb ? { web: evalWeb } : {}),
     cluster: deps.koalasCluster,
-    registryHost: env.KOALA_REGISTRY,
-    pushRegistryHost: env.KOALA_REGISTRY_PUSH,
+    registry: servesTenants(deps.role) ? registrySettingsFrom(env) : { none: `${deps.role.role} builds no workspace images, so it pushes to no registry` },
     registryAccount: async () => ({
       owner: gitea.adminUsername,
       ...(await gitea.getAdminCredentials()),

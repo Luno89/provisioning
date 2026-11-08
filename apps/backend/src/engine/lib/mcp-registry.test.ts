@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  looksLikeMcp, resolveForPersona, mcpGaps, describeServers, mcpUrlFor, mcpProbeUrlFor, type McpServer,
+  looksLikeMcp, resolveForPersona, mcpGaps, describeServers, mcpUrlFor, mcpProbeUrlOf, type McpServer,
 } from './mcp-registry.js';
 import type { DeploymentMetadata } from '../../platform/lib/types.js';
 
@@ -30,9 +30,25 @@ describe('what counts as a callable server', () => {
       .toBe('http://gitapp.koala-request-42784df9.svc.cluster.local:8080/mcp');
   });
 
-  it('gives the backend a different address from the sandbox', () => {
-    expect(mcpProbeUrlFor('10.0.0.155', 31860)).toBe('http://10.0.0.155:31860/mcp');
-    expect(mcpProbeUrlFor('10.0.0.155', 31860)).not.toContain('svc.cluster.local');
+});
+
+describe('where the backend asks a deployed MCP server', () => {
+  const service = { spec: { ports: [{ name: 'http', port: 8080, nodePort: 31860 }] } };
+
+  it('is the gitapp Service by name on Koala\'s own cluster, on the port it serves', () => {
+    expect(mcpProbeUrlOf(service, 'tools-1a2b3c', { kind: 'koala' })).toBe('http://gitapp.tools-1a2b3c.svc.cluster.local:8080/mcp');
+    expect(mcpProbeUrlOf({ spec: { ports: [{ port: 9000 }] } }, 'tools-1a2b3c', { kind: 'koala' })).toBe('http://gitapp.tools-1a2b3c.svc.cluster.local:9000/mcp');
+  });
+
+  it('is the machine\'s mesh address and the Service\'s node port on another machine', () => {
+    expect(mcpProbeUrlOf(service, 'tools-1a2b3c', { kind: 'machine', clusterId: 'machine-desk', meshIp: '100.64.0.7' })).toBe('http://100.64.0.7:31860/mcp');
+  });
+
+  it('says why when there is no way to it', () => {
+    expect(() => mcpProbeUrlOf({}, 'tools-1a2b3c', { kind: 'koala' })).toThrow('the MCP server in tools-1a2b3c serves no port');
+    expect(() => mcpProbeUrlOf({ spec: { ports: [] } }, 'tools-1a2b3c', { kind: 'koala' })).toThrow('the MCP server in tools-1a2b3c serves no port');
+    expect(() => mcpProbeUrlOf(service, 'tools-1a2b3c', { kind: 'machine', clusterId: 'machine-desk' })).toThrow('machine-desk has no mesh address, so Koala cannot reach the MCP server on it');
+    expect(() => mcpProbeUrlOf({ spec: { ports: [{ port: 8080 }] } }, 'tools-1a2b3c', { kind: 'machine', clusterId: 'machine-desk', meshIp: '100.64.0.7' })).toThrow('the MCP server in tools-1a2b3c on machine-desk has no node port, so Koala cannot reach it from its own cluster');
   });
 });
 

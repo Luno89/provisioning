@@ -1,10 +1,11 @@
-import { countsIn, lastComplaint, pickAddress } from './image-builder.js';
+import { countsIn, lastComplaint } from './image-builder.js';
 import { describe, it, expect, vi } from 'vitest';
-import { createImageBuilder, discoverRegistry, ImageBuildError } from './image-builder.js';
+import { createImageBuilder, ImageBuildError } from './image-builder.js';
 import { imageReference, planImage, type ToolDefinition } from '@koala/agent-engine';
 import type { KubeResult, KubeRunner } from './kube.js';
 
 const REGISTRY = '10.0.0.1:31737';
+const HOSTS = { pull: REGISTRY, push: REGISTRY };
 
 const needsPsql: ToolDefinition = {
   name: 'query_db',
@@ -39,7 +40,7 @@ const builder = (over: Partial<Parameters<typeof createImageBuilder>[0]> = {}) =
     calls,
     builder: createImageBuilder({
       run,
-      registry: REGISTRY,
+      registry: HOSTS,
       published: async () => false,
       ...over,
     }),
@@ -56,7 +57,7 @@ describe('not building what does not need building', () => {
 
   it('skips the build when the registry already has that fingerprint', async () => {
     const { run, calls } = kube();
-    const build = createImageBuilder({ run, registry: REGISTRY, published: async () => true });
+    const build = createImageBuilder({ run, registry: HOSTS, published: async () => true });
 
     expect(await build.ensure(CUSTOM)).toBe(imageReference(REGISTRY, CUSTOM));
     expect(calls.some((call) => call.args[0] === 'apply')).toBe(false);
@@ -69,7 +70,7 @@ describe('building what does', () => {
 
   it('applies a kaniko job that pushes to the fingerprinted tag', async () => {
     const { run, calls } = kube();
-    const build = createImageBuilder({ run, registry: REGISTRY, pollMs: 1, published: servedAfterApply(calls) });
+    const build = createImageBuilder({ run, registry: HOSTS, pollMs: 1, published: servedAfterApply(calls) });
 
     const reference = await build.ensure(CUSTOM);
 
@@ -94,7 +95,7 @@ describe('building what does', () => {
     });
     try {
       const build = createImageBuilder({
-        run, registry: '127.0.0.1:35010', pushRegistry: 'gitea-http.gitea.svc.cluster.local:3000', pollMs: 1,
+        run, registry: { pull: '127.0.0.1:35010', push: 'gitea-http.gitea.svc.cluster.local:3000' }, pollMs: 1,
         pushToken: async () => ({ username: 'bot', password: 'token' }),
       });
       const reference = await build.ensure(CUSTOM);
@@ -114,7 +115,7 @@ describe('building what does', () => {
 
   it('ships the Dockerfile with the job rather than needing a checkout', async () => {
     const { run, calls } = kube();
-    await createImageBuilder({ run, registry: REGISTRY, pollMs: 1, published: servedAfterApply(calls) }).ensure(CUSTOM);
+    await createImageBuilder({ run, registry: HOSTS, pollMs: 1, published: servedAfterApply(calls) }).ensure(CUSTOM);
 
     const applied = calls.find((call) => call.args[0] === 'apply')?.input ?? '';
     expect(applied).toContain('ConfigMap');
@@ -129,7 +130,7 @@ describe('building what does', () => {
       logs: { stdout: 'error building image: no such package', stderr: '', exitCode: 0 },
     });
 
-    const build = createImageBuilder({ run, registry: REGISTRY, published: async () => false, pollMs: 1 });
+    const build = createImageBuilder({ run, registry: HOSTS, published: async () => false, pollMs: 1 });
 
     await expect(build.ensure(CUSTOM)).rejects.toThrow(ImageBuildError);
     await expect(build.ensure(CUSTOM)).rejects.toThrow(/no such package/);
@@ -141,7 +142,7 @@ describe('building what does', () => {
       logs: { stdout: 'No match for argument: ripgrep', stderr: '', exitCode: 0 },
     });
 
-    const build = createImageBuilder({ run, registry: REGISTRY, published: async () => false, pollMs: 1 });
+    const build = createImageBuilder({ run, registry: HOSTS, published: async () => false, pollMs: 1 });
 
     const started = Date.now();
     await expect(build.ensure(CUSTOM)).rejects.toThrow(/did not build: No match for argument: ripgrep/);
@@ -152,7 +153,7 @@ describe('building what does', () => {
     let polls = 0;
     const { run } = kube({ get: { stdout: '1||', stderr: '', exitCode: 0 } });
     const build = createImageBuilder({
-      run, registry: REGISTRY, pollMs: 1, published: async () => { polls += 1; return polls > 30; },
+      run, registry: HOSTS, pollMs: 1, published: async () => { polls += 1; return polls > 30; },
     });
 
     await expect(build.ensure(CUSTOM)).resolves.toContain(REGISTRY);
@@ -164,21 +165,21 @@ describe('building what does', () => {
     const stuck = vi.fn(async (args: string[]) => (args[0] === 'get' && args[1] === 'pods'
       ? { stdout: JSON.stringify({ items: [{ metadata: { name: 'build-x' }, status: { phase: 'Pending', containerStatuses: [{ ready: false, state: { waiting: { reason: 'ImagePullBackOff' } } }] } }] }), stderr: '', exitCode: 0 }
       : run(args)));
-    const build = createImageBuilder({ run: stuck as never, registry: REGISTRY, published: async () => false, pollMs: 1 });
+    const build = createImageBuilder({ run: stuck as never, registry: HOSTS, published: async () => false, pollMs: 1 });
 
     await expect(build.ensure(CUSTOM)).rejects.toThrow(/did not build: build-x: ImagePullBackOff/);
   });
 
   it('says so when the job cannot even be created', async () => {
     const { run } = kube({ apply: { stdout: '', stderr: 'forbidden', exitCode: 1 } });
-    const build = createImageBuilder({ run, registry: REGISTRY, published: async () => false, pollMs: 1 });
+    const build = createImageBuilder({ run, registry: HOSTS, published: async () => false, pollMs: 1 });
 
     await expect(build.ensure(CUSTOM)).rejects.toThrow(/Could not start the image build: forbidden/);
   });
 
   it('names the job after the fingerprint, so two runs wanting the same image share one build', async () => {
     const { run, calls } = kube();
-    const build = createImageBuilder({ run, registry: REGISTRY, pollMs: 1, published: servedAfterApply(calls) });
+    const build = createImageBuilder({ run, registry: HOSTS, pollMs: 1, published: servedAfterApply(calls) });
 
     await build.ensure(CUSTOM);
 
@@ -187,73 +188,14 @@ describe('building what does', () => {
   });
 });
 
-describe('finding the registry rather than being told', () => {
-  it('builds the address from the node and the pinned NodePort', async () => {
-    const run = vi.fn<KubeRunner>(async (args) => {
-      if (args[1] === 'svc') return { stdout: '31737', stderr: '', exitCode: 0 };
-      return { stdout: '10.0.0.130', stderr: '', exitCode: 0 };
-    });
-
-    expect(await discoverRegistry(run)).toBe('10.0.0.130:31737');
-  });
-
-  it('says the registry is missing rather than pushing somewhere malformed', async () => {
-    const run = vi.fn<KubeRunner>(async () => ({ stdout: '', stderr: 'NotFound', exitCode: 1 }));
-
-    await expect(discoverRegistry(run)).rejects.toThrow(/Could not find the image registry/);
-  });
-
-  it('says so when the node has no address the registry could be reached at', async () => {
-    const run = vi.fn<KubeRunner>(async (args) =>
-      (args[1] === 'svc'
-        ? { stdout: '31737', stderr: '', exitCode: 0 }
-        : { stdout: '', stderr: '', exitCode: 0 }));
-
-    await expect(discoverRegistry(run)).rejects.toThrow(/node address/);
-  });
-
-  it('discovers once and reuses it, rather than asking per build', async () => {
-    let lookups = 0;
-    let applied = 0;
-    const run = vi.fn<KubeRunner>(async (args) => {
-      if (args[0] === 'apply') {
-        applied += 1;
-        return { stdout: '', stderr: '', exitCode: 0 };
-      }
-      if (args[0] === 'get' && (args[1] === 'svc' || args[1] === 'nodes')) {
-        lookups += 1;
-        return args[1] === 'svc'
-          ? { stdout: '31737', stderr: '', exitCode: 0 }
-          : { stdout: '10.0.0.130', stderr: '', exitCode: 0 };
-      }
-      if (args[0] === 'get') return { stdout: '|1|', stderr: '', exitCode: 0 };
-      return { stdout: '', stderr: '', exitCode: 0 };
-    });
-
-    const build = createImageBuilder({ run, pollMs: 1, published: async () => applied > 0 });
-    const reference = await build.ensure(CUSTOM);
-    await build.ensure(CUSTOM);
-
-    expect(reference.startsWith('10.0.0.130:31737/')).toBe(true);
-    expect(lookups).toBe(2);
+describe('where images are pushed', () => {
+  it('refuses to build with the reason it was given where there is no registry, running nothing', async () => {
+    const { run, calls } = kube();
+    const build = createImageBuilder({ run, registry: { none: 'root builds no workspace images, so it pushes to no registry' }, published: async () => false, pollMs: 1 });
+    await expect(build.ensure(CUSTOM)).rejects.toThrow('root builds no workspace images, so it pushes to no registry');
+    expect(calls).toHaveLength(0);
   });
 });
-
-
-describe('the address the registry is reached at', () => {
-  it('takes the IPv4 one when a node reports both', () => {
-    expect(pickAddress('10.0.0.130 2601:600:8f00:4030::6dc7')).toBe('10.0.0.130');
-  });
-
-  it('falls back to the only address there is', () => {
-    expect(pickAddress('2601:600:8f00:4030::6dc7')).toBe('2601:600:8f00:4030::6dc7');
-  });
-
-  it('has nothing to give when the node reported nothing', () => {
-    expect(pickAddress('  ')).toBeUndefined();
-  });
-});
-
 
 describe('reading what a build job is doing', () => {
   it('reads a job that failed as failed, not as one still running', () => {
@@ -339,7 +281,7 @@ describe('the token a workspace build pushes with', () => {
     const { run, secrets, jobs } = cluster();
     const minting = tokens();
     let published = false;
-    const build = createImageBuilder({ run, registry: REGISTRY, published: async () => published, pushToken: minting.pushToken, revokePushToken: minting.revokePushToken });
+    const build = createImageBuilder({ run, registry: HOSTS, published: async () => published, pushToken: minting.pushToken, revokePushToken: minting.revokePushToken });
 
     await build.start(CUSTOM);
     const [secret] = [...secrets.values()];
@@ -349,7 +291,7 @@ describe('the token a workspace build pushes with', () => {
 
     jobs.set([...jobs.keys()][0]!, '|1|');
     published = true;
-    const elsewhere = createImageBuilder({ run, registry: REGISTRY, published: async () => published, pushToken: minting.pushToken, revokePushToken: minting.revokePushToken });
+    const elsewhere = createImageBuilder({ run, registry: HOSTS, published: async () => published, pushToken: minting.pushToken, revokePushToken: minting.revokePushToken });
     expect((await elsewhere.standing(CUSTOM)).state).toBe('ready');
     expect(minting.revoked).toEqual(['build-1']);
     expect(secrets.size).toBe(0);
@@ -358,7 +300,7 @@ describe('the token a workspace build pushes with', () => {
   it('is revoked for a failed build, and for one whose job is gone, before the next build mints its own', async () => {
     const { run, secrets, jobs } = cluster();
     const minting = tokens();
-    const build = createImageBuilder({ run, registry: REGISTRY, published: async () => false, pushToken: minting.pushToken, revokePushToken: minting.revokePushToken });
+    const build = createImageBuilder({ run, registry: HOSTS, published: async () => false, pushToken: minting.pushToken, revokePushToken: minting.revokePushToken });
 
     await build.start(CUSTOM);
     jobs.set([...jobs.keys()][0]!, '||1');

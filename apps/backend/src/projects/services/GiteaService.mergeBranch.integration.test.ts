@@ -21,12 +21,9 @@ function commit(branch: string, file: string, content: string): string {
   return inWork('rev-parse', 'HEAD');
 }
 
-const unused = (): never => { throw new Error('not used by this test'); };
-
 function service(pulls: { listed?: unknown[][]; created?: Response } = {}): GiteaService {
-  const gitea = new GiteaService({ runKubectl: unused, getK3dServerIp: unused }, 'master-key' as never, '/tmp/kubeconfig');
-  const internals = gitea as unknown as { resolveBaseUrl(): Promise<string>; getToken(): Promise<string> };
-  vi.spyOn(internals, 'resolveBaseUrl').mockResolvedValue(`file://${root}`);
+  const gitea = new GiteaService('master-key' as never, { url: `file://${root}` });
+  const internals = gitea as unknown as { getToken(): Promise<string> };
   vi.spyOn(internals, 'getToken').mockResolvedValue('bot-token');
   vi.stubGlobal('fetch', vi.fn(async (url: string, init: RequestInit = {}) => {
     const where = url.replace(`file://${root}`, '');

@@ -7,7 +7,7 @@ import { buildDataConverter } from '@koala/engine-core/payloads';
 import { createDatabase, type Database } from '../../apps/backend/src/platform/lib/db-interface.js';
 import { loadKeys } from '../../apps/backend/src/platform/lib/keys.js';
 import { temporalApiKey, temporalNamespaceFrom } from '../../apps/backend/src/platform/lib/temporal-auth.js';
-import { DEV } from '../../apps/backend/src/instances/lib/dev-root.js';
+import { DEV, devGiteaOnThisComputer } from '../../apps/backend/src/instances/lib/dev-root.js';
 import { nodeStreams } from '../../apps/backend/src/platform/services/processes.js';
 import type { KoalasCluster } from '../../apps/backend/src/engine-host/sandboxes/kube.js';
 import { fetchSide, handOff, sessionFrom } from './handoff.js';
@@ -19,6 +19,7 @@ export const DEV_RELEASE = 'instance';
 
 export const devRootApi = `http://localhost:${DEV.rootApiPort}`;
 export const devKoalaApi = `http://127.0.0.1:${DEV.instanceNodePort}`;
+export const devGiteaUrl = devGiteaOnThisComputer;
 
 const kubectl = (...args: string[]): string =>
   execFileSync('k3s', ['kubectl', '--kubeconfig', DEV_KUBECONFIG, '-n', DEV_NAMESPACE, ...args], { encoding: 'utf8' }).trim();
@@ -36,6 +37,12 @@ export const devPortForward = (namespace: string, target: string, ports: string)
 
 export function devKoalaEnv(): Record<string, string> {
   return JSON.parse(kubectl('get', 'configmap', `${DEV_RELEASE}-env`, '-o', 'jsonpath={.data}')) as Record<string, string>;
+}
+
+export function devRegistry(): { pull: string; push: string } {
+  const pull = devKoalaEnv().KOALA_REGISTRY;
+  assert.ok(pull, 'dev\'s Koala names no KOALA_REGISTRY its cluster pulls images from');
+  return { pull, push: new URL(devGiteaUrl).host };
 }
 
 const RESULT = 'KOALA-RESULT ';

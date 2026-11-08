@@ -9,8 +9,7 @@ const dep = (over: Partial<DeploymentMetadata> = {}): DeploymentMetadata => ({
 
 const deps = (deployments: DeploymentMetadata[], over: Partial<WebToolsDeps> = {}) => ({
   db: { getDeployments: vi.fn(async () => deployments) },
-  serviceUrl: vi.fn<WebToolsDeps['serviceUrl']>(async (_c, _k, _kc, t) => `http://localhost:4${t.remotePort}/`),
-  kubeconfigFor: vi.fn(async () => '/tmp/kubeconfig'),
+  serviceUrl: vi.fn<WebToolsDeps['serviceUrl']>(async (_c, _k, t) => `http://localhost:4${t.remotePort}/`),
   env: {},
   ...over,
 }) satisfies WebToolsDeps;
@@ -21,8 +20,7 @@ describe('resolving a deployed service', () => {
     const tools = await resolveWebTools(d);
 
     expect(tools.sources.search).toBe('searxng');
-    expect(d.serviceUrl).toHaveBeenCalledWith('c1', 'searxng-d1', '/tmp/kubeconfig',
-      { service: 'searxng', namespace: 'koala-search', remotePort: 8080 });
+    expect(d.serviceUrl).toHaveBeenCalledWith('c1', 'searxng-d1', { service: 'searxng', namespace: 'koala-search', remotePort: 8080 });
   });
 
   it('ignores a deployment that is not running', async () => {
@@ -37,9 +35,8 @@ describe('resolving a deployed service', () => {
   });
 
   it('falls back when the cluster cannot be reached', async () => {
-    const d = deps([dep()], { kubeconfigFor: vi.fn(async () => { throw new Error('c1 is stopped until something runs on it'); }) });
+    const d = deps([dep()], { serviceUrl: vi.fn(async () => { throw new Error('c1 is stopped until something runs on it'); }) });
     expect((await resolveWebTools(d)).sources.search).toBe('duckduckgo');
-    expect(d.serviceUrl).not.toHaveBeenCalled();
   });
 
   it('does not route one owner through another owner\'s service', async () => {
@@ -91,21 +88,19 @@ describe('precedence', () => {
 });
 
 describe('the deps a process builds', () => {
-  it('reach a deployment\'s cluster through ClusterAccess by its id, and forward through the proxy with what it gave', async () => {
-    const access = mock<{ kubeconfigOf(clusterId: string): Promise<string> }>();
-    access.kubeconfigOf.calledWith('c1').mockResolvedValue('/run/koala/kubeconfig-machine-c1');
+  it('reach a deployment\'s cluster through the proxy by its id', async () => {
     const proxy = mock<{ serviceUrl: WebToolsDeps['serviceUrl'] }>();
     proxy.serviceUrl.mockResolvedValue('http://127.0.0.1:41000/');
-    const built = webToolsDepsFrom({ getDeployments: async () => [dep()] }, access, proxy);
+    const built = webToolsDepsFrom({ getDeployments: async () => [dep()] }, proxy);
     expect((await resolveWebTools({ ...built, env: {} })).sources.search).toBe('searxng');
-    expect(proxy.serviceUrl).toHaveBeenCalledWith('c1', 'searxng-d1', '/run/koala/kubeconfig-machine-c1', { service: 'searxng', namespace: 'koala-search', remotePort: 8080 });
+    expect(proxy.serviceUrl).toHaveBeenCalledWith('c1', 'searxng-d1', { service: 'searxng', namespace: 'koala-search', remotePort: 8080 });
   });
 
-  it('pass on ClusterAccess\'s refusal, which leaves the service out', async () => {
-    const access = mock<{ kubeconfigOf(clusterId: string): Promise<string> }>();
-    access.kubeconfigOf.mockRejectedValue(new Error('there is no cluster c1'));
-    const built = webToolsDepsFrom({ getDeployments: async () => [dep()] }, access, mock<{ serviceUrl: WebToolsDeps['serviceUrl'] }>());
-    await expect(built.kubeconfigFor('c1')).rejects.toThrow('there is no cluster c1');
+  it('pass on the proxy\'s refusal, which leaves the service out', async () => {
+    const proxy = mock<{ serviceUrl: WebToolsDeps['serviceUrl'] }>();
+    proxy.serviceUrl.mockRejectedValue(new Error('there is no cluster c1'));
+    const built = webToolsDepsFrom({ getDeployments: async () => [dep()] }, proxy);
+    await expect(built.serviceUrl('c1', 'searxng-d1', { service: 'searxng', namespace: 'koala-search', remotePort: 8080 })).rejects.toThrow('there is no cluster c1');
     expect((await resolveWebTools({ ...built, env: {} })).sources.search).toBe('duckduckgo');
   });
 });

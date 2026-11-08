@@ -5,6 +5,7 @@ import { buildAppImage } from './gate-runs.js';
 import { devFile, devTemporalCa } from './dev-temporal.js';
 import { answers, envArgs, minioReady, minioRun, temporal, temporalContainer } from './split-stack.js';
 import { dropSuiteDatabase, firstAdmin, suiteRoot, type FirstAdmin, type SuiteRoot } from './suite-root.js';
+import { unreachedPlatformServices } from '../../apps/backend/src/platform/testing/platform-services.js';
 import { portToHandOn } from '@koala/engine-core/testing/ports';
 
 const REPO = fileURLToPath(new URL('../..', import.meta.url));
@@ -74,6 +75,7 @@ export async function startOwnStack(suite: string, log: (line: string) => void =
     TEMPORAL_NAMESPACE: namespace,
     MACHINE_GATEWAY_PORT: String(gatewayPort),
     MACHINE_TEMPORAL_ADDRESS: `localhost:${gatewayPort}`,
+    ...unreachedPlatformServices(url),
   };
   const run = (process: OwnProcess, command: string, extra: Record<string, string> = {}): void => {
     docker(['run', '-d', '--name', container[process], '--network', 'host', '--restart', 'on-failure', '--env-file', devFile('apps/backend/.env'), ...devTemporalCa(), ...envArgs({ ...env, ...extra }), image, command]);

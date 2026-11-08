@@ -227,7 +227,8 @@ Services live in their area's `services/` folder (`apps/backend/src/<area>/servi
 - `RegistryService` — container registry operations
 - `GitModuleService` — Odoo module git integration
 - `AppExposureService` — exposes deployed apps through the instance's edge (a Caddy beside its backend): `<app>.localhost` on this computer's loopback port 8000 (the chart's `<release>-local-apps` forwarder, a hostPort on 127.0.0.1 kept off the backend pod so its rolling upgrade never waits on the port) and `<app>-<name>.<domain>` where the instance has a domain; reaches an app's cluster through `ClusterAccess` (Koala's own cluster: Traefik by service name; another machine: its mesh address and Traefik's node port); emits socket.io events
-- `ClusterProxyService` — proxies requests into cluster-internal dashboards (Traefik/Grafana/Prometheus)
+- `ClusterProxyService` — proxies requests into cluster-internal dashboards (Traefik/Grafana/Prometheus) and services (models, the collector): a service's ClusterIP when this process reaches it, else a `kubectl port-forward` started through `ClusterAccess.follow`; it asks the cluster through `ClusterAccess` by its id, one proxy per `ClusterAccess` (`sharedClusterProxy(access)`)
+- `GiteaService`, `InfisicalService` — reach Gitea and Infisical only at the address their setting names (`giteaSettingsFrom`: `GITEA_URL`, and `GITEA_REACHES_KOALA_AT`, where Gitea sends pushes; `infisicalSettingsFrom`: `INFISICAL_URL`), read once at start; there is no node-IP, NodePort or loopback lookup. A process that serves tenants needs all three, the hub the Gitea two, and one missing stops it naming it; root reaches neither and its services say so if asked (`{ none: … }`). The instance chart sets them by service name; dev's hub gets `GITEA_URL=http://127.0.0.1:31737` (the instance's Gitea's node port on this computer) and `GITEA_REACHES_KOALA_AT=http://10.42.0.1:3003` (the hub on the pod network), written by `devRootPlan`. Workspace images go to the registry `registrySettingsFrom` reads (`KOALA_REGISTRY` pulled from, `KOALA_REGISTRY_PUSH` pushed to), and a deployed MCP server is found through `ClusterAccess` (`mcpReachFrom`: its `gitapp` Service by name on Koala's own cluster, the machine's mesh address and node port elsewhere)
 - `AuthService` — user auth (JWT sessions, 2FA, GitHub/Google OAuth)
 - `CredentialService` — per-user cloud provider credentials, AES-256-GCM encrypted at rest, live validation against provider APIs
 - `TemporalBridge` — bridges Express routes ↔ Temporal workflow execution; mutating routes go through this, reads hit the DB directly
@@ -2294,7 +2295,11 @@ dependency mocked, again in the integration tier with the real ones, and its flo
 - **Integration** (`*.integration.test.ts`, `npm run test:integration`, ~3 min): the same concepts with their real dependencies on
   this machine, nothing else: a Mongo of its own (`mongodb-memory-server`, `testDatabase()`), Temporal's test server, real sockets
   and HTTP on loopback, real git and sh, and a throwaway k3s in Docker where a test needs a Kubernetes API (`startK3s` in
-  `infrastructure/testing/real-k3s.ts`, the pinned `k3s-test-image`, the same k3s machines run; ready in about 8 s). Never the dev stack, its cluster, `apps/backend/.env` or `data/` (the backend loads `.env`
+  `infrastructure/testing/real-k3s.ts`, the pinned `k3s-test-image`, the same k3s machines run; ready in about 8 s). That one k3s is
+  shared by every integration file running at the same time, so **a test works in namespaces and releases it makes and asserts only
+  about those**: where the code reads the whole cluster (a cluster's page lists every release), the test checks that its own objects
+  are shown right, never that nothing else is there (a cluster-page test once expected no Helm releases while another file installed one), and **waits on the condition it needs**, not on something that usually comes before it (the edge test waits
+  for the NodePort to answer from inside the edge's container, not for the Service to list its pod; `tests/audits/`). Never the dev stack, its cluster, `apps/backend/.env` or `data/` (the backend loads `.env`
   only when it starts itself, and `routes.integration.test.ts` boots it from an empty folder and home). It runs on half the cores
   (`--maxWorkers=50%`): each file starts its own servers, and seven at once starve tests on eight.
 - **E2E** (`npm run test:e2e`, the live suites in `E2E_STEPS`; the VM suites in `RELEASE_STEPS`): real Koala processes, the dev stack

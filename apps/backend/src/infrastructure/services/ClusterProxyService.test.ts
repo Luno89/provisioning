@@ -1,334 +1,263 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { EventEmitter } from 'events';
-import type { ClusterProxyService as Proxy } from './ClusterProxyService.js';
+import { mock, type MockProxy } from 'vitest-mock-extended';
+import type { Followed, ProcessResult } from '../../platform/index.js';
+import { ClusterProxyService, sharedClusterProxy, type ProxyAccess } from './ClusterProxyService.js';
 
-vi.mock('node:url', () => ({
-  fileURLToPath: () => '/app/src/services/ClusterProxyService.ts',
-}));
+interface Forward {
+  cluster: unknown;
+  args: readonly string[];
+  print(text: string): void;
+  end(result: ProcessResult): void;
+  fail(err: Error): void;
+  stop: ReturnType<typeof vi.fn>;
+}
 
-const mockSpawn = vi.fn();
-vi.mock('child_process', () => ({
-  spawn: mockSpawn,
-  execFile: vi.fn(),
-}));
+let access: MockProxy<ProxyAccess>;
+let forwards: Forward[];
 
-let ClusterProxyService: typeof Proxy;
-
-beforeEach(async () => {
-  vi.clearAllMocks();
+beforeEach(() => {
   vi.useFakeTimers();
-  const mod = await import('./ClusterProxyService.js');
-  ClusterProxyService = mod.ClusterProxyService;
+  forwards = [];
+  access = mock<ProxyAccess>();
+  access.kubectl.mockResolvedValue('');
+  access.follow.mockImplementation(async (cluster, args, onOutput) => {
+    let end: (result: ProcessResult) => void = () => undefined;
+    let fail: (err: Error) => void = () => undefined;
+    const ended = new Promise<ProcessResult>((done, failed) => { end = done; fail = failed; });
+    const stop = vi.fn();
+    forwards.push({ cluster, args, print: onOutput, end, fail, stop });
+    return { stop, ended } satisfies Followed;
+  });
 });
 
 afterEach(() => {
   vi.useRealTimers();
 });
 
-class FakeChild extends EventEmitter {
-  readonly stdout = new EventEmitter();
-  readonly stderr = new EventEmitter();
-  readonly kill = vi.fn(() => true);
-}
+const started = async (count: number) => {
+  for (let tries = 0; tries < 20 && forwards.length < count; tries += 1) await Promise.resolve();
+  return forwards[count - 1]!;
+};
 
-function fakeChildProcess(): FakeChild {
-  return new FakeChild();
-}
-
-function emitForwarding(child: FakeChild, port: number) {
-  child.stdout.emit('data', Buffer.from(`Forwarding from 127.0.0.1:${port} -> 9090\n`));
-}
+const forwarding = (port: number) => `Forwarding from 127.0.0.1:${port} -> 9090\n`;
 
 describe('ClusterProxyService', () => {
   describe('ensurePortForward', () => {
-    it('returns URL on successful port-forward', async () => {
-      const child = fakeChildProcess();
-      mockSpawn.mockReturnValue(child);
-
-      const svc = new ClusterProxyService();
-      const resultPromise = svc.ensurePortForward('c1', 'prometheus', '/tmp/kubeconfig-c1');
-
-      expect(mockSpawn).toHaveBeenCalledOnce();
-      emitForwarding(child, 54321);
-
-      const url = await resultPromise;
-      expect(url).toBe('http://localhost:54321/');
+    it('starts kubectl port-forward through ClusterAccess on the cluster asked for, and answers the port it prints', async () => {
+      const svc = new ClusterProxyService(access, async () => false);
+      const url = svc.ensurePortForward('c1', 'prometheus');
+      const forward = await started(1);
+      forward.print(forwarding(54321));
+      expect(await url).toBe('http://localhost:54321/');
+      expect(forward.cluster).toBe('c1');
+      expect(forward.args).toEqual(['port-forward', '--address', '127.0.0.1', '-n', 'monitoring', 'svc/kube-prometheus-stack-prometheus', '0:9090']);
     });
 
-    it('passes correct kubectl args', async () => {
-      const child = fakeChildProcess();
-      mockSpawn.mockReturnValue(child);
-
-      const svc = new ClusterProxyService();
-      const p = svc.ensurePortForward('c1', 'grafana', '/tmp/kubeconfig-c1');
-      emitForwarding(child, 12345);
-      await p;
-
-      const args = mockSpawn.mock.calls[0]![1] as string[];
-      expect(args).toContain('port-forward');
-      expect(args).toContain('--kubeconfig');
-      expect(args).toContain('/tmp/kubeconfig-c1');
-      expect(args).toContain('-n');
-      expect(args).toContain('monitoring');
-      expect(args).toContain('svc/kube-prometheus-stack-grafana');
-      expect(args).toContain('0:80');
+    it('reads the port when kubectl prints it in pieces', async () => {
+      const svc = new ClusterProxyService(access, async () => false);
+      const url = svc.ensurePortForward('c1', 'prometheus');
+      const forward = await started(1);
+      forward.print('Forwarding from 127.0.');
+      forward.print('0.1:40123 -> 9090\n');
+      expect(await url).toBe('http://localhost:40123/');
     });
 
-    it('uses deployment/traefik on port 8080 for traefik dashboard', async () => {
-      const child = fakeChildProcess();
-      mockSpawn.mockReturnValue(child);
-
-      const svc = new ClusterProxyService();
-      const p = svc.ensurePortForward('c1', 'traefik', '/tmp/kubeconfig-c1');
-      emitForwarding(child, 11111);
-      const url = await p;
-
-      const args = mockSpawn.mock.calls[0]![1] as string[];
-      expect(args).toContain('-n');
-      expect(args).toContain('traefik');
-      expect(args).toContain('deployment/traefik');
-      expect(args).toContain('0:8080');
-      expect(url).toBe('http://localhost:11111/dashboard/');
+    it('takes a Reach as well as a cluster id', async () => {
+      const svc = new ClusterProxyService(access, async () => false);
+      const reach = { clusterId: 'machine-desk', kind: 'machine' as const, kubeconfig: 'apiVersion: v1\n' };
+      const url = svc.ensurePortForward(reach, 'grafana');
+      const forward = await started(1);
+      forward.print(forwarding(40100));
+      await url;
+      expect(forward.cluster).toBe(reach);
     });
 
-    it('throws for unknown service key', async () => {
-      const svc = new ClusterProxyService();
-      await expect(
-        svc.ensurePortForward('c1', 'unknown', '/tmp/kubeconfig-c1'),
-      ).rejects.toThrow('Unknown service: unknown');
+    it('uses deployment/traefik on port 8080 for the traefik dashboard, with its path', async () => {
+      const svc = new ClusterProxyService(access, async () => false);
+      const url = svc.ensurePortForward('c1', 'traefik');
+      const forward = await started(1);
+      forward.print(forwarding(40200));
+      expect(await url).toBe('http://localhost:40200/dashboard/');
+      expect(forward.args).toEqual(['port-forward', '--address', '127.0.0.1', '-n', 'traefik', 'deployment/traefik', '0:8080']);
     });
 
-    it('reuses existing port-forward for same cluster+service', async () => {
-      const child = fakeChildProcess();
-      mockSpawn.mockReturnValue(child);
-
-      const svc = new ClusterProxyService();
-
-      const p1 = svc.ensurePortForward('c1', 'prometheus', '/tmp/kubeconfig-c1');
-      emitForwarding(child, 40001);
-      const url1 = await p1;
-      expect(url1).toBe('http://localhost:40001/');
-
-      const url2 = await svc.ensurePortForward('c1', 'prometheus', '/tmp/kubeconfig-c1');
-      expect(url2).toBe('http://localhost:40001/');
-      expect(mockSpawn).toHaveBeenCalledOnce();
+    it('throws for an unknown service, starting nothing', async () => {
+      const svc = new ClusterProxyService(access, async () => false);
+      await expect(svc.ensurePortForward('c1', 'unknown')).rejects.toThrow('Unknown service: unknown');
+      expect(access.follow).not.toHaveBeenCalled();
     });
 
-    it('spawns separate processes for different services', async () => {
-      const child1 = fakeChildProcess();
-      const child2 = fakeChildProcess();
-      mockSpawn.mockReturnValueOnce(child1).mockReturnValueOnce(child2);
-
-      const svc = new ClusterProxyService();
-
-      const p1 = svc.ensurePortForward('c1', 'prometheus', '/tmp/kubeconfig-c1');
-      emitForwarding(child1, 40001);
-      await p1;
-
-      const p2 = svc.ensurePortForward('c1', 'grafana', '/tmp/kubeconfig-c1');
-      emitForwarding(child2, 40002);
-      await p2;
-
-      expect(mockSpawn).toHaveBeenCalledTimes(2);
+    it('reuses the forward it has for the same cluster and service', async () => {
+      const svc = new ClusterProxyService(access, async () => false);
+      const first = svc.ensurePortForward('c1', 'prometheus');
+      (await started(1)).print(forwarding(40001));
+      expect(await first).toBe('http://localhost:40001/');
+      expect(await svc.ensurePortForward('c1', 'prometheus')).toBe('http://localhost:40001/');
+      expect(access.follow).toHaveBeenCalledTimes(1);
     });
 
-    it('rejects on spawn error', async () => {
-      const child = fakeChildProcess();
-      mockSpawn.mockReturnValue(child);
-
-      const svc = new ClusterProxyService();
-      const p = svc.ensurePortForward('c1', 'prometheus', '/tmp/kubeconfig-c1');
-
-      child.emit('error', new Error('ENOENT'));
-
-      await expect(p).rejects.toThrow('ENOENT');
+    it('starts one forward per service and per cluster', async () => {
+      const svc = new ClusterProxyService(access, async () => false);
+      const a = svc.ensurePortForward('c1', 'prometheus');
+      (await started(1)).print(forwarding(40001));
+      const b = svc.ensurePortForward('c1', 'grafana');
+      (await started(2)).print(forwarding(40002));
+      const c = svc.ensurePortForward('c2', 'prometheus');
+      (await started(3)).print(forwarding(40003));
+      expect([await a, await b, await c]).toEqual(['http://localhost:40001/', 'http://localhost:40002/', 'http://localhost:40003/']);
+      expect(access.follow).toHaveBeenCalledTimes(3);
     });
 
-    it('rejects on non-zero exit with stderr', async () => {
-      const child = fakeChildProcess();
-      mockSpawn.mockReturnValue(child);
-
-      const svc = new ClusterProxyService();
-      const p = svc.ensurePortForward('c1', 'prometheus', '/tmp/kubeconfig-c1');
-
-      child.stderr.emit('data', Buffer.from('Error: service not found\n'));
-      child.emit('close', 1);
-
-      await expect(p).rejects.toThrow('port-forward exited with code 1: Error: service not found');
+    it('fails with ClusterAccess\'s refusal when the cluster cannot be reached, and tries again next time', async () => {
+      access.follow.mockRejectedValueOnce(new Error('desk is stopped until something runs on it'));
+      const svc = new ClusterProxyService(access, async () => false);
+      await expect(svc.ensurePortForward('c1', 'prometheus')).rejects.toThrow('desk is stopped until something runs on it');
+      const again = svc.ensurePortForward('c1', 'prometheus');
+      (await started(1)).print(forwarding(40010));
+      expect(await again).toBe('http://localhost:40010/');
     });
 
-    it('rejects on close with no stdout and no stderr', async () => {
-      const child = fakeChildProcess();
-      mockSpawn.mockReturnValue(child);
-
-      const svc = new ClusterProxyService();
-      const p = svc.ensurePortForward('c1', 'prometheus', '/tmp/kubeconfig-c1');
-
-      child.emit('close', 1);
-
-      await expect(p).rejects.toThrow('port-forward exited with code 1: no stderr');
+    it('fails with kubectl\'s own words when it exits before forwarding', async () => {
+      const svc = new ClusterProxyService(access, async () => false);
+      const url = svc.ensurePortForward('c1', 'prometheus');
+      (await started(1)).end({ code: 1, stdout: '', stderr: 'Error: service not found\n' });
+      await expect(url).rejects.toThrow('port-forward exited with code 1: Error: service not found');
     });
 
-    it('spawns separate processes for different clusters', async () => {
-      const child1 = fakeChildProcess();
-      const child2 = fakeChildProcess();
-      mockSpawn.mockReturnValueOnce(child1).mockReturnValueOnce(child2);
+    it('says there was nothing on stderr when kubectl exits saying nothing', async () => {
+      const svc = new ClusterProxyService(access, async () => false);
+      const url = svc.ensurePortForward('c1', 'prometheus');
+      (await started(1)).end({ code: 1, stdout: '', stderr: '' });
+      await expect(url).rejects.toThrow('port-forward exited with code 1: no stderr');
+    });
 
-      const svc = new ClusterProxyService();
+    it('fails when kubectl could not be started at all', async () => {
+      const svc = new ClusterProxyService(access, async () => false);
+      const url = svc.ensurePortForward('c1', 'prometheus');
+      (await started(1)).fail(new Error('spawn kubectl ENOENT'));
+      await expect(url).rejects.toThrow('spawn kubectl ENOENT');
+    });
 
-      const p1 = svc.ensurePortForward('c1', 'prometheus', '/tmp/kubeconfig-c1');
-      emitForwarding(child1, 40001);
-      await p1;
-
-      const p2 = svc.ensurePortForward('c2', 'prometheus', '/tmp/kubeconfig-c2');
-      emitForwarding(child2, 40002);
-      await p2;
-
-      expect(mockSpawn).toHaveBeenCalledTimes(2);
+    it('starts a new forward once the one it had has ended', async () => {
+      const svc = new ClusterProxyService(access, async () => false);
+      const first = svc.ensurePortForward('c1', 'prometheus');
+      const one = await started(1);
+      one.print(forwarding(40001));
+      await first;
+      one.end({ code: 0, stdout: '', stderr: '' });
+      await Promise.resolve();
+      await Promise.resolve();
+      const second = svc.ensurePortForward('c1', 'prometheus');
+      (await started(2)).print(forwarding(40002));
+      expect(await second).toBe('http://localhost:40002/');
     });
   });
 
-  describe('stopForCluster', () => {
-    it('kills all child processes for a cluster', async () => {
-      const child1 = fakeChildProcess();
-      const child2 = fakeChildProcess();
-      mockSpawn.mockReturnValueOnce(child1).mockReturnValueOnce(child2);
-
-      const svc = new ClusterProxyService();
-
-      const p1 = svc.ensurePortForward('c1', 'prometheus', '/tmp/kubeconfig-c1');
-      emitForwarding(child1, 40001);
-      await p1;
-
-      const p2 = svc.ensurePortForward('c1', 'grafana', '/tmp/kubeconfig-c1');
-      emitForwarding(child2, 40002);
-      await p2;
-
+  describe('stopping forwards', () => {
+    it('stops a cluster\'s forwards and no other cluster\'s, and is safe for a cluster it never forwarded to', async () => {
+      const svc = new ClusterProxyService(access, async () => false);
+      const a = svc.ensurePortForward('c1', 'prometheus');
+      const one = await started(1);
+      one.print(forwarding(40001));
+      const b = svc.ensurePortForward('c2', 'prometheus');
+      const two = await started(2);
+      two.print(forwarding(40002));
+      await Promise.all([a, b]);
       svc.stopForCluster('c1');
-
-      expect(child1.kill).toHaveBeenCalledOnce();
-      expect(child2.kill).toHaveBeenCalledOnce();
-    });
-
-    it('does not affect other clusters', async () => {
-      const child1 = fakeChildProcess();
-      const child2 = fakeChildProcess();
-      mockSpawn.mockReturnValueOnce(child1).mockReturnValueOnce(child2);
-
-      const svc = new ClusterProxyService();
-
-      const p1 = svc.ensurePortForward('c1', 'prometheus', '/tmp/kubeconfig-c1');
-      emitForwarding(child1, 40001);
-      await p1;
-
-      const p2 = svc.ensurePortForward('c2', 'prometheus', '/tmp/kubeconfig-c2');
-      emitForwarding(child2, 40002);
-      await p2;
-
-      svc.stopForCluster('c1');
-
-      expect(child1.kill).toHaveBeenCalledOnce();
-      expect(child2.kill).not.toHaveBeenCalled();
-    });
-
-    it('is safe to call with unknown cluster', () => {
-      const svc = new ClusterProxyService();
+      await Promise.resolve();
+      expect(one.stop).toHaveBeenCalledOnce();
+      expect(two.stop).not.toHaveBeenCalled();
       expect(() => svc.stopForCluster('nonexistent')).not.toThrow();
     });
 
-    it('allows new port-forward after stop', async () => {
-      const child1 = fakeChildProcess();
-      const child2 = fakeChildProcess();
-      mockSpawn.mockReturnValueOnce(child1).mockReturnValueOnce(child2);
-
-      const svc = new ClusterProxyService();
-
-      const p1 = svc.ensurePortForward('c1', 'prometheus', '/tmp/kubeconfig-c1');
-      emitForwarding(child1, 40001);
-      await p1;
-
+    it('starts a new forward after a stop', async () => {
+      const svc = new ClusterProxyService(access, async () => false);
+      const first = svc.ensurePortForward('c1', 'prometheus');
+      (await started(1)).print(forwarding(40001));
+      await first;
       svc.stopForCluster('c1');
-
-      const p2 = svc.ensurePortForward('c1', 'prometheus', '/tmp/kubeconfig-c1');
-      emitForwarding(child2, 40002);
-      const url = await p2;
-
-      expect(url).toBe('http://localhost:40002/');
-      expect(mockSpawn).toHaveBeenCalledTimes(2);
-    });
-  });
-
-  describe('stopAll', () => {
-    it('kills all child processes across all clusters', async () => {
-      const child1 = fakeChildProcess();
-      const child2 = fakeChildProcess();
-      mockSpawn.mockReturnValueOnce(child1).mockReturnValueOnce(child2);
-
-      const svc = new ClusterProxyService();
-
-      const p1 = svc.ensurePortForward('c1', 'prometheus', '/tmp/kubeconfig-c1');
-      emitForwarding(child1, 40001);
-      await p1;
-
-      const p2 = svc.ensurePortForward('c2', 'grafana', '/tmp/kubeconfig-c2');
-      emitForwarding(child2, 40002);
-      await p2;
-
-      svc.stopAll();
-
-      expect(child1.kill).toHaveBeenCalledOnce();
-      expect(child2.kill).toHaveBeenCalledOnce();
+      const second = svc.ensurePortForward('c1', 'prometheus');
+      (await started(2)).print(forwarding(40002));
+      expect(await second).toBe('http://localhost:40002/');
+      expect(access.follow).toHaveBeenCalledTimes(2);
     });
 
-    it('is safe to call when no forwards exist', () => {
-      const svc = new ClusterProxyService();
+    it('stops every forward on every cluster, and is safe with none', async () => {
+      const svc = new ClusterProxyService(access, async () => false);
       expect(() => svc.stopAll()).not.toThrow();
+      const a = svc.ensurePortForward('c1', 'prometheus');
+      const one = await started(1);
+      one.print(forwarding(40001));
+      const b = svc.ensurePortForward('c2', 'grafana');
+      const two = await started(2);
+      two.print(forwarding(40002));
+      await Promise.all([a, b]);
+      svc.stopAll();
+      await Promise.resolve();
+      expect(one.stop).toHaveBeenCalledOnce();
+      expect(two.stop).toHaveBeenCalledOnce();
     });
   });
 
   describe('directServiceUrl', () => {
     const target = { service: 'tabbyapi', namespace: 'tabbyapi-production', remotePort: 5000 };
-    const access = (ip: string | undefined, reachable: boolean) => ({
-      clusterIp: vi.fn(async () => ip),
-      reachable: vi.fn(async () => reachable),
-    });
 
-    it('reaches a service at its cluster address when this machine can, with no port-forward', async () => {
-      const direct = access('10.43.100.81', true);
-      const svc = new ClusterProxyService(direct);
-      expect(await svc.directServiceUrl('c1', 'model:tabby', '/kube', target)).toBe('http://10.43.100.81:5000/');
-      expect(direct.clusterIp).toHaveBeenCalledWith('/kube', 'tabbyapi-production', 'tabbyapi');
-      expect(direct.reachable).toHaveBeenCalledWith('10.43.100.81', 5000, 1000);
-      expect(mockSpawn).not.toHaveBeenCalled();
+    it('reaches a service at its cluster address when this machine can, asking ClusterAccess, with no port-forward', async () => {
+      access.kubectl.mockResolvedValue('10.43.100.81');
+      const reachable = vi.fn(async () => true);
+      const svc = new ClusterProxyService(access, reachable);
+      expect(await svc.directServiceUrl('c1', 'model:tabby', target)).toBe('http://10.43.100.81:5000/');
+      expect(access.kubectl).toHaveBeenCalledWith('c1', ['-n', 'tabbyapi-production', 'get', 'svc', 'tabbyapi', '-o', 'jsonpath={.spec.clusterIP}']);
+      expect(reachable).toHaveBeenCalledWith('10.43.100.81', 5000, 1000);
+      expect(access.follow).not.toHaveBeenCalled();
     });
 
     it('remembers the address, so a model call does not look it up each time', async () => {
-      const direct = access('10.43.100.81', true);
-      const svc = new ClusterProxyService(direct);
-      await svc.directServiceUrl('c1', 'model:tabby', '/kube', target);
-      await svc.directServiceUrl('c1', 'model:tabby', '/kube', target);
-      expect(direct.clusterIp).toHaveBeenCalledTimes(1);
+      access.kubectl.mockResolvedValue('10.43.100.81');
+      const svc = new ClusterProxyService(access, async () => true);
+      await svc.directServiceUrl('c1', 'model:tabby', target);
+      await svc.directServiceUrl('c1', 'model:tabby', target);
+      expect(access.kubectl).toHaveBeenCalledTimes(1);
     });
 
     it('says no when the service has no cluster address or this machine cannot reach it, and asks again after a while', async () => {
-      expect(await new ClusterProxyService(access(undefined, true)).directServiceUrl('c1', 'model:tabby', '/kube', target)).toBeUndefined();
-      const unreachable = access('10.43.0.9', false);
-      const svc = new ClusterProxyService(unreachable);
-      expect(await svc.directServiceUrl('c2', 'model:tabby', '/kube', target)).toBeUndefined();
-      await svc.directServiceUrl('c2', 'model:tabby', '/kube', target);
-      expect(unreachable.clusterIp).toHaveBeenCalledTimes(1);
+      access.kubectl.mockResolvedValueOnce('None');
+      expect(await new ClusterProxyService(access, async () => true).directServiceUrl('c1', 'model:tabby', target)).toBeUndefined();
+      access.kubectl.mockResolvedValue('10.43.0.9');
+      const svc = new ClusterProxyService(access, async () => false);
+      access.kubectl.mockClear();
+      expect(await svc.directServiceUrl('c2', 'model:tabby', target)).toBeUndefined();
+      await svc.directServiceUrl('c2', 'model:tabby', target);
+      expect(access.kubectl).toHaveBeenCalledTimes(1);
       vi.advanceTimersByTime(60_000);
-      await svc.directServiceUrl('c2', 'model:tabby', '/kube', target);
-      expect(unreachable.clusterIp).toHaveBeenCalledTimes(2);
+      await svc.directServiceUrl('c2', 'model:tabby', target);
+      expect(access.kubectl).toHaveBeenCalledTimes(2);
+    });
+
+    it('fails with ClusterAccess\'s refusal and asks again on the next call', async () => {
+      access.kubectl.mockRejectedValueOnce(new Error('there is no cluster c3'));
+      const svc = new ClusterProxyService(access, async () => true);
+      await expect(svc.directServiceUrl('c3', 'model:tabby', target)).rejects.toThrow('there is no cluster c3');
+      access.kubectl.mockResolvedValue('10.43.0.10');
+      expect(await svc.directServiceUrl('c3', 'model:tabby', target)).toBe('http://10.43.0.10:5000/');
+    });
+
+    it('forwards through ClusterAccess when the cluster address cannot be reached from here', async () => {
+      access.kubectl.mockResolvedValue('10.43.0.9');
+      const svc = new ClusterProxyService(access, async () => false);
+      const url = svc.serviceUrl('c1', 'model:tabby', target);
+      (await started(1)).print(forwarding(40300));
+      expect(await url).toBe('http://localhost:40300/');
+      expect(forwards[0]!.args).toEqual(['port-forward', '--address', '127.0.0.1', '-n', 'tabbyapi-production', 'svc/tabbyapi', '0:5000']);
     });
   });
 });
 
 describe('sharedClusterProxy', () => {
-  it('hands every caller the one proxy, so a forward one opens is the one another stops', async () => {
-    const { sharedClusterProxy, ClusterProxyService: Class } = await import('./ClusterProxyService.js');
-    const first = sharedClusterProxy();
-    expect(first).toBeInstanceOf(Class);
-    expect(sharedClusterProxy()).toBe(first);
+  it('hands every caller with the same access the one proxy, so a forward one opens is the one another stops', () => {
+    const first = sharedClusterProxy(access);
+    expect(first).toBeInstanceOf(ClusterProxyService);
+    expect(sharedClusterProxy(access)).toBe(first);
+    expect(sharedClusterProxy(mock<ProxyAccess>())).not.toBe(first);
   });
 });

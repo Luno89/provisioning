@@ -301,6 +301,18 @@ describe('the Infrastructure page', () => {
     expect(screen.getByRole('link', { name: '← Clusters' })).toHaveAttribute('href', '#/infrastructure/clusters')
   })
 
+  it('says why a cluster\'s nodes or Helm releases could not be read, rather than showing none', async () => {
+    useShellStore.setState({ user: { id: 'op', email: 'op@example.com', permissions: { administer: true } } as never })
+    params.kind = 'cluster'
+    params.id = cluster.id
+    const { nodes: _nodes, releases: _releases, ...rest } = contents
+    vi.mocked(infrastructureApi.getClusterContents).mockResolvedValue({ ...rest, nodesProblem: 'the nodes could not be listed: nodes is forbidden', releasesProblem: 'Helm could not list the releases: Kubernetes cluster unreachable' })
+    show()
+    expect(await screen.findByTestId('nodes-problem')).toHaveTextContent('the nodes could not be listed: nodes is forbidden')
+    expect(screen.getByTestId('releases-problem')).toHaveTextContent('Helm could not list the releases: Kubernetes cluster unreachable')
+    expect(screen.queryByTestId('node-row')).toBeNull()
+  })
+
   it('shows someone else\'s view of a cluster without its services, nodes, GPUs or releases', async () => {
     params.kind = 'cluster'
     params.id = cluster.id

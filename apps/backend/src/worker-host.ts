@@ -27,7 +27,7 @@ dotenv.config({ quiet: true });
 
 const telemetry = startTelemetry(telemetrySettings(process.env, 'koala-worker-host'));
 const access = clusterAccessFrom(process.env, { role: roleFromEnv(process.env).role });
-telemetry.exportTo(collectorSink({ env: process.env, proxy: sharedClusterProxy(), access, koalasCluster: () => access.own().clusterId }));
+telemetry.exportTo(collectorSink({ env: process.env, proxy: sharedClusterProxy(access), koalasCluster: () => access.own().clusterId }));
 
 const logger = createWorkerLogger('host-worker');
 

@@ -6,7 +6,7 @@ import {
   type PipelineRunMetadata, type ClaimSettings, PLATFORM_OWNER, ownerIn, startedFor,
 } from '../../platform/index.js'
 import {
-  looksLikeMcp, namespaceOfDeployment, cachedProbes, corpusEndpointsWith, webToolsDepsFrom, type WaitingAsk,
+  looksLikeMcp, cachedProbes, mcpReachFrom, corpusEndpointsWith, webToolsDepsFrom, type McpProbe, type WaitingAsk,
 } from '../../engine/index.js'
 import type { DeploymentHealth } from '../store.js'
 import { missingNamespaceReason, namespacesByName, namespaceOf, removalHoldOf } from '../lib/app-namespace.js'
@@ -259,7 +259,7 @@ function inferProgressFromLog(logPath: string): ClusterProgress | null {
 
 export class TemporalBridge {
   db!: Database
-  private readonly mcpProbes = cachedProbes()
+  private mcpProbeCache: ((dep: DeploymentMetadata) => Promise<McpProbe>) | undefined
   io: SocketServer | undefined
   client!: Client
   masterKey: SecretKey
@@ -289,6 +289,11 @@ export class TemporalBridge {
   private clustersForConsolidation(): ClusterService {
     if (!this.clusterService) throw new Error('memories are consolidated through the cluster service, and this bridge was given none')
     return this.clusterService
+  }
+
+  private mcpProbes(dep: DeploymentMetadata): Promise<McpProbe> {
+    this.mcpProbeCache ??= cachedProbes(mcpReachFrom({ access: this.clusterAccess(), clusterById: (id) => this.getClusterById(id) }).probe)
+    return this.mcpProbeCache(dep)
   }
 
   private clusterAccess(): ClusterService['access'] {
@@ -624,7 +629,7 @@ export class TemporalBridge {
         let serviceReason = ''
         if (health === 'healthy' && looksLikeMcp(dep) && dep.ownerId) {
           try {
-            const verdict = healthFromProbe(await this.mcpProbes(namespaceOfDeployment(dep)))
+            const verdict = healthFromProbe(await this.mcpProbes(dep))
             if (verdict) serviceReason = verdict.reason
           } catch (err) {
             console.warn(`[Reconcile] ${dep.name}'s MCP server could not be asked how it is, so only its pods are judged: ${(err as Error).message}`)
@@ -667,7 +672,7 @@ export class TemporalBridge {
       try {
         const owners = [...new Set((await this.db.memory.getMemories()).map((memory) => memory.ownerId))]
         for (const ownerId of owners) {
-          const ends = await corpusEndpointsWith(webToolsDepsFrom(this.db.infrastructure, this.clusterAccess(), sharedClusterProxy()), ownerId).catch(ignore('an owner with no search service has their memories consolidated without an index'))
+          const ends = await corpusEndpointsWith(webToolsDepsFrom(this.db.infrastructure, sharedClusterProxy(this.clusterAccess())), ownerId).catch(ignore('an owner with no search service has their memories consolidated without an index'))
           const report = await consolidateMemories({
             db: this.db,
             ownerId,

@@ -1,4 +1,4 @@
-import { mkdtempSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, inject, it } from 'vitest';
@@ -21,6 +21,11 @@ describe('what is on a machine\'s cluster, read through ClusterAccess', () => {
     await access.kubectl(desk.id, ['create', 'namespace', 'shop-4f5a6b']);
     await access.kubectl(desk.id, ['create', 'deployment', 'shop', '-n', 'shop-4f5a6b', '--image=registry.k8s.io/pause:3.9']);
     await access.kubectl(desk.id, ['rollout', 'status', 'deployment/shop', '-n', 'shop-4f5a6b', '--timeout=720h']);
+    const chart = mkdtempSync(join(tmpdir(), 'koala-contents-chart-'));
+    mkdirSync(join(chart, 'templates'));
+    writeFileSync(join(chart, 'Chart.yaml'), 'apiVersion: v2\nname: shelf\nversion: 0.1.0\nappVersion: "1.2"\n');
+    writeFileSync(join(chart, 'templates', 'note.yaml'), 'apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: shelf-note\ndata:\n  said: hello\n');
+    await access.helm(desk.id, ['install', 'shelf', chart, '-n', 'shop-4f5a6b', '--wait']);
     const contents = new ClusterContentsService({
       monitoring: { clustersOf: async () => [desk, resting], ownsCluster: () => true, reach: async () => ({}) },
       deployments: async () => [{ id: 'd1', name: 'shop', namespace: 'shop-4f5a6b', clusterId: desk.id, ownerId: 'bo', status: 'running' }] as DeploymentMetadata[],
@@ -32,7 +37,8 @@ describe('what is on a machine\'s cluster, read through ClusterAccess', () => {
     expect(read.reachable).toBe(true);
     expect(read.workloads.find((workload) => workload.namespace === 'shop-4f5a6b')).toMatchObject({ group: 'apps', name: 'shop', state: 'ok' });
     expect(read.nodes?.length).toBe(1);
-    expect(read.releases).toEqual([]);
+    expect(read.releases?.find((release) => release.namespace === 'shop-4f5a6b')).toMatchObject({ name: 'shelf', status: 'deployed', chart: 'shelf-0.1.0', app_version: '1.2' });
+    expect(read.releasesProblem).toBeUndefined();
 
     const unreached = await contents.contents(asPerson('bo'), resting.id);
     expect(unreached).toMatchObject({ reachable: false, problem: 'it does not answer (resting is stopped until something runs on it)' });

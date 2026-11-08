@@ -5,7 +5,7 @@ import { ApplicationFailure } from '@temporalio/common';
 import type { ClusterAccess } from '../../infrastructure/index.js';
 import { CHART_DIR, NOTHING_INSTALLED, slotStateFrom, type ReleaseVault, type SlotState } from '../../releases/lib/odoo-release.js';
 import { clusterOfTarget } from '../../releases/lib/release-run.js';
-import type { ReleaseSource, ReleaseTarget, SecretTarget } from '../../releases/index.js';
+import type { ReleaseSource, ReleaseTarget, VaultReach } from '../../releases/index.js';
 import type { SecretSyncInfra } from '../../projects/index.js';
 import { inNamespace, runClusterJob, waitUntilRolledOut, type NamespacedCluster } from '../../activities/cluster-jobs.js';
 import { labelValue } from '../../engine-host/sandboxes/workspace.js';
@@ -18,7 +18,7 @@ export interface VaultSyncArgs {
   secretName: string;
   kubeconfig: string;
   cluster: SecretSyncInfra;
-  target: SecretTarget;
+  reach: VaultReach;
 }
 
 export type VaultSync = (args: VaultSyncArgs) => Promise<void>;
@@ -33,7 +33,7 @@ export interface SlotCluster {
   files(source: ReleaseSource): Promise<string[]>;
   file(source: ReleaseSource, path: string): Promise<string | null>;
   apply(target: ReleaseTarget, source: ReleaseSource, sets: string[]): Promise<void>;
-  vault(target: ReleaseTarget, vault: ReleaseVault, secretTarget: SecretTarget): Promise<void>;
+  vault(target: ReleaseTarget, vault: ReleaseVault): Promise<void>;
   waitReady(target: ReleaseTarget, workload: string): Promise<void>;
   exec(target: ReleaseTarget, pod: string, command: string[]): Promise<string>;
   job(target: ReleaseTarget, name: string, manifest: Record<string, unknown>): Promise<void>;
@@ -64,7 +64,7 @@ export function preparedNamespace(target: Pick<ReleaseTarget, 'namespace' | 'own
   return manifestList([releaseNamespace(target), ...registryPullManifests(target.namespace, login)]);
 }
 
-export type SlotClusterAccess = Pick<ClusterAccess, 'kubectl' | 'helm' | 'apply' | 'pipe' | 'kubeconfigOf'>;
+export type SlotClusterAccess = Pick<ClusterAccess, 'kubectl' | 'helm' | 'apply' | 'pipe' | 'kubeconfigOf' | 'reach'>;
 
 export function releaseCluster(target: ReleaseTarget): string {
   const found = clusterOfTarget(target);
@@ -128,7 +128,7 @@ export function createSlotCluster(deps: { access: SlotClusterAccess; repo: () =>
       }
     },
 
-    async vault(target, vault, secretTarget) {
+    async vault(target, vault) {
       const clusterId = releaseCluster(target);
       await prepare(target);
       const cluster: SecretSyncInfra = {
@@ -136,7 +136,7 @@ export function createSlotCluster(deps: { access: SlotClusterAccess; repo: () =>
         runHelm: (args) => access.helm(clusterId, args),
         applyManifest: (manifest) => access.apply(clusterId, manifest),
       };
-      await deps.syncVault({ projectId: vault.projectId, namespace: target.namespace, secretName: vault.secret, kubeconfig: await access.kubeconfigOf(clusterId), cluster, target: secretTarget });
+      await deps.syncVault({ projectId: vault.projectId, namespace: target.namespace, secretName: vault.secret, kubeconfig: await access.kubeconfigOf(clusterId), cluster, reach: await access.reach(clusterId) });
       let missing = vault.keys;
       for (;;) {
         beat(missing);

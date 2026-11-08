@@ -24,7 +24,7 @@ import { CustomizationsService } from '../services/CustomizationsService.js';
 import { ClientImportService } from '../services/ClientImportService.js';
 import { ProjectAppService } from '../services/ProjectAppService.js';
 import { namespaceOf } from '../../infrastructure/index.js';
-import type { TemporalBridge, AppExposureService, ClusterService, InfrastructureService } from '../../infrastructure/index.js';
+import type { TemporalBridge, AppExposureService, ClusterService, InfisicalService } from '../../infrastructure/index.js';
 import type { ConversationNoticeService } from '../../engine/index.js';
 import { releaseSettingsRouter } from '../routes/release-settings.js';
 import { projectAppRouter } from '../routes/project-app.js';
@@ -38,7 +38,7 @@ export interface ReleasesWiringDeps {
   db: Database;
   io: Pick<SocketServer, 'to'>;
   gitea: GiteaService;
-  infra: InfrastructureService;
+  infisical: InfisicalService;
   clusters: ClusterService;
   projectRepos: ProjectRepoService;
   temporalBridge: TemporalBridge;
@@ -63,7 +63,7 @@ export interface ReleasesWiring {
 }
 
 export function wireReleases(deps: ReleasesWiringDeps): ReleasesWiring {
-  const { db, gitea, infra, clusters, temporalBridge, notices, postNotice, secrets, tenant } = deps;
+  const { db, gitea, clusters, temporalBridge, notices, postNotice, secrets, tenant } = deps;
   const treeOfProject = async (projectId: string) => (await db.projects.getTrees()).find((tree) => tree.projectIds?.[0] === projectId);
   const clusterById = (id: string) => clusters.getByIdUnscoped(id);
   const onCluster = async (cluster: ClusterMetadata, namespace: string, secret: string, key: string): Promise<string | undefined> => {
@@ -78,7 +78,7 @@ export function wireReleases(deps: ReleasesWiringDeps): ReleasesWiring {
     const namespace = namespaceOf(deployment);
     return secrets.ensure(project, { seed: (key) => onCluster(cluster, namespace, managedSecretName(namespace), key) });
   };
-  const slotCluster = () => createSlotCluster({ access: clusters.access, repo: async () => gitea, registry: () => gitea.registryLogin(), syncVault: syncVaultFromProject(infra) });
+  const slotCluster = () => createSlotCluster({ access: clusters.access, repo: async () => gitea, registry: () => gitea.registryLogin(), syncVault: syncVaultFromProject(deps.infisical) });
 
   const decideRelease = async (project: ProjectMetadata, since: string, commit: string): Promise<ReleaseDecision> => {
     const releaseWhen = (await treeTypeOfProject(db.projects, project))?.releaseWhen;

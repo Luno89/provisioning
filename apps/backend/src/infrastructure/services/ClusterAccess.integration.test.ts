@@ -44,7 +44,8 @@ describe('ClusterAccess against a real k3s', () => {
     const reach = await access.reach('machine-dev2');
     await access.kubectl(reach, ['create', 'configmap', 'shop', '-n', 'default', '--from-literal=a=b']);
     expect(await access.kubectl(reach, ['get', 'configmap', 'shop', '-n', 'default', '-o', 'jsonpath={.data.a}'])).toBe('b');
-    expect(await access.helm(reach, ['list', '-A', '-o', 'json'])).toBe('[]\n');
+    const quiet = `helm-own-${Math.random().toString(36).slice(2, 8)}`;
+    expect(await access.helm(reach, ['list', '-n', quiet, '-o', 'json'])).toBe('[]\n');
   });
 
   it('works a machine from the reach a workflow hands over, in a process holding no records and no key', async () => {

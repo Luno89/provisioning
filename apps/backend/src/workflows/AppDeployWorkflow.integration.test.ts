@@ -12,6 +12,8 @@ import { DestroyAppActivity, type DestroyAppArgs } from '../activities/DestroyAp
 import { handedReach } from '../activities/handed-reach.js';
 import { ClusterAccess } from '../infrastructure/services/ClusterAccess.js';
 import { InfrastructureService } from '../infrastructure/services/InfrastructureService.js';
+import { InfisicalService } from '../infrastructure/services/InfisicalService.js';
+import { GiteaService } from '../projects/services/GiteaService.js';
 import { TOOLS } from '../infrastructure/testing/real-k3s.js';
 import { nodeProcesses, nodeStreams } from '../platform/index.js';
 import { startedFor } from '../platform/lib/workflow-owner.js';
@@ -30,7 +32,7 @@ const access = new ClusterAccess({
   tools: TOOLS,
   serviceAccount: k3s.account,
 });
-const steps: ClusterSteps = { access, infra: new InfrastructureService() };
+const steps: ClusterSteps = { access, infra: new InfrastructureService(), gitea: new GiteaService('integration-key' as never, { none: 'the apps these tests deploy are not built in Gitea' }), infisical: new InfisicalService('integration-key' as never, { none: 'the apps these tests deploy keep no secrets in Infisical' }) };
 const KOALA = access.own();
 const LOG = join(mkdtempSync(join(tmpdir(), 'koala-app-deploy-wf-log-')), 'app.log');
 const deployed: Array<{ clusterId: string; reach: unknown }> = [];

@@ -1,10 +1,9 @@
 import { assessWorkload } from '../infrastructure/index.js';
 import fs from 'fs/promises';
 import path from 'path';
-import { GiteaService } from '../projects/index.js';
 import { ApplicationFailure } from '@temporalio/common';
 import { buildPlanAt, isCommitSha, buildArgEntries } from '../releases/index.js';
-import { loadKeys, type Followed } from '../platform/index.js';
+import type { Followed } from '../platform/index.js';
 import { forPushing, kanikoRegistryArgs, dockerConfigJson } from '../instances/index.js';
 import { ignore } from '@koala/engine-core/failures';
 import { messageOf, waitingOn } from './failure-reasons.js';
@@ -43,7 +42,7 @@ export function workspacePath(sub: string | undefined): string {
 export async function RunPipelineActivity(args: RunPipelineArgs, steps: ClusterSteps): Promise<RunPipelineResult> {
   const koala = steps.access.own();
   const kubectl = (argv: string[]) => steps.access.kubectl(koala, argv);
-  const gitea = new GiteaService(steps.infra, loadKeys(process.env).data, await steps.access.kubeconfigOf(koala));
+  const { gitea } = steps;
 
   if (!isCommitSha(args.commitSha)) throw ApplicationFailure.nonRetryable(`"${args.commitSha}" is not a commit to build`, 'NotACommit');
   const runSlug = (args.runId ?? Math.random().toString(36).slice(2)).replace(/[^a-z0-9]/gi, '').slice(-8).toLowerCase();

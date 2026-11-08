@@ -4,8 +4,8 @@ import {
   renderApp, specSecrets, minioStorageFor, specStorageFor, visibleAppSpecs, resolveBindings, bindingFiles, bindingProjection, bindingSecretName,
   type ProjectedBinding, StorageAdapter, hasCloudCredentials, installGpuDevicePlugin,
   isMockCloudProvider, isSelfManagedCluster, buildAppEnv, TABBYAPI_DEFAULT_MAX_SEQ_LEN, planHostMemory,
-  parseQuantity, type HostMemoryPlan, deploymentIdFor, InfisicalService, sharedClusterProxy, gitappPullSecretArgs, type MachineOfCluster, type Reach } from '../infrastructure/index.js';
-import { readBindingCredentials, GiteaService, sanitiseNamespaceName, syncProjectSecrets } from '../projects/index.js';
+  parseQuantity, type HostMemoryPlan, deploymentIdFor, gitappPullSecretArgs, type MachineOfCluster, type Reach } from '../infrastructure/index.js';
+import { readBindingCredentials, sanitiseNamespaceName, syncProjectSecrets } from '../projects/index.js';
 import { createDatabase, loadKeys } from '../platform/index.js';
 
 import { ensureClusterMonitoring } from './cluster-monitoring.js';
@@ -449,7 +449,7 @@ export async function DeployAppActivity(args: DeployAppArgs, steps: ClusterSteps
   );
 
   if (args.appType === 'gitapp') {
-    const gitea = new GiteaService(infra, loadKeys(process.env).data, '/tmp/kubeconfig-provisioning-lunorica');
+    const { gitea } = steps;
     const registryHost = await gitea.getRegistryHost();
     const pull = await gitea.registryLogin();
     await access.apply(reach, await kubectl(gitappPullSecretArgs(namespace, registryHost, pull)));
@@ -462,17 +462,15 @@ export async function DeployAppActivity(args: DeployAppArgs, steps: ClusterSteps
         ? (await secretDb.projects.getProjects()).find((p) => p.id === self.gitappProjectId)
         : undefined;
       if (project) {
-        const target = { clusterName: args.clusterName, provider: args.provider, isMock };
-        const reachable = infisicalHostFor(target);
+        const reachable = infisicalHostFor(reach, { url: await steps.infisical.resolveBaseUrl() });
         if ('problem' in reachable) {
           if (project.requiredSecrets?.length) throw new Error(reachable.problem);
           console.warn(`[DeployAppActivity] ${project.name} declares no secrets; ${reachable.problem}`);
         } else {
           const masterKey = loadKeys(process.env).data;
-          const infisical = new InfisicalService(infra, masterKey, '/tmp/kubeconfig-provisioning-lunorica', undefined, sharedClusterProxy());
           const synced = await syncProjectSecrets(
-            { infra: { runKubectl: kubectl, runHelm: (argv) => access.helm(reach, argv), applyManifest: (manifest) => access.apply(reach, manifest) }, vault: infisical, projects: secretDb.projects, masterKey },
-            { project, namespace: namespace, kubeconfig: kubeconfigPath, target },
+            { infra: { runKubectl: kubectl, runHelm: (argv) => access.helm(reach, argv), applyManifest: (manifest) => access.apply(reach, manifest) }, vault: steps.infisical, projects: secretDb.projects, masterKey },
+            { project, namespace: namespace, kubeconfig: kubeconfigPath, reach },
           );
           console.log(`[DeployAppActivity] ${project.name}: vault syncs into ${namespace}-secrets from ${synced.hostAPI} (operator ${synced.operator})`);
         }

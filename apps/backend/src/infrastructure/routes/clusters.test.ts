@@ -24,7 +24,7 @@ function setup() {
   const clusterProxyService = mock<Pick<ClusterProxyService, 'ensurePortForward' | 'stopForCluster' | 'getAutoLoginCookies'>>();
   const giteaService = mock<GiteaService>();
   const infisicalService = mock<InfisicalService>();
-  const access = mock<Pick<ClusterAccess, 'kubectl' | 'kubeconfigOf'>>();
+  const access = mock<Pick<ClusterAccess, 'kubectl'>>();
   const temporalBridge = mock<TemporalBridge>();
   const router = clustersRouter({
     clusterService, clusterProxyService, giteaService, infisicalService, access, temporalBridge,
@@ -135,8 +135,7 @@ describe('opening a cluster\'s dashboards', () => {
   const seen = () => {
     const parts = setup();
     parts.clusterService.getById.calledWith('provisioning-lunorica', by(OPERATOR), 'see-everything').mockResolvedValue(systemCluster());
-    parts.access.kubeconfigOf.calledWith('provisioning-lunorica').mockResolvedValue('/tmp/kubeconfig-system');
-    parts.clusterProxyService.ensurePortForward.calledWith('provisioning-lunorica', matches(() => true), '/tmp/kubeconfig-system').mockResolvedValue('http://127.0.0.1:4000');
+    parts.clusterProxyService.ensurePortForward.calledWith('provisioning-lunorica', matches(() => true)).mockResolvedValue('http://127.0.0.1:4000');
     return parts;
   };
 
@@ -183,13 +182,12 @@ describe('opening a cluster\'s dashboards', () => {
     expect(answer.headers['set-cookie']).toBeUndefined();
   });
 
-  it('answers 502 with why when the cluster cannot be reached, opening nothing', async () => {
-    const { access, clusterProxyService, call } = seen();
-    access.kubeconfigOf.calledWith('provisioning-lunorica').mockRejectedValue(new Error('this process is not running inside Koala\'s cluster, so it has no account there to reach it with'));
+  it('answers 502 with why when the cluster cannot be reached', async () => {
+    const { clusterProxyService, call } = seen();
+    clusterProxyService.ensurePortForward.mockRejectedValue(new Error('this process is not running inside Koala\'s cluster, so it has no account there to reach it with'));
     const answer = await call('/provisioning-lunorica/proxy/prometheus', 'GET', undefined, OPERATOR);
     expect(answer.status).toBe(502);
     expect(answer.data).toEqual({ error: 'Service unavailable: this process is not running inside Koala\'s cluster, so it has no account there to reach it with' });
-    expect(clusterProxyService.ensurePortForward).not.toHaveBeenCalled();
   });
 
   it('answers 502 with the reason when the dashboard cannot be reached', async () => {

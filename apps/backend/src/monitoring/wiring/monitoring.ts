@@ -52,7 +52,7 @@ export function monitoringDepsFor(parts: MonitoringServiceParts): MonitoringDeps
     systemCluster: () => clusters.getSystemClusterEntry(),
     pool: (cluster) => (cluster.isSystem ? parts.pool : undefined),
     ...(parts.machineStatus ? { machineStatus: parts.machineStatus } : {}),
-    prometheus: async (cluster) => prometheusAt(await proxy.serviceUrl(cluster.id, 'prometheus', await access.kubeconfigOf(cluster.id))),
+    prometheus: async (cluster) => prometheusAt(await proxy.serviceUrl(cluster.id, 'prometheus')),
     ...runnersByRecord(access),
     rootAlerts: parts.rootAlerts,
   };

@@ -54,12 +54,12 @@ describe('where reconciliation applies it', () => {
     let probes = 0;
     let clock = 0;
     const probe = cachedProbes(async () => { probes += 1; return { tools: 2 }; }, 1000, () => clock);
-    await probe('ns');
+    await probe({ id: 'd1' });
     clock = 500;
-    await probe('ns');
+    await probe({ id: 'd1' });
     expect(probes).toBe(1);
     clock = 1500;
-    await probe('ns');
+    await probe({ id: 'd1' });
     expect(probes).toBe(2);
   });
 

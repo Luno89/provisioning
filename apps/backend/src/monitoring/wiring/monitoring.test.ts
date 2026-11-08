@@ -7,6 +7,7 @@ import { encryptValue, type ClusterMetadata } from '../../platform/index.js';
 import { memoryDatabase } from '../../platform/testing/memory-database.js';
 import type { ClusterAccess } from '../../infrastructure/index.js';
 import { testClusterAccess } from '../../infrastructure/testing/cluster-access.js';
+import { ClusterProxyService } from '../../infrastructure/services/ClusterProxyService.js';
 import type { PoolMonitor } from '../services/MonitoringService.js';
 import { monitoringDepsFor, type MonitoredClusters, type PrometheusProxy } from './monitoring.js';
 
@@ -22,20 +23,18 @@ function parts() {
 }
 
 describe('the monitoring both the backend and the engine worker build', () => {
-  it('reaches each cluster\'s Prometheus through the proxy, with the kubeconfig ClusterAccess gives for that cluster', async () => {
-    const { access, clusters, proxy, db } = parts();
-    access.kubeconfigOf.calledWith('machine-desk').mockResolvedValue('/run/koala/kubeconfig-machine-machine-desk');
+  it('reaches each cluster\'s Prometheus through the proxy, by the cluster\'s id', async () => {
+    const { clusters, proxy, db } = parts();
     proxy.serviceUrl.mockResolvedValue('http://127.0.0.1:41000/');
     const deps = monitoringDepsFor({ db, clusters, proxy });
     expect(await deps.prometheus(desk)).toBeDefined();
-    expect(proxy.serviceUrl).toHaveBeenCalledWith('machine-desk', 'prometheus', '/run/koala/kubeconfig-machine-machine-desk');
+    expect(proxy.serviceUrl).toHaveBeenCalledWith('machine-desk', 'prometheus');
   });
 
-  it('asks the proxy for nothing when ClusterAccess cannot reach the cluster, and fails with why', async () => {
-    const { access, clusters, proxy, db } = parts();
-    access.kubeconfigOf.mockRejectedValue(new Error('desk is stopped until something runs on it'));
+  it('fails with the proxy\'s reason when the cluster cannot be reached', async () => {
+    const { clusters, proxy, db } = parts();
+    proxy.serviceUrl.mockRejectedValue(new Error('desk is stopped until something runs on it'));
     await expect(monitoringDepsFor({ db, clusters, proxy }).prometheus(desk)).rejects.toThrow('desk is stopped until something runs on it');
-    expect(proxy.serviceUrl).not.toHaveBeenCalled();
   });
 
   it('runs kubectl, helm and apply through ClusterAccess by the cluster\'s id', async () => {
@@ -73,21 +72,19 @@ describe('the monitoring both the backend and the engine worker build', () => {
 });
 
 describe('the same monitoring over ClusterAccess itself', () => {
-  it('runs a machine\'s kubectl on the kubeconfig sealed on its record, and hands Prometheus\'s proxy that same file', async () => {
+  it('runs a machine\'s kubectl on the kubeconfig sealed on its record, and Prometheus\'s proxy asks that cluster through the same access', async () => {
     const db = memoryDatabase();
     await db.infrastructure.saveCluster({ ...desk, kubeconfigEnc: encryptValue('server: https://100.64.0.7:6443', KEY) });
     const asked: string[][] = [];
     const folder = mkdtempSync(join(tmpdir(), 'koala-monitoring-wiring-'));
     const access = testClusterAccess(db, { dataKey: KEY, folder, answers: async (args) => { asked.push([...args]); return 'answered'; } });
-    const proxy = mock<PrometheusProxy>();
-    proxy.serviceUrl.mockResolvedValue('http://127.0.0.1:41000/');
+    const proxy = new ClusterProxyService(access, async (host, port) => host === 'answered' && port === 9090);
     const deps = monitoringDepsFor({ db, clusters: { access, getSystemClusterEntry: async () => system }, proxy });
     expect(await deps.kubectl(desk, ['get', 'probes', '-A'])).toBe('answered');
     expect(asked).toEqual([['get', 'probes', '-A']]);
     await deps.prometheus(desk);
-    const [, , kubeconfig] = proxy.serviceUrl.mock.calls[0]!;
-    expect(kubeconfig).toBe(join(folder, 'kubeconfig-machine-machine-desk'));
-    expect(readFileSync(kubeconfig, 'utf8')).toBe('server: https://100.64.0.7:6443');
+    expect(asked[1]).toEqual(['-n', 'monitoring', 'get', 'svc', 'kube-prometheus-stack-prometheus', '-o', 'jsonpath={.spec.clusterIP}']);
+    expect(readFileSync(join(folder, 'kubeconfig-machine-machine-desk'), 'utf8')).toBe('server: https://100.64.0.7:6443');
   });
 
   it('fails with ClusterAccess\'s refusal for a stopped machine, running nothing', async () => {

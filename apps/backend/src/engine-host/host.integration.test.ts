@@ -11,6 +11,7 @@ describe('the engine host', () => {
     const host = createEngineHost({
       models: {} as never,
       cluster: mock<KoalasCluster>(),
+      registry: { none: 'this test builds no workspace images' },
       stores: storesFromDatabase(db),
       publishedWorkspaces: { get: async () => undefined, save: async () => undefined },
       readRepoFile: async () => undefined,

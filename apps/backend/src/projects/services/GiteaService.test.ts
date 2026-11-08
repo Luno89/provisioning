@@ -2,9 +2,8 @@ import { http, HttpResponse } from 'msw';
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mock } from 'vitest-mock-extended';
-import type { InfrastructureService } from '../../infrastructure/index.js';
 import { decryptValue, encryptValue } from '../../platform/lib/crypto.js';
 import { containing } from '../../platform/lib/test-matchers.js';
 import { interceptHttp } from '../../platform/testing/http.js';
@@ -17,15 +16,10 @@ const ADMIN = `Basic ${Buffer.from('provisioning-bot:admin-pass').toString('base
 const ALL_SCOPES = ['write:repository', 'write:package', 'write:admin', 'write:user', 'write:organization'];
 
 type GitRun = Parameters<Processes['run']>[0];
-type Infra = Pick<InfrastructureService, 'runKubectl' | 'getK3dServerIp'>;
 
 let dataDir: string;
-let savedUrl: string | undefined;
 
-beforeAll(() => { savedUrl = process.env.GITEA_URL; });
-afterAll(() => { if (savedUrl === undefined) delete process.env.GITEA_URL; else process.env.GITEA_URL = savedUrl; });
 beforeEach(() => {
-  process.env.GITEA_URL = `${BASE}/`;
   dataDir = mkdtempSync(path.join(tmpdir(), 'gitea-unit-'));
 });
 afterEach(() => {
@@ -36,10 +30,9 @@ afterEach(() => {
 const server = interceptHttp();
 
 function setUp() {
-  const infra = mock<Infra>();
   const processes = mock<Processes>();
-  const gitea = new GiteaService(infra, KEY, '/tmp/kubeconfig', { processes, dataDir });
-  return { infra, processes, gitea };
+  const gitea = new GiteaService(KEY, { url: BASE }, { processes, dataDir });
+  return { processes, gitea };
 }
 
 const said = (run: GitRun): string => run.args.filter((arg) => !arg.endsWith('repo.git')).join(' ');
@@ -78,12 +71,10 @@ describe('the admin password and token Koala keeps for Gitea', () => {
       return HttpResponse.json({ sha1: 'fresh-token' });
     });
 
-    it('makes one with the admin password when none is stored, seals it on disk with its scopes and puts it in the cluster', async () => {
-      const { infra, gitea } = setUp();
+    it('makes one with the admin password when none is stored and seals it on disk with its scopes', async () => {
+      const { gitea } = setUp();
       writeData('.gitea-admin-password', 'admin-pass\n');
       const made: unknown[] = [];
-      let manifest = '';
-      infra.runKubectl.mockImplementation(async (args) => { manifest = readFileSync(args[2]!, 'utf8'); return ''; });
       server.use(mintsToken(made), http.get(`${BASE}/api/v1/repos/acme/demo/git/commits/abc`, ({ request }) => {
         expect(request.headers.get('authorization')).toBe('token fresh-token');
         return HttpResponse.json({ commit: { message: 'm' } });
@@ -93,8 +84,6 @@ describe('the admin password and token Koala keeps for Gitea', () => {
       expect(decryptValue(readFileSync(dataFile('.gitea-admin-token'), 'utf8'), KEY)).toBe('fresh-token');
       expect(readFileSync(dataFile('.gitea-admin-token'), 'utf8')).not.toContain('fresh-token');
       expect(JSON.parse(readFileSync(dataFile('.gitea-admin-token.scopes'), 'utf8'))).toEqual(ALL_SCOPES);
-      expect(JSON.parse(manifest)).toMatchObject({ kind: 'Secret', metadata: { name: 'gitea-credentials', namespace: 'gitea' }, stringData: { token: 'fresh-token', host: 'gitea-http.gitea.svc.cluster.local', port: '3000', protocol: 'http' } });
-      expect(infra.runKubectl).toHaveBeenCalledWith(['apply', '-f', containing('gitea-secret-') as unknown as string], '/tmp/kubeconfig');
     });
 
     it('replaces a stored token Gitea no longer accepts', async () => {
@@ -138,43 +127,6 @@ describe('the admin password and token Koala keeps for Gitea', () => {
   });
 });
 
-describe('the credentials secret in the cluster', () => {
-  it('is applied as a manifest with the token given, and the manifest file is gone afterwards', async () => {
-    const { infra, gitea } = setUp();
-    let file = '';
-    let manifest = '';
-    infra.runKubectl.mockImplementation(async (args) => { file = args[2]!; manifest = readFileSync(file, 'utf8'); return ''; });
-    await gitea.ensureClusterSecret('given-token');
-    expect(JSON.parse(manifest)).toMatchObject({ metadata: { name: 'gitea-credentials' }, stringData: { token: 'given-token' } });
-    expect(existsSync(file)).toBe(false);
-  });
-
-  it('only warns, and still removes the manifest file, when kubectl fails', async () => {
-    const { infra, gitea } = setUp();
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-    let file = '';
-    infra.runKubectl.mockImplementation(async (args) => { file = args[2]!; throw new Error('the cluster is down'); });
-    await expect(gitea.ensureClusterSecret('given-token')).resolves.toBeUndefined();
-    expect(warn).toHaveBeenCalledWith('[GiteaService] could not sync gitea-credentials secret: the cluster is down');
-    expect(existsSync(file)).toBe(false);
-  });
-
-  it('takes the token Koala holds when none is given, and only warns when there is none to take', async () => {
-    const { infra, gitea } = setUp();
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-    await gitea.ensureClusterSecret();
-    expect(infra.runKubectl).not.toHaveBeenCalled();
-    expect(warn).toHaveBeenCalledWith(containing('could not sync gitea-credentials secret'));
-    writeData('.gitea-admin-token', encryptValue('held', KEY));
-    writeData('.gitea-admin-token.scopes', JSON.stringify(ALL_SCOPES));
-    server.use(http.get(`${BASE}/api/v1/user`, () => HttpResponse.json({})));
-    let manifest = '';
-    infra.runKubectl.mockImplementation(async (args) => { manifest = readFileSync(args[2]!, 'utf8'); return ''; });
-    await gitea.ensureClusterSecret();
-    expect(JSON.parse(manifest)).toMatchObject({ stringData: { token: 'held' } });
-  });
-});
-
 describe('calling Gitea\'s API as the bot', () => {
   function holdingToken() {
     const made = setUp();
@@ -199,16 +151,19 @@ describe('calling Gitea\'s API as the bot', () => {
     ]);
   });
 
-  it('asks the cluster where Gitea is when no address is configured, once', async () => {
-    delete process.env.GITEA_URL;
-    const { infra, gitea } = holdingToken();
-    infra.runKubectl.mockImplementation(async (args) => (args[1] === 'svc'
-      ? JSON.stringify({ spec: { ports: [{ name: 'http', port: 3000, nodePort: 31737 }] } })
-      : '10.0.0.130 \n'));
-    server.use(http.get('http://10.0.0.130:31737/api/v1/user', () => HttpResponse.json({})), http.get('http://10.0.0.130:31737/api/v1/repos/a/b/git/commits/c', () => HttpResponse.json({ commit: { message: 'm' } })));
+  it('reaches Gitea only at the address it was given', async () => {
+    const { gitea } = holdingToken();
+    const asked: string[] = [];
+    server.use(http.get(`${BASE}/api/v1/repos/a/b/git/commits/c`, ({ request }) => { asked.push(request.url); return HttpResponse.json({ commit: { message: 'm' } }); }));
     await gitea.getCommit('a', 'b', 'c');
-    await gitea.getCommit('a', 'b', 'c');
-    expect(infra.runKubectl).toHaveBeenCalledTimes(2);
+    expect(asked).toEqual([`${BASE}/api/v1/repos/a/b/git/commits/c`]);
+  });
+
+  it('refuses every call with the reason it was given where it reaches no Gitea, asking nothing', async () => {
+    const gitea = new GiteaService(KEY, { none: 'root keeps no repositories, so it reaches no Gitea' }, { processes: mock<Processes>(), dataDir });
+    await expect(gitea.getCommit('a', 'b', 'c')).rejects.toThrow('root keeps no repositories, so it reaches no Gitea');
+    await expect(gitea.getRegistryHosts()).rejects.toThrow('root keeps no repositories, so it reaches no Gitea');
+    await expect(gitea.repoGitUrl('a', 'b')).rejects.toThrow('root keeps no repositories, so it reaches no Gitea');
   });
 });
 

@@ -8,7 +8,6 @@ const RELEASE_PLACE = {
   target: { type: 'object', description: 'The cluster, namespace and release name it goes into.' },
   host: { type: 'string', description: 'The address the live app answers on.' },
   previewHost: { type: 'string', description: 'The address a preview answers on.' },
-  secretTarget: { type: 'object', description: 'Where the project\'s vault syncs its secrets to.' },
 } as const;
 
 const BUILD = { type: 'object', description: 'A build: its release id, image, source commit and vault.' } as const;
@@ -16,13 +15,13 @@ const BUILD = { type: 'object', description: 'A build: its release id, image, so
 const RELEASE_INPUTS = {
   type: 'object',
   properties: { ...RELEASE_PLACE, build: BUILD },
-  required: ['ownerId', 'projectId', 'adapter', 'target', 'host', 'previewHost', 'secretTarget', 'build'],
+  required: ['ownerId', 'projectId', 'adapter', 'target', 'host', 'previewHost', 'build'],
 } as const;
 
 const ROLL_BACK_INPUTS = {
   type: 'object',
   properties: { ...RELEASE_PLACE, from: { type: 'string', description: 'The live release to go back from.' }, to: BUILD },
-  required: ['ownerId', 'projectId', 'adapter', 'target', 'host', 'previewHost', 'secretTarget', 'from', 'to'],
+  required: ['ownerId', 'projectId', 'adapter', 'target', 'host', 'previewHost', 'from', 'to'],
 } as const;
 
 export const RELEASE_PERSONAS: PersonaRecord[] = [

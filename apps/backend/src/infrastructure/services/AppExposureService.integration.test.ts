@@ -99,10 +99,11 @@ describe('an app exposed on this computer through the instance\'s real edge', ()
     await access.kubectl('machine-desk', ['create', 'namespace', 'traefik']);
     await access.apply('machine-desk', POD);
     await access.kubectl('machine-desk', ['wait', '--for=condition=Ready', 'pod/web', '-n', 'traefik', '--timeout=720h']);
-    while (!(await access.kubectl('machine-desk', ['get', 'endpointslices', '-n', 'traefik', '-l', 'kubernetes.io/service-name=traefik', '-o', 'jsonpath={.items[*].endpoints[*].conditions.ready}'])).includes('true')) {
+    const nodeAddress = (await access.kubectl('machine-desk', ['get', 'nodes', '-o', 'jsonpath={.items[0].status.addresses[?(@.type=="InternalIP")].address}'])).trim();
+    const nodePort = (await access.kubectl('machine-desk', ['get', 'service', 'traefik', '-n', 'traefik', '-o', 'jsonpath={.spec.ports[0].nodePort}'])).trim();
+    while ((await nodeProcesses.run({ command: 'docker', args: ['exec', edgeName, 'wget', '-q', '-T', '5', '-O', '-', `http://${nodeAddress}:${nodePort}/`] })).stdout !== 'from-the-app\n') {
       await new Promise((done) => setTimeout(done, 200));
     }
-    const nodeAddress = (await access.kubectl('machine-desk', ['get', 'nodes', '-o', 'jsonpath={.items[0].status.addresses[?(@.type=="InternalIP")].address}'])).trim();
     await db.infrastructure.saveCluster({ ...machine, meshIp: nodeAddress });
     await db.infrastructure.saveDeployment({ id: 'd1abcdef', name: 'Shop', namespace: NAMESPACE, clusterId: 'machine-desk', strategy: 'helm', status: 'running', ownerId: 'bo' } as DeploymentMetadata);
 

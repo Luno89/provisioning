@@ -18,7 +18,7 @@ import { CSP_REPORT_LIMIT, CSP_REPORT_PATH, cspHeader, cspModeFrom, violationLin
   getTemporalClient, resolveOwnersWith, PayloadStorageService, createAuth, inFlightLimit, keepTrying, mongoTarget, asyncRoute,
   TEMPORAL_JWKS_PATH, temporalCa, temporalTlsProblem, temporalKeysRouter, trustProxyFor, temporalNamespaceFrom,
   authorize, claimSettingsFrom, type Principal, createDatabase, sharedPayloadBlobs, type Database, migrateLegacyOwnership, operatorsFromAdmins, ownUnownedProjects, decryptValue, loadKeys,
-  AccessRevocations, SessionEnds, SessionSockets, endsSessions, roleFromEnv, servesTenants, holdsAccounts, MailService, emailWayFrom, telemetrySettings, e2eProblem, firstAdminSetup, drainThenStop, podPlaceFrom, runOnce, } from './platform/index.js';
+  AccessRevocations, SessionEnds, SessionSockets, endsSessions, roleFromEnv, servesTenants, servesHub, holdsAccounts, MailService, emailWayFrom, telemetrySettings, e2eProblem, firstAdminSetup, drainThenStop, podPlaceFrom, runOnce, } from './platform/index.js';
 import { startTelemetry } from '@koala/engine-core/telemetry-sdk';
 import { rateLimit } from 'express-rate-limit';
 import { wireReleases } from './releases/wiring/releases.js';
@@ -46,11 +46,11 @@ import { modelsRouter, ModelService, endpointRulesFromEnv } from './models/index
 
 import {
   InfrastructureService, ClusterService, clusterAccessFrom, AppService, RegistryService, GitModuleService, BuilderService,
-  AppExposureService, VpsCatalogService, WorkerService, sharedClusterProxy, CredentialService, InfisicalService,
+  AppExposureService, VpsCatalogService, WorkerService, sharedClusterProxy, CredentialService, InfisicalService, infisicalSettingsFrom,
   HeadscaleService, BUILD_TOKENS_MIGRATION, cleanUpBuildTokens, pullSecretWriter, ovhSubsidiaryFrom, vpsCatalogAdapters,
 } from './infrastructure/index.js';
 import { TemporalBridge } from './infrastructure/services/TemporalBridge.js';
-import { backendAddress, GiteaService, pushToBuild } from './projects/index.js';
+import { GiteaService, giteaSettingsFrom, pushToBuild } from './projects/index.js';
 import { HUB_REPO_HOOK_PATH, hubRepoHookSecret, hubRepoHookSecrets, hubRepoHookUrl } from './hub/index.js';
 
 import { seedAll } from './scripts/seed-all.js';
@@ -137,28 +137,17 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     edge: instanceSide.edge,
     groupOf: async (dep) => (dep.gitappProjectId ? (await db.hub.getHubLinks()).find((link) => link.projectId === dep.gitappProjectId)?.group : undefined),
   });
-  const clusterProxyService = sharedClusterProxy();
+  const clusterProxyService = sharedClusterProxy(clusterAccess);
   const telemetrySink = collectorSink({
     env: process.env,
     proxy: clusterProxyService,
-    access: clusterAccess,
     koalasCluster,
   });
   telemetry.exportTo(telemetrySink);
-  const giteaService = new GiteaService(infraService, keys.data, '/tmp/kubeconfig-provisioning-lunorica');
-  if (tenants) {
-    await giteaService.ensureClusterSecret().catch((err: Error) =>
-      console.warn(`[gitea] could not ensure cluster secret: ${err.message}`),
-    );
-  }
-  const infisicalService = new InfisicalService(
-    infraService,
-    keys.data,
-    '/tmp/kubeconfig-provisioning-lunorica',
-    undefined,
-    clusterProxyService,
-  );
-  const core = projectsCore({ db, push, io, env: process.env, dataKey: keys.data, gitea: giteaService, infra: infraService, infisical: infisicalService, kubeconfig: '/tmp/kubeconfig-provisioning-lunorica' });
+  const gitea = tenants || servesHub(role) ? giteaSettingsFrom(process.env) : undefined;
+  const giteaService = new GiteaService(keys.data, gitea ?? { none: `${role.role} keeps no repositories, so it reaches no Gitea` });
+  const infisicalService = new InfisicalService(keys.data, tenants ? infisicalSettingsFrom(process.env) : { none: `${role.role} keeps no project's secrets, so it reaches no Infisical` });
+  const core = projectsCore({ db, push, io, env: process.env, dataKey: keys.data, gitea: giteaService, webhooksTo: tenants ? gitea?.reachesKoalaAt : undefined, infisical: infisicalService });
   const { projectRepoService, channels, itemChats, notices, postNotice, projectSecrets } = core;
   const headscaleService = new HeadscaleService(keys.data, process.env.HEADSCALE_URL || 'http://localhost:8080', process.env.HEADSCALE_API_KEY);
   const MACHINE_GATEWAY_PORT = Number(process.env.MACHINE_GATEWAY_PORT || 7234);
@@ -315,12 +304,13 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     providers: new SignInProviders({ providers: signInWith.providers, publicUrl: PUBLIC_URL, returnUrl: signInReturn.url, sessionKey: keys.session, accounts: authService }), passwords,
   }));
   if (holdsAccounts(role)) app.use('/api/auth/password', passwordRouter({ passwords, auth, devices, sessionKey: keys.session }));
-  const giteaReachesUs = process.env.GITEA_REACHES_KOALA_AT?.trim();
-  const hubBackend = giteaReachesUs ? async () => giteaReachesUs : backendAddress(infraService, '/tmp/kubeconfig-provisioning-lunorica', port);
   const hub = await wireHub({
     role, env: process.env, app, tenant, db, mail, publicUrl: PUBLIC_URL, dataKey: keys.data, gitea: giteaService, io,
     hubRepoHook: {
-      url: async (projectId) => hubRepoHookUrl(await hubBackend(), projectId),
+      url: async (projectId) => {
+        if (!gitea) throw new Error(`${role.role} keeps no repositories, so no shared project's repository sends it pushes`);
+        return hubRepoHookUrl(gitea.reachesKoalaAt, projectId);
+      },
       secret: (projectId) => hubRepoHookSecret(typeof keys.data === 'string' ? keys.data : keys.data.current, projectId),
     },
     notify: (ownerId, scope, notice) => notices.post(ownerId, scope, notice),
@@ -364,7 +354,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
 
   const files = instanceFiles ? wireFiles({ tenant, db, files: instanceFiles, projectRepos: projectRepoService, gitea: giteaService, getOwnedProject }) : undefined;
   const releases = wireReleases({
-    tenant, db, io, gitea: giteaService, infra: infraService, clusters: clusterService, projectRepos: projectRepoService, temporalBridge,
+    tenant, db, io, gitea: giteaService, infisical: infisicalService, clusters: clusterService, projectRepos: projectRepoService, temporalBridge,
     runs: engineRuns, notices, postNotice, secrets: projectSecrets, agents: agentDirectory, registry: engineRegistry,
     exposure: appExposureService, channels, getOwnedProject,
   });
@@ -377,7 +367,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
       metricsWrite: async (body: Buffer) => {
         const system = await clusterService.getSystemClusterEntry();
         if (!system) return { status: 503, text: 'this Koala has no system cluster to keep metrics on' };
-        const base = await clusterProxyService.serviceUrl(system.id, 'prometheus', await clusterAccess.kubeconfigOf(system.id));
+        const base = await clusterProxyService.serviceUrl(system.id, 'prometheus');
         const answer = await fetch(new URL('api/v1/write', base.endsWith('/') ? base : `${base}/`), {
           method: 'POST', body, headers: { 'content-type': 'application/x-protobuf', 'content-encoding': 'snappy', 'x-prometheus-remote-write-version': '0.1.0' },
         });
@@ -397,7 +387,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   tenant.use('/api/models', modelsRouter({ modelService, db, credentialService, machines: machineService, rateLimits: getModelRateLimiterSnapshot }));
 
   const { poisoning, evalHost, level2Service, procedureService, mcpCatalogue } = await wireEngine({
-    tenant, db, io, env: process.env, role, sessionKey: keys.session, dataKey: keys.data, core: engine, temporalBridge, models: modelService, gitea: giteaService, koalasCluster: onKoalasCluster(clusterAccess, koalasCluster),
+    tenant, db, io, env: process.env, role, sessionKey: keys.session, dataKey: keys.data, core: engine, temporalBridge, models: modelService, gitea: giteaService, koalasCluster: onKoalasCluster(clusterAccess, koalasCluster), access: clusterAccess,
     ...(instanceFiles ? { files: instanceFiles.fileService, artifacts: instanceFiles.artifacts } : {}), projectRepos: projectRepoService, customizations, releaseSettings, treeModels: () => treeModels, operatorOnly: requireOperator('administer'), push, mail,
   });
   if (evalHost.storyDrops && files) files.setStoryDrops(storyDropsFor({ db, projectRepos: projectRepoService, gitea: giteaService, work: evalHost.storyDrops }));
@@ -449,9 +439,9 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     treeModels, mcpCatalogue, workspaceDependencies, agentDirectory, agentsHolder, concluded, access: clusterAccess, infisical: infisicalService, clusters: clusterService,
   });
 
-  if (process.env.NODE_ENV !== 'test' && tenants && process.env.GITEA_REACHES_KOALA_AT?.trim()) {
+  if (process.env.NODE_ENV !== 'test' && gitea && tenants) {
     runOnce(db.platform, 'project-webhooks-reach-koala', new Date().toISOString(), () => projectRepoService.repointWebhooks()).then(
-      (result) => { if (result.repointed) console.log(`[webhooks] ${result.repointed} projects' build webhooks now reach ${process.env.GITEA_REACHES_KOALA_AT}`); },
+      (result) => { if (result.repointed) console.log(`[webhooks] ${result.repointed} projects' build webhooks now reach ${gitea.reachesKoalaAt}`); },
       (err: Error) => console.warn(`[webhooks] the projects' build webhooks are moved at the next start: ${err.message}`),
     );
   }

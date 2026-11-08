@@ -35,6 +35,7 @@ function made(options: { repo?: Partial<RepoFiles>; syncVault?: (args: VaultSync
   access.kubectl.mockResolvedValue('');
   access.helm.mockResolvedValue('');
   access.kubeconfigOf.mockResolvedValue('/tmp/koala-clusters/kubeconfig-machine-own');
+  access.reach.mockImplementation(async (clusterId) => ({ clusterId, kind: 'machine', kubeconfig: 'apiVersion: v1\n' }));
   const repo: RepoFiles = { listPaths: async () => [], getRawFile: async () => null, ...options.repo };
   const asked: string[] = [];
   const beats: unknown[] = [];
@@ -91,7 +92,7 @@ describe('a release namespace pulls Koala-built images with a login', () => {
     expect(applied()[1]).toEqual({ where: 'machine-own', manifest: { apiVersion: 'v1', kind: 'ConfigMap', metadata: { name: 'c', namespace: 'shop-1a2b3c' } } });
 
     access.apply.mockClear();
-    await cluster.vault(target, { projectId: 'project-p1', secret: 'shop-vault', keys: ['POSTGRES_PASSWORD'] } as never, {} as never);
+    await cluster.vault(target, { projectId: 'project-p1', secret: 'shop-vault', keys: ['POSTGRES_PASSWORD'] } as never);
     expect(prepared(applied()[0]!.manifest)).toContain(`Secret/${REGISTRY_PULL_SECRET}`);
 
     access.apply.mockClear();
@@ -170,10 +171,11 @@ describe('the release\'s vault', () => {
     });
     access.helm.mockResolvedValue('helm');
     access.apply.mockResolvedValue('applied');
-    const done = cluster.vault(target, { projectId: 'project-p1', secret: 'shop-vault', keys: ['POSTGRES_PASSWORD', 'ODOO_ADMIN_PASSWORD'] } as never, { clusterName: 'own', provider: 'machine', isMock: false });
+    const done = cluster.vault(target, { projectId: 'project-p1', secret: 'shop-vault', keys: ['POSTGRES_PASSWORD', 'ODOO_ADMIN_PASSWORD'] } as never);
     await vi.advanceTimersByTimeAsync(5_000);
     await done;
-    expect(handed).toMatchObject({ projectId: 'project-p1', namespace: 'shop-1a2b3c', secretName: 'shop-vault', kubeconfig: '/tmp/koala-clusters/kubeconfig-machine-own', target: { clusterName: 'own' } });
+    expect(handed).toMatchObject({ projectId: 'project-p1', namespace: 'shop-1a2b3c', secretName: 'shop-vault', kubeconfig: '/tmp/koala-clusters/kubeconfig-machine-own', reach: { clusterId: 'machine-own', kind: 'machine' } });
+    expect(access.reach).toHaveBeenCalledWith('machine-own');
     expect(access.kubeconfigOf).toHaveBeenCalledWith('machine-own');
     expect(await handed!.cluster.runKubectl(['get', 'ns'])).toBe('ran');
     expect(await handed!.cluster.runHelm(['status', 'x'])).toBe('helm');
@@ -187,7 +189,7 @@ describe('the release\'s vault', () => {
   it('throws a failure to read the secret that is not its absence', async () => {
     const { access, cluster } = made();
     access.kubectl.mockRejectedValue(new Error('forbidden'));
-    await expect(cluster.vault(target, { projectId: 'p', secret: 's', keys: ['K'] } as never, {} as never)).rejects.toThrow('forbidden');
+    await expect(cluster.vault(target, { projectId: 'p', secret: 's', keys: ['K'] } as never)).rejects.toThrow('forbidden');
   });
 });
 

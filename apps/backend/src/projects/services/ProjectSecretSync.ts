@@ -2,7 +2,7 @@ import { decryptValue, encryptValue, type SecretKey, type ProjectMetadata, CLI_C
 import { ignore } from '@koala/engine-core/failures';
 import {
   OPERATOR_NAMESPACE, OPERATOR_RELEASE, OPERATOR_REPO, infisicalHostFor, infisicalSecretManifest,
-  readerSecretManifest, type SecretTarget,
+  readerSecretManifest, type VaultReach,
 } from '../../releases/index.js';
 
 export const OPERATOR_VERSION = 'v0.11.10';
@@ -14,6 +14,7 @@ export interface SecretSyncInfra {
 }
 
 export interface SecretSyncVault {
+  resolveBaseUrl(): Promise<string>;
   workspaceIdFor(projectId: string): Promise<string>;
   createProjectReader(projectId: string): Promise<{ clientId: string; clientSecret: string }>;
   readerWorks(reader: { clientId: string; clientSecret: string }): Promise<boolean>;
@@ -46,9 +47,9 @@ const readerFrom = (value: unknown): { clientId: string; clientSecret: string } 
 
 export async function syncProjectSecrets(
   deps: { infra: SecretSyncInfra; vault: SecretSyncVault; projects: SecretSyncProjects; masterKey: SecretKey },
-  args: { project: ProjectMetadata; namespace: string; kubeconfig: string; target: SecretTarget; secretName?: string | undefined },
+  args: { project: ProjectMetadata; namespace: string; kubeconfig: string; reach: VaultReach; secretName?: string | undefined },
 ): Promise<{ hostAPI: string; operator: 'present' | 'installed' }> {
-  const host = infisicalHostFor(args.target);
+  const host = infisicalHostFor(args.reach, { url: await deps.vault.resolveBaseUrl() });
   if ('problem' in host) throw new Error(host.problem);
 
   const operator = await ensureInfisicalOperator(deps.infra, args.kubeconfig);

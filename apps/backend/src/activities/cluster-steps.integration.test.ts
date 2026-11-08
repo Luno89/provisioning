@@ -7,6 +7,8 @@ import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { nodeProcesses, nodeStreams } from '../platform/index.js';
 import { ClusterAccess, startedMachine, type Reach } from '../infrastructure/index.js';
 import { InfrastructureService } from '../infrastructure/services/InfrastructureService.js';
+import { InfisicalService } from '../infrastructure/services/InfisicalService.js';
+import { GiteaService } from '../projects/services/GiteaService.js';
 import { TOOLS } from '../infrastructure/testing/real-k3s.js';
 import { ODOO_PROJECT_APP } from '../releases/index.js';
 import { CheckWorkloadActivity } from './CheckWorkloadActivity.js';
@@ -55,7 +57,7 @@ beforeAll(async () => {
     'app.synth();',
     '',
   ].join('\n'));
-  steps = { access, infra: new InfrastructureService(undefined, { cdktfDir, stateDir: path.join(root, 'state'), runsDir }) };
+  steps = { access, infra: new InfrastructureService(undefined, { cdktfDir, stateDir: path.join(root, 'state'), runsDir }), gitea: new GiteaService('integration-key' as never, { none: 'the apps these tests deploy are not built in Gitea' }), infisical: new InfisicalService('integration-key' as never, { none: 'the apps these tests deploy keep no secrets in Infisical' }) };
 });
 
 afterAll(async () => { await rm(root, { recursive: true, force: true }); });

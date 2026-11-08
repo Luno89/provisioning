@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { machineChoiceProblem, accountDefaultOf } from './machines/index.js';
 import {
-  catalogueOf, AutoModeService, resolveMcpProbeUrl, extensionServiceFor, RunGrantService, WorkspaceBuildService, hostedMcpUrl,
+  catalogueOf, AutoModeService, mcpReachFrom, extensionServiceFor, RunGrantService, WorkspaceBuildService, hostedMcpUrl,
 } from './engine/index.js';
 import { startOnceQuiet } from './engine-host/grove-launcher.js';
 import { SHIPPED_DEPENDENCIES } from './extensions/workspace-dependencies.js';
@@ -10,7 +10,7 @@ import {
   koalasClusterFor, GiteaService, projectSecretsFor, ProjectChannelService, ODOO_TREE_TYPE,
   treeTypeOfProject, giteaUsernameFor, ProjectRepoService, createSecretVault, treeTypeChoices, treeLanguageFrom,
   treeExtrasFrom, dependencyNamespaceFrom, ownNamespacesFrom, renderStarterFiles, groveAgentOf, resolveTreeType, versionVars,
-  TreeHomeService, webhookAddress, type GroveRunLauncher,
+  TreeHomeService, webhookUrlAt, giteaSettingsFrom, type GroveRunLauncher,
 } from './projects/index.js';
 import {
   stopIfRunning, createDatabase, sharedPayloadBlobs, createWorkerLogger, buildDataConverter, connectTemporalWorker, temporalTlsProblem, failureReason,
@@ -19,6 +19,7 @@ import {
 } from './platform/index.js';
 import type { ClaimedUser } from './platform/index.js';
 import { rootSignInFor } from './instances/wiring/sign-in.js';
+import { registrySettingsFrom } from './instances/index.js';
 import { createWorkspaceRepoResolver, treeOfWorkspace } from './engine-host/sandboxes/workspace-repos.js';
 import dotenv from 'dotenv';
 import { Worker, Runtime } from '@temporalio/worker';
@@ -27,7 +28,7 @@ import { fileURLToPath } from 'url';
 
 import { createPlanAdoption } from './engine-host/plan-adoption.js';
 import {
-  InfrastructureService, LOG_DIR, InfisicalService, HeadscaleService, deployProjectBuild, sharedClusterProxy,
+  InfrastructureService, LOG_DIR, InfisicalService, infisicalSettingsFrom, HeadscaleService, deployProjectBuild, sharedClusterProxy,
   ClusterService, clusterAccessFrom, visibleAppSpecs, resolveBindings, healthPort, serveHealth,
 } from './infrastructure/index.js';
 import { createModelService } from './models/wiring/model-wiring.js';
@@ -88,7 +89,7 @@ dotenv.config({ quiet: true });
 
 const telemetry = startTelemetry(telemetrySettings(process.env, 'koala-worker-engine'));
 const telemetryAccess = clusterAccessFrom(process.env, { role: roleFromEnv(process.env).role });
-telemetry.exportTo(collectorSink({ env: process.env, proxy: sharedClusterProxy(), access: telemetryAccess, koalasCluster: () => telemetryAccess.own().clusterId }));
+telemetry.exportTo(collectorSink({ env: process.env, proxy: sharedClusterProxy(telemetryAccess), koalasCluster: () => telemetryAccess.own().clusterId }));
 
 const keys = loadKeys(process.env);
 
@@ -116,15 +117,11 @@ async function buildActivities() {
     return undefined;
   });
 
-  const gitea = new GiteaService(new InfrastructureService(), keys.data, '/tmp/kubeconfig-provisioning-lunorica');
-  const infisical = new InfisicalService(
-    new InfrastructureService(),
-    keys.data,
-    '/tmp/kubeconfig-provisioning-lunorica',
-    undefined,
-    sharedClusterProxy(),
-  );
-  const projectRepos = new ProjectRepoService(db, gitea, keys.data, webhookAddress(new InfrastructureService(), '/tmp/kubeconfig-provisioning-lunorica', process.env.PORT || 3001, process.env.GITEA_REACHES_KOALA_AT?.trim() || undefined), { defaultCluster: koalasClusterFor(process.env) });
+  const giteaAt = giteaSettingsFrom(process.env);
+  const imageRegistry = registrySettingsFrom(process.env);
+  const gitea = new GiteaService(keys.data, giteaAt);
+  const infisical = new InfisicalService(keys.data, infisicalSettingsFrom(process.env));
+  const projectRepos = new ProjectRepoService(db, gitea, keys.data, async (projectId) => webhookUrlAt(giteaAt.reachesKoalaAt, projectId), { defaultCluster: koalasClusterFor(process.env) });
   const treeHome = new TreeHomeService({
     treeTypes: (ownerId) => db.projects.getTreeTypes(ownerId),
     projects: () => db.projects.getProjects(),
@@ -175,7 +172,7 @@ async function buildActivities() {
     projects: () => db.projects.getProjects(),
     clusterById: (id) => clusterService.getByIdUnscoped(id),
     how: async (project) => releaseHowOf(project, await treeTypeOfProject(db.projects, project), true),
-    cluster: createSlotCluster({ access: clusterService.access, repo: async () => gitea, registry: () => gitea.registryLogin(), syncVault: syncVaultFromProject(kubeInfra) }),
+    cluster: createSlotCluster({ access: clusterService.access, repo: async () => gitea, registry: () => gitea.registryLogin(), syncVault: syncVaultFromProject(infisical) }),
     adapters: { [ODOO_RELEASE_ADAPTER.id]: ODOO_RELEASE_ADAPTER },
     trees: () => db.projects.getTrees(),
     branches: () => db.projects.getBranches(),
@@ -192,7 +189,7 @@ async function buildActivities() {
       ? rootSignIn.madeHere(person, claimsOf(person, claimSettingsFrom(engineRole)), seconds)
       : sessionToken(person, keys.session, seconds ? { seconds } : {})}`;
   const placeOnPool = poolMonitorFrom(process.env, rootSignIn ? () => rootSignIn.serviceToken() : undefined);
-  const monitoring = monitoringServiceFor({ db, clusters: clusterService, proxy: sharedClusterProxy(), pool: placeOnPool ? poolMonitor(placeOnPool) : undefined });
+  const monitoring = monitoringServiceFor({ db, clusters: clusterService, proxy: sharedClusterProxy(clusterAccess), pool: placeOnPool ? poolMonitor(placeOnPool) : undefined });
   const runGrants = new RunGrantService({ store: db.engine });
   const poisoning = new PoisoningWatch({
     store: db.engine,
@@ -227,7 +224,7 @@ async function buildActivities() {
       problem: (ownerId, treeId, agent, modelId) => treeModels.problem(ownerId, treeId, agent, modelId),
     },
     releases: {
-      cluster: createSlotCluster({ access: clusterService.access, repo: async () => gitea, registry: () => gitea.registryLogin(), syncVault: syncVaultFromProject(kubeInfra), beat: activityBeat }),
+      cluster: createSlotCluster({ access: clusterService.access, repo: async () => gitea, registry: () => gitea.registryLogin(), syncVault: syncVaultFromProject(infisical), beat: activityBeat }),
       adapters: { [ODOO_RELEASE_ADAPTER.id]: ODOO_RELEASE_ADAPTER },
       releases: { list: (ownerId, projectId) => db.releases.getOdooReleases(ownerId, projectId), save: (release) => db.releases.saveOdooRelease(release) },
       browserTests: (request) => releaseBrowser.ReleaseBrowserTestsActivity(request),
@@ -348,12 +345,11 @@ async function buildActivities() {
       list: (ownerId) => db.engine.getMcpServers(ownerId),
       get: async (ownerId, id) => (await db.engine.getMcpServers(ownerId)).find((server) => server.id === id),
       save: (server) => db.engine.saveMcpServer(server),
-      hostedUrl: hostedMcpUrl({ deployments: () => db.infrastructure.getDeployments(), probeUrl: resolveMcpProbeUrl, urlProblem: publicAddressProblem }),
+      hostedUrl: hostedMcpUrl({ deployments: () => db.infrastructure.getDeployments(), probeUrl: mcpReachFrom({ access: clusterAccess, clusterById: (id) => clusterService.getByIdUnscoped(id) }).url, urlProblem: publicAddressProblem }),
     },
     ...(web ? { web } : {}),
     cluster: onKoala,
-    registryHost: process.env.KOALA_REGISTRY,
-    pushRegistryHost: process.env.KOALA_REGISTRY_PUSH,
+    registry: imageRegistry,
     registryAccount: async () => ({ owner: gitea.adminUsername, ...(await gitea.getAdminCredentials()) }),
     registryPushToken: async () => {
       const token = await gitea.createDeployToken();
@@ -460,7 +456,7 @@ async function buildActivities() {
       environments: host.environments,
       // So a tree this adoption creates starts from its type's scaffold rather than an empty repo.
       treeTypes: (ownerId: string) => db.projects.getTreeTypes(ownerId),
-      registryHost: process.env.KOALA_REGISTRY,
+      registryHost: imageRegistry.pull,
       homeTree: (tree) => treeHome.home(tree, { starter: false }),
       projectChoices: async (_ownerId, projectId, choices) => {
         const project = (await db.projects.getProjects()).find((entry) => entry.id === projectId);

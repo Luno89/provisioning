@@ -8,8 +8,7 @@ import axios, { type AxiosInstance } from 'axios';
 import { sessionToken } from '../apps/backend/src/platform/lib/auth.js';
 import { createDatabase } from '../apps/backend/src/platform/lib/db-interface.js';
 import { InfisicalService } from '../apps/backend/src/infrastructure/services/InfisicalService.js';
-import { InfrastructureService } from '../apps/backend/src/infrastructure/services/InfrastructureService.js';
-import { ClusterProxyService } from '../apps/backend/src/infrastructure/services/ClusterProxyService.js';
+import { infisicalSettingsFrom } from '../apps/backend/src/infrastructure/lib/infisical-settings.js';
 import type { SecretRequest } from '../apps/backend/src/projects/lib/secret-requests.js';
 import { loadKeys } from '../apps/backend/src/platform/lib/keys.js';
 
@@ -58,7 +57,7 @@ async function main(): Promise<void> {
 
   const key = `LIVE_CHECK_${Date.now().toString(36).toUpperCase()}`;
   const value = `live-sentinel-${Math.random().toString(36).slice(2)}-${Date.now()}`;
-  const infisical = new InfisicalService(new InfrastructureService(), secret, '/tmp/kubeconfig-provisioning-lunorica', undefined, new ClusterProxyService());
+  const infisical = new InfisicalService(loadKeys(process.env).data, infisicalSettingsFrom(process.env));
 
   const conversationId = (await http.post('/conversations', { projectId: project.id })).data.id as string;
   console.log(`project ${project.name} (${project.id}), conversation ${conversationId}, key ${key}`);

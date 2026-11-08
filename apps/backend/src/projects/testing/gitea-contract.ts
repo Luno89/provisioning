@@ -6,8 +6,6 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { mock } from 'vitest-mock-extended';
-import type { InfrastructureService } from '../../infrastructure/index.js';
 import { mainHeads, syncMain } from '../../hub/services/HubRepoSync.js';
 import { giteaHubRepos, HUB_REPO, hubBotOf, hubOrgOf } from '../../hub/services/HubRepos.js';
 import { GiteaConflictError, GiteaService } from '../services/GiteaService.js';
@@ -42,7 +40,6 @@ export function giteaContract(start: () => Promise<ContractGitea>): void {
   let service: GiteaService;
   let dataDir: string;
   let scratch: string;
-  let saved: string | undefined;
   let hooks: http.Server;
   let hookUrl: string;
   const heard: Heard[] = [];
@@ -77,14 +74,10 @@ export function giteaContract(start: () => Promise<ContractGitea>): void {
 
   beforeAll(async () => {
     gitea = await start();
-    saved = process.env.GITEA_URL;
-    process.env.GITEA_URL = gitea.url;
     dataDir = await mkdtemp(path.join(tmpdir(), 'gitea-contract-data-'));
     scratch = await mkdtemp(path.join(tmpdir(), 'gitea-contract-work-'));
     await writeFile(path.join(dataDir, '.gitea-admin-password'), gitea.adminPassword);
-    const infra = mock<Pick<InfrastructureService, 'runKubectl' | 'getK3dServerIp'>>();
-    infra.runKubectl.mockRejectedValue(new Error('no cluster here'));
-    service = new GiteaService(infra, KEY, '/nowhere', { dataDir });
+    service = new GiteaService(KEY, { url: gitea.url }, { dataDir });
     hooks = http.createServer((req, res) => {
       const parts: Buffer[] = [];
       req.on('data', (part: Buffer) => parts.push(part));
@@ -98,7 +91,6 @@ export function giteaContract(start: () => Promise<ContractGitea>): void {
   });
 
   afterAll(async () => {
-    if (saved === undefined) delete process.env.GITEA_URL; else process.env.GITEA_URL = saved;
     await new Promise<void>((done) => hooks.close(() => done()));
     await gitea.close();
     await rm(dataDir, { recursive: true, force: true });

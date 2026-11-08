@@ -17,8 +17,7 @@ import { GroveDeletionService } from '../services/GroveDeletionService.js';
 import { GroveOrderService } from '../services/GroveOrderService.js';
 import { TreeWorkspaceService } from '../services/TreeWorkspaceService.js';
 import { PlanService } from '../services/PlanService.js';
-import { webhookAddress } from '../services/webhook-address.js';
-import { koalasClusterFor } from '../lib/project-shipping.js';
+import { koalasClusterFor, webhookUrlAt } from '../lib/project-shipping.js';
 import type { GiteaService } from '../services/GiteaService.js';
 import type { InfisicalService, InfrastructureService, ClusterService, AppService, TemporalBridge } from '../../infrastructure/index.js';
 import type { MachineService } from '../../machines/index.js';
@@ -51,9 +50,8 @@ export interface ProjectsCoreDeps {
   env: NodeJS.ProcessEnv;
   dataKey: SecretKey;
   gitea: GiteaService;
-  infra: InfrastructureService;
+  webhooksTo: string | undefined;
   infisical: InfisicalService;
-  kubeconfig: string;
 }
 
 export interface ProjectsCore {
@@ -66,9 +64,12 @@ export interface ProjectsCore {
   treeHome: TreeHomeService;
 }
 
+const webhooksAt = (backend: string | undefined): ((projectId: string) => Promise<string>) | undefined =>
+  backend === undefined ? undefined : async (projectId) => webhookUrlAt(backend, projectId);
+
 export function projectsCore(deps: ProjectsCoreDeps): ProjectsCore {
   const { db, io, gitea } = deps;
-  const projectRepoService = new ProjectRepoService(db, gitea, deps.dataKey, webhookAddress(deps.infra, deps.kubeconfig, deps.env.PORT || 3001, deps.env.GITEA_REACHES_KOALA_AT?.trim() || undefined), { defaultCluster: koalasClusterFor(deps.env) });
+  const projectRepoService = new ProjectRepoService(db, gitea, deps.dataKey, webhooksAt(deps.webhooksTo), { defaultCluster: koalasClusterFor(deps.env) });
   const channels = new ProjectChannelService({
     conversation: (ownerId, id) => db.engine.getConversation(ownerId, id),
     save: (conversation) => db.engine.saveConversation(conversation),

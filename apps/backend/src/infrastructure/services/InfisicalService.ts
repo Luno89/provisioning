@@ -3,13 +3,11 @@ import type { SecretKey } from '../../platform/index.js';
 import path from 'path';
 import fs from 'fs/promises';
 import axios from 'axios';
-import type { InfrastructureService } from './InfrastructureService.js';
-import type { ClusterProxyService } from './ClusterProxyService.js';
+import type { InfisicalSettings } from '../lib/infisical-settings.js';
 import { readerNameFor, readerPrefixFor, workspaceNameFor } from '../lib/infisical-names.js';
 import { infisicalAdminPassword } from '../lib/infisical-admin.js';
 import { ignore } from '@koala/engine-core/failures';
 
-const NAMESPACE = 'infisical';
 const DATA_DIR = path.join(process.cwd(), 'data');
 const IDENTITY_FILE = path.join(DATA_DIR, '.infisical-machine-identity');
 const SHARED_AUTH_SECRET_FILE = path.join(DATA_DIR, '.infisical-auth-secret');
@@ -42,68 +40,21 @@ const messageOf = (err: unknown): string => (err as Error | undefined)?.message 
 const workspaceGone = (err: unknown): boolean =>
   statusOf(err) === 404 && /^Project with ID /.test(textAt(err, 'response', 'data', 'message') ?? '');
 
+export type InfisicalAt = InfisicalSettings | { none: string };
+
 export class InfisicalService {
-  private baseUrlCache: string | null = null;
   private tokenCache: string | null = null;
   private orgId: string | null = null;
   private readonly workspaceCache = new Map<string, string>();
 
   constructor(
-    private readonly infra: Pick<InfrastructureService, 'runKubectl'>,
     private readonly masterKey: SecretKey,
-    private readonly kubeconfigPath: string,
-    private readonly customBaseUrl?: string,
-    private readonly clusterProxy?: Pick<ClusterProxyService, 'serviceUrl'>,
+    private readonly at: InfisicalAt,
   ) {}
 
   async resolveBaseUrl(): Promise<string> {
-    if (this.customBaseUrl) return this.customBaseUrl;
-    if (process.env.INFISICAL_URL?.trim()) return process.env.INFISICAL_URL.trim().replace(/\/+$/, '');
-    if (this.baseUrlCache) return this.baseUrlCache;
-
-    if (this.clusterProxy) {
-      try {
-        const url = await this.clusterProxy.serviceUrl('platform', 'infisical', this.kubeconfigPath);
-        this.baseUrlCache = url.replace(/\/$/, '');
-        return this.baseUrlCache;
-      } catch (err) {
-        console.warn(`[InfisicalService] could not reach Infisical inside the cluster, falling back to NodePort lookup: ${messageOf(err)}`);
-      }
-    }
-
-    try {
-      const svcJson = await this.infra.runKubectl(
-        ['get', 'svc', 'infisical-infisical-standalone-infisical', '-n', NAMESPACE, '-o', 'json'],
-        this.kubeconfigPath,
-      ).catch(() =>
-        this.infra.runKubectl(
-          ['get', 'svc', 'infisical', '-n', NAMESPACE, '-o', 'json'],
-          this.kubeconfigPath,
-        )
-      );
-
-      const ports = listAt(JSON.parse(svcJson) as unknown, 'spec', 'ports');
-      const nodePort =
-        numberAt(ports.find((p) => textAt(p, 'name') === 'http' || numberAt(p, 'port') === 8080), 'nodePort')
-        ?? numberAt(ports[0], 'nodePort')
-        ?? 31738;
-
-      let host = '127.0.0.1';
-      if (process.platform === 'linux') {
-        const raw = await this.infra.runKubectl(
-          ['get', 'nodes', '-o', 'jsonpath={.items[0].status.addresses[?(@.type=="InternalIP")].address}'],
-          this.kubeconfigPath,
-        ).catch(ignore('without the node\'s address Infisical is reached on this machine\'s loopback'));
-        const parsed = raw?.trim().split(/\s+/)[0];
-        if (parsed) host = parsed;
-      }
-
-      this.baseUrlCache = `http://${host}:${nodePort}`;
-      return this.baseUrlCache;
-    } catch {
-      this.baseUrlCache = 'http://127.0.0.1:31738';
-      return this.baseUrlCache;
-    }
+    if ('none' in this.at) throw new Error(this.at.none);
+    return this.at.url;
   }
 
   async getAdminCredentials(): Promise<{ username: string; password: string }> {

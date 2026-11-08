@@ -15,7 +15,8 @@ import { VerifyGpuRuntimeActivity, type VerifyGpuRuntimeArgs } from './activitie
 import { RunPipelineActivity, type RunPipelineArgs } from './activities/RunPipelineActivity.js';
 import type { ClusterSteps } from './activities/cluster-steps.js';
 import { createWorkerLogger, buildDataConverter, connectTemporalWorker, temporalTlsProblem, sharedPayloadBlobs, loadKeys, roleFromEnv, telemetrySettings, temporalNamespaceFrom } from './platform/index.js';
-import { clusterAccessFrom, healthPort, serveHealth, InfrastructureService, sharedClusterProxy } from './infrastructure/index.js';
+import { clusterAccessFrom, healthPort, serveHealth, InfisicalService, infisicalSettingsFrom, InfrastructureService, sharedClusterProxy } from './infrastructure/index.js';
+import { GiteaService, giteaSettingsFrom } from './projects/index.js';
 import { heartbeatWhileRunning, WORKER_DEFAULTS } from '@koala/engine-core';
 import { traceActivities } from '@koala/engine-core/telemetry';
 import { startTelemetry } from '@koala/engine-core/telemetry-sdk';
@@ -30,7 +31,7 @@ dotenv.config({ quiet: true });
 const telemetry = startTelemetry(telemetrySettings(process.env, 'koala-worker-cluster'));
 const role = roleFromEnv(process.env).role;
 const access = clusterAccessFrom(process.env, { role });
-telemetry.exportTo(collectorSink({ env: process.env, proxy: sharedClusterProxy(), access, koalasCluster: () => access.own().clusterId }));
+telemetry.exportTo(collectorSink({ env: process.env, proxy: sharedClusterProxy(access), koalasCluster: () => access.own().clusterId }));
 const logger = createWorkerLogger('cluster-worker');
 
 Runtime.install({
@@ -47,7 +48,8 @@ Runtime.install({
 async function main() {
   const plaintext = temporalTlsProblem(process.env);
   if (plaintext) throw new Error(plaintext);
-  const steps: ClusterSteps = { access, infra: new InfrastructureService() };
+  const dataKey = loadKeys(process.env).data;
+  const steps: ClusterSteps = { access, infra: new InfrastructureService(), gitea: new GiteaService(dataKey, giteaSettingsFrom(process.env)), infisical: new InfisicalService(dataKey, infisicalSettingsFrom(process.env)) };
 
   const queue = process.env.TEMPORAL_TASK_QUEUE || 'cluster-ops-queue';
   const address = process.env.TEMPORAL_CONNECTION_ADDRESS || 'localhost:7233';

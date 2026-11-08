@@ -19,6 +19,7 @@ function world(operatorInstalled: boolean, readerAlive = true) {
     applyManifest: vi.fn(async (manifest: string) => { applied.push(manifest); return ''; }),
   };
   const vault = {
+    resolveBaseUrl: vi.fn(async () => 'http://vault.test:8080'),
     workspaceIdFor: vi.fn(async () => 'ws-1'),
     createProjectReader: vi.fn(async () => ({ clientId: 'cid', clientSecret: 'reader-secret-sentinel' })),
     readerWorks: vi.fn(async () => readerAlive),
@@ -29,14 +30,15 @@ function world(operatorInstalled: boolean, readerAlive = true) {
 }
 
 const project: ProjectMetadata = { id: 'p1', name: 'billing', ownerId: 'u1', appType: 'gitapp', createdAt: 'now' };
-const target = { clusterName: 'dev-1', provider: 'k3d', isMock: false };
+const reach = { clusterId: 'machine-dev1', kind: 'koala' as const };
 
 describe('syncProjectSecrets', () => {
   it('installs the operator when absent, mints a reader once, and applies the credential and the InfisicalSecret', async () => {
     const w = world(false);
-    const out = await syncProjectSecrets({ ...w, masterKey: MASTER }, { project, namespace: 'billing', kubeconfig: '/tmp/kubeconfig-dev-1', target });
+    const out = await syncProjectSecrets({ ...w, masterKey: MASTER }, { project, namespace: 'billing', kubeconfig: '/tmp/kubeconfig-dev-1', reach });
 
-    expect(out).toEqual({ hostAPI: 'http://host.k3d.internal:31738', operator: 'installed' });
+    expect(out).toEqual({ hostAPI: 'http://vault.test:8080', operator: 'installed' });
+    expect(w.applied[1]).toContain('hostAPI: "http://vault.test:8080/api"');
     expect(w.helm[1]).toEqual(expect.arrayContaining(['upgrade', '--install', 'infisical-operator', 'secrets-operator']));
     expect(w.vault.createProjectReader).toHaveBeenCalledTimes(1);
     expect(decryptValue(w.saved[0]!.infisicalReaderEnc!, MASTER)).toContain('reader-secret-sentinel');
@@ -48,9 +50,9 @@ describe('syncProjectSecrets', () => {
 
   it('reuses the reader stored on the project instead of minting another', async () => {
     const first = world(true);
-    await syncProjectSecrets({ ...first, masterKey: MASTER }, { project, namespace: 'billing', kubeconfig: 'k', target });
+    await syncProjectSecrets({ ...first, masterKey: MASTER }, { project, namespace: 'billing', kubeconfig: 'k', reach });
     const again = world(true);
-    const out = await syncProjectSecrets({ ...again, masterKey: MASTER }, { project: first.saved[0]!, namespace: 'billing', kubeconfig: 'k', target });
+    const out = await syncProjectSecrets({ ...again, masterKey: MASTER }, { project: first.saved[0]!, namespace: 'billing', kubeconfig: 'k', reach });
 
     expect(out.operator).toBe('present');
     expect(again.vault.createProjectReader).not.toHaveBeenCalled();
@@ -60,7 +62,7 @@ describe('syncProjectSecrets', () => {
   it('mints a new reader when the vault refuses the stored one, and stores and applies that one', async () => {
     const stale = { ...project, infisicalReaderEnc: encryptValue(JSON.stringify({ clientId: 'old', clientSecret: 'dead-reader' }), MASTER) };
     const w = world(true, false);
-    await syncProjectSecrets({ ...w, masterKey: MASTER }, { project: stale, namespace: 'billing', kubeconfig: 'k', target });
+    await syncProjectSecrets({ ...w, masterKey: MASTER }, { project: stale, namespace: 'billing', kubeconfig: 'k', reach });
 
     expect(w.vault.readerWorks).toHaveBeenCalledWith({ clientId: 'old', clientSecret: 'dead-reader' });
     expect(w.vault.createProjectReader).toHaveBeenCalledTimes(1);
@@ -71,7 +73,7 @@ describe('syncProjectSecrets', () => {
 
   it('refuses a cluster that cannot reach the vault before touching it', async () => {
     const w = world(true);
-    await expect(syncProjectSecrets({ ...w, masterKey: MASTER }, { project, namespace: 'billing', kubeconfig: 'k', target: { clusterName: 'box', provider: 'machine', isMock: false } }))
+    await expect(syncProjectSecrets({ ...w, masterKey: MASTER }, { project, namespace: 'billing', kubeconfig: 'k', reach: { clusterId: 'machine-box', kind: 'machine' } }))
       .rejects.toThrow('not reachable');
     expect(w.helm).toHaveLength(0);
     expect(w.applied).toHaveLength(0);

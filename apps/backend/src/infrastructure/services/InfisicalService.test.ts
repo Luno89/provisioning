@@ -41,15 +41,24 @@ describe('InfisicalService', () => {
     files.clear();
     files.set(IDENTITY_FILE, JSON.stringify({ clientId: 'cid', clientSecret: 'cs', orgId: 'org' }));
     for (const fn of [post, get, patch, del]) fn.mockReset();
-    service = new InfisicalService({ runKubectl: vi.fn() }, MASTER_KEY, '/tmp/kc.yaml', 'http://vault:8080');
+    service = new InfisicalService(MASTER_KEY, { url: 'http://vault:8080' });
   });
 
-  it('resolves the base URL from the service NodePort and the node address', async () => {
-    const runKubectl = vi.fn(async (args: string[]) => (args.includes('svc')
-      ? JSON.stringify({ spec: { ports: [{ name: 'http', nodePort: 31738 }] } })
-      : '192.168.1.100'));
-    const found = new InfisicalService({ runKubectl }, MASTER_KEY, '/tmp/kc.yaml');
-    expect(await found.resolveBaseUrl()).toBe('http://192.168.1.100:31738');
+  it('reaches Infisical only at the address it was given', async () => {
+    expect(await service.resolveBaseUrl()).toBe('http://vault:8080');
+    post.mockResolvedValueOnce({ data: { accessToken: 'tok' } });
+    workspaceFound();
+    post.mockResolvedValueOnce({ data: {} });
+    await service.setSecret('p1', 'STRIPE_KEY', 'sk_live_sentinel');
+    expect(post.mock.calls.map((call) => String(call[0]))).toEqual([expect.stringMatching(/^http:\/\/vault:8080\//), expect.stringMatching(/^http:\/\/vault:8080\//)]);
+  });
+
+  it('refuses every call with the reason it was given where it reaches no Infisical, asking nothing', async () => {
+    const none = new InfisicalService(MASTER_KEY, { none: 'the hub keeps no project\'s secrets, so it reaches no Infisical' });
+    await expect(none.resolveBaseUrl()).rejects.toThrow('the hub keeps no project\'s secrets, so it reaches no Infisical');
+    await expect(none.setSecret('p1', 'STRIPE_KEY', 'v')).rejects.toThrow('the hub keeps no project\'s secrets, so it reaches no Infisical');
+    expect(post).not.toHaveBeenCalled();
+    expect(get).not.toHaveBeenCalled();
   });
 
   it('fails a write the vault never received, and keeps no copy of the value anywhere', async () => {

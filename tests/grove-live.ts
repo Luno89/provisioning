@@ -2,11 +2,10 @@ import assert from 'node:assert/strict';
 import dotenv from 'dotenv';
 import { createDatabase } from '../apps/backend/src/platform/lib/db-interface.js';
 import { liveEngineHost } from './lib/live-engine-host.js';
-import { devKoalasCluster } from './lib/dev-stack.js';
+import { devKoalasCluster, devGiteaUrl } from './lib/dev-stack.js';
 import { getTemporalClient } from '../apps/backend/src/platform/lib/temporal-client.js';
 import { DEFAULT_ENGINE_TASK_QUEUE, groveRunWorkflowId, type AgentRunOutcome, type GroveRunResult } from '../apps/backend/src/engine-host/temporal/contracts.js';
 import { GiteaService } from '../apps/backend/src/projects/services/GiteaService.js';
-import { InfrastructureService } from '../apps/backend/src/infrastructure/services/InfrastructureService.js';
 import { loadKeys } from '../apps/backend/src/platform/lib/keys.js';
 import axios from 'axios';
 import { treeRepoName, treeWorkspaceRunId } from '../apps/backend/src/engine-host/sandboxes/tree-workspaces.js';
@@ -38,7 +37,7 @@ async function main(): Promise<void> {
   const user = await db.accounts.getUserById(OWNER);
   assert.ok(user, 'no such user');
   const http = axios.create({ baseURL: BASE, proxy: false, headers: { Cookie: `session=${sessionToken(user, loadKeys(process.env).session, { seconds: 7200 })}` } });
-  const gitea = new GiteaService(new InfrastructureService(), loadKeys(process.env).data, '/tmp/kubeconfig-provisioning-lunorica');
+  const gitea = new GiteaService(loadKeys(process.env).data, { url: devGiteaUrl });
 
   console.log(`[1/4] the planner proposes (${elapsed(started)})`);
   const stamp = Date.now().toString(36);

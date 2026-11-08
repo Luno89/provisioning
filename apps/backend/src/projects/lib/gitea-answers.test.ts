@@ -1,15 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { nodePortOf, pullBetween, pullsFrom } from './gitea-answers.js';
+import { pullBetween, pullsFrom } from './gitea-answers.js';
 
 describe("reading Gitea's answers", () => {
-  it('takes the named port of a service, else its first', () => {
-    expect(nodePortOf({ spec: { ports: [{ name: 'ssh', nodePort: 30022 }, { name: 'http', nodePort: 30300 }] } }, 'http')).toBe(30300);
-    expect(nodePortOf({ spec: { ports: [{ name: 'web', nodePort: 30400 }] } }, 'http')).toBe(30400);
-    expect(nodePortOf({ spec: { ports: [{ name: 'http' }] } }, 'http')).toBeUndefined();
-    expect(nodePortOf({ spec: {} }, 'http')).toBeUndefined();
-    expect(nodePortOf('nothing', 'http')).toBeUndefined();
-  });
-
   it('reads pull requests and finds the one between two branches', () => {
     const pulls = pullsFrom([
       { number: 3, title: 'Land a', head: { ref: 'a' }, base: { ref: 'main' }, state: 'open', merged: false },

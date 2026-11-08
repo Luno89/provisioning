@@ -1,16 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { webhookUrlAt, webhookUrlFor, shippingGaps, isShippable, deploysItself, DEFAULT_TARGET_CLUSTER, koalasClusterFor, sameHookPath } from './project-shipping.js';
+import { webhookUrlAt, shippingGaps, isShippable, deploysItself, DEFAULT_TARGET_CLUSTER, koalasClusterFor, sameHookPath } from './project-shipping.js';
 
 describe('where Gitea posts a push', () => {
-  it('uses the node address, not localhost', () => {
-    expect(webhookUrlFor('10.0.0.155', 3001, 'p1')).toBe('http://10.0.0.155:3001/webhooks/gitea/p1');
-  });
-
-  it('takes the first address on a dual-stack node', () => {
-    expect(webhookUrlFor('10.0.0.155 fe80::1', 3001, 'p1')).toBe('http://10.0.0.155:3001/webhooks/gitea/p1');
-  });
-
-  it('uses where Gitea reaches the backend when that is given', () => {
+  it('is where Gitea reaches the backend', () => {
     expect(webhookUrlAt('http://127.0.0.1:4001/', 'p1')).toBe('http://127.0.0.1:4001/webhooks/gitea/p1');
   });
 });

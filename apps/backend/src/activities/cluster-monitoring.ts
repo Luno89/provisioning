@@ -22,7 +22,7 @@ export interface MachineMonitoring {
 
 const inFlight = new Map<string, Promise<void>>();
 
-async function install(steps: ClusterSteps, cluster: MonitoredCluster, logFile: string | undefined): Promise<void> {
+async function install(steps: Pick<ClusterSteps, 'access' | 'infra'>, cluster: MonitoredCluster, logFile: string | undefined): Promise<void> {
   const kubectl = (args: string[]) => steps.access.kubectl(cluster.reach, args);
   const serviceExists = (name: string) => kubectl(['get', 'service', name, '-n', 'monitoring', '--ignore-not-found', '-o', 'name']).then((out) => out.trim() !== '');
   const [apiResources, blackbox, ingressClasses, collector, tempo] = await Promise.all([
@@ -46,7 +46,7 @@ async function install(steps: ClusterSteps, cluster: MonitoredCluster, logFile: 
   }
 }
 
-export function ensureClusterMonitoring(steps: ClusterSteps, cluster: MonitoredCluster, logFile?: string): Promise<void> {
+export function ensureClusterMonitoring(steps: Pick<ClusterSteps, 'access' | 'infra'>, cluster: MonitoredCluster, logFile?: string): Promise<void> {
   const owned = { ...cluster, physicalName: monitoringOwner(cluster) };
   const running = inFlight.get(owned.physicalName);
   if (running) return running;

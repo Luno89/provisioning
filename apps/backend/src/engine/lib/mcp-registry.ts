@@ -13,8 +13,19 @@ export function mcpUrlFor(dep: Pick<DeploymentMetadata, 'name' | 'namespace'>, n
   return clusterUrl({ service: GITAPP_SERVICE, namespace, port }, { path: '/mcp' });
 }
 
-export function mcpProbeUrlFor(nodeIp: string, nodePort: number): string {
-  return `http://${nodeIp}:${nodePort}/mcp`;
+export interface McpServiceSpec {
+  spec?: { ports?: { name?: string; port: number; nodePort?: number }[] } | undefined;
+}
+
+export type McpCluster = { kind: 'koala' } | { kind: 'machine'; clusterId: string; meshIp?: string | undefined };
+
+export function mcpProbeUrlOf(service: McpServiceSpec, namespace: string, cluster: McpCluster): string {
+  const port = service.spec?.ports?.[0];
+  if (!port) throw new Error(`the MCP server in ${namespace} serves no port`);
+  if (cluster.kind === 'koala') return clusterUrl({ service: GITAPP_SERVICE, namespace, port: port.port }, { path: '/mcp' });
+  if (!cluster.meshIp) throw new Error(`${cluster.clusterId} has no mesh address, so Koala cannot reach the MCP server on it`);
+  if (!port.nodePort) throw new Error(`the MCP server in ${namespace} on ${cluster.clusterId} has no node port, so Koala cannot reach it from its own cluster`);
+  return `http://${cluster.meshIp}:${port.nodePort}/mcp`;
 }
 
 export interface McpServer {

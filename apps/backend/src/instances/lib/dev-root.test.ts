@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { DEV, devKoalaValues, devRootPlan } from './dev-root.js';
+import { giteaSettingsFrom } from '../../projects/lib/gitea-settings.js';
 
 const input = { mongoUri: 'mongodb://localhost:27017/provisioning?replicaSet=rs0', setupCode: 'setup', hubCredential: 'hub-secret', hubCredentialHash: 'hash', rootPublicKeys: 'PEM' };
 
@@ -14,7 +15,14 @@ describe('dev, run as production runs on this computer', () => {
       HUB_URL: 'http://hub.localhost:5176', HUB_CREDENTIAL_HASH: 'hash', SIGN_IN_RETURN_URL: 'http://localhost:5175', KOALA_TELEMETRY_CLUSTER: 'root',
     });
     expect(plan.hubEnv).toMatchObject({ ROLE: 'hub', PORT: '3003', ROOT_URL: 'http://koala.localhost:5175', ROOT_PUBLIC_KEYS: Buffer.from('PEM').toString('base64'), HUB_CREDENTIAL: 'hub-secret', KOALA_TELEMETRY_CLUSTER: 'hub' });
+    expect(Object.keys(plan.rootEnv)).not.toContain('GITEA_URL');
     expect(Object.keys(plan.rootEnv)).not.toContain('INSTANCE_ID');
+  });
+
+  it('names the Gitea the hub keeps shared projects\' repositories in, the instance\'s on this computer, and where it sends the hub pushes, the hub on the pod network', () => {
+    const { hubEnv } = devRootPlan(input);
+    expect(hubEnv).toMatchObject({ GITEA_URL: 'http://127.0.0.1:31737', GITEA_REACHES_KOALA_AT: `http://${DEV.podGateway}:3003` });
+    expect(giteaSettingsFrom(hubEnv)).toEqual({ url: 'http://127.0.0.1:31737', reachesKoalaAt: 'http://10.42.0.1:3003' });
   });
 
   it('puts the developer\'s Koala on this computer as anyone\'s, its pods running the checkout under a watcher and reaching root on this computer', () => {

@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { portToHandOn } from '@koala/engine-core/testing/ports';
 import { inject } from 'vitest';
 import { testBucket } from '../../files/testing/real-minio.js';
+import { unreachedPlatformServices } from './platform-services.js';
 
 const BACKEND = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 const TSX = resolve(BACKEND, '../../node_modules/.bin/tsx');
@@ -68,6 +69,7 @@ export async function startProcess(name: string, entry: string, env: Record<stri
     NODE_ENV: 'development',
     JWT_SECRET: `${name}-loopback-test-secret`,
     ...minioEnv(),
+    ...unreachedPlatformServices(),
     ...env,
   };
   const start = async (): Promise<void> => {
@@ -101,8 +103,8 @@ export async function startRole(name: string, env: Record<string, string>, port?
   const at = port ?? await portToHandOn();
   const url = `http://localhost:${at}`;
   const started = options.entry
-    ? await startProcess(name, options.entry, { PORT: String(at), PUBLIC_URL: url, APP_URL: url, HEALTH_PORT: String(at), ...env }, () => healthy(at), options.files)
-    : await startProcess(name, 'src/index.ts', { PORT: String(at), PUBLIC_URL: url, APP_URL: url, ...env }, () => answering(url), options.files);
+    ? await startProcess(name, options.entry, { PORT: String(at), PUBLIC_URL: url, APP_URL: url, HEALTH_PORT: String(at), GITEA_REACHES_KOALA_AT: url, ...env }, () => healthy(at), options.files)
+    : await startProcess(name, 'src/index.ts', { PORT: String(at), PUBLIC_URL: url, APP_URL: url, GITEA_REACHES_KOALA_AT: url, ...env }, () => answering(url), options.files);
   return { ...started, url, port: at };
 }
 

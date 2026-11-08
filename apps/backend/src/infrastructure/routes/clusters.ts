@@ -25,7 +25,7 @@ export interface ClustersRouterDeps {
   clusterProxyService: Pick<ClusterProxyService, 'ensurePortForward' | 'stopForCluster' | 'getAutoLoginCookies'>;
   giteaService: GiteaService;
   infisicalService: InfisicalService;
-  access: Pick<ClusterAccess, 'kubectl' | 'kubeconfigOf'>;
+  access: Pick<ClusterAccess, 'kubectl'>;
   temporalBridge: TemporalBridge;
   io: SocketServer;
 }
@@ -57,11 +57,10 @@ export function clustersRouter(deps: ClustersRouterDeps): Router {
   for (const serviceKey of PROXY_SERVICES) {
     router.get(`/:id/proxy/${serviceKey}`, asyncRoute(async (req, res) => {
       try {
-        const clusterId = idOf(req);
         const cluster = await ownedCluster(req);
         if (!cluster) return res.status(404).json({ error: 'Cluster not found' });
 
-        const targetUrl = await clusterProxyService.ensurePortForward(clusterId, serviceKey, await access.kubeconfigOf(cluster.id));
+        const targetUrl = await clusterProxyService.ensurePortForward(cluster.id, serviceKey);
 
         if (serviceKey === 'gitea' || serviceKey === 'grafana' || serviceKey === 'infisical') {
           if (signsInAsPlatform(serviceKey, cluster.id)) {

@@ -93,3 +93,44 @@ describe('what is on a cluster', () => {
       .toEqual([{ name: 'n', ready: false, roles: [], cpuCores: 0.5 }]);
   });
 });
+
+describe('what is on a cluster when part of it cannot be read', () => {
+  const failing = (what: { helm?: boolean; nodes?: boolean }) => new ClusterContentsService({
+    monitoring: { clustersOf: async () => [system], ownsCluster: (viewer) => viewer.id === 'admin', reach: async () => ({}) },
+    deployments: async () => [],
+    kubectl: async (_cluster, args) => {
+      if (args[1] === 'nodes' && what.nodes) throw new Error('nodes is forbidden: User cannot list resource "nodes"\nmore detail');
+      return args[1] === 'pods' ? podsJson : args[1] === 'namespaces' ? namespacesJson : nodesJson;
+    },
+    helm: async () => {
+      if (what.helm) throw new Error('Kubernetes cluster unreachable: the server has asked for the client to provide credentials\nmore');
+      return '[]';
+    },
+    labelOf: (id) => id,
+    now: () => NOW,
+  });
+
+  it('tells its owner why Helm could not list the releases, in Helm\'s own words, instead of showing none, and still shows the workloads', async () => {
+    const contents = await failing({ helm: true }).contents(asPerson('admin'), 'sys');
+    expect(contents.releases).toBeUndefined();
+    expect(contents.releasesProblem).toBe('Helm could not list the releases: Kubernetes cluster unreachable: the server has asked for the client to provide credentials');
+    expect(contents.workloads.length).toBeGreaterThan(0);
+    expect(contents.nodes).toHaveLength(1);
+    expect(contents.nodesProblem).toBeUndefined();
+  });
+
+  it('tells its owner why the nodes could not be listed, instead of showing none', async () => {
+    const contents = await failing({ nodes: true }).contents(asPerson('admin'), 'sys');
+    expect(contents.nodes).toBeUndefined();
+    expect(contents.nodesProblem).toBe('the nodes could not be listed: nodes is forbidden: User cannot list resource "nodes"');
+    expect(contents.releases).toEqual([]);
+    expect(contents.releasesProblem).toBeUndefined();
+  });
+
+  it('tells anyone but the owner neither, since they see no releases or nodes at all', async () => {
+    const contents = await failing({ helm: true, nodes: true }).contents(asPerson('someone'), 'sys');
+    expect(contents).not.toHaveProperty('releasesProblem');
+    expect(contents).not.toHaveProperty('nodesProblem');
+    expect(contents).not.toHaveProperty('releases');
+  });
+});

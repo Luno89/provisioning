@@ -110,7 +110,8 @@ const vaultOf = (projectId: string, keys: string[], removeFirst: boolean): Promi
   const { createHash } = await import('node:crypto');
   const { loadKeys } = await import('/app/apps/backend/src/platform/lib/keys.ts');
   const { InfisicalService } = await import('/app/apps/backend/src/infrastructure/services/InfisicalService.ts');
-  const vault = new InfisicalService({ runKubectl: async () => { throw new Error('Infisical is reached at INFISICAL_URL'); } }, loadKeys(process.env).data, '');
+  const { infisicalSettingsFrom } = await import('/app/apps/backend/src/infrastructure/lib/infisical-settings.ts');
+  const vault = new InfisicalService(loadKeys(process.env).data, infisicalSettingsFrom(process.env));
   const projectId = ${JSON.stringify(projectId)};
   const removed = ${removeFirst} ? await vault.removeProject(projectId) : {};
   const held = {};

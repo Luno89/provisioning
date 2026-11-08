@@ -1,12 +1,10 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { GiteaConflictError, GiteaService } from '../../projects/services/GiteaService.js';
-import type { InfrastructureService } from '../../infrastructure/index.js';
 
 type Call = { url: string; method: string; body?: Record<string, unknown> };
 
 function serviceAnswering(answer: (call: Call) => Response) {
-  vi.stubEnv('GITEA_URL', 'http://gitea.test');
-  const service = new GiteaService({} as InfrastructureService, 'master-key', '/tmp/kubeconfig');
+  const service = new GiteaService('master-key', { url: 'http://gitea.test' });
   vi.spyOn(service as unknown as { readAdminPassword(): Promise<string> }, 'readAdminPassword').mockResolvedValue('pw');
   const calls: Call[] = [];
   vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {

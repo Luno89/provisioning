@@ -94,7 +94,7 @@ export function createReleaseOperations(deps: ReleaseOperationDeps): Record<stri
     cluster.apply(release.target, build.source, adapter.sets({ image: build.image, state, host: release.host, ...(preview ? { previewHost: release.previewHost } : {}) }));
 
   const vault = async (release: ReleaseRunInput) => {
-    if (release.build.vault) await cluster.vault(release.target, release.build.vault, release.secretTarget);
+    if (release.build.vault) await cluster.vault(release.target, release.build.vault);
   };
 
   const failed = (err: unknown): StepResult => ({ exit: 'failed', outputs: { reason: reasonOf(err) } });

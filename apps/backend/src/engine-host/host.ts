@@ -1,4 +1,4 @@
-import type { RegistryLoginSource } from '../instances/index.js';
+import type { RegistryHosts, RegistryLoginSource } from '../instances/index.js';
 import { BUILDER_TOOLS, type ProcedureSource, type ToolDefinition, type WorkspaceDependency } from '@koala/agent-engine';
 import { SHIPPED_DEPENDENCIES } from '../extensions/workspace-dependencies.js';
 import { BUILT_IN_SCENARIOS } from '../eval/level2/scenarios.js';
@@ -18,7 +18,7 @@ import { createWorkspaceDocuments, type DocumentRepos } from './sandboxes/worksp
 import { createMachineWork, type MachineWork } from './sandboxes/machine-work.js';
 import { createStoryDropWork, type StoryDropWork } from './sandboxes/story-drop-work.js';
 import { defaultRepoResolver, repoForWorkspace, treeWorkspaceRunId, type WorkspaceRepoResolver } from './sandboxes/workspace-repos.js';
-import { createImageBuilder, discoverRegistry, type ImageBuilder, type PushToken, type RegistryAccount } from './sandboxes/image-builder.js';
+import { createImageBuilder, type ImageBuilder, type PushToken, type RegistryAccount } from './sandboxes/image-builder.js';
 import { createEnvironmentResolver, type EnvironmentResolver } from './sandboxes/environments.js';
 import { createTreeWorkspaces, LANDING_BASE, type TreeWorkspaces } from './sandboxes/tree-workspaces.js';
 import { createConversationWorkspaces, type ConversationWorkspaces } from './sandboxes/conversation-workspaces.js';
@@ -129,8 +129,7 @@ export interface EngineHostOptions {
   stores: EngineHostStores;
   web?: WebTools | undefined;
   cluster: KoalasCluster;
-  registryHost?: string | undefined;
-  pushRegistryHost?: string | undefined;
+  registry: RegistryHosts | { none: string };
   registryAccount?: (() => Promise<RegistryAccount>) | undefined;
   registryPushToken?: (() => Promise<PushToken>) | undefined;
   revokeRegistryPushToken?: ((name: string) => Promise<void>) | undefined;
@@ -245,8 +244,7 @@ export function createEngineHost(options: EngineHostOptions): EngineHost {
 
   const images = createImageBuilder({
     run: kube,
-    ...(options.registryHost ? { registry: options.registryHost } : {}),
-    ...(options.pushRegistryHost ? { pushRegistry: options.pushRegistryHost } : {}),
+    registry: options.registry,
     ...(options.registryAccount ? { account: options.registryAccount } : {}),
     ...(options.registryPushToken ? { pushToken: options.registryPushToken } : {}),
     ...(options.revokeRegistryPushToken ? { revokePushToken: options.revokeRegistryPushToken } : {}),
@@ -545,11 +543,12 @@ export function createEngineHost(options: EngineHostOptions): EngineHost {
   });
 
   const registryAccount = options.registryAccount;
-  // The registry's package API is served at the same address the builds push to, so the sweep asks there.
-  let registryAddress: string | undefined;
   const registryPackages = registryAccount
     ? createRegistryPackages({
-      registry: async () => (registryAddress ??= options.pushRegistryHost ?? options.registryHost ?? await discoverRegistry(kube)),
+      registry: async () => {
+        if ('none' in options.registry) throw new Error(options.registry.none);
+        return options.registry.push;
+      },
       account: registryAccount,
     })
     : undefined;

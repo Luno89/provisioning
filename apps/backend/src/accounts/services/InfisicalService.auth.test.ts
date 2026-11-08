@@ -46,7 +46,7 @@ describe('InfisicalService auth + workspace resolution', () => {
     post.mockReset();
     get.mockReset();
     patch.mockReset();
-    service = new InfisicalService({ runKubectl: vi.fn() }, masterKey, '/tmp/kc.yaml', 'http://vault:8080');
+    service = new InfisicalService(masterKey, { url: 'http://vault:8080' });
   });
 
   it('provisions a permanent machine identity on first use and persists it', async () => {
@@ -63,7 +63,7 @@ describe('InfisicalService auth + workspace resolution', () => {
     expect(post).toHaveBeenCalledTimes(4);
 
     post.mockResolvedValueOnce({ data: { accessToken: 'atok2' } });
-    const fresh = new InfisicalService({ runKubectl: vi.fn() }, masterKey, '/tmp/kc.yaml', 'http://vault:8080');
+    const fresh = new InfisicalService(masterKey, { url: 'http://vault:8080' });
     const token = await fresh.authenticate();
     expect(token).toBe('atok2');
     expect(post).toHaveBeenCalledTimes(5); // one more call: universal-auth login, no re-provisioning

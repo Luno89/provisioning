@@ -1,8 +1,7 @@
 import { createModelService } from '../../apps/backend/src/models/wiring/model-wiring.js';
-import { devKoalasCluster } from './dev-stack.js';
+import { devKoalasCluster, devGiteaUrl, devRegistry } from './dev-stack.js';
 import { createEngineHost, storesFromDatabase } from '../../apps/backend/src/engine-host/host.js';
 import { GiteaService } from '../../apps/backend/src/projects/services/GiteaService.js';
-import { InfrastructureService } from '../../apps/backend/src/infrastructure/services/InfrastructureService.js';
 import type { Database } from '../../apps/backend/src/platform/lib/db-interface.js';
 import { extensionServiceFor } from '../../apps/backend/src/engine/services/ExtensionService.js';
 import { loadKeys } from '../../apps/backend/src/platform/lib/keys.js';
@@ -12,7 +11,7 @@ import { createWorkspaceRepoResolver } from '../../apps/backend/src/engine-host/
 export function liveEngineHost(db: Database) {
   const keys = loadKeys(process.env);
   const extensions = extensionServiceFor(db);
-  const gitea = new GiteaService(new InfrastructureService(), keys.data, '/tmp/kubeconfig-provisioning-lunorica');
+  const gitea = new GiteaService(keys.data, { url: devGiteaUrl });
   const projectRepos = new ProjectRepoService(db, gitea, keys.data);
   return createEngineHost({
     documents: { push: (request) => projectRepos.pushDocuments(request), pull: (request) => projectRepos.pullDocuments(request), merge: (request) => projectRepos.mergeDocuments(request) },
@@ -20,7 +19,7 @@ export function liveEngineHost(db: Database) {
     models: createModelService(db, keys.data),
     stores: storesFromDatabase(db),
     cluster: devKoalasCluster(),
-    registryHost: process.env.KOALA_REGISTRY,
+    registry: devRegistry(),
     registryAccount: async () => ({ owner: gitea.adminUsername, ...(await gitea.getAdminCredentials()) }),
     registryPushToken: async () => ({ username: gitea.adminUsername, password: (await gitea.createDeployToken()).token }),
     hidden: (ownerId: string) => extensions.hidden(ownerId),

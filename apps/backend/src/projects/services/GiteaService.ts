@@ -3,12 +3,12 @@ import os from 'os';
 import path from 'path';
 import fs from 'fs/promises';
 import { encryptValue, decryptValue, nodeProcesses, unpromptedGit, type Processes, type SecretKey } from '../../platform/index.js';
-import type { InfrastructureService } from '../../infrastructure/index.js';
 import { registryHosts, type RegistryHosts, type RegistryLogin } from '../../instances/index.js';
 import { privatePatches, type GiteaListedUser } from '../lib/gitea-visibility.js';
 import { blockedDropPath, dropPathQueries } from '../lib/drop-paths.js';
-import { nodePortOf, pullBetween, pullsFrom, type GiteaPull } from '../lib/gitea-answers.js';
+import { pullBetween, pullsFrom, type GiteaPull } from '../lib/gitea-answers.js';
 import { sameHookPath } from '../lib/project-shipping.js';
+import type { GiteaSettings } from '../lib/gitea-settings.js';
 import { landBranch, type Landing } from './land-branch.js';
 import { ignore } from '@koala/engine-core/failures';
 
@@ -22,6 +22,8 @@ const USERS_PAGE = 50;
 const TOKEN_SCOPES = ['write:repository', 'write:package', 'write:admin', 'write:user', 'write:organization'];
 
 export class GiteaConflictError extends Error {}
+
+export type GiteaAt = Pick<GiteaSettings, 'url'> | { none: string };
 
 export interface RepoFileEntry {
   path: string;
@@ -38,7 +40,6 @@ export interface RepoFileContent {
 
 
 export class GiteaService {
-  private baseUrlCache: string | null = null;
   private tokenCache: string | null = null;
   private pullLogin: Promise<RegistryLogin> | null = null;
 
@@ -46,9 +47,8 @@ export class GiteaService {
   private readonly dataDir: string;
 
   constructor(
-    private readonly infra: Pick<InfrastructureService, 'runKubectl' | 'getK3dServerIp'>,
     private readonly masterKey: SecretKey,
-    private readonly kubeconfigPath: string,
+    private readonly at: GiteaAt,
     options: { processes?: Processes | undefined; dataDir?: string | undefined } = {},
   ) {
     this.processes = options.processes ?? nodeProcesses;
@@ -66,36 +66,8 @@ export class GiteaService {
   }
 
   private async resolveBaseUrl(): Promise<string> {
-    if (this.baseUrlCache) return this.baseUrlCache;
-    if (process.env.GITEA_URL?.trim()) {
-      this.baseUrlCache = process.env.GITEA_URL.trim().replace(/\/+$/, '');
-      return this.baseUrlCache;
-    }
-
-    const svcJson = await this.infra.runKubectl(
-      ['get', 'svc', 'gitea-http', '-n', NAMESPACE, '-o', 'json'],
-      this.kubeconfigPath,
-    );
-    const nodePort = nodePortOf(JSON.parse(svcJson) as unknown, 'http');
-    if (!nodePort) {
-      throw new Error('Gitea service has no nodePort assigned — did ensure-gitea.sh set the NodePort override?');
-    }
-
-    let host: string;
-    if (process.platform === 'linux') {
-      const raw = await this.infra.runKubectl(
-        ['get', 'nodes', '-o', 'jsonpath={.items[0].status.addresses[?(@.type=="InternalIP")].address}'],
-        this.kubeconfigPath,
-      );
-      const parsed = raw.trim().split(/\s+/)[0];
-      if (!parsed) throw new Error('Could not resolve the management cluster node\'s InternalIP');
-      host = parsed;
-    } else {
-      host = await this.infra.getK3dServerIp('provisioning-lunorica');
-    }
-
-    this.baseUrlCache = `http://${host}:${nodePort}`;
-    return this.baseUrlCache;
+    if ('none' in this.at) throw new Error(this.at.none);
+    return this.at.url;
   }
 
   private async readAdminPassword(): Promise<string> {
@@ -140,39 +112,7 @@ export class GiteaService {
     await fs.writeFile(this.dataFile('.gitea-admin-token'), encryptValue(this.tokenCache, this.masterKey), { mode: 0o600 });
     await fs.writeFile(this.dataFile('.gitea-admin-token.scopes'), JSON.stringify(TOKEN_SCOPES), { mode: 0o600 });
 
-    await this.ensureClusterSecret(this.tokenCache);
-
     return this.tokenCache;
-  }
-
-  async ensureClusterSecret(explicitToken?: string): Promise<void> {
-    try {
-      const token = explicitToken ?? (await this.getToken());
-      const manifest = {
-        apiVersion: 'v1',
-        kind: 'Secret',
-        metadata: {
-          name: 'gitea-credentials',
-          namespace: NAMESPACE,
-        },
-        type: 'Opaque',
-        stringData: {
-          token,
-          host: 'gitea-http.gitea.svc.cluster.local',
-          port: '3000',
-          protocol: 'http',
-        },
-      };
-      const tmpPath = path.join('/tmp', `gitea-secret-${crypto.randomBytes(4).toString('hex')}.json`);
-      await fs.writeFile(tmpPath, JSON.stringify(manifest), 'utf8');
-      try {
-        await this.infra.runKubectl(['apply', '-f', tmpPath], this.kubeconfigPath);
-      } finally {
-        await fs.unlink(tmpPath).catch(ignore('the manifest was written under /tmp only for kubectl to read, and the system clears it'));
-      }
-    } catch (err) {
-      console.warn(`[GiteaService] could not sync gitea-credentials secret: ${(err as Error).message}`);
-    }
   }
 
   private async apiFetch(pathSuffix: string, init: RequestInit = {}): Promise<Response> {
@@ -299,10 +239,6 @@ export class GiteaService {
 
   get internalBaseUrl(): string {
     return `http://gitea-http.${NAMESPACE}.svc.cluster.local:3000`;
-  }
-
-  get namespace(): string {
-    return NAMESPACE;
   }
 
   async createUserAccount(username: string, email: string): Promise<{ password: string }> {

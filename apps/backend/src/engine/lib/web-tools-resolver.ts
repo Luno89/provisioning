@@ -12,8 +12,7 @@ export interface ProxyTarget {
 
 export interface WebToolsDeps {
   db: Pick<InfrastructureStore, 'getDeployments'>;
-  serviceUrl: (clusterId: string, serviceKey: string, kubeconfigPath: string, target: ProxyTarget) => Promise<string>;
-  kubeconfigFor: (clusterId: string) => Promise<string>;
+  serviceUrl: (clusterId: string, serviceKey: string, target: ProxyTarget) => Promise<string>;
   env?: NodeJS.ProcessEnv;
   pageFetch?: typeof fetch;
   pageCheck?: ((url: string) => Promise<string | undefined>) | undefined;
@@ -21,13 +20,11 @@ export interface WebToolsDeps {
 
 export function webToolsDepsFrom(
   db: Pick<InfrastructureStore, 'getDeployments'>,
-  access: { kubeconfigOf(clusterId: string): Promise<string> },
-  proxy: { serviceUrl(clusterId: string, serviceKey: string, kubeconfigPath: string, target: ProxyTarget): Promise<string> },
+  proxy: { serviceUrl(clusterId: string, serviceKey: string, target: ProxyTarget): Promise<string> },
 ): WebToolsDeps {
   return {
     db,
-    serviceUrl: (clusterId, serviceKey, kubeconfigPath, target) => proxy.serviceUrl(clusterId, serviceKey, kubeconfigPath, target),
-    kubeconfigFor: (clusterId) => access.kubeconfigOf(clusterId),
+    serviceUrl: (clusterId, serviceKey, target) => proxy.serviceUrl(clusterId, serviceKey, target),
   };
 }
 
@@ -46,9 +43,8 @@ async function baseUrlFor(
   remotePort: number,
 ): Promise<string | undefined> {
   try {
-    const kubeconfig = await deps.kubeconfigFor(dep.clusterId!);
     const ns = namespaceOf(dep);
-    const url = await deps.serviceUrl(dep.clusterId!, `${service}-${dep.id}`, kubeconfig, {
+    const url = await deps.serviceUrl(dep.clusterId, `${service}-${dep.id}`, {
       service, namespace: ns, remotePort,
     });
     return url.replace(/\/$/, '');

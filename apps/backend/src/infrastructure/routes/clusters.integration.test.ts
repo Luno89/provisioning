@@ -108,7 +108,6 @@ interface MountOptions {
   seed?: (db: Database) => Promise<void>;
 }
 
-const ownKubeconfig = () => path.join(kubeconfigDir, 'kubeconfig-machine-c1');
 
 const seedOwnCluster = async (db: Database) => {
   const sealed = encryptValue('apiVersion: v1\nkind: Config\n', KEY);
@@ -129,7 +128,7 @@ const mount = async (options: MountOptions = {}): Promise<Mounted> => {
       await options.seed?.(db);
       const infra = infraOnHost(options.unreachable);
       const clusterService = new ClusterService(db, infra, testClusterAccess(db, { answers: (args) => infra.runKubectl([...args], 'through-cluster-access'), dataKey: KEY, koalaMachineId: options.koalaMachineId, folder: kubeconfigDir, serviceAccount: { host: 'kubernetes.default.svc', port: '443', caFile: '/sa/ca.crt', tokenFile: '/sa/token' } }), { kubeconfigDir, koalaMachineId: options.koalaMachineId });
-      const clusterProxyService = new ClusterProxyService();
+      const clusterProxyService = new ClusterProxyService(clusterService.access);
       const bridge = new TemporalBridge(db, undefined, KEY, clusterService);
       if (options.temporal) bridge.client = env.client;
       made = {
@@ -144,8 +143,8 @@ const mount = async (options: MountOptions = {}): Promise<Mounted> => {
         access: clusterService.access,
         temporalBridge: bridge,
         io: { emit: vi.fn(), to: vi.fn(() => ({ emit: vi.fn() })) } as never,
-        giteaService: new GiteaService(infra, KEY, path.join(kubeconfigDir, `kubeconfig-${SYSTEM}`)),
-        infisicalService: new InfisicalService(infra, KEY, path.join(kubeconfigDir, `kubeconfig-${SYSTEM}`)),
+        giteaService: new GiteaService(KEY, { none: 'these routes are tested without a Gitea' }),
+        infisicalService: new InfisicalService(KEY, { none: 'these routes are tested without an Infisical' }),
       });
     },
   });
@@ -269,7 +268,7 @@ describe('what only whoever owns a cluster may open', () => {
     const { h, spies } = await mount();
     const res = await axios.get(h.url('/api/clusters/c1/proxy/prometheus'));
     expect(res.status).toBe(200);
-    expect(spies.ensurePortForward).toHaveBeenCalledWith('c1', 'prometheus', ownKubeconfig());
+    expect(spies.ensurePortForward).toHaveBeenCalledWith('c1', 'prometheus');
     expect((await axios.get(h.url('/api/clusters/c1/gpu-status'))).data).toEqual(NO_GPUS);
   });
 });
