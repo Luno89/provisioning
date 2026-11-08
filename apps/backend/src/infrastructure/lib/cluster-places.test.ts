@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ROOT_CLUSTER_ID, placeOf, serviceAccountFrom, serviceAccountKubeconfig, type KnownCluster } from './cluster-places.js';
+import { ROOT_CLUSTER_ID, koalasClusterId, machineToStart, ownReach, placeOf, serviceAccountFrom, serviceAccountKubeconfig, type KnownCluster } from './cluster-places.js';
 
 const unsealed = (overrides: Partial<KnownCluster> = {}): KnownCluster =>
   ({ id: 'machine-dev2', name: 'machine-dev2', provider: 'machine', machineId: 'dev2', status: 'healthy', ...overrides });
@@ -34,6 +34,36 @@ describe('where a cluster is, as ClusterAccess sees it', () => {
   it('reaches root\'s own cluster only on root', () => {
     expect(placeOf(ROOT_CLUSTER_ID, undefined, { root: true })).toEqual({ kind: 'root', clusterId: ROOT_CLUSTER_ID });
     expect(placeOf(ROOT_CLUSTER_ID, undefined, instance)).toMatchObject({ kind: 'unreachable', why: 'not-root' });
+  });
+});
+
+describe('the cluster this Koala runs in', () => {
+  it('is its machine\'s cluster, the system cluster\'s name where it was told no machine, and root\'s own on root', () => {
+    expect(koalasClusterId(instance)).toBe('machine-dev1');
+    expect(koalasClusterId({ root: false })).toBe('provisioning-lunorica');
+    expect(koalasClusterId({ root: true })).toBeUndefined();
+    expect(ownReach(instance)).toEqual({ clusterId: 'machine-dev1', kind: 'koala' });
+    expect(ownReach({ root: false })).toEqual({ clusterId: 'provisioning-lunorica', kind: 'koala' });
+    expect(ownReach({ root: true })).toEqual({ clusterId: ROOT_CLUSTER_ID, kind: 'root' });
+  });
+
+  it('is reached as Koala\'s own by that name where no machine was named, as a pool instance is, and nowhere else', () => {
+    expect(placeOf('provisioning-lunorica', undefined, { root: false })).toEqual({ kind: 'koala', clusterId: 'provisioning-lunorica' });
+    expect(placeOf('provisioning-lunorica', undefined, instance)).toMatchObject({ kind: 'unreachable', why: 'unknown' });
+    expect(placeOf('provisioning-lunorica', undefined, { root: true })).toMatchObject({ kind: 'unreachable', why: 'unknown' });
+  });
+});
+
+describe('what a workflow is handed to reach a cluster', () => {
+  it('is the machine to start for a machine\'s cluster, Koala\'s own machine included, whatever state it is in', () => {
+    expect(machineToStart('machine-dev2', machine({ status: 'stopped' }), instance)).toEqual({ deviceId: 'dev2' });
+    expect(machineToStart('machine-dev1', undefined, instance)).toEqual({ deviceId: 'dev1' });
+  });
+
+  it('is no machine for a cluster that is not one, which is reached as it is', () => {
+    expect(machineToStart('provisioning-lunorica', undefined, { root: false })).toBeUndefined();
+    expect(machineToStart(ROOT_CLUSTER_ID, undefined, { root: true })).toBeUndefined();
+    expect(machineToStart('old', { id: 'old', name: 'old', provider: 'k3d', status: 'healthy' }, instance)).toBeUndefined();
   });
 });
 

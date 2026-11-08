@@ -270,7 +270,6 @@ export function poolChartValues(input: PoolChartInput): Record<string, unknown> 
 }
 
 export interface PoolSettings {
-  kubeconfig: string;
   address: string;
   slots: number;
   slot: PoolSlot;
@@ -285,16 +284,16 @@ const positive = (value: string | undefined, fallback: number): number => {
 
 export const DEFAULT_TRIAL_DAYS = 14;
 
-export function poolSettingsFrom(env: Readonly<Record<string, string | undefined>>, defaultKubeconfig: string): PoolSettings | { off: string } {
+export function poolSettingsFrom(env: Readonly<Record<string, string | undefined>>): PoolSettings | { off: string } {
   if (!env.INGRESS_DOMAIN?.trim()) return { off: 'this root gives instances no addresses of their own (no INGRESS_DOMAIN)' };
   if (!env.POOL_ADDRESS?.trim()) return { off: 'this root has no pool (POOL_ADDRESS is not set)' };
+  if (!env.POOL_KUBECONFIG?.trim()) return { off: 'this root has no way into its pool\'s node (POOL_KUBECONFIG is not set)' };
   const slots = Number(env.POOL_SLOTS);
   if (!Number.isInteger(slots) || slots <= 0) return { off: 'this root has no pool slots (POOL_SLOTS)' };
   const registry = env.INSTANCE_REGISTRY?.trim();
   const repository = env.POOL_IMAGE?.trim() || (registry ? `${registry}/nowrinkles/app` : '');
   if (!repository) return { off: 'this root has no image for pool instances (POOL_IMAGE or INSTANCE_REGISTRY)' };
   return {
-    kubeconfig: env.POOL_KUBECONFIG?.trim() || defaultKubeconfig,
     address: env.POOL_ADDRESS.trim(),
     slots,
     slot: {

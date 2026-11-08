@@ -1,31 +1,26 @@
 import crypto from 'crypto';
-import fs from 'fs/promises';
-import os from 'os';
-import path from 'path';
 import { ApplicationFailure } from '@temporalio/common';
 import { createDatabase, roleFromEnv, emailWayFrom, loadKeys, MailService } from '../platform/index.js';
-import { HeadscaleService, InfrastructureService } from '../infrastructure/index.js';
+import { clusterAccessFrom, HeadscaleService, ROOT_CLUSTER_ID, type ClusterAccess } from '../infrastructure/index.js';
 import {
   hashCredential, publicKeyPem, afterStep, nextTrialStep, trialMessage, type DueStep, type TrialStep, MoveRelay,
-  kubeconfigFile, issueMoveToken, type InstanceRecord, admissionManifests, backendAccessManifest, COMPONENT_RESOURCES, INSTANCE_RELEASE,
-  namespaceManifest, PLATFORM_TAG, POOL_LABEL, poolChartValues, poolNamespace, poolSettingsFrom, PROXY, proxyCaddyfile,
-  proxyManifests, RUNTIME_CLASS, VCLUSTER_CHART_VERSION, vclusterAddress, vclusterValues, type PoolSettings,
+  kubeconfigFile, issueMoveToken, type InstanceRecord, COMPONENT_RESOURCES,
+  PLATFORM_TAG, poolChartValues, poolSettingsFrom, proxyCaddyfile, type PoolSettings,
 } from '../instances/index.js';
-import { BLACKBOX_VALUES, POOL_MONITORING, poolAppAlerts, poolStackValues, probeIngressPolicy } from '../monitoring/index.js';
-import { messageOf, waitingOn } from './failure-reasons.js';
+import { PoolNode } from './pool-node.js';
 
-const DEFAULT_KUBECONFIG = '/tmp/kubeconfig-provisioning-lunorica';
-const ADMISSION_CHECK_NAMESPACE = 'pool-admission-check';
 function rootPublicKey(): string {
   const role = roleFromEnv(process.env);
   if (!role.signing) throw ApplicationFailure.nonRetryable('only root makes pool instances', 'NotRoot');
   return publicKeyPem(role.signing.publicKey);
 }
 
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+let access: ClusterAccess | undefined;
+const rootCluster = (): ClusterAccess => (access ??= clusterAccessFrom(process.env, { role: roleFromEnv(process.env).role }));
+const poolNode = (): PoolNode => new PoolNode({ access: rootCluster(), node: ROOT_CLUSTER_ID });
 
 function settings(): PoolSettings {
-  const found = poolSettingsFrom(process.env, DEFAULT_KUBECONFIG);
+  const found = poolSettingsFrom(process.env);
   if ('off' in found) throw ApplicationFailure.nonRetryable(found.off, 'PoolOff');
   return found;
 }
@@ -35,8 +30,6 @@ async function rootCaddies(): Promise<string[]> {
   if (found.length === 0) throw ApplicationFailure.retryable(`no ${PLATFORM_TAG} node is on the mesh, so the pool's proxy could not tell root's Caddy from anyone else`, 'NoPlatformNode');
   return found;
 }
-
-const yaml = (docs: Record<string, unknown>[]): string => docs.map((doc) => JSON.stringify(doc)).join('\n---\n');
 
 async function withInstance<T>(instanceId: string, work: (instance: InstanceRecord, save: (patch: Partial<InstanceRecord>) => Promise<InstanceRecord>) => Promise<T>): Promise<T> {
   const db = createDatabase();
@@ -56,53 +49,7 @@ async function withInstance<T>(instanceId: string, work: (instance: InstanceReco
 }
 
 export async function PoolHostActivity(): Promise<void> {
-  const pool = settings();
-  const infra = new InfrastructureService();
-  const classes = await infra.runKubectl(['get', 'runtimeclass', '-o', 'name'], pool.kubeconfig);
-  if (!classes.split('\n').includes(`runtimeclass.node.k8s.io/${RUNTIME_CLASS}`)) {
-    throw ApplicationFailure.nonRetryable('the pool\'s node has no gVisor runtime yet: run scripts/root-node/gvisor.sh on it first', 'NoGvisor');
-  }
-  await infra.applyManifest(yaml([...admissionManifests(pool.image.repository), {
-    apiVersion: 'v1', kind: 'Namespace', metadata: { name: ADMISSION_CHECK_NAMESPACE, labels: { [POOL_LABEL]: 'true', 'pod-security.kubernetes.io/enforce': 'baseline' } },
-  }]), pool.kubeconfig);
-  for (;;) {
-    const refused = await infra.runKubectl(['run', 'admission-check', '-n', ADMISSION_CHECK_NAMESPACE, '--image=busybox:1.37', '--restart=Never', '--dry-run=server', '-o', 'name'], pool.kubeconfig)
-      .then(() => false, (error: Error) => error.message.includes('runs under gVisor'));
-    if (refused) break;
-    await sleep(2000);
-  }
-  const existing = await infra.runKubectl(['get', 'daemonset', PROXY.name, '-n', PROXY.namespace, '--ignore-not-found', '-o', 'name'], pool.kubeconfig);
-  if (!existing.trim()) await infra.applyManifest(yaml(proxyManifests(proxyCaddyfile([], pool.address, await rootCaddies()))), pool.kubeconfig);
-  await poolMonitoring(infra, pool.kubeconfig);
-}
-
-async function deployedVersion(infra: InfrastructureService, release: string, kubeconfig: string): Promise<string | undefined> {
-  const listed = JSON.parse(await infra.runHelm(['list', '-n', POOL_MONITORING.namespace, '--filter', `^${release}$`, '-o', 'json'], kubeconfig)) as Array<{ chart?: string; status?: string }>;
-  const found = listed[0];
-  return found?.status === 'deployed' ? found.chart : undefined;
-}
-
-async function poolMonitoring(infra: InfrastructureService, kubeconfig: string): Promise<void> {
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'pool-monitoring-'));
-  try {
-    const stack = POOL_MONITORING.stack;
-    if (await deployedVersion(infra, stack.release, kubeconfig) !== `${stack.chart}-${stack.version}`) {
-      const values = path.join(dir, 'stack.json');
-      await fs.writeFile(values, JSON.stringify(poolStackValues()));
-      await infra.runHelm(['upgrade', '--install', stack.release, stack.chart, '--repo', POOL_MONITORING.repo, '--version', stack.version,
-        '-n', POOL_MONITORING.namespace, '--create-namespace', '--wait', '--timeout', '720h', '-f', values], kubeconfig);
-    }
-    const blackbox = POOL_MONITORING.blackbox;
-    if (await deployedVersion(infra, blackbox.release, kubeconfig) !== `${blackbox.chart}-${blackbox.version}`) {
-      const values = path.join(dir, 'blackbox.yaml');
-      await fs.writeFile(values, BLACKBOX_VALUES);
-      await infra.runHelm(['upgrade', '--install', blackbox.release, blackbox.chart, '--repo', POOL_MONITORING.repo, '--version', blackbox.version,
-        '-n', POOL_MONITORING.namespace, '--wait', '--timeout', '720h', '-f', values], kubeconfig);
-    }
-    await infra.applyManifest(yaml([poolAppAlerts()]), kubeconfig);
-  } finally {
-    await fs.rm(dir, { recursive: true, force: true });
-  }
+  await poolNode().ready(settings(), rootCaddies);
 }
 
 export async function PoolProxyActivity(): Promise<void> {
@@ -112,7 +59,7 @@ export async function PoolProxyActivity(): Promise<void> {
   try {
     const instances = (await db.instances.getInstances()).filter((entry) => entry.pool && entry.name);
     const caddyfile = proxyCaddyfile(instances.map((entry) => ({ name: entry.name!, ports: entry.pool!.ports })), pool.address, await rootCaddies());
-    await new InfrastructureService().applyManifest(yaml([proxyManifests(caddyfile)[0]!]), pool.kubeconfig);
+    await poolNode().proxy(caddyfile);
   } finally {
     await db.close();
   }
@@ -120,37 +67,16 @@ export async function PoolProxyActivity(): Promise<void> {
 
 export async function PoolVclusterActivity(args: { instanceId: string }): Promise<void> {
   const pool = settings();
-  const infra = new InfrastructureService();
   await withInstance(args.instanceId, async (instance, save) => {
-    const name = instance.name!;
-    const namespace = poolNamespace(name);
     await save({ status: 'installing', detail: 'Making your space on Koala\'s servers' });
-    await infra.applyManifest(yaml([namespaceManifest(name, instance.ownerId, instance.pool!.ports.registry), backendAccessManifest(name)]), pool.kubeconfig);
-    await infra.applyManifest(yaml([probeIngressPolicy(name, { hostNamespace: namespace })]), pool.kubeconfig);
-    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'pool-'));
-    try {
-      const values = path.join(dir, 'vcluster.json');
-      await fs.writeFile(values, JSON.stringify(vclusterValues(name, pool.slot)));
-      await infra.runHelm(['upgrade', '--install', name, 'vcluster', '--repo', 'https://charts.loft.sh', '--version', VCLUSTER_CHART_VERSION,
-        '-n', namespace, '--wait', '--timeout', '720h', '-f', values], pool.kubeconfig);
-    } finally {
-      await fs.rm(dir, { recursive: true, force: true });
-    }
-    const waiting = waitingOn(`the vcluster ${name}'s sign-in`);
-    for (;;) {
-      const secret = await infra.runKubectl(['get', 'secret', `vc-${name}`, '-n', namespace, '-o', 'name'], pool.kubeconfig).catch((err: unknown) => { waiting(err); return ''; });
-      if (secret.trim()) break;
-      await sleep(2000);
-    }
+    await poolNode().vcluster({ name: instance.name!, ownerId: instance.ownerId, registryPort: instance.pool!.ports.registry }, pool.slot);
   });
 }
 
 export async function PoolChartActivity(args: { instanceId: string }): Promise<void> {
   const pool = settings();
-  const infra = new InfrastructureService();
   await withInstance(args.instanceId, async (instance, save) => {
     const name = instance.name!;
-    const namespace = poolNamespace(name);
     const domain = process.env.INGRESS_DOMAIN!.trim();
     const credential = crypto.randomBytes(32).toString('base64url');
     const values = poolChartValues({
@@ -167,73 +93,15 @@ export async function PoolChartActivity(args: { instanceId: string }): Promise<v
       resources: COMPONENT_RESOURCES,
     });
     await save({ detail: 'Installing Koala in your space', credentialHash: hashCredential(credential) });
-    const job = `install-${crypto.randomBytes(4).toString('hex')}`;
-    await infra.applyManifest(yaml([
-      { apiVersion: 'v1', kind: 'Secret', metadata: { name: 'instance-values', namespace }, stringData: { 'values.json': JSON.stringify(values) } },
-      installJob(job, namespace, name, pool.image),
-    ]), pool.kubeconfig);
-    const waiting = waitingOn(`the install job ${job} in ${namespace}`);
-    for (;;) {
-      const counts = await infra.runKubectl(['get', 'job', job, '-n', namespace, '-o', 'jsonpath={.status.succeeded}|{.status.failed}'], pool.kubeconfig).catch((err: unknown) => { waiting(err); return '|'; });
-      const [succeeded, failed] = counts.split('|');
-      if (Number(succeeded) > 0) break;
-      if (Number(failed) > 0) {
-        const logs = await infra.runKubectl(['logs', `job/${job}`, '-n', namespace, '--tail=30'], pool.kubeconfig).catch((err: unknown) => `its log could not be read: ${messageOf(err)}`);
-        throw new Error(`installing Koala in ${namespace} failed: ${logs.trim().split('\n').slice(-6).join(' | ') || 'no log'}`);
-      }
-      await sleep(5000);
-    }
+    await poolNode().install(name, `install-${crypto.randomBytes(4).toString('hex')}`, values, pool.image);
   });
-}
-
-function installJob(job: string, namespace: string, vcluster: string, image: PoolSettings['image']): Record<string, unknown> {
-  const script = [
-    'set -eu',
-    `sed "s|server: .*|server: https://${vclusterAddress(vcluster)}:443|" /vc/config > /tmp/kubeconfig`,
-    'chmod 600 /tmp/kubeconfig',
-    `/app/bin/helm upgrade --install ${INSTANCE_RELEASE.name} /app/charts/instance -n ${INSTANCE_RELEASE.namespace} --create-namespace --kubeconfig /tmp/kubeconfig -f /values/values.json --timeout 720h`,
-  ].join('\n');
-  return {
-    apiVersion: 'batch/v1',
-    kind: 'Job',
-    metadata: { name: job, namespace },
-    spec: {
-      backoffLimit: 2,
-      ttlSecondsAfterFinished: 3600,
-      template: {
-        spec: {
-          runtimeClassName: RUNTIME_CLASS,
-          restartPolicy: 'Never',
-          automountServiceAccountToken: false,
-          containers: [{
-            name: 'install',
-            image: `${image.repository}:${image.tag}`,
-            command: ['sh', '-c', script],
-            resources: { requests: { memory: '128Mi', cpu: '50m' }, limits: { memory: '512Mi' } },
-            volumeMounts: [{ name: 'vc', mountPath: '/vc', readOnly: true }, { name: 'values', mountPath: '/values', readOnly: true }],
-          }],
-          volumes: [
-            { name: 'vc', secret: { secretName: `vc-${vcluster}` } },
-            { name: 'values', secret: { secretName: 'instance-values' } },
-          ],
-        },
-      },
-    },
-  };
 }
 
 export async function PoolReadyActivity(args: { instanceId: string }): Promise<void> {
   const pool = settings();
-  const infra = new InfrastructureService();
   await withInstance(args.instanceId, async (instance, save) => {
     await save({ detail: 'Starting Koala in your space' });
-    const probe = `wget -q -O /dev/null -T 10 http://${pool.address}:${instance.pool!.ports.backend}/api/auth/sign-in`;
-    const waiting = waitingOn(`the pool proxy reaching ${instance.name}'s backend`);
-    for (;;) {
-      const answered = await infra.runKubectl(['exec', '-n', PROXY.namespace, `daemonset/${PROXY.name}`, '--', 'sh', '-c', probe], pool.kubeconfig).then(() => true, (err: unknown) => { waiting(err); return false; });
-      if (answered) break;
-      await sleep(5000);
-    }
+    await poolNode().backendAnswers(pool.address, instance.pool!.ports.backend, `the pool proxy reaching ${instance.name}'s backend`);
     await save({ status: 'ready', detail: 'Ready', url: `https://${instance.name}.${process.env.INGRESS_DOMAIN!.trim()}`, meshIp: pool.address });
   });
 }
@@ -270,26 +138,14 @@ async function tell(ownerId: string, message: { subject: string; text: string })
   }
 }
 
-async function vclusterReplicas(pool: PoolSettings, name: string, replicas: 0 | 1): Promise<void> {
-  const infra = new InfrastructureService();
-  const namespace = poolNamespace(name);
-  await infra.runKubectl(['scale', 'statefulset', name, '-n', namespace, `--replicas=${replicas}`], pool.kubeconfig);
-  if (replicas === 0) {
-    await infra.runKubectl(['delete', 'pods', '-n', namespace, '-l', `vcluster.loft.sh/managed-by=${name}`, '--wait=true'], pool.kubeconfig);
-  }
-}
-
 export async function PoolRemoveActivity(args: { instanceId: string }): Promise<void> {
-  const pool = settings();
-  const infra = new InfrastructureService();
+  settings();
   const db = createDatabase();
   await db.init();
   try {
     const instance = (await db.instances.getInstances()).find((entry) => entry.id === args.instanceId);
     if (!instance?.pool || !instance.name) return;
-    const namespace = poolNamespace(instance.name);
-    await infra.runHelm(['uninstall', instance.name, '-n', namespace, '--ignore-not-found', '--wait', '--timeout', '720h'], pool.kubeconfig);
-    await infra.runKubectl(['delete', 'namespace', namespace, '--ignore-not-found', '--wait=true'], pool.kubeconfig);
+    await poolNode().remove(instance.name);
     await db.instances.deleteInstance(instance.id);
   } finally {
     await db.close();
@@ -298,7 +154,7 @@ export async function PoolRemoveActivity(args: { instanceId: string }): Promise<
 }
 
 export async function PoolTrialStepActivity(args: { instanceId: string; step: TrialStep; now: number }): Promise<void> {
-  const pool = settings();
+  settings();
   const rootUrl = process.env.PUBLIC_URL?.trim() || '';
   const db = createDatabase();
   await db.init();
@@ -315,8 +171,8 @@ export async function PoolTrialStepActivity(args: { instanceId: string; step: Tr
     await tell(instance.ownerId, message);
     return;
   }
-  if (args.step === 'pause') await vclusterReplicas(pool, instance.name, 0);
-  if (args.step === 'resume') await vclusterReplicas(pool, instance.name, 1);
+  if (args.step === 'pause') await poolNode().replicas(instance.name, 0);
+  if (args.step === 'resume') await poolNode().replicas(instance.name, 1);
   await withInstance(instance.id, async (current, save) => {
     const trial = afterStep(current.pool!, args.step, args.now);
     await save({
@@ -349,22 +205,11 @@ async function writeInstance(instance: InstanceRecord): Promise<void> {
   }
 }
 
-function moveRelay(pool: PoolSettings): MoveRelay {
+function moveRelay(): MoveRelay {
   const role = roleFromEnv(process.env);
   if (!role.signing) throw ApplicationFailure.nonRetryable('only root moves instances', 'NotRoot');
   const signing = role.signing;
-  return new MoveRelay({ kubeconfig: kubeconfigFile(pool.kubeconfig), sign: (instanceId, part) => issueMoveToken(signing, instanceId, part) });
-}
-
-async function backendAnswers(pool: PoolSettings, ports: { backend: number }): Promise<void> {
-  const infra = new InfrastructureService();
-  const probe = `wget -q -O /dev/null -T 10 http://${pool.address}:${ports.backend}/api/auth/sign-in`;
-  const waiting = waitingOn(`the pool proxy reaching the backend on port ${ports.backend}`);
-  for (;;) {
-    const answered = await infra.runKubectl(['exec', '-n', PROXY.namespace, `daemonset/${PROXY.name}`, '--', 'sh', '-c', probe], pool.kubeconfig).then(() => true, (err: unknown) => { waiting(err); return false; });
-    if (answered) return;
-    await sleep(5000);
-  }
+  return new MoveRelay({ kubeconfig: async () => kubeconfigFile(await rootCluster().kubeconfigOf(ROOT_CLUSTER_ID))(), sign: (instanceId, part) => issueMoveToken(signing, instanceId, part) });
 }
 
 export async function PoolMoveStartActivity(args: { instanceId: string }): Promise<void> {
@@ -373,16 +218,15 @@ export async function PoolMoveStartActivity(args: { instanceId: string }): Promi
   if (!instance?.pool || !instance.name || !instance.move) return;
   if (instance.move.wasPaused) {
     await writeInstance({ ...instance, move: { ...instance.move, detail: 'Starting your stopped instance so it can move' } });
-    await vclusterReplicas(pool, instance.name, 1);
-    await backendAnswers(pool, instance.pool.ports);
+    await poolNode().replicas(instance.name, 1);
+    await poolNode().backendAnswers(pool.address, instance.pool.ports.backend, `the pool proxy reaching the backend on port ${instance.pool.ports.backend}`);
     const now = await readInstance(args.instanceId);
     if (now?.move) await writeInstance({ ...now, move: { ...now.move, detail: now.move.state === 'waiting' ? 'Waiting for your machine to run the move command' : now.move.detail } });
   }
 }
 
 export async function PoolMoveSwitchActivity(args: { instanceId: string }): Promise<{ name: string } | null> {
-  const pool = settings();
-  const infra = new InfrastructureService();
+  settings();
   const instance = await readInstance(args.instanceId);
   if (!instance?.name) return null;
   const name = instance.name;
@@ -399,20 +243,18 @@ export async function PoolMoveSwitchActivity(args: { instanceId: string }): Prom
       ...(move.target.machine ? { machine: move.target.machine } : {}),
     });
   }
-  const namespace = poolNamespace(name);
-  await infra.runHelm(['uninstall', name, '-n', namespace, '--ignore-not-found', '--wait', '--timeout', '720h'], pool.kubeconfig);
-  await infra.runKubectl(['delete', 'namespace', namespace, '--ignore-not-found', '--wait=true'], pool.kubeconfig);
+  await poolNode().remove(name);
   await PoolProxyActivity();
   return { name };
 }
 
 export async function PoolMoveStopActivity(args: { instanceId: string; reason: string }): Promise<void> {
-  const pool = settings();
+  settings();
   const instance = await readInstance(args.instanceId);
   if (!instance?.pool || !instance.name || !instance.move) return;
-  const notThawed = await moveRelay(pool).thaw({ name: instance.name, instanceId: instance.id });
+  const notThawed = await moveRelay().thaw({ name: instance.name, instanceId: instance.id });
   if (notThawed) console.warn(`[pool] ${instance.name} could not be told the move stopped: ${notThawed}`);
-  if (instance.move.wasPaused) await vclusterReplicas(pool, instance.name, 0);
+  if (instance.move.wasPaused) await poolNode().replicas(instance.name, 0);
   const now = await readInstance(args.instanceId);
   const detail = notThawed ? `${args.reason} Your instance on Koala's servers could not be told, so it takes no work until it restarts (${notThawed}).` : args.reason;
   if (now?.move) await writeInstance({ ...now, move: { ...now.move, state: 'failed', detail: detail.slice(0, 500) } });

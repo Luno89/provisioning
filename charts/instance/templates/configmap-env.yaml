@@ -59,7 +59,6 @@ data:
   INSTANCE_NAMESPACE: {{ .Release.Namespace | quote }}
   {{- end }}
   KUBECONFIG_PATH: /tmp/kubeconfig-provisioning-lunorica
-  IN_CLUSTER: "true"
   TERRAFORM_STATE: kubernetes
 ---
 apiVersion: v1

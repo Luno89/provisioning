@@ -2,7 +2,7 @@ import { Context } from '@temporalio/activity';
 import {
   type ClusterMetadata, type ProjectMetadata, type DeploymentMetadata, type PipelineRunMetadata, CLI_CEILING,
 } from '../platform/index.js';
-import { destroyAppArgs, destroyAppWorkflowId, type DestroyAppArgs } from '../infrastructure/index.js';
+import { destroyAppArgs, destroyAppWorkflowId, type DestroyAppArgs, type HandOver } from '../infrastructure/index.js';
 import { type Tree, type Branch, type Leaf, type PlanProposal, projectWorkflowIds, loadProjectScope } from '../projects/index.js';
 import type { Task } from '../engine-host/tools/tasks.js';
 import type { Conversation } from '../engine/index.js';
@@ -49,6 +49,7 @@ export interface ProjectRemovalStore {
 
 export interface AppTeardown {
   clusterById(id: string): Promise<ClusterMetadata | undefined>;
+  handOver(clusterId: string): Promise<HandOver>;
   logFile(): string;
   taskQueue: string;
 }
@@ -65,7 +66,7 @@ export function planAppDestroys(deployments: readonly DeploymentMetadata[], ids:
     deploymentId: deployment.id,
     workflowId: destroyAppWorkflowId(deployment, Date.now(), nonce()),
     taskQueue: teardown.taskQueue,
-    args: destroyAppArgs(deployment, await teardown.clusterById(deployment.clusterId), teardown.logFile()),
+    args: destroyAppArgs(deployment, await teardown.clusterById(deployment.clusterId), teardown.logFile(), await teardown.handOver(deployment.clusterId)),
   })));
 }
 

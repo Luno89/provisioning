@@ -8,9 +8,9 @@ import {
 } from '../instances/index.js';
 import { ensureClusterMonitoring } from '../activities/cluster-monitoring.js';
 import { koalaClusterMonitoring } from '../monitoring/index.js';
-import { InfrastructureService } from '../infrastructure/index.js';
+import { clusterAccessFrom, InfrastructureService, type ClusterAccess } from '../infrastructure/index.js';
 import { GiteaService } from '../projects/index.js';
-import { loadKeys, mongoClientFor, mongoTarget } from '../platform/index.js';
+import { loadKeys, mongoClientFor, mongoTarget, roleFromEnv } from '../platform/index.js';
 import { ignore } from '@koala/engine-core/failures';
 import { waitingOn } from '../activities/failure-reasons.js';
 import type { ReadableStream as WebReadableStream } from 'stream/web';
@@ -73,7 +73,11 @@ function run(args: string[], input?: Readable): Promise<string> {
   });
 }
 
-const kubectl = (args: string[], input?: Readable) => run(['kubectl', ...args], input);
+let access: ClusterAccess | undefined;
+const ownCluster = (): ClusterAccess => (access ??= clusterAccessFrom(process.env, { role: roleFromEnv(process.env).role }));
+export const kubectlOn = (cluster: Pick<ClusterAccess, 'kubectl' | 'pipe' | 'own'>) => (args: string[], input?: Readable): Promise<string> =>
+  (input ? cluster.pipe(cluster.own(), args, input) : cluster.kubectl(cluster.own(), args));
+const kubectl = (args: string[], input?: Readable): Promise<string> => kubectlOn(ownCluster())(args, input);
 
 async function untilTrue(what: string, probe: () => Promise<boolean>): Promise<void> {
   const waiting = waitingOn(what);
@@ -174,11 +178,11 @@ async function restoreTerraformState(): Promise<void> {
 }
 
 async function restoreApps(): Promise<void> {
-  const kubeconfigPath = process.env.KUBECONFIG_PATH ?? '/tmp/kubeconfig-provisioning-lunorica';
+  const cluster = ownCluster();
   await report('installing', 'Getting monitoring ready for your apps');
-  await ensureClusterMonitoring(new InfrastructureService(), koalaClusterMonitoring(process.env, kubeconfigPath, true));
+  await ensureClusterMonitoring({ access: cluster, infra: new InfrastructureService() }, koalaClusterMonitoring(process.env, cluster.own(), true));
   const manifest = JSON.parse(await text(await part('apps'))) as AppsManifest;
-  const pullHost = await new GiteaService(new InfrastructureService(), loadKeys(process.env).data, kubeconfigPath).getRegistryHost();
+  const pullHost = await new GiteaService(new InfrastructureService(), loadKeys(process.env).data, process.env.KUBECONFIG_PATH ?? '/tmp/kubeconfig-provisioning-lunorica').getRegistryHost();
   for (const entry of manifest.namespaces) {
     console.log(`▶ ${entry.namespace}: ${entry.objects.length} objects, ${entry.volumes.length} volumes`);
     await applyJson([{ apiVersion: 'v1', kind: 'Namespace', metadata: { name: entry.namespace, labels: entry.labels } }], false);

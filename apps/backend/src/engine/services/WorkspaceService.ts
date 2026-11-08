@@ -1,4 +1,3 @@
-import { spawn } from 'child_process';
 import path from 'path';
 import {
   buildWorkspaceManifests,
@@ -11,8 +10,7 @@ import {
 import { readBindingCredentials } from '../../projects/index.js';
 import { bindingFiles, type ResolvedBinding } from '../../infrastructure/index.js';
 import type { WorkspaceImageSpec } from '../lib/workspace-image-seeds.js';
-
-const BIN_DIR = path.join(process.cwd(), '..', '..', 'bin');
+import type { KubeRunner } from '../../engine-host/sandboxes/kube.js';
 
 export const DEFAULT_EXEC_TIMEOUT_MS = 120_000;
 
@@ -27,56 +25,31 @@ export interface ExecResult {
 }
 
 export class WorkspaceService {
-  constructor(private kubeconfigPath?: string) {}
+  constructor(private readonly kube: KubeRunner) {}
 
-  private run(
+  private async run(
     args: string[],
-    opts: { stdin?: string | Buffer; timeoutMs?: number } = {},
+    opts: { stdin?: string; timeoutMs?: number } = {},
   ): Promise<ExecResult> {
-    const timeoutMs = opts.timeoutMs ?? DEFAULT_EXEC_TIMEOUT_MS;
-
-    return new Promise((resolve, reject) => {
-      const child = spawn(path.join(BIN_DIR, 'kubectl'), args, {
-        env: {
-          ...process.env,
-          ...(this.kubeconfigPath ? { KUBECONFIG: this.kubeconfigPath } : {}),
-        },
-      });
-
-      let stdout = '';
-      let stderr = '';
-      let timedOut = false;
-
-      const timer = setTimeout(() => {
-        timedOut = true;
-        child.kill('SIGKILL');
-      }, timeoutMs);
-
-      child.stdout.on('data', (d: Buffer) => { stdout += d.toString(); });
-      child.stderr.on('data', (d: Buffer) => { stderr += d.toString(); });
-      child.on('error', (err) => { clearTimeout(timer); reject(err); });
-      child.on('close', (code) => {
-        clearTimeout(timer);
-        const truncated = stdout.length > MAX_OUTPUT_CHARS || stderr.length > MAX_OUTPUT_CHARS;
-        resolve({
-          stdout: stdout.slice(0, MAX_OUTPUT_CHARS),
-          stderr: stderr.slice(0, MAX_OUTPUT_CHARS),
-          exitCode: code ?? -1,
-          timedOut,
-          truncated,
-        });
-      });
-
-      if (opts.stdin !== undefined) child.stdin.end(opts.stdin);
-      else child.stdin.end();
-    });
+    const result = await this.kube(args, opts.stdin, opts.timeoutMs ?? DEFAULT_EXEC_TIMEOUT_MS, { outputChars: Infinity });
+    return {
+      stdout: result.stdout.slice(0, MAX_OUTPUT_CHARS),
+      stderr: result.stderr.slice(0, MAX_OUTPUT_CHARS),
+      exitCode: result.exitCode,
+      timedOut: result.stopped === 'timeout',
+      truncated: result.stdout.length > MAX_OUTPUT_CHARS || result.stderr.length >= MAX_OUTPUT_CHARS,
+    };
   }
 
   async materializeBindings(bindings: readonly ResolvedBinding[]): Promise<WorkspaceBinding[]> {
     const out: WorkspaceBinding[] = [];
     for (const binding of bindings) {
       const credentials = await readBindingCredentials(
-        async (args) => (await this.run(args)).stdout,
+        async (args) => {
+          const read = await this.run(args);
+          if (read.exitCode !== 0) throw new Error(`the credentials of ${binding.name} could not be read from ${binding.source.secretName}: ${read.stderr.trim() || `kubectl exited ${read.exitCode}`}`);
+          return read.stdout;
+        },
         binding,
       );
       const missing = Object.keys(binding.source.keys).filter((k) => credentials[k] === undefined);

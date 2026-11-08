@@ -2,12 +2,13 @@ import fs from 'fs/promises';
 import { ApplicationFailure } from '@temporalio/common';
 
 import {
-  InfrastructureService, hasCloudCredentials, isMockCloudProvider, isSelfManagedCluster, type DestroyAppArgs,
-  namespaceOf, platformNamespaceProblem, PLATFORM_NAMESPACES,
+  hasCloudCredentials, isMockCloudProvider, isSelfManagedCluster, type DestroyAppArgs,
+  namespaceOf, platformNamespaceProblem, PLATFORM_NAMESPACES, removeNamespace,
 } from '../infrastructure/index.js';
-import { handedKubeconfig, reachCluster } from './cluster-access.js';
 import { ODOO_PROJECT_APP } from '../releases/index.js';
 import { ignore } from '@koala/engine-core/failures';
+import type { ClusterSteps } from './cluster-steps.js';
+import { handedReach } from './handed-reach.js';
 
 export type { DestroyAppArgs } from '../infrastructure/index.js';
 
@@ -16,35 +17,25 @@ export interface DestroyAppResult {
   msg: string;
 }
 
-
-export async function DestroyAppActivity(
-  args: DestroyAppArgs,
-): Promise<DestroyAppResult> {
-  const infra = new InfrastructureService();
+export async function DestroyAppActivity(args: DestroyAppArgs, steps: ClusterSteps): Promise<DestroyAppResult> {
   const namespace = namespaceOf(args);
   const platform = platformNamespaceProblem(namespace, PLATFORM_NAMESPACES);
   if (platform) throw ApplicationFailure.nonRetryable(platform);
 
-  const isMock = isMockCloudProvider(args.provider, hasCloudCredentials);
-  const physicalName = isMock ? `mock-${args.provider}-${args.clusterName}` : args.clusterName;
-  const kubeconfigPath = args.kubeconfig
-    ? await handedKubeconfig(args.clusterId, args.kubeconfig)
-    : isSelfManagedCluster(args.provider, isMock) ? `/tmp/kubeconfig-${physicalName}` : undefined;
-
-  const stackName = `app-${physicalName}-${args.deploymentId || 'default'}`;
+  const reach = handedReach(args);
+  const kubectl = (argv: string[]) => steps.access.kubectl(reach, argv);
   const logFile = args.logFile;
 
   if (args.appType === ODOO_PROJECT_APP) {
-    const kubeconfig = await reachCluster(infra, { clusterName: args.clusterName, provider: args.provider, gpuEnabled: args.gpuEnabled, kubeconfigPath: kubeconfigPath ?? args.kubeconfigPath });
-    const release = namespace;
-    await fs.appendFile(logFile, `Uninstalling the Odoo release ${release} and its namespace, databases and attachments with it\n`).catch(ignore('the log only shows progress, and the work goes on without it'));
-    await infra.runHelm(['uninstall', release, '-n', release, '--ignore-not-found'], kubeconfig);
-    await infra.runKubectl(['delete', 'namespace', release, '--ignore-not-found', '--wait=false'], kubeconfig);
-    await infra.waitForNamespaceDeletion(release, kubeconfig);
+    await fs.appendFile(logFile, `Uninstalling the Odoo release ${namespace} and its namespace, databases and attachments with it\n`).catch(ignore('the log only shows progress, and the work goes on without it'));
+    await steps.access.helm(reach, ['uninstall', namespace, '-n', namespace, '--ignore-not-found']);
+    await removeNamespace(kubectl, namespace);
     return { status: 'destroyed', msg: `App ${args.name} destroyed` };
   }
 
-  await infra.destroy(stackName, {
+  const isMock = isMockCloudProvider(args.provider, hasCloudCredentials);
+  const physicalName = isMock ? `mock-${args.provider}-${args.clusterName}` : args.clusterName;
+  await steps.infra.destroy(`app-${physicalName}-${args.deploymentId || 'default'}`, {
     logFile,
     env: {
       STACK_TYPE: 'app',
@@ -52,13 +43,12 @@ export async function DestroyAppActivity(
       DEPLOYMENT_STRATEGY: args.strategy,
       DEPLOYMENT_NAME: namespace,
       DEPLOYMENT_ID: args.deploymentId || 'default',
-      KUBECONFIG: kubeconfigPath || '',
-      KUBECONFIG_CONTEXT: (args.provider === 'k3d' || isMock) ? `k3d-${physicalName}` : '',
+      KUBECONFIG: await steps.access.kubeconfigOf(reach),
       SELF_MANAGED_K8S: isSelfManagedCluster(args.provider, isMock) ? 'true' : 'false',
     },
   });
 
-  await infra.waitForNamespaceDeletion(namespace, kubeconfigPath);
+  await removeNamespace(kubectl, namespace);
 
   return { status: 'destroyed', msg: `App ${args.name} destroyed` };
 }

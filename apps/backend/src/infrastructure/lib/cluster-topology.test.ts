@@ -115,9 +115,9 @@ describe('buildAppEnv provider handling', () => {
     expect(buildAppEnv({ ...base, provider: 'aws', isMock: false }).SELF_MANAGED_K8S).toBe('false');
   });
 
-  it('leaves KUBECONFIG_CONTEXT empty for a machine and hetzner', () => {
-    expect(buildAppEnv({ ...base, provider: 'machine', isMock: false }).KUBECONFIG_CONTEXT).toBe('');
-    expect(buildAppEnv({ ...base, provider: 'hetzner', isMock: false }).KUBECONFIG_CONTEXT).toBe('');
-    expect(buildAppEnv({ ...base, provider: 'k3d', isMock: false }).KUBECONFIG_CONTEXT).toBe('k3d-c1');
+  it.each(['machine', 'hetzner', 'k3d'])('hands the stack the kubeconfig it was given and names no context in it, for %s', (provider) => {
+    const env = buildAppEnv({ ...base, provider, isMock: false });
+    expect(env.KUBECONFIG).toBe('/tmp/kubeconfig-c1');
+    expect(env).not.toHaveProperty('KUBECONFIG_CONTEXT');
   });
 });

@@ -6,7 +6,8 @@ import zlib from 'zlib';
 import { spawn as spawnProcess, type ChildProcess } from 'child_process';
 import { PassThrough, type Readable } from 'stream';
 import { MongoClient } from 'mongodb';
-import { clientOptionsFor } from '../../platform/index.js';
+import { clientOptionsFor, type Followed, type Io } from '../../platform/index.js';
+import type { Reach, Target } from '../../infrastructure/index.js';
 import { exportLines } from '../lib/mongo-move.js';
 import { moveTokenOnce, type UsedTokenClaim } from '../lib/identity-token.js';
 import { GITEA_DATA, MOVED_POSTGRES, PG_DUMP, TERRAFORM_STATE_SELECTOR, keysEnv, movedStateSecrets, type MovePart } from '../lib/instance-move.js';
@@ -18,8 +19,31 @@ import {
 export const MOVING_FILE = '.moving';
 export const STORES_FOLDER = 'stores';
 
+export interface MoveCluster {
+  kubectl(args: string[]): Promise<string>;
+  read(args: string[], into: NodeJS.WritableStream): Promise<void>;
+}
+
+export interface ClusterStarts {
+  kubectl(target: Target, args: readonly string[]): Promise<string>;
+  own(): Reach;
+  start(target: Target, args: readonly string[], io?: Io): Promise<Followed>;
+  startHelm(target: Target, args: readonly string[], io?: Io): Promise<Followed>;
+}
+
+export function moveClusterOn(access: Pick<ClusterStarts, 'kubectl' | 'own' | 'start'>): MoveCluster {
+  return {
+    kubectl: (args) => access.kubectl(access.own(), args),
+    async read(args, into) {
+      const result = await (await access.start(access.own(), args, { output: into })).ended;
+      if (result.code !== 0) throw new Error(`kubectl ended with ${result.code}: ${result.stderr.trim()}`);
+    },
+  };
+}
+
 export interface MoveExportDeps {
   instanceId: string;
+  cluster: MoveCluster;
   trusted: ReadonlyMap<string, crypto.KeyObject>;
   dataDir: string;
   mongo: { uri: string; dbName: string };
@@ -100,10 +124,12 @@ export class MoveExport {
   }
 
   private kubectl(args: string[]): Promise<string> {
-    const { out, done } = this.command(['kubectl', ...args]);
-    let text = '';
-    out.on('data', (chunk) => { text += chunk; });
-    return done.then(() => text);
+    return this.deps.cluster.kubectl(args);
+  }
+
+  private kubectlOut(args: string[]): { out: Readable; done: Promise<void> } {
+    const out = new PassThrough();
+    return { out, done: this.deps.cluster.read(args, out) };
   }
 
   private async namespaces(): Promise<string[]> {
@@ -154,7 +180,7 @@ export class MoveExport {
       };
       await this.kubectl(['run', VOLUME_HELPER, '-n', namespace, `--image=${HELPER_IMAGE}`, '--restart=Never', `--overrides=${JSON.stringify(overrides)}`]);
       await this.kubectl(['wait', `pod/${VOLUME_HELPER}`, '-n', namespace, '--for=condition=Ready', '--timeout=720h']);
-      const tar = this.command(['kubectl', 'exec', '-n', namespace, VOLUME_HELPER, '--', 'tar', 'czf', '-', '-C', '/volume', '.']);
+      const tar = this.kubectlOut(['exec', '-n', namespace, VOLUME_HELPER, '--', 'tar', 'czf', '-', '-C', '/volume', '.']);
       tar.out.pipe(out);
       try {
         await tar.done;
@@ -217,10 +243,10 @@ export class MoveExport {
       case 'gitea-db':
       case 'infisical-db': {
         const place = MOVED_POSTGRES[part];
-        return { ...this.command(['kubectl', 'exec', '-n', place.namespace, place.pod, '--', 'sh', '-c', PG_DUMP]), type: 'application/octet-stream' };
+        return { ...this.kubectlOut(['exec', '-n', place.namespace, place.pod, '--', 'sh', '-c', PG_DUMP]), type: 'application/octet-stream' };
       }
       case 'gitea-data':
-        return { ...this.command(['kubectl', 'exec', '-n', GITEA_DATA.namespace, `deploy/${GITEA_DATA.deployment}`, '-c', GITEA_DATA.container, '--', 'tar', 'czf', '-', '-C', GITEA_DATA.path, '.']), type: 'application/gzip' };
+        return { ...this.kubectlOut(['exec', '-n', GITEA_DATA.namespace, `deploy/${GITEA_DATA.deployment}`, '-c', GITEA_DATA.container, '--', 'tar', 'czf', '-', '-C', GITEA_DATA.path, '.']), type: 'application/gzip' };
       case 'terraform-state': {
         const namespace = this.deps.env.POD_NAMESPACE?.trim();
         if (!namespace) throw new Error('this instance does not know its own namespace, where Terraform keeps its state');

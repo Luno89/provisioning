@@ -203,7 +203,11 @@ describe('changing an app\'s config', () => {
   });
 
   it('saves the patch with storage and settings merged into what the app had, then starts the sync workflow as its owner', async () => {
-    const { ready, db, workflow } = bridge();
+    const access = mock<ClusterAccess>();
+    access.handOver.mockResolvedValue({ clusterId: 'c1', reach: { clusterId: 'c1', kind: 'koala' } });
+    const clusterService = mock<ClusterService>();
+    Object.assign(clusterService, { access });
+    const { ready, db, workflow } = bridge({ clusterService });
     await db.infrastructure.saveCluster({ id: 'c1', name: 'shared', provider: 'k3d', status: 'healthy' } as ClusterMetadata);
     await db.infrastructure.saveDeploymentInfo(stored({ storage: { data: '10Gi', cache: '5Gi' }, appSettings: { a: '1', b: '2' }, tabbyMaxSeqLen: 4096 }));
     const deal = await ready().updateConfigAndSync('d1', { storage: { data: '20Gi' }, appSettings: { b: '3' }, tabbyMaxSeqLen: 8192 });
@@ -211,7 +215,7 @@ describe('changing an app\'s config', () => {
     expect(deal.id).toMatch(/^sync-config-model-/);
     const [saved] = await db.infrastructure.getDeployments();
     expect(saved).toMatchObject({ storage: { data: '20Gi', cache: '5Gi' }, appSettings: { a: '1', b: '3' }, tabbyMaxSeqLen: 8192, status: 'deploying', temporalWorkflowId: deal.id });
-    expect(startedWith(workflow)).toMatchObject({ workflowId: deal.id, taskQueue: 'cluster-ops-queue', args: [{ name: 'model', clusterName: 'shared', provider: 'k3d', tabbyMaxSeqLen: 8192, storage: { data: '20Gi', cache: '5Gi' } }], typedSearchAttributes: startedFor('ann').typedSearchAttributes });
+    expect(startedWith(workflow)).toMatchObject({ workflowId: deal.id, taskQueue: 'cluster-ops-queue', args: [{ name: 'model', clusterName: 'shared', provider: 'k3d', reach: { clusterId: 'c1', kind: 'koala' }, tabbyMaxSeqLen: 8192, storage: { data: '20Gi', cache: '5Gi' } }], typedSearchAttributes: startedFor('ann').typedSearchAttributes });
   });
 });
 
@@ -449,5 +453,59 @@ describe('checking each app on its cluster', () => {
     });
     await instance.checkApps();
     expect(await db.infrastructure.getDeployments()).toEqual([]);
+  });
+});
+
+describe('the work the bridge starts on an app\'s cluster is handed how to reach it', () => {
+  const DESK = { clusterId: 'machine-desk', kind: 'machine' as const, kubeconfig: 'apiVersion: v1' };
+  const app = { id: 'shop', name: 'shop', namespace: 'shop-1a2b3c', clusterId: 'machine-desk', strategy: 'native', appType: 'wordpress', ownerId: 'u1', status: 'running' } as DeploymentMetadata;
+
+  function starting() {
+    const access = mock<ClusterAccess>();
+    access.reach.mockResolvedValue(DESK);
+    access.handOver.mockResolvedValue({ clusterId: 'machine-desk', machine: { deviceId: 'desk' } });
+    const clusterService = mock<ClusterService>();
+    Object.assign(clusterService, { access });
+    const made = bridge({ clusterService });
+    made.workflow.start.mockResolvedValue(mock<Awaited<ReturnType<WorkflowClient['start']>>>());
+    return { ...made, access };
+  }
+
+  it('hands a removal the machine to start, with the app that leaves it', async () => {
+    const { db, ready, workflow, access } = starting();
+    await db.infrastructure.saveDeploymentInfo(app);
+    await ready().destroyApp('shop');
+    expect(access.handOver).toHaveBeenCalledWith('machine-desk');
+    expect(startedWith(workflow)?.args[0]).toMatchObject({ clusterId: 'machine-desk', machine: { deviceId: 'desk', leaving: 'shop' } });
+    expect(startedWith(workflow)?.args[0]).not.toHaveProperty('kubeconfigPath');
+  });
+
+  it('hands a disk resize and a settings sync the machine to start, as a deploy and a removal are, so a machine stopped until something runs on it is started for them', async () => {
+    const { db, ready, workflow, access } = starting();
+    await db.infrastructure.saveDeploymentInfo(app);
+    await ready().resizeDisk('shop', { data: '20Gi' });
+    expect(startedWith(workflow)?.args[0]).toMatchObject({ clusterId: 'machine-desk', machine: { deviceId: 'desk' } });
+    await ready().syncConfig('shop');
+    expect(startedWith(workflow)?.args[0]).toMatchObject({ clusterId: 'machine-desk', machine: { deviceId: 'desk' } });
+    expect(access.handOver.mock.calls).toEqual([['machine-desk'], ['machine-desk']]);
+    expect(access.reach).not.toHaveBeenCalled();
+  });
+
+  it('hands them the reach when the cluster needs no starting', async () => {
+    const { db, ready, workflow, access } = starting();
+    access.handOver.mockResolvedValue({ clusterId: 'machine-desk', reach: DESK });
+    await db.infrastructure.saveDeploymentInfo(app);
+    await ready().syncConfig('shop');
+    expect(startedWith(workflow)?.args[0]).toMatchObject({ clusterId: 'machine-desk', reach: DESK });
+    expect(startedWith(workflow)?.args[0]).not.toHaveProperty('machine');
+  });
+
+  it('starts nothing and changes no record when the app\'s cluster cannot be reached', async () => {
+    const { db, ready, workflow, access } = starting();
+    await db.infrastructure.saveDeploymentInfo(app);
+    access.handOver.mockRejectedValue(Object.assign(new Error('desk is no machine of this account'), { name: 'ClusterUnreachable' }));
+    await expect(ready().resizeDisk('shop', { data: '20Gi' })).rejects.toThrow('no machine of this account');
+    expect(workflow.start).not.toHaveBeenCalled();
+    expect((await db.infrastructure.getDeployments())[0]).toMatchObject({ status: 'running' });
   });
 });

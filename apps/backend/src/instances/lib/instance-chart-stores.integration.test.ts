@@ -36,14 +36,14 @@ describe('the instance chart\'s MinIO on a real cluster', () => {
     kubectl('apply', '-f', manifest);
     kubectl('rollout', 'status', 'statefulset/luno-minio', '--timeout=720h');
 
-    const knock = (name: string, labels: Record<string, string>): string => {
-      kubectl('run', name, '--image=busybox:1.37', '--restart=Never', `--labels=${Object.entries(labels).map(([key, value]) => `${key}=${value}`).join(',')}`, '--command', '--',
-        'sh', '-c', 'wget -q -T 5 -O /dev/null http://luno-minio:9000/minio/health/live && echo reached || echo refused');
+    const knock = (name: string, labels: Record<string, string>, script: string): string => {
+      kubectl('run', name, '--image=busybox:1.37', '--restart=Never', `--labels=${Object.entries(labels).map(([key, value]) => `${key}=${value}`).join(',')}`, '--command', '--', 'sh', '-c', script);
       kubectl('wait', `pod/${name}`, '--for=jsonpath={.status.phase}=Succeeded', '--timeout=720h');
       return kubectl('logs', name).trim().split('\n').at(-1)!;
     };
-    expect(knock('own', { 'app.kubernetes.io/part-of': 'nowrinkles-instance', 'app.kubernetes.io/instance': 'luno' })).toBe('reached');
-    expect(knock('stranger', { app: 'shop' })).toBe('refused');
+    const reaches = 'wget -q -T 5 -O /dev/null http://luno-minio:9000/minio/health/live';
+    expect(knock('own', { 'app.kubernetes.io/part-of': 'nowrinkles-instance', 'app.kubernetes.io/instance': 'luno' }, `until ${reaches}; do sleep 1; done; echo reached`)).toBe('reached');
+    expect(knock('stranger', { app: 'shop' }, `${reaches} && echo reached || echo refused`)).toBe('refused');
 
     const keysOf = (docs: Doc[]) => docs.find((doc) => doc.kind === 'Secret' && doc.metadata.name === 'luno-keys')!.data!;
     const again = keysOf(rendered());

@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { countsSql, droppedCounts, snapshot, SNAPSHOT_SQL } from './postgres-compare.js';
 import type { SlotCluster } from './slot-cluster.js';
 
-const target = { clusterName: 'dev', provider: 'k3d', namespace: 'shop', release: 'shop' };
+const target = { clusterId: 'machine-dev', clusterName: 'dev', provider: 'machine', namespace: 'shop', release: 'shop' };
 const db = { pod: 'shop-postgres-0', user: 'odoo', database: 'odoo_a' };
 
 describe('reading a Postgres database for a release', () => {

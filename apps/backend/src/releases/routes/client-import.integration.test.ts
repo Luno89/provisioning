@@ -5,7 +5,7 @@ import { mountRouter, TEST_USER } from '../../platform/routes/test-harness.js';
 import { authorize, type Principal } from '../../platform/lib/permissions.js';
 import type { Database } from '../../platform/lib/db-interface.js';
 import type { ClusterMetadata, PipelineRunMetadata } from '../../platform/lib/types.js';
-import type { InfrastructureService } from '../../infrastructure/index.js';
+import type { ClusterAccess, InfrastructureService } from '../../infrastructure/index.js';
 import { ClusterService } from '../../infrastructure/services/ClusterService.js';
 import { treeTypeOfProject } from '../../projects/lib/tree-types.js';
 import { createSlotCluster } from '../../extensions/releases/slot-cluster.js';
@@ -17,7 +17,6 @@ import { OdooReleaseService } from '../services/OdooReleaseService.js';
 import { releaseRunsOnTemporal, type ReleaseRunsOnTemporal } from '../testing/release-runs-on-temporal.js';
 import { clientImportRouter } from './client-import.js';
 
-const KEY = 'client-import-route-test-key' as never;
 const NOW = '2026-10-10T09:00:00.000Z';
 const quiet = { validateStatus: () => true };
 
@@ -34,21 +33,21 @@ function cluster() {
   const received: number[] = [];
   const asked: string[] = [];
   let backupFrom = '20.0';
-  const infra = mock<InfrastructureService>();
-  infra.applyManifest.mockResolvedValue('');
-  infra.runKubectl.mockImplementation(async (args) => {
+  const access = mock<ClusterAccess>();
+  access.apply.mockResolvedValue('');
+  access.kubectl.mockImplementation(async (_at, args) => {
     asked.push(args.join(' '));
     if (args.includes('unzip')) return JSON.stringify({ major_version: backupFrom, modules: { base: `${backupFrom}.1.3`, sale: `${backupFrom}.1.0` } });
     if (args.includes('jsonpath={.status.phase}')) return 'Running';
     return '';
   });
-  infra.pipeKubectl.mockImplementation(async (_args, _kubeconfig, input) => {
+  access.pipe.mockImplementation(async (_at, _args, input) => {
     let size = 0;
     for await (const chunk of input) size += (chunk as Buffer).length;
     received.push(size);
     return '';
   });
-  return { infra, received, asked, backupFrom: (version: string) => { backupFrom = version; } };
+  return { access, received, asked, backupFrom: (version: string) => { backupFrom = version; } };
 }
 
 async function harness() {
@@ -57,7 +56,7 @@ async function harness() {
   const h = await mountRouter({
     prefix: '/api/projects',
     router: (db) => {
-      const clusters = new ClusterService(db, seam.infra, KEY, { koalaMachineId: undefined });
+      const clusters = new ClusterService(db, mock<InfrastructureService>(), seam.access, { koalaMachineId: undefined });
       releases = new OdooReleaseService({
         store: db,
         runs: temporal.runs,
@@ -73,7 +72,7 @@ async function harness() {
         clusterById: (id) => clusters.getByIdUnscoped(id),
         adapterOf: async (project) => (releaseHowOf(project, await treeTypeOfProject(db.projects, project), true).app === ODOO_RELEASE_ADAPTER.id ? ODOO_RELEASE_ADAPTER : undefined),
         cluster: createSlotCluster({
-          infra: seam.infra,
+          access: seam.access,
           repo: async () => { throw new Error('a client\'s database reads no build files'); },
           registry: async () => ({ hosts: { push: 'registry.koala.test', pull: 'registry.koala.test' }, username: 'koala-pull', password: 'pull-token' }),
           syncVault: async () => { throw new Error('a client\'s database syncs no vault'); },
@@ -118,6 +117,7 @@ describe('a client\'s database for a project', () => {
     const refused = await axios.put(h.url('/api/projects/p1/import?mode=live'), Buffer.from('PK'), { headers: { 'Content-Type': 'application/zip' }, ...quiet });
     const why = 'the backup is from Odoo 17.0, and this project runs Odoo 20.0; moving a database from one Odoo version to another is a step of its own';
     expect([refused.status, refused.data]).toEqual([409, { error: why }]);
+    expect(seam.access.kubectl.mock.calls.every(([at]) => at === 'c1')).toBe(true);
     expect(seam.asked).toContain('-n shop-1a2b3c exec shop-1a2b3c-import-holder -- rm -f /import/backup.zip /import/backup.zip.part');
     expect((await axios.put(h.url('/api/projects/p2/import'), Buffer.from('PK'), { headers: { 'Content-Type': 'application/zip' }, ...quiet })).status).toBe(404);
     expect(seam.received).toEqual([zip.length, 2]);

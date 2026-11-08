@@ -88,25 +88,23 @@ export function releasePlace(name: string, domain = 'apps.local'): { namespace: 
 }
 
 export interface ReleasePlaceOnCluster {
+  clusterId: string;
   clusterName: string;
   provider: string;
-  gpuEnabled?: boolean | undefined;
-  kubeconfigPath?: string | undefined;
   namespace: string;
   release: string;
   owner?: { ownerId: string; projectId: string } | undefined;
 }
 
 export function releaseTargetOf(
-  cluster: Pick<ClusterMetadata, 'name' | 'provider' | 'gpuEnabled' | 'kubeconfigPath'>,
+  cluster: Pick<ClusterMetadata, 'id' | 'name' | 'provider'>,
   project: Pick<ProjectMetadata, 'id' | 'name' | 'releaseName' | 'ownerId'>,
 ): ReleasePlaceOnCluster {
   const place = releasePlace(releaseNameOf(project));
   return {
+    clusterId: cluster.id,
     clusterName: cluster.name,
     provider: cluster.provider,
-    ...(cluster.gpuEnabled ? { gpuEnabled: true } : {}),
-    ...(cluster.kubeconfigPath ? { kubeconfigPath: cluster.kubeconfigPath } : {}),
     namespace: place.namespace,
     release: place.release,
     ...(project.ownerId ? { owner: { ownerId: project.ownerId, projectId: project.id } } : {}),

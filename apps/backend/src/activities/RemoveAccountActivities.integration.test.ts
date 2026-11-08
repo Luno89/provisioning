@@ -20,7 +20,7 @@ const deps = (over: Partial<AccountRemovalDeps> = {}): AccountRemovalDeps => ({
   mesh: { removeUser: async () => ({ devices: 0, user: false }) },
   secrets: { removeProject: async () => ({ workspace: true, readers: 1 }) },
   files: storedFilesOn(db.files).files,
-  apps: { clusterById: async () => undefined, logFile: () => '/logs/destroy.log', taskQueue: 'cluster-ops-queue' },
+  apps: { clusterById: async () => undefined, handOver: async (clusterId: string) => ({ clusterId, reach: { clusterId, kind: 'koala' as const } }), logFile: () => '/logs/destroy.log', taskQueue: 'cluster-ops-queue' },
   ...over,
 });
 

@@ -14,7 +14,7 @@ import {
 } from './projects/index.js';
 import {
   stopIfRunning, createDatabase, sharedPayloadBlobs, createWorkerLogger, buildDataConverter, connectTemporalWorker, temporalTlsProblem, failureReason,
-  sessionToken, principalOf, claimsOf, claimSettingsFrom, roleFromEnv, getTemporalClient, resolveOwnersWith, loadKeys, startedFor, carryingTrace, SYSTEM_KUBECONFIG, telemetrySettings, AccessRevocations,
+  sessionToken, principalOf, claimsOf, claimSettingsFrom, roleFromEnv, getTemporalClient, resolveOwnersWith, loadKeys, startedFor, carryingTrace, telemetrySettings, AccessRevocations,
   publicAddressProblem, encryptValue, temporalNamespaceFrom,
 } from './platform/index.js';
 import type { ClaimedUser } from './platform/index.js';
@@ -49,7 +49,7 @@ import { createProcedureExecutor } from './engine-host/nodes/index.js';
 import axios from 'axios';
 import { MonitoringService, prometheusAt, poolMonitor, poolMonitorFrom, collectorSink } from './monitoring/index.js';
 import { runCancelledVia, runEndedVia } from './engine-host/temporal/run-cancellation.js';
-import { createKubeRunner } from './engine-host/sandboxes/kube.js';
+import { createKubeRunner, onKoalasCluster } from './engine-host/sandboxes/kube.js';
 
 import { createEventBus } from '@koala/agent-engine';
 import type { MachineChoice } from '@koala/agent-engine/procedure';
@@ -86,7 +86,8 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 dotenv.config({ quiet: true });
 
 const telemetry = startTelemetry(telemetrySettings(process.env, 'koala-worker-engine'));
-telemetry.exportTo(collectorSink({ env: process.env, proxy: sharedClusterProxy(), kubeconfigPath: () => process.env.KUBECONFIG_PATH || SYSTEM_KUBECONFIG }));
+const telemetryAccess = clusterAccessFrom(process.env, { role: roleFromEnv(process.env).role });
+telemetry.exportTo(collectorSink({ env: process.env, proxy: sharedClusterProxy(), access: telemetryAccess, koalasCluster: () => telemetryAccess.own().clusterId }));
 
 const keys = loadKeys(process.env);
 
@@ -140,7 +141,10 @@ async function buildActivities() {
     }).ensure(project),
   });
   const kubeInfra = new InfrastructureService();
-  const clusterService = new ClusterService(db, kubeInfra, clusterAccessFrom(process.env, { role: roleFromEnv(process.env).role, clusters: db.infrastructure, dataKey: keys.data }));
+  const clusterAccess = clusterAccessFrom(process.env, { role: roleFromEnv(process.env).role, clusters: db.infrastructure, dataKey: keys.data });
+  const clusterService = new ClusterService(db, kubeInfra, clusterAccess);
+  const onKoala = onKoalasCluster(clusterAccess, () => clusterAccess.own().clusterId);
+  const sandboxKube = createKubeRunner(onKoala);
   const instanceFiles = storedFilesFor({ db, env: process.env, workflows: async () => (await getTemporalClient()).workflow, engineTaskQueue: process.env.TEMPORAL_ENGINE_TASK_QUEUE || DEFAULT_ENGINE_TASK_QUEUE, dataDir: resolve(__dirname, '../data') });
   const vault = createSecretVault({
     backend: infisical,
@@ -162,7 +166,7 @@ async function buildActivities() {
   const activityBeat = (detail?: unknown) => { try { ActivityContext.current().heartbeat(detail); } catch { return; } };
   const builders: { service?: WorkspaceBuildService } = {};
   const releaseBrowser = createReleaseBrowserTestActivities({
-    cluster: namespacedCluster(kubeInfra, () => gitea.registryLogin()),
+    cluster: namespacedCluster(clusterService.access, () => gitea.registryLogin()),
     specs: async () => gitea,
     keep: (ownerId, runId, files) => instanceFiles.artifacts.put(ownerId, runId, files),
   });
@@ -170,7 +174,7 @@ async function buildActivities() {
     projects: () => db.projects.getProjects(),
     clusterById: (id) => clusterService.getByIdUnscoped(id),
     how: async (project) => releaseHowOf(project, await treeTypeOfProject(db.projects, project), true),
-    cluster: createSlotCluster({ infra: kubeInfra, repo: async () => gitea, registry: () => gitea.registryLogin(), syncVault: syncVaultFromProject(kubeInfra) }),
+    cluster: createSlotCluster({ access: clusterService.access, repo: async () => gitea, registry: () => gitea.registryLogin(), syncVault: syncVaultFromProject(kubeInfra) }),
     adapters: { [ODOO_RELEASE_ADAPTER.id]: ODOO_RELEASE_ADAPTER },
     trees: () => db.projects.getTrees(),
     branches: () => db.projects.getBranches(),
@@ -231,7 +235,7 @@ async function buildActivities() {
       problem: (ownerId, treeId, agent, modelId) => treeModels.problem(ownerId, treeId, agent, modelId),
     },
     releases: {
-      cluster: createSlotCluster({ infra: kubeInfra, repo: async () => gitea, registry: () => gitea.registryLogin(), syncVault: syncVaultFromProject(kubeInfra), beat: activityBeat }),
+      cluster: createSlotCluster({ access: clusterService.access, repo: async () => gitea, registry: () => gitea.registryLogin(), syncVault: syncVaultFromProject(kubeInfra), beat: activityBeat }),
       adapters: { [ODOO_RELEASE_ADAPTER.id]: ODOO_RELEASE_ADAPTER },
       releases: { list: (ownerId, projectId) => db.releases.getOdooReleases(ownerId, projectId), save: (release) => db.releases.saveOdooRelease(release) },
       browserTests: (request) => releaseBrowser.ReleaseBrowserTestsActivity(request),
@@ -246,6 +250,7 @@ async function buildActivities() {
             client: () => client,
             masterKey: keys.data,
             clusterById: (id) => clusterService.getByIdUnscoped(id),
+            handOver: (id) => clusterService.access.handOver(id),
             logDir: LOG_DIR,
             claims: claimSettingsFrom(engineRole),
           }, project, run);
@@ -354,7 +359,7 @@ async function buildActivities() {
       hostedUrl: hostedMcpUrl({ deployments: () => db.infrastructure.getDeployments(), probeUrl: resolveMcpProbeUrl, urlProblem: publicAddressProblem }),
     },
     ...(web ? { web } : {}),
-    kubeconfig: process.env.KUBECONFIG_PATH,
+    cluster: onKoala,
     registryHost: process.env.KOALA_REGISTRY,
     pushRegistryHost: process.env.KOALA_REGISTRY_PUSH,
     registryAccount: async () => ({ owner: gitea.adminUsername, ...(await gitea.getAdminCredentials()) }),
@@ -507,6 +512,7 @@ async function buildActivities() {
   };
   const appTeardown: AppTeardown = {
     clusterById: (id) => clusterService.getByIdUnscoped(id),
+    handOver: (id) => clusterService.access.handOver(id),
     logFile: () => path.join(LOG_DIR, `${Date.now()}-${Math.random().toString(36).slice(2)}-D4.log`),
     taskQueue: 'cluster-ops-queue',
   };
@@ -516,7 +522,7 @@ async function buildActivities() {
       store: db,
       apps: appTeardown,
       workflows: removalWorkflows,
-      kube: createKubeRunner(),
+      kube: sandboxKube,
       repositories: gitea,
       mesh: removalMeshFor(engineRole, () => new HeadscaleService(keys.data, process.env.HEADSCALE_URL || 'http://localhost:8080', process.env.HEADSCALE_API_KEY)),
       secrets: infisical,
@@ -526,7 +532,7 @@ async function buildActivities() {
       store: db,
       apps: appTeardown,
       workflows: removalWorkflows,
-      kube: createKubeRunner(),
+      kube: sandboxKube,
       repositories: gitea,
       secrets: infisical,
       artifacts: instanceFiles.artifacts,
@@ -546,7 +552,7 @@ async function buildActivities() {
       scripted: { base: scriptedModelBase(process.env), dataKey: keys.data },
       releases: createCheckReleases({
         browser: releaseBrowser,
-        cluster: namespacedCluster(kubeInfra, () => gitea.registryLogin()),
+        cluster: namespacedCluster(clusterService.access, () => gitea.registryLogin()),
         project: async (id) => (await db.projects.getProjects()).find((project) => project.id === id),
         clusterById: (id) => clusterService.getByIdUnscoped(id),
       }),
@@ -557,7 +563,11 @@ async function buildActivities() {
       },
       leftovers: {
         records: (ownerId) => db.accounts.accountLeftovers(ownerId),
-        workspaces: async (ownerId) => (await createKubeRunner()(['get', 'namespace', '-l', `koala.dev/owner=${labelValue(ownerId)}`, '-o', 'name'])).stdout.split('\n').map((line) => line.trim()).filter(Boolean),
+        workspaces: async (ownerId) => {
+          const listed = await sandboxKube(['get', 'namespace', '-l', `koala.dev/owner=${labelValue(ownerId)}`, '-o', 'name']);
+          if (listed.exitCode !== 0) throw new Error(`the space's workspaces could not be listed: ${listed.stderr.trim() || `kubectl exited ${listed.exitCode}`}`);
+          return listed.stdout.split('\n').map((line) => line.trim()).filter(Boolean);
+        },
         giteaUser: (ownerId) => gitea.userExists(giteaUsernameFor(ownerId)),
       },
       reported: (run, says, answer) => wasReported(createProcedureExecutor(host.services, { registry: host.registry }), { runId: run.runId, ownerId: run.spaceId, agent: run.agent, modelId: run.modelId }, says, answer),

@@ -34,7 +34,13 @@ export interface Followed {
   ended: Promise<ProcessResult>;
 }
 
+export interface Io {
+  input?: string | Buffer | NodeJS.ReadableStream | undefined;
+  output?: NodeJS.WritableStream | undefined;
+}
+
 export interface Streams {
   pipe(run: ProcessRun, input: NodeJS.ReadableStream): Promise<ProcessResult>;
   follow(run: ProcessRun, onOutput: (chunk: string) => void): Followed;
+  start(run: ProcessRun, io?: Io): Followed;
 }

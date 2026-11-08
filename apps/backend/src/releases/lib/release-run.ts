@@ -5,13 +5,18 @@ import type { ReleaseE2E } from './release-e2e.js';
 import type { ReleaseChanges } from './release-compare.js';
 
 export interface ReleaseTarget {
+  clusterId: string;
   clusterName: string;
   provider: string;
-  gpuEnabled?: boolean | undefined;
-  kubeconfigPath?: string | undefined;
   namespace: string;
   release: string;
   owner?: { ownerId: string; projectId: string } | undefined;
+}
+
+export function clusterOfTarget(target: Pick<ReleaseTarget, 'clusterId' | 'clusterName'>): { clusterId: string } | { problem: string } {
+  return target.clusterId
+    ? { clusterId: target.clusterId }
+    : { problem: `this release was started before releases named their cluster by id, so ${target.clusterName} cannot be reached for it; release the build again` };
 }
 
 export interface ReleaseSource {

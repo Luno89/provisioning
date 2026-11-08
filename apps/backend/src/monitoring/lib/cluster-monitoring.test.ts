@@ -88,11 +88,13 @@ describe('the stacks that monitor Koala\'s own cluster', () => {
   });
 
   it('are applied with the same settings from the worker as from a deploy to the machine Koala runs on', () => {
-    const worker = koalaClusterMonitoring({ INSTANCE_MACHINE_ID: 'desk' }, '/k', true);
+    const koala = { clusterId: 'machine-desk', kind: 'koala' } as const;
+    const worker = koalaClusterMonitoring({ INSTANCE_MACHINE_ID: 'desk' }, koala, true);
     const deploy = { physicalName: monitoringOwner({ physicalName: 'machine-desk', koala: true }), kubeconfigPath: '/k', local: false, pool: false, nodePortIngress: true, koala: true };
-    expect(monitoringStackEnv(worker, true)).toEqual(monitoringStackEnv(deploy, true));
-    expect(koalaClusterMonitoring({ POOL: 'true' }, '/k', true)).toMatchObject({ pool: true, nodePortIngress: false, local: false });
-    expect(koalaClusterMonitoring({}, '/k', false)).toMatchObject({ physicalName: SYSTEM_CLUSTER, local: true, koala: true });
+    expect(worker.reach).toBe(koala);
+    expect(monitoringStackEnv({ ...worker, kubeconfigPath: '/k' }, true)).toEqual(monitoringStackEnv(deploy, true));
+    expect(koalaClusterMonitoring({ POOL: 'true' }, koala, true)).toMatchObject({ pool: true, nodePortIngress: false, local: false });
+    expect(koalaClusterMonitoring({}, { clusterId: 'root', kind: 'root' }, false)).toMatchObject({ physicalName: SYSTEM_CLUSTER, local: true, koala: true, reach: { kind: 'root' } });
   });
 });
 

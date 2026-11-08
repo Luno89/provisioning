@@ -2,10 +2,11 @@ import fs from 'fs/promises';
 import os from 'os';
 import path from 'path';
 import { ApplicationFailure } from '@temporalio/common';
-import type { InfrastructureService } from '../../infrastructure/index.js';
+import type { ClusterAccess } from '../../infrastructure/index.js';
 import { CHART_DIR, NOTHING_INSTALLED, slotStateFrom, type ReleaseVault, type SlotState } from '../../releases/lib/odoo-release.js';
-import { reachCluster } from '../../activities/cluster-access.js';
+import { clusterOfTarget } from '../../releases/lib/release-run.js';
 import type { ReleaseSource, ReleaseTarget, SecretTarget } from '../../releases/index.js';
+import type { SecretSyncInfra } from '../../projects/index.js';
 import { inNamespace, runClusterJob, waitUntilRolledOut, type NamespacedCluster } from '../../activities/cluster-jobs.js';
 import { labelValue } from '../../engine-host/sandboxes/workspace.js';
 import { assessWorkload } from '../../infrastructure/lib/workload-health.js';
@@ -16,6 +17,7 @@ export interface VaultSyncArgs {
   namespace: string;
   secretName: string;
   kubeconfig: string;
+  cluster: SecretSyncInfra;
   target: SecretTarget;
 }
 
@@ -62,27 +64,34 @@ export function preparedNamespace(target: Pick<ReleaseTarget, 'namespace' | 'own
   return manifestList([releaseNamespace(target), ...registryPullManifests(target.namespace, login)]);
 }
 
-export function createSlotCluster(deps: { infra: InfrastructureService; repo: () => Promise<RepoFiles>; registry: RegistryLoginSource; syncVault: VaultSync; beat?: ((detail?: unknown) => void) | undefined }): SlotCluster {
-  const { infra } = deps;
+export type SlotClusterAccess = Pick<ClusterAccess, 'kubectl' | 'helm' | 'apply' | 'pipe' | 'kubeconfigOf'>;
+
+export function releaseCluster(target: ReleaseTarget): string {
+  const found = clusterOfTarget(target);
+  if ('problem' in found) throw ApplicationFailure.nonRetryable(found.problem);
+  return found.clusterId;
+}
+
+export function createSlotCluster(deps: { access: SlotClusterAccess; repo: () => Promise<RepoFiles>; registry: RegistryLoginSource; syncVault: VaultSync; beat?: ((detail?: unknown) => void) | undefined }): SlotCluster {
+  const { access } = deps;
   const beat = deps.beat ?? (() => {});
-  const kubeconfigOf = (target: ReleaseTarget) => reachCluster(infra, target);
-  const kubectl = async (target: ReleaseTarget, args: string[]) => infra.runKubectl(['-n', target.namespace, ...args], await kubeconfigOf(target));
+  const kubectl = async (target: ReleaseTarget, args: string[]) => access.kubectl(releaseCluster(target), ['-n', target.namespace, ...args]);
   const namespaced = (target: ReleaseTarget): NamespacedCluster => ({
     kubectl: (args) => kubectl(target, args),
-    apply: async (manifest) => { await infra.applyManifest(JSON.stringify(inNamespace(manifest, target.namespace)), await kubeconfigOf(target)); },
+    apply: async (manifest) => { await access.apply(releaseCluster(target), JSON.stringify(inNamespace(manifest, target.namespace))); },
   });
   const absentAsNothing = (err: unknown): string => {
     if (/NotFound|not found/i.test((err as Error).message)) return '';
     throw err;
   };
-  const prepare = async (target: ReleaseTarget, kubeconfig: string): Promise<void> => {
-    await infra.applyManifest(JSON.stringify(preparedNamespace(target, await deps.registry())), kubeconfig);
+  const prepare = async (target: ReleaseTarget): Promise<void> => {
+    await access.apply(releaseCluster(target), JSON.stringify(preparedNamespace(target, await deps.registry())));
   };
 
   return {
     async state(target) {
       try {
-        const values = await infra.runHelm(['get', 'values', target.release, '-n', target.namespace, '-o', 'json'], await kubeconfigOf(target));
+        const values = await access.helm(releaseCluster(target), ['get', 'values', target.release, '-n', target.namespace, '-o', 'json']);
         return slotStateFrom(JSON.parse(values || 'null'));
       } catch (err) {
         if (notFound(err)) return NOTHING_INSTALLED;
@@ -112,21 +121,22 @@ export function createSlotCluster(deps: { infra: InfrastructureService; repo: ()
           await fs.mkdir(path.dirname(local), { recursive: true });
           await fs.writeFile(local, content);
         }
-        await prepare(target, await kubeconfigOf(target));
-        await infra.runHelmWithChart(
-          (at) => ['upgrade', '--install', target.release, at, '-n', target.namespace, '--create-namespace', ...sets],
-          chart,
-          await kubeconfigOf(target),
-        );
+        await prepare(target);
+        await access.helm(releaseCluster(target), ['upgrade', '--install', target.release, chart, '-n', target.namespace, '--create-namespace', ...sets]);
       } finally {
         await fs.rm(dir, { recursive: true, force: true });
       }
     },
 
     async vault(target, vault, secretTarget) {
-      const kubeconfig = await kubeconfigOf(target);
-      await prepare(target, kubeconfig);
-      await deps.syncVault({ projectId: vault.projectId, namespace: target.namespace, secretName: vault.secret, kubeconfig, target: secretTarget });
+      const clusterId = releaseCluster(target);
+      await prepare(target);
+      const cluster: SecretSyncInfra = {
+        runKubectl: (args) => access.kubectl(clusterId, args),
+        runHelm: (args) => access.helm(clusterId, args),
+        applyManifest: (manifest) => access.apply(clusterId, manifest),
+      };
+      await deps.syncVault({ projectId: vault.projectId, namespace: target.namespace, secretName: vault.secret, kubeconfig: await access.kubeconfigOf(clusterId), cluster, target: secretTarget });
       let missing = vault.keys;
       for (;;) {
         beat(missing);
@@ -148,7 +158,7 @@ export function createSlotCluster(deps: { infra: InfrastructureService; repo: ()
     },
 
     async job(target, name, manifest) {
-      await prepare(target, await kubeconfigOf(target));
+      await prepare(target);
       await runClusterJob(namespaced(target), { name, namespace: target.namespace, manifest }, { beat });
     },
 
@@ -157,9 +167,8 @@ export function createSlotCluster(deps: { infra: InfrastructureService; repo: ()
     },
 
     async put(target, manifest) {
-      const kubeconfig = await kubeconfigOf(target);
-      await prepare(target, kubeconfig);
-      await infra.applyManifest(JSON.stringify(inNamespace(manifest, target.namespace)), kubeconfig);
+      await prepare(target);
+      await access.apply(releaseCluster(target), JSON.stringify(inNamespace(manifest, target.namespace)));
     },
 
     async remove(target, kind, name, wait = false) {
@@ -181,11 +190,11 @@ export function createSlotCluster(deps: { infra: InfrastructureService; repo: ()
     },
 
     async pullAccess(target) {
-      await prepare(target, await kubeconfigOf(target));
+      await prepare(target);
     },
 
     async pipe(target, pod, command, input) {
-      return infra.pipeKubectl(['-n', target.namespace, 'exec', '-i', pod, '--', ...command], await kubeconfigOf(target), input);
+      return access.pipe(releaseCluster(target), ['-n', target.namespace, 'exec', '-i', pod, '--', ...command], input);
     },
   };
 }

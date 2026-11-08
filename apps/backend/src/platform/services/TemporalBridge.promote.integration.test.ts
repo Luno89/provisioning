@@ -3,6 +3,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { testDatabase } from '../lib/test-database.js';
 import type { MongoDB } from '../lib/mongo-db.js';
 import { deployProjectBuild, type AppDeployDeps } from '../../infrastructure/services/AppDeploy.js';
+import { testClusterAccess } from '../../infrastructure/testing/cluster-access.js';
 import type { ClusterMetadata, ProjectMetadata, PipelineRunMetadata } from '../lib/types.js';
 
 describe('deploying a project\'s build', () => {
@@ -33,12 +34,14 @@ describe('deploying a project\'s build', () => {
   beforeEach(async () => {
     db = await testDatabase();
     await db.releases.savePipelineRunInfo(run);
+    await db.infrastructure.saveCluster({ id: 'cluster-1', name: 'dev', provider: 'machine', machineId: 'dev2', status: 'healthy' } as ClusterMetadata);
     starts = [];
     deps = {
       db,
       client: () => ({ workflow: { start: async (_type: unknown, options: { workflowId: string; taskQueue: string; args: unknown[] }) => { starts.push(options); return { workflowId: options.workflowId }; } } }) as never,
       masterKey: 'k',
       clusterById: async (id) => (id === 'cluster-1' ? { id, name: 'dev', provider: 'k3d' } as ClusterMetadata : undefined),
+      handOver: (clusterId) => testClusterAccess(db).handOver(clusterId),
       logDir: '/tmp',
       claims: { role: 'combined' },
     };
@@ -49,7 +52,7 @@ describe('deploying a project\'s build', () => {
 
     expect(starts).toHaveLength(1);
     expect(starts[0]).toMatchObject({ workflowId: started.workflowId, taskQueue: 'cluster-ops-queue' });
-    expect(starts[0]!.args[0]).toMatchObject({ name: 'demo', clusterName: 'dev', appType: 'gitapp', odooRepo: 'registry.local/demo', odooTag: 'abc123' });
+    expect(starts[0]!.args[0]).toMatchObject({ name: 'demo', clusterName: 'dev', appType: 'gitapp', odooRepo: 'registry.local/demo', odooTag: 'abc123', clusterId: 'cluster-1', machine: { deviceId: 'dev2' } });
     const [deployment] = await db.infrastructure.getDeployments();
     expect(deployment).toMatchObject({ status: 'deploying', gitappProjectId: 'proj-1', gitappImageTag: 'registry.local/demo:abc123', temporalWorkflowId: started.workflowId });
     expect(deployment!.id).not.toBe('demo');

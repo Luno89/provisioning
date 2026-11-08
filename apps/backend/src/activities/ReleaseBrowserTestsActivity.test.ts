@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { CancelledFailure } from '@temporalio/common';
-import { createCheckReleases, createReleaseBrowserTestActivities, type ReleaseBrowserTestsInput, type SpecSource } from './ReleaseBrowserTestsActivity.js';
+import { mock } from 'vitest-mock-extended';
+import { createCheckReleases, createReleaseBrowserTestActivities, namespacedCluster, type ReleaseBrowserTestsInput, type SpecSource } from './ReleaseBrowserTestsActivity.js';
+import type { ClusterAccess } from '../infrastructure/index.js';
 import type { NamespacedCluster } from './cluster-jobs.js';
 import { PLAYWRIGHT_REPORT } from '../engine/lib/e2e-fixtures.js';
 
@@ -8,7 +10,7 @@ const PASSING = JSON.stringify({ suites: [{ title: 'a.spec.ts', file: 'a.spec.ts
 const SHOT = Buffer.alloc(50_000, 7);
 
 const input: ReleaseBrowserTestsInput = {
-  target: { clusterName: 'dev', provider: 'k3d', namespace: 'shop', release: 'shop' },
+  target: { clusterId: 'machine-dev', clusterName: 'dev', provider: 'machine', namespace: 'shop', release: 'shop' },
   source: { owner: 'bo', repo: 'shop', commit: 'abcdef1234' },
   ownerId: 'bo',
   releaseId: 'r2',
@@ -148,22 +150,46 @@ describe('running a release\'s browser tests against its preview', () => {
 });
 
 describe('reaching the release\'s namespace', () => {
-  it('lets the namespace pull Koala-built images once, then puts everything it applies into the release\'s namespace, whatever the manifest says', async () => {
-    const { namespacedCluster } = await import('./ReleaseBrowserTestsActivity.js');
-    const applied: string[] = [];
-    const infra = { applyManifest: async (manifest: string) => { applied.push(manifest); return ''; }, runKubectl: async () => '' };
-    const target = { clusterName: 'box', provider: 'hetzner', namespace: 'shop', release: 'shop', kubeconfigPath: '/tmp/kubeconfig-box' };
-    const login = { hosts: { push: 'gitea:3000', pull: 'gitea:3000' }, username: 'provisioning-bot', password: 'tok' };
-    const reach = namespacedCluster(infra as never, async () => login)(target);
+  const target = { clusterId: 'machine-box', clusterName: 'box', provider: 'machine', namespace: 'shop', release: 'shop' };
+  const login = { hosts: { push: 'gitea:3000', pull: 'gitea:3000' }, username: 'provisioning-bot', password: 'tok' };
+
+  it('lets the namespace pull Koala-built images once, then puts everything it applies into the release\'s namespace on the target\'s cluster, whatever the manifest says', async () => {
+    const access = mock<ClusterAccess>();
+    access.apply.mockResolvedValue('');
+    const reach = namespacedCluster(access, async () => login)(target);
     await reach.apply({ kind: 'Secret', metadata: { name: 'shop-e2e-login' } });
     await reach.apply({ kind: 'Job', metadata: { name: 'shop-e2e' } });
-    expect(JSON.parse(applied[0]!)).toMatchObject({ kind: 'List', items: [
+    const applied = access.apply.mock.calls.map(([where, manifest]) => ({ where, manifest: JSON.parse(manifest) as unknown }));
+    expect(applied[0]).toMatchObject({ where: 'machine-box', manifest: { kind: 'List', items: [
       { kind: 'Secret', type: 'kubernetes.io/dockerconfigjson', metadata: { name: 'koala-registry-pull', namespace: 'shop' } },
       { kind: 'ServiceAccount', metadata: { name: 'default', namespace: 'shop' }, imagePullSecrets: [{ name: 'koala-registry-pull' }] },
-    ] });
-    expect(JSON.parse(applied[1]!)).toEqual({ kind: 'Secret', metadata: { name: 'shop-e2e-login', namespace: 'shop' } });
-    expect(JSON.parse(applied[2]!)).toEqual({ kind: 'Job', metadata: { name: 'shop-e2e', namespace: 'shop' } });
+    ] } });
+    expect(applied[1]).toEqual({ where: 'machine-box', manifest: { kind: 'Secret', metadata: { name: 'shop-e2e-login', namespace: 'shop' } } });
+    expect(applied[2]).toEqual({ where: 'machine-box', manifest: { kind: 'Job', metadata: { name: 'shop-e2e', namespace: 'shop' } } });
     expect(applied).toHaveLength(3);
+  });
+
+  it('asks kubectl in the release\'s namespace on the target\'s cluster', async () => {
+    const access = mock<ClusterAccess>();
+    access.kubectl.mockResolvedValue('pods');
+    expect(await namespacedCluster(access, async () => login)(target).kubectl(['get', 'pods'])).toBe('pods');
+    expect(access.kubectl).toHaveBeenCalledWith('machine-box', ['-n', 'shop', 'get', 'pods']);
+  });
+
+  it('tries the pull login again on the next apply when it could not be put there', async () => {
+    const access = mock<ClusterAccess>();
+    access.apply.mockRejectedValueOnce(new Error('the cluster refused')).mockResolvedValue('');
+    const reach = namespacedCluster(access, async () => login)(target);
+    await expect(reach.apply({ kind: 'Job', metadata: { name: 'shop-e2e' } })).rejects.toThrow('the cluster refused');
+    await reach.apply({ kind: 'Job', metadata: { name: 'shop-e2e' } });
+    expect(access.apply.mock.calls.map(([, manifest]) => (JSON.parse(manifest) as { kind: string }).kind)).toEqual(['List', 'List', 'Job']);
+  });
+
+  it('refuses a release started before its target named its cluster, reaching nothing', async () => {
+    const access = mock<ClusterAccess>();
+    const old = { clusterName: 'box', provider: 'k3d', namespace: 'shop', release: 'shop' } as never;
+    await expect(namespacedCluster(access, async () => login)(old).kubectl(['get', 'pods'])).rejects.toThrow(/started before releases named their cluster by id/);
+    expect(access.kubectl).not.toHaveBeenCalled();
   });
 });
 
@@ -189,7 +215,7 @@ describe('a check browsing its project\'s release', () => {
     const { releases, runs } = made({});
     await releases.browse({ ownerId: 'space-1', projectId: 'p1', release, specs: { 'e2e/live.spec.ts': 'test()' }, keepUnder: 'run-1' });
     expect(runs).toEqual([expect.objectContaining({
-      target: { clusterName: 'provisioning-lunorica', provider: 'k3d', namespace: 'shop', release: 'shop', owner: { ownerId: 'space-1', projectId: 'p1' } },
+      target: { clusterId: 'c1', clusterName: 'provisioning-lunorica', provider: 'k3d', namespace: 'shop', release: 'shop', owner: { ownerId: 'space-1', projectId: 'p1' } },
       ownerId: 'space-1', keepUnder: 'run-1', slot: 'a', image: 'reg/shop:2',
       files: [expect.objectContaining({ path: 'playwright.config.ts' }), { path: 'e2e/live.spec.ts', content: 'test()' }],
     })]);

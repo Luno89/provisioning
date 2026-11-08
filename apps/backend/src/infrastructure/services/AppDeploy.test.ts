@@ -5,6 +5,7 @@ import { encryptValue, type ClusterMetadata, type DeploymentMetadata, type Pipel
 import { memoryDatabase } from '../../platform/testing/memory-database.js';
 import { CapacityError } from '../lib/cluster-capacity.js';
 import { deployProjectBuild, resolveOpenaiApiBaseUrl, startAppDeploy, type AppDeployDeps } from './AppDeploy.js';
+import { ClusterUnreachable, type ClusterAccess } from './ClusterAccess.js';
 
 const KEY = 'test-key-that-is-at-least-32-characters-long';
 const CLUSTER: ClusterMetadata = { id: 'c1', name: 'shared', provider: 'k3d', status: 'healthy' } as ClusterMetadata;
@@ -18,16 +19,19 @@ async function deps(cluster: ClusterMetadata = CLUSTER) {
   const db = memoryDatabase();
   await db.infrastructure.saveCluster(cluster);
   const workflow = mock<Pick<WorkflowClient, 'start'>>();
+  const access = mock<Pick<ClusterAccess, 'handOver'>>();
+  access.handOver.mockImplementation(async (clusterId) => ({ clusterId, reach: { clusterId, kind: 'koala' } }));
   const started = () => workflow.start.mock.calls.map(([, options]) => ({ workflowId: options.workflowId, taskQueue: options.taskQueue, args: (options.args as [Record<string, unknown>])[0], memo: options.searchAttributes }));
   const all: AppDeployDeps = {
     db,
     client: () => ({ workflow }),
     masterKey: KEY,
     clusterById: async (id) => (id === cluster.id ? cluster : undefined),
+    handOver: (clusterId) => access.handOver(clusterId),
     logDir: '/tmp/logs',
     claims: { role: 'combined' },
   };
-  return { deps: all, db, workflow, started };
+  return { deps: all, db, workflow, started, access };
 }
 
 const dep = (over: Partial<DeploymentMetadata>): DeploymentMetadata => ({ id: 'd', name: 'app', clusterId: 'c1', strategy: 'helm', status: 'running', ...over });
@@ -69,6 +73,32 @@ describe('starting a deploy', () => {
     expect(workflowId).toMatch(/^app-deploy-shop-\d+-[a-z0-9]{6}$/);
     expect(workflow.start).toHaveBeenCalledTimes(1);
     expect(started()[0]).toMatchObject({ taskQueue: 'cluster-ops-queue', args: { name: 'shop', clusterName: 'shared', provider: 'k3d', appType: 'wordpress', modules: ['seo'], deploymentId: deployment.deploymentId } });
+  });
+
+  it('hands the workflow the reach worked out for the app\'s cluster, and nothing else about reaching it', async () => {
+    const { deps: d, started, access } = await deps();
+    await startAppDeploy(d, { name: 'shop', clusterId: 'c1', appType: 'wordpress' }, 'ann');
+    expect(access.handOver).toHaveBeenCalledWith('c1');
+    expect(started()[0]?.args).toMatchObject({ clusterId: 'c1', reach: { clusterId: 'c1', kind: 'koala' } });
+    expect(started()[0]?.args).not.toHaveProperty('machine');
+    expect(started()[0]?.args).not.toHaveProperty('kubeconfig');
+    expect(started()[0]?.args).not.toHaveProperty('clusterGpuEnabled');
+  });
+
+  it('hands a machine over as the machine to start, since its cluster may be stopped until the deploy starts it', async () => {
+    const { deps: d, started, access } = await deps();
+    access.handOver.mockResolvedValue({ clusterId: 'c1', machine: { deviceId: 'desk' } });
+    await startAppDeploy(d, { name: 'shop', clusterId: 'c1', appType: 'wordpress' }, 'ann');
+    expect(started()[0]?.args).toMatchObject({ clusterId: 'c1', machine: { deviceId: 'desk' } });
+    expect(started()[0]?.args).not.toHaveProperty('reach');
+  });
+
+  it('refuses a deploy to a cluster that cannot be reached, saying why, before it records or starts anything', async () => {
+    const { deps: d, db, workflow, access } = await deps();
+    access.handOver.mockRejectedValue(new ClusterUnreachable('c1', 'other-kind', 'shared is a k3d cluster, and every cluster Koala reaches is a machine\'s'));
+    await expect(startAppDeploy(d, { name: 'shop', clusterId: 'c1', appType: 'wordpress' }, 'ann')).rejects.toThrow('every cluster Koala reaches is a machine\'s');
+    expect(await db.infrastructure.getDeployments()).toEqual([]);
+    expect(workflow.start).not.toHaveBeenCalled();
   });
 
   it('records a new app under the cluster\'s own id, however the request named it', async () => {

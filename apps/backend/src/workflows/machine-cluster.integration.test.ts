@@ -92,9 +92,9 @@ async function working<T>(work: () => Promise<T>): Promise<T> {
     ...WORKER_DEFAULTS, connection, namespace, taskQueue: QUEUE,
     workflowBundle: await bundled(resolve(__dirname, 'index.ts')),
     activities: {
-      DeployAppActivity: async (args: DeployAppArgs) => { handed.push({ activity: 'deploy', kubeconfig: args.kubeconfig }); return { status: 'deployed', msg: 'deployed', displayUrl: '' }; },
-      CheckWorkloadActivity: async (args: { kubeconfig?: string }) => { handed.push({ activity: 'check', kubeconfig: args.kubeconfig }); return { health: 'healthy', reason: '' }; },
-      DestroyAppActivity: async (args: DestroyAppArgs) => { handed.push({ activity: 'destroy', kubeconfig: args.kubeconfig }); return { status: 'destroyed', msg: 'destroyed' }; },
+      DeployAppActivity: async (args: DeployAppArgs) => { handed.push({ activity: 'deploy', kubeconfig: args.reach?.kind === 'machine' ? args.reach.kubeconfig : undefined }); return { status: 'deployed', msg: 'deployed', displayUrl: '' }; },
+      CheckWorkloadActivity: async (args: DeployAppArgs) => { handed.push({ activity: 'check', kubeconfig: args.reach?.kind === 'machine' ? args.reach.kubeconfig : undefined }); return { health: 'healthy', reason: '' }; },
+      DestroyAppActivity: async (args: DestroyAppArgs) => { handed.push({ activity: 'destroy', kubeconfig: args.reach?.kind === 'machine' ? args.reach.kubeconfig : undefined }); return { status: 'destroyed', msg: 'destroyed' }; },
     },
   });
   const stream = await Worker.create({

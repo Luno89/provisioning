@@ -1,7 +1,7 @@
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { Readable } from 'node:stream';
+import { PassThrough, Readable } from 'node:stream';
 import { describe, expect, inject, it } from 'vitest';
 import { encryptValue, nodeProcesses, nodeStreams, type ClusterMetadata } from '../../platform/index.js';
 import { testDatabase } from '../../platform/lib/test-database.js';
@@ -77,5 +77,39 @@ describe('ClusterAccess against a real k3s', () => {
   it('passes on what kubectl said when the cluster refuses', async () => {
     const access = await door([], { clusters: undefined });
     await expect(access.kubectl(startedMachine('machine-dev3', k3s.admin), ['get', 'namespace', 'nowhere'])).rejects.toThrow('namespaces "nowhere" not found');
+  });
+
+  it('starts kubectl, feeding it and sending its output where it is told, and hands back how it ended without throwing', async () => {
+    const access = await door([], { clusters: undefined });
+    const reach = startedMachine('machine-dev3', k3s.admin);
+    const output = new PassThrough();
+    let written = '';
+    output.on('data', (chunk: Buffer) => { written += chunk.toString(); });
+    const applied = await access.start(reach, ['apply', '-f', '-', '-o', 'name'], { input: 'apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: started\n  namespace: default\n', output });
+    const ended = await applied.ended;
+    expect(ended.code).toBe(0);
+    expect(ended.stdout).toBe('');
+    expect(written).toBe('configmap/started\n');
+    const refused = await (await access.start(reach, ['get', 'namespace', 'nowhere'])).ended;
+    expect(refused.code).not.toBe(0);
+    expect(refused.stderr).toContain('namespaces "nowhere" not found');
+  });
+
+  it('starts helm and hands back how it ended, a refusal included, without throwing', async () => {
+    const access = await door([], { clusters: undefined });
+    const reach = startedMachine('machine-dev3', k3s.admin);
+    const quiet = `helm-start-${Math.random().toString(36).slice(2, 8)}`;
+    const listed = await (await access.startHelm(reach, ['list', '-n', quiet, '-o', 'json'])).ended;
+    expect(listed).toMatchObject({ code: 0, stdout: '[]\n' });
+    const missing = await (await access.startHelm(reach, ['status', 'nowhere', '-n', 'default'])).ended;
+    expect(missing.code).not.toBe(0);
+    expect(missing.stderr).toContain('release: not found');
+  });
+
+  it('stops a kubectl it started that would run until stopped', async () => {
+    const access = await door([], { clusters: undefined });
+    const watching = await access.start(startedMachine('machine-dev3', k3s.admin), ['get', 'configmaps', '-n', 'default', '-w']);
+    watching.stop();
+    expect((await watching.ended).code).not.toBe(0);
   });
 });

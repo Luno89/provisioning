@@ -1,4 +1,4 @@
-import { assessWorkload, type InfrastructureService } from '../infrastructure/index.js';
+import { assessWorkload, type ClusterAccess } from '../infrastructure/index.js';
 import { randomBytes } from 'crypto';
 import { Context } from '@temporalio/activity';
 import { CancelledFailure } from '@temporalio/common';
@@ -11,7 +11,7 @@ import {
   type ReleaseSource, type ReleaseTarget,
 } from '../releases/index.js';
 import type { ClusterMetadata, ProjectMetadata } from '../platform/index.js';
-import { reachCluster } from './cluster-access.js';
+import { releaseCluster } from '../extensions/releases/slot-cluster.js';
 import { manifestList, registryPullManifests, type RegistryLoginSource } from '../instances/index.js';
 import { inNamespace, runClusterJob, type NamespacedCluster } from './cluster-jobs.js';
 import { ignore } from '@koala/engine-core/failures';
@@ -65,12 +65,12 @@ const notFound = (err: unknown): boolean => /not found|NotFound/i.test(String((e
 const activityBeat = (detail?: unknown) => { try { Context.current().heartbeat(detail); } catch { return; } };
 const activityCancelled = (): boolean => { try { return Context.current().cancellationSignal.aborted; } catch { return false; } };
 
-export function namespacedCluster(infra: InfrastructureService, registry: RegistryLoginSource): (target: ReleaseTarget) => NamespacedCluster {
+export function namespacedCluster(access: Pick<ClusterAccess, 'kubectl' | 'apply'>, registry: RegistryLoginSource): (target: ReleaseTarget) => NamespacedCluster {
   return (target) => {
     let pulling: Promise<void> | undefined;
-    const pullAccess = (kubeconfig: string): Promise<void> => {
+    const pullAccess = (clusterId: string): Promise<void> => {
       pulling ??= (async () => {
-        await infra.applyManifest(JSON.stringify(manifestList(registryPullManifests(target.namespace, await registry()))), kubeconfig);
+        await access.apply(clusterId, JSON.stringify(manifestList(registryPullManifests(target.namespace, await registry()))));
       })().catch((err: unknown) => {
         pulling = undefined;
         throw err;
@@ -78,11 +78,11 @@ export function namespacedCluster(infra: InfrastructureService, registry: Regist
       return pulling;
     };
     return {
-      kubectl: async (args) => infra.runKubectl(['-n', target.namespace, ...args], await reachCluster(infra, target)),
+      kubectl: async (args) => access.kubectl(releaseCluster(target), ['-n', target.namespace, ...args]),
       apply: async (manifest) => {
-        const kubeconfig = await reachCluster(infra, target);
-        await pullAccess(kubeconfig);
-        await infra.applyManifest(JSON.stringify(inNamespace(manifest, target.namespace)), kubeconfig);
+        const clusterId = releaseCluster(target);
+        await pullAccess(clusterId);
+        await access.apply(clusterId, JSON.stringify(inNamespace(manifest, target.namespace)));
       },
     };
   };

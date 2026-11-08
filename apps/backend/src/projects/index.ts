@@ -25,6 +25,7 @@ export { ProjectChannelService } from './services/ProjectChannelService.js';
 export { loadProjectScope } from './services/ProjectRemovalService.js';
 export { ProjectRepoService } from './services/ProjectRepoService.js';
 export { ensureInfisicalOperator, syncProjectSecrets } from './services/ProjectSecretSync.js';
+export type { SecretSyncInfra } from './services/ProjectSecretSync.js';
 export { projectSecretsFor } from './services/ProjectSecretsService.js';
 export type { SignIn } from './services/ProjectSecretsService.js';
 export { localHubSharing, localProjectGroups, ProjectSharingService } from './services/ProjectSharingService.js';

@@ -1,25 +1,16 @@
-import { createDatabase, roleFromEnv } from '../platform/index.js';
-import { InfrastructureService, ClusterService, clusterAccessFrom } from '../infrastructure/index.js';
+import { installGpuDevicePlugin, verifyGpuRuntimeSchedulable, type Reach } from '../infrastructure/index.js';
+import type { ClusterSteps } from './cluster-steps.js';
+import { handedReach } from './handed-reach.js';
 
 export interface VerifyGpuRuntimeArgs {
   clusterId: string;
+  reach?: Reach | undefined;
   vendor: 'nvidia' | 'amd';
 }
 
-
-export async function VerifyGpuRuntimeActivity(args: VerifyGpuRuntimeArgs): Promise<void> {
-  const db = createDatabase();
-  await db.init();
-  try {
-    const infra = new InfrastructureService();
-    const clusters = new ClusterService(db, infra, clusterAccessFrom(process.env, { role: roleFromEnv(process.env).role, clusters: db.infrastructure }));
-    const cluster = await clusters.getByIdUnscoped(args.clusterId);
-    if (!cluster) throw new Error(`Cluster ${args.clusterId} no longer exists`);
-
-    const kubeconfig = await clusters.getKubeconfigPath(cluster);
-    await infra.installGpuDevicePlugin(args.vendor, kubeconfig);
-    await infra.verifyGpuRuntimeSchedulable(args.vendor, kubeconfig);
-  } finally {
-    await db.close();
-  }
+export async function VerifyGpuRuntimeActivity(args: VerifyGpuRuntimeArgs, steps: Pick<ClusterSteps, 'access'>): Promise<void> {
+  const reach = handedReach(args);
+  const kubectl = (argv: string[]) => steps.access.kubectl(reach, argv);
+  await installGpuDevicePlugin(kubectl, args.vendor);
+  await verifyGpuRuntimeSchedulable(kubectl, args.vendor);
 }

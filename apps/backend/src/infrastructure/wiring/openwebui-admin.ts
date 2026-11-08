@@ -1,5 +1,3 @@
-import type { InfrastructureService } from '../services/InfrastructureService.js';
-
 export interface OpenWebUiWebSearchPatch {
   enableWebSearch?: boolean;
   webSearchEngine?: string;
@@ -14,8 +12,7 @@ const API_KEY_FIELD: Record<string, string> = {
 };
 
 export async function pushOpenWebUiWebSearchConfig(
-  infra: InfrastructureService,
-  kubeconfigPath: string,
+  kubectl: (args: string[]) => Promise<string>,
   namespace: string,
   patch: OpenWebUiWebSearchPatch,
 ): Promise<void> {
@@ -64,10 +61,7 @@ except Exception as e:
 `.trim();
 
   try {
-    const output = await infra.runKubectl(
-      ['exec', '-n', namespace, 'deployment/open-webui', '--', 'python3', '-c', script],
-      kubeconfigPath,
-    );
+    const output = await kubectl(['exec', '-n', namespace, 'deployment/open-webui', '--', 'python3', '-c', script]);
     console.log(`[openwebui-admin] ${String(output).trim()}`);
   } catch (err) {
     console.warn(`[openwebui-admin] failed to push web search config via admin API: ${(err as Error).message}`);

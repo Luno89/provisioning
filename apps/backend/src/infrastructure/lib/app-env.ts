@@ -206,7 +206,6 @@ export function buildAppEnv(a: AppEnvArgs): Record<string, string> {
     DEPLOYMENT_NAME: a.namespace,
     DEPLOYMENT_ID: a.deploymentId,
     KUBECONFIG: a.kubeconfigPath,
-    KUBECONFIG_CONTEXT: (a.provider === 'k3d' || a.isMock) ? `k3d-${a.physicalName}` : '',
     SELF_MANAGED_K8S: isSelfManagedCluster(a.provider, a.isMock) ? 'true' : 'false',
     ...(a.serviceType ? { APP_SERVICE_TYPE: a.serviceType } : {}),
     APP_TYPE: a.appType,

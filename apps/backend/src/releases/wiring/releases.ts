@@ -67,7 +67,7 @@ export function wireReleases(deps: ReleasesWiringDeps): ReleasesWiring {
   const treeOfProject = async (projectId: string) => (await db.projects.getTrees()).find((tree) => tree.projectIds?.[0] === projectId);
   const clusterById = (id: string) => clusters.getByIdUnscoped(id);
   const onCluster = async (cluster: ClusterMetadata, namespace: string, secret: string, key: string): Promise<string | undefined> => {
-    const data = await infra.runKubectl(['get', 'secret', secret, '-n', namespace, '-o', 'jsonpath={.data}', '--ignore-not-found'], await clusters.getKubeconfigPath(cluster));
+    const data = await clusters.access.kubectl(cluster.id, ['get', 'secret', secret, '-n', namespace, '-o', 'jsonpath={.data}', '--ignore-not-found']);
     const encoded = data ? (JSON.parse(data) as Record<string, string>)[key] : undefined;
     return encoded ? Buffer.from(encoded, 'base64').toString('utf8') : undefined;
   };
@@ -78,7 +78,7 @@ export function wireReleases(deps: ReleasesWiringDeps): ReleasesWiring {
     const namespace = namespaceOf(deployment);
     return secrets.ensure(project, { seed: (key) => onCluster(cluster, namespace, managedSecretName(namespace), key) });
   };
-  const slotCluster = () => createSlotCluster({ infra, repo: async () => gitea, registry: () => gitea.registryLogin(), syncVault: syncVaultFromProject(infra) });
+  const slotCluster = () => createSlotCluster({ access: clusters.access, repo: async () => gitea, registry: () => gitea.registryLogin(), syncVault: syncVaultFromProject(infra) });
 
   const decideRelease = async (project: ProjectMetadata, since: string, commit: string): Promise<ReleaseDecision> => {
     const releaseWhen = (await treeTypeOfProject(db.projects, project))?.releaseWhen;

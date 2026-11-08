@@ -28,6 +28,7 @@ const steps = (over: Partial<ProjectRemovalDeps> = {}): ProjectRemovalActivities
   files,
   apps: {
     clusterById: async (id) => (id === 'system' ? { id: 'system', name: 'provisioning-lunorica', provider: 'k3d', status: 'running' } as never : undefined),
+    handOver: async (clusterId: string) => ({ clusterId, reach: { clusterId, kind: 'koala' as const } }), 
     logFile: () => '/logs/destroy.log',
     taskQueue: 'cluster-ops-queue',
   },
@@ -150,7 +151,7 @@ describe('the steps that delete a project', () => {
     expect(planned[0]).toMatchObject({
       deploymentId: 'odoo-p1',
       taskQueue: 'cluster-ops-queue',
-      args: { name: 'shop-p1', clusterId: 'system', clusterName: 'provisioning-lunorica', provider: 'k3d', strategy: 'helm', logFile: '/logs/destroy.log', appType: 'odoo-project', namespace: 'shop-p1-1a2b3c' },
+      args: { name: 'shop-p1', clusterId: 'system', clusterName: 'provisioning-lunorica', provider: 'k3d', strategy: 'helm', logFile: '/logs/destroy.log', appType: 'odoo-project', namespace: 'shop-p1-1a2b3c', reach: { clusterId: 'system', kind: 'koala' } },
     });
     expect(planned[0]!.workflowId).toMatch(/^app-destroy-shop-p1-/);
     const marked = (await db.infrastructure.getDeployments()).find((deployment) => deployment.id === 'odoo-p1');
@@ -181,9 +182,28 @@ describe('planning the destroy of apps', () => {
       { id: 'a', name: 'one', clusterId: 'system', strategy: 'helm', appType: 'wordpress', status: 'running' },
       { id: 'b', name: 'two', clusterId: 'gone', strategy: 'helm', appType: 'wordpress', status: 'running' },
     ] as never[];
-    const planned = await planAppDestroys(deployments, ['b'], { clusterById: async () => undefined, logFile: () => '/l', taskQueue: 'q' }, () => 'abc123');
+    const planned = await planAppDestroys(deployments, ['b'], { clusterById: async () => undefined, handOver: async (clusterId: string) => ({ clusterId, reach: { clusterId, kind: 'koala' as const } }), logFile: () => '/l', taskQueue: 'q' }, () => 'abc123');
     expect(planned).toHaveLength(1);
-    expect(planned[0]).toMatchObject({ deploymentId: 'b', taskQueue: 'q' });
+    expect(planned[0]).toMatchObject({ deploymentId: 'b', taskQueue: 'q', args: { reach: { clusterId: 'gone', kind: 'koala' } } });
     expect(planned[0]!.workflowId).toMatch(/abc123$/);
+  });
+
+  it('hands a machine\'s app over as the machine to start, naming the app that leaves it, and no reach', async () => {
+    const deployments = [{ id: 'books', name: 'books', clusterId: 'machine-desk', strategy: 'native', appType: 'nginx', status: 'running' }] as never[];
+    const planned = await planAppDestroys(deployments, ['books'], {
+      clusterById: async () => ({ id: 'machine-desk', name: 'desk', provider: 'machine', machineId: 'desk', status: 'stopped' }) as never,
+      handOver: async (clusterId) => ({ clusterId, machine: { deviceId: 'desk' } }),
+      logFile: () => '/l',
+      taskQueue: 'q',
+    }, () => 'abc123');
+    expect(planned[0]!.args).toMatchObject({ clusterId: 'machine-desk', clusterName: 'desk', provider: 'machine', machine: { deviceId: 'desk', leaving: 'books' } });
+    expect(planned[0]!.args).not.toHaveProperty('reach');
+  });
+
+  it('plans nothing, and says why, for an app whose cluster cannot be reached', async () => {
+    const deployments = [{ id: 'b', name: 'two', clusterId: 'old', strategy: 'helm', status: 'running' }] as never[];
+    const unreachable = Object.assign(new Error('old is a k3d cluster, and every cluster Koala reaches is a machine\'s'), { name: 'ClusterUnreachable' });
+    await expect(planAppDestroys(deployments, ['b'], { clusterById: async () => undefined, handOver: async () => { throw unreachable; }, logFile: () => '/l', taskQueue: 'q' }, () => 'abc123'))
+      .rejects.toThrow('every cluster Koala reaches is a machine\'s');
   });
 });

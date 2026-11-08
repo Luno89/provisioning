@@ -6,7 +6,7 @@ import path from 'path';
 import { execFileSync, spawn, type SpawnOptions } from 'child_process';
 import { mountRouter, TEST_USER, type Harness } from '../../platform/routes/test-harness.js';
 import { moveRouter } from './move.js';
-import { MoveExport, MOVING_FILE } from '../services/MoveExport.js';
+import { MoveExport, MOVING_FILE, type MoveCluster } from '../services/MoveExport.js';
 import { REPLICAS_ANNOTATION } from '../lib/app-move.js';
 import { generateIdentityKey, identityKeysFrom, issueMoveToken, publicKeyPem, trustedKeys } from '../lib/identity-token.js';
 
@@ -22,32 +22,43 @@ let stubDir: string;
 let running: string[] | 'unknown';
 let spawned: string[][];
 
-const kubectlStub = (dir: string): string => `#!/bin/sh
-asked="$*"
-while IFS= read -r prefix; do
-  [ -n "$prefix" ] || continue
-  case "$asked" in "$prefix"*) printf '%s' 'Error from server (Forbidden): not allowed' >&2; exit 1;; esac
-done < '${dir}/refusing'
-case "$asked" in
-  'get namespaces -o json') printf '%s' '${JSON.stringify({ items: [{ metadata: { name: 'books' } }, { metadata: { name: 'nowrinkles' } }] })}' ;;
-  'get deployments -n books -o json') printf '%s' '${JSON.stringify({ items: [{ metadata: { name: 'web', annotations: { [REPLICAS_ANNOTATION]: '2' } } }, { metadata: { name: 'never-scaled' } }] })}' ;;
-  'get statefulsets -n books -o json') printf '%s' '${JSON.stringify({ items: [] })}' ;;
-  *) printf '%s' 'kubectl output' ;;
-esac
-`;
+const FORBIDDEN = 'Error from server (Forbidden): not allowed';
+let refusing: string[];
+let asked: string[];
 
-const refuse = (prefixes: string[]): void => { fs.writeFileSync(path.join(stubDir, 'refusing'), prefixes.map((prefix) => `${prefix}\n`).join('')); };
+const kubectlSays = (line: string): string => {
+  if (line === 'get namespaces -o json') return JSON.stringify({ items: [{ metadata: { name: 'books' } }, { metadata: { name: 'nowrinkles' } }] });
+  if (line === 'get deployments -n books -o json') return JSON.stringify({ items: [{ metadata: { name: 'web', annotations: { [REPLICAS_ANNOTATION]: '2' } } }, { metadata: { name: 'never-scaled' } }] });
+  if (line === 'get statefulsets -n books -o json') return JSON.stringify({ items: [] });
+  return 'kubectl output';
+};
 
-const stubbedSpawn = ((command: string, args: string[], options: SpawnOptions) => {
+const cluster: MoveCluster = {
+  kubectl: async (args) => {
+    const line = args.join(' ');
+    asked.push(line);
+    if (refusing.some((prefix) => line.startsWith(prefix))) throw new Error(FORBIDDEN);
+    return kubectlSays(line);
+  },
+  read: async (args, into) => {
+    const line = args.join(' ');
+    asked.push(line);
+    into.end(kubectlSays(line));
+  },
+};
+
+const refuse = (prefixes: string[]): void => { refusing = prefixes; };
+
+const recordingSpawn = ((command: string, args: string[], options: SpawnOptions) => {
   spawned.push([command, ...args]);
-  return spawn(command, args, { ...options, env: { ...process.env, PATH: `${stubDir}:${process.env.PATH ?? ''}` } });
+  return spawn(command, args, options);
 }) as typeof spawn;
 
 beforeEach(async () => {
   dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'move-'));
   stubDir = fs.mkdtempSync(path.join(os.tmpdir(), 'move-stub-'));
-  fs.writeFileSync(path.join(stubDir, 'kubectl'), kubectlStub(stubDir), { mode: 0o755 });
   refuse([]);
+  asked = [];
   running = [];
   spawned = [];
   harness = await mountRouter({
@@ -55,7 +66,7 @@ beforeEach(async () => {
     router: async (db) => {
       const move = new MoveExport({
         instanceId: 'inst-bo', trusted: trustedKeys([publicKeyPem(root.publicKey)]), dataDir,
-        mongo: { uri: 'mongodb://unused', dbName: 'provisioning' }, env: KEYS, running: async () => running, spawn: stubbedSpawn,
+        mongo: { uri: 'mongodb://unused', dbName: 'provisioning' }, env: KEYS, running: async () => running, cluster, spawn: recordingSpawn,
         claim: (jti, expiresAt) => db.instances.claimHandoff(jti, expiresAt),
       });
       await move.load();
@@ -93,7 +104,7 @@ describe('a pool instance handing itself over', () => {
     expect(spawned.at(-1)).toEqual(['tar', 'czf', '-', '-C', dataDir, '--', '.gitea-admin-password', 'caddy']);
     const gitea = await get('gitea-data', issueMoveToken(root, 'inst-bo', 'gitea-data'));
     expect(gitea.data).toBe('kubectl output');
-    expect(spawned.at(-1)?.slice(0, 7)).toEqual(['kubectl', 'exec', '-n', 'gitea', 'deploy/gitea', '-c', 'gitea']);
+    expect(asked.at(-1)).toMatch(/^exec -n gitea deploy\/gitea -c gitea /);
   });
 
   it('takes each of root\'s tokens once, and never from the address', async () => {
@@ -121,7 +132,7 @@ describe('a pool instance handing itself over', () => {
   });
 
   const thaw = () => axios.post<{ error?: string }>(harness.url('/api/move/thaw'), {}, { headers: { 'x-koala-move-token': issueMoveToken(root, 'inst-bo', 'thaw') }, validateStatus: () => true });
-  const kubectlRan = () => spawned.filter(([command]) => command === 'kubectl').map((argv) => argv.slice(1).join(' '));
+  const kubectlRan = () => asked;
 
   it('takes work again when root says the move stopped, starting its apps as they were and its self-upgrade', async () => {
     await get('keys', issueMoveToken(root, 'inst-bo', 'keys'));
@@ -142,7 +153,7 @@ describe('a pool instance handing itself over', () => {
     refuse(['scale deployments web']);
     const thawed = await thaw();
     expect(thawed.status).toBe(500);
-    expect(thawed.data.error).toBe('it takes work again, but books\'s apps could not be started again: kubectl ended with 1: Error from server (Forbidden): not allowed');
+    expect(thawed.data.error).toBe(`it takes work again, but books's apps could not be started again: ${FORBIDDEN}`);
     expect(fs.existsSync(path.join(dataDir, MOVING_FILE))).toBe(false);
   });
 

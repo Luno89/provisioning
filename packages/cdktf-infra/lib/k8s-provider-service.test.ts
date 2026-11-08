@@ -1,19 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { providerConfigFrom } from "./k8s-provider-service.js";
+import { kubeconfigFrom } from "./k8s-provider-service.js";
 
-const inCluster = { K8S_HOST: "https://kubernetes.default.svc", K8S_TOKEN: "sa-token", K8S_CA_CERT: "ca" };
-
-describe("which cluster an app's stack reaches", () => {
-  it("is the cluster its kubeconfig names, never the worker's own, when the app is for another cluster", () => {
-    expect(providerConfigFrom({ ...inCluster, CLUSTER_NAME: "mesh-desk", KUBECONFIG: "/tmp/handed-kubeconfig-machine-desk" })).toEqual({
-      kubeconfigPath: "/tmp/handed-kubeconfig-machine-desk",
-      kubeconfigContext: undefined,
-    });
+describe("which cluster a stack reaches", () => {
+  it("is the cluster the kubeconfig it was handed names, whatever cluster the worker runs in", () => {
+    expect(kubeconfigFrom({ CLUSTER_NAME: "provisioning-lunorica", KUBECONFIG: "/tmp/koala-clusters-1/kubeconfig-koala", K8S_HOST: "https://kubernetes.default.svc", K8S_TOKEN: "sa-token" }, "KUBECONFIG")).toBe("/tmp/koala-clusters-1/kubeconfig-koala");
+    expect(kubeconfigFrom({ KUBECONFIG_PATH: "/tmp/koala-clusters-1/kubeconfig-machine-desk" }, "KUBECONFIG_PATH")).toBe("/tmp/koala-clusters-1/kubeconfig-machine-desk");
   });
 
-  it("is the worker's own cluster through its service account when the app is for the system cluster", () => {
-    expect(providerConfigFrom({ ...inCluster, CLUSTER_NAME: "provisioning-lunorica", KUBECONFIG: "/app/.kube/config" })).toEqual({
-      kubeconfigPath: "/app/.kube/config", kubeconfigContext: undefined, host: inCluster.K8S_HOST, token: "sa-token", clusterCaCertificate: "ca",
-    });
+  it("is refused, saying which setting is missing, when no kubeconfig was handed", () => {
+    expect(() => kubeconfigFrom({ CLUSTER_NAME: "mesh-desk", K8S_HOST: "https://kubernetes.default.svc" }, "KUBECONFIG")).toThrow("a stack reaches its cluster through the kubeconfig in KUBECONFIG, which is not set");
+    expect(() => kubeconfigFrom({ KUBECONFIG_PATH: "  " }, "KUBECONFIG_PATH")).toThrow("KUBECONFIG_PATH, which is not set");
   });
 });

@@ -1,3 +1,5 @@
+import type { Reach } from '../../infrastructure/index.js';
+
 export const PROBE_RESOURCE = 'probes.monitoring.coreos.com';
 
 export type MonitoringStackPart = 'cluster' | 'observability';
@@ -36,16 +38,16 @@ export const monitoringOwner = (cluster: { physicalName: string; koala?: boolean
 
 export interface KoalaClusterMonitoring {
   physicalName: string;
-  kubeconfigPath: string;
+  reach: Reach;
   local: boolean;
   pool: boolean;
   nodePortIngress: boolean;
   koala: true;
 }
 
-export const koalaClusterMonitoring = (env: NodeJS.ProcessEnv, kubeconfigPath: string, instance: boolean): KoalaClusterMonitoring => ({
+export const koalaClusterMonitoring = (env: NodeJS.ProcessEnv, reach: Reach, instance: boolean): KoalaClusterMonitoring => ({
   physicalName: SYSTEM_CLUSTER,
-  kubeconfigPath,
+  reach,
   local: !instance,
   pool: placedOnPool(env, SYSTEM_CLUSTER),
   nodePortIngress: Boolean(env.INSTANCE_MACHINE_ID),

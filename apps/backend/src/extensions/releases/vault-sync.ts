@@ -14,7 +14,7 @@ export const syncVaultFromProject = (infra: InfrastructureService): VaultSync =>
     if (!project) throw ApplicationFailure.nonRetryable(`the project ${args.projectId} is gone, so its vault cannot be synced`);
     const masterKey = loadKeys(process.env).data;
     const vault = new InfisicalService(infra, masterKey, '/tmp/kubeconfig-provisioning-lunorica', undefined, sharedClusterProxy());
-    await syncProjectSecrets({ infra, vault, projects: db.projects, masterKey }, { project, namespace: args.namespace, kubeconfig: args.kubeconfig, target: args.target, secretName: args.secretName });
+    await syncProjectSecrets({ infra: args.cluster, vault, projects: db.projects, masterKey }, { project, namespace: args.namespace, kubeconfig: args.kubeconfig, target: args.target, secretName: args.secretName });
   } finally {
     await db.close().catch(ignore('the connection is closed only to free it; the vault was synced, or why not is thrown'));
   }

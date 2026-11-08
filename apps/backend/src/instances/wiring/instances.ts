@@ -27,7 +27,7 @@ import { ReleaseCatalogue } from '../services/ReleaseCatalogue.js';
 import { DependencyWatch } from '../services/DependencyWatch.js';
 import { DEPENDENCY_WATCH_ID } from '../lib/dependency-findings.js';
 import { WithdrawalNotices } from '../services/WithdrawalNotices.js';
-import { MoveExport } from '../services/MoveExport.js';
+import { MoveExport, moveClusterOn, type ClusterStarts } from '../services/MoveExport.js';
 import { MoveRelay, kubeconfigFile } from '../services/MoveRelay.js';
 import { PoolMonitoringService } from '../services/PoolMonitoringService.js';
 import { InstanceMailLimit } from '../services/InstanceMailLimit.js';
@@ -36,7 +36,7 @@ import { InstanceWatchSetting } from '../services/InstanceWatchSetting.js';
 import { RootPresence, type RootReachView } from '../services/RootPresence.js';
 import { instanceWatchRouter } from '../routes/instance-watch.js';
 import { PRESENCE_NAMESPACE, presenceAuth, unreachableAfterMs } from '../lib/instance-watch.js';
-import type { InstanceEdge, HeadscaleService, InfrastructureService } from '../../infrastructure/index.js';
+import { ROOT_CLUSTER_ID, type ClusterAccess, type InstanceEdge, type HeadscaleService } from '../../infrastructure/index.js';
 import { identityRouter } from '../routes/identity.js';
 import { signInRouter } from '../routes/sign-in.js';
 import { oidcProviderRouter } from '../routes/oidc-provider.js';
@@ -54,7 +54,6 @@ import { PoolInstanceWorkflow } from '../../workflows/PoolInstanceWorkflow.js';
 import { PoolRemoveWorkflow } from '../../workflows/PoolRemoveWorkflow.js';
 import { PoolMoveWorkflow } from '../../workflows/PoolMoveWorkflow.js';
 
-const POOL_KUBECONFIG = '/tmp/kubeconfig-provisioning-lunorica';
 
 const EDGE_SETTINGS = ['EDGE_ADMIN_URL', 'EDGE_CADDYFILE', 'EDGE_SITES'] as const;
 
@@ -116,6 +115,7 @@ export class InstanceSide {
 
 export interface MoveExportDeps {
   role: RoleConfig;
+  access: Pick<ClusterStarts, 'kubectl' | 'own' | 'start'>;
   env: NodeJS.ProcessEnv;
   app: Routes;
   dataDir: string;
@@ -129,6 +129,7 @@ export async function wireMoveExport(deps: MoveExportDeps): Promise<MoveExport |
   if (!(role.role === 'instance' && env.POOL === 'true' && role.trusted && role.instance)) return undefined;
   const moveExport = new MoveExport({
     instanceId: role.instance.id,
+    cluster: moveClusterOn(deps.access),
     trusted: role.trusted,
     dataDir: deps.dataDir,
     mongo: deps.mongo,
@@ -159,7 +160,7 @@ export interface InstancesWiringDeps {
   repoRoot: string;
   dataDir: string;
   headscale: HeadscaleService;
-  infra: Pick<InfrastructureService, 'runKubectl' | 'applyManifest'>;
+  access: Pick<ClusterAccess, 'kubectl' | 'apply' | 'kubeconfigOf' | 'own'>;
   side: InstanceSide;
   syncExposedApps: () => Promise<void>;
   provider?: RootProvider | undefined;
@@ -214,7 +215,7 @@ export async function wireInstances(deps: InstancesWiringDeps): Promise<Instance
     updates: role.instance && deps.rootToken
       ? new InstanceUpdates(
         { rootUrl: role.instance.rootUrl, instanceId: role.instance.id, token: deps.rootToken, cronJob: env.SELF_UPGRADE_CRONJOB, namespace: env.INSTANCE_NAMESPACE },
-        async (args) => String(await deps.infra.runKubectl(args)),
+        (args) => deps.access.kubectl(deps.access.own(), args),
       )
       : undefined,
   }));
@@ -278,7 +279,7 @@ export async function wireInstances(deps: InstancesWiringDeps): Promise<Instance
       throw new Error(cause instanceof Error ? `${message}: ${cause.message}` : message);
     }
   }, (message) => console.warn(message));
-  const pool = poolSettingsFrom(env, POOL_KUBECONFIG);
+  const pool = poolSettingsFrom(env);
   let presenceOf: ((instanceId: string) => boolean) | undefined;
   const instanceService = new InstanceService(db, {
     connected: (instanceId) => presenceOf?.(instanceId) ?? false,
@@ -349,11 +350,11 @@ export async function wireInstances(deps: InstancesWiringDeps): Promise<Instance
   }
 
   const poolMonitoring = 'off' in pool ? undefined : new PoolMonitoringService({
-    kubectl: async (args) => String(await deps.infra.runKubectl(args, pool.kubeconfig)),
-    apply: async (manifest) => { await deps.infra.applyManifest(manifest, pool.kubeconfig); },
+    kubectl: (args) => deps.access.kubectl(ROOT_CLUSTER_ID, args),
+    apply: async (manifest) => { await deps.access.apply(ROOT_CLUSTER_ID, manifest); },
   });
   const moveRelay = 'off' in pool || !role.signing ? undefined : new MoveRelay({
-    kubeconfig: kubeconfigFile(pool.kubeconfig),
+    kubeconfig: async () => kubeconfigFile(await deps.access.kubeconfigOf(ROOT_CLUSTER_ID))(),
     sign: (instanceId, part) => issueMoveToken(role.signing!, instanceId, part),
   });
   const hubAccess = role.signing && role.hubLink

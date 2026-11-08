@@ -13,6 +13,7 @@ import { until } from '../../platform/testing/three-roles.js';
 import { SYSTEM_CLUSTER_ID } from '../lib/cluster-name.js';
 import { AppService } from '../services/AppService.js';
 import { ClusterService } from '../services/ClusterService.js';
+import { testClusterAccess } from '../testing/cluster-access.js';
 import { TemporalBridge } from '../services/TemporalBridge.js';
 import type { InfrastructureService } from '../services/InfrastructureService.js';
 import type { Database } from '../../platform/lib/db-interface.js';
@@ -38,7 +39,7 @@ beforeAll(async () => {
   infra.listLocalClusters.mockResolvedValue([]);
   infra.getManagementClusterKubeconfig.mockRejectedValue(new Error('the integration tier reaches no cluster'));
   infra.runKubectl.mockResolvedValue(JSON.stringify({ items: [] }));
-  const clusters = new ClusterService(db, infra, KEY, { kubeconfigDir: await mkdtemp(join(tmpdir(), 'app-names-')), koalaMachineId: undefined });
+  const clusters = new ClusterService(db, infra, testClusterAccess(db, { dataKey: KEY }), { kubeconfigDir: await mkdtemp(join(tmpdir(), 'app-names-')), koalaMachineId: undefined });
   const bridge = new TemporalBridge(db, undefined, KEY, clusters);
   Object.assign(bridge, { client: env.client });
   h = await mountRouter({

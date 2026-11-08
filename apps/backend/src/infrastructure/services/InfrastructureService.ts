@@ -7,10 +7,11 @@ import { fileURLToPath } from 'url';
 import { Server as SocketServer } from 'socket.io';
 
 import os from 'os';
-import { CLI_CEILING, CommandFailedError, listAt, textAt } from '../../platform/index.js';
+import { CommandFailedError } from '../../platform/index.js';
 import { ignore } from '@koala/engine-core/failures';
-import { assessWorkload } from '../lib/workload-health.js';
 import { execShell, type Shell } from '../lib/shell.js';
+import { removeNamespace } from '../lib/app-namespace.js';
+import { installGpuDevicePlugin, verifyGpuRuntimeSchedulable } from './gpu-runtime.js';
 import { cdktfStateEnv, stateFilesOf, stateMove, terraformCliConfig, terraformStateFrom, type TerraformStateHome } from '../lib/terraform-state.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -155,22 +156,8 @@ export class InfrastructureService {
     return this.runCommand('docker', ['build', '-t', tag, '.'], tag, { ...options, env: { ...options.env, CD_DIR: context } });
   }
 
-  async pullImage(imageTag: string, options: ExecuteOptions = {}) {
-    return this.runCommand('docker', ['pull', imageTag], imageTag, options);
-  }
-
-  async importImage(clusterName: string, imageTag: string, options: ExecuteOptions = {}) {
-    return this.runCommand(path.join(BIN_DIR, 'k3d'), ['image', 'import', imageTag, '-c', clusterName], imageTag, options);
-  }
-
-  async pullAndImportImage(clusterName: string, imageTag: string, options: ExecuteOptions = {}) {
-    await this.pullImage(imageTag, options);
-    await this.importImage(clusterName, imageTag, options);
-  }
-
   async waitForNamespaceDeletion(namespace: string, kubeconfigPath?: string): Promise<void> {
-    await this.runKubectl(['delete', 'namespace', namespace, '--ignore-not-found=true', '--wait=false'], kubeconfigPath);
-    await this.runKubectl(['wait', '--for=delete', `namespace/${namespace}`, `--timeout=${CLI_CEILING}`], kubeconfigPath);
+    await removeNamespace((args) => this.runKubectl(args, kubeconfigPath), namespace);
   }
 
   private async dockerContainerExists(containerName: string): Promise<boolean> {
@@ -538,123 +525,11 @@ export class InfrastructureService {
   }
 
   async verifyGpuRuntimeSchedulable(vendor: 'nvidia' | 'amd', kubeconfigPath: string): Promise<void> {
-    try {
-      await this.runKubectl(['get', 'runtimeclass', vendor], kubeconfigPath);
-    } catch {
-      throw new Error(
-        `GPU RuntimeClass "${vendor}" is not installed on this cluster. It should be applied automatically ` +
-        `alongside the device plugin (InfrastructureService.installGpuDevicePlugin) — check ` +
-        `k8s/gpu-device-plugin/${vendor}-runtimeclass.yaml was applied.`
-      );
-    }
-
-    const probeName = `gpu-runtime-probe-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
-    try {
-      await this.runKubectl([
-        'run', probeName,
-        '--image=registry.k8s.io/pause:3.9',
-        '--restart=Never',
-        `--overrides={"spec":{"runtimeClassName":"${vendor}"}}`,
-      ], kubeconfigPath);
-
-      for (;;) {
-        await new Promise((r) => setTimeout(r, 1500));
-        const eventsRaw = await this.runKubectl(
-          ['get', 'events', '--field-selector', `involvedObject.name=${probeName}`, '-o', 'json'],
-          kubeconfigPath,
-        ) as string;
-        const events = listAt(JSON.parse(eventsRaw) as unknown, 'items');
-        const runtimeFailure = events.find((e) =>
-          textAt(e, 'reason') === 'FailedCreatePodSandBox' && /no runtime for/i.test(textAt(e, 'message') ?? ''));
-        if (runtimeFailure) {
-          throw new Error(
-            `GPU RuntimeClass "${vendor}" exists in Kubernetes, but the underlying container runtime isn't ` +
-            `wired up — any pod requesting a GPU will sit in ContainerCreating forever. This means ` +
-            `nvidia-container-toolkit is missing or k3s hasn't been restarted since it was installed ` +
-            `(k3s only detects it at its own startup). Fix: sudo bash scripts/setup-gpu.sh, then ` +
-            `sudo systemctl restart <your k3s service>. Raw kubelet error: ${textAt(runtimeFailure, 'message') ?? ''}`
-          );
-        }
-
-        const podRaw = await this.runKubectl(['get', 'pod', probeName, '--ignore-not-found', '-o', 'json'], kubeconfigPath);
-        if (!podRaw.trim()) throw new Error(`The "${vendor}" GPU runtime probe pod ${probeName} is gone before it ran`);
-        const pod: unknown = JSON.parse(podRaw);
-        const phase = textAt(pod, 'status', 'phase');
-        if (phase === 'Running' || phase === 'Succeeded') return;
-        const health = assessWorkload({ items: [pod] });
-        if (health.health === 'unhealthy') throw new Error(`The "${vendor}" GPU runtime probe cannot start: ${health.reason}`);
-      }
-    } finally {
-      await this.runKubectl(['delete', 'pod', probeName, '--ignore-not-found', '--wait=false'], kubeconfigPath).catch((err: unknown) => {
-        console.warn(`[InfrastructureService] the GPU runtime probe pod ${probeName} could not be removed and is left running: ${(err as Error).message}`);
-      });
-    }
+    await verifyGpuRuntimeSchedulable((args) => this.runKubectl(args, kubeconfigPath), vendor);
   }
 
   async installGpuDevicePlugin(vendor: 'nvidia' | 'amd', kubeconfigPath: string): Promise<void> {
-    const manifestPath = path.join(PROJECT_ROOT, 'k8s', 'gpu-device-plugin', `${vendor}.yaml`);
-    const dsName = vendor === 'nvidia' ? 'nvidia-device-plugin-daemonset' : 'amdgpu-device-plugin-daemonset';
-    const dsLabel = vendor === 'nvidia' ? 'name=nvidia-device-plugin-ds' : 'name=amdgpu-dp-ds';
-
-    if (vendor === 'nvidia') {
-      const runtimeClassPath = path.join(PROJECT_ROOT, 'k8s', 'gpu-device-plugin', 'nvidia-runtimeclass.yaml');
-      try {
-        await this.shell(
-          `${escapeShellArg(path.join(BIN_DIR, 'kubectl'))} apply -f ${escapeShellArg(runtimeClassPath)}`,
-          { env: { ...process.env, KUBECONFIG: kubeconfigPath } },
-        );
-      } catch (err) {
-        console.warn(`[InfrastructureService] Failed to apply nvidia RuntimeClass: ${(err as Error).message}`);
-      }
-    }
-
-    try {
-      await this.runKubectl(['get', 'daemonset', dsName, '-n', 'kube-system'], kubeconfigPath);
-      console.log(`[InfrastructureService] GPU device plugin (${vendor}) DaemonSet already exists, skipping install.`);
-    } catch {
-      console.log(`[InfrastructureService] Installing GPU device plugin (${vendor}) DaemonSet...`);
-      const escapedArgs = ['apply', '-f', manifestPath].map(escapeShellArg).join(' ');
-      const { stdout } = await this.shell(
-        `${escapeShellArg(path.join(BIN_DIR, 'kubectl'))} ${escapedArgs}`,
-        {
-          env: { ...process.env, KUBECONFIG: kubeconfigPath }
-        }
-      );
-      console.log(`[InfrastructureService] GPU device plugin (${vendor}) applied: ${stdout.trim()}`);
-    }
-
-    console.log(`[InfrastructureService] Waiting for GPU device plugin (${vendor}) pod to become ready...`);
-    let ready = false;
-    for (let i = 0; i < 30; i++) {
-      try {
-        const podsJson = await this.runKubectl(
-          ['get', 'pods', '-n', 'kube-system', '-l', dsLabel, '-o', 'json'],
-          kubeconfigPath
-        );
-        const pods = listAt(JSON.parse(podsJson) as unknown, 'items');
-        const hasReadyPod = pods.some((pod) =>
-          textAt(pod, 'status', 'phase') === 'Running' &&
-          listAt(pod, 'status', 'conditions').some((c) => textAt(c, 'type') === 'Ready' && textAt(c, 'status') === 'True')
-        );
-        if (hasReadyPod) {
-          ready = true;
-          break;
-        }
-      } catch (failure) {
-        ignore('a read of the plugin pods that fails is tried again on the next pass')(failure);
-      }
-      await new Promise((r) => setTimeout(r, 2000));
-    }
-
-    if (!ready) {
-      throw new Error(
-        `GPU device plugin (${vendor}) DaemonSet failed to become ready within 60s. ` +
-        `Check plugin pod logs: kubectl get pods -n kube-system -l ${dsLabel} ` +
-        `and kubectl logs -n kube-system -l ${dsLabel}`
-      );
-    }
-
-    console.log(`[InfrastructureService] GPU device plugin (${vendor}) is ready.`);
+    await installGpuDevicePlugin((args) => this.runKubectl(args, kubeconfigPath), vendor);
   }
 
   async runCommand(cmd: string, args: string[], logId: string, options: ExecuteOptions = {}): Promise<{ stdout: string; logFile: string }> {

@@ -1,7 +1,7 @@
 import { mkdtempSync, readFileSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { Readable } from 'node:stream';
+import { PassThrough, Readable } from 'node:stream';
 import { describe, expect, it } from 'vitest';
 import { mock } from 'vitest-mock-extended';
 import { encryptValue, type ClusterMetadata, type Processes, type Streams } from '../../platform/index.js';
@@ -115,5 +115,64 @@ describe('ClusterAccess: running kubectl and helm with a reach, wherever it was 
     await expect(failed).rejects.toMatchObject({ name: 'ClusterCommandFailed', clusterId: 'machine-dev2', message: 'Error from server (NotFound): namespaces "shop" not found' });
     processes.run.mockResolvedValue({ code: 137, stdout: '', stderr: '' });
     await expect(access.helm(startedMachine('machine-dev2', ADMIN), ['--namespace', 'shop', 'status', 'shop'])).rejects.toThrow('helm on machine-dev2 exited 137');
+  });
+});
+
+describe('ClusterAccess: what a workflow is handed', () => {
+  it('names the cluster this process runs in, root\'s on root', async () => {
+    expect((await door()).access.own()).toEqual({ clusterId: 'machine-dev1', kind: 'koala' });
+    expect((await door({ here: { root: true } })).access.own()).toEqual({ clusterId: 'root', kind: 'root' });
+  });
+
+  it('hands over a machine as the machine to start, stopped or not, and opens nothing for it', async () => {
+    const { access } = await door({ dataKey: undefined }, [cluster({ status: 'stopped' })]);
+    expect(await access.handOver('machine-dev2')).toEqual({ clusterId: 'machine-dev2', machine: { deviceId: 'dev2' } });
+  });
+
+  it('hands over anything else as its reach, and refuses what cannot be reached with why', async () => {
+    const { access } = await door({ here: { root: true }, rootKubeconfig: '/etc/koala/root.yaml' }, [{ id: 'old', name: 'old', provider: 'k3d', status: 'healthy', ownerId: 'owner', createdAt: 't' } as ClusterMetadata]);
+    expect(await access.handOver('root')).toEqual({ clusterId: 'root', reach: { clusterId: 'root', kind: 'root' } });
+    await expect(access.handOver('old')).rejects.toMatchObject({ name: 'ClusterUnreachable', why: 'other-kind' });
+  });
+});
+
+describe('ClusterAccess: a kubectl it starts and leaves running', () => {
+  it('starts kubectl with the reach\'s kubeconfig and hands back what it started, with what to feed it and where its output goes', async () => {
+    const { access, streams, folder } = await door({ clusters: undefined, dataKey: undefined });
+    const started = { stop: () => undefined, ended: Promise.resolve({ code: 3, stdout: '', stderr: 'no such pod' }) };
+    streams.start.mockReturnValue(started);
+    const output = new PassThrough();
+    const io = { input: 'hello', output };
+    expect(await access.start(startedMachine('machine-dev2', ADMIN), ['exec', '-i', 'pod', '--', 'cat'], io)).toBe(started);
+    expect(streams.start).toHaveBeenCalledWith({ command: '/bin/kubectl', args: ['--kubeconfig', join(folder, 'kubeconfig-machine-machine-dev2'), 'exec', '-i', 'pod', '--', 'cat'], input: undefined }, io);
+    expect((await started.ended).code).toBe(3);
+  });
+
+  it('starts helm the same way, with the reach\'s kubeconfig', async () => {
+    const { access, streams, folder } = await door({ clusters: undefined, dataKey: undefined });
+    const started = { stop: () => undefined, ended: Promise.resolve({ code: 1, stdout: '', stderr: 'UPGRADE FAILED' }) };
+    streams.start.mockReturnValue(started);
+    expect(await access.startHelm(startedMachine('machine-dev2', ADMIN), ['upgrade', 'koala', '/chart'])).toBe(started);
+    expect(streams.start).toHaveBeenCalledWith({ command: '/bin/helm', args: ['--kubeconfig', join(folder, 'kubeconfig-machine-machine-dev2'), 'upgrade', 'koala', '/chart'], input: undefined }, undefined);
+    expect((await started.ended).code).toBe(1);
+  });
+
+  it('starts nothing for a cluster it cannot reach', async () => {
+    const { access, streams } = await door({ serviceAccount: undefined });
+    await expect(access.start('machine-dev1', ['logs', '-f', 'pod'])).rejects.toMatchObject({ name: 'ClusterUnreachable', why: 'no-account' });
+    expect(streams.start).not.toHaveBeenCalled();
+  });
+});
+
+describe('ClusterAccess: the cluster a process runs in', () => {
+  it('is refused, saying so, in a process that runs in no cluster of its own', async () => {
+    expect(() => new ClusterAccess({ here: { root: false }, folder: '/nowhere', processes: mock<Processes>(), streams: mock<Streams>(), tools: { kubectl: 'k', helm: 'h' } }).own())
+      .toThrow('this process runs in no cluster of its own');
+  });
+
+  it('is Koala\'s own by the system cluster\'s name in a pod that was named no machine, as a pool instance is', () => {
+    const account = { host: '10.43.0.1', port: '443', caFile: '/sa/ca.crt', tokenFile: '/sa/token' };
+    expect(new ClusterAccess({ here: { root: false }, folder: '/nowhere', processes: mock<Processes>(), streams: mock<Streams>(), tools: { kubectl: 'k', helm: 'h' }, serviceAccount: account }).own())
+      .toEqual({ clusterId: 'provisioning-lunorica', kind: 'koala' });
   });
 });

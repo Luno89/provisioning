@@ -13,7 +13,7 @@ import { createEndpointResolver, type ModelServiceLike } from './registries/endp
 import { createRunEnvironments, type RunEnvironments } from './sandboxes/run-environments.js';
 import { createSandboxDriver } from './drivers/sandbox.js';
 import { createClusterBackend } from './sandboxes/cluster-backend.js';
-import { createKubeRunner, createKubeStreamer } from './sandboxes/kube.js';
+import { createKubeRunner, createKubeStreamer, type KoalasCluster } from './sandboxes/kube.js';
 import { createWorkspaceDocuments, type DocumentRepos } from './sandboxes/workspace-documents.js';
 import { createMachineWork, type MachineWork } from './sandboxes/machine-work.js';
 import { createStoryDropWork, type StoryDropWork } from './sandboxes/story-drop-work.js';
@@ -128,7 +128,7 @@ export interface EngineHostOptions {
   models: ModelServiceLike;
   stores: EngineHostStores;
   web?: WebTools | undefined;
-  kubeconfig?: string | undefined;
+  cluster: KoalasCluster;
   registryHost?: string | undefined;
   pushRegistryHost?: string | undefined;
   registryAccount?: (() => Promise<RegistryAccount>) | undefined;
@@ -214,11 +214,11 @@ export function createEngineHost(options: EngineHostOptions): EngineHost {
     ...(options.accountDefault ? { accountDefault: options.accountDefault } : {}),
   });
   const endpoints = createEndpointResolver({ models: options.models, registry });
-  const kube = createKubeRunner({ kubeconfig: options.kubeconfig });
+  const kube = createKubeRunner(options.cluster);
 
   const repoFor = options.repoFor ?? defaultRepoResolver;
   const documents = options.documents
-    ? createWorkspaceDocuments({ kube, stream: createKubeStreamer({ kubeconfig: options.kubeconfig }), repos: options.documents })
+    ? createWorkspaceDocuments({ kube, stream: createKubeStreamer(options.cluster), repos: options.documents })
     : undefined;
   const runEnvironments = createRunEnvironments({
     provision: async ({ ticket, spec, workspace, scope }) => {

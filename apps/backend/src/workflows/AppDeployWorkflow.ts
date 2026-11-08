@@ -1,4 +1,5 @@
 import { proxyActivities } from '@temporalio/workflow';
+import { handedOver } from './handed-over.js';
 import type { DeployAppArgs, DeployAppResult } from '../activities/DeployAppActivity.js';
 import type { DownloadModelArgs } from '../activities/DownloadModelActivity.js';
 import type { VerifyGpuRuntimeArgs } from '../activities/VerifyGpuRuntimeActivity.js';
@@ -12,15 +13,15 @@ const { DownloadModelActivity } = proxyActivities<{ DownloadModelActivity: (args
 const { VerifyGpuRuntimeActivity } = proxyActivities<{ VerifyGpuRuntimeActivity: (args: VerifyGpuRuntimeArgs) => Promise<void> }>({ retry: { maximumAttempts: 1 }, ...LIVE_ACTIVITY });
 
 export async function executeDeployAppWorkflow(given: DeployAppArgs) {
-  const args = given.machine ? { ...given, kubeconfig: await startMachineCluster(given.machine, given.clusterId) } : given;
+  const args = await handedOver(given, startMachineCluster);
   if (args.appType === 'tabbyapi' && (args.tabbyGpuCount === undefined || args.tabbyGpuCount > 0)) {
-    await VerifyGpuRuntimeActivity({ clusterId: args.clusterId, vendor: 'nvidia' });
+    await VerifyGpuRuntimeActivity({ clusterId: args.clusterId, reach: args.reach, vendor: 'nvidia' });
   } else if (
     args.appType === 'vllm'
     && (args.vllmGpuCount === undefined || args.vllmGpuCount > 0)
     && (args.vllmGpuVendor || 'nvidia') === 'nvidia'
   ) {
-    await VerifyGpuRuntimeActivity({ clusterId: args.clusterId, vendor: 'nvidia' });
+    await VerifyGpuRuntimeActivity({ clusterId: args.clusterId, reach: args.reach, vendor: 'nvidia' });
   }
 
   if (args.appType === 'tabbyapi' && args.modelCacheHostPath && args.tabbyModel) {
@@ -40,6 +41,6 @@ export async function executeDeployAppWorkflow(given: DeployAppArgs) {
     });
   }
   const result = await DeployAppActivity(args);
-  const verdict = await awaitWorkload({ name: args.name, namespace: args.namespace, clusterId: args.clusterId, ...(args.kubeconfig ? { kubeconfig: args.kubeconfig } : {}) });
+  const verdict = await awaitWorkload({ name: args.name, namespace: args.namespace, clusterId: args.clusterId, reach: args.reach });
   return { ...result, ...verdict };
 }

@@ -1,32 +1,24 @@
 import { randomBytes } from 'node:crypto';
+import { ApplicationFailure } from '@temporalio/common';
 import {
   renderApp, specSecrets, minioStorageFor, specStorageFor, visibleAppSpecs, resolveBindings, bindingFiles, bindingProjection, bindingSecretName,
-  type ProjectedBinding, InfrastructureService, BuilderService, StorageAdapter, hasCloudCredentials,
+  type ProjectedBinding, StorageAdapter, hasCloudCredentials, installGpuDevicePlugin,
   isMockCloudProvider, isSelfManagedCluster, buildAppEnv, TABBYAPI_DEFAULT_MAX_SEQ_LEN, planHostMemory,
-  parseQuantity, type HostMemoryPlan, deploymentIdFor, isValidImageTag, InfisicalService, sharedClusterProxy, gitappPullSecretArgs, type MachineOfCluster } from '../infrastructure/index.js';
+  parseQuantity, type HostMemoryPlan, deploymentIdFor, InfisicalService, sharedClusterProxy, gitappPullSecretArgs, type MachineOfCluster, type Reach } from '../infrastructure/index.js';
 import { readBindingCredentials, GiteaService, sanitiseNamespaceName, syncProjectSecrets } from '../projects/index.js';
-import { createDatabase, type Database, loadKeys } from '../platform/index.js';
-import fs from 'fs/promises';
-import path from 'path';
-import os from 'os';
+import { createDatabase, loadKeys } from '../platform/index.js';
 
-import { clusterAccess, handedKubeconfig } from './cluster-access.js';
 import { ensureClusterMonitoring } from './cluster-monitoring.js';
+import type { ClusterSteps } from './cluster-steps.js';
+import { handedReach } from './handed-reach.js';
 import { appServiceType, machineMetricsUrl, placedOnPool } from '../monitoring/index.js';
 import { infisicalHostFor } from '../releases/index.js';
 import { ignore } from '@koala/engine-core/failures';
 import { messageOf } from './failure-reasons.js';
 
-async function nodeAllocatableBytes(
-  infra: InfrastructureService,
-  kubeconfigPath: string,
-  logId: string,
-): Promise<number | undefined> {
-  const res = await infra.runCommand('kubectl', [
-    '--kubeconfig', kubeconfigPath,
-    'get', 'nodes', '-o', 'jsonpath={.items[*].status.allocatable.memory}',
-  ], logId);
-  const sizes = res.stdout.trim().split(/\s+/)
+async function nodeAllocatableBytes(kubectl: (args: string[]) => Promise<string>): Promise<number | undefined> {
+  const memories = await kubectl(['get', 'nodes', '-o', 'jsonpath={.items[*].status.allocatable.memory}']);
+  const sizes = memories.trim().split(/\s+/)
     .map((q: string) => parseQuantity(q))
     .filter((n): n is number => n !== undefined);
   return sizes.length ? Math.min(...sizes) : undefined;
@@ -35,6 +27,7 @@ async function nodeAllocatableBytes(
 export interface DeployAppArgs {
   name: string;
   machine?: MachineOfCluster | undefined;
+  reach?: Reach | undefined;
   kubeconfig?: string | undefined;
   namespace?: string | undefined;
   clusterId: string;
@@ -42,7 +35,6 @@ export interface DeployAppArgs {
   provider: string;
   strategy: string;
   appType: string;
-  clusterGpuEnabled?: boolean | undefined;
   modules?: string[] | undefined;
   odooRepo: string;
   odooTag: string;
@@ -133,11 +125,13 @@ async function rememberMetricsToken(clusterId: string, tokenHash: string): Promi
   }
 }
 
-export async function DeployAppActivity(
-  args: DeployAppArgs,
-): Promise<DeployAppResult> {
-  const infra = new InfrastructureService();
-  const builder = new BuilderService({} as unknown as Database, infra);
+export async function DeployAppActivity(args: DeployAppArgs, steps: ClusterSteps): Promise<DeployAppResult> {
+  const { access, infra } = steps;
+  if (args.modules && args.modules.length > 0) {
+    throw ApplicationFailure.nonRetryable(`${args.name} names Odoo modules to build into its image, and that image would be built in this computer's Docker, where no cluster Koala reaches pulls from; release the modules through the project's repository instead`, 'ModulesImageUnreachable');
+  }
+  const reach = handedReach(args);
+  const kubectl = (argv: string[]) => access.kubectl(reach, argv);
   const logFile = args.logFile;
   const namespace = args.namespace ?? SANITIZE(args.name);
 
@@ -166,15 +160,12 @@ export async function DeployAppActivity(
 
   const appDefault = DEFAULT_APP_REPOS[args.appType] || { repo: '', tag: 'latest' };
   const sentOdooFallback = args.appType !== 'odoo' && args.odooRepo === 'library/odoo';
-  let finalOdooRepo = sentOdooFallback ? appDefault.repo : (args.odooRepo || appDefault.repo);
-  let finalOdooTag = sentOdooFallback ? appDefault.tag : (args.odooTag || appDefault.tag);
+  const finalOdooRepo = sentOdooFallback ? appDefault.repo : (args.odooRepo || appDefault.repo);
+  const finalOdooTag = sentOdooFallback ? appDefault.tag : (args.odooTag || appDefault.tag);
 
   const isMock = isMockCloudProvider(args.provider, hasCloudCredentials);
-  const access = clusterAccess({ clusterName: args.clusterName, provider: args.provider });
-  const { physicalName } = access;
-  const kubeconfigPath = args.kubeconfig ? await handedKubeconfig(args.clusterId, args.kubeconfig) : access.kubeconfigPath;
-
-  let customImageTag: string | undefined;
+  const physicalName = isMock ? `mock-${args.provider}-${args.clusterName}` : args.clusterName;
+  const kubeconfigPath = await access.kubeconfigOf(reach);
 
   let effectiveDevice = process.env.VLLM_DEVICE || (args.vllmGpuCount === 0 ? 'cpu' : (args.vllmGpuVendor === 'amd' ? 'rocm' : 'cuda'));
   let effectiveGpuCount = args.vllmGpuCount !== undefined ? args.vllmGpuCount : 1;
@@ -184,7 +175,7 @@ export async function DeployAppActivity(
       const gpuVendor = args.vllmGpuVendor || 'nvidia';
       try {
         await infra.checkGpuToolkit(gpuVendor);
-        await infra.installGpuDevicePlugin(gpuVendor, kubeconfigPath);
+        await installGpuDevicePlugin(kubectl, gpuVendor);
       } catch (err) {
         console.warn(`[DeployAppActivity] GPU toolkit check or device plugin install failed (${messageOf(err)}). Falling back to CPU mode.`);
         effectiveDevice = 'cpu';
@@ -197,57 +188,16 @@ export async function DeployAppActivity(
   if (args.appType === 'tabbyapi' && (args.provider === 'k3d' || isMock) && effectiveTabbyGpuCount > 0) {
     try {
       await infra.checkGpuToolkit('nvidia');
-      await infra.installGpuDevicePlugin('nvidia', kubeconfigPath);
+      await installGpuDevicePlugin(kubectl, 'nvidia');
     } catch (err) {
       console.warn(`[DeployAppActivity] GPU toolkit check or device plugin install failed (${messageOf(err)}). TabbyAPI requires an NVIDIA GPU and cannot run in CPU mode.`);
-    }
-  }
-
-  if (args.modules && args.modules.length > 0) {
-    const baseImage = (finalOdooRepo && finalOdooTag) ? `${finalOdooRepo}:${finalOdooTag}` : (args.odooRepo || 'odoo:latest');
-    customImageTag = await builder.buildCustomImage(
-      baseImage,
-      args.modules,
-      args.appType,
-      { logFile, resourceId: args.clusterId },
-    );
-    if (customImageTag) {
-      if (args.clusterGpuEnabled) {
-        console.warn(`[DeployAppActivity] Skipping k3d image import for GPU-attached cluster — custom-built image "${customImageTag}" exists only in the host's Docker daemon and is NOT visible to native k3s's containerd. The deployment will likely fail to pull it (ImagePullBackOff) unless it's pushed to a registry.`);
-      } else {
-        await infra.importImage(physicalName, customImageTag, { logFile });
-      }
-      const [repo, imageTag] = customImageTag.split(':');
-      finalOdooRepo = repo || finalOdooRepo;
-      finalOdooTag = imageTag || finalOdooTag;
-    }
-  } else if ((args.provider === 'k3d' || isMock) && !args.clusterGpuEnabled) {
-    if (args.appType === 'vllm') {
-      const vllmImageTag = isValidImageTag(finalOdooTag) ? finalOdooTag : 'latest';
-      const vllmImage = args.vllmGpuVendor === 'amd'
-        ? `vllm/vllm-openai-rocm:${vllmImageTag}`
-        : `vllm/vllm-openai:${vllmImageTag}`;
-      await infra.pullAndImportImage(physicalName, vllmImage, { logFile });
-    } else if (args.appType === 'tabbyapi') {
-      const tabbyImageTag = isValidImageTag(args.tabbyImageTag) ? args.tabbyImageTag : 'latest';
-      await infra.pullAndImportImage(physicalName, `ghcr.io/theroyallab/tabbyapi:${tabbyImageTag}`, { logFile });
-    } else if (args.appType === 'palworld') {
-      const palworldImage = `${finalOdooRepo || 'thijsvanloef/palworld-server-docker'}:${finalOdooTag || 'latest'}`;
-      await infra.pullAndImportImage(physicalName, palworldImage, { logFile });
-    } else if (finalOdooRepo && finalOdooTag) {
-      const appImage = `${finalOdooRepo}:${finalOdooTag}`;
-      await infra.pullAndImportImage(physicalName, appImage, { logFile });
-    }
-    if (args.dbRepo && args.dbTag) {
-      const dbImage = `${args.dbRepo}:${args.dbTag}`;
-      await infra.pullAndImportImage(physicalName, dbImage, { logFile });
     }
   }
 
   if (args.appType === 'palworld') {
     const REQUIRED_GI = 12;
     try {
-      const memories = await infra.runKubectl(['get', 'nodes', '-o', 'jsonpath={.items[*].status.allocatable.memory}'], kubeconfigPath);
+      const memories = await kubectl(['get', 'nodes', '-o', 'jsonpath={.items[*].status.allocatable.memory}']);
       const nodes = memories.trim().split(/\s+/).filter(Boolean);
       const toGi = (q: string): number => {
         const m = /^(\d+)(Ki|Mi|Gi)?$/.exec(q ?? '');
@@ -300,7 +250,7 @@ export async function DeployAppActivity(
 
   let tabbyMemoryPlan: HostMemoryPlan | undefined;
   if (args.appType === 'tabbyapi') {
-    const allocatableBytes = await nodeAllocatableBytes(infra, kubeconfigPath, physicalName).catch((err: unknown) => {
+    const allocatableBytes = await nodeAllocatableBytes(kubectl).catch((err: unknown) => {
       console.warn(`[DeployAppActivity] the nodes' memory could not be read, so the memory plan is made without it: ${messageOf(err)}`);
       return undefined;
     });
@@ -378,7 +328,7 @@ export async function DeployAppActivity(
 
       const projected: ProjectedBinding[] = [];
       for (const b of bindings) {
-        const credentials = await readBindingCredentials((args) => infra.runKubectl(args, kubeconfigPath), b);
+        const credentials = await readBindingCredentials(kubectl, b);
 
         const secretName = bindingSecretName(b.name);
         const files = bindingFiles(b, credentials);
@@ -389,16 +339,10 @@ export async function DeployAppActivity(
           type: 'Opaque',
           stringData: files,
         });
-        const manifestPath = path.join(os.tmpdir(), `binding-${namespace}-${b.name}-${Date.now()}.json`);
         try {
-          await fs.writeFile(manifestPath, manifest, { encoding: 'utf-8', mode: 0o600 });
-          await infra.runKubectl(['apply', '-f', manifestPath], kubeconfigPath);
+          await access.apply(reach, manifest);
         } catch (err) {
           console.warn(`[bindings] could not write ${secretName}: ${messageOf(err)}`);
-        } finally {
-          await fs.rm(manifestPath, { force: true }).catch((err: unknown) => {
-            console.warn(`[bindings] ${manifestPath}, which holds ${b.name}'s credentials, could not be removed: ${messageOf(err)}`);
-          });
         }
         projected.push({ name: b.name, secretName });
         console.log(`[bindings] ${physicalName}: bound ${b.name} (${b.type}) from ${b.source.namespace}`);
@@ -494,8 +438,8 @@ export async function DeployAppActivity(
     storageEnv,
   });
 
-  await ensureClusterMonitoring(infra, {
-    physicalName, kubeconfigPath, local: args.provider === 'k3d' || isMock, pool: placedOnPool(process.env, physicalName),
+  await ensureClusterMonitoring(steps, {
+    physicalName, reach, local: args.provider === 'k3d' || isMock, pool: placedOnPool(process.env, physicalName),
     ...(args.provider === 'machine' && args.machine?.deviceId === process.env.INSTANCE_MACHINE_ID ? { nodePortIngress: true, koala: true } : {}),
     ...(args.provider === 'machine' && args.machine?.deviceId !== process.env.INSTANCE_MACHINE_ID ? { machine: { metricsUrl: machineMetricsUrl(process.env), remember: (tokenHash: string) => rememberMetricsToken(args.clusterId, tokenHash) } } : {}),
   }, logFile);
@@ -508,8 +452,7 @@ export async function DeployAppActivity(
     const gitea = new GiteaService(infra, loadKeys(process.env).data, '/tmp/kubeconfig-provisioning-lunorica');
     const registryHost = await gitea.getRegistryHost();
     const pull = await gitea.registryLogin();
-    const secretYaml = await infra.runKubectl(gitappPullSecretArgs(namespace, registryHost, pull), kubeconfigPath);
-    await infra.applyManifest(String(secretYaml), kubeconfigPath);
+    await access.apply(reach, await kubectl(gitappPullSecretArgs(namespace, registryHost, pull)));
 
     const secretDb = createDatabase();
     await secretDb.init();
@@ -528,7 +471,7 @@ export async function DeployAppActivity(
           const masterKey = loadKeys(process.env).data;
           const infisical = new InfisicalService(infra, masterKey, '/tmp/kubeconfig-provisioning-lunorica', undefined, sharedClusterProxy());
           const synced = await syncProjectSecrets(
-            { infra, vault: infisical, projects: secretDb.projects, masterKey },
+            { infra: { runKubectl: kubectl, runHelm: (argv) => access.helm(reach, argv), applyManifest: (manifest) => access.apply(reach, manifest) }, vault: infisical, projects: secretDb.projects, masterKey },
             { project, namespace: namespace, kubeconfig: kubeconfigPath, target },
           );
           console.log(`[DeployAppActivity] ${project.name}: vault syncs into ${namespace}-secrets from ${synced.hostAPI} (operator ${synced.operator})`);
@@ -540,30 +483,20 @@ export async function DeployAppActivity(
   }
 
   if (args.appType === 'palworld') {
-    const exists = (await infra.runKubectl(['get', 'secret', 'palworld-secrets', '-n', namespace, '--ignore-not-found', '-o', 'name'], kubeconfigPath)).trim() !== '';
+    const exists = (await kubectl(['get', 'secret', 'palworld-secrets', '-n', namespace, '--ignore-not-found', '-o', 'name'])).trim() !== '';
 
     if (!exists) {
       const { randomBytes } = await import('crypto');
       const gen = () => randomBytes(18).toString('base64url');
-      const secretYaml = await infra.runKubectl(
+      const secretYaml = await kubectl(
         ['create', 'secret', 'generic', 'palworld-secrets', '-n', namespace,
           `--from-literal=ADMIN_PASSWORD=${gen()}`,
           `--from-literal=SERVER_PASSWORD=${gen()}`,
           `--from-literal=RCON_PASSWORD=${gen()}`,
           '--dry-run=client', '-o', 'yaml'],
-        kubeconfigPath,
       );
-      const tmpPath = path.join(os.tmpdir(), `palworld-secrets-${deploymentId}.yaml`);
-      await fs.writeFile(tmpPath, secretYaml, { mode: 0o600 });
-      try {
-        await infra.runKubectl(['apply', '-f', tmpPath], kubeconfigPath);
-      } finally {
-        await fs.rm(tmpPath, { force: true }).catch((err: unknown) => {
-          console.warn(`[DeployAppActivity] ${tmpPath}, which holds Palworld's passwords, could not be removed: ${messageOf(err)}`);
-        });
-      }
-      await infra
-        .runKubectl(['rollout', 'restart', 'deployment/palworld', '-n', namespace], kubeconfigPath)
+      await access.apply(reach, secretYaml);
+      await kubectl(['rollout', 'restart', 'deployment/palworld', '-n', namespace])
         .catch((err: unknown) => console.warn(`[DeployAppActivity] palworld restart after secret creation failed: ${messageOf(err)}`));
     }
   }

@@ -1,5 +1,5 @@
 import { envSink, otlpHttpSink, type TelemetrySink } from '@koala/engine-core/telemetry-sdk';
-import type { ClusterProxyService } from '../../infrastructure/index.js';
+import type { ClusterAccess, ClusterProxyService } from '../../infrastructure/index.js';
 import { TELEMETRY_SERVICES } from '../lib/cluster-monitoring.js';
 
 export const COLLECTOR_RETRY_MS = 60_000;
@@ -7,26 +7,27 @@ export const COLLECTOR_RETRY_MS = 60_000;
 export interface CollectorReachDeps {
   env: Readonly<Record<string, string | undefined>>;
   proxy: Pick<ClusterProxyService, 'serviceUrl'>;
-  kubeconfigPath: () => Promise<string | undefined> | string | undefined;
-  clusterId?: string | undefined;
+  access: Pick<ClusterAccess, 'kubeconfigOf'>;
+  koalasCluster: () => string;
   fetchImpl?: typeof fetch | undefined;
   now?: (() => number) | undefined;
 }
 
-export function collectorEndpoint(deps: CollectorReachDeps): () => Promise<string | undefined> {
+export function collectorEndpoint(deps: CollectorReachDeps): () => Promise<string> {
   const now = deps.now ?? (() => Date.now());
-  let failedAt: number | undefined;
+  let failed: { at: number; why: Error } | undefined;
   return async () => {
-    if (failedAt !== undefined && now() - failedAt < COLLECTOR_RETRY_MS) return undefined;
+    if (failed !== undefined && now() - failed.at < COLLECTOR_RETRY_MS) throw failed.why;
+    let where = 'Koala\'s own cluster';
     try {
-      const kubeconfig = await deps.kubeconfigPath();
-      if (!kubeconfig) throw new Error('the system cluster has no kubeconfig yet');
-      const url = await deps.proxy.serviceUrl(deps.clusterId ?? 'system', TELEMETRY_SERVICES.collector, kubeconfig);
-      failedAt = undefined;
+      const cluster = deps.koalasCluster();
+      where = cluster;
+      const url = await deps.proxy.serviceUrl(cluster, TELEMETRY_SERVICES.collector, await deps.access.kubeconfigOf(cluster));
+      failed = undefined;
       return url;
-    } catch {
-      failedAt = now();
-      return undefined;
+    } catch (err) {
+      failed = { at: now(), why: new Error(`the collector on ${where} cannot be reached: ${(err as Error).message}`) };
+      throw failed.why;
     }
   };
 }

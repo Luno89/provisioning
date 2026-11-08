@@ -36,6 +36,7 @@ import { wireSockets } from './machines/wiring/sockets.js';
 import { workFailuresFor, wireRunning } from './infrastructure/wiring/running.js';
 import { wireActions } from './engine/wiring/actions.js';
 import { PRUNE_FIRST_DELAY_MS, PRUNE_INTERVAL_MS } from './engine-host/sandboxes/prune-images.js';
+import { onKoalasCluster } from './engine-host/sandboxes/kube.js';
 import { runClosedVia, runLifeVia } from './engine-host/temporal/run-cancellation.js';
 import { DEFAULT_ENGINE_TASK_QUEUE } from './engine-host/temporal/contracts.js';
 import { askDevice, dropDevice, localAgentStatus, tellDevice, machineTelemetry } from './machines/index.js';
@@ -124,7 +125,9 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   console.log(`🧭 Running as ${role.role}${role.instance ? ` (instance ${role.instance.id}, owned by ${role.instance.ownerId})` : ''}`);
   const infraService = new InfrastructureService();
   const builderService = new BuilderService(db, infraService);
-  const clusterService = new ClusterService(db, infraService, clusterAccessFrom(process.env, { role: role.role, clusters: db.infrastructure, dataKey: keys.data }));
+  const clusterAccess = clusterAccessFrom(process.env, { role: role.role, clusters: db.infrastructure, dataKey: keys.data });
+  const koalasCluster = (): string => clusterAccess.own().clusterId;
+  const clusterService = new ClusterService(db, infraService, clusterAccess);
   const appService = new AppService(db, infraService, clusterService, builderService);
   const registryService = new RegistryService(db);
   const gitModuleService = new GitModuleService(db);
@@ -138,7 +141,8 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   const telemetrySink = collectorSink({
     env: process.env,
     proxy: clusterProxyService,
-    kubeconfigPath: async () => clusterService.getKubeconfigPath(await clusterService.getSystemClusterEntry()),
+    access: clusterAccess,
+    koalasCluster,
   });
   telemetry.exportTo(telemetrySink);
   const giteaService = new GiteaService(infraService, keys.data, '/tmp/kubeconfig-provisioning-lunorica');
@@ -288,7 +292,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
 
   let runningNow: (() => Promise<string[] | 'unknown'>) | undefined;
   await wireMoveExport({
-    role, env: process.env, app, dataDir: path.join(__dirname, '../data'), mongo: mongoTarget(process.env),
+    role, env: process.env, app, dataDir: path.join(__dirname, '../data'), mongo: mongoTarget(process.env), access: clusterService.access,
     running: async () => (runningNow ? runningNow() : 'unknown'),
     claim: (jti, expiresAt) => db.instances.claimHandoff(jti, expiresAt),
   });
@@ -338,7 +342,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
 
   const instancesWiring = await wireInstances({
     role, env: process.env, app, tenant, db, mail, identity, auth, sessionKey: keys.session, publicUrl: PUBLIC_URL,
-    repoRoot: path.join(__dirname, '../../..'), dataDir: path.join(__dirname, '../data'), headscale: headscaleService, infra: infraService,
+    repoRoot: path.join(__dirname, '../../..'), dataDir: path.join(__dirname, '../data'), headscale: headscaleService, access: clusterService.access,
     side: instanceSide, syncExposedApps: () => appExposureService.syncExposedApps(), provider: rootProvider, signIn: rootSignIn, rootToken, io,
     instanceArrived,
   });
@@ -393,7 +397,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   tenant.use('/api/models', modelsRouter({ modelService, db, credentialService, machines: machineService, rateLimits: getModelRateLimiterSnapshot }));
 
   const { poisoning, evalHost, level2Service, procedureService, mcpCatalogue } = await wireEngine({
-    tenant, db, io, env: process.env, role, sessionKey: keys.session, dataKey: keys.data, core: engine, temporalBridge, models: modelService, gitea: giteaService,
+    tenant, db, io, env: process.env, role, sessionKey: keys.session, dataKey: keys.data, core: engine, temporalBridge, models: modelService, gitea: giteaService, koalasCluster: onKoalasCluster(clusterAccess, koalasCluster),
     ...(instanceFiles ? { files: instanceFiles.fileService, artifacts: instanceFiles.artifacts } : {}), projectRepos: projectRepoService, customizations, releaseSettings, treeModels: () => treeModels, operatorOnly: requireOperator('administer'), push, mail,
   });
   if (evalHost.storyDrops && files) files.setStoryDrops(storyDropsFor({ db, projectRepos: projectRepoService, gitea: giteaService, work: evalHost.storyDrops }));
@@ -453,7 +457,6 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   }
 
   if (process.env.NODE_ENV !== 'test' && tenants) {
-    const systemKubeconfig = '/tmp/kubeconfig-provisioning-lunorica';
     runOnce(db.platform, BUILD_TOKENS_MIGRATION, new Date().toISOString(), () => cleanUpBuildTokens({
       deployments: () => db.infrastructure.getDeployments(),
       clusterOf: (id) => clusterService.getByIdUnscoped(id),
@@ -463,7 +466,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
         await infraService.applyManifest(String(secret), kubeconfig);
       },
       runningBuilds: async () => {
-        const jobs = JSON.parse(String(await infraService.runKubectl(['get', 'jobs', '-n', 'pipeline-builds', '-o', 'json'], systemKubeconfig))) as { items?: { status?: { active?: number } }[] };
+        const jobs = JSON.parse(await clusterAccess.kubectl(koalasCluster(), ['get', 'jobs', '-n', 'pipeline-builds', '-o', 'json'])) as { items?: { status?: { active?: number } }[] };
         return (jobs.items ?? []).filter((job) => (job.status?.active ?? 0) > 0).length;
       },
       buildTokens: () => giteaService.buildTokenNames(),

@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import { mock } from 'vitest-mock-extended';
+import type { KoalasCluster } from './sandboxes/kube.js';
 import { testDatabase } from '../platform/lib/test-database.js';
 import { INSTALLED_EXTENSIONS } from '../extensions/installed.js';
 import { createEngineHost, storesFromDatabase } from './host.js';
@@ -8,6 +10,7 @@ describe('the engine host', () => {
     const db = await testDatabase();
     const host = createEngineHost({
       models: {} as never,
+      cluster: mock<KoalasCluster>(),
       stores: storesFromDatabase(db),
       publishedWorkspaces: { get: async () => undefined, save: async () => undefined },
       readRepoFile: async () => undefined,

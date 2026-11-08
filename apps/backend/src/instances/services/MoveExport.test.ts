@@ -6,8 +6,9 @@ import path from 'path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { memoryDatabase } from '../../platform/testing/memory-database.js';
 import type { Database } from '../../platform/index.js';
+import { mock } from 'vitest-mock-extended';
 import { fakeSpawn, type SpawnRig } from '../testing/fake-spawn.js';
-import { MoveExport, MOVING_FILE, VOLUME_HELPER } from './MoveExport.js';
+import { MoveExport, moveClusterOn, MOVING_FILE, VOLUME_HELPER, type ClusterStarts, type MoveCluster } from './MoveExport.js';
 import { REPLICAS_ANNOTATION } from '../lib/app-move.js';
 import { generateIdentityKey, identityKeysFrom, issueMoveToken, publicKeyPem, trustedKeys } from '../lib/identity-token.js';
 
@@ -21,7 +22,11 @@ let dataDir: string;
 let running: string[] | 'unknown';
 let refusing: string[];
 let rig: SpawnRig;
+let asked: string[];
+let cluster: MoveCluster;
 let move: MoveExport;
+
+const FORBIDDEN = 'Error from server (Forbidden): not allowed';
 
 const kubectlSays = (asked: string): string | undefined => {
   if (asked === 'get namespaces -o json') return JSON.stringify({ items: [{ metadata: { name: 'books' } }, { metadata: { name: 'nowrinkles' } }] });
@@ -44,6 +49,7 @@ const makeMove = (env: NodeJS.ProcessEnv = KEYS): MoveExport => new MoveExport({
   mongo: { uri: 'mongodb://unused', dbName: 'provisioning' },
   env,
   running: async () => running,
+  cluster,
   spawn: rig.spawn,
   claim: (jti, expiresAt) => db.instances.claimHandoff(jti, expiresAt),
 });
@@ -53,11 +59,23 @@ beforeEach(async () => {
   dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'move-'));
   running = [];
   refusing = [];
-  rig = fakeSpawn((argv) => {
-    const asked = argv.slice(1).join(' ');
-    if (argv[0] === 'kubectl' && refusing.some((prefix) => asked.startsWith(prefix))) return { stderr: 'Error from server (Forbidden): not allowed', code: 1 };
-    return argv[0] === 'kubectl' ? { stdout: kubectlSays(asked) ?? 'kubectl output' } : undefined;
-  });
+  rig = fakeSpawn(() => undefined);
+  asked = [];
+  const refused = (line: string): boolean => refusing.some((prefix) => line.startsWith(prefix));
+  cluster = {
+    kubectl: async (args) => {
+      const line = args.join(' ');
+      asked.push(line);
+      if (refused(line)) throw new Error(FORBIDDEN);
+      return kubectlSays(line) ?? 'kubectl output';
+    },
+    read: async (args, into) => {
+      const line = args.join(' ');
+      asked.push(line);
+      into.end(refused(line) ? '' : 'kubectl output');
+      if (refused(line)) throw new Error(FORBIDDEN);
+    },
+  };
   move = makeMove();
   await move.load();
 });
@@ -66,7 +84,7 @@ afterEach(() => {
   fs.rmSync(dataDir, { recursive: true, force: true });
 });
 
-const kubectlRan = () => rig.ran.filter(([command]) => command === 'kubectl').map((argv) => argv.slice(1).join(' '));
+const kubectlRan = () => asked;
 const read = async (stream: NodeJS.ReadableStream): Promise<string> => {
   let text = '';
   for await (const chunk of stream) text += String(chunk);
@@ -90,7 +108,7 @@ describe('a pool instance deciding whether root may have a part of it', () => {
   it('judges a token by the clock it is given', async () => {
     const later = new MoveExport({
       instanceId: 'inst-bo', trusted: trustedKeys([publicKeyPem(root.publicKey)]), dataDir, mongo: { uri: 'x', dbName: 'y' }, env: KEYS,
-      running: async () => [], spawn: rig.spawn, claim: (jti, expiresAt) => db.instances.claimHandoff(jti, expiresAt), now: () => Date.now() + 24 * 3600 * 1000,
+      running: async () => [], cluster, spawn: rig.spawn, claim: (jti, expiresAt) => db.instances.claimHandoff(jti, expiresAt), now: () => Date.now() + 24 * 3600 * 1000,
     });
     expect(await later.check(issueMoveToken(root, 'inst-bo', 'keys'), 'keys')).toMatchObject({ status: 401 });
   });
@@ -135,7 +153,7 @@ describe('a pool instance stopping for a move', () => {
   });
 
   it('fails to load when the mark cannot be looked for', async () => {
-    const broken = new MoveExport({ ...{ instanceId: 'inst-bo', trusted: trustedKeys([]), mongo: { uri: 'x', dbName: 'y' }, env: KEYS, running: async () => [], claim: async () => true }, dataDir: path.join(dataDir, MOVING_FILE, 'inside') });
+    const broken = new MoveExport({ ...{ instanceId: 'inst-bo', trusted: trustedKeys([]), mongo: { uri: 'x', dbName: 'y' }, env: KEYS, running: async () => [], cluster, claim: async () => true }, dataDir: path.join(dataDir, MOVING_FILE, 'inside') });
     await fs.promises.writeFile(path.join(dataDir, MOVING_FILE), 'x');
     await expect(broken.load()).rejects.toThrow();
   });
@@ -159,7 +177,7 @@ describe('a pool instance taking work again', () => {
   it('says which apps it could not start again, still taking work itself', async () => {
     await move.freeze();
     refusing = ['scale deployments web'];
-    expect(await move.thaw()).toEqual(['books\'s apps could not be started again: kubectl ended with 1: Error from server (Forbidden): not allowed']);
+    expect(await move.thaw()).toEqual([`books's apps could not be started again: ${FORBIDDEN}`]);
     expect(fs.existsSync(path.join(dataDir, MOVING_FILE))).toBe(false);
     expect(move.isFrozen()).toBe(false);
   });
@@ -169,22 +187,22 @@ describe('a pool instance taking work again', () => {
     refusing = ['get namespaces', 'patch cronjob'];
     const problems = await move.thaw();
     expect(problems).toEqual([
-      'its apps\' namespaces could not be listed: kubectl ended with 1: Error from server (Forbidden): not allowed',
-      'its self-upgrade could not be switched back on: kubectl ended with 1: Error from server (Forbidden): not allowed',
+      `its apps' namespaces could not be listed: ${FORBIDDEN}`,
+      `its self-upgrade could not be switched back on: ${FORBIDDEN}`,
     ]);
     expect(move.isFrozen()).toBe(false);
   });
 
-  it('reports a program that cannot be started at all', async () => {
+  it('reports a program of its own that cannot be started at all', async () => {
     const missing = new MoveExport({
-      instanceId: 'inst-bo', trusted: trustedKeys([]), dataDir, mongo: { uri: 'x', dbName: 'y' }, env: KEYS, running: async () => [], claim: async () => true,
+      instanceId: 'inst-bo', trusted: trustedKeys([]), dataDir, mongo: { uri: 'x', dbName: 'y' }, env: KEYS, running: async () => [], cluster, claim: async () => true,
       spawn: (() => {
         const failing = Object.assign(new EventEmitter(), { stderr: new PassThrough(), stdout: new PassThrough() });
-        setImmediate(() => failing.emit('error', new Error('spawn kubectl ENOENT')));
+        setImmediate(() => failing.emit('error', new Error('spawn tar ENOENT')));
         return failing;
       }) as never,
     });
-    expect(await missing.thaw()).toEqual(expect.arrayContaining([expect.stringContaining('spawn kubectl ENOENT')]));
+    await expect(missing.open('data').done).rejects.toThrow('spawn tar ENOENT');
   });
 });
 
@@ -215,16 +233,18 @@ describe('the parts of a pool instance root may take', () => {
 
   it('dumps each database from its own pod and archives Gitea\'s files', async () => {
     const gitea = move.open('gitea-db');
-    await read(gitea.out);
+    expect(await read(gitea.out)).toBe('kubectl output');
+    await gitea.done;
     expect(gitea.type).toBe('application/octet-stream');
-    expect(rig.ran.at(-1)?.slice(0, 7)).toEqual(['kubectl', 'exec', '-n', 'gitea', 'gitea-postgresql-0', '--', 'sh']);
+    expect(asked.at(-1)).toMatch(/^exec -n gitea gitea-postgresql-0 -- sh /);
     const infisical = move.open('infisical-db');
     await read(infisical.out);
-    expect(rig.ran.at(-1)?.slice(0, 6)).toEqual(['kubectl', 'exec', '-n', 'infisical', 'postgresql-0', '--']);
+    expect(asked.at(-1)).toMatch(/^exec -n infisical postgresql-0 -- /);
     const files = move.open('gitea-data');
     await read(files.out);
     expect(files.type).toBe('application/gzip');
-    expect(rig.ran.at(-1)?.slice(0, 7)).toEqual(['kubectl', 'exec', '-n', 'gitea', 'deploy/gitea', '-c', 'gitea']);
+    expect(asked.at(-1)).toMatch(/^exec -n gitea deploy\/gitea -c gitea /);
+    expect(rig.ran).toEqual([]);
   });
 
   it('hands over the Secrets Terraform keeps its state in, from its own namespace, without what made them its cluster\'s', async () => {
@@ -241,7 +261,7 @@ describe('the parts of a pool instance root may take', () => {
   it('fails the part when the program that reads it fails', async () => {
     refusing = ['exec -n gitea'];
     const opened = move.open('gitea-data');
-    await expect(opened.done).rejects.toThrow('kubectl ended with 1: Error from server (Forbidden): not allowed');
+    await expect(opened.done).rejects.toThrow(FORBIDDEN);
   });
 
   it('lists its apps with their volumes, after scaling them to nothing', async () => {
@@ -274,7 +294,44 @@ describe('the parts of a pool instance root may take', () => {
     refusing = ['exec -n books'];
     const volume = move.volume('books', 'data-web-0');
     volume.out.on('error', () => undefined);
-    await expect(volume.done).rejects.toThrow('kubectl ended with 1');
+    await expect(volume.done).rejects.toThrow(FORBIDDEN);
     expect(kubectlRan().at(-1)).toBe(`delete pod ${VOLUME_HELPER} -n books --ignore-not-found --wait=false`);
+  });
+});
+
+describe('a pool instance reaching the cluster it runs in', () => {
+  const own = { clusterId: 'provisioning-lunorica', kind: 'koala' } as const;
+  const starts = () => {
+    const access = mock<ClusterStarts>();
+    access.own.mockReturnValue(own);
+    return access;
+  };
+
+  it('asks kubectl there', async () => {
+    const access = starts();
+    access.kubectl.mockResolvedValue('pods');
+    expect(await moveClusterOn(access).kubectl(['get', 'pods'])).toBe('pods');
+    expect(access.kubectl).toHaveBeenCalledWith(own, ['get', 'pods']);
+  });
+
+  it('streams what kubectl prints there, byte for byte, into what root reads', async () => {
+    const access = starts();
+    const bytes = Buffer.from([0, 255, 128, 10]);
+    access.start.mockImplementation(async (_at, _args, io) => {
+      io!.output!.end(bytes);
+      return { stop: () => undefined, ended: Promise.resolve({ code: 0, stdout: '', stderr: '' }) };
+    });
+    const into = new PassThrough();
+    const chunks: Buffer[] = [];
+    into.on('data', (chunk: Buffer) => chunks.push(chunk));
+    await moveClusterOn(access).read(['exec', 'pg', '--', 'pg_dump'], into);
+    expect(Buffer.concat(chunks)).toEqual(bytes);
+    expect(access.start).toHaveBeenCalledWith(own, ['exec', 'pg', '--', 'pg_dump'], { output: into });
+  });
+
+  it('fails a read with how kubectl ended and what it said', async () => {
+    const access = starts();
+    access.start.mockResolvedValueOnce({ stop: () => undefined, ended: Promise.resolve({ code: 1, stdout: '', stderr: `${FORBIDDEN}\n` }) });
+    await expect(moveClusterOn(access).read(['exec', 'pg'], new PassThrough())).rejects.toThrow(`kubectl ended with 1: ${FORBIDDEN}`);
   });
 });

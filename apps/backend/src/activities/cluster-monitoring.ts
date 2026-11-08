@@ -1,12 +1,13 @@
 import fs from 'fs/promises';
-import type { InfrastructureService } from '../infrastructure/index.js';
+import type { Reach } from '../infrastructure/index.js';
 import { metricsTokenManifests, monitoringOwner, monitoringPlan, monitoringStackEnv, monitoringStackName, TELEMETRY_SERVICES } from '../monitoring/index.js';
 import { newMetricsToken } from '../machines/index.js';
 import { ignore } from '@koala/engine-core/failures';
+import type { ClusterSteps } from './cluster-steps.js';
 
 export interface MonitoredCluster {
   physicalName: string;
-  kubeconfigPath: string;
+  reach: Reach;
   local: boolean;
   pool?: boolean | undefined;
   machine?: MachineMonitoring | undefined;
@@ -21,12 +22,13 @@ export interface MachineMonitoring {
 
 const inFlight = new Map<string, Promise<void>>();
 
-async function install(infra: InfrastructureService, cluster: MonitoredCluster, logFile: string | undefined): Promise<void> {
-  const serviceExists = (name: string) => infra.runKubectl(['get', 'service', name, '-n', 'monitoring', '--ignore-not-found', '-o', 'name'], cluster.kubeconfigPath).then((out) => out.trim() !== '');
+async function install(steps: ClusterSteps, cluster: MonitoredCluster, logFile: string | undefined): Promise<void> {
+  const kubectl = (args: string[]) => steps.access.kubectl(cluster.reach, args);
+  const serviceExists = (name: string) => kubectl(['get', 'service', name, '-n', 'monitoring', '--ignore-not-found', '-o', 'name']).then((out) => out.trim() !== '');
   const [apiResources, blackbox, ingressClasses, collector, tempo] = await Promise.all([
-    infra.runKubectl(['api-resources', '--api-group=monitoring.coreos.com', '-o', 'name'], cluster.kubeconfigPath),
+    kubectl(['api-resources', '--api-group=monitoring.coreos.com', '-o', 'name']),
     serviceExists('blackbox-exporter'),
-    infra.runKubectl(['get', 'ingressclass', '-o', 'name'], cluster.kubeconfigPath),
+    kubectl(['get', 'ingressclass', '-o', 'name']),
     serviceExists(TELEMETRY_SERVICES.collector),
     serviceExists(TELEMETRY_SERVICES.tempo),
   ]);
@@ -34,21 +36,21 @@ async function install(infra: InfrastructureService, cluster: MonitoredCluster, 
   if (plan.stacks.length === 0) return;
   if (cluster.machine) {
     const { token, hash } = newMetricsToken();
-    for (const manifest of metricsTokenManifests(token)) await infra.applyManifest(JSON.stringify(manifest), cluster.kubeconfigPath);
+    for (const manifest of metricsTokenManifests(token)) await steps.access.apply(cluster.reach, JSON.stringify(manifest));
     await cluster.machine.remember(hash);
   }
-  const env = monitoringStackEnv(cluster, plan.keepIngress);
+  const env = monitoringStackEnv({ ...cluster, kubeconfigPath: await steps.access.kubeconfigOf(cluster.reach) }, plan.keepIngress);
   if (logFile) await fs.appendFile(logFile, `[monitoring] ${cluster.physicalName} ${cluster.pool ? 'is watched by Koala\'s servers; installing what its apps need' : cluster.machine ? 'sends its metrics to this Koala; installing what collects them' : `has no monitoring yet; installing ${plan.stacks.join(' and ')}`}\n`).catch(ignore('the log only shows progress, and the work goes on without it'));
   for (const part of plan.stacks) {
-    await infra.deploy(monitoringStackName(cluster.physicalName, part), { env, ...(logFile ? { logFile } : {}) });
+    await steps.infra.deploy(monitoringStackName(cluster.physicalName, part), { env, ...(logFile ? { logFile } : {}) });
   }
 }
 
-export function ensureClusterMonitoring(infra: InfrastructureService, cluster: MonitoredCluster, logFile?: string): Promise<void> {
+export function ensureClusterMonitoring(steps: ClusterSteps, cluster: MonitoredCluster, logFile?: string): Promise<void> {
   const owned = { ...cluster, physicalName: monitoringOwner(cluster) };
   const running = inFlight.get(owned.physicalName);
   if (running) return running;
-  const started = install(infra, owned, logFile).finally(() => inFlight.delete(owned.physicalName));
+  const started = install(steps, owned, logFile).finally(() => inFlight.delete(owned.physicalName));
   inFlight.set(owned.physicalName, started);
   return started;
 }

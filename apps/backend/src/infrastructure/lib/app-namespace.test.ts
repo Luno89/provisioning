@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import { namespaceOf, newAppNamespace, sameOwner, deployRequestFrom, MADE_BY_KOALA_APP_TYPES, platformNamespaceProblem, podLogTarget, removalHoldOf } from './app-namespace.js';
+import { describe, expect, it, vi } from 'vitest';
+import { namespaceOf, newAppNamespace, sameOwner, deployRequestFrom, MADE_BY_KOALA_APP_TYPES, platformNamespaceProblem, podLogTarget, removalHoldOf, removeNamespace } from './app-namespace.js';
 import { ODOO_PROJECT_APP } from '../../releases/lib/odoo-release.js';
 
 const containing = (text: string): unknown => expect.stringContaining(text);
@@ -88,5 +88,22 @@ describe('what holds a namespace being removed', () => {
   it('says nothing of a namespace that is not being removed, or one Kubernetes holds for nothing yet', () => {
     expect(removalHoldOf({ status: { phase: 'Active', conditions: [{ type: 'NamespaceContentRemaining', status: 'True', message: 'x' }] } })).toBeUndefined();
     expect(removalHoldOf(terminating([{ type: 'NamespaceContentRemaining', status: 'False' }]))).toBeUndefined();
+  });
+});
+
+describe('removing a namespace', () => {
+  it('asks for it to go without waiting, then waits until Kubernetes says it is gone, with no deadline of its own', async () => {
+    const kubectl = vi.fn(async () => '');
+    await removeNamespace(kubectl, 'shop-1a2b3c');
+    expect(kubectl.mock.calls).toEqual([
+      [['delete', 'namespace', 'shop-1a2b3c', '--ignore-not-found=true', '--wait=false']],
+      [['wait', '--for=delete', 'namespace/shop-1a2b3c', '--timeout=720h']],
+    ]);
+  });
+
+  it('fails with what the cluster said, waiting for nothing, when it refuses the delete', async () => {
+    const kubectl = vi.fn(async () => { throw new Error('forbidden'); });
+    await expect(removeNamespace(kubectl, 'shop')).rejects.toThrow('forbidden');
+    expect(kubectl).toHaveBeenCalledTimes(1);
   });
 });

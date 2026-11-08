@@ -10,6 +10,7 @@ import {
   type PipelineRunMetadata, type ProjectMetadata, type ClaimSettings, PLATFORM_OWNER, startedFor,
 } from '../../platform/index.js';
 import { CapacityError, checkCapacity, requestedGpuCount } from '../lib/cluster-capacity.js';
+import type { HandOver } from '../lib/cluster-places.js';
 import { executeDeployAppWorkflow } from '../../workflows/AppDeployWorkflow.js';
 import { resolveVllmDefaults, resolveTabbyDefaults, resolveCrawl4aiDefaults, resolveSearxngDefaults,
   resolveHermesDefaults, resolveMinioDefaults, resolveNextcloudDefaults, resolveQdrantDefaults, resolveQuickwitDefaults } from '../lib/app-env.js';
@@ -25,6 +26,7 @@ export interface AppDeployDeps {
   client: () => { workflow: Pick<Client['workflow'], 'start'> };
   masterKey: SecretKey;
   clusterById: (id: string) => Promise<ClusterMetadata | undefined>;
+  handOver: (clusterId: string) => Promise<HandOver>;
   logDir: string;
   claims: ClaimSettings;
 }
@@ -189,6 +191,7 @@ export async function startAppDeploy(deps: AppDeployDeps, config: DeployRequest,
     }
 
   const targetCluster = await deps.clusterById(dep.clusterId)
+  const handed = await deps.handOver(dep.clusterId)
   const wfId = `app-deploy-${dep.name}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
   const logFileName = `${Date.now()}-${Math.random().toString(36).slice(2)}-C3.log`
   const absoluteLogPath = path.join(deps.logDir, logFileName)
@@ -198,17 +201,15 @@ export async function startAppDeploy(deps: AppDeployDeps, config: DeployRequest,
     const activityArgs = {
       name: dep.name,
       namespace: dep.namespace,
-      clusterId: dep.clusterId,
+      ...handed,
       clusterName: targetCluster?.name || 'unknown',
       provider: targetCluster?.provider || 'k3d',
-      ...(targetCluster?.provider === 'machine' && targetCluster.machineId ? { machine: { deviceId: targetCluster.machineId } } : {}),
       ...(dep.appType === 'tabbyapi' && targetCluster?.isSystem
         ? { modelCacheHostPath: resolveTabbyCacheHostPath(dep.tabbyCachePvc) }
         : {}),
       ...(dep.appType === 'vllm' && targetCluster?.isSystem
         ? { modelCacheHostPath: resolveVllmCacheHostPath(dep.vllmCachePvc) }
         : {}),
-      ...(targetCluster?.gpuEnabled !== undefined ? { clusterGpuEnabled: targetCluster.gpuEnabled } : {}),
       strategy: dep.strategy || 'helm',
       appType: dep.appType || 'odoo',
       modules: dep.modules || [],

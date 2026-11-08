@@ -4,8 +4,9 @@ import { fileURLToPath } from 'url';
 dotenv.config({ path: resolve(dirname(fileURLToPath(import.meta.url)), '../../.env'), quiet: true });
 
 import { randomUUID } from 'crypto';
-import { createDatabase } from '../platform/index.js';
-import { resolveBindings } from '../infrastructure/index.js';
+import { createDatabase, loadKeys, roleFromEnv } from '../platform/index.js';
+import { clusterAccessFrom, resolveBindings } from '../infrastructure/index.js';
+import { createKubeRunner, onKoalasCluster } from '../engine-host/sandboxes/kube.js';
 import { egressForBindings, WorkspaceService, WorkspaceImageService } from '../engine/index.js';
 
 const line = () => console.log('─'.repeat(76));
@@ -13,7 +14,8 @@ const line = () => console.log('─'.repeat(76));
 async function main(): Promise<void> {
   const db = createDatabase();
   await db.init();
-  const workspaces = new WorkspaceService(process.env.WORKSPACE_KUBECONFIG);
+  const access = clusterAccessFrom(process.env, { role: roleFromEnv(process.env).role, clusters: db.infrastructure, dataKey: loadKeys(process.env).data });
+  const workspaces = new WorkspaceService(createKubeRunner(onKoalasCluster(access, () => access.own().clusterId)));
   const created: string[] = [];
 
   try {

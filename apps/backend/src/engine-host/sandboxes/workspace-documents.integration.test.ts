@@ -60,10 +60,11 @@ const stream: KubeStreamer = {
     const [binary, ...rest] = local(args);
     return new Promise((resolve) => {
       const child = spawn(binary!, rest, { cwd: root });
+      let stdout = '';
       let stderr = '';
-      child.stdout.resume();
+      child.stdout.on('data', (chunk: Buffer) => { stdout += chunk.toString(); });
       child.stderr.on('data', (chunk: Buffer) => { stderr += chunk.toString(); });
-      child.on('close', (code) => resolve({ exitCode: code ?? -1, stderr }));
+      child.on('close', (code) => resolve({ exitCode: code ?? -1, stdout, stderr }));
       createReadStream(source).pipe(child.stdin);
     });
   },
@@ -251,6 +252,19 @@ describe('restoring a workspace from what was saved', () => {
     await mkdir(path.join(root, 'work'), { recursive: true });
     await git('git', ['-C', path.join(root, 'work'), 'init', '-q']);
     expect(await documents().restore({ ownerId: 'u1', workspaceRunId: 'conversation-c1', path: '/work', repo: 'research-c1' })).toEqual({ restored: false, why: '/work already has its history' });
+  });
+
+  it('fails with how much arrived when the workspace received less of the bundle than was sent, and restores nothing from it', async () => {
+    await mkdir(path.join(root, 'work/research/r1'), { recursive: true });
+    await writeFile(path.join(root, 'work/research/r1/findings.md'), 'first\n');
+    await documents().save({ ownerId: 'u1', workspaceRunId: 'conversation-c1', path: '/work', repo: 'research-c1', describe: 'd', commitAs: 'turn 1' });
+    await rm(path.join(root, 'work'), { recursive: true, force: true });
+    const size = (await readFile(remote('research-c1'))).length;
+    const cut: KubeStreamer = { ...stream, fromFile: async (args, source) => ({ ...(await stream.fromFile(args, source)), stdout: '65536\n' }) };
+
+    await expect(createWorkspaceDocuments({ kube, stream: cut, repos }).restore({ ownerId: 'u1', workspaceRunId: 'conversation-c1', path: '/work', repo: 'research-c1' }))
+      .rejects.toThrow(`could not send research-c1 into the workspace: it received 65536 of its ${size} bytes`);
+    await expect(access(path.join(root, 'work/research/r1/findings.md'))).rejects.toThrow();
   });
 });
 

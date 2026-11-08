@@ -291,6 +291,11 @@ export class TemporalBridge {
     return this.clusterService
   }
 
+  private clusterAccess(): ClusterService['access'] {
+    if (!this.clusterService) throw new Error('clusters are reached through the cluster service, and this bridge was given none')
+    return this.clusterService.access
+  }
+
   onBuilt?: (project: ProjectMetadata, run: PipelineRunMetadata) => Promise<boolean>
 
   ensureSecrets?: (project: ProjectMetadata) => Promise<{ waiting: string[] }>
@@ -923,7 +928,7 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
   }
 
   appDeployDeps(): AppDeployDeps {
-    return { db: this.db, client: () => this.client, masterKey: this.masterKey, clusterById: (id) => this.getClusterById(id), logDir: LOG_DIR, claims: this.claims }
+    return { db: this.db, client: () => this.client, masterKey: this.masterKey, clusterById: (id) => this.getClusterById(id), handOver: (clusterId) => this.clusterAccess().handOver(clusterId), logDir: LOG_DIR, claims: this.claims }
   }
 
   async destroyApp(deploymentId: string): Promise<WorkflowDeal> {
@@ -936,7 +941,7 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
     const logFileName = `${Date.now()}-${Math.random().toString(36).slice(2)}-D4.log`
     const absoluteLogPath = path.join(LOG_DIR, logFileName)
 
-    const activityArgs = destroyAppArgs(dep, cluster, absoluteLogPath)
+    const activityArgs = destroyAppArgs(dep, cluster, absoluteLogPath, await this.clusterAccess().handOver(dep.clusterId))
 
     await this.db.infrastructure.saveDeploymentInfo({
       id: dep.id,
@@ -967,6 +972,7 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
     if (!dep) throw new Error('DeploymentMetadata not found (resizeDisk)')
 
     const cluster = await this.getClusterById(dep.clusterId)
+    const handed = await this.clusterAccess().handOver(dep.clusterId)
     const wfId = `resize-disk-${dep.name}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
     const logFileName = `${Date.now()}-${Math.random().toString(36).slice(2)}-E5.log`
     const absoluteLogPath = path.join(LOG_DIR, logFileName)
@@ -974,7 +980,7 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
     const activityArgs = {
       name: dep.name,
       namespace: dep.namespace,
-      clusterId: dep.clusterId,
+      ...handed,
       clusterName: cluster?.name || 'unknown',
       provider: cluster?.provider || 'k3d',
       strategy: dep.strategy || 'helm',
@@ -1026,6 +1032,7 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
     const openaiApiBaseUrl = resolveOpenaiApiBaseUrl(dep, deployments);
 
     const cluster = await this.getClusterById(dep.clusterId)
+    const handed = await this.clusterAccess().handOver(dep.clusterId)
     const wfId = `sync-config-${dep.name}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
     const logFileName = `${Date.now()}-${Math.random().toString(36).slice(2)}-G7.log`
     const absoluteLogPath = path.join(LOG_DIR, logFileName)
@@ -1033,7 +1040,7 @@ async destroyCluster(clusterId: string): Promise<WorkflowDeal> {
     const activityArgs = {
       name: dep.name,
       namespace: dep.namespace,
-      clusterId: dep.clusterId,
+      ...handed,
       clusterName: cluster?.name || 'unknown',
       provider: cluster?.provider || 'k3d',
       strategy: dep.strategy || 'helm',

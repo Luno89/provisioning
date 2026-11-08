@@ -51,6 +51,7 @@ import { createModelNodes, hostNodesFor } from '../../engine-host/nodes/index.js
 import { createProcedureStore, stepNeedsReader } from '../../engine-host/registries/procedure-store.js';
 import { conversationBinding } from '../../engine-host/conversation-binding.js';
 import { createWorkspaceRepoResolver } from '../../engine-host/sandboxes/workspace-repos.js';
+import type { KoalasCluster } from '../../engine-host/sandboxes/kube.js';
 import { PRUNE_FIRST_DELAY_MS, PRUNE_INTERVAL_MS } from '../../engine-host/sandboxes/prune-images.js';
 import { runCancelledVia } from '../../engine-host/temporal/run-cancellation.js';
 import { BENCH_IDLE_WORKFLOW, CONVERSATION_CONCLUSION_WORKFLOW, DEFAULT_ENGINE_TASK_QUEUE, benchIdleId, conversationConclusionId, treeOfGroveRun, workflowOfRun } from '../../engine-host/temporal/contracts.js';
@@ -274,6 +275,7 @@ export interface EngineWiringDeps {
   temporalBridge: TemporalBridge;
   models: ModelService;
   gitea: GiteaService;
+  koalasCluster: KoalasCluster;
   artifacts?: ArtifactService | undefined;
   files?: FileService | undefined;
   projectRepos: ProjectRepoService;
@@ -354,7 +356,7 @@ export async function wireEngine(deps: EngineWiringDeps): Promise<EngineWiring> 
     stores: storesFromDatabase(db),
     owners: async () => (await db.accounts.getUsers()).map((user) => user.id),
     ...(evalWeb ? { web: evalWeb } : {}),
-    kubeconfig: env.KUBECONFIG_PATH,
+    cluster: deps.koalasCluster,
     registryHost: env.KOALA_REGISTRY,
     pushRegistryHost: env.KOALA_REGISTRY_PUSH,
     registryAccount: async () => ({

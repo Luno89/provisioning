@@ -1,13 +1,16 @@
-
 import {
-  InfrastructureService, StorageAdapter, hasCloudCredentials, isMockCloudProvider, isSelfManagedCluster,
-  namespaceOf,
+  StorageAdapter, hasCloudCredentials, isMockCloudProvider, isSelfManagedCluster,
+  namespaceOf, type MachineOfCluster, type Reach,
 } from '../infrastructure/index.js';
+import type { ClusterSteps } from './cluster-steps.js';
+import { handedReach } from './handed-reach.js';
 
 export interface ResizeDiskArgs {
   name: string;
   namespace?: string | undefined;
   clusterId: string;
+  reach?: Reach | undefined;
+  machine?: MachineOfCluster | undefined;
   clusterName: string;
   provider: string;
   strategy: string;
@@ -22,21 +25,10 @@ export interface ResizeDiskResult {
   msg: string;
 }
 
-
-export async function ResizeDiskActivity(
-  args: ResizeDiskArgs,
-): Promise<ResizeDiskResult> {
-  const infra = new InfrastructureService();
-  const logFile = args.logFile;
-  
+export async function ResizeDiskActivity(args: ResizeDiskArgs, steps: ClusterSteps): Promise<ResizeDiskResult> {
+  const reach = handedReach(args);
   const isMock = isMockCloudProvider(args.provider, hasCloudCredentials);
   const physicalName = isMock ? `mock-${args.provider}-${args.clusterName}` : args.clusterName;
-  const kubeconfigPath = isSelfManagedCluster(args.provider, isMock)
-    ? `/tmp/kubeconfig-${physicalName}`
-    : undefined;
-
-  const storageEnv = StorageAdapter.getStorageEnv(args.appType, args.strategy, args.storage);
-
   const deploymentId = args.deploymentId || 'default';
 
   const env: Record<string, string> = {
@@ -45,14 +37,13 @@ export async function ResizeDiskActivity(
     DEPLOYMENT_STRATEGY: args.strategy,
     DEPLOYMENT_NAME: namespaceOf(args),
     DEPLOYMENT_ID: deploymentId,
-    KUBECONFIG: kubeconfigPath || '',
-    KUBECONFIG_CONTEXT: (args.provider === 'k3d' || isMock) ? `k3d-${physicalName}` : '',
+    KUBECONFIG: await steps.access.kubeconfigOf(reach),
     SELF_MANAGED_K8S: isSelfManagedCluster(args.provider, isMock) ? 'true' : 'false',
     APP_TYPE: args.appType,
-    ...storageEnv,
+    ...StorageAdapter.getStorageEnv(args.appType, args.strategy, args.storage),
   };
 
-  await infra.deploy(`app-${physicalName}-${deploymentId}`, { logFile, env });
+  await steps.infra.deploy(`app-${physicalName}-${deploymentId}`, { logFile: args.logFile, env });
 
   return { status: 'resize_complete', msg: `Disk resize requested for ${args.name}` };
 }

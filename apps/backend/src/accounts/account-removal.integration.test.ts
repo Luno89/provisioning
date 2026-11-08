@@ -2,7 +2,8 @@ import { randomBytes } from 'node:crypto';
 import { createServer, type Server } from 'node:http';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { execFileSync } from 'node:child_process';
 import type { AddressInfo } from 'node:net';
 import { Client, Connection } from '@temporalio/client';
 import { MongoClient } from 'mongodb';
@@ -16,6 +17,7 @@ import { until } from '../platform/testing/three-roles.js';
 import { buildDataConverter } from '@koala/engine-core/payloads';
 import { loadKeys } from '../platform/lib/keys.js';
 import { portToHandOn } from '@koala/engine-core/testing/ports';
+import { TOOLS } from '../infrastructure/testing/real-k3s.js';
 
 interface Answer { status: number; cookies: string[]; body: unknown }
 
@@ -53,16 +55,6 @@ async function standIn(answer: (path: URL) => unknown): Promise<StandIn> {
   };
 }
 
-const NAMESPACES = { kind: 'APIResourceList', groupVersion: 'v1', resources: [{ name: 'namespaces', singularName: 'namespace', namespaced: false, kind: 'Namespace', verbs: ['create', 'delete', 'get', 'list', 'watch'], shortNames: ['ns'] }] };
-
-const kubeAnswer = (at: URL): unknown => {
-  if (at.pathname === '/api') return { kind: 'APIVersions', versions: ['v1'], serverAddressByClientCIDRs: [] };
-  if (at.pathname === '/apis') return { kind: 'APIGroupList', apiVersion: 'v1', groups: [] };
-  if (at.pathname === '/api/v1') return NAMESPACES;
-  if (at.pathname === '/api/v1/namespaces') return { kind: 'NamespaceList', apiVersion: 'v1', metadata: { resourceVersion: '1' }, items: [] };
-  return undefined;
-};
-
 const headscaleAnswer = (at: URL): unknown => (at.pathname === '/api/v1/user' ? { users: [] } : undefined);
 
 const STAMP = Date.now().toString(36);
@@ -74,7 +66,6 @@ const email = `removal-${STAMP}@removal.test`;
 const password = randomBytes(18).toString('base64url');
 
 let mail: SmtpSink;
-let kube: StandIn;
 let headscale: StandIn;
 let backend: LoopbackRole;
 let worker: LoopbackProcess;
@@ -83,6 +74,8 @@ let mongo: MongoClient;
 let adminCookie: string;
 let personCookie: string;
 let ownerId = '';
+let adminKubeconfig = '';
+const k3s = inject('k3s');
 let namespace: string;
 let temporalAddress: string;
 
@@ -93,16 +86,10 @@ beforeAll(async () => {
   temporalAddress = inject('temporalAddress');
   namespace = claimNamespaceFor(inject('temporalClaims'));
   mail = await smtpSink();
-  kube = await standIn(kubeAnswer);
   headscale = await standIn(headscaleAnswer);
   folder = await mkdtemp(join(tmpdir(), 'koala-removal-'));
-  const kubeconfig = join(folder, 'kubeconfig');
-  await writeFile(kubeconfig, JSON.stringify({
-    apiVersion: 'v1', kind: 'Config', 'current-context': 'stand-in',
-    clusters: [{ name: 'stand-in', cluster: { server: kube.url } }],
-    users: [{ name: 'stand-in', user: { token: 'stand-in' } }],
-    contexts: [{ name: 'stand-in', context: { cluster: 'stand-in', user: 'stand-in' } }],
-  }));
+  adminKubeconfig = join(folder, 'admin.yaml');
+  await writeFile(adminKubeconfig, k3s.admin, { mode: 0o600 });
   mongo = new MongoClient(`${mongoUri}${DATABASE}`);
   await mongo.connect();
   const shared = {
@@ -113,8 +100,10 @@ beforeAll(async () => {
     TEMPORAL_ENGINE_TASK_QUEUE: QUEUE,
     MAIL_SMTP_URL: mail.url,
     MAIL_FROM: 'koala@removal.test',
-    KUBECONFIG: kubeconfig,
-    KUBECONFIG_PATH: kubeconfig,
+    KUBERNETES_SERVICE_HOST: k3s.account.host,
+    KUBERNETES_SERVICE_PORT: k3s.account.port,
+    KUBERNETES_SERVICE_ACCOUNT_DIR: dirname(k3s.account.caFile),
+    INSTANCE_MACHINE_ID: 'removal-test',
     HEADSCALE_URL: headscale.url,
     HEADSCALE_API_KEY: 'stand-in',
     OTEL_EXPORTER_OTLP_ENDPOINT: `http://127.0.0.1:${await portToHandOn()}`,
@@ -134,7 +123,6 @@ afterAll(async () => {
   await backend?.close();
   await mongo?.db(DATABASE).dropDatabase();
   await mongo?.close();
-  await kube?.close();
   await headscale?.close();
   await mail?.close();
   if (folder) await rm(folder, { recursive: true, force: true });
@@ -157,6 +145,8 @@ describe('an account removes itself, the backend and the engine worker each thei
     expect(personCookie).toBeTruthy();
     ownerId = ((await api('/auth/me', { cookie: personCookie })).body as { id: string }).id;
     expect(ownerId).toBeTruthy();
+    execFileSync(TOOLS.kubectl, ['--kubeconfig', adminKubeconfig, 'create', 'namespace', `ws-${ownerId.slice(0, 8)}`]);
+    execFileSync(TOOLS.kubectl, ['--kubeconfig', adminKubeconfig, 'label', 'namespace', `ws-${ownerId.slice(0, 8)}`, `koala.dev/owner=${labelValue(ownerId)}`]);
     const conversation = await api('/conversations', { body: { title: 'kept until the account goes' }, cookie: personCookie });
     expect(conversation.status, JSON.stringify(conversation.body)).toBeLessThan(300);
   });
@@ -174,7 +164,7 @@ describe('an account removes itself, the backend and the engine worker each thei
   });
 
   it('an admin sees it going, until it is gone, and the engine worker removed its records', async () => {
-    onTestFailed(() => console.log(`── backend ──\n${backend.logs(60)}\n── engine worker ──\n${worker.logs(80)}\n── kube asked ──\n${kube.asked.join('\n')}`));
+    onTestFailed(() => console.log(`── backend ──\n${backend.logs(60)}\n── engine worker ──\n${worker.logs(80)}`));
     await until(async () => {
       const people = ((await api('/admin/people', { cookie: adminCookie })).body as { people: { id: string; removal?: { state: { state: string; reason?: string } } }[] }).people;
       const entry = people.find((person) => person.id === ownerId);
@@ -190,7 +180,7 @@ describe('an account removes itself, the backend and the engine worker each thei
     } finally {
       await connection.close();
     }
-    expect(kube.asked.some((line) => line.startsWith('GET /api/v1/namespaces?') && decodeURIComponent(line).includes(`labelSelector=koala.dev/owner=${labelValue(ownerId)}`))).toBe(true);
+    expect(execFileSync(TOOLS.kubectl, ['--kubeconfig', adminKubeconfig, 'get', 'namespaces', '-l', `koala.dev/owner=${labelValue(ownerId)}`, '-o', 'name'], { encoding: 'utf8' }).trim()).toBe('');
     expect(headscale.asked).toContain(`GET /api/v1/user?name=${encodeURIComponent(`platform-${ownerId}`)}`);
   });
 

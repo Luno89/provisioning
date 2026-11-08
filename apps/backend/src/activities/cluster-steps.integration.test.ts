@@ -1,0 +1,103 @@
+import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdtempSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
+import { nodeProcesses, nodeStreams } from '../platform/index.js';
+import { ClusterAccess, startedMachine, type Reach } from '../infrastructure/index.js';
+import { InfrastructureService } from '../infrastructure/services/InfrastructureService.js';
+import { TOOLS } from '../infrastructure/testing/real-k3s.js';
+import { ODOO_PROJECT_APP } from '../releases/index.js';
+import { CheckWorkloadActivity } from './CheckWorkloadActivity.js';
+import type { ClusterSteps } from './cluster-steps.js';
+import { DestroyAppActivity } from './DestroyAppActivity.js';
+import { ResizeDiskActivity } from './ResizeDiskActivity.js';
+
+const REPO = path.resolve(import.meta.dirname, '../../../../');
+const CDKTF = path.join(REPO, 'packages', 'cdktf-infra');
+const k3s = inject('k3s');
+
+const access = new ClusterAccess({
+  here: { koalaMachineId: 'dev1', root: false },
+  folder: mkdtempSync(path.join(tmpdir(), 'koala-cluster-steps-')),
+  processes: nodeProcesses,
+  streams: nodeStreams,
+  tools: TOOLS,
+  serviceAccount: k3s.account,
+});
+const KOALA: Reach = access.own();
+const DESK: Reach = startedMachine('machine-desk', k3s.admin);
+const exists = async (reach: Reach, namespace: string) => (await access.kubectl(reach, ['get', 'namespace', namespace, '--ignore-not-found', '-o', 'name'])).trim() !== '';
+
+let root: string;
+let steps: ClusterSteps;
+
+beforeAll(async () => {
+  root = await mkdtemp(path.join(tmpdir(), 'koala-cluster-steps-cdktf-'));
+  const cdktfDir = path.join(root, 'app');
+  const runsDir = path.join(root, 'runs');
+  await mkdir(cdktfDir, { recursive: true });
+  await mkdir(runsDir, { recursive: true });
+  await symlink(path.join(REPO, 'node_modules'), path.join(cdktfDir, 'node_modules'));
+  const cdktf = createRequire(path.join(CDKTF, 'package.json')).resolve('cdktf');
+  await writeFile(path.join(cdktfDir, 'cdktf.json'), JSON.stringify({ language: 'typescript', app: `${path.join(REPO, 'node_modules', '.bin', 'tsx')} app.ts`, sendCrashReports: 'false', terraformProviders: [] }));
+  await writeFile(path.join(cdktfDir, 'app.ts'), [
+    `import { App, TerraformStack } from ${JSON.stringify(cdktf)};`,
+    `import { K8sProviderService } from ${JSON.stringify(path.join(CDKTF, 'lib', 'k8s-provider-service.ts'))};`,
+    `import { Namespace } from ${JSON.stringify(path.join(CDKTF, '.gen', 'providers', 'kubernetes', 'namespace', 'index.ts'))};`,
+    `import { keepState } from ${JSON.stringify(path.join(CDKTF, 'lib', 'state.ts'))};`,
+    'const app = new App();',
+    'const stack = new TerraformStack(app, `app-${process.env.CLUSTER_NAME}-${process.env.DEPLOYMENT_ID}`);',
+    'K8sProviderService.fromEnv(stack);',
+    'new Namespace(stack, "ns", { metadata: { name: process.env.DEPLOYMENT_NAME!, labels: { app: process.env.APP_TYPE ?? "none" } } });',
+    'keepState(app, process.env);',
+    'app.synth();',
+    '',
+  ].join('\n'));
+  steps = { access, infra: new InfrastructureService(undefined, { cdktfDir, stateDir: path.join(root, 'state'), runsDir }) };
+});
+
+afterAll(async () => { await rm(root, { recursive: true, force: true }); });
+
+describe('cluster steps against a real k3s, through ClusterAccess', () => {
+  it('reads a workload through the cluster it was handed, and says when the cluster refuses to make its pods', async () => {
+    await access.kubectl(DESK, ['create', 'namespace', 'quota-shop']);
+    await access.kubectl(DESK, ['create', 'quota', 'none', '-n', 'quota-shop', '--hard=pods=0']);
+    await access.kubectl(DESK, ['create', 'deployment', 'shop', '-n', 'quota-shop', '--image=registry.k8s.io/pause:3.9']);
+    const check = () => CheckWorkloadActivity({ name: 'shop', namespace: 'quota-shop', clusterId: DESK.clusterId, reach: DESK }, steps);
+    let read = await check();
+    while (read.health === 'starting') read = await check();
+    expect(read.health).toBe('unhealthy');
+    expect(read.reason).toContain('exceeded quota');
+  }, 60_000);
+
+  it('says a workload could not be read when the machine it was handed answers nowhere', async () => {
+    const nowhere = startedMachine('machine-gone', k3s.admin.replace(/server: https:\/\/127\.0\.0\.1:\d+/, 'server: https://127.0.0.1:1'));
+    const read = await CheckWorkloadActivity({ name: 'shop', clusterId: 'machine-gone', reach: nowhere }, steps);
+    expect(read.health).toBe('unknown');
+    expect(read.reason).toContain('127.0.0.1:1');
+  }, 60_000);
+
+  it('removes an Odoo release and its namespace on the cluster it was handed', async () => {
+    await access.kubectl(DESK, ['create', 'namespace', 'odoo-shop']);
+    await DestroyAppActivity({ name: 'shop', namespace: 'odoo-shop', deploymentId: 'shop', clusterId: DESK.clusterId, clusterName: 'desk', provider: 'machine', strategy: 'native', appType: ODOO_PROJECT_APP, logFile: path.join(root, 'odoo.log'), reach: DESK }, steps);
+    expect(await exists(DESK, 'odoo-shop')).toBe(false);
+  }, 120_000);
+
+  it('applies an app\'s stack with Terraform through the kubeconfig Koala\'s own service account makes, then removes it the same way', async () => {
+    const app = { name: 'books', namespace: 'books-1a2b3c', deploymentId: 'd1', clusterId: KOALA.clusterId, clusterName: 'own', provider: 'machine', strategy: 'native', logFile: path.join(root, 'books.log'), reach: KOALA };
+    await ResizeDiskActivity({ ...app, appType: 'audiobookshelf', storage: {} }, steps);
+    expect(await access.kubectl(KOALA, ['get', 'namespace', 'books-1a2b3c', '-o', 'jsonpath={.metadata.labels.app}'])).toBe('audiobookshelf');
+    await DestroyAppActivity({ ...app, appType: 'audiobookshelf' }, steps);
+    expect(await exists(KOALA, 'books-1a2b3c')).toBe(false);
+  }, 300_000);
+
+  it('applies an app\'s stack with Terraform on another machine through the kubeconfig its workflow handed over', async () => {
+    const app = { name: 'notes', namespace: 'notes-4d5e6f', deploymentId: 'd2', clusterId: DESK.clusterId, clusterName: 'desk', provider: 'machine', strategy: 'native', logFile: path.join(root, 'notes.log'), reach: DESK };
+    await ResizeDiskActivity({ ...app, appType: 'papra', storage: {} }, steps);
+    expect(await exists(DESK, 'notes-4d5e6f')).toBe(true);
+    await DestroyAppActivity({ ...app, appType: 'papra' }, steps);
+    expect(await exists(DESK, 'notes-4d5e6f')).toBe(false);
+  }, 300_000);
+});

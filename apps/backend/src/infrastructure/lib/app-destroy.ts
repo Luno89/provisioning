@@ -1,4 +1,5 @@
 import type { ClusterMetadata, DeploymentMetadata } from '../../platform/index.js';
+import type { HandOver, Reach } from './cluster-places.js';
 
 export interface DestroyAppArgs {
   name: string;
@@ -10,9 +11,8 @@ export interface DestroyAppArgs {
   deploymentId?: string;
   appType?: string | undefined;
   namespace?: string | undefined;
-  gpuEnabled?: boolean | undefined;
-  kubeconfigPath?: string | undefined;
   machine?: MachineOfCluster | undefined;
+  reach?: Reach | undefined;
   kubeconfig?: string | undefined;
 }
 
@@ -23,8 +23,9 @@ export interface MachineOfCluster {
 
 export function destroyAppArgs(
   deployment: Pick<DeploymentMetadata, 'name' | 'clusterId' | 'strategy' | 'deploymentId' | 'appType' | 'namespace'> & { id?: string | undefined },
-  cluster: Pick<ClusterMetadata, 'name' | 'provider' | 'gpuEnabled' | 'kubeconfigPath' | 'machineId'> | undefined,
+  cluster: Pick<ClusterMetadata, 'name' | 'provider'> | undefined,
   logFile: string,
+  handed: HandOver,
 ): DestroyAppArgs {
   return {
     name: deployment.name,
@@ -36,9 +37,9 @@ export function destroyAppArgs(
     deploymentId: deployment.deploymentId || 'default',
     ...(deployment.appType ? { appType: deployment.appType } : {}),
     ...(deployment.namespace ? { namespace: deployment.namespace } : {}),
-    ...(cluster?.gpuEnabled ? { gpuEnabled: true } : {}),
-    ...(cluster?.kubeconfigPath ? { kubeconfigPath: cluster.kubeconfigPath } : {}),
-    ...(cluster?.provider === 'machine' && cluster.machineId ? { machine: { deviceId: cluster.machineId, ...(deployment.id ? { leaving: deployment.id } : {}) } } : {}),
+    ...('machine' in handed
+      ? { machine: { ...handed.machine, ...(deployment.id ? { leaving: deployment.id } : {}) } }
+      : { reach: handed.reach }),
   };
 }
 

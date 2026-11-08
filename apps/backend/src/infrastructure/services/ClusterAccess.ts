@@ -1,9 +1,9 @@
 import { mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
-import { decryptValue, nodeProcesses, nodeStreams, writePrivate, type Followed, type PlatformRole, type ProcessResult, type ProcessRun, type Processes, type SecretKey, type Streams } from '../../platform/index.js';
+import { decryptValue, nodeProcesses, nodeStreams, writePrivate, type Followed, type Io, type PlatformRole, type ProcessResult, type ProcessRun, type Processes, type SecretKey, type Streams } from '../../platform/index.js';
 import { lostCreateRace } from '../lib/apply-races.js';
-import { placeOf, serviceAccountFrom, serviceAccountKubeconfig, type Here, type Reach, type ServiceAccount, type WhyUnreachable } from '../lib/cluster-places.js';
+import { machineToStart, ownReach, placeOf, serviceAccountFrom, serviceAccountKubeconfig, type HandOver, type Here, type Reach, type ServiceAccount, type WhyUnreachable } from '../lib/cluster-places.js';
 import type { InfrastructureStore } from '../store.js';
 
 export class ClusterUnreachable extends Error {
@@ -39,8 +39,23 @@ const clusterIdOf = (target: Target): string => (typeof target === 'string' ? ta
 export class ClusterAccess {
   constructor(private readonly deps: ClusterAccessDeps) {}
 
+  own(): Reach {
+    const { here } = this.deps;
+    if (!here.root && !here.koalaMachineId && !this.deps.serviceAccount) throw new ClusterUnreachable('own', 'no-account', 'this process runs in no cluster of its own: it is not root, was named no machine (INSTANCE_MACHINE_ID) and runs in no pod');
+    return ownReach(here);
+  }
+
+  async handOver(clusterId: string): Promise<HandOver> {
+    const machine = machineToStart(clusterId, await this.record(clusterId), this.deps.here);
+    return machine ? { clusterId, machine } : { clusterId, reach: await this.reach(clusterId) };
+  }
+
+  private async record(clusterId: string) {
+    return this.deps.clusters ? (await this.deps.clusters.getClusters()).find((cluster) => cluster.id === clusterId) : undefined;
+  }
+
   async reach(clusterId: string): Promise<Reach> {
-    const record = this.deps.clusters ? (await this.deps.clusters.getClusters()).find((cluster) => cluster.id === clusterId) : undefined;
+    const record = await this.record(clusterId);
     const place = placeOf(clusterId, record, this.deps.here);
     if (place.kind === 'unreachable' && place.why === 'unknown' && !this.deps.clusters) throw new ClusterUnreachable(clusterId, 'no-records', 'this process holds no cluster records; the workflow that sent the work hands over how to reach the cluster');
     switch (place.kind) {
@@ -99,6 +114,14 @@ export class ClusterAccess {
     return result.stdout;
   }
 
+  async start(target: Target, args: readonly string[], io?: Io): Promise<Followed> {
+    return this.deps.streams.start(await this.run(target, this.deps.tools.kubectl, args), io);
+  }
+
+  async startHelm(target: Target, args: readonly string[], io?: Io): Promise<Followed> {
+    return this.deps.streams.start(await this.run(target, this.deps.tools.helm, args), io);
+  }
+
   async follow(target: Target, args: readonly string[], onOutput: (chunk: string) => void): Promise<Followed> {
     return this.deps.streams.follow(await this.run(target, this.deps.tools.kubectl, args), onOutput);
   }
@@ -121,6 +144,7 @@ export interface ClusterAccessFrom {
   role: PlatformRole;
   clusters?: Pick<InfrastructureStore, 'getClusters'> | undefined;
   dataKey?: SecretKey | undefined;
+  rootKubeconfig?: string | undefined;
 }
 
 export function clusterAccessFrom(env: Readonly<Record<string, string | undefined>>, from: ClusterAccessFrom): ClusterAccess {
@@ -135,7 +159,7 @@ export function clusterAccessFrom(env: Readonly<Record<string, string | undefine
     tools: { kubectl: join(REPO, 'bin', 'kubectl'), helm: join(REPO, 'bin', 'helm') },
     clusters: from.clusters,
     dataKey: from.dataKey,
-    serviceAccount: serviceAccountFrom(env, SERVICE_ACCOUNT),
-    rootKubeconfig: root ? env.POOL_KUBECONFIG?.trim() || undefined : undefined,
+    serviceAccount: serviceAccountFrom(env, env.KUBERNETES_SERVICE_ACCOUNT_DIR?.trim() || SERVICE_ACCOUNT),
+    rootKubeconfig: root ? from.rootKubeconfig ?? (env.POOL_KUBECONFIG?.trim() || undefined) : undefined,
   });
 }

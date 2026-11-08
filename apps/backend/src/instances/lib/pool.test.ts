@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  admissionManifests, backendAccessManifest, FIRST_PORT, freePorts, LAST_PORT, namespaceManifest, poolChartValues, poolSlots, proxyCaddyfile,
+  admissionManifests, backendAccessManifest, FIRST_PORT, freePorts, LAST_PORT, namespaceManifest, poolChartValues, poolSettingsFrom, poolSlots, proxyCaddyfile,
   proxyManifests, vclusterValues, type PoolPorts,
 } from './pool.js';
 
@@ -162,3 +162,25 @@ describe('root\'s backend in a pool namespace', () => {
   });
 });
 
+describe('the pool a root offers', () => {
+  const naming = (setting: string): unknown => expect.stringContaining(setting);
+  const env = { INGRESS_DOMAIN: 'nowrinkles.app', POOL_ADDRESS: '100.64.0.9', POOL_KUBECONFIG: '/etc/koala/pool.yaml', POOL_SLOTS: '2', INSTANCE_REGISTRY: 'reg.test', INSTANCE_IMAGE_TAG: 'v1' };
+
+  it('is on with every setting it needs, naming no kubeconfig of its own', () => {
+    expect(poolSettingsFrom(env)).toEqual({
+      address: '100.64.0.9', slots: 2, slot: { memoryMiB: 10240, cpu: 4, storageGiB: 100 }, image: { repository: 'reg.test/nowrinkles/app', tag: 'v1' }, trialDays: 14,
+    });
+  });
+
+  it('is off, saying why, without a way into its node, and never guesses one', () => {
+    expect(poolSettingsFrom({ ...env, POOL_KUBECONFIG: undefined })).toEqual({ off: 'this root has no way into its pool\'s node (POOL_KUBECONFIG is not set)' });
+    expect(poolSettingsFrom({ ...env, POOL_KUBECONFIG: ' ' })).toEqual({ off: 'this root has no way into its pool\'s node (POOL_KUBECONFIG is not set)' });
+  });
+
+  it('is off without addresses, a node, slots or an image', () => {
+    expect(poolSettingsFrom({ ...env, INGRESS_DOMAIN: undefined })).toEqual({ off: naming('INGRESS_DOMAIN') });
+    expect(poolSettingsFrom({ ...env, POOL_ADDRESS: undefined })).toEqual({ off: naming('POOL_ADDRESS') });
+    expect(poolSettingsFrom({ ...env, POOL_SLOTS: '0' })).toEqual({ off: naming('POOL_SLOTS') });
+    expect(poolSettingsFrom({ ...env, INSTANCE_REGISTRY: undefined })).toEqual({ off: naming('POOL_IMAGE') });
+  });
+});

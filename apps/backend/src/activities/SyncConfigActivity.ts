@@ -1,8 +1,10 @@
 import {
-  InfrastructureService, StorageAdapter, hasCloudCredentials, isMockCloudProvider, isSelfManagedCluster,
-  buildAppEnv, pushOpenWebUiWebSearchConfig,
+  StorageAdapter, hasCloudCredentials, isMockCloudProvider,
+  buildAppEnv, pushOpenWebUiWebSearchConfig, type MachineOfCluster, type Reach,
 } from '../infrastructure/index.js';
 import { waitUntilRolledOut } from './cluster-jobs.js';
+import type { ClusterSteps } from './cluster-steps.js';
+import { handedReach } from './handed-reach.js';
 import { Context } from '@temporalio/activity';
 import { messageOf } from './failure-reasons.js';
 
@@ -10,6 +12,8 @@ export interface SyncConfigArgs {
   name: string;
   namespace?: string | undefined;
   clusterId: string;
+  reach?: Reach | undefined;
+  machine?: MachineOfCluster | undefined;
   clusterName: string;
   provider: string;
   strategy: string;
@@ -69,18 +73,15 @@ export interface SyncConfigResult {
 
 const SANITIZE = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
 
-export async function SyncConfigActivity(
-  args: SyncConfigArgs,
-): Promise<SyncConfigResult> {
-  const infra = new InfrastructureService();
+export async function SyncConfigActivity(args: SyncConfigArgs, steps: ClusterSteps): Promise<SyncConfigResult> {
+  const reach = handedReach(args);
+  const kubectl = (argv: string[]) => steps.access.kubectl(reach, argv);
   const logFile = args.logFile;
   const namespace = args.namespace ?? SANITIZE(args.name);
 
   const isMock = isMockCloudProvider(args.provider, hasCloudCredentials);
   const physicalName = isMock ? `mock-${args.provider}-${args.clusterName}` : args.clusterName;
-  const kubeconfigPath = isSelfManagedCluster(args.provider, isMock)
-    ? `/tmp/kubeconfig-${physicalName}`
-    : `${process.cwd()}/.kube/config`;
+  const kubeconfigPath = await steps.access.kubeconfigOf(reach);
 
   const effectiveDevice = process.env.VLLM_DEVICE || (args.vllmGpuCount === 0 ? 'cpu' : (args.vllmGpuVendor === 'amd' ? 'rocm' : 'cuda'));
   const effectiveGpuCount = args.vllmGpuCount !== undefined ? args.vllmGpuCount : 1;
@@ -145,10 +146,10 @@ export async function SyncConfigActivity(
     storageEnv,
   });
 
-  await infra.deploy(`app-${physicalName}-${deploymentId}`, { logFile, env });
+  await steps.infra.deploy(`app-${physicalName}-${deploymentId}`, { logFile, env });
 
   try {
-    await infra.runKubectl(['rollout', 'restart', 'deployment', '-n', namespace], kubeconfigPath);
+    await kubectl(['rollout', 'restart', 'deployment', '-n', namespace]);
   } catch (err) {
     console.warn(`[SyncConfigActivity] rollout restart failed in namespace ${namespace}: ${messageOf(err)}`);
   }
@@ -156,13 +157,13 @@ export async function SyncConfigActivity(
   if (args.appType === 'openwebui') {
     try {
       await waitUntilRolledOut({
-        kubectl: (kubectlArgs) => infra.runKubectl(['-n', namespace, ...kubectlArgs], kubeconfigPath),
+        kubectl: (kubectlArgs) => kubectl(['-n', namespace, ...kubectlArgs]),
         apply: async () => undefined,
       }, 'deployment/open-webui', { beat: () => { try { Context.current().heartbeat(); } catch { return; } } });
     } catch (err) {
       console.warn(`[SyncConfigActivity] open-webui cannot become ready: ${messageOf(err)} — attempting the config push anyway`);
     }
-    await pushOpenWebUiWebSearchConfig(infra, kubeconfigPath, namespace, {
+    await pushOpenWebUiWebSearchConfig(kubectl, namespace, {
       ...(args.webuiEnableWebSearch !== undefined ? { enableWebSearch: args.webuiEnableWebSearch } : {}),
       ...(args.webuiWebSearchEngine !== undefined ? { webSearchEngine: args.webuiWebSearchEngine } : {}),
       ...(args.webuiWebSearchApiKey !== undefined ? { webSearchApiKey: args.webuiWebSearchApiKey } : {}),

@@ -1,4 +1,5 @@
 import { createModelService } from '../../apps/backend/src/models/wiring/model-wiring.js';
+import { devKoalasCluster } from './dev-stack.js';
 import { createEngineHost, storesFromDatabase } from '../../apps/backend/src/engine-host/host.js';
 import { GiteaService } from '../../apps/backend/src/projects/services/GiteaService.js';
 import { InfrastructureService } from '../../apps/backend/src/infrastructure/services/InfrastructureService.js';
@@ -18,7 +19,7 @@ export function liveEngineHost(db: Database) {
     repoFor: createWorkspaceRepoResolver({ trees: () => db.projects.getTrees(), projects: () => db.projects.getProjects(), accountOf: async (ownerId) => (await db.projects.getGiteaAccount(ownerId))?.username }),
     models: createModelService(db, keys.data),
     stores: storesFromDatabase(db),
-    kubeconfig: process.env.KUBECONFIG_PATH,
+    cluster: devKoalasCluster(),
     registryHost: process.env.KOALA_REGISTRY,
     registryAccount: async () => ({ owner: gitea.adminUsername, ...(await gitea.getAdminCredentials()) }),
     registryPushToken: async () => ({ username: gitea.adminUsername, password: (await gitea.createDeployToken()).token }),

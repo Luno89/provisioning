@@ -1,14 +1,39 @@
-import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { abandonedJobs, rolloutOf, stuckHook, UPGRADE_WORDS, withWhy } from '../instances/index.js';
+import { abandonedJobs, rolloutOf, stuckHook, UPGRADE_WORDS, withWhy, type ClusterStarts } from '../instances/index.js';
+import { clusterAccessFrom } from '../infrastructure/index.js';
+import { roleFromEnv } from '../platform/index.js';
+
+export interface SelfUpgradeCluster {
+  kubectl(args: readonly string[]): Promise<string>;
+  helm(args: readonly string[], signal?: AbortSignal): Promise<string>;
+}
+
+export function selfUpgradeClusterOn(access: Pick<ClusterStarts, 'kubectl' | 'own' | 'startHelm'>): SelfUpgradeCluster {
+  return {
+    kubectl: (args) => access.kubectl(access.own(), args),
+    async helm(args, signal) {
+      const started = await access.startHelm(access.own(), args);
+      const stop = (): void => started.stop();
+      if (signal?.aborted) stop();
+      signal?.addEventListener('abort', stop, { once: true });
+      try {
+        const result = await started.ended;
+        if (result.code !== 0) throw new Error(`helm ${args[0] ?? ''} ended with ${result.code}: ${result.stderr.trim()}`);
+        return result.stdout;
+      } finally {
+        signal?.removeEventListener('abort', stop);
+      }
+    },
+  };
+}
 
 export interface SelfUpgradeDeps {
   root: { url: string; instanceId: string; credential: string };
   release: { name: string; namespace: string; current: string };
-  run: (command: string, args: readonly string[], signal?: AbortSignal) => Promise<string>;
+  cluster: SelfUpgradeCluster;
   fetch?: typeof fetch;
   sleep?: (ms: number) => Promise<void>;
   now?: () => number;
@@ -71,7 +96,7 @@ export async function selfUpgrade(deps: SelfUpgradeDeps): Promise<boolean> {
       return true;
     }
     log(`the upgrade to ${wanted.imageTag} cannot finish: ${upgraded.reason}; rolling back to ${current}`);
-    const back = await deps.run('helm', ['rollback', name, '-n', namespace, '--timeout', CEILING])
+    const back = await deps.cluster.helm(['rollback', name, '-n', namespace, '--timeout', CEILING])
       .then(() => rollout(), (err: Error) => ({ state: 'hopeless' as const, reason: err.message }));
     const left = await clearAbandoned(since);
     const why = left ? `${upgraded.reason}; ${left}` : upgraded.reason;
@@ -86,11 +111,11 @@ export async function selfUpgrade(deps: SelfUpgradeDeps): Promise<boolean> {
   async function whileHelmRuns(args: string[], since: number): Promise<{ ok: true } | { ok: false; reason: string }> {
     const stop = new AbortController();
     const ended: { result?: { ok: true } | { ok: false; reason: string } } = {};
-    const helm = deps.run('helm', args, stop.signal).then(() => { ended.result = { ok: true }; }, (err: Error) => { ended.result = { ok: false, reason: err.message }; });
+    const helm = deps.cluster.helm(args, stop.signal).then(() => { ended.result = { ok: true }; }, (err: Error) => { ended.result = { ok: false, reason: err.message }; });
     for (;;) {
       await Promise.race([helm, sleep(5000)]);
       if (ended.result) return ended.result;
-      const stuck = stuckHook(JSON.parse(await deps.run('kubectl', ['get', 'jobs,pods', '-n', namespace, '-l', `app.kubernetes.io/instance=${name}`, '-o', 'json'])), since, now());
+      const stuck = stuckHook(JSON.parse(await deps.cluster.kubectl(['get', 'jobs,pods', '-n', namespace, '-l', `app.kubernetes.io/instance=${name}`, '-o', 'json'])), since, now());
       if (stuck) {
         stop.abort();
         await helm;
@@ -101,8 +126,8 @@ export async function selfUpgrade(deps: SelfUpgradeDeps): Promise<boolean> {
 
   async function clearAbandoned(since: number): Promise<string | undefined> {
     try {
-      const names = abandonedJobs(JSON.parse(await deps.run('kubectl', ['get', 'jobs', '-n', namespace, '-l', `app.kubernetes.io/instance=${name}`, '-o', 'json'])), since);
-      if (names.length > 0) await deps.run('kubectl', ['delete', 'jobs', '-n', namespace, '--ignore-not-found', ...names]);
+      const names = abandonedJobs(JSON.parse(await deps.cluster.kubectl(['get', 'jobs', '-n', namespace, '-l', `app.kubernetes.io/instance=${name}`, '-o', 'json'])), since);
+      if (names.length > 0) await deps.cluster.kubectl(['delete', 'jobs', '-n', namespace, '--ignore-not-found', ...names]);
       return undefined;
     } catch (err) {
       const said = `the jobs the upgrade left could not be removed, and one still running stops the next check-in: ${(err as Error).message}`;
@@ -114,7 +139,7 @@ export async function selfUpgrade(deps: SelfUpgradeDeps): Promise<boolean> {
   async function rollout(): Promise<{ state: 'done' } | { state: 'hopeless'; reason: string }> {
     let said = '';
     for (;;) {
-      const listed: unknown = JSON.parse(await deps.run('kubectl', ['get', 'deployments,statefulsets,replicasets,pods', '-n', namespace, '-l', `app.kubernetes.io/instance=${name}`, '-o', 'json']));
+      const listed: unknown = JSON.parse(await deps.cluster.kubectl(['get', 'deployments,statefulsets,replicasets,pods', '-n', namespace, '-l', `app.kubernetes.io/instance=${name}`, '-o', 'json']));
       const now = rolloutOf(listed);
       if (now.state !== 'rolling') return now;
       if (now.waiting !== said) log(`waiting: ${now.waiting}`);
@@ -122,18 +147,6 @@ export async function selfUpgrade(deps: SelfUpgradeDeps): Promise<boolean> {
       await sleep(5000);
     }
   }
-}
-
-export function runCommand(command: string, args: readonly string[], signal?: AbortSignal): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const child = spawn(command, args, { stdio: ['ignore', 'pipe', 'pipe'], ...(signal ? { signal } : {}) });
-    let out = '';
-    let said = '';
-    child.stdout.on('data', (chunk: Buffer) => { out += chunk.toString(); });
-    child.stderr.on('data', (chunk: Buffer) => { said = `${said}${chunk.toString()}`.slice(-2000); });
-    child.on('error', reject);
-    child.on('close', (code) => (code === 0 ? resolve(out) : reject(new Error(`${command} ${args[0]} ended with ${code}: ${said.trim()}`))));
-  });
 }
 
 function required(name: string): string {
@@ -146,6 +159,6 @@ if (process.argv[1]?.endsWith('self-upgrade.ts')) {
   selfUpgrade({
     root: { url: required('ROOT_URL'), instanceId: required('INSTANCE_ID'), credential: required('INSTANCE_CREDENTIAL') },
     release: { name: required('RELEASE_NAME'), namespace: required('RELEASE_NAMESPACE'), current: required('CURRENT_IMAGE_TAG') },
-    run: runCommand,
+    cluster: selfUpgradeClusterOn(clusterAccessFrom(process.env, { role: roleFromEnv(process.env).role })),
   }).then((ok) => { process.exitCode = ok ? 0 : 1; }, (err: Error) => { console.error(err.message); process.exitCode = 1; });
 }

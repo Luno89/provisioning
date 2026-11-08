@@ -1,5 +1,5 @@
 import { ignore } from '@koala/engine-core/failures';
-import { mkdtemp, rm } from 'fs/promises';
+import { mkdtemp, rm, stat } from 'fs/promises';
 import os from 'os';
 import path from 'path';
 import { workspaceRunning, type KubeRunner, type KubeStreamer } from './kube.js';
@@ -90,6 +90,7 @@ export const prepareScript = (commit: boolean): string => [
 export const bundleScript = [trusting('$1'), 'exec git -C "$1" bundle create - --all'].join('\n');
 
 const INCOMING = '/tmp/koala-restore.bundle';
+export const SEND_IN = `cat > ${INCOMING} && wc -c < ${INCOMING}`;
 const BROUGHT = 'refs/koala/brought';
 
 export const restoreScript = [
@@ -237,6 +238,14 @@ export function createWorkspaceDocuments(options: { kube: KubeRunner; stream: Ku
     return next;
   };
 
+  const sendIn = async (namespace: string, bundle: string, what: string): Promise<void> => {
+    const sent = await options.stream.fromFile(['exec', '-i', POD, '-n', namespace, '--', 'sh', '-c', SEND_IN], bundle);
+    if (sent.exitCode !== 0) throw new Error(`could not send ${what} into the workspace: ${sent.stderr.trim()}`);
+    const size = (await stat(bundle)).size;
+    const received = sent.stdout.trim();
+    if (received !== String(size)) throw new Error(`could not send ${what} into the workspace: it received ${received || 'nothing'} of its ${size} bytes`);
+  };
+
   const bringInto = (request: FolderBranch, script: string, message: string, who: string, movedOn: string) => oneAtATime(request.workspaceRunId, async (): Promise<BroughtBack> => {
     if (!options.repos.pullBranch) throw new Error(`this host cannot bring ${who}'s work into a workspace`);
     const namespace = workspaceName(request.workspaceRunId);
@@ -247,8 +256,7 @@ export function createWorkspaceDocuments(options: { kube: KubeRunner; stream: Ku
       if (!(await options.repos.pullBranch({ ownerId: request.ownerId, repo: request.repo, branch: request.branch, bundle }))) {
         return { brought: false, why: `${who} has not sent ${request.branch}` };
       }
-      const sent = await options.stream.fromFile(['exec', '-i', POD, '-n', namespace, '--', 'sh', '-c', `cat > ${INCOMING}`], bundle);
-      if (sent.exitCode !== 0) throw new Error(`could not send ${who}'s work into the workspace: ${sent.stderr.trim()}`);
+      await sendIn(namespace, bundle, `${who}'s work`);
       const taken = await options.kube(['exec', POD, '-n', namespace, '--', 'sh', '-c', script, 'sh', request.folder, request.branch, message]);
       const said = taken.stderr.trim().split('\n').map((line) => line.trim()).filter(Boolean);
       const conflicting = said.find((line) => line.startsWith('conflicts:'));
@@ -289,8 +297,7 @@ export function createWorkspaceDocuments(options: { kube: KubeRunner; stream: Ku
           if (!REJECTED.test(err.message)) throw err;
           const saved = path.join(scratch, 'saved.bundle');
           if (!(await options.repos.pull({ ownerId: request.ownerId, repo: request.repo, bundle: saved }))) throw err;
-          const sent = await options.stream.fromFile(['exec', '-i', POD, '-n', namespace, '--', 'sh', '-c', `cat > ${INCOMING}`], saved);
-          if (sent.exitCode !== 0) throw new Error(`could not send what was saved to ${request.repo} into the workspace: ${sent.stderr.trim()}`);
+          await sendIn(namespace, saved, `what was saved to ${request.repo}`);
           const merged = await options.kube(['exec', POD, '-n', namespace, '--', 'sh', '-c', reconcileScript, 'sh', request.path, SAVED_BRANCH]);
           if (merged.exitCode !== 0) throw new Error(`${request.repo} could not be saved: ${(merged.stderr || merged.stdout).trim()}`);
           return push();
@@ -310,8 +317,7 @@ export function createWorkspaceDocuments(options: { kube: KubeRunner; stream: Ku
       try {
         const bundle = path.join(scratch, 'documents.bundle');
         if (!(await options.repos.pull({ ownerId: request.ownerId, repo: request.repo, bundle }))) return { restored: false, why: `nothing has been saved to ${request.repo} yet` };
-        const sent = await options.stream.fromFile(['exec', '-i', POD, '-n', namespace, '--', 'sh', '-c', `cat > ${INCOMING}`], bundle);
-        if (sent.exitCode !== 0) throw new Error(`could not send ${request.repo} into the workspace: ${sent.stderr.trim()}`);
+        await sendIn(namespace, bundle, `${request.repo}`);
         const unpacked = await options.kube(['exec', POD, '-n', namespace, '--', 'sh', '-c', restoreScript, 'sh', request.path]);
         if (unpacked.exitCode !== 0) throw new Error(`could not restore ${request.repo} into ${request.path}: ${(unpacked.stderr || unpacked.stdout).trim()}`);
         return { restored: true };
@@ -328,8 +334,7 @@ export function createWorkspaceDocuments(options: { kube: KubeRunner; stream: Ku
       try {
         const bundle = path.join(scratch, 'documents.bundle');
         if (!(await options.repos.pull({ ownerId: request.ownerId, repo: request.repo, bundle }))) throw new Error(`nothing has been saved to ${request.repo}`);
-        const sent = await options.stream.fromFile(['exec', '-i', POD, '-n', namespace, '--', 'sh', '-c', `cat > ${INCOMING}`], bundle);
-        if (sent.exitCode !== 0) throw new Error(`could not send ${request.repo} into the workspace: ${sent.stderr.trim()}`);
+        await sendIn(namespace, bundle, `${request.repo}`);
         const fetched = await options.kube(['exec', POD, '-n', namespace, '--', 'sh', '-c', catchUpScript, 'sh', request.path, request.branch]);
         if (fetched.exitCode !== 0) throw new Error(`could not bring ${request.branch} of ${request.repo} into ${request.path}: ${(fetched.stderr || fetched.stdout).trim()}`);
       } finally {
@@ -373,8 +378,7 @@ export function createWorkspaceDocuments(options: { kube: KubeRunner; stream: Ku
         if (!(await options.repos.pullBranch({ ownerId: request.ownerId, repo: request.repo, branch: request.branch, bundle }))) {
           return { kept: false as const, why: `the machine has not sent ${request.branch}` };
         }
-        const sent = await options.stream.fromFile(['exec', '-i', POD, '-n', namespace, '--', 'sh', '-c', `cat > ${INCOMING}`], bundle);
-        if (sent.exitCode !== 0) throw new Error(`could not send the machine's work into the workspace: ${sent.stderr.trim()}`);
+        await sendIn(namespace, bundle, `the machine's work`);
         const kept = await options.kube(['exec', POD, '-n', namespace, '--', 'sh', '-c', keepBranchScript, 'sh', request.folder, request.branch]);
         if (kept.exitCode !== 0) return { kept: false as const, why: (kept.stderr || kept.stdout).trim() };
         return { kept: true as const, commit: kept.stdout.trim() };
@@ -393,8 +397,7 @@ export function createWorkspaceDocuments(options: { kube: KubeRunner; stream: Ku
       try {
         const bundle = path.join(scratch, 'documents.bundle');
         if (!(await options.repos.pull({ ownerId: request.ownerId, repo: request.from, bundle }))) return { brought: false, why: `nothing has been saved to ${request.from}` };
-        const sent = await options.stream.fromFile(['exec', '-i', POD, '-n', namespace, '--', 'sh', '-c', `cat > ${INCOMING}`], bundle);
-        if (sent.exitCode !== 0) throw new Error(`could not send ${request.from} into the workspace: ${sent.stderr.trim()}`);
+        await sendIn(namespace, bundle, `${request.from}`);
         const copied = await options.kube(['exec', POD, '-n', namespace, '--', 'sh', '-c', bringScript, 'sh', request.path]);
         if (copied.exitCode !== 0) throw new Error(`could not bring ${request.from} into ${request.path}: ${(copied.stderr || copied.stdout).trim()}`);
         return { brought: copied.stdout.split('\n').filter((line) => line.length > 0) };

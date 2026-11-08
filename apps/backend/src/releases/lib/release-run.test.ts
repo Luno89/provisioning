@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { marked, releaseHowOf, releaseHowProblem } from './release-run.js';
+import { clusterOfTarget, marked, releaseHowOf, releaseHowProblem } from './release-run.js';
 import type { OdooRelease } from './odoo-release.js';
 
 describe('how a project is released', () => {
@@ -32,5 +32,15 @@ describe('marking a release', () => {
 
   it('marks nothing for a release it does not know', () => {
     expect(marked([], 'nope', { state: 'live' }, 'now')).toEqual([]);
+  });
+});
+
+describe('the cluster a release reaches', () => {
+  it('is the one its target names by id', () => {
+    expect(clusterOfTarget({ clusterId: 'machine-m1', clusterName: 'box' })).toEqual({ clusterId: 'machine-m1' });
+  });
+
+  it('is refused, saying why, for a release started before targets named their cluster by id', () => {
+    expect(clusterOfTarget({ clusterName: 'box' } as never)).toMatchObject({ problem: 'this release was started before releases named their cluster by id, so box cannot be reached for it; release the build again' });
   });
 });

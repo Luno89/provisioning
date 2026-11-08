@@ -1,6 +1,7 @@
 import { sanitizeNamespace } from '../../models/lib/model-registry.js';
 import { cacheFolderProblem } from '../../models/lib/tabby-cache-path.js';
 import { listAt, textAt } from '../../platform/lib/json-shapes.js';
+import { CLI_CEILING } from '../../platform/lib/activity-liveness.js';
 
 const NAMESPACE_MAX = 63;
 
@@ -62,4 +63,9 @@ export function podLogTarget(dep: { name: string; namespace?: string | undefined
   if (asked.namespace !== undefined && asked.namespace !== '' && asked.namespace !== namespace) return undefined;
   if (typeof asked.podName !== 'string' || !POD_NAME.test(asked.podName)) return undefined;
   return { namespace, podName: asked.podName };
+}
+
+export async function removeNamespace(kubectl: (args: string[]) => Promise<unknown>, namespace: string): Promise<void> {
+  await kubectl(['delete', 'namespace', namespace, '--ignore-not-found=true', '--wait=false']);
+  await kubectl(['wait', '--for=delete', `namespace/${namespace}`, `--timeout=${CLI_CEILING}`]);
 }

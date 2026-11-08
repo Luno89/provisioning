@@ -46,7 +46,7 @@ import { LoggingStack } from "./constructs/logging.js";
 import { TelemetryStack } from "./constructs/telemetry.js";
 import { KoalaDashboardsStack } from "./constructs/koala-dashboards.js";
 import { HetznerVmStack } from "./constructs/hetzner-vm.js";
-import { K8sProviderService } from "./lib/k8s-provider-service.js";
+import { K8sProviderService, kubeconfigFrom } from "./lib/k8s-provider-service.js";
 import { type VpnConfig } from "./lib/vpn-service.js";
 
 export interface ClusterStackConfig {
@@ -54,15 +54,8 @@ export interface ClusterStackConfig {
   name: string;
 }
 
-function initK8sProvider(scope: Construct, config: ClusterStackConfig): void {
-  const isLocal = config.environment === "local" || config.environment === "k3d";
-  const kubeconfig = process.env.KUBECONFIG_PATH || (isLocal ? "~/.kube/config" : `/tmp/kubeconfig-${config.name}`);
-  const context = isLocal ? `k3d-${config.name}` : undefined;
-
-  K8sProviderService.initialize(scope, {
-    kubeconfigPath: kubeconfig,
-    kubeconfigContext: context,
-  });
+function initK8sProvider(scope: Construct): void {
+  K8sProviderService.initialize(scope, { kubeconfigPath: kubeconfigFrom(process.env, "KUBECONFIG_PATH") });
 }
 
 /**
@@ -79,7 +72,7 @@ function remoteWriteUrl(): string {
 class ClusterStack extends TerraformStack {
   constructor(scope: Construct, id: string, config: ClusterStackConfig) {
     super(scope, id);
-    initK8sProvider(this, config);
+    initK8sProvider(this);
 
     new BaseCluster(this, "cluster", {
       environment: config.environment,
@@ -122,7 +115,7 @@ class ClusterStack extends TerraformStack {
 class ObservabilityStack extends TerraformStack {
   constructor(scope: Construct, id: string, config: ClusterStackConfig) {
     super(scope, id);
-    initK8sProvider(this, config);
+    initK8sProvider(this);
 
     // "monitoring" matches MonitoringStack's own hardcoded namespace name (ClusterStack, applied
     // first) — Grafana's dashboard sidecar watches ConfigMaps by label across all namespaces (see

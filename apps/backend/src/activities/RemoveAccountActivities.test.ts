@@ -33,7 +33,7 @@ const steps = (over: Partial<AccountRemovalDeps> = {}): AccountRemovalActivities
   mesh,
   secrets,
   files,
-  apps: { clusterById: async () => undefined, logFile: () => '/logs/destroy.log', taskQueue: 'cluster-ops-queue' },
+  apps: { clusterById: async () => undefined, handOver: async (clusterId: string) => ({ clusterId, reach: { clusterId, kind: 'koala' as const } }), logFile: () => '/logs/destroy.log', taskQueue: 'cluster-ops-queue' },
   ...over,
 });
 

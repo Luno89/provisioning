@@ -2,8 +2,9 @@ import { describe, expect, it, vi } from 'vitest';
 import { testDatabase } from '../../platform/lib/test-database.js';
 import type { ClusterMetadata } from '../../platform/lib/types.js';
 import { startAppDeploy, type AppDeployDeps } from './AppDeploy.js';
+import { testClusterAccess } from '../testing/cluster-access.js';
 
-const CLUSTER: ClusterMetadata = { id: 'c1', name: 'shared', provider: 'k3d', status: 'healthy' } as ClusterMetadata;
+const CLUSTER: ClusterMetadata = { id: 'c1', name: 'shared', provider: 'machine', machineId: 'dev2', status: 'healthy' } as ClusterMetadata;
 
 async function deps(): Promise<{ deps: AppDeployDeps; started: { workflowId: string; args: Record<string, unknown> }[] }> {
   const db = await testDatabase();
@@ -19,6 +20,7 @@ async function deps(): Promise<{ deps: AppDeployDeps; started: { workflowId: str
       client: () => ({ workflow: { start } }) as never,
       masterKey: 'test-key-that-is-at-least-32-characters-long' as never,
       clusterById: async (id) => (id === CLUSTER.id ? CLUSTER : undefined),
+      handOver: (clusterId) => testClusterAccess(db).handOver(clusterId),
       logDir: '/tmp',
       claims: { role: 'combined' },
     },
@@ -44,6 +46,7 @@ describe('two people can each have an app called shop', () => {
       ['bob', 'shop', bob.deployment.namespace],
     ]);
     expect(started.map((run) => run.args.namespace)).toEqual([ann.deployment.namespace, bob.deployment.namespace]);
+    expect(started[0]!.args).toMatchObject({ clusterId: 'c1', machine: { deviceId: 'dev2' } });
   });
 
   it('deploying the same app again as its owner reuses the record, not another owner\'s', async () => {

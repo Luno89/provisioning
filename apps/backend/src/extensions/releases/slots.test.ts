@@ -22,7 +22,7 @@ import type { SlotCluster } from './slot-cluster.js';
 
 const INPUT: ReleaseRunInput = {
   ownerId: 'bo', projectId: 'p1', adapter: 'fake',
-  target: { clusterName: 'dev', provider: 'k3d', namespace: 'shop', release: 'shop' },
+  target: { clusterId: 'machine-dev', clusterName: 'dev', provider: 'machine', namespace: 'shop', release: 'shop' },
   host: 'shop.apps.local', previewHost: 'shop-preview.apps.local',
   secretTarget: { clusterName: 'dev', provider: 'k3d', isMock: false },
   build: { releaseId: 'r2', image: 'reg/shop:two', source: { owner: 'bo', repo: 'shop', commit: 'two' } },

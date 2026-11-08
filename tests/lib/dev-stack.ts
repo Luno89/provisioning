@@ -8,6 +8,8 @@ import { createDatabase, type Database } from '../../apps/backend/src/platform/l
 import { loadKeys } from '../../apps/backend/src/platform/lib/keys.js';
 import { temporalApiKey, temporalNamespaceFrom } from '../../apps/backend/src/platform/lib/temporal-auth.js';
 import { DEV } from '../../apps/backend/src/instances/lib/dev-root.js';
+import { nodeStreams } from '../../apps/backend/src/platform/services/processes.js';
+import type { KoalasCluster } from '../../apps/backend/src/engine-host/sandboxes/kube.js';
 import { fetchSide, handOff, sessionFrom } from './handoff.js';
 import { devFile } from './dev-temporal.js';
 
@@ -115,4 +117,8 @@ export function devKoalaDatabase(): Database {
     ...keys,
     MONGO_URI: `mongodb://admin:${encodeURIComponent(keys.MONGO_ROOT_PASSWORD!)}@${address}:27017/${database}?authSource=admin&directConnection=true`,
   });
+}
+
+export function devKoalasCluster(): KoalasCluster {
+  return { start: (args, io) => Promise.resolve(nodeStreams.start({ command: 'k3s', args: ['kubectl', '--kubeconfig', DEV_KUBECONFIG, ...args] }, io)) };
 }

@@ -13,8 +13,8 @@ import { PoolChartActivity, PoolFailedActivity, PoolHostActivity, PoolProxyActiv
 import { DependencyWatchActivity } from './activities/DependencyWatchActivity.js';
 import { ServerOrderBootstrapActivity, ServerOrderDnsActivity, ServerOrderFailedActivity, ServerOrderFollowActivity, ServerOrderMailCheckActivity, ServerOrderRebuildActivity, ServerOrderReleaseActivity, ServerOrderReverseDnsActivity, ServerOrderSshActivity, ServerOrderStoppedActivity } from './activities/RootNodeActivities.js';
 import { CrawlBatchActivity, NextBatchActivity, SeedFrontierActivity, DiscardFrontierActivity, PurgeCorpusActivity, SearchCorpusActivity, NewIngestIdActivity } from './activities/CrawlActivity.js';
-import { createWorkerLogger, buildDataConverter, connectTemporalWorker, temporalTlsProblem, sharedPayloadBlobs, loadKeys, SYSTEM_KUBECONFIG, telemetrySettings, temporalNamespaceFrom } from './platform/index.js';
-import { healthPort, serveHealth, sharedClusterProxy } from './infrastructure/index.js';
+import { createWorkerLogger, buildDataConverter, connectTemporalWorker, temporalTlsProblem, sharedPayloadBlobs, loadKeys, roleFromEnv, telemetrySettings, temporalNamespaceFrom } from './platform/index.js';
+import { clusterAccessFrom, healthPort, serveHealth, sharedClusterProxy } from './infrastructure/index.js';
 import { collectorSink } from './monitoring/index.js';
 import { heartbeatWhileRunning, WORKER_DEFAULTS } from '@koala/engine-core';
 import { traceActivities } from '@koala/engine-core/telemetry';
@@ -26,7 +26,8 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 dotenv.config({ quiet: true });
 
 const telemetry = startTelemetry(telemetrySettings(process.env, 'koala-worker-host'));
-telemetry.exportTo(collectorSink({ env: process.env, proxy: sharedClusterProxy(), kubeconfigPath: () => process.env.KUBECONFIG_PATH || SYSTEM_KUBECONFIG }));
+const access = clusterAccessFrom(process.env, { role: roleFromEnv(process.env).role });
+telemetry.exportTo(collectorSink({ env: process.env, proxy: sharedClusterProxy(), access, koalasCluster: () => access.own().clusterId }));
 
 const logger = createWorkerLogger('host-worker');
 

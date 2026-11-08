@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import dotenv from 'dotenv';
 import { createDatabase } from '../apps/backend/src/platform/lib/db-interface.js';
 import { liveEngineHost } from './lib/live-engine-host.js';
+import { devKoalasCluster } from './lib/dev-stack.js';
 import { getTemporalClient } from '../apps/backend/src/platform/lib/temporal-client.js';
 import { DEFAULT_ENGINE_TASK_QUEUE, groveRunWorkflowId, type AgentRunOutcome, type GroveRunResult } from '../apps/backend/src/engine-host/temporal/contracts.js';
 import { GiteaService } from '../apps/backend/src/projects/services/GiteaService.js';
@@ -194,7 +195,7 @@ async function main(): Promise<void> {
 
   console.log('  deleting the tree through /api/trees, which concludes its workspace through ConcludeWorkspaceWorkflow first');
   await http.delete(`/trees/${encodeURIComponent(treeId)}`);
-  const kube = createKubeRunner();
+  const kube = createKubeRunner(devKoalasCluster());
   const namespace = workspaceName(treeWorkspaceRunId(treeId));
   const lingering = await kube(['wait', '--for=delete', `namespace/${namespace}`, '--timeout=180s'], undefined, 200_000);
   assert.ok(lingering.exitCode === 0 || /not found/i.test(lingering.stderr), `the tree's workspace ${namespace} is still there: ${lingering.stderr}`);

@@ -9,6 +9,7 @@ import { promisify } from 'util';
 import { createClusterBackend, EXEC_PIDS, GROUPED_EXEC, STOP_GROUPED_EXEC, WorkspaceUnavailableError } from './cluster-backend.js';
 import { workspaceName, type RunWorkspace } from './workspace.js';
 import { createKubeRunner, type KubeResult, type KubeRunner } from './kube.js';
+import { nodeStreams } from '../../platform/index.js';
 import { workspaceStamp } from '../../engine/lib/published-workspace.js';
 
 const workspace: RunWorkspace = {
@@ -51,7 +52,8 @@ beforeEach(async () => {
   await mkdir(path.join(root, 'bin'));
   await writeFile(path.join(root, 'bin', 'kubectl'), kubectlInAFolder(root));
   await chmod(path.join(root, 'bin', 'kubectl'), 0o755);
-  inPod = createKubeRunner({ binDir: path.join(root, 'bin') });
+  const kubectl = path.join(root, 'bin', 'kubectl');
+  inPod = createKubeRunner({ start: async (args, io) => nodeStreams.start({ command: kubectl, args }, io) });
 });
 
 afterEach(async () => {

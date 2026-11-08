@@ -46,7 +46,7 @@ describe('deleting a project through Temporal', () => {
       RemoveProjectWorkflowsActivity: async () => { seen.push('workflows'); return 0; },
       RemoveProjectAppsActivity: async () => {
         seen.push('apps');
-        return [{ deploymentId: 'd1', workflowId: `app-destroy-shop-${clusterQueue}`, taskQueue: clusterQueue, args: { name: 'shop', clusterId: 'c', clusterName: 'system', provider: 'k3d', strategy: 'helm', logFile: '/tmp/x.log', appType: 'odoo-project', namespace: 'shop-1a2b3c' } }];
+        return [{ deploymentId: 'd1', workflowId: `app-destroy-shop-${clusterQueue}`, taskQueue: clusterQueue, args: { name: 'shop', clusterId: 'c', clusterName: 'system', provider: 'k3d', strategy: 'helm', logFile: '/tmp/x.log', appType: 'odoo-project', namespace: 'shop-1a2b3c', reach: { clusterId: 'c', kind: 'koala' as const } } }];
       },
       RemoveProjectAppStartedActivity: real.RemoveProjectAppStartedActivity,
       RemoveProjectWorkspacesActivity: async () => { seen.push('workspaces'); return 2; },

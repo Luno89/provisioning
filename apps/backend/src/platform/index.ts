@@ -54,7 +54,7 @@ export { claimSettingsFrom, holdsAccounts, roleFromEnv, servesHub, servesTenants
 export type { PlatformRole, RoleConfig } from './lib/platform-role.js';
 export { writePrivate } from './lib/private-file.js';
 export { ProcessFailed, succeeded } from './lib/processes.js';
-export type { Followed, ProcessResult, ProcessRun, Processes, Streams } from './lib/processes.js';
+export type { Followed, Io, ProcessResult, ProcessRun, Processes, Streams } from './lib/processes.js';
 export { addressProblem } from './lib/public-address.js';
 export { K3S_TRAEFIK_CONFIG, k3sConfigState, ourTraefikArgs, servicesLabelled, traefikOf } from './lib/request-metrics.js';
 export type { HelmRelease } from './lib/request-metrics.js';
@@ -66,7 +66,7 @@ export { checkedByOsv, inventoryComponents, osvVersion } from './lib/sbom.js';
 export type { ComponentKind, InventoryComponent } from './lib/sbom.js';
 export { sameSeededRow } from './lib/seed-diff.js';
 export { stopIfRunning } from './lib/stop-workflow.js';
-export { carryingTrace, SYSTEM_KUBECONFIG, telemetrySettings } from './lib/telemetry.js';
+export { carryingTrace, telemetrySettings } from './lib/telemetry.js';
 export { TEMPORAL_JWKS_PATH, temporalApiKey, temporalJwks, temporalNamespaceFrom } from './lib/temporal-auth.js';
 export { getTemporalClient, resolveOwnersWith } from './lib/temporal-client.js';
 export { buildDataConverter } from './lib/temporal-codec.js';

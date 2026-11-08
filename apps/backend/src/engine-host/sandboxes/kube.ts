@@ -1,9 +1,7 @@
-import { spawn } from 'child_process';
+import { createReadStream, createWriteStream } from 'fs';
 import { WORKSPACE_STAMP } from '../../engine/lib/published-workspace.js';
 import { assessWorkload } from '../../infrastructure/lib/workload-health.js';
-import { createReadStream, createWriteStream } from 'fs';
-import path from 'path';
-import { fileURLToPath } from 'url';
+import type { Followed, Io } from '../../platform/index.js';
 
 export interface KubeResult {
   stdout: string;
@@ -23,65 +21,48 @@ export interface KubeRunner {
 }
 
 export interface KubeStreamer {
-  toFile(args: string[], destination: string, timeoutMs?: number): Promise<{ exitCode: number; stderr: string }>;
-  fromFile(args: string[], source: string, timeoutMs?: number): Promise<{ exitCode: number; stderr: string }>;
+  toFile(args: string[], destination: string): Promise<{ exitCode: number; stderr: string }>;
+  fromFile(args: string[], source: string): Promise<{ exitCode: number; stdout: string; stderr: string }>;
 }
+
+export interface ClusterStarter {
+  start(clusterId: string, args: readonly string[], io?: Io): Promise<Followed>;
+}
+
+export interface KoalasCluster {
+  start(args: readonly string[], io?: Io): Promise<Followed>;
+}
+
+export const onKoalasCluster = (access: ClusterStarter, clusterId: () => string): KoalasCluster => ({
+  start: (args, io) => access.start(clusterId(), args, io),
+});
 
 export const MAX_OUTPUT_CHARS = 30_000;
 
-const REPO_BIN = fileURLToPath(new URL('../../../../../bin', import.meta.url));
-
-const kubectlAt = (binDir?: string): string => path.join(binDir ?? REPO_BIN, 'kubectl');
-
-export function createKubeStreamer(options: { binDir?: string; kubeconfig?: string | undefined } = {}): KubeStreamer {
-  const binary = kubectlAt(options.binDir);
-
-  const spawnWith = (
-    args: string[],
-    timeoutMs: number | undefined,
-    wire: (child: ReturnType<typeof spawn>) => (done: () => void) => void,
-  ) => new Promise<{ exitCode: number; stderr: string }>((resolve, reject) => {
-    const child = spawn(binary, args, {
-      env: { ...process.env, ...(options.kubeconfig ? { KUBECONFIG: options.kubeconfig } : {}) },
-    });
-    let stderr = '';
-    const timer = timeoutMs ? setTimeout(() => child.kill('SIGKILL'), timeoutMs) : undefined;
-    const finish = wire(child);
-
-    child.stderr!.on('data', (chunk: Buffer) => { stderr += chunk.toString(); });
-    child.on('error', (err) => { if (timer) clearTimeout(timer); reject(err); });
-    child.on('close', (code) => {
-      if (timer) clearTimeout(timer);
-      finish(() => resolve({ exitCode: code ?? -1, stderr: stderr.slice(0, MAX_OUTPUT_CHARS) }));
-    });
-  });
-
+export function createKubeStreamer(cluster: KoalasCluster): KubeStreamer {
+  const ran = async (followed: Followed) => {
+    const result = await followed.ended;
+    return { exitCode: result.code, stderr: result.stderr.slice(0, MAX_OUTPUT_CHARS) };
+  };
   return {
-    toFile: (args, destination, timeoutMs) => spawnWith(args, timeoutMs, (child) => {
-      const out = createWriteStream(destination);
-      child.stdout!.pipe(out);
-      child.stdin!.end();
-      return (done) => out.end(done);
-    }),
-
-    fromFile: (args, source, timeoutMs) => spawnWith(args, timeoutMs, (child) => {
-      child.stdout!.resume();
-      createReadStream(source).pipe(child.stdin!);
-      return (done) => done();
-    }),
+    toFile: async (args, destination) => {
+      const output = createWriteStream(destination);
+      const followed = await cluster.start(args, { output }).catch((err: unknown) => {
+        output.destroy();
+        throw err;
+      });
+      return ran(followed);
+    },
+    fromFile: async (args, source) => {
+      const result = await (await cluster.start(args, { input: createReadStream(source) })).ended;
+      return { exitCode: result.code, stdout: result.stdout.slice(0, MAX_OUTPUT_CHARS), stderr: result.stderr.slice(0, MAX_OUTPUT_CHARS) };
+    },
   };
 }
 
-export function createKubeRunner(options: { binDir?: string; kubeconfig?: string | undefined } = {}): KubeRunner {
-  const binary = kubectlAt(options.binDir);
-
-  return (args, input, timeoutMs, runOptions = {}) => new Promise<KubeResult>((resolve, reject) => {
-    const child = spawn(binary, args, {
-      env: { ...process.env, ...(options.kubeconfig ? { KUBECONFIG: options.kubeconfig } : {}) },
-    });
-
-    const stdout: Buffer[] = [];
-    const stderr: Buffer[] = [];
+export function createKubeRunner(cluster: KoalasCluster): KubeRunner {
+  return async (args, input, timeoutMs, runOptions = {}) => {
+    const followed = await cluster.start(args, input === undefined ? {} : { input });
     const outputChars = runOptions.outputChars ?? MAX_OUTPUT_CHARS;
 
     let stopped: 'timeout' | 'cancelled' | undefined;
@@ -93,33 +74,26 @@ export function createKubeRunner(options: { binDir?: string; kubeconfig?: string
           console.warn(`[kube] kubectl ${args[0] ?? ''} was stopped (${why}) but what it started could not be, so it may still run in its pod: ${(err as Error).message}`);
         })
         : Promise.resolve();
-      void ended.finally(() => child.kill('SIGKILL'));
+      void ended.finally(() => followed.stop());
     };
     const timer = timeoutMs ? setTimeout(() => stop('timeout'), timeoutMs) : undefined;
     const onAbort = (): void => stop('cancelled');
     if (runOptions.signal?.aborted) onAbort();
     else runOptions.signal?.addEventListener('abort', onAbort, { once: true });
-    const settle = (): void => {
+
+    try {
+      const result = await followed.ended;
+      return {
+        stdout: result.stdout.slice(0, outputChars),
+        stderr: result.stderr.slice(0, MAX_OUTPUT_CHARS),
+        exitCode: result.code,
+        ...(stopped ? { stopped } : {}),
+      };
+    } finally {
       if (timer) clearTimeout(timer);
       runOptions.signal?.removeEventListener('abort', onAbort);
-    };
-
-    child.stdout.on('data', (chunk: Buffer) => { stdout.push(chunk); });
-    child.stderr.on('data', (chunk: Buffer) => { stderr.push(chunk); });
-    child.on('error', (err) => { settle(); reject(err); });
-    child.on('close', (code) => {
-      settle();
-      resolve({
-        stdout: Buffer.concat(stdout).toString().slice(0, outputChars),
-        stderr: Buffer.concat(stderr).toString().slice(0, MAX_OUTPUT_CHARS),
-        exitCode: code ?? -1,
-        ...(stopped ? { stopped } : {}),
-      });
-    });
-
-    if (input !== undefined) child.stdin.end(input);
-    else child.stdin.end();
-  });
+    }
+  };
 }
 
 export interface ApplyRequest {

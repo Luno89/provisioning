@@ -50,8 +50,8 @@ describe('the two slots of an Odoo project', () => {
   });
 
   it('aims a release at its project\'s name and says whose it is', () => {
-    expect(releaseTargetOf({ name: 'system', provider: 'k3d' }, { id: 'p1', name: 'Shop', releaseName: 'shop-1a2b3c', ownerId: 'bo' }))
-      .toEqual({ clusterName: 'system', provider: 'k3d', namespace: 'shop-1a2b3c', release: 'shop-1a2b3c', owner: { ownerId: 'bo', projectId: 'p1' } });
+    expect(releaseTargetOf({ id: 'machine-m1', name: 'system', provider: 'machine' }, { id: 'p1', name: 'Shop', releaseName: 'shop-1a2b3c', ownerId: 'bo' }))
+      .toEqual({ clusterId: 'machine-m1', clusterName: 'system', provider: 'machine', namespace: 'shop-1a2b3c', release: 'shop-1a2b3c', owner: { ownerId: 'bo', projectId: 'p1' } });
   });
 
   it('splits a built image into its repository and tag, registry port and all', () => {

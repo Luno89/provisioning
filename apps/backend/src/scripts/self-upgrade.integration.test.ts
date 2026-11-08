@@ -8,7 +8,7 @@ import { mountRouter, TEST_USER, type Harness } from '../platform/routes/test-ha
 import { instancesRouter } from '../instances/routes/instances.js';
 import { InstanceService } from '../instances/services/InstanceService.js';
 import { UPGRADE_WORDS, withWhy } from '../instances/index.js';
-import { runCommand, selfUpgrade } from './self-upgrade.js';
+import { selfUpgrade } from './self-upgrade.js';
 
 const CHART = 'the chart root released';
 const DIGEST = `sha256:${'e'.repeat(64)}`;
@@ -85,7 +85,7 @@ function cluster(rollouts: unknown[], refusing: string[] = [], hooks?: Hooks) {
     }
     throw new Error(`the cluster was asked ${line}, which the test does not answer`);
   };
-  return { run, ran, seen };
+  return { cluster: { kubectl: (args: readonly string[]) => run('kubectl', args), helm: (args: readonly string[], signal?: AbortSignal) => run('helm', args, signal) }, ran, seen };
 }
 
 const NOW = Date.parse('2026-11-01T12:00:00Z');
@@ -104,7 +104,7 @@ describe('an instance upgrading itself to what root released', () => {
   it('tells root it runs what root released when it already does', async () => {
     const { root, record } = await rootServing();
     const kube = cluster([]);
-    expect(await selfUpgrade({ root, release: { name: 'luno', namespace: 'nowrinkles', current: 'new222' }, run: kube.run, ...quiet })).toBe(true);
+    expect(await selfUpgrade({ root, release: { name: 'luno', namespace: 'nowrinkles', current: 'new222' }, cluster: kube.cluster, ...quiet })).toBe(true);
     expect(kube.ran).toEqual([]);
     expect(await record()).toMatchObject({ status: 'ready', detail: UPGRADE_WORDS.running('new222'), running: 'new222' });
   });
@@ -112,7 +112,7 @@ describe('an instance upgrading itself to what root released', () => {
   it('installs root\'s chart with the image by its digest, waits for the rollout without a deadline, and says it upgraded', async () => {
     const { root, record } = await rootServing();
     const kube = cluster([rolledOut('3', STARTING, false), rolledOut('3', READY, true)]);
-    expect(await selfUpgrade({ root, release: { name: 'luno', namespace: 'nowrinkles', current: 'old111' }, run: kube.run, ...quiet })).toBe(true);
+    expect(await selfUpgrade({ root, release: { name: 'luno', namespace: 'nowrinkles', current: 'old111' }, cluster: kube.cluster, ...quiet })).toBe(true);
     const upgrade = kube.ran.find((line) => line.startsWith('helm upgrade'))!;
     expect(upgrade).toContain('--set image.tag=new222 --set-string image.digest=' + DIGEST);
     expect(upgrade).not.toContain('--wait');
@@ -123,7 +123,7 @@ describe('an instance upgrading itself to what root released', () => {
   it('rolls back the moment the new pods cannot start, and tells root why', async () => {
     const { root, record } = await rootServing();
     const kube = cluster([rolledOut('3', PULLING, false), rolledOut('4', READY, true)]);
-    expect(await selfUpgrade({ root, release: { name: 'luno', namespace: 'nowrinkles', current: 'old111' }, run: kube.run, ...quiet })).toBe(false);
+    expect(await selfUpgrade({ root, release: { name: 'luno', namespace: 'nowrinkles', current: 'old111' }, cluster: kube.cluster, ...quiet })).toBe(false);
     expect(kube.ran.filter((line) => line.startsWith('helm')).map((line) => line.split(' ').slice(0, 2).join(' '))).toEqual(['helm upgrade', 'helm rollback']);
     expect(await record()).toMatchObject({ status: 'failed', detail: withWhy(UPGRADE_WORDS.rolledBack('new222', 'old111'), 'pod-3: ImagePullBackOff'), running: 'old111' });
   });
@@ -131,7 +131,7 @@ describe('an instance upgrading itself to what root released', () => {
   it('says so when the rollback does not finish either', async () => {
     const { root, record } = await rootServing();
     const kube = cluster([rolledOut('3', PULLING, false)], ['helm rollback']);
-    expect(await selfUpgrade({ root, release: { name: 'luno', namespace: 'nowrinkles', current: 'old111' }, run: kube.run, ...quiet })).toBe(false);
+    expect(await selfUpgrade({ root, release: { name: 'luno', namespace: 'nowrinkles', current: 'old111' }, cluster: kube.cluster, ...quiet })).toBe(false);
     expect((await record()).detail).toBe(withWhy(UPGRADE_WORDS.notRolledBack('new222', 'old111'), 'pod-3: ImagePullBackOff; rolling back: helm rollback ended with 1: refused'));
   });
 
@@ -148,7 +148,7 @@ describe('an instance upgrading itself to what root released', () => {
       job('instance-move-data', MADE_NOW, true, 1),
     ] };
     const kube = cluster([rolledOut('4', READY, true)], [], { listing, jobs });
-    expect(await selfUpgrade({ root, release: { name: 'luno', namespace: 'nowrinkles', current: 'old111' }, run: kube.run, now: () => NOW, ...quiet })).toBe(false);
+    expect(await selfUpgrade({ root, release: { name: 'luno', namespace: 'nowrinkles', current: 'old111' }, cluster: kube.cluster, now: () => NOW, ...quiet })).toBe(false);
     expect(kube.seen.stopped).toBe(true);
     expect(kube.ran.filter((line) => line.startsWith('helm')).map((line) => line.split(' ').slice(0, 2).join(' '))).toEqual(['helm upgrade', 'helm rollback']);
     expect(kube.ran.filter((line) => line.startsWith('kubectl delete'))).toEqual(['kubectl delete jobs -n nowrinkles --ignore-not-found instance-platform-services instance-self-upgrade-29892377']);
@@ -162,7 +162,7 @@ describe('an instance upgrading itself to what root released', () => {
       job('instance-seed-old', LEFT_BEFORE, true), jobPod('seed-old', 'instance-seed-old', PULLING),
     ] };
     const kube = cluster([rolledOut('3', READY, true)], [], { listing, upgradeEndsAfter: 3 });
-    expect(await selfUpgrade({ root, release: { name: 'luno', namespace: 'nowrinkles', current: 'old111' }, run: kube.run, now: () => NOW, ...quiet })).toBe(true);
+    expect(await selfUpgrade({ root, release: { name: 'luno', namespace: 'nowrinkles', current: 'old111' }, cluster: kube.cluster, now: () => NOW, ...quiet })).toBe(true);
     expect(kube.seen).toEqual({ hookChecks: 3, stopped: false });
     expect(await record()).toMatchObject({ status: 'ready', detail: UPGRADE_WORDS.upgraded('new222'), running: 'new222' });
   });
@@ -170,19 +170,8 @@ describe('an instance upgrading itself to what root released', () => {
   it('changes nothing when the chart root sends is not the one it released', async () => {
     const { root, record } = await rootServing('0'.repeat(64));
     const kube = cluster([]);
-    expect(await selfUpgrade({ root, release: { name: 'luno', namespace: 'nowrinkles', current: 'old111' }, run: kube.run, ...quiet })).toBe(false);
+    expect(await selfUpgrade({ root, release: { name: 'luno', namespace: 'nowrinkles', current: 'old111' }, cluster: kube.cluster, ...quiet })).toBe(false);
     expect(kube.ran).toEqual([]);
     expect(await record()).toMatchObject({ status: 'failed', detail: UPGRADE_WORDS.wrongChart('new222') });
-  });
-});
-
-describe('running a command for the self-upgrade', () => {
-  it('stops the process when the upgrade stops waiting on it', async () => {
-    const stop = new AbortController();
-    const started = Date.now();
-    const running = runCommand('sleep', ['30'], stop.signal);
-    stop.abort();
-    await expect(running).rejects.toThrow();
-    expect(Date.now() - started).toBeLessThan(5_000);
   });
 });

@@ -2,7 +2,6 @@ import { context, propagation } from '@opentelemetry/api';
 import type { AxiosInstance } from 'axios';
 import { envSink, type TelemetrySettings } from '@koala/engine-core/telemetry-sdk';
 
-export const SYSTEM_KUBECONFIG = '/tmp/kubeconfig-provisioning-lunorica';
 export const VERSION_VAR = 'KOALA_VERSION';
 
 export function telemetrySettings(env: Readonly<Record<string, string | undefined>>, service: string): TelemetrySettings {
