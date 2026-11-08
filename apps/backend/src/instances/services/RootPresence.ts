@@ -23,6 +23,7 @@ export interface RootPresenceDeps {
   heard?: Readonly<Record<string, () => void>> | undefined;
   now?: () => Date;
   log?: (message: string) => void;
+  dependency?: { wentDown(dependency: 'root', reason: string, since: string): void; answered(dependency: 'root'): void } | undefined;
 }
 
 export const presenceUrl = (rootUrl: string): string => `${rootUrl.replace(/\/+$/, '')}${PRESENCE_NAMESPACE}`;
@@ -38,7 +39,7 @@ export class RootPresence {
 
   start(): void {
     if (this.socket) return;
-    this.reach = nextReach(undefined, false, this.now(), this.deps.afterMs).reach;
+    this.reachIs(nextReach(undefined, false, this.now(), this.deps.afterMs).reach);
     this.schedule();
     const socket = (this.deps.connect ?? io)(presenceUrl(this.deps.rootUrl), {
       transports: ['websocket'],
@@ -96,12 +97,12 @@ export class RootPresence {
     if (this.timer) clearTimeout(this.timer);
     this.timer = undefined;
     const { reach, tell } = nextReach(this.reach, true, this.now(), this.deps.afterMs);
-    this.reach = reach;
+    this.reachIs(reach);
     if (tell) this.tellOwner(tell);
   }
 
   private left(): void {
-    this.reach = nextReach(this.reach, false, this.now(), this.deps.afterMs).reach;
+    this.reachIs(nextReach(this.reach, false, this.now(), this.deps.afterMs).reach);
     this.schedule();
   }
 
@@ -118,9 +119,19 @@ export class RootPresence {
     this.timer = undefined;
     if (this.connected()) return;
     const { reach, tell } = nextReach(this.reach, false, this.now(), this.deps.afterMs);
-    this.reach = reach;
+    this.reachIs(reach);
     if (tell) this.tellOwner(tell);
     else this.schedule();
+  }
+
+  private reachIs(reach: Reach): void {
+    this.reach = reach;
+    if (reach.reachable) this.deps.dependency?.answered('root');
+    else if (isDown(reach)) this.deps.dependency?.wentDown('root', this.downReason(), reach.unreachableSince ?? this.now().toISOString());
+  }
+
+  downReason(): string {
+    return this.refusal ?? 'this instance\'s connection to it is closed';
   }
 
   private again(): void {

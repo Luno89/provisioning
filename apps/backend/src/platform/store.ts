@@ -4,6 +4,7 @@ import type { MigrationRecord } from './lib/migrations.js';
 import type { EndedSession } from './lib/ended-sessions.js';
 import { watchWrites, type Watching } from './lib/change-streams.js';
 import { attemptsKeptUntil, type LockoutRule, type SignInAttempts } from './lib/http-limits.js';
+import { isDependencyId, type DependencyStateRow } from './lib/dependencies.js';
 
 export interface PlatformStore extends AreaStore {
   hasMigration(name: string): Promise<boolean>;
@@ -14,6 +15,24 @@ export interface PlatformStore extends AreaStore {
   attemptsOf(key: string): Promise<SignInAttempts | undefined>;
   countFailure(key: string, now: number, rule: LockoutRule): Promise<{ before: SignInAttempts | undefined; after: SignInAttempts }>;
   clearAttempts(key: string): Promise<void>;
+  saveDependencyState(row: DependencyStateRow): Promise<void>;
+  dependencyStates(): Promise<DependencyStateRow[]>;
+}
+
+const PROCESSES: readonly string[] = ['backend', 'worker-host', 'worker-cluster', 'worker-engine'];
+
+export function dependencyStateFrom(doc: Record<string, unknown>): DependencyStateRow | undefined {
+  const { process, dependency, state, since, reason, at } = doc;
+  if (typeof process !== 'string' || !PROCESSES.includes(process) || !isDependencyId(dependency)) return undefined;
+  if ((state !== 'answering' && state !== 'down') || typeof at !== 'string') return undefined;
+  return {
+    process: process as DependencyStateRow['process'],
+    dependency,
+    state,
+    ...(typeof since === 'string' ? { since } : {}),
+    ...(typeof reason === 'string' ? { reason } : {}),
+    at,
+  };
 }
 
 export class MongoPlatformStore implements PlatformStore {
@@ -21,6 +40,10 @@ export class MongoPlatformStore implements PlatformStore {
 
   private get endedSessions() {
     return this.db().collection('endedSessions');
+  }
+
+  private get dependencyStateRows() {
+    return this.db().collection('dependencyStates');
   }
 
   private get signInAttempts() {
@@ -91,5 +114,19 @@ export class MongoPlatformStore implements PlatformStore {
 
   async clearAttempts(key: string): Promise<void> {
     await this.signInAttempts.deleteOne({ _id: key as never });
+  }
+
+  async saveDependencyState(row: DependencyStateRow): Promise<void> {
+    const { process, dependency, state, since, reason, at } = row;
+    await this.dependencyStateRows.replaceOne(
+      { _id: `${process}:${dependency}` as never },
+      { process, dependency, state, at, ...(since ? { since } : {}), ...(reason ? { reason } : {}) },
+      { upsert: true },
+    );
+  }
+
+  async dependencyStates(): Promise<DependencyStateRow[]> {
+    const docs = await this.dependencyStateRows.find({}).toArray();
+    return docs.map((doc) => dependencyStateFrom(doc)).filter((row): row is DependencyStateRow => row !== undefined);
   }
 }

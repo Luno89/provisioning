@@ -2,6 +2,7 @@ import type { DeploymentMetadata } from '../../platform/index.js';
 import { createWebTools, type WebTools } from './web-tools.js';
 import type { InfrastructureStore } from '../../infrastructure/index.js';
 import { namespaceOf } from '../../infrastructure/lib/app-namespace.js';
+import { reportingFetch, type DependencyReporter } from '../../platform/lib/dependencies.js';
 
 export interface ProxyTarget {
   service: string;
@@ -16,6 +17,8 @@ export interface WebToolsDeps {
   settings?: { searxngUrl?: string | undefined; crawl4aiUrl?: string | undefined; crawl4aiToken?: string | undefined } | undefined;
   pageFetch?: typeof fetch;
   pageCheck?: ((url: string) => Promise<string | undefined>) | undefined;
+  dependencies?: DependencyReporter | undefined;
+  baseFetch?: typeof fetch | undefined;
 }
 
 export function webToolsDepsFrom(
@@ -71,7 +74,15 @@ export async function resolveWebTools(deps: WebToolsDeps, ownerId?: string): Pro
     || (!crawlDep ? settings.crawl4aiToken : undefined)
     || undefined;
 
+  const watched = (dependency: 'searxng' | 'crawl4ai', fromSettings: boolean): typeof fetch | undefined =>
+    fromSettings && deps.dependencies && deps.baseFetch ? reportingFetch(deps.dependencies, dependency, deps.baseFetch) : undefined;
+  const searxngFetch = watched('searxng', !searxDep && Boolean(settings.searxngUrl));
+  const crawl4aiFetch = watched('crawl4ai', !crawlDep && Boolean(settings.crawl4aiUrl));
+
   const tools = createWebTools({
+    ...(deps.baseFetch ? { fetchImpl: deps.baseFetch } : {}),
+    ...(searxngFetch ? { searxngFetch } : {}),
+    ...(crawl4aiFetch ? { crawl4aiFetch } : {}),
     ...(deps.pageFetch ? { pageFetch: deps.pageFetch } : {}),
     ...(deps.pageCheck ? { pageCheck: deps.pageCheck } : {}),
     ...(searxngUrl ? { searxngUrl } : {}),

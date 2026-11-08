@@ -2,6 +2,7 @@ import type { EndedSession } from '../lib/ended-sessions.js';
 import { attemptsKeptUntil, type LockoutRule, type SignInAttempts } from '../lib/http-limits.js';
 import type { MigrationRecord } from '../lib/migrations.js';
 import type { PlatformStore } from '../store.js';
+import type { DependencyStateRow } from '../lib/dependencies.js';
 import type { Watching } from '../lib/change-streams.js';
 import { asStored } from './as-stored.js';
 import { copied } from './memory-records.js';
@@ -15,6 +16,16 @@ export class MemoryPlatformStore implements PlatformStore {
   private readonly migrations = new Map<string, Omit<MigrationRecord, 'name'>>();
   private readonly endedSessions = new Map<string, { until: number; at: number }>();
   private readonly signInAttempts = new Map<string, Attempts>();
+  private readonly dependencyStateRows = new Map<string, DependencyStateRow>();
+
+  async saveDependencyState(row: DependencyStateRow): Promise<void> {
+    const { since, reason, ...rest } = row;
+    this.dependencyStateRows.set(`${row.process}:${row.dependency}`, asStored({ ...rest, ...(since ? { since } : {}), ...(reason ? { reason } : {}) }));
+  }
+
+  async dependencyStates(): Promise<DependencyStateRow[]> {
+    return copied([...this.dependencyStateRows.values()]);
+  }
 
   async ensureIndexes(): Promise<void> {}
 

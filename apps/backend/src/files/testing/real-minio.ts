@@ -22,29 +22,40 @@ export interface RealMinio {
   settings: Omit<MinioSettings, 'bucket'>;
   name: string;
   stop(): Promise<void>;
+  halt(): Promise<void>;
+  resume(): Promise<void>;
 }
 
 const pause = (ms: number): Promise<void> => new Promise((done) => setTimeout(done, ms));
 
-export async function startMinio(processes: Processes = nodeProcesses): Promise<RealMinio> {
+export async function startMinio(processes: Processes = nodeProcesses, options: { port?: number } = {}): Promise<RealMinio> {
   const name = `koala-minio-test-${randomUUID().slice(0, 8)}`;
   const accessKey = 'koala-test';
   const secretKey = randomBytes(18).toString('hex');
   const docker = (...args: string[]): Promise<string> => succeeded(processes, { command: 'docker', args });
-  await docker('run', '-d', '--name', name, '-p', '127.0.0.1::9000', '-e', `MINIO_ROOT_USER=${accessKey}`, '-e', `MINIO_ROOT_PASSWORD=${secretKey}`, '-e', 'MINIO_BROWSER=off', MINIO_TEST_IMAGE, 'server', '/data');
+  await docker('run', '-d', '--name', name, '-p', `127.0.0.1:${options.port ?? ''}:9000`, '-e', `MINIO_ROOT_USER=${accessKey}`, '-e', `MINIO_ROOT_PASSWORD=${secretKey}`, '-e', 'MINIO_BROWSER=off', MINIO_TEST_IMAGE, 'server', '/data');
   const stop = async (): Promise<void> => { await docker('rm', '-f', name); };
-  try {
-    const port = Number((await docker('port', name, '9000')).split('\n')[0]!.split(':').pop()!.trim());
+  const ready = async (port: number): Promise<void> => {
     for (;;) {
       if ((await docker('inspect', '-f', '{{.State.Running}}', name)).trim() !== 'true') {
         const said = await processes.run({ command: 'docker', args: ['logs', '--tail', '20', name] });
         throw new Error(`the throwaway MinIO ${name} stopped while starting:\n${said.stdout}${said.stderr}`);
       }
       const answer = await fetch(`http://127.0.0.1:${port}/minio/health/ready`).catch(ignore('MinIO is still starting and not listening yet; the loop asks again'));
-      if (answer?.ok) break;
+      if (answer?.ok) return;
       await pause(200);
     }
-    return { settings: { endPoint: '127.0.0.1', port, useSSL: false, accessKey, secretKey }, name, stop };
+  };
+  try {
+    const port = Number((await docker('port', name, '9000')).split('\n')[0]!.split(':').pop()!.trim());
+    await ready(port);
+    return {
+      settings: { endPoint: '127.0.0.1', port, useSSL: false, accessKey, secretKey },
+      name,
+      stop,
+      halt: async () => { await docker('stop', name); },
+      resume: async () => { await docker('start', name); await ready(port); },
+    };
   } catch (failure) {
     await stop();
     throw failure;

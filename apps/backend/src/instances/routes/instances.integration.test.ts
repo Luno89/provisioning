@@ -280,13 +280,14 @@ describe('the new machine reading a moving instance through root', () => {
       prefix: '/api/instances',
       user: TEST_USER,
       router: async (db) => {
+        const now = new Date();
         await db.instances.saveInstance({
           id: 'inst-1', ownerId: TEST_USER.id, name: 'alice', status: 'ready', url: 'https://alice.koala.dev', createdAt: 'then', updatedAt: 'then', credentialHash: hashCredential('pool-secret'),
-          pool: { ports: { backend: 35000, edge: 35001, registry: 35002 }, startedAt: 'then', trialEndsAt: '2026-11-03T00:00:00.000Z' },
+          pool: { ports: { backend: 35000, edge: 35001, registry: 35002 }, startedAt: 'then', trialEndsAt: new Date(now.getTime() + 14 * 86_400_000).toISOString() },
         });
         const instances = new InstanceService(db, {
           rootUrl: 'https://app.koala.dev', rootPublicKeys: () => ['PEM'], meshLoginServer: 'https://mesh', registry: 'r', imageTag: 't', domain: 'koala.dev',
-        }, { createPreAuthKey: async () => ({ key: 'k' }) }, () => new Date('2026-10-20T00:00:00Z'), () => {}, {
+        }, { createPreAuthKey: async () => ({ key: 'k' }) }, () => now, () => {}, {
           start: async () => {}, trialChanged: async () => {}, remove: async () => {}, move: async () => {}, moveFinished: async () => {}, moveStopped: async () => {},
         });
         const started = await instances.startMove(TEST_USER.id);

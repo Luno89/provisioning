@@ -21,7 +21,8 @@ import { heartbeatWhileRunning, WORKER_DEFAULTS } from '@koala/engine-core';
 import { traceActivities } from '@koala/engine-core/telemetry';
 import { startTelemetry } from '@koala/engine-core/telemetry-sdk';
 import { ensureClusterMonitoring } from './activities/cluster-monitoring.js';
-import { collectorSink, koalaClusterMonitoring } from './monitoring/index.js';
+import { collectorEndpoint, collectorSink, koalaClusterMonitoring } from './monitoring/index.js';
+import { checkServices, collectorAnswers, reportCollectorTo, workerDependencies } from './platform/wiring/dependencies.js';
 import { workflowInterceptorModules } from './worker-interceptors.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -34,7 +35,11 @@ async function main() {
   const settings = clusterWorkerSettingsFrom(process.env);
   const telemetry = startTelemetry(telemetrySettings(settings, 'koala-worker-cluster'));
   const access = clusterAccessFrom(settings.clusters, { role: settings.role.role });
-  telemetry.exportTo(collectorSink({ otlpEndpoint: settings.telemetry.otlpEndpoint, proxy: sharedClusterProxy(access), koalasCluster: () => access.own().clusterId }));
+  const telemetryProxy = sharedClusterProxy(access);
+  telemetry.exportTo(collectorSink({ otlpEndpoint: settings.telemetry.otlpEndpoint, proxy: telemetryProxy, koalasCluster: () => access.own().clusterId }));
+  const dependencies = workerDependencies(settings, settings.mongo);
+  reportCollectorTo(telemetry, dependencies);
+  dependencies.checkWith('collector', collectorAnswers(settings.telemetry.otlpEndpoint ? () => settings.telemetry.otlpEndpoint : collectorEndpoint({ proxy: telemetryProxy, koalasCluster: () => access.own().clusterId })));
   Runtime.install({
     logger,
     telemetryOptions: {
@@ -53,12 +58,14 @@ async function main() {
   const steps: ClusterSteps = {
     access,
     infra: new InfrastructureService(terraformPlacesFor(settings.terraform)),
-    gitea: new GiteaService(dataKey, settings.gitea, { registryPullHost: settings.registryPullHost }),
-    infisical: new InfisicalService(dataKey, settings.infisical),
+    gitea: new GiteaService(dataKey, settings.gitea, { registryPullHost: settings.registryPullHost, reportsTo: dependencies }),
+    infisical: new InfisicalService(dataKey, settings.infisical, dependencies),
     database: { mongo: settings.mongo, dataKey },
     machineMetricsUrl: settings.machineMetricsUrl,
   };
 
+  checkServices(dependencies, { gitea: settings.gitea.url, infisical: settings.infisical.url });
+  void dependencies.start();
   const queue = settings.queues.own || 'cluster-ops-queue';
   const { address } = settings.temporal;
   logger.info(`[ClusterWorker] Starting — taskQueue=${queue}, address=${address}`);
@@ -89,6 +96,7 @@ async function main() {
       });
       break;
     } catch (err) {
+      dependencies.failed('temporal', err);
       logger.warn(`[ClusterWorker] ⚠️ Connection to Temporal server failed: ${(err as Error).message}. Retrying in 10s...`);
       await new Promise((resolve) => setTimeout(resolve, 10000));
     }

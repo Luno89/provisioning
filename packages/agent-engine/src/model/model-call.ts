@@ -1,5 +1,5 @@
 import type { ModelKind, SamplingConfig } from '@koala/harness-types';
-import { ignore } from '@koala/engine-core/failures';
+import { causeCode, ignore, LOST_CONNECTION, streamCutOff } from '@koala/engine-core/failures';
 import { buildModelRequest } from './model-request.js';
 import { pause, rateLimitedFetch } from './model-rate-limiter.js';
 import { patientFetch } from './patient-fetch.js';
@@ -158,21 +158,11 @@ async function askModel(spec: ModelCallSpec, sink: StreamSink): Promise<ModelCal
   }
 }
 
-const LOST_CONNECTION = new Set([
-  'ECONNREFUSED', 'ECONNRESET', 'EPIPE', 'EHOSTUNREACH', 'ENETUNREACH', 'ETIMEDOUT',
-  'UND_ERR_SOCKET', 'UND_ERR_CLOSED', 'UND_ERR_CONNECT_TIMEOUT',
-]);
-
-const causeCode = (err: unknown): string | undefined => {
-  const cause = (err as { cause?: { code?: unknown } } | undefined)?.cause;
-  return typeof cause?.code === 'string' ? cause.code : undefined;
-};
-
 export function connectionLost(err: unknown): boolean {
   if (err instanceof ModelCallError || !(err instanceof Error) || err.name === 'AbortError') return false;
   const code = causeCode(err);
   if (code) return LOST_CONNECTION.has(code);
-  return err.name === 'TypeError' && err.message === 'terminated';
+  return streamCutOff(err);
 }
 
 const describeLoss = (err: unknown): string => {

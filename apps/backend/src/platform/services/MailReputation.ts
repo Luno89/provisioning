@@ -1,5 +1,6 @@
 import { promises as dns } from 'node:dns';
 import { connect } from 'node:net';
+import { NAME_NOT_FOUND } from '../lib/dependencies.js';
 import {
   BLOCKLIST_TEST_ADDRESS, blocklistQuery, blocklistVerdict, forwardVerdict, mailHostOf, mailReport, MAIL_BLOCKLISTS, port25Verdict,
   PORT_25_PROBE, reverseDnsVerdict, type Blocklist, type DnsAnswer, type MailReadiness, type MailReport,
@@ -23,15 +24,13 @@ export interface MailReputationView {
   checking: boolean;
 }
 
-const NOT_THERE = new Set(['ENOTFOUND', 'ENODATA', 'NXDOMAIN']);
-
 export async function answerOf(asked: Promise<string[]>): Promise<DnsAnswer> {
   try {
     const found = await asked;
     return found.length ? { found } : { missing: true };
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code ?? '';
-    if (NOT_THERE.has(code)) return { missing: true };
+    if (NAME_NOT_FOUND.has(code)) return { missing: true };
     return { error: code || (error as Error).message };
   }
 }

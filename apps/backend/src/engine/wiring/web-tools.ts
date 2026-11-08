@@ -1,4 +1,5 @@
-import { publicAddressProblem, publicFetch, type Database, type WebToolSettings } from '../../platform/index.js';
+import { patientFetch } from '@koala/agent-engine';
+import { publicAddressProblem, publicFetch, type Database, type DependencyReporter, type WebToolSettings } from '../../platform/index.js';
 import { corpusEndpointsWith, crawlEndpointWith, resolveWebTools, webToolsDepsFrom, type CorpusEndpoints, type ProxyTarget, type WebToolsDeps } from '../lib/web-tools-resolver.js';
 import type { WebTools } from '../lib/web-tools.js';
 
@@ -8,6 +9,7 @@ export interface WebToolsPlace {
   db: Pick<Database, 'infrastructure'>;
   proxy: { serviceUrl(clusterId: string, serviceKey: string, target: ProxyTarget): Promise<string> };
   settings: WebToolSettings;
+  dependencies?: DependencyReporter | undefined;
 }
 
 export const webToolsDeps = (place: WebToolsPlace): WebToolsDeps => ({
@@ -15,6 +17,8 @@ export const webToolsDeps = (place: WebToolsPlace): WebToolsDeps => ({
   settings: place.settings,
   pageFetch: publicFetch,
   pageCheck: publicAddressProblem,
+  dependencies: place.dependencies,
+  baseFetch: (input, init) => patientFetch(input, init),
 });
 
 export const buildWebTools = (place: WebToolsPlace, ownerId?: string): Promise<WebTools> => resolveWebTools(webToolsDeps(place), ownerId);

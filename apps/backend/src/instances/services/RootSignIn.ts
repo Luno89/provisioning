@@ -2,7 +2,7 @@ import crypto from 'crypto';
 import * as client from 'openid-client';
 import { importJWK, jwtVerify, type JWTPayload } from 'jose';
 import {
-  decryptValue, encryptValue, endsSessions, revocationShaped, signJWT, verifyJWT,
+  decryptValue, encryptValue, endsSessions, refusedByServer, revocationShaped, signJWT, verifyJWT,
   type AccessRevocations, type AccessRevoked, type Database, type SecretKey,
 } from '../../platform/index.js';
 import type { IdentityKeyPair } from '../lib/identity-token.js';
@@ -248,7 +248,7 @@ export class RootSignIn {
     try {
       tokens = await client.refreshTokenGrant(await this.config(), decryptValue(stored.refreshToken, this.settings.dataKey));
     } catch (err) {
-      if (err instanceof client.ResponseBodyError) {
+      if (refusedByServer(err)) {
         await this.store.instances.dropClientSession(session.sid);
         return 'ended';
       }

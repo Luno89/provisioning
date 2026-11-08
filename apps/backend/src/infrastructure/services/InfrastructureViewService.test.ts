@@ -4,14 +4,15 @@ import type { Overview, Viewer } from '../../monitoring/index.js';
 import type { RunningItem } from '../lib/running.js';
 import type { WorkFailure } from '../lib/work-failures.js';
 import type { BrokenWorkload, ClusterContents, UnreadCluster } from './ClusterContentsService.js';
-import { idsToClear, InfrastructureViewService, waitingOnPerson, type InfrastructureViewDeps, type RootReach } from './InfrastructureViewService.js';
+import { idsToClear, InfrastructureViewService, waitingOnPerson, type InfrastructureViewDeps } from './InfrastructureViewService.js';
+import type { DependencyDown, Principal } from '../../platform/index.js';
 import type { RunningView } from './RunningService.js';
 
 const viewer = { id: 'person-1' } as Viewer;
 const item = (workflowId: string, over: Partial<RunningItem> = {}): RunningItem => ({ workflowId, kind: 'tree', title: workflowId, since: 'x', opens: { kind: 'tree', id: 't' }, cancel: { how: 'workflow' }, ...over }) as unknown as RunningItem;
 const broken = (name: string, about: BrokenWorkload['about']): BrokenWorkload => ({ name, about }) as unknown as BrokenWorkload;
 
-function deps(over: { attention?: Overview['attention']; broken?: BrokenWorkload[]; unread?: UnreadCluster[]; running?: Awaited<ReturnType<InfrastructureViewDeps['running']['view']>>; root?: RootReach | undefined; signals?: boolean } = {}) {
+function deps(over: { attention?: Overview['attention']; broken?: BrokenWorkload[]; unread?: UnreadCluster[]; running?: Awaited<ReturnType<InfrastructureViewDeps['running']['view']>>; dependencies?: DependencyDown[] | undefined; signals?: boolean } = {}) {
   const monitoring = mock<InfrastructureViewDeps['monitoring']>();
   monitoring.overview.mockResolvedValue({ attention: over.attention ?? [] } as Overview);
   monitoring.koala.mockResolvedValue({ state: 'ok' } as never);
@@ -23,7 +24,7 @@ function deps(over: { attention?: Overview['attention']; broken?: BrokenWorkload
   failures.shown.mockResolvedValue([{ id: 'run:a' } as WorkFailure]);
   const signals = mock<NonNullable<InfrastructureViewDeps['signals']>>();
   signals.open.mockResolvedValue([{ id: 's1' } as never]);
-  const all: InfrastructureViewDeps = { monitoring, contents, running, failures, ...(over.root ? { root: () => over.root } : {}), ...(over.signals ? { signals } : {}) };
+  const all: InfrastructureViewDeps = { monitoring, contents, running, failures, ...(over.dependencies ? { dependencies: async () => over.dependencies! } : {}), ...(over.signals ? { signals } : {}) };
   return { all, monitoring, contents, running, failures, signals };
 }
 
@@ -49,7 +50,7 @@ describe('InfrastructureViewService', () => {
     const { all } = deps({ running: { ok: true, value: { items: [item('r1'), item('r2', { asking: ['q'] as never })] } as unknown as RunningView } });
     const overview = await new InfrastructureViewService(all).overview(viewer);
     expect(overview).toMatchObject({ running: 2, waiting: [{ workflowId: 'r2' }], failures: [{ id: 'run:a' }], signals: [], koala: { state: 'ok' } });
-    expect(overview.root).toBeUndefined();
+    expect(overview.dependencies).toEqual([]);
     expect(overview.runningProblem).toBeUndefined();
   });
 
@@ -78,10 +79,21 @@ describe('InfrastructureViewService', () => {
     expect(await new InfrastructureViewService(all).overview(viewer)).toMatchObject({ running: 0, waiting: [], runningProblem: 'Temporal is not reachable' });
   });
 
-  it('carries root\'s reachability and the open signals when it has them', async () => {
-    const root: RootReach = { rootUrl: 'https://app.example.com', reachable: false, down: true };
-    const { all } = deps({ root, signals: true });
-    expect(await new InfrastructureViewService(all).overview(viewer)).toMatchObject({ root, signals: [{ id: 's1' }] });
+  it('carries the open signals when it has them', async () => {
+    const { all } = deps({ signals: true });
+    expect(await new InfrastructureViewService(all).overview(viewer)).toMatchObject({ signals: [{ id: 's1' }] });
+  });
+
+  it('carries the dependencies that are down, root among them, to whoever runs this Koala and to nobody else', async () => {
+    const down: DependencyDown[] = [
+      { dependency: 'root', name: 'Koala\'s root', since: '2026-10-29T10:00:00.000Z', reason: 'this instance\'s connection to it is closed', process: 'backend', where: 'https://app.example.com' },
+      { dependency: 'gitea', name: 'Gitea', since: '2026-10-29T10:05:00.000Z', reason: 'it refused the connection (ECONNREFUSED)', process: 'worker-engine' },
+    ];
+    const { all } = deps({ dependencies: down });
+    const owner: Principal = { kind: 'person', id: 'owner', claims: [{ role: 'person' }, { role: 'operator' }, { role: 'instance-owner' }] };
+    const member: Principal = { kind: 'person', id: 'member', claims: [{ role: 'person' }] };
+    expect((await new InfrastructureViewService(all).overview(owner)).dependencies).toEqual(down);
+    expect((await new InfrastructureViewService(all).overview(member)).dependencies).toEqual([]);
   });
 
   it('reads a cluster\'s contents and clears failures as the viewer', async () => {

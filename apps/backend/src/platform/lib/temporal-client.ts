@@ -8,6 +8,7 @@ import type { PlatformKeys } from './keys.js'
 import { temporalApiKey, temporalToken } from './temporal-auth.js'
 import { temporalTls } from './temporal-tls.js'
 import type { TemporalPlace } from './temporal-connection.js'
+import type { DependencyReporter } from './dependencies.js'
 
 export interface TemporalClientSettings {
   temporal: TemporalPlace
@@ -16,6 +17,11 @@ export interface TemporalClientSettings {
 
 let shared: Client | undefined
 let given: TemporalClientSettings | undefined
+let reporter: DependencyReporter | undefined
+
+export function reportTemporalTo(to: DependencyReporter): void {
+  reporter = to
+}
 
 export function connectTemporalAs(settings: TemporalClientSettings): void {
   given = settings
@@ -85,7 +91,11 @@ export async function getTemporalClient(): Promise<Client> {
     address: temporal.address,
     tls: temporalTls(temporal),
     apiKey: temporalApiKey(keys.temporal, { subject: 'koala-backend', namespace: temporal.namespace, role: 'write' }),
+  }).catch((err: unknown) => {
+    reporter?.failed('temporal', err)
+    throw err
   })
+  reporter?.answered('temporal')
   await registerOwnerAttribute(connection, temporal.namespace, temporalToken(keys.temporal, { subject: 'koala-backend', namespace: temporal.namespace, role: 'admin' }))
   const dataConverter = buildDataConverter(keys.payload, sharedPayloadBlobs())
   shared = new Client({

@@ -2,6 +2,7 @@ import { EventEmitter } from 'node:events';
 import type { ManagerOptions, Socket, SocketOptions } from 'socket.io-client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { RootPresence, presenceUrl, type RootPresenceDeps } from './RootPresence.js';
+import { DependencyStates } from '../../platform/services/DependencyStates.js';
 
 const GRACE = 300_000;
 const START = new Date('2026-11-02T12:00:00.000Z');
@@ -144,6 +145,24 @@ describe('an instance keeping a connection to root', () => {
     expect(pushed.map((entry) => entry.title)).toEqual(['Koala\'s root is not answering', 'Koala\'s root answers again']);
     expect(presence.view()).toMatchObject({ reachable: true, down: false });
     presence.stop();
+  });
+
+  it('makes root\'s dependency state down only once the grace is up, since it was last connected, and answering when it connects', async () => {
+    const dependency = new DependencyStates({ process: 'backend', described: ['root'], where: { root: 'https://app.example.com/' }, log: () => undefined });
+    const presence = rootPresence({ dependency });
+    presence.start();
+    socket.arrive();
+    socket.leave();
+    const left = new Date(Date.now()).toISOString();
+    await pass(GRACE - 1000);
+    expect(dependency.down()).toEqual([]);
+    await pass(2000);
+    expect(dependency.down()).toEqual([{ dependency: 'root', name: 'Koala\'s root', since: left, reason: 'this instance\'s connection to it is closed', process: 'backend', where: 'https://app.example.com/' }]);
+    socket.arrive();
+    await pass(0);
+    expect(dependency.down()).toEqual([]);
+    presence.stop();
+    dependency.stop();
   });
 
   it('counts the grace from the start when it never reaches root at all', async () => {

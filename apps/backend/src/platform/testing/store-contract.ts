@@ -7,6 +7,26 @@ const RULE: LockoutRule = { after: 3, windowMs: 60_000, forMs: 120_000 };
 const byId = <Row extends { id: string }>(list: Row[]): Row[] => [...list].sort((a, b) => a.id.localeCompare(b.id));
 
 export function platformStoreContract(make: () => Promise<PlatformStore>): void {
+  describe('the state of the dependencies each process uses', () => {
+    it('keeps one row per process and dependency, the last written', async () => {
+      const store = await make();
+      await store.saveDependencyState({ process: 'worker-engine', dependency: 'gitea', state: 'down', since: '2026-11-08T10:00:00.000Z', reason: 'it refused the connection (ECONNREFUSED)', at: '2026-11-08T10:00:00.000Z' });
+      await store.saveDependencyState({ process: 'worker-cluster', dependency: 'gitea', state: 'answering', at: '2026-11-08T10:00:01.000Z' });
+      await store.saveDependencyState({ process: 'worker-engine', dependency: 'gitea', state: 'answering', at: '2026-11-08T10:05:00.000Z' });
+      const rows = [...await store.dependencyStates()].sort((a, b) => a.process.localeCompare(b.process));
+      expect(rows).toEqual([
+        { process: 'worker-cluster', dependency: 'gitea', state: 'answering', at: '2026-11-08T10:00:01.000Z' },
+        { process: 'worker-engine', dependency: 'gitea', state: 'answering', at: '2026-11-08T10:05:00.000Z' },
+      ]);
+    });
+
+    it('gives back a down row with when it went down and why', async () => {
+      const store = await make();
+      await store.saveDependencyState({ process: 'worker-host', dependency: 'searxng', state: 'down', since: '2026-11-08T10:00:00.000Z', reason: 'it answered 503', at: '2026-11-08T10:00:00.000Z' });
+      expect(await store.dependencyStates()).toEqual([{ process: 'worker-host', dependency: 'searxng', state: 'down', since: '2026-11-08T10:00:00.000Z', reason: 'it answered 503', at: '2026-11-08T10:00:00.000Z' }]);
+    });
+  });
+
   describe('migrations that have run', () => {
     it('knows a migration only once it is recorded, and records it by its name', async () => {
       const store = await make();

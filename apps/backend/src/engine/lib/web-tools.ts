@@ -14,6 +14,8 @@ export interface WebToolsConfig {
   crawl4aiToken?: string | undefined;
   fetchImpl?: typeof fetch;
   pageFetch?: typeof fetch;
+  searxngFetch?: typeof fetch | undefined;
+  crawl4aiFetch?: typeof fetch | undefined;
   pageCheck?: ((url: string) => Promise<string | undefined>) | undefined;
 }
 
@@ -190,7 +192,7 @@ function crawl4ai(doFetch: typeof fetch, base: string, token: string) {
 export function createWebTools(config: WebToolsConfig = {}): WebTools {
   const doFetch = config.fetchImpl ?? patientFetch;
   const scrape = config.crawl4aiUrl && config.crawl4aiToken
-    ? crawl4ai(doFetch, config.crawl4aiUrl, config.crawl4aiToken)
+    ? crawl4ai(config.crawl4aiFetch ?? doFetch, config.crawl4aiUrl, config.crawl4aiToken)
     : undefined;
 
   return {
@@ -203,7 +205,7 @@ export function createWebTools(config: WebToolsConfig = {}): WebTools {
       if (!query.trim()) return { hits: [], unavailable: false };
 
       if (config.searxngUrl) {
-        const hits = await searxng(doFetch, config.searxngUrl, query, signal);
+        const hits = await searxng(config.searxngFetch ?? doFetch, config.searxngUrl, query, signal);
         if (hits) return { hits, answeredBy: 'searxng', unavailable: false };
       }
 

@@ -20,6 +20,8 @@ import type { MongoTarget } from './mongo-target.js';
 import type { SecretKey } from './crypto.js';
 import { clientOptionsFor } from './collection.js';
 import { ensureReplicaSet } from './replica-set.js';
+import type { DependencyReporter } from './dependencies.js';
+import { reportMongoReach } from './mongo-reach.js';
 
 export { databaseOf, mongoTarget } from './mongo-target.js';
 
@@ -31,6 +33,7 @@ export interface DatabaseSettings {
 export class MongoDB implements Database {
   private client: MongoClient | null = null;
   private db: Db | null = null;
+  private readonly reporters: DependencyReporter[] = [];
   readonly platform: MongoPlatformStore;
   readonly accounts: MongoAccountsStore;
   readonly instances: MongoInstancesStore;
@@ -67,6 +70,7 @@ export class MongoDB implements Database {
     const { uri, dbName, e2e: isE2E } = this.settings.mongo;
 
     this.client = new MongoClient(uri, clientOptionsFor(uri));
+    for (const reporter of this.reporters) reportMongoReach(this.client, reporter);
     await this.client.connect();
     await ensureReplicaSet(this.client);
     this.db = this.client.db(dbName);
@@ -89,6 +93,16 @@ export class MongoDB implements Database {
     await this.checks.ensureIndexes();
     await this.infrastructure.ensureIndexes();
     await this.engine.ensureIndexes();
+  }
+
+  async ping(): Promise<void> {
+    if (!this.db) throw new Error('the database is not connected');
+    await this.db.command({ ping: 1 });
+  }
+
+  reportReachTo(reporter: DependencyReporter): void {
+    this.reporters.push(reporter);
+    if (this.client) reportMongoReach(this.client, reporter);
   }
 
   transaction<T>(work: (tx: Tx) => Promise<T>): Promise<T> {

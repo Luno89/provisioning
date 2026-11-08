@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import { GONE_STATUSES } from '../../platform/lib/dependencies.js';
 
 export interface VapidKeys {
   publicKey: string;
@@ -90,7 +91,7 @@ const clipped = (text: string): string => (text.length > MAX_TEXT ? `${text.slic
 export const pushPayload = (message: PushMessage): string =>
   JSON.stringify({ title: clipped(message.title), body: clipped(message.body), path: message.path ?? '/', ...(message.tag ? { tag: message.tag } : {}) });
 
-export const gone = (statusCode: unknown): boolean => statusCode === 404 || statusCode === 410;
+export const gone = (statusCode: unknown): boolean => typeof statusCode === 'number' && GONE_STATUSES.has(statusCode);
 
 export const TEST_PUSH: PushMessage = { title: 'Koala can reach this device', body: 'This is the test you asked for. Alerts and things waiting on you will arrive like this.', path: '/#/settings', tag: 'koala-test' };
 

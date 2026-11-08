@@ -336,15 +336,15 @@ async function main(): Promise<void> {
   await until('the instance through Caddy before root stops', async () => (onInstance('/api/auth/me').status === 200 ? true : undefined));
   run('docker', ['stop', CONTAINERS.root]);
   const rootDown = await until('the instance to call root down', async () => {
-    const overview = json<{ root?: { down: boolean; unreachableSince?: string } }>(onInstance('/api/infrastructure'));
-    return overview.root?.down ? overview.root : undefined;
+    const overview = json<{ dependencies?: { dependency: string; since: string }[] }>(onInstance('/api/infrastructure'));
+    return overview.dependencies?.find((down) => down.dependency === 'root');
   });
-  console.log(`  root not answering since ${rootDown.unreachableSince}`);
+  console.log(`  root not answering since ${rootDown.since}`);
   run('docker', ['start', CONTAINERS.root]);
   await until('root answering again', async () => ((await fetch(`${ROOT_FOR_HOST}/api/identity/keys`).catch(() => undefined))?.ok ? true : undefined));
   await until('the instance to clear root down', async () => {
-    const overview = json<{ root?: { down: boolean } }>(onInstance('/api/infrastructure'));
-    return overview.root && !overview.root.down ? true : undefined;
+    const overview = json<{ dependencies?: { dependency: string }[] }>(onInstance('/api/infrastructure'));
+    return overview.dependencies && !overview.dependencies.some((down) => down.dependency === 'root') ? true : undefined;
   });
   console.log('  cleared once root answers again');
 

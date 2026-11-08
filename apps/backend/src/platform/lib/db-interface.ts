@@ -4,6 +4,7 @@ import { mongoPayloadBlobs } from './mongo-payload-blobs.js';
 import type { PayloadBlobs } from './payload-storage.js';
 import type { MongoTarget } from './mongo-target.js';
 import type { PlatformStore } from '../store.js';
+import type { DependencyReporter } from './dependencies.js';
 import type { AccountsStore } from '../../accounts/index.js';
 import type { InstancesStore } from '../../instances/index.js';
 import type { HubStore } from '../../hub/index.js';
@@ -21,6 +22,8 @@ import type { EngineStore } from '../../engine/index.js';
 export interface Database {
   init(): Promise<void>;
   close(): Promise<void>;
+  ping(): Promise<void>;
+  reportReachTo(reporter: DependencyReporter): void;
   transaction<T>(work: (tx: Tx) => Promise<T>): Promise<T>;
   platform: PlatformStore;
   accounts: AccountsStore;

@@ -152,7 +152,7 @@ export class MoveExport {
         }
       }
       const objects: KubeObject[] = [];
-      const listed = JSON.parse(await this.kubectl(['get', COPIED_KINDS.join(','), '-n', namespace, '-o', 'json', '--ignore-not-found'])) as { items?: KubeObject[] };
+      const listed = JSON.parse(await this.kubectl(['get', COPIED_KINDS.join(','), '-n', namespace, '-o', 'json'])) as { items?: KubeObject[] };
       objects.push(...(listed.items ?? []).filter(copied));
       const ns = JSON.parse(await this.kubectl(['get', 'namespace', namespace, '-o', 'json'])) as KubeObject;
       namespaces.push({ namespace, labels: ns.metadata?.labels ?? {}, objects, volumes: volumesOf(objects) });

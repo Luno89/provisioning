@@ -2,15 +2,13 @@ import { movedSettingsFrom } from '../lib/instance-move.js';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, expect, inject, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { nodeProcesses, nodeStreams } from '../../platform/index.js';
 import { ClusterAccess, startedMachine } from '../../infrastructure/index.js';
-import { TOOLS } from '../../infrastructure/testing/real-k3s.js';
+import { startK3s, TOOLS, type RealK3s } from '../../infrastructure/testing/real-k3s.js';
 import { trustedKeys } from '../lib/identity-token.js';
 import { REPLICAS_ANNOTATION } from '../lib/app-move.js';
 import { MoveExport, moveClusterOn, SELF_UPGRADE } from './MoveExport.js';
-
-const k3s = inject('k3s');
 
 const crd = (plural: string, group: string, kind: string): string =>
   `apiVersion: apiextensions.k8s.io/v1\nkind: CustomResourceDefinition\nmetadata:\n  name: ${plural}.${group}\nspec:\n  group: ${group}\n  scope: Namespaced\n  names:\n    plural: ${plural}\n    kind: ${kind}\n  versions:\n    - name: v1\n      served: true\n      storage: true\n      schema:\n        openAPIV3Schema:\n          type: object\n          x-kubernetes-preserve-unknown-fields: true\n`;
@@ -33,6 +31,10 @@ const manifests = [
 ].join('---\n');
 
 describe('a pool instance stopping for a move and taking work again, on a real cluster', () => {
+  let k3s: RealK3s;
+  beforeAll(async () => { k3s = await startK3s(); }, 120_000);
+  afterAll(async () => { await k3s?.stop(); });
+
   it('pauses its self-upgrade, scales its apps to nothing remembering how many ran, and starts them again as they were', async () => {
     const access = new ClusterAccess({ here: { root: false }, folder: mkdtempSync(join(tmpdir(), 'koala-move-export-')), processes: nodeProcesses, streams: nodeStreams, tools: TOOLS });
     const own = startedMachine('machine-pool', k3s.admin);

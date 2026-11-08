@@ -14,7 +14,8 @@ import { CrawlBatchActivity, NextBatchActivity, SeedFrontierActivity, DiscardFro
 import { createWorkerLogger, buildDataConverter, connectTemporalWorker, connectTemporalAs, hostWorkerSettingsFrom, keepPayloadsIn, temporalTlsProblem, sharedPayloadBlobs, SettingsError, telemetrySettings } from './platform/index.js';
 import { giveHostActivities, hostClusterAccess } from './activities/host-settings.js';
 import { serveHealth, sharedClusterProxy } from './infrastructure/index.js';
-import { collectorSink } from './monitoring/index.js';
+import { collectorEndpoint, collectorSink } from './monitoring/index.js';
+import { collectorAnswers, reportCollectorTo, workerDependencies } from './platform/wiring/dependencies.js';
 import { heartbeatWhileRunning, WORKER_DEFAULTS } from '@koala/engine-core';
 import { traceActivities } from '@koala/engine-core/telemetry';
 import { startTelemetry } from '@koala/engine-core/telemetry-sdk';
@@ -30,7 +31,11 @@ async function main() {
   const settings = hostWorkerSettingsFrom(process.env);
   const telemetry = startTelemetry(telemetrySettings(settings, 'koala-worker-host'));
   const access = hostClusterAccess(settings);
-  telemetry.exportTo(collectorSink({ otlpEndpoint: settings.telemetry.otlpEndpoint, proxy: sharedClusterProxy(access), koalasCluster: () => access.own().clusterId }));
+  const telemetryProxy = sharedClusterProxy(access);
+  telemetry.exportTo(collectorSink({ otlpEndpoint: settings.telemetry.otlpEndpoint, proxy: telemetryProxy, koalasCluster: () => access.own().clusterId }));
+  const dependencies = workerDependencies(settings, settings.mongo);
+  reportCollectorTo(telemetry, dependencies);
+  dependencies.checkWith('collector', collectorAnswers(settings.telemetry.otlpEndpoint ? () => settings.telemetry.otlpEndpoint : collectorEndpoint({ proxy: telemetryProxy, koalasCluster: () => access.own().clusterId })));
   Runtime.install({
     logger,
     telemetryOptions: {
@@ -46,6 +51,7 @@ async function main() {
   connectTemporalAs(settings);
   keepPayloadsIn(settings.mongo);
   giveHostActivities(settings, access);
+  void dependencies.start();
   const queue = settings.queues.own || 'host-ops-queue';
   const { address } = settings.temporal;
   logger.info(`[HostWorker] Starting — taskQueue=${queue}, address=${address}`);
@@ -101,6 +107,7 @@ async function main() {
       });
       break;
     } catch (err) {
+      dependencies.failed('temporal', err);
       logger.warn(`[HostWorker] ⚠️ Connection to Temporal server failed: ${(err as Error).message}. Retrying in 10s...`);
       await new Promise((resolve) => setTimeout(resolve, 10000));
     }

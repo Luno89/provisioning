@@ -157,18 +157,33 @@ describe('signing in across root, an instance and the hub, each its own process'
 
   it('root emails the owner once its instance has been gone a minute and once it is back; root gone shows on the instance and clears', async () => {
     onTestFailed(() => console.log(`mail: ${mail.received.map((message) => mail.subjectOf(message)).join(' | ')}\n── root ──\n${root.logs(80)}\n── instance ──\n${instance.logs(40)}`));
-    const rootSeen = async () => ((await call(`${instance.url}/api/infrastructure`, { cookie: session })).body as { root?: { down: boolean; reachable: boolean } }).root;
-    await until(async () => ((await rootSeen())?.reachable ? true : undefined));
-    await instance.stop();
-    const down = await mailTo(new RegExp(`Your instance .*\\(${instanceId}\\) has not answered for \\d+ minutes`));
-    expect(down.to).toEqual([owner.email]);
-    await instance.start();
-    await mailTo(new RegExp(`Your instance .*\\(${instanceId}\\) answers again`));
-    await until(async () => ((await rootSeen())?.reachable ? true : undefined));
-    await root.stop();
-    await until(async () => ((await rootSeen())?.down ? true : undefined));
-    await root.start();
-    await until(async () => ((await rootSeen())?.reachable ? true : undefined));
+    const rootDown = async () => {
+      const answer = await call(`${instance.url}/api/infrastructure`, { cookie: session });
+      expect(answer.status, JSON.stringify(answer.body)).toBe(200);
+      return (answer.body as { dependencies: { dependency: string }[] }).dependencies.some((down) => down.dependency === 'root');
+    };
+    const rootClient = new MongoClient(`${mongoUri}${databases.root}`);
+    await rootClient.connect();
+    const presentAtRoot = async () => {
+      const watch = await rootClient.db(databases.root).collection('instanceWatches').findOne({ _id: instanceId as never }) as { presence?: boolean; reach?: { reachable?: boolean } } | null;
+      return watch?.presence === true && watch.reach?.reachable === true ? true : undefined;
+    };
+    try {
+      await until(presentAtRoot);
+      expect(await rootDown()).toBe(false);
+      await instance.stop();
+      const down = await mailTo(new RegExp(`Your instance .*\\(${instanceId}\\) has not answered for \\d+ minutes`));
+      expect(down.to).toEqual([owner.email]);
+      await instance.start();
+      await mailTo(new RegExp(`Your instance .*\\(${instanceId}\\) answers again`));
+      await until(presentAtRoot);
+      await root.stop();
+      await until(async () => ((await rootDown()) ? true : undefined));
+      await root.start();
+      await until(async () => ((await rootDown()) ? undefined : true));
+    } finally {
+      await rootClient.close();
+    }
   });
 
   it('signing out everywhere on root ends the instance\'s and the hub\'s sessions at once, and revokes a run\'s grant', async () => {

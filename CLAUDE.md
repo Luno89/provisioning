@@ -1351,6 +1351,49 @@ In dev, `docker compose -f docker-compose.mailpit.yml up -d` and `MAIL_SMTP_URL=
 `npm run test:mail-live` proves the container signs mail that verifies (DKIM checked with `mailauth`) and refuses to
 relay for anyone else. `test:routing-live` proves an instance's email reaching its owner through root.
 
+## Outside dependencies
+
+Owner, 2026-11-08: "it should be a layer for any dependency that might be slow or can be retried"; "if a dependecy is down we
+should inform the user and have metrics alerts and best practices around our dependecies". This is slice 1: each dependency
+described once, with its state, shown and measured. Callers still handle their own failures as before.
+- **Described once** (`platform/lib/dependencies.ts`, pure): `DEPENDENCIES` names each one Koala's own processes call (Mongo "the
+  database", Temporal, MinIO "file storage (MinIO)", Gitea, Infisical, "the image registry", SearXNG, Crawl4AI, "Koala's root" from
+  an instance, "the hub" from an instance, "the telemetry collector") and how it is checked. `dependenciesOf(settings)` says which a
+  process uses, from its settings reader: one it has no setting for is not described for it (off stays off, never down).
+  `failureOf(error)` is the one rule for temporary or final, with a reason a person reads: a lost connection (`LOST_CONNECTION` and
+  `causeCode` in `@koala/engine-core/failures`, which the model call's `connectionLost` uses too), a timeout, 5xx, 429 (with
+  Retry-After), gRPC UNAVAILABLE, Mongo's network errors and MinIO's busy codes are temporary; a name that does not resolve
+  (`NAME_NOT_FOUND`, which the mail check reads), 404/410 (`GONE_STATUSES`, push's "device gone"), any other 4xx, an OAuth refusal
+  (`refusedByServer`, which `RootSignIn.refresh` reads to end a session) and anything unrecognised are final.
+- **States** (`platform/services/DependencyStates.ts`, one per process, built by `platform/wiring/dependencies.ts`): each described
+  dependency is answering or down `{ since, reason }`. A temporary failure reported to it (`failed`) marks it down and checks it
+  again with `reopening()` (5 s doubling to a minute, no deadline) only while down; the first check that answers, or a caller saying
+  it answered, marks it answering. A final failure a caller reports marks nothing (it is that call's error); a check refused at
+  start (a name that does not resolve, MinIO's AccessDenied: a setting is wrong) marks it down as "its check at start was refused: …"
+  and is checked again the same way until it answers. One check each at start (`start()`, which refuses a described dependency with
+  no check); no standing polling. Checks: Mongo `ping` and the driver's heartbeats, Temporal `getSystemInfo`,
+  MinIO `/minio/health/live`, Gitea `/api/healthz`, Infisical `/api/status`, the registry `/v2/`, SearXNG `/healthz`, Crawl4AI
+  `/health`, the collector's `/v1/metrics`, root and the hub from their open connections.
+- **Reporters** (each through its wiring): Mongo (`Database.reportReachTo`, the driver's heartbeat events), Temporal
+  (`getTemporalClient`'s connect, `TemporalBridge`'s following, each worker's connect loop), MinIO (`minioObjectStore`), Gitea
+  (`GiteaService`, `reportsTo`), Infisical (`InfisicalService`), the registry (the image builder's manifest check), SearXNG and
+  Crawl4AI (the web tools, only at the settings' addresses, never a person's own deployment), root (`RootPresence`: its "not
+  answering" after `WATCH_UNREACHABLE_MINUTES` is root's state, since when it was last connected; its push and root's email are
+  unchanged), the hub (`RemoteHub`'s connection and calls; root giving no way to a hub is not the hub failing), the collector
+  (`telemetry.reportSinkTo`, beside `logOnce`).
+- **Across processes**: the engine, cluster and host workers write each change of state (never every call, never Mongo's own) to
+  `dependencyStates` (one row per process and dependency, `PlatformStore.saveDependencyState`; a write Mongo refuses is written when
+  Mongo answers again); the backend reads them on each `GET /api/infrastructure` and puts them beside its own (`downAcross`).
+- **What the person sees**: `dependencies` on `GET /api/infrastructure` (down ones: name, since, reason, which process saw it, and
+  for root its address), only for whoever runs this Koala (`see-platform-dependencies`); Infrastructure → Needs attention lists
+  them first (`features/infrastructure/lib/dependency-lines.ts`): "<name> isn't answering since <time>: <reason>", root in the words
+  it always had ("Your instance has not reached Koala's root since …"), each gone once it answers.
+- **The metric**: every process exports `koala_dependency_up{dependency}` (1 answering, 0 down) through `KoalaMetrics`. No alert
+  rule yet.
+- **Adding a dependency**: its entry in `DEPENDENCIES`, the processes that use it in `dependenciesOf` (from their settings), a check
+  registered in that process's wiring (`checkWith`, or `checkServices` for an HTTP one), its client reporting through a
+  `DependencyReporter` (`reportingFetch` for fetch), and its line read in the frontend's duplicate of `DependencyId`.
+
 ## Root and instances know the other is there, and push reaches devices
 
 **Root and each instance know the other is there by one connection** (plan `~/.claude/plans/instance-presence.md`, owner
@@ -1368,8 +1411,8 @@ comes without `presence: true` while it is not connected (`install.sh` and the s
 this release is never called down for speaking an older protocol. Watch state lives in `instanceWatches` (`reach`, `presence`,
 `notifyWhenUnreachable`), apart from the instance record, which other writers replace whole. Root's page says the instance is down
 instead of sending the owner on (`unreachableSince` on `/api/identity/instance`), and People shows it. On the instance the same
-connection tells it root is gone: root down shows first under Infrastructure → Needs attention (`root` on `GET /api/infrastructure`)
-and is pushed to the owner. An open connection proves the instance's backend runs and reaches root, not that its public address
+connection tells it root is gone: root down is the `root` dependency's state (**Outside dependencies**), shown first under
+Infrastructure → Needs attention (`dependencies` on `GET /api/infrastructure`) and pushed to the owner. An open connection proves the instance's backend runs and reaches root, not that its public address
 answers through Caddy; `routing-live` and `test:root-smoke` prove routing. `test:dev-split-live` proves both directions in ship.
 
 **Push** (`PushService`, `monitoring/lib/web-push.ts`): Koala installs as an app (`public/manifest.webmanifest`, icons,
@@ -2042,7 +2085,12 @@ Temporal must use it too, or it cannot read an offloaded payload. A daily sweep 
 workflow's payloads once Temporal no longer has it. `npm run test:big-run-live` proves it on a real
 research run.
 
-Temporal itself is optional — the backend starts and falls back to plain DB polling if it's unreachable. Start it with `docker compose -f docker-compose.temporal.yml up`.
+Temporal is not optional, and there is no DB-polling fallback. A backend whose Temporal is down at start still starts: it tries the
+Temporal bridge every 10 s (`keepTrying` in `bootstrap()`), and until it connects deploys, builds and syncs fail, chats and runs answer
+503, Running and the Temporal page say Temporal cannot be reached, and no deployment or build is followed. Once connected, a Temporal
+that goes away makes each call fail after the client's own gRPC retries (about 20 s); the host and cluster workers retry their
+connection every 10 s, the engine worker every 5 s. Either way Temporal shows under Needs attention as a dependency that is not
+answering (**Outside dependencies**). Start it with `docker compose -f docker-compose.temporal.yml up`.
 
 ## GPU / vLLM support
 
@@ -2369,7 +2417,7 @@ dependency mocked, again in the integration tier with the real ones, and its flo
   and HTTP on loopback, real git and sh, and a throwaway k3s in Docker where a test needs a Kubernetes API (`startK3s` in
   `infrastructure/testing/real-k3s.ts`, the pinned `k3s-test-image`, the same k3s machines run; ready in about 8 s). That one k3s is
   shared by every integration file running at the same time, so **a test works in namespaces and releases it makes and asserts only
-  about those**: where the code reads the whole cluster (a cluster's page lists every release), the test checks that its own objects
+  about those**; a subject that by design acts on every namespace of its cluster (`MoveExport`, since a pool instance owns its vcluster) gets a k3s of its own (`startK3s` in its `beforeAll`), never a filter only the test would use. Where the code reads the whole cluster (a cluster's page lists every release), the test checks that its own objects
   are shown right, never that nothing else is there (a cluster-page test once expected no Helm releases while another file installed one), and **waits on the condition it needs**, not on something that usually comes before it (the edge test waits
   for the NodePort to answer from inside the edge's container, not for the Service to list its pod; `tests/audits/`). Never the dev stack, its cluster, `apps/backend/.env` or `data/` (the backend loads `.env`
   only when it starts itself, and `routes.integration.test.ts` boots it from an empty folder and home). It runs on half the cores

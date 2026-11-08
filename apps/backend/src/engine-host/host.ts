@@ -130,6 +130,7 @@ export interface EngineHostOptions {
   web?: WebTools | undefined;
   cluster: KoalasCluster;
   registry: RegistryHosts | { none: string };
+  reportsTo?: import('../platform/index.js').DependencyReporter | undefined;
   registryAccount?: (() => Promise<RegistryAccount>) | undefined;
   registryPushToken?: (() => Promise<PushToken>) | undefined;
   revokeRegistryPushToken?: ((name: string) => Promise<void>) | undefined;
@@ -245,6 +246,7 @@ export function createEngineHost(options: EngineHostOptions): EngineHost {
   const images = createImageBuilder({
     run: kube,
     registry: options.registry,
+    ...(options.reportsTo ? { reportsTo: options.reportsTo } : {}),
     ...(options.registryAccount ? { account: options.registryAccount } : {}),
     ...(options.registryPushToken ? { pushToken: options.registryPushToken } : {}),
     ...(options.revokeRegistryPushToken ? { revokePushToken: options.revokeRegistryPushToken } : {}),

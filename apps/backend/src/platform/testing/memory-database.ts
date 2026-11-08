@@ -22,6 +22,8 @@ export function memoryDatabase(): Database {
   return {
     init: async () => undefined,
     close: async () => undefined,
+    ping: async () => undefined,
+    reportReachTo: () => undefined,
     async transaction(work) {
       const before = new Map([...shared].map(([name, rows]) => [name, new Map([...rows].map(([key, row]) => [key, structuredClone(row)]))]));
       try {

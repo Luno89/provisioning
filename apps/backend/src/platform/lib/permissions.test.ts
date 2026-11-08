@@ -37,6 +37,13 @@ describe('the permissions table', () => {
     }
   });
 
+  it('shows whether the platform\'s own services answer only to whoever runs this Koala, saying why to anyone else', () => {
+    expect(allowed(operator, 'see-platform-dependencies', { kind: 'install' })).toBe(true);
+    expect(allowed(person('owner', [{ role: 'instance-owner' }]), 'see-platform-dependencies', { kind: 'install' })).toBe(true);
+    expect(authorize(someone, 'see-platform-dependencies', { kind: 'install' })).toEqual({ allowed: false, status: 403, error: 'Only whoever runs this Koala sees whether the services it depends on answer.' });
+    expect(allowed(person('member', [{ role: 'shared', project: 'p1', as: 'owner' }]), 'see-platform-dependencies', { kind: 'install' })).toBe(false);
+  });
+
   it('lets only the instance owner change the instance settings', () => {
     expect(allowed(instanceOwner, 'change', { kind: 'instance-settings' })).toBe(true);
     expect(authorize(operator, 'change', { kind: 'instance-settings' })).toMatchObject({ allowed: false, status: 403 });

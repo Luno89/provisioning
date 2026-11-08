@@ -2,6 +2,7 @@ import type { Readable } from 'node:stream';
 import { Client } from 'minio';
 import type { MinioSettings } from '../lib/minio-settings.js';
 import { idOfObjectKey, objectKey } from '../lib/stored-files.js';
+import type { DependencyReporter } from '../../platform/index.js';
 
 export type { MinioSettings };
 
@@ -30,9 +31,32 @@ const missing = (err: unknown): boolean => {
   return code === 'NotFound' || code === 'NoSuchKey';
 };
 
-export function minioObjectStore(settings: MinioSettings, client: MinioClient = new Client({
-  endPoint: settings.endPoint, port: settings.port, useSSL: settings.useSSL, accessKey: settings.accessKey, secretKey: settings.secretKey,
-})): ObjectStore {
+const unreported: DependencyReporter = { failed: () => undefined, answered: () => undefined };
+
+export function minioObjectStore(settings: MinioSettings, given?: MinioClient, reportsTo: DependencyReporter = unreported): ObjectStore {
+  const raw: MinioClient = given ?? new Client({
+    endPoint: settings.endPoint, port: settings.port, useSSL: settings.useSSL, accessKey: settings.accessKey, secretKey: settings.secretKey,
+  });
+  const reported = async <T>(asked: Promise<T>): Promise<T> => {
+    try {
+      const answer = await asked;
+      reportsTo.answered('minio');
+      return answer;
+    } catch (err) {
+      if (missing(err)) reportsTo.answered('minio');
+      else reportsTo.failed('minio', err);
+      throw err;
+    }
+  };
+  const client: MinioClient = {
+    bucketExists: (name) => reported(raw.bucketExists(name)),
+    makeBucket: (name: string) => reported(raw.makeBucket(name)),
+    putObject: ((...args: Parameters<MinioClient['putObject']>) => reported(raw.putObject(...args))) as MinioClient['putObject'],
+    getObject: ((...args: Parameters<MinioClient['getObject']>) => reported(raw.getObject(...args))) as MinioClient['getObject'],
+    statObject: ((...args: Parameters<MinioClient['statObject']>) => reported(raw.statObject(...args))) as MinioClient['statObject'],
+    removeObject: ((...args: Parameters<MinioClient['removeObject']>) => reported(raw.removeObject(...args))) as MinioClient['removeObject'],
+    listObjectsV2: ((...args: Parameters<MinioClient['listObjectsV2']>) => raw.listObjectsV2(...args)) as MinioClient['listObjectsV2'],
+  };
   const { bucket } = settings;
   let ready: Promise<void> | undefined;
   const bucketReady = (): Promise<void> => {
@@ -75,9 +99,14 @@ export function minioObjectStore(settings: MinioSettings, client: MinioClient = 
     async *ids() {
       await bucketReady();
       const listed = client.listObjectsV2(bucket, 'files/', true) as AsyncIterable<{ name?: string }>;
-      for await (const item of listed) {
-        const id = item.name ? idOfObjectKey(item.name) : undefined;
-        if (id) yield id;
+      try {
+        for await (const item of listed) {
+          const id = item.name ? idOfObjectKey(item.name) : undefined;
+          if (id) yield id;
+        }
+      } catch (err) {
+        reportsTo.failed('minio', err);
+        throw err;
       }
     },
   };

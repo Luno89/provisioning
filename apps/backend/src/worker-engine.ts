@@ -15,7 +15,7 @@ import {
 import {
   stopIfRunning, createDatabase, sharedPayloadBlobs, createWorkerLogger, buildDataConverter, connectTemporalWorker, temporalTlsProblem, failureReason,
   sessionToken, principalOf, claimsOf, claimSettingsFrom, getTemporalClient, resolveOwnersWith, startedFor, carryingTrace, telemetrySettings, AccessRevocations,
-  publicAddressProblem, encryptValue, engineWorkerSettingsFrom, connectTemporalAs, keepPayloadsIn, SettingsError, type EngineWorkerSettings,
+  publicAddressProblem, encryptValue, engineWorkerSettingsFrom, connectTemporalAs, keepPayloadsIn, SettingsError, type EngineWorkerSettings, type DependencyStates,
 } from './platform/index.js';
 import type { ClaimedUser } from './platform/index.js';
 import { rootSignInFor } from './instances/wiring/sign-in.js';
@@ -47,7 +47,8 @@ import { labelValue } from './engine-host/sandboxes/workspace.js';
 import { itSays, wasReported } from './eval/level2/reported.js';
 import { createProcedureExecutor } from './engine-host/nodes/index.js';
 import axios from 'axios';
-import { poolMonitor, poolMonitorFrom, collectorSink } from './monitoring/index.js';
+import { poolMonitor, poolMonitorFrom, collectorEndpoint, collectorSink } from './monitoring/index.js';
+import { checkServices, collectorAnswers, reportCollectorTo, workerDependencies } from './platform/wiring/dependencies.js';
 import { monitoringServiceFor } from './monitoring/wiring/monitoring.js';
 import { runCancelledVia, runEndedVia } from './engine-host/temporal/run-cancellation.js';
 import { createKubeRunner, onKoalasCluster } from './engine-host/sandboxes/kube.js';
@@ -88,23 +89,24 @@ dotenv.config({ quiet: true });
 
 const logger = createWorkerLogger('engine-worker');
 
-async function buildActivities(settings: EngineWorkerSettings) {
+async function buildActivities(settings: EngineWorkerSettings, dependencies: DependencyStates) {
   const { keys, tenant } = settings;
   const db = createDatabase({ mongo: settings.mongo, dataKey: keys.data });
+  db.reportReachTo(dependencies);
   await db.init();
   resolveOwnersWith(async (owner) => (await db.accounts.getUserById(owner))?.space?.person ?? owner);
 
   const models = createModelService({ db, dataKey: keys.data, role: settings.role, clusters: settings.clusters, infra: new InfrastructureService(terraformPlacesFor({ off: 'the engine worker runs no Terraform; the cluster worker does' })), mesh: settings.mesh, endpointRules: { scriptedBase: scriptedModelBase(tenant.checksApi), lab: settings.lab } });
   const clusterAccess = clusterAccessFrom(settings.clusters, { role: settings.role.role, clusters: db.infrastructure, dataKey: keys.data });
-  const web = await buildWebTools({ db, proxy: sharedClusterProxy(clusterAccess), settings: tenant.webTools }).catch((err: Error) => {
+  const web = await buildWebTools({ db, proxy: sharedClusterProxy(clusterAccess), settings: tenant.webTools, dependencies }).catch((err: Error) => {
     console.warn(`[EngineWorker] the web tools could not be built, so runs on this worker go without them: ${err.message}`);
     return undefined;
   });
 
   const giteaAt = tenant.gitea;
   const imageRegistry = tenant.registry;
-  const gitea = new GiteaService(keys.data, giteaAt, { registryPullHost: tenant.registryPullHost });
-  const infisical = new InfisicalService(keys.data, tenant.infisical);
+  const gitea = new GiteaService(keys.data, giteaAt, { registryPullHost: tenant.registryPullHost, reportsTo: dependencies });
+  const infisical = new InfisicalService(keys.data, tenant.infisical, dependencies);
   const projectRepos = new ProjectRepoService(db, gitea, keys.data, async (projectId) => webhookUrlAt(giteaAt.reachesKoalaAt, projectId), { defaultCluster: koalasClusterFor(settings.clusters.here) });
   const treeHome = new TreeHomeService({
     treeTypes: (ownerId) => db.projects.getTreeTypes(ownerId),
@@ -125,7 +127,7 @@ async function buildActivities(settings: EngineWorkerSettings) {
   const clusterService = new ClusterService(db, clusterAccess, { instanceOwnerId: settings.role.instance?.ownerId });
   const onKoala = onKoalasCluster(clusterAccess, () => clusterAccess.own().clusterId);
   const sandboxKube = createKubeRunner(onKoala);
-  const instanceFiles = storedFilesFor({ db, minio: tenant.minio, workflows: async () => (await getTemporalClient()).workflow, engineTaskQueue: settings.queues.engine || DEFAULT_ENGINE_TASK_QUEUE, dataDir: resolve(__dirname, '../data') });
+  const instanceFiles = storedFilesFor({ db, minio: tenant.minio, workflows: async () => (await getTemporalClient()).workflow, engineTaskQueue: settings.queues.engine || DEFAULT_ENGINE_TASK_QUEUE, dataDir: resolve(__dirname, '../data'), dependencies });
   const vault = createSecretVault({
     backend: infisical,
     minters: { readToken: async (ownerId) => (await projectRepos.mintReadToken(ownerId)).token },
@@ -328,6 +330,7 @@ async function buildActivities(settings: EngineWorkerSettings) {
     ...(web ? { web } : {}),
     cluster: onKoala,
     registry: imageRegistry,
+    reportsTo: dependencies,
     registryAccount: async () => ({ owner: gitea.adminUsername, ...(await gitea.getAdminCredentials()) }),
     registryPushToken: async () => {
       const token = await gitea.createDeployToken();
@@ -548,7 +551,12 @@ async function main() {
   const settings = engineWorkerSettingsFrom(process.env);
   const telemetry = startTelemetry(telemetrySettings(settings, 'koala-worker-engine'));
   const telemetryAccess = clusterAccessFrom(settings.clusters, { role: settings.role.role });
-  telemetry.exportTo(collectorSink({ otlpEndpoint: settings.telemetry.otlpEndpoint, proxy: sharedClusterProxy(telemetryAccess), koalasCluster: () => telemetryAccess.own().clusterId }));
+  const telemetryProxy = sharedClusterProxy(telemetryAccess);
+  telemetry.exportTo(collectorSink({ otlpEndpoint: settings.telemetry.otlpEndpoint, proxy: telemetryProxy, koalasCluster: () => telemetryAccess.own().clusterId }));
+  const dependencies = workerDependencies(settings, settings.mongo);
+  reportCollectorTo(telemetry, dependencies);
+  dependencies.checkWith('collector', collectorAnswers(settings.telemetry.otlpEndpoint ? () => settings.telemetry.otlpEndpoint : collectorEndpoint({ proxy: telemetryProxy, koalasCluster: () => telemetryAccess.own().clusterId })));
+  checkServices(dependencies, { gitea: settings.tenant.gitea.url, infisical: settings.tenant.infisical.url, minio: settings.tenant.minio, registryPush: settings.tenant.registry.push, webTools: settings.tenant.webTools });
   Runtime.install({
     logger,
     telemetryOptions: {
@@ -570,10 +578,11 @@ async function main() {
   let activities: Awaited<ReturnType<typeof buildActivities>> | undefined;
   let current: Worker | undefined;
   if (settings.healthPort) serveHealth(settings.healthPort, () => current?.getState() === 'RUNNING');
+  void dependencies.start();
 
   for (;;) {
     try {
-      activities ??= await buildActivities(settings);
+      activities ??= await buildActivities(settings, dependencies);
       const connection = await connectTemporalWorker('koala-worker-engine', settings);
       const dataConverter = buildDataConverter(settings.keys.payload, sharedPayloadBlobs());
 
@@ -594,6 +603,7 @@ async function main() {
       await telemetry.shutdown().catch(ignore('the worker has stopped, and telemetry the collector did not take is dropped as it is whenever the collector is away'));
       return;
     } catch (err) {
+      if (activities) dependencies.failed('temporal', err);
       logger.error(`[EngineWorker] ${(err as Error).message} — retrying in 5s`);
       await new Promise((done) => setTimeout(done, 5_000));
     }

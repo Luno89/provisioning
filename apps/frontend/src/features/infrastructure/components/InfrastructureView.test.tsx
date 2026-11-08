@@ -102,6 +102,7 @@ const overview: InfrastructureOverview = {
     { id: 'run:r1', workflowId: 'r1', kind: 'tree', title: 'Tree run: Shop', opens: { kind: 'tree', id: 't1' }, reason: 'the executor could not start its sandbox', failedAt: new Date(Date.now() - 3_600_000).toISOString() },
     { id: 'run:r2', workflowId: 'r2', kind: 'memory-keeper', title: 'The memory keeper, reading Labels', opens: { kind: 'temporal', id: 'r2' }, reason: 'the model did not answer', failedAt: new Date(Date.now() - 7_200_000).toISOString() },
   ],
+  dependencies: [],
   signals: [],
 }
 
@@ -161,12 +162,32 @@ describe('the Infrastructure page', () => {
   })
 
   it('puts root not answering first among what needs attention, on an instance that cannot reach it', async () => {
-    vi.mocked(infrastructureApi.getInfrastructure).mockResolvedValue({ ...overview, root: { rootUrl: 'https://app.koala.dev', reachable: false, down: true, unreachableSince: '2026-10-29T10:00:00.000Z' } })
+    vi.mocked(infrastructureApi.getInfrastructure).mockResolvedValue({
+      ...overview,
+      dependencies: [
+        { dependency: 'gitea', name: 'Gitea', since: '2026-10-29T09:00:00.000Z', reason: 'it refused the connection (ECONNREFUSED)', process: 'worker-engine' },
+        { dependency: 'root', name: 'Koala\'s root', since: '2026-10-29T10:00:00.000Z', reason: 'this instance\'s connection to it is closed', process: 'backend', where: 'https://app.koala.dev' },
+      ],
+    })
     show()
     const item = await screen.findByTestId('attention-root')
     expect(item).toHaveTextContent('Root not answering')
     expect(item).toHaveTextContent('https://app.koala.dev')
     expect(item).toHaveTextContent(/everything here keeps running/)
+    const items = within(screen.getByRole('list', { name: 'Needs attention' })).getAllByRole('listitem')
+    expect(items[0]).toBe(item)
+  })
+
+  it('lists a dependency that is not answering, since when and why, and clears it once it answers', async () => {
+    vi.mocked(infrastructureApi.getInfrastructure).mockResolvedValue({
+      ...overview,
+      dependencies: [{ dependency: 'minio', name: 'file storage (MinIO)', since: '2026-10-29T09:00:00.000Z', reason: 'it refused the connection (ECONNREFUSED)', process: 'backend' }],
+    })
+    show()
+    const item = await screen.findByTestId('attention-dependency')
+    expect(item).toHaveTextContent('Not answering')
+    expect(item).toHaveTextContent(/file storage \(MinIO\) isn't answering since .+: it refused the connection \(ECONNREFUSED\)/)
+    expect(item).toHaveTextContent('seen by this Koala\'s backend')
   })
 
   it('scrolls to the section an old address names', async () => {

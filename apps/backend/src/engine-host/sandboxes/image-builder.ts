@@ -4,6 +4,7 @@ import type { KubeRunner } from './kube.js';
 import { assessWorkload } from '../../infrastructure/lib/workload-health.js';
 import { forPushing, kanikoRegistryArgs, type RegistryHosts } from '../../instances/lib/registry-hosts.js';
 import { dockerConfigJson } from '../../instances/lib/registry-pull.js';
+import { reportingFetch, type DependencyReporter } from '../../platform/lib/dependencies.js';
 import { elapsedSeconds, koalaMetrics, withSpan } from '@koala/engine-core/telemetry';
 
 export const BUILD_NAMESPACE = 'pipeline-builds';
@@ -46,6 +47,7 @@ export interface ImageBuilderOptions {
   account?: (() => Promise<RegistryAccount>) | undefined;
   pushToken?: (() => Promise<PushToken>) | undefined;
   revokePushToken?: ((name: string) => Promise<void>) | undefined;
+  reportsTo?: DependencyReporter | undefined;
 }
 
 export interface PushToken {
@@ -195,11 +197,13 @@ export function createImageBuilder(options: ImageBuilderOptions): ImageBuilder {
   const target = async (plan: ImagePlan): Promise<string> =>
     imageReference(await registry(), plan, (await account())?.owner);
 
+  const asked: typeof fetch = (input, init) => fetch(input, init);
+  const registryFetch = options.reportsTo ? reportingFetch(options.reportsTo, 'registry', asked) : asked;
   const published = options.published ?? (async (reference: string) => {
     const tag = reference.slice(reference.lastIndexOf(':') + 1);
     const login = await account();
     const path = reference.slice(reference.indexOf('/') + 1, reference.lastIndexOf(':'));
-    const response = await fetch(
+    const response = await registryFetch(
       `http://${(await hosts()).push}/v2/${path}/manifests/${tag}`,
       {
         method: 'HEAD',

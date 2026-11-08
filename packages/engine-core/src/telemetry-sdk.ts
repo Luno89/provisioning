@@ -23,10 +23,16 @@ export interface TelemetrySettings {
   metricsEveryMs?: number | undefined;
 }
 
+export interface SinkListener {
+  failed(err: unknown): void;
+  answered(): void;
+}
+
 export interface Telemetry {
   readonly service: string;
   readonly exporting: boolean;
   exportTo(sink: TelemetrySink | undefined): void;
+  reportSinkTo(listener: SinkListener): void;
   flush(): Promise<void>;
   shutdown(): Promise<void>;
 }
@@ -160,7 +166,19 @@ let current: (Telemetry & { tracer: Tracer; meter: Meter }) | undefined;
 export function startTelemetry(settings: TelemetrySettings): Telemetry {
   if (current) return current;
   const log = settings.log ?? ((line: string) => console.warn(line));
-  const report = logOnce(log);
+  const logged = logOnce(log);
+  const listeners = new Set<SinkListener>();
+  const report: Reporter = {
+    failed(signal, err) {
+      logged.failed(signal, err);
+      for (const listener of listeners) listener.failed(err);
+    },
+    recovered(signal) {
+      logged.recovered(signal);
+      for (const listener of listeners) listener.answered();
+    },
+    dropped: (signal) => logged.dropped(signal),
+  };
   let sink = settings.sink;
   const sinkOf = () => sink;
   const resource = resourceFromAttributes({
@@ -192,6 +210,7 @@ export function startTelemetry(settings: TelemetrySettings): Telemetry {
     service: settings.service,
     get exporting() { return sink !== undefined; },
     exportTo(next) { sink = next; },
+    reportSinkTo(listener) { listeners.add(listener); },
     tracer: trace.getTracer(INSTRUMENTATION),
     meter,
     async flush() {

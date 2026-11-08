@@ -19,8 +19,9 @@ import { CSP_REPORT_LIMIT, CSP_REPORT_PATH, cspHeader, violationLine, crossSiteR
   TEMPORAL_JWKS_PATH, temporalCa, temporalTlsProblem, temporalKeysRouter,
   authorize, claimSettingsFrom, type Principal, createDatabase, sharedPayloadBlobs, type Database, migrateLegacyOwnership, operatorsFromAdmins, ownUnownedProjects, decryptValue,
   AccessRevocations, SessionEnds, SessionSockets, endsSessions, servesTenants, holdsAccounts, MailService, telemetrySettings, firstAdminSetup, drainThenStop, inClusterSlices, runOnce,
-  backendSettingsFrom, connectTemporalAs, isOff, keepPayloadsIn, MACHINE_GATEWAY_HOST, SettingsError, signsEveryoneIn, type BackendSettings } from './platform/index.js';
+  backendSettingsFrom, connectTemporalAs, downAcross, isOff, keepPayloadsIn, MACHINE_GATEWAY_HOST, SettingsError, signsEveryoneIn, type BackendSettings } from './platform/index.js';
 import { startTelemetry } from '@koala/engine-core/telemetry-sdk';
+import { checkServices, collectorAnswers, dependencyStatesFor, reportCollectorTo } from './platform/wiring/dependencies.js';
 import { rateLimit } from 'express-rate-limit';
 import { wireReleases } from './releases/wiring/releases.js';
 import { archiveOldFilesOnce, keepStoredFilesSwept, storedFilesFor, storyDropsFor, wireFiles } from './files/wiring/files.js';
@@ -55,7 +56,7 @@ import { GiteaService, pushToBuild } from './projects/index.js';
 import { HUB_REPO_HOOK_PATH, hubRepoHookSecret, hubRepoHookSecrets, hubRepoHookUrl } from './hub/index.js';
 
 import { seedAll } from './scripts/seed-all.js';
-import { collectorSink, NotificationService, PushService, vapidKeysFrom, vapidSubject, webPushSend } from './monitoring/index.js';
+import { collectorEndpoint, collectorSink, NotificationService, PushService, vapidKeysFrom, vapidSubject, webPushSend } from './monitoring/index.js';
 
 const startsHere = process.env.NODE_ENV !== 'test' || process.env.IS_E2E === 'true';
 if (startsHere) dotenv.config({ quiet: true });
@@ -63,6 +64,8 @@ if (startsHere) dotenv.config({ quiet: true });
 export async function bootstrap(): Promise<{ app: express.Application; io: SocketServer; temporalBridge?: TemporalBridge; db: Database; settings: BackendSettings }> {
   const settings = backendSettingsFrom(process.env);
   const telemetry = startTelemetry(telemetrySettings(settings, 'koala-backend'));
+  const dependencies = dependencyStatesFor(settings, { where: settings.role.instance ? { root: settings.role.instance.rootUrl } : {} });
+  reportCollectorTo(telemetry, dependencies);
   const plaintext = temporalTlsProblem(settings.temporal);
   if (plaintext) throw new Error(plaintext);
   connectTemporalAs(settings);
@@ -94,6 +97,8 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
 
   const keys = settings.keys;
   const db = createDatabase({ mongo: settings.mongo, dataKey: keys.data });
+  db.reportReachTo(dependencies);
+  dependencies.checkWith('mongo', () => db.ping());
   await db.init();
   resolveOwnersWith(async (owner) => (await db.accounts.getUserById(owner))?.space?.person ?? owner);
   const { role } = settings;
@@ -121,7 +126,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   const tenants = servesTenants(role);
   const engineTaskQueue = settings.queues.engine || DEFAULT_ENGINE_TASK_QUEUE;
   const tenantServices = settings.tenant;
-  const instanceFiles = tenantServices ? storedFilesFor({ db, minio: tenantServices.minio, workflows: async () => (await getTemporalClient()).workflow, engineTaskQueue, dataDir: path.join(__dirname, '../data') }) : undefined;
+  const instanceFiles = tenantServices ? storedFilesFor({ db, minio: tenantServices.minio, workflows: async () => (await getTemporalClient()).workflow, engineTaskQueue, dataDir: path.join(__dirname, '../data'), dependencies }) : undefined;
   const tenant: express.Router = tenants ? (app as unknown as express.Router) : express.Router();
   const identity = new IdentityService(role, db, undefined, undefined, instanceReach);
   console.log(`🧭 Running as ${role.role}${role.instance ? ` (instance ${role.instance.id}, owned by ${role.instance.ownerId})` : ''}`);
@@ -134,7 +139,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   const registryService = new RegistryService(db);
   const gitModuleService = new GitModuleService(db);
   const instanceSide = new InstanceSide(role, { edge: settings.instance?.edge ?? { off: `${role.role} runs no edge; an instance does` }, unreachableAfterMs: settings.tests.unreachableAfterMs }, rootToken);
-  instanceSide.watchRoot((ownerId, message) => push.toPerson(ownerId, message));
+  instanceSide.watchRoot((ownerId, message) => push.toPerson(ownerId, message), dependencies);
   const appExposureService = new AppExposureService(db, clusterService, io, {
     edge: instanceSide.edge,
     groupOf: async (dep) => (dep.gitappProjectId ? (await db.hub.getHubLinks()).find((link) => link.projectId === dep.gitappProjectId)?.group : undefined),
@@ -147,9 +152,17 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     koalasCluster,
   });
   telemetry.exportTo(telemetrySink);
+  dependencies.checkWith('collector', collectorAnswers(settings.telemetry.otlpEndpoint ? () => settings.telemetry.otlpEndpoint : collectorEndpoint({ proxy: clusterProxyService, koalasCluster })));
   const gitea = tenantServices?.gitea ?? settings.hubGitea;
-  const giteaService = new GiteaService(keys.data, gitea ?? { none: `${role.role} keeps no repositories, so it reaches no Gitea` }, { registryPullHost: tenantServices?.registryPullHost });
-  const infisicalService = new InfisicalService(keys.data, tenantServices ? tenantServices.infisical : { none: `${role.role} keeps no project's secrets, so it reaches no Infisical` });
+  const giteaService = new GiteaService(keys.data, gitea ?? { none: `${role.role} keeps no repositories, so it reaches no Gitea` }, { registryPullHost: tenantServices?.registryPullHost, reportsTo: dependencies });
+  const infisicalService = new InfisicalService(keys.data, tenantServices ? tenantServices.infisical : { none: `${role.role} keeps no project's secrets, so it reaches no Infisical` }, dependencies);
+  checkServices(dependencies, {
+    gitea: gitea?.url,
+    infisical: tenantServices?.infisical.url,
+    minio: tenantServices?.minio,
+    registryPush: tenantServices?.registry.push,
+    webTools: tenantServices?.webTools,
+  });
   const core = projectsCore({ db, push, io, here: settings.clusters.here, dataKey: keys.data, gitea: giteaService, webhooksTo: tenants ? gitea?.reachesKoalaAt : undefined, infisical: infisicalService });
   const { projectRepoService, channels, itemChats, notices, postNotice, projectSecrets } = core;
   const headscaleService = new HeadscaleService(keys.data, settings.mesh);
@@ -167,7 +180,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   });
   const modelService = new ModelService(db, appService, clusterService, clusterProxyService, headscaleService, keys.data, settings.endpointRules);
 
-  const temporalBridge = new TemporalBridge(db, io, keys.data, clusterService, { engineQueue: settings.queues.engine });
+  const temporalBridge = new TemporalBridge(db, io, keys.data, clusterService, { engineQueue: settings.queues.engine, dependencies });
   appService.setTemporalBridge(temporalBridge);
   if (tenants) {
     await keepTrying('⚠️ Temporal TS bridge not available yet, routes fall back to the local DB until it is', async () => {
@@ -302,6 +315,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   }));
   if (holdsAccounts(role)) app.use('/api/auth/password', passwordRouter({ passwords, auth, devices, sessionKey: keys.session }));
   const hub = await wireHub({
+    dependencies,
     role, mongoUri: settings.mongo.uri, hubDatabase: settings.hubDatabase, ingressDomain: isOff(settings.ingressDomain) ? undefined : settings.ingressDomain, app, tenant, db, mail, publicUrl: PUBLIC_URL, dataKey: keys.data, gitea: giteaService, io,
     hubRepoHook: {
       url: async (projectId) => {
@@ -384,7 +398,7 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   tenant.use('/api/models', modelsRouter({ modelService, db, credentialService, machines: machineService, rateLimits: getModelRateLimiterSnapshot }));
 
   const { poisoning, evalHost, level2Service, procedureService, mcpCatalogue } = await wireEngine({
-    tenant, db, io, engineQueue: settings.queues.engine, port, registry: tenantServices ? tenantServices.registry : { none: `${role.role} builds no workspace images, so it pushes to no registry` }, webTools: { db, proxy: clusterProxyService, settings: tenantServices?.webTools ?? {} }, role, sessionKey: keys.session, dataKey: keys.data, core: engine, temporalBridge, models: modelService, gitea: giteaService, koalasCluster: onKoalasCluster(clusterAccess, koalasCluster), access: clusterAccess,
+    tenant, db, io, engineQueue: settings.queues.engine, port, registry: tenantServices ? tenantServices.registry : { none: `${role.role} builds no workspace images, so it pushes to no registry` }, webTools: { db, proxy: clusterProxyService, settings: tenantServices?.webTools ?? {}, dependencies }, role, sessionKey: keys.session, dataKey: keys.data, core: engine, temporalBridge, models: modelService, gitea: giteaService, koalasCluster: onKoalasCluster(clusterAccess, koalasCluster), access: clusterAccess,
     ...(instanceFiles ? { files: instanceFiles.fileService, artifacts: instanceFiles.artifacts } : {}), projectRepos: projectRepoService, customizations, releaseSettings, treeModels: () => treeModels, operatorOnly: requireOperator('administer'), push, mail,
   });
   if (evalHost.storyDrops && files) files.setStoryDrops(storyDropsFor({ db, projectRepos: projectRepoService, gitea: giteaService, work: evalHost.storyDrops }));
@@ -415,7 +429,11 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
   });
   const { running } = wireRunning({
     tenant, db, role, temporalBridge, monitoring, workFailures, records: runningRecords, checks: level2Service, trees: groveRuns, runs: engineRuns,
-    bench, keeper: memoryKeeper, access: clusterAccess, root: () => instanceSide.rootReach(),
+    bench, keeper: memoryKeeper, access: clusterAccess,
+    dependencies: async () => downAcross(dependencies.down(), await db.platform.dependencyStates().catch((err: Error) => {
+      console.warn(`[dependencies] what the workers see of their dependencies could not be read: ${err.message}`);
+      return [];
+    })),
     signals: { open: (ownerId) => poisoning.list(ownerId, { open: true }) },
   });
   runningNow = async () => {
@@ -486,12 +504,15 @@ export async function bootstrap(): Promise<{ app: express.Application; io: Socke
     httpServer.listen(port, () => console.log(`🚀 Provisioning Server Active on http://localhost:${port}`));
   }
 
+  void dependencies.start();
+
   const place = settings.pod;
   const account = settings.clusters.serviceAccount;
   let stopping = false;
   const shutdown = () => {
     if (stopping) return;
     stopping = true;
+    dependencies.stop();
     clusterProxyService.stopAll();
     if (!place) process.exit(0);
     drainThenStop({ place, ...(account ? { slices: inClusterSlices(account) } : {}), server: httpServer, sockets: io, log: (line) => console.log(line) })

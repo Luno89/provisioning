@@ -8,6 +8,7 @@ const fresh = await emptiedEachTime();
 
 const matching = (pattern: RegExp): unknown => expect.stringMatching(pattern);
 const containing = (text: string): unknown => expect.stringContaining(text);
+const daysFromNow = (days: number): string => new Date(now.getTime() + days * 86_400_000).toISOString();
 
 const settings = {
   rootUrl: 'https://app.example.com',
@@ -34,7 +35,7 @@ const tokenFor = async (ownerId: string, name: string = 'luno') => {
 
 beforeEach(async () => {
   db = await fresh();
-  now = new Date('2026-10-02T12:00:00Z');
+  now = new Date();
   routeChanges = 0;
   service = new InstanceService(db, settings, mesh, () => now, () => { routeChanges += 1; });
 });
@@ -291,11 +292,11 @@ describe('a trial instance on Koala\'s servers', () => {
   it('is made under the name picked, with ports of its own and a trial that ends after the trial days, and its install started', async () => {
     const pool = pooled();
     const made = await pool.createPoolInstance('u1', 'alice');
-    expect(made).toEqual({ ok: true, value: { id: instanceIdFor('u1'), name: 'alice', trialEndsAt: '2026-10-16T12:00:00.000Z' } });
+    expect(made).toEqual({ ok: true, value: { id: instanceIdFor('u1'), name: 'alice', trialEndsAt: daysFromNow(14) } });
     expect(started).toEqual([{ instanceId: instanceIdFor('u1'), ownerId: 'u1' }]);
     const record = (await db.instances.getInstances('u1'))[0]!;
     expect(record).toMatchObject({ status: 'installing', name: 'alice', pool: { ports: { backend: 35000, edge: 35001, registry: 35002 }, startedAt: now.toISOString() } });
-    expect(await pool.mine('u1')).toMatchObject({ status: 'installing', trialEndsAt: '2026-10-16T12:00:00.000Z' });
+    expect(await pool.mine('u1')).toMatchObject({ status: 'installing', trialEndsAt: daysFromNow(14) });
 
     expect(await pool.createPoolInstance('u2', 'bob')).toMatchObject({ ok: true });
     expect((await db.instances.getInstances('u2'))[0]!.pool!.ports.backend).toBe(35003);
@@ -350,7 +351,7 @@ describe('a trial instance on Koala\'s servers', () => {
     expect(await pool.setTrialDays('admin', 7.5)).toMatchObject({ ok: false, status: 400 });
     expect(await pool.setTrialDays('admin', 21)).toEqual({ ok: true, value: { trialDays: 21, updatedAt: now.toISOString(), updatedBy: 'admin' } });
     expect(await pool.poolOffer('u1')).toEqual({ available: true, trialDays: 21 });
-    expect(await pool.createPoolInstance('u1', 'alice')).toMatchObject({ ok: true, value: { trialEndsAt: '2026-10-23T12:00:00.000Z' } });
+    expect(await pool.createPoolInstance('u1', 'alice')).toMatchObject({ ok: true, value: { trialEndsAt: daysFromNow(21) } });
     expect(await pool.poolAdmin()).toMatchObject({ ok: true, value: { slots: 2, trialDays: 21, defaultTrialDays: 14, instances: [{ name: 'alice', status: 'installing' }] } });
   });
 
@@ -359,11 +360,11 @@ describe('a trial instance on Koala\'s servers', () => {
     const { value } = await pool.createPoolInstance('u1', 'alice') as { value: { id: string } };
     const record = (await db.instances.getInstances('u1'))[0]!;
     await db.instances.saveInstance({ ...record, pool: { ...record.pool!, told: ['warn-3d'] } });
-    expect(await pool.setTrialEnd(value.id, '2026-09-01T00:00:00Z')).toMatchObject({ ok: false, status: 400, error: 'the new end of the trial has to be in the future' });
+    expect(await pool.setTrialEnd(value.id, daysFromNow(-31))).toMatchObject({ ok: false, status: 400, error: 'the new end of the trial has to be in the future' });
     expect(await pool.setTrialEnd(value.id, 'soon')).toMatchObject({ ok: false, status: 400 });
-    expect(await pool.setTrialEnd('nobody', '2026-12-01T00:00:00Z')).toMatchObject({ ok: false, status: 404 });
-    expect(await pool.setTrialEnd(value.id, '2026-12-01T00:00:00Z')).toMatchObject({ ok: true, value: { name: 'alice', trialEndsAt: '2026-12-01T00:00:00.000Z' } });
-    expect((await db.instances.getInstances('u1'))[0]!.pool).toMatchObject({ trialEndsAt: '2026-12-01T00:00:00.000Z', told: [] });
+    expect(await pool.setTrialEnd('nobody', daysFromNow(60))).toMatchObject({ ok: false, status: 404 });
+    expect(await pool.setTrialEnd(value.id, daysFromNow(60))).toMatchObject({ ok: true, value: { name: 'alice', trialEndsAt: daysFromNow(60) } });
+    expect((await db.instances.getInstances('u1'))[0]!.pool).toMatchObject({ trialEndsAt: daysFromNow(60), told: [] });
     expect(changed).toEqual([value.id]);
   });
 
@@ -383,7 +384,7 @@ describe('a trial instance on Koala\'s servers', () => {
     const id = instanceIdFor('u1');
     const record = (await db.instances.getInstances('u1'))[0]!;
     await db.instances.saveInstance({ ...record, credentialHash: hashCredential('secret') });
-    expect(await pool.trialOf(id, 'secret')).toEqual({ ok: true, value: { trialEndsAt: '2026-10-16T12:00:00.000Z' } });
+    expect(await pool.trialOf(id, 'secret')).toEqual({ ok: true, value: { trialEndsAt: daysFromNow(14) } });
     expect(await pool.trialOf(id, 'wrong')).toMatchObject({ ok: false, status: 401 });
   });
 });
@@ -396,7 +397,7 @@ describe('moving a trial instance to the person\'s own machine', () => {
     moveFinished: async (id: string) => { calls.push(`finished ${id}`); },
     moveStopped: async (id: string, reason: string) => { calls.push(`stopped ${id}: ${reason}`); },
   };
-  const pool = { ports: { backend: 35000, edge: 35001, registry: 35002 }, startedAt: '2026-10-01T00:00:00.000Z', trialEndsAt: '2026-10-15T00:00:00.000Z' };
+  const pool = { ports: { backend: 35000, edge: 35001, registry: 35002 }, startedAt: new Date(Date.now() - 86_400_000).toISOString(), trialEndsAt: new Date(Date.now() + 13 * 86_400_000).toISOString() };
 
   beforeEach(async () => {
     calls.length = 0;

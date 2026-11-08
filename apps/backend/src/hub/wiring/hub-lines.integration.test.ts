@@ -18,6 +18,7 @@ import { HubRelay } from '../services/HubRelay.js';
 import { RemoteHub } from '../services/HubRemote.js';
 import { HubService } from '../services/HubService.js';
 import { wireHubLines } from './hub-lines.js';
+import { DependencyStates } from '../../platform/services/DependencyStates.js';
 
 const ann = { id: 'ann', email: 'ann@example.com' };
 const closing: (() => Promise<void>)[] = [];
@@ -102,7 +103,10 @@ describe('the owner\'s instance and the hub, over one socket', () => {
       return answer === 'made-up' ? { ...given, token: 'made-up' } : given;
     };
     const said: string[] = [];
-    const remote = new RemoteHub({ access: asking }, fetch, undefined, (line) => said.push(line), 1);
+    const heard: string[] = [];
+    const states = new DependencyStates({ process: 'backend', described: ['hub'], log: (line) => heard.push(line) });
+    closing.push(async () => { states.stop(); });
+    const remote = new RemoteHub({ access: asking }, fetch, undefined, (line) => said.push(line), 1, states);
     let connected = next<void>();
     const disconnect = remote.connect({ connected: () => connected.hand(), call: () => undefined, changed: () => undefined });
     closing.push(async () => { disconnect(); });
@@ -112,6 +116,11 @@ describe('the owner\'s instance and the hub, over one socket', () => {
       'the hub is not connected (root is away); connecting again in 0 s',
       'the hub is not connected (Unauthorized); connecting again in 0 s',
     ]);
+    expect(heard).toEqual([
+      '[dependencies] backend: the hub isn\'t answering: the connection to it failed: Unauthorized',
+      '[dependencies] backend: the hub answers again',
+    ]);
+    expect(remote.lineProblem()).toBeUndefined();
 
     connected = next<void>();
     for (const [, socket] of io.of('/hub-instances').sockets) socket.conn.close();
@@ -126,8 +135,12 @@ describe('the owner\'s instance and the hub, over one socket', () => {
   it('carries the hub\'s calls to the instance\'s own sync, which answers them and pulls what members changed', async () => {
     const { url, access } = await hubServer();
     const db = await testDatabase();
-    const remote = new RemoteHub({ access }, fetch, undefined, () => undefined, 1);
+    const states = new DependencyStates({ process: 'backend', described: ['hub'], log: () => undefined });
+    closing.push(async () => { states.stop(); });
+    const remote = new RemoteHub({ access }, fetch, undefined, () => undefined, 1, states);
+    states.wentDown('hub', 'it closed the connection', new Date().toISOString());
     const shared = await remote.share({ id: 'ann', email: ann.email }, { id: 'p1', name: 'Shop', group: 'acme' });
+    expect(states.stateOf('hub')).toEqual({ state: 'answering' });
     const link: HubLink = { projectId: 'p1', ownerId: 'ann', hubProjectId: shared.hubProjectId, pulledThrough: 0, sharedAt: 't' };
     await db.hub.saveHubLink(link);
     await remote.push(link, [{ kind: 'conversations', id: 'c1', patch: diffRecord(undefined, { id: 'c1', kind: 'channel', title: 'Shop', messages: [] })! }]);

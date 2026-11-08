@@ -2,7 +2,7 @@ import crypto from 'crypto';
 import os from 'os';
 import path from 'path';
 import fs from 'fs/promises';
-import { encryptValue, decryptValue, inheritedEnv, nodeProcesses, unpromptedGit, type Processes, type SecretKey } from '../../platform/index.js';
+import { encryptValue, decryptValue, inheritedEnv, nodeProcesses, reportingFetch, unpromptedGit, type DependencyReporter, type Processes, type SecretKey } from '../../platform/index.js';
 import { registryHosts, type RegistryHosts, type RegistryLogin } from '../../instances/index.js';
 import { privatePatches, type GiteaListedUser } from '../lib/gitea-visibility.js';
 import { blockedDropPath, dropPathQueries } from '../lib/drop-paths.js';
@@ -46,12 +46,15 @@ export class GiteaService {
   private readonly processes: Processes;
   private readonly registryPullHost: string | undefined;
   private readonly dataDir: string;
+  private readonly http: typeof fetch;
 
   constructor(
     private readonly masterKey: SecretKey,
     private readonly at: GiteaAt,
-    options: { processes?: Processes | undefined; dataDir?: string | undefined; registryPullHost?: string | undefined } = {},
+    options: { processes?: Processes | undefined; dataDir?: string | undefined; registryPullHost?: string | undefined; reportsTo?: DependencyReporter | undefined } = {},
   ) {
+    const asked: typeof fetch = (input, init) => fetch(input, init);
+    this.http = options.reportsTo ? reportingFetch(options.reportsTo, 'gitea', asked) : asked;
     this.registryPullHost = options.registryPullHost;
     this.processes = options.processes ?? nodeProcesses;
     this.dataDir = options.dataDir ?? DEFAULT_DATA_DIR;
@@ -84,7 +87,7 @@ export class GiteaService {
       const encrypted = await fs.readFile(this.dataFile('.gitea-admin-token'), 'utf8');
       this.tokenCache = decryptValue(encrypted.trim(), this.masterKey);
       const baseUrl = await this.resolveBaseUrl();
-      const res = await fetch(`${baseUrl}/api/v1/user`, {
+      const res = await this.http(`${baseUrl}/api/v1/user`, {
         headers: { Authorization: `token ${this.tokenCache}` },
       });
       const scoped = await fs.readFile(this.dataFile('.gitea-admin-token.scopes'), 'utf8').then((raw) => JSON.parse(raw) as string[], () => [] as string[]);
@@ -96,7 +99,7 @@ export class GiteaService {
     const baseUrl = await this.resolveBaseUrl();
     const password = await this.readAdminPassword();
     const tokenName = `backend-${crypto.randomBytes(4).toString('hex')}`;
-    const res = await fetch(`${baseUrl}/api/v1/users/${ADMIN_USERNAME}/tokens`, {
+    const res = await this.http(`${baseUrl}/api/v1/users/${ADMIN_USERNAME}/tokens`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -120,7 +123,7 @@ export class GiteaService {
   private async apiFetch(pathSuffix: string, init: RequestInit = {}): Promise<Response> {
     const baseUrl = await this.resolveBaseUrl();
     const token = await this.getToken();
-    return fetch(`${baseUrl}${pathSuffix}`, {
+    return this.http(`${baseUrl}${pathSuffix}`, {
       ...init,
       headers: {
         ...(init.headers || {}),
@@ -132,7 +135,7 @@ export class GiteaService {
 
   private async tokenFetch(token: string, pathSuffix: string, init: RequestInit = {}): Promise<Response> {
     const baseUrl = await this.resolveBaseUrl();
-    return fetch(`${baseUrl}${pathSuffix}`, {
+    return this.http(`${baseUrl}${pathSuffix}`, {
       ...init,
       headers: {
         ...(init.headers || {}),
@@ -199,7 +202,7 @@ export class GiteaService {
     const baseUrl = await this.resolveBaseUrl();
     const password = await this.readAdminPassword();
     const tokenName = `build-${crypto.randomBytes(4).toString('hex')}`;
-    const res = await fetch(`${baseUrl}/api/v1/users/${ADMIN_USERNAME}/tokens`, {
+    const res = await this.http(`${baseUrl}/api/v1/users/${ADMIN_USERNAME}/tokens`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -219,7 +222,7 @@ export class GiteaService {
     const password = await this.readAdminPassword();
     const names: string[] = [];
     for (let page = 1; ; page += 1) {
-      const res = await fetch(`${baseUrl}/api/v1/users/${ADMIN_USERNAME}/tokens?limit=50&page=${page}`, {
+      const res = await this.http(`${baseUrl}/api/v1/users/${ADMIN_USERNAME}/tokens?limit=50&page=${page}`, {
         headers: { Authorization: `Basic ${Buffer.from(`${ADMIN_USERNAME}:${password}`).toString('base64')}` },
       });
       if (!res.ok) throw new Error(`Gitea would not list the build tokens: HTTP ${res.status}`);
@@ -232,7 +235,7 @@ export class GiteaService {
   async revokeToken(tokenName: string): Promise<void> {
     const baseUrl = await this.resolveBaseUrl();
     const password = await this.readAdminPassword();
-    const res = await fetch(`${baseUrl}/api/v1/users/${ADMIN_USERNAME}/tokens/${encodeURIComponent(tokenName)}`, {
+    const res = await this.http(`${baseUrl}/api/v1/users/${ADMIN_USERNAME}/tokens/${encodeURIComponent(tokenName)}`, {
       method: 'DELETE',
       headers: { Authorization: `Basic ${Buffer.from(`${ADMIN_USERNAME}:${password}`).toString('base64')}` },
     });
@@ -248,7 +251,7 @@ export class GiteaService {
     const adminPassword = await this.readAdminPassword();
     const password = crypto.randomBytes(24).toString('base64url');
 
-    const res = await fetch(`${baseUrl}/api/v1/admin/users`, {
+    const res = await this.http(`${baseUrl}/api/v1/admin/users`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -299,10 +302,10 @@ export class GiteaService {
     const auth = `Basic ${Buffer.from(`${ADMIN_USERNAME}:${adminPassword}`).toString('base64')}`;
     const url = `${baseUrl}/api/v1/repos/${encodeURIComponent(username)}/${encodeURIComponent(name)}/contents/${path}`;
 
-    const existing = await fetch(url, { headers: { Authorization: auth } });
+    const existing = await this.http(url, { headers: { Authorization: auth } });
     if (existing.ok) return false;
 
-    const res = await fetch(url, {
+    const res = await this.http(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: auth },
       body: JSON.stringify({ content: Buffer.from(content).toString('base64'), message }),
@@ -324,12 +327,12 @@ export class GiteaService {
     const auth = `Basic ${Buffer.from(`${ADMIN_USERNAME}:${adminPassword}`).toString('base64')}`;
     const url = `${baseUrl}/api/v1/repos/${encodeURIComponent(username)}/${encodeURIComponent(name)}/contents/${path}`;
 
-    const existing = await fetch(`${url}?ref=${encodeURIComponent(branch)}`, { headers: { Authorization: auth } });
+    const existing = await this.http(`${url}?ref=${encodeURIComponent(branch)}`, { headers: { Authorization: auth } });
     if (!existing.ok && existing.status !== 404) throw new Error(`HTTP ${existing.status} ${(await existing.text()).slice(0, 160)}`);
     const current = existing.ok ? await existing.json() as { sha: string; content?: string } : undefined;
     if (current?.content !== undefined && Buffer.from(current.content, 'base64').toString() === content) return { changed: false };
 
-    const res = await fetch(url, {
+    const res = await this.http(url, {
       method: current ? 'PUT' : 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: auth },
       body: JSON.stringify({ content: Buffer.from(content).toString('base64'), message, branch, ...(current ? { sha: current.sha } : {}) }),
@@ -351,14 +354,14 @@ export class GiteaService {
     const auth = `Basic ${Buffer.from(`${ADMIN_USERNAME}:${adminPassword}`).toString('base64')}`;
     const repo = `${baseUrl}/api/v1/repos/${encodeURIComponent(username)}/${encodeURIComponent(name)}`;
 
-    const branch = await fetch(`${repo}/branches/${encodeURIComponent(ref)}`, { headers: { Authorization: auth } });
+    const branch = await this.http(`${repo}/branches/${encodeURIComponent(ref)}`, { headers: { Authorization: auth } });
     if (branch.status === 404) return { exists: false, found: [], missing: paths };
     if (!branch.ok) throw new Error(`Gitea would not say whether ${username}/${name} has ${ref} (HTTP ${branch.status})`);
 
     const found: string[] = [];
     const missing: string[] = [];
     for (const path of paths) {
-      const res = await fetch(
+      const res = await this.http(
         `${repo}/contents/${path}?ref=${encodeURIComponent(ref)}`,
         { headers: { Authorization: auth } },
       );
@@ -386,13 +389,13 @@ export class GiteaService {
 
     const missing: { path: string; content: string }[] = [];
     for (const f of files) {
-      const existing = await fetch(`${repo}/contents/${f.path}`, { headers: { Authorization: auth } });
+      const existing = await this.http(`${repo}/contents/${f.path}`, { headers: { Authorization: auth } });
       if (existing.status === 404) missing.push(f);
       else if (!existing.ok) throw new Error(`Gitea would not say whether ${username}/${name} has ${f.path} (HTTP ${existing.status})`);
     }
     if (!missing.length) return [];
 
-    const res = await fetch(`${repo}/contents`, {
+    const res = await this.http(`${repo}/contents`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: auth },
       body: JSON.stringify({
@@ -424,12 +427,12 @@ export class GiteaService {
     const auth = `Basic ${Buffer.from(`${ADMIN_USERNAME}:${adminPassword}`).toString('base64')}`;
     const repo = `${baseUrl}/api/v1/repos/${encodeURIComponent(username)}/${encodeURIComponent(name)}`;
     const operations = await Promise.all(files.map(async (file) => {
-      const existing = await fetch(`${repo}/contents/${file.path}`, { headers: { Authorization: auth } });
+      const existing = await this.http(`${repo}/contents/${file.path}`, { headers: { Authorization: auth } });
       if (!existing.ok && existing.status !== 404) throw new Error(`Gitea would not say whether ${username}/${name} has ${file.path} (HTTP ${existing.status})`);
       const sha = existing.ok ? ((await existing.json()) as { sha?: string }).sha : undefined;
       return { operation: sha ? 'update' : 'create', path: file.path, content: Buffer.from(file.content).toString('base64'), ...(sha ? { sha } : {}) };
     }));
-    const res = await fetch(`${repo}/contents`, {
+    const res = await this.http(`${repo}/contents`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: auth },
       body: JSON.stringify({ message, files: operations }),
@@ -548,7 +551,7 @@ export class GiteaService {
   async createRepoForUser(username: string, name: string, opts: { private?: boolean; description?: string; empty?: boolean } = {}) {
     const baseUrl = await this.resolveBaseUrl();
     const adminPassword = await this.readAdminPassword();
-    const res = await fetch(`${baseUrl}/api/v1/admin/users/${encodeURIComponent(username)}/repos`, {
+    const res = await this.http(`${baseUrl}/api/v1/admin/users/${encodeURIComponent(username)}/repos`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -572,7 +575,7 @@ export class GiteaService {
   ): Promise<{ name: string; token: string }> {
     const baseUrl = await this.resolveBaseUrl();
     const tokenName = `${namePrefix}-${crypto.randomBytes(4).toString('hex')}`;
-    const res = await fetch(`${baseUrl}/api/v1/users/${encodeURIComponent(username)}/tokens`, {
+    const res = await this.http(`${baseUrl}/api/v1/users/${encodeURIComponent(username)}/tokens`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -596,7 +599,7 @@ export class GiteaService {
 
   async revokeUserToken(username: string, password: string, tokenName: string): Promise<void> {
     const baseUrl = await this.resolveBaseUrl();
-    const res = await fetch(`${baseUrl}/api/v1/users/${encodeURIComponent(username)}/tokens/${encodeURIComponent(tokenName)}`, {
+    const res = await this.http(`${baseUrl}/api/v1/users/${encodeURIComponent(username)}/tokens/${encodeURIComponent(tokenName)}`, {
       method: 'DELETE',
       headers: { Authorization: `Basic ${Buffer.from(`${username}:${password}`).toString('base64')}` },
     });
@@ -907,7 +910,7 @@ export class GiteaService {
   }
 
   private async registryAccepts(token: string): Promise<boolean> {
-    const res = await fetch(`${await this.resolveBaseUrl()}/v2/`, {
+    const res = await this.http(`${await this.resolveBaseUrl()}/v2/`, {
       headers: { Authorization: `Basic ${Buffer.from(`${ADMIN_USERNAME}:${token}`).toString('base64')}` },
     });
     return res.ok;

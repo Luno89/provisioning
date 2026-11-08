@@ -1,5 +1,5 @@
 import { WorkflowExecutionAlreadyStartedError } from '@temporalio/common';
-import type { Database, ProjectMetadata, Workflows } from '../../platform/index.js';
+import type { Database, DependencyReporter, ProjectMetadata, Workflows } from '../../platform/index.js';
 import { keepTrying, PLATFORM_OWNER, runOnce, startedFor, type ClusterMetadata, type Principal } from '../../platform/index.js';
 import type { ClusterAccess } from '../../infrastructure/index.js';
 import { ARCHIVE_MIGRATION } from '../lib/files-archive.js';
@@ -36,10 +36,11 @@ export interface InstanceFilesDeps {
   workflows: () => Promise<Pick<Workflows, 'start'>>;
   engineTaskQueue: string;
   dataDir: string;
+  dependencies: DependencyReporter;
 }
 
 export function storedFilesFor(deps: InstanceFilesDeps): InstanceFiles {
-  const objects = minioObjectStore(deps.minio);
+  const objects = minioObjectStore(deps.minio, undefined, deps.dependencies);
   const records = deps.db.files;
   const storedFiles = new StoredFiles({ records, objects, commits: temporalStoredFileCommits(deps.workflows, deps.engineTaskQueue), room: roomOn(deps.dataDir) });
   return {

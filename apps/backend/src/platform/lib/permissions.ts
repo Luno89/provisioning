@@ -71,7 +71,7 @@ export type SharedAction =
   | 'ask-koala';
 
 export interface Actions {
-  install: 'administer' | 'manage-accounts' | 'see-all-work' | 'use-operator-credentials' | 'open-platform-namespaces';
+  install: 'administer' | 'manage-accounts' | 'see-all-work' | 'use-operator-credentials' | 'open-platform-namespaces' | 'see-platform-dependencies';
   'instance-settings': 'change';
   account: 'remove';
   cluster: 'see' | 'deploy-to' | 'see-everything' | 'change' | 'delete';
@@ -117,6 +117,7 @@ export const PERMISSIONS: { readonly [K in ResourceKind]: { readonly [A in Actio
     'see-all-work': OPERATOR('Only the operator of this server sees everyone\'s work.'),
     'use-operator-credentials': OPERATOR('Only the operator of this server uses its own cloud credentials.'),
     'open-platform-namespaces': OPERATOR('Only the operator of this server can open the platform\'s own namespaces.'),
+    'see-platform-dependencies': { who: ['operator', 'instance-owner'], hidden: false, said: 'Only whoever runs this Koala sees whether the services it depends on answer.' },
   },
   'instance-settings': {
     change: { who: ['instance-owner'], hidden: false, said: 'Only the owner of this instance changes its settings.' },

@@ -1,7 +1,7 @@
 import path from 'path';
 import { isCommitSha, type BuildPlan } from '../../releases/index.js'
 import {
-  stopIfRunning, getTemporalClient, closedAs, reopening, type ClosedAs, type Watching, type SecretKey, type Database,
+  stopIfRunning, getTemporalClient, closedAs, reopening, type ClosedAs, type Watching, type SecretKey, type Database, type DependencyReporter,
   type ClusterMetadata, type DeploymentMetadata, type ProjectMetadata,
   type PipelineRunMetadata, PLATFORM_OWNER, ownerIn, startedFor,
 } from '../../platform/index.js'
@@ -195,7 +195,7 @@ export class TemporalBridge {
     io?: SocketServer,
     masterKey?: SecretKey,
     clusterService?: ClusterService,
-    private readonly seams: { connect?: TemporalConnect | undefined; engineQueue?: string | undefined } = {},
+    private readonly seams: { connect?: TemporalConnect | undefined; engineQueue?: string | undefined; dependencies?: DependencyReporter | undefined } = {},
   ) {
     this.db = db
     this.io = io
@@ -317,6 +317,7 @@ export class TemporalBridge {
       try {
         closed = await closedAs(this.client.workflow.getHandle(wfId))
       } catch (err) {
+        this.seams.dependencies?.failed('temporal', err)
         console.warn(`[TemporalBridge] lost ${wfId} while following it (${(err as Error).message}); following it again in ${again.seconds} s`)
         await again.after()
         continue

@@ -45,6 +45,7 @@ export interface KoalaMetrics {
   mailSent: Counter;
   telemetryRelayed: Counter;
   poisoningSignals: Counter;
+  dependencyUp: ObservableGauge;
 }
 
 const seconds = (meter: Meter, name: string, description: string): Histogram =>
@@ -72,6 +73,7 @@ export function instrumentsOn(meter: Meter): KoalaMetrics {
     mailSent: meter.createCounter('koala_mail_sent', { description: 'Emails sent, by way and outcome' }),
     telemetryRelayed: meter.createCounter('koala_telemetry_relayed', { description: 'Telemetry batches relayed from machines, by signal and outcome' }),
     poisoningSignals: meter.createCounter('koala_poisoning_signals', { description: 'Signs of context or memory poisoning found in runs, by kind and severity' }),
+    dependencyUp: meter.createObservableGauge('koala_dependency_up', { description: 'One while a dependency this process uses answers, zero while it is down, by dependency' }),
   };
 }
 

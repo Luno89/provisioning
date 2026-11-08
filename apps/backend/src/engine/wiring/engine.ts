@@ -363,6 +363,7 @@ export async function wireEngine(deps: EngineWiringDeps): Promise<EngineWiring> 
     ...(evalWeb ? { web: evalWeb } : {}),
     cluster: deps.koalasCluster,
     registry: deps.registry,
+    ...(deps.webTools.dependencies ? { reportsTo: deps.webTools.dependencies } : {}),
     registryAccount: async () => ({
       owner: gitea.adminUsername,
       ...(await gitea.getAdminCredentials()),

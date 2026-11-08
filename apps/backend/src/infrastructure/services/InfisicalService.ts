@@ -1,8 +1,8 @@
-import { listAt, numberAt, textAt } from '../../platform/index.js';
+import { listAt, numberAt, reportStatus, textAt, type DependencyReporter } from '../../platform/index.js';
 import type { SecretKey } from '../../platform/index.js';
 import path from 'path';
 import fs from 'fs/promises';
-import axios from 'axios';
+import axios, { type AxiosRequestConfig } from 'axios';
 import type { InfisicalSettings } from '../lib/infisical-settings.js';
 import { readerNameFor, readerPrefixFor, workspaceNameFor } from '../lib/infisical-names.js';
 import { infisicalAdminPassword } from '../lib/infisical-admin.js';
@@ -50,7 +50,30 @@ export class InfisicalService {
   constructor(
     private readonly masterKey: SecretKey,
     private readonly at: InfisicalAt,
+    private readonly reportsTo?: DependencyReporter | undefined,
   ) {}
+
+  private async reported<T>(asked: Promise<T>): Promise<T> {
+    try {
+      const answer = await asked;
+      this.reportsTo?.answered('infisical');
+      return answer;
+    } catch (err) {
+      const status = statusOf(err);
+      if (this.reportsTo) {
+        if (status === undefined) this.reportsTo.failed('infisical', err);
+        else reportStatus(this.reportsTo, 'infisical', status);
+      }
+      throw err;
+    }
+  }
+
+  private readonly http = {
+    get: <T = unknown>(url: string, config?: AxiosRequestConfig) => this.reported(axios.get<T>(url, config)),
+    post: <T = unknown>(url: string, data?: unknown, config?: AxiosRequestConfig) => this.reported(axios.post<T>(url, data, config)),
+    patch: <T = unknown>(url: string, data?: unknown, config?: AxiosRequestConfig) => this.reported(axios.patch<T>(url, data, config)),
+    delete: <T = unknown>(url: string, config?: AxiosRequestConfig) => this.reported(axios.delete<T>(url, config)),
+  };
 
   async resolveBaseUrl(): Promise<string> {
     if ('none' in this.at) throw new Error(this.at.none);
@@ -92,7 +115,7 @@ export class InfisicalService {
     const { password: adminPassword } = await this.getAdminCredentials();
 
     try {
-      const bootstrapRes = await axios.post<unknown>(
+      const bootstrapRes = await this.http.post<unknown>(
         `${baseUrl}/api/v1/admin/bootstrap`,
         { email: 'admin@provisioning.local', password: adminPassword, organization: 'provisioning' },
         { timeout: 5000, proxy: false },
@@ -103,7 +126,7 @@ export class InfisicalService {
       if (!bootstrapToken || !identityId || !orgId) return null;
 
       const headers = { Authorization: `Bearer ${bootstrapToken}` };
-      const attachRes = await axios.post<unknown>(
+      const attachRes = await this.http.post<unknown>(
         `${baseUrl}/api/v1/auth/universal-auth/identities/${identityId}`,
         { accessTokenTTL: 31536000, accessTokenMaxTTL: 31536000, accessTokenNumUsesLimit: 0 },
         { headers, timeout: 5000, proxy: false },
@@ -111,7 +134,7 @@ export class InfisicalService {
       const clientId = textAt(attachRes.data, 'identityUniversalAuth', 'clientId');
       if (!clientId) return null;
 
-      const secretRes = await axios.post<unknown>(
+      const secretRes = await this.http.post<unknown>(
         `${baseUrl}/api/v1/auth/universal-auth/identities/${identityId}/client-secrets`,
         { description: 'provisioning backend', ttl: 0, numUsesLimit: 0 },
         { headers, timeout: 5000, proxy: false },
@@ -157,7 +180,7 @@ export class InfisicalService {
   private async login(creds: { clientId: string; clientSecret: string }): Promise<string | undefined> {
     const baseUrl = await this.resolveBaseUrl();
     try {
-      const res = await axios.post<unknown>(
+      const res = await this.http.post<unknown>(
         `${baseUrl}/api/v1/auth/universal-auth/login`,
         { clientId: creds.clientId, clientSecret: creds.clientSecret },
         { timeout: 5000, proxy: false },
@@ -189,10 +212,10 @@ export class InfisicalService {
     const projectName = workspaceNameFor(projectId);
     const id = await this.authorized(async (token, baseUrl) => {
       const headers = { Authorization: `Bearer ${token}` };
-      const list = await axios.get<unknown>(`${baseUrl}/api/v1/workspace`, { headers, timeout: 4000, proxy: false });
+      const list = await this.http.get<unknown>(`${baseUrl}/api/v1/workspace`, { headers, timeout: 4000, proxy: false });
       const foundId = textAt(listAt(list.data, 'workspaces').find((w) => textAt(w, 'name') === projectName), 'id');
       if (foundId) return foundId;
-      const created = await axios.post<unknown>(
+      const created = await this.http.post<unknown>(
         `${baseUrl}/api/v2/workspace`,
         { projectName, organizationId: this.orgId },
         { headers, timeout: 4000, proxy: false },
@@ -217,7 +240,7 @@ export class InfisicalService {
   async getSecret(projectId: string, key: string, environment = 'dev'): Promise<string | null> {
     return this.inWorkspace(projectId, async (workspaceId) => {
       try {
-        const res = await this.authorized((token, baseUrl) => axios.get<unknown>(
+        const res = await this.authorized((token, baseUrl) => this.http.get<unknown>(
           `${baseUrl}/api/v3/secrets/raw/${encodeURIComponent(key)}`,
           { params: { workspaceId, environment }, headers: { Authorization: `Bearer ${token}` }, timeout: 4000, proxy: false },
         ));
@@ -250,9 +273,9 @@ export class InfisicalService {
       await this.authorized(async (token, baseUrl) => {
         const headers = { Authorization: `Bearer ${token}` };
         const url = `${baseUrl}/api/v3/secrets/raw/${encodeURIComponent(key)}`;
-        await axios.post(url, body, { headers, timeout: 4000, proxy: false }).catch(async (err: unknown) => {
+        await this.http.post(url, body, { headers, timeout: 4000, proxy: false }).catch(async (err: unknown) => {
           if (statusOf(err) !== 400) throw err;
-          await axios.patch(url, body, { headers, timeout: 4000, proxy: false });
+          await this.http.patch(url, body, { headers, timeout: 4000, proxy: false });
         });
       });
     });
@@ -262,7 +285,7 @@ export class InfisicalService {
   async deleteSecret(projectId: string, key: string, environment = 'dev'): Promise<void> {
     await this.inWorkspace(projectId, async (workspaceId) => {
       try {
-        await this.authorized((token, baseUrl) => axios.delete(
+        await this.authorized((token, baseUrl) => this.http.delete(
           `${baseUrl}/api/v3/secrets/raw/${encodeURIComponent(key)}`,
           { data: { workspaceId, environment }, headers: { Authorization: `Bearer ${token}` }, timeout: 4000, proxy: false },
         ));
@@ -273,7 +296,7 @@ export class InfisicalService {
   }
 
   async listSecrets(projectId: string, environment = 'dev'): Promise<InfisicalSecretRecord[]> {
-    const res = await this.inWorkspace(projectId, (workspaceId) => this.authorized((token, baseUrl) => axios.get<unknown>(
+    const res = await this.inWorkspace(projectId, (workspaceId) => this.authorized((token, baseUrl) => this.http.get<unknown>(
       `${baseUrl}/api/v3/secrets/raw`,
       { params: { workspaceId, environment }, headers: { Authorization: `Bearer ${token}` }, timeout: 4000, proxy: false },
     )));
@@ -295,14 +318,14 @@ export class InfisicalService {
     return this.authorized(async (token, baseUrl) => {
       const options = { headers: { Authorization: `Bearer ${token}` }, timeout: 8000, proxy: false as const };
       const prefix = readerPrefixFor(projectId);
-      const memberships = await axios.get<unknown>(`${baseUrl}/api/v2/organizations/${this.orgId}/identity-memberships`, options);
+      const memberships = await this.http.get<unknown>(`${baseUrl}/api/v2/organizations/${this.orgId}/identity-memberships`, options);
       const readers = listAt(memberships.data, 'identityMemberships')
         .map((membership) => ({ id: textAt(membership, 'identity', 'id'), name: textAt(membership, 'identity', 'name') ?? '' }))
         .filter((identity): identity is { id: string; name: string } => identity.id !== undefined && identity.name.startsWith(prefix));
-      for (const reader of readers) await axios.delete(`${baseUrl}/api/v1/identities/${reader.id}`, options);
-      const listed = await axios.get<unknown>(`${baseUrl}/api/v1/workspace`, options);
+      for (const reader of readers) await this.http.delete(`${baseUrl}/api/v1/identities/${reader.id}`, options);
+      const listed = await this.http.get<unknown>(`${baseUrl}/api/v1/workspace`, options);
       const workspaceId = textAt(listAt(listed.data, 'workspaces').find((entry) => textAt(entry, 'name') === workspaceNameFor(projectId)), 'id');
-      if (workspaceId) await axios.delete(`${baseUrl}/api/v1/workspace/${workspaceId}`, options);
+      if (workspaceId) await this.http.delete(`${baseUrl}/api/v1/workspace/${workspaceId}`, options);
       return { workspace: Boolean(workspaceId), readers: readers.length };
     });
   }
@@ -316,27 +339,27 @@ export class InfisicalService {
     return this.authorized(async (token, baseUrl) => {
       const headers = { Authorization: `Bearer ${token}` };
       const options = { headers, timeout: 8000, proxy: false as const };
-      const identity = await axios.post<unknown>(
+      const identity = await this.http.post<unknown>(
         `${baseUrl}/api/v1/identities`,
         { name: readerNameFor(projectId, Date.now()), organizationId: this.orgId, role: 'no-access' },
         options,
       );
       const identityId = textAt(identity.data, 'identity', 'id');
       if (!identityId) throw new Error('Infisical did not return the new identity');
-      const auth = await axios.post<unknown>(
+      const auth = await this.http.post<unknown>(
         `${baseUrl}/api/v1/auth/universal-auth/identities/${identityId}`,
         { accessTokenTTL: 2592000, accessTokenMaxTTL: 2592000, accessTokenNumUsesLimit: 0 },
         options,
       );
       const clientId = textAt(auth.data, 'identityUniversalAuth', 'clientId');
-      const secret = await axios.post<unknown>(
+      const secret = await this.http.post<unknown>(
         `${baseUrl}/api/v1/auth/universal-auth/identities/${identityId}/client-secrets`,
         { description: `operator reader for ${projectId}`, ttl: 0, numUsesLimit: 0 },
         options,
       );
       const clientSecret = textAt(secret.data, 'clientSecret');
       if (!clientId || !clientSecret) throw new Error('Infisical did not return a client credential for the reader');
-      await axios.post(
+      await this.http.post(
         `${baseUrl}/api/v2/workspace/${workspaceId}/identity-memberships/${identityId}`,
         { role: 'viewer' },
         options,

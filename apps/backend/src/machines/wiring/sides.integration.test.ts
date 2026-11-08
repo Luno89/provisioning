@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { roleFromEnv } from '../../platform/lib/platform-role.js';
 import { testDatabase } from '../../platform/lib/test-database.js';
 import type { Database } from '../../platform/lib/db-interface.js';
+import { DependencyStates } from '../../platform/services/DependencyStates.js';
 import { generateIdentityKey, identityKeysFrom, publicKeyPem } from '../../instances/lib/identity-token.js';
 import { checkWorkToken } from '../lib/work-tokens.js';
 import type { MachineDevices } from '../services/MachineService.js';
@@ -98,7 +99,7 @@ async function rootAndInstance(before?: (instanceDb: Database) => Promise<void>)
     devices, projects, rootToken: async () => credential, side,
     instances: () => undefined,
   });
-  return { root, rootDb, rootSide, instanceDb, instanceSide, devices, projects, instanceId, watch: () => { side.watchRoot(async () => undefined); closers.push(async () => { (side as unknown as { rootPresence?: { stop(): void } }).rootPresence?.stop(); }); } };
+  return { root, rootDb, rootSide, instanceDb, instanceSide, devices, projects, instanceId, watch: () => { side.watchRoot(async () => undefined, new DependencyStates({ process: 'backend', described: ['root'] })); closers.push(async () => { (side as unknown as { rootPresence?: { stop(): void } }).rootPresence?.stop(); }); } };
 }
 
 const machinesOn = async (db: Database) => db.machines.getLocalAgentDevices();

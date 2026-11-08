@@ -26,6 +26,8 @@ import { OWN_SERIES } from '../../monitoring/lib/cluster-scope.js';
 import { BenchService } from '../../checks/services/BenchService.js';
 import { MemoryKeeperService } from '../../memory/services/MemoryKeeperService.js';
 import { RootPresence } from '../../instances/services/RootPresence.js';
+import { DependencyStates } from '../../platform/services/DependencyStates.js';
+import { downAcross, type DependencyDown } from '../../platform/lib/dependencies.js';
 import { labelValue } from '../../engine-host/sandboxes/workspace.js';
 import { runWaitingVia } from '../../engine-host/temporal/run-cancellation.js';
 import { workflowOfRun } from '../../engine-host/temporal/contracts.js';
@@ -119,6 +121,7 @@ async function app(root?: { rootPort: number }) {
   let failures: WorkFailureService | undefined;
   harness = await mountRouter({
     prefix: '/api/infrastructure',
+    ...(root ? { claims: { role: 'instance' as const, instanceOwnerId: TEST_USER.id } } : {}),
     router: async (db) => {
       await db.accounts.saveUser({ id: TEST_USER.id, email: TEST_USER.email, twoFactorEnabled: false, emailVerified: true, createdAt: 'then' } as never);
       await db.infrastructure.saveDeploymentInfo(shop);
@@ -191,6 +194,7 @@ async function app(root?: { rootPort: number }) {
         now: () => new Date('2026-10-17T11:00:00Z'),
       });
       await failures.runEnded({ ownerId: TEST_USER.id, runId: 'r1', outcome: 'failed', reason: 'the model refused', depth: 0 });
+      const dependencies = root ? new DependencyStates({ process: 'backend', described: ['root'], where: { root: `http://127.0.0.1:${root.rootPort}` } }) : undefined;
       if (root) {
         presence = new RootPresence({
           rootUrl: `http://127.0.0.1:${root.rootPort}`,
@@ -200,11 +204,16 @@ async function app(root?: { rootPort: number }) {
           tell: async () => undefined,
           afterMs: 0,
           now: () => new Date('2026-10-29T10:00:00.000Z'),
+          dependency: dependencies,
         });
         presence.start();
+        await db.platform.saveDependencyState({ process: 'worker-engine', dependency: 'gitea', state: 'down', since: '2026-10-29T10:05:00.000Z', reason: 'it refused the connection (ECONNREFUSED)', at: '2026-10-29T10:05:00.000Z' });
+        await db.platform.saveDependencyState({ process: 'worker-cluster', dependency: 'gitea', state: 'answering', at: '2026-10-29T10:05:00.000Z' });
       }
-      const reach = presence;
-      const infrastructure = new InfrastructureViewService({ monitoring, contents, running, failures, ...(reach ? { root: () => reach.view() } : {}) });
+      const infrastructure = new InfrastructureViewService({
+        monitoring, contents, running, failures,
+        ...(dependencies ? { dependencies: async () => downAcross(dependencies.down(), await db.platform.dependencyStates()) } : {}),
+      });
       return infrastructureRouter({ infrastructure });
     },
   });
@@ -218,7 +227,7 @@ interface InfrastructureAnswer {
   failures: unknown;
   monitoring: { attention: unknown[] };
   koala: unknown;
-  root?: unknown;
+  dependencies: DependencyDown[];
 }
 
 const failure: WorkFailure = { id: 'run:r1', ownerId: TEST_USER.id, workflowId: 'r1', kind: 'chat', title: 'Koala answering in "Labels"', opens: { kind: 'chat', id: 'c1' }, reason: 'the model refused', failedAt: '2026-10-17T11:00:00.000Z' };
@@ -238,15 +247,22 @@ describe('/api/infrastructure', () => {
     });
   });
 
-  it('says when the instance cannot reach root, and says nothing where it is not an instance', async () => {
+  it('says when the instance cannot reach root, and which dependency a worker recorded down, and says nothing where it is not an instance', async () => {
     const rootPort = await portToHandOn();
     await app({ rootPort });
-    expect((await axios.get<InfrastructureAnswer>(harness.url('/api/infrastructure'))).data.root).toEqual({ rootUrl: `http://127.0.0.1:${rootPort}`, reachable: false, down: true, unreachableSince: '2026-10-29T10:00:00.000Z' });
+    const dependencies = await until(async () => {
+      const said = (await axios.get<InfrastructureAnswer>(harness.url('/api/infrastructure'))).data.dependencies;
+      return said.some((down) => down.dependency === 'root') ? said : undefined;
+    });
+    expect(dependencies).toEqual([
+      { dependency: 'root', name: 'Koala\'s root', since: '2026-10-29T10:00:00.000Z', reason: 'this instance\'s connection to it is closed', process: 'backend', where: `http://127.0.0.1:${rootPort}` },
+      { dependency: 'gitea', name: 'Gitea', since: '2026-10-29T10:05:00.000Z', reason: 'it refused the connection (ECONNREFUSED)', process: 'worker-engine' },
+    ]);
     presence?.stop();
     presence = undefined;
     await harness.close();
     await app();
-    expect((await axios.get<InfrastructureAnswer>(harness.url('/api/infrastructure'))).data.root).toBeUndefined();
+    expect((await axios.get<InfrastructureAnswer>(harness.url('/api/infrastructure'))).data.dependencies).toEqual([]);
   });
 
   it('reads one cluster', async () => {

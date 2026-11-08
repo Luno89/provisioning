@@ -9,7 +9,7 @@ import { RELAY_NAME_HEADER, RELAY_STATUS_HEADER, RELAY_TYPE_HEADER } from '../li
 import { refusalOf } from './hub-answers.js';
 import { HUB_LINES_NAMESPACE } from '../lib/hub.js';
 import type { DescribedCall } from '../lib/hub-lines.js';
-import { REOPEN_FIRST_MS, REOPEN_MOST_MS, reopening } from '../../platform/index.js';
+import { REOPEN_FIRST_MS, REOPEN_MOST_MS, reopening, reportingFetch, stillDown, type DependencyReporter } from '../../platform/index.js';
 
 export type HubLineConnect = (url: string, options: Partial<ManagerOptions & SocketOptions>) => Socket;
 
@@ -34,11 +34,29 @@ export class RemoteHub implements HubSyncTransport, HubSharing {
     private readonly socketTo: HubLineConnect = io,
     private readonly log: (line: string) => void = (line) => console.warn(`[hub] ${line}`),
     private readonly reopenMs = REOPEN_FIRST_MS,
+    private readonly reportsTo?: DependencyReporter | undefined,
   ) {}
+
+  private lineFailure: string | undefined;
+
+  lineProblem(): string | undefined {
+    return this.lineFailure;
+  }
+
+  private lineFailed(reason: string): void {
+    this.lineFailure = reason;
+    this.reportsTo?.failed('hub', stillDown(reason));
+  }
+
+  private lineOpened(): void {
+    this.lineFailure = undefined;
+    this.reportsTo?.answered('hub');
+  }
 
   private async send(method: 'GET' | 'POST' | 'PUT' | 'DELETE', path: string, init: { headers?: Record<string, string>; body?: RequestInit['body']; signal?: AbortSignal; duplex?: 'half' } = {}): Promise<Response> {
     const access = await this.root.access();
-    const response = await this.fetchImpl(`${access.hubUrl}/api/hub-instance${path}`, {
+    const asked = this.reportsTo ? reportingFetch(this.reportsTo, 'hub', this.fetchImpl) : this.fetchImpl;
+    const response = await asked(`${access.hubUrl}/api/hub-instance${path}`, {
       method,
       ...init,
       headers: {
@@ -117,19 +135,21 @@ export class RemoteHub implements HubSyncTransport, HubSharing {
           },
         });
         socket = opened;
-        opened.on('connect', () => { reopen.reset(); line.connected(); });
+        opened.on('connect', () => { reopen.reset(); this.lineOpened(); line.connected(); });
         opened.on('call', (described: DescribedCall) => line.call(this.callFrom(described)));
         opened.on('changed', (hubProjectId: unknown) => line.changed(String(hubProjectId)));
         opened.on('connect_error', (err) => {
           if (opened.active) return;
           opened.close();
           socket = undefined;
+          this.lineFailed(`the connection to it failed: ${err.message}`);
           again(err.message);
         });
         opened.on('disconnect', (reason) => {
           if (reason !== 'io server disconnect') return;
           opened.close();
           socket = undefined;
+          this.lineFailed('it closed the connection');
           again('the hub closed the connection');
         });
       }, (err: Error) => again(err.message));

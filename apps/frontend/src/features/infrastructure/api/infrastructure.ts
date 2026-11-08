@@ -146,19 +146,25 @@ export interface InfrastructureOverview {
   running: number
   runningProblem?: string
   failures: WorkFailure[]
-  root?: RootReach
+  dependencies: DependencyDown[]
   signals: SignalView[]
 }
 
 /**
- * ── DUPLICATED, KNOWINGLY ── `RootReach` in apps/backend/src/infrastructure/services/InfrastructureViewService.ts is the authority.
+ * ── DUPLICATED, KNOWINGLY ── `DependencyDown`, `DependencyId` and the process names in apps/backend/src/platform/lib/dependencies.ts
+ * and apps/backend/src/platform/lib/settings.ts (KoalaProcess) are the authority.
  */
-export interface RootReach {
-  rootUrl: string
-  reachable: boolean
-  down: boolean
-  unreachableSince?: string
-  lastSeenAt?: string
+export type DependencyId = 'mongo' | 'temporal' | 'minio' | 'gitea' | 'infisical' | 'registry' | 'searxng' | 'crawl4ai' | 'root' | 'hub' | 'collector'
+
+export type KoalaProcess = 'backend' | 'worker-host' | 'worker-cluster' | 'worker-engine'
+
+export interface DependencyDown {
+  dependency: DependencyId
+  name: string
+  since: string
+  reason: string
+  process: KoalaProcess
+  where?: string
 }
 
 export const infrastructureKeys = {

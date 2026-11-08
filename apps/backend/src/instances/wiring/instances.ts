@@ -5,7 +5,7 @@ import type { Server as SocketServer } from 'socket.io';
 import {
   type Database, type SecretKey, allowed, holdsAccounts, servesTenants, signsInThroughRoot, type RoleConfig, startedFor,
   getTemporalClient, type mongoTarget, type MailService, type createAuth, claimSettingsFrom, operatorsAmong, PLATFORM_OWNER, publicFetch, keepTrying,
-  MailReputation, isOff, type BackendSettings, type Off,
+  MailReputation, isOff, type BackendSettings, type Off, stillDown, type DependencyStates,
 } from '../../platform/index.js';
 import { WorkflowExecutionAlreadyStartedError } from '@temporalio/common';
 import type { InstanceRecord } from '../lib/instances.js';
@@ -31,7 +31,7 @@ import { PoolMonitoringService } from '../services/PoolMonitoringService.js';
 import { InstanceMailLimit } from '../services/InstanceMailLimit.js';
 import { InstancePresence } from '../services/InstancePresence.js';
 import { InstanceWatchSetting } from '../services/InstanceWatchSetting.js';
-import { RootPresence, type RootReachView } from '../services/RootPresence.js';
+import { RootPresence } from '../services/RootPresence.js';
 import { instanceWatchRouter } from '../routes/instance-watch.js';
 import { PRESENCE_NAMESPACE, presenceAuth } from '../lib/instance-watch.js';
 import type { EdgeSettings } from '../lib/edge-settings.js';
@@ -96,9 +96,9 @@ export class InstanceSide {
     this.heard[event] = handler;
   }
 
-  watchRoot(tell: (ownerId: string, message: { title: string; body: string; path: string; tag: string }) => Promise<unknown>): void {
+  watchRoot(tell: (ownerId: string, message: { title: string; body: string; path: string; tag: string }) => Promise<unknown>, dependencies: DependencyStates): void {
     if (!this.role.instance || !this.rootToken || this.rootPresence) return;
-    this.rootPresence = new RootPresence({
+    const presence = new RootPresence({
       rootUrl: this.role.instance.rootUrl,
       instanceId: this.role.instance.id,
       ownerId: this.role.instance.ownerId,
@@ -106,12 +106,13 @@ export class InstanceSide {
       tell,
       afterMs: this.place.unreachableAfterMs,
       heard: this.heard,
+      dependency: dependencies,
     });
-    this.rootPresence.start();
-  }
-
-  rootReach(): RootReachView | undefined {
-    return this.rootPresence?.view();
+    this.rootPresence = presence;
+    dependencies.checkWith('root', async () => {
+      if (presence.view().down) throw stillDown(presence.downReason());
+    });
+    presence.start();
   }
 }
 

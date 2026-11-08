@@ -1,7 +1,7 @@
 import type express from 'express';
 import {
   type AccessRevocations, type Database, type SecretKey, claimSettingsFrom, holdsAccounts, principalOf, servesHub, servesTenants, type RoleConfig,
-  type ProjectMetadata, type MailService,
+  type ProjectMetadata, type MailService, stillDown, type DependencyStates,
 } from '../../platform/index.js';
 import { mongoHubStore } from '../lib/hub-mongo.js';
 import { HUB_STATUS_BUILDS } from '../lib/hub-board.js';
@@ -49,6 +49,7 @@ export interface HubWiringDeps {
   rootToken?: (() => Promise<string>) | undefined;
   personAtHub?: ((token: string) => Promise<string | undefined>) | undefined;
   vouch?: ((req: express.Request) => Promise<string | undefined>) | undefined;
+  dependencies: DependencyStates;
 }
 
 export interface HubWiring {
@@ -85,8 +86,14 @@ export async function wireHub(deps: HubWiringDeps): Promise<HubWiring> {
 
   const rootToken = deps.rootToken;
   const remoteHub = role.instance && rootToken
-    ? new RemoteHub(new RootHubAccess({ rootUrl: role.instance.rootUrl, instanceId: role.instance.id, token: rootToken }))
+    ? new RemoteHub(new RootHubAccess({ rootUrl: role.instance.rootUrl, instanceId: role.instance.id, token: rootToken }), fetch, undefined, undefined, undefined, deps.dependencies)
     : undefined;
+  if (remoteHub) {
+    deps.dependencies.checkWith('hub', async () => {
+      const problem = remoteHub.lineProblem();
+      if (problem) throw stillDown(problem);
+    });
+  }
   const reach = servesTenants(role) && remoteHub && role.instance && rootToken
     ? { instanceId: role.instance.id, transport: remoteHub, sharing: remoteHub, groups: new InstanceGroups({ rootUrl: role.instance.rootUrl, instanceId: role.instance.id, token: rootToken }) }
     : undefined;

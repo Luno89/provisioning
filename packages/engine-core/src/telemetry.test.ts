@@ -102,6 +102,24 @@ describe('Koala\'s telemetry', () => {
     expect(lines.filter((line) => line.includes('traces reach the collector again'))).toHaveLength(1);
   });
 
+  it('tells whoever listens of every batch the collector refused and every one it took, beside its own log', async () => {
+    let down = true;
+    const heard: string[] = [];
+    const sink: TelemetrySink = { async send() { if (down) throw new Error('ECONNREFUSED'); } };
+    telemetry = startTelemetry({ service: 'koala-test', sink, spanDelayMs: 10, metricsEveryMs: 50, log: () => undefined });
+    telemetry.reportSinkTo({ failed: (err) => heard.push(`failed: ${(err as Error).message}`), answered: () => heard.push('answered') });
+    await withSpan('while down', {}, async () => undefined);
+    await settle(40);
+    await telemetry.flush();
+    expect(heard.length).toBeGreaterThan(0);
+    expect(new Set(heard)).toEqual(new Set(['failed: ECONNREFUSED']));
+    down = false;
+    await withSpan('back', {}, async () => undefined);
+    await settle(40);
+    await telemetry.flush();
+    expect(heard.at(-1)).toBe('answered');
+  });
+
   it('keeps one send in flight per signal and drops the batch that would pile up behind it', async () => {
     const lines: string[] = [];
     const held: (() => void)[] = [];
